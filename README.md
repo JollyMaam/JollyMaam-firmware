@@ -6,7 +6,9 @@ wrapper, build graph, and packaging. The Jieli SDK is a pinned, read-only
 dependency supplying headers, libraries, and a small set of unmodified BR23
 platform sources.
 
-It does **not** patch, copy, or build inside the SDK's `apps/hid` project.
+It does **not** include or build anything from the SDK's `apps/hid` project.
+The SDK dependency is currently limited to public headers, `cpu.a`, `system.a`,
+`cpu/br23/setup.c`, and `cpu/br23/charge.c`.
 
 ## Current behavior
 
@@ -21,7 +23,7 @@ It does **not** patch, copy, or build inside the SDK's `apps/hid` project.
   identified as Home from the earlier short-transfer behavior.
 - LED SPI baud is 5, the divisor proven on this controller. A trial divisor of
   2 produced no light in the flash-resident SDK application.
-- `include/cyclone2_board.h` is the central map of every button, trigger ADC,
+- `src/board.h` is the central map of every button, trigger ADC,
   I2C peripheral, USB-sense input, and LED-chain pin identified so far. Runtime
   code uses the SDK GPIO API and its `IO_PORTx_xx` identifiers; only the
   pre-SDK recovery check accesses GPIO registers directly.
@@ -29,6 +31,32 @@ It does **not** patch, copy, or build inside the SDK's `apps/hid` project.
 Bluetooth is not started by this baseline yet. Its purpose is to establish a
 small, understandable SDK/FreeRTOS/application/power foundation before adding
 our own HID implementation.
+
+## How this SDK application boots
+
+There are four distinct layers:
+
+1. MaskROM and `uboot.boot` validate/load the packed `app.bin`, then enter the
+   SDK `_start` symbol.
+2. The startup code establishes RAM and calls `setup_arch()`. Our wrapper first
+   performs the raw Home+Start recovery check, then calls the unmodified SDK
+   setup for memory, clocks, interrupts, timers, and FreeRTOS.
+3. The SDK starts its fixed tasks and calls our `app_main()`. We submit an
+   `intent` named `cyclone2` to the SDK application dispatcher.
+4. `start_app()` finds the `struct application` placed in the linker-built
+   `.app` table. Its `APP_STA_START` callback creates `c2_control`, the ordinary
+   FreeRTOS task that owns the current LED and M-button behavior.
+
+Three project-owned configuration surfaces support that flow:
+
+- `src/app_config.h` contains compile-time feature, clock, power, and flash
+  layout policy used while compiling sources and preprocessing `sdk_ld.c`.
+- `src/config.c` supplies the runtime global-symbol ABI expected by the
+  prebuilt libraries: logging switches, assertions, VM sizing, and the BTIF
+  syscfg table. The table currently keeps Bluetooth MAC/frequency calibration
+  IDs in BTIF; unregistered writable IDs fall back to VM.
+- `src/app.ld` and `src/app_overlay.ld` provide the application/overlay section
+  layout that the generic BR23 linker script expects.
 
 ## SDK application dispatch
 
@@ -44,11 +72,11 @@ the active application's `event_handler` operation.
 
 This project demonstrates that flow directly:
 
-- `src/app_main.c` creates an intent and calls `start_app()`.
-- `src/application.c` registers the `cyclone2` application and owns its state
-  machine/event handler.
+- `src/main.c` creates an intent, registers the `cyclone2` application, and
+  owns its state machine/event handler.
 - `APP_STA_START` starts the `c2_control` task.
-- `src/cyclone2_control.c` currently owns recovery, LEDs, and the sleep test.
+- `src/control.c` owns LEDs and the sleep test; the pre-SDK recovery path is in
+  `src/main.c`.
 
 The separation becomes useful once Bluetooth is added: application lifecycle
 and event routing stay in `application.c`, while sampling/reporting can live in

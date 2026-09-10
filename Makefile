@@ -16,18 +16,15 @@ C2_USED_LIST := $(C2_BUILD)/sdk_used_list.used
 C2_MAP := $(C2_BUILD)/sdk.map
 
 C2_PROJECT_SRCS := \
+	src/config.c \
 	src/control.c \
 	src/main.c \
 	src/rom.c
 
-# Unmodified SDK platform sources needed by this application. Application and
-# board policy stay in this repository; the SDK is a read-only dependency.
+# Add individual, unmodified SDK implementation files here only when the
+# firmware actually uses them. Configuration and board policy belong in src/.
 C2_SDK_SRCS := \
-	apps/common/device/key/iokey.c \
-	apps/hid/modules/misc.c \
-	cpu/br23/adc_api.c \
-	cpu/br23/charge.c \
-	cpu/br23/pwm_led.c
+	cpu/br23/charge.c
 
 C2_PROJECT_OBJS := $(addprefix $(C2_OBJ_DIR)/project/,$(C2_PROJECT_SRCS:.c=.o))
 C2_SDK_OBJS := $(addprefix $(C2_OBJ_DIR)/sdk/,$(C2_SDK_SRCS:.c=.o))

@@ -77,6 +77,7 @@ SDK_DEFINES := \
 	-DVM_MAX_SIZE_CONFIG=16*1024
 
 SDK_INCLUDES := \
+	-I$(PROJECT_ROOT)/src \
 	-I$(SDK)/include_lib \
 	-I$(SDK)/include_lib/driver \
 	-I$(SDK)/include_lib/driver/device \
@@ -100,8 +101,6 @@ SDK_INCLUDES := \
 	-I$(SDK)/include_lib/media/media_develop/media/cpu/br23/asm \
 	-I$(SDK)/include_lib/ai_stack/JL_rcsp \
 	-I$(SDK)/include_lib/system/ex_mcu \
-	-I$(SDK)/apps/hid/include \
-	-I$(SDK)/apps/hid/board/br23 \
 	-I$(SDK)/apps/common \
 	-I$(SDK)/apps/common/include \
 	-I$(SDK)/apps/common/third_party_profile/jieli \

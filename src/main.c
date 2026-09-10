@@ -8,6 +8,8 @@
 #define CYCLONE2_APP_NAME "cyclone2"
 #define ACTION_CYCLONE2_MAIN 0x43593201
 
+void cyclone2_control_start(void);
+
 /* The SDK implementation is compiled under this private name. Keeping this
  * wrapper in our project lets recovery run before the vendor memory/clock/OS
  * initialization without editing cpu/br23/setup.c. */
@@ -37,16 +39,6 @@ extern void sdk_setup_arch(void);
 #define BOOT_DEBOUNCE_SAMPLES    8U
 #define BOOT_DEBOUNCE_MS         20U
 #define UBOOT_BOOT_STATE         2U
-
-u16 update_result_get(void)
-{
-    return 0; /* ??? */
-}
-
-int eSystemConfirmStopStatus(void)
-{
-    return 1; /* no periodic 100 ms wake while the system is idle */
-}
 
 __attribute__((noreturn))
 static void enter_maskrom_uboot(void)

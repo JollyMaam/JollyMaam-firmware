@@ -113,7 +113,7 @@ static void cyclone2_control_task(void *argument)
     gpio_set_direction(CYCLONE2_BUTTON_M, GPIO_IN);
 
     led_initialize();
-    led_set_one(CYCLONE2_LED_HOME_INDEX, 255, 255, 255);
+    led_set_one(CYCLONE2_LED_HOME_INDEX, HOME_LED_RED, 0U, 0U);
 
     for (;;) {
         if (gpio_read(CYCLONE2_BUTTON_M)) {
