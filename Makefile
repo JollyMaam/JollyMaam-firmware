@@ -4,6 +4,13 @@ PROJECT_ROOT := $(CURDIR)
 SDK ?= /work/github.com-Jieli-Tech/fw-AC63_BT_SDK
 TOOL_DIR ?= /work/jieli-linux-toolchains-20250324.1/pi32v2/bin
 
+V?=0
+ifneq ($(V),0)
+QUIET=
+else
+QUIET=@
+endif
+
 # Local, versioned BR23 ABI/library configuration. The SDK contributes no
 # Makefile targets and is never written by this build.
 include mk/br23-sdk.mk
@@ -39,31 +46,37 @@ C2_LFLAGS := $(SDK_LFLAGS) --plugin-opt=-used-symbol-file=$(C2_USED_LIST) \
 firmware: $(C2_ELF)
 
 $(C2_ELF): $(C2_OBJS) $(C2_LD_SCRIPT) $(C2_USED_LIST)
+	@echo "ELF: $@"
 	@mkdir -p $(@D)
-	$(LD) -o $@ $(C2_OBJS) $(C2_LFLAGS) --start-group \
+	$(QUIET)$(LD) -o $@ $(C2_OBJS) $(C2_LFLAGS) --start-group \
 		$(SDK_ARCHIVES) --end-group -L$(SYS_LIB_DIR) $(SDK_RUNTIME_LIBS)
 
 $(C2_LD_SCRIPT): $(SDK)/cpu/br23/sdk_ld.c src/app_config.h src/board.h
+	@echo "LD: $@"
 	@mkdir -p $(@D)
-	$(CC) $(SDK_CFLAGS) $(SDK_DEFINES) $(SDK_INCLUDES) -D__LD__ -E -P $< -o $@
+	$(QUIET)$(CC) $(SDK_CFLAGS) $(SDK_DEFINES) $(SDK_INCLUDES) -D__LD__ -E -P $< -o $@
 
 $(C2_USED_LIST): $(SDK)/cpu/br23/sdk_used_list.c src/app_config.h src/board.h
+	@echo "USED_LIST: $@"
 	@mkdir -p $(@D)
-	$(CC) $(SDK_CFLAGS) $(SDK_DEFINES) $(SDK_INCLUDES) -D__LD__ -E -P $< -o $@
+	$(QUIET)$(CC) $(SDK_CFLAGS) $(SDK_DEFINES) $(SDK_INCLUDES) -D__LD__ -E -P $< -o $@
 
 $(C2_OBJ_DIR)/project/%.o: %.c
+	@echo "CC: $@"
 	@mkdir -p $(@D)
-	$(CC) $(SDK_CFLAGS) $(SDK_DEFINES) $(SDK_INCLUDES) -c $< -o $@
+	$(QUIET)$(CC) $(SDK_CFLAGS) $(SDK_DEFINES) $(SDK_INCLUDES) -c $< -o $@
 
 $(C2_OBJ_DIR)/sdk/%.o: $(SDK)/%.c
+	@echo "CC: $@"
 	@mkdir -p $(@D)
-	$(CC) $(SDK_CFLAGS) $(SDK_DEFINES) $(SDK_INCLUDES) -c $< -o $@
+	$(QUIET)$(CC) $(SDK_CFLAGS) $(SDK_DEFINES) $(SDK_INCLUDES) -c $< -o $@
 
 # Preserve the SDK startup implementation but give our wrapper ownership of
 # the public setup_arch symbol.
 $(C2_SETUP_OBJ): $(SDK)/cpu/br23/setup.c
+	@echo "SETUP: $@"
 	@mkdir -p $(@D)
-	$(CC) $(SDK_CFLAGS) $(SDK_DEFINES) $(SDK_INCLUDES) \
+	$(QUIET)$(CC) $(SDK_CFLAGS) $(SDK_DEFINES) $(SDK_INCLUDES) \
 		-Dsetup_arch=sdk_setup_arch -c $< -o $@
 
 clean:
