@@ -2,15 +2,7 @@
 #define CYCLONE2_BOARD_H
 
 #include "asm/gpio.h"
-
-/*
- * Gamesir Cyclone 2 board map established by live RAM diagnostics.
- *
- * These aliases intentionally use the BR23 SDK's IO_PORTx_xx identifiers.
- * The early recovery path can turn an encoded SDK pin into its per-port bit
- * with CYCLONE2_PIN_BIT() without duplicating the pin number.
- */
-#define CYCLONE2_PIN_BIT(pin)       (1U << ((pin) & 15U))
+#include "asm/adc_api.h"
 
 /* Digital buttons; all are active low. */
 #define CYCLONE2_BUTTON_A           IO_PORTA_00
@@ -39,8 +31,8 @@
 #define CYCLONE2_BUTTON_SCREENSHOT  IO_PORTD_05
 
 /* L2/R2 are analog despite sharing GPIO pin names. Values fall on press. */
-#define CYCLONE2_TRIGGER_L2_ADC_CHANNEL  6U /* SDK AD_CH_PB3 */
-#define CYCLONE2_TRIGGER_R2_ADC_CHANNEL  9U /* SDK AD_CH_PB10 */
+#define CYCLONE2_TRIGGER_L2_ADC_CHANNEL  AD_CH_PB3
+#define CYCLONE2_TRIGGER_R2_ADC_CHANNEL  AD_CH_PB10
 
 /* QMI8658A (write address 0xd4) and 24C64 (write address 0xa0). */
 #define CYCLONE2_I2C_SCL            IO_PORTB_04

@@ -16,27 +16,15 @@ C2_USED_LIST := $(C2_BUILD)/sdk_used_list.used
 C2_MAP := $(C2_BUILD)/sdk.map
 
 C2_PROJECT_SRCS := \
-	src/app_main.c \
-	src/application.c \
-	src/cyclone2_control.c \
-	src/startup.c
+	src/control.c \
+	src/main.c \
+	src/rom.c
 
 # Unmodified SDK platform sources needed by this application. Application and
 # board policy stay in this repository; the SDK is a read-only dependency.
 C2_SDK_SRCS := \
 	apps/common/device/key/iokey.c \
-	apps/common/device/key/key_driver.c \
-	apps/hid/board/br23/board_ac635n_demo.c \
-	apps/hid/config/lib_btctrler_config.c \
-	apps/hid/config/lib_btstack_config.c \
-	apps/hid/config/lib_driver_config.c \
-	apps/hid/config/lib_media_config.c \
-	apps/hid/config/lib_profile_config.c \
-	apps/hid/config/lib_system_config.c \
-	apps/hid/config/lib_update_config.c \
-	apps/hid/config/log_config.c \
 	apps/hid/modules/misc.c \
-	apps/hid/modules/user_cfg.c \
 	cpu/br23/adc_api.c \
 	cpu/br23/charge.c \
 	cpu/br23/pwm_led.c
@@ -49,7 +37,7 @@ C2_OBJS := $(C2_PROJECT_OBJS) $(C2_SDK_OBJS) $(C2_SETUP_OBJ)
 C2_LFLAGS := $(SDK_LFLAGS) --plugin-opt=-used-symbol-file=$(C2_USED_LIST) \
 	-T$(C2_LD_SCRIPT) -M=$(C2_MAP)
 
-.PHONY: firmware c2-clean
+.PHONY: firmware clean
 
 firmware: $(C2_ELF)
 
@@ -58,11 +46,11 @@ $(C2_ELF): $(C2_OBJS) $(C2_LD_SCRIPT) $(C2_USED_LIST)
 	$(LD) -o $@ $(C2_OBJS) $(C2_LFLAGS) --start-group \
 		$(SDK_ARCHIVES) --end-group -L$(SYS_LIB_DIR) $(SDK_RUNTIME_LIBS)
 
-$(C2_LD_SCRIPT): $(SDK)/cpu/br23/sdk_ld.c include/app_config.h include/board_config.h
+$(C2_LD_SCRIPT): $(SDK)/cpu/br23/sdk_ld.c src/app_config.h src/board.h
 	@mkdir -p $(@D)
 	$(CC) $(SDK_CFLAGS) $(SDK_DEFINES) $(SDK_INCLUDES) -D__LD__ -E -P $< -o $@
 
-$(C2_USED_LIST): $(SDK)/cpu/br23/sdk_used_list.c include/app_config.h include/board_config.h
+$(C2_USED_LIST): $(SDK)/cpu/br23/sdk_used_list.c src/app_config.h src/board.h
 	@mkdir -p $(@D)
 	$(CC) $(SDK_CFLAGS) $(SDK_DEFINES) $(SDK_INCLUDES) -D__LD__ -E -P $< -o $@
 
@@ -81,5 +69,5 @@ $(C2_SETUP_OBJ): $(SDK)/cpu/br23/setup.c
 	$(CC) $(SDK_CFLAGS) $(SDK_DEFINES) $(SDK_INCLUDES) \
 		-Dsetup_arch=sdk_setup_arch -c $< -o $@
 
-c2-clean:
+clean:
 	./scripts/clean.sh
