@@ -18,11 +18,16 @@ The SDK dependency is currently limited to public headers, `cpu.a`, `system.a`,
 - M (PB7) shows magenta for one second and calls the SDK's
   `power_set_soft_poweroff()`.
 - Home (PB11) is configured as the SDK soft-off wake pin.
-- A dim red Home LED means the standalone application/control task is running;
-  all other RGB LEDs are explicitly off. Physical chain slot 0 is currently
-  identified as Home from the earlier short-transfer behavior.
-- LED SPI baud is 5, the divisor proven on this controller. A trial divisor of
-  2 produced no light in the flash-resident SDK application.
+- The current diagnostic build stops in the first early initcall after setting
+  all eight LEDs dim red. It proves whether the scheduler and SDK `app_core`
+  task start before testing the filesystem, OTP, syscfg, application dispatch,
+  task creation, or M-button soft-off paths.
+- During bring-up, the SDK's four-second watchdog is explicitly disabled after
+  `sdk_setup_arch()` returns. Re-enable it only after the minimal idle path has
+  been shown to clear it reliably.
+- LEDs use the unmodified CPU-level SDK `cpu/br23/led_spi.c` driver. It derives
+  its reset/data dividers from `clk_get("lsb")` for 1 MHz and 8 MHz wire rates;
+  the application does not assume MaskROM's clock or program SPI registers.
 - `src/board.h` is the central map of every button, trigger ADC,
   I2C peripheral, USB-sense input, and LED-chain pin identified so far. Runtime
   code uses the SDK GPIO API and its `IO_PORTx_xx` identifiers; only the

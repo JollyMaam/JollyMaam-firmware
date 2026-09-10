@@ -1,19 +1,47 @@
 #include "typedef.h"
+#include "asm/wdt.h"
 #include "system/app_core.h"
 #include "system/includes.h"
+#include "system/init.h"
 
 #include "board.h"
+#include "control.h"
 #include "rom.h"
 
 #define CYCLONE2_APP_NAME "cyclone2"
 #define ACTION_CYCLONE2_MAIN 0x43593201
 
-void cyclone2_control_start(void);
-
 /* The SDK implementation is compiled under this private name. Keeping this
  * wrapper in our project lets recovery run before the vendor memory/clock/OS
  * initialization without editing cpu/br23/setup.c. */
 extern void sdk_setup_arch(void);
+
+/* Keep this operation opaque to whole-program LTO. The optimizer otherwise
+ * hoists wdt_close() ahead of sdk_setup_arch(), which subsequently enables
+ * WDT_4S again. */
+__attribute__((noinline, optnone))
+static void disable_sdk_watchdog(void)
+{
+    void (*volatile close_watchdog)(void) = wdt_close;
+    close_watchdog();
+    __asm__ volatile("csync" ::: "memory");
+}
+
+/* Temporary startup checkpoint. The system app task invokes early initcalls
+ * before the SDK's filesystem/OTP/syscfg sequence and before app_main(). */
+static int cyclone2_early_init_checkpoint(void)
+{
+    disable_sdk_watchdog();
+    cyclone2_led_initialize();
+    cyclone2_led_set_all(8U, 0U, 0U);
+    for (;;) {
+        wdt_clear();
+        rom_mdelay(100U);
+    }
+    return 0;
+}
+
+early_initcall(cyclone2_early_init_checkpoint);
 
 #define GPIO_PORT_A_BASE         0x001e5000U
 #define GPIO_PORT_B_BASE         0x001e5040U
@@ -106,6 +134,11 @@ void setup_arch(void)
 {
     cyclone2_early_boot();
     sdk_setup_arch();
+
+    /* Bring-up policy: setup_arch() enables a four-second watchdog. Keep it
+     * disabled until our minimal scheduler/idle configuration is proven to
+     * service it reliably. */
+    disable_sdk_watchdog();
 }
 
 /* The SDK startup code discovers this table by symbol name. Applications add
@@ -121,12 +154,14 @@ const struct task_info task_info_table[] = {
 /* The SDK calls here after loading */
 void app_main(void)
 {
-    struct intent intent;
-
-    init_intent(&intent);
-    intent.name = CYCLONE2_APP_NAME;
-    intent.action = ACTION_CYCLONE2_MAIN;
-    start_app(&intent);
+    /* Bring-up checkpoint: prove that SDK startup reaches app_main without
+     * involving application dispatch or dynamic task creation. */
+    cyclone2_led_initialize();
+    cyclone2_led_set_all(8U, 0U, 0U);
+    for (;;) {
+        wdt_clear();
+        rom_mdelay(100U);
+    }
 }
 
 static int cyclone2_state_machine(struct application *app,

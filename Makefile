@@ -31,7 +31,8 @@ C2_PROJECT_SRCS := \
 # Add individual, unmodified SDK implementation files here only when the
 # firmware actually uses them. Configuration and board policy belong in src/.
 C2_SDK_SRCS := \
-	cpu/br23/charge.c
+	cpu/br23/charge.c \
+	cpu/br23/led_spi.c
 
 C2_PROJECT_OBJS := $(addprefix $(C2_OBJ_DIR)/project/,$(C2_PROJECT_SRCS:.c=.o))
 C2_SDK_OBJS := $(addprefix $(C2_OBJ_DIR)/sdk/,$(C2_SDK_SRCS:.c=.o))
