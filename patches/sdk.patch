@@ -1,0 +1,92 @@
+diff --git a/apps/hid/app_main.c b/apps/hid/app_main.c
+--- a/apps/hid/app_main.c
++++ b/apps/hid/app_main.c
+@@ -41,4 +41,5 @@ const struct task_info task_info_table[] = {
+     {"app_core",            1,     0,   640,   128  },
++    {"c2_control",          2,     0,   256,   0    },
+     {"sys_event",           7,     0,   256,   0    },
+     {"btctrler",            4,     0,   512,   256  },
+     {"btencry",             1,     0,   512,   128  },
+@@ -110,9 +111,12 @@ void check_power_on_key(void)
+ }
+ 
++extern void cyclone2_control_start(void);
++
+ void app_main()
+ {
+     struct intent it;
+ 
++    cyclone2_control_start();
+     if (!UPDATE_SUPPORT_DEV_IS_NULL()) {
+         int update = 0;
+         update = update_result_deal();
+diff --git a/apps/hid/board/br23/Makefile b/apps/hid/board/br23/Makefile
+--- a/apps/hid/board/br23/Makefile
++++ b/apps/hid/board/br23/Makefile
+@@ -258,6 +258,7 @@ c_SRC_FILES := \
+ 	../../../../apps/common/update/uart_update.c \
+ 	../../../../apps/common/update/uart_update_master.c \
+ 	../../../../apps/common/update/update.c \
++	../../../../apps/hid/cyclone2_control.c \
+ 	../../../../apps/hid/app_main.c \
+ 	../../../../apps/hid/board/br23/board_ac6351d_keyboard.c \
+ 	../../../../apps/hid/board/br23/board_ac635n_demo.c \
+diff --git a/apps/hid/board/br23/board_ac635n_demo_cfg.h b/apps/hid/board/br23/board_ac635n_demo_cfg.h
+--- a/apps/hid/board/br23/board_ac635n_demo_cfg.h
++++ b/apps/hid/board/br23/board_ac635n_demo_cfg.h
+@@ -21,7 +21,7 @@
+ //*********************************************************************************//
+ //                                 UART配置                                        //
+ //*********************************************************************************//
+-#define TCFG_UART0_ENABLE					ENABLE_THIS_MOUDLE                     //串口打印模块使能
++#define TCFG_UART0_ENABLE					DISABLE_THIS_MOUDLE                    //PA0 is the Cyclone 2 A button
+ #define TCFG_UART0_RX_PORT					NO_CONFIG_PORT                         //串口接收脚配置（用于打印可以选择NO_CONFIG_PORT）
+ #define TCFG_UART0_TX_PORT  				IO_PORTA_00                            //串口发送脚配置
+ #define TCFG_UART0_BAUDRATE  				1000000                                //串口波特率配置
+@@ -138,9 +138,9 @@
+ //*********************************************************************************//
+ //                                 iokey 配置                                      //
+ //*********************************************************************************//
+-#define TCFG_IOKEY_ENABLE					DISABLE_THIS_MOUDLE //是否使能IO按键
++#define TCFG_IOKEY_ENABLE					ENABLE_THIS_MOUDLE  //PB11 Home is the soft-off wake key
+ 
+ #define TCFG_IOKEY_POWER_CONNECT_WAY		ONE_PORT_TO_LOW    //按键一端接低电平一端接IO
+ 
+-#define TCFG_IOKEY_POWER_ONE_PORT			IO_PORTB_01        //IO按键端口
++#define TCFG_IOKEY_POWER_ONE_PORT			IO_PORTB_11        //Cyclone 2 Home button, active low
+ #define TCFG_IOKEY_POWER_ONE_PORT_VALUE		0x1                //power port键值，不能设为0,key_value初始化为0,会误推keep事件
+@@ -479,6 +479,6 @@
+ //*********************************************************************************//
+ //                                  code switch配置                                //
+ //*********************************************************************************//
+-#define TCFG_CODE_SWITCH_ENABLE                   ENABLE_THIS_MOUDLE //code switch使能
++#define TCFG_CODE_SWITCH_ENABLE                   DISABLE_THIS_MOUDLE //PB7 is the Cyclone 2 M button
+ #define TCFG_CODE_SWITCH_A_PHASE_PORT             IO_PORTB_06
+ #define TCFG_CODE_SWITCH_B_PHASE_PORT             IO_PORTB_07
+diff --git a/apps/hid/include/app_config.h b/apps/hid/include/app_config.h
+--- a/apps/hid/include/app_config.h
++++ b/apps/hid/include/app_config.h
+@@ -14,5 +14,6 @@
+ #define CONFIG_DEBUG_LIB(x)         (x & LIB_DEBUG)
+ 
+-#define CONFIG_DEBUG_ENABLE
++/* PA0 is the Cyclone 2 A button, so do not initialize the default debug UART. */
++/* #define CONFIG_DEBUG_ENABLE */
+ 
+ //app case 选择,只选1,要配置对应的board_config.h
+diff --git a/cpu/br23/setup.c b/cpu/br23/setup.c
+--- a/cpu/br23/setup.c
++++ b/cpu/br23/setup.c
+@@ -203,9 +203,12 @@ void uart_db_regiest_recieve_callback(void *rx_cb)
+ }
+ 
+ void memory_init(void);
++extern void cyclone2_early_boot(void);
+ void setup_arch()
+ {
+     memory_init();
+ 
++    cyclone2_early_boot();
++
+     memset(stack_magic, 0x5a, sizeof(stack_magic));
+     memset(stack_magic0, 0x5a, sizeof(stack_magic0));
