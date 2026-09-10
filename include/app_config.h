@@ -16,7 +16,14 @@
 #undef TCFG_IOKEY_ENABLE
 #define TCFG_IOKEY_ENABLE ENABLE_THIS_MOUDLE
 #undef TCFG_IOKEY_POWER_ONE_PORT
-#define TCFG_IOKEY_POWER_ONE_PORT IO_PORTB_11 /* Home, active low */
+#ifdef __LD__
+/* app_config.h also preprocesses sdk_ld.c; keep C declarations out of that
+ * pass while preserving the SDK encoding (port B = group 1, pin 11). */
+#define TCFG_IOKEY_POWER_ONE_PORT (16 * 1 + 11)
+#else
+#include "cyclone2_board.h"
+#define TCFG_IOKEY_POWER_ONE_PORT CYCLONE2_BUTTON_HOME
+#endif
 
 #undef TCFG_CODE_SWITCH_ENABLE
 #define TCFG_CODE_SWITCH_ENABLE DISABLE_THIS_MOUDLE /* PB7 is M */

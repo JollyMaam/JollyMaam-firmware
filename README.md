@@ -16,10 +16,15 @@ It does **not** patch, copy, or build inside the SDK's `apps/hid` project.
 - M (PB7) shows magenta for one second and calls the SDK's
   `power_set_soft_poweroff()`.
 - Home (PB11) is configured as the SDK soft-off wake pin.
-- Solid red means the standalone application/control task is running.
-- LED SPI baud is 2 for the SDK's 24 MHz clock. The earlier baud value 5 was
-  calibrated in the approximately 48 MHz MaskROM/RAM-loader environment and
-  likely explains the nearly-white result.
+- A dim red Home LED means the standalone application/control task is running;
+  all other RGB LEDs are explicitly off. Physical chain slot 0 is currently
+  identified as Home from the earlier short-transfer behavior.
+- LED SPI baud is 5, the divisor proven on this controller. A trial divisor of
+  2 produced no light in the flash-resident SDK application.
+- `include/cyclone2_board.h` is the central map of every button, trigger ADC,
+  I2C peripheral, USB-sense input, and LED-chain pin identified so far. Runtime
+  code uses the SDK GPIO API and its `IO_PORTx_xx` identifiers; only the
+  pre-SDK recovery check accesses GPIO registers directly.
 
 Bluetooth is not started by this baseline yet. Its purpose is to establish a
 small, understandable SDK/FreeRTOS/application/power foundation before adding
@@ -73,7 +78,7 @@ preserved files.
 ## First hardware test
 
 1. Flash `dist/cyclone2-sdk-fw.bin` using the tested update path.
-2. A normal start should reach solid red.
+2. A normal start should reach a dim red Home LED, with the other LEDs dark.
 3. Press M: LEDs should show magenta for one second and go dark in soft-off.
 4. Press Home: the chip should wake/reset and return to solid red.
 5. With USB connected, boot or wake while holding Home + Start: it should
