@@ -1,6 +1,7 @@
 #include "system/includes.h"
 #include "asm/gpio.h"
 #include "asm/power_interface.h"
+#include "cyclone2_app.h"
 
 /* Cyclone 2 signals established with the RAM diagnostics. */
 #define CYCLONE2_START_PIN       IO_PORTA_14
@@ -45,7 +46,7 @@
 #define SPI_PENDING_CLEAR        PIN(14)
 #define SPI_PENDING              PIN(15)
 #define SPI_CONFIG               0x40b8U
-#define LED_SPI_BAUD             5U
+#define LED_SPI_BAUD             2U /* 24 MHz SDK clock; baud 5 was for ~48 MHz */
 #define LED_COUNT                8U
 #define LED_FRAME_BYTES          (LED_COUNT * 24U + 2U)
 
@@ -240,7 +241,7 @@ static void cyclone2_control_task(void *argument)
             armed = 0U;
             pressed_samples = 0U;
             led_set_all(32U, 0U, 32U); /* magenta: soft-off accepted */
-            os_time_dly(25U);
+            os_time_dly(100U); /* one second: make the transition observable */
             led_set_all(0U, 0U, 0U);
             os_time_dly(5U);
             led_power(0U);

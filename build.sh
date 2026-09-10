@@ -3,9 +3,8 @@ set -eu
 
 project=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 tool=${CYCLONE2_TOOLCHAIN:-/work/jieli-linux-toolchains-20250324.1/pi32v2/bin}
-sdk="$project/build/sdk"
-board="$sdk/apps/hid/board/br23"
-elf="$sdk/cpu/br23/tools/sdk.elf"
+sdk=${CYCLONE2_SDK:-/work/github.com-Jieli-Tech/fw-AC63_BT_SDK}
+elf="$project/build/sdk.elf"
 raw="$project/build/sdk-app.bin"
 stock_unpacked=${CYCLONE2_STOCK_UNPACKED:-/work/firmware/fw_3.52.bin_unpack}
 stock_app="$stock_unpacked/files/app.bin"
@@ -20,14 +19,16 @@ verify="$project/build/verify"
 # byte-for-byte repeatable. This is the timestamp of the pinned SDK commit.
 export SOURCE_DATE_EPOCH=1742302100
 
-"$project/scripts/prepare_sdk.sh"
+expected_sdk=fdc018de81629e21e594d677cf05f87d288be0f0
+actual_sdk=$(git -C "$sdk" rev-parse HEAD)
+if [ "$actual_sdk" != "$expected_sdk" ]; then
+    echo "unsupported SDK revision: $actual_sdk (expected $expected_sdk)" >&2
+    exit 1
+fi
 
-# Generate the preprocessed linker script and used-symbol list first, then
-# build only the ELF target. This deliberately skips the vendor post-build
-# step, which depends on unavailable proprietary host utilities.
-make -C "$board" -f Makefile TOOL_DIR="$tool" pre_build
-make -C "$board" -f Makefile TOOL_DIR="$tool" \
-    ../../../../cpu/br23/tools/sdk.elf
+# The project Makefile consumes SDK headers, libraries and selected unmodified
+# platform sources directly. It never patches or writes into the SDK checkout.
+make -C "$project" SDK="$sdk" TOOL_DIR="$tool" firmware
 
 start_address=$("$tool/nm" -n "$elf" | awk '$3 == "_start" { print $1; exit }')
 if [ "$start_address" != "01e00120" ]; then
