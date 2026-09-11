@@ -97,8 +97,9 @@ dedicated tasks or modules.
 
 Expected workspace dependencies:
 
-- SDK: `/work/github.com-Jieli-Tech/fw-AC63_BT_SDK`, commit
-  `fdc018de81629e21e594d677cf05f87d288be0f0`
+- SDK: `/work/github.com-Jieli-Tech/fw-AC63_BT_SDK`, code revision
+  `fdc018de81629e21e594d677cf05f87d288be0f0` or its documentation-only child
+  `0dc7b56d983a200e6db2dfcd70316f6a78b28dc1`
 - PI32 toolchain: `/work/jieli-linux-toolchains-20250324.1/pi32v2/bin`
 - firmware tools: `/work/github.com-kagaimiq/jl-misctools`
 - stock 3.52 container template: `/work/firmware/fw_3.52.bin_unpack`
@@ -117,6 +118,9 @@ searchable application disassembly with local/global symbols and available
 source-line annotations. The analysis copy is `dist/app-disasm.lst`; the legacy
 name `dist/sdk.lst` is retained for existing notes and tools. Useful narrower
 targets are `make elf`, `make analysis`, and `make verify`.
+
+For the staged SDK-configuration tests, run `make experiments` and follow the
+flash order and expected observations in [EXPERIMENTS.md](EXPERIMENTS.md).
 
 ## First hardware test
 

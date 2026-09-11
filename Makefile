@@ -6,12 +6,16 @@ TOOL_DIR ?= $(or $(CYCLONE2_TOOLCHAIN),/work/jieli-linux-toolchains-20250324.1/p
 STOCK_UNPACKED ?= $(or $(CYCLONE2_STOCK_UNPACKED),/work/firmware/fw_3.52.bin_unpack)
 MISC_TOOLS ?= /work/github.com-kagaimiq/jl-misctools
 PYTHON ?= /work/bin/python3
+VFS_ENABLE ?= 0
+C2_EXPERIMENT_DEFINES ?=
+EXPECT_SDFILE_INIT ?= 0
 
-EXPECTED_SDK_REVISION := fdc018de81629e21e594d677cf05f87d288be0f0
+SUPPORTED_SDK_REVISIONS := fdc018de81629e21e594d677cf05f87d288be0f0 \
+	0dc7b56d983a200e6db2dfcd70316f6a78b28dc1
 ACTUAL_SDK_REVISION := $(shell git -C "$(SDK)" rev-parse HEAD 2>/dev/null)
 ifneq ($(MAKECMDGOALS),clean)
-ifneq ($(ACTUAL_SDK_REVISION),$(EXPECTED_SDK_REVISION))
-$(error Unsupported SDK revision '$(ACTUAL_SDK_REVISION)' (expected $(EXPECTED_SDK_REVISION)))
+ifeq ($(filter $(ACTUAL_SDK_REVISION),$(SUPPORTED_SDK_REVISIONS)),)
+$(error Unsupported SDK revision '$(ACTUAL_SDK_REVISION)' (supported: $(SUPPORTED_SDK_REVISIONS)))
 endif
 endif
 
@@ -29,6 +33,7 @@ endif
 # Local, versioned BR23 ABI/library configuration. The SDK contributes no
 # Makefile targets and is never written by this build.
 include mk/br23-sdk.mk
+SDK_DEFINES += $(C2_EXPERIMENT_DEFINES)
 
 C2_BUILD := $(PROJECT_ROOT)/build
 C2_OBJ_DIR := $(C2_BUILD)/obj
@@ -65,11 +70,39 @@ C2_SECTIONS := text data overlay_aec overlay_wav overlay_ape overlay_flac \
 	overlay_m4a overlay_amr overlay_dts overlay_fm overlay_mp3 overlay_wma
 C2_SECTION_FILES := $(addprefix $(C2_SECTIONS_DIR)/,$(addsuffix .bin,$(C2_SECTIONS)))
 
+C2_EXPERIMENT_DIST := $(C2_DIST)/experiments
+C2_EXPERIMENT_BUILD := $(C2_BUILD)/experiments
+C2_TEST_BASELINE := $(C2_EXPERIMENT_DIST)/01-baseline-green.bin
+C2_TEST_VENDOR_DEBUG := $(C2_EXPERIMENT_DIST)/02-vendor-debug-blue-early.bin
+C2_TEST_MINIMAL_VFS := $(C2_EXPERIMENT_DIST)/03-minimal-vfs-cyan-early.bin
+C2_TEST_VENDOR_HID := $(C2_EXPERIMENT_DIST)/04-exact-vendor-hid.bin
+C2_EXPERIMENT_HASHES := $(C2_EXPERIMENT_DIST)/SHA256SUMS
+C2_EXPERIMENT_IMAGES := $(C2_TEST_BASELINE) $(C2_TEST_VENDOR_DEBUG) \
+	$(C2_TEST_MINIMAL_VFS) $(C2_TEST_VENDOR_HID)
+
+C2_VENDOR_HID_BUILD := $(C2_EXPERIMENT_BUILD)/04-vendor-hid
+C2_VENDOR_HID_ELF := $(C2_VENDOR_HID_BUILD)/sdk.elf
+C2_VENDOR_HID_OBJDIR := $(C2_VENDOR_HID_BUILD)/obj
+C2_VENDOR_HID_SECTIONS := $(C2_VENDOR_HID_BUILD)/sections
+C2_VENDOR_HID_RAW := $(C2_VENDOR_HID_BUILD)/sdk-app.bin
+C2_VENDOR_HID_APP := $(C2_VENDOR_HID_BUILD)/app.bin
+C2_VENDOR_HID_SECTION_FILES := $(addprefix $(C2_VENDOR_HID_SECTIONS)/,$(addsuffix .bin,$(C2_SECTIONS)))
+
 C2_PROJECT_SRCS := \
 	src/config.c \
 	src/control.c \
 	src/main.c \
 	src/rom.c
+
+C2_EXPERIMENT_PROJECT_DEPS := Makefile mk/br23-sdk.mk \
+	$(C2_PROJECT_SRCS) src/app_config.h src/board.h src/app.ld \
+	src/app_overlay.ld tools/build_app_image.py
+C2_VENDOR_HID_DEPS := \
+	$(SDK)/apps/hid/board/br23/Makefile \
+	$(SDK)/apps/hid/board/br23/board_ac635n_demo.c \
+	$(SDK)/apps/hid/board/br23/board_ac635n_demo_cfg.h \
+	$(SDK)/apps/hid/include/app_config.h \
+	$(wildcard $(SDK)/apps/hid/config/*.c)
 
 # Add individual, unmodified SDK implementation files here only when the
 # firmware actually uses them. Configuration and board policy belong in src/.
@@ -87,7 +120,7 @@ C2_CONFIG_DEPS := Makefile mk/br23-sdk.mk src/app_config.h src/board.h
 C2_LFLAGS := $(SDK_LFLAGS) --plugin-opt=-used-symbol-file=$(C2_USED_LIST) \
 	--allow-multiple-definition -T$(C2_LD_SCRIPT) -M=$(C2_MAP)
 
-.PHONY: all firmware elf analysis verify clean
+.PHONY: all firmware elf analysis verify experiments clean
 
 all: firmware
 
@@ -104,6 +137,11 @@ analysis: $(C2_LISTING) $(C2_DIST_LISTING) $(C2_LEGACY_LISTING) \
 	$(C2_SECTION_REPORT)
 
 verify: $(C2_VERIFY_STAMP)
+
+experiments: $(C2_EXPERIMENT_IMAGES)
+	@sha256sum $(C2_EXPERIMENT_IMAGES) > "$(C2_EXPERIMENT_HASHES)"
+	@echo "experiment images:"
+	@for image in $(C2_EXPERIMENT_IMAGES); do echo "  $$image"; done
 
 # Compile-time policy affects every SDK translation unit, the generated linker
 # script and the linker keep-list. Do not reuse objects built with stale flags.
@@ -130,8 +168,14 @@ $(C2_LINK_CHECK): $(C2_ELF)
 	if [ "$$start_address" != "01e00120" ]; then \
 		echo "unexpected SDK _start address: $$start_address" >&2; exit 1; \
 	fi
-	@if $(NM) -n "$<" | awk '$$3 == "__initcall_sdfile_init" { found = 1 } END { exit !found }'; then \
-		echo "error: disabled sdfile_init was linked into the firmware" >&2; exit 1; \
+	@if [ "$(EXPECT_SDFILE_INIT)" = 0 ]; then \
+		if $(NM) -n "$<" | awk '$$3 == "__initcall_sdfile_init" { found = 1 } END { exit !found }'; then \
+			echo "error: disabled sdfile_init was linked into the firmware" >&2; exit 1; \
+		fi; \
+	else \
+		if ! $(NM) -n "$<" | awk '$$3 == "__initcall_sdfile_init" { found = 1 } END { exit !found }'; then \
+			echo "error: experiment expected sdfile_init, but it is absent" >&2; exit 1; \
+		fi; \
 	fi
 	@touch "$@"
 
@@ -192,6 +236,66 @@ $(C2_SECTION_REPORT): $(C2_ELF)
 $(C2_HASHES): $(C2_CANDIDATE) $(C2_PADDED_APP) $(C2_DIST_ELF)
 	@sha256sum "$(C2_CANDIDATE)" "$(C2_PADDED_APP)" \
 		"$(C2_DIST_ELF)" > "$@"
+
+$(C2_TEST_BASELINE): $(C2_CANDIDATE) $(C2_VERIFY_STAMP)
+	@mkdir -p "$(@D)"
+	$(QUIET)cp "$<" "$@"
+
+# Keep VFS bypassed but restore cpu.a's real debug_init(). Blue is the early
+# marker; blinking green still means the platform checkpoint was reached.
+$(C2_TEST_VENDOR_DEBUG): $(C2_EXPERIMENT_PROJECT_DEPS)
+	$(QUIET)$(MAKE) --no-print-directory verify \
+		C2_BUILD="$(C2_EXPERIMENT_BUILD)/02-vendor-debug" \
+		C2_DIST="$(C2_EXPERIMENT_BUILD)/02-vendor-debug/dist" \
+		C2_EXPERIMENT_DEFINES='-DC2_USE_VENDOR_DEBUG_INIT=1 -DC2_EARLY_RED=0U -DC2_EARLY_GREEN=0U -DC2_EARLY_BLUE=8U'
+	@mkdir -p "$(@D)"
+	$(QUIET)cp "$(C2_EXPERIMENT_BUILD)/02-vendor-debug/dist/cyclone2-sdk-fw.bin" "$@"
+
+# Restore VFS, sdfile_new.c.o and its initcall while retaining the project's
+# otherwise minimal configuration and no-op debug_init(). Cyan identifies the
+# point immediately before the vendor early initcalls.
+$(C2_TEST_MINIMAL_VFS): $(C2_EXPERIMENT_PROJECT_DEPS)
+	$(QUIET)$(MAKE) --no-print-directory verify \
+		C2_BUILD="$(C2_EXPERIMENT_BUILD)/03-minimal-vfs" \
+		C2_DIST="$(C2_EXPERIMENT_BUILD)/03-minimal-vfs/dist" \
+		VFS_ENABLE=1 EXPECT_SDFILE_INIT=1 \
+		C2_EXPERIMENT_DEFINES='-DC2_USE_VENDOR_SDFILE=1 -DC2_EARLY_RED=0U -DC2_EARLY_GREEN=8U -DC2_EARLY_BLUE=8U'
+	@mkdir -p "$(@D)"
+	$(QUIET)cp "$(C2_EXPERIMENT_BUILD)/03-minimal-vfs/dist/cyclone2-sdk-fw.bin" "$@"
+
+# Build the SDK's unmodified AC635N HID application with its own Makefile and
+# exact board/config sources, stopping before its unavailable proprietary
+# post-build utilities. This intentionally has no Cyclone 2 LED/recovery shim.
+$(C2_VENDOR_HID_ELF): $(C2_VENDOR_HID_DEPS)
+	@mkdir -p "$(@D)" "$(C2_VENDOR_HID_OBJDIR)"
+	$(QUIET)$(MAKE) -C "$(SDK)/apps/hid/board/br23" --no-print-directory \
+		pre_build "$@" TOOL_DIR="$(TOOL_DIR)" OUT_ELF="$@" \
+		BUILD_DIR="$(C2_VENDOR_HID_OBJDIR)" LINK_AT=1
+
+$(C2_VENDOR_HID_RAW) $(C2_VENDOR_HID_APP) &: $(C2_VENDOR_HID_ELF) \
+		$(C2_IMAGE_BUILDER) $(C2_STOCK_APP)
+	@mkdir -p "$(C2_VENDOR_HID_SECTIONS)"
+	@set -e; for section in $(C2_SECTIONS); do \
+		$(OBJCOPY) -O binary -j ".$$section" "$<" \
+			"$(C2_VENDOR_HID_SECTIONS)/$$section.bin"; \
+	done
+	$(QUIET)$(PYTHON) "$(C2_IMAGE_BUILDER)" \
+		--raw "$(C2_VENDOR_HID_RAW)" --stock "$(C2_STOCK_APP)" \
+		--output "$(C2_VENDOR_HID_APP)" $(C2_VENDOR_HID_SECTION_FILES)
+
+$(C2_TEST_VENDOR_HID): $(C2_VENDOR_HID_APP) $(C2_PACKER) $(C2_UNPACKER) \
+		$(C2_STOCK_DEPS) $(C2_STOCK_CFG_TOOL)
+	@mkdir -p "$(@D)"
+	$(QUIET)$(PYTHON) "$(C2_PACKER)" --experimental \
+		--replace "app.bin=$(C2_VENDOR_HID_APP)" "$(STOCK_UNPACKED)" "$@"
+	@if [ -d "$(C2_VENDOR_HID_BUILD)/verify" ]; then \
+		find "$(C2_VENDOR_HID_BUILD)/verify" -depth -mindepth 1 -delete; \
+		rmdir "$(C2_VENDOR_HID_BUILD)/verify"; \
+	fi
+	$(QUIET)$(PYTHON) "$(C2_UNPACKER)" \
+		--dirname "$(C2_VENDOR_HID_BUILD)/verify" "$@"
+	$(QUIET)cmp "$(C2_VENDOR_HID_APP)" \
+		"$(C2_VENDOR_HID_BUILD)/verify/files/app.bin"
 
 $(C2_LD_SCRIPT): $(SDK)/cpu/br23/sdk_ld.c src/app_config.h src/board.h
 	@echo "LD: $@"

@@ -17,6 +17,7 @@
  * initialization without editing cpu/br23/setup.c. */
 extern void sdk_setup_arch(void);
 
+#ifndef C2_USE_VENDOR_DEBUG_INIT
 /* The vendor implementation only configures the CPU/system debug unit: MMU,
  * invalid-access, write-range, PC-range, stack and arithmetic traps. It is
  * useful with a debug UART, but IRQ 1 repeatedly fires with an empty status
@@ -25,6 +26,19 @@ extern void sdk_setup_arch(void);
 void debug_init(void)
 {
 }
+#endif
+
+#ifndef C2_EARLY_RED
+#define C2_EARLY_RED 8U
+#define C2_EARLY_GREEN 8U
+#define C2_EARLY_BLUE 0U
+#endif
+
+#ifndef C2_PLATFORM_RED
+#define C2_PLATFORM_RED 0U
+#define C2_PLATFORM_GREEN 8U
+#define C2_PLATFORM_BLUE 0U
+#endif
 
 /* Keep this operation opaque to whole-program LTO. The optimizer otherwise
  * hoists wdt_close() ahead of sdk_setup_arch(), which subsequently enables
@@ -144,7 +158,7 @@ static int cyclone2_early_init_checkpoint(void)
 {
     disable_sdk_watchdog();
     cyclone2_led_initialize();
-    cyclone2_led_set_all(8U, 8U, 0U); /* yellow: early initcalls running */
+    cyclone2_led_set_all(C2_EARLY_RED, C2_EARLY_GREEN, C2_EARLY_BLUE);
     return 0;
 }
 
@@ -160,7 +174,8 @@ static int cyclone2_platform_init_checkpoint(void)
     /* Blink rather than hold so success cannot be confused with the solid
      * green exception-PC category. */
     for (;;) {
-        cyclone2_led_set_all(0U, 8U, 0U);
+        cyclone2_led_set_all(C2_PLATFORM_RED, C2_PLATFORM_GREEN,
+                             C2_PLATFORM_BLUE);
         rom_mdelay(250U);
         cyclone2_led_set_all(0U, 0U, 0U);
         rom_mdelay(250U);

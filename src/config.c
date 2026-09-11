@@ -33,6 +33,7 @@ const int ENABLE_LUA_VIRTUAL_MACHINE = 0;
 const int CONFIG_CPU_UNMASK_IRQ_ENABLE = 2;
 const int set_to_close_timer0_delay = 0;
 
+#ifndef C2_USE_VENDOR_SDFILE
 /* cfg_btif.c needs this address conversion even when the runtime JLFS/VFS is
  * disabled. The SDK's implementation is only these two BOOT_INFO fields, but
  * lives in sdfile_new.c.o alongside the filesystem initcall. Keeping the
@@ -60,6 +61,7 @@ int sdfile_check_write_protect(u32 flash_address, u32 size)
     (void)size;
     return 0;
 }
+#endif
 
 u16 update_result_get(void)
 {
