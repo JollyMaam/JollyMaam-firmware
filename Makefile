@@ -81,4 +81,4 @@ $(C2_SETUP_OBJ): $(SDK)/cpu/br23/setup.c
 		-Dsetup_arch=sdk_setup_arch -c $< -o $@
 
 clean:
-	./scripts/clean.sh
+	rm -rf build dist
