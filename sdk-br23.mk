@@ -9,6 +9,7 @@ NM := $(TOOL_DIR)/nm
 SYS_LIB_DIR := $(TOOL_DIR)/../lib/r3
 SYS_INC_DIR := $(TOOL_DIR)/../include
 
+
 SDK_CFLAGS := \
 	-target pi32v2 \
 	-mcpu=r3 \
@@ -28,7 +29,8 @@ SDK_CFLAGS := \
 	-Wreturn-type \
 	-Wimplicit-function-declaration \
 	-fms-extensions \
-	-w
+	-w \
+
 
 SDK_DEFINES := \
 	-DAPP_ASYNC_POOL_NUM_CONFIG=0 \
@@ -71,13 +73,13 @@ SDK_DEFINES := \
 	-DTIMER_POOL_NUM_CONFIG=10 \
 	-DUSB_PC_NO_APP_MODE \
 	-DUSE_SDFILE_NEW=1 \
-	-DVFS_ENABLE=$(VFS_ENABLE) \
+	-DVFS_ENABLE=1 \
 	-DVFS_FILE_POOL_NUM_CONFIG=0 \
 	-DVM_ITEM_MAX_NUM=256 \
-	-DVM_MAX_SIZE_CONFIG=16*1024
+	-DVM_MAX_SIZE_CONFIG=16*1024 \
+
 
 SDK_INCLUDES := \
-	-I$(PROJECT_ROOT)/src \
 	-I$(SDK)/include_lib \
 	-I$(SDK)/include_lib/driver \
 	-I$(SDK)/include_lib/driver/device \
@@ -122,16 +124,14 @@ SDK_INCLUDES := \
 	-I$(SDK)/cpu/br23 \
 	-I$(SDK)/cpu/br23/audio_dec \
 	-I$(SDK)/cpu/br23/audio_enc \
-	-I$(SYS_INC_DIR)
+	-I$(SYS_INC_DIR) \
 
-SDK_ARCHIVES := \
-	$(SDK)/cpu/br23/liba/cpu.a \
-	$(SDK)/cpu/br23/liba/system.a
 
 SDK_RUNTIME_LIBS := \
 	$(SYS_LIB_DIR)/libm.a \
 	$(SYS_LIB_DIR)/libc.a \
-	$(SYS_LIB_DIR)/libcompiler-rt.a
+	$(SYS_LIB_DIR)/libcompiler-rt.a \
+
 
 SDK_LFLAGS := \
 	--plugin-opt=-pi32v2-always-use-itblock=false \
@@ -151,4 +151,90 @@ SDK_LFLAGS := \
 	--dont-complain-call-overflow \
 	--gc-sections \
 	--plugin-opt=mcpu=r3 \
-	--plugin-opt=-mattr=+fprev1
+	--plugin-opt=-mattr=+fprev1 \
+
+
+SDK_SOURCES_MINIMAL := \
+	$(SDK)/cpu/br23/charge.c \
+	$(SDK)/cpu/br23/led_spi.c \
+
+
+SDK_SOURCES_FULL := \
+	$(SDK)/cpu/br23/adc_api.c \
+	$(SDK)/cpu/br23/audio_common/app_audio.c \
+	$(SDK)/cpu/br23/audio_dec/audio_dec.c \
+	$(SDK)/cpu/br23/audio_dec/audio_dec_midi_ctrl.c \
+	$(SDK)/cpu/br23/audio_dec/audio_dec_pc.c \
+	$(SDK)/cpu/br23/audio_dec/audio_dec_tone.c \
+	$(SDK)/cpu/br23/audio_dec/audio_usb_mic.c \
+	$(SDK)/cpu/br23/audio_dec/tone_player.c \
+	$(SDK)/cpu/br23/audio_demo/audio_dac_io_demo.c \
+	$(SDK)/cpu/br23/audio_demo/audio_fft_demo.c \
+	$(SDK)/cpu/br23/audio_enc/audio_adc_demo.c \
+	$(SDK)/cpu/br23/audio_enc/audio_enc.c \
+	$(SDK)/cpu/br23/audio_enc/audio_mic_codec.c \
+	$(SDK)/cpu/br23/charge.c \
+	$(SDK)/cpu/br23/chargestore.c \
+	$(SDK)/cpu/br23/clock_manager.c \
+	$(SDK)/cpu/br23/ctmu.c \
+	$(SDK)/cpu/br23/handshake_timer.c \
+	$(SDK)/cpu/br23/iic_eeprom_test.c \
+	$(SDK)/cpu/br23/iic_hw.c \
+	$(SDK)/cpu/br23/iic_slave_test.c \
+	$(SDK)/cpu/br23/iic_soft.c \
+	$(SDK)/cpu/br23/irflt.c \
+	$(SDK)/cpu/br23/led_spi.c \
+	$(SDK)/cpu/br23/ledc_test.c \
+	$(SDK)/cpu/br23/mcpwm.c \
+	$(SDK)/cpu/br23/pap.c \
+	$(SDK)/cpu/br23/plcnt.c \
+	$(SDK)/cpu/br23/port_wkup.c \
+	$(SDK)/cpu/br23/pwm_led.c \
+	$(SDK)/cpu/br23/setup.c \
+	$(SDK)/cpu/br23/spi.c \
+	$(SDK)/cpu/br23/spi_test.c \
+	$(SDK)/cpu/br23/uart_dev.c \
+	$(SDK)/cpu/br23/uart_test.c \
+
+
+SDK_ARCHIVES_MINIMAL := \
+	$(SDK)/cpu/br23/liba/cpu.a \
+	$(SDK)/cpu/br23/liba/system.a \
+
+
+SDK_ARCHIVES_FULL := \
+	$(SDK)/cpu/br23/liba/cpu.a \
+	$(SDK)/cpu/br23/liba/system.a \
+	$(SDK)/cpu/br23/liba/btstack.a \
+	$(SDK)/cpu/br23/liba/btctrler.a \
+	$(SDK)/cpu/br23/liba/crypto_toolbox_Osize.a \
+	$(SDK)/cpu/br23/liba/rcsp_stack.a \
+	$(SDK)/cpu/br23/liba/agreement.a \
+	$(SDK)/cpu/br23/liba/aec.a \
+	$(SDK)/cpu/br23/liba/media.a \
+	$(SDK)/cpu/br23/liba/media_app.a \
+	$(SDK)/cpu/br23/liba/libAptFilt_pi32v2_OnChip.a \
+	$(SDK)/cpu/br23/liba/libEchoSuppress_pi32v2_OnChip.a \
+	$(SDK)/cpu/br23/liba/libNoiseSuppress_pi32v2_OnChip.a \
+	$(SDK)/cpu/br23/liba/libSplittingFilter_pi32v2_OnChip.a \
+	$(SDK)/cpu/br23/liba/libFFT_pi32v2_OnChip.a \
+	$(SDK)/cpu/br23/liba/libOpcore_maskrom_pi32v2_OnChip.a \
+	$(SDK)/cpu/br23/liba/lib_resample_cal.a \
+	$(SDK)/cpu/br23/liba/lib_resample_fast_cal.a \
+	$(SDK)/cpu/br23/liba/opus_enc_lib.a \
+	$(SDK)/cpu/br23/liba/speex_enc_lib.a \
+	$(SDK)/cpu/br23/liba/lib_adpcm_ima_code.a \
+	$(SDK)/cpu/br23/liba/lib_adpcm_code.a \
+	$(SDK)/cpu/br23/liba/lc3_codec_lib.a \
+	$(SDK)/cpu/br23/liba/wav_dec_lib.a \
+	$(SDK)/cpu/br23/liba/bfilterfun_lib.a \
+	$(SDK)/cpu/br23/liba/wtg_dec_lib.a \
+	$(SDK)/cpu/br23/liba/wtgv2_dec_lib.a \
+	$(SDK)/cpu/br23/liba/wav_dec_lib.a  \
+	$(SDK)/cpu/br23/liba/mp3_dec_lib.a \
+	$(SDK)/cpu/br23/liba/lib_pitch_speed.a \
+	$(SDK)/cpu/br23/liba/lib_dns.a \
+	$(SDK)/cpu/br23/liba/lib_midi_dec.a \
+	$(SDK)/cpu/br23/liba/update.a \
+
+

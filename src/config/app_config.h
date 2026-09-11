@@ -53,4 +53,16 @@
 #define TCFG_USER_TWS_ENABLE     0
 #define TCFG_BD_NUM              1
 
+/* From board_config.h / apps/hid/board/br23/board_ac635n_demo_cfg.h */
+#define AUDIO_OUTPUT_WAY_DAC        0
+#define AUDIO_OUTPUT_WAY_IIS        1
+#define AUDIO_OUTPUT_WAY_FM         2
+#define AUDIO_OUTPUT_WAY_HDMI       3
+#define AUDIO_OUTPUT_WAY_SPDIF      4
+#define AUDIO_OUTPUT_WAY_BT         5
+#define AUDIO_OUTPUT_WAY_DAC_IIS    6
+#define AUDIO_OUTPUT_WAY_DONGLE     7
+#define AUDIO_OUTPUT_WAY            AUDIO_OUTPUT_WAY_DAC
+#define LINEIN_INPUT_WAY            LINEIN_INPUT_WAY_ANALOG
+
 #endif
