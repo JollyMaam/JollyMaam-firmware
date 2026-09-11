@@ -1,6 +1,7 @@
 #include "typedef.h"
 #include "asm/wdt.h"
 #include "system/app_core.h"
+#include "system/boot.h"
 #include "system/includes.h"
 #include "system/init.h"
 
@@ -16,6 +17,15 @@
  * initialization without editing cpu/br23/setup.c. */
 extern void sdk_setup_arch(void);
 
+/* The vendor implementation only configures the CPU/system debug unit: MMU,
+ * invalid-access, write-range, PC-range, stack and arithmetic traps. It is
+ * useful with a debug UART, but IRQ 1 repeatedly fires with an empty status
+ * register in this standalone image. Keep normal exception-vector setup in
+ * setup_arch(), while using release-style operation without those traps. */
+void debug_init(void)
+{
+}
+
 /* Keep this operation opaque to whole-program LTO. The optimizer otherwise
  * hoists wdt_close() ahead of sdk_setup_arch(), which subsequently enables
  * WDT_4S again. */
@@ -27,21 +37,140 @@ static void disable_sdk_watchdog(void)
     __asm__ volatile("csync" ::: "memory");
 }
 
-/* Temporary startup checkpoint. The system app task invokes early initcalls
- * before the SDK's filesystem/OTP/syscfg sequence and before app_main(). */
+static void hold_diagnostic(void)
+{
+    for (;;) {
+        wdt_clear();
+        rom_mdelay(100U);
+    }
+}
+
+/* startup.S passes exception_analyze() a frame containing r0-r15 followed by
+ * RETI, RETE, RETX, RETS, PSR, ICFG, USP and SSP. The release implementation
+ * in cpu.a discards it and resets; retain the SDK entry assembly but provide a
+ * visible analyzer while no debug UART is available. */
+__attribute__((noreturn))
+void exception_analyze(u32 *saved_registers)
+{
+    u32 fault_address = saved_registers[16];
+    u32 exception_message = q32DSP(0)->EMU_MSG;
+    u32 debug_message = JL_DEBUG->MSG;
+
+    /* IRQ 0 reports CPU/EMU faults through EMU_MSG. IRQ 1 reports the
+     * system/bus debug unit through JL_DEBUG->MSG. The previous diagnostic
+     * proved EMU_MSG was empty, so make the first (long) indication expose
+     * the debug-unit family before showing the saved-PC category. */
+    if (exception_message & BIT(31)) {
+        cyclone2_led_set_all(8U, 0U, 0U); /* red: system exception */
+    } else if (exception_message & BIT(30)) {
+        cyclone2_led_set_all(8U, 8U, 0U); /* yellow: instruction cache */
+    } else if (exception_message & BIT(29)) {
+        cyclone2_led_set_all(0U, 8U, 8U); /* cyan: data cache */
+    } else if (exception_message & BIT(8)) {
+        cyclone2_led_set_all(8U, 0U, 8U); /* magenta: ETM checkpoint */
+    } else if (exception_message & 0x001f0000U) {
+        cyclone2_led_set_all(0U, 0U, 8U); /* blue: floating point */
+    } else if (exception_message != 0U) {
+        cyclone2_led_set_all(8U, 8U, 8U); /* white: other CPU/EMU fault */
+    } else if (debug_message & (BIT(30) | BIT(29))) {
+        cyclone2_led_set_all(8U, 0U, 0U); /* red: cache/SBC RAM access */
+    } else if (debug_message & (BIT(28) | BIT(27) | BIT(26))) {
+        cyclone2_led_set_all(8U, 8U, 0U); /* yellow: CPU invalid access */
+    } else if (debug_message & (BIT(25) | BIT(24) | BIT(23))) {
+        cyclone2_led_set_all(0U, 8U, 8U); /* cyan: peripheral invalid access */
+    } else if (debug_message & (BIT(22) | BIT(21))) {
+        cyclone2_led_set_all(8U, 0U, 8U); /* magenta: CPU range limit */
+    } else if (debug_message & (BIT(20) | BIT(19))) {
+        cyclone2_led_set_all(0U, 0U, 8U); /* blue: MMU access error */
+    } else if (debug_message & BIT(18)) {
+        cyclone2_led_set_all(0U, 8U, 0U); /* green: peripheral write limit */
+    } else if (debug_message & BIT(17)) {
+        cyclone2_led_set_all(8U, 8U, 8U); /* white: watchdog */
+    } else if (debug_message != 0U) {
+        cyclone2_led_set_all(8U, 0U, 8U); /* magenta: other debug message */
+    } else {
+        cyclone2_led_set_all(8U, 8U, 8U); /* white: other/empty message */
+    }
+    rom_mdelay(1500U);
+    cyclone2_led_set_all(0U, 0U, 0U);
+    rom_mdelay(250U);
+
+    if (fault_address < 0x0000171cU) {
+        cyclone2_led_set_all(8U, 0U, 0U); /* red: SFC/flash/power RAM code */
+    } else if (fault_address < 0x00001764U) {
+        cyclone2_led_set_all(0U, 8U, 8U); /* cyan: interrupt entry code */
+    } else if (fault_address < 0x00001c4cU) {
+        cyclone2_led_set_all(8U, 0U, 8U); /* magenta: allocator/MMU/context */
+    } else if (fault_address < 0x00001f1aU) {
+        cyclone2_led_set_all(8U, 0U, 0U); /* red: task/list primitives */
+    } else if (fault_address < 0x00002108U) {
+        cyclone2_led_set_all(8U, 8U, 0U); /* yellow: queue send/mutex post */
+    } else if (fault_address < 0x00002212U) {
+        cyclone2_led_set_all(8U, 0U, 0U); /* red: xTaskIncrementTick */
+    } else if (fault_address < 0x00002304U) {
+        cyclone2_led_set_all(8U, 8U, 0U); /* yellow: xTaskResumeAll */
+    } else if (fault_address < 0x0000236cU) {
+        cyclone2_led_set_all(0U, 8U, 8U); /* cyan: prvUnlockQueue */
+    } else if (fault_address < 0x00002374U) {
+        cyclone2_led_set_all(8U, 0U, 0U); /* red: event-list entry/check */
+    } else if (fault_address < 0x00002386U) {
+        cyclone2_led_set_all(8U, 8U, 0U); /* yellow: CurrentTCB access */
+    } else if (fault_address < 0x00002390U) {
+        cyclone2_led_set_all(0U, 8U, 8U); /* cyan: vListInsert boundary */
+    } else if (fault_address < 0x00002398U) {
+        cyclone2_led_set_all(8U, 0U, 8U); /* magenta: delayed-list boundary */
+    } else if (fault_address < 0x000023a8U) {
+        cyclone2_led_set_all(0U, 0U, 8U); /* blue: assertion path */
+    } else if (fault_address < 0x00002444U) {
+        cyclone2_led_set_all(0U, 0U, 8U); /* blue: timeout check */
+    } else if (fault_address < 0x0000256aU) {
+        cyclone2_led_set_all(8U, 0U, 8U); /* magenta: switch/event removal */
+    } else if (fault_address < 0x00002886U) {
+        cyclone2_led_set_all(0U, 0U, 8U); /* blue: queue receive/mutex pend */
+    } else if (fault_address < 0x00002ee2U) {
+        cyclone2_led_set_all(8U, 8U, 8U); /* white: OS creation/wrappers */
+    } else if (fault_address < 0x0000355cU) {
+        cyclone2_led_set_all(0U, 8U, 0U); /* green: idle/ISR/GPIO code */
+    } else if (fault_address >= 0x01000000U) {
+        cyclone2_led_set_all(8U, 8U, 0U); /* yellow: other mapped flash */
+    } else {
+        cyclone2_led_set_all(8U, 8U, 8U); /* white: non-code/unknown */
+    }
+    hold_diagnostic();
+}
+
+/* First project checkpoint in the stock initcall dispatcher. */
 static int cyclone2_early_init_checkpoint(void)
 {
     disable_sdk_watchdog();
     cyclone2_led_initialize();
-    cyclone2_led_set_all(8U, 0U, 0U);
+    cyclone2_led_set_all(8U, 8U, 0U); /* yellow: early initcalls running */
+    return 0;
+}
+
+/* Reaching this entry proves all retained early initcalls returned under the
+ * stock sequencing. Runtime VFS is deliberately disabled for this controller. */
+static int cyclone2_platform_init_checkpoint(void)
+{
+    /* Earlier SDK initcalls may change a clock, SPI or DMA register after the
+     * yellow early marker was latched. Re-establish the LED transport so a
+     * retained yellow frame cannot masquerade as an early-init hang. */
+    cyclone2_led_initialize();
+
+    /* Blink rather than hold so success cannot be confused with the solid
+     * green exception-PC category. */
     for (;;) {
+        cyclone2_led_set_all(0U, 8U, 0U);
+        rom_mdelay(250U);
+        cyclone2_led_set_all(0U, 0U, 0U);
+        rom_mdelay(250U);
         wdt_clear();
-        rom_mdelay(100U);
     }
     return 0;
 }
 
 early_initcall(cyclone2_early_init_checkpoint);
+platform_initcall(cyclone2_platform_init_checkpoint);
 
 #define GPIO_PORT_A_BASE         0x001e5000U
 #define GPIO_PORT_B_BASE         0x001e5040U

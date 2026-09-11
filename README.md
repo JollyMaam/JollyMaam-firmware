@@ -8,7 +8,7 @@ platform sources.
 
 It does **not** include or build anything from the SDK's `apps/hid` project.
 The SDK dependency is currently limited to public headers, `cpu.a`, `system.a`,
-`cpu/br23/setup.c`, and `cpu/br23/charge.c`.
+`cpu/br23/setup.c`, `cpu/br23/charge.c`, and `cpu/br23/led_spi.c`.
 
 ## Current behavior
 
@@ -18,10 +18,16 @@ The SDK dependency is currently limited to public headers, `cpu.a`, `system.a`,
 - M (PB7) shows magenta for one second and calls the SDK's
   `power_set_soft_poweroff()`.
 - Home (PB11) is configured as the SDK soft-off wake pin.
-- The current diagnostic build stops in the first early initcall after setting
-  all eight LEDs dim red. It proves whether the scheduler and SDK `app_core`
-  task start before testing the filesystem, OTP, syscfg, application dispatch,
-  task creation, or M-button soft-off paths.
+- The stock initcall dispatcher is retained. Yellow marks the early-init phase;
+  blinking green proves all retained early initcalls returned and execution
+  reached the platform-init checkpoint. Runtime VFS/JLFS mounting is disabled:
+  the prebuilt `sdfile_new.c.o` scanner did not accept this packed application
+  layout. Three small helpers needed by VM/BTIF are supplied in `src/config.c`,
+  which prevents that object and its automatic `sdfile_init` initcall from
+  being linked. The build rejects any future image that restores that initcall.
+- The project overrides the release SDK's otherwise non-reporting
+  `exception_analyze()` while retaining its `startup.S` register-save entry.
+  Exceptions remain visible as a cause color followed by a saved-PC class.
 - During bring-up, the SDK's four-second watchdog is explicitly disabled after
   `sdk_setup_arch()` returns. Re-enable it only after the minimal idle path has
   been shown to clear it reliably.
@@ -100,13 +106,17 @@ Expected workspace dependencies:
 Run:
 
 ```sh
-./build.sh
+make
 ```
 
 Generated files remain under ignored `build/` and `dist/`. The build checks
 the linked `_start` address, constructs the BR23 load image, packs it into the
 known 3.52 container, unpacks it again, and compares the replacement and
-preserved files.
+preserved files. It also generates `build/app-disasm.lst`: a complete,
+searchable application disassembly with local/global symbols and available
+source-line annotations. The analysis copy is `dist/app-disasm.lst`; the legacy
+name `dist/sdk.lst` is retained for existing notes and tools. Useful narrower
+targets are `make elf`, `make analysis`, and `make verify`.
 
 ## First hardware test
 

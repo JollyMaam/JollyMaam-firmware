@@ -1,4 +1,5 @@
 #include "system/includes.h"
+#include "system/boot.h"
 #include "system/syscfg_id.h"
 
 /* Runtime configuration ABI for prebuilt cpu.a/system.a. Jieli's libraries
@@ -31,6 +32,34 @@ const int device_bulk_read_async_enable = 0;
 const int ENABLE_LUA_VIRTUAL_MACHINE = 0;
 const int CONFIG_CPU_UNMASK_IRQ_ENABLE = 2;
 const int set_to_close_timer0_delay = 0;
+
+/* cfg_btif.c needs this address conversion even when the runtime JLFS/VFS is
+ * disabled. The SDK's implementation is only these two BOOT_INFO fields, but
+ * lives in sdfile_new.c.o alongside the filesystem initcall. Keeping the
+ * conversion here avoids linking and executing that unrelated mount code. */
+u32 sdfile_cpu_addr2flash_addr(u32 cpu_address)
+{
+    return cpu_address - boot_info.sfc.app_addr + boot_info.sfc.sfc_base_addr;
+}
+
+/* vm.c also imports this tiny helper from the filesystem object. The startup
+ * code has already copied the same physical flash capacity into BOOT_INFO. */
+u32 sdfile_get_disk_capacity(void)
+{
+    return boot_info.flash_size;
+}
+
+/* The filesystem implementation normally builds an in-RAM table of protected
+ * JLFS file ranges. With JLFS disabled that table would remain empty, for
+ * which the SDK helper returns zero. Keep the same empty-table behavior while
+ * bringing up VM/syscfg; this is not an authorization for application-level
+ * arbitrary flash writes. */
+int sdfile_check_write_protect(u32 flash_address, u32 size)
+{
+    (void)flash_address;
+    (void)size;
+    return 0;
+}
 
 u16 update_result_get(void)
 {
