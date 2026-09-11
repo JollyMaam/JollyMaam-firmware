@@ -84,6 +84,34 @@ initializes the LEDs and blinks green.
   early LED operation, and the next experiments should bracket or replace
   pieces of `sdfile_init()` rather than copying unrelated Bluetooth configs.
 
+Result: completely dark. The early LED transport is not the cause.
+
+## 06 — instrumented `sdfile_init()` boundaries
+
+`06-sdfile-stage-trace.bin` restores the cyan early marker and wraps four
+external operations called by the vendor's otherwise unmodified, private
+`sdfile_init()`. Each wrapper leaves its color visible for 75 ms before the
+next stage proceeds:
+
+- red: entering `norflash_open()`
+- yellow: `norflash_open()` returned
+- green: `norflash_ioctl()` returned (it may appear more than once)
+- blue: `norflash_origin_read()` returned
+- magenta: entering `mount()`
+- white: `mount()` returned
+- blinking green: every remaining SDK initcall returned
+
+Report the complete color order and final steady color. If cyan remains, the
+failure precedes `norflash_open()`—most likely while locating `app_area_head`
+or scanning its child headers for `vm`. If magenta remains, the failure is in
+the generic VFS mount or the `sdfile` mount callback.
+
+The successful exact vendor test advertised as `AC695X_1(BLE)`. This name is
+not evidence of a BTIF override: the stock and SDK `cfg_tool.bin` files have
+the same SHA-256 and contain `AC695X_1` as their enabled default. The vendor
+`user_cfg.c` obtains `CFG_BT_NAME` through `syscfg_read()`, so seeing that name
+does prove the vendor application mounted and consumed the cfg-tool data.
+
 The vendor Linux post-build path is not authoritative as shipped: it invokes
 the script from the board directory even though the script expects `sdk.elf`
 in its current directory, then requires unavailable `/opt/utils/strip-ini`,

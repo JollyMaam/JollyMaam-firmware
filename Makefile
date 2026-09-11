@@ -8,6 +8,8 @@ MISC_TOOLS ?= /work/github.com-kagaimiq/jl-misctools
 PYTHON ?= /work/bin/python3
 VFS_ENABLE ?= 0
 C2_EXPERIMENT_DEFINES ?=
+C2_EXPERIMENT_LFLAGS ?=
+C2_EXTRA_PROJECT_SRCS ?=
 EXPECT_SDFILE_INIT ?= 0
 
 SUPPORTED_SDK_REVISIONS := fdc018de81629e21e594d677cf05f87d288be0f0 \
@@ -77,10 +79,12 @@ C2_TEST_VENDOR_DEBUG := $(C2_EXPERIMENT_DIST)/02-vendor-debug-blue-early.bin
 C2_TEST_MINIMAL_VFS := $(C2_EXPERIMENT_DIST)/03-minimal-vfs-cyan-early.bin
 C2_TEST_VENDOR_HID := $(C2_EXPERIMENT_DIST)/04-exact-vendor-hid.bin
 C2_TEST_VFS_NO_EARLY_LED := $(C2_EXPERIMENT_DIST)/05-vfs-no-early-led.bin
+C2_TEST_SDFILE_TRACE := $(C2_EXPERIMENT_DIST)/06-sdfile-stage-trace.bin
+$(warning C2_TEST_SDFILE_TRACE=$(C2_TEST_SDFILE_TRACE))
 C2_EXPERIMENT_HASHES := $(C2_EXPERIMENT_DIST)/SHA256SUMS
 C2_EXPERIMENT_IMAGES := $(C2_TEST_BASELINE) $(C2_TEST_VENDOR_DEBUG) \
 	$(C2_TEST_MINIMAL_VFS) $(C2_TEST_VENDOR_HID) \
-	$(C2_TEST_VFS_NO_EARLY_LED)
+	$(C2_TEST_VFS_NO_EARLY_LED) $(C2_TEST_SDFILE_TRACE)
 
 C2_VENDOR_HID_BUILD := $(C2_EXPERIMENT_BUILD)/04-vendor-hid
 C2_VENDOR_HID_ELF := $(C2_VENDOR_HID_BUILD)/sdk.elf
@@ -95,6 +99,7 @@ C2_PROJECT_SRCS := \
 	src/control.c \
 	src/main.c \
 	src/rom.c
+C2_PROJECT_SRCS += $(C2_EXTRA_PROJECT_SRCS)
 
 C2_EXPERIMENT_PROJECT_DEPS := Makefile mk/br23-sdk.mk \
 	$(C2_PROJECT_SRCS) src/app_config.h src/board.h src/app.ld \
@@ -120,7 +125,8 @@ C2_DEPFILES := $(addsuffix .d,$(C2_OBJS))
 C2_CONFIG_DEPS := Makefile mk/br23-sdk.mk src/app_config.h src/board.h
 
 C2_LFLAGS := $(SDK_LFLAGS) --plugin-opt=-used-symbol-file=$(C2_USED_LIST) \
-	--allow-multiple-definition -T$(C2_LD_SCRIPT) -M=$(C2_MAP)
+	--allow-multiple-definition -T$(C2_LD_SCRIPT) -M=$(C2_MAP) \
+	$(C2_EXPERIMENT_LFLAGS)
 
 .PHONY: all firmware elf analysis verify experiments clean
 
@@ -276,6 +282,20 @@ $(C2_TEST_VFS_NO_EARLY_LED): $(C2_EXPERIMENT_PROJECT_DEPS)
 		C2_EXPERIMENT_DEFINES='-DC2_USE_VENDOR_SDFILE=1 -DC2_EARLY_LED_ENABLE=0'
 	@mkdir -p "$(@D)"
 	$(QUIET)cp "$(C2_EXPERIMENT_BUILD)/05-vfs-no-early-led/dist/cyclone2-sdk-fw.bin" "$@"
+
+# Trace the externally visible stages used by system.a's private sdfile_init.
+# GNU-style linker wrapping lets the diagnostic observe calls without replacing
+# or editing the vendor library implementation.
+$(C2_TEST_SDFILE_TRACE): $(C2_EXPERIMENT_PROJECT_DEPS) src/sdfile_trace.c
+	$(QUIET)$(MAKE) --no-print-directory verify \
+		C2_BUILD="$(C2_EXPERIMENT_BUILD)/06-sdfile-stage-trace" \
+		C2_DIST="$(C2_EXPERIMENT_BUILD)/06-sdfile-stage-trace/dist" \
+		VFS_ENABLE=1 EXPECT_SDFILE_INIT=1 \
+		C2_EXTRA_PROJECT_SRCS=src/sdfile_trace.c \
+		C2_EXPERIMENT_LFLAGS='--wrap=norflash_open --wrap=norflash_ioctl --wrap=norflash_origin_read --wrap=mount' \
+		C2_EXPERIMENT_DEFINES='-DC2_USE_VENDOR_SDFILE=1 -DC2_EARLY_RED=0U -DC2_EARLY_GREEN=8U -DC2_EARLY_BLUE=8U'
+	@mkdir -p "$(@D)"
+	$(QUIET)cp "$(C2_EXPERIMENT_BUILD)/06-sdfile-stage-trace/dist/cyclone2-sdk-fw.bin" "$@"
 
 # Build the SDK's unmodified AC635N HID application with its own Makefile and
 # exact board/config sources, stopping before its unavailable proprietary
