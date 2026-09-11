@@ -76,9 +76,11 @@ C2_TEST_BASELINE := $(C2_EXPERIMENT_DIST)/01-baseline-green.bin
 C2_TEST_VENDOR_DEBUG := $(C2_EXPERIMENT_DIST)/02-vendor-debug-blue-early.bin
 C2_TEST_MINIMAL_VFS := $(C2_EXPERIMENT_DIST)/03-minimal-vfs-cyan-early.bin
 C2_TEST_VENDOR_HID := $(C2_EXPERIMENT_DIST)/04-exact-vendor-hid.bin
+C2_TEST_VFS_NO_EARLY_LED := $(C2_EXPERIMENT_DIST)/05-vfs-no-early-led.bin
 C2_EXPERIMENT_HASHES := $(C2_EXPERIMENT_DIST)/SHA256SUMS
 C2_EXPERIMENT_IMAGES := $(C2_TEST_BASELINE) $(C2_TEST_VENDOR_DEBUG) \
-	$(C2_TEST_MINIMAL_VFS) $(C2_TEST_VENDOR_HID)
+	$(C2_TEST_MINIMAL_VFS) $(C2_TEST_VENDOR_HID) \
+	$(C2_TEST_VFS_NO_EARLY_LED)
 
 C2_VENDOR_HID_BUILD := $(C2_EXPERIMENT_BUILD)/04-vendor-hid
 C2_VENDOR_HID_ELF := $(C2_VENDOR_HID_BUILD)/sdk.elf
@@ -262,6 +264,18 @@ $(C2_TEST_MINIMAL_VFS): $(C2_EXPERIMENT_PROJECT_DEPS)
 		C2_EXPERIMENT_DEFINES='-DC2_USE_VENDOR_SDFILE=1 -DC2_EARLY_RED=0U -DC2_EARLY_GREEN=8U -DC2_EARLY_BLUE=8U'
 	@mkdir -p "$(@D)"
 	$(QUIET)cp "$(C2_EXPERIMENT_BUILD)/03-minimal-vfs/dist/cyclone2-sdk-fw.bin" "$@"
+
+# Match experiment 03's VFS configuration, but do not initialize SPI1/DMA or
+# transmit an LED frame before sdfile_init reads the code flash. If this one
+# reaches blinking green, the early diagnostic itself was the confounder.
+$(C2_TEST_VFS_NO_EARLY_LED): $(C2_EXPERIMENT_PROJECT_DEPS)
+	$(QUIET)$(MAKE) --no-print-directory verify \
+		C2_BUILD="$(C2_EXPERIMENT_BUILD)/05-vfs-no-early-led" \
+		C2_DIST="$(C2_EXPERIMENT_BUILD)/05-vfs-no-early-led/dist" \
+		VFS_ENABLE=1 EXPECT_SDFILE_INIT=1 \
+		C2_EXPERIMENT_DEFINES='-DC2_USE_VENDOR_SDFILE=1 -DC2_EARLY_LED_ENABLE=0'
+	@mkdir -p "$(@D)"
+	$(QUIET)cp "$(C2_EXPERIMENT_BUILD)/05-vfs-no-early-led/dist/cyclone2-sdk-fw.bin" "$@"
 
 # Build the SDK's unmodified AC635N HID application with its own Makefile and
 # exact board/config sources, stopping before its unavailable proprietary

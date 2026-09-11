@@ -40,6 +40,10 @@ void debug_init(void)
 #define C2_PLATFORM_BLUE 0U
 #endif
 
+#ifndef C2_EARLY_LED_ENABLE
+#define C2_EARLY_LED_ENABLE 1
+#endif
+
 /* Keep this operation opaque to whole-program LTO. The optimizer otherwise
  * hoists wdt_close() ahead of sdk_setup_arch(), which subsequently enables
  * WDT_4S again. */
@@ -157,8 +161,10 @@ void exception_analyze(u32 *saved_registers)
 static int cyclone2_early_init_checkpoint(void)
 {
     disable_sdk_watchdog();
+#if C2_EARLY_LED_ENABLE
     cyclone2_led_initialize();
     cyclone2_led_set_all(C2_EARLY_RED, C2_EARLY_GREEN, C2_EARLY_BLUE);
+#endif
     return 0;
 }
 

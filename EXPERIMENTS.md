@@ -56,6 +56,34 @@ Interpretation:
 - If 02 fails independently, debug initialization is a second issue and must
   be isolated from the filesystem work.
 
+## Results from the first batch
+
+- 01: blinking green (known-good baseline).
+- 02: blinking green. The real SDK `debug_init()` is working and is no longer
+  a suspect.
+- 03: solid cyan without resetting. Execution entered the vendor initcall
+  sequence but did not reach the platform checkpoint.
+- 04: advertised as `AC695X_1(BLE)` and paired successfully. The exact vendor
+  SDK application therefore boots with the preserved stock Cyclone 2
+  container, JLFS layout, `isd_config`, and BTIF data.
+
+Together these results rule out a generally broken SDK and make the standalone
+project's retained initialization/configuration the problem. They do not yet
+prove precisely where `sdfile_init()` stops because experiment 03 also starts
+the SPI/DMA LED transport immediately before it.
+
+## 05 — VFS without the early LED transport
+
+`05-vfs-no-early-led.bin` is identical in purpose to experiment 03, except it
+does not initialize SPI1/DMA or transmit an LED frame before `sdfile_init()`.
+It stays dark during early initialization. If all initcalls return, it then
+initializes the LEDs and blinks green.
+
+- Blinking green means the early LED diagnostic disturbed the flash/VFS path.
+- Remaining dark or resetting means the VFS failure is independent of the
+  early LED operation, and the next experiments should bracket or replace
+  pieces of `sdfile_init()` rather than copying unrelated Bluetooth configs.
+
 The vendor Linux post-build path is not authoritative as shipped: it invokes
 the script from the board directory even though the script expects `sdk.elf`
 in its current directory, then requires unavailable `/opt/utils/strip-ini`,
