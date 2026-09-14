@@ -9,14 +9,14 @@ HOST_CFLAGS := -O2 -g -std=c11 -Wall -Wextra -Wpedantic
 
 CFLAGS := $(SDK_CFLAGS)
 DEFINES := $(SDK_DEFINES)
-INCLUDES := -Isrc -Isrc/config $(SDK_INCLUDES)
+INCLUDES := -Isrc -Iconfig $(SDK_INCLUDES)
 LFLAGS := $(SDK_LFLAGS)
 SDK_SOURCES := $(SDK_SOURCES_FULL)
 SDK_ARCHIVES := $(SDK_ARCHIVES_FULL)
 SDK_OBJECTS := $(subst $(SDK),out/sdk,$(SDK_SOURCES:.c=.c.o))
 DEPFILES := $(OBJECTS:.o=.c.d) $(SDK_OBJECTS:.o=.c.d)
 
-SOURCES := $(wildcard src/*.c src/config/*.c)
+SOURCES := $(wildcard src/*.c config/*.c)
 OBJECTS := $(addprefix out/,$(SOURCES:.c=.c.o)) $(SDK_OBJECTS)
 
 V?=0
@@ -63,20 +63,23 @@ out/app.elf: out/sdk.ld $(OBJECTS)
 	@echo [LD] $@
 	$(QUIET)$(LD) -o $@ $(OBJECTS) -Tout/sdk.ld -M=out/app.map $(SDK_LFLAGS) --start-group $(SDK_ARCHIVES) --end-group $(SDK_RUNTIME_LIBS)
 
-out/sdk.ld: $(SDK)/cpu/br23/sdk_ld.c src/config/app_config.h
+out/sdk.ld: $(SDK)/cpu/br23/sdk_ld.c config/app_config.h
 	$(compile_pre_build)
 
-out/sdk_used_list.used: $(SDK)/cpu/br23/sdk_used_list.c src/config/app_config.h
+out/sdk_used_list.used: $(SDK)/cpu/br23/sdk_used_list.c config/app_config.h
 	$(compile_pre_build)
 
-out/download.sh: $(SDK)/cpu/br23/tools/download.c src/config/app_config.h
+out/download.sh: $(SDK)/cpu/br23/tools/download.c config/app_config.h
 	$(compile_pre_build)
 
-out/isd_config.ini: $(SDK)/cpu/br23/tools/isd_config_rule.c src/config/app_config.h
+out/isd_config.ini: $(SDK)/cpu/br23/tools/isd_config_rule.c config/app_config.h
 	$(compile_pre_build)
 	$(QUIET)sed -i -e /^$$/d "$@"
 
 out/src/%.c.o: src/%.c
+	$(compile_c)
+
+out/config/%.c.o: config/%.c
 	$(compile_c)
 
 out/sdk/%.c.o: $(SDK)/%.c
