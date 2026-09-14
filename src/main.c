@@ -12,17 +12,6 @@
 #define CYCLONE2_APP_NAME "cyclone2"
 #define ACTION_CYCLONE2_MAIN 0x43593201
 
-/* First project checkpoint in the stock initcall dispatcher. */
-static int cyclone2_early_init_checkpoint(void)
-{
-    disable_sdk_watchdog();
-#if C2_EARLY_LED_ENABLE
-    cyclone2_led_initialize();
-    cyclone2_led_set_all(C2_EARLY_RED, C2_EARLY_GREEN, C2_EARLY_BLUE);
-#endif
-    return 0;
-}
-
 /* The SDK startup code discovers this table by symbol name. Applications add
  * named tasks here so task_create() can use fixed, auditable resources. */
 const struct task_info task_info_table[] = {
@@ -33,16 +22,11 @@ const struct task_info task_info_table[] = {
     {0, 0},
 };
 
-/* The SDK calls here after loading */
-void app_main(void)
+static void cyclone2_control_start(void)
 {
-    /* Bring-up checkpoint: prove that SDK startup reaches app_main without
-     * involving application dispatch or dynamic task creation. */
-    cyclone2_led_initialize();
-    cyclone2_led_set_all(8U, 0U, 0U);
-    for (;;) {
-        wdt_clear();
-        rom_mdelay(100U);
+    int error = task_create(cyclone2_control_task, NULL, "c2_control");
+    if (error) {
+        printf("cyclone2: failed to create control task: %d\n", error);
     }
 }
 
@@ -87,3 +71,14 @@ REGISTER_APPLICATION(cyclone2_application) = {
     .ops = &cyclone2_operations,
     .state = APP_STA_DESTROY,
 };
+
+/* The SDK calls here after loading */
+void app_main(void)
+{
+    struct intent it;
+    struct application *app;
+    init_intent(&it);
+    it.name = CYCLONE2_APP_NAME;
+    it.action = ACTION_CYCLONE2_MAIN;
+    start_app(&it);
+}

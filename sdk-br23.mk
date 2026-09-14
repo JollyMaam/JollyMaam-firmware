@@ -77,7 +77,7 @@ SDK_DEFINES := \
 	-DTIMER_POOL_NUM_CONFIG=10 \
 	-DUSB_PC_NO_APP_MODE \
 	-DUSE_SDFILE_NEW=1 \
-	-DVFS_ENABLE=1 \
+	-DVFS_ENABLE=0 \
 	-DVFS_FILE_POOL_NUM_CONFIG=0 \
 	-DVM_ITEM_MAX_NUM=256 \
 	-DVM_MAX_SIZE_CONFIG=16*1024 \
@@ -240,5 +240,4 @@ SDK_ARCHIVES_FULL := \
 	$(SDK)/cpu/br23/liba/lib_dns.a \
 	$(SDK)/cpu/br23/liba/lib_midi_dec.a \
 	$(SDK)/cpu/br23/liba/update.a \
-
 

@@ -83,4 +83,16 @@
 #define AUDIO_OUTPUT_WAY            AUDIO_OUTPUT_WAY_DAC
 #define LINEIN_INPUT_WAY            LINEIN_INPUT_WAY_ANALOG
 
+#if 0
+/* needed when building hid app */
+#define CONFIG_BT_GATT_COMMON_ENABLE       1 //配置使用gatt公共模块
+#define CONFIG_BT_SM_SUPPORT_ENABLE        1 //配置是否支持加密
+#define CONFIG_BT_GATT_CLIENT_NUM          0 //配置主机client个数(app not support)
+#define CONFIG_BT_GATT_SERVER_NUM          1 //配置从机server个数
+#define CONFIG_BT_GATT_CONNECTION_NUM      (CONFIG_BT_GATT_SERVER_NUM + CONFIG_BT_GATT_CLIENT_NUM)
+#include "board_config.h"
+#define CONFIG_BT_SM_SUPPORT_ENABLE 1
+#define TCFG_AUTO_SHUT_DOWN_TIME 0
+#endif
+
 #endif

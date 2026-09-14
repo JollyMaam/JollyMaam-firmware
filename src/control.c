@@ -27,7 +27,7 @@ static void led_power(u32 enabled)
     gpio_direction_output(CYCLONE2_LED_POWER, enabled ? 0 : 1);
 }
 
-void cyclone2_led_initialize(void)
+static void cyclone2_led_initialize(void)
 {
     led_power(0U);
     rom_mdelay(10U);
@@ -36,7 +36,7 @@ void cyclone2_led_initialize(void)
     rom_mdelay(20U);
 }
 
-void cyclone2_led_set_all(u8 red, u8 green, u8 blue)
+static void cyclone2_led_set_all(u8 red, u8 green, u8 blue)
 {
     u32 led;
 
@@ -47,7 +47,7 @@ void cyclone2_led_set_all(u8 red, u8 green, u8 blue)
     led_spi_send_rgbbuf(led_dma_buffer, LED_COUNT);
 }
 
-static void cyclone2_control_task(void *argument)
+void cyclone2_control_task(void *argument)
 {
     (void)argument;
 
@@ -57,13 +57,5 @@ static void cyclone2_control_task(void *argument)
     for (;;) {
         wdt_clear();
         os_time_dly(CONTROL_POLL_TICKS);
-    }
-}
-
-void cyclone2_control_start(void)
-{
-    int error = task_create(cyclone2_control_task, NULL, "c2_control");
-    if (error) {
-        printf("cyclone2: failed to create control task: %d\n", error);
     }
 }

@@ -1,4 +1,5 @@
 #include "system/includes.h"
+#include "system/boot.h"
 
 /* required by system.a (lib/system/printf/log.c) */
 const int config_printf_time = 0;
@@ -73,3 +74,32 @@ C2_DISABLED_LOG_TAG(TWS_LMP);
 C2_DISABLED_LOG_TAG(VM);
 C2_DISABLED_LOG_TAG(V_MEM);
 C2_DISABLED_LOG_TAG(WKUP);
+
+#if VFS_ENABLE==0
+/* VM and BTIF need these three helpers, but the SDK defines them in the same
+ * archive object as the runtime sdfile/VFS mount initcall. If VFS is disabled
+ * provide the small non-filesystem behavior directly instead of pulling that
+ * unrelated initcall into startup. */
+u32 sdfile_cpu_addr2flash_addr(u32 cpu_address)
+{
+    return cpu_address - boot_info.sfc.app_addr + boot_info.sfc.sfc_base_addr;
+}
+
+u32 sdfile_get_disk_capacity(void)
+{
+    return boot_info.flash_size;
+}
+
+int sdfile_check_write_protect(u32 flash_address, u32 size)
+{
+    (void)flash_address;
+    (void)size;
+    return 0;
+}
+#endif
+
+/* 1: endless sleep, 0: 100msec wakeup. ??? */
+int eSystemConfirmStopStatus(void)
+{
+    return 1;
+}

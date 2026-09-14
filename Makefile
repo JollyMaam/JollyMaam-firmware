@@ -27,6 +27,13 @@ else
 QUIET=@
 endif
 
+.PHONY: all default clean
+
+default all: $O/firmware.img
+
+# regenerate stuff if makefile or config changes
+$(OBJECTS) $O/sdk.ld $O/sdk_used_list.used: Makefile sdk-br23.mk config/app_config.h
+
 define compile_c
 	@mkdir -p $(@D)
 	@echo [CC] $<
@@ -51,26 +58,23 @@ $O/jlcfg: tools/jlcfg.c
 	@echo [EXE] $@
 	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) $< -o $@
 
-# does the same as download.sh
+# minimal version of download.sh
 $O/app.bin: $O/app.elf
 	@echo [BIN] $@
 	@mkdir -p $O/sections
-	@for i in text data; do $(OBJCOPY) -O binary -j .$$i $< $O/sections/$$i.bin; done
-	@for i in aec wav ape flac m4a amr dts fm mp3 wma; do $(OBJCOPY) -O binary -j .overlay_$$i $< $O/sections/$$i.bin; done
-	@cd $O/sections && cat text.bin data.bin aec.bin wav.bin ape.bin flac.bin m4a.bin amr.bin dts.bin fm.bin mp3.bin wma.bin > ../app.bin
+	$(QUIET)for i in text data; do $(OBJCOPY) -O binary -j .$$i $< $O/sections/$$i.bin; done
+	$(QUIET)for i in aec wav ape flac m4a amr dts fm mp3 wma; do $(OBJCOPY) -O binary -j .overlay_$$i $< $O/sections/$$i.bin; done
+	$(QUIET)cd $O/sections && cat text.bin data.bin aec.bin wav.bin ape.bin flac.bin m4a.bin amr.bin dts.bin fm.bin mp3.bin wma.bin > ../app.bin
 
-$O/app.elf: $O/sdk.ld $(OBJECTS)
+$O/app.elf: $O/sdk.ld $O/sdk_used_list.used $(OBJECTS)
 	@mkdir -p $(@D)
 	@echo [LD] $@
-	$(QUIET)$(LD) -o $@ $(OBJECTS) -T$O/sdk.ld -M=$O/app.map $(SDK_LFLAGS) --start-group $(SDK_ARCHIVES) --end-group $(SDK_RUNTIME_LIBS)
+	$(QUIET)$(LD) -o $@ $(OBJECTS) -T$O/sdk.ld -M=$O/app.map $(SDK_LFLAGS) --plugin-opt=-used-symbol-file=$O/sdk_used_list.used --start-group $(SDK_ARCHIVES) --end-group $(SDK_RUNTIME_LIBS)
 
 $O/sdk.ld: $(SDK)/cpu/br23/sdk_ld.c config/app_config.h
 	$(compile_pre_build)
 
 $O/sdk_used_list.used: $(SDK)/cpu/br23/sdk_used_list.c config/app_config.h
-	$(compile_pre_build)
-
-$O/download.sh: $(SDK)/cpu/br23/tools/download.c config/app_config.h
 	$(compile_pre_build)
 
 $O/isd_config.ini: $(SDK)/cpu/br23/tools/isd_config_rule.c config/app_config.h
