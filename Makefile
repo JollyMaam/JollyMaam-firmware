@@ -3,6 +3,11 @@ SDK := /work/github.com-Jieli-Tech/fw-AC63_BT_SDK
 TOOL_DIR := /work/jieli-linux-toolchains-20250324.1/pi32v2/bin
 PYTHON := /work/bin/python3
 
+# Start from an exact, locally owned copy of the SDK HID application.  The
+# "cyclone2" selection keeps the smaller experimental application available
+# while the vendor baseline is reduced in controlled steps.
+APPLICATION ?= vendor-hid
+
 include sdk-br23.mk
 
 HOST_CC := gcc
@@ -10,15 +15,76 @@ HOST_CFLAGS := -O2 -g -std=c11 -Wall -Wextra -Wpedantic
 
 CFLAGS := $(SDK_CFLAGS)
 DEFINES := $(SDK_DEFINES)
-INCLUDES := -Isrc -Iconfig $(SDK_INCLUDES)
 LFLAGS := $(SDK_LFLAGS)
-SDK_SOURCES := $(SDK_SOURCES_FULL)
 SDK_ARCHIVES := $(SDK_ARCHIVES_FULL)
-SDK_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_SOURCES:.c=.c.o))
-DEPFILES := $(OBJECTS:.o=.c.d) $(SDK_OBJECTS:.o=.c.d)
 
-SOURCES := $(wildcard src/*.c config/*.c)
-OBJECTS := $(addprefix $O/,$(SOURCES:.c=.c.o)) $(SDK_OBJECTS)
+ifeq ($(APPLICATION),vendor-hid)
+PROJECT_SOURCES := \
+	src/vendor_hid/app_main.c \
+	src/vendor_hid/board/br23/board_ac6351d_keyboard.c \
+	src/vendor_hid/board/br23/board_ac635n_demo.c \
+	src/vendor_hid/config/lib_btctrler_config.c \
+	src/vendor_hid/config/lib_btstack_config.c \
+	src/vendor_hid/config/lib_driver_config.c \
+	src/vendor_hid/config/lib_media_config.c \
+	src/vendor_hid/config/lib_profile_config.c \
+	src/vendor_hid/config/lib_system_config.c \
+	src/vendor_hid/config/lib_update_config.c \
+	src/vendor_hid/config/log_config.c \
+	src/vendor_hid/examples/gamebox/app_gamebox.c \
+	src/vendor_hid/examples/gamebox/gamebox.c \
+	src/vendor_hid/examples/gamebox/key_mapping.c \
+	src/vendor_hid/examples/idle/app_idle.c \
+	src/vendor_hid/examples/keyboard/app_keyboard.c \
+	src/vendor_hid/examples/keyfob/app_keyfob.c \
+	src/vendor_hid/examples/keypage/app_keypage.c \
+	src/vendor_hid/examples/mouse_dual/app_mouse_dual.c \
+	src/vendor_hid/examples/mouse_single/app_mouse.c \
+	src/vendor_hid/examples/standard_keyboard/app_standard_keyboard.c \
+	src/vendor_hid/examples/standard_keyboard/usb_hid_devices.c \
+	src/vendor_hid/examples/voice_remote_control/app_remote_control.c \
+	src/vendor_hid/examples/voice_remote_control/audio_codec_demo.c \
+	src/vendor_hid/modules/aec/br23/audio_aec.c \
+	src/vendor_hid/modules/bt/app_comm_ble.c \
+	src/vendor_hid/modules/bt/app_comm_edr.c \
+	src/vendor_hid/modules/bt/ble_hogp.c \
+	src/vendor_hid/modules/bt/edr_hid_user.c \
+	src/vendor_hid/modules/misc.c \
+	src/vendor_hid/modules/power/app_charge.c \
+	src/vendor_hid/modules/power/app_chargestore.c \
+	src/vendor_hid/modules/power/app_handshake.c \
+	src/vendor_hid/modules/power/app_power_manage.c \
+	src/vendor_hid/modules/rtc_alarm.c \
+	src/vendor_hid/modules/user_cfg.c \
+	src/vendor_hid/version.c
+INCLUDES := \
+	-Isrc/vendor_hid/include \
+	-Isrc/vendor_hid/board/br23 \
+	-Isrc/vendor_hid \
+	$(SDK_INCLUDES)
+SDK_SOURCES := $(SDK_COMMON_SOURCES_FULL) $(SDK_SOURCES_FULL)
+APP_CONFIG := src/vendor_hid/include/app_config.h
+APP_CONFIG_DEPS := \
+	$(wildcard src/vendor_hid/include/*.h) \
+	$(wildcard src/vendor_hid/board/br23/*.h) \
+	src/vendor_hid/board/br23/app.ld \
+	src/vendor_hid/board/br23/app_overlay.ld
+SDK_COMMON_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_COMMON_SOURCES_FULL:.c=.c.o))
+SDK_CPU_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_SOURCES_FULL:.c=.c.o))
+OBJECTS := $(SDK_COMMON_OBJECTS) $(addprefix $O/,$(PROJECT_SOURCES:.c=.c.o)) $(SDK_CPU_OBJECTS)
+else ifeq ($(APPLICATION),cyclone2)
+PROJECT_SOURCES := $(wildcard src/*.c config/*.c)
+INCLUDES := -Isrc -Iconfig $(SDK_INCLUDES)
+SDK_SOURCES := $(SDK_SOURCES_FULL)
+APP_CONFIG := config/app_config.h
+APP_CONFIG_DEPS := $(wildcard config/*.h config/*.ld)
+SDK_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_SOURCES:.c=.c.o))
+OBJECTS := $(addprefix $O/,$(PROJECT_SOURCES:.c=.c.o)) $(SDK_OBJECTS)
+else
+$(error unknown APPLICATION '$(APPLICATION)')
+endif
+
+DEPFILES := $(OBJECTS:.o=.c.d)
 
 V?=0
 ifneq ($(V),0)
@@ -32,7 +98,7 @@ endif
 default all: $O/firmware.img
 
 # regenerate stuff if makefile or config changes
-$(OBJECTS) $O/sdk.ld $O/sdk_used_list.used: Makefile sdk-br23.mk config/app_config.h
+$(OBJECTS) $O/sdk.ld $O/sdk_used_list.used: Makefile sdk-br23.mk $(APP_CONFIG_DEPS)
 
 define compile_c
 	@mkdir -p $(@D)
@@ -71,17 +137,20 @@ $O/app.elf: $O/sdk.ld $O/sdk_used_list.used $(OBJECTS)
 	@echo [LD] $@
 	$(QUIET)$(LD) -o $@ $(OBJECTS) -T$O/sdk.ld -M=$O/app.map $(SDK_LFLAGS) --plugin-opt=-used-symbol-file=$O/sdk_used_list.used --start-group $(SDK_ARCHIVES) --end-group $(SDK_RUNTIME_LIBS)
 
-$O/sdk.ld: $(SDK)/cpu/br23/sdk_ld.c config/app_config.h
+$O/sdk.ld: $(SDK)/cpu/br23/sdk_ld.c $(APP_CONFIG)
 	$(compile_pre_build)
 
-$O/sdk_used_list.used: $(SDK)/cpu/br23/sdk_used_list.c config/app_config.h
+$O/sdk_used_list.used: $(SDK)/cpu/br23/sdk_used_list.c $(APP_CONFIG)
 	$(compile_pre_build)
 
-$O/isd_config.ini: $(SDK)/cpu/br23/tools/isd_config_rule.c config/app_config.h
+$O/isd_config.ini: $(SDK)/cpu/br23/tools/isd_config_rule.c $(APP_CONFIG)
 	$(compile_pre_build)
 	$(QUIET)sed -i -e /^$$/d "$@"
 
 $O/src/%.c.o: src/%.c
+	$(compile_c)
+
+$O/src/vendor_hid/%.c.o: src/vendor_hid/%.c
 	$(compile_c)
 
 $O/config/%.c.o: config/%.c
