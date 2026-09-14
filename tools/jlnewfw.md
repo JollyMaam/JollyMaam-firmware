@@ -8,11 +8,10 @@ wrappers.
 ## Commands
 
 ```sh
-make -C firmware
-firmware/jlnewfw list firmware.img
-firmware/jlnewfw verify firmware.img
-firmware/jlnewfw unpack firmware.img output-directory
-firmware/jlnewfw pack -c isd_config.ini -u uboot.boot \
+jlnewfw list firmware.img
+jlnewfw verify firmware.img
+jlnewfw unpack firmware.img output-directory
+jlnewfw pack -c isd_config.ini -u uboot.boot \
     -o jl_isd.bin app.bin cfg_tool.bin
 ```
 
@@ -20,7 +19,10 @@ firmware/jlnewfw pack -c isd_config.ini -u uboot.boot \
 all `[SYS_CFG_PARAM]` values, derives the entry point and identity fields from
 `[EXTRA_CFG_PARAM]`, and implements the standard PRCT/VM/BTIF/key-mac layout
 from `[RESERVED_CONFIG]`. Numeric system values become little-endian 32-bit
-integers; other values become upper-case, NUL-terminated strings.
+integers; other values become upper-case strings without a terminating NUL.
+Pass `-s isd_config.bin` to use a blob compiled separately by `jlcfg`; the
+readable INI is still needed for flash layout fields. The image's scrambling
+key is then read from the compiled blob, and a conflicting `-k` is rejected.
 
 ## Flash layout
 

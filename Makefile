@@ -1,6 +1,5 @@
 SDK := /work/github.com-Jieli-Tech/fw-AC63_BT_SDK
 TOOL_DIR := /work/jieli-linux-toolchains-20250324.1/pi32v2/bin
-POST_TOOL_DIR := /work/jieli-linux-post-build-tools-20260908.1
 PYTHON := /work/bin/python3
 
 include sdk-br23.mk
@@ -41,9 +40,13 @@ endef
 
 out/firmware.img: out/isd_config.ini out/app.bin out/jlnewfw
 	@echo [FW] $@
-	$(QUIET)out/jlnewfw pack -c out/isd_config.ini -u $(SDK_UBOOT) -o $@ out/app.bin
+	$(QUIET)out/jlnewfw pack -c out/isd_config.ini -u $(SDK_UBOOT) -o $@ out/app.bin $(SDK_CONFIG_TOOL)
 
 out/jlnewfw: tools/jlnewfw.c
+	@echo [EXE] $@
+	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) $< -o $@
+
+out/jlcfg: tools/jlcfg.c
 	@echo [EXE] $@
 	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) $< -o $@
 
@@ -72,11 +75,6 @@ out/download.sh: $(SDK)/cpu/br23/tools/download.c src/config/app_config.h
 out/isd_config.ini: $(SDK)/cpu/br23/tools/isd_config_rule.c src/config/app_config.h
 	$(compile_pre_build)
 	$(QUIET)sed -i -e /^$$/d "$@"
-
-out/tools/%: $(POST_TOOL_DIR)/%
-	@mkdir -p $(@D)
-	@cp $< $@
-	@chmod +x $@
 
 out/src/%.c.o: src/%.c
 	$(compile_c)
