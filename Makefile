@@ -1,7 +1,12 @@
 SDK := /work/github.com-Jieli-Tech/fw-AC63_BT_SDK
 TOOL_DIR := /work/jieli-linux-toolchains-20250324.1/pi32v2/bin
+POST_TOOL_DIR := /work/jieli-linux-post-build-tools-20260908.1
+PYTHON := /work/bin/python3
 
 include sdk-br23.mk
+
+HOST_CC := gcc
+HOST_CFLAGS := -O2 -g -std=c11 -Wall -Wextra -Wpedantic
 
 CFLAGS := $(SDK_CFLAGS)
 DEFINES := $(SDK_DEFINES)
@@ -10,7 +15,6 @@ LFLAGS := $(SDK_LFLAGS)
 SDK_SOURCES := $(SDK_SOURCES_FULL)
 SDK_ARCHIVES := $(SDK_ARCHIVES_FULL)
 SDK_OBJECTS := $(subst $(SDK),out/sdk,$(SDK_SOURCES:.c=.c.o))
-SDK_PREBUILD := out/sdk.ld out/sdk_used_list.used out/isd_config.ini
 DEPFILES := $(OBJECTS:.o=.c.d) $(SDK_OBJECTS:.o=.c.d)
 
 SOURCES := $(wildcard src/*.c src/config/*.c)
@@ -35,24 +39,44 @@ define compile_pre_build
 	$(QUIET) $(CC) $(CFLAGS) $(DEFINES) $(INCLUDES) -D__LD__ -E -P $< -o $@
 endef
 
-app: out/app.elf
+out/firmware.img: out/isd_config.ini out/app.bin out/jlnewfw
+	@echo [FW] $@
+	$(QUIET)out/jlnewfw pack -c out/isd_config.ini -u $(SDK_UBOOT) -o $@ out/app.bin
+
+out/jlnewfw: tools/jlnewfw.c
+	@echo [EXE] $@
+	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) $< -o $@
+
+# does the same as download.sh
+out/app.bin: out/app.elf
+	@echo [BIN] $@
+	@mkdir -p out/sections
+	@for i in text data; do $(OBJCOPY) -O binary -j .$$i $< out/sections/$$i.bin; done
+	@for i in aec wav ape flac m4a amr dts fm mp3 wma; do $(OBJCOPY) -O binary -j .overlay_$$i $< out/sections/$$i.bin; done
+	@cd out/sections && cat text.bin data.bin aec.bin wav.bin ape.bin flac.bin m4a.bin amr.bin dts.bin fm.bin mp3.bin wma.bin > ../app.bin
 
 out/app.elf: out/sdk.ld $(OBJECTS)
 	@mkdir -p $(@D)
 	@echo [LD] $@
 	$(QUIET)$(LD) -o $@ $(OBJECTS) -Tout/sdk.ld -M=out/app.map $(SDK_LFLAGS) --start-group $(SDK_ARCHIVES) --end-group $(SDK_RUNTIME_LIBS)
 
-out/sdk.ld: $(SDK)/cpu/br23/sdk_ld.c
+out/sdk.ld: $(SDK)/cpu/br23/sdk_ld.c src/config/app_config.h
 	$(compile_pre_build)
 
-out/sdk_used_list.used: $(SDK)/cpu/br23/sdk_used_list.c
+out/sdk_used_list.used: $(SDK)/cpu/br23/sdk_used_list.c src/config/app_config.h
 	$(compile_pre_build)
 
-out/download.sh: $(SDK)/cpu/br23/tools/download.c
+out/download.sh: $(SDK)/cpu/br23/tools/download.c src/config/app_config.h
 	$(compile_pre_build)
 
-out/isd_config.ini: $(SDK)/cpu/br23/tools/isd_config_rule.c
+out/isd_config.ini: $(SDK)/cpu/br23/tools/isd_config_rule.c src/config/app_config.h
 	$(compile_pre_build)
+	$(QUIET)sed -i -e /^$$/d "$@"
+
+out/tools/%: $(POST_TOOL_DIR)/%
+	@mkdir -p $(@D)
+	@cp $< $@
+	@chmod +x $@
 
 out/src/%.c.o: src/%.c
 	$(compile_c)

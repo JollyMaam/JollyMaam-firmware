@@ -9,6 +9,8 @@ NM := $(TOOL_DIR)/nm
 SYS_LIB_DIR := $(TOOL_DIR)/../lib/r3
 SYS_INC_DIR := $(TOOL_DIR)/../include
 
+SDK_UBOOT := $(SDK)/cpu/br23/tools/uboot.boot
+SDK_CONFIG_TOOL := $(SDK)/cpu/br23/tools/cfg_tool.bin
 
 SDK_CFLAGS := \
 	-target pi32v2 \

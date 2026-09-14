@@ -17,6 +17,24 @@
 #define CONFIG_DOUBLE_BANK_ENABLE 0
 #define CONFIG_APP_OTA_ENABLE    0
 
+/* Native isd_download packaging policy. Keep the product identity and loader
+ * pins compatible with the stock Cyclone 2 image. */
+#define CONFIG_ONLY_GRENERATE_ALIGN_4K_CODE 1
+#define CONFIG_CHIP_NAME        AC635N
+#define CONFIG_PID              GS_C2_ADC_DEVICE
+#define CONFIG_VID              3.52
+#define CONFIG_PLL_SOURCE_USING_LRC 0
+#define ALIGN_UNIT_256B         0
+#define CONFIG_UBOOT_DEBUG_PIN  PB04
+#define CONFIG_RESET_PIN        PB01
+#define CONFIG_RESET_TIME       00
+#define CONFIG_RESET_LEVEL      0
+#define CONFIG_UPDATE_JUMP_TO_MASK 0
+#define CONFIG_VDDIO_LVD_LEVEL  4
+#define CONFIG_VM_LEAST_SIZE    8K
+#define CONFIG_VM_OPT           1
+#define CONFIG_BTIF_OPT         1
+
 /* Minimal platform clock/power policy consumed by cpu/br23/setup.c. */
 #define AUDIO_OUTPUT_WAY_DAC     0
 #define AUDIO_OUTPUT_WAY_FM      2
