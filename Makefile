@@ -29,7 +29,7 @@ endif
 
 define compile_c
 	@mkdir -p $(@D)
-	@echo [CC] $^
+	@echo [CC] $<
 	$(QUIET)$(CC) $(CFLAGS) $(DEFINES) $(INCLUDES) -MMD -MP -MF $@.d -c $< -o $@
 endef
 
