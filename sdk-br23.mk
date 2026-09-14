@@ -1,5 +1,7 @@
 # BR23 compiler ABI and library configuration extracted from the pinned Jieli
 # SDK. This project owns its targets and never includes a vendor app Makefile.
+#
+# Mostly copied from apps/hid/board/br23/Makefile
 
 CC := $(TOOL_DIR)/clang
 LD := $(TOOL_DIR)/lto-wrapper
