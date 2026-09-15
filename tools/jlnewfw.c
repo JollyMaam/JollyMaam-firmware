@@ -350,6 +350,8 @@ static void flash_header(uint8_t out[32], const struct config *c,
 static void cmd_pack(int argc, char **argv) {
   const char *ini = NULL, *uboot_path = NULL, *output = NULL;
   uint16_t chipkey = 0xffff;
+  uint32_t requested_flash_size = 0;
+  uint32_t requested_code_limit = 0;
   struct app_file files[MAX_FILES];
   size_t nf = 0;
   for (int i = 0; i < argc; i++) {
@@ -361,6 +363,10 @@ static void cmd_pack(int argc, char **argv) {
       output = argv[i];
     else if (!strcmp(argv[i], "-k") && ++i < argc)
       chipkey = (uint16_t)number(argv[i]);
+    else if (!strcmp(argv[i], "--flash-size") && ++i < argc)
+      requested_flash_size = number(argv[i]);
+    else if (!strcmp(argv[i], "--code-limit") && ++i < argc)
+      requested_code_limit = number(argv[i]);
     else if (argv[i][0] == '-')
       die("unknown pack option");
     else {
@@ -370,8 +376,9 @@ static void cmd_pack(int argc, char **argv) {
     }
   }
   if (!ini || !uboot_path || !output || !nf)
-    die("usage: jlnewfw pack -c isd_config.ini -u uboot.boot -o jl_isd.bin "
-        "app.bin [cfg_tool.bin ...]");
+    die("usage: jlnewfw pack [--flash-size SIZE] [--code-limit ADDRESS] "
+        "-c isd_config.ini "
+        "-u uboot.boot -o jl_isd.bin app.bin [cfg_tool.bin ...]");
   struct config c = {0};
   load_config(&c, ini);
   /* These are the layout modes understood below. Refuse rather than silently
@@ -413,19 +420,28 @@ static void cmd_pack(int argc, char **argv) {
   }
   uint32_t outer_size =
       cursor; /* cursor is already relative to the outer header */
-  uint32_t code_end = align_up(appbase + outer_size, 0x1000);
+  uint32_t image_end = align_up(appbase + outer_size, 0x1000);
+  uint32_t code_end = requested_code_limit ? requested_code_limit : image_end;
+  if ((code_end & 0xfff) || code_end < image_end)
+    die("code limit must be 4-KiB aligned and contain the application");
   uint32_t vm_len = number(cfg(&c, "RESERVED_CONFIG", "VM_LEN", "8K"));
   uint32_t btif_len = number(cfg(&c, "RESERVED_CONFIG", "BTIF_LEN", "0x1000"));
-  uint32_t total = next_pow2(code_end + vm_len + btif_len + 0x1000);
-  if (total < 0x20000)
+  uint32_t required = code_end + vm_len + btif_len + 0x1000;
+  uint32_t total = requested_flash_size ? requested_flash_size
+                                        : next_pow2(required);
+  if (!requested_flash_size && total < 0x20000)
     total = 0x20000;
+  if (total < required)
+    die("requested flash size is too small for code and reserved regions");
+  if (total & (total - 1))
+    die("flash size must be a power of two");
   uint32_t keymac = total - 0x1000, btif = keymac - btif_len, vm = code_end,
            flash_size = keymac;
   if (vm > btif)
     die("application does not fit reserved layout");
   struct blob image = {0};
-  reserve(&image, code_end);
-  image.n = code_end;
+  reserve(&image, image_end);
+  image.n = image_end;
   memset(image.p, 0xff, image.n);
   flash_header(image.p, &c, flash_size);
   uint32_t top_data = 32 + 4 * 32, uboot_off = top_data,
@@ -485,9 +501,9 @@ static void cmd_pack(int argc, char **argv) {
   for (unsigned i = 0; i < 4; i++)
     jl_enc(image.p + 32 + i * 32, 32, 0xffff);
   write_file(output, image.p, image.n);
-  printf("wrote %s: %zu bytes, app @0x%x, code end 0x%x, declared flash 0x%x "
-         "(total 0x%x)\n",
-         output, image.n, appbase, code_end, flash_size, total);
+  printf("wrote %s: %zu bytes, app @0x%x, image end 0x%x, code limit 0x%x, "
+         "declared flash 0x%x (total 0x%x)\n",
+         output, image.n, appbase, image_end, code_end, flash_size, total);
 }
 
 static void name_string(char out[17], const uint8_t raw[16]) {
@@ -712,8 +728,9 @@ static void inspect(const char *path, const char *outdir, bool extract) {
 
 static void usage(void) {
   puts("usage:\n  jlnewfw list IMAGE\n  jlnewfw verify IMAGE\n  jlnewfw unpack "
-       "IMAGE DIRECTORY\n  jlnewfw pack -c isd_config.ini -u uboot.boot -o "
-       "jl_isd.bin app.bin [cfg_tool.bin ...]");
+       "IMAGE DIRECTORY\n  jlnewfw pack [--flash-size SIZE] "
+       "[--code-limit ADDRESS] -c isd_config.ini "
+       "-u uboot.boot -o jl_isd.bin app.bin [cfg_tool.bin ...]");
 }
 int main(int argc, char **argv) {
   if (argc < 2) {

@@ -16,7 +16,8 @@
 #define CONFIG_DEBUG_ENABLE
 
 //app case 选择,只选1,要配置对应的board_config.h
-#define CONFIG_APP_KEYBOARD                 1//hid按键 ,default case
+#define CONFIG_APP_CYCLONE2                 1//Gamesir Cyclone 2
+#define CONFIG_APP_KEYBOARD                 0//hid按键 ,default case
 #define CONFIG_APP_KEYFOB                   0//自拍器,  board_ac6368a,board_6318,board_6379b
 #define CONFIG_APP_MOUSE_SINGLE             0//单模切换
 #define CONFIG_APP_MOUSE_DUAL               0//同时开双模
@@ -59,6 +60,18 @@
 #define TCFG_MEDIA_LIB_USE_MALLOC		    1
 
 #include "board_config.h"
+
+/* The first Cyclone 2 application supports HOGP only.  Do this after the
+ * vendor board header so the application, rather than the demo board, owns
+ * the transport selection. */
+#if CONFIG_APP_CYCLONE2
+#undef TCFG_USER_EDR_ENABLE
+#define TCFG_USER_EDR_ENABLE                    0
+#undef USER_SUPPORT_PROFILE_HID
+#define USER_SUPPORT_PROFILE_HID                0
+#undef USER_SUPPORT_PROFILE_PNP
+#define USER_SUPPORT_PROFILE_PNP                0
+#endif
 
 #include "usb_common_def.h"
 
@@ -214,4 +227,3 @@
 //#define DEV_UPDATE_SUPPORT_JUMP           //目前只有br23\br25支持
 #endif
 #endif
-

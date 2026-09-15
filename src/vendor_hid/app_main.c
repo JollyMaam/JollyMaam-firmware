@@ -20,7 +20,6 @@
 #include "app_charge.h"
 #include "app_power_manage.h"
 #include "asm/charge.h"
-#include "control.h"
 
 
 #if TCFG_KWS_VOICE_RECOGNITION_ENABLE
@@ -115,11 +114,6 @@ void app_main()
 {
     struct intent it;
 
-    /* Cyclone 2 board proof: keep Bluetooth behavior unchanged, but make it
-     * immediately visible that this application reached app_main(). */
-    cyclone2_led_initialize();
-    cyclone2_led_set_all(8, 0, 0);
-
     if (!UPDATE_SUPPORT_DEV_IS_NULL()) {
         int update = 0;
         update = update_result_deal();
@@ -152,7 +146,10 @@ void app_main()
 
     init_intent(&it);
 
-#if(CONFIG_APP_KEYBOARD)
+#if(CONFIG_APP_CYCLONE2)
+    it.name = "cyclone2";
+    it.action = ACTION_CYCLONE2;
+#elif(CONFIG_APP_KEYBOARD)
     it.name = "hid_key";
     it.action = ACTION_HID_MAIN;
 #elif (CONFIG_APP_MOUSE_SINGLE)

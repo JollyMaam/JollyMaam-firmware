@@ -2,6 +2,8 @@ O := out
 SDK := /work/github.com-Jieli-Tech/fw-AC63_BT_SDK
 TOOL_DIR := /work/jieli-linux-toolchains-20250324.1/pi32v2/bin
 PYTHON := /work/bin/python3
+FLASH_SIZE := 0x80000
+CODE_LIMIT := 0x3e000
 
 # Start from an exact, locally owned copy of the SDK HID application.  The
 # "cyclone2" selection keeps the smaller experimental application available
@@ -57,6 +59,7 @@ PROJECT_SOURCES := \
 	src/vendor_hid/modules/rtc_alarm.c \
 	src/vendor_hid/modules/user_cfg.c \
 	src/vendor_hid/version.c \
+	src/cyclone2/app.c \
 	src/control.c \
 	src/rom.c
 INCLUDES := \
@@ -117,7 +120,7 @@ endef
 
 $O/firmware.img: $O/isd_config.ini $O/app.bin $O/jlnewfw
 	@echo [FW] $@
-	$(QUIET)$O/jlnewfw pack -c $O/isd_config.ini -u $(SDK_UBOOT) -o $@ $O/app.bin $(SDK_CONFIG_TOOL)
+	$(QUIET)$O/jlnewfw pack --flash-size $(FLASH_SIZE) --code-limit $(CODE_LIMIT) -c $O/isd_config.ini -u $(SDK_UBOOT) -o $@ $O/app.bin $(SDK_CONFIG_TOOL)
 
 $O/jlnewfw: tools/jlnewfw.c
 	@echo [EXE] $@
