@@ -3,6 +3,7 @@
 #include "asm/clock.h"
 
 #include "board.h"
+#include "control.h"
 #include "cyclone2/input.h"
 
 #define STICK_UART_BAUD             1000000U
@@ -25,12 +26,19 @@
 #define TRIGGER_TRAVEL_NUMERATOR    3U
 #define TRIGGER_TRAVEL_DENOMINATOR  4U
 
+enum stick_receive_status {
+    STICK_RECEIVE_NO_BYTES,
+    STICK_RECEIVE_BAD_FRAMES,
+    STICK_RECEIVE_VALID_FRAMES,
+};
+
 static u8 stick_frame[STICK_UART_FRAME_SIZE];
 static u8 stick_frame_length;
 static u16 stick_left_x = 0x8000U;
 static u16 stick_left_y = 0x8000U;
 static u16 stick_right_x = 0x8000U;
 static u16 stick_right_y = 0x8000U;
+static enum stick_receive_status stick_receive_status;
 static u16 trigger_l2_rest;
 static u16 trigger_r2_rest;
 
@@ -113,6 +121,11 @@ static void stick_accept_frame(const u8 *frame)
 {
     u16 value = ((u16)frame[1] << 8) | frame[2];
 
+    if (stick_receive_status != STICK_RECEIVE_VALID_FRAMES) {
+        stick_receive_status = STICK_RECEIVE_VALID_FRAMES;
+        cyclone2_led_set_all(0U, 8U, 0U);
+    }
+
     switch (frame[0]) {
     case STICK_TAG_LEFT_X:
         stick_left_x = value;
@@ -167,6 +180,10 @@ static void stick_uart_drain(void)
          captured < STICK_UART_CAPTURE_BYTES;
          iterations++) {
         if (JL_UART2->CON0 & UART_RX_PENDING) {
+            if (stick_receive_status == STICK_RECEIVE_NO_BYTES) {
+                stick_receive_status = STICK_RECEIVE_BAD_FRAMES;
+                cyclone2_led_set_all(8U, 8U, 0U);
+            }
             stick_consume_byte((u8)JL_UART2->BUF);
             JL_UART2->CON0 |= UART_RX_PENDING_CLEAR;
             __asm__ volatile("csync");
@@ -183,11 +200,10 @@ static void stick_uart_initialize(void)
 
     JL_UART2->CON0 = UART_TX_PENDING_CLEAR | UART_RX_PENDING_CLEAR |
                      UART_TIMEOUT_PENDING_CLEAR;
-    gpio_set_pull_down(CYCLONE2_STICK_UART_RX, 0);
-    gpio_set_pull_up(CYCLONE2_STICK_UART_RX, 1);
-    gpio_set_die(CYCLONE2_STICK_UART_RX, 1);
-    gpio_direction_input(CYCLONE2_STICK_UART_RX);
-    gpio_uart_rx_input(CYCLONE2_STICK_UART_RX, 2U, INPUT_CH2);
+    gpio_set_uart2(0U);
+    /* Channel zero pairs PA3 RX with PA2 TX. The sensor only transmits, so
+     * restore PA2 as d-pad up after enabling the exact proven UART route. */
+    configure_active_low_input(CYCLONE2_DPAD_UP);
     JL_UART2->BAUD = divisor;
     JL_UART2->CON0 = UART_TX_PENDING_CLEAR | UART_RX_PENDING_CLEAR |
                      UART_TIMEOUT_PENDING_CLEAR | UART_ENABLE;
@@ -298,10 +314,22 @@ void cyclone2_input_read(struct cyclone2_input_report *report)
     }
 
     report->hat = read_hat();
-    report->left_x = stick_axis_to_report(stick_left_x, 0);
-    report->left_y = stick_axis_to_report(stick_left_y, 0);
-    report->right_x = stick_axis_to_report(stick_right_x, 1);
-    report->right_y = stick_axis_to_report(stick_right_y, 1);
+    if (stick_receive_status == STICK_RECEIVE_NO_BYTES) {
+        report->left_x = 0x00U;
+        report->left_y = 0x00U;
+        report->right_x = 0x80U;
+        report->right_y = 0x80U;
+    } else if (stick_receive_status == STICK_RECEIVE_BAD_FRAMES) {
+        report->left_x = 0x40U;
+        report->left_y = 0x40U;
+        report->right_x = 0x80U;
+        report->right_y = 0x80U;
+    } else {
+        report->left_x = stick_axis_to_report(stick_left_x, 0);
+        report->left_y = stick_axis_to_report(stick_left_y, 0);
+        report->right_x = stick_axis_to_report(stick_right_x, 1);
+        report->right_y = stick_axis_to_report(stick_right_y, 1);
+    }
     report->left_trigger = trigger_to_report(
         adc_get_value(CYCLONE2_TRIGGER_L2_ADC_CHANNEL), &trigger_l2_rest);
     report->right_trigger = trigger_to_report(
