@@ -4,18 +4,22 @@
 #include "btstack/avctp_user.h"
 #include "btstack/btstack_task.h"
 #include "le_common.h"
+#include "le_gatt_common.h"
+#include "ble_hogp_profile.h"
 
 #include "app_action.h"
 #include "app_comm_bt.h"
 #include "app_config.h"
 #include "control.h"
+#include "cyclone2/input.h"
 
 #if CONFIG_APP_CYCLONE2
 
 #define CYCLONE2_REPORT_ID              1U
 #define CYCLONE2_CLEAR_BOND_ON_BOOT      0
-#define CYCLONE2_REPORT_PERIOD_MS        100U
-#define CYCLONE2_REPORT_WARMUP_TICKS     30U
+#define CYCLONE2_REPORT_PERIOD_MS        10U
+#define CYCLONE2_CCC_WARMUP_TICKS        10U
+#define CYCLONE2_DEBOUNCE_SAMPLES        2U
 
 /* Report 1: sixteen buttons, four unsigned stick axes, and two unsigned
  * analog triggers.  The report ID is passed separately to the SDK API. */
@@ -35,6 +39,17 @@ static const u8 cyclone2_hid_report_map[] = {
     0x81, 0x02,             /* Input (Data, Variable, Absolute) */
 
     0x05, 0x01,             /* Usage Page (Generic Desktop) */
+    0x09, 0x39,             /* Usage (Hat Switch) */
+    0x15, 0x00,             /* Logical Minimum (0) */
+    0x25, 0x07,             /* Logical Maximum (7) */
+    0x75, 0x04,             /* Report Size (4) */
+    0x95, 0x01,             /* Report Count (1) */
+    0x81, 0x42,             /* Input (Data, Variable, Absolute, Null) */
+    0x75, 0x04,             /* Report Size (4) */
+    0x95, 0x01,             /* Report Count (1) */
+    0x81, 0x01,             /* Input (Constant) */
+
+    0x05, 0x01,             /* Usage Page (Generic Desktop) */
     0x15, 0x00,             /* Logical Minimum (0) */
     0x26, 0xff, 0x00,       /* Logical Maximum (255) */
     0x75, 0x08,             /* Report Size (8) */
@@ -49,16 +64,6 @@ static const u8 cyclone2_hid_report_map[] = {
     0xc0,                   /* End Collection */
 };
 
-struct cyclone2_input_report {
-    u16 buttons;
-    u8 left_x;
-    u8 left_y;
-    u8 right_x;
-    u8 right_y;
-    u8 left_trigger;
-    u8 right_trigger;
-} __attribute__((packed));
-
 static const ble_init_cfg_t cyclone2_ble_config = {
     .same_address = 0,
     .appearance = BLE_APPEARANCE_HID_GAMEPAD,
@@ -71,19 +76,13 @@ static const u8 cyclone2_pnp_id[] = {
     0x02, 0x37, 0x35, 0x75, 0x05, 0x00, 0x01,
 };
 
-static struct cyclone2_input_report test_report = {
-    .buttons = 0,
-    .left_x = 0x80,
-    .left_y = 0x80,
-    .right_x = 0x80,
-    .right_y = 0x80,
-    .left_trigger = 0,
-    .right_trigger = 0,
-};
-
 static u16 report_timer;
-static u8 connection_ticks;
-static int sweep_step = 4;
+static u8 ccc_ticks;
+static u8 debounce_samples;
+static u8 report_sent;
+static struct cyclone2_input_report candidate_report;
+static struct cyclone2_input_report current_report;
+static struct cyclone2_input_report sent_report;
 
 extern void bt_pll_para(u32 osc, u32 sys, u8 low_power, u8 xosc);
 extern void le_hogp_set_PNP_info(const u8 *information);
@@ -94,32 +93,48 @@ extern int ble_hid_data_send(u8 report_id, u8 *data, u16 length);
 
 static void cyclone2_send_test_report(void *private_data)
 {
-    int next;
+    struct cyclone2_input_report sample;
+    u16 connection_handle;
 
     (void)private_data;
 
-    if (!ble_hid_is_connected()) {
-        connection_ticks = 0;
-        test_report.left_x = 0x80;
-        sweep_step = 4;
+    cyclone2_input_read(&sample);
+    if (memcmp(&sample, &candidate_report, sizeof(sample))) {
+        candidate_report = sample;
+        debounce_samples = 1;
+    } else if (debounce_samples < CYCLONE2_DEBOUNCE_SAMPLES) {
+        debounce_samples++;
+        if (debounce_samples == CYCLONE2_DEBOUNCE_SAMPLES) {
+            current_report = candidate_report;
+        }
+    }
+
+    connection_handle = ble_hid_is_connected();
+    if (!connection_handle ||
+        !ble_gatt_server_characteristic_ccc_get(
+            connection_handle,
+            ATT_CHARACTERISTIC_2a4d_01_CLIENT_CONFIGURATION_HANDLE)) {
+        ccc_ticks = 0;
+        report_sent = 0;
         return;
     }
 
-    if (connection_ticks < CYCLONE2_REPORT_WARMUP_TICKS) {
-        connection_ticks++;
+    if (ccc_ticks < CYCLONE2_CCC_WARMUP_TICKS) {
+        ccc_ticks++;
         return;
     }
 
-    next = test_report.left_x + sweep_step;
-    if (next >= 0xf0 || next <= 0x10) {
-        sweep_step = -sweep_step;
-        next = test_report.left_x + sweep_step;
+    if (report_sent &&
+        !memcmp(&current_report, &sent_report, sizeof(current_report))) {
+        return;
     }
-    test_report.left_x = next;
 
-    ble_hid_data_send(CYCLONE2_REPORT_ID,
-                      (u8 *)&test_report,
-                      sizeof(test_report));
+    if (ble_hid_data_send(CYCLONE2_REPORT_ID,
+                          (u8 *)&current_report,
+                          sizeof(current_report)) >= 0) {
+        sent_report = current_report;
+        report_sent = 1;
+    }
 }
 
 static void cyclone2_start(void)
@@ -128,6 +143,10 @@ static void cyclone2_start(void)
 
     cyclone2_led_initialize();
     cyclone2_led_set_all(8, 0, 0);
+    cyclone2_input_initialize();
+    cyclone2_input_read(&candidate_report);
+    current_report = candidate_report;
+    debounce_samples = CYCLONE2_DEBOUNCE_SAMPLES;
 
     clk_set("sys", BT_NORMAL_HZ);
     system_clock = clk_get("sys");

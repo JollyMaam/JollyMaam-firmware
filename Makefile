@@ -60,12 +60,14 @@ PROJECT_SOURCES := \
 	src/vendor_hid/modules/user_cfg.c \
 	src/vendor_hid/version.c \
 	src/cyclone2/app.c \
+	src/cyclone2/input.c \
 	src/control.c \
 	src/rom.c
 INCLUDES := \
 	-Isrc \
 	-Isrc/vendor_hid/include \
 	-Isrc/vendor_hid/board/br23 \
+	-Isrc/vendor_hid/modules/bt \
 	-Isrc/vendor_hid \
 	$(SDK_INCLUDES)
 SDK_SOURCES := $(SDK_COMMON_SOURCES_FULL) $(SDK_SOURCES_FULL)
