@@ -92,7 +92,7 @@ else
 $(error unknown APPLICATION '$(APPLICATION)')
 endif
 
-DEPFILES := $(OBJECTS:.o=.c.d)
+DEPFILES := $(addsuffix .d,$(OBJECTS))
 
 V?=0
 ifneq ($(V),0)
