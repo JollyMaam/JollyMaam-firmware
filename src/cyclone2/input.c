@@ -1,12 +1,11 @@
 #include "asm/gpio.h"
 #include "asm/br23.h"
-#include "asm/clock.h"
 
 #include "board.h"
 #include "control.h"
 #include "cyclone2/input.h"
 
-#define STICK_UART_BAUD             1000000U
+#define STICK_UART_DIVISOR          24U
 #define STICK_UART_FRAME_SIZE       4U
 #define STICK_UART_CAPTURE_BYTES    32U
 #define STICK_UART_POLL_ITERATIONS  200000U
@@ -194,17 +193,16 @@ static void stick_uart_drain(void)
 
 static void stick_uart_initialize(void)
 {
-    u32 uart_clock = clk_get("uart");
-    u32 divisor = ((uart_clock + STICK_UART_BAUD / 2U) /
-                   STICK_UART_BAUD) / 4U - 1U;
-
     JL_UART2->CON0 = UART_TX_PENDING_CLEAR | UART_RX_PENDING_CLEAR |
                      UART_TIMEOUT_PENDING_CLEAR;
     gpio_set_uart2(0U);
     /* Channel zero pairs PA3 RX with PA2 TX. The sensor only transmits, so
      * restore PA2 as d-pad up after enabling the exact proven UART route. */
     configure_active_low_input(CYCLONE2_DPAD_UP);
-    JL_UART2->BAUD = divisor;
+    /* Divider 24 is measured working on this board. clk_get("uart") reports
+     * 24 MHz here, but deriving a nominal 1-Mbaud divider from that value
+     * produced bytes with no CRC-valid frames. */
+    JL_UART2->BAUD = STICK_UART_DIVISOR;
     JL_UART2->CON0 = UART_TX_PENDING_CLEAR | UART_RX_PENDING_CLEAR |
                      UART_TIMEOUT_PENDING_CLEAR | UART_ENABLE;
 }
