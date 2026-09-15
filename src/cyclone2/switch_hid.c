@@ -165,6 +165,27 @@ static void fill_factory_stick_calibration(u8 output[18])
     pack_pair(output + 15, 0x600U, 0x600U);
 }
 
+static void read_virtual_spi(u32 address, u8 length, u8 *output)
+{
+    u8 factory_calibration[18];
+    u32 offset;
+    u32 copy_length;
+
+    /* Unimplemented regions read as erased flash. In particular, this keeps
+     * the user-calibration magic at 0x8010/0x801b unset. */
+    memset(output, 0xff, length);
+
+    if (address >= 0x603dU && address < 0x604fU) {
+        fill_factory_stick_calibration(factory_calibration);
+        offset = address - 0x603dU;
+        copy_length = 18U - offset;
+        if (copy_length > length) {
+            copy_length = length;
+        }
+        memcpy(output, factory_calibration + offset, copy_length);
+    }
+}
+
 static void reply_subcommand(u8 subcommand, const u8 *request, u16 request_size)
 {
     u8 reply[SWITCH_FULL_PAYLOAD_SIZE];
@@ -204,9 +225,11 @@ static void reply_subcommand(u8 subcommand, const u8 *request, u16 request_size)
             u8 length = request[4];
             memcpy(data, request, 5);
             memset(data + 5, 0xff, 29);
-            if (address == 0x603dU && length == 18U) {
-                fill_factory_stick_calibration(data + 5);
+            if (length > 29U) {
+                length = 29U;
+                data[4] = length;
             }
+            read_virtual_spi(address, length, data + 5);
         }
         break;
     case SWITCH_SUBCOMMAND_PLAYER_LIGHTS:

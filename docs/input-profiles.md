@@ -44,7 +44,8 @@ Nintendo's VID/PID. It currently implements:
 - simple (`0x3f`) and full (`0x30`) input reports;
 - `0x21` acknowledgements for device-info, report-mode, SPI-read, player-light,
   home-light, IMU, and vibration subcommands;
-- virtual factory stick calibration at SPI address `0x603d`;
+- virtual factory stick calibration at SPI addresses `0x603d` (left) and
+  `0x6046` (right), including partial-range reads;
 - the Nintendo Pro Controller PnP identity (`057e:2009`).
 
 The original Pro Controller packet has no rear-paddle fields, so L4 and R4 are
