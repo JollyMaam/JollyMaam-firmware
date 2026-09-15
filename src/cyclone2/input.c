@@ -10,11 +10,21 @@
 #define STICK_UART_CAPTURE_BYTES    32U
 #define STICK_UART_POLL_ITERATIONS  200000U
 
-/* Live sensor endpoints are roughly 0x1600..0x6600 with a 0x4000 center.
- * Keep these explicit until EEPROM/user calibration replaces them. */
-#define STICK_RAW_MINIMUM           0x1600U
-#define STICK_RAW_CENTER            0x4000U
-#define STICK_RAW_MAXIMUM           0x6600U
+/* Live sensor endpoints with a nominal 0x4000 center. Vertical low endpoints
+ * differ slightly on this unit. Keep these explicit until EEPROM/user
+ * calibration replaces them. */
+#define STICK_LX_RAW_MINIMUM        0x1600U
+#define STICK_LX_RAW_CENTER         0x4000U
+#define STICK_LX_RAW_MAXIMUM        0x6600U
+#define STICK_LY_RAW_MINIMUM        0x1850U
+#define STICK_LY_RAW_CENTER         0x4000U
+#define STICK_LY_RAW_MAXIMUM        0x6600U
+#define STICK_RX_RAW_MINIMUM        0x1600U
+#define STICK_RX_RAW_CENTER         0x4000U
+#define STICK_RX_RAW_MAXIMUM        0x6600U
+#define STICK_RY_RAW_MINIMUM        0x1a40U
+#define STICK_RY_RAW_CENTER         0x4000U
+#define STICK_RY_RAW_MAXIMUM        0x6600U
 
 #define UART_ENABLE                 (1U << 0)
 #define UART_TIMEOUT_PENDING_CLEAR  (1U << 10)
@@ -213,18 +223,18 @@ static void stick_uart_initialize(void)
                      UART_TIMEOUT_PENDING_CLEAR | UART_ENABLE;
 }
 
-static u8 stick_axis_to_report(u16 value, int invert)
+static u8 stick_axis_to_report(u16 value, u16 minimum, u16 center,
+                               u16 maximum, int invert)
 {
     u32 result;
 
-    if (value <= STICK_RAW_MINIMUM) {
+    if (value <= minimum) {
         result = 0U;
-    } else if (value < STICK_RAW_CENTER) {
-        result = ((u32)value - STICK_RAW_MINIMUM) * 128U /
-                 (STICK_RAW_CENTER - STICK_RAW_MINIMUM);
-    } else if (value < STICK_RAW_MAXIMUM) {
-        result = 128U + ((u32)value - STICK_RAW_CENTER) * 127U /
-                        (STICK_RAW_MAXIMUM - STICK_RAW_CENTER);
+    } else if (value < center) {
+        result = ((u32)value - minimum) * 128U / (center - minimum);
+    } else if (value < maximum) {
+        result = 128U + ((u32)value - center) * 127U /
+                        (maximum - center);
     } else {
         result = 0xffU;
     }
@@ -341,10 +351,18 @@ void cyclone2_input_read(struct cyclone2_input_report *report)
         report->right_x = 0x80U;
         report->right_y = 0x80U;
     } else {
-        report->left_x = stick_axis_to_report(stick_left_x, 0);
-        report->left_y = stick_axis_to_report(stick_left_y, 0);
-        report->right_x = stick_axis_to_report(stick_right_x, 1);
-        report->right_y = stick_axis_to_report(stick_right_y, 1);
+        report->left_x = stick_axis_to_report(
+            stick_left_x, STICK_LX_RAW_MINIMUM, STICK_LX_RAW_CENTER,
+            STICK_LX_RAW_MAXIMUM, 0);
+        report->left_y = stick_axis_to_report(
+            stick_left_y, STICK_LY_RAW_MINIMUM, STICK_LY_RAW_CENTER,
+            STICK_LY_RAW_MAXIMUM, 0);
+        report->right_x = stick_axis_to_report(
+            stick_right_x, STICK_RX_RAW_MINIMUM, STICK_RX_RAW_CENTER,
+            STICK_RX_RAW_MAXIMUM, 1);
+        report->right_y = stick_axis_to_report(
+            stick_right_y, STICK_RY_RAW_MINIMUM, STICK_RY_RAW_CENTER,
+            STICK_RY_RAW_MAXIMUM, 1);
     }
     report->left_trigger = trigger_to_report(
         adc_get_value(CYCLONE2_TRIGGER_L2_ADC_CHANNEL), &trigger_l2_rest);
