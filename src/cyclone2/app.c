@@ -6,12 +6,14 @@
 #include "le_common.h"
 #include "le_gatt_common.h"
 #include "ble_hogp_profile.h"
+#include "edr_hid_user.h"
 
 #include "app_action.h"
 #include "app_comm_bt.h"
 #include "app_config.h"
 #include "control.h"
 #include "cyclone2/input.h"
+#include "cyclone2/switch_hid.h"
 
 #if CONFIG_APP_CYCLONE2
 
@@ -64,6 +66,7 @@ static const u8 cyclone2_hid_report_map[] = {
     0xc0,                   /* End Collection */
 };
 
+#if !CYCLONE2_BT_SWITCH
 static const ble_init_cfg_t cyclone2_ble_config = {
     .same_address = 0,
     .appearance = BLE_APPEARANCE_HID_GAMEPAD,
@@ -75,6 +78,20 @@ static const ble_init_cfg_t cyclone2_ble_config = {
 static const u8 cyclone2_pnp_id[] = {
     0x02, 0x37, 0x35, 0x75, 0x05, 0x00, 0x01,
 };
+#else
+static const edr_init_cfg_t cyclone2_edr_config = {
+    .class_type = 0x002508U,
+    .page_timeout = 8000U,
+    .super_timeout = 8000U,
+    .io_capabilities = 3,
+    .authentication_req = 4,
+    .oob_data = 0,
+    .passkey_enable = 0,
+    .report_map_size = CYCLONE2_SWITCH_REPORT_MAP_SIZE,
+    .report_map = cyclone2_switch_report_map,
+    .sniff_param = NULL,
+};
+#endif
 
 static u16 report_timer;
 static u8 ccc_ticks;
@@ -90,6 +107,7 @@ extern void le_hogp_set_pair_allow(void);
 extern void ble_module_enable(u8 enable);
 extern int ble_hid_is_connected(void);
 extern int ble_hid_data_send(u8 report_id, u8 *data, u16 length);
+extern void bt_set_local_name(char *name, u8 len);
 
 static void cyclone2_accept_analog_input(
     const struct cyclone2_input_report *sample)
@@ -128,6 +146,11 @@ static void cyclone2_send_test_report(void *private_data)
         }
     }
 
+#if CYCLONE2_BT_SWITCH
+    cyclone2_switch_hid_send(&current_report);
+    return;
+#else
+
     connection_handle = ble_hid_is_connected();
     if (!connection_handle ||
         !ble_gatt_server_characteristic_ccc_get(
@@ -154,6 +177,7 @@ static void cyclone2_send_test_report(void *private_data)
         sent_report = current_report;
         report_sent = 1;
     }
+#endif
 }
 
 static void cyclone2_start(void)
@@ -171,8 +195,14 @@ static void cyclone2_start(void)
     current_report = candidate_report;
     debounce_samples = CYCLONE2_DEBOUNCE_SAMPLES;
 
+#if CYCLONE2_BT_SWITCH
+    bt_set_local_name("Pro Controller", sizeof("Pro Controller") - 1U);
+    btstack_edr_start_before_init(&cyclone2_edr_config, 0);
+    cyclone2_switch_hid_initialize();
+#else
     le_hogp_set_PNP_info(cyclone2_pnp_id);
     btstack_ble_start_before_init(&cyclone2_ble_config, 0);
+#endif
     btstack_init();
 
     report_timer = sys_timer_add(NULL,
@@ -196,6 +226,12 @@ static int cyclone2_state_machine(struct application *application,
 
 static int cyclone2_connection_event(struct bt_event *event)
 {
+#if CYCLONE2_BT_SWITCH
+    bt_comm_edr_status_event_handler(event);
+    if (event->event == BT_STATUS_INIT_OK) {
+        bt_wait_phone_connect_control(1);
+    }
+#else
     bt_comm_ble_status_event_handler(event);
 
 #if CYCLONE2_CLEAR_BOND_ON_BOOT
@@ -207,6 +243,7 @@ static int cyclone2_connection_event(struct bt_event *event)
         le_hogp_set_pair_allow();
         ble_module_enable(1);
     }
+#endif
 #endif
 
     return 0;
@@ -226,7 +263,11 @@ static int cyclone2_event_handler(struct application *application,
     }
 
     if ((u32)event->arg == SYS_BT_EVENT_TYPE_HCI_STATUS) {
+#if CYCLONE2_BT_SWITCH
+        return bt_comm_edr_hci_event_handler(&event->u.bt);
+#else
         return bt_comm_ble_hci_event_handler(&event->u.bt);
+#endif
     }
 
     return 0;

@@ -9,6 +9,7 @@ CODE_LIMIT := 0x3e000
 # "cyclone2" selection keeps the smaller experimental application available
 # while the vendor baseline is reduced in controlled steps.
 APPLICATION ?= vendor-hid
+BT_PROFILE ?= ble
 
 include sdk-br23.mk
 
@@ -17,6 +18,14 @@ HOST_CFLAGS := -O2 -g -std=c11 -Wall -Wextra -Wpedantic
 
 CFLAGS := $(SDK_CFLAGS)
 DEFINES := $(SDK_DEFINES)
+
+ifeq ($(BT_PROFILE),switch)
+DEFINES += -DCYCLONE2_BT_SWITCH=1
+else ifeq ($(BT_PROFILE),ble)
+DEFINES += -DCYCLONE2_BT_SWITCH=0
+else
+$(error unknown BT_PROFILE '$(BT_PROFILE)'; expected ble or switch)
+endif
 LFLAGS := $(SDK_LFLAGS)
 SDK_ARCHIVES := $(SDK_ARCHIVES_FULL)
 
@@ -61,6 +70,7 @@ PROJECT_SOURCES := \
 	src/vendor_hid/version.c \
 	src/cyclone2/app.c \
 	src/cyclone2/input.c \
+	src/cyclone2/switch_hid.c \
 	src/control.c \
 	src/rom.c
 INCLUDES := \

@@ -58,9 +58,15 @@ const int config_stack_modules = 0;
 
 //定义的产品信息,for test
 #define  PNP_VID_SOURCE   0x02
+#if CONFIG_APP_CYCLONE2 && CYCLONE2_BT_SWITCH
+#define  PNP_VID          0x057e
+#define  PNP_PID          0x2009
+#define  PNP_PID_VERSION  0x0100
+#else
 #define  PNP_VID          0x05ac //0x05d6
 #define  PNP_PID          0x022C //
 #define  PNP_PID_VERSION  0x011b //1.1.11
+#endif
 
 /* static const u8 sdp_pnp_service_data_hid[] = { */
 /* 0x36, 0x00, 0x5a, 0x09, 0x00, 0x00, 0x0a, 0x00, 0x01, 0x00, 0x0a, 0x09, 0x00, 0x01, 0x35, 0x03, */
@@ -94,8 +100,13 @@ static const hid_sdp_info_t hid_sdp_info_config = {
     .pid_private = PNP_PID,
     .ver_private = PNP_PID_VERSION,
 
+#if CONFIG_APP_CYCLONE2 && CYCLONE2_BT_SWITCH
+    .sub_class           = 0x08,
+    .country_code        = 0x00,
+#else
     .sub_class           = 0x80,
     .country_code        = 0x21,
+#endif
     .virtual_cable       = 0x01,
     .reconnect_initiate  = 0x01,
     .sdp_disable         = 0x00,
@@ -111,9 +122,15 @@ static const hid_sdp_info_t hid_sdp_info_config = {
     .bt_string_offset    = 0x0100,
     .descriptor_len      = 0,
     .descriptor          = NULL,
+#if CONFIG_APP_CYCLONE2 && CYCLONE2_BT_SWITCH
+    .service_name        = "Wireless Gamepad",
+    .service_description = "Gamepad",
+    .provide_name        = "Nintendo",
+#else
     .service_name        = "JL_HID",
     .service_description = "hid key",
     .provide_name        = "JIELI",
+#endif
     .sdp_request_respone_callback = NULL,
     .extra_buf              = NULL,
     .extra_len              = 0,

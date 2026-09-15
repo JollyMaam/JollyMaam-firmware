@@ -74,13 +74,13 @@ int hid_timer_id = 0;
 
 int edr_hid_timer_handle = 0;
 
-#define HID_SEND_MAX_SIZE   (16) //描述符数据包的长度
+#define HID_SEND_MAX_SIZE   (64) /* Bluetooth HID header + Switch report. */
 /* static u8  edr_hid_one_packet[HID_SEND_MAX_SIZE]; */
 /* static volatile u16 edr_send_packet_len = 0; */
 static volatile u8  bt_send_busy = 0;
 void (*user_led_status_callback)(u8 *buffer, u16 size) = NULL;
 
-#define HID_TMP_BUFSIZE  (64*2)
+#define HID_TMP_BUFSIZE  (64*4)
 #define cbuf_get_space(a) (a)->total_len
 static cbuffer_t user_send_cbuf;
 static u8 hid_tmp_buffer[HID_TMP_BUFSIZE];

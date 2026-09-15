@@ -27,6 +27,10 @@
 #define CONFIG_APP_REMOTE_CONTROL           0//语音遥控
 #define CONFIG_APP_IDLE                     0//IDLE
 
+#ifndef CYCLONE2_BT_SWITCH
+#define CYCLONE2_BT_SWITCH                  0
+#endif
+
 //edr sniff模式选择; sniff参数需要调整,移植可具体参考app_keyboard.c
 #if CONFIG_APP_MOUSE_SINGLE || CONFIG_APP_MOUSE_DUAL || CONFIG_APP_STANDARD_KEYBOARD || CONFIG_APP_REMOTE_CONTROL //|| CONFIG_APP_KEYBOARD
 #define SNIFF_MODE_RESET_ANCHOR             1//键盘鼠标sniff模式,固定小周期发包,多按键响应快
@@ -65,12 +69,23 @@
  * vendor board header so the application, rather than the demo board, owns
  * the transport selection. */
 #if CONFIG_APP_CYCLONE2
+#if CYCLONE2_BT_SWITCH
+#undef TCFG_USER_BLE_ENABLE
+#define TCFG_USER_BLE_ENABLE                    0
+#undef TCFG_USER_EDR_ENABLE
+#define TCFG_USER_EDR_ENABLE                    1
+#undef USER_SUPPORT_PROFILE_HID
+#define USER_SUPPORT_PROFILE_HID                1
+#undef USER_SUPPORT_PROFILE_PNP
+#define USER_SUPPORT_PROFILE_PNP                1
+#else
 #undef TCFG_USER_EDR_ENABLE
 #define TCFG_USER_EDR_ENABLE                    0
 #undef USER_SUPPORT_PROFILE_HID
 #define USER_SUPPORT_PROFILE_HID                0
 #undef USER_SUPPORT_PROFILE_PNP
 #define USER_SUPPORT_PROFILE_PNP                0
+#endif
 #endif
 
 #include "usb_common_def.h"
