@@ -9,7 +9,7 @@ CODE_LIMIT := 0x3e000
 # "cyclone2" selection keeps the smaller experimental application available
 # while the vendor baseline is reduced in controlled steps.
 APPLICATION ?= vendor-hid
-BT_PROFILE ?= ble
+BT_PROFILE ?= switch
 
 include sdk-br23.mk
 

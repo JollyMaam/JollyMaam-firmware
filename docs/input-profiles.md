@@ -2,9 +2,9 @@
 
 The firmware currently has two build-time Bluetooth HID profiles:
 
-- `make BT_PROFILE=ble` builds the generic BLE gamepad (the default).
-- `make O=out-switch BT_PROFILE=switch` builds the experimental Nintendo
-  Switch-compatible Bluetooth Classic HID gamepad.
+- `make` builds the experimental Nintendo Switch-compatible Bluetooth Classic
+  HID gamepad (the default).
+- `make O=out-ble BT_PROFILE=ble` builds the generic BLE gamepad.
 
 Use separate output directories when alternating profiles. Object files are
 compiled with different transport configuration macros and therefore cannot
