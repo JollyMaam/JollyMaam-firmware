@@ -10,6 +10,12 @@
 #define STICK_UART_CAPTURE_BYTES    32U
 #define STICK_UART_POLL_ITERATIONS  200000U
 
+/* Live sensor endpoints are roughly 0x1600..0x6600 with a 0x4000 center.
+ * Keep these explicit until EEPROM/user calibration replaces them. */
+#define STICK_RAW_MINIMUM           0x1600U
+#define STICK_RAW_CENTER            0x4000U
+#define STICK_RAW_MAXIMUM           0x6600U
+
 #define UART_ENABLE                 (1U << 0)
 #define UART_TIMEOUT_PENDING_CLEAR  (1U << 10)
 #define UART_RX_PENDING_CLEAR       (1U << 12)
@@ -209,9 +215,21 @@ static void stick_uart_initialize(void)
 
 static u8 stick_axis_to_report(u16 value, int invert)
 {
-    u8 result = (u8)(value >> 8);
+    u32 result;
 
-    return invert ? (u8)(0xffU - result) : result;
+    if (value <= STICK_RAW_MINIMUM) {
+        result = 0U;
+    } else if (value < STICK_RAW_CENTER) {
+        result = ((u32)value - STICK_RAW_MINIMUM) * 128U /
+                 (STICK_RAW_CENTER - STICK_RAW_MINIMUM);
+    } else if (value < STICK_RAW_MAXIMUM) {
+        result = 128U + ((u32)value - STICK_RAW_CENTER) * 127U /
+                        (STICK_RAW_MAXIMUM - STICK_RAW_CENTER);
+    } else {
+        result = 0xffU;
+    }
+
+    return invert ? (u8)(0xffU - result) : (u8)result;
 }
 
 static u8 trigger_to_report(u32 sample, u16 *rest)
