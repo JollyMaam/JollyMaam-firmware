@@ -1,13 +1,20 @@
 #include "asm/gpio.h"
-#include "asm/uart_dev.h"
+#include "asm/br23.h"
+#include "asm/clock.h"
 
 #include "board.h"
 #include "cyclone2/input.h"
 
 #define STICK_UART_BAUD             1000000U
-#define STICK_UART_BUFFER_SIZE      128U
 #define STICK_UART_FRAME_SIZE       4U
-#define STICK_UART_READ_SIZE        32U
+#define STICK_UART_CAPTURE_BYTES    32U
+#define STICK_UART_POLL_ITERATIONS  200000U
+
+#define UART_ENABLE                 (1U << 0)
+#define UART_TIMEOUT_PENDING_CLEAR  (1U << 10)
+#define UART_RX_PENDING_CLEAR       (1U << 12)
+#define UART_TX_PENDING_CLEAR       (1U << 13)
+#define UART_RX_PENDING             (1U << 14)
 
 #define STICK_TAG_LEFT_X            0xaaU
 #define STICK_TAG_LEFT_Y            0x55U
@@ -18,9 +25,6 @@
 #define TRIGGER_TRAVEL_NUMERATOR    3U
 #define TRIGGER_TRAVEL_DENOMINATOR  4U
 
-static u8 stick_uart_buffer[STICK_UART_BUFFER_SIZE]
-    __attribute__((aligned(4)));
-static const uart_bus_t *stick_uart;
 static u8 stick_frame[STICK_UART_FRAME_SIZE];
 static u8 stick_frame_length;
 static u16 stick_left_x = 0x8000U;
@@ -149,43 +153,44 @@ static void stick_consume_byte(u8 byte)
 
 static void stick_uart_drain(void)
 {
-    u8 bytes[STICK_UART_READ_SIZE];
-    u32 available;
-    u32 count;
-    u32 index;
+    u32 captured = 0;
+    u32 iterations;
 
-    if (!stick_uart) {
+    /* Do not burn time when the sensor stream is absent. Once a byte is
+     * pending, stay in the proven polled receive loop long enough to collect
+     * complete frames at 1 Mbaud. */
+    if (!(JL_UART2->CON0 & UART_RX_PENDING)) {
         return;
     }
-    while ((available = stick_uart->kfifo.buf_in -
-                        stick_uart->kfifo.buf_out) != 0U) {
-        count = available < sizeof(bytes) ? available : sizeof(bytes);
-        count = stick_uart->read(bytes, count, 1U);
-        if (!count) {
-            break;
-        }
-        for (index = 0; index < count; index++) {
-            stick_consume_byte(bytes[index]);
+    for (iterations = 0;
+         iterations < STICK_UART_POLL_ITERATIONS &&
+         captured < STICK_UART_CAPTURE_BYTES;
+         iterations++) {
+        if (JL_UART2->CON0 & UART_RX_PENDING) {
+            stick_consume_byte((u8)JL_UART2->BUF);
+            JL_UART2->CON0 |= UART_RX_PENDING_CLEAR;
+            __asm__ volatile("csync");
+            captured++;
         }
     }
 }
 
 static void stick_uart_initialize(void)
 {
-    struct uart_platform_data_t uart_config = {0};
+    u32 uart_clock = clk_get("uart");
+    u32 divisor = ((uart_clock + STICK_UART_BAUD / 2U) /
+                   STICK_UART_BAUD) / 4U - 1U;
 
-    uart_config.tx_pin = (u8)-1;
-    uart_config.rx_pin = CYCLONE2_STICK_UART_RX;
-    uart_config.rx_cbuf = stick_uart_buffer;
-    uart_config.rx_cbuf_size = sizeof(stick_uart_buffer);
-    uart_config.frame_length = STICK_UART_FRAME_SIZE;
-    uart_config.rx_timeout = 2U;
-    uart_config.baud = STICK_UART_BAUD;
-    stick_uart = uart_dev_open(&uart_config);
-
-    /* gpio_set_uart2(0) also configures its unused PA2 TX pin. Restore PA2 as
-     * the active-low d-pad-up input while leaving PA3 routed to UART2 RX. */
-    configure_active_low_input(CYCLONE2_DPAD_UP);
+    JL_UART2->CON0 = UART_TX_PENDING_CLEAR | UART_RX_PENDING_CLEAR |
+                     UART_TIMEOUT_PENDING_CLEAR;
+    gpio_set_pull_down(CYCLONE2_STICK_UART_RX, 0);
+    gpio_set_pull_up(CYCLONE2_STICK_UART_RX, 1);
+    gpio_set_die(CYCLONE2_STICK_UART_RX, 1);
+    gpio_direction_input(CYCLONE2_STICK_UART_RX);
+    gpio_uart_rx_input(CYCLONE2_STICK_UART_RX, 2U, INPUT_CH2);
+    JL_UART2->BAUD = divisor;
+    JL_UART2->CON0 = UART_TX_PENDING_CLEAR | UART_RX_PENDING_CLEAR |
+                     UART_TIMEOUT_PENDING_CLEAR | UART_ENABLE;
 }
 
 static u8 stick_axis_to_report(u16 value, int invert)

@@ -34,8 +34,8 @@
 #define CYCLONE2_TRIGGER_L2_ADC_CHANNEL  AD_CH_PB3
 #define CYCLONE2_TRIGGER_R2_ADC_CHANNEL  AD_CH_PB10
 
-/* The stick-sensor board transmits four-byte frames on UART2 RX. UART2 TX is
- * PA2, shared with d-pad up, and is deliberately left unused. */
+/* The stick-sensor board transmits four-byte frames on UART2 RX. UART2's
+ * channel-zero TX pin would be PA2 (d-pad up), so no TX route is configured. */
 #define CYCLONE2_STICK_UART_RX      IO_PORTA_03
 #define CYCLONE2_SENSOR_POWER       IO_PORTB_05 /* active high */
 
