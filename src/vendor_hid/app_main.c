@@ -20,6 +20,7 @@
 #include "app_charge.h"
 #include "app_power_manage.h"
 #include "asm/charge.h"
+#include "control.h"
 
 
 #if TCFG_KWS_VOICE_RECOGNITION_ENABLE
@@ -113,6 +114,11 @@ void check_power_on_key(void)
 void app_main()
 {
     struct intent it;
+
+    /* Cyclone 2 board proof: keep Bluetooth behavior unchanged, but make it
+     * immediately visible that this application reached app_main(). */
+    cyclone2_led_initialize();
+    cyclone2_led_set_all(8, 0, 0);
 
     if (!UPDATE_SUPPORT_DEV_IS_NULL()) {
         int update = 0;

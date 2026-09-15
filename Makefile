@@ -56,8 +56,11 @@ PROJECT_SOURCES := \
 	src/vendor_hid/modules/power/app_power_manage.c \
 	src/vendor_hid/modules/rtc_alarm.c \
 	src/vendor_hid/modules/user_cfg.c \
-	src/vendor_hid/version.c
+	src/vendor_hid/version.c \
+	src/control.c \
+	src/rom.c
 INCLUDES := \
+	-Isrc \
 	-Isrc/vendor_hid/include \
 	-Isrc/vendor_hid/board/br23 \
 	-Isrc/vendor_hid \

@@ -27,7 +27,7 @@ static void led_power(u32 enabled)
     gpio_direction_output(CYCLONE2_LED_POWER, enabled ? 0 : 1);
 }
 
-static void cyclone2_led_initialize(void)
+void cyclone2_led_initialize(void)
 {
     led_power(0U);
     rom_mdelay(10U);
@@ -36,7 +36,7 @@ static void cyclone2_led_initialize(void)
     rom_mdelay(20U);
 }
 
-static void cyclone2_led_set_all(u8 red, u8 green, u8 blue)
+void cyclone2_led_set_all(u8 red, u8 green, u8 blue)
 {
     u32 led;
 
