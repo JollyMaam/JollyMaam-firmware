@@ -143,14 +143,14 @@ static void cyclone2_start(void)
 
     cyclone2_led_initialize();
     cyclone2_led_set_all(8, 0, 0);
+    clk_set("sys", BT_NORMAL_HZ);
+    system_clock = clk_get("sys");
+    bt_pll_para(TCFG_CLOCK_OSC_HZ, system_clock, 0, 0);
+
     cyclone2_input_initialize();
     cyclone2_input_read(&candidate_report);
     current_report = candidate_report;
     debounce_samples = CYCLONE2_DEBOUNCE_SAMPLES;
-
-    clk_set("sys", BT_NORMAL_HZ);
-    system_clock = clk_get("sys");
-    bt_pll_para(TCFG_CLOCK_OSC_HZ, system_clock, 0, 0);
 
     le_hogp_set_PNP_info(cyclone2_pnp_id);
     btstack_ble_start_before_init(&cyclone2_ble_config, 0);

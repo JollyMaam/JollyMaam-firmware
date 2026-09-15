@@ -1,7 +1,34 @@
 #include "asm/gpio.h"
+#include "asm/uart_dev.h"
 
 #include "board.h"
 #include "cyclone2/input.h"
+
+#define STICK_UART_BAUD             1000000U
+#define STICK_UART_BUFFER_SIZE      128U
+#define STICK_UART_FRAME_SIZE       4U
+#define STICK_UART_READ_SIZE        32U
+
+#define STICK_TAG_LEFT_X            0xaaU
+#define STICK_TAG_LEFT_Y            0x55U
+#define STICK_TAG_RIGHT_X           0xccU
+#define STICK_TAG_RIGHT_Y           0x33U
+
+#define TRIGGER_DEAD_ZONE           8U
+#define TRIGGER_TRAVEL_NUMERATOR    3U
+#define TRIGGER_TRAVEL_DENOMINATOR  4U
+
+static u8 stick_uart_buffer[STICK_UART_BUFFER_SIZE]
+    __attribute__((aligned(4)));
+static const uart_bus_t *stick_uart;
+static u8 stick_frame[STICK_UART_FRAME_SIZE];
+static u8 stick_frame_length;
+static u16 stick_left_x = 0x8000U;
+static u16 stick_left_y = 0x8000U;
+static u16 stick_right_x = 0x8000U;
+static u16 stick_right_y = 0x8000U;
+static u16 trigger_l2_rest;
+static u16 trigger_r2_rest;
 
 struct digital_button {
     u32 gpio;
@@ -39,6 +66,153 @@ static void configure_active_low_input(u32 gpio)
     gpio_set_pull_up(gpio, 1);
     gpio_set_die(gpio, 1);
     gpio_direction_input(gpio);
+}
+
+static void configure_analog_input(u32 gpio)
+{
+    gpio_set_pull_down(gpio, 0);
+    gpio_set_pull_up(gpio, 0);
+    gpio_set_die(gpio, 0);
+    gpio_direction_input(gpio);
+}
+
+static void sensor_power_enable(void)
+{
+    gpio_set_pull_down(CYCLONE2_SENSOR_POWER, 0);
+    gpio_set_pull_up(CYCLONE2_SENSOR_POWER, 0);
+    gpio_set_die(CYCLONE2_SENSOR_POWER, 1);
+    gpio_direction_output(CYCLONE2_SENSOR_POWER, 1);
+}
+
+static u8 stick_crc8(const u8 *frame)
+{
+    u8 crc = 0;
+    unsigned byte_index;
+    unsigned bit_index;
+
+    for (byte_index = 0; byte_index < 3U; byte_index++) {
+        crc ^= frame[byte_index];
+        for (bit_index = 0; bit_index < 8U; bit_index++) {
+            crc = crc & 0x80U ? (u8)((crc << 1) ^ 0x31U) : (u8)(crc << 1);
+        }
+    }
+    return crc;
+}
+
+static int stick_tag_is_known(u8 tag)
+{
+    return tag == STICK_TAG_LEFT_X || tag == STICK_TAG_LEFT_Y ||
+           tag == STICK_TAG_RIGHT_X || tag == STICK_TAG_RIGHT_Y;
+}
+
+static void stick_accept_frame(const u8 *frame)
+{
+    u16 value = ((u16)frame[1] << 8) | frame[2];
+
+    switch (frame[0]) {
+    case STICK_TAG_LEFT_X:
+        stick_left_x = value;
+        break;
+    case STICK_TAG_LEFT_Y:
+        stick_left_y = value;
+        break;
+    case STICK_TAG_RIGHT_X:
+        stick_right_x = value;
+        break;
+    case STICK_TAG_RIGHT_Y:
+        stick_right_y = value;
+        break;
+    }
+}
+
+/* Use a sliding four-byte window so startup in the middle of a frame, or one
+ * damaged byte, cannot permanently move the receiver out of phase. */
+static void stick_consume_byte(u8 byte)
+{
+    unsigned index;
+
+    stick_frame[stick_frame_length++] = byte;
+    if (stick_frame_length != STICK_UART_FRAME_SIZE) {
+        return;
+    }
+    if (stick_tag_is_known(stick_frame[0]) &&
+        stick_crc8(stick_frame) == stick_frame[3]) {
+        stick_accept_frame(stick_frame);
+        stick_frame_length = 0;
+        return;
+    }
+    for (index = 1; index < STICK_UART_FRAME_SIZE; index++) {
+        stick_frame[index - 1U] = stick_frame[index];
+    }
+    stick_frame_length = STICK_UART_FRAME_SIZE - 1U;
+}
+
+static void stick_uart_drain(void)
+{
+    u8 bytes[STICK_UART_READ_SIZE];
+    u32 available;
+    u32 count;
+    u32 index;
+
+    if (!stick_uart) {
+        return;
+    }
+    while ((available = stick_uart->kfifo.buf_in -
+                        stick_uart->kfifo.buf_out) != 0U) {
+        count = available < sizeof(bytes) ? available : sizeof(bytes);
+        count = stick_uart->read(bytes, count, 1U);
+        if (!count) {
+            break;
+        }
+        for (index = 0; index < count; index++) {
+            stick_consume_byte(bytes[index]);
+        }
+    }
+}
+
+static void stick_uart_initialize(void)
+{
+    struct uart_platform_data_t uart_config = {0};
+
+    uart_config.tx_pin = (u8)-1;
+    uart_config.rx_pin = CYCLONE2_STICK_UART_RX;
+    uart_config.rx_cbuf = stick_uart_buffer;
+    uart_config.rx_cbuf_size = sizeof(stick_uart_buffer);
+    uart_config.frame_length = STICK_UART_FRAME_SIZE;
+    uart_config.rx_timeout = 2U;
+    uart_config.baud = STICK_UART_BAUD;
+    stick_uart = uart_dev_open(&uart_config);
+
+    /* gpio_set_uart2(0) also configures its unused PA2 TX pin. Restore PA2 as
+     * the active-low d-pad-up input while leaving PA3 routed to UART2 RX. */
+    configure_active_low_input(CYCLONE2_DPAD_UP);
+}
+
+static u8 stick_axis_to_report(u16 value, int invert)
+{
+    u8 result = (u8)(value >> 8);
+
+    return invert ? (u8)(0xffU - result) : result;
+}
+
+static u8 trigger_to_report(u32 sample, u16 *rest)
+{
+    u32 travel;
+    u32 displacement;
+
+    if (sample > *rest && sample <= 0x3ffU) {
+        *rest = (u16)sample;
+    }
+    if (*rest < 64U || sample + TRIGGER_DEAD_ZONE >= *rest) {
+        return 0;
+    }
+    displacement = *rest - sample - TRIGGER_DEAD_ZONE;
+    travel = (*rest * TRIGGER_TRAVEL_NUMERATOR) /
+             TRIGGER_TRAVEL_DENOMINATOR;
+    if (displacement >= travel) {
+        return 0xffU;
+    }
+    return (u8)((displacement * 0xffU) / travel);
 }
 
 static u8 read_hat(void)
@@ -96,11 +270,20 @@ void cyclone2_input_initialize(void)
          index++) {
         configure_active_low_input(dpad_gpios[index]);
     }
+
+    sensor_power_enable();
+    configure_analog_input(CYCLONE2_TRIGGER_L2);
+    configure_analog_input(CYCLONE2_TRIGGER_R2);
+    adc_add_sample_ch(CYCLONE2_TRIGGER_L2_ADC_CHANNEL);
+    adc_add_sample_ch(CYCLONE2_TRIGGER_R2_ADC_CHANNEL);
+    stick_uart_initialize();
 }
 
 void cyclone2_input_read(struct cyclone2_input_report *report)
 {
     unsigned index;
+
+    stick_uart_drain();
 
     report->buttons = 0;
     for (index = 0; index < sizeof(buttons) / sizeof(buttons[0]); index++) {
@@ -110,10 +293,12 @@ void cyclone2_input_read(struct cyclone2_input_report *report)
     }
 
     report->hat = read_hat();
-    report->left_x = 0x80;
-    report->left_y = 0x80;
-    report->right_x = 0x80;
-    report->right_y = 0x80;
-    report->left_trigger = 0;
-    report->right_trigger = 0;
+    report->left_x = stick_axis_to_report(stick_left_x, 0);
+    report->left_y = stick_axis_to_report(stick_left_y, 0);
+    report->right_x = stick_axis_to_report(stick_right_x, 1);
+    report->right_y = stick_axis_to_report(stick_right_y, 1);
+    report->left_trigger = trigger_to_report(
+        adc_get_value(CYCLONE2_TRIGGER_L2_ADC_CHANNEL), &trigger_l2_rest);
+    report->right_trigger = trigger_to_report(
+        adc_get_value(CYCLONE2_TRIGGER_R2_ADC_CHANNEL), &trigger_r2_rest);
 }
