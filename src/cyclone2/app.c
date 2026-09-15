@@ -91,6 +91,17 @@ extern void ble_module_enable(u8 enable);
 extern int ble_hid_is_connected(void);
 extern int ble_hid_data_send(u8 report_id, u8 *data, u16 length);
 
+static void cyclone2_accept_analog_input(
+    const struct cyclone2_input_report *sample)
+{
+    current_report.left_x = sample->left_x;
+    current_report.left_y = sample->left_y;
+    current_report.right_x = sample->right_x;
+    current_report.right_y = sample->right_y;
+    current_report.left_trigger = sample->left_trigger;
+    current_report.right_trigger = sample->right_trigger;
+}
+
 static void cyclone2_send_test_report(void *private_data)
 {
     struct cyclone2_input_report sample;
@@ -99,13 +110,21 @@ static void cyclone2_send_test_report(void *private_data)
     (void)private_data;
 
     cyclone2_input_read(&sample);
-    if (memcmp(&sample, &candidate_report, sizeof(sample))) {
-        candidate_report = sample;
+    cyclone2_accept_analog_input(&sample);
+
+    /* Mechanical contacts need debounce; analog channels intentionally do
+     * not. Requiring two complete reports to match made ADC/UART jitter keep
+     * the accepted report frozen indefinitely. */
+    if (sample.buttons != candidate_report.buttons ||
+        sample.hat != candidate_report.hat) {
+        candidate_report.buttons = sample.buttons;
+        candidate_report.hat = sample.hat;
         debounce_samples = 1;
     } else if (debounce_samples < CYCLONE2_DEBOUNCE_SAMPLES) {
         debounce_samples++;
         if (debounce_samples == CYCLONE2_DEBOUNCE_SAMPLES) {
-            current_report = candidate_report;
+            current_report.buttons = candidate_report.buttons;
+            current_report.hat = candidate_report.hat;
         }
     }
 
