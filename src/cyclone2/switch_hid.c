@@ -27,6 +27,43 @@
 #define SWITCH_FULL_PAYLOAD_SIZE        48U
 #define SWITCH_SIMPLE_PAYLOAD_SIZE      11U
 
+/* Nintendo's full-state report splits buttons into right, shared, and left
+ * bytes. These names follow the labels printed on a Switch controller. */
+#define NINTENDO_RIGHT_Y                0x01U
+#define NINTENDO_RIGHT_X                0x02U
+#define NINTENDO_RIGHT_B                0x04U
+#define NINTENDO_RIGHT_A                0x08U
+#define NINTENDO_RIGHT_SR               0x10U
+#define NINTENDO_RIGHT_SL               0x20U
+#define NINTENDO_RIGHT_R                0x40U
+#define NINTENDO_RIGHT_ZR               0x80U
+
+#define NINTENDO_SHARED_MINUS           0x01U
+#define NINTENDO_SHARED_PLUS            0x02U
+#define NINTENDO_SHARED_R3              0x04U
+#define NINTENDO_SHARED_L3              0x08U
+#define NINTENDO_SHARED_HOME            0x10U
+#define NINTENDO_SHARED_CAPTURE         0x20U
+
+#define NINTENDO_LEFT_DOWN              0x01U
+#define NINTENDO_LEFT_UP                0x02U
+#define NINTENDO_LEFT_RIGHT             0x04U
+#define NINTENDO_LEFT_LEFT              0x08U
+#define NINTENDO_LEFT_SR                0x10U
+#define NINTENDO_LEFT_SL                0x20U
+#define NINTENDO_LEFT_L                 0x40U
+#define NINTENDO_LEFT_ZL                0x80U
+
+/* Report 0x3f uses a different, compact button layout. */
+#define NINTENDO_SIMPLE_B               0x01U
+#define NINTENDO_SIMPLE_A               0x02U
+#define NINTENDO_SIMPLE_Y               0x04U
+#define NINTENDO_SIMPLE_X               0x08U
+#define NINTENDO_SIMPLE_L               0x10U
+#define NINTENDO_SIMPLE_R               0x20U
+#define NINTENDO_SIMPLE_ZL              0x40U
+#define NINTENDO_SIMPLE_ZR              0x80U
+
 /* This is the descriptor used by the Cyclone 2 stock firmware for its
  * Switch-compatible Bluetooth HID endpoint (stock app address 0x01e622db). */
 const u8 cyclone2_switch_report_map[] = {
@@ -82,33 +119,35 @@ static void fill_controller_state(struct switch_controller_state *state)
     state->timer = timer_counter;
     state->battery_connection = 0x81U;
 
-    if (buttons & CYCLONE2_REPORT_BUTTON_X) state->buttons[0] |= 0x01U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_Y) state->buttons[0] |= 0x02U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_A) state->buttons[0] |= 0x04U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_B) state->buttons[0] |= 0x08U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_R1) state->buttons[0] |= 0x40U;
-    if (latest_input.right_trigger > 0x20U) state->buttons[0] |= 0x80U;
+    /* The Cyclone labels use the Xbox face-button positions: its A is in
+     * Nintendo's B position and its B is in Nintendo's A position. */
+    if (buttons & CYCLONE2_REPORT_BUTTON_X) state->buttons[0] |= NINTENDO_RIGHT_Y;
+    if (buttons & CYCLONE2_REPORT_BUTTON_Y) state->buttons[0] |= NINTENDO_RIGHT_X;
+    if (buttons & CYCLONE2_REPORT_BUTTON_A) state->buttons[0] |= NINTENDO_RIGHT_A;
+    if (buttons & CYCLONE2_REPORT_BUTTON_B) state->buttons[0] |= NINTENDO_RIGHT_B;
+    if (buttons & CYCLONE2_REPORT_BUTTON_R1) state->buttons[0] |= NINTENDO_RIGHT_R;
+    if (latest_input.right_trigger > 0x20U) state->buttons[0] |= NINTENDO_RIGHT_ZR;
 
-    if (buttons & CYCLONE2_REPORT_BUTTON_SELECT) state->buttons[1] |= 0x01U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_START) state->buttons[1] |= 0x02U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_R3) state->buttons[1] |= 0x04U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_L3) state->buttons[1] |= 0x08U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_HOME) state->buttons[1] |= 0x10U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_SCREENSHOT) state->buttons[1] |= 0x20U;
+    if (buttons & CYCLONE2_REPORT_BUTTON_SELECT) state->buttons[1] |= NINTENDO_SHARED_MINUS;
+    if (buttons & CYCLONE2_REPORT_BUTTON_START) state->buttons[1] |= NINTENDO_SHARED_PLUS;
+    if (buttons & CYCLONE2_REPORT_BUTTON_R3) state->buttons[1] |= NINTENDO_SHARED_R3;
+    if (buttons & CYCLONE2_REPORT_BUTTON_L3) state->buttons[1] |= NINTENDO_SHARED_L3;
+    if (buttons & CYCLONE2_REPORT_BUTTON_HOME) state->buttons[1] |= NINTENDO_SHARED_HOME;
+    if (buttons & CYCLONE2_REPORT_BUTTON_SCREENSHOT) state->buttons[1] |= NINTENDO_SHARED_CAPTURE;
 
     switch (latest_input.hat) {
-    case CYCLONE2_HAT_UP:         state->buttons[2] |= 0x02U; break;
-    case CYCLONE2_HAT_UP_RIGHT:   state->buttons[2] |= 0x06U; break;
-    case CYCLONE2_HAT_RIGHT:      state->buttons[2] |= 0x04U; break;
-    case CYCLONE2_HAT_DOWN_RIGHT: state->buttons[2] |= 0x05U; break;
-    case CYCLONE2_HAT_DOWN:       state->buttons[2] |= 0x01U; break;
-    case CYCLONE2_HAT_DOWN_LEFT:  state->buttons[2] |= 0x09U; break;
-    case CYCLONE2_HAT_LEFT:       state->buttons[2] |= 0x08U; break;
-    case CYCLONE2_HAT_UP_LEFT:    state->buttons[2] |= 0x0aU; break;
+    case CYCLONE2_HAT_UP:         state->buttons[2] |= NINTENDO_LEFT_UP; break;
+    case CYCLONE2_HAT_UP_RIGHT:   state->buttons[2] |= NINTENDO_LEFT_UP | NINTENDO_LEFT_RIGHT; break;
+    case CYCLONE2_HAT_RIGHT:      state->buttons[2] |= NINTENDO_LEFT_RIGHT; break;
+    case CYCLONE2_HAT_DOWN_RIGHT: state->buttons[2] |= NINTENDO_LEFT_DOWN | NINTENDO_LEFT_RIGHT; break;
+    case CYCLONE2_HAT_DOWN:       state->buttons[2] |= NINTENDO_LEFT_DOWN; break;
+    case CYCLONE2_HAT_DOWN_LEFT:  state->buttons[2] |= NINTENDO_LEFT_DOWN | NINTENDO_LEFT_LEFT; break;
+    case CYCLONE2_HAT_LEFT:       state->buttons[2] |= NINTENDO_LEFT_LEFT; break;
+    case CYCLONE2_HAT_UP_LEFT:    state->buttons[2] |= NINTENDO_LEFT_UP | NINTENDO_LEFT_LEFT; break;
     default: break;
     }
-    if (buttons & CYCLONE2_REPORT_BUTTON_L1) state->buttons[2] |= 0x40U;
-    if (latest_input.left_trigger > 0x20U) state->buttons[2] |= 0x80U;
+    if (buttons & CYCLONE2_REPORT_BUTTON_L1) state->buttons[2] |= NINTENDO_LEFT_L;
+    if (latest_input.left_trigger > 0x20U) state->buttons[2] |= NINTENDO_LEFT_ZL;
 
     pack_stick(state->left_stick, latest_input.left_x,
                (u8)(0xffU - latest_input.left_y));
@@ -122,20 +161,20 @@ static void fill_simple_state(u8 report[SWITCH_SIMPLE_PAYLOAD_SIZE])
     u16 axis;
 
     memset(report, 0, SWITCH_SIMPLE_PAYLOAD_SIZE);
-    if (buttons & CYCLONE2_REPORT_BUTTON_A) report[0] |= 0x01U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_B) report[0] |= 0x02U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_X) report[0] |= 0x04U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_Y) report[0] |= 0x08U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_L1) report[0] |= 0x10U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_R1) report[0] |= 0x20U;
-    if (latest_input.left_trigger > 0x20U) report[0] |= 0x40U;
-    if (latest_input.right_trigger > 0x20U) report[0] |= 0x80U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_SELECT) report[1] |= 0x01U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_START) report[1] |= 0x02U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_L3) report[1] |= 0x04U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_R3) report[1] |= 0x08U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_HOME) report[1] |= 0x10U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_SCREENSHOT) report[1] |= 0x20U;
+    if (buttons & CYCLONE2_REPORT_BUTTON_A) report[0] |= NINTENDO_SIMPLE_A;
+    if (buttons & CYCLONE2_REPORT_BUTTON_B) report[0] |= NINTENDO_SIMPLE_B;
+    if (buttons & CYCLONE2_REPORT_BUTTON_X) report[0] |= NINTENDO_SIMPLE_Y;
+    if (buttons & CYCLONE2_REPORT_BUTTON_Y) report[0] |= NINTENDO_SIMPLE_X;
+    if (buttons & CYCLONE2_REPORT_BUTTON_L1) report[0] |= NINTENDO_SIMPLE_L;
+    if (buttons & CYCLONE2_REPORT_BUTTON_R1) report[0] |= NINTENDO_SIMPLE_R;
+    if (latest_input.left_trigger > 0x20U) report[0] |= NINTENDO_SIMPLE_ZL;
+    if (latest_input.right_trigger > 0x20U) report[0] |= NINTENDO_SIMPLE_ZR;
+    if (buttons & CYCLONE2_REPORT_BUTTON_SELECT) report[1] |= NINTENDO_SHARED_MINUS;
+    if (buttons & CYCLONE2_REPORT_BUTTON_START) report[1] |= NINTENDO_SHARED_PLUS;
+    if (buttons & CYCLONE2_REPORT_BUTTON_L3) report[1] |= NINTENDO_SHARED_L3;
+    if (buttons & CYCLONE2_REPORT_BUTTON_R3) report[1] |= NINTENDO_SHARED_R3;
+    if (buttons & CYCLONE2_REPORT_BUTTON_HOME) report[1] |= NINTENDO_SHARED_HOME;
+    if (buttons & CYCLONE2_REPORT_BUTTON_SCREENSHOT) report[1] |= NINTENDO_SHARED_CAPTURE;
     report[2] = latest_input.hat;
 
     axis = (u16)latest_input.left_x * 257U;
