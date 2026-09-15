@@ -13,7 +13,9 @@
 #if CONFIG_APP_CYCLONE2
 
 #define CYCLONE2_REPORT_ID              1U
-#define CYCLONE2_CLEAR_BOND_ON_BOOT      1
+#define CYCLONE2_CLEAR_BOND_ON_BOOT      0
+#define CYCLONE2_REPORT_PERIOD_MS        100U
+#define CYCLONE2_REPORT_WARMUP_TICKS     30U
 
 /* Report 1: sixteen buttons, four unsigned stick axes, and two unsigned
  * analog triggers.  The report ID is passed separately to the SDK API. */
@@ -69,10 +71,56 @@ static const u8 cyclone2_pnp_id[] = {
     0x02, 0x37, 0x35, 0x75, 0x05, 0x00, 0x01,
 };
 
+static struct cyclone2_input_report test_report = {
+    .buttons = 0,
+    .left_x = 0x80,
+    .left_y = 0x80,
+    .right_x = 0x80,
+    .right_y = 0x80,
+    .left_trigger = 0,
+    .right_trigger = 0,
+};
+
+static u16 report_timer;
+static u8 connection_ticks;
+static int sweep_step = 4;
+
 extern void bt_pll_para(u32 osc, u32 sys, u8 low_power, u8 xosc);
 extern void le_hogp_set_PNP_info(const u8 *information);
 extern void le_hogp_set_pair_allow(void);
 extern void ble_module_enable(u8 enable);
+extern int ble_hid_is_connected(void);
+extern int ble_hid_data_send(u8 report_id, u8 *data, u16 length);
+
+static void cyclone2_send_test_report(void *private_data)
+{
+    int next;
+
+    (void)private_data;
+
+    if (!ble_hid_is_connected()) {
+        connection_ticks = 0;
+        test_report.left_x = 0x80;
+        sweep_step = 4;
+        return;
+    }
+
+    if (connection_ticks < CYCLONE2_REPORT_WARMUP_TICKS) {
+        connection_ticks++;
+        return;
+    }
+
+    next = test_report.left_x + sweep_step;
+    if (next >= 0xf0 || next <= 0x10) {
+        sweep_step = -sweep_step;
+        next = test_report.left_x + sweep_step;
+    }
+    test_report.left_x = next;
+
+    ble_hid_data_send(CYCLONE2_REPORT_ID,
+                      (u8 *)&test_report,
+                      sizeof(test_report));
+}
 
 static void cyclone2_start(void)
 {
@@ -88,6 +136,10 @@ static void cyclone2_start(void)
     le_hogp_set_PNP_info(cyclone2_pnp_id);
     btstack_ble_start_before_init(&cyclone2_ble_config, 0);
     btstack_init();
+
+    report_timer = sys_timer_add(NULL,
+                                 cyclone2_send_test_report,
+                                 CYCLONE2_REPORT_PERIOD_MS);
 }
 
 static int cyclone2_state_machine(struct application *application,
