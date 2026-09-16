@@ -47,6 +47,19 @@ void cyclone2_led_set_all(u8 red, u8 green, u8 blue)
     led_spi_send_rgbbuf(led_dma_buffer, LED_COUNT);
 }
 
+void cyclone2_led_set_home(u8 red, u8 green, u8 blue)
+{
+    u32 led;
+
+    for (led = 0U; led < LED_COUNT; led++) {
+        led_spi_rgb_to_24byte(0U, 0U, 0U, led_dma_buffer, led);
+    }
+    led_spi_rgb_to_24byte(red, green, blue, led_dma_buffer,
+                          CYCLONE2_LED_HOME_INDEX);
+    rom_flush_dcache(led_dma_buffer, sizeof(led_dma_buffer));
+    led_spi_send_rgbbuf(led_dma_buffer, LED_COUNT);
+}
+
 void cyclone2_control_task(void *argument)
 {
     (void)argument;

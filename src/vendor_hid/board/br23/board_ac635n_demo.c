@@ -373,10 +373,11 @@ struct port_wakeup port0 = {
 	.pullup_down_enable = ENABLE,                            //配置I/O 内部上下拉是否使能
 	.edge               = FALLING_EDGE,                      //唤醒方式选择,可选：上升沿\下降沿
 	.attribute          = BLUETOOTH_RESUME,                  //保留参数
-#if TCFG_ADKEY_ENABLE
+#if CONFIG_APP_CYCLONE2
+	.iomap              = IO_PORTB_11,                       // Cyclone 2 Home
+#elif TCFG_ADKEY_ENABLE
 	.iomap              = TCFG_ADKEY_PORT,                   //唤醒口选择
-#endif
-#if TCFG_IOKEY_ENABLE
+#elif TCFG_IOKEY_ENABLE
 	.iomap              = TCFG_IOKEY_POWER_ONE_PORT,                   //唤醒口选择
 #endif
     .filter_enable      = ENABLE,
@@ -391,7 +392,7 @@ const struct charge_wakeup charge_wkup = {
 };
 
 const struct wakeup_param wk_param = {
-#if TCFG_ADKEY_ENABLE || TCFG_IOKEY_ENABLE
+#if CONFIG_APP_CYCLONE2 || TCFG_ADKEY_ENABLE || TCFG_IOKEY_ENABLE
 	.port[1] = &port0,
 #endif
 	.sub = &sub_wkup,

@@ -58,7 +58,7 @@ const int config_stack_modules = 0;
 
 //定义的产品信息,for test
 #define  PNP_VID_SOURCE   0x02
-#if CONFIG_APP_CYCLONE2 && CYCLONE2_BT_SWITCH
+#if CONFIG_APP_CYCLONE2
 #define  PNP_VID          0x057e
 #define  PNP_PID          0x2009
 #define  PNP_PID_VERSION  0x0100
@@ -100,7 +100,7 @@ static const hid_sdp_info_t hid_sdp_info_config = {
     .pid_private = PNP_PID,
     .ver_private = PNP_PID_VERSION,
 
-#if CONFIG_APP_CYCLONE2 && CYCLONE2_BT_SWITCH
+#if CONFIG_APP_CYCLONE2
     .sub_class           = 0x08,
     .country_code        = 0x00,
 #else
@@ -122,7 +122,7 @@ static const hid_sdp_info_t hid_sdp_info_config = {
     .bt_string_offset    = 0x0100,
     .descriptor_len      = 0,
     .descriptor          = NULL,
-#if CONFIG_APP_CYCLONE2 && CYCLONE2_BT_SWITCH
+#if CONFIG_APP_CYCLONE2
     .service_name        = "Wireless Gamepad",
     .service_description = "Gamepad",
     .provide_name        = "Nintendo",

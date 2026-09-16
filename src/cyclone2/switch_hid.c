@@ -5,7 +5,7 @@
 #include "control.h"
 #include "cyclone2/switch_hid.h"
 
-#if CONFIG_APP_CYCLONE2 && CYCLONE2_BT_SWITCH
+#if CONFIG_APP_CYCLONE2
 
 #define SWITCH_REPORT_SUBCOMMAND_REPLY  0x21U
 #define SWITCH_REPORT_FULL_STATE        0x30U

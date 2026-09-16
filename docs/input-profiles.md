@@ -1,14 +1,43 @@
 # Input profiles
 
-The firmware currently has two build-time Bluetooth HID profiles:
+One firmware image contains both the Nintendo Switch-compatible Bluetooth
+Classic controller and the generic BLE gamepad. Four independent connection
+slots are selected with the physical face buttons:
 
-- `make` builds the experimental Nintendo Switch-compatible Bluetooth Classic
-  HID gamepad (the default).
-- `make O=out-ble BT_PROFILE=ble` builds the generic BLE gamepad.
+| Chord | Slot | Default controller type |
+| --- | ---: | --- |
+| Home+A | 1 | Nintendo Switch |
+| Home+B | 2 | Nintendo Switch |
+| Home+X | 3 | Generic BLE |
+| Home+Y | 4 | Generic BLE |
 
-Use separate output directories when alternating profiles. Object files are
-compiled with different transport configuration macros and therefore cannot
-be shared safely between the two builds.
+Release a chord to reconnect the selected slot. Hold it for five seconds to
+discard that slot's bond and enter pairing mode. Each slot has a derived local
+Bluetooth address and separate bond storage, so the hosts see four independent
+controllers. The slot-to-controller assignments live in syscfg item 48. Their
+defaults are currently initialized in `settings_load()`; a user-facing
+configuration transport has not been added yet.
+
+The firmware deliberately does not remember the active slot. After boot or
+wake it waits for an explicit Home+face chord. The Home LED indicates radio
+state:
+
+- slow dim-red blink: reconnecting;
+- fast dim-red blink: pairing;
+- steady dim red: connected.
+
+If a connection attempt times out, or an established host disconnects, the
+controller goes to sleep. Hold Home alone for five seconds to disconnect and
+sleep explicitly. Home wakes it again, but does not implicitly select a slot.
+
+## Home-key arbitration
+
+Home is delayed by 150 ms so a face button pressed immediately afterward can
+form a profile chord. If Home is released during that grace period, the
+firmware emits a short Home down/up pair. Otherwise Home remains held in the
+HID report normally; this preserves the Nintendo Switch's one-second Home menu.
+Once a profile chord is recognized, both Home and the face button are hidden
+from the host.
 
 ## Generic BLE profile and SDL
 
