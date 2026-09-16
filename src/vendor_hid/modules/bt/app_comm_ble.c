@@ -42,6 +42,16 @@
 #define LOG_CLI_ENABLE
 #include "debug.h"
 
+#if CONFIG_APP_CYCLONE2
+#include "cyclone2/usb_control.h"
+#undef log_info
+#undef log_debug
+#undef log_error
+#define log_info(format, ...)  cyclone2_usb_debug("COMM_BLE: " format, ##__VA_ARGS__)
+#define log_debug(format, ...) cyclone2_usb_debug("COMM_BLE: " format, ##__VA_ARGS__)
+#define log_error(format, ...) cyclone2_usb_debug("COMM_BLE error: " format, ##__VA_ARGS__)
+#endif
+
 #if TCFG_USER_BLE_ENABLE
 extern void ble_standard_dut_test_init(void);
 /*************************************************************************************************/
@@ -202,5 +212,4 @@ int bt_comm_ble_hci_event_handler(struct bt_event *bt)
 }
 
 #endif
-
 

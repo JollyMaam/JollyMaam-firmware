@@ -1,4 +1,5 @@
 #include "system/includes.h"
+#include <stdarg.h>
 #include "asm/irq.h"
 #include "asm/wdt.h"
 #include "usb/device/cdc.h"
@@ -17,6 +18,13 @@
 #define MASKROM_NVRAM_ADDRESS ((volatile u8 *)0x00010800U)
 #define COMMAND_LINE_SIZE     80U
 #define RESPONSE_DELAY_TICKS  30U
+#define DEBUG_LINE_COUNT       16U
+#define DEBUG_LINE_SIZE        96U
+
+struct debug_line {
+    u8 length;
+    char text[DEBUG_LINE_SIZE];
+};
 
 static char command_line[COMMAND_LINE_SIZE];
 static u8 command_length;
@@ -25,6 +33,11 @@ static volatile u8 receive_pending;
 static u8 greeting_pending;
 static u8 uboot_pending;
 static u8 response_delay;
+static u8 debug_enabled = 1U;
+static u8 debug_read_index;
+static u8 debug_write_index;
+static u8 debug_dropped;
+static struct debug_line debug_lines[DEBUG_LINE_COUNT];
 
 extern void usb_start(void);
 extern void nvram_set_boot_state(u32 state);
@@ -64,6 +77,50 @@ static void console_prompt(void)
     console_write("c2> ");
 }
 
+void cyclone2_usb_debug(const char *format, ...)
+{
+    struct debug_line *line;
+    u8 next;
+    int length;
+    va_list arguments;
+
+    if (!debug_enabled) return;
+    next = (u8)((debug_write_index + 1U) % DEBUG_LINE_COUNT);
+    if (next == debug_read_index) {
+        debug_dropped = 1U;
+        debug_read_index = (u8)((debug_read_index + 1U) % DEBUG_LINE_COUNT);
+    }
+
+    line = &debug_lines[debug_write_index];
+    va_start(arguments, format);
+    length = vsnprintf(line->text, sizeof(line->text), format, arguments);
+    va_end(arguments);
+    if (length < 0) return;
+    if ((u32)length >= sizeof(line->text)) length = sizeof(line->text) - 1U;
+    line->length = (u8)length;
+    debug_write_index = next;
+}
+
+static void flush_debug_line(void)
+{
+    struct debug_line *line;
+
+    if (!debug_enabled || debug_read_index == debug_write_index) return;
+    line = &debug_lines[debug_read_index];
+    if (cdc_write_data(USB0, (u8 *)"\r\n[debug] ",
+                       sizeof("\r\n[debug] ") - 1U) !=
+        sizeof("\r\n[debug] ") - 1U) return;
+    console_write_bytes(line->text, line->length);
+    console_write("\r\n");
+    if (debug_dropped) {
+        console_write("[debug] messages were dropped\r\n");
+        debug_dropped = 0U;
+    }
+    console_prompt();
+    if (command_length) console_write_bytes(command_line, command_length);
+    debug_read_index = (u8)((debug_read_index + 1U) % DEBUG_LINE_COUNT);
+}
+
 static void arm_maskrom_usb_token(void)
 {
     nvram_set_boot_state(2U);
@@ -88,8 +145,19 @@ static void execute_command(void)
 
     if (!strcmp(command_line, "help") || !strcmp(command_line, "?")) {
         console_write("help     show this command list\r\n"
+                      "debug on|off|status  control runtime diagnostics\r\n"
                       "status   show reset mailbox and MaskROM NVRAM\r\n"
                       "uboot    reboot into BR23 UBOOT1.00\r\n");
+    } else if (!strcmp(command_line, "debug on")) {
+        debug_enabled = 1U;
+        console_write("debug output enabled\r\n");
+    } else if (!strcmp(command_line, "debug off")) {
+        debug_enabled = 0U;
+        debug_read_index = debug_write_index;
+        console_write("debug output disabled\r\n");
+    } else if (!strcmp(command_line, "debug status")) {
+        console_write(debug_enabled ? "debug output enabled\r\n" :
+                                      "debug output disabled\r\n");
     } else if (!strcmp(command_line, "status")) {
         print_status();
     } else if (!strcmp(command_line, "uboot")) {
@@ -195,6 +263,8 @@ void cyclone2_usb_control_poll(void)
             if (length != 0U) consume_input(receive_buffer, length);
         } while (length != 0U && !uboot_pending);
     }
+
+    if (!uboot_pending) flush_debug_line();
 
     if (uboot_pending && --response_delay == 0U) enter_maskrom_uboot();
 }

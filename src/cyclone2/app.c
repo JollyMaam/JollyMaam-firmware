@@ -12,6 +12,7 @@
 #include "app_action.h"
 #include "app_comm_bt.h"
 #include "app_config.h"
+#include "board.h"
 #include "control.h"
 #include "cyclone2/input.h"
 #include "cyclone2/reset_mailbox.h"
@@ -32,8 +33,7 @@
 #define CYCLONE2_LONG_HOLD_TICKS           500U
 #define CYCLONE2_CONNECT_TIMEOUT_TICKS    3000U
 #define CYCLONE2_PAIR_TIMEOUT_TICKS       6000U
-#define CYCLONE2_HID_CONNECT_DELAY_TICKS    50U
-#define CYCLONE2_HID_CONNECT_RETRY_TICKS   200U
+#define CYCLONE2_BOOT_LED_TICKS              50U
 #define CYCLONE2_LED_DIM_RED                 8U
 #define CYCLONE2_LED_SLOW_HALF_PERIOD       50U
 #define CYCLONE2_LED_FAST_HALF_PERIOD       12U
@@ -168,11 +168,10 @@ static u8 home_tap_phase;
 static u8 led_is_on;
 static u8 sleep_pending;
 static u8 edr_bond_delete_pending;
-static u8 edr_acl_connected;
 static u8 ignore_chord_until_release;
 static u8 edr_bond_to_delete[6];
 static u8 edr_reconnect_address[6];
-static u32 edr_hid_connect_tick;
+static u8 edr_hid_was_connected;
 
 extern void bt_pll_para(u32 osc, u32 sys, u8 low_power, u8 xosc);
 extern const u8 *bt_get_mac_addr(void);
@@ -316,6 +315,15 @@ static void begin_sleep(void)
     if (radio_state != CYCLONE2_RADIO_STOPPING) sleep_pending = 1U;
 }
 
+static void begin_automatic_sleep(const char *reason)
+{
+    if (gpio_read(CYCLONE2_USB_SENSE)) {
+        cyclone2_usb_debug("%s; staying awake because USB is connected", reason);
+        return;
+    }
+    begin_sleep();
+}
+
 static void edr_reconnect_saved(void *private_data)
 {
     (void)private_data;
@@ -327,23 +335,6 @@ static void edr_reconnect_saved(void *private_data)
     user_send_cmd_prepare(USER_CTRL_START_CONNEC_VIA_ADDR,
                           sizeof(edr_reconnect_address),
                           edr_reconnect_address);
-}
-
-static void service_edr_hid_connection(void)
-{
-    if (active_type != CYCLONE2_PROFILE_SWITCH || !edr_acl_connected ||
-        (radio_state != CYCLONE2_RADIO_CONNECTING &&
-         radio_state != CYCLONE2_RADIO_PAIRING) ||
-        edr_hid_is_connected()) return;
-
-    if ((s32)(control_ticks - edr_hid_connect_tick) < 0) return;
-
-    /* USER_CTRL_START_CONNEC_VIA_ADDR establishes the ACL link but does not
-     * consistently open the HID control/interrupt channels. Actively request
-     * the HID profile after authentication has had time to settle, and retry
-     * while this is still an initial connection attempt. */
-    user_send_cmd_prepare(USER_CTRL_HID_CONN, 0, NULL);
-    edr_hid_connect_tick = control_ticks + CYCLONE2_HID_CONNECT_RETRY_TICKS;
 }
 
 static int selected_face_button(u16 buttons, u8 *profile)
@@ -450,7 +441,9 @@ static void update_status_led(void)
     u32 half_period;
     u8 on;
 
-    if (radio_state == CYCLONE2_RADIO_CONNECTED) on = 1U;
+    if (active_profile >= CYCLONE2_PROFILE_COUNT &&
+        control_ticks < CYCLONE2_BOOT_LED_TICKS) on = 1U;
+    else if (radio_state == CYCLONE2_RADIO_CONNECTED) on = 1U;
     else if (radio_state == CYCLONE2_RADIO_CONNECTING ||
              radio_state == CYCLONE2_RADIO_PAIRING) {
         half_period = radio_state == CYCLONE2_RADIO_PAIRING ?
@@ -529,13 +522,22 @@ static void cyclone2_poll(void *private_data)
         }
     }
     update_home_state();
-    service_edr_hid_connection();
     /* The ACL connection event precedes authentication and opening the HID
      * control/interrupt channels. Only the latter is a usable connection. */
     if (active_type == CYCLONE2_PROFILE_SWITCH &&
         (radio_state == CYCLONE2_RADIO_CONNECTING ||
          radio_state == CYCLONE2_RADIO_PAIRING) &&
-        edr_hid_is_connected()) radio_state = CYCLONE2_RADIO_CONNECTED;
+        edr_hid_is_connected()) {
+        radio_state = CYCLONE2_RADIO_CONNECTED;
+        cyclone2_usb_debug("EDR HID channels connected");
+    }
+    if (active_type == CYCLONE2_PROFILE_SWITCH) {
+        u8 connected = edr_hid_is_connected() != 0;
+        if (connected != edr_hid_was_connected) {
+            cyclone2_usb_debug("EDR HID state=%u", connected);
+            edr_hid_was_connected = connected;
+        }
+    }
     make_host_report(&host_report);
     send_input_report(&host_report);
     update_status_led();
@@ -547,8 +549,12 @@ static void cyclone2_poll(void *private_data)
     if ((radio_state == CYCLONE2_RADIO_CONNECTING &&
          control_ticks - radio_start_tick >= CYCLONE2_CONNECT_TIMEOUT_TICKS) ||
         (radio_state == CYCLONE2_RADIO_PAIRING &&
-         control_ticks - radio_start_tick >= CYCLONE2_PAIR_TIMEOUT_TICKS))
-        begin_sleep();
+         control_ticks - radio_start_tick >= CYCLONE2_PAIR_TIMEOUT_TICKS)) {
+        if (gpio_read(CYCLONE2_USB_SENSE)) {
+            cyclone2_usb_debug("Bluetooth timeout; staying awake for USB console");
+            radio_start_tick = control_ticks;
+        } else begin_automatic_sleep("Bluetooth timeout");
+    }
 }
 
 static void prepare_profile_address(void)
@@ -584,6 +590,11 @@ static void start_selected_profile(void)
     radio_state = active_pairing ? CYCLONE2_RADIO_PAIRING :
                                    CYCLONE2_RADIO_CONNECTING;
     radio_start_tick = control_ticks;
+    edr_hid_was_connected = 0U;
+    cyclone2_usb_debug("start profile=%u type=%s pairing=%u",
+                       active_profile,
+                       active_type == CYCLONE2_PROFILE_SWITCH ? "switch" : "generic",
+                       active_pairing);
     /* Show that selection reached radio startup even if stack init fails. */
     update_status_led();
 
@@ -608,7 +619,7 @@ static void cyclone2_start(void)
     u32 system_clock;
 
     cyclone2_led_initialize();
-    cyclone2_led_set_home(0U, 0U, 0U);
+    cyclone2_led_set_home(CYCLONE2_LED_DIM_RED, 0U, 0U);
     clk_set("sys", BT_NORMAL_HZ);
     system_clock = clk_get("sys");
     bt_pll_para(TCFG_CLOCK_OSC_HZ, system_clock, 0, 0);
@@ -639,6 +650,10 @@ static int cyclone2_connection_event(struct bt_event *event)
     u8 remote[6];
 
     if (active_type == CYCLONE2_PROFILE_SWITCH) {
+        cyclone2_usb_debug("EDR status event=%u value=%08x addr=%02x:%02x:%02x:%02x:%02x:%02x",
+                           event->event, event->value,
+                           event->args[0], event->args[1], event->args[2],
+                           event->args[3], event->args[4], event->args[5]);
         bt_comm_edr_status_event_handler(event);
         if (event->event == BT_STATUS_INIT_OK) {
             if (active_pairing) {
@@ -661,15 +676,12 @@ static int cyclone2_connection_event(struct bt_event *event)
             }
         } else if (event->event == BT_STATUS_FIRST_CONNECTED ||
                    event->event == BT_STATUS_SECOND_CONNECTED) {
-            edr_acl_connected = 1U;
-            edr_hid_connect_tick =
-                control_ticks + CYCLONE2_HID_CONNECT_DELAY_TICKS;
             syscfg_write(CFG_EDR_ADDRESS_BEGIN + active_profile,
                          event->args, 6U);
         } else if (event->event == BT_STATUS_FIRST_DISCONNECT ||
                    event->event == BT_STATUS_SECOND_DISCONNECT) {
-            edr_acl_connected = 0U;
-            if (radio_state == CYCLONE2_RADIO_CONNECTED) begin_sleep();
+            if (radio_state == CYCLONE2_RADIO_CONNECTED)
+                begin_automatic_sleep("EDR disconnected");
         }
     } else {
         bt_comm_ble_status_event_handler(event);
@@ -687,7 +699,8 @@ static void cyclone2_ble_status_event(struct bt_event *event)
     if (active_type != CYCLONE2_PROFILE_GENERIC) return;
     if (event->event == BLE_ST_CONNECT) radio_state = CYCLONE2_RADIO_CONNECTED;
     else if (event->event == BLE_ST_DISCONN &&
-             radio_state == CYCLONE2_RADIO_CONNECTED) begin_sleep();
+             radio_state == CYCLONE2_RADIO_CONNECTED)
+        begin_automatic_sleep("BLE disconnected");
 }
 
 static int cyclone2_event_handler(struct application *application,
@@ -701,9 +714,12 @@ static int cyclone2_event_handler(struct application *application,
     if ((u32)event->arg == SYS_BT_EVENT_TYPE_HCI_STATUS) {
         if (active_type == CYCLONE2_PROFILE_SWITCH) {
             int result = bt_comm_edr_hci_event_handler(&event->u.bt);
+            cyclone2_usb_debug("EDR HCI event=%02x value=%08x reason=%02x",
+                               event->u.bt.event, event->u.bt.value,
+                               event->u.bt.args[0]);
             if (event->u.bt.event == HCI_EVENT_DISCONNECTION_COMPLETE) {
-                edr_acl_connected = 0U;
-                if (radio_state == CYCLONE2_RADIO_CONNECTED) begin_sleep();
+                if (radio_state == CYCLONE2_RADIO_CONNECTED)
+                    begin_automatic_sleep("EDR HCI disconnect");
             }
             return result;
         }

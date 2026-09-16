@@ -42,6 +42,16 @@
 #define LOG_CLI_ENABLE
 #include "debug.h"
 
+#if CONFIG_APP_CYCLONE2
+#include "cyclone2/usb_control.h"
+#undef log_info
+#undef log_debug
+#undef log_error
+#define log_info(format, ...)  cyclone2_usb_debug("COMM_EDR: " format, ##__VA_ARGS__)
+#define log_debug(format, ...) cyclone2_usb_debug("COMM_EDR: " format, ##__VA_ARGS__)
+#define log_error(format, ...) cyclone2_usb_debug("COMM_EDR error: " format, ##__VA_ARGS__)
+#endif
+
 
 #if (!TCFG_USER_EDR_ENABLE) && (USER_SUPPORT_PROFILE_HID || USER_SUPPORT_PROFILE_HFP)
 //配置需要一致
@@ -872,6 +882,5 @@ void map_get_time_data(char *time, int status)
 #endif
 
 #endif
-
 
 

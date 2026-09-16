@@ -18,9 +18,19 @@ input, and a `c2> ` prompt. Its initial commands are:
 
 ```text
 help     show the command list
+debug on|off|status
+         control runtime Bluetooth diagnostics
 status   show the reset mailbox and MaskROM NVRAM
 uboot    reboot into BR23 UBOOT1.00
 ```
+
+Runtime diagnostics default to enabled and report Bluetooth status/HCI events
+and EDR HID-channel state. The locally compiled SDK EDR, EDR HID, and BLE
+module messages are routed into the same stream. Messages are buffered until
+CDC is ready, so early events following a profile-selection reset remain
+visible. Automatic Bluetooth timeouts and disconnects do not enter soft
+poweroff while USB is connected; this keeps the console and recovery command
+available. An explicit long Home button hold can still request sleep.
 
 `out/c2ctl` is an optional noninteractive Linux client. It finds the first
 `/dev/ttyACM*` device, or accepts an explicit path:

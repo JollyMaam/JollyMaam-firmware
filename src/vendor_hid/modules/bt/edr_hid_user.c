@@ -15,12 +15,20 @@
 #include "standard_hid.h"
 #include "app_comm_bt.h"
 
+#if CONFIG_APP_CYCLONE2
+#include "cyclone2/usb_control.h"
+#endif
+
 #if TCFG_USER_EDR_ENABLE && (USER_SUPPORT_PROFILE_HID ==1)
 
 #if 1
 //#define log_info            y_printf
 extern void put_buf(const u8 *buf, int len);
+#if CONFIG_APP_CYCLONE2
+#define log_info(x, ...)  cyclone2_usb_debug("EDR_HID: " x, ## __VA_ARGS__)
+#else
 #define log_info(x, ...)  printf("[EDR_HID]" x " ", ## __VA_ARGS__)
+#endif
 #define log_info_hexdump  put_buf
 
 #else
