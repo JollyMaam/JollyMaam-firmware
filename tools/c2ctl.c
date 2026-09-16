@@ -1,144 +1,114 @@
-#include <dirent.h>
+#define _DEFAULT_SOURCE
+
 #include <errno.h>
 #include <fcntl.h>
-#include <linux/hidraw.h>
-#include <linux/input.h>
 #include <poll.h>
-#include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <sys/ioctl.h>
+#include <termios.h>
 #include <unistd.h>
 
-#include "cyclone2/usb_protocol.h"
-
-#define JIELI_USB_VENDOR  0x4c4aU
-#define JIELI_USB_PRODUCT 0x4155U
-
-static const uint8_t protocol_magic[CYCLONE2_USB_MAGIC_SIZE] =
-    CYCLONE2_USB_MAGIC_INITIALIZER;
-
-static int open_controller(const char *requested_path, char *path, size_t size)
+static int open_console(const char *requested_path, char *path, size_t size)
 {
     unsigned int index;
+    int fd;
 
     if (requested_path) {
         snprintf(path, size, "%s", requested_path);
-        return open(path, O_RDWR | O_NONBLOCK);
+        return open(path, O_RDWR | O_NOCTTY | O_NONBLOCK);
     }
 
-    for (index = 0; index < 256; index++) {
-        struct hidraw_devinfo info;
-        int fd;
-
-        snprintf(path, size, "/dev/hidraw%u", index);
-        fd = open(path, O_RDWR | O_NONBLOCK);
-        if (fd < 0) continue;
-        memset(&info, 0, sizeof(info));
-        if (ioctl(fd, HIDIOCGRAWINFO, &info) == 0 && info.bustype == BUS_USB &&
-            info.vendor == JIELI_USB_VENDOR &&
-            info.product == JIELI_USB_PRODUCT) return fd;
-        close(fd);
+    for (index = 0; index < 256U; index++) {
+        snprintf(path, size, "/dev/ttyACM%u", index);
+        fd = open(path, O_RDWR | O_NOCTTY | O_NONBLOCK);
+        if (fd >= 0) return fd;
     }
     errno = ENODEV;
     return -1;
 }
 
-static int send_command(uint8_t command, const char *requested_path)
+static int configure_console(int fd)
 {
-    /* hidraw requires a leading zero report ID for an unnumbered output
-     * report. The firmware receives only the following 64-byte payload. */
-    uint8_t output[CYCLONE2_USB_PACKET_SIZE + 1U] = {0};
-    uint8_t input[CYCLONE2_USB_PACKET_SIZE + 1U];
-    struct pollfd poll_fd;
+    struct termios attributes;
+
+    if (tcgetattr(fd, &attributes) != 0) return -1;
+    cfmakeraw(&attributes);
+    cfsetispeed(&attributes, B115200);
+    cfsetospeed(&attributes, B115200);
+    attributes.c_cflag |= CLOCAL | CREAD;
+    return tcsetattr(fd, TCSANOW, &attributes);
+}
+
+static int send_command(const char *command, const char *requested_path)
+{
+    struct pollfd descriptor;
+    char request[96];
+    char response[256];
     char path[64];
-    size_t offset = 0;
     ssize_t length;
+    int received = 0;
     int fd;
+    int result;
 
-    fd = open_controller(requested_path, path, sizeof(path));
+    fd = open_console(requested_path, path, sizeof(path));
     if (fd < 0) {
-        fprintf(stderr, "cannot open Cyclone 2 configuration HID: %s\n",
+        fprintf(stderr, "cannot open Cyclone 2 console: %s\n", strerror(errno));
+        return 1;
+    }
+    if (configure_console(fd) != 0) {
+        fprintf(stderr, "%s: cannot configure serial port: %s\n", path,
                 strerror(errno));
+        close(fd);
         return 1;
     }
-    memcpy(output + 1U, protocol_magic, sizeof(protocol_magic));
-    output[1U + CYCLONE2_USB_COMMAND_OFFSET] = command;
-    output[1U + CYCLONE2_USB_INVERSE_OFFSET] = (uint8_t)~command;
 
-    length = write(fd, output, sizeof(output));
-    if (length != (ssize_t)sizeof(output)) {
+    result = snprintf(request, sizeof(request), "%s\r", command);
+    if (result < 0 || (size_t)result >= sizeof(request) ||
+        write(fd, request, (size_t)result) != result) {
         fprintf(stderr, "%s: command write failed: %s\n", path,
-                length < 0 ? strerror(errno) : "short write");
+                strerror(errno));
         close(fd);
         return 1;
     }
 
-    poll_fd.fd = fd;
-    poll_fd.events = POLLIN;
-    if (poll(&poll_fd, 1, 1000) <= 0) {
-        fprintf(stderr, "%s: firmware did not acknowledge command\n", path);
-        close(fd);
-        return 1;
-    }
-    length = read(fd, input, sizeof(input));
-    close(fd);
-    /* Linux normally omits report ID zero on reads, but accept it if a HID
-     * transport supplies the same leading byte required on writes. */
-    if (length > (ssize_t)CYCLONE2_USB_MAGIC_SIZE && input[0] == 0U &&
-        !memcmp(input + 1U, protocol_magic, sizeof(protocol_magic))) offset = 1U;
-    if (length < (ssize_t)(offset + CYCLONE2_USB_INVERSE_OFFSET + 1U) ||
-        memcmp(input + offset, protocol_magic, sizeof(protocol_magic)) ||
-        input[offset + CYCLONE2_USB_COMMAND_OFFSET] !=
-            (command | CYCLONE2_USB_RESPONSE_BIT) ||
-        input[offset + CYCLONE2_USB_INVERSE_OFFSET] !=
-            (uint8_t)~input[offset + CYCLONE2_USB_COMMAND_OFFSET]) {
-        fprintf(stderr, "%s: invalid firmware response\n", path);
-        return 1;
-    }
-
-    if (command == CYCLONE2_USB_COMMAND_STATUS) {
-        uint32_t magic;
-        size_t data = offset + CYCLONE2_USB_DATA_OFFSET;
-        size_t index;
-        if (length < (ssize_t)(data + 24U)) {
-            fprintf(stderr, "%s: short status response\n", path);
-            return 1;
+    descriptor.fd = fd;
+    descriptor.events = POLLIN;
+    for (;;) {
+        /* Allow two seconds for the first response, then finish after the
+         * console has been quiet for 250 ms. */
+        result = poll(&descriptor, 1, received ? 250 : 2000);
+        if (result < 0 && errno == EINTR) continue;
+        if (result <= 0) break;
+        length = read(fd, response, sizeof(response));
+        if (length > 0) {
+            fwrite(response, 1U, (size_t)length, stdout);
+            fflush(stdout);
+            received = 1;
+        } else if (length < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+            break;
         }
-        memcpy(&magic, input + data, sizeof(magic));
-        printf("%s: reset mailbox magic=%08x profile=%u pairing=%u check=%02x%02x nvram=",
-               path, magic, input[data + 4U], input[data + 5U],
-               input[data + 7U], input[data + 6U]);
-        for (index = 0; index < 16U; index++) printf("%02x", input[data + 8U + index]);
-        putchar('\n');
-    } else {
-        size_t data = offset + CYCLONE2_USB_DATA_OFFSET;
-        size_t index;
-        printf("%s: UBOOT1.00 request accepted; armed nvram=", path);
-        for (index = 0; index < 16U; index++) printf("%02x", input[data + index]);
-        putchar('\n');
+    }
+    close(fd);
+
+    if (!received) {
+        fprintf(stderr, "%s: firmware did not answer\n", path);
+        return 1;
     }
     return 0;
 }
 
 static void usage(const char *program)
 {
-    fprintf(stderr, "usage: %s {uboot|status} [/dev/hidrawN]\n", program);
+    fprintf(stderr, "usage: %s {help|status|uboot} [/dev/ttyACMN]\n", program);
 }
 
 int main(int argc, char **argv)
 {
-    uint8_t command;
-    if (argc < 2 || argc > 3) {
+    if (argc < 2 || argc > 3 ||
+        (strcmp(argv[1], "help") && strcmp(argv[1], "status") &&
+         strcmp(argv[1], "uboot"))) {
         usage(argv[0]);
         return 2;
     }
-    if (!strcmp(argv[1], "uboot")) command = CYCLONE2_USB_COMMAND_UBOOT;
-    else if (!strcmp(argv[1], "status")) command = CYCLONE2_USB_COMMAND_STATUS;
-    else {
-        usage(argv[0]);
-        return 2;
-    }
-    return send_command(command, argc == 3 ? argv[2] : NULL);
+    return send_command(argv[1], argc == 3 ? argv[2] : NULL);
 }

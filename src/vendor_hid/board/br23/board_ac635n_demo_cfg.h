@@ -29,19 +29,20 @@
 //*********************************************************************************//
 //                                 USB 配置                                        //
 //*********************************************************************************//
-#define TCFG_PC_ENABLE						ENABLE_THIS_MOUDLE //Cyclone 2 configuration HID
+#define TCFG_PC_ENABLE						ENABLE_THIS_MOUDLE //Cyclone 2 CDC console
 #define TCFG_UDISK_ENABLE					DISABLE_THIS_MOUDLE //U盘模块使能
 #define TCFG_HID_HOST_ENABLE                DISABLE_THIS_MOUDLE//ENABLE_THIS_MOUDLE  //游戏盒子模式
 #define TCFG_ADB_ENABLE                     DISABLE_THIS_MOUDLE//ENABLE_THIS_MOUDLE
 #define TCFG_AOA_ENABLE                     DISABLE_THIS_MOUDLE//ENABLE_THIS_MOUDLE
 
 #define TCFG_OTG_USB_DEV_EN                 BIT(0)
-#define TCFG_USB_CUSTOM_HID_ENABLE          ENABLE_THIS_MOUDLE
+#define TCFG_USB_CUSTOM_HID_ENABLE          DISABLE_THIS_MOUDLE
+#define CDC_INTR_EP_ENABLE                  ENABLE_THIS_MOUDLE
 
 #include "usb_std_class_def.h"
 ///USB 配置重定义
 #undef USB_DEVICE_CLASS_CONFIG
-#define USB_DEVICE_CLASS_CONFIG             CUSTOM_HID_CLASS
+#define USB_DEVICE_CLASS_CONFIG             CDC_CLASS
 #define TCFG_APP_PC_EN                     TCFG_PC_ENABLE
 //*********************************************************************************//
 //                                 IIC配置                                        //

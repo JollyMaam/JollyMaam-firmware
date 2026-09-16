@@ -138,7 +138,7 @@ $O/jlcfg: tools/jlcfg.c
 	@echo [EXE] $@
 	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) $< -o $@
 
-$O/c2ctl: tools/c2ctl.c src/cyclone2/usb_protocol.h
+$O/c2ctl: tools/c2ctl.c
 	@echo [EXE] $@
 	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) -Isrc $< -o $@
 
