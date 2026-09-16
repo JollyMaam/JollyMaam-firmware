@@ -99,6 +99,10 @@ void cyclone2_usb_debug(const char *format, ...)
     va_end(arguments);
     if (length < 0) return;
     if ((u32)length >= sizeof(line->text)) length = sizeof(line->text) - 1U;
+    while (length > 0 &&
+           (line->text[length - 1] == '\r' || line->text[length - 1] == '\n'))
+        length--;
+    if (length == 0) return;
     line->length = (u8)length;
     debug_write_index = next;
 }

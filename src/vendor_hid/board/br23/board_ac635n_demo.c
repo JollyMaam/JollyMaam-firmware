@@ -10,6 +10,7 @@
 #include "usb/otg.h"
 #include "rtc_alarm.h"
 #include "asm/power/power_port.h"
+#include "board.h"
 
 #ifdef CONFIG_LITE_AUDIO
 #include "media/includes.h"
@@ -25,6 +26,44 @@
 #include "debug.h"
 
 void board_power_init(void);
+
+#if CONFIG_APP_CYCLONE2
+static u8 cyclone2_early_profile_chord;
+
+static void cyclone2_prepare_early_button(u32 gpio)
+{
+    gpio_set_pull_down(gpio, 0);
+    gpio_set_pull_up(gpio, 1);
+    gpio_set_die(gpio, 1);
+    gpio_direction_input(gpio);
+}
+
+static void cyclone2_latch_early_profile_chord(void)
+{
+    u8 chord = 0U;
+
+    cyclone2_prepare_early_button(CYCLONE2_BUTTON_HOME);
+    cyclone2_prepare_early_button(CYCLONE2_BUTTON_A);
+    cyclone2_prepare_early_button(CYCLONE2_BUTTON_B);
+    cyclone2_prepare_early_button(CYCLONE2_BUTTON_X);
+    cyclone2_prepare_early_button(CYCLONE2_BUTTON_Y);
+
+    if (gpio_read(CYCLONE2_BUTTON_HOME)) return;
+    if (!gpio_read(CYCLONE2_BUTTON_A)) chord = 1U;
+    if (!gpio_read(CYCLONE2_BUTTON_B)) chord = chord ? 0xffU : 2U;
+    if (!gpio_read(CYCLONE2_BUTTON_X)) chord = chord ? 0xffU : 3U;
+    if (!gpio_read(CYCLONE2_BUTTON_Y)) chord = chord ? 0xffU : 4U;
+    if (chord != 0xffU) cyclone2_early_profile_chord = chord;
+}
+
+u8 cyclone2_take_early_profile_chord(void)
+{
+    u8 chord = cyclone2_early_profile_chord;
+    cyclone2_early_profile_chord = 0U;
+    return chord;
+}
+#endif
+
 const struct soft_iic_config soft_iic_cfg[] = {
     //iic0 data
     {
@@ -278,6 +317,9 @@ extern void set_dcdc_ctl_port(u8 port);
 extern void cfg_file_parse(u8 idx);
 void board_init()
 {
+#if CONFIG_APP_CYCLONE2
+    cyclone2_latch_early_profile_chord();
+#endif
     board_power_init();
     adc_vbg_init();
     adc_init();
@@ -520,6 +562,17 @@ void board_set_soft_poweroff(void)
 
 #if TCFG_ADKEY_ENABLE
     port_protect(port_group,TCFG_ADKEY_PORT);
+#endif
+
+#if CONFIG_APP_CYCLONE2
+    /* Keep the wake chord electrically readable from the first instruction
+     * after Home wakes the chip. cyclone2_input_initialize() has already made
+     * these active-low inputs with pull-ups. */
+    port_protect(port_group, CYCLONE2_BUTTON_HOME);
+    port_protect(port_group, CYCLONE2_BUTTON_A);
+    port_protect(port_group, CYCLONE2_BUTTON_B);
+    port_protect(port_group, CYCLONE2_BUTTON_X);
+    port_protect(port_group, CYCLONE2_BUTTON_Y);
 #endif
 
     //< close gpio

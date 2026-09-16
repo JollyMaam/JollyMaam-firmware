@@ -59,4 +59,8 @@
  * identifying it as the first physical device in the daisy chain. */
 #define CYCLONE2_LED_HOME_INDEX     0U
 
+/* Returns 1..4 for a Home+A/B/X/Y chord captured during early board startup,
+ * or zero if no complete chord was present. The result is consumed once. */
+u8 cyclone2_take_early_profile_chord(void);
+
 #endif

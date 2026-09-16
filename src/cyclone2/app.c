@@ -172,7 +172,6 @@ static u8 edr_bond_delete_pending;
 static u8 ignore_chord_until_release;
 static u8 edr_bond_to_delete[6];
 static u8 edr_reconnect_address[6];
-static u8 edr_hid_was_connected;
 
 extern void bt_pll_para(u32 osc, u32 sys, u8 low_power, u8 xosc);
 extern const u8 *bt_get_mac_addr(void);
@@ -543,14 +542,6 @@ static void cyclone2_poll(void *private_data)
          radio_state == CYCLONE2_RADIO_PAIRING) &&
         edr_hid_is_connected()) {
         radio_state = CYCLONE2_RADIO_CONNECTED;
-        cyclone2_usb_debug("EDR HID channels connected");
-    }
-    if (active_type == CYCLONE2_PROFILE_SWITCH) {
-        u8 connected = edr_hid_is_connected() != 0;
-        if (connected != edr_hid_was_connected) {
-            cyclone2_usb_debug("EDR HID state=%u", connected);
-            edr_hid_was_connected = connected;
-        }
     }
     make_host_report(&host_report);
     send_input_report(&host_report);
@@ -604,7 +595,6 @@ static void start_selected_profile(void)
     radio_state = active_pairing ? CYCLONE2_RADIO_PAIRING :
                                    CYCLONE2_RADIO_CONNECTING;
     radio_start_tick = control_ticks;
-    edr_hid_was_connected = 0U;
     cyclone2_usb_debug("start profile=%u type=%s pairing=%u",
                        active_profile,
                        active_type == CYCLONE2_PROFILE_SWITCH ? "switch" : "generic",
@@ -631,6 +621,7 @@ static void start_selected_profile(void)
 static void cyclone2_start(void)
 {
     u32 system_clock;
+    u8 early_chord;
 
     cyclone2_led_initialize();
     cyclone2_led_set_home(CYCLONE2_LED_DIM_RED, 0U, 0U);
@@ -643,7 +634,12 @@ static void cyclone2_start(void)
     current_report = candidate_report;
     debounce_samples = CYCLONE2_DEBOUNCE_SAMPLES;
     settings_load();
-    if (boot_request_consume()) start_selected_profile();
+    early_chord = cyclone2_take_early_profile_chord();
+    if (boot_request_consume()) {
+        start_selected_profile();
+    } else if (early_chord != 0U) {
+        profile_select(early_chord - 1U, 0U);
+    }
     report_timer = sys_timer_add(NULL, cyclone2_poll,
                                  CYCLONE2_REPORT_PERIOD_MS);
 }
@@ -664,10 +660,6 @@ static int cyclone2_connection_event(struct bt_event *event)
     u8 remote[6];
 
     if (active_type == CYCLONE2_PROFILE_SWITCH) {
-        cyclone2_usb_debug("EDR status event=%u value=%08x addr=%02x:%02x:%02x:%02x:%02x:%02x",
-                           event->event, event->value,
-                           event->args[0], event->args[1], event->args[2],
-                           event->args[3], event->args[4], event->args[5]);
         bt_comm_edr_status_event_handler(event);
         if (event->event == BT_STATUS_INIT_OK) {
             if (active_pairing) {
@@ -734,8 +726,6 @@ static int cyclone2_event_handler(struct application *application,
     if ((u32)event->arg == SYS_BT_EVENT_TYPE_HCI_STATUS) {
         if (active_type == CYCLONE2_PROFILE_SWITCH) {
             int result = bt_comm_edr_hci_event_handler(&event->u.bt);
-            cyclone2_usb_debug("EDR HCI event=%02x value=%08x",
-                               event->u.bt.event, event->u.bt.value);
             if (event->u.bt.event == HCI_EVENT_DISCONNECTION_COMPLETE) {
                 if (radio_state == CYCLONE2_RADIO_CONNECTED)
                     begin_automatic_sleep("EDR HCI disconnect");

@@ -25,15 +25,19 @@ the heap, is not present in the flash image, and is invalidated before the
 replacement stack starts. Profile switching therefore does not write syscfg.
 
 The firmware deliberately does not remember the active slot. After boot or
-wake it waits for an explicit Home+face chord. The Home LED indicates radio
-state:
+wake it waits for an explicit Home+face chord. Home and the four face-button
+GPIOs retain their input configuration during soft-poweroff, and a chord is
+sampled at the beginning of board initialization. This lets a short wake chord
+select its slot without waiting for the rest of SDK initialization. The Home
+LED indicates radio state:
 
 - slow dim-red blink: reconnecting;
 - fast dim-red blink: pairing;
 - steady dim red: connected.
 
 If a connection attempt times out, or an established host disconnects, the
-controller goes to sleep. Hold Home alone for five seconds to disconnect and
+controller goes to sleep unless USB is connected; USB keeps the CDC diagnostic
+and recovery console alive. Hold Home alone for five seconds to disconnect and
 sleep explicitly. Home wakes it again, but does not implicitly select a slot.
 
 ## Home-key arbitration
