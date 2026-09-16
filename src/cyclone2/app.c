@@ -34,6 +34,7 @@
 #define CYCLONE2_CONNECT_TIMEOUT_TICKS    3000U
 #define CYCLONE2_PAIR_TIMEOUT_TICKS       6000U
 #define CYCLONE2_BOOT_LED_TICKS              50U
+#define CYCLONE2_HID_CONNECT_DELAY_MS        100U
 #define CYCLONE2_LED_DIM_RED                 8U
 #define CYCLONE2_LED_SLOW_HALF_PERIOD       50U
 #define CYCLONE2_LED_FAST_HALF_PERIOD       12U
@@ -335,6 +336,19 @@ static void edr_reconnect_saved(void *private_data)
     user_send_cmd_prepare(USER_CTRL_START_CONNEC_VIA_ADDR,
                           sizeof(edr_reconnect_address),
                           edr_reconnect_address);
+}
+
+static void edr_hid_connect_after_encryption(void *private_data)
+{
+    int result;
+
+    (void)private_data;
+    if (active_type != CYCLONE2_PROFILE_SWITCH ||
+        radio_state == CYCLONE2_RADIO_STOPPING || edr_hid_is_connected())
+        return;
+
+    result = user_send_cmd_prepare(USER_CTRL_HID_CONN, 0, NULL);
+    cyclone2_usb_debug("request HID channels after encryption result=%d", result);
 }
 
 static int selected_face_button(u16 buttons, u8 *profile)
@@ -678,6 +692,12 @@ static int cyclone2_connection_event(struct bt_event *event)
                    event->event == BT_STATUS_SECOND_CONNECTED) {
             syscfg_write(CFG_EDR_ADDRESS_BEGIN + active_profile,
                          event->args, 6U);
+        } else if (event->event == BT_STATUS_ENCRY_COMPLETE) {
+            /* START_CONNEC_VIA_ADDR establishes and authenticates the ACL.
+             * On BlueZ the host does not reliably initiate the HID L2CAP
+             * channels afterward, so request them once encryption settles. */
+            sys_timeout_add(NULL, edr_hid_connect_after_encryption,
+                            CYCLONE2_HID_CONNECT_DELAY_MS);
         } else if (event->event == BT_STATUS_FIRST_DISCONNECT ||
                    event->event == BT_STATUS_SECOND_DISCONNECT) {
             if (radio_state == CYCLONE2_RADIO_CONNECTED)
@@ -714,9 +734,8 @@ static int cyclone2_event_handler(struct application *application,
     if ((u32)event->arg == SYS_BT_EVENT_TYPE_HCI_STATUS) {
         if (active_type == CYCLONE2_PROFILE_SWITCH) {
             int result = bt_comm_edr_hci_event_handler(&event->u.bt);
-            cyclone2_usb_debug("EDR HCI event=%02x value=%08x reason=%02x",
-                               event->u.bt.event, event->u.bt.value,
-                               event->u.bt.args[0]);
+            cyclone2_usb_debug("EDR HCI event=%02x value=%08x",
+                               event->u.bt.event, event->u.bt.value);
             if (event->u.bt.event == HCI_EVENT_DISCONNECTION_COMPLETE) {
                 if (radio_state == CYCLONE2_RADIO_CONNECTED)
                     begin_automatic_sleep("EDR HCI disconnect");

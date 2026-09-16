@@ -22,6 +22,7 @@
 #define DEBUG_LINE_SIZE        96U
 
 struct debug_line {
+    u32 timestamp_ms;
     u8 length;
     char text[DEBUG_LINE_SIZE];
 };
@@ -92,6 +93,7 @@ void cyclone2_usb_debug(const char *format, ...)
     }
 
     line = &debug_lines[debug_write_index];
+    line->timestamp_ms = sys_timer_get_ms();
     va_start(arguments, format);
     length = vsnprintf(line->text, sizeof(line->text), format, arguments);
     va_end(arguments);
@@ -104,20 +106,23 @@ void cyclone2_usb_debug(const char *format, ...)
 static void flush_debug_line(void)
 {
     struct debug_line *line;
+    char prefix[32];
+    int prefix_length;
 
     if (!debug_enabled || debug_read_index == debug_write_index) return;
     line = &debug_lines[debug_read_index];
-    if (cdc_write_data(USB0, (u8 *)"\r\n[debug] ",
-                       sizeof("\r\n[debug] ") - 1U) !=
-        sizeof("\r\n[debug] ") - 1U) return;
+    prefix_length = snprintf(prefix, sizeof(prefix), "\r\n[%u.%03u] ",
+                             line->timestamp_ms / 1000U,
+                             line->timestamp_ms % 1000U);
+    if (prefix_length <= 0 ||
+        cdc_write_data(USB0, (u8 *)prefix, (u32)prefix_length) !=
+        (u32)prefix_length) return;
     console_write_bytes(line->text, line->length);
     console_write("\r\n");
     if (debug_dropped) {
         console_write("[debug] messages were dropped\r\n");
         debug_dropped = 0U;
     }
-    console_prompt();
-    if (command_length) console_write_bytes(command_line, command_length);
     debug_read_index = (u8)((debug_read_index + 1U) % DEBUG_LINE_COUNT);
 }
 

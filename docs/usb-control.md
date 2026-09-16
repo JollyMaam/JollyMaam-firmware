@@ -28,7 +28,9 @@ Runtime diagnostics default to enabled and report Bluetooth status/HCI events
 and EDR HID-channel state. The locally compiled SDK EDR, EDR HID, and BLE
 module messages are routed into the same stream. Messages are buffered until
 CDC is ready, so early events following a profile-selection reset remain
-visible. Automatic Bluetooth timeouts and disconnects do not enter soft
+visible. Each line is timestamped with milliseconds since boot. Debug output
+does not emit another command prompt after every line. Automatic Bluetooth
+timeouts and disconnects do not enter soft
 poweroff while USB is connected; this keeps the console and recovery command
 available. An explicit long Home button hold can still request sleep.
 
