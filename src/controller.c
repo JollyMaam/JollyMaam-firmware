@@ -67,7 +67,7 @@ struct cyclone2_settings {
 /* Deliberately outside .bss: p33_soft_reset() preserves internal SRAM, so this
  * one-shot record can carry the next profile through reset without wearing
  * flash.  reset_mailbox.ld reserves its fixed address from the heap. */
-volatile struct cyclone2_boot_request cyclone2_boot_request
+volatile struct cyclone2_boot_request reset_mailbox
     __attribute__((section(".reset_mailbox"), used, aligned(4)));
 
 static struct cyclone2_settings settings;
@@ -158,16 +158,16 @@ static int boot_request_consume(void)
     u8 profile;
     u8 pairing;
 
-    magic = cyclone2_boot_request.magic;
-    profile = cyclone2_boot_request.profile;
-    pairing = cyclone2_boot_request.pairing;
-    check = cyclone2_boot_request.check;
+    magic = reset_mailbox.magic;
+    profile = reset_mailbox.profile;
+    pairing = reset_mailbox.pairing;
+    check = reset_mailbox.check;
 
     if (magic != CYCLONE2_BOOT_REQUEST_MAGIC) return 0;
 
     /* A profile record is one-shot.  Leave diagnostic records intact for the
      * USB status command after a failed recovery handoff. */
-    cyclone2_boot_request.magic = 0U;
+    reset_mailbox.magic = 0U;
     __asm__ volatile("csync");
 
     if (profile >= CYCLONE2_PROFILE_COUNT || pairing > 1U ||
@@ -196,11 +196,11 @@ static void profile_request_reset(u8 profile, u8 pairing)
     }
 
     /* Magic is the commit word and is written last. */
-    cyclone2_boot_request.magic = 0U;
-    cyclone2_boot_request.profile = profile;
-    cyclone2_boot_request.pairing = pairing;
-    cyclone2_boot_request.check = boot_request_check(profile, pairing);
-    cyclone2_boot_request.magic = CYCLONE2_BOOT_REQUEST_MAGIC;
+    reset_mailbox.magic = 0U;
+    reset_mailbox.profile = profile;
+    reset_mailbox.pairing = pairing;
+    reset_mailbox.check = boot_request_check(profile, pairing);
+    reset_mailbox.magic = CYCLONE2_BOOT_REQUEST_MAGIC;
     __asm__ volatile("csync");
 
     radio_state = CYCLONE2_RADIO_STOPPING;

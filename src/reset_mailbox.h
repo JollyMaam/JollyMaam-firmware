@@ -11,6 +11,6 @@ struct cyclone2_boot_request {
     u16 check;
 };
 
-extern volatile struct cyclone2_boot_request cyclone2_boot_request;
+extern volatile struct cyclone2_boot_request reset_mailbox;
 
 #endif

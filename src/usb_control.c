@@ -134,10 +134,10 @@ static void arm_maskrom_usb_token(void)
 
 static void print_status(void)
 {
-    const u8 *mailbox = (const u8 *)&cyclone2_boot_request;
+    const u8 *mailbox = (const u8 *)&reset_mailbox;
 
     console_write("reset-mailbox=");
-    console_write_hex(mailbox, sizeof(cyclone2_boot_request));
+    console_write_hex(mailbox, sizeof(reset_mailbox));
     console_write(" nvram=");
     console_write_hex((const u8 *)MASKROM_NVRAM_ADDRESS, 16U);
     console_write("\r\n");
