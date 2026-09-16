@@ -119,15 +119,20 @@ static void fill_controller_state(u8 state[SWITCH_CONTROLLER_STATE_SIZE])
     if (buttons & CYCLONE2_REPORT_BUTTON_Y) button_status |= JC_BTN_X;
     if (buttons & CYCLONE2_REPORT_BUTTON_A) button_status |= JC_BTN_B;
     if (buttons & CYCLONE2_REPORT_BUTTON_B) button_status |= JC_BTN_A;
-    if (buttons & CYCLONE2_REPORT_BUTTON_R1) button_status |= JC_BTN_R;
-    if (latest_input.right_trigger > 0x20U) button_status |= JC_BTN_ZR;
-
-    if (buttons & CYCLONE2_REPORT_BUTTON_SELECT) button_status |= JC_BTN_MINUS;
-    if (buttons & CYCLONE2_REPORT_BUTTON_START) button_status |= JC_BTN_PLUS;
-    if (buttons & CYCLONE2_REPORT_BUTTON_R3) button_status |= JC_BTN_RSTICK;
-    if (buttons & CYCLONE2_REPORT_BUTTON_L3) button_status |= JC_BTN_LSTICK;
-    if (buttons & CYCLONE2_REPORT_BUTTON_HOME) button_status |= JC_BTN_HOME;
-    if (buttons & CYCLONE2_REPORT_BUTTON_SCREENSHOT) button_status |= JC_BTN_CAP;
+    /* Live testing exposed a permutation between the non-face physical
+     * controls and the semantic fields produced by cyclone2_input_read().
+     * Keep the correction here until the underlying board routing is
+     * independently re-measured.  The comments name the physical control. */
+    if (buttons & CYCLONE2_REPORT_BUTTON_R1) button_status |= JC_BTN_L;       /* L */
+    if (latest_input.left_trigger > 0x20U)   button_status |= JC_BTN_R;       /* R */
+    if (latest_input.right_trigger > 0x20U)  button_status |= JC_BTN_ZL;      /* L2 */
+    if (buttons & CYCLONE2_REPORT_BUTTON_SELECT) button_status |= JC_BTN_ZR;  /* R2 */
+    if (buttons & CYCLONE2_REPORT_BUTTON_START) button_status |= JC_BTN_MINUS;
+    if (buttons & CYCLONE2_REPORT_BUTTON_L3) button_status |= JC_BTN_PLUS;
+    if (buttons & CYCLONE2_REPORT_BUTTON_HOME) button_status |= JC_BTN_LSTICK;
+    if (buttons & CYCLONE2_REPORT_BUTTON_SCREENSHOT) button_status |= JC_BTN_RSTICK;
+    if (buttons & CYCLONE2_REPORT_BUTTON_R3) button_status |= JC_BTN_HOME;
+    if (buttons & CYCLONE2_REPORT_BUTTON_L1) button_status |= JC_BTN_CAP;
 
     switch (latest_input.hat) {
     case CYCLONE2_HAT_UP:         button_status |= JC_BTN_UP; break;
@@ -140,9 +145,6 @@ static void fill_controller_state(u8 state[SWITCH_CONTROLLER_STATE_SIZE])
     case CYCLONE2_HAT_UP_LEFT:    button_status |= JC_BTN_UP | JC_BTN_LEFT; break;
     default: break;
     }
-    if (buttons & CYCLONE2_REPORT_BUTTON_L1) button_status |= JC_BTN_L;
-    if (latest_input.left_trigger > 0x20U) button_status |= JC_BTN_ZL;
-
     /* This is the inverse of hid_field_extract(button_status, 0, 24). */
     state[SWITCH_STATE_BUTTONS_OFFSET + 0U] = button_status;
     state[SWITCH_STATE_BUTTONS_OFFSET + 1U] = button_status >> 8;
@@ -165,16 +167,16 @@ static void fill_simple_state(u8 report[SWITCH_SIMPLE_PAYLOAD_SIZE])
     if (buttons & CYCLONE2_REPORT_BUTTON_B) report[0] |= NINTENDO_SIMPLE_B;
     if (buttons & CYCLONE2_REPORT_BUTTON_X) report[0] |= NINTENDO_SIMPLE_Y;
     if (buttons & CYCLONE2_REPORT_BUTTON_Y) report[0] |= NINTENDO_SIMPLE_X;
-    if (buttons & CYCLONE2_REPORT_BUTTON_L1) report[0] |= NINTENDO_SIMPLE_L;
-    if (buttons & CYCLONE2_REPORT_BUTTON_R1) report[0] |= NINTENDO_SIMPLE_R;
-    if (latest_input.left_trigger > 0x20U) report[0] |= NINTENDO_SIMPLE_ZL;
-    if (latest_input.right_trigger > 0x20U) report[0] |= NINTENDO_SIMPLE_ZR;
-    if (buttons & CYCLONE2_REPORT_BUTTON_SELECT) report[1] |= JC_BTN_MINUS >> 8;
-    if (buttons & CYCLONE2_REPORT_BUTTON_START) report[1] |= JC_BTN_PLUS >> 8;
-    if (buttons & CYCLONE2_REPORT_BUTTON_L3) report[1] |= JC_BTN_LSTICK >> 8;
-    if (buttons & CYCLONE2_REPORT_BUTTON_R3) report[1] |= JC_BTN_RSTICK >> 8;
-    if (buttons & CYCLONE2_REPORT_BUTTON_HOME) report[1] |= JC_BTN_HOME >> 8;
-    if (buttons & CYCLONE2_REPORT_BUTTON_SCREENSHOT) report[1] |= JC_BTN_CAP >> 8;
+    if (buttons & CYCLONE2_REPORT_BUTTON_R1) report[0] |= NINTENDO_SIMPLE_L;
+    if (latest_input.left_trigger > 0x20U) report[0] |= NINTENDO_SIMPLE_R;
+    if (latest_input.right_trigger > 0x20U) report[0] |= NINTENDO_SIMPLE_ZL;
+    if (buttons & CYCLONE2_REPORT_BUTTON_SELECT) report[0] |= NINTENDO_SIMPLE_ZR;
+    if (buttons & CYCLONE2_REPORT_BUTTON_START) report[1] |= JC_BTN_MINUS >> 8;
+    if (buttons & CYCLONE2_REPORT_BUTTON_L3) report[1] |= JC_BTN_PLUS >> 8;
+    if (buttons & CYCLONE2_REPORT_BUTTON_HOME) report[1] |= JC_BTN_LSTICK >> 8;
+    if (buttons & CYCLONE2_REPORT_BUTTON_SCREENSHOT) report[1] |= JC_BTN_RSTICK >> 8;
+    if (buttons & CYCLONE2_REPORT_BUTTON_R3) report[1] |= JC_BTN_HOME >> 8;
+    if (buttons & CYCLONE2_REPORT_BUTTON_L1) report[1] |= JC_BTN_CAP >> 8;
     report[2] = latest_input.hat;
 
     axis = (u16)latest_input.left_x * 257U;
