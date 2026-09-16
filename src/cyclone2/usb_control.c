@@ -37,7 +37,6 @@ static u8 response_delay;
 static u8 debug_enabled = 1U;
 static u8 debug_read_index;
 static u8 debug_write_index;
-static u8 debug_flush_divider;
 static struct debug_line debug_lines[DEBUG_LINE_COUNT];
 
 extern void usb_start(void);
@@ -113,8 +112,6 @@ static void flush_debug_line(void)
     int prefix_length;
 
     if (!debug_enabled || debug_read_index == debug_write_index) return;
-    if (++debug_flush_divider < 5U) return;
-    debug_flush_divider = 0U;
     line = &debug_lines[debug_read_index];
     prefix_length = snprintf(prefix, sizeof(prefix), "\r\n[%u.%03u] ",
                              line->timestamp_ms / 1000U,

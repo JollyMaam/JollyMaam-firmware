@@ -1,6 +1,7 @@
 #include "system/app_core.h"
 #include "system/includes.h"
 #include "asm/power_interface.h"
+#include "usb/otg.h"
 #include "btcontroller_config.h"
 #include "btstack/avctp_user.h"
 #include "btstack/btstack_task.h"
@@ -317,7 +318,7 @@ static void begin_sleep(void)
 
 static void begin_automatic_sleep(const char *reason)
 {
-    if (gpio_read(CYCLONE2_USB_SENSE)) {
+    if (usb_otg_online(USB0) != DISCONN_MODE) {
         cyclone2_usb_debug("%s; staying awake because USB is connected", reason);
         return;
     }
