@@ -32,6 +32,8 @@
 #define CYCLONE2_LONG_HOLD_TICKS           500U
 #define CYCLONE2_CONNECT_TIMEOUT_TICKS    3000U
 #define CYCLONE2_PAIR_TIMEOUT_TICKS       6000U
+#define CYCLONE2_HID_CONNECT_DELAY_TICKS    50U
+#define CYCLONE2_HID_CONNECT_RETRY_TICKS   200U
 #define CYCLONE2_LED_DIM_RED                 8U
 #define CYCLONE2_LED_SLOW_HALF_PERIOD       50U
 #define CYCLONE2_LED_FAST_HALF_PERIOD       12U
@@ -166,9 +168,11 @@ static u8 home_tap_phase;
 static u8 led_is_on;
 static u8 sleep_pending;
 static u8 edr_bond_delete_pending;
+static u8 edr_acl_connected;
 static u8 ignore_chord_until_release;
 static u8 edr_bond_to_delete[6];
 static u8 edr_reconnect_address[6];
+static u32 edr_hid_connect_tick;
 
 extern void bt_pll_para(u32 osc, u32 sys, u8 low_power, u8 xosc);
 extern const u8 *bt_get_mac_addr(void);
@@ -323,6 +327,23 @@ static void edr_reconnect_saved(void *private_data)
     user_send_cmd_prepare(USER_CTRL_START_CONNEC_VIA_ADDR,
                           sizeof(edr_reconnect_address),
                           edr_reconnect_address);
+}
+
+static void service_edr_hid_connection(void)
+{
+    if (active_type != CYCLONE2_PROFILE_SWITCH || !edr_acl_connected ||
+        (radio_state != CYCLONE2_RADIO_CONNECTING &&
+         radio_state != CYCLONE2_RADIO_PAIRING) ||
+        edr_hid_is_connected()) return;
+
+    if ((s32)(control_ticks - edr_hid_connect_tick) < 0) return;
+
+    /* USER_CTRL_START_CONNEC_VIA_ADDR establishes the ACL link but does not
+     * consistently open the HID control/interrupt channels. Actively request
+     * the HID profile after authentication has had time to settle, and retry
+     * while this is still an initial connection attempt. */
+    user_send_cmd_prepare(USER_CTRL_HID_CONN, 0, NULL);
+    edr_hid_connect_tick = control_ticks + CYCLONE2_HID_CONNECT_RETRY_TICKS;
 }
 
 static int selected_face_button(u16 buttons, u8 *profile)
@@ -508,6 +529,7 @@ static void cyclone2_poll(void *private_data)
         }
     }
     update_home_state();
+    service_edr_hid_connection();
     /* The ACL connection event precedes authentication and opening the HID
      * control/interrupt channels. Only the latter is a usable connection. */
     if (active_type == CYCLONE2_PROFILE_SWITCH &&
@@ -639,11 +661,16 @@ static int cyclone2_connection_event(struct bt_event *event)
             }
         } else if (event->event == BT_STATUS_FIRST_CONNECTED ||
                    event->event == BT_STATUS_SECOND_CONNECTED) {
+            edr_acl_connected = 1U;
+            edr_hid_connect_tick =
+                control_ticks + CYCLONE2_HID_CONNECT_DELAY_TICKS;
             syscfg_write(CFG_EDR_ADDRESS_BEGIN + active_profile,
                          event->args, 6U);
-        } else if ((event->event == BT_STATUS_FIRST_DISCONNECT ||
-                    event->event == BT_STATUS_SECOND_DISCONNECT) &&
-                   radio_state == CYCLONE2_RADIO_CONNECTED) begin_sleep();
+        } else if (event->event == BT_STATUS_FIRST_DISCONNECT ||
+                   event->event == BT_STATUS_SECOND_DISCONNECT) {
+            edr_acl_connected = 0U;
+            if (radio_state == CYCLONE2_RADIO_CONNECTED) begin_sleep();
+        }
     } else {
         bt_comm_ble_status_event_handler(event);
         if (event->event == BT_STATUS_INIT_OK && active_pairing) {
@@ -674,8 +701,10 @@ static int cyclone2_event_handler(struct application *application,
     if ((u32)event->arg == SYS_BT_EVENT_TYPE_HCI_STATUS) {
         if (active_type == CYCLONE2_PROFILE_SWITCH) {
             int result = bt_comm_edr_hci_event_handler(&event->u.bt);
-            if (event->u.bt.event == HCI_EVENT_DISCONNECTION_COMPLETE &&
-                radio_state == CYCLONE2_RADIO_CONNECTED) begin_sleep();
+            if (event->u.bt.event == HCI_EVENT_DISCONNECTION_COMPLETE) {
+                edr_acl_connected = 0U;
+                if (radio_state == CYCLONE2_RADIO_CONNECTED) begin_sleep();
+            }
             return result;
         }
         return bt_comm_ble_hci_event_handler(&event->u.bt);
