@@ -6,7 +6,7 @@
 #include "app_action.h"
 #include "app_config.h"
 #include "board.h"
-#include "control.h"
+#include "led.h"
 #include "input.h"
 #include "profile.h"
 #include "reset_mailbox.h"

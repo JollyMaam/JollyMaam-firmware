@@ -6,7 +6,7 @@
 #include "usb/device/usb_stack.h"
 
 #include "board.h"
-#include "control.h"
+#include "led.h"
 #include "reset_mailbox.h"
 #include "runtime.h"
 #include "usb_control.h"

@@ -68,7 +68,7 @@ PROJECT_SOURCES := \
 	src/profile_generic.c \
 	src/profile_switch.c \
 	src/usb_control.c \
-	src/control.c \
+	src/led.c \
 	src/rom.c
 INCLUDES := \
 	-Isrc \

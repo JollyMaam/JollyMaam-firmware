@@ -4,7 +4,7 @@
 #include "edr_hid_user.h"
 
 #include "app_comm_bt.h"
-#include "control.h"
+#include "led.h"
 #include "profile_internal.h"
 #include "usb_control.h"
 #include "user_cfg_id.h"

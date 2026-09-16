@@ -3,7 +3,7 @@
 #include "asm/wdt.h"
 
 #include "board.h"
-#include "control.h"
+#include "led.h"
 #include "rom.h"
 
 #define LED_COUNT                CYCLONE2_LED_COUNT
