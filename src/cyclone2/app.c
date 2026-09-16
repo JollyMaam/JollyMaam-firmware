@@ -75,11 +75,6 @@ struct cyclone2_boot_request {
     u16 check;
 };
 
-/* One-shot profile selection carried across p33_soft_reset().  External
- * linkage prevents the LTO pass from cloning this retained mailbox. */
-volatile struct cyclone2_boot_request cyclone2_boot_request
-    AT_NON_VOLATILE_RAM __attribute__((used));
-
 /* Report 1: sixteen buttons, a hat, four unsigned stick axes, and two
  * unsigned analog triggers.  The report ID is passed separately to the SDK
  * send API. */
@@ -187,6 +182,8 @@ extern int ble_hid_data_send(u8 report_id, u8 *data, u16 length);
 extern void bt_set_local_name(char *name, u8 len);
 extern void delete_link_key(bd_addr_t *address, u8 index);
 
+static void start_selected_profile(void);
+
 u8 get_cur_bt_idx(void)
 {
     return active_profile < CYCLONE2_PROFILE_COUNT ? active_profile : 0U;
@@ -220,17 +217,24 @@ static u16 boot_request_check(u8 profile, u8 pairing)
 
 static int boot_request_consume(void)
 {
-    u8 profile = cyclone2_boot_request.profile;
-    u8 pairing = cyclone2_boot_request.pairing;
-    int valid = cyclone2_boot_request.magic == CYCLONE2_BOOT_REQUEST_MAGIC &&
-                profile < CYCLONE2_PROFILE_COUNT && pairing <= 1U &&
-                cyclone2_boot_request.check ==
-                    boot_request_check(profile, pairing);
+    struct cyclone2_boot_request request;
+    u8 profile;
+    u8 pairing;
 
-    cyclone2_boot_request.magic = 0U;
-    if (!valid) {
+    if (syscfg_read(CFG_CYCLONE2_BOOT_REQUEST, &request,
+                    sizeof(request)) != sizeof(request)) {
         return 0;
     }
+    profile = request.profile;
+    pairing = request.pairing;
+    if (request.magic != CYCLONE2_BOOT_REQUEST_MAGIC ||
+        profile >= CYCLONE2_PROFILE_COUNT || pairing > 1U ||
+        request.check != boot_request_check(profile, pairing)) return 0;
+
+    /* This is a reset handoff, not a saved active profile. Consume it before
+     * starting the radio so a later unrelated reset returns to slot select. */
+    request.magic = 0U;
+    syscfg_write(CFG_CYCLONE2_BOOT_REQUEST, &request, sizeof(request));
     active_profile = profile;
     active_pairing = pairing;
     ignore_chord_until_release = 1U;
@@ -247,21 +251,38 @@ static void soft_reset_now(void *private_data)
 
 static void profile_request_reset(u8 profile, u8 pairing)
 {
+    struct cyclone2_boot_request request;
+
     if (radio_state == CYCLONE2_RADIO_STOPPING) {
         return;
     }
-    radio_state = CYCLONE2_RADIO_STOPPING;
-    cyclone2_boot_request.profile = profile;
-    cyclone2_boot_request.pairing = pairing;
-    cyclone2_boot_request.check = boot_request_check(profile, pairing);
-    cyclone2_boot_request.magic = CYCLONE2_BOOT_REQUEST_MAGIC;
-    __asm__ volatile("csync");
+    request.profile = profile;
+    request.pairing = pairing;
+    request.check = boot_request_check(profile, pairing);
+    request.magic = CYCLONE2_BOOT_REQUEST_MAGIC;
+    if (syscfg_write(CFG_CYCLONE2_BOOT_REQUEST, &request,
+                     sizeof(request)) != sizeof(request)) return;
 
-    if (active_profile < CYCLONE2_PROFILE_COUNT) {
-        if (active_type == CYCLONE2_PROFILE_SWITCH) user_hid_disconnect();
-        else le_hogp_disconnect();
-    }
+    radio_state = CYCLONE2_RADIO_STOPPING;
+    if (active_type == CYCLONE2_PROFILE_SWITCH) user_hid_disconnect();
+    else le_hogp_disconnect();
     sys_timeout_add(NULL, soft_reset_now, 100U);
+}
+
+static void profile_select(u8 profile, u8 pairing)
+{
+    if (active_profile < CYCLONE2_PROFILE_COUNT) {
+        profile_request_reset(profile, pairing);
+        return;
+    }
+
+    active_profile = profile;
+    active_pairing = pairing;
+    active_type = settings.profile_type[profile] == CYCLONE2_PROFILE_GENERIC ?
+                  CYCLONE2_PROFILE_GENERIC : CYCLONE2_PROFILE_SWITCH;
+    home_state = CYCLONE2_HOME_IDLE;
+    ignore_chord_until_release = 1U;
+    start_selected_profile();
 }
 
 static void poweroff_now(void *private_data)
@@ -350,11 +371,11 @@ static void update_home_state(void)
         break;
     case CYCLONE2_HOME_CHORD:
         if (!home || (buttons & chord_button) == 0U) {
-            profile_request_reset(requested_profile, 0U);
+            profile_select(requested_profile, 0U);
         } else if ((buttons & CYCLONE2_FACE_BUTTONS) != chord_button) {
             home_state = CYCLONE2_HOME_INVALID_CHORD;
         } else if (control_ticks - chord_start_tick >= CYCLONE2_LONG_HOLD_TICKS) {
-            profile_request_reset(requested_profile, 1U);
+            profile_select(requested_profile, 1U);
         }
         break;
     case CYCLONE2_HOME_INVALID_CHORD:
@@ -516,6 +537,8 @@ static void start_selected_profile(void)
     radio_state = active_pairing ? CYCLONE2_RADIO_PAIRING :
                                    CYCLONE2_RADIO_CONNECTING;
     radio_start_tick = control_ticks;
+    /* Show that selection reached radio startup even if stack init fails. */
+    update_status_led();
 
     if (active_type == CYCLONE2_PROFILE_SWITCH) {
         bt_set_local_name("Pro Controller", sizeof("Pro Controller") - 1U);
