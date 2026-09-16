@@ -35,28 +35,13 @@ PROJECT_SOURCES := \
 	src/vendor_hid/config/lib_system_config.c \
 	src/vendor_hid/config/lib_update_config.c \
 	src/vendor_hid/config/log_config.c \
-	src/vendor_hid/examples/gamebox/app_gamebox.c \
-	src/vendor_hid/examples/gamebox/gamebox.c \
-	src/vendor_hid/examples/gamebox/key_mapping.c \
 	src/vendor_hid/examples/idle/app_idle.c \
-	src/vendor_hid/examples/keyboard/app_keyboard.c \
-	src/vendor_hid/examples/keyfob/app_keyfob.c \
-	src/vendor_hid/examples/keypage/app_keypage.c \
-	src/vendor_hid/examples/mouse_dual/app_mouse_dual.c \
-	src/vendor_hid/examples/mouse_single/app_mouse.c \
-	src/vendor_hid/examples/standard_keyboard/app_standard_keyboard.c \
-	src/vendor_hid/examples/standard_keyboard/usb_hid_devices.c \
-	src/vendor_hid/examples/voice_remote_control/app_remote_control.c \
-	src/vendor_hid/examples/voice_remote_control/audio_codec_demo.c \
 	src/vendor_hid/modules/aec/br23/audio_aec.c \
 	src/vendor_hid/modules/bt/app_comm_ble.c \
 	src/vendor_hid/modules/bt/app_comm_edr.c \
 	src/vendor_hid/modules/bt/ble_hogp.c \
 	src/vendor_hid/modules/bt/edr_hid_user.c \
 	src/vendor_hid/modules/misc.c \
-	src/vendor_hid/modules/power/app_charge.c \
-	src/vendor_hid/modules/power/app_chargestore.c \
-	src/vendor_hid/modules/power/app_handshake.c \
 	src/vendor_hid/modules/power/app_power_manage.c \
 	src/vendor_hid/modules/rtc_alarm.c \
 	src/vendor_hid/modules/user_cfg.c \
