@@ -14,7 +14,9 @@
 #include "app_config.h"
 #include "control.h"
 #include "cyclone2/input.h"
+#include "cyclone2/reset_mailbox.h"
 #include "cyclone2/switch_hid.h"
+#include "cyclone2/usb_control.h"
 #include "user_cfg_id.h"
 
 #if CONFIG_APP_CYCLONE2
@@ -26,7 +28,6 @@
 #define CYCLONE2_PROFILE_COUNT              4U
 #define CYCLONE2_SETTINGS_MAGIC     0x43325052U
 #define CYCLONE2_SETTINGS_VERSION           1U
-#define CYCLONE2_BOOT_REQUEST_MAGIC 0x43324254U
 #define CYCLONE2_HOME_GRACE_TICKS           15U
 #define CYCLONE2_LONG_HOLD_TICKS           500U
 #define CYCLONE2_CONNECT_TIMEOUT_TICKS    3000U
@@ -68,12 +69,11 @@ struct cyclone2_settings {
     u8 reserved[4];
 };
 
-struct cyclone2_boot_request {
-    u32 magic;
-    u8 profile;
-    u8 pairing;
-    u16 check;
-};
+/* Deliberately outside .bss: p33_soft_reset() preserves internal SRAM, so this
+ * one-shot record can carry the next profile through reset without wearing
+ * flash.  reset_mailbox.ld reserves its fixed address from the heap. */
+volatile struct cyclone2_boot_request cyclone2_boot_request
+    __attribute__((section(".reset_mailbox"), used, aligned(4)));
 
 /* Report 1: sixteen buttons, a hat, four unsigned stick axes, and two
  * unsigned analog triggers.  The report ID is passed separately to the SDK
@@ -218,24 +218,28 @@ static u16 boot_request_check(u8 profile, u8 pairing)
 
 static int boot_request_consume(void)
 {
-    struct cyclone2_boot_request request;
+    u32 magic;
+    u16 check;
     u8 profile;
     u8 pairing;
 
-    if (syscfg_read(CFG_CYCLONE2_BOOT_REQUEST, &request,
-                    sizeof(request)) != sizeof(request)) {
-        return 0;
-    }
-    profile = request.profile;
-    pairing = request.pairing;
-    if (request.magic != CYCLONE2_BOOT_REQUEST_MAGIC ||
-        profile >= CYCLONE2_PROFILE_COUNT || pairing > 1U ||
-        request.check != boot_request_check(profile, pairing)) return 0;
+    magic = cyclone2_boot_request.magic;
+    profile = cyclone2_boot_request.profile;
+    pairing = cyclone2_boot_request.pairing;
+    check = cyclone2_boot_request.check;
+
+    if (magic != CYCLONE2_BOOT_REQUEST_MAGIC) return 0;
+
+    /* A profile record is one-shot.  Leave diagnostic records intact for the
+     * USB status command after a failed recovery handoff. */
+    cyclone2_boot_request.magic = 0U;
+    __asm__ volatile("csync");
+
+    if (profile >= CYCLONE2_PROFILE_COUNT || pairing > 1U ||
+        check != boot_request_check(profile, pairing)) return 0;
 
     /* This is a reset handoff, not a saved active profile. Consume it before
      * starting the radio so a later unrelated reset returns to slot select. */
-    request.magic = 0U;
-    syscfg_write(CFG_CYCLONE2_BOOT_REQUEST, &request, sizeof(request));
     active_profile = profile;
     active_pairing = pairing;
     ignore_chord_until_release = 1U;
@@ -252,17 +256,17 @@ static void soft_reset_now(void *private_data)
 
 static void profile_request_reset(u8 profile, u8 pairing)
 {
-    struct cyclone2_boot_request request;
-
     if (radio_state == CYCLONE2_RADIO_STOPPING) {
         return;
     }
-    request.profile = profile;
-    request.pairing = pairing;
-    request.check = boot_request_check(profile, pairing);
-    request.magic = CYCLONE2_BOOT_REQUEST_MAGIC;
-    if (syscfg_write(CFG_CYCLONE2_BOOT_REQUEST, &request,
-                     sizeof(request)) != sizeof(request)) return;
+
+    /* Magic is the commit word and is written last. */
+    cyclone2_boot_request.magic = 0U;
+    cyclone2_boot_request.profile = profile;
+    cyclone2_boot_request.pairing = pairing;
+    cyclone2_boot_request.check = boot_request_check(profile, pairing);
+    cyclone2_boot_request.magic = CYCLONE2_BOOT_REQUEST_MAGIC;
+    __asm__ volatile("csync");
 
     radio_state = CYCLONE2_RADIO_STOPPING;
     if (active_type == CYCLONE2_PROFILE_SWITCH) user_hid_disconnect();
@@ -488,6 +492,7 @@ static void cyclone2_poll(void *private_data)
 
     (void)private_data;
     control_ticks++;
+    cyclone2_usb_control_poll();
     cyclone2_input_read(&sample);
     accept_analog_input(&sample);
     if (sample.buttons != candidate_report.buttons ||
@@ -586,6 +591,7 @@ static void cyclone2_start(void)
     system_clock = clk_get("sys");
     bt_pll_para(TCFG_CLOCK_OSC_HZ, system_clock, 0, 0);
     cyclone2_input_initialize();
+    cyclone2_usb_control_initialize();
     cyclone2_input_read(&candidate_report);
     current_report = candidate_report;
     debounce_samples = CYCLONE2_DEBOUNCE_SAMPLES;

@@ -19,9 +19,10 @@ defaults are currently initialized in `settings_load()`; a user-facing
 configuration transport has not been added yet.
 
 Selecting the first profile after boot starts its Bluetooth stack directly.
-Switching profiles while a stack is already running uses syscfg item 49 as a
-one-shot reset handoff; it is invalidated before the replacement stack starts
-and is never used as a remembered active profile.
+Switching profiles while a stack is already running uses a 16-byte internal
+SRAM reservation as a one-shot soft-reset handoff. It is outside `.bss` and
+the heap, is not present in the flash image, and is invalidated before the
+replacement stack starts. Profile switching therefore does not write syscfg.
 
 The firmware deliberately does not remember the active slot. After boot or
 wake it waits for an explicit Home+face chord. The Home LED indicates radio

@@ -3,7 +3,9 @@ SDK := /work/github.com-Jieli-Tech/fw-AC63_BT_SDK
 TOOL_DIR := /work/jieli-linux-toolchains-20250324.1/pi32v2/bin
 PYTHON := /work/bin/python3
 FLASH_SIZE := 0x80000
-CODE_LIMIT := 0x3e000
+# USB configuration support pushes the packed application past the historical
+# 0x3e000 boundary. Keep the following 8-KiB VM region explicit in isd_config.
+CODE_LIMIT := 0x40000
 
 # Start from an exact, locally owned copy of the SDK HID application.  The
 # "cyclone2" selection keeps the smaller experimental application available
@@ -62,6 +64,7 @@ PROJECT_SOURCES := \
 	src/cyclone2/app.c \
 	src/cyclone2/input.c \
 	src/cyclone2/switch_hid.c \
+	src/cyclone2/usb_control.c \
 	src/control.c \
 	src/rom.c
 INCLUDES := \
@@ -73,11 +76,13 @@ INCLUDES := \
 	$(SDK_INCLUDES)
 SDK_SOURCES := $(SDK_COMMON_SOURCES_FULL) $(SDK_SOURCES_FULL)
 APP_CONFIG := src/vendor_hid/include/app_config.h
+RESET_MAILBOX_LD := src/cyclone2/reset_mailbox.ld
 APP_CONFIG_DEPS := \
 	$(wildcard src/vendor_hid/include/*.h) \
 	$(wildcard src/vendor_hid/board/br23/*.h) \
 	src/vendor_hid/board/br23/app.ld \
-	src/vendor_hid/board/br23/app_overlay.ld
+	src/vendor_hid/board/br23/app_overlay.ld \
+	$(RESET_MAILBOX_LD)
 SDK_COMMON_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_COMMON_SOURCES_FULL:.c=.c.o))
 SDK_CPU_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_SOURCES_FULL:.c=.c.o))
 OBJECTS := $(SDK_COMMON_OBJECTS) $(addprefix $O/,$(PROJECT_SOURCES:.c=.c.o)) $(SDK_CPU_OBJECTS)
@@ -104,7 +109,7 @@ endif
 
 .PHONY: all default clean
 
-default all: $O/firmware.img
+default all: $O/firmware.img $O/c2ctl
 
 # regenerate stuff if makefile or config changes
 $(OBJECTS) $O/sdk.ld $O/sdk_used_list.used: Makefile sdk-br23.mk $(APP_CONFIG_DEPS)
@@ -133,6 +138,10 @@ $O/jlcfg: tools/jlcfg.c
 	@echo [EXE] $@
 	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) $< -o $@
 
+$O/c2ctl: tools/c2ctl.c src/cyclone2/usb_protocol.h
+	@echo [EXE] $@
+	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) -Isrc $< -o $@
+
 # minimal version of download.sh
 $O/app.bin: $O/app.elf
 	@echo [BIN] $@
@@ -148,6 +157,13 @@ $O/app.elf: $O/sdk.ld $O/sdk_used_list.used $(OBJECTS)
 
 $O/sdk.ld: $(SDK)/cpu/br23/sdk_ld.c $(APP_CONFIG)
 	$(compile_pre_build)
+	# Reserve the profile-selection reset mailbox above the SDK heap and below
+	# MaskROM's high workspace. Insert it after all normal RAM sections.
+	$(QUIET)sed -i \
+		-e '/^text_begin =/r $(RESET_MAILBOX_LD)' \
+		-e 's/^_HEAP_END = RAM_END;/_HEAP_END = RESET_MAILBOX_BEGIN;/' \
+		-e 's/^PROVIDE(HEAP_END = RAM_END);/PROVIDE(HEAP_END = RESET_MAILBOX_BEGIN);/' \
+		$@
 
 $O/sdk_used_list.used: $(SDK)/cpu/br23/sdk_used_list.c $(APP_CONFIG)
 	$(compile_pre_build)
