@@ -27,32 +27,28 @@
 #define SWITCH_FULL_PAYLOAD_SIZE        48U
 #define SWITCH_SIMPLE_PAYLOAD_SIZE      11U
 
-/* Nintendo's full-state report splits buttons into right, shared, and left
- * bytes. These names follow the labels printed on a Switch controller. */
-#define NINTENDO_RIGHT_Y                0x01U
-#define NINTENDO_RIGHT_X                0x02U
-#define NINTENDO_RIGHT_B                0x04U
-#define NINTENDO_RIGHT_A                0x08U
-#define NINTENDO_RIGHT_SR               0x10U
-#define NINTENDO_RIGHT_SL               0x20U
-#define NINTENDO_RIGHT_R                0x40U
-#define NINTENDO_RIGHT_ZR               0x80U
-
-#define NINTENDO_SHARED_MINUS           0x01U
-#define NINTENDO_SHARED_PLUS            0x02U
-#define NINTENDO_SHARED_R3              0x04U
-#define NINTENDO_SHARED_L3              0x08U
-#define NINTENDO_SHARED_HOME            0x10U
-#define NINTENDO_SHARED_CAPTURE         0x20U
-
-#define NINTENDO_LEFT_DOWN              0x01U
-#define NINTENDO_LEFT_UP                0x02U
-#define NINTENDO_LEFT_RIGHT             0x04U
-#define NINTENDO_LEFT_LEFT              0x08U
-#define NINTENDO_LEFT_SR                0x10U
-#define NINTENDO_LEFT_SL                0x20U
-#define NINTENDO_LEFT_L                 0x40U
-#define NINTENDO_LEFT_ZL                0x80U
+#define JC_BTN_Y         BIT(0)
+#define JC_BTN_X         BIT(1)
+#define JC_BTN_B         BIT(2)
+#define JC_BTN_A         BIT(3)
+#define JC_BTN_SR_R      BIT(4)
+#define JC_BTN_SL_R      BIT(5)
+#define JC_BTN_R         BIT(6)
+#define JC_BTN_ZR        BIT(7)
+#define JC_BTN_MINUS     BIT(8)
+#define JC_BTN_PLUS      BIT(9)
+#define JC_BTN_RSTICK    BIT(10)
+#define JC_BTN_LSTICK    BIT(11)
+#define JC_BTN_HOME      BIT(12)
+#define JC_BTN_CAP       BIT(13) /* capture button */
+#define JC_BTN_DOWN      BIT(16)
+#define JC_BTN_UP        BIT(17)
+#define JC_BTN_RIGHT     BIT(18)
+#define JC_BTN_LEFT      BIT(19)
+#define JC_BTN_SR_L      BIT(20)
+#define JC_BTN_SL_L      BIT(21)
+#define JC_BTN_L         BIT(22)
+#define JC_BTN_ZL        BIT(23)
 
 /* Report 0x3f uses a different, compact button layout. */
 #define NINTENDO_SIMPLE_B               0x01U
@@ -82,14 +78,13 @@ const u8 cyclone2_switch_report_map[] = {
 
 const u16 cyclone2_switch_report_map_size = sizeof(cyclone2_switch_report_map);
 
-struct switch_controller_state {
-    u8 timer;
-    u8 battery_connection;
-    u8 buttons[3];
-    u8 left_stick[3];
-    u8 right_stick[3];
-    u8 vibration;
-} __attribute__((packed));
+#define SWITCH_CONTROLLER_STATE_SIZE       12U
+#define SWITCH_STATE_TIMER_OFFSET           0U
+#define SWITCH_STATE_BATTERY_OFFSET         1U
+#define SWITCH_STATE_BUTTONS_OFFSET         2U
+#define SWITCH_STATE_LEFT_STICK_OFFSET      5U
+#define SWITCH_STATE_RIGHT_STICK_OFFSET     8U
+#define SWITCH_STATE_VIBRATION_OFFSET      11U
 
 static struct cyclone2_input_report latest_input;
 static u8 input_report_mode = SWITCH_REPORT_SIMPLE_STATE;
@@ -110,49 +105,54 @@ static void pack_stick(u8 output[3], u8 x, u8 y)
     output[2] = packed_y >> 4;
 }
 
-static void fill_controller_state(struct switch_controller_state *state)
+static void fill_controller_state(u8 state[SWITCH_CONTROLLER_STATE_SIZE])
 {
     u16 buttons = latest_input.buttons;
+    u32 button_status = 0;
 
-    memset(state, 0, sizeof(*state));
+    memset(state, 0, SWITCH_CONTROLLER_STATE_SIZE);
     timer_counter += 3U;
-    state->timer = timer_counter;
-    state->battery_connection = 0x81U;
+    state[SWITCH_STATE_TIMER_OFFSET] = timer_counter;
+    state[SWITCH_STATE_BATTERY_OFFSET] = 0x81U;
 
-    /* The Cyclone labels use the Xbox face-button positions: its A is in
-     * Nintendo's B position and its B is in Nintendo's A position. */
-    if (buttons & CYCLONE2_REPORT_BUTTON_X) state->buttons[0] |= NINTENDO_RIGHT_Y;
-    if (buttons & CYCLONE2_REPORT_BUTTON_Y) state->buttons[0] |= NINTENDO_RIGHT_X;
-    if (buttons & CYCLONE2_REPORT_BUTTON_A) state->buttons[0] |= NINTENDO_RIGHT_A;
-    if (buttons & CYCLONE2_REPORT_BUTTON_B) state->buttons[0] |= NINTENDO_RIGHT_B;
-    if (buttons & CYCLONE2_REPORT_BUTTON_R1) state->buttons[0] |= NINTENDO_RIGHT_R;
-    if (latest_input.right_trigger > 0x20U) state->buttons[0] |= NINTENDO_RIGHT_ZR;
+    if (buttons & CYCLONE2_REPORT_BUTTON_X) button_status |= JC_BTN_Y;
+    if (buttons & CYCLONE2_REPORT_BUTTON_Y) button_status |= JC_BTN_X;
+    if (buttons & CYCLONE2_REPORT_BUTTON_A) button_status |= JC_BTN_B;
+    if (buttons & CYCLONE2_REPORT_BUTTON_B) button_status |= JC_BTN_A;
+    if (buttons & CYCLONE2_REPORT_BUTTON_R1) button_status |= JC_BTN_R;
+    if (latest_input.right_trigger > 0x20U) button_status |= JC_BTN_ZR;
 
-    if (buttons & CYCLONE2_REPORT_BUTTON_SELECT) state->buttons[1] |= NINTENDO_SHARED_MINUS;
-    if (buttons & CYCLONE2_REPORT_BUTTON_START) state->buttons[1] |= NINTENDO_SHARED_PLUS;
-    if (buttons & CYCLONE2_REPORT_BUTTON_R3) state->buttons[1] |= NINTENDO_SHARED_R3;
-    if (buttons & CYCLONE2_REPORT_BUTTON_L3) state->buttons[1] |= NINTENDO_SHARED_L3;
-    if (buttons & CYCLONE2_REPORT_BUTTON_HOME) state->buttons[1] |= NINTENDO_SHARED_HOME;
-    if (buttons & CYCLONE2_REPORT_BUTTON_SCREENSHOT) state->buttons[1] |= NINTENDO_SHARED_CAPTURE;
+    if (buttons & CYCLONE2_REPORT_BUTTON_SELECT) button_status |= JC_BTN_MINUS;
+    if (buttons & CYCLONE2_REPORT_BUTTON_START) button_status |= JC_BTN_PLUS;
+    if (buttons & CYCLONE2_REPORT_BUTTON_R3) button_status |= JC_BTN_RSTICK;
+    if (buttons & CYCLONE2_REPORT_BUTTON_L3) button_status |= JC_BTN_LSTICK;
+    if (buttons & CYCLONE2_REPORT_BUTTON_HOME) button_status |= JC_BTN_HOME;
+    if (buttons & CYCLONE2_REPORT_BUTTON_SCREENSHOT) button_status |= JC_BTN_CAP;
 
     switch (latest_input.hat) {
-    case CYCLONE2_HAT_UP:         state->buttons[2] |= NINTENDO_LEFT_UP; break;
-    case CYCLONE2_HAT_UP_RIGHT:   state->buttons[2] |= NINTENDO_LEFT_UP | NINTENDO_LEFT_RIGHT; break;
-    case CYCLONE2_HAT_RIGHT:      state->buttons[2] |= NINTENDO_LEFT_RIGHT; break;
-    case CYCLONE2_HAT_DOWN_RIGHT: state->buttons[2] |= NINTENDO_LEFT_DOWN | NINTENDO_LEFT_RIGHT; break;
-    case CYCLONE2_HAT_DOWN:       state->buttons[2] |= NINTENDO_LEFT_DOWN; break;
-    case CYCLONE2_HAT_DOWN_LEFT:  state->buttons[2] |= NINTENDO_LEFT_DOWN | NINTENDO_LEFT_LEFT; break;
-    case CYCLONE2_HAT_LEFT:       state->buttons[2] |= NINTENDO_LEFT_LEFT; break;
-    case CYCLONE2_HAT_UP_LEFT:    state->buttons[2] |= NINTENDO_LEFT_UP | NINTENDO_LEFT_LEFT; break;
+    case CYCLONE2_HAT_UP:         button_status |= JC_BTN_UP; break;
+    case CYCLONE2_HAT_UP_RIGHT:   button_status |= JC_BTN_UP | JC_BTN_RIGHT; break;
+    case CYCLONE2_HAT_RIGHT:      button_status |= JC_BTN_RIGHT; break;
+    case CYCLONE2_HAT_DOWN_RIGHT: button_status |= JC_BTN_DOWN | JC_BTN_RIGHT; break;
+    case CYCLONE2_HAT_DOWN:       button_status |= JC_BTN_DOWN; break;
+    case CYCLONE2_HAT_DOWN_LEFT:  button_status |= JC_BTN_DOWN | JC_BTN_LEFT; break;
+    case CYCLONE2_HAT_LEFT:       button_status |= JC_BTN_LEFT; break;
+    case CYCLONE2_HAT_UP_LEFT:    button_status |= JC_BTN_UP | JC_BTN_LEFT; break;
     default: break;
     }
-    if (buttons & CYCLONE2_REPORT_BUTTON_L1) state->buttons[2] |= NINTENDO_LEFT_L;
-    if (latest_input.left_trigger > 0x20U) state->buttons[2] |= NINTENDO_LEFT_ZL;
+    if (buttons & CYCLONE2_REPORT_BUTTON_L1) button_status |= JC_BTN_L;
+    if (latest_input.left_trigger > 0x20U) button_status |= JC_BTN_ZL;
 
-    pack_stick(state->left_stick, latest_input.left_x,
+    /* This is the inverse of hid_field_extract(button_status, 0, 24). */
+    state[SWITCH_STATE_BUTTONS_OFFSET + 0U] = button_status;
+    state[SWITCH_STATE_BUTTONS_OFFSET + 1U] = button_status >> 8;
+    state[SWITCH_STATE_BUTTONS_OFFSET + 2U] = button_status >> 16;
+
+    pack_stick(state + SWITCH_STATE_LEFT_STICK_OFFSET, latest_input.left_x,
                (u8)(0xffU - latest_input.left_y));
-    pack_stick(state->right_stick, latest_input.right_x,
+    pack_stick(state + SWITCH_STATE_RIGHT_STICK_OFFSET, latest_input.right_x,
                (u8)(0xffU - latest_input.right_y));
+    state[SWITCH_STATE_VIBRATION_OFFSET] = 0;
 }
 
 static void fill_simple_state(u8 report[SWITCH_SIMPLE_PAYLOAD_SIZE])
@@ -169,12 +169,12 @@ static void fill_simple_state(u8 report[SWITCH_SIMPLE_PAYLOAD_SIZE])
     if (buttons & CYCLONE2_REPORT_BUTTON_R1) report[0] |= NINTENDO_SIMPLE_R;
     if (latest_input.left_trigger > 0x20U) report[0] |= NINTENDO_SIMPLE_ZL;
     if (latest_input.right_trigger > 0x20U) report[0] |= NINTENDO_SIMPLE_ZR;
-    if (buttons & CYCLONE2_REPORT_BUTTON_SELECT) report[1] |= NINTENDO_SHARED_MINUS;
-    if (buttons & CYCLONE2_REPORT_BUTTON_START) report[1] |= NINTENDO_SHARED_PLUS;
-    if (buttons & CYCLONE2_REPORT_BUTTON_L3) report[1] |= NINTENDO_SHARED_L3;
-    if (buttons & CYCLONE2_REPORT_BUTTON_R3) report[1] |= NINTENDO_SHARED_R3;
-    if (buttons & CYCLONE2_REPORT_BUTTON_HOME) report[1] |= NINTENDO_SHARED_HOME;
-    if (buttons & CYCLONE2_REPORT_BUTTON_SCREENSHOT) report[1] |= NINTENDO_SHARED_CAPTURE;
+    if (buttons & CYCLONE2_REPORT_BUTTON_SELECT) report[1] |= JC_BTN_MINUS >> 8;
+    if (buttons & CYCLONE2_REPORT_BUTTON_START) report[1] |= JC_BTN_PLUS >> 8;
+    if (buttons & CYCLONE2_REPORT_BUTTON_L3) report[1] |= JC_BTN_LSTICK >> 8;
+    if (buttons & CYCLONE2_REPORT_BUTTON_R3) report[1] |= JC_BTN_RSTICK >> 8;
+    if (buttons & CYCLONE2_REPORT_BUTTON_HOME) report[1] |= JC_BTN_HOME >> 8;
+    if (buttons & CYCLONE2_REPORT_BUTTON_SCREENSHOT) report[1] |= JC_BTN_CAP >> 8;
     report[2] = latest_input.hat;
 
     axis = (u16)latest_input.left_x * 257U;
@@ -228,8 +228,8 @@ static void read_virtual_spi(u32 address, u8 length, u8 *output)
 static void reply_subcommand(u8 subcommand, const u8 *request, u16 request_size)
 {
     u8 reply[SWITCH_FULL_PAYLOAD_SIZE];
-    struct switch_controller_state *state = (void *)reply;
-    u8 *ack = reply + sizeof(*state);
+    u8 *state = reply;
+    u8 *ack = reply + SWITCH_CONTROLLER_STATE_SIZE;
     u8 *data = ack + 2;
 
     memset(reply, 0, sizeof(reply));
@@ -327,7 +327,7 @@ void cyclone2_switch_hid_send(const struct cyclone2_input_report *input)
     }
     if (input_report_mode == SWITCH_REPORT_FULL_STATE) {
         memset(report, 0, sizeof(report));
-        fill_controller_state((void *)report);
+        fill_controller_state(report);
         edr_hid_data_send(SWITCH_REPORT_FULL_STATE, report, sizeof(report));
     } else {
         fill_simple_state(report);
