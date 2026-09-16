@@ -7,8 +7,9 @@
 
 #include "board.h"
 #include "control.h"
-#include "cyclone2/reset_mailbox.h"
-#include "cyclone2/usb_control.h"
+#include "reset_mailbox.h"
+#include "runtime.h"
+#include "usb_control.h"
 #include "rom.h"
 
 #define USB_CON0              (*(volatile u32 *)0x001e1800U)
@@ -142,6 +143,21 @@ static void print_status(void)
     console_write("\r\n");
 }
 
+static void print_report_status(void)
+{
+    struct cyclone2_report_statistics stats;
+    char line[96];
+    int length;
+
+    cyclone2_report_statistics_get(&stats);
+    length = snprintf(line, sizeof(line),
+                      "report period=%u ms polls=%u attempts=%u accepted=%u busy=%u\r\n",
+                      cyclone2_report_period_get(), stats.poll_count,
+                      stats.send_attempts, stats.send_accepted,
+                      stats.send_busy);
+    if (length > 0) console_write_bytes(line, (u32)length);
+}
+
 static void execute_command(void)
 {
     command_line[command_length] = '\0';
@@ -149,6 +165,7 @@ static void execute_command(void)
     if (!strcmp(command_line, "help") || !strcmp(command_line, "?")) {
         console_write("help     show this command list\r\n"
                       "debug on|off|status  control runtime diagnostics\r\n"
+                      "report 5|8|10|status  set/report HID period in ms\r\n"
                       "status   show reset mailbox and MaskROM NVRAM\r\n"
                       "uboot    reboot into BR23 UBOOT1.00\r\n");
     } else if (!strcmp(command_line, "debug on")) {
@@ -163,6 +180,17 @@ static void execute_command(void)
                                       "debug output disabled\r\n");
     } else if (!strcmp(command_line, "status")) {
         print_status();
+    } else if (!strcmp(command_line, "report status")) {
+        print_report_status();
+    } else if (!strcmp(command_line, "report 5")) {
+        cyclone2_report_period_set(5U);
+        print_report_status();
+    } else if (!strcmp(command_line, "report 8")) {
+        cyclone2_report_period_set(8U);
+        print_report_status();
+    } else if (!strcmp(command_line, "report 10")) {
+        cyclone2_report_period_set(10U);
+        print_report_status();
     } else if (!strcmp(command_line, "uboot")) {
         arm_maskrom_usb_token();
         console_write("OK entering UBOOT1.00 token=");

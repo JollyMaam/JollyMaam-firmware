@@ -3,9 +3,10 @@ SDK := /work/github.com-Jieli-Tech/fw-AC63_BT_SDK
 TOOL_DIR := /work/jieli-linux-toolchains-20250324.1/pi32v2/bin
 PYTHON := /work/bin/python3
 FLASH_SIZE := 0x80000
-# USB configuration support pushes the packed application past the historical
-# 0x3e000 boundary. Keep the following 8-KiB VM region explicit in isd_config.
-CODE_LIMIT := 0x40000
+# Keep the following 8-KiB VM region explicit in isd_config.  The profile
+# modules and USB configuration console occupy one block beyond the earlier
+# 0x40000 boundary; jlnewfw records this boundary in the packed image.
+CODE_LIMIT := 0x41000
 
 # Start from an exact, locally owned copy of the SDK HID application.  The
 # "cyclone2" selection keeps the smaller experimental application available
@@ -24,7 +25,6 @@ SDK_ARCHIVES := $(SDK_ARCHIVES_FULL)
 
 ifeq ($(APPLICATION),vendor-hid)
 PROJECT_SOURCES := \
-	src/vendor_hid/app_main.c \
 	src/vendor_hid/board/br23/board_ac6351d_keyboard.c \
 	src/vendor_hid/board/br23/board_ac635n_demo.c \
 	src/vendor_hid/config/lib_btctrler_config.c \
@@ -61,10 +61,13 @@ PROJECT_SOURCES := \
 	src/vendor_hid/modules/rtc_alarm.c \
 	src/vendor_hid/modules/user_cfg.c \
 	src/vendor_hid/version.c \
-	src/cyclone2/app.c \
-	src/cyclone2/input.c \
-	src/cyclone2/switch_hid.c \
-	src/cyclone2/usb_control.c \
+	src/main.c \
+	src/controller.c \
+	src/input.c \
+	src/profile.c \
+	src/profile_generic.c \
+	src/profile_switch.c \
+	src/usb_control.c \
 	src/control.c \
 	src/rom.c
 INCLUDES := \
@@ -76,7 +79,7 @@ INCLUDES := \
 	$(SDK_INCLUDES)
 SDK_SOURCES := $(SDK_COMMON_SOURCES_FULL) $(SDK_SOURCES_FULL)
 APP_CONFIG := src/vendor_hid/include/app_config.h
-RESET_MAILBOX_LD := src/cyclone2/reset_mailbox.ld
+RESET_MAILBOX_LD := src/reset_mailbox.ld
 APP_CONFIG_DEPS := \
 	$(wildcard src/vendor_hid/include/*.h) \
 	$(wildcard src/vendor_hid/board/br23/*.h) \

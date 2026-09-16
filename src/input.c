@@ -2,7 +2,7 @@
 #include "asm/br23.h"
 
 #include "board.h"
-#include "cyclone2/input.h"
+#include "input.h"
 
 #define STICK_UART_DIVISOR          24U
 #define STICK_UART_FRAME_SIZE       4U

@@ -1,9 +1,13 @@
 #include "system/includes.h"
 #include "btstack/avctp_user.h"
+#include "btstack/btstack_task.h"
 #include "edr_hid_user.h"
 
+#include "app_comm_bt.h"
 #include "control.h"
-#include "cyclone2/switch_hid.h"
+#include "profile_internal.h"
+#include "usb_control.h"
+#include "user_cfg_id.h"
 
 #if CONFIG_APP_CYCLONE2
 
@@ -62,7 +66,7 @@
 
 /* This is the descriptor used by the Cyclone 2 stock firmware for its
  * Switch-compatible Bluetooth HID endpoint (stock app address 0x01e622db). */
-const u8 cyclone2_switch_report_map[] = {
+static const u8 switch_report_map[] = {
     0x05,0x01,0x09,0x05,0xa1,0x01,0x06,0x01,0xff,0x85,0x21,0x09,0x21,0x75,0x08,0x95,
     0x30,0x81,0x02,0x85,0x30,0x09,0x30,0x75,0x08,0x95,0x30,0x81,0x02,0x85,0x31,0x09,
     0x31,0x75,0x08,0x96,0x69,0x01,0x81,0x02,0x85,0x32,0x09,0x32,0x75,0x08,0x96,0x69,
@@ -75,8 +79,6 @@ const u8 cyclone2_switch_report_map[] = {
     0x08,0x95,0x30,0x91,0x02,0x85,0x11,0x09,0x11,0x75,0x08,0x95,0x30,0x91,0x02,0x85,
     0x12,0x09,0x12,0x75,0x08,0x95,0x30,0x91,0x02,0xc0,
 };
-
-const u16 cyclone2_switch_report_map_size = sizeof(cyclone2_switch_report_map);
 
 #define SWITCH_CONTROLLER_STATE_SIZE       12U
 #define SWITCH_STATE_TIMER_OFFSET           0U
@@ -310,7 +312,7 @@ static void switch_output(u8 *packet, u16 size, u16 channel)
     }
 }
 
-void cyclone2_switch_hid_initialize(void)
+static void switch_hid_initialize(void)
 {
     memset(&latest_input, 0, sizeof(latest_input));
     latest_input.hat = CYCLONE2_HAT_NEUTRAL;
@@ -319,33 +321,166 @@ void cyclone2_switch_hid_initialize(void)
     user_hid_init(switch_output);
 }
 
-void cyclone2_switch_hid_send(const struct cyclone2_input_report *input)
+int cyclone2_switch_send(const struct cyclone2_input_report *input)
 {
     u8 report[SWITCH_FULL_PAYLOAD_SIZE];
+    int result;
 
     latest_input = *input;
     if (!edr_hid_is_connected()) {
-        return;
+        return 0;
     }
     if (input_report_mode == SWITCH_REPORT_FULL_STATE) {
         memset(report, 0, sizeof(report));
         fill_controller_state(report);
-        edr_hid_data_send(SWITCH_REPORT_FULL_STATE, report, sizeof(report));
+        result = edr_hid_data_send(SWITCH_REPORT_FULL_STATE, report,
+                                   sizeof(report));
     } else {
         fill_simple_state(report);
-        edr_hid_data_send(SWITCH_REPORT_SIMPLE_STATE, report,
-                          SWITCH_SIMPLE_PAYLOAD_SIZE);
+        result = edr_hid_data_send(SWITCH_REPORT_SIMPLE_STATE, report,
+                                   SWITCH_SIMPLE_PAYLOAD_SIZE);
     }
+    return result == 0 ? 1 : -1;
+}
+
+#define SWITCH_HID_CONNECT_DELAY_MS 100U
+
+static const edr_init_cfg_t switch_edr_config = {
+    .class_type = 0x002508U,
+    .page_timeout = 8000U,
+    .super_timeout = 8000U,
+    .io_capabilities = 3,
+    .authentication_req = 4,
+    .oob_data = 0,
+    .passkey_enable = 0,
+    .report_map_size = sizeof(switch_report_map),
+    .report_map = switch_report_map,
+    .sniff_param = NULL,
+};
+
+static u8 switch_slot;
+static u8 switch_pairing;
+static u8 bond_delete_pending;
+static u8 bond_to_delete[6];
+static u8 reconnect_address[6];
+
+extern void bt_set_local_name(char *name, u8 len);
+extern void delete_link_key(bd_addr_t *address, u8 index);
+
+static void reconnect_saved(void *private_data)
+{
+    (void)private_data;
+    if (edr_hid_is_connected()) return;
+    bt_wait_phone_connect_control(0);
+    user_send_cmd_prepare(USER_CTRL_START_CONNEC_VIA_ADDR,
+                          sizeof(reconnect_address), reconnect_address);
+}
+
+static void connect_hid_after_encryption(void *private_data)
+{
+    int result;
+
+    (void)private_data;
+    if (edr_hid_is_connected()) return;
+    result = user_send_cmd_prepare(USER_CTRL_HID_CONN, 0, NULL);
+    cyclone2_usb_debug("request HID channels after encryption result=%d",
+                       result);
+}
+
+void cyclone2_switch_start(u8 slot, u8 pairing)
+{
+    u8 remote[6];
+
+    switch_slot = slot;
+    switch_pairing = pairing;
+    bond_delete_pending = 0U;
+    if (pairing) {
+        if (syscfg_read(CFG_EDR_ADDRESS_BEGIN + slot, remote,
+                        sizeof(remote)) == sizeof(remote)) {
+            memcpy(bond_to_delete, remote, sizeof(remote));
+            bond_delete_pending = 1U;
+        }
+        memset(remote, 0, sizeof(remote));
+        syscfg_write(CFG_EDR_ADDRESS_BEGIN + slot, remote, sizeof(remote));
+    }
+
+    bt_set_local_name("Pro Controller", sizeof("Pro Controller") - 1U);
+    btstack_edr_start_before_init(&switch_edr_config, 0);
+    switch_hid_initialize();
+}
+
+void cyclone2_switch_disconnect(void)
+{
+    user_hid_disconnect();
+}
+
+void cyclone2_switch_exit(void)
+{
+    btstack_edr_exit(0);
+}
+
+int cyclone2_switch_is_connected(void)
+{
+    return edr_hid_is_connected() != 0;
+}
+
+enum cyclone2_profile_event cyclone2_switch_handle_event(
+    const struct sys_event *event)
+{
+    static const u8 zero_address[6];
+    u8 remote[6];
+
+    if ((u32)event->arg == SYS_BT_EVENT_TYPE_CON_STATUS) {
+        bt_comm_edr_status_event_handler((struct bt_event *)&event->u.bt);
+        if (event->u.bt.event == BT_STATUS_INIT_OK) {
+            if (switch_pairing) {
+                if (bond_delete_pending) {
+                    delete_link_key(bond_to_delete,
+                                    get_remote_dev_info_index());
+                    bond_delete_pending = 0U;
+                }
+                bt_wait_phone_connect_control(1);
+            } else if (syscfg_read(CFG_EDR_ADDRESS_BEGIN + switch_slot,
+                                   remote, sizeof(remote)) == sizeof(remote) &&
+                       memcmp(remote, zero_address, sizeof(remote))) {
+                memcpy(reconnect_address, remote, sizeof(remote));
+                sys_timeout_add(NULL, reconnect_saved, 100U);
+            } else if (!bt_connect_phone_back_start()) {
+                bt_wait_phone_connect_control(1);
+            }
+        } else if (event->u.bt.event == BT_STATUS_FIRST_CONNECTED ||
+                   event->u.bt.event == BT_STATUS_SECOND_CONNECTED) {
+            syscfg_write(CFG_EDR_ADDRESS_BEGIN + switch_slot,
+                         event->u.bt.args, 6U);
+        } else if (event->u.bt.event == BT_STATUS_ENCRY_COMPLETE) {
+            sys_timeout_add(NULL, connect_hid_after_encryption,
+                            SWITCH_HID_CONNECT_DELAY_MS);
+        } else if (event->u.bt.event == BT_STATUS_FIRST_DISCONNECT ||
+                   event->u.bt.event == BT_STATUS_SECOND_DISCONNECT) {
+            return CYCLONE2_PROFILE_EVENT_DISCONNECTED;
+        }
+    } else if ((u32)event->arg == SYS_BT_EVENT_TYPE_HCI_STATUS) {
+        bt_comm_edr_hci_event_handler((struct bt_event *)&event->u.bt);
+        if (event->u.bt.event == HCI_EVENT_DISCONNECTION_COMPLETE)
+            return CYCLONE2_PROFILE_EVENT_DISCONNECTED;
+    }
+    return CYCLONE2_PROFILE_EVENT_NONE;
 }
 
 #else
 
-const u8 cyclone2_switch_report_map[] = { 0 };
-const u16 cyclone2_switch_report_map_size = 0;
-void cyclone2_switch_hid_initialize(void) {}
-void cyclone2_switch_hid_send(const struct cyclone2_input_report *input)
+void cyclone2_switch_start(u8 slot, u8 pairing)
+{ (void)slot; (void)pairing; }
+void cyclone2_switch_disconnect(void) {}
+void cyclone2_switch_exit(void) {}
+int cyclone2_switch_is_connected(void) { return 0; }
+int cyclone2_switch_send(const struct cyclone2_input_report *input)
 {
     (void)input;
+    return 0;
 }
+enum cyclone2_profile_event cyclone2_switch_handle_event(
+    const struct sys_event *event)
+{ (void)event; return CYCLONE2_PROFILE_EVENT_NONE; }
 
 #endif

@@ -20,6 +20,8 @@ input, and a `c2> ` prompt. Its initial commands are:
 help     show the command list
 debug on|off|status
          control runtime Bluetooth diagnostics
+report 5|8|10|status
+         select or inspect the saved HID report period and counters
 status   show the reset mailbox and MaskROM NVRAM
 uboot    reboot into BR23 UBOOT1.00
 ```

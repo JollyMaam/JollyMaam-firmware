@@ -16,7 +16,7 @@
 #include "app_comm_bt.h"
 
 #if CONFIG_APP_CYCLONE2
-#include "cyclone2/usb_control.h"
+#include "usb_control.h"
 #endif
 
 #if TCFG_USER_EDR_ENABLE && (USER_SUPPORT_PROFILE_HID ==1)

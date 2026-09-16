@@ -43,7 +43,7 @@
 #include "debug.h"
 
 #if CONFIG_APP_CYCLONE2
-#include "cyclone2/usb_control.h"
+#include "usb_control.h"
 #undef log_info
 #undef log_debug
 #undef log_error

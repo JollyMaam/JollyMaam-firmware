@@ -1,5 +1,22 @@
 # Input profiles
 
+## Code flow
+
+The intended reading order is:
+
+1. `src/main.c` supplies the SDK entry point and starts the registered app.
+2. `src/controller.c` owns input timing, Home/chord policy, LEDs, sleep, and
+   profile selection.
+3. `src/profile.c` presents one transport-independent profile interface.
+4. `src/profile_switch.c` and `src/profile_generic.c` contain their respective
+   Bluetooth setup, event handling, report format, and send path.
+5. `src/input.c`, `src/usb_control.c`, and `src/control.c` contain physical
+   input, the CDC console, and board output support.
+
+Adding a controller protocol should normally mean adding one profile module
+and one operations-table entry in `profile.c`, without adding protocol checks
+to the controller policy loop.
+
 One firmware image contains both the Nintendo Switch-compatible Bluetooth
 Classic controller and the generic BLE gamepad. Four independent connection
 slots are selected with the physical face buttons:
@@ -73,6 +90,24 @@ The relevant extra SDL controls are:
 - L4 -> `paddle1`
 - R4 -> `paddle2`
 - M -> intentionally omitted
+
+## Input and report rates
+
+Physical inputs are sampled every 5 ms. HID report submission is scheduled
+independently and defaults to 10 ms. The saved report period can be changed to
+5, 8, or 10 ms through the USB console. All chord, debounce, timeout, and LED
+policy uses millisecond timestamps and therefore does not change with the HID
+report rate.
+
+The generic profile requests a 7.5-ms BLE connection interval with zero slave
+latency, followed by compatible fallback requests. The host chooses the actual
+parameters; SDK debug output reports the negotiated interval. An 8-ms report
+setting is the practical generic-BLE target. The Switch profile uses Bluetooth
+Classic rather than BLE and can exercise the 5-ms/200-Hz setting.
+
+Faster submission does not prove that the host receives reports at that rate.
+Use `report status` to inspect attempted, accepted, and busy/full submissions;
+end-to-end latency and host arrival cadence still need external measurement.
 
 ## Switch profile
 

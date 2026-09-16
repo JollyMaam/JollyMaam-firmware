@@ -92,11 +92,11 @@ static uint8_t hogp_connection_update_enable = 1;
 
 //连接参数表,按顺序优先请求,主机接受了就中止
 static const struct conn_update_param_t Peripheral_Preferred_Connection_Parameters[] = {
-    {6, 9,  100, 600}, //android
-    /* {7, 7,  20, 300}, //mosue */
-    /* {20, 20,  20, 300}, //kb */
-    {12, 12, 30, 600}, //ios
-    {6,  12, 30, 600},// ios fast
+    /* Prefer one 7.5-ms event per report opportunity. Hosts may reject the
+     * exact interval, so retain progressively looser zero-latency fallbacks. */
+    {6,  6, 0, 600},
+    {6,  9, 0, 600},
+    {12, 12, 0, 600},
 };
 //共可用的参数组数
 #define CONN_PARAM_TABLE_CNT      (sizeof(Peripheral_Preferred_Connection_Parameters)/sizeof(struct conn_update_param_t))
@@ -1849,5 +1849,4 @@ void call_hogp_adv_config_set()
 }
 
 #endif
-
 
