@@ -1,4 +1,4 @@
-O := out
+O := build
 SDK := /work/github.com-Jieli-Tech/fw-AC63_BT_SDK
 TOOL_DIR := /work/jieli-linux-toolchains-20250324.1/pi32v2/bin
 PYTHON := /work/bin/python3
@@ -188,6 +188,6 @@ $O/sdk/%.c.o: $(SDK)/%.c
 	$(compile_c)
 
 clean:
-	rm -rf out
+	rm -rf "$O"
 
 -include $(DEPFILES)
