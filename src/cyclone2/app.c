@@ -540,13 +540,18 @@ static void start_selected_profile(void)
     /* Show that selection reached radio startup even if stack init fails. */
     update_status_led();
 
+    /* The linked controller/stack configuration contains both Classic and
+     * LE. Its common initialization expects the LE GATT tables to be prepared
+     * even for a Classic-only session, as in the SDK's dual-mode examples.
+     * We intentionally do not run the BLE after-init handler for a Switch
+     * slot, so this does not start BLE advertising. */
+    le_hogp_set_PNP_info(cyclone2_pnp_id);
+    btstack_ble_start_before_init(&cyclone2_ble_config, 0);
+
     if (active_type == CYCLONE2_PROFILE_SWITCH) {
         bt_set_local_name("Pro Controller", sizeof("Pro Controller") - 1U);
         btstack_edr_start_before_init(&cyclone2_edr_config, 0);
         cyclone2_switch_hid_initialize();
-    } else {
-        le_hogp_set_PNP_info(cyclone2_pnp_id);
-        btstack_ble_start_before_init(&cyclone2_ble_config, 0);
     }
     btstack_init();
 }

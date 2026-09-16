@@ -2,7 +2,6 @@
 #include "asm/br23.h"
 
 #include "board.h"
-#include "control.h"
 #include "cyclone2/input.h"
 
 #define STICK_UART_DIVISOR          24U
@@ -136,11 +135,7 @@ static void stick_accept_frame(const u8 *frame)
 {
     u16 value = ((u16)frame[1] << 8) | frame[2];
 
-    if (stick_receive_status != STICK_RECEIVE_VALID_FRAMES) {
-        stick_receive_status = STICK_RECEIVE_VALID_FRAMES;
-        cyclone2_led_set_all(0U, 8U, 0U);
-    }
-
+    stick_receive_status = STICK_RECEIVE_VALID_FRAMES;
     switch (frame[0]) {
     case STICK_TAG_LEFT_X:
         stick_left_x = value;
@@ -191,13 +186,12 @@ static void stick_uart_drain(void)
         return;
     }
     for (iterations = 0;
-         iterations < STICK_UART_POLL_ITERATIONS &&
+        iterations < STICK_UART_POLL_ITERATIONS &&
          captured < STICK_UART_CAPTURE_BYTES;
          iterations++) {
         if (JL_UART2->CON0 & UART_RX_PENDING) {
             if (stick_receive_status == STICK_RECEIVE_NO_BYTES) {
                 stick_receive_status = STICK_RECEIVE_BAD_FRAMES;
-                cyclone2_led_set_all(8U, 8U, 0U);
             }
             stick_consume_byte((u8)JL_UART2->BUF);
             JL_UART2->CON0 |= UART_RX_PENDING_CLEAR;
