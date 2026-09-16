@@ -168,6 +168,7 @@ static u8 sleep_pending;
 static u8 edr_bond_delete_pending;
 static u8 ignore_chord_until_release;
 static u8 edr_bond_to_delete[6];
+static u8 edr_reconnect_address[6];
 
 extern void bt_pll_para(u32 osc, u32 sys, u8 low_power, u8 xosc);
 extern const u8 *bt_get_mac_addr(void);
@@ -305,6 +306,19 @@ static void radio_exit_and_poweroff(void *private_data)
 static void begin_sleep(void)
 {
     if (radio_state != CYCLONE2_RADIO_STOPPING) sleep_pending = 1U;
+}
+
+static void edr_reconnect_saved(void *private_data)
+{
+    (void)private_data;
+    if (active_type != CYCLONE2_PROFILE_SWITCH ||
+        radio_state != CYCLONE2_RADIO_CONNECTING ||
+        edr_hid_is_connected()) return;
+
+    bt_wait_phone_connect_control(0);
+    user_send_cmd_prepare(USER_CTRL_START_CONNEC_VIA_ADDR,
+                          sizeof(edr_reconnect_address),
+                          edr_reconnect_address);
 }
 
 static int selected_face_button(u16 buttons, u8 *profile)
@@ -489,6 +503,12 @@ static void cyclone2_poll(void *private_data)
         }
     }
     update_home_state();
+    /* The ACL connection event precedes authentication and opening the HID
+     * control/interrupt channels. Only the latter is a usable connection. */
+    if (active_type == CYCLONE2_PROFILE_SWITCH &&
+        (radio_state == CYCLONE2_RADIO_CONNECTING ||
+         radio_state == CYCLONE2_RADIO_PAIRING) &&
+        edr_hid_is_connected()) radio_state = CYCLONE2_RADIO_CONNECTED;
     make_host_report(&host_report);
     send_input_report(&host_report);
     update_status_led();
@@ -604,12 +624,15 @@ static int cyclone2_connection_event(struct bt_event *event)
             else if (syscfg_read(CFG_EDR_ADDRESS_BEGIN + active_profile,
                                  remote, sizeof(remote)) == sizeof(remote) &&
                      memcmp(remote, zero_address, sizeof(remote))) {
-                user_send_cmd_prepare(USER_CTRL_START_CONNEC_VIA_ADDR,
-                                      sizeof(remote), remote);
-            } else bt_wait_phone_connect_control(1);
+                memcpy(edr_reconnect_address, remote, sizeof(remote));
+                /* Let the init event unwind before asking the controller to
+                 * page the saved host. */
+                sys_timeout_add(NULL, edr_reconnect_saved, 100U);
+            } else if (!bt_connect_phone_back_start()) {
+                bt_wait_phone_connect_control(1);
+            }
         } else if (event->event == BT_STATUS_FIRST_CONNECTED ||
                    event->event == BT_STATUS_SECOND_CONNECTED) {
-            radio_state = CYCLONE2_RADIO_CONNECTED;
             syscfg_write(CFG_EDR_ADDRESS_BEGIN + active_profile,
                          event->args, 6U);
         } else if ((event->event == BT_STATUS_FIRST_DISCONNECT ||
