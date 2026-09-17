@@ -44,7 +44,6 @@ SECTIONS
         KEEP(*(.adapter_enc))
         adapter_enc_end = .;
 
-
 		. = ALIGN(4);
         adapter_decoder_begin = .;
         KEEP(*(.adapter_decoder))
@@ -115,7 +114,7 @@ SECTIONS
 
     .bss (NOLOAD) :ALIGN(4)
     {
-        *(.usb_h_dma)   //由于usb有个bug，会导致dma写的数据超出预设的buf，最长可能写超1k，为了避免死机，所以usb dma buffer后面放一些其他模块的buff来避免死机
+        *(.usb_h_dma)   // TRANSLATED: USB DMA can overrun its configured buffer by up to 1 KiB due to a hardware bug. Other module buffers are placed after it to avoid a crash.
         *(.usb_ep0)
         *(.dec_mix_buff)
         *(.sd0_var)
@@ -136,4 +135,3 @@ SECTIONS
     } > ram0
 
 }
-

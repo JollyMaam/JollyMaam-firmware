@@ -14,7 +14,7 @@ typedef struct _APP_VAR {
     u8 play_poweron_tone;
     u8 remote_dev_company;
     u8 siri_stu;
-    int auto_stop_page_scan_timer;     //用于1拖2时，有一台连接上后，超过三分钟自动关闭Page Scan
+    int auto_stop_page_scan_timer;     // TRANSLATED: In two-device mode, stop page scanning three minutes after one device connects.
     volatile int auto_shut_down_timer;
     volatile int wait_exit_timer;
     u16 auto_off_time;
@@ -25,6 +25,5 @@ typedef struct _APP_VAR {
 } APP_VAR;
 
 extern APP_VAR app_var;
-
 
 #endif

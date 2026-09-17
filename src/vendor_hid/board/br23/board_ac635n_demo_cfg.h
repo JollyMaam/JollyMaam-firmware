@@ -8,7 +8,7 @@
 #define CONFIG_SDFILE_ENABLE
 
 //*********************************************************************************//
-//                                 配置开始                                        //
+//                                 TRANSLATED: Configuration begins.
 //*********************************************************************************//
 #define ENABLE_THIS_MOUDLE					1
 #define DISABLE_THIS_MOUDLE					0
@@ -19,19 +19,19 @@
 #define NO_CONFIG_PORT						(-1)
 
 //*********************************************************************************//
-//                                 UART配置                                        //
+//                                 TRANSLATED: UART configuration.
 //*********************************************************************************//
-#define TCFG_UART0_ENABLE					ENABLE_THIS_MOUDLE                     //串口打印模块使能
-#define TCFG_UART0_RX_PORT					NO_CONFIG_PORT                         //串口接收脚配置（用于打印可以选择NO_CONFIG_PORT）
-#define TCFG_UART0_TX_PORT  				IO_PORTA_00                            //串口发送脚配置
-#define TCFG_UART0_BAUDRATE  				1000000                                //串口波特率配置
+#define TCFG_UART0_ENABLE					ENABLE_THIS_MOUDLE                     // TRANSLATED: Enable the debug UART.
+#define TCFG_UART0_RX_PORT					NO_CONFIG_PORT                         // TRANSLATED: UART RX pin; NO_CONFIG_PORT is allowed for debug output only.
+#define TCFG_UART0_TX_PORT  				IO_PORTA_00                            // TRANSLATED: UART TX pin.
+#define TCFG_UART0_BAUDRATE  				1000000                                // TRANSLATED: UART baud rate.
 
 //*********************************************************************************//
-//                                 USB 配置                                        //
+//                                 TRANSLATED: USB configuration.
 //*********************************************************************************//
 #define TCFG_PC_ENABLE						ENABLE_THIS_MOUDLE //Cyclone 2 CDC console
-#define TCFG_UDISK_ENABLE					DISABLE_THIS_MOUDLE //U盘模块使能
-#define TCFG_HID_HOST_ENABLE                DISABLE_THIS_MOUDLE//ENABLE_THIS_MOUDLE  //游戏盒子模式
+#define TCFG_UDISK_ENABLE					DISABLE_THIS_MOUDLE // TRANSLATED: Enable USB mass-storage support.
+#define TCFG_HID_HOST_ENABLE                DISABLE_THIS_MOUDLE// TRANSLATED: Gamebox mode (ENABLE_THIS_MOUDLE).
 #define TCFG_ADB_ENABLE                     DISABLE_THIS_MOUDLE//ENABLE_THIS_MOUDLE
 #define TCFG_AOA_ENABLE                     DISABLE_THIS_MOUDLE//ENABLE_THIS_MOUDLE
 
@@ -40,19 +40,19 @@
 #define CDC_INTR_EP_ENABLE                  ENABLE_THIS_MOUDLE
 
 #include "usb_std_class_def.h"
-///USB 配置重定义
+// TRANSLATED: Override USB configuration.
 #undef USB_DEVICE_CLASS_CONFIG
 #define USB_DEVICE_CLASS_CONFIG             CDC_CLASS
 #define TCFG_APP_PC_EN                     TCFG_PC_ENABLE
 //*********************************************************************************//
-//                                 IIC配置                                        //
+//                                 TRANSLATED: I2C configuration.
 //*********************************************************************************//
-/*软件IIC设置*/
-#define TCFG_SW_I2C0_CLK_PORT               IO_PORTA_09                             //软件IIC  CLK脚选择
-#define TCFG_SW_I2C0_DAT_PORT               IO_PORTA_10                             //软件IIC  DAT脚选择
-#define TCFG_SW_I2C0_DELAY_CNT              50                                      //IIC延时参数，影响通讯时钟频率
+/* TRANSLATED: Software I2C settings. */
+#define TCFG_SW_I2C0_CLK_PORT               IO_PORTA_09                             // TRANSLATED: Software I2C clock pin.
+#define TCFG_SW_I2C0_DAT_PORT               IO_PORTA_10                             // TRANSLATED: Software I2C data pin.
+#define TCFG_SW_I2C0_DELAY_CNT              50                                      // TRANSLATED: I2C delay parameter; controls the bus clock frequency.
 
-/*硬件IIC端口选择
+/* TRANSLATED: Hardware I2C pin selection.
   SCL         SDA
   'A': IO_PORT_DP   IO_PORT_DM
   'B': IO_PORTA_09  IO_PORTA_10
@@ -60,122 +60,121 @@
   'D': IO_PORTA_05  IO_PORTA_06
  */
 #define TCFG_HW_I2C0_PORTS                  'B'
-#define TCFG_HW_I2C0_CLK                    100000                                  //硬件IIC波特率
+#define TCFG_HW_I2C0_CLK                    100000                                  // TRANSLATED: Hardware I2C bus speed.
 
 //*********************************************************************************//
-//                                 硬件SPI 配置                                        //
+//                                 TRANSLATED: Hardware SPI configuration.
 //*********************************************************************************//
 #define	TCFG_HW_SPI1_ENABLE		ENABLE_THIS_MOUDLE
-//A组IO:    DI: PB2     DO: PB1     CLK: PB0
-//B组IO:    DI: PC3     DO: PC5     CLK: PC4
+// TRANSLATED: Pin group A: DI=PB2, DO=PB1, CLK=PB0.
+// TRANSLATED: Pin group B: DI=PC3, DO=PC5, CLK=PC4.
 #define TCFG_HW_SPI1_PORT		'A'
 #define TCFG_HW_SPI1_BAUD		2000000L
 #define TCFG_HW_SPI1_MODE		SPI_MODE_BIDIR_1BIT
 #define TCFG_HW_SPI1_ROLE		SPI_ROLE_MASTER
 
 #define	TCFG_HW_SPI2_ENABLE		ENABLE_THIS_MOUDLE
-//A组IO:    DI: PB8     DO: PB10    CLK: PB9
-//B组IO:    DI: PA13    DO: DM      CLK: DP
+// TRANSLATED: Pin group A: DI=PB8, DO=PB10, CLK=PB9.
+// TRANSLATED: Pin group B: DI=PA13, DO=DM, CLK=DP.
 #define TCFG_HW_SPI2_PORT		'A'
 #define TCFG_HW_SPI2_BAUD		2000000L
 #define TCFG_HW_SPI2_MODE		SPI_MODE_BIDIR_1BIT
 #define TCFG_HW_SPI2_ROLE		SPI_ROLE_MASTER
 
 //*********************************************************************************//
-//                                 FLASH 配置                                      //
+//                                 TRANSLATED: Flash configuration.
 //*********************************************************************************//
 #define TCFG_CODE_FLASH_ENABLE				DISABLE_THIS_MOUDLE
 #define TCFG_FLASH_DEV_SPI_HW_NUM			1// 1: SPI1    2: SPI2
 #define TCFG_FLASH_DEV_SPI_CS_PORT	    	IO_PORTA_03
 
 //*********************************************************************************//
-//                                  SD 配置                                        //
+//                                  TRANSLATED: SD configuration.
 //*********************************************************************************//
 #define TCFG_SD0_ENABLE						DISABLE_THIS_MOUDLE
-//A组IO: CMD:PA9    CLK:PA10   DAT0:PA5    DAT1:PA6    DAT2:PA7    DAT3:PA8
-//B组IO: CMD:PB10   CLK:PB9    DAT0:PB8    DAT1:PB6    DAT2:PB5    DAT3:PB4
+// TRANSLATED: Pin group A: CMD=PA9, CLK=PA10, DAT0=PA5, DAT1=PA6, DAT2=PA7, DAT3=PA8.
+// TRANSLATED: Pin group B: CMD=PB10, CLK=PB9, DAT0=PB8, DAT1=PB6, DAT2=PB5, DAT3=PB4.
 #define TCFG_SD0_PORTS						'B'
 #define TCFG_SD0_DAT_MODE					1
 #define TCFG_SD0_DET_MODE					SD_CMD_DECT
-#define TCFG_SD0_DET_IO 					IO_PORT_DM//当SD_DET_MODE为2时有效
-#define TCFG_SD0_DET_IO_LEVEL				0//IO检查，0：低电平检测到卡。 1：高电平(外部电源)检测到卡。 2：高电平(SD卡电源)检测到卡。
+#define TCFG_SD0_DET_IO 					IO_PORT_DM// TRANSLATED: Used when SD_DET_MODE is 2.
+#define TCFG_SD0_DET_IO_LEVEL				0// TRANSLATED: Card detect: 0=low; 1=high with external power; 2=high with SD-card power.
 #define TCFG_SD0_CLK						(3000000*4L)
 
 #define TCFG_SD1_ENABLE						DISABLE_THIS_MOUDLE
-//A组IO: CMD:PC4    CLK:PC5    DAT0:PC3    DAT1:PC2    DAT2:PC1    DAT3:PC0
-//B组IO: CMD:PB5    CLK:PB6    DAT0:PB4    DAT1:PB8    DAT2:PB9    DAT3:PB10
+// TRANSLATED: Pin group A: CMD=PC4, CLK=PC5, DAT0=PC3, DAT1=PC2, DAT2=PC1, DAT3=PC0.
+// TRANSLATED: Pin group B: CMD=PB5, CLK=PB6, DAT0=PB4, DAT1=PB8, DAT2=PB9, DAT3=PB10.
 #define TCFG_SD1_PORTS						'A'
 #define TCFG_SD1_DAT_MODE					1
 #define TCFG_SD1_DET_MODE					SD_CLK_DECT
-#define TCFG_SD1_DET_IO 					IO_PORT_DM//当SD_DET_MODE为2时有效
-#define TCFG_SD1_DET_IO_LEVEL				0//IO检查，0：低电平检测到卡。 1：高电平(外部电源)检测到卡。 2：高电平(SD卡电源)检测到卡。
+#define TCFG_SD1_DET_IO 					IO_PORT_DM// TRANSLATED: Used when SD_DET_MODE is 2.
+#define TCFG_SD1_DET_IO_LEVEL				0// TRANSLATED: Card detect: 0=low; 1=high with external power; 2=high with SD-card power.
 #define TCFG_SD1_CLK						(3000000*4L)
 
-
 //*********************************************************************************//
-//                                  RTC_ALARM配置                                  //
+//                                  TRANSLATED: RTC alarm configuration.
 //*********************************************************************************//
 #define TCFG_RTC_ALARM_ENABLE               DISABLE_THIS_MOUDLE
 
 //*********************************************************************************//
-//                                 key 配置                                        //
+//                                 TRANSLATED: Key configuration.
 //*********************************************************************************//
 #define KEY_NUM_MAX                        	10
 #define KEY_NUM                            	3
 
-#define MULT_KEY_ENABLE						DISABLE 		//是否使能组合按键消息, 使能后需要配置组合按键映射表
+#define MULT_KEY_ENABLE						DISABLE 		// TRANSLATED: Enable key chords; requires a chord mapping table.
 
 //*********************************************************************************//
-//                         softoff wakeup key_driver 配置                          //
+//                         TRANSLATED: Soft-poweroff wakeup key-driver configuration.
 //*********************************************************************************//
-#define TCFG_SOFTOFF_WAKEUP_KEY_DRIVER_ENABLE       DISABLE_THIS_MOUDLE  //软关机唤醒按键不丢键使能, 目前只支持IOKEY
+#define TCFG_SOFTOFF_WAKEUP_KEY_DRIVER_ENABLE       DISABLE_THIS_MOUDLE  // TRANSLATED: Preserve the key event that wakes from soft poweroff; currently supports IOKEY only.
 
-//请根据board.c中的wakeup_param列表填写
-#define TCFG_WAKEUP_PORT_POWER_SRC          BIT(1)  //唤醒口port[1]
-#define TCFG_WAKEUP_PORT_PREV_SRC           BIT(2)  //唤醒口port[2]
-#define TCFG_WAKEUP_PORT_NEXT_SRC           BIT(3)  //唤醒口port[3]
+// TRANSLATED: Match the wakeup_param table in board.c.
+#define TCFG_WAKEUP_PORT_POWER_SRC          BIT(1)  // TRANSLATED: Wakeup port[1].
+#define TCFG_WAKEUP_PORT_PREV_SRC           BIT(2)  // TRANSLATED: Wakeup port[2].
+#define TCFG_WAKEUP_PORT_NEXT_SRC           BIT(3)  // TRANSLATED: Wakeup port[3].
 
-#define TCFG_LONGKEY_SUPPLEMENT_TIME        15  //长按补充时间,请根据实际测量(power_on——key_init)时间填写 15*10ms(scan_time)=150ms
+#define TCFG_LONGKEY_SUPPLEMENT_TIME        15  // TRANSLATED: Long-press compensation: use measured power_on-to-key_init time. 15 scans * 10 ms = 150 ms.
 
 //*********************************************************************************//
-//                                 iokey 配置                                      //
+//                                 TRANSLATED: GPIO key configuration.
 //*********************************************************************************//
-#define TCFG_IOKEY_ENABLE					DISABLE_THIS_MOUDLE //是否使能IO按键
+#define TCFG_IOKEY_ENABLE					DISABLE_THIS_MOUDLE // TRANSLATED: Enable GPIO keys.
 
-#define TCFG_IOKEY_POWER_CONNECT_WAY		ONE_PORT_TO_LOW    //按键一端接低电平一端接IO
+#define TCFG_IOKEY_POWER_CONNECT_WAY		ONE_PORT_TO_LOW    // TRANSLATED: Key connects the GPIO to ground.
 
-#define TCFG_IOKEY_POWER_ONE_PORT			IO_PORTB_01        //IO按键端口
-#define TCFG_IOKEY_POWER_ONE_PORT_VALUE		0x1                //power port键值，不能设为0,key_value初始化为0,会误推keep事件
+#define TCFG_IOKEY_POWER_ONE_PORT			IO_PORTB_01        // TRANSLATED: GPIO key pin.
+#define TCFG_IOKEY_POWER_ONE_PORT_VALUE		0x1                // TRANSLATED: Power key code must not be zero: key_value starts at zero, which would generate a spurious keep event.
 
-#define TCFG_IOKEY_PREV_CONNECT_WAY			ONE_PORT_TO_LOW  //按键一端接低电平一端接IO
+#define TCFG_IOKEY_PREV_CONNECT_WAY			ONE_PORT_TO_LOW  // TRANSLATED: Key connects the GPIO to ground.
 #define TCFG_IOKEY_PREV_ONE_PORT			IO_PORTB_00
-#define TCFG_IOKEY_PREV_ONE_PORT_VALUE		0x2              //prev port键值
+#define TCFG_IOKEY_PREV_ONE_PORT_VALUE		0x2              // TRANSLATED: Previous-key code.
 
-#define TCFG_IOKEY_NEXT_CONNECT_WAY 		ONE_PORT_TO_LOW  //按键一端接低电平一端接IO
+#define TCFG_IOKEY_NEXT_CONNECT_WAY 		ONE_PORT_TO_LOW  // TRANSLATED: Key connects the GPIO to ground.
 #define TCFG_IOKEY_NEXT_ONE_PORT			IO_PORTB_02
-#define TCFG_IOKEY_NEXT_ONE_PORT_VALUE		0x3              //next port键值
+#define TCFG_IOKEY_NEXT_ONE_PORT_VALUE		0x3              // TRANSLATED: Next-key code.
 
 //*********************************************************************************//
-//                                 adkey 配置                                      //
+//                                 TRANSLATED: ADC key configuration.
 //*********************************************************************************//
-#define TCFG_ADKEY_ENABLE                   ENABLE_THIS_MOUDLE //DISABLE_THIS_MOUDLE //是否使能AD按键
-#define TCFG_ADKEY_PORT                     IO_PORTB_01         //AD按键端口(需要注意选择的IO口是否支持AD功能)
-/*AD通道选择，需要和AD按键的端口相对应:
+#define TCFG_ADKEY_ENABLE                   ENABLE_THIS_MOUDLE // TRANSLATED: Enable ADC keys (DISABLE_THIS_MOUDLE disables them).
+#define TCFG_ADKEY_PORT                     IO_PORTB_01         // TRANSLATED: ADC key pin; ensure the selected GPIO supports ADC input.
+/* TRANSLATED: ADC channel must match the ADC key pin:
     AD_CH_PA1    AD_CH_PA3    AD_CH_PA4    AD_CH_PA5
     AD_CH_PA9    AD_CH_PA1    AD_CH_PB1    AD_CH_PB4
     AD_CH_PB6    AD_CH_PB7    AD_CH_DP     AD_CH_DM
     AD_CH_PB2
 */
 #define TCFG_ADKEY_AD_CHANNEL               AD_CH_PB1
-#define TCFG_ADKEY_EXTERN_UP_ENABLE         ENABLE_THIS_MOUDLE //是否使用外部上拉
+#define TCFG_ADKEY_EXTERN_UP_ENABLE         ENABLE_THIS_MOUDLE // TRANSLATED: Use an external pull-up.
 
 #if TCFG_ADKEY_EXTERN_UP_ENABLE
-#define R_UP    220                 //22K，外部上拉阻值在此自行设置
+#define R_UP    220                 // TRANSLATED: 22 kOhm; set this to the external pull-up resistance.
 #else
-#define R_UP    100                 //10K，内部上拉默认10K
+#define R_UP    100                 // TRANSLATED: 10 kOhm; default internal pull-up resistance.
 #endif
 
-//必须从小到大填电阻，没有则同VDDIO,填0x3ffL
+// TRANSLATED: List resistances in ascending order; use 0x3ffL for absent keys (VDDIO).
 #define TCFG_ADKEY_AD0      (0)                                 //0R
 #define TCFG_ADKEY_AD1      (0x3ffL * 30   / (30   + R_UP))     //3k
 #define TCFG_ADKEY_AD2      (0x3ffL * 62   / (62   + R_UP))     //6.2k
@@ -211,59 +210,55 @@
 #define TCFG_ADKEY_VALUE9                   9
 
 //*********************************************************************************//
-//                                 irkey 配置                                      //
+//                                 TRANSLATED: Infrared key configuration.
 //*********************************************************************************//
-#define TCFG_IRKEY_ENABLE                   DISABLE_THIS_MOUDLE//是否使能AD按键
-#define TCFG_IRKEY_PORT                     IO_PORTA_08        //IR按键端口
+#define TCFG_IRKEY_ENABLE                   DISABLE_THIS_MOUDLE// TRANSLATED: Enable ADC keys (original SDK comment on the IR enable setting).
+#define TCFG_IRKEY_PORT                     IO_PORTA_08        // TRANSLATED: Infrared key pin.
 
 //*********************************************************************************//
-//                             tocuh key 配置                                      //
+//                             TRANSLATED: Touch-key configuration.
 //*********************************************************************************//
-#define TCFG_TOUCH_KEY_ENABLE 				DISABLE_THIS_MOUDLE 		//是否使能触摸按键
+#define TCFG_TOUCH_KEY_ENABLE 				DISABLE_THIS_MOUDLE 		// TRANSLATED: Enable touch keys.
 
-/* 触摸按键计数参考时钟选择, 频率越高, 精度越高
-** 可选参数:
+/* TRANSLATED: Touch counter reference clock: higher frequency gives better precision.
+** TRANSLATED: Available options:
 	1.TOUCH_KEY_OSC_CLK,
-    2.TOUCH_KEY_MUX_IN_CLK,  //外部输入, ,一般不用, 保留
+    TRANSLATED: 2.TOUCH_KEY_MUX_IN_CLK: external input; reserved and normally unused.
     3.TOUCH_KEY_PLL_192M_CLK,
     4.TOUCH_KEY_PLL_240M_CLK,
 */
-#define TCFG_TOUCH_KEY_CLK 					TOUCH_KEY_PLL_192M_CLK 	//触摸按键时钟配置
-#define TCFG_TOUCH_KEY_CHANGE_GAIN 			4 	//变化放大倍数, 一般固定
-#define TCFG_TOUCH_KEY_PRESS_CFG 			-2 	//触摸按下灵敏度, 类型:s16, 数值越大, 灵敏度越高
-#define TCFG_TOUCH_KEY_RELEASE_CFG0 		-50 //触摸释放灵敏度0, 类型:s16, 数值越大, 灵敏度越高
-#define TCFG_TOUCH_KEY_RELEASE_CFG1 		-80 //触摸释放灵敏度1, 类型:s16, 数值越大, 灵敏度越高
+#define TCFG_TOUCH_KEY_CLK 					TOUCH_KEY_PLL_192M_CLK 	// TRANSLATED: Touch-key clock.
+#define TCFG_TOUCH_KEY_CHANGE_GAIN 			4 	// TRANSLATED: Change amplification factor; normally fixed.
+#define TCFG_TOUCH_KEY_PRESS_CFG 			-2 	// TRANSLATED: Touch press sensitivity (s16); larger values increase sensitivity.
+#define TCFG_TOUCH_KEY_RELEASE_CFG0 		-50 // TRANSLATED: Touch release sensitivity 0 (s16); larger values increase sensitivity.
+#define TCFG_TOUCH_KEY_RELEASE_CFG1 		-80 // TRANSLATED: Touch release sensitivity 1 (s16); larger values increase sensitivity.
 
-//key0配置
-#define TCFG_TOUCH_KEY0_PORT 				IO_PORTB_06  //触摸按键IO配置
-#define TCFG_TOUCH_KEY0_VALUE 				1 		 	 //触摸按键key0 按键值
+// TRANSLATED: Key 0 configuration.
+#define TCFG_TOUCH_KEY0_PORT 				IO_PORTB_06  // TRANSLATED: Touch-key GPIO.
+#define TCFG_TOUCH_KEY0_VALUE 				1 		 	 // TRANSLATED: Touch key 0 code.
 
-//key1配置
-#define TCFG_TOUCH_KEY1_PORT 				IO_PORTB_07  //触摸按键key1 IO配置
-#define TCFG_TOUCH_KEY1_VALUE 				2 		 	 //触摸按键key1按键值
-
+// TRANSLATED: Key 1 configuration.
+#define TCFG_TOUCH_KEY1_PORT 				IO_PORTB_07  // TRANSLATED: Touch key 1 GPIO.
+#define TCFG_TOUCH_KEY1_VALUE 				2 		 	 // TRANSLATED: Touch key 1 code.
 
 //*********************************************************************************//
-//                                 Audio配置                                       //
+//                                 TRANSLATED: Audio configuration.
 //*********************************************************************************//
 #define TCFG_AUDIO_ADC_ENABLE				DISABLE_THIS_MOUDLE
-//MIC只有一个声道，固定选择右声道
+// TRANSLATED: MIC has only one channel; always select the right channel.
 #define TCFG_AUDIO_ADC_MIC_CHA				LADC_CH_MIC_R
 #define TCFG_AUDIO_ADC_LINE_CHA				LADC_LINE0_MASK
-/*MIC LDO电流档位设置：
+/* TRANSLATED: MIC LDO current settings:
     0:0.625ua    1:1.25ua    2:1.875ua    3:2.5ua*/
 #define TCFG_AUDIO_ADC_LDO_SEL				2
 
-// LADC通道
+// TRANSLATED: LADC channel.
 #define TCFG_AUDIO_ADC_LINE_CHA0			LADC_LINE1_MASK
 #define TCFG_AUDIO_ADC_LINE_CHA1			LADC_CH_LINE0_L
 
 #define TCFG_AUDIO_DAC_ENABLE				DISABLE_THIS_MOUDLE
 
-
-
-
-//支持Audio功能，才能使能DAC/ADC模块
+// TRANSLATED: Audio support must be enabled before enabling DAC/ADC modules.
 #ifdef CONFIG_LITE_AUDIO
 #define TCFG_AUDIO_ENABLE					DISABLE
 #if TCFG_AUDIO_ENABLE
@@ -282,17 +277,17 @@
 #define TCFG_ENC_SBC_ENABLE                 DISABLE
 #define TCFG_ENC_MSBC_ENABLE                DISABLE
 
-//lc3 编码参数配置
+// TRANSLATED: LC3 encoder parameters.
 #if TCFG_ENC_LC3_ENABLE
-#define LC3_CODING_SAMPLERATE  16000 //lc3 编码的采样率
-#define LC3_CODING_FRAME_LEN   100  //帧长度，只支持25，50，100
-#define LC3_CODING_CHANNEL     2  //lc3 的通道数
+#define LC3_CODING_SAMPLERATE  16000 // TRANSLATED: LC3 encoder sample rate.
+#define LC3_CODING_FRAME_LEN   100  // TRANSLATED: Frame length; only 25, 50, and 100 are supported.
+#define LC3_CODING_CHANNEL     2  // TRANSLATED: LC3 channel count.
 #endif
 
-//enc 编码 demo文件
+// TRANSLATED: Encoder demo file.
 #define ENC_DEMO_EN                        DISABLE
-#define TCFG_SPEED_PITCH_ENABLE            DISABLE    //提示音变调功能
-#define TCFG_SPEED_MODE           		   (1.0f)    //倍速配置,(如二倍速就是(2.0f))
+#define TCFG_SPEED_PITCH_ENABLE            DISABLE    // TRANSLATED: Prompt-tone pitch shifting.
+#define TCFG_SPEED_MODE           		   (1.0f)    // TRANSLATED: Playback speed multiplier; e.g. 2.0f for double speed.
 
 #define TCFG_LINEIN_LR_CH                   AUDIO_LIN0_LR
 #define TCFG_DEC_WAV_ENABLE					DISABLE
@@ -303,28 +298,28 @@
 
 #define TCFG_AUDIO_DAC_LDO_SEL				1
 /*
-DACVDD电压设置(要根据具体的硬件接法来确定):
+TRANSLATED: DACVDD voltage settings; choose according to the board wiring:
     DACVDD_LDO_1_20V        DACVDD_LDO_1_30V        DACVDD_LDO_2_35V        DACVDD_LDO_2_50V
     DACVDD_LDO_2_65V        DACVDD_LDO_2_80V        DACVDD_LDO_2_95V        DACVDD_LDO_3_10V*/
 #define TCFG_AUDIO_DAC_LDO_VOLT				DACVDD_LDO_2_70V
-/*预留接口，未使用*/
+/* TRANSLATED: Reserved interface; unused. */
 #define TCFG_AUDIO_DAC_PA_PORT				NO_CONFIG_PORT
 /*
-DAC硬件上的连接方式,可选的配置：
-    DAC_OUTPUT_MONO_L               左声道
-    DAC_OUTPUT_MONO_R               右声道
-    DAC_OUTPUT_LR                   立体声
-    DAC_OUTPUT_MONO_LR_DIFF         单声道差分输出
+TRANSLATED: DAC hardware wiring options:
+    TRANSLATED: DAC_OUTPUT_MONO_L: left channel.
+    TRANSLATED: DAC_OUTPUT_MONO_R: right channel.
+    TRANSLATED: DAC_OUTPUT_LR: stereo.
+    TRANSLATED: DAC_OUTPUT_MONO_LR_DIFF: differential mono output.
 */
 #define TCFG_AUDIO_DAC_CONNECT_MODE         DAC_OUTPUT_MONO_LR_DIFF
 
 /*
-解码后音频的输出方式:
-    AUDIO_OUTPUT_ORIG_CH            按原始声道输出
-    AUDIO_OUTPUT_STEREO             按立体声
-    AUDIO_OUTPUT_L_CH               只输出原始声道的左声道
-    AUDIO_OUTPUT_R_CH               只输出原始声道的右声道
-    AUDIO_OUTPUT_MONO_LR_CH         输出左右合成的单声道
+TRANSLATED: Decoded audio output mode:
+    TRANSLATED: AUDIO_OUTPUT_ORIG_CH: original channels.
+    TRANSLATED: AUDIO_OUTPUT_STEREO: stereo.
+    TRANSLATED: AUDIO_OUTPUT_L_CH: original left channel only.
+    TRANSLATED: AUDIO_OUTPUT_R_CH: original right channel only.
+    TRANSLATED: AUDIO_OUTPUT_MONO_LR_CH: mix left and right to mono.
  */
 #define AUDIO_OUTPUT_MODE                   AUDIO_OUTPUT_STEREO
 
@@ -341,62 +336,61 @@ DAC硬件上的连接方式,可选的配置：
 
 #define AUDIO_OUTPUT_AUTOMUTE       0//ENABLE
 /*
- *系统音量类型选择
- *软件数字音量是指纯软件对声音进行运算后得到的
- *硬件数字音量是指dac内部数字模块对声音进行运算后输出
+ *TRANSLATED: System volume-control type.
+ *TRANSLATED: Software digital volume processes samples entirely in software.
+ *TRANSLATED: Hardware digital volume processes samples in the DAC's digital block.
  */
-#define VOL_TYPE_DIGITAL		0	//软件数字音量
-#define VOL_TYPE_ANALOG			1	//硬件模拟音量
-#define VOL_TYPE_AD				2	//联合音量(模拟数字混合调节)
-#define VOL_TYPE_DIGITAL_HW		3  	//硬件数字音量
+#define VOL_TYPE_DIGITAL		0	// TRANSLATED: Software digital volume.
+#define VOL_TYPE_ANALOG			1	// TRANSLATED: Hardware analog volume.
+#define VOL_TYPE_AD				2	// TRANSLATED: Combined analog/digital volume control.
+#define VOL_TYPE_DIGITAL_HW		3  	// TRANSLATED: Hardware digital volume.
 #define SYS_VOL_TYPE            VOL_TYPE_ANALOG
 /*
- *通话的时候使用数字音量
- *0：通话使用和SYS_VOL_TYPE一样的音量调节类型
- *1：通话使用数字音量调节，更加平滑
+ *TRANSLATED: Use digital volume during calls.
+ *TRANSLATED: 0: use the volume-control type selected by SYS_VOL_TYPE during calls.
+ *TRANSLATED: 1: use digital volume during calls for smoother adjustment.
  */
 #define TCFG_CALL_USE_DIGITAL_VOLUME		0
 
-// 使能改宏，提示音音量使用music音量
+// TRANSLATED: Use music volume for prompt tones when enabled.
 #define APP_AUDIO_STATE_WTONE_BY_MUSIC      (1)
-// 0:提示音不使用默认音量； 1:默认提示音音量值
+// TRANSLATED: 0: no default prompt volume; 1: use the default prompt volume.
 #define TONE_MODE_DEFAULE_VOLUME            (0)
 
 /*
- *支持省电容MIC模块
- *(1)要使能省电容mic,首先要支持该模块:TCFG_SUPPORT_MIC_CAPLESS
- *(2)只有支持该模块，才能使能该模块:TCFG_MIC_CAPLESS_ENABLE
+ *TRANSLATED: Support the capacitorless MIC module.
+ *TRANSLATED: (1) TCFG_SUPPORT_MIC_CAPLESS must be enabled to support the module.
+ *TRANSLATED: (2) TCFG_MIC_CAPLESS_ENABLE can enable it only when support is present.
  */
 #define TCFG_SUPPORT_MIC_CAPLESS			DISABLE_THIS_MOUDLE
-//省电容MIC使能
+// TRANSLATED: Enable capacitorless MIC.
 #define TCFG_MIC_CAPLESS_ENABLE				DISABLE_THIS_MOUDLE
 
-
-#define AUDIO_MIDI_CTRL_CONFIG    0 //midi电子琴接口使能 ,开这个宏要关掉低功耗使能
+#define AUDIO_MIDI_CTRL_CONFIG    0 // TRANSLATED: Enable the MIDI keyboard interface; disable low power when using this option.
 
 //*********************************************************************************//
-//                                  充电仓配置                                     //
+//                                  TRANSLATED: Charging-case configuration.
 //*********************************************************************************//
-#define TCFG_CHARGESTORE_ENABLE				DISABLE_THIS_MOUDLE       //是否支持智能充点仓
+#define TCFG_CHARGESTORE_ENABLE				DISABLE_THIS_MOUDLE       // TRANSLATED: Support a smart charging case.
 #define TCFG_TEST_BOX_ENABLE			    0
-#define TCFG_CHARGESTORE_PORT				IO_PORTB_05               //耳机和充点仓通讯的IO口
-#define TCFG_CHARGESTORE_UART_ID			IRQ_UART1_IDX             //通讯使用的串口号
+#define TCFG_CHARGESTORE_PORT				IO_PORTB_05               // TRANSLATED: GPIO for communication between earbud and charging case.
+#define TCFG_CHARGESTORE_UART_ID			IRQ_UART1_IDX             // TRANSLATED: UART used for communication.
 
 //*********************************************************************************//
-//                                  充电参数配置                                   //
+//                                  TRANSLATED: Charging parameters.
 //*********************************************************************************//
-//是否支持芯片内置充电
+// TRANSLATED: Support the on-chip charger.
 #define TCFG_CHARGE_ENABLE					DISABLE_THIS_MOUDLE
-//是否支持开机充电
+// TRANSLATED: Support charging while powered on.
 #define TCFG_CHARGE_POWERON_ENABLE			DISABLE
-//是否支持拔出充电自动开机功能
+// TRANSLATED: Automatically power on when removed from the charger.
 #define TCFG_CHARGE_OFF_POWERON_NE			DISABLE
-//是否支持lighting握手协议
+// TRANSLATED: Support the Lightning handshake protocol.
 #define TCFG_HANDSHAKE_ENABLE               DISABLE
-#define TCFG_HANDSHAKE_IO_DATA1             IO_PORTB_02//握手IO靠近lighting座子中间的
-#define TCFG_HANDSHAKE_IO_DATA2             IO_PORTB_07//握手IO在lighting座子边上的
+#define TCFG_HANDSHAKE_IO_DATA1             IO_PORTB_02// TRANSLATED: Handshake GPIO near the middle of the Lightning connector.
+#define TCFG_HANDSHAKE_IO_DATA2             IO_PORTB_07// TRANSLATED: Handshake GPIO near the edge of the Lightning connector.
 /*
-充电截止电压可选配置：
+TRANSLATED: Charge termination voltage options:
     CHARGE_FULL_V_3869  CHARGE_FULL_V_3907  CHARGE_FULL_V_3946   CHARGE_FULL_V_3985
     CHARGE_FULL_V_4026  CHARGE_FULL_V_4068  CHARGE_FULL_V_4122   CHARGE_FULL_V_4157
     CHARGE_FULL_V_4202  CHARGE_FULL_V_4249  CHARGE_FULL_V_4295   CHARGE_FULL_V_4350
@@ -404,13 +398,13 @@ DAC硬件上的连接方式,可选的配置：
 */
 #define TCFG_CHARGE_FULL_V					CHARGE_FULL_V_4202
 /*
-充电截止电流可选配置：
+TRANSLATED: Charge termination current options:
     CHARGE_FULL_mA_2	CHARGE_FULL_mA_5	CHARGE_FULL_mA_7	 CHARGE_FULL_mA_10
     CHARGE_FULL_mA_15	CHARGE_FULL_mA_20	CHARGE_FULL_mA_25	 CHARGE_FULL_mA_30
 */
 #define TCFG_CHARGE_FULL_MA					CHARGE_FULL_mA_10
 /*
-充电电流可选配置：
+TRANSLATED: Charging current options:
     CHARGE_mA_20		CHARGE_mA_40		CHARGE_mA_60		CHARGE_mA_80
     CHARGE_mA_100		CHARGE_mA_120		CHARGE_mA_140		CHARGE_mA_160
     CHARGE_mA_180		CHARGE_mA_200		CHARGE_mA_220		CHARGE_mA_240
@@ -419,88 +413,83 @@ DAC硬件上的连接方式,可选的配置：
 #define TCFG_CHARGE_MA						CHARGE_mA_60
 
 //*********************************************************************************//
-//                                  LED 配置                                       //
+//                                  TRANSLATED: LED configuration.
 //*********************************************************************************//
-#define TCFG_PWMLED_ENABLE					DISABLE_THIS_MOUDLE			//是否支持PMW LED推灯模块
-#define TCFG_PWMLED_IOMODE					LED_ONE_IO_MODE				//LED模式，单IO还是两个IO推灯
-#define TCFG_PWMLED_PIN						IO_PORTB_06					//LED使用的IO口
+#define TCFG_PWMLED_ENABLE					DISABLE_THIS_MOUDLE			// TRANSLATED: Support the PWM LED driver.
+#define TCFG_PWMLED_IOMODE					LED_ONE_IO_MODE				// TRANSLATED: LED mode: drive with one GPIO or two.
+#define TCFG_PWMLED_PIN						IO_PORTB_06					// TRANSLATED: LED GPIO.
 //*********************************************************************************//
-//                                  时钟配置                                       //
+//                                  TRANSLATED: Clock configuration.
 //*********************************************************************************//
 #if CONFIG_PLL_SOURCE_USING_LRC
-#define TCFG_CLOCK_SYS_SRC     SYS_CLOCK_INPUT_PLL_RCL   //系统时钟源选择
+#define TCFG_CLOCK_SYS_SRC     SYS_CLOCK_INPUT_PLL_RCL   // TRANSLATED: System clock source.
 #else
-#define TCFG_CLOCK_SYS_SRC     SYS_CLOCK_INPUT_PLL_BT_OSC   //系统时钟源选择
+#define TCFG_CLOCK_SYS_SRC     SYS_CLOCK_INPUT_PLL_BT_OSC   // TRANSLATED: System clock source.
 #endif
-#define TCFG_CLOCK_SYS_HZ					24000000                     //系统时钟设置
-#define TCFG_CLOCK_OSC_HZ					24000000                     //外界晶振频率设置
+#define TCFG_CLOCK_SYS_HZ					24000000                     // TRANSLATED: System clock frequency.
+#define TCFG_CLOCK_OSC_HZ					24000000                     // TRANSLATED: External crystal frequency.
 #define TCFG_CLOCK_MODE                     CLOCK_MODE_ADAPTIVE
 
 //*********************************************************************************//
-//                                  低功耗配置                                     //
+//                                  TRANSLATED: Low-power configuration.
 //*********************************************************************************//
-#define TCFG_LOWPOWER_POWER_SEL				PWR_LDO15                    //电源模式设置，可选DCDC和LDO
-#define TCFG_DCDC_PORT_SEL				    NO_CONFIG_PORT               //DCDC控制脚设置，只有在选择DCDC的时候起作用
-#define TCFG_LOWPOWER_BTOSC_DISABLE			0                            //低功耗模式下BTOSC是否保持
-#define TCFG_LOWPOWER_LOWPOWER_SEL			SLEEP_EN                     //SNIFF状态下芯片是否进入powerdown
-/*强VDDIO等级配置,可选：
+#define TCFG_LOWPOWER_POWER_SEL				PWR_LDO15                    // TRANSLATED: Power mode: DCDC or LDO.
+#define TCFG_DCDC_PORT_SEL				    NO_CONFIG_PORT               // TRANSLATED: DCDC control pin; used only in DCDC mode.
+#define TCFG_LOWPOWER_BTOSC_DISABLE			0                            // TRANSLATED: Whether to retain BTOSC during low power.
+#define TCFG_LOWPOWER_LOWPOWER_SEL			SLEEP_EN                     // TRANSLATED: Whether to enter powerdown during sniff.
+/* TRANSLATED: Strong VDDIO level options:
     VDDIOM_VOL_20V    VDDIOM_VOL_22V    VDDIOM_VOL_24V    VDDIOM_VOL_26V
     VDDIOM_VOL_30V    VDDIOM_VOL_30V    VDDIOM_VOL_32V    VDDIOM_VOL_36V*/
 #define TCFG_LOWPOWER_VDDIOM_LEVEL			VDDIOM_VOL_30V
-/*弱VDDIO等级配置，可选：
+/* TRANSLATED: Weak VDDIO level options:
     VDDIOW_VOL_21V    VDDIOW_VOL_24V    VDDIOW_VOL_28V    VDDIOW_VOL_32V*/
-#define TCFG_LOWPOWER_VDDIOW_LEVEL			VDDIOW_VOL_28V               //弱VDDIO等级配置
+#define TCFG_LOWPOWER_VDDIOW_LEVEL			VDDIOW_VOL_28V               // TRANSLATED: Weak VDDIO level.
 #define TCFG_LOWPOWER_OSC_TYPE              OSC_TYPE_LRC
 
 //*********************************************************************************//
-//                                  EQ配置                                         //
+//                                  TRANSLATED: EQ configuration.
 //*********************************************************************************//
-//EQ配置，使用在线EQ时，EQ文件和EQ模式无效。有EQ文件时，默认不用EQ模式切换功能
-#define TCFG_EQ_ENABLE                            0     //支持EQ功能
-#define TCFG_EQ_ONLINE_ENABLE                     0     //支持在线EQ调试
-#define TCFG_BT_MUSIC_EQ_ENABLE                   0     //支持蓝牙音乐EQ
-#define TCFG_PHONE_EQ_ENABLE                      0     //支持通话近端EQ
-
+// TRANSLATED: Online EQ overrides EQ files and modes. With an EQ file, mode switching is disabled by default.
+#define TCFG_EQ_ENABLE                            0     // TRANSLATED: Enable EQ.
+#define TCFG_EQ_ONLINE_ENABLE                     0     // TRANSLATED: Enable online EQ tuning.
+#define TCFG_BT_MUSIC_EQ_ENABLE                   0     // TRANSLATED: Enable Bluetooth music EQ.
+#define TCFG_PHONE_EQ_ENABLE                      0     // TRANSLATED: Enable near-end call EQ.
 
 // ONLINE CCONFIG
-#define TCFG_ONLINE_ENABLE                        (TCFG_EQ_ONLINE_ENABLE)    //是否支持EQ在线调试功能
-#define TCFG_ONLINE_TX_PORT						  IO_PORT_DP                 //EQ调试TX口选择
-#define TCFG_ONLINE_RX_PORT						  IO_PORT_DM                 //EQ调试RX口选择
-
+#define TCFG_ONLINE_ENABLE                        (TCFG_EQ_ONLINE_ENABLE)    // TRANSLATED: Enable online EQ tuning.
+#define TCFG_ONLINE_TX_PORT						  IO_PORT_DP                 // TRANSLATED: EQ debug TX pin.
+#define TCFG_ONLINE_RX_PORT						  IO_PORT_DM                 // TRANSLATED: EQ debug RX pin.
 
 //*********************************************************************************//
-//                                  g-sensor配置                                   //
+//                                  TRANSLATED: Accelerometer configuration.
 //*********************************************************************************//
-#define TCFG_GSENSOR_ENABLE                       0     //gSensor使能
+#define TCFG_GSENSOR_ENABLE                       0     // TRANSLATED: Enable the accelerometer.
 #define TCFG_DA230_EN                             0
 #define TCFG_SC7A20_EN                            0
 #define TCFG_STK8321_EN                           0
-#define TCFG_GSENOR_USER_IIC_TYPE                 0     //0:软件IIC  1:硬件IIC
-
+#define TCFG_GSENOR_USER_IIC_TYPE                 0     // TRANSLATED: 0: software I2C; 1: hardware I2C.
 
 //*********************************************************************************//
-//                                  code switch配置                                //
+//                                  TRANSLATED: Code-switch configuration.
 //*********************************************************************************//
-#define TCFG_CODE_SWITCH_ENABLE                   ENABLE_THIS_MOUDLE //code switch使能
+#define TCFG_CODE_SWITCH_ENABLE                   ENABLE_THIS_MOUDLE // TRANSLATED: Enable code-switch support.
 #define TCFG_CODE_SWITCH_A_PHASE_PORT             IO_PORTB_06
 #define TCFG_CODE_SWITCH_B_PHASE_PORT             IO_PORTB_07
 
-
-
 //*********************************************************************************//
-//                                  系统配置                                         //
+//                                  TRANSLATED: System configuration.
 //*********************************************************************************//
-#define TCFG_AUTO_SHUT_DOWN_TIME		          0   //没有蓝牙连接自动关机时间
-#define TCFG_SYS_LVD_EN						      1   //电量检测使能
-#define TCFG_POWER_ON_NEED_KEY				      0	  //是否需要按按键开机配置
-#define TCFG_HID_AUTO_SHUTDOWN_TIME             (0 * 60)      //HID无操作自动关机(单位：秒)
+#define TCFG_AUTO_SHUT_DOWN_TIME		          0   // TRANSLATED: Automatic shutdown timeout when Bluetooth is disconnected.
+#define TCFG_SYS_LVD_EN						      1   // TRANSLATED: Enable battery monitoring.
+#define TCFG_POWER_ON_NEED_KEY				      0	  // TRANSLATED: Require a key press to power on.
+#define TCFG_HID_AUTO_SHUTDOWN_TIME             (0 * 60)      // TRANSLATED: HID inactivity shutdown timeout, in seconds.
 
 //*********************************************************************************//
-//                                  蓝牙配置                                       //
+//                                  TRANSLATED: Bluetooth configuration.
 //*********************************************************************************//
-#define TCFG_USER_TWS_ENABLE                      0   //tws功能使能
-#define TCFG_USER_BLE_ENABLE                      1   //BLE功能使能
-#define TCFG_USER_EDR_ENABLE                      1   //EDR功能使能
+#define TCFG_USER_TWS_ENABLE                      0   // TRANSLATED: Enable TWS.
+#define TCFG_USER_BLE_ENABLE                      1   // TRANSLATED: Enable BLE.
+#define TCFG_USER_EDR_ENABLE                      1   // TRANSLATED: Enable EDR.
 
 #if TCFG_USER_EDR_ENABLE
 #define USER_SUPPORT_PROFILE_SPP    0
@@ -513,28 +502,26 @@ DAC硬件上的连接方式,可选的配置：
 #endif
 
 #if TCFG_USER_TWS_ENABLE
-#define TCFG_BD_NUM						          1   //连接设备个数配置
-#define TCFG_AUTO_STOP_PAGE_SCAN_TIME             0   //配置一拖二第一台连接后自动关闭PAGE SCAN的时间(单位分钟)
+#define TCFG_BD_NUM						          1   // TRANSLATED: Number of connected devices.
+#define TCFG_AUTO_STOP_PAGE_SCAN_TIME             0   // TRANSLATED: In two-device mode, stop page scanning this many minutes after the first device connects.
 #else
-#define TCFG_BD_NUM						          1   //连接设备个数配置
-#define TCFG_AUTO_STOP_PAGE_SCAN_TIME             0 //配置一拖二第一台连接后自动关闭PAGE SCAN的时间(单位分钟)
+#define TCFG_BD_NUM						          1   // TRANSLATED: Number of connected devices.
+#define TCFG_AUTO_STOP_PAGE_SCAN_TIME             0 // TRANSLATED: In two-device mode, stop page scanning this many minutes after the first device connects.
 #endif
 
-#define BT_INBAND_RINGTONE                        0   //是否播放手机自带来电铃声
-#define BT_PHONE_NUMBER                           0   //是否播放来电报号
-#define BT_SUPPORT_DISPLAY_BAT                    0   //是否使能电量检测
-#define BT_SUPPORT_MUSIC_VOL_SYNC                 0   //是否使能音量同步
-
+#define BT_INBAND_RINGTONE                        0   // TRANSLATED: Play the phone's incoming-call ringtone.
+#define BT_PHONE_NUMBER                           0   // TRANSLATED: Announce the incoming caller's number.
+#define BT_SUPPORT_DISPLAY_BAT                    0   // TRANSLATED: Enable battery monitoring.
+#define BT_SUPPORT_MUSIC_VOL_SYNC                 0   // TRANSLATED: Enable volume synchronization.
 
 //*********************************************************************************//
-//                                 电源切换配置                                    //
+//                                 TRANSLATED: Power switching configuration.
 //*********************************************************************************//
 
 #define CONFIG_PHONE_CALL_USE_LDO15	    1
 
-
 //*********************************************************************************//
-//                                 时钟切换配置                                    //
+//                                 TRANSLATED: Clock switching configuration.
 //*********************************************************************************//
 #define CONFIG_BT_NORMAL_HZ	            (24 * 1000000L)
 
@@ -554,18 +541,15 @@ DAC硬件上的连接方式,可选的配置：
 #endif
 
 //*********************************************************************************//
-//                           (Yes/No)语音识别使能                                  //
+//                           TRANSLATED: Enable Yes/No speech recognition.
 //*********************************************************************************//
 #if TCFG_AUDIO_ENABLE
 #define TCFG_KWS_VOICE_RECOGNITION_ENABLE 			 	0 //DISABLE_THIS_MOUDLE
 #endif /* #if TCFG_AUDIO_ENABLE */
 
-
-
 //*********************************************************************************//
-//                                 配置结束                                         //
+//                                 TRANSLATED: Configuration ends.
 //*********************************************************************************//
-
 
 #endif //CONFIG_BOARD_AC693X_DEMO
 #endif //CONFIG_BOARD_AC693X_DEMO_CFG_H

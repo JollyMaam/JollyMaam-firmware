@@ -37,7 +37,6 @@ static volatile u8 cur_battery_level = 0;
 static u16 battery_full_value = 0;
 static u8 cur_bat_st = VBAT_NORMAL;
 
-
 void vbat_check(void *priv);
 void clr_wdt(void);
 
@@ -56,7 +55,6 @@ int app_power_event_handler(struct device_event *dev, void (*set_soft_poweroff_c
     int ret = false;
 
     switch (dev->event) {
-#if(TCFG_SYS_LVD_EN == 1)
     case POWER_EVENT_POWER_NORMAL:
         break;
     case POWER_EVENT_POWER_WARNING:
@@ -88,7 +86,6 @@ int app_power_event_handler(struct device_event *dev, void (*set_soft_poweroff_c
             lowpower_timer = 0 ;
         }
         break;
-#endif
     case POWER_EVENT_POWER_SOFTOFF:
         set_soft_poweroff_call();
     default:
@@ -96,7 +93,6 @@ int app_power_event_handler(struct device_event *dev, void (*set_soft_poweroff_c
     }
     return ret;
 }
-
 
 u16 get_vbat_level(void)
 {
@@ -119,11 +115,7 @@ u8 get_vbat_percent(void)
     u16 tmp_bat_val;
     u16 bat_val = get_vbat_level();
     if (battery_full_value == 0) {
-#if TCFG_CHARGE_ENABLE
-        battery_full_value = (get_charge_full_value() - 100) / 10; //防止部分电池充不了这么高电量，充满显示未满的情况
-#else
         battery_full_value = 420;
-#endif
     }
 
     if (bat_val <= app_var.poweroff_tone_v) {
@@ -148,13 +140,13 @@ bool get_vbat_need_shutdown(void)
     return FALSE;
 }
 
-//将当前电量转换为1~9级发送给手机同步电量
+// TRANSLATED: Convert battery charge to levels 1..9 for synchronization with the phone.
 u8  battery_value_to_phone_level(u16 bat_val)
 {
     u8  battery_level = 0;
     u8 vbat_percent = get_vbat_percent();
 
-    if (vbat_percent < 5) { //小于5%电量等级为0，显示10%
+    if (vbat_percent < 5) { // TRANSLATED: Below 5%, use level 0, displayed as 10%.
         return 0;
     }
 
@@ -163,7 +155,7 @@ u8  battery_value_to_phone_level(u16 bat_val)
     return battery_level;
 }
 
-//获取自身的电量
+// TRANSLATED: Get this device's battery level.
 u8  get_self_battery_level(void)
 {
     return cur_battery_level;
@@ -221,7 +213,7 @@ void vbat_check(void *priv)
     static u8 power_normal_cnt = 0;
     static u8 charge_ccvol_v_cnt = 0;
     static u8 charge_online_flag = 0;
-    static u8 low_voice_first_flag = 1;//进入低电后先提醒一次
+    static u8 low_voice_first_flag = 1;// TRANSLATED: Issue an initial warning on entering the low-battery state.
 
     if (!bat_val) {
         bat_val = get_vbat_level();
@@ -241,16 +233,11 @@ void vbat_check(void *priv)
     if (bat_val <= app_var.warning_tone_v) {
         low_warn_cnt++;
     }
-#if TCFG_CHARGE_ENABLE
-    if (bat_val >= CHARGE_CCVOL_V) {
-        charge_ccvol_v_cnt++;
-    }
-#endif
 
     if (unit_cnt >= VBAT_DETECT_CNT) {
 
         if (get_charge_online_flag() == 0) {
-            if (low_off_cnt > (VBAT_DETECT_CNT / 2)) { //低电关机
+            if (low_off_cnt > (VBAT_DETECT_CNT / 2)) { // TRANSLATED: Low-battery shutdown.
                 low_power_cnt++;
                 low_voice_cnt = 0;
                 power_normal_cnt = 0;
@@ -262,12 +249,12 @@ void vbat_check(void *priv)
                     usr_timer_del(vbat_fast_timer);
                     vbat_fast_timer = 0;
                 }
-            } else if (low_warn_cnt > (VBAT_DETECT_CNT / 2)) { //低电提醒
+            } else if (low_warn_cnt > (VBAT_DETECT_CNT / 2)) { // TRANSLATED: Low-battery warning.
                 low_voice_cnt ++;
                 low_power_cnt = 0;
                 power_normal_cnt = 0;
                 cur_bat_st = VBAT_WARNING;
-                if ((low_voice_first_flag && low_voice_cnt > 1) || //第一次进低电10s后报一次
+                if ((low_voice_first_flag && low_voice_cnt > 1) || // TRANSLATED: First warning ten seconds after entering the low-battery state.
                     (!low_voice_first_flag && low_voice_cnt >= 5)) {
                     low_voice_first_flag = 0;
                     low_voice_cnt = 0;
@@ -290,11 +277,6 @@ void vbat_check(void *priv)
             }
         } else {
             power_event_to_user(POWER_EVENT_POWER_CHARGE);
-#if TCFG_CHARGE_ENABLE
-            if (charge_ccvol_v_cnt > (VBAT_DETECT_CNT / 2)) {
-                set_charge_mA(get_charge_mA_config());
-            }
-#endif
         }
 
         unit_cnt = 0;
@@ -310,7 +292,7 @@ void vbat_check(void *priv)
                 power_event_to_user(POWER_EVENT_POWER_CHANGE);
             } else {
                 if (charge_online_flag != get_charge_online_flag()) {
-                    //充电变化也要交换，确定是否在充电仓
+                    // TRANSLATED: Exchange charging-state changes too, to determine whether the device is in the charging case.
                     power_event_to_user(POWER_EVENT_POWER_CHANGE);
                 }
             }
@@ -327,7 +309,6 @@ bool vbat_is_low_power(void)
 
 void check_power_on_voltage(void)
 {
-#if(TCFG_SYS_LVD_EN == 1)
 
     u16 val = 0;
     u8 normal_power_cnt = 0;
@@ -354,5 +335,4 @@ void check_power_on_voltage(void)
             }
         }
     }
-#endif
 }

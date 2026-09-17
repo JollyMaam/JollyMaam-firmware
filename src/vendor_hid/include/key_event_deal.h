@@ -74,7 +74,7 @@ enum {
     KEY_TWS_BLE_DUEROS_DISCONNECT,
 #endif
 
-    KEY_IR_NUM_0 = 0xF0,//中间不允许插入
+    KEY_IR_NUM_0 = 0xF0,// TRANSLATED: Do not insert values within this numeric-key sequence.
     KEY_IR_NUM_1,
     KEY_IR_NUM_2,
     KEY_IR_NUM_3,
@@ -88,11 +88,9 @@ enum {
     KEY_NULL = 0xFF,
 };
 
-
 enum {
     ONE_KEY_CTL_NEXT_PREV = 1,
     ONE_KEY_CTL_VOL_UP_DOWN,
 };
-
 
 #endif

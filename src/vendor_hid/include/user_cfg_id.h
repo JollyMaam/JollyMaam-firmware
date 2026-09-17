@@ -2,8 +2,8 @@
 #define _USER_CFG_ID_H_
 
 //=================================================================================//
-//      与APP CASE相关配置项[1 ~ 49], 其他id 在syscfg_id.h有定义使用               //
-//NOTE: 不同的example可以复用同一个ID,没用过该功能的ID也可以重新分配占用           //
+//      TRANSLATED: App-specific configuration IDs [1..49]; other IDs are defined in syscfg_id.h.
+// TRANSLATED: Different examples may reuse IDs; IDs for unused features may be reassigned.
 //=================================================================================//
 #define     CFG_BLE_BONDING_REMOTE_INFO      1  //1~4
 
@@ -35,9 +35,9 @@
 #define     CFG_RCSP_ADV_KEY_SETTING         27
 #define     CFG_AAP_MODE_INFO                28
 
-#define     CFG_BLE_ADDRESS_BEGIN            30 //记录ble 可变地址表
+#define     CFG_BLE_ADDRESS_BEGIN            30 // TRANSLATED: Store the BLE variable-address table.
 #define     CFG_BT_IDX_NUM                   4
-#define     CFG_EDR_ADDRESS_BEGIN            (CFG_BLE_ADDRESS_BEGIN + CFG_BT_IDX_NUM) //记录配对的对方地址
+#define     CFG_EDR_ADDRESS_BEGIN            (CFG_BLE_ADDRESS_BEGIN + CFG_BT_IDX_NUM) // TRANSLATED: Store the paired peer's address.
 #define     CFG_BLE_IRK_NUMBER               (CFG_EDR_ADDRESS_BEGIN + CFG_BT_IDX_NUM)
 #define     CFG_CUR_BT_IDX                   (CFG_BLE_IRK_NUMBER + CFG_BT_IDX_NUM)
 #define     CFG_HID_MODE_BEGIN               (CFG_CUR_BT_IDX + 1)

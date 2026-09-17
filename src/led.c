@@ -1,6 +1,5 @@
 #include "system/includes.h"
 #include "asm/gpio.h"
-#include "asm/wdt.h"
 
 #include "board.h"
 #include "led.h"
@@ -8,8 +7,6 @@
 
 #define LED_COUNT                CYCLONE2_LED_COUNT
 #define LED_FRAME_BYTES          (LED_COUNT * 24U)
-#define CONTROL_POLL_TICKS       10U
-#define STATUS_LED_RED           8U
 
 static u8 led_dma_buffer[LED_FRAME_BYTES] __attribute__((aligned(4)));
 
@@ -58,17 +55,4 @@ void cyclone2_led_set_home(u8 red, u8 green, u8 blue)
                           CYCLONE2_LED_HOME_INDEX);
     rom_flush_dcache(led_dma_buffer, sizeof(led_dma_buffer));
     led_spi_send_rgbbuf(led_dma_buffer, LED_COUNT);
-}
-
-void cyclone2_control_task(void *argument)
-{
-    (void)argument;
-
-    cyclone2_led_initialize();
-    cyclone2_led_set_all(STATUS_LED_RED, 0U, 0U);
-
-    for (;;) {
-        wdt_clear();
-        os_time_dly(CONTROL_POLL_TICKS);
-    }
 }

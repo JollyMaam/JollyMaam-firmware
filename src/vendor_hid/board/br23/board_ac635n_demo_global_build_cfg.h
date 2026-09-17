@@ -1,22 +1,22 @@
 #ifndef CONFIG_BOARD_AC635N_DEMO_POST_BUILD_CFG_H
 #define CONFIG_BOARD_AC635N_DEMO_POST_BUILD_CFG_H
 
-/* 改文件只添加和isd_config.ini相关的配置，用以生成isd_config.ini */
-/* 其他不相关的配置请勿添加在改文件 */
+/* TRANSLATED: Only put settings related to generating isd_config.ini in this file. */
+/* TRANSLATED: Do not add unrelated configuration here. */
 
 #ifdef CONFIG_BOARD_AC635N_DEMO
 
 /* Following Macros Affect Periods Of Both Code Compiling And Post-build */
 
-#define CONFIG_DOUBLE_BANK_ENABLE               0       //单双备份选择(若打开了改宏,FLASH结构变为双备份结构，适用于接入第三方协议的OTA， PS: JL-OTA同样支持双备份升级, 需要根据实际FLASH大小同时配置CONFIG_FLASH_SIZE)
-#define CONFIG_APP_OTA_ENABLE                   0       //是否支持RCSP升级(JL-OTA)
+#define CONFIG_DOUBLE_BANK_ENABLE               0       // TRANSLATED: Select single/dual-bank updates. Enabling this changes the flash layout to dual-bank for third-party OTA (also supported by JL-OTA); set CONFIG_FLASH_SIZE to the actual flash capacity.
+#define CONFIG_APP_OTA_ENABLE                   0       // TRANSLATED: Support RCSP updates (JL-OTA).
 
-#define CONFIG_UPDATE_JUMP_TO_MASK              0   	//配置升级到loader的方式0为直接reset,1为跳转(适用于芯片电源由IO口KEEP住的方案,需要注意检查跳转前是否将使用DMA的硬件模块全部关闭)
+#define CONFIG_UPDATE_JUMP_TO_MASK              0   	// TRANSLATED: Enter the update loader by 0=reset or 1=jump. Jump supports GPIO-held power; first shut down all DMA peripherals.
 
-#define CONFIG_LP_TOUCH_KEY_EN					0		//配置是否使用内置触摸
-#define CONFIG_UPDATE_WITH_MD5_CHECK_EN			0 		//配置升级是否支持MD5校验
+#define CONFIG_LP_TOUCH_KEY_EN					0		// TRANSLATED: Use the built-in touch controller.
+#define CONFIG_UPDATE_WITH_MD5_CHECK_EN			0 		// TRANSLATED: Support MD5 verification during updates.
 
-#define CONFIG_ANC_ENABLE           			0		//配置是否支持ANC
+#define CONFIG_ANC_ENABLE           			0		// TRANSLATED: Support ANC.
 
 //flash size vaule definition
 #define FLASH_SIZE_256K							0x40000
@@ -25,32 +25,31 @@
 #define FLASH_SIZE_2M							0x200000
 #define FLASH_SIZE_4M							0x400000
 
-#define CONFIG_FLASH_SIZE                       FLASH_SIZE_1M    //配置FLASH大小
-
+#define CONFIG_FLASH_SIZE                       FLASH_SIZE_1M    // TRANSLATED: Flash capacity.
 
 /* Above Macros Affect Periods Of Both Code Compiling And Post-build */
 
 /* Following Macros Only For Post Bulid Configuaration */
 
-#define CONFIG_DB_UPDATE_DATA_GENERATE_EN       0       //是否生成db_data.bin(用于第三方协议接入使用)
-#define CONFIG_ONLY_GRENERATE_ALIGN_4K_CODE     1    	//ufw只生成1份4K对齐的代码
+#define CONFIG_DB_UPDATE_DATA_GENERATE_EN       0       // TRANSLATED: Generate db_data.bin for third-party protocol integration.
+#define CONFIG_ONLY_GRENERATE_ALIGN_4K_CODE     1    	// TRANSLATED: Generate only one 4-KiB-aligned code copy in the UFW.
 
 //config for supported chip version
 #define CONFIG_SUPPORTED_CHIP_VERSION			A,B,D
 
 //DON'T MODIFY THIS CONFIG EXCEPT SDK PUBLISHER
-#define CONFIG_CHIP_NAME                        AC635N              //除了SDK发布者,请不要修改
+#define CONFIG_CHIP_NAME                        AC635N              // TRANSLATED: Only the SDK publisher should change this.
 //it can be modified before first programming,but keep the same as the original version
-#define CONFIG_PID                              AC635N              //烧写或强制升级之前可以修改,之后升级要保持一致
+#define CONFIG_PID                              AC635N              // TRANSLATED: May be changed before initial flashing or forced update; subsequent updates must keep it consistent.
 //it can be modified before first programming,but keep the same as the original version
-#define CONFIG_VID                              0.01				//烧写或强制升级之前可以修改,之后升级要保持一致
+#define CONFIG_VID                              0.01				// TRANSLATED: May be changed before initial flashing or forced update; subsequent updates must keep it consistent.
 
 //Project with bluetooth,it must use OSC as PLL_SOURCE;
-#define CONFIG_PLL_SOURCE_USING_LRC             0       			//PLL时钟源选择 1:LRC 2:OSC
+#define CONFIG_PLL_SOURCE_USING_LRC             0       			// TRANSLATED: PLL clock source: 1=LRC, 2=OSC.
 
 //config alignment size unit
 #ifdef CONFIG_256K_FLASH
-#define ALIGN_UNIT_256B             1                 				//FLASH对齐方式选择，如果是256K的FLASH，选择256BYTE对齐方式
+#define ALIGN_UNIT_256B             1                 				// TRANSLATED: Flash alignment; choose 256-byte alignment for 256-KiB flash.
 #else
 #define ALIGN_UNIT_256B             0
 #endif
@@ -83,8 +82,7 @@
 //#define CONFIG_CUSTOM_CFG3_TYPE
 //#define CONFIG_CUSTOM_CFG3_VALUE
 
-
-//#define CONFIG_VDDIO_LVD_LEVEL                  4 ////VDDIO_LVD挡位，0: 1.9V   1: 2.0V   2: 2.1V   3: 2.2V   4: 2.3V   5: 2.4V   6: 2.5V   7: 2.6V
+// TRANSLATED: Optional CONFIG_VDDIO_LVD_LEVEL=4; levels 0..7 correspond to 1.9..2.6 V in 0.1 V steps.
 
 //with single-bank mode,actual vm size should larger this VM_LEAST_SIZE,and dual bank mode,actual vm size equals this;
 #define CONFIG_VM_LEAST_SIZE                    8K
@@ -115,4 +113,3 @@
 #endif
 
 #endif
-

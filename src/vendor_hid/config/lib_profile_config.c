@@ -11,7 +11,6 @@
 /* #define LOG_DUMP_ENABLE */
 #include "debug.h"
 
-
 typedef struct {
     // linked list - assert: first field
     void *offset_item;
@@ -32,41 +31,20 @@ extern service_record_item_t  sdp_record_item_end[];
 	const service_record_item_t  handler \
 		sec(.sdp_record_item)
 
-#if TCFG_USER_BLE_ENABLE
-
 #if (TCFG_BLE_DEMO_SELECT == DEF_BLE_DEMO_ADV)
 const int config_stack_modules = (BT_BTSTACK_LE_ADV) | BT_BTSTACK_CLASSIC;
 #elif (TCFG_BLE_DEMO_SELECT == DEF_BLE_DEMO_MESH)
 const int config_stack_modules = BT_BTSTACK_LE;
 #else
 
-#if (TCFG_USER_EDR_ENABLE)
 const int config_stack_modules = BT_BTSTACK_LE | BT_BTSTACK_CLASSIC;
-#else
-const int config_stack_modules = BT_BTSTACK_LE;
-#endif
 #endif
 
-#else
-#if (TCFG_USER_EDR_ENABLE)
-const int config_stack_modules = BT_BTSTACK_CLASSIC;
-#else
-const int config_stack_modules = 0;
-#endif
-
-#endif
-
-//定义的产品信息,for test
+// TRANSLATED: Product information for testing.
 #define  PNP_VID_SOURCE   0x02
-#if CONFIG_APP_CYCLONE2
 #define  PNP_VID          0x057e
 #define  PNP_PID          0x2009
 #define  PNP_PID_VERSION  0x0100
-#else
-#define  PNP_VID          0x05ac //0x05d6
-#define  PNP_PID          0x022C //
-#define  PNP_PID_VERSION  0x011b //1.1.11
-#endif
 
 /* static const u8 sdp_pnp_service_data_hid[] = { */
 /* 0x36, 0x00, 0x5a, 0x09, 0x00, 0x00, 0x0a, 0x00, 0x01, 0x00, 0x0a, 0x09, 0x00, 0x01, 0x35, 0x03, */
@@ -93,20 +71,15 @@ static const u8 sdp_pnp_service_data_hid[] = {
     0x05, 0x09, PNP_VID_SOURCE >> 8, PNP_VID_SOURCE & 0xFF, 0x00, 0x00, 0x00
 };
 
-/*重定义下面hid信息结构，信息用于提供给库里面接口SDP生成hid_service服务使用*/
-/*用到结构体的两个接口:sdp_create_diy_device_ID_service 和 sdp_create_diy_hid_service*/
+/* TRANSLATED: Define the HID information structure used by the library to generate the SDP HID service. */
+/* TRANSLATED: Used by sdp_create_diy_device_ID_service and sdp_create_diy_hid_service. */
 static const hid_sdp_info_t hid_sdp_info_config = {
     .vid_private = PNP_VID,
     .pid_private = PNP_PID,
     .ver_private = PNP_PID_VERSION,
 
-#if CONFIG_APP_CYCLONE2
     .sub_class           = 0x08,
     .country_code        = 0x00,
-#else
-    .sub_class           = 0x80,
-    .country_code        = 0x21,
-#endif
     .virtual_cable       = 0x01,
     .reconnect_initiate  = 0x01,
     .sdp_disable         = 0x00,
@@ -122,24 +95,16 @@ static const hid_sdp_info_t hid_sdp_info_config = {
     .bt_string_offset    = 0x0100,
     .descriptor_len      = 0,
     .descriptor          = NULL,
-#if CONFIG_APP_CYCLONE2
     .service_name        = "Wireless Gamepad",
     .service_description = "Gamepad",
     .provide_name        = "Nintendo",
-#else
-    .service_name        = "JL_HID",
-    .service_description = "hid key",
-    .provide_name        = "JIELI",
-#endif
     .sdp_request_respone_callback = NULL,
     .extra_buf              = NULL,
     .extra_len              = 0,
 };
 
+#define NEW_SDP_PNP_DATA_VER     1  // TRANSLATED: For compatibility.
 
-#define NEW_SDP_PNP_DATA_VER     1  //for 兼容性
-
-#if (USER_SUPPORT_PROFILE_HID==1)
 u8 sdp_make_pnp_service_data[0x60];
 SDP_RECORD_HANDLER_REGISTER(pnp_sdp_record_item) = {
 
@@ -150,48 +115,20 @@ SDP_RECORD_HANDLER_REGISTER(pnp_sdp_record_item) = {
 #endif
     .service_record_handle = 0x1000A,
 };
-#else
-SDP_RECORD_HANDLER_REGISTER(pnp_sdp_record_item) = {
-    .service_record = (u8 *)sdp_pnp_service_data,
-    .service_record_handle = 0x1000A,
-};
-#endif
 
-
-#if (USER_SUPPORT_PROFILE_HID==1)
 u8 hid_profile_support = 1;
 u8 sdp_make_hid_service_data[0x200];
 SDP_RECORD_HANDLER_REGISTER(hid_sdp_record_item) = {
     .service_record = (u8 *)sdp_make_hid_service_data,
     .service_record_handle = 0x00010006,
 };
-#endif
 
-#if (USER_SUPPORT_PROFILE_MAP==1)
-extern const u8 sdp_map_mce_service_data[];
-u8 map_profile_support = 1;
-SDP_RECORD_HANDLER_REGISTER(map_sdp_record_item) = {
-    .service_record = (u8 *)sdp_map_mce_service_data,
-    .service_record_handle = 0x00010009,
-};
-#endif
-
-#if (USER_SUPPORT_PROFILE_HFP==1)
-u8 hfp_profile_support = 1;
-const u8 more_hfp_cmd_support = 1;
-SDP_RECORD_HANDLER_REGISTER(hfp_sdp_record_item) = {
-    .service_record = (u8 *)sdp_hfp_service_data,
-    .service_record_handle = 0x00010003,
-};
-#else
 const u8 more_hfp_cmd_support = 0;
-#endif
 
 void hid_sdp_init(const u8 *hid_descriptor, u16 size)
 {
-#if (USER_SUPPORT_PROFILE_HID==1)
     int real_size;
-    /*reset info config,在生成sdp数组接口前配置*/
+    /* TRANSLATED: Reset this configuration before generating the SDP data. */
     sdp_diy_set_config_hid_info(&hid_sdp_info_config);
 
 #if (NEW_SDP_PNP_DATA_VER == 0)
@@ -203,37 +140,21 @@ void hid_sdp_init(const u8 *hid_descriptor, u16 size)
     real_size = sdp_create_diy_hid_service(sdp_make_hid_service_data, sizeof(sdp_make_hid_service_data), hid_descriptor, size);
     printf("dy_hid_service(%d):", real_size);
     /* put_buf(sdp_make_hid_service_data,real_size); */
-#endif
 }
 
-/*注意hid_conn_depend_on_dev_company置2之后，默认不断开HID连接 */
+/* TRANSLATED: Setting hid_conn_depend_on_dev_company to 2 keeps HID connected by default. */
 const u8 hid_conn_depend_on_dev_company = 2;
 const u8 sdp_get_remote_pnp_info = 0;
-
 
 #if ((TCFG_USER_BLE_ENABLE) && (TCFG_BLE_DEMO_SELECT != DEF_BLE_DEMO_ADV))
 u8 app_le_pool[900] sec(.btstack_pool)  ALIGNED(4);
 #endif
 
-#if(TCFG_USER_EDR_ENABLE)
 /* #if (defined CONFIG_CPU_BD29) || (defined CONFIG_CPU_BD19)  */
-#if (defined CONFIG_TRANSFER_ENABLE)
 u8 app_bredr_pool[672] sec(.btstack_pool) ALIGNED(4);
 u8 app_bredr_profile[692] sec(.btstack_pool) ALIGNED(4);
-#else
-u8 app_bredr_pool[1468] sec(.btstack_pool) ALIGNED(4);
-u8 app_bredr_profile[1048] sec(.btstack_pool) ALIGNED(4);
-#endif      //endif
-#else
-u8 app_bredr_pool[0] sec(.btstack_pool) ALIGNED(4);
-u8 app_bredr_profile[0] sec(.btstack_pool) ALIGNED(4);
-#endif
 
-#if(TCFG_USER_EDR_ENABLE ||TCFG_USER_BLE_ENABLE)
 u8 app_l2cap_pool[70] sec(.btstack_pool) ALIGNED(4);
-#else
-u8 app_l2cap_pool[0] sec(.btstack_pool) ALIGNED(4);
-#endif
 
 u8 *get_bredr_pool_addr(void)
 {
@@ -300,16 +221,13 @@ u8 *get_profile_pool_addr(void)
     return NULL;
 }
 
-
 const u8 a2dp_mutual_support = 0;
 const u8 more_addr_reconnect_support = 0;
 const u8 more_avctp_cmd_support = 0;
 const u8 hci_inquiry_support = 0;
-const u8 btstack_emitter_support  = 0;  /*定义用于优化代码编译*/
+const u8 btstack_emitter_support  = 0;  /* TRANSLATED: Definition used for compile-time optimization. */
 const u8 adt_profile_support = 0;
 const u8 pbg_support_enable = 0;
-
-
 
 /*u8 l2cap_debug_enable = 0xf0;
 u8 rfcomm_debug_enable = 0xf;

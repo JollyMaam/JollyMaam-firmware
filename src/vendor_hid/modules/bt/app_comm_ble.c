@@ -42,7 +42,6 @@
 #define LOG_CLI_ENABLE
 #include "debug.h"
 
-#if CONFIG_APP_CYCLONE2
 #include "usb_control.h"
 #undef log_info
 #undef log_debug
@@ -50,15 +49,13 @@
 #define log_info(format, ...)  cyclone2_usb_debug("COMM_BLE: " format, ##__VA_ARGS__)
 #define log_debug(format, ...) cyclone2_usb_debug("COMM_BLE: " format, ##__VA_ARGS__)
 #define log_error(format, ...) cyclone2_usb_debug("COMM_BLE error: " format, ##__VA_ARGS__)
-#endif
 
-#if TCFG_USER_BLE_ENABLE
 extern void ble_standard_dut_test_init(void);
 /*************************************************************************************************/
 /*!
- *  \brief     协议栈配置，协议栈初始化前调用
+ *  TRANSLATED: Configure the stack before initialization.
  *
- *  \param      [in] 配置参数
+ *  TRANSLATED: [in] Configuration parameters.
  *
  *  \return
  *
@@ -75,10 +72,10 @@ void btstack_ble_start_before_init(const ble_init_cfg_t *cfg, int param)
     }
 
     if (cfg->same_address) {
-        //ble跟edr的地址一样
+        // TRANSLATED: Use the same address for BLE and EDR.
         memcpy(tmp_ble_addr, bt_get_mac_addr(), 6);
     } else {
-        //生成edr对应唯一地址
+        // TRANSLATED: Generate a unique address corresponding to the EDR address.
         lib_make_ble_address(tmp_ble_addr, (void *)bt_get_mac_addr());
     }
 
@@ -91,16 +88,14 @@ void btstack_ble_start_before_init(const ble_init_cfg_t *cfg, int param)
     log_info("---ble's address");
     printf_buf((void *)tmp_ble_addr, 6);
 
-#if CONFIG_BT_GATT_COMMON_ENABLE
     extern void bt_ble_before_start_init(void);
     bt_ble_before_start_init();
-#endif
 
 }
 
 /*************************************************************************************************/
 /*!
- *  \brief      协议栈初始化后调用
+ *  TRANSLATED: Called after stack initialization.
  *
  *  \param      [in]
  *
@@ -122,7 +117,7 @@ void btstack_ble_start_after_init(int param)
 
 /*************************************************************************************************/
 /*!
- *  \brief    协议栈退出后调用
+ *  TRANSLATED: Called after stack shutdown.
  *
  *  \param      [in]
  *
@@ -136,15 +131,11 @@ void btstack_ble_exit(int param)
     ble_module_enable(0);
     bt_ble_exit();
 
-#if TCFG_USER_EDR_ENABLE == 0
-    log_info("===btstack_exit\n");
-    btstack_exit();
-#endif
 }
 
 /*************************************************************************************************/
 /*!
- *  \brief      公共事件消息处理
+ *  TRANSLATED: Handle common event messages.
  *
  *  \param      [in]
  *
@@ -160,16 +151,11 @@ int bt_comm_ble_status_event_handler(struct bt_event *bt)
     switch (bt->event) {
     case BT_STATUS_INIT_OK:
         /*
-         * 蓝牙初始化完成
+         * TRANSLATED: Bluetooth initialization complete.
          */
         log_info("STATUS_INIT_OK\n");
 
-#if TCFG_NORMAL_SET_DUT_MODE
-        log_info("set dut mode\n");
-        ble_standard_dut_test_init();
-#else
         btstack_ble_start_after_init(0);
-#endif
         break;
 
     default:
@@ -180,7 +166,7 @@ int bt_comm_ble_status_event_handler(struct bt_event *bt)
 
 /*************************************************************************************************/
 /*!
- *  \brief      hci 事件消息处理
+ *  TRANSLATED: Handle HCI event messages.
  *
  *  \param      [in]
  *
@@ -210,6 +196,3 @@ int bt_comm_ble_hci_event_handler(struct bt_event *bt)
     }
     return 0;
 }
-
-#endif
-

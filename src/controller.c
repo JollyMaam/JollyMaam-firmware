@@ -14,8 +14,6 @@
 #include "usb_control.h"
 #include "user_cfg_id.h"
 
-#if CONFIG_APP_CYCLONE2
-
 /* Controller policy lives here.  Hardware sampling is in input.c; Bluetooth
  * differences are behind profile.c and profile_{switch,generic}.c; USB
  * configuration/recovery is in usb_control.c. */
@@ -547,5 +545,3 @@ REGISTER_APPLICATION(cyclone2_application) = {
     .ops = &cyclone2_operations,
     .state = APP_STA_DESTROY,
 };
-
-#endif

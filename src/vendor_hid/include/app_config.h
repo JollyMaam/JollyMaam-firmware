@@ -2,9 +2,8 @@
 #define APP_CONFIG_H
 
 /*
- * 系统打印总开关
+ * TRANSLATED: Master switch for system debug prints.
  */
-
 
 #ifdef CONFIG_RELEASE_ENABLE
 #define LIB_DEBUG    0
@@ -15,46 +14,46 @@
 
 #define CONFIG_DEBUG_ENABLE
 
-//app case 选择,只选1,要配置对应的board_config.h
+// TRANSLATED: Select exactly one app and configure its board_config.h.
 #define CONFIG_APP_CYCLONE2                 1//Gamesir Cyclone 2
-#define CONFIG_APP_KEYBOARD                 0//hid按键 ,default case
-#define CONFIG_APP_KEYFOB                   0//自拍器,  board_ac6368a,board_6318,board_6379b
-#define CONFIG_APP_MOUSE_SINGLE             0//单模切换
-#define CONFIG_APP_MOUSE_DUAL               0//同时开双模
-#define CONFIG_APP_STANDARD_KEYBOARD        0//标准HID键盘,board_ac6351d
-#define CONFIG_APP_KEYPAGE                  0//翻页器
-#define CONFIG_APP_GAMEBOX                  0//吃鸡王座
-#define CONFIG_APP_REMOTE_CONTROL           0//语音遥控
+#define CONFIG_APP_KEYBOARD                 0// TRANSLATED: HID keys; default example.
+#define CONFIG_APP_KEYFOB                   0// TRANSLATED: Selfie remote; board_ac6368a, board_6318, board_6379b.
+#define CONFIG_APP_MOUSE_SINGLE             0// TRANSLATED: Single-mode switching.
+#define CONFIG_APP_MOUSE_DUAL               0// TRANSLATED: Enable both modes simultaneously.
+#define CONFIG_APP_STANDARD_KEYBOARD        0// TRANSLATED: Standard HID keyboard; board_ac6351d.
+#define CONFIG_APP_KEYPAGE                  0// TRANSLATED: Page-turning remote.
+#define CONFIG_APP_GAMEBOX                  0// TRANSLATED: Gamebox adapter.
+#define CONFIG_APP_REMOTE_CONTROL           0// TRANSLATED: Voice remote control.
 #define CONFIG_APP_IDLE                     0//IDLE
 
-//edr sniff模式选择; sniff参数需要调整,移植可具体参考app_keyboard.c
+// TRANSLATED: EDR sniff mode selection; tune parameters when porting (see the SDK app_keyboard.c example).
 #if CONFIG_APP_MOUSE_SINGLE || CONFIG_APP_MOUSE_DUAL || CONFIG_APP_STANDARD_KEYBOARD || CONFIG_APP_REMOTE_CONTROL //|| CONFIG_APP_KEYBOARD
-#define SNIFF_MODE_RESET_ANCHOR             1//键盘鼠标sniff模式,固定小周期发包,多按键响应快
+#define SNIFF_MODE_RESET_ANCHOR             1// TRANSLATED: Keyboard/mouse sniff: short fixed packet intervals for fast multi-key response.
 #else
-#define SNIFF_MODE_RESET_ANCHOR             0//待机固定500ms sniff周期,待机功耗较低,按键唤醒有延时
+#define SNIFF_MODE_RESET_ANCHOR             0// TRANSLATED: Fixed 500 ms idle sniff interval: lower standby power, but key wakeup has latency.
 #endif
 
-//V5.0 扩展广播/扫描使能
+// TRANSLATED: Enable Bluetooth 5.0 extended advertising/scanning.
 #define CONFIG_BT_EXT_ADV_MODE            0
 
-#define CONFIG_HOGP_COMMON_ENABLE          1 //公共的hogp
+#define CONFIG_HOGP_COMMON_ENABLE          1 // TRANSLATED: Shared HOGP module.
 
-//蓝牙BLE配置
-#define CONFIG_BT_GATT_COMMON_ENABLE       1 //配置使用gatt公共模块
-#define CONFIG_BT_SM_SUPPORT_ENABLE        1 //配置是否支持加密
-#define CONFIG_BT_GATT_CLIENT_NUM          0 //配置主机client个数(app not support)
-#define CONFIG_BT_GATT_SERVER_NUM          1 //配置从机server个数
-#define CONFIG_BT_GATT_CONNECTION_NUM      (CONFIG_BT_GATT_SERVER_NUM + CONFIG_BT_GATT_CLIENT_NUM) //配置连接个数
-#define CONFIG_BLE_HIGH_SPEED              0 //BLE提速模式: 使能DLE+2M, payload要匹配pdu的包长
+// TRANSLATED: BLE configuration.
+#define CONFIG_BT_GATT_COMMON_ENABLE       1 // TRANSLATED: Use the shared GATT module.
+#define CONFIG_BT_SM_SUPPORT_ENABLE        1 // TRANSLATED: Support encryption.
+#define CONFIG_BT_GATT_CLIENT_NUM          0 // TRANSLATED: Number of central/client roles (not supported by this app).
+#define CONFIG_BT_GATT_SERVER_NUM          1 // TRANSLATED: Number of peripheral/server roles.
+#define CONFIG_BT_GATT_CONNECTION_NUM      (CONFIG_BT_GATT_SERVER_NUM + CONFIG_BT_GATT_CLIENT_NUM) // TRANSLATED: Total connection count.
+#define CONFIG_BLE_HIGH_SPEED              0 // TRANSLATED: BLE high-speed mode: DLE + 2M PHY; payload must fit the PDU size.
 
 #if CONFIG_BT_GATT_CONNECTION_NUM > 8
 #error "SUPPORT MAX IS 8 !!!"
 #endif
 
-//BLE做主机，使能是否支持搜索连接JL的测试盒
+// TRANSLATED: Allow BLE central mode to discover/connect to the JL test box.
 #define SUPPORT_TEST_BOX_BLE_MASTER_TEST_EN	   0
 
-//APP应用默认配置
+// TRANSLATED: Default app configuration.
 #define TCFG_AEC_ENABLE                     1
 
 #define TCFG_MEDIA_LIB_USE_MALLOC		    1
@@ -93,7 +92,7 @@
 #undef  TCFG_LOWPOWER_LOWPOWER_SEL
 #define TCFG_LOWPOWER_LOWPOWER_SEL                0
 #if TCFG_USER_EDR_ENABLE && TCFG_USER_BLE_ENABLE
-//不支持同时打开
+// TRANSLATED: Cannot enable both simultaneously.
 #error "dut need disable one bt!!!"
 #endif
 
@@ -105,10 +104,10 @@
 #define TCFG_BD_NUM						          1
 
 #undef  TCFG_USER_TWS_ENABLE
-#define TCFG_USER_TWS_ENABLE                      0     //tws功能使能
+#define TCFG_USER_TWS_ENABLE                      0     // TRANSLATED: Enable TWS.
 
 #undef  TCFG_USER_BLE_ENABLE
-#define TCFG_USER_BLE_ENABLE                      1     //BLE功能使能
+#define TCFG_USER_BLE_ENABLE                      1     // TRANSLATED: Enable BLE.
 
 #undef  TCFG_AUTO_SHUT_DOWN_TIME
 #define TCFG_AUTO_SHUT_DOWN_TIME		          0
@@ -148,10 +147,9 @@
 
 #endif
 
-
 #define BT_FOR_APP_EN                     0
 
-//需要app(BLE)升级要开一下宏定义
+// TRANSLATED: Enable these macros for app-based BLE updates.
 #if CONFIG_APP_OTA_ENABLE
 #define RCSP_BTMATE_EN                    1
 #define RCSP_UPDATE_EN                    1
@@ -162,14 +160,13 @@
 #define UPDATE_MD5_ENABLE                 0
 #endif
 
-
 #ifdef CONFIG_SDFILE_ENABLE
 #define SDFILE_DEV				"sdfile"
 #define SDFILE_MOUNT_PATH     	"mnt/sdfile"
 
 #if (USE_SDFILE_NEW)
-#define SDFILE_APP_ROOT_PATH       	SDFILE_MOUNT_PATH"/app/"  //app分区
-#define SDFILE_RES_ROOT_PATH       	SDFILE_MOUNT_PATH"/res/"  //资源文件分区
+#define SDFILE_APP_ROOT_PATH       	SDFILE_MOUNT_PATH"/app/"  // TRANSLATED: Application partition.
+#define SDFILE_RES_ROOT_PATH       	SDFILE_MOUNT_PATH"/res/"  // TRANSLATED: Resource-file partition.
 #else
 #define SDFILE_RES_ROOT_PATH       	SDFILE_MOUNT_PATH"/C/"
 #endif
@@ -189,14 +186,14 @@
 #endif
 
 #if (CONFIG_BT_MODE != BT_NORMAL)
-////bqb 如果测试3M tx buf 最好加大一点
+// TRANSLATED: For BQB 3M tests, increase the TX buffer if needed.
 #undef  CONFIG_BT_TX_BUFF_SIZE
 #define CONFIG_BT_TX_BUFF_SIZE  (6 * 1024)
 
 #endif
 #define BT_NORMAL_HZ	            CONFIG_BT_NORMAL_HZ
 //*********************************************************************************//
-//                                 时钟切换配置                                    //
+//                                 TRANSLATED: Clock switching configuration.
 //*********************************************************************************//
 
 #define BT_NORMAL_HZ	            CONFIG_BT_NORMAL_HZ
@@ -214,17 +211,17 @@
 #define BT_CALL_16k_ADVANCE_HZ      CONFIG_BT_CALL_16k_ADVANCE_HZ
 
 //*********************************************************************************//
-//                                 升级配置                                        //
+//                                 TRANSLATED: Update configuration.
 //*********************************************************************************//
 #if (defined(CONFIG_CPU_BR30))
-//升级LED显示使能
+// TRANSLATED: Enable update LED indication.
 //#define UPDATE_LED_REMIND
-//升级提示音使能
+// TRANSLATED: Enable update prompt tones.
 //#define UPDATE_VOICE_REMIND
 #endif
 
 #if (defined(CONFIG_CPU_BR23) || defined(CONFIG_CPU_BR25))
-//升级IO保持使能
-//#define DEV_UPDATE_SUPPORT_JUMP           //目前只有br23\br25支持
+// TRANSLATED: Retain GPIO states during updates.
+// TRANSLATED: Optional DEV_UPDATE_SUPPORT_JUMP; currently supported only on BR23/BR25.
 #endif
 #endif

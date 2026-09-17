@@ -158,11 +158,6 @@ SDK_LFLAGS := \
 	--plugin-opt=-mattr=+fprev1 \
 
 
-SDK_SOURCES_MINIMAL := \
-	$(SDK)/cpu/br23/charge.c \
-	$(SDK)/cpu/br23/led_spi.c \
-
-
 # apps/common portion of the SDK's unmodified BR23 HID build.  The application
 # and board-specific sources themselves live in src/vendor_hid.
 SDK_COMMON_SOURCES_FULL := \
@@ -264,11 +259,6 @@ SDK_SOURCES_FULL := \
 	$(SDK)/cpu/br23/spi_test.c \
 	$(SDK)/cpu/br23/uart_dev.c \
 	$(SDK)/cpu/br23/uart_test.c \
-
-
-SDK_ARCHIVES_MINIMAL := \
-	$(SDK)/cpu/br23/liba/cpu.a \
-	$(SDK)/cpu/br23/liba/system.a \
 
 
 SDK_ARCHIVES_FULL := \

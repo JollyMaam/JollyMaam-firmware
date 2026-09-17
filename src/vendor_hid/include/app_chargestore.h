@@ -5,14 +5,14 @@
 #include "system/event.h"
 
 enum {
-    TWS_CHANNEL_LEFT = 1, //左耳
-    TWS_CHANNEL_RIGHT, //右耳
+    TWS_CHANNEL_LEFT = 1, // TRANSLATED: Left earbud.
+    TWS_CHANNEL_RIGHT, // TRANSLATED: Right earbud.
 };
 
 enum {
-    TWS_DEL_TWS_ADDR = 1, //删除对箱地址
-    TWS_DEL_PHONE_ADDR,//删除手机地址
-    TWS_DEL_ALL_ADDR,//删除手机与对箱地址
+    TWS_DEL_TWS_ADDR = 1, // TRANSLATED: Delete the peer earbud address.
+    TWS_DEL_PHONE_ADDR,// TRANSLATED: Delete the phone address.
+    TWS_DEL_ALL_ADDR,// TRANSLATED: Delete both phone and peer earbud addresses.
 };
 
 struct _CHARGE_STORE_INFO {

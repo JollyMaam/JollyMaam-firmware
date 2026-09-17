@@ -9,8 +9,6 @@
 #include "usb_control.h"
 #include "user_cfg_id.h"
 
-#if CONFIG_APP_CYCLONE2
-
 #define SWITCH_REPORT_SUBCOMMAND_REPLY  0x21U
 #define SWITCH_REPORT_FULL_STATE        0x30U
 #define SWITCH_REPORT_SIMPLE_STATE      0x3fU
@@ -466,21 +464,3 @@ enum cyclone2_profile_event cyclone2_switch_handle_event(
     }
     return CYCLONE2_PROFILE_EVENT_NONE;
 }
-
-#else
-
-void cyclone2_switch_start(u8 slot, u8 pairing)
-{ (void)slot; (void)pairing; }
-void cyclone2_switch_disconnect(void) {}
-void cyclone2_switch_exit(void) {}
-int cyclone2_switch_is_connected(void) { return 0; }
-int cyclone2_switch_send(const struct cyclone2_input_report *input)
-{
-    (void)input;
-    return 0;
-}
-enum cyclone2_profile_event cyclone2_switch_handle_event(
-    const struct sys_event *event)
-{ (void)event; return CYCLONE2_PROFILE_EVENT_NONE; }
-
-#endif

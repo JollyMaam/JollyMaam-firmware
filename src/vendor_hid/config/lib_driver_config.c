@@ -1,7 +1,7 @@
 /*********************************************************************************************
     *   Filename        : lib_driver_config.c
 
-    *   Description     : Optimized Code & RAM (编译优化配置)
+    *   TRANSLATED: Description: code and RAM optimization settings.
 
     *   Author          : Bingquan
 
@@ -14,50 +14,27 @@
 #include "app_config.h"
 #include "system/includes.h"
 
-
-#if TCFG_POWER_MODE_QUIET_ENABLE
-const int config_dcdc_mode = 1;
-#else
 const int config_dcdc_mode = 0;
-#endif
 
 const int config_spi_code_user_cache = 0;
 
-#if(TCFG_CLOCK_SYS_SRC == SYS_CLOCK_INPUT_PLL_RCL) //系统时钟源选择
-const int  clock_sys_src_use_lrc_hw = 1; //当使用lrc时timer.c需要特殊设置
+#if(TCFG_CLOCK_SYS_SRC == SYS_CLOCK_INPUT_PLL_RCL) // TRANSLATED: System clock source.
+const int  clock_sys_src_use_lrc_hw = 1; // TRANSLATED: Using LRC requires special handling in timer.c.
 
-#if (TCFG_USER_EDR_ENABLE || TCFG_USER_BLE_ENABLE)
-//不支持使用蓝牙，需要关闭宏
+// TRANSLATED: Bluetooth is unsupported with this selection; disable its macros.
 #error "CLOCK_SYS_SRC NOT SUPPORT BT MODE!!!!!!"
-#endif
 
 #else
 const int  clock_sys_src_use_lrc_hw = 0;
 #endif
 
-#ifdef TCFG_VAD_LOWPOWER_CLOCK
-const char config_vad_lowpower_clock = TCFG_VAD_LOWPOWER_CLOCK;
-#else
 const char config_vad_lowpower_clock = 0;
-#endif
 
-#if TCFG_SD0_SD1_USE_THE_SAME_HW
-const int sd0_sd1_use_the_same_hw = 1;
-#else
 const int sd0_sd1_use_the_same_hw = 0;
-#endif
 
-#if TCFG_KEEP_CARD_AT_ACTIVE_STATUS
-const int keep_card_at_active_status = 1;
-#else
 const int keep_card_at_active_status = 0;
-#endif
 
-#if TCFG_SDX_CAN_OPERATE_MMC_CARD
-const int sdx_can_operate_mmc_card = 1;
-#else
 const int sdx_can_operate_mmc_card = 0;
-#endif
 
 const u8 lp_bt_sniff_use_btosc = 0;/*run xosc48m,AC632N*/
 

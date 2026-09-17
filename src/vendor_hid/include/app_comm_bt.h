@@ -14,13 +14,13 @@ typedef struct {
     u16 min_interval_slots;
     u8 attempt_slots;
     u8 timeout_slots;
-    u16 check_timer_period; //检查周期
-    u8 cnt_time;//<空闲多少秒之后进入sniff模式
+    u16 check_timer_period; // TRANSLATED: Check period.
+    u8 cnt_time;// TRANSLATED: Idle time in seconds before entering sniff mode.
     u8 sniff_mode;
 } edr_sniff_par_t;
 
 typedef struct {
-    u32 class_type;//搜索显示图标
+    u32 class_type;// TRANSLATED: Icon shown during discovery.
     u16 page_timeout;
     u16 super_timeout;
     u8 io_capabilities: 2;
@@ -33,14 +33,13 @@ typedef struct {
 } edr_init_cfg_t;
 
 typedef struct {
-    //ble跟edr的地址一样
+    // TRANSLATED: Use the same address for BLE and EDR.
     u8 same_address;
-    u16 appearance; //搜索显示图标
+    u16 appearance; // TRANSLATED: Icon shown during discovery.
     u16 report_map_size;
     const u8 *report_map;
 
 } ble_init_cfg_t;
-
 
 #define HCI_EVENT_INQUIRY_COMPLETE                            0x01
 #define HCI_EVENT_CONNECTION_COMPLETE                         0x03
@@ -53,7 +52,6 @@ typedef struct {
 #define HCI_EVENT_VENDOR_NO_RECONN_ADDR                       0xF8
 #define HCI_EVENT_VENDOR_REMOTE_TEST                          0xFE
 #define BTSTACK_EVENT_HCI_CONNECTIONS_DELETE                  0x6D
-
 
 #define ERROR_CODE_SUCCESS                                    0x00
 #define ERROR_CODE_PAGE_TIMEOUT                               0x04
@@ -71,9 +69,8 @@ typedef struct {
 #define CUSTOM_BB_AUTO_CANCEL_PAGE                            0xFD  //// app cancle page
 #define BB_CANCEL_PAGE                                        0xFE  //// bb cancle page
 
-
 //-----------------------
-//默认断开BT等待时间
+// TRANSLATED: Default Bluetooth disconnect wait time.
 #define WAIT_DISCONN_TIME_MS     (300)
 
 void btstack_ble_start_before_init(const ble_init_cfg_t *cfg, int param);
@@ -89,7 +86,7 @@ void btstack_edr_start_before_init(const edr_init_cfg_t *cfg, int param);
 void btstack_edr_start_after_init(int param);
 void btstack_edr_exit(int param);
 int bt_comm_edr_status_event_handler(struct bt_event *bt);
-//退出&清除sniff
+// TRANSLATED: Exit and clear sniff mode.
 int bt_comm_edr_sniff_clean(void);
 void bt_comm_edr_mode_enable(u8 enable);
 void sys_auto_sniff_controle(u8 enable, u8 *addr);
@@ -98,8 +95,8 @@ void bt_comm_edr_get_remote_address(bd_addr_t address);
 
 void lmp_set_sniff_disable(void);
 extern void lmp_sniff_t_slot_attemp_reset(u16 slot, u16 attemp);
-extern const int sniff_support_reset_anchor_point;   //sniff状态下是否支持reset到最近一次通信点，用于HID
-/*简易配对开关接口*/
+extern const int sniff_support_reset_anchor_point;   // TRANSLATED: Allow sniff to reset to the most recent communication anchor, for HID.
+/* TRANSLATED: Simple pairing enable/disable interface. */
 void __set_simple_pair_flag(bool flag);
 
 // void le_hogp_set_direct_adv_type(u8 type);

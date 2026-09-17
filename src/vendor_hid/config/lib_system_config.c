@@ -1,7 +1,7 @@
 /*********************************************************************************************
     *   Filename        : lib_system_config.c
 
-    *   Description     : Optimized Code & RAM (编译优化配置)
+    *   TRANSLATED: Description: code and RAM optimization settings.
 
     *   Author          : Bingquan
 
@@ -15,32 +15,23 @@
 #include "app_config.h"
 #include "system/includes.h"
 
-
-///打印是否时间打印信息
+// TRANSLATED: Include timestamps in debug prints.
 const int config_printf_time         = 1;
 
-///异常中断，asser打印开启
-#ifdef CONFIG_RELEASE_ENABLE
+// TRANSLATED: Enable exception-interrupt and assertion prints.
 const int config_asser         = 0;
-#else
-const int config_asser         = 1;
-#endif
 
 const int config_system_info   = 0;
 
 //================================================//
-//                  SDFILE 精简使能               //
+//                  TRANSLATED: Enable the reduced SDFILE implementation.
 //================================================//
 const int SDFILE_VFS_REDUCE_ENABLE = 1;
 
 //================================================//
-//                  dev使用异步读使能             //
+//                  TRANSLATED: Enable asynchronous device reads.
 //================================================//
-#ifdef TCFG_DEVICE_BULK_READ_ASYNC_ENABLE
-const int device_bulk_read_async_enable = 1;
-#else
 const int device_bulk_read_async_enable = 0;
-#endif
 
 //================================================//
 //                  UI 							  //
@@ -48,15 +39,15 @@ const int device_bulk_read_async_enable = 0;
 const int ENABLE_LUA_VIRTUAL_MACHINE = 0;
 
 //================================================//
-//        不可屏蔽中断使能配置(UNMASK_IRQ)        //
+//        TRANSLATED: Unmaskable-interrupt configuration (UNMASK_IRQ).
 //================================================//
-// 0:关闭IPMASK和游湖idle任务
-// 1:开启IPMASK
-// 2:开启IPMASK和优化idle任务
+// TRANSLATED: 0: disable IPMASK and idle-task optimization (original comment contains a typo).
+// TRANSLATED: 1: enable IPMASK.
+// TRANSLATED: 2: enable IPMASK and idle-task optimization.
 const int CONFIG_CPU_UNMASK_IRQ_ENABLE = 2;
 
 //================================================//
-//0:使用timer0 delay; 1:使用mpwm3 delay,释放timer0//
+// TRANSLATED: 0: timer0 delay; 1: mpwm3 delay, freeing timer0.
 //               only supprt: bd19	              //
 //================================================//
 const int set_to_close_timer0_delay = 0;
@@ -131,4 +122,3 @@ const char log_tag_const_i_EX_MCU_UART AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(FAL
 const char log_tag_const_d_EX_MCU_UART AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(FALSE);
 const char log_tag_const_w_EX_MCU_UART AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(TRUE);
 const char log_tag_const_e_EX_MCU_UART AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(TRUE);
-

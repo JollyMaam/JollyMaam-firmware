@@ -1,17 +1,11 @@
 O := build
 SDK := /work/github.com-Jieli-Tech/fw-AC63_BT_SDK
 TOOL_DIR := /work/jieli-linux-toolchains-20250324.1/pi32v2/bin
-PYTHON := /work/bin/python3
 FLASH_SIZE := 0x80000
 # Keep the following 8-KiB VM region explicit in isd_config.  The profile
 # modules and USB configuration console occupy one block beyond the earlier
 # 0x40000 boundary; jlnewfw records this boundary in the packed image.
 CODE_LIMIT := 0x41000
-
-# Start from an exact, locally owned copy of the SDK HID application.  The
-# "cyclone2" selection keeps the smaller experimental application available
-# while the vendor baseline is reduced in controlled steps.
-APPLICATION ?= vendor-hid
 
 include sdk-br23.mk
 
@@ -20,12 +14,9 @@ HOST_CFLAGS := -O2 -g -std=c11 -Wall -Wextra -Wpedantic
 
 CFLAGS := $(SDK_CFLAGS)
 DEFINES := $(SDK_DEFINES)
-LFLAGS := $(SDK_LFLAGS)
 SDK_ARCHIVES := $(SDK_ARCHIVES_FULL)
 
-ifeq ($(APPLICATION),vendor-hid)
 PROJECT_SOURCES := \
-	src/vendor_hid/board/br23/board_ac6351d_keyboard.c \
 	src/vendor_hid/board/br23/board_ac635n_demo.c \
 	src/vendor_hid/config/lib_btctrler_config.c \
 	src/vendor_hid/config/lib_btstack_config.c \
@@ -35,17 +26,13 @@ PROJECT_SOURCES := \
 	src/vendor_hid/config/lib_system_config.c \
 	src/vendor_hid/config/lib_update_config.c \
 	src/vendor_hid/config/log_config.c \
-	src/vendor_hid/examples/idle/app_idle.c \
-	src/vendor_hid/modules/aec/br23/audio_aec.c \
 	src/vendor_hid/modules/bt/app_comm_ble.c \
 	src/vendor_hid/modules/bt/app_comm_edr.c \
 	src/vendor_hid/modules/bt/ble_hogp.c \
 	src/vendor_hid/modules/bt/edr_hid_user.c \
 	src/vendor_hid/modules/misc.c \
 	src/vendor_hid/modules/power/app_power_manage.c \
-	src/vendor_hid/modules/rtc_alarm.c \
 	src/vendor_hid/modules/user_cfg.c \
-	src/vendor_hid/version.c \
 	src/main.c \
 	src/controller.c \
 	src/input.c \
@@ -62,7 +49,6 @@ INCLUDES := \
 	-Isrc/vendor_hid/modules/bt \
 	-Isrc/vendor_hid \
 	$(SDK_INCLUDES)
-SDK_SOURCES := $(SDK_COMMON_SOURCES_FULL) $(SDK_SOURCES_FULL)
 APP_CONFIG := src/vendor_hid/include/app_config.h
 RESET_MAILBOX_LD := src/reset_mailbox.ld
 APP_CONFIG_DEPS := \
@@ -74,17 +60,6 @@ APP_CONFIG_DEPS := \
 SDK_COMMON_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_COMMON_SOURCES_FULL:.c=.c.o))
 SDK_CPU_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_SOURCES_FULL:.c=.c.o))
 OBJECTS := $(SDK_COMMON_OBJECTS) $(addprefix $O/,$(PROJECT_SOURCES:.c=.c.o)) $(SDK_CPU_OBJECTS)
-else ifeq ($(APPLICATION),cyclone2)
-PROJECT_SOURCES := $(wildcard src/*.c config/*.c)
-INCLUDES := -Isrc -Iconfig $(SDK_INCLUDES)
-SDK_SOURCES := $(SDK_SOURCES_FULL)
-APP_CONFIG := config/app_config.h
-APP_CONFIG_DEPS := $(wildcard config/*.h config/*.ld)
-SDK_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_SOURCES:.c=.c.o))
-OBJECTS := $(addprefix $O/,$(PROJECT_SOURCES:.c=.c.o)) $(SDK_OBJECTS)
-else
-$(error unknown APPLICATION '$(APPLICATION)')
-endif
 
 DEPFILES := $(addsuffix .d,$(OBJECTS))
 
@@ -119,14 +94,17 @@ $O/firmware.img: $O/isd_config.ini $O/app.bin $O/jlnewfw
 	$(QUIET)$O/jlnewfw pack --flash-size $(FLASH_SIZE) --code-limit $(CODE_LIMIT) -c $O/isd_config.ini -u $(SDK_UBOOT) -o $@ $O/app.bin $(SDK_CONFIG_TOOL)
 
 $O/jlnewfw: tools/jlnewfw.c
+	@mkdir -p $(@D)
 	@echo [EXE] $@
 	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) $< -o $@
 
 $O/jlcfg: tools/jlcfg.c
+	@mkdir -p $(@D)
 	@echo [EXE] $@
 	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) $< -o $@
 
 $O/c2ctl: tools/c2ctl.c
+	@mkdir -p $(@D)
 	@echo [EXE] $@
 	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) -Isrc $< -o $@
 
@@ -161,12 +139,6 @@ $O/isd_config.ini: $(SDK)/cpu/br23/tools/isd_config_rule.c $(APP_CONFIG)
 	$(QUIET)sed -i -e /^$$/d "$@"
 
 $O/src/%.c.o: src/%.c
-	$(compile_c)
-
-$O/src/vendor_hid/%.c.o: src/vendor_hid/%.c
-	$(compile_c)
-
-$O/config/%.c.o: config/%.c
 	$(compile_c)
 
 $O/sdk/%.c.o: $(SDK)/%.c

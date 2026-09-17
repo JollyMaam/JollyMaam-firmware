@@ -4,7 +4,7 @@
 #include "generic/typedef.h"
 #include "user_cfg.h"
 
-/*兼容SMS和DMS*/
+/* TRANSLATED: Compatible with SMS and DMS. */
 #if TCFG_AUDIO_DUAL_MIC_ENABLE
 #include "commproc_dms.h"
 #define aec_open		aec_dms_init
@@ -38,7 +38,6 @@ void aec_cfg_fill(AEC_CONFIG *cfg);
 
 #define AEC_MODE_SIMPLEX	(ANS_EN)
 
-
 extern const u8 CONST_AEC_SIMPLEX;
 
 s8 aec_debug_online(void *buf, u16 size);
@@ -53,7 +52,6 @@ void audio_aec_refbuf(s16 *buf, u16 len);
 u8 audio_aec_status(void);
 void audio_aec_reboot(u8 reduce);
 
-
 extern struct aec_s_attr aec_param;
 extern const u8 CONST_AEC_SIMPLEX;
 
@@ -61,6 +59,5 @@ struct aec_s_attr *aec_param_init(u16 sr);
 s8 aec_debug_online(void *buf, u16 size);
 void aec_cfg_fill(AEC_CONFIG *cfg);
 void aec_input_clear_enable(u8 enable);
-
 
 #endif/*_AEC_USER_H_*/

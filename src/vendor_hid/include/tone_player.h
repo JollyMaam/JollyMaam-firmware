@@ -9,9 +9,9 @@
 
 #if TCFG_NOR_FS && (TCFG_VIRFAT_FLASH_ENABLE == 0)
 #define NOR_FLASH_RES_ROOT_PATH	 "storage/res_nor/C/"
-#define TONE_RES_ROOT_PATH		 NOR_FLASH_RES_ROOT_PATH    //内置flash提示音根路径
+#define TONE_RES_ROOT_PATH		 NOR_FLASH_RES_ROOT_PATH    // TRANSLATED: Prompt-tone root directory in internal flash.
 #else
-#define TONE_RES_ROOT_PATH		 SDFILE_RES_ROOT_PATH   	//内置flash提示音根路径
+#define TONE_RES_ROOT_PATH		 SDFILE_RES_ROOT_PATH   	// TRANSLATED: Prompt-tone root directory in internal flash.
 #endif//TCFG_NOR_FS
 
 #define TONE_STOP       0
@@ -95,7 +95,6 @@ enum {
 #define TONE_BT_DISCONN    		TONE_RES_ROOT_PATH"bt_dconn.mp3"
 #endif
 
-
 #define SINE_WTONE_NORAML           0
 #define SINE_WTONE_TWS_CONNECT      1
 #define SINE_WTONE_TWS_DISCONNECT   2
@@ -155,25 +154,25 @@ int tone_play_by_path(const char *name, u8 preemption);
 
 int tone_dec_wait_stop(u32 timeout_ms);
 
-// 按序列号播放提示音
-int tone_play_with_callback_by_index(u8 index, // 序列号
-                                     u8 preemption, // 打断标记
-                                     void (*evt_handler)(void *priv, int flag), // 事件回调接口 //flag: 0正常关闭，1被打断关闭
-                                     void *evt_priv // 事件回调私有句柄
+// TRANSLATED: Play a prompt tone by index.
+int tone_play_with_callback_by_index(u8 index, // TRANSLATED: Tone index.
+                                     u8 preemption, // TRANSLATED: Preemption flag.
+                                     void (*evt_handler)(void *priv, int flag), // TRANSLATED: Event callback: flag 0=normal completion, 1=interrupted.
+                                     void *evt_priv // TRANSLATED: Private callback context.
                                     );
 
-// 按名字播放提示音
-int tone_play_with_callback_by_name(char *name, // 带有路径的文件名
-                                    u8 preemption, // 打断标记
-                                    void (*evt_handler)(void *priv, int flag), // 事件回调接口 //flag: 0正常关闭，1被打断关闭
-                                    void *evt_priv // 事件回调私有句柄
+// TRANSLATED: Play a prompt tone by name.
+int tone_play_with_callback_by_name(char *name, // TRANSLATED: Filename including path.
+                                    u8 preemption, // TRANSLATED: Preemption flag.
+                                    void (*evt_handler)(void *priv, int flag), // TRANSLATED: Event callback: flag 0=normal completion, 1=interrupted.
+                                    void *evt_priv // TRANSLATED: Private callback context.
                                    );
 
-// 按列表播放提示音
-int tone_play_with_callback_by_list(const char **list, // 文件名列表
-                                    u8 preemption, // 打断标记
-                                    void (*evt_handler)(void *priv, int flag), // 事件回调接口 //flag: 0正常关闭，1被打断关闭
-                                    void *evt_priv // 事件回调私有句柄
+// TRANSLATED: Play prompt tones from a list.
+int tone_play_with_callback_by_list(const char **list, // TRANSLATED: Filename list.
+                                    u8 preemption, // TRANSLATED: Preemption flag.
+                                    void (*evt_handler)(void *priv, int flag), // TRANSLATED: Event callback: flag 0=normal completion, 1=interrupted.
+                                    void *evt_priv // TRANSLATED: Private callback context.
                                    );
 
 #endif

@@ -9,32 +9,17 @@
 #include "spp_trans_data.h"
 #include "bt_common.h"
 #include "btstack/avctp_user.h"
-#include "circular_buf.h"
 
 #include "edr_hid_user.h"
 #include "standard_hid.h"
 #include "app_comm_bt.h"
 
-#if CONFIG_APP_CYCLONE2
 #include "usb_control.h"
-#endif
 
-#if TCFG_USER_EDR_ENABLE && (USER_SUPPORT_PROFILE_HID ==1)
-
-#if 1
 //#define log_info            y_printf
 extern void put_buf(const u8 *buf, int len);
-#if CONFIG_APP_CYCLONE2
 #define log_info(x, ...)  cyclone2_usb_debug("EDR_HID: " x, ## __VA_ARGS__)
-#else
-#define log_info(x, ...)  printf("[EDR_HID]" x " ", ## __VA_ARGS__)
-#endif
 #define log_info_hexdump  put_buf
-
-#else
-#define log_info(...)
-#define log_info_hexdump(...)
-#endif
 
 #define TEST_USER_HID_EN               0
 
@@ -51,10 +36,6 @@ extern void put_buf(const u8 *buf, int len);
 #define HID_DATA            0xA0     /*Device&host*/
 #define HID_DATC            0xB0     /*Device&host  DEPRECATED*/
 /*C-F  Reserved*/
-
-
-#define HID_DATA            0xA0     /*Device&host*/
-#define HID_DATC            0xB0     /*Device&host  DEPRECATED*/
 
 /*DATA*/
 #define DATA_OTHER       0x00
@@ -79,7 +60,6 @@ static volatile u8 hid_s_step = 0;
 /* static int hid_timer_id = 0; */
 int hid_timer_id = 0;
 
-
 int edr_hid_timer_handle = 0;
 
 #define HID_SEND_MAX_SIZE   (64) /* Bluetooth HID header + Switch report. */
@@ -96,7 +76,6 @@ static u8 hid_tmp_buffer[HID_TMP_BUFSIZE];
 extern void hid_diy_regiest_callback(void *cb, void *interrupt_cb);
 extern void hid_sdp_init(const u8 *hid_descriptor, u16 size);
 extern uint16_t little_endian_read_16(const uint8_t *buffer, int pos);
-
 
 typedef struct {
     u8 report_type;
@@ -132,7 +111,7 @@ static void edr_bt_evnet_post(u32 arg_type, u8 priv_event, u8 *args, u32 value)
 
 /*************************************************************************************************/
 /*!
- *  \brief     参考识别手机系统
+ *  TRANSLATED: Reference implementation for identifying the phone OS.
  *
  *  \param      [in]
  enum {
@@ -247,13 +226,13 @@ static u32 user_data_write_sub(u8 *data, u16 len)
 
 /*************************************************************************************************/
 /*!
- *  \brief      设置搜索显示的图标
+ *  TRANSLATED: Set the discovery icon.
  *
  *  \param      [in]class_type,define in avctp_user.h
  *
  *  \return
  *
- *  \note       协议栈初始化前调用
+ *  TRANSLATED: Call before initializing the stack.
  */
 /*************************************************************************************************/
 void user_hid_set_icon(u32 class_type)
@@ -261,16 +240,15 @@ void user_hid_set_icon(u32 class_type)
     __change_hci_class_type(class_type);//
 }
 
-
 /*************************************************************************************************/
 /*!
- *  \brief      设置描述符
+ *  TRANSLATED: Set the descriptor.
  *
  *  \param      [in]
  *
  *  \return
  *
- *  \note       协议栈初始化前调用
+ *  TRANSLATED: Call before initializing the stack.
  */
 /*************************************************************************************************/
 void user_hid_set_ReportMap(u8 *map, u16 size)
@@ -283,8 +261,6 @@ void user_hid_set_ReportMap(u8 *map, u16 size)
     }
 
 }
-
-
 
 /* const hid_ctl_info_t test_key[5] = { */
 /* {0xA1, 1, 0, 0, 0}, */
@@ -363,13 +339,13 @@ REGISTER_LP_TARGET(hid_user_target) = {
 
 /*************************************************************************************************/
 /*!
- *  \brief      协议栈发送hid数据包完成 回调
+ *  TRANSLATED: Callback when the stack finishes sending a HID packet.
  *
  *  \param      [in]
  *
  *  \return
  *
- *  \note       可用于唤醒及时往协议栈发送数据操作
+ *  TRANSLATED: Can wake the sender to promptly submit more data to the stack.
  */
 /*************************************************************************************************/
 static void user_hid_send_ok_callback(void)
@@ -388,7 +364,7 @@ static void user_hid_send_ok_callback(void)
 
 /*************************************************************************************************/
 /*!
- *  \brief      注册唤醒发送回调
+ *  TRANSLATED: Register the transmit-wakeup callback.
  *
  *  \param      [in]
  *
@@ -516,11 +492,6 @@ void user_hid_init(void (*user_hid_output_handler)(u8 *packet, u16 size, u16 cha
         log_info("hid_sdp_init\n");
         hid_sdp_init(HID_REPORT_MAP_DATA, HID_REPORT_MAP_SIZE);
 
-#if TEST_USER_HID_EN
-        if (!hid_timer_id) {
-            hid_timer_id = sys_s_hi_timer_add((void *)0, user_hid_timer_handler, 5000);
-        }
-#endif
         cbuf_init(&user_send_cbuf, hid_tmp_buffer, HID_TMP_BUFSIZE);
         hid_run = 1;
     }
@@ -710,12 +681,12 @@ int edr_hid_tx_buff_is_ok(void)
 
 /*************************************************************************************************/
 /*!
- *  \brief     hook，处理ctrl通道命令，返回0则由库来处理。非0执行回复命令发送
- *  \param      [in]channel l2cap连接通道
- *  \param      [in]packet  接收命令buffer
- *  \param      [in]size    命令长度
- *  \param      [out] respond_buf_ptr 回复的buf指针
- *  \return     回复命令的长度
+ *  TRANSLATED: Control-channel command hook: return 0 for library handling, or a nonzero response length to send a reply.
+ *  TRANSLATED: [in] channel: L2CAP connection channel.
+ *  TRANSLATED: [in] packet: received command buffer.
+ *  TRANSLATED: [in] size: command length.
+ *  TRANSLATED: [out] respond_buf_ptr: response buffer pointer.
+ *  TRANSLATED: Returns the response length.
  *  \note
  */
 /*************************************************************************************************/
@@ -725,9 +696,9 @@ int hid_ctrl_data_parse_hook(u16 channel, const u8 *packet, int size, int *respo
     static u8 hid_respone_buffer[8];
     switch (packet[0] & 0xf0) {
     case HID_GET_REPORT:
-        if (packet[1] == 0x01) {//report id,应答是对应app_keyboard.c的描述符
+        if (packet[1] == 0x01) {// TRANSLATED: Report ID; response matches the SDK app_keyboard.c descriptor.
             hid_respone_buffer[0] = HID_DATA | DATA_INPUT;
-            //report id  + payload;根据描述符来回复长度
+            // TRANSLATED: Report ID plus payload; response length follows the descriptor.
             hid_respone_buffer[1] = packet[1];
             hid_respone_buffer[2] = 0;
             hid_respone_buffer[3] = 0;
@@ -742,7 +713,3 @@ int hid_ctrl_data_parse_hook(u16 channel, const u8 *packet, int size, int *respo
     }
     return respone_len;
 }
-
-
-
-#endif

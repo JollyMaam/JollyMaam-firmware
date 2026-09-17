@@ -63,16 +63,15 @@ enum {
     SYNC_CMD_IRSENSOR_EVENT_NEAR,
     SYNC_CMD_IRSENSOR_EVENT_FAR,
 
-
     SYNC_CMD_BOX_ENTER_BT,
     SYNC_CMD_BOX_EXIT_BT,
     SYNC_CMD_BOX_INIT_EXIT_BT = 0x80 | SYNC_CMD_BOX_EXIT_BT,
 #if(USE_DMA_TONE || GMA_EN)
-    SYNC_CMD_CUT_TWS_TONE,     //断开对耳提示音
-    SYNC_CMD_START_SPEECH_TONE,//AI键提示音
-    SYNC_CMD_DMA_CONNECTED_ALL_FINISH_TONE,   //AI连接成功
-    SYNC_CMD_NEED_BT_TONE,     //需要连接蓝牙
-    SYNC_CMD_PLEASE_OPEN_XIAODU_TONE,//请打开小度
+    SYNC_CMD_CUT_TWS_TONE,     // TRANSLATED: Peer-earbud disconnect tone.
+    SYNC_CMD_START_SPEECH_TONE,// TRANSLATED: AI-key tone.
+    SYNC_CMD_DMA_CONNECTED_ALL_FINISH_TONE,   // TRANSLATED: AI connection successful.
+    SYNC_CMD_NEED_BT_TONE,     // TRANSLATED: Bluetooth connection required.
+    SYNC_CMD_PLEASE_OPEN_XIAODU_TONE,// TRANSLATED: Please open Xiaodu.
 #endif
 #if(RCSP_ADV_EN)
     SYNC_CMD_SYNC_ADV_SETTING,
@@ -123,8 +122,6 @@ struct tws_sync_info_t {
     } u;
 };
 
-
-
 struct tws_sync_big_info_t {
     u8 type;
     u8 sub_type;
@@ -133,19 +130,16 @@ struct tws_sync_big_info_t {
     } u;
 };
 
-
 typedef struct time_stamp_bt_name {
     u8  bt_name[32];
     u32 time_stamp;
 } tws_time_stamp_bt_name;
-
 
 #define TWS_WAIT_CONN_TIMEOUT      (400)
 
 #define TWS_SYNC_TIME_DO       800
 // #define TWS_CON_SUPER_TIMEOUT   8000
 #define TWS_CON_SEARCH_TIMEOUT  0x07//(n*1.28s)
-
 
 char bt_tws_get_local_channel();
 
@@ -177,7 +171,6 @@ u8 is_tws_active_device(void);
 
 void set_tws_active_device(u8 device_role);
 
-
 void tws_page_scan_deal_by_esco(u8 esco_flag);
 void tws_user_sync_box(u8 cmd, u8 value);
 
@@ -190,7 +183,6 @@ bool get_tws_sibling_connect_state(void);
 u32 bt_tws_future_slot_time(u32 msecs);
 
 int bt_tws_api_push_cmd(int priv, int delay_ms);
-
 
 extern u8 is_tws_all_in_bt();
 void bt_tws_connect_and_connectable_switch();

@@ -12,9 +12,9 @@
 //
 
 /*
-生成profile工具的链接下载
+TRANSLATED: Download link for the profile-generation tool.
 https://gitee.com/Jieli-Tech/fw-AC63_BT_SDK/tree/master/sdk_tools/BLE%20Profile%E5%B7%A5%E5%85%B7
-profile cfg 文件参考工具包里面目录hogp_cfg
+TRANSLATED: See the toolkit's hogp_cfg directory for example profile configuration files.
  */
 static const uint8_t hogp_profile_data[] = {
     //////////////////////////////////////////////////////
@@ -410,6 +410,4 @@ static const uint8_t hogp_profile_data[] = {
 //OUTPUT
 #define HID_REPORT_ID_01_RECIEVE_HANDLE    ATT_CHARACTERISTIC_2a4d_03_VALUE_HANDLE
 
-
 #endif
-

@@ -1,7 +1,7 @@
 /*********************************************************************************************
     *   Filename        : btctrler_config.c
 
-    *   Description     : Optimized Code & RAM (编译优化配置)
+    *   TRANSLATED: Description: code and RAM optimization settings.
 
     *   Author          : Bingquan
 
@@ -20,28 +20,8 @@
 /**
  * @brief Bluetooth Module
  */
-#if (TCFG_USER_BLE_ENABLE)
 
-#if (TCFG_USER_EDR_ENABLE)
 const int config_btctler_modules        = BT_MODULE_CLASSIC | BT_MODULE_LE;
-#else
-const int config_btctler_modules        = BT_MODULE_LE;
-#endif
-
-#else
-#if (TCFG_USER_EDR_ENABLE)
-const int config_btctler_modules        = BT_MODULE_CLASSIC;
-#else
-const int config_btctler_modules        = 0;
-#endif
-#endif
-
-#ifdef CONFIG_NEW_BREDR_ENABLE
-const int CONFIG_TWS_RUN_SLOT                   = 200;
-const int CONFIG_PHONE_RUN_SLOT                 = 120;
-const int CONFIG_TWS_LOW_LATENCY_RUN_SLOT       = 16;
-const int CONFIG_PHONE_LOW_LATENCY_RUN_SLOT     = 150;
-#endif
 
 const int config_btctler_le_tws         = 0;
 const int CONFIG_BTCTLER_TWS_ENABLE     = 0;
@@ -49,17 +29,13 @@ const int CONFIG_TWS_AFH_ENABLE         = 0;
 const int CONFIG_LOW_LATENCY_ENABLE     = 1;
 const int CONFIG_BTCTLER_FAST_CONNECT_ENABLE     = 0;
 
-#if (CONFIG_BT_MODE != BT_NORMAL)
-const int config_btctler_hci_standard   = 1;
-#else
 const int config_btctler_hci_standard   = 0;
-#endif
 
 const int config_btctler_mode        = CONFIG_BT_MODE;
 
 const int CONFIG_TWS_POWER_BALANCE_ENABLE   = 0;
 
-//固定使用正常发射功率的等级:0-使用不同模式的各自等级;1~10-固定发射功率等级
+// TRANSLATED: Fixed normal transmit power: 0=per-mode levels; 1..10=one fixed power level.
 const int config_force_bt_pwr_tab_using_normal_level  = 0;
 const int CONFIG_BLE_SYNC_WORD_BIT = 30;
 const int CONFIG_LNA_CHECK_VAL = -60;
@@ -82,7 +58,6 @@ const int CONFIG_PAGE_SCAN_POWER            = 7;
 const int CONFIG_INQUIRY_POWER              = 7;
 const int CONFIG_INQUIRY_SCAN_POWER         = 7;
 
-
 /*-----------------------------------------------------------*/
 
 /**
@@ -91,7 +66,7 @@ const int CONFIG_INQUIRY_SCAN_POWER         = 7;
 const u8 rx_fre_offset_adjust_enable = 1;
 
 const int config_bredr_fcc_fix_fre = 0;
-const int ble_disable_wait_enable = 1;                      //不开启wait_enable会导致升级调用ll_destory的时候出现BT访问mmu异常
+const int ble_disable_wait_enable = 1;                      // TRANSLATED: Without wait_enable, ll_destory during an update can cause a Bluetooth MMU access fault.
 
 const int config_btctler_eir_version_info_len = 0;
 
@@ -102,7 +77,6 @@ const int CONFIG_TEST_DUT_ONLY_BOX_CODE   = 0;
 const int CONFIG_BREDR_INQUIRY   =  0;
 const int CONFIG_INQUIRY_PAGE_OFFSET_ADJUST =  0;
 
-
 const int CONFIG_ESCO_MUX_RX_BULK_ENABLE  =  0;
 const int CONFIG_LMP_NAME_REQ_ENABLE  =  1;
 const int CONFIG_LMP_PASSKEY_ENABLE  =  1;
@@ -112,106 +86,52 @@ const int ESCO_FORWARD_ENABLE = 0;
 
 const int config_bt_function  =  0;
 
-///bredr 强制 做 maseter
+// TRANSLATED: Force BR/EDR master role.
 const int config_btctler_bredr_master = 0;
 const int config_btctler_dual_a2dp  = 0;
 
-///afh maseter 使用app设置的map 通过USER_CTRL_AFH_CHANNEL 设置
+// TRANSLATED: The AFH master uses the application's channel map set with USER_CTRL_AFH_CHANNEL.
 const int config_bredr_afh_user = 0;
-//bt PLL 温度跟随trim
+// TRANSLATED: Bluetooth PLL temperature-tracking trim.
 const int config_bt_temperature_pll_trim = 0;
 /*security check*/
 const int config_bt_security_vulnerability = 0;
 
-//DUT使用哪种模式通信: 0: HCI 1:2_wire
+// TRANSLATED: DUT communication mode: 0=HCI, 1=two-wire.
 const int config_dut_protocol_mode = 0;
 
-#if CONFIG_APP_STANDARD_KEYBOARD
-const int config_delete_link_key          = 0;           //配置是否连接失败返回PIN or Link Key Missing时删除linkKey
-#else
 const int config_delete_link_key          = 1;
-#endif
 /*-----------------------------------------------------------*/
 /**
  * @brief Bluetooth LE setting
  */
-#if TCFG_USER_BLE_ENABLE
 
-#if CONFIG_BT_EXT_ADV_MODE
-#define EXT_ADV_CFG          LE_EXTENDED_ADVERTISING | LE_PERIODIC_ADVERTISING | CHANNEL_SELECTION_ALGORITHM_2
-#define EXT_ADV_CFG_HW       2// ext adv/ scan + creat_conn
-#else
 #define EXT_ADV_CFG          0
 #define EXT_ADV_CFG_HW       0
-#endif
 
 #define SET_SELECT_PHY_CFG   0
 
 const int config_btctler_coded_type = CONN_SET_PHY_OPTIONS_S2;
 
-#if CONFIG_BT_SM_SUPPORT_ENABLE
 #define SET_ENCRYPTION_CFG   LE_ENCRYPTION
-#else
-#define SET_ENCRYPTION_CFG   0
-#endif
 
-#if CONFIG_BT_GATT_SERVER_NUM
 #define SET_SLAVE_ROLS_CFG   (LE_ADV | LE_SLAVE)
 // Slave multi-link
-#else
-#define SET_SLAVE_ROLS_CFG   0
-// Slave multi-link
-#endif
 
-#if CONFIG_BT_GATT_CLIENT_NUM
-#define SET_MASTER_ROLS_CFG   (LE_SCAN | LE_INIT | LE_MASTER)
-const int config_btctler_le_afh_en = 1;
-// Master + Slave multi-link
-#else
 #define SET_MASTER_ROLS_CFG   0
 const int config_btctler_le_afh_en = 0;
-#endif
 
-// multi-link config, 带主从多机只开slave_multilink就可以
-#if (CONFIG_BT_GATT_SERVER_NUM > 1)
-const int config_btctler_le_slave_multilink = 1;
-const int config_btctler_le_master_multilink = 0;
-#elif (CONFIG_BT_GATT_SERVER_NUM && CONFIG_BT_GATT_CLIENT_NUM)
-const int config_btctler_le_slave_multilink = 1;
-const int config_btctler_le_master_multilink = 0;
-#elif (CONFIG_BT_GATT_CLIENT_NUM > 1)
-const int config_btctler_le_slave_multilink = 0;
-const int config_btctler_le_master_multilink = 1;
-#else
+// TRANSLATED: Multi-link: for mixed master/slave operation, enabling slave_multilink is sufficient.
 const int config_btctler_le_slave_multilink = 0;
 const int config_btctler_le_master_multilink = 0;
-#endif
 
-
-#if CONFIG_BLE_HIGH_SPEED
-const uint64_t config_btctler_le_features = SET_ENCRYPTION_CFG | SET_SELECT_PHY_CFG | LE_DATA_PACKET_LENGTH_EXTENSION | LE_2M_PHY | EXT_ADV_CFG;
-const int config_btctler_le_acl_packet_length = 251;
-#else
 const uint64_t config_btctler_le_features = SET_ENCRYPTION_CFG | SET_SELECT_PHY_CFG | EXT_ADV_CFG;
 const int config_btctler_le_acl_packet_length = 27;
-#endif
 
 const int config_btctler_le_roles    = SET_SLAVE_ROLS_CFG | SET_MASTER_ROLS_CFG;
 const int config_btctler_le_hw_nums = CONFIG_BT_GATT_CONNECTION_NUM + EXT_ADV_CFG_HW;
 const int config_btctler_le_rx_nums = ((CONFIG_BT_GATT_CONNECTION_NUM + EXT_ADV_CFG_HW) * 3) + 2;
 const int config_btctler_le_acl_total_nums = ((CONFIG_BT_GATT_CONNECTION_NUM + EXT_ADV_CFG_HW) * 3) + 1;
-
-#else
-//no support ble
-const uint64_t config_btctler_le_features = 0;
-const int config_btctler_le_roles    = 0;
-const int config_btctler_le_hw_nums = 0;
-const int config_btctler_le_rx_nums = 0;
-const int config_btctler_le_acl_packet_length = 0;
-const int config_btctler_le_acl_total_nums = 0;
-const int config_btctler_le_slave_multilink = 0;
-const int config_btctler_le_master_multilink = 0;
-#endif
 
 // LE
 const int config_btctler_le_slave_conn_update_winden = 500;//range:100 to 2500
@@ -225,18 +145,10 @@ u32 config_vendor_le_bb = 0;
  * @brief Bluetooth Analog setting
  */
 /*-----------------------------------------------------------*/
-#if TCFG_USER_BLE_ENABLE
-const int config_btctler_single_carrier_en = 1;   ////单模ble才设置
-#else
-const int config_btctler_single_carrier_en = 0;
-#endif
+const int config_btctler_single_carrier_en = 1;   // TRANSLATED: Set only for BLE-only mode.
 
-#if SNIFF_MODE_RESET_ANCHOR
-const int sniff_support_reset_anchor_point = 1;   //sniff状态下是否支持reset到最近一次通信点，用于HID
-#else
-const int sniff_support_reset_anchor_point = 0;   //sniff状态下是否支持reset到最近一次通信点，用于HID
-#endif
-const int sniff_long_interval = (500 / 0.625);    //sniff状态下进入long interval的通信间隔(ms)
+const int sniff_support_reset_anchor_point = 0;   // TRANSLATED: Allow sniff to reset to the most recent communication anchor, for HID.
+const int sniff_long_interval = (500 / 0.625);    // TRANSLATED: Long sniff communication interval (ms).
 
 const int config_rf_oob = 0;
 
@@ -436,7 +348,6 @@ const char log_tag_const_w_TWS_LE AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(0);
 const char log_tag_const_e_TWS_LE AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(0);
 const char log_tag_const_c_TWS_LE AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(0);
 
-
 const char log_tag_const_v_TWS_LMP AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(0);
 const char log_tag_const_i_TWS_LMP AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(0);
 const char log_tag_const_d_TWS_LMP AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(0);
@@ -454,5 +365,3 @@ const char log_tag_const_i_TWS_ESCO AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(0);
 const char log_tag_const_d_TWS_ESCO AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(0);
 const char log_tag_const_w_TWS_ESCO AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(0);
 const char log_tag_const_e_TWS_ESCO AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(0);
-
-

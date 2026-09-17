@@ -1,7 +1,7 @@
 /*********************************************************************************************
     *   Filename        : log_config.c
 
-    *   Description     : Optimized Code & RAM (编译优化Log配置)
+    *   TRANSLATED: Description: log settings for code and RAM optimization.
 
     *   Author          : Bingquan
 
@@ -113,7 +113,6 @@ const char log_tag_const_d_KEYFOB AT(.LOG_TAG_CONST) = 1;
 const char log_tag_const_w_KEYFOB AT(.LOG_TAG_CONST) = 1;
 const char log_tag_const_e_KEYFOB AT(.LOG_TAG_CONST) = 1;
 
-
 const char log_tag_const_v_KEYPAGE AT(.LOG_TAG_CONST) = 0;
 const char log_tag_const_i_KEYPAGE AT(.LOG_TAG_CONST) = 1;
 const char log_tag_const_d_KEYPAGE AT(.LOG_TAG_CONST) = 1;
@@ -197,6 +196,3 @@ const char log_tag_const_e_HID_VRC AT(.LOG_TAG_CONST) = 1;
 /* const char log_tag_const_d_ AT(.LOG_TAG_CONST) = 1; */
 /* const char log_tag_const_w_ AT(.LOG_TAG_CONST) = 1; */
 /* const char log_tag_const_e_ AT(.LOG_TAG_CONST) = 1; */
-
-
-
