@@ -23,10 +23,6 @@
 #define     VM_LP_TOUCH_KEY_ALOG_CFG         17
 #define     LP_KEY_EARTCH_TRIM_VALUE         18
 
-// #define		CFG_RCSP_ADV_HIGH_LOW_VOL		 19
-// #define     CFG_RCSP_ADV_EQ_MODE_SETTING     20
-// #define     CFG_RCSP_ADV_EQ_DATA_SETTING     21
-
 #define     ADV_SEQ_RAND                     22
 #define     CFG_RCSP_ADV_TIME_STAMP          23
 #define     CFG_RCSP_ADV_WORK_SETTING        24
@@ -47,5 +43,4 @@
 #define     CFG_AAP_MODE_24G_ADDR            46
 #define     CFG_COORDINATE_ADDR              47
 #define     CFG_CYCLONE2_PROFILE_SETTINGS     48
-
 #endif /* #ifndef _USER_CFG_ID_H_ */

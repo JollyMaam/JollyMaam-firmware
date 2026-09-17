@@ -25,7 +25,6 @@
 #include "system/includes.h"
 
 #include "app_config.h"
-#include "app_action.h"
 
 #include "btstack/btstack_task.h"
 #include "btstack/bluetooth.h"

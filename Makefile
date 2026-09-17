@@ -16,48 +16,11 @@ CFLAGS := $(SDK_CFLAGS)
 DEFINES := $(SDK_DEFINES)
 SDK_ARCHIVES := $(SDK_ARCHIVES_FULL)
 
-PROJECT_SOURCES := \
-	src/vendor_hid/board/br23/board_ac635n_demo.c \
-	src/vendor_hid/config/lib_btctrler_config.c \
-	src/vendor_hid/config/lib_btstack_config.c \
-	src/vendor_hid/config/lib_driver_config.c \
-	src/vendor_hid/config/lib_media_config.c \
-	src/vendor_hid/config/lib_profile_config.c \
-	src/vendor_hid/config/lib_system_config.c \
-	src/vendor_hid/config/lib_update_config.c \
-	src/vendor_hid/config/log_config.c \
-	src/vendor_hid/modules/bt/app_comm_ble.c \
-	src/vendor_hid/modules/bt/app_comm_edr.c \
-	src/vendor_hid/modules/bt/ble_hogp.c \
-	src/vendor_hid/modules/bt/edr_hid_user.c \
-	src/vendor_hid/modules/misc.c \
-	src/vendor_hid/modules/power/app_power_manage.c \
-	src/vendor_hid/modules/user_cfg.c \
-	src/main.c \
-	src/controller.c \
-	src/input.c \
-	src/profile.c \
-	src/profile_generic.c \
-	src/profile_switch.c \
-	src/usb_control.c \
-	src/led.c \
-	src/rom.c
-INCLUDES := \
-	-Isrc \
-	-Isrc/vendor_hid/include \
-	-Isrc/vendor_hid/board/br23 \
-	-Isrc/vendor_hid/modules/bt \
-	-Isrc/vendor_hid \
-	$(SDK_INCLUDES)
-APP_CONFIG := src/vendor_hid/include/app_config.h
-RESET_MAILBOX_LD := src/reset_mailbox.ld
-APP_CONFIG_DEPS := \
-	$(wildcard src/vendor_hid/include/*.h) \
-	$(wildcard src/vendor_hid/board/br23/*.h) \
-	src/vendor_hid/board/br23/app.ld \
-	src/vendor_hid/board/br23/app_overlay.ld \
-	$(RESET_MAILBOX_LD)
-SDK_COMMON_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_COMMON_SOURCES_FULL:.c=.c.o))
+PROJECT_SOURCES := $(wildcard config/*.c src/*.c src/bt/*.c)
+INCLUDES := -Isrc -Isrc/bt -Iconfig $(SDK_INCLUDES)
+APP_CONFIG := config/app_config.h
+APP_CONFIG_DEPS := $(wildcard config/*.h config/*.ld)
+SDK_COMMON_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_COMMON_SOURCES_CUSTOM:.c=.c.o))
 SDK_CPU_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_SOURCES_FULL:.c=.c.o))
 OBJECTS := $(SDK_COMMON_OBJECTS) $(addprefix $O/,$(PROJECT_SOURCES:.c=.c.o)) $(SDK_CPU_OBJECTS)
 
@@ -72,7 +35,7 @@ endif
 
 .PHONY: all default clean
 
-default all: $O/firmware.img $O/c2ctl
+default all: $O/firmware.img
 
 # regenerate stuff if makefile or config changes
 $(OBJECTS) $O/sdk.ld $O/sdk_used_list.used: Makefile sdk-br23.mk $(APP_CONFIG_DEPS)
@@ -103,15 +66,10 @@ $O/jlcfg: tools/jlcfg.c
 	@echo [EXE] $@
 	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) $< -o $@
 
-$O/c2ctl: tools/c2ctl.c
-	@mkdir -p $(@D)
-	@echo [EXE] $@
-	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) -Isrc $< -o $@
-
 # minimal version of download.sh
 $O/app.bin: $O/app.elf
 	@echo [BIN] $@
-	@mkdir -p $O/sections
+	@mkdir -p $(@D)/sections
 	$(QUIET)for i in text data; do $(OBJCOPY) -O binary -j .$$i $< $O/sections/$$i.bin; done
 	$(QUIET)for i in aec wav ape flac m4a amr dts fm mp3 wma; do $(OBJCOPY) -O binary -j .overlay_$$i $< $O/sections/$$i.bin; done
 	$(QUIET)cd $O/sections && cat text.bin data.bin aec.bin wav.bin ape.bin flac.bin m4a.bin amr.bin dts.bin fm.bin mp3.bin wma.bin > ../app.bin
@@ -121,15 +79,15 @@ $O/app.elf: $O/sdk.ld $O/sdk_used_list.used $(OBJECTS)
 	@echo [LD] $@
 	$(QUIET)$(LD) -o $@ $(OBJECTS) -T$O/sdk.ld -M=$O/app.map $(SDK_LFLAGS) --plugin-opt=-used-symbol-file=$O/sdk_used_list.used --start-group $(SDK_ARCHIVES) --end-group $(SDK_RUNTIME_LIBS)
 
-$O/sdk.ld: $(SDK)/cpu/br23/sdk_ld.c $(APP_CONFIG)
+$O/sdk_ld.c: $(SDK)/cpu/br23/sdk_ld.c
+	@mkdir -p $(@D)
+	$(QUIET)sed \
+	  -e 's/^_HEAP_END = RAM_END;/_HEAP_END = RESET_MAILBOX_BEGIN;/' \
+	  -e 's/^PROVIDE(HEAP_END = RAM_END);/PROVIDE(HEAP_END = RESET_MAILBOX_BEGIN);/' \
+		$< > $@
+
+$O/sdk.ld: $O/sdk_ld.c $(APP_CONFIG)
 	$(compile_pre_build)
-	# Reserve the profile-selection reset mailbox above the SDK heap and below
-	# MaskROM's high workspace. Insert it after all normal RAM sections.
-	$(QUIET)sed -i \
-		-e '/^text_begin =/r $(RESET_MAILBOX_LD)' \
-		-e 's/^_HEAP_END = RAM_END;/_HEAP_END = RESET_MAILBOX_BEGIN;/' \
-		-e 's/^PROVIDE(HEAP_END = RAM_END);/PROVIDE(HEAP_END = RESET_MAILBOX_BEGIN);/' \
-		$@
 
 $O/sdk_used_list.used: $(SDK)/cpu/br23/sdk_used_list.c $(APP_CONFIG)
 	$(compile_pre_build)
@@ -137,6 +95,9 @@ $O/sdk_used_list.used: $(SDK)/cpu/br23/sdk_used_list.c $(APP_CONFIG)
 $O/isd_config.ini: $(SDK)/cpu/br23/tools/isd_config_rule.c $(APP_CONFIG)
 	$(compile_pre_build)
 	$(QUIET)sed -i -e /^$$/d "$@"
+
+$O/config/%.c.o: config/%.c
+	$(compile_c)
 
 $O/src/%.c.o: src/%.c
 	$(compile_c)

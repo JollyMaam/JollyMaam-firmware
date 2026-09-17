@@ -15,7 +15,6 @@
 #include "system/includes.h"
 #include "server/server_core.h"
 #include "app_config.h"
-#include "app_action.h"
 #include "os/os_api.h"
 #include "btcontroller_config.h"
 #include "btctrler/btctrler_task.h"
@@ -28,9 +27,6 @@
 #include <stdlib.h>
 #include "standard_hid.h"
 #include "rcsp_bluetooth.h"
-#include "app_charge.h"
-#include "app_power_manage.h"
-#include "app_chargestore.h"
 #include "app_comm_bt.h"
 
 #define LOG_TAG_CONST       COMM_EDR

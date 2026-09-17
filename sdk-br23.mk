@@ -223,6 +223,65 @@ SDK_COMMON_SOURCES_FULL := \
 	$(SDK)/apps/common/update/update.c \
 
 
+SDK_COMMON_SOURCES_CUSTOM := \
+	$(SDK)/apps/common/audio/audio_utils.c \
+	$(SDK)/apps/common/audio/decode/decode.c \
+	$(SDK)/apps/common/audio/sine_make.c \
+	$(SDK)/apps/common/bt_common/bt_test_api.c \
+	$(SDK)/apps/common/code_switch/code_switch.c \
+	$(SDK)/apps/common/debug/debug.c \
+	$(SDK)/apps/common/device/key/adkey.c \
+	$(SDK)/apps/common/device/key/ctmu_touch_key.c \
+	$(SDK)/apps/common/device/key/iokey.c \
+	$(SDK)/apps/common/device/key/irkey.c \
+	$(SDK)/apps/common/device/key/key_driver.c \
+	$(SDK)/apps/common/device/key/matrix_keyboard.c \
+	$(SDK)/apps/common/device/key/matrix_keyboard_ex_mcu.c \
+	$(SDK)/apps/common/device/key/touch_key.c \
+	$(SDK)/apps/common/device/optical_mouse_sensor/OMSensor_manage.c \
+	$(SDK)/apps/common/device/optical_mouse_sensor/hal3205/hal3205.c \
+	$(SDK)/apps/common/device/optical_mouse_sensor/hal3212/hal3212.c \
+	$(SDK)/apps/common/device/touch_pad/SYD9557M.c \
+	$(SDK)/apps/common/device/usb/device/cdc.c \
+	$(SDK)/apps/common/device/usb/device/custom_hid.c \
+	$(SDK)/apps/common/device/usb/device/descriptor.c \
+	$(SDK)/apps/common/device/usb/device/hid.c \
+	$(SDK)/apps/common/device/usb/device/msd.c \
+	$(SDK)/apps/common/device/usb/device/msd_upgrade.c \
+	$(SDK)/apps/common/device/usb/device/task_pc.c \
+	$(SDK)/apps/common/device/usb/device/uac1.c \
+	$(SDK)/apps/common/device/usb/device/uac_stream.c \
+	$(SDK)/apps/common/device/usb/device/usb_device.c \
+	$(SDK)/apps/common/device/usb/device/user_setup.c \
+	$(SDK)/apps/common/device/usb/host/adb.c \
+	$(SDK)/apps/common/device/usb/host/aoa.c \
+	$(SDK)/apps/common/device/usb/host/audio.c \
+	$(SDK)/apps/common/device/usb/host/audio_demo.c \
+	$(SDK)/apps/common/device/usb/host/hid.c \
+	$(SDK)/apps/common/device/usb/host/usb_bulk_transfer.c \
+	$(SDK)/apps/common/device/usb/host/usb_ctrl_transfer.c \
+	$(SDK)/apps/common/device/usb/host/usb_host.c \
+	$(SDK)/apps/common/device/usb/host/usb_storage.c \
+	$(SDK)/apps/common/device/usb/usb_config.c \
+	$(SDK)/apps/common/device/usb/usb_host_config.c \
+	$(SDK)/apps/common/ex_mcu/ex_mcu_uart.c \
+	$(SDK)/apps/common/jl_kws/jl_kws_algo.c \
+	$(SDK)/apps/common/jl_kws/jl_kws_audio.c \
+	$(SDK)/apps/common/jl_kws/jl_kws_event.c \
+	$(SDK)/apps/common/jl_kws/jl_kws_main.c \
+	$(SDK)/apps/common/temp_trim/dtemp_pll_trim.c \
+	$(SDK)/apps/common/third_party_profile/common/custom_cfg.c \
+	$(SDK)/apps/common/third_party_profile/jieli/JL_rcsp/bt_trans_data/rcsp_hid_inter.c \
+	$(SDK)/apps/common/third_party_profile/jieli/JL_rcsp/rcsp_bluetooth.c \
+	$(SDK)/apps/common/third_party_profile/jieli/JL_rcsp/rcsp_updata/rcsp_ch_loader_download.c \
+	$(SDK)/apps/common/third_party_profile/jieli/JL_rcsp/rcsp_updata/rcsp_user_update.c \
+	$(SDK)/apps/common/third_party_profile/jieli/gatt_common/le_gatt_client.c \
+	$(SDK)/apps/common/third_party_profile/jieli/gatt_common/le_gatt_common.c \
+	$(SDK)/apps/common/third_party_profile/jieli/gatt_common/le_gatt_server.c \
+	$(SDK)/apps/common/third_party_profile/jieli/online_db/online_db_deal.c \
+	$(SDK)/apps/common/third_party_profile/jieli/online_db/spp_online_db.c \
+
+
 SDK_SOURCES_FULL := \
 	$(SDK)/cpu/br23/adc_api.c \
 	$(SDK)/cpu/br23/audio_common/app_audio.c \
@@ -231,7 +290,6 @@ SDK_SOURCES_FULL := \
 	$(SDK)/cpu/br23/audio_dec/audio_dec_pc.c \
 	$(SDK)/cpu/br23/audio_dec/audio_dec_tone.c \
 	$(SDK)/cpu/br23/audio_dec/audio_usb_mic.c \
-	$(SDK)/cpu/br23/audio_dec/tone_player.c \
 	$(SDK)/cpu/br23/audio_demo/audio_dac_io_demo.c \
 	$(SDK)/cpu/br23/audio_demo/audio_fft_demo.c \
 	$(SDK)/cpu/br23/audio_enc/audio_adc_demo.c \

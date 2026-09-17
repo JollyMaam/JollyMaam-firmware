@@ -11,6 +11,7 @@
 
     *   Copyright:(c)JIELI  2011-2019  @ , All Rights Reserved.
 *********************************************************************************************/
+
 #include "app_config.h"
 #include "system/includes.h"
 #include "btcontroller_config.h"
@@ -106,14 +107,7 @@ const int config_delete_link_key          = 1;
  * @brief Bluetooth LE setting
  */
 
-#define EXT_ADV_CFG          0
-#define EXT_ADV_CFG_HW       0
-
-#define SET_SELECT_PHY_CFG   0
-
 const int config_btctler_coded_type = CONN_SET_PHY_OPTIONS_S2;
-
-#define SET_ENCRYPTION_CFG   LE_ENCRYPTION
 
 #define SET_SLAVE_ROLS_CFG   (LE_ADV | LE_SLAVE)
 // Slave multi-link
@@ -125,16 +119,17 @@ const int config_btctler_le_afh_en = 0;
 const int config_btctler_le_slave_multilink = 0;
 const int config_btctler_le_master_multilink = 0;
 
-const uint64_t config_btctler_le_features = SET_ENCRYPTION_CFG | SET_SELECT_PHY_CFG | EXT_ADV_CFG;
+const uint64_t config_btctler_le_features = LE_ENCRYPTION;
 const int config_btctler_le_acl_packet_length = 27;
 
-const int config_btctler_le_roles    = SET_SLAVE_ROLS_CFG | SET_MASTER_ROLS_CFG;
+#define EXT_ADV_CFG_HW (0)
+#define CONFIG_BT_GATT_CONNECTION_NUM (1)
+
+const int config_btctler_le_roles = LE_ADV | LE_SLAVE;
 const int config_btctler_le_hw_nums = CONFIG_BT_GATT_CONNECTION_NUM + EXT_ADV_CFG_HW;
 const int config_btctler_le_rx_nums = ((CONFIG_BT_GATT_CONNECTION_NUM + EXT_ADV_CFG_HW) * 3) + 2;
 const int config_btctler_le_acl_total_nums = ((CONFIG_BT_GATT_CONNECTION_NUM + EXT_ADV_CFG_HW) * 3) + 1;
-
-// LE
-const int config_btctler_le_slave_conn_update_winden = 500;//range:100 to 2500
+const int config_btctler_le_slave_conn_update_winden = 500; //range:100 to 2500
 
 // LE vendor baseband
 u32 config_vendor_le_bb = 0;
@@ -147,9 +142,12 @@ u32 config_vendor_le_bb = 0;
 /*-----------------------------------------------------------*/
 const int config_btctler_single_carrier_en = 1;   // TRANSLATED: Set only for BLE-only mode.
 
-const int sniff_support_reset_anchor_point = 0;   // TRANSLATED: Allow sniff to reset to the most recent communication anchor, for HID.
+/* sniff_support_reset_anchor_point:
+ *   TRANSLATED: 0 = Fixed 500 ms idle sniff interval: lower standby power, but key wakeup has latency.
+ *   TRANSLATED: 1 = Keyboard/mouse sniff: short fixed packet intervals for fast multi-key response.
+ */
+const int sniff_support_reset_anchor_point = 1;
 const int sniff_long_interval = (500 / 0.625);    // TRANSLATED: Long sniff communication interval (ms).
-
 const int config_rf_oob = 0;
 
 /**

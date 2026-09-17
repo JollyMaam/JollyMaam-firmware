@@ -1,7 +1,5 @@
 #include "app_config.h"
 
-#ifdef CONFIG_BOARD_AC635N_DEMO
-
 #include "system/includes.h"
 #include "asm/charge.h"
 #include "device/key_driver.h"
@@ -72,7 +70,7 @@ const struct soft_iic_config soft_iic_cfg[] = {
 /************************** LOW POWER config ****************************/
 const struct low_power_param power_param = {
     .config         = TCFG_LOWPOWER_LOWPOWER_SEL,          // TRANSLATED: 0: stay active during sniff; 1: enter powerdown during sniff.
-    .btosc_hz         = TCFG_CLOCK_OSC_HZ,                   // TRANSLATED: External crystal frequency.
+    .btosc_hz       = TCFG_CLOCK_OSC_HZ,                   // TRANSLATED: External crystal frequency.
     .delay_us       = TCFG_CLOCK_SYS_HZ / 1000000L,        // TRANSLATED: Delay parameter for the low-power module; normally no adjustment is needed.
     .btosc_disable  = TCFG_LOWPOWER_BTOSC_DISABLE,         // TRANSLATED: Whether to retain BTOSC during low power.
     .vddiom_lev     = TCFG_LOWPOWER_VDDIOM_LEVEL,          // TRANSLATED: Strong VDDIO levels: 2.0, 2.2, 2.4, 2.6, 2.8, 3.0, 3.2, or 3.6 V.
@@ -81,68 +79,22 @@ const struct low_power_param power_param = {
     .dcdc_port      = TCFG_DCDC_PORT_SEL,
 };
 
+#if 0
 /************************** KEY MSG****************************/
-/* TRANSLATED: Key messages. When USE_CONFIG_KEY_SETTING is enabled in USER_CFG, populate this structure from the configuration file. */
 u8 key_table[KEY_NUM_MAX][KEY_EVENT_MAX] = {
     // SHORT           LONG              HOLD              UP              DOUBLE           TRIPLE
 };
+#endif
 
-// *INDENT-OFF*
-/************************** UART config****************************/
-UART0_PLATFORM_DATA_BEGIN(uart0_data)
-    .tx_pin = TCFG_UART0_TX_PORT,                             // TRANSLATED: Debug UART TX pin.
-    .rx_pin = TCFG_UART0_RX_PORT,                             // TRANSLATED: Debug UART RX pin.
-    .baudrate = TCFG_UART0_BAUDRATE,                          // TRANSLATED: UART baud rate.
-
-    .flags = UART_DEBUG,                                      // TRANSLATED: Use UART_DEBUG when the UART carries debug prints.
-UART0_PLATFORM_DATA_END()
-
-/************************** CHARGE config****************************/
-
-    /************************** AD KEY ****************************/
-const struct adkey_platform_data adkey_data = {
-    .enable = TCFG_ADKEY_ENABLE,                              // TRANSLATED: Enable ADC keys.
-    .adkey_pin = TCFG_ADKEY_PORT,                             // TRANSLATED: ADC key pin.
-    .ad_channel = TCFG_ADKEY_AD_CHANNEL,                      // TRANSLATED: ADC channel.
-    .extern_up_en = TCFG_ADKEY_EXTERN_UP_ENABLE,              // TRANSLATED: Use an external pull-up resistor.
-    .ad_value = {                                             // TRANSLATED: Voltage thresholds calculated from the resistors.
-        TCFG_ADKEY_VOLTAGE0,
-        TCFG_ADKEY_VOLTAGE1,
-        TCFG_ADKEY_VOLTAGE2,
-        TCFG_ADKEY_VOLTAGE3,
-        TCFG_ADKEY_VOLTAGE4,
-        TCFG_ADKEY_VOLTAGE5,
-        TCFG_ADKEY_VOLTAGE6,
-        TCFG_ADKEY_VOLTAGE7,
-        TCFG_ADKEY_VOLTAGE8,
-        TCFG_ADKEY_VOLTAGE9,
-    },
-    .key_value = {                                             // TRANSLATED: Key codes for the ADC keys.
-        TCFG_ADKEY_VALUE0,
-        TCFG_ADKEY_VALUE1,
-        TCFG_ADKEY_VALUE2,
-        TCFG_ADKEY_VALUE3,
-        TCFG_ADKEY_VALUE4,
-        TCFG_ADKEY_VALUE5,
-        TCFG_ADKEY_VALUE6,
-        TCFG_ADKEY_VALUE7,
-        TCFG_ADKEY_VALUE8,
-        TCFG_ADKEY_VALUE9,
-    },
-};
-
-/************************** IO KEY ****************************/
-
-/************************** otg data****************************/
 #if TCFG_OTG_MODE
 struct otg_dev_data otg_data = {
     .usb_dev_en = TCFG_OTG_USB_DEV_EN,
-	.slave_online_cnt = TCFG_OTG_SLAVE_ONLINE_CNT,
-	.slave_offline_cnt = TCFG_OTG_SLAVE_OFFLINE_CNT,
-	.host_online_cnt = TCFG_OTG_HOST_ONLINE_CNT,
-	.host_offline_cnt = TCFG_OTG_HOST_OFFLINE_CNT,
-	.detect_mode = TCFG_OTG_MODE,
-	.detect_time_interval = TCFG_OTG_DET_INTERVAL,
+    .slave_online_cnt = TCFG_OTG_SLAVE_ONLINE_CNT,
+    .slave_offline_cnt = TCFG_OTG_SLAVE_OFFLINE_CNT,
+    .host_online_cnt = TCFG_OTG_HOST_ONLINE_CNT,
+    .host_offline_cnt = TCFG_OTG_HOST_OFFLINE_CNT,
+    .detect_mode = TCFG_OTG_MODE,
+    .detect_time_interval = TCFG_OTG_DET_INTERVAL,
 };
 #endif
 REGISTER_DEVICES(device_table) = {
@@ -150,30 +102,15 @@ REGISTER_DEVICES(device_table) = {
     { "otg",     &usb_dev_ops, (void *) &otg_data},
 #endif
 };
+
 void debug_uart_init(const struct uart_platform_data *data)
 {
-    if (data) {
-        uart_init(data);
-    } else {
-        uart_init(&uart0_data);
-    }
-}
-
-/* TRANSLATED: Port this function for boards using other chip packages. */
-u8 get_power_on_status(void)
-{
-
-    if (adkey_data.enable) {
-        return 1;
-    }
-
-    return 0;
 }
 
 static void board_devices_init(void)
 {
 
-	key_driver_init();
+    key_driver_init();
 
 }
 
@@ -185,24 +122,15 @@ void board_init()
     board_power_init();
     adc_vbg_init();
     adc_init();
-    cfg_file_parse(0);
     devices_init();
 
-	board_devices_init();
+    board_devices_init();
 
-	/*close FAST CHARGE */
-	CHARGE_EN(0);
-	CHGBG_EN(0);
+    /*close FAST CHARGE */
+    CHARGE_EN(0);
+    CHGBG_EN(0);
 
-	log_info("board_init");
-
-	if(get_charge_online_flag()){
-		log_info("charge...select LDO15");
-		power_set_mode(PWR_LDO15);
-	}else{
-		power_set_mode(TCFG_LOWPOWER_POWER_SEL);
-	}
-
+    power_set_mode(PWR_LDO15);
 }
 
 /************************** DAC ****************************/
@@ -211,33 +139,33 @@ void board_init()
 
 /************************** PWR config ****************************/
 struct port_wakeup port0 = {
-	.pullup_down_enable = ENABLE,                            // TRANSLATED: Enable internal I/O pull-up/down resistors.
-	.edge               = FALLING_EDGE,                      // TRANSLATED: Wakeup edge: rising or falling.
-	.attribute          = BLUETOOTH_RESUME,                  // TRANSLATED: Reserved parameter.
-	.iomap              = IO_PORTB_11,                       // Cyclone 2 Home
+    .pullup_down_enable = ENABLE,                            // TRANSLATED: Enable internal I/O pull-up/down resistors.
+    .edge               = FALLING_EDGE,                      // TRANSLATED: Wakeup edge: rising or falling.
+    .attribute          = BLUETOOTH_RESUME,                  // TRANSLATED: Reserved parameter.
+    .iomap              = IO_PORTB_11,                       // Cyclone 2 Home
     .filter_enable      = ENABLE,
 };
 
 const struct sub_wakeup sub_wkup = {
-	.attribute  = BLUETOOTH_RESUME,
+    .attribute  = BLUETOOTH_RESUME,
 };
 
 const struct charge_wakeup charge_wkup = {
-	.attribute  = BLUETOOTH_RESUME,
+    .attribute  = BLUETOOTH_RESUME,
 };
 
 const struct wakeup_param wk_param = {
-	.port[1] = &port0,
-	.sub = &sub_wkup,
-	.charge = &charge_wkup,
+    .port[1] = &port0,
+    .sub = &sub_wkup,
+    .charge = &charge_wkup,
 };
 
 //-----------------------------------------------
 static struct port_wakeup port1 = {
-	.pullup_down_enable = ENABLE,                            // TRANSLATED: Enable internal I/O pull-up/down resistors.
-	.edge               = FALLING_EDGE,                      // TRANSLATED: Wakeup edge: rising or falling.
-	.attribute          = BLUETOOTH_RESUME,                  // TRANSLATED: Reserved parameter.
-	.iomap              = 0,                                 // TRANSLATED: Wakeup pin selection.
+    .pullup_down_enable = ENABLE,                            // TRANSLATED: Enable internal I/O pull-up/down resistors.
+    .edge               = FALLING_EDGE,                      // TRANSLATED: Wakeup edge: rising or falling.
+    .attribute          = BLUETOOTH_RESUME,                  // TRANSLATED: Reserved parameter.
+    .iomap              = 0,                                 // TRANSLATED: Wakeup pin selection.
     .filter_enable      = DISABLE,
 };
 
@@ -249,20 +177,6 @@ static void close_gpio(u8 is_softoff)
         [PORTB_GROUP] = 0xffff,
         [PORTC_GROUP] = 0xffff,
     };
-
-    /*
-       u8 mode = (JL_SFC->CON >> 8) & 0x0f;
-       extern u32 spi_get_port(void);
-       if (spi_get_port() != 0) {
-       if ((mode == 0b0101) || (mode == 0b0111)) {
-       port_group[PORTA_GROUP] = 0x1fff;
-       } else {
-       port_group[PORTA_GROUP] = 0x9fff;
-       }
-       }
-     */
-
-    port_protect(port_group,TCFG_ADKEY_PORT);
 
     //< close gpio
     gpio_dir(GPIOA, 0, 16, port_group[PORTA_GROUP], GPIO_OR);
@@ -298,39 +212,31 @@ void board_set_soft_poweroff(void)
         [PORTA_GROUP] = 0xffff,
         [PORTB_GROUP] = 0xffff,
         [PORTC_GROUP] = 0xffff,
-		[PORTD_GROUP] = 0Xffff,
+        [PORTD_GROUP] = 0Xffff,
     };
 
-	if(TCFG_LOWPOWER_POWER_SEL == PWR_DCDC15){
-		power_set_mode(PWR_LDO15);
-	}
-
-	// TRANSLATED: Flash power.
-	if(spi_get_port()==0){
-		port_protect(port_group, SPI0_PWR_A);
-		port_protect(port_group, SPI0_CS_A);
-		port_protect(port_group, SPI0_CLK_A);
-		port_protect(port_group, SPI0_DO_D0_A);
-		port_protect(port_group, SPI0_DI_D1_A);
-		if(get_sfc_bit_mode()==4){
-			port_protect(port_group, SPI0_WP_D2_A);
-			port_protect(port_group, SPI0_HOLD_D3_A);
-		}
-	}else{
-		port_protect(port_group, SPI0_PWR_B);
-		port_protect(port_group, SPI0_CS_B);
-		port_protect(port_group, SPI0_CLK_B);
-		port_protect(port_group, SPI0_DO_D0_B);
-		port_protect(port_group, SPI0_DI_D1_B);
-		if(get_sfc_bit_mode()==4){
-			port_protect(port_group, SPI0_WP_D2_B);
-			port_protect(port_group, SPI0_HOLD_D3_B);
-		}
-	}
-
-// TRANSLATED: ADC key / GPIO pins can be retained as wakeup sources.
-
-    port_protect(port_group,TCFG_ADKEY_PORT);
+    // TRANSLATED: Flash power.
+    if(spi_get_port()==0){
+        port_protect(port_group, SPI0_PWR_A);
+        port_protect(port_group, SPI0_CS_A);
+        port_protect(port_group, SPI0_CLK_A);
+        port_protect(port_group, SPI0_DO_D0_A);
+        port_protect(port_group, SPI0_DI_D1_A);
+        if(get_sfc_bit_mode()==4){
+            port_protect(port_group, SPI0_WP_D2_A);
+            port_protect(port_group, SPI0_HOLD_D3_A);
+        }
+    }else{
+        port_protect(port_group, SPI0_PWR_B);
+        port_protect(port_group, SPI0_CS_B);
+        port_protect(port_group, SPI0_CLK_B);
+        port_protect(port_group, SPI0_DO_D0_B);
+        port_protect(port_group, SPI0_DI_D1_B);
+        if(get_sfc_bit_mode()==4){
+            port_protect(port_group, SPI0_WP_D2_B);
+            port_protect(port_group, SPI0_HOLD_D3_B);
+        }
+    }
 
     /* Keep the wake chord electrically readable from the first instruction
      * after Home wakes the chip. cyclone2_input_initialize() has already made
@@ -360,7 +266,7 @@ void board_set_soft_poweroff(void)
     gpio_die(GPIOC, 0, 16, ~port_group[PORTC_GROUP], GPIO_AND);
     gpio_dieh(GPIOC, 0, 16, ~port_group[PORTC_GROUP], GPIO_AND);
 
-	gpio_dir(GPIOD, 0, 16, port_group[PORTD_GROUP], GPIO_OR);
+    gpio_dir(GPIOD, 0, 16, port_group[PORTD_GROUP], GPIO_OR);
     gpio_set_pu(GPIOD, 0, 16, ~port_group[PORTD_GROUP], GPIO_AND);
     gpio_set_pd(GPIOD, 0, 16, ~port_group[PORTD_GROUP], GPIO_AND);
     gpio_die(GPIOD, 0, 16, ~port_group[PORTD_GROUP], GPIO_AND);
@@ -380,7 +286,7 @@ void board_set_soft_poweroff(void)
     gpio_set_die(IO_PORT_DM, 0);
     gpio_set_dieh(IO_PORT_DM, 0);
 
-	/* dac_power_off(); */
+    /* dac_power_off(); */
 }
 
 #define     APP_IO_DEBUG_0(i,x)       //{JL_PORT##i->DIR &= ~BIT(x), JL_PORT##i->OUT &= ~BIT(x);}
@@ -388,29 +294,18 @@ void board_set_soft_poweroff(void)
 
 void sleep_exit_callback(u32 usec)
 {
-	putchar('>');
+    putchar('>');
     APP_IO_DEBUG_1(A, 6);
-
-	if(TCFG_LOWPOWER_POWER_SEL == PWR_DCDC15){
-		/* putchar('}'); */
-		power_set_mode(TCFG_LOWPOWER_POWER_SEL);
-	}
-
 }
 
 void sleep_enter_callback(u8  step)
 {
     /* TRANSLATED: Do not add debug prints in this function. */
     if (step == 1) {
-		putchar('<');
+        putchar('<');
         APP_IO_DEBUG_0(A, 6);
-		if(TCFG_LOWPOWER_POWER_SEL == PWR_DCDC15){
-			/* putchar('{'); */
-			power_set_mode(PWR_LDO15);
-		}
     } else {
-
-		close_gpio(0);
+        close_gpio(0);
 
         gpio_set_pull_up(IO_PORT_DP, 0);
         gpio_set_pull_down(IO_PORT_DP, 0);
@@ -421,25 +316,16 @@ void sleep_enter_callback(u8  step)
         gpio_set_pull_down(IO_PORT_DM, 0);
         gpio_set_direction(IO_PORT_DM, 1);
         gpio_set_die(IO_PORT_DM, 0);
-	}
+    }
 }
 
 void board_power_init(void)
 {
-    log_info("Power init : %s", __FILE__);
-
-    power_init(&power_param);
-
-    gpio_longpress_pin0_reset_config(IO_PORTB_01, 0, 0);
-    gpio_shortpress_reset_config(0);//1--enable 0--disable
-
-    /*sdpg_config(1);*/
-
-    power_set_callback(TCFG_LOWPOWER_LOWPOWER_SEL, sleep_enter_callback, sleep_exit_callback, board_set_soft_poweroff);
-
-	power_keep_dacvdd_en(0);
-
-	power_wakeup_init(&wk_param);
-
+  log_info("Power init : %s", __FILE__);
+  power_init(&power_param);
+  gpio_longpress_pin0_reset_config(IO_PORTB_01, 0, 0);
+  gpio_shortpress_reset_config(0);//1--enable 0--disable
+  power_set_callback(TCFG_LOWPOWER_LOWPOWER_SEL, sleep_enter_callback, sleep_exit_callback, board_set_soft_poweroff);
+  power_keep_dacvdd_en(0);
+  power_wakeup_init(&wk_param);
 }
-#endif

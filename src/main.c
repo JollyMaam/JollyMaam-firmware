@@ -26,8 +26,6 @@
 #include "app_main.h"
 #include "update.h"
 #include "update_loader_download.h"
-#include "app_charge.h"
-#include "app_power_manage.h"
 #include "asm/charge.h"
 
 #define LOG_TAG_CONST       APP
@@ -54,39 +52,13 @@ const struct task_info task_info_table[] = {
 
 APP_VAR app_var;
 
-__attribute__((weak))
-u8 get_charge_online_flag(void)
-{
-    return 0;
-}
-
 void app_main()
 {
     struct intent it;
-
-    if (!UPDATE_SUPPORT_DEV_IS_NULL()) {
-        int update = 0;
-        update = update_result_deal();
-    }
-
-    printf(">>>>>>>>>>>>>>>>>app_main...\n");
-
-    if (get_charge_online_flag()) {
-        vbat_check_init();
-    } else {
-        check_power_on_voltage();
-    }
-
     init_intent(&it);
-
     it.name = "cyclone2";
     it.action = ACTION_CYCLONE2;
-
-    log_info("run app>>> %s", it.name);
-    log_info("%s,%s", __DATE__, __TIME__);
-
     start_app(&it);
-
 }
 
 int eSystemConfirmStopStatus(void)
@@ -95,7 +67,6 @@ int eSystemConfirmStopStatus(void)
      * a periodic 100 ms wakeup. */
     //1:Endless Sleep
     //0:100 ms wakeup
-    /* log_info("100ms wakeup"); */
     return 1;
 }
 

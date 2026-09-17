@@ -1,6 +1,5 @@
 
 #include "app_config.h"
-#include "app_action.h"
 
 #include "system/includes.h"
 #include "spp_user.h"
