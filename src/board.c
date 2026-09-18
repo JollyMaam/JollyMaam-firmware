@@ -1,7 +1,5 @@
-#include "app_config.h"
-
-#include "system/includes.h"
-#include "asm/charge.h"
+#include <system/includes.h>
+#include <asm/charge.h>
 #include "device/key_driver.h"
 #include "asm/power/p33.h"
 #include "asm/iic_soft.h"
@@ -9,6 +7,7 @@
 #include "asm/power/power_port.h"
 #include "input.h"
 
+#include "app_config.h"
 #include "media/includes.h"
 
 #define LOG_TAG_CONST       BOARD
@@ -57,17 +56,6 @@ u8 cyclone2_take_early_profile_chord(void)
     return chord;
 }
 
-const struct soft_iic_config soft_iic_cfg[] = {
-    //iic0 data
-    {
-        .scl = IO_PORTC_04,                    // TRANSLATED: I2C clock pin.
-        .sda = IO_PORTC_05,                   // TRANSLATED: I2C data pin.
-        .delay = 50,                // TRANSLATED: Software I2C delay; controls the bus clock frequency.
-        .io_pu = 1,                                     // TRANSLATED: Enable internal pull-ups if the board has no external pull-up resistors.
-    },
-};
-
-/************************** LOW POWER config ****************************/
 const struct low_power_param power_param = {
     .config         = TCFG_LOWPOWER_LOWPOWER_SEL,          // TRANSLATED: 0: stay active during sniff; 1: enter powerdown during sniff.
     .btosc_hz       = TCFG_CLOCK_OSC_HZ,                   // TRANSLATED: External crystal frequency.
@@ -79,11 +67,10 @@ const struct low_power_param power_param = {
     .dcdc_port      = TCFG_DCDC_PORT_SEL,
 };
 
-extern void set_dcdc_ctl_port(u8 port);
-extern void cfg_file_parse(u8 idx);
 void board_init()
 {
     cyclone2_latch_early_profile_chord();
+    cyclone2_bt_address_init();
     board_power_init();
     adc_vbg_init();
     adc_init();
@@ -96,11 +83,6 @@ void board_init()
     power_set_mode(PWR_LDO15);
 }
 
-/************************** DAC ****************************/
-
-/************************** ADC ****************************/
-
-/************************** PWR config ****************************/
 struct port_wakeup port0 = {
     .pullup_down_enable = ENABLE,                            // TRANSLATED: Enable internal I/O pull-up/down resistors.
     .edge               = FALLING_EDGE,                      // TRANSLATED: Wakeup edge: rising or falling.
@@ -158,8 +140,6 @@ static void close_gpio(u8 is_softoff)
 //-----------------------------------------------
 
 /* TRANSLATED: By default, set I/O pins to high impedance before soft poweroff. Modify this function to preserve selected pin states. */
-extern void dac_power_off(void);
-
 void board_set_soft_poweroff(void)
 {
     u16 port_group[] = {
@@ -239,8 +219,6 @@ void board_set_soft_poweroff(void)
     gpio_set_direction(IO_PORT_DM, 1);
     gpio_set_die(IO_PORT_DM, 0);
     gpio_set_dieh(IO_PORT_DM, 0);
-
-    /* dac_power_off(); */
 }
 
 #define     APP_IO_DEBUG_0(i,x)       //{JL_PORT##i->DIR &= ~BIT(x), JL_PORT##i->OUT &= ~BIT(x);}
@@ -275,11 +253,11 @@ void sleep_enter_callback(u8  step)
 
 void board_power_init(void)
 {
-  log_info("Power init : %s", __FILE__);
-  power_init(&power_param);
-  gpio_longpress_pin0_reset_config(IO_PORTB_01, 0, 0);
-  gpio_shortpress_reset_config(0);//1--enable 0--disable
-  power_set_callback(TCFG_LOWPOWER_LOWPOWER_SEL, sleep_enter_callback, sleep_exit_callback, board_set_soft_poweroff);
-  power_keep_dacvdd_en(0);
-  power_wakeup_init(&wk_param);
+    log_info("Power init : %s", __FILE__);
+    power_init(&power_param);
+    gpio_longpress_pin0_reset_config(IO_PORTB_01, 0, 0);
+    gpio_shortpress_reset_config(0);//1--enable 0--disable
+    power_set_callback(TCFG_LOWPOWER_LOWPOWER_SEL, sleep_enter_callback, sleep_exit_callback, board_set_soft_poweroff);
+    power_keep_dacvdd_en(0);
+    power_wakeup_init(&wk_param);
 }

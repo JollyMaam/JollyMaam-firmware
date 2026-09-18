@@ -18,9 +18,9 @@ SDK_COMMON_SOURCES := $(SDK_COMMON_SOURCES_MINIMAL)
 SDK_COMMON_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_COMMON_SOURCES:.c=.c.o))
 SDK_CPU_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_SOURCES:.c=.c.o))
 
-INCLUDES := -iquote src -iquote src/bt -iquote src/config $(SDK_INCLUDES)
-PROJECT_SOURCES := $(wildcard src/*.c src/bt/*.c src/config/*.c)
-APP_CONFIG_DEPS := $(wildcard src/config/*.h src/config/*.ld)
+INCLUDES := -iquote src -iquote src/bt -iquote src/sdkconfig $(SDK_INCLUDES)
+PROJECT_SOURCES := $(wildcard src/*.c src/bt/*.c src/sdkconfig/*.c)
+APP_CONFIG_DEPS := $(wildcard src/sdkconfig/*.h src/sdkconfig/*.ld)
 
 OBJECTS := $(SDK_COMMON_OBJECTS) $(addprefix $O/,$(PROJECT_SOURCES:.c=.c.o)) $(SDK_CPU_OBJECTS)
 DEPFILES := $(addsuffix .d,$(OBJECTS))
@@ -94,9 +94,6 @@ $O/sdk_used_list.used: $(SDK)/cpu/br23/sdk_used_list.c $(APP_CONFIG)
 $O/isd_config.ini: $(SDK)/cpu/br23/tools/isd_config_rule.c $(APP_CONFIG)
 	$(compile_pre_build)
 	$(QUIET)sed -i -e /^$$/d "$@"
-
-$O/config/%.c.o: config/%.c
-	$(compile_c)
 
 $O/src/%.c.o: src/%.c
 	$(compile_c)

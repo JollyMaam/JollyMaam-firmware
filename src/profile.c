@@ -1,8 +1,9 @@
-#include "system/includes.h"
-#include "btstack/btstack_task.h"
-#include "btstack/avctp_user.h"
+#include <system/includes.h>
+#include <btstack/btstack_task.h>
+#include <btstack/avctp_user.h>
 
 #include "profile.h"
+#include "settings.h"
 
 struct profile_operations {
     const char *name;
@@ -38,8 +39,7 @@ void cyclone2_profile_start(enum cyclone2_profile_type type, u8 slot,
     if ((unsigned)type >= CYCLONE2_PROFILE_TYPE_COUNT)
         type = CYCLONE2_PROFILE_SWITCH;
     active_profile = &profiles[type];
-    memcpy(address, bt_get_mac_addr(), sizeof(address));
-    address[0] ^= (u8)(slot * 4U);
+    cyclone2_bt_address_for_slot(slot, address);
     bt_set_mac_addr(address);
     set_multi_devices_adv_flag(1U);
 
