@@ -1,12 +1,12 @@
-#include "system/includes.h"
-#include "btstack/avctp_user.h"
-#include "btstack/btstack_task.h"
-#include "edr_hid_user.h"
+#include <system/includes.h>
+#include <btstack/avctp_user.h>
+#include <btstack/btstack_task.h>
 
 #include "app_comm_bt.h"
+#include "edr_hid_user.h"
 #include "led.h"
-#include "profile_internal.h"
-#include "usb_control.h"
+#include "profile.h"
+#include "usb.h"
 #include "user_cfg_id.h"
 
 #define SWITCH_REPORT_SUBCOMMAND_REPLY  0x21U

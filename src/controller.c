@@ -1,21 +1,13 @@
-#include "system/app_core.h"
-#include "system/includes.h"
-#include "usb/otg.h"
-#include "asm/power_interface.h"
+#include <system/app_core.h>
+#include <system/includes.h>
+#include <usb/otg.h>
 
-#include "app_action.h"
 #include "app_config.h"
-#include "led.h"
-#include "input.h"
+#include "controller.h"
+#include "main.h"
+#include "main.h"
 #include "profile.h"
-#include "reset_mailbox.h"
-#include "runtime.h"
-#include "usb_control.h"
 #include "user_cfg_id.h"
-
-/* Controller policy lives here.  Hardware sampling is in input.c; Bluetooth
- * differences are behind profile.c and profile_{switch,generic}.c; USB
- * configuration/recovery is in usb_control.c. */
 
 #define CYCLONE2_CONTROL_PERIOD_MS           5U
 #define CYCLONE2_DEFAULT_REPORT_PERIOD_MS   10U
@@ -60,12 +52,6 @@ struct cyclone2_settings {
     u8 report_period_ms;
     u8 reserved[3];
 };
-
-/* Deliberately outside .bss: p33_soft_reset() preserves internal SRAM, so this
- * one-shot record can carry the next profile through reset without wearing
- * flash.  reset_mailbox.ld reserves its fixed address from the heap. */
-volatile struct cyclone2_boot_request reset_mailbox
-    __attribute__((section(".reset_mailbox"), used, aligned(4)));
 
 static struct cyclone2_settings settings;
 static struct cyclone2_input_report candidate_report;

@@ -6,7 +6,7 @@
 #include "ble_hogp_profile.h"
 
 #include "app_comm_bt.h"
-#include "profile_internal.h"
+#include "profile.h"
 
 #define GENERIC_REPORT_ID 1U
 #define GENERIC_CCC_WARMUP_MS 100U

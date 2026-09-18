@@ -1,33 +1,21 @@
-/*********************************************************************************************
-    *   Filename        : app_comm_ble.c
+#include <btcontroller_config.h>
+#include <btctrler/btctrler_task.h>
+#include <btstack/avctp_user.h>
+#include <btstack/btstack_task.h>
+#include <config/config_transport.h>
+#include <os/os_api.h>
+#include <server/server_core.h>
+#include <stdlib.h>
+#include <system/app_core.h>
+#include <system/includes.h>
 
-    *   Description     :
-
-    *   Author          : MRL
-
-    *   Email           : MRL@zh-jieli.com
-
-    *   Last modifiled  : 2021-06-172 14:01
-
-    *   Copyright:(c)JIELI  2011-2021  @ , All Rights Reserved.
-*********************************************************************************************/
-#include "system/app_core.h"
-#include "system/includes.h"
-#include "server/server_core.h"
+#include "app_comm_bt.h"
 #include "app_config.h"
-#include "os/os_api.h"
-#include "btcontroller_config.h"
-#include "btctrler/btctrler_task.h"
-#include "config/config_transport.h"
-#include "btstack/avctp_user.h"
-#include "btstack/btstack_task.h"
 #include "bt_common.h"
 #include "edr_hid_user.h"
 #include "le_common.h"
-#include <stdlib.h>
-#include "standard_hid.h"
 #include "rcsp_bluetooth.h"
-#include "app_comm_bt.h"
+#include "standard_hid.h"
 
 #define LOG_TAG_CONST       COMM_BLE
 #define LOG_TAG             "[COMM_BLE]"
@@ -38,7 +26,7 @@
 #define LOG_CLI_ENABLE
 #include "debug.h"
 
-#include "usb_control.h"
+#include "usb.h"
 #undef log_info
 #undef log_debug
 #undef log_error

@@ -2,10 +2,7 @@ O := build
 SDK := /work/github.com-Jieli-Tech/fw-AC63_BT_SDK
 TOOL_DIR := /work/jieli-linux-toolchains-20250324.1/pi32v2/bin
 FLASH_SIZE := 0x80000
-# Keep the following 8-KiB VM region explicit in isd_config.  The profile
-# modules and USB configuration console occupy one block beyond the earlier
-# 0x40000 boundary; jlnewfw records this boundary in the packed image.
-CODE_LIMIT := 0x41000
+CODE_LIMIT := 0x40000
 
 include sdk-br23.mk
 
@@ -15,15 +12,17 @@ HOST_CFLAGS := -O2 -g -std=c11 -Wall -Wextra -Wpedantic
 CFLAGS := $(SDK_CFLAGS)
 DEFINES := $(SDK_DEFINES)
 SDK_ARCHIVES := $(SDK_ARCHIVES_MINIMAL)
+SDK_SOURCES := $(SDK_SOURCES_MINIMAL)
+SDK_COMMON_SOURCES := $(SDK_COMMON_SOURCES_MINIMAL)
 
-PROJECT_SOURCES := $(wildcard config/*.c src/*.c src/bt/*.c)
-INCLUDES := -Isrc -Isrc/bt -Iconfig $(SDK_INCLUDES)
-APP_CONFIG := config/app_config.h
-APP_CONFIG_DEPS := $(wildcard config/*.h config/*.ld)
-SDK_COMMON_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_COMMON_SOURCES_MINIMAL:.c=.c.o))
-SDK_CPU_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_SOURCES_MINIMAL:.c=.c.o))
+SDK_COMMON_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_COMMON_SOURCES:.c=.c.o))
+SDK_CPU_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_SOURCES:.c=.c.o))
+
+INCLUDES := -iquote src -iquote src/bt -iquote src/config $(SDK_INCLUDES)
+PROJECT_SOURCES := $(wildcard src/*.c src/bt/*.c src/config/*.c)
+APP_CONFIG_DEPS := $(wildcard src/config/*.h src/config/*.ld)
+
 OBJECTS := $(SDK_COMMON_OBJECTS) $(addprefix $O/,$(PROJECT_SOURCES:.c=.c.o)) $(SDK_CPU_OBJECTS)
-
 DEPFILES := $(addsuffix .d,$(OBJECTS))
 
 V?=0
@@ -86,7 +85,7 @@ $O/sdk_ld.c: $(SDK)/cpu/br23/sdk_ld.c
 	  -e 's/^PROVIDE(HEAP_END = RAM_END);/PROVIDE(HEAP_END = RESET_MAILBOX_BEGIN);/' \
 		$< > $@
 
-$O/sdk.ld: $O/sdk_ld.c $(APP_CONFIG)
+$O/sdk.ld: $O/sdk_ld.c $(APP_CONFIG_DEPS)
 	$(compile_pre_build)
 
 $O/sdk_used_list.used: $(SDK)/cpu/br23/sdk_used_list.c $(APP_CONFIG)

@@ -3,7 +3,6 @@
 #include "btstack/avctp_user.h"
 
 #include "profile.h"
-#include "profile_internal.h"
 
 struct profile_operations {
     const char *name;

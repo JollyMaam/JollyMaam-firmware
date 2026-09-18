@@ -1,16 +1,16 @@
-#include "system/includes.h"
+#include <system/includes.h>
 #include <stdarg.h>
-#include "asm/irq.h"
-#include "asm/wdt.h"
-#include "usb/device/cdc.h"
-#include "usb/device/usb_stack.h"
+#include <asm/irq.h>
+#include <asm/wdt.h>
 
+#include "controller.h"
 #include "input.h"
 #include "led.h"
-#include "reset_mailbox.h"
-#include "runtime.h"
-#include "usb_control.h"
+#include "main.h"
 #include "rom.h"
+#include "usb.h"
+#include "usb/device/cdc.h"
+#include "usb/device/usb_stack.h"
 
 #define USB_CON0              (*(volatile u32 *)0x001e1800U)
 #define USB_CON1              (*(volatile u32 *)0x001e1804U)

@@ -1,19 +1,16 @@
+#include <btstack/avctp_user.h>
+#include <circular_buf.h>
+#include <string.h>
+#include <system/includes.h>
 
-#include "app_config.h"
-
-#include "system/includes.h"
-#include "spp_user.h"
-#include "string.h"
-#include "circular_buf.h"
-#include "spp_trans_data.h"
-#include "bt_common.h"
-#include "btstack/avctp_user.h"
-
-#include "edr_hid_user.h"
-#include "standard_hid.h"
 #include "app_comm_bt.h"
-
-#include "usb_control.h"
+#include "app_config.h"
+#include "bt_common.h"
+#include "edr_hid_user.h"
+#include "spp_trans_data.h"
+#include "spp_user.h"
+#include "standard_hid.h"
+#include "usb.h"
 
 //#define log_info            y_printf
 extern void put_buf(const u8 *buf, int len);
