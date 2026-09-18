@@ -1,7 +1,7 @@
 #include "system/includes.h"
 #include "asm/gpio.h"
 
-#include "board.h"
+#include "input.h"
 #include "led.h"
 #include "rom.h"
 

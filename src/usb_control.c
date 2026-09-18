@@ -5,7 +5,7 @@
 #include "usb/device/cdc.h"
 #include "usb/device/usb_stack.h"
 
-#include "board.h"
+#include "input.h"
 #include "led.h"
 #include "reset_mailbox.h"
 #include "runtime.h"

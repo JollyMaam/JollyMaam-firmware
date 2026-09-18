@@ -1,7 +1,6 @@
 #include "asm/gpio.h"
 #include "asm/br23.h"
 
-#include "board.h"
 #include "input.h"
 
 #define STICK_UART_DIVISOR          24U

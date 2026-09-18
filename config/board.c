@@ -7,7 +7,7 @@
 #include "asm/iic_soft.h"
 #include "usb/otg.h"
 #include "asm/power/power_port.h"
-#include "board.h"
+#include "input.h"
 
 #include "media/includes.h"
 
@@ -32,7 +32,7 @@ static void cyclone2_prepare_early_button(u32 gpio)
     gpio_direction_input(gpio);
 }
 
-static void cyclone2_latch_early_profile_chord(void)
+void cyclone2_latch_early_profile_chord(void)
 {
     u8 chord = 0U;
 
@@ -79,34 +79,6 @@ const struct low_power_param power_param = {
     .dcdc_port      = TCFG_DCDC_PORT_SEL,
 };
 
-#if 0
-/************************** KEY MSG****************************/
-u8 key_table[KEY_NUM_MAX][KEY_EVENT_MAX] = {
-    // SHORT           LONG              HOLD              UP              DOUBLE           TRIPLE
-};
-#endif
-
-#if TCFG_OTG_MODE
-struct otg_dev_data otg_data = {
-    .usb_dev_en = TCFG_OTG_USB_DEV_EN,
-    .slave_online_cnt = TCFG_OTG_SLAVE_ONLINE_CNT,
-    .slave_offline_cnt = TCFG_OTG_SLAVE_OFFLINE_CNT,
-    .host_online_cnt = TCFG_OTG_HOST_ONLINE_CNT,
-    .host_offline_cnt = TCFG_OTG_HOST_OFFLINE_CNT,
-    .detect_mode = TCFG_OTG_MODE,
-    .detect_time_interval = TCFG_OTG_DET_INTERVAL,
-};
-#endif
-REGISTER_DEVICES(device_table) = {
-#if TCFG_OTG_MODE
-    { "otg",     &usb_dev_ops, (void *) &otg_data},
-#endif
-};
-
-void debug_uart_init(const struct uart_platform_data *data)
-{
-}
-
 extern void set_dcdc_ctl_port(u8 port);
 extern void cfg_file_parse(u8 idx);
 void board_init()
@@ -149,15 +121,6 @@ const struct wakeup_param wk_param = {
     .port[1] = &port0,
     .sub = &sub_wkup,
     .charge = &charge_wkup,
-};
-
-//-----------------------------------------------
-static struct port_wakeup port1 = {
-    .pullup_down_enable = ENABLE,                            // TRANSLATED: Enable internal I/O pull-up/down resistors.
-    .edge               = FALLING_EDGE,                      // TRANSLATED: Wakeup edge: rising or falling.
-    .attribute          = BLUETOOTH_RESUME,                  // TRANSLATED: Reserved parameter.
-    .iomap              = 0,                                 // TRANSLATED: Wakeup pin selection.
-    .filter_enable      = DISABLE,
 };
 
 /* TRANSLATED: By default, set I/O pins to high impedance before soft poweroff. Modify this function to preserve selected pin states. */

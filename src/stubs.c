@@ -19,3 +19,8 @@ u16 update_result_get(void)
 {
   return 0; /* UPDATA_NON from include_lib/update/update.h */
 };
+
+/* from setup.c */
+void debug_uart_init(const struct uart_platform_data *data)
+{
+}
