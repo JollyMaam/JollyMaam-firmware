@@ -1,5 +1,5 @@
-#include "asm/gpio.h"
-#include "asm/br23.h"
+#include <asm/gpio.h>
+#include <asm/br23.h>
 
 #include "input.h"
 

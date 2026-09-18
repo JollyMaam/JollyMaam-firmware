@@ -1,5 +1,5 @@
-#include "system/includes.h"
-#include "asm/gpio.h"
+#include <system/includes.h>
+#include <asm/gpio.h>
 
 #include "input.h"
 #include "led.h"

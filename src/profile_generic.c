@@ -1,11 +1,11 @@
-#include "system/includes.h"
-#include "btstack/avctp_user.h"
-#include "btstack/btstack_task.h"
-#include "le_common.h"
-#include "le_gatt_common.h"
-#include "ble_hogp_profile.h"
+#include <system/includes.h>
+#include <btstack/avctp_user.h>
+#include <btstack/btstack_task.h>
 
 #include "app_comm_bt.h"
+#include "ble_hogp_profile.h"
+#include "le_common.h"
+#include "le_gatt_common.h"
 #include "profile.h"
 
 #define GENERIC_REPORT_ID 1U
