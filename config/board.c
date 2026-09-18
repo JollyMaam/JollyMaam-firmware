@@ -107,13 +107,6 @@ void debug_uart_init(const struct uart_platform_data *data)
 {
 }
 
-static void board_devices_init(void)
-{
-
-    key_driver_init();
-
-}
-
 extern void set_dcdc_ctl_port(u8 port);
 extern void cfg_file_parse(u8 idx);
 void board_init()
@@ -123,8 +116,6 @@ void board_init()
     adc_vbg_init();
     adc_init();
     devices_init();
-
-    board_devices_init();
 
     /*close FAST CHARGE */
     CHARGE_EN(0);
