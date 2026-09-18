@@ -14,14 +14,14 @@ HOST_CFLAGS := -O2 -g -std=c11 -Wall -Wextra -Wpedantic
 
 CFLAGS := $(SDK_CFLAGS)
 DEFINES := $(SDK_DEFINES)
-SDK_ARCHIVES := $(SDK_ARCHIVES_FULL)
+SDK_ARCHIVES := $(SDK_ARCHIVES_MINIMAL)
 
 PROJECT_SOURCES := $(wildcard config/*.c src/*.c src/bt/*.c)
 INCLUDES := -Isrc -Isrc/bt -Iconfig $(SDK_INCLUDES)
 APP_CONFIG := config/app_config.h
 APP_CONFIG_DEPS := $(wildcard config/*.h config/*.ld)
 SDK_COMMON_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_COMMON_SOURCES_CUSTOM:.c=.c.o))
-SDK_CPU_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_SOURCES_FULL:.c=.c.o))
+SDK_CPU_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_SOURCES_MINIMAL:.c=.c.o))
 OBJECTS := $(SDK_COMMON_OBJECTS) $(addprefix $O/,$(PROJECT_SOURCES:.c=.c.o)) $(SDK_CPU_OBJECTS)
 
 DEPFILES := $(addsuffix .d,$(OBJECTS))

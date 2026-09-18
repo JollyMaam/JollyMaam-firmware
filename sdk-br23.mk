@@ -353,3 +353,22 @@ SDK_ARCHIVES_FULL := \
 	$(SDK)/cpu/br23/liba/lib_dns.a \
 	$(SDK)/cpu/br23/liba/lib_midi_dec.a \
 	$(SDK)/cpu/br23/liba/update.a \
+
+
+SDK_SOURCES_MINIMAL := \
+	$(SDK)/cpu/br23/adc_api.c \
+	$(SDK)/cpu/br23/charge.c \
+	$(SDK)/cpu/br23/clock_manager.c \
+	$(SDK)/cpu/br23/led_spi.c \
+	$(SDK)/cpu/br23/setup.c \
+
+
+SDK_ARCHIVES_MINIMAL := \
+	$(SDK)/cpu/br23/liba/crypto_toolbox_Osize.a \
+	$(SDK)/cpu/br23/liba/cpu.a \
+	$(SDK)/cpu/br23/liba/system.a \
+	$(SDK)/cpu/br23/liba/btstack.a \
+	$(SDK)/cpu/br23/liba/btctrler.a \
+	$(SDK)/cpu/br23/liba/update.a \
+
+
