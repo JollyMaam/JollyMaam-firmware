@@ -297,11 +297,20 @@ SDK_ARCHIVES_FULL := \
 
 
 SDK_COMMON_SOURCES_MINIMAL := \
+	$(SDK)/apps/common/debug/debug.c \
 	$(SDK)/apps/common/device/usb/device/cdc.c \
+	$(SDK)/apps/common/device/usb/device/custom_hid.c \
+	$(SDK)/apps/common/device/usb/device/descriptor.c \
+	$(SDK)/apps/common/device/usb/device/hid.c \
+	$(SDK)/apps/common/device/usb/device/msd.c \
+	$(SDK)/apps/common/device/usb/device/msd_upgrade.c \
 	$(SDK)/apps/common/device/usb/device/task_pc.c \
+	$(SDK)/apps/common/device/usb/device/uac1.c \
+	$(SDK)/apps/common/device/usb/device/uac_stream.c \
 	$(SDK)/apps/common/device/usb/device/usb_device.c \
 	$(SDK)/apps/common/device/usb/device/user_setup.c \
 	$(SDK)/apps/common/device/usb/usb_config.c \
+	$(SDK)/apps/common/device/usb/usb_host_config.c \
 	$(SDK)/apps/common/third_party_profile/jieli/gatt_common/le_gatt_client.c \
 	$(SDK)/apps/common/third_party_profile/jieli/gatt_common/le_gatt_common.c \
 	$(SDK)/apps/common/third_party_profile/jieli/gatt_common/le_gatt_server.c \

@@ -38,7 +38,7 @@ endif
 default all: $O/firmware.img
 
 # regenerate stuff if makefile or config changes
-$(OBJECTS) $O/sdk.ld $O/sdk_used_list.used: Makefile sdk-br23.mk $(APP_CONFIG_DEPS)
+$(OBJECTS) $O/sdk.ld: Makefile sdk-br23.mk $(APP_CONFIG_DEPS)
 
 define compile_c
 	@mkdir -p $(@D)
@@ -74,10 +74,10 @@ $O/app.bin: $O/app.elf
 	$(QUIET)for i in aec wav ape flac m4a amr dts fm mp3 wma; do $(OBJCOPY) -O binary -j .overlay_$$i $< $O/sections/$$i.bin; done
 	$(QUIET)cd $O/sections && cat text.bin data.bin aec.bin wav.bin ape.bin flac.bin m4a.bin amr.bin dts.bin fm.bin mp3.bin wma.bin > ../app.bin
 
-$O/app.elf: $O/sdk.ld $O/sdk_used_list.used $(OBJECTS)
+$O/app.elf: $O/sdk.ld $(OBJECTS)
 	@mkdir -p $(@D)
 	@echo [LD] $@
-	$(QUIET)$(LD) -o $@ $(OBJECTS) -T$O/sdk.ld -M=$O/app.map $(SDK_LFLAGS) --plugin-opt=-used-symbol-file=$O/sdk_used_list.used --start-group $(SDK_ARCHIVES) --end-group $(SDK_RUNTIME_LIBS)
+	$(QUIET)$(LD) -o $@ $(OBJECTS) -T$O/sdk.ld -M=$O/app.map $(SDK_LFLAGS) --start-group $(SDK_ARCHIVES) --end-group $(SDK_RUNTIME_LIBS)
 
 $O/sdk_ld.c: $(SDK)/cpu/br23/sdk_ld.c
 	@mkdir -p $(@D)
