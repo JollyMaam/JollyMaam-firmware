@@ -9,9 +9,9 @@ agent owns integration, builds, flashing, and this progress record.
 
 | Step | Brief | State |
 | --- | --- | --- |
-| 1 | [USB testing access](01-usb-testing.md) | assigned |
-| 2 | [Nonblocking acquisition](02-acquisition.md) | assigned; integrate after 1 |
-| 3 | [Host test tools](03-host-tests.md) | assigned |
+| 1 | [USB testing access](01-usb-testing.md) | implementation present; review and hardware test pending |
+| 2 | [Nonblocking acquisition](02-acquisition.md) | implementation present; hardware test pending |
+| 3 | [Host test tools](03-host-tests.md) | partial files present; review/test pending (agent budget exhausted) |
 | 4 | [Controller scheduling and TX](04-controller-tx.md) | pending hardware baseline |
 | 5 | [IMU and rumble](05-imu-rumble.md) | pending stable scheduling |
 
@@ -49,3 +49,49 @@ Do not add a generic event bus, allocator, plugin system, or macro language.
 - Initial checkout: `5abe596`, clean. At initial discovery only
   `/dev/bwrap/ttyACM0` exists; loader/input nodes may appear on enumeration.
   Host D-Bus is not exposed. Firmware-initiated reconnect avoids requiring it.
+
+## Current handoff state (2026-09-18)
+
+The last committed plan-only change is `4c0513b`. The current worktree has
+uncommitted implementation edits in `src/controller.c`, `src/controller.h`,
+`src/input.c`, `src/input.h`, `src/usb.c`, `tools/c2ctl.c`, and
+`docs/usb-control.md`, plus new `tools/latency.py` and `docs/latency.md`.
+`tools/__pycache__/` is also untracked and should be reviewed or removed before
+the implementation commit. Treat these edits as unintegrated until reviewed
+together.
+
+The USB baseline agent reports successful object builds for
+`build/src/controller.c.o` and `build/src/usb.c.o`; `git diff --check` passed.
+The acquisition agent reports a successful `make V=1 build/src/input.c.o`.
+Its implementation uses the SDK UART2 DMA ring on RX PA3, restores PA2 for
+d-pad up, retains divisor 24, and adds parser/ring statistics. Live validation
+of CRC frames, stick motion, d-pad up, overflow behavior, and report integrity
+has not happened.
+
+The host-tools agent exhausted its model budget. Treat `c2ctl.c`, `latency.py`,
+and `docs/latency.md` as unfinished until reviewed and built. During manual
+testing, opening CDC after a prior session required asserting DTR/RTS with
+`TIOCMBIS` after raw-mode setup; this must be handled deliberately in the host
+client, with a fallback for devices that reject modem control.
+
+Hardware checks completed in this session:
+
+- CDC answered `debug off`, `status`, and `report status`; the device was alive
+  but had no active Bluetooth profile at that moment (`attempts=0`).
+- CDC `uboot` was accepted and printed the expected MaskROM token. The device
+  enumerated as `/dev/bwrap/sg1`, and the existing loader read the complete
+  512 KiB flash.
+- The readback is saved outside the repository as
+  `/work/cyclone2-test-qjEkRO/baseline-flash.bin`, SHA-256
+  `105a1775ff0f192529a2293f5e7e04bd981c6e759398a775788d8e1436af3807`.
+  The pre-existing build image is saved as
+  `/work/cyclone2-test-qjEkRO/initial-build.img`, SHA-256
+  `4e3bf98dfd3daad9eaf68996713cb8da90b6fdccbcb097af210a168c4e11f49f`.
+- No firmware image was flashed during this stage. The paired Switch device
+  and its syscfg/VM/BTIF data remain the recovery baseline.
+
+When resuming, review the uncommitted diff first, remove generated artifacts,
+run a complete build, then test CDC `help`, `connect status`, `connect 0`, and
+`inject a 100 10000` while USB remains connected. Confirm the host sees the
+saved Switch pairing before considering a flash. Keep the saved readback until
+the new image has passed recovery and Bluetooth checks.
