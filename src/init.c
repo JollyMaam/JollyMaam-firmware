@@ -1,14 +1,11 @@
-#include <system/includes.h>
 #include <asm/charge.h>
-#include "device/key_driver.h"
-#include "asm/power/p33.h"
-#include "asm/iic_soft.h"
-#include "usb/otg.h"
-#include "asm/power/power_port.h"
-#include "input.h"
+#include <asm/power/p33.h>
+#include <asm/power/power_port.h>
+#include <media/includes.h>
+#include <system/includes.h>
 
 #include "app_config.h"
-#include "media/includes.h"
+#include "input.h"
 
 #define LOG_TAG_CONST       BOARD
 #define LOG_TAG             "[BOARD]"
