@@ -52,13 +52,11 @@ Do not add a generic event bus, allocator, plugin system, or macro language.
 
 ## Current handoff state (2026-09-18)
 
-The last committed plan-only change is `4c0513b`. The current worktree has
-uncommitted implementation edits in `src/controller.c`, `src/controller.h`,
-`src/input.c`, `src/input.h`, `src/usb.c`, `tools/c2ctl.c`, and
-`docs/usb-control.md`, plus new `tools/latency.py` and `docs/latency.md`.
-`tools/__pycache__/` is also untracked and should be reviewed or removed before
-the implementation commit. Treat these edits as unintegrated until reviewed
-together.
+The plan was introduced in `4c0513b`. The reviewed implementation is committed
+in `9288a03`, with the generated Python cache ignore rule in `1c0ec41`; the
+worktree is clean. The implementation includes `src/controller.c`,
+`src/controller.h`, `src/input.c`, `src/input.h`, `src/usb.c`, `tools/c2ctl.c`,
+`tools/latency.py`, and their documentation.
 
 The USB baseline agent reports successful object builds for
 `build/src/controller.c.o` and `build/src/usb.c.o`; `git diff --check` passed.
@@ -90,8 +88,8 @@ Hardware checks completed in this session:
 - No firmware image was flashed during this stage. The paired Switch device
   and its syscfg/VM/BTIF data remain the recovery baseline.
 
-When resuming, review the uncommitted diff first, remove generated artifacts,
-run a complete build, then test CDC `help`, `connect status`, `connect 0`, and
+When resuming, review the next diff first, run a complete build, then test CDC
+`help`, `connect status`, `connect 0`, and
 `inject a 100 10000` while USB remains connected. Confirm the host sees the
 saved Switch pairing before considering a flash. Keep the saved readback until
 the new image has passed recovery and Bluetooth checks.
