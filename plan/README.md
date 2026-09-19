@@ -123,3 +123,28 @@ The generated CDC build copy suppresses an SDK bulk-endpoint reinitialization
 on each CDC control-line change. Repeated CDC opens worked after this change;
 the source SDK checkout is unchanged. The complete build also links the SDK
 `cpu/br23/uart_dev.c` source required by the DMA acquisition implementation.
+
+## Resume update (2026-09-19)
+
+Trigger-stop microswitch support is committed in `9d031e2`. Static analysis
+and a focused RAM diagnostic established that the switches use the two
+active-low RTC-domain inputs rather than PA-PD GPIOs: left is SDK PR0
+(physical/one-based PR1), right is SDK PR1 (physical/one-based PR2). The input
+driver now configures both through the SDK RTC API and forces the corresponding
+trigger report to `0xff` while a microswitch is closed, overriding the Hall ADC.
+
+The resulting `build/firmware.img` has SHA-256
+`18fefbb2e9add43ae223d580b08f8c2a2bcd2d1e2908e57b50443c64757d9dc5`.
+It was verified by `jlnewfw`, flashed from offset zero through `0x33fff`, and
+read back byte-for-byte to
+`/work/cyclone2-test-qjEkRO/trigger-switch-readback.bin`. Reserved VM/BTIF data
+was not written. The image boots and CDC works. `input status` after boot showed
+64071 valid UART frames, zero dropped bytes, zero overflows, and four CRC misses.
+The saved report period is 5 ms.
+
+The remaining validation gate is host Bluetooth reconnection. Two CDC
+`connect 0` attempts completed their reset path but eventually reported
+`state=off`, with no host HID node. A host-side `bluetoothctl connect` (or an
+equivalent host action) is needed before measuring 5 ms reports and verifying
+the PR trigger overrides through evdev. Do not start step 4 until this baseline
+is confirmed.
