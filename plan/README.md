@@ -148,3 +148,14 @@ The remaining validation gate is host Bluetooth reconnection. Two CDC
 equivalent host action) is needed before measuring 5 ms reports and verifying
 the PR trigger overrides through evdev. Do not start step 4 until this baseline
 is confirmed.
+
+The user subsequently confirmed that `connect 0` did reconnect without a
+host-side `bluetoothctl` command, although the elapsed time was not observed.
+Commit `3cb6a79` adds an explicit `disconnect` console command. It stops
+injection, requests the profile-level disconnect, waits 100 ms, exits the
+Bluetooth stack, and deliberately leaves USB/CDC and the saved bond intact.
+The corresponding image (SHA-256
+`8938ae3a5b93ce1f2afa09e82bea5cd151e027bba3acf599f6ecfd5cbab6610f`)
+was flashed and read back exactly. An automated `connect 0` observation still
+reported `state=off` after 35 seconds, so live `disconnect` followed by
+reconnect remains a user-assisted validation item.
