@@ -343,6 +343,10 @@ static void reply_subcommand(u8 subcommand, const u8 *request, u16 request_size)
         }
         break;
     case SWITCH_SUBCOMMAND_HOME_LIGHT:
+        /* HOME_LIGHT is a separate Switch command.  Do not let it change
+         * the IMU state: the old fall-through made an ordinary home-LED
+         * update with value zero stop motion sampling. */
+        break;
     case SWITCH_SUBCOMMAND_ENABLE_IMU:
         imu_enabled = request_size != 0U && request[0] != 0U;
         if (imu_enabled) cyclone2_imu_enable();

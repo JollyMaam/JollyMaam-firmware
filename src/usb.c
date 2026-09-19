@@ -284,9 +284,10 @@ __attribute__((noinline)) static void print_imu_status(void)
     state = status.initialized ? "running" :
             (status.enabled ? "starting" : "stopped");
     length = snprintf(line, sizeof(line),
-                      "imu=%s id=0x%02x samples=%u errors=%u last_error=%u last_sample_ms=%u\r\n",
+                      "imu=%s id=0x%02x samples=%u errors=%u last_error=%u last_sample_ms=%u enable=%u disable=%u\r\n",
                       state, status.device_id, status.samples, status.errors,
-                      status.last_error, status.last_sample_ms);
+                      status.last_error, status.last_sample_ms,
+                      status.enable_requests, status.disable_requests);
     if (length > 0) console_write_bytes(line, (u32)length);
 }
 

@@ -21,6 +21,8 @@ struct cyclone2_imu_status {
     u8 initialized;
     u8 last_error;
     u8 enabled;
+    u32 enable_requests;
+    u32 disable_requests;
 };
 
 void cyclone2_imu_task(void *private_data);

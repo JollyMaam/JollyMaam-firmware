@@ -242,6 +242,7 @@ void cyclone2_imu_enable(void)
 {
     requested_enabled = 1U;
     imu_status.enabled = 1U;
+    imu_status.enable_requests++;
 }
 
 void cyclone2_imu_disable(void)
@@ -249,6 +250,7 @@ void cyclone2_imu_disable(void)
     requested_enabled = 0U;
     imu_status.enabled = 0U;
     imu_status.initialized = 0U;
+    imu_status.disable_requests++;
 }
 
 int cyclone2_imu_latest(struct cyclone2_imu_sample *sample_value)
