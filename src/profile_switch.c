@@ -202,9 +202,9 @@ static void fill_imu_samples(u8 output[36])
         write_s16_le(output + index * 12U + 0U, sample.accel_x / 2);
         write_s16_le(output + index * 12U + 2U, sample.accel_y / 2);
         write_s16_le(output + index * 12U + 4U, sample.accel_z / 2);
-        write_s16_le(output + index * 12U + 6U, sample.gyro_x);
-        write_s16_le(output + index * 12U + 8U, sample.gyro_y);
-        write_s16_le(output + index * 12U + 10U, sample.gyro_z);
+        write_s16_le(output + index * 12U + 6U, -sample.gyro_x); /* roll */
+        write_s16_le(output + index * 12U + 8U, -sample.gyro_y); /* pitch */
+        write_s16_le(output + index * 12U + 10U, sample.gyro_z); /* yaw */
     }
 }
 
