@@ -57,8 +57,10 @@ visible. Each line is timestamped with milliseconds since boot. Debug output
 does not emit another command prompt after every line. Automatic Bluetooth
 timeouts and disconnects do not enter soft
 poweroff while USB is connected; this keeps the console and recovery command
-available. Explicit Home holds and delayed poweroff also check cable presence;
-sleep is suppressed while USB is attached.
+available. A five-second Home hold still disconnects Bluetooth, but suppresses
+the final sleep while USB is attached so the CDC console remains available.
+Repeated connect/profile commands are rejected while teardown or reset is
+already in progress.
 
 `make build/c2ctl` builds the noninteractive Linux client. It searches
 `/dev/bwrap/ttyACM*` before `/dev/ttyACM*`, or accepts an explicit path:

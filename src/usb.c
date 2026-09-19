@@ -275,10 +275,18 @@ static void execute_command(void)
                !strcmp(command_line, "connect 2") ||
                !strcmp(command_line, "connect 3")) {
         u8 slot = (u8)(command_line[8] - '0');
-        console_write("OK reconnecting slot ");
-        console_write_bytes(&command_line[8], 1U);
-        console_write("\r\n");
-        cyclone2_connect_request(slot);
+        int result = cyclone2_connect_request(slot);
+        if (result > 0) {
+            console_write("OK reconnecting slot ");
+            console_write_bytes(&command_line[8], 1U);
+            console_write("\r\n");
+        } else if (result == 0) {
+            console_write("OK already connected to slot ");
+            console_write_bytes(&command_line[8], 1U);
+            console_write("\r\n");
+        } else {
+            console_write("ERR profile transition already in progress\r\n");
+        }
     } else if (!strcmp(command_line, "disconnect")) {
         int result = cyclone2_disconnect_request();
         if (result >= 0) {

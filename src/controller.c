@@ -158,6 +158,7 @@ void cyclone2_report_statistics_get(struct cyclone2_report_statistics *stats)
 int cyclone2_connect_request(u8 profile)
 {
     if (profile >= CYCLONE2_PROFILE_COUNT) return -1;
+    if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
     if (active_profile == profile &&
         cyclone2_profile_is_connected()) return 0;
     injection_cancel();
@@ -372,7 +373,16 @@ static void radio_exit_and_poweroff(void *private_data)
 static void begin_sleep(void)
 {
     if (cyclone2_usb_present()) {
-        cyclone2_usb_debug("sleep request ignored; USB is connected");
+        if (radio_state == CYCLONE2_RADIO_CONNECTED) {
+            cyclone2_usb_debug(
+                "Home hold: disconnecting Bluetooth; USB keeps console awake");
+            cyclone2_disconnect_request();
+        } else {
+            cyclone2_usb_debug(
+                "Home hold: USB keeps console awake; Bluetooth is not connected");
+        }
+        /* Make the long-hold action one-shot until Home is released. */
+        home_state = CYCLONE2_HOME_INVALID_CHORD;
         return;
     }
     if (radio_state != CYCLONE2_RADIO_STOPPING) sleep_pending = 1U;
