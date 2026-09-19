@@ -7,6 +7,7 @@
 #include "input.h"
 #include "led.h"
 #include "main.h"
+#include "profile.h"
 #include "rom.h"
 #include "usb.h"
 #include "usb/device/cdc.h"
@@ -158,6 +159,88 @@ static void print_report_status(void)
     if (length > 0) console_write_bytes(line, (u32)length);
 }
 
+static const char *connection_state_name(u8 state)
+{
+    static const char *const names[] = {
+        "off", "connecting", "pairing", "connected", "stopping"
+    };
+    return state < sizeof(names) / sizeof(names[0]) ? names[state] : "unknown";
+}
+
+static void print_connection_status(void)
+{
+    struct cyclone2_connection_status status;
+    char line[128];
+    int length;
+
+    cyclone2_connection_status_get(&status);
+    length = snprintf(line, sizeof(line),
+                      "slot=%u profile=%s state=%s address=%02x:%02x:%02x:%02x:%02x:%02x usb=%s\r\n",
+                      status.slot, status.profile_type == CYCLONE2_PROFILE_GENERIC ?
+                      "generic" : "switch", connection_state_name(status.connection_state),
+                      status.local_address[5], status.local_address[4],
+                      status.local_address[3], status.local_address[2],
+                      status.local_address[1], status.local_address[0],
+                      status.usb_present ? "present" : "absent");
+    if (length > 0) console_write_bytes(line, (u32)length);
+}
+
+static void print_injection_status(void)
+{
+    struct cyclone2_injection_status status;
+    char line[128];
+    int length;
+
+    cyclone2_injection_status_get(&status);
+    length = snprintf(line, sizeof(line),
+                      "inject=%s a=%u period=%u duration=%u edges=%u overruns=%u\r\n",
+                      status.active ? "active" : "stopped", status.synthetic_a,
+                      status.period_ms, status.duration_ms, status.emitted_edges,
+                      status.overruns);
+    if (length > 0) console_write_bytes(line, (u32)length);
+}
+
+static void print_input_status(void)
+{
+    struct cyclone2_input_stats stats;
+    char line[128];
+    int length;
+
+    cyclone2_input_get_stats(&stats);
+    length = snprintf(line, sizeof(line),
+                      "input dropped=%u crc=%u overflow=%u valid=%u last_axes_ms=%u\r\n",
+                      stats.dropped_bytes, stats.crc_failures,
+                      stats.overflow_events, stats.valid_frames,
+                      stats.last_axes_timestamp_ms);
+    if (length > 0) console_write_bytes(line, (u32)length);
+}
+
+static int parse_decimal(const char **cursor, u32 *value)
+{
+    const char *text = *cursor;
+    u32 result = 0U;
+    u8 digits = 0U;
+
+    while (*text >= '0' && *text <= '9') {
+        u32 digit = (u32)(*text - '0');
+        if (result > (0xffffffffU - digit) / 10U) return -1;
+        result = result * 10U + digit;
+        digits = 1U;
+        text++;
+    }
+    if (!digits) return -1;
+    *cursor = text;
+    *value = result;
+    return 0;
+}
+
+static int parse_injection_args(const char *text, u32 *period, u32 *duration)
+{
+    if (parse_decimal(&text, period) != 0 || *text++ != ' ' ||
+        parse_decimal(&text, duration) != 0 || *text != '\0') return -1;
+    return 0;
+}
+
 static void execute_command(void)
 {
     command_line[command_length] = '\0';
@@ -166,6 +249,10 @@ static void execute_command(void)
         console_write("help     show this command list\r\n"
                       "debug on|off|status  control runtime diagnostics\r\n"
                       "report 5|8|10|status  set/report HID period in ms\r\n"
+                      "connect 0|1|2|3  reconnect a saved profile slot\r\n"
+                      "connect status  show slot, address, state, and USB\r\n"
+                      "inject a PERIOD_MS DURATION_MS | stop | status\r\n"
+                      "input status  show stick-DMA framing counters\r\n"
                       "status   show reset mailbox and MaskROM NVRAM\r\n"
                       "uboot    reboot into BR23 UBOOT1.00\r\n");
     } else if (!strcmp(command_line, "debug on")) {
@@ -180,6 +267,33 @@ static void execute_command(void)
                                       "debug output disabled\r\n");
     } else if (!strcmp(command_line, "status")) {
         print_status();
+    } else if (!strcmp(command_line, "connect status")) {
+        print_connection_status();
+    } else if (!strcmp(command_line, "connect 0") ||
+               !strcmp(command_line, "connect 1") ||
+               !strcmp(command_line, "connect 2") ||
+               !strcmp(command_line, "connect 3")) {
+        u8 slot = (u8)(command_line[8] - '0');
+        console_write("OK reconnecting slot ");
+        console_write_bytes(&command_line[8], 1U);
+        console_write("\r\n");
+        cyclone2_connect_request(slot);
+    } else if (!strcmp(command_line, "inject stop")) {
+        cyclone2_inject_stop();
+        console_write("OK injection stopped\r\n");
+    } else if (!strcmp(command_line, "inject status")) {
+        print_injection_status();
+    } else if (!strcmp(command_line, "input status")) {
+        print_input_status();
+    } else if (!strncmp(command_line, "inject a ", 9U)) {
+        u32 period;
+        u32 duration;
+        if (parse_injection_args(command_line + 9, &period, &duration) == 0 &&
+            cyclone2_inject_start(period, duration) == 0) {
+            console_write("OK injection started\r\n");
+        } else {
+            console_write("ERR inject syntax/range; use inject a PERIOD_MS DURATION_MS\r\n");
+        }
     } else if (!strcmp(command_line, "report status")) {
         print_report_status();
     } else if (!strcmp(command_line, "report 5")) {

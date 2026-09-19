@@ -11,7 +11,7 @@ agent owns integration, builds, flashing, and this progress record.
 | --- | --- | --- |
 | 1 | [USB testing access](01-usb-testing.md) | implementation present; review and hardware test pending |
 | 2 | [Nonblocking acquisition](02-acquisition.md) | implementation present; hardware test pending |
-| 3 | [Host test tools](03-host-tests.md) | partial files present; review/test pending (agent budget exhausted) |
+| 3 | [Host test tools](03-host-tests.md) | implementation present; 10 ms live test passed; 5 ms host test awaits reconnect |
 | 4 | [Controller scheduling and TX](04-controller-tx.md) | pending hardware baseline |
 | 5 | [IMU and rumble](05-imu-rumble.md) | pending stable scheduling |
 
@@ -95,3 +95,33 @@ run a complete build, then test CDC `help`, `connect status`, `connect 0`, and
 `inject a 100 10000` while USB remains connected. Confirm the host sees the
 saved Switch pairing before considering a flash. Keep the saved readback until
 the new image has passed recovery and Bluetooth checks.
+
+## Stage 1 validation update
+
+The reviewed stage-1 image was built as `build/firmware.img`, verified by
+`jlnewfw`, flashed through UBOOT1.00, and read back byte-for-byte. The full
+image is 212992 bytes; the saved readback is
+`/work/cyclone2-test-qjEkRO/stage3-readback.bin`. The existing reserved region
+from offset `0x40000` through the end of the 512 KiB readback remained equal to
+the pre-flash readback.
+
+Live CDC and Bluetooth results:
+
+- `connect 0` reconnected to the saved Switch bond without pairing. CDC then
+  reported `state=connected`, address `13:11:db:58:28:18`, and USB present.
+- `input status` showed valid stick frames and zero CRC failures. During a long
+  run it reported two UART ring overflows and dropped bytes; axis data remained
+  valid. This needs tuning before claiming the DMA path is lossless.
+- `inject a 100 10000` produced 100 press and 100 release events on evdev code
+  305 (`BTN_EAST`, the current Switch mapping for A), with no duplicates,
+  `SYN_DROPPED`, or missing events. Device injection status reported 200
+  accepted edges and zero schedule overruns. Host event spacing was about
+  52 ms median for the alternating edges, consistent with a 100 ms cycle.
+- The firmware was switched to a 5 ms report period, but the host did not
+  automatically reconnect after the subsequent reboot, so no 5 ms evdev result
+  is available. A host-side Bluetooth reconnect is required before continuing.
+
+The generated CDC build copy suppresses an SDK bulk-endpoint reinitialization
+on each CDC control-line change. Repeated CDC opens worked after this change;
+the source SDK checkout is unchanged. The complete build also links the SDK
+`cpu/br23/uart_dev.c` source required by the DMA acquisition implementation.

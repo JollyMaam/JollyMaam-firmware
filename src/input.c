@@ -1,12 +1,15 @@
 #include <asm/gpio.h>
 #include <asm/br23.h>
+#include <asm/uart_dev.h>
+#include <system/timer.h>
 
 #include "input.h"
 
 #define STICK_UART_DIVISOR          24U
 #define STICK_UART_FRAME_SIZE       4U
-#define STICK_UART_CAPTURE_BYTES    32U
-#define STICK_UART_POLL_ITERATIONS  200000U
+#define STICK_UART_DMA_BUFFER_SIZE  512U
+#define STICK_UART_DMA_FRAME_SIZE   32U
+#define STICK_UART_READ_CHUNK       128U
 
 /* Live sensor endpoints with a nominal 0x4000 center. Vertical low endpoints
  * differ slightly on this unit. Keep these explicit until EEPROM/user
@@ -24,12 +27,6 @@
 #define STICK_RY_RAW_CENTER         0x4000U
 #define STICK_RY_RAW_MAXIMUM        0x6600U
 
-#define UART_ENABLE                 (1U << 0)
-#define UART_TIMEOUT_PENDING_CLEAR  (1U << 10)
-#define UART_RX_PENDING_CLEAR       (1U << 12)
-#define UART_TX_PENDING_CLEAR       (1U << 13)
-#define UART_RX_PENDING             (1U << 14)
-
 #define STICK_TAG_LEFT_X            0xaaU
 #define STICK_TAG_LEFT_Y            0x55U
 #define STICK_TAG_RIGHT_X           0xccU
@@ -45,6 +42,7 @@ enum stick_receive_status {
     STICK_RECEIVE_VALID_FRAMES,
 };
 
+static u8 stick_dma_buffer[STICK_UART_DMA_BUFFER_SIZE] __attribute__((aligned(4)));
 static u8 stick_frame[STICK_UART_FRAME_SIZE];
 static u8 stick_frame_length;
 static u16 stick_left_x = 0x8000U;
@@ -54,6 +52,9 @@ static u16 stick_right_y = 0x8000U;
 static enum stick_receive_status stick_receive_status;
 static u16 trigger_l2_rest;
 static u16 trigger_r2_rest;
+static uart_bus_t *stick_uart;
+static volatile u8 stick_uart_work_pending;
+static struct cyclone2_input_stats stick_stats;
 
 struct digital_button {
     u32 gpio;
@@ -135,6 +136,8 @@ static void stick_accept_frame(const u8 *frame)
     u16 value = ((u16)frame[1] << 8) | frame[2];
 
     stick_receive_status = STICK_RECEIVE_VALID_FRAMES;
+    stick_stats.valid_frames++;
+    stick_stats.last_axes_timestamp_ms = sys_timer_get_ms();
     switch (frame[0]) {
     case STICK_TAG_LEFT_X:
         stick_left_x = value;
@@ -167,53 +170,100 @@ static void stick_consume_byte(u8 byte)
         stick_frame_length = 0;
         return;
     }
+    stick_stats.crc_failures++;
     for (index = 1; index < STICK_UART_FRAME_SIZE; index++) {
         stick_frame[index - 1U] = stick_frame[index];
     }
     stick_frame_length = STICK_UART_FRAME_SIZE - 1U;
 }
 
+static void stick_uart_isr(void *arg, u32 status)
+{
+    (void)arg;
+    (void)status;
+    /* The SDK ISR owns DMA advancement. Defer all parsing to input_read(). */
+    stick_uart_work_pending = 1;
+}
+
 static void stick_uart_drain(void)
 {
-    u32 captured = 0;
-    u32 iterations;
+    u8 capture[STICK_UART_READ_CHUNK];
+    u32 available;
+    u32 captured;
+    u32 chunk;
+    u32 index;
 
-    /* Do not burn time when the sensor stream is absent. Once a byte is
-     * pending, stay in the proven polled receive loop long enough to collect
-     * complete frames at 1 Mbaud. */
-    if (!(JL_UART2->CON0 & UART_RX_PENDING)) {
+    if (!stick_uart || !stick_uart_work_pending) {
         return;
     }
-    for (iterations = 0;
-        iterations < STICK_UART_POLL_ITERATIONS &&
-         captured < STICK_UART_CAPTURE_BYTES;
-         iterations++) {
-        if (JL_UART2->CON0 & UART_RX_PENDING) {
+    /* buf_in/out are the SDK producer/consumer counters. Once the producer is
+     * more than one ring ahead, old bytes have been overwritten; retain only
+     * the newest complete ring and invalidate parser state. */
+    available = stick_uart->kfifo.buf_in - stick_uart->kfifo.buf_out;
+    if (available > STICK_UART_DMA_BUFFER_SIZE) {
+        stick_stats.dropped_bytes += available - STICK_UART_DMA_BUFFER_SIZE;
+        stick_stats.overflow_events++;
+        stick_uart->kfifo.buf_out = stick_uart->kfifo.buf_in -
+                                    STICK_UART_DMA_BUFFER_SIZE;
+        stick_frame_length = 0;
+        available = STICK_UART_DMA_BUFFER_SIZE;
+        stick_receive_status = STICK_RECEIVE_BAD_FRAMES;
+    }
+    while (available) {
+        chunk = available < sizeof(capture) ? available : sizeof(capture);
+        captured = stick_uart->read(capture, chunk, 0);
+        for (index = 0; index < captured; index++) {
             if (stick_receive_status == STICK_RECEIVE_NO_BYTES) {
                 stick_receive_status = STICK_RECEIVE_BAD_FRAMES;
             }
-            stick_consume_byte((u8)JL_UART2->BUF);
-            JL_UART2->CON0 |= UART_RX_PENDING_CLEAR;
-            __asm__ volatile("csync");
-            captured++;
+            stick_consume_byte(capture[index]);
         }
+        if (captured == 0) {
+            break;
+        }
+        available -= captured;
     }
+    stick_uart_work_pending = stick_uart->kfifo.buf_in !=
+                              stick_uart->kfifo.buf_out;
 }
 
 static void stick_uart_initialize(void)
 {
-    JL_UART2->CON0 = UART_TX_PENDING_CLEAR | UART_RX_PENDING_CLEAR |
-                     UART_TIMEOUT_PENDING_CLEAR;
-    gpio_set_uart2(0U);
+    struct uart_platform_data_t config = {0};
+
+    config.tx_pin = (u8)-1;
+    config.rx_pin = CYCLONE2_STICK_UART_RX;
+    config.rx_cbuf = stick_dma_buffer;
+    config.rx_cbuf_size = STICK_UART_DMA_BUFFER_SIZE;
+    config.frame_length = STICK_UART_DMA_FRAME_SIZE;
+    config.rx_timeout = 1U;
+    config.isr_cbfun = stick_uart_isr;
+    config.baud = 1000000U;
+    config.is_9bit = 0;
+    stick_uart = (uart_bus_t *)uart_dev_open(&config);
+    if (!stick_uart) {
+        stick_receive_status = STICK_RECEIVE_BAD_FRAMES;
+        return;
+    }
+    /* The board's measured-good divisor is 24. The SDK's baud calculation is
+     * intentionally not used because it produced CRC-invalid data here. */
+    /* Match UT2_set_baud(): BAUD is programmed while UART enable is clear,
+     * then the prior DMA/IRQ configuration is resumed. */
+    JL_UART2->CON0 &= ~BIT(0);
+    JL_UART2->BAUD = STICK_UART_DIVISOR;
+    __asm__ volatile("csync");
+    JL_UART2->CON0 |= BIT(0);
     /* Channel zero pairs PA3 RX with PA2 TX. The sensor only transmits, so
      * restore PA2 as d-pad up after enabling the exact proven UART route. */
     configure_active_low_input(CYCLONE2_DPAD_UP);
-    /* Divider 24 is measured working on this board. clk_get("uart") reports
-     * 24 MHz here, but deriving a nominal 1-Mbaud divider from that value
-     * produced bytes with no CRC-valid frames. */
-    JL_UART2->BAUD = STICK_UART_DIVISOR;
-    JL_UART2->CON0 = UART_TX_PENDING_CLEAR | UART_RX_PENDING_CLEAR |
-                     UART_TIMEOUT_PENDING_CLEAR | UART_ENABLE;
+    stick_uart_work_pending = 0;
+}
+
+void cyclone2_input_get_stats(struct cyclone2_input_stats *stats)
+{
+    if (stats) {
+        *stats = stick_stats;
+    }
 }
 
 static u8 stick_axis_to_report(u16 value, u16 minimum, u16 center,

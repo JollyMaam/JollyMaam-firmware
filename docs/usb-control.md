@@ -22,9 +22,30 @@ debug on|off|status
          control runtime Bluetooth diagnostics
 report 5|8|10|status
          select or inspect the saved HID report period and counters
+connect 0|1|2|3
+         reconnect the selected slot using its saved bond (never pairs)
+connect status
+         show slot, profile, connection state, derived local address, and USB
+input status
+         show stick-DMA framing/drop counters and the last axes timestamp
+inject a PERIOD_MS DURATION_MS
+         repeat synthetic A for the requested duration (even period 20..1000 ms,
+         duration 1..60000 ms; requires a usable HID connection)
+inject stop|status
+         stop injection or show edge/overrun counters
 status   show the reset mailbox and MaskROM NVRAM
 uboot    reboot into BR23 UBOOT1.00
 ```
+
+For example, `inject a 100 10000` holds synthetic A for the first 50 ms of
+each 100-ms cycle and releases it for the next 50 ms. The schedule uses device
+millisecond deadlines; `edges` counts only transitions accepted by the profile,
+while `overruns` counts scheduled transitions skipped when the control loop was
+late. Neither counter proves delivery to the host. Injection is stopped on
+disconnect and profile changes. `inject stop`
+schedules a final synthetic release while preserving any physical A hold. Its
+schedule is not a one-way latency measurement: device and host clocks are unsynchronized,
+and host receipt time must be measured separately.
 
 Runtime diagnostics default to enabled and report Bluetooth status/HCI events
 and EDR HID-channel state. The locally compiled SDK EDR, EDR HID, and BLE
@@ -34,17 +55,25 @@ visible. Each line is timestamped with milliseconds since boot. Debug output
 does not emit another command prompt after every line. Automatic Bluetooth
 timeouts and disconnects do not enter soft
 poweroff while USB is connected; this keeps the console and recovery command
-available. An explicit long Home button hold can still request sleep.
+available. Explicit Home holds and delayed poweroff also check cable presence;
+sleep is suppressed while USB is attached.
 
-`out/c2ctl` is an optional noninteractive Linux client. It finds the first
-`/dev/ttyACM*` device, or accepts an explicit path:
+`make build/c2ctl` builds the noninteractive Linux client. It searches
+`/dev/bwrap/ttyACM*` before `/dev/ttyACM*`, or accepts an explicit path:
 
 ```sh
-out/c2ctl status
-out/c2ctl uboot /dev/ttyACM1
+build/c2ctl status
+build/c2ctl -p /dev/ttyACM1 uboot
+build/c2ctl -p /dev/bwrap/ttyACM0 'connect 0'
 ```
 
 ## Recovery sequence
+
+The build makes a one-line correction to a generated copy of SDK `cdc.c`:
+`SET_CONTROL_LINE_STATE` no longer reinitializes bulk endpoints. The SDK reset
+handler already configures them. Resetting their DATA toggles on each tty open
+caused alternating commands to disappear; repeated opens worked after this
+correction. The SDK source checkout is unchanged.
 
 The `uboot` command first writes MaskROM USB boot state 2 and reports a
 16-byte snapshot of the NVRAM block at `0x10800`. Bytes 4 through 11 should be

@@ -12,7 +12,7 @@ HOST_CFLAGS := -O2 -g -std=c11 -Wall -Wextra -Wpedantic
 CFLAGS := $(SDK_CFLAGS)
 DEFINES := $(SDK_DEFINES)
 SDK_ARCHIVES := $(SDK_ARCHIVES_MINIMAL)
-SDK_SOURCES := $(SDK_SOURCES_MINIMAL)
+SDK_SOURCES := $(SDK_SOURCES_MINIMAL) $(SDK)/cpu/br23/uart_dev.c
 SDK_COMMON_SOURCES := $(SDK_COMMON_SOURCES_MINIMAL)
 
 SDK_COMMON_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_COMMON_SOURCES:.c=.c.o))
@@ -65,6 +65,10 @@ $O/jlcfg: tools/jlcfg.c
 	@echo [EXE] $@
 	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) $< -o $@
 
+$O/c2ctl: tools/c2ctl.c
+	@mkdir -p $(@D)
+	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) $< -o $@
+
 # minimal version of download.sh
 $O/app.bin: $O/app.elf
 	@echo [BIN] $@
@@ -99,6 +103,16 @@ $O/src/%.c.o: src/%.c
 	$(compile_c)
 
 $O/sdk/%.c.o: $(SDK)/%.c
+	$(compile_c)
+
+# SET_CONTROL_LINE_STATE must not reset bulk endpoint DATA toggles whenever
+# Linux opens/closes CDC. The SDK's cdc_reset already initializes endpoints
+# on USB configuration/reset. Patch a build copy, leaving the SDK untouched.
+$O/cdc.c: $(SDK)/apps/common/device/usb/device/cdc.c Makefile
+	@mkdir -p $(@D)
+	$(QUIET)sed '/cdc_endpoint_init(usb_device, (ctrl_req->wIndex \& USB_RECIP_MASK));/d' $< > $@
+
+$O/sdk/apps/common/device/usb/device/cdc.c.o: $O/cdc.c
 	$(compile_c)
 
 clean:

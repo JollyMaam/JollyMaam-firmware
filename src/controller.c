@@ -7,6 +7,7 @@
 #include "main.h"
 #include "main.h"
 #include "profile.h"
+#include "settings.h"
 #include "user_cfg_id.h"
 
 #define CYCLONE2_CONTROL_PERIOD_MS           5U
@@ -23,6 +24,9 @@
 #define CYCLONE2_LED_DIM_RED                 8U
 #define CYCLONE2_LED_SLOW_HALF_PERIOD_MS   500U
 #define CYCLONE2_LED_FAST_HALF_PERIOD_MS   120U
+#define CYCLONE2_INJECT_MIN_PERIOD_MS       20U
+#define CYCLONE2_INJECT_MAX_PERIOD_MS       1000U
+#define CYCLONE2_INJECT_MAX_DURATION_MS    60000U
 
 #define CYCLONE2_FACE_BUTTONS \
     (CYCLONE2_REPORT_BUTTON_A | CYCLONE2_REPORT_BUTTON_B | \
@@ -75,9 +79,22 @@ static u8 led_is_on;
 static u8 sleep_pending;
 static u8 ignore_chord_until_release;
 static struct cyclone2_report_statistics report_statistics;
+static struct cyclone2_injection_status injection_status;
+static u32 injection_started_ms;
+static u32 injection_next_transition_ms;
+static u8 injection_last_emitted;
+static u8 injection_release_pending;
 
 extern void bt_pll_para(u32 osc, u32 sys, u8 low_power, u8 xosc);
 static void start_selected_profile(void);
+static void profile_select(u8 profile, u8 pairing);
+static void injection_cancel(void);
+
+int cyclone2_usb_present(void)
+{
+    return gpio_read(CYCLONE2_USB_SENSE) ||
+           usb_otg_online(USB0) != DISCONN_MODE;
+}
 
 u8 get_cur_bt_idx(void)
 {
@@ -129,6 +146,96 @@ void cyclone2_report_statistics_get(struct cyclone2_report_statistics *stats)
     *stats = report_statistics;
 }
 
+int cyclone2_connect_request(u8 profile)
+{
+    if (profile >= CYCLONE2_PROFILE_COUNT) return -1;
+    if (active_profile == profile &&
+        cyclone2_profile_is_connected()) return 0;
+    injection_cancel();
+    profile_select(profile, 0U);
+    return 1;
+}
+
+void cyclone2_connection_status_get(struct cyclone2_connection_status *status)
+{
+    u8 slot = active_profile < CYCLONE2_PROFILE_COUNT ? active_profile : 0U;
+    status->slot = slot;
+    status->profile_type = active_profile < CYCLONE2_PROFILE_COUNT ?
+                           active_type :
+                           (settings.profile_type[slot] == CYCLONE2_PROFILE_GENERIC ?
+                            CYCLONE2_PROFILE_GENERIC : CYCLONE2_PROFILE_SWITCH);
+    status->connection_state = (u8)radio_state;
+    status->usb_present = (u8)cyclone2_usb_present();
+    cyclone2_bt_address_for_slot(slot, status->local_address);
+}
+
+int cyclone2_inject_start(u32 period_ms, u32 duration_ms)
+{
+    if (active_profile >= CYCLONE2_PROFILE_COUNT ||
+        !cyclone2_profile_is_connected() ||
+        period_ms < CYCLONE2_INJECT_MIN_PERIOD_MS ||
+        period_ms > CYCLONE2_INJECT_MAX_PERIOD_MS || duration_ms == 0U ||
+        duration_ms > CYCLONE2_INJECT_MAX_DURATION_MS || (period_ms & 1U)) return -1;
+    injection_status.active = 1U;
+    injection_status.synthetic_a = 1U;
+    injection_status.period_ms = period_ms;
+    injection_status.duration_ms = duration_ms;
+    injection_status.emitted_edges = 0U;
+    injection_status.overruns = 0U;
+    injection_last_emitted = 0U;
+    injection_release_pending = 0U;
+    injection_started_ms = sys_timer_get_ms();
+    injection_next_transition_ms = injection_started_ms + period_ms / 2U;
+    return 0;
+}
+
+void cyclone2_inject_stop(void)
+{
+    if (injection_status.active) {
+        injection_status.active = 0U;
+        injection_status.synthetic_a = 0U;
+        injection_release_pending = 1U;
+        return;
+    }
+    injection_status.active = 0U;
+    injection_status.synthetic_a = 0U;
+    injection_release_pending = 0U;
+}
+
+static void injection_cancel(void)
+{
+    injection_status.active = 0U;
+    injection_status.synthetic_a = 0U;
+    injection_release_pending = 0U;
+}
+
+void cyclone2_injection_status_get(struct cyclone2_injection_status *status)
+{
+    *status = injection_status;
+}
+
+static void update_injection(u32 now)
+{
+    u32 elapsed;
+    u32 half_period;
+    u32 missed;
+
+    if (!injection_status.active) return;
+    elapsed = now - injection_started_ms;
+    if (elapsed >= injection_status.duration_ms) {
+        injection_status.active = 0U;
+        injection_status.synthetic_a = 0U;
+        injection_release_pending = 1U;
+        return;
+    }
+    half_period = injection_status.period_ms / 2U;
+    if ((s32)(now - injection_next_transition_ms) < 0) return;
+    missed = (now - injection_next_transition_ms) / half_period;
+    injection_status.overruns += missed;
+    injection_status.synthetic_a ^= (u8)((missed + 1U) & 1U);
+    injection_next_transition_ms += (missed + 1U) * half_period;
+}
+
 static u16 boot_request_check(u8 profile, u8 pairing)
 {
     return (u16)(0xc200U ^ profile ^ ((u16)pairing << 8));
@@ -177,6 +284,7 @@ static void profile_request_reset(u8 profile, u8 pairing)
     if (radio_state == CYCLONE2_RADIO_STOPPING) {
         return;
     }
+    injection_cancel();
 
     /* Magic is the commit word and is written last. */
     reset_mailbox.magic = 0U;
@@ -193,6 +301,7 @@ static void profile_request_reset(u8 profile, u8 pairing)
 
 static void profile_select(u8 profile, u8 pairing)
 {
+    injection_cancel();
     if (active_profile < CYCLONE2_PROFILE_COUNT) {
         profile_request_reset(profile, pairing);
         return;
@@ -210,12 +319,25 @@ static void profile_select(u8 profile, u8 pairing)
 static void poweroff_now(void *private_data)
 {
     (void)private_data;
+    if (cyclone2_usb_present()) {
+        radio_state = CYCLONE2_RADIO_OFF;
+        cyclone2_usb_debug("sleep cancelled; USB is connected");
+        return;
+    }
     power_set_soft_poweroff();
 }
 
 static void radio_exit_and_poweroff(void *private_data)
 {
     (void)private_data;
+    if (cyclone2_usb_present()) {
+        sleep_pending = 0U;
+        radio_state = active_profile < CYCLONE2_PROFILE_COUNT &&
+                      cyclone2_profile_is_connected() ?
+                      CYCLONE2_RADIO_CONNECTED : CYCLONE2_RADIO_OFF;
+        cyclone2_usb_debug("sleep cancelled; USB is connected");
+        return;
+    }
     if (active_profile < CYCLONE2_PROFILE_COUNT) {
         cyclone2_profile_exit();
     }
@@ -225,12 +347,16 @@ static void radio_exit_and_poweroff(void *private_data)
 
 static void begin_sleep(void)
 {
+    if (cyclone2_usb_present()) {
+        cyclone2_usb_debug("sleep request ignored; USB is connected");
+        return;
+    }
     if (radio_state != CYCLONE2_RADIO_STOPPING) sleep_pending = 1U;
 }
 
 static void begin_automatic_sleep(const char *reason)
 {
-    if (usb_otg_online(USB0) != DISCONN_MODE) {
+    if (cyclone2_usb_present()) {
         cyclone2_usb_debug("%s; staying awake because USB is connected", reason);
         return;
     }
@@ -378,7 +504,15 @@ static void send_input_report(const struct cyclone2_input_report *report)
         radio_state == CYCLONE2_RADIO_STOPPING) return;
     report_statistics.send_attempts++;
     result = cyclone2_profile_send(report);
-    if (result > 0) report_statistics.send_accepted++;
+    if (result > 0) {
+        report_statistics.send_accepted++;
+        if ((injection_status.active || injection_release_pending) &&
+            injection_last_emitted != injection_status.synthetic_a) {
+            injection_last_emitted = injection_status.synthetic_a;
+            injection_status.emitted_edges++;
+            if (injection_release_pending) injection_release_pending = 0U;
+        }
+    }
     else if (result < 0) report_statistics.send_busy++;
 }
 
@@ -393,6 +527,9 @@ static void cyclone2_poll(void *private_data)
     report_statistics.poll_count++;
     cyclone2_usb_control_poll();
     cyclone2_input_read(&sample);
+    /* A console command may have started injection during this poll. Use a
+     * timestamp taken after it, so unsigned elapsed time cannot underflow. */
+    now = sys_timer_get_ms();
     accept_analog_input(&sample);
     if (sample.buttons != candidate_report.buttons ||
         sample.hat != candidate_report.hat) {
@@ -404,6 +541,7 @@ static void cyclone2_poll(void *private_data)
         current_report.hat = candidate_report.hat;
     }
     update_home_state();
+    update_injection(now);
     /* The ACL connection event precedes authentication and opening the HID
      * control/interrupt channels. Only the latter is a usable connection. */
     if (active_type == CYCLONE2_PROFILE_SWITCH &&
@@ -413,6 +551,9 @@ static void cyclone2_poll(void *private_data)
         radio_state = CYCLONE2_RADIO_CONNECTED;
     }
     make_host_report(&host_report);
+    if ((injection_status.active || injection_release_pending) &&
+        injection_status.synthetic_a)
+        host_report.buttons |= CYCLONE2_REPORT_BUTTON_A;
     if ((s32)(now - next_report_ms) >= 0) {
         send_input_report(&host_report);
         /* Advance from the intended deadline rather than from a late callback.
@@ -431,7 +572,7 @@ static void cyclone2_poll(void *private_data)
          now - radio_start_ms >= CYCLONE2_CONNECT_TIMEOUT_MS) ||
         (radio_state == CYCLONE2_RADIO_PAIRING &&
          now - radio_start_ms >= CYCLONE2_PAIR_TIMEOUT_MS)) {
-        if (usb_otg_online(USB0) != DISCONN_MODE) {
+        if (cyclone2_usb_present()) {
             cyclone2_usb_debug("Bluetooth timeout; staying awake for USB console");
             radio_start_ms = now;
         } else begin_automatic_sleep("Bluetooth timeout");
@@ -503,9 +644,13 @@ static int cyclone2_event_handler(struct application *application,
     result = cyclone2_profile_handle_event(event);
     if (result & CYCLONE2_PROFILE_EVENT_CONNECTED)
         radio_state = CYCLONE2_RADIO_CONNECTED;
-    if ((result & CYCLONE2_PROFILE_EVENT_DISCONNECTED) &&
-        radio_state == CYCLONE2_RADIO_CONNECTED)
-        begin_automatic_sleep("Bluetooth disconnected");
+    if (result & CYCLONE2_PROFILE_EVENT_DISCONNECTED) {
+        injection_cancel();
+        if (radio_state != CYCLONE2_RADIO_STOPPING) {
+            radio_state = CYCLONE2_RADIO_OFF;
+            begin_automatic_sleep("Bluetooth disconnected");
+        }
+    }
     return 0;
 }
 
