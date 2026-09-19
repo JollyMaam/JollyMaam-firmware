@@ -1,6 +1,7 @@
 #include <system/includes.h>
 #include <btstack/avctp_user.h>
 #include <btstack/btstack_task.h>
+#include <btstack/third_party/common/ble_user.h>
 
 #include "app_comm_bt.h"
 #include "ble_hogp_profile.h"
@@ -91,12 +92,15 @@ int cyclone2_generic_send(const struct cyclone2_input_report *report)
 
     result = ble_hid_data_send(GENERIC_REPORT_ID, (u8 *)report,
                                sizeof(*report));
-    if (result == 0) {
+    if (result == APP_BLE_NO_ERROR) {
         last_report = *report;
         report_sent = 1U;
         return 1;
     }
-    return -1;
+    if (result == APP_BLE_BUFF_FULL) return -1;
+    if (result == APP_BLE_IS_DISCONN || result == APP_BLE_NO_WRITE_CCC)
+        return 0;
+    return -2;
 }
 
 enum cyclone2_profile_event cyclone2_generic_handle_event(

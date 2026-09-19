@@ -561,7 +561,7 @@ static void send_input_report(const struct cyclone2_input_report *report)
     int result;
 
     if (active_profile >= CYCLONE2_PROFILE_COUNT ||
-        radio_state == CYCLONE2_RADIO_STOPPING) return;
+        radio_state != CYCLONE2_RADIO_CONNECTED) return;
     report_statistics.send_attempts++;
     result = cyclone2_profile_send(report);
     if (result > 0) {
@@ -576,7 +576,9 @@ static void send_input_report(const struct cyclone2_input_report *report)
             if (injection_release_pending) injection_release_pending = 0U;
         }
     }
-    else if (result < 0) report_statistics.send_busy++;
+    else if (result == 0) report_statistics.send_deferred++;
+    else if (result == -1) report_statistics.send_busy++;
+    else report_statistics.send_errors++;
 }
 
 static void cyclone2_poll(void *private_data)

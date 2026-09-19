@@ -338,7 +338,9 @@ int cyclone2_switch_send(const struct cyclone2_input_report *input)
         result = edr_hid_data_send(SWITCH_REPORT_SIMPLE_STATE, report,
                                    SWITCH_SIMPLE_PAYLOAD_SIZE);
     }
-    return result == 0 ? 1 : -1;
+    if (result == 0) return 1;
+    if (result == 3) return -1; /* SDK HID circular buffer is full. */
+    return -2;
 }
 
 #define SWITCH_HID_CONNECT_DELAY_MS 100U

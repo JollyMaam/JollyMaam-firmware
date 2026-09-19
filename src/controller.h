@@ -8,6 +8,8 @@ struct cyclone2_report_statistics {
     u32 send_attempts;
     u32 send_accepted;
     u32 send_busy;
+    u32 send_deferred;
+    u32 send_errors;
 };
 
 struct cyclone2_connection_status {

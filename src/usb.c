@@ -147,15 +147,16 @@ static void print_status(void)
 static void print_report_status(void)
 {
     struct cyclone2_report_statistics stats;
-    char line[96];
+    char line[160];
     int length;
 
     cyclone2_report_statistics_get(&stats);
     length = snprintf(line, sizeof(line),
-                      "report period=%u ms polls=%u attempts=%u accepted=%u busy=%u\r\n",
+                      "report period=%u ms polls=%u attempts=%u accepted=%u busy=%u deferred=%u errors=%u\r\n",
                       cyclone2_report_period_get(), stats.poll_count,
                       stats.send_attempts, stats.send_accepted,
-                      stats.send_busy);
+                      stats.send_busy, stats.send_deferred,
+                      stats.send_errors);
     if (length > 0) console_write_bytes(line, (u32)length);
 }
 

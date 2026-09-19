@@ -62,6 +62,12 @@ the final sleep while USB is attached so the CDC console remains available.
 Repeated connect/profile commands are rejected while teardown or reset is
 already in progress.
 
+`report status` distinguishes reports accepted by the SDK from temporary
+queue-full (`busy`), intentionally deferred (`deferred`, such as an unchanged
+BLE report), and unexpected profile/stack errors. Attempts are counted only
+while the profile is in the usable connected state; `polls` continues to show
+the application control-loop count.
+
 `make build/c2ctl` builds the noninteractive Linux client. It searches
 `/dev/bwrap/ttyACM*` before `/dev/ttyACM*`, or accepts an explicit path:
 
