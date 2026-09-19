@@ -13,7 +13,7 @@ agent owns integration, builds, flashing, and this progress record.
 | 2 | [Nonblocking acquisition](02-acquisition.md) | complete; bounded startup loss documented |
 | 3 | [Host test tools](03-host-tests.md) | complete; 5/8/10 ms live tests passed |
 | 4 | [Controller scheduling and TX](04-controller-tx.md) | complete; separate task not currently justified |
-| 5 | [IMU and rumble](05-imu-rumble.md) | pending stable scheduling |
+| 5 | [IMU and rumble](05-imu-rumble.md) | console baseline stable; motor-side confirmation pending |
 
 The starting controller is paired in Switch slot A (slot 0), address
 `13:11:DB:58:28:18`. Preserve its syscfg/VM/BTIF and address derivation. Never
@@ -226,3 +226,18 @@ The completed image SHA-256 is
 `7d0d99c73f557e13679ce66e2c414512e09feeda3afe074244ff98742c52f82e`.
 UBOOT recovery succeeded, and the code span was read back byte-for-byte as
 `/work/cyclone2-test-qjEkRO/step4-final-readback.bin`.
+
+## Step 5 progress
+
+Rumble and QMI8658A console drivers are implemented. Because direct I2C from
+`app_core` demonstrably overflowed the UART input ring, IMU work now runs in a
+dedicated priority-1 task and `app_core` runs at priority 2 (still below the
+Bluetooth tasks). Continuous approximately 100 Hz motion acquisition remained
+lossless for UART input and Bluetooth report scheduling in a live connected
+test. Full measurements and remaining work are in `05-imu-rumble.md`.
+
+The current image SHA-256 is
+`9d2846ca996994ec2b72178f96520a917de1a307555cac4d9ecc5595d8b9c637`.
+It was verified by `jlnewfw`, flashed only through `0x34fff`, and read back
+byte-for-byte as `/work/cyclone2-test-qjEkRO/step5-readback.bin`; VM/BTIF were
+preserved. The saved Switch bond reconnected successfully.

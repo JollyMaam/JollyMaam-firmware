@@ -12,7 +12,9 @@ HOST_CFLAGS := -O2 -g -std=c11 -Wall -Wextra -Wpedantic
 CFLAGS := $(SDK_CFLAGS)
 DEFINES := $(SDK_DEFINES)
 SDK_ARCHIVES := $(SDK_ARCHIVES_MINIMAL)
-SDK_SOURCES := $(SDK_SOURCES_MINIMAL) $(SDK)/cpu/br23/uart_dev.c
+SDK_SOURCES := $(SDK_SOURCES_MINIMAL) \
+	$(SDK)/cpu/br23/mcpwm.c \
+	$(SDK)/cpu/br23/uart_dev.c
 SDK_COMMON_SOURCES := $(SDK_COMMON_SOURCES_MINIMAL)
 
 SDK_COMMON_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_COMMON_SOURCES:.c=.c.o))

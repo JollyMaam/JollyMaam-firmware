@@ -5,8 +5,9 @@
 #include "app_config.h"
 #include "controller.h"
 #include "main.h"
-#include "main.h"
+#include "imu.h"
 #include "profile.h"
+#include "rumble.h"
 #include "settings.h"
 #include "user_cfg_id.h"
 
@@ -94,6 +95,7 @@ static void injection_cancel(void);
 static void radio_exit_only(void *private_data)
 {
     (void)private_data;
+    cyclone2_rumble_stop();
     if (active_profile < CYCLONE2_PROFILE_COUNT) {
         cyclone2_profile_exit();
     }
@@ -173,6 +175,7 @@ int cyclone2_disconnect_request(void)
     if (radio_state != CYCLONE2_RADIO_CONNECTED) return -1;
 
     injection_cancel();
+    cyclone2_rumble_stop();
     radio_state = CYCLONE2_RADIO_STOPPING;
     cyclone2_profile_disconnect();
     /* Let the profile emit its protocol-level disconnect before shutting down
@@ -315,6 +318,7 @@ static void profile_request_reset(u8 profile, u8 pairing)
         return;
     }
     injection_cancel();
+    cyclone2_rumble_stop();
 
     /* Magic is the commit word and is written last. */
     reset_mailbox.magic = 0U;
@@ -360,6 +364,7 @@ static void poweroff_now(void *private_data)
 static void radio_exit_and_poweroff(void *private_data)
 {
     (void)private_data;
+    cyclone2_rumble_stop();
     if (cyclone2_usb_present()) {
         sleep_pending = 0U;
         radio_state = active_profile < CYCLONE2_PROFILE_COUNT &&
@@ -661,11 +666,13 @@ static void cyclone2_start(void)
     u8 early_chord;
 
     cyclone2_led_initialize();
+    cyclone2_rumble_initialize();
     cyclone2_led_set_home(CYCLONE2_LED_DIM_RED, 0U, 0U);
     clk_set("sys", BT_NORMAL_HZ);
     system_clock = clk_get("sys");
     bt_pll_para(TCFG_CLOCK_OSC_HZ, system_clock, 0, 0);
     cyclone2_input_initialize();
+    task_create(cyclone2_imu_task, NULL, "imu");
     cyclone2_usb_control_initialize();
     cyclone2_input_read(&candidate_report);
     current_report = candidate_report;
@@ -708,6 +715,7 @@ static int cyclone2_event_handler(struct application *application,
         radio_state = CYCLONE2_RADIO_CONNECTED;
     if (result & CYCLONE2_PROFILE_EVENT_DISCONNECTED) {
         injection_cancel();
+        cyclone2_rumble_stop();
         if (radio_state != CYCLONE2_RADIO_STOPPING) {
             radio_state = CYCLONE2_RADIO_OFF;
             begin_automatic_sleep("Bluetooth disconnected");

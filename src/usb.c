@@ -5,10 +5,12 @@
 
 #include "controller.h"
 #include "input.h"
+#include "imu.h"
 #include "led.h"
 #include "main.h"
 #include "profile.h"
 #include "rom.h"
+#include "rumble.h"
 #include "usb.h"
 #include "usb/device/cdc.h"
 #include "usb/device/usb_stack.h"
@@ -147,7 +149,7 @@ static void print_status(void)
     console_write("\r\n");
 }
 
-static void print_report_status(void)
+__attribute__((noinline)) static void print_report_status(void)
 {
     struct cyclone2_report_statistics stats;
     char line[160];
@@ -171,7 +173,7 @@ static const char *connection_state_name(u8 state)
     return state < sizeof(names) / sizeof(names[0]) ? names[state] : "unknown";
 }
 
-static void print_connection_status(void)
+__attribute__((noinline)) static void print_connection_status(void)
 {
     struct cyclone2_connection_status status;
     char line[128];
@@ -189,7 +191,7 @@ static void print_connection_status(void)
     if (length > 0) console_write_bytes(line, (u32)length);
 }
 
-static void print_injection_status(void)
+__attribute__((noinline)) static void print_injection_status(void)
 {
     struct cyclone2_injection_status status;
     char line[128];
@@ -204,7 +206,7 @@ static void print_injection_status(void)
     if (length > 0) console_write_bytes(line, (u32)length);
 }
 
-static void print_input_status(void)
+__attribute__((noinline)) static void print_input_status(void)
 {
     struct cyclone2_input_stats stats;
     char line[192];
@@ -246,7 +248,67 @@ static int parse_injection_args(const char *text, u32 *period, u32 *duration)
     return 0;
 }
 
-static void execute_command(void)
+static int parse_rumble_args(const char *text, u32 *left, u32 *right,
+                             u32 *duration)
+{
+    if (parse_decimal(&text, left) != 0 || *text++ != ' ' ||
+        parse_decimal(&text, right) != 0 || *text++ != ' ' ||
+        parse_decimal(&text, duration) != 0 || *text != '\0') return -1;
+    return 0;
+}
+
+__attribute__((noinline)) static void print_rumble_status(void)
+{
+    struct cyclone2_rumble_status status;
+    char line[96];
+    int length;
+
+    cyclone2_rumble_get_status(&status);
+    length = snprintf(line, sizeof(line),
+                      "rumble=%s left=%u right=%u duration=%u ms\r\n",
+                      status.active ? "active" : "stopped", status.left,
+                      status.right, status.duration_ms);
+    if (length > 0) console_write_bytes(line, (u32)length);
+}
+
+__attribute__((noinline)) static void print_imu_status(void)
+{
+    struct cyclone2_imu_status status;
+    const char *state;
+    char line[128];
+    int length;
+
+    cyclone2_imu_get_status(&status);
+    state = status.initialized ? "running" :
+            (status.enabled ? "starting" : "stopped");
+    length = snprintf(line, sizeof(line),
+                      "imu=%s id=0x%02x samples=%u errors=%u last_error=%u last_sample_ms=%u\r\n",
+                      state, status.device_id, status.samples, status.errors,
+                      status.last_error, status.last_sample_ms);
+    if (length > 0) console_write_bytes(line, (u32)length);
+}
+
+__attribute__((noinline)) static void print_imu_sample(void)
+{
+    struct cyclone2_imu_sample sample;
+    char line[160];
+    int length;
+
+    if (cyclone2_imu_latest(&sample) != 0) {
+        console_write("ERR no IMU sample available; use imu init\r\n");
+        return;
+    }
+    length = snprintf(line, sizeof(line),
+                      "imu sample_ms=%u accel=%d,%d,%d gyro=%d,%d,%d\r\n",
+                      sample.timestamp_ms, sample.accel_x, sample.accel_y,
+                      sample.accel_z, sample.gyro_x, sample.gyro_y,
+                      sample.gyro_z);
+    if (length > 0) console_write_bytes(line, (u32)length);
+}
+
+/* Keep the command parser's formatting buffers out of the frequently-called
+ * USB poll frame. LTO otherwise inlines this through consume_input(). */
+__attribute__((noinline)) static void execute_command(void)
 {
     command_line[command_length] = '\0';
 
@@ -259,6 +321,8 @@ static void execute_command(void)
                       "disconnect  stop Bluetooth without sleeping\r\n"
                       "inject a PERIOD_MS DURATION_MS | stop | status\r\n"
                       "input status|reset  show/reset stick-DMA counters\r\n"
+                      "rumble LEFT RIGHT MS | stop | status\r\n"
+                      "imu init|stop|sample|status\r\n"
                       "status   show reset mailbox and MaskROM NVRAM\r\n"
                       "uboot    reboot into BR23 UBOOT1.00\r\n");
     } else if (!strcmp(command_line, "debug on")) {
@@ -319,6 +383,33 @@ static void execute_command(void)
         } else {
             console_write("ERR inject syntax/range; use inject a PERIOD_MS DURATION_MS\r\n");
         }
+    } else if (!strcmp(command_line, "rumble stop")) {
+        cyclone2_rumble_stop();
+        print_rumble_status();
+    } else if (!strcmp(command_line, "rumble status")) {
+        print_rumble_status();
+    } else if (!strncmp(command_line, "rumble ", 7U)) {
+        u32 left;
+        u32 right;
+        u32 duration;
+        if (parse_rumble_args(command_line + 7U, &left, &right, &duration) == 0 &&
+            left <= 255U && right <= 255U &&
+            duration <= CYCLONE2_RUMBLE_MAX_DURATION_MS &&
+            cyclone2_rumble_set((u8)left, (u8)right, (u16)duration) == 0) {
+            print_rumble_status();
+        } else {
+            console_write("ERR rumble range: strength 0..255, duration 1..2000 ms\r\n");
+        }
+    } else if (!strcmp(command_line, "imu init")) {
+        cyclone2_imu_enable();
+        console_write("OK IMU initialization requested\r\n");
+    } else if (!strcmp(command_line, "imu stop")) {
+        cyclone2_imu_disable();
+        console_write("OK IMU sampling stopped\r\n");
+    } else if (!strcmp(command_line, "imu sample")) {
+        print_imu_sample();
+    } else if (!strcmp(command_line, "imu status")) {
+        print_imu_status();
     } else if (!strcmp(command_line, "report status")) {
         print_report_status();
     } else if (!strcmp(command_line, "report 5")) {
