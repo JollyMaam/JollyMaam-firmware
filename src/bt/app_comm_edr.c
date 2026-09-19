@@ -34,7 +34,11 @@
 #define log_debug(format, ...) cyclone2_usb_debug("COMM_EDR: " format, ##__VA_ARGS__)
 #define log_error(format, ...) cyclone2_usb_debug("COMM_EDR error: " format, ##__VA_ARGS__)
 
-#define SNIFF_ENABLE                  1 // TRANSLATED: Allow actively entering sniff mode.
+/* A 500 ms sniff interval is appropriate for a keyboard that is mostly idle,
+ * but it makes Switch rumble output arrive hundreds of milliseconds late.
+ * Keep the EDR HID link awake; the controller already has separate sleep
+ * handling when it is genuinely idle. */
+#define SNIFF_ENABLE                  0 // TRANSLATED: Disable sniff for HID latency.
 
 // TRANSLATED: Default configuration.
 static const edr_sniff_par_t edr_default_sniff_param = {
@@ -231,7 +235,11 @@ void btstack_edr_start_after_init(int param)
     }
 
     /* bt_wait_phone_connect_control_ext(1, 1); */
+#if SNIFF_ENABLE
     sys_auto_sniff_controle(1, NULL);
+#else
+    lmp_set_sniff_disable();
+#endif
 }
 
 /*************************************************************************************************/
@@ -331,6 +339,7 @@ static int bt_comm_edr_status_event_handler(struct bt_event *bt)
 
     case BT_STATUS_SNIFF_STATE_UPDATE:
         log_info(" BT_STATUS_SNIFF_STATE_UPDATE %d\n", bt->value);    // TRANSLATED: 0 means exit sniff.
+#if SNIFF_ENABLE
         if (bt->value == 0) {
             sys_auto_sniff_controle(1, bt->args);
         } else {
@@ -339,6 +348,10 @@ static int bt_comm_edr_status_event_handler(struct bt_event *bt)
                 sys_s_hi_timer_modify(edr_hid_timer_handle, (u32)(get_app_sniff_interval()));
             }
         }
+#else
+        /* A peer may request sniff even when our automatic entry is off. */
+        lmp_set_sniff_disable();
+#endif
         break;
 
     case  BT_STATUS_TRIM_OVER:
@@ -754,7 +767,11 @@ void bt_comm_edr_mode_enable(u8 enable)
         btctrler_task_init_bredr();
         //default
         user_hid_enable(1);
+#if SNIFF_ENABLE
         sys_auto_sniff_controle(1, NULL);
+#else
+        lmp_set_sniff_disable();
+#endif
     } else {
 
         user_hid_enable(0);
