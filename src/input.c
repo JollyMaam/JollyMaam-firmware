@@ -1,5 +1,6 @@
 #include <asm/gpio.h>
 #include <asm/br23.h>
+#include <asm/rtc.h>
 #include <asm/uart_dev.h>
 #include <system/timer.h>
 
@@ -100,6 +101,14 @@ static void configure_analog_input(u32 gpio)
     gpio_set_pull_up(gpio, 0);
     gpio_set_die(gpio, 0);
     gpio_direction_input(gpio);
+}
+
+static void configure_trigger_switch(u8 port)
+{
+    rtc_port_pr_in(port);
+    rtc_port_pr_pd(port, 0);
+    rtc_port_pr_pu(port, 1);
+    rtc_port_pr_die(port, 1);
 }
 
 static void sensor_power_enable(void)
@@ -366,6 +375,8 @@ void cyclone2_input_initialize(void)
     configure_analog_input(CYCLONE2_TRIGGER_R2);
     adc_add_sample_ch(CYCLONE2_TRIGGER_L2_ADC_CHANNEL);
     adc_add_sample_ch(CYCLONE2_TRIGGER_R2_ADC_CHANNEL);
+    configure_trigger_switch(CYCLONE2_TRIGGER_L2_SWITCH_PR);
+    configure_trigger_switch(CYCLONE2_TRIGGER_R2_SWITCH_PR);
     stick_uart_initialize();
 }
 
@@ -411,4 +422,12 @@ void cyclone2_input_read(struct cyclone2_input_report *report)
         adc_get_value(CYCLONE2_TRIGGER_L2_ADC_CHANNEL), &trigger_l2_rest);
     report->right_trigger = trigger_to_report(
         adc_get_value(CYCLONE2_TRIGGER_R2_ADC_CHANNEL), &trigger_r2_rest);
+    /* Trigger-stop mode physically actuates separate RTC-domain active-low
+     * microswitches. A closed switch is authoritative over the Hall sensor. */
+    if (!rtc_port_pr_read(CYCLONE2_TRIGGER_L2_SWITCH_PR)) {
+        report->left_trigger = 0xffU;
+    }
+    if (!rtc_port_pr_read(CYCLONE2_TRIGGER_R2_SWITCH_PR)) {
+        report->right_trigger = 0xffU;
+    }
 }

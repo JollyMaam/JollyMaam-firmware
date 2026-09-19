@@ -35,6 +35,12 @@
 #define CYCLONE2_TRIGGER_L2_ADC_CHANNEL  AD_CH_PB3
 #define CYCLONE2_TRIGGER_R2_ADC_CHANNEL  AD_CH_PB10
 
+/* The trigger-stop microswitches are not ordinary PA-PD GPIOs. They use the
+ * two RTC-domain PR inputs and are active low. SDK APIs number them PR0/PR1;
+ * board/physical descriptions sometimes call the same pins PR1/PR2. */
+#define CYCLONE2_TRIGGER_L2_SWITCH_PR    0U
+#define CYCLONE2_TRIGGER_R2_SWITCH_PR    1U
+
 /* The stick-sensor board transmits four-byte frames on UART2 RX. Channel zero
  * also routes TX to PA2, so firmware restores that shared pin as d-pad up. */
 #define CYCLONE2_STICK_UART_RX      IO_PORTA_03
