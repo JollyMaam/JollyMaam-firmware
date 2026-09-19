@@ -90,6 +90,15 @@ static void start_selected_profile(void);
 static void profile_select(u8 profile, u8 pairing);
 static void injection_cancel(void);
 
+static void radio_exit_only(void *private_data)
+{
+    (void)private_data;
+    if (active_profile < CYCLONE2_PROFILE_COUNT) {
+        cyclone2_profile_exit();
+    }
+    radio_state = CYCLONE2_RADIO_OFF;
+}
+
 int cyclone2_usb_present(void)
 {
     return gpio_read(CYCLONE2_USB_SENSE) ||
@@ -153,6 +162,21 @@ int cyclone2_connect_request(u8 profile)
         cyclone2_profile_is_connected()) return 0;
     injection_cancel();
     profile_select(profile, 0U);
+    return 1;
+}
+
+int cyclone2_disconnect_request(void)
+{
+    if (radio_state == CYCLONE2_RADIO_OFF) return 0;
+    if (radio_state != CYCLONE2_RADIO_CONNECTED) return -1;
+
+    injection_cancel();
+    radio_state = CYCLONE2_RADIO_STOPPING;
+    cyclone2_profile_disconnect();
+    /* Let the profile emit its protocol-level disconnect before shutting down
+     * the shared Bluetooth stack. A later connect command uses the existing
+     * reset handoff to initialize that stack from a clean state. */
+    sys_timeout_add(NULL, radio_exit_only, 100U);
     return 1;
 }
 

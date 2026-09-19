@@ -26,6 +26,8 @@ connect 0|1|2|3
          reconnect the selected slot using its saved bond (never pairs)
 connect status
          show slot, profile, connection state, derived local address, and USB
+disconnect
+         stop Bluetooth without sleeping or deleting the saved bond
 input status
          show stick-DMA framing/drop counters and the last axes timestamp
 inject a PERIOD_MS DURATION_MS

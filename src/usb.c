@@ -251,6 +251,7 @@ static void execute_command(void)
                       "report 5|8|10|status  set/report HID period in ms\r\n"
                       "connect 0|1|2|3  reconnect a saved profile slot\r\n"
                       "connect status  show slot, address, state, and USB\r\n"
+                      "disconnect  stop Bluetooth without sleeping\r\n"
                       "inject a PERIOD_MS DURATION_MS | stop | status\r\n"
                       "input status  show stick-DMA framing counters\r\n"
                       "status   show reset mailbox and MaskROM NVRAM\r\n"
@@ -278,6 +279,14 @@ static void execute_command(void)
         console_write_bytes(&command_line[8], 1U);
         console_write("\r\n");
         cyclone2_connect_request(slot);
+    } else if (!strcmp(command_line, "disconnect")) {
+        int result = cyclone2_disconnect_request();
+        if (result >= 0) {
+            console_write(result ? "OK disconnecting\r\n" :
+                                   "OK already disconnected\r\n");
+        } else {
+            console_write("ERR disconnect requires a connected profile\r\n");
+        }
     } else if (!strcmp(command_line, "inject stop")) {
         cyclone2_inject_stop();
         console_write("OK injection stopped\r\n");
