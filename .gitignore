@@ -8,3 +8,4 @@
 /tags
 *.swp
 *~
+tools/__pycache__/
