@@ -67,7 +67,8 @@ static u32 started_at_ms;
 static u32 home_start_ms;
 static u32 chord_start_ms;
 static u32 radio_start_ms;
-static u32 candidate_since_ms;
+static u32 button_candidate_since_ms[16];
+static u32 hat_candidate_since_ms;
 static u32 next_report_ms;
 static u16 report_timer;
 static u16 chord_button;
@@ -490,10 +491,35 @@ static void make_host_report(struct cyclone2_input_report *report)
     }
     if (home_tap_phase == 2U) {
         report->buttons |= CYCLONE2_REPORT_BUTTON_HOME;
-        home_tap_phase = 1U;
     } else if (home_tap_phase == 1U) {
         report->buttons &= ~CYCLONE2_REPORT_BUTTON_HOME;
-        home_tap_phase = 0U;
+    }
+}
+
+static void debounce_digital_input(const struct cyclone2_input_report *sample,
+                                   u32 now)
+{
+    unsigned bit;
+
+    for (bit = 0; bit < 16U; bit++) {
+        u16 mask = (u16)(1U << bit);
+        if ((sample->buttons & mask) != (candidate_report.buttons & mask)) {
+            candidate_report.buttons ^= mask;
+            button_candidate_since_ms[bit] = now;
+        } else if ((current_report.buttons & mask) !=
+                   (candidate_report.buttons & mask) &&
+                   now - button_candidate_since_ms[bit] >=
+                   CYCLONE2_DEBOUNCE_MS) {
+            current_report.buttons ^= mask;
+        }
+    }
+
+    if (sample->hat != candidate_report.hat) {
+        candidate_report.hat = sample->hat;
+        hat_candidate_since_ms = now;
+    } else if (current_report.hat != candidate_report.hat &&
+               now - hat_candidate_since_ms >= CYCLONE2_DEBOUNCE_MS) {
+        current_report.hat = candidate_report.hat;
     }
 }
 
@@ -540,6 +566,9 @@ static void send_input_report(const struct cyclone2_input_report *report)
     result = cyclone2_profile_send(report);
     if (result > 0) {
         report_statistics.send_accepted++;
+        /* A synthesized short Home tap is a two-report transaction. Keep the
+         * current phase pending until the profile actually accepts it. */
+        if (home_tap_phase != 0U) home_tap_phase--;
         if ((injection_status.active || injection_release_pending) &&
             injection_last_emitted != injection_status.synthetic_a) {
             injection_last_emitted = injection_status.synthetic_a;
@@ -565,15 +594,7 @@ static void cyclone2_poll(void *private_data)
      * timestamp taken after it, so unsigned elapsed time cannot underflow. */
     now = sys_timer_get_ms();
     accept_analog_input(&sample);
-    if (sample.buttons != candidate_report.buttons ||
-        sample.hat != candidate_report.hat) {
-        candidate_report.buttons = sample.buttons;
-        candidate_report.hat = sample.hat;
-        candidate_since_ms = now;
-    } else if (now - candidate_since_ms >= CYCLONE2_DEBOUNCE_MS) {
-        current_report.buttons = candidate_report.buttons;
-        current_report.hat = candidate_report.hat;
-    }
+    debounce_digital_input(&sample, now);
     update_home_state();
     update_injection(now);
     /* The ACL connection event precedes authentication and opening the HID
@@ -643,7 +664,8 @@ static void cyclone2_start(void)
     cyclone2_input_read(&candidate_report);
     current_report = candidate_report;
     started_at_ms = sys_timer_get_ms();
-    candidate_since_ms = started_at_ms;
+    memset(button_candidate_since_ms, 0, sizeof(button_candidate_since_ms));
+    hat_candidate_since_ms = started_at_ms;
     next_report_ms = started_at_ms;
     settings_load();
     early_chord = cyclone2_take_early_profile_chord();
