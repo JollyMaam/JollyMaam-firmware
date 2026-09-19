@@ -261,16 +261,36 @@ int cyclone2_imu_latest(struct cyclone2_imu_sample *sample_value)
     return 0;
 }
 
+u8 cyclone2_imu_recent(struct cyclone2_imu_sample *samples, u8 maximum)
+{
+    u8 available;
+    u8 index;
+    u8 copied;
+
+    if (!samples || maximum == 0U) return 0U;
+    available = history_count;
+    if (available > maximum) available = maximum;
+    index = (u8)((history_write_index - available) & 7U);
+    for (copied = 0U; copied < available; copied++) {
+        samples[copied] = sample_history[index];
+        index = (u8)((index + 1U) & 7U);
+    }
+    return available;
+}
+
 void cyclone2_imu_task(void *private_data)
 {
     struct cyclone2_imu_sample new_sample;
     u8 index;
+    u32 next_retry_ms = 0U;
 
     (void)private_data;
     for (;;) {
         if (requested_enabled) {
             if (!imu_status.initialized) {
-                initialize();
+                u32 now = sys_timer_get_ms();
+                if ((s32)(now - next_retry_ms) >= 0 && initialize() != 0)
+                    next_retry_ms = now + 1000U;
             } else if (sample(&new_sample) == 0) {
                 index = history_write_index;
                 sample_history[index] = new_sample;
@@ -283,8 +303,6 @@ void cyclone2_imu_task(void *private_data)
         } else {
             imu_status.initialized = 0U;
         }
-        /* BR23's OS tick is 10 ms. app_core runs at a higher priority so the
-         * UART parser and HID scheduler can preempt every I2C transaction. */
         os_time_dly(1);
     }
 }

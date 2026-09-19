@@ -13,7 +13,7 @@ agent owns integration, builds, flashing, and this progress record.
 | 2 | [Nonblocking acquisition](02-acquisition.md) | complete; bounded startup loss documented |
 | 3 | [Host test tools](03-host-tests.md) | complete; 5/8/10 ms live tests passed |
 | 4 | [Controller scheduling and TX](04-controller-tx.md) | complete; separate task not currently justified |
-| 5 | [IMU and rumble](05-imu-rumble.md) | Switch rumble and IMU acquisition stable; motion reporting pending |
+| 5 | [IMU and rumble](05-imu-rumble.md) | functional; calibration and native-rate IMU batching remain |
 
 The starting controller is paired in Switch slot A (slot 0), address
 `13:11:DB:58:28:18`. Preserve its syscfg/VM/BTIF and address derivation. Never
@@ -248,3 +248,14 @@ effect stop cleared both. The integrated image SHA-256 is
 `6ecbfc2cf5d103c2af77e15a3993db69fe2f2ed68f5b4b86e6f6bef71a180f96`;
 its code span was read back exactly as
 `/work/cyclone2-test-qjEkRO/step5-rumble-readback.bin`.
+
+Switch report `0x30` now carries QMI8658A motion data, and virtual SPI returns
+default Nintendo IMU calibration rather than erased bytes. Linux created the
+separate `Pro Controller (IMU)` input device with the expected 4096-count/g
+resolution. After resetting counters, a connected motion-report run produced
+130,808 valid UART frames with zero CRC/drop/overflow, 3,190 error-free IMU
+samples, and 4,200 of 4,200 accepted Bluetooth reports. The final image
+SHA-256 is
+`f2d273b5bd83af9398d6fd6cdb541b81c8c4d751dc0b1074672527a8a0a96191`;
+its code span was read back exactly as
+`/work/cyclone2-test-qjEkRO/step5-motion-readback.bin`.

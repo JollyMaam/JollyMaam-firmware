@@ -4,6 +4,7 @@
 
 #include "app_comm_bt.h"
 #include "edr_hid_user.h"
+#include "imu.h"
 #include "led.h"
 #include "profile.h"
 #include "rumble.h"
@@ -91,6 +92,7 @@ static struct cyclone2_input_report latest_input;
 static u8 input_report_mode = SWITCH_REPORT_SIMPLE_STATE;
 static u8 timer_counter;
 static u8 rumble_enabled;
+static u8 imu_enabled;
 
 /* Nintendo encodes HD-rumble frequency and amplitude together. These ERM
  * motors cannot reproduce the two carrier frequencies, so retain the
@@ -177,6 +179,35 @@ static void fill_controller_state(u8 state[SWITCH_CONTROLLER_STATE_SIZE])
     state[SWITCH_STATE_VIBRATION_OFFSET] = 0;
 }
 
+static void write_s16_le(u8 *output, s16 value)
+{
+    output[0] = (u8)value;
+    output[1] = (u8)((u16)value >> 8);
+}
+
+static void fill_imu_samples(u8 output[36])
+{
+    struct cyclone2_imu_sample sample;
+    u8 index;
+
+    memset(output, 0, 36U);
+    if (!imu_enabled) return;
+    if (cyclone2_imu_latest(&sample) != 0) return;
+    for (index = 0U; index < 3U; index++) {
+        /* The proven acquisition rate is 100 Hz, below Nintendo's three
+         * samples per packet. Repeat the latest sample instead of replaying
+         * overlapping history out of chronological order. */
+        /* QMI8658A is configured for +/-4 g (8192 counts/g); Nintendo's
+         * expected +/-8 g report format uses 4096 counts/g. */
+        write_s16_le(output + index * 12U + 0U, sample.accel_x / 2);
+        write_s16_le(output + index * 12U + 2U, sample.accel_y / 2);
+        write_s16_le(output + index * 12U + 4U, sample.accel_z / 2);
+        write_s16_le(output + index * 12U + 6U, sample.gyro_x);
+        write_s16_le(output + index * 12U + 8U, sample.gyro_y);
+        write_s16_le(output + index * 12U + 10U, sample.gyro_z);
+    }
+}
+
 static void fill_simple_state(u8 report[SWITCH_SIMPLE_PAYLOAD_SIZE])
 {
     u16 buttons = latest_input.buttons;
@@ -229,12 +260,25 @@ static void fill_factory_stick_calibration(u8 output[18])
 static void read_virtual_spi(u32 address, u8 length, u8 *output)
 {
     u8 factory_calibration[18];
+    static const u8 imu_calibration[24] = {
+        0x00,0x00, 0x00,0x00, 0x00,0x00,
+        0x00,0x40, 0x00,0x40, 0x00,0x40,
+        0x00,0x00, 0x00,0x00, 0x00,0x00,
+        0x3b,0x34, 0x3b,0x34, 0x3b,0x34,
+    };
     u32 offset;
     u32 copy_length;
 
     /* Unimplemented regions read as erased flash. In particular, this keeps
      * the user-calibration magic at 0x8010/0x801b unset. */
     memset(output, 0xff, length);
+
+    if (address >= 0x6020U && address < 0x6038U) {
+        offset = address - 0x6020U;
+        copy_length = 24U - offset;
+        if (copy_length > length) copy_length = length;
+        memcpy(output, imu_calibration + offset, copy_length);
+    }
 
     if (address >= 0x603dU && address < 0x604fU) {
         fill_factory_stick_calibration(factory_calibration);
@@ -300,6 +344,10 @@ static void reply_subcommand(u8 subcommand, const u8 *request, u16 request_size)
         break;
     case SWITCH_SUBCOMMAND_HOME_LIGHT:
     case SWITCH_SUBCOMMAND_ENABLE_IMU:
+        imu_enabled = request_size != 0U && request[0] != 0U;
+        if (imu_enabled) cyclone2_imu_enable();
+        else cyclone2_imu_disable();
+        break;
     case SWITCH_SUBCOMMAND_IMU_CONFIG:
         break;
     case SWITCH_SUBCOMMAND_ENABLE_RUMBLE:
@@ -342,6 +390,8 @@ static void switch_hid_initialize(void)
     latest_input.left_x = latest_input.left_y = 0x80U;
     latest_input.right_x = latest_input.right_y = 0x80U;
     rumble_enabled = 0U;
+    imu_enabled = 0U;
+    cyclone2_imu_disable();
     user_hid_init(switch_output);
 }
 
@@ -357,6 +407,7 @@ int cyclone2_switch_send(const struct cyclone2_input_report *input)
     if (input_report_mode == SWITCH_REPORT_FULL_STATE) {
         memset(report, 0, sizeof(report));
         fill_controller_state(report);
+        fill_imu_samples(report + SWITCH_CONTROLLER_STATE_SIZE);
         result = edr_hid_data_send(SWITCH_REPORT_FULL_STATE, report,
                                    sizeof(report));
     } else {
@@ -442,6 +493,7 @@ void cyclone2_switch_disconnect(void)
 
 void cyclone2_switch_exit(void)
 {
+    cyclone2_imu_disable();
     btstack_edr_exit(0);
 }
 

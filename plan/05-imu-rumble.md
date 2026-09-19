@@ -56,6 +56,17 @@ Live hardware results with the saved Switch bond connected:
 - 4,169 of 4,169 Bluetooth submissions were accepted at the 5 ms report
   setting, with no busy, deferred, or error results.
 
-The current task reads on each 10 ms OS tick and does not yet check the
-QMI8658A data-ready register. Add that check and protocol-specific unit/axis
-conversion when motion samples are first placed in a HID report.
+The Switch profile now handles the enable-IMU subcommand, returns sane default
+24-byte calibration from virtual SPI, and emits QMI motion data in report
+`0x30`. Linux creates `Pro Controller (IMU)` and reports approximately 4096 on
+the gravity axis while flat, confirming the accelerometer scale. Raw gyro bias
+and physical axis orientation still need calibration with the user moving the
+controller in known directions.
+
+The task reads on each 10 ms OS tick and does not yet check the QMI8658A
+data-ready register. A 5 ms high-resolution semaphore experiment reached 200
+Hz but caused UART CRC errors and eventually rebooted, so it was rejected.
+Because safe acquisition is 100 Hz while Nintendo packets conventionally hold
+three faster samples, the encoder repeats the latest sample three times instead
+of replaying overlapping history out of chronological order. Improve this only
+after identifying a stable readiness/interrupt-driven acquisition path.
