@@ -159,3 +159,24 @@ The corresponding image (SHA-256
 was flashed and read back exactly. An automated `connect 0` observation still
 reported `state=off` after 35 seconds, so live `disconnect` followed by
 reconnect remains a user-assisted validation item.
+
+## Step 4 progress
+
+The user validated `connect 0`, `disconnect`, independent debounce, Home taps,
+and USB-powered Home-hold disconnect behavior. Commit `1539abf` replaces the
+whole-report debounce timer with independent per-button state and advances the
+two-phase synthesized Home tap only after a report is accepted.
+
+SDK `sys_timer_add()` is a synchronized timer: expiry is delivered back to the
+task that registered it. `cyclone2_poll()` therefore runs in `app_core`
+(priority 1), not in interrupt or `systimer` context; Bluetooth remains above
+it (`btstack` priority 3, `btctrler` priority 4). A separate controller task is
+not justified until acquisition or queue measurements show a scheduling issue.
+
+Commit `6bdd0e2` classifies transmit results. Classic HID buffer-full and BLE
+`APP_BLE_BUFF_FULL` are temporary busy results; deliberate BLE duplicate/CCC
+deferral and unexpected errors have separate counters. Send attempts are now
+counted only in the usable connected state. The image SHA-256 is
+`7f29533ff7bf520b38e529f4a92d4d8e88e67a7e99f73ab9e477f272a7bc8809`;
+it was flashed and read back exactly. Obtain `report status` during an active
+5 ms connection to decide whether callback-driven retry work is warranted.
