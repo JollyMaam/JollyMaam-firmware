@@ -1,8 +1,6 @@
 #include <asm/br23.h>
 #include <asm/gpio.h>
 #include <asm/mcpwm.h>
-#include <system/timer.h>
-
 #include "rumble.h"
 
 #define RUMBLE_FREQUENCY_HZ 25000U
@@ -21,7 +19,12 @@ static const struct motor_config right_motor = {
 };
 
 static struct cyclone2_rumble_status rumble_status;
-static u16 stop_timeout;
+static volatile u8 requested_left;
+static volatile u8 requested_right;
+static volatile u16 requested_duration_ms;
+static volatile u8 request_generation;
+static u8 applied_generation;
+static u32 expires_at_ms;
 
 static void motor_stop(const struct motor_config *motor)
 {
@@ -54,10 +57,8 @@ static void motor_set(const struct motor_config *motor, u8 strength)
     mcpwm_init(&config);
 }
 
-static void rumble_timeout(void *private_data)
+static void motors_stop(void)
 {
-    (void)private_data;
-    stop_timeout = 0U;
     motor_stop(&left_motor);
     motor_stop(&right_motor);
     rumble_status.left = 0U;
@@ -69,39 +70,65 @@ static void rumble_timeout(void *private_data)
 void cyclone2_rumble_initialize(void)
 {
     memset(&rumble_status, 0, sizeof(rumble_status));
-    stop_timeout = 0U;
-    motor_stop(&left_motor);
-    motor_stop(&right_motor);
+    requested_left = 0U;
+    requested_right = 0U;
+    requested_duration_ms = 0U;
+    request_generation = 0U;
+    applied_generation = 0U;
+    expires_at_ms = 0U;
+    motors_stop();
+}
+
+static void publish_target(u8 left, u8 right, u16 duration_ms)
+{
+    /* Bluetooth output callbacks only publish a latest target. The app_core
+     * poll owns all PWM register changes. generation is written last. */
+    requested_left = left;
+    requested_right = right;
+    requested_duration_ms = duration_ms;
+    request_generation++;
+    rumble_status.updates++;
+    rumble_status.left = left;
+    rumble_status.right = right;
+    rumble_status.duration_ms = duration_ms;
+    rumble_status.active = left != 0U || right != 0U;
 }
 
 int cyclone2_rumble_set(u8 left, u8 right, u16 duration_ms)
 {
     if (duration_ms > CYCLONE2_RUMBLE_MAX_DURATION_MS ||
         ((left != 0U || right != 0U) && duration_ms == 0U)) return -1;
-
-    if (stop_timeout != 0U) {
-        sys_timeout_del(stop_timeout);
-        stop_timeout = 0U;
-    }
-    motor_set(&left_motor, left);
-    motor_set(&right_motor, right);
-    rumble_status.left = left;
-    rumble_status.right = right;
-    rumble_status.duration_ms = duration_ms;
-    rumble_status.active = left != 0U || right != 0U;
-    if (rumble_status.active) {
-        stop_timeout = sys_timeout_add(NULL, rumble_timeout, duration_ms);
-    }
+    publish_target(left, right, duration_ms);
     return 0;
+}
+
+void cyclone2_rumble_set_latched(u8 left, u8 right)
+{
+    publish_target(left, right, 0U);
 }
 
 void cyclone2_rumble_stop(void)
 {
-    if (stop_timeout != 0U) {
-        sys_timeout_del(stop_timeout);
-        stop_timeout = 0U;
+    cyclone2_rumble_set(0U, 0U, 0U);
+}
+
+void cyclone2_rumble_poll(u32 now_ms)
+{
+    if (applied_generation != request_generation) {
+        u8 generation = request_generation;
+        u8 left = requested_left;
+        u8 right = requested_right;
+        u16 duration_ms = requested_duration_ms;
+
+        motor_set(&left_motor, left);
+        motor_set(&right_motor, right);
+        expires_at_ms = now_ms + duration_ms;
+        applied_generation = generation;
     }
-    rumble_timeout(NULL);
+    if (rumble_status.active && rumble_status.duration_ms != 0U &&
+        (s32)(now_ms - expires_at_ms) >= 0) {
+        motors_stop();
+    }
 }
 
 void cyclone2_rumble_get_status(struct cyclone2_rumble_status *status)

@@ -26,8 +26,17 @@ The console baseline is implemented in `src/imu.c` and `src/rumble.c`.
 `rumble LEFT RIGHT MS` drives the verified PA9/PB0 MCPWM channels independently
 at 25 kHz, has a two-second maximum duration, and is stopped on timeout,
 disconnect, profile reset, and poweroff. Zero/zero is a valid explicit stop.
-Physical left-only/right-only confirmation is still required before decoding
-Nintendo output reports.
+Physical left-only/right-only confirmation is still required.
+
+Switch output reports are decoded. Nintendo's two carrier-frequency fields are
+intentionally ignored because the board has ordinary ERM motors; the independent
+amplitudes are mapped to PWM duty. Switch targets latch until the host sends a
+zero target, matching hid-nintendo behavior, while console test pulses retain
+their mandatory timeout. PWM changes occur only from `app_core`; the Bluetooth
+callback publishes a latest target. Linux `fftest` produced `left=140,right=0`
+for its strong effect and `left=0,right=188` for its weak effect, then an
+explicit zero when stopped. The associated report run accepted 3,461 of 3,461
+Bluetooth submissions without busy/deferred/error results.
 
 The QMI8658A is present at write address `0xd4`, reports ID `0x05`, and accepts
 the configuration recovered from the stock firmware. `imu init` enables an

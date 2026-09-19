@@ -600,6 +600,7 @@ static void cyclone2_poll(void *private_data)
     now = sys_timer_get_ms();
     report_statistics.poll_count++;
     cyclone2_usb_control_poll();
+    cyclone2_rumble_poll(now);
     cyclone2_input_read(&sample);
     /* A console command may have started injection during this poll. Use a
      * timestamp taken after it, so unsigned elapsed time cannot underflow. */

@@ -13,7 +13,7 @@ agent owns integration, builds, flashing, and this progress record.
 | 2 | [Nonblocking acquisition](02-acquisition.md) | complete; bounded startup loss documented |
 | 3 | [Host test tools](03-host-tests.md) | complete; 5/8/10 ms live tests passed |
 | 4 | [Controller scheduling and TX](04-controller-tx.md) | complete; separate task not currently justified |
-| 5 | [IMU and rumble](05-imu-rumble.md) | console baseline stable; motor-side confirmation pending |
+| 5 | [IMU and rumble](05-imu-rumble.md) | Switch rumble and IMU acquisition stable; motion reporting pending |
 
 The starting controller is paired in Switch slot A (slot 0), address
 `13:11:DB:58:28:18`. Preserve its syscfg/VM/BTIF and address derivation. Never
@@ -236,8 +236,15 @@ Bluetooth tasks). Continuous approximately 100 Hz motion acquisition remained
 lossless for UART input and Bluetooth report scheduling in a live connected
 test. Full measurements and remaining work are in `05-imu-rumble.md`.
 
-The current image SHA-256 is
+The IMU-baseline image SHA-256 is
 `9d2846ca996994ec2b72178f96520a917de1a307555cac4d9ecc5595d8b9c637`.
 It was verified by `jlnewfw`, flashed only through `0x34fff`, and read back
 byte-for-byte as `/work/cyclone2-test-qjEkRO/step5-readback.bin`; VM/BTIF were
 preserved. The saved Switch bond reconnected successfully.
+
+Switch output rumble is now decoded into independent latched motor targets.
+The host's strong and weak `fftest` effects selected opposite channels and an
+effect stop cleared both. The integrated image SHA-256 is
+`6ecbfc2cf5d103c2af77e15a3993db69fe2f2ed68f5b4b86e6f6bef71a180f96`;
+its code span was read back exactly as
+`/work/cyclone2-test-qjEkRO/step5-rumble-readback.bin`.

@@ -6,6 +6,7 @@
 #include "edr_hid_user.h"
 #include "led.h"
 #include "profile.h"
+#include "rumble.h"
 #include "usb.h"
 #include "user_cfg_id.h"
 
@@ -89,6 +90,25 @@ static const u8 switch_report_map[] = {
 static struct cyclone2_input_report latest_input;
 static u8 input_report_mode = SWITCH_REPORT_SIMPLE_STATE;
 static u8 timer_counter;
+static u8 rumble_enabled;
+
+/* Nintendo encodes HD-rumble frequency and amplitude together. These ERM
+ * motors cannot reproduce the two carrier frequencies, so retain the
+ * independently encoded amplitude and map it onto PWM strength. */
+static u8 decode_rumble_strength(const u8 data[4])
+{
+    u8 amplitude_code = data[1] & 0xfeU;
+
+    if (amplitude_code == 0U && data[3] == 0x40U) return 0U;
+    return (u8)(((u16)amplitude_code * 255U) / 0xc8U);
+}
+
+static void handle_rumble(const u8 data[8])
+{
+    if (!rumble_enabled) return;
+    cyclone2_rumble_set_latched(decode_rumble_strength(data),
+                                decode_rumble_strength(data + 4U));
+}
 
 static u16 axis12(u8 value)
 {
@@ -281,7 +301,10 @@ static void reply_subcommand(u8 subcommand, const u8 *request, u16 request_size)
     case SWITCH_SUBCOMMAND_HOME_LIGHT:
     case SWITCH_SUBCOMMAND_ENABLE_IMU:
     case SWITCH_SUBCOMMAND_IMU_CONFIG:
+        break;
     case SWITCH_SUBCOMMAND_ENABLE_RUMBLE:
+        rumble_enabled = request_size != 0U && request[0] != 0U;
+        if (!rumble_enabled) cyclone2_rumble_stop();
         break;
     default:
         ack[0] = 0x80U;
@@ -302,10 +325,12 @@ static void switch_output(u8 *packet, u16 size, u16 channel)
         return;
     }
     report_id = packet[1];
-    if (report_id == SWITCH_OUTPUT_RUMBLE) {
+    if (report_id == SWITCH_OUTPUT_RUMBLE && size >= 11U) {
+        handle_rumble(packet + 3U);
         return;
     }
     if (report_id == SWITCH_OUTPUT_SUBCOMMAND && size >= 12U) {
+        handle_rumble(packet + 3U);
         reply_subcommand(packet[11], packet + 12, size - 12U);
     }
 }
@@ -316,6 +341,7 @@ static void switch_hid_initialize(void)
     latest_input.hat = CYCLONE2_HAT_NEUTRAL;
     latest_input.left_x = latest_input.left_y = 0x80U;
     latest_input.right_x = latest_input.right_y = 0x80U;
+    rumble_enabled = 0U;
     user_hid_init(switch_output);
 }
 
