@@ -1,5 +1,6 @@
 #include <asm/gpio.h>
 #include <asm/br23.h>
+#include <asm/irq.h>
 #include <asm/rtc.h>
 #include <asm/uart_dev.h>
 #include <system/timer.h>
@@ -10,6 +11,7 @@
 #define STICK_UART_FRAME_SIZE       4U
 #define STICK_UART_DMA_BUFFER_SIZE  512U
 #define STICK_UART_DMA_FRAME_SIZE   32U
+#define STICK_UART_RX_TIMEOUT_MS    10U
 #define STICK_UART_READ_CHUNK       128U
 
 /* Live sensor endpoints with a nominal 0x4000 center. Vertical low endpoints
@@ -189,7 +191,11 @@ static void stick_consume_byte(u8 byte)
 static void stick_uart_isr(void *arg, u32 status)
 {
     (void)arg;
-    (void)status;
+    if (status == UT_RX) {
+        stick_stats.dma_interrupts++;
+    } else if (status == UT_RX_OT) {
+        stick_stats.timeout_interrupts++;
+    }
     /* The SDK ISR owns DMA advancement. Defer all parsing to input_read(). */
     stick_uart_work_pending = 1;
 }
@@ -209,6 +215,9 @@ static void stick_uart_drain(void)
      * more than one ring ahead, old bytes have been overwritten; retain only
      * the newest complete ring and invalidate parser state. */
     available = stick_uart->kfifo.buf_in - stick_uart->kfifo.buf_out;
+    if (available > stick_stats.max_backlog) {
+        stick_stats.max_backlog = available;
+    }
     if (available > STICK_UART_DMA_BUFFER_SIZE) {
         stick_stats.dropped_bytes += available - STICK_UART_DMA_BUFFER_SIZE;
         stick_stats.overflow_events++;
@@ -245,7 +254,10 @@ static void stick_uart_initialize(void)
     config.rx_cbuf = stick_dma_buffer;
     config.rx_cbuf_size = STICK_UART_DMA_BUFFER_SIZE;
     config.frame_length = STICK_UART_DMA_FRAME_SIZE;
-    config.rx_timeout = 1U;
+    /* The sensor is a continuous stream. A short timeout can coincide with a
+     * 32-byte completion and make the SDK account the same DMA bytes twice.
+     * Ten milliseconds still publishes a stopped/partial stream promptly. */
+    config.rx_timeout = STICK_UART_RX_TIMEOUT_MS;
     config.isr_cbfun = stick_uart_isr;
     config.baud = 1000000U;
     config.is_9bit = 0;
@@ -273,6 +285,13 @@ void cyclone2_input_get_stats(struct cyclone2_input_stats *stats)
     if (stats) {
         *stats = stick_stats;
     }
+}
+
+void cyclone2_input_reset_stats(void)
+{
+    local_irq_disable();
+    memset(&stick_stats, 0, sizeof(stick_stats));
+    local_irq_enable();
 }
 
 static u8 stick_axis_to_report(u16 value, u16 minimum, u16 center,

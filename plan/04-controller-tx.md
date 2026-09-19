@@ -1,5 +1,12 @@
 # Controller task and transmit pacing (after baseline)
 
+Status: complete. Live testing did not justify creating a separate controller
+task: steady acquisition stays within its DMA ring and every attempted Classic
+HID report was accepted. Radio startup/teardown can discard old continuous
+axis samples, which is explicitly allowed by the latest-state model. Revisit a
+priority-2 task only if later IMU work or measured physical-input latency shows
+steady scheduling starvation.
+
 Start only when CDC recovery, reconnect and injection have passed on hardware.
 Read current ownership after stages 1/2; coordinate all controller/profile edits.
 

@@ -56,6 +56,13 @@ and the host clock are not correlated. A future single-pulse command with a
 correlation marker is needed for that measurement. Hardware results also
 are recorded in `plan/README.md` after live integration checks.
 
+In the completed Step 4 stress test, 200 press/release cycles at a 20 ms period
+were retained at all 5, 8, and 10 ms firmware report settings. Arrival remained
+bursty at every setting, with a 10 ms mean edge interval but about 36--38 ms
+p95. These are host event-spacing results, not end-to-end latency, and indicate
+that the current Switch transport/host path dominates over the selected report
+timer in this test.
+
 Offline checks require no device:
 
 ```sh

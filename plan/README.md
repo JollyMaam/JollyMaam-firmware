@@ -9,10 +9,10 @@ agent owns integration, builds, flashing, and this progress record.
 
 | Step | Brief | State |
 | --- | --- | --- |
-| 1 | [USB testing access](01-usb-testing.md) | implementation present; review and hardware test pending |
-| 2 | [Nonblocking acquisition](02-acquisition.md) | implementation present; hardware test pending |
-| 3 | [Host test tools](03-host-tests.md) | implementation present; 10 ms live test passed; 5 ms host test awaits reconnect |
-| 4 | [Controller scheduling and TX](04-controller-tx.md) | pending hardware baseline |
+| 1 | [USB testing access](01-usb-testing.md) | complete and recovery-tested |
+| 2 | [Nonblocking acquisition](02-acquisition.md) | complete; bounded startup loss documented |
+| 3 | [Host test tools](03-host-tests.md) | complete; 5/8/10 ms live tests passed |
+| 4 | [Controller scheduling and TX](04-controller-tx.md) | complete; separate task not currently justified |
 | 5 | [IMU and rumble](05-imu-rumble.md) | pending stable scheduling |
 
 The starting controller is paired in Switch slot A (slot 0), address
@@ -198,3 +198,31 @@ It passed one fresh-boot and three disconnect/reconnect tests: in every case
 `c2ctl connect 0` exited immediately, no terminal remained open during the
 20--25 second connection interval, CDC did not re-enumerate, and the final
 state was `connected` to the saved Switch bond.
+
+## Step 4 completion
+
+The UART DMA receive timeout was increased from 1 ms to 10 ms after live
+counters showed that the short timeout continuously corrupted SDK ring
+accounting. New counters distinguish 32-byte DMA completions, receive timeouts,
+and maximum backlog; `input reset` clears them for bounded tests. After reset,
+a 30-second connected run produced 152712 valid frames, zero CRC failures,
+zero dropped bytes, zero overflows, zero timeout interrupts, and a 192-byte
+maximum backlog. Bluetooth startup still blocks `app_core` long enough to
+discard roughly 6 KiB of old continuous-axis data. This is bounded latest-state
+replacement, not lost button transitions, and does not justify the concurrency
+cost of a separate controller task yet.
+
+The synthetic injector now holds each known edge until the profile accepts it
+instead of skipping transitions after a late poll. A 20 ms cycle stress test
+at each 5, 8, and 10 ms report setting delivered 200 presses and 200 releases
+with no missing or duplicate events. Bluetooth reported zero busy, deferred,
+or failed submissions. One late injection deadline was retained and counted as
+an overrun. Linux event arrival was bursty at every setting (roughly 36--38 ms
+p95 interarrival despite a 10 ms mean), so this test does not show a latency
+advantage for submitting faster than 10 ms through the current Switch/host
+path. Raw CSV files are under `/work/cyclone2-test-qjEkRO/step4-*retained.csv`.
+
+The completed image SHA-256 is
+`7d0d99c73f557e13679ce66e2c414512e09feeda3afe074244ff98742c52f82e`.
+UBOOT recovery succeeded, and the code span was read back byte-for-byte as
+`/work/cyclone2-test-qjEkRO/step4-final-readback.bin`.

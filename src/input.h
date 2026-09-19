@@ -118,6 +118,9 @@ struct cyclone2_input_stats {
     u32 overflow_events;
     u32 valid_frames;
     u32 last_axes_timestamp_ms;
+    u32 dma_interrupts;
+    u32 timeout_interrupts;
+    u32 max_backlog;
 };
 
 /* Returns 1..4 for a Home+A/B/X/Y chord captured during early board startup,
@@ -127,5 +130,6 @@ u8 cyclone2_take_early_profile_chord(void);
 void cyclone2_input_initialize(void);
 void cyclone2_input_read(struct cyclone2_input_report *report);
 void cyclone2_input_get_stats(struct cyclone2_input_stats *stats);
+void cyclone2_input_reset_stats(void);
 
 #endif

@@ -81,8 +81,8 @@ static u8 sleep_pending;
 static u8 ignore_chord_until_release;
 static struct cyclone2_report_statistics report_statistics;
 static struct cyclone2_injection_status injection_status;
-static u32 injection_started_ms;
 static u32 injection_next_transition_ms;
+static u32 injection_target_edges;
 static u8 injection_last_emitted;
 static u8 injection_release_pending;
 
@@ -210,8 +210,11 @@ int cyclone2_inject_start(u32 period_ms, u32 duration_ms)
     injection_status.overruns = 0U;
     injection_last_emitted = 0U;
     injection_release_pending = 0U;
-    injection_started_ms = sys_timer_get_ms();
-    injection_next_transition_ms = injection_started_ms + period_ms / 2U;
+    /* Complete whole press/release cycles even if a caller supplies a
+     * duration that is not an exact multiple of the period. */
+    injection_target_edges =
+        ((duration_ms + period_ms - 1U) / period_ms) * 2U;
+    injection_next_transition_ms = sys_timer_get_ms() + period_ms / 2U;
     return 0;
 }
 
@@ -220,7 +223,7 @@ void cyclone2_inject_stop(void)
     if (injection_status.active) {
         injection_status.active = 0U;
         injection_status.synthetic_a = 0U;
-        injection_release_pending = 1U;
+        injection_release_pending = injection_last_emitted != 0U;
         return;
     }
     injection_status.active = 0U;
@@ -242,24 +245,25 @@ void cyclone2_injection_status_get(struct cyclone2_injection_status *status)
 
 static void update_injection(u32 now)
 {
-    u32 elapsed;
     u32 half_period;
-    u32 missed;
 
     if (!injection_status.active) return;
-    elapsed = now - injection_started_ms;
-    if (elapsed >= injection_status.duration_ms) {
+    if (injection_status.emitted_edges >= injection_target_edges) {
         injection_status.active = 0U;
         injection_status.synthetic_a = 0U;
-        injection_release_pending = 1U;
         return;
     }
+    /* A synthetic button edge is known state, unlike a sampled physical
+     * input. Never overwrite it before the selected profile accepts it. */
+    if (injection_last_emitted != injection_status.synthetic_a) return;
     half_period = injection_status.period_ms / 2U;
     if ((s32)(now - injection_next_transition_ms) < 0) return;
-    missed = (now - injection_next_transition_ms) / half_period;
-    injection_status.overruns += missed;
-    injection_status.synthetic_a ^= (u8)((missed + 1U) & 1U);
-    injection_next_transition_ms += (missed + 1U) * half_period;
+    if (now - injection_next_transition_ms >= half_period) {
+        injection_status.overruns++;
+        injection_next_transition_ms = now;
+    }
+    injection_status.synthetic_a ^= 1U;
+    injection_next_transition_ms += half_period;
 }
 
 static u16 boot_request_check(u8 profile, u8 pairing)

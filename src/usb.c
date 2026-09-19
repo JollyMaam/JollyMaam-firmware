@@ -207,15 +207,16 @@ static void print_injection_status(void)
 static void print_input_status(void)
 {
     struct cyclone2_input_stats stats;
-    char line[128];
+    char line[192];
     int length;
 
     cyclone2_input_get_stats(&stats);
     length = snprintf(line, sizeof(line),
-                      "input dropped=%u crc=%u overflow=%u valid=%u last_axes_ms=%u\r\n",
+                      "input dropped=%u crc=%u overflow=%u valid=%u last_axes_ms=%u dma_irq=%u timeout_irq=%u max_backlog=%u\r\n",
                       stats.dropped_bytes, stats.crc_failures,
                       stats.overflow_events, stats.valid_frames,
-                      stats.last_axes_timestamp_ms);
+                      stats.last_axes_timestamp_ms, stats.dma_interrupts,
+                      stats.timeout_interrupts, stats.max_backlog);
     if (length > 0) console_write_bytes(line, (u32)length);
 }
 
@@ -257,7 +258,7 @@ static void execute_command(void)
                       "connect status  show slot, address, state, and USB\r\n"
                       "disconnect  stop Bluetooth without sleeping\r\n"
                       "inject a PERIOD_MS DURATION_MS | stop | status\r\n"
-                      "input status  show stick-DMA framing counters\r\n"
+                      "input status|reset  show/reset stick-DMA counters\r\n"
                       "status   show reset mailbox and MaskROM NVRAM\r\n"
                       "uboot    reboot into BR23 UBOOT1.00\r\n");
     } else if (!strcmp(command_line, "debug on")) {
@@ -306,6 +307,9 @@ static void execute_command(void)
         print_injection_status();
     } else if (!strcmp(command_line, "input status")) {
         print_input_status();
+    } else if (!strcmp(command_line, "input reset")) {
+        cyclone2_input_reset_stats();
+        console_write("OK input counters reset\r\n");
     } else if (!strncmp(command_line, "inject a ", 9U)) {
         u32 period;
         u32 duration;
