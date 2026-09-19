@@ -39,11 +39,13 @@ static u8 response_delay;
 static u8 debug_enabled = 1U;
 static u8 debug_read_index;
 static u8 debug_write_index;
+static u8 terminal_was_open;
 static struct debug_line debug_lines[DEBUG_LINE_COUNT];
 
 extern void usb_start(void);
 extern void nvram_set_boot_state(u32 state);
 extern void flushinv_dcache(const void *address, u32 size);
+extern u8 cyclone2_cdc_terminal_open(void);
 
 static void console_write_bytes(const void *data, u32 length)
 {
@@ -113,7 +115,8 @@ static void flush_debug_line(void)
     char prefix[32];
     int prefix_length;
 
-    if (!debug_enabled || debug_read_index == debug_write_index) return;
+    if (!debug_enabled || !cyclone2_cdc_terminal_open() ||
+        debug_read_index == debug_write_index) return;
     line = &debug_lines[debug_read_index];
     prefix_length = snprintf(prefix, sizeof(prefix), "\r\n[%u.%03u] ",
                              line->timestamp_ms / 1000U,
@@ -410,6 +413,21 @@ void cyclone2_usb_control_poll(void)
 {
     u8 receive_buffer[64];
     u32 length;
+    u8 terminal_open = cyclone2_cdc_terminal_open();
+
+    if (!terminal_open) {
+        /* A closed terminal must never let diagnostics obstruct controller
+         * work. Keep only messages produced after the next open. */
+        debug_read_index = debug_write_index;
+        terminal_was_open = 0U;
+        if (uboot_pending && --response_delay == 0U) enter_maskrom_uboot();
+        return;
+    }
+
+    if (!terminal_was_open) {
+        terminal_was_open = 1U;
+        greeting_pending = 1U;
+    }
 
     if (greeting_pending) {
         static const char greeting[] =

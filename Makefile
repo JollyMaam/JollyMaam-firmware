@@ -105,12 +105,11 @@ $O/src/%.c.o: src/%.c
 $O/sdk/%.c.o: $(SDK)/%.c
 	$(compile_c)
 
-# SET_CONTROL_LINE_STATE must not reset bulk endpoint DATA toggles whenever
-# Linux opens/closes CDC. The SDK's cdc_reset already initializes endpoints
-# on USB configuration/reset. Patch a build copy, leaving the SDK untouched.
-$O/cdc.c: $(SDK)/apps/common/device/usb/device/cdc.c Makefile
+# Fix the SDK's one-way DTR/RTS latch and avoid resetting bulk endpoint DATA
+# toggles whenever Linux opens/closes CDC. Patch a build copy only.
+$O/cdc.c: $(SDK)/apps/common/device/usb/device/cdc.c tools/patch_cdc.py Makefile
 	@mkdir -p $(@D)
-	$(QUIET)sed '/cdc_endpoint_init(usb_device, (ctrl_req->wIndex \& USB_RECIP_MASK));/d' $< > $@
+	$(QUIET)/work/bin/python3 tools/patch_cdc.py $< $@
 
 $O/sdk/apps/common/device/usb/device/cdc.c.o: $O/cdc.c
 	$(compile_c)

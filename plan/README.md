@@ -180,3 +180,21 @@ counted only in the usable connected state. The image SHA-256 is
 `7f29533ff7bf520b38e529f4a92d4d8e88e67a7e99f73ab9e477f272a7bc8809`;
 it was flashed and read back exactly. Obtain `report status` during an active
 5 ms connection to decide whether callback-driven retry work is warranted.
+
+The apparent Bluetooth-startup reset after a short-lived `c2ctl connect 0`
+was a CDC failure, not a radio scheduling failure. The SDK CDC implementation
+latched DTR and RTS forever after the first tty open. After `c2ctl` closed,
+runtime diagnostics continued writing to an unattended bulk-IN endpoint;
+keeping picocom open happened to drain it and hid the problem. The private CDC
+build copy now mirrors the host's actual `SET_CONTROL_LINE_STATE`, exports its
+open state, and suppresses/drops diagnostics while the tty is closed. Closing
+the console has no effect on controller or Bluetooth execution.
+
+The final image SHA-256 is
+`872e852324ef89faaeba32dc020d4098f1b25d0d0f0b4c5d6c9f73d189141de8`.
+It was read back byte-for-byte as
+`/work/cyclone2-test-qjEkRO/cdc-line-state-readback.bin`.
+It passed one fresh-boot and three disconnect/reconnect tests: in every case
+`c2ctl connect 0` exited immediately, no terminal remained open during the
+20--25 second connection interval, CDC did not re-enumerate, and the final
+state was `connected` to the saved Switch bond.
