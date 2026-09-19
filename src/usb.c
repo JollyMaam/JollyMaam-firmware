@@ -265,11 +265,13 @@ __attribute__((noinline)) static void print_rumble_status(void)
 
     cyclone2_rumble_get_status(&status);
     length = snprintf(line, sizeof(line),
-                      "rumble=%s left=%u right=%u duration=%u ms%s updates=%u\r\n",
+                      "rumble=%s left=%u right=%u duration=%u ms%s updates=%u request_ms=%u apply_ms=%u latency=%u max_latency=%u\r\n",
                       status.active ? "active" : "stopped", status.left,
                       status.right, status.duration_ms,
                       status.active && status.duration_ms == 0U ? " (latched)" : "",
-                      status.updates);
+                      status.updates, status.last_request_ms,
+                      status.last_apply_ms, status.last_apply_latency_ms,
+                      status.max_apply_latency_ms);
     if (length > 0) console_write_bytes(line, (u32)length);
 }
 

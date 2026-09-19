@@ -1,6 +1,7 @@
 #include <asm/br23.h>
 #include <asm/gpio.h>
 #include <asm/mcpwm.h>
+#include <system/timer.h>
 #include "rumble.h"
 
 #define RUMBLE_FREQUENCY_HZ 25000U
@@ -87,6 +88,7 @@ static void publish_target(u8 left, u8 right, u16 duration_ms)
     requested_right = right;
     requested_duration_ms = duration_ms;
     request_generation++;
+    rumble_status.last_request_ms = sys_timer_get_ms();
     rumble_status.updates++;
     rumble_status.left = left;
     rumble_status.right = right;
@@ -124,6 +126,14 @@ void cyclone2_rumble_poll(u32 now_ms)
         motor_set(&right_motor, right);
         expires_at_ms = now_ms + duration_ms;
         applied_generation = generation;
+        rumble_status.last_apply_ms = now_ms;
+        rumble_status.last_apply_latency_ms =
+            now_ms - rumble_status.last_request_ms;
+        if (rumble_status.last_apply_latency_ms >
+            rumble_status.max_apply_latency_ms) {
+            rumble_status.max_apply_latency_ms =
+                rumble_status.last_apply_latency_ms;
+        }
     }
     if (rumble_status.active && rumble_status.duration_ms != 0U &&
         (s32)(now_ms - expires_at_ms) >= 0) {

@@ -11,6 +11,10 @@ struct cyclone2_rumble_status {
     u8 right;
     u8 active;
     u16 duration_ms;
+    u32 last_request_ms;
+    u32 last_apply_ms;
+    u32 last_apply_latency_ms;
+    u32 max_apply_latency_ms;
 };
 
 void cyclone2_rumble_initialize(void);
