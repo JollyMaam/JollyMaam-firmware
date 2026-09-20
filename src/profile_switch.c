@@ -33,6 +33,7 @@
 #define SWITCH_SET_REPORT_OUTPUT        0x52U
 #define SWITCH_FULL_PAYLOAD_SIZE        48U
 #define SWITCH_SIMPLE_PAYLOAD_SIZE      11U
+#define SWITCH_SIMPLE_KEEPALIVE_MS      100U
 
 #define JC_BTN_Y         BIT(0)
 #define JC_BTN_X         BIT(1)
@@ -100,6 +101,7 @@ static u8 rumble_enabled;
 static u8 imu_enabled;
 static u8 host_stopped;
 static u8 tx_debug_remaining;
+static u32 simple_last_send_ms;
 
 /* Nintendo encodes HD-rumble frequency and amplitude together. These ERM
  * motors cannot reproduce the two carrier frequencies, so retain the
@@ -444,6 +446,7 @@ static void switch_hid_initialize(void)
     imu_enabled = 0U;
     host_stopped = 0U;
     tx_debug_remaining = 4U;
+    simple_last_send_ms = sys_timer_get_ms() - SWITCH_SIMPLE_KEEPALIVE_MS;
     cyclone2_imu_disable();
     user_hid_init(switch_output);
 }
@@ -451,6 +454,8 @@ static void switch_hid_initialize(void)
 int cyclone2_switch_send(const struct cyclone2_input_report *input)
 {
     u8 report[SWITCH_FULL_PAYLOAD_SIZE];
+    u8 input_changed = memcmp(&latest_input, input, sizeof(*input)) != 0;
+    u32 now;
     int result;
 
     latest_input = *input;
@@ -464,9 +469,15 @@ int cyclone2_switch_send(const struct cyclone2_input_report *input)
         result = edr_hid_data_send(SWITCH_REPORT_FULL_STATE, report,
                                    sizeof(report));
     } else {
+        now = sys_timer_get_ms();
+        if (!input_changed &&
+            now - simple_last_send_ms < SWITCH_SIMPLE_KEEPALIVE_MS) {
+            return 0;
+        }
         fill_simple_state(report);
         result = edr_hid_data_send(SWITCH_REPORT_SIMPLE_STATE, report,
                                    SWITCH_SIMPLE_PAYLOAD_SIZE);
+        if (result == 0) simple_last_send_ms = now;
     }
     if (tx_debug_remaining != 0U) {
         cyclone2_usb_debug("Switch TX report=%02x size=%u result=%d",
@@ -590,6 +601,7 @@ enum cyclone2_profile_event cyclone2_switch_handle_event(
             }
         } else if (event->u.bt.event == BT_STATUS_FIRST_CONNECTED ||
                    event->u.bt.event == BT_STATUS_SECOND_CONNECTED) {
+            tx_debug_remaining = 4U;
             syscfg_write(CFG_EDR_ADDRESS_BEGIN + switch_slot,
                          event->u.bt.args, 6U);
         } else if (event->u.bt.event == BT_STATUS_ENCRY_COMPLETE) {
