@@ -367,7 +367,7 @@ __attribute__((noinline)) static void execute_command(void)
             console_write(result ? "OK disconnecting\r\n" :
                                    "OK already disconnected\r\n");
         } else {
-            console_write("ERR disconnect requires a connected profile\r\n");
+            console_write("ERR profile transition already in progress\r\n");
         }
     } else if (!strcmp(command_line, "inject stop")) {
         cyclone2_inject_stop();

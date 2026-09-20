@@ -172,16 +172,18 @@ int cyclone2_connect_request(u8 profile)
 
 int cyclone2_disconnect_request(void)
 {
-    if (radio_state == CYCLONE2_RADIO_OFF) return 0;
-    if (radio_state != CYCLONE2_RADIO_CONNECTED) return -1;
+    if (active_profile >= CYCLONE2_PROFILE_COUNT) return 0;
+    if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
 
     injection_cancel();
     cyclone2_rumble_stop();
     radio_state = CYCLONE2_RADIO_STOPPING;
-    cyclone2_profile_disconnect();
+    if (cyclone2_profile_is_connected()) cyclone2_profile_disconnect();
     /* Let the profile emit its protocol-level disconnect before shutting down
-     * the shared Bluetooth stack. A later connect command uses the existing
-     * reset handoff to initialize that stack from a clean state. */
+     * the shared Bluetooth stack. This also stops discoverability after a
+     * failed pairing attempt, where radio_state is OFF but btstack is active.
+     * A later connect command uses the existing reset handoff to initialize
+     * that stack from a clean state. */
     sys_timeout_add(NULL, radio_exit_only, 100U);
     return 1;
 }
