@@ -162,7 +162,8 @@ int cyclone2_connect_request(u8 profile)
 {
     if (profile >= CYCLONE2_PROFILE_COUNT) return -1;
     if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
-    if (active_profile == profile &&
+    if (radio_state == CYCLONE2_RADIO_CONNECTED &&
+        active_profile == profile &&
         cyclone2_profile_is_connected()) return 0;
     injection_cancel();
     profile_select(profile, 0U);
