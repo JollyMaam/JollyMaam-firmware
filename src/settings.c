@@ -45,6 +45,25 @@ void cyclone2_bt_address_for_slot(u8 slot, u8 address[6])
     address[0] ^= (u8)((slot & 3U) * 4U);
 }
 
+/* Give this controller a brand-new Bluetooth identity.
+ *
+ * A host keeps its link key against the controller's address, so when the two
+ * sides disagree about a key, deleting only one side's copy cannot recover the
+ * pairing: the host keeps challenging the old address and the connection ends
+ * with "authentication failure".  Changing the address makes this look like a
+ * controller the host has never seen, which pairs from scratch.  The vendor
+ * SDK's own unpair path regenerates addresses for the same reason. */
+void cyclone2_bt_address_randomize(void)
+{
+    get_random_number(base_mac_addr, sizeof(base_mac_addr));
+    /* Locally administered, so it cannot collide with a real vendor address.
+     * Addresses are stored least significant byte first, so the first octet
+     * anyone prints is index 5. */
+    base_mac_addr[5] |= 0x02U;
+    syscfg_write(CFG_BT_MAC_ADDR, base_mac_addr, sizeof(base_mac_addr));
+    memcpy(mac_addr, base_mac_addr, sizeof(mac_addr));
+}
+
 /* user_cfg.h */
 const u8 *bt_get_mac_addr(void)
 {

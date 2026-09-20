@@ -183,6 +183,19 @@ int cyclone2_pair_request(u8 profile)
     return 1;
 }
 
+/* Pairing request that also adopts a fresh Bluetooth address.  Use this when
+ * the host still holds a link key that the controller can no longer match;
+ * the host then sees a device it has never paired with. */
+int cyclone2_pair_fresh_request(u8 profile)
+{
+    if (profile >= CYCLONE2_PROFILE_COUNT) return -1;
+    if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
+    cyclone2_bt_address_randomize();
+    injection_cancel();
+    profile_select(profile, 1U);
+    return 1;
+}
+
 int cyclone2_disconnect_request(void)
 {
     if (active_profile >= CYCLONE2_PROFILE_COUNT) return 0;

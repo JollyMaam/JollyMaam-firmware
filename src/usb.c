@@ -323,6 +323,7 @@ __attribute__((noinline)) static void execute_command(void)
                       "report 5|8|10|status  set/report HID period in ms\r\n"
                       "connect 0|1|2|3  reconnect a saved profile slot\r\n"
                       "pair 0|1|2|3  forget a slot's bond and wait to pair\r\n"
+                      "pair N fresh  as above but with a new Bluetooth address\r\n"
                       "connect status  show slot, address, state, and USB\r\n"
                       "disconnect  stop Bluetooth without sleeping\r\n"
                       "inject a PERIOD_MS DURATION_MS | stop | status\r\n"
@@ -371,13 +372,19 @@ __attribute__((noinline)) static void execute_command(void)
             console_write("ERR profile transition already in progress\r\n");
         }
     } else if (!strncmp(command_line, "pair ", 5U) && command_line[5] >= '0' &&
-               command_line[5] <= '3' && command_line[6] == '\0') {
+               command_line[5] <= '3' &&
+               (command_line[6] == '\0' ||
+                !strcmp(command_line + 6, " fresh"))) {
         u8 slot = (u8)(command_line[5] - '0');
-        int result = cyclone2_pair_request(slot);
+        int result = command_line[6] == '\0' ?
+                     cyclone2_pair_request(slot) :
+                     cyclone2_pair_fresh_request(slot);
         if (result > 0) {
             console_write("OK forgetting slot ");
             console_write_bytes(&command_line[5], 1U);
-            console_write(" and becoming pairable\r\n");
+            console_write(command_line[6] == '\0' ?
+                          " and becoming pairable\r\n" :
+                          " with a new address and becoming pairable\r\n");
         } else {
             console_write("ERR profile transition already in progress\r\n");
         }
