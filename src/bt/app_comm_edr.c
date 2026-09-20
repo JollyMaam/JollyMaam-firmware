@@ -34,11 +34,9 @@
 #define log_debug(format, ...) cyclone2_usb_debug("COMM_EDR: " format, ##__VA_ARGS__)
 #define log_error(format, ...) cyclone2_usb_debug("COMM_EDR error: " format, ##__VA_ARGS__)
 
-/* A 500 ms sniff interval is appropriate for a keyboard that is mostly idle,
- * but it makes Switch rumble output arrive hundreds of milliseconds late.
- * Keep the EDR HID link awake; the controller already has separate sleep
- * handling when it is genuinely idle. */
-#define SNIFF_ENABLE                  0 // TRANSLATED: Disable sniff for HID latency.
+/* SDL's direct HIDAPI path proved that Switch output reports arrive without
+ * the kernel driver's delay, so retain the SDK's idle power saving. */
+#define SNIFF_ENABLE                  1 // TRANSLATED: Allow actively entering sniff mode.
 
 // TRANSLATED: Default configuration.
 static const edr_sniff_par_t edr_default_sniff_param = {
