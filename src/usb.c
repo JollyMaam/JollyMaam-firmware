@@ -422,6 +422,7 @@ __attribute__((noinline)) static void execute_command(void)
                       "clearkeys  zero the controller's pairing records\r\n"
                       "bondstore  dump the controller's pairing records\r\n"
                       "nvscan     list non-blank controller memory\r\n"
+                      "delall     forget every device the stack remembers\r\n"
                       "connect status  show slot, address, state, and USB\r\n"
                       "disconnect  stop Bluetooth without sleeping\r\n"
                       "inject a PERIOD_MS DURATION_MS | stop | status\r\n"
@@ -507,6 +508,9 @@ __attribute__((noinline)) static void execute_command(void)
         print_bond_store();
     } else if (!strcmp(command_line, "nvscan")) {
         print_nvram_scan();
+    } else if (!strcmp(command_line, "delall")) {
+        cyclone2_switch_forget_all();
+        console_write("OK asked the stack to forget every device\r\n");
     } else if (!strcmp(command_line, "inject status")) {
         print_injection_status();
     } else if (!strcmp(command_line, "input status")) {

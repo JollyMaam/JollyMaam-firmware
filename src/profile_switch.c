@@ -879,6 +879,13 @@ void cyclone2_switch_forget_peer(const u8 address[6])
     }
 }
 
+/* Ask the stack to drop every device it remembers.  This is the command the
+ * SDK's own pairing entry point sends. */
+void cyclone2_switch_forget_all(void)
+{
+    user_send_cmd_prepare(USER_CTRL_DEL_ALL_REMOTE_INFO, 0, NULL);
+}
+
 /* Reconnect to the console whose address is stored in syscfg for this slot.
  * Paging has to wait until the stack has finished initialising, which is why
  * this runs from a timer rather than directly. */
@@ -974,6 +981,13 @@ enum cyclone2_profile_event cyclone2_switch_handle_event(
                                     get_remote_dev_info_index());
                     bond_delete_pending = 0U;
                 }
+                /* The SDK's own way into pairing mode (see
+                 * mouse_single's mouse_bt_pair_start()) also forgets every
+                 * device the Bluetooth controller remembers.  Without it a
+                 * half-remembered record survives, and the console answers a
+                 * connection with an authentication challenge instead of
+                 * starting a fresh pairing. */
+                user_send_cmd_prepare(USER_CTRL_DEL_ALL_REMOTE_INFO, 0, NULL);
                 bt_wait_phone_connect_control(1);
             } else if (syscfg_read(CFG_EDR_ADDRESS_BEGIN + switch_slot,
                                    remote, sizeof(remote)) == sizeof(remote) &&
