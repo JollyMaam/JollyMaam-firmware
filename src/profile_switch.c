@@ -235,7 +235,6 @@ _Static_assert(sizeof(nintendo_switch_pro_hid_report_descriptor) ==
  * form defined by input.h.  Reports sent from here translate it into the
  * Nintendo wire format. */
 static struct cyclone2_input_report latest_input;
-
 /* Handshake state.  There is deliberately no separate state machine here:
  * the console drives the session by sending subcommands and this file simply
  * records what it asked for.
@@ -754,7 +753,7 @@ static void switch_output(u8 *packet, u16 size, u16 channel)
 static void switch_hid_initialize(void)
 {
     memset(&latest_input, 0, sizeof(latest_input));
-    input_report_mode = SWITCH_REPORT_SIMPLE_STATE;
+    input_report_mode = SWITCH_REPORT_FULL_STATE;
     latest_input.hat = CYCLONE2_HAT_NEUTRAL;
     latest_input.left_x = latest_input.left_y = 0x80U;
     latest_input.right_x = latest_input.right_y = 0x80U;
