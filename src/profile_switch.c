@@ -92,7 +92,9 @@ static const u8 switch_report_map[] = {
 #define SWITCH_STATE_VIBRATION_OFFSET      11U
 
 static struct cyclone2_input_report latest_input;
-static u8 input_report_mode = SWITCH_REPORT_FULL_STATE;
+/* A real Pro Controller starts in simple mode.  The host changes it to the
+ * full 0x30 stream with subcommand 0x03 during the Switch handshake. */
+static u8 input_report_mode = SWITCH_REPORT_SIMPLE_STATE;
 static u8 timer_counter;
 static u8 rumble_enabled;
 static u8 imu_enabled;
@@ -426,7 +428,7 @@ static void switch_output(u8 *packet, u16 size, u16 channel)
 static void switch_hid_initialize(void)
 {
     memset(&latest_input, 0, sizeof(latest_input));
-    input_report_mode = SWITCH_REPORT_FULL_STATE;
+    input_report_mode = SWITCH_REPORT_SIMPLE_STATE;
     latest_input.hat = CYCLONE2_HAT_NEUTRAL;
     latest_input.left_x = latest_input.left_y = 0x80U;
     latest_input.right_x = latest_input.right_y = 0x80U;
