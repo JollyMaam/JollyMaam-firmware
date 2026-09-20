@@ -106,7 +106,7 @@ static const hid_sdp_info_t hid_sdp_info_config = {
     .extra_len              = 0,
 };
 
-#define NEW_SDP_PNP_DATA_VER     1  // TRANSLATED: For compatibility.
+#define NEW_SDP_PNP_DATA_VER     0  // TRANSLATED: Generate the PNP record from hid_sdp_info_config.
 
 u8 sdp_make_pnp_service_data[0x60];
 SDP_RECORD_HANDLER_REGISTER(pnp_sdp_record_item) = {
