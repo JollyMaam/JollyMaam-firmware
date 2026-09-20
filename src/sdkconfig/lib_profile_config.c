@@ -44,9 +44,10 @@ const int config_stack_modules = BT_BTSTACK_LE | BT_BTSTACK_CLASSIC;
 #define  PNP_VID_SOURCE   0x02
 #define  PNP_VID          0x057e
 #define  PNP_PID          0x2009
-/* BlueZ uses the PnP product version for hidp/input_id.version.  Match an
- * official Switch Pro Controller so SDL selects its hid-nintendo mapping. */
-#define  PNP_PID_VERSION  0x0111
+/* The Bluetooth Switch Pro Controller reports product version 0x0001.
+ * BlueZ marks Bluetooth input versions with bit 15, yielding 0x8001 and
+ * selecting SDL's modern hid-nintendo mapping. */
+#define  PNP_PID_VERSION  0x0001
 
 /* static const u8 sdp_pnp_service_data_hid[] = { */
 /* 0x36, 0x00, 0x5a, 0x09, 0x00, 0x00, 0x0a, 0x00, 0x01, 0x00, 0x0a, 0x09, 0x00, 0x01, 0x35, 0x03, */
@@ -89,9 +90,7 @@ static const hid_sdp_info_t hid_sdp_info_config = {
     .remote_wake         = 0x01,
     .normally_connectable = 0x01,
     .boot_device         = 0x01,
-    /* Match the Switch Pro HID version. Linux exposes this as input
-     * version 0x8111, for which SDL has the correct hid-nintendo mapping. */
-    .version             = 0x0111,
+    .version             = 0x0100,
     .parser_version      = 0x0111,
     .profile_version     = 0x0100,
     .supervision_timeout = 0x1f40,
