@@ -44,10 +44,10 @@ const int config_stack_modules = BT_BTSTACK_LE | BT_BTSTACK_CLASSIC;
 #define  PNP_VID_SOURCE   0x02
 #define  PNP_VID          0x057e
 #define  PNP_PID          0x2009
-/* The Bluetooth Switch Pro Controller reports product version 0x0001.
- * BlueZ marks Bluetooth input versions with bit 15, yielding 0x8001 and
- * selecting SDL's modern hid-nintendo mapping. */
-#define  PNP_PID_VERSION  0x0001
+/* Match the Device ID version used by Switch Pro emulators and the official
+ * HID identity.  The Linux input-version workaround belongs in host mapping,
+ * not in the controller's advertised Device ID. */
+#define  PNP_PID_VERSION  0x0100
 
 /* static const u8 sdp_pnp_service_data_hid[] = { */
 /* 0x36, 0x00, 0x5a, 0x09, 0x00, 0x00, 0x0a, 0x00, 0x01, 0x00, 0x0a, 0x09, 0x00, 0x01, 0x35, 0x03, */
@@ -82,18 +82,18 @@ static const hid_sdp_info_t hid_sdp_info_config = {
     .ver_private = PNP_PID_VERSION,
 
     .sub_class           = 0x08,
-    .country_code        = 0x00,
+    .country_code        = 0x21,
     .virtual_cable       = 0x01,
     .reconnect_initiate  = 0x01,
     .sdp_disable         = 0x00,
     .battery_power       = 0x01,
     .remote_wake         = 0x01,
-    .normally_connectable = 0x01,
-    .boot_device         = 0x01,
+    .normally_connectable = 0x00,
+    .boot_device         = 0x00,
     .version             = 0x0100,
     .parser_version      = 0x0111,
     .profile_version     = 0x0100,
-    .supervision_timeout = 0x1f40,
+    .supervision_timeout = 0x0c80,
     .language            = 0x0409,
     .bt_string_offset    = 0x0100,
     .descriptor_len      = 0,
