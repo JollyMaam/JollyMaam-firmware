@@ -82,6 +82,7 @@ static cbuffer_t user_send_cbuf;
 static u8 hid_tmp_buffer[HID_TMP_BUFSIZE];
 
 extern void hid_diy_regiest_callback(void *cb, void *interrupt_cb);
+extern void hid_diy_regiest_ctrl_parse(void *callback);
 extern void hid_sdp_init(const u8 *hid_descriptor, u16 size);
 extern uint16_t little_endian_read_16(const uint8_t *buffer, int pos);
 
@@ -90,6 +91,9 @@ typedef struct {
     u8 report_id;
     u8 data[HID_SEND_MAX_SIZE - 2];
 } hid_data_info_t;
+
+int hid_ctrl_data_parse_hook(u16 channel, const u8 *packet, int size,
+                             int *respond_buf_ptr);
 
 //-----------------------------------------------------
 /*************************************************************************************************/
@@ -495,6 +499,7 @@ void user_hid_init(void (*user_hid_output_handler)(u8 *packet, u16 size, u16 cha
     hid_channel = 0;
     hid_ctrl_channel = 0;
     hid_diy_regiest_callback(user_hid_msg_handler, user_hid_output_handler);
+    hid_diy_regiest_ctrl_parse(hid_ctrl_data_parse_hook);
 
     if (!hid_run) {
         log_info("hid_sdp_init\n");
