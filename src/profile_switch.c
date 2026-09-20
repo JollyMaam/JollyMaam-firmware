@@ -17,8 +17,11 @@
 #define SWITCH_OUTPUT_SUBCOMMAND        0x01U
 #define SWITCH_OUTPUT_RUMBLE            0x10U
 
+#define SWITCH_SUBCOMMAND_PAIRING      0x01U
 #define SWITCH_SUBCOMMAND_DEVICE_INFO   0x02U
 #define SWITCH_SUBCOMMAND_REPORT_MODE   0x03U
+#define SWITCH_SUBCOMMAND_TRIGGER_TIME  0x04U
+#define SWITCH_SUBCOMMAND_HCI_STATE     0x06U
 #define SWITCH_SUBCOMMAND_SPI_READ      0x10U
 #define SWITCH_SUBCOMMAND_PLAYER_LIGHTS 0x30U
 #define SWITCH_SUBCOMMAND_HOME_LIGHT    0x38U
@@ -89,10 +92,11 @@ static const u8 switch_report_map[] = {
 #define SWITCH_STATE_VIBRATION_OFFSET      11U
 
 static struct cyclone2_input_report latest_input;
-static u8 input_report_mode = SWITCH_REPORT_SIMPLE_STATE;
+static u8 input_report_mode = SWITCH_REPORT_FULL_STATE;
 static u8 timer_counter;
 static u8 rumble_enabled;
 static u8 imu_enabled;
+static u8 host_stopped;
 
 /* Nintendo encodes HD-rumble frequency and amplitude together. These ERM
  * motors cannot reproduce the two carrier frequencies, so retain the
@@ -289,6 +293,11 @@ static void read_virtual_spi(u32 address, u8 length, u8 *output)
 
 static void reply_subcommand(u8 subcommand, const u8 *request, u16 request_size)
 {
+    static const u8 controller_string[24] = {
+        0x00, 0x25, 0x08, 'P', 'r', 'o', ' ', 'C',
+        'o', 'n', 't', 'r', 'o', 'l', 'l', 'e',
+        'r', 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x68,
+    };
     u8 reply[SWITCH_FULL_PAYLOAD_SIZE];
     u8 *state = reply;
     u8 *ack = reply + SWITCH_CONTROLLER_STATE_SIZE;
@@ -300,6 +309,23 @@ static void reply_subcommand(u8 subcommand, const u8 *request, u16 request_size)
     ack[1] = subcommand;
 
     switch (subcommand) {
+    case SWITCH_SUBCOMMAND_PAIRING:
+        if (request_size != 0U) {
+            const u8 *mac = bt_get_mac_addr();
+            u8 index;
+
+            ack[0] = 0x81U;
+            data[0] = request[0];
+            if (request[0] == 1U) {
+                for (index = 0U; index < 6U; index++)
+                    data[1U + index] = mac[5U - index];
+                memcpy(data + 7U, controller_string,
+                       sizeof(controller_string));
+            } else if (request[0] == 2U) {
+                memset(data + 1U, 0, 16U);
+            }
+        }
+        break;
     case SWITCH_SUBCOMMAND_DEVICE_INFO: {
         const u8 *mac = bt_get_mac_addr();
         ack[0] = 0x82U;
@@ -308,8 +334,8 @@ static void reply_subcommand(u8 subcommand, const u8 *request, u16 request_size)
         data[2] = 0x03U; /* Pro Controller */
         data[3] = 0x02U;
         memcpy(data + 4, mac, 6);
-        data[10] = 0x01U;
-        data[11] = 0x01U;
+        data[10] = 0x00U;
+        data[11] = 0x02U;
         break;
     }
     case SWITCH_SUBCOMMAND_REPORT_MODE:
@@ -318,6 +344,18 @@ static void reply_subcommand(u8 subcommand, const u8 *request, u16 request_size)
              request[0] == SWITCH_REPORT_FULL_STATE)) {
             input_report_mode = request[0];
         }
+        break;
+    case SWITCH_SUBCOMMAND_TRIGGER_TIME: {
+        u8 index;
+
+        ack[0] = 0x83U;
+        for (index = 0U; index < 14U; index += 2U)
+            write_s16_le(data + index, 100);
+        break;
+    }
+    case SWITCH_SUBCOMMAND_HCI_STATE:
+        if (request_size != 0U && request[0] == 0U)
+            host_stopped = 1U;
         break;
     case SWITCH_SUBCOMMAND_SPI_READ:
         if (request_size >= 5U) {
@@ -378,6 +416,8 @@ static void switch_output(u8 *packet, u16 size, u16 channel)
         return;
     }
     if (report_id == SWITCH_OUTPUT_SUBCOMMAND && size >= 12U) {
+        cyclone2_usb_debug("Switch subcommand=%02x arg0=%02x size=%u",
+                           packet[11], size > 12U ? packet[12] : 0U, size);
         handle_rumble(packet + 3U);
         reply_subcommand(packet[11], packet + 12, size - 12U);
     }
@@ -386,11 +426,13 @@ static void switch_output(u8 *packet, u16 size, u16 channel)
 static void switch_hid_initialize(void)
 {
     memset(&latest_input, 0, sizeof(latest_input));
+    input_report_mode = SWITCH_REPORT_FULL_STATE;
     latest_input.hat = CYCLONE2_HAT_NEUTRAL;
     latest_input.left_x = latest_input.left_y = 0x80U;
     latest_input.right_x = latest_input.right_y = 0x80U;
     rumble_enabled = 0U;
     imu_enabled = 0U;
+    host_stopped = 0U;
     cyclone2_imu_disable();
     user_hid_init(switch_output);
 }
@@ -401,7 +443,7 @@ int cyclone2_switch_send(const struct cyclone2_input_report *input)
     int result;
 
     latest_input = *input;
-    if (!edr_hid_is_connected()) {
+    if (!edr_hid_is_connected() || host_stopped) {
         return 0;
     }
     if (input_report_mode == SWITCH_REPORT_FULL_STATE) {
