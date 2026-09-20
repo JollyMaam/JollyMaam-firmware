@@ -34,9 +34,14 @@ else
 QUIET=@
 endif
 
-.PHONY: all default clean
+.PHONY: all default clean flash
 
 default all: $O/firmware.img
+
+# Write the packed image through the controller's UBOOT1.00 loader, keeping a
+# full-flash backup.  See tools/flash.sh for the details and the recovery path.
+flash: $O/firmware.img
+	$(QUIET)tools/flash.sh
 
 # regenerate stuff if makefile or config changes
 $(OBJECTS) $O/sdk.ld: Makefile sdk-br23.mk $(APP_CONFIG_DEPS)

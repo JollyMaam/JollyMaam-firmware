@@ -79,6 +79,18 @@ build/c2ctl -p /dev/bwrap/ttyACM0 'connect 0'
 
 ## Recovery sequence
 
+`make flash` (or `tools/flash.sh`) drives the whole write path: it asks the
+running firmware to reboot into UBOOT1.00, reads the current 512 KiB flash to
+`/work/cyclone2-flash-backups/` first, writes the image at offset 0, reads the
+written span back and compares it, then resets and waits for this console to
+reappear. The write covers only the code span, so the VM, BTIF and key/mac
+regions at `0x40000` and above keep their contents.
+
+If the controller does not answer and no loader device is present, the script
+waits: unplug the controller and plug it back in, or power-cycle it, so the
+chip's ROM loader appears on USB. `--no-backup`, `--image`, `--wait` and
+`--loader` adjust the behaviour.
+
 The build makes a one-line correction to a generated copy of SDK `cdc.c`:
 `SET_CONTROL_LINE_STATE` no longer reinitializes bulk endpoints. The SDK reset
 handler already configures them. Resetting their DATA toggles on each tty open
