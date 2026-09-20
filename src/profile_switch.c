@@ -99,6 +99,7 @@ static u8 timer_counter;
 static u8 rumble_enabled;
 static u8 imu_enabled;
 static u8 host_stopped;
+static u8 tx_debug_remaining;
 
 /* Nintendo encodes HD-rumble frequency and amplitude together. These ERM
  * motors cannot reproduce the two carrier frequencies, so retain the
@@ -405,7 +406,14 @@ static void reply_subcommand(u8 subcommand, const u8 *request, u16 request_size)
 static void switch_output(u8 *packet, u16 size, u16 channel)
 {
     u8 report_id;
-    (void)channel;
+
+    cyclone2_usb_debug(
+        "Switch RX channel=%u size=%u bytes=%02x %02x %02x %02x",
+        channel, size,
+        size > 0U ? packet[0] : 0U,
+        size > 1U ? packet[1] : 0U,
+        size > 2U ? packet[2] : 0U,
+        size > 3U ? packet[3] : 0U);
 
     if (size < 2U ||
         (packet[0] != SWITCH_HID_DATA_OUTPUT &&
@@ -435,6 +443,7 @@ static void switch_hid_initialize(void)
     rumble_enabled = 0U;
     imu_enabled = 0U;
     host_stopped = 0U;
+    tx_debug_remaining = 4U;
     cyclone2_imu_disable();
     user_hid_init(switch_output);
 }
@@ -458,6 +467,15 @@ int cyclone2_switch_send(const struct cyclone2_input_report *input)
         fill_simple_state(report);
         result = edr_hid_data_send(SWITCH_REPORT_SIMPLE_STATE, report,
                                    SWITCH_SIMPLE_PAYLOAD_SIZE);
+    }
+    if (tx_debug_remaining != 0U) {
+        cyclone2_usb_debug("Switch TX report=%02x size=%u result=%d",
+                           input_report_mode,
+                           input_report_mode == SWITCH_REPORT_FULL_STATE ?
+                               SWITCH_FULL_PAYLOAD_SIZE :
+                               SWITCH_SIMPLE_PAYLOAD_SIZE,
+                           result);
+        tx_debug_remaining--;
     }
     if (result == 0) return 1;
     if (result == 3) return -1; /* SDK HID circular buffer is full. */
