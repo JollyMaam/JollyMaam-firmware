@@ -718,6 +718,10 @@ static int cyclone2_event_handler(struct application *application,
     if (result & CYCLONE2_PROFILE_EVENT_DISCONNECTED) {
         injection_cancel();
         cyclone2_rumble_stop();
+        /* A host player-light command may have changed LEDs without changing
+         * led_is_on.  Force every LED off when the radio disconnects. */
+        cyclone2_led_set_all(0U, 0U, 0U);
+        led_is_on = 0U;
         if (radio_state != CYCLONE2_RADIO_STOPPING) {
             radio_state = CYCLONE2_RADIO_OFF;
             begin_automatic_sleep("Bluetooth disconnected");
