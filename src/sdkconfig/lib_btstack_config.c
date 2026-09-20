@@ -23,3 +23,8 @@ const int config_le_gatt_server_num = CONFIG_BT_GATT_SERVER_NUM; // TRANSLATED: 
 const int config_le_gatt_client_num = CONFIG_BT_GATT_CLIENT_NUM; // TRANSLATED: Number of client roles.
 const int config_le_sm_sub_sc_enable = CONFIG_BT_SM_SUPPORT_ENABLE & 0;
 const int config_le_sm_sub_sc_bridge_edr_enable = 0;
+
+/* Temporary Switch-pairing diagnostics.  These globals are consumed by the
+ * SDK's L2CAP/HID stack and expose channel control packets on the console. */
+unsigned char l2cap_debug_enable = 0xf0;
+unsigned char profile_debug_enable = 0xff;
