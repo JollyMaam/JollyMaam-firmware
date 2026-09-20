@@ -20,7 +20,7 @@ SDK_COMMON_SOURCES := $(SDK_COMMON_SOURCES_MINIMAL)
 SDK_COMMON_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_COMMON_SOURCES:.c=.c.o))
 SDK_CPU_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_SOURCES:.c=.c.o))
 
-INCLUDES := -iquote src -iquote src/bt -iquote src/sdkconfig $(SDK_INCLUDES)
+INCLUDES := -iquote src -iquote src/bt -iquote src/sdkconfig -iquote $(O) $(SDK_INCLUDES)
 PROJECT_SOURCES := $(wildcard src/*.c src/bt/*.c src/sdkconfig/*.c)
 APP_CONFIG_DEPS := $(wildcard src/sdkconfig/*.h src/sdkconfig/*.ld)
 
@@ -71,6 +71,25 @@ $O/c2ctl: tools/c2ctl.c
 	@mkdir -p $(@D)
 	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) $< -o $@
 
+# The binary blobs in data/ are the source of truth for the Switch protocol
+# tables; bin2header only spells their bytes out as C arrays.
+$O/bin2header: tools/bin2header.c
+	@mkdir -p $(@D)
+	@echo [EXE] $@
+	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) $< -o $@
+
+$O/nintendo_switch_pro_hid.h: $O/bin2header data/nintendo_switch_pro_hid.bin
+	@mkdir -p $(@D)
+	@echo [GEN] $@
+	$(QUIET)$O/bin2header data/nintendo_switch_pro_hid.bin $@ \
+		nintendo_switch_pro_hid_report_descriptor
+
+$O/nintendo_switch_pro_spi.h: $O/bin2header data/nintendo_switch_pro_spi.bin
+	@mkdir -p $(@D)
+	@echo [GEN] $@
+	$(QUIET)$O/bin2header data/nintendo_switch_pro_spi.bin $@ \
+		nintendo_switch_pro_spi_flash
+
 # minimal version of download.sh
 $O/app.bin: $O/app.elf
 	@echo [BIN] $@
@@ -103,6 +122,9 @@ $O/isd_config.ini: $(SDK)/cpu/br23/tools/isd_config_rule.c $(APP_CONFIG)
 
 $O/src/%.c.o: src/%.c
 	$(compile_c)
+
+# profile_switch.c uses the arrays generated from data/*.bin
+$O/src/profile_switch.c.o: $O/nintendo_switch_pro_hid.h $O/nintendo_switch_pro_spi.h
 
 $O/sdk/%.c.o: $(SDK)/%.c
 	$(compile_c)

@@ -127,3 +127,36 @@ not visible in this mode. Analog triggers are reduced to the Switch's digital
 ZL/ZR buttons. IMU replies are accepted but sensor samples are presently zero.
 This is an experimental interoperability milestone; it still needs testing
 against both SDL's Switch HIDAPI driver and a physical Nintendo Switch.
+
+The protocol details, including the HIDP framing, every report layout and the
+subcommand list, are documented at the top of `src/profile_switch.c`.
+
+The two binary blobs the protocol needs are the source of truth and live in
+`data/`. They are the only place the bytes are written down; `tools/bin2header.c`
+just spells them out as the C arrays the firmware compiles
+(`build/nintendo_switch_pro_hid.h` and `build/nintendo_switch_pro_spi.h`), so
+they can be decoded, hex-dumped and diffed with ordinary tools:
+
+| File | Contents |
+| --- | --- |
+| `data/nintendo_switch_pro_hid.bin` | the 170-byte HID report descriptor |
+| `data/nintendo_switch_pro_spi.bin` | the virtual SPI flash window starting at `0x6000`, indexed exactly like the controller's flash |
+
+`read_virtual_spi()` serves the controller's SPI flash to the console and to
+host drivers:
+
+| Address | Contents |
+| --- | --- |
+| `0x6000` | device info / serial; mostly erased, with the Pro Controller type at `0x6012` |
+| `0x6020` | 6-axis factory calibration (24 bytes) |
+| `0x603d` | stick factory calibration, left then right (18 bytes) |
+| `0x6050` | body/button/grip colours (12 bytes) |
+| `0x6080` | 6-axis parameters (6 bytes) |
+| `0x6086`, `0x6098` | left and right stick parameters (18 bytes each) |
+
+Unlisted addresses read as erased flash (`0xff`), which is what keeps the
+"user calibration" magic values at `0x8010`/`0x801b` unset. The two replies
+that carry the local Bluetooth address use different byte orders: the pairing
+reply sends it little endian, the device-information reply big endian. Both
+orders go through named helpers because `bt_get_mac_addr()` stores the address
+little endian (the reverse of the printed `aa:bb:cc:dd:ee:ff` form).

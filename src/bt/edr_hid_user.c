@@ -19,6 +19,17 @@ extern void put_buf(const u8 *buf, int len);
 
 #define TEST_USER_HID_EN               0
 
+/*
+ * Bluetooth HID (HIDP) transaction types, the high nibble of the one-octet
+ * HIDP message header that starts every packet on the HID control channel
+ * (L2CAP PSM 0x0011) and HID interrupt channel (PSM 0x0013).  See the
+ * Bluetooth HID Profile 1.1.1, section 3.1.1 (header) and 3.1.2 (messages).
+ *
+ * For DATA messages the low nibble carries the report type (DATA_* below),
+ * so e.g. 0xa1 means "DATA, input report" and 0xa2 means "DATA, output
+ * report".  Input reports are queued with edr_hid_data_send(), which builds
+ * the 0xa1 header and the report id for the caller.
+ */
 /*message type*/   /*hex*/  /*sent by*/
 #define HID_HANDSHAKE       0x00     /*Device*/
 #define HID_CONTROL         0x10     /*Device&host*/
@@ -33,7 +44,8 @@ extern void put_buf(const u8 *buf, int len);
 #define HID_DATC            0xB0     /*Device&host  DEPRECATED*/
 /*C-F  Reserved*/
 
-/*DATA*/
+/* Report types (low nibble of the HIDP header, and the length/type byte used
+ * inside the SDK's own report structure). */
 #define DATA_OTHER       0x00
 #define DATA_INPUT       0x01
 #define DATA_OUTPUT      0x02
@@ -546,17 +558,20 @@ void user_hid_enable(u8 en)
     }
 }
 
-/*************************************************************************************************/
-/*!
- *  \brief      hid send report data
+/*
+ * Queue one HID report for the interrupt channel.
  *
- *  \param      [in]
+ * `report_type` is the HIDP header byte (0xa1 for an input report),
+ * `report_id` is the report id from the HID report descriptor, and
+ * `data`/`len` is the report body.  The bytes put on the wire are therefore
+ * 0xa1, report id, body.
  *
- *  \return
- *
- *  \note
+ * The report is appended to a small ring that the stack drains as transmit
+ * slots free up, so this call does not block.  Returns 0 when the report was
+ * queued, 1 when no HID channel is open, 2 when the report is too large, and
+ * 3 when the ring is full - in that last case the report is dropped, which
+ * the caller has to handle.
  */
-/*************************************************************************************************/
 int edr_hid_data_send_ext(u8 report_type, u8 report_id, u8 *data, u16 len)
 {
     if (!hid_channel) {
@@ -675,17 +690,18 @@ int edr_hid_tx_buff_is_ok(void)
     return 1;
 }
 
-/*************************************************************************************************/
-/*!
- *  TRANSLATED: Control-channel command hook: return 0 for library handling, or a nonzero response length to send a reply.
- *  TRANSLATED: [in] channel: L2CAP connection channel.
- *  TRANSLATED: [in] packet: received command buffer.
- *  TRANSLATED: [in] size: command length.
- *  TRANSLATED: [out] respond_buf_ptr: response buffer pointer.
- *  TRANSLATED: Returns the response length.
- *  \note
+/*
+ * Hook for commands that arrive on the HID control channel.
+ *
+ * `packet` starts with the HIDP header byte, e.g. 0x40 for GET_REPORT,
+ * followed by the report id and any parameters; see the transaction type
+ * table above.  Return 0 to let the SDK answer the request, or a non-zero
+ * length to send `*respond_buf_ptr` back instead.
+ *
+ * The Nintendo Switch uses its own report/subcommand protocol on the
+ * interrupt channel (see profile_switch.c) and only asks for report id 1
+ * here, so a short canned reply is enough.
  */
-/*************************************************************************************************/
 int hid_ctrl_data_parse_hook(u16 channel, const u8 *packet, int size, int *respond_buf_ptr)
 {
     int respone_len = 0;

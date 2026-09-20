@@ -54,7 +54,10 @@ const u8 *bt_get_mac_addr(void)
 /* user_cfg.h */
 void bt_set_mac_addr(u8 *addr)
 {
-  cyclone2_usb_debug("%s: %02x:%02x:%02x:%02x:%02x:%02x\n", __func__, addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
+  /* The stack stores the address least significant byte first, so print it
+   * back to front to match what bluetoothctl and the console display. */
+  cyclone2_usb_debug("%s: %02x:%02x:%02x:%02x:%02x:%02x\n", __func__,
+                     addr[5], addr[4], addr[3], addr[2], addr[1], addr[0]);
   memcpy(mac_addr, addr, 6);
 }
 
