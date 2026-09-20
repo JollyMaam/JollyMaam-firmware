@@ -6,11 +6,11 @@
 #include "asm/adc_api.h"
 
 /* Digital buttons; all are active low. */
-#define CYCLONE2_BUTTON_A           IO_PORTA_00
+#define CYCLONE2_BUTTON_A           IO_PORTA_06
 #define CYCLONE2_DPAD_UP            IO_PORTA_02
 #define CYCLONE2_DPAD_DOWN          IO_PORTA_04
 #define CYCLONE2_BUTTON_L4          IO_PORTA_05
-#define CYCLONE2_BUTTON_B           IO_PORTA_06
+#define CYCLONE2_BUTTON_B           IO_PORTA_00
 #define CYCLONE2_BUTTON_X           IO_PORTA_07
 #define CYCLONE2_DPAD_RIGHT         IO_PORTA_10
 #define CYCLONE2_BUTTON_Y           IO_PORTA_13
