@@ -87,7 +87,9 @@ static const hid_sdp_info_t hid_sdp_info_config = {
     .remote_wake         = 0x01,
     .normally_connectable = 0x01,
     .boot_device         = 0x01,
-    .version             = 0x0100,
+    /* Match the Switch Pro HID version. Linux exposes this as input
+     * version 0x8111, for which SDL has the correct hid-nintendo mapping. */
+    .version             = 0x0111,
     .parser_version      = 0x0111,
     .profile_version     = 0x0100,
     .supervision_timeout = 0x1f40,
