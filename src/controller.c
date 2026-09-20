@@ -626,10 +626,14 @@ static void cyclone2_poll(void *private_data)
     update_home_state();
     update_injection(now);
     /* The ACL connection event precedes authentication and opening the HID
-     * control/interrupt channels. Only the latter is a usable connection. */
-    if (active_type == CYCLONE2_PROFILE_SWITCH &&
-        (radio_state == CYCLONE2_RADIO_CONNECTING ||
-         radio_state == CYCLONE2_RADIO_PAIRING) &&
+     * control/interrupt channels. Only the latter is a usable connection.
+     *
+     * Any state except teardown can reach it: a console may connect on its own
+     * long after this controller gave up, and the Bluetooth stack stays alive
+     * in that case (USB keeps the controller awake), so a reconnect must be
+     * picked up rather than ignored. Otherwise the link comes up and carries
+     * no reports at all. */
+    if (radio_state != CYCLONE2_RADIO_STOPPING &&
         cyclone2_profile_is_connected()) {
         radio_state = CYCLONE2_RADIO_CONNECTED;
     }
