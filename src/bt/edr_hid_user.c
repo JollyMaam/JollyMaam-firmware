@@ -690,6 +690,14 @@ int hid_ctrl_data_parse_hook(u16 channel, const u8 *packet, int size, int *respo
 {
     int respone_len = 0;
     static u8 hid_respone_buffer[8];
+
+    cyclone2_usb_debug("EDR_HID CTRL channel=%u size=%d bytes=%02x %02x %02x %02x",
+                       channel, size,
+                       size > 0 ? packet[0] : 0,
+                       size > 1 ? packet[1] : 0,
+                       size > 2 ? packet[2] : 0,
+                       size > 3 ? packet[3] : 0);
+
     switch (packet[0] & 0xf0) {
     case HID_GET_REPORT:
         if (packet[1] == 0x01) {// TRANSLATED: Report ID; response matches the SDK app_keyboard.c descriptor.
