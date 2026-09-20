@@ -45,5 +45,6 @@ int cyclone2_switch_is_connected(void);
 int cyclone2_switch_send(const struct cyclone2_input_report *report);
 enum cyclone2_profile_event cyclone2_switch_handle_event(
     const struct sys_event *event);
+void cyclone2_switch_forget_peer(const u8 address[6]);
 
 #endif

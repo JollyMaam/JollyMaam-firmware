@@ -2,7 +2,8 @@
 #
 # Flash the controller through its JieLi UBOOT1.00 USB loader.
 #
-#   tools/flash.sh [--image FILE] [--no-backup] [--wait SECONDS] [--loader DEV]
+#   tools/flash.sh [--image FILE] [--no-backup] [--erase-persistent]
+#                  [--wait SECONDS] [--loader DEV]
 #
 # The controller normally runs the application firmware, which can reboot
 # itself into the loader on command, so the usual case needs no button presses:
@@ -15,6 +16,12 @@
 #      BTIF and key/mac regions at 0x40000 and above are left alone
 #   4. read the written span back and compare it with the image
 #   5. reset the controller and wait for its USB console to return
+#
+# --erase-persistent additionally erases 0x40000..0x7ffff, the VM, BTIF and
+# key/mac regions.  That is a factory reset of everything the controller
+# remembers: its Bluetooth address, its pairing records and its settings.  Use
+# it when a host and the controller disagree about a link key, because bonding
+# records live in the Bluetooth controller's own memory and survive a reflash.
 #
 # If the console does not answer and no loader is present, the script waits:
 # unplug the controller and plug it back in, or power-cycle it.  A chip whose
@@ -29,6 +36,7 @@ cd "$repo_root"
 image=build/firmware.img
 wait_seconds=120
 take_backup=1
+erase_persistent=0
 loader=${JLUBOOT_DEVICE:-}
 backup_dir=${FLASH_BACKUP_DIR:-/work/cyclone2-flash-backups}
 
@@ -40,12 +48,13 @@ flash_size=0x80000
 
 usage()
 {
-    echo "usage: $0 [--image FILE] [--no-backup] [--wait SECONDS] [--loader DEV]"
+    echo "usage: $0 [--image FILE] [--no-backup] [--erase-persistent] [--wait SECONDS] [--loader DEV]"
     echo
-    echo "  --image FILE    image to write (default build/firmware.img)"
-    echo "  --no-backup     skip reading the current flash first"
-    echo "  --wait SECONDS  how long to wait for the loader or the console (default 120)"
-    echo "  --loader DEV    use this loader device instead of detecting one"
+    echo "  --image FILE       image to write (default build/firmware.img)"
+    echo "  --no-backup        skip reading the current flash first"
+    echo "  --erase-persistent also erase VM/BTIF/key-mac (new address, no bonds)"
+    echo "  --wait SECONDS     how long to wait for the loader or the console (default 120)"
+    echo "  --loader DEV       use this loader device instead of detecting one"
 }
 
 die()
@@ -63,6 +72,10 @@ while [ $# -gt 0 ]; do
         ;;
     --no-backup)
         take_backup=0
+        shift
+        ;;
+    --erase-persistent)
+        erase_persistent=1
         shift
         ;;
     --wait)
@@ -174,12 +187,23 @@ if [ "$take_backup" = 1 ]; then
     echo "reading $flash_size bytes of current flash to $backup"
 fi
 
+erase_command=
+if [ "$erase_persistent" = 1 ]; then
+    erase_command="erase 0x40000 0x40000"
+    echo "erasing 0x40000..0x7ffff: bonds, settings, address and key/mac"
+fi
+
 echo "writing $image ($size bytes) at offset 0"
 
-# One loader session: optional backup, write, read back, reset.
+# One loader session: optional backup, optional factory reset, write, read
+# back, reset.  The write only covers the image, so the erased regions stay
+# erased and the controller comes up as if it had never been paired.
 set -- --device "$loader"
 if [ -n "$backup" ]; then
     set -- "$@" "read 0 $flash_size $backup"
+fi
+if [ -n "$erase_command" ]; then
+    set -- "$@" "$erase_command"
 fi
 set -- "$@" "write 0 $image" "read 0 $size_hex $readback" reset
 

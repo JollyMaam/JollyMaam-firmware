@@ -91,6 +91,7 @@ extern void bt_pll_para(u32 osc, u32 sys, u8 low_power, u8 xosc);
 static void start_selected_profile(void);
 static void profile_select(u8 profile, u8 pairing);
 static void injection_cancel(void);
+static void soft_reset_now(void *private_data);
 
 static void radio_exit_only(void *private_data)
 {
@@ -193,6 +194,51 @@ int cyclone2_pair_fresh_request(u8 profile)
     cyclone2_bt_address_randomize();
     injection_cancel();
     profile_select(profile, 1U);
+    return 1;
+}
+
+/* Forget a specific peer's link key, then re-enter pairing with a new local
+ * address.  This is the recovery for a link the two sides disagree about:
+ * bonding records live in the Bluetooth controller's own memory, so they
+ * survive reflashing and cannot be reached with the flash tools. */
+int cyclone2_forget_peer_request(const u8 address[6])
+{
+    u8 slot = active_profile < CYCLONE2_PROFILE_COUNT ? active_profile : 0U;
+
+    if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
+    injection_cancel();
+    cyclone2_switch_forget_peer(address);
+    cyclone2_bt_address_randomize();
+    profile_select(slot, 1U);
+    return 1;
+}
+
+/* Zero the Bluetooth controller's whole bonding store.
+ *
+ * A chip dump shows pairing records (peer address followed by the key) in the
+ * retention memory just below the MaskROM boot-state word, at 0x10760 and
+ * nearby.  Neither reflashing nor erasing VM reaches them, and
+ * delete_link_key() only works with the slot index the stack tracks for a live
+ * connection, so a link that never authenticates cannot be deleted that way.
+ * Zeroing the store and restarting is the factory reset of pairing state. */
+#define CYCLONE2_BT_BOND_STORE      ((volatile u8 *)0x00010700U)
+#define CYCLONE2_BT_BOND_STORE_SIZE 0x100U
+
+int cyclone2_clear_keys_request(void)
+{
+    volatile u8 *store = CYCLONE2_BT_BOND_STORE;
+    u32 index;
+
+    if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
+    for (index = 0U; index < CYCLONE2_BT_BOND_STORE_SIZE; index++) {
+        store[index] = 0U;
+    }
+    __asm__ volatile("csync");
+    injection_cancel();
+    cyclone2_rumble_stop();
+    radio_state = CYCLONE2_RADIO_STOPPING;
+    if (active_profile < CYCLONE2_PROFILE_COUNT) cyclone2_profile_disconnect();
+    sys_timeout_add(NULL, soft_reset_now, 100U);
     return 1;
 }
 

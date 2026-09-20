@@ -845,11 +845,39 @@ static const edr_init_cfg_t switch_edr_config = {
 static u8 switch_slot;
 static u8 switch_pairing;
 static u8 bond_delete_pending;
+static u8 peer_debug_remaining;
 static u8 bond_to_delete[6];
 static u8 reconnect_address[6];
 
+/* Log the far end of a connection event.  Addresses arrive least significant
+ * byte first, like our own, so print them back to front. */
+static void log_peer_address(const char *what, const u8 *address)
+{
+    cyclone2_usb_debug("%s peer %02x:%02x:%02x:%02x:%02x:%02x", what,
+                       address[5], address[4], address[3], address[2],
+                       address[1], address[0]);
+}
+
 extern void bt_set_local_name(char *name, u8 len);
 extern void delete_link_key(bd_addr_t *address, u8 index);
+
+/* Drop the stored link key for a peer.
+ *
+ * Bonding records live in the Bluetooth controller's own memory (a chip dump
+ * shows one at 0x10760: peer address followed by the key), not in flash, so
+ * neither reflashing nor erasing VM can clear them.  delete_link_key() is the
+ * SDK's way in: the slot index selects a pairing entry and the record is
+ * matched by peer address.  Try every index, because the index the SDK tracks
+ * belongs to the current connection and a connection that fails
+ * authentication never establishes one. */
+void cyclone2_switch_forget_peer(const u8 address[6])
+{
+    u8 index;
+
+    for (index = 0U; index < 4U; index++) {
+        delete_link_key((bd_addr_t *)address, index);
+    }
+}
 
 /* Reconnect to the console whose address is stored in syscfg for this slot.
  * Paging has to wait until the stack has finished initialising, which is why
@@ -892,6 +920,7 @@ void cyclone2_switch_start(u8 slot, u8 pairing)
     switch_slot = slot;
     switch_pairing = pairing;
     bond_delete_pending = 0U;
+    peer_debug_remaining = 8U;
     if (pairing) {
         if (syscfg_read(CFG_EDR_ADDRESS_BEGIN + slot, remote,
                         sizeof(remote)) == sizeof(remote)) {
@@ -957,17 +986,28 @@ enum cyclone2_profile_event cyclone2_switch_handle_event(
         } else if (event->u.bt.event == BT_STATUS_FIRST_CONNECTED ||
                    event->u.bt.event == BT_STATUS_SECOND_CONNECTED) {
             tx_debug_remaining = 4U;
+            log_peer_address("connected", event->u.bt.args);
             syscfg_write(CFG_EDR_ADDRESS_BEGIN + switch_slot,
                          event->u.bt.args, 6U);
         } else if (event->u.bt.event == BT_STATUS_ENCRY_COMPLETE) {
+            log_peer_address("encrypted", event->u.bt.args);
             sys_timeout_add(NULL, connect_hid_after_encryption,
                             SWITCH_HID_CONNECT_DELAY_MS);
         } else if (event->u.bt.event == BT_STATUS_FIRST_DISCONNECT ||
                    event->u.bt.event == BT_STATUS_SECOND_DISCONNECT) {
+            log_peer_address("disconnected", event->u.bt.args);
             return CYCLONE2_PROFILE_EVENT_DISCONNECTED;
         }
     } else if ((u32)event->arg == SYS_BT_EVENT_TYPE_HCI_STATUS) {
         bt_comm_edr_hci_event_handler((struct bt_event *)&event->u.bt);
+        if (event->u.bt.event == HCI_EVENT_CONNECTION_COMPLETE ||
+            event->u.bt.event == HCI_EVENT_DISCONNECTION_COMPLETE ||
+            event->u.bt.event == BTSTACK_EVENT_HCI_CONNECTIONS_DELETE) {
+            if (peer_debug_remaining != 0U) {
+                peer_debug_remaining--;
+                log_peer_address("hci", event->u.bt.args);
+            }
+        }
         if (event->u.bt.event == HCI_EVENT_DISCONNECTION_COMPLETE)
             return CYCLONE2_PROFILE_EVENT_DISCONNECTED;
     }

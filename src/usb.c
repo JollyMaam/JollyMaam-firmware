@@ -222,6 +222,64 @@ __attribute__((noinline)) static void print_input_status(void)
     if (length > 0) console_write_bytes(line, (u32)length);
 }
 
+/* The Bluetooth controller keeps its pairing records in retention memory just
+ * below the MaskROM boot word; dump them so the console can show whether a
+ * clear took effect. */
+static void print_bond_store(void)
+{
+    const volatile u8 *store = (const volatile u8 *)0x00010700U;
+    char line[80];
+    u32 base;
+    u32 index;
+
+    for (base = 0U; base < 0x100U; base += 16U) {
+        int length = snprintf(line, sizeof(line), "%04x:", 0x10700U + base);
+        for (index = 0U; index < 16U && length > 0; index++) {
+            length += snprintf(line + length, sizeof(line) - (size_t)length,
+                               " %02x", store[base + index]);
+        }
+        if (length > 0) {
+            console_write_bytes(line, (u32)length);
+            console_write("\r\n");
+        }
+    }
+}
+
+/* Print every 16-byte line of the controller's retention memory that is not
+ * blank, so a pairing record (or a half-erased one) shows up wherever it
+ * lives. */
+static void print_nvram_scan(void)
+{
+    const volatile u8 *base = (const volatile u8 *)0x00010000U;
+    char line[96];
+    u32 offset;
+
+    for (offset = 0U; offset < 0x800U; offset += 16U) {
+        u32 index;
+        u32 interesting = 0U;
+        int length;
+
+        for (index = 0U; index < 16U; index++) {
+            u8 value = base[offset + index];
+            if (value != 0x00U && value != 0xffU) {
+                interesting = 1U;
+                break;
+            }
+        }
+        if (!interesting) continue;
+
+        length = snprintf(line, sizeof(line), "%05x:", 0x10000U + offset);
+        for (index = 0U; index < 16U && length > 0; index++) {
+            length += snprintf(line + length, sizeof(line) - (size_t)length,
+                               " %02x", base[offset + index]);
+        }
+        if (length > 0) {
+            console_write_bytes(line, (u32)length);
+            console_write("\r\n");
+        }
+    }
+}
+
 static int parse_decimal(const char **cursor, u32 *value)
 {
     const char *text = *cursor;
@@ -255,6 +313,42 @@ static int parse_rumble_args(const char *text, u32 *left, u32 *right,
         parse_decimal(&text, right) != 0 || *text++ != ' ' ||
         parse_decimal(&text, duration) != 0 || *text != '\0') return -1;
     return 0;
+}
+
+static int parse_hex_byte(const char **cursor, u32 *value)
+{
+    const char *text = *cursor;
+    u32 result = 0U;
+    unsigned digit;
+
+    for (digit = 0U; digit < 2U; digit++) {
+        char letter = text[digit];
+        u32 nibble;
+
+        if (letter >= '0' && letter <= '9') nibble = (u32)(letter - '0');
+        else if (letter >= 'a' && letter <= 'f') nibble = (u32)(letter - 'a' + 10);
+        else if (letter >= 'A' && letter <= 'F') nibble = (u32)(letter - 'A' + 10);
+        else return -1;
+        result = (result << 4) | nibble;
+    }
+    *cursor = text + 2;
+    *value = result;
+    return 0;
+}
+
+/* "aa:bb:cc:dd:ee:ff" as printed -> the least-significant-byte-first form the
+ * stack stores. */
+static int parse_address(const char *text, u8 address[6])
+{
+    unsigned index;
+
+    for (index = 0U; index < 6U; index++) {
+        u32 value = 0U;
+        if (parse_hex_byte(&text, &value) != 0) return -1;
+        address[5U - index] = (u8)value;
+        if (index < 5U && *text++ != ':') return -1;
+    }
+    return *text == '\0' ? 0 : -1;
 }
 
 __attribute__((noinline)) static void print_rumble_status(void)
@@ -324,6 +418,10 @@ __attribute__((noinline)) static void execute_command(void)
                       "connect 0|1|2|3  reconnect a saved profile slot\r\n"
                       "pair 0|1|2|3  forget a slot's bond and wait to pair\r\n"
                       "pair N fresh  as above but with a new Bluetooth address\r\n"
+                      "unkey AA:BB:..  drop a stored link key and re-pair\r\n"
+                      "clearkeys  zero the controller's pairing records\r\n"
+                      "bondstore  dump the controller's pairing records\r\n"
+                      "nvscan     list non-blank controller memory\r\n"
                       "connect status  show slot, address, state, and USB\r\n"
                       "disconnect  stop Bluetooth without sleeping\r\n"
                       "inject a PERIOD_MS DURATION_MS | stop | status\r\n"
@@ -391,6 +489,24 @@ __attribute__((noinline)) static void execute_command(void)
     } else if (!strcmp(command_line, "inject stop")) {
         cyclone2_inject_stop();
         console_write("OK injection stopped\r\n");
+    } else if (!strncmp(command_line, "unkey ", 6U)) {
+        u8 address[6];
+        if (parse_address(command_line + 6U, address) == 0 &&
+            cyclone2_forget_peer_request(address) > 0) {
+            console_write("OK forgetting that link key\r\n");
+        } else {
+            console_write("ERR use unkey aa:bb:cc:dd:ee:ff\r\n");
+        }
+    } else if (!strcmp(command_line, "clearkeys")) {
+        if (cyclone2_clear_keys_request() > 0) {
+            console_write("OK clearing stored link keys and restarting\r\n");
+        } else {
+            console_write("ERR profile transition already in progress\r\n");
+        }
+    } else if (!strcmp(command_line, "bondstore")) {
+        print_bond_store();
+    } else if (!strcmp(command_line, "nvscan")) {
+        print_nvram_scan();
     } else if (!strcmp(command_line, "inject status")) {
         print_injection_status();
     } else if (!strcmp(command_line, "input status")) {

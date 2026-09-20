@@ -36,6 +36,8 @@ void cyclone2_report_statistics_get(struct cyclone2_report_statistics *stats);
 int cyclone2_connect_request(u8 slot);
 int cyclone2_pair_request(u8 slot);
 int cyclone2_pair_fresh_request(u8 slot);
+int cyclone2_forget_peer_request(const u8 address[6]);
+int cyclone2_clear_keys_request(void);
 int cyclone2_disconnect_request(void);
 void cyclone2_connection_status_get(struct cyclone2_connection_status *status);
 int cyclone2_usb_present(void);
