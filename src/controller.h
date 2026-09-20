@@ -34,6 +34,7 @@ u8 cyclone2_report_period_get(void);
 int cyclone2_report_period_set(u8 period_ms);
 void cyclone2_report_statistics_get(struct cyclone2_report_statistics *stats);
 int cyclone2_connect_request(u8 slot);
+int cyclone2_pair_request(u8 slot);
 int cyclone2_disconnect_request(void);
 void cyclone2_connection_status_get(struct cyclone2_connection_status *status);
 int cyclone2_usb_present(void);

@@ -238,10 +238,15 @@ static struct cyclone2_input_report latest_input;
 
 /* Handshake state.  There is deliberately no separate state machine here:
  * the console drives the session by sending subcommands and this file simply
- * records what it asked for.  A real Pro Controller powers up in simple
- * report mode and the console switches it to the full 0x30 stream with
- * subcommand 0x03 once it has identified and calibrated the pad. */
-static u8 input_report_mode = SWITCH_REPORT_SIMPLE_STATE;
+ * records what it asked for.
+ *
+ * Reports start in full (0x30) mode.  A working Pro Controller emulator for
+ * the real console streams 0x30 at 8 ms from the moment the HID channels open
+ * and never sends 0x3f itself; a console that opens the HID channels and then
+ * sees only sparse 0x3f reports drops the link after about 260 ms without
+ * ever sending a subcommand.  Subcommand 0x03 can still move this back to the
+ * simple report at any time. */
+static u8 input_report_mode = SWITCH_REPORT_FULL_STATE;
 
 /* Free-running report counter, byte 0 of every state block. */
 static u8 timer_counter;

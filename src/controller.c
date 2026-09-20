@@ -170,6 +170,19 @@ int cyclone2_connect_request(u8 profile)
     return 1;
 }
 
+/* Same as a connect request except that the slot forgets its stored link key
+ * and becomes pairable.  The physical chord is Home+face for five seconds;
+ * this is the equivalent for someone driving the controller over USB, e.g.
+ * while the console sits on its "Change Grip/Order" screen. */
+int cyclone2_pair_request(u8 profile)
+{
+    if (profile >= CYCLONE2_PROFILE_COUNT) return -1;
+    if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
+    injection_cancel();
+    profile_select(profile, 1U);
+    return 1;
+}
+
 int cyclone2_disconnect_request(void)
 {
     if (active_profile >= CYCLONE2_PROFILE_COUNT) return 0;
