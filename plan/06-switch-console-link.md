@@ -57,6 +57,38 @@ against a record it already holds.
    see the LMP exchange: who sends the authentication request, and what the
    console does after it fails.
 
+## Evidence from the console screen
+
+After deleting the console's pairings, power-cycling it and opening
+Change Grip/Order, the screen stays **empty** while the controller sees
+connections at ~1.2/s that fail authentication. The console never shows a
+controller tile, never asks for input and never starts an SSP exchange.
+
+An empty Change Grip/Order screen is not what pairing looks like: a controller
+in pairing mode appears there. So the console is not running a pairing flow
+with this controller at all - it is retrying something silently and the
+attempts happen to reach us. That is consistent with a record the console
+still holds for this controller, and inconsistent with "the console sees a new
+device and pairs".
+
+The comparison that separates the two possibilities is a known-good emulator:
+put the ESP32 from github.com-601-NS1-Wakeup-Demo on the same console. If it
+pairs, the console is healthy and the fault is in this firmware's BR/EDR
+pairing behaviour; if the ESP32 cannot pair either, the console is the problem
+and the air interface has to be captured.
+
+To run this side against the console again after such a test:
+
+```sh
+tools/flash.sh                      # write and verify the current build
+tools/c2log.py -t 90 -o /work/nslog/run.txt --command 'pair 0 fresh'
+```
+
+`pair 0 fresh` forgets every remembered device, adopts a new local address and
+waits to be paired. `disconnect` takes the radio down completely, which is what
+to do before testing another controller against the same console so the two
+do not compete.
+
 ## Instruments built along the way
 
 - `tools/flash.sh [--erase-persistent]` - backup, write, read-back compare,
