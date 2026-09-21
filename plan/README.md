@@ -14,6 +14,8 @@ agent owns integration, builds, flashing, and this progress record.
 | 3 | [Host test tools](03-host-tests.md) | complete; 5/8/10 ms live tests passed |
 | 4 | [Controller scheduling and TX](04-controller-tx.md) | complete; separate task not currently justified |
 | 5 | [IMU and rumble](05-imu-rumble.md) | functional; calibration and native-rate IMU batching remain |
+| 6 | [Real Switch console link](06-switch-console-link.md) | blocked; console-side authentication/link behavior remains unresolved |
+| 7 | [Runtime cleanup and deadlines](07-runtime-cleanup.md) | proposed; awaiting sign-off before coding |
 
 The starting controller is paired in Switch slot A (slot 0), address
 `13:11:DB:58:28:18`. Preserve its syscfg/VM/BTIF and address derivation. Never
