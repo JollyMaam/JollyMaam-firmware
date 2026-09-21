@@ -90,9 +90,9 @@ eSCO/call-state checks:
 const int config_btctler_hci_standard = 1;
 ```
 
-This avoids modifying or rebuilding `btctrler.a`.  The archive patcher from
-the earlier experiment remains available in history as a fallback if this
-supported configuration does not pass a real-console test.
+This avoids modifying or rebuilding `btctrler.a` by default.  The earlier
+archive workaround remains available explicitly with `make PATCH_BTCTLER=1`
+if this supported configuration does not pass a real-console test.
 
 ## How to see any of this
 

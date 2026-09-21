@@ -1,8 +1,11 @@
 O := build
+.DEFAULT_GOAL := default
 SDK := /work/github.com-Jieli-Tech/fw-AC63_BT_SDK
 TOOL_DIR := /work/jieli-linux-toolchains-20250324.1/pi32v2/bin
 FLASH_SIZE := 0x80000
 CODE_LIMIT := 0x40000
+# Use the broad controller-library workaround only when explicitly requested.
+PATCH_BTCTLER ?= 0
 
 include sdk-br23.mk
 
@@ -20,6 +23,14 @@ SDK_COMMON_SOURCES := $(SDK_COMMON_SOURCES_MINIMAL)
 SDK_COMMON_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_COMMON_SOURCES:.c=.c.o))
 SDK_CPU_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_SOURCES:.c=.c.o))
 
+ifeq ($(PATCH_BTCTLER),1)
+# Build a patched copy without modifying the vendor SDK installation.
+LLVM_AR := $(TOOL_DIR)/../../common/bin/llvm-ar
+VENDOR_BTCTRLR := $(SDK)/cpu/br23/liba/btctrler.a
+PATCHED_BTCTRLR := $O/sdk-libs/btctrler.a
+SDK_ARCHIVES := $(subst $(VENDOR_BTCTRLR),$(PATCHED_BTCTRLR),$(SDK_ARCHIVES_MINIMAL))
+endif
+
 INCLUDES := -iquote src -iquote src/bt -iquote src/sdkconfig -iquote $(O) $(SDK_INCLUDES)
 PROJECT_SOURCES := $(wildcard src/*.c src/bt/*.c src/sdkconfig/*.c)
 APP_CONFIG_DEPS := $(wildcard src/sdkconfig/*.h src/sdkconfig/*.ld)
@@ -35,6 +46,19 @@ QUIET=@
 endif
 
 .PHONY: all default clean flash
+
+# Make must notice when the caller switches between the standard and patched
+# controller-library variants; the value of a command-line variable alone is
+# not part of a target's timestamp dependencies.
+PATCH_MODE_STAMP := $O/.patch_btctler_mode
+.PHONY: FORCE
+FORCE:
+
+$(PATCH_MODE_STAMP): FORCE
+	@mkdir -p $(@D)
+	@if [ ! -f "$@" ] || [ "$$(cat "$@")" != "$(PATCH_BTCTLER)" ]; then \
+		printf '%s\n' "$(PATCH_BTCTLER)" > "$@"; \
+	fi
 
 default all: $O/firmware.img
 
@@ -103,10 +127,17 @@ $O/app.bin: $O/app.elf
 	$(QUIET)for i in aec wav ape flac m4a amr dts fm mp3 wma; do $(OBJCOPY) -O binary -j .overlay_$$i $< $O/sections/$$i.bin; done
 	$(QUIET)cd $O/sections && cat text.bin data.bin aec.bin wav.bin ape.bin flac.bin m4a.bin amr.bin dts.bin fm.bin mp3.bin wma.bin > ../app.bin
 
-$O/app.elf: $O/sdk.ld $(OBJECTS)
+$O/app.elf: $O/sdk.ld $(OBJECTS) $(SDK_ARCHIVES) $(PATCH_MODE_STAMP)
 	@mkdir -p $(@D)
 	@echo [LD] $@
 	$(QUIET)$(LD) -o $@ $(OBJECTS) -T$O/sdk.ld -M=$O/app.map $(SDK_LFLAGS) --start-group $(SDK_ARCHIVES) --end-group $(SDK_RUNTIME_LIBS)
+
+ifeq ($(PATCH_BTCTLER),1)
+$(PATCHED_BTCTRLR): $(VENDOR_BTCTRLR) tools/patch_btctrler.py
+	@mkdir -p $(@D)
+	@echo [PATCH] $@
+	$(QUIET)/work/bin/python3 tools/patch_btctrler.py $(VENDOR_BTCTRLR) $@ --clang $(CC) --ar $(LLVM_AR)
+endif
 
 $O/sdk_ld.c: $(SDK)/cpu/br23/sdk_ld.c
 	@mkdir -p $(@D)

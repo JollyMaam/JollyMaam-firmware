@@ -44,10 +44,8 @@ const int config_stack_modules = BT_BTSTACK_LE | BT_BTSTACK_CLASSIC;
 #define  PNP_VID_SOURCE   0x02
 #define  PNP_VID          0x057e
 #define  PNP_PID          0x2009
-/* Match the Device ID version used by Switch Pro emulators and the official
- * HID identity.  The Linux input-version workaround belongs in host mapping,
- * not in the controller's advertised Device ID. */
-#define  PNP_PID_VERSION  0x0100
+/* The Bluetooth Switch Pro Controller reports product version 0x0001. */
+#define  PNP_PID_VERSION  0x0001
 
 /* static const u8 sdp_pnp_service_data_hid[] = { */
 /* 0x36, 0x00, 0x5a, 0x09, 0x00, 0x00, 0x0a, 0x00, 0x01, 0x00, 0x0a, 0x09, 0x00, 0x01, 0x35, 0x03, */
