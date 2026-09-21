@@ -203,6 +203,17 @@ static u8 hid_get_vbat_handle(void);
 //------------------------------------------------------
 
 static u8 multi_dev_adv_flag = 0; /* TRANSLATED: Switch advertising between multiple device addresses. */
+static u8 cyclone2_custom_ble_mode;
+
+extern void cyclone2_switch2_ble_before_init(void);
+extern void cyclone2_switch2_ble_init(void);
+extern void cyclone2_switch2_ble_exit(void);
+
+void cyclone2_ble_set_custom_mode(u8 enable)
+{
+    cyclone2_custom_ble_mode = enable;
+}
+
 void set_multi_devices_adv_flag(u8 adv_flag)
 {
     multi_dev_adv_flag = adv_flag;
@@ -1157,6 +1168,10 @@ static void hogp_server_init(void)
 void bt_ble_before_start_init(void)
 {
     log_info("%s", __FUNCTION__);
+    if (cyclone2_custom_ble_mode) {
+        cyclone2_switch2_ble_before_init();
+        return;
+    }
     ble_comm_init(&hogp_gatt_control_block);
 }
 
@@ -1247,6 +1262,11 @@ void bt_ble_init(void)
     log_info("%s\n", __FUNCTION__);
     log_info("ble_file: %s", __FILE__);
 
+    if (cyclone2_custom_ble_mode) {
+        cyclone2_switch2_ble_init();
+        return;
+    }
+
     hogp_con_handle = 0;
     __hogp_conn_pair_vm_do(&hogp_pair_info, 0);
     if (hogp_pair_info.pair_flag) {
@@ -1281,6 +1301,10 @@ void bt_ble_init(void)
 /*************************************************************************************************/
 void bt_ble_exit(void)
 {
+    if (cyclone2_custom_ble_mode) {
+        cyclone2_switch2_ble_exit();
+        return;
+    }
     log_info("***** ble_exit******\n");
     if (ble_hid_timer_handle) {
         sys_s_hi_timer_del(ble_hid_timer_handle);

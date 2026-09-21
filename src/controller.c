@@ -16,7 +16,7 @@
 #define CYCLONE2_DEBOUNCE_MS                10U
 #define CYCLONE2_PROFILE_COUNT              4U
 #define CYCLONE2_SETTINGS_MAGIC     0x43325052U
-#define CYCLONE2_SETTINGS_VERSION           1U
+#define CYCLONE2_SETTINGS_VERSION           2U
 #define CYCLONE2_HOME_GRACE_MS              150U
 #define CYCLONE2_LONG_HOLD_MS              5000U
 #define CYCLONE2_CONNECT_TIMEOUT_MS       30000U
@@ -135,7 +135,7 @@ static void settings_load(void)
         settings.profile_type[0] = CYCLONE2_PROFILE_SWITCH;
         settings.profile_type[1] = CYCLONE2_PROFILE_SWITCH;
         settings.profile_type[2] = CYCLONE2_PROFILE_GENERIC;
-        settings.profile_type[3] = CYCLONE2_PROFILE_GENERIC;
+        settings.profile_type[3] = CYCLONE2_PROFILE_SWITCH2;
         settings.report_period_ms = CYCLONE2_DEFAULT_REPORT_PERIOD_MS;
     }
 }
@@ -265,9 +265,9 @@ void cyclone2_connection_status_get(struct cyclone2_connection_status *status)
     u8 slot = active_profile < CYCLONE2_PROFILE_COUNT ? active_profile : 0U;
     status->slot = slot;
     status->profile_type = active_profile < CYCLONE2_PROFILE_COUNT ?
-                           active_type :
-                           (settings.profile_type[slot] == CYCLONE2_PROFILE_GENERIC ?
-                            CYCLONE2_PROFILE_GENERIC : CYCLONE2_PROFILE_SWITCH);
+                            active_type :
+                            settings.profile_type[slot] < CYCLONE2_PROFILE_TYPE_COUNT ?
+                            settings.profile_type[slot] : CYCLONE2_PROFILE_SWITCH;
     status->connection_state = (u8)radio_state;
     status->usb_present = (u8)cyclone2_usb_present();
     cyclone2_bt_address_for_slot(slot, status->local_address);
@@ -376,8 +376,8 @@ static int boot_request_consume(void)
     active_profile = profile;
     active_pairing = pairing;
     ignore_chord_until_release = 1U;
-    active_type = settings.profile_type[profile] == CYCLONE2_PROFILE_GENERIC ?
-                  CYCLONE2_PROFILE_GENERIC : CYCLONE2_PROFILE_SWITCH;
+    active_type = settings.profile_type[profile] < CYCLONE2_PROFILE_TYPE_COUNT ?
+                  settings.profile_type[profile] : CYCLONE2_PROFILE_SWITCH;
     return 1;
 }
 
@@ -418,8 +418,8 @@ static void profile_select(u8 profile, u8 pairing)
 
     active_profile = profile;
     active_pairing = pairing;
-    active_type = settings.profile_type[profile] == CYCLONE2_PROFILE_GENERIC ?
-                  CYCLONE2_PROFILE_GENERIC : CYCLONE2_PROFILE_SWITCH;
+    active_type = settings.profile_type[profile] < CYCLONE2_PROFILE_TYPE_COUNT ?
+                  settings.profile_type[profile] : CYCLONE2_PROFILE_SWITCH;
     home_state = CYCLONE2_HOME_IDLE;
     ignore_chord_until_release = 1U;
     start_selected_profile();

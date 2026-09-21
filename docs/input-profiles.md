@@ -8,8 +8,9 @@ The intended reading order is:
 2. `src/controller.c` owns input timing, Home/chord policy, LEDs, sleep, and
    profile selection.
 3. `src/profile.c` presents one transport-independent profile interface.
-4. `src/profile_switch.c` and `src/profile_generic.c` contain their respective
-   Bluetooth setup, event handling, report format, and send path.
+4. `src/profile_switch.c`, `src/profile_switch2.c`, and
+   `src/profile_generic.c` contain their respective Bluetooth setup, event
+   handling, report format, and send path.
 5. `src/input.c`, `src/usb_control.c`, and `src/control.c` contain physical
    input, the CDC console, and board output support.
 
@@ -17,16 +18,17 @@ Adding a controller protocol should normally mean adding one profile module
 and one operations-table entry in `profile.c`, without adding protocol checks
 to the controller policy loop.
 
-One firmware image contains both the Nintendo Switch-compatible Bluetooth
-Classic controller and the generic BLE gamepad. Four independent connection
-slots are selected with the physical face buttons:
+One firmware image contains the Nintendo Switch-compatible Bluetooth Classic
+controller, the raw Nintendo Switch 2 BLE controller, and the generic BLE
+gamepad. Four independent connection slots are selected with the physical
+face buttons:
 
 | Chord | Slot | Default controller type |
 | --- | ---: | --- |
 | Home+A | 1 | Nintendo Switch |
 | Home+B | 2 | Nintendo Switch |
 | Home+X | 3 | Generic BLE |
-| Home+Y | 4 | Generic BLE |
+| Home+Y | 4 | Nintendo Switch 2 Pro |
 
 Release a chord to reconnect the selected slot. Hold it for five seconds to
 discard that slot's bond and enter pairing mode. Each slot has a derived local
@@ -160,3 +162,29 @@ that carry the local Bluetooth address use different byte orders: the pairing
 reply sends it little endian, the device-information reply big endian. Both
 orders go through named helpers because `bt_get_mac_addr()` stores the address
 little endian (the reverse of the printed `aa:bb:cc:dd:ee:ff` form).
+
+## Switch 2 profile
+
+The Switch 2 profile is a raw BLE GATT implementation based on the
+`ESP32-BLE5-NSController-Emulator` reference. It uses the Switch 2 Pro
+controller's custom GATT service and 63-byte input report rather than BLE HID.
+The JL stack exposes the same service/characteristic topology, including the
+input report notification, command response notification, and vibration
+write characteristic. The profile has a virtual calibration/NFC-style flash
+image and answers the reference controller's initialization, feature, light,
+IMU, and SPI-read commands.
+
+The Cyclone 2 controls are translated as follows:
+
+- A/B/X/Y use the same Nintendo face-button ordering as the Classic Switch
+  profile.
+- Screenshot becomes Capture.
+- L4 and R4 become the Switch 2 GL and GR paddle buttons.
+- M is sent as the Switch 2 C button.
+- Stick axes are centered and scaled to the Switch 2 12-bit packed format.
+
+The device advertises Nintendo's Switch 2 Pro identity (`057e:2069`). The
+profile is selected by Home+Y and is not flashed or hardware-tested by this
+change. The reference controller's proprietary LTK message exchange is
+implemented, but JL bond persistence/LTK injection is not yet integrated, so
+pairing and reconnect behavior with a physical console still needs validation.

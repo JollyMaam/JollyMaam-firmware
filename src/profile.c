@@ -7,6 +7,7 @@
 
 struct profile_operations {
     const char *name;
+    void (*prepare)(void);
     void (*start)(u8 slot, u8 pairing);
     void (*disconnect)(void);
     void (*exit)(void);
@@ -17,14 +18,21 @@ struct profile_operations {
 
 static const struct profile_operations profiles[] = {
     [CYCLONE2_PROFILE_SWITCH] = {
-        "switch", cyclone2_switch_start, cyclone2_switch_disconnect,
+        "switch", cyclone2_generic_prepare_stack, cyclone2_switch_start,
+        cyclone2_switch_disconnect,
         cyclone2_switch_exit, cyclone2_switch_is_connected,
         cyclone2_switch_send, cyclone2_switch_handle_event,
     },
     [CYCLONE2_PROFILE_GENERIC] = {
-        "generic", cyclone2_generic_start, cyclone2_generic_disconnect,
+        "generic", cyclone2_generic_prepare_stack, cyclone2_generic_start,
         cyclone2_generic_exit, cyclone2_generic_is_connected,
         cyclone2_generic_send, cyclone2_generic_handle_event,
+    },
+    [CYCLONE2_PROFILE_SWITCH2] = {
+        "switch2", cyclone2_switch2_prepare_stack, cyclone2_switch2_start,
+        cyclone2_switch2_disconnect, cyclone2_switch2_exit,
+        cyclone2_switch2_is_connected, cyclone2_switch2_send,
+        cyclone2_switch2_handle_event,
     },
 };
 
@@ -44,8 +52,9 @@ void cyclone2_profile_start(enum cyclone2_profile_type type, u8 slot,
     set_multi_devices_adv_flag(1U);
 
     /* Common btstack_init() expects LE's GATT tables even for a Classic-only
-     * application. Keep this SDK implementation detail out of main.c. */
-    cyclone2_generic_prepare_stack();
+     * application. The selected profile chooses either HOGP or the Switch 2
+     * raw GATT database here. */
+    active_profile->prepare();
     active_profile->start(slot, pairing);
     btstack_init();
 }

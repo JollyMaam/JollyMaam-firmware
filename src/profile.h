@@ -8,6 +8,7 @@
 enum cyclone2_profile_type {
     CYCLONE2_PROFILE_SWITCH,
     CYCLONE2_PROFILE_GENERIC,
+    CYCLONE2_PROFILE_SWITCH2,
     CYCLONE2_PROFILE_TYPE_COUNT,
 };
 
@@ -36,6 +37,15 @@ void cyclone2_generic_exit(void);
 int cyclone2_generic_is_connected(void);
 int cyclone2_generic_send(const struct cyclone2_input_report *report);
 enum cyclone2_profile_event cyclone2_generic_handle_event(
+    const struct sys_event *event);
+
+void cyclone2_switch2_prepare_stack(void);
+void cyclone2_switch2_start(u8 slot, u8 pairing);
+void cyclone2_switch2_disconnect(void);
+void cyclone2_switch2_exit(void);
+int cyclone2_switch2_is_connected(void);
+int cyclone2_switch2_send(const struct cyclone2_input_report *report);
+enum cyclone2_profile_event cyclone2_switch2_handle_event(
     const struct sys_event *event);
 
 void cyclone2_switch_start(u8 slot, u8 pairing);
