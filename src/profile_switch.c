@@ -821,6 +821,19 @@ int cyclone2_switch_send(const struct cyclone2_input_report *input)
 
 #define SWITCH_HID_CONNECT_DELAY_MS 100U
 
+/* The Switch console requests this exact 15-ms sniff interval as soon as the
+ * HID channels open.  The SDK default (800 slots / 500 ms) is rejected before
+ * the console sends any HIDP traffic. */
+static const edr_sniff_par_t switch_sniff_param = {
+    .sniff_mode = SNIFF_MODE_DEF,
+    .cnt_time = 1,
+    .max_interval_slots = 24,
+    .min_interval_slots = 24,
+    .attempt_slots = 1,
+    .timeout_slots = 0,
+    .check_timer_period = 1000,
+};
+
 /* Bluetooth identity of the Switch endpoint.
  *
  * class_type 0x002508 is the standard "peripheral, gamepad" class of device,
@@ -838,7 +851,7 @@ static const edr_init_cfg_t switch_edr_config = {
     .passkey_enable = 0,
     .report_map_size = sizeof(nintendo_switch_pro_hid_report_descriptor),
     .report_map = nintendo_switch_pro_hid_report_descriptor,
-    .sniff_param = NULL,
+    .sniff_param = &switch_sniff_param,
 };
 
 static u8 switch_slot;

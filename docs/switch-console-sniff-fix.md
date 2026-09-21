@@ -27,38 +27,36 @@ times and then simply leaves:
 Nothing about the HID conversation is at fault.  The console never sends a
 single HIDP byte, because it never gets as far as believing the link is set up.
 
-## What to change
+## What fixes it
 
-Two changes, both needed.  The first is in this repository.
+Two changes are needed.  Both are now implemented in this repository; the
+build produces a patched copy of the vendor controller archive and leaves the
+SDK installation untouched.
 
-### 1. Give the application real sniff parameters
+### 1. Give the Switch profile real sniff parameters
 
-`src/bt/app_comm_edr.c`, `edr_default_sniff_param`:
+`src/profile_switch.c` supplies the Switch profile with the console's exact
+15 ms parameters:
 
 ```c
- static const edr_sniff_par_t edr_default_sniff_param = {
+ static const edr_sniff_par_t switch_sniff_param = {
      .sniff_mode = SNIFF_MODE_DEF,
      .cnt_time = 1,
--    .max_interval_slots = 800,
--    .min_interval_slots = 100,
--    .attempt_slots = 4,
--    .timeout_slots = 1,
-+    .max_interval_slots = 24,
-+    .min_interval_slots = 24,
-+    .attempt_slots = 1,
-+    .timeout_slots = 0,
+     .max_interval_slots = 24,
+     .min_interval_slots = 24,
+     .attempt_slots = 1,
+     .timeout_slots = 0,
      .check_timer_period = 1000,
  };
 ```
 
-Better still, pass a `sniff_param` in the `edr_init_cfg_t` instead of relying
-on the default, the way the SDK's own HID examples do
-(`apps/hid/examples/*/app_*.c`, which use the short-interval group -
-16/16/2/1 slots).  A Pro Controller is a HID device: it needs a short sniff
-interval.  The library's 800 slot default is for low-power peripherals and is
-not usable against a console.
+The profile passes that object through `edr_init_cfg_t.sniff_param`.  A Pro
+Controller is a HID device: it needs a short sniff interval.  The library's
+800-slot default is for low-power peripherals and is not usable against a
+console.
 
-Also add, next to the existing sniff setup in `btstack_edr_start_after_init()`:
+The startup path also calls, next to the existing sniff setup in
+`btstack_edr_start_after_init()`:
 
 ```c
  lmp_set_sniff_establish_by_remote(1);
@@ -94,11 +92,11 @@ entry:
 }
 ```
 
-`/work/jl-esp32/tools/patch_btstack.py --btctrler` does exactly this, plus the
-trace retargeting described below, and writes `sdk-libs/btctrler.a`.  That
-project's `Makefile` substitutes the patched archive for the vendor one, so
-the SDK tree is never modified.  The script is self-contained and can be
-copied over.
+`tools/patch_btctrler.py` applies this change to the controller member as LLVM
+IR, re-emits it as LLVM bitcode, and rebuilds `build/sdk-libs/btctrler.a` with
+the toolchain's `llvm-ar`.  The Makefile substitutes that archive for the
+vendor one, so the SDK tree is never modified.  The generated archive is
+ignored build output; rebuilding the project recreates it when needed.
 
 ## How to see any of this
 
@@ -115,8 +113,7 @@ every `CONFIG_DEBUG_LIB(x)` gate is zero.  Two things turn it on:
 
 The archive members are LLVM bitcode, so the toolchain's own clang can
 disassemble them to IR, and `llvm-ar` can put the reassembled object back.
-`/work/jl-esp32/tools/patch_btstack.py` is a working implementation.  With it
-on, the console prints:
+With the patch in this repository, the console prints:
 
     CTRL2 : [Info]: [LMP]LMP_SNIFF_REQ
     CTRL2 : [Info]: [LMP]form hook T:0x18, A:0x1, TO:0x0

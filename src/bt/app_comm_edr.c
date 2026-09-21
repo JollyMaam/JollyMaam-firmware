@@ -229,6 +229,11 @@ void btstack_edr_start_before_init(const edr_init_cfg_t *cfg, int param)
 /*************************************************************************************************/
 void btstack_edr_start_after_init(int param)
 {
+    /* The Switch console requests sniff mode during HID setup.  Permit that
+     * remote request; the application keeps automatic local sniff entry off
+     * so it does not race the HID handshake. */
+    lmp_set_sniff_establish_by_remote(1);
+
     if (sniff_support_reset_anchor_point) {
         lmp_sniff_t_slot_attemp_reset(sniff_param_info->max_interval_slots, sniff_param_info->attempt_slots);
     }
