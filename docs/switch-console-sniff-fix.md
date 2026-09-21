@@ -29,9 +29,8 @@ single HIDP byte, because it never gets as far as believing the link is set up.
 
 ## What fixes it
 
-Two changes are needed.  Both are now implemented in this repository; the
-build produces a patched copy of the vendor controller archive and leaves the
-SDK installation untouched.
+Two changes are needed.  Both are now implemented in this repository, and the
+build uses the vendor controller archive unchanged.
 
 ### 1. Give the Switch profile real sniff parameters
 
@@ -66,7 +65,7 @@ Do **not** add `lmp_set_sniff_disable()`.  It is the neighbouring call in the
 SDK's own example, commented out for good reason: it is the opposite of what a
 HID device wants.
 
-### 2. Stop the controller library vetoing sniff
+### 2. Select the controller's standard HCI mode
 
 `lmp_esco_sniff_check()` in `cpu/br23/liba/btctrler.a` (`lmp.c.o`) has three
 ways to answer "no" to an incoming `LMP_SNIFF_REQ`:
@@ -79,24 +78,21 @@ if (is_call_now() == 0)                         return 1;   /* allowed */
 return 0;
 ```
 
-On a HID link with no eSCO there is nothing to veto, but this firmware hits
-one of them anyway.  `lmp_set_sniff_establish_by_remote(1)` above only clears
-the third, and it was **not sufficient** on its own: with it set and the
-parameters fixed, 13 sessions still produced no subcommand.  Force the
-function itself:
+On a HID link with no eSCO there is nothing to veto, but this firmware's
+configuration previously selected the non-standard HCI mode.  In that mode,
+the function can reject the console's role/transaction combination before it
+reaches the remote-sniff checks.  The SDK's standard-HCI configuration takes
+the supported early-accept path while preserving the controller's other
+eSCO/call-state checks:
 
-```llvm
-define zeroext i8 @lmp_esco_sniff_check(...) {
-entry:
-  ret i8 1
-}
+```c
+/* src/sdkconfig/lib_btctrler_config.c */
+const int config_btctler_hci_standard = 1;
 ```
 
-`tools/patch_btctrler.py` applies this change to the controller member as LLVM
-IR, re-emits it as LLVM bitcode, and rebuilds `build/sdk-libs/btctrler.a` with
-the toolchain's `llvm-ar`.  The Makefile substitutes that archive for the
-vendor one, so the SDK tree is never modified.  The generated archive is
-ignored build output; rebuilding the project recreates it when needed.
+This avoids modifying or rebuilding `btctrler.a`.  The archive patcher from
+the earlier experiment remains available in history as a fallback if this
+supported configuration does not pass a real-console test.
 
 ## How to see any of this
 
@@ -113,7 +109,7 @@ every `CONFIG_DEBUG_LIB(x)` gate is zero.  Two things turn it on:
 
 The archive members are LLVM bitcode, so the toolchain's own clang can
 disassemble them to IR, and `llvm-ar` can put the reassembled object back.
-With the patch in this repository, the console prints:
+With the standard-HCI configuration, the expected console trace is:
 
     CTRL2 : [Info]: [LMP]LMP_SNIFF_REQ
     CTRL2 : [Info]: [LMP]form hook T:0x18, A:0x1, TO:0x0

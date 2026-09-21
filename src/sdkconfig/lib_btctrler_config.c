@@ -30,7 +30,9 @@ const int CONFIG_TWS_AFH_ENABLE         = 0;
 const int CONFIG_LOW_LATENCY_ENABLE     = 1;
 const int CONFIG_BTCTLER_FAST_CONNECT_ENABLE     = 0;
 
-const int config_btctler_hci_standard   = 0;
+/* Standard HCI mode accepts the Switch console's remote sniff request
+ * without modifying the vendor controller archive. */
+const int config_btctler_hci_standard   = 1;
 
 const int config_btctler_mode        = CONFIG_BT_MODE;
 
