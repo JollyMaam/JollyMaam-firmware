@@ -122,7 +122,7 @@ print(devices[0]["path"] if devices else "")
 # First console node that answers, or nothing.
 find_console()
 {
-    for candidate in /dev/bwrap/ttyACM* /dev/ttyACM*; do
+    for candidate in /dev/bwrap/ttyjl*; do
         if [ -c "$candidate" ] &&
             "$c2ctl" -p "$candidate" status >/dev/null 2>&1; then
             echo "$candidate"
