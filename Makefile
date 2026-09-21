@@ -1,7 +1,7 @@
 O := build
 .DEFAULT_GOAL := default
-SDK := /work/github.com-Jieli-Tech/fw-AC63_BT_SDK
-TOOL_DIR := /work/jieli-linux-toolchains-20250324.1/pi32v2/bin
+SDK := /shared/github.com-Jieli-Tech/fw-AC63_BT_SDK
+TOOL_DIR := /shared/jieli-linux-toolchains-20250324.1/pi32v2/bin
 FLASH_SIZE := 0x80000
 CODE_LIMIT := 0x40000
 # Use the broad controller-library workaround only when explicitly requested.
