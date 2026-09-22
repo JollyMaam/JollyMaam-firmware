@@ -32,7 +32,12 @@ CODE_LIMIT := 0x40000
 # Defaulted off only because 1 has not been measured on hardware yet; the
 # patch itself is one call to a function the same member already defines, and
 # re-emitting an unmodified member is byte-for-byte equivalent in IR.
-PATCH_BTCTLER ?= 0
+# Default on: measured on hardware, mode 1 makes the console-driven SSP path
+# hand the host the link key it derived (the host stores it and can then answer
+# a later link-key request), and it is one added call to a function the same
+# member already defines.  Modes: 1 = notify, trace = notify + LMP key traces,
+# diag = the old sniff-override experiment.
+PATCH_BTCTLER ?= 1
 # DEBUG_LOG=1 builds a copy of the SDK's debug.c that forwards the controller
 # library's LMP/HCI tracing to the USB console.  See tools/patch_debug.py.
 DEBUG_LOG ?= 0
@@ -64,6 +69,9 @@ endif
 PATCH_BTCTLER_MODE := notify
 ifeq ($(PATCH_BTCTLER),diag)
 PATCH_BTCTLER_MODE := diagnostic
+endif
+ifeq ($(PATCH_BTCTLER),trace)
+PATCH_BTCTLER_MODE := trace
 endif
 
 ifneq ($(filter 1 verbose,$(DEBUG_LOG)),)

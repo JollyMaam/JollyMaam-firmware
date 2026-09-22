@@ -215,8 +215,11 @@ static int jl_link_key_db_get(bd_addr_t bd_addr, link_key_t link_key, link_key_t
     jl_address_to_jieli(bd_addr, jieli_addr);
     if ((jl_config.link_key_get == 0) ||
         (jl_config.link_key_get(jieli_addr, link_key, &key_type) == 0)) {
+        /* Bring-up log: 0x2602 = no key for this peer, 0x2601 = found. */
+        jl_trace(0x2602u);
         return 0;
     }
+    jl_trace(0x2601u);
     *type = (link_key_type_t) key_type;
     return 1;
 }
@@ -228,6 +231,7 @@ static void jl_link_key_db_put(bd_addr_t bd_addr, link_key_t link_key, link_key_
     if (jl_config.link_key_put != 0) {
         jl_address_to_jieli(bd_addr, jieli_addr);
         jl_config.link_key_put(jieli_addr, link_key, (uint8_t) type);
+        jl_trace(0x2701u);
     }
 }
 
@@ -502,6 +506,15 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
             jl_notify_ex(BTSTACK_JL_EVENT_HCI_STATUS, HCI_EVENT_DISCONNECTION_COMPLETE,
                          status, event_addr);
             jl_notify_logged(BTSTACK_JL_EVENT_DISCONNECTED, status, event_addr);
+            break;
+
+        case HCI_EVENT_LINK_KEY_REQUEST:
+            /* The console is asking us for the key of a peer we should know. */
+            jl_trace(0x2801u);
+            break;
+
+        case HCI_EVENT_LINK_KEY_NOTIFICATION:
+            jl_trace(0x2901u);
             break;
 
         case HCI_EVENT_ENCRYPTION_CHANGE:

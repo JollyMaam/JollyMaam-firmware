@@ -308,12 +308,20 @@ def patch_ssp_remote_notify(text: str) -> str:
     return text[:anchor] + call + text[anchor:]
 
 
-def patch_bitcode_notify(source: Path, destination: Path, clang: str) -> None:
+def patch_bitcode_notify(source: Path, destination: Path, clang: str,
+                         with_traces: bool = False) -> None:
     """Emit ``source`` with the missing link-key notification added."""
     ir = source.with_suffix(".ll")
     run([clang, "-target", "pi32v2", "-x", "ir", "-S", "-emit-llvm",
          str(source), "-o", str(ir)])
-    ir.write_text(patch_ssp_remote_notify(ir.read_text()))
+    text = patch_ssp_remote_notify(ir.read_text())
+    if with_traces:
+        # Print the key a pairing derived and the challenge/response of a
+        # reconnect's authentication (needs make DEBUG_LOG=1 to be visible).
+        text = patch_key_notify_trace(text)
+        text = patch_sres_trace(text)
+        text = patch_sres_out_trace(text)
+    ir.write_text(text)
     run([clang, "-target", "pi32v2", "-x", "ir", "-c", "-emit-llvm",
          str(ir), "-o", str(destination)])
 
@@ -376,12 +384,13 @@ def main() -> None:
     parser.add_argument("destination", type=Path)
     parser.add_argument("--clang", required=True)
     parser.add_argument("--ar", default="ar")
-    parser.add_argument("--mode", choices=("notify", "diagnostic"),
+    parser.add_argument("--mode", choices=("notify", "trace", "diagnostic"),
                         default="notify",
                         help="notify (default): add the missing link-key "
                              "notification to the console-driven pairing "
-                             "path; diagnostic: the sniff override plus the "
-                             "LMP trace printfs")
+                             "path; trace: notify plus the link-key/authentication "
+                             "LMP trace printfs; diagnostic: the sniff override "
+                             "plus the same traces")
     args = parser.parse_args()
     args.source = args.source.resolve()
     args.destination = args.destination.resolve()
@@ -404,9 +413,9 @@ def main() -> None:
                           args.clang)
         else:
             patch_bitcode_notify(temp / "lmp.c.o", temp / "lmp.c.o.patched",
-                                 args.clang)
+                                 args.clang, with_traces=(args.mode == "trace"))
         (temp / "lmp.c.o.patched").replace(temp / "lmp.c.o")
-        if args.mode == "diagnostic" and (temp / "lmp_hci.c.o").is_file():
+        if args.mode in ("trace", "diagnostic") and (temp / "lmp_hci.c.o").is_file():
             patch_member(temp / "lmp_hci.c.o", temp / "lmp_hci.c.o.patched",
                          args.clang, patch_link_key_trace)
             (temp / "lmp_hci.c.o.patched").replace(temp / "lmp_hci.c.o")

@@ -28,9 +28,15 @@
 #define CFG_REMOTE_DB_00 62
 #endif
 
-/* One entry per bonded peer: address, link key, key type. */
+/* One entry per bonded peer: tag, address, link key, key type.
+ *
+ * The syscfg items we use (CFG_REMOTE_DB_00..) are the ones the vendor host
+ * library used for its own 38-byte records, so a record only counts as ours
+ * when it carries the tag; foreign records (from a firmware built on the
+ * vendor stack) are ignored instead of being read back as a key. */
 #define BTSTACK_JL_LINK_KEY_ENTRIES 16
-#define BTSTACK_JL_LINK_KEY_SIZE    (6 + 16 + 1)
+#define BTSTACK_JL_LINK_KEY_TAG     0xC2
+#define BTSTACK_JL_LINK_KEY_SIZE    (1 + 6 + 16 + 1)
 
 static const edr_init_cfg_t *edr_config;
 static const u8 *edr_report_map;
@@ -53,22 +59,32 @@ static void (*hid_send_wakeup)(void);
 
 #define BTSTACK_JL_LOG(...) cyclone2_usb_debug("BTSTACK: " __VA_ARGS__)
 
+/* Controller-library entry points used by this file. */
+extern void lmp_set_sniff_establish_by_remote(u8 enable);
+extern void lmp_sniff_t_slot_attemp_reset(u16 slot, u16 attemp);
+extern void jieli_btctrler_get_local_address(uint8_t *address);
+extern const int sniff_support_reset_anchor_point;
+
 /* ------------------------------------------------------------- link keys */
 
 static int link_key_slot_read(u8 slot, u8 *record)
 {
     int length = syscfg_read((u16)(CFG_REMOTE_DB_00 + slot), record,
                              BTSTACK_JL_LINK_KEY_SIZE);
-    return length == BTSTACK_JL_LINK_KEY_SIZE;
+
+    if (length != BTSTACK_JL_LINK_KEY_SIZE) return 0;
+    if (record[0] != BTSTACK_JL_LINK_KEY_TAG) return 0;
+    return 1;
 }
 
 static int link_key_slot_write(u8 slot, const u8 *address, const u8 *key, u8 type)
 {
     u8 record[BTSTACK_JL_LINK_KEY_SIZE];
 
-    memcpy(record, address, 6);
-    memcpy(record + 6, key, 16);
-    record[22] = type;
+    record[0] = BTSTACK_JL_LINK_KEY_TAG;
+    memcpy(record + 1, address, 6);
+    memcpy(record + 7, key, 16);
+    record[23] = type;
     return syscfg_write((u16)(CFG_REMOTE_DB_00 + slot), record,
                         sizeof(record)) == sizeof(record);
 }
@@ -88,9 +104,17 @@ static int jl_link_key_get(const u8 address[6], u8 key[16], u8 *type)
 
     for (slot = 0; slot < BTSTACK_JL_LINK_KEY_ENTRIES; slot++) {
         if (!link_key_slot_read(slot, record)) continue;
-        if (memcmp(record, address, 6) != 0) continue;
-        memcpy(key, record + 6, 16);
-        *type = record[22];
+        if (memcmp(record + 1, address, 6) != 0) continue;
+        cyclone2_bringup_record(0x3300u | slot);
+        {
+            u8 xor_sum = 0U;
+            for (u8 i = 0U; i < 16U; i++) xor_sum ^= record[7 + i];
+            cyclone2_bringup_record(0x3800u | record[7]);
+            cyclone2_bringup_record(0x3900u | record[22]);
+            cyclone2_bringup_record(0x3a00u | xor_sum);
+        }
+        memcpy(key, record + 7, 16);
+        *type = record[23];
         return 1;
     }
     return 0;
@@ -103,12 +127,20 @@ static void jl_link_key_put(const u8 address[6], const u8 key[16], u8 type)
 
     for (slot = 0; slot < BTSTACK_JL_LINK_KEY_ENTRIES; slot++) {
         if (!link_key_slot_read(slot, record)) break;
-        if (memcmp(record, address, 6) == 0) break;
+        if (memcmp(record + 1, address, 6) == 0) break;
     }
     if (slot == BTSTACK_JL_LINK_KEY_ENTRIES) {
         slot = 0;
     }
     link_key_slot_write(slot, address, key, type);
+    cyclone2_bringup_record(0x3400u | slot);
+    cyclone2_bringup_record(0x3500u | key[0]);
+    cyclone2_bringup_record(0x3600u | key[15]);
+    {
+        u8 xor_sum = 0U;
+        for (u8 i = 0U; i < 16U; i++) xor_sum ^= key[i];
+        cyclone2_bringup_record(0x3700u | xor_sum);
+    }
 }
 
 static void jl_link_key_delete(const u8 address[6])
@@ -118,7 +150,7 @@ static void jl_link_key_delete(const u8 address[6])
 
     for (slot = 0; slot < BTSTACK_JL_LINK_KEY_ENTRIES; slot++) {
         if (!link_key_slot_read(slot, record)) continue;
-        if (memcmp(record, address, 6) != 0) continue;
+        if (memcmp(record + 1, address, 6) != 0) continue;
         link_key_slot_clear(slot);
     }
 }
@@ -132,11 +164,11 @@ static int jl_link_key_iterator(u8 index, u8 address[6], u8 key[16], u8 *type)
     while (slot < BTSTACK_JL_LINK_KEY_ENTRIES) {
         if (link_key_slot_read(slot, record)) {
             valid = 0;
-            for (u8 i = 0; i < 6; i++) valid |= record[i];
+            for (u8 i = 0; i < 6; i++) valid |= record[1 + i];
             if (valid != 0) {
-                memcpy(address, record, 6);
-                memcpy(key, record + 6, 16);
-                *type = record[22];
+                memcpy(address, record + 1, 6);
+                memcpy(key, record + 7, 16);
+                *type = record[23];
                 return 1;
             }
         }
@@ -201,6 +233,25 @@ static void jl_event_handler(const btstack_jl_event_t *event)
         case BTSTACK_JL_EVENT_READY:
             stack_ready = 1;
             jl_link_policy_apply();
+            {
+                /* Confirm the controller really carries the identity the
+                 * application asked for: the BTIF copy of the address is only
+                 * read at boot, so a changed address has to be written to the
+                 * controller at runtime for a host to see a new device. */
+                u8 controller_address[6];
+                const u8 *wanted = bt_get_mac_addr();
+                jieli_btctrler_get_local_address(controller_address);
+                if (wanted != 0 &&
+                    memcmp(controller_address, wanted, 6) != 0) {
+                    BTSTACK_JL_LOG("controller address %02x:%02x:%02x:%02x:%02x:%02x != app %02x:%02x:%02x:%02x:%02x:%02x",
+                                   controller_address[5], controller_address[4],
+                                   controller_address[3], controller_address[2],
+                                   controller_address[1], controller_address[0],
+                                   wanted[5], wanted[4], wanted[3], wanted[2],
+                                   wanted[1], wanted[0]);
+                    cyclone2_bringup_record(0x2cu);
+                }
+            }
             BTSTACK_JL_LOG("stack ready");
             bt_event_post(SYS_BT_EVENT_TYPE_CON_STATUS, BT_STATUS_INIT_OK, 0, 0);
             break;
