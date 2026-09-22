@@ -93,6 +93,8 @@ void app_main()
 {
     struct intent it;
     cyclone2_boot_count++;
+    /* Start each boot with an empty bring-up log so the ring reads in order. */
+    cyclone2_bringup_log_head = 0U;
     init_intent(&it);
     it.name = "cyclone2";
     it.action = ACTION_CYCLONE2;

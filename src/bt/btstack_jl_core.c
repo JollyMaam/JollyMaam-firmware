@@ -42,8 +42,16 @@ typedef struct {
 static btstack_jl_config_t jl_config;
 static btstack_jl_event_handler_t jl_event_handler;
 
+static void jl_address_to_jieli(const uint8_t in[6], uint8_t out[6]);
+static void jl_trace(uint32_t code);
+
 static uint8_t jl_address[6];
 static uint8_t jl_address_valid;
+/* The controller and the Jieli SDK keep device addresses in wire order (least
+ * significant byte first).  BTstack's bd_addr_t is the human readable order and
+ * reverses at the HCI boundary, so every address that crosses btstack_jl.h is
+ * converted here. */
+static uint8_t jl_address_jieli[6];
 static uint8_t jl_peer_address[6];
 static uint8_t jl_peer_valid;
 static uint8_t jl_connectable;
@@ -53,6 +61,19 @@ static uint8_t jl_shutdown_requested;
 static uint8_t jl_send_pending;
 
 static uint16_t jl_hid_cid;
+static uint16_t jl_con_handle;
+static uint8_t  jl_con_handle_valid;
+static btstack_timer_source_t jl_credit_timer;
+
+/* Bring-up diagnostics: how many ACL buffers BTstack believes it may use. */
+static void jl_credit_timer_handler(btstack_timer_source_t *ts)
+{
+    if (jl_con_handle_valid) {
+        jl_trace(0x600u | hci_number_free_acl_slots_for_handle(jl_con_handle));
+    }
+    btstack_run_loop_set_timer(ts, 300);
+    btstack_run_loop_add_timer(ts);
+}
 
 static btstack_jl_report_t jl_reports[BTSTACK_JL_MAX_QUEUED_REPORTS];
 static volatile uint16_t jl_report_read;
@@ -60,6 +81,7 @@ static volatile uint16_t jl_report_write;
 static volatile uint16_t jl_report_count;
 
 static btstack_packet_callback_registration_t jl_hci_event_registration;
+static btstack_packet_callback_registration_t jl_l2cap_event_registration;
 static btstack_data_source_t jl_tx_data_source;
 static uint8_t jl_sdp_service_buffer[BTSTACK_JL_SDP_RECORD_SIZE];
 
@@ -72,7 +94,8 @@ static void jl_notify_ex(uint8_t type, uint8_t code, uint8_t status,
     event.code = code;
     event.status = status;
     if (address != 0) {
-        memcpy(event.address, address, sizeof(event.address));
+        /* The application expects the Jieli/wire order. */
+        jl_address_to_jieli(address, event.address);
     } else {
         memset(event.address, 0, sizeof(event.address));
     }
@@ -84,6 +107,16 @@ static void jl_notify_ex(uint8_t type, uint8_t code, uint8_t status,
 
 static void jl_notify(uint8_t type, uint8_t status, const uint8_t *address)
 {
+    jl_notify_ex(type, 0, status, address);
+}
+
+/* Application-level events land in the bring-up log as 0x500 | event so a
+ * session can be read back from the console after the fact. */
+static void jl_notify_logged(uint8_t type, uint8_t status, const uint8_t *address)
+{
+    if (jl_config.trace != 0) {
+        jl_config.trace(0x500u | type);
+    }
     jl_notify_ex(type, 0, status, address);
 }
 
@@ -108,6 +141,21 @@ static void jl_trace(uint32_t code)
     }
 }
 
+/* btstack order (MSB first) <-> Jieli/wire order (LSB first). */
+static void jl_address_to_jieli(const uint8_t in[6], uint8_t out[6])
+{
+    uint8_t i;
+    for (i = 0; i < 6; i++) {
+        out[i] = in[5 - i];
+    }
+}
+
+/* Overrides the L2CAP instrumentation hook (see l2cap.c). */
+void btstack_l2cap_trace(uint32_t code)
+{
+    jl_trace(0x2000u + code);
+}
+
 /* Overrides the port's weak bring-up trace hook. */
 void jieli_btctrler_trace(uint32_t code)
 {
@@ -116,21 +164,34 @@ void jieli_btctrler_trace(uint32_t code)
 
 /* --------------------------------------------------------------- link keys */
 
-static int jl_link_key_db_open(void)
+static void jl_link_key_db_open(void)
 {
-    return 1;
 }
 
 static void jl_link_key_db_close(void)
 {
 }
 
+/* The controller can change its own address (the application picks a
+ * different one per slot), so remember which controller the stored keys
+ * belong to. */
+static uint8_t jl_link_key_db_local_addr[6];
+static uint8_t jl_link_key_db_local_addr_valid;
+
+static void jl_link_key_db_set_local_bd_addr(bd_addr_t bd_addr)
+{
+    memcpy(jl_link_key_db_local_addr, bd_addr, sizeof(jl_link_key_db_local_addr));
+    jl_link_key_db_local_addr_valid = 1;
+}
+
 static int jl_link_key_db_get(bd_addr_t bd_addr, link_key_t link_key, link_key_type_t *type)
 {
     uint8_t key_type = 0;
+    uint8_t jieli_addr[6];
 
+    jl_address_to_jieli(bd_addr, jieli_addr);
     if ((jl_config.link_key_get == 0) ||
-        (jl_config.link_key_get(bd_addr, link_key, &key_type) == 0)) {
+        (jl_config.link_key_get(jieli_addr, link_key, &key_type) == 0)) {
         return 0;
     }
     *type = (link_key_type_t) key_type;
@@ -139,15 +200,21 @@ static int jl_link_key_db_get(bd_addr_t bd_addr, link_key_t link_key, link_key_t
 
 static void jl_link_key_db_put(bd_addr_t bd_addr, link_key_t link_key, link_key_type_t type)
 {
+    uint8_t jieli_addr[6];
+
     if (jl_config.link_key_put != 0) {
-        jl_config.link_key_put(bd_addr, link_key, (uint8_t) type);
+        jl_address_to_jieli(bd_addr, jieli_addr);
+        jl_config.link_key_put(jieli_addr, link_key, (uint8_t) type);
     }
 }
 
 static void jl_link_key_db_delete(bd_addr_t bd_addr)
 {
+    uint8_t jieli_addr[6];
+
     if (jl_config.link_key_delete != 0) {
-        jl_config.link_key_delete(bd_addr);
+        jl_address_to_jieli(bd_addr, jieli_addr);
+        jl_config.link_key_delete(jieli_addr);
     }
 }
 
@@ -166,15 +233,17 @@ static int jl_link_key_db_iterator_get_next(btstack_link_key_iterator_t *it,
 {
     uint8_t key_type = 0;
     uint8_t index = jl_iterator_index;
+    uint8_t jieli_addr[6];
 
     (void) it;
 
     if (jl_config.link_key_iterator == 0) {
         return 0;
     }
-    if (jl_config.link_key_iterator(index, bd_addr, link_key, &key_type) == 0) {
+    if (jl_config.link_key_iterator(index, jieli_addr, link_key, &key_type) == 0) {
         return 0;
     }
+    jl_address_to_jieli(jieli_addr, bd_addr);
     jl_iterator_index = (uint8_t)(index + 1);
     *type = (link_key_type_t) key_type;
     return 1;
@@ -187,6 +256,7 @@ static void jl_link_key_db_iterator_done(btstack_link_key_iterator_t *it)
 
 static const btstack_link_key_db_t jl_link_key_db = {
     .open = &jl_link_key_db_open,
+    .set_local_bd_addr = &jl_link_key_db_set_local_bd_addr,
     .close = &jl_link_key_db_close,
     .get_link_key = &jl_link_key_db_get,
     .put_link_key = &jl_link_key_db_put,
@@ -264,8 +334,9 @@ static void jl_apply_scan_state(void)
 static void jl_apply_local_address(void)
 {
     /* HCI Reset restores the controller's factory address, so reapply ours
-     * before the host reads it back. */
-    jieli_btctrler_set_bd_addr(jl_address);
+     * before the host reads it back.  The controller wants the wire order,
+     * BTstack wants the human readable one. */
+    jieli_btctrler_set_bd_addr(jl_address_jieli);
     hci_set_bd_addr(jl_address);
 }
 
@@ -303,7 +374,7 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
                         jl_apply_local_address();
                     }
                     jl_apply_scan_state();
-                    jl_notify(BTSTACK_JL_EVENT_READY, 0, 0);
+                    jl_notify_logged(BTSTACK_JL_EVENT_READY, 0, 0);
                     break;
                 case HCI_STATE_OFF:
                     jl_working = 0;
@@ -315,13 +386,21 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
 
         case HCI_EVENT_CONNECTION_COMPLETE:
             status = hci_event_connection_complete_get_status(packet);
+            jl_con_handle = hci_event_connection_complete_get_connection_handle(packet);
+            jl_con_handle_valid = 1;
             hci_event_connection_complete_get_bd_addr(packet, event_addr);
             memcpy(jl_peer_address, event_addr, sizeof(jl_peer_address));
             jl_peer_valid = 1;
             jl_notify_ex(BTSTACK_JL_EVENT_HCI_STATUS, HCI_EVENT_CONNECTION_COMPLETE,
                          status, event_addr);
             if (status == ERROR_CODE_SUCCESS) {
-                jl_notify(BTSTACK_JL_EVENT_CONNECTED, 0, event_addr);
+                /* The HID services require an encrypted link, and BTstack only
+                 * answers an incoming L2CAP connection request once it knows
+                 * the peer's supported features.  Without this query the
+                 * connection response for the HID channels stays pending and
+                 * the console gives up without ever seeing the channels. */
+                hci_remote_features_query(jl_con_handle);
+                jl_notify_logged(BTSTACK_JL_EVENT_CONNECTED, 0, event_addr);
             }
             break;
 
@@ -334,7 +413,7 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
             jl_send_pending = 0;
             jl_notify_ex(BTSTACK_JL_EVENT_HCI_STATUS, HCI_EVENT_DISCONNECTION_COMPLETE,
                          status, event_addr);
-            jl_notify(BTSTACK_JL_EVENT_DISCONNECTED, status, event_addr);
+            jl_notify_logged(BTSTACK_JL_EVENT_DISCONNECTED, status, event_addr);
             break;
 
         case HCI_EVENT_ENCRYPTION_CHANGE:
@@ -342,7 +421,7 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
                 jl_peer_from_handle(
                     hci_event_encryption_change_get_connection_handle(packet),
                     event_addr);
-                jl_notify(BTSTACK_JL_EVENT_ENCRYPTED, 0, event_addr);
+                jl_notify_logged(BTSTACK_JL_EVENT_ENCRYPTED, 0, event_addr);
             } else {
                 jl_notify_ex(BTSTACK_JL_EVENT_HCI_STATUS, HCI_EVENT_ENCRYPTION_CHANGE,
                              0, jl_peer_address);
@@ -355,20 +434,20 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
                     status = hid_subevent_connection_opened_get_status(packet);
                     if (status != ERROR_CODE_SUCCESS) {
                         jl_hid_cid = 0;
-                        jl_notify(BTSTACK_JL_EVENT_HID_CLOSED, status, jl_peer_address);
+                        jl_notify_logged(BTSTACK_JL_EVENT_HID_CLOSED, status, jl_peer_address);
                         break;
                     }
                     jl_hid_cid = hid_subevent_connection_opened_get_hid_cid(packet);
                     hid_subevent_connection_opened_get_bd_addr(packet, event_addr);
                     memcpy(jl_peer_address, event_addr, sizeof(jl_peer_address));
                     jl_peer_valid = 1;
-                    jl_notify(BTSTACK_JL_EVENT_HID_OPENED, 0, event_addr);
+                    jl_notify_logged(BTSTACK_JL_EVENT_HID_OPENED, 0, event_addr);
                     break;
 
                 case HID_SUBEVENT_CONNECTION_CLOSED:
                     jl_hid_cid = 0;
                     jl_send_pending = 0;
-                    jl_notify(BTSTACK_JL_EVENT_HID_CLOSED, 0, jl_peer_address);
+                    jl_notify_logged(BTSTACK_JL_EVENT_HID_CLOSED, 0, jl_peer_address);
                     break;
 
                 case HID_SUBEVENT_CAN_SEND_NOW: {
@@ -394,6 +473,36 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
 
 /* ------------------------------------------------------------ setup/exit */
 
+/* Bring-up diagnostics: record what L2CAP does, with the PSM / status in the
+ * low bits, as 0x900 | value entries in the bring-up log. */
+static void jl_l2cap_event_handler(uint8_t packet_type, uint16_t channel,
+                                   uint8_t *packet, uint16_t size)
+{
+    uint8_t event;
+
+    (void) channel;
+    (void) size;
+
+    if (packet_type != HCI_EVENT_PACKET) {
+        return;
+    }
+    event = hci_event_packet_get_type(packet);
+    switch (event) {
+        case L2CAP_EVENT_INCOMING_CONNECTION:
+            jl_trace(0x900u | l2cap_event_incoming_connection_get_psm(packet));
+            break;
+        case L2CAP_EVENT_CHANNEL_OPENED:
+            jl_trace(0x910u | l2cap_event_channel_opened_get_status(packet));
+            break;
+        case L2CAP_EVENT_CHANNEL_CLOSED:
+            jl_trace(0x920u);
+            break;
+        default:
+            jl_trace(0x930u | event);
+            break;
+    }
+}
+
 int btstack_jl_core_init(const btstack_jl_config_t *config,
                          btstack_jl_event_handler_t handler)
 {
@@ -417,7 +526,8 @@ static int btstack_jl_core_setup(void)
     }
 
     if (jl_config.bd_addr != 0) {
-        memcpy(jl_address, jl_config.bd_addr, sizeof(jl_address));
+        memcpy(jl_address_jieli, jl_config.bd_addr, sizeof(jl_address_jieli));
+        jl_address_to_jieli(jl_address_jieli, jl_address);
         jl_address_valid = 1;
     }
 
@@ -427,12 +537,14 @@ static int btstack_jl_core_setup(void)
     jl_trace(11u);
     memset(&transport_config, 0, sizeof(transport_config));
     if (jl_address_valid) {
-        transport_config.bd_addr = jl_address;
+        transport_config.bd_addr = jl_address_jieli;
     }
     hci_init(hci_transport_jl_br23_instance(), &transport_config);
     hci_set_link_key_db(&jl_link_key_db);
 
     l2cap_init();
+    jl_l2cap_event_registration.callback = &jl_l2cap_event_handler;
+    l2cap_add_event_handler(&jl_l2cap_event_registration);
     jl_trace(12u);
     sdp_init();
     jl_trace(13u);
@@ -445,8 +557,13 @@ static int btstack_jl_core_setup(void)
     gap_set_default_link_policy_settings(LM_LINK_POLICY_ENABLE_ROLE_SWITCH |
                                          LM_LINK_POLICY_ENABLE_SNIFF_MODE);
     gap_set_allow_role_switch(true);
-    /* HID channels are only opened on an encrypted link. */
-    gap_set_security_level(LEVEL_2);
+    /* No L2CAP-level security requirement: the console drives authentication
+     * and encryption itself before it opens the HID channels.  BTstack's
+     * default LEVEL_2 would otherwise run its Security Mode 4 rule, which
+     * disconnects the link when the controller does not report the encryption
+     * key size, and the HID channels never come up.  Set before the HID
+     * services are registered so their required security level is LEVEL_0. */
+    gap_set_security_level(LEVEL_0);
 
     /* SSP: no input, no output, general bonding.  btstack answers the IO
      * capability request itself from these settings. */
@@ -487,6 +604,10 @@ static int btstack_jl_core_setup(void)
 
     /* Poll the report queue from the run loop; the application queues from
      * its own task and never touches BTstack structures directly. */
+    btstack_run_loop_set_timer_handler(&jl_credit_timer, &jl_credit_timer_handler);
+    btstack_run_loop_set_timer(&jl_credit_timer, 500);
+    btstack_run_loop_add_timer(&jl_credit_timer);
+
     btstack_run_loop_set_data_source_handler(&jl_tx_data_source, &jl_tx_poll);
     btstack_run_loop_enable_data_source_callbacks(&jl_tx_data_source,
                                                   DATA_SOURCE_CALLBACK_POLL);
@@ -526,18 +647,19 @@ void btstack_jl_core_set_address(const uint8_t address[6])
     if (address == 0) {
         return;
     }
-    memcpy(jl_address, address, sizeof(jl_address));
+    memcpy(jl_address_jieli, address, sizeof(jl_address_jieli));
+    jl_address_to_jieli(jl_address_jieli, jl_address);
     jl_address_valid = 1;
     if (jl_working) {
         jl_apply_local_address();
     } else {
-        jieli_btctrler_set_bd_addr(jl_address);
+        jieli_btctrler_set_bd_addr(jl_address_jieli);
     }
 }
 
 const uint8_t *btstack_jl_core_get_address(void)
 {
-    return jl_address;
+    return jl_address_jieli;
 }
 
 int btstack_jl_core_hid_connect(const uint8_t address[6])
@@ -548,8 +670,8 @@ int btstack_jl_core_hid_connect(const uint8_t address[6])
     if (address == 0) {
         return 1;
     }
-    memcpy(peer, address, sizeof(peer));
-    memcpy(jl_peer_address, address, sizeof(jl_peer_address));
+    jl_address_to_jieli(address, peer);
+    memcpy(jl_peer_address, peer, sizeof(jl_peer_address));
     jl_peer_valid = 1;
 
     if (jl_hid_cid != 0) {
@@ -602,7 +724,7 @@ void btstack_jl_core_delete_link_key(const uint8_t address[6])
     if (address == 0) {
         return;
     }
-    memcpy(peer, address, sizeof(peer));
+    jl_address_to_jieli(address, peer);
     hci_send_cmd(&hci_delete_stored_link_key, peer, 1);
 }
 

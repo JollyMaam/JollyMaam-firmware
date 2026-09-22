@@ -103,7 +103,9 @@ BTSTACK_OBJECTS := $(subst $(BTSTACK_DIR),$O/btstack,$(BTSTACK_SOURCES:.c=.c.o))
 # byte helpers).  Rename BTstack's copies so both libraries can be linked; the
 # controller keeps its own symbols for its internal users.
 DROP_BTCTRLER_COMMANDS ?= 0
-BTSTACK_DEBUG := -DJIELI_BTCTRLER_DROP_COMMANDS=$(DROP_BTCTRLER_COMMANDS)
+# L2CAP bring-up instrumentation in btstack's l2cap.c
+L2CAP_TRACE ?= 0
+BTSTACK_DEBUG := -DJIELI_BTCTRLER_DROP_COMMANDS=$(DROP_BTCTRLER_COMMANDS) -DJIELI_BTCTRLER_L2CAP_TRACE=$(L2CAP_TRACE)
 
 BTSTACK_RENAMES := \
 	-Dhci_send_cmd=btstack_hci_send_cmd \

@@ -222,6 +222,7 @@ static void jl_event_handler(const btstack_jl_event_t *event)
 
         case BTSTACK_JL_EVENT_HID_CLOSED:
             hid_ready = 0;
+            BTSTACK_JL_LOG("hid channels closed status=0x%02x", event->status);
             break;
 
         case BTSTACK_JL_EVENT_HCI_STATUS:
@@ -378,8 +379,12 @@ u32 user_send_cmd_prepare(USER_CMD_TYPE cmd, u16 param_len, u8 *param)
             return btstack_jl_core_disconnect();
 
         case USER_CTRL_HID_CONN:
-            if (!peer_address_valid) return 1;
-            return btstack_jl_core_hid_connect(peer_address) == 0 ? 0 : 1;
+            /* The console is the HID host: it opens the control (0x11) and
+             * interrupt (0x13) channels itself once the link is encrypted, and
+             * BTstack's HID device profile accepts them.  Opening a second set
+             * from this side makes the connection fail, so the command is a
+             * no-op. */
+            return 0;
 
         case USER_CTRL_HID_DISCONNECT:
             return btstack_jl_core_disconnect();

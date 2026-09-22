@@ -10,8 +10,9 @@
 #ifndef BTSTACK_CONFIG_H
 #define BTSTACK_CONFIG_H
 
-/* Port features: the Jieli libc provides memcpy/strlen/... and malloc/free. */
-#define HAVE_MALLOC
+/* Port features.  The Jieli libc provides memcpy/strlen/..., but BTstack's
+ * allocators must not rely on malloc: a pool configuration is required so
+ * that every registered service/channel has its own storage. */
 #define HAVE_ASSERT
 
 /* Host features that are actually compiled into the image. */
@@ -27,8 +28,9 @@
 
 /* Single HID link, plus the L2CAP channels of one HID device connection. */
 #define MAX_NR_HCI_CONNECTIONS          1
-#define MAX_NR_L2CAP_CHANNELS           4
-#define MAX_NR_L2CAP_SERVICES           2
-#define MAX_NR_SDP_SERVICE_RECORDS      2
+#define MAX_NR_L2CAP_CHANNELS           8
+/* SDP plus the HID control and interrupt services. */
+#define MAX_NR_L2CAP_SERVICES           4
+#define MAX_NR_SDP_SERVICE_RECORDS      3
 
 #endif

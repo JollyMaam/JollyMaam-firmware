@@ -149,12 +149,18 @@ static void print_status(void)
     console_write(" bt-trace=");
     console_write_hex((const u8 *)&cyclone2_bringup_trace, 4U);
     console_write(" bt-log");
+    console_write_hex((const u8 *)&cyclone2_bringup_log_head, 4U);
+    console_write("/");
+    console_write_hex((const u8 *)&cyclone2_boot_count, 4U);
+    console_write(":");
     /* Oldest entry first, so the end of the line is the most recent step. */
     for (unsigned i = 0U; i < CYCLONE2_BRINGUP_LOG_ENTRIES; i++) {
         unsigned index = (cyclone2_bringup_log_head + i) %
                          CYCLONE2_BRINGUP_LOG_ENTRIES;
         {
             const u8 *entry = (const u8 *)&cyclone2_bringup_log[index];
+            u32 value = cyclone2_bringup_log[index];
+            (void) value;
             for (unsigned j = 4U; j > 0U; j--) {
                 console_write_hex(&entry[j - 1U], 1U);
             }
