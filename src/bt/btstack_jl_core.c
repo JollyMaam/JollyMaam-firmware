@@ -566,6 +566,14 @@ static void jl_hid_report_data(uint16_t cid, hid_report_type_t report_type,
     if (report_size > 0) {
         memcpy(&packet[2], report, (size_t) report_size);
     }
+    /* Bring-up log: report id, and for a rumble+subcommand report the
+     * subcommand id and its first argument (the console asks the controller to
+     * stop/start sending input reports this way). */
+    jl_trace(0x2000u | report_id);
+    if ((report_id == 0x01U) && (report_size >= 10)) {
+        jl_trace(0x2100u | packet[11]);
+        jl_trace(0x2200u | packet[12]);
+    }
     jl_config.hid_output(packet, (uint16_t)(report_size + 2));
 }
 

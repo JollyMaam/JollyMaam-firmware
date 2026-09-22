@@ -45,6 +45,8 @@ static u8 hid_ready;
 static u8 btstack_task_created;
 
 static void (*hid_output_handler)(u8 *packet, u16 size, u16 channel);
+
+static void jl_link_policy_apply(void);
 static void (*hid_send_wakeup)(void);
 
 /* ----------------------------------------------------------------- logging */
@@ -198,6 +200,7 @@ static void jl_event_handler(const btstack_jl_event_t *event)
     switch (event->type) {
         case BTSTACK_JL_EVENT_READY:
             stack_ready = 1;
+            jl_link_policy_apply();
             BTSTACK_JL_LOG("stack ready");
             bt_event_post(SYS_BT_EVENT_TYPE_CON_STATUS, BT_STATUS_INIT_OK, 0, 0);
             break;
@@ -241,6 +244,44 @@ static void jl_event_handler(const btstack_jl_event_t *event)
 
         default:
             break;
+    }
+}
+
+/* ---------------------------------------------------------- link policy */
+
+extern void lmp_set_sniff_establish_by_remote(u8 enable);
+extern void lmp_sniff_t_slot_attemp_reset(u16 slot, u16 attemp);
+extern const int sniff_support_reset_anchor_point;
+
+/* The console asks for a 24 slot (15 ms) sniff interval as soon as the HID
+ * channels are open.  The controller library's default answer is 800 slots
+ * (500 ms); the console retries the negotiation three times and then drops the
+ * link.  This weak hook in btctrler.a has to be overridden with the profile's
+ * parameters, which is what the vendor host library used to do. */
+void sniff_negotiation_hook(u16 *T_sniff, u16 *attemp, u16 *timeout,
+                            u8 negotiation)
+{
+    (void) negotiation;
+
+    if ((T_sniff == 0) || (attemp == 0) || (timeout == 0)) {
+        return;
+    }
+    if ((edr_config == 0) || (edr_config->sniff_param == 0)) {
+        return;
+    }
+    *T_sniff = edr_config->sniff_param->max_interval_slots;
+    *attemp = edr_config->sniff_param->attempt_slots;
+    *timeout = edr_config->sniff_param->timeout_slots;
+}
+
+static void jl_link_policy_apply(void)
+{
+    /* A HID device must accept the console's sniff request. */
+    lmp_set_sniff_establish_by_remote(1U);
+    if ((sniff_support_reset_anchor_point != 0) && (edr_config != 0) &&
+        (edr_config->sniff_param != 0)) {
+        lmp_sniff_t_slot_attemp_reset(edr_config->sniff_param->max_interval_slots,
+                                      edr_config->sniff_param->attempt_slots);
     }
 }
 
