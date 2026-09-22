@@ -2,6 +2,7 @@
 #define _APP_COMM_BT_H_
 
 #include "typedef.h"
+#include "btstack_typedef.h"
 #include "system/event.h"
 
 enum {

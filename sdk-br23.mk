@@ -311,9 +311,6 @@ SDK_COMMON_SOURCES_MINIMAL := \
 	$(SDK)/apps/common/device/usb/device/user_setup.c \
 	$(SDK)/apps/common/device/usb/usb_config.c \
 	$(SDK)/apps/common/device/usb/usb_host_config.c \
-	$(SDK)/apps/common/third_party_profile/jieli/gatt_common/le_gatt_client.c \
-	$(SDK)/apps/common/third_party_profile/jieli/gatt_common/le_gatt_common.c \
-	$(SDK)/apps/common/third_party_profile/jieli/gatt_common/le_gatt_server.c \
 
 
 SDK_SOURCES_MINIMAL := \
@@ -328,8 +325,6 @@ SDK_ARCHIVES_MINIMAL := \
 	$(SDK)/cpu/br23/liba/crypto_toolbox_Osize.a \
 	$(SDK)/cpu/br23/liba/cpu.a \
 	$(SDK)/cpu/br23/liba/system.a \
-	$(SDK)/cpu/br23/liba/btstack.a \
 	$(SDK)/cpu/br23/liba/btctrler.a \
 	$(SDK)/cpu/br23/liba/update.a \
-
 

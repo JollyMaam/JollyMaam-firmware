@@ -40,7 +40,17 @@ const int CONFIG_BTCTLER_FAST_CONNECT_ENABLE     = 0;
  * it breaks reconnection.  The Switch console's remote sniff request is
  * handled by the controller-library workaround instead, enabled by default in
  * the Makefile.  See docs/reconnect.md. */
-const int config_btctler_hci_standard   = 0;
+/* Standard HCI mode: the controller creates the host-command mailbox and the
+ * cooperative "hci" thread that drains it, and it exposes the normal HCI
+ * command/event surface instead of expecting the host to call its private
+ * lmp_hci_* entry points.
+ *
+ * The BTstack port needs this: an external host stack speaks HCI, and in the
+ * integrated mode (0) the controller resets the chip as soon as a host pushes
+ * a command (see hci_send_cmd() in btctrler.a).  Link-key handling moves to
+ * BTstack in this mode; src/bt/btstack_jl_sdk.c persists the keys in syscfg
+ * and answers link-key requests from there. */
+const int config_btctler_hci_standard   = 1;
 
 const int config_btctler_mode        = CONFIG_BT_MODE;
 

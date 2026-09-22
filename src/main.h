@@ -14,4 +14,17 @@ struct cyclone2_boot_request {
 };
 
 extern volatile struct cyclone2_boot_request reset_mailbox;
+
+/* Last Bluetooth bring-up milestone.  Lives in the same preserved SRAM
+ * section as the boot request so it survives the reset that follows a
+ * controller crash, and is printed by the console `status` command. */
+extern volatile u32 cyclone2_bringup_trace;
+extern volatile u32 cyclone2_boot_count;
+
+#define CYCLONE2_BRINGUP_LOG_ENTRIES 18
+extern volatile u32 cyclone2_bringup_log[CYCLONE2_BRINGUP_LOG_ENTRIES];
+extern volatile u32 cyclone2_bringup_log_head;
+
+/* Append one milestone to the reset-surviving bring-up log. */
+void cyclone2_bringup_record(u32 code);
 #endif

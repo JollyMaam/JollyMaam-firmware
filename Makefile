@@ -2,6 +2,11 @@ O := build
 .DEFAULT_GOAL := default
 SDK := /shared/github.com-Jieli-Tech/fw-AC63_BT_SDK
 TOOL_DIR := /shared/jieli-linux-toolchains-20250324.1/pi32v2/bin
+# Upstream BTstack checkout that carries the Jieli BR23 port.  Its host
+# replaces the vendor cpu/br23/liba/btstack.a; the controller library
+# (btctrler.a) stays.
+BTSTACK_DIR := /work/btstack-jl-port
+BTSTACK_PORT_DIR := $(BTSTACK_DIR)/port/jieli-br23
 # Must match CONFIG_FLASH_SIZE in src/sdkconfig/board_config.h and the chip.
 # The packer derives the reserved-region addresses from this: with 0x80000 the
 # BTIF (MAC/RF trim) and key/mac areas land at 0x7e000/0x7f000, but the
@@ -68,11 +73,47 @@ ifeq ($(DEBUG_LOG),verbose)
 DEFINES += -DCYCLONE2_LOG_TAGS_VERBOSE_VERBOSE=1
 endif
 
-INCLUDES := -iquote src -iquote src/bt -iquote src/sdkconfig -iquote $(O) $(SDK_INCLUDES)
+INCLUDES := -iquote src -iquote src/bt -iquote src/sdkconfig -iquote src/btstack \
+	-iquote $(O) \
+	-I$(BTSTACK_DIR)/src -I$(BTSTACK_DIR)/src/classic -I$(BTSTACK_PORT_DIR) \
+	$(SDK_INCLUDES)
 PROJECT_SOURCES := $(wildcard src/*.c src/bt/*.c src/sdkconfig/*.c)
 APP_CONFIG_DEPS := $(wildcard src/sdkconfig/*.h src/sdkconfig/*.ld)
 
-OBJECTS := $(SDK_COMMON_OBJECTS) $(addprefix $O/,$(PROJECT_SOURCES:.c=.c.o)) $(SDK_CPU_OBJECTS)
+# Upstream BTstack host sources.  The exclusions are the pieces that need the
+# 3rd-party codecs (SBC/LC3/MD5) that this firmware does not build.
+BTSTACK_SOURCES := \
+	$(filter-out \
+		$(BTSTACK_DIR)/src/btstack_lc3_google.c \
+		$(BTSTACK_DIR)/src/btstack_lc3plus_fraunhofer.c \
+		$(BTSTACK_DIR)/src/btstack_sample_rate_compensation.c \
+		, $(wildcard $(BTSTACK_DIR)/src/*.c)) \
+	$(filter-out \
+		$(BTSTACK_DIR)/src/classic/btstack_sbc_bluedroid.c \
+		$(BTSTACK_DIR)/src/classic/btstack_sbc_decoder_bluedroid.c \
+		$(BTSTACK_DIR)/src/classic/btstack_sbc_encoder_bluedroid.c \
+		$(BTSTACK_DIR)/src/classic/btstack_link_key_db_tlv.c \
+		$(BTSTACK_DIR)/src/classic/pbap_client.c \
+		, $(wildcard $(BTSTACK_DIR)/src/classic/*.c)) \
+	$(wildcard $(BTSTACK_PORT_DIR)/*.c)
+BTSTACK_OBJECTS := $(subst $(BTSTACK_DIR),$O/btstack,$(BTSTACK_SOURCES:.c=.c.o))
+
+# btctrler.a and the Jieli runtime already export a few names that upstream
+# BTstack also defines (its own hci_send_cmd, the HCI event tables and a few
+# byte helpers).  Rename BTstack's copies so both libraries can be linked; the
+# controller keeps its own symbols for its internal users.
+DROP_BTCTRLER_COMMANDS ?= 0
+BTSTACK_DEBUG := -DJIELI_BTCTRLER_DROP_COMMANDS=$(DROP_BTCTRLER_COMMANDS)
+
+BTSTACK_RENAMES := \
+	-Dhci_send_cmd=btstack_hci_send_cmd \
+	-Dhci_event_disconnection_complete=btstack_hci_event_disconnection_complete \
+	-Dbig_endian_read_32=btstack_big_endian_read_32 \
+	-Dbig_endian_store_32=btstack_big_endian_store_32 \
+	-Dnibble_for_char=btstack_nibble_for_char
+
+OBJECTS := $(SDK_COMMON_OBJECTS) $(addprefix $O/,$(PROJECT_SOURCES:.c=.c.o)) \
+	$(SDK_CPU_OBJECTS) $(BTSTACK_OBJECTS)
 DEPFILES := $(addsuffix .d,$(OBJECTS))
 
 V?=0
@@ -118,6 +159,12 @@ define compile_c
 	@mkdir -p $(@D)
 	@echo [CC] $<
 	$(QUIET)$(CC) $(CFLAGS) $(DEFINES) $(INCLUDES) -MMD -MP -MF $@.d -c $< -o $@
+endef
+
+define compile_btstack_c
+	@mkdir -p $(@D)
+	@echo [CC] $<
+	$(QUIET)$(CC) $(CFLAGS) $(DEFINES) $(BTSTACK_RENAMES) $(BTSTACK_DEBUG) $(INCLUDES) -MMD -MP -MF $@.d -c $< -o $@
 endef
 
 define compile_pre_build
@@ -202,6 +249,11 @@ $O/isd_config.ini: $(SDK)/cpu/br23/tools/isd_config_rule.c $(APP_CONFIG)
 
 $O/src/%.c.o: src/%.c
 	$(compile_c)
+
+# Upstream BTstack and the Jieli port are compiled straight from their
+# checkout; btstack_config.h comes from src/btstack via -iquote.
+$O/btstack/%.c.o: $(BTSTACK_DIR)/%.c
+	$(compile_btstack_c)
 
 # profile_switch.c uses the arrays generated from data/*.bin
 $O/src/profile_switch.c.o: $O/nintendo_switch_pro_hid.h $O/nintendo_switch_pro_spi.h

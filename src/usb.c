@@ -144,6 +144,23 @@ static void print_status(void)
 
     console_write("reset-mailbox=");
     console_write_hex(mailbox, sizeof(reset_mailbox));
+    console_write(" boots=");
+    console_write_hex((const u8 *)&cyclone2_boot_count, 4U);
+    console_write(" bt-trace=");
+    console_write_hex((const u8 *)&cyclone2_bringup_trace, 4U);
+    console_write(" bt-log");
+    /* Oldest entry first, so the end of the line is the most recent step. */
+    for (unsigned i = 0U; i < CYCLONE2_BRINGUP_LOG_ENTRIES; i++) {
+        unsigned index = (cyclone2_bringup_log_head + i) %
+                         CYCLONE2_BRINGUP_LOG_ENTRIES;
+        {
+            const u8 *entry = (const u8 *)&cyclone2_bringup_log[index];
+            for (unsigned j = 4U; j > 0U; j--) {
+                console_write_hex(&entry[j - 1U], 1U);
+            }
+        }
+        console_write_bytes((const u8 *)" ", 1U);
+    }
     console_write(" nvram=");
     console_write_hex((const u8 *)MASKROM_NVRAM_ADDRESS, 16U);
     console_write("\r\n");

@@ -7,91 +7,12 @@ static u8 base_mac_addr[6];
 static u8 mac_addr[6];
 static u8 edr_name[32] = "CYCLONE2";
 
-/* The Bluetooth stack keeps its remote-device database - one 38-byte record per
- * peer with the peer address and the 16-byte link key - behind
- * ``set_bt_vm_interface()`` and a small vtable.  Nothing in the SDK calls it,
- * and without it `db_file_read()`/`db_file_write()` silently do nothing
- * (`dbf_bt_rw_file` stays NULL), so a paired link key is never written and a
- * later reconnect asks for it, gets "PIN or key missing", and is turned away.
- *
- * The syscfg ids for that database are reserved by the SDK itself:
- * CFG_REMOTE_DB_INFO (61) followed by CFG_REMOTE_DB_00..19 (62..81), which is
- * exactly the space the database needs (16 device records plus two small
- * tables).  The vtable layout is fixed by database_file.c.o: open(index, len),
- * read(buf, len), write(buf, len), seek(offset, whence), close().  Each 38-byte
- * record is one syscfg item, so read/write map straight onto syscfg_read() and
- * syscfg_write(), and the only seek the database performs is seek(0, 0). */
-struct remote_db_file {
-    int (*open)(u32 index, u32 len);
-    int (*read)(u8 *buffer, u32 len);
-    int (*write)(u8 *buffer, u32 len);
-    int (*seek)(u32 offset, u32 whence);
-    int (*close)(void);
-};
-
-static u32 remote_db_id;
-static u8 remote_db_trace;
-
-static int remote_db_open(u32 index, u32 len)
-{
-    (void)len;
-    remote_db_id = index;
-    if (remote_db_trace != 0U) {
-        remote_db_trace--;
-        cyclone2_usb_debug("remote db open id=%u", index);
-    }
-    return 1;
-}
-
-static int remote_db_read(u8 *buffer, u32 len)
-{
-    int result = syscfg_read(remote_db_id, buffer, len);
-    if (remote_db_trace != 0U) {
-        remote_db_trace--;
-        cyclone2_usb_debug("remote db read id=%u len=%u result=%d",
-                           remote_db_id, len, result);
-    }
-    return result == (int)len;
-}
-
-static int remote_db_write(u8 *buffer, u32 len)
-{
-    int result = syscfg_write(remote_db_id, buffer, len);
-    if (remote_db_trace != 0U) {
-        remote_db_trace--;
-        cyclone2_usb_debug("remote db write id=%u len=%u result=%d",
-                           remote_db_id, len, result);
-    }
-    return result == (int)len;
-}
-
-static int remote_db_seek(u32 offset, u32 whence)
-{
-    (void)offset;
-    (void)whence;
-    return 1;
-}
-
-static int remote_db_close(void)
-{
-    return 1;
-}
-
-static const struct remote_db_file remote_db_interface = {
-    remote_db_open,
-    remote_db_read,
-    remote_db_write,
-    remote_db_seek,
-    remote_db_close,
-};
-
-extern void set_bt_vm_interface(u32 vm_index, void *interface);
-
+/* The BTstack port keeps its link keys in CFG_REMOTE_DB_00.. itself
+ * (src/bt/btstack_jl_sdk.c); the vendor host library's
+ * ``set_bt_vm_interface()`` database is gone with the vendor stack.  This hook
+ * stays because the profile code calls it before it starts a session. */
 void cyclone2_remote_db_init(void)
 {
-    remote_db_trace = 24U;
-    set_bt_vm_interface(CFG_REMOTE_DB_INFO,
-                        (void *)&remote_db_interface);
 }
 
 const struct btif_item btif_table[] = {

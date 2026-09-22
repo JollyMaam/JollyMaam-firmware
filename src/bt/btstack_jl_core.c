@@ -1,0 +1,623 @@
+/*
+ * Upstream BTstack host for the Jieli BR23 controller (btctrler.a).
+ *
+ * This file is the BTstack side of the port: it owns HCI, L2CAP, SDP and the
+ * HID device profile and drives them from the port's run loop.  It never
+ * includes Jieli SDK headers; the controller, the OS services, the clock and
+ * the persistence are reached through port/jieli-br23 and btstack_jl.h.
+ */
+
+#include "btstack_config.h"
+
+#include <string.h>
+
+#include "bluetooth.h"
+#include "btstack_debug.h"
+#include "btstack_event.h"
+#include "btstack_run_loop.h"
+#include "classic/btstack_link_key_db.h"
+#include "classic/hid_device.h"
+#include "classic/sdp_server.h"
+#include "classic/sdp_util.h"
+#include "gap.h"
+#include "hci.h"
+#include "hci_cmd.h"
+#include "l2cap.h"
+
+#include "hci_transport_jl_br23.h"
+
+#include "btstack_jl.h"
+
+#define BTSTACK_JL_MAX_QUEUED_REPORTS 24
+#define BTSTACK_JL_MAX_REPORT_SIZE    64
+/* HID SDP record: service attributes plus the 170 byte Switch report
+ * descriptor, which upstream stores inline in the record. */
+#define BTSTACK_JL_SDP_RECORD_SIZE    360
+
+typedef struct {
+    uint16_t size;
+    uint8_t  data[BTSTACK_JL_MAX_REPORT_SIZE];
+} btstack_jl_report_t;
+
+static btstack_jl_config_t jl_config;
+static btstack_jl_event_handler_t jl_event_handler;
+
+static uint8_t jl_address[6];
+static uint8_t jl_address_valid;
+static uint8_t jl_peer_address[6];
+static uint8_t jl_peer_valid;
+static uint8_t jl_connectable;
+static uint8_t jl_discoverable;
+static uint8_t jl_working;
+static uint8_t jl_shutdown_requested;
+static uint8_t jl_send_pending;
+
+static uint16_t jl_hid_cid;
+
+static btstack_jl_report_t jl_reports[BTSTACK_JL_MAX_QUEUED_REPORTS];
+static volatile uint16_t jl_report_read;
+static volatile uint16_t jl_report_write;
+static volatile uint16_t jl_report_count;
+
+static btstack_packet_callback_registration_t jl_hci_event_registration;
+static btstack_data_source_t jl_tx_data_source;
+static uint8_t jl_sdp_service_buffer[BTSTACK_JL_SDP_RECORD_SIZE];
+
+static void jl_notify_ex(uint8_t type, uint8_t code, uint8_t status,
+                         const uint8_t *address)
+{
+    btstack_jl_event_t event;
+
+    event.type = type;
+    event.code = code;
+    event.status = status;
+    if (address != 0) {
+        memcpy(event.address, address, sizeof(event.address));
+    } else {
+        memset(event.address, 0, sizeof(event.address));
+    }
+
+    if (jl_event_handler != 0) {
+        jl_event_handler(&event);
+    }
+}
+
+static void jl_notify(uint8_t type, uint8_t status, const uint8_t *address)
+{
+    jl_notify_ex(type, 0, status, address);
+}
+
+static void jl_enter_critical(void)
+{
+    if (jl_config.critical_enter != 0) {
+        jl_config.critical_enter();
+    }
+}
+
+static void jl_exit_critical(void)
+{
+    if (jl_config.critical_exit != 0) {
+        jl_config.critical_exit();
+    }
+}
+
+static void jl_trace(uint32_t code)
+{
+    if (jl_config.trace != 0) {
+        jl_config.trace(code);
+    }
+}
+
+/* Overrides the port's weak bring-up trace hook. */
+void jieli_btctrler_trace(uint32_t code)
+{
+    jl_trace(0x100u + code);
+}
+
+/* --------------------------------------------------------------- link keys */
+
+static int jl_link_key_db_open(void)
+{
+    return 1;
+}
+
+static void jl_link_key_db_close(void)
+{
+}
+
+static int jl_link_key_db_get(bd_addr_t bd_addr, link_key_t link_key, link_key_type_t *type)
+{
+    uint8_t key_type = 0;
+
+    if ((jl_config.link_key_get == 0) ||
+        (jl_config.link_key_get(bd_addr, link_key, &key_type) == 0)) {
+        return 0;
+    }
+    *type = (link_key_type_t) key_type;
+    return 1;
+}
+
+static void jl_link_key_db_put(bd_addr_t bd_addr, link_key_t link_key, link_key_type_t type)
+{
+    if (jl_config.link_key_put != 0) {
+        jl_config.link_key_put(bd_addr, link_key, (uint8_t) type);
+    }
+}
+
+static void jl_link_key_db_delete(bd_addr_t bd_addr)
+{
+    if (jl_config.link_key_delete != 0) {
+        jl_config.link_key_delete(bd_addr);
+    }
+}
+
+static uint8_t jl_iterator_index;
+
+static int jl_link_key_db_iterator_init(btstack_link_key_iterator_t *it)
+{
+    (void) it;
+    jl_iterator_index = 0;
+    return jl_config.link_key_iterator != 0;
+}
+
+static int jl_link_key_db_iterator_get_next(btstack_link_key_iterator_t *it,
+                                            bd_addr_t bd_addr, link_key_t link_key,
+                                            link_key_type_t *type)
+{
+    uint8_t key_type = 0;
+    uint8_t index = jl_iterator_index;
+
+    (void) it;
+
+    if (jl_config.link_key_iterator == 0) {
+        return 0;
+    }
+    if (jl_config.link_key_iterator(index, bd_addr, link_key, &key_type) == 0) {
+        return 0;
+    }
+    jl_iterator_index = (uint8_t)(index + 1);
+    *type = (link_key_type_t) key_type;
+    return 1;
+}
+
+static void jl_link_key_db_iterator_done(btstack_link_key_iterator_t *it)
+{
+    (void) it;
+}
+
+static const btstack_link_key_db_t jl_link_key_db = {
+    .open = &jl_link_key_db_open,
+    .close = &jl_link_key_db_close,
+    .get_link_key = &jl_link_key_db_get,
+    .put_link_key = &jl_link_key_db_put,
+    .delete_link_key = &jl_link_key_db_delete,
+    .iterator_init = &jl_link_key_db_iterator_init,
+    .iterator_get_next = &jl_link_key_db_iterator_get_next,
+    .iterator_done = &jl_link_key_db_iterator_done,
+};
+
+/* --------------------------------------------------------------- TX queue */
+
+/* The application queues a report from its own task, the run loop sends it.
+ * os critical sections on the SDK side guard the indices. */
+static int jl_report_enqueue(const uint8_t *message, uint16_t size)
+{
+    btstack_jl_report_t *slot;
+    int result = 0;
+
+    if (size > BTSTACK_JL_MAX_REPORT_SIZE) {
+        return 2;
+    }
+
+    jl_enter_critical();
+    if ((jl_hid_cid == 0) || !jl_working) {
+        result = 1;
+    } else if (jl_report_count >= BTSTACK_JL_MAX_QUEUED_REPORTS) {
+        result = 3;
+    } else {
+        slot = &jl_reports[jl_report_write];
+        slot->size = size;
+        memcpy(slot->data, message, size);
+        jl_report_write = (uint16_t)((jl_report_write + 1) % BTSTACK_JL_MAX_QUEUED_REPORTS);
+        jl_report_count++;
+    }
+    jl_exit_critical();
+    return result;
+}
+
+static void jl_report_dequeue(btstack_jl_report_t *out)
+{
+    jl_enter_critical();
+    if (jl_report_count != 0) {
+        *out = jl_reports[jl_report_read];
+        jl_report_read = (uint16_t)((jl_report_read + 1) % BTSTACK_JL_MAX_QUEUED_REPORTS);
+        jl_report_count--;
+    } else {
+        out->size = 0;
+    }
+    jl_exit_critical();
+}
+
+static void jl_tx_poll(btstack_data_source_t *data_source,
+                       btstack_data_source_callback_type_t callback_type)
+{
+    (void) data_source;
+    (void) callback_type;
+
+    if (!jl_send_pending && (jl_report_count != 0) && (jl_hid_cid != 0)) {
+        jl_send_pending = 1;
+        hid_device_request_can_send_now_event(jl_hid_cid);
+    }
+}
+
+/* --------------------------------------------------------- local state */
+
+static void jl_apply_scan_state(void)
+{
+    if (!jl_working) {
+        return;
+    }
+    gap_connectable_control(jl_connectable);
+    gap_discoverable_control(jl_discoverable);
+}
+
+static void jl_apply_local_address(void)
+{
+    /* HCI Reset restores the controller's factory address, so reapply ours
+     * before the host reads it back. */
+    jieli_btctrler_set_bd_addr(jl_address);
+    hci_set_bd_addr(jl_address);
+}
+
+static void jl_peer_from_handle(uint16_t handle, uint8_t out[6])
+{
+    hci_connection_t *connection = hci_connection_for_handle(handle);
+
+    if (connection != 0) {
+        memcpy(out, connection->address, 6);
+    } else {
+        memcpy(out, jl_peer_address, 6);
+    }
+}
+
+/* ------------------------------------------------------- packet handler */
+
+static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size)
+{
+    bd_addr_t event_addr;
+    uint8_t status;
+
+    (void) channel;
+    (void) size;
+
+    if (packet_type != HCI_EVENT_PACKET) {
+        return;
+    }
+
+    switch (hci_event_packet_get_type(packet)) {
+        case BTSTACK_EVENT_STATE:
+            switch (btstack_event_state_get_state(packet)) {
+                case HCI_STATE_WORKING:
+                    jl_working = 1;
+                    if (jl_address_valid) {
+                        jl_apply_local_address();
+                    }
+                    jl_apply_scan_state();
+                    jl_notify(BTSTACK_JL_EVENT_READY, 0, 0);
+                    break;
+                case HCI_STATE_OFF:
+                    jl_working = 0;
+                    break;
+                default:
+                    break;
+            }
+            break;
+
+        case HCI_EVENT_CONNECTION_COMPLETE:
+            status = hci_event_connection_complete_get_status(packet);
+            hci_event_connection_complete_get_bd_addr(packet, event_addr);
+            memcpy(jl_peer_address, event_addr, sizeof(jl_peer_address));
+            jl_peer_valid = 1;
+            jl_notify_ex(BTSTACK_JL_EVENT_HCI_STATUS, HCI_EVENT_CONNECTION_COMPLETE,
+                         status, event_addr);
+            if (status == ERROR_CODE_SUCCESS) {
+                jl_notify(BTSTACK_JL_EVENT_CONNECTED, 0, event_addr);
+            }
+            break;
+
+        case HCI_EVENT_DISCONNECTION_COMPLETE:
+            status = hci_event_disconnection_complete_get_reason(packet);
+            jl_peer_from_handle(
+                hci_event_disconnection_complete_get_connection_handle(packet),
+                event_addr);
+            jl_hid_cid = 0;
+            jl_send_pending = 0;
+            jl_notify_ex(BTSTACK_JL_EVENT_HCI_STATUS, HCI_EVENT_DISCONNECTION_COMPLETE,
+                         status, event_addr);
+            jl_notify(BTSTACK_JL_EVENT_DISCONNECTED, status, event_addr);
+            break;
+
+        case HCI_EVENT_ENCRYPTION_CHANGE:
+            if (hci_event_encryption_change_get_encryption_enabled(packet)) {
+                jl_peer_from_handle(
+                    hci_event_encryption_change_get_connection_handle(packet),
+                    event_addr);
+                jl_notify(BTSTACK_JL_EVENT_ENCRYPTED, 0, event_addr);
+            } else {
+                jl_notify_ex(BTSTACK_JL_EVENT_HCI_STATUS, HCI_EVENT_ENCRYPTION_CHANGE,
+                             0, jl_peer_address);
+            }
+            break;
+
+        case HCI_EVENT_HID_META:
+            switch (hci_event_hid_meta_get_subevent_code(packet)) {
+                case HID_SUBEVENT_CONNECTION_OPENED:
+                    status = hid_subevent_connection_opened_get_status(packet);
+                    if (status != ERROR_CODE_SUCCESS) {
+                        jl_hid_cid = 0;
+                        jl_notify(BTSTACK_JL_EVENT_HID_CLOSED, status, jl_peer_address);
+                        break;
+                    }
+                    jl_hid_cid = hid_subevent_connection_opened_get_hid_cid(packet);
+                    hid_subevent_connection_opened_get_bd_addr(packet, event_addr);
+                    memcpy(jl_peer_address, event_addr, sizeof(jl_peer_address));
+                    jl_peer_valid = 1;
+                    jl_notify(BTSTACK_JL_EVENT_HID_OPENED, 0, event_addr);
+                    break;
+
+                case HID_SUBEVENT_CONNECTION_CLOSED:
+                    jl_hid_cid = 0;
+                    jl_send_pending = 0;
+                    jl_notify(BTSTACK_JL_EVENT_HID_CLOSED, 0, jl_peer_address);
+                    break;
+
+                case HID_SUBEVENT_CAN_SEND_NOW: {
+                    btstack_jl_report_t report;
+                    jl_report_dequeue(&report);
+                    if (report.size != 0) {
+                        hid_device_send_interrupt_message(jl_hid_cid, report.data,
+                                                          report.size);
+                    }
+                    jl_send_pending = 0;
+                    break;
+                }
+
+                default:
+                    break;
+            }
+            break;
+
+        default:
+            break;
+    }
+}
+
+/* ------------------------------------------------------------ setup/exit */
+
+int btstack_jl_core_init(const btstack_jl_config_t *config,
+                         btstack_jl_event_handler_t handler)
+{
+    if (config == 0) {
+        return -1;
+    }
+    jl_config = *config;
+    jl_event_handler = handler;
+    return 0;
+}
+
+/* Runs on the "btstack" task: the application task that calls btstack_init()
+ * has a ~640 byte stack, far too small for SDP/L2CAP/HID initialization. */
+static int btstack_jl_core_setup(void)
+{
+    hid_sdp_record_t hid_params;
+    hci_transport_config_jl_br23_t transport_config;
+
+    if (jl_event_handler == 0) {
+        return -1;
+    }
+
+    if (jl_config.bd_addr != 0) {
+        memcpy(jl_address, jl_config.bd_addr, sizeof(jl_address));
+        jl_address_valid = 1;
+    }
+
+    btstack_memory_init();
+    btstack_run_loop_init(btstack_run_loop_jl_br23_get_instance());
+
+    jl_trace(11u);
+    memset(&transport_config, 0, sizeof(transport_config));
+    if (jl_address_valid) {
+        transport_config.bd_addr = jl_address;
+    }
+    hci_init(hci_transport_jl_br23_instance(), &transport_config);
+    hci_set_link_key_db(&jl_link_key_db);
+
+    l2cap_init();
+    jl_trace(12u);
+    sdp_init();
+    jl_trace(13u);
+
+    if (jl_config.local_name != 0) {
+        gap_set_local_name(jl_config.local_name);
+    }
+    gap_set_class_of_device(jl_config.class_of_device);
+    /* A console becomes master and may pull the link into sniff mode. */
+    gap_set_default_link_policy_settings(LM_LINK_POLICY_ENABLE_ROLE_SWITCH |
+                                         LM_LINK_POLICY_ENABLE_SNIFF_MODE);
+    gap_set_allow_role_switch(true);
+    /* HID channels are only opened on an encrypted link. */
+    gap_set_security_level(LEVEL_2);
+
+    /* SSP: no input, no output, general bonding.  btstack answers the IO
+     * capability request itself from these settings. */
+    gap_ssp_set_enable(1);
+    gap_ssp_set_io_capability(jl_config.io_capability);
+    gap_ssp_set_authentication_requirement(jl_config.authentication_requirement);
+    gap_ssp_set_auto_accept(1);
+
+    memset(&hid_params, 0, sizeof(hid_params));
+    hid_params.hid_device_subclass = (uint16_t) jl_config.class_of_device;
+    hid_params.hid_country_code = 0;
+    hid_params.hid_virtual_cable = 0;
+    hid_params.hid_remote_wake = 1;
+    hid_params.hid_reconnect_initiate = 1;
+    hid_params.hid_normally_connectable = true;
+    hid_params.hid_boot_device = false;
+    hid_params.hid_ssr_host_max_latency = 0;
+    hid_params.hid_ssr_host_min_timeout = 0;
+    hid_params.hid_supervision_timeout = jl_config.supervision_timeout_ms;
+    hid_params.hid_descriptor = jl_config.report_descriptor;
+    hid_params.hid_descriptor_size = jl_config.report_descriptor_size;
+    hid_params.device_name = jl_config.local_name;
+
+    memset(jl_sdp_service_buffer, 0, sizeof(jl_sdp_service_buffer));
+    hid_create_sdp_record(jl_sdp_service_buffer, sdp_create_service_record_handle(),
+                          &hid_params);
+    jl_trace(14u);
+    sdp_register_service(jl_sdp_service_buffer);
+    jl_trace(15u);
+
+    hid_device_init(false, jl_config.report_descriptor_size,
+                    jl_config.report_descriptor);
+    jl_trace(16u);
+    hid_device_register_packet_handler(&jl_packet_handler);
+
+    jl_hci_event_registration.callback = &jl_packet_handler;
+    hci_add_event_handler(&jl_hci_event_registration);
+
+    /* Poll the report queue from the run loop; the application queues from
+     * its own task and never touches BTstack structures directly. */
+    btstack_run_loop_set_data_source_handler(&jl_tx_data_source, &jl_tx_poll);
+    btstack_run_loop_enable_data_source_callbacks(&jl_tx_data_source,
+                                                  DATA_SOURCE_CALLBACK_POLL);
+    btstack_run_loop_add_data_source(&jl_tx_data_source);
+
+    jl_report_read = 0;
+    jl_report_write = 0;
+    jl_report_count = 0;
+    jl_hid_cid = 0;
+    jl_send_pending = 0;
+    jl_working = 0;
+    jl_shutdown_requested = 0;
+
+    jl_trace(17u);
+    return 0;
+}
+
+void btstack_jl_core_power_off(void)
+{
+    jl_shutdown_requested = 1;
+    jl_working = 0;
+    jl_hid_cid = 0;
+    jl_send_pending = 0;
+    jl_report_count = 0;
+    hci_power_control(HCI_POWER_OFF);
+}
+
+void btstack_jl_core_set_scan(uint8_t connectable, uint8_t discoverable)
+{
+    jl_connectable = connectable ? 1 : 0;
+    jl_discoverable = discoverable ? 1 : 0;
+    jl_apply_scan_state();
+}
+
+void btstack_jl_core_set_address(const uint8_t address[6])
+{
+    if (address == 0) {
+        return;
+    }
+    memcpy(jl_address, address, sizeof(jl_address));
+    jl_address_valid = 1;
+    if (jl_working) {
+        jl_apply_local_address();
+    } else {
+        jieli_btctrler_set_bd_addr(jl_address);
+    }
+}
+
+const uint8_t *btstack_jl_core_get_address(void)
+{
+    return jl_address;
+}
+
+int btstack_jl_core_hid_connect(const uint8_t address[6])
+{
+    bd_addr_t peer;
+    uint16_t hid_cid = 0;
+
+    if (address == 0) {
+        return 1;
+    }
+    memcpy(peer, address, sizeof(peer));
+    memcpy(jl_peer_address, address, sizeof(jl_peer_address));
+    jl_peer_valid = 1;
+
+    if (jl_hid_cid != 0) {
+        return 0;
+    }
+    return hid_device_connect(peer, &hid_cid);
+}
+
+int btstack_jl_core_disconnect(void)
+{
+    if (jl_hid_cid != 0) {
+        hid_device_disconnect(jl_hid_cid);
+        jl_hid_cid = 0;
+        jl_send_pending = 0;
+        return 0;
+    }
+    if (jl_peer_valid) {
+        hci_connection_t *connection =
+            hci_connection_for_bd_addr_and_type(jl_peer_address, BD_ADDR_TYPE_ACL);
+        if (connection != 0) {
+            gap_disconnect(connection->con_handle);
+            return 0;
+        }
+    }
+    return 0;
+}
+
+int btstack_jl_core_hid_connected(void)
+{
+    return jl_hid_cid != 0;
+}
+
+int btstack_jl_core_send_report(const uint8_t *message, uint16_t size)
+{
+    return jl_report_enqueue(message, size);
+}
+
+void btstack_jl_core_delete_all_link_keys(void)
+{
+    bd_addr_t all_zero;
+
+    memset(all_zero, 0, sizeof(all_zero));
+    hci_send_cmd(&hci_delete_stored_link_key, all_zero, 1);
+}
+
+void btstack_jl_core_delete_link_key(const uint8_t address[6])
+{
+    bd_addr_t peer;
+
+    if (address == 0) {
+        return;
+    }
+    memcpy(peer, address, sizeof(peer));
+    hci_send_cmd(&hci_delete_stored_link_key, peer, 1);
+}
+
+void btstack_jl_core_run(void *argument)
+{
+    (void) argument;
+
+    if (btstack_jl_core_setup() != 0) {
+        jl_trace(1u);
+        return;
+    }
+    jl_trace(18u);
+    jl_trace(19u);
+    hci_power_control(HCI_POWER_ON);
+    jl_trace(30u);
+    btstack_run_loop_execute();
+    jl_trace(31u);
+}
