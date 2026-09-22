@@ -73,6 +73,10 @@ enum {
 };
 
 static volatile uint8_t jl_request;
+/* Bring-up diagnostics for the report path. */
+static uint32_t jl_tx_sent;
+static uint32_t jl_tx_stall_since;
+static uint8_t  jl_tx_stall_reported;
 static volatile uint8_t jl_start_requested;
 static volatile uint8_t jl_idle = 1;
 static uint8_t jl_request_address[6];
@@ -388,6 +392,15 @@ static void jl_tx_poll(btstack_data_source_t *data_source,
 
     if (!jl_send_pending && (jl_report_count != 0) && (jl_hid_cid != 0)) {
         jl_send_pending = 1;
+        /* A report that cannot be handed over within a second means the link
+         * is not draining: record it once with the free-slot count. */
+        if (jl_tx_stall_since == 0) {
+            jl_tx_stall_since = jl_config.time_ms();
+        } else if ((jl_tx_stall_reported == 0) &&
+                   (jl_config.time_ms() - jl_tx_stall_since > 1000)) {
+            jl_tx_stall_reported = 1;
+            jl_trace(0x2400u | hci_number_free_acl_slots_for_handle(jl_con_handle));
+        }
         hid_device_request_can_send_now_event(jl_hid_cid);
     }
 }
@@ -478,6 +491,9 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
 
         case HCI_EVENT_DISCONNECTION_COMPLETE:
             status = hci_event_disconnection_complete_get_reason(packet);
+            /* Always record the reason: the console detaching the link was the
+             * hardest failure to see. */
+            jl_trace(0x2a00u | status);
             jl_peer_from_handle(
                 hci_event_disconnection_complete_get_connection_handle(packet),
                 event_addr);
@@ -528,8 +544,14 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
                     if (report.size != 0) {
                         hid_device_send_interrupt_message(jl_hid_cid, report.data,
                                                           report.size);
+                        jl_tx_sent++;
+                        if ((jl_tx_sent & 0x0fu) == 0u) {
+                            jl_trace(0x2300u | ((jl_tx_sent >> 4) & 0xffu));
+                        }
                     }
                     jl_send_pending = 0;
+                    jl_tx_stall_since = 0;
+                    jl_tx_stall_reported = 0;
                     break;
                 }
 

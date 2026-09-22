@@ -277,6 +277,7 @@ void sniff_negotiation_hook(u16 *T_sniff, u16 *attemp, u16 *timeout,
 static void jl_link_policy_apply(void)
 {
     /* A HID device must accept the console's sniff request. */
+    cyclone2_bringup_record(0x2bu);
     lmp_set_sniff_establish_by_remote(1U);
     if ((sniff_support_reset_anchor_point != 0) && (edr_config != 0) &&
         (edr_config->sniff_param != 0)) {
