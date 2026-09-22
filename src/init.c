@@ -68,6 +68,9 @@ void board_init()
 {
     cyclone2_latch_early_profile_chord();
     cyclone2_bt_address_init();
+    /* Let the Bluetooth stack persist link keys; without this the remote
+     * device database is a silent no-op and reconnection cannot work. */
+    cyclone2_remote_db_init();
     board_power_init();
     adc_vbg_init();
     adc_init();

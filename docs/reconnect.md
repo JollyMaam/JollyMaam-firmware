@@ -403,6 +403,115 @@ database empty on this build.  The two candidate directions:
    `lmp_master_stage_conn`, which sets the authentication stage; the
    host-request path is `lmp_stage_auth_with_link_key_by_remote`).
 
+### Root cause: the host's remote-device database is a no-op
+
+Both questions above are answered by reading the SDK's own libraries.
+
+`put_link_key()` (in `btstack.a(remote_device_db.c.o)`) fills a 38-byte
+`struct _remote_database` - local address at `+8`, peer address at `+9`,
+16-byte link key at `+10` - and hands it to `put_database()`, which writes it
+through the `database_file` abstraction in `btstack.a(database_file.c.o)`.
+That layer is driven by two globals:
+
+    @dbf_syscfg_remote_db_addr = internal global i32 0     ; VM index base
+    @dbf_bt_rw_file            = internal global ptr null  ; syscfg interface
+
+and they are set by exactly one function:
+
+    void set_bt_vm_interface(u32 vm_index, void *interface);
+
+**Nothing calls it.**  `grep` over the whole SDK finds only its declaration in
+`include_lib/btstack/avctp_user.h`.  Both `db_file_read()` and `db_file_write()`
+contain
+
+    if (dbf_bt_rw_file == NULL) goto if.end27;   /* silently do nothing */
+
+so with the interface left NULL the entire remote-device database - link keys
+*and* their lookups - is a silent no-op.  That is exactly what the flash shows:
+the database region the SDK reserves (VM offset `0x00ad`, 13..16 records of 42
+bytes, i.e. `0x400ad..0x402cf` for this part) stays `0xff` after a pairing that
+produced a working HID session, and a reconnect asks for the key, gets
+`PIN_OR_KEY_MISSING`, and then re-pairs over SSP against a console that already
+holds a key (`reason=5`).
+
+It also explains the shape of the whole problem: pairing works because the key
+only has to survive in RAM (the host keeps a copy in
+`last_device_connect_linkkey` for the session), and every reconnect that matters
+goes through a chip reset or a power cycle, where that RAM copy is gone.  The
+stock GameSir firmware does not use this path at all - it keeps its own
+(peer, key) records in its own VM area at `0xf6000` (see the layout notes
+earlier), which is why it reconnects.  `jl-esp32`, which shares this SDK, has
+the same gap and the same failure, which is why it was a poor oracle.
+
+### The fix to make
+
+Register the database once during Bluetooth init:
+
+    set_bt_vm_interface(<base index>, <syscfg_file interface>);
+
+The `syscfg_file` vtable is not declared in any SDK header; its shape has to be
+taken from `database_file.c.o` (the write path calls `open(index, 38)`,
+`write(buf, len)`, `seek(offset, whence)` and `getlen()`).  The index is a
+syscfg item id used as a base: `put_database()` computes
+`base + dbf_entry_info[db].offset + record*38`, so the base has to have a
+contiguous range of free VM ids reserved for the remote database (16 devices
+plus the two small tables, per `g_remote_device_number`).  `dbf_entry_info` is
+`{0,16}, {16,4}, {20,1}`.
+
+Once the database persists, `put_link_key()` stores the key the controller
+derives and `get_link_key()` returns it on the next reconnect, which is the
+step the whole reconnect path is missing.
+
+### Tried: registering that database (and what it showed)
+
+`src/settings.c` now implements the vtable `database_file.c.o` expects
+(`open/read/write/seek/close`, with each 38-byte record mapped to one syscfg
+item) and registers it with
+`set_bt_vm_interface(CFG_REMOTE_DB_INFO, &remote_db_interface)`, first from
+`board_init()` and then again just before `btstack_edr_start_before_init()`
+(the stack's own init clears it if it is registered earlier - a first attempt
+registered only at board init and the callbacks were never reached).
+
+With tracing in every callback, a full pairing + reconnect cycle produced:
+
+* pairing: ACL up, `encrypted`, `hid connect`, reports - i.e. a good session;
+* **not one `remote db open/read/write` line**, neither during the pairing nor
+  during the failed reconnect;
+* the flash database region stayed empty, and the reconnect again ended in
+  `link key rejected (reason=5)`.
+
+So on this path the stack never calls `put_link_key()`/`get_link_key()` at all,
+which means the database registration is necessary but not sufficient: the link
+key the controller derives is never handed to the host in the first place.  The
+controller library only raises that event from its own authentication stages
+(`lmp_stage_calc_link_key`, `lmp_stage_auth_with_link_key_by_local/remote`,
+the PIN paths - see `lmp_send_event_link_key_notification` callers), and the
+console-initiated SSP path we use (`lmp_stage_auth_with_simple_pair_by_remote`
+-> stage 12/step 36) does not go through any of them.
+
+### Where to go next
+
+1. Instrument the controller side of the pairing to see whether
+   `lmp_send_event_link_key_notification()` (HCI event 0x18) is ever called on
+   the console-initiated SSP path, and if it is, why the host does not act on
+   it.  That needs either a patch to the vendor archive (which broke SSP when
+   done with the full trace set - keep any patch minimal) or a breakpoint-style
+   trace from the app side.
+2. Alternatively, make the controller authenticate from its *own* record store
+   on an outgoing reconnect (`lmp_stage_auth_with_link_key_by_local`, reached
+   through `lmp_master_stage_conn` setting stage 1) instead of the
+   host-request path (`lmp_stage_auth_with_link_key_by_remote`, which produced
+   `HCI_LINK_KEY_REQUEST_NEGATIVE_REPLY PIN_OR_KEY_MISSING`).
+3. The stock GameSir 3.52 firmware does exactly (2) in effect: it keeps its own
+   `(peer, key)` records in its own VM area at `0xf6000` and never asks the SDK
+   database.  Comparing its stored record with what our controller keeps is the
+   cheapest way to learn which key the console actually holds.
+
+Unrelated to the key: leaving Change Grip/Order with a freshly paired pad drops
+the link (`hid disconnect`, then the reconnect attempts above).  That has been
+seen with the vendor archive and a working HID session, so it is worth checking
+from the console side once reconnection works.
+
 ### Flash tooling bugs found while chasing this
 
 * `tools/flash.sh --erase-persistent` still erased `0x40000..0x7ffff`, the VM

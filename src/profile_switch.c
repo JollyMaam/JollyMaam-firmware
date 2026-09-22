@@ -1009,6 +1009,10 @@ void cyclone2_switch_start(u8 slot, u8 pairing)
     }
 
     bt_set_local_name("Pro Controller", sizeof("Pro Controller") - 1U);
+    /* Register the remote-device database again here: the stack's own init
+     * runs after board_init() and clears the interface, so registering it
+     * only at board init leaves the database a no-op. */
+    cyclone2_remote_db_init();
     btstack_edr_start_before_init(&switch_edr_config, 0);
     switch_hid_initialize();
 }

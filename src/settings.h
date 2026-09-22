@@ -6,5 +6,6 @@
 void cyclone2_bt_address_init(void);
 void cyclone2_bt_address_for_slot(u8 slot, u8 address[6]);
 void cyclone2_bt_address_randomize(void);
+void cyclone2_remote_db_init(void);
 
 #endif
