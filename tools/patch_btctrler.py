@@ -1,12 +1,25 @@
 #!/usr/bin/env python3
-"""Patch the BR23 controller archive's remote sniff veto.
+"""Patch the BR23 controller archive.
 
-The Jieli archive is LLVM bitcode. Replace only ``lmp_esco_sniff_check`` in
-LLVM IR and re-emit that member as bitcode so the vendor archive's LTO symbol
-index and the other members remain usable by the linker.
+The Jieli archive is LLVM bitcode, so a member can be edited as LLVM IR text
+and re-emitted as bitcode with the vendor's own clang.  Re-emitting an
+unmodified member is lossless (the only difference in the printed IR is the
+``ModuleID`` comment), so a patch only changes what it means to.
 
-Two diagnostic hooks are also added, both inert unless ``make DEBUG_LOG=1``
-turned the vendor LMP tracing on:
+Two modes:
+
+``notify`` (default) adds one call to the archive - see
+``patch_ssp_remote_notify()`` below - so the console-driven pairing path hands
+the host the link key it derived.  Without it the host stack never learns the
+key, never stores it, and every later reconnect is turned away.
+
+``diagnostic`` is the older experiment: it replaces ``lmp_esco_sniff_check``
+with ``ret i1 1`` and adds three trace hooks.  The sniff override is not needed
+(``src/profile_switch.c`` hands the profile the console's own 24-slot sniff
+parameters and the stack calls ``lmp_set_sniff_establish_by_remote(1)``), and
+this variant resets the chip in the middle of an SSP pairing when measured on
+hardware, so it is for diagnostics only.  Two of its hooks are inert unless
+``make DEBUG_LOG=1`` turned the vendor LMP tracing on:
 
 * ``lmp_hci_link_key_request_reply`` prints the link key the host stack hands
   the controller when it answers a peer's link-key request;
@@ -25,6 +38,11 @@ from pathlib import Path
 
 
 FUNCTION = "lmp_esco_sniff_check"
+
+# The pairing path a console drives: it pages us, runs SSP, and the library
+# derives the link key itself.  See patch_ssp_remote_notify().
+SSP_REMOTE_FUNCTION = "lmp_stage_auth_with_simple_pair_by_remote"
+SSP_REMOTE_ANCHOR = "  store i8 36, i8* %step, align 1"
 
 # Diagnostic: print the link key the stack hands the controller when it answers
 # a peer's authentication request, so what was stored can be compared with what
@@ -250,6 +268,56 @@ def run(command: list[str], cwd: Path | None = None) -> None:
     subprocess.run(command, cwd=cwd, check=True)
 
 
+def patch_ssp_remote_notify(text: str) -> str:
+    """Make the console-initiated pairing hand the host its link key.
+
+    ``lmp_stage_auth_with_simple_pair_by_remote`` is where a pairing driven by
+    the other side lands - that is Change Grip/Order, where the console pages
+    us and runs SSP.  At the end of the DHKey exchange the library derives the
+    link key with ``f2_function_api`` straight into ``conn->core.link_key`` and
+    then moves on without telling anyone.  Every other path that ends up with a
+    key raises the event (``..._by_local`` reaches it through
+    ``lmp_stage_calc_link_key``, and the two PIN paths call it directly), so
+    this is the one place the notification is missing.
+
+    It has to be there: the host stack is the side that stores EDR link keys
+    and answers the peer's link-key request on a later connection.  With the
+    event missing the host's database stays empty (measured: the reserved VM
+    area is still 0xff after a pairing that produced a working HID session),
+    so a reconnect asks for the key, is told PIN_OR_KEY_MISSING, falls back to
+    a fresh SSP, and a console that already holds a key drops the link with
+    reason 5.
+
+    The insertion is one call to a function that this same member defines, at
+    the point where the key has just been computed and before the stage/step
+    move on.  ``ret`` is 0 for success, exactly as the five existing call sites
+    pass it.
+    """
+    start = text.find("define i32 @" + SSP_REMOTE_FUNCTION + "(")
+    if start < 0:
+        raise RuntimeError(f"{SSP_REMOTE_FUNCTION} was not found")
+    end = text.find("\n}\n", start)
+    anchor = text.find(SSP_REMOTE_ANCHOR, start)
+    if anchor < 0 or end < 0 or anchor > end:
+        raise RuntimeError("the SSP link key derivation was not found")
+    line_end = text.find("\n", anchor) + 1
+    dbg = debug_location(text[anchor:line_end])
+    call = ("  call void @lmp_send_event_link_key_notification("
+            "%struct.lmp_connection* nonnull %conn, i32 0)"
+            f"{dbg}\n")
+    return text[:anchor] + call + text[anchor:]
+
+
+def patch_bitcode_notify(source: Path, destination: Path, clang: str) -> None:
+    """Emit ``source`` with the missing link-key notification added."""
+    ir = source.with_suffix(".ll")
+    run([clang, "-target", "pi32v2", "-x", "ir", "-S", "-emit-llvm",
+         str(source), "-o", str(ir)])
+    ir.write_text(patch_ssp_remote_notify(ir.read_text()))
+    run([clang, "-target", "pi32v2", "-x", "ir", "-c", "-emit-llvm",
+         str(ir), "-o", str(destination)])
+
+
 def patch_bitcode(source: Path, destination: Path, clang: str) -> None:
     ir = source.with_suffix(".ll")
     run([
@@ -308,6 +376,12 @@ def main() -> None:
     parser.add_argument("destination", type=Path)
     parser.add_argument("--clang", required=True)
     parser.add_argument("--ar", default="ar")
+    parser.add_argument("--mode", choices=("notify", "diagnostic"),
+                        default="notify",
+                        help="notify (default): add the missing link-key "
+                             "notification to the console-driven pairing "
+                             "path; diagnostic: the sniff override plus the "
+                             "LMP trace printfs")
     args = parser.parse_args()
     args.source = args.source.resolve()
     args.destination = args.destination.resolve()
@@ -325,9 +399,14 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="cyclone2-btctrler-") as temp_name:
         temp = Path(temp_name)
         run([args.ar, "x", str(args.source)], cwd=temp)
-        patch_bitcode(temp / "lmp.c.o", temp / "lmp.c.o.patched", args.clang)
+        if args.mode == "diagnostic":
+            patch_bitcode(temp / "lmp.c.o", temp / "lmp.c.o.patched",
+                          args.clang)
+        else:
+            patch_bitcode_notify(temp / "lmp.c.o", temp / "lmp.c.o.patched",
+                                 args.clang)
         (temp / "lmp.c.o.patched").replace(temp / "lmp.c.o")
-        if (temp / "lmp_hci.c.o").is_file():
+        if args.mode == "diagnostic" and (temp / "lmp_hci.c.o").is_file():
             patch_member(temp / "lmp_hci.c.o", temp / "lmp_hci.c.o.patched",
                          args.clang, patch_link_key_trace)
             (temp / "lmp_hci.c.o.patched").replace(temp / "lmp_hci.c.o")

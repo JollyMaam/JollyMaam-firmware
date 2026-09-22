@@ -10,15 +10,23 @@ FLASH_SIZE := 0x100000
 CODE_LIMIT := 0x40000
 # Rebuild the vendor controller archive from extracted LLVM bitcode.
 #
-# Off by default, and that is deliberate: re-emitting lmp.c.o as new bitcode
-# makes the controller reset in the middle of an SSP pairing (measured on
-# hardware - the console reaches HCI_EVENT_USER_CONFIRMATION_REQUEST, the
-# chip re-enumerates, and the pairing never completes; the same image built
-# against the untouched archive pairs and stays connected).  The sniff problem
-# the patch used to work around is handled from the application instead:
-# src/profile_switch.c gives the profile the console's own 24-slot sniff
-# parameters and app_comm_edr.c calls lmp_set_sniff_establish_by_remote(1),
-# which is exactly the condition lmp_esco_sniff_check() tests.
+#   0        use the vendor archive untouched (default)
+#   1        add the missing link-key notification to the console-driven
+#            pairing path: lmp_stage_auth_with_simple_pair_by_remote derives
+#            the link key but never hands it to the host, so the host's EDR
+#            key database stays empty and every reconnect is turned away.
+#            tools/patch_btctrler.py --mode notify is the whole change.
+#   diag     the older experiment: the lmp_esco_sniff_check override plus the
+#            LMP trace printfs.  It is not needed (the sniff problem is solved
+#            from the application: src/profile_switch.c hands the profile the
+#            console's own 24-slot parameters and app_comm_edr.c calls
+#            lmp_set_sniff_establish_by_remote(1)) and this variant resets the
+#            chip in the middle of an SSP pairing when measured on hardware,
+#            so use it only when a trace is what you are after.
+#
+# Defaulted off only because 1 has not been measured on hardware yet; the
+# patch itself is one call to a function the same member already defines, and
+# re-emitting an unmodified member is byte-for-byte equivalent in IR.
 PATCH_BTCTLER ?= 0
 # DEBUG_LOG=1 builds a copy of the SDK's debug.c that forwards the controller
 # library's LMP/HCI tracing to the USB console.  See tools/patch_debug.py.
@@ -40,12 +48,17 @@ SDK_COMMON_SOURCES := $(SDK_COMMON_SOURCES_MINIMAL)
 SDK_COMMON_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_COMMON_SOURCES:.c=.c.o))
 SDK_CPU_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_SOURCES:.c=.c.o))
 
-ifeq ($(PATCH_BTCTLER),1)
+ifneq ($(PATCH_BTCTLER),0)
 # Build a patched copy without modifying the vendor SDK installation.
 LLVM_AR := $(TOOL_DIR)/../../common/bin/llvm-ar
 VENDOR_BTCTRLR := $(SDK)/cpu/br23/liba/btctrler.a
 PATCHED_BTCTRLR := $O/sdk-libs/btctrler.a
 SDK_ARCHIVES := $(subst $(VENDOR_BTCTRLR),$(PATCHED_BTCTRLR),$(SDK_ARCHIVES_MINIMAL))
+endif
+
+PATCH_BTCTLER_MODE := notify
+ifeq ($(PATCH_BTCTLER),diag)
+PATCH_BTCTLER_MODE := diagnostic
 endif
 
 ifneq ($(filter 1 verbose,$(DEBUG_LOG)),)
@@ -163,11 +176,11 @@ $O/app.elf: $O/sdk.ld $(OBJECTS) $(SDK_ARCHIVES) $(PATCH_MODE_STAMP)
 	@echo [LD] $@
 	$(QUIET)$(LD) -o $@ $(OBJECTS) -T$O/sdk.ld -M=$O/app.map $(SDK_LFLAGS) --start-group $(SDK_ARCHIVES) --end-group $(SDK_RUNTIME_LIBS)
 
-ifeq ($(PATCH_BTCTLER),1)
+ifneq ($(PATCH_BTCTLER),0)
 $(PATCHED_BTCTRLR): $(VENDOR_BTCTRLR) tools/patch_btctrler.py
 	@mkdir -p $(@D)
 	@echo [PATCH] $@
-	$(QUIET)/work/bin/python3 tools/patch_btctrler.py $(VENDOR_BTCTRLR) $@ --clang $(CC) --ar $(LLVM_AR)
+	$(QUIET)/work/bin/python3 tools/patch_btctrler.py $(VENDOR_BTCTRLR) $@ --clang $(CC) --ar $(LLVM_AR) --mode $(PATCH_BTCTLER_MODE)
 endif
 
 $O/sdk_ld.c: $(SDK)/cpu/br23/sdk_ld.c

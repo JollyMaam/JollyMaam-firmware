@@ -524,3 +524,88 @@ from the console side once reconnection works.
 * Capturing the console around a reset needs DTR/RTS re-asserted after the
   device re-enumerates; `tools/probe_reconnect.py` now does that (and reopens
   the port on I/O errors), which is what made post-reset traces readable.
+
+## 2026-09-21 (later): the missing notification, found in the vendor bitcode
+
+### The archive can be read, and re-emitting it is lossless
+
+The vendor controller archive is LLVM bitcode, so `lmp.c.o` can be printed as
+LLVM IR with the vendor's own compiler and read like source:
+
+    clang -target pi32v2 -x ir -S -emit-llvm lmp.c.o -o lmp.ll
+
+Doing that to a pristine member and to the same member after a bitcode
+round trip (`-x ir -c -emit-llvm` and back) leaves the IR identical apart from
+the `ModuleID` comment, and the re-emitted object is the same size.  So the
+SSP breakage the earlier session measured was caused by *what* the diagnostic
+patch did - replacing `lmp_esco_sniff_check` with `ret i1 1` and adding three
+`printf` traces - not by re-emitting bitcode as such.  `PATCH_BTCTLER=1` now
+builds a one-line patch instead; the old variant is still available as
+`PATCH_BTCTLER=diag`.
+
+### The key is computed on the pairing path and then dropped
+
+`lmp_send_event_link_key_notification()` - the only thing that makes the host
+see an EDR link key - has five call sites, all in
+`lmp_stage_auth_with_link_key_by_local` (through `lmp_stage_calc_link_key`),
+`lmp_stage_auth_with_link_key_by_remote`, and the two PIN paths.
+
+`lmp_stage_auth_with_simple_pair_by_remote`, which is what a console-driven
+pairing lands in, is not one of them.  It ends its DHKey exchange by deriving
+the link key **straight into `conn->core.link_key`** with `f2_function_api()`,
+stores `step 36` / `stage 12`, frees the simple-pair context, and returns - the
+key exists, in the right place, and nobody is told.  That is the whole reason
+the host's database stayed empty after a pairing that produced a working HID
+session, and why the database registration in `src/settings.c` never saw a
+callback: not a registration problem, a missing event.
+
+### The host stack would store it, and answer with it
+
+Read the same way out of `btstack.a` and the linked image:
+
+* the `HCI_EVENT_LINK_KEY_NOTIFICATION` case of `hci_event_handler` calls
+  `put_link_key(addr, packet + 8, 0, index)` and caches the key in
+  `last_device_connect_linkkey`, with no bonding gate of any kind;
+* `put_link_key()` skips only when the remote-test flag is set, when
+  `temp_link_key_flag` is set (nothing in this image calls
+  `set_temp_link_key()`, and it initialises to 0), or when
+  `CONFIG_BTCTLER_FAST_CONNECT_ENABLE` is non-zero (compiled to a constant 0
+  here), so on this build it goes on to `put_database()` ->
+  `database_file.c.o` -> the vtable registered by `src/settings.c`;
+* the `HCI_EVENT_LINK_KEY_REQUEST` case calls `get_link_key()` and answers with
+  `lmp_hci_link_key_request_reply()` or `..._negative_reply()`.
+
+So both ends of the loop exist and only the notification was missing.
+
+### Third-party confirmation
+
+`/shared/btstack-hci-dump` is the HCI dump attached to
+https://github.com/bluekitchen/btstack/issues/422 - bluepad32 + btstack + a USB
+dongle as the HID *host* pairing with a genuine Switch Pro Controller.  It
+shows the controller asking its host for the link key, getting a negative
+reply, running SSP with `io_cap` NoInputNoOutput and `auth_req` **"no
+bonding"**, and then raising `LINK_KEY_NOTIFICATION` (type 4, unauthenticated
+combination key from P-192) anyway, so that the host can store it.  The issue
+itself is titled *"Allow to store link keys even if the auth_req is 'not
+required'"*: btstack had to be changed to store the key for Nintendo
+controllers that declare no bonding but still expect to reconnect.
+
+### The patch
+
+`tools/patch_btctrler.py --mode notify` (now `make PATCH_BTCTLER=1`) adds one
+call at the point where `f2_function_api()` has just written the key:
+
+    call void @lmp_send_event_link_key_notification(%conn, i32 0)
+
+The diff against the pristine member is that single line; the linked image
+carries six call sites to the notification instead of five, and the call is
+inside `lmp_stage_auth_with_simple_pair_by_remote` in the optimised module.
+`ret` is 0, as all five existing call sites pass it.
+
+The image was built, verified and flashed on the pad (address
+`fa:09:3a:f3:ed:ed`, persistent data left alone), but **the pairing test has
+not been run yet**: with the console on Change Grip/Order, pair, then
+`disconnect`, then press the chord and see whether the reconnect survives.
+With `debug on` the `remote db open/write` lines from `src/settings.c` are the
+direct evidence that the notification arrived and the key was persisted - they
+have never appeared before.
