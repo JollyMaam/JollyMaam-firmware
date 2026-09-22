@@ -65,19 +65,19 @@ volatile struct cyclone2_boot_request reset_mailbox
 /* Bring-up milestone record; see main.h.  Kept next to the boot request so a
  * crash during Bluetooth startup leaves evidence behind. */
 volatile u32 cyclone2_bringup_trace
-    __attribute__((section(".reset_mailbox"), used, aligned(4)));
+    __attribute__((section(".bringup_log"), used, aligned(4)));
 
 /* Incremented once per boot so a stale trace value can be told apart from the
  * one the crashed boot wrote. */
 volatile u32 cyclone2_boot_count
-    __attribute__((section(".reset_mailbox"), used, aligned(4)));
+    __attribute__((section(".bringup_log"), used, aligned(4)));
 
 /* Ring of bring-up milestones.  A crashed boot leaves the order in which the
  * Bluetooth stack came up (or failed) readable through the console. */
 volatile u32 cyclone2_bringup_log[CYCLONE2_BRINGUP_LOG_ENTRIES]
-    __attribute__((section(".reset_mailbox"), used, aligned(4)));
+    __attribute__((section(".bringup_log"), used, aligned(4)));
 volatile u32 cyclone2_bringup_log_head
-    __attribute__((section(".reset_mailbox"), used, aligned(4)));
+    __attribute__((section(".bringup_log"), used, aligned(4)));
 
 void cyclone2_bringup_record(u32 code)
 {

@@ -1,4 +1,6 @@
-RESET_MAILBOX_SIZE = 1320;
+RESET_MAILBOX_SIZE = 16;
+BRINGUP_LOG_BEGIN = 0x20010;
+BRINGUP_LOG_SIZE = 1320;
 RESET_MAILBOX_BEGIN = 0x20000;
 
 SECTIONS
@@ -46,10 +48,23 @@ SECTIONS
         KEEP(*(.reset_mailbox))
         . = ALIGN(4);
     } > ram0
+
+    /*
+     * Bring-up instrumentation (see src/main.c).  It lives right after the
+     * mailbox so the mailbox itself keeps its fixed, preserved address.
+     */
+    .bringup_log BRINGUP_LOG_BEGIN (NOLOAD) :
+    {
+        . = ALIGN(4);
+        KEEP(*(.bringup_log))
+        . = ALIGN(4);
+    } > ram0
 }
 
 ASSERT(SIZEOF(.reset_mailbox) <= RESET_MAILBOX_SIZE,
        "soft-reset mailbox exceeds reserved SRAM")
+ASSERT(SIZEOF(.bringup_log) <= BRINGUP_LOG_SIZE,
+       "bring-up log exceeds reserved SRAM")
 ASSERT(RESET_MAILBOX_BEGIN >= RAM_USED,
        "normal RAM sections overlap soft-reset mailbox")
 ASSERT(HEAP_END <= RESET_MAILBOX_BEGIN,
