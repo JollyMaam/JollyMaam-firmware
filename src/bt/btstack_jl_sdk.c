@@ -42,7 +42,7 @@ static u8 user_pairing_requested;
 static u8 peer_address[6];
 static u8 peer_address_valid;
 static u8 hid_ready;
-static u8 task_exited;
+static u8 btstack_task_created;
 
 static void (*hid_output_handler)(u8 *packet, u16 size, u16 channel);
 static void (*hid_send_wakeup)(void);
@@ -251,14 +251,8 @@ static void btstack_task(void *argument)
     (void) argument;
 
     cyclone2_bringup_record(6U);
+    /* Never returns: the task parks between radio sessions. */
     btstack_jl_core_run(0);
-    cyclone2_bringup_record(7U);
-    task_exited = 1;
-
-    /* The application task deletes us; never return from task_create(). */
-    for (;;) {
-        os_time_dly(50);
-    }
 }
 
 /* ------------------------------------------------- vendor host API ---- */
@@ -274,7 +268,6 @@ void btstack_edr_start_before_init(const edr_init_cfg_t *cfg, int param)
     edr_class_of_device = cfg->class_type;
     hid_ready = 0;
     stack_ready = 0;
-    task_exited = 0;
     peer_address_valid = 0;
 }
 
@@ -315,8 +308,12 @@ void btstack_init(void)
     }
 
     cyclone2_bringup_record(4U);
-    BTSTACK_JL_LOG("creating task");
-    task_create(btstack_task, NULL, "btstack");
+    if (!btstack_task_created) {
+        BTSTACK_JL_LOG("creating task");
+        task_create(btstack_task, NULL, "btstack");
+        btstack_task_created = 1U;
+    }
+    btstack_jl_core_request_start();
     cyclone2_bringup_record(5U);
 }
 
@@ -329,14 +326,13 @@ void btstack_edr_exit(int param)
     user_pairing_requested = 0;
     hid_ready = 0;
     stack_ready = 0;
-    /* BTstack calls have to happen on the run-loop task. */
+    /* BTstack calls have to happen on the run-loop task; the task parks itself
+     * once the controller is powered down, so nothing is deleted here. */
     btstack_jl_core_request_shutdown();
 
-    for (wait = 0; (wait < 100) && !task_exited; wait++) {
+    for (wait = 0; (wait < 200) && !btstack_jl_core_idle(); wait++) {
         os_time_dly(1);
     }
-    task_delete("btstack");
-    task_exited = 0;
 }
 
 /* Enable page and inquiry scan (pairing), or disable both (paging out). */

@@ -73,6 +73,8 @@ enum {
 };
 
 static volatile uint8_t jl_request;
+static volatile uint8_t jl_start_requested;
+static volatile uint8_t jl_idle = 1;
 static uint8_t jl_request_address[6];
 
 static uint16_t jl_hid_cid;
@@ -772,6 +774,8 @@ void btstack_jl_core_request_shutdown(void)
     btstack_run_loop_trigger_exit();
 }
 
+uint8_t btstack_jl_core_idle(void);
+
 void btstack_jl_core_power_off(void)
 {
     jl_shutdown_requested = 1;
@@ -859,18 +863,44 @@ void btstack_jl_core_delete_link_key(const uint8_t address[6])
     hci_send_cmd(&hci_delete_stored_link_key, peer, 1);
 }
 
+void btstack_jl_core_request_start(void)
+{
+    jl_start_requested = 1;
+}
+
 void btstack_jl_core_run(void *argument)
 {
     (void) argument;
 
-    if (btstack_jl_core_setup() != 0) {
-        jl_trace(1u);
-        return;
+    /* The task stays alive for the whole boot: a profile switch or a
+     * disconnect powers the controller down and parks here instead of
+     * deleting the task, which would block on a task that no longer services
+     * its queue. */
+    for (;;) {
+        if (!jl_start_requested) {
+            jieli_btctrler_yield(2);
+            continue;
+        }
+        jl_start_requested = 0;
+        jl_idle = 0;
+        jl_request = 0;
+
+        if (btstack_jl_core_setup() != 0) {
+            jl_trace(1u);
+            jl_idle = 1;
+            continue;
+        }
+        jl_trace(18u);
+        hci_power_control(HCI_POWER_ON);
+        jl_trace(30u);
+        btstack_run_loop_execute();
+        jl_trace(31u);
+        jl_working = 0;
+        jl_idle = 1;
     }
-    jl_trace(18u);
-    jl_trace(19u);
-    hci_power_control(HCI_POWER_ON);
-    jl_trace(30u);
-    btstack_run_loop_execute();
-    jl_trace(31u);
+}
+
+uint8_t btstack_jl_core_idle(void)
+{
+    return jl_idle;
 }

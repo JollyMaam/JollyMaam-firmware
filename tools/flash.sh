@@ -42,7 +42,7 @@ erase_persistent=0
 loader=${JLUBOOT_DEVICE:-}
 backup_dir=${FLASH_BACKUP_DIR:-/work/cyclone2-flash-backups}
 
-jl_dir=${JLUBOOT_DIR:-/work/github.com-kagaimiq/jl-uboot-tool}
+jl_dir=${JLUBOOT_DIR:-/shared/github.com-kagaimiq/jl-uboot-tool}
 jl_python=${JLUBOOT_PYTHON:-/work/bin/python}
 jl_tool=$jl_dir/jluboottool.py
 c2ctl=$repo_root/build/c2ctl

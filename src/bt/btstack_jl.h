@@ -88,8 +88,12 @@ typedef struct {
 int  btstack_jl_core_init(const btstack_jl_config_t *config,
                           btstack_jl_event_handler_t handler);
 
-/* Ask the run-loop task to power the controller down and stop. */
+/* Ask the run-loop task to power the controller down and park. */
 void btstack_jl_core_request_shutdown(void);
+/* Ask the run-loop task to (re)initialise and power the controller on. */
+void btstack_jl_core_request_start(void);
+/* 1 once the run-loop task has powered the controller down and parked. */
+uint8_t btstack_jl_core_idle(void);
 /* Power the controller down (run-loop task only). */
 void btstack_jl_core_power_off(void);
 
