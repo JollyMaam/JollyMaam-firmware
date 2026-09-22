@@ -67,8 +67,11 @@
  *
  *   [0]     report timer, incremented by a few counts per report; the host
  *           uses it to notice dropped reports
- *   [1]     battery and connection: high nibble battery (8 = full), low
- *           nibble connection type (1 = wired), so 0x81 means "full, wired"
+ *   [1]     battery and connection: bits 7..5 battery (8 = full), bit 4
+ *           charging, and the low nibble a connection status whose bit 0 is
+ *           the USB/Switch flag.  A Bluetooth Pro Controller reports 0x8e
+ *           here (bit 0 clear); 0x81 would tell the console this is a *wired*
+ *           controller.
  *   [2..4]  24-bit button status, little endian
  *   [5..7]  left stick, three 12-bit values packed as shown in pack_stick()
  *   [8..10] right stick
@@ -337,9 +340,14 @@ static void fill_controller_state(u8 state[SWITCH_CONTROLLER_STATE_SIZE])
      * 60 Hz, and wraps naturally at 8 bits. */
     timer_counter += 3U;
     state[SWITCH_STATE_TIMER_OFFSET] = timer_counter;
-    /* 0x81 = battery level 8 (full) with connection type 1 (wired).  The
-     * Cyclone 2 does not measure its battery, so report a full pack. */
-    state[SWITCH_STATE_BATTERY_OFFSET] = 0x81U;
+    /* 0x8e = battery level 8 (full), not charging, connection status whose
+     * USB bit is clear - i.e. a Bluetooth-linked Pro Controller.  Every
+     * working emulator (the ESP32 NS1 demo, jl-esp32, Switch2Connect) sends
+     * this; sending 0x81 instead announces a *wired* controller, which is
+     * what this firmware did and what the console's bond handling appears to
+     * object to on a later reconnect.  The Cyclone 2 does not measure its
+     * battery, so report a full pack. */
+    state[SWITCH_STATE_BATTERY_OFFSET] = 0x8eU;
 
     if (buttons & CYCLONE2_REPORT_BUTTON_X) button_status |= JC_BTN_Y;
     if (buttons & CYCLONE2_REPORT_BUTTON_Y) button_status |= JC_BTN_X;
@@ -601,6 +609,9 @@ static void reply_subcommand(u8 subcommand, const u8 *request, u16 request_size)
             ack[0] = 0x81U;
             data[0] = request[0];
             if (request[0] == 1U) {
+                /* dekuNukem's bluetooth_hid_subcommands_notes.md: the manual
+                 * pairing reply carries the controller's MAC little-endian,
+                 * i.e. as bt_get_mac_addr() stores it. */
                 fill_address_little_endian(data + 1U, mac);
                 memcpy(data + 7U, controller_string,
                        sizeof(controller_string));
@@ -618,9 +629,16 @@ static void reply_subcommand(u8 subcommand, const u8 *request, u16 request_size)
         data[1] = 0x48U;
         data[2] = 0x03U; /* Pro Controller */
         data[3] = 0x02U;
+        /* Bytes 4..9 are the MAC in big-endian order (dekuNukem's
+         * bluetooth_hid_subcommands_notes.md). */
         fill_address_big_endian(data + 4U, mac);
-        data[10] = 0x00U;
-        data[11] = 0x02U;
+        /* Byte 10 is always 0x01, and byte 11 means "colours in SPI are
+         * used".  The homebrew references send 0x00/0x02 here and the console
+         * renders their default skin; a real Pro Controller sends 0x01/0x01
+         * and that is also the only difference left that tracks which
+         * firmwares the console keeps a usable bond for. */
+        data[10] = 0x01U;
+        data[11] = 0x01U;
         break;
     }
     case SWITCH_SUBCOMMAND_REPORT_MODE:
@@ -820,6 +838,8 @@ int cyclone2_switch_send(const struct cyclone2_input_report *input)
 }
 
 #define SWITCH_HID_CONNECT_DELAY_MS 100U
+/* Give the stack time to finish tearing the failed link down before paging. */
+#define SWITCH_RECONNECT_DELAY_MS 300U
 
 /* The Switch console requests this exact 15-ms sniff interval as soon as the
  * HID channels open.  The SDK default (800 slots / 500 ms) is rejected before
@@ -860,6 +880,7 @@ static u8 bond_delete_pending;
 static u8 peer_debug_remaining;
 static u8 bond_to_delete[6];
 static u8 reconnect_address[6];
+static u8 reconnect_armed;
 
 /* Log the far end of a connection event.  Addresses arrive least significant
  * byte first, like our own, so print them back to front. */
@@ -872,6 +893,12 @@ static void log_peer_address(const char *what, const u8 *address)
 
 extern void bt_set_local_name(char *name, u8 len);
 extern void delete_link_key(bd_addr_t *address, u8 index);
+/* Vendor controller-library hook: setting its internal key_special_bind flag
+ * makes a "key missing" rejection during authentication fall back to SSP on
+ * the same link instead of reporting the failure and dropping it.  A console
+ * that has no usable record for this controller answers exactly that way, so
+ * without this every reconnect ends in reason 5. */
+extern void edr_vendor_keep_connect_for_keymiss(u8 enable);
 
 /* Drop the stored link key for a peer.
  *
@@ -905,9 +932,36 @@ static void reconnect_saved(void *private_data)
 {
     (void)private_data;
     if (edr_hid_is_connected()) return;
+    /* The stack's own "connect the last device" path restores the bond
+     * context for the peer (the stored link key and its record), which a raw
+     * page by address does not.  Fall back to an explicit page when the stack
+     * has no record of a peer. */
+    if (bt_connect_phone_back_start()) {
+        cyclone2_usb_debug("reconnect via last-device record");
+        return;
+    }
+    cyclone2_usb_debug("reconnect by raw page to %02x:%02x:%02x:%02x:%02x:%02x",
+                       reconnect_address[5], reconnect_address[4],
+                       reconnect_address[3], reconnect_address[2],
+                       reconnect_address[1], reconnect_address[0]);
     bt_wait_phone_connect_control(0);
     user_send_cmd_prepare(USER_CTRL_START_CONNEC_VIA_ADDR,
                           sizeof(reconnect_address), reconnect_address);
+}
+
+/* Retry an outgoing connection that ended with the ACL up but no HID session.
+ *
+ * A console that accepts our page and then never opens the HID channels leaves
+ * that ACL in place, and the stack will not start a second page while a
+ * connection exists.  Drop whatever is left and page the saved peer again; the
+ * caller bounds how many times this can happen. */
+int cyclone2_switch_reconnect(void)
+{
+    if (edr_hid_is_connected()) return 0;
+    if (!reconnect_armed) return 0;
+    user_send_cmd_prepare(USER_CTRL_DISCONNECTION_HCI, 0, NULL);
+    sys_timeout_add(NULL, reconnect_saved, SWITCH_RECONNECT_DELAY_MS);
+    return 1;
 }
 
 /* A console's HID host opens the interrupt channel only after the link is
@@ -936,9 +990,13 @@ void cyclone2_switch_start(u8 slot, u8 pairing)
 {
     u8 remote[6];
 
+    /* A reconnect to a console that no longer holds a usable link key must
+     * re-pair rather than drop the link; see the declaration above. */
+    edr_vendor_keep_connect_for_keymiss(1U);
     switch_slot = slot;
     switch_pairing = pairing;
     bond_delete_pending = 0U;
+    reconnect_armed = 0U;
     peer_debug_remaining = 8U;
     if (pairing) {
         if (syscfg_read(CFG_EDR_ADDRESS_BEGIN + slot, remote,
@@ -971,6 +1029,23 @@ int cyclone2_switch_is_connected(void)
     return edr_hid_is_connected() != 0;
 }
 
+/* A disconnect while pairing is not the end of the session.
+ *
+ * A console that still holds a record for an address this controller no longer
+ * has a key for keeps reconnecting and getting rejected, and every one of
+ * those attempts used to end the pairing window: the radio went idle, the LED
+ * stopped, and the console had nothing to pair with.  The Bluetooth stack
+ * itself already re-enables inquiry and page scan on a disconnect; this keeps
+ * the profile in pairing mode so the window stays open until a console
+ * actually pairs.  Outside pairing mode a disconnect still ends the session.
+ */
+static enum cyclone2_profile_event stay_pairable(void)
+{
+    if (!switch_pairing) return CYCLONE2_PROFILE_EVENT_DISCONNECTED;
+    bt_wait_phone_connect_control(1);
+    return CYCLONE2_PROFILE_EVENT_NONE;
+}
+
 enum cyclone2_profile_event cyclone2_switch_handle_event(
     const struct sys_event *event)
 {
@@ -989,8 +1064,14 @@ enum cyclone2_profile_event cyclone2_switch_handle_event(
         if (event->u.bt.event == BT_STATUS_INIT_OK) {
             if (switch_pairing) {
                 if (bond_delete_pending) {
-                    delete_link_key(bond_to_delete,
-                                    get_remote_dev_info_index());
+                    /* Drop *every* record for the peer we are about to
+                     * re-pair with, not just the one slot the stack happens
+                     * to report.  Each pairing writes a new link key, and the
+                     * controller keeps the older ones; a console only ever
+                     * keeps the newest, so a leftover record makes the next
+                     * reconnect authenticate with a stale key and the console
+                     * answers "authentication failure" (reason 5). */
+                    cyclone2_switch_forget_peer(bond_to_delete);
                     bond_delete_pending = 0U;
                 }
                 /* The SDK's own way into pairing mode (see
@@ -1005,6 +1086,7 @@ enum cyclone2_profile_event cyclone2_switch_handle_event(
                                    remote, sizeof(remote)) == sizeof(remote) &&
                        memcmp(remote, zero_address, sizeof(remote))) {
                 memcpy(reconnect_address, remote, sizeof(remote));
+                reconnect_armed = 1U;
                 sys_timeout_add(NULL, reconnect_saved, 100U);
             } else if (!bt_connect_phone_back_start()) {
                 bt_wait_phone_connect_control(1);
@@ -1022,7 +1104,7 @@ enum cyclone2_profile_event cyclone2_switch_handle_event(
         } else if (event->u.bt.event == BT_STATUS_FIRST_DISCONNECT ||
                    event->u.bt.event == BT_STATUS_SECOND_DISCONNECT) {
             log_peer_address("disconnected", event->u.bt.args);
-            return CYCLONE2_PROFILE_EVENT_DISCONNECTED;
+            return stay_pairable();
         }
     } else if ((u32)event->arg == SYS_BT_EVENT_TYPE_HCI_STATUS) {
         bt_comm_edr_hci_event_handler((struct bt_event *)&event->u.bt);
@@ -1034,8 +1116,19 @@ enum cyclone2_profile_event cyclone2_switch_handle_event(
                 log_peer_address("hci", event->u.bt.args);
             }
         }
+        /* The console owns the other half of a bond, so a rejected link key
+         * cannot be repaired from here.  Say so instead of leaving the user
+         * with a silent disconnect. */
+        if (event->u.bt.event == HCI_EVENT_DISCONNECTION_COMPLETE &&
+            (event->u.bt.value == ERROR_CODE_AUTHENTICATION_FAILURE ||
+             event->u.bt.value == ERROR_CODE_PIN_OR_KEY_MISSING)) {
+            cyclone2_usb_debug(
+                "link key rejected (reason=%u); pair again from the host "
+                "(console menu, or 'pair %u fresh' here)",
+                event->u.bt.value, switch_slot);
+        }
         if (event->u.bt.event == HCI_EVENT_DISCONNECTION_COMPLETE)
-            return CYCLONE2_PROFILE_EVENT_DISCONNECTED;
+            return stay_pairable();
     }
     return CYCLONE2_PROFILE_EVENT_NONE;
 }

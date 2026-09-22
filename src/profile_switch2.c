@@ -614,6 +614,13 @@ int cyclone2_switch2_is_connected(void)
            ble_gatt_server_get_connect_state(switch2_con_handle) == BLE_ST_CONNECT;
 }
 
+/* Reconnection is driven by advertising and the peer's own reconnect, so
+ * there is no outgoing page attempt to re-arm here. */
+int cyclone2_switch2_reconnect(void)
+{
+    return 0;
+}
+
 int cyclone2_switch2_send(const struct cyclone2_input_report *report)
 {
     u8 output[SWITCH2_REPORT_SIZE];

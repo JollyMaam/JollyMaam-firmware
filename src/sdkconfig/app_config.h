@@ -3,6 +3,22 @@
 
 #define CONFIG_RELEASE_ENABLE
 #undef CONFIG_DEBUG_ENABLE
+/* The controller and stack libraries gate their own logging on these tags.
+ * A normal build leaves them all off.  `make DEBUG_LOG=1` turns on the
+ * classic LMP/HCI tags so the USB console can show the Bluetooth controller's
+ * own trace (see tools/patch_debug.py and docs/reconnect.md).  Only those
+ * tags are switched, because the link is built with LTO: making every log
+ * call site live grows the image past the 0x40000 code span. */
+#ifdef CYCLONE2_LOG_TAGS_VERBOSE
+#define CYCLONE2_TAG(x)             (x)
+#else
+#define CYCLONE2_TAG(x)             CONFIG_DEBUG_LIB(x)
+#endif
+#ifdef CYCLONE2_LOG_TAGS_VERBOSE_VERBOSE
+#define CYCLONE2_TAG_VERBOSE(x)     (x)
+#else
+#define CYCLONE2_TAG_VERBOSE(x)     0
+#endif
 #define LIB_DEBUG 0
 #define CONFIG_DEBUG_LIB(x)         (x & LIB_DEBUG)
 

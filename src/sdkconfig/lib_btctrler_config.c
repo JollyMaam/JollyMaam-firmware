@@ -30,9 +30,17 @@ const int CONFIG_TWS_AFH_ENABLE         = 0;
 const int CONFIG_LOW_LATENCY_ENABLE     = 1;
 const int CONFIG_BTCTLER_FAST_CONNECT_ENABLE     = 0;
 
-/* Standard HCI mode accepts the Switch console's remote sniff request
- * without modifying the vendor controller archive. */
-const int config_btctler_hci_standard   = 1;
+/* The controller runs the vendor's integrated mode, which is what the SDK's
+ * HID examples select for BT_NORMAL.  Measured on hardware, standard-HCI mode
+ * (1) lets an outgoing connect to a peer this controller already holds a link
+ * key for stop at HCI_EVENT_CONNECTION_COMPLETE - no link-key exchange, no
+ * authentication, no HID channels, and the firmware sits in "connecting"
+ * forever.  That is consistent with standard-HCI mode leaving link-key
+ * handling to a host stack that never answers a link-key request; either way,
+ * it breaks reconnection.  The Switch console's remote sniff request is
+ * handled by the controller-library workaround instead, enabled by default in
+ * the Makefile.  See docs/reconnect.md. */
+const int config_btctler_hci_standard   = 0;
 
 const int config_btctler_mode        = CONFIG_BT_MODE;
 
@@ -170,17 +178,17 @@ const char log_tag_const_w_RF AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(0);
 const char log_tag_const_e_RF AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(0);
 
 //Classic part
-const char log_tag_const_v_HCI_LMP AT(.LOG_TAG_CONST)  = CONFIG_DEBUG_LIB(0);
-const char log_tag_const_i_HCI_LMP AT(.LOG_TAG_CONST)  = CONFIG_DEBUG_LIB(1);
-const char log_tag_const_d_HCI_LMP AT(.LOG_TAG_CONST)  = CONFIG_DEBUG_LIB(0);
-const char log_tag_const_w_HCI_LMP AT(.LOG_TAG_CONST)  = CONFIG_DEBUG_LIB(1);
-const char log_tag_const_e_HCI_LMP AT(.LOG_TAG_CONST)  = CONFIG_DEBUG_LIB(1);
+const char log_tag_const_v_HCI_LMP AT(.LOG_TAG_CONST)  = CYCLONE2_TAG_VERBOSE(1);
+const char log_tag_const_i_HCI_LMP AT(.LOG_TAG_CONST)  = CYCLONE2_TAG(1);
+const char log_tag_const_d_HCI_LMP AT(.LOG_TAG_CONST)  = CYCLONE2_TAG(0);
+const char log_tag_const_w_HCI_LMP AT(.LOG_TAG_CONST)  = CYCLONE2_TAG(1);
+const char log_tag_const_e_HCI_LMP AT(.LOG_TAG_CONST)  = CYCLONE2_TAG(1);
 
-const char log_tag_const_v_LMP AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(0);
-const char log_tag_const_i_LMP AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(1);
-const char log_tag_const_d_LMP AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(0);
-const char log_tag_const_w_LMP AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(1);
-const char log_tag_const_e_LMP AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(1);
+const char log_tag_const_v_LMP AT(.LOG_TAG_CONST) = CYCLONE2_TAG_VERBOSE(1);
+const char log_tag_const_i_LMP AT(.LOG_TAG_CONST) = CYCLONE2_TAG(1);
+const char log_tag_const_d_LMP AT(.LOG_TAG_CONST) = CYCLONE2_TAG(0);
+const char log_tag_const_w_LMP AT(.LOG_TAG_CONST) = CYCLONE2_TAG(1);
+const char log_tag_const_e_LMP AT(.LOG_TAG_CONST) = CYCLONE2_TAG(1);
 
 //LE part
 const char log_tag_const_v_LE_BB AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(0);

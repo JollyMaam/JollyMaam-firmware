@@ -12,7 +12,7 @@
 #include "user_cfg_id.h"
 
 #define CYCLONE2_CONTROL_PERIOD_MS           5U
-#define CYCLONE2_DEFAULT_REPORT_PERIOD_MS   10U
+#define CYCLONE2_DEFAULT_REPORT_PERIOD_MS   16U
 #define CYCLONE2_DEBOUNCE_MS                10U
 #define CYCLONE2_PROFILE_COUNT              4U
 #define CYCLONE2_SETTINGS_MAGIC     0x43325052U
@@ -21,6 +21,9 @@
 #define CYCLONE2_LONG_HOLD_MS              5000U
 #define CYCLONE2_CONNECT_TIMEOUT_MS       30000U
 #define CYCLONE2_PAIR_TIMEOUT_MS          60000U
+/* Extra outgoing connection attempts after one ends without a usable session.
+ * Small and bounded: an unreachable host must not become a retry storm. */
+#define CYCLONE2_CONNECT_RETRIES               2U
 #define CYCLONE2_BOOT_LED_MS                500U
 #define CYCLONE2_LED_DIM_RED                 8U
 #define CYCLONE2_LED_SLOW_HALF_PERIOD_MS   500U
@@ -80,6 +83,7 @@ static u8 home_tap_phase;
 static u8 led_is_on;
 static u8 sleep_pending;
 static u8 ignore_chord_until_release;
+static u8 connect_attempts;
 static struct cyclone2_report_statistics report_statistics;
 static struct cyclone2_injection_status injection_status;
 static u32 injection_next_transition_ms;
@@ -125,7 +129,8 @@ static void settings_load(void)
         settings.size == sizeof(settings)) {
         if (settings.report_period_ms == 5U ||
             settings.report_period_ms == 8U ||
-            settings.report_period_ms == 10U) return;
+            settings.report_period_ms == 10U ||
+            settings.report_period_ms == 16U) return;
         settings.report_period_ms = CYCLONE2_DEFAULT_REPORT_PERIOD_MS;
     } else {
         memset(&settings, 0, sizeof(settings));
@@ -147,7 +152,8 @@ u8 cyclone2_report_period_get(void)
 
 int cyclone2_report_period_set(u8 period_ms)
 {
-    if (period_ms != 5U && period_ms != 8U && period_ms != 10U) return -1;
+    if (period_ms != 5U && period_ms != 8U && period_ms != 10U &&
+        period_ms != 16U) return -1;
     settings.report_period_ms = period_ms;
     next_report_ms = sys_timer_get_ms();
     syscfg_write(CFG_CYCLONE2_PROFILE_SETTINGS, &settings, sizeof(settings));
@@ -213,6 +219,21 @@ int cyclone2_forget_peer_request(const u8 address[6])
     return 1;
 }
 
+/* Record the peer address a slot should page, and clear the slot's stored link
+ * key so the next connection has to authenticate against the peer's record.
+ * This is the console-command equivalent of having paired with that host; it
+ * exists so a slot can be restored (or re-pointed) without a pairing round. */
+int cyclone2_set_peer_request(u8 slot, const u8 address[6])
+{
+    if (slot >= CYCLONE2_PROFILE_COUNT) return -1;
+    if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
+    injection_cancel();
+    cyclone2_switch_forget_peer(address);
+    syscfg_write(CFG_EDR_ADDRESS_BEGIN + slot, (void *)address, 6U);
+    profile_select(slot, 0U);
+    return 1;
+}
+
 /* Zero the Bluetooth controller's whole bonding store.
  *
  * A chip dump shows pairing records (peer address followed by the key) in the
@@ -270,6 +291,7 @@ void cyclone2_connection_status_get(struct cyclone2_connection_status *status)
                             settings.profile_type[slot] : CYCLONE2_PROFILE_SWITCH;
     status->connection_state = (u8)radio_state;
     status->usb_present = (u8)cyclone2_usb_present();
+    status->connect_attempts = connect_attempts;
     cyclone2_bt_address_for_slot(slot, status->local_address);
 }
 
@@ -695,6 +717,7 @@ static void cyclone2_poll(void *private_data)
     if (radio_state != CYCLONE2_RADIO_STOPPING &&
         cyclone2_profile_is_connected()) {
         radio_state = CYCLONE2_RADIO_CONNECTED;
+        connect_attempts = 0U;
     }
     make_host_report(&host_report);
     if ((injection_status.active || injection_release_pending) &&
@@ -718,10 +741,22 @@ static void cyclone2_poll(void *private_data)
          now - radio_start_ms >= CYCLONE2_CONNECT_TIMEOUT_MS) ||
         (radio_state == CYCLONE2_RADIO_PAIRING &&
          now - radio_start_ms >= CYCLONE2_PAIR_TIMEOUT_MS)) {
-        if (cyclone2_usb_present()) {
+        if (!cyclone2_usb_present()) {
+            begin_automatic_sleep("Bluetooth timeout");
+        } else if (radio_state == CYCLONE2_RADIO_CONNECTING &&
+                   connect_attempts < CYCLONE2_CONNECT_RETRIES &&
+                   cyclone2_profile_reconnect()) {
+            /* An attempt that ended with the link up but no HID session leaves
+             * the controller stuck; ask the profile for a fresh one instead of
+             * idling on a dead connection until the user resets. */
+            connect_attempts++;
+            cyclone2_usb_debug("Bluetooth connect attempt %u timed out; retrying",
+                               connect_attempts);
+            radio_start_ms = now;
+        } else {
             cyclone2_usb_debug("Bluetooth timeout; staying awake for USB console");
             radio_start_ms = now;
-        } else begin_automatic_sleep("Bluetooth timeout");
+        }
     }
 }
 
@@ -730,6 +765,7 @@ static void start_selected_profile(void)
     radio_state = active_pairing ? CYCLONE2_RADIO_PAIRING :
                                    CYCLONE2_RADIO_CONNECTING;
     radio_start_ms = sys_timer_get_ms();
+    connect_attempts = 0U;
     cyclone2_usb_debug("start profile=%u type=%s pairing=%u",
                        active_profile,
                        cyclone2_profile_name(active_type),

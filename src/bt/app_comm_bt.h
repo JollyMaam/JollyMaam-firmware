@@ -44,7 +44,11 @@ typedef struct {
 #define HCI_EVENT_INQUIRY_COMPLETE                            0x01
 #define HCI_EVENT_CONNECTION_COMPLETE                         0x03
 #define HCI_EVENT_DISCONNECTION_COMPLETE                      0x05
+#define HCI_EVENT_AUTHENTICATION_COMPLETE                     0x06
+#define HCI_EVENT_ENCRYPT_CHANGE                              0x08
 #define HCI_EVENT_PIN_CODE_REQUEST                            0x16
+#define HCI_EVENT_LINK_KEY_REQUEST                            0x17
+#define HCI_EVENT_LINK_KEY_NOTIFICATION                       0x18
 #define HCI_EVENT_IO_CAPABILITY_REQUEST                       0x31
 #define HCI_EVENT_USER_CONFIRMATION_REQUEST                   0x33
 #define HCI_EVENT_USER_PASSKEY_REQUEST                        0x34

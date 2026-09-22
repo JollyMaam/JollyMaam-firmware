@@ -2,10 +2,27 @@ O := build
 .DEFAULT_GOAL := default
 SDK := /shared/github.com-Jieli-Tech/fw-AC63_BT_SDK
 TOOL_DIR := /shared/jieli-linux-toolchains-20250324.1/pi32v2/bin
-FLASH_SIZE := 0x80000
+# Must match CONFIG_FLASH_SIZE in src/sdkconfig/board_config.h and the chip.
+# The packer derives the reserved-region addresses from this: with 0x80000 the
+# BTIF (MAC/RF trim) and key/mac areas land at 0x7e000/0x7f000, but the
+# controller and the factory data use the 1 MiB positions 0xfe000/0xff000.
+FLASH_SIZE := 0x100000
 CODE_LIMIT := 0x40000
-# Use the broad controller-library workaround only when explicitly requested.
+# Rebuild the vendor controller archive from extracted LLVM bitcode.
+#
+# Off by default, and that is deliberate: re-emitting lmp.c.o as new bitcode
+# makes the controller reset in the middle of an SSP pairing (measured on
+# hardware - the console reaches HCI_EVENT_USER_CONFIRMATION_REQUEST, the
+# chip re-enumerates, and the pairing never completes; the same image built
+# against the untouched archive pairs and stays connected).  The sniff problem
+# the patch used to work around is handled from the application instead:
+# src/profile_switch.c gives the profile the console's own 24-slot sniff
+# parameters and app_comm_edr.c calls lmp_set_sniff_establish_by_remote(1),
+# which is exactly the condition lmp_esco_sniff_check() tests.
 PATCH_BTCTLER ?= 0
+# DEBUG_LOG=1 builds a copy of the SDK's debug.c that forwards the controller
+# library's LMP/HCI tracing to the USB console.  See tools/patch_debug.py.
+DEBUG_LOG ?= 0
 
 include sdk-br23.mk
 
@@ -31,6 +48,13 @@ PATCHED_BTCTRLR := $O/sdk-libs/btctrler.a
 SDK_ARCHIVES := $(subst $(VENDOR_BTCTRLR),$(PATCHED_BTCTRLR),$(SDK_ARCHIVES_MINIMAL))
 endif
 
+ifneq ($(filter 1 verbose,$(DEBUG_LOG)),)
+DEFINES += -DCYCLONE2_LOG_TAGS_VERBOSE=1
+endif
+ifeq ($(DEBUG_LOG),verbose)
+DEFINES += -DCYCLONE2_LOG_TAGS_VERBOSE_VERBOSE=1
+endif
+
 INCLUDES := -iquote src -iquote src/bt -iquote src/sdkconfig -iquote $(O) $(SDK_INCLUDES)
 PROJECT_SOURCES := $(wildcard src/*.c src/bt/*.c src/sdkconfig/*.c)
 APP_CONFIG_DEPS := $(wildcard src/sdkconfig/*.h src/sdkconfig/*.ld)
@@ -51,6 +75,7 @@ endif
 # controller-library variants; the value of a command-line variable alone is
 # not part of a target's timestamp dependencies.
 PATCH_MODE_STAMP := $O/.patch_btctler_mode
+DEBUG_MODE_STAMP := $O/.debug_log_mode
 .PHONY: FORCE
 FORCE:
 
@@ -58,6 +83,12 @@ $(PATCH_MODE_STAMP): FORCE
 	@mkdir -p $(@D)
 	@if [ ! -f "$@" ] || [ "$$(cat "$@")" != "$(PATCH_BTCTLER)" ]; then \
 		printf '%s\n' "$(PATCH_BTCTLER)" > "$@"; \
+	fi
+
+$(DEBUG_MODE_STAMP): FORCE
+	@mkdir -p $(@D)
+	@if [ ! -f "$@" ] || [ "$$(cat "$@")" != "$(DEBUG_LOG)" ]; then \
+		printf '%s\n' "$(DEBUG_LOG)" > "$@"; \
 	fi
 
 default all: $O/firmware.img
@@ -68,7 +99,7 @@ flash: $O/firmware.img
 	$(QUIET)tools/flash.sh
 
 # regenerate stuff if makefile or config changes
-$(OBJECTS) $O/sdk.ld: Makefile sdk-br23.mk $(APP_CONFIG_DEPS)
+$(OBJECTS) $O/sdk.ld: Makefile sdk-br23.mk $(DEBUG_MODE_STAMP) $(APP_CONFIG_DEPS)
 
 define compile_c
 	@mkdir -p $(@D)
@@ -173,6 +204,17 @@ $O/cdc.c: $(SDK)/apps/common/device/usb/device/cdc.c tools/patch_cdc.py Makefile
 
 $O/sdk/apps/common/device/usb/device/cdc.c.o: $O/cdc.c
 	$(compile_c)
+
+# DEBUG_LOG=1: replace the SDK's no-op print stubs with ones that reach the
+# USB console, so the controller library's LMP/HCI tracing is readable.
+ifneq ($(filter 1 verbose,$(DEBUG_LOG)),)
+$O/debug.c: $(SDK)/apps/common/debug/debug.c tools/patch_debug.py Makefile
+	@mkdir -p $(@D)
+	$(QUIET)/work/bin/python3 tools/patch_debug.py $< $@
+
+$O/sdk/apps/common/debug/debug.c.o: $O/debug.c
+	$(compile_c)
+endif
 
 clean:
 	rm -rf "$O"

@@ -74,6 +74,13 @@ int cyclone2_generic_is_connected(void)
     return ble_hid_is_connected() != 0;
 }
 
+/* BLE reconnection is advertising-driven: the controller keeps advertising for
+ * the bonded host, so there is no per-attempt page to re-arm here. */
+int cyclone2_generic_reconnect(void)
+{
+    return 0;
+}
+
 int cyclone2_generic_send(const struct cyclone2_input_report *report)
 {
     u16 handle = ble_hid_is_connected();

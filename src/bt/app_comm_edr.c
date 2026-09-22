@@ -10,6 +10,7 @@
 #include <system/includes.h>
 
 #include "app_comm_bt.h"
+#include "profile.h"
 #include "app_config.h"
 #include "bt_common.h"
 #include "edr_hid_user.h"
@@ -625,6 +626,13 @@ int bt_comm_edr_hci_event_handler(struct bt_event *bt)
     case HCI_EVENT_USER_CONFIRMATION_REQUEST:
         log_info(" HCI_EVENT_USER_CONFIRMATION_REQUEST \n");
         // TRANSLATED: A key can confirm pairing: 1=pair, 0=cancel.
+        /* Do not touch the controller's bond store here.  This handler runs
+         * between the SSP numeric comparison and the DHKey exchange, and
+         * delete_link_key() erases VM records - a flash write in the middle of
+         * an active pairing.  It also runs when the console is the one
+         * pairing, where there is no stale key to remove in the first place.
+         * Forgetting a peer happens when pairing is started instead
+         * (`pair N` / the SDK's del-all), which is outside the exchange. */
         bt_send_pair(1);
         break;
     case HCI_EVENT_USER_PASSKEY_REQUEST:
@@ -643,6 +651,37 @@ int bt_comm_edr_hci_event_handler(struct bt_event *bt)
     case HCI_EVENT_VENDOR_NO_RECONN_ADDR :
         log_info("HCI_EVENT_VENDOR_NO_RECONN_ADDR \n");
         bt_hci_event_disconnect(bt) ;
+        break;
+
+    /* Diagnostic: these three say whether an outgoing connection got as far
+     * as asking for the stored key, being authenticated and being encrypted.
+     * A reconnect that stalls with the ACL up usually stops at the first one. */
+    case HCI_EVENT_LINK_KEY_REQUEST:
+        log_info("HCI_EVENT_LINK_KEY_REQUEST \n");
+        break;
+
+    /* Every pairing ends with the controller telling the host which link key
+     * it derived; this is the key the host stores, and it is what a reconnect
+     * has to authenticate with.  Printing it lets the key derived at pairing
+     * time be compared with the key actually used later. */
+    case HCI_EVENT_LINK_KEY_NOTIFICATION:
+        {
+            const u8 *args = bt->args;
+            log_info("HCI_EVENT_LINK_KEY_NOTIFICATION key=%02x%02x%02x%02x%02x%02x%02x%02x"
+                     "%02x%02x%02x%02x%02x%02x%02x%02x type=%u \n",
+                     args[6], args[7], args[8], args[9], args[10], args[11],
+                     args[12], args[13], args[14], args[15], args[16],
+                     args[17], args[18], args[19], args[20], args[21],
+                     args[22]);
+        }
+        break;
+
+    case HCI_EVENT_AUTHENTICATION_COMPLETE:
+        log_info("HCI_EVENT_AUTHENTICATION_COMPLETE status=%u \n", bt->value);
+        break;
+
+    case HCI_EVENT_ENCRYPT_CHANGE:
+        log_info("HCI_EVENT_ENCRYPT_CHANGE status=%u \n", bt->value);
         break;
 
     case HCI_EVENT_DISCONNECTION_COMPLETE :

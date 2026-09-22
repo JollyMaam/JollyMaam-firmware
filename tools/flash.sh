@@ -196,8 +196,12 @@ fi
 
 erase_command=
 if [ "$erase_persistent" = 1 ]; then
-    erase_command="erase 0x40000 0x40000"
-    echo "erasing 0x40000..0x7ffff: bonds, settings, address and key/mac"
+    # 1 MiB part: code ends at 0x40000, VM fills up to the BTIF at 0xfe000 and
+    # the key/mac region sits above it.  Erasing only up to 0x7ffff (the old
+    # 512 KiB layout) leaves the address and the bonds in place, so the
+    # controller would come back with the same identity.
+    erase_command="erase 0x40000 0xc0000"
+    echo "erasing 0x40000..0xfffff: bonds, settings, address and key/mac"
 fi
 
 echo "writing $image ($size bytes) at offset 0"

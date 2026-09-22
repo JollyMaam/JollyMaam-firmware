@@ -181,9 +181,10 @@ __attribute__((noinline)) static void print_connection_status(void)
 
     cyclone2_connection_status_get(&status);
     length = snprintf(line, sizeof(line),
-                      "slot=%u profile=%s state=%s address=%02x:%02x:%02x:%02x:%02x:%02x usb=%s\r\n",
+                      "slot=%u profile=%s state=%s attempt=%u address=%02x:%02x:%02x:%02x:%02x:%02x usb=%s\r\n",
                       status.slot, status.profile_type == CYCLONE2_PROFILE_GENERIC ?
                       "generic" : "switch", connection_state_name(status.connection_state),
+                      status.connect_attempts,
                       status.local_address[5], status.local_address[4],
                       status.local_address[3], status.local_address[2],
                       status.local_address[1], status.local_address[0],
@@ -351,6 +352,47 @@ static int parse_address(const char *text, u8 address[6])
     return *text == '\0' ? 0 : -1;
 }
 
+/* Raw RAM access, for locating where the controller library keeps state the
+ * application is expected to seed.  Deliberately narrow: internal RAM only,
+ * bounded length, and hex in / hex out. */
+static int parse_hex_bytes(const char *text, u8 *output, unsigned capacity,
+                           unsigned *length)
+{
+    unsigned count = 0U;
+
+    while (*text != '\0') {
+        u32 value = 0U;
+
+        if (count >= capacity) return -1;
+        if (parse_hex_byte(&text, &value) != 0) return -1;
+        output[count++] = (u8)value;
+    }
+    *length = count;
+    return count != 0U ? 0 : -1;
+}
+
+static int parse_ram_address(const char *text, u32 *address)
+{
+    u32 value = 0U;
+    unsigned digits = 0U;
+
+    if (text[0] == '0' && (text[1] == 'x' || text[1] == 'X')) text += 2;
+    while (*text != '\0') {
+        u32 digit;
+
+        if (*text >= '0' && *text <= '9') digit = (u32)(*text - '0');
+        else if (*text >= 'a' && *text <= 'f') digit = (u32)(*text - 'a' + 10);
+        else if (*text >= 'A' && *text <= 'F') digit = (u32)(*text - 'A' + 10);
+        else return -1;
+        value = (value << 4) | digit;
+        if (++digits > 6U) return -1;
+        text++;
+    }
+    if (digits == 0U || value > 0x3ffffU) return -1;
+    *address = value;
+    return 0;
+}
+
 __attribute__((noinline)) static void print_rumble_status(void)
 {
     struct cyclone2_rumble_status status;
@@ -414,11 +456,12 @@ __attribute__((noinline)) static void execute_command(void)
     if (!strcmp(command_line, "help") || !strcmp(command_line, "?")) {
         console_write("help     show this command list\r\n"
                       "debug on|off|status  control runtime diagnostics\r\n"
-                      "report 5|8|10|status  set/report HID period in ms\r\n"
+                      "report 5|8|10|16|status  set/report HID period in ms\r\n"
                       "connect 0|1|2|3  reconnect a saved profile slot\r\n"
                       "pair 0|1|2|3  forget a slot's bond and wait to pair\r\n"
                       "pair N fresh  as above but with a new Bluetooth address\r\n"
                       "unkey AA:BB:..  drop a stored link key and re-pair\r\n"
+                      "peer N AA:BB:..  make slot N page that peer\r\n"
                       "clearkeys  zero the controller's pairing records\r\n"
                       "bondstore  dump the controller's pairing records\r\n"
                       "nvscan     list non-blank controller memory\r\n"
@@ -498,6 +541,16 @@ __attribute__((noinline)) static void execute_command(void)
         } else {
             console_write("ERR use unkey aa:bb:cc:dd:ee:ff\r\n");
         }
+    } else if (!strncmp(command_line, "peer ", 5U) && command_line[5] >= '0' &&
+               command_line[5] <= '3' && command_line[6] == ' ') {
+        u8 address[6];
+        if (parse_address(command_line + 7U, address) == 0 &&
+            cyclone2_set_peer_request((u8)(command_line[5] - '0'),
+                                      address) > 0) {
+            console_write("OK that slot now pages that peer\r\n");
+        } else {
+            console_write("ERR use peer N aa:bb:cc:dd:ee:ff\r\n");
+        }
     } else if (!strcmp(command_line, "clearkeys")) {
         if (cyclone2_clear_keys_request() > 0) {
             console_write("OK clearing stored link keys and restarting\r\n");
@@ -506,6 +559,51 @@ __attribute__((noinline)) static void execute_command(void)
         }
     } else if (!strcmp(command_line, "bondstore")) {
         print_bond_store();
+    } else if (!strncmp(command_line, "peek ", 5U)) {
+        u32 address;
+        u32 length = 16U;
+        char *space;
+
+        space = strchr(command_line + 5U, ' ');
+        if (space != NULL) {
+            u32 value = 0U;
+            const char *p = space + 1U;
+            if (parse_decimal(&p, &value) != 0 || value == 0U ||
+                value > 64U) {
+                console_write("ERR use peek ADDR [LEN<=64]\r\n");
+                command_length = 0U;
+                console_prompt();
+                return;
+            }
+            length = value;
+            *space = '\0';
+        }
+        if (parse_ram_address(command_line + 5U, &address) == 0) {
+            console_write_hex((const u8 *)address, length);
+            console_write("\r\n");
+        } else {
+            console_write("ERR use peek ADDR [LEN]\r\n");
+        }
+    } else if (!strncmp(command_line, "poke ", 5U)) {
+        u32 address;
+        u8 bytes[32];
+        unsigned length;
+        const char *hex;
+        char *space;
+
+        space = strchr(command_line + 5U, ' ');
+        hex = space != NULL ? space + 1U : NULL;
+        if (space != NULL) *space = '\0';
+        if (hex != NULL && parse_ram_address(command_line + 5U, &address) == 0 &&
+            parse_hex_bytes(hex, bytes, sizeof(bytes), &length) == 0) {
+            memcpy((void *)address, bytes, length);
+            __asm__ volatile("csync");
+            console_write("OK wrote ");
+            console_write_hex(bytes, length);
+            console_write("\r\n");
+        } else {
+            console_write("ERR use poke ADDR HEXBYTES\r\n");
+        }
     } else if (!strcmp(command_line, "nvscan")) {
         print_nvram_scan();
     } else if (!strcmp(command_line, "delall")) {
@@ -564,6 +662,9 @@ __attribute__((noinline)) static void execute_command(void)
         print_report_status();
     } else if (!strcmp(command_line, "report 10")) {
         cyclone2_report_period_set(10U);
+        print_report_status();
+    } else if (!strcmp(command_line, "report 16")) {
+        cyclone2_report_period_set(16U);
         print_report_status();
     } else if (!strcmp(command_line, "uboot")) {
         arm_maskrom_usb_token();

@@ -12,27 +12,44 @@ struct profile_operations {
     void (*disconnect)(void);
     void (*exit)(void);
     int (*is_connected)(void);
+    int (*reconnect)(void);
     int (*send)(const struct cyclone2_input_report *report);
     enum cyclone2_profile_event (*handle_event)(const struct sys_event *event);
 };
 
 static const struct profile_operations profiles[] = {
     [CYCLONE2_PROFILE_SWITCH] = {
-        "switch", cyclone2_generic_prepare_stack, cyclone2_switch_start,
-        cyclone2_switch_disconnect,
-        cyclone2_switch_exit, cyclone2_switch_is_connected,
-        cyclone2_switch_send, cyclone2_switch_handle_event,
+        .name = "switch",
+        .prepare = cyclone2_generic_prepare_stack,
+        .start = cyclone2_switch_start,
+        .disconnect = cyclone2_switch_disconnect,
+        .exit = cyclone2_switch_exit,
+        .is_connected = cyclone2_switch_is_connected,
+        .reconnect = cyclone2_switch_reconnect,
+        .send = cyclone2_switch_send,
+        .handle_event = cyclone2_switch_handle_event,
     },
     [CYCLONE2_PROFILE_GENERIC] = {
-        "generic", cyclone2_generic_prepare_stack, cyclone2_generic_start,
-        cyclone2_generic_exit, cyclone2_generic_is_connected,
-        cyclone2_generic_send, cyclone2_generic_handle_event,
+        .name = "generic",
+        .prepare = cyclone2_generic_prepare_stack,
+        .start = cyclone2_generic_start,
+        .disconnect = cyclone2_generic_disconnect,
+        .exit = cyclone2_generic_exit,
+        .is_connected = cyclone2_generic_is_connected,
+        .reconnect = cyclone2_generic_reconnect,
+        .send = cyclone2_generic_send,
+        .handle_event = cyclone2_generic_handle_event,
     },
     [CYCLONE2_PROFILE_SWITCH2] = {
-        "switch2", cyclone2_switch2_prepare_stack, cyclone2_switch2_start,
-        cyclone2_switch2_disconnect, cyclone2_switch2_exit,
-        cyclone2_switch2_is_connected, cyclone2_switch2_send,
-        cyclone2_switch2_handle_event,
+        .name = "switch2",
+        .prepare = cyclone2_switch2_prepare_stack,
+        .start = cyclone2_switch2_start,
+        .disconnect = cyclone2_switch2_disconnect,
+        .exit = cyclone2_switch2_exit,
+        .is_connected = cyclone2_switch2_is_connected,
+        .reconnect = cyclone2_switch2_reconnect,
+        .send = cyclone2_switch2_send,
+        .handle_event = cyclone2_switch2_handle_event,
     },
 };
 
@@ -72,6 +89,14 @@ void cyclone2_profile_exit(void)
 int cyclone2_profile_is_connected(void)
 {
     return active_profile->is_connected();
+}
+
+/* Ask the profile to start a fresh outgoing connection attempt after one that
+ * ended without a usable session.  Returns non-zero when it took over. */
+int cyclone2_profile_reconnect(void)
+{
+    if (!active_profile->reconnect) return 0;
+    return active_profile->reconnect();
 }
 
 int cyclone2_profile_send(const struct cyclone2_input_report *report)

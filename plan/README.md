@@ -261,3 +261,38 @@ SHA-256 is
 `f2d273b5bd83af9398d6fd6cdb541b81c8c4d751dc0b1074672527a8a0a96191`;
 its code span was read back exactly as
 `/work/cyclone2-test-qjEkRO/step5-motion-readback.bin`.
+
+## Reconnect fix (2026-09-21)
+
+The reported reconnect failure was a regression from `8d363c6`, which replaced
+the controller-archive sniff workaround with
+`config_btctler_hci_standard = 1`.  In standard-HCI mode an outgoing connect to
+a peer the controller already holds a link key for stops at
+`HCI_EVENT_CONNECTION_COMPLETE`: no link-key request, no authentication, no HID
+channels, and the firmware stays in `connecting` until it is reset.  The vendor
+setting is restored and the archive patch (`PATCH_BTCTLER=1`) is the default
+again, so the sniff fix is kept without that regression.
+
+Two smaller fixes landed with it.  A connect attempt that times out with USB
+present now asks the profile for a fresh attempt, bounded to two retries,
+instead of re-arming a timer on a dead link; and `profiles[]` in
+`src/profile.c` moved to designated initializers after the generic entry was
+found to be shifted by one field (its `send` and `handle_event` were wrong).
+
+Details, captures and the stale-bond recovery procedure are in
+`docs/reconnect.md`.  Hardware confirmation still outstanding: the console on
+test is holding a stale record for this address, so it drops the authenticated
+link with reason `0x05`; a fresh pairing is needed before the reconnect path
+itself can be re-validated end to end.
+
+Follow-up the same day: the flash-size mismatch was the root cause.
+`board_config.h` declares a 1 MiB part and the chip is 1 MiB, but the Makefile
+packed with `--flash-size 0x80000`, which put BTIF and key/mac at `0x7e000`
+and `0x7f000` instead of the 1 MiB positions `0xfe000` and `0xff000` that the
+controller and the factory data use.  The address the controller actually
+advertised therefore came from a place the console's record could never match,
+and `pair fresh` wrote its new address where nothing reads it.  `FLASH_SIZE`
+is now `0x100000`; after flashing, `connect status` reports the address from
+the real BTIF.  A full 1 MiB dump and a text listing of every persistent region
+are in `/work/cyclone2-flash-backups/` (`full-1mib-*.bin`,
+`persistent-regions-*.txt`).

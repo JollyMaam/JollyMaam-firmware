@@ -1,6 +1,8 @@
 #include <system/includes.h>
 #include <system/user_cfg.h>
 
+#include "usb.h"
+
 static u8 base_mac_addr[6];
 static u8 mac_addr[6];
 static u8 edr_name[32] = "CYCLONE2";
@@ -21,6 +23,17 @@ static int address_is(const u8 address[6], u8 value)
     return 1;
 }
 
+/* Keep a generated address usable as a device address.  The low bit of the
+ * most significant octet is the group bit (0 = individual address) and the bit
+ * above it marks a locally administered address.  Addresses are stored least
+ * significant byte first, so the octet anyone prints first is index 5.  A
+ * random draw has a 50% chance of setting the group bit, and a peer that takes
+ * the address seriously will not talk to a group address. */
+static void normalize_address(u8 address[6])
+{
+    address[5] = (u8)((address[5] | 0x02U) & 0xfeU);
+}
+
 void cyclone2_bt_address_init(void)
 {
     int length = syscfg_read(CFG_BT_MAC_ADDR, base_mac_addr, sizeof(base_mac_addr));
@@ -30,6 +43,7 @@ void cyclone2_bt_address_init(void)
     if (length != sizeof(base_mac_addr) || address_is(base_mac_addr, 0x00U) ||
         address_is(base_mac_addr, 0xffU)) {
         get_random_number(base_mac_addr, sizeof(base_mac_addr));
+        normalize_address(base_mac_addr);
         syscfg_write(CFG_BT_MAC_ADDR, base_mac_addr, sizeof(base_mac_addr));
     }
     memcpy(mac_addr, base_mac_addr, sizeof(mac_addr));
@@ -56,12 +70,23 @@ void cyclone2_bt_address_for_slot(u8 slot, u8 address[6])
 void cyclone2_bt_address_randomize(void)
 {
     get_random_number(base_mac_addr, sizeof(base_mac_addr));
-    /* Locally administered, so it cannot collide with a real vendor address.
-     * Addresses are stored least significant byte first, so the first octet
-     * anyone prints is index 5. */
-    base_mac_addr[5] |= 0x02U;
+    normalize_address(base_mac_addr);
     syscfg_write(CFG_BT_MAC_ADDR, base_mac_addr, sizeof(base_mac_addr));
     memcpy(mac_addr, base_mac_addr, sizeof(mac_addr));
+}
+
+/* Diagnostic hook for the controller-library patch in tools/patch_btctrler.py:
+ * called with the link key the stack is about to hand the controller when it
+ * answers a peer's authentication request.  Logging it lets us compare what
+ * was stored against what is actually used. */
+void cyclone2_link_key_seen(const u8 *address, const u8 *key)
+{
+    cyclone2_usb_debug("LINKKEY peer %02x:%02x:%02x:%02x:%02x:%02x key %02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
+                       address[5], address[4], address[3], address[2],
+                       address[1], address[0],
+                       key[0], key[1], key[2], key[3], key[4], key[5],
+                       key[6], key[7], key[8], key[9], key[10], key[11],
+                       key[12], key[13], key[14], key[15]);
 }
 
 /* user_cfg.h */
