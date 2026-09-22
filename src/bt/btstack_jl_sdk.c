@@ -166,6 +166,15 @@ static void jl_trace(u32 code)
     cyclone2_bringup_record(code);
 }
 
+/* HIDP message from the host; hand it to the application's HID output handler
+ * (switch_output() in profile_switch.c). */
+static void jl_hid_output(const u8 *packet, u16 size)
+{
+    if (hid_output_handler != 0) {
+        hid_output_handler((u8 *) packet, size, 0);
+    }
+}
+
 static void bt_event_post(u32 arg_type, u8 event, const u8 *args, u32 value)
 {
     struct sys_event e;
@@ -295,6 +304,7 @@ void btstack_init(void)
     config.critical_enter = &jl_critical_enter;
     config.critical_exit = &jl_critical_exit;
     config.trace = &jl_trace;
+    config.hid_output = &jl_hid_output;
 
     cyclone2_bringup_record(3U);
     BTSTACK_JL_LOG("init name=%s", config.local_name ? config.local_name : "?");
@@ -319,7 +329,8 @@ void btstack_edr_exit(int param)
     user_pairing_requested = 0;
     hid_ready = 0;
     stack_ready = 0;
-    btstack_jl_core_power_off();
+    /* BTstack calls have to happen on the run-loop task. */
+    btstack_jl_core_request_shutdown();
 
     for (wait = 0; (wait < 100) && !task_exited; wait++) {
         os_time_dly(1);

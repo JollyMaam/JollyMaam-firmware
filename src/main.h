@@ -21,7 +21,7 @@ extern volatile struct cyclone2_boot_request reset_mailbox;
 extern volatile u32 cyclone2_bringup_trace;
 extern volatile u32 cyclone2_boot_count;
 
-#define CYCLONE2_BRINGUP_LOG_ENTRIES 124
+#define CYCLONE2_BRINGUP_LOG_ENTRIES 320
 extern volatile u32 cyclone2_bringup_log[CYCLONE2_BRINGUP_LOG_ENTRIES];
 extern volatile u32 cyclone2_bringup_log_head;
 

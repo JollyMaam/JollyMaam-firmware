@@ -33,6 +33,7 @@
 /* HID SDP record: service attributes plus the 170 byte Switch report
  * descriptor, which upstream stores inline in the record. */
 #define BTSTACK_JL_SDP_RECORD_SIZE    360
+#define BTSTACK_JL_HID_DESCRIPTOR_MAX 240
 
 typedef struct {
     uint16_t size;
@@ -44,6 +45,8 @@ static btstack_jl_event_handler_t jl_event_handler;
 
 static void jl_address_to_jieli(const uint8_t in[6], uint8_t out[6]);
 static void jl_trace(uint32_t code);
+static void jl_apply_scan_state(void);
+static void jl_apply_local_address(void);
 
 static uint8_t jl_address[6];
 static uint8_t jl_address_valid;
@@ -59,6 +62,18 @@ static uint8_t jl_discoverable;
 static uint8_t jl_working;
 static uint8_t jl_shutdown_requested;
 static uint8_t jl_send_pending;
+
+/* Requests queued by the application task and executed on the run-loop task. */
+enum {
+    JL_REQUEST_SCAN       = 1 << 0,
+    JL_REQUEST_CONNECT    = 1 << 1,
+    JL_REQUEST_DISCONNECT = 1 << 2,
+    JL_REQUEST_ADDRESS    = 1 << 3,
+    JL_REQUEST_SHUTDOWN   = 1 << 4,
+};
+
+static volatile uint8_t jl_request;
+static uint8_t jl_request_address[6];
 
 static uint16_t jl_hid_cid;
 static uint16_t jl_con_handle;
@@ -84,6 +99,8 @@ static btstack_packet_callback_registration_t jl_hci_event_registration;
 static btstack_packet_callback_registration_t jl_l2cap_event_registration;
 static btstack_data_source_t jl_tx_data_source;
 static uint8_t jl_sdp_service_buffer[BTSTACK_JL_SDP_RECORD_SIZE];
+static uint8_t jl_hid_descriptor[BTSTACK_JL_HID_DESCRIPTOR_MAX];
+static uint16_t jl_hid_descriptor_size;
 
 static void jl_notify_ex(uint8_t type, uint8_t code, uint8_t status,
                          const uint8_t *address)
@@ -311,8 +328,61 @@ static void jl_report_dequeue(btstack_jl_report_t *out)
 static void jl_tx_poll(btstack_data_source_t *data_source,
                        btstack_data_source_callback_type_t callback_type)
 {
+    uint8_t address[6];
+    uint8_t request;
+
     (void) data_source;
     (void) callback_type;
+
+    /* Requests from the application task are executed here, in the run-loop
+     * task: BTstack is not thread safe, so the application must never call
+     * into it directly. */
+    jl_enter_critical();
+    request = jl_request;
+    jl_request = 0;
+    memcpy(address, jl_request_address, sizeof(address));
+    jl_exit_critical();
+
+    if ((request & JL_REQUEST_SCAN) != 0) {
+        jl_apply_scan_state();
+    }
+    if ((request & JL_REQUEST_ADDRESS) != 0) {
+        /* address holds the wire (Jieli) order the application asked for. */
+        memcpy(jl_address_jieli, address, sizeof(jl_address_jieli));
+        jl_address_to_jieli(jl_address_jieli, jl_address);
+        jl_address_valid = 1;
+        jl_apply_local_address();
+    }
+    if ((request & JL_REQUEST_DISCONNECT) != 0) {
+        if (jl_hid_cid != 0) {
+            hid_device_disconnect(jl_hid_cid);
+            jl_hid_cid = 0;
+            jl_send_pending = 0;
+        } else if (jl_peer_valid) {
+            hci_connection_t *connection =
+                hci_connection_for_bd_addr_and_type(jl_peer_address, BD_ADDR_TYPE_ACL);
+            if (connection != 0) {
+                gap_disconnect(connection->con_handle);
+            }
+        }
+    }
+    if ((request & JL_REQUEST_CONNECT) != 0) {
+        bd_addr_t peer;
+        uint16_t hid_cid = 0;
+
+        if (jl_hid_cid == 0) {
+            jl_address_to_jieli(address, peer);
+            memcpy(jl_peer_address, peer, sizeof(jl_peer_address));
+            jl_peer_valid = 1;
+            hid_device_connect(peer, &hid_cid);
+        }
+    }
+
+    if ((request & JL_REQUEST_SHUTDOWN) != 0) {
+        btstack_jl_core_power_off();
+        btstack_run_loop_trigger_exit();
+        return;
+    }
 
     if (!jl_send_pending && (jl_report_count != 0) && (jl_hid_cid != 0)) {
         jl_send_pending = 1;
@@ -471,6 +541,67 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
     }
 }
 
+/* ------------------------------------------------------- HID callbacks */
+
+/* Output reports from the host (rumble + subcommands on the interrupt channel,
+ * SET_REPORT on the control channel) have to reach the application, otherwise
+ * the console's HID handshake never completes. */
+static void jl_hid_report_data(uint16_t cid, hid_report_type_t report_type,
+                               uint16_t report_id, int report_size,
+                               uint8_t *report)
+{
+    uint8_t packet[BTSTACK_JL_MAX_REPORT_SIZE];
+
+    (void) cid;
+    if (jl_config.hid_output == 0) {
+        return;
+    }
+    if ((unsigned) report_size + 2u > sizeof(packet)) {
+        return;
+    }
+    packet[0] = (uint8_t)(0xa0u | (uint8_t) report_type);
+    packet[1] = (uint8_t) report_id;
+    if (report_size > 0) {
+        memcpy(&packet[2], report, (size_t) report_size);
+    }
+    jl_config.hid_output(packet, (uint16_t)(report_size + 2));
+}
+
+static void jl_hid_set_report(uint16_t cid, hid_report_type_t report_type,
+                              int report_size, uint8_t *report)
+{
+    uint8_t packet[BTSTACK_JL_MAX_REPORT_SIZE];
+
+    (void) cid;
+    if (jl_config.hid_output == 0) {
+        return;
+    }
+    /* report already carries the report id (if the descriptor declares one). */
+    if ((unsigned) report_size + 1u > sizeof(packet)) {
+        return;
+    }
+    packet[0] = (uint8_t)(0x50u | (uint8_t) report_type);
+    memcpy(&packet[1], report, (size_t) report_size);
+    jl_config.hid_output(packet, (uint16_t)(report_size + 1));
+}
+
+/* GET_REPORT: the only request that matters here is the report descriptor
+ * (feature report 0), which hosts ask for when they did not read it from SDP. */
+static int jl_hid_report_request(uint16_t cid, hid_report_type_t report_type,
+                                 uint16_t report_id, int *out_report_size,
+                                 uint8_t *out_report)
+{
+    (void) cid;
+
+    if ((report_type == HID_REPORT_TYPE_FEATURE) && (report_id == 0) &&
+        (jl_hid_descriptor_size != 0)) {
+        memcpy(out_report, jl_hid_descriptor, jl_hid_descriptor_size);
+        *out_report_size = jl_hid_descriptor_size;
+        return 1;
+    }
+    return 0;
+}
+
 /* ------------------------------------------------------------ setup/exit */
 
 /* Bring-up diagnostics: record what L2CAP does, with the PSM / status in the
@@ -594,8 +725,16 @@ static int btstack_jl_core_setup(void)
     sdp_register_service(jl_sdp_service_buffer);
     jl_trace(15u);
 
+    jl_hid_descriptor_size = jl_config.report_descriptor_size;
+    if (jl_hid_descriptor_size > sizeof(jl_hid_descriptor)) {
+        jl_hid_descriptor_size = sizeof(jl_hid_descriptor);
+    }
+    memcpy(jl_hid_descriptor, jl_config.report_descriptor, jl_hid_descriptor_size);
     hid_device_init(false, jl_config.report_descriptor_size,
                     jl_config.report_descriptor);
+    hid_device_register_report_data_callback(&jl_hid_report_data);
+    hid_device_register_set_report_callback(&jl_hid_set_report);
+    hid_device_register_report_request_callback(&jl_hid_report_request);
     jl_trace(16u);
     hid_device_register_packet_handler(&jl_packet_handler);
 
@@ -625,6 +764,14 @@ static int btstack_jl_core_setup(void)
     return 0;
 }
 
+void btstack_jl_core_request_shutdown(void)
+{
+    jl_enter_critical();
+    jl_request |= JL_REQUEST_SHUTDOWN;
+    jl_exit_critical();
+    btstack_run_loop_trigger_exit();
+}
+
 void btstack_jl_core_power_off(void)
 {
     jl_shutdown_requested = 1;
@@ -637,9 +784,11 @@ void btstack_jl_core_power_off(void)
 
 void btstack_jl_core_set_scan(uint8_t connectable, uint8_t discoverable)
 {
+    jl_enter_critical();
     jl_connectable = connectable ? 1 : 0;
     jl_discoverable = discoverable ? 1 : 0;
-    jl_apply_scan_state();
+    jl_request |= JL_REQUEST_SCAN;
+    jl_exit_critical();
 }
 
 void btstack_jl_core_set_address(const uint8_t address[6])
@@ -647,14 +796,13 @@ void btstack_jl_core_set_address(const uint8_t address[6])
     if (address == 0) {
         return;
     }
-    memcpy(jl_address_jieli, address, sizeof(jl_address_jieli));
-    jl_address_to_jieli(jl_address_jieli, jl_address);
-    jl_address_valid = 1;
-    if (jl_working) {
-        jl_apply_local_address();
-    } else {
-        jieli_btctrler_set_bd_addr(jl_address_jieli);
-    }
+    /* Keep the controller in sync right away (it is not BTstack state), and
+     * let the run loop update the host's copy. */
+    jieli_btctrler_set_bd_addr(address);
+    jl_enter_critical();
+    memcpy(jl_request_address, address, sizeof(jl_request_address));
+    jl_request |= JL_REQUEST_ADDRESS;
+    jl_exit_critical();
 }
 
 const uint8_t *btstack_jl_core_get_address(void)
@@ -664,38 +812,21 @@ const uint8_t *btstack_jl_core_get_address(void)
 
 int btstack_jl_core_hid_connect(const uint8_t address[6])
 {
-    bd_addr_t peer;
-    uint16_t hid_cid = 0;
-
     if (address == 0) {
         return 1;
     }
-    jl_address_to_jieli(address, peer);
-    memcpy(jl_peer_address, peer, sizeof(jl_peer_address));
-    jl_peer_valid = 1;
-
-    if (jl_hid_cid != 0) {
-        return 0;
-    }
-    return hid_device_connect(peer, &hid_cid);
+    jl_enter_critical();
+    memcpy(jl_request_address, address, sizeof(jl_request_address));
+    jl_request |= JL_REQUEST_CONNECT;
+    jl_exit_critical();
+    return 0;
 }
 
 int btstack_jl_core_disconnect(void)
 {
-    if (jl_hid_cid != 0) {
-        hid_device_disconnect(jl_hid_cid);
-        jl_hid_cid = 0;
-        jl_send_pending = 0;
-        return 0;
-    }
-    if (jl_peer_valid) {
-        hci_connection_t *connection =
-            hci_connection_for_bd_addr_and_type(jl_peer_address, BD_ADDR_TYPE_ACL);
-        if (connection != 0) {
-            gap_disconnect(connection->con_handle);
-            return 0;
-        }
-    }
+    jl_enter_critical();
+    jl_request |= JL_REQUEST_DISCONNECT;
+    jl_exit_critical();
     return 0;
 }
 

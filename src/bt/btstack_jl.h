@@ -73,6 +73,13 @@ typedef struct {
     /* Optional progress trace; the code is stored in the reset-surviving
      * bring-up record (see src/main.h). */
     void     (*trace)(uint32_t code);
+
+    /* HIDP message received from the host, with the one-octet HIDP header and
+     * the report id where the report descriptor declares one, i.e. exactly the
+     * bytes the application's HID output handler expects:
+     *   0xa2, report id, body   - interrupt-channel output report
+     *   0x52, report id, body   - control-channel SET_REPORT */
+    void     (*hid_output)(const uint8_t *packet, uint16_t size);
 } btstack_jl_config_t;
 
 /* Prepare the host stack.  Only records the configuration: the heavy
@@ -81,7 +88,9 @@ typedef struct {
 int  btstack_jl_core_init(const btstack_jl_config_t *config,
                           btstack_jl_event_handler_t handler);
 
-/* Power the controller down and stop the run loop. */
+/* Ask the run-loop task to power the controller down and stop. */
+void btstack_jl_core_request_shutdown(void);
+/* Power the controller down (run-loop task only). */
 void btstack_jl_core_power_off(void);
 
 /* Apply the requested page/inquiry scan state (1 = enable). */
