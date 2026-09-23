@@ -67,6 +67,38 @@ extern const int sniff_support_reset_anchor_point;
 
 /* ------------------------------------------------------------- link keys */
 
+#ifdef CYCLONE2_BOND_STORE_RAM
+/* CYCLONE2_BOND_STORE_RAM makes the bond store volatile: the records live in
+ * internal RAM and are never written to syscfg.  Every boot (and every reflash)
+ * then starts with no bonds at all, and pairing no longer costs a flash write.
+ * A record that was never written reads back as empty because its tag byte is
+ * zero, exactly like a blank syscfg item below. */
+static u8 link_key_ram[BTSTACK_JL_LINK_KEY_ENTRIES][BTSTACK_JL_LINK_KEY_SIZE];
+
+static int link_key_slot_read(u8 slot, u8 *record)
+{
+    if (slot >= BTSTACK_JL_LINK_KEY_ENTRIES) return 0;
+    memcpy(record, link_key_ram[slot], BTSTACK_JL_LINK_KEY_SIZE);
+    if (record[0] != BTSTACK_JL_LINK_KEY_TAG) return 0;
+    return 1;
+}
+
+static int link_key_slot_write(u8 slot, const u8 *address, const u8 *key, u8 type)
+{
+    if (slot >= BTSTACK_JL_LINK_KEY_ENTRIES) return 0;
+    link_key_ram[slot][0] = BTSTACK_JL_LINK_KEY_TAG;
+    memcpy(&link_key_ram[slot][1], address, 6);
+    memcpy(&link_key_ram[slot][7], key, 16);
+    link_key_ram[slot][23] = type;
+    return 1;
+}
+
+static void link_key_slot_clear(u8 slot)
+{
+    if (slot >= BTSTACK_JL_LINK_KEY_ENTRIES) return;
+    memset(link_key_ram[slot], 0, BTSTACK_JL_LINK_KEY_SIZE);
+}
+#else
 static int link_key_slot_read(u8 slot, u8 *record)
 {
     int length = syscfg_read((u16)(CFG_REMOTE_DB_00 + slot), record,
@@ -96,6 +128,7 @@ static void link_key_slot_clear(u8 slot)
     memset(record, 0, sizeof(record));
     syscfg_write((u16)(CFG_REMOTE_DB_00 + slot), record, sizeof(record));
 }
+#endif /* CYCLONE2_BOND_STORE_RAM */
 
 static int jl_link_key_get(const u8 address[6], u8 key[16], u8 *type)
 {

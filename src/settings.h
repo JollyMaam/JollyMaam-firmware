@@ -8,4 +8,10 @@ void cyclone2_bt_address_for_slot(u8 slot, u8 address[6]);
 void cyclone2_bt_address_randomize(void);
 void cyclone2_remote_db_init(void);
 
+/* The console a slot connects back to.  The record is kept in syscfg flash
+ * unless the build sets CYCLONE2_BOND_STORE_RAM, in which case it is RAM only
+ * and every boot starts with no remembered peer. */
+int cyclone2_peer_address_read(u8 slot, u8 address[6]);
+void cyclone2_peer_address_write(u8 slot, const u8 address[6]);
+
 #endif

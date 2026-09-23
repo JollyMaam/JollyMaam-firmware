@@ -10,6 +10,7 @@
 #include "nintendo_switch_pro_spi.h"
 #include "profile.h"
 #include "rumble.h"
+#include "settings.h"
 #include "usb.h"
 #include "user_cfg_id.h"
 
@@ -999,13 +1000,12 @@ void cyclone2_switch_start(u8 slot, u8 pairing)
     reconnect_armed = 0U;
     peer_debug_remaining = 8U;
     if (pairing) {
-        if (syscfg_read(CFG_EDR_ADDRESS_BEGIN + slot, remote,
-                        sizeof(remote)) == sizeof(remote)) {
+        if (cyclone2_peer_address_read(slot, remote)) {
             memcpy(bond_to_delete, remote, sizeof(remote));
             bond_delete_pending = 1U;
         }
         memset(remote, 0, sizeof(remote));
-        syscfg_write(CFG_EDR_ADDRESS_BEGIN + slot, remote, sizeof(remote));
+        cyclone2_peer_address_write(slot, remote);
     }
 
     bt_set_local_name("Pro Controller", sizeof("Pro Controller") - 1U);
@@ -1086,8 +1086,7 @@ enum cyclone2_profile_event cyclone2_switch_handle_event(
                  * starting a fresh pairing. */
                 user_send_cmd_prepare(USER_CTRL_DEL_ALL_REMOTE_INFO, 0, NULL);
                 bt_wait_phone_connect_control(1);
-            } else if (syscfg_read(CFG_EDR_ADDRESS_BEGIN + switch_slot,
-                                   remote, sizeof(remote)) == sizeof(remote) &&
+            } else if (cyclone2_peer_address_read(switch_slot, remote) &&
                        memcmp(remote, zero_address, sizeof(remote))) {
                 memcpy(reconnect_address, remote, sizeof(remote));
                 reconnect_armed = 1U;
@@ -1099,8 +1098,7 @@ enum cyclone2_profile_event cyclone2_switch_handle_event(
                    event->u.bt.event == BT_STATUS_SECOND_CONNECTED) {
             tx_debug_remaining = 4U;
             log_peer_address("connected", event->u.bt.args);
-            syscfg_write(CFG_EDR_ADDRESS_BEGIN + switch_slot,
-                         event->u.bt.args, 6U);
+            cyclone2_peer_address_write(switch_slot, event->u.bt.args);
         } else if (event->u.bt.event == BT_STATUS_ENCRY_COMPLETE) {
             log_peer_address("encrypted", event->u.bt.args);
             sys_timeout_add(NULL, connect_hid_after_encryption,

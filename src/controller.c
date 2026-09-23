@@ -240,7 +240,7 @@ int cyclone2_set_peer_request(u8 slot, const u8 address[6])
     if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
     injection_cancel();
     cyclone2_switch_forget_peer(address);
-    syscfg_write(CFG_EDR_ADDRESS_BEGIN + slot, (void *)address, 6U);
+    cyclone2_peer_address_write(slot, address);
     profile_select(slot, 0U);
     return 1;
 }

@@ -41,6 +41,11 @@ PATCH_BTCTLER ?= 1
 # DEBUG_LOG=1 builds a copy of the SDK's debug.c that forwards the controller
 # library's LMP/HCI tracing to the USB console.  See tools/patch_debug.py.
 DEBUG_LOG ?= 0
+# BOND_STORE_RAM=1 keeps the host's link-key (bond) store in internal RAM
+# instead of syscfg flash.  Off by default, so bonds survive a reset as they
+# always did.  Turn it on for testing: every boot starts unpaired, a reflash
+# cannot leave a stale bond behind, and pairing costs no flash write.
+BOND_STORE_RAM ?= 0
 
 include sdk-br23.mk
 
@@ -79,6 +84,9 @@ DEFINES += -DCYCLONE2_LOG_TAGS_VERBOSE=1
 endif
 ifeq ($(DEBUG_LOG),verbose)
 DEFINES += -DCYCLONE2_LOG_TAGS_VERBOSE_VERBOSE=1
+endif
+ifeq ($(BOND_STORE_RAM),1)
+DEFINES += -DCYCLONE2_BOND_STORE_RAM=1
 endif
 
 INCLUDES := -iquote src -iquote src/bt -iquote src/sdkconfig -iquote src/btstack \

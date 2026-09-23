@@ -83,6 +83,45 @@ void cyclone2_bt_address_randomize(void)
     memcpy(mac_addr, base_mac_addr, sizeof(mac_addr));
 }
 
+/* The console a slot last connected to, i.e. the peer the slot pages when it
+ * starts on its own.  Together with the link key in the host's key database
+ * (src/bt/btstack_jl_sdk.c) this is the slot's bond; the address alone is not
+ * enough to authenticate, and the key alone does not say who to page.
+ *
+ * With CYCLONE2_BOND_STORE_RAM the record lives in RAM instead of syscfg, so
+ * the whole slot->console association is gone at the next boot.  A slot that
+ * has never been written reads back as all zeroes, which the profile treats
+ * the same way as a blank syscfg item: there is no peer to page. */
+#ifdef CYCLONE2_BOND_STORE_RAM
+static u8 peer_address_ram[CFG_BT_IDX_NUM][6];
+
+int cyclone2_peer_address_read(u8 slot, u8 address[6])
+{
+    if (slot >= CFG_BT_IDX_NUM) return 0;
+    memcpy(address, peer_address_ram[slot], 6U);
+    return 1;
+}
+
+void cyclone2_peer_address_write(u8 slot, const u8 address[6])
+{
+    if (slot >= CFG_BT_IDX_NUM) return;
+    memcpy(peer_address_ram[slot], address, 6U);
+}
+#else
+int cyclone2_peer_address_read(u8 slot, u8 address[6])
+{
+    if (slot >= CFG_BT_IDX_NUM) return 0;
+    return syscfg_read((u16)(CFG_EDR_ADDRESS_BEGIN + slot), address,
+                       6U) == 6;
+}
+
+void cyclone2_peer_address_write(u8 slot, const u8 address[6])
+{
+    if (slot >= CFG_BT_IDX_NUM) return;
+    syscfg_write((u16)(CFG_EDR_ADDRESS_BEGIN + slot), (void *)address, 6U);
+}
+#endif /* CYCLONE2_BOND_STORE_RAM */
+
 /* Diagnostic hook for the controller-library patch in tools/patch_btctrler.py:
  * called with the link key the stack is about to hand the controller when it
  * answers a peer's authentication request.  Logging it lets us compare what
