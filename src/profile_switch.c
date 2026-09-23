@@ -6,6 +6,7 @@
 #include "edr_hid_user.h"
 #include "imu.h"
 #include "led.h"
+#include "main.h"
 #include "nintendo_switch_pro_hid.h"
 #include "nintendo_switch_pro_spi.h"
 #include "profile.h"
@@ -1066,6 +1067,10 @@ enum cyclone2_profile_event cyclone2_switch_handle_event(
     if ((u32)event->arg == SYS_BT_EVENT_TYPE_CON_STATUS) {
         bt_comm_edr_status_event_handler((struct bt_event *)&event->u.bt);
         if (event->u.bt.event == BT_STATUS_INIT_OK) {
+            /* Link milestones go in the bring-up ring: a reset that happens
+             * while a console is around needs to say which step of the link it
+             * landed in (see docs/reboot-hunting.md). */
+            cyclone2_bringup_record(0x6001u);
             if (switch_pairing) {
                 if (bond_delete_pending) {
                     /* Drop *every* record for the peer we are about to
@@ -1096,15 +1101,18 @@ enum cyclone2_profile_event cyclone2_switch_handle_event(
             }
         } else if (event->u.bt.event == BT_STATUS_FIRST_CONNECTED ||
                    event->u.bt.event == BT_STATUS_SECOND_CONNECTED) {
+            cyclone2_bringup_record(0x6002u);
             tx_debug_remaining = 4U;
             log_peer_address("connected", event->u.bt.args);
             cyclone2_peer_address_write(switch_slot, event->u.bt.args);
         } else if (event->u.bt.event == BT_STATUS_ENCRY_COMPLETE) {
+            cyclone2_bringup_record(0x6003u);
             log_peer_address("encrypted", event->u.bt.args);
             sys_timeout_add(NULL, connect_hid_after_encryption,
                             SWITCH_HID_CONNECT_DELAY_MS);
         } else if (event->u.bt.event == BT_STATUS_FIRST_DISCONNECT ||
                    event->u.bt.event == BT_STATUS_SECOND_DISCONNECT) {
+            cyclone2_bringup_record(0x6004u);
             log_peer_address("disconnected", event->u.bt.args);
             return stay_pairable();
         }
@@ -1113,6 +1121,12 @@ enum cyclone2_profile_event cyclone2_switch_handle_event(
         if (event->u.bt.event == HCI_EVENT_CONNECTION_COMPLETE ||
             event->u.bt.event == HCI_EVENT_DISCONNECTION_COMPLETE ||
             event->u.bt.event == BTSTACK_EVENT_HCI_CONNECTIONS_DELETE) {
+            /* 0x6500|status for a connection, 0x6600|reason for a disconnect:
+             * the reason is what says whether the console dropped us, we
+             * dropped it, or the key was refused. */
+            cyclone2_bringup_record(
+                (event->u.bt.event == HCI_EVENT_CONNECTION_COMPLETE ?
+                 0x6500u : 0x6600u) | (u32)(event->u.bt.value & 0xffU));
             if (peer_debug_remaining != 0U) {
                 peer_debug_remaining--;
                 log_peer_address("hci", event->u.bt.args);
