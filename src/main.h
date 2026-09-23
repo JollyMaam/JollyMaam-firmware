@@ -27,4 +27,12 @@ extern volatile u32 cyclone2_bringup_log_head;
 
 /* Append one milestone to the reset-surviving bring-up log. */
 void cyclone2_bringup_record(u32 code);
+
+/* Reset cause, sampled once at the top of app_main - as early as the
+ * application can look, since the bootloader may already have consumed the
+ * register.  Printed by the console `status` command; see
+ * docs/reboot-hunting.md. */
+extern u8 cyclone2_reset_source;  /* power_reset_source_dump() */
+extern u8 cyclone2_reset_p33;     /* P3_RST_SRC, raw */
+extern u8 cyclone2_reset_rtc;     /* R3_RST_SRC, raw */
 #endif

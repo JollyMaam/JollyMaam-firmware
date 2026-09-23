@@ -31,6 +31,12 @@
 #define CYCLONE2_INJECT_MIN_PERIOD_MS       20U
 #define CYCLONE2_INJECT_MAX_PERIOD_MS       1000U
 #define CYCLONE2_INJECT_MAX_DURATION_MS    60000U
+/* The console re-enumerates on its own (measured), and the USB-sense pin never
+ * asserts on this board, so a single "USB absent" sample is not trustworthy.
+ * Power off only after the condition has held this many times, and never
+ * while a host is holding the CDC console open. */
+#define CYCLONE2_SLEEP_CONFIRM              4U
+#define CYCLONE2_SLEEP_RECHECK_MS         250U
 /* Time a live profile is given to emit its disconnect before the radio
  * session is stopped and the next profile is started. */
 #define CYCLONE2_PROFILE_SWITCH_MS          100U
@@ -93,6 +99,7 @@ static u32 ignore_disconnect_until_ms;
 static u8 home_tap_phase;
 static u8 led_is_on;
 static u8 sleep_pending;
+static u8 sleep_confirm_count;
 static u8 ignore_chord_until_release;
 static u8 connect_attempts;
 static struct cyclone2_report_statistics report_statistics;
@@ -523,12 +530,29 @@ static void profile_select(u8 profile, u8 pairing)
 
 static void poweroff_now(void *private_data)
 {
+    u32 sense = gpio_read(CYCLONE2_USB_SENSE) ? 1U : 0U;
+    u32 otg = usb_otg_online(USB0) != DISCONN_MODE ? 1U : 0U;
+    u32 terminal = cyclone2_cdc_terminal_open() ? 1U : 0U;
+
     (void)private_data;
-    if (cyclone2_usb_present()) {
+    /* What the sleep decision saw, so a pad that goes dark can be explained
+     * afterwards: 0x52xx with the USB-sense and OTG bits, 0x5300 when the
+     * firmware powers itself off. */
+    cyclone2_bringup_record(0x5200u | sense | (otg << 1));
+    cyclone2_bringup_record(0x5400u | terminal);
+    if (sense || otg || terminal) {
         radio_state = CYCLONE2_RADIO_OFF;
         cyclone2_usb_debug("sleep cancelled; USB is connected");
+        sleep_confirm_count = 0U;
         return;
     }
+    if (++sleep_confirm_count < CYCLONE2_SLEEP_CONFIRM) {
+        /* Keep asking: a glitch that clears on the next poll must not put the
+         * pad to sleep, because that leaves it dark until a power cycle. */
+        sys_timeout_add(NULL, poweroff_now, CYCLONE2_SLEEP_RECHECK_MS);
+        return;
+    }
+    cyclone2_bringup_record(0x5300u);
     power_set_soft_poweroff();
 }
 
@@ -571,7 +595,14 @@ static void begin_sleep(void)
 
 static void begin_automatic_sleep(const char *reason)
 {
-    if (cyclone2_usb_present()) {
+    u32 sense = gpio_read(CYCLONE2_USB_SENSE) ? 1U : 0U;
+    u32 otg = usb_otg_online(USB0) != DISCONN_MODE ? 1U : 0U;
+
+    /* 0x50xx with the USB-sense and OTG bits: entering the automatic-sleep
+     * path at all is worth recording, since a momentary "USB absent" here is
+     * what makes the firmware power itself off while it is on USB. */
+    cyclone2_bringup_record(0x5000u | sense | (otg << 1));
+    if (sense || otg) {
         cyclone2_usb_debug("%s; staying awake because USB is connected", reason);
         return;
     }

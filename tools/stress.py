@@ -28,6 +28,13 @@ as the signal: the firmware re-sends that greeting whenever the host's CDC line
 state flaps, which it also does for reasons unrelated to the pad, so counting
 it reports reboots that did not happen.
 
+When the counter moves, the run also reports the latched reset-source registers
+and how long the previous boot survived (see docs/reboot-hunting.md), so a
+reset under test arrives with its cause attached rather than as unexplained
+silence.  That is why the test owns the console for the whole run: two
+processes cannot share one tty - the kernel hands each byte to a single reader,
+so a second opener would steal replies from both sides.
+
 The pad must be plugged in and running the application firmware.  Commands are
 the same ones a person types at the console (see `help`).
 
@@ -51,6 +58,8 @@ import time
 
 STATUS_RE = re.compile(r'slot=(\d+) profile=(\w+) state=(\w+) attempt=(\d+)')
 BOOTS_RE = re.compile(r'boots=([0-9a-fA-F]{8})')
+SOURCE_RE = re.compile(r'reset-source=(\d+) p33=(\d+) rtc=(\d+)')
+UPTIME_RE = re.compile(r'uptime=(\d+) ms')
 
 # A command gets this long to produce output, and a reply counts as finished
 # once the line has been quiet for this long.
@@ -67,7 +76,8 @@ DEFAULT_DWELL_S = 33.0
 RAPID_BURST = [
     'pair 0', 'connect 1', 'disconnect', 'connect 0', 'pair 3 fresh',
     'connect 2', 'connect status', 'disconnect', 'connect 0', 'pair 1',
-    'unkey fa:09:3a:f3:ed:ed', 'connect status', 'connect 3', 'disconnect',
+    'unkey fa:09:3a:f3:ed:ed', 'newaddr', 'connect status', 'connect 3',
+    'disconnect',
     'delall', 'connect 0', 'bondstore', 'nvscan', 'connect status',
 ]
 RAPID_SPACING_S = 0.02
@@ -176,16 +186,64 @@ class Console:
         match = BOOTS_RE.search(self.ask('status'))
         return match.group(1) if match else None
 
+    def sample(self):
+        """(boots, p33, rtc, uptime) from `status`, or None if unavailable."""
+        out = self.ask('status', 6.0)
+        boots = BOOTS_RE.search(out)
+        source = SOURCE_RE.search(out)
+        if not boots or not source:
+            return None
+        uptime = UPTIME_RE.search(out)
+        return (boots.group(1), int(source.group(2)), int(source.group(3)),
+                int(uptime.group(1)) if uptime else -1)
+
+    def reopen(self, seconds=10.0):
+        """Wait for the console to come back after it went away."""
+        self.close()
+        deadline = time.time() + seconds
+        while time.time() < deadline:
+            if self.open():
+                return True
+            time.sleep(0.5)
+        return False
+
 
 class Report:
     def __init__(self):
         self.checks = 0
         self.failures = []
         self.rejected = 0
+        self.boots = None
+        self.resets = 0
 
     def fail(self, message):
         self.failures.append(message)
         print(f"    FAIL: {message}")
+
+
+def check_reset(console, report):
+    """Re-read the boot counter; report a reset and its latched cause.
+
+    This is the whole reason the reset source is instrumented: without it a
+    reset only shows up as the console going quiet, which is also what a busy
+    device or a bad cable looks like.  Reopening the console here is safe
+    because this process is the only thing that has it open.
+    """
+    sample = console.sample()
+    if sample is None:
+        if not console.reopen():
+            report.fail('the console did not come back')
+            return
+        sample = console.sample()
+        if sample is None:
+            report.fail('the console came back but did not answer "status"')
+            return
+    boots, p33, rtc, uptime = sample
+    if report.boots is not None and boots != report.boots:
+        report.resets += 1
+        print(f"    !! the chip reset: boots {report.boots} -> {boots}, "
+              f"p33={p33} rtc={rtc}, uptime {uptime} ms")
+    report.boots = boots
 
 
 def expect(report, what, state, predicate):
@@ -286,23 +344,34 @@ def main():
               '(looked for /dev/bwrap/ttyjl*, /dev/ttyACM*)')
         return 2
 
-    baseline = console.boots()
-    if baseline is None:
+    report = Report()
+    sample = None
+    for _ in range(5):
+        sample = console.sample()
+        if sample is not None:
+            break
+        time.sleep(1.0)
+    if sample is None:
         print(f'stress: {console.path} did not answer "status"')
         console.close()
         return 2
-
-    report = Report()
-    print(f'stress: console {console.path}, baseline boots={baseline}')
+    report.boots = sample[0]
+    baseline = report.boots
+    print(f'stress: console {console.path}, baseline boots={baseline} '
+          f'p33={sample[1]} rtc={sample[2]}')
     print('stress: the check that matters is that boots= never changes')
 
     phase_profile_switches(console, report, args.rounds)
+    check_reset(console, report)
     phase_pair_cycle(console, report, args.rounds)
+    check_reset(console, report)
     phase_rapid(console, report, args.rounds)
+    check_reset(console, report)
     if not args.quick:
         phase_dwell(console, report, args.dwell)
+        check_reset(console, report)
 
-    final = console.boots()
+    final = report.boots
     if final is None:
         report.fail('the console stopped answering by the end of the run')
     elif final != baseline:
@@ -312,7 +381,7 @@ def main():
     print()
     print(f'stress: {report.checks} checks, {len(report.failures)} failures, '
           f'{report.rejected} designed transition rejections, '
-          f'boots {baseline} -> {final}')
+          f'{report.resets} reset(s), boots {baseline} -> {final}')
     if report.failures:
         print('stress: FAIL')
         return 1

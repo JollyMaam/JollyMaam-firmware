@@ -144,7 +144,7 @@ else
 QUIET=@
 endif
 
-.PHONY: all default clean flash test itest
+.PHONY: all default clean flash test itest rebootwatch
 
 # Make must notice when the caller switches between the standard and patched
 # controller-library variants; the value of a command-line variable alone is
@@ -195,6 +195,14 @@ test:
 ITEST_FLAGS ?=
 itest:
 	$(QUIET)tools/itest.sh $(ITEST_FLAGS)
+
+# Watch the pad for chip resets and report the reset-source registers each
+# time, so a reset under test can be told apart from a tooling artefact.
+#   make rebootwatch
+#   make rebootwatch WATCH_FLAGS="--seconds 600"
+WATCH_FLAGS ?=
+rebootwatch:
+	$(QUIET)$(PYTHON) tools/rebootwatch.py $(WATCH_FLAGS)
 
 # regenerate stuff if makefile or config changes
 $(OBJECTS) $O/sdk.ld: Makefile sdk-br23.mk $(DEBUG_MODE_STAMP) $(APP_CONFIG_DEPS)

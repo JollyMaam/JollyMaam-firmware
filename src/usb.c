@@ -1,6 +1,7 @@
 #include <system/includes.h>
 #include <stdarg.h>
 #include <asm/irq.h>
+#include <asm/power_interface.h>
 #include <asm/wdt.h>
 
 #include "controller.h"
@@ -170,6 +171,16 @@ static void print_status(void)
     console_write(" nvram=");
     console_write_hex((const u8 *)MASKROM_NVRAM_ADDRESS, 16U);
     console_write("\r\n");
+    {
+        char line[96];
+        int length = snprintf(line, sizeof(line),
+                              "reset-source=%u p33=%u rtc=%u uptime=%u ms\r\n",
+                              (unsigned)cyclone2_reset_source,
+                              (unsigned)cyclone2_reset_p33,
+                              (unsigned)cyclone2_reset_rtc,
+                              (unsigned)sys_timer_get_ms());
+        if (length > 0) console_write_bytes(line, (u32)length);
+    }
 }
 
 __attribute__((noinline)) static void print_report_status(void)

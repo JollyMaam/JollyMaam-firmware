@@ -1,4 +1,6 @@
 #include <system/includes.h>
+#include <asm/power_interface.h>
+#include <asm/power/p33.h>
 
 #include "main.h"
 
@@ -72,6 +74,10 @@ volatile u32 cyclone2_bringup_trace
 volatile u32 cyclone2_boot_count
     __attribute__((section(".bringup_log"), used, aligned(4)));
 
+u8 cyclone2_reset_source;
+u8 cyclone2_reset_p33;
+u8 cyclone2_reset_rtc;
+
 /* Ring of bring-up milestones.  A crashed boot leaves the order in which the
  * Bluetooth stack came up (or failed) readable through the console. */
 volatile u32 cyclone2_bringup_log[CYCLONE2_BRINGUP_LOG_ENTRIES]
@@ -92,6 +98,13 @@ void cyclone2_bringup_record(u32 code)
 void app_main()
 {
     struct intent it;
+
+    /* Sample the reset cause before anything else runs: the P33 register may
+     * be cleared by whoever reads it first. */
+    cyclone2_reset_source = power_reset_source_dump();
+    cyclone2_reset_p33 = p33_rx_1byte(P3_RST_SRC);
+    cyclone2_reset_rtc = p33_rx_1byte(R3_RST_SRC);
+
     cyclone2_boot_count++;
     /* Start each boot with an empty bring-up log so the ring reads in order. */
     cyclone2_bringup_log_head = 0U;
