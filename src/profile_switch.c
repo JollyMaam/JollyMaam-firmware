@@ -596,6 +596,10 @@ static void reply_subcommand(u8 subcommand, const u8 *request, u16 request_size)
     u8 *ack = reply + SWITCH_CONTROLLER_STATE_SIZE;
     u8 *data = ack + 2;
 
+    /* 0x8000|subcommand on entry, 0x8100|subcommand on the way out: a boot
+     * that dies in a subcommand handler shows as an entry with no matching
+     * exit, which names the command without needing a debugger. */
+    cyclone2_bringup_record(0x8000u | subcommand);
     memset(reply, 0, sizeof(reply));
     fill_controller_state(state);
     ack[0] = subcommand == SWITCH_SUBCOMMAND_SPI_READ ? 0x90U : 0x80U;
@@ -729,6 +733,7 @@ static void reply_subcommand(u8 subcommand, const u8 *request, u16 request_size)
      * the current transport, so a full transmit queue would drop the reply;
      * see the report scheduler work in the architecture plan. */
     edr_hid_data_send(SWITCH_REPORT_SUBCOMMAND_REPLY, reply, sizeof(reply));
+    cyclone2_bringup_record(0x8100u | subcommand);
 }
 
 /* Handle an output report from the host.

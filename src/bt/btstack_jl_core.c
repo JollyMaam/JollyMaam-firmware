@@ -304,6 +304,7 @@ static const btstack_link_key_db_t jl_link_key_db = {
 static int jl_report_enqueue(const uint8_t *message, uint16_t size)
 {
     btstack_jl_report_t *slot;
+    static uint8_t reported_failure;
     int result = 0;
 
     if (size > BTSTACK_JL_MAX_REPORT_SIZE) {
@@ -323,6 +324,21 @@ static int jl_report_enqueue(const uint8_t *message, uint16_t size)
         jl_report_count++;
     }
     jl_exit_critical();
+
+    /* The report path only ever runs with a live link, and it is where the
+     * deaths during a console session happen.  Record the *first* failure of
+     * each burst (not every one - the application sends 125/s) together with
+     * the queue depth, so a boot that dies mid-stream shows whether the send
+     * path was struggling: 0x2500|result, 0x2510|depth. */
+    if (result != 0) {
+        if (!reported_failure) {
+            reported_failure = 1;
+            jl_trace(0x2500u | (uint32_t)result);
+            jl_trace(0x2510u | (uint32_t)(jl_report_count & 0xffu));
+        }
+    } else {
+        reported_failure = 0;
+    }
     return result;
 }
 
