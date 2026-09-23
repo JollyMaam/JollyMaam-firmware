@@ -656,6 +656,9 @@ int edr_hid_data_send_ext(u8 report_type, u8 report_id, u8 *data, u16 len)
 
 int edr_hid_data_send(u8 report_id, u8 *data, u16 len)
 {
+    /* Wake the link before handing over a report, exactly where the SDK's HID
+     * examples do it. */
+    bt_comm_edr_sniff_clean();
     return edr_hid_data_send_ext(0xa1U, report_id, data, len);
 }
 
@@ -698,8 +701,15 @@ int bt_comm_edr_hci_event_handler(struct bt_event *bt)
     return 0;
 }
 
+/* The SDK's own HID examples call this immediately before every
+ * edr_hid_data_send() - "leave sniff, I have data".  It used to be a stub, so
+ * this port kept pushing reports into a link the console was holding in sniff:
+ * the controller accepted nothing between anchors, its ACL buffers filled, and
+ * the chip reset a few hundred ms later.  The request is debounced and only
+ * acted on while the link really is in sniff (see the core). */
 int bt_comm_edr_sniff_clean(void)
 {
+    btstack_jl_core_request_unsniff();
     return 1;
 }
 

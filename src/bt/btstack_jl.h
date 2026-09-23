@@ -94,6 +94,8 @@ void btstack_jl_core_request_shutdown(void);
 void btstack_jl_core_force_shutdown(void);
 /* Ask the run-loop task to (re)initialise and power the controller on. */
 void btstack_jl_core_request_start(void);
+/* Ask for active mode on the current link (called before a HID report). */
+void btstack_jl_core_request_unsniff(void);
 /* 1 once the run-loop task has powered the controller down and parked. */
 uint8_t btstack_jl_core_idle(void);
 /* Power the controller down (run-loop task only). */

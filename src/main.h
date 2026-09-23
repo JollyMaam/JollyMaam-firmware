@@ -21,7 +21,11 @@ extern volatile struct cyclone2_boot_request reset_mailbox;
 extern volatile u32 cyclone2_bringup_trace;
 extern volatile u32 cyclone2_boot_count;
 
-#define CYCLONE2_BRINGUP_LOG_ENTRIES 900
+/* Sized to hold a whole console session: at the steady-state report rate the
+ * old 900 entries covered barely a minute, which is exactly when the failures
+ * happen, so the evidence was overwritten by the time a reset could be read
+ * back.  The section sits in the gap above the heap; see app.ld. */
+#define CYCLONE2_BRINGUP_LOG_ENTRIES 2000
 extern volatile u32 cyclone2_bringup_log[CYCLONE2_BRINGUP_LOG_ENTRIES];
 extern volatile u32 cyclone2_bringup_log_head;
 

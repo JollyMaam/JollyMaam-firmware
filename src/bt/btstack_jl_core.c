@@ -70,9 +70,13 @@ enum {
     JL_REQUEST_DISCONNECT = 1 << 2,
     JL_REQUEST_ADDRESS    = 1 << 3,
     JL_REQUEST_SHUTDOWN   = 1 << 4,
+    JL_REQUEST_UNSNIFF    = 1 << 5,
 };
 
 static volatile uint8_t jl_request;
+/* Debounce for the exit-sniff request: milliseconds until another one may be
+ * sent, or 0 when none has been sent yet. */
+static uint32_t jl_unsniff_next_ms;
 /* Bring-up diagnostics for the report path. */
 static uint32_t jl_tx_sent;
 static uint32_t jl_tx_stall_since;
@@ -405,6 +409,26 @@ static void jl_tx_poll(btstack_data_source_t *data_source,
             memcpy(jl_peer_address, peer, sizeof(jl_peer_address));
             jl_peer_valid = 1;
             hid_device_connect(peer, &hid_cid);
+        }
+    }
+
+    if ((request & JL_REQUEST_UNSNIFF) != 0) {
+        /* Exit sniff before the next report.  A controller held in sniff by
+         * the console will not take ACL data between anchors, and leaving the
+         * host to keep queueing reports until the controller's buffers fill is
+         * what ended in a chip reset.  Only send the command while the link is
+         * actually in sniff (0 = active) and not more often than every 50 ms,
+         * so a stream of reports cannot flood the HCI command queue. */
+        if (jl_con_handle_valid && jl_unsniff_next_ms != 0 &&
+            (int32_t)(jl_config.time_ms() - jl_unsniff_next_ms) < 0) {
+            /* still inside the debounce window */
+        } else if (jl_con_handle_valid) {
+            hci_connection_t *connection = hci_connection_for_handle(jl_con_handle);
+            if (connection != 0 && connection->connection_mode != 0) {
+                hci_send_cmd(&hci_exit_sniff_mode, jl_con_handle);
+                jl_unsniff_next_ms = jl_config.time_ms() + 50;
+                jl_trace(0x2c00u | connection->connection_mode);
+            }
         }
     }
 
@@ -956,6 +980,17 @@ void btstack_jl_core_delete_link_key(const uint8_t address[6])
 void btstack_jl_core_request_start(void)
 {
     jl_start_requested = 1;
+}
+
+/* Ask for active mode on the current link: called before a HID report is
+ * handed over, the way the vendor host's bt_comm_edr_sniff_clean() did.  The
+ * request is only honoured when the link really is in sniff. */
+void btstack_jl_core_request_unsniff(void)
+{
+    jl_enter_critical();
+    jl_request |= JL_REQUEST_UNSNIFF;
+    jl_exit_critical();
+    btstack_run_loop_poll_data_sources_from_irq();
 }
 
 /* Last-resort teardown: end the session even if the controller never reported
