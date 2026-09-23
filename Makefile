@@ -51,6 +51,7 @@ include sdk-br23.mk
 
 HOST_CC := gcc
 HOST_CFLAGS := -O2 -g -std=c11 -Wall -Wextra -Wpedantic
+PYTHON ?= python3
 
 CFLAGS := $(SDK_CFLAGS)
 DEFINES := $(SDK_DEFINES)
@@ -143,7 +144,7 @@ else
 QUIET=@
 endif
 
-.PHONY: all default clean flash
+.PHONY: all default clean flash test itest
 
 # Make must notice when the caller switches between the standard and patched
 # controller-library variants; the value of a command-line variable alone is
@@ -171,6 +172,29 @@ default all: $O/firmware.img
 # full-flash backup.  See tools/flash.sh for the details and the recovery path.
 flash: $O/firmware.img
 	$(QUIET)tools/flash.sh
+
+# Exercise the firmware that is running on the attached pad: profile switches
+# across all four slots, the pairing -> disconnected -> connecting cycle, rapid
+# bursts that land mid-transition, and a dwell past the connect timeout.  The
+# test fails if the console stops answering or the chip's boot counter moves.
+# It needs the pad plugged in, and it does not build or flash anything.
+#   make test                       default run
+#   make test TEST_ROUNDS=6         more repetitions
+#   make test TEST_FLAGS=--quick    skip the 33 s timeout dwell
+TEST_ROUNDS ?= 2
+TEST_FLAGS ?=
+test:
+	$(QUIET)$(PYTHON) tools/stress.py --rounds $(TEST_ROUNDS) $(TEST_FLAGS)
+
+# Integration test: dump the flash, flash the RAM-only build, pair with a real
+# console, read the flash back and require it to be byte-identical above the
+# application image.  If anything else moved, the original dump is written back
+# and the test fails.  It prompts for the pairing, and it flashes the pad.
+#   make itest                          full run
+#   make itest ITEST_FLAGS=--skip-pair  machinery only, no console needed
+ITEST_FLAGS ?=
+itest:
+	$(QUIET)tools/itest.sh $(ITEST_FLAGS)
 
 # regenerate stuff if makefile or config changes
 $(OBJECTS) $O/sdk.ld: Makefile sdk-br23.mk $(DEBUG_MODE_STAMP) $(APP_CONFIG_DEPS)
