@@ -40,6 +40,12 @@
 /* Time a live profile is given to emit its disconnect before the radio
  * session is stopped and the next profile is started. */
 #define CYCLONE2_PROFILE_SWITCH_MS          100U
+/* The stack's halt waits for the peer to confirm the disconnect, so the
+ * teardown is polled from a timer instead of blocking the application task
+ * (which also runs the USB console).  The profile's supervision timeout is
+ * 8 s; past that we give up rather than wait forever. */
+#define CYCLONE2_PROFILE_EXIT_POLL_MS       100U
+#define CYCLONE2_PROFILE_EXIT_MAX_MS      12000U
 /* After a profile switch, the events still in flight belong to the session
  * that was just stopped.  Ignore a disconnect reported in this window while
  * the new session is still coming up. */
@@ -95,6 +101,7 @@ static u8 active_pairing;
 static u8 pending_profile;
 static u8 pending_pairing;
 static enum cyclone2_profile_type pending_type;
+static u32 transition_started_ms;
 static u32 ignore_disconnect_until_ms;
 static u8 home_tap_phase;
 static u8 led_is_on;
@@ -465,11 +472,17 @@ static void profile_transition_now(void *private_data)
     cyclone2_rumble_stop();
     if (active_profile < CYCLONE2_PROFILE_COUNT) {
         if (!cyclone2_profile_exit()) {
-            /* The old session never went down.  Starting the next one on top
-             * of it is what reset the chip: the two sessions re-initialise the
-             * same stack state, one task each, at the same time.  Give up on
-             * this switch instead - the radio is stopped, and the next
-             * connect/pair/chord starts from scratch. */
+            /* Still going down: the stack's halt waits for the peer to confirm
+             * the disconnect, which can take the supervision timeout.  Poll
+             * from a timer rather than block here - the console shares this
+             * task.  Starting the next session before this one is down is what
+             * used to reset the chip. */
+            if ((s32)(sys_timer_get_ms() - transition_started_ms) <
+                (s32)CYCLONE2_PROFILE_EXIT_MAX_MS) {
+                sys_timeout_add(NULL, profile_transition_now,
+                                CYCLONE2_PROFILE_EXIT_POLL_MS);
+                return;
+            }
             active_profile = 0xffU;
             radio_state = CYCLONE2_RADIO_OFF;
             cyclone2_usb_debug(
@@ -508,6 +521,7 @@ static void profile_request_transition(u8 profile, u8 pairing)
     if (cyclone2_profile_is_connected()) {
         cyclone2_profile_disconnect();
     }
+    transition_started_ms = sys_timer_get_ms();
     sys_timeout_add(NULL, profile_transition_now, CYCLONE2_PROFILE_SWITCH_MS);
 }
 

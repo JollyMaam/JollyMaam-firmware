@@ -947,6 +947,11 @@ void btstack_jl_core_force_shutdown(void)
     if (!jl_run_loop_up) {
         return;
     }
+    /* Kill the link before ending the run loop.  The halt that the run loop is
+     * sitting in waits for the peer to confirm the disconnect, which a dead
+     * peer never does; closing the controller here means the next session
+     * opens a fresh one rather than inheriting a half-shut transport. */
+    hci_transport_jl_br23_drop_link();
     btstack_run_loop_trigger_exit();
 }
 

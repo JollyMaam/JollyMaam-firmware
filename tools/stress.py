@@ -257,20 +257,36 @@ def expect(report, what, state, predicate):
         report.fail(f"{what}: {problem}")
 
 
+def settle(console, seconds=15.0):
+    """Read `connect status` until the radio is no longer mid-transition.
+
+    A profile switch now polls the old session down instead of blocking on it
+    (the halt waits for the peer's disconnect confirmation), so a switch can
+    legitimately take a second or so.  Reading `state=stopping` means the
+    transition is still running, not that it failed.
+    """
+    deadline = time.time() + seconds
+    state = console.state()
+    while state is not None and state[2] == 'stopping' and time.time() < deadline:
+        time.sleep(0.15)
+        state = console.state()
+    return state
+
+
 def phase_profile_switches(console, report, rounds):
     print(f"-- profile switches, all four slots x{rounds}")
     for _ in range(rounds):
         for slot in range(4):
             console.ask(f'connect {slot}', 2.5)
             time.sleep(0.35)
-            expect(report, f'connect {slot}', console.state(),
+            expect(report, f'connect {slot}', settle(console),
                    lambda s, slot=slot:
                    None if s[0] == str(slot) and s[2] != 'off'
                    else f'slot={s[0]} state={s[2]}')
         for slot in range(4):
             console.ask(f'pair {slot}', 2.5)
             time.sleep(0.35)
-            expect(report, f'pair {slot}', console.state(),
+            expect(report, f'pair {slot}', settle(console),
                    lambda s: None if s[2] == 'pairing'
                    else f'expected pairing, state={s[2]}')
 
@@ -281,15 +297,15 @@ def phase_pair_cycle(console, report, rounds):
         slot = index % 4
         console.ask(f'pair {slot}', 2.5)
         time.sleep(0.4)
-        expect(report, f'cycle {index}: pair {slot}', console.state(),
+        expect(report, f'cycle {index}: pair {slot}', settle(console),
                lambda s: None if s[2] == 'pairing' else f'state={s[2]}')
         console.ask('disconnect', 2.5)
         time.sleep(0.6)
-        expect(report, f'cycle {index}: disconnect', console.state(),
+        expect(report, f'cycle {index}: disconnect', settle(console),
                lambda s: None if s[2] == 'off' else f'expected off, state={s[2]}')
         console.ask(f'connect {slot}', 2.5)
         time.sleep(0.4)
-        expect(report, f'cycle {index}: connect {slot}', console.state(),
+        expect(report, f'cycle {index}: connect {slot}', settle(console),
                lambda s: None if s[2] != 'off' else 'left the radio off')
 
 

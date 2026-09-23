@@ -443,53 +443,60 @@ void btstack_init(void)
     cyclone2_bringup_record(5U);
 }
 
+/* Teardown poll: non-blocking and idempotent.
+ *
+ * The HCI halt waits for the peer to confirm the disconnect, and for a live
+ * link that can take as long as the supervision timeout (8 s in this profile).
+ * Blocking the application task for that long stalls the USB console, and
+ * returning early and letting the caller start the next session was what reset
+ * the chip.  So the caller polls this from a timer instead: the first call asks
+ * for the shutdown, later calls report whether the run-loop task has parked,
+ * so the wait is bounded by the caller's own deadline rather than by a
+ * forced exit.  Forcing the run loop out mid-halt skips the transport close
+ * and leaves the controller half-shut, which the next session then has to
+ * cope with - it produced resets when it was tried.
+ *
+ * Returns 1 once the session really is down. */
 int btstack_edr_exit(int param)
 {
-    u32 deadline;
-    u32 elapsed;
+    static u32 started_ms;
+    static u8 active;
+    static u8 forced;
 
     (void) param;
 
-    user_pairing_requested = 0;
-    hid_ready = 0;
-    stack_ready = 0;
-    /* BTstack calls have to happen on the run-loop task; the task parks itself
-     * once the controller is powered down, so nothing is deleted here. */
-    btstack_jl_core_request_shutdown();
-
-    elapsed = sys_timer_get_ms();
-    deadline = elapsed + 1000U;
-    while (!btstack_jl_core_idle() &&
-           (s32)(sys_timer_get_ms() - deadline) < 0) {
-        os_time_dly(1);
-    }
-    elapsed = sys_timer_get_ms() - elapsed;
-
-    /* A wait that expires means the session did not shut down before the next
-     * profile started, which is the race this instrumentation exists to catch;
-     * a slow-but-clean one is worth knowing about too.  Both are rare enough
-     * not to flood the ring: 0x4100 clean-but-slow, 0x4101 the wait expired,
-     * followed by how long it took in milliseconds. */
-    if (!btstack_jl_core_idle() || elapsed > 50U) {
-        cyclone2_bringup_record(0x4100u | (btstack_jl_core_idle() ? 0U : 1U));
-        cyclone2_bringup_record(0x4200u | (elapsed > 0xffU ? 0xffU : elapsed));
+    if (!active) {
+        active = 1;
+        forced = 0;
+        started_ms = sys_timer_get_ms();
+        user_pairing_requested = 0;
+        hid_ready = 0;
+        stack_ready = 0;
+        /* BTstack calls have to happen on the run-loop task; the task parks
+         * itself once the controller is powered down. */
+        btstack_jl_core_request_shutdown();
+        return 0;
     }
 
-    if (!btstack_jl_core_idle()) {
-        /* The halt is stuck - typically waiting for a disconnect confirmation
-         * the controller never sends.  End the session anyway, but wait for
-         * the teardown that follows: returning here and letting the caller
-         * start the next session was what reset the chip, because both tasks
-         * then re-initialised the same stack state at once. */
+    if (btstack_jl_core_idle()) {
+        active = 0;
+        cyclone2_bringup_record(0x4100u);
+        cyclone2_bringup_record(0x4200u |
+                                (u32)(sys_timer_get_ms() - started_ms > 0xffU ?
+                                      0xffU : sys_timer_get_ms() - started_ms));
+        return 1;
+    }
+
+    if (!forced && (sys_timer_get_ms() - started_ms) > 8000U) {
+        /* Past the profile's supervision timeout the peer is not going to
+         * confirm, so it is not a live link any more.  Drop it and end the run
+         * loop; the caller keeps polling until the teardown finishes, so the
+         * next session still starts on a clean stack. */
+        forced = 1;
+        cyclone2_bringup_record(0x4300u);
         btstack_jl_core_force_shutdown();
-        deadline = sys_timer_get_ms() + 1000U;
-        while (!btstack_jl_core_idle() &&
-               (s32)(sys_timer_get_ms() - deadline) < 0) {
-            os_time_dly(1);
-        }
     }
-
-    return btstack_jl_core_idle() ? 1 : 0;
+    return 0;
 }
 
 /* Enable page and inquiry scan (pairing), or disable both (paging out). */
