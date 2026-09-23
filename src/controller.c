@@ -31,6 +31,13 @@
 #define CYCLONE2_INJECT_MIN_PERIOD_MS       20U
 #define CYCLONE2_INJECT_MAX_PERIOD_MS       1000U
 #define CYCLONE2_INJECT_MAX_DURATION_MS    60000U
+/* Time a live profile is given to emit its disconnect before the radio
+ * session is stopped and the next profile is started. */
+#define CYCLONE2_PROFILE_SWITCH_MS          100U
+/* After a profile switch, the events still in flight belong to the session
+ * that was just stopped.  Ignore a disconnect reported in this window while
+ * the new session is still coming up. */
+#define CYCLONE2_STALE_EVENT_MS             400U
 
 #define CYCLONE2_FACE_BUTTONS \
     (CYCLONE2_REPORT_BUTTON_A | CYCLONE2_REPORT_BUTTON_B | \
@@ -79,6 +86,10 @@ static u16 chord_button;
 static u8 active_profile = 0xffU;
 static u8 requested_profile;
 static u8 active_pairing;
+static u8 pending_profile;
+static u8 pending_pairing;
+static enum cyclone2_profile_type pending_type;
+static u32 ignore_disconnect_until_ms;
 static u8 home_tap_phase;
 static u8 led_is_on;
 static u8 sleep_pending;
@@ -409,7 +420,37 @@ static void soft_reset_now(void *private_data)
     p33_soft_reset();
 }
 
-static void profile_request_reset(u8 profile, u8 pairing)
+/* Adopt the queued profile: tear the current radio session down in place and
+ * bring the new one up on the same firmware image.
+ *
+ * The BTstack task parks when its radio session is shut down and resumes on
+ * the next start (see btstack_jl_core_run()), so a slot/profile change is a
+ * stop and a start of the stack -- never a p33_soft_reset() of the chip.  That
+ * reset used to be the only way to re-initialise the stack; it also dropped
+ * the USB console (so a host saw the pad vanish and re-enumerate) and could
+ * leave the radio wedged if it happened at the wrong moment. */
+static void profile_transition_now(void *private_data)
+{
+    (void)private_data;
+    cyclone2_rumble_stop();
+    if (active_profile < CYCLONE2_PROFILE_COUNT) {
+        cyclone2_profile_exit();
+    }
+    active_profile = pending_profile;
+    active_pairing = pending_pairing;
+    active_type = pending_type;
+    home_state = CYCLONE2_HOME_IDLE;
+    ignore_chord_until_release = 1U;
+    /* A disconnect from the session that was just stopped may still be in the
+     * event queue; do not let it end the session that is starting now. */
+    ignore_disconnect_until_ms = sys_timer_get_ms() + CYCLONE2_STALE_EVENT_MS;
+    start_selected_profile();
+}
+
+/* Queue a switch to another profile slot.  Returns immediately; the radio is
+ * stopped and restarted from profile_transition_now() once the current profile
+ * has had a moment to emit its protocol-level disconnect. */
+static void profile_request_transition(u8 profile, u8 pairing)
 {
     if (radio_state == CYCLONE2_RADIO_STOPPING) {
         return;
@@ -417,24 +458,23 @@ static void profile_request_reset(u8 profile, u8 pairing)
     injection_cancel();
     cyclone2_rumble_stop();
 
-    /* Magic is the commit word and is written last. */
-    reset_mailbox.magic = 0U;
-    reset_mailbox.profile = profile;
-    reset_mailbox.pairing = pairing;
-    reset_mailbox.check = boot_request_check(profile, pairing);
-    reset_mailbox.magic = CYCLONE2_BOOT_REQUEST_MAGIC;
-    __asm__ volatile("csync");
+    pending_profile = profile;
+    pending_pairing = pairing;
+    pending_type = settings.profile_type[profile] < CYCLONE2_PROFILE_TYPE_COUNT ?
+                   settings.profile_type[profile] : CYCLONE2_PROFILE_SWITCH;
 
     radio_state = CYCLONE2_RADIO_STOPPING;
-    cyclone2_profile_disconnect();
-    sys_timeout_add(NULL, soft_reset_now, 100U);
+    if (cyclone2_profile_is_connected()) {
+        cyclone2_profile_disconnect();
+    }
+    sys_timeout_add(NULL, profile_transition_now, CYCLONE2_PROFILE_SWITCH_MS);
 }
 
 static void profile_select(u8 profile, u8 pairing)
 {
     injection_cancel();
     if (active_profile < CYCLONE2_PROFILE_COUNT) {
-        profile_request_reset(profile, pairing);
+        profile_request_transition(profile, pairing);
         return;
     }
 
@@ -830,6 +870,13 @@ static int cyclone2_event_handler(struct application *application,
     if (result & CYCLONE2_PROFILE_EVENT_CONNECTED)
         radio_state = CYCLONE2_RADIO_CONNECTED;
     if (result & CYCLONE2_PROFILE_EVENT_DISCONNECTED) {
+        /* A disconnect that arrives while the session just started is a
+         * leftover from the session the profile switch stopped; only a
+         * session that has actually connected can be ended this way. */
+        if (radio_state != CYCLONE2_RADIO_CONNECTED &&
+            (s32)(sys_timer_get_ms() - ignore_disconnect_until_ms) < 0) {
+            return 0;
+        }
         injection_cancel();
         cyclone2_rumble_stop();
         /* A host player-light command may have changed LEDs without changing

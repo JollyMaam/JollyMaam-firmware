@@ -90,6 +90,8 @@ int  btstack_jl_core_init(const btstack_jl_config_t *config,
 
 /* Ask the run-loop task to power the controller down and park. */
 void btstack_jl_core_request_shutdown(void);
+/* End the session even if the power-down never completed (run-loop task). */
+void btstack_jl_core_force_shutdown(void);
 /* Ask the run-loop task to (re)initialise and power the controller on. */
 void btstack_jl_core_request_start(void);
 /* 1 once the run-loop task has powered the controller down and parked. */

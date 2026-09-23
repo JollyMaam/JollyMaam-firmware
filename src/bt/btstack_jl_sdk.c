@@ -426,6 +426,11 @@ void btstack_edr_exit(int param)
     for (wait = 0; (wait < 200) && !btstack_jl_core_idle(); wait++) {
         os_time_dly(1);
     }
+    if (!btstack_jl_core_idle()) {
+        /* The controller did not report a clean power-down in time.  End the
+         * session anyway; leaving it live would stall the next start. */
+        btstack_jl_core_force_shutdown();
+    }
 }
 
 /* Enable page and inquiry scan (pairing), or disable both (paging out). */

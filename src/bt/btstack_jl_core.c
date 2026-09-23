@@ -79,6 +79,10 @@ static uint32_t jl_tx_stall_since;
 static uint8_t  jl_tx_stall_reported;
 static volatile uint8_t jl_start_requested;
 static volatile uint8_t jl_idle = 1;
+/* 1 while a session is set up and the run loop is installed.  The application
+ * can ask for a shutdown at any time; this says whether there is a live session
+ * to stop (see btstack_jl_core_request_shutdown). */
+static volatile uint8_t jl_run_loop_up;
 static uint8_t jl_request_address[6];
 
 static uint16_t jl_hid_cid;
@@ -390,7 +394,6 @@ static void jl_tx_poll(btstack_data_source_t *data_source,
 
     if ((request & JL_REQUEST_SHUTDOWN) != 0) {
         btstack_jl_core_power_off();
-        btstack_run_loop_trigger_exit();
         return;
     }
 
@@ -467,6 +470,15 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
                     break;
                 case HCI_STATE_OFF:
                     jl_working = 0;
+                    /* The halt that ends a radio session has finished: the
+                     * transport is closed and the controller is powered down.
+                     * Only now may the run loop stop so the stack can be torn
+                     * down without losing the power-off command (see
+                     * btstack_jl_core_request_shutdown()). */
+                    if (jl_shutdown_requested) {
+                        jl_shutdown_requested = 0;
+                        btstack_run_loop_trigger_exit();
+                    }
                     break;
                 default:
                     break;
@@ -811,10 +823,21 @@ static int btstack_jl_core_setup(void)
 
 void btstack_jl_core_request_shutdown(void)
 {
+    /* Nothing to stop when the session is already parked.  The run loop has
+     * been deinitialised by then, so waking it here would follow a null
+     * pointer and reset the chip -- exactly the crash a profile switch used to
+     * hit when it re-exited an already-stopped profile. */
+    if (!jl_run_loop_up) {
+        return;
+    }
     jl_enter_critical();
     jl_request |= JL_REQUEST_SHUTDOWN;
     jl_exit_critical();
-    btstack_run_loop_trigger_exit();
+    /* Wake the run loop so the request is handled on the BTstack task.  The
+     * exit is requested from there once the controller reports HCI_STATE_OFF.
+     * Triggering the exit here instead would race the halt and could stop the
+     * run loop before the transport (and the controller task) is closed. */
+    btstack_run_loop_poll_data_sources_from_irq();
 }
 
 uint8_t btstack_jl_core_idle(void);
@@ -891,6 +914,11 @@ void btstack_jl_core_delete_all_link_keys(void)
 {
     bd_addr_t all_zero;
 
+    /* The HCI stack is torn down between radio sessions; a forget request that
+     * arrives while it is parked has nothing to talk to. */
+    if (!jl_working) {
+        return;
+    }
     memset(all_zero, 0, sizeof(all_zero));
     hci_send_cmd(&hci_delete_stored_link_key, all_zero, 1);
 }
@@ -899,7 +927,7 @@ void btstack_jl_core_delete_link_key(const uint8_t address[6])
 {
     bd_addr_t peer;
 
-    if (address == 0) {
+    if (address == 0 || !jl_working) {
         return;
     }
     jl_address_to_jieli(address, peer);
@@ -909,6 +937,34 @@ void btstack_jl_core_delete_link_key(const uint8_t address[6])
 void btstack_jl_core_request_start(void)
 {
     jl_start_requested = 1;
+}
+
+/* Last-resort teardown: end the session even if the controller never reported
+ * HCI_STATE_OFF.  The controller may then still be powered up, but the host
+ * session ends instead of leaving the next start queued behind a live one. */
+void btstack_jl_core_force_shutdown(void)
+{
+    if (!jl_run_loop_up) {
+        return;
+    }
+    btstack_run_loop_trigger_exit();
+}
+
+/* Release the BTstack singletons when a radio session ends.
+ *
+ * Upstream BTstack expects every protocol to be deinitialised before the next
+ * init ("the deinit functions of all protocols/profiles have to be called
+ * before a new init").  Skipping this is not just a leak: btstack_run_loop_init()
+ * asserts that no run loop is installed yet and l2cap_init() would relink the
+ * fixed channels it already linked, so the second session of a profile switch
+ * used to trip the assert and park the BTstack task for good. */
+static void btstack_jl_core_teardown(void)
+{
+    hid_device_deinit();
+    sdp_deinit();
+    l2cap_deinit();
+    hci_deinit();
+    btstack_run_loop_deinit();
 }
 
 void btstack_jl_core_run(void *argument)
@@ -927,17 +983,24 @@ void btstack_jl_core_run(void *argument)
         jl_start_requested = 0;
         jl_idle = 0;
         jl_request = 0;
+        jl_shutdown_requested = 0;
 
         if (btstack_jl_core_setup() != 0) {
             jl_trace(1u);
             jl_idle = 1;
             continue;
         }
+        jl_run_loop_up = 1;
         jl_trace(18u);
         hci_power_control(HCI_POWER_ON);
         jl_trace(30u);
         btstack_run_loop_execute();
         jl_trace(31u);
+        jl_run_loop_up = 0;
+        /* The session is over (shutdown reached HCI_STATE_OFF): release
+         * BTstack so the next session can initialise cleanly.  This runs in
+         * place, without a chip reset. */
+        btstack_jl_core_teardown();
         jl_working = 0;
         jl_idle = 1;
     }
