@@ -93,11 +93,14 @@ Two details worth knowing:
 
 ## What writes to flash, and when
 
-Full detail is in `docs/bond-store.md`, but the short version for the map
-above: with `BOND_STORE_RAM=1` the only remaining writers are the first-boot
-MAC creation and the deliberate identity reset in `pair N fresh` / `unkey`
-(BTIF at `0xFE004`), and the `report N` console command (VM).  The RAM-only
-bond store keeps link keys and peer addresses out of VM entirely.
+Full detail is in `docs/bond-store.md`.  A normal build writes four items: the
+link keys and peer addresses in VM, the pad's own address in BTIF at `0xFE004`,
+and the profile settings in VM.
+
+With `BOND_STORE_RAM=1` all four are RAM-only and no application code calls
+`syscfg_write` at all, so nothing above `0x038000` changes no matter how many
+times you pair, switch profile, change the report period or generate a new
+address.  That is the property `make itest` checks.
 
 ## Reproducing this map
 

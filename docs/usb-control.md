@@ -28,6 +28,8 @@ connect status
          show slot, profile, connection state, derived local address, and USB
 disconnect
          stop Bluetooth without sleeping or deleting the saved bond
+newaddr  give the pad a new random Bluetooth address
+         and restart the active profile so the controller uses it
 input status
          show stick-DMA framing/drop counters and the last axes timestamp
 inject a PERIOD_MS DURATION_MS

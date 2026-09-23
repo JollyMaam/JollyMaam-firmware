@@ -483,6 +483,7 @@ __attribute__((noinline)) static void execute_command(void)
                       "connect 0|1|2|3  reconnect a saved profile slot\r\n"
                       "pair 0|1|2|3  forget a slot's bond and wait to pair\r\n"
                       "pair N fresh  as above but with a new Bluetooth address\r\n"
+                      "newaddr  give the pad a new random Bluetooth address\r\n"
                       "unkey AA:BB:..  drop a stored link key and re-pair\r\n"
                       "peer N AA:BB:..  make slot N page that peer\r\n"
                       "clearkeys  zero the controller's pairing records\r\n"
@@ -575,6 +576,22 @@ __attribute__((noinline)) static void execute_command(void)
         } else if (cyclone2_set_peer_request((u8)(command_line[5] - '0'),
                                              address) > 0) {
             console_write("OK that slot now pages that peer\r\n");
+        } else {
+            console_write("ERR profile transition already in progress\r\n");
+        }
+    } else if (!strcmp(command_line, "newaddr")) {
+        if (cyclone2_new_address_request() > 0) {
+            struct cyclone2_connection_status status;
+            char line[64];
+            int length;
+
+            cyclone2_connection_status_get(&status);
+            length = snprintf(line, sizeof(line),
+                              "OK new address %02x:%02x:%02x:%02x:%02x:%02x\r\n",
+                              status.local_address[5], status.local_address[4],
+                              status.local_address[3], status.local_address[2],
+                              status.local_address[1], status.local_address[0]);
+            if (length > 0) console_write_bytes(line, (u32)length);
         } else {
             console_write("ERR profile transition already in progress\r\n");
         }

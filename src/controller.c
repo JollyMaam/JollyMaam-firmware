@@ -167,7 +167,12 @@ int cyclone2_report_period_set(u8 period_ms)
         period_ms != 16U) return -1;
     settings.report_period_ms = period_ms;
     next_report_ms = sys_timer_get_ms();
+#ifdef CYCLONE2_BOND_STORE_RAM
+    /* RAM-only build: the new period applies to this session and is not
+     * written to syscfg, so a test can change it as often as it likes. */
+#else
     syscfg_write(CFG_CYCLONE2_PROFILE_SETTINGS, &settings, sizeof(settings));
+#endif
     return 0;
 }
 
@@ -211,6 +216,24 @@ int cyclone2_pair_fresh_request(u8 profile)
     cyclone2_bt_address_randomize();
     injection_cancel();
     profile_select(profile, 1U);
+    return 1;
+}
+
+/* Adopt a fresh random Bluetooth address without changing the slot or the
+ * pairing mode: the running session is restarted so the controller picks the
+ * new address up.  A console keys its bond by this address, so the pad has to
+ * be paired again afterwards.
+ *
+ * With BOND_STORE_RAM the new identity lives in RAM and is gone at the next
+ * reset; without it the address is written to BTIF. */
+int cyclone2_new_address_request(void)
+{
+    if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
+    injection_cancel();
+    cyclone2_bt_address_randomize();
+    if (active_profile < CYCLONE2_PROFILE_COUNT) {
+        profile_select(active_profile, active_pairing);
+    }
     return 1;
 }
 
