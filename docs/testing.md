@@ -36,21 +36,23 @@ flash?*  It:
 
 1. dumps the whole flash,
 2. builds and flashes the RAM-only image,
-3. asks you to pair the pad with a real console,
-4. reads the whole flash back,
-5. compares everything from the end of the application image onwards,
-6. and, if anything up there moved, writes the original dump back and fails.
+3. exercises the commands that used to write flash (`report`, `newaddr`,
+   `pair`, `connect`, `disconnect`) over the console,
+4. asks you to pair the pad with a real console,
+5. reads the whole flash back,
+6. compares everything from the end of the application image onwards,
+7. and, if anything up there moved, writes the original dump back and fails.
 
 The compare starts at the end of the image because the image is what step 2
 deliberately rewrote; everything above it is the persistent area (VM/syscfg,
 BTIF, key/mac) that a RAM-only build must never touch.  A difference there
-means a bond leaked into flash, and the restore is what keeps the pad from
+means something leaked into flash, and the restore is what keeps the pad from
 being left with a half-written record.
 
     make itest                          # full run, prompts for the pairing
     make itest ITEST_FLAGS=--skip-pair  # machinery only, no console needed
 
-Pair normally: do **not** use `pair N fresh` or `unkey`, which are meant to
-change the pad's own Bluetooth address in syscfg and so do write flash.  A run
-that passes leaves the pad on the RAM-only build; dumps are kept under
-`/work/cyclone2-flash-backups/`.
+With everything RAM-only the whole run should be flash-neutral, so there is
+nothing to avoid any more: `newaddr`, `pair N fresh` and `unkey` change the
+address in RAM for this boot only.  A run that passes leaves the pad on the
+RAM-only build; dumps are kept under `/work/cyclone2-flash-backups/`.

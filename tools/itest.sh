@@ -249,7 +249,20 @@ console=$(wait_for_console) ||
     die "the pad did not return to its console within ${wait_seconds}s"
 echo "itest: console at $console"
 
-# ------------------------------------------------------------- 3. pairing ---
+# ---------------------- 3. commands that used to write flash ----------------
+# Everything the firmware persists is RAM-only in this build, so none of these
+# may leave a mark: a new identity, pairing windows, profile switches, and the
+# report-period setting.  Rejections from a switch already in progress are
+# expected and ignored.
+echo "itest: exercising report/newaddr/pair/connect/disconnect"
+for command in 'report 8' 'newaddr' 'pair 0' 'connect 1' 'disconnect' \
+               'connect 0' 'newaddr' 'pair 3 fresh' 'connect status' \
+               'status' 'report 10'; do
+    "$c2ctl" -p "$console" "$command" >/dev/null 2>&1 || true
+    sleep 0.4
+done
+
+# ------------------------------------------------------------- 4. pairing ---
 if [ "$skip_pair" = 0 ]; then
     cat <<'MSG'
 
@@ -282,14 +295,14 @@ else
     echo "itest: --skip-pair: not waiting for a real pairing"
 fi
 
-# ------------------------------------------------------- 4. read it back ---
+# ------------------------------------------------------- 5. read it back ---
 enter_loader
 echo "itest: reading $flash_size bytes back to $after"
 # No reset here: if the comparison fails this loader session restores the dump.
 run_loader "read 0 $flash_size $after" >/dev/null
 [ -s "$after" ] || die "the readback is empty"
 
-# ------------------------------------------------------------ 5. compare ---
+# ------------------------------------------------------------ 6. compare ---
 set +e
 "$python" - "$before" "$after" "$compare_from" "$flash_size" <<'PY'
 import sys
