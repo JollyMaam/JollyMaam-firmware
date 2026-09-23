@@ -359,6 +359,34 @@ static void jl_report_dequeue(btstack_jl_report_t *out)
     jl_exit_critical();
 }
 
+/* Exit sniff on the current link if it is in sniff, at most every 50 ms.
+ *
+ * A controller held in sniff by the console takes no ACL data between anchors,
+ * and answers a disconnect on its own schedule.  Pushing reports into that link
+ * filled the controller's buffers and the host's queue and ended in a chip
+ * reset, so the host leaves sniff before it sends anything or tears anything
+ * down - which is what the vendor host's bt_comm_edr_sniff_clean() did before
+ * every HID send.  Must run on the run-loop task (it sends an HCI command). */
+static void jl_exit_sniff_if_needed(void)
+{
+    hci_connection_t *connection;
+
+    if (!jl_con_handle_valid) {
+        return;
+    }
+    if (jl_unsniff_next_ms != 0 &&
+        (int32_t)(jl_config.time_ms() - jl_unsniff_next_ms) < 0) {
+        return;
+    }
+    connection = hci_connection_for_handle(jl_con_handle);
+    if (connection == 0 || connection->connection_mode == 0) {
+        return;                                 /* already active */
+    }
+    hci_send_cmd(&hci_exit_sniff_mode, jl_con_handle);
+    jl_unsniff_next_ms = jl_config.time_ms() + 50;
+    jl_trace(0x2c00u | connection->connection_mode);
+}
+
 static void jl_tx_poll(btstack_data_source_t *data_source,
                        btstack_data_source_callback_type_t callback_type)
 {
@@ -413,26 +441,15 @@ static void jl_tx_poll(btstack_data_source_t *data_source,
     }
 
     if ((request & JL_REQUEST_UNSNIFF) != 0) {
-        /* Exit sniff before the next report.  A controller held in sniff by
-         * the console will not take ACL data between anchors, and leaving the
-         * host to keep queueing reports until the controller's buffers fill is
-         * what ended in a chip reset.  Only send the command while the link is
-         * actually in sniff (0 = active) and not more often than every 50 ms,
-         * so a stream of reports cannot flood the HCI command queue. */
-        if (jl_con_handle_valid && jl_unsniff_next_ms != 0 &&
-            (int32_t)(jl_config.time_ms() - jl_unsniff_next_ms) < 0) {
-            /* still inside the debounce window */
-        } else if (jl_con_handle_valid) {
-            hci_connection_t *connection = hci_connection_for_handle(jl_con_handle);
-            if (connection != 0 && connection->connection_mode != 0) {
-                hci_send_cmd(&hci_exit_sniff_mode, jl_con_handle);
-                jl_unsniff_next_ms = jl_config.time_ms() + 50;
-                jl_trace(0x2c00u | connection->connection_mode);
-            }
-        }
+        jl_exit_sniff_if_needed();
     }
 
     if ((request & JL_REQUEST_SHUTDOWN) != 0) {
+        /* Leave sniff before the halt disconnects: the halt waits for the peer
+         * to confirm, and a peer that only answers on sniff anchors makes that
+         * wait long - the failure that lands in a profile switch while a
+         * console is connected. */
+        jl_exit_sniff_if_needed();
         btstack_jl_core_power_off();
         return;
     }

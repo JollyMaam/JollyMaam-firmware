@@ -603,6 +603,9 @@ int user_hid_send_data(u8 *buf, u32 len)
 
 void user_hid_disconnect(void)
 {
+    /* Leave sniff before the link is torn down: the halt that follows waits for
+     * the peer to confirm the disconnect. */
+    btstack_jl_core_request_unsniff();
     btstack_jl_core_disconnect();
 }
 
