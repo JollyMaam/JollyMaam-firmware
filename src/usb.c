@@ -558,21 +558,25 @@ __attribute__((noinline)) static void execute_command(void)
         console_write("OK injection stopped\r\n");
     } else if (!strncmp(command_line, "unkey ", 6U)) {
         u8 address[6];
-        if (parse_address(command_line + 6U, address) == 0 &&
-            cyclone2_forget_peer_request(address) > 0) {
+        if (parse_address(command_line + 6U, address) != 0) {
+            console_write("ERR use unkey aa:bb:cc:dd:ee:ff\r\n");
+        } else if (cyclone2_forget_peer_request(address) > 0) {
             console_write("OK forgetting that link key\r\n");
         } else {
-            console_write("ERR use unkey aa:bb:cc:dd:ee:ff\r\n");
+            /* A well-formed address that the policy layer refused: the radio
+             * is mid-transition, not the command malformed. */
+            console_write("ERR profile transition already in progress\r\n");
         }
     } else if (!strncmp(command_line, "peer ", 5U) && command_line[5] >= '0' &&
                command_line[5] <= '3' && command_line[6] == ' ') {
         u8 address[6];
-        if (parse_address(command_line + 7U, address) == 0 &&
-            cyclone2_set_peer_request((u8)(command_line[5] - '0'),
-                                      address) > 0) {
+        if (parse_address(command_line + 7U, address) != 0) {
+            console_write("ERR use peer N aa:bb:cc:dd:ee:ff\r\n");
+        } else if (cyclone2_set_peer_request((u8)(command_line[5] - '0'),
+                                             address) > 0) {
             console_write("OK that slot now pages that peer\r\n");
         } else {
-            console_write("ERR use peer N aa:bb:cc:dd:ee:ff\r\n");
+            console_write("ERR profile transition already in progress\r\n");
         }
     } else if (!strcmp(command_line, "clearkeys")) {
         if (cyclone2_clear_keys_request() > 0) {
