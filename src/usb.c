@@ -483,8 +483,15 @@ __attribute__((noinline)) static void print_imu_sample(void)
     if (length > 0) console_write_bytes(line, (u32)length);
 }
 
-/* Battery and charger state.  adc_get_voltage(AD_CH_VBAT) is the dedicated
- * VBAT path (vbat / 4 in mV), so no sample channel has to be registered. */
+/* Charge-driver state and the VBAT reading.  adc_get_voltage(AD_CH_VBAT) is
+ * the dedicated VBAT path (vbat / 4 in mV), so no sample channel has to be
+ * registered.
+ *
+ * Neither number is evidence about the battery: this build never initialises
+ * the charge driver (see board_init() in src/init.c), so the flags report an
+ * uninitialised module, and the VBAT reading is out of range for the cell -
+ * the SoC's sense does not appear to be connected to it.  See
+ * docs/charging.md. */
 static void print_battery_status(void)
 {
     char line[96];
@@ -525,7 +532,8 @@ __attribute__((noinline)) static void execute_command(void)
                       "delall     forget every device the stack remembers\r\n"
                       "connect status  show slot, address, state, and USB\r\n"
                       "disconnect  stop Bluetooth without sleeping\r\n"
-                      "battery  show charger state and battery voltage\r\n"
+                      "battery  show charge-driver state and VBAT (driver is\r\n"
+                      "         not initialised in this build; see docs/charging.md)\r\n"
                       "inject a PERIOD_MS DURATION_MS | stop | status\r\n"
                       "input status|reset  show/reset stick-DMA counters\r\n"
                       "rumble LEFT RIGHT MS | stop | status\r\n"
