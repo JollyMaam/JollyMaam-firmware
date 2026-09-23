@@ -495,9 +495,6 @@ static void profile_transition_now(void *private_data)
     active_type = pending_type;
     home_state = CYCLONE2_HOME_IDLE;
     ignore_chord_until_release = 1U;
-    /* A disconnect from the session that was just stopped may still be in the
-     * event queue; do not let it end the session that is starting now. */
-    ignore_disconnect_until_ms = sys_timer_get_ms() + CYCLONE2_STALE_EVENT_MS;
     start_selected_profile();
 }
 
@@ -885,6 +882,11 @@ static void start_selected_profile(void)
                                    CYCLONE2_RADIO_CONNECTING;
     radio_start_ms = sys_timer_get_ms();
     connect_attempts = 0U;
+    /* A disconnect reported in the first moments of a session belongs to the
+     * session that was just stopped (a profile switch) or to a link the stack
+     * is still unwinding - not to this one, which has not connected yet.  Only
+     * a session that actually reached CONNECTED may be ended by one. */
+    ignore_disconnect_until_ms = sys_timer_get_ms() + CYCLONE2_STALE_EVENT_MS;
     cyclone2_usb_debug("start profile=%u type=%s pairing=%u",
                        active_profile,
                        cyclone2_profile_name(active_type),
