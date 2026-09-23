@@ -347,6 +347,12 @@ void sniff_negotiation_hook(u16 *T_sniff, u16 *attemp, u16 *timeout,
 {
     (void) negotiation;
 
+    /* The console asks to enter sniff as soon as the HID channels open, and
+     * that negotiation is the point where the controller changes its clock and
+     * power state - worth having in the ring when a reset lands in this
+     * window.  Recorded before the early returns so a hook call with no
+     * parameters is visible too. */
+    cyclone2_bringup_record(0x7000u);
     if ((T_sniff == 0) || (attemp == 0) || (timeout == 0)) {
         return;
     }

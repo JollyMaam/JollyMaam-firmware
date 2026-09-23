@@ -832,6 +832,10 @@ static void cyclone2_poll(void *private_data)
      * no reports at all. */
     if (radio_state != CYCLONE2_RADIO_STOPPING &&
         cyclone2_profile_is_connected()) {
+        if (radio_state != CYCLONE2_RADIO_CONNECTED) {
+            /* First poll that sees the link usable. */
+            cyclone2_bringup_record(0x6100u);
+        }
         radio_state = CYCLONE2_RADIO_CONNECTED;
         connect_attempts = 0U;
     }

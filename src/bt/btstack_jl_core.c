@@ -551,6 +551,9 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
                         break;
                     }
                     jl_hid_cid = hid_subevent_connection_opened_get_hid_cid(packet);
+                    /* 0x2b00|1: the HID interrupt channel is open, which is
+                     * what the profile counts as "connected". */
+                    jl_trace(0x2b00u | (jl_hid_cid != 0 ? 1u : 0u));
                     hid_subevent_connection_opened_get_bd_addr(packet, event_addr);
                     memcpy(jl_peer_address, event_addr, sizeof(jl_peer_address));
                     jl_peer_valid = 1;
