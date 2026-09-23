@@ -10,7 +10,7 @@ struct profile_operations {
     void (*prepare)(void);
     void (*start)(u8 slot, u8 pairing);
     void (*disconnect)(void);
-    void (*exit)(void);
+    int (*exit)(void);
     int (*is_connected)(void);
     int (*reconnect)(void);
     int (*send)(const struct cyclone2_input_report *report);
@@ -81,9 +81,9 @@ void cyclone2_profile_disconnect(void)
     active_profile->disconnect();
 }
 
-void cyclone2_profile_exit(void)
+int cyclone2_profile_exit(void)
 {
-    active_profile->exit();
+    return active_profile->exit();
 }
 
 int cyclone2_profile_is_connected(void)

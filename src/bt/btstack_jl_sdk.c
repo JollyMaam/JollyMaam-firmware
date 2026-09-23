@@ -443,9 +443,10 @@ void btstack_init(void)
     cyclone2_bringup_record(5U);
 }
 
-void btstack_edr_exit(int param)
+int btstack_edr_exit(int param)
 {
-    int wait;
+    u32 deadline;
+    u32 elapsed;
 
     (void) param;
 
@@ -456,14 +457,39 @@ void btstack_edr_exit(int param)
      * once the controller is powered down, so nothing is deleted here. */
     btstack_jl_core_request_shutdown();
 
-    for (wait = 0; (wait < 200) && !btstack_jl_core_idle(); wait++) {
+    elapsed = sys_timer_get_ms();
+    deadline = elapsed + 1000U;
+    while (!btstack_jl_core_idle() &&
+           (s32)(sys_timer_get_ms() - deadline) < 0) {
         os_time_dly(1);
     }
-    if (!btstack_jl_core_idle()) {
-        /* The controller did not report a clean power-down in time.  End the
-         * session anyway; leaving it live would stall the next start. */
-        btstack_jl_core_force_shutdown();
+    elapsed = sys_timer_get_ms() - elapsed;
+
+    /* A wait that expires means the session did not shut down before the next
+     * profile started, which is the race this instrumentation exists to catch;
+     * a slow-but-clean one is worth knowing about too.  Both are rare enough
+     * not to flood the ring: 0x4100 clean-but-slow, 0x4101 the wait expired,
+     * followed by how long it took in milliseconds. */
+    if (!btstack_jl_core_idle() || elapsed > 50U) {
+        cyclone2_bringup_record(0x4100u | (btstack_jl_core_idle() ? 0U : 1U));
+        cyclone2_bringup_record(0x4200u | (elapsed > 0xffU ? 0xffU : elapsed));
     }
+
+    if (!btstack_jl_core_idle()) {
+        /* The halt is stuck - typically waiting for a disconnect confirmation
+         * the controller never sends.  End the session anyway, but wait for
+         * the teardown that follows: returning here and letting the caller
+         * start the next session was what reset the chip, because both tasks
+         * then re-initialised the same stack state at once. */
+        btstack_jl_core_force_shutdown();
+        deadline = sys_timer_get_ms() + 1000U;
+        while (!btstack_jl_core_idle() &&
+               (s32)(sys_timer_get_ms() - deadline) < 0) {
+            os_time_dly(1);
+        }
+    }
+
+    return btstack_jl_core_idle() ? 1 : 0;
 }
 
 /* Enable page and inquiry scan (pairing), or disable both (paging out). */

@@ -89,7 +89,10 @@ void bt_wait_phone_connect_control(u8 enable);
 
 void btstack_edr_start_before_init(const edr_init_cfg_t *cfg, int param);
 void btstack_edr_start_after_init(int param);
-void btstack_edr_exit(int param);
+/* Tear the radio session down and park the run-loop task.  Returns non-zero
+ * once the session really is parked: a caller must not bring the next session
+ * up before this one is down, or the two trample each other's stack state. */
+int btstack_edr_exit(int param);
 int bt_comm_edr_status_event_handler(struct bt_event *bt);
 // TRANSLATED: Exit and clear sniff mode.
 int bt_comm_edr_sniff_clean(void);

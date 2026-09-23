@@ -457,7 +457,18 @@ static void profile_transition_now(void *private_data)
     (void)private_data;
     cyclone2_rumble_stop();
     if (active_profile < CYCLONE2_PROFILE_COUNT) {
-        cyclone2_profile_exit();
+        if (!cyclone2_profile_exit()) {
+            /* The old session never went down.  Starting the next one on top
+             * of it is what reset the chip: the two sessions re-initialise the
+             * same stack state, one task each, at the same time.  Give up on
+             * this switch instead - the radio is stopped, and the next
+             * connect/pair/chord starts from scratch. */
+            active_profile = 0xffU;
+            radio_state = CYCLONE2_RADIO_OFF;
+            cyclone2_usb_debug(
+                "profile switch aborted: the previous session did not stop");
+            return;
+        }
     }
     active_profile = pending_profile;
     active_pairing = pending_pairing;

@@ -602,10 +602,11 @@ void cyclone2_switch2_disconnect(void)
     if (switch2_con_handle) ble_comm_disconnect(switch2_con_handle);
 }
 
-void cyclone2_switch2_exit(void)
+int cyclone2_switch2_exit(void)
 {
     cyclone2_rumble_stop();
     btstack_ble_exit(0);
+    return 1;
 }
 
 int cyclone2_switch2_is_connected(void)

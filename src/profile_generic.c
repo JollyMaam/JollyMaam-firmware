@@ -64,9 +64,11 @@ void cyclone2_generic_disconnect(void)
     le_hogp_disconnect();
 }
 
-void cyclone2_generic_exit(void)
+int cyclone2_generic_exit(void)
 {
+    /* The BLE profiles are stubs; there is no session to wait for. */
     btstack_ble_exit(0);
+    return 1;
 }
 
 int cyclone2_generic_is_connected(void)

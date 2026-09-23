@@ -1022,10 +1022,10 @@ void cyclone2_switch_disconnect(void)
     user_hid_disconnect();
 }
 
-void cyclone2_switch_exit(void)
+int cyclone2_switch_exit(void)
 {
     cyclone2_imu_disable();
-    btstack_edr_exit(0);
+    return btstack_edr_exit(0);
 }
 
 int cyclone2_switch_is_connected(void)

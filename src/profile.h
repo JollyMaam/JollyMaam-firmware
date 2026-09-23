@@ -23,7 +23,9 @@ enum cyclone2_profile_event {
 void cyclone2_profile_start(enum cyclone2_profile_type type, u8 slot,
                             u8 pairing);
 void cyclone2_profile_disconnect(void);
-void cyclone2_profile_exit(void);
+/* Returns non-zero once the radio session really is down; the caller must not
+ * start the next profile before that, or the two sessions overlap. */
+int cyclone2_profile_exit(void);
 int cyclone2_profile_is_connected(void);
 int cyclone2_profile_reconnect(void);
 int cyclone2_profile_send(const struct cyclone2_input_report *report);
@@ -34,7 +36,7 @@ const char *cyclone2_profile_name(enum cyclone2_profile_type type);
 void cyclone2_generic_prepare_stack(void);
 void cyclone2_generic_start(u8 slot, u8 pairing);
 void cyclone2_generic_disconnect(void);
-void cyclone2_generic_exit(void);
+int cyclone2_generic_exit(void);
 int cyclone2_generic_is_connected(void);
 int cyclone2_generic_reconnect(void);
 int cyclone2_generic_send(const struct cyclone2_input_report *report);
@@ -44,7 +46,7 @@ enum cyclone2_profile_event cyclone2_generic_handle_event(
 void cyclone2_switch2_prepare_stack(void);
 void cyclone2_switch2_start(u8 slot, u8 pairing);
 void cyclone2_switch2_disconnect(void);
-void cyclone2_switch2_exit(void);
+int cyclone2_switch2_exit(void);
 int cyclone2_switch2_is_connected(void);
 int cyclone2_switch2_reconnect(void);
 int cyclone2_switch2_send(const struct cyclone2_input_report *report);
@@ -53,7 +55,7 @@ enum cyclone2_profile_event cyclone2_switch2_handle_event(
 
 void cyclone2_switch_start(u8 slot, u8 pairing);
 void cyclone2_switch_disconnect(void);
-void cyclone2_switch_exit(void);
+int cyclone2_switch_exit(void);
 int cyclone2_switch_is_connected(void);
 int cyclone2_switch_reconnect(void);
 int cyclone2_switch_send(const struct cyclone2_input_report *report);
