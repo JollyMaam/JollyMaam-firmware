@@ -1,5 +1,7 @@
 #include <system/includes.h>
 #include <stdarg.h>
+#include <asm/adc_api.h>
+#include <asm/charge.h>
 #include <asm/irq.h>
 #include <asm/power_interface.h>
 #include <asm/wdt.h>
@@ -481,6 +483,26 @@ __attribute__((noinline)) static void print_imu_sample(void)
     if (length > 0) console_write_bytes(line, (u32)length);
 }
 
+/* Battery and charger state.  adc_get_voltage(AD_CH_VBAT) is the dedicated
+ * VBAT path (vbat / 4 in mV), so no sample channel has to be registered. */
+static void print_battery_status(void)
+{
+    char line[96];
+    int length;
+
+    /* Deliberately only these two reads.  get_ldo5v_online_hw(),
+     * adc_check_vbat_lowpower() and get_charge_full_value() block once the
+     * charge module has not been initialised, which is the case in this build
+     * (see board_init() in src/init.c) - reading them hangs the console
+     * mid-command. */
+    length = snprintf(line, sizeof(line),
+                      "battery vbat=%u mV charge=%u poweron=%u\r\n",
+                      (unsigned)(adc_get_voltage(AD_CH_VBAT) * 4U),
+                      (unsigned)get_charge_online_flag(),
+                      (unsigned)get_charge_poweron_en());
+    if (length > 0) console_write_bytes(line, (u32)length);
+}
+
 /* Keep the command parser's formatting buffers out of the frequently-called
  * USB poll frame. LTO otherwise inlines this through consume_input(). */
 __attribute__((noinline)) static void execute_command(void)
@@ -503,6 +525,7 @@ __attribute__((noinline)) static void execute_command(void)
                       "delall     forget every device the stack remembers\r\n"
                       "connect status  show slot, address, state, and USB\r\n"
                       "disconnect  stop Bluetooth without sleeping\r\n"
+                      "battery  show charger state and battery voltage\r\n"
                       "inject a PERIOD_MS DURATION_MS | stop | status\r\n"
                       "input status|reset  show/reset stick-DMA counters\r\n"
                       "rumble LEFT RIGHT MS | stop | status\r\n"
@@ -606,6 +629,8 @@ __attribute__((noinline)) static void execute_command(void)
         } else {
             console_write("ERR profile transition already in progress\r\n");
         }
+    } else if (!strcmp(command_line, "battery")) {
+        print_battery_status();
     } else if (!strcmp(command_line, "clearkeys")) {
         if (cyclone2_clear_keys_request() > 0) {
             console_write("OK clearing stored link keys and restarting\r\n");
