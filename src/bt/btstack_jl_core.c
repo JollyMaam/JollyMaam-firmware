@@ -74,6 +74,9 @@ enum {
 };
 
 static volatile uint8_t jl_request;
+/* Pairings completed in this boot (a link key notification arrived). */
+static uint16_t jl_pairings;
+
 /* Debounce for the exit-sniff request: milliseconds until another one may be
  * sent, or 0 when none has been sent yet. */
 static uint32_t jl_unsniff_next_ms;
@@ -98,7 +101,11 @@ static btstack_timer_source_t jl_credit_timer;
 static void jl_credit_timer_handler(btstack_timer_source_t *ts)
 {
     if (jl_con_handle_valid) {
-        jl_trace(0x600u | hci_number_free_acl_slots_for_handle(jl_con_handle));
+        /* Only when the pool is empty: recording the healthy count every 500 ms
+     * fills the bring-up ring long before a session ends. */
+    if (hci_number_free_acl_slots_for_handle(jl_con_handle) == 0) {
+        jl_trace(0x600u);
+    }
     }
     btstack_run_loop_set_timer(ts, 300);
     btstack_run_loop_add_timer(ts);
@@ -583,7 +590,12 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
             break;
 
         case HCI_EVENT_LINK_KEY_NOTIFICATION:
+            /* A pairing completed and the console handed us its key (0x2901).
+             * Count them per boot: a reset that always lands on the same count
+             * means something is leaking for each pairing. */
+            jl_pairings++;
             jl_trace(0x2901u);
+            jl_trace(0x7a00u | (uint32_t)(jl_pairings & 0xffu));
             break;
 
         case HCI_EVENT_ENCRYPTION_CHANGE:
@@ -631,7 +643,7 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
                                                           report.size);
                         jl_tx_sent++;
                         if ((jl_tx_sent & 0x0fu) == 0u) {
-                            jl_trace(0x2300u | ((jl_tx_sent >> 4) & 0xffu));
+                            jl_trace(0x2300u | ((jl_tx_sent >> 8) & 0xffu));
                         }
                     }
                     jl_send_pending = 0;
@@ -676,7 +688,13 @@ static void jl_hid_report_data(uint16_t cid, hid_report_type_t report_type,
     /* Bring-up log: report id, and for a rumble+subcommand report the
      * subcommand id and its first argument (the console asks the controller to
      * stop/start sending input reports this way). */
-    jl_trace(0x2000u | report_id);
+    /* Skip the rumble-only report: the console sends it ~20 times a second,
+     * alternating with the subcommand reports, so recording it fills the
+     * bring-up ring long before a session ends.  0x01 (rumble + subcommand) is
+     * kept - the subcommand traces follow it. */
+    if (report_id != 0x10U) {
+        jl_trace(0x2000u | report_id);
+    }
     if ((report_id == 0x01U) && (report_size >= 10)) {
         jl_trace(0x2100u | packet[11]);
         jl_trace(0x2200u | packet[12]);

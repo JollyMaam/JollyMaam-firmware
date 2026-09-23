@@ -883,6 +883,7 @@ static const edr_init_cfg_t switch_edr_config = {
 
 static u8 switch_slot;
 static u8 switch_pairing;
+static u16 switch_connects;
 static u8 bond_delete_pending;
 static u8 peer_debug_remaining;
 static u8 bond_to_delete[6];
@@ -1106,7 +1107,12 @@ enum cyclone2_profile_event cyclone2_switch_handle_event(
             }
         } else if (event->u.bt.event == BT_STATUS_FIRST_CONNECTED ||
                    event->u.bt.event == BT_STATUS_SECOND_CONNECTED) {
+            /* 0x6900|count: how many times this session has seen a link come
+             * up.  A reset that always lands on the same count is a resource
+             * leak; one that lands after a fixed time is a timer. */
+            switch_connects++;
             cyclone2_bringup_record(0x6002u);
+            cyclone2_bringup_record(0x6900u | (u32)(switch_connects & 0xffu));
             tx_debug_remaining = 4U;
             log_peer_address("connected", event->u.bt.args);
             cyclone2_peer_address_write(switch_slot, event->u.bt.args);
@@ -1118,6 +1124,7 @@ enum cyclone2_profile_event cyclone2_switch_handle_event(
         } else if (event->u.bt.event == BT_STATUS_FIRST_DISCONNECT ||
                    event->u.bt.event == BT_STATUS_SECOND_DISCONNECT) {
             cyclone2_bringup_record(0x6004u);
+            cyclone2_bringup_record(0x6a00u | (u32)(switch_connects & 0xffu));
             log_peer_address("disconnected", event->u.bt.args);
             return stay_pairable();
         }
