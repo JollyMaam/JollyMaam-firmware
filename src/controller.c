@@ -11,6 +11,7 @@
 #include "rumble.h"
 #include "settings.h"
 #include "user_cfg_id.h"
+#include "wake/wake.h"
 
 #define CYCLONE2_CONTROL_PERIOD_MS           5U
 #define CYCLONE2_DEFAULT_REPORT_PERIOD_MS   16U
@@ -74,6 +75,9 @@ enum cyclone2_radio_state {
     CYCLONE2_RADIO_PAIRING,
     CYCLONE2_RADIO_CONNECTED,
     CYCLONE2_RADIO_STOPPING,
+    /* The baseband belongs to the Switch 1 wake sequence: no profile is
+     * running, and the wake owns the transmit scheduler. */
+    CYCLONE2_RADIO_WAKING,
 };
 
 struct cyclone2_settings {
@@ -121,12 +125,27 @@ static u32 injection_next_transition_ms;
 static u32 injection_target_edges;
 static u8 injection_last_emitted;
 static u8 injection_release_pending;
+/* A wake request names a slot, because the access code is derived from the
+ * console's address and each slot is its own console.  The request survives
+ * the profile teardown that has to happen before the baseband is free. */
+static u8 wake_pending;
+static u8 wake_pending_slot;
+static u8 wake_pending_channel;
+static u8 wake_pending_seconds;
+static u8 wake_slot = 0xffU;
+/* The baseband registers and the transmit scheduler belong to the controller
+ * library, which btstack_init() brings up with the first profile.  The wake
+ * takes the scheduler over, so it must not run before that has ever happened:
+ * a stored peer address survives a reflash, the controller does not. */
+static u8 controller_ready;
 
 extern void bt_pll_para(u32 osc, u32 sys, u8 low_power, u8 xosc);
 static void start_selected_profile(void);
 static void profile_select(u8 profile, u8 pairing);
 static void injection_cancel(void);
 static void soft_reset_now(void *private_data);
+static void start_pending_wake(void);
+static void profile_request_transition(u8 profile, u8 pairing);
 
 static void radio_exit_only(void *private_data)
 {
@@ -211,6 +230,87 @@ int cyclone2_connect_request(u8 profile)
     injection_cancel();
     profile_select(profile, 0U);
     return 1;
+}
+
+/* Wake the console this slot last connected to, then reconnect it.
+ *
+ * A sleeping Switch does not answer paging, which is why a pad that looks
+ * paired can sit there doing nothing until the console is woken by hand.  The
+ * wake is a radio-level sequence the standard host interface cannot produce
+ * (see docs/ns1-wakeup.md), so this takes the baseband away from the profile
+ * for the duration: the running session is torn down first, the bursts run
+ * for `seconds`, and then the slot reconnects normally.
+ *
+ * The target address is read from the slot's own peer record, the same one a
+ * working connection writes, so a pad paired with two different consoles
+ * wakes the one the requested slot belongs to. */
+int cyclone2_wake_request(u8 slot, u8 channel, u8 seconds)
+{
+    u8 target[6];
+    static const u8 zero[6] = {0, 0, 0, 0, 0, 0};
+
+    if (slot >= CYCLONE2_PROFILE_COUNT) return -1;
+    if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
+    if (radio_state == CYCLONE2_RADIO_WAKING) return -1;
+    if (!controller_ready) return -4;
+    if (channel > WAKE_CHANNEL_MAX ||
+        seconds < WAKE_SECONDS_MIN || seconds > WAKE_SECONDS_MAX) return -2;
+    /* Nothing to aim at: a slot that has never connected has no console
+     * address, and the wake code is derived from that address. */
+    if (!cyclone2_peer_address_read(slot, target)) return -3;
+    if (!memcmp(target, zero, sizeof(target))) return -3;
+
+    injection_cancel();
+    wake_pending = 1U;
+    wake_pending_slot = slot;
+    wake_pending_channel = channel;
+    wake_pending_seconds = seconds;
+
+    /* Always deferred, even with no session running: profile_transition_now()
+     * runs from a timer, and going through it keeps the command parser from
+     * carrying the profile-start path on its own stack - the same reason the
+     * other commands queue their work.  That function sees wake_pending and
+     * starts the wake instead of bringing a profile up. */
+    profile_request_transition(slot, 0U);
+    return 1;
+}
+
+/* The wake sequence has finished (or gave up); put the slot back on its
+ * normal reconnect path.  Called from the wake session in the poll. */
+void cyclone2_wake_finished(void)
+{
+    u8 slot = wake_slot;
+
+    if (radio_state != CYCLONE2_RADIO_WAKING) return;
+    radio_state = CYCLONE2_RADIO_OFF;
+    wake_slot = 0xffU;
+    if (slot < CYCLONE2_PROFILE_COUNT) {
+        cyclone2_usb_debug("wake done; reconnecting slot %u", slot);
+        profile_select(slot, 0U);
+    }
+}
+
+/* Take the baseband for the wake and start the bursts.  Only reached with no
+ * profile running, which is what makes it safe to disable the idle task and
+ * put our own task in the transmit scheduler. */
+static void start_pending_wake(void)
+{
+    int result;
+
+    active_profile = 0xffU;
+    active_pairing = 0U;
+    wake_slot = wake_pending_slot;
+    wake_pending = 0U;
+    radio_state = CYCLONE2_RADIO_WAKING;
+    result = wake_start(wake_pending_slot, wake_pending_channel,
+                        wake_pending_seconds);
+    if (result != 0) {
+        cyclone2_usb_debug("wake not started (%d); reconnecting slot %u",
+                           result, wake_pending_slot);
+        radio_state = CYCLONE2_RADIO_OFF;
+        wake_slot = 0xffU;
+        profile_select(wake_pending_slot, 0U);
+    }
 }
 
 /* Same as a connect request except that the slot forgets its stored link key
@@ -351,6 +451,14 @@ int cyclone2_reboot_request(void)
 
 int cyclone2_disconnect_request(void)
 {
+    if (radio_state == CYCLONE2_RADIO_WAKING) {
+        /* There is no profile to disconnect: the baseband is the wake's. */
+        wake_stop();
+        wake_slot = 0xffU;
+        wake_pending = 0U;
+        radio_state = CYCLONE2_RADIO_OFF;
+        return 1;
+    }
     if (active_profile >= CYCLONE2_PROFILE_COUNT) return 0;
     if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
 
@@ -528,6 +636,12 @@ static void profile_transition_now(void *private_data)
             return;
         }
     }
+    if (wake_pending) {
+        /* The radio is quiet now, which is the only state the wake can take
+         * the baseband in. */
+        start_pending_wake();
+        return;
+    }
     active_profile = pending_profile;
     active_pairing = pending_pairing;
     active_type = pending_type;
@@ -563,6 +677,14 @@ static void profile_request_transition(u8 profile, u8 pairing)
 static void profile_select(u8 profile, u8 pairing)
 {
     injection_cancel();
+    if (radio_state == CYCLONE2_RADIO_WAKING) {
+        /* Anything that wants the radio back - a connect, a pairing, a
+         * profile switch - takes it back from the wake. */
+        wake_stop();
+        wake_slot = 0xffU;
+        wake_pending = 0U;
+        radio_state = CYCLONE2_RADIO_OFF;
+    }
     if (active_profile < CYCLONE2_PROFILE_COUNT) {
         profile_request_transition(profile, pairing);
         return;
@@ -609,6 +731,15 @@ static void radio_exit_and_poweroff(void *private_data)
 {
     (void)private_data;
     cyclone2_rumble_stop();
+    /* The wake can be reached from the sleep path (a long Home hold) as well
+     * as from a command, and it has to give the radio back before anything
+     * else takes over. */
+    if (radio_state == CYCLONE2_RADIO_WAKING) {
+        wake_stop();
+        wake_slot = 0xffU;
+        wake_pending = 0U;
+        radio_state = CYCLONE2_RADIO_OFF;
+    }
     if (cyclone2_usb_present()) {
         sleep_pending = 0U;
         radio_state = active_profile < CYCLONE2_PROFILE_COUNT &&
@@ -869,6 +1000,9 @@ static void cyclone2_poll(void *private_data)
     } else {
         idle_since_ms = 0U;
     }
+    /* The wake sequence runs the baseband itself: no profile is up, and this
+     * is what advances the burst sweep and ends the attempt. */
+    if (radio_state == CYCLONE2_RADIO_WAKING) wake_step(now);
     cyclone2_rumble_poll(now);
     cyclone2_input_read(&sample);
     /* A console command may have started injection during this poll. Use a
@@ -955,6 +1089,9 @@ static void start_selected_profile(void)
     update_status_led();
 
     cyclone2_profile_start(active_type, active_profile, active_pairing);
+    /* The controller library is up from here on, even after this session is
+     * stopped, which is what lets the wake sequence take the baseband. */
+    controller_ready = 1U;
 }
 
 static void cyclone2_start(void)

@@ -7,6 +7,7 @@
 #include <asm/wdt.h>
 
 #include "controller.h"
+#include "wake/wake.h"
 #include "btstack_jl.h"
 #include "hci_dump_console.h"
 #include "input.h"
@@ -408,6 +409,55 @@ static int parse_injection_args(const char *text, u32 *period, u32 *duration)
     return 0;
 }
 
+/* `wake N [channel] [seconds]`: the slot is required, the rest defaults. */
+static int parse_wake_args(const char *text, u8 *channel, u8 *seconds)
+{
+    u32 value;
+
+    *channel = WAKE_CHANNEL_DEFAULT;
+    *seconds = WAKE_SECONDS_DEFAULT;
+    if (*text == '\0') return 0;
+    if (*text++ != ' ') return -1;
+    if (parse_decimal(&text, &value) != 0 || value > WAKE_CHANNEL_MAX) return -1;
+    *channel = (u8)value;
+    if (*text == '\0') return 0;
+    if (*text++ != ' ') return -1;
+    if (parse_decimal(&text, &value) != 0 ||
+        value < WAKE_SECONDS_MIN || value > WAKE_SECONDS_MAX) return -1;
+    *seconds = (u8)value;
+    return *text == '\0' ? 0 : -1;
+}
+
+/* Kept out of the command parser's frame for the same reason the status
+ * printers are: the parser shares the application loop's stack. */
+__attribute__((noinline)) static void command_wake(u8 slot, const char *arguments)
+{
+    u8 channel;
+    u8 seconds;
+    int result;
+
+    if (parse_wake_args(arguments, &channel, &seconds) != 0) {
+        console_write("ERR use wake 0|1|2|3 [channel] [seconds]\r\n");
+        return;
+    }
+    result = cyclone2_wake_request(slot, channel, seconds);
+    if (result > 0) {
+        char digit = (char)('0' + slot);
+
+        console_write("OK waking slot ");
+        console_write_bytes(&digit, 1U);
+        console_write("\r\n");
+    } else if (result == -3) {
+        console_write("ERR slot has no console address yet; connect it once first\r\n");
+    } else if (result == -4) {
+        console_write("ERR the controller is not up yet; run connect 0 first\r\n");
+    } else if (result == -2) {
+        console_write("ERR use wake 0|1|2|3 [channel] [seconds]\r\n");
+    } else {
+        console_write("ERR profile transition already in progress\r\n");
+    }
+}
+
 static int parse_rumble_args(const char *text, u32 *left, u32 *right,
                              u32 *duration)
 {
@@ -587,6 +637,24 @@ __attribute__((noinline)) static void print_imu_sample(void)
  * uninitialised module, and the VBAT reading is out of range for the cell -
  * the SoC's sense does not appear to be connected to it.  See
  * docs/charging.md. */
+/* Same reason as the other status printers: its formatting buffer belongs to
+ * its own frame, not to the command parser's. */
+__attribute__((noinline)) static void print_wake_status(void)
+{
+    struct wake_status status;
+    char line[160];
+    int length;
+
+    wake_status_get(&status);
+    length = snprintf(line, sizeof(line),
+                      "wake=%s slot=%u channel=%u states=%u interval=%u starts=%u elapsed=%u ms err=%d\r\n",
+                      status.active ? "active" : "stopped", status.slot,
+                      status.channel, status.states_visited,
+                      status.interval_slots, status.starts,
+                      status.elapsed_ms, status.last_error);
+    if (length > 0) console_write_bytes(line, (u32)length);
+}
+
 static void print_battery_status(void)
 {
     char line[96];
@@ -616,6 +684,9 @@ __attribute__((noinline)) static void execute_command(void)
                       "debug on|off|status  control runtime diagnostics\r\n"
                       "report 5|8|10|16|status  set/report HID period in ms\r\n"
                       "connect 0|1|2|3  reconnect a saved profile slot\r\n"
+                      "wake 0|1|2|3 [channel] [seconds]  wake that slot's\r\n"
+                      "         sleeping console, then reconnect it\r\n"
+                      "wake stop|status\r\n"
                       "pair 0|1|2|3  forget a slot's bond and wait to pair\r\n"
                       "pair N fresh  as above but with a new Bluetooth address\r\n"
                       "newaddr  give the pad a new random Bluetooth address\r\n"
@@ -683,6 +754,14 @@ __attribute__((noinline)) static void execute_command(void)
         } else {
             console_write("ERR profile transition already in progress\r\n");
         }
+    } else if (!strcmp(command_line, "wake stop")) {
+        wake_stop();
+        console_write("OK wake stopped\r\n");
+    } else if (!strcmp(command_line, "wake status")) {
+        print_wake_status();
+    } else if (!strncmp(command_line, "wake ", 5U) && command_line[5] >= '0' &&
+               command_line[5] <= '3') {
+        command_wake((u8)(command_line[5] - '0'), command_line + 6);
     } else if (!strcmp(command_line, "reboot")) {
         if (cyclone2_reboot_request() > 0) {
             console_write("OK rebooting\r\n");
