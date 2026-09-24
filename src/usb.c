@@ -7,6 +7,8 @@
 #include <asm/wdt.h>
 
 #include "controller.h"
+#include "btstack_jl.h"
+#include "hci_dump_console.h"
 #include "input.h"
 #include "imu.h"
 #include "led.h"
@@ -14,6 +16,7 @@
 #include "profile.h"
 #include "rom.h"
 #include "rumble.h"
+#include "settings.h"
 #include "usb.h"
 #include "usb/device/cdc.h"
 #include "usb/device/usb_stack.h"
@@ -209,11 +212,36 @@ static const char *connection_state_name(u8 state)
     return state < sizeof(names) / sizeof(names[0]) ? names[state] : "unknown";
 }
 
+/* One short line with the numbers a host wants to poll, without the 8 KB
+ * bring-up ring that `status` prints.  A session tool asks for this several
+ * times a second; the full status line drowns everything else. */
+static void print_compact_status(void)
+{
+    struct cyclone2_connection_status status;
+    char line[128];
+    int length;
+
+    cyclone2_connection_status_get(&status);
+    length = snprintf(line, sizeof(line),
+                      "stat up=%u boots=%08x state=%u addr=%02x%02x%02x%02x%02x%02x reset=%u p33=%u\r\n",
+                      (unsigned)sys_timer_get_ms(),
+                      (unsigned)cyclone2_boot_count,
+                      (unsigned)status.connection_state,
+                      status.local_address[5], status.local_address[4],
+                      status.local_address[3], status.local_address[2],
+                      status.local_address[1], status.local_address[0],
+                      (unsigned)cyclone2_reset_source,
+                      (unsigned)cyclone2_reset_p33);
+    if (length > 0) console_write_bytes(line, (u32)length);
+}
+
 __attribute__((noinline)) static void print_connection_status(void)
 {
     struct cyclone2_connection_status status;
     char line[128];
     int length;
+
+    /* Compact status has its own command; see print_compact_status(). */
 
     cyclone2_connection_status_get(&status);
     length = snprintf(line, sizeof(line),
@@ -279,6 +307,43 @@ static void print_bond_store(void)
             console_write_bytes(line, (u32)length);
             console_write("\r\n");
         }
+    }
+}
+
+/* The host's own link-key store, one line per record.
+ *
+ * This is the database that answers the controller's LINK_KEY_REQUEST, so it
+ * is the thing that has to hold the key a pairing produced.  Printing it by
+ * raw slot (rather than through the stack's iterator) shows an empty store
+ * plainly: count=0 means the key never reached the host. */
+static void print_link_keys(void)
+{
+    u8 address[6];
+    u8 key[16];
+    u8 type;
+    unsigned count = 0U;
+    unsigned slot;
+    char line[80];
+
+    for (slot = 0U; slot < BTSTACK_JL_LINK_KEY_SLOTS; slot++) {
+        int length;
+
+        if (!btstack_jl_link_key_store_read((u8)slot, address, key, &type))
+            continue;
+        count++;
+        length = snprintf(line, sizeof(line),
+                          "key slot=%u peer=%02x:%02x:%02x:%02x:%02x:%02x type=%u key=",
+                          slot, address[5], address[4], address[3],
+                          address[2], address[1], address[0], (unsigned)type);
+        if (length > 0) {
+            console_write_bytes(line, (u32)length);
+            console_write_hex(key, sizeof(key));
+            console_write("\r\n");
+        }
+    }
+    {
+        int length = snprintf(line, sizeof(line), "keys count=%u\r\n", count);
+        if (length > 0) console_write_bytes(line, (u32)length);
     }
 }
 
@@ -429,6 +494,36 @@ static int parse_ram_address(const char *text, u32 *address)
     return 0;
 }
 
+/* "aa:bb:cc:dd:ee:ff <32 hex> [type]" - one bond record as the `keys`
+ * command prints it.  The text is edited in place, so it has to be the
+ * writable command line.  Type defaults to 4 (unauthenticated combination
+ * key, what a console pairing produces). */
+static int parse_key_record(char *text, u8 address[6], u8 key[16], u8 *type)
+{
+    char *space = strchr(text, ' ');
+    unsigned length = 0U;
+    u32 value = 0U;
+
+    *type = 4U;
+    if (space == NULL) return -1;
+    *space = '\0';
+    if (parse_address(text, address) != 0) return -1;
+
+    text = space + 1;
+    space = strchr(text, ' ');
+    if (space != NULL) {
+        const char *cursor = space + 1;
+
+        *space = '\0';
+        if (parse_decimal(&cursor, &value) != 0 || *cursor != '\0' ||
+            value > 255U) return -1;
+        *type = (u8)value;
+    }
+    if (parse_hex_bytes(text, key, 16U, &length) != 0 || length != 16U)
+        return -1;
+    return 0;
+}
+
 __attribute__((noinline)) static void print_rumble_status(void)
 {
     struct cyclone2_rumble_status status;
@@ -524,14 +619,21 @@ __attribute__((noinline)) static void execute_command(void)
                       "pair 0|1|2|3  forget a slot's bond and wait to pair\r\n"
                       "pair N fresh  as above but with a new Bluetooth address\r\n"
                       "newaddr  give the pad a new random Bluetooth address\r\n"
+                      "setaddr AA:BB:..  set the pad's address to a saved one\r\n"
                       "unkey AA:BB:..  drop a stored link key and re-pair\r\n"
                       "peer N AA:BB:..  make slot N page that peer\r\n"
                       "clearkeys  zero the controller's pairing records\r\n"
                       "bondstore  dump the controller's pairing records\r\n"
+                      "keys       dump the host link-key store\r\n"
+                      "setkey AA:BB:.. KEY32 [type]  store one link key\r\n"
+                      "restore N AA:BB:.. KEY32 [type]  set slot N's peer and key\r\n"
+                      "hcidump on|off  trace HCI packets to the console\r\n"
                       "nvscan     list non-blank controller memory\r\n"
                       "delall     forget every device the stack remembers\r\n"
                       "connect status  show slot, address, state, and USB\r\n"
+                      "stat       one-line uptime/boot/state summary\r\n"
                       "disconnect  stop Bluetooth without sleeping\r\n"
+                      "reboot     reset the chip and come back as this build\r\n"
                       "battery  show charge-driver state and VBAT (driver is\r\n"
                       "         not initialised in this build; see docs/charging.md)\r\n"
                       "inject a PERIOD_MS DURATION_MS | stop | status\r\n"
@@ -554,6 +656,8 @@ __attribute__((noinline)) static void execute_command(void)
         print_status();
     } else if (!strcmp(command_line, "connect status")) {
         print_connection_status();
+    } else if (!strcmp(command_line, "stat")) {
+        print_compact_status();
     } else if (!strcmp(command_line, "connect 0") ||
                !strcmp(command_line, "connect 1") ||
                !strcmp(command_line, "connect 2") ||
@@ -576,6 +680,12 @@ __attribute__((noinline)) static void execute_command(void)
         if (result >= 0) {
             console_write(result ? "OK disconnecting\r\n" :
                                    "OK already disconnected\r\n");
+        } else {
+            console_write("ERR profile transition already in progress\r\n");
+        }
+    } else if (!strcmp(command_line, "reboot")) {
+        if (cyclone2_reboot_request() > 0) {
+            console_write("OK rebooting\r\n");
         } else {
             console_write("ERR profile transition already in progress\r\n");
         }
@@ -639,6 +749,16 @@ __attribute__((noinline)) static void execute_command(void)
         }
     } else if (!strcmp(command_line, "battery")) {
         print_battery_status();
+    } else if (!strncmp(command_line, "setaddr ", 8U)) {
+        u8 address[6];
+
+        if (parse_address(command_line + 8U, address) != 0) {
+            console_write("ERR use setaddr aa:bb:cc:dd:ee:ff\r\n");
+        } else if (cyclone2_set_address_request(address) > 0) {
+            console_write("OK address set\r\n");
+        } else {
+            console_write("ERR profile transition already in progress\r\n");
+        }
     } else if (!strcmp(command_line, "clearkeys")) {
         if (cyclone2_clear_keys_request() > 0) {
             console_write("OK clearing stored link keys and restarting\r\n");
@@ -647,6 +767,44 @@ __attribute__((noinline)) static void execute_command(void)
         }
     } else if (!strcmp(command_line, "bondstore")) {
         print_bond_store();
+    } else if (!strcmp(command_line, "keys")) {
+        print_link_keys();
+    } else if (!strcmp(command_line, "hcidump")) {
+        console_write(cyclone2_hci_dump_packets_enabled() ?
+                      "hcidump packet trace on\r\n" :
+                      "hcidump packet trace off\r\n");
+    } else if (!strcmp(command_line, "hcidump on")) {
+        cyclone2_hci_dump_set_packets(1U);
+        console_write("OK HCI packet trace on\r\n");
+    } else if (!strcmp(command_line, "hcidump off")) {
+        cyclone2_hci_dump_set_packets(0U);
+        console_write("OK HCI packet trace off\r\n");
+    } else if (!strncmp(command_line, "setkey ", 7U)) {
+        u8 address[6];
+        u8 key[16];
+        u8 type;
+
+        if (parse_key_record(command_line + 7U, address, key, &type) != 0) {
+            console_write("ERR use setkey aa:bb:cc:dd:ee:ff KEY32 [type]\r\n");
+        } else {
+            btstack_jl_link_key_store_write(address, key, type);
+            console_write("OK link key stored\r\n");
+        }
+    } else if (!strncmp(command_line, "restore ", 8U) && command_line[8] >= '0' &&
+               command_line[8] <= '3' && command_line[9] == ' ') {
+        u8 slot = (u8)(command_line[8] - '0');
+        u8 address[6];
+        u8 key[16];
+        u8 type;
+
+        if (parse_key_record(command_line + 10U, address, key, &type) != 0) {
+            console_write("ERR use restore N aa:bb:cc:dd:ee:ff KEY32 [type]\r\n");
+        } else {
+            cyclone2_peer_address_write(slot, address);
+            btstack_jl_link_key_store_write(address, key, type);
+            cyclone2_connect_request(slot);
+            console_write("OK bond restored; paging that peer\r\n");
+        }
     } else if (!strncmp(command_line, "peek ", 5U)) {
         u32 address;
         u32 length = 16U;
@@ -791,6 +949,17 @@ static void consume_input(const u8 *data, u32 length)
                 command_length--;
                 console_write("\b \b");
             }
+        } else if (byte == 0x05U) {
+            /* ENQ: the host's liveness ping, answered with a single ACK.
+             * Nothing is echoed and nothing is added to the command line, so
+             * a host can ask several times a second without leaving a mark on
+             * the console.  This runs from the application poll, which is the
+             * point: an answer means the firmware is running, not merely that
+             * the USB device is still enumerated. */
+            static const u8 ack = 0x06U;
+
+            last_was_cr = 0U;
+            console_write_bytes(&ack, 1U);
         } else if (byte >= 0x20U && byte <= 0x7eU) {
             last_was_cr = 0U;
             if (command_length + 1U < sizeof(command_line)) {

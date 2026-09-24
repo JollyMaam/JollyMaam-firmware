@@ -28,6 +28,7 @@ connect status
          show slot, profile, connection state, derived local address, and USB
 disconnect
          stop Bluetooth without sleeping or deleting the saved bond
+reboot   reset the chip and come back up as this same build
 newaddr  give the pad a new random Bluetooth address
          and restart the active profile so the controller uses it
 input status

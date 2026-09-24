@@ -32,7 +32,9 @@
 #define BTSTACK_JL_MAX_REPORT_SIZE    64
 /* HID SDP record: service attributes plus the 170 byte Switch report
  * descriptor, which upstream stores inline in the record. */
-#define BTSTACK_JL_SDP_RECORD_SIZE    360
+/* Room for the HID report descriptor plus the record's text attributes
+ * (service name, description, provider). */
+#define BTSTACK_JL_SDP_RECORD_SIZE    480
 #define BTSTACK_JL_HID_DESCRIPTOR_MAX 240
 
 typedef struct {
@@ -102,10 +104,15 @@ static void jl_credit_timer_handler(btstack_timer_source_t *ts)
 {
     if (jl_con_handle_valid) {
         /* Only when the pool is empty: recording the healthy count every 500 ms
-     * fills the bring-up ring long before a session ends. */
-    if (hci_number_free_acl_slots_for_handle(jl_con_handle) == 0) {
-        jl_trace(0x600u);
-    }
+         * fills the bring-up ring long before a session ends.  The handle also
+         * has to still exist - after a disconnect it is kept for the exit-sniff
+         * path, and asking about it logs an error every 300 ms until the next
+         * connection replaces it. */
+        if (hci_connection_for_handle(jl_con_handle) == 0) {
+            jl_con_handle_valid = 0;
+        } else if (hci_number_free_acl_slots_for_handle(jl_con_handle) == 0) {
+            jl_trace(0x600u);
+        }
     }
     btstack_run_loop_set_timer(ts, 300);
     btstack_run_loop_add_timer(ts);
@@ -841,7 +848,12 @@ static int btstack_jl_core_setup(void)
     memset(&hid_params, 0, sizeof(hid_params));
     hid_params.hid_device_subclass = (uint16_t) jl_config.class_of_device;
     hid_params.hid_country_code = 0;
-    hid_params.hid_virtual_cable = 0;
+    /* A virtual-cable HID device is one that reconnects on its own without the
+     * user doing anything - which is exactly what this pad does, and what the
+     * console needs to be told before it will keep a record it can reconnect
+     * to.  A real Pro Controller advertises this as true; so does joycontrol,
+     * which the console does remember. */
+    hid_params.hid_virtual_cable = 1;
     hid_params.hid_remote_wake = 1;
     hid_params.hid_reconnect_initiate = 1;
     hid_params.hid_normally_connectable = true;
@@ -852,6 +864,9 @@ static int btstack_jl_core_setup(void)
     hid_params.hid_descriptor = jl_config.report_descriptor;
     hid_params.hid_descriptor_size = jl_config.report_descriptor_size;
     hid_params.device_name = jl_config.local_name;
+    /* The other two text attributes a real controller advertises. */
+    hid_params.service_description = "Gamepad";
+    hid_params.provider_name = "Nintendo";
 
     memset(jl_sdp_service_buffer, 0, sizeof(jl_sdp_service_buffer));
     hid_create_sdp_record(jl_sdp_service_buffer, sdp_create_service_record_handle(),
