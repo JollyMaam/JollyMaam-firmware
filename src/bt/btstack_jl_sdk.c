@@ -21,8 +21,11 @@
 #include "usb.h"
 
 #include "app_comm_bt.h"
+#include "hci_dump_console.h"
 #include "main.h"
 #include "btstack_jl.h"
+
+
 
 #ifndef CFG_REMOTE_DB_00
 #define CFG_REMOTE_DB_00 62
@@ -34,9 +37,16 @@
  * library used for its own 38-byte records, so a record only counts as ours
  * when it carries the tag; foreign records (from a firmware built on the
  * vendor stack) are ignored instead of being read back as a key. */
-#define BTSTACK_JL_LINK_KEY_ENTRIES 16
+#define BTSTACK_JL_LINK_KEY_ENTRIES BTSTACK_JL_LINK_KEY_SLOTS
 #define BTSTACK_JL_LINK_KEY_TAG     0xC2
-#define BTSTACK_JL_LINK_KEY_SIZE    (1 + 6 + 16 + 1)
+
+/* How long to wait before writing a staged link key to flash.  The pairing
+ * this record came from finishes in well under 100 ms. */
+#define BTSTACK_JL_LINK_KEY_WRITE_DELAY_MS 2000
+
+/* Defined with the rest of the time helpers further down; the staging above
+ * and the flush below both need it. */
+static u32 jl_time_ms(void);
 
 static const edr_init_cfg_t *edr_config;
 static const u8 *edr_report_map;
@@ -68,6 +78,12 @@ extern const int sniff_support_reset_anchor_point;
 /* ------------------------------------------------------------- link keys */
 
 #ifdef CYCLONE2_BOND_STORE_RAM
+/* Nothing to flush: the RAM store is written in place. */
+void btstack_jl_link_key_flush(u8 force)
+{
+    (void)force;
+}
+
 /* CYCLONE2_BOND_STORE_RAM makes the bond store volatile: the records live in
  * internal RAM and are never written to syscfg.  Every boot (and every reflash)
  * then starts with no bonds at all, and pairing no longer costs a flash write.
@@ -99,18 +115,48 @@ static void link_key_slot_clear(u8 slot)
     memset(link_key_ram[slot], 0, BTSTACK_JL_LINK_KEY_SIZE);
 }
 #else
+/* A persistent build does not touch syscfg from the callback the controller
+ * uses for a derived link key: that runs inside the SSP exchange, and any
+ * syscfg access there - a read while looking for the peer's slot as much as
+ * the write - resets the pad.  Measured: the pairing reaches LINK KEY
+ * NOTIFICATION and the chip resets immediately, while the RAM-only build
+ * (which touches no flash on this path) goes on to encrypt and open the HID
+ * channels.  The record is staged here and written by the application task
+ * once the exchange is over. */
+static u8 link_key_write_pending;
+static u32 link_key_write_due_ms;
+static u8 link_key_staged_address[6];
+static u8 link_key_staged_key[16];
+static u8 link_key_staged_type;
+
+/* Slots whose records have been dropped but not yet erased in flash.  The
+ * deletes run while the radio is starting (forgetting a peer before a fresh
+ * pairing, and the stack's "forget everything" step), and erasing there resets
+ * the pad for the same reason the link-key write does. */
+static u16 link_key_clear_pending;
+
 static int link_key_slot_read(u8 slot, u8 *record)
 {
+#ifdef CYCLONE2_BOND_NO_KEY_FLASH
+    /* Diagnostic: pretend the store is empty instead of reading syscfg. */
+    (void)slot; (void)record;
+    return 0;
+#else
     int length = syscfg_read((u16)(CFG_REMOTE_DB_00 + slot), record,
                              BTSTACK_JL_LINK_KEY_SIZE);
 
     if (length != BTSTACK_JL_LINK_KEY_SIZE) return 0;
     if (record[0] != BTSTACK_JL_LINK_KEY_TAG) return 0;
     return 1;
+#endif
 }
 
 static int link_key_slot_write(u8 slot, const u8 *address, const u8 *key, u8 type)
 {
+#ifdef CYCLONE2_BOND_NO_KEY_FLASH
+    (void)slot; (void)address; (void)key; (void)type;
+    return 1;
+#else
     u8 record[BTSTACK_JL_LINK_KEY_SIZE];
 
     record[0] = BTSTACK_JL_LINK_KEY_TAG;
@@ -119,14 +165,17 @@ static int link_key_slot_write(u8 slot, const u8 *address, const u8 *key, u8 typ
     record[23] = type;
     return syscfg_write((u16)(CFG_REMOTE_DB_00 + slot), record,
                         sizeof(record)) == sizeof(record);
+#endif
 }
 
 static void link_key_slot_clear(u8 slot)
 {
-    u8 record[BTSTACK_JL_LINK_KEY_SIZE];
-
-    memset(record, 0, sizeof(record));
-    syscfg_write((u16)(CFG_REMOTE_DB_00 + slot), record, sizeof(record));
+    /* Deferred: the erases happen while the radio is starting, and a flash
+     * write there resets the pad (measured: `pair N` puts the pad in pairing
+     * mode and the chip resets seconds later, with the boot counter moving). */
+    if (slot < BTSTACK_JL_LINK_KEY_ENTRIES) {
+        link_key_clear_pending |= (u16)(1U << slot);
+    }
 }
 #endif /* CYCLONE2_BOND_STORE_RAM */
 
@@ -155,6 +204,7 @@ static int jl_link_key_get(const u8 address[6], u8 key[16], u8 *type)
 
 static void jl_link_key_put(const u8 address[6], const u8 key[16], u8 type)
 {
+#ifdef CYCLONE2_BOND_STORE_RAM
     u8 record[BTSTACK_JL_LINK_KEY_SIZE];
     u8 slot;
 
@@ -167,6 +217,17 @@ static void jl_link_key_put(const u8 address[6], const u8 key[16], u8 type)
     }
     link_key_slot_write(slot, address, key, type);
     cyclone2_bringup_record(0x3400u | slot);
+#else
+    /* Staged, not stored: no syscfg access at all from here.  The slot is
+     * chosen (and the write done) by btstack_jl_link_key_flush() from the
+     * application task.  The bring-up records still go in now, since they are
+     * plain SRAM writes. */
+    memcpy(link_key_staged_address, address, 6);
+    memcpy(link_key_staged_key, key, 16);
+    link_key_staged_type = type;
+    link_key_write_due_ms = jl_time_ms() + BTSTACK_JL_LINK_KEY_WRITE_DELAY_MS;
+    link_key_write_pending = 1;
+#endif
     cyclone2_bringup_record(0x3500u | key[0]);
     cyclone2_bringup_record(0x3600u | key[15]);
     {
@@ -209,6 +270,80 @@ static int jl_link_key_iterator(u8 index, u8 address[6], u8 key[16], u8 *type)
     }
     return 0;
 }
+
+/* Console view of the same store, addressed by raw slot so an empty slot can
+ * be told apart from a record that did not match.  See btstack_jl.h. */
+int btstack_jl_link_key_store_read(u8 index, u8 address[6], u8 key[16], u8 *type)
+{
+    u8 record[BTSTACK_JL_LINK_KEY_SIZE];
+
+    if (index >= BTSTACK_JL_LINK_KEY_ENTRIES) return 0;
+    if (!link_key_slot_read(index, record)) return 0;
+    memcpy(address, record + 1, 6);
+    memcpy(key, record + 7, 16);
+    *type = record[23];
+    return 1;
+}
+
+void btstack_jl_link_key_store_write(const u8 address[6], const u8 key[16], u8 type)
+{
+    jl_link_key_put(address, key, type);
+}
+
+#ifndef CYCLONE2_BOND_STORE_RAM
+/* Write a staged link key once the pairing that produced it is over.  Called
+ * from the application task; see the note above link_key_slot_write().
+ *
+ * The writes are made with interrupts masked.  This pad executes out of the
+ * same SPI flash the syscfg layer writes to, and an interrupt taken in the
+ * middle of a flash program/erase takes its handler from a bus that is busy -
+ * which is the most direct explanation for the resets this used to cause. */
+void btstack_jl_link_key_flush(u8 force)
+{
+    u8 record[BTSTACK_JL_LINK_KEY_SIZE];
+    u8 cleared[BTSTACK_JL_LINK_KEY_SIZE];
+    u8 slot;
+
+    /* Erase any records the pairing path asked to drop.  Same rule as the
+     * write below: only while the radio is idle - the application gates this
+     * call, and `force` is for the console commands, which run idle too. */
+    if (link_key_clear_pending != 0U) {
+        u16 pending = link_key_clear_pending;
+        link_key_clear_pending = 0U;
+        memset(cleared, 0, sizeof(cleared));
+        local_irq_disable();
+        for (slot = 0; slot < BTSTACK_JL_LINK_KEY_ENTRIES; slot++) {
+            if (pending & (u16)(1U << slot)) {
+                syscfg_write((u16)(CFG_REMOTE_DB_00 + slot), cleared,
+                             sizeof(cleared));
+            }
+        }
+        local_irq_enable();
+    }
+
+    if (!link_key_write_pending) return;
+    if (!force && (s32)(jl_time_ms() - link_key_write_due_ms) < 0) return;
+    link_key_write_pending = 0;
+#ifdef CYCLONE2_BOND_WRITE_DISABLED
+    /* Diagnostic build: stage and drop, to tell a crash in the flash write
+     * apart from one in the pairing path itself. */
+    cyclone2_usb_debug("BTSTACK: link key dropped (write disabled)");
+    return;
+#endif
+    /* This is the first flash access for this record: find the peer's slot,
+     * the way jl_link_key_put() would have. */
+    for (slot = 0; slot < BTSTACK_JL_LINK_KEY_ENTRIES; slot++) {
+        if (!link_key_slot_read(slot, record)) break;
+        if (memcmp(record + 1, link_key_staged_address, 6) == 0) break;
+    }
+    if (slot == BTSTACK_JL_LINK_KEY_ENTRIES) slot = 0;
+    local_irq_disable();
+    link_key_slot_write(slot, link_key_staged_address, link_key_staged_key,
+                        link_key_staged_type);
+    local_irq_enable();
+    cyclone2_bringup_record(0x3400u | slot);
+}
+#endif /* !CYCLONE2_BOND_STORE_RAM */
 
 /* ----------------------------------------------------------------- events */
 
@@ -409,6 +544,9 @@ void btstack_init(void)
     const u8 *address = bt_get_mac_addr();
 
     cyclone2_bringup_record(2U);
+    /* Route BTstack's own HCI trace and log messages to the USB console before
+     * the stack starts talking to the controller. */
+    cyclone2_hci_dump_init();
     memset(&config, 0, sizeof(config));
     config.local_name = bt_get_local_name();
     config.class_of_device = edr_class_of_device;

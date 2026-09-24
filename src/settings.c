@@ -91,6 +91,20 @@ void cyclone2_bt_address_randomize(void)
     memcpy(mac_addr, base_mac_addr, sizeof(mac_addr));
 }
 
+/* Put back an address that was saved off the pad.  A bond is keyed to the
+ * address the host saw, so restoring a captured pairing has to restore the
+ * address it was captured under as well; on the RAM-only build this is the
+ * only way to give a reflashed pad back the identity the console knows. */
+void cyclone2_bt_address_set(const u8 address[6])
+{
+    memcpy(base_mac_addr, address, sizeof(base_mac_addr));
+    normalize_address(base_mac_addr);
+#ifndef CYCLONE2_BOND_STORE_RAM
+    syscfg_write(CFG_BT_MAC_ADDR, base_mac_addr, sizeof(base_mac_addr));
+#endif
+    memcpy(mac_addr, base_mac_addr, sizeof(mac_addr));
+}
+
 /* The console a slot last connected to, i.e. the peer the slot pages when it
  * starts on its own.  Together with the link key in the host's key database
  * (src/bt/btstack_jl_sdk.c) this is the slot's bond; the address alone is not
@@ -101,6 +115,14 @@ void cyclone2_bt_address_randomize(void)
  * has never been written reads back as all zeroes, which the profile treats
  * the same way as a blank syscfg item: there is no peer to page. */
 #ifdef CYCLONE2_BOND_STORE_RAM
+void cyclone2_peer_address_cache_load(void)
+{
+}
+
+void cyclone2_peer_address_flush(void)
+{
+}
+
 static u8 peer_address_ram[CFG_BT_IDX_NUM][6];
 
 int cyclone2_peer_address_read(u8 slot, u8 address[6])
@@ -116,17 +138,62 @@ void cyclone2_peer_address_write(u8 slot, const u8 address[6])
     memcpy(peer_address_ram[slot], address, 6U);
 }
 #else
+/* The peer address is cached in RAM and written back to syscfg only when the
+ * radio is idle.
+ *
+ * It used to be written straight through, and one of those writes is on the
+ * pairing path: cyclone2_switch_start() clears the slot's peer as it enters
+ * pairing mode.  A syscfg write there resets the pad - measured: `pair N`
+ * restarts the chip seconds later, every time, while the same write on an
+ * idle pad is fine and the RAM-only build never crashes at all.  So the cache
+ * is authoritative and cyclone2_peer_address_flush() writes the dirty slots
+ * from the application task once the radio is quiet. */
+static u8 peer_address_cache[CFG_BT_IDX_NUM][6];
+static u8 peer_address_dirty[CFG_BT_IDX_NUM];
+static u8 peer_address_cache_ready;
+
+void cyclone2_peer_address_cache_load(void)
+{
+    u8 slot;
+
+    for (slot = 0U; slot < CFG_BT_IDX_NUM; slot++) {
+        if (syscfg_read((u16)(CFG_EDR_ADDRESS_BEGIN + slot),
+                        peer_address_cache[slot], 6U) != 6) {
+            memset(peer_address_cache[slot], 0, 6U);
+        }
+    }
+    peer_address_cache_ready = 1U;
+}
+
+void cyclone2_peer_address_flush(void)
+{
+    u8 slot;
+
+    /* Interrupts masked: see the note on btstack_jl_link_key_flush(). */
+    local_irq_disable();
+    for (slot = 0U; slot < CFG_BT_IDX_NUM; slot++) {
+        if (!peer_address_dirty[slot]) continue;
+        peer_address_dirty[slot] = 0U;
+        syscfg_write((u16)(CFG_EDR_ADDRESS_BEGIN + slot),
+                     peer_address_cache[slot], 6U);
+    }
+    local_irq_enable();
+}
+
 int cyclone2_peer_address_read(u8 slot, u8 address[6])
 {
     if (slot >= CFG_BT_IDX_NUM) return 0;
-    return syscfg_read((u16)(CFG_EDR_ADDRESS_BEGIN + slot), address,
-                       6U) == 6;
+    if (!peer_address_cache_ready) cyclone2_peer_address_cache_load();
+    memcpy(address, peer_address_cache[slot], 6U);
+    return 1;
 }
 
 void cyclone2_peer_address_write(u8 slot, const u8 address[6])
 {
     if (slot >= CFG_BT_IDX_NUM) return;
-    syscfg_write((u16)(CFG_EDR_ADDRESS_BEGIN + slot), (void *)address, 6U);
+    if (!peer_address_cache_ready) cyclone2_peer_address_cache_load();
+    memcpy(peer_address_cache[slot], address, 6U);
+    peer_address_dirty[slot] = 1U;
 }
 #endif /* CYCLONE2_BOND_STORE_RAM */
 

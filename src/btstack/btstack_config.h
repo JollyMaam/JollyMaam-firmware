@@ -19,6 +19,13 @@
 #define ENABLE_CLASSIC
 #define ENABLE_LOG_ERROR
 
+/* Keep our own bonding request when the peer asks for "no bonding".  A Switch
+ * console does exactly that and still expects the link key to survive to the
+ * next connection, which only a bonding pairing guarantees.  Without this the
+ * join pairing is negotiated as non-bonding and the console refuses the stored
+ * key on every reconnect (docs/live-bond-capture.md). */
+#define SSP_KEEP_BONDING_FLAG 1
+
 /* ACL payload the host sends.  The controller's ACL TX pool is 5 * 512 bytes
  * (CONFIG_BT_TX_BUFF_SIZE in src/sdkconfig/app_config.h), so staying at the
  * Bluetooth 4.0/5.0 default keeps every packet inside one pool buffer. */

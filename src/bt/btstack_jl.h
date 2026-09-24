@@ -42,6 +42,10 @@ typedef void (*btstack_jl_link_key_put_t)(const uint8_t address[6], const uint8_
 typedef void (*btstack_jl_link_key_delete_t)(const uint8_t address[6]);
 typedef int  (*btstack_jl_link_key_iterator_t)(uint8_t index, uint8_t address[6], uint8_t key[16], uint8_t *type);
 
+/* Shape of one bond record, and how many of them the host store holds. */
+#define BTSTACK_JL_LINK_KEY_SLOTS 16U
+#define BTSTACK_JL_LINK_KEY_SIZE  (1 + 6 + 16 + 1)
+
 typedef struct {
     /* Local identity. */
     const char *local_name;
@@ -122,6 +126,29 @@ int  btstack_jl_core_send_report(const uint8_t *message, uint16_t size);
 /* Bond management. */
 void btstack_jl_core_delete_all_link_keys(void);
 void btstack_jl_core_delete_link_key(const uint8_t address[6]);
+
+/* The host's own link-key store, addressed by raw record slot rather than by
+ * bonded peer.  The console uses these to lift a live pairing off the pad and
+ * put it back on a later boot: with BOND_STORE_RAM the store is the only copy
+ * of the key and a reset erases it, so the round trip through the host is the
+ * only way to carry a bond across a reflash.
+ *
+ * read  returns 1 when the slot holds a valid record.
+ * write behaves like the stack's own put_link_key: reuse the peer's record,
+ * else the first empty slot, else slot 0. */
+int  btstack_jl_link_key_store_read(uint8_t index, uint8_t address[6],
+                                    uint8_t key[16], uint8_t *type);
+void btstack_jl_link_key_store_write(const uint8_t address[6],
+                                     const uint8_t key[16], uint8_t type);
+
+/* Write a link key the controller has just handed us.
+ *
+ * A persistent build cannot do that from the callback the controller uses: it
+ * runs inside the SSP exchange, and writing syscfg there resets the pad.  The
+ * record is staged instead and this writes it once the exchange is over, so
+ * the application task calls it regularly (force != 0 writes immediately).
+ * A no-op on the RAM-only build. */
+void btstack_jl_link_key_flush(uint8_t force);
 
 /* Body of the "btstack" OS task. */
 void btstack_jl_core_run(void *argument);

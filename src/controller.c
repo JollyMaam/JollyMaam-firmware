@@ -3,6 +3,7 @@
 #include <usb/otg.h>
 
 #include "app_config.h"
+#include "btstack_jl.h"
 #include "controller.h"
 #include "main.h"
 #include "imu.h"
@@ -21,6 +22,10 @@
 #define CYCLONE2_LONG_HOLD_MS              5000U
 #define CYCLONE2_CONNECT_TIMEOUT_MS       30000U
 #define CYCLONE2_PAIR_TIMEOUT_MS          60000U
+/* How long the radio must have been idle before syscfg may be written.  The
+ * controller keeps working for a moment after a session ends, and a flash
+ * write in that window resets the pad. */
+#define CYCLONE2_FLASH_IDLE_MS             3000U
 /* Extra outgoing connection attempts after one ends without a usable session.
  * Small and bounded: an unreachable host must not become a retry storm. */
 #define CYCLONE2_CONNECT_RETRIES               2U
@@ -109,6 +114,7 @@ static u8 sleep_pending;
 static u8 sleep_confirm_count;
 static u8 ignore_chord_until_release;
 static u8 connect_attempts;
+static u32 idle_since_ms;
 static struct cyclone2_report_statistics report_statistics;
 static struct cyclone2_injection_status injection_status;
 static u32 injection_next_transition_ms;
@@ -251,6 +257,20 @@ int cyclone2_new_address_request(void)
     return 1;
 }
 
+/* Same as a new address, but with the address given instead of drawn.  Used
+ * to put back an identity that was saved off the pad, so a captured pairing
+ * can be replayed after a reflash. */
+int cyclone2_set_address_request(const u8 address[6])
+{
+    if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
+    injection_cancel();
+    cyclone2_bt_address_set(address);
+    if (active_profile < CYCLONE2_PROFILE_COUNT) {
+        profile_select(active_profile, active_pairing);
+    }
+    return 1;
+}
+
 /* Forget a specific peer's link key, then re-enter pairing with a new local
  * address.  This is the recovery for a link the two sides disagree about:
  * bonding records live in the Bluetooth controller's own memory, so they
@@ -303,6 +323,24 @@ int cyclone2_clear_keys_request(void)
         store[index] = 0U;
     }
     __asm__ volatile("csync");
+    injection_cancel();
+    cyclone2_rumble_stop();
+    radio_state = CYCLONE2_RADIO_STOPPING;
+    if (active_profile < CYCLONE2_PROFILE_COUNT) cyclone2_profile_disconnect();
+    sys_timeout_add(NULL, soft_reset_now, 100U);
+    return 1;
+}
+
+/* Reset the chip and come back up as this same application.
+ *
+ * The same teardown as clearing the keys, without touching anything else: stop
+ * the radio, stop the rumble, then soft-reset.  Useful for putting the pad back
+ * to a known boot state from a script - and for measuring what a reset does to
+ * the host, since it is a controlled, repeatable one.
+ */
+int cyclone2_reboot_request(void)
+{
+    if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
     injection_cancel();
     cyclone2_rumble_stop();
     radio_state = CYCLONE2_RADIO_STOPPING;
@@ -813,6 +851,24 @@ static void cyclone2_poll(void *private_data)
     now = sys_timer_get_ms();
     report_statistics.poll_count++;
     cyclone2_usb_control_poll();
+    /* Commit bond-store changes the radio could not write itself.
+     *
+     * Not from the controller's own callback (that runs inside the SSP
+     * exchange), and not while the radio is starting, running or tearing
+     * down: a flash write then resets the pad.  Measured three ways - the
+     * pairing reaches LINK KEY NOTIFICATION and the chip resets if syscfg is
+     * touched there; entering pairing mode resets it if the deferred erases
+     * run during the transition; and the same writes on a pad that has been
+     * idle for a while are fine.  So wait for a settled idle state. */
+    if (radio_state == CYCLONE2_RADIO_OFF) {
+        if (idle_since_ms == 0U) idle_since_ms = now;
+        else if (now - idle_since_ms >= CYCLONE2_FLASH_IDLE_MS) {
+            btstack_jl_link_key_flush(0U);
+            cyclone2_peer_address_flush();
+        }
+    } else {
+        idle_since_ms = 0U;
+    }
     cyclone2_rumble_poll(now);
     cyclone2_input_read(&sample);
     /* A console command may have started injection during this poll. Use a
