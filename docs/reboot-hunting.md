@@ -37,6 +37,7 @@ Calibration so far, all on this pad:
 |---|---|---|
 | first boot after `make flash` (loader reset) | 64 (0x40) | 1 |
 | deliberate `clearkeys` (our own `p33_soft_reset()`) | 64 (0x40) | 1 |
+| deliberate `reboot` (our own `p33_soft_reset()`) | 64 (0x40) | 1 |
 
 So `p33=0x40` is what this chip reports for a *requested* reset either way.
 The vendor's own decoder names the bits as 0x01 P33 reset, 0x02 DVDD POR
@@ -63,6 +64,33 @@ Correlate the timestamps with what the pad was doing: a reset while the
 console is connected, with the radio busy, at a suspiciously regular interval,
 or immediately after plugging something in, all point in different directions.
 
+## `p33=64` is not proof of a deliberate reset
+
+The table above reads `p33=0x40` as "a reset somebody asked for".  That is too
+generous: a *fault* lands there too.  A console command added on 2026-09-23
+called `uxTaskGetStackHighWaterMark()` - a symbol the linker resolves into the
+low-`.data` OS thunk table, but one this OS build never wires up - and the pad
+reset on *every* invocation, with `status` afterwards reporting
+
+    reset-source=0 p33=64 rtc=1        (boot counter moved, uptime restarted)
+
+which is exactly what the "spontaneous" resets during a console session look
+like.  So when a reset reports `p33=64`, treat "requested" as a hypothesis, not
+a conclusion.  Two cheap ways to separate them:
+
+* the bring-up ring says whether the reset landed on a *step* of a known
+  sequence (a pairing, a connection, a profile start) or somewhere arbitrary;
+* a reset that follows one command, repeatably, is a fault in that command.
+  Bisect it the way the probe above did: print a marker before each call and
+  see which marker is the last one printed.
+
+This class of fault is easy to introduce by accident, because a call to an
+entry point the shipped OS image does not provide still links - it resolves to
+a table slot and jumps into rubbish at runtime.  `nm build/app.elf | grep sym`
+shows such entries as `d` (data) at a low address rather than `t` (text), which
+is worth checking before trusting a new API.  Nothing else in this project
+calls one.
+
 ## Related
 
 The bring-up ring in `status` (`bt-log`) records the milestones of each boot,
@@ -70,3 +98,41 @@ so a boot that died can be read back after the fact: the entries are
 `(code << 16) | boot counter`, oldest first, and the end of the new boot's line
 is where the previous one stopped.  See `docs/profile-switch.md` for what the
 profile transitions record and `docs/bond-store.md` for the link-key codes.
+
+## 2026-09-23: the flash-backed build resets when it pairs
+
+The syscfg-backed bond store (`BOND_STORE_RAM=0`, the default) has a crash the
+RAM-only build does not.  It is written down here because it spent a long time
+hiding behind "the pad keeps resetting".
+
+What reproduces it, on the default build only:
+
+* `pair N` - entering pairing mode, which is also what the physical five-second
+  Home+face chord does - resets the chip within a few seconds.  Measured:
+  uptime 27320 ms before the command, 3790 ms after it, boot counter moved.
+  The RAM-only build runs the same command and keeps going.
+* A pairing with a console resets it too, right after
+  `HCI_EVENT_LINK_KEY_NOTIFICATION`.  With the link-key store's flash access
+  removed, the same pairing runs on to `hid channels open`.
+
+What has been tried, all measured, none of it sufficient:
+
+| change | result |
+|---|---|
+| stage the link key, write it from the app task 2 s later | still resets |
+| ... and only when `radio_state` is OFF or STOPPING | still resets |
+| ... and only after 3 s of settled idle | still resets |
+| defer the peer-address write the pairing path makes | still resets |
+| mask interrupts around every deferred write | still resets |
+| remove the link-key store's flash access entirely | the *immediate* reset goes away |
+
+The RAM-only build is immune, and it is immune because it touches no flash on
+these paths at all.  Interrupt masking not helping points away from "an
+interrupt taken while the flash is busy" and towards the syscfg write itself
+disturbing the controller while it runs: the pad executes from the same SPI
+flash the VM layer writes, and the controller library keeps its own state in
+there as well.
+
+Until this is understood, use `BOND_STORE_RAM=1` for anything that pairs or
+connects.  The default build is fine to *read* bonds - `keys` and `setkey` on
+an idle pad both work, measured - but must not be asked to pair.
