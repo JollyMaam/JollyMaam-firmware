@@ -33,48 +33,39 @@ is still linked and is where link keys, sniff and the LMP state machine live.
 Its LLVM bitcode can be read: `tools/stack_report.py` and the extraction
 recipe in `docs/reconnect.md`.
 
-## The bond problem, as far as it is proven
+## Reconnect from the Home screen: solved (2026-09-25)
 
-There are two places a link key can live, and they are different things:
+A pad paired in Change Grip/Order now reconnects from the Home screen: `pair 0`
+in CGO, leave to Home, `disconnect`, `connect 0` -> `Link Key Request` -> our
+key -> `Authentication Complete` (success) -> encryption -> HID channels open,
+and the pad works.  Measured with a fresh bond of this firmware and with a bond
+lifted from the stock 3.52 firmware (`/work/cyclone2-bonds/*STOCK*`).
 
-| store | owner | lifetime | who reads it |
-|---|---|---|---|
-| app link-key store - `keys`, `setkey`, `restore` | app | `BOND_STORE_RAM=1`: RAM only, lost on any reset.  Otherwise syscfg flash | the app, when it answers a `Link Key Request` |
-| one connection's key, `conn->core.link_key` at `conn + 0x9A` | SDK (`btctrler.a`) | one connection | the SDK's authentication maths |
+The reason-5 "link key rejected" of every earlier attempt was **not a key
+problem**.  Two bugs, both on the reconnect path:
 
-There is **no persistent bond store inside `btctrler.a`**: `Write Stored Link
-Key` (0x0C11) and `Delete Stored Link Key` (0x0C12) are stubs that log and
-return success (read out of the bitcode).  `0x10700`, which older docs call
-"the controller's pairing records", is referenced by nothing in the image
-except our own `clearkeys`/`bondstore` commands; a dump of it is all zeros.
-**There is exactly one persistent store, and it is the app's.**
+1. The port asked for the HID Control L2CAP channel the moment the ACL came up,
+   before any authentication.  The console answers that by disconnecting with
+   reason 5 without ever challenging the pad.  Fix: the outgoing HID channel is
+   created at `LEVEL_2` (`src/bt/btstack_jl_core.c`), so L2CAP waits for
+   authentication and encryption.  Incoming (pairing) channels stay `LEVEL_0`.
+2. `btctrler.a` lists `Read Encryption Key Size` as supported but never answers
+   it, which then held that secured channel forever.  Fix: the port's transport
+   answers it (`btstack-jl-port`, `hci_transport_jl_br23.c`).
 
-### What a pairing actually looks like
+The console *does* keep the bond from a CGO pairing - the key captured from the
+pairing's `Link Key Notification` is the one it accepts.  Things that turned
+out not to matter (tested): the pad's address being locally administered, and
+answering the pairing with General vs No Bonding.  Not yet re-tested since the
+fix: whether `SSP_KEEP_BONDING_FLAG` and the `markers-role-guard` patch mode
+(both changed during the hunt) are needed at all.
 
-In **Change Grip/Order the console re-pairs from scratch on every single
-connection.**  Captured 2026-09-24 with `hcidump on`:
+There is exactly one persistent bond store, the app's (`keys`, `setkey`,
+`bond`; RAM-only on `CYCLONE2_BOND_STORE_RAM 1`).  `btctrler.a` keeps a key only
+for the life of a connection; `Write/Delete Stored Link Key` are stubs.
 
-    IO Capability Request Reply          <- our answer, the console asked
-    User Confirmation Request / accept
-    Simple Pairing Complete
-    LINK KEY NOTIFICATION  <new 16-byte key>
-    Encryption Change (enabled)
-
-and `keys` showed the key changing across that one connect
-(`d16f0805...` -> `5c01d724...`).  So:
-
-* "pair, disconnect, reconnect" **while in Change Grip/Order always works and
-  proves nothing** - it is a fresh pairing every time, not a bond being used;
-* a key captured in Change Grip/Order is not necessarily the key the console
-  keeps, because the console is willing to just do it again;
-* the failure to chase is the one **outside** Change Grip/Order, which ends in
-  `link key rejected (reason=5)`.
-
-Both sides negotiate **no bonding** (`auth_req` without the bonding bit), which
-is normal for this console and is why `SSP_KEEP_BONDING_FLAG` exists in
-`src/btstack/btstack_config.h`.  See
-https://github.com/bluekitchen/btstack/issues/422 for the same shape of
-problem in bluepad32.
+In Change Grip/Order the console *pages the pad* and re-pairs from scratch every
+time; a pad-initiated connection there is treated like one from Home.
 
 ### The other bug hiding behind it: the pad resets
 
@@ -84,7 +75,9 @@ problem.  Reproduced 2026-09-24: `pair 0` -> console connects -> pairing
 completes -> console starts its init subcommands (0x02, 0x08, 0x10) -> **the
 pad dies** (`boots 5962ee38 -> 5962ee39`, `p33=0x40`).  Repeating it
 immediately succeeded, so it is a race, not a fixed path.  It also dies right
-after a `reason=5` rejection.
+after a `reason=5` rejection.  One cause is fixed: a received `LMP_DETACH`
+stalled until the supervision timeout (`docs/reboot-hunting.md`, 2026-09-25);
+no reset has been seen since, but the race above is not proven gone.
 
 `p33=0x40` is what this chip reports for *any* requested reset, so it does not
 by itself distinguish a fault from a deliberate reset - see

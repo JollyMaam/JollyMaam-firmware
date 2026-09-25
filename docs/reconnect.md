@@ -609,3 +609,18 @@ not been run yet**: with the console on Change Grip/Order, pair, then
 With `debug on` the `remote db open/write` lines from `src/settings.c` are the
 direct evidence that the notification arrived and the key was persisted - they
 have never appeared before.
+
+## 2026-09-25: solved - the pad opened the HID channel before authenticating
+
+Read `AGENTS.md` ("Reconnect from the Home screen: solved") first; most of the
+theories above were wrong.  The decisive experiment was a bond the console
+provably holds: the stock 3.52 firmware was flashed, paired and reconnected
+from Home, its VM (`0xf6000`: item `0x21` host address, item `0x27` link key,
+item `0x02` base address, Switch mode = base + 5) was dumped, and that bond
+was loaded into this firmware with `bond 0 ...`.  It failed exactly like our
+own bonds - the console never even challenged - which ruled out the pairing
+and pointed at the reconnect itself.  The HCI trace then showed an L2CAP
+Connection Request for PSM 0x11 sent right after Connection Complete, before
+any authentication; holding it until the link was secure (and answering the
+controller's missing Read Encryption Key Size) made both the stock bond and a
+fresh bond of this firmware reconnect.
