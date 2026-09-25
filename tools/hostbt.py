@@ -16,10 +16,13 @@ development container included - can drive it with the same script:
     tools/hostbt.py seq                            current log position
     tools/hostbt.py since SEQ [REGEX]              log lines after SEQ
     tools/hostbt.py wait SEQ REGEX [-t SECONDS]    block for a matching line
+    tools/hostbt.py sniff HANDLE [SLOTS]           sniff mode, like a Switch
+    tools/hostbt.py unsniff HANDLE
 
 Log lines read ``seq time tag text``; the tag is ``B`` for bluetoothctl, ``M``
 for btmon and ``S`` for the server itself.  Only bluetoothctl commands can be
-sent; nothing is passed to a shell.  Standard library only, so it runs with the
+sent, plus sniff/unsniff for one ACL handle (run as a fixed ``hcitool cmd``);
+nothing is passed to a shell.  Standard library only, so it runs with the
 host's own python3.
 """
 
@@ -176,6 +179,31 @@ class Handler(socketserver.StreamRequestHandler):
                 log.add("S", f"> {rest}")
                 ctl.write(rest)
                 reply = [f"ok {seq}"]
+            elif verb in ("sniff", "unsniff"):
+                # The only raw HCI this server sends: put the ACL with the
+                # given handle into (or out of) sniff mode, the way a Switch
+                # does right after connecting.  Arguments are validated as
+                # numbers; nothing reaches a shell.
+                args = rest.split()
+                handle = int(args[0], 0)
+                if not 0 <= handle <= 0x0eff:
+                    raise ValueError("handle out of range")
+                hl = ["0x%02x" % (handle & 0xff), "0x%02x" % (handle >> 8)]
+                if verb == "sniff":
+                    slots = int(args[1], 0) if len(args) > 1 else 24
+                    if not 2 <= slots <= 0x800:
+                        raise ValueError("interval out of range")
+                    iv = ["0x%02x" % (slots & 0xff), "0x%02x" % (slots >> 8)]
+                    cmd = ["hcitool", "cmd", "0x02", "0x0003", *hl, *iv, *iv,
+                           "0x01", "0x00", "0x00", "0x00"]
+                else:
+                    cmd = ["hcitool", "cmd", "0x02", "0x0004", *hl]
+                log.add("S", "> " + " ".join(cmd))
+                result = subprocess.run(cmd, capture_output=True, text=True,
+                                        timeout=5)
+                for line in (result.stdout + result.stderr).splitlines():
+                    log.add("S", line)
+                reply = [f"ok {log.seq} rc={result.returncode}"]
             elif verb == "seq":
                 reply = [str(log.seq)]
             elif verb == "since":
@@ -244,6 +272,12 @@ def main() -> None:
     p.add_argument("--bluetoothctl", default="bluetoothctl",
                    help=argparse.SUPPRESS)
 
+    p = sub.add_parser("sniff", help="put ACL HANDLE into sniff mode")
+    p.add_argument("handle")
+    p.add_argument("slots", nargs="?", default="24",
+                   help="sniff interval in 0.625 ms slots (Switch: 24)")
+    p = sub.add_parser("unsniff", help="take ACL HANDLE out of sniff mode")
+    p.add_argument("handle")
     p = sub.add_parser("bt", help="send one bluetoothctl command")
     p.add_argument("line")
     p = sub.add_parser("run", help="send a command and wait for a reply line")
@@ -273,6 +307,10 @@ def main() -> None:
             sys.stdout.write(request(args.port, f"since {start} ^", 5))
             sys.stdout.write("timeout\n")
             sys.exit(1)
+    elif args.command == "sniff":
+        reply = request(args.port, f"sniff {args.handle} {args.slots}", 10)
+    elif args.command == "unsniff":
+        reply = request(args.port, f"unsniff {args.handle}", 10)
     elif args.command == "seq":
         reply = request(args.port, "seq", 5)
     elif args.command == "since":
