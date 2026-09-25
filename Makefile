@@ -55,7 +55,7 @@ INCLUDES := -iquote src -iquote src/bt -iquote src/sdkconfig -iquote src/btstack
 	-iquote $(O) \
 	-I$(BTSTACK_DIR)/src -I$(BTSTACK_DIR)/src/classic -I$(BTSTACK_PORT_DIR) \
 	$(SDK_INCLUDES)
-PROJECT_SOURCES := $(wildcard src/*.c src/bt/*.c src/sdkconfig/*.c)
+PROJECT_SOURCES := $(wildcard src/*.c src/bt/*.c src/sdkconfig/*.c src/wake/*.c)
 APP_CONFIG_DEPS := $(wildcard src/sdkconfig/*.h src/sdkconfig/*.ld)
 
 # Upstream BTstack host sources.  The exclusions are the pieces that need the
@@ -105,7 +105,7 @@ else
 QUIET=@
 endif
 
-.PHONY: all default clean flash test itest rebootwatch
+.PHONY: all default clean flash test itest rebootwatch wake-vectors
 
 # Make must notice when the caller switches DEBUG_LOG; the value of a
 # command-line variable alone is not part of a target's timestamp
@@ -203,6 +203,17 @@ $O/bin2header: tools/bin2header.c
 	@mkdir -p $(@D)
 	@echo [EXE] $@
 	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) $< -o $@
+
+# Host check for the wake-up access code and payload maths.  The two modules
+# it covers are deliberately free of SDK includes so they can be built and run
+# on the host; see docs/ns1-wakeup.md.
+$O/wake_vectors: tools/wake_vectors.c src/wake/wakeup_code.c src/wake/wake_payload.c
+	@mkdir -p $(@D)
+	@echo [EXE] $@
+	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) -Isrc/wake $^ -o $@
+
+wake-vectors: $O/wake_vectors
+	$(QUIET)$O/wake_vectors
 
 $O/nintendo_switch_pro_hid.h: $O/bin2header data/nintendo_switch_pro_hid.bin
 	@mkdir -p $(@D)

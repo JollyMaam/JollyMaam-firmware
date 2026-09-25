@@ -1116,6 +1116,12 @@ enum cyclone2_profile_event cyclone2_switch_handle_event(
         } else if (event->u.bt.event == BT_STATUS_ENCRY_COMPLETE) {
             cyclone2_bringup_record(0x6003u);
             log_peer_address("encrypted", event->u.bt.args);
+            /* Record the console's address again here, now that the link is
+             * authenticated rather than merely up.  This is the record the
+             * wake sequence aims at (see docs/ns1-wakeup.md), so it is worth
+             * writing at the point where the console is known to have
+             * completed the exchange, not only when the ACL came up. */
+            cyclone2_peer_address_write(switch_slot, event->u.bt.args);
             sys_timeout_add(NULL, connect_hid_after_encryption,
                             SWITCH_HID_CONNECT_DELAY_MS);
         } else if (event->u.bt.event == BT_STATUS_FIRST_DISCONNECT ||

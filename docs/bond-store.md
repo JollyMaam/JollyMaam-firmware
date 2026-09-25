@@ -9,7 +9,7 @@ bond); the flag now covers the pad's identity and its profile settings too.
 | what | item | area | written when |
 |---|---|---|---|
 | link keys, one tagged record per peer | `CFG_REMOTE_DB_00..15` (62..77) | VM | on pairing; zeroed by `unkey`/`delall` |
-| the peer address each slot pages | `CFG_EDR_ADDRESS_BEGIN..+3` (34..37) | VM | on **every** connection |
+| the peer address each slot pages | `CFG_EDR_ADDRESS_BEGIN..+3` (34..37) | VM | on **every** connection, and again once that link authenticates |
 | the pad's own Bluetooth address | `CFG_BT_MAC_ADDR` (102) | BTIF | first boot if blank; `newaddr`, `pair N fresh`, `unkey` |
 | profile settings (per-slot type, report period) | `CFG_CYCLONE2_PROFILE_SETTINGS` (48) | VM | the `report N` command |
 
