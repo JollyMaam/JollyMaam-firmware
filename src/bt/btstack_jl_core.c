@@ -450,7 +450,15 @@ static void jl_tx_poll(btstack_data_source_t *data_source,
             jl_address_to_jieli(address, peer);
             memcpy(jl_peer_address, peer, sizeof(jl_peer_address));
             jl_peer_valid = 1;
+            /* Reconnect: do not ask for the HID Control channel until the
+             * link is authenticated and encrypted.  A Pro Controller lets the
+             * console authenticate first; an L2CAP request on a bare link is
+             * answered with "authentication failure".  The level is captured
+             * when the channel is created, so raising it only around this
+             * call leaves the incoming (pairing) channels at LEVEL_0. */
+            gap_set_security_level(LEVEL_2);
             hid_device_connect(peer, &hid_cid);
+            gap_set_security_level(LEVEL_0);
         }
     }
 
