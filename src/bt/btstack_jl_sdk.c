@@ -198,6 +198,16 @@ static int jl_link_key_get(const u8 address[6], u8 key[16], u8 *type)
     u8 record[BTSTACK_JL_LINK_KEY_SIZE];
     u8 slot;
 
+#if !CYCLONE2_BOND_STORE_RAM
+    /* A key staged by a pairing is not in flash until the radio has been idle
+     * for a while; a peer that reconnects before that must still find it. */
+    if (link_key_write_pending &&
+        memcmp(link_key_staged_address, address, 6) == 0) {
+        memcpy(key, link_key_staged_key, 16);
+        *type = link_key_staged_type;
+        return 1;
+    }
+#endif
     for (slot = 0; slot < BTSTACK_JL_LINK_KEY_ENTRIES; slot++) {
         if (!link_key_slot_read(slot, record)) continue;
         if (memcmp(record + 1, address, 6) != 0) continue;

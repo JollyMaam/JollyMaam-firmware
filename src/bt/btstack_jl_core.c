@@ -19,6 +19,7 @@
 #include "classic/hid_device.h"
 #include "classic/sdp_server.h"
 #include "classic/sdp_util.h"
+#include "classic/device_id_server.h"
 #include "gap.h"
 #include "hci.h"
 #include "hci_cmd.h"
@@ -127,6 +128,10 @@ static btstack_packet_callback_registration_t jl_hci_event_registration;
 static btstack_packet_callback_registration_t jl_l2cap_event_registration;
 static btstack_data_source_t jl_tx_data_source;
 static uint8_t jl_sdp_service_buffer[BTSTACK_JL_SDP_RECORD_SIZE];
+/* Device ID (PnP) record: BlueZ takes the HID device's vendor and product from
+ * it, and Linux's hid-nintendo binds only to 057e:2009.  Without it the pad
+ * came up as 0000:0000 and a generic HID driver took it. */
+static uint8_t jl_sdp_device_id_buffer[100];
 static uint8_t jl_hid_descriptor[BTSTACK_JL_HID_DESCRIPTOR_MAX];
 static uint16_t jl_hid_descriptor_size;
 
@@ -874,8 +879,24 @@ static int btstack_jl_core_setup(void)
     hid_create_sdp_record(jl_sdp_service_buffer, sdp_create_service_record_handle(),
                           &hid_params);
     jl_trace(14u);
-    sdp_register_service(jl_sdp_service_buffer);
+    {
+        /* A failure here leaves the pad with an empty SDP database: hosts
+         * that look for the HID service (BlueZ) then never set it up. */
+        uint8_t status = sdp_register_service(jl_sdp_service_buffer);
+        if (status != 0) {
+            cyclone2_usb_debug("BTSTACK: SDP HID record not registered (0x%02x)",
+                               status);
+        }
+    }
     jl_trace(15u);
+    memset(jl_sdp_device_id_buffer, 0, sizeof(jl_sdp_device_id_buffer));
+    device_id_create_sdp_record(jl_sdp_device_id_buffer,
+                                sdp_create_service_record_handle(),
+                                DEVICE_ID_VENDOR_ID_SOURCE_USB,
+                                0x057eu, 0x2009u, 0x0001u);
+    if (sdp_register_service(jl_sdp_device_id_buffer) != 0) {
+        cyclone2_usb_debug("BTSTACK: SDP Device ID record not registered");
+    }
 
     jl_hid_descriptor_size = jl_config.report_descriptor_size;
     if (jl_hid_descriptor_size > sizeof(jl_hid_descriptor)) {
@@ -884,6 +905,11 @@ static int btstack_jl_core_setup(void)
     memcpy(jl_hid_descriptor, jl_config.report_descriptor, jl_hid_descriptor_size);
     hid_device_init(false, jl_config.report_descriptor_size,
                     jl_config.report_descriptor);
+    /* The descriptor declares output report 0x01 at full length, but hosts
+     * send it trimmed to the subcommand's arguments (Linux hid-nintendo: 17
+     * bytes for an SPI read) and a Pro Controller accepts that.  Without this
+     * hid_device.c drops every such report and the host times out. */
+    hid_device_accept_truncated_hid_reports(true);
     hid_device_register_report_data_callback(&jl_hid_report_data);
     hid_device_register_set_report_callback(&jl_hid_set_report);
     hid_device_register_report_request_callback(&jl_hid_report_request);

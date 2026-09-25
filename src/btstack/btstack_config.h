@@ -40,6 +40,6 @@
 #define MAX_NR_L2CAP_CHANNELS           8
 /* SDP plus the HID control and interrupt services. */
 #define MAX_NR_L2CAP_SERVICES           4
-#define MAX_NR_SDP_SERVICE_RECORDS      3
+#define MAX_NR_SERVICE_RECORD_ITEMS     3
 
 #endif
