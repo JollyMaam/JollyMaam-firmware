@@ -633,6 +633,7 @@ __attribute__((noinline)) static void execute_command(void)
                       "setkey AA:BB:.. KEY32 [type]  store one link key\r\n"
                       "restore N AA:BB:.. KEY32 [type]  set slot N's peer and key\r\n"
                       "hcidump on|off  trace HCI packets to the console\r\n"
+                      "bleadv on|off  LE-advertise the Switch 2 payload (BTstack up)\r\n"
                       "nvscan     list non-blank controller memory\r\n"
                       "delall     forget every device the stack remembers\r\n"
                       "connect status  show slot, address, state, and USB\r\n"
@@ -778,6 +779,16 @@ __attribute__((noinline)) static void execute_command(void)
         console_write(cyclone2_hci_dump_packets_enabled() ?
                       "hcidump packet trace on\r\n" :
                       "hcidump packet trace off\r\n");
+    } else if (!strcmp(command_line, "bleadv on")) {
+        extern const u8 *cyclone2_switch2_adv_data(u8 *length);
+        u8 length;
+        const u8 *data = cyclone2_switch2_adv_data(&length);
+
+        btstack_jl_core_le_advertise(data, length);
+        console_write("OK LE advertising the Switch 2 payload\r\n");
+    } else if (!strcmp(command_line, "bleadv off")) {
+        btstack_jl_core_le_advertise(NULL, 0U);
+        console_write("OK LE advertising off\r\n");
     } else if (!strcmp(command_line, "hcidump on")) {
         cyclone2_hci_dump_set_packets(1U);
         console_write("OK HCI packet trace on\r\n");

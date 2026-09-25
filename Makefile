@@ -73,7 +73,9 @@ BTSTACK_SOURCES := \
 		$(BTSTACK_DIR)/src/classic/btstack_link_key_db_tlv.c \
 		$(BTSTACK_DIR)/src/classic/pbap_client.c \
 		, $(wildcard $(BTSTACK_DIR)/src/classic/*.c)) \
-	$(wildcard $(BTSTACK_PORT_DIR)/*.c)
+	$(wildcard $(BTSTACK_PORT_DIR)/*.c) \
+	$(addprefix $(BTSTACK_DIR)/src/ble/, att_db.c att_db_util.c att_dispatch.c \
+		att_server.c le_device_db_memory.c sm.c)
 BTSTACK_OBJECTS := $(subst $(BTSTACK_DIR),$O/btstack,$(BTSTACK_SOURCES:.c=.c.o))
 
 # btctrler.a and the Jieli runtime already export a few names that upstream

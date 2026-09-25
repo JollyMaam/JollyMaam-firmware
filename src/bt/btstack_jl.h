@@ -107,6 +107,9 @@ void btstack_jl_core_power_off(void);
 
 /* Apply the requested page/inquiry scan state (1 = enable). */
 void btstack_jl_core_set_scan(uint8_t connectable, uint8_t discoverable);
+/* Start LE advertising with this payload (applied on the BTstack run loop),
+ * or stop it with length 0. */
+void btstack_jl_core_le_advertise(const uint8_t *data, uint8_t length);
 
 /* Replace the local device address; the controller keeps its own copy too. */
 void btstack_jl_core_set_address(const uint8_t address[6]);

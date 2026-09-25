@@ -52,6 +52,13 @@ static u8 switch2_adv_data[] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
 
+/* The advertisement above, for the BTstack LE bring-up (`bleadv on`). */
+const u8 *cyclone2_switch2_adv_data(u8 *length)
+{
+    *length = (u8)sizeof(switch2_adv_data);
+    return switch2_adv_data;
+}
+
 static const u8 switch2_empty_report_map[] = { 0xc0 };
 static const sm_cfg_t switch2_sm_config = {
     .slave_security_auto_req = 0,
