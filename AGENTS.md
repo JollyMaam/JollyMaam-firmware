@@ -15,8 +15,7 @@ comes from reading a binary rather than from a live run, it says so.
 * **Do not leave the session dark.**  The shared log (`tools/padbus.py`) and
   the TUI exist so both sides watch the same thing.  Drive through the bus
   rather than opening the serial port directly.
-* **Commit only when asked, in small explained steps.**  The user reads the
-  history themselves.
+* **Commit when you have reached a logical check point.**
 * **Say "the app" or "the SDK", never a vague "the stack".**  See below.
 * Prefer concrete evidence over plausibility.  This repo is full of
   previously-believed things that turned out to be wrong (`docs/reconnect.md`
