@@ -143,14 +143,8 @@ static int link_key_slot_read(u8 slot, u8 *record)
     (void)slot; (void)record;
     return 0;
 #else
-    int length;
-
-    /* 0x3d00|slot before, 0x3e00|slot after: a hang inside the settings
-     * layer shows as a 3d with no matching 3e. */
-    cyclone2_bringup_record(0x3d00u | slot);
-    length = syscfg_read((u16)(CFG_REMOTE_DB_00 + slot), record,
-                         BTSTACK_JL_LINK_KEY_SIZE);
-    cyclone2_bringup_record(0x3e00u | slot);
+    int length = syscfg_read((u16)(CFG_REMOTE_DB_00 + slot), record,
+                             BTSTACK_JL_LINK_KEY_SIZE);
 
     if (length != BTSTACK_JL_LINK_KEY_SIZE) return 0;
     if (record[0] != BTSTACK_JL_LINK_KEY_TAG) return 0;

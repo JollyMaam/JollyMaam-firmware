@@ -56,3 +56,40 @@ With everything RAM-only the whole run should be flash-neutral, so there is
 nothing to avoid any more: `newaddr`, `pair N fresh` and `unkey` change the
 address in RAM for this boot only.  A run that passes leaves the pad on the
 RAM-only build; dumps are kept under `/work/cyclone2-flash-backups/`.
+
+## `tools/fuzz_links.py` — random connect / pair / disconnect against a console
+
+Hunts the intermittent resets by driving the pad through padbus with random
+`pair 0`, `connect 0` and `disconnect` commands at random intervals (0.3 s to
+20 s, some short enough to cut a pairing or connection off halfway).
+
+Setup:
+
+1. padbus is running (`tools/padbus.py serve ...`); nothing else should hold
+   control while the fuzzer runs (it takes control as `fuzz`).
+2. The pad runs a build with markers: `CYCLONE2_PATCH_BTCTLER` set to a
+   `"markers..."` mode in `src/build_config.h` (the LMP markers are what make
+   a dump readable).
+3. The Switch is **on and in Change Grip/Order**, so `pair 0` gets a fresh
+   pairing and `connect 0` is a pad-initiated reconnect.  Nobody needs to
+   touch the pad or the console during the run.
+
+Run:
+
+    tools/fuzz_links.py --minutes 10            # random seed, printed first
+    tools/fuzz_links.py --minutes 10 --seed N   # replay a sequence
+
+It turns the pad's debug log on, prints `RESET after action N: ...` whenever
+padbus reports a reset, and at the end the number of actions and resets.
+Each reset is written to `/work/nslog/fuzz-resets.txt` with the last twelve
+actions (with timestamps) and a dump of the last two boots' marker rings,
+taken straight after the reset so the new boot cannot overwrite the dying
+one.  The fuzzer leaves the pad disconnected.
+
+`tools/ringdump.py [--boots N] [--tail M]` is the dump on its own: it reads
+the whole 2000-entry ring with `peek` (about 40 s) and prints it grouped by
+boot, where `status` shows only the newest 96 markers.  It needs
+`build/app.map` from the build that is on the pad.
+
+Before flashing, `disconnect` first: entering the loader with `uboot` while
+the pad is connected has twice left it off USB until a replug (2026-09-25).

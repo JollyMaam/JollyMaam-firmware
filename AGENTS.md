@@ -122,6 +122,10 @@ runs `sudo python3 tools/hostbt.py serve` on the host (bluetoothctl + btmon);
 from here, `tools/hostbt.py run "pair AA:.." --wait 'successful|Failed'`,
 `since SEQ [REGEX]` and friends drive it over 127.0.0.1:47807.
 
+`tools/fuzz_links.py` fuzzes pair/connect/disconnect against a Switch left in
+Change Grip/Order and dumps the marker ring on every reset
+(`docs/testing.md`); `tools/ringdump.py` reads the whole ring on its own.
+
 `tools/bond_capture.py` and `tools/bond_load.py` move a bond on and off the pad
 through `/work/cyclone2-bonds/`.  On a RAM-only build that round trip is the
 only way a bond survives a reset.
