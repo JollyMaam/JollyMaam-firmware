@@ -10,7 +10,7 @@
  * RAM only - every boot starts unpaired and nothing is written to flash
  * (docs/bond-store.md).  0: persist them in syscfg flash, as the product
  * does. */
-#define CYCLONE2_BOND_STORE_RAM 1
+#define CYCLONE2_BOND_STORE_RAM 0
 
 /* How tools/patch_btctrler.py patches the vendor controller archive
  * btctrler.a.  Keep it a string literal on one line; the patcher parses it.
@@ -26,6 +26,6 @@
  *   "trace"                   notify + LMP key printfs (needs DEBUG_LOG)
  *   "diagnostic"              the old sniff-override experiment; breaks SSP
  */
-#define CYCLONE2_PATCH_BTCTLER "markers"
+#define CYCLONE2_PATCH_BTCTLER "markers-role-guard"
 
 #endif /* CYCLONE2_BUILD_CONFIG_H */
