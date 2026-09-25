@@ -3,6 +3,7 @@
 #include <usb/otg.h>
 
 #include "app_config.h"
+#include "cyclone2_build_config.h"
 #include "btstack_jl.h"
 #include "controller.h"
 #include "main.h"
@@ -187,7 +188,7 @@ int cyclone2_report_period_set(u8 period_ms)
         period_ms != 16U) return -1;
     settings.report_period_ms = period_ms;
     next_report_ms = sys_timer_get_ms();
-#ifdef CYCLONE2_BOND_STORE_RAM
+#if CYCLONE2_BOND_STORE_RAM
     /* RAM-only build: the new period applies to this session and is not
      * written to syscfg, so a test can change it as often as it likes. */
 #else

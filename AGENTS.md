@@ -130,9 +130,13 @@ only way a bond survives a reset.
 
 ## Build and flash
 
-    make -j32 O=build-ram BOND_STORE_RAM=1        # bond in RAM (the debug build)
-    make -j32 O=build                            # bond in syscfg flash
-    tools/flash.sh --image build-ram/firmware.img
+    make -j32                                    # uses build_config.h
+    tools/flash.sh                               # flashes build/firmware.img
+
+`BOND_STORE_RAM` (bond in RAM or syscfg flash) and `PATCH_BTCTLER` (how the
+controller archive is patched) live in `build_config.h`.  Edit a value and
+run plain `make`: only what it affects is rebuilt.  `make VAR=value` still
+overrides a value for one run.
 
 The stack-size warnings the compiler prints are a vendor lint, not a symptom;
 the measured worst case is well inside the budget (`docs/stack-budget.md`).

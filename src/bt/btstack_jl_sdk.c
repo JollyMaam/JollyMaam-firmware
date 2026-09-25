@@ -18,6 +18,7 @@
 #include <btstack/avctp_user.h>
 
 #include "app_config.h"
+#include "cyclone2_build_config.h"
 #include "usb.h"
 
 #include "app_comm_bt.h"
@@ -77,7 +78,7 @@ extern const int sniff_support_reset_anchor_point;
 
 /* ------------------------------------------------------------- link keys */
 
-#ifdef CYCLONE2_BOND_STORE_RAM
+#if CYCLONE2_BOND_STORE_RAM
 /* Nothing to flush: the RAM store is written in place. */
 void btstack_jl_link_key_flush(u8 force)
 {
@@ -204,7 +205,7 @@ static int jl_link_key_get(const u8 address[6], u8 key[16], u8 *type)
 
 static void jl_link_key_put(const u8 address[6], const u8 key[16], u8 type)
 {
-#ifdef CYCLONE2_BOND_STORE_RAM
+#if CYCLONE2_BOND_STORE_RAM
     u8 record[BTSTACK_JL_LINK_KEY_SIZE];
     u8 slot;
 
@@ -290,7 +291,7 @@ void btstack_jl_link_key_store_write(const u8 address[6], const u8 key[16], u8 t
     jl_link_key_put(address, key, type);
 }
 
-#ifndef CYCLONE2_BOND_STORE_RAM
+#if !CYCLONE2_BOND_STORE_RAM
 /* Write a staged link key once the pairing that produced it is over.  Called
  * from the application task; see the note above link_key_slot_write().
  *

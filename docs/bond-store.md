@@ -26,8 +26,9 @@ and zeroed by `clearkeys`) and these survive it too.
 
 ## `BOND_STORE_RAM=1`
 
-    make BOND_STORE_RAM=1 O=build-ram
-    tools/flash.sh --image build-ram/firmware.img
+    # build_config.h: #define BOND_STORE_RAM 1
+    make
+    tools/flash.sh
 
 With it on, every row of the table above is held in RAM.  Flash is still *read*
 at boot, so the pad comes up with the identity and the slot types that are

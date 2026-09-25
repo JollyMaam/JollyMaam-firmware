@@ -1,6 +1,7 @@
 #include <system/includes.h>
 #include <system/user_cfg.h>
 
+#include "cyclone2_build_config.h"
 #include "usb.h"
 
 static u8 base_mac_addr[6];
@@ -52,7 +53,7 @@ void cyclone2_bt_address_init(void)
         address_is(base_mac_addr, 0xffU)) {
         get_random_number(base_mac_addr, sizeof(base_mac_addr));
         normalize_address(base_mac_addr);
-#ifdef CYCLONE2_BOND_STORE_RAM
+#if CYCLONE2_BOND_STORE_RAM
         /* RAM-only build: keep the generated address instead of persisting it,
          * so a device whose BTIF is blank gets a new identity every boot and
          * the flash is left alone. */
@@ -85,7 +86,7 @@ void cyclone2_bt_address_randomize(void)
 {
     get_random_number(base_mac_addr, sizeof(base_mac_addr));
     normalize_address(base_mac_addr);
-#ifndef CYCLONE2_BOND_STORE_RAM
+#if !CYCLONE2_BOND_STORE_RAM
     syscfg_write(CFG_BT_MAC_ADDR, base_mac_addr, sizeof(base_mac_addr));
 #endif
     memcpy(mac_addr, base_mac_addr, sizeof(mac_addr));
@@ -99,7 +100,7 @@ void cyclone2_bt_address_set(const u8 address[6])
 {
     memcpy(base_mac_addr, address, sizeof(base_mac_addr));
     normalize_address(base_mac_addr);
-#ifndef CYCLONE2_BOND_STORE_RAM
+#if !CYCLONE2_BOND_STORE_RAM
     syscfg_write(CFG_BT_MAC_ADDR, base_mac_addr, sizeof(base_mac_addr));
 #endif
     memcpy(mac_addr, base_mac_addr, sizeof(mac_addr));
@@ -114,7 +115,7 @@ void cyclone2_bt_address_set(const u8 address[6])
  * the whole slot->console association is gone at the next boot.  A slot that
  * has never been written reads back as all zeroes, which the profile treats
  * the same way as a blank syscfg item: there is no peer to page. */
-#ifdef CYCLONE2_BOND_STORE_RAM
+#if CYCLONE2_BOND_STORE_RAM
 void cyclone2_peer_address_cache_load(void)
 {
 }

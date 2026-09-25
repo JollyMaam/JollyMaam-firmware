@@ -13,41 +13,24 @@ BTSTACK_PORT_DIR := $(BTSTACK_DIR)/port/jieli-br23
 # controller and the factory data use the 1 MiB positions 0xfe000/0xff000.
 FLASH_SIZE := 0x100000
 CODE_LIMIT := 0x40000
-# Rebuild the vendor controller archive from extracted LLVM bitcode.
-#
-#   0        use the vendor archive untouched (default)
-#   1        add the missing link-key notification to the console-driven
-#            pairing path: lmp_stage_auth_with_simple_pair_by_remote derives
-#            the link key but never hands it to the host, so the host's EDR
-#            key database stays empty and every reconnect is turned away.
-#            tools/patch_btctrler.py --mode notify is the whole change.
-#   diag     the older experiment: the lmp_esco_sniff_check override plus the
-#            LMP trace printfs.  It is not needed (the sniff problem is solved
-#            from the application: src/profile_switch.c hands the profile the
-#            console's own 24-slot parameters and app_comm_edr.c calls
-#            lmp_set_sniff_establish_by_remote(1)) and this variant resets the
-#            chip in the middle of an SSP pairing when measured on hardware,
-#            so use it only when a trace is what you are after.
-#   markers add quiet, reset-surviving markers for AU_RAND/SRES handling,
-#            including whether an incoming SRES matches local E1; no printf.
-#
-# Defaulted off only because 1 has not been measured on hardware yet; the
-# patch itself is one call to a function the same member already defines, and
-# re-emitting an unmodified member is byte-for-byte equivalent in IR.
-# Default on: measured on hardware, mode 1 makes the console-driven SSP path
-# hand the host the link key it derived (the host stores it and can then answer
-# a later link-key request), and it is one added call to a function the same
-# member already defines.  Modes: 1 = notify, trace = notify + LMP key traces,
-# diag = the old sniff-override experiment.
-PATCH_BTCTLER ?= 1
+# PATCH_BTCTLER and BOND_STORE_RAM come from build_config.h (see the modes
+# listed there).  A value given on the command line still wins for that run.
+BUILD_CONFIG := build_config.h
+ifeq ($(wildcard $(BUILD_CONFIG)),)
+$(error $(BUILD_CONFIG) is missing)
+endif
+build_config_value = $(strip $(shell sed -n 's/^[[:space:]]*\#[[:space:]]*define[[:space:]]\{1,\}$(1)[[:space:]]\{1,\}\([^[:space:]]*\).*/\1/p' $(BUILD_CONFIG)))
+PATCH_BTCTLER ?= $(call build_config_value,PATCH_BTCTLER)
+BOND_STORE_RAM ?= $(call build_config_value,BOND_STORE_RAM)
+ifeq ($(PATCH_BTCTLER),)
+$(error $(BUILD_CONFIG) does not define PATCH_BTCTLER)
+endif
+ifeq ($(filter 0 1,$(BOND_STORE_RAM)),)
+$(error BOND_STORE_RAM must be 0 or 1, not "$(BOND_STORE_RAM)")
+endif
 # DEBUG_LOG=1 builds a copy of the SDK's debug.c that forwards the controller
 # library's LMP/HCI tracing to the USB console.  See tools/patch_debug.py.
 DEBUG_LOG ?= 0
-# BOND_STORE_RAM=1 keeps the host's link-key (bond) store in internal RAM
-# instead of syscfg flash.  Off by default, so bonds survive a reset as they
-# always did.  Turn it on for testing: every boot starts unpaired, a reflash
-# cannot leave a stale bond behind, and pairing costs no flash write.
-BOND_STORE_RAM ?= 0
 
 include sdk-br23.mk
 
@@ -96,9 +79,6 @@ DEFINES += -DCYCLONE2_LOG_TAGS_VERBOSE=1
 endif
 ifeq ($(DEBUG_LOG),verbose)
 DEFINES += -DCYCLONE2_LOG_TAGS_VERBOSE_VERBOSE=1
-endif
-ifeq ($(BOND_STORE_RAM),1)
-DEFINES += -DCYCLONE2_BOND_STORE_RAM=1
 endif
 
 INCLUDES := -iquote src -iquote src/bt -iquote src/sdkconfig -iquote src/btstack \
@@ -170,6 +150,15 @@ $(PATCH_MODE_STAMP): FORCE
 	@if [ ! -f "$@" ] || [ "$$(cat "$@")" != "$(PATCH_BTCTLER)" ]; then \
 		printf '%s\n' "$(PATCH_BTCTLER)" > "$@"; \
 	fi
+
+# The values the C code needs, as a header.  It is rewritten only when a value
+# changes, so the -MMD dependencies rebuild exactly the files that include it.
+CONFIG_HEADER := $O/cyclone2_build_config.h
+$(CONFIG_HEADER): FORCE
+	@mkdir -p $(@D)
+	@printf '%s\n' '/* Generated from $(BUILD_CONFIG) by the Makefile; do not edit. */' \
+		'#define CYCLONE2_BOND_STORE_RAM $(BOND_STORE_RAM)' > $@.tmp
+	@if cmp -s $@.tmp $@; then rm -f $@.tmp; else mv $@.tmp $@; fi
 
 $(DEBUG_MODE_STAMP): FORCE
 	@mkdir -p $(@D)
@@ -287,7 +276,7 @@ $O/app.elf: $O/sdk.ld $(OBJECTS) $(SDK_ARCHIVES) $(PATCH_MODE_STAMP)
 	$(QUIET)$(LD) -o $@ $(OBJECTS) -T$O/sdk.ld -M=$O/app.map $(SDK_LFLAGS) --start-group $(SDK_ARCHIVES) --end-group $(SDK_RUNTIME_LIBS)
 
 ifneq ($(PATCH_BTCTLER),0)
-$(PATCHED_BTCTRLR): $(VENDOR_BTCTRLR) tools/patch_btctrler.py
+$(PATCHED_BTCTRLR): $(VENDOR_BTCTRLR) tools/patch_btctrler.py $(PATCH_MODE_STAMP)
 	@mkdir -p $(@D)
 	@echo [PATCH] $@
 	$(QUIET)/work/bin/python3 tools/patch_btctrler.py $(VENDOR_BTCTRLR) $@ --clang $(CC) --ar $(LLVM_AR) --mode $(PATCH_BTCTLER_MODE)
@@ -310,7 +299,9 @@ $O/isd_config.ini: $(SDK)/cpu/br23/tools/isd_config_rule.c $(APP_CONFIG)
 	$(compile_pre_build)
 	$(QUIET)sed -i -e /^$$/d "$@"
 
-$O/src/%.c.o: src/%.c
+# Order-only: the header has to exist before the first compile; after that
+# the .d files carry the real dependency for the sources that include it.
+$O/src/%.c.o: src/%.c | $(CONFIG_HEADER)
 	$(compile_c)
 
 # Upstream BTstack and the Jieli port are compiled straight from their
