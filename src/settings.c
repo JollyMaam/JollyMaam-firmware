@@ -98,8 +98,10 @@ void cyclone2_bt_address_randomize(void)
  * only way to give a reflashed pad back the identity the console knows. */
 void cyclone2_bt_address_set(const u8 address[6])
 {
+    /* Verbatim: normalize_address() is for addresses we make up.  An address
+     * being restored - or a public one, like the stock firmware's
+     * D0:56:80:.. - must stay exactly as given. */
     memcpy(base_mac_addr, address, sizeof(base_mac_addr));
-    normalize_address(base_mac_addr);
 #if !CYCLONE2_BOND_STORE_RAM
     syscfg_write(CFG_BT_MAC_ADDR, base_mac_addr, sizeof(base_mac_addr));
 #endif
