@@ -101,6 +101,10 @@ profile transitions record and `docs/bond-store.md` for the link-key codes.
 
 ## 2026-09-23: the flash-backed build resets when it pairs
 
+**Superseded 2026-09-25 - see the end of this file.**  The claim below that
+flash writes cause the resets was never proven, and later measurements go
+against it.
+
 The syscfg-backed bond store (`BOND_STORE_RAM=0`, the default) has a crash the
 RAM-only build does not.  It is written down here because it spent a long time
 hiding behind "the pad keeps resetting".
@@ -166,3 +170,25 @@ proven; the one reset seen had the same start, and none have been seen since.
 The long "no ACK" gaps padbus logged during these runs were its own ping loop
 stalling (the gap is reported late and the next ping is answered within
 ~70 ms), not the pad.
+
+## 2026-09-25: the flash-backed build works; the post-pairing crash is not flash
+
+With `CYCLONE2_BOND_STORE_RAM 0`, markers around every settings-store access
+(`3d`/`3e` key read, `3b`/`3c` key write, `3b8x` key erase, `3f`/`3f8x` peer
+address read/write) and the Switch 2:
+
+* `pair 1` alone, a staged `setkey` while page/inquiry scan ran, and the idle
+  flush writing that key: no reset.
+* Pairing in Change Grip/Order: one reset in two tries, ~2.5 s after `hid
+  channels open`, with the console's init subcommands answered and HID reports
+  streaming - and **no flash access anywhere near it** in the dying boot's
+  ring.  padbus lost the ping ~2.5 s before the reset, which looks like a hang
+  ended by the watchdog rather than a fault.
+* The other pairing held; `disconnect` -> idle flush wrote key and peer address
+  -> `reboot` -> `connect 0` reconnected from flash.  So did a pinhole reset
+  (`p33=1`) -> `connect 0`.
+
+So bonds persist and reconnect on the flash build.  The intermittent crash
+right after pairing is real but not shown to involve flash; the "flash writes
+reset the pad" rows above came from runs that also had the LMP_DETACH stall
+(fixed the same day) and are not evidence on their own.

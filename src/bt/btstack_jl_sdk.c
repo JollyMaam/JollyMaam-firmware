@@ -143,8 +143,14 @@ static int link_key_slot_read(u8 slot, u8 *record)
     (void)slot; (void)record;
     return 0;
 #else
-    int length = syscfg_read((u16)(CFG_REMOTE_DB_00 + slot), record,
-                             BTSTACK_JL_LINK_KEY_SIZE);
+    int length;
+
+    /* 0x3d00|slot before, 0x3e00|slot after: a hang inside the settings
+     * layer shows as a 3d with no matching 3e. */
+    cyclone2_bringup_record(0x3d00u | slot);
+    length = syscfg_read((u16)(CFG_REMOTE_DB_00 + slot), record,
+                         BTSTACK_JL_LINK_KEY_SIZE);
+    cyclone2_bringup_record(0x3e00u | slot);
 
     if (length != BTSTACK_JL_LINK_KEY_SIZE) return 0;
     if (record[0] != BTSTACK_JL_LINK_KEY_TAG) return 0;
@@ -164,8 +170,15 @@ static int link_key_slot_write(u8 slot, const u8 *address, const u8 *key, u8 typ
     memcpy(record + 1, address, 6);
     memcpy(record + 7, key, 16);
     record[23] = type;
-    return syscfg_write((u16)(CFG_REMOTE_DB_00 + slot), record,
-                        sizeof(record)) == sizeof(record);
+    {
+        int written;
+
+        cyclone2_bringup_record(0x3b00u | slot);
+        written = syscfg_write((u16)(CFG_REMOTE_DB_00 + slot), record,
+                               sizeof(record));
+        cyclone2_bringup_record(0x3c00u | slot);
+        return written == sizeof(record);
+    }
 #endif
 }
 
@@ -315,6 +328,7 @@ void btstack_jl_link_key_flush(u8 force)
         local_irq_disable();
         for (slot = 0; slot < BTSTACK_JL_LINK_KEY_ENTRIES; slot++) {
             if (pending & (u16)(1U << slot)) {
+                cyclone2_bringup_record(0x3b80u | slot);
                 syscfg_write((u16)(CFG_REMOTE_DB_00 + slot), cleared,
                              sizeof(cleared));
             }

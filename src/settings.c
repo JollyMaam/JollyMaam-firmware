@@ -2,6 +2,7 @@
 #include <system/user_cfg.h>
 
 #include "build_config.h"
+#include "main.h"
 #include "usb.h"
 
 static u8 base_mac_addr[6];
@@ -160,6 +161,7 @@ void cyclone2_peer_address_cache_load(void)
     u8 slot;
 
     for (slot = 0U; slot < CFG_BT_IDX_NUM; slot++) {
+        cyclone2_bringup_record(0x3f00u | slot);
         if (syscfg_read((u16)(CFG_EDR_ADDRESS_BEGIN + slot),
                         peer_address_cache[slot], 6U) != 6) {
             memset(peer_address_cache[slot], 0, 6U);
@@ -177,6 +179,7 @@ void cyclone2_peer_address_flush(void)
     for (slot = 0U; slot < CFG_BT_IDX_NUM; slot++) {
         if (!peer_address_dirty[slot]) continue;
         peer_address_dirty[slot] = 0U;
+        cyclone2_bringup_record(0x3f80u | slot);
         syscfg_write((u16)(CFG_EDR_ADDRESS_BEGIN + slot),
                      peer_address_cache[slot], 6U);
     }
