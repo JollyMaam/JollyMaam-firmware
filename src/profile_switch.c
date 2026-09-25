@@ -940,15 +940,12 @@ static void reconnect_saved(void *private_data)
 {
     (void)private_data;
     if (edr_hid_is_connected()) return;
-    /* The stack's own "connect the last device" path restores the bond
-     * context for the peer (the stored link key and its record), which a raw
-     * page by address does not.  Fall back to an explicit page when the stack
-     * has no record of a peer. */
-    if (bt_connect_phone_back_start()) {
-        cyclone2_usb_debug("reconnect via last-device record");
-        return;
-    }
-    cyclone2_usb_debug("reconnect by raw page to %02x:%02x:%02x:%02x:%02x:%02x",
+    /* Page this slot's own peer.  bt_connect_phone_back_start() would page
+     * whichever device connected last, on any slot - after testing against
+     * another host that is the wrong peer entirely - and on the BTstack port
+     * both paths are the same HID connect, so there is nothing else to gain
+     * from it.  The link key comes from the host store either way. */
+    cyclone2_usb_debug("reconnect by page to %02x:%02x:%02x:%02x:%02x:%02x",
                        reconnect_address[5], reconnect_address[4],
                        reconnect_address[3], reconnect_address[2],
                        reconnect_address[1], reconnect_address[0]);
