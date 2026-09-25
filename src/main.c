@@ -74,6 +74,15 @@ volatile u32 cyclone2_bringup_trace
 volatile u32 cyclone2_boot_count
     __attribute__((section(".bringup_log"), used, aligned(4)));
 
+/* A NOLOAD SRAM section survives the controller's software resets, but may
+ * contain arbitrary data after power-up.  These guards let app_main retain
+ * useful pre-reset markers without trusting uninitialized SRAM. */
+#define CYCLONE2_BRINGUP_LOG_MAGIC 0x42544c47U
+volatile u32 cyclone2_bringup_log_magic
+    __attribute__((section(".bringup_log"), used, aligned(4)));
+volatile u32 cyclone2_bringup_log_magic_inverse
+    __attribute__((section(".bringup_log"), used, aligned(4)));
+
 u8 cyclone2_reset_source;
 u8 cyclone2_reset_p33;
 u8 cyclone2_reset_rtc;
@@ -106,8 +115,15 @@ void app_main()
     cyclone2_reset_rtc = p33_rx_1byte(R3_RST_SRC);
 
     cyclone2_boot_count++;
-    /* Start each boot with an empty bring-up log so the ring reads in order. */
-    cyclone2_bringup_log_head = 0U;
+    /* Retain the ring across software resets.  The boot number embedded in
+     * every entry separates the failed boot from this recovery boot. */
+    if ((cyclone2_bringup_log_magic != CYCLONE2_BRINGUP_LOG_MAGIC) ||
+        (cyclone2_bringup_log_magic_inverse !=
+         ~CYCLONE2_BRINGUP_LOG_MAGIC)) {
+        cyclone2_bringup_log_head = 0U;
+        cyclone2_bringup_log_magic_inverse = ~CYCLONE2_BRINGUP_LOG_MAGIC;
+        cyclone2_bringup_log_magic = CYCLONE2_BRINGUP_LOG_MAGIC;
+    }
     init_intent(&it);
     it.name = "cyclone2";
     it.action = ACTION_CYCLONE2;

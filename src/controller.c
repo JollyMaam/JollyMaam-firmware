@@ -271,6 +271,18 @@ int cyclone2_set_address_request(const u8 address[6])
     return 1;
 }
 
+/* Restore a captured bond after a RAM-only boot.  Unlike setaddr, this must
+ * start the requested slot even when no profile has been selected yet. */
+int cyclone2_connect_with_address_request(u8 slot, const u8 address[6])
+{
+    if (slot >= CYCLONE2_PROFILE_COUNT ||
+        radio_state == CYCLONE2_RADIO_STOPPING) return -1;
+    injection_cancel();
+    cyclone2_bt_address_set(address);
+    profile_select(slot, 0U);
+    return 1;
+}
+
 /* Forget a specific peer's link key, then re-enter pairing with a new local
  * address.  This is the recovery for a link the two sides disagree about:
  * bonding records live in the Bluetooth controller's own memory, so they

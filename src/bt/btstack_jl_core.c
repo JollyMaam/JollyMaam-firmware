@@ -566,11 +566,8 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
             jl_notify_ex(BTSTACK_JL_EVENT_HCI_STATUS, HCI_EVENT_CONNECTION_COMPLETE,
                          status, event_addr);
             if (status == ERROR_CODE_SUCCESS) {
-                /* The HID services require an encrypted link, and BTstack only
-                 * answers an incoming L2CAP connection request once it knows
-                 * the peer's supported features.  Without this query the
-                 * connection response for the HID channels stays pending and
-                 * the console gives up without ever seeing the channels. */
+                /* Read remote features for the incoming HID L2CAP requests;
+                 * let the Switch initiate authentication with the stored key. */
                 hci_remote_features_query(jl_con_handle);
                 jl_notify_logged(BTSTACK_JL_EVENT_CONNECTED, 0, event_addr);
             }
@@ -864,9 +861,6 @@ static int btstack_jl_core_setup(void)
     hid_params.hid_descriptor = jl_config.report_descriptor;
     hid_params.hid_descriptor_size = jl_config.report_descriptor_size;
     hid_params.device_name = jl_config.local_name;
-    /* The other two text attributes a real controller advertises. */
-    hid_params.service_description = "Gamepad";
-    hid_params.provider_name = "Nintendo";
 
     memset(jl_sdp_service_buffer, 0, sizeof(jl_sdp_service_buffer));
     hid_create_sdp_record(jl_sdp_service_buffer, sdp_create_service_record_handle(),
@@ -896,6 +890,7 @@ static int btstack_jl_core_setup(void)
     btstack_run_loop_set_timer_handler(&jl_credit_timer, &jl_credit_timer_handler);
     btstack_run_loop_set_timer(&jl_credit_timer, 500);
     btstack_run_loop_add_timer(&jl_credit_timer);
+
 
     btstack_run_loop_set_data_source_handler(&jl_tx_data_source, &jl_tx_poll);
     btstack_run_loop_enable_data_source_callbacks(&jl_tx_data_source,

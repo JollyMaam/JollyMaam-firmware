@@ -28,6 +28,8 @@ CODE_LIMIT := 0x40000
 #            lmp_set_sniff_establish_by_remote(1)) and this variant resets the
 #            chip in the middle of an SSP pairing when measured on hardware,
 #            so use it only when a trace is what you are after.
+#   markers add quiet, reset-surviving markers for AU_RAND/SRES handling,
+#            including whether an incoming SRES matches local E1; no printf.
 #
 # Defaulted off only because 1 has not been measured on hardware yet; the
 # patch itself is one call to a function the same member already defines, and
@@ -73,11 +75,20 @@ SDK_ARCHIVES := $(subst $(VENDOR_BTCTRLR),$(PATCHED_BTCTRLR),$(SDK_ARCHIVES_MINI
 endif
 
 PATCH_BTCTLER_MODE := notify
+ifeq ($(PATCH_BTCTLER),markers-no-supervision)
+PATCH_BTCTLER_MODE := markers-no-supervision
+endif
+ifeq ($(PATCH_BTCTLER),markers-role-guard)
+PATCH_BTCTLER_MODE := markers-role-guard
+endif
 ifeq ($(PATCH_BTCTLER),diag)
 PATCH_BTCTLER_MODE := diagnostic
 endif
 ifeq ($(PATCH_BTCTLER),trace)
 PATCH_BTCTLER_MODE := trace
+endif
+ifeq ($(PATCH_BTCTLER),markers)
+PATCH_BTCTLER_MODE := markers
 endif
 
 ifneq ($(filter 1 verbose,$(DEBUG_LOG)),)

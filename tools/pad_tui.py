@@ -476,7 +476,14 @@ def main():
         # Ctrl-C clears the line, the way a shell does - it never quits.
         curses.raw()
         signal.signal(signal.SIGINT, signal.SIG_IGN)
-        curses.curs_set(1)
+        # Some terminal descriptions (notably `dumb`, used by non-interactive
+        # PTYs) do not expose cursor visibility.  The prompt still works with
+        # the cursor left in the terminal's default state, so do not fail the
+        # whole TUI during startup when that capability is absent.
+        try:
+            curses.curs_set(1)
+        except curses.error:
+            pass
         screen.nodelay(True)
         screen.keypad(True)
         owner = bus.initial_owner

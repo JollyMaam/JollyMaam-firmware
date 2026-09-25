@@ -147,6 +147,9 @@ static void arm_maskrom_usb_token(void)
 static void print_status(void)
 {
     const u8 *mailbox = (const u8 *)&reset_mailbox;
+    u32 head = cyclone2_bringup_log_head;
+    unsigned count = head < 96U ? (unsigned)head : 96U;
+    unsigned first = (unsigned)(head - count);
 
     console_write("reset-mailbox=");
     console_write_hex(mailbox, sizeof(reset_mailbox));
@@ -159,9 +162,10 @@ static void print_status(void)
     console_write("/");
     console_write_hex((const u8 *)&cyclone2_boot_count, 4U);
     console_write(":");
-    /* Oldest entry first, so the end of the line is the most recent step. */
-    for (unsigned i = 0U; i < CYCLONE2_BRINGUP_LOG_ENTRIES; i++) {
-        unsigned index = (cyclone2_bringup_log_head + i) %
+    /* Keep status compact: the newest 96 markers are enough to follow one
+     * connection attempt, while the full ring remains available in RAM. */
+    for (unsigned i = 0U; i < count; i++) {
+        unsigned index = (first + i) %
                          CYCLONE2_BRINGUP_LOG_ENTRIES;
         {
             const u8 *entry = (const u8 *)&cyclone2_bringup_log[index];
@@ -620,6 +624,7 @@ __attribute__((noinline)) static void execute_command(void)
                       "pair N fresh  as above but with a new Bluetooth address\r\n"
                       "newaddr  give the pad a new random Bluetooth address\r\n"
                       "setaddr AA:BB:..  set the pad's address to a saved one\r\n"
+                      "bond N LOCAL PEER KEY32 [type]  restore a bond atomically\r\n"
                       "unkey AA:BB:..  drop a stored link key and re-pair\r\n"
                       "peer N AA:BB:..  make slot N page that peer\r\n"
                       "clearkeys  zero the controller's pairing records\r\n"
@@ -789,6 +794,40 @@ __attribute__((noinline)) static void execute_command(void)
         } else {
             btstack_jl_link_key_store_write(address, key, type);
             console_write("OK link key stored\r\n");
+        }
+    } else if (!strncmp(command_line, "bond ", 5U) &&
+               command_line[5] >= '0' && command_line[5] <= '3' &&
+               command_line[6] == ' ') {
+        u8 slot = (u8)(command_line[5] - '0');
+        u8 local[6];
+        u8 address[6];
+        u8 key[16];
+        u8 type;
+        char *bond_text = command_line + 7U;
+        char *space = strchr(bond_text, ' ');
+
+        if (space == NULL) {
+            console_write("ERR use bond N LOCAL PEER KEY32 [type]\r\n");
+        } else {
+            *space = '\0';
+            if (parse_address(bond_text, local) != 0 ||
+                parse_key_record(space + 1, address, key, &type) != 0) {
+                console_write("ERR use bond N LOCAL PEER KEY32 [type]\r\n");
+            } else {
+                /* Install every part of the bond before restarting the profile.
+                 * setaddr followed by restore races the profile's automatic
+                 * page against the new key.  Also remove the controller
+                 * library's separate persistent record for this peer, or it
+                 * may authenticate from a stale key without asking the host. */
+                cyclone2_switch_forget_peer(address);
+                cyclone2_peer_address_write(slot, address);
+                btstack_jl_link_key_store_write(address, key, type);
+                if (cyclone2_connect_with_address_request(slot, local) > 0) {
+                    console_write("OK bond restored; paging that peer\r\n");
+                } else {
+                    console_write("ERR profile transition already in progress\r\n");
+                }
+            }
         }
     } else if (!strncmp(command_line, "restore ", 8U) && command_line[8] >= '0' &&
                command_line[8] <= '3' && command_line[9] == ' ') {

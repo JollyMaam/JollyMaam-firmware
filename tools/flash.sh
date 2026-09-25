@@ -11,13 +11,13 @@
 #   1. find the loader device; if it is not there, ask the running firmware to
 #      reboot into it with the console `uboot` command, then wait for the
 #      loader to enumerate (or for the user to plug the controller in)
-#   2. optionally read the current 512 KiB flash to a backup file (with --backup)
+#   2. optionally read the current 1 MiB flash to a backup file (with --backup)
 #   3. write the image at offset 0; that is only the code span, so the VM,
 #      BTIF and key/mac regions at 0x40000 and above are left alone
 #   4. read the written span back and compare it with the image
 #   5. reset the controller and wait for its USB console to return
 #
-# --backup saves the current 512 KiB flash before writing.
+# --backup saves the current 1 MiB flash before writing.
 #
 # --erase-persistent additionally erases 0x40000..0x7ffff, the VM, BTIF and
 # key/mac regions.  That is a factory reset of everything the controller
@@ -46,7 +46,7 @@ jl_dir=${JLUBOOT_DIR:-/shared/github.com-kagaimiq/jl-uboot-tool}
 jl_python=${JLUBOOT_PYTHON:-/work/bin/python}
 jl_tool=$jl_dir/jluboottool.py
 c2ctl=$repo_root/build/c2ctl
-flash_size=0x80000
+flash_size=0x100000
 
 usage()
 {

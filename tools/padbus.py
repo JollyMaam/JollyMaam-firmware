@@ -23,6 +23,7 @@ every connected client as {"ev": ...}.
 """
 
 import argparse
+from datetime import datetime
 import json
 import os
 import re
@@ -49,11 +50,9 @@ ENQ = b"\x05"
 ACK = "\x06"
 
 
-def wall_clock_ms():
-    """Timestamp with milliseconds: the point of the ping is the timing."""
-    now = time.time()
-    return time.strftime("%H:%M:%S", time.localtime(now)) + ".%03d" % int(
-        (now % 1) * 1000)
+def wall_clock_timestamp():
+    """Return an unambiguous local wall-clock timestamp with milliseconds."""
+    return datetime.now().astimezone().isoformat(timespec="milliseconds")
 
 
 def printable(text):
@@ -92,6 +91,45 @@ def pad_usb_present():
     return False
 
 
+def active_pad_ttys():
+    """Return the current bwrap nodes for this pad, with their device numbers.
+
+    The host's udev helper creates /dev/bwrap/ttyjlN as device nodes.  Old
+    nodes can remain after a remove event, so their existence alone does not
+    mean that the corresponding tty is still registered with the kernel.
+    Match the live ttyACM sysfs entry and verify st_rdev after opening it.
+    """
+    import glob
+
+    active = []
+    for tty in sorted(glob.glob("/sys/class/tty/ttyACM[0-9]*")):
+        name = os.path.basename(tty)
+        number = name[len("ttyACM"):]
+        if not number.isdigit():
+            continue
+        try:
+            major_text, minor_text = open(os.path.join(tty, "dev")).read().strip().split(":")
+            expected = (int(major_text), int(minor_text))
+        except (OSError, ValueError):
+            continue
+
+        device = os.path.realpath(tty)
+        while device.startswith("/sys/"):
+            try:
+                vendor = open(os.path.join(device, "idVendor")).read().strip()
+                product = open(os.path.join(device, "idProduct")).read().strip()
+            except OSError:
+                vendor = product = ""
+            if (vendor, product) == PAD_USB:
+                active.append(("/dev/bwrap/ttyjl" + number, expected))
+                break
+            parent = os.path.dirname(device)
+            if parent == device:
+                break
+            device = parent
+    return active
+
+
 def configure(fd):
     import fcntl
     import struct
@@ -123,6 +161,7 @@ class Pad:
     def __init__(self, path):
         self.path = path
         self.fd = -1
+        self.fd_lock = threading.RLock()
         # Reported to the server so a reset shows up as an event rather than as
         # a gap in the log: losing the CDC device means the chip re-enumerated.
         self.events = []
@@ -131,45 +170,44 @@ class Pad:
         self.open()
 
     def open(self):
-        import glob
-
         deadline = time.monotonic() + 30.0
         while True:
-            # A reset re-enumerates the pad and it comes back on a different
-            # ttyjl number, leaving the old node behind.  Try the configured
-            # one first, then every other node that answers.
-            candidates = []
-            if os.path.exists(self.path):
-                candidates.append(self.path)
-            for found in sorted(glob.glob("/dev/bwrap/ttyjl*")):
-                if found not in candidates:
-                    candidates.append(found)
-            for path in candidates:
-                fd = -1
-                try:
-                    fd = os.open(path, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
-                    configure(fd)
-                except (OSError, termios.error):
-                    if fd >= 0:
-                        try:
+            with self.fd_lock:
+                if self.fd >= 0:
+                    return
+                candidates = active_pad_ttys()
+                if self.path in [path for path, _ in candidates]:
+                    candidates.sort(key=lambda item: item[0] != self.path)
+                for path, expected in candidates:
+                    fd = -1
+                    try:
+                        fd = os.open(path, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+                        actual = os.fstat(fd).st_rdev
+                        if (os.major(actual), os.minor(actual)) != expected:
                             os.close(fd)
-                        except OSError:
-                            pass
-                    continue
-                self.fd = fd
-                self.path = path
-                if not self.link_up:
-                    self.link_up = True
-                    # Only a *return* is worth reporting; the first open is not.
-                    if self.opened_once:
-                        self.events.append("back")
-                    self.opened_once = True
-                return
+                            continue
+                        configure(fd)
+                    except (OSError, termios.error):
+                        if fd >= 0:
+                            try:
+                                os.close(fd)
+                            except OSError:
+                                pass
+                        continue
+                    self.fd = fd
+                    self.path = path
+                    if not self.link_up:
+                        self.link_up = True
+                        # Only a *return* is worth reporting; the first open is not.
+                        if self.opened_once:
+                            self.events.append("back")
+                        self.opened_once = True
+                    return
             if time.monotonic() >= deadline:
                 raise OSError("pad console did not come back")
             time.sleep(0.4)
 
-    def close(self):
+    def _close_locked(self):
         if self.fd >= 0:
             try:
                 os.close(self.fd)
@@ -180,18 +218,25 @@ class Pad:
             self.link_up = False
             self.events.append("lost")
 
+    def close(self):
+        with self.fd_lock:
+            self._close_locked()
+
     def write(self, line):
         return self.write_raw(line.encode() + b"\r")
 
     def write_raw(self, payload):
-        # A reset re-enumerates the pad and leaves the old node behind, so a
-        # write can land on a stale fd; reopen once and try again.
+        # A reset re-enumerates the pad; reopen from the live sysfs endpoint.
         for attempt in (0, 1):
-            try:
-                os.write(self.fd, payload)
-                return True
-            except (OSError, termios.error):
-                self.close()
+            with self.fd_lock:
+                try:
+                    if self.fd < 0:
+                        raise OSError("pad console is closed")
+                    os.write(self.fd, payload)
+                    return True
+                except (OSError, termios.error):
+                    self._close_locked()
+            if attempt == 0:
                 try:
                     self.open()
                 except OSError:
@@ -201,29 +246,39 @@ class Pad:
     def write_now(self, payload):
         """Write without waiting for the port: used by the ping, which must
         keep its own clock running even while the console is away."""
-        try:
-            os.write(self.fd, payload)
-            return True
-        except (OSError, termios.error):
-            return False
+        with self.fd_lock:
+            try:
+                if self.fd < 0:
+                    return False
+                os.write(self.fd, payload)
+                return True
+            except (OSError, termios.error):
+                self._close_locked()
+                return False
 
     def read(self):
         """Return whatever is readable now, as text ("" if nothing)."""
-        if self.fd < 0:
+        with self.fd_lock:
+            if self.fd < 0:
+                need_open = True
+            else:
+                need_open = False
+        if need_open:
             self.open()
-        try:
-            ready, _, _ = select.select([self.fd], [], [], 0.2)
-        except (OSError, ValueError):
-            self.close()
-            return ""
-        if not ready:
-            return ""
-        try:
-            data = os.read(self.fd, 4096)
-        except (OSError, termios.error):
-            self.close()
-            return ""
-        return data.decode("utf-8", "replace")
+        with self.fd_lock:
+            try:
+                ready, _, _ = select.select([self.fd], [], [], 0.2)
+                if not ready:
+                    return ""
+                data = os.read(self.fd, 4096)
+                if not data:
+                    # CDC ACM commonly reports unplug as EOF rather than EIO.
+                    self._close_locked()
+                    return ""
+                return data.decode("utf-8", "replace")
+            except (OSError, ValueError, termios.error):
+                self._close_locked()
+                return ""
 
 
 class Server:
@@ -236,7 +291,7 @@ class Server:
         self.ping_interval = ping_ms / 1000.0
         self.ping_timeout = max(2.0 * self.ping_interval, 0.35)
         self.last_ack = time.monotonic()
-        self.last_ack_wall = wall_clock_ms()
+        self.last_ack_wall = wall_clock_timestamp()
         self.ack_missing = False
         self.last_io = time.monotonic()
         self.last_command = 0.0
@@ -262,9 +317,13 @@ class Server:
         """A line about the session itself (not from the pad)."""
         self.emit("# " + text)
 
+    def note_at(self, text):
+        """Log a host-detected event with its wall-clock time."""
+        self.note("[%s] %s" % (wall_clock_timestamp(), text))
+
     def emit(self, line):
-        # No host timestamp: the pad's own debug lines already carry one, and
-        # a second one only makes the log harder to read.
+        # Pad output keeps its firmware timestamp; note_at() timestamps
+        # host-detected events where the wall-clock time matters.
         line = printable(line.rstrip("\r"))
         if not line.strip():
             return
@@ -287,8 +346,8 @@ class Server:
         if uptime:
             value = int(uptime.group(1))
             if self.last_uptime is not None and value < self.last_uptime:
-                self.note("RESET: uptime went backwards (%d -> %d ms)"
-                          % (self.last_uptime, value))
+                self.note_at("RESET: uptime went backwards (%d -> %d ms)"
+                             % (self.last_uptime, value))
             self.last_uptime = value
         if boot:
             value = boot.group(1).lower()
@@ -297,7 +356,8 @@ class Server:
                 # rather than claim the boot counter is unchanged.
                 pass
             elif value != self.last_boot:
-                self.note("RESET: boot counter %s -> %s" % (self.last_boot, value))
+                self.note_at("RESET: boot counter %s -> %s"
+                             % (self.last_boot, value))
             elif self.check_after_loss:
                 self.note("same boot counter %s - the re-enumeration was not a "
                           "chip reset" % value)
@@ -332,7 +392,7 @@ class Server:
         """
         self.pad_usb = pad_usb_present()
         if not self.pad_usb:
-            self.note("pad USB device not present")
+            self.note_at("pad USB device not present")
         while True:
             time.sleep(1.0)
             present = pad_usb_present()
@@ -340,11 +400,11 @@ class Server:
                 continue
             self.pad_usb = present
             if present:
-                self.note("pad USB device back - reading the boot counter")
+                self.note_at("pad USB device back - reading the boot counter")
                 self.check_after_loss = True
                 self.pad.write("stat")
             else:
-                self.note("pad USB device gone - reset, reflash, or unplugged")
+                self.note_at("pad USB device gone - reset, reflash, or unplugged")
                 self.check_after_loss = True
 
     def ping_loop(self):
@@ -368,14 +428,13 @@ class Server:
             if silent > self.ping_timeout:
                 if not self.ack_missing:
                     self.ack_missing = True
-                    self.note("no ACK at %s - pad not answering; last answer "
-                              "%s (%.0f ms earlier)"
-                              % (wall_clock_ms(), self.last_ack_wall,
-                                 silent * 1000))
+                    self.note_at("no ACK - pad not answering; last answer "
+                                 "%s (%.0f ms earlier)"
+                                 % (self.last_ack_wall, silent * 1000))
             elif self.ack_missing:
                 self.ack_missing = False
-                self.note("ACK again at %s - silent for %.0f ms"
-                          % (wall_clock_ms(), silent * 1000))
+                self.note_at("ACK again - silent for %.0f ms"
+                             % (silent * 1000))
             if now >= next_ping:
                 next_ping = now + self.ping_interval
                 # Non-blocking: reopening the port is the reader's job, and
@@ -488,7 +547,7 @@ class Server:
                 # The ping answer: consume it before anything else sees it, so
                 # it never reaches the log or gets glued to a line of output.
                 self.last_ack = now
-                self.last_ack_wall = wall_clock_ms()
+                self.last_ack_wall = wall_clock_timestamp()
                 self.partial = self.partial.replace(ACK, "")
             while "\n" in self.partial:
                 line, self.partial = self.partial.split("\n", 1)

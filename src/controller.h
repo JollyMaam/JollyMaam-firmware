@@ -39,6 +39,7 @@ int cyclone2_pair_request(u8 slot);
 int cyclone2_pair_fresh_request(u8 slot);
 int cyclone2_new_address_request(void);
 int cyclone2_set_address_request(const u8 address[6]);
+int cyclone2_connect_with_address_request(u8 slot, const u8 address[6]);
 int cyclone2_forget_peer_request(const u8 address[6]);
 int cyclone2_set_peer_request(u8 slot, const u8 address[6]);
 int cyclone2_clear_keys_request(void);
