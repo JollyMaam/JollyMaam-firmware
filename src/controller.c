@@ -14,6 +14,13 @@
 #include "user_cfg_id.h"
 #include "wake/wake.h"
 
+/* The controller library on its own, without BTstack (btstack-jl-port's
+ * jieli-br23 bridge).  The wake needs the baseband set up - its buffer window
+ * base is 0 once the library has been shut down, and __write_reg_txinfo()
+ * resets the chip for a payload outside that window. */
+extern int jieli_btctrler_open(const uint8_t *bd_addr);
+extern void jieli_btctrler_close(void);
+
 #define CYCLONE2_CONTROL_PERIOD_MS           5U
 #define CYCLONE2_DEFAULT_REPORT_PERIOD_MS   16U
 #define CYCLONE2_DEBOUNCE_MS                10U
@@ -285,6 +292,9 @@ void cyclone2_wake_finished(void)
     if (radio_state != CYCLONE2_RADIO_WAKING) return;
     radio_state = CYCLONE2_RADIO_OFF;
     wake_slot = 0xffU;
+    /* Hand the controller back closed, so the profile brings it up with
+     * BTstack exactly as it does from cold. */
+    jieli_btctrler_close();
     if (slot < CYCLONE2_PROFILE_COUNT) {
         cyclone2_usb_debug("wake done; reconnecting slot %u", slot);
         profile_select(slot, 0U);
@@ -303,11 +313,18 @@ static void start_pending_wake(void)
     wake_slot = wake_pending_slot;
     wake_pending = 0U;
     radio_state = CYCLONE2_RADIO_WAKING;
-    result = wake_start(wake_pending_slot, wake_pending_channel,
-                        wake_pending_seconds);
+    /* Bring the controller library up without a host: the teardown before
+     * this shut it down, which also clears the baseband setup the wake's
+     * frame needs. */
+    result = jieli_btctrler_open(NULL);
+    if (result == 0) {
+        result = wake_start(wake_pending_slot, wake_pending_channel,
+                            wake_pending_seconds);
+    }
     if (result != 0) {
         cyclone2_usb_debug("wake not started (%d); reconnecting slot %u",
                            result, wake_pending_slot);
+        jieli_btctrler_close();
         radio_state = CYCLONE2_RADIO_OFF;
         wake_slot = 0xffU;
         profile_select(wake_pending_slot, 0U);

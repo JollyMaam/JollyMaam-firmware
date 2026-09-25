@@ -1,6 +1,9 @@
 # Waking a sleeping Switch 1 from this pad
 
-Status: `src/wake/` exists and builds; nothing has been flashed or run.  The
+Status (2026-09-25): phase 1 runs on the pad and **the wake access code has
+been verified on the air** with an ESP32 listener (see "Bench results" at the
+end).  Not yet tried against a sleeping console.  Earlier status: `src/wake/`
+exists and builds; nothing had been flashed or run.  The
 parameter maths is checked on the host by `make wake-vectors` against the
 reference's own worked examples.  Everything about the BR23 is read out of the
 vendor bitcode in `cpu/br23/liba/btctrler.a`; everything about the wake
@@ -365,3 +368,47 @@ other work on it; that document's table is worth refreshing.
   block), `bredr_link.c.o` (`link_fix`, packet tables, `link_task`),
   `link_task.c.o` (scheduler), `bredr_dut.c.o` / `bredr_fcc.c.o` (test modes).
   The extraction recipe is in `docs/reconnect.md`.
+
+## Bench results, 2026-09-25
+
+Branch `wakeup-test` (today's `btstack` + this work), pad on the flash bond
+store with slot 0's console `c8:48:05:00:54:b1`.
+
+**Two bugs fixed before anything reached the air:**
+
+1. `wake N` reset the pad within a second.  Markers (`0x9Axx`, one per step of
+   `wake_radio_start()`) put the death in `__write_reg_txinfo()`: that writer
+   calls `cpu_reset()` unless the payload lies within 32 KB above the
+   baseband's buffer base, which the hardware holds at `0x1CFC44`.  The base
+   read **0**: the teardown before the wake shuts the controller library down
+   (`btctrler_task_exit()`), which clears the baseband setup.
+2. So `start_pending_wake()` now brings the controller library up on its own
+   (`jieli_btctrler_open()`, no BTstack) before `wake_start()`, and
+   `cyclone2_wake_finished()` closes it again before the normal reconnect.
+   `wake_radio_start()` also checks the window itself and fails with `-4`
+   instead of letting the writer reset the chip.  After the fix: base
+   `0xa310`, payload `0xb3c8`, and a 20 s wake runs its 80 starts / 79
+   whitening states and hands back to the reconnect, with no reset.
+
+**On the air.**  `tools/esp32-wakelisten/` is a controller-only ESP32 app
+(ESP32 rev 1.0, ESP-IDF 6.1) that holds a CSB receive open for the console
+address with the demo's control-structure rewrites (wake parity, fixed channel
+0, LT_ADDR 0, whitening off) and prints every access-code correlation the
+hardware stamps into the receive control structure.
+
+| listener parity | before `wake 0 0 20` | during | after |
+|---|---:|---:|---:|
+| wake (`0x086245c86`) | 0 in 23 s | **22** | 0 |
+| standard (`0x079dba379`), control | 0 | **0** | 0 |
+
+So the pad emits exactly the wake-up access code - the console's sync word
+with the low 32 bits inverted - on channel 0, and never the standard one.
+The correlations are sparse because the listener's receive window only
+occasionally lines up with a burst; that is the listener, not the pad.
+
+**Not verified yet:** the payload (the listener cannot store a DH5; its CSB
+buffer is 20 bytes), the whitening word, and of course whether a sleeping
+Switch 1 answers.  The next step is a sleeping console.  A Switch 2 is woken
+differently in the reference - by replaying a BLE advertisement captured from
+a real Switch 2 controller (`src/wake/ns2_wake.c` in the demo) - which belongs
+with the Switch 2 / BLE work.

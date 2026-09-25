@@ -14,6 +14,13 @@
 #include "generic/typedef.h"
 
 #include "wake_radio.h"
+#include "main.h"
+#include "usb.h"
+
+/* 0x9Axx markers in the bring-up ring: one per step of wake_radio_start(),
+ * 0x9A20/0x9A21 for every scheduler resume/suspend, so a reset during the
+ * wake names the step it died in (tools/ringdump.py). */
+#define WAKE_MARK(n) cyclone2_bringup_record(0x9a00u | (n))
 
 /* ---- the vendor symbols this uses ----------------------------------------
  *
@@ -125,6 +132,7 @@ static u8 wake_frequency(u8 channel)
 static int wake_task_resume(struct link_task *task)
 {
     (void)task;
+    WAKE_MARK(0x20);
     if (wake_frame) {
         bredr_bd_frame_enable(wake_frame, 0, 1);
         wake_task_running = 1U;
@@ -135,6 +143,7 @@ static int wake_task_resume(struct link_task *task)
 static int wake_task_suspend(struct link_task *task)
 {
     (void)task;
+    WAKE_MARK(0x21);
     if (wake_frame) {
         bredr_bd_frame_disable(wake_frame);
         wake_task_running = 0U;
@@ -163,9 +172,11 @@ int wake_radio_start(const struct wake_radio_config *config, const u8 *body, u16
     if (config == NULL || body == NULL || length == 0U) return -1;
     if (wake_frame != NULL) return -1;
 
+    WAKE_MARK(0x01);
     wake_frame = bredr_bd_get_frame();
     if (wake_frame == NULL) return -2;
 
+    WAKE_MARK(0x02);
     wake_bulk = bredr_tx_bulk_alloc((int)length);
     if (wake_bulk == NULL) {
         bredr_bd_put_frame(wake_frame);
@@ -177,10 +188,12 @@ int wake_radio_start(const struct wake_radio_config *config, const u8 *body, u16
 
     /* Access code: LAP and parity are separate fields, so this is the one
      * place the wake-up access code can be produced. */
+    WAKE_MARK(0x03);
     __write_reg_bdaddr(wake_frame, config->address);
     __write_reg_bch(wake_frame, config->parity);
 
     /* Frame shape, matching the vendor transmit path. */
+    WAKE_MARK(0x04);
     __write_reg_miscntl(wake_frame, 0U, WAKE_LT_ADDR);
     __write_reg_clkoffset(wake_frame, 0);
     __write_reg_format(wake_frame, 0U, WAKE_FRAME_FORMAT);
@@ -192,11 +205,34 @@ int wake_radio_start(const struct wake_radio_config *config, const u8 *body, u16
     /* One burst of this body.  get_packet_type() answers with the packet whose
      * maximum payload covers the length, so a short body becomes a DM1 and a
      * long one a DH3 or DH5, exactly as the vendor's path chooses. */
+    WAKE_MARK(0x05);
     packet = get_packet_type((int)length, config->edr, WAKE_PACKET_SLOT);
     max_length = packet[0];
     if (length > max_length) length = max_length;
+    {
+        /* __write_reg_txinfo() resets the chip (cpu_reset) unless the payload
+         * lies within 32 KB above the baseband's buffer base, which the
+         * hardware holds at 0x1CFC44.  Check it here and fail the start
+         * instead, with the numbers on the console. */
+        u32 base = *(volatile u32 *)0x1cfc44u;
+        u32 delta = (u32)payload - base;
+
+        cyclone2_usb_debug("wake: bb base=%08x bulk=%08x payload=%08x delta=%x len=%u",
+                           (unsigned)base, (unsigned)(u32)wake_bulk,
+                           (unsigned)(u32)payload, (unsigned)delta, length);
+        if (delta >= 32767U) {
+            WAKE_MARK(0x40);
+            bredr_tx_bulk_free(wake_bulk);
+            wake_bulk = NULL;
+            bredr_bd_put_frame(wake_frame);
+            wake_frame = NULL;
+            return -4;
+        }
+    }
+    WAKE_MARK(0x06);
     __write_reg_txinfo(wake_frame, 0, payload, (int)length,
                        (int)config->llid, (int)config->flow, (int)packet[1]);
+    WAKE_MARK(0x07);
     __clean_reg_txempty(wake_frame, 0);
     __clean_reg_txempty(wake_frame, 1);
 
@@ -211,6 +247,7 @@ int wake_radio_start(const struct wake_radio_config *config, const u8 *body, u16
     *((volatile u16 *)(void *)frame_reg(wake_frame, WAKEF_WINCNTL)) =
         (u16)config->whiten_seed;
 
+    WAKE_MARK(0x08);
     *frame_reg(wake_frame, WAKEF_TXFREQ) = wake_frequency(config->channel);
     *frame_reg(wake_frame, WAKEF_RXFREQ) = wake_frequency(config->channel);
 
@@ -225,8 +262,11 @@ int wake_radio_start(const struct wake_radio_config *config, const u8 *body, u16
 
     /* The idle task owns the schedule otherwise, and the frame is only
      * transmitted when this task's ops arm it. */
+    WAKE_MARK(0x09);
     link_task_idle_disable();
+    WAKE_MARK(0x0a);
     link_task_add((struct link_task *)task);
+    WAKE_MARK(0x0b);
     return 0;
 }
 
