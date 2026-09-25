@@ -136,3 +136,33 @@ there as well.
 Until this is understood, use `BOND_STORE_RAM=1` for anything that pairs or
 connects.  The default build is fine to *read* bonds - `keys` and `setkey` on
 an idle pad both work, measured - but must not be asked to pair.
+
+## 2026-09-25: a received LMP_DETACH stalled until the supervision timeout
+
+Measured against a Linux host (`tools/hostbt.py` + `tools/detach_round.sh`):
+when the peer disconnected, the pad saw the `LMP_DETACH` (marker `7e0e`) but
+only reported the disconnection about 12 s later, with reason `0x08`
+(supervision timeout) instead of the peer's `0x13`.  One of these runs ended in
+a reset about 3 s after the detach, with `7e0e` the last marker of that boot.
+
+The cause is in `btctrler.a`.  `lmp_rx_detch()` only flags the connection;
+`lmp_detach_check()` does the teardown, and skips a connection while its
+received-ACL queue (`rx_acl_u`) is not empty.  In standard-HCI mode
+(`config_btctler_hci_standard = 1`) `lmp_send_acl_u_packet_to_host()` hands
+one packet to the host per call and marks it done, but only frees done
+packets on its *next* call.  The last packet before a detach - the peer's
+12-byte L2CAP Disconnection Request, queue markers `7301 722a 710c` - is
+therefore still queued, nothing calls the function again, and the teardown
+waits until the supervision timeout forces it.
+
+`tools/patch_btctrler.py: patch_detach_drain_rx()` (part of every patch mode
+except "none") drains the queue with that same function before the check.
+Afterwards: `7e0e 7d20 7d21 7513 2a13` - teardown straight away, reason 0x13 -
+in 18 consecutive rounds, both for an explicit disconnect and for BlueZ
+dropping the idle link itself, with no resets.
+
+Whether this was the *only* cause of the resets after a disconnect is not
+proven; the one reset seen had the same start, and none have been seen since.
+The long "no ACK" gaps padbus logged during these runs were its own ping loop
+stalling (the gap is reported late and the next ping is answered within
+~70 ms), not the pad.

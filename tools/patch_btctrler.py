@@ -13,7 +13,8 @@ two main modes:
 ``notify`` (default) adds one call to the archive - see
 ``patch_ssp_remote_notify()`` below - so the console-driven pairing path hands
 the host the link key it derived.  Without it the host stack never learns the
-key, never stores it, and every later reconnect is turned away.
+key, never stores it, and every later reconnect is turned away.  It also lets
+a received LMP_DETACH finish promptly - see ``patch_detach_drain_rx()``.
 
 ``diagnostic`` is the older experiment: it replaces ``lmp_esco_sniff_check``
 with ``ret i1 1`` and adds three trace hooks.  The sniff override is not needed
@@ -678,6 +679,114 @@ def patch_supervision_context_markers(text: str) -> str:
     return text[:insert_at] + marker + text[insert_at:]
 
 
+def insert_at_entry(text: str, signature: str, lines: str) -> str:
+    """Insert IR ``lines`` (with ``{dbg}`` placeholders) at a function entry."""
+    start = text.find(signature)
+    end = text.find("\n}", start)
+    if start < 0 or end < 0:
+        raise RuntimeError(f"{signature} was not found")
+    entry = text.find("\nentry:\n", start, end)
+    if entry < 0:
+        raise RuntimeError(f"{signature} entry block was not found")
+    dbg = debug_location(re.search(r".*!dbg !\d+.*", text[entry:end]).group(0))
+    insert_at = entry + len("\nentry:\n")
+    return text[:insert_at] + lines.format(dbg=dbg) + text[insert_at:]
+
+
+def patch_detach_flow_markers(text: str) -> str:
+    """Follow a received LMP_DETACH through to the connection teardown.
+
+    lmp_rx_detch() only records the reason, sets bit 0x8 in the connection
+    state and sleeps 20 ticks; lmp_detach_check() is what tears the link down
+    when it sees that bit.  Markers:
+
+      0x7d20  lmp_rx_detch entered
+      0x7d21  lmp_rx_detch back from its os_time_dly(20)
+      0x75NN  lmp_detach_check tearing a connection down, NN = its err_code
+      0x7d23  lmp_connection_timeout (supervision timeout) fired
+    """
+    text = insert_at_entry(
+        text, "define void @lmp_rx_detch(",
+        "  call void @cyclone2_bringup_record(i32 32032){dbg}\n")
+    start = text.find("define void @lmp_rx_detch(")
+    delay = text.find("  tail call void @os_time_dly(i32 20)", start)
+    if delay < 0:
+        raise RuntimeError("lmp_rx_detch delay was not found")
+    line_end = text.find("\n", delay) + 1
+    dbg = debug_location(text[delay:line_end])
+    text = (text[:line_end] +
+            f"  call void @cyclone2_bringup_record(i32 32033){dbg}\n" +
+            text[line_end:])
+
+    start = text.find("define internal fastcc void @lmp_detach_check(")
+    anchor = text.find("  tail call fastcc void @lmp_rx_handler(", start)
+    if start < 0 or anchor < 0:
+        raise RuntimeError("lmp_detach_check teardown was not found")
+    dbg = debug_location(text[anchor:text.find("\n", anchor)])
+    marker = (
+        f"  %cyclone2_detach_err_p = getelementptr inbounds "
+        f"%struct.lmp_connection, %struct.lmp_connection* %conn.0, "
+        f"i32 0, i32 2{dbg}\n"
+        f"  %cyclone2_detach_err = load i8, i8* %cyclone2_detach_err_p, "
+        f"align 2{dbg}\n"
+        f"  %cyclone2_detach_err32 = zext i8 %cyclone2_detach_err to i32{dbg}\n"
+        f"  %cyclone2_detach_check = or i32 %cyclone2_detach_err32, 29952{dbg}\n"
+        f"  call void @cyclone2_bringup_record(i32 %cyclone2_detach_check){dbg}\n")
+    text = text[:anchor] + marker + text[anchor:]
+
+    # When the teardown is skipped because received ACL data is still queued
+    # (rx_acl_u not empty), record what is in the queue:
+    #   0x73NN  number of queued packets (capped at 255)
+    #   0x72FF  the first packet's flag bits (0x20 handed to the host,
+    #           0x08 done and freeable)
+    #   0x71LL  the first packet's length, low byte
+    start = text.find("define internal fastcc void @lmp_detach_check(")
+    skip = text.find("\ndo.end:", start)
+    if skip < 0:
+        raise RuntimeError("lmp_detach_check queue-not-empty block was not found")
+    body_start = text.find("\n", skip + 1) + 1
+    delay_line = text[body_start:text.find("\n", body_start)]
+    dbg = debug_location(delay_line)
+    queue = (
+        f"  %cq_head_p = bitcast %struct.list_head* %rx_acl_u to i8**{dbg}\n"
+        f"  %cq_first = load i8*, i8** %cq_head_p, align 4{dbg}\n"
+        f"  %cq_flags_p8 = getelementptr inbounds i8, i8* %cq_first, i32 -14{dbg}\n"
+        f"  %cq_flags_p = bitcast i8* %cq_flags_p8 to i16*{dbg}\n"
+        f"  %cq_flags = load i16, i16* %cq_flags_p, align 2{dbg}\n"
+        f"  %cq_flags8 = and i16 %cq_flags, 255{dbg}\n"
+        f"  %cq_flags32 = zext i16 %cq_flags8 to i32{dbg}\n"
+        f"  %cq_len_p8 = getelementptr inbounds i8, i8* %cq_first, i32 -16{dbg}\n"
+        f"  %cq_len_p = bitcast i8* %cq_len_p8 to i16*{dbg}\n"
+        f"  %cq_len = load i16, i16* %cq_len_p, align 2{dbg}\n"
+        f"  %cq_len8 = and i16 %cq_len, 255{dbg}\n"
+        f"  %cq_len32 = zext i16 %cq_len8 to i32{dbg}\n"
+        f"  br label %cq_count{dbg}\n"
+        f"cq_count:\n"
+        f"  %cq_node = phi i8* [ %cq_first, %do.end ], [ %cq_next, %cq_count ]\n"
+        f"  %cq_n = phi i32 [ 0, %do.end ], [ %cq_n1, %cq_count ]\n"
+        f"  %cq_n1 = add i32 %cq_n, 1{dbg}\n"
+        f"  %cq_node_p = bitcast i8* %cq_node to i8**{dbg}\n"
+        f"  %cq_next = load i8*, i8** %cq_node_p, align 4{dbg}\n"
+        f"  %cq_head8 = bitcast %struct.list_head* %rx_acl_u to i8*{dbg}\n"
+        f"  %cq_end = icmp eq i8* %cq_next, %cq_head8{dbg}\n"
+        f"  %cq_cap = icmp ugt i32 %cq_n1, 254{dbg}\n"
+        f"  %cq_stop = or i1 %cq_end, %cq_cap{dbg}\n"
+        f"  br i1 %cq_stop, label %cq_done, label %cq_count{dbg}\n"
+        f"cq_done:\n"
+        f"  %cq_count_code = or i32 %cq_n1, 29440{dbg}\n"
+        f"  call void @cyclone2_bringup_record(i32 %cq_count_code){dbg}\n"
+        f"  %cq_flags_code = or i32 %cq_flags32, 29184{dbg}\n"
+        f"  call void @cyclone2_bringup_record(i32 %cq_flags_code){dbg}\n"
+        f"  %cq_len_code = or i32 %cq_len32, 28928{dbg}\n"
+        f"  call void @cyclone2_bringup_record(i32 %cq_len_code){dbg}\n"
+    )
+    text = text[:body_start] + queue + text[body_start:]
+
+    return insert_at_entry(
+        text, "define internal void @lmp_connection_timeout(",
+        "  call void @cyclone2_bringup_record(i32 32035){dbg}\n")
+
+
 def patch_supervision_role_guard(text: str) -> str:
     """Skip the Central-only timeout PDU when this connection is Peripheral."""
     start = text.find("define void @lmp_tx_supervision_timeout(")
@@ -847,6 +956,59 @@ def patch_ssp_remote_notify(text: str) -> str:
     return text[:anchor] + call + text[anchor:]
 
 
+def patch_detach_drain_rx(text: str) -> str:
+    """Let a detach finish instead of waiting for the supervision timeout.
+
+    lmp_detach_check() only tears a connection down once its received-ACL
+    queue (rx_acl_u) is empty; otherwise it skips the connection and waits
+    for a later pass - and after the peer's LMP_DETACH there may never be
+    one, so the teardown happens only when the supervision timeout forces it
+    (err_code 8), seconds later and with the wrong reason.
+
+    With config_btctler_hci_standard = 1, lmp_send_acl_u_packet_to_host()
+    hands one packet to the host per call and marks it done (0x08); it only
+    unlinks and frees done packets on its *next* call.  So the packet the
+    host received last - measured: the peer's 12-byte L2CAP Disconnection
+    Request right before its LMP_DETACH, flags 0x2a - is still queued when
+    the detach arrives, and nothing calls the function again.
+
+    Drain the queue here with that same function (bounded), so delivered
+    packets are freed and any undelivered one is handed to the host first.
+    """
+    start = text.find("define internal fastcc void @lmp_detach_check(")
+    end = text.find("\n}", start)
+    anchor = ("  %call83 = tail call fastcc i32 @list_empty("
+              "%struct.list_head* %rx_acl_u)")
+    position = text.find(anchor, start, end)
+    if start < 0 or position < 0:
+        raise RuntimeError("lmp_detach_check rx_acl_u check was not found")
+    block = text.rfind("\nif.end80:", start, position)
+    if block < 0:
+        raise RuntimeError("lmp_detach_check if.end80 block was not found")
+    dbg = debug_location(text[position:text.find("\n", position)])
+    drain = (
+        f"  br label %cyclone2_drain{dbg}\n"
+        "cyclone2_drain:\n"
+        "  %cyclone2_drain_i = phi i32 [ 0, %if.end80 ], "
+        "[ %cyclone2_drain_next, %cyclone2_drain_body ]\n"
+        f"  %cyclone2_drain_empty = tail call fastcc i32 @list_empty("
+        f"%struct.list_head* %rx_acl_u){dbg}\n"
+        f"  %cyclone2_drain_is_empty = icmp ne i32 %cyclone2_drain_empty, 0{dbg}\n"
+        f"  %cyclone2_drain_limit = icmp ugt i32 %cyclone2_drain_i, 15{dbg}\n"
+        f"  %cyclone2_drain_stop = or i1 %cyclone2_drain_is_empty, "
+        f"%cyclone2_drain_limit{dbg}\n"
+        f"  br i1 %cyclone2_drain_stop, label %cyclone2_drain_done, "
+        f"label %cyclone2_drain_body{dbg}\n"
+        "cyclone2_drain_body:\n"
+        f"  tail call fastcc void @lmp_send_acl_u_packet_to_host("
+        f"%struct.lmp_connection* nonnull %conn.0){dbg}\n"
+        f"  %cyclone2_drain_next = add i32 %cyclone2_drain_i, 1{dbg}\n"
+        f"  br label %cyclone2_drain{dbg}\n"
+        "cyclone2_drain_done:\n"
+    )
+    return text[:position] + drain + text[position:]
+
+
 def patch_bitcode_notify(source: Path, destination: Path, clang: str,
                          with_traces: bool = False,
                          with_markers: bool = False,
@@ -857,6 +1019,7 @@ def patch_bitcode_notify(source: Path, destination: Path, clang: str,
     run([clang, "-target", "pi32v2", "-x", "ir", "-S", "-emit-llvm",
          str(source), "-o", str(ir)])
     text = patch_ssp_remote_notify(ir.read_text())
+    text = patch_detach_drain_rx(text)
     if with_traces:
         # Print the key a pairing derived and the challenge/response of a
         # reconnect's authentication (needs make DEBUG_LOG=1 to be visible).
@@ -868,6 +1031,7 @@ def patch_bitcode_notify(source: Path, destination: Path, clang: str,
         text = patch_remote_auth_reply_markers(text)
         text = patch_lmp_address_lookup_fallback(text)
         text = patch_supervision_context_markers(text)
+        text = patch_detach_flow_markers(text)
     if suppress_supervision_timeout:
         if not with_markers:
             raise RuntimeError("timeout suppression requires marker support")
