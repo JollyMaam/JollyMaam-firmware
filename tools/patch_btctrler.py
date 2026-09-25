@@ -6,7 +6,9 @@ and re-emitted as bitcode with the vendor's own clang.  Re-emitting an
 unmodified member is lossless (the only difference in the printed IR is the
 ``ModuleID`` comment), so a patch only changes what it means to.
 
-Two modes:
+The build passes ``--config src/build_config.h`` and the mode comes from
+``CYCLONE2_PATCH_BTCTLER`` there; ``none`` copies the archive unmodified.  The
+two main modes:
 
 ``notify`` (default) adds one call to the archive - see
 ``patch_ssp_remote_notify()`` below - so the console-driven pairing path hands
@@ -32,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -969,15 +972,34 @@ def patch_bitcode(source: Path, destination: Path, clang: str) -> None:
     run([clang, "-target", "pi32v2", "-x", "ir", "-c", "-emit-llvm", str(ir), "-o", str(destination)])
 
 
+MODES = ("none", "notify", "trace", "markers", "markers-no-supervision",
+         "markers-role-guard", "diagnostic")
+
+
+def mode_from_config(path: Path) -> str:
+    """The string CYCLONE2_PATCH_BTCTLER is defined to in the build config."""
+    match = re.search(r'(?m)^\s*#\s*define\s+CYCLONE2_PATCH_BTCTLER\s+"([^"]*)"',
+                      path.read_text())
+    if match is None:
+        raise SystemExit(f"{path}: no CYCLONE2_PATCH_BTCTLER \"mode\" line")
+    if match.group(1) not in MODES:
+        raise SystemExit(f"{path}: CYCLONE2_PATCH_BTCTLER is "
+                         f"\"{match.group(1)}\"; expected one of "
+                         + ", ".join(MODES))
+    return match.group(1)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("source", type=Path)
     parser.add_argument("destination", type=Path)
     parser.add_argument("--clang", required=True)
     parser.add_argument("--ar", default="ar")
-    parser.add_argument("--mode", choices=("notify", "trace", "markers",
-                                            "markers-no-supervision",
-                                            "markers-role-guard", "diagnostic"),
+    parser.add_argument("--config", type=Path,
+                        help="read the mode from CYCLONE2_PATCH_BTCTLER in "
+                             "this header (src/build_config.h); overrides "
+                             "--mode")
+    parser.add_argument("--mode", choices=MODES,
                         default="notify",
                         help="notify (default): add the missing link-key "
                              "notification to the console-driven pairing "
@@ -988,10 +1010,18 @@ def main() -> None:
                              "suppressing the optional supervision-timeout "
                              "request for an A/B reconnect run; "
                              "diagnostic: the sniff override "
-                             "plus the same traces")
+                             "plus the same traces; none: copy the archive "
+                             "unmodified")
     args = parser.parse_args()
+    if args.config is not None:
+        args.mode = mode_from_config(args.config)
     args.source = args.source.resolve()
     args.destination = args.destination.resolve()
+
+    if args.mode == "none":
+        args.destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(args.source, args.destination)
+        return
 
     members = subprocess.run(
         [args.ar, "t", str(args.source)],

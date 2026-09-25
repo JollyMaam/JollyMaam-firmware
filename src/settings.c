@@ -1,7 +1,7 @@
 #include <system/includes.h>
 #include <system/user_cfg.h>
 
-#include "cyclone2_build_config.h"
+#include "build_config.h"
 #include "usb.h"
 
 static u8 base_mac_addr[6];

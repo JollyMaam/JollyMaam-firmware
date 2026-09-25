@@ -18,7 +18,7 @@
 #include <btstack/avctp_user.h>
 
 #include "app_config.h"
-#include "cyclone2_build_config.h"
+#include "build_config.h"
 #include "usb.h"
 
 #include "app_comm_bt.h"

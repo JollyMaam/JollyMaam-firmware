@@ -13,21 +13,9 @@ BTSTACK_PORT_DIR := $(BTSTACK_DIR)/port/jieli-br23
 # controller and the factory data use the 1 MiB positions 0xfe000/0xff000.
 FLASH_SIZE := 0x100000
 CODE_LIMIT := 0x40000
-# PATCH_BTCTLER and BOND_STORE_RAM come from build_config.h (see the modes
-# listed there).  A value given on the command line still wins for that run.
-BUILD_CONFIG := build_config.h
-ifeq ($(wildcard $(BUILD_CONFIG)),)
-$(error $(BUILD_CONFIG) is missing)
-endif
-build_config_value = $(strip $(shell sed -n 's/^[[:space:]]*\#[[:space:]]*define[[:space:]]\{1,\}$(1)[[:space:]]\{1,\}\([^[:space:]]*\).*/\1/p' $(BUILD_CONFIG)))
-PATCH_BTCTLER ?= $(call build_config_value,PATCH_BTCTLER)
-BOND_STORE_RAM ?= $(call build_config_value,BOND_STORE_RAM)
-ifeq ($(PATCH_BTCTLER),)
-$(error $(BUILD_CONFIG) does not define PATCH_BTCTLER)
-endif
-ifeq ($(filter 0 1,$(BOND_STORE_RAM)),)
-$(error BOND_STORE_RAM must be 0 or 1, not "$(BOND_STORE_RAM)")
-endif
+# BOND_STORE_RAM and the controller-archive patch mode live in
+# src/build_config.h, not here.
+BUILD_CONFIG := src/build_config.h
 # DEBUG_LOG=1 builds a copy of the SDK's debug.c that forwards the controller
 # library's LMP/HCI tracing to the USB console.  See tools/patch_debug.py.
 DEBUG_LOG ?= 0
@@ -49,30 +37,12 @@ SDK_COMMON_SOURCES := $(SDK_COMMON_SOURCES_MINIMAL)
 SDK_COMMON_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_COMMON_SOURCES:.c=.c.o))
 SDK_CPU_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_SOURCES:.c=.c.o))
 
-ifneq ($(PATCH_BTCTLER),0)
-# Build a patched copy without modifying the vendor SDK installation.
+# Always link a copy of the controller archive, patched as build_config.h
+# says ("none" is an unmodified copy); the vendor SDK is never modified.
 LLVM_AR := $(TOOL_DIR)/../../common/bin/llvm-ar
 VENDOR_BTCTRLR := $(SDK)/cpu/br23/liba/btctrler.a
 PATCHED_BTCTRLR := $O/sdk-libs/btctrler.a
 SDK_ARCHIVES := $(subst $(VENDOR_BTCTRLR),$(PATCHED_BTCTRLR),$(SDK_ARCHIVES_MINIMAL))
-endif
-
-PATCH_BTCTLER_MODE := notify
-ifeq ($(PATCH_BTCTLER),markers-no-supervision)
-PATCH_BTCTLER_MODE := markers-no-supervision
-endif
-ifeq ($(PATCH_BTCTLER),markers-role-guard)
-PATCH_BTCTLER_MODE := markers-role-guard
-endif
-ifeq ($(PATCH_BTCTLER),diag)
-PATCH_BTCTLER_MODE := diagnostic
-endif
-ifeq ($(PATCH_BTCTLER),trace)
-PATCH_BTCTLER_MODE := trace
-endif
-ifeq ($(PATCH_BTCTLER),markers)
-PATCH_BTCTLER_MODE := markers
-endif
 
 ifneq ($(filter 1 verbose,$(DEBUG_LOG)),)
 DEFINES += -DCYCLONE2_LOG_TAGS_VERBOSE=1
@@ -137,28 +107,12 @@ endif
 
 .PHONY: all default clean flash test itest rebootwatch
 
-# Make must notice when the caller switches between the standard and patched
-# controller-library variants; the value of a command-line variable alone is
-# not part of a target's timestamp dependencies.
-PATCH_MODE_STAMP := $O/.patch_btctler_mode
+# Make must notice when the caller switches DEBUG_LOG; the value of a
+# command-line variable alone is not part of a target's timestamp
+# dependencies.
 DEBUG_MODE_STAMP := $O/.debug_log_mode
 .PHONY: FORCE
 FORCE:
-
-$(PATCH_MODE_STAMP): FORCE
-	@mkdir -p $(@D)
-	@if [ ! -f "$@" ] || [ "$$(cat "$@")" != "$(PATCH_BTCTLER)" ]; then \
-		printf '%s\n' "$(PATCH_BTCTLER)" > "$@"; \
-	fi
-
-# The values the C code needs, as a header.  It is rewritten only when a value
-# changes, so the -MMD dependencies rebuild exactly the files that include it.
-CONFIG_HEADER := $O/cyclone2_build_config.h
-$(CONFIG_HEADER): FORCE
-	@mkdir -p $(@D)
-	@printf '%s\n' '/* Generated from $(BUILD_CONFIG) by the Makefile; do not edit. */' \
-		'#define CYCLONE2_BOND_STORE_RAM $(BOND_STORE_RAM)' > $@.tmp
-	@if cmp -s $@.tmp $@; then rm -f $@.tmp; else mv $@.tmp $@; fi
 
 $(DEBUG_MODE_STAMP): FORCE
 	@mkdir -p $(@D)
@@ -270,17 +224,15 @@ $O/app.bin: $O/app.elf
 	$(QUIET)for i in aec wav ape flac m4a amr dts fm mp3 wma; do $(OBJCOPY) -O binary -j .overlay_$$i $< $O/sections/$$i.bin; done
 	$(QUIET)cd $O/sections && cat text.bin data.bin aec.bin wav.bin ape.bin flac.bin m4a.bin amr.bin dts.bin fm.bin mp3.bin wma.bin > ../app.bin
 
-$O/app.elf: $O/sdk.ld $(OBJECTS) $(SDK_ARCHIVES) $(PATCH_MODE_STAMP)
+$O/app.elf: $O/sdk.ld $(OBJECTS) $(SDK_ARCHIVES)
 	@mkdir -p $(@D)
 	@echo [LD] $@
 	$(QUIET)$(LD) -o $@ $(OBJECTS) -T$O/sdk.ld -M=$O/app.map $(SDK_LFLAGS) --start-group $(SDK_ARCHIVES) --end-group $(SDK_RUNTIME_LIBS)
 
-ifneq ($(PATCH_BTCTLER),0)
-$(PATCHED_BTCTRLR): $(VENDOR_BTCTRLR) tools/patch_btctrler.py $(PATCH_MODE_STAMP)
+$(PATCHED_BTCTRLR): $(VENDOR_BTCTRLR) tools/patch_btctrler.py $(BUILD_CONFIG)
 	@mkdir -p $(@D)
 	@echo [PATCH] $@
-	$(QUIET)/work/bin/python3 tools/patch_btctrler.py $(VENDOR_BTCTRLR) $@ --clang $(CC) --ar $(LLVM_AR) --mode $(PATCH_BTCTLER_MODE)
-endif
+	$(QUIET)/work/bin/python3 tools/patch_btctrler.py $(VENDOR_BTCTRLR) $@ --clang $(CC) --ar $(LLVM_AR) --config $(BUILD_CONFIG)
 
 $O/sdk_ld.c: $(SDK)/cpu/br23/sdk_ld.c
 	@mkdir -p $(@D)
@@ -299,9 +251,7 @@ $O/isd_config.ini: $(SDK)/cpu/br23/tools/isd_config_rule.c $(APP_CONFIG)
 	$(compile_pre_build)
 	$(QUIET)sed -i -e /^$$/d "$@"
 
-# Order-only: the header has to exist before the first compile; after that
-# the .d files carry the real dependency for the sources that include it.
-$O/src/%.c.o: src/%.c | $(CONFIG_HEADER)
+$O/src/%.c.o: src/%.c
 	$(compile_c)
 
 # Upstream BTstack and the Jieli port are compiled straight from their

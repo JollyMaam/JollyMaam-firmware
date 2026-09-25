@@ -3,7 +3,7 @@
 #include <usb/otg.h>
 
 #include "app_config.h"
-#include "cyclone2_build_config.h"
+#include "build_config.h"
 #include "btstack_jl.h"
 #include "controller.h"
 #include "main.h"

@@ -133,10 +133,9 @@ only way a bond survives a reset.
     make -j32                                    # uses build_config.h
     tools/flash.sh                               # flashes build/firmware.img
 
-`BOND_STORE_RAM` (bond in RAM or syscfg flash) and `PATCH_BTCTLER` (how the
-controller archive is patched) live in `build_config.h`.  Edit a value and
-run plain `make`: only what it affects is rebuilt.  `make VAR=value` still
-overrides a value for one run.
+Whether the bond lives in RAM or syscfg flash (`CYCLONE2_BOND_STORE_RAM`) and
+how the controller archive is patched (`CYCLONE2_PATCH_BTCTLER`) are set in
+`src/build_config.h`, a normal committed header.  Edit it and run `make`.
 
 The stack-size warnings the compiler prints are a vendor lint, not a symptom;
 the measured worst case is well inside the budget (`docs/stack-budget.md`).

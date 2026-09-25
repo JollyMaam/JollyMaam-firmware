@@ -26,7 +26,7 @@ and zeroed by `clearkeys`) and these survive it too.
 
 ## `BOND_STORE_RAM=1`
 
-    # build_config.h: #define BOND_STORE_RAM 1
+    # src/build_config.h: #define CYCLONE2_BOND_STORE_RAM 1
     make
     tools/flash.sh
 

@@ -198,8 +198,10 @@ connected_now()
 }
 
 if [ "$do_build" = 1 ]; then
-    echo "itest: building the RAM-only image (BOND_STORE_RAM=1 O=build-ram)"
-    make BOND_STORE_RAM=1 O=build-ram >/dev/null
+    grep -Eq '^#define CYCLONE2_BOND_STORE_RAM 1\b' src/build_config.h ||
+        die "src/build_config.h must set CYCLONE2_BOND_STORE_RAM 1 for this test"
+    echo "itest: building the RAM-only image (O=build-ram)"
+    make O=build-ram >/dev/null
 fi
 
 [ -r "$image" ] || die "no image at $image"
