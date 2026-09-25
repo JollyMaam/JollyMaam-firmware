@@ -124,6 +124,11 @@ Console commands worth knowing:
     peek/poke             read and write controller memory (poke wants
                           contiguous hex: `deadbeef`, never `de ad be ef`)
 
+`tools/hostbt.py` is a Linux Bluetooth host to test the pad against.  The user
+runs `sudo python3 tools/hostbt.py serve` on the host (bluetoothctl + btmon);
+from here, `tools/hostbt.py run "pair AA:.." --wait 'successful|Failed'`,
+`since SEQ [REGEX]` and friends drive it over 127.0.0.1:47807.
+
 `tools/bond_capture.py` and `tools/bond_load.py` move a bond on and off the pad
 through `/work/cyclone2-bonds/`.  On a RAM-only build that round trip is the
 only way a bond survives a reset.

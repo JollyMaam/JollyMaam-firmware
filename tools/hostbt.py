@@ -1,0 +1,290 @@
+#!/usr/bin/env python3
+"""A Linux Bluetooth host the pad can be tested against, driven remotely.
+
+Run the server on the machine that owns the Bluetooth adapter:
+
+    sudo python3 tools/hostbt.py serve [--btsnoop FILE]
+
+It keeps one ``bluetoothctl`` session open (agent NoInputNoOutput, so pairing
+needs no confirmation) and, when it runs as root, a ``btmon`` beside it.  Every
+line either of them prints goes into one numbered log.  The server listens on
+127.0.0.1 only, so anything sharing this machine's network namespace - the
+development container included - can drive it with the same script:
+
+    tools/hostbt.py bt "scan on"                   send a bluetoothctl command
+    tools/hostbt.py run "pair AA:.." --wait 'Pairing successful|Failed' -t 30
+    tools/hostbt.py seq                            current log position
+    tools/hostbt.py since SEQ [REGEX]              log lines after SEQ
+    tools/hostbt.py wait SEQ REGEX [-t SECONDS]    block for a matching line
+
+Log lines read ``seq time tag text``; the tag is ``B`` for bluetoothctl, ``M``
+for btmon and ``S`` for the server itself.  Only bluetoothctl commands can be
+sent; nothing is passed to a shell.  Standard library only, so it runs with the
+host's own python3.
+"""
+
+from __future__ import annotations
+
+import argparse
+import collections
+import os
+import pty
+import re
+import signal
+import socket
+import socketserver
+import subprocess
+import sys
+import threading
+import time
+
+DEFAULT_PORT = int(os.environ.get("HOSTBT_PORT", "47807"))
+ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|[\x01\x02\r]")
+PROMPT = re.compile(r"^(?:\[[^\]]*\](?:#|>) ?)+")
+# bluetoothctl asks these even with a NoInputNoOutput agent in some versions.
+AUTO_YES = re.compile(r"\((?:yes/no)\)")
+
+
+class Log:
+    def __init__(self, size: int) -> None:
+        self.lines: collections.deque = collections.deque(maxlen=size)
+        self.seq = 0
+        self.cond = threading.Condition()
+
+    def add(self, tag: str, text: str) -> None:
+        with self.cond:
+            self.seq += 1
+            self.lines.append((self.seq, time.time(), tag, text))
+            self.cond.notify_all()
+
+    def since(self, seq: int, pattern: re.Pattern | None = None) -> list:
+        with self.cond:
+            return [line for line in self.lines
+                    if line[0] > seq and (pattern is None or pattern.search(line[3]))]
+
+    def wait(self, seq: int, pattern: re.Pattern, timeout: float):
+        deadline = time.monotonic() + timeout
+        with self.cond:
+            while True:
+                for line in self.lines:
+                    if line[0] > seq and pattern.search(line[3]):
+                        return line
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    return None
+                self.cond.wait(left)
+
+
+def format_line(line) -> str:
+    seq, stamp, tag, text = line
+    clock = time.strftime("%H:%M:%S", time.localtime(stamp))
+    return f"{seq} {clock}.{int(stamp * 1000) % 1000:03d} {tag} {text}"
+
+
+class Child:
+    """A program on a pty, so it line-buffers as it would in a terminal."""
+
+    def __init__(self, log: Log, tag: str, argv: list[str],
+                 on_line=None) -> None:
+        self.log = log
+        self.tag = tag
+        self.argv = argv
+        self.on_line = on_line
+        self.master = -1
+        self.process: subprocess.Popen | None = None
+        self.lock = threading.Lock()
+
+    def start(self) -> None:
+        master, slave = pty.openpty()
+        self.process = subprocess.Popen(self.argv, stdin=slave, stdout=slave,
+                                        stderr=slave, close_fds=True,
+                                        start_new_session=True)
+        os.close(slave)
+        self.master = master
+        self.log.add("S", f"started {' '.join(self.argv)} pid {self.process.pid}")
+        threading.Thread(target=self.read_loop, daemon=True).start()
+
+    def read_loop(self) -> None:
+        pending = ""
+        while True:
+            try:
+                data = os.read(self.master, 4096)
+            except OSError:
+                break
+            if not data:
+                break
+            pending += ANSI.sub("", data.decode("utf-8", "replace"))
+            *lines, pending = pending.split("\n")
+            # A question such as "(yes/no):" has no newline after it.
+            if pending and AUTO_YES.search(pending):
+                lines.append(pending)
+                pending = ""
+            for line in lines:
+                line = PROMPT.sub("", line).rstrip()
+                if not line:
+                    continue
+                self.log.add(self.tag, line)
+                if self.on_line is not None:
+                    self.on_line(self, line)
+        self.log.add("S", f"{self.argv[0]} exited")
+
+    def alive(self) -> bool:
+        return self.process is not None and self.process.poll() is None
+
+    def write(self, line: str) -> None:
+        with self.lock:
+            os.write(self.master, (line + "\n").encode())
+
+    def stop(self) -> None:
+        if self.alive():
+            self.process.send_signal(signal.SIGTERM)
+            try:
+                self.process.wait(3)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+
+
+def answer_questions(child: Child, line: str) -> None:
+    if AUTO_YES.search(line):
+        child.log.add("S", "answering yes")
+        child.write("yes")
+
+
+class Server(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+    def __init__(self, address, log: Log, ctl: Child) -> None:
+        super().__init__(address, Handler)
+        self.log = log
+        self.ctl = ctl
+
+
+class Handler(socketserver.StreamRequestHandler):
+    def handle(self) -> None:
+        request = self.rfile.readline().decode("utf-8", "replace").rstrip("\n")
+        verb, _, rest = request.partition(" ")
+        log: Log = self.server.log
+        ctl: Child = self.server.ctl
+        try:
+            if verb == "bt":
+                if not ctl.alive():
+                    ctl.start()
+                    for line in ("agent NoInputNoOutput", "default-agent"):
+                        ctl.write(line)
+                seq = log.seq
+                log.add("S", f"> {rest}")
+                ctl.write(rest)
+                reply = [f"ok {seq}"]
+            elif verb == "seq":
+                reply = [str(log.seq)]
+            elif verb == "since":
+                seq, _, pattern = rest.partition(" ")
+                regex = re.compile(pattern) if pattern else None
+                reply = [format_line(line) for line in log.since(int(seq), regex)]
+            elif verb == "wait":
+                seq, timeout, pattern = rest.split(" ", 2)
+                line = log.wait(int(seq), re.compile(pattern), float(timeout))
+                reply = [format_line(line) if line else "timeout"]
+            else:
+                reply = [f"error unknown request {verb!r}"]
+        except (ValueError, re.error) as error:
+            reply = [f"error {error}"]
+        self.wfile.write(("\n".join(reply) + "\n").encode())
+
+
+def serve(args) -> None:
+    log = Log(args.lines)
+    ctl = Child(log, "B", [args.bluetoothctl], on_line=answer_questions)
+    ctl.start()
+    for line in ("power on", "agent NoInputNoOutput", "default-agent"):
+        ctl.write(line)
+    monitors = []
+    if os.geteuid() == 0 and not args.no_btmon:
+        monitors.append(Child(log, "M", ["btmon"]))
+        if args.btsnoop:
+            monitors.append(Child(log, "S", ["btmon", "-w", args.btsnoop]))
+        for monitor in monitors:
+            monitor.start()
+    else:
+        log.add("S", "btmon not started (needs root, or --no-btmon given)")
+    server = Server(("127.0.0.1", args.port), log, ctl)
+    print(f"hostbt: listening on 127.0.0.1:{args.port}", flush=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        for child in [ctl, *monitors]:
+            child.stop()
+
+
+def request(port: int, line: str, timeout: float) -> str:
+    with socket.create_connection(("127.0.0.1", port), timeout=timeout) as sock:
+        sock.sendall((line + "\n").encode())
+        chunks = []
+        while True:
+            data = sock.recv(65536)
+            if not data:
+                break
+            chunks.append(data)
+    return b"".join(chunks).decode("utf-8", "replace")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("serve", help="run the host side (use sudo for btmon)")
+    p.add_argument("--btsnoop", help="also write a btsnoop capture here")
+    p.add_argument("--no-btmon", action="store_true")
+    p.add_argument("--lines", type=int, default=200000,
+                   help="how many log lines to keep")
+    p.add_argument("--bluetoothctl", default="bluetoothctl",
+                   help=argparse.SUPPRESS)
+
+    p = sub.add_parser("bt", help="send one bluetoothctl command")
+    p.add_argument("line")
+    p = sub.add_parser("run", help="send a command and wait for a reply line")
+    p.add_argument("line")
+    p.add_argument("--wait", required=True, help="regex to wait for")
+    p.add_argument("-t", "--timeout", type=float, default=15.0)
+    sub.add_parser("seq", help="print the current log position")
+    p = sub.add_parser("since", help="print log lines after SEQ")
+    p.add_argument("seq", type=int)
+    p.add_argument("regex", nargs="?", default="")
+    p = sub.add_parser("wait", help="wait for a log line matching REGEX")
+    p.add_argument("seq", type=int)
+    p.add_argument("regex")
+    p.add_argument("-t", "--timeout", type=float, default=15.0)
+
+    args = parser.parse_args()
+    if args.command == "serve":
+        serve(args)
+        return
+    if args.command == "bt":
+        reply = request(args.port, f"bt {args.line}", 5)
+    elif args.command == "run":
+        start = request(args.port, f"bt {args.line}", 5).split()[1]
+        reply = request(args.port, f"wait {start} {args.timeout} {args.wait}",
+                        args.timeout + 5)
+        if reply.strip() == "timeout":
+            sys.stdout.write(request(args.port, f"since {start} ^", 5))
+            sys.stdout.write("timeout\n")
+            sys.exit(1)
+    elif args.command == "seq":
+        reply = request(args.port, "seq", 5)
+    elif args.command == "since":
+        reply = request(args.port, f"since {args.seq} {args.regex}".rstrip(), 30)
+    else:
+        reply = request(args.port, f"wait {args.seq} {args.timeout} {args.regex}",
+                        args.timeout + 5)
+        if reply.strip() == "timeout":
+            sys.stdout.write(reply)
+            sys.exit(1)
+    sys.stdout.write(reply)
+
+
+if __name__ == "__main__":
+    main()
