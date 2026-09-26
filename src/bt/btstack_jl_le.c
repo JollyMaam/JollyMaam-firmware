@@ -215,8 +215,9 @@ static void le_apply_advertising(void)
         return;
     }
     memset(none, 0, sizeof(none));
-    /* Connectable undirected, 30 ms, all channels. */
-    gap_advertisements_set_params(0x0030, 0x0030, 0, 0, none, 0x07, 0);
+    /* Connectable undirected, 20 ms (a Pro Controller 2 advertises every
+     * ~21 ms), all channels. */
+    gap_advertisements_set_params(0x0020, 0x0020, 0, 0, none, 0x07, 0);
     gap_advertisements_set_data(le_adv_len, le_adv_data);
     gap_advertisements_enable(1);
 }

@@ -632,10 +632,14 @@ void cyclone2_switch2_start(u8 slot, u8 pairing)
     if (pairing) cyclone2_le_bond_clear(slot);
     if (!pairing && cyclone2_le_bond_read(slot, console, switch2_ltk)) {
         /* Reconnection advertisement: the console that owns this bond
-         * connects back and encrypts with the stored LTK. */
+         * connects back and encrypts with the stored LTK.  It carries the
+         * wake flag (0x81), as a real Pro Controller 2's does when a button
+         * press brings it back (ndeadly's btle_procon2_wake_console
+         * capture): an awake console connects to it the same way, and a
+         * sleeping one only answers the flagged form. */
         switch2_ltk_valid = 1;
-        switch2_build_adv(console, 0);
-        cyclone2_usb_debug("switch2: reconnect advertisement for "
+        switch2_build_adv(console, 0x81);
+        cyclone2_usb_debug("switch2: wake advertisement for "
                            "%02x:%02x:%02x:%02x:%02x:%02x",
                            console[5], console[4], console[3],
                            console[2], console[1], console[0]);
