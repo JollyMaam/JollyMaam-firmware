@@ -89,6 +89,7 @@ const u8 *cyclone2_switch2_adv_data(u8 *length)
 }
 
 static u16 switch2_con_handle;
+static u8 switch2_slot;
 static u8 switch2_counter;
 static u8 switch2_ready;
 static u8 switch2_ltk_valid;
@@ -153,12 +154,13 @@ static void switch2_make_report(u8 output[SWITCH2_REPORT_SIZE])
     output[0] = ++switch2_counter;
     output[1] = 0x20;
 
-    /* Keep the GameSir's printed A/B and X/Y labels in the same Nintendo
-     * order used by the existing Switch Classic profile. */
-    if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_A) buttons |= SWITCH2_BTN_B;
-    if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_B) buttons |= SWITCH2_BTN_A;
-    if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_X) buttons |= SWITCH2_BTN_Y;
-    if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_Y) buttons |= SWITCH2_BTN_X;
+    /* Direct: the pad's A/B/X/Y are Nintendo-positioned.  (Mapping A to B
+     * and X to Y, as the Classic profile does, came out swapped on the
+     * console - measured 2026-09-25 in the Switch 2's input test.) */
+    if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_A) buttons |= SWITCH2_BTN_A;
+    if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_B) buttons |= SWITCH2_BTN_B;
+    if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_X) buttons |= SWITCH2_BTN_X;
+    if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_Y) buttons |= SWITCH2_BTN_Y;
     if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_R1) buttons |= SWITCH2_BTN_R;
     if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_L1) buttons |= SWITCH2_BTN_L;
     if (switch2_input.left_trigger > 0x20U) buttons |= SWITCH2_BTN_ZL;
@@ -421,6 +423,14 @@ static u8 switch2_command_data(u8 command, u8 subcommand, const u8 *request,
         }
         if (subcommand == 0x03 && request_size >= 10U &&
             (request[8] == 0U || request[9] == 0U)) {
+            u8 console[6];
+
+            /* Pairing finalised: keep the console and the key for the
+             * reconnection advertisement and its LTK request. */
+            if (switch2_ltk_valid && btstack_jl_le_peer_address(console)) {
+                cyclone2_le_bond_write(switch2_slot, console, switch2_ltk);
+                cyclone2_usb_debug("switch2: bond stored for slot %u", switch2_slot);
+            }
             output[0] = 1;
             return 1;
         }
@@ -545,8 +555,7 @@ void cyclone2_switch2_prepare_stack(void)
 
 void cyclone2_switch2_start(u8 slot, u8 pairing)
 {
-    (void)slot;
-    (void)pairing;
+    u8 console[6];
     memset(&switch2_input, 0, sizeof(switch2_input));
     switch2_input.hat = CYCLONE2_HAT_NEUTRAL;
     switch2_input.left_x = switch2_input.left_y = 0x80;
@@ -556,11 +565,23 @@ void cyclone2_switch2_start(u8 slot, u8 pairing)
     switch2_con_handle = 0;
     /* A Switch 2 controller is LE only: no Classic page or inquiry scan. */
     bt_wait_phone_connect_control(0);
-    /* Pairing advertisement for now; reconnection (console address) once
-     * the bond is stored. */
-    switch2_build_adv(NULL, 0);
+    switch2_slot = slot;
+    switch2_ltk_valid = 0;
+    if (pairing) cyclone2_le_bond_clear(slot);
+    if (!pairing && cyclone2_le_bond_read(slot, console, switch2_ltk)) {
+        /* Reconnection advertisement: the console that owns this bond
+         * connects back and encrypts with the stored LTK. */
+        switch2_ltk_valid = 1;
+        switch2_build_adv(console, 0);
+        cyclone2_usb_debug("switch2: reconnect advertisement for "
+                           "%02x:%02x:%02x:%02x:%02x:%02x",
+                           console[5], console[4], console[3],
+                           console[2], console[1], console[0]);
+    } else {
+        switch2_build_adv(NULL, 0);
+        cyclone2_usb_debug("switch2: pairing advertisement");
+    }
     btstack_jl_le_set_advertising(switch2_adv_data, sizeof(switch2_adv_data));
-    cyclone2_usb_debug("switch2: advertising as Pro Controller 2");
 }
 
 void cyclone2_switch2_disconnect(void)

@@ -123,8 +123,11 @@ void cyclone2_peer_address_cache_load(void)
 {
 }
 
+static void le_bond_flush(void);
+
 void cyclone2_peer_address_flush(void)
 {
+    le_bond_flush();
 }
 
 static u8 peer_address_ram[CFG_BT_IDX_NUM][6];
@@ -170,10 +173,13 @@ void cyclone2_peer_address_cache_load(void)
     peer_address_cache_ready = 1U;
 }
 
+static void le_bond_flush(void);
+
 void cyclone2_peer_address_flush(void)
 {
     u8 slot;
 
+    le_bond_flush();
     /* Interrupts masked: see the note on btstack_jl_link_key_flush(). */
     local_irq_disable();
     for (slot = 0U; slot < CFG_BT_IDX_NUM; slot++) {
@@ -245,4 +251,78 @@ void bt_set_local_name(char *name, u8 len)
 const char *bt_get_local_name()
 {
     return (const char *)edr_name;
+}
+
+/* ------------------------------------------------------ Switch 2 bonds */
+
+/* One record per slot in the vendor's (unused) LE bonding items,
+ * CFG_BLE_BONDING_REMOTE_INFO + slot: tag, console address, LTK. */
+#define LE_BOND_TAG   0xB2U
+#define LE_BOND_SIZE  23U
+
+static u8 le_bond[CFG_BT_IDX_NUM][LE_BOND_SIZE];
+static u8 le_bond_dirty[CFG_BT_IDX_NUM];
+static u8 le_bond_loaded;
+
+static void le_bond_load(void)
+{
+    u8 slot;
+
+    if (le_bond_loaded) return;
+    le_bond_loaded = 1U;
+    for (slot = 0U; slot < CFG_BT_IDX_NUM; slot++) {
+#if CYCLONE2_BOND_STORE_RAM
+        memset(le_bond[slot], 0, LE_BOND_SIZE);
+#else
+        if (syscfg_read((u16)(CFG_BLE_BONDING_REMOTE_INFO + slot), le_bond[slot],
+                        LE_BOND_SIZE) != LE_BOND_SIZE) {
+            memset(le_bond[slot], 0, LE_BOND_SIZE);
+        }
+#endif
+    }
+}
+
+int cyclone2_le_bond_read(u8 slot, u8 console[6], u8 ltk[16])
+{
+    if (slot >= CFG_BT_IDX_NUM) return 0;
+    le_bond_load();
+    if (le_bond[slot][0] != LE_BOND_TAG) return 0;
+    memcpy(console, &le_bond[slot][1], 6U);
+    memcpy(ltk, &le_bond[slot][7], 16U);
+    return 1;
+}
+
+void cyclone2_le_bond_write(u8 slot, const u8 console[6], const u8 ltk[16])
+{
+    if (slot >= CFG_BT_IDX_NUM) return;
+    le_bond_load();
+    le_bond[slot][0] = LE_BOND_TAG;
+    memcpy(&le_bond[slot][1], console, 6U);
+    memcpy(&le_bond[slot][7], ltk, 16U);
+    le_bond_dirty[slot] = 1U;
+}
+
+void cyclone2_le_bond_clear(u8 slot)
+{
+    if (slot >= CFG_BT_IDX_NUM) return;
+    le_bond_load();
+    if (le_bond[slot][0] == 0U) return;
+    memset(le_bond[slot], 0, LE_BOND_SIZE);
+    le_bond_dirty[slot] = 1U;
+}
+
+/* Called from cyclone2_peer_address_flush(), i.e. only once the radio has
+ * been idle for a while. */
+static void le_bond_flush(void)
+{
+#if !CYCLONE2_BOND_STORE_RAM
+    u8 slot;
+
+    for (slot = 0U; slot < CFG_BT_IDX_NUM; slot++) {
+        if (!le_bond_dirty[slot]) continue;
+        le_bond_dirty[slot] = 0U;
+        syscfg_write((u16)(CFG_BLE_BONDING_REMOTE_INFO + slot), le_bond[slot],
+                     LE_BOND_SIZE);
+    }
+#endif
 }

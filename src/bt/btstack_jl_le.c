@@ -64,6 +64,8 @@ static uint8_t le_ccc_value[LE_MAX_CCC];
 
 static volatile uint8_t le_disconnect_requested;
 static uint8_t le_initialized;
+static uint8_t le_peer[6];
+static uint8_t le_peer_valid;
 
 /* ------------------------------------------------------------ CCC state */
 
@@ -246,6 +248,14 @@ static void le_hci_handler(uint8_t packet_type, uint16_t channel,
             if (hci_subevent_le_connection_complete_get_status(packet) != 0) break;
             le_con_handle =
                 hci_subevent_le_connection_complete_get_connection_handle(packet);
+            {
+                bd_addr_t peer;
+                unsigned i;
+
+                hci_subevent_le_connection_complete_get_peer_address(packet, peer);
+                for (i = 0; i < 6; i++) le_peer[i] = peer[5 - i];
+                le_peer_valid = 1;
+            }
             memset(le_ccc_value, 0, sizeof(le_ccc_value));
             le_pending_len = 0;
             {
@@ -334,6 +344,13 @@ static void le_att_handler(uint8_t packet_type, uint16_t channel,
 void btstack_jl_le_configure(const struct btstack_jl_le_config *config)
 {
     le_config = config;
+}
+
+int btstack_jl_le_peer_address(uint8_t address[6])
+{
+    if (!le_peer_valid) return 0;
+    memcpy(address, le_peer, 6);
+    return 1;
 }
 
 int btstack_jl_le_connected(void)

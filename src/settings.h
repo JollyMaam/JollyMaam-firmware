@@ -21,4 +21,12 @@ void cyclone2_peer_address_write(u8 slot, const u8 address[6]);
 void cyclone2_peer_address_cache_load(void);
 void cyclone2_peer_address_flush(void);
 
+/* A slot's Switch 2 bond: the console's LE address (least significant byte
+ * first) and the LTK the pairing derived, in the order the profile keeps it.
+ * Cached in RAM and written by cyclone2_peer_address_flush(); RAM only on
+ * the RAM-only build.  read returns 1 when the slot has one. */
+int cyclone2_le_bond_read(u8 slot, u8 console[6], u8 ltk[16]);
+void cyclone2_le_bond_write(u8 slot, const u8 console[6], const u8 ltk[16]);
+void cyclone2_le_bond_clear(u8 slot);
+
 #endif

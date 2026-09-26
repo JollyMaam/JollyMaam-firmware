@@ -44,6 +44,9 @@ void btstack_jl_le_set_report(uint16_t handle, const uint8_t *data,
 
 /* (any task) */
 int btstack_jl_le_connected(void);
+/* The connected (or last connected) central's address, least significant
+ * byte first as the application stores addresses.  Returns 0 if none yet. */
+int btstack_jl_le_peer_address(uint8_t address[6]);
 void btstack_jl_le_disconnect(void);
 
 /* (run loop) Notify now if possible, otherwise keep it (one pending) and send
