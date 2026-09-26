@@ -95,9 +95,9 @@ void app_main(void)
     *q++ = 0; *q++ = 0; *q++ = 0; *q++ = 0;    /* CE length */
     /* Restrict the data channels to 0..12, the map the Switch 2 console
      * uses (CONNECT_IND in the Pro Controller 2 capture: 1fff000000). */
-    uint8_t chmap[5] = {0xff, 0x1f, 0x00, 0x00, 0x00};
-    cmd(0x2014, chmap, 5);
-    printf("C channel map 0..12\n");
+    uint8_t chmap_all[5] = {0xff, 0xff, 0xff, 0xff, 0x1f};
+    cmd(0x2014, chmap_all, 5);
+    printf("C channel map: all\n");
     printf("C connecting\n");
     cmd(0x200d, cc, 25);
     for (int i = 0; i < 100 && s_handle == 0xffff; i++) vTaskDelay(pdMS_TO_TICKS(100));
@@ -111,6 +111,12 @@ void app_main(void)
     const uint8_t mtu[] = {0x02, 0x00, 0x02};                  /* Exchange MTU 512 */
     att(mtu, sizeof(mtu));
     vTaskDelay(pdMS_TO_TICKS(1000));
+    /* Now update the map mid-connection: the controller sends the pad an
+     * LL_CHANNEL_MAP_IND, as the Switch 2 console does. */
+    uint8_t chmap[5] = {0xff, 0x1f, 0x00, 0x00, 0x00};
+    cmd(0x2014, chmap, 5);
+    printf("C channel map -> 0..12 (LL_CHANNEL_MAP_IND)\n");
+    vTaskDelay(pdMS_TO_TICKS(2000));
     const uint8_t rbt[] = {0x08, 0x01, 0x00, 0xff, 0xff, 0x03, 0x28}; /* Read By Type chars */
     att(rbt, sizeof(rbt));
     vTaskDelay(pdMS_TO_TICKS(1000));

@@ -74,9 +74,11 @@ static void switch2_build_adv(const u8 console[6], u8 wake)
     d[12] = (u8)SWITCH2_PRODUCT_ID; d[13] = (u8)(SWITCH2_PRODUCT_ID >> 8);
     d[14] = 0x00; d[15] = 0x01;
     d[16] = wake;
-    /* console[] is least significant byte first, as this firmware stores
-     * addresses; the advertisement wants the reversed (display) order. */
-    for (i = 0; i < 6U; ++i) d[17U + i] = console ? console[5U - i] : 0U;
+    /* Least significant byte first, as this firmware stores addresses:
+     * ndeadly's reconnection example carries 48:f1:eb:85:11:5f as
+     * "5f 11 85 eb f1 48".  (Display order here meant the console never
+     * recognised its own address and ignored the advertisement.) */
+    for (i = 0; i < 6U; ++i) d[17U + i] = console ? console[i] : 0U;
     d[23] = 0x0f;
 }
 
@@ -223,9 +225,22 @@ static u8 switch2_lra_amplitude(const u8 *block)
 
 static void switch2_rumble(const u8 *data, u16 size)
 {
+    u8 left;
+    u8 right;
+    static u8 logged;
+
     if (size < 0x21U) return;
-    cyclone2_rumble_set_latched(switch2_lra_amplitude(data + 0x01),
-                                switch2_lra_amplitude(data + 0x11));
+    left = switch2_lra_amplitude(data + 0x01);
+    right = switch2_lra_amplitude(data + 0x11);
+    if (data[0x02] | data[0x03] | data[0x04] | data[0x05] | data[0x06]) {
+        if (logged < 8U) {
+            logged++;
+            cyclone2_usb_debug("switch2: vib %02x %02x%02x%02x%02x%02x%02x -> %u/%u",
+                               data[0], data[1], data[2], data[3], data[4],
+                               data[5], data[6], left, right);
+        }
+    }
+    cyclone2_rumble_set_latched(left, right);
 }
 
 static void switch2_reverse_bytes(const u8 *input, u8 *output, u8 length)
@@ -450,8 +465,16 @@ static u8 switch2_command_data(u8 command, u8 subcommand, const u8 *request,
             return 8;
         }
         break;
+    case 0x0a:
+        /* "Play vibration sample" (ndeadly: 0a 91 01 02 00 04 00 00 | 03 00
+         * 00 00, the connection buzz; the console's settings use it too).
+         * The samples live in the controller; a short buzz stands in for
+         * all of them. */
+        if (subcommand == 0x02 && request_size >= 9U && request[8] != 0)
+            cyclone2_rumble_set(0x80, 0x80, 120);
+        break;
     default:
-        /* 0x09/0x0a confirmations intentionally have an empty response. */
+        /* 0x09 confirmations intentionally have an empty response. */
         break;
     }
     return 0;
@@ -480,6 +503,21 @@ static void switch2_send_command_response(const u8 *request, u16 request_size)
     memcpy(response + SWITCH2_RESPONSE_PREFIX + 8U, data, output_length);
     response_length = SWITCH2_RESPONSE_PREFIX + 8U + output_length;
     cyclone2_bringup_record(0x4d00u | command[0]);
+    if (command[0] != 0x02U) {
+        /* Every command but the memory reads, in full (up to 24 bytes). */
+        char hex[2U * 24U + 1U];
+        u16 i;
+        u16 n = request_size - offset;
+
+        if (n > 24U) n = 24U;
+        for (i = 0; i < n; i++) {
+            static const char digits[] = "0123456789abcdef";
+            hex[2U * i] = digits[command[i] >> 4];
+            hex[2U * i + 1U] = digits[command[i] & 0x0fU];
+        }
+        hex[2U * n] = 0;
+        cyclone2_usb_debug("switch2: cmd %s", hex);
+    }
     if (command[0] == 0x15U) {
         /* Pairing replies, in full: the HCI trace cuts them at 32 bytes. */
         char hex[2U * 32U + 1U];
@@ -530,10 +568,16 @@ static void switch2_att_write(uint16_t att_handle, const uint8_t *buffer,
     case SWITCH2_ATT_VIBRATION_HANDLE:
         switch2_rumble(buffer, buffer_size);
         break;
-    case SWITCH2_ATT_COMMAND_HANDLE:
     case SWITCH2_ATT_VIBRATION_COMMAND_HANDLE:
-        /* 0x16 carries vibration data in front of the command;
-         * switch2_send_command_response() finds the command either way. */
+        /* 0x16: the 0x21 bytes in front of the command are the same
+         * vibration report 0x0012 takes (report byte, left block, right
+         * block), so a pulse can ride along with any command. */
+        if (buffer_size >= SWITCH2_COMMAND_PREFIX + 8U) {
+            switch2_rumble(buffer, SWITCH2_COMMAND_PREFIX);
+        }
+        switch2_send_command_response(buffer, buffer_size);
+        break;
+    case SWITCH2_ATT_COMMAND_HANDLE:
         switch2_send_command_response(buffer, buffer_size);
         break;
     default:
