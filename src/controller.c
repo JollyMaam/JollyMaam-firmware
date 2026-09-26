@@ -9,6 +9,7 @@
 #include "main.h"
 #include "imu.h"
 #include "profile.h"
+#include "profile_classic.h"
 #include "rumble.h"
 #include "settings.h"
 #include "user_cfg_id.h"
@@ -225,6 +226,30 @@ int cyclone2_report_period_set(u8 period_ms)
     return 0;
 }
 
+u8 cyclone2_profile_type_get(u8 slot)
+{
+    if (slot >= CYCLONE2_PROFILE_COUNT) return CYCLONE2_PROFILE_SWITCH;
+    return settings.profile_type[slot] < CYCLONE2_PROFILE_TYPE_COUNT ?
+           settings.profile_type[slot] : CYCLONE2_PROFILE_SWITCH;
+}
+
+/* Choose what a slot speaks.  Takes effect the next time the slot starts
+ * (connect, pair, Home chord); a running session keeps its type.  Each type
+ * keeps its own bond with its host, but the slot's stored peer address is
+ * shared, so pair the slot again after changing its type. */
+int cyclone2_profile_type_set(u8 slot, u8 type)
+{
+    if (slot >= CYCLONE2_PROFILE_COUNT || type >= CYCLONE2_PROFILE_TYPE_COUNT)
+        return -1;
+    settings.profile_type[slot] = type;
+#if CYCLONE2_BOND_STORE_RAM
+    /* RAM-only build: this session only, like the report period. */
+#else
+    syscfg_write(CFG_CYCLONE2_PROFILE_SETTINGS, &settings, sizeof(settings));
+#endif
+    return 0;
+}
+
 void cyclone2_report_statistics_get(struct cyclone2_report_statistics *stats)
 {
     *stats = report_statistics;
@@ -414,7 +439,7 @@ int cyclone2_forget_peer_request(const u8 address[6])
 
     if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
     injection_cancel();
-    cyclone2_switch_forget_peer(address);
+    cyclone2_classic_forget_peer(address);
     cyclone2_bt_address_randomize();
     profile_select(slot, 1U);
     return 1;
@@ -429,7 +454,7 @@ int cyclone2_set_peer_request(u8 slot, const u8 address[6])
     if (slot >= CYCLONE2_PROFILE_COUNT) return -1;
     if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
     injection_cancel();
-    cyclone2_switch_forget_peer(address);
+    cyclone2_classic_forget_peer(address);
     cyclone2_peer_address_write(slot, address);
     profile_select(slot, 0U);
     return 1;

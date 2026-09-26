@@ -15,6 +15,7 @@
 #include "led.h"
 #include "main.h"
 #include "profile.h"
+#include "profile_classic.h"
 #include "rom.h"
 #include "rumble.h"
 #include "settings.h"
@@ -253,8 +254,8 @@ __attribute__((noinline)) static void print_connection_status(void)
     cyclone2_connection_status_get(&status);
     length = snprintf(line, sizeof(line),
                       "slot=%u profile=%s state=%s attempt=%u address=%02x:%02x:%02x:%02x:%02x:%02x usb=%s\r\n",
-                      status.slot, status.profile_type == CYCLONE2_PROFILE_GENERIC ?
-                      "generic" : "switch", connection_state_name(status.connection_state),
+                      status.slot, cyclone2_profile_name(status.profile_type),
+                      connection_state_name(status.connection_state),
                       status.connect_attempts,
                       status.local_address[5], status.local_address[4],
                       status.local_address[3], status.local_address[2],
@@ -681,6 +682,31 @@ static void print_battery_status(void)
 
 /* Keep the command parser's formatting buffers out of the frequently-called
  * USB poll frame. LTO otherwise inlines this through consume_input(). */
+/* `profile N [type]`: show or set what slot N speaks. */
+__attribute__((noinline)) static void profile_command(const char *text)
+{
+    u8 slot = (u8)(text[0] - '0');
+    u8 type;
+    char line[64];
+
+    if (text[1] == ' ') {
+        for (type = 0U; type < CYCLONE2_PROFILE_TYPE_COUNT; type++) {
+            if (!strcmp(text + 2, cyclone2_profile_name(type))) break;
+        }
+        if (type == CYCLONE2_PROFILE_TYPE_COUNT) {
+            console_write("ERR types: switch generic switch2 xbox dualsense\r\n");
+            return;
+        }
+        if (cyclone2_profile_type_set(slot, type) != 0) {
+            console_write("ERR could not set the profile type\r\n");
+            return;
+        }
+    }
+    snprintf(line, sizeof(line), "OK slot %u profile %s\r\n", slot,
+             cyclone2_profile_name(cyclone2_profile_type_get(slot)));
+    console_write(line);
+}
+
 __attribute__((noinline)) static void execute_command(void)
 {
     command_line[command_length] = '\0';
@@ -690,6 +716,8 @@ __attribute__((noinline)) static void execute_command(void)
                       "debug on|off|status  control runtime diagnostics\r\n"
                       "report 5|8|10|16|status  set/report HID period in ms\r\n"
                       "connect 0|1|2|3  reconnect a saved profile slot\r\n"
+                      "profile N [switch|switch2|xbox|dualsense|generic]\r\n"
+                      "         show or set what slot N speaks (next start)\r\n"
                       "wake 0|1|2|3 [channel] [seconds]  wake that slot's\r\n"
                       "         sleeping console, then reconnect it\r\n"
                       "wake stop|status\r\n"
@@ -733,6 +761,10 @@ __attribute__((noinline)) static void execute_command(void)
                                       "debug output disabled\r\n");
     } else if (!strcmp(command_line, "status")) {
         print_status();
+    } else if (!strncmp(command_line, "profile ", 8U) &&
+               command_line[8] >= '0' && command_line[8] <= '3' &&
+               (command_line[9] == '\0' || command_line[9] == ' ')) {
+        profile_command(command_line + 8);
     } else if (!strcmp(command_line, "connect status")) {
         print_connection_status();
     } else if (!strcmp(command_line, "stat")) {
@@ -911,7 +943,7 @@ __attribute__((noinline)) static void execute_command(void)
                  * page against the new key.  Also remove the controller
                  * library's separate persistent record for this peer, or it
                  * may authenticate from a stale key without asking the host. */
-                cyclone2_switch_forget_peer(address);
+                cyclone2_classic_forget_peer(address);
                 cyclone2_peer_address_write(slot, address);
                 btstack_jl_link_key_store_write(address, key, type);
                 if (cyclone2_connect_with_address_request(slot, local) > 0) {
@@ -984,7 +1016,7 @@ __attribute__((noinline)) static void execute_command(void)
     } else if (!strcmp(command_line, "nvscan")) {
         print_nvram_scan();
     } else if (!strcmp(command_line, "delall")) {
-        cyclone2_switch_forget_all();
+        cyclone2_classic_forget_all();
         console_write("OK asked the stack to forget every device\r\n");
     } else if (!strcmp(command_line, "inject status")) {
         print_injection_status();

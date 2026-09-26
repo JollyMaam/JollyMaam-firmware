@@ -84,6 +84,19 @@ typedef struct {
      *   0xa2, report id, body   - interrupt-channel output report
      *   0x52, report id, body   - control-channel SET_REPORT */
     void     (*hid_output)(const uint8_t *packet, uint16_t size);
+
+    /* Device ID (PnP) record, USB vendor-id source.  Hosts take the HID
+     * device's vendor and product from it, so it decides which driver binds
+     * (hid-nintendo, xinputhid, hid-playstation, SDL's HIDAPI drivers). */
+    uint16_t device_id_vendor;
+    uint16_t device_id_product;
+    uint16_t device_id_version;
+
+    /* Optional GET_REPORT from the host.  Fill exactly `size` bytes - the
+     * report body, without the report id, at the size the report descriptor
+     * declares - and return 1, or return 0 to refuse the request. */
+    int (*hid_get_report)(uint8_t report_type, uint8_t report_id,
+                          uint8_t *report, uint16_t size);
 } btstack_jl_config_t;
 
 /* Prepare the host stack.  Only records the configuration: the heavy

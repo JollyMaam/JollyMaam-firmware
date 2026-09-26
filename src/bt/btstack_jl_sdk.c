@@ -25,6 +25,7 @@
 #include "hci_dump_console.h"
 #include "main.h"
 #include "btstack_jl.h"
+#include "btstack_jl_hid_ext.h"
 
 
 
@@ -62,6 +63,18 @@ static u8 hid_ready;
 static u8 btstack_task_created;
 
 static void (*hid_output_handler)(u8 *packet, u16 size, u16 channel);
+/* Device ID record and GET_REPORT handler for the session being started; see
+ * btstack_jl_hid_ext.h.  btstack_init() uses them once and puts the Switch
+ * profile's back, so a session whose profile sets nothing (the LE ones) never
+ * inherits the previous profile's. */
+#define HID_DEFAULT_VENDOR  0x057eU
+#define HID_DEFAULT_PRODUCT 0x2009U
+#define HID_DEFAULT_VERSION 0x0001U
+static u16 hid_device_id_vendor = HID_DEFAULT_VENDOR;
+static u16 hid_device_id_product = HID_DEFAULT_PRODUCT;
+static u16 hid_device_id_version = HID_DEFAULT_VERSION;
+static int (*hid_get_report_handler)(u8 report_type, u8 report_id, u8 *report,
+                                     u16 size);
 
 static void jl_link_policy_apply(void);
 static void (*hid_send_wakeup)(void);
@@ -587,6 +600,14 @@ void btstack_init(void)
     config.critical_exit = &jl_critical_exit;
     config.trace = &jl_trace;
     config.hid_output = &jl_hid_output;
+    config.device_id_vendor = hid_device_id_vendor;
+    config.device_id_product = hid_device_id_product;
+    config.device_id_version = hid_device_id_version;
+    config.hid_get_report = hid_get_report_handler;
+    hid_device_id_vendor = HID_DEFAULT_VENDOR;
+    hid_device_id_product = HID_DEFAULT_PRODUCT;
+    hid_device_id_version = HID_DEFAULT_VERSION;
+    hid_get_report_handler = 0;
 
     cyclone2_bringup_record(3U);
     BTSTACK_JL_LOG("init name=%s", config.local_name ? config.local_name : "?");
@@ -801,9 +822,23 @@ void user_hid_regiser_wakeup_send(void *cbk)
     hid_send_wakeup = (void (*)(void)) cbk;
 }
 
+void btstack_jl_hid_set_device_id(u16 vendor, u16 product, u16 version)
+{
+    hid_device_id_vendor = vendor;
+    hid_device_id_product = product;
+    hid_device_id_version = version;
+}
+
+void btstack_jl_hid_set_get_report_handler(
+    int (*handler)(u8 report_type, u8 report_id, u8 *report, u16 size))
+{
+    hid_get_report_handler = handler;
+}
+
 int edr_hid_data_send_ext(u8 report_type, u8 report_id, u8 *data, u16 len)
 {
-    u8 message[64];
+    /* HIDP header + report id + body; the core queues at most 80 bytes. */
+    u8 message[80];
 
     if (len + 2 > sizeof(message)) {
         return 2;

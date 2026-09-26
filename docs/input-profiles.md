@@ -8,9 +8,14 @@ The intended reading order is:
 2. `src/controller.c` owns input timing, Home/chord policy, LEDs, sleep, and
    profile selection.
 3. `src/profile.c` presents one transport-independent profile interface.
-4. `src/profile_switch.c`, `src/profile_switch2.c`, and
-   `src/profile_generic.c` contain their respective Bluetooth setup, event
-   handling, report format, and send path.
+4. `src/profile_switch.c`, `src/profile_switch2.c`, `src/profile_xbox.c`,
+   `src/profile_dualsense.c` and `src/profile_generic.c` contain their
+   respective report formats and send paths.  The three Bluetooth Classic HID
+   ones (Switch, Xbox, DualSense Edge) share one session module,
+   `src/profile_classic.c`: pairing, reconnecting by page, bond cleanup and
+   opening the HID channels.  Each describes itself with a
+   `struct cyclone2_classic_profile` (name, class/SSP/report descriptor,
+   Device ID, output and GET_REPORT handlers).
 5. `src/input.c`, `src/usb_control.c`, and `src/control.c` contain physical
    input, the CDC console, and board output support.
 
@@ -34,8 +39,35 @@ Release a chord to reconnect the selected slot. Hold it for five seconds to
 discard that slot's bond and enter pairing mode. Each slot has a derived local
 Bluetooth address and separate bond storage, so the hosts see four independent
 controllers. The slot-to-controller assignments live in syscfg item 48. Their
-defaults are currently initialized in `settings_load()`; a user-facing
-configuration transport has not been added yet.
+defaults are initialized in `settings_load()`; `profile N [type]` on the USB
+console shows or changes one (types: `switch`, `switch2`, `xbox`,
+`dualsense`, `generic`).  A change applies the next time the slot starts, and
+the slot needs pairing again with its new host.
+
+## Xbox and DualSense Edge (untested on hardware)
+
+Both are Bluetooth Classic HID, built and reviewed but not yet run on the pad
+(2026-09-26).
+
+- `xbox`: Xbox Wireless Controller, Device ID `045e:02fd` version `0x0100`,
+  the stock firmware's "bt xinput mode" identity and report descriptor
+  (extracted from its image).  Windows binds `xinputhid`, so XInput games see
+  it without a dongle.  XInput has no paddles or gyro; the extra buttons
+  (capture, M, L4, R4) ride on unused HID buttons 3, 6, 9 and 10 for hosts
+  that read raw HID.  Rumble: output report `0x03`.
+- `dualsense`: DualSense Edge, `054c:0df2`.  SDL (HIDAPI PS5 driver), Steam
+  Input and Linux hid-playstation report the back paddles (L4/R4), gyro and
+  accelerometer (the QMI8658A's scale is declared in feature report `0x05`),
+  rumble (output `0x31`).  M is the touchpad click and capture is mute.  It
+  starts in extended reports (`DS_START_EXTENDED`) so SDL opens it in full
+  mode; DirectInput-only readers then see nothing.  The descriptor was
+  derived from the stock DualShock 4 one; lights and player LEDs from the host
+  are ignored so far.
+
+First things to check on hardware: the Device ID the host sees
+(`bluetoothctl info`, `/sys/bus/hid/devices`), SDL's `testcontroller`
+(paddles, gyro direction against the Switch profile, rumble), and for the
+DualSense that hid-playstation accepts the feature reports' CRCs (dmesg).
 
 Selecting the first profile after boot starts its Bluetooth stack directly.
 Switching profiles while a stack is already running uses a 16-byte internal

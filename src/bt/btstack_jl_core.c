@@ -20,6 +20,7 @@
 #include "classic/sdp_server.h"
 #include "classic/sdp_util.h"
 #include "classic/device_id_server.h"
+#include "btstack_hid_parser.h"
 #include "gap.h"
 #include "hci.h"
 #include "hci_cmd.h"
@@ -31,13 +32,14 @@
 #include "btstack_jl_le.h"
 
 #define BTSTACK_JL_MAX_QUEUED_REPORTS 24
-#define BTSTACK_JL_MAX_REPORT_SIZE    64
-/* HID SDP record: service attributes plus the 170 byte Switch report
- * descriptor, which upstream stores inline in the record. */
-/* Room for the HID report descriptor plus the record's text attributes
- * (service name, description, provider). */
-#define BTSTACK_JL_SDP_RECORD_SIZE    480
-#define BTSTACK_JL_HID_DESCRIPTOR_MAX 240
+/* HIDP header + report id + body: a DualSense Bluetooth report 0x31 is 78
+ * bytes with its id, the largest either direction of any profile. */
+#define BTSTACK_JL_MAX_REPORT_SIZE    80
+/* HID SDP record: service attributes plus the report descriptor, which
+ * upstream stores inline in the record, and the record's text attributes
+ * (service name, description, provider).  The largest descriptor is the Xbox
+ * one at 334 bytes. */
+#define BTSTACK_JL_SDP_RECORD_SIZE    720
 
 typedef struct {
     uint16_t size;
@@ -138,10 +140,9 @@ static uint8_t jl_le_adv_data[31];
 static uint8_t jl_le_adv_len;
 /* Device ID (PnP) record: BlueZ takes the HID device's vendor and product from
  * it, and Linux's hid-nintendo binds only to 057e:2009.  Without it the pad
- * came up as 0000:0000 and a generic HID driver took it. */
+ * came up as 0000:0000 and a generic HID driver took it.  The profile picks
+ * the ids (btstack_jl_config_t). */
 static uint8_t jl_sdp_device_id_buffer[100];
-static uint8_t jl_hid_descriptor[BTSTACK_JL_HID_DESCRIPTOR_MAX];
-static uint16_t jl_hid_descriptor_size;
 
 static void jl_notify_ex(uint8_t type, uint8_t code, uint8_t status,
                          const uint8_t *address)
@@ -786,21 +787,32 @@ static void jl_hid_set_report(uint16_t cid, hid_report_type_t report_type,
     jl_config.hid_output(packet, (uint16_t)(report_size + 1));
 }
 
-/* GET_REPORT: the only request that matters here is the report descriptor
- * (feature report 0), which hosts ask for when they did not read it from SDP. */
+/* GET_REPORT: handed to the profile (DualSense calibration, pairing and
+ * firmware feature reports).  hid_device.c answers only if the body has
+ * exactly the size the descriptor declares for that report, so ask for that
+ * size.  The body goes into L2CAP's outgoing buffer (HID MTU 100). */
 static int jl_hid_report_request(uint16_t cid, hid_report_type_t report_type,
                                  uint16_t report_id, int *out_report_size,
                                  uint8_t *out_report)
 {
-    (void) cid;
+    int size;
 
-    if ((report_type == HID_REPORT_TYPE_FEATURE) && (report_id == 0) &&
-        (jl_hid_descriptor_size != 0)) {
-        memcpy(out_report, jl_hid_descriptor, jl_hid_descriptor_size);
-        *out_report_size = jl_hid_descriptor_size;
-        return 1;
+    (void) cid;
+    if (jl_config.hid_get_report == 0) {
+        return 0;
     }
-    return 0;
+    size = btstack_hid_get_report_size_for_id(report_id, report_type,
+                                              jl_config.report_descriptor,
+                                              jl_config.report_descriptor_size);
+    if ((size <= 0) || (size > BTSTACK_JL_MAX_REPORT_SIZE)) {
+        return 0;
+    }
+    if (!jl_config.hid_get_report((uint8_t) report_type, (uint8_t) report_id,
+                                  out_report, (uint16_t) size)) {
+        return 0;
+    }
+    *out_report_size = size;
+    return 1;
 }
 
 /* ------------------------------------------------------------ setup/exit */
@@ -942,16 +954,13 @@ static int btstack_jl_core_setup(void)
     device_id_create_sdp_record(jl_sdp_device_id_buffer,
                                 sdp_create_service_record_handle(),
                                 DEVICE_ID_VENDOR_ID_SOURCE_USB,
-                                0x057eu, 0x2009u, 0x0001u);
+                                jl_config.device_id_vendor,
+                                jl_config.device_id_product,
+                                jl_config.device_id_version);
     if (sdp_register_service(jl_sdp_device_id_buffer) != 0) {
         cyclone2_usb_debug("BTSTACK: SDP Device ID record not registered");
     }
 
-    jl_hid_descriptor_size = jl_config.report_descriptor_size;
-    if (jl_hid_descriptor_size > sizeof(jl_hid_descriptor)) {
-        jl_hid_descriptor_size = sizeof(jl_hid_descriptor);
-    }
-    memcpy(jl_hid_descriptor, jl_config.report_descriptor, jl_hid_descriptor_size);
     hid_device_init(false, jl_config.report_descriptor_size,
                     jl_config.report_descriptor);
     /* The descriptor declares output report 0x01 at full length, but hosts

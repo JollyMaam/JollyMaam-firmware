@@ -3,6 +3,7 @@
 #include <btstack/avctp_user.h>
 
 #include "profile.h"
+#include "profile_classic.h"
 #include "settings.h"
 #include "btstack_jl_le.h"
 
@@ -23,12 +24,12 @@ static const struct profile_operations profiles[] = {
         .name = "switch",
         .prepare = cyclone2_generic_prepare_stack,
         .start = cyclone2_switch_start,
-        .disconnect = cyclone2_switch_disconnect,
-        .exit = cyclone2_switch_exit,
-        .is_connected = cyclone2_switch_is_connected,
-        .reconnect = cyclone2_switch_reconnect,
+        .disconnect = cyclone2_classic_disconnect,
+        .exit = cyclone2_classic_exit,
+        .is_connected = cyclone2_classic_is_connected,
+        .reconnect = cyclone2_classic_reconnect,
         .send = cyclone2_switch_send,
-        .handle_event = cyclone2_switch_handle_event,
+        .handle_event = cyclone2_classic_handle_event,
     },
     [CYCLONE2_PROFILE_GENERIC] = {
         .name = "generic",
@@ -51,6 +52,28 @@ static const struct profile_operations profiles[] = {
         .reconnect = cyclone2_switch2_reconnect,
         .send = cyclone2_switch2_send,
         .handle_event = cyclone2_switch2_handle_event,
+    },
+    [CYCLONE2_PROFILE_XBOX] = {
+        .name = "xbox",
+        .prepare = cyclone2_generic_prepare_stack,
+        .start = cyclone2_xbox_start,
+        .disconnect = cyclone2_classic_disconnect,
+        .exit = cyclone2_classic_exit,
+        .is_connected = cyclone2_classic_is_connected,
+        .reconnect = cyclone2_classic_reconnect,
+        .send = cyclone2_xbox_send,
+        .handle_event = cyclone2_classic_handle_event,
+    },
+    [CYCLONE2_PROFILE_DUALSENSE] = {
+        .name = "dualsense",
+        .prepare = cyclone2_generic_prepare_stack,
+        .start = cyclone2_dualsense_start,
+        .disconnect = cyclone2_classic_disconnect,
+        .exit = cyclone2_classic_exit,
+        .is_connected = cyclone2_classic_is_connected,
+        .reconnect = cyclone2_classic_reconnect,
+        .send = cyclone2_dualsense_send,
+        .handle_event = cyclone2_classic_handle_event,
     },
 };
 

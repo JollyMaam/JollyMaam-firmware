@@ -9,6 +9,8 @@ enum cyclone2_profile_type {
     CYCLONE2_PROFILE_SWITCH,
     CYCLONE2_PROFILE_GENERIC,
     CYCLONE2_PROFILE_SWITCH2,
+    CYCLONE2_PROFILE_XBOX,
+    CYCLONE2_PROFILE_DUALSENSE,
     CYCLONE2_PROFILE_TYPE_COUNT,
 };
 
@@ -53,15 +55,14 @@ int cyclone2_switch2_send(const struct cyclone2_input_report *report);
 enum cyclone2_profile_event cyclone2_switch2_handle_event(
     const struct sys_event *event);
 
+/* Classic HID profiles: the session itself is profile_classic.c. */
 void cyclone2_switch_start(u8 slot, u8 pairing);
-void cyclone2_switch_disconnect(void);
-int cyclone2_switch_exit(void);
-int cyclone2_switch_is_connected(void);
-int cyclone2_switch_reconnect(void);
 int cyclone2_switch_send(const struct cyclone2_input_report *report);
-enum cyclone2_profile_event cyclone2_switch_handle_event(
-    const struct sys_event *event);
-void cyclone2_switch_forget_peer(const u8 address[6]);
-void cyclone2_switch_forget_all(void);
+
+void cyclone2_xbox_start(u8 slot, u8 pairing);
+int cyclone2_xbox_send(const struct cyclone2_input_report *report);
+
+void cyclone2_dualsense_start(u8 slot, u8 pairing);
+int cyclone2_dualsense_send(const struct cyclone2_input_report *report);
 
 #endif
