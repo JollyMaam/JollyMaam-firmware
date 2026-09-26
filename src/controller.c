@@ -260,7 +260,8 @@ int cyclone2_wake_request(u8 slot, u8 channel, u8 seconds)
     if (slot >= CYCLONE2_PROFILE_COUNT) return -1;
     if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
     if (radio_state == CYCLONE2_RADIO_WAKING) return -1;
-    if (!controller_ready) return -4;
+    /* No "controller must have been started" check any more: the wake opens
+     * the controller library itself (start_pending_wake). */
     if (channel > WAKE_CHANNEL_MAX ||
         seconds < WAKE_SECONDS_MIN || seconds > WAKE_SECONDS_MAX) return -2;
     /* Nothing to aim at: a slot that has never connected has no console

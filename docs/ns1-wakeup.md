@@ -412,3 +412,30 @@ Switch 1 answers.  The next step is a sleeping console.  A Switch 2 is woken
 differently in the reference - by replaying a BLE advertisement captured from
 a real Switch 2 controller (`src/wake/ns2_wake.c` in the demo) - which belongs
 with the Switch 2 / BLE work.
+
+## Against a sleeping Switch 2, 2026-09-25
+
+`wake 0 0 20` and `wake 0 0 30` against the user's sleeping Switch 2
+(`c8:48:05:00:54:b1`, a console this pad is bonded to as a Classic Pro
+Controller): the console did not wake, and the three pages after each wake
+timed out (`status=0x04`).  With the ESP32 listener next to the console, the
+40 wake-code correlations it caught during a wake all lie on one smooth
+bit-offset drift line - one transmitter, the pad - and it recorded no DM1
+reception at all, so there is no sign of a phase-2 reply.
+
+Two readings, not separated:
+
+* the implementation is incomplete - the reference says the console wakes
+  only when the controller initiates an ACL link from the phase-2 clock, and
+  "receiving Phase 3 alone does not complete the wake-up"; this code stops
+  after phase 1 and pages normally, which a sleeping console does not answer;
+* a Switch 2 may not wake for a Switch 1 controller at all.  User reports on
+  the internet say it does not; the reference wakes a Switch 2 differently,
+  with an LE advertisement from one of its paired Switch 2 controllers
+  (`src/wake/ns2_wake.c`: manufacturer data
+  `53 05 01 00 03 7e 05 <pid> 00 01 81 <console addr> 0f`, ADV_IND from the
+  controller's own address).
+
+The wake guard that required BTstack to have run once is gone: the wake opens
+the controller library itself.  Phase 1 is left in as the best guess for a
+Switch 1; a Switch 2 wake belongs with the Switch 2 controller profile.
