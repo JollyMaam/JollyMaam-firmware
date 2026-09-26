@@ -74,6 +74,7 @@ enum {
     JL_REQUEST_ADDRESS    = 1 << 3,
     JL_REQUEST_SHUTDOWN   = 1 << 4,
     JL_REQUEST_UNSNIFF    = 1 << 5,
+    JL_REQUEST_LE_ADV     = 1 << 6,
 };
 
 static volatile uint8_t jl_request;
@@ -128,6 +129,10 @@ static btstack_packet_callback_registration_t jl_hci_event_registration;
 static btstack_packet_callback_registration_t jl_l2cap_event_registration;
 static btstack_data_source_t jl_tx_data_source;
 static uint8_t jl_sdp_service_buffer[BTSTACK_JL_SDP_RECORD_SIZE];
+/* LE advertising requested by the application: the payload is copied here and
+ * applied on the run loop.  Length 0 means advertising off. */
+static uint8_t jl_le_adv_data[31];
+static uint8_t jl_le_adv_len;
 /* Device ID (PnP) record: BlueZ takes the HID device's vendor and product from
  * it, and Linux's hid-nintendo binds only to 057e:2009.  Without it the pad
  * came up as 0000:0000 and a generic HID driver took it. */
@@ -467,6 +472,20 @@ static void jl_tx_poll(btstack_data_source_t *data_source,
         }
     }
 
+    if ((request & JL_REQUEST_LE_ADV) != 0) {
+        if (jl_le_adv_len != 0) {
+            bd_addr_t none;
+
+            memset(none, 0, sizeof(none));
+            /* Connectable undirected advertising (ADV_IND), 30 ms, all three
+             * channels - the shape a Switch 2 controller uses. */
+            gap_advertisements_set_params(0x0030, 0x0030, 0, 0, none, 0x07, 0);
+            gap_advertisements_set_data(jl_le_adv_len, jl_le_adv_data);
+            gap_advertisements_enable(1);
+        } else {
+            gap_advertisements_enable(0);
+        }
+    }
     if ((request & JL_REQUEST_UNSNIFF) != 0) {
         jl_exit_sniff_if_needed();
     }
@@ -980,6 +999,16 @@ void btstack_jl_core_set_scan(uint8_t connectable, uint8_t discoverable)
     jl_connectable = connectable ? 1 : 0;
     jl_discoverable = discoverable ? 1 : 0;
     jl_request |= JL_REQUEST_SCAN;
+    jl_exit_critical();
+}
+
+void btstack_jl_core_le_advertise(const uint8_t *data, uint8_t length)
+{
+    if (length > sizeof(jl_le_adv_data)) length = sizeof(jl_le_adv_data);
+    jl_enter_critical();
+    if (data != 0 && length != 0) memcpy(jl_le_adv_data, data, length);
+    jl_le_adv_len = (data != 0) ? length : 0;
+    jl_request |= JL_REQUEST_LE_ADV;
     jl_exit_critical();
 }
 

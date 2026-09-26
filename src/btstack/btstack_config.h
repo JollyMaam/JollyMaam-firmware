@@ -17,6 +17,16 @@
 
 /* Host features that are actually compiled into the image. */
 #define ENABLE_CLASSIC
+/* LE, for the Switch 2 profile (GATT peripheral).  The controller already
+ * runs its LE link layer: config_btctler_modules includes BT_MODULE_LE with
+ * the advertiser and slave roles (src/sdkconfig/lib_btctrler_config.c). */
+#define ENABLE_BLE
+#define ENABLE_LE_PERIPHERAL
+#define MAX_NR_LE_DEVICE_DB_ENTRIES     4
+#define MAX_NR_SM_LOOKUP_ENTRIES        3
+#define MAX_NR_WHITELIST_ENTRIES        1
+#define MAX_NR_GATT_CLIENTS             0
+#define MAX_ATT_DB_SIZE                 512
 #define ENABLE_LOG_ERROR
 
 /* SSP_KEEP_BONDING_FLAG (a local hci.c change) would keep our own bonding
