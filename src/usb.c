@@ -29,6 +29,7 @@
 #define MASKROM_NVRAM_ADDRESS ((volatile u8 *)0x00010800U)
 #define COMMAND_LINE_SIZE     80U
 #define RESPONSE_DELAY_TICKS  30U
+#define UBOOT_RADIO_TIMEOUT_MS 2000U
 #define DEBUG_LINE_COUNT       16U
 #define DEBUG_LINE_SIZE        96U
 
@@ -45,6 +46,7 @@ static volatile u8 receive_pending;
 static u8 greeting_pending;
 static u8 uboot_pending;
 static u8 response_delay;
+static u32 uboot_started_ms;
 static u8 debug_enabled = 1U;
 static u8 debug_read_index;
 static u8 debug_write_index;
@@ -1042,6 +1044,11 @@ __attribute__((noinline)) static void execute_command(void)
         cyclone2_report_period_set(16U);
         print_report_status();
     } else if (!strcmp(command_line, "uboot")) {
+        /* Take the link and the radio down first: entering UBOOT with a
+         * connection up has hung the pad off USB until a replug. */
+        if (cyclone2_disconnect_request() > 0)
+            console_write("OK disconnecting first\r\n");
+        uboot_started_ms = sys_timer_get_ms();
         arm_maskrom_usb_token();
         console_write("OK entering UBOOT1.00 token=");
         console_write_hex((const u8 *)MASKROM_NVRAM_ADDRESS, 16U);
@@ -1128,6 +1135,16 @@ static void enter_maskrom_uboot(void)
     }
 }
 
+/* Count down the reply delay once the radio is down (or 2 s have gone by
+ * without it stopping), then leave for UBOOT. */
+static void uboot_step(void)
+{
+    if (!cyclone2_radio_stopped() &&
+        sys_timer_get_ms() - uboot_started_ms < UBOOT_RADIO_TIMEOUT_MS)
+        return;
+    if (--response_delay == 0U) enter_maskrom_uboot();
+}
+
 void cyclone2_usb_control_initialize(void)
 {
     usb_start();
@@ -1146,7 +1163,7 @@ void cyclone2_usb_control_poll(void)
          * work. Keep only messages produced after the next open. */
         debug_read_index = debug_write_index;
         terminal_was_open = 0U;
-        if (uboot_pending && --response_delay == 0U) enter_maskrom_uboot();
+        if (uboot_pending) uboot_step();
         return;
     }
 
@@ -1173,5 +1190,5 @@ void cyclone2_usb_control_poll(void)
 
     if (!uboot_pending) flush_debug_line();
 
-    if (uboot_pending && --response_delay == 0U) enter_maskrom_uboot();
+    if (uboot_pending) uboot_step();
 }

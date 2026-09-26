@@ -91,5 +91,8 @@ the whole 2000-entry ring with `peek` (about 40 s) and prints it grouped by
 boot, where `status` shows only the newest 96 markers.  It needs
 `build/app.map` from the build that is on the pad.
 
-Before flashing, `disconnect` first: entering the loader with `uboot` while
-the pad is connected has twice left it off USB until a replug (2026-09-25).
+Entering the loader with `uboot` while the pad was connected twice left it
+off USB until a replug (2026-09-25).  `uboot` now disconnects first and waits
+for the radio to stop (at most 2 s) before dropping USB.  That was tested
+with the radio advertising, not yet with a live connection, so an explicit
+`disconnect` before flashing is still the safe habit.

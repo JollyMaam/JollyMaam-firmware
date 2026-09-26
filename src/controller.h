@@ -55,6 +55,7 @@ int cyclone2_set_peer_request(u8 slot, const u8 address[6]);
 int cyclone2_clear_keys_request(void);
 int cyclone2_reboot_request(void);
 int cyclone2_disconnect_request(void);
+int cyclone2_radio_stopped(void);
 void cyclone2_connection_status_get(struct cyclone2_connection_status *status);
 int cyclone2_usb_present(void);
 int cyclone2_inject_start(u32 period_ms, u32 duration_ms);

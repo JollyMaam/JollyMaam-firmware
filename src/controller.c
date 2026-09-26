@@ -508,6 +508,12 @@ int cyclone2_disconnect_request(void)
     return 1;
 }
 
+/* Whether the radio is fully down: no profile stopping, no wake running. */
+int cyclone2_radio_stopped(void)
+{
+    return radio_state == CYCLONE2_RADIO_OFF;
+}
+
 void cyclone2_connection_status_get(struct cyclone2_connection_status *status)
 {
     u8 slot = active_profile < CYCLONE2_PROFILE_COUNT ? active_profile : 0U;
