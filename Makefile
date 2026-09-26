@@ -12,7 +12,7 @@ BTSTACK_PORT_DIR := $(BTSTACK_DIR)/port/jieli-br23
 # BTIF (MAC/RF trim) and key/mac areas land at 0x7e000/0x7f000, but the
 # controller and the factory data use the 1 MiB positions 0xfe000/0xff000.
 FLASH_SIZE := 0x100000
-CODE_LIMIT := 0x40000
+CODE_LIMIT := 0x48000
 # BOND_STORE_RAM and the controller-archive patch mode live in
 # src/build_config.h, not here.
 BUILD_CONFIG := src/build_config.h
@@ -54,6 +54,7 @@ endif
 INCLUDES := -iquote src -iquote src/bt -iquote src/sdkconfig -iquote src/btstack \
 	-iquote $(O) \
 	-I$(BTSTACK_DIR)/src -I$(BTSTACK_DIR)/src/classic -I$(BTSTACK_PORT_DIR) \
+	-I$(BTSTACK_DIR)/3rd-party/rijndael \
 	$(SDK_INCLUDES)
 PROJECT_SOURCES := $(wildcard src/*.c src/bt/*.c src/sdkconfig/*.c src/wake/*.c)
 APP_CONFIG_DEPS := $(wildcard src/sdkconfig/*.h src/sdkconfig/*.ld)
@@ -75,7 +76,8 @@ BTSTACK_SOURCES := \
 		, $(wildcard $(BTSTACK_DIR)/src/classic/*.c)) \
 	$(wildcard $(BTSTACK_PORT_DIR)/*.c) \
 	$(addprefix $(BTSTACK_DIR)/src/ble/, att_db.c att_db_util.c att_dispatch.c \
-		att_server.c le_device_db_memory.c sm.c)
+		att_server.c le_device_db_memory.c) \
+	$(BTSTACK_DIR)/3rd-party/rijndael/rijndael.c
 BTSTACK_OBJECTS := $(subst $(BTSTACK_DIR),$O/btstack,$(BTSTACK_SOURCES:.c=.c.o))
 
 # btctrler.a and the Jieli runtime already export a few names that upstream

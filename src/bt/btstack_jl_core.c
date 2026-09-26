@@ -28,6 +28,7 @@
 #include "hci_transport_jl_br23.h"
 
 #include "btstack_jl.h"
+#include "btstack_jl_le.h"
 
 #define BTSTACK_JL_MAX_QUEUED_REPORTS 24
 #define BTSTACK_JL_MAX_REPORT_SIZE    64
@@ -187,6 +188,27 @@ static void jl_exit_critical(void)
     if (jl_config.critical_exit != 0) {
         jl_config.critical_exit();
     }
+}
+
+/* Wake the run loop to handle a request - only once it exists: before
+ * btstack_run_loop_init() the poll dereferences a null pointer and the chip
+ * hangs until the watchdog resets it (measured: `pair 3` with the LE layer
+ * setting its advertisement from the profile's start()).  A request made
+ * earlier is picked up by the first poll anyway. */
+void btstack_jl_core_wake(void)
+{
+    if (jl_run_loop_up) btstack_run_loop_poll_data_sources_from_irq();
+}
+
+/* For btstack_jl_le.c, which shares the application/run-loop hand-off. */
+void jl_enter_critical_public(void)
+{
+    jl_enter_critical();
+}
+
+void jl_exit_critical_public(void)
+{
+    jl_exit_critical();
 }
 
 static void jl_trace(uint32_t code)
@@ -429,6 +451,7 @@ static void jl_tx_poll(btstack_data_source_t *data_source,
     memcpy(address, jl_request_address, sizeof(address));
     jl_exit_critical();
 
+    btstack_jl_le_poll();
     if ((request & JL_REQUEST_SCAN) != 0) {
         jl_apply_scan_state();
     }
@@ -569,6 +592,7 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
                         jl_apply_local_address();
                     }
                     jl_apply_scan_state();
+                    btstack_jl_le_working();
                     jl_notify_logged(BTSTACK_JL_EVENT_READY, 0, 0);
                     break;
                 case HCI_STATE_OFF:
@@ -937,6 +961,8 @@ static int btstack_jl_core_setup(void)
 
     jl_hci_event_registration.callback = &jl_packet_handler;
     hci_add_event_handler(&jl_hci_event_registration);
+    /* LE GATT server, when a profile configured one (Switch 2). */
+    btstack_jl_le_setup();
 
     /* Poll the report queue from the run loop; the application queues from
      * its own task and never touches BTstack structures directly. */
@@ -1127,6 +1153,7 @@ void btstack_jl_core_force_shutdown(void)
  * used to trip the assert and park the BTstack task for good. */
 static void btstack_jl_core_teardown(void)
 {
+    btstack_jl_le_teardown();
     hid_device_deinit();
     sdp_deinit();
     l2cap_deinit();

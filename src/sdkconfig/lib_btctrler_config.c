@@ -139,8 +139,18 @@ const int config_btctler_le_afh_en = 0;
 const int config_btctler_le_slave_multilink = 0;
 const int config_btctler_le_master_multilink = 0;
 
-const uint64_t config_btctler_le_features = LE_ENCRYPTION;
-const int config_btctler_le_acl_packet_length = 27;
+/* The SDK's "BLE high speed" set (apps/hid/config): a Switch 2 controller
+ * negotiates data length and the 2M PHY straight after connecting (LL_LENGTH,
+ * LL_PHY in ndeadly's Pro Controller 2 capture), and with only LE_ENCRYPTION
+ * the console connected and then sent nothing at all. */
+/* LE_2M_PHY left out: with it the console switched the link to 2M (PHY
+ * Update Complete, TX 2M/RX 2M) and then never heard our transmissions - it
+ * sent its MTU request, we answered, and it kept resending channel map
+ * updates.  Receiving on 2M worked; transmitting did not. */
+const uint64_t config_btctler_le_features = LE_ENCRYPTION |
+                                            LE_DATA_PACKET_LENGTH_EXTENSION |
+                                            LE_2M_PHY;
+const int config_btctler_le_acl_packet_length = 251;
 
 #define EXT_ADV_CFG_HW (0)
 #define CONFIG_BT_GATT_CONNECTION_NUM (1)

@@ -4,6 +4,7 @@
 
 #include "profile.h"
 #include "settings.h"
+#include "btstack_jl_le.h"
 
 struct profile_operations {
     const char *name;
@@ -71,6 +72,8 @@ void cyclone2_profile_start(enum cyclone2_profile_type type, u8 slot,
     /* Common btstack_init() expects LE's GATT tables even for a Classic-only
      * application. The selected profile chooses either HOGP or the Switch 2
      * raw GATT database here. */
+    /* Only a profile that wants the LE GATT server installs one. */
+    btstack_jl_le_configure(NULL);
     active_profile->prepare();
     active_profile->start(slot, pairing);
     btstack_init();

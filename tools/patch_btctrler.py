@@ -903,6 +903,57 @@ def patch_unknown_opcode_markers(text: str) -> str:
     return text[:start] + function + text[end:]
 
 
+def patch_ll_slave_rx_markers(text: str) -> str:
+    """LE peripheral receive: 0x4e00|opcode for each LL control PDU,
+    0x4f01 for each data PDU handed towards the host."""
+    declaration = "declare void @cyclone2_bringup_record(i32)\n"
+    if declaration.strip() not in text:
+        text = declaration + text
+    start = text.find("define internal void @__conn_slave_rx_post_handler(")
+    end = text.find("\n}", start)
+    if start < 0 or end < 0:
+        raise RuntimeError("__conn_slave_rx_post_handler was not found")
+    body = text[start:end]
+    load = re.search(r"(?m)^  %7 = load i8, i8\* %arrayidx\.i\.i, align 4.*$", body)
+    if load is None:
+        raise RuntimeError("LL control opcode load was not found")
+    dbg = debug_location(load.group(0))
+    marker = (f"\n  %cy_ll_op = zext i8 %7 to i32{dbg}\n"
+              f"  %cy_ll_code = or i32 %cy_ll_op, 19968{dbg}\n"
+              f"  call void @cyclone2_bringup_record(i32 %cy_ll_code){dbg}")
+    body = body[:load.end()] + marker + body[load.end():]
+    data = body.find("\nsw.bb:")
+    if data < 0:
+        raise RuntimeError("LL data PDU branch was not found")
+    line_end = body.find("\n", data + 1) + 1
+    call = re.search(r"(?m)^  tail call void @conn_rx_acl_u_post_handler.*$", body[line_end:])
+    if call is None:
+        raise RuntimeError("conn_rx_acl_u_post_handler call was not found")
+    dbg = debug_location(call.group(0))
+    body = (body[:line_end] +
+            f"  call void @cyclone2_bringup_record(i32 20225){dbg}\n" +
+            body[line_end:])
+    return text[:start] + body + text[end:]
+
+
+def patch_ll_send_control_markers(text: str) -> str:
+    """LE: 0x4b00|opcode for each LL control PDU the controller sends."""
+    declaration = "declare void @cyclone2_bringup_record(i32)\n"
+    if declaration.strip() not in text:
+        text = declaration + text
+    start = text.find("define void @ll_send_control_data(")
+    end = text.find("\n}", start)
+    entry = text.find("\nentry:\n", start, end)
+    if start < 0 or entry < 0:
+        raise RuntimeError("ll_send_control_data was not found")
+    dbg = debug_location(re.search(r".*!dbg !\d+.*", text[entry:end]).group(0))
+    marker = (f"  %cy_tx_op = and i32 %opcode, 255{dbg}\n"
+              f"  %cy_tx_code = or i32 %cy_tx_op, 19200{dbg}\n"
+              f"  call void @cyclone2_bringup_record(i32 %cy_tx_code){dbg}\n")
+    at = entry + len("\nentry:\n")
+    return text[:at] + marker + text[at:]
+
+
 def patch_member(source, destination, clang, hook):
     ir = source.with_suffix(".ll")
     run([clang, "-target", "pi32v2", "-x", "ir", "-S", "-emit-llvm",
@@ -1215,6 +1266,11 @@ def main() -> None:
                                      args.mode == "markers-role-guard"))
         (temp / "lmp.c.o.patched").replace(temp / "lmp.c.o")
         if args.mode in ("markers", "markers-no-supervision", "markers-role-guard"):
+            for member, hook in (("ll_slave.c.o", patch_ll_slave_rx_markers),
+                                 ("link_layer.c.o", patch_ll_send_control_markers)):
+                patch_member(temp / member, temp / (member + ".patched"),
+                             args.clang, hook)
+                (temp / (member + ".patched")).replace(temp / member)
             if not (temp / "lmp_rxtx.c.o").is_file():
                 raise RuntimeError("btctrler archive has no lmp_rxtx.c.o member")
             patch_lmp_outgoing_opcode(temp / "lmp_rxtx.c.o",

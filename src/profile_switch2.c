@@ -13,7 +13,12 @@
 #include "le_gatt_common.h"
 #include "profile.h"
 #include "rumble.h"
-#include "switch2_profile_data.h"
+#include "switch2_att_db.h"
+#include "btstack_jl_le.h"
+#include "rijndael.h"
+#include "main.h"
+#include "settings.h"
+#include "usb.h"
 
 #define SWITCH2_REPORT_SIZE       63U
 #define SWITCH2_COMMAND_PREFIX   0x21U
@@ -43,32 +48,41 @@
 #define SWITCH2_BTN_GL            0x00080000UL
 #define SWITCH2_BTN_C             0x00100000UL
 
-/* The Switch 2 emulator reference advertises this exact Nintendo payload. */
-static u8 switch2_adv_data[] = {
-    0x02, 0x01, 0x06,
-    0x1b, 0xff,
-    0x53, 0x05, 0x01, 0x00, 0x03, 0x7e, 0x05, 0x69, 0x20, 0x00, 0x01,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0f,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-};
+/* Pro Controller 2 advertisement, ndeadly's switch2_controller_research
+ * (bluetooth_interface.md): flags, then manufacturer data
+ *   53 05 | 01 00 03 | 7e 05 | 69 20 | 00 01 | wake | console addr | 0f | 0 x7
+ * The console address is all zeros while pairing, the console's address
+ * (reversed) when reconnecting, and wake = 0x81 to wake it. */
+#define SWITCH2_PRODUCT_ID 0x2069U
+static u8 switch2_adv_data[31];
 
-/* The advertisement above, for the BTstack LE bring-up (`bleadv on`). */
+static void switch2_build_adv(const u8 console[6], u8 wake)
+{
+    u8 *d = switch2_adv_data;
+    u8 i;
+
+    memset(d, 0, sizeof(switch2_adv_data));
+    d[0] = 0x02; d[1] = 0x01; d[2] = 0x06;
+    d[3] = 0x1b; d[4] = 0xff;
+    d[5] = 0x53; d[6] = 0x05;
+    d[7] = 0x01; d[8] = 0x00; d[9] = 0x03;
+    d[10] = 0x7e; d[11] = 0x05;
+    d[12] = (u8)SWITCH2_PRODUCT_ID; d[13] = (u8)(SWITCH2_PRODUCT_ID >> 8);
+    d[14] = 0x00; d[15] = 0x01;
+    d[16] = wake;
+    /* console[] is least significant byte first, as this firmware stores
+     * addresses; the advertisement wants the reversed (display) order. */
+    for (i = 0; i < 6U; ++i) d[17U + i] = console ? console[5U - i] : 0U;
+    d[23] = 0x0f;
+}
+
+/* The advertisement above, for `bleadv on`. */
 const u8 *cyclone2_switch2_adv_data(u8 *length)
 {
+    switch2_build_adv(NULL, 0);
     *length = (u8)sizeof(switch2_adv_data);
     return switch2_adv_data;
 }
-
-static const u8 switch2_empty_report_map[] = { 0xc0 };
-static const sm_cfg_t switch2_sm_config = {
-    .slave_security_auto_req = 0,
-    .slave_set_wait_security = 0,
-    .io_capabilities = IO_CAPABILITY_NO_INPUT_NO_OUTPUT,
-    .authentication_req_flags = SM_AUTHREQ_BONDING,
-    .min_key_size = 7,
-    .max_key_size = 16,
-    .sm_cb_packet_handler = NULL,
-};
 
 static u16 switch2_con_handle;
 static u8 switch2_counter;
@@ -77,56 +91,19 @@ static u8 switch2_ltk_valid;
 static u8 switch2_ltk[SWITCH2_LTK_SIZE];
 static struct cyclone2_input_report switch2_input;
 
-/* Exported by the JL crypto toolbox linked by the firmware SDK. */
-extern void aes128_calc_cyphertext(const u8 *key, const u8 *plaintext,
-                                   u8 *cyphertext);
+/* AES-128 encrypt of one block (BTstack's 3rd-party rijndael). */
+static void aes128_calc_cyphertext(const u8 *key, const u8 *plaintext,
+                                   u8 *cyphertext)
+{
+    uint32_t rk[RKLENGTH(128)];
+    int rounds = rijndaelSetupEncrypt(rk, key, 128);
+
+    rijndaelEncrypt(rk, rounds, plaintext, cyphertext);
+}
 
 static const u8 switch2_ltk_key_b1[SWITCH2_LTK_SIZE] = {
     0x5c, 0xf6, 0xee, 0x79, 0x2c, 0xdf, 0x05, 0xe1,
     0xba, 0x2b, 0x63, 0x25, 0xc4, 0x1a, 0x5f, 0x10,
-};
-
-static const struct conn_update_param_t switch2_connection_params[] = {
-    {6, 6, 0, 600},
-    {6, 9, 0, 600},
-    {12, 12, 0, 600},
-};
-
-static uint16_t switch2_att_read_callback(hci_con_handle_t connection_handle,
-                                           uint16_t att_handle, uint16_t offset,
-                                           uint8_t *buffer, uint16_t buffer_size);
-static int switch2_att_write_callback(hci_con_handle_t connection_handle,
-                                      uint16_t att_handle,
-                                      uint16_t transaction_mode, uint16_t offset,
-                                      uint8_t *buffer, uint16_t buffer_size);
-static int switch2_event_packet_handler(int event, u8 *packet, u16 size,
-                                        u8 *ext_param);
-
-static const gatt_server_cfg_t switch2_server_config = {
-    .att_read_cb = switch2_att_read_callback,
-    .att_write_cb = switch2_att_write_callback,
-    .event_packet_handler = switch2_event_packet_handler,
-};
-
-static const gatt_ctrl_t switch2_gatt_control_block = {
-    .mtu_size = 517,
-    .cbuffer_size = 1024,
-    .multi_dev_flag = 0,
-    .server_config = (gatt_server_cfg_t *)&switch2_server_config,
-    .client_config = NULL,
-    .sm_config = (sm_cfg_t *)&switch2_sm_config,
-    .hci_cb_packet_handler = NULL,
-};
-
-static adv_cfg_t switch2_adv_config = {
-    .adv_data = switch2_adv_data,
-    .rsp_data = NULL,
-    .adv_data_len = sizeof(switch2_adv_data),
-    .rsp_data_len = 0,
-    .adv_interval = 48,
-    .adv_auto_do = 1,
-    .adv_type = ADV_IND,
-    .adv_channel = ADV_CHANNEL_ALL,
 };
 
 static void switch2_post_ble_event(u8 event)
@@ -138,32 +115,6 @@ static void switch2_post_ble_event(u8 event)
     event_data.arg = (void *)SYS_BT_EVENT_BLE_STATUS;
     event_data.u.bt.event = event;
     sys_event_notify(&event_data);
-}
-
-static int switch2_event_packet_handler(int event, u8 *packet, u16 size,
-                                        u8 *ext_param)
-{
-    (void)size;
-    (void)ext_param;
-
-    switch (event) {
-    case GATT_COMM_EVENT_CONNECTION_COMPLETE:
-        switch2_con_handle = little_endian_read_16(packet, 0);
-        ble_gatt_server_connetion_update_request(
-            switch2_con_handle, switch2_connection_params,
-            sizeof(switch2_connection_params) /
-                sizeof(switch2_connection_params[0]));
-        switch2_post_ble_event(BLE_ST_CONNECT);
-        break;
-    case GATT_COMM_EVENT_DISCONNECT_COMPLETE:
-        switch2_con_handle = 0;
-        switch2_ready = 0;
-        switch2_post_ble_event(BLE_ST_DISCONN);
-        break;
-    default:
-        break;
-    }
-    return 0;
 }
 
 static u16 switch2_copy_read(u8 *buffer, u16 buffer_size, u16 offset,
@@ -495,98 +446,80 @@ static void switch2_send_command_response(const u8 *request, u16 request_size)
         response[SWITCH2_COMMAND_PREFIX + 1U] = 1;
     memcpy(response + SWITCH2_COMMAND_PREFIX + 8U, data, output_length);
     response_length = SWITCH2_COMMAND_PREFIX + 8U + output_length;
-    ble_comm_att_send_data(switch2_con_handle, SWITCH2_ATT_RESPONSE_HANDLE,
-                           response, response_length, ATT_OP_AUTO_READ_CCC);
+    cyclone2_bringup_record(0x4d00u | command[0]);
+    btstack_jl_le_notify(SWITCH2_ATT_RESPONSE_2_HANDLE, response,
+                         response_length);
 }
 
-static uint16_t switch2_att_read_callback(hci_con_handle_t connection_handle,
-                                           uint16_t att_handle, uint16_t offset,
-                                           uint8_t *buffer, uint16_t buffer_size)
+static uint16_t switch2_att_read(uint16_t att_handle, uint16_t offset,
+                                 uint8_t *buffer, uint16_t buffer_size)
 {
     u8 report[SWITCH2_REPORT_SIZE];
     static const u8 device_info[] = {0x04,0x00,0x05,0x00,0x01,0x01,0x00};
     static const u8 device_info2[] = {0x36,0x80,0x74,0xee,0xbb,0x3d,0x8e,0x13};
 
-    (void)connection_handle;
     switch (att_handle) {
-    case 0x0003: return switch2_copy_read(buffer, buffer_size, offset,
-                                           device_info, sizeof(device_info));
-    case 0x0007: return switch2_copy_read(buffer, buffer_size, offset,
-                                           device_info2, sizeof(device_info2));
+    case SWITCH2_ATT_INFO_1_HANDLE:
+        return switch2_copy_read(buffer, buffer_size, offset,
+                                 device_info, sizeof(device_info));
+    case SWITCH2_ATT_INFO_2_HANDLE:
+        return switch2_copy_read(buffer, buffer_size, offset,
+                                 device_info2, sizeof(device_info2));
     case SWITCH2_ATT_INPUT_REPORT_HANDLE:
         switch2_make_report(report);
         return switch2_copy_read(buffer, buffer_size, offset, report,
-                                  sizeof(report));
+                                 sizeof(report));
     default:
         return 0;
     }
 }
 
-static int switch2_att_write_callback(hci_con_handle_t connection_handle,
-                                      uint16_t att_handle,
-                                      uint16_t transaction_mode, uint16_t offset,
-                                      uint8_t *buffer, uint16_t buffer_size)
+static void switch2_att_write(uint16_t att_handle, const uint8_t *buffer,
+                              uint16_t buffer_size)
 {
-    (void)transaction_mode;
-    (void)offset;
-
     switch (att_handle) {
-    case 0x0005:
-    case SWITCH2_ATT_INPUT_REPORT_CCC_HANDLE:
-    case 0x001bU:
-    case SWITCH2_ATT_RESPONSE_CCC_HANDLE:
-    case 0x0023U:
-    case 0x0027U:
-    case 0x002fU:
-        if (buffer_size >= 1U)
-            ble_gatt_server_characteristic_ccc_set(connection_handle,
-                                                   att_handle, buffer[0]);
-        return 0;
     case SWITCH2_ATT_VIBRATION_HANDLE:
         switch2_rumble(buffer, buffer_size);
-        return 0;
+        break;
     case SWITCH2_ATT_COMMAND_HANDLE:
+    case SWITCH2_ATT_VIBRATION_COMMAND_HANDLE:
+        /* 0x16 carries vibration data in front of the command;
+         * switch2_send_command_response() finds the command either way. */
         switch2_send_command_response(buffer, buffer_size);
-        return 0;
+        break;
     default:
-        return 0;
+        break;
     }
 }
 
-void cyclone2_ble_set_custom_mode(u8 enable);
+static int switch2_get_ltk(uint8_t ltk[16])
+{
+    if (!switch2_ltk_valid) return 0;
+    /* switch2_ltk holds A1 ^ B1 byte-reversed (the order the AES confirm
+     * uses); the LE layer reverses it again for HCI, which takes the key
+     * least significant byte first - i.e. the wire order of A1 ^ B1. */
+    memcpy(ltk, switch2_ltk, 16);
+    return 1;
+}
+
+static void switch2_state(int connected)
+{
+    switch2_con_handle = connected ? 1U : 0U;
+    if (!connected) switch2_ready = 0;
+    switch2_post_ble_event(connected ? BLE_ST_CONNECT : BLE_ST_DISCONN);
+}
+
+static const struct btstack_jl_le_config switch2_le_config = {
+    .att_db = switch2_att_db,
+    .read = switch2_att_read,
+    .write = switch2_att_write,
+    .get_ltk = switch2_get_ltk,
+    .state = switch2_state,
+};
 
 void cyclone2_switch2_prepare_stack(void)
 {
-    static const ble_init_cfg_t config = {
-        .same_address = 0,
-        .appearance = BLE_APPEARANCE_HID_GAMEPAD,
-        .report_map = switch2_empty_report_map,
-        .report_map_size = sizeof(switch2_empty_report_map),
-    };
-
-    cyclone2_ble_set_custom_mode(1);
-    btstack_ble_start_before_init(&config, 0);
-}
-
-void cyclone2_switch2_ble_before_init(void)
-{
-    ble_comm_init(&switch2_gatt_control_block);
-}
-
-void cyclone2_switch2_ble_init(void)
-{
-    ble_comm_set_config_name("Pro Controller", 0);
-    ble_gatt_server_set_profile(cyclone2_switch2_profile_data,
-                                sizeof(cyclone2_switch2_profile_data));
-    ble_gatt_server_set_adv_config(&switch2_adv_config);
-    ble_module_enable(1);
-}
-
-void cyclone2_switch2_ble_exit(void)
-{
-    ble_module_enable(0);
-    ble_comm_exit();
-    cyclone2_ble_set_custom_mode(0);
+    btstack_jl_le_configure(&switch2_le_config);
 }
 
 void cyclone2_switch2_start(u8 slot, u8 pairing)
@@ -599,31 +532,35 @@ void cyclone2_switch2_start(u8 slot, u8 pairing)
     switch2_input.right_x = switch2_input.right_y = 0x80;
     switch2_counter = 0;
     switch2_ready = 0;
-    switch2_ltk_valid = 0;
-    memset(switch2_ltk, 0, sizeof(switch2_ltk));
     switch2_con_handle = 0;
+    /* A Switch 2 controller is LE only: no Classic page or inquiry scan. */
+    bt_wait_phone_connect_control(0);
+    /* Pairing advertisement for now; reconnection (console address) once
+     * the bond is stored. */
+    switch2_build_adv(NULL, 0);
+    btstack_jl_le_set_advertising(switch2_adv_data, sizeof(switch2_adv_data));
+    cyclone2_usb_debug("switch2: advertising as Pro Controller 2");
 }
 
 void cyclone2_switch2_disconnect(void)
 {
-    if (switch2_con_handle) ble_comm_disconnect(switch2_con_handle);
+    btstack_jl_le_disconnect();
 }
 
 int cyclone2_switch2_exit(void)
 {
     cyclone2_rumble_stop();
-    btstack_ble_exit(0);
+    btstack_jl_le_set_advertising(NULL, 0);
     return 1;
 }
 
 int cyclone2_switch2_is_connected(void)
 {
-    return switch2_con_handle != 0 &&
-           ble_gatt_server_get_connect_state(switch2_con_handle) == BLE_ST_CONNECT;
+    return btstack_jl_le_connected();
 }
 
-/* Reconnection is driven by advertising and the peer's own reconnect, so
- * there is no outgoing page attempt to re-arm here. */
+/* Reconnection is driven by advertising and the console's connect, so there
+ * is no outgoing page attempt to re-arm here. */
 int cyclone2_switch2_reconnect(void)
 {
     return 0;
@@ -632,21 +569,13 @@ int cyclone2_switch2_reconnect(void)
 int cyclone2_switch2_send(const struct cyclone2_input_report *report)
 {
     u8 output[SWITCH2_REPORT_SIZE];
-    int result;
 
     switch2_input = *report;
-    if (!cyclone2_switch2_is_connected() ||
-        !ble_gatt_server_characteristic_ccc_get(
-            switch2_con_handle, SWITCH2_ATT_INPUT_REPORT_CCC_HANDLE)) return 0;
-    if (!switch2_ready) return 0;
+    if (!btstack_jl_le_connected() || !switch2_ready) return 0;
     switch2_make_report(output);
-    result = ble_comm_att_send_data(switch2_con_handle,
-                                    SWITCH2_ATT_INPUT_REPORT_HANDLE, output,
-                                    sizeof(output), ATT_OP_AUTO_READ_CCC);
-    if (result == GATT_OP_RET_SUCESS) return 1;
-    if (result == GATT_BUFFER_FULL || result == GATT_CMD_RET_BUSY) return -1;
-    if (result == GATT_CMD_USE_CCC_FAIL) return 0;
-    return -2;
+    btstack_jl_le_set_report(SWITCH2_ATT_INPUT_REPORT_HANDLE, output,
+                             sizeof(output));
+    return 1;
 }
 
 enum cyclone2_profile_event cyclone2_switch2_handle_event(
