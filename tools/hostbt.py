@@ -18,6 +18,7 @@ development container included - can drive it with the same script:
     tools/hostbt.py wait SEQ REGEX [-t SECONDS]    block for a matching line
     tools/hostbt.py sniff HANDLE [SLOTS]           sniff mode, like a Switch
     tools/hostbt.py unsniff HANDLE
+    tools/hostbt.py lephy HANDLE                   LE: ask for the 2M PHY
 
 Log lines read ``seq time tag text``; the tag is ``B`` for bluetoothctl, ``M``
 for btmon and ``S`` for the server itself.  Only bluetoothctl commands can be
@@ -204,6 +205,21 @@ class Handler(socketserver.StreamRequestHandler):
                 for line in (result.stdout + result.stderr).splitlines():
                     log.add("S", line)
                 reply = [f"ok {log.seq} rc={result.returncode}"]
+            elif verb == "lephy":
+                # LE Set PHY: prefer 2M both ways on one LE connection handle
+                # (fixed hcitool form, validated number, no shell).
+                handle = int(rest.split()[0], 0)
+                if not 0 <= handle <= 0x0eff:
+                    raise ValueError("handle out of range")
+                cmd = ["hcitool", "cmd", "0x08", "0x0032",
+                       "0x%02x" % (handle & 0xff), "0x%02x" % (handle >> 8),
+                       "0x00", "0x02", "0x02", "0x00", "0x00"]
+                log.add("S", "> " + " ".join(cmd))
+                result = subprocess.run(cmd, capture_output=True, text=True,
+                                        timeout=5)
+                for line in (result.stdout + result.stderr).splitlines():
+                    log.add("S", line)
+                reply = [f"ok {log.seq} rc={result.returncode}"]
             elif verb == "seq":
                 reply = [str(log.seq)]
             elif verb == "since":
@@ -278,6 +294,8 @@ def main() -> None:
                    help="sniff interval in 0.625 ms slots (Switch: 24)")
     p = sub.add_parser("unsniff", help="take ACL HANDLE out of sniff mode")
     p.add_argument("handle")
+    p = sub.add_parser("lephy", help="ask for the 2M PHY on LE HANDLE")
+    p.add_argument("handle")
     p = sub.add_parser("bt", help="send one bluetoothctl command")
     p.add_argument("line")
     p = sub.add_parser("run", help="send a command and wait for a reply line")
@@ -311,6 +329,8 @@ def main() -> None:
         reply = request(args.port, f"sniff {args.handle} {args.slots}", 10)
     elif args.command == "unsniff":
         reply = request(args.port, f"unsniff {args.handle}", 10)
+    elif args.command == "lephy":
+        reply = request(args.port, f"lephy {args.handle}", 10)
     elif args.command == "seq":
         reply = request(args.port, "seq", 5)
     elif args.command == "since":
