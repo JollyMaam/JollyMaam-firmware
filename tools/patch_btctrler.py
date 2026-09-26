@@ -922,6 +922,30 @@ def patch_ll_slave_rx_markers(text: str) -> str:
               f"  %cy_ll_code = or i32 %cy_ll_op, 19968{dbg}\n"
               f"  call void @cyclone2_bringup_record(i32 %cy_ll_code){dbg}")
     body = body[:load.end()] + marker + body[load.end():]
+    # Byte 6 of the control PDU: for LL_CHANNEL_MAP_IND the low byte of its
+    # instant, which tells a retransmission (same instant) from a new update.
+    marker6 = (f"\n  %cy_ll_b6p = getelementptr inbounds i8, i8* %arrayidx.i.i, i32 6{dbg}\n"
+               f"  %cy_ll_b6 = load i8, i8* %cy_ll_b6p, align 1{dbg}\n"
+               f"  %cy_ll_b6w = zext i8 %cy_ll_b6 to i32{dbg}\n"
+               f"  %cy_ll_b6c = or i32 %cy_ll_b6w, 18944{dbg}\n"
+               f"  call void @cyclone2_bringup_record(i32 %cy_ll_b6c){dbg}")
+    pos = body.find("call void @cyclone2_bringup_record(i32 %cy_ll_code)")
+    pos = body.find("\n", pos)
+    body = body[:pos] + marker6 + body[pos:]
+    # For each control PDU also the 16-bit header field of struct ble_rx
+    # (LLID at bits 4-5; SN/NESN/MD among the rest): 0x4900|low, 0x4800|high.
+    hdr = (f"\n  %cy_hdr_p = getelementptr inbounds %struct.ble_rx, %struct.ble_rx* %rx, i32 0, i32 1{dbg}\n"
+           f"  %cy_hdr = load i16, i16* %cy_hdr_p, align 4{dbg}\n"
+           f"  %cy_hdr32 = zext i16 %cy_hdr to i32{dbg}\n"
+           f"  %cy_hdr_lo = and i32 %cy_hdr32, 255{dbg}\n"
+           f"  %cy_hdr_lc = or i32 %cy_hdr_lo, 18688{dbg}\n"
+           f"  call void @cyclone2_bringup_record(i32 %cy_hdr_lc){dbg}\n"
+           f"  %cy_hdr_hi = lshr i32 %cy_hdr32, 8{dbg}\n"
+           f"  %cy_hdr_hc = or i32 %cy_hdr_hi, 18432{dbg}\n"
+           f"  call void @cyclone2_bringup_record(i32 %cy_hdr_hc){dbg}")
+    pos = body.find("call void @cyclone2_bringup_record(i32 %cy_ll_b6c)")
+    pos = body.find("\n", pos)
+    body = body[:pos] + hdr + body[pos:]
     data = body.find("\nsw.bb:")
     if data < 0:
         raise RuntimeError("LL data PDU branch was not found")

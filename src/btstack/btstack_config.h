@@ -38,12 +38,17 @@
  * which BTstack keeps whatever the bonding mode. */
 /* #define SSP_KEEP_BONDING_FLAG 1 */
 
-/* ACL payload the host sends.  The controller's ACL TX pool is 5 * 512 bytes
- * (CONFIG_BT_TX_BUFF_SIZE in src/sdkconfig/app_config.h), so staying at the
- * Bluetooth 4.0/5.0 default keeps every packet inside one pool buffer. */
-#define HCI_ACL_PAYLOAD_SIZE            251
+/* ACL payload the host handles.  516 = the 512-byte LE ATT MTU a Pro
+ * Controller 2 answers the Switch 2 with, plus the L2CAP header: BTstack's
+ * ATT server offers min(ATT_REQUEST_BUFFER_SIZE, l2cap_max_le_mtu()), both
+ * derived from this.  Outgoing packets are still fragmented to the
+ * controller's own buffer size, and the controller delivers LE PDUs of at
+ * most 251 bytes that BTstack reassembles. */
+#define HCI_ACL_PAYLOAD_SIZE            516
 /* RX queue entry size in the transport; must hold header + ACL payload. */
 #define HCI_INCOMING_PACKET_BUFFER_SIZE (HCI_ACL_PAYLOAD_SIZE + 8)
+/* Half the default depth, so the larger entries cost the same RAM. */
+#define BR23_HCI_RX_QUEUE_DEPTH         16
 
 /* Single HID link, plus the L2CAP channels of one HID device connection. */
 #define MAX_NR_HCI_CONNECTIONS          1

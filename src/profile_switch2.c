@@ -21,7 +21,11 @@
 #include "usb.h"
 
 #define SWITCH2_REPORT_SIZE       63U
+/* A command written to 0x0016 carries 0x21 bytes of vibration data in front;
+ * the response notification on 0x001e has 0x0e zero bytes in front instead
+ * (ndeadly's Pro Controller 2 capture, frames 400/403). */
 #define SWITCH2_COMMAND_PREFIX   0x21U
+#define SWITCH2_RESPONSE_PREFIX  0x0eU
 #define SWITCH2_MAX_COMMAND_DATA 0x78U
 #define SWITCH2_LTK_SIZE          16U
 
@@ -193,17 +197,33 @@ static void switch2_make_report(u8 output[SWITCH2_REPORT_SIZE])
     output[14] = 0x28;
 }
 
+/* Pro Controller 2 vibration (output report 0x02 on 0x0012): a report byte,
+ * then a 16-byte block per LRA - left at 0x01, right at 0x11.  Each block is
+ * a sequence byte (0x50 | seq) followed by 5-byte samples packing a high and
+ * a low band (SDL's SDL_hidapi_switch2.c, EncodeHDRumble):
+ *   high amp = ((b2 & 0x0f) << 12) | ((b1 & 0xfc) << 4)
+ *   low amp  = (b4 << 8) | (b3 & 0xc0)
+ * The pad has one ERM per side, so each side takes the stronger band of its
+ * first sample.  (The old code read bytes 1 and 5 - both inside the left
+ * block, the sequence byte and a frequency - which ran the motors flat out.) */
+static u8 switch2_lra_amplitude(const u8 *block)
+{
+    const u8 *sample = block + 1;
+    u16 high = (u16)(((u16)(sample[2] & 0x0fU) << 12) |
+                     ((u16)(sample[1] & 0xfcU) << 4));
+    u16 low = (u16)(((u16)sample[4] << 8) | (sample[3] & 0xc0U));
+    u16 strongest = high > low ? high : low;
+
+    /* SDL clamps its amplitude to 29000 of 65535; treat that as full. */
+    if (strongest >= 29000U) return 255;
+    return (u8)(((u32)strongest * 255U) / 29000U);
+}
+
 static void switch2_rumble(const u8 *data, u16 size)
 {
-    u8 left;
-    u8 right;
-
-    if (size < 8U) return;
-    left = (u8)(((u16)(data[1] & 0xfeU) * 255U) / 0xc8U);
-    right = (u8)(((u16)(data[5] & 0xfeU) * 255U) / 0xc8U);
-    if (data[1] == 0U && data[3] == 0x40U) left = 0;
-    if (data[5] == 0U && data[7] == 0x40U) right = 0;
-    cyclone2_rumble_set_latched(left, right);
+    if (size < 0x21U) return;
+    cyclone2_rumble_set_latched(switch2_lra_amplitude(data + 0x01),
+                                switch2_lra_amplitude(data + 0x11));
 }
 
 static void switch2_reverse_bytes(const u8 *input, u8 *output, u8 length)
@@ -372,10 +392,11 @@ static u8 switch2_command_data(u8 command, u8 subcommand, const u8 *request,
         if (subcommand == 0x01) {
             mac = bt_get_mac_addr();
             output[0] = 1; output[1] = 4; output[2] = 1;
-            /* JL stores Bluetooth addresses least-significant byte first;
-             * the Switch 2 command carries the reference's reversed form. */
+            /* Least significant byte first, as this firmware stores it: the
+             * real controller 98:e2:55:c2:16:88 answers 88 16 c2 55 e2 98
+             * (ndeadly's Pro Controller 2 capture, frame 415). */
             for (index = 0; index < 6U; ++index)
-                output[3U + index] = mac[5U - index];
+                output[3U + index] = mac[index];
             return 9;
         }
         if (subcommand == 0x04 && request_size >= 9U + SWITCH2_LTK_SIZE) {
@@ -438,14 +459,14 @@ static void switch2_send_command_response(const u8 *request, u16 request_size)
     memset(data, 0, sizeof(data));
     output_length = switch2_command_data(command[0], command[3], command,
                                          request_size - offset, data);
-    memset(response, 0, SWITCH2_COMMAND_PREFIX + 8U + output_length);
-    memcpy(response + SWITCH2_COMMAND_PREFIX, command, 4U);
-    response[SWITCH2_COMMAND_PREFIX + 4U] = 0x10;
-    response[SWITCH2_COMMAND_PREFIX + 5U] = 0x78;
+    memset(response, 0, SWITCH2_RESPONSE_PREFIX + 8U + output_length);
+    memcpy(response + SWITCH2_RESPONSE_PREFIX, command, 4U);
+    response[SWITCH2_RESPONSE_PREFIX + 4U] = 0x10;
+    response[SWITCH2_RESPONSE_PREFIX + 5U] = 0x78;
     if (command[1] == 0x91U)
-        response[SWITCH2_COMMAND_PREFIX + 1U] = 1;
-    memcpy(response + SWITCH2_COMMAND_PREFIX + 8U, data, output_length);
-    response_length = SWITCH2_COMMAND_PREFIX + 8U + output_length;
+        response[SWITCH2_RESPONSE_PREFIX + 1U] = 1;
+    memcpy(response + SWITCH2_RESPONSE_PREFIX + 8U, data, output_length);
+    response_length = SWITCH2_RESPONSE_PREFIX + 8U + output_length;
     cyclone2_bringup_record(0x4d00u | command[0]);
     btstack_jl_le_notify(SWITCH2_ATT_RESPONSE_2_HANDLE, response,
                          response_length);
