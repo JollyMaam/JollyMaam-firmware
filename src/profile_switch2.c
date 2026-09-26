@@ -599,6 +599,17 @@ static void switch2_state(int connected)
 {
     switch2_con_handle = connected ? 1U : 0U;
     if (!connected) switch2_ready = 0;
+    if (!connected && switch2_adv_data[16] == 0x81U) {
+        /* The console dropped the link - typically going back to sleep.  A
+         * pad kept up by USB advertises again; with the wake flag still set
+         * it woke the console straight back up, in a loop.  The plain
+         * reconnection form lets an awake console come back but leaves a
+         * sleeping one alone; a Home chord (start()) arms the wake again. */
+        switch2_adv_data[16] = 0;
+        btstack_jl_le_set_advertising(switch2_adv_data,
+                                      sizeof(switch2_adv_data));
+        cyclone2_usb_debug("switch2: reconnect advertisement (wake cleared)");
+    }
     switch2_post_ble_event(connected ? BLE_ST_CONNECT : BLE_ST_DISCONN);
 }
 
