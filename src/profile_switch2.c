@@ -421,8 +421,10 @@ static u8 switch2_command_data(u8 command, u8 subcommand, const u8 *request,
             memcpy(output + 1U, ltk_b2, SWITCH2_LTK_SIZE);
             return SWITCH2_LTK_SIZE + 1U;
         }
-        if (subcommand == 0x03 && request_size >= 10U &&
-            (request[8] == 0U || request[9] == 0U)) {
+        /* Finalise: 8-byte header + one data byte (ndeadly's capture,
+         * frame 424: "15 91 01 03 00 01 00 00 | 00").  It used to demand a
+         * tenth byte, so it answered without data and never stored the bond. */
+        if (subcommand == 0x03 && request_size >= 9U) {
             u8 console[6];
 
             /* Pairing finalised: keep the console and the key for the
@@ -478,6 +480,22 @@ static void switch2_send_command_response(const u8 *request, u16 request_size)
     memcpy(response + SWITCH2_RESPONSE_PREFIX + 8U, data, output_length);
     response_length = SWITCH2_RESPONSE_PREFIX + 8U + output_length;
     cyclone2_bringup_record(0x4d00u | command[0]);
+    if (command[0] == 0x15U) {
+        /* Pairing replies, in full: the HCI trace cuts them at 32 bytes. */
+        char hex[2U * 32U + 1U];
+        u16 i;
+        u16 n = response_length - SWITCH2_RESPONSE_PREFIX;
+
+        if (n > 32U) n = 32U;
+        for (i = 0; i < n; i++) {
+            static const char digits[] = "0123456789abcdef";
+            u8 b = response[SWITCH2_RESPONSE_PREFIX + i];
+            hex[2U * i] = digits[b >> 4];
+            hex[2U * i + 1U] = digits[b & 0x0fU];
+        }
+        hex[2U * n] = 0;
+        cyclone2_usb_debug("switch2: reply %s", hex);
+    }
     btstack_jl_le_notify(SWITCH2_ATT_RESPONSE_2_HANDLE, response,
                          response_length);
 }

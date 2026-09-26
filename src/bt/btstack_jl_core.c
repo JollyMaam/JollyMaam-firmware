@@ -51,6 +51,8 @@ static void jl_address_to_jieli(const uint8_t in[6], uint8_t out[6]);
 static void jl_trace(uint32_t code);
 static void jl_apply_scan_state(void);
 static void jl_apply_local_address(void);
+/* btctrler.a: the controller's LE public address (wire order). */
+extern int le_controller_set_mac(const uint8_t *address);
 
 static uint8_t jl_address[6];
 static uint8_t jl_address_valid;
@@ -555,6 +557,10 @@ static void jl_apply_local_address(void)
      * before the host reads it back.  The controller wants the wire order,
      * BTstack wants the human readable one. */
     jieli_btctrler_set_bd_addr(jl_address_jieli);
+    /* The LE side keeps its own copy of the public address, set once when the
+     * controller starts: without this `pair N fresh` changed the Classic
+     * address and the pad still advertised over LE from the old one. */
+    le_controller_set_mac(jl_address_jieli);
     hci_set_bd_addr(jl_address);
 }
 

@@ -30,7 +30,9 @@ extern void jieli_btctrler_close(void);
 #define CYCLONE2_HOME_GRACE_MS              150U
 #define CYCLONE2_LONG_HOLD_MS              5000U
 #define CYCLONE2_CONNECT_TIMEOUT_MS       30000U
-#define CYCLONE2_PAIR_TIMEOUT_MS          60000U
+/* 3 minutes: with its Wi-Fi on, a Switch 2 took 24 s and a retry to find the
+ * pad (2026-09-25), and it can miss a 60 s window entirely. */
+#define CYCLONE2_PAIR_TIMEOUT_MS          180000U
 /* How long the radio must have been idle before syscfg may be written.  The
  * controller keeps working for a moment after a session ends, and a flash
  * write in that window resets the pad. */
