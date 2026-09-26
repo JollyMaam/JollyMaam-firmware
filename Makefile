@@ -62,21 +62,16 @@ APP_CONFIG_DEPS := $(wildcard src/sdkconfig/*.h src/sdkconfig/*.ld)
 # Upstream BTstack host sources.  The exclusions are the pieces that need the
 # 3rd-party codecs (SBC/LC3/MD5) that this firmware does not build.
 BTSTACK_SOURCES := \
-	$(filter-out \
-		$(BTSTACK_DIR)/src/btstack_lc3_google.c \
-		$(BTSTACK_DIR)/src/btstack_lc3plus_fraunhofer.c \
-		$(BTSTACK_DIR)/src/btstack_sample_rate_compensation.c \
-		, $(wildcard $(BTSTACK_DIR)/src/*.c)) \
-	$(filter-out \
-		$(BTSTACK_DIR)/src/classic/btstack_sbc_bluedroid.c \
-		$(BTSTACK_DIR)/src/classic/btstack_sbc_decoder_bluedroid.c \
-		$(BTSTACK_DIR)/src/classic/btstack_sbc_encoder_bluedroid.c \
-		$(BTSTACK_DIR)/src/classic/btstack_link_key_db_tlv.c \
-		$(BTSTACK_DIR)/src/classic/pbap_client.c \
-		, $(wildcard $(BTSTACK_DIR)/src/classic/*.c)) \
+	$(addprefix $(BTSTACK_DIR)/src/, \
+		ad_parser.c btstack_hid_parser.c btstack_linked_list.c \
+		btstack_memory.c btstack_memory_pool.c btstack_run_loop.c \
+		btstack_tlv.c btstack_util.c hci.c hci_cmd.c hci_dump.c l2cap.c \
+		l2cap_signaling.c) \
+	$(addprefix $(BTSTACK_DIR)/src/classic/, \
+		device_id_server.c hid_device.c sdp_server.c sdp_util.c) \
+	$(addprefix $(BTSTACK_DIR)/src/ble/, \
+		att_db.c att_dispatch.c att_server.c le_device_db_memory.c) \
 	$(wildcard $(BTSTACK_PORT_DIR)/*.c) \
-	$(addprefix $(BTSTACK_DIR)/src/ble/, att_db.c att_db_util.c att_dispatch.c \
-		att_server.c le_device_db_memory.c) \
 	$(BTSTACK_DIR)/3rd-party/rijndael/rijndael.c
 BTSTACK_OBJECTS := $(subst $(BTSTACK_DIR),$O/btstack,$(BTSTACK_SOURCES:.c=.c.o))
 
