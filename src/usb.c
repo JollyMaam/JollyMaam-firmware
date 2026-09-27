@@ -31,7 +31,7 @@
 #define MASKROM_NVRAM_ADDRESS ((volatile u8 *)0x00010800U)
 #define COMMAND_LINE_SIZE     80U
 #define RESPONSE_DELAY_TICKS  30U
-#define UBOOT_RADIO_TIMEOUT_MS 2000U
+#define UBOOT_RADIO_TIMEOUT_MS 5000U
 #define DEBUG_LINE_COUNT       16U
 #define DEBUG_LINE_SIZE        96U
 
@@ -1314,9 +1314,18 @@ static void enter_maskrom_uboot(void)
  * without it stopping), then leave for UBOOT. */
 static void uboot_step(void)
 {
-    if (!cyclone2_radio_stopped() &&
-        sys_timer_get_ms() - uboot_started_ms < UBOOT_RADIO_TIMEOUT_MS)
-        return;
+    static u8 warned;
+
+    if (!cyclone2_radio_stopped()) {
+        if (sys_timer_get_ms() - uboot_started_ms < UBOOT_RADIO_TIMEOUT_MS)
+            return;
+        if (!warned) {
+            /* Recorded for the next boot: 0x5e00 = UBOOT entered with the
+             * radio still up. */
+            warned = 1U;
+            cyclone2_bringup_record(0x5e00u);
+        }
+    }
     if (--response_delay == 0U) enter_maskrom_uboot();
 }
 

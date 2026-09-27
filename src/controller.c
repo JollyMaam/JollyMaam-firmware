@@ -540,10 +540,14 @@ int cyclone2_disconnect_request(void)
     return 1;
 }
 
-/* Whether the radio is fully down: no profile stopping, no wake running. */
+/* Whether the radio is fully down: no profile stopping, no wake running, and
+ * the BTstack task has powered the controller off and parked.  radio_state
+ * alone goes OFF as soon as the shutdown is *requested* (radio_exit_only), so
+ * it said "stopped" while the controller was still running - and entering
+ * UBOOT that way hung the pad off USB (2026-09-27, DualSense slot pairing). */
 int cyclone2_radio_stopped(void)
 {
-    return radio_state == CYCLONE2_RADIO_OFF;
+    return radio_state == CYCLONE2_RADIO_OFF && btstack_jl_core_idle();
 }
 
 void cyclone2_connection_status_get(struct cyclone2_connection_status *status)

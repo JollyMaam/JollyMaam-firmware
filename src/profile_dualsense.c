@@ -399,7 +399,9 @@ static void dualsense_session_exit(void)
 }
 
 static const struct cyclone2_classic_profile dualsense_classic = {
-    .local_name = "DualSense Edge Wireless Controller",
+    /* The real one is "DualSense Edge Wireless Controller" (34 bytes), past
+     * the 31 the controller takes; hosts go by the Device ID anyway. */
+    .local_name = "DualSense Edge Controller",
     .edr = &dualsense_edr_config,
     .vendor_id = 0x054cU,
     .product_id = 0x0df2U,

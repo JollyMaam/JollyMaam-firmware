@@ -7,7 +7,8 @@
 
 static u8 base_mac_addr[6];
 static u8 mac_addr[6];
-static u8 edr_name[32] = "CYCLONE2";
+#define CYCLONE2_LOCAL_NAME_MAX 31U
+static u8 edr_name[CYCLONE2_LOCAL_NAME_MAX + 1U] = "CYCLONE2";
 
 /* The BTstack port keeps its link keys in CFG_REMOTE_DB_00.. itself
  * (src/bt/btstack_jl_sdk.c); the vendor host library's
@@ -242,9 +243,13 @@ void bt_set_mac_addr(u8 *addr)
 /* user_cfg.h */
 void bt_set_local_name(char *name, u8 len)
 {
+  /* At most 31 bytes.  A 34-byte name overran the old 32-byte buffer here,
+   * and with the buffer enlarged the pad reset while the controller was
+   * starting (2026-09-27, DualSense slot): the Jieli controller library looks
+   * to be limited to 31 bytes, whatever the Bluetooth spec allows. */
+  if (len > CYCLONE2_LOCAL_NAME_MAX) len = CYCLONE2_LOCAL_NAME_MAX;
   memset(edr_name, 0, sizeof(edr_name));
   memcpy(edr_name, name, len);
-  edr_name[31] = 0;
 }
 
 /* user_cfg.h */
