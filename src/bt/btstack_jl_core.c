@@ -1097,6 +1097,11 @@ int btstack_jl_core_hid_connected(void)
     return jl_hid_cid != 0;
 }
 
+uint16_t btstack_jl_core_reports_queued(void)
+{
+    return jl_report_count;
+}
+
 int btstack_jl_core_send_report(const uint8_t *message, uint16_t size)
 {
     return jl_report_enqueue(message, size);

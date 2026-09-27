@@ -135,7 +135,13 @@ static void fill_state(u8 state[XBOX_STATE_SIZE],
     put_u16(state + 8, (u16)(input->left_trigger >> 6));
     put_u16(state + 10, (u16)(input->right_trigger >> 6));
     state[12] = input->hat < CYCLONE2_HAT_NEUTRAL ? (u8)(input->hat + 1U) : 0U;
-    state[13] = (u8)buttons;
+    /* A and B trade places: tested 2026-09-26, the pad's A came out as B and
+     * B as A with the button word copied straight in, while X and Y were
+     * right. */
+    state[13] = (u8)(buttons & ~(CYCLONE2_REPORT_BUTTON_A |
+                                 CYCLONE2_REPORT_BUTTON_B));
+    if (buttons & CYCLONE2_REPORT_BUTTON_A) state[13] |= 0x02U; /* B */
+    if (buttons & CYCLONE2_REPORT_BUTTON_B) state[13] |= 0x01U; /* A */
     state[14] = (u8)((buttons >> 8) & 0x7fU);
     if (buttons & CYCLONE2_REPORT_BUTTON_SELECT) state[15] = 0x01U;
 }
@@ -215,6 +221,8 @@ int cyclone2_xbox_send(const struct cyclone2_input_report *input)
         state_sent = 0U;
         return 0;
     }
+    /* Never queue behind an unsent report (see the DualSense profile). */
+    if (edr_hid_is_busy()) return -1;
     if (guide != last_guide) {
         result = edr_hid_data_send(XBOX_REPORT_GUIDE, &guide, 1U);
         if (result == 3) return -1;

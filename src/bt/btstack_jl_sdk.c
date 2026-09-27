@@ -862,9 +862,12 @@ int edr_hid_is_connected(void)
     return btstack_jl_core_hid_connected();
 }
 
+/* A report is still waiting for the link.  A profile that streams its whole
+ * state can skip a poll while this is true, so the host always gets the
+ * newest state instead of a backlog of old ones. */
 int edr_hid_is_busy(void)
 {
-    return 0;
+    return btstack_jl_core_reports_queued() != 0;
 }
 
 int edr_hid_tx_buff_is_ok(void)

@@ -220,8 +220,9 @@ static void ds_buttons(const struct cyclone2_input_report *input, u8 out[3])
     out[0] = input->hat <= CYCLONE2_HAT_NEUTRAL ? input->hat :
              CYCLONE2_HAT_NEUTRAL;
     if (buttons & CYCLONE2_REPORT_BUTTON_X) out[0] |= 0x10U; /* square */
-    if (buttons & CYCLONE2_REPORT_BUTTON_A) out[0] |= 0x20U; /* cross */
-    if (buttons & CYCLONE2_REPORT_BUTTON_B) out[0] |= 0x40U; /* circle */
+    /* A and B swapped, as the Xbox profile needed (tested 2026-09-26). */
+    if (buttons & CYCLONE2_REPORT_BUTTON_B) out[0] |= 0x20U; /* cross */
+    if (buttons & CYCLONE2_REPORT_BUTTON_A) out[0] |= 0x40U; /* circle */
     if (buttons & CYCLONE2_REPORT_BUTTON_Y) out[0] |= 0x80U; /* triangle */
 
     out[1] = 0U;
@@ -428,6 +429,10 @@ int cyclone2_dualsense_send(const struct cyclone2_input_report *input)
         simple_sent = 0U;
         return 0;
     }
+    /* Never queue behind an unsent report: when the link drains slower than
+     * the report period (sniff), a queue of stale full-state reports is
+     * pure input lag.  The next poll sends the then-current state. */
+    if (edr_hid_is_busy()) return -1;
     if (extended_reports) {
         fill_extended(report, input);
         result = edr_hid_data_send(DS_REPORT_EXTENDED, report,
