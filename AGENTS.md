@@ -56,9 +56,11 @@ problem**.  Two bugs, both on the reconnect path:
 The console *does* keep the bond from a CGO pairing - the key captured from the
 pairing's `Link Key Notification` is the one it accepts.  Things that turned
 out not to matter (tested): the pad's address being locally administered, and
-answering the pairing with General vs No Bonding.  Not yet re-tested since the
-fix: whether `SSP_KEEP_BONDING_FLAG` and the `markers-role-guard` patch mode
-(both changed during the hunt) are needed at all.
+answering the pairing with General vs No Bonding.  `SSP_KEEP_BONDING_FLAG`
+was never enabled and its hci.c patch is gone from `/work/btstack-jl-port`,
+which is now upstream plus committed port changes only.  Not yet re-tested
+since the fix: whether the `markers-role-guard` patch mode (changed during the
+hunt) is needed at all.
 
 There is exactly one persistent bond store, the app's (`keys`, `setkey`,
 `bond`; RAM-only on `CYCLONE2_BOND_STORE_RAM 1`).  `btctrler.a` keeps a key only
