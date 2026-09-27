@@ -795,8 +795,8 @@ static void poweroff_now(void *private_data)
         sys_timeout_add(NULL, poweroff_now, CYCLONE2_SLEEP_RECHECK_MS);
         return;
     }
-    /* A calibration done while connected has not been written yet: that
-     * waits for an idle radio.  Give the radio the same settling time the
+    /* A calibration that finished during a connect or pairing attempt and
+     * has not been written yet: give the radio the same settling time the
      * idle flush does rather than lose it to the power-off. */
     if (cyclone2_calibration_pending()) {
         if (!poweroff_flash_wait) {
@@ -1129,10 +1129,19 @@ static void cyclone2_poll(void *private_data)
         else if (now - idle_since_ms >= CYCLONE2_FLASH_IDLE_MS) {
             btstack_jl_link_key_flush(0U);
             cyclone2_peer_address_flush();
-            cyclone2_calibration_flush();
         }
     } else {
         idle_since_ms = 0U;
+    }
+    /* A new calibration is written at once, connected or not.  The resets
+     * that made the bond store wait for an idle radio were measured while
+     * pairing, connecting and switching profiles; a settled link takes a
+     * syscfg write (the profile and report-period settings do the same).  So
+     * only those transitions hold the write back. */
+    if ((radio_state == CYCLONE2_RADIO_CONNECTED ||
+         radio_state == CYCLONE2_RADIO_OFF) &&
+        cyclone2_calibration_pending()) {
+        cyclone2_calibration_flush();
     }
     /* The wake sequence runs the baseband itself: no profile is up, and this
      * is what advances the burst sweep and ends the attempt. */

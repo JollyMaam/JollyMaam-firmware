@@ -57,8 +57,8 @@ void cyclone2_calibration_reset(void);
 int cyclone2_calibration_set_deadzones(int triggers, u8 inner_percent,
                                        u8 outer_percent);
 
-/* Changes are kept in RAM and written to syscfg only from an idle radio, like
- * the bond store (see cyclone2_poll()).  pending says a write is due. */
+/* Changes are written to syscfg by cyclone2_poll() as soon as the radio is
+ * connected or off, i.e. not in a transition.  pending says a write is due. */
 int cyclone2_calibration_pending(void);
 void cyclone2_calibration_flush(void);
 

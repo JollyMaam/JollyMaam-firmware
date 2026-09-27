@@ -29,12 +29,14 @@ next to what they map to, `cal reset` goes back to the built-in values, and
 ## Saving
 
 The record is syscfg item 49 (`CFG_CYCLONE2_CALIBRATION`,
-`struct cyclone2_calibration`).  It is written like the bond store: only after
-the radio has been idle for 3 s (see "flash writes reset the pad" in
-`controller.c`), and before a power-off if one is still due.  A calibration
-done while connected is in use at once and is written after the link ends.
-`cal` shows `pending=1` until then.  On the RAM-only build
-(`CYCLONE2_BOND_STORE_RAM 1`) it is never written.
+`struct cyclone2_calibration`).  It is written on the next input poll after the
+routine (or `cal reset`, `cal deadzone`) finishes, whether a host is connected
+or not.  Only a radio in transition - pairing, connecting, switching profiles,
+waking a console - holds the write back, because those are the states where a
+syscfg write was measured to reset the pad (`controller.c`, the bond-store
+flush); it happens as soon as the link is up or off again, and before a
+power-off.  `cal` shows `pending=1` while a write is waiting.  On the RAM-only
+build (`CYCLONE2_BOND_STORE_RAM 1`) it is never written.
 
 ## The method
 
