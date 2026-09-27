@@ -5,6 +5,7 @@
 #include "app_config.h"
 #include "build_config.h"
 #include "btstack_jl.h"
+#include "calibration.h"
 #include "controller.h"
 #include "main.h"
 #include "imu.h"
@@ -30,6 +31,8 @@ extern void jieli_btctrler_close(void);
 #define CYCLONE2_SETTINGS_VERSION           2U
 #define CYCLONE2_HOME_GRACE_MS              150U
 #define CYCLONE2_LONG_HOLD_MS              5000U
+/* Home+M held this long starts the stick and trigger calibration. */
+#define CYCLONE2_CALIBRATE_HOLD_MS         3000U
 #define CYCLONE2_CONNECT_TIMEOUT_MS       30000U
 /* 3 minutes: with its Wi-Fi on, a Switch 2 took 24 s and a retry to find the
  * pad (2026-09-25), and it can miss a 60 s window entirely. */
@@ -78,6 +81,7 @@ enum cyclone2_home_state {
     CYCLONE2_HOME_REPORTED,
     CYCLONE2_HOME_CHORD,
     CYCLONE2_HOME_INVALID_CHORD,
+    CYCLONE2_HOME_CALIBRATE_CHORD,
 };
 
 enum cyclone2_radio_state {
@@ -125,6 +129,9 @@ static u32 transition_started_ms;
 static u32 ignore_disconnect_until_ms;
 static u8 home_tap_phase;
 static u8 led_is_on;
+static u32 calibration_led_colour;
+static u8 calibrating;
+static u8 poweroff_flash_wait;
 static u8 sleep_pending;
 static u8 sleep_confirm_count;
 static u8 ignore_chord_until_release;
@@ -779,6 +786,7 @@ static void poweroff_now(void *private_data)
         radio_state = CYCLONE2_RADIO_OFF;
         cyclone2_usb_debug("sleep cancelled; USB is connected");
         sleep_confirm_count = 0U;
+        poweroff_flash_wait = 0U;
         return;
     }
     if (++sleep_confirm_count < CYCLONE2_SLEEP_CONFIRM) {
@@ -787,6 +795,18 @@ static void poweroff_now(void *private_data)
         sys_timeout_add(NULL, poweroff_now, CYCLONE2_SLEEP_RECHECK_MS);
         return;
     }
+    /* A calibration done while connected has not been written yet: that
+     * waits for an idle radio.  Give the radio the same settling time the
+     * idle flush does rather than lose it to the power-off. */
+    if (cyclone2_calibration_pending()) {
+        if (!poweroff_flash_wait) {
+            poweroff_flash_wait = 1U;
+            sys_timeout_add(NULL, poweroff_now, CYCLONE2_FLASH_IDLE_MS);
+            return;
+        }
+        cyclone2_calibration_flush();
+    }
+    poweroff_flash_wait = 0U;
     cyclone2_bringup_record(0x5300u);
     power_set_soft_poweroff();
 }
@@ -884,7 +904,11 @@ static void update_home_state(void)
     case CYCLONE2_HOME_IDLE:
         if (home) {
             home_start_ms = now;
-            if (selected_face_button(buttons, &profile)) {
+            if (!(buttons & CYCLONE2_FACE_BUTTONS) &&
+                (buttons & CYCLONE2_REPORT_BUTTON_M)) {
+                chord_start_ms = now;
+                home_state = CYCLONE2_HOME_CALIBRATE_CHORD;
+            } else if (selected_face_button(buttons, &profile)) {
                 chord_button = buttons & CYCLONE2_FACE_BUTTONS;
                 chord_start_ms = now;
                 requested_profile = profile;
@@ -900,6 +924,10 @@ static void update_home_state(void)
         if (!home) {
             home_tap_phase = 2U;
             home_state = CYCLONE2_HOME_IDLE;
+        } else if (!(buttons & CYCLONE2_FACE_BUTTONS) &&
+                   (buttons & CYCLONE2_REPORT_BUTTON_M)) {
+            chord_start_ms = now;
+            home_state = CYCLONE2_HOME_CALIBRATE_CHORD;
         } else if (selected_face_button(buttons, &profile)) {
             chord_button = buttons & CYCLONE2_FACE_BUTTONS;
             chord_start_ms = now;
@@ -925,8 +953,20 @@ static void update_home_state(void)
             profile_select(requested_profile, 1U);
         }
         break;
+    case CYCLONE2_HOME_CALIBRATE_CHORD:
+        /* Released early, or another button joined: no action, and nothing
+         * reaches the host until everything is let go. */
+        if (!home || !(buttons & CYCLONE2_REPORT_BUTTON_M) ||
+            (buttons & CYCLONE2_FACE_BUTTONS)) {
+            home_state = CYCLONE2_HOME_INVALID_CHORD;
+        } else if (now - chord_start_ms >= CYCLONE2_CALIBRATE_HOLD_MS) {
+            cyclone2_calibration_start();
+            home_state = CYCLONE2_HOME_INVALID_CHORD;
+        }
+        break;
     case CYCLONE2_HOME_INVALID_CHORD:
-        if (!home && !(buttons & CYCLONE2_FACE_BUTTONS))
+        if (!home && !(buttons & (CYCLONE2_FACE_BUTTONS |
+                                  CYCLONE2_REPORT_BUTTON_M)))
             home_state = CYCLONE2_HOME_IDLE;
         break;
     }
@@ -934,9 +974,23 @@ static void update_home_state(void)
 
 static void make_host_report(struct cyclone2_input_report *report)
 {
+    /* While calibrating, the sticks are being swung to their stops and A
+     * ends the routine: none of that is meant for the host. */
+    if (calibrating) {
+        memset(report, 0, sizeof(*report));
+        report->hat = CYCLONE2_HAT_NEUTRAL;
+        return;
+    }
     *report = current_report;
+    if (home_state == CYCLONE2_HOME_CALIBRATE_CHORD ||
+        (home_state == CYCLONE2_HOME_INVALID_CHORD &&
+         (report->buttons & CYCLONE2_REPORT_BUTTON_M) &&
+         !(report->buttons & CYCLONE2_FACE_BUTTONS))) {
+        report->buttons &= ~CYCLONE2_REPORT_BUTTON_M;
+    }
     if (home_state == CYCLONE2_HOME_PENDING ||
         home_state == CYCLONE2_HOME_CHORD ||
+        home_state == CYCLONE2_HOME_CALIBRATE_CHORD ||
         home_state == CYCLONE2_HOME_INVALID_CHORD ||
         ignore_chord_until_release ||
         sleep_pending ||
@@ -983,7 +1037,22 @@ static void update_status_led(void)
     u32 now = sys_timer_get_ms();
     u32 half_period;
     u8 on;
+    u8 red;
+    u8 green;
+    u8 blue;
 
+    if (cyclone2_calibration_led(now, &red, &green, &blue)) {
+        u32 colour = 0x1000000U | ((u32)red << 16) | ((u32)green << 8) | blue;
+
+        if (colour != calibration_led_colour) {
+            calibration_led_colour = colour;
+            cyclone2_led_set_home(red, green, blue);
+        }
+        /* Neither on nor off, so the radio pattern is redrawn afterwards. */
+        led_is_on = 2U;
+        return;
+    }
+    calibration_led_colour = 0U;
     if (active_profile >= CYCLONE2_PROFILE_COUNT &&
         now - started_at_ms < CYCLONE2_BOOT_LED_MS) on = 1U;
     else if (radio_state == CYCLONE2_RADIO_CONNECTED) on = 1U;
@@ -1060,6 +1129,7 @@ static void cyclone2_poll(void *private_data)
         else if (now - idle_since_ms >= CYCLONE2_FLASH_IDLE_MS) {
             btstack_jl_link_key_flush(0U);
             cyclone2_peer_address_flush();
+            cyclone2_calibration_flush();
         }
     } else {
         idle_since_ms = 0U;
@@ -1074,7 +1144,17 @@ static void cyclone2_poll(void *private_data)
     now = sys_timer_get_ms();
     accept_analog_input(&sample);
     debounce_digital_input(&sample, now);
-    update_home_state();
+    cyclone2_calibration_step(now, current_report.buttons);
+    if (cyclone2_calibration_phase() != CYCLONE2_CAL_IDLE) {
+        calibrating = 1U;
+    } else if (calibrating) {
+        /* Whatever is still held when the routine ends (A, usually) must
+         * not start a chord or reach the host as a fresh press. */
+        calibrating = 0U;
+        home_state = CYCLONE2_HOME_IDLE;
+        ignore_chord_until_release = 1U;
+    }
+    if (!calibrating) update_home_state();
     update_injection(now);
     /* The ACL connection event precedes authentication and opening the HID
      * control/interrupt channels. Only the latter is a usable connection.
@@ -1169,6 +1249,7 @@ static void cyclone2_start(void)
     clk_set("sys", BT_NORMAL_HZ);
     system_clock = clk_get("sys");
     bt_pll_para(TCFG_CLOCK_OSC_HZ, system_clock, 0, 0);
+    cyclone2_calibration_load();
     cyclone2_input_initialize();
     task_create(cyclone2_imu_task, NULL, "imu");
     cyclone2_usb_control_initialize();

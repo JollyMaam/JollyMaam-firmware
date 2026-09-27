@@ -227,8 +227,10 @@ static void ds_buttons(const struct cyclone2_input_report *input, u8 out[3])
     out[1] = 0U;
     if (buttons & CYCLONE2_REPORT_BUTTON_L1) out[1] |= 0x01U;
     if (buttons & CYCLONE2_REPORT_BUTTON_R1) out[1] |= 0x02U;
-    if (input->left_trigger > DS_TRIGGER_BUTTON_LEVEL) out[1] |= 0x04U;
-    if (input->right_trigger > DS_TRIGGER_BUTTON_LEVEL) out[1] |= 0x08U;
+    if (cyclone2_trigger_u8(input->left_trigger) > DS_TRIGGER_BUTTON_LEVEL)
+        out[1] |= 0x04U;
+    if (cyclone2_trigger_u8(input->right_trigger) > DS_TRIGGER_BUTTON_LEVEL)
+        out[1] |= 0x08U;
     if (buttons & CYCLONE2_REPORT_BUTTON_SELECT) out[1] |= 0x10U;
     if (buttons & CYCLONE2_REPORT_BUTTON_START) out[1] |= 0x20U;
     if (buttons & CYCLONE2_REPORT_BUTTON_L3) out[1] |= 0x40U;
@@ -248,15 +250,15 @@ static void fill_simple(u8 report[DS_SIMPLE_SIZE],
     u8 buttons[3];
 
     ds_buttons(input, buttons);
-    report[0] = input->left_x;
-    report[1] = input->left_y;
-    report[2] = input->right_x;
-    report[3] = input->right_y;
+    report[0] = cyclone2_stick_u8(input->left_x);
+    report[1] = cyclone2_stick_u8(input->left_y);
+    report[2] = cyclone2_stick_u8(input->right_x);
+    report[3] = cyclone2_stick_u8(input->right_y);
     report[4] = buttons[0];
     report[5] = buttons[1];
     report[6] = (u8)((buttons[2] & 0x03U) | (u8)(report_counter << 2));
-    report[7] = input->left_trigger;
-    report[8] = input->right_trigger;
+    report[7] = cyclone2_trigger_u8(input->left_trigger);
+    report[8] = cyclone2_trigger_u8(input->right_trigger);
 }
 
 static void fill_extended(u8 report[DS_EXTENDED_SIZE],
@@ -267,12 +269,12 @@ static void fill_extended(u8 report[DS_EXTENDED_SIZE],
 
     memset(report, 0, DS_EXTENDED_SIZE);
     report[0] = (u8)(report_counter << 4);
-    state[0] = input->left_x;
-    state[1] = input->left_y;
-    state[2] = input->right_x;
-    state[3] = input->right_y;
-    state[4] = input->left_trigger;
-    state[5] = input->right_trigger;
+    state[0] = cyclone2_stick_u8(input->left_x);
+    state[1] = cyclone2_stick_u8(input->left_y);
+    state[2] = cyclone2_stick_u8(input->right_x);
+    state[3] = cyclone2_stick_u8(input->right_y);
+    state[4] = cyclone2_trigger_u8(input->left_trigger);
+    state[5] = cyclone2_trigger_u8(input->right_trigger);
     state[6] = report_counter;
     ds_buttons(input, state + 7);
     put_u32(state + 11, packet_sequence);

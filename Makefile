@@ -104,7 +104,7 @@ else
 QUIET=@
 endif
 
-.PHONY: all default clean flash test itest rebootwatch wake-vectors
+.PHONY: all default clean flash test itest rebootwatch wake-vectors calibration-test
 
 # Make must notice when the caller switches DEBUG_LOG; the value of a
 # command-line variable alone is not part of a target's timestamp
@@ -213,6 +213,16 @@ $O/wake_vectors: tools/wake_vectors.c src/wake/wakeup_code.c src/wake/wake_paylo
 
 wake-vectors: $O/wake_vectors
 	$(QUIET)$O/wake_vectors
+
+# Host check for the stick and trigger calibration maths, which is kept free
+# of SDK includes for this; see docs/calibration.md.
+$O/calibration_test: tools/calibration_test.c src/calibration_math.c src/calibration_math.h
+	@mkdir -p $(@D)
+	@echo [EXE] $@
+	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) -Isrc tools/calibration_test.c src/calibration_math.c -lm -o $@
+
+calibration-test: $O/calibration_test
+	$(QUIET)$O/calibration_test
 
 $O/nintendo_switch_pro_hid.h: $O/bin2header data/nintendo_switch_pro_hid.bin
 	@mkdir -p $(@D)

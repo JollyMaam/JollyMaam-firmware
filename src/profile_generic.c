@@ -41,7 +41,11 @@ static const u8 generic_pnp_id[] = {
     0x02, 0x37, 0x35, 0x75, 0x05, 0x00, 0x01,
 };
 
-static struct cyclone2_input_report last_report;
+/* The report the descriptor above declares: 16 buttons, the hat in the low
+ * nibble of a byte, then X, Y, Rx, Ry, Z, Rz as 0..255. */
+#define GENERIC_REPORT_SIZE 9U
+
+static u8 last_report[GENERIC_REPORT_SIZE];
 static u32 connected_at_ms;
 static u8 report_sent;
 static u8 pairing_requested;
@@ -83,9 +87,24 @@ int cyclone2_generic_reconnect(void)
     return 0;
 }
 
-int cyclone2_generic_send(const struct cyclone2_input_report *report)
+static void generic_make_report(u8 output[GENERIC_REPORT_SIZE],
+                                const struct cyclone2_input_report *input)
+{
+    output[0] = (u8)input->buttons;
+    output[1] = (u8)(input->buttons >> 8);
+    output[2] = input->hat;
+    output[3] = cyclone2_stick_u8(input->left_x);
+    output[4] = cyclone2_stick_u8(input->left_y);
+    output[5] = cyclone2_stick_u8(input->right_x);
+    output[6] = cyclone2_stick_u8(input->right_y);
+    output[7] = cyclone2_trigger_u8(input->left_trigger);
+    output[8] = cyclone2_trigger_u8(input->right_trigger);
+}
+
+int cyclone2_generic_send(const struct cyclone2_input_report *input)
 {
     u16 handle = ble_hid_is_connected();
+    u8 report[GENERIC_REPORT_SIZE];
     int result;
 
     if (!handle ||
@@ -96,13 +115,13 @@ int cyclone2_generic_send(const struct cyclone2_input_report *report)
     }
     if (sys_timer_get_ms() - connected_at_ms < GENERIC_CCC_WARMUP_MS)
         return 0;
-    if (report_sent && !memcmp(report, &last_report, sizeof(*report)))
+    generic_make_report(report, input);
+    if (report_sent && !memcmp(report, last_report, sizeof(report)))
         return 0;
 
-    result = ble_hid_data_send(GENERIC_REPORT_ID, (u8 *)report,
-                               sizeof(*report));
+    result = ble_hid_data_send(GENERIC_REPORT_ID, report, sizeof(report));
     if (result == APP_BLE_NO_ERROR) {
-        last_report = *report;
+        memcpy(last_report, report, sizeof(report));
         report_sent = 1U;
         return 1;
     }

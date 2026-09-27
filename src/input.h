@@ -101,16 +101,59 @@ enum cyclone2_hat {
     CYCLONE2_HAT_NEUTRAL,
 };
 
+/* Calibrated controls in one resolution for every profile; each profile
+ * scales them to its own report with the helpers below.
+ *   sticks    -32767..+32767, 0 at rest, +x right, +y down (HID orientation)
+ *   triggers  0 released .. 65535 fully pressed */
+#define CYCLONE2_STICK_MAX    32767
+#define CYCLONE2_TRIGGER_MAX  65535U
+
+/* Laid out without padding, because profiles memcmp() reports. */
 struct cyclone2_input_report {
     u16 buttons;
+    s16 left_x;
+    s16 left_y;
+    s16 right_x;
+    s16 right_y;
+    u16 left_trigger;
+    u16 right_trigger;
     u8 hat;
-    u8 left_x;
-    u8 left_y;
-    u8 right_x;
-    u8 right_y;
-    u8 left_trigger;
-    u8 right_trigger;
-} __attribute__((packed));
+    u8 reserved;   /* always zero */
+};
+
+/* -32767..32767 onto 0..255 with 0 at 0x80. */
+static inline u8 cyclone2_stick_u8(s16 value)
+{
+    return (u8)(((s32)value + 32768) >> 8);
+}
+
+/* -32767..32767 onto 1..65535 with 0 at 0x8000. */
+static inline u16 cyclone2_stick_u16(s16 value)
+{
+    return (u16)((s32)value + 32768);
+}
+
+/* -32767..32767 onto center +/- half_range, rounded. */
+static inline u16 cyclone2_stick_scaled(s16 value, u16 center, u16 half_range)
+{
+    s32 scaled = (s32)value * half_range;
+
+    scaled += scaled < 0 ? -(CYCLONE2_STICK_MAX / 2) : CYCLONE2_STICK_MAX / 2;
+    return (u16)((s32)center + scaled / CYCLONE2_STICK_MAX);
+}
+
+static inline u8 cyclone2_trigger_u8(u16 value)
+{
+    return (u8)(value >> 8);
+}
+
+/* What the sensors report before calibration. */
+struct cyclone2_raw_input {
+    u16 stick[4];          /* left x, left y, right x, right y */
+    u16 trigger[2];        /* ADC, falls as the trigger is pressed */
+    u8 trigger_stop[2];    /* the trigger-stop microswitch is closed */
+    u8 sticks_valid;       /* the stick board is delivering good frames */
+};
 
 struct cyclone2_input_stats {
     u32 dropped_bytes;
@@ -129,6 +172,8 @@ u8 cyclone2_take_early_profile_chord(void);
 
 void cyclone2_input_initialize(void);
 void cyclone2_input_read(struct cyclone2_input_report *report);
+/* The sensor values the last cyclone2_input_read() mapped. */
+void cyclone2_input_get_raw(struct cyclone2_raw_input *raw);
 void cyclone2_input_get_stats(struct cyclone2_input_stats *stats);
 void cyclone2_input_reset_stats(void);
 

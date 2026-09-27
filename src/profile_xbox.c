@@ -127,13 +127,13 @@ static void fill_state(u8 state[XBOX_STATE_SIZE],
     u16 buttons = input->buttons;
 
     memset(state, 0, XBOX_STATE_SIZE);
-    /* x * 257 maps 0x00..0xff onto 0x0000..0xffff with 0x80 near 0x8000. */
-    put_u16(state + 0, (u16)(input->left_x * 257U));
-    put_u16(state + 2, (u16)(input->left_y * 257U));
-    put_u16(state + 4, (u16)(input->right_x * 257U));
-    put_u16(state + 6, (u16)(input->right_y * 257U));
-    put_u16(state + 8, (u16)((input->left_trigger * 1023U) / 255U));
-    put_u16(state + 10, (u16)((input->right_trigger * 1023U) / 255U));
+    /* Sticks 0..0xffff centred on 0x8000, triggers 0..1023. */
+    put_u16(state + 0, cyclone2_stick_u16(input->left_x));
+    put_u16(state + 2, cyclone2_stick_u16(input->left_y));
+    put_u16(state + 4, cyclone2_stick_u16(input->right_x));
+    put_u16(state + 6, cyclone2_stick_u16(input->right_y));
+    put_u16(state + 8, (u16)(input->left_trigger >> 6));
+    put_u16(state + 10, (u16)(input->right_trigger >> 6));
     state[12] = input->hat < CYCLONE2_HAT_NEUTRAL ? (u8)(input->hat + 1U) : 0U;
     state[13] = (u8)buttons;
     state[14] = (u8)((buttons >> 8) & 0x7fU);

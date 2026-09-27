@@ -6,6 +6,7 @@
 #include <asm/power_interface.h>
 #include <asm/wdt.h>
 
+#include "calibration.h"
 #include "controller.h"
 #include "wake/wake.h"
 #include "btstack_jl.h"
@@ -409,6 +410,140 @@ static int parse_decimal(const char **cursor, u32 *value)
     return 0;
 }
 
+static unsigned percent_of_full_scale(u16 value)
+{
+    return (value * 100U + CAL_STICK_MAX / 2U) / CAL_STICK_MAX;
+}
+
+__attribute__((noinline)) static void print_calibration(void)
+{
+    struct cyclone2_calibration calibration;
+    const struct cal_stick *stick;
+    char line[160];
+    unsigned index;
+    unsigned knot;
+    int length;
+
+    cyclone2_calibration_get(&calibration);
+    length = snprintf(line, sizeof(line), "cal phase=%s measured=%x pending=%u\r\n",
+                      cyclone2_calibration_phase_name(cyclone2_calibration_phase()),
+                      calibration.measured, cyclone2_calibration_pending());
+    if (length > 0) console_write_bytes(line, (u32)length);
+    for (index = 0; index < 2U; index++) {
+        stick = &calibration.stick[index];
+        length = snprintf(line, sizeof(line),
+                          "%s stick %s x %04x/%04x/%04x y %04x/%04x/%04x dz %u%%/%u%% gate",
+                          index ? "right" : "left",
+                          calibration.measured & (CYCLONE2_CAL_LEFT_STICK << index) ?
+                          "measured" : "default",
+                          stick->minimum[0], stick->center[0], stick->maximum[0],
+                          stick->minimum[1], stick->center[1], stick->maximum[1],
+                          percent_of_full_scale(stick->inner_deadzone),
+                          percent_of_full_scale(stick->outer_deadzone));
+        if (length > 0) console_write_bytes(line, (u32)length);
+        for (knot = 0; knot < CAL_GATE_KNOTS; knot++) {
+            length = snprintf(line, sizeof(line), " %u",
+                              percent_of_full_scale(stick->gate[knot]));
+            if (length > 0) console_write_bytes(line, (u32)length);
+        }
+        console_write("\r\n");
+    }
+    for (index = 0; index < 2U; index++) {
+        if (calibration.measured & (CYCLONE2_CAL_LEFT_TRIGGER << index)) {
+            length = snprintf(line, sizeof(line),
+                              "%s measured rest %u full %u dz %u%%/%u%%\r\n",
+                              index ? "R2" : "L2",
+                              calibration.trigger[index].rest,
+                              calibration.trigger[index].full,
+                              percent_of_full_scale(calibration.trigger[index].inner_deadzone),
+                              percent_of_full_scale(calibration.trigger[index].outer_deadzone));
+        } else {
+            length = snprintf(line, sizeof(line),
+                              "%s default (tracks its rest position)\r\n",
+                              index ? "R2" : "L2");
+        }
+        if (length > 0) console_write_bytes(line, (u32)length);
+    }
+}
+
+__attribute__((noinline)) static void print_calibration_raw(void)
+{
+    struct cyclone2_raw_input raw;
+    struct cyclone2_input_report report;
+    char line[192];
+    int length;
+
+    /* The poll read the sensors at most one control period ago. */
+    cyclone2_input_get_raw(&raw);
+    cyclone2_calibration_apply(&raw, &report);
+    length = snprintf(line, sizeof(line),
+                      "raw L %04x %04x R %04x %04x L2 %u R2 %u stop %u%u valid %u\r\n"
+                      "out L %d %d R %d %d L2 %u R2 %u\r\n",
+                      raw.stick[0], raw.stick[1], raw.stick[2], raw.stick[3],
+                      raw.trigger[0], raw.trigger[1], raw.trigger_stop[0],
+                      raw.trigger_stop[1], raw.sticks_valid,
+                      report.left_x, report.left_y, report.right_x,
+                      report.right_y, report.left_trigger, report.right_trigger);
+    if (length > 0) console_write_bytes(line, (u32)length);
+}
+
+__attribute__((noinline)) static void calibration_deadzone_command(const char *text)
+{
+    const char *cursor;
+    u32 inner;
+    u32 outer;
+    int triggers;
+
+    if (!strncmp(text, "sticks ", 7U)) {
+        triggers = 0;
+        cursor = text + 7;
+    } else if (!strncmp(text, "triggers ", 9U)) {
+        triggers = 1;
+        cursor = text + 9;
+    } else {
+        cursor = NULL;
+        triggers = 0;
+    }
+    if (!cursor || parse_decimal(&cursor, &inner) != 0 || *cursor++ != ' ' ||
+        parse_decimal(&cursor, &outer) != 0 || *cursor != '\0' ||
+        inner > 255U || outer > 255U ||
+        cyclone2_calibration_set_deadzones(triggers, (u8)inner, (u8)outer) != 0) {
+        console_write("ERR use cal deadzone sticks|triggers INNER OUTER (percent, each <= 30, sum <= 50)\r\n");
+        return;
+    }
+    console_write("OK dead zones set\r\n");
+}
+
+__attribute__((noinline)) static void calibration_command(const char *text)
+{
+    if (!*text || !strcmp(text, " status")) {
+        print_calibration();
+    } else if (!strcmp(text, " start")) {
+        console_write(cyclone2_calibration_start() == 0 ?
+                      "OK hands off the sticks and triggers\r\n" :
+                      "ERR calibration already running\r\n");
+    } else if (!strcmp(text, " done")) {
+        if (cyclone2_calibration_phase() == CYCLONE2_CAL_SWEEP) {
+            cyclone2_calibration_finish();
+            console_write("OK finishing\r\n");
+        } else {
+            console_write("ERR not in the sweep phase\r\n");
+        }
+    } else if (!strcmp(text, " cancel")) {
+        cyclone2_calibration_cancel();
+        console_write("OK\r\n");
+    } else if (!strcmp(text, " reset")) {
+        cyclone2_calibration_reset();
+        console_write("OK back to the built-in calibration\r\n");
+    } else if (!strcmp(text, " raw")) {
+        print_calibration_raw();
+    } else if (!strncmp(text, " deadzone ", 10U)) {
+        calibration_deadzone_command(text + 10);
+    } else {
+        console_write("ERR use cal [status|start|done|cancel|reset|raw|deadzone ...]\r\n");
+    }
+}
+
 static int parse_injection_args(const char *text, u32 *period, u32 *duration)
 {
     if (parse_decimal(&text, period) != 0 || *text++ != ' ' ||
@@ -745,6 +880,11 @@ __attribute__((noinline)) static void execute_command(void)
                       "         not initialised in this build; see docs/charging.md)\r\n"
                       "inject a PERIOD_MS DURATION_MS | stop | status\r\n"
                       "input status|reset  show/reset stick-DMA counters\r\n"
+                      "cal [status]  show the stick/trigger calibration\r\n"
+                      "cal start|done|cancel  run the calibration (as Home+M 3 s)\r\n"
+                      "cal reset  back to the built-in calibration\r\n"
+                      "cal raw  raw sensor values and what they map to\r\n"
+                      "cal deadzone sticks|triggers IN OUT  dead zones in %\r\n"
                       "rumble LEFT RIGHT MS | stop | status\r\n"
                       "imu init|stop|sample|status\r\n"
                       "status   show reset mailbox and MaskROM NVRAM\r\n"
@@ -1022,6 +1162,9 @@ __attribute__((noinline)) static void execute_command(void)
         print_injection_status();
     } else if (!strcmp(command_line, "input status")) {
         print_input_status();
+    } else if (!strncmp(command_line, "cal", 3U) &&
+               (command_line[3] == '\0' || command_line[3] == ' ')) {
+        calibration_command(command_line + 3);
     } else if (!strcmp(command_line, "input reset")) {
         cyclone2_input_reset_stats();
         console_write("OK input counters reset\r\n");

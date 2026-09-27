@@ -5,6 +5,7 @@
 #include <asm/uart_dev.h>
 #include <system/timer.h>
 
+#include "calibration.h"
 #include "input.h"
 
 #define STICK_UART_DIVISOR          24U
@@ -14,30 +15,10 @@
 #define STICK_UART_RX_TIMEOUT_MS    10U
 #define STICK_UART_READ_CHUNK       128U
 
-/* Live sensor endpoints with a nominal 0x4000 center. Vertical low endpoints
- * differ slightly on this unit. Keep these explicit until EEPROM/user
- * calibration replaces them. */
-#define STICK_LX_RAW_MINIMUM        0x1600U
-#define STICK_LX_RAW_CENTER         0x4000U
-#define STICK_LX_RAW_MAXIMUM        0x6600U
-#define STICK_LY_RAW_MINIMUM        0x1850U
-#define STICK_LY_RAW_CENTER         0x4000U
-#define STICK_LY_RAW_MAXIMUM        0x6600U
-#define STICK_RX_RAW_MINIMUM        0x1600U
-#define STICK_RX_RAW_CENTER         0x4000U
-#define STICK_RX_RAW_MAXIMUM        0x6600U
-#define STICK_RY_RAW_MINIMUM        0x1a40U
-#define STICK_RY_RAW_CENTER         0x4000U
-#define STICK_RY_RAW_MAXIMUM        0x6600U
-
 #define STICK_TAG_LEFT_X            0xaaU
 #define STICK_TAG_LEFT_Y            0x55U
 #define STICK_TAG_RIGHT_X           0xccU
 #define STICK_TAG_RIGHT_Y           0x33U
-
-#define TRIGGER_DEAD_ZONE           8U
-#define TRIGGER_TRAVEL_NUMERATOR    3U
-#define TRIGGER_TRAVEL_DENOMINATOR  4U
 
 enum stick_receive_status {
     STICK_RECEIVE_NO_BYTES,
@@ -53,8 +34,7 @@ static u16 stick_left_y = 0x8000U;
 static u16 stick_right_x = 0x8000U;
 static u16 stick_right_y = 0x8000U;
 static enum stick_receive_status stick_receive_status;
-static u16 trigger_l2_rest;
-static u16 trigger_r2_rest;
+static struct cyclone2_raw_input raw_input;
 static uart_bus_t *stick_uart;
 static volatile u8 stick_uart_work_pending;
 static struct cyclone2_input_stats stick_stats;
@@ -294,43 +274,9 @@ void cyclone2_input_reset_stats(void)
     local_irq_enable();
 }
 
-static u8 stick_axis_to_report(u16 value, u16 minimum, u16 center,
-                               u16 maximum, int invert)
+void cyclone2_input_get_raw(struct cyclone2_raw_input *raw)
 {
-    u32 result;
-
-    if (value <= minimum) {
-        result = 0U;
-    } else if (value < center) {
-        result = ((u32)value - minimum) * 128U / (center - minimum);
-    } else if (value < maximum) {
-        result = 128U + ((u32)value - center) * 127U /
-                        (maximum - center);
-    } else {
-        result = 0xffU;
-    }
-
-    return invert ? (u8)(0xffU - result) : (u8)result;
-}
-
-static u8 trigger_to_report(u32 sample, u16 *rest)
-{
-    u32 travel;
-    u32 displacement;
-
-    if (sample > *rest && sample <= 0x3ffU) {
-        *rest = (u16)sample;
-    }
-    if (*rest < 64U || sample + TRIGGER_DEAD_ZONE >= *rest) {
-        return 0;
-    }
-    displacement = *rest - sample - TRIGGER_DEAD_ZONE;
-    travel = (*rest * TRIGGER_TRAVEL_NUMERATOR) /
-             TRIGGER_TRAVEL_DENOMINATOR;
-    if (displacement >= travel) {
-        return 0xffU;
-    }
-    return (u8)((displacement * 0xffU) / travel);
+    *raw = raw_input;
 }
 
 static u8 read_hat(void)
@@ -413,40 +359,41 @@ void cyclone2_input_read(struct cyclone2_input_report *report)
     }
 
     report->hat = read_hat();
+    report->reserved = 0U;
+
+    raw_input.stick[0] = stick_left_x;
+    raw_input.stick[1] = stick_left_y;
+    raw_input.stick[2] = stick_right_x;
+    raw_input.stick[3] = stick_right_y;
+    raw_input.sticks_valid =
+        stick_receive_status == STICK_RECEIVE_VALID_FRAMES;
+    raw_input.trigger[0] = adc_get_value(CYCLONE2_TRIGGER_L2_ADC_CHANNEL);
+    raw_input.trigger[1] = adc_get_value(CYCLONE2_TRIGGER_R2_ADC_CHANNEL);
+    raw_input.trigger_stop[0] =
+        !rtc_port_pr_read(CYCLONE2_TRIGGER_L2_SWITCH_PR);
+    raw_input.trigger_stop[1] =
+        !rtc_port_pr_read(CYCLONE2_TRIGGER_R2_SWITCH_PR);
+    cyclone2_calibration_apply(&raw_input, report);
+
+    /* A stick board that is silent or garbled shows as a fixed left-stick
+     * offset, so it is recognisable on the host. */
     if (stick_receive_status == STICK_RECEIVE_NO_BYTES) {
-        report->left_x = 0x00U;
-        report->left_y = 0x00U;
-        report->right_x = 0x80U;
-        report->right_y = 0x80U;
+        report->left_x = -CYCLONE2_STICK_MAX;
+        report->left_y = -CYCLONE2_STICK_MAX;
+        report->right_x = 0;
+        report->right_y = 0;
     } else if (stick_receive_status == STICK_RECEIVE_BAD_FRAMES) {
-        report->left_x = 0x40U;
-        report->left_y = 0x40U;
-        report->right_x = 0x80U;
-        report->right_y = 0x80U;
-    } else {
-        report->left_x = stick_axis_to_report(
-            stick_left_x, STICK_LX_RAW_MINIMUM, STICK_LX_RAW_CENTER,
-            STICK_LX_RAW_MAXIMUM, 0);
-        report->left_y = stick_axis_to_report(
-            stick_left_y, STICK_LY_RAW_MINIMUM, STICK_LY_RAW_CENTER,
-            STICK_LY_RAW_MAXIMUM, 0);
-        report->right_x = stick_axis_to_report(
-            stick_right_x, STICK_RX_RAW_MINIMUM, STICK_RX_RAW_CENTER,
-            STICK_RX_RAW_MAXIMUM, 1);
-        report->right_y = stick_axis_to_report(
-            stick_right_y, STICK_RY_RAW_MINIMUM, STICK_RY_RAW_CENTER,
-            STICK_RY_RAW_MAXIMUM, 1);
+        report->left_x = -CYCLONE2_STICK_MAX / 2;
+        report->left_y = -CYCLONE2_STICK_MAX / 2;
+        report->right_x = 0;
+        report->right_y = 0;
     }
-    report->left_trigger = trigger_to_report(
-        adc_get_value(CYCLONE2_TRIGGER_L2_ADC_CHANNEL), &trigger_l2_rest);
-    report->right_trigger = trigger_to_report(
-        adc_get_value(CYCLONE2_TRIGGER_R2_ADC_CHANNEL), &trigger_r2_rest);
     /* Trigger-stop mode physically actuates separate RTC-domain active-low
      * microswitches. A closed switch is authoritative over the Hall sensor. */
-    if (!rtc_port_pr_read(CYCLONE2_TRIGGER_L2_SWITCH_PR)) {
-        report->left_trigger = 0xffU;
+    if (raw_input.trigger_stop[0]) {
+        report->left_trigger = CYCLONE2_TRIGGER_MAX;
     }
-    if (!rtc_port_pr_read(CYCLONE2_TRIGGER_R2_SWITCH_PR)) {
-        report->right_trigger = 0xffU;
+    if (raw_input.trigger_stop[1]) {
+        report->right_trigger = CYCLONE2_TRIGGER_MAX;
     }
 }

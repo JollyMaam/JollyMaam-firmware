@@ -301,19 +301,29 @@ static void handle_rumble(const u8 data[8])
                                 decode_rumble_strength(data + 4U));
 }
 
-/* 12-bit stick values: the report packs each axis into 12 bits by repeating
- * the top nibble in the bottom nibble, so 0x80 becomes 0x808 and the host
- * recovers an 8-bit value by taking the high byte. */
-static u16 axis12(u8 value)
+/* 12-bit stick values.  Hosts do not take them as they are: they read the
+ * factory stick calibration from the virtual SPI flash (0x603d, see
+ * data/nintendo_switch_pro_spi.bin), which declares a centre of 0x800 and
+ * 0x600 of travel either side on both axes of both sticks, and scale by that.
+ * A full-scale input therefore goes out as exactly 0x800 +/- 0x600: any
+ * further would be clipped by the host, and the stick would read 100 % well
+ * before its gate. */
+#define SWITCH_STICK_CENTER   0x800U
+#define SWITCH_STICK_RANGE    0x600U
+/* ZL/ZR are buttons here: an analog trigger past an eighth of its travel. */
+#define SWITCH_TRIGGER_BUTTON_LEVEL  (CYCLONE2_TRIGGER_MAX / 8U)
+
+static u16 axis12(s16 value)
 {
-    return ((u16)value << 4) | (value >> 4);
+    return cyclone2_stick_scaled(value, SWITCH_STICK_CENTER,
+                                 SWITCH_STICK_RANGE);
 }
 
 /* Pack two 12-bit values into the three bytes Nintendo uses per stick:
  *   output[0] = first[11:4]
  *   output[1] = first[3:0] (high nibble) | second[11:8] (low nibble)
  *   output[2] = second[7:0] */
-static void pack_stick(u8 output[3], u8 x, u8 y)
+static void pack_stick(u8 output[3], s16 x, s16 y)
 {
     u16 packed_x = axis12(x);
     u16 packed_y = axis12(y);
@@ -358,8 +368,10 @@ static void fill_controller_state(u8 state[SWITCH_CONTROLLER_STATE_SIZE])
     if (buttons & CYCLONE2_REPORT_BUTTON_B) button_status |= JC_BTN_A;
     if (buttons & CYCLONE2_REPORT_BUTTON_L1) button_status |= JC_BTN_L;
     if (buttons & CYCLONE2_REPORT_BUTTON_R1) button_status |= JC_BTN_R;
-    if (latest_input.left_trigger > 0x20U) button_status |= JC_BTN_ZL;
-    if (latest_input.right_trigger > 0x20U) button_status |= JC_BTN_ZR;
+    if (latest_input.left_trigger > SWITCH_TRIGGER_BUTTON_LEVEL)
+        button_status |= JC_BTN_ZL;
+    if (latest_input.right_trigger > SWITCH_TRIGGER_BUTTON_LEVEL)
+        button_status |= JC_BTN_ZR;
     if (buttons & CYCLONE2_REPORT_BUTTON_SELECT) button_status |= JC_BTN_MINUS;
     if (buttons & CYCLONE2_REPORT_BUTTON_START) button_status |= JC_BTN_PLUS;
     if (buttons & CYCLONE2_REPORT_BUTTON_L3) button_status |= JC_BTN_LSTICK;
@@ -383,10 +395,11 @@ static void fill_controller_state(u8 state[SWITCH_CONTROLLER_STATE_SIZE])
     state[SWITCH_STATE_BUTTONS_OFFSET + 1U] = button_status >> 8;
     state[SWITCH_STATE_BUTTONS_OFFSET + 2U] = button_status >> 16;
 
+    /* Nintendo's Y axis points up. */
     pack_stick(state + SWITCH_STATE_LEFT_STICK_OFFSET, latest_input.left_x,
-               (u8)(0xffU - latest_input.left_y));
+               (s16)-latest_input.left_y);
     pack_stick(state + SWITCH_STATE_RIGHT_STICK_OFFSET, latest_input.right_x,
-               (u8)(0xffU - latest_input.right_y));
+               (s16)-latest_input.right_y);
     state[SWITCH_STATE_VIBRATION_OFFSET] = 0;
 }
 
@@ -436,8 +449,10 @@ static void fill_simple_state(u8 report[SWITCH_SIMPLE_PAYLOAD_SIZE])
     if (buttons & CYCLONE2_REPORT_BUTTON_Y) report[0] |= NINTENDO_SIMPLE_X;
     if (buttons & CYCLONE2_REPORT_BUTTON_L1) report[0] |= NINTENDO_SIMPLE_L;
     if (buttons & CYCLONE2_REPORT_BUTTON_R1) report[0] |= NINTENDO_SIMPLE_R;
-    if (latest_input.left_trigger > 0x20U) report[0] |= NINTENDO_SIMPLE_ZL;
-    if (latest_input.right_trigger > 0x20U) report[0] |= NINTENDO_SIMPLE_ZR;
+    if (latest_input.left_trigger > SWITCH_TRIGGER_BUTTON_LEVEL)
+        report[0] |= NINTENDO_SIMPLE_ZL;
+    if (latest_input.right_trigger > SWITCH_TRIGGER_BUTTON_LEVEL)
+        report[0] |= NINTENDO_SIMPLE_ZR;
     if (buttons & CYCLONE2_REPORT_BUTTON_SELECT) report[1] |= JC_BTN_MINUS >> 8;
     if (buttons & CYCLONE2_REPORT_BUTTON_START) report[1] |= JC_BTN_PLUS >> 8;
     if (buttons & CYCLONE2_REPORT_BUTTON_R3) report[1] |= JC_BTN_RSTICK >> 8;
@@ -446,13 +461,13 @@ static void fill_simple_state(u8 report[SWITCH_SIMPLE_PAYLOAD_SIZE])
     if (buttons & CYCLONE2_REPORT_BUTTON_SCREENSHOT) report[1] |= JC_BTN_CAP >> 8;
     report[2] = latest_input.hat;
 
-    axis = (u16)latest_input.left_x * 257U;
+    axis = cyclone2_stick_u16(latest_input.left_x);
     report[3] = axis; report[4] = axis >> 8;
-    axis = (u16)latest_input.left_y * 257U;
+    axis = cyclone2_stick_u16(latest_input.left_y);
     report[5] = axis; report[6] = axis >> 8;
-    axis = (u16)latest_input.right_x * 257U;
+    axis = cyclone2_stick_u16(latest_input.right_x);
     report[7] = axis; report[8] = axis >> 8;
-    axis = (u16)latest_input.right_y * 257U;
+    axis = cyclone2_stick_u16(latest_input.right_y);
     report[9] = axis; report[10] = axis >> 8;
 }
 
@@ -781,8 +796,6 @@ static void switch_hid_initialize(void)
     memset(&latest_input, 0, sizeof(latest_input));
     input_report_mode = SWITCH_REPORT_FULL_STATE;
     latest_input.hat = CYCLONE2_HAT_NEUTRAL;
-    latest_input.left_x = latest_input.left_y = 0x80U;
-    latest_input.right_x = latest_input.right_y = 0x80U;
     rumble_enabled = 0U;
     imu_enabled = 0U;
     host_stopped = 0U;

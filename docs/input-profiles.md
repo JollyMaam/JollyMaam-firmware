@@ -91,6 +91,9 @@ controller goes to sleep unless USB is connected; USB keeps the CDC diagnostic
 and recovery console alive. Hold Home alone for five seconds to disconnect and
 sleep explicitly. Home wakes it again, but does not implicitly select a slot.
 
+Hold Home+M for three seconds to calibrate the sticks and triggers
+(`docs/calibration.md`); the Home LED turns blue while it runs.
+
 ## Home-key arbitration
 
 Home is delayed by 150 ms so a face button pressed immediately afterward can
@@ -153,7 +156,8 @@ Nintendo's VID/PID. It currently implements:
 - `0x21` acknowledgements for device-info, report-mode, SPI-read, player-light,
   home-light, IMU, and vibration subcommands;
 - virtual factory stick calibration at SPI addresses `0x603d` (left) and
-  `0x6046` (right), including partial-range reads;
+  `0x6046` (right), including partial-range reads; stick output is scaled to
+  exactly the 0x800 ± 0x600 it declares (`docs/calibration.md`);
 - the Nintendo Pro Controller PnP identity (`057e:2009`).
 
 The original Pro Controller packet has no rear-paddle fields, so L4 and R4 are

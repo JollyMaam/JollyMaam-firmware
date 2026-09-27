@@ -137,10 +137,20 @@ static u16 switch2_copy_read(u8 *buffer, u16 buffer_size, u16 offset,
     return copy_size;
 }
 
-static void switch2_pack_stick(u8 output[3], u8 x, u8 y)
+/* The whole 12-bit range, centred on 0x800.  What the console makes of it
+ * depends on the stick calibration it reads from the virtual flash at
+ * 0x13080/0x130c0, whose layout is not decoded yet.  Full range is what the
+ * pad sent when it was first seen working on a Switch 2 (50bdc58). */
+#define SWITCH2_STICK_CENTER  0x800U
+#define SWITCH2_STICK_RANGE   0x7ffU
+#define SWITCH2_TRIGGER_BUTTON_LEVEL  (CYCLONE2_TRIGGER_MAX / 8U)
+
+static void switch2_pack_stick(u8 output[3], s16 x, s16 y)
 {
-    u16 packed_x = ((u16)x << 4) | (x >> 4);
-    u16 packed_y = ((u16)y << 4) | (y >> 4);
+    u16 packed_x = cyclone2_stick_scaled(x, SWITCH2_STICK_CENTER,
+                                         SWITCH2_STICK_RANGE);
+    u16 packed_y = cyclone2_stick_scaled(y, SWITCH2_STICK_CENTER,
+                                         SWITCH2_STICK_RANGE);
 
     output[0] = packed_x;
     output[1] = (packed_x >> 8) | (packed_y << 4);
@@ -165,8 +175,10 @@ static void switch2_make_report(u8 output[SWITCH2_REPORT_SIZE])
     if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_Y) buttons |= SWITCH2_BTN_Y;
     if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_R1) buttons |= SWITCH2_BTN_R;
     if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_L1) buttons |= SWITCH2_BTN_L;
-    if (switch2_input.left_trigger > 0x20U) buttons |= SWITCH2_BTN_ZL;
-    if (switch2_input.right_trigger > 0x20U) buttons |= SWITCH2_BTN_ZR;
+    if (switch2_input.left_trigger > SWITCH2_TRIGGER_BUTTON_LEVEL)
+        buttons |= SWITCH2_BTN_ZL;
+    if (switch2_input.right_trigger > SWITCH2_TRIGGER_BUTTON_LEVEL)
+        buttons |= SWITCH2_BTN_ZR;
     if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_START) buttons |= SWITCH2_BTN_PLUS;
     if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_SELECT) buttons |= SWITCH2_BTN_MINUS;
     if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_R3) buttons |= SWITCH2_BTN_RCLICK;
@@ -194,9 +206,9 @@ static void switch2_make_report(u8 output[SWITCH2_REPORT_SIZE])
     output[3] = buttons >> 8;
     output[4] = buttons >> 16;
     switch2_pack_stick(output + 5, switch2_input.left_x,
-                       (u8)(0xffU - switch2_input.left_y));
+                       (s16)-switch2_input.left_y);
     switch2_pack_stick(output + 8, switch2_input.right_x,
-                       (u8)(0xffU - switch2_input.right_y));
+                       (s16)-switch2_input.right_y);
     output[11] = 0x38;
     output[14] = 0x28;
 }
@@ -631,8 +643,6 @@ void cyclone2_switch2_start(u8 slot, u8 pairing)
     u8 console[6];
     memset(&switch2_input, 0, sizeof(switch2_input));
     switch2_input.hat = CYCLONE2_HAT_NEUTRAL;
-    switch2_input.left_x = switch2_input.left_y = 0x80;
-    switch2_input.right_x = switch2_input.right_y = 0x80;
     switch2_counter = 0;
     switch2_ready = 0;
     switch2_con_handle = 0;
