@@ -40,7 +40,39 @@
  * when it carries the tag; foreign records (from a firmware built on the
  * vendor stack) are ignored instead of being read back as a key. */
 #define BTSTACK_JL_LINK_KEY_ENTRIES BTSTACK_JL_LINK_KEY_SLOTS
-#define BTSTACK_JL_LINK_KEY_TAG     0xC2
+/* Tag byte: which slot a record belongs to.  Each slot has its own local
+ * address, so a host paired on two slots holds two keys; a record keyed only
+ * by the host's address let the second pairing overwrite the first, and the
+ * first slot's reconnect then failed with reason 5.  Records written before
+ * this carry the legacy tag and match any slot. */
+#define BTSTACK_JL_LINK_KEY_TAG_LEGACY 0xC2
+#define BTSTACK_JL_LINK_KEY_TAG_SLOT   0xC8  /* | owner slot 0..3 */
+#define BTSTACK_JL_LINK_KEY_ANY_SLOT   0xFFU
+
+static int link_key_tag_valid(u8 tag)
+{
+    return tag == BTSTACK_JL_LINK_KEY_TAG_LEGACY ||
+           (tag & 0xFCU) == BTSTACK_JL_LINK_KEY_TAG_SLOT;
+}
+
+static u8 link_key_tag_for(u8 owner)
+{
+    return owner == BTSTACK_JL_LINK_KEY_ANY_SLOT ?
+           BTSTACK_JL_LINK_KEY_TAG_LEGACY :
+           (u8)(BTSTACK_JL_LINK_KEY_TAG_SLOT | (owner & 0x03U));
+}
+
+/* The slot whose session is running: its records, and legacy ones. */
+static u8 link_key_owner(void)
+{
+    return get_cur_bt_idx() & 0x03U;
+}
+
+static int link_key_tag_matches(u8 tag, u8 owner)
+{
+    return tag == BTSTACK_JL_LINK_KEY_TAG_LEGACY ||
+           tag == link_key_tag_for(owner);
+}
 
 /* How long to wait before writing a staged link key to flash.  The pairing
  * this record came from finishes in well under 100 ms. */
@@ -109,14 +141,15 @@ static int link_key_slot_read(u8 slot, u8 *record)
 {
     if (slot >= BTSTACK_JL_LINK_KEY_ENTRIES) return 0;
     memcpy(record, link_key_ram[slot], BTSTACK_JL_LINK_KEY_SIZE);
-    if (record[0] != BTSTACK_JL_LINK_KEY_TAG) return 0;
+    if (!link_key_tag_valid(record[0])) return 0;
     return 1;
 }
 
-static int link_key_slot_write(u8 slot, const u8 *address, const u8 *key, u8 type)
+static int link_key_slot_write(u8 slot, u8 owner, const u8 *address,
+                               const u8 *key, u8 type)
 {
     if (slot >= BTSTACK_JL_LINK_KEY_ENTRIES) return 0;
-    link_key_ram[slot][0] = BTSTACK_JL_LINK_KEY_TAG;
+    link_key_ram[slot][0] = link_key_tag_for(owner);
     memcpy(&link_key_ram[slot][1], address, 6);
     memcpy(&link_key_ram[slot][7], key, 16);
     link_key_ram[slot][23] = type;
@@ -142,6 +175,7 @@ static u32 link_key_write_due_ms;
 static u8 link_key_staged_address[6];
 static u8 link_key_staged_key[16];
 static u8 link_key_staged_type;
+static u8 link_key_staged_owner;
 
 /* Slots whose records have been dropped but not yet erased in flash.  The
  * deletes run while the radio is starting (forgetting a peer before a fresh
@@ -160,20 +194,21 @@ static int link_key_slot_read(u8 slot, u8 *record)
                              BTSTACK_JL_LINK_KEY_SIZE);
 
     if (length != BTSTACK_JL_LINK_KEY_SIZE) return 0;
-    if (record[0] != BTSTACK_JL_LINK_KEY_TAG) return 0;
+    if (!link_key_tag_valid(record[0])) return 0;
     return 1;
 #endif
 }
 
-static int link_key_slot_write(u8 slot, const u8 *address, const u8 *key, u8 type)
+static int link_key_slot_write(u8 slot, u8 owner, const u8 *address,
+                               const u8 *key, u8 type)
 {
 #ifdef CYCLONE2_BOND_NO_KEY_FLASH
-    (void)slot; (void)address; (void)key; (void)type;
+    (void)slot; (void)owner; (void)address; (void)key; (void)type;
     return 1;
 #else
     u8 record[BTSTACK_JL_LINK_KEY_SIZE];
 
-    record[0] = BTSTACK_JL_LINK_KEY_TAG;
+    record[0] = link_key_tag_for(owner);
     memcpy(record + 1, address, 6);
     memcpy(record + 7, key, 16);
     record[23] = type;
@@ -200,65 +235,101 @@ static void link_key_slot_clear(u8 slot)
 }
 #endif /* CYCLONE2_BOND_STORE_RAM */
 
+/* Where a record for (owner, address) goes: that owner's record for the
+ * address, else a legacy record for it (the pairing supersedes it), else the
+ * first empty slot, else slot 0.  Scans the whole store - an empty slot can
+ * sit before the matching record. */
+static u8 link_key_slot_for(u8 owner, const u8 address[6])
+{
+    u8 record[BTSTACK_JL_LINK_KEY_SIZE];
+    u8 legacy = BTSTACK_JL_LINK_KEY_ENTRIES;
+    u8 empty = BTSTACK_JL_LINK_KEY_ENTRIES;
+    u8 slot;
+
+    for (slot = 0; slot < BTSTACK_JL_LINK_KEY_ENTRIES; slot++) {
+        if (!link_key_slot_read(slot, record)) {
+            if (empty == BTSTACK_JL_LINK_KEY_ENTRIES) empty = slot;
+            continue;
+        }
+        if (memcmp(record + 1, address, 6) != 0) continue;
+        if (record[0] == link_key_tag_for(owner)) return slot;
+        if (record[0] == BTSTACK_JL_LINK_KEY_TAG_LEGACY &&
+            legacy == BTSTACK_JL_LINK_KEY_ENTRIES) legacy = slot;
+    }
+    if (legacy != BTSTACK_JL_LINK_KEY_ENTRIES) return legacy;
+    if (empty != BTSTACK_JL_LINK_KEY_ENTRIES) return empty;
+    return 0;
+}
+
+static void link_key_store(u8 owner, const u8 address[6], const u8 key[16],
+                           u8 type)
+{
+#if CYCLONE2_BOND_STORE_RAM
+    u8 slot = link_key_slot_for(owner, address);
+
+    link_key_slot_write(slot, owner, address, key, type);
+    cyclone2_bringup_record(0x3400u | slot);
+#else
+    /* Staged, not stored: no syscfg access at all from here.  The slot is
+     * chosen (and the write done) by btstack_jl_link_key_flush() from the
+     * application task. */
+    memcpy(link_key_staged_address, address, 6);
+    memcpy(link_key_staged_key, key, 16);
+    link_key_staged_type = type;
+    link_key_staged_owner = owner;
+    link_key_write_due_ms = jl_time_ms() + BTSTACK_JL_LINK_KEY_WRITE_DELAY_MS;
+    link_key_write_pending = 1;
+#endif
+}
+
 static int jl_link_key_get(const u8 address[6], u8 key[16], u8 *type)
 {
     u8 record[BTSTACK_JL_LINK_KEY_SIZE];
+    u8 owner = link_key_owner();
+    u8 legacy = BTSTACK_JL_LINK_KEY_ENTRIES;
     u8 slot;
 
 #if !CYCLONE2_BOND_STORE_RAM
     /* A key staged by a pairing is not in flash until the radio has been idle
      * for a while; a peer that reconnects before that must still find it. */
     if (link_key_write_pending &&
-        memcmp(link_key_staged_address, address, 6) == 0) {
+        memcmp(link_key_staged_address, address, 6) == 0 &&
+        (link_key_staged_owner == owner ||
+         link_key_staged_owner == BTSTACK_JL_LINK_KEY_ANY_SLOT)) {
         memcpy(key, link_key_staged_key, 16);
         *type = link_key_staged_type;
         return 1;
     }
 #endif
+    /* This slot's own record first; a legacy one only if there is none. */
     for (slot = 0; slot < BTSTACK_JL_LINK_KEY_ENTRIES; slot++) {
         if (!link_key_slot_read(slot, record)) continue;
         if (memcmp(record + 1, address, 6) != 0) continue;
-        cyclone2_bringup_record(0x3300u | slot);
-        {
-            u8 xor_sum = 0U;
-            for (u8 i = 0U; i < 16U; i++) xor_sum ^= record[7 + i];
-            cyclone2_bringup_record(0x3800u | record[7]);
-            cyclone2_bringup_record(0x3900u | record[22]);
-            cyclone2_bringup_record(0x3a00u | xor_sum);
-        }
-        memcpy(key, record + 7, 16);
-        *type = record[23];
-        return 1;
+        if (record[0] == link_key_tag_for(owner)) break;
+        if (record[0] == BTSTACK_JL_LINK_KEY_TAG_LEGACY &&
+            legacy == BTSTACK_JL_LINK_KEY_ENTRIES) legacy = slot;
     }
-    return 0;
+    if (slot == BTSTACK_JL_LINK_KEY_ENTRIES) {
+        if (legacy == BTSTACK_JL_LINK_KEY_ENTRIES) return 0;
+        slot = legacy;
+        link_key_slot_read(slot, record);
+    }
+    cyclone2_bringup_record(0x3300u | slot);
+    {
+        u8 xor_sum = 0U;
+        for (u8 i = 0U; i < 16U; i++) xor_sum ^= record[7 + i];
+        cyclone2_bringup_record(0x3800u | record[7]);
+        cyclone2_bringup_record(0x3900u | record[22]);
+        cyclone2_bringup_record(0x3a00u | xor_sum);
+    }
+    memcpy(key, record + 7, 16);
+    *type = record[23];
+    return 1;
 }
 
 static void jl_link_key_put(const u8 address[6], const u8 key[16], u8 type)
 {
-#if CYCLONE2_BOND_STORE_RAM
-    u8 record[BTSTACK_JL_LINK_KEY_SIZE];
-    u8 slot;
-
-    for (slot = 0; slot < BTSTACK_JL_LINK_KEY_ENTRIES; slot++) {
-        if (!link_key_slot_read(slot, record)) break;
-        if (memcmp(record + 1, address, 6) == 0) break;
-    }
-    if (slot == BTSTACK_JL_LINK_KEY_ENTRIES) {
-        slot = 0;
-    }
-    link_key_slot_write(slot, address, key, type);
-    cyclone2_bringup_record(0x3400u | slot);
-#else
-    /* Staged, not stored: no syscfg access at all from here.  The slot is
-     * chosen (and the write done) by btstack_jl_link_key_flush() from the
-     * application task.  The bring-up records still go in now, since they are
-     * plain SRAM writes. */
-    memcpy(link_key_staged_address, address, 6);
-    memcpy(link_key_staged_key, key, 16);
-    link_key_staged_type = type;
-    link_key_write_due_ms = jl_time_ms() + BTSTACK_JL_LINK_KEY_WRITE_DELAY_MS;
-    link_key_write_pending = 1;
-#endif
+    link_key_store(link_key_owner(), address, key, type);
     cyclone2_bringup_record(0x3500u | key[0]);
     cyclone2_bringup_record(0x3600u | key[15]);
     {
@@ -268,26 +339,33 @@ static void jl_link_key_put(const u8 address[6], const u8 key[16], u8 type)
     }
 }
 
+/* Forget a host for the running slot only: its own record and any legacy one
+ * for that host.  Other slots paired with the same host keep their keys. */
 static void jl_link_key_delete(const u8 address[6])
 {
     u8 record[BTSTACK_JL_LINK_KEY_SIZE];
+    u8 owner = link_key_owner();
     u8 slot;
 
     for (slot = 0; slot < BTSTACK_JL_LINK_KEY_ENTRIES; slot++) {
         if (!link_key_slot_read(slot, record)) continue;
         if (memcmp(record + 1, address, 6) != 0) continue;
+        if (!link_key_tag_matches(record[0], owner)) continue;
         link_key_slot_clear(slot);
     }
 }
 
+/* BTstack's view of the store: the running slot's records and legacy ones. */
 static int jl_link_key_iterator(u8 index, u8 address[6], u8 key[16], u8 *type)
 {
     u8 record[BTSTACK_JL_LINK_KEY_SIZE];
+    u8 owner = link_key_owner();
     u8 slot = index;
     u8 valid;
 
     while (slot < BTSTACK_JL_LINK_KEY_ENTRIES) {
-        if (link_key_slot_read(slot, record)) {
+        if (link_key_slot_read(slot, record) &&
+            link_key_tag_matches(record[0], owner)) {
             valid = 0;
             for (u8 i = 0; i < 6; i++) valid |= record[1 + i];
             if (valid != 0) {
@@ -316,9 +394,11 @@ int btstack_jl_link_key_store_read(u8 index, u8 address[6], u8 key[16], u8 *type
     return 1;
 }
 
-void btstack_jl_link_key_store_write(const u8 address[6], const u8 key[16], u8 type)
+void btstack_jl_link_key_store_write(u8 owner, const u8 address[6],
+                                     const u8 key[16], u8 type)
 {
-    jl_link_key_put(address, key, type);
+    link_key_store(owner < 4U ? owner : BTSTACK_JL_LINK_KEY_ANY_SLOT,
+                   address, key, type);
 }
 
 #if !CYCLONE2_BOND_STORE_RAM
@@ -362,16 +442,11 @@ void btstack_jl_link_key_flush(u8 force)
     cyclone2_usb_debug("BTSTACK: link key dropped (write disabled)");
     return;
 #endif
-    /* This is the first flash access for this record: find the peer's slot,
-     * the way jl_link_key_put() would have. */
-    for (slot = 0; slot < BTSTACK_JL_LINK_KEY_ENTRIES; slot++) {
-        if (!link_key_slot_read(slot, record)) break;
-        if (memcmp(record + 1, link_key_staged_address, 6) == 0) break;
-    }
-    if (slot == BTSTACK_JL_LINK_KEY_ENTRIES) slot = 0;
+    /* This is the first flash access for this record: find its slot. */
+    slot = link_key_slot_for(link_key_staged_owner, link_key_staged_address);
     local_irq_disable();
-    link_key_slot_write(slot, link_key_staged_address, link_key_staged_key,
-                        link_key_staged_type);
+    link_key_slot_write(slot, link_key_staged_owner, link_key_staged_address,
+                        link_key_staged_key, link_key_staged_type);
     local_irq_enable();
     cyclone2_bringup_record(0x3400u | slot);
 }
@@ -756,8 +831,21 @@ u32 user_send_cmd_prepare(USER_CMD_TYPE cmd, u16 param_len, u8 *param)
             hid_ready = 0;
             memset(peer_address, 0, sizeof(peer_address));
             btstack_jl_core_delete_all_link_keys();
-            for (u8 slot = 0; slot < BTSTACK_JL_LINK_KEY_ENTRIES; slot++) {
-                link_key_slot_clear(slot);
+            /* Only the running slot's own records: the pairing flow sends
+             * this before every fresh pairing, and clearing the whole store
+             * here dropped every other slot's bonds (other consoles, other
+             * profiles on the same PC).  Legacy records stay; the peer being
+             * re-paired has its own dropped by forget_peer. */
+            {
+                u8 record[BTSTACK_JL_LINK_KEY_SIZE];
+                u8 owner_tag = link_key_tag_for(link_key_owner());
+
+                for (u8 slot = 0; slot < BTSTACK_JL_LINK_KEY_ENTRIES; slot++) {
+                    if (link_key_slot_read(slot, record) &&
+                        record[0] == owner_tag) {
+                        link_key_slot_clear(slot);
+                    }
+                }
             }
             return 0;
 

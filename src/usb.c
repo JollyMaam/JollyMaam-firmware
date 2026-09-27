@@ -1056,7 +1056,7 @@ __attribute__((noinline)) static void execute_command(void)
         if (parse_key_record(command_line + 7U, address, key, &type) != 0) {
             console_write("ERR use setkey aa:bb:cc:dd:ee:ff KEY32 [type]\r\n");
         } else {
-            btstack_jl_link_key_store_write(address, key, type);
+            btstack_jl_link_key_store_write(0xffU, address, key, type);
             console_write("OK link key stored\r\n");
         }
     } else if (!strncmp(command_line, "bond ", 5U) &&
@@ -1085,7 +1085,7 @@ __attribute__((noinline)) static void execute_command(void)
                  * may authenticate from a stale key without asking the host. */
                 cyclone2_classic_forget_peer(address);
                 cyclone2_peer_address_write(slot, address);
-                btstack_jl_link_key_store_write(address, key, type);
+                btstack_jl_link_key_store_write(slot, address, key, type);
                 if (cyclone2_connect_with_address_request(slot, local) > 0) {
                     console_write("OK bond restored; paging that peer\r\n");
                 } else {
@@ -1104,7 +1104,7 @@ __attribute__((noinline)) static void execute_command(void)
             console_write("ERR use restore N aa:bb:cc:dd:ee:ff KEY32 [type]\r\n");
         } else {
             cyclone2_peer_address_write(slot, address);
-            btstack_jl_link_key_store_write(address, key, type);
+            btstack_jl_link_key_store_write(slot, address, key, type);
             cyclone2_connect_request(slot);
             console_write("OK bond restored; paging that peer\r\n");
         }

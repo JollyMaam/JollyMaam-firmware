@@ -152,11 +152,12 @@ void btstack_jl_core_delete_link_key(const uint8_t address[6]);
  * only way to carry a bond across a reflash.
  *
  * read  returns 1 when the slot holds a valid record.
- * write behaves like the stack's own put_link_key: reuse the peer's record,
- * else the first empty slot, else slot 0. */
+ * write stores the key for profile slot `owner` (0..3; anything else writes a
+ * record any slot may use), reusing that slot's record for the peer, else a
+ * legacy one for it, else the first empty entry, else entry 0. */
 int  btstack_jl_link_key_store_read(uint8_t index, uint8_t address[6],
                                     uint8_t key[16], uint8_t *type);
-void btstack_jl_link_key_store_write(const uint8_t address[6],
+void btstack_jl_link_key_store_write(uint8_t owner, const uint8_t address[6],
                                      const uint8_t key[16], uint8_t type);
 
 /* Write a link key the controller has just handed us.
