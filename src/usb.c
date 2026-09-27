@@ -829,7 +829,7 @@ __attribute__((noinline)) static void profile_command(const char *text)
             if (!strcmp(text + 2, cyclone2_profile_name(type))) break;
         }
         if (type == CYCLONE2_PROFILE_TYPE_COUNT) {
-            console_write("ERR types: switch generic switch2 xbox dualsense\r\n");
+            console_write("ERR types: switch generic switch2 xbox dualsense xboxble\r\n");
             return;
         }
         if (cyclone2_profile_type_set(slot, type) != 0) {
@@ -851,7 +851,7 @@ __attribute__((noinline)) static void execute_command(void)
                       "debug on|off|status  control runtime diagnostics\r\n"
                       "report 5|8|10|16|status  set/report HID period in ms\r\n"
                       "connect 0|1|2|3  reconnect a saved profile slot\r\n"
-                      "profile N [switch|switch2|xbox|dualsense|generic]\r\n"
+                      "profile N [switch|switch2|xbox|xboxble|dualsense|generic]\r\n"
                       "         show or set what slot N speaks (next start)\r\n"
                       "wake 0|1|2|3 [channel] [seconds]  wake that slot's\r\n"
                       "         sleeping console, then reconnect it\r\n"

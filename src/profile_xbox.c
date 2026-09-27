@@ -6,6 +6,7 @@
 #include "input.h"
 #include "profile.h"
 #include "profile_classic.h"
+#include "profile_xbox.h"
 #include "rumble.h"
 #include "usb.h"
 
@@ -121,12 +122,21 @@ static void put_u16(u8 *output, u16 value)
     output[1] = (u8)(value >> 8);
 }
 
-static void fill_state(u8 state[XBOX_STATE_SIZE],
-                       const struct cyclone2_input_report *input)
+/* Report 0x01's 16 bytes, shared with the Series X|S (BLE) profile.  The
+ * Series X|S layout differs only at the end: View is button 11 instead of
+ * the AC Back bit, and byte 15 bit 0 is Share (consumer usage Record), which
+ * the capture button becomes. */
+void cyclone2_xbox_fill_state(u8 state[XBOX_STATE_SIZE],
+                              const struct cyclone2_input_report *input,
+                              int series)
 {
     u16 buttons = input->buttons;
 
     memset(state, 0, XBOX_STATE_SIZE);
+    if (series && (buttons & CYCLONE2_REPORT_BUTTON_SCREENSHOT)) {
+        buttons &= (u16)~CYCLONE2_REPORT_BUTTON_SCREENSHOT;
+        state[15] = 0x01U;
+    }
     /* Sticks 0..0xffff centred on 0x8000, triggers 0..1023. */
     put_u16(state + 0, cyclone2_stick_u16(input->left_x));
     put_u16(state + 2, cyclone2_stick_u16(input->left_y));
@@ -143,7 +153,7 @@ static void fill_state(u8 state[XBOX_STATE_SIZE],
     if (buttons & CYCLONE2_REPORT_BUTTON_A) state[13] |= 0x02U; /* B */
     if (buttons & CYCLONE2_REPORT_BUTTON_B) state[13] |= 0x01U; /* A */
     state[14] = (u8)((buttons >> 8) & 0x7fU);
-    if (buttons & CYCLONE2_REPORT_BUTTON_SELECT) state[15] = 0x01U;
+    if (!series && (buttons & CYCLONE2_REPORT_BUTTON_SELECT)) state[15] = 0x01U;
 }
 
 /* Magnitude 0..100 to the motor's 0..255. */
@@ -153,17 +163,13 @@ static u8 xbox_magnitude(u8 value)
     return (u8)((value * 255U) / 100U);
 }
 
-static void xbox_output(u8 *packet, u16 size, u16 channel)
+/* Output report 0x03's 8-byte body, shared with the Series X|S profile. */
+void cyclone2_xbox_rumble(const u8 body[8])
 {
-    const u8 *body;
     u8 left;
     u8 right;
     u16 duration_ms;
 
-    (void)channel;
-    if (size < 2U || (packet[0] != 0xa2U && packet[0] != 0x52U)) return;
-    if (packet[1] != XBOX_REPORT_RUMBLE || size < 2U + 8U) return;
-    body = packet + 2;
     left = (body[0] & 0x02U) ? xbox_magnitude(body[3]) : 0U;
     right = (body[0] & 0x01U) ? xbox_magnitude(body[4]) : 0U;
     if (!left && !right) {
@@ -180,6 +186,14 @@ static void xbox_output(u8 *packet, u16 size, u16 channel)
             duration_ms = CYCLONE2_RUMBLE_MAX_DURATION_MS;
         cyclone2_rumble_set(left, right, duration_ms);
     }
+}
+
+static void xbox_output(u8 *packet, u16 size, u16 channel)
+{
+    (void)channel;
+    if (size < 2U || (packet[0] != 0xa2U && packet[0] != 0x52U)) return;
+    if (packet[1] != XBOX_REPORT_RUMBLE || size < 2U + 8U) return;
+    cyclone2_xbox_rumble(packet + 2);
 }
 
 static void xbox_session_start(void)
@@ -229,7 +243,7 @@ int cyclone2_xbox_send(const struct cyclone2_input_report *input)
         if (result != 0) return -2;
         last_guide = guide;
     }
-    fill_state(state, input);
+    cyclone2_xbox_fill_state(state, input, 0);
     if (state_sent && !memcmp(state, last_state, sizeof(state)) &&
         now - last_send_ms < XBOX_KEEPALIVE_MS)
         return 0;

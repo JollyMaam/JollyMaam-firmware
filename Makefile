@@ -65,12 +65,13 @@ BTSTACK_SOURCES := \
 	$(addprefix $(BTSTACK_DIR)/src/, \
 		ad_parser.c btstack_hid_parser.c btstack_linked_list.c \
 		btstack_memory.c btstack_memory_pool.c btstack_run_loop.c \
-		btstack_tlv.c btstack_util.c hci.c hci_cmd.c hci_dump.c l2cap.c \
+		btstack_crypto.c btstack_tlv.c btstack_util.c hci.c hci_cmd.c hci_event.c \
+		hci_dump.c l2cap.c \
 		l2cap_signaling.c) \
 	$(addprefix $(BTSTACK_DIR)/src/classic/, \
 		device_id_server.c hid_device.c sdp_server.c sdp_util.c) \
 	$(addprefix $(BTSTACK_DIR)/src/ble/, \
-		att_db.c att_dispatch.c att_server.c le_device_db_memory.c) \
+		att_db.c att_dispatch.c att_server.c le_device_db_memory.c sm.c) \
 	$(wildcard $(BTSTACK_PORT_DIR)/*.c) \
 	$(BTSTACK_DIR)/3rd-party/rijndael/rijndael.c
 BTSTACK_OBJECTS := $(subst $(BTSTACK_DIR),$O/btstack,$(BTSTACK_SOURCES:.c=.c.o))

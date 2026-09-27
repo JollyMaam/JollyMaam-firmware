@@ -75,6 +75,17 @@ static const struct profile_operations profiles[] = {
         .send = cyclone2_dualsense_send,
         .handle_event = cyclone2_classic_handle_event,
     },
+    [CYCLONE2_PROFILE_XBOX_BLE] = {
+        .name = "xboxble",
+        .prepare = cyclone2_xbox_ble_prepare_stack,
+        .start = cyclone2_xbox_ble_start,
+        .disconnect = cyclone2_xbox_ble_disconnect,
+        .exit = cyclone2_xbox_ble_exit,
+        .is_connected = cyclone2_xbox_ble_is_connected,
+        .reconnect = cyclone2_xbox_ble_reconnect,
+        .send = cyclone2_xbox_ble_send,
+        .handle_event = cyclone2_xbox_ble_handle_event,
+    },
 };
 
 static const struct profile_operations *active_profile =

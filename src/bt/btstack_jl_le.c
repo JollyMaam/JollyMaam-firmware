@@ -3,9 +3,14 @@
  *
  * One connection.  CCC descriptors are ordinary dynamic attributes in the
  * profile's database; this file keeps their state (write 0x0001 enables
- * notifications) so the profile does not have to.  No SMP: the Switch 2 does
- * not use it and disconnects when it is attempted, so sm_init() is never
- * called and the LE LTK request is answered here from the profile.
+ * notifications) so the profile does not have to.
+ *
+ * SMP only when the profile asks for it (config->sm_er): the Switch 2 does not
+ * use it and disconnects when it is attempted, so for it sm_init() is never
+ * called - sm.c's HCI handler is then not registered (hci_init() clears the
+ * handler list every session) - and the LE LTK request is answered here from
+ * the profile.  HID over GATT hosts (the Xbox BLE profile) pair and bond
+ * through BTstack's SM.
  */
 
 #include <string.h>
@@ -23,6 +28,8 @@
 #include "ble/att_server.h"
 #include "ble/le_device_db.h"
 #include "ble/att_db.h"
+#include "ble/sm.h"
+#include "l2cap.h"
 
 #include "btstack_jl_le.h"
 /* Application hooks; declared here because the SDK headers that declare them
@@ -47,6 +54,12 @@ static uint8_t le_working;
 static uint8_t le_adv_data[31];
 static volatile uint8_t le_adv_len;
 static volatile uint8_t le_adv_dirty;
+static uint8_t le_scan_response[31];
+static volatile uint8_t le_scan_response_len;
+
+/* SM running this session (config->sm_er set). */
+static uint8_t le_sm_active;
+static btstack_packet_callback_registration_t le_sm_registration;
 
 /* Latest input report (any task writes, run loop sends). */
 static uint8_t le_report[LE_REPORT_MAX];
@@ -91,6 +104,12 @@ int btstack_jl_le_notifications_enabled(uint16_t value_handle)
 {
     int i = ccc_index((uint16_t)(value_handle + 1U), 0);
     return i >= 0 && (le_ccc_value[i] & 1U) != 0;
+}
+
+void btstack_jl_le_set_ccc(uint16_t value_handle, uint16_t value)
+{
+    int i = ccc_index((uint16_t)(value_handle + 1U), 1);
+    if (i >= 0) le_ccc_value[i] = (uint8_t)value;
 }
 
 static int is_ccc(uint16_t handle)
@@ -219,7 +238,20 @@ static void le_apply_advertising(void)
      * ~21 ms), all channels. */
     gap_advertisements_set_params(0x0020, 0x0020, 0, 0, none, 0x07, 0);
     gap_advertisements_set_data(le_adv_len, le_adv_data);
+    if (le_scan_response_len != 0)
+        gap_scan_response_set_data(le_scan_response_len, le_scan_response);
     gap_advertisements_enable(1);
+}
+
+void btstack_jl_le_set_scan_response(const uint8_t *data, uint8_t length)
+{
+    if (length > sizeof(le_scan_response)) length = sizeof(le_scan_response);
+    jl_enter_critical_public();
+    if (data && length) memcpy(le_scan_response, data, length);
+    le_scan_response_len = data ? length : 0;
+    le_adv_dirty = 1;
+    jl_exit_critical_public();
+    btstack_jl_core_wake();
 }
 
 void btstack_jl_le_set_advertising(const uint8_t *data, uint8_t length)
@@ -259,23 +291,29 @@ static void le_hci_handler(uint8_t packet_type, uint16_t channel,
             }
             memset(le_ccc_value, 0, sizeof(le_ccc_value));
             le_pending_len = 0;
-            {
+            if (!le_sm_active) {
                 /* att_server holds every ATT request while
                  * gap_reconnect_security_setup_active() says an identity
                  * (IRK) lookup is pending - and without sm_init() nobody ever
                  * runs that lookup, so MTU exchange, discovery and write
                  * requests went unanswered and the console waited forever.
-                 * There is no IRK to resolve here: mark it done. */
+                 * There is no IRK to resolve here: mark it done, and say
+                 * there is no bond record (sm.c would have set -1). */
                 hci_connection_t *connection = hci_connection_for_handle(le_con_handle);
                 if (connection) {
                     connection->sm_connection.sm_irk_lookup_state = IRK_LOOKUP_FAILED;
+                    connection->sm_connection.sm_le_db_index = -1;
                 }
+            } else {
+                /* Ask the central to pair, or to encrypt with its bond. */
+                sm_request_pairing(le_con_handle);
             }
             cyclone2_usb_debug("LE connected handle=%04x", le_con_handle);
             cyclone2_bringup_record(0x4c01u);
             if (le_config && le_config->state) le_config->state(1);
             break;
         case HCI_SUBEVENT_LE_LONG_TERM_KEY_REQUEST: {
+            if (le_sm_active) break;  /* sm.c answers it */
             hci_con_handle_t handle =
                 hci_subevent_le_long_term_key_request_get_connection_handle(packet);
             uint8_t ltk[16];
@@ -306,6 +344,16 @@ static void le_hci_handler(uint8_t packet_type, uint16_t channel,
                                hci_event_encryption_change_get_status(packet),
                                hci_event_encryption_change_get_encryption_enabled(packet));
             cyclone2_bringup_record(0x4c05u);
+            if (hci_event_encryption_change_get_status(packet) == 0 &&
+                hci_event_encryption_change_get_encryption_enabled(packet)) {
+                if (le_config && le_config->encrypted) le_config->encrypted();
+                if (le_config && le_config->conn_interval_min != 0) {
+                    /* Supervision timeout 4 s (10 ms units). */
+                    gap_request_connection_parameter_update(
+                        le_con_handle, le_config->conn_interval_min,
+                        le_config->conn_interval_max, 0, 400);
+                }
+            }
         }
         break;
     case HCI_EVENT_DISCONNECTION_COMPLETE:
@@ -321,6 +369,34 @@ static void le_hci_handler(uint8_t packet_type, uint16_t channel,
         break;
     case ATT_EVENT_CAN_SEND_NOW:
         le_try_send();
+        break;
+    default:
+        break;
+    }
+}
+
+/* SM progress, for the console. */
+static void le_sm_handler(uint8_t packet_type, uint16_t channel,
+                          uint8_t *packet, uint16_t size)
+{
+    (void)channel;
+    (void)size;
+    if (packet_type != HCI_EVENT_PACKET) return;
+    switch (hci_event_packet_get_type(packet)) {
+    case SM_EVENT_JUST_WORKS_REQUEST:
+        /* No input, no output: nothing to confirm. */
+        sm_just_works_confirm(sm_event_just_works_request_get_handle(packet));
+        break;
+    case SM_EVENT_PAIRING_COMPLETE:
+        cyclone2_usb_debug("LE pairing complete status=%02x reason=%02x",
+                           sm_event_pairing_complete_get_status(packet),
+                           sm_event_pairing_complete_get_reason(packet));
+        cyclone2_bringup_record(0x4c06u);
+        break;
+    case SM_EVENT_REENCRYPTION_COMPLETE:
+        cyclone2_usb_debug("LE bond reused status=%02x",
+                           sm_event_reencryption_complete_get_status(packet));
+        cyclone2_bringup_record(0x4c07u);
         break;
     default:
         break;
@@ -376,6 +452,20 @@ void btstack_jl_le_setup(void)
     if (le_config == NULL || le_config->att_db == NULL) return;
     le_initialized = 1;
     le_device_db_init();
+    le_sm_active = le_config->sm_er != NULL;
+    if (le_sm_active) {
+        sm_key_t key;
+
+        sm_init();
+        memcpy(key, le_config->sm_er, 16);
+        sm_set_er(key);
+        memcpy(key, le_config->sm_ir, 16);
+        sm_set_ir(key);
+        sm_set_io_capabilities(IO_CAPABILITY_NO_INPUT_NO_OUTPUT);
+        sm_set_authentication_requirements(SM_AUTHREQ_BONDING);
+        le_sm_registration.callback = &le_sm_handler;
+        sm_add_event_handler(&le_sm_registration);
+    }
     att_server_init(le_config->att_db, &le_att_read, &le_att_write);
     le_hci_registration.callback = &le_hci_handler;
     hci_add_event_handler(&le_hci_registration);
@@ -408,6 +498,11 @@ void btstack_jl_le_teardown(void)
     le_initialized = 0;
     hci_remove_event_handler(&le_hci_registration);
     att_server_deinit();
+    if (le_sm_active) {
+        sm_remove_event_handler(&le_sm_registration);
+        sm_deinit();
+        le_sm_active = 0;
+    }
     le_con_handle = HCI_CON_HANDLE_INVALID;
     le_working = 0;
 }
