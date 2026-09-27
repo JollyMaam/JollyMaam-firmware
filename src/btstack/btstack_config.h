@@ -29,14 +29,14 @@
 #define MAX_ATT_DB_SIZE                 512
 #define ENABLE_LOG_ERROR
 
-/* SSP_KEEP_BONDING_FLAG (a local hci.c change) would keep our own bonding
- * request when the peer asks for "no bonding".  Left undefined: a genuine Pro
- * Controller answers the pairing with auth_req 0x00, No Bonding
- * (/shared/nintendo-switch-pro-controller/hcidump), and with the flag on the
- * console refused every pad-initiated reconnect anyway (2026-09-25).  The
- * link key is still stored: the controller reports it as a combination key,
- * which BTstack keeps whatever the bonding mode. */
-/* #define SSP_KEEP_BONDING_FLAG 1 */
+/* Tried and dropped (2026-09-25): an hci.c patch, SSP_KEEP_BONDING_FLAG,
+ * that kept our own bonding request when the peer asks for "no bonding".
+ * A genuine Pro Controller answers the pairing with auth_req 0x00, No
+ * Bonding (/shared/nintendo-switch-pro-controller/hcidump), and with the
+ * patch on the console refused every pad-initiated reconnect anyway.  The
+ * link key is stored regardless: the controller reports it as a combination
+ * key, which BTstack keeps whatever the bonding mode.  The patch has been
+ * removed from /work/btstack-jl-port. */
 
 /* ACL payload the host handles.  516 = the 512-byte LE ATT MTU a Pro
  * Controller 2 answers the Switch 2 with, plus the L2CAP header: BTstack's
