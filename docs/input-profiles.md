@@ -170,15 +170,15 @@ The protocol details, including the HIDP framing, every report layout and the
 subcommand list, are documented at the top of `src/profile_switch.c`.
 
 The two binary blobs the protocol needs are the source of truth and live in
-`data/`. They are the only place the bytes are written down; `tools/bin2header.c`
+`src/`. They are the only place the bytes are written down; `tools/bin2header.c`
 just spells them out as the C arrays the firmware compiles
 (`build/nintendo_switch_pro_hid.h` and `build/nintendo_switch_pro_spi.h`), so
 they can be decoded, hex-dumped and diffed with ordinary tools:
 
 | File | Contents |
 | --- | --- |
-| `data/nintendo_switch_pro_hid.bin` | the 170-byte HID report descriptor |
-| `data/nintendo_switch_pro_spi.bin` | the virtual SPI flash window starting at `0x6000`, indexed exactly like the controller's flash |
+| `src/nintendo_switch_pro_hid.bin` | the 170-byte HID report descriptor |
+| `src/nintendo_switch_pro_spi.bin` | the virtual SPI flash window starting at `0x6000`, indexed exactly like the controller's flash |
 
 `read_virtual_spi()` serves the controller's SPI flash to the console and to
 host drivers:

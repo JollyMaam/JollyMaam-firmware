@@ -197,7 +197,7 @@ $O/c2ctl: tools/c2ctl.c
 	@mkdir -p $(@D)
 	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) $< -o $@
 
-# The binary blobs in data/ are the source of truth for the Switch protocol
+# The binary blobs in src/*.bin are the source of truth for the Switch protocol
 # tables; bin2header only spells their bytes out as C arrays.
 $O/bin2header: tools/bin2header.c
 	@mkdir -p $(@D)
@@ -225,16 +225,16 @@ $O/calibration_test: tools/calibration_test.c src/calibration_math.c src/calibra
 calibration-test: $O/calibration_test
 	$(QUIET)$O/calibration_test
 
-$O/nintendo_switch_pro_hid.h: $O/bin2header data/nintendo_switch_pro_hid.bin
+$O/nintendo_switch_pro_hid.h: $O/bin2header src/nintendo_switch_pro_hid.bin
 	@mkdir -p $(@D)
 	@echo [GEN] $@
-	$(QUIET)$O/bin2header data/nintendo_switch_pro_hid.bin $@ \
+	$(QUIET)$O/bin2header src/nintendo_switch_pro_hid.bin $@ \
 		nintendo_switch_pro_hid_report_descriptor
 
-$O/nintendo_switch_pro_spi.h: $O/bin2header data/nintendo_switch_pro_spi.bin
+$O/nintendo_switch_pro_spi.h: $O/bin2header src/nintendo_switch_pro_spi.bin
 	@mkdir -p $(@D)
 	@echo [GEN] $@
-	$(QUIET)$O/bin2header data/nintendo_switch_pro_spi.bin $@ \
+	$(QUIET)$O/bin2header src/nintendo_switch_pro_spi.bin $@ \
 		nintendo_switch_pro_spi_flash
 
 # minimal version of download.sh
@@ -280,7 +280,7 @@ $O/src/%.c.o: src/%.c
 $O/btstack/%.c.o: $(BTSTACK_DIR)/%.c
 	$(compile_btstack_c)
 
-# profile_switch.c uses the arrays generated from data/*.bin
+# profile_switch.c uses the arrays generated from src/*.bin
 $O/src/profile_switch.c.o: $O/nintendo_switch_pro_hid.h $O/nintendo_switch_pro_spi.h
 
 $O/sdk/%.c.o: $(SDK)/%.c

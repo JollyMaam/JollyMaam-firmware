@@ -1,10 +1,10 @@
 
 // clang-format off
-// src/xbox_ble_att_db.h generated from gatt/xbox_ble.gatt for BTstack
+// src/xbox_ble_att_db.h generated from src/xbox_ble.gatt for BTstack
 // it needs to be regenerated when the .gatt file is updated. 
 
 // To generate src/xbox_ble_att_db.h:
-// /work/btstack-jl-port/tool/compile_gatt.py gatt/xbox_ble.gatt src/xbox_ble_att_db.h
+// /work/btstack-jl-port/tool/compile_gatt.py src/xbox_ble.gatt src/xbox_ble_att_db.h
 
 // att db format version 1
 
@@ -28,7 +28,7 @@ static const uint8_t profile_data[] =
     // xpadneo (docs/descriptors/xbxs.md, 283 bytes).
     //
     // Regenerate the header with:
-    //   python3 /work/btstack-jl-port/tool/compile_gatt.py gatt/xbox_ble.gatt src/xbox_ble_att_db.h
+    //   python3 /work/btstack-jl-port/tool/compile_gatt.py src/xbox_ble.gatt src/xbox_ble_att_db.h
     // 0x0001 PRIMARY_SERVICE-GAP_SERVICE
     0x0a, 0x00, 0x02, 0x00, 0x01, 0x00, 0x00, 0x28, 0x00, 0x18, 
     // 0x0002 CHARACTERISTIC-GAP_DEVICE_NAME - READ

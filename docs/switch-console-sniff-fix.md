@@ -147,7 +147,7 @@ again:
   what we send.
 * **Identity.**  The HID report descriptor, the SDP record and the virtual SPI
   regions all match both the stock firmware and a working ESP32 emulator.
-  The descriptor in `data/nintendo_switch_pro_hid.bin` is byte-identical to
+  The descriptor in `src/nintendo_switch_pro_hid.bin` is byte-identical to
   the one served.
 * **The console never reads our SDP record.**  It opens PSM 0x0011 and 0x0013
   directly, in every capture, including with a brand new Bluetooth address.

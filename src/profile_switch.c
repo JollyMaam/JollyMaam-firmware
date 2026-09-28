@@ -29,7 +29,7 @@
  * Where the protocol comes from
  * -----------------------------
  * - USB HID 1.11 section 6.2.2 defines the report descriptor item encoding
- *   used by data/nintendo_switch_pro_hid.bin (6.2.2.5 Input/Output/Feature items,
+ *   used by src/nintendo_switch_pro_hid.bin (6.2.2.5 Input/Output/Feature items,
  *   6.2.2.6 Collection/End Collection, 6.2.2.7 Global items such as Usage
  *   Page/Report ID/Report Size/Report Count, 6.2.2.8 Local items such as
  *   Usage).
@@ -215,7 +215,7 @@
 #define NINTENDO_SIMPLE_ZL              0x40U
 #define NINTENDO_SIMPLE_ZR              0x80U
 
-/* The HID report descriptor lives in data/nintendo_switch_pro_hid.bin so it
+/* The HID report descriptor lives in src/nintendo_switch_pro_hid.bin so it
  * can be decoded with ordinary HID tools, and is compiled into
  * nintendo_switch_pro_hid_report_descriptor[] by tools/switch_pro_hid_gen.c.
  * That descriptor is the one the Cyclone 2 stock firmware publishes (stock app
@@ -303,7 +303,7 @@ static void handle_rumble(const u8 data[8])
 
 /* 12-bit stick values.  Hosts do not take them as they are: they read the
  * factory stick calibration from the virtual SPI flash (0x603d, see
- * data/nintendo_switch_pro_spi.bin), which declares a centre of 0x800 and
+ * src/nintendo_switch_pro_spi.bin), which declares a centre of 0x800 and
  * 0x600 of travel either side on both axes of both sticks, and scale by that.
  * A full-scale input therefore goes out as exactly 0x800 +/- 0x600: any
  * further would be clipped by the host, and the stick would read 100 % well
@@ -489,7 +489,7 @@ static void fill_simple_state(u8 report[SWITCH_SIMPLE_PAYLOAD_SIZE])
  *   0x8010  user stick calibration: must read as erased so that the factory
  *           values above win (its magic values are checked by host drivers)
  *
- * The bytes live in data/nintendo_switch_pro_spi.bin, which is indexed exactly
+ * The bytes live in src/nintendo_switch_pro_spi.bin, which is indexed exactly
  * like the controller's flash: the file starts at address 0x6000 and every
  * address in the table below is (offset in that file) + 0x6000.  Keeping the
  * data binary means the flash contents can be hex-dumped and compared against

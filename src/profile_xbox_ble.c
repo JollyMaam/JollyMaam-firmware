@@ -27,7 +27,7 @@
  * unlike the One S it has a Share button under the Xbox button, which the
  * capture button becomes.
  *
- * GATT: gatt/xbox_ble.gatt (compiled into xbox_ble_att_db.h) - GAP, Device
+ * GATT: src/xbox_ble.gatt (compiled into xbox_ble_att_db.h) - GAP, Device
  * Information with the PnP ID, Battery, and the HID service with the
  * controller's own report map (283 bytes, as xpadneo dumped it), input report
  * 0x01 and output report 0x03.  The HID characteristics need an encrypted
