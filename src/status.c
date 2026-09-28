@@ -160,13 +160,13 @@ static void get_wake(void *out)
 #define WAKE(member)    CFG_STATUS_FIELD(struct wake_status, member, get_wake)
 
 const struct cfg_item status_items[] = {
-    { .path = "uptime_ms", .type = CFG_UINT, SYSTEM(uptime_ms) },
-    { .path = "boots", .type = CFG_UINT, SYSTEM(boots),
+    { .path = "system.uptime_ms", .type = CFG_UINT, SYSTEM(uptime_ms) },
+    { .path = "system.boots", .type = CFG_UINT, SYSTEM(boots),
       .help = "boot counter (survives resets, not power loss)" },
     { .path = "reset.source", .type = CFG_UINT, SYSTEM(reset_source) },
     { .path = "reset.p33", .type = CFG_UINT, SYSTEM(reset_p33) },
     { .path = "reset.rtc", .type = CFG_UINT, SYSTEM(reset_rtc) },
-    { .path = "usb", .type = CFG_BOOL, SYSTEM(usb), .help = "USB power seen" },
+    { .path = "system.usb", .type = CFG_BOOL, SYSTEM(usb), .help = "USB power seen" },
     { .path = "battery.vbat_mv", .type = CFG_UINT, SYSTEM(vbat_mv),
       .help = "not wired to the cell on this board; see docs/charging.md" },
     { .path = "battery.charging", .type = CFG_BOOL, SYSTEM(charge) },

@@ -1,7 +1,7 @@
 """Bond files: saving a slot's bond off the pad and putting it back.
 
 A bond file is what `config export profile.A` prints - `config.PATH = VALUE`
-lines, secret keys included - which is also what the console's `config import`
+lines, secret keys included - commands that, pasted back, restore it
 takes.  Files from before the config rework hold one line instead,
 
     BOND local=aa:.. peer=aa:.. type=4 key=<32 hex>
@@ -25,7 +25,8 @@ import padbus  # noqa: E402
 ADDRESS = r"[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}"
 LEGACY = re.compile(rf"^BOND local=({ADDRESS}) peer=({ADDRESS}) type=(\d+) "
                     r"key=([0-9a-fA-F]{32})", re.M)
-SETTING = re.compile(r"^config\.profile\.\w+\.(bond\.\w+|type|address|rumble)"
+# `config profile.A.type=x`, and `config.profile.A.type = x` from before.
+SETTING = re.compile(r"^config[ .]profile\.\w+\.(bond\.\w+|type|address|rumble)"
                      r"\s*=\s*(\S+)", re.M)
 
 
@@ -46,7 +47,7 @@ def read(path, slot):
     """The settings a bond file holds, as import lines for `slot`."""
     slot = slot_name(slot)
     text = Path(path).read_text(errors="replace")
-    lines = [f"config.profile.{slot}.{leaf} = {value}"
+    lines = [f"config profile.{slot}.{leaf}={value}"
              for leaf, value in SETTING.findall(text)]
     if lines:
         return lines
@@ -54,10 +55,10 @@ def read(path, slot):
     if not match:
         raise RuntimeError(f"{path}: neither config lines nor a BOND line")
     local, peer, key_type, key = match.groups()
-    return [f"config.profile.{slot}.address = {local.lower()}",
-            f"config.profile.{slot}.bond.peer = {peer.lower()}",
-            f"config.profile.{slot}.bond.link_key = {key.lower()}",
-            f"config.profile.{slot}.bond.key_type = {key_type}"]
+    return [f"config profile.{slot}.address={local.lower()}",
+            f"config profile.{slot}.bond.peer={peer.lower()}",
+            f"config profile.{slot}.bond.link_key={key.lower()}",
+            f"config profile.{slot}.bond.key_type={key_type}"]
 
 
 def write(path, lines):
@@ -106,11 +107,9 @@ class Pad:
     def export(self, slot):
         """Slot `slot`'s settings that differ from the defaults."""
         return [line for line in self.cmd(f"config export profile.{slot_name(slot)}")
-                if line.startswith("config.")]
+                if line.startswith("config ")]
 
     def load(self, lines):
-        """Import settings: all of them or, on any error, none."""
-        self.cmd("config import")
+        """Set each setting; raises on the first one the pad refuses."""
         for line in lines:
-            self.cmd(line, check=False)
-        self.cmd("end")
+            self.cmd(line)

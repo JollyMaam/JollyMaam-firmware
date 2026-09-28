@@ -6,9 +6,9 @@
 
 Reads a bond file (tools/padbond.py: `export` lines, or an old BOND line),
 imports it into the slot, and with --connect pages the console.  The file
-carries the pad's address the console knows (config.profile.X.address), so
+carries the pad's address the console knows (config profile.X.address), so
 nothing else needs restoring.  Whether it is also written to flash follows
-config.autocommit; --no-write sets autocommit off first.
+global.autocommit; --no-write sets autocommit off first.
 """
 
 import argparse
@@ -25,7 +25,7 @@ def main():
     parser.add_argument("--connect", action="store_true",
                         help="page the bonded console afterwards")
     parser.add_argument("--no-write", action="store_true",
-                        help="config.autocommit = false first: RAM only")
+                        help="config global.autocommit=false first: RAM only")
     parser.add_argument("--client", default="bond-load")
     args = parser.parse_args()
 
@@ -33,7 +33,7 @@ def main():
     pad = padbond.Pad(args.client)
     try:
         if args.no_write:
-            pad.cmd("config.autocommit = false")
+            pad.cmd("config global.autocommit=false")
         pad.load(lines)
         for line in pad.export(args.slot):
             print(line)

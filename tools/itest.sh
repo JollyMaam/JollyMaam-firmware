@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Integration test: turn the pad's autocommit off (`config.autocommit = false`),
+# Integration test: turn the pad's autocommit off (`config global.autocommit=false`),
 # pair with a real console and prove nothing was written to flash.
 #
 #   1. dump the whole flash                    -> <dir>/itest-<stamp>-before.bin
@@ -252,8 +252,8 @@ echo "itest: console at $console"
 # First thing: the pad boots with autocommit on.  (Nothing is pending at boot
 # unless the flash has no unique ID and a seed was drawn; that is written
 # after the radio has been quiet for half a second.)
-"$c2ctl" -p "$console" "config.autocommit = false" 2>/dev/null |
-    grep -q 'OK config.autocommit = false' ||
+"$c2ctl" -p "$console" "config global.autocommit=false" 2>/dev/null |
+    grep -q 'OK config global.autocommit=false' ||
     die "the pad did not turn autocommit off"
 echo "itest: autocommit off"
 
@@ -263,9 +263,9 @@ echo "itest: autocommit off"
 # settings.  Rejections from a switch already in progress are expected and
 # ignored.
 echo "itest: exercising settings/pair/connect/disconnect"
-for command in 'config.report_ms = 8' 'pair 1 --fresh' 'pair 0' 'connect 1' \
-               'disconnect' 'connect 0' 'config.profile.2.type = xbox' \
-               'pair 3 --fresh' 'debug stat' 'config pending' 'config.report_ms = 10'; do
+for command in 'config global.report_ms=8' 'pair B --fresh' 'pair A' 'connect B' \
+               'disconnect' 'connect A' 'config profile.X.type=xbox' \
+               'pair Y --fresh' 'debug stat' 'config pending' 'config global.report_ms=10'; do
     "$c2ctl" -p "$console" "$command" >/dev/null 2>&1 || true
     sleep 0.4
 done

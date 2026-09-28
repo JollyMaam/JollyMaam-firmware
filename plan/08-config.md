@@ -1,6 +1,10 @@
 # Config, status and the console
 
-Status: agreed with the user 2026-09-28; being implemented.
+Status: implemented 2026-09-28.  The console grammar below was superseded
+the same day: namespaces take verbs and dotted paths after a space
+(`config profile.A.type=xbox`, `config list`, `config reset --all`), and
+export lines are commands, so there is no import.  `docs/config.md` and
+`docs/usb-control.md` are current.
 
 Replaces the six ad-hoc persistent stores (profile settings, calibration, link
 keys, peer addresses, Switch 2 bonds, the BTIF address), `store ram|flash|revert`

@@ -243,7 +243,7 @@ if [ -S /tmp/padbus.sock ]; then
     echo "padbus is running: see its log for the boot counter"
 else
     "$c2ctl" -p "$console" debug stat
-    "$c2ctl" -p "$console" status.radio
+    "$c2ctl" -p "$console" status list radio
 fi
 
 if [ -n "$backup" ]; then

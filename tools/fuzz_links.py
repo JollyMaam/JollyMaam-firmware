@@ -62,7 +62,7 @@ def main() -> None:
     end = time.time() + args.minutes * 60
     count = 0
     padbus("request", CLIENT)
-    padbus("send", CLIENT, "debug.log on")
+    padbus("send", CLIENT, "debug log on")
     while time.time() < end:
         action = random.choices(names, weights)[0]
         wait = delay()
@@ -85,7 +85,7 @@ def main() -> None:
                 f.write("last actions:\n  " + "\n  ".join(history[-12:]) + "\n")
                 f.write(dump.stdout + dump.stderr + "\n")
             padbus("request", CLIENT)
-            padbus("send", CLIENT, "debug.log on")
+            padbus("send", CLIENT, "debug log on")
     padbus("send", CLIENT, "disconnect")
     padbus("release", CLIENT)
     print(f"{count} actions, {resets() - start_resets} resets (see {OUT})",

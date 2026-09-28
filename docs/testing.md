@@ -24,7 +24,7 @@ moves.  The boot counter is the reset detector; the console greeting is not
 used, because the firmware re-sends it whenever the host's CDC line state
 flaps, which reports reboots that did not happen.
 
-It runs with `config.autocommit = false` (it pairs and clears every slot, so
+It runs with `config global.autocommit=false` (it pairs and clears every slot, so
 none of that may reach flash) and reboots the pad at the end, which puts back
 what flash holds; `--no-reboot` leaves the pad as the run left it.  With the
 padbus daemon running it drives the pad through it (and shows up in the TUI);
@@ -36,12 +36,12 @@ otherwise it opens the port itself.
 
 ## `make itest` — flash-level integration test
 
-`tools/itest.sh` answers a different question: *does `config.autocommit =
-false` (see `docs/config.md`) really keep its hands off flash?*  It:
+`tools/itest.sh` answers a different question: *does `config global.autocommit=false`
+(see `docs/config.md`) really keep its hands off flash?*  It:
 
 1. dumps the whole flash,
 2. builds and flashes the image, and turns autocommit off before anything else,
-3. exercises commands that change settings (`config.report_ms`, `pair N
+3. exercises commands that change settings (`config global.report_ms=…`, `pair N
    --fresh`, `pair`, `connect`, `disconnect`) over the console,
 4. asks you to pair the pad with a real console,
 5. reads the whole flash back,

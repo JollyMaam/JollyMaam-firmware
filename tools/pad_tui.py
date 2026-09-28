@@ -58,7 +58,7 @@ TUI_HELP = """TUI commands - a line starting with '/'; everything else goes to t
   /quit              leave (also /exit)
 
 Pad commands worth knowing: help, config help, status help, debug help,
-config.PATH=VALUE, connect A, pair A, disconnect.  Tab completes commands,
+config PATH=VALUE, connect A, pair A, disconnect.  Tab completes commands,
 settings and values - the pad itself answers.
 
 Editing: Ctrl-A/E line start/end, Ctrl-B/F or arrows by character, Alt-B/F by
@@ -532,7 +532,7 @@ def apply_completion(editor, completion, bus):
         # A finished word gets a space - but not a path: the next Tab adds
         # its "=", and the one after lists the values.
         if (len(candidates) == 1 and not common.endswith((".", "=")) and
-                not common.startswith(("config.", "status."))):
+                "." not in common):
             replacement += " "
         editor.text = line[:start] + replacement + editor.text[editor.cursor:]
         editor.cursor = start + len(replacement)

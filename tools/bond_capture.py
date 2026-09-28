@@ -5,11 +5,11 @@
         --slot 0 [--fresh] [--no-write]
 
 Starts pairing (`pair N`, or `pair N --fresh` for a new address), waits until
-the slot is connected, and saves `export config.profile.N` - the slot's
+the slot is connected, and saves `config export profile.A` - the slot's
 type, bond address, peer and keys - to a new file readable only by its owner.
 tools/bond_load.py puts it back.
 
---no-write sets config.autocommit off first, so the pairing is never written
+--no-write sets global.autocommit off first, so the pairing is never written
 to the pad's flash (a reboot forgets it; the file is then the only copy).
 
 Put the console in Change Grip/Order (Switch) before running it.
@@ -31,7 +31,7 @@ def main():
     parser.add_argument("--fresh", action="store_true",
                         help="pair under a new address (pair N --fresh)")
     parser.add_argument("--no-write", action="store_true",
-                        help="config.autocommit = false first: RAM only")
+                        help="config global.autocommit=false first: RAM only")
     parser.add_argument("--pair-wait", type=float, default=180.0,
                         help="seconds to wait for the console")
     parser.add_argument("--client", default="bond-capture")
@@ -40,7 +40,7 @@ def main():
     pad = padbond.Pad(args.client)
     try:
         if args.no_write:
-            pad.cmd("config.autocommit = false")
+            pad.cmd("config global.autocommit=false")
         pad.cmd(f"pair {padbond.slot_name(args.slot)}" +
                 (" --fresh" if args.fresh else ""))
         print("pairing; put the console in Change Grip/Order", file=sys.stderr)

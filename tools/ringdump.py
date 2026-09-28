@@ -40,7 +40,7 @@ def padbus(*args: str) -> None:
 
 def peek(address: int, length: int) -> bytes:
     start = LOG.stat().st_size
-    padbus("send", CLIENT, f"debug.peek 0x{address:x} {length}")
+    padbus("send", CLIENT, f"debug peek 0x{address:x} {length}")
     want = re.compile(r"^([0-9a-f]{%d})\s*$" % (2 * length), re.M)
     for _ in range(100):
         time.sleep(0.03)
@@ -50,7 +50,7 @@ def peek(address: int, length: int) -> bytes:
         found = want.search(tail)
         if found:
             return bytes.fromhex(found.group(1))
-    sys.exit(f"no answer to debug.peek 0x{address:x}")
+    sys.exit(f"no answer to debug peek 0x{address:x}")
 
 
 def main() -> None:

@@ -63,8 +63,8 @@ since the fix: whether the `markers-role-guard` patch mode (changed during the
 hunt) is needed at all.
 
 There is exactly one persistent bond store, the app's: one bond per profile
-slot, `config.profile.A.bond.*` (`config export`/`config import`; held in RAM only while
-`config.autocommit` is off, see `docs/config.md`).  `btctrler.a` keeps a key only
+slot, `profile.A.bond.*` (`config export`, pasted back to restore; held in RAM only while
+`global.autocommit` is off, see `docs/config.md`).  `btctrler.a` keeps a key only
 for the life of a connection; `Write/Delete Stored Link Key` are stubs.
 
 In Change Grip/Order the console *pages the pad* and re-pairs from scratch every
@@ -72,8 +72,7 @@ time; a pad-initiated connection there is treated like one from Home.
 
 ### The other bug hiding behind it: the pad resets
 
-The pad resets on its own, and with autocommit off (`config.autocommit =
-false`, formerly `store ram` and before that the `BOND_STORE_RAM=1` build) a
+The pad resets on its own, and with autocommit off (`config global.autocommit=false`, formerly `store ram` and before that the `BOND_STORE_RAM=1` build) a
 reset erases the bond -
 so "it paired, and the next reconnect failed" can be a reset rather than a key
 problem.  Reproduced 2026-09-24: `pair 0` -> console connects -> pairing
@@ -115,9 +114,10 @@ console in its tagged machine mode, `docs/usb-control.md`).
 Console commands worth knowing (`help`; every command and namespace also
 takes `help`, `-h`, `--help`; Tab completes):
 
-    config.PATH[=VALUE]   show or change a setting (config help)
-    config list|export|import|reset|commit|pending
-    status.PATH           what the pad is doing, read-only (status help)
+    config PATH[=VALUE]   show or change a setting (config help); a path
+                          has a dot, a verb does not
+    config list|export|reset|commit|pending
+    status PATH           what the pad is doing, read-only (status help)
     pair SLOT [--fresh]   forget a slot's bond and wait to be paired
                           (--fresh: the slot's next address)
     connect SLOT          reconnect a saved slot
@@ -155,7 +155,7 @@ reset.
 How the controller archive is patched (`CYCLONE2_PATCH_BTCTLER`) is set in
 `src/build_config.h`, a normal committed header.  Edit it and run `make`.
 Whether changes to bonds and settings reach flash is a runtime choice, not a
-build option: `config.autocommit = false` holds them in RAM, `config commit` writes
+build option: `config global.autocommit=false` holds them in RAM, `config commit` writes
 them, a reboot drops them (`docs/config.md`).  `make config-test` checks the
 settings engine on the host.  Moving `CODE_LIMIT` moves the VM and starts the
 pad from defaults.

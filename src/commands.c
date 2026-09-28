@@ -485,17 +485,16 @@ static const char *const inject_words[] = { "a", "stop", NULL };
 static const char *const imu_words[] = { "init", "stop", "sample", NULL };
 static const char *const input_words[] = { "reset", NULL };
 static const char *const rumble_words[] = { "stop", NULL };
-static const char *const reset_words[] = { "--no-commit", NULL };
+static const char *const reset_words[] = { "--all", NULL };
 
 static const struct console_command config_commands[] = {
     { "list", "[PATH]", "every setting, or those under PATH", config_cmd_list,
       NULL, CONSOLE_PATHS_CONFIG },
-    { "export", "[PATH]", "only what differs from the defaults, keys included",
+    { "export", "[PATH]", "what differs from the defaults, keys included: "
+      "paste it back to restore",
       config_cmd_export, NULL, CONSOLE_PATHS_CONFIG },
-    { "import", NULL, "paste export lines, then `end`: all of them or none",
-      config_cmd_import },
-    { "reset", "[PATH|--no-commit]", "PATH back to its default; alone, every "
-      "setting, written at once", config_cmd_reset, reset_words,
+    { "reset", "PATH | --all [--no-commit]", "back to the default: PATH, or "
+      "every setting (written at once)", config_cmd_reset, reset_words,
       CONSOLE_PATHS_CONFIG },
     { "commit", NULL, "write changed settings to flash now", config_cmd_commit },
     { "pending", NULL, "settings changed and not written yet", config_cmd_pending },
@@ -522,7 +521,7 @@ static const struct console_command debug_commands[] = {
     { "rumble", "LEFT RIGHT MS | stop", "run the motors (0..255)", cmd_rumble,
       rumble_words },
     { "imu", "init|stop|sample", "the motion sensor", cmd_imu, imu_words },
-    { "input", "reset", "zero the input counters (status.input)", cmd_input,
+    { "input", "reset", "zero the input counters (status list input)", cmd_input,
       input_words },
     { "bleadv", "on|off", "LE-advertise the Switch 2 payload", cmd_bleadv, on_off },
     { "bringup", NULL, "reset mailbox, bring-up markers and MaskROM NVRAM",
@@ -544,18 +543,19 @@ const struct console_command console_commands[] = {
       .subcommands = config_commands,
       .overview =
       "The pad's settings.  A change is written to flash by itself a moment\r\n"
-      "after it is made (config.autocommit), never in the middle of a pairing.\r\n"
+      "after it is made (global.autocommit), never in the middle of a pairing.\r\n"
+      "A word with a dot is a setting's path, a word without one a verb.\r\n"
       "\r\n"
-      "  config.PATH                      a setting, or everything under it\r\n"
-      "  config.PATH=VALUE                change it; says when it takes effect\r\n"
-      "  config.PATH help                 what it is, its choices and default\r\n" },
+      "  config PATH                      a setting, or everything under it\r\n"
+      "  config PATH=VALUE                change it; says when it takes effect\r\n"
+      "  config PATH help                 what it is, its choices and default\r\n" },
     { "status", NULL, "what the pad is doing, read-only (status help)",
       .subcommands = status_commands,
       .overview =
-      "What the pad is doing, read-only.\r\n"
+      "What the pad is doing, read-only.  A word with a dot is a path.\r\n"
       "\r\n"
-      "  status.PATH                      a value, or everything under it\r\n"
-      "  status.PATH help                 what a value means\r\n" },
+      "  status PATH                      a value, or everything under it\r\n"
+      "  status PATH help                 what a value means\r\n" },
     { "connect", "SLOT", "reconnect a slot to its bonded host", cmd_connect, slots },
     { "disconnect", NULL, "stop Bluetooth without sleeping", cmd_disconnect },
     { "pair", "SLOT [--fresh]", "forget a slot's bond and wait to pair; --fresh: "

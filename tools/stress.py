@@ -11,7 +11,7 @@ survives the transitions that keep breaking it:
   * rapid back-to-back command bursts, so a profile switch lands while an
     earlier one is still in progress,
   * the console commands that touch the Bluetooth bond store while the radio
-    is stopped (`pair N --fresh`, `debug.delall`, `debug.bondstore`, `debug.nvscan`).
+    is stopped (`pair N --fresh`, `debug delall`, `debug bondstore`, `debug nvscan`).
 
 "Survives" means three things, checked throughout:
 
@@ -79,7 +79,7 @@ DEFAULT_DWELL_S = 33.0
 RAPID_BURST = [
     'pair 0', 'connect 1', 'disconnect', 'connect 0', 'pair 3 --fresh',
     'connect 2', 'debug stat', 'disconnect', 'connect 0', 'pair 1',
-    'pair 2 --fresh', 'config.profile.B.type=xbox', 'debug stat', 'connect 3',
+    'pair 2 --fresh', 'config profile.B.type=xbox', 'debug stat', 'connect 3',
     'disconnect', 'config reset profile.B.type',
     'debug delall', 'connect 0', 'debug bondstore', 'debug nvscan', 'debug stat',
 ]
@@ -456,7 +456,7 @@ def main():
           f'p33={sample[1]} rtc={sample[2]}')
     print('stress: the check that matters is that boots= never changes')
     # Nothing this run does may reach flash: it pairs and clears every slot.
-    if 'OK config.autocommit = false' not in console.ask('config.autocommit = false'):
+    if 'OK config global.autocommit=false' not in console.ask('config global.autocommit=false'):
         print('stress: could not turn autocommit off; not running')
         console.close()
         return 2

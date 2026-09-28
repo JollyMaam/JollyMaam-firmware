@@ -59,11 +59,11 @@ static const char *check_trigger_deadzones(const struct config *c, u8 index)
 
 const struct cfg_item config_items[] = {
     /* ------------------------------------------------------------ general */
-    { .uid = 1, .path = "autocommit", .type = CFG_BOOL, CFG_FIELD(autocommit),
+    { .uid = 1, .path = "global.autocommit", .type = CFG_BOOL, CFG_FIELD(autocommit),
       .group = CFG_GROUP_PREFS, .def = 1,
       .help = "write changes to flash by themselves; when off nothing is "
-              "written until `commit`, and a reboot drops the changes" },
-    { .uid = 2, .path = "report_ms", .type = CFG_ENUM, CFG_FIELD(report_ms),
+              "written until `config commit`, and a reboot drops the changes" },
+    { .uid = 2, .path = "global.report_ms", .type = CFG_ENUM, CFG_FIELD(report_ms),
       .group = CFG_GROUP_PREFS, .choices = report_periods, .def = 8,
       .help = "how often an input report is sent, in ms" },
     { .uid = 3, .path = "identity.seed", .type = CFG_HEX,
@@ -87,7 +87,7 @@ const struct cfg_item config_items[] = {
       CFG_PROFILE_FIELD(address), .group = CFG_GROUP_BOND,
       .apply = CFG_NEXT_CONNECT, .derived = config_derived_address,
       .help = "the pad's Bluetooth address in this slot.  Unset, it is derived "
-              "from the flash ID (config.identity.seed), the slot and its type; "
+              "from the flash ID (identity.seed), the slot and its type; "
               "a pairing pins it, and `pair SLOT --fresh` moves it on" },
 
     /* ------------------------------------------------ bonds, one per slot */

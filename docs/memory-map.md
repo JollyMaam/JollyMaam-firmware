@@ -88,7 +88,7 @@ anything.
 
 The settings (`struct config`, bonds and calibration included; see
 `docs/config.md`) live in `.bss`, so changes held back with
-`config.autocommit = false` behave like the first column: they survive a
+`global.autocommit=false` behave like the first column: they survive a
 profile switch, and are gone at the next boot.
 
 ## Open question worth keeping in mind

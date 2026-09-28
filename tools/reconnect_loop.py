@@ -106,8 +106,8 @@ class Session:
 
 
 def capture_marker_ring(session: Session, label: str) -> bool:
-    """Print only SRAM marker words from `debug.bringup`, never HCI packet bytes."""
-    marker = session.send("debug.bringup")
+    """Print only SRAM marker words from `debug bringup`, never HCI packet bytes."""
+    marker = session.send("debug bringup")
     deadline = time.monotonic() + 0.8
     while time.monotonic() < deadline:
         for line in session.after(marker):
@@ -177,7 +177,7 @@ def capture(args):
     protect_log(args.log)
     session = Session(args.socket)
     try:
-        session.command("debug.hcidump on", "HCI packet trace on")
+        session.command("debug hcidump on", "HCI packet trace on")
         pair_command = f"pair {args.slot}" + (" --fresh" if args.fresh else "")
         marker = session.send(pair_command)
         print("Pairing started; waiting for an encrypted Switch link.",
@@ -194,7 +194,7 @@ def capture(args):
         # the exchange land before reading it back.
         time.sleep(2.0)
         lines = [line for line in session.cmd(f"config export profile.{args.slot}")
-                 if line.startswith("config.")]
+                 if line.startswith("config ")]
         key = next((line.split("=", 1)[1].strip() for line in lines
                     if ".bond.link_key" in line), None)
         if not key:
@@ -205,7 +205,7 @@ def capture(args):
               f"SHA256[:16]={fingerprint}", flush=True)
         print(f"Protected bond file: {args.output} (mode 0600)", flush=True)
         print("Leave CGO for HOME, then start the reconnect loop.", flush=True)
-        session.command("debug.hcidump off", "HCI packet trace off")
+        session.command("debug hcidump off", "HCI packet trace off")
     finally:
         session.close()
 
@@ -224,12 +224,10 @@ def query_state(session: Session) -> str:
 
 def restore(session: Session, bond, slot: int, set_address: bool):
     """Import the saved bond (its address included) and page the console."""
-    session.command("debug.hcidump on", "HCI packet trace on")
-    session.cmd("config import")
+    session.command("debug hcidump on", "HCI packet trace on")
     for line in bond:
-        if set_address or not re.match(r"config\.profile\.\w+\.address", line):
+        if set_address or not re.match(r"config profile\.\w+\.address", line):
             session.cmd(line)
-    session.cmd("end")
     marker = session.send(f"connect {slot}")
     result, line, _ = wait_link_result(session, marker, 12.0)
     return result, line, marker
@@ -249,7 +247,7 @@ def reconnect_attempt(session: Session, bond, slot: int, set_address: bool,
                  success=("disconnected peer", "OK already disconnected"),
                  failure=("# RESET: boot counter",))
 
-    session.command("debug.hcidump on", "HCI packet trace on")
+    session.command("debug hcidump on", "HCI packet trace on")
     marker = session.send(f"connect {slot}")
     result, line, _ = wait_link_result(session, marker, timeout)
     return result, line, marker
@@ -277,7 +275,7 @@ def loop(args):
                 # Stop the high-volume packet trace between attempts.  It is
                 # enabled again immediately before the next reconnect.
                 try:
-                    session.command("debug.hcidump off", "HCI packet trace off")
+                    session.command("debug hcidump off", "HCI packet trace off")
                 except RuntimeError:
                     pass
                 needs_address = False

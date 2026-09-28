@@ -2,7 +2,7 @@
 
 > Written when keeping bonds in RAM was a build option
 > (`CYCLONE2_BOND_STORE_RAM` / `BOND_STORE_RAM=1`, "the RAM-only build").  It
-> is now `config.autocommit = false` (`docs/config.md`); the findings below
+> is now `config global.autocommit=false` (`docs/config.md`); the findings below
 > are as recorded.  Since the console rework the daemon drives the pad in its
 > machine mode (below).
 

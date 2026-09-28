@@ -1,77 +1,77 @@
-# Settings (`config.*`) and state (`status.*`)
+# Settings (`config`) and state (`status`)
 
-Everything the pad remembers is a setting under `config.`: the report
+Everything the pad remembers is a setting under `config`: the report
 period, what each slot pretends to be, each slot's bond with its host, the
 stick and trigger calibration.  What it is doing right now is under
-`status.`, read-only.  Both are described in code, one entry per leaf:
+`status`, read-only.  Both are described in code, one entry per leaf:
 `src/config_schema.c` and `src/status.c`.  The design is
 `plan/08-config.md`.
 
 ## On the console
 
-`config help` and `status help` explain their namespaces; every command and
-subcommand also takes `help`, `-h` or `--help`, and `help WORDS` is the same
-as `WORDS help`.
+One grammar in every namespace: a word without a dot is a verb, a word with
+a dot is a path.
 
-    config.profile.B                    a setting, or everything under it
-    config.profile.B.type=xbox          set (spaces around = optional); says when it applies
-    config.profile.B.type help          what it is, its choices or range, its default
+    config                              help: the verbs and the groups
+    config profile.B                    a setting, or everything under it
+    config profile.B.type=xbox          set (spaces around = optional); says when it applies
+    config profile.B.type help          what it is, its choices or range, its default
     config list [PATH]                  every setting; "# default X" marks a changed one,
                                         "not written" one that is not in flash yet
-    config export [PATH]                only what differs from the defaults, keys included,
-                                        as lines `config import` takes
-    config import  ...lines...  end     all accepted, or nothing changes (`abort` gives up)
+    config export [PATH]                only what differs from the defaults, keys included
     config reset PATH                   PATH back to its default
-    config reset                        every setting back to its default, written at once
-    config reset --no-commit            ... but not written: `config commit` keeps it
+    config reset --all [--no-commit]    every setting back to its default, written at once
+                                        (--no-commit: not written; config commit keeps it)
     config pending                      changed and not in flash yet
     config commit                       write it now
-    status.radio                        what the pad is doing (status list, status help)
+    status radio                        what the pad is doing (status list, status help)
 
-PATH arguments may leave out the namespace: `config export profile.A` and
-`config export config.profile.A` are the same.  Tab completes commands,
-subcommands and paths; on a whole setting it adds the `=` and lists the
-choices.  A `config list` line pastes straight into `config import` (its
-`# ...` comment is ignored).
+The groups are `global` (autocommit, report_ms), `identity`, `profile.A`..`Y`
+and `cal`.  Every line a listing prints is a command: `config export` output
+pasted back into the console restores those settings (a `# ...` comment is
+ignored), which is all "import" is.  Every command and verb also takes
+`help`, `-h` or `--help`, and `help WORDS` is `WORDS help`.  Tab completes
+verbs and paths; a finished path gets its `=` on the next Tab, and the Tab
+after that lists the choices.
 
 The profile slots are named after the Home+button chord that selects them -
 A, B, X, Y - and so are `connect`, `pair` and `debug wake`'s arguments.  The
 sticks are `left`/`right`, the triggers `l2`/`r2`.  The numbers (0..3, 0..1)
-work too, in any case, so `config.profile.2.type` and `config.profile.x.type`
+work too, in any case, so `profile.2.type` and `profile.x.type`
 are the same setting; listings and exports use the names.
 
 A change never restarts anything.  `takes effect now` settings apply at
 once; `takes effect on the next connect or pair` ones (a slot's type, its
 address, its bond, the identity) wait for the slot to connect again -
-`status.radio.stale` says the running slot is out of date.  Nothing needs a
+`status radio.stale` says the running slot is out of date.  Nothing needs a
 reboot today, though a setting may be marked so.
 
 ## When settings reach flash
 
-* `config.autocommit = true` (the default): whatever changed is written
+* `global.autocommit=true` (the default): whatever changed is written
   100 ms after the last change, as long as the radio is quiet - off,
   connected, or paging with no link up, and in that state for half a second.
   Pairing, connecting with a link up, a profile switch and the Switch 1 wake
   hold writes back (the resets in `docs/reboot-hunting.md` were a syscfg
   access inside the SSP exchange and during a profile start).  The flash
   write itself runs with interrupts masked.
-* `config.autocommit = false`: **nothing is written**, not a pairing and not
+* `global.autocommit=false`: **nothing is written**, not a pairing and not
   this setting either.  `config commit` writes everything (at once if the radio is
   quiet, otherwise as soon as it is).  There is no revert: reboot, and the
   pad comes back with what flash holds - which includes autocommit, so a
   committed `false` stays `false`.
-* `config reset` puts every setting back, autocommit included, and writes it
-  at once.  `config reset --no-commit` turns autocommit off and resets the
+* `config reset --all` puts every setting back, autocommit included, and writes it
+  at once.  `config reset --all --no-commit` turns autocommit off and resets the
   rest: `config commit` keeps it, a reboot undoes it.
 * A pad powering itself off writes what is pending first (autocommit only).
 
 This replaces the old `store ram|flash|revert`: `store ram` is
-`config.autocommit = false`, `store flash` is `config commit` (plus autocommit on),
+`config global.autocommit=false`, `store flash` is `config commit` (plus autocommit on),
 `store revert` is a reboot.
 
 ## Bonds
 
-One bond per profile slot, `config.profile.A.bond.*` (and B, X, Y):
+One bond per profile slot, `profile.A.bond.*` (and B, X, Y):
 
 | leaf | what |
 |---|---|
@@ -83,7 +83,7 @@ BTstack's link-key database (`src/bt/btstack_jl_sdk.c`) is a view of the
 running slot's bond: a key only ever goes to that slot's peer.  A pairing
 fills the bond and pins the slot's address (below); `pair A` clears the keys.
 `config export profile.A` therefore holds everything a reconnect needs -
-address included - and `config import` puts it back on any pad.
+address included - and pasting it into another pad's console puts it there.
 `tools/bond_capture.py` and `tools/bond_load.py` do that round trip through
 files (they also read the old `BOND local=.. peer=..` files in
 `/work/cyclone2-bonds/`).
@@ -94,13 +94,13 @@ before.
 
 ## Addresses
 
-`config.profile.A.address` (and B, X, Y) is the pad's Bluetooth address in
+`profile.A.address` (and B, X, Y) is the pad's Bluetooth address in
 that slot.  Unset, it is derived - nothing stored - from a seed, the slot and
 its type, forced to a locally administered unicast address, so a slot used
 for another kind of pad looks like another device; `config` shows the derived
 value with `# derived`.  The seed is the SPI flash chip's factory unique ID
-(`status.config.flash_id`, from the SDK's `get_norflash_uuid()`), unless
-`config.identity.seed` is set; a flash without an ID gets a random seed drawn
+(`status config.flash_id`, from the SDK's `get_norflash_uuid()`), unless
+`identity.seed` is set; a flash without an ID gets a random seed drawn
 once and stored in `identity.seed`.
 
 A pairing pins the address it was made with into the setting.  `pair A
@@ -109,7 +109,7 @@ locally administered bit) stay, the lower three become a double hash of the
 current address, and the result is stored.  So there is no counter - each
 address leads to the same next one - and a host with a stale key for the old
 address sees a pad it has never met.  `config reset profile.A.address` goes
-back to the derived one.  `status.profile.A.address` shows what each slot
+back to the derived one.  `status profile.A.address` shows what each slot
 uses.  The BTIF copy of the address (`CFG_BT_MAC_ADDR`) is not written.
 
 ## The flash format
@@ -130,7 +130,7 @@ which is what makes the store safe to evolve:
 * a new setting has no record, so it reads as its default and costs nothing;
 * a changed default reaches every pad that never set the value;
 * a record with an unknown uid, a wrong length or an invalid value is skipped
-  (`status.config.dropped_records` counts them), so older firmware reads
+  (`status config.dropped_records` counts them), so older firmware reads
   newer flash;
 * a uid is never reused - a setting whose meaning or type changes gets a new
   one, and the old one is listed as retired in `config_schema.c`.

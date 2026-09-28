@@ -101,7 +101,7 @@ Full detail is in `docs/config.md`.  The firmware writes its settings - bonds,
 profile types, calibration - as a few VM items, and nothing else: the pad's
 address is derived, so BTIF is no longer written.
 
-With `config.autocommit = false` none of those writes happen, so nothing above
+With `config global.autocommit=false` none of those writes happen, so nothing above
 the image changes no matter how many times you pair, switch profile or change
 a setting.  That is the property `make itest` checks.
 

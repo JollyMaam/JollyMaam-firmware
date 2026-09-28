@@ -54,7 +54,6 @@ int console_cmd_debug(int argc, char **argv);
 int console_cmd_complete(int argc, char **argv);
 int config_cmd_list(int argc, char **argv);
 int config_cmd_export(int argc, char **argv);
-int config_cmd_import(int argc, char **argv);
 int config_cmd_reset(int argc, char **argv);
 int config_cmd_commit(int argc, char **argv);
 int config_cmd_pending(int argc, char **argv);

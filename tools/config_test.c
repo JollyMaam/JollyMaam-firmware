@@ -145,7 +145,7 @@ static void test_defaults(void)
     reboot();
     CHECK(config_schema_errors == 0);
     CHECK(config.autocommit == 1);
-    CHECK(!strcmp(get("report_ms"), "8"));
+    CHECK(!strcmp(get("global.report_ms"), "8"));
     CHECK(!strcmp(get("profile.0.type"), "switch"));
     CHECK(!strcmp(get("profile.2.type"), "generic"));
     CHECK(!strcmp(get("profile.3.type"), "switch2"));
@@ -167,8 +167,8 @@ static void test_text(void)
     CHECK(set("profile.0.bond.link_key", "00112233445566778899aabbccddeeff") == NULL);
     CHECK(!strcmp(get("profile.0.bond.link_key"), "00112233445566778899aabbccddeeff"));
     CHECK(set("profile.0.bond.link_key", "0011") != NULL);
-    CHECK(set("report_ms", "5") == NULL && config.report_ms == 5);
-    CHECK(set("report_ms", "6") != NULL && config.report_ms == 5);
+    CHECK(set("global.report_ms", "5") == NULL && config.report_ms == 5);
+    CHECK(set("global.report_ms", "6") != NULL && config.report_ms == 5);
     CHECK(set("profile.2.type", "xboxble") == NULL && !strcmp(get("profile.2.type"), "xboxble"));
     CHECK(set("profile.2.type", "ps5") != NULL);
     CHECK(set("profile.0.rumble", "off") == NULL && config.profile[0].rumble == 0);
@@ -193,7 +193,7 @@ static void test_store(void)
     memset(flash_length, 0, sizeof(flash_length));
     reboot();
     writes_reset();
-    CHECK(set("report_ms", "5") == NULL);
+    CHECK(set("global.report_ms", "5") == NULL);
     config_poll(now, 1);
     CHECK(total_writes() == 0);                  /* not settled yet */
     now += 50;
@@ -212,7 +212,7 @@ static void test_store(void)
     CHECK(config.report_ms == 5 && !config_pending());
 
     /* Back to the default: the record goes. */
-    CHECK(set("report_ms", "8") == NULL);
+    CHECK(set("global.report_ms", "8") == NULL);
     settle();
     CHECK(flash_length[48] == 4 && flash_data[48][1] == 0);
 
@@ -248,15 +248,15 @@ static void test_autocommit(void)
     memset(flash_length, 0, sizeof(flash_length));
     reboot();
     writes_reset();
-    CHECK(set("autocommit", "false") == NULL);
-    CHECK(set("report_ms", "10") == NULL);
+    CHECK(set("global.autocommit", "false") == NULL);
+    CHECK(set("global.report_ms", "10") == NULL);
     settle();
     CHECK(total_writes() == 0);                  /* not even autocommit */
     reboot();
     CHECK(config.autocommit == 1 && config.report_ms == 8);
 
-    CHECK(set("autocommit", "false") == NULL);
-    CHECK(set("report_ms", "10") == NULL);
+    CHECK(set("global.autocommit", "false") == NULL);
+    CHECK(set("global.report_ms", "10") == NULL);
     CHECK(config_commit(0) == 0 && config_commit_queued());
     config_poll(now, 0);
     CHECK(total_writes() == 0);                  /* waits for the radio */
@@ -270,13 +270,13 @@ static void test_autocommit(void)
     CHECK(set("profile.1.type", "xbox") == NULL);
     settle();
     CHECK(total_writes() == 1);
-    CHECK(set("autocommit", "true") == NULL);
+    CHECK(set("global.autocommit", "true") == NULL);
     settle();
     reboot();
     CHECK(config.autocommit == 1 && config.profile[1].type == 3);
 
     /* unset config keeps autocommit; factory reset does not. */
-    CHECK(set("autocommit", "off") == NULL);
+    CHECK(set("global.autocommit", "off") == NULL);
     config_reset_all(1);
     CHECK(config.autocommit == 0 && config.report_ms == 8);
     config_reset_all(0);
