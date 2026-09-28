@@ -7,7 +7,7 @@
 #define CYCLONE2_BUILD_CONFIG_H
 
 /* Keeping bonds and settings in RAM only is no longer a build option: it is
- * the console's `store ram` (src/settings.h, docs/bond-store.md). */
+ * the setting config.autocommit (src/config.h, docs/config.md). */
 
 /* How tools/patch_btctrler.py patches the vendor controller archive
  * btctrler.a.  Keep it a string literal on one line; the patcher parses it.

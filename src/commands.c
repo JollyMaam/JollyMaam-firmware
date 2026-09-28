@@ -2,12 +2,14 @@
 
 #include "btstack_jl.h"
 #include "calibration.h"
+#include "config.h"
 #include "console.h"
 #include "controller.h"
 #include "hci_dump_console.h"
 #include "imu.h"
 #include "input.h"
 #include "main.h"
+#include "profile.h"
 #include "profile_classic.h"
 #include "rumble.h"
 #include "usb.h"
@@ -287,22 +289,33 @@ static int cmd_input(int argc, char **argv)
 
 /* ------------------------------------------------------------ diagnostics */
 
-/* One short line for tools that poll. */
+/* One line for tools that poll: uptime and boot counter (a reset shows as
+ * either moving), what the radio is doing, and the reset causes.  The fields
+ * are key=value and only ever appended to. */
 static int cmd_stat(int argc, char **argv)
 {
+    static const char *const states[] = {
+        "off", "connecting", "pairing", "connected", "stopping", "waking",
+    };
     struct cyclone2_connection_status status;
 
     (void)argv;
     if (argc != 1) return CONSOLE_USAGE;
     cyclone2_connection_status_get(&status);
-    console_printf("stat up=%u boots=%08x state=%u addr=%02x%02x%02x%02x%02x%02x reset=%u p33=%u btidle=%u\r\n",
+    console_printf("stat up=%u boots=%08x slot=%u profile=%s state=%s attempt=%u "
+                   "addr=%02x%02x%02x%02x%02x%02x usb=%u reset=%u p33=%u rtc=%u "
+                   "btidle=%u pending=%u\r\n",
                    (unsigned)sys_timer_get_ms(), (unsigned)cyclone2_boot_count,
-                   (unsigned)status.connection_state,
+                   status.slot, cyclone2_profile_name(status.profile_type),
+                   status.connection_state < 6U ?
+                   states[status.connection_state] : "unknown",
+                   status.connect_attempts,
                    status.local_address[5], status.local_address[4],
                    status.local_address[3], status.local_address[2],
                    status.local_address[1], status.local_address[0],
-                   (unsigned)cyclone2_reset_source, (unsigned)cyclone2_reset_p33,
-                   (unsigned)btstack_jl_core_idle());
+                   status.usb_present, (unsigned)cyclone2_reset_source,
+                   (unsigned)cyclone2_reset_p33, (unsigned)cyclone2_reset_rtc,
+                   (unsigned)btstack_jl_core_idle(), (unsigned)config_pending());
     return 0;
 }
 

@@ -62,8 +62,9 @@ which is now upstream plus committed port changes only.  Not yet re-tested
 since the fix: whether the `markers-role-guard` patch mode (changed during the
 hunt) is needed at all.
 
-There is exactly one persistent bond store, the app's (`keys`, `setkey`,
-`bond`; held in RAM only after `store ram`, see `docs/bond-store.md`).  `btctrler.a` keeps a key only
+There is exactly one persistent bond store, the app's: one bond per profile
+slot, `config.profile.N.bond.*` (`export`/`import`; held in RAM only while
+`config.autocommit` is off, see `docs/config.md`).  `btctrler.a` keeps a key only
 for the life of a connection; `Write/Delete Stored Link Key` are stubs.
 
 In Change Grip/Order the console *pages the pad* and re-pairs from scratch every
@@ -71,8 +72,9 @@ time; a pad-initiated connection there is treated like one from Home.
 
 ### The other bug hiding behind it: the pad resets
 
-The pad resets on its own, and in RAM mode (`store ram`, formerly the
-`BOND_STORE_RAM=1` build) a reset erases the bond -
+The pad resets on its own, and with autocommit off (`config.autocommit =
+false`, formerly `store ram` and before that the `BOND_STORE_RAM=1` build) a
+reset erases the bond -
 so "it paired, and the next reconnect failed" can be a reset rather than a key
 problem.  Reproduced 2026-09-24: `pair 0` -> console connects -> pairing
 completes -> console starts its init subcommands (0x02, 0x08, 0x10) -> **the
@@ -106,16 +108,24 @@ The daemon pings with a bare ENQ and expects ACK.  A missed ACK is logged with
 wall-clock time and means the application stopped answering - it is the
 earliest sign of a reset, ahead of the boot counter.
 
-Console commands worth knowing:
+For a script, `tools/padbus.py cmd claude LINE` sends one command, waits
+for it, prints exactly its output and exits 1 on `ERR` (the daemon runs the
+console in its tagged machine mode, `docs/usb-control.md`).
 
-    keys                  dump the app link-key store (slot, peer, type, key)
-    setkey AA:.. KEY32    store one link key
-    restore N AA:.. K     set slot N's peer + key and page it
-    setaddr AA:..         adopt a saved identity
-    pair N [fresh]        forget slot N's bond and wait to be paired
+Console commands worth knowing (`help` lists them all; Tab completes):
+
+    config[.PATH]         settings; `config.PATH = VALUE` sets one
+    status[.PATH]         what the pad is doing, read-only
+    export / import       settings that differ from the defaults, keys included
+    commit / pending      write now / not written yet (config.autocommit)
+    unset PATH            back to the default; factory-reset for everything
+    pair N [--fresh]      forget slot N's bond and wait to be paired
+                          (--fresh: a new derived address)
     connect N             reconnect a saved slot
     disconnect            drop the link without sleeping
     reboot                reset the chip, come back as this build
+    stat                  one key=value line: uptime, boots, slot, state, ...
+    bringup               reset mailbox and the bring-up marker ring
     hcidump on|off        trace HCI to the console; survives the profile restart
     peek/poke             read and write controller memory (poke wants
                           contiguous hex: `deadbeef`, never `de ad be ef`)
@@ -130,8 +140,9 @@ Change Grip/Order and dumps the marker ring on every reset
 (`docs/testing.md`); `tools/ringdump.py` reads the whole ring on its own.
 
 `tools/bond_capture.py` and `tools/bond_load.py` move a bond on and off the pad
-through `/work/cyclone2-bonds/`.  In RAM mode that round trip is the only way
-a bond survives a reset.
+through `/work/cyclone2-bonds/` (`export` lines; the old `BOND` lines still
+load).  With autocommit off that round trip is the only way a bond survives a
+reset.
 
 ## Build and flash
 
@@ -141,8 +152,10 @@ a bond survives a reset.
 How the controller archive is patched (`CYCLONE2_PATCH_BTCTLER`) is set in
 `src/build_config.h`, a normal committed header.  Edit it and run `make`.
 Whether changes to bonds and settings reach flash is a runtime choice, not a
-build option: `store ram` holds them in RAM, `store flash` commits them,
-`store revert` drops them (`docs/bond-store.md`).
+build option: `config.autocommit = false` holds them in RAM, `commit` writes
+them, a reboot drops them (`docs/config.md`).  `make config-test` checks the
+settings engine on the host.  Moving `CODE_LIMIT` moves the VM and starts the
+pad from defaults.
 
 The stack-size warnings the compiler prints are a vendor lint, not a symptom;
 the measured worst case is well inside the budget (`docs/stack-budget.md`).

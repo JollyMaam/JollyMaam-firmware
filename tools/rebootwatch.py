@@ -6,18 +6,17 @@ A reset shows up three ways, and this watches all of them:
   * the USB CDC console goes away and comes back - the node disappears, or
     reads and writes fail with EIO, and it often re-enumerates as a different
     /dev/bwrap/ttyjlN;
-  * `status`'s preserved boot counter (`boots=`) increments;
-  * `status`'s `uptime=` starts over.
+  * `stat`'s preserved boot counter (`boots=`) increments;
+  * `stat`'s `up=` starts over.
 
 The firmware latches the PMU reset-source registers at the top of app_main and
-prints them in `status` as `p33=` and `rtc=`, so every reboot is reported with
+prints them in `stat` as `p33=` and `rtc=`, so every reboot is reported with
 them and with how long the previous boot survived.  Those registers are the
-only available clue to *why* the chip reset; `reset-source=` is the SDK's own
+only available clue to *why* the chip reset; `reset=` is the SDK's own
 decoder, which reads 0 on this part.
 
-Liveness is polled with a short `connect status` (a few dozen bytes) and the
-full `status` is read only every few seconds, because its bring-up ring is
-several kilobytes.
+Liveness is polled with `stat` (one line); the same line carries the boot
+counter and the reset registers.
 
 Usage:
     tools/rebootwatch.py [--seconds N] [--poll SECONDS] [--port DEV]
@@ -38,8 +37,8 @@ import termios
 import time
 
 BOOTS_RE = re.compile(r'boots=([0-9a-fA-F]{8})')
-SOURCE_RE = re.compile(r'reset-source=(\d+) p33=(\d+) rtc=(\d+)')
-UPTIME_RE = re.compile(r'uptime=(\d+) ms')
+SOURCE_RE = re.compile(r'reset=(\d+) p33=(\d+) rtc=(\d+)')
+UPTIME_RE = re.compile(r'\bup=(\d+)')
 
 
 def candidates():
@@ -129,11 +128,11 @@ class Console:
         return self.drain(seconds)
 
     def alive(self):
-        return 'slot=' in self.ask('connect status')
+        return 'slot=' in self.ask('stat')
 
     def sample(self):
-        """(boots, p33, rtc, uptime) from `status`, or None."""
-        out = self.ask('status', 6.0)
+        """(boots, p33, rtc, uptime) from `stat`, or None."""
+        out = self.ask('stat')
         boots = BOOTS_RE.search(out)
         source = SOURCE_RE.search(out)
         uptime = UPTIME_RE.search(out)
@@ -172,7 +171,7 @@ def main():
             break
         time.sleep(1.0)
     if sample is None:
-        print('rebootwatch: the console did not answer "status"')
+        print('rebootwatch: the console did not answer "stat"')
         console.close()
         return 2
     boots, p33, rtc, uptime = sample

@@ -42,6 +42,6 @@
 #define     CFG_AAP_MODE_BLE_ADDR            45
 #define     CFG_AAP_MODE_24G_ADDR            46
 #define     CFG_COORDINATE_ADDR              47
-#define     CFG_CYCLONE2_PROFILE_SETTINGS     48
-#define     CFG_CYCLONE2_CALIBRATION          49
+/* 48 (PREFS), 49 (CAL) and 34..37 (one BOND item per slot) hold the
+ * settings; src/config.c owns them. */
 #endif /* #ifndef _USER_CFG_ID_H_ */

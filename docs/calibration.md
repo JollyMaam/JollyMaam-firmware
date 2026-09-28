@@ -22,22 +22,22 @@ buttons.  The console log says why a control was not calibrated
 (`cal: R2 unchanged: trigger stop engaged`), and each control is judged on its
 own, so it is fine to calibrate only the sticks.
 
-`cal` (or `cal status`) shows what is in use, `cal raw` the raw sensor values
-next to what they map to, `cal reset` goes back to the built-in values, and
-`cal deadzone sticks|triggers INNER OUTER` sets the dead zones in percent.
+The values are ordinary settings (`docs/config.md`): `config.cal` shows
+what is in use, `config.cal.stick.0.deadzone_inner = 8` sets a dead zone in
+percent, `unset config.cal` goes back to the built-in values, and
+`export config.cal` saves it for a later `import`.
+`status.cal.phase` says where the routine is and `cal raw` shows the raw
+sensor values next to what they map to.
 
 ## Saving
 
-The record is syscfg item 49 (`CFG_CYCLONE2_CALIBRATION`,
-`struct cyclone2_calibration`).  It is written on the next input poll after the
-routine (or `cal reset`, `cal deadzone`) finishes, whether a host is connected
-or not.  Only a radio in transition - pairing, connecting, switching profiles,
-waking a console - holds the write back, because those are the states where a
-syscfg write was measured to reset the pad (`controller.c`, the bond-store
-flush); it happens as soon as the link is up or off again, and before a
-power-off.  `cal` shows `pending=1` while a write is waiting.  With the store in
-RAM mode (`store ram`, `docs/bond-store.md`) it waits until `store flash`, and
-a reset or `store revert` drops it.
+The calibration is `config.cal` (syscfg item 49, the CAL group; only the
+values that differ from the defaults are stored).  It is written like any
+setting (`docs/config.md`): shortly after the routine finishes, unless a
+pairing or a radio transition is under way, and not at all while
+`config.autocommit` is off.  A stick whose stored values do not make sense
+(centre outside its ends, a gate out of range) uses the defaults instead; a
+trigger with `rest = 0` is uncalibrated and tracks its own rest position.
 
 ## The method
 

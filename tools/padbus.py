@@ -58,6 +58,7 @@ ENQ = b"\x05"
 ACK = "\x06"
 # Machine mode: no echo or prompt, every line tagged (see the docstring).
 STX = b"\x02"
+SOH = b"\x01"
 
 
 def wall_clock_timestamp():
@@ -722,6 +723,9 @@ class Server:
             self.listener.close()
         except OSError:
             pass
+        # Hand the console back in its human mode, so a terminal opened next
+        # gets echo and a prompt (closing the port does not tell the pad).
+        self.pad.write_now(SOH)
         self.pad.close()
         try:
             os.unlink(self.socket_path)

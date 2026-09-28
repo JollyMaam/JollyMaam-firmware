@@ -13,34 +13,44 @@ session, use any serial terminal, for example:
 picocom -b 115200 /dev/ttyACM0
 ```
 
-The console has conventional character echo, backspace handling, CR/LF line
-input, and a `c2> ` prompt. Its initial commands are:
+The console has echo, a `c2> ` prompt, line editing (Backspace, Ctrl-U
+clears the line, Ctrl-W a word, Ctrl-C abandons it, Up/Down for history) and
+Tab completion - commands, setting paths, and after `=` the choices; a second
+Tab lists the candidates.  Log lines never land in the middle of a line being
+typed: the line is erased, the log printed, and the prompt and what was
+typed redrawn.  `help` lists the commands; `help COMMAND`, `COMMAND -h` and
+`COMMAND --help` show one command's usage.
+
+Settings are not commands: they are `config.PATH = VALUE`, and what the pad is
+doing is `status.PATH` (`docs/config.md`).  So `report 5` is now
+`config.report_ms = 5`, `profile 1 xbox` is `config.profile.1.type = xbox`,
+`connect status` is `status.radio`, `report status` is `status.report`,
+`input status` is `status.input`, `keys` is `export`, `setaddr`/`restore`/
+`bond`/`setkey` are `import` (or single `config.profile.N.bond.*` lines),
+`newaddr` and `unkey` are `pair N --fresh`, `store ...` is
+`config.autocommit`/`commit`, the old `status` dump is `bringup`, and the
+battery reading is `status.battery`.  `stat` is one key=value line for tools.
+
+## Machine mode
+
+A program talking to the console sends STX (0x02) to switch it into machine
+mode and SOH (0x01) to switch back; ENQ (0x05) is answered with ACK (0x06) in
+either mode, from the application poll, as a liveness ping.  In machine mode
+there is no echo and no prompt, commands may carry an id, and every line that
+comes back is tagged:
 
 ```text
-help     show the command list
-debug on|off|status
-         control runtime Bluetooth diagnostics
-report 5|8|10|status
-         select or inspect the saved HID report period and counters
-connect 0|1|2|3
-         reconnect the selected slot using its saved bond (never pairs)
-connect status
-         show slot, profile, connection state, derived local address, and USB
-disconnect
-         stop Bluetooth without sleeping or deleting the saved bond
-reboot   reset the chip and come back up as this same build
-newaddr  give the pad a new random Bluetooth address
-         and restart the active profile so the controller uses it
-input status
-         show stick-DMA framing/drop counters and the last axes timestamp
-inject a PERIOD_MS DURATION_MS
-         repeat synthetic A for the requested duration (even period 20..1000 ms,
-         duration 1..60000 ms; requires a usable HID connection)
-inject stop|status
-         stop injection or show edge/overrun counters
-status   show the reset mailbox and MaskROM NVRAM
-uboot    reboot into BR23 UBOOT1.00
+@7 config.report_ms = 5         in
+=7 OK config.report_ms = 5 ...  the command's output
+.7 OK                           done (or ".7 ERR message")
+! [12.345] start profile=0 ...  a log line
 ```
+
+`tools/padbus.py` keeps the port in machine mode, routes each command's
+output back to whoever sent it, and offers `padbus.py cmd CLIENT LINE`, which
+prints exactly that command's output and exits 1 on `ERR`
+(`docs/session-bus.md`).  Opening the port afresh (DTR rising) puts the
+console back in human mode.
 
 For example, `inject a 100 10000` holds synthetic A for the first 50 ms of
 each 100-ms cycle and releases it for the next 50 ms. The schedule uses device
@@ -57,7 +67,7 @@ and EDR HID-channel state. The locally compiled SDK EDR, EDR HID, and BLE
 module messages are routed into the same stream. Messages are buffered until
 CDC is ready, so early events following a profile-selection reset remain
 visible. Each line is timestamped with milliseconds since boot. Debug output
-does not emit another command prompt after every line. Automatic Bluetooth
+is printed around the line being typed, as above. Automatic Bluetooth
 timeouts and disconnects do not enter soft
 poweroff while USB is connected; this keeps the console and recovery command
 available. A five-second Home hold still disconnects Bluetooth, but suppresses
@@ -65,7 +75,7 @@ the final sleep while USB is attached so the CDC console remains available.
 Repeated connect/profile commands are rejected while teardown or reset is
 already in progress.
 
-`report status` distinguishes reports accepted by the SDK from temporary
+`status.report` distinguishes reports accepted by the SDK from temporary
 queue-full (`busy`), intentionally deferred (`deferred`, such as an unchanged
 BLE report), and unexpected profile/stack errors. Attempts are counted only
 while the profile is in the usable connected state; `polls` continues to show
@@ -75,7 +85,7 @@ the application control-loop count.
 `/dev/bwrap/ttyACM*` before `/dev/ttyACM*`, or accepts an explicit path:
 
 ```sh
-build/c2ctl status
+build/c2ctl stat
 build/c2ctl -p /dev/ttyACM1 uboot
 build/c2ctl -p /dev/bwrap/ttyACM0 'connect 0'
 ```
@@ -87,7 +97,7 @@ running firmware to reboot into UBOOT1.00, reads the current 512 KiB flash to
 `/work/cyclone2-flash-backups/` first, writes the image at offset 0, reads the
 written span back and compares it, then resets and waits for this console to
 reappear. The write covers only the code span, so the VM, BTIF and key/mac
-regions at `0x40000` and above keep their contents.
+regions above the code limit (`CODE_LIMIT`, `0x50000`) keep their contents.
 
 If the controller does not answer and no loader device is present, the script
 waits: unplug the controller and plug it back in, or power-cycle it, so the

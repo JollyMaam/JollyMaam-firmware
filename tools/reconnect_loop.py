@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """Capture a Switch bond and exercise reconnects through the padbus daemon.
 
-The capture writes only one protected, machine-readable BOND line.  The
-padbus log can contain HCI link-key packets, so it is chmod'd to 0600 before
-the capture starts.  The loop keeps padbus as the sole serial owner and
-initializes the local address and bond from the saved record at startup and
-after each chip reset.
+The capture saves the slot's bond as `export` lines (tools/padbond.py) in a
+protected file.  The padbus log can contain HCI link-key packets, so it is
+chmod'd to 0600 before the capture starts.  The loop keeps padbus as the sole
+serial owner and imports the saved bond - which carries the pad's address -
+at startup and after each chip reset.
 
 Examples:
     tools/reconnect_loop.py capture --output /work/nslog/switch-golden.bond
     tools/reconnect_loop.py loop --bond /work/nslog/switch-golden.bond --cycles 20
 
 Run `capture` while the Switch is in Change Grip/Order.  It uses `pair 0`
-(without `fresh`) so the pad keeps its normal local address across reset.
+(without `--fresh`) so the slot keeps its derived address.
 After the script saves the bond, leave the Switch on HOME and run `loop`.
 """
 
@@ -29,18 +29,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import padbond  # noqa: E402
 import padbus  # noqa: E402
 
 
 CLIENT = "reconnect-loop"
 ADDRESS = r"[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}"
-KEY_LINE = re.compile(
-    rf"key slot=(\d+) peer=({ADDRESS}) type=(\d+) key=([0-9a-fA-F]{{32}})"
-)
-BOND_LINE = re.compile(
-    rf"^BOND local=({ADDRESS}) peer=({ADDRESS}) type=(\d+) "
-    r"key=([0-9a-fA-F]{32})$", re.M
-)
 
 
 class Session:
@@ -93,6 +87,14 @@ class Session:
             time.sleep(0.25)
         return "timeout", "", self.after(marker)
 
+    def cmd(self, command: str, timeout: float = 10.0) -> list[str]:
+        """Run a command and wait for it; its output lines (raises on ERR)."""
+        reply = padbus.request(self.sock, op="cmd", client=self.client,
+                               line=command, timeout=timeout)
+        if not reply.get("ok"):
+            raise RuntimeError(f"{command!r}: {reply.get('error', reply)}")
+        return reply.get("lines", [])
+
     def command(self, command: str, expected: str, timeout: float = 4.0):
         marker = self.send(command)
         result, line, lines = self.wait(marker, timeout,
@@ -104,8 +106,8 @@ class Session:
 
 
 def capture_marker_ring(session: Session, label: str) -> bool:
-    """Print only SRAM marker words from `status`, never HCI packet bytes."""
-    marker = session.send("status")
+    """Print only SRAM marker words from `bringup`, never HCI packet bytes."""
+    marker = session.send("bringup")
     deadline = time.monotonic() + 0.8
     while time.monotonic() < deadline:
         for line in session.after(marker):
@@ -164,31 +166,6 @@ def wait_link_result(session: Session, marker: str, timeout: float):
     return "timeout", "", session.after(marker)
 
 
-def write_bond(path: str, local: str, peer: str, key_type: str, key: str):
-    target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w") as output:
-            output.write(f"BOND local={local.lower()} peer={peer.lower()} "
-                         f"type={key_type} key={key.lower()}\n")
-    except Exception:
-        try:
-            os.unlink(target)
-        except OSError:
-            pass
-        raise
-
-
-def read_bond(path: str):
-    text = Path(path).read_text(errors="replace")
-    match = BOND_LINE.search(text)
-    if not match:
-        raise RuntimeError(f"{path}: no BOND line found")
-    return tuple(part.lower() for part in match.groups())
-
-
 def protect_log(path: str):
     try:
         os.chmod(path, 0o600)
@@ -201,7 +178,7 @@ def capture(args):
     session = Session(args.socket)
     try:
         session.command("hcidump on", "HCI packet trace on")
-        pair_command = f"pair {args.slot}" + (" fresh" if args.fresh else "")
+        pair_command = f"pair {args.slot}" + (" --fresh" if args.fresh else "")
         marker = session.send(pair_command)
         print("Pairing started; waiting for an encrypted Switch link.",
               flush=True)
@@ -213,31 +190,19 @@ def capture(args):
             raise RuntimeError("pairing did not complete; " +
                                (line or "timed out"))
 
-        keys_marker = session.send("keys")
-        result, line, key_lines = session.wait(
-            keys_marker, 3.0, success=("keys count=",))
-        if result != "success":
-            raise RuntimeError("host link-key store did not answer `keys`")
-
-        records = []
-        for output_line in key_lines:
-            match = KEY_LINE.search(output_line)
-            if match:
-                records.append(match.groups())
-        if not records:
+        # The key reaches the slot's bond with the encryption; let the rest of
+        # the exchange land before reading it back.
+        time.sleep(2.0)
+        lines = [line for line in session.cmd(f"export config.profile.{args.slot}")
+                 if line.startswith("config.")]
+        key = next((line.split("=", 1)[1].strip() for line in lines
+                    if ".bond.link_key" in line), None)
+        if not key:
             raise RuntimeError("pair completed but no key was stored")
-        slot, peer, key_type, key = records[-1]
-
-        local_matches = re.findall(
-            rf"bt_set_mac_addr: ({ADDRESS})", "\n".join(pairing_lines), re.I
-        )
-        if not local_matches:
-            raise RuntimeError("could not find the pad's local Bluetooth address")
-        local = local_matches[-1]
-        write_bond(args.output, local, peer, key_type, key)
+        padbond.write(args.output, lines)
         fingerprint = hashlib.sha256(bytes.fromhex(key)).hexdigest()[:16]
-        print(f"Saved slot {slot}: local={local.lower()} peer={peer.lower()} "
-              f"type={key_type}, key SHA256[:16]={fingerprint}", flush=True)
+        print(f"Saved slot {args.slot}: {len(lines)} settings, key "
+              f"SHA256[:16]={fingerprint}", flush=True)
         print(f"Protected bond file: {args.output} (mode 0600)", flush=True)
         print("Leave CGO for HOME, then start the reconnect loop.", flush=True)
         session.command("hcidump off", "HCI packet trace off")
@@ -246,12 +211,11 @@ def capture(args):
 
 
 def query_state(session: Session) -> str:
-    marker = session.send("connect status")
-    result, _, lines = session.wait(marker, 3.0,
-                                    success=("state=",))
-    if result != "success":
+    try:
+        lines = session.cmd("stat")
+    except RuntimeError:
         return "unknown"
-    for line in reversed(lines):
+    for line in lines:
         match = re.search(r"\bstate=(\w+)", line)
         if match:
             return match.group(1)
@@ -259,13 +223,14 @@ def query_state(session: Session) -> str:
 
 
 def restore(session: Session, bond, slot: int, set_address: bool):
-    local, peer, key_type, key = bond
+    """Import the saved bond (its address included) and page the console."""
     session.command("hcidump on", "HCI packet trace on")
-    if set_address:
-        command = f"bond {slot} {local} {peer} {key} {key_type}"
-    else:
-        command = f"restore {slot} {peer} {key} {key_type}"
-    marker = session.send(command)
+    session.cmd("import")
+    for line in bond:
+        if set_address or ".bond.local" not in line:
+            session.cmd(line)
+    session.cmd("end")
+    marker = session.send(f"connect {slot}")
     result, line, _ = wait_link_result(session, marker, 12.0)
     return result, line, marker
 
@@ -292,11 +257,12 @@ def reconnect_attempt(session: Session, bond, slot: int, set_address: bool,
 
 def loop(args):
     protect_log(args.log)
-    bond = read_bond(args.bond)
-    local, peer, key_type, key = bond
-    fingerprint = hashlib.sha256(bytes.fromhex(key)).hexdigest()[:16]
-    print(f"Using saved bond local={local} peer={peer} type={key_type} "
-          f"key SHA256[:16]={fingerprint}", flush=True)
+    bond = padbond.read(args.bond, args.slot)
+    key = next((line.split("=", 1)[1].strip() for line in bond
+                if ".bond.link_key" in line), "")
+    fingerprint = hashlib.sha256(bytes.fromhex(key)).hexdigest()[:16] if key else "-"
+    print(f"Using saved bond ({len(bond)} settings), key SHA256[:16]="
+          f"{fingerprint}", flush=True)
     session = Session(args.socket)
     # Start each run from the protected record so the local address and peer
     # slot do not depend on what survived in flash (or in a RAM-mode store).
@@ -354,9 +320,9 @@ def main():
     parser.add_argument("--log", default=padbus.DEFAULT_LOG,
                         help="padbus log path (chmod'd to 0600)")
     sub = parser.add_subparsers(dest="mode", required=True)
-    capture_parser = sub.add_parser("capture", help="pair once and save a BOND file")
+    capture_parser = sub.add_parser("capture", help="pair once and save a bond file")
     capture_parser.add_argument("--output", required=True,
-                                help="new BOND file path; existing files are kept")
+                                help="new bond file path; existing files are kept")
     capture_parser.add_argument("--slot", type=int, default=0)
     capture_parser.add_argument("--fresh", action="store_true",
                                 help="pair under a new local Bluetooth address")

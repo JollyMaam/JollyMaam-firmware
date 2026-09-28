@@ -19,7 +19,7 @@ that it survives the transitions that keep breaking it:
 * the console commands that reach the bond store while the radio is stopped.
 
 "Survives" means the console keeps answering, nothing fails that should
-succeed, and the chip's preserved boot counter (`status` -> `boots=`) never
+succeed, and the chip's preserved boot counter (`stat` -> `boots=`) never
 moves.  The boot counter is the reset detector; the console greeting is not
 used, because the firmware re-sends it whenever the host's CDC line state
 flaps, which reports reboots that did not happen.
@@ -30,13 +30,13 @@ flaps, which reports reboots that did not happen.
 
 ## `make itest` — flash-level integration test
 
-`tools/itest.sh` answers a different question: *does the store's RAM mode
-(`store ram`, see `docs/bond-store.md`) really keep its hands off flash?*  It:
+`tools/itest.sh` answers a different question: *does `config.autocommit =
+false` (see `docs/config.md`) really keep its hands off flash?*  It:
 
 1. dumps the whole flash,
-2. builds and flashes the image, and sends `store ram` before anything else,
-3. exercises the commands that used to write flash (`report`, `newaddr`,
-   `pair`, `connect`, `disconnect`) over the console,
+2. builds and flashes the image, and turns autocommit off before anything else,
+3. exercises commands that change settings (`config.report_ms`, `pair N
+   --fresh`, `pair`, `connect`, `disconnect`) over the console,
 4. asks you to pair the pad with a real console,
 5. reads the whole flash back,
 6. compares everything from the end of the application image onwards,
@@ -44,7 +44,7 @@ flaps, which reports reboots that did not happen.
 
 The compare starts at the end of the image because the image is what step 2
 deliberately rewrote; everything above it is the persistent area (VM/syscfg,
-BTIF, key/mac) that RAM mode must never touch.  A difference there
+BTIF, key/mac) that autocommit off must never touch.  A difference there
 means something leaked into flash, and the restore is what keeps the pad from
 being left with a half-written record.
 
@@ -87,7 +87,7 @@ one.  The fuzzer leaves the pad disconnected.
 
 `tools/ringdump.py [--boots N] [--tail M]` is the dump on its own: it reads
 the whole 2000-entry ring with `peek` (about 40 s) and prints it grouped by
-boot, where `status` shows only the newest 96 markers.  It needs
+boot, where `bringup` shows only the newest 96 markers.  It needs
 `build/app.map` from the build that is on the pad.
 
 Entering the loader with `uboot` while the pad was connected twice left it

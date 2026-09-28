@@ -1,18 +1,18 @@
 #!/bin/sh
 #
-# Integration test: put the pad's store in RAM mode (`store ram`), pair with a
-# real console and prove nothing was written to flash.
+# Integration test: turn the pad's autocommit off (`config.autocommit = false`),
+# pair with a real console and prove nothing was written to flash.
 #
 #   1. dump the whole flash                    -> <dir>/itest-<stamp>-before.bin
-#   2. build and flash the image, then `store ram` before anything else
+#   2. build and flash the image, then autocommit off before anything else
 #   3. pair the pad with a real console (human step, prompted)
 #   4. read the whole flash back               -> <dir>/itest-<stamp>-after.bin
 #   5. compare, ignoring the code span step 2 rewrote on purpose
 #   6. if anything else changed, write the "before" dump back and fail
 #
-# Why this is the interesting test: in RAM mode every change is held in RAM,
-# so a pairing must leave the persistent regions alone.  Those are the VM
-# (syscfg, where the flash-backed link keys and peer addresses live), BTIF
+# Why this is the interesting test: with autocommit off every change is held in
+# RAM, so a pairing must leave the persistent regions alone.  Those are the VM
+# (syscfg, where the settings and bonds live, docs/config.md), BTIF
 # (RF trim / MAC) and the key-mac area.  All of them sit above the application
 # image, so "everything from the end of the image onwards must be identical"
 # is exactly the property under test.  A difference means the build wrote flash
@@ -193,7 +193,7 @@ wait_for_console()
 
 connected_now()
 {
-    "$c2ctl" -p "$1" "connect status" 2>/dev/null |
+    "$c2ctl" -p "$1" stat 2>/dev/null |
         grep -q 'state=connected'
 }
 
@@ -249,22 +249,23 @@ console=$(wait_for_console) ||
     die "the pad did not return to its console within ${wait_seconds}s"
 echo "itest: console at $console"
 
-# First thing: the pad boots with its store in flash mode.  (Nothing is dirty
-# at boot unless BTIF was blank and a new address was generated; that write
-# waits for 3 s of idle radio, and this runs well before.)
-"$c2ctl" -p "$console" "store ram" 2>/dev/null | grep -q '^OK store ram' ||
-    die "the pad did not switch its store to RAM mode"
-echo "itest: store in RAM mode"
+# First thing: the pad boots with autocommit on.  (Nothing is pending at boot
+# unless the flash has no unique ID and a seed was drawn; that is written
+# after the radio has been quiet for half a second.)
+"$c2ctl" -p "$console" "config.autocommit = false" 2>/dev/null |
+    grep -q 'OK config.autocommit = false' ||
+    die "the pad did not turn autocommit off"
+echo "itest: autocommit off"
 
 # ---------------------- 3. commands that used to write flash ----------------
 # Everything the firmware persists stays in RAM in this mode, so none of these
 # may leave a mark: a new identity, pairing windows, profile switches, and the
-# report-period setting.  Rejections from a switch already in progress are
-# expected and ignored.
-echo "itest: exercising report/newaddr/pair/connect/disconnect"
-for command in 'report 8' 'newaddr' 'pair 0' 'connect 1' 'disconnect' \
-               'connect 0' 'newaddr' 'pair 3 fresh' 'connect status' \
-               'status' 'report 10'; do
+# settings.  Rejections from a switch already in progress are expected and
+# ignored.
+echo "itest: exercising settings/pair/connect/disconnect"
+for command in 'config.report_ms = 8' 'pair 1 --fresh' 'pair 0' 'connect 1' \
+               'disconnect' 'connect 0' 'config.profile.2.type = xbox' \
+               'pair 3 --fresh' 'stat' 'pending' 'config.report_ms = 10'; do
     "$c2ctl" -p "$console" "$command" >/dev/null 2>&1 || true
     sleep 0.4
 done
@@ -359,10 +360,10 @@ case $compare_status in
     if [ "$skip_pair" = 1 ]; then
         echo "itest: PASS - flash unchanged above the image (no pairing was exercised)"
     else
-        echo "itest: PASS - paired in store RAM mode and wrote nothing to flash"
+        echo "itest: PASS - paired with autocommit off and wrote nothing to flash"
     fi
     echo "itest: dumps kept at $before and $after"
-    echo "itest: the pad was reset; its store is back in flash mode"
+    echo "itest: the pad was reset; autocommit is back to what flash holds"
     ;;
 2)
     die "nothing to compare; check --compare-from"

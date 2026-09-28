@@ -11,7 +11,7 @@ survives the transitions that keep breaking it:
   * rapid back-to-back command bursts, so a profile switch lands while an
     earlier one is still in progress,
   * the console commands that touch the Bluetooth bond store while the radio
-    is stopped (`unkey`, `delall`, `bondstore`, `nvscan`).
+    is stopped (`pair N --fresh`, `delall`, `bondstore`, `nvscan`).
 
 "Survives" means three things, checked throughout:
 
@@ -19,7 +19,7 @@ survives the transitions that keep breaking it:
   2. no command that should succeed fails.  The firmware's designed
      "profile transition already in progress" rejection is counted, not
      treated as a failure;
-  3. the chip's preserved boot counter (`status` -> `boots=`) never changes.
+  3. the chip's preserved boot counter (`stat` -> `boots=`) never changes.
 
 The boot counter is the authoritative reset check.  A chip reset
 (`p33_soft_reset`) or any crash that reboots the pad increments it and
@@ -58,8 +58,8 @@ import time
 
 STATUS_RE = re.compile(r'slot=(\d+) profile=(\w+) state=(\w+) attempt=(\d+)')
 BOOTS_RE = re.compile(r'boots=([0-9a-fA-F]{8})')
-SOURCE_RE = re.compile(r'reset-source=(\d+) p33=(\d+) rtc=(\d+)')
-UPTIME_RE = re.compile(r'uptime=(\d+) ms')
+SOURCE_RE = re.compile(r'reset=(\d+) p33=(\d+) rtc=(\d+)')
+UPTIME_RE = re.compile(r'\bup=(\d+)')
 
 # A command gets this long to produce output, and a reply counts as finished
 # once the line has been quiet for this long.
@@ -74,17 +74,17 @@ DEFAULT_DWELL_S = 33.0
 # bond store.  Spacing is short enough that later commands land while earlier
 # transitions are still running.
 RAPID_BURST = [
-    'pair 0', 'connect 1', 'disconnect', 'connect 0', 'pair 3 fresh',
-    'connect 2', 'connect status', 'disconnect', 'connect 0', 'pair 1',
-    'unkey fa:09:3a:f3:ed:ed', 'newaddr', 'connect status', 'connect 3',
-    'disconnect',
-    'delall', 'connect 0', 'bondstore', 'nvscan', 'connect status',
+    'pair 0', 'connect 1', 'disconnect', 'connect 0', 'pair 3 --fresh',
+    'connect 2', 'stat', 'disconnect', 'connect 0', 'pair 1',
+    'pair 2 --fresh', 'config.profile.1.type = xbox', 'stat', 'connect 3',
+    'disconnect', 'unset config.profile.1.type',
+    'delall', 'connect 0', 'bondstore', 'nvscan', 'stat',
 ]
 RAPID_SPACING_S = 0.02
 
 # Accepted (designed) rejection: the firmware refuses a new switch until the
 # one in progress has finished.  Bounded rejection is not a crash.
-REJECTED = 'ERR profile transition already in progress'
+REJECTED = 'ERR a profile transition is already in progress'
 
 
 def console_candidates():
@@ -177,18 +177,18 @@ class Console:
         return self.drain(seconds)
 
     def state(self):
-        """(slot, profile, state, attempts) from `connect status`, or None."""
-        match = STATUS_RE.search(self.ask('connect status'))
+        """(slot, profile, state, attempts) from `stat`, or None."""
+        match = STATUS_RE.search(self.ask('stat'))
         return match.groups() if match else None
 
     def boots(self):
         """The preserved boot counter, or None when the console is gone."""
-        match = BOOTS_RE.search(self.ask('status'))
+        match = BOOTS_RE.search(self.ask('stat'))
         return match.group(1) if match else None
 
     def sample(self):
-        """(boots, p33, rtc, uptime) from `status`, or None if unavailable."""
-        out = self.ask('status', 6.0)
+        """(boots, p33, rtc, uptime) from `stat`, or None if unavailable."""
+        out = self.ask('stat')
         boots = BOOTS_RE.search(out)
         source = SOURCE_RE.search(out)
         if not boots or not source:
@@ -236,7 +236,7 @@ def check_reset(console, report):
             return
         sample = console.sample()
         if sample is None:
-            report.fail('the console came back but did not answer "status"')
+            report.fail('the console came back but did not answer "stat"')
             return
     boots, p33, rtc, uptime = sample
     if report.boots is not None and boots != report.boots:
@@ -247,7 +247,7 @@ def check_reset(console, report):
 
 
 def expect(report, what, state, predicate):
-    """Check one `connect status` reading, failing when it is missing."""
+    """Check one `stat` reading, failing when it is missing."""
     report.checks += 1
     if state is None:
         report.fail(f"{what}: no answer from the console")
@@ -258,7 +258,7 @@ def expect(report, what, state, predicate):
 
 
 def settle(console, seconds=15.0):
-    """Read `connect status` until the radio is no longer mid-transition.
+    """Read `stat` until the radio is no longer mid-transition.
 
     A profile switch now polls the old session down instead of blocking on it
     (the halt waits for the peer's disconnect confirmation), so a switch can
@@ -336,7 +336,7 @@ def phase_dwell(console, report, seconds):
     console.ask('connect 0', 2.5)
     time.sleep(seconds)
     state = console.state()
-    expect(report, f'dwell {seconds:.0f}s: connect status', state,
+    expect(report, f'dwell {seconds:.0f}s: stat', state,
            lambda s: None if s[2] != 'off' else 'radio went off during the dwell')
     report.checks += 1
     if console.boots() is None:
@@ -368,7 +368,7 @@ def main():
             break
         time.sleep(1.0)
     if sample is None:
-        print(f'stress: {console.path} did not answer "status"')
+        print(f'stress: {console.path} did not answer "stat"')
         console.close()
         return 2
     report.boots = sample[0]

@@ -25,7 +25,7 @@
 #define LINE_SIZE       160U
 #define HISTORY         6U
 #define MAX_ARGS        8U
-#define LOG_LINES       16U
+#define LOG_LINES       48U
 #define LOG_LINE_SIZE   96U
 #define CANDIDATES      24U
 #define CANDIDATE_SIZE  40U
@@ -920,11 +920,14 @@ int console_cmd_complete(int argc, char **argv)
 
 static void tab(void)
 {
-    u32 start = complete(line, line_length);
-    u32 typed = line_length - start;
+    u32 start;
+    u32 typed;
     u32 common;
     u8 index;
 
+    line[line_length] = '\0';
+    start = complete(line, line_length);
+    typed = line_length - start;
     if (!candidate_count) return;
     common = strlen(candidates[0]);
     for (index = 1U; index < candidate_count; index++) {
@@ -1012,9 +1015,11 @@ static void key(u8 byte)
     last_was_cr = 0U;
     switch (byte) {
     case 0x01U:                 /* SOH: back to human mode */
-        machine = 0U;
-        line_length = 0U;
-        prompt();
+        if (machine) {
+            machine = 0U;
+            line_length = 0U;
+            prompt();
+        }
         return;
     case 0x02U:                 /* STX: machine mode */
         machine = 1U;
@@ -1095,7 +1100,7 @@ void console_closed(void)
 
 void console_poll(void)
 {
-    u8 budget = 4U;
+    u8 budget = 8U;
 
     if (!debug_enabled) return;
     while (budget-- && log_read != log_write && !cyclone2_usb_uboot_pending())

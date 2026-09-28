@@ -2,7 +2,7 @@
 
 > Written when keeping bonds in RAM was a build option
 > (`CYCLONE2_BOND_STORE_RAM` / `BOND_STORE_RAM=1`, "the RAM-only build").  It
-> is now the console's `store ram` (`docs/bond-store.md`); the findings below
+> is now `config.autocommit = false` (`docs/config.md`); the findings below
 > are as recorded.
 
 `make test` fails when the chip's preserved boot counter moves, which is the

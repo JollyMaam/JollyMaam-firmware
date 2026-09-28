@@ -3,7 +3,7 @@
 
 Pairing mode is armed by ``pair N`` and the firmware drops out of it after a
 minute, so a console-side retry can easily miss the window.  This tool polls
-``connect status`` and re-arms pairing only once the firmware has actually
+``stat`` and re-arms pairing only once the firmware has actually
 left pairing mode because that window expired; it never interrupts a pairing
 in progress.  Everything the device prints is written to the output file.
 
@@ -88,7 +88,7 @@ def main():
                 last = state
             quiet = time.monotonic() - quiet_since
             if args.no_rearm:
-                command = "connect status"
+                command = "stat"
             elif quiet >= args.rearm_after:
                 # Nothing has happened on the radio for a while, so whatever
                 # the last attempt left behind is stuck; open a fresh window.
@@ -97,7 +97,7 @@ def main():
             elif state in ("unknown", None, "pairing", "connected"):
                 # Nothing to change: either the status is still unknown or a
                 # pairing/session is already running.
-                command = "connect status"
+                command = "stat"
             else:
                 # ``off``/``connecting``: the pairing window expired without a
                 # console, so open another one.

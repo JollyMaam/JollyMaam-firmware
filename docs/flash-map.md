@@ -4,6 +4,10 @@ The 1 MiB SPI NOR as this build lays it out.  Everything below was read back
 off the pad and decoded, not copied from a datasheet: the addresses come from
 `tools/jlnewfw.c` (the packer) and the contents from a full flash dump.
 
+> The tables were taken with a code limit of `0x40000`.  The code limit is now
+> `0x50000` (`CODE_LIMIT` in the Makefile; the image ends around `0x4A000`),
+> so the VM starts at `0x50000`; everything else is where it was.
+
 There is no memory-mapped-in-place trick here.  The linker declares the `code0`
 region at `0x1E00120` with a 1 MiB length, and links the application there (see
 `docs/memory-map.md`); the SPI flash is a separate device that the loader and
@@ -93,14 +97,13 @@ Two details worth knowing:
 
 ## What writes to flash, and when
 
-Full detail is in `docs/bond-store.md`.  The firmware writes the link keys,
-peer addresses, Switch 2 bonds, profile settings and calibration in VM, and
-the pad's own address in BTIF at `0xFE004`.
+Full detail is in `docs/config.md`.  The firmware writes its settings - bonds,
+profile types, calibration - as a few VM items, and nothing else: the pad's
+address is derived, so BTIF is no longer written.
 
-With the store in RAM mode (`store ram`) none of those writes happen, so
-nothing above `0x038000` changes no matter how many times you pair, switch
-profile, change the report period or generate a new address.  That is the
-property `make itest` checks.
+With `config.autocommit = false` none of those writes happen, so nothing above
+the image changes no matter how many times you pair, switch profile or change
+a setting.  That is the property `make itest` checks.
 
 ## Reproducing this map
 

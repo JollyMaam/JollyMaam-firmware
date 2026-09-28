@@ -2,8 +2,9 @@
 
 > Written when keeping bonds in RAM was a build option
 > (`CYCLONE2_BOND_STORE_RAM` / `BOND_STORE_RAM=1`, "the RAM-only build").  It
-> is now the console's `store ram` (`docs/bond-store.md`); the findings below
-> are as recorded.
+> is now `config.autocommit = false` (`docs/config.md`); the findings below
+> are as recorded.  Since the console rework the daemon drives the pad in its
+> machine mode (below).
 
 The pad's USB console is a single terminal.  Two programs reading it split each
 other's output, and a command from one lands in the middle of the other's
@@ -62,10 +63,14 @@ A line starting with `/` is a TUI command rather than a pad command:
 | `/quit`, `/exit` | leave |
 
 Anything else is sent to the pad (`help` lists the pad's commands; `stat` is
-the one-line status).
+the one-line status).  Tab asks the pad what completes the line (the `complete`
+request below) and fills in as much as every candidate agrees on, listing
+them when that is not enough.
 
     tools/padbus.py request codex                  # take control
     tools/padbus.py send codex stat                # only the holder may send
+    tools/padbus.py cmd codex export               # send, wait, print its output;
+                                                   # exit status 1 on ERR
     tools/padbus.py release codex
     tools/padbus.py tail -n 40                     # read the shared log
     tools/padbus.py watch                          # stream it
@@ -89,17 +94,31 @@ because both share the connection.
 | `{"op":"request","client":C}` | take control if free (or already C's) |
 | `{"op":"release","client":C}` | drop control if C holds it |
 | `{"op":"send","client":C,"line":L}` | send L to the pad; refused unless C holds control |
+| `{"op":"cmd","client":C,"line":L,"timeout":S,"quiet":Q}` | like send, but the reply waits for the pad to finish and carries `lines` (that command's output only), `ok`, and `error`; `quiet` keeps it out of the log |
+| `{"op":"complete","client":C,"line":L}` | reply `{"complete":{"line":L,"candidates":[...]}}`: what Tab offers; anyone may ask, nothing is logged |
 | `{"op":"tail","n":N}` | reply carries the last N log lines |
 
 Events: `{"ev":"log","line":...}` and `{"ev":"owner","owner":...}`.
+
+### Machine mode on the serial side
+
+Every time it opens the port the daemon sends STX, which puts the console in
+its machine mode (`docs/usb-control.md`): no echo, no prompt, each command
+goes out as `@ID line` and comes back as `=ID` output lines and a closing
+`.ID OK` / `.ID ERR msg`, and log lines arrive as `! ...`.  The daemon logs a
+command's output lines as they are, an error as `ERR msg`, and a bare `OK`
+for a command that printed nothing.  On the way out it sends SOH, so a
+terminal opened next finds the human console.  Firmware from before the
+rework ignores the STX and is logged as it prints.
 
 ## Cheaper polling
 
 `stat` is one short line for hosts that poll:
 
-    stat up=178380 boots=5962ee28 state=0 addr=fa093af3eded reset=0 p33=64
+    stat up=8770 boots=7860ed6c slot=0 profile=switch state=off attempt=0 addr=000000000000 usb=1 reset=0 p33=64 rtc=1 btidle=1 pending=0
 
-Use it instead of `status` unless the bring-up ring is what you are after.
+Fields are key=value and only ever appended to.  `bringup` is the one that
+prints the marker ring.
 `p33` is the reset-cause register, so a session tool sees a reset immediately
 as `up` going backwards and `boots` changing.
 

@@ -23,7 +23,7 @@ D=$($H seq)
 $H bt "disconnect $A" >/dev/null
 $H wait $D "$A.*disconnected|Disconnected" -t 10 | tail -1
 sleep ${AFTER:-15}
-$P send claude "status" >/dev/null; sleep 2
+$P send claude "bringup" >/dev/null; sleep 2
 L=$(grep -a -n '^reset-mailbox' /work/nslog/padbus.log | tail -1 | cut -d: -f1)
 echo "pad: $(sed -n "${L}p" /work/nslog/padbus.log | grep -o 'boots=[0-9a-f]*')"
 grep -a -E 'RESET|no ACK|disconnected peer|encrypted peer' /work/nslog/padbus.log | tail -4 | cut -c1-120

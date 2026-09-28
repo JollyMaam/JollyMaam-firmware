@@ -86,10 +86,10 @@ anything.
 | power cycle / unplug | lost | kept |
 | `make flash` | kept | image rewritten, reserved regions kept |
 
-The persistent store's RAM copies (link-key mirror, peer addresses, settings,
-calibration; see `docs/bond-store.md`) live in `.bss`, so changes held in RAM
-mode (`store ram`) behave like the first column: they survive a profile
-switch, and are gone at the next boot.
+The settings (`struct config`, bonds and calibration included; see
+`docs/config.md`) live in `.bss`, so changes held back with
+`config.autocommit = false` behave like the first column: they survive a
+profile switch, and are gone at the next boot.
 
 ## Open question worth keeping in mind
 
