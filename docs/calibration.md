@@ -25,7 +25,7 @@ own, so it is fine to calibrate only the sticks.
 The values are ordinary settings (`docs/config.md`): `config.cal` shows
 what is in use, `config.cal.stick.0.deadzone_inner = 8` sets a dead zone in
 percent, `config reset cal` goes back to the built-in values, and
-`config export cal` saves it as lines that restore it when pasted back.
+`config get --changed cal` saves it as lines that restore it when pasted back.
 `status.cal.phase` says where the routine is and `debug sensors` shows the raw
 sensor values next to what they map to.
 

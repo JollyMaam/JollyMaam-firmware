@@ -136,7 +136,7 @@ def run(args):
     cdc_buffer = ""
     started = False
     try:
-        print(command(cdc_fd, "status list inject").decode(errors="replace"), end="")
+        print(command(cdc_fd, "status inject").decode(errors="replace"), end="")
         # Discard queued edges from before this measurement.
         try:
             while os.read(event_fd, EVENT.size * 64):

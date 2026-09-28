@@ -5,7 +5,7 @@
         --slot 0 [--fresh] [--no-write]
 
 Starts pairing (`pair N`, or `pair N --fresh` for a new address), waits until
-the slot is connected, and saves `config export profile.A` - the slot's
+the slot is connected, and saves `config get --changed profile.A` - the slot's
 type, bond address, peer and keys - to a new file readable only by its owner.
 tools/bond_load.py puts it back.
 

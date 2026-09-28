@@ -486,13 +486,12 @@ static const char *const imu_words[] = { "init", "stop", "sample", NULL };
 static const char *const input_words[] = { "reset", NULL };
 static const char *const rumble_words[] = { "stop", NULL };
 static const char *const reset_words[] = { "--all", NULL };
+static const char *const get_words[] = { "--changed", NULL };
 
 static const struct console_command config_commands[] = {
-    { "list", "[PATH]", "every setting, or those under PATH", config_cmd_list,
-      NULL, CONSOLE_PATHS_CONFIG },
-    { "export", "[PATH]", "what differs from the defaults, keys included: "
-      "paste it back to restore",
-      config_cmd_export, NULL, CONSOLE_PATHS_CONFIG },
+    { "get", "[PATH] [--changed]", "the settings under PATH; --changed: only "
+      "those not at their default, as lines that restore them", config_cmd_get,
+      get_words, CONSOLE_PATHS_CONFIG },
     { "reset", "PATH | --all [--no-commit]", "back to the default: PATH, or "
       "every setting (written at once)", config_cmd_reset, reset_words,
       CONSOLE_PATHS_CONFIG },
@@ -502,8 +501,8 @@ static const struct console_command config_commands[] = {
 };
 
 static const struct console_command status_commands[] = {
-    { "list", "[PATH]", "every value, or those under PATH", status_cmd_list,
-      NULL, CONSOLE_PATHS_STATUS },
+    { "get", "[PATH]", "the values under PATH", status_cmd_get, NULL,
+      CONSOLE_PATHS_STATUS },
     { NULL },
 };
 
@@ -521,7 +520,7 @@ static const struct console_command debug_commands[] = {
     { "rumble", "LEFT RIGHT MS | stop", "run the motors (0..255)", cmd_rumble,
       rumble_words },
     { "imu", "init|stop|sample", "the motion sensor", cmd_imu, imu_words },
-    { "input", "reset", "zero the input counters (status list input)", cmd_input,
+    { "input", "reset", "zero the input counters (status input)", cmd_input,
       input_words },
     { "bleadv", "on|off", "LE-advertise the Switch 2 payload", cmd_bleadv, on_off },
     { "bringup", NULL, "reset mailbox, bring-up markers and MaskROM NVRAM",
@@ -544,7 +543,7 @@ const struct console_command console_commands[] = {
       .overview =
       "The pad's settings.  A change is written to flash by itself a moment\r\n"
       "after it is made (global.autocommit), never in the middle of a pairing.\r\n"
-      "A word with a dot is a setting's path, a word without one a verb.\r\n"
+      "After config, a verb (below) or else a path: config profile.A.type.\r\n"
       "\r\n"
       "  config PATH                      a setting, or everything under it\r\n"
       "  config PATH=VALUE                change it; says when it takes effect\r\n"
@@ -552,7 +551,7 @@ const struct console_command console_commands[] = {
     { "status", NULL, "what the pad is doing, read-only (status help)",
       .subcommands = status_commands,
       .overview =
-      "What the pad is doing, read-only.  A word with a dot is a path.\r\n"
+      "What the pad is doing, read-only: status get, or a path: status radio.\r\n"
       "\r\n"
       "  status PATH                      a value, or everything under it\r\n"
       "  status PATH help                 what a value means\r\n" },

@@ -193,7 +193,7 @@ def capture(args):
         # The key reaches the slot's bond with the encryption; let the rest of
         # the exchange land before reading it back.
         time.sleep(2.0)
-        lines = [line for line in session.cmd(f"config export profile.{args.slot}")
+        lines = [line for line in session.cmd(f"config get --changed profile.{args.slot}")
                  if line.startswith("config ")]
         key = next((line.split("=", 1)[1].strip() for line in lines
                     if ".bond.link_key" in line), None)

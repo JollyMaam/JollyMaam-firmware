@@ -96,18 +96,14 @@ static void get_system(void *out)
 struct status_radio {
     struct cyclone2_connection_status connection;
     u8 idle;
-    u8 slot_address[CONFIG_PROFILES][6];
 };
 
 static void get_radio(void *out)
 {
     struct status_radio *s = out;
-    u8 slot;
 
     cyclone2_connection_status_get(&s->connection);
     s->idle = btstack_jl_core_idle();
-    for (slot = 0U; slot < CONFIG_PROFILES; slot++)
-        config_slot_address(slot, s->slot_address[slot]);
 }
 
 static void get_report(void *out)
@@ -197,9 +193,6 @@ const struct cfg_item status_items[] = {
       .help = "the running slot's type or address changed; reconnect to use it" },
     { .path = "radio.idle", .type = CFG_BOOL, RADIO(idle),
       .help = "the Bluetooth task has powered the controller off" },
-    { .path = "profile.#.address", .type = CFG_MAC, RADIO(slot_address[0]),
-      .stride = 6, .count = CONFIG_PROFILES, .names = cfg_slot_names,
-      .help = "the address the slot uses: its bond's, or the derived one" },
 
     { .path = "report.polls", .type = CFG_UINT, REPORT(poll_count) },
     { .path = "report.attempts", .type = CFG_UINT, REPORT(send_attempts) },

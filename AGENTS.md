@@ -63,7 +63,7 @@ since the fix: whether the `markers-role-guard` patch mode (changed during the
 hunt) is needed at all.
 
 There is exactly one persistent bond store, the app's: one bond per profile
-slot, `profile.A.bond.*` (`config export`, pasted back to restore; held in RAM only while
+slot, `profile.A.bond.*` (`config get --changed`, pasted back to restore; held in RAM only while
 `global.autocommit` is off, see `docs/config.md`).  `btctrler.a` keeps a key only
 for the life of a connection; `Write/Delete Stored Link Key` are stubs.
 
@@ -114,9 +114,9 @@ console in its tagged machine mode, `docs/usb-control.md`).
 Console commands worth knowing (`help`; every command and namespace also
 takes `help`, `-h`, `--help`; Tab completes):
 
-    config PATH[=VALUE]   show or change a setting (config help); a path
-                          has a dot, a verb does not
-    config list|export|reset|commit|pending
+    config PATH[=VALUE]   show or change a setting (config help); a word
+                          that is not a verb is a path
+    config get [--changed]|reset|commit|pending
     status PATH           what the pad is doing, read-only (status help)
     pair SLOT [--fresh]   forget a slot's bond and wait to be paired
                           (--fresh: the slot's next address)
@@ -143,7 +143,7 @@ Change Grip/Order and dumps the marker ring on every reset
 (`docs/testing.md`); `tools/ringdump.py` reads the whole ring on its own.
 
 `tools/bond_capture.py` and `tools/bond_load.py` move a bond on and off the pad
-through `/work/cyclone2-bonds/` (`config export` lines; the old `BOND` lines still
+through `/work/cyclone2-bonds/` (`config get --changed` lines; the old `BOND` lines still
 load).  With autocommit off that round trip is the only way a bond survives a
 reset.
 

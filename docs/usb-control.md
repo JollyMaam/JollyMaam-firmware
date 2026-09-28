@@ -24,28 +24,28 @@ typed redrawn.  `help` lists the commands; `help COMMAND`, `COMMAND -h` and
 The console has namespaces, and everything follows the same pattern.  A
 namespace alone, or with `help`, `-h` or `--help`, explains itself and lists
 its verbs; a command with `help` shows its usage; `help WORDS` is `WORDS
-help`.  After a namespace, a word without a dot is a verb and a word with a
-dot is a path: read it, `=VALUE` to set it, `help` to explain it.
+help`.  After a namespace comes one of its verbs, or else a path: read it,
+`=VALUE` to set it, `help` to explain it.
 
     config                  settings: config PATH, config PATH=VALUE, and
-                            config list|export|reset|commit|pending
-    status                  state, read-only: status PATH, status list
+                            config get|reset|commit|pending
+    status                  state, read-only: status PATH, status get
     debug                   diagnostics and tests: debug log|hcidump|stat|
                             sensors|wake|inject|rumble|imu|input|bleadv|bringup|
                             bondstore|clearkeys|nvscan|delall|peek|poke|complete
     connect, disconnect, pair, cal, reboot, uboot, help
 
 What a listing prints is a command (`config profile.A.type=switch`), so
-`config export` output pasted back restores it.  The old commands map as:
+`config get --changed` output pasted back restores it.  The old commands map as:
 `report 5` is `config global.report_ms=5`, `profile 1 xbox` is `config
-profile.B.type=xbox`, `connect status` is `status list radio`, `report
-status` is `status list report`, `input status` is `status list input`,
-`keys` is `config export`, `setaddr`/`restore`/`bond`/`setkey` are
+profile.B.type=xbox`, `connect status` is `status radio`, `report
+status` is `status report`, `input status` is `status input`,
+`keys` is `config get --changed`, `setaddr`/`restore`/`bond`/`setkey` are
 `config profile.A.address=…` and `config profile.A.bond.…=…` lines, `newaddr`
 and `unkey` are `pair A --fresh`, `store ...` is `global.autocommit`/`config
 commit`, `factory-reset` is `config reset --all`, `unset PATH` is `config
 reset PATH`, the old `status` dump is `debug bringup`, `stat` is `debug
-stat`, and the battery reading is `status list battery`.
+stat`, and the battery reading is `status battery`.
 
 ## Machine mode
 
@@ -91,7 +91,7 @@ the final sleep while USB is attached so the CDC console remains available.
 Repeated connect/profile commands are rejected while teardown or reset is
 already in progress.
 
-`status list report` distinguishes reports accepted by the SDK from temporary
+`status report` distinguishes reports accepted by the SDK from temporary
 queue-full (`busy`), intentionally deferred (`deferred`, such as an unchanged
 BLE report), and unexpected profile/stack errors. Attempts are counted only
 while the profile is in the usable connected state; `polls` continues to show

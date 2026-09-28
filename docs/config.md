@@ -9,25 +9,28 @@ stick and trigger calibration.  What it is doing right now is under
 
 ## On the console
 
-One grammar in every namespace: a word without a dot is a verb, a word with
-a dot is a path.
+One grammar in every namespace: the word after it is one of its verbs
+(`get`, `reset`, ...), and anything else is a path.
 
     config                              help: the verbs and the groups
     config profile.B                    a setting, or everything under it
     config profile.B.type=xbox          set (spaces around = optional); says when it applies
     config profile.B.type help          what it is, its choices or range, its default
-    config list [PATH]                  every setting; "# default X" marks a changed one,
+    config get [PATH]                   every setting; "# default X" marks a changed one,
                                         "not written" one that is not in flash yet
-    config export [PATH]                only what differs from the defaults, keys included
+    config get --changed [PATH]         only what differs from the defaults, keys included,
+                                        as plain lines that set it again
     config reset PATH                   PATH back to its default
     config reset --all [--no-commit]    every setting back to its default, written at once
                                         (--no-commit: not written; config commit keeps it)
     config pending                      changed and not in flash yet
     config commit                       write it now
-    status radio                        what the pad is doing (status list, status help)
+    status radio                        what the pad is doing (status get, status help)
 
 The groups are `global` (autocommit, report_ms), `identity`, `profile.A`..`Y`
-and `cal`.  Every line a listing prints is a command: `config export` output
+and `cal`.  After `config` or `status`, a word that is not a verb is a path,
+so `config profile` and `config profile.` both list the profile group.
+Every line `get` prints is a command: `config get --changed` output
 pasted back into the console restores those settings (a `# ...` comment is
 ignored), which is all "import" is.  Every command and verb also takes
 `help`, `-h` or `--help`, and `help WORDS` is `WORDS help`.  Tab completes
@@ -82,7 +85,7 @@ One bond per profile slot, `profile.A.bond.*` (and B, X, Y):
 BTstack's link-key database (`src/bt/btstack_jl_sdk.c`) is a view of the
 running slot's bond: a key only ever goes to that slot's peer.  A pairing
 fills the bond and pins the slot's address (below); `pair A` clears the keys.
-`config export profile.A` therefore holds everything a reconnect needs -
+`config get --changed profile.A` therefore holds everything a reconnect needs -
 address included - and pasting it into another pad's console puts it there.
 `tools/bond_capture.py` and `tools/bond_load.py` do that round trip through
 files (they also read the old `BOND local=.. peer=..` files in
@@ -109,8 +112,8 @@ locally administered bit) stay, the lower three become a double hash of the
 current address, and the result is stored.  So there is no counter - each
 address leads to the same next one - and a host with a stale key for the old
 address sees a pad it has never met.  `config reset profile.A.address` goes
-back to the derived one.  `status profile.A.address` shows what each slot
-uses.  The BTIF copy of the address (`CFG_BT_MAC_ADDR`) is not written.
+back to the derived one; `config profile.A.address` shows the one in use,
+derived or not.  The BTIF copy of the address (`CFG_BT_MAC_ADDR`) is not written.
 
 ## The flash format
 

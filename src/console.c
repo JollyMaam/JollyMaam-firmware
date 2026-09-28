@@ -428,46 +428,44 @@ static int path_statement(char *text, int is_config)
                                     text);
 }
 
-static int list(int argc, char **argv, int is_config)
+/* `get [PATH] [--changed]`: every value under PATH ("" is everything);
+ * --changed only the settings that differ from their defaults, as lines
+ * that set them again when pasted back. */
+static int get(int argc, char **argv, int is_config)
 {
     u16 count;
     const struct cfg_item *items = table_of(is_config, &count);
     struct cfg_leaf leaf;
-    const char *path = argc == 2 ? argv[1] : "";
+    const char *path = "";
     u32 position = 0U;
     u32 shown = 0U;
+    int changed = 0;
+    int index;
 
-    if (argc > 2) return CONSOLE_USAGE;
+    for (index = 1; index < argc; index++) {
+        if (!strcmp(argv[index], "--changed")) changed = 1;
+        else if (*path || argv[index][0] == '-') return CONSOLE_USAGE;
+        else path = argv[index];
+    }
+    if (changed && !is_config)
+        return console_fail("status values have no defaults; status get [PATH]");
     while (cfg_leaf_next(items, count, &position, &leaf)) {
         if (!cfg_leaf_under(&leaf, path)) continue;
-        print_leaf(&leaf, is_config, 1);
         shown++;
+        if (changed && cfg_leaf_is_default(&config, &leaf)) continue;
+        print_leaf(&leaf, is_config, !changed);
     }
     return shown ? 0 : console_fail("nothing under %s", path);
 }
 
-int config_cmd_list(int argc, char **argv)
+int config_cmd_get(int argc, char **argv)
 {
-    return list(argc, argv, 1);
+    return get(argc, argv, 1);
 }
 
-int status_cmd_list(int argc, char **argv)
+int status_cmd_get(int argc, char **argv)
 {
-    return list(argc, argv, 0);
-}
-
-int config_cmd_export(int argc, char **argv)
-{
-    struct cfg_leaf leaf;
-    const char *path = argc == 2 ? argv[1] : "";
-    u32 position = 0U;
-
-    if (argc > 2) return CONSOLE_USAGE;
-    while (cfg_leaf_next(config_items, config_item_count, &position, &leaf)) {
-        if (cfg_leaf_under(&leaf, path) && !cfg_leaf_is_default(&config, &leaf))
-            print_leaf(&leaf, 1, 0);
-    }
-    return 0;
+    return get(argc, argv, 0);
 }
 
 /* `config reset PATH`: back to the default.  `config reset --all`: every
@@ -628,10 +626,6 @@ static int dispatch(const struct console_command *table,
     int result;
 
     if (!command) {
-        if (parent && (!strcmp(parent->name, NAMESPACE_CONFIG) ||
-                       !strcmp(parent->name, NAMESPACE_STATUS)))
-            return console_fail("%s has no verb %s; a path has a dot (%s list %s)",
-                                parent->name, argv[0], parent->name, argv[0]);
         if (parent)
             return console_fail("%s has no %s; %s help", parent->name, argv[0],
                                 parent->name);
@@ -683,11 +677,16 @@ static int split(char *text, char **argv)
 }
 
 /* "config profile.A.type=x": the namespace (1 config, 0 status) when the
- * first word after it is a path, and where that path starts; -1 if not. */
+ * first word after it is a path - any word that is not one of the
+ * namespace's verbs (or help) - and where that path starts; -1 if not. */
 static int path_line(const char *text, const char **path)
 {
-    int is_config;
+    const struct console_command *space;
+    const struct console_command *verb;
     const char *rest;
+    char word[24];
+    u32 length = 0U;
+    int is_config;
 
     if (starts_with(text, NAMESPACE_CONFIG " ")) {
         is_config = 1;
@@ -699,13 +698,17 @@ static int path_line(const char *text, const char **path)
         return -1;
     }
     while (*rest == ' ') rest++;
-    /* A path has a dot before any space or '='. */
-    {
-        const char *end = rest;
-
-        while (*end && *end != ' ' && *end != '=' && *end != '.') end++;
-        if (*end != '.') return -1;
+    if (!*rest) return -1;
+    while (rest[length] && rest[length] != ' ' && rest[length] != '=' &&
+           length + 1U < sizeof(word)) {
+        word[length] = rest[length];
+        length++;
     }
+    word[length] = '\0';
+    if (is_help(word)) return -1;
+    space = find_in(console_commands, space_name(is_config));
+    for (verb = space ? space->subcommands : NULL; verb && verb->name; verb++)
+        if (!strcmp(verb->name, word)) return -1;
     *path = rest;
     return is_config;
 }
@@ -887,6 +890,23 @@ static u32 complete(const char *text, u32 length)
     buffer[length] = '\0';
 
     is_config = path_line(buffer, &path);
+    if (is_config == 1 && !strchr(path, '=') && length && text[length - 1] == ' ') {
+        /* A whole setting and a space: the next thing is its "=". */
+        char name[48];
+        u32 size = 0U;
+        struct cfg_leaf leaf;
+
+        while (path[size] && path[size] != ' ' && size + 1U < sizeof(name)) {
+            name[size] = path[size];
+            size++;
+        }
+        name[size] = '\0';
+        while (path[size] == ' ') size++;
+        if (!path[size] &&
+            cfg_leaf_find(config_items, config_item_count, name, &leaf) == 0)
+            add_candidate("=", 1U);
+        return start;
+    }
     if (is_config >= 0 && strchr(path, '=')) {
         /* A value: the choices of the setting before the '='. */
         static const char *const booleans[] = { "true", "false", NULL };
