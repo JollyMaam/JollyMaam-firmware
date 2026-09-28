@@ -14,15 +14,23 @@
 
 struct console_command {
     const char *name;
-    const char *usage;          /* the arguments, e.g. "N [--fresh]" */
+    const char *usage;          /* the arguments, e.g. "SLOT [--fresh]" */
     const char *help;           /* one line */
     int (*run)(int argc, char **argv);  /* 0, -1 (error printed), CONSOLE_USAGE */
     const char *const *words;   /* completions for the first argument */
-    u8 paths;                   /* the arguments are config paths */
+    u8 paths;                   /* the first argument is a path: CONSOLE_PATHS_* */
+    /* A namespace instead of a command: its subcommands (ending with a NULL
+     * name) and the text `NAME help` starts with. */
+    const struct console_command *subcommands;
+    const char *overview;
 };
 
+#define CONSOLE_PATHS_CONFIG 1U     /* profile.A.type (config's own) */
+#define CONSOLE_PATHS_STATUS 2U     /* radio.state (status's own) */
+#define CONSOLE_PATHS_ANY    3U     /* config.x or status.x, or a command */
+
+/* The top level, ending with a NULL name (commands.c). */
 extern const struct console_command console_commands[];
-extern const u16 console_command_count;
 
 /* Output of a command.  In machine mode every line is tagged with the
  * command's id, so print whole lines ending in "\r\n". */
@@ -42,13 +50,14 @@ void console_poll(void);
 
 /* Handlers the table in commands.c points at, implemented in console.c. */
 int console_cmd_help(int argc, char **argv);
-int console_cmd_unset(int argc, char **argv);
-int console_cmd_export(int argc, char **argv);
-int console_cmd_import(int argc, char **argv);
-int console_cmd_commit(int argc, char **argv);
-int console_cmd_pending(int argc, char **argv);
-int console_cmd_factory_reset(int argc, char **argv);
-int console_cmd_complete(int argc, char **argv);
 int console_cmd_debug(int argc, char **argv);
+int console_cmd_complete(int argc, char **argv);
+int config_cmd_list(int argc, char **argv);
+int config_cmd_export(int argc, char **argv);
+int config_cmd_import(int argc, char **argv);
+int config_cmd_reset(int argc, char **argv);
+int config_cmd_commit(int argc, char **argv);
+int config_cmd_pending(int argc, char **argv);
+int status_cmd_list(int argc, char **argv);
 
 #endif

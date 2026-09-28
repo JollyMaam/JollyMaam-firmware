@@ -128,11 +128,11 @@ class Console:
         return self.drain(seconds)
 
     def alive(self):
-        return 'slot=' in self.ask('stat')
+        return 'slot=' in self.ask('debug stat')
 
     def sample(self):
         """(boots, p33, rtc, uptime) from `stat`, or None."""
-        out = self.ask('stat')
+        out = self.ask('debug stat')
         boots = BOOTS_RE.search(out)
         source = SOURCE_RE.search(out)
         uptime = UPTIME_RE.search(out)
@@ -171,7 +171,7 @@ def main():
             break
         time.sleep(1.0)
     if sample is None:
-        print('rebootwatch: the console did not answer "stat"')
+        print('rebootwatch: the console did not answer "debug stat"')
         console.close()
         return 2
     boots, p33, rtc, uptime = sample

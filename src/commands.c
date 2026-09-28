@@ -487,72 +487,87 @@ static const char *const input_words[] = { "reset", NULL };
 static const char *const rumble_words[] = { "stop", NULL };
 static const char *const reset_words[] = { "--no-commit", NULL };
 
-const struct console_command console_commands[] = {
-    { "config", "[.PATH] [= VALUE]", "show or change settings (Tab completes paths)",
-      NULL, NULL, 1 },
-    { "status", "[.PATH]", "show what the pad is doing (read-only)", NULL, NULL, 1 },
-    { "debug", ".COMMAND ...", "diagnostics and tests (below); `help debug` lists only them",
-      NULL, NULL, 0 },
-    { "help", "[COMMAND|PATH]", "this list, or help on one command or setting",
-      console_cmd_help, NULL, 1 },
-    { "unset", "PATH", "put settings back to their defaults (`unset config`: all "
-      "but autocommit)", console_cmd_unset, NULL, 1 },
-    { "export", "[PATH]", "the settings that differ from the defaults, as lines "
-      "import takes (keys included)", console_cmd_export, NULL, 1 },
-    { "import", NULL, "read settings lines until `end`; applied together or not "
-      "at all", console_cmd_import, NULL, 0 },
-    { "commit", NULL, "write changed settings to flash now", console_cmd_commit,
-      NULL, 0 },
-    { "pending", NULL, "settings changed and not written yet", console_cmd_pending,
-      NULL, 0 },
-    { "factory-reset", "[--no-commit]", "every setting back to its default, "
-      "written at once unless --no-commit", console_cmd_factory_reset,
-      reset_words, 0 },
-    { "connect", "SLOT", "reconnect a slot (A B X Y, as Home+button) to its "
-      "bonded host", cmd_connect, slots, 0 },
-    { "disconnect", NULL, "stop Bluetooth without sleeping", cmd_disconnect, NULL, 0 },
-    { "pair", "SLOT [--fresh]", "forget a slot's bond and wait to pair "
-      "(--fresh: with a new address)", cmd_pair, slots, 0 },
-    { "cal", "start|done|cancel", "the stick and trigger calibration (as "
-      "Home+M 3 s)", cmd_cal, cal_words, 0 },
-    { "reboot", NULL, "reset the chip into this build", cmd_reboot, NULL, 0 },
-    { "uboot", NULL, "reboot into the BR23 UBOOT1.00 loader (flashing)",
-      cmd_uboot, NULL, 0 },
-    { "stat", NULL, "one line of numbers for tools", cmd_stat, NULL, 0 },
-    { "complete", "LINE", "what Tab would offer for LINE (for tools)",
-      console_cmd_complete, NULL, 0 },
-
-    /* Diagnostics and tests: `help debug`. */
-    { "debug.log", "[on|off]", "log lines on the console", console_cmd_debug,
-      on_off, 0 },
-    { "debug.hcidump", "[on|off]", "trace HCI packets to the log", cmd_hcidump,
-      on_off, 0 },
-    { "debug.wake", "SLOT [CHANNEL] [SECONDS] | stop", "wake a slot's sleeping "
-      "Switch 1, then reconnect", cmd_wake, wake_words, 0 },
-    { "debug.inject", "a PERIOD_MS DURATION_MS | stop", "press A over and over "
-      "(latency tests)", cmd_inject, inject_words, 0 },
-    { "debug.rumble", "LEFT RIGHT MS | stop", "run the motors (0..255)",
-      cmd_rumble, rumble_words, 0 },
-    { "debug.imu", "init|stop|sample", "the motion sensor", cmd_imu, imu_words, 0 },
-    { "debug.sensors", NULL, "raw stick and trigger values and what they map to",
-      cmd_sensors, NULL, 0 },
-    { "debug.input", "reset", "zero the input counters (status.input)", cmd_input,
-      input_words, 0 },
-    { "debug.bleadv", "on|off", "LE-advertise the Switch 2 payload", cmd_bleadv,
-      on_off, 0 },
-    { "debug.bringup", NULL, "reset mailbox, bring-up markers and MaskROM NVRAM",
-      cmd_bringup, NULL, 0 },
-    { "debug.bondstore", NULL, "dump the controller's pairing records",
-      cmd_bondstore, NULL, 0 },
-    { "debug.clearkeys", NULL, "zero the controller's pairing records and restart",
-      cmd_clearkeys, NULL, 0 },
-    { "debug.nvscan", NULL, "non-blank lines of the controller's retention memory",
-      cmd_nvscan, NULL, 0 },
-    { "debug.delall", NULL, "ask the stack to forget every device", cmd_delall,
-      NULL, 0 },
-    { "debug.peek", "ADDR [LEN]", "read RAM", cmd_peek, NULL, 0 },
-    { "debug.poke", "ADDR HEX", "write RAM", cmd_poke, NULL, 0 },
+static const struct console_command config_commands[] = {
+    { "list", "[PATH]", "every setting, or those under PATH", config_cmd_list,
+      NULL, CONSOLE_PATHS_CONFIG },
+    { "export", "[PATH]", "only what differs from the defaults, keys included",
+      config_cmd_export, NULL, CONSOLE_PATHS_CONFIG },
+    { "import", NULL, "paste export lines, then `end`: all of them or none",
+      config_cmd_import },
+    { "reset", "[PATH|--no-commit]", "PATH back to its default; alone, every "
+      "setting, written at once", config_cmd_reset, reset_words,
+      CONSOLE_PATHS_CONFIG },
+    { "commit", NULL, "write changed settings to flash now", config_cmd_commit },
+    { "pending", NULL, "settings changed and not written yet", config_cmd_pending },
+    { NULL },
 };
 
-const u16 console_command_count =
-    sizeof(console_commands) / sizeof(console_commands[0]);
+static const struct console_command status_commands[] = {
+    { "list", "[PATH]", "every value, or those under PATH", status_cmd_list,
+      NULL, CONSOLE_PATHS_STATUS },
+    { NULL },
+};
+
+static const struct console_command debug_commands[] = {
+    { "log", "[on|off]", "log lines on the console", console_cmd_debug, on_off },
+    { "hcidump", "[on|off]", "trace HCI packets to the log", cmd_hcidump, on_off },
+    { "stat", NULL, "one key=value line for tools: uptime, boots, state, ...",
+      cmd_stat },
+    { "sensors", NULL, "raw stick and trigger values and what they map to",
+      cmd_sensors },
+    { "wake", "SLOT [CHANNEL] [SECONDS] | stop", "wake a slot's sleeping Switch 1, "
+      "then reconnect", cmd_wake, wake_words },
+    { "inject", "a PERIOD_MS DURATION_MS | stop", "press A over and over "
+      "(latency tests)", cmd_inject, inject_words },
+    { "rumble", "LEFT RIGHT MS | stop", "run the motors (0..255)", cmd_rumble,
+      rumble_words },
+    { "imu", "init|stop|sample", "the motion sensor", cmd_imu, imu_words },
+    { "input", "reset", "zero the input counters (status.input)", cmd_input,
+      input_words },
+    { "bleadv", "on|off", "LE-advertise the Switch 2 payload", cmd_bleadv, on_off },
+    { "bringup", NULL, "reset mailbox, bring-up markers and MaskROM NVRAM",
+      cmd_bringup },
+    { "bondstore", NULL, "the controller's own pairing records", cmd_bondstore },
+    { "clearkeys", NULL, "zero the controller's pairing records and restart",
+      cmd_clearkeys },
+    { "nvscan", NULL, "non-blank lines of the controller's retention memory",
+      cmd_nvscan },
+    { "delall", NULL, "ask the stack to forget every device", cmd_delall },
+    { "peek", "ADDR [LEN]", "read RAM (hex address)", cmd_peek },
+    { "poke", "ADDR HEX", "write RAM: contiguous hex, deadbeef", cmd_poke },
+    { "complete", "LINE", "what Tab would offer for LINE", console_cmd_complete },
+    { NULL },
+};
+
+const struct console_command console_commands[] = {
+    { "config", NULL, "settings: show, change, save, restore (config help)",
+      .subcommands = config_commands,
+      .overview =
+      "The pad's settings.  A change is written to flash by itself a moment\r\n"
+      "after it is made (config.autocommit), never in the middle of a pairing.\r\n"
+      "\r\n"
+      "  config.PATH                      a setting, or everything under it\r\n"
+      "  config.PATH=VALUE                change it; says when it takes effect\r\n"
+      "  config.PATH help                 what it is, its choices and default\r\n" },
+    { "status", NULL, "what the pad is doing, read-only (status help)",
+      .subcommands = status_commands,
+      .overview =
+      "What the pad is doing, read-only.\r\n"
+      "\r\n"
+      "  status.PATH                      a value, or everything under it\r\n"
+      "  status.PATH help                 what a value means\r\n" },
+    { "connect", "SLOT", "reconnect a slot to its bonded host", cmd_connect, slots },
+    { "disconnect", NULL, "stop Bluetooth without sleeping", cmd_disconnect },
+    { "pair", "SLOT [--fresh]", "forget a slot's bond and wait to pair; --fresh: "
+      "new address", cmd_pair, slots },
+    { "cal", "start|done|cancel", "calibrate the sticks and triggers (Home+M 3 s)",
+      cmd_cal, cal_words },
+    { "reboot", NULL, "restart into this build", cmd_reboot },
+    { "uboot", NULL, "restart into the UBOOT1.00 loader, for flashing", cmd_uboot },
+    { "debug", NULL, "diagnostics and tests (debug help)",
+      .subcommands = debug_commands,
+      .overview = "Diagnostics and tests.  `debug NAME help` explains one.\r\n\r\n" },
+    { "help", "[TOPIC]", "this, or help on a command or setting", console_cmd_help,
+      NULL, CONSOLE_PATHS_ANY },
+    { NULL },
+};

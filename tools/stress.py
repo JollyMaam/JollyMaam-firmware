@@ -19,7 +19,7 @@ survives the transitions that keep breaking it:
   2. no command that should succeed fails.  The firmware's designed
      "profile transition already in progress" rejection is counted, not
      treated as a failure;
-  3. the chip's preserved boot counter (`stat` -> `boots=`) never changes.
+  3. the chip's preserved boot counter (`debug stat` -> `boots=`) never changes.
 
 The boot counter is the authoritative reset check.  A chip reset
 (`p33_soft_reset`) or any crash that reboots the pad increments it and
@@ -78,10 +78,10 @@ DEFAULT_DWELL_S = 33.0
 # transitions are still running.
 RAPID_BURST = [
     'pair 0', 'connect 1', 'disconnect', 'connect 0', 'pair 3 --fresh',
-    'connect 2', 'stat', 'disconnect', 'connect 0', 'pair 1',
-    'pair 2 --fresh', 'config.profile.1.type = xbox', 'stat', 'connect 3',
-    'disconnect', 'unset config.profile.1.type',
-    'debug.delall', 'connect 0', 'debug.bondstore', 'debug.nvscan', 'stat',
+    'connect 2', 'debug stat', 'disconnect', 'connect 0', 'pair 1',
+    'pair 2 --fresh', 'config.profile.B.type=xbox', 'debug stat', 'connect 3',
+    'disconnect', 'config reset profile.B.type',
+    'debug delall', 'connect 0', 'debug bondstore', 'debug nvscan', 'debug stat',
 ]
 RAPID_SPACING_S = 0.02
 
@@ -181,17 +181,17 @@ class Console:
 
     def state(self):
         """(slot, profile, state, attempts) from `stat`, or None."""
-        match = STATUS_RE.search(self.ask('stat'))
+        match = STATUS_RE.search(self.ask('debug stat'))
         return match.groups() if match else None
 
     def boots(self):
         """The preserved boot counter, or None when the console is gone."""
-        match = BOOTS_RE.search(self.ask('stat'))
+        match = BOOTS_RE.search(self.ask('debug stat'))
         return match.group(1) if match else None
 
     def sample(self):
         """(boots, p33, rtc, uptime) from `stat`, or None if unavailable."""
-        out = self.ask('stat')
+        out = self.ask('debug stat')
         boots = BOOTS_RE.search(out)
         source = SOURCE_RE.search(out)
         if not boots or not source:
@@ -283,7 +283,7 @@ class BusConsole(Console):
         # The daemon reopens the port itself; wait for the pad to answer.
         deadline = time.time() + seconds
         while time.time() < deadline:
-            if 'stat ' in self.ask('stat', 2.0):
+            if 'stat ' in self.ask('debug stat', 2.0):
                 return True
             time.sleep(0.5)
         return False
@@ -317,7 +317,7 @@ def check_reset(console, report):
             return
         sample = console.sample()
         if sample is None:
-            report.fail('the console came back but did not answer "stat"')
+            report.fail('the console came back but did not answer "debug stat"')
             return
     boots, p33, rtc, uptime = sample
     if report.boots is not None and boots != report.boots:
@@ -447,7 +447,7 @@ def main():
             break
         time.sleep(1.0)
     if sample is None:
-        print(f'stress: {console.path} did not answer "stat"')
+        print(f'stress: {console.path} did not answer "debug stat"')
         console.close()
         return 2
     report.boots = sample[0]

@@ -65,7 +65,7 @@ A line starting with `/` is a TUI command rather than a pad command:
 | `/save [FILE]` | write the current view to a file |
 | `/quit`, `/exit` | leave |
 
-Anything else is sent to the pad (`help` lists the pad's commands; `stat` is
+Anything else is sent to the pad (`help` lists the pad's commands; `debug stat` is
 the one-line status).  Tab asks the pad what completes the line (the `complete`
 request below) and fills in as much as every candidate agrees on, listing
 them when that is not enough.
@@ -116,11 +116,11 @@ rework ignores the STX and is logged as it prints.
 
 ## Cheaper polling
 
-`stat` is one short line for hosts that poll:
+`debug stat` is one short line for hosts that poll:
 
     stat up=8770 boots=7860ed6c slot=0 profile=switch state=off attempt=0 addr=000000000000 usb=1 reset=0 p33=64 rtc=1 btidle=1 pending=0
 
-Fields are key=value and only ever appended to.  `debug.bringup` is the one that
+Fields are key=value and only ever appended to.  `debug bringup` is the one that
 prints the marker ring.
 `p33` is the reset-cause register, so a session tool sees a reset immediately
 as `up` going backwards and `boots` changing.
@@ -135,7 +135,7 @@ shared log so both sides see it at the same moment:
   re-enumerated`.  This is the fast signal - it lands within a couple of hundred
   milliseconds, long before anyone would think to ask the pad anything.
 * **The boot counter.**  On the way back (and every few seconds when the console
-  is otherwise quiet) it asks for `stat` and compares `boots=`.  A change is a
+  is otherwise quiet) it asks for `debug stat` and compares `boots=`.  A change is a
   reset and is announced as such; no change is announced as
   `# same boot counter ... - the re-enumeration was not a chip reset`.
 

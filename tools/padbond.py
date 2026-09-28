@@ -1,7 +1,7 @@
 """Bond files: saving a slot's bond off the pad and putting it back.
 
-A bond file is what `export config.profile.N` prints - `config.PATH = VALUE`
-lines, secret keys included - which is also what the console's `import`
+A bond file is what `config export profile.A` prints - `config.PATH = VALUE`
+lines, secret keys included - which is also what the console's `config import`
 takes.  Files from before the config rework hold one line instead,
 
     BOND local=aa:.. peer=aa:.. type=4 key=<32 hex>
@@ -97,7 +97,7 @@ class Pad:
 
     def stat(self):
         """The `stat` line as a dict (state, slot, boots, ...)."""
-        for line in self.cmd("stat", quiet=True):
+        for line in self.cmd("debug stat", quiet=True):
             if line.startswith("stat "):
                 return dict(field.split("=", 1) for field in line.split()[1:]
                             if "=" in field)
@@ -105,12 +105,12 @@ class Pad:
 
     def export(self, slot):
         """Slot `slot`'s settings that differ from the defaults."""
-        return [line for line in self.cmd(f"export config.profile.{slot_name(slot)}")
+        return [line for line in self.cmd(f"config export profile.{slot_name(slot)}")
                 if line.startswith("config.")]
 
     def load(self, lines):
         """Import settings: all of them or, on any error, none."""
-        self.cmd("import")
+        self.cmd("config import")
         for line in lines:
             self.cmd(line, check=False)
         self.cmd("end")

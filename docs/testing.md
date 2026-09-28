@@ -19,7 +19,7 @@ that it survives the transitions that keep breaking it:
 * the console commands that reach the bond store while the radio is stopped.
 
 "Survives" means the console keeps answering, nothing fails that should
-succeed, and the chip's preserved boot counter (`stat` -> `boots=`) never
+succeed, and the chip's preserved boot counter (`debug stat` -> `boots=`) never
 moves.  The boot counter is the reset detector; the console greeting is not
 used, because the firmware re-sends it whenever the host's CDC line state
 flaps, which reports reboots that did not happen.
@@ -92,8 +92,8 @@ taken straight after the reset so the new boot cannot overwrite the dying
 one.  The fuzzer leaves the pad disconnected.
 
 `tools/ringdump.py [--boots N] [--tail M]` is the dump on its own: it reads
-the whole 2000-entry ring with `debug.peek` (about 40 s) and prints it grouped by
-boot, where `debug.bringup` shows only the newest 96 markers.  It needs
+the whole 2000-entry ring with `debug peek` (about 40 s) and prints it grouped by
+boot, where `debug bringup` shows only the newest 96 markers.  It needs
 `build/app.map` from the build that is on the pad.
 
 Entering the loader with `uboot` while the pad was connected twice left it

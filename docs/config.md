@@ -9,32 +9,40 @@ stick and trigger calibration.  What it is doing right now is under
 
 ## On the console
 
-    config                              every setting; "# default X" marks a changed one,
-                                        "not written" one that is not in flash yet
-    config.profile.B                    one subtree
-    config.profile.B.type = xbox        set (quotes optional); says when it takes effect
-    help config.profile.B.type          type, choices or range, default, help text
-    config.report_ms --help             the same
-    unset config.profile.B              back to the defaults (`unset config`: all but autocommit)
-    export [PATH]                       only what differs from the defaults, keys included,
-                                        as lines `import` takes
-    import  ...lines...  end            all accepted, or nothing changes (`abort` gives up)
-    pending                             changed and not in flash yet
-    commit                              write it now
-    factory-reset [--no-commit]         every setting back to its default
-    status[.PATH]                       e.g. status.radio, status.profile.A.address
+`config help` and `status help` explain their namespaces; every command and
+subcommand also takes `help`, `-h` or `--help`, and `help WORDS` is the same
+as `WORDS help`.
 
-Tab completes commands, paths, and after `=` the choices.
+    config.profile.B                    a setting, or everything under it
+    config.profile.B.type=xbox          set (spaces around = optional); says when it applies
+    config.profile.B.type help          what it is, its choices or range, its default
+    config list [PATH]                  every setting; "# default X" marks a changed one,
+                                        "not written" one that is not in flash yet
+    config export [PATH]                only what differs from the defaults, keys included,
+                                        as lines `config import` takes
+    config import  ...lines...  end     all accepted, or nothing changes (`abort` gives up)
+    config reset PATH                   PATH back to its default
+    config reset                        every setting back to its default, written at once
+    config reset --no-commit            ... but not written: `config commit` keeps it
+    config pending                      changed and not in flash yet
+    config commit                       write it now
+    status.radio                        what the pad is doing (status list, status help)
+
+PATH arguments may leave out the namespace: `config export profile.A` and
+`config export config.profile.A` are the same.  Tab completes commands,
+subcommands and paths; on a whole setting it adds the `=` and lists the
+choices.  A `config list` line pastes straight into `config import` (its
+`# ...` comment is ignored).
 
 The profile slots are named after the Home+button chord that selects them -
-A, B, X, Y - and so are `connect`, `pair` and `wake`'s arguments.  The sticks
-are `left`/`right`, the triggers `l2`/`r2`.  The numbers (0..3, 0..1) work
-too, in any case, so `config.profile.2.type` and `config.profile.x.type` are
-the same setting; listings and `export` use the names.
+A, B, X, Y - and so are `connect`, `pair` and `debug wake`'s arguments.  The
+sticks are `left`/`right`, the triggers `l2`/`r2`.  The numbers (0..3, 0..1)
+work too, in any case, so `config.profile.2.type` and `config.profile.x.type`
+are the same setting; listings and exports use the names.
 
 A change never restarts anything.  `takes effect now` settings apply at
 once; `takes effect on the next connect or pair` ones (a slot's type, its
-bond, the identity) wait for the slot to connect again -
+address, its bond, the identity) wait for the slot to connect again -
 `status.radio.stale` says the running slot is out of date.  Nothing needs a
 reboot today, though a setting may be marked so.
 
@@ -48,17 +56,17 @@ reboot today, though a setting may be marked so.
   access inside the SSP exchange and during a profile start).  The flash
   write itself runs with interrupts masked.
 * `config.autocommit = false`: **nothing is written**, not a pairing and not
-  this setting either.  `commit` writes everything (at once if the radio is
+  this setting either.  `config commit` writes everything (at once if the radio is
   quiet, otherwise as soon as it is).  There is no revert: reboot, and the
   pad comes back with what flash holds - which includes autocommit, so a
   committed `false` stays `false`.
-* `factory-reset` puts every setting back, autocommit included, and writes it
-  at once.  `factory-reset --no-commit` is `config.autocommit = false`
-  followed by `unset config`: `commit` keeps it, a reboot undoes it.
+* `config reset` puts every setting back, autocommit included, and writes it
+  at once.  `config reset --no-commit` turns autocommit off and resets the
+  rest: `config commit` keeps it, a reboot undoes it.
 * A pad powering itself off writes what is pending first (autocommit only).
 
 This replaces the old `store ram|flash|revert`: `store ram` is
-`config.autocommit = false`, `store flash` is `commit` (plus autocommit on),
+`config.autocommit = false`, `store flash` is `config commit` (plus autocommit on),
 `store revert` is a reboot.
 
 ## Bonds
@@ -67,21 +75,21 @@ One bond per profile slot, `config.profile.A.bond.*` (and B, X, Y):
 
 | leaf | what |
 |---|---|
-| `peer` | the Classic host the slot pages on `connect A` and wakes on `debug.wake A` |
+| `peer` | the Classic host the slot pages on `connect A` and wakes on `debug wake A` |
 | `link_key`, `key_type` | the Classic link key, as the stack keeps it |
 | `le_peer`, `ltk` | the Switch 2 console and its LE long-term key |
 
 BTstack's link-key database (`src/bt/btstack_jl_sdk.c`) is a view of the
 running slot's bond: a key only ever goes to that slot's peer.  A pairing
 fills the bond and pins the slot's address (below); `pair A` clears the keys.
-`export config.profile.A` therefore holds everything a reconnect needs -
-address included - and `import` puts it back on any pad.
+`config export profile.A` therefore holds everything a reconnect needs -
+address included - and `config import` puts it back on any pad.
 `tools/bond_capture.py` and `tools/bond_load.py` do that round trip through
 files (they also read the old `BOND local=.. peer=..` files in
 `/work/cyclone2-bonds/`).
 
 The controller library's own pairing records in retention memory
-(`debug.bondstore`, `debug.clearkeys`) are separate controller state, as
+(`debug bondstore`, `debug clearkeys`) are separate controller state, as
 before.
 
 ## Addresses
@@ -100,7 +108,7 @@ A pairing pins the address it was made with into the setting.  `pair A
 locally administered bit) stay, the lower three become a double hash of the
 current address, and the result is stored.  So there is no counter - each
 address leads to the same next one - and a host with a stale key for the old
-address sees a pad it has never met.  `unset config.profile.A.address` goes
+address sees a pad it has never met.  `config reset profile.A.address` goes
 back to the derived one.  `status.profile.A.address` shows what each slot
 uses.  The BTIF copy of the address (`CFG_BT_MAC_ADDR`) is not written.
 

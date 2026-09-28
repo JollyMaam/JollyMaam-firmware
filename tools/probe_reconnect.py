@@ -7,7 +7,7 @@ only be debugged by a tool that is holding the port across the whole cycle.
 
     tools/probe_reconnect.py -p /dev/bwrap/ttyjl0 -o /work/nslog/reconnect1.txt
 
-The sequence is: poll ``stat`` until the peer is connected, drop the
+The sequence is: poll ``debug stat`` until the peer is connected, drop the
 link with ``disconnect``, wait, then page the saved peer again with
 ``connect 0``.  Everything the device prints, and every command sent, is
 written to the output file.
@@ -162,7 +162,7 @@ class Console:
                 time.sleep(0.3)
 
     def status(self, timeout=2.0):
-        self.send("stat")
+        self.send("debug stat")
         self.read(time.monotonic() + timeout)
         matches = re.findall(r"state=(\w+)", self.text)
         return matches[-1] if matches else None

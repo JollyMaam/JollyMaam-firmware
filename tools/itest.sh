@@ -193,7 +193,7 @@ wait_for_console()
 
 connected_now()
 {
-    "$c2ctl" -p "$1" stat 2>/dev/null |
+    "$c2ctl" -p "$1" debug stat 2>/dev/null |
         grep -q 'state=connected'
 }
 
@@ -265,7 +265,7 @@ echo "itest: autocommit off"
 echo "itest: exercising settings/pair/connect/disconnect"
 for command in 'config.report_ms = 8' 'pair 1 --fresh' 'pair 0' 'connect 1' \
                'disconnect' 'connect 0' 'config.profile.2.type = xbox' \
-               'pair 3 --fresh' 'stat' 'pending' 'config.report_ms = 10'; do
+               'pair 3 --fresh' 'debug stat' 'config pending' 'config.report_ms = 10'; do
     "$c2ctl" -p "$console" "$command" >/dev/null 2>&1 || true
     sleep 0.4
 done

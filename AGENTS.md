@@ -63,7 +63,7 @@ since the fix: whether the `markers-role-guard` patch mode (changed during the
 hunt) is needed at all.
 
 There is exactly one persistent bond store, the app's: one bond per profile
-slot, `config.profile.N.bond.*` (`export`/`import`; held in RAM only while
+slot, `config.profile.A.bond.*` (`config export`/`config import`; held in RAM only while
 `config.autocommit` is off, see `docs/config.md`).  `btctrler.a` keeps a key only
 for the life of a connection; `Write/Delete Stored Link Key` are stubs.
 
@@ -112,29 +112,26 @@ For a script, `tools/padbus.py cmd claude LINE` sends one command, waits
 for it, prints exactly its output and exits 1 on `ERR` (the daemon runs the
 console in its tagged machine mode, `docs/usb-control.md`).
 
-Console commands worth knowing (`help` lists them all; Tab completes):
+Console commands worth knowing (`help`; every command and namespace also
+takes `help`, `-h`, `--help`; Tab completes):
 
-    config[.PATH]         settings; `config.PATH = VALUE` sets one
-    status[.PATH]         what the pad is doing, read-only
-    export / import       settings that differ from the defaults, keys included
-    commit / pending      write now / not written yet (config.autocommit)
-    unset PATH            back to the default; factory-reset for everything
+    config.PATH[=VALUE]   show or change a setting (config help)
+    config list|export|import|reset|commit|pending
+    status.PATH           what the pad is doing, read-only (status help)
     pair SLOT [--fresh]   forget a slot's bond and wait to be paired
-                          (--fresh: a new derived address)
+                          (--fresh: the slot's next address)
     connect SLOT          reconnect a saved slot
+    disconnect            drop the link without sleeping
+    reboot                reset the chip, come back as this build
+    debug stat            one key=value line: uptime, boots, slot, state, ...
+    debug bringup         reset mailbox and the bring-up marker ring
+    debug hcidump on|off  HCI trace to the console; survives the profile restart
+    debug peek/poke       read and write controller memory (poke wants
+                          contiguous hex: `deadbeef`, never `de ad be ef`)
+    debug help            the rest: log, wake, inject, rumble, imu, sensors, ...
 
 Slots are A, B, X, Y - the Home+button chord that selects them; 0..3 work
 too.
-    disconnect            drop the link without sleeping
-    reboot                reset the chip, come back as this build
-    stat                  one key=value line: uptime, boots, slot, state, ...
-    debug.bringup         reset mailbox and the bring-up marker ring
-    debug.*               diagnostics and tests (`help debug`): debug.log,
-                          debug.hcidump on|off (HCI trace; survives the profile
-                          restart), debug.wake, debug.inject, debug.rumble,
-                          debug.imu, debug.sensors, debug.bondstore, ...
-    debug.peek/poke       read and write controller memory (poke wants
-                          contiguous hex: `deadbeef`, never `de ad be ef`)
 
 `tools/hostbt.py` is a Linux Bluetooth host to test the pad against.  The user
 runs `sudo python3 tools/hostbt.py serve` on the host (bluetoothctl + btmon);
@@ -146,7 +143,7 @@ Change Grip/Order and dumps the marker ring on every reset
 (`docs/testing.md`); `tools/ringdump.py` reads the whole ring on its own.
 
 `tools/bond_capture.py` and `tools/bond_load.py` move a bond on and off the pad
-through `/work/cyclone2-bonds/` (`export` lines; the old `BOND` lines still
+through `/work/cyclone2-bonds/` (`config export` lines; the old `BOND` lines still
 load).  With autocommit off that round trip is the only way a bond survives a
 reset.
 
@@ -158,7 +155,7 @@ reset.
 How the controller archive is patched (`CYCLONE2_PATCH_BTCTLER`) is set in
 `src/build_config.h`, a normal committed header.  Edit it and run `make`.
 Whether changes to bonds and settings reach flash is a runtime choice, not a
-build option: `config.autocommit = false` holds them in RAM, `commit` writes
+build option: `config.autocommit = false` holds them in RAM, `config commit` writes
 them, a reboot drops them (`docs/config.md`).  `make config-test` checks the
 settings engine on the host.  Moving `CODE_LIMIT` moves the VM and starts the
 pad from defaults.

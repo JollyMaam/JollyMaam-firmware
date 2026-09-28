@@ -401,7 +401,7 @@ class Server:
             if now - self.last_command < self.heartbeat:
                 continue
             self.last_command = now
-            self.submit("padbus", "stat")
+            self.submit("padbus", "debug stat")
 
     def usb_watch_loop(self):
         """The silent heartbeat: ask the kernel, not the pad.
@@ -426,7 +426,7 @@ class Server:
             if present:
                 self.note_at("pad USB device back - reading the boot counter")
                 self.check_after_loss = True
-                self.submit("padbus", "stat")
+                self.submit("padbus", "debug stat")
             else:
                 self.note_at("pad USB device gone - reset, reflash, or unplugged")
                 self.check_after_loss = True
@@ -613,7 +613,7 @@ class Server:
             # What Tab would offer for a line.  Read-only, so anyone may ask,
             # and it is not logged.
             line = request.get("line", "")
-            record = self.submit(client, "complete " + line, quiet=True)
+            record = self.submit(client, "debug complete " + line, quiet=True)
             reply["complete"] = {"line": line, "candidates": []}
             if record is not None and record["done"].wait(2.0):
                 reply["complete"]["candidates"] = record["lines"]

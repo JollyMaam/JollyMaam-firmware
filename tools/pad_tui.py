@@ -57,10 +57,9 @@ TUI_HELP = """TUI commands - a line starting with '/'; everything else goes to t
   /save [FILE]       write the log, filtered, to FILE (default /work/nslog/tui-dump.txt)
   /quit              leave (also /exit)
 
-Pad commands worth knowing: config (settings; `config.PATH = VALUE`), status,
-export, connect A, pair A, disconnect, debug.hcidump on, debug.log on|off, and the pad's
-own help for the full list.  Tab completes commands, settings and values - the
-pad itself answers.
+Pad commands worth knowing: help, config help, status help, debug help,
+config.PATH=VALUE, connect A, pair A, disconnect.  Tab completes commands,
+settings and values - the pad itself answers.
 
 Editing: Ctrl-A/E line start/end, Ctrl-B/F or arrows by character, Alt-B/F by
 word, Ctrl-U/K/W delete, Up/Down history, Ctrl-L redraw.  Scroll back with the
@@ -522,15 +521,21 @@ def apply_completion(editor, completion, bus):
     candidates = completion.get("candidates", [])
     if editor.text[:editor.cursor] != line or not candidates:
         return "" if candidates else "no completions"
-    start = line.rfind(" ") + 1
+    start = max(line.rfind(" "), line.rfind("=")) + 1
     word = line[start:]
-    common = os.path.commonprefix(candidates)
-    if len(common) > len(word):
-        addition = common[len(word):]
-        if len(candidates) == 1 and not common.endswith("."):
-            addition += " "
-        editor.text = line + addition + editor.text[editor.cursor:]
-        editor.cursor = len(line) + len(addition)
+    # Candidates come back in their proper case ("profile.A"); compare
+    # without it, and replace what was typed.
+    common = os.path.commonprefix([candidate.lower() for candidate in candidates])
+    common = candidates[0][:len(common)]
+    if len(common) > len(word) or (common != word and len(common) == len(word)):
+        replacement = common
+        if len(candidates) == 1 and not common.endswith((".", "=")):
+            replacement += " "
+        editor.text = line[:start] + replacement + editor.text[editor.cursor:]
+        editor.cursor = start + len(replacement)
+        if len(candidates) == 1 and common.endswith("="):
+            # A whole setting: ask what it takes.
+            bus.complete(editor.text[:editor.cursor])
         return ""
     if len(candidates) > 1:
         bus.note("  ".join(candidates))

@@ -21,22 +21,30 @@ typed: the line is erased, the log printed, and the prompt and what was
 typed redrawn.  `help` lists the commands; `help COMMAND`, `COMMAND -h` and
 `COMMAND --help` show one command's usage.
 
-Diagnostics and tests live in their own namespace, `debug.`: `debug.log`,
-`debug.hcidump`, `debug.wake`, `debug.inject`, `debug.rumble`, `debug.imu`,
-`debug.sensors`, `debug.input`, `debug.bleadv`, `debug.bringup`,
-`debug.bondstore`, `debug.clearkeys`, `debug.nvscan`, `debug.delall`,
-`debug.peek`, `debug.poke`.  `help debug` (or `debug` alone) lists only
-them.
+The console has namespaces, and everything follows the same pattern: a
+namespace alone, or with `help`, `-h` or `--help`, explains itself and lists
+its subcommands; a command with `help` shows its usage; `help WORDS` is
+`WORDS help`.
 
-Settings are not commands: they are `config.PATH = VALUE`, and what the pad is
-doing is `status.PATH` (`docs/config.md`).  So `report 5` is now
-`config.report_ms = 5`, `profile 1 xbox` is `config.profile.1.type = xbox`,
+    config                  settings: config.PATH, config.PATH=VALUE, and
+                            config list|export|import|reset|commit|pending
+    status                  state, read-only: status.PATH, status list
+    debug                   diagnostics and tests: debug log|hcidump|stat|
+                            sensors|wake|inject|rumble|imu|input|bleadv|bringup|
+                            bondstore|clearkeys|nvscan|delall|peek|poke|complete
+    connect, disconnect, pair, cal, reboot, uboot, help
+
+`debug.imu` works as another spelling of `debug imu`.  Settings are
+`config.PATH=VALUE` (`docs/config.md`), so the old commands map as: `report
+5` is `config.report_ms=5`, `profile 1 xbox` is `config.profile.B.type=xbox`,
 `connect status` is `status.radio`, `report status` is `status.report`,
-`input status` is `status.input`, `keys` is `export`, `setaddr`/`restore`/
-`bond`/`setkey` are `import` (or single `config.profile.N.bond.*` lines),
-`newaddr` and `unkey` are `pair N --fresh`, `store ...` is
-`config.autocommit`/`commit`, the old `status` dump is `debug.bringup`, and the
-battery reading is `status.battery`.  `stat` is one key=value line for tools.
+`input status` is `status.input`, `keys` is `config export`, `setaddr`/
+`restore`/`bond`/`setkey` are `config import` (or single
+`config.profile.A.bond.*` lines), `newaddr` and `unkey` are `pair A
+--fresh`, `store ...` is `config.autocommit`/`config commit`, `factory-reset`
+is `config reset`, `unset PATH` is `config reset PATH`, the old `status` dump
+is `debug bringup`, `stat` is `debug stat`, and the battery reading is
+`status.battery`.
 
 ## Machine mode
 
@@ -59,12 +67,12 @@ prints exactly that command's output and exits 1 on `ERR`
 (`docs/session-bus.md`).  Opening the port afresh (DTR rising) puts the
 console back in human mode.
 
-For example, `debug.inject a 100 10000` holds synthetic A for the first 50 ms of
+For example, `debug inject a 100 10000` holds synthetic A for the first 50 ms of
 each 100-ms cycle and releases it for the next 50 ms. The schedule uses device
 millisecond deadlines; `edges` counts only transitions accepted by the profile,
 while `overruns` counts scheduled transitions skipped when the control loop was
 late. Neither counter proves delivery to the host. Injection is stopped on
-disconnect and profile changes. `debug.inject stop`
+disconnect and profile changes. `debug inject stop`
 schedules a final synthetic release while preserving any physical A hold. Its
 schedule is not a one-way latency measurement: device and host clocks are unsynchronized,
 and host receipt time must be measured separately.

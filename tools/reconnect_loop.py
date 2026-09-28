@@ -193,7 +193,7 @@ def capture(args):
         # The key reaches the slot's bond with the encryption; let the rest of
         # the exchange land before reading it back.
         time.sleep(2.0)
-        lines = [line for line in session.cmd(f"export config.profile.{args.slot}")
+        lines = [line for line in session.cmd(f"config export profile.{args.slot}")
                  if line.startswith("config.")]
         key = next((line.split("=", 1)[1].strip() for line in lines
                     if ".bond.link_key" in line), None)
@@ -212,7 +212,7 @@ def capture(args):
 
 def query_state(session: Session) -> str:
     try:
-        lines = session.cmd("stat")
+        lines = session.cmd("debug stat")
     except RuntimeError:
         return "unknown"
     for line in lines:
@@ -225,7 +225,7 @@ def query_state(session: Session) -> str:
 def restore(session: Session, bond, slot: int, set_address: bool):
     """Import the saved bond (its address included) and page the console."""
     session.command("debug.hcidump on", "HCI packet trace on")
-    session.cmd("import")
+    session.cmd("config import")
     for line in bond:
         if set_address or not re.match(r"config\.profile\.\w+\.address", line):
             session.cmd(line)

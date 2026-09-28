@@ -396,8 +396,9 @@ static int statement(char *text)
         if (space) {
             *space++ = '\0';
             while (*space == ' ') space++;
-            if (!strcmp(space, "-h") || !strcmp(space, "--help")) help = 1;
-            else if (*space) return console_fail("use PATH, PATH = VALUE or PATH --help");
+            if (!strcmp(space, "-h") || !strcmp(space, "--help") ||
+                !strcmp(space, "help")) help = 1;
+            else if (*space) return console_fail("use PATH, PATH=VALUE or PATH help");
         }
     }
     path = split_namespace(text, &items, &count, &is_config);
@@ -436,54 +437,60 @@ static int statement(char *text)
     return 0;
 }
 
-/* The config path an argument names ("config" alone is everything). */
-static const char *config_path_argument(const char *argument)
+/* A path argument, with or without its namespace: "profile.A",
+ * "config.profile.A", "config" (everything).  NULL when it is the other
+ * namespace's. */
+static const char *path_argument(const char *argument, int is_config)
 {
     const struct cfg_item *items;
     u16 count;
-    int is_config;
-    const char *path = split_namespace(argument, &items, &count, &is_config);
+    int config_path;
+    const char *path = split_namespace(argument, &items, &count, &config_path);
 
-    return path && is_config ? path : NULL;
+    if (!path) return argument;
+    return config_path == is_config ? path : NULL;
 }
 
-int console_cmd_unset(int argc, char **argv)
+static int list(int argc, char **argv, int is_config)
 {
-    struct config *target = importing ? &import_staging : &config;
+    const struct cfg_item *items = is_config ? config_items : status_items;
+    u16 count = is_config ? config_item_count : status_item_count;
     struct cfg_leaf leaf;
-    const char *path;
+    const char *path = "";
     u32 position = 0U;
-    u32 reset = 0U;
-    u8 autocommit = target->autocommit;
+    u32 shown = 0U;
 
-    if (argc != 2) return CONSOLE_USAGE;
-    path = config_path_argument(argv[1]);
-    if (!path) return console_fail("not a setting: %s", argv[1]);
-    while (cfg_leaf_next(config_items, config_item_count, &position, &leaf)) {
+    if (argc > 2) return CONSOLE_USAGE;
+    if (argc == 2 && !(path = path_argument(argv[1], is_config)))
+        return console_fail("not a %s path: %s", is_config ? "setting" : "status",
+                            argv[1]);
+    while (cfg_leaf_next(items, count, &position, &leaf)) {
         if (!cfg_leaf_under(&leaf, path)) continue;
-        cfg_leaf_default(&leaf, cfg_leaf_data(target, &leaf));
-        reset++;
+        print_leaf(&leaf, is_config, 1);
+        shown++;
     }
-    if (!reset) return console_fail("no such setting: %s", argv[1]);
-    /* `unset config` is every setting but the one that says whether this is
-     * written: see factory-reset. */
-    if (!*path) target->autocommit = autocommit;
-    if (!importing) console_ok("%u setting%s back to the default", reset,
-                               reset == 1U ? "" : "s");
-    return 0;
+    return shown ? 0 : console_fail("nothing under %s", path);
 }
 
-int console_cmd_export(int argc, char **argv)
+int config_cmd_list(int argc, char **argv)
+{
+    return list(argc, argv, 1);
+}
+
+int status_cmd_list(int argc, char **argv)
+{
+    return list(argc, argv, 0);
+}
+
+int config_cmd_export(int argc, char **argv)
 {
     struct cfg_leaf leaf;
     const char *path = "";
     u32 position = 0U;
 
     if (argc > 2) return CONSOLE_USAGE;
-    if (argc == 2) {
-        path = config_path_argument(argv[1]);
-        if (!path) return console_fail("not a setting: %s", argv[1]);
-    }
+    if (argc == 2 && !(path = path_argument(argv[1], 1)))
+        return console_fail("not a setting: %s", argv[1]);
     while (cfg_leaf_next(config_items, config_item_count, &position, &leaf)) {
         if (cfg_leaf_under(&leaf, path) && !cfg_leaf_is_default(&config, &leaf))
             print_leaf(&leaf, 1, 0);
@@ -491,7 +498,7 @@ int console_cmd_export(int argc, char **argv)
     return 0;
 }
 
-int console_cmd_import(int argc, char **argv)
+int config_cmd_import(int argc, char **argv)
 {
     (void)argv;
     if (argc != 1) return CONSOLE_USAGE;
@@ -540,7 +547,48 @@ static int import_end(void)
     return 0;
 }
 
-int console_cmd_commit(int argc, char **argv)
+/* `config reset PATH`: back to the default.  `config reset`: every setting,
+ * autocommit included, written at once - or with --no-commit, autocommit off
+ * and nothing written (commit keeps it, a reboot undoes it). */
+int config_cmd_reset(int argc, char **argv)
+{
+    struct config *target = importing ? &import_staging : &config;
+    struct cfg_leaf leaf;
+    const char *path;
+    u32 position = 0U;
+    u32 reset = 0U;
+
+    if (argc == 1 || (argc == 2 && !strcmp(argv[1], "--no-commit"))) {
+        if (importing) return console_fail("inside an import, reset a PATH");
+        if (argc == 2) {
+            config.autocommit = 0U;
+            config_reset_all(1);
+            console_ok("every setting is back to its default; nothing written "
+                       "(config commit keeps it, a reboot undoes it)");
+        } else {
+            config_reset_all(0);
+            console_ok(config_commit(cyclone2_radio_quiet()) ?
+                       "every setting is back to its default, and written" :
+                       "every setting is back to its default; written once the "
+                       "radio settles");
+        }
+        return 0;
+    }
+    if (argc != 2) return CONSOLE_USAGE;
+    path = path_argument(argv[1], 1);
+    if (!path || !*path) return console_fail("not a setting: %s", argv[1]);
+    while (cfg_leaf_next(config_items, config_item_count, &position, &leaf)) {
+        if (!cfg_leaf_under(&leaf, path)) continue;
+        cfg_leaf_default(&leaf, cfg_leaf_data(target, &leaf));
+        reset++;
+    }
+    if (!reset) return console_fail("no such setting: %s", argv[1]);
+    if (!importing) console_ok("%u setting%s back to the default", reset,
+                               reset == 1U ? "" : "s");
+    return 0;
+}
+
+int config_cmd_commit(int argc, char **argv)
 {
     (void)argv;
     if (argc != 1) return CONSOLE_USAGE;
@@ -553,7 +601,7 @@ int console_cmd_commit(int argc, char **argv)
     return 0;
 }
 
-int console_cmd_pending(int argc, char **argv)
+int config_cmd_pending(int argc, char **argv)
 {
     struct cfg_leaf leaf;
     u32 position = 0U;
@@ -570,105 +618,120 @@ int console_cmd_pending(int argc, char **argv)
     return 0;
 }
 
-int console_cmd_factory_reset(int argc, char **argv)
-{
-    if (argc == 2 && !strcmp(argv[1], "--no-commit")) {
-        config.autocommit = 0U;
-        config_reset_all(1);
-        console_ok("every setting is back to its default; nothing written "
-                   "(commit keeps it, a reboot undoes it)");
-        return 0;
-    }
-    if (argc != 1) return CONSOLE_USAGE;
-    config_reset_all(0);
-    if (config_commit(cyclone2_radio_quiet()))
-        console_ok("every setting is back to its default, and written");
-    else
-        console_ok("every setting is back to its default; written once the "
-                   "radio settles");
-    return 0;
-}
-
 /* ------------------------------------------------------------- commands */
 
-static const struct console_command *find_command(const char *name)
+static int is_help(const char *word)
 {
-    u16 index;
+    return !strcmp(word, "help") || !strcmp(word, "-h") || !strcmp(word, "--help");
+}
 
-    for (index = 0U; index < console_command_count; index++)
-        if (!strcmp(console_commands[index].name, name))
-            return &console_commands[index];
+static const struct console_command *find_in(const struct console_command *table,
+                                             const char *name)
+{
+    for (; table && table->name; table++)
+        if (!strcmp(table->name, name)) return table;
     return NULL;
 }
 
-static void print_usage(const struct console_command *command)
+/* "NAME ARGS" padded to a column, then the help. */
+static void print_entry(const char *prefix, const struct console_command *command)
 {
-    console_printf("usage: %s%s%s\r\n  %s\r\n", command->name,
-                   command->usage ? " " : "",
-                   command->usage ? command->usage : "", command->help);
-}
-
-/* One line per command: all of them, or with `group` ("debug") only that
- * group's. */
-static void list_commands(const char *group)
-{
-    const struct console_command *command;
-    u32 group_length = group ? strlen(group) : 0U;
-    u16 index;
-
-    for (index = 0U; index < console_command_count; index++) {
-        int length;
-        int grouped;
-
-        command = &console_commands[index];
-        grouped = strchr(command->name, '.') != NULL;
-        if (group && !(grouped && !strncmp(command->name, group, group_length) &&
-                       command->name[group_length] == '.'))
-            continue;
-        length = snprintf(value_text, sizeof(value_text), "%s%s%s",
+    int length = snprintf(value_text, sizeof(value_text), "  %s%s%s%s", prefix,
                           command->name, command->usage ? " " : "",
                           command->usage ? command->usage : "");
-        if (length < 0) continue;
-        while (length < 28 && length + 1 < (int)sizeof(value_text))
-            value_text[length++] = ' ';
-        value_text[length] = '\0';
-        console_printf("%s %s\r\n", value_text, command->help);
+
+    if (length < 0) return;
+    if (length > 34) {
+        /* A long usage: the help goes under it, in its column. */
+        console_printf("%s\r\n", value_text);
+        length = 0;
     }
+    while (length < 34 && length + 1 < (int)sizeof(value_text))
+        value_text[length++] = ' ';
+    value_text[length] = '\0';
+    console_printf("%s %s\r\n", value_text, command->help);
 }
 
-/* A group name alone ("debug"): its commands. */
-static int is_group(const struct console_command *command)
+static void print_usage(const struct console_command *command,
+                        const struct console_command *parent)
 {
-    return command && !command->run && strcmp(command->name, NAMESPACE_CONFIG) &&
-           strcmp(command->name, NAMESPACE_STATUS);
+    console_printf("usage: %s%s%s%s%s\r\n  %s\r\n",
+                   parent ? parent->name : "", parent ? " " : "", command->name,
+                   command->usage ? " " : "", command->usage ? command->usage : "",
+                   command->help);
 }
 
-int console_cmd_help(int argc, char **argv)
+/* The first segment of every path in a table: what `config.<Tab>` offers. */
+static void print_groups(const char *label, const struct cfg_item *items,
+                         u16 count)
+{
+    struct cfg_leaf leaf;
+    u32 position = 0U;
+    char name[48];
+    char previous[48] = "";
+
+    console_printf("\r\n%s:", label);
+    while (cfg_leaf_next(items, count, &position, &leaf)) {
+        char *dot;
+
+        snprintf(name, sizeof(name), "%s", leaf.item->path);
+        dot = strchr(name, '.');
+        if (dot) *dot = '\0';
+        if (!strcmp(name, previous)) continue;
+        memcpy(previous, name, sizeof(previous));
+        console_printf(" %s", name);
+    }
+    console_write("\r\n");
+}
+
+/* `config help`, `debug`, ...: what the namespace is, then its commands. */
+static void print_overview(const struct console_command *space)
 {
     const struct console_command *command;
+    char prefix[24];
 
-    if (argc == 1) {
-        list_commands(NULL);
-        console_write("Tab completes; `help COMMAND` or `COMMAND --help` for "
-                      "more, `help config.PATH` for a setting.\r\n");
-        return 0;
-    }
-    if (argc != 2) return CONSOLE_USAGE;
-    command = find_command(argv[1]);
-    if (is_group(command)) {
-        list_commands(command->name);
-        return 0;
-    }
-    if (command && command->run) {
-        print_usage(command);
-        return 0;
-    }
-    {
-        char text[LINE_SIZE];
+    if (space->overview) console_write(space->overview);
+    snprintf(prefix, sizeof(prefix), "%s ", space->name);
+    for (command = space->subcommands; command->name; command++)
+        print_entry(prefix, command);
+    if (!strcmp(space->name, NAMESPACE_CONFIG))
+        print_groups("Settings", config_items, config_item_count);
+    else if (!strcmp(space->name, NAMESPACE_STATUS))
+        print_groups("Groups", status_items, status_item_count);
+}
 
-        snprintf(text, sizeof(text), "%s --help", argv[1]);
-        return statement(text);
+/* Run argv against a table: a namespace hands the rest to its subcommands,
+ * and `help`, -h or --help after any name explains it. */
+static int dispatch(const struct console_command *table,
+                    const struct console_command *parent, int argc, char **argv)
+{
+    const struct console_command *command = find_in(table, argv[0]);
+    int result;
+
+    if (!command) {
+        if (parent)
+            return console_fail("%s has no %s; %s help", parent->name, argv[0],
+                                parent->name);
+        return console_fail("unknown command %s; type help", argv[0]);
     }
+    if (command->subcommands) {
+        if (argc == 1 || (argc == 2 && is_help(argv[1]))) {
+            print_overview(command);
+            return 0;
+        }
+        return dispatch(command->subcommands, command, argc - 1, argv + 1);
+    }
+    if (argc == 2 && is_help(argv[1])) {
+        print_usage(command, parent);
+        return 0;
+    }
+    result = command->run(argc, argv);
+    if (result == CONSOLE_USAGE)
+        return console_fail("usage: %s%s%s%s%s", parent ? parent->name : "",
+                            parent ? " " : "", command->name,
+                            command->usage ? " " : "",
+                            command->usage ? command->usage : "");
+    return result;
 }
 
 /* Split in place on spaces, honouring double quotes. */
@@ -679,7 +742,7 @@ static int split(char *text, char **argv)
     while (*text) {
         while (*text == ' ') text++;
         if (!*text) break;
-        if (argc == (int)MAX_ARGS) return -1;
+        if (argc == (int)MAX_ARGS - 1) return -1;
         if (*text == '"') {
             argv[argc++] = ++text;
             while (*text && *text != '"') text++;
@@ -692,35 +755,71 @@ static int split(char *text, char **argv)
     return argc;
 }
 
-static int is_namespace(const char *text)
+/* "debug.imu init" is "debug imu init": a namespace name glued to its
+ * subcommand with a dot. */
+static int unglue(int argc, char **argv)
 {
-    const struct cfg_item *items;
-    u16 count;
-    int is_config;
-    char word[LINE_SIZE];
-    u32 length = 0U;
+    char *dot = strchr(argv[0], '.');
+    const struct console_command *command;
+    int index;
 
-    while (text[length] && text[length] != ' ' && text[length] != '=' &&
-           length + 1U < sizeof(word)) {
-        word[length] = text[length];
-        length++;
+    if (!dot || argc == (int)MAX_ARGS - 1) return argc;
+    *dot = '\0';
+    command = find_in(console_commands, argv[0]);
+    if (!command || !command->subcommands) {
+        *dot = '.';
+        return argc;
     }
-    word[length] = '\0';
-    return split_namespace(word, &items, &count, &is_config) != NULL;
+    for (index = argc; index > 0; index--) argv[index + 1] = argv[index];
+    argv[1] = dot + 1;
+    return argc + 1;
 }
+
+/* A path statement: config.x, config.x=v, status.x, with a trailing help. */
+static int is_path(const char *text)
+{
+    return starts_with(text, NAMESPACE_CONFIG ".") ||
+           starts_with(text, NAMESPACE_STATUS ".");
+}
+
+int console_cmd_help(int argc, char **argv)
+{
+    const struct console_command *command;
+    char *words[MAX_ARGS];
+    int index;
+
+    if (argc == 1) {
+        console_write("Cyclone 2 console.  Tab completes; NAME help (or -h, "
+                      "--help) explains anything.\r\n\r\n");
+        for (command = console_commands; command->name; command++)
+            print_entry("", command);
+        console_write("\r\nSlots are A B X Y: the Home+button chord that "
+                      "selects them.\r\n");
+        return 0;
+    }
+    if (is_path(argv[1])) {
+        char text[LINE_SIZE];
+
+        snprintf(text, sizeof(text), "%s help", argv[1]);
+        return statement(text);
+    }
+    /* `help config reset` is `config reset help`. */
+    for (index = 1; index < argc; index++) words[index - 1] = argv[index];
+    words[argc - 1] = "help";
+    argc = unglue(argc, words);
+    return dispatch(console_commands, NULL, argc, words);
+}
+
+static int complete_line(const char *text);
 
 static int run_line(char *text)
 {
-    const struct console_command *command;
     char *argv[MAX_ARGS];
     int argc;
-    int result;
 
     while (*text == ' ') text++;
     if (!*text || *text == '#') return 0;
-    if (is_namespace(text)) return statement(text);
-    if (!importing && starts_with(text, "complete "))
-        return complete_line(text + strlen("complete "));
+    if (is_path(text)) return statement(text);
     if (importing) {
         if (!strcmp(text, "end")) return import_end();
         if (!strcmp(text, "abort")) {
@@ -728,31 +827,16 @@ static int run_line(char *text)
             console_ok("import abandoned; nothing changed");
             return 0;
         }
+        if (!starts_with(text, "config reset "))
+            return console_fail("in an import: config.PATH=VALUE lines, config "
+                                "reset PATH, end, abort");
     }
+    if (starts_with(text, "debug complete ") || starts_with(text, "debug.complete "))
+        return complete_line(text + strlen("debug complete "));
     argc = split(text, argv);
     if (argc < 0) return console_fail("too many arguments");
-    command = find_command(argv[0]);
-    if (is_group(command) && argc == 1 && !importing) {
-        list_commands(command->name);
-        return 0;
-    }
-    if (!command || !command->run) {
-        if (importing) return console_fail("not a setting: %s", argv[0]);
-        return console_fail("unknown command %s; type help", argv[0]);
-    }
-    if (importing && command->run != console_cmd_unset)
-        return console_fail("only settings can be imported");
-    if (argc == 2 && (!strcmp(argv[1], "-h") || !strcmp(argv[1], "--help"))) {
-        print_usage(command);
-        return 0;
-    }
-    result = command->run(argc, argv);
-    if (result == CONSOLE_USAGE) {
-        console_fail("usage: %s %s", command->name,
-                     command->usage ? command->usage : "");
-        return -1;
-    }
-    return result;
+    argc = unglue(argc, argv);
+    return dispatch(console_commands, NULL, argc, argv);
 }
 
 static void execute(void)
@@ -825,42 +909,53 @@ static void add_candidate(const char *text, u32 length)
     candidate_count++;
 }
 
-/* Candidates for a word that is a namespace path: the next segment of
- * every path under it ("config.pro" -> "config.profile."). */
-static void complete_path(const char *word, int config_only)
+/* The next segment of every path under `word` ("pro" -> "profile."), in a
+ * table; `prefix` is put in front ("config.").  A setting that is complete
+ * gets its "=" when `assign`. */
+static void complete_table(const char *word, const char *prefix,
+                           const struct cfg_item *items, u16 count, int assign)
 {
-    static const char *const spaces[] = { NAMESPACE_CONFIG, NAMESPACE_STATUS };
-    u8 space;
+    u32 prefix_length = strlen(prefix);
+    u32 length = strlen(word);
+    struct cfg_leaf leaf;
+    u32 position = 0U;
+    char full[CANDIDATE_SIZE];
 
-    for (space = 0U; space < 2U; space++) {
-        const char *name = spaces[space];
-        const struct cfg_item *items = space ? status_items : config_items;
-        u16 count = space ? status_item_count : config_item_count;
-        u32 name_length = strlen(name);
-        struct cfg_leaf leaf;
-        u32 position = 0U;
-        char full[CANDIDATE_SIZE];
+    while (cfg_leaf_next(items, count, &position, &leaf)) {
+        char *dot;
 
-        if (space && config_only) break;
-        if (strncmp(word, name, strlen(word) < name_length ?
-                    strlen(word) : name_length)) continue;
-        if (strlen(word) <= name_length) {
-            snprintf(full, sizeof(full), "%s.", name);
-            add_candidate(full, name_length + 1U);
-            continue;
-        }
-        while (cfg_leaf_next(items, count, &position, &leaf)) {
-            u32 length = strlen(word);
-            char *dot;
-
-            snprintf(full, sizeof(full), "%s.", name);
-            cfg_leaf_path(&leaf, full + name_length + 1U,
-                          sizeof(full) - name_length - 1U);
-            if (!same_letters(full, word, length)) continue;
-            dot = strchr(full + length, '.');
-            add_candidate(full, dot ? (u32)(dot - full) + 1U : strlen(full));
+        snprintf(full, sizeof(full), "%s", prefix);
+        cfg_leaf_path(&leaf, full + prefix_length, sizeof(full) - prefix_length);
+        if (!same_letters(full, word, length)) continue;
+        dot = strchr(full + length, '.');
+        if (dot) {
+            add_candidate(full, (u32)(dot - full) + 1U);
+        } else if (assign && strlen(full) + 1U < sizeof(full)) {
+            strcat(full, "=");
+            add_candidate(full, strlen(full));
+        } else {
+            add_candidate(full, strlen(full));
         }
     }
+}
+
+/* A first word: commands, and config./status. paths. */
+static void complete_top(const char *word)
+{
+    const struct console_command *command;
+    u32 length = strlen(word);
+
+    for (command = console_commands; command->name; command++)
+        if (same_letters(command->name, word, length))
+            add_candidate(command->name, strlen(command->name));
+    if (same_letters(word, NAMESPACE_CONFIG ".", length < 7U ? length : 7U) &&
+        length >= strlen(NAMESPACE_CONFIG))
+        complete_table(word, NAMESPACE_CONFIG ".", config_items,
+                       config_item_count, 1);
+    if (same_letters(word, NAMESPACE_STATUS ".", length < 7U ? length : 7U) &&
+        length >= strlen(NAMESPACE_STATUS))
+        complete_table(word, NAMESPACE_STATUS ".", status_items,
+                       status_item_count, 0);
 }
 
 static void complete_words(const char *word, const char *const *words)
@@ -868,7 +963,7 @@ static void complete_words(const char *word, const char *const *words)
     u32 length = strlen(word);
 
     for (; words && *words; words++)
-        if (!strncmp(*words, word, length)) add_candidate(*words, strlen(*words));
+        if (same_letters(*words, word, length)) add_candidate(*words, strlen(*words));
 }
 
 /* Fill candidates[] for the last word of `text`; returns where it starts. */
@@ -877,17 +972,21 @@ static u32 complete(const char *text, u32 length)
     char buffer[LINE_SIZE];
     char *argv[MAX_ARGS];
     const char *equals;
+    const struct console_command *command;
+    const struct console_command *table = console_commands;
     u32 start = length;
     int argc;
+    int position;
+    int index;
 
     candidate_count = 0U;
-    while (start && text[start - 1] != ' ') start--;
+    while (start && text[start - 1] != ' ' && text[start - 1] != '=') start--;
     memcpy(buffer, text, length);
     buffer[length] = '\0';
 
     equals = strchr(buffer, '=');
-    if (equals) {
-        /* A value: the choices of the leaf before the '='. */
+    if (equals && is_path(buffer)) {
+        /* A value: the choices of the setting before the '='. */
         static const char *const booleans[] = { "true", "false", NULL };
         const struct cfg_item *items;
         struct cfg_leaf leaf;
@@ -906,7 +1005,7 @@ static u32 complete(const char *text, u32 length)
                 const struct cfg_choice *choice;
 
                 for (choice = leaf.item->choices; choice->name; choice++)
-                    if (starts_with(choice->name, text + start))
+                    if (same_letters(choice->name, text + start, strlen(text + start)))
                         add_candidate(choice->name, strlen(choice->name));
             }
         }
@@ -914,37 +1013,56 @@ static u32 complete(const char *text, u32 length)
     }
     argc = split(buffer, argv);
     if (argc < 0) return start;
-    if (start == 0U || argc == 0) {
-        u16 index;
+    position = start == length || argc == 0 ? argc : argc - 1;
+    if (position >= 1 && !strcmp(argv[0], "help")) {
+        /* `help WORDS` completes WORDS as a command line of their own. */
+        u32 skip = 4U;
 
-        for (index = 0U; index < console_command_count; index++)
-            if (starts_with(console_commands[index].name, text + start) &&
-                console_commands[index].run)
-                add_candidate(console_commands[index].name,
-                              strlen(console_commands[index].name));
-        complete_path(text + start, 0);
-    } else {
-        const struct console_command *command = find_command(argv[0]);
-        int position = start == length ? argc : argc - 1;
+        while (skip < length && text[skip] == ' ') skip++;
+        return skip + complete(text + skip, length - skip);
+    }
+    if (position == 0) {
+        complete_top(text + start);
+        return start;
+    }
+    {
+        int glued = unglue(argc, argv);
 
+        /* "debug.imu " is "debug imu ": one more word before this one. */
+        position += glued - argc;
+        argc = glued;
+    }
+    /* Walk down the namespaces the words before this one name. */
+    command = NULL;
+    for (index = 0; index < position && index < argc; index++) {
+        command = find_in(table, argv[index]);
         if (!command) return start;
-        if (command->paths) complete_path(text + start, command->run != console_cmd_help);
-        if (command->run == console_cmd_help && position == 1) {
-            u16 index;
+        if (!command->subcommands) break;
+        table = command->subcommands;
+    }
+    if (command && command->subcommands && index == position) {
+        const struct console_command *sub;
 
-            for (index = 0U; index < console_command_count; index++)
-                if (starts_with(console_commands[index].name, text + start))
-                    add_candidate(console_commands[index].name,
-                                  strlen(console_commands[index].name));
-        }
-        if (position == 1) complete_words(text + start, command->words);
+        for (sub = command->subcommands; sub->name; sub++)
+            if (same_letters(sub->name, text + start, strlen(text + start)))
+                add_candidate(sub->name, strlen(sub->name));
+        return start;
+    }
+    if (!command || position - index != 1) return start;
+    complete_words(text + start, command->words);
+    if (command->paths == CONSOLE_PATHS_CONFIG) {
+        complete_table(text + start, "", config_items, config_item_count, 0);
+    } else if (command->paths == CONSOLE_PATHS_STATUS) {
+        complete_table(text + start, "", status_items, status_item_count, 0);
+    } else if (command->paths == CONSOLE_PATHS_ANY) {
+        complete_top(text + start);
     }
     return start;
 }
 
-/* `complete LINE`: what Tab would offer, one candidate per line.  Takes the
- * line as typed (run_line() hands it over before splitting), so a trailing
- * space - "pair " - still means "the next word". */
+/* `debug complete LINE`: what Tab would offer, one candidate per line.  Takes
+ * the line as typed (run_line() hands it over before splitting), so a
+ * trailing space - "pair " - still means "the next word". */
 static int complete_line(const char *text)
 {
     u8 candidate;
@@ -962,6 +1080,18 @@ int console_cmd_complete(int argc, char **argv)
     return complete_line("");
 }
 
+static void list_candidates(void)
+{
+    u8 index;
+
+    raw("\r\n", 2U);
+    for (index = 0U; index < candidate_count; index++) {
+        raw_text(candidates[index]);
+        raw(index + 1U == candidate_count ? "\r\n" : "  ", 2U);
+    }
+    prompt();
+}
+
 static void tab(void)
 {
     u32 start;
@@ -977,16 +1107,29 @@ static void tab(void)
     for (index = 1U; index < candidate_count; index++) {
         u32 same = 0U;
 
-        while (same < common && candidates[index][same] == candidates[0][same])
+        while (same < common &&
+               same_letters(&candidates[index][same], &candidates[0][same], 1U))
             same++;
         common = same;
     }
-    if (common > typed && start + common < LINE_SIZE - 1U) {
-        raw(candidates[0] + typed, common - typed);
+    if (common > typed ||
+        (common == typed && memcmp(line + start, candidates[0], common))) {
+        if (start + common >= LINE_SIZE - 1U) return;
+        /* Replace what was typed: the candidate has the proper case. */
+        while (line_length > start) {
+            line_length--;
+            raw_text("\b \b");
+        }
+        raw(candidates[0], common);
         memcpy(line + start, candidates[0], common);
         line_length = (u8)(start + common);
-        if (candidate_count == 1U && line[line_length - 1] != '.' &&
-            line_length + 1U < LINE_SIZE - 1U) {
+        if (candidate_count == 1U && line[line_length - 1] == '=') {
+            /* A whole setting: show what it takes. */
+            line[line_length] = '\0';
+            complete(line, line_length);
+            if (candidate_count) list_candidates();
+        } else if (candidate_count == 1U && line[line_length - 1] != '.' &&
+                   line_length + 1U < LINE_SIZE - 1U) {
             line[line_length++] = ' ';
             raw(" ", 1U);
         }
@@ -999,12 +1142,7 @@ static void tab(void)
         last_key_tab = 1U;
         return;
     }
-    raw("\r\n", 2U);
-    for (index = 0U; index < candidate_count; index++) {
-        raw_text(candidates[index]);
-        raw(index + 1U == candidate_count ? "\r\n" : "  ", 2U);
-    }
-    prompt();
+    list_candidates();
     last_key_tab = 0U;
 }
 
