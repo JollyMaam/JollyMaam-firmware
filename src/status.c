@@ -37,6 +37,10 @@ static const struct cfg_choice profile_types[] = {
     { 0, NULL },
 };
 
+static const struct cfg_choice slots[] = {
+    { 0, "A" }, { 1, "B" }, { 2, "X" }, { 3, "Y" }, { 0, NULL },
+};
+
 static const struct cfg_choice cal_phases[] = {
     { CYCLONE2_CAL_IDLE, "idle" }, { CYCLONE2_CAL_SETTLE, "settle" },
     { CYCLONE2_CAL_REST, "rest" }, { CYCLONE2_CAL_SWEEP, "sweep" },
@@ -182,7 +186,8 @@ const struct cfg_item status_items[] = {
 
     { .path = "radio.state", .type = CFG_ENUM,
       RADIO(connection.connection_state), .choices = radio_states },
-    { .path = "radio.slot", .type = CFG_UINT, RADIO(connection.slot) },
+    { .path = "radio.slot", .type = CFG_ENUM, RADIO(connection.slot),
+      .choices = slots, .help = "named after its Home+button chord" },
     { .path = "radio.type", .type = CFG_ENUM, RADIO(connection.profile_type),
       .choices = profile_types },
     { .path = "radio.address", .type = CFG_MAC, RADIO(connection.local_address) },
@@ -193,7 +198,7 @@ const struct cfg_item status_items[] = {
     { .path = "radio.idle", .type = CFG_BOOL, RADIO(idle),
       .help = "the Bluetooth task has powered the controller off" },
     { .path = "profile.#.address", .type = CFG_MAC, RADIO(slot_address[0]),
-      .stride = 6, .count = CONFIG_PROFILES,
+      .stride = 6, .count = CONFIG_PROFILES, .names = cfg_slot_names,
       .help = "the address the slot uses: its bond's, or the derived one" },
 
     { .path = "report.polls", .type = CFG_UINT, REPORT(poll_count) },

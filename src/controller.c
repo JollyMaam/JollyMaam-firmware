@@ -284,7 +284,8 @@ void cyclone2_wake_finished(void)
      * BTstack exactly as it does from cold. */
     jieli_btctrler_close();
     if (slot < CYCLONE2_PROFILE_COUNT) {
-        cyclone2_usb_debug("wake done; reconnecting slot %u", slot);
+        cyclone2_usb_debug("wake done; reconnecting slot %s",
+                           config_slot_name(slot));
         profile_select(slot, 0U);
     }
 }
@@ -310,8 +311,8 @@ static void start_pending_wake(void)
                             wake_pending_seconds);
     }
     if (result != 0) {
-        cyclone2_usb_debug("wake not started (%d); reconnecting slot %u",
-                           result, wake_pending_slot);
+        cyclone2_usb_debug("wake not started (%d); reconnecting slot %s",
+                           result, config_slot_name(wake_pending_slot));
         jieli_btctrler_close();
         radio_state = CYCLONE2_RADIO_OFF;
         wake_slot = 0xffU;
@@ -1095,8 +1096,8 @@ static void start_selected_profile(void)
      * is still unwinding - not to this one, which has not connected yet.  Only
      * a session that actually reached CONNECTED may be ended by one. */
     ignore_disconnect_until_ms = sys_timer_get_ms() + CYCLONE2_STALE_EVENT_MS;
-    cyclone2_usb_debug("start profile=%u type=%s pairing=%u",
-                       active_profile,
+    cyclone2_usb_debug("start slot %s type=%s pairing=%u",
+                       config_slot_name(active_profile),
                        cyclone2_profile_name(active_type),
                        active_pairing);
     /* Show that selection reached radio startup even if stack init fails. */

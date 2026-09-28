@@ -464,7 +464,8 @@ static u8 switch2_command_data(u8 command, u8 subcommand, const u8 *request,
                 memcpy(bond->le_peer, console, sizeof(bond->le_peer));
                 memcpy(bond->ltk, switch2_ltk, sizeof(bond->ltk));
                 memcpy(bond->local, bt_get_mac_addr(), sizeof(bond->local));
-                cyclone2_usb_debug("switch2: bond stored for slot %u", switch2_slot);
+                cyclone2_usb_debug("switch2: bond stored for slot %s",
+                                   config_slot_name(switch2_slot));
             }
             output[0] = 1;
             return 1;

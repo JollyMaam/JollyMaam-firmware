@@ -366,6 +366,21 @@ static void test_paths(void)
     CHECK(cfg_leaf_find(config_items, config_item_count, "profile.3.bond.ltk", &found) == 0);
     CHECK(found.index == 3);
     CHECK(cfg_leaf_find(config_items, config_item_count, "profile.4.type", &found) != 0);
+    /* Slots by chord button, sticks and triggers by side; any case. */
+    CHECK(cfg_leaf_find(config_items, config_item_count, "profile.X.type", &found) == 0 &&
+          found.index == 2);
+    CHECK(cfg_leaf_find(config_items, config_item_count, "profile.y.bond.peer", &found) == 0 &&
+          found.index == 3);
+    cfg_leaf_path(&found, path, sizeof(path));
+    CHECK(!strcmp(path, "profile.Y.bond.peer"));
+    CHECK(cfg_leaf_under(&found, "profile.Y") && cfg_leaf_under(&found, "profile.3") &&
+          cfg_leaf_under(&found, "PROFILE.y.bond") && !cfg_leaf_under(&found, "profile.X") &&
+          !cfg_leaf_under(&found, "profile.Y.bo"));
+    CHECK(cfg_leaf_find(config_items, config_item_count, "cal.stick.right.center", &found) == 0 &&
+          found.index == 1);
+    CHECK(cfg_leaf_find(config_items, config_item_count, "cal.trigger.L2.rest", &found) == 0 &&
+          found.index == 0);
+    CHECK(cfg_leaf_find(config_items, config_item_count, "profile.Z.type", &found) != 0);
     CHECK(cfg_leaf_find(config_items, config_item_count, "profile", &found) != 0);
     while (cfg_leaf_next(config_items, config_item_count, &position, &found)) {
         cfg_leaf_path(&found, path, sizeof(path));

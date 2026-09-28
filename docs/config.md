@@ -11,20 +11,26 @@ stick and trigger calibration.  What it is doing right now is under
 
     config                              every setting; "# default X" marks a changed one,
                                         "not written" one that is not in flash yet
-    config.profile.1                    one subtree
-    config.profile.1.type = xbox        set (quotes optional); says when it takes effect
-    help config.profile.1.type          type, choices or range, default, help text
+    config.profile.B                    one subtree
+    config.profile.B.type = xbox        set (quotes optional); says when it takes effect
+    help config.profile.B.type          type, choices or range, default, help text
     config.report_ms --help             the same
-    unset config.profile.1              back to the defaults (`unset config`: all but autocommit)
+    unset config.profile.B              back to the defaults (`unset config`: all but autocommit)
     export [PATH]                       only what differs from the defaults, keys included,
                                         as lines `import` takes
     import  ...lines...  end            all accepted, or nothing changes (`abort` gives up)
     pending                             changed and not in flash yet
     commit                              write it now
     factory-reset [--no-commit]         every setting back to its default
-    status[.PATH]                       e.g. status.radio, status.profile.0.address
+    status[.PATH]                       e.g. status.radio, status.profile.A.address
 
 Tab completes commands, paths, and after `=` the choices.
+
+The profile slots are named after the Home+button chord that selects them -
+A, B, X, Y - and so are `connect`, `pair` and `wake`'s arguments.  The sticks
+are `left`/`right`, the triggers `l2`/`r2`.  The numbers (0..3, 0..1) work
+too, in any case, so `config.profile.2.type` and `config.profile.x.type` are
+the same setting; listings and `export` use the names.
 
 A change never restarts anything.  `takes effect now` settings apply at
 once; `takes effect on the next connect or pair` ones (a slot's type, its
@@ -57,7 +63,7 @@ This replaces the old `store ram|flash|revert`: `store ram` is
 
 ## Bonds
 
-One bond per profile slot, `config.profile.N.bond.*`:
+One bond per profile slot, `config.profile.A.bond.*` (and B, X, Y):
 
 | leaf | what |
 |---|---|
@@ -69,7 +75,7 @@ One bond per profile slot, `config.profile.N.bond.*`:
 BTstack's link-key database (`src/bt/btstack_jl_sdk.c`) is a view of the
 running slot's bond: a key only ever goes to that slot's peer.  A pairing
 fills the bond and records the address it was made with; `pair N` clears
-it.  `export config.profile.N` therefore holds everything a reconnect needs,
+it.  `export config.profile.A` therefore holds everything a reconnect needs,
 and `import` puts it back on any pad.  `tools/bond_capture.py` and
 `tools/bond_load.py` do that round trip through files (they also read the
 old `BOND local=.. peer=..` files in `/work/cyclone2-bonds/`).
@@ -81,10 +87,10 @@ The controller library's own pairing records in retention memory
 
 A slot uses its bond's `local` address when it has one.  Otherwise the
 address is derived - nothing stored - from a seed, the slot, its type and
-`config.profile.N.generation`, and forced to a locally administered unicast
+`config.profile.A.generation` (and so on), and forced to a locally administered unicast
 address.  So a slot used for another kind of pad looks like another device,
-and `pair N --fresh` (which bumps the generation) gives the slot an
-identity no host has a stale key for.  `status.profile.N.address` shows
+and `pair A --fresh` (which bumps the generation) gives the slot an
+identity no host has a stale key for.  `status.profile.A.address` shows
 each slot's.
 
 The seed is the SPI flash chip's factory unique ID

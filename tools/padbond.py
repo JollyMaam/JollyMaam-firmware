@@ -25,12 +25,26 @@ import padbus  # noqa: E402
 ADDRESS = r"[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}"
 LEGACY = re.compile(rf"^BOND local=({ADDRESS}) peer=({ADDRESS}) type=(\d+) "
                     r"key=([0-9a-fA-F]{32})", re.M)
-SETTING = re.compile(r"^config\.profile\.\d+\.(bond\.\w+|type|generation|rumble)"
+SETTING = re.compile(r"^config\.profile\.\w+\.(bond\.\w+|type|generation|rumble)"
                      r"\s*=\s*(\S+)", re.M)
+
+
+SLOTS = "ABXY"      # named after the Home+button chord that selects them
+
+
+def slot_name(slot):
+    """A, B, X or Y, from a name (any case) or a number 0..3."""
+    text = str(slot).strip().upper()
+    if text in SLOTS and len(text) == 1:
+        return text
+    if text.isdigit() and int(text) < len(SLOTS):
+        return SLOTS[int(text)]
+    raise RuntimeError(f"no slot {slot!r}: use A, B, X or Y")
 
 
 def read(path, slot):
     """The settings a bond file holds, as import lines for `slot`."""
+    slot = slot_name(slot)
     text = Path(path).read_text(errors="replace")
     lines = [f"config.profile.{slot}.{leaf} = {value}"
              for leaf, value in SETTING.findall(text)]
@@ -91,7 +105,7 @@ class Pad:
 
     def export(self, slot):
         """Slot `slot`'s settings that differ from the defaults."""
-        return [line for line in self.cmd(f"export config.profile.{slot}")
+        return [line for line in self.cmd(f"export config.profile.{slot_name(slot)}")
                 if line.startswith("config.")]
 
     def load(self, lines):

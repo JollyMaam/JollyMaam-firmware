@@ -91,13 +91,23 @@ int cfg_leaf_next(const struct cfg_item *items, u16 count, u32 *position,
     return 1;
 }
 
-void cfg_leaf_path(const struct cfg_leaf *leaf, char *out, u32 size)
+const char *const cfg_slot_names[] = { "A", "B", "X", "Y" };
+const char *const cfg_stick_names[] = { "left", "right" };
+const char *const cfg_trigger_names[] = { "l2", "r2" };
+
+/* The path with '#' as the index's name, or its number. */
+static void leaf_path(const struct cfg_leaf *leaf, int numeric, char *out,
+                      u32 size)
 {
     const char *path = leaf->item->path;
     u32 length = 0U;
 
     while (*path && length + 2U < size) {
-        if (*path == '#') {
+        if (*path == '#' && leaf->item->names && !numeric) {
+            const char *name = leaf->item->names[leaf->index];
+
+            while (*name && length + 2U < size) out[length++] = *name++;
+        } else if (*path == '#') {
             if (leaf->index >= 10U) out[length++] = (char)('0' + leaf->index / 10U);
             out[length++] = (char)('0' + leaf->index % 10U);
         } else {
@@ -108,6 +118,37 @@ void cfg_leaf_path(const struct cfg_leaf *leaf, char *out, u32 size)
     out[length] = '\0';
 }
 
+void cfg_leaf_path(const struct cfg_leaf *leaf, char *out, u32 size)
+{
+    leaf_path(leaf, 0, out, size);
+}
+
+static char lower(char letter)
+{
+    return letter >= 'A' && letter <= 'Z' ? (char)(letter - 'A' + 'a') : letter;
+}
+
+/* `prefix` names `path` or a subtree of it, ignoring case. */
+static int path_under(const char *path, const char *prefix)
+{
+    while (*prefix) {
+        if (lower(*prefix++) != lower(*path++)) return 0;
+    }
+    return *path == '\0' || *path == '.' || path[-1] == '.';
+}
+
+int cfg_leaf_under(const struct cfg_leaf *leaf, const char *prefix)
+{
+    char name[48];
+
+    if (!*prefix) return 1;
+    leaf_path(leaf, 0, name, sizeof(name));
+    if (path_under(name, prefix)) return 1;
+    if (!leaf->item->names) return 0;
+    leaf_path(leaf, 1, name, sizeof(name));
+    return path_under(name, prefix);
+}
+
 int cfg_leaf_find(const struct cfg_item *items, u16 count, const char *path,
                   struct cfg_leaf *leaf)
 {
@@ -115,8 +156,11 @@ int cfg_leaf_find(const struct cfg_item *items, u16 count, const char *path,
     u32 position = 0U;
 
     while (cfg_leaf_next(items, count, &position, leaf)) {
-        cfg_leaf_path(leaf, name, sizeof(name));
-        if (!strcmp(name, path)) return 0;
+        leaf_path(leaf, 0, name, sizeof(name));
+        if (path_under(name, path) && strlen(name) == strlen(path)) return 0;
+        if (!leaf->item->names) continue;
+        leaf_path(leaf, 1, name, sizeof(name));
+        if (path_under(name, path) && strlen(name) == strlen(path)) return 0;
     }
     return -1;
 }

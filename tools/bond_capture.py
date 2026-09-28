@@ -26,7 +26,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-o", "--output", required=True,
                         help="new bond file; an existing one is never replaced")
-    parser.add_argument("--slot", type=int, default=0)
+    parser.add_argument("--slot", default="A",
+                        help="A, B, X or Y (the Home+button chord) or 0..3")
     parser.add_argument("--fresh", action="store_true",
                         help="pair under a new address (pair N --fresh)")
     parser.add_argument("--no-write", action="store_true",
@@ -40,7 +41,8 @@ def main():
     try:
         if args.no_write:
             pad.cmd("config.autocommit = false")
-        pad.cmd(f"pair {args.slot}" + (" --fresh" if args.fresh else ""))
+        pad.cmd(f"pair {padbond.slot_name(args.slot)}" +
+                (" --fresh" if args.fresh else ""))
         print("pairing; put the console in Change Grip/Order", file=sys.stderr)
         deadline = time.monotonic() + args.pair_wait
         while time.monotonic() < deadline:

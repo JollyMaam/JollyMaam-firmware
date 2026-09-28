@@ -119,9 +119,12 @@ Console commands worth knowing (`help` lists them all; Tab completes):
     export / import       settings that differ from the defaults, keys included
     commit / pending      write now / not written yet (config.autocommit)
     unset PATH            back to the default; factory-reset for everything
-    pair N [--fresh]      forget slot N's bond and wait to be paired
+    pair SLOT [--fresh]   forget a slot's bond and wait to be paired
                           (--fresh: a new derived address)
-    connect N             reconnect a saved slot
+    connect SLOT          reconnect a saved slot
+
+Slots are A, B, X, Y - the Home+button chord that selects them; 0..3 work
+too.
     disconnect            drop the link without sleeping
     reboot                reset the chip, come back as this build
     stat                  one key=value line: uptime, boots, slot, state, ...

@@ -85,6 +85,9 @@ struct cfg_item {
     u8 group;               /* enum cfg_group */
     u8 apply;               /* enum cfg_apply */
     u8 count;               /* array length; 0 = not an array */
+    /* What the '#' in the path reads as: a name per index ("A" for profile
+     * 0); the number works too.  NULL: the number. */
+    const char *const *names;
     u8 elements;            /* CFG_LIST: values in the list */
     u16 offset;             /* into struct config (status: into the getter's struct) */
     u16 size;               /* bytes of one value */
@@ -102,6 +105,14 @@ struct cfg_item {
 
 #define CFG_ITEM_SIZE(type, member) sizeof(((type *)0)->member)
 
+/* The profile slots are named after the Home+button chord that selects them;
+ * the sticks and triggers after the side they are on. */
+extern const char *const cfg_slot_names[];
+extern const char *const cfg_stick_names[];
+extern const char *const cfg_trigger_names[];
+#define config_slot_name(slot) \
+    ((slot) < CONFIG_PROFILES ? cfg_slot_names[(slot)] : "?")
+
 /* Where a leaf lives in struct config. */
 #define CFG_FIELD(member) \
     .offset = offsetof(struct config, member), \
@@ -111,17 +122,19 @@ struct cfg_item {
 #define CFG_PROFILE_FIELD(member) \
     .offset = offsetof(struct config, profile[0].member), \
     .size = CFG_ITEM_SIZE(struct config, profile[0].member), \
-    .stride = sizeof(struct config_profile), .count = CONFIG_PROFILES
+    .stride = sizeof(struct config_profile), .count = CONFIG_PROFILES, \
+    .names = cfg_slot_names
 
 #define CFG_STICK_FIELD(member) \
     .offset = offsetof(struct config, cal.stick[0].member), \
     .size = CFG_ITEM_SIZE(struct config, cal.stick[0].member), \
-    .stride = sizeof(struct cal_stick), .count = 2
+    .stride = sizeof(struct cal_stick), .count = 2, .names = cfg_stick_names
 
 #define CFG_TRIGGER_FIELD(member) \
     .offset = offsetof(struct config, cal.trigger[0].member), \
     .size = CFG_ITEM_SIZE(struct config, cal.trigger[0].member), \
-    .stride = sizeof(struct cal_trigger), .count = 2
+    .stride = sizeof(struct cal_trigger), .count = 2, \
+    .names = cfg_trigger_names
 
 /* A status leaf: a member of the struct its getter fills. */
 #define CFG_STATUS_FIELD(type, member, getter) \
@@ -180,10 +193,14 @@ struct cfg_leaf {
     u8 index;
 };
 
-/* Build "profile.2.type" for a leaf (no namespace prefix). */
+/* Build "profile.X.type" for a leaf (no namespace prefix). */
 void cfg_leaf_path(const struct cfg_leaf *leaf, char *out, u32 size);
 
-/* Look a path up ("profile.2.type"); 0 when found. */
+/* Is the leaf at or under `prefix` ("" is everything)?  Array indexes may
+ * be given by name or number, in either case. */
+int cfg_leaf_under(const struct cfg_leaf *leaf, const char *prefix);
+
+/* Look a path up ("profile.X.type" or "profile.2.type"); 0 when found. */
 int cfg_leaf_find(const struct cfg_item *items, u16 count, const char *path,
                   struct cfg_leaf *leaf);
 

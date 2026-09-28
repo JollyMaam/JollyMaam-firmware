@@ -20,7 +20,8 @@ import padbond
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("bond")
-    parser.add_argument("--slot", type=int, default=0)
+    parser.add_argument("--slot", default="A",
+                        help="A, B, X or Y (the Home+button chord) or 0..3")
     parser.add_argument("--connect", action="store_true",
                         help="page the bonded console afterwards")
     parser.add_argument("--no-write", action="store_true",
@@ -37,7 +38,7 @@ def main():
         for line in pad.export(args.slot):
             print(line)
         if args.connect:
-            print("\n".join(pad.cmd(f"connect {args.slot}")))
+            print("\n".join(pad.cmd(f"connect {padbond.slot_name(args.slot)}")))
     except RuntimeError as error:
         print(f"bond_load: {error}", file=sys.stderr)
         return 1

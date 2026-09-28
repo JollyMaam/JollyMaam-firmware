@@ -523,6 +523,14 @@ class Server:
         if not line or line[0] not in "=.":
             return False
         ident, _, rest = line[1:].partition(" ")
+        if not ident:
+            # Untagged: someone else wrote to the port (flash.sh's c2ctl).
+            # Log the output itself, and the end only when it failed.
+            if line[0] == "=":
+                self.emit(rest)
+            elif rest != "OK":
+                self.emit(rest)
+            return True
         with self.lock:
             record = self.pending.get(ident)
             if record is not None and line[0] == ".":

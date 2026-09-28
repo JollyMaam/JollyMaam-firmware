@@ -237,8 +237,14 @@ while :; do
 done
 
 echo "controller is back at $console"
-"$c2ctl" -p "$console" stat
-"$c2ctl" -p "$console" status.radio
+# With the padbus daemon running it owns the port and reads the boot counter
+# after the re-enumeration itself; a second writer would only interleave.
+if [ -S /tmp/padbus.sock ]; then
+    echo "padbus is running: see its log for the boot counter"
+else
+    "$c2ctl" -p "$console" stat
+    "$c2ctl" -p "$console" status.radio
+fi
 
 if [ -n "$backup" ]; then
     echo "previous flash saved as $backup"

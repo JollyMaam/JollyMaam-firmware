@@ -51,10 +51,22 @@ static int number(const char *text, u32 *value)
     return 0;
 }
 
+/* A profile slot: A, B, X or Y (the Home+button chord that selects it; any
+ * case), or its number 0..3. */
 static int slot_argument(const char *text, u8 *slot)
 {
+    u8 index;
     u32 value;
 
+    for (index = 0U; index < CONFIG_PROFILES; index++) {
+        char name = cfg_slot_names[index][0];
+
+        if (text[0] && !text[1] &&
+            (text[0] == name || text[0] == (char)(name - 'A' + 'a'))) {
+            *slot = index;
+            return 0;
+        }
+    }
     if (number(text, &value) != 0 || value > 3U) return -1;
     *slot = (u8)value;
     return 0;
@@ -75,8 +87,8 @@ static int cmd_connect(int argc, char **argv)
     if (argc != 2 || slot_argument(argv[1], &slot) != 0) return CONSOLE_USAGE;
     result = cyclone2_connect_request(slot);
     if (result < 0) return busy();
-    console_ok(result ? "reconnecting slot %u" : "already connected to slot %u",
-               slot);
+    console_ok(result ? "reconnecting slot %s" : "already connected to slot %s",
+               config_slot_name(slot));
     return 0;
 }
 
@@ -101,8 +113,8 @@ static int cmd_pair(int argc, char **argv)
         return CONSOLE_USAGE;
     if ((fresh ? cyclone2_pair_fresh_request(slot) :
                  cyclone2_pair_request(slot)) <= 0) return busy();
-    console_ok("slot %u forgot its bond%s and is waiting to pair", slot,
-               fresh ? ", has a new address," : "");
+    console_ok("slot %s forgot its bond%s and is waiting to pair",
+               config_slot_name(slot), fresh ? ", has a new address," : "");
     return 0;
 }
 
@@ -124,8 +136,8 @@ static int cmd_wake(int argc, char **argv)
                       seconds < WAKE_SECONDS_MIN || seconds > WAKE_SECONDS_MAX)))
         return CONSOLE_USAGE;
     result = cyclone2_wake_request(slot, (u8)channel, (u8)seconds);
-    if (result > 0) console_ok("waking slot %u's console", slot);
-    else if (result == -3) return console_fail("slot %u has no console address yet; connect it once first", slot);
+    if (result > 0) console_ok("waking slot %s's console", config_slot_name(slot));
+    else if (result == -3) return console_fail("slot %s has no console address yet; connect it once first", config_slot_name(slot));
     else if (result == -2) return CONSOLE_USAGE;
     else return busy();
     return 0;
@@ -459,8 +471,8 @@ static int cmd_poke(int argc, char **argv)
 /* ------------------------------------------------------------------ table */
 
 static const char *const on_off[] = { "on", "off", NULL };
-static const char *const slots[] = { "0", "1", "2", "3", NULL };
-static const char *const wake_words[] = { "0", "1", "2", "3", "stop", NULL };
+static const char *const slots[] = { "A", "B", "X", "Y", NULL };
+static const char *const wake_words[] = { "A", "B", "X", "Y", "stop", NULL };
 static const char *const cal_words[] = { "start", "done", "cancel", "raw", NULL };
 static const char *const inject_words[] = { "a", "stop", NULL };
 static const char *const imu_words[] = { "init", "stop", "sample", NULL };
@@ -487,12 +499,13 @@ const struct console_command console_commands[] = {
     { "factory-reset", "[--no-commit]", "every setting back to its default, "
       "written at once unless --no-commit", console_cmd_factory_reset,
       reset_words, 0 },
-    { "connect", "N", "reconnect slot N to its bonded host", cmd_connect, slots, 0 },
+    { "connect", "SLOT", "reconnect a slot (A B X Y, as Home+button) to its "
+      "bonded host", cmd_connect, slots, 0 },
     { "disconnect", NULL, "stop Bluetooth without sleeping", cmd_disconnect, NULL, 0 },
-    { "pair", "N [--fresh]", "forget slot N's bond and wait to pair (--fresh: "
-      "with a new address)", cmd_pair, slots, 0 },
-    { "wake", "N [CHANNEL] [SECONDS] | stop", "wake slot N's sleeping Switch, "
-      "then reconnect", cmd_wake, wake_words, 0 },
+    { "pair", "SLOT [--fresh]", "forget a slot's bond and wait to pair "
+      "(--fresh: with a new address)", cmd_pair, slots, 0 },
+    { "wake", "SLOT [CHANNEL] [SECONDS] | stop", "wake a slot's sleeping "
+      "Switch, then reconnect", cmd_wake, wake_words, 0 },
     { "reboot", NULL, "reset the chip into this build", cmd_reboot, NULL, 0 },
     { "uboot", NULL, "reboot into the BR23 UBOOT1.00 loader (flashing)",
       cmd_uboot, NULL, 0 },

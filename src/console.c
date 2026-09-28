@@ -271,14 +271,18 @@ static const char *split_namespace(const char *path, const struct cfg_item **ite
     return *rest ? NULL : rest;
 }
 
-/* A leaf's path is under `prefix` ("" matches everything). */
-static int under(const char *path, const char *prefix)
+static int same_letters(const char *first, const char *second, u32 length)
 {
-    u32 length = strlen(prefix);
+    while (length--) {
+        char one = *first++;
+        char two = *second++;
 
-    if (!length) return 1;
-    return !strncmp(path, prefix, length) &&
-           (path[length] == '\0' || path[length] == '.');
+        if (one >= 'A' && one <= 'Z') one = (char)(one - 'A' + 'a');
+        if (two >= 'A' && two <= 'Z') two = (char)(two - 'A' + 'a');
+        if (one != two) return 0;
+        if (!one) return 1;
+    }
+    return 1;
 }
 
 static void print_leaf(const struct cfg_leaf *leaf, int is_config, int annotate)
@@ -355,7 +359,6 @@ static int statement(char *text)
     int help = 0;
     u32 position = 0U;
     u32 shown = 0U;
-    char name[48];
 
     if (equals) {
         char *end = equals;
@@ -408,8 +411,7 @@ static int statement(char *text)
     if (importing) return console_fail("only settings can be imported");
 
     while (cfg_leaf_next(items, count, &position, &leaf)) {
-        cfg_leaf_path(&leaf, name, sizeof(name));
-        if (!under(name, path)) continue;
+        if (!cfg_leaf_under(&leaf, path)) continue;
         if (help) print_leaf_help(&leaf, is_config);
         else print_leaf(&leaf, is_config, 1);
         shown++;
@@ -436,15 +438,13 @@ int console_cmd_unset(int argc, char **argv)
     const char *path;
     u32 position = 0U;
     u32 reset = 0U;
-    char name[48];
     u8 autocommit = target->autocommit;
 
     if (argc != 2) return CONSOLE_USAGE;
     path = config_path_argument(argv[1]);
     if (!path) return console_fail("not a setting: %s", argv[1]);
     while (cfg_leaf_next(config_items, config_item_count, &position, &leaf)) {
-        cfg_leaf_path(&leaf, name, sizeof(name));
-        if (!under(name, path)) continue;
+        if (!cfg_leaf_under(&leaf, path)) continue;
         cfg_leaf_default(&leaf, cfg_leaf_data(target, &leaf));
         reset++;
     }
@@ -462,7 +462,6 @@ int console_cmd_export(int argc, char **argv)
     struct cfg_leaf leaf;
     const char *path = "";
     u32 position = 0U;
-    char name[48];
 
     if (argc > 2) return CONSOLE_USAGE;
     if (argc == 2) {
@@ -470,8 +469,7 @@ int console_cmd_export(int argc, char **argv)
         if (!path) return console_fail("not a setting: %s", argv[1]);
     }
     while (cfg_leaf_next(config_items, config_item_count, &position, &leaf)) {
-        cfg_leaf_path(&leaf, name, sizeof(name));
-        if (under(name, path) && !cfg_leaf_is_default(&config, &leaf))
+        if (cfg_leaf_under(&leaf, path) && !cfg_leaf_is_default(&config, &leaf))
             print_leaf(&leaf, 1, 0);
     }
     return 0;
@@ -812,7 +810,7 @@ static void complete_path(const char *word, int config_only)
             snprintf(full, sizeof(full), "%s.", name);
             cfg_leaf_path(&leaf, full + name_length + 1U,
                           sizeof(full) - name_length - 1U);
-            if (strncmp(full, word, length)) continue;
+            if (!same_letters(full, word, length)) continue;
             dot = strchr(full + length, '.');
             add_candidate(full, dot ? (u32)(dot - full) + 1U : strlen(full));
         }
