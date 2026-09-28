@@ -910,8 +910,9 @@ static void add_candidate(const char *text, u32 length)
 }
 
 /* The next segment of every path under `word` ("pro" -> "profile."), in a
- * table; `prefix` is put in front ("config.").  A setting that is complete
- * gets its "=" when `assign`. */
+ * table; `prefix` is put in front ("config.").  With `assign`, a setting
+ * already typed out in full gets its "=": Tab completes the name first, and
+ * the next Tab adds the "=". */
 static void complete_table(const char *word, const char *prefix,
                            const struct cfg_item *items, u16 count, int assign)
 {
@@ -930,7 +931,8 @@ static void complete_table(const char *word, const char *prefix,
         dot = strchr(full + length, '.');
         if (dot) {
             add_candidate(full, (u32)(dot - full) + 1U);
-        } else if (assign && strlen(full) + 1U < sizeof(full)) {
+        } else if (assign && strlen(full) == length &&
+                   strlen(full) + 1U < sizeof(full)) {
             strcat(full, "=");
             add_candidate(full, strlen(full));
         } else {
@@ -1123,13 +1125,11 @@ static void tab(void)
         raw(candidates[0], common);
         memcpy(line + start, candidates[0], common);
         line_length = (u8)(start + common);
-        if (candidate_count == 1U && line[line_length - 1] == '=') {
-            /* A whole setting: show what it takes. */
-            line[line_length] = '\0';
-            complete(line, line_length);
-            if (candidate_count) list_candidates();
-        } else if (candidate_count == 1U && line[line_length - 1] != '.' &&
-                   line_length + 1U < LINE_SIZE - 1U) {
+        /* A word is done: a space after it - but not after a path, where
+         * the next Tab adds the "=" (or the user types "help"). */
+        if (candidate_count == 1U && line[line_length - 1] != '.' &&
+            line[line_length - 1] != '=' && !is_path(candidates[0]) &&
+            line_length + 1U < LINE_SIZE - 1U) {
             line[line_length++] = ' ';
             raw(" ", 1U);
         }

@@ -529,13 +529,13 @@ def apply_completion(editor, completion, bus):
     common = candidates[0][:len(common)]
     if len(common) > len(word) or (common != word and len(common) == len(word)):
         replacement = common
-        if len(candidates) == 1 and not common.endswith((".", "=")):
+        # A finished word gets a space - but not a path: the next Tab adds
+        # its "=", and the one after lists the values.
+        if (len(candidates) == 1 and not common.endswith((".", "=")) and
+                not common.startswith(("config.", "status."))):
             replacement += " "
         editor.text = line[:start] + replacement + editor.text[editor.cursor:]
         editor.cursor = start + len(replacement)
-        if len(candidates) == 1 and common.endswith("="):
-            # A whole setting: ask what it takes.
-            bus.complete(editor.text[:editor.cursor])
         return ""
     if len(candidates) > 1:
         bus.note("  ".join(candidates))
