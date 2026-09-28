@@ -8,34 +8,39 @@ clear who is driving the pad.
     tools/padbus.py serve -p /dev/bwrap/ttyjl0     # once, in another terminal
     tools/pad_tui.py
 
-Layout: the log fills the window above two reserved bottom lines - the status
-line (control, filters, key hints) and the prompt.  Log output is never written
-over either of them.
+The log is ordinary terminal output: it scrolls into the terminal's own
+history (tmux copy mode, the scroll wheel), and nothing takes over the screen.
+Only the last two lines are the TUI's - the status line (control, filters,
+key hints) and the prompt - and they are redrawn below each new log line, the
+way the pad's own console redraws its prompt.
 
 Typing goes to the prompt.  It behaves like readline: Ctrl-A/Ctrl-E,
 Ctrl-B/Ctrl-F by character, Alt-B/Alt-F by word, Ctrl-U/Ctrl-K/Ctrl-W to
-delete, Ctrl-R to search the history, Home/End, and Up/Down for history.
-Enter sends the line to the pad.
+delete, Ctrl-R to search the history, Home/End, and Up/Down for history.  Tab
+asks the pad what completes the line.  Ctrl-L clears the screen and redraws
+the recent log.  Enter sends the line to the pad.
 
 A line starting with `/` is a TUI command instead - see TUI_HELP below, which
 `/help` prints.  Keys, for the things that should not need typing:
 
     F1  take control / give it back          F2  fill in /filter
     F3  fill in /hide                        F4  fill in /clear
-    PgUp/PgDn  scroll the log
 """
 
 import argparse
-import curses
 import json
 import os
 import queue
 import re
+import select
+import shutil
 import signal
 import socket
 import sys
+import termios
 import threading
 import time
+import tty
 
 DEFAULT_SOCKET = "/tmp/padbus.sock"
 
@@ -46,10 +51,10 @@ STATUS_KEYS = "F1 ctl  F2 flt  F3 hide  F4 clr  /help"
 TUI_HELP = """TUI commands - a line starting with '/'; everything else goes to the pad:
   /help              this list
   /control           take control, or give it back (same as F1)
-  /filter REGEX      show only lines matching REGEX (empty clears it)
-  /hide REGEX        hide lines matching REGEX (empty clears it)
+  /filter REGEX      show only new lines matching REGEX (empty clears it)
+  /hide REGEX        hide new lines matching REGEX (empty clears it)
   /clear             clear both filters
-  /save [FILE]       write the current view to FILE (default /work/nslog/tui-dump.txt)
+  /save [FILE]       write the log, filtered, to FILE (default /work/nslog/tui-dump.txt)
   /quit              leave (also /exit)
 
 Pad commands worth knowing: config (settings; `config.PATH = VALUE`), status,
@@ -58,20 +63,66 @@ own help for the full list.  Tab completes commands, settings and values - the
 pad itself answers.
 
 Editing: Ctrl-A/E line start/end, Ctrl-B/F or arrows by character, Alt-B/F by
-word, Ctrl-U/K/W delete, Up/Down history, PgUp/PgDn scroll.
+word, Ctrl-U/K/W delete, Up/Down history, Ctrl-L redraw.  Scroll back with the
+terminal (tmux copy mode).
 Ctrl-R searches the history: a motion key (arrow, Home/End, Ctrl-A/E, Alt-B/F)
 leaves the search with the found line ready to edit, Enter runs it as it is.
 Ctrl-C clears the line; it never leaves the app."""
 
 HISTORY_LIMIT = 200
+KEEP_LINES = 20000
+
+# Keys that are not a single byte, decoded from their escape sequences.
+KEY_UP, KEY_DOWN, KEY_RIGHT, KEY_LEFT = 0x101, 0x102, 0x103, 0x104
+KEY_HOME, KEY_END, KEY_DC, KEY_PPAGE, KEY_NPAGE = 0x105, 0x106, 0x107, 0x108, 0x109
+KEY_F1, KEY_F2, KEY_F3, KEY_F4 = 0x111, 0x112, 0x113, 0x114
+KEY_BACKSPACE, KEY_ENTER, KEY_ESC = 127, 13, 27
+ALT = 0x1000        # added to a key pressed with Alt (Esc then the key)
+
+SEQUENCES = {
+    "[A": KEY_UP, "[B": KEY_DOWN, "[C": KEY_RIGHT, "[D": KEY_LEFT,
+    "[H": KEY_HOME, "[F": KEY_END, "OH": KEY_HOME, "OF": KEY_END,
+    "[1~": KEY_HOME, "[7~": KEY_HOME, "[4~": KEY_END, "[8~": KEY_END,
+    "[3~": KEY_DC, "[5~": KEY_PPAGE, "[6~": KEY_NPAGE,
+    "OP": KEY_F1, "OQ": KEY_F2, "OR": KEY_F3, "OS": KEY_F4,
+    "[11~": KEY_F1, "[12~": KEY_F2, "[13~": KEY_F3, "[14~": KEY_F4,
+}
+
+
+def decode(data):
+    """Bytes from the terminal -> key codes."""
+    keys = []
+    text = data.decode("utf-8", "replace")
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char != "\x1b":
+            keys.append(ord(char))
+            index += 1
+            continue
+        rest = text[index + 1:]
+        if not rest:
+            keys.append(KEY_ESC)
+            break
+        if rest[0] in "[O":
+            end = 1
+            while end < len(rest) and not (rest[end].isalpha() or rest[end] == "~"):
+                end += 1
+            sequence = rest[:end + 1]
+            keys.append(SEQUENCES.get(sequence, 0))
+            index += 1 + len(sequence)
+        else:
+            keys.append(ALT + ord(rest[0]))
+            index += 2
+    return keys
 
 
 class LineEditor:
     """The always-visible prompt, with readline-style editing.
 
-    Python's readline module cannot drive a curses window (it writes to the
-    process's stdout, which curses owns), so the editing is done here; the keys
-    are the ones readline would bind.
+    The prompt shares the terminal with the log scrolling above it, which
+    readline cannot do, so the editing is done here; the keys are the ones
+    readline would bind.
     """
 
     def __init__(self):
@@ -178,9 +229,9 @@ class LineEditor:
             self.cursor = 0
         elif key == 5:                                  # Ctrl-E
             self.cursor = len(self.text)
-        elif key in (2, curses.KEY_LEFT):
+        elif key in (2, KEY_LEFT):
             self.cursor = max(0, self.cursor - 1)
-        elif key in (6, curses.KEY_RIGHT):
+        elif key in (6, KEY_RIGHT):
             self.cursor = min(len(self.text), self.cursor + 1)
         elif key == 11:                                 # Ctrl-K
             self.kill_to_end()
@@ -191,19 +242,17 @@ class LineEditor:
         elif key == 18:                                 # Ctrl-R
             self.searching = True
             self.search_text = ""
-        elif key == 12:                                 # Ctrl-L
-            pass
-        elif key == curses.KEY_HOME:
+        elif key == KEY_HOME:
             self.cursor = 0
-        elif key == curses.KEY_END:
+        elif key == KEY_END:
             self.cursor = len(self.text)
-        elif key == curses.KEY_UP:
+        elif key == KEY_UP:
             self.history_prev()
-        elif key == curses.KEY_DOWN:
+        elif key == KEY_DOWN:
             self.history_next()
-        elif key in (curses.KEY_BACKSPACE, 127, 8):
+        elif key in (KEY_BACKSPACE, 127, 8):
             self.backspace()
-        elif key == curses.KEY_DC:
+        elif key == KEY_DC:
             self.delete()
         elif 32 <= key < 127:
             self.insert(chr(key))
@@ -219,8 +268,8 @@ class LineEditor:
         a shell's reverse search hands the line back.  Enter means "run this
         one as it is", which the caller does once this returns False.
         """
-        motions = (curses.KEY_LEFT, curses.KEY_RIGHT, curses.KEY_HOME,
-                   curses.KEY_END, 1, 2, 5, 6)
+        motions = (KEY_LEFT, KEY_RIGHT, KEY_HOME,
+                   KEY_END, 1, 2, 5, 6)
         if alt and key in (ord('b'), ord('B'), ord('f'), ord('F')):
             self.searching = False
             return self.handle(key, alt=True)
@@ -229,10 +278,10 @@ class LineEditor:
             return self.handle(key)
         if key in (7, 27):                              # Ctrl-G / Esc
             self.searching = False
-        elif key in (curses.KEY_ENTER, 10, 13):
+        elif key in (KEY_ENTER, 10, 13):
             self.searching = False
             return False            # the caller runs the matched line
-        elif key in (curses.KEY_BACKSPACE, 127, 8):
+        elif key in (KEY_BACKSPACE, 127, 8):
             self.search_text = self.search_text[:-1]
             self.search_history()
         elif 32 <= key < 127:
@@ -261,7 +310,6 @@ class Bus:
         self.initial_log = []
         self.initial_owner = None
         self.lines = []
-        self.local = []
         self.include = None
         self.exclude = None
         self.request({"op": "hello", "client": client})
@@ -333,14 +381,23 @@ class Bus:
 
     def add(self, line):
         self.lines.append(line)
+        if len(self.lines) > KEEP_LINES:
+            del self.lines[:len(self.lines) - KEEP_LINES]
 
     def note(self, text):
         """Lines from the TUI itself; never sent to the pad."""
         for part in text.splitlines():
-            self.local.append("tui| " + part)
+            self.add("tui| " + part)
+
+    def shows(self, line):
+        if self.include is not None and not self.include.search(line):
+            return False
+        if self.exclude is not None and self.exclude.search(line):
+            return False
+        return True
 
     def view(self):
-        return filtered(self.lines + self.local, self.include, self.exclude)
+        return [line for line in self.lines if self.shows(line)]
 
     def set_filter(self, include=None, exclude=None):
         if include is not None:
@@ -361,71 +418,63 @@ class Bus:
         return " ".join(parts)
 
 
-def filtered(lines, include, exclude):
-    if include is None and exclude is None:
-        return lines
-    out = []
-    for line in lines:
-        if include is not None and not include.search(line):
-            continue
-        if exclude is not None and exclude.search(line):
-            continue
-        out.append(line)
-    return out
-
-
-def drawable(text):
-    """Drop what curses cannot draw.
-
-    padbus already cleans the lines it broadcasts, but a NUL reaching
-    `addstr` does not raise `curses.error` - it raises `ValueError`, which the
-    per-line catch below would not see, so the whole TUI would die rather than
-    one line going blank.  Cheap to repeat here, and it keeps an old daemon
-    from taking the screen down.
-    """
+def printable(text):
+    """Nothing that could move the cursor or change the terminal's state."""
     return "".join(char if char == "\t" or 0x20 <= ord(char) < 0x7f
                    or ord(char) >= 0xa0 else "?"
                    for char in text)
 
 
-def draw(screen, bus, owner, offset, notice, editor):
-    """Log on top, then the status line and the prompt - which always shows."""
-    height, width = screen.getmaxyx()
-    log_height = max(1, height - 2)
-    screen.erase()
+class Screen:
+    """The terminal: log lines scroll up, the last two lines are ours.
 
-    shown = bus.view()
-    first = max(0, len(shown) - log_height - offset)
-    for index, line in enumerate(shown[first:first + log_height]):
-        try:
-            screen.addstr(index, 0, drawable(line)[:width - 1])
-        except (curses.error, ValueError):
-            pass
+    The cursor normally sits on the prompt line.  To add log lines, both of
+    our lines are erased, the lines are written (they scroll into the
+    terminal's history like any output), and the status line and prompt are
+    written again below them.
+    """
 
-    # Every field is always present and in the same order, so a notice can
-    # never push the control state or the key hints off the line.
-    parts = ["ctl:" + (owner + "(you)" if owner == bus.client else
-                       (owner if owner else "free"))]
-    summary = bus.filter_summary()
-    if summary:
-        parts.append("flt:" + summary)
-    parts.append(STATUS_KEYS)
-    if notice:
-        parts.append(notice)
-    status = "  ".join(parts)
-    try:
-        screen.addstr(height - 2, 0, drawable(status)[:width - 1],
-                      curses.A_REVERSE | curses.A_BOLD)
-    except (curses.error, ValueError):
-        pass
+    def __init__(self):
+        self.out = sys.stdout
+        self.footer = False
 
-    try:
-        screen.addstr(height - 1, 0, drawable(editor.prompt_text())[:width - 1],
-                      curses.A_BOLD)
-        screen.move(height - 1, min(editor.prompt_cursor(), width - 2))
-    except (curses.error, ValueError):
-        pass
-    screen.refresh()
+    def write(self, text):
+        self.out.write(text)
+
+    def width(self):
+        return max(20, shutil.get_terminal_size((80, 24)).columns)
+
+    def height(self):
+        return max(5, shutil.get_terminal_size((80, 24)).lines)
+
+    def erase_footer(self):
+        if self.footer:
+            self.write("\r\x1b[K\x1b[1A\r\x1b[K")
+            self.footer = False
+
+    def log(self, lines):
+        self.erase_footer()
+        for line in lines:
+            self.write(printable(line) + "\n")
+
+    def draw_footer(self, status, prompt, cursor):
+        width = self.width()
+        self.erase_footer()
+        status = printable(status)[:width - 1]
+        # Keep the cursor on the screen: show the end of a long line.
+        prompt = printable(prompt)
+        start = max(0, cursor - (width - 2))
+        prompt = prompt[start:start + width - 1]
+        self.write("\x1b[7;1m" + status + "\x1b[0m\n\x1b[1m" + prompt +
+                   "\x1b[0m\r")
+        if cursor - start:
+            self.write("\x1b[%dC" % (cursor - start))
+        self.footer = True
+        self.out.flush()
+
+    def clear(self):
+        self.write("\x1b[H\x1b[2J")
+        self.footer = False
 
 
 def tui_command(bus, owner, text):
@@ -434,9 +483,6 @@ def tui_command(bus, owner, text):
     name = parts[0][1:].lower()
     argument = parts[1].strip() if len(parts) > 1 else ""
 
-    if name in ("help", "?"):
-        bus.note(TUI_HELP)
-        return "help in log"
     if name in ("quit", "exit"):
         return "quit"
     if name == "control":
@@ -491,118 +537,149 @@ def apply_completion(editor, completion, bus):
     return ""
 
 
+def status_line(bus, owner, notice):
+    # Every field is always present and in the same order, so a notice can
+    # never push the control state or the key hints off the line.
+    parts = ["ctl:" + (owner + "(you)" if owner == bus.client else
+                       (owner if owner else "free"))]
+    summary = bus.filter_summary()
+    if summary:
+        parts.append("flt:" + summary)
+    parts.append(STATUS_KEYS)
+    if notice:
+        parts.append(notice)
+    return "  ".join(parts)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--socket", default=DEFAULT_SOCKET)
     parser.add_argument("--client", default="user")
     args = parser.parse_args()
 
+    if not sys.stdin.isatty():
+        print("pad_tui: needs a terminal", file=sys.stderr)
+        return 2
     bus = Bus(args.socket, args.client)
+    screen = Screen()
+    editor = LineEditor()
+    owner = bus.initial_owner
+    notice = ""
+    stdin = sys.stdin.fileno()
+    saved = termios.tcgetattr(stdin)
+    resized = []
+    signal.signal(signal.SIGWINCH, lambda *_: resized.append(1))
 
-    def run(screen):
-        # Raw mode so Ctrl-C arrives as a key press rather than a SIGINT, and
-        # ignore SIGINT as well so nothing else can take the TUI down either.
-        # Ctrl-C clears the line, the way a shell does - it never quits.
-        curses.raw()
-        signal.signal(signal.SIGINT, signal.SIG_IGN)
-        # Some terminal descriptions (notably `dumb`, used by non-interactive
-        # PTYs) do not expose cursor visibility.  The prompt still works with
-        # the cursor left in the terminal's default state, so do not fail the
-        # whole TUI during startup when that capability is absent.
-        try:
-            curses.curs_set(1)
-        except curses.error:
-            pass
-        screen.nodelay(True)
-        screen.keypad(True)
-        owner = bus.initial_owner
+    def redraw_footer():
+        screen.draw_footer(status_line(bus, owner, notice),
+                           editor.prompt_text(), editor.prompt_cursor())
+
+    def show(lines):
+        lines = [line for line in lines if bus.shows(line)]
+        if lines:
+            screen.log(lines)
+
+    def note(text):
+        before = len(bus.lines)
+        bus.note(text)
+        show(bus.lines[before:])
+
+    # Raw input, so Ctrl-C and friends arrive as keys: Ctrl-C clears the line,
+    # the way a shell does - it never quits.  Output processing stays on.
+    tty.setraw(stdin)
+    attributes = termios.tcgetattr(stdin)
+    attributes[1] |= termios.OPOST | termios.ONLCR
+    termios.tcsetattr(stdin, termios.TCSANOW, attributes)
+    try:
         for line in bus.initial_log:
             bus.add(line)
-        editor = LineEditor()
-        offset = 0
-        notice = ""
-        alt_pending = False
-        dirty = True
-        last_draw = 0.0
-
+        show(bus.initial_log)
+        redraw_footer()
         while True:
+            changed = False
             try:
                 while True:
                     event = bus.events.get_nowait()
                     if event.get("ev") == "log":
                         bus.add(event["line"])
-                        offset = 0
+                        show([event["line"]])
+                        changed = True
                     elif event.get("ev") == "owner":
-                        # The status line's ctl: field already says this; a
-                        # notice here would only duplicate it.
                         owner = event.get("owner")
+                        changed = True
                     elif "complete" in event:
-                        notice = apply_completion(editor, event["complete"],
-                                                  bus)
+                        before = len(bus.lines)
+                        notice = apply_completion(editor, event["complete"], bus)
+                        show(bus.lines[before:])
+                        changed = True
                     elif "owner" in event and "ok" in event:
                         owner = event.get("owner")
-                        if not event.get("ok"):
-                            notice = event.get("error", "refused")
-                        else:
-                            notice = ""
-                    dirty = True
+                        notice = "" if event.get("ok") else event.get("error", "refused")
+                        changed = True
             except queue.Empty:
                 pass
+            if resized:
+                resized.clear()
+                changed = True
 
-            key = screen.getch()
-            if key != -1:
-                dirty = True
-                if key == 27 and not editor.searching:
-                    alt_pending = True
-                elif alt_pending:
-                    alt_pending = False
-                    editor.handle(key, alt=True)
-                elif key in (curses.KEY_ENTER, 10, 13):
-                    line = editor.text.strip()
-                    editor.remember(line)
-                    notice = ""
-                    if line.startswith("/"):
-                        result = tui_command(bus, owner, line)
-                        if result == "quit":
-                            break
-                        notice = result
-                    elif line:
-                        bus.command(line)
-                elif key == 9 and not editor.searching:  # Tab
-                    if not editor.text.startswith("/"):
-                        bus.complete(editor.text[:editor.cursor])
-                elif key == curses.KEY_F1:
-                    if owner == bus.client:
-                        bus.release_control()
+            ready, _, _ = select.select([stdin], [], [], 0.03)
+            if ready:
+                changed = True
+                keys = decode(os.read(stdin, 1024))
+                for key in keys:
+                    if key != 9:
+                        # A notice is about the last thing done; the next key
+                        # moves on from it.
+                        notice = ""
+                    if key == KEY_ESC and not editor.searching:
+                        continue
+                    if key in (KEY_ENTER, 10) and not (editor.searching and
+                                                       editor.handle(key)):
+                        line = editor.text.strip()
+                        editor.remember(line)
+                        if line.startswith("/"):
+                            if line.split()[0].lower() in ("/help", "/?"):
+                                note(TUI_HELP)
+                                continue
+                            result = tui_command(bus, owner, line)
+                            if result == "quit":
+                                return 0
+                            notice = result
+                        elif line:
+                            bus.command(line)
+                    elif key == 9 and not editor.searching:      # Tab
+                        if not editor.text.startswith("/"):
+                            bus.complete(editor.text[:editor.cursor])
+                    elif key == 12:                              # Ctrl-L
+                        screen.clear()
+                        recent = bus.view()[-(screen.height() - 2):]
+                        if recent:
+                            screen.log(recent)
+                    elif key == KEY_F1:
+                        if owner == bus.client:
+                            bus.release_control()
+                        else:
+                            bus.request_control()
+                    elif key == KEY_F2:
+                        editor.set("/filter ")
+                    elif key == KEY_F3:
+                        editor.set("/hide ")
+                    elif key == KEY_F4:
+                        editor.set("/clear")
+                    elif key == 3:                               # Ctrl-C
+                        editor.set("")
+                        editor.searching = False
+                        editor.search_text = ""
+                    elif key >= ALT:
+                        editor.handle(key - ALT, alt=True)
                     else:
-                        bus.request_control()
-                elif key == curses.KEY_F2:
-                    editor.set("/filter ")
-                elif key == curses.KEY_F3:
-                    editor.set("/hide ")
-                elif key == curses.KEY_F4:
-                    editor.set("/clear")
-                elif key == 3:                       # Ctrl-C
-                    editor.set("")
-                    editor.searching = False
-                    editor.search_text = ""
-                    notice = ""
-                elif key == curses.KEY_PPAGE:
-                    offset = min(offset + 10, max(0, len(bus.view()) - 1))
-                elif key == curses.KEY_NPAGE:
-                    offset = max(0, offset - 10)
-                else:
-                    editor.handle(key)
-
-            now = time.monotonic()
-            if dirty and now - last_draw > 0.05:
-                draw(screen, bus, owner, offset, notice, editor)
-                last_draw = now
-                dirty = False
-            time.sleep(0.02)
-
-    curses.wrapper(run)
-    return 0
+                        editor.handle(key)
+            if changed:
+                redraw_footer()
+    finally:
+        screen.erase_footer()
+        screen.out.flush()
+        termios.tcsetattr(stdin, termios.TCSADRAIN, saved)
 
 
 if __name__ == "__main__":

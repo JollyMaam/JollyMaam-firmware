@@ -25,26 +25,29 @@ unlinks the socket.  `tools/padbus.py quit` does the same to a running daemon
 by hand.  A daemon old enough not to know `quit` is left alone and the new one
 reports that it is "still answering ... after being asked to quit".
 
-The TUI keeps two lines at the bottom for itself - a status line (who holds
-control, which filters are on, the last notice) and a command line - and never
-writes log output over them.  Function keys drive it:
-
-The prompt is always on the bottom line, the status line above it carries the
-control state, the active filters and the key hints, and log output is never
-written over either.
+The TUI does not take over the screen.  The log is written as ordinary
+terminal output, so it scrolls into the terminal's own history - tmux copy
+mode, the scroll wheel - and stays there after the TUI exits.  Only the last
+two lines are the TUI's: a status line (who holds control, which filters are
+on, the last notice) and the prompt.  Each new log line is written where they
+were, and they are redrawn below it, the way the pad's console redraws its
+prompt.  Function keys drive it:
 
 | key | effect |
 |---|---|
 | F1 | take control, or give it back - a toggle |
 | F2 / F3 / F4 | fill in `/filter`, `/hide`, `/clear` |
-| PgUp/PgDn | scroll the log |
+| Ctrl-L | clear the screen and reprint the recent log |
 
 Typing goes to the prompt and it edits like readline: Ctrl-A/Ctrl-E,
 Ctrl-B/Ctrl-F by character, Alt-B/Alt-F by word, Ctrl-U/Ctrl-K/Ctrl-W to
 delete, Ctrl-R to search the history, Home/End, and Up/Down for history.
-Python's `readline` module cannot be pointed at a curses window (it writes to
-the process's stdout, which curses owns), so those bindings are implemented
-here rather than borrowed - the behaviour is the same, the plumbing is not.
+The prompt shares the terminal with the log scrolling above it, which Python's
+`readline` cannot do, so those bindings are implemented here rather than
+borrowed - the behaviour is the same, the plumbing is not.  Tab's candidate
+list and `/help` are printed into the log, like a shell's, and scroll away.
+Filters apply to lines as they arrive (earlier output is already in the
+terminal's history); `/save` writes the whole log through the filters.
 
 The history search behaves like a shell's: typing narrows to the most recent
 match, a motion key (an arrow, Home/End, Ctrl-A/E, Alt-B/F) ends the search and

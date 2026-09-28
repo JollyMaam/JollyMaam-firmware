@@ -185,7 +185,7 @@ Useful neighbours on this machine:
   is what initiates.  Awaiting a console-initiated reconnect is waiting
   forever - except in Change Grip/Order, which re-pairs instead.
 * `uxTaskGetStackHighWaterMark()` is unwired and calling it resets the pad.
-* The log is a byte stream: strip control bytes before handing a line to
-  curses (`tools/padbus.py: printable()`).
+* The log is a byte stream: strip control bytes before writing a line to a
+  terminal (`tools/padbus.py: printable()`).
 * No root, no `/dev/bus/usb` in this container: USB control transfers are not
   available, only the console serial port.
