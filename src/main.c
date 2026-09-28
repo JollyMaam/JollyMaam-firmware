@@ -9,7 +9,7 @@ const int vm_max_size_config = VM_MAX_SIZE_CONFIG;
 
 /* TRANSLATED: Task table. */
 const struct task_info task_info_table[] = {
-    {"app_core",   2,  0,  640,  128  },
+    {"app_core",   2,  0,  1024, 128  },
     {"imu",        1,  0,  256,  0    },
     {"sys_event",  7,  0,  256,  0    },
     {"btctrler",   4,  0,  512,  256  },

@@ -12,7 +12,8 @@
 #include "profile.h"
 #include "profile_classic.h"
 #include "rumble.h"
-#include "settings.h"
+#include "config.h"
+#include "identity.h"
 #include "usb.h"
 #include "user_cfg_id.h"
 

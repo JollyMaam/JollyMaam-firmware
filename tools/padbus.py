@@ -20,6 +20,14 @@ makes a session followable from both sides at once.
 Protocol: newline-delimited JSON over an AF_UNIX socket.  Requests carry "op"
 (and "client" where it matters) and get one reply object; events are pushed to
 every connected client as {"ev": ...}.
+
+The daemon drives the console in its machine mode (STX on every open): no
+echo, no prompt, commands go out as "@ID line", and the pad tags what comes
+back - "=ID text" for a command's output, ".ID OK" / ".ID ERR msg" when it is
+done, "! text" for a log line.  So a command's output is never confused with
+the log, and `cmd` can hand a caller exactly its own lines and whether the
+command worked.  A pad whose firmware predates machine mode ignores the STX and
+its output is logged as it comes.
 """
 
 import argparse
@@ -48,6 +56,8 @@ PAD_USB = ("4c4a", "4155")
 # means the application stopped, not merely that USB went away.
 ENQ = b"\x05"
 ACK = "\x06"
+# Machine mode: no echo or prompt, every line tagged (see the docstring).
+STX = b"\x02"
 
 
 def wall_clock_timestamp():
@@ -196,6 +206,10 @@ class Pad:
                         continue
                     self.fd = fd
                     self.path = path
+                    try:
+                        os.write(fd, STX)
+                    except OSError:
+                        pass
                     if not self.link_up:
                         self.link_up = True
                         # Only a *return* is worth reporting; the first open is not.
@@ -302,6 +316,9 @@ class Server:
         self.lock = threading.Lock()
         self.owner = None
         self.ring = []
+        # Commands on their way: id -> {client, lines, quiet, done, ok, error}
+        self.pending = {}
+        self.next_id = 1
         self.partial = ""
         self.partial_time = 0.0
         self.shutting_down = False
@@ -377,7 +394,7 @@ class Server:
             if now - self.last_command < self.heartbeat:
                 continue
             self.last_command = now
-            self.pad.write("stat")
+            self.submit("padbus", "stat")
 
     def usb_watch_loop(self):
         """The silent heartbeat: ask the kernel, not the pad.
@@ -402,7 +419,7 @@ class Server:
             if present:
                 self.note_at("pad USB device back - reading the boot counter")
                 self.check_after_loss = True
-                self.pad.write("stat")
+                self.submit("padbus", "stat")
             else:
                 self.note_at("pad USB device gone - reset, reflash, or unplugged")
                 self.check_after_loss = True
@@ -472,6 +489,56 @@ class Server:
         self.note("control: " + (owner if owner else "released"))
         self.broadcast({"ev": "owner", "owner": owner})
 
+    def submit(self, client, line, quiet=False):
+        """Send one command, tagged; returns its pending record (or None)."""
+        with self.lock:
+            ident = str(self.next_id)
+            self.next_id += 1
+            record = {"client": client, "lines": [], "quiet": quiet,
+                      "done": threading.Event(), "ok": None, "error": None,
+                      "at": time.monotonic()}
+            self.pending[ident] = record
+            # Forget commands that never finished (a reset ate them).
+            for stale in [key for key, value in self.pending.items()
+                          if time.monotonic() - value["at"] > 120]:
+                del self.pending[stale]
+        if not self.pad.write("@%s %s" % (ident, line)):
+            with self.lock:
+                self.pending.pop(ident, None)
+            return None
+        return record
+
+    def tagged(self, line):
+        """Handle one tagged line from the pad; False if it was not one."""
+        if line.startswith("! "):
+            self.emit(line[2:])
+            return True
+        if not line or line[0] not in "=.":
+            return False
+        ident, _, rest = line[1:].partition(" ")
+        with self.lock:
+            record = self.pending.get(ident)
+            if record is not None and line[0] == ".":
+                del self.pending[ident]
+        if record is None:
+            return False
+        if line[0] == "=":
+            record["lines"].append(rest)
+            if "stat up=" in rest:
+                self.track_resets(rest)
+            if not record["quiet"]:
+                self.emit(rest)
+            return True
+        record["ok"] = rest == "OK"
+        record["error"] = rest[4:] if rest.startswith("ERR ") else None
+        if not record["quiet"]:
+            if not record["ok"]:
+                self.emit("ERR " + (record["error"] or rest))
+            elif not record["lines"]:
+                self.emit("OK")
+        record["done"].set()
+        return True
+
     def handle(self, client_name, request):
         op = request.get("op")
         client = request.get("client") or client_name or "client"
@@ -502,7 +569,39 @@ class Server:
             else:
                 line = request.get("line", "")
                 self.emit(">>> [%s] %s" % (client, line))
-                reply["sent"] = self.pad.write(line)
+                reply["sent"] = self.submit(client, line) is not None
+        elif op == "cmd":
+            # Like send, but wait for the pad to finish and hand back exactly
+            # this command's output and whether it worked.
+            if self.owner != client:
+                reply["ok"] = False
+                reply["error"] = "not the owner (held by %s)" % self.owner
+            else:
+                line = request.get("line", "")
+                quiet = bool(request.get("quiet"))
+                if not quiet:
+                    self.emit(">>> [%s] %s" % (client, line))
+                record = self.submit(client, line, quiet)
+                if record is None:
+                    reply["ok"] = False
+                    reply["error"] = "the pad is not there"
+                elif not record["done"].wait(float(request.get("timeout", 10))):
+                    reply["ok"] = False
+                    reply["error"] = "no answer"
+                    reply["lines"] = record["lines"]
+                else:
+                    reply["ok"] = bool(record["ok"])
+                    reply["lines"] = record["lines"]
+                    if record["error"]:
+                        reply["error"] = record["error"]
+        elif op == "complete":
+            # What Tab would offer for a line.  Read-only, so anyone may ask,
+            # and it is not logged.
+            line = request.get("line", "")
+            record = self.submit(client, "complete " + line, quiet=True)
+            reply["complete"] = {"line": line, "candidates": []}
+            if record is not None and record["done"].wait(2.0):
+                reply["complete"]["candidates"] = record["lines"]
         elif op == "quit":
             # A new daemon asks this one to stand down before it binds, so the
             # socket always belongs to exactly one owner.  The reply is sent by
@@ -552,6 +651,8 @@ class Server:
             while "\n" in self.partial:
                 line, self.partial = self.partial.split("\n", 1)
                 line = line.rstrip("\r")
+                if self.tagged(line):
+                    continue
                 if "stat up=" in line:
                     self.track_resets(line)
                 self.emit(line)
@@ -735,6 +836,14 @@ def main():
     send.add_argument("client")
     send.add_argument("line", nargs="+")
 
+    cmd = sub.add_parser("cmd", help="send a command, wait for it, print "
+                         "its output; exit status 1 on ERR")
+    cmd.add_argument("client")
+    cmd.add_argument("line", nargs="+")
+    cmd.add_argument("--timeout", type=float, default=10.0)
+    cmd.add_argument("--quiet", action="store_true",
+                     help="keep it out of the shared log")
+
     tail = sub.add_parser("tail")
     tail.add_argument("-n", type=int, default=40)
 
@@ -788,6 +897,17 @@ def main():
         reply = request(sock, op="quit", client="cli")
         print(json.dumps(reply))
         return 0 if reply.get("ok") else 1
+
+    if args.op == "cmd":
+        reply = request(sock, op="cmd", client=args.client,
+                        line=" ".join(args.line), timeout=args.timeout,
+                        quiet=args.quiet)
+        for line in reply.get("lines", []):
+            print(line)
+        if not reply.get("ok"):
+            print("ERR " + reply.get("error", "failed"), file=sys.stderr)
+            return 1
+        return 0
 
     if args.op in ("request", "release"):
         reply = request(sock, op=args.op, client=args.client)

@@ -36,15 +36,11 @@ typedef struct {
 
 typedef void (*btstack_jl_event_handler_t)(const btstack_jl_event_t *event);
 
-/* Link key storage, implemented on the SDK side (syscfg backed). */
+/* Link key storage: the running slot's bond (btstack_jl_sdk.c, config.h). */
 typedef int  (*btstack_jl_link_key_get_t)(const uint8_t address[6], uint8_t key[16], uint8_t *type);
 typedef void (*btstack_jl_link_key_put_t)(const uint8_t address[6], const uint8_t key[16], uint8_t type);
 typedef void (*btstack_jl_link_key_delete_t)(const uint8_t address[6]);
 typedef int  (*btstack_jl_link_key_iterator_t)(uint8_t index, uint8_t address[6], uint8_t key[16], uint8_t *type);
-
-/* Shape of one bond record, and how many of them the host store holds. */
-#define BTSTACK_JL_LINK_KEY_SLOTS 16U
-#define BTSTACK_JL_LINK_KEY_SIZE  (1 + 6 + 16 + 1)
 
 typedef struct {
     /* Local identity. */
@@ -117,6 +113,8 @@ void btstack_jl_core_request_unsniff(void);
 uint16_t btstack_jl_core_reports_queued(void);
 /* 1 once the run-loop task has powered the controller down and parked. */
 uint8_t btstack_jl_core_idle(void);
+/* 1 while a Classic ACL link is up (pairing, authenticating or connected). */
+uint8_t btstack_jl_core_link_up(void);
 /* Power the controller down (run-loop task only). */
 void btstack_jl_core_power_off(void);
 
@@ -144,29 +142,6 @@ int  btstack_jl_core_send_report(const uint8_t *message, uint16_t size);
 /* Bond management. */
 void btstack_jl_core_delete_all_link_keys(void);
 void btstack_jl_core_delete_link_key(const uint8_t address[6]);
-
-/* The host's own link-key store, addressed by raw record slot rather than by
- * bonded peer.  The console uses these to lift a live pairing off the pad and
- * put it back on a later boot: with the store in RAM mode the key's only copy
- * is in RAM and a reset erases it, so the round trip through the host is how
- * a bond is carried across a reset.
- *
- * read  returns 1 when the slot holds a valid record.
- * write stores the key for profile slot `owner` (0..3; anything else writes a
- * record any slot may use), reusing that slot's record for the peer, else a
- * legacy one for it, else the first empty entry, else entry 0. */
-int  btstack_jl_link_key_store_read(uint8_t index, uint8_t address[6],
-                                    uint8_t key[16], uint8_t *type);
-void btstack_jl_link_key_store_write(uint8_t owner, const uint8_t address[6],
-                                     const uint8_t key[16], uint8_t type);
-
-/* The store is a RAM mirror of its syscfg records.  load reads them (at boot,
- * before the radio, and for `store revert`); flush writes the ones that
- * changed, from an idle application task, unless the store is in RAM mode;
- * pending says whether any changed. */
-void btstack_jl_link_key_load(void);
-void btstack_jl_link_key_flush(void);
-int  btstack_jl_link_key_pending(void);
 
 /* Body of the "btstack" OS task. */
 void btstack_jl_core_run(void *argument);

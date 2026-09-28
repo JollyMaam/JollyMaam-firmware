@@ -19,7 +19,8 @@
 #include <system/timer.h>
 
 #include "controller.h"
-#include "settings.h"
+#include "config.h"
+#include "identity.h"
 #include "usb.h"
 #include "wake.h"
 #include "wake_payload.h"
@@ -27,7 +28,7 @@
 #include "wakeup_code.h"
 
 static struct wake_status status;
-static struct wake_radio_config config;
+static struct wake_radio_config radio_config;
 static uint8_t body[WAKE_BODY_MAX];
 static u8 wake_state_index;
 static u32 wake_phase_started_ms;
@@ -52,23 +53,23 @@ static int wake_start_state(u8 index)
     wake_whiten_cancel(body, (u16)WAKE_BODY_MAX, seed, WAKE_WHITEN_SKIP_MULTISLOT);
 
     for (i = 0; i < 6U; ++i) {
-        config.address[i] = wake_target[i];
+        radio_config.address[i] = wake_target[i];
     }
     /* The wake-up parity is the standard one with the lower 32 bits of the
      * sync word inverted; this is the only value in the frame that differs
      * from what a normal transmit of this address would use. */
     wake_parity_inverted(wake_target, parity);
     for (i = 0; i < 5U; ++i) {
-        config.parity[i] = parity[i];
+        radio_config.parity[i] = parity[i];
     }
-    config.channel = status.channel;
-    config.interval_slots = status.interval_slots;
-    config.llid = 2U;
-    config.flow = 1U;
-    config.edr = 0U;
-    config.whiten_seed = seed;
+    radio_config.channel = status.channel;
+    radio_config.interval_slots = status.interval_slots;
+    radio_config.llid = 2U;
+    radio_config.flow = 1U;
+    radio_config.edr = 0U;
+    radio_config.whiten_seed = seed;
 
-    result = wake_radio_start(&config, body, (u16)WAKE_BODY_MAX);
+    result = wake_radio_start(&radio_config, body, (u16)WAKE_BODY_MAX);
     if (result == 0) {
         status.starts++;
     }
@@ -86,7 +87,7 @@ int wake_start(u8 slot, u8 channel, u8 seconds)
     /* The target is the console this slot last connected to.  A slot that has
      * never connected has no address, and neither has a slot whose pairing
      * was just restarted, so there is nothing to aim at. */
-    if (!cyclone2_peer_address_read(slot, wake_target)) return -1;
+    memcpy(wake_target, config_peer(slot), sizeof(wake_target));
     {
         static const u8 zero[6] = {0, 0, 0, 0, 0, 0};
 

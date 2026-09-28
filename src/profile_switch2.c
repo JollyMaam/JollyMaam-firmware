@@ -17,7 +17,8 @@
 #include "btstack_jl_le.h"
 #include "rijndael.h"
 #include "main.h"
-#include "settings.h"
+#include "config.h"
+#include "identity.h"
 #include "usb.h"
 
 #define SWITCH2_REPORT_SIZE       63U
@@ -457,7 +458,12 @@ static u8 switch2_command_data(u8 command, u8 subcommand, const u8 *request,
             /* Pairing finalised: keep the console and the key for the
              * reconnection advertisement and its LTK request. */
             if (switch2_ltk_valid && btstack_jl_le_peer_address(console)) {
-                cyclone2_le_bond_write(switch2_slot, console, switch2_ltk);
+                struct config_bond *bond =
+                    &config.profile[switch2_slot % CONFIG_PROFILES].bond;
+
+                memcpy(bond->le_peer, console, sizeof(bond->le_peer));
+                memcpy(bond->ltk, switch2_ltk, sizeof(bond->ltk));
+                memcpy(bond->local, bt_get_mac_addr(), sizeof(bond->local));
                 cyclone2_usb_debug("switch2: bond stored for slot %u", switch2_slot);
             }
             output[0] = 1;
@@ -638,6 +644,18 @@ void cyclone2_switch2_prepare_stack(void)
     btstack_jl_le_configure(&switch2_le_config);
 }
 
+/* The slot's Switch 2 bond: the console and the LTK, if it has one. */
+static int le_bond_read(u8 slot, u8 console[6], u8 ltk[16])
+{
+    const struct config_bond *bond = &config.profile[slot % CONFIG_PROFILES].bond;
+    static const u8 zero[6];
+
+    if (!memcmp(bond->le_peer, zero, sizeof(zero))) return 0;
+    memcpy(console, bond->le_peer, 6U);
+    memcpy(ltk, bond->ltk, 16U);
+    return 1;
+}
+
 void cyclone2_switch2_start(u8 slot, u8 pairing)
 {
     u8 console[6];
@@ -650,8 +668,7 @@ void cyclone2_switch2_start(u8 slot, u8 pairing)
     bt_wait_phone_connect_control(0);
     switch2_slot = slot;
     switch2_ltk_valid = 0;
-    if (pairing) cyclone2_le_bond_clear(slot);
-    if (!pairing && cyclone2_le_bond_read(slot, console, switch2_ltk)) {
+    if (!pairing && le_bond_read(slot, console, switch2_ltk)) {
         /* Reconnection advertisement: the console that owns this bond
          * connects back and encrypts with the stored LTK.  It carries the
          * wake flag (0x81), as a real Pro Controller 2's does when a button

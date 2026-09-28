@@ -104,6 +104,9 @@ static uint8_t jl_request_address[6];
 static uint16_t jl_hid_cid;
 static uint16_t jl_con_handle;
 static uint8_t  jl_con_handle_valid;
+/* A Classic ACL link is up: from a successful Connection Complete to its
+ * Disconnection Complete (or a power-off).  Read from the application task. */
+static volatile uint8_t jl_acl_up;
 static btstack_timer_source_t jl_credit_timer;
 
 /* Bring-up diagnostics: how many ACL buffers BTstack believes it may use. */
@@ -629,6 +632,7 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
             jl_notify_ex(BTSTACK_JL_EVENT_HCI_STATUS, HCI_EVENT_CONNECTION_COMPLETE,
                          status, event_addr);
             if (status == ERROR_CODE_SUCCESS) {
+                jl_acl_up = 1;
                 /* Read remote features for the incoming HID L2CAP requests;
                  * let the Switch initiate authentication with the stored key. */
                 hci_remote_features_query(jl_con_handle);
@@ -646,6 +650,7 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
                 event_addr);
             jl_hid_cid = 0;
             jl_send_pending = 0;
+            jl_acl_up = 0;
             jl_notify_ex(BTSTACK_JL_EVENT_HCI_STATUS, HCI_EVENT_DISCONNECTION_COMPLETE,
                          status, event_addr);
             jl_notify_logged(BTSTACK_JL_EVENT_DISCONNECTED, status, event_addr);
@@ -1028,6 +1033,7 @@ void btstack_jl_core_power_off(void)
 {
     jl_shutdown_requested = 1;
     jl_working = 0;
+    jl_acl_up = 0;
     jl_hid_cid = 0;
     jl_send_pending = 0;
     jl_report_count = 0;
@@ -1223,4 +1229,9 @@ void btstack_jl_core_run(void *argument)
 uint8_t btstack_jl_core_idle(void)
 {
     return jl_idle;
+}
+
+uint8_t btstack_jl_core_link_up(void)
+{
+    return jl_acl_up;
 }

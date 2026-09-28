@@ -4,16 +4,7 @@
 #include "generic/typedef.h"
 #include "system/event.h"
 #include "input.h"
-
-enum cyclone2_profile_type {
-    CYCLONE2_PROFILE_SWITCH,
-    CYCLONE2_PROFILE_GENERIC,
-    CYCLONE2_PROFILE_SWITCH2,
-    CYCLONE2_PROFILE_XBOX,
-    CYCLONE2_PROFILE_DUALSENSE,
-    CYCLONE2_PROFILE_XBOX_BLE,
-    CYCLONE2_PROFILE_TYPE_COUNT,
-};
+#include "profile_types.h"
 
 enum cyclone2_profile_event {
     CYCLONE2_PROFILE_EVENT_NONE         = 0,

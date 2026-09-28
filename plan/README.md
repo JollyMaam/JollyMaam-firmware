@@ -16,6 +16,7 @@ agent owns integration, builds, flashing, and this progress record.
 | 5 | [IMU and rumble](05-imu-rumble.md) | functional; calibration and native-rate IMU batching remain |
 | 6 | [Real Switch console link](06-switch-console-link.md) | blocked; console-side authentication/link behavior remains unresolved |
 | 7 | [Runtime cleanup and deadlines](07-runtime-cleanup.md) | proposed; awaiting sign-off before coding |
+| 8 | [Config, status and the console](08-config.md) | agreed 2026-09-28; in progress |
 
 The starting controller is paired in Switch slot A (slot 0), address
 `13:11:DB:58:28:18`. Preserve its syscfg/VM/BTIF and address derivation. Never

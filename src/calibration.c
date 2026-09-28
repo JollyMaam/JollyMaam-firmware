@@ -1,9 +1,8 @@
 #include <system/includes.h>
 
 #include "calibration.h"
-#include "settings.h"
+#include "config.h"
 #include "usb.h"
-#include "user_cfg_id.h"
 
 /*
  * The stick and trigger calibration routine.  docs/calibration.md describes
@@ -18,8 +17,6 @@
  * properly keeps what it had, and the console says why.
  */
 
-#define CAL_MAGIC               0x4c433243U   /* "C2CL" */
-#define CAL_VERSION             1U
 #define CAL_SETTLE_MS           1000U
 #define CAL_REST_MS             1500U
 #define CAL_SWEEP_TIMEOUT_MS    120000U
@@ -27,14 +24,6 @@
 #define CAL_BLINK_HALF_MS       250U
 #define CAL_LED_LEVEL           12U
 
-/* Uncalibrated sticks: live sensor endpoints with a nominal 0x4000 centre,
- * measured on the first unit.  The vertical low endpoints differ slightly. */
-static const u16 default_stick_minimum[2][2] = {{0x1600U, 0x1850U},
-                                                {0x1600U, 0x1a40U}};
-static const u16 default_stick_center[2][2] = {{0x4000U, 0x4000U},
-                                               {0x4000U, 0x4000U}};
-static const u16 default_stick_maximum[2][2] = {{0x6600U, 0x6600U},
-                                                {0x6600U, 0x6600U}};
 /* The right stick board is mounted turned half way round. */
 static const s8 stick_sign[2] = {1, -1};
 
@@ -56,9 +45,10 @@ static const char *const control_name[CONTROL_COUNT] = {
     "left stick", "right stick", "L2", "R2",
 };
 
-static struct cyclone2_calibration calibration;
-static u8 calibration_loaded;
-static u8 calibration_dirty;
+/* The values live in config.cal (config_schema.c has the defaults).  A
+ * stick whose stored values do not make sense uses its defaults instead. */
+static struct cal_stick default_stick[2];
+static u8 defaults_ready;
 static u16 legacy_trigger_rest[2];
 
 static enum cyclone2_calibration_phase phase;
@@ -70,48 +60,19 @@ static enum cal_result outcome[CONTROL_COUNT];
 static struct cal_stick_capture stick_capture[2];
 static struct cal_trigger_capture trigger_capture[2];
 
-static void stick_default(u8 stick)
+static const struct cal_stick *stick_in_use(u8 stick)
 {
-    cal_stick_default(&calibration.stick[stick],
-                      default_stick_minimum[stick],
-                      default_stick_center[stick],
-                      default_stick_maximum[stick]);
-}
+    if (cal_stick_is_sane(&config.cal.stick[stick]))
+        return &config.cal.stick[stick];
+    if (!defaults_ready) {
+        static struct config defaults;
 
-static void load_defaults(void)
-{
-    memset(&calibration, 0, sizeof(calibration));
-    calibration.magic = CAL_MAGIC;
-    calibration.version = CAL_VERSION;
-    calibration.size = sizeof(calibration);
-    stick_default(0U);
-    stick_default(1U);
-    calibration_loaded = 1U;
-}
-
-void cyclone2_calibration_load(void)
-{
-    struct cyclone2_calibration stored;
-    int length = syscfg_read(CFG_CYCLONE2_CALIBRATION, &stored,
-                             sizeof(stored));
-    u8 stick;
-
-    load_defaults();
-    calibration_dirty = 0U;
-    if (length != sizeof(stored) || stored.magic != CAL_MAGIC ||
-        stored.version != CAL_VERSION || stored.size != sizeof(stored)) return;
-    for (stick = 0U; stick < 2U; stick++) {
-        if (cal_stick_is_sane(&stored.stick[stick]))
-            calibration.stick[stick] = stored.stick[stick];
-        else
-            stored.measured &= (u8)~(CYCLONE2_CAL_LEFT_STICK << stick);
-        if ((stored.measured & (CYCLONE2_CAL_LEFT_TRIGGER << stick)) &&
-            cal_trigger_is_sane(&stored.trigger[stick]))
-            calibration.trigger[stick] = stored.trigger[stick];
-        else
-            stored.measured &= (u8)~(CYCLONE2_CAL_LEFT_TRIGGER << stick);
+        config_defaults(&defaults);
+        default_stick[0] = defaults.cal.stick[0];
+        default_stick[1] = defaults.cal.stick[1];
+        defaults_ready = 1U;
     }
-    calibration.measured = stored.measured;
+    return &default_stick[stick];
 }
 
 static u16 legacy_trigger(u16 sample, u16 *rest)
@@ -129,8 +90,9 @@ static u16 legacy_trigger(u16 sample, u16 *rest)
 
 static u16 map_trigger(const struct cyclone2_raw_input *raw, u8 trigger)
 {
-    if (calibration.measured & (CYCLONE2_CAL_LEFT_TRIGGER << trigger))
-        return cal_trigger_map(&calibration.trigger[trigger],
+    /* An uncalibrated trigger (rest 0, the default) tracks its own rest. */
+    if (cal_trigger_is_sane(&config.cal.trigger[trigger]))
+        return cal_trigger_map(&config.cal.trigger[trigger],
                                raw->trigger[trigger]);
     return legacy_trigger(raw->trigger[trigger],
                           &legacy_trigger_rest[trigger]);
@@ -142,16 +104,15 @@ void cyclone2_calibration_apply(const struct cyclone2_raw_input *raw,
     int32_t x = 0;
     int32_t y = 0;
 
-    if (!calibration_loaded) load_defaults();
     if (raw->sticks_valid) {
-        cal_stick_map(&calibration.stick[0], raw->stick[0], raw->stick[1],
+        cal_stick_map(stick_in_use(0U), raw->stick[0], raw->stick[1],
                       &x, &y);
     }
     report->left_x = (s16)(x * stick_sign[0]);
     report->left_y = (s16)(y * stick_sign[0]);
     x = y = 0;
     if (raw->sticks_valid) {
-        cal_stick_map(&calibration.stick[1], raw->stick[2], raw->stick[3],
+        cal_stick_map(stick_in_use(1U), raw->stick[2], raw->stick[3],
                       &x, &y);
     }
     report->right_x = (s16)(x * stick_sign[1]);
@@ -255,7 +216,7 @@ static void sweep_sample(const struct cyclone2_raw_input *raw)
 
 static void report_stick(u8 stick)
 {
-    const struct cal_stick *cal = &calibration.stick[stick];
+    const struct cal_stick *cal = &config.cal.stick[stick];
 
     cyclone2_usb_debug("cal: %s ok x %04x/%04x/%04x y %04x/%04x/%04x dz %u%%",
                        control_name[CONTROL_LEFT_STICK + stick],
@@ -278,8 +239,7 @@ static void finish_sweep(void)
         if (outcome[control] == CAL_OK)
             outcome[control] = cal_stick_finish(&stick_capture[index], &stick);
         if (outcome[control] == CAL_OK) {
-            calibration.stick[index] = stick;
-            calibration.measured |= (u8)(CYCLONE2_CAL_LEFT_STICK << index);
+            config.cal.stick[index] = stick;
             applied++;
             report_stick(index);
         }
@@ -288,8 +248,7 @@ static void finish_sweep(void)
             outcome[control] = cal_trigger_finish(&trigger_capture[index],
                                                   &trigger);
         if (outcome[control] == CAL_OK) {
-            calibration.trigger[index] = trigger;
-            calibration.measured |= (u8)(CYCLONE2_CAL_LEFT_TRIGGER << index);
+            config.cal.trigger[index] = trigger;
             legacy_trigger_rest[index] = 0U;
             applied++;
             cyclone2_usb_debug("cal: %s ok rest %u full %u", control_name[control],
@@ -301,7 +260,6 @@ static void finish_sweep(void)
             cyclone2_usb_debug("cal: %s unchanged: %s", control_name[control],
                                cal_result_name(outcome[control]));
     }
-    if (applied) calibration_dirty = 1U;
     if (applied == CONTROL_COUNT) show_result(0U, CAL_LED_LEVEL, 0U);
     else if (applied) show_result(CAL_LED_LEVEL, CAL_LED_LEVEL / 2U, 0U);
     else show_result(CAL_LED_LEVEL, 0U, 0U);
@@ -390,55 +348,4 @@ int cyclone2_calibration_led(u32 now, u8 *red, u8 *green, u8 *blue)
     default:
         return 0;
     }
-}
-
-void cyclone2_calibration_get(struct cyclone2_calibration *out)
-{
-    if (!calibration_loaded) load_defaults();
-    *out = calibration;
-}
-
-void cyclone2_calibration_reset(void)
-{
-    load_defaults();
-    legacy_trigger_rest[0] = legacy_trigger_rest[1] = 0U;
-    calibration_dirty = 1U;
-}
-
-int cyclone2_calibration_set_deadzones(int triggers, u8 inner_percent,
-                                       u8 outer_percent)
-{
-    u16 inner;
-    u16 outer;
-    u8 index;
-
-    if (inner_percent > 30U || outer_percent > 30U ||
-        inner_percent + outer_percent > 50U) return -1;
-    if (!calibration_loaded) load_defaults();
-    inner = (u16)(inner_percent * (u32)CAL_STICK_MAX / 100U);
-    outer = (u16)(outer_percent * (u32)CAL_STICK_MAX / 100U);
-    for (index = 0U; index < 2U; index++) {
-        if (triggers) {
-            calibration.trigger[index].inner_deadzone = inner;
-            calibration.trigger[index].outer_deadzone = outer;
-        } else {
-            calibration.stick[index].inner_deadzone = inner;
-            calibration.stick[index].outer_deadzone = outer;
-        }
-    }
-    calibration_dirty = 1U;
-    return 0;
-}
-
-int cyclone2_calibration_pending(void)
-{
-    return calibration_dirty;
-}
-
-/* Held back in the store's RAM mode (settings.h). */
-void cyclone2_calibration_flush(void)
-{
-    if (!calibration_dirty || cyclone2_store_ram_mode()) return;
-    calibration_dirty = 0U;
-    syscfg_write(CFG_CYCLONE2_CALIBRATION, &calibration, sizeof(calibration));
 }

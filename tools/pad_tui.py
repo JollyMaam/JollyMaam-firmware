@@ -28,6 +28,7 @@ A line starting with `/` is a TUI command instead - see TUI_HELP below, which
 import argparse
 import curses
 import json
+import os
 import queue
 import re
 import signal
@@ -51,9 +52,10 @@ TUI_HELP = """TUI commands - a line starting with '/'; everything else goes to t
   /save [FILE]       write the current view to FILE (default /work/nslog/tui-dump.txt)
   /quit              leave (also /exit)
 
-Pad commands worth knowing: stat (one-line status), connect N, pair N,
-disconnect, keys, bondstore, hcidump on, debug on|off, and the pad's own help
-for the full list.
+Pad commands worth knowing: config (settings; `config.PATH = VALUE`), status,
+export, connect N, pair N, disconnect, hcidump on, debug on|off, and the pad's
+own help for the full list.  Tab completes commands, settings and values - the
+pad itself answers.
 
 Editing: Ctrl-A/E line start/end, Ctrl-B/F or arrows by character, Alt-B/F by
 word, Ctrl-U/K/W delete, Up/Down history, PgUp/PgDn scroll.
@@ -325,6 +327,10 @@ class Bus:
     def command(self, line):
         self.send({"op": "send", "client": self.client, "line": line})
 
+    def complete(self, line):
+        """Ask the pad what Tab offers; the reply arrives as an event."""
+        self.send({"op": "complete", "client": self.client, "line": line})
+
     def add(self, line):
         self.lines.append(line)
 
@@ -462,6 +468,29 @@ def tui_command(bus, owner, text):
     return "unknown TUI command /%s (/help lists them)" % name
 
 
+def apply_completion(editor, completion, bus):
+    """Put the pad's answer to Tab into the line: extend the last word as far
+    as every candidate agrees, and list them when that is not far enough.
+    Returns the notice to show."""
+    line = completion.get("line", "")
+    candidates = completion.get("candidates", [])
+    if editor.text[:editor.cursor] != line or not candidates:
+        return "" if candidates else "no completions"
+    start = line.rfind(" ") + 1
+    word = line[start:]
+    common = os.path.commonprefix(candidates)
+    if len(common) > len(word):
+        addition = common[len(word):]
+        if len(candidates) == 1 and not common.endswith("."):
+            addition += " "
+        editor.text = line + addition + editor.text[editor.cursor:]
+        editor.cursor = len(line) + len(addition)
+        return ""
+    if len(candidates) > 1:
+        bus.note("  ".join(candidates))
+    return ""
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--socket", default=DEFAULT_SOCKET)
@@ -507,6 +536,9 @@ def main():
                         # The status line's ctl: field already says this; a
                         # notice here would only duplicate it.
                         owner = event.get("owner")
+                    elif "complete" in event:
+                        notice = apply_completion(editor, event["complete"],
+                                                  bus)
                     elif "owner" in event and "ok" in event:
                         owner = event.get("owner")
                         if not event.get("ok"):
@@ -536,6 +568,9 @@ def main():
                         notice = result
                     elif line:
                         bus.command(line)
+                elif key == 9 and not editor.searching:  # Tab
+                    if not editor.text.startswith("/"):
+                        bus.complete(editor.text[:editor.cursor])
                 elif key == curses.KEY_F1:
                     if owner == bus.client:
                         bus.release_control()

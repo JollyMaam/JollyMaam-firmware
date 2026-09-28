@@ -12,7 +12,7 @@ BTSTACK_PORT_DIR := $(BTSTACK_DIR)/port/jieli-br23
 # BTIF (MAC/RF trim) and key/mac areas land at 0x7e000/0x7f000, but the
 # controller and the factory data use the 1 MiB positions 0xfe000/0xff000.
 FLASH_SIZE := 0x100000
-CODE_LIMIT := 0x48000
+CODE_LIMIT := 0x50000
 # The controller-archive patch mode lives in src/build_config.h, not here.
 BUILD_CONFIG := src/build_config.h
 # DEBUG_LOG=1 builds a copy of the SDK's debug.c that forwards the controller
@@ -104,7 +104,7 @@ else
 QUIET=@
 endif
 
-.PHONY: all default clean flash test itest rebootwatch wake-vectors calibration-test
+.PHONY: all default clean flash test itest rebootwatch wake-vectors calibration-test config-test
 
 # Make must notice when the caller switches DEBUG_LOG; the value of a
 # command-line variable alone is not part of a target's timestamp
@@ -223,6 +223,17 @@ $O/calibration_test: tools/calibration_test.c src/calibration_math.c src/calibra
 
 calibration-test: $O/calibration_test
 	$(QUIET)$O/calibration_test
+
+# Host check for the settings engine against an in-memory syscfg; see
+# docs/config.md.
+CONFIG_TEST_SOURCES := tools/config_test.c src/config.c src/config_schema.c
+$O/config_test: $(CONFIG_TEST_SOURCES) src/config.h src/profile_types.h tools/host/config_host.h
+	@mkdir -p $(@D)
+	@echo [EXE] $@
+	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) -DCONFIG_HOST_TEST -Itools/host -Isrc $(CONFIG_TEST_SOURCES) -o $@
+
+config-test: $O/config_test
+	$(QUIET)$O/config_test
 
 $O/nintendo_switch_pro_hid.h: $O/bin2header src/nintendo_switch_pro_hid.bin
 	@mkdir -p $(@D)

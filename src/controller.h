@@ -19,6 +19,9 @@ struct cyclone2_connection_status {
     u8 usb_present;
     u8 connect_attempts;
     u8 local_address[6];
+    /* The running slot's type or address differs from its settings: the
+     * change waits for the next connect. */
+    u8 stale;
 };
 
 struct cyclone2_injection_status {
@@ -31,14 +34,10 @@ struct cyclone2_injection_status {
     u32 overruns;
 };
 
-u8 cyclone2_report_period_get(void);
-u8 cyclone2_profile_type_get(u8 slot);
-int cyclone2_profile_type_set(u8 slot, u8 type);
-/* The persistent store (settings.h): whether anything changed and is not in
- * flash yet, and dropping those changes (radio must be off; -1 otherwise). */
-int cyclone2_store_pending(void);
-int cyclone2_store_revert(void);
-int cyclone2_report_period_set(u8 period_ms);
+/* The profile slot the radio is running (0 when none). */
+u8 get_cur_bt_idx(void);
+/* No pairing or radio transition under way: settings may go to flash. */
+int cyclone2_radio_quiet(void);
 void cyclone2_report_statistics_get(struct cyclone2_report_statistics *stats);
 int cyclone2_connect_request(u8 slot);
 /* Wake the console this slot last connected to, then reconnect it.  Returns 1
@@ -53,11 +52,6 @@ int cyclone2_wake_request(u8 slot, u8 channel, u8 seconds);
 void cyclone2_wake_finished(void);
 int cyclone2_pair_request(u8 slot);
 int cyclone2_pair_fresh_request(u8 slot);
-int cyclone2_new_address_request(void);
-int cyclone2_set_address_request(const u8 address[6]);
-int cyclone2_connect_with_address_request(u8 slot, const u8 address[6]);
-int cyclone2_forget_peer_request(const u8 address[6]);
-int cyclone2_set_peer_request(u8 slot, const u8 address[6]);
 int cyclone2_clear_keys_request(void);
 int cyclone2_reboot_request(void);
 int cyclone2_disconnect_request(void);

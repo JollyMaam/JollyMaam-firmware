@@ -2,6 +2,8 @@
 #include <asm/gpio.h>
 #include <asm/mcpwm.h>
 #include <system/timer.h>
+#include "config.h"
+#include "controller.h"
 #include "rumble.h"
 
 #define RUMBLE_FREQUENCY_HZ 25000U
@@ -104,8 +106,11 @@ int cyclone2_rumble_set(u8 left, u8 right, u16 duration_ms)
     return 0;
 }
 
+/* From the host: obeys the slot's profile.#.rumble setting. */
 void cyclone2_rumble_set_latched(u8 left, u8 right)
 {
+    if (!config.profile[get_cur_bt_idx() % CONFIG_PROFILES].rumble)
+        left = right = 0U;
     publish_target(left, right, 0U);
 }
 

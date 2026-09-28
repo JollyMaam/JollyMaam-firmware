@@ -7,6 +7,8 @@
 #include "profile.h"
 #include "profile_classic.h"
 #include "profile_xbox.h"
+#include "config.h"
+#include "controller.h"
 #include "rumble.h"
 #include "usb.h"
 
@@ -184,7 +186,8 @@ void cyclone2_xbox_rumble(const u8 body[8])
     } else {
         if (duration_ms > CYCLONE2_RUMBLE_MAX_DURATION_MS)
             duration_ms = CYCLONE2_RUMBLE_MAX_DURATION_MS;
-        cyclone2_rumble_set(left, right, duration_ms);
+        if (config.profile[get_cur_bt_idx() % CONFIG_PROFILES].rumble)
+            cyclone2_rumble_set(left, right, duration_ms);
     }
 }
 

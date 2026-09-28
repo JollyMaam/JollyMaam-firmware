@@ -1,9 +1,11 @@
 #include <system/app_core.h>
 #include <system/includes.h>
 #include <usb/otg.h>
+#include <system/user_cfg.h>
 
 #include "app_config.h"
 #include "btstack_jl.h"
+#include "btstack_jl_le.h"
 #include "calibration.h"
 #include "controller.h"
 #include "main.h"
@@ -11,7 +13,8 @@
 #include "profile.h"
 #include "profile_classic.h"
 #include "rumble.h"
-#include "settings.h"
+#include "config.h"
+#include "identity.h"
 #include "user_cfg_id.h"
 #include "wake/wake.h"
 
@@ -23,11 +26,8 @@ extern int jieli_btctrler_open(const uint8_t *bd_addr);
 extern void jieli_btctrler_close(void);
 
 #define CYCLONE2_CONTROL_PERIOD_MS           5U
-#define CYCLONE2_DEFAULT_REPORT_PERIOD_MS   16U
 #define CYCLONE2_DEBOUNCE_MS                10U
 #define CYCLONE2_PROFILE_COUNT              4U
-#define CYCLONE2_SETTINGS_MAGIC     0x43325052U
-#define CYCLONE2_SETTINGS_VERSION           2U
 #define CYCLONE2_HOME_GRACE_MS              150U
 #define CYCLONE2_LONG_HOLD_MS              5000U
 /* Home+M held this long starts the stick and trigger calibration. */
@@ -36,10 +36,9 @@ extern void jieli_btctrler_close(void);
 /* 3 minutes: with its Wi-Fi on, a Switch 2 took 24 s and a retry to find the
  * pad (2026-09-25), and it can miss a 60 s window entirely. */
 #define CYCLONE2_PAIR_TIMEOUT_MS          180000U
-/* How long the radio must have been idle before syscfg may be written.  The
- * controller keeps working for a moment after a session ends, and a flash
- * write in that window resets the pad. */
-#define CYCLONE2_FLASH_IDLE_MS             3000U
+/* How long the radio must have been in a quiet state before settings may be
+ * written to flash (see radio_quiet()). */
+#define CYCLONE2_RADIO_SETTLE_MS            500U
 /* Extra outgoing connection attempts after one ends without a usable session.
  * Small and bounded: an unreachable host must not become a retry storm. */
 #define CYCLONE2_CONNECT_RETRIES               2U
@@ -94,16 +93,6 @@ enum cyclone2_radio_state {
     CYCLONE2_RADIO_WAKING,
 };
 
-struct cyclone2_settings {
-    u32 magic;
-    u16 version;
-    u16 size;
-    u8 profile_type[CYCLONE2_PROFILE_COUNT];
-    u8 report_period_ms;
-    u8 reserved[3];
-};
-
-static struct cyclone2_settings settings;
 static struct cyclone2_input_report candidate_report;
 static struct cyclone2_input_report current_report;
 static enum cyclone2_home_state home_state;
@@ -135,7 +124,8 @@ static u8 sleep_pending;
 static u8 sleep_confirm_count;
 static u8 ignore_chord_until_release;
 static u8 connect_attempts;
-static u32 idle_since_ms;
+static enum cyclone2_radio_state quiet_state;
+static u32 quiet_since_ms;
 static struct cyclone2_report_statistics report_statistics;
 static struct cyclone2_injection_status injection_status;
 static u32 injection_next_transition_ms;
@@ -185,97 +175,39 @@ u8 get_cur_bt_idx(void)
     return active_profile < CYCLONE2_PROFILE_COUNT ? active_profile : 0U;
 }
 
-/* Written from cyclone2_poll() when the radio is connected or off, like the
- * calibration; held back in the store's RAM mode (settings.h). */
-static u8 settings_dirty;
-
-static void settings_flush(void)
+/* What a slot speaks, from config (checked: a bad stored value is dropped at
+ * load, but the struct can be written from anywhere). */
+static enum cyclone2_profile_type slot_type(u8 slot)
 {
-    if (!settings_dirty || cyclone2_store_ram_mode()) return;
-    settings_dirty = 0U;
-    syscfg_write(CFG_CYCLONE2_PROFILE_SETTINGS, &settings, sizeof(settings));
+    u8 type = config.profile[slot % CYCLONE2_PROFILE_COUNT].type;
+
+    return type < CYCLONE2_PROFILE_TYPE_COUNT ?
+           (enum cyclone2_profile_type)type : CYCLONE2_PROFILE_SWITCH;
 }
 
-static void settings_load(void)
+/* Whether settings may be written to flash now: not while a pairing or a
+ * radio transition is under way.  The resets that rule comes from were a
+ * syscfg access inside the SSP exchange and during a profile start
+ * (docs/reboot-hunting.md); a settled link, an idle radio, or paging with no
+ * link up take a write.  The state must have held for a moment. */
+static int radio_quiet(u32 now)
 {
-    settings_dirty = 0U;
-    int length = syscfg_read(CFG_CYCLONE2_PROFILE_SETTINGS, &settings,
-                             sizeof(settings));
+    int quiet;
 
-    if (length == sizeof(settings) &&
-        settings.magic == CYCLONE2_SETTINGS_MAGIC &&
-        settings.version == CYCLONE2_SETTINGS_VERSION &&
-        settings.size == sizeof(settings)) {
-        if (settings.report_period_ms == 5U ||
-            settings.report_period_ms == 8U ||
-            settings.report_period_ms == 10U ||
-            settings.report_period_ms == 16U) return;
-        settings.report_period_ms = CYCLONE2_DEFAULT_REPORT_PERIOD_MS;
-    } else {
-        memset(&settings, 0, sizeof(settings));
-        settings.magic = CYCLONE2_SETTINGS_MAGIC;
-        settings.version = CYCLONE2_SETTINGS_VERSION;
-        settings.size = sizeof(settings);
-        settings.profile_type[0] = CYCLONE2_PROFILE_SWITCH;
-        settings.profile_type[1] = CYCLONE2_PROFILE_SWITCH;
-        settings.profile_type[2] = CYCLONE2_PROFILE_GENERIC;
-        settings.profile_type[3] = CYCLONE2_PROFILE_SWITCH2;
-        settings.report_period_ms = CYCLONE2_DEFAULT_REPORT_PERIOD_MS;
+    if (radio_state != quiet_state) {
+        quiet_state = radio_state;
+        quiet_since_ms = now;
     }
+    quiet = radio_state == CYCLONE2_RADIO_OFF ||
+            radio_state == CYCLONE2_RADIO_CONNECTED ||
+            (radio_state == CYCLONE2_RADIO_CONNECTING &&
+             !btstack_jl_core_link_up() && !btstack_jl_le_connected());
+    return quiet && now - quiet_since_ms >= CYCLONE2_RADIO_SETTLE_MS;
 }
 
-u8 cyclone2_report_period_get(void)
+int cyclone2_radio_quiet(void)
 {
-    return settings.report_period_ms;
-}
-
-int cyclone2_report_period_set(u8 period_ms)
-{
-    if (period_ms != 5U && period_ms != 8U && period_ms != 10U &&
-        period_ms != 16U) return -1;
-    settings.report_period_ms = period_ms;
-    next_report_ms = sys_timer_get_ms();
-    settings_dirty = 1U;
-    return 0;
-}
-
-/* Any persistent change not in flash yet. */
-int cyclone2_store_pending(void)
-{
-    return settings_dirty || cyclone2_calibration_pending() ||
-           cyclone2_settings_pending() || btstack_jl_link_key_pending();
-}
-
-/* Drop pending changes and reload everything from flash.  Only with the
- * radio down: a running session uses the link keys and addresses. */
-int cyclone2_store_revert(void)
-{
-    if (!cyclone2_radio_stopped()) return -1;
-    btstack_jl_link_key_load();
-    cyclone2_settings_load();
-    settings_load();
-    cyclone2_calibration_load();
-    return 0;
-}
-
-u8 cyclone2_profile_type_get(u8 slot)
-{
-    if (slot >= CYCLONE2_PROFILE_COUNT) return CYCLONE2_PROFILE_SWITCH;
-    return settings.profile_type[slot] < CYCLONE2_PROFILE_TYPE_COUNT ?
-           settings.profile_type[slot] : CYCLONE2_PROFILE_SWITCH;
-}
-
-/* Choose what a slot speaks.  Takes effect the next time the slot starts
- * (connect, pair, Home chord); a running session keeps its type.  Each type
- * keeps its own bond with its host, but the slot's stored peer address is
- * shared, so pair the slot again after changing its type. */
-int cyclone2_profile_type_set(u8 slot, u8 type)
-{
-    if (slot >= CYCLONE2_PROFILE_COUNT || type >= CYCLONE2_PROFILE_TYPE_COUNT)
-        return -1;
-    settings.profile_type[slot] = type;
-    settings_dirty = 1U;
-    return 0;
+    return radio_quiet(sys_timer_get_ms());
 }
 
 void cyclone2_report_statistics_get(struct cyclone2_report_statistics *stats)
@@ -321,7 +253,7 @@ int cyclone2_wake_request(u8 slot, u8 channel, u8 seconds)
         seconds < WAKE_SECONDS_MIN || seconds > WAKE_SECONDS_MAX) return -2;
     /* Nothing to aim at: a slot that has never connected has no console
      * address, and the wake code is derived from that address. */
-    if (!cyclone2_peer_address_read(slot, target)) return -3;
+    memcpy(target, config_peer(slot), sizeof(target));
     if (!memcmp(target, zero, sizeof(target))) return -3;
 
     injection_cancel();
@@ -407,85 +339,11 @@ int cyclone2_pair_fresh_request(u8 profile)
 {
     if (profile >= CYCLONE2_PROFILE_COUNT) return -1;
     if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
-    cyclone2_bt_address_randomize();
+    /* A new generation is a new derived address: a host that still holds a
+     * key for the old one sees a pad it has never met. */
+    config.profile[profile].generation++;
     injection_cancel();
     profile_select(profile, 1U);
-    return 1;
-}
-
-/* Adopt a fresh random Bluetooth address without changing the slot or the
- * pairing mode: the running session is restarted so the controller picks the
- * new address up.  A console keys its bond by this address, so the pad has to
- * be paired again afterwards.
- *
- * The address is written to syscfg at the next flush (in the store's RAM mode
- * not at all, and it is gone at the next reset). */
-int cyclone2_new_address_request(void)
-{
-    if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
-    injection_cancel();
-    cyclone2_bt_address_randomize();
-    if (active_profile < CYCLONE2_PROFILE_COUNT) {
-        profile_select(active_profile, active_pairing);
-    }
-    return 1;
-}
-
-/* Same as a new address, but with the address given instead of drawn.  Used
- * to put back an identity that was saved off the pad, so a captured pairing
- * can be replayed after a reflash. */
-int cyclone2_set_address_request(const u8 address[6])
-{
-    if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
-    injection_cancel();
-    cyclone2_bt_address_set(address);
-    if (active_profile < CYCLONE2_PROFILE_COUNT) {
-        profile_select(active_profile, active_pairing);
-    }
-    return 1;
-}
-
-/* Restore a captured bond (e.g. after a reset in RAM mode).  Unlike setaddr,
- * this must start the requested slot even when no profile has been selected
- * yet. */
-int cyclone2_connect_with_address_request(u8 slot, const u8 address[6])
-{
-    if (slot >= CYCLONE2_PROFILE_COUNT ||
-        radio_state == CYCLONE2_RADIO_STOPPING) return -1;
-    injection_cancel();
-    cyclone2_bt_address_set(address);
-    profile_select(slot, 0U);
-    return 1;
-}
-
-/* Forget a specific peer's link key, then re-enter pairing with a new local
- * address.  This is the recovery for a link the two sides disagree about:
- * bonding records live in the Bluetooth controller's own memory, so they
- * survive reflashing and cannot be reached with the flash tools. */
-int cyclone2_forget_peer_request(const u8 address[6])
-{
-    u8 slot = active_profile < CYCLONE2_PROFILE_COUNT ? active_profile : 0U;
-
-    if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
-    injection_cancel();
-    cyclone2_classic_forget_peer(address);
-    cyclone2_bt_address_randomize();
-    profile_select(slot, 1U);
-    return 1;
-}
-
-/* Record the peer address a slot should page, and clear the slot's stored link
- * key so the next connection has to authenticate against the peer's record.
- * This is the console-command equivalent of having paired with that host; it
- * exists so a slot can be restored (or re-pointed) without a pairing round. */
-int cyclone2_set_peer_request(u8 slot, const u8 address[6])
-{
-    if (slot >= CYCLONE2_PROFILE_COUNT) return -1;
-    if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
-    injection_cancel();
-    cyclone2_classic_forget_peer(address);
-    cyclone2_peer_address_write(slot, address);
-    profile_select(slot, 0U);
     return 1;
 }
 
@@ -577,13 +435,19 @@ void cyclone2_connection_status_get(struct cyclone2_connection_status *status)
     u8 slot = active_profile < CYCLONE2_PROFILE_COUNT ? active_profile : 0U;
     status->slot = slot;
     status->profile_type = active_profile < CYCLONE2_PROFILE_COUNT ?
-                            active_type :
-                            settings.profile_type[slot] < CYCLONE2_PROFILE_TYPE_COUNT ?
-                            settings.profile_type[slot] : CYCLONE2_PROFILE_SWITCH;
+                            active_type : slot_type(slot);
     status->connection_state = (u8)radio_state;
     status->usb_present = (u8)cyclone2_usb_present();
     status->connect_attempts = connect_attempts;
-    cyclone2_bt_address_for_slot(slot, status->local_address);
+    memcpy(status->local_address, bt_get_mac_addr(), 6U);
+    status->stale = 0U;
+    if (active_profile < CYCLONE2_PROFILE_COUNT) {
+        u8 address[6];
+
+        config_slot_address(slot, address);
+        status->stale = active_type != slot_type(slot) ||
+                        memcmp(address, status->local_address, 6U) != 0;
+    }
 }
 
 int cyclone2_inject_start(u32 period_ms, u32 duration_ms)
@@ -689,8 +553,7 @@ static int boot_request_consume(void)
     active_profile = profile;
     active_pairing = pairing;
     ignore_chord_until_release = 1U;
-    active_type = settings.profile_type[profile] < CYCLONE2_PROFILE_TYPE_COUNT ?
-                  settings.profile_type[profile] : CYCLONE2_PROFILE_SWITCH;
+    active_type = slot_type(profile);
     return 1;
 }
 
@@ -760,8 +623,7 @@ static void profile_request_transition(u8 profile, u8 pairing)
 
     pending_profile = profile;
     pending_pairing = pairing;
-    pending_type = settings.profile_type[profile] < CYCLONE2_PROFILE_TYPE_COUNT ?
-                   settings.profile_type[profile] : CYCLONE2_PROFILE_SWITCH;
+    pending_type = slot_type(profile);
 
     radio_state = CYCLONE2_RADIO_STOPPING;
     if (cyclone2_profile_is_connected()) {
@@ -789,8 +651,7 @@ static void profile_select(u8 profile, u8 pairing)
 
     active_profile = profile;
     active_pairing = pairing;
-    active_type = settings.profile_type[profile] < CYCLONE2_PROFILE_TYPE_COUNT ?
-                  settings.profile_type[profile] : CYCLONE2_PROFILE_SWITCH;
+    active_type = slot_type(profile);
     home_state = CYCLONE2_HOME_IDLE;
     ignore_chord_until_release = 1U;
     start_selected_profile();
@@ -821,19 +682,16 @@ static void poweroff_now(void *private_data)
         sys_timeout_add(NULL, poweroff_now, CYCLONE2_SLEEP_RECHECK_MS);
         return;
     }
-    /* Changes not written yet (a pairing, a calibration): give the radio the
-     * same settling time the idle flush does rather than lose them to the
-     * power-off.  In RAM mode they are dropped, as a reboot would. */
-    if (cyclone2_store_pending() && !cyclone2_store_ram_mode()) {
+    /* Settings not written yet (a pairing, a calibration): give the radio a
+     * moment to settle rather than lose them to the power-off.  With
+     * autocommit off they are dropped, as a reboot would. */
+    if (config_pending() && config.autocommit) {
         if (!poweroff_flash_wait) {
             poweroff_flash_wait = 1U;
-            sys_timeout_add(NULL, poweroff_now, CYCLONE2_FLASH_IDLE_MS);
+            sys_timeout_add(NULL, poweroff_now, CYCLONE2_RADIO_SETTLE_MS);
             return;
         }
-        btstack_jl_link_key_flush();
-        cyclone2_settings_flush();
-        cyclone2_calibration_flush();
-        settings_flush();
+        config_commit(1);
     }
     poweroff_flash_wait = 0U;
     cyclone2_bringup_record(0x5300u);
@@ -1144,34 +1002,8 @@ static void cyclone2_poll(void *private_data)
     now = sys_timer_get_ms();
     report_statistics.poll_count++;
     cyclone2_usb_control_poll();
-    /* Commit bond-store changes the radio could not write itself.
-     *
-     * Not from the controller's own callback (that runs inside the SSP
-     * exchange), and not while the radio is starting, running or tearing
-     * down: a flash write then resets the pad.  Measured three ways - the
-     * pairing reaches LINK KEY NOTIFICATION and the chip resets if syscfg is
-     * touched there; entering pairing mode resets it if the deferred erases
-     * run during the transition; and the same writes on a pad that has been
-     * idle for a while are fine.  So wait for a settled idle state. */
-    if (radio_state == CYCLONE2_RADIO_OFF) {
-        if (idle_since_ms == 0U) idle_since_ms = now;
-        else if (now - idle_since_ms >= CYCLONE2_FLASH_IDLE_MS) {
-            btstack_jl_link_key_flush();
-            cyclone2_settings_flush();
-        }
-    } else {
-        idle_since_ms = 0U;
-    }
-    /* A new calibration is written at once, connected or not.  The resets
-     * that made the bond store wait for an idle radio were measured while
-     * pairing, connecting and switching profiles; a settled link takes a
-     * syscfg write (the profile and report-period settings do the same).  So
-     * only those transitions hold the write back. */
-    if (radio_state == CYCLONE2_RADIO_CONNECTED ||
-        radio_state == CYCLONE2_RADIO_OFF) {
-        cyclone2_calibration_flush();
-        settings_flush();
-    }
+    /* Settings are written from here, when nothing is pairing (config.c). */
+    config_poll(now, radio_quiet(now));
     /* The wake sequence runs the baseband itself: no profile is up, and this
      * is what advances the burst sweep and ends the attempt. */
     if (radio_state == CYCLONE2_RADIO_WAKING) wake_step(now);
@@ -1220,7 +1052,7 @@ static void cyclone2_poll(void *private_data)
         /* Advance from the intended deadline rather than from a late callback.
          * This preserves the average 8-ms rate on the 5-ms control clock. */
         do {
-            next_report_ms += settings.report_period_ms;
+            next_report_ms += config.report_ms ? config.report_ms : 8U;
         } while ((s32)(now - next_report_ms) >= 0);
     }
     update_status_led();
@@ -1287,7 +1119,6 @@ static void cyclone2_start(void)
     clk_set("sys", BT_NORMAL_HZ);
     system_clock = clk_get("sys");
     bt_pll_para(TCFG_CLOCK_OSC_HZ, system_clock, 0, 0);
-    cyclone2_calibration_load();
     cyclone2_input_initialize();
     task_create(cyclone2_imu_task, NULL, "imu");
     cyclone2_usb_control_initialize();
@@ -1297,7 +1128,6 @@ static void cyclone2_start(void)
     memset(button_candidate_since_ms, 0, sizeof(button_candidate_since_ms));
     hat_candidate_since_ms = started_at_ms;
     next_report_ms = started_at_ms;
-    settings_load();
     early_chord = cyclone2_take_early_profile_chord();
     if (boot_request_consume()) {
         start_selected_profile();

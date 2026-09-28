@@ -237,8 +237,8 @@ while :; do
 done
 
 echo "controller is back at $console"
-"$c2ctl" -p "$console" status
-"$c2ctl" -p "$console" 'connect status'
+"$c2ctl" -p "$console" stat
+"$c2ctl" -p "$console" status.radio
 
 if [ -n "$backup" ]; then
     echo "previous flash saved as $backup"
