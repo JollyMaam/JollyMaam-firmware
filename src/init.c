@@ -5,7 +5,9 @@
 #include <system/includes.h>
 
 #include "app_config.h"
+#include "btstack_jl.h"
 #include "input.h"
+#include "settings.h"
 
 #define LOG_TAG_CONST       BOARD
 #define LOG_TAG             "[BOARD]"
@@ -67,8 +69,10 @@ const struct low_power_param power_param = {
 void board_init()
 {
     cyclone2_latch_early_profile_chord();
-    cyclone2_bt_address_init();
-    cyclone2_peer_address_cache_load();
+    /* The persistent store's RAM copies, read before the radio ever runs:
+     * nothing reads syscfg on the Bluetooth paths. */
+    cyclone2_settings_load();
+    btstack_jl_link_key_load();
     /* Let the Bluetooth stack persist link keys; without this the remote
      * device database is a silent no-op and reconnection cannot work. */
     cyclone2_remote_db_init();

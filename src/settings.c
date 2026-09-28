@@ -1,12 +1,33 @@
 #include <system/includes.h>
 #include <system/user_cfg.h>
 
-#include "build_config.h"
 #include "main.h"
+#include "settings.h"
 #include "usb.h"
 
 static u8 base_mac_addr[6];
+static u8 base_mac_addr_dirty;
 static u8 mac_addr[6];
+
+/* ------------------------------------------------------- where it is kept */
+
+/* Everything this firmware persists - the pad's Bluetooth address, each
+ * slot's peer and Switch 2 bond here, the link keys (btstack_jl_sdk.c), the
+ * profile settings (controller.c) and the calibration (calibration.c) - is
+ * held in RAM and written to syscfg from there at safe points.  RAM mode
+ * holds those writes back, so a configuration can be tried without touching
+ * flash; see settings.h. */
+static u8 store_ram_mode;
+
+int cyclone2_store_ram_mode(void)
+{
+    return store_ram_mode;
+}
+
+void cyclone2_store_set_ram_mode(int ram)
+{
+    store_ram_mode = ram ? 1U : 0U;
+}
 #define CYCLONE2_LOCAL_NAME_MAX 31U
 static u8 edr_name[CYCLONE2_LOCAL_NAME_MAX + 1U] = "CYCLONE2";
 
@@ -49,19 +70,15 @@ void cyclone2_bt_address_init(void)
 {
     int length = syscfg_read(CFG_BT_MAC_ADDR, base_mac_addr, sizeof(base_mac_addr));
 
+    base_mac_addr_dirty = 0U;
     /* cfg_tool.bin deliberately supplies ff:ff:ff:ff:ff:ff.  Match the
-     * vendor SDK: create an address on first boot and retain it in syscfg. */
+     * vendor SDK: create an address on first boot and retain it in syscfg
+     * (at the next flush). */
     if (length != sizeof(base_mac_addr) || address_is(base_mac_addr, 0x00U) ||
         address_is(base_mac_addr, 0xffU)) {
         get_random_number(base_mac_addr, sizeof(base_mac_addr));
         normalize_address(base_mac_addr);
-#if CYCLONE2_BOND_STORE_RAM
-        /* RAM-only build: keep the generated address instead of persisting it,
-         * so a device whose BTIF is blank gets a new identity every boot and
-         * the flash is left alone. */
-#else
-        syscfg_write(CFG_BT_MAC_ADDR, base_mac_addr, sizeof(base_mac_addr));
-#endif
+        base_mac_addr_dirty = 1U;
     }
     memcpy(mac_addr, base_mac_addr, sizeof(mac_addr));
 }
@@ -88,115 +105,40 @@ void cyclone2_bt_address_randomize(void)
 {
     get_random_number(base_mac_addr, sizeof(base_mac_addr));
     normalize_address(base_mac_addr);
-#if !CYCLONE2_BOND_STORE_RAM
-    syscfg_write(CFG_BT_MAC_ADDR, base_mac_addr, sizeof(base_mac_addr));
-#endif
+    base_mac_addr_dirty = 1U;
     memcpy(mac_addr, base_mac_addr, sizeof(mac_addr));
 }
 
 /* Put back an address that was saved off the pad.  A bond is keyed to the
  * address the host saw, so restoring a captured pairing has to restore the
- * address it was captured under as well; on the RAM-only build this is the
- * only way to give a reflashed pad back the identity the console knows. */
+ * address it was captured under as well. */
 void cyclone2_bt_address_set(const u8 address[6])
 {
     /* Verbatim: normalize_address() is for addresses we make up.  An address
      * being restored - or a public one, like the stock firmware's
      * D0:56:80:.. - must stay exactly as given. */
     memcpy(base_mac_addr, address, sizeof(base_mac_addr));
-#if !CYCLONE2_BOND_STORE_RAM
-    syscfg_write(CFG_BT_MAC_ADDR, base_mac_addr, sizeof(base_mac_addr));
-#endif
+    base_mac_addr_dirty = 1U;
     memcpy(mac_addr, base_mac_addr, sizeof(mac_addr));
 }
 
 /* The console a slot last connected to, i.e. the peer the slot pages when it
  * starts on its own.  Together with the link key in the host's key database
  * (src/bt/btstack_jl_sdk.c) this is the slot's bond; the address alone is not
- * enough to authenticate, and the key alone does not say who to page.
+ * enough to authenticate, and the key alone does not say who to page.  A slot
+ * that has never been written reads back as all zeroes: no peer to page.
  *
- * With CYCLONE2_BOND_STORE_RAM the record lives in RAM instead of syscfg, so
- * the whole slot->console association is gone at the next boot.  A slot that
- * has never been written reads back as all zeroes, which the profile treats
- * the same way as a blank syscfg item: there is no peer to page. */
-#if CYCLONE2_BOND_STORE_RAM
-void cyclone2_peer_address_cache_load(void)
-{
-}
-
-static void le_bond_flush(void);
-
-void cyclone2_peer_address_flush(void)
-{
-    le_bond_flush();
-}
-
-static u8 peer_address_ram[CFG_BT_IDX_NUM][6];
-
-int cyclone2_peer_address_read(u8 slot, u8 address[6])
-{
-    if (slot >= CFG_BT_IDX_NUM) return 0;
-    memcpy(address, peer_address_ram[slot], 6U);
-    return 1;
-}
-
-void cyclone2_peer_address_write(u8 slot, const u8 address[6])
-{
-    if (slot >= CFG_BT_IDX_NUM) return;
-    memcpy(peer_address_ram[slot], address, 6U);
-}
-#else
-/* The peer address is cached in RAM and written back to syscfg only when the
- * radio is idle.
- *
- * It used to be written straight through, and one of those writes is on the
- * pairing path: cyclone2_switch_start() clears the slot's peer as it enters
- * pairing mode.  A syscfg write there resets the pad - measured: `pair N`
- * restarts the chip seconds later, every time, while the same write on an
- * idle pad is fine and the RAM-only build never crashes at all.  So the cache
- * is authoritative and cyclone2_peer_address_flush() writes the dirty slots
- * from the application task once the radio is quiet. */
+ * Cached in RAM and written back by cyclone2_settings_flush() once the radio
+ * is idle.  It used to be written straight through, and one of those writes
+ * is on the pairing path: starting a slot in pairing mode clears its peer.  A
+ * syscfg write there resets the pad - measured: `pair N` restarted the chip
+ * seconds later, every time, while the same write on an idle pad is fine. */
 static u8 peer_address_cache[CFG_BT_IDX_NUM][6];
 static u8 peer_address_dirty[CFG_BT_IDX_NUM];
-static u8 peer_address_cache_ready;
-
-void cyclone2_peer_address_cache_load(void)
-{
-    u8 slot;
-
-    for (slot = 0U; slot < CFG_BT_IDX_NUM; slot++) {
-        cyclone2_bringup_record(0x3f00u | slot);
-        if (syscfg_read((u16)(CFG_EDR_ADDRESS_BEGIN + slot),
-                        peer_address_cache[slot], 6U) != 6) {
-            memset(peer_address_cache[slot], 0, 6U);
-        }
-    }
-    peer_address_cache_ready = 1U;
-}
-
-static void le_bond_flush(void);
-
-void cyclone2_peer_address_flush(void)
-{
-    u8 slot;
-
-    le_bond_flush();
-    /* Interrupts masked: see the note on btstack_jl_link_key_flush(). */
-    local_irq_disable();
-    for (slot = 0U; slot < CFG_BT_IDX_NUM; slot++) {
-        if (!peer_address_dirty[slot]) continue;
-        peer_address_dirty[slot] = 0U;
-        cyclone2_bringup_record(0x3f80u | slot);
-        syscfg_write((u16)(CFG_EDR_ADDRESS_BEGIN + slot),
-                     peer_address_cache[slot], 6U);
-    }
-    local_irq_enable();
-}
 
 int cyclone2_peer_address_read(u8 slot, u8 address[6])
 {
     if (slot >= CFG_BT_IDX_NUM) return 0;
-    if (!peer_address_cache_ready) cyclone2_peer_address_cache_load();
     memcpy(address, peer_address_cache[slot], 6U);
     return 1;
 }
@@ -204,11 +146,9 @@ int cyclone2_peer_address_read(u8 slot, u8 address[6])
 void cyclone2_peer_address_write(u8 slot, const u8 address[6])
 {
     if (slot >= CFG_BT_IDX_NUM) return;
-    if (!peer_address_cache_ready) cyclone2_peer_address_cache_load();
     memcpy(peer_address_cache[slot], address, 6U);
     peer_address_dirty[slot] = 1U;
 }
-#endif /* CYCLONE2_BOND_STORE_RAM */
 
 /* Diagnostic hook for the controller-library patch in tools/patch_btctrler.py:
  * called with the link key the stack is about to hand the controller when it
@@ -267,30 +207,10 @@ const char *bt_get_local_name()
 
 static u8 le_bond[CFG_BT_IDX_NUM][LE_BOND_SIZE];
 static u8 le_bond_dirty[CFG_BT_IDX_NUM];
-static u8 le_bond_loaded;
-
-static void le_bond_load(void)
-{
-    u8 slot;
-
-    if (le_bond_loaded) return;
-    le_bond_loaded = 1U;
-    for (slot = 0U; slot < CFG_BT_IDX_NUM; slot++) {
-#if CYCLONE2_BOND_STORE_RAM
-        memset(le_bond[slot], 0, LE_BOND_SIZE);
-#else
-        if (syscfg_read((u16)(CFG_BLE_BONDING_REMOTE_INFO + slot), le_bond[slot],
-                        LE_BOND_SIZE) != LE_BOND_SIZE) {
-            memset(le_bond[slot], 0, LE_BOND_SIZE);
-        }
-#endif
-    }
-}
 
 int cyclone2_le_bond_read(u8 slot, u8 console[6], u8 ltk[16])
 {
     if (slot >= CFG_BT_IDX_NUM) return 0;
-    le_bond_load();
     if (le_bond[slot][0] != LE_BOND_TAG) return 0;
     memcpy(console, &le_bond[slot][1], 6U);
     memcpy(ltk, &le_bond[slot][7], 16U);
@@ -300,7 +220,6 @@ int cyclone2_le_bond_read(u8 slot, u8 console[6], u8 ltk[16])
 void cyclone2_le_bond_write(u8 slot, const u8 console[6], const u8 ltk[16])
 {
     if (slot >= CFG_BT_IDX_NUM) return;
-    le_bond_load();
     le_bond[slot][0] = LE_BOND_TAG;
     memcpy(&le_bond[slot][1], console, 6U);
     memcpy(&le_bond[slot][7], ltk, 16U);
@@ -310,24 +229,71 @@ void cyclone2_le_bond_write(u8 slot, const u8 console[6], const u8 ltk[16])
 void cyclone2_le_bond_clear(u8 slot)
 {
     if (slot >= CFG_BT_IDX_NUM) return;
-    le_bond_load();
     if (le_bond[slot][0] == 0U) return;
     memset(le_bond[slot], 0, LE_BOND_SIZE);
     le_bond_dirty[slot] = 1U;
 }
 
-/* Called from cyclone2_peer_address_flush(), i.e. only once the radio has
- * been idle for a while. */
-static void le_bond_flush(void)
+/* ------------------------------------------------ loading and writing */
+
+/* Read the address, peers and Switch 2 bonds from syscfg: at boot, before the
+ * radio, and for `store revert` (radio idle).  Pending changes are dropped. */
+void cyclone2_settings_load(void)
 {
-#if !CYCLONE2_BOND_STORE_RAM
     u8 slot;
 
+    cyclone2_bt_address_init();
     for (slot = 0U; slot < CFG_BT_IDX_NUM; slot++) {
-        if (!le_bond_dirty[slot]) continue;
+        cyclone2_bringup_record(0x3f00u | slot);
+        if (syscfg_read((u16)(CFG_EDR_ADDRESS_BEGIN + slot),
+                        peer_address_cache[slot], 6U) != 6) {
+            memset(peer_address_cache[slot], 0, 6U);
+        }
+        peer_address_dirty[slot] = 0U;
+        if (syscfg_read((u16)(CFG_BLE_BONDING_REMOTE_INFO + slot), le_bond[slot],
+                        LE_BOND_SIZE) != LE_BOND_SIZE) {
+            memset(le_bond[slot], 0, LE_BOND_SIZE);
+        }
         le_bond_dirty[slot] = 0U;
-        syscfg_write((u16)(CFG_BLE_BONDING_REMOTE_INFO + slot), le_bond[slot],
-                     LE_BOND_SIZE);
     }
-#endif
+}
+
+int cyclone2_settings_pending(void)
+{
+    u8 slot;
+
+    if (base_mac_addr_dirty) return 1;
+    for (slot = 0U; slot < CFG_BT_IDX_NUM; slot++) {
+        if (peer_address_dirty[slot] || le_bond_dirty[slot]) return 1;
+    }
+    return 0;
+}
+
+/* Write what changed.  Only from an idle application task (controller.c),
+ * with interrupts masked (see btstack_jl_link_key_flush()); held back in RAM
+ * mode. */
+void cyclone2_settings_flush(void)
+{
+    u8 slot;
+
+    if (cyclone2_store_ram_mode() || !cyclone2_settings_pending()) return;
+    local_irq_disable();
+    if (base_mac_addr_dirty) {
+        base_mac_addr_dirty = 0U;
+        syscfg_write(CFG_BT_MAC_ADDR, base_mac_addr, sizeof(base_mac_addr));
+    }
+    for (slot = 0U; slot < CFG_BT_IDX_NUM; slot++) {
+        if (peer_address_dirty[slot]) {
+            peer_address_dirty[slot] = 0U;
+            cyclone2_bringup_record(0x3f80u | slot);
+            syscfg_write((u16)(CFG_EDR_ADDRESS_BEGIN + slot),
+                         peer_address_cache[slot], 6U);
+        }
+        if (le_bond_dirty[slot]) {
+            le_bond_dirty[slot] = 0U;
+            syscfg_write((u16)(CFG_BLE_BONDING_REMOTE_INFO + slot),
+                         le_bond[slot], LE_BOND_SIZE);
+        }
+    }
+    local_irq_enable();
 }

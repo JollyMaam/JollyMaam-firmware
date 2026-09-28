@@ -18,7 +18,6 @@
 #include <btstack/avctp_user.h>
 
 #include "app_config.h"
-#include "build_config.h"
 #include "usb.h"
 
 #include "app_comm_bt.h"
@@ -26,6 +25,7 @@
 #include "main.h"
 #include "btstack_jl.h"
 #include "btstack_jl_hid_ext.h"
+#include "settings.h"
 
 
 
@@ -74,14 +74,6 @@ static int link_key_tag_matches(u8 tag, u8 owner)
            tag == link_key_tag_for(owner);
 }
 
-/* How long to wait before writing a staged link key to flash.  The pairing
- * this record came from finishes in well under 100 ms. */
-#define BTSTACK_JL_LINK_KEY_WRITE_DELAY_MS 2000
-
-/* Defined with the rest of the time helpers further down; the staging above
- * and the flush below both need it. */
-static u32 jl_time_ms(void);
-
 static const edr_init_cfg_t *edr_config;
 static const u8 *edr_report_map;
 static u16 edr_report_map_size;
@@ -123,24 +115,52 @@ extern const int sniff_support_reset_anchor_point;
 
 /* ------------------------------------------------------------- link keys */
 
-#if CYCLONE2_BOND_STORE_RAM
-/* Nothing to flush: the RAM store is written in place. */
-void btstack_jl_link_key_flush(u8 force)
+/* The store lives in RAM: a mirror of the syscfg records, loaded before the
+ * radio first starts (btstack_jl_link_key_load()) and written back by
+ * btstack_jl_link_key_flush() from an idle application task.
+ *
+ * Nothing on the pairing path touches syscfg: the controller hands us a new
+ * link key from inside the SSP exchange, and any syscfg access there - a read
+ * while looking for the peer's slot as much as the write - reset the pad
+ * (measured: the pairing reaches LINK KEY NOTIFICATION and the chip resets at
+ * once).  Deletes run while the radio is starting (forgetting a peer before a
+ * fresh pairing, the stack's "forget everything" step) and an erase there
+ * reset it too.  So both only mark the record dirty.
+ *
+ * In the store's RAM mode (cyclone2_store_ram_mode()) the flush holds the
+ * dirty records back; `store flash` lets them through, `store revert` reloads
+ * the mirror from syscfg. */
+static u8 link_key_mirror[BTSTACK_JL_LINK_KEY_ENTRIES][BTSTACK_JL_LINK_KEY_SIZE];
+static u16 link_key_dirty;
+static u8 link_key_loaded;
+
+void btstack_jl_link_key_load(void)
 {
-    (void)force;
+    u8 slot;
+
+    for (slot = 0; slot < BTSTACK_JL_LINK_KEY_ENTRIES; slot++) {
+        if (syscfg_read((u16)(CFG_REMOTE_DB_00 + slot), link_key_mirror[slot],
+                        BTSTACK_JL_LINK_KEY_SIZE) != BTSTACK_JL_LINK_KEY_SIZE) {
+            memset(link_key_mirror[slot], 0, BTSTACK_JL_LINK_KEY_SIZE);
+        }
+    }
+    link_key_dirty = 0U;
+    link_key_loaded = 1U;
 }
 
-/* CYCLONE2_BOND_STORE_RAM makes the bond store volatile: the records live in
- * internal RAM and are never written to syscfg.  Every boot (and every reflash)
- * then starts with no bonds at all, and pairing no longer costs a flash write.
- * A record that was never written reads back as empty because its tag byte is
- * zero, exactly like a blank syscfg item below. */
-static u8 link_key_ram[BTSTACK_JL_LINK_KEY_ENTRIES][BTSTACK_JL_LINK_KEY_SIZE];
+int btstack_jl_link_key_pending(void)
+{
+    return link_key_dirty != 0U;
+}
 
 static int link_key_slot_read(u8 slot, u8 *record)
 {
     if (slot >= BTSTACK_JL_LINK_KEY_ENTRIES) return 0;
-    memcpy(record, link_key_ram[slot], BTSTACK_JL_LINK_KEY_SIZE);
+    /* Loaded at boot; this is only a fallback, and must not run with the
+     * radio up. */
+    if (!link_key_loaded) btstack_jl_link_key_load();
+    memcpy(record, link_key_mirror[slot], BTSTACK_JL_LINK_KEY_SIZE);
+    /* Records from the vendor stack's use of these items carry no tag. */
     if (!link_key_tag_valid(record[0])) return 0;
     return 1;
 }
@@ -149,91 +169,20 @@ static int link_key_slot_write(u8 slot, u8 owner, const u8 *address,
                                const u8 *key, u8 type)
 {
     if (slot >= BTSTACK_JL_LINK_KEY_ENTRIES) return 0;
-    link_key_ram[slot][0] = link_key_tag_for(owner);
-    memcpy(&link_key_ram[slot][1], address, 6);
-    memcpy(&link_key_ram[slot][7], key, 16);
-    link_key_ram[slot][23] = type;
+    link_key_mirror[slot][0] = link_key_tag_for(owner);
+    memcpy(&link_key_mirror[slot][1], address, 6);
+    memcpy(&link_key_mirror[slot][7], key, 16);
+    link_key_mirror[slot][23] = type;
+    link_key_dirty |= (u16)(1U << slot);
     return 1;
 }
 
 static void link_key_slot_clear(u8 slot)
 {
     if (slot >= BTSTACK_JL_LINK_KEY_ENTRIES) return;
-    memset(link_key_ram[slot], 0, BTSTACK_JL_LINK_KEY_SIZE);
+    memset(link_key_mirror[slot], 0, BTSTACK_JL_LINK_KEY_SIZE);
+    link_key_dirty |= (u16)(1U << slot);
 }
-#else
-/* A persistent build does not touch syscfg from the callback the controller
- * uses for a derived link key: that runs inside the SSP exchange, and any
- * syscfg access there - a read while looking for the peer's slot as much as
- * the write - resets the pad.  Measured: the pairing reaches LINK KEY
- * NOTIFICATION and the chip resets immediately, while the RAM-only build
- * (which touches no flash on this path) goes on to encrypt and open the HID
- * channels.  The record is staged here and written by the application task
- * once the exchange is over. */
-static u8 link_key_write_pending;
-static u32 link_key_write_due_ms;
-static u8 link_key_staged_address[6];
-static u8 link_key_staged_key[16];
-static u8 link_key_staged_type;
-static u8 link_key_staged_owner;
-
-/* Slots whose records have been dropped but not yet erased in flash.  The
- * deletes run while the radio is starting (forgetting a peer before a fresh
- * pairing, and the stack's "forget everything" step), and erasing there resets
- * the pad for the same reason the link-key write does. */
-static u16 link_key_clear_pending;
-
-static int link_key_slot_read(u8 slot, u8 *record)
-{
-#ifdef CYCLONE2_BOND_NO_KEY_FLASH
-    /* Diagnostic: pretend the store is empty instead of reading syscfg. */
-    (void)slot; (void)record;
-    return 0;
-#else
-    int length = syscfg_read((u16)(CFG_REMOTE_DB_00 + slot), record,
-                             BTSTACK_JL_LINK_KEY_SIZE);
-
-    if (length != BTSTACK_JL_LINK_KEY_SIZE) return 0;
-    if (!link_key_tag_valid(record[0])) return 0;
-    return 1;
-#endif
-}
-
-static int link_key_slot_write(u8 slot, u8 owner, const u8 *address,
-                               const u8 *key, u8 type)
-{
-#ifdef CYCLONE2_BOND_NO_KEY_FLASH
-    (void)slot; (void)owner; (void)address; (void)key; (void)type;
-    return 1;
-#else
-    u8 record[BTSTACK_JL_LINK_KEY_SIZE];
-
-    record[0] = link_key_tag_for(owner);
-    memcpy(record + 1, address, 6);
-    memcpy(record + 7, key, 16);
-    record[23] = type;
-    {
-        int written;
-
-        cyclone2_bringup_record(0x3b00u | slot);
-        written = syscfg_write((u16)(CFG_REMOTE_DB_00 + slot), record,
-                               sizeof(record));
-        cyclone2_bringup_record(0x3c00u | slot);
-        return written == sizeof(record);
-    }
-#endif
-}
-
-static void link_key_slot_clear(u8 slot)
-{
-    /* Deferred: the erases happen while the radio is starting, and a flash
-     * write there resets the pad (measured: `pair N` puts the pad in pairing
-     * mode and the chip resets seconds later, with the boot counter moving). */
-    if (slot < BTSTACK_JL_LINK_KEY_ENTRIES) {
-        link_key_clear_pending |= (u16)(1U << slot);
-    }
-}
-#endif /* CYCLONE2_BOND_STORE_RAM */
 
 /* Where a record for (owner, address) goes: that owner's record for the
  * address, else a legacy record for it (the pairing supersedes it), else the
@@ -264,22 +213,10 @@ static u8 link_key_slot_for(u8 owner, const u8 address[6])
 static void link_key_store(u8 owner, const u8 address[6], const u8 key[16],
                            u8 type)
 {
-#if CYCLONE2_BOND_STORE_RAM
     u8 slot = link_key_slot_for(owner, address);
 
     link_key_slot_write(slot, owner, address, key, type);
     cyclone2_bringup_record(0x3400u | slot);
-#else
-    /* Staged, not stored: no syscfg access at all from here.  The slot is
-     * chosen (and the write done) by btstack_jl_link_key_flush() from the
-     * application task. */
-    memcpy(link_key_staged_address, address, 6);
-    memcpy(link_key_staged_key, key, 16);
-    link_key_staged_type = type;
-    link_key_staged_owner = owner;
-    link_key_write_due_ms = jl_time_ms() + BTSTACK_JL_LINK_KEY_WRITE_DELAY_MS;
-    link_key_write_pending = 1;
-#endif
 }
 
 static int jl_link_key_get(const u8 address[6], u8 key[16], u8 *type)
@@ -289,18 +226,6 @@ static int jl_link_key_get(const u8 address[6], u8 key[16], u8 *type)
     u8 legacy = BTSTACK_JL_LINK_KEY_ENTRIES;
     u8 slot;
 
-#if !CYCLONE2_BOND_STORE_RAM
-    /* A key staged by a pairing is not in flash until the radio has been idle
-     * for a while; a peer that reconnects before that must still find it. */
-    if (link_key_write_pending &&
-        memcmp(link_key_staged_address, address, 6) == 0 &&
-        (link_key_staged_owner == owner ||
-         link_key_staged_owner == BTSTACK_JL_LINK_KEY_ANY_SLOT)) {
-        memcpy(key, link_key_staged_key, 16);
-        *type = link_key_staged_type;
-        return 1;
-    }
-#endif
     /* This slot's own record first; a legacy one only if there is none. */
     for (slot = 0; slot < BTSTACK_JL_LINK_KEY_ENTRIES; slot++) {
         if (!link_key_slot_read(slot, record)) continue;
@@ -401,56 +326,32 @@ void btstack_jl_link_key_store_write(u8 owner, const u8 address[6],
                    address, key, type);
 }
 
-#if !CYCLONE2_BOND_STORE_RAM
-/* Write a staged link key once the pairing that produced it is over.  Called
- * from the application task; see the note above link_key_slot_write().
+/* Write the records that changed.  Called from the application task once the
+ * radio has been idle for a while (see controller.c); held back in the
+ * store's RAM mode.
  *
  * The writes are made with interrupts masked.  This pad executes out of the
  * same SPI flash the syscfg layer writes to, and an interrupt taken in the
  * middle of a flash program/erase takes its handler from a bus that is busy -
  * which is the most direct explanation for the resets this used to cause. */
-void btstack_jl_link_key_flush(u8 force)
+void btstack_jl_link_key_flush(void)
 {
-    u8 record[BTSTACK_JL_LINK_KEY_SIZE];
-    u8 cleared[BTSTACK_JL_LINK_KEY_SIZE];
+    u16 pending;
     u8 slot;
 
-    /* Erase any records the pairing path asked to drop.  Same rule as the
-     * write below: only while the radio is idle - the application gates this
-     * call, and `force` is for the console commands, which run idle too. */
-    if (link_key_clear_pending != 0U) {
-        u16 pending = link_key_clear_pending;
-        link_key_clear_pending = 0U;
-        memset(cleared, 0, sizeof(cleared));
-        local_irq_disable();
-        for (slot = 0; slot < BTSTACK_JL_LINK_KEY_ENTRIES; slot++) {
-            if (pending & (u16)(1U << slot)) {
-                cyclone2_bringup_record(0x3b80u | slot);
-                syscfg_write((u16)(CFG_REMOTE_DB_00 + slot), cleared,
-                             sizeof(cleared));
-            }
-        }
-        local_irq_enable();
-    }
-
-    if (!link_key_write_pending) return;
-    if (!force && (s32)(jl_time_ms() - link_key_write_due_ms) < 0) return;
-    link_key_write_pending = 0;
-#ifdef CYCLONE2_BOND_WRITE_DISABLED
-    /* Diagnostic build: stage and drop, to tell a crash in the flash write
-     * apart from one in the pairing path itself. */
-    cyclone2_usb_debug("BTSTACK: link key dropped (write disabled)");
-    return;
-#endif
-    /* This is the first flash access for this record: find its slot. */
-    slot = link_key_slot_for(link_key_staged_owner, link_key_staged_address);
+    if (link_key_dirty == 0U || cyclone2_store_ram_mode()) return;
+    pending = link_key_dirty;
+    link_key_dirty = 0U;
     local_irq_disable();
-    link_key_slot_write(slot, link_key_staged_owner, link_key_staged_address,
-                        link_key_staged_key, link_key_staged_type);
+    for (slot = 0; slot < BTSTACK_JL_LINK_KEY_ENTRIES; slot++) {
+        if (!(pending & (u16)(1U << slot))) continue;
+        cyclone2_bringup_record(0x3b00u | slot);
+        syscfg_write((u16)(CFG_REMOTE_DB_00 + slot), link_key_mirror[slot],
+                     BTSTACK_JL_LINK_KEY_SIZE);
+        cyclone2_bringup_record(0x3c00u | slot);
+    }
     local_irq_enable();
-    cyclone2_bringup_record(0x3400u | slot);
 }
-#endif /* !CYCLONE2_BOND_STORE_RAM */
 
 /* ----------------------------------------------------------------- events */
 

@@ -298,8 +298,8 @@ def loop(args):
     print(f"Using saved bond local={local} peer={peer} type={key_type} "
           f"key SHA256[:16]={fingerprint}", flush=True)
     session = Session(args.socket)
-    # In the RAM-only build, start each run from the protected record so the
-    # local address and peer slot do not depend on what survived in flash.
+    # Start each run from the protected record so the local address and peer
+    # slot do not depend on what survived in flash (or in a RAM-mode store).
     needs_address = not args.already_restored
     try:
         for cycle in range(1, args.cycles + 1):

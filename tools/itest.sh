@@ -1,16 +1,16 @@
 #!/bin/sh
 #
-# Integration test: run the RAM-only build against a real console and prove it
-# never wrote the flash.
+# Integration test: put the pad's store in RAM mode (`store ram`), pair with a
+# real console and prove nothing was written to flash.
 #
 #   1. dump the whole flash                    -> <dir>/itest-<stamp>-before.bin
-#   2. build and flash the RAM-only build (BOND_STORE_RAM=1)
+#   2. build and flash the image, then `store ram` before anything else
 #   3. pair the pad with a real console (human step, prompted)
 #   4. read the whole flash back               -> <dir>/itest-<stamp>-after.bin
 #   5. compare, ignoring the code span step 2 rewrote on purpose
 #   6. if anything else changed, write the "before" dump back and fail
 #
-# Why this is the interesting test: BOND_STORE_RAM=1 keeps every bond in RAM,
+# Why this is the interesting test: in RAM mode every change is held in RAM,
 # so a pairing must leave the persistent regions alone.  Those are the VM
 # (syscfg, where the flash-backed link keys and peer addresses live), BTIF
 # (RF trim / MAC) and the key-mac area.  All of them sit above the application
@@ -32,7 +32,7 @@ set -eu
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo_root"
 
-image=build-ram/firmware.img
+image=build/firmware.img
 flash_size=0x100000
 wait_seconds=180
 do_build=1
@@ -52,7 +52,7 @@ usage()
     echo "usage: $0 [--image FILE] [--no-build] [--skip-pair] [--wait SECONDS]"
     echo "          [--loader DEV] [--compare-from OFFSET] [--flash-size SIZE]"
     echo
-    echo "  --image FILE          RAM-only image to flash (default build-ram/firmware.img)"
+    echo "  --image FILE          image to flash (default build/firmware.img)"
     echo "  --no-build            do not run make first"
     echo "  --skip-pair           machinery test: do not wait for a real pairing"
     echo "  --wait SECONDS        how long to wait for the loader/console (default 180)"
@@ -198,10 +198,8 @@ connected_now()
 }
 
 if [ "$do_build" = 1 ]; then
-    grep -Eq '^#define CYCLONE2_BOND_STORE_RAM 1\b' src/build_config.h ||
-        die "src/build_config.h must set CYCLONE2_BOND_STORE_RAM 1 for this test"
-    echo "itest: building the RAM-only image (O=build-ram)"
-    make O=build-ram >/dev/null
+    echo "itest: building the image"
+    make >/dev/null
 fi
 
 [ -r "$image" ] || die "no image at $image"
@@ -237,7 +235,7 @@ echo "itest: dumping $flash_size bytes of flash to $before"
 run_loader "read 0 $flash_size $before" >/dev/null
 [ -s "$before" ] || die "the dump is empty"
 
-# ------------------------------------------------- 2. flash the RAM build ---
+# ------------------------------------------------------ 2. flash the image ---
 size_hex=$(printf '0x%x' "$image_size")
 echo "itest: writing $image"
 run_loader "write 0 $image" "read 0 $size_hex $readback" reset >/dev/null
@@ -251,8 +249,15 @@ console=$(wait_for_console) ||
     die "the pad did not return to its console within ${wait_seconds}s"
 echo "itest: console at $console"
 
+# First thing: the pad boots with its store in flash mode.  (Nothing is dirty
+# at boot unless BTIF was blank and a new address was generated; that write
+# waits for 3 s of idle radio, and this runs well before.)
+"$c2ctl" -p "$console" "store ram" 2>/dev/null | grep -q '^OK store ram' ||
+    die "the pad did not switch its store to RAM mode"
+echo "itest: store in RAM mode"
+
 # ---------------------- 3. commands that used to write flash ----------------
-# Everything the firmware persists is RAM-only in this build, so none of these
+# Everything the firmware persists stays in RAM in this mode, so none of these
 # may leave a mark: a new identity, pairing windows, profile switches, and the
 # report-period setting.  Rejections from a switch already in progress are
 # expected and ignored.
@@ -273,8 +278,7 @@ itest: pair the pad with a real console now.
   * put the console on its controller-pairing screen (Switch: Change Grip/Order)
     or wake the pad with the Home + face-button chord it is configured for;
   * let it pair and confirm the pad actually drives the console;
-  * pair normally -- do not use "pair N fresh" or "unkey", which are meant to
-    change the pad's own Bluetooth address and so do write flash.
+  * pair normally.
 
 Press Enter here once the console is connected and the pad is sending input.
 MSG
@@ -355,10 +359,10 @@ case $compare_status in
     if [ "$skip_pair" = 1 ]; then
         echo "itest: PASS - flash unchanged above the image (no pairing was exercised)"
     else
-        echo "itest: PASS - the RAM-only build paired and wrote nothing to flash"
+        echo "itest: PASS - paired in store RAM mode and wrote nothing to flash"
     fi
     echo "itest: dumps kept at $before and $after"
-    echo "itest: the pad is left running the RAM-only build"
+    echo "itest: the pad was reset; its store is back in flash mode"
     ;;
 2)
     die "nothing to compare; check --compare-from"

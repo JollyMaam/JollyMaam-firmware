@@ -35,8 +35,9 @@ or not.  Only a radio in transition - pairing, connecting, switching profiles,
 waking a console - holds the write back, because those are the states where a
 syscfg write was measured to reset the pad (`controller.c`, the bond-store
 flush); it happens as soon as the link is up or off again, and before a
-power-off.  `cal` shows `pending=1` while a write is waiting.  On the RAM-only
-build (`CYCLONE2_BOND_STORE_RAM 1`) it is never written.
+power-off.  `cal` shows `pending=1` while a write is waiting.  With the store in
+RAM mode (`store ram`, `docs/bond-store.md`) it waits until `store flash`, and
+a reset or `store revert` drops it.
 
 ## The method
 

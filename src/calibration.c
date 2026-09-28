@@ -1,7 +1,7 @@
 #include <system/includes.h>
 
-#include "build_config.h"
 #include "calibration.h"
+#include "settings.h"
 #include "usb.h"
 #include "user_cfg_id.h"
 
@@ -97,12 +97,7 @@ void cyclone2_calibration_load(void)
     u8 stick;
 
     load_defaults();
-#if CYCLONE2_BOND_STORE_RAM
-    /* RAM-only build: nothing is read from or written to flash. */
-    (void)length;
-    (void)stored;
-    (void)stick;
-#else
+    calibration_dirty = 0U;
     if (length != sizeof(stored) || stored.magic != CAL_MAGIC ||
         stored.version != CAL_VERSION || stored.size != sizeof(stored)) return;
     for (stick = 0U; stick < 2U; stick++) {
@@ -117,7 +112,6 @@ void cyclone2_calibration_load(void)
             stored.measured &= (u8)~(CYCLONE2_CAL_LEFT_TRIGGER << stick);
     }
     calibration.measured = stored.measured;
-#endif
 }
 
 static u16 legacy_trigger(u16 sample, u16 *rest)
@@ -438,16 +432,13 @@ int cyclone2_calibration_set_deadzones(int triggers, u8 inner_percent,
 
 int cyclone2_calibration_pending(void)
 {
-#if CYCLONE2_BOND_STORE_RAM
-    return 0;
-#else
     return calibration_dirty;
-#endif
 }
 
+/* Held back in the store's RAM mode (settings.h). */
 void cyclone2_calibration_flush(void)
 {
-    if (!cyclone2_calibration_pending()) return;
+    if (!calibration_dirty || cyclone2_store_ram_mode()) return;
     calibration_dirty = 0U;
     syscfg_write(CFG_CYCLONE2_CALIBRATION, &calibration, sizeof(calibration));
 }

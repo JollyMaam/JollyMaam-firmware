@@ -63,7 +63,7 @@ since the fix: whether the `markers-role-guard` patch mode (changed during the
 hunt) is needed at all.
 
 There is exactly one persistent bond store, the app's (`keys`, `setkey`,
-`bond`; RAM-only on `CYCLONE2_BOND_STORE_RAM 1`).  `btctrler.a` keeps a key only
+`bond`; held in RAM only after `store ram`, see `docs/bond-store.md`).  `btctrler.a` keeps a key only
 for the life of a connection; `Write/Delete Stored Link Key` are stubs.
 
 In Change Grip/Order the console *pages the pad* and re-pairs from scratch every
@@ -71,7 +71,8 @@ time; a pad-initiated connection there is treated like one from Home.
 
 ### The other bug hiding behind it: the pad resets
 
-The pad resets on its own, and on `BOND_STORE_RAM=1` a reset erases the bond -
+The pad resets on its own, and in RAM mode (`store ram`, formerly the
+`BOND_STORE_RAM=1` build) a reset erases the bond -
 so "it paired, and the next reconnect failed" can be a reset rather than a key
 problem.  Reproduced 2026-09-24: `pair 0` -> console connects -> pairing
 completes -> console starts its init subcommands (0x02, 0x08, 0x10) -> **the
@@ -129,17 +130,19 @@ Change Grip/Order and dumps the marker ring on every reset
 (`docs/testing.md`); `tools/ringdump.py` reads the whole ring on its own.
 
 `tools/bond_capture.py` and `tools/bond_load.py` move a bond on and off the pad
-through `/work/cyclone2-bonds/`.  On a RAM-only build that round trip is the
-only way a bond survives a reset.
+through `/work/cyclone2-bonds/`.  In RAM mode that round trip is the only way
+a bond survives a reset.
 
 ## Build and flash
 
     make -j32                                    # uses build_config.h
     tools/flash.sh                               # flashes build/firmware.img
 
-Whether the bond lives in RAM or syscfg flash (`CYCLONE2_BOND_STORE_RAM`) and
-how the controller archive is patched (`CYCLONE2_PATCH_BTCTLER`) are set in
+How the controller archive is patched (`CYCLONE2_PATCH_BTCTLER`) is set in
 `src/build_config.h`, a normal committed header.  Edit it and run `make`.
+Whether changes to bonds and settings reach flash is a runtime choice, not a
+build option: `store ram` holds them in RAM, `store flash` commits them,
+`store revert` drops them (`docs/bond-store.md`).
 
 The stack-size warnings the compiler prints are a vendor lint, not a symptom;
 the measured worst case is well inside the budget (`docs/stack-budget.md`).

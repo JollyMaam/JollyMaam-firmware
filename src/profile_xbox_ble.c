@@ -209,7 +209,8 @@ int cyclone2_xbox_ble_exit(void)
     cyclone2_rumble_stop();
     btstack_jl_le_set_scan_response(NULL, 0);
     btstack_jl_le_set_advertising(NULL, 0);
-    return 1;
+    /* Power the controller down, as the Switch 2 profile does. */
+    return btstack_edr_exit(0);
 }
 
 int cyclone2_xbox_ble_is_connected(void)

@@ -1,79 +1,73 @@
-# The RAM-only build (`BOND_STORE_RAM`)
+# The persistent store and `store ram`
 
-Everything this firmware persists lives in syscfg, so `BOND_STORE_RAM=1` turns
-the whole of it into RAM.  The name comes from the first thing that moved (the
-bond); the flag now covers the pad's identity and its profile settings too.
+Everything this firmware persists lives in syscfg.  It is all held in RAM
+first and written to flash from there at safe points; the console's `store`
+command decides whether those writes happen.
 
-## What is stored, by default
+    store            show the mode, and whether anything is not written yet
+    store ram        hold every write back: try a configuration without
+                     touching flash
+    store flash      write what changed (at the next safe point) and keep
+                     writing from now on - i.e. commit
+    store revert     drop what changed and reload everything from flash
+                     (radio off: `disconnect` first)
 
-| what | item | area | written when |
+The pad boots in flash mode, so a reset in RAM mode also discards anything
+that was not committed.  This replaces the old `CYCLONE2_BOND_STORE_RAM` build
+option, which made the same choice at compile time (and started every boot
+with no bonds; RAM mode starts from what flash holds).
+
+## What is stored
+
+| what | item | area | written |
 |---|---|---|---|
-| link keys, one tagged record per peer | `CFG_REMOTE_DB_00..15` (62..77) | VM | on pairing; zeroed by `unkey`/`delall` |
-| the peer address each slot pages | `CFG_EDR_ADDRESS_BEGIN..+3` (34..37) | VM | on **every** connection, and again once that link authenticates |
-| the pad's own Bluetooth address | `CFG_BT_MAC_ADDR` (102) | BTIF | first boot if blank; `newaddr`, `pair N fresh`, `unkey` |
-| profile settings (per-slot type, report period) | `CFG_CYCLONE2_PROFILE_SETTINGS` (48) | VM | the `report N` command |
+| link keys, one tagged record per slot and peer | `CFG_REMOTE_DB_00..15` (62..77) | VM | radio idle |
+| the peer address each slot pages | `CFG_EDR_ADDRESS_BEGIN..+3` (34..37) | VM | radio idle |
+| each slot's Switch 2 bond (console address, LTK) | `CFG_BLE_BONDING_REMOTE_INFO+slot` | VM | radio idle |
+| the pad's own Bluetooth address | `CFG_BT_MAC_ADDR` (102) | BTIF | radio idle |
+| profile settings (per-slot type, report period) | `CFG_CYCLONE2_PROFILE_SETTINGS` (48) | VM | connected or idle |
+| stick and trigger calibration | `CFG_CYCLONE2_CALIBRATION` | VM | connected or idle |
 
-The link-key records are `tag (0xC2) | peer address (6) | link key (16) |
-key type (1)`, reached through the `btstack_link_key_db_t` callbacks that
+"Radio idle" is 3 s with no radio session (`CYCLONE2_FLASH_IDLE_MS`,
+`cyclone2_poll()`); "connected or idle" is any time the radio is not in a
+transition.  A pad powering itself off writes whatever is still pending first.
+The rules come from `docs/reboot-hunting.md`: a syscfg access while pairing,
+connecting or switching profiles resets the chip, so nothing on those paths
+touches flash - not even a read.  The link-key store is a RAM mirror loaded at
+boot (`btstack_jl_link_key_load()`), and every other store is read at boot too
+(`board_init()`), before the radio first runs.
+
+The link-key records are `tag | peer address (6) | link key (16) | key type
+(1)`, reached through the `btstack_link_key_db_t` callbacks that
 `btstack_init()` installs - that is the database that answers the console's
-`LINK_KEY_REQUEST` on a reconnect.  The tag byte is what separates these
-records from the 38-byte ones the vendor host library left in the same items.
+`LINK_KEY_REQUEST` on a reconnect.  The tag is `0xC8 | slot` for the slot the
+key belongs to (each slot has its own local address, so a host paired on two
+slots holds two keys), or `0xC2` for records written before keys were per
+slot, which any slot may use.  The tag is also what separates these records
+from the 38-byte ones the vendor host library left in the same items.
 
-By default all of it is in flash, so bonds and identity survive a reset *and* a
-reflash.  That is why a reflash cannot be used to clear a pairing: the
-controller's own records (retention memory at `0x10700`, dumped by `bondstore`
-and zeroed by `clearkeys`) and these survive it too.
+Flash survives a reset *and* a reflash (`docs/flash-map.md`), which is why a
+reflash cannot be used to clear a pairing: the controller's own records
+(retention memory at `0x10700`, dumped by `bondstore` and zeroed by
+`clearkeys`) and these survive it too.
 
-## `BOND_STORE_RAM=1`
+## Using RAM mode
 
-    # src/build_config.h: #define CYCLONE2_BOND_STORE_RAM 1
-    make
-    tools/flash.sh
-
-With it on, every row of the table above is held in RAM.  Flash is still *read*
-at boot, so the pad comes up with the identity and the slot types that are
-already flashed; nothing is written back.
-
-What that buys:
-
-* every boot starts with no bonds at all - a reflash, a reset or a power-cycle
-  is a clean slate;
-* pairing, connecting, switching profiles, changing the report period and
-  generating a new address all cost no flash write, so a test can churn them as
-  often as it likes;
-* a bond record that was never written reads back as empty (its tag byte is
-  zero), so `jl_link_key_get()` and the iterator behave exactly as they do with
-  blank syscfg items;
-* bonds survive a profile switch, because a profile switch no longer resets the
-  chip (see `docs/profile-switch.md`) and RAM is not touched by it.
-
-What to expect from RAM-only state:
-
-* `newaddr` and `pair N fresh` give the pad an identity that is gone at the next
-  reset, so the console has to be re-paired after a reboot;
-* on a device whose BTIF is blank there is no address to read, so the pad
-  generates one per boot until it is flashed with a build that persists it;
-* the report period reverts to whatever flash holds on the next boot.
-
-`newaddr` exists for this: it generates a fresh random address and restarts the
-active session so the controller picks it up, without changing the slot or the
-pairing mode.  `pair N fresh` is the same thing plus entering pairing.
+* Pairing, connecting, switching profiles, `report N`, `profile N type`,
+  calibrating and `newaddr` all cost no flash write, so a test can churn them
+  as often as it likes (`make itest` proves it on hardware; see
+  `docs/testing.md`).
+* `store` says `changes not written yet` once anything differs from flash.
+  `store flash` writes it all at the next safe point; `store revert` or a reset
+  throws it away.
+* `newaddr` and `pair N fresh` in RAM mode give the pad an identity that is
+  gone at the next reset, so a console paired to it has to be re-paired after
+  a reboot.
+* Bonds survive a profile switch, because a profile switch does not reset the
+  chip (`docs/profile-switch.md`).
 
 ## It does not touch controller state
 
 The controller's own pairing records at `0x10700` are controller state, not
 host state, and are RAM anyway.  Clearing them still needs `clearkeys` (which
 zeroes the region and restarts) or the per-peer `unkey` command.
-
-## Verification
-
-With the flag off, the application calls `syscfg_write` from five places.  With
-it on, none: disassembling `build-ram/app.elf` and looking for calls to
-`syscfg_write` leaves only four SDK-internal sites (crystal-offset trim and the
-RTC time saves) that have no caller and no function pointer anywhere in the
-loaded image.  `make itest` is what proves it on hardware; see
-`docs/testing.md`.  For where the items physically land, see
-`docs/flash-map.md`; for the RAM the firmware touches by hand, see
-`docs/memory-map.md`.
-
-The default (`BOND_STORE_RAM=0`) is unchanged: everything persists in flash.

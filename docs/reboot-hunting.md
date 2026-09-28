@@ -1,5 +1,10 @@
 # Finding out whether (and why) the pad resets
 
+> Written when keeping bonds in RAM was a build option
+> (`CYCLONE2_BOND_STORE_RAM` / `BOND_STORE_RAM=1`, "the RAM-only build").  It
+> is now the console's `store ram` (`docs/bond-store.md`); the findings below
+> are as recorded.
+
 `make test` fails when the chip's preserved boot counter moves, which is the
 right check but a poor explanation: "the boot counter changed" can mean a
 watchdog, a brownout, a fault, or a tooling artefact.  This page is about
@@ -137,7 +142,7 @@ disturbing the controller while it runs: the pad executes from the same SPI
 flash the VM layer writes, and the controller library keeps its own state in
 there as well.
 
-Until this is understood, use `BOND_STORE_RAM=1` for anything that pairs or
+Until this is understood, use `store ram` for anything that pairs or
 connects.  The default build is fine to *read* bonds - `keys` and `setkey` on
 an idle pad both work, measured - but must not be asked to pair.
 

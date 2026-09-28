@@ -30,12 +30,11 @@ flaps, which reports reboots that did not happen.
 
 ## `make itest` — flash-level integration test
 
-`tools/itest.sh` answers a different question: *does the RAM-only build
-(`BOND_STORE_RAM=1`, see `docs/bond-store.md`) really keep its hands off
-flash?*  It:
+`tools/itest.sh` answers a different question: *does the store's RAM mode
+(`store ram`, see `docs/bond-store.md`) really keep its hands off flash?*  It:
 
 1. dumps the whole flash,
-2. builds and flashes the RAM-only image,
+2. builds and flashes the image, and sends `store ram` before anything else,
 3. exercises the commands that used to write flash (`report`, `newaddr`,
    `pair`, `connect`, `disconnect`) over the console,
 4. asks you to pair the pad with a real console,
@@ -45,17 +44,17 @@ flash?*  It:
 
 The compare starts at the end of the image because the image is what step 2
 deliberately rewrote; everything above it is the persistent area (VM/syscfg,
-BTIF, key/mac) that a RAM-only build must never touch.  A difference there
+BTIF, key/mac) that RAM mode must never touch.  A difference there
 means something leaked into flash, and the restore is what keeps the pad from
 being left with a half-written record.
 
     make itest                          # full run, prompts for the pairing
     make itest ITEST_FLAGS=--skip-pair  # machinery only, no console needed
 
-With everything RAM-only the whole run should be flash-neutral, so there is
-nothing to avoid any more: `newaddr`, `pair N fresh` and `unkey` change the
-address in RAM for this boot only.  A run that passes leaves the pad on the
-RAM-only build; dumps are kept under `/work/cyclone2-flash-backups/`.
+With everything held in RAM the whole run should be flash-neutral, so there is
+nothing to avoid: `newaddr`, `pair N fresh` and `unkey` change the address in
+RAM for this boot only.  A run that passes resets the pad, which drops the
+RAM-mode changes; dumps are kept under `/work/cyclone2-flash-backups/`.
 
 ## `tools/fuzz_links.py` — random connect / pair / disconnect against a console
 

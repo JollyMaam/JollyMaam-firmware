@@ -676,11 +676,16 @@ void cyclone2_switch2_disconnect(void)
     btstack_jl_le_disconnect();
 }
 
+/* Stop advertising and power the controller down like the Classic profiles
+ * do (btstack_edr_exit() is the port's generic shutdown, whatever its name).
+ * Returning 1 at once used to leave the controller running after a
+ * disconnect: `uboot` then entered the loader with the radio live and hung
+ * the pad off USB (2026-09-27). */
 int cyclone2_switch2_exit(void)
 {
     cyclone2_rumble_stop();
     btstack_jl_le_set_advertising(NULL, 0);
-    return 1;
+    return btstack_edr_exit(0);
 }
 
 int cyclone2_switch2_is_connected(void)

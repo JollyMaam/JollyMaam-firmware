@@ -93,14 +93,14 @@ Two details worth knowing:
 
 ## What writes to flash, and when
 
-Full detail is in `docs/bond-store.md`.  A normal build writes four items: the
-link keys and peer addresses in VM, the pad's own address in BTIF at `0xFE004`,
-and the profile settings in VM.
+Full detail is in `docs/bond-store.md`.  The firmware writes the link keys,
+peer addresses, Switch 2 bonds, profile settings and calibration in VM, and
+the pad's own address in BTIF at `0xFE004`.
 
-With `BOND_STORE_RAM=1` all four are RAM-only and no application code calls
-`syscfg_write` at all, so nothing above `0x038000` changes no matter how many
-times you pair, switch profile, change the report period or generate a new
-address.  That is the property `make itest` checks.
+With the store in RAM mode (`store ram`) none of those writes happen, so
+nothing above `0x038000` changes no matter how many times you pair, switch
+profile, change the report period or generate a new address.  That is the
+property `make itest` checks.
 
 ## Reproducing this map
 

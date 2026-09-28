@@ -13,8 +13,7 @@ BTSTACK_PORT_DIR := $(BTSTACK_DIR)/port/jieli-br23
 # controller and the factory data use the 1 MiB positions 0xfe000/0xff000.
 FLASH_SIZE := 0x100000
 CODE_LIMIT := 0x48000
-# BOND_STORE_RAM and the controller-archive patch mode live in
-# src/build_config.h, not here.
+# The controller-archive patch mode lives in src/build_config.h, not here.
 BUILD_CONFIG := src/build_config.h
 # DEBUG_LOG=1 builds a copy of the SDK's debug.c that forwards the controller
 # library's LMP/HCI tracing to the USB console.  See tools/patch_debug.py.
@@ -140,8 +139,8 @@ TEST_FLAGS ?=
 test:
 	$(QUIET)$(PYTHON) tools/stress.py --rounds $(TEST_ROUNDS) $(TEST_FLAGS)
 
-# Integration test: dump the flash, flash the RAM-only build, pair with a real
-# console, read the flash back and require it to be byte-identical above the
+# Integration test: dump the flash, flash the image, switch its store to RAM
+# mode, pair with a real console, read the flash back and require it to be byte-identical above the
 # application image.  If anything else moved, the original dump is written back
 # and the test fails.  It prompts for the pairing, and it flashes the pad.
 #   make itest                          full run

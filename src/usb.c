@@ -232,7 +232,7 @@ static void print_compact_status(void)
 
     cyclone2_connection_status_get(&status);
     length = snprintf(line, sizeof(line),
-                      "stat up=%u boots=%08x state=%u addr=%02x%02x%02x%02x%02x%02x reset=%u p33=%u\r\n",
+                      "stat up=%u boots=%08x state=%u addr=%02x%02x%02x%02x%02x%02x reset=%u p33=%u btidle=%u\r\n",
                       (unsigned)sys_timer_get_ms(),
                       (unsigned)cyclone2_boot_count,
                       (unsigned)status.connection_state,
@@ -240,7 +240,8 @@ static void print_compact_status(void)
                       status.local_address[3], status.local_address[2],
                       status.local_address[1], status.local_address[0],
                       (unsigned)cyclone2_reset_source,
-                      (unsigned)cyclone2_reset_p33);
+                      (unsigned)cyclone2_reset_p33,
+                      (unsigned)btstack_jl_core_idle());
     if (length > 0) console_write_bytes(line, (u32)length);
 }
 
@@ -817,6 +818,27 @@ static void print_battery_status(void)
 
 /* Keep the command parser's formatting buffers out of the frequently-called
  * USB poll frame. LTO otherwise inlines this through consume_input(). */
+/* `store [ram|flash|revert]`: where persistent changes go (settings.h). */
+__attribute__((noinline)) static void store_command(const char *argument)
+{
+    if (!strcmp(argument, "ram")) {
+        cyclone2_store_set_ram_mode(1);
+    } else if (!strcmp(argument, "flash")) {
+        cyclone2_store_set_ram_mode(0);
+    } else if (!strcmp(argument, "revert")) {
+        if (cyclone2_store_revert() != 0) {
+            console_write("ERR disconnect first; the radio is in use\r\n");
+            return;
+        }
+    } else if (argument[0] != '\0') {
+        console_write("ERR use store [ram|flash|revert]\r\n");
+        return;
+    }
+    console_write(cyclone2_store_ram_mode() ? "OK store ram" : "OK store flash");
+    console_write(cyclone2_store_pending() ?
+                  " (changes not written yet)\r\n" : " (all written)\r\n");
+}
+
 /* `profile N [type]`: show or set what slot N speaks. */
 __attribute__((noinline)) static void profile_command(const char *text)
 {
@@ -851,6 +873,8 @@ __attribute__((noinline)) static void execute_command(void)
                       "debug on|off|status  control runtime diagnostics\r\n"
                       "report 5|8|10|16|status  set/report HID period in ms\r\n"
                       "connect 0|1|2|3  reconnect a saved profile slot\r\n"
+                      "store [ram|flash|revert]  keep changes in RAM only, write\r\n"
+                      "         them to flash, or drop them and reload flash\r\n"
                       "profile N [switch|switch2|xbox|xboxble|dualsense|generic]\r\n"
                       "         show or set what slot N speaks (next start)\r\n"
                       "wake 0|1|2|3 [channel] [seconds]  wake that slot's\r\n"
@@ -901,6 +925,10 @@ __attribute__((noinline)) static void execute_command(void)
                                       "debug output disabled\r\n");
     } else if (!strcmp(command_line, "status")) {
         print_status();
+    } else if (!strcmp(command_line, "store")) {
+        store_command("");
+    } else if (!strncmp(command_line, "store ", 6U)) {
+        store_command(command_line + 6);
     } else if (!strncmp(command_line, "profile ", 8U) &&
                command_line[8] >= '0' && command_line[8] <= '3' &&
                (command_line[9] == '\0' || command_line[9] == ' ')) {
@@ -1324,6 +1352,8 @@ static void uboot_step(void)
              * radio still up. */
             warned = 1U;
             cyclone2_bringup_record(0x5e00u);
+            /* Also on the console: a replug to recover loses the ring. */
+            console_write("WARN radio still up after 5 s; entering UBOOT anyway\r\n");
         }
     }
     if (--response_delay == 0U) enter_maskrom_uboot();

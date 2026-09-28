@@ -147,9 +147,9 @@ void btstack_jl_core_delete_link_key(const uint8_t address[6]);
 
 /* The host's own link-key store, addressed by raw record slot rather than by
  * bonded peer.  The console uses these to lift a live pairing off the pad and
- * put it back on a later boot: with BOND_STORE_RAM the store is the only copy
- * of the key and a reset erases it, so the round trip through the host is the
- * only way to carry a bond across a reflash.
+ * put it back on a later boot: with the store in RAM mode the key's only copy
+ * is in RAM and a reset erases it, so the round trip through the host is how
+ * a bond is carried across a reset.
  *
  * read  returns 1 when the slot holds a valid record.
  * write stores the key for profile slot `owner` (0..3; anything else writes a
@@ -160,14 +160,13 @@ int  btstack_jl_link_key_store_read(uint8_t index, uint8_t address[6],
 void btstack_jl_link_key_store_write(uint8_t owner, const uint8_t address[6],
                                      const uint8_t key[16], uint8_t type);
 
-/* Write a link key the controller has just handed us.
- *
- * A persistent build cannot do that from the callback the controller uses: it
- * runs inside the SSP exchange, and writing syscfg there resets the pad.  The
- * record is staged instead and this writes it once the exchange is over, so
- * the application task calls it regularly (force != 0 writes immediately).
- * A no-op on the RAM-only build. */
-void btstack_jl_link_key_flush(uint8_t force);
+/* The store is a RAM mirror of its syscfg records.  load reads them (at boot,
+ * before the radio, and for `store revert`); flush writes the ones that
+ * changed, from an idle application task, unless the store is in RAM mode;
+ * pending says whether any changed. */
+void btstack_jl_link_key_load(void);
+void btstack_jl_link_key_flush(void);
+int  btstack_jl_link_key_pending(void);
 
 /* Body of the "btstack" OS task. */
 void btstack_jl_core_run(void *argument);

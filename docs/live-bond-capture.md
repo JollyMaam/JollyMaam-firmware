@@ -1,5 +1,10 @@
 # Capturing a live pairing, and what a replay does and does not fix
 
+> Written when keeping bonds in RAM was a build option
+> (`CYCLONE2_BOND_STORE_RAM` / `BOND_STORE_RAM=1`, "the RAM-only build").  It
+> is now the console's `store ram` (`docs/bond-store.md`); the findings below
+> are as recorded.
+
 Written after a session against a real Switch 2 with a RAM-only build.  The
 point of the exercise was to stop guessing about the "missing bond key": take a
 pairing that works, lift the key off the pad, put it back on a later boot, and

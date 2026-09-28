@@ -86,9 +86,10 @@ anything.
 | power cycle / unplug | lost | kept |
 | `make flash` | kept | image rewritten, reserved regions kept |
 
-The RAM-only bond store (`BOND_STORE_RAM=1`, see `docs/bond-store.md`) lives in
-`.bss`, so it behaves like the first column: it survives a profile switch, and
-is gone at the next boot.
+The persistent store's RAM copies (link-key mirror, peer addresses, settings,
+calibration; see `docs/bond-store.md`) live in `.bss`, so changes held in RAM
+mode (`store ram`) behave like the first column: they survive a profile
+switch, and are gone at the next boot.
 
 ## Open question worth keeping in mind
 

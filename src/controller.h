@@ -34,6 +34,10 @@ struct cyclone2_injection_status {
 u8 cyclone2_report_period_get(void);
 u8 cyclone2_profile_type_get(u8 slot);
 int cyclone2_profile_type_set(u8 slot, u8 type);
+/* The persistent store (settings.h): whether anything changed and is not in
+ * flash yet, and dropping those changes (radio must be off; -1 otherwise). */
+int cyclone2_store_pending(void);
+int cyclone2_store_revert(void);
 int cyclone2_report_period_set(u8 period_ms);
 void cyclone2_report_statistics_get(struct cyclone2_report_statistics *stats);
 int cyclone2_connect_request(u8 slot);

@@ -6,11 +6,8 @@
 #ifndef CYCLONE2_BUILD_CONFIG_H
 #define CYCLONE2_BUILD_CONFIG_H
 
-/* 1: keep the link-key store, the pad's address and its profile settings in
- * RAM only - every boot starts unpaired and nothing is written to flash
- * (docs/bond-store.md).  0: persist them in syscfg flash, as the product
- * does. */
-#define CYCLONE2_BOND_STORE_RAM 0
+/* Keeping bonds and settings in RAM only is no longer a build option: it is
+ * the console's `store ram` (src/settings.h, docs/bond-store.md). */
 
 /* How tools/patch_btctrler.py patches the vendor controller archive
  * btctrler.a.  Keep it a string literal on one line; the patcher parses it.

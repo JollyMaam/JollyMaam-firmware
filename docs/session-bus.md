@@ -1,5 +1,10 @@
 # The shared pad session (`tools/padbus.py` and `tools/pad_tui.py`)
 
+> Written when keeping bonds in RAM was a build option
+> (`CYCLONE2_BOND_STORE_RAM` / `BOND_STORE_RAM=1`, "the RAM-only build").  It
+> is now the console's `store ram` (`docs/bond-store.md`); the findings below
+> are as recorded.
+
 The pad's USB console is a single terminal.  Two programs reading it split each
 other's output, and a command from one lands in the middle of the other's
 trace, so a session driven from both sides is hard to follow - and dumping

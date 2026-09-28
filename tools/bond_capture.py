@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Pair a RAM-only pad to a console and save the bond it produces.
+"""Pair the pad to a console with its store in RAM mode and save the bond.
 
-The RAM-only build (BOND_STORE_RAM=1) starts every boot with no bonds, so a
-pairing produces the only copy of the link key the pad will ever have, and a
-reset destroys it.  This tool holds the USB console open across the whole
-sequence, so the run is captured end to end, and reads the host's link-key
-store out while the pairing is live:
+The tool first puts the pad's store in RAM mode (`store ram`), so the pairing
+produces the only copy of the link key and a reset destroys it.  It holds the
+USB console open across the whole sequence, so the run is captured end to end,
+and reads the host's link-key store out while the pairing is live:
 
     tools/bond_capture.py -p /dev/bwrap/ttyjl0 -o /work/nslog/bond1.txt \\
         --slot 0 --fresh
@@ -15,8 +14,8 @@ The file it writes ends with the part worth keeping: one machine-readable
 link key.  That line is what `restore` (or `setaddr` + `setkey`) puts back on a
 later boot, so a reconnect can be tested without pairing again.
 
-Nothing here writes the pad's flash on the RAM-only build: the pairing itself
-is the only state, and it lives in RAM.
+Nothing here writes the pad's flash: the pairing itself is the only state,
+and in RAM mode it stays in RAM until `store flash` or a reset.
 """
 
 import argparse
@@ -221,6 +220,7 @@ def main():
 
     with open(args.output, "w") as output:
         console = Console(args.port, output, not args.quiet)
+        console.command("store ram")
         console.command("debug on")
         console.command("hcidump on")
         console.command("connect status")
