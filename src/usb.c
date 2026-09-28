@@ -25,11 +25,13 @@ static u8 uboot_pending;
 static u8 response_delay;
 static u32 uboot_started_ms;
 static u8 terminal_was_open;
+static u32 terminal_generation;
 
 extern void usb_start(void);
 extern void nvram_set_boot_state(u32 state);
 extern void flushinv_dcache(const void *address, u32 size);
 extern u8 cyclone2_cdc_terminal_open(void);
+extern u32 cyclone2_cdc_terminal_generation(void);
 
 void cyclone2_usb_write(const void *data, u32 length)
 {
@@ -118,7 +120,13 @@ void cyclone2_usb_control_poll(void)
 {
     u8 receive_buffer[64];
     u32 length;
+    u32 generation = cyclone2_cdc_terminal_generation();
 
+    if (generation != terminal_generation) {
+        console_closed();
+        terminal_was_open = 0U;
+        terminal_generation = generation;
+    }
     if (!cyclone2_cdc_terminal_open()) {
         if (terminal_was_open) console_closed();
         terminal_was_open = 0U;

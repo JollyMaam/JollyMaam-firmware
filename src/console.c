@@ -996,6 +996,14 @@ static void browse_history(int older)
                  history[(history_count - history_browse) % HISTORY] : "");
 }
 
+static void enter_machine_mode(void)
+{
+    /* Finish the human prompt before emitting line-oriented protocol replies. */
+    if (!machine) raw("\r\n", 2U);
+    machine = 1U;
+    line_length = 0U;
+}
+
 static void key(u8 byte)
 {
     if (escape_state == 1U) {
@@ -1029,8 +1037,7 @@ static void key(u8 byte)
         }
         return;
     case 0x02U:
-        machine = 1U;
-        line_length = 0U;
+        enter_machine_mode();
         return;
     case 0x03U:
         if (machine) return;
@@ -1076,6 +1083,14 @@ static void key(u8 byte)
         if (!machine) raw("\x07", 1U);
         return;
     }
+    /* A previous client may leave machine mode set without dropping DTR. */
+    if (!line_length) {
+        if (byte == '@') enter_machine_mode();
+        else if (machine) {
+            machine = 0U;
+            prompt();
+        }
+    }
     line[line_length++] = (char)byte;
     if (!machine) raw((const char *)&byte, 1U);
 }
@@ -1085,10 +1100,21 @@ void console_input(const u8 *data, u32 length)
     while (length-- && !cyclone2_usb_uboot_pending()) key(*data++);
 }
 
-void console_opened(void)
+static void reset_input(void)
 {
     machine = 0U;
     line_length = 0U;
+    escape_state = 0U;
+    last_was_cr = 0U;
+    last_key_tab = 0U;
+    history_browse = 0U;
+    command_id[0] = '\0';
+    at_line_start = 1U;
+}
+
+void console_opened(void)
+{
+    reset_input();
     raw_text("\r\nCyclone 2 console. Type help; Tab completes.\r\n");
     prompt();
 }
@@ -1099,8 +1125,7 @@ void console_closed(void)
      * never hold the controller up. */
     log_read = log_write;
     log_dropped = 0U;
-    machine = 0U;
-    line_length = 0U;
+    reset_input();
 }
 
 void console_poll(void)

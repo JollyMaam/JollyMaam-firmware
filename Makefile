@@ -330,3 +330,12 @@ $O/wake_session_test: $(WAKE_SESSION_SOURCES) $(wildcard src/profile_switch_wake
 .PHONY: wake-session-test
 wake-session-test: $O/wake_session_test
 	$(QUIET)$O/wake_session_test
+
+CONSOLE_TEST_SOURCES := tools/console_test.c src/console.c src/config.c src/config_schema.c
+$O/console_test: $(CONSOLE_TEST_SOURCES) src/console.h src/config.h tools/host/system/includes.h
+	@mkdir -p $(@D)
+	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) -DCONFIG_HOST_TEST -Itools/host -Isrc $(CONSOLE_TEST_SOURCES) -o $@
+
+.PHONY: console-test
+console-test: $O/console_test
+	$(QUIET)$O/console_test

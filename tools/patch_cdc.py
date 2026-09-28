@@ -21,6 +21,8 @@ if len(sys.argv) != 3:
     raise SystemExit(f"usage: {sys.argv[0]} INPUT OUTPUT")
 
 source = pathlib.Path(sys.argv[1]).read_text()
+source = replace_once(source, "    u8 bmTransceiver;\n",
+                      "    u8 bmTransceiver;\n    volatile u32 terminal_generation;\n")
 
 old_line_state = """            if (cdc_hdl) {
                 /* if (ctrl_req->wValue & BIT(0)) { //DTR */
@@ -37,7 +39,9 @@ old_line_state = """            if (cdc_hdl) {
             }
 """
 new_line_state = """            if (cdc_hdl) {
-                /* Mirror the host's DTR/RTS state instead of latching it. */
+                /* Record DTR edges even when close/reopen happens between app polls. */
+                if ((cdc_hdl->bmTransceiver ^ ctrl_req->wValue) & BIT(0))
+                    cdc_hdl->terminal_generation++;
                 cdc_hdl->bmTransceiver =
                     (cdc_hdl->bmTransceiver & ~(BIT(0) | BIT(1))) |
                     (ctrl_req->wValue & (BIT(0) | BIT(1))) | BIT(4);
@@ -63,6 +67,11 @@ u8 cyclone2_cdc_terminal_open(void)
 {
     const u8 required = BIT(0) | BIT(1) | BIT(4);
     return cdc_hdl && (cdc_hdl->bmTransceiver & required) == required;
+}
+
+u32 cyclone2_cdc_terminal_generation(void)
+{
+    return cdc_hdl ? cdc_hdl->terminal_generation : 0U;
 }
 """
 source = replace_once(source, old_wakeup, new_wakeup)
