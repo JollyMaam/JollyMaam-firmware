@@ -295,9 +295,19 @@ static void print_leaf(const struct cfg_leaf *leaf, int is_config, int annotate)
         console_printf("status.%s = %s\r\n", path, value_text);
         return;
     }
-    cfg_format(leaf->item, cfg_leaf_data(&config, leaf), value_text,
-               sizeof(value_text));
-    console_printf("config.%s = %s", path, value_text);
+    {
+        int derived;
+
+        cfg_leaf_format(&config, leaf, value_text, sizeof(value_text), &derived);
+        /* Lines for import say what is stored: an unset address is "none". */
+        console_printf("config.%s = %s", path,
+                       derived && !annotate ? "none" : value_text);
+        if (derived && annotate) {
+            console_write(cfg_leaf_is_pending(leaf) ? "  # derived, not written" :
+                                                      "  # derived");
+            annotate = 0;
+        }
+    }
     if (annotate) {
         int changed = !cfg_leaf_is_default(&config, leaf);
         int pending = cfg_leaf_is_pending(leaf);
@@ -307,7 +317,8 @@ static void print_leaf(const struct cfg_leaf *leaf, int is_config, int annotate)
 
             cfg_leaf_default(leaf, value);
             cfg_format(leaf->item, value, value_text, sizeof(value_text));
-            console_printf("  # default %s%s", value_text,
+            console_printf("  # default %s%s",
+                           leaf->item->derived ? "derived" : value_text,
                            pending ? ", not written" : "");
         } else if (pending) {
             console_write("  # not written");
@@ -337,7 +348,8 @@ static void print_leaf_help(const struct cfg_leaf *leaf, int is_config)
 
         cfg_leaf_default(leaf, value);
         cfg_format(item, value, value_text, sizeof(value_text));
-        console_printf("; default %s; %s", value_text, cfg_apply_name(item->apply));
+        console_printf("; default %s; %s", item->derived ? "derived" : value_text,
+                       cfg_apply_name(item->apply));
     } else {
         console_write("; read-only");
     }
@@ -362,7 +374,11 @@ static int statement(char *text)
 
     if (equals) {
         char *end = equals;
+        char *comment = strchr(equals, '#');
 
+        /* A listing's "  # default 8" comment: lines from `config` paste
+         * straight into import. */
+        if (comment) *comment = '\0';
         value = equals + 1;
         while (end > text && end[-1] == ' ') end--;
         *end = '\0';

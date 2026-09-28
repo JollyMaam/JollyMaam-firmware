@@ -473,6 +473,20 @@ const char *cfg_check(const struct config *target, const struct cfg_leaf *leaf)
     return leaf->item->check ? leaf->item->check(target, leaf->index) : NULL;
 }
 
+void cfg_leaf_format(const struct config *base, const struct cfg_leaf *leaf,
+                     char *out, u32 size, int *derived)
+{
+    const u8 *value = cfg_leaf_data((struct config *)base, leaf);
+    u8 address[6];
+
+    *derived = leaf->item->derived && all_zero(value, leaf->item->size);
+    if (*derived) {
+        leaf->item->derived(leaf->index, address);
+        value = address;
+    }
+    cfg_format(leaf->item, value, out, size);
+}
+
 void cfg_status_format(const struct cfg_leaf *leaf, char *out, u32 size)
 {
     /* Big enough for any status struct. */
@@ -829,10 +843,9 @@ static u32 fnv1a(u32 hash, const u8 *data, u32 length)
     return hash;
 }
 
-/* The slot's bond address, or one derived from the seed, the slot, its type
- * and generation - so a slot re-used for another kind of pad looks like a
- * different device, and `pair --fresh` gives it a new one. */
-void config_slot_address(u8 slot, u8 address[6])
+/* Derived from the seed, the slot and its type - so a slot re-used for
+ * another kind of pad looks like a different device. */
+void config_derived_address(u8 slot, u8 address[6])
 {
     const struct config_profile *profile = &config.profile[slot % CONFIG_PROFILES];
     const u8 *seed = config.identity_seed;
@@ -840,14 +853,10 @@ void config_slot_address(u8 slot, u8 address[6])
     u32 first;
     u32 second;
 
-    if (!all_zero(profile->bond.local, 6U)) {
-        memcpy(address, profile->bond.local, 6U);
-        return;
-    }
     if (all_zero(seed, 16U) && config_flash_uid()) seed = config_flash_uid();
     salt[0] = slot;
     salt[1] = profile->type;
-    salt[2] = profile->generation;
+    salt[2] = 0U;
     first = fnv1a(fnv1a(2166136261U, seed, 16U), salt, sizeof(salt));
     second = fnv1a(fnv1a(0x811c9dc5U ^ 0x5a5a5a5aU, salt, sizeof(salt)), seed, 16U);
     memcpy(address, &first, 4U);
@@ -855,6 +864,30 @@ void config_slot_address(u8 slot, u8 address[6])
     /* Locally administered, individual (not group).  Least significant byte
      * first, so the octet printed first is address[5]. */
     address[5] = (u8)((address[5] | 0x02U) & 0xfeU);
+}
+
+void config_slot_address(u8 slot, u8 address[6])
+{
+    const u8 *pinned = config.profile[slot % CONFIG_PROFILES].address;
+
+    if (!all_zero(pinned, 6U)) memcpy(address, pinned, 6U);
+    else config_derived_address(slot, address);
+}
+
+void config_slot_address_fresh(u8 slot)
+{
+    u8 *address = config.profile[slot % CONFIG_PROFILES].address;
+    u32 hash;
+
+    config_slot_address(slot, address);
+    /* Least significant byte first: address[0..2] are the three octets
+     * printed last. */
+    hash = fnv1a(fnv1a(2166136261U, address, 6U), address, 6U);
+    if ((hash & 0xffffffU) == ((u32)address[0] | (u32)address[1] << 8 |
+                               (u32)address[2] << 16)) hash ^= 1U;
+    address[0] = (u8)hash;
+    address[1] = (u8)(hash >> 8);
+    address[2] = (u8)(hash >> 16);
 }
 
 void config_bond_clear(u8 slot)

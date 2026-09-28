@@ -324,21 +324,39 @@ static void test_addresses(void)
     config_slot_address(1, second);
     CHECK(memcmp(first, second, 6));
     CHECK((first[5] & 0x03) == 0x02);            /* local, individual */
-    config.profile[0].generation++;
-    config_slot_address(0, third);
-    CHECK(memcmp(first, third, 6));
-    config.profile[0].generation--;
     config.profile[0].type = 3;
     config_slot_address(0, third);
     CHECK(memcmp(first, third, 6));
     config.profile[0].type = 0;
     config_slot_address(0, again);
     CHECK(!memcmp(first, again, 6));
-    CHECK(set("profile.0.bond.local", "d0:56:80:f0:ab:ec") == NULL);
+    CHECK(set("profile.0.address", "d0:56:80:f0:ab:ec") == NULL);
     config_slot_address(0, third);
     CHECK(third[0] == 0xec && third[5] == 0xd0);
+
+    /* --fresh: same upper half, new lower half, stored; a chain. */
+    config_slot_address_fresh(0);
+    config_slot_address(0, again);
+    CHECK(!memcmp(again + 3, third + 3, 3) && memcmp(again, third, 3));
+    CHECK(!memcmp(again, config.profile[0].address, 6));
+    config_slot_address_fresh(0);
+    config_slot_address(0, second);
+    CHECK(!memcmp(second + 3, third + 3, 3) && memcmp(second, again, 3) &&
+          memcmp(second, third, 3));
+    /* Stateless: the same address always moves on to the same next one. */
+    CHECK(set("profile.0.address", "d0:56:80:f0:ab:ec") == NULL);
+    config_slot_address_fresh(0);
+    CHECK(!memcmp(config.profile[0].address, again, 6));
+    /* An unset address starts from the derived one, and is stored. */
+    CHECK(set("profile.1.address", "none") == NULL);
+    config_slot_address(1, third);
+    config_slot_address_fresh(1);
+    CHECK(!memcmp(config.profile[1].address + 3, third + 3, 3) &&
+          memcmp(config.profile[1].address, third, 3));
+    CHECK(set("profile.1.address", "none") == NULL);
+
     /* Another seed, other addresses. */
-    CHECK(set("profile.0.bond.local", "none") == NULL);
+    CHECK(set("profile.0.address", "none") == NULL);
     CHECK(set("identity.seed", "0102030405060708090a0b0c0d0e0f10") == NULL);
     config_slot_address(0, third);
     CHECK(memcmp(first, third, 6));
@@ -387,7 +405,7 @@ static void test_paths(void)
         CHECK(strchr(path, '#') == NULL);
         count++;
     }
-    CHECK(count == 3 + 4 * 9 + 2 * 6 + 2 * 4);
+    CHECK(count == 3 + 4 * 8 + 2 * 6 + 2 * 4);
 }
 
 int main(int argc, char **argv)

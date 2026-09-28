@@ -25,7 +25,7 @@ import padbus  # noqa: E402
 ADDRESS = r"[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}"
 LEGACY = re.compile(rf"^BOND local=({ADDRESS}) peer=({ADDRESS}) type=(\d+) "
                     r"key=([0-9a-fA-F]{32})", re.M)
-SETTING = re.compile(r"^config\.profile\.\w+\.(bond\.\w+|type|generation|rumble)"
+SETTING = re.compile(r"^config\.profile\.\w+\.(bond\.\w+|type|address|rumble)"
                      r"\s*=\s*(\S+)", re.M)
 
 
@@ -54,7 +54,7 @@ def read(path, slot):
     if not match:
         raise RuntimeError(f"{path}: neither config lines nor a BOND line")
     local, peer, key_type, key = match.groups()
-    return [f"config.profile.{slot}.bond.local = {local.lower()}",
+    return [f"config.profile.{slot}.address = {local.lower()}",
             f"config.profile.{slot}.bond.peer = {peer.lower()}",
             f"config.profile.{slot}.bond.link_key = {key.lower()}",
             f"config.profile.{slot}.bond.key_type = {key_type}"]

@@ -100,13 +100,12 @@ void cyclone2_profile_start(enum cyclone2_profile_type type, u8 slot,
     if ((unsigned)type >= CYCLONE2_PROFILE_TYPE_COUNT)
         type = CYCLONE2_PROFILE_SWITCH;
     active_profile = &profiles[type];
-    /* Pairing: forget what the slot had, keys and address both, so the pad
-     * pairs under the derived address.  The Classic start still reads the old
-     * peer to have the controller forget it too, and clears it itself. */
+    /* Pairing: forget the slot's keys (its address stays; `pair --fresh`
+     * moved it before this).  The Classic start still reads the old peer to
+     * have the controller forget it too, and clears it itself. */
     if (pairing && slot < CONFIG_PROFILES) {
         struct config_bond *bond = &config.profile[slot].bond;
 
-        memset(bond->local, 0, sizeof(bond->local));
         memset(bond->link_key, 0, sizeof(bond->link_key));
         bond->key_type = 0U;
         memset(bond->le_peer, 0, sizeof(bond->le_peer));

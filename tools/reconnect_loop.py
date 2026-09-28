@@ -227,7 +227,7 @@ def restore(session: Session, bond, slot: int, set_address: bool):
     session.command("debug.hcidump on", "HCI packet trace on")
     session.cmd("import")
     for line in bond:
-        if set_address or ".bond.local" not in line:
+        if set_address or not re.match(r"config\.profile\.\w+\.address", line):
             session.cmd(line)
     session.cmd("end")
     marker = session.send(f"connect {slot}")

@@ -340,9 +340,9 @@ int cyclone2_pair_fresh_request(u8 profile)
 {
     if (profile >= CYCLONE2_PROFILE_COUNT) return -1;
     if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
-    /* A new generation is a new derived address: a host that still holds a
-     * key for the old one sees a pad it has never met. */
-    config.profile[profile].generation++;
+    /* A new address: a host that still holds a key for the old one sees a
+     * pad it has never met. */
+    config_slot_address_fresh(profile);
     injection_cancel();
     profile_select(profile, 1U);
     return 1;

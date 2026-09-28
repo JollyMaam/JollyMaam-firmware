@@ -77,9 +77,9 @@ extern const int sniff_support_reset_anchor_point;
  * task; they only touch RAM - config.c writes flash later, from the
  * application task, once the pairing is over (docs/config.md).
  *
- * A key arriving here is the end of a pairing, so it also records the pad's
- * own address as the bond's: an exported bond then carries the identity the
- * host knows. */
+ * A key arriving here is the end of a pairing, so it also pins the slot's
+ * address (config.profile[].address) to the one in use: an exported bond
+ * then carries the identity the host knows. */
 static struct config_bond *running_bond(void)
 {
     return &config.profile[get_cur_bt_idx() % CONFIG_PROFILES].bond;
@@ -116,7 +116,9 @@ static void jl_link_key_put(const u8 address[6], const u8 key[16], u8 type)
     memcpy(bond->peer, address, 6);
     memcpy(bond->link_key, key, 16);
     bond->key_type = type;
-    if (local) memcpy(bond->local, local, 6);
+    /* Pin the address the bond was made with (config.h). */
+    if (local) memcpy(config.profile[get_cur_bt_idx() % CONFIG_PROFILES].address,
+                      local, 6);
     cyclone2_bringup_record(0x3500u | key[0]);
     cyclone2_bringup_record(0x3600u | key[15]);
 }

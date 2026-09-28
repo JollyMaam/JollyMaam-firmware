@@ -18,7 +18,6 @@
 /* One bond per profile slot.  Addresses are least significant byte first,
  * as the stack keeps them.  All zeroes means "none". */
 struct config_bond {
-    u8 local[6];        /* the pad's address when the bond was made */
     u8 peer[6];         /* the Classic host this slot pages */
     u8 link_key[16];
     u8 key_type;
@@ -29,7 +28,7 @@ struct config_bond {
 struct config_profile {
     u8 type;            /* enum cyclone2_profile_type */
     u8 rumble;
-    u8 generation;      /* bumped by `pair N --fresh`: a new identity */
+    u8 address[6];      /* the pad's address in this slot; zero: derived */
     struct config_bond bond;
 };
 
@@ -98,6 +97,8 @@ struct cfg_item {
     const void *def_ptr;    /* or raw bytes: one value per array index */
     /* Cross-leaf rule, run after a set: an error message, or NULL. */
     const char *(*check)(const struct config *config, u8 index);
+    /* A CFG_MAC whose zero means "derived": what it derives to, for display. */
+    void (*derived)(u8 index, u8 *out);
     /* Status items: fill the struct the item's offset points into. */
     void (*get)(void *out);
     const char *help;
@@ -176,8 +177,16 @@ void config_reset_all(int keep_autocommit);
 /* The flash chip's unique ID (16 bytes), or NULL when it has none. */
 const u8 *config_flash_uid(void);
 
-/* The address a slot uses: its bond's, or the one derived from the seed. */
+/* The address a slot uses: config.profile[slot].address, or when that is
+ * unset the one derived from the seed, the slot and its type. */
 void config_slot_address(u8 slot, u8 address[6]);
+void config_derived_address(u8 slot, u8 address[6]);
+
+/* `pair --fresh`: the slot's next address.  The upper three octets (the
+ * "vendor" half, with the locally administered bit) stay; the lower three
+ * are a double hash of the current address.  Stored in the setting, so
+ * nothing else needs to remember how many times this happened. */
+void config_slot_address_fresh(u8 slot);
 
 /* The Classic host a slot pages (all zeroes: none). */
 #define config_peer(slot) (config.profile[(slot) % CONFIG_PROFILES].bond.peer)
@@ -214,6 +223,11 @@ u8 *cfg_leaf_data(struct config *base, const struct cfg_leaf *leaf);
 void cfg_leaf_default(const struct cfg_leaf *leaf, u8 *out);
 int cfg_leaf_is_default(const struct config *base, const struct cfg_leaf *leaf);
 int cfg_leaf_is_pending(const struct cfg_leaf *leaf);
+
+/* A leaf's value as text; *derived set when it is a derived address shown
+ * in place of "none". */
+void cfg_leaf_format(const struct config *base, const struct cfg_leaf *leaf,
+                     char *out, u32 size, int *derived);
 
 /* Text <-> value.  format writes at most size bytes; parse returns NULL on
  * success or an error message. */

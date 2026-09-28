@@ -5,9 +5,9 @@
     tools/bond_load.py --slot 1 --connect my-switch.bond
 
 Reads a bond file (tools/padbond.py: `export` lines, or an old BOND line),
-imports it into the slot, and with --connect pages the console.  The bond
-carries the pad's address the console knows (bond.local), so nothing else
-needs restoring.  Whether it is also written to flash follows
+imports it into the slot, and with --connect pages the console.  The file
+carries the pad's address the console knows (config.profile.X.address), so
+nothing else needs restoring.  Whether it is also written to flash follows
 config.autocommit; --no-write sets autocommit off first.
 """
 

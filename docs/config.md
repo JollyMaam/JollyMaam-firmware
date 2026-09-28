@@ -67,37 +67,42 @@ One bond per profile slot, `config.profile.A.bond.*` (and B, X, Y):
 
 | leaf | what |
 |---|---|
-| `local` | the pad's address when the bond was made |
 | `peer` | the Classic host the slot pages on `connect A` and wakes on `debug.wake A` |
 | `link_key`, `key_type` | the Classic link key, as the stack keeps it |
 | `le_peer`, `ltk` | the Switch 2 console and its LE long-term key |
 
 BTstack's link-key database (`src/bt/btstack_jl_sdk.c`) is a view of the
 running slot's bond: a key only ever goes to that slot's peer.  A pairing
-fills the bond and records the address it was made with; `pair N` clears
-it.  `export config.profile.A` therefore holds everything a reconnect needs,
-and `import` puts it back on any pad.  `tools/bond_capture.py` and
-`tools/bond_load.py` do that round trip through files (they also read the
-old `BOND local=.. peer=..` files in `/work/cyclone2-bonds/`).
+fills the bond and pins the slot's address (below); `pair A` clears the keys.
+`export config.profile.A` therefore holds everything a reconnect needs -
+address included - and `import` puts it back on any pad.
+`tools/bond_capture.py` and `tools/bond_load.py` do that round trip through
+files (they also read the old `BOND local=.. peer=..` files in
+`/work/cyclone2-bonds/`).
 
 The controller library's own pairing records in retention memory
-(`debug.bondstore`, `debug.clearkeys`) are separate controller state, as before.
+(`debug.bondstore`, `debug.clearkeys`) are separate controller state, as
+before.
 
 ## Addresses
 
-A slot uses its bond's `local` address when it has one.  Otherwise the
-address is derived - nothing stored - from a seed, the slot, its type and
-`config.profile.A.generation` (and so on), and forced to a locally administered unicast
-address.  So a slot used for another kind of pad looks like another device,
-and `pair A --fresh` (which bumps the generation) gives the slot an
-identity no host has a stale key for.  `status.profile.A.address` shows
-each slot's.
-
-The seed is the SPI flash chip's factory unique ID
+`config.profile.A.address` (and B, X, Y) is the pad's Bluetooth address in
+that slot.  Unset, it is derived - nothing stored - from a seed, the slot and
+its type, forced to a locally administered unicast address, so a slot used
+for another kind of pad looks like another device; `config` shows the derived
+value with `# derived`.  The seed is the SPI flash chip's factory unique ID
 (`status.config.flash_id`, from the SDK's `get_norflash_uuid()`), unless
-`config.identity.seed` is set.  A flash without an ID gets a random seed
-drawn once and stored in `identity.seed`.  The BTIF copy of the address
-(`CFG_BT_MAC_ADDR`) is no longer written.
+`config.identity.seed` is set; a flash without an ID gets a random seed drawn
+once and stored in `identity.seed`.
+
+A pairing pins the address it was made with into the setting.  `pair A
+--fresh` moves it on: the upper three octets (the "vendor" half, with the
+locally administered bit) stay, the lower three become a double hash of the
+current address, and the result is stored.  So there is no counter - each
+address leads to the same next one - and a host with a stale key for the old
+address sees a pad it has never met.  `unset config.profile.A.address` goes
+back to the derived one.  `status.profile.A.address` shows what each slot
+uses.  The BTIF copy of the address (`CFG_BT_MAC_ADDR`) is not written.
 
 ## The flash format
 
@@ -105,9 +110,9 @@ The settings live in four kinds of syscfg (VM) item:
 
 | item | holds |
 |---|---|
-| 48 | PREFS: autocommit, report period, identity, each slot's type/rumble/generation |
+| 48 | PREFS: autocommit, report period, identity, each slot's type and rumble |
 | 49 | CAL: stick and trigger calibration |
-| 34 + N | BOND: slot N's bond |
+| 34 + N | BOND: slot N's address and bond (A = 0 ... Y = 3) |
 
 so a pairing rewrites only its slot's item (about 60 bytes).  An item is the
 byte `0xC1` then records `key | length | value`, `key` a varint of

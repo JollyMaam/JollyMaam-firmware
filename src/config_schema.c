@@ -8,7 +8,8 @@
  * moves every pad that never set the value.  Changing a setting's type or
  * meaning: give it a new uid and retire the old one (list it below).
  *
- * Retired uids: none yet.
+ * Retired uids: 12 (profile.#.generation; `pair --fresh` hashes the address
+ * instead).
  */
 
 #include "config.h"
@@ -80,17 +81,16 @@ const struct cfg_item config_items[] = {
     { .uid = 11, .path = "profile.#.rumble", .type = CFG_BOOL,
       CFG_PROFILE_FIELD(rumble), .group = CFG_GROUP_PREFS, .def = 1,
       .help = "let the host drive the rumble motors" },
-    { .uid = 12, .path = "profile.#.generation", .type = CFG_UINT,
-      CFG_PROFILE_FIELD(generation), .group = CFG_GROUP_PREFS,
-      .apply = CFG_NEXT_CONNECT, .max = 255,
-      .help = "part of the slot's derived address; `pair N --fresh` bumps it "
-              "so the host sees a pad it has never met" },
+    /* uid 20 was profile.#.bond.local, the address a bond was made with:
+     * the same thing, so a stored one carries over. */
+    { .uid = 20, .path = "profile.#.address", .type = CFG_MAC,
+      CFG_PROFILE_FIELD(address), .group = CFG_GROUP_BOND,
+      .apply = CFG_NEXT_CONNECT, .derived = config_derived_address,
+      .help = "the pad's Bluetooth address in this slot.  Unset, it is derived "
+              "from the flash ID (config.identity.seed), the slot and its type; "
+              "a pairing pins it, and `pair SLOT --fresh` moves it on" },
 
     /* ------------------------------------------------ bonds, one per slot */
-    { .uid = 20, .path = "profile.#.bond.local", .type = CFG_MAC,
-      CFG_PROFILE_FIELD(bond.local), .group = CFG_GROUP_BOND,
-      .apply = CFG_NEXT_CONNECT,
-      .help = "the pad's address the bond was made with; none = derived" },
     { .uid = 21, .path = "profile.#.bond.peer", .type = CFG_MAC,
       CFG_PROFILE_FIELD(bond.peer), .group = CFG_GROUP_BOND,
       .apply = CFG_NEXT_CONNECT,
