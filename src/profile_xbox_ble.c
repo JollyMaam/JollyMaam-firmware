@@ -12,7 +12,7 @@
 #include "le_common.h"
 #include "profile.h"
 #include "profile_xbox.h"
-#include "rijndael.h"
+#include "aes128.h"
 #include "rumble.h"
 #include "usb.h"
 #include "profile_xbox_ble_att_db.h"
@@ -136,17 +136,15 @@ static void xbox_ble_derive_keys(u8 slot)
         '-', 'X', 'B', 'O', 'X', 'B', 'L', 'E',
     };
     const u8 *address = bt_get_mac_addr();
-    uint32_t rk[RKLENGTH(128)];
-    int rounds = rijndaelSetupEncrypt(rk, firmware_key, 128);
     u8 block[16];
 
     memset(block, 0, sizeof(block));
     if (address) memcpy(block, address, 6U);
     block[6] = slot;
     block[15] = 'E';
-    rijndaelEncrypt(rk, rounds, block, xbox_ble_er);
+    aes128_encrypt(firmware_key, block, xbox_ble_er);
     block[15] = 'I';
-    rijndaelEncrypt(rk, rounds, block, xbox_ble_ir);
+    aes128_encrypt(firmware_key, block, xbox_ble_ir);
 }
 
 void cyclone2_xbox_ble_start(u8 slot, u8 pairing)

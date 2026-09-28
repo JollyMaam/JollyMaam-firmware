@@ -29,8 +29,7 @@ CFLAGS := $(SDK_CFLAGS)
 DEFINES := $(SDK_DEFINES)
 SDK_ARCHIVES := $(SDK_ARCHIVES_MINIMAL)
 SDK_SOURCES := $(SDK_SOURCES_MINIMAL) \
-	$(SDK)/cpu/br23/mcpwm.c \
-	$(SDK)/cpu/br23/uart_dev.c
+	$(SDK)/cpu/br23/mcpwm.c
 SDK_COMMON_SOURCES := $(SDK_COMMON_SOURCES_MINIMAL)
 
 SDK_COMMON_OBJECTS := $(subst $(SDK),$O/sdk,$(SDK_COMMON_SOURCES:.c=.c.o))
@@ -53,7 +52,6 @@ endif
 INCLUDES := -iquote src -iquote src/bt -iquote src/sdkconfig -iquote src/btstack \
 	-iquote $(O) \
 	-I$(BTSTACK_DIR)/src -I$(BTSTACK_DIR)/src/classic -I$(BTSTACK_PORT_DIR) \
-	-I$(BTSTACK_DIR)/3rd-party/rijndael \
 	$(SDK_INCLUDES)
 PROJECT_SOURCES := $(wildcard src/*.c src/bt/*.c src/sdkconfig/*.c)
 APP_CONFIG_DEPS := $(wildcard src/sdkconfig/*.h src/sdkconfig/*.ld)
@@ -71,8 +69,7 @@ BTSTACK_SOURCES := \
 		device_id_server.c hid_device.c sdp_server.c sdp_util.c) \
 	$(addprefix $(BTSTACK_DIR)/src/ble/, \
 		att_db.c att_dispatch.c att_server.c le_device_db_memory.c sm.c) \
-	$(wildcard $(BTSTACK_PORT_DIR)/*.c) \
-	$(BTSTACK_DIR)/3rd-party/rijndael/rijndael.c
+	$(wildcard $(BTSTACK_PORT_DIR)/*.c)
 BTSTACK_OBJECTS := $(subst $(BTSTACK_DIR),$O/btstack,$(BTSTACK_SOURCES:.c=.c.o))
 
 # btctrler.a and the Jieli runtime already export a few names that upstream
@@ -104,7 +101,7 @@ else
 QUIET=@
 endif
 
-.PHONY: all default clean flash test itest rebootwatch wake-vectors calibration-test config-test
+.PHONY: all default clean flash test itest rebootwatch wake-vectors calibration-test config-test aes128-test
 
 # Make must notice when the caller switches DEBUG_LOG; the value of a
 # command-line variable alone is not part of a target's timestamp
@@ -223,6 +220,16 @@ $O/calibration_test: tools/calibration_test.c src/calibration_math.c src/calibra
 
 calibration-test: $O/calibration_test
 	$(QUIET)$O/calibration_test
+
+# Host check of src/aes128.c against FIPS-197 and BTstack's rijndael.c.
+RIJNDAEL_DIR := $(BTSTACK_DIR)/3rd-party/rijndael
+$O/aes128_test: tools/aes128_test.c src/aes128.c src/aes128.h $(RIJNDAEL_DIR)/rijndael.c
+	@mkdir -p $(@D)
+	@echo [EXE] $@
+	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) -Isrc -I$(RIJNDAEL_DIR) tools/aes128_test.c src/aes128.c $(RIJNDAEL_DIR)/rijndael.c -o $@
+
+aes128-test: $O/aes128_test
+	$(QUIET)$O/aes128_test
 
 # Host check for the settings engine against an in-memory syscfg; see
 # docs/flash-map.md.

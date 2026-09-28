@@ -71,8 +71,9 @@ const int ble_disable_wait_enable = 1;
 
 const int config_btctler_eir_version_info_len = 0;
 
-const int CONFIG_TEST_DUT_CODE            = 1;
-const int CONFIG_TEST_FCC_CODE            = 1;
+/* No RF test modes (DUT, FCC) in the field: 4.5 KB of controller code. */
+const int CONFIG_TEST_DUT_CODE            = 0;
+const int CONFIG_TEST_FCC_CODE            = 0;
 const int CONFIG_TEST_DUT_ONLY_BOX_CODE   = 0;
 
 const int CONFIG_BREDR_INQUIRY   =  0;
@@ -80,8 +81,10 @@ const int CONFIG_INQUIRY_PAGE_OFFSET_ADJUST =  0;
 
 const int CONFIG_ESCO_MUX_RX_BULK_ENABLE  =  0;
 const int CONFIG_LMP_NAME_REQ_ENABLE  =  1;
-const int CONFIG_LMP_PASSKEY_ENABLE  =  1;
-const int CONFIG_LMP_MASTER_ESCO_ENABLE  =  1;
+/* Every profile pairs with passkey_enable = 0 (Just Works), and the pad has no
+ * voice link, so the SSP passkey model and master eSCO are left out. */
+const int CONFIG_LMP_PASSKEY_ENABLE  =  0;
+const int CONFIG_LMP_MASTER_ESCO_ENABLE  =  0;
 const int CONFIG_WIFI_DETECT_ENABLE = 0;
 const int ESCO_FORWARD_ENABLE = 0;
 

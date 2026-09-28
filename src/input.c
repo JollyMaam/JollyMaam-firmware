@@ -2,7 +2,7 @@
 #include <asm/br23.h>
 #include <asm/irq.h>
 #include <asm/rtc.h>
-#include <asm/uart_dev.h>
+#include <asm/clock.h>
 #include <system/timer.h>
 
 #include "calibration.h"
@@ -35,7 +35,6 @@ static u16 stick_right_x = 0x8000U;
 static u16 stick_right_y = 0x8000U;
 static enum stick_receive_status stick_receive_status;
 static struct cyclone2_raw_input raw_input;
-static uart_bus_t *stick_uart;
 static volatile u8 stick_uart_work_pending;
 static struct cyclone2_input_stats stick_stats;
 
@@ -168,16 +167,52 @@ static void stick_consume_byte(u8 byte)
     stick_frame_length = STICK_UART_FRAME_SIZE - 1U;
 }
 
-static void stick_uart_isr(void *arg, u32 status)
-{
-    (void)arg;
-    if (status == UT_RX) {
-        stick_stats.dma_interrupts++;
-    } else if (status == UT_RX_OT) {
-        stick_stats.timeout_interrupts++;
-    }
+/* UART2 receives into stick_dma_buffer by DMA; the hardware wraps at RXEADR.
+ * stick_rx_in counts the bytes the DMA has written, stick_rx_out the bytes
+ * consumed, and the buffer size is a power of two.  This is the SDK's
+ * UT2_open()/UT2_isr_fun() register sequence for a receive-only channel. */
+static volatile u32 stick_rx_in;
+static u32 stick_rx_out;
 
-    stick_uart_work_pending = 1;
+___interrupt
+static void stick_uart_isr(void)
+{
+    u32 received;
+
+    if ((JL_UART2->CON0 & BIT(3)) && (JL_UART2->CON0 & BIT(14))) {
+        /* A full DMA frame. */
+        JL_UART2->CON0 |= BIT(7);
+        JL_UART2->CON0 |= BIT(10);
+        JL_UART2->CON0 |= BIT(12);
+        (void)JL_UART2->HRXCNT;
+        stick_rx_in += STICK_UART_DMA_FRAME_SIZE;
+        stick_stats.dma_interrupts++;
+        stick_uart_work_pending = 1;
+    }
+    if ((JL_UART2->CON0 & BIT(5)) && (JL_UART2->CON0 & BIT(11))) {
+        /* The line went idle part way into a frame. */
+        JL_UART2->CON0 |= BIT(7);
+        JL_UART2->CON0 |= BIT(10);
+        JL_UART2->CON0 |= BIT(12);
+        received = JL_UART2->HRXCNT;
+        if (received) {
+            stick_rx_in += received;
+            stick_stats.timeout_interrupts++;
+            stick_uart_work_pending = 1;
+        }
+    }
+}
+
+static u32 stick_uart_read(u8 *buffer, u32 length)
+{
+    u32 offset = stick_rx_out & (STICK_UART_DMA_BUFFER_SIZE - 1U);
+    u32 first = STICK_UART_DMA_BUFFER_SIZE - offset;
+
+    if (first > length) first = length;
+    memcpy(buffer, stick_dma_buffer + offset, first);
+    memcpy(buffer + first, stick_dma_buffer, length - first);
+    stick_rx_out += length;
+    return length;
 }
 
 static void stick_uart_drain(void)
@@ -188,26 +223,25 @@ static void stick_uart_drain(void)
     u32 chunk;
     u32 index;
 
-    if (!stick_uart || !stick_uart_work_pending) {
+    if (!stick_uart_work_pending) {
         return;
     }
 
-    available = stick_uart->kfifo.buf_in - stick_uart->kfifo.buf_out;
+    available = stick_rx_in - stick_rx_out;
     if (available > stick_stats.max_backlog) {
         stick_stats.max_backlog = available;
     }
     if (available > STICK_UART_DMA_BUFFER_SIZE) {
         stick_stats.dropped_bytes += available - STICK_UART_DMA_BUFFER_SIZE;
         stick_stats.overflow_events++;
-        stick_uart->kfifo.buf_out = stick_uart->kfifo.buf_in -
-                                    STICK_UART_DMA_BUFFER_SIZE;
+        stick_rx_out = stick_rx_in - STICK_UART_DMA_BUFFER_SIZE;
         stick_frame_length = 0;
         available = STICK_UART_DMA_BUFFER_SIZE;
         stick_receive_status = STICK_RECEIVE_BAD_FRAMES;
     }
     while (available) {
         chunk = available < sizeof(capture) ? available : sizeof(capture);
-        captured = stick_uart->read(capture, chunk, 0);
+        captured = stick_uart_read(capture, chunk);
         for (index = 0; index < captured; index++) {
             if (stick_receive_status == STICK_RECEIVE_NO_BYTES) {
                 stick_receive_status = STICK_RECEIVE_BAD_FRAMES;
@@ -219,36 +253,29 @@ static void stick_uart_drain(void)
         }
         available -= captured;
     }
-    stick_uart_work_pending = stick_uart->kfifo.buf_in !=
-                              stick_uart->kfifo.buf_out;
+    stick_uart_work_pending = stick_rx_in != stick_rx_out;
 }
 
 static void stick_uart_initialize(void)
 {
-    struct uart_platform_data_t config = {0};
-
-    config.tx_pin = (u8)-1;
-    config.rx_pin = CYCLONE2_STICK_UART_RX;
-    config.rx_cbuf = stick_dma_buffer;
-    config.rx_cbuf_size = STICK_UART_DMA_BUFFER_SIZE;
-    config.frame_length = STICK_UART_DMA_FRAME_SIZE;
-
-    config.rx_timeout = STICK_UART_RX_TIMEOUT_MS;
-    config.isr_cbfun = stick_uart_isr;
-    config.baud = 1000000U;
-    config.is_9bit = 0;
-    stick_uart = (uart_bus_t *)uart_dev_open(&config);
-    if (!stick_uart) {
-        stick_receive_status = STICK_RECEIVE_BAD_FRAMES;
-        return;
-    }
-    /* The board's measured-good divisor is 24. The SDK's baud calculation is
-     * intentionally not used because it produced CRC-invalid data here. */
-
-    JL_UART2->CON0 &= ~BIT(0);
+    /* PA03 is UART2's RX on input channel 0; the pad never transmits. */
+    gpio_set_uart2(0);
+    JL_UART2->CON0 = BIT(13) | BIT(12) | BIT(10);
+    request_irq(IRQ_UART2_IDX, 3, stick_uart_isr, 0);
+    stick_rx_in = 0;
+    stick_rx_out = 0;
+    JL_UART2->RXSADR = (u32)stick_dma_buffer;
+    JL_UART2->RXEADR = (u32)(stick_dma_buffer + STICK_UART_DMA_BUFFER_SIZE);
+    JL_UART2->RXCNT = STICK_UART_DMA_FRAME_SIZE;
+    /* DMA receive, idle timeout interrupt, receive interrupt; 8-bit frames. */
+    JL_UART2->CON0 |= BIT(6) | BIT(5) | BIT(3);
+    JL_UART2->CON0 &= ~BIT(1);
+    /* 1 Mbaud.  The board's measured-good divisor is 24; the SDK's baud
+     * calculation produced CRC-invalid data here. */
     JL_UART2->BAUD = STICK_UART_DIVISOR;
+    JL_UART2->OTCNT = STICK_UART_RX_TIMEOUT_MS * clk_get("lsb") / 1000U;
     __asm__ volatile("csync");
-    JL_UART2->CON0 |= BIT(0);
+    JL_UART2->CON0 |= BIT(13) | BIT(12) | BIT(10) | BIT(0);
 
     configure_active_low_input(CYCLONE2_DPAD_UP);
     stick_uart_work_pending = 0;

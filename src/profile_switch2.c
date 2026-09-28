@@ -15,7 +15,7 @@
 #include "rumble.h"
 #include "profile_switch2_att_db.h"
 #include "btstack_jl_le.h"
-#include "rijndael.h"
+#include "aes128.h"
 #include "main.h"
 #include "config.h"
 #include "usb.h"
@@ -91,15 +91,6 @@ static u8 switch2_ready;
 static u8 switch2_ltk_valid;
 static u8 switch2_ltk[SWITCH2_LTK_SIZE];
 static struct cyclone2_input_report switch2_input;
-
-static void aes128_calc_cyphertext(const u8 *key, const u8 *plaintext,
-                                   u8 *cyphertext)
-{
-    uint32_t rk[RKLENGTH(128)];
-    int rounds = rijndaelSetupEncrypt(rk, key, 128);
-
-    rijndaelEncrypt(rk, rounds, plaintext, cyphertext);
-}
 
 static const u8 switch2_ltk_key_b1[SWITCH2_LTK_SIZE] = {
     0x5c, 0xf6, 0xee, 0x79, 0x2c, 0xdf, 0x05, 0xe1,
@@ -426,7 +417,7 @@ static u8 switch2_command_data(u8 command, u8 subcommand, const u8 *request,
             switch2_ltk_valid) {
             memcpy(ltk_a2, request + 9U, SWITCH2_LTK_SIZE);
             switch2_reverse_bytes(ltk_a2, ltk_a1, SWITCH2_LTK_SIZE);
-            aes128_calc_cyphertext(switch2_ltk, ltk_a1, ltk_b2);
+            aes128_encrypt(switch2_ltk, ltk_a1, ltk_b2);
             output[0] = 1;
             memcpy(output + 1U, ltk_b2, SWITCH2_LTK_SIZE);
             return SWITCH2_LTK_SIZE + 1U;
