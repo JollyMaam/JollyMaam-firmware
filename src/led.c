@@ -10,7 +10,6 @@
 
 static u8 led_dma_buffer[LED_FRAME_BYTES] __attribute__((aligned(4)));
 
-/* CPU-level SDK driver; this SDK revision does not provide a public header. */
 extern void led_spi_init(void);
 extern void led_spi_rgb_to_24byte(u8 red, u8 green, u8 blue,
                                   u8 *buffer, int index);
@@ -33,26 +32,29 @@ void cyclone2_led_initialize(void)
     rom_mdelay(20U);
 }
 
-void cyclone2_led_set_all(u8 red, u8 green, u8 blue)
+static void led_fill(u8 red, u8 green, u8 blue)
 {
     u32 led;
-
-    for (led = 0U; led < LED_COUNT; led++) {
+    for (led = 0U; led < LED_COUNT; led++)
         led_spi_rgb_to_24byte(red, green, blue, led_dma_buffer, led);
-    }
+}
+
+static void led_send(void)
+{
     rom_flush_dcache(led_dma_buffer, sizeof(led_dma_buffer));
     led_spi_send_rgbbuf(led_dma_buffer, LED_COUNT);
 }
 
+void cyclone2_led_set_all(u8 red, u8 green, u8 blue)
+{
+    led_fill(red, green, blue);
+    led_send();
+}
+
 void cyclone2_led_set_home(u8 red, u8 green, u8 blue)
 {
-    u32 led;
-
-    for (led = 0U; led < LED_COUNT; led++) {
-        led_spi_rgb_to_24byte(0U, 0U, 0U, led_dma_buffer, led);
-    }
+    led_fill(0U, 0U, 0U);
     led_spi_rgb_to_24byte(red, green, blue, led_dma_buffer,
                           CYCLONE2_LED_HOME_INDEX);
-    rom_flush_dcache(led_dma_buffer, sizeof(led_dma_buffer));
-    led_spi_send_rgbbuf(led_dma_buffer, LED_COUNT);
+    led_send();
 }

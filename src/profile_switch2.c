@@ -13,12 +13,11 @@
 #include "le_gatt_common.h"
 #include "profile.h"
 #include "rumble.h"
-#include "switch2_att_db.h"
+#include "profile_switch2_att_db.h"
 #include "btstack_jl_le.h"
 #include "rijndael.h"
 #include "main.h"
 #include "config.h"
-#include "identity.h"
 #include "usb.h"
 
 #define SWITCH2_REPORT_SIZE       63U
@@ -53,11 +52,6 @@
 #define SWITCH2_BTN_GL            0x00080000UL
 #define SWITCH2_BTN_C             0x00100000UL
 
-/* Pro Controller 2 advertisement, ndeadly's switch2_controller_research
- * (bluetooth_interface.md): flags, then manufacturer data
- *   53 05 | 01 00 03 | 7e 05 | 69 20 | 00 01 | wake | console addr | 0f | 0 x7
- * The console address is all zeros while pairing, the console's address
- * (reversed) when reconnecting, and wake = 0x81 to wake it. */
 #define SWITCH2_PRODUCT_ID 0x2069U
 static u8 switch2_adv_data[31];
 
@@ -83,7 +77,6 @@ static void switch2_build_adv(const u8 console[6], u8 wake)
     d[23] = 0x0f;
 }
 
-/* The advertisement above, for `bleadv on`. */
 const u8 *cyclone2_switch2_adv_data(u8 *length)
 {
     switch2_build_adv(NULL, 0);
@@ -99,7 +92,6 @@ static u8 switch2_ltk_valid;
 static u8 switch2_ltk[SWITCH2_LTK_SIZE];
 static struct cyclone2_input_report switch2_input;
 
-/* AES-128 encrypt of one block (BTstack's 3rd-party rijndael). */
 static void aes128_calc_cyphertext(const u8 *key, const u8 *plaintext,
                                    u8 *cyphertext)
 {
@@ -188,7 +180,7 @@ static void switch2_make_report(u8 output[SWITCH2_REPORT_SIZE])
     if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_SCREENSHOT) buttons |= SWITCH2_BTN_CAPTURE;
     if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_R4) buttons |= SWITCH2_BTN_GR;
     if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_L4) buttons |= SWITCH2_BTN_GL;
-    /* The Cyclone 2's M button is the extra physical button available for C. */
+
     if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_M) buttons |= SWITCH2_BTN_C;
 
     switch (hat) {
@@ -214,15 +206,6 @@ static void switch2_make_report(u8 output[SWITCH2_REPORT_SIZE])
     output[14] = 0x28;
 }
 
-/* Pro Controller 2 vibration (output report 0x02 on 0x0012): a report byte,
- * then a 16-byte block per LRA - left at 0x01, right at 0x11.  Each block is
- * a sequence byte (0x50 | seq) followed by 5-byte samples packing a high and
- * a low band (SDL's SDL_hidapi_switch2.c, EncodeHDRumble):
- *   high amp = ((b2 & 0x0f) << 12) | ((b1 & 0xfc) << 4)
- *   low amp  = (b4 << 8) | (b3 & 0xc0)
- * The pad has one ERM per side, so each side takes the stronger band of its
- * first sample.  (The old code read bytes 1 and 5 - both inside the left
- * block, the sequence byte and a frequency - which ran the motors flat out.) */
 static u8 switch2_lra_amplitude(const u8 *block)
 {
     const u8 *sample = block + 1;
@@ -231,7 +214,6 @@ static u8 switch2_lra_amplitude(const u8 *block)
     u16 low = (u16)(((u16)sample[4] << 8) | (sample[3] & 0xc0U));
     u16 strongest = high > low ? high : low;
 
-    /* SDL clamps its amplitude to 29000 of 65535; treat that as full. */
     if (strongest >= 29000U) return 255;
     return (u8)(((u32)strongest * 255U) / 29000U);
 }
@@ -455,8 +437,6 @@ static u8 switch2_command_data(u8 command, u8 subcommand, const u8 *request,
         if (subcommand == 0x03 && request_size >= 9U) {
             u8 console[6];
 
-            /* Pairing finalised: keep the console and the key for the
-             * reconnection advertisement and its LTK request. */
             if (switch2_ltk_valid && btstack_jl_le_peer_address(console)) {
                 struct config_bond *bond =
                     &config.profile[switch2_slot % CONFIG_PROFILES].bond;
@@ -486,15 +466,12 @@ static u8 switch2_command_data(u8 command, u8 subcommand, const u8 *request,
         }
         break;
     case 0x0a:
-        /* "Play vibration sample" (ndeadly: 0a 91 01 02 00 04 00 00 | 03 00
-         * 00 00, the connection buzz; the console's settings use it too).
-         * The samples live in the controller; a short buzz stands in for
-         * all of them. */
+
         if (subcommand == 0x02 && request_size >= 9U && request[8] != 0)
             cyclone2_rumble_set(0x80, 0x80, 120);
         break;
     default:
-        /* 0x09 confirmations intentionally have an empty response. */
+
         break;
     }
     return 0;
@@ -524,7 +501,7 @@ static void switch2_send_command_response(const u8 *request, u16 request_size)
     response_length = SWITCH2_RESPONSE_PREFIX + 8U + output_length;
     cyclone2_bringup_record(0x4d00u | command[0]);
     if (command[0] != 0x02U) {
-        /* Every command but the memory reads, in full (up to 24 bytes). */
+
         char hex[2U * 24U + 1U];
         u16 i;
         u16 n = request_size - offset;
@@ -589,9 +566,7 @@ static void switch2_att_write(uint16_t att_handle, const uint8_t *buffer,
         switch2_rumble(buffer, buffer_size);
         break;
     case SWITCH2_ATT_VIBRATION_COMMAND_HANDLE:
-        /* 0x16: the 0x21 bytes in front of the command are the same
-         * vibration report 0x0012 takes (report byte, left block, right
-         * block), so a pulse can ride along with any command. */
+
         if (buffer_size >= SWITCH2_COMMAND_PREFIX + 8U) {
             switch2_rumble(buffer, SWITCH2_COMMAND_PREFIX);
         }
@@ -620,11 +595,7 @@ static void switch2_state(int connected)
     switch2_con_handle = connected ? 1U : 0U;
     if (!connected) switch2_ready = 0;
     if (!connected && switch2_adv_data[16] == 0x81U) {
-        /* The console dropped the link - typically going back to sleep.  A
-         * pad kept up by USB advertises again; with the wake flag still set
-         * it woke the console straight back up, in a loop.  The plain
-         * reconnection form lets an awake console come back but leaves a
-         * sleeping one alone; a Home chord (start()) arms the wake again. */
+
         switch2_adv_data[16] = 0;
         btstack_jl_le_set_advertising(switch2_adv_data,
                                       sizeof(switch2_adv_data));
@@ -646,7 +617,6 @@ void cyclone2_switch2_prepare_stack(void)
     btstack_jl_le_configure(&switch2_le_config);
 }
 
-/* The slot's Switch 2 bond: the console and the LTK, if it has one. */
 static int le_bond_read(u8 slot, u8 console[6], u8 ltk[16])
 {
     const struct config_bond *bond = &config.profile[slot % CONFIG_PROFILES].bond;
@@ -666,17 +636,12 @@ void cyclone2_switch2_start(u8 slot, u8 pairing)
     switch2_counter = 0;
     switch2_ready = 0;
     switch2_con_handle = 0;
-    /* A Switch 2 controller is LE only: no Classic page or inquiry scan. */
+
     bt_wait_phone_connect_control(0);
     switch2_slot = slot;
     switch2_ltk_valid = 0;
     if (!pairing && le_bond_read(slot, console, switch2_ltk)) {
-        /* Reconnection advertisement: the console that owns this bond
-         * connects back and encrypts with the stored LTK.  It carries the
-         * wake flag (0x81), as a real Pro Controller 2's does when a button
-         * press brings it back (ndeadly's btle_procon2_wake_console
-         * capture): an awake console connects to it the same way, and a
-         * sleeping one only answers the flagged form. */
+
         switch2_ltk_valid = 1;
         switch2_build_adv(console, 0x81);
         cyclone2_usb_debug("switch2: wake advertisement for "
@@ -688,35 +653,6 @@ void cyclone2_switch2_start(u8 slot, u8 pairing)
         cyclone2_usb_debug("switch2: pairing advertisement");
     }
     btstack_jl_le_set_advertising(switch2_adv_data, sizeof(switch2_adv_data));
-}
-
-void cyclone2_switch2_disconnect(void)
-{
-    btstack_jl_le_disconnect();
-}
-
-/* Stop advertising and power the controller down like the Classic profiles
- * do (btstack_edr_exit() is the port's generic shutdown, whatever its name).
- * Returning 1 at once used to leave the controller running after a
- * disconnect: `uboot` then entered the loader with the radio live and hung
- * the pad off USB (2026-09-27). */
-int cyclone2_switch2_exit(void)
-{
-    cyclone2_rumble_stop();
-    btstack_jl_le_set_advertising(NULL, 0);
-    return btstack_edr_exit(0);
-}
-
-int cyclone2_switch2_is_connected(void)
-{
-    return btstack_jl_le_connected();
-}
-
-/* Reconnection is driven by advertising and the console's connect, so there
- * is no outgoing page attempt to re-arm here. */
-int cyclone2_switch2_reconnect(void)
-{
-    return 0;
 }
 
 int cyclone2_switch2_send(const struct cyclone2_input_report *report)
@@ -731,13 +667,10 @@ int cyclone2_switch2_send(const struct cyclone2_input_report *report)
     return 1;
 }
 
-enum cyclone2_profile_event cyclone2_switch2_handle_event(
-    const struct sys_event *event)
+int cyclone2_switch2_wake_check(u8 slot, u8 channel, u8 seconds)
 {
-    if ((u32)event->arg != SYS_BT_EVENT_BLE_STATUS) return 0;
-    if (event->u.bt.event == BLE_ST_CONNECT)
-        return CYCLONE2_PROFILE_EVENT_CONNECTED;
-    if (event->u.bt.event == BLE_ST_DISCONN)
-        return CYCLONE2_PROFILE_EVENT_DISCONNECTED;
-    return CYCLONE2_PROFILE_EVENT_NONE;
+    static const u8 zero[6];
+    (void)channel;
+    (void)seconds;
+    return memcmp(config.profile[slot].bond.le_peer, zero, sizeof(zero)) ? 0 : -3;
 }

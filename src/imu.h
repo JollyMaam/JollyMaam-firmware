@@ -29,7 +29,6 @@ void cyclone2_imu_task(void *private_data);
 void cyclone2_imu_enable(void);
 void cyclone2_imu_disable(void);
 int cyclone2_imu_latest(struct cyclone2_imu_sample *sample);
-u8 cyclone2_imu_recent(struct cyclone2_imu_sample *samples, u8 maximum);
 void cyclone2_imu_get_status(struct cyclone2_imu_status *status);
 
 #endif

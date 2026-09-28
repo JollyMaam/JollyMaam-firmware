@@ -55,7 +55,7 @@ INCLUDES := -iquote src -iquote src/bt -iquote src/sdkconfig -iquote src/btstack
 	-I$(BTSTACK_DIR)/src -I$(BTSTACK_DIR)/src/classic -I$(BTSTACK_PORT_DIR) \
 	-I$(BTSTACK_DIR)/3rd-party/rijndael \
 	$(SDK_INCLUDES)
-PROJECT_SOURCES := $(wildcard src/*.c src/bt/*.c src/sdkconfig/*.c src/wake/*.c)
+PROJECT_SOURCES := $(wildcard src/*.c src/bt/*.c src/sdkconfig/*.c)
 APP_CONFIG_DEPS := $(wildcard src/sdkconfig/*.h src/sdkconfig/*.ld)
 
 # Upstream BTstack host sources.  The exclusions are the pieces that need the
@@ -205,17 +205,17 @@ $O/bin2header: tools/bin2header.c
 
 # Host check for the wake-up access code and payload maths.  The two modules
 # it covers are deliberately free of SDK includes so they can be built and run
-# on the host; see docs/ns1-wakeup.md.
-$O/wake_vectors: tools/wake_vectors.c src/wake/wakeup_code.c src/wake/wake_payload.c
+# on the host; see docs/radio.md.
+$O/wake_vectors: tools/wake_vectors.c src/profile_switch_wake_code.c src/profile_switch_wake_payload.c
 	@mkdir -p $(@D)
 	@echo [EXE] $@
-	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) -Isrc/wake $^ -o $@
+	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) -Isrc $^ -o $@
 
 wake-vectors: $O/wake_vectors
 	$(QUIET)$O/wake_vectors
 
 # Host check for the stick and trigger calibration maths, which is kept free
-# of SDK includes for this; see docs/calibration.md.
+# of SDK includes for this.
 $O/calibration_test: tools/calibration_test.c src/calibration_math.c src/calibration_math.h
 	@mkdir -p $(@D)
 	@echo [EXE] $@
@@ -225,7 +225,7 @@ calibration-test: $O/calibration_test
 	$(QUIET)$O/calibration_test
 
 # Host check for the settings engine against an in-memory syscfg; see
-# docs/config.md.
+# docs/flash-map.md.
 CONFIG_TEST_SOURCES := tools/config_test.c src/config.c src/config_schema.c
 $O/config_test: $(CONFIG_TEST_SOURCES) src/config.h src/profile_types.h tools/host/config_host.h
 	@mkdir -p $(@D)
@@ -235,16 +235,16 @@ $O/config_test: $(CONFIG_TEST_SOURCES) src/config.h src/profile_types.h tools/ho
 config-test: $O/config_test
 	$(QUIET)$O/config_test
 
-$O/nintendo_switch_pro_hid.h: $O/bin2header src/nintendo_switch_pro_hid.bin
+$O/profile_switch_hid.h: $O/bin2header src/profile_switch_hid.bin
 	@mkdir -p $(@D)
 	@echo [GEN] $@
-	$(QUIET)$O/bin2header src/nintendo_switch_pro_hid.bin $@ \
+	$(QUIET)$O/bin2header src/profile_switch_hid.bin $@ \
 		nintendo_switch_pro_hid_report_descriptor
 
-$O/nintendo_switch_pro_spi.h: $O/bin2header src/nintendo_switch_pro_spi.bin
+$O/profile_switch_spi.h: $O/bin2header src/profile_switch_spi.bin
 	@mkdir -p $(@D)
 	@echo [GEN] $@
-	$(QUIET)$O/bin2header src/nintendo_switch_pro_spi.bin $@ \
+	$(QUIET)$O/bin2header src/profile_switch_spi.bin $@ \
 		nintendo_switch_pro_spi_flash
 
 # minimal version of download.sh
@@ -291,7 +291,7 @@ $O/btstack/%.c.o: $(BTSTACK_DIR)/%.c
 	$(compile_btstack_c)
 
 # profile_switch.c uses the arrays generated from src/*.bin
-$O/src/profile_switch.c.o: $O/nintendo_switch_pro_hid.h $O/nintendo_switch_pro_spi.h
+$O/src/profile_switch.c.o: $O/profile_switch_hid.h $O/profile_switch_spi.h
 
 $O/sdk/%.c.o: $(SDK)/%.c
 	$(compile_c)
@@ -320,3 +320,13 @@ clean:
 	rm -rf "$O"
 
 -include $(DEPFILES)
+
+WAKE_SESSION_SOURCES := tools/wake_session_test.c src/profile_switch_wake.c \
+	src/profile_switch_wake_code.c src/profile_switch_wake_payload.c
+$O/wake_session_test: $(WAKE_SESSION_SOURCES) $(wildcard src/profile_switch_wake*.h) src/config.h tools/host/system/timer.h
+	@mkdir -p $(@D)
+	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) -Itools/host -Isrc $(WAKE_SESSION_SOURCES) -o $@
+
+.PHONY: wake-session-test
+wake-session-test: $O/wake_session_test
+	$(QUIET)$O/wake_session_test

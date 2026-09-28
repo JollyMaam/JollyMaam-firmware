@@ -10,34 +10,14 @@
 
 #include "config.h"
 
-/*
- * The settings engine: defaults, the flash store, text in and out.
- *
- * Flash holds only what differs from the default.  Settings are grouped into
- * a few syscfg items (PREFS, CAL, one BOND item per slot) so a pairing
- * rewrites only that slot's bond.  An item is
- *
- *     0xC1, then records:  key (varint, uid << 3 | index) | length | value
- *
- * and anything a reader does not recognise - an unknown uid, a length that
- * does not match, a value out of range - is skipped, so settings can be added
- * and defaults changed without migrating anything.  uid 0 is padding: the VM
- * silently keeps the previous record when an item is written with a single
- * byte (measured), so a group that is all defaults is written as 0xC1 plus an
- * empty padding record rather than 0xC1 alone.
- *
- * `committed` mirrors what flash holds; a leaf is pending while config and
- * committed disagree.
- */
-
 #define CONFIG_FORMAT           0xC1U
 #define CONFIG_SETTLE_MS        100U
 #define CONFIG_ITEM_MAX         256U
 #define CONFIG_ITEM_PREFS       48U
 #define CONFIG_ITEM_CAL         49U
-#define CONFIG_ITEM_BOND        34U     /* + slot */
+#define CONFIG_ITEM_BOND        34U
 #define CONFIG_INSTANCES        (2U + CONFIG_PROFILES)
-#define LEAF_INDEX_SHIFT        3U      /* arrays up to 8 elements */
+#define LEAF_INDEX_SHIFT        3U
 
 #define log(...) cyclone2_usb_debug("config: " __VA_ARGS__)
 
@@ -49,14 +29,9 @@ static u32 changed_ms;
 static u8 commit_requested;
 static u8 buffer[CONFIG_ITEM_MAX];
 
-/* Seen while loading and checking the schema; shown as status leaves. */
 u16 config_dropped_records;
 u16 config_schema_errors;
 
-/* ----------------------------------------------------------------- leaves */
-
-/* Neighbouring array items with the same prefix ("profile.#.") form a run,
- * and a run is listed slot by slot: profile.0.*, then profile.1.*. */
 static int same_run(const struct cfg_item *first, const struct cfg_item *second)
 {
     const char *hash = strchr(first->path, '#');
@@ -95,7 +70,6 @@ const char *const cfg_slot_names[] = { "A", "B", "X", "Y" };
 const char *const cfg_stick_names[] = { "left", "right" };
 const char *const cfg_trigger_names[] = { "l2", "r2" };
 
-/* The path with '#' as the index's name, or its number. */
 static void leaf_path(const struct cfg_leaf *leaf, int numeric, char *out,
                       u32 size)
 {
@@ -128,7 +102,6 @@ static char lower(char letter)
     return letter >= 'A' && letter <= 'Z' ? (char)(letter - 'A' + 'a') : letter;
 }
 
-/* `prefix` names `path` or a subtree of it, ignoring case. */
 static int path_under(const char *path, const char *prefix)
 {
     while (*prefix) {
@@ -217,8 +190,6 @@ int cfg_leaf_is_pending(const struct cfg_leaf *leaf)
     return memcmp(cfg_leaf_data(&config, leaf), cfg_leaf_data(&committed, leaf),
                   leaf->item->size) != 0;
 }
-
-/* ------------------------------------------------------------ text form */
 
 static const char hex_digits[] = "0123456789abcdef";
 
@@ -328,7 +299,6 @@ static int hex_value(char letter)
     return -1;
 }
 
-/* A decimal or 0x number; advances *text past it. */
 static int parse_number(const char **text, u32 *value)
 {
     const char *p = *text;
@@ -489,7 +459,7 @@ void cfg_leaf_format(const struct config *base, const struct cfg_leaf *leaf,
 
 void cfg_status_format(const struct cfg_leaf *leaf, char *out, u32 size)
 {
-    /* Big enough for any status struct. */
+
     static u32 scratch[64];
 
     memset(scratch, 0, sizeof(scratch));
@@ -514,8 +484,6 @@ const char *cfg_apply_name(u8 apply)
            apply == CFG_REBOOT ? "takes effect after a reboot" :
            "takes effect now";
 }
-
-/* ---------------------------------------------------------------- storage */
 
 static u8 instance_group(u8 instance)
 {
@@ -586,7 +554,7 @@ static u32 encode(u8 instance, u8 *out, u32 capacity)
         length += leaf.item->size;
     }
     if (length == 1U) {
-        out[length++] = 0U;     /* key: uid 0, padding */
+        out[length++] = 0U;
         out[length++] = 1U;
         out[length++] = 0U;
     }
@@ -622,7 +590,7 @@ static void decode(u8 instance, const u8 *data, u32 length)
         size = data[offset++];
         if (offset + size > length) return;
 
-        if (!(key >> LEAF_INDEX_SHIFT)) {     /* padding */
+        if (!(key >> LEAF_INDEX_SHIFT)) {
             offset += size;
             continue;
         }
@@ -641,7 +609,6 @@ static void decode(u8 instance, const u8 *data, u32 length)
     }
 }
 
-/* Write every group that differs from flash. */
 static void flush(void)
 {
     u8 instance;
@@ -742,7 +709,6 @@ void config_reset_all(int keep_autocommit)
         get_random_number(config.identity_seed, sizeof(config.identity_seed));
 }
 
-/* Things a table can get wrong that the compiler does not see. */
 static void check_schema(void)
 {
     u16 first;
@@ -801,8 +767,6 @@ void config_init(void)
     last_hash = config_hash();
 }
 
-/* --------------------------------------------------------------- identity */
-
 #ifndef CONFIG_HOST_TEST
 extern u8 *get_norflash_uuid(void) __attribute__((weak));
 #endif
@@ -843,8 +807,6 @@ static u32 fnv1a(u32 hash, const u8 *data, u32 length)
     return hash;
 }
 
-/* Derived from the seed, the slot and its type - so a slot re-used for
- * another kind of pad looks like a different device. */
 void config_derived_address(u8 slot, u8 address[6])
 {
     const struct config_profile *profile = &config.profile[slot % CONFIG_PROFILES];

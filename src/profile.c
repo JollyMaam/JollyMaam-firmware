@@ -3,13 +3,17 @@
 #include <btstack/avctp_user.h>
 
 #include "profile.h"
+#include "profile_switch_wake.h"
 #include "profile_classic.h"
 #include "config.h"
-#include "identity.h"
 #include "btstack_jl_le.h"
 
 struct profile_operations {
     const char *name;
+    int (*wake_check)(u8 slot, u8 channel, u8 seconds);
+    int (*wake_start)(u8 slot, u8 channel, u8 seconds);
+    void (*wake_stop)(void);
+    int (*wake_step)(u32 now_ms);
     void (*prepare)(void);
     void (*start)(u8 slot, u8 pairing);
     void (*disconnect)(void);
@@ -20,10 +24,21 @@ struct profile_operations {
     enum cyclone2_profile_event (*handle_event)(const struct sys_event *event);
 };
 
+static int switch_wake_check(u8 slot, u8 channel, u8 seconds)
+{
+    static const u8 zero[6];
+    if (channel > WAKE_CHANNEL_MAX || seconds < WAKE_SECONDS_MIN ||
+        seconds > WAKE_SECONDS_MAX) return -2;
+    return memcmp(config_peer(slot), zero, sizeof(zero)) ? 0 : -3;
+}
+
 static const struct profile_operations profiles[] = {
     [CYCLONE2_PROFILE_SWITCH] = {
         .name = "switch",
-        .prepare = cyclone2_generic_prepare_stack,
+        .wake_check = switch_wake_check,
+        .wake_start = wake_start,
+        .wake_stop = wake_stop,
+        .wake_step = wake_step,
         .start = cyclone2_switch_start,
         .disconnect = cyclone2_classic_disconnect,
         .exit = cyclone2_classic_exit,
@@ -39,24 +54,22 @@ static const struct profile_operations profiles[] = {
         .disconnect = cyclone2_generic_disconnect,
         .exit = cyclone2_generic_exit,
         .is_connected = cyclone2_generic_is_connected,
-        .reconnect = cyclone2_generic_reconnect,
         .send = cyclone2_generic_send,
         .handle_event = cyclone2_generic_handle_event,
     },
     [CYCLONE2_PROFILE_SWITCH2] = {
         .name = "switch2",
+        .wake_check = cyclone2_switch2_wake_check,
         .prepare = cyclone2_switch2_prepare_stack,
         .start = cyclone2_switch2_start,
-        .disconnect = cyclone2_switch2_disconnect,
-        .exit = cyclone2_switch2_exit,
-        .is_connected = cyclone2_switch2_is_connected,
-        .reconnect = cyclone2_switch2_reconnect,
+        .disconnect = btstack_jl_le_disconnect,
+        .exit = cyclone2_profile_le_exit,
+        .is_connected = btstack_jl_le_connected,
         .send = cyclone2_switch2_send,
-        .handle_event = cyclone2_switch2_handle_event,
+        .handle_event = cyclone2_profile_le_handle_event,
     },
     [CYCLONE2_PROFILE_XBOX] = {
         .name = "xbox",
-        .prepare = cyclone2_generic_prepare_stack,
         .start = cyclone2_xbox_start,
         .disconnect = cyclone2_classic_disconnect,
         .exit = cyclone2_classic_exit,
@@ -67,7 +80,6 @@ static const struct profile_operations profiles[] = {
     },
     [CYCLONE2_PROFILE_DUALSENSE] = {
         .name = "dualsense",
-        .prepare = cyclone2_generic_prepare_stack,
         .start = cyclone2_dualsense_start,
         .disconnect = cyclone2_classic_disconnect,
         .exit = cyclone2_classic_exit,
@@ -80,12 +92,11 @@ static const struct profile_operations profiles[] = {
         .name = "xboxble",
         .prepare = cyclone2_xbox_ble_prepare_stack,
         .start = cyclone2_xbox_ble_start,
-        .disconnect = cyclone2_xbox_ble_disconnect,
-        .exit = cyclone2_xbox_ble_exit,
-        .is_connected = cyclone2_xbox_ble_is_connected,
-        .reconnect = cyclone2_xbox_ble_reconnect,
+        .disconnect = btstack_jl_le_disconnect,
+        .exit = cyclone2_profile_le_exit,
+        .is_connected = btstack_jl_le_connected,
         .send = cyclone2_xbox_ble_send,
-        .handle_event = cyclone2_xbox_ble_handle_event,
+        .handle_event = cyclone2_profile_le_handle_event,
     },
 };
 
@@ -100,9 +111,7 @@ void cyclone2_profile_start(enum cyclone2_profile_type type, u8 slot,
     if ((unsigned)type >= CYCLONE2_PROFILE_TYPE_COUNT)
         type = CYCLONE2_PROFILE_SWITCH;
     active_profile = &profiles[type];
-    /* Pairing: forget the slot's keys (its address stays; `pair --fresh`
-     * moved it before this).  The Classic start still reads the old peer to
-     * have the controller forget it too, and clears it itself. */
+
     if (pairing && slot < CONFIG_PROFILES) {
         struct config_bond *bond = &config.profile[slot].bond;
 
@@ -115,12 +124,8 @@ void cyclone2_profile_start(enum cyclone2_profile_type type, u8 slot,
     bt_set_mac_addr(address);
     set_multi_devices_adv_flag(1U);
 
-    /* Common btstack_init() expects LE's GATT tables even for a Classic-only
-     * application. The selected profile chooses either HOGP or the Switch 2
-     * raw GATT database here. */
-    /* Only a profile that wants the LE GATT server installs one. */
     btstack_jl_le_configure(NULL);
-    active_profile->prepare();
+    if (active_profile->prepare) active_profile->prepare();
     active_profile->start(slot, pairing);
     btstack_init();
 }
@@ -140,8 +145,6 @@ int cyclone2_profile_is_connected(void)
     return active_profile->is_connected();
 }
 
-/* Ask the profile to start a fresh outgoing connection attempt after one that
- * ended without a usable session.  Returns non-zero when it took over. */
 int cyclone2_profile_reconnect(void)
 {
     if (!active_profile->reconnect) return 0;
@@ -163,4 +166,37 @@ const char *cyclone2_profile_name(enum cyclone2_profile_type type)
 {
     if ((unsigned)type >= CYCLONE2_PROFILE_TYPE_COUNT) return "invalid";
     return profiles[type].name;
+}
+
+static const struct profile_operations *waking_profile;
+
+int cyclone2_profile_wake_check(enum cyclone2_profile_type type, u8 slot,
+                               u8 channel, u8 seconds)
+{
+    if ((unsigned)type >= CYCLONE2_PROFILE_TYPE_COUNT || slot >= CONFIG_PROFILES)
+        return -2;
+    if (!profiles[type].wake_check) return -4;
+    return profiles[type].wake_check(slot, channel, seconds);
+}
+
+int cyclone2_profile_wake_start(enum cyclone2_profile_type type, u8 slot,
+                               u8 channel, u8 seconds)
+{
+    int result = cyclone2_profile_wake_check(type, slot, channel, seconds);
+    if (result) return result;
+    /* Advertising profiles wake as part of their normal reconnect start. */
+    if (!profiles[type].wake_start) return 1;
+    waking_profile = &profiles[type];
+    return waking_profile->wake_start(slot, channel, seconds);
+}
+
+void cyclone2_profile_wake_stop(void)
+{
+    if (waking_profile) waking_profile->wake_stop();
+    waking_profile = NULL;
+}
+
+int cyclone2_profile_wake_step(u32 now_ms)
+{
+    return !waking_profile || waking_profile->wake_step(now_ms);
 }

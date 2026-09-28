@@ -12,19 +12,11 @@
 #include "profile_classic.h"
 #include "rumble.h"
 #include "usb.h"
-#include "wake/wake.h"
-
-/*
- * The console's commands: things that do something.  Settings are not
- * commands - they are `config.PATH = VALUE` (console.c, config_schema.c) -
- * and state is `status.PATH` (status.c).
- */
+#include "profile_switch_wake.h"
 
 #define MASKROM_NVRAM_ADDRESS ((const volatile u8 *)0x00010800U)
 
 extern void cyclone2_usb_uboot_request(void);
-
-/* ---------------------------------------------------------------- parsing */
 
 static int number(const char *text, u32 *value)
 {
@@ -50,8 +42,6 @@ static int number(const char *text, u32 *value)
     return 0;
 }
 
-/* A profile slot: A, B, X or Y (the Home+button chord that selects it; any
- * case), or its number 0..3. */
 static int slot_argument(const char *text, u8 *slot)
 {
     u8 index;
@@ -75,8 +65,6 @@ static int busy(void)
 {
     return console_fail("a profile transition is already in progress");
 }
-
-/* ------------------------------------------------------------------ radio */
 
 static int cmd_connect(int argc, char **argv)
 {
@@ -125,7 +113,7 @@ static int cmd_wake(int argc, char **argv)
     int result;
 
     if (argc == 2 && !strcmp(argv[1], "stop")) {
-        wake_stop();
+        cyclone2_wake_cancel();
         console_ok("wake stopped");
         return 0;
     }
@@ -138,6 +126,7 @@ static int cmd_wake(int argc, char **argv)
     if (result > 0) console_ok("waking slot %s's console", config_slot_name(slot));
     else if (result == -3) return console_fail("slot %s has no console address yet; connect it once first", config_slot_name(slot));
     else if (result == -2) return CONSOLE_USAGE;
+    else if (result == -4) return console_fail("profile has no wake action");
     else return busy();
     return 0;
 }
@@ -178,8 +167,6 @@ static int cmd_bleadv(int argc, char **argv)
     return 0;
 }
 
-/* --------------------------------------------------------------- controls */
-
 static int cmd_cal(int argc, char **argv)
 {
     if (argc != 2) return CONSOLE_USAGE;
@@ -201,7 +188,6 @@ static int cmd_cal(int argc, char **argv)
     return 0;
 }
 
-/* Raw sensor values next to what the calibration maps them to. */
 static int cmd_sensors(int argc, char **argv)
 {
     struct cyclone2_raw_input raw;
@@ -209,7 +195,7 @@ static int cmd_sensors(int argc, char **argv)
 
     (void)argv;
     if (argc != 1) return CONSOLE_USAGE;
-    /* The poll read the sensors at most one control period ago. */
+
     cyclone2_input_get_raw(&raw);
     cyclone2_calibration_apply(&raw, &report);
     console_printf("raw L %04x %04x R %04x %04x L2 %u R2 %u stop %u%u valid %u\r\n"
@@ -295,8 +281,6 @@ static int cmd_input(int argc, char **argv)
     return 0;
 }
 
-/* ------------------------------------------------------------ diagnostics */
-
 /* One line for tools that poll: uptime and boot counter (a reset shows as
  * either moving), what the radio is doing, and the reset causes.  The fields
  * are key=value and only ever appended to. */
@@ -376,8 +360,6 @@ static void dump(u32 address, u32 length, int skip_blank)
     }
 }
 
-/* The controller's pairing records in retention memory below the MaskROM
- * boot word: does a clear take effect? */
 static int cmd_bondstore(int argc, char **argv)
 {
     (void)argv;
@@ -386,7 +368,6 @@ static int cmd_bondstore(int argc, char **argv)
     return 0;
 }
 
-/* Every non-blank line of the controller's retention memory. */
 static int cmd_nvscan(int argc, char **argv)
 {
     (void)argv;
@@ -413,8 +394,6 @@ static int cmd_delall(int argc, char **argv)
     return 0;
 }
 
-/* Raw RAM access, internal RAM only, for finding where the controller
- * library keeps state.  Addresses are hex, with or without 0x. */
 static int ram_address(const char *text, u32 *address)
 {
     char prefixed[12];
@@ -464,8 +443,6 @@ static int cmd_poke(int argc, char **argv)
     return 0;
 }
 
-/* ------------------------------------------------------------------ table */
-
 static const char *const on_off[] = { "on", "off", NULL };
 static const char *const slots[] = { "A", "B", "X", "Y", NULL };
 static const char *const wake_words[] = { "A", "B", "X", "Y", "stop", NULL };
@@ -500,7 +477,7 @@ static const struct console_command debug_commands[] = {
       cmd_stat },
     { "sensors", NULL, "raw stick and trigger values and what they map to",
       cmd_sensors },
-    { "wake", "SLOT [CHANNEL] [SECONDS] | stop", "wake a slot's sleeping Switch 1, "
+    { "wake", "SLOT [CHANNEL] [SECONDS] | stop", "wake a slot's console, "
       "then reconnect", cmd_wake, wake_words },
     { "inject", "a PERIOD_MS DURATION_MS | stop", "press A over and over "
       "(latency tests)", cmd_inject, inject_words },

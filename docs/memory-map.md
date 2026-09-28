@@ -1,110 +1,54 @@
-# Memory map
+# CPU memory map
 
-The BR23 CPU address space as this firmware uses it, and the two low-RAM
-addresses the pad pokes by hand.  Numbers come from the generated linker script
-(`build/sdk.ld`), the map file (`build/app.map`), and our own
-`src/sdkconfig/app.ld`; the last section explains how to re-derive them.
+Addresses are CPU addresses unless explicitly called flash offsets. The map
+comes from the BR23 linker script and recovered bootloader/MaskROM use.
+Ranges below are half-open (end excluded).
 
-## Address space
-
-| range | size | what |
+| Range | Size | Use |
 |---|---|---|
-| `0x00000000..0x0002BF00` | ~176 KiB | `ram0` - application RAM (`.data`, `.bss`, stack, heap) |
-| `0x0002BF00..0x0002C000` | 0x100 | `ISR_BASE` - interrupt vectors/entry area |
-| `0x0002C000..0x0002FF80` | ~16 KiB | `ram1` - MMU TLB + second heap |
-| `0x0002FF80..0x00030000` | 0x80 | `UPDATA_BEG` - update handoff slot |
-| `0x1E00120..0x1F00120` | 1 MiB | `code0` - the application code window (`.text`) |
-| `0x00800000..0x00A00000` | 2 MiB | `psram` - declared by the SDK, nothing placed in it |
+| `0x00000000..0x0002bf00` | `0x2bf00` | ram0: data, BSS, IRQ stack, heap |
+| `0x0002bf00..0x0002c000` | `0x100` | interrupt vector/entry area |
+| `0x0002c000..0x0002ff80` | `0x3f80` | ram1: MMU TLB and second heap |
+| `0x0002ff80..0x00030000` | `0x80` | update handoff slot |
+| `0x00800000..0x00a00000` | 2 MiB | SDK-declared PSRAM window; populated hardware unconfirmed |
+| `0x01e00120..0x01f00120` | 1 MiB | application code window |
 
-The application is linked at `0x1E00120` inside `code0`, which is also the
-entry point in `EXTRA_CFG_PARAM` (see `docs/flash-map.md`).  The flash itself is
-not mapped at offset 0; that address is RAM.
+Total internal RAM address space is 192 KiB. The code window address is not a
+raw flash offset: the packed `app.bin` begins at flash offset `0x3120`.
+The MMU TLB occupies `0x2c000..0x2d200`; the second heap runs from `0x2d200`
+to `0x2ff80`. `.data`, `.bss`, IRQ stack, overlays, `NVRAM_DATA` and the main
+heap start change with the build; read `build/app.map` for their current values.
 
-## RAM as the linker lays it out (this build)
+## Preserved SRAM
 
-| symbol / section | address | size | notes |
-|---|---|---|---|
-| `.data` | `0x0000` | `0x46FC` | initialised data, copied out of flash at startup |
-| `.irq_stack` | `0x4B80` | `0x848` | |
-| `.bss` | `0x53E0` | `0x88E0` | zeroed at startup; ends `0xDCC0` |
-| `NVRAM_DATA` | `0xD85C` | `0x194` | SDK saved-state blob, inside `.bss` |
-| overlay | `0xDCE4` | 4 | overlay area, effectively unused here |
-| `RAM_USED` / `HEAP_BEGIN` | `0xDCE8` | | end of all static RAM |
-| main heap | `0xDCE8` | `0x12318` | `HEAP_END` is forced to `0x20000` by our ld change |
-| `.reset_mailbox` | `0x20000` | 16 | ours; see below |
-| `.bringup_log` | `0x20010` | 3700 | ours; ends `0x20E84` |
-| `RAM_END` | `0x2BF00` | | |
-| `.mmu_tlb` | `0x2C000` | `0x1200` | in `ram1` |
-| `RAM1_USED` / `HEAP1_BEGIN` | `0x2D200` | | |
-| second heap | `0x2D200` | `0x2D80` | `HEAP1_END = 0x2FF80` |
-
-Total usable internal RAM is `0x0..0x30000` (192 KiB); `_MALLOC_SIZE` is the two
-heaps together, `0x15098`.
-
-## The reserved SRAM block
-
-`src/sdkconfig/app.ld` places two `NOLOAD` sections at fixed addresses and
-shrinks the heap to keep clear of them:
-
-    RESET_MAILBOX_BEGIN = 0x20000   (16 bytes)
-    BRINGUP_LOG_BEGIN   = 0x20010   (3700 bytes)
-    ASSERT(HEAP_END <= RESET_MAILBOX_BEGIN)
-
-The comment there explains the choice: the secondary bootloader is linked at
-`0x4000` in a 20 KiB window, MaskROM's low BSS ends near `0x11424`, and
-MaskROM's high workspace starts at `0x2BDC0` - so `0x20000` sits in the gap, and
-SDK startup does not clear it.  `.bringup_log` holds the boot counter and the
-bring-up ring (`status` prints them); the mailbox held the profile-switch
-handoff and is now written by nothing.
-
-## Two addresses used by hand
-
-Neither is allocated by the linker.  Both are read and written directly by the
-firmware, and both are **RAM**, not flash:
-
-| address | size | what |
+| Address | Reservation | Meaning |
 |---|---|---|
-| `0x00010700` | `0x100` | the Bluetooth controller's pairing records (`btctrler.a`); a record shows up at `0x10760` as peer address + link key |
-| `0x00010800` | 16 | MaskROM boot-state word / USB boot token (`nvram_set_boot_state()`) |
+| `0x20000` | 16 bytes | legacy reset mailbox reservation |
+| `0x20010` | `0x2100` bytes maximum | bring-up log and boot counter |
 
-`src/usb.c` flushes the data cache after touching `0x10800`, which is the usual
-signature of a cached RAM location.  The clean way to tell these apart from
-flash is to compare the two: the flash at offset `0x10800` is simply part of
-`app.bin`, while `status` reports a totally different `nvram=` value read from
-the RAM at address `0x10800`.
+The main heap is capped at `0x20000`. The bring-up log currently contains 2000
+32-bit entries plus metadata; its actual linked size is below the reservation.
+These `NOLOAD` sections are not cleared by normal SDK startup. The mailbox
+has no current producer; its layout is a legacy app ABI, not a hardware register.
 
-This is why `bondstore` and `nvscan` describe memory that no flash tool can
-reach, and why `clearkeys` zeroes `0x10700` and restarts rather than erasing
-anything.
+The chosen gap avoids known bootloader use: second-stage UBOOT is linked at
+`0x4000` within a 20 KiB window; recovered MaskROM low BSS ends near `0x11424`,
+and high workspace begins near `0x2bdc0`. These bounds come from reverse
+engineering, not a guarantee for all ROM/loader revisions.
 
-## What survives what
+## Low SRAM aliases: do not treat as permanent bond storage
 
-| event | SRAM (`0x10700`, mailbox, bring-up log) | flash (VM, BTIF, image) |
-|---|---|---|
-| profile switch / `disconnect`+`connect` | kept | untouched |
-| `p33_soft_reset()` (`clearkeys`) | kept | untouched |
-| power cycle / unplug | lost | kept |
-| `make flash` | kept | image rewritten, reserved regions kept |
+`0x10800` is the MaskROM boot-state/token area (16 bytes), written through
+`nvram_set_boot_state()` with a cache flush. Earlier dumps showed address/key
+records around `0x10760`; a legacy debug operation clears `0x10700..0x10800`.
+These are SRAM addresses, **not NOR flash offsets**. The current app does not
+reserve `0x10700` as an independent persistent store. Its relation to the SDK's
+current allocation is not established; inspect the current map before using
+old absolute-address observations. App bonds persist in flash VM, not here.
 
-The settings (`struct config`, bonds and calibration included; see
-`docs/config.md`) live in `.bss`, so changes held back with
-`global.autocommit=false` behave like the first column: they survive a
-profile switch, and are gone at the next boot.
+Preserved SRAM can survive software resets and a loader-mediated reflash when
+power remains present. Complete loss of supply loses SRAM. Normal app BSS is
+reinitialized on reset even if the underlying SRAM electrically retained bits.
 
-## Open question worth keeping in mind
-
-`0x10700` and `0x10800` sit inside the linker's `RAM_USED..HEAP_END` window
-(`0xDCE8..0x20000`), so the controller's record area and the malloc arena share
-an address range.  Nothing here establishes how that is kept safe - the records
-are known to persist in practice, and the app apparently never allocates that
-high, but it is not an explicitly reserved region the way `0x20000` is.  If
-bond corruption ever shows up under memory pressure, this is the first thing to
-look at.
-
-## Re-deriving the numbers
-
-* `build/sdk.ld` - generated memory regions and the `HEAP_*` symbols;
-* `build/app.map` - resolved addresses for every section and symbol
-  (`nm build/app.elf` works too, with the Pi32 toolchain's `nm`);
-* `src/sdkconfig/app.ld` - our fixed-address reservations and the assertions
-  that keep the heap out of them.
+Sources: `src/sdkconfig/app.ld`, generated `build/sdk.ld`, `build/app.map`,
+`src/main.c`, `src/usb.c`.

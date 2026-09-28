@@ -9,18 +9,14 @@
 #define STICK_CENTER_TOLERANCE    0x1000
 #define STICK_REST_NOISE_MAX      0x0300U
 #define STICK_MIN_HALF_RANGE      0x1000U
-/* A sweep point counts towards a knot only this far out (raw counts), which
- * is about half the nominal travel; a knot without one means the edge was
- * not followed there. */
+
 #define STICK_EDGE_MIN_RADIUS     0x1400U
-/* Beyond what an axis can reach before the radial clamp.  sqrt(2) of full
- * scale, so x*x + y*y still fits 32 bits unsigned. */
+
 #define STICK_NORMALIZED_LIMIT    46340
-/* A gate outside 0.70..1.45 of the per-axis range is a bad sample, not a
- * gate shape; a square gate's corners are sqrt(2) = 1.41. */
+
 #define STICK_GATE_MIN            22937U
 #define STICK_GATE_MAX            47513U
-/* Dead zones as fractions of full scale (32767). */
+
 #define DEADZONE_3_PERCENT        983U
 #define DEADZONE_5_PERCENT        1638U
 #define DEADZONE_15_PERCENT       4915U
@@ -89,7 +85,6 @@ static int32_t clamp_s32(int32_t value, int32_t limit)
     return value;
 }
 
-/* One axis, piecewise linear: minimum..center..maximum onto -1..0..+1. */
 static int32_t axis_normalize(uint16_t raw, uint16_t minimum, uint16_t center,
                               uint16_t maximum)
 {
@@ -266,8 +261,7 @@ void cal_stick_sweep_sample(struct cal_stick_capture *capture, uint16_t x,
     if (x > capture->high[0]) capture->high[0] = x;
     if (y < capture->low[1]) capture->low[1] = y;
     if (y > capture->high[1]) capture->high[1] = y;
-    /* Binned by the raw direction.  The two axes' gains differ by a few
-     * percent at most, which moves a point by far less than a knot. */
+
     knot = nearest_knot(cal_pseudo_angle(dx, dy));
     if (r2 > capture->far_r2[knot]) {
         capture->far_r2[knot] = r2;
@@ -276,9 +270,6 @@ void cal_stick_sweep_sample(struct cal_stick_capture *capture, uint16_t x,
     }
 }
 
-/* Knots that ended up without a point (a far point can land next to the knot
- * it was binned under once the axes are scaled) take the linear blend of the
- * nearest filled knots on either side. */
 static void fill_gate_gaps(uint16_t gate[CAL_GATE_KNOTS])
 {
     uint16_t filled[CAL_GATE_KNOTS];
@@ -339,7 +330,7 @@ enum cal_result cal_stick_finish(const struct cal_stick_capture *capture,
         result.center[axis] = capture->center[axis];
         result.maximum[axis] = capture->high[axis];
     }
-    /* Measure the gate with the final per-axis scaling. */
+
     for (knot = 0; knot < CAL_GATE_KNOTS; knot++) {
         int32_t nx = axis_normalize(
             (uint16_t)(capture->center[0] + capture->far_x[knot]),
@@ -359,8 +350,7 @@ enum cal_result cal_stick_finish(const struct cal_stick_capture *capture,
         if (result.gate[knot] > STICK_GATE_MAX)
             result.gate[knot] = STICK_GATE_MAX;
     }
-    /* Inner dead zone: a small floor for the stick not quite returning to
-     * where it rested during the capture, plus twice the noise seen then. */
+
     inner = DEADZONE_3_PERCENT + 2U * noise * CAL_STICK_MAX / half_range;
     result.inner_deadzone = (uint16_t)(inner > DEADZONE_15_PERCENT ?
                                        DEADZONE_15_PERCENT : inner);
@@ -410,9 +400,7 @@ enum cal_result cal_trigger_finish(const struct cal_trigger_capture *capture,
     uint32_t inner;
 
     if (capture->count == 0U) return CAL_NO_SAMPLES;
-    /* With the stop engaged the Hall sensor only sees the short travel before
-     * the microswitch, and calibrating to that would make every normal press
-     * read as full. */
+
     if (capture->stop_seen) return CAL_STOP_ENGAGED;
     travel = capture->rest - capture->low;
     if (capture->low >= capture->rest || travel < TRIGGER_MIN_TRAVEL)

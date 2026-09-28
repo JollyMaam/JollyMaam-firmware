@@ -1,6 +1,6 @@
 #include <stdint.h>
 
-#include "wakeup_code.h"
+#include "profile_switch_wake_code.h"
 
 /* Bluetooth Core Specification, Baseband Specification: PN is the 64-bit
  * pseudo-random sequence and 0x37CD0EB67 is the (63,30) BCH generator
@@ -65,7 +65,7 @@ void wake_parity_inverted(const uint8_t address[6], uint8_t parity[5])
     parity[1] ^= 0xffU;
     parity[2] ^= 0xffU;
     parity[3] ^= 0xffU;
-    /* Bits 32..33 ride above the inverted 32 and are left alone. */
+
 }
 
 void wake_code(const uint8_t address[6], uint8_t code[4])

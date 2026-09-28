@@ -15,47 +15,22 @@
 #include "app_config.h"
 #include "system/includes.h"
 
-// TRANSLATED: Include timestamps in debug prints.
 const int config_printf_time         = 1;
 
-// TRANSLATED: Enable exception-interrupt and assertion prints.
 const int config_asser         = 0;
 
 const int config_system_info   = 0;
 
-//================================================//
-//                  TRANSLATED: Enable the reduced SDFILE implementation.
-//================================================//
 const int SDFILE_VFS_REDUCE_ENABLE = 1;
 
-//================================================//
-//                  TRANSLATED: Enable asynchronous device reads.
-//================================================//
 const int device_bulk_read_async_enable = 0;
 
-//================================================//
-//                  UI 							  //
-//================================================//
 const int ENABLE_LUA_VIRTUAL_MACHINE = 0;
 
-//================================================//
-//        TRANSLATED: Unmaskable-interrupt configuration (UNMASK_IRQ).
-//================================================//
-// TRANSLATED: 0: disable IPMASK and idle-task optimization (original comment contains a typo).
-// TRANSLATED: 1: enable IPMASK.
-// TRANSLATED: 2: enable IPMASK and idle-task optimization.
 const int CONFIG_CPU_UNMASK_IRQ_ENABLE = 2;
 
-//================================================//
-// TRANSLATED: 0: timer0 delay; 1: mpwm3 delay, freeing timer0.
-//               only supprt: bd19	              //
-//================================================//
 const int set_to_close_timer0_delay = 0;
 
-/**
- * @brief Log (Verbose/Info/Debug/Warn/Error)
- */
-/*-----------------------------------------------------------*/
 const char log_tag_const_v_SYS_TMR AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(FALSE);
 const char log_tag_const_i_SYS_TMR AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(FALSE);
 const char log_tag_const_d_SYS_TMR AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(FALSE);
@@ -74,7 +49,6 @@ const char log_tag_const_d_JLFS AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(FALSE);
 const char log_tag_const_w_JLFS AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(TRUE);
 const char log_tag_const_e_JLFS AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(TRUE);
 
-//FreeRTOS
 const char log_tag_const_v_PORT AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(FALSE);
 const char log_tag_const_i_PORT AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(FALSE);
 const char log_tag_const_d_PORT AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(FALSE);

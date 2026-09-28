@@ -176,7 +176,7 @@ static void stick_uart_isr(void *arg, u32 status)
     } else if (status == UT_RX_OT) {
         stick_stats.timeout_interrupts++;
     }
-    /* The SDK ISR owns DMA advancement. Defer all parsing to input_read(). */
+
     stick_uart_work_pending = 1;
 }
 
@@ -191,9 +191,7 @@ static void stick_uart_drain(void)
     if (!stick_uart || !stick_uart_work_pending) {
         return;
     }
-    /* buf_in/out are the SDK producer/consumer counters. Once the producer is
-     * more than one ring ahead, old bytes have been overwritten; retain only
-     * the newest complete ring and invalidate parser state. */
+
     available = stick_uart->kfifo.buf_in - stick_uart->kfifo.buf_out;
     if (available > stick_stats.max_backlog) {
         stick_stats.max_backlog = available;
@@ -234,9 +232,7 @@ static void stick_uart_initialize(void)
     config.rx_cbuf = stick_dma_buffer;
     config.rx_cbuf_size = STICK_UART_DMA_BUFFER_SIZE;
     config.frame_length = STICK_UART_DMA_FRAME_SIZE;
-    /* The sensor is a continuous stream. A short timeout can coincide with a
-     * 32-byte completion and make the SDK account the same DMA bytes twice.
-     * Ten milliseconds still publishes a stopped/partial stream promptly. */
+
     config.rx_timeout = STICK_UART_RX_TIMEOUT_MS;
     config.isr_cbfun = stick_uart_isr;
     config.baud = 1000000U;
@@ -248,14 +244,12 @@ static void stick_uart_initialize(void)
     }
     /* The board's measured-good divisor is 24. The SDK's baud calculation is
      * intentionally not used because it produced CRC-invalid data here. */
-    /* Match UT2_set_baud(): BAUD is programmed while UART enable is clear,
-     * then the prior DMA/IRQ configuration is resumed. */
+
     JL_UART2->CON0 &= ~BIT(0);
     JL_UART2->BAUD = STICK_UART_DIVISOR;
     __asm__ volatile("csync");
     JL_UART2->CON0 |= BIT(0);
-    /* Channel zero pairs PA3 RX with PA2 TX. The sensor only transmits, so
-     * restore PA2 as d-pad up after enabling the exact proven UART route. */
+
     configure_active_low_input(CYCLONE2_DPAD_UP);
     stick_uart_work_pending = 0;
 }
@@ -375,8 +369,6 @@ void cyclone2_input_read(struct cyclone2_input_report *report)
         !rtc_port_pr_read(CYCLONE2_TRIGGER_R2_SWITCH_PR);
     cyclone2_calibration_apply(&raw_input, report);
 
-    /* A stick board that is silent or garbled shows as a fixed left-stick
-     * offset, so it is recognisable on the host. */
     if (stick_receive_status == STICK_RECEIVE_NO_BYTES) {
         report->left_x = -CYCLONE2_STICK_MAX;
         report->left_y = -CYCLONE2_STICK_MAX;
@@ -388,8 +380,7 @@ void cyclone2_input_read(struct cyclone2_input_report *report)
         report->right_x = 0;
         report->right_y = 0;
     }
-    /* Trigger-stop mode physically actuates separate RTC-domain active-low
-     * microswitches. A closed switch is authoritative over the Hall sensor. */
+
     if (raw_input.trigger_stop[0]) {
         report->left_trigger = CYCLONE2_TRIGGER_MAX;
     }

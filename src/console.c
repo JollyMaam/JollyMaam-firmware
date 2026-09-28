@@ -6,22 +6,6 @@
 #include "controller.h"
 #include "usb.h"
 
-/*
- * The console on the USB serial port.
- *
- * Human mode: echo, line editing (backspace, Ctrl-U/W/C, Up/Down history),
- * Tab completion, and log lines that never land in the middle of a line being
- * typed - the line is erased, the log printed and the prompt redrawn.
- *
- * Machine mode (entered with STX, 0x02; left with SOH, 0x01): no echo, no
- * prompt, and every line tagged for a program to route:
- *
- *     @ID command      in; the id is optional
- *     =ID text         the command's output
- *     .ID OK           the command finished (or .ID ERR message)
- *     ! text           a log line
- */
-
 #define LINE_SIZE       160U
 #define HISTORY         6U
 #define MAX_ARGS        8U
@@ -59,7 +43,6 @@ static u8 log_write;
 static u16 log_dropped;
 static struct log_line log_lines[LOG_LINES];
 
-
 static char candidates[CANDIDATES][CANDIDATE_SIZE];
 static u8 candidate_count;
 static char scratch[192];
@@ -67,8 +50,6 @@ static char value_text[112];
 
 extern void cyclone2_usb_write(const void *data, u32 length);
 extern int cyclone2_usb_uboot_pending(void);
-
-/* ----------------------------------------------------------------- output */
 
 static void raw(const char *data, u32 length)
 {
@@ -80,7 +61,6 @@ static void raw_text(const char *text)
     raw(text, strlen(text));
 }
 
-/* Command output: tagged line by line in machine mode. */
 static void out(const char *data, u32 length)
 {
     while (length) {
@@ -168,8 +148,6 @@ static void prompt(void)
     raw(line, line_length);
 }
 
-/* -------------------------------------------------------------- the log */
-
 void cyclone2_usb_debug(const char *format, ...)
 {
     struct log_line *entry;
@@ -198,7 +176,6 @@ void cyclone2_usb_debug(const char *format, ...)
     log_write = next;
 }
 
-/* One log line, around whatever is being typed. */
 static void flush_log_line(void)
 {
     struct log_line *entry = &log_lines[log_read];
@@ -221,20 +198,6 @@ static void flush_log_line(void)
     log_read = (u8)((log_read + 1U) % LOG_LINES);
     prompt();
 }
-
-/* ------------------------------------------------------------ leaves */
-
-/*
- * The grammar, the same in every namespace:
- *
- *     NAMESPACE VERB [ARGS]          a word without a dot is a verb
- *     NAMESPACE PATH                 a word with a dot is a path: read it,
- *     NAMESPACE PATH=VALUE           set it (spaces around = optional),
- *     NAMESPACE PATH help            or explain it
- *
- * and what a listing prints ("config profile.A.type=switch") is itself a
- * command, so a saved export is replayed by pasting it.
- */
 
 static int starts_with(const char *text, const char *prefix)
 {
@@ -280,7 +243,7 @@ static void print_leaf(const struct cfg_leaf *leaf, int is_config, int annotate)
         int derived;
 
         cfg_leaf_format(&config, leaf, value_text, sizeof(value_text), &derived);
-        /* A line to replay says what is stored: an unset address is "none". */
+
         console_printf("config %s=%s", path, derived && !annotate ? "none" : value_text);
         if (derived && annotate) {
             console_write(cfg_leaf_is_pending(leaf) ? "  # derived, not written" :
@@ -336,8 +299,6 @@ static void print_leaf_help(const struct cfg_leaf *leaf, int is_config)
     console_write("\r\n");
 }
 
-/* `PATH`, `PATH=VALUE`, `PATH help` in a namespace; `text` is what follows
- * the namespace's name. */
 static int path_statement(char *text, int is_config)
 {
     u16 count;
@@ -354,7 +315,6 @@ static int path_statement(char *text, int is_config)
         char *end = equals;
         char *comment = strchr(equals, '#');
 
-        /* A listing's "  # default 8": listed lines paste back in. */
         if (comment) *comment = '\0';
         value = equals + 1;
         while (end > text && end[-1] == ' ') end--;
@@ -521,8 +481,6 @@ int config_cmd_pending(int argc, char **argv)
     return 0;
 }
 
-/* ------------------------------------------------------------- commands */
-
 static int is_help(const char *word)
 {
     return !strcmp(word, "help") || !strcmp(word, "-h") || !strcmp(word, "--help");
@@ -536,7 +494,6 @@ static const struct console_command *find_in(const struct console_command *table
     return NULL;
 }
 
-/* "NAME ARGS" padded to a column, then the help. */
 static void print_entry(const char *prefix, const struct console_command *command)
 {
     int length = snprintf(value_text, sizeof(value_text), "  %s%s%s%s", prefix,
@@ -545,7 +502,7 @@ static void print_entry(const char *prefix, const struct console_command *comman
 
     if (length < 0) return;
     if (length > 34) {
-        /* A long usage: the help goes under it, in its column. */
+
         console_printf("%s\r\n", value_text);
         length = 0;
     }
@@ -564,7 +521,6 @@ static void print_usage(const struct console_command *command,
                    command->help);
 }
 
-/* The first segment of every path in a table: the groups. */
 static void print_groups(const char *label, int is_config)
 {
     u16 count;
@@ -588,7 +544,6 @@ static void print_groups(const char *label, int is_config)
     console_write("\r\n");
 }
 
-/* `config help`, `debug`, ...: what the namespace is, then its verbs. */
 static void print_overview(const struct console_command *space)
 {
     const struct console_command *command;
@@ -602,8 +557,6 @@ static void print_overview(const struct console_command *space)
     else if (!strcmp(space->name, NAMESPACE_STATUS)) print_groups("Groups", 0);
 }
 
-/* Run argv against a table: a namespace hands the rest to its verbs, and
- * `help`, -h or --help after any name explains it. */
 static int dispatch(const struct console_command *table,
                     const struct console_command *parent, int argc, char **argv)
 {
@@ -640,7 +593,6 @@ static int dispatch(const struct console_command *table,
     return result;
 }
 
-/* Split in place on spaces, honouring double quotes. */
 static int split(char *text, char **argv)
 {
     int argc = 0;
@@ -661,9 +613,6 @@ static int split(char *text, char **argv)
     return argc;
 }
 
-/* "config profile.A.type=x": the namespace (1 config, 0 status) when the
- * first word after it is a path - any word that is not one of the
- * namespace's verbs (or help) - and where that path starts; -1 if not. */
 static int path_line(const char *text, const char **path)
 {
     const struct console_command *space;
@@ -792,8 +741,6 @@ static void execute(void)
     prompt();
 }
 
-/* ----------------------------------------------------------- completion */
-
 static void add_candidate(const char *text, u32 length)
 {
     u8 index;
@@ -808,9 +755,6 @@ static void add_candidate(const char *text, u32 length)
     candidate_count++;
 }
 
-/* The next segment of every path under `word` ("pro" -> "profile.").  With
- * `assign`, a setting already typed out in full gets its "=": Tab completes
- * the name first, and the next Tab adds the "=". */
 static void complete_paths(const char *word, int is_config, int assign)
 {
     u16 count;
@@ -855,7 +799,6 @@ static void complete_words(const char *word, const char *const *words)
         if (same_letters(*words, word, length)) add_candidate(*words, strlen(*words));
 }
 
-/* Fill candidates[] for the last word of `text`; returns where it starts. */
 static u32 complete(const char *text, u32 length)
 {
     char buffer[LINE_SIZE];
@@ -876,7 +819,7 @@ static u32 complete(const char *text, u32 length)
 
     is_config = path_line(buffer, &path);
     if (is_config == 1 && !strchr(path, '=') && length && text[length - 1] == ' ') {
-        /* A whole setting and a space: the next thing is its "=". */
+
         char name[48];
         u32 size = 0U;
         struct cfg_leaf leaf;
@@ -893,7 +836,7 @@ static u32 complete(const char *text, u32 length)
         return start;
     }
     if (is_config >= 0 && strchr(path, '=')) {
-        /* A value: the choices of the setting before the '='. */
+
         static const char *const booleans[] = { "true", "false", NULL };
         struct cfg_leaf leaf;
         char *end = strchr(path, '=');
@@ -922,13 +865,13 @@ static u32 complete(const char *text, u32 length)
         return start;
     }
     if (!strcmp(argv[0], "help")) {
-        /* `help WORDS` completes WORDS as a command line of their own. */
+
         u32 skip = 4U;
 
         while (skip < length && text[skip] == ' ') skip++;
         return skip + complete(text + skip, length - skip);
     }
-    /* Walk down the namespaces the words before this one name. */
+
     command = NULL;
     for (index = 0; index < position && index < argc; index++) {
         command = find_in(table, argv[index]);
@@ -937,7 +880,7 @@ static u32 complete(const char *text, u32 length)
         table = command->subcommands;
     }
     if (command && command->subcommands && index == position) {
-        /* A namespace's next word: a verb, or (config, status) a path. */
+
         complete_names(text + start, command->subcommands);
         if (!strcmp(command->name, NAMESPACE_CONFIG))
             complete_paths(text + start, 1, 1);
@@ -952,9 +895,6 @@ static u32 complete(const char *text, u32 length)
     return start;
 }
 
-/* `debug complete LINE`: what Tab would offer, one candidate per line.  Takes
- * the line as typed (run_line() hands it over before splitting), so a
- * trailing space - "pair " - still means "the next word". */
 static int complete_line(const char *text)
 {
     u8 candidate;
@@ -1007,7 +947,7 @@ static void tab(void)
     if (common > typed ||
         (common == typed && memcmp(line + start, candidates[0], common))) {
         if (start + common >= LINE_SIZE - 1U) return;
-        /* Replace what was typed: the candidate has the proper case. */
+
         while (line_length > start) {
             line_length--;
             raw_text("\b \b");
@@ -1015,8 +955,7 @@ static void tab(void)
         raw(candidates[0], common);
         memcpy(line + start, candidates[0], common);
         line_length = (u8)(start + common);
-        /* A word is done: a space after it - but not after a path, where
-         * the next Tab adds the "=" (or the user types "help"). */
+
         if (candidate_count == 1U && !memchr(line + start, '.', common) &&
             line[line_length - 1] != '=' && line_length + 1U < LINE_SIZE - 1U) {
             line[line_length++] = ' ';
@@ -1025,8 +964,7 @@ static void tab(void)
         last_key_tab = 0U;
         return;
     }
-    /* Nothing to add: list the choices (at once when it is the second Tab
-     * or there are only a few). */
+
     if (!last_key_tab && candidate_count > 6U) {
         last_key_tab = 1U;
         return;
@@ -1034,8 +972,6 @@ static void tab(void)
     list_candidates();
     last_key_tab = 0U;
 }
-
-/* ---------------------------------------------------------- line editor */
 
 static void replace_line(const char *text)
 {
@@ -1085,25 +1021,25 @@ static void key(u8 byte)
     }
     last_was_cr = 0U;
     switch (byte) {
-    case 0x01U:                 /* SOH: back to human mode */
+    case 0x01U:
         if (machine) {
             machine = 0U;
             line_length = 0U;
             prompt();
         }
         return;
-    case 0x02U:                 /* STX: machine mode */
+    case 0x02U:
         machine = 1U;
         line_length = 0U;
         return;
-    case 0x03U:                 /* Ctrl-C */
+    case 0x03U:
         if (machine) return;
         raw_text("^C\r\n");
         line_length = 0U;
         history_browse = 0U;
         prompt();
         return;
-    case 0x05U:                 /* ENQ: the host's liveness ping */
+    case 0x05U:
         raw("\x06", 1U);
         return;
     case 0x08U:
@@ -1116,11 +1052,11 @@ static void key(u8 byte)
     case '\t':
         if (!machine) tab();
         return;
-    case 0x15U:                 /* Ctrl-U */
+    case 0x15U:
         if (!machine) replace_line("");
         else line_length = 0U;
         return;
-    case 0x17U:                 /* Ctrl-W */
+    case 0x17U:
         while (line_length && line[line_length - 1] == ' ') line_length--;
         while (line_length && line[line_length - 1] != ' ') line_length--;
         if (!machine) {
@@ -1172,7 +1108,7 @@ void console_poll(void)
     u8 budget = 8U;
 
     if (!config.log.console) {
-        /* Switched off: what was waiting goes too. */
+
         log_read = log_write;
         log_dropped = 0U;
         return;

@@ -7,159 +7,24 @@
 #include "imu.h"
 #include "led.h"
 #include "main.h"
-#include "nintendo_switch_pro_hid.h"
-#include "nintendo_switch_pro_spi.h"
+#include "profile_switch_hid.h"
+#include "profile_switch_spi.h"
 #include "profile.h"
 #include "profile_classic.h"
 #include "rumble.h"
 #include "config.h"
-#include "identity.h"
 #include "usb.h"
 #include "user_cfg_id.h"
 
-/*
- * Nintendo Switch Pro Controller emulation over Bluetooth Classic HID.
- * =====================================================================
- *
- * This file implements the device half of Nintendo's HID protocol.  Nothing
- * here is Nintendo-published documentation; the layout below is the one the
- * stock Cyclone 2 firmware speaks and the one Linux's hid-nintendo, SDL's
- * hidapi switch driver and the working emulators in this workspace all
- * expect.  Keep the byte offsets in this comment in sync with the code.
- *
- * Where the protocol comes from
- * -----------------------------
- * - USB HID 1.11 section 6.2.2 defines the report descriptor item encoding
- *   used by src/nintendo_switch_pro_hid.bin (6.2.2.5 Input/Output/Feature items,
- *   6.2.2.6 Collection/End Collection, 6.2.2.7 Global items such as Usage
- *   Page/Report ID/Report Size/Report Count, 6.2.2.8 Local items such as
- *   Usage).
- * - The Bluetooth HID Profile 1.1.1 defines the transport: section 3.1.1
- *   the one-octet HIDP message header (HIDP-Hdr), 3.1.2 the message types,
- *   3.2.1/3.2.2 control and interrupt channel transfers, 5.3.4 the SDP
- *   attributes (parser version 0x0111 lives there).
- * - Everything Nintendo-specific (report IDs, subcommand numbers, reply
- *   contents, virtual SPI flash) is community knowledge, cross-checked
- *   against the emulators under /work (github.com-601-NS1-Wakeup-Demo,
- *   HIDMaestro) and against HCI traffic captured from the stock firmware.
- *
- * Transport framing
- * -----------------
- * A Bluetooth HID host opens two L2CAP channels: HID control (PSM 0x0011)
- * and HID interrupt (PSM 0x0013).  Every packet on either channel begins
- * with a HIDP header byte:
- *
- *   0xa1  DATA | INPUT        controller -> host input report
- *   0xa2  DATA | OUTPUT       host -> controller interrupt output report
- *   0x52  SET_REPORT | OUTPUT host -> controller control-channel report
- *
- * followed by the report ID that the report descriptor declares.
- * edr_hid_data_send() prepends 0xa1 and the report ID, so the byte arrays
- * built in this file contain only the report body.  Received output reports
- * still carry both bytes; switch_output() documents the exact offsets.
- *
- * Input reports (controller -> host)
- * ----------------------------------
- *   0x21  subcommand reply: 12-byte state + ACK + subcommand id + payload
- *   0x30  full state:      12-byte state + 3 x 12-byte IMU samples (48 B)
- *   0x31  extended (MCU/NFC/IR) report; declared but never sent here
- *   0x32  as above
- *   0x33  as above
- *   0x3f  simple state:    11 bytes, buttons + hat + four 16-bit sticks
- *
- * The 12-byte state block shared by 0x21 and 0x30 is:
- *
- *   [0]     report timer, incremented by a few counts per report; the host
- *           uses it to notice dropped reports
- *   [1]     battery and connection: bits 7..5 battery (8 = full), bit 4
- *           charging, and the low nibble a connection status whose bit 0 is
- *           the USB/Switch flag.  A Bluetooth Pro Controller reports 0x8e
- *           here (bit 0 clear); 0x81 would tell the console this is a *wired*
- *           controller.
- *   [2..4]  24-bit button status, little endian
- *   [5..7]  left stick, three 12-bit values packed as shown in pack_stick()
- *   [8..10] right stick
- *   [11]    vibration status; real controllers rotate 0xa0/0xb0/0x90 and
- *           hosts such as SDL watch this byte for link health
- *
- * The 11-byte simple report 0x3f is:
- *
- *   [0]      B, A, Y, X, L, R, ZL, ZR (bit 0 first)
- *   [1]      minus, plus, right stick, left stick, home, capture, then two
- *            unused bits
- *   [2]      hat switch: 0 = up, clockwise to 7 = up-left, 8 = centred
- *   [3..4]   left stick X, 16-bit little endian
- *   [5..6]   left stick Y
- *   [7..8]   right stick X
- *   [9..10]  right stick Y
- *
- * Face buttons follow Nintendo's labels, not the physical silkscreen: on a
- * Switch the east face button is "A" and the south button is "B", the
- * opposite of the Xbox-style labels printed on the pad.  The Cyclone 2's
- * physical A/B are wired so that this translation is required; see
- * fill_controller_state() and fill_simple_state().
- *
- * Output reports (host -> controller)
- * -----------------------------------
- *   0x01  rumble plus subcommand (12+ bytes)
- *   0x10  rumble only, 9 bytes
- *   0x11  rumble only, 48 bytes
- *   0x12  rumble only, 48 bytes
- *
- * The body of report 0x01 starts with a packet counter, then the rumble
- * data, then the subcommand.  Inside the packet handed to switch_output(),
- * which still has the 0xa2/0x52 header and the report ID:
- *
- *   packet[0]      0xa2 or 0x52
- *   packet[1]      0x01 (report id)
- *   packet[2]      packet counter
- *   packet[3..10]  rumble: two 4-byte fields (high/low band amplitude and
- *                  frequency), one per motor
- *   packet[11]     subcommand id
- *   packet[12..]   subcommand arguments
- *
- * Subcommand replies
- * ------------------
- * Every subcommand is answered with input report 0x21 whose payload is the
- * usual 12-byte state followed by:
- *
- *   [12]  ACK: 0x80 | (meaningful low bits).  The low bits identify replies
- *         that carry data: 0x81 pairing information, 0x82 device
- *         information, 0x83 trigger elapsed times, 0x90 SPI read,
- *         0xa0 NFC/IR MCU configuration.  A plain 0x80 acknowledges a
- *         command with no payload.
- *   [13]  the subcommand id being acknowledged, echoed
- *   [14..] reply payload, see reply_subcommand()
- *
- * Virtual SPI flash
- * -----------------
- * Subcommand 0x10 reads the controller's SPI flash, which holds factory
- * calibration and cosmetic data.  Reads may ask for any address and length
- * and may cross region boundaries, so read_virtual_spi() resolves every byte
- * independently.  Addresses with no entry read as 0xff, the value of erased
- * flash; that is important for the "user calibration" magic values at
- * 0x8010/0x801b, which must stay unset so hosts use the factory data.
- * Region contents and their meaning are in the table further down.
- *
- * Local Bluetooth address byte order
- * ----------------------------------
- * bt_get_mac_addr() returns the address the way the stack stores it:
- * least-significant byte first, i.e. the reverse of the "aa:bb:cc:dd:ee:ff"
- * form that bluetoothctl prints.  Nintendo uses both orders in different
- * replies, so the two call sites below go through fill_address_big_endian()
- * and fill_address_little_endian() instead of copying bytes around by hand.
- */
+/* Switch rumble carriers are approximated by ERM amplitude; no frequency control. */
 
-/* Input report IDs. */
 #define SWITCH_REPORT_SUBCOMMAND_REPLY  0x21U
 #define SWITCH_REPORT_FULL_STATE        0x30U
 #define SWITCH_REPORT_SIMPLE_STATE      0x3fU
 
-/* Output report IDs. */
 #define SWITCH_OUTPUT_SUBCOMMAND        0x01U
 #define SWITCH_OUTPUT_RUMBLE            0x10U
 
-/* Subcommand ids, answered by reply_subcommand(). */
 #define SWITCH_SUBCOMMAND_PAIRING      0x01U
 #define SWITCH_SUBCOMMAND_DEVICE_INFO   0x02U
 #define SWITCH_SUBCOMMAND_REPORT_MODE   0x03U
@@ -178,9 +43,6 @@
 #define SWITCH_SIMPLE_PAYLOAD_SIZE      11U
 #define SWITCH_SIMPLE_KEEPALIVE_MS      100U
 
-/* Button bits for the 24-bit button field of reports 0x21 and 0x30.  The
- * names on the left are Nintendo's: on a Switch pad the east face button is
- * "A" and the south button is "B".  Bits 14, 15 and 24..31 do not exist. */
 #define JC_BTN_Y         BIT(0)
 #define JC_BTN_X         BIT(1)
 #define JC_BTN_A         BIT(2)
@@ -194,7 +56,7 @@
 #define JC_BTN_RSTICK    BIT(10)
 #define JC_BTN_LSTICK    BIT(11)
 #define JC_BTN_HOME      BIT(12)
-#define JC_BTN_CAP       BIT(13) /* capture button */
+#define JC_BTN_CAP       BIT(13)
 #define JC_BTN_DOWN      BIT(16)
 #define JC_BTN_UP        BIT(17)
 #define JC_BTN_RIGHT     BIT(18)
@@ -204,9 +66,6 @@
 #define JC_BTN_L         BIT(22)
 #define JC_BTN_ZL        BIT(23)
 
-/* Report 0x3f uses a different, compact button layout: one byte for the
- * four face buttons plus L/R/ZL/ZR, and a second byte for everything else
- * (see fill_simple_state()). */
 #define NINTENDO_SIMPLE_B               0x01U
 #define NINTENDO_SIMPLE_A               0x02U
 #define NINTENDO_SIMPLE_Y               0x04U
@@ -216,7 +75,7 @@
 #define NINTENDO_SIMPLE_ZL              0x40U
 #define NINTENDO_SIMPLE_ZR              0x80U
 
-/* The HID report descriptor lives in src/nintendo_switch_pro_hid.bin so it
+/* The HID report descriptor lives in src/profile_switch_hid.bin so it
  * can be decoded with ordinary HID tools, and is compiled into
  * nintendo_switch_pro_hid_report_descriptor[] by tools/switch_pro_hid_gen.c.
  * That descriptor is the one the Cyclone 2 stock firmware publishes (stock app
@@ -238,9 +97,6 @@ _Static_assert(sizeof(nintendo_switch_pro_hid_report_descriptor) ==
 #define SWITCH_STATE_RIGHT_STICK_OFFSET     8U
 #define SWITCH_STATE_VIBRATION_OFFSET      11U
 
-/* Latest input report accepted by the controller, in the host-independent
- * form defined by input.h.  Reports sent from here translate it into the
- * Nintendo wire format. */
 static struct cyclone2_input_report latest_input;
 /* Handshake state.  There is deliberately no separate state machine here:
  * the console drives the session by sending subcommands and this file simply
@@ -254,19 +110,13 @@ static struct cyclone2_input_report latest_input;
  * simple report at any time. */
 static u8 input_report_mode = SWITCH_REPORT_FULL_STATE;
 
-/* Free-running report counter, byte 0 of every state block. */
 static u8 timer_counter;
 
-/* Subcommand 0x48 / 0x40 state: the console enables these before it expects
- * rumble or motion data to appear in report 0x30. */
 static u8 rumble_enabled;
 static u8 imu_enabled;
 
-/* Subcommand 0x06 with argument 0 tells us to stop streaming while the
- * console goes to sleep.  Only a profile restart clears it. */
 static u8 host_stopped;
 
-/* Number of transmit-result lines still to log after a connection opens. */
 static u8 tx_debug_remaining;
 
 /* Timestamp of the last simple-mode report, used to keep the link alive
@@ -302,16 +152,9 @@ static void handle_rumble(const u8 data[8])
                                 decode_rumble_strength(data + 4U));
 }
 
-/* 12-bit stick values.  Hosts do not take them as they are: they read the
- * factory stick calibration from the virtual SPI flash (0x603d, see
- * src/nintendo_switch_pro_spi.bin), which declares a centre of 0x800 and
- * 0x600 of travel either side on both axes of both sticks, and scale by that.
- * A full-scale input therefore goes out as exactly 0x800 +/- 0x600: any
- * further would be clipped by the host, and the stick would read 100 % well
- * before its gate. */
 #define SWITCH_STICK_CENTER   0x800U
 #define SWITCH_STICK_RANGE    0x600U
-/* ZL/ZR are buttons here: an analog trigger past an eighth of its travel. */
+
 #define SWITCH_TRIGGER_BUTTON_LEVEL  (CYCLONE2_TRIGGER_MAX / 8U)
 
 static u16 axis12(s16 value)
@@ -320,10 +163,6 @@ static u16 axis12(s16 value)
                                  SWITCH_STICK_RANGE);
 }
 
-/* Pack two 12-bit values into the three bytes Nintendo uses per stick:
- *   output[0] = first[11:4]
- *   output[1] = first[3:0] (high nibble) | second[11:8] (low nibble)
- *   output[2] = second[7:0] */
 static void pack_stick(u8 output[3], s16 x, s16 y)
 {
     u16 packed_x = axis12(x);
@@ -334,24 +173,13 @@ static void pack_stick(u8 output[3], s16 x, s16 y)
     output[2] = packed_y >> 4;
 }
 
-/* Build the 12-byte state block shared by reports 0x21 and 0x30.  Offsets
- * are in the file header comment; SWITCH_STATE_* names them.
- *
- * The face-button swap below is not a bug: Nintendo's "A" is the east button
- * and "B" is the south button, while the Cyclone 2's physical A and B sit
- * where an Xbox pad puts B and A.  Translating here means the labels on the
- * pad keep their usual meaning on a Switch.
- *
- * Sticks are inverted on Y because the sensor reports Y increasing upwards
- * while Nintendo's convention has Y increasing downwards. */
 static void fill_controller_state(u8 state[SWITCH_CONTROLLER_STATE_SIZE])
 {
     u16 buttons = latest_input.buttons;
     u32 button_status = 0;
 
     memset(state, 0, SWITCH_CONTROLLER_STATE_SIZE);
-    /* The timer advances by 3 per report, matching a real Pro Controller at
-     * 60 Hz, and wraps naturally at 8 bits. */
+
     timer_counter += 3U;
     state[SWITCH_STATE_TIMER_OFFSET] = timer_counter;
     /* 0x8e = battery level 8 (full), not charging, connection status whose
@@ -391,12 +219,11 @@ static void fill_controller_state(u8 state[SWITCH_CONTROLLER_STATE_SIZE])
     case CYCLONE2_HAT_UP_LEFT:    button_status |= JC_BTN_UP | JC_BTN_LEFT; break;
     default: break;
     }
-    /* This is the inverse of hid_field_extract(button_status, 0, 24). */
+
     state[SWITCH_STATE_BUTTONS_OFFSET + 0U] = button_status;
     state[SWITCH_STATE_BUTTONS_OFFSET + 1U] = button_status >> 8;
     state[SWITCH_STATE_BUTTONS_OFFSET + 2U] = button_status >> 16;
 
-    /* Nintendo's Y axis points up. */
     pack_stick(state + SWITCH_STATE_LEFT_STICK_OFFSET, latest_input.left_x,
                (s16)-latest_input.left_y);
     pack_stick(state + SWITCH_STATE_RIGHT_STICK_OFFSET, latest_input.right_x,
@@ -422,14 +249,13 @@ static void fill_imu_samples(u8 output[36])
         /* The proven acquisition rate is 100 Hz, below Nintendo's three
          * samples per packet. Repeat the latest sample instead of replaying
          * overlapping history out of chronological order. */
-        /* QMI8658A is configured for +/-4 g (8192 counts/g); Nintendo's
-         * expected +/-8 g report format uses 4096 counts/g. */
+
         write_s16_le(output + index * 12U + 0U, sample.accel_x / 2);
         write_s16_le(output + index * 12U + 2U, sample.accel_y / 2);
         write_s16_le(output + index * 12U + 4U, sample.accel_z / 2);
-        write_s16_le(output + index * 12U + 6U, -sample.gyro_x); /* roll */
-        write_s16_le(output + index * 12U + 8U, -sample.gyro_y); /* pitch */
-        write_s16_le(output + index * 12U + 10U, sample.gyro_z); /* yaw */
+        write_s16_le(output + index * 12U + 6U, -sample.gyro_x);
+        write_s16_le(output + index * 12U + 8U, -sample.gyro_y);
+        write_s16_le(output + index * 12U + 10U, sample.gyro_z);
     }
 }
 
@@ -490,7 +316,7 @@ static void fill_simple_state(u8 report[SWITCH_SIMPLE_PAYLOAD_SIZE])
  *   0x8010  user stick calibration: must read as erased so that the factory
  *           values above win (its magic values are checked by host drivers)
  *
- * The bytes live in src/nintendo_switch_pro_spi.bin, which is indexed exactly
+ * The bytes live in src/profile_switch_spi.bin, which is indexed exactly
  * like the controller's flash: the file starts at address 0x6000 and every
  * address in the table below is (offset in that file) + 0x6000.  Keeping the
  * data binary means the flash contents can be hex-dumped and compared against
@@ -501,7 +327,6 @@ static void fill_simple_state(u8 report[SWITCH_SIMPLE_PAYLOAD_SIZE])
  * reads 0xff, the value of erased flash.
  */
 
-/* First address covered by nintendo_switch_pro_spi_flash[]. */
 #define SWITCH_SPI_WINDOW_BASE 0x6000U
 
 struct switch_spi_region {
@@ -510,34 +335,29 @@ struct switch_spi_region {
     const u8 *data;
 };
 
-/* Points at an address inside nintendo_switch_pro_spi_flash[]; the blob is
- * indexed like the flash, so the offset is simply address - window base. */
 #define SWITCH_SPI_BYTE(address) \
     (nintendo_switch_pro_spi_flash + ((address) - SWITCH_SPI_WINDOW_BASE))
 
 static const struct switch_spi_region switch_spi_regions[] = {
-    /* 0x6000: mostly erased; the controller type 0x03 0x02 sits at 0x6012 */
+
     {0x6000U, 32U, SWITCH_SPI_BYTE(0x6000U)},
-    /* 0x6020: accelerometer and gyroscope factory calibration */
+
     {0x6020U, 24U, SWITCH_SPI_BYTE(0x6020U)},
-    /* 0x603d: stick factory calibration, left then right */
+
     {0x603dU, 18U, SWITCH_SPI_BYTE(0x603dU)},
-    /* 0x6050: body, button and grip colours */
+
     {0x6050U, 12U, SWITCH_SPI_BYTE(0x6050U)},
-    /* 0x6080: 6-axis parameters */
+
     {0x6080U, 6U, SWITCH_SPI_BYTE(0x6080U)},
-    /* 0x6086: left stick parameters */
+
     {0x6086U, 18U, SWITCH_SPI_BYTE(0x6086U)},
-    /* 0x6098: right stick parameters */
+
     {0x6098U, 18U, SWITCH_SPI_BYTE(0x6098U)},
 };
 
-/* The blob covers 0x6000..0x60a9 because the last region ends at 0x60a9; a
- * different size means the blob and the table above no longer agree. */
 _Static_assert(sizeof(nintendo_switch_pro_spi_flash) == 0xaaU,
                "Switch SPI window size changed");
 
-/* One byte of virtual flash; addresses outside the table are erased. */
 static u8 switch_spi_read_byte(u32 address)
 {
     unsigned region;
@@ -613,9 +433,6 @@ static void reply_subcommand(u8 subcommand, const u8 *request, u16 request_size)
     u8 *ack = reply + SWITCH_CONTROLLER_STATE_SIZE;
     u8 *data = ack + 2;
 
-    /* 0x8000|subcommand on entry, 0x8100|subcommand on the way out: a boot
-     * that dies in a subcommand handler shows as an entry with no matching
-     * exit, which names the command without needing a debugger. */
     cyclone2_bringup_record(0x8000u | subcommand);
     memset(reply, 0, sizeof(reply));
     fill_controller_state(state);
@@ -650,23 +467,18 @@ static void reply_subcommand(u8 subcommand, const u8 *request, u16 request_size)
         ack[0] = 0x82U;
         data[0] = 0x03U;
         data[1] = 0x48U;
-        data[2] = 0x03U; /* Pro Controller */
+        data[2] = 0x03U;
         data[3] = 0x02U;
         /* Bytes 4..9 are the MAC in big-endian order (dekuNukem's
          * bluetooth_hid_subcommands_notes.md). */
         fill_address_big_endian(data + 4U, mac);
-        /* Byte 10 is always 0x01, and byte 11 means "colours in SPI are
-         * used".  The homebrew references send 0x00/0x02 here and the console
-         * renders their default skin; a real Pro Controller sends 0x01/0x01
-         * and that is also the only difference left that tracks which
-         * firmwares the console keeps a usable bond for. */
+
         data[10] = 0x01U;
         data[11] = 0x01U;
         break;
     }
     case SWITCH_SUBCOMMAND_REPORT_MODE:
-        /* The console switches between the 11-byte simple report and the
-         * 48-byte full report here; ignore anything else it might ask for. */
+
         if (request_size != 0U &&
             (request[0] == SWITCH_REPORT_SIMPLE_STATE ||
              request[0] == SWITCH_REPORT_FULL_STATE)) {
@@ -674,8 +486,7 @@ static void reply_subcommand(u8 subcommand, const u8 *request, u16 request_size)
         }
         break;
     case SWITCH_SUBCOMMAND_TRIGGER_TIME: {
-        /* Elapsed time for seven trigger buttons; we do not measure it, so
-         * report a constant 100 ms per entry like the stock firmware. */
+
         u8 index;
 
         ack[0] = 0x83U;
@@ -684,9 +495,7 @@ static void reply_subcommand(u8 subcommand, const u8 *request, u16 request_size)
         break;
     }
     case SWITCH_SUBCOMMAND_HCI_STATE:
-        /* Argument 0 means "stop sending input reports"; the console sends
-         * it on its way to sleep.  Nothing clears this until the profile is
-         * restarted, which matches how the link is torn down here. */
+
         if (request_size != 0U && request[0] == 0U)
             host_stopped = 1U;
         break;
@@ -709,8 +518,7 @@ static void reply_subcommand(u8 subcommand, const u8 *request, u16 request_size)
         }
         break;
     case SWITCH_SUBCOMMAND_PLAYER_LIGHTS:
-        /* Low nibble = which player LEDs are lit.  The Cyclone 2 has one RGB
-         * chain, so show any lit player LED as dim green on all of them. */
+
         if (request_size != 0U) {
             cyclone2_led_set_all(0U, request[0] & 0x0fU ? 8U : 0U, 0U);
         }
@@ -721,15 +529,13 @@ static void reply_subcommand(u8 subcommand, const u8 *request, u16 request_size)
          * update with value zero stop motion sampling. */
         break;
     case SWITCH_SUBCOMMAND_ENABLE_IMU:
-        /* Motion reporting is normally off; the console turns it on once it
-         * has read the calibration above. */
+
         imu_enabled = request_size != 0U && request[0] != 0U;
         if (imu_enabled) cyclone2_imu_enable();
         else cyclone2_imu_disable();
         break;
     case SWITCH_SUBCOMMAND_IMU_CONFIG:
-        /* Sensitivity selection.  We always report the factory default, so
-         * accept the command and keep the default scaling. */
+
         break;
     case SWITCH_SUBCOMMAND_ENABLE_RUMBLE:
         /* Arguments may carry a vibration code; only the on/off state is
@@ -739,25 +545,15 @@ static void reply_subcommand(u8 subcommand, const u8 *request, u16 request_size)
         if (!rumble_enabled) cyclone2_rumble_stop();
         break;
     default:
-        /* Unknown subcommands still get a bare acknowledgement so the host
-         * does not retry until it gives up on the controller. */
+
         ack[0] = 0x80U;
         break;
     }
 
-    /* The reply is sent immediately, without waiting for the next scheduled
-     * input report: the host is blocking on it.  Return value is ignored by
-     * the current transport, so a full transmit queue would drop the reply;
-     * see the report scheduler work in the architecture plan. */
     edr_hid_data_send(SWITCH_REPORT_SUBCOMMAND_REPLY, reply, sizeof(reply));
     cyclone2_bringup_record(0x8100u | subcommand);
 }
 
-/* Handle an output report from the host.
- *
- * `packet` still starts with the HIDP header byte (0xa2 for the interrupt
- * channel, 0x52 for control-channel SET_REPORT) followed by the report id;
- * the offsets below are the ones documented in the file header. */
 static void switch_output(u8 *packet, u16 size, u16 channel)
 {
     u8 report_id;
@@ -777,14 +573,12 @@ static void switch_output(u8 *packet, u16 size, u16 channel)
     }
     report_id = packet[1];
     if (report_id == SWITCH_OUTPUT_RUMBLE && size >= 11U) {
-        /* Report 0x10: packet[2] is the packet counter, packet[3..10] the
-         * two four-byte rumble fields. */
+
         handle_rumble(packet + 3U);
         return;
     }
     if (report_id == SWITCH_OUTPUT_SUBCOMMAND && size >= 12U) {
-        /* Report 0x01: same rumble block, then the subcommand at packet[11]
-         * with its arguments from packet[12] on. */
+
         cyclone2_usb_debug("Switch subcommand=%02x arg0=%02x size=%u",
                            packet[11], size > 12U ? packet[12] : 0U, size);
         handle_rumble(packet + 3U);
@@ -805,7 +599,6 @@ static void switch_hid_initialize(void)
     cyclone2_imu_disable();
 }
 
-/* Log the first few reports of every new link. */
 static void switch_link_up(void)
 {
     tx_debug_remaining = 4U;
@@ -860,13 +653,10 @@ int cyclone2_switch_send(const struct cyclone2_input_report *input)
         tx_debug_remaining--;
     }
     if (result == 0) return 1;
-    if (result == 3) return -1; /* SDK HID circular buffer is full. */
+    if (result == 3) return -1;
     return -2;
 }
 
-/* The Switch console requests this exact 15-ms sniff interval as soon as the
- * HID channels open.  The SDK default (800 slots / 500 ms) is rejected before
- * the console sends any HIDP traffic. */
 static const edr_sniff_par_t switch_sniff_param = {
     .sniff_mode = SNIFF_MODE_DEF,
     .cnt_time = 1,

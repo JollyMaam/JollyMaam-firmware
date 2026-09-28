@@ -11,13 +11,7 @@
 #include "main.h"
 #include "profile.h"
 #include "rumble.h"
-#include "wake/wake.h"
-
-/*
- * The status namespace: read-only leaves, described like the settings.  Each
- * leaf is a member of a struct its getter fills, so a group of related values
- * costs one small function.
- */
+#include "profile_switch_wake.h"
 
 extern u16 config_dropped_records;
 extern u16 config_schema_errors;
@@ -51,8 +45,6 @@ static const struct cfg_choice imu_states[] = {
     { 0, "stopped" }, { 1, "starting" }, { 2, "running" }, { 0, NULL },
 };
 
-/* ------------------------------------------------------------- getters */
-
 struct status_system {
     u32 uptime_ms;
     u32 boots;
@@ -81,8 +73,7 @@ static void get_system(void *out)
     s->reset_p33 = cyclone2_reset_p33;
     s->reset_rtc = cyclone2_reset_rtc;
     s->usb = (u8)cyclone2_usb_present();
-    /* Only these two reads: the other charge-driver calls block when the
-     * driver is not initialised, as in this build (docs/charging.md). */
+
     s->vbat_mv = adc_get_voltage(AD_CH_VBAT) * 4U;
     s->charge = (u8)get_charge_online_flag();
     s->cal_phase = (u8)cyclone2_calibration_phase();
@@ -144,8 +135,6 @@ static void get_wake(void *out)
     wake_status_get(out);
 }
 
-/* --------------------------------------------------------------- table */
-
 #define SYSTEM(member)  CFG_STATUS_FIELD(struct status_system, member, get_system)
 #define RADIO(member)   CFG_STATUS_FIELD(struct status_radio, member, get_radio)
 #define REPORT(member)  CFG_STATUS_FIELD(struct cyclone2_report_statistics, member, get_report)
@@ -164,7 +153,7 @@ const struct cfg_item status_items[] = {
     { .path = "reset.rtc", .type = CFG_UINT, SYSTEM(reset_rtc) },
     { .path = "system.usb", .type = CFG_BOOL, SYSTEM(usb), .help = "USB power seen" },
     { .path = "battery.vbat_mv", .type = CFG_UINT, SYSTEM(vbat_mv),
-      .help = "not wired to the cell on this board; see docs/charging.md" },
+      .help = "not a validated cell measurement; see docs/power-reset.md" },
     { .path = "battery.charging", .type = CFG_BOOL, SYSTEM(charge) },
     { .path = "cal.phase", .type = CFG_ENUM, SYSTEM(cal_phase),
       .choices = cal_phases },
@@ -231,7 +220,7 @@ const struct cfg_item status_items[] = {
 
     { .path = "wake.active", .type = CFG_BOOL, WAKE(active) },
     { .path = "wake.slot", .type = CFG_UINT, WAKE(slot) },
-    { .path = "wake.channel", .type = CFG_UINT, WAKE(channel) },
+    { .path = "profile_switch_wake.channel", .type = CFG_UINT, WAKE(channel) },
     { .path = "wake.starts", .type = CFG_UINT, WAKE(starts) },
     { .path = "wake.elapsed_ms", .type = CFG_UINT, WAKE(elapsed_ms) },
 };

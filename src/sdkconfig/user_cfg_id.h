@@ -1,11 +1,7 @@
 #ifndef _USER_CFG_ID_H_
 #define _USER_CFG_ID_H_
 
-//=================================================================================//
-//      TRANSLATED: App-specific configuration IDs [1..49]; other IDs are defined in syscfg_id.h.
-// TRANSLATED: Different examples may reuse IDs; IDs for unused features may be reassigned.
-//=================================================================================//
-#define     CFG_BLE_BONDING_REMOTE_INFO      1  //1~4
+#define     CFG_BLE_BONDING_REMOTE_INFO      1
 
 #define     VM_USB_MIC_GAIN             	 5
 #define     VM_ALARM_0                  	 6
@@ -31,9 +27,9 @@
 #define     CFG_RCSP_ADV_KEY_SETTING         27
 #define     CFG_AAP_MODE_INFO                28
 
-#define     CFG_BLE_ADDRESS_BEGIN            30 // TRANSLATED: Store the BLE variable-address table.
+#define     CFG_BLE_ADDRESS_BEGIN            30
 #define     CFG_BT_IDX_NUM                   4
-#define     CFG_EDR_ADDRESS_BEGIN            (CFG_BLE_ADDRESS_BEGIN + CFG_BT_IDX_NUM) // TRANSLATED: Store the paired peer's address.
+#define     CFG_EDR_ADDRESS_BEGIN            (CFG_BLE_ADDRESS_BEGIN + CFG_BT_IDX_NUM)
 #define     CFG_BLE_IRK_NUMBER               (CFG_EDR_ADDRESS_BEGIN + CFG_BT_IDX_NUM)
 #define     CFG_CUR_BT_IDX                   (CFG_BLE_IRK_NUMBER + CFG_BT_IDX_NUM)
 #define     CFG_HID_MODE_BEGIN               (CFG_CUR_BT_IDX + 1)
@@ -42,6 +38,5 @@
 #define     CFG_AAP_MODE_BLE_ADDR            45
 #define     CFG_AAP_MODE_24G_ADDR            46
 #define     CFG_COORDINATE_ADDR              47
-/* 48 (PREFS), 49 (CAL) and 34..37 (one BOND item per slot) hold the
- * settings; src/config.c owns them. */
-#endif /* #ifndef _USER_CFG_ID_H_ */
+
+#endif

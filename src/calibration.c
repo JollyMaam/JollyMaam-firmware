@@ -4,19 +4,6 @@
 #include "config.h"
 #include "usb.h"
 
-/*
- * The stick and trigger calibration routine.  docs/calibration.md describes
- * it from the user's side; src/calibration_math.c holds the maths.
- *
- *   1. settle  1 s    hands off, so the controls come to rest
- *   2. rest    1.5 s  hands off: rest position and noise of every control
- *   3. sweep          circle each stick along its edge a few times, press
- *                     both triggers all the way; A finishes, B cancels
- *
- * Each of the four controls is judged on its own: one that was not exercised
- * properly keeps what it had, and the console says why.
- */
-
 #define CAL_SETTLE_MS           1000U
 #define CAL_REST_MS             1500U
 #define CAL_SWEEP_TIMEOUT_MS    120000U
@@ -24,11 +11,8 @@
 #define CAL_BLINK_HALF_MS       250U
 #define CAL_LED_LEVEL           12U
 
-/* The right stick board is mounted turned half way round. */
 static const s8 stick_sign[2] = {1, -1};
 
-/* Uncalibrated triggers track their highest reading as the rest position and
- * take three quarters of it as the travel. */
 #define LEGACY_TRIGGER_DEAD_ZONE    8U
 #define LEGACY_TRIGGER_TRAVEL_NUM   3U
 #define LEGACY_TRIGGER_TRAVEL_DEN   4U
@@ -90,7 +74,7 @@ static u16 legacy_trigger(u16 sample, u16 *rest)
 
 static u16 map_trigger(const struct cyclone2_raw_input *raw, u8 trigger)
 {
-    /* An uncalibrated trigger (rest 0, the default) tracks its own rest. */
+
     if (cal_trigger_is_sane(&config.cal.trigger[trigger]))
         return cal_trigger_map(&config.cal.trigger[trigger],
                                raw->trigger[trigger]);
@@ -120,8 +104,6 @@ void cyclone2_calibration_apply(const struct cyclone2_raw_input *raw,
     report->left_trigger = map_trigger(raw, 0U);
     report->right_trigger = map_trigger(raw, 1U);
 }
-
-/* ------------------------------------------------------------ the routine */
 
 static void enter_phase(enum cyclone2_calibration_phase next)
 {
@@ -190,8 +172,7 @@ static void end_rest(u16 buttons)
             cyclone2_usb_debug("cal: %s at rest: %s", control_name[control],
                                cal_result_name(outcome[control]));
     }
-    /* A only counts once it has been seen up, so a finger already resting on
-     * it does not end the sweep at once. */
+
     buttons_seen_released = !(buttons & (CYCLONE2_REPORT_BUTTON_A |
                                          CYCLONE2_REPORT_BUTTON_B));
     enter_phase(CYCLONE2_CAL_SWEEP);

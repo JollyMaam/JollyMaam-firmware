@@ -57,7 +57,6 @@ static volatile uint8_t le_adv_dirty;
 static uint8_t le_scan_response[31];
 static volatile uint8_t le_scan_response_len;
 
-/* SM running this session (config->sm_er set). */
 static uint8_t le_sm_active;
 static btstack_packet_callback_registration_t le_sm_registration;
 
@@ -79,8 +78,6 @@ static volatile uint8_t le_disconnect_requested;
 static uint8_t le_initialized;
 static uint8_t le_peer[6];
 static uint8_t le_peer_valid;
-
-/* ------------------------------------------------------------ CCC state */
 
 static int ccc_index(uint16_t ccc_handle, int create)
 {
@@ -114,11 +111,9 @@ void btstack_jl_le_set_ccc(uint16_t value_handle, uint16_t value)
 
 static int is_ccc(uint16_t handle)
 {
-    /* att_db knows the UUID of every attribute; CCCs are 0x2902. */
+
     return att_uuid_for_handle(handle) == GATT_CLIENT_CHARACTERISTICS_CONFIGURATION;
 }
-
-/* ------------------------------------------------------------ ATT glue */
 
 static uint16_t le_att_read(hci_con_handle_t con_handle, uint16_t handle,
                             uint16_t offset, uint8_t *buffer,
@@ -159,8 +154,6 @@ static int le_att_write(hci_con_handle_t con_handle, uint16_t handle,
     }
     return 0;
 }
-
-/* ------------------------------------------------------------ sending */
 
 static void le_try_send(void)
 {
@@ -221,8 +214,6 @@ void btstack_jl_le_set_report(uint16_t handle, const uint8_t *data,
     btstack_jl_core_wake();
 }
 
-/* ------------------------------------------------------------ advertising */
-
 static void le_apply_advertising(void)
 {
     bd_addr_t none;
@@ -234,8 +225,7 @@ static void le_apply_advertising(void)
         return;
     }
     memset(none, 0, sizeof(none));
-    /* Connectable undirected, 20 ms (a Pro Controller 2 advertises every
-     * ~21 ms), all channels. */
+
     gap_advertisements_set_params(0x0020, 0x0020, 0, 0, none, 0x07, 0);
     gap_advertisements_set_data(le_adv_len, le_adv_data);
     if (le_scan_response_len != 0)
@@ -264,8 +254,6 @@ void btstack_jl_le_set_advertising(const uint8_t *data, uint8_t length)
     jl_exit_critical_public();
     btstack_jl_core_wake();
 }
-
-/* ------------------------------------------------------------ events */
 
 static void le_hci_handler(uint8_t packet_type, uint16_t channel,
                            uint8_t *packet, uint16_t size)
@@ -305,7 +293,7 @@ static void le_hci_handler(uint8_t packet_type, uint16_t channel,
                     connection->sm_connection.sm_le_db_index = -1;
                 }
             } else {
-                /* Ask the central to pair, or to encrypt with its bond. */
+
                 sm_request_pairing(le_con_handle);
             }
             cyclone2_usb_debug("LE connected handle=%04x", le_con_handle);
@@ -313,7 +301,7 @@ static void le_hci_handler(uint8_t packet_type, uint16_t channel,
             if (le_config && le_config->state) le_config->state(1);
             break;
         case HCI_SUBEVENT_LE_LONG_TERM_KEY_REQUEST: {
-            if (le_sm_active) break;  /* sm.c answers it */
+            if (le_sm_active) break;
             hci_con_handle_t handle =
                 hci_subevent_le_long_term_key_request_get_connection_handle(packet);
             uint8_t ltk[16];
@@ -348,7 +336,7 @@ static void le_hci_handler(uint8_t packet_type, uint16_t channel,
                 hci_event_encryption_change_get_encryption_enabled(packet)) {
                 if (le_config && le_config->encrypted) le_config->encrypted();
                 if (le_config && le_config->conn_interval_min != 0) {
-                    /* Supervision timeout 4 s (10 ms units). */
+
                     gap_request_connection_parameter_update(
                         le_con_handle, le_config->conn_interval_min,
                         le_config->conn_interval_max, 0, 400);
@@ -375,7 +363,6 @@ static void le_hci_handler(uint8_t packet_type, uint16_t channel,
     }
 }
 
-/* SM progress, for the console. */
 static void le_sm_handler(uint8_t packet_type, uint16_t channel,
                           uint8_t *packet, uint16_t size)
 {
@@ -384,7 +371,7 @@ static void le_sm_handler(uint8_t packet_type, uint16_t channel,
     if (packet_type != HCI_EVENT_PACKET) return;
     switch (hci_event_packet_get_type(packet)) {
     case SM_EVENT_JUST_WORKS_REQUEST:
-        /* No input, no output: nothing to confirm. */
+
         sm_just_works_confirm(sm_event_just_works_request_get_handle(packet));
         break;
     case SM_EVENT_PAIRING_COMPLETE:
@@ -403,8 +390,6 @@ static void le_sm_handler(uint8_t packet_type, uint16_t channel,
     }
 }
 
-/* att_server's own events: only CAN_SEND_NOW matters here.  (Registering
- * le_hci_handler here too delivered every HCI event twice.) */
 static void le_att_handler(uint8_t packet_type, uint16_t channel,
                            uint8_t *packet, uint16_t size)
 {
@@ -415,8 +400,6 @@ static void le_att_handler(uint8_t packet_type, uint16_t channel,
         le_try_send();
     }
 }
-
-/* ------------------------------------------------------------ core hooks */
 
 void btstack_jl_le_configure(const struct btstack_jl_le_config *config)
 {

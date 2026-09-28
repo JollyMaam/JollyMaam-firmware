@@ -8,14 +8,13 @@
 #include "btstack_jl.h"
 #include "input.h"
 #include "config.h"
-#include "identity.h"
 
 #define LOG_TAG_CONST       BOARD
 #define LOG_TAG             "[BOARD]"
 #define LOG_ERROR_ENABLE
 #define LOG_DEBUG_ENABLE
 #define LOG_INFO_ENABLE
-/* #define LOG_DUMP_ENABLE */
+
 #define LOG_CLI_ENABLE
 #include "debug.h"
 
@@ -57,12 +56,12 @@ u8 cyclone2_take_early_profile_chord(void)
 }
 
 const struct low_power_param power_param = {
-    .config         = TCFG_LOWPOWER_LOWPOWER_SEL,          // TRANSLATED: 0: stay active during sniff; 1: enter powerdown during sniff.
-    .btosc_hz       = TCFG_CLOCK_OSC_HZ,                   // TRANSLATED: External crystal frequency.
-    .delay_us       = TCFG_CLOCK_SYS_HZ / 1000000L,        // TRANSLATED: Delay parameter for the low-power module; normally no adjustment is needed.
-    .btosc_disable  = TCFG_LOWPOWER_BTOSC_DISABLE,         // TRANSLATED: Whether to retain BTOSC during low power.
-    .vddiom_lev     = TCFG_LOWPOWER_VDDIOM_LEVEL,          // TRANSLATED: Strong VDDIO levels: 2.0, 2.2, 2.4, 2.6, 2.8, 3.0, 3.2, or 3.6 V.
-    .vddiow_lev     = TCFG_LOWPOWER_VDDIOW_LEVEL,          // TRANSLATED: Weak VDDIO levels: 2.1, 2.4, 2.8, or 3.2 V.
+    .config         = TCFG_LOWPOWER_LOWPOWER_SEL,
+    .btosc_hz       = TCFG_CLOCK_OSC_HZ,
+    .delay_us       = TCFG_CLOCK_SYS_HZ / 1000000L,
+    .btosc_disable  = TCFG_LOWPOWER_BTOSC_DISABLE,
+    .vddiom_lev     = TCFG_LOWPOWER_VDDIOM_LEVEL,
+    .vddiow_lev     = TCFG_LOWPOWER_VDDIOW_LEVEL,
     .osc_type       = OSC_TYPE_LRC,
     .dcdc_port      = TCFG_DCDC_PORT_SEL,
 };
@@ -70,18 +69,13 @@ const struct low_power_param power_param = {
 void board_init()
 {
     cyclone2_latch_early_profile_chord();
-    /* The settings, read from flash before the radio ever runs: nothing
-     * reads syscfg on the Bluetooth paths. */
+
     config_init();
-    /* Let the Bluetooth stack persist link keys; without this the remote
-     * device database is a silent no-op and reconnection cannot work. */
-    cyclone2_remote_db_init();
     board_power_init();
     adc_vbg_init();
     adc_init();
     devices_init();
 
-    /*close FAST CHARGE */
     CHARGE_EN(0);
     CHGBG_EN(0);
 
@@ -89,10 +83,10 @@ void board_init()
 }
 
 struct port_wakeup port0 = {
-    .pullup_down_enable = ENABLE,                            // TRANSLATED: Enable internal I/O pull-up/down resistors.
-    .edge               = FALLING_EDGE,                      // TRANSLATED: Wakeup edge: rising or falling.
-    .attribute          = BLUETOOTH_RESUME,                  // TRANSLATED: Reserved parameter.
-    .iomap              = IO_PORTB_11,                       // Cyclone 2 Home
+    .pullup_down_enable = ENABLE,
+    .edge               = FALLING_EDGE,
+    .attribute          = BLUETOOTH_RESUME,
+    .iomap              = IO_PORTB_11,
     .filter_enable      = ENABLE,
 };
 
@@ -110,7 +104,6 @@ const struct wakeup_param wk_param = {
     .charge = &charge_wkup,
 };
 
-/* TRANSLATED: By default, set I/O pins to high impedance before soft poweroff. Modify this function to preserve selected pin states. */
 static void close_gpio(u8 is_softoff)
 {
     u16 port_group[] = {
@@ -119,7 +112,6 @@ static void close_gpio(u8 is_softoff)
         [PORTC_GROUP] = 0xffff,
     };
 
-    //< close gpio
     gpio_dir(GPIOA, 0, 16, port_group[PORTA_GROUP], GPIO_OR);
     gpio_set_pu(GPIOA, 0, 16, ~port_group[PORTA_GROUP], GPIO_AND);
     gpio_set_pd(GPIOA, 0, 16, ~port_group[PORTA_GROUP], GPIO_AND);
@@ -138,13 +130,9 @@ static void close_gpio(u8 is_softoff)
     gpio_die(GPIOC, 0, 16, ~port_group[PORTC_GROUP], GPIO_AND);
     gpio_dieh(GPIOC, 0, 16, ~port_group[PORTC_GROUP], GPIO_AND);
 
-    //< close usb io
     usb_iomode(1);
 }
 
-//-----------------------------------------------
-
-/* TRANSLATED: By default, set I/O pins to high impedance before soft poweroff. Modify this function to preserve selected pin states. */
 void board_set_soft_poweroff(void)
 {
     u16 port_group[] = {
@@ -154,7 +142,6 @@ void board_set_soft_poweroff(void)
         [PORTD_GROUP] = 0Xffff,
     };
 
-    // TRANSLATED: Flash power.
     if(spi_get_port()==0){
         port_protect(port_group, SPI0_PWR_A);
         port_protect(port_group, SPI0_CS_A);
@@ -177,16 +164,12 @@ void board_set_soft_poweroff(void)
         }
     }
 
-    /* Keep the wake chord electrically readable from the first instruction
-     * after Home wakes the chip. cyclone2_input_initialize() has already made
-     * these active-low inputs with pull-ups. */
     port_protect(port_group, CYCLONE2_BUTTON_HOME);
     port_protect(port_group, CYCLONE2_BUTTON_A);
     port_protect(port_group, CYCLONE2_BUTTON_B);
     port_protect(port_group, CYCLONE2_BUTTON_X);
     port_protect(port_group, CYCLONE2_BUTTON_Y);
 
-    //< close gpio
     gpio_dir(GPIOA, 0, 16, port_group[PORTA_GROUP], GPIO_OR);
     gpio_set_pu(GPIOA, 0, 16, ~port_group[PORTA_GROUP], GPIO_AND);
     gpio_set_pd(GPIOA, 0, 16, ~port_group[PORTA_GROUP], GPIO_AND);
@@ -226,8 +209,8 @@ void board_set_soft_poweroff(void)
     gpio_set_dieh(IO_PORT_DM, 0);
 }
 
-#define     APP_IO_DEBUG_0(i,x)       //{JL_PORT##i->DIR &= ~BIT(x), JL_PORT##i->OUT &= ~BIT(x);}
-#define     APP_IO_DEBUG_1(i,x)       //{JL_PORT##i->DIR &= ~BIT(x), JL_PORT##i->OUT |= BIT(x);}
+#define     APP_IO_DEBUG_0(i,x)
+#define     APP_IO_DEBUG_1(i,x)
 
 void sleep_exit_callback(u32 usec)
 {
@@ -237,7 +220,7 @@ void sleep_exit_callback(u32 usec)
 
 void sleep_enter_callback(u8  step)
 {
-    /* TRANSLATED: Do not add debug prints in this function. */
+
     if (step == 1) {
         putchar('<');
         APP_IO_DEBUG_0(A, 6);
@@ -261,7 +244,7 @@ void board_power_init(void)
     log_info("Power init : %s", __FILE__);
     power_init(&power_param);
     gpio_longpress_pin0_reset_config(IO_PORTB_01, 0, 0);
-    gpio_shortpress_reset_config(0);//1--enable 0--disable
+    gpio_shortpress_reset_config(0);
     power_set_callback(TCFG_LOWPOWER_LOWPOWER_SEL, sleep_enter_callback, sleep_exit_callback, board_set_soft_poweroff);
     power_keep_dacvdd_en(0);
     power_wakeup_init(&wk_param);

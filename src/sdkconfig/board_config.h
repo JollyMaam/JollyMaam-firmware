@@ -1,21 +1,19 @@
 #ifndef BOARD_CONFIG_H
 #define BOARD_CONFIG_H
 
-/* from global_build_config.h */
 #define CONFIG_DOUBLE_BANK_ENABLE  0
 #define CONFIG_APP_OTA_ENABLE      0
 #define CONFIG_UPDATE_JUMP_TO_MASK 0 // TRANSLATED: Enter the update loader by 0=reset or 1=jump. Jump supports GPIO-held power; first shut down all DMA peripherals.
-#define CONFIG_ANC_ENABLE          0 // active noise cancelling?
+#define CONFIG_ANC_ENABLE          0
 #define CONFIG_FLASH_SIZE (0x100000)
 #define CONFIG_ONLY_GRENERATE_ALIGN_4K_CODE 1
 
-/* from global_build_config.h, affects isd_config.ini */
 #define CONFIG_CHIP_NAME           AC635N
 #define CONFIG_PID                 AC635N
 #define CONFIG_VID                 0.01
 #define CONFIG_RESET_PIN           PB01
-#define CONFIG_RESET_TIME          8 // seconds
-#define CONFIG_RESET_LEVEL         0 //tigger level(0/1)
+#define CONFIG_RESET_TIME          8
+#define CONFIG_RESET_LEVEL         0
 #define CONFIG_DOUBLE_BANK_ENABLE  0
 #define CONFIG_VM_LEAST_SIZE       8K
 #define CONFIG_VM_OPT              1
@@ -25,7 +23,6 @@
 #define DISABLE          0
 #define NO_CONFIG_PORT   (-1)
 
-/* module config, usually a source file has a full ifdef around it */
 #define MODULE_ENABLED   1
 #define MODULE_DISABLED  0
 #define AUDIO_MIDI_CTRL_CONFIG                  MODULE_DISABLED
@@ -53,11 +50,9 @@
 #undef MODULE_ENABLE
 #undef MODULE_DISABLED
 
-/* includes need to come after module defines??? e.g. TCFG_PC_ENABLE in usb_common_def.h */
 #include "usb_std_class_def.h"
 #define USB_DEVICE_CLASS_CONFIG     CDC_CLASS
 #define TCFG_OTG_USB_DEV_EN         BIT(0)
-
 
 #define AUDIO_OUTPUT_MODE           AUDIO_OUTPUT_STEREO
 #define AUDIO_OUTPUT_WAY_DAC        0
@@ -65,36 +60,33 @@
 #define AUDIO_OUTPUT_WAY_FM         2
 #define AUDIO_OUTPUT_WAY_HDMI       3
 #define AUDIO_OUTPUT_WAY_SPDIF      4
-#define AUDIO_OUTPUT_WAY_BT         5   // bt emitter
+#define AUDIO_OUTPUT_WAY_BT         5
 #define AUDIO_OUTPUT_WAY_DAC_IIS    6
 #define AUDIO_OUTPUT_WAY_DONGLE     7
 #define AUDIO_OUTPUT_WAY            AUDIO_OUTPUT_WAY_DAC
 #define LINEIN_INPUT_WAY            LINEIN_INPUT_WAY_ANALOG
-#define AUDIO_OUTPUT_AUTOMUTE   0   //ENABLE
-#define VOL_TYPE_DIGITAL        0   // TRANSLATED: Software digital volume.
-#define VOL_TYPE_ANALOG         1   // TRANSLATED: Hardware analog volume.
-#define VOL_TYPE_AD             2   // TRANSLATED: Combined analog/digital volume control.
-#define VOL_TYPE_DIGITAL_HW     3   // TRANSLATED: Hardware digital volume.
+#define AUDIO_OUTPUT_AUTOMUTE   0
+#define VOL_TYPE_DIGITAL        0
+#define VOL_TYPE_ANALOG         1
+#define VOL_TYPE_AD             2
+#define VOL_TYPE_DIGITAL_HW     3
 #define SYS_VOL_TYPE            VOL_TYPE_ANALOG
 #define TCFG_CALL_USE_DIGITAL_VOLUME        0
 #define APP_AUDIO_STATE_WTONE_BY_MUSIC      (1)
 #define TONE_MODE_DEFAULE_VOLUME    (0)
 
-
-#define TCFG_CLOCK_SYS_SRC  SYS_CLOCK_INPUT_PLL_BT_OSC   // TRANSLATED: System clock source.
-#define TCFG_CLOCK_SYS_HZ   24000000                     // TRANSLATED: System clock frequency.
-#define TCFG_CLOCK_OSC_HZ   24000000                     // TRANSLATED: External crystal frequency.
+#define TCFG_CLOCK_SYS_SRC  SYS_CLOCK_INPUT_PLL_BT_OSC
+#define TCFG_CLOCK_SYS_HZ   24000000
+#define TCFG_CLOCK_OSC_HZ   24000000
 #define TCFG_CLOCK_MODE     CLOCK_MODE_ADAPTIVE
 
-
-#define TCFG_LOWPOWER_POWER_SEL      PWR_LDO15           // TRANSLATED: Power mode: DCDC or LDO.
-#define TCFG_LOWPOWER_LOWPOWER_SEL   SLEEP_EN            // TRANSLATED: Whether to enter powerdown during sniff.
-#define TCFG_LOWPOWER_BTOSC_DISABLE  0                   // TRANSLATED: Whether to retain BTOSC during low power.
+#define TCFG_LOWPOWER_POWER_SEL      PWR_LDO15
+#define TCFG_LOWPOWER_LOWPOWER_SEL   SLEEP_EN
+#define TCFG_LOWPOWER_BTOSC_DISABLE  0
 #define TCFG_LOWPOWER_VDDIOM_LEVEL   VDDIOM_VOL_30V
-#define TCFG_LOWPOWER_VDDIOW_LEVEL   VDDIOW_VOL_28V      // TRANSLATED: Weak VDDIO level.
+#define TCFG_LOWPOWER_VDDIOW_LEVEL   VDDIOW_VOL_28V
 #define TCFG_LOWPOWER_OSC_TYPE       OSC_TYPE_LRC
 #define TCFG_DCDC_PORT_SEL           NO_CONFIG_PORT
-
 
 #define TCFG_USER_TWS_ENABLE 0
 #define TCFG_USER_BLE_ENABLE 1

@@ -6,7 +6,7 @@
 #include "imu.h"
 #include "input.h"
 
-#define QMI8658A_ADDRESS          0xd4U
+#define QMI8658A_ADDRESS          CYCLONE2_IMU_I2C_ADDRESS
 #define QMI8658A_DEVICE_ID        0x05U
 #define QMI8658A_REG_WHO_AM_I     0x00U
 #define QMI8658A_REG_ACCEL_X_L    0x35U
@@ -263,23 +263,6 @@ int cyclone2_imu_latest(struct cyclone2_imu_sample *sample_value)
     return 0;
 }
 
-u8 cyclone2_imu_recent(struct cyclone2_imu_sample *samples, u8 maximum)
-{
-    u8 available;
-    u8 index;
-    u8 copied;
-
-    if (!samples || maximum == 0U) return 0U;
-    available = history_count;
-    if (available > maximum) available = maximum;
-    index = (u8)((history_write_index - available) & 7U);
-    for (copied = 0U; copied < available; copied++) {
-        samples[copied] = sample_history[index];
-        index = (u8)((index + 1U) & 7U);
-    }
-    return available;
-}
-
 void cyclone2_imu_task(void *private_data)
 {
     struct cyclone2_imu_sample new_sample;
@@ -296,7 +279,7 @@ void cyclone2_imu_task(void *private_data)
             } else if (sample(&new_sample) == 0) {
                 index = history_write_index;
                 sample_history[index] = new_sample;
-                /* Publish only after the complete sample has been copied. */
+
                 local_irq_disable();
                 history_write_index = (u8)((index + 1U) & 7U);
                 if (history_count < 8U) history_count++;

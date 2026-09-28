@@ -4,7 +4,7 @@
  * This intentionally has no dependencies beyond libc.  The pack command is
  * aimed at the BR23 SDK layout emitted by isd_download: uboot.boot, the
  * encoded SYS_CFG_PARAM stream, app files, and PRCT/VM/BTIF/key_mac reserved
- * regions.  See newfw-format.md beside this file for the on-flash layout.
+ * regions.  See docs/image-formats.md for the on-flash layout.
  */
 #define _POSIX_C_SOURCE 200809L
 #include <ctype.h>

@@ -6,9 +6,6 @@
 #ifndef CYCLONE2_BUILD_CONFIG_H
 #define CYCLONE2_BUILD_CONFIG_H
 
-/* Keeping bonds and settings in RAM only is no longer a build option: it is
- * the setting config.autocommit (src/config.h, docs/config.md). */
-
 /* How tools/patch_btctrler.py patches the vendor controller archive
  * btctrler.a.  Keep it a string literal on one line; the patcher parses it.
  *
@@ -25,4 +22,4 @@
  */
 #define CYCLONE2_PATCH_BTCTLER "markers-role-guard"
 
-#endif /* CYCLONE2_BUILD_CONFIG_H */
+#endif

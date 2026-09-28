@@ -12,51 +12,6 @@
 #include "rumble.h"
 #include "usb.h"
 
-/*
- * Xbox Wireless Controller over Bluetooth Classic HID (045e:02fd, the Xbox
- * One S controller with firmware 4.8).
- * =========================================================================
- *
- * Windows binds its xinputhid driver to this id, so games that only speak
- * XInput see an Xbox controller without a dongle; Linux, macOS, Android and
- * SDL all know it too.  The stock Cyclone 2 firmware's "bt xinput mode" is
- * this same identity (its image carries the descriptor below and the Device ID
- * 045e:02fd version 0x0100).  XInput has no paddles or gyro; those are
- * reported as extra HID buttons where hosts that read raw HID can see them.
- *
- * Input report 0x01, 16 bytes (the report descriptor below, which is the one
- * the stock firmware sends; offsets as SDL's SDL_hidapi_xboxone.c reads them,
- * minus the report id):
- *
- *   [0..1]   left stick X, 0..65535, centre 0x8000
- *   [2..3]   left stick Y, down is positive
- *   [4..5]   right stick X
- *   [6..7]   right stick Y
- *   [8..9]   left trigger, 10 bits
- *   [10..11] right trigger, 10 bits
- *   [12]     hat: 1 = up, clockwise to 8 = up-left, 0 = centred
- *   [13..14] buttons 1..15: A, B, -, X, Y, -, LB, RB, -, -, View, Menu,
- *            Guide, LS, RS.  Linux maps these usages to BTN_SOUTH, EAST, C,
- *            NORTH, WEST, Z, TL, TR, TL2, TR2, SELECT, START, MODE, THUMBL,
- *            THUMBR - the order of enum cyclone2_button, so the pad's button
- *            word goes in as it is and the extra controls (capture, M, L4,
- *            R4) land on the unused buttons 3, 6, 9 and 10.
- *   [15]     bit 0: View again, as consumer usage AC Back - where firmware
- *            4.8 puts it and where xinputhid looks for it
- *
- * Input report 0x02, 1 byte: bit 0 Guide (consumer AC Home).  Firmware 4.8
- * sends Guide only here on Windows; SDL takes it from here once it has seen
- * one, and from button 13 before that.
- *
- * Output report 0x03, 8 bytes (rumble):
- *   [0]      enable: 0x01 right (weak) motor, 0x02 left (strong), 0x04 right
- *            trigger, 0x08 left trigger
- *   [1..4]   magnitude 0..100: left trigger, right trigger, left, right
- *   [5]      duration, 10 ms units
- *   [6]      start delay, 10 ms units
- *   [7]      loop count (SDL sends 0xeb with duration 0xff: "keep going")
- */
-
 #define XBOX_REPORT_STATE    0x01U
 #define XBOX_REPORT_GUIDE    0x02U
 #define XBOX_REPORT_RUMBLE   0x03U
@@ -87,8 +42,6 @@ static const u8 xbox_report_descriptor[] = {
     0x85,0x04,0x15,0x00,0x26,0xff,0x00,0x75,0x08,0x95,0x01,0x81,0x02,0xc0,
 };
 
-/* 15 ms sniff interval, as for the Switch profile: the host asks for sniff
- * once the HID channels are up, and a gamepad wants a short one. */
 static const edr_sniff_par_t xbox_sniff_param = {
     .sniff_mode = SNIFF_MODE_DEF,
     .cnt_time = 1,
@@ -99,7 +52,6 @@ static const edr_sniff_par_t xbox_sniff_param = {
     .check_timer_period = 1000,
 };
 
-/* Peripheral / gamepad class of device, "just works" SSP. */
 static const edr_init_cfg_t xbox_edr_config = {
     .class_type = 0x002508U,
     .page_timeout = 8000U,
@@ -139,7 +91,7 @@ void cyclone2_xbox_fill_state(u8 state[XBOX_STATE_SIZE],
         buttons &= (u16)~CYCLONE2_REPORT_BUTTON_SCREENSHOT;
         state[15] = 0x01U;
     }
-    /* Sticks 0..0xffff centred on 0x8000, triggers 0..1023. */
+
     put_u16(state + 0, cyclone2_stick_u16(input->left_x));
     put_u16(state + 2, cyclone2_stick_u16(input->left_y));
     put_u16(state + 4, cyclone2_stick_u16(input->right_x));
@@ -147,25 +99,21 @@ void cyclone2_xbox_fill_state(u8 state[XBOX_STATE_SIZE],
     put_u16(state + 8, (u16)(input->left_trigger >> 6));
     put_u16(state + 10, (u16)(input->right_trigger >> 6));
     state[12] = input->hat < CYCLONE2_HAT_NEUTRAL ? (u8)(input->hat + 1U) : 0U;
-    /* A and B trade places: tested 2026-09-26, the pad's A came out as B and
-     * B as A with the button word copied straight in, while X and Y were
-     * right. */
+
     state[13] = (u8)(buttons & ~(CYCLONE2_REPORT_BUTTON_A |
                                  CYCLONE2_REPORT_BUTTON_B));
-    if (buttons & CYCLONE2_REPORT_BUTTON_A) state[13] |= 0x02U; /* B */
-    if (buttons & CYCLONE2_REPORT_BUTTON_B) state[13] |= 0x01U; /* A */
+    if (buttons & CYCLONE2_REPORT_BUTTON_A) state[13] |= 0x02U;
+    if (buttons & CYCLONE2_REPORT_BUTTON_B) state[13] |= 0x01U;
     state[14] = (u8)((buttons >> 8) & 0x7fU);
     if (!series && (buttons & CYCLONE2_REPORT_BUTTON_SELECT)) state[15] = 0x01U;
 }
 
-/* Magnitude 0..100 to the motor's 0..255. */
 static u8 xbox_magnitude(u8 value)
 {
     if (value >= 100U) return 255U;
     return (u8)((value * 255U) / 100U);
 }
 
-/* Output report 0x03's 8-byte body, shared with the Series X|S profile. */
 void cyclone2_xbox_rumble(const u8 body[8])
 {
     u8 left;
@@ -251,7 +199,7 @@ int cyclone2_xbox_send(const struct cyclone2_input_report *input)
         now - last_send_ms < XBOX_KEEPALIVE_MS)
         return 0;
     result = edr_hid_data_send(XBOX_REPORT_STATE, state, sizeof(state));
-    if (result == 3) return -1; /* HID transmit queue full */
+    if (result == 3) return -1;
     if (result != 0) return -2;
     memcpy(last_state, state, sizeof(state));
     state_sent = 1U;

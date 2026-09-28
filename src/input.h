@@ -5,7 +5,6 @@
 #include "asm/gpio.h"
 #include "asm/adc_api.h"
 
-/* Digital buttons; all are active low. */
 #define CYCLONE2_BUTTON_A           IO_PORTA_06
 #define CYCLONE2_DPAD_UP            IO_PORTA_02
 #define CYCLONE2_DPAD_DOWN          IO_PORTA_04
@@ -31,39 +30,28 @@
 
 #define CYCLONE2_BUTTON_SCREENSHOT  IO_PORTD_05
 
-/* L2/R2 are analog despite sharing GPIO pin names. Values fall on press. */
 #define CYCLONE2_TRIGGER_L2_ADC_CHANNEL  AD_CH_PB3
 #define CYCLONE2_TRIGGER_R2_ADC_CHANNEL  AD_CH_PB10
 
-/* The trigger-stop microswitches are not ordinary PA-PD GPIOs. They use the
- * two RTC-domain PR inputs and are active low. SDK APIs number them PR0/PR1;
- * board/physical descriptions sometimes call the same pins PR1/PR2. */
 #define CYCLONE2_TRIGGER_L2_SWITCH_PR    1U
 #define CYCLONE2_TRIGGER_R2_SWITCH_PR    0U
 
-/* The stick-sensor board transmits four-byte frames on UART2 RX. Channel zero
- * also routes TX to PA2, so firmware restores that shared pin as d-pad up. */
 #define CYCLONE2_STICK_UART_RX      IO_PORTA_03
-#define CYCLONE2_SENSOR_POWER       IO_PORTB_05 /* active high */
+#define CYCLONE2_SENSOR_POWER       IO_PORTB_05
 
-/* QMI8658A (write address 0xd4) and 24C64 (write address 0xa0). */
 #define CYCLONE2_I2C_SCL            IO_PORTB_04
 #define CYCLONE2_I2C_SDA            IO_PORTB_06
 #define CYCLONE2_IMU_I2C_ADDRESS    0xd4U
 #define CYCLONE2_EEPROM_I2C_ADDRESS 0xa0U
 
-/* PC3 is cable-present high and is also SPI1 port-B's unused DI input. */
 #define CYCLONE2_USB_SENSE          IO_PORTC_03
 
-/* Eight one-wire RGB LEDs: PB9 powers the chain, SPI1-B transmits on PC5. */
-#define CYCLONE2_LED_POWER          IO_PORTB_09 /* active low */
+#define CYCLONE2_LED_POWER          IO_PORTB_09
 #define CYCLONE2_LED_SPI_DI         IO_PORTC_03
 #define CYCLONE2_LED_SPI_CLOCK      IO_PORTC_04
 #define CYCLONE2_LED_SPI_DATA       IO_PORTC_05
 #define CYCLONE2_LED_COUNT          8U
 
-/* Home was the sole responder to short/partially decoded transfers, strongly
- * identifying it as the first physical device in the daisy chain. */
 #define CYCLONE2_LED_HOME_INDEX     0U
 
 enum cyclone2_button {
@@ -74,14 +62,14 @@ enum cyclone2_button {
      * digital role here, so use those slots for the four extra controls. */
     CYCLONE2_REPORT_BUTTON_A          = 1U << 0,
     CYCLONE2_REPORT_BUTTON_B          = 1U << 1,
-    CYCLONE2_REPORT_BUTTON_SCREENSHOT = 1U << 2,  /* BTN_C */
+    CYCLONE2_REPORT_BUTTON_SCREENSHOT = 1U << 2,
     CYCLONE2_REPORT_BUTTON_X          = 1U << 3,
     CYCLONE2_REPORT_BUTTON_Y          = 1U << 4,
-    CYCLONE2_REPORT_BUTTON_M          = 1U << 5,  /* BTN_Z */
+    CYCLONE2_REPORT_BUTTON_M          = 1U << 5,
     CYCLONE2_REPORT_BUTTON_L1         = 1U << 6,
     CYCLONE2_REPORT_BUTTON_R1         = 1U << 7,
-    CYCLONE2_REPORT_BUTTON_L4         = 1U << 8,  /* BTN_TL2 */
-    CYCLONE2_REPORT_BUTTON_R4         = 1U << 9,  /* BTN_TR2 */
+    CYCLONE2_REPORT_BUTTON_L4         = 1U << 8,
+    CYCLONE2_REPORT_BUTTON_R4         = 1U << 9,
     CYCLONE2_REPORT_BUTTON_SELECT     = 1U << 10,
     CYCLONE2_REPORT_BUTTON_START      = 1U << 11,
     CYCLONE2_REPORT_BUTTON_HOME       = 1U << 12,
@@ -101,14 +89,9 @@ enum cyclone2_hat {
     CYCLONE2_HAT_NEUTRAL,
 };
 
-/* Calibrated controls in one resolution for every profile; each profile
- * scales them to its own report with the helpers below.
- *   sticks    -32767..+32767, 0 at rest, +x right, +y down (HID orientation)
- *   triggers  0 released .. 65535 fully pressed */
 #define CYCLONE2_STICK_MAX    32767
 #define CYCLONE2_TRIGGER_MAX  65535U
 
-/* Laid out without padding, because profiles memcmp() reports. */
 struct cyclone2_input_report {
     u16 buttons;
     s16 left_x;
@@ -118,22 +101,19 @@ struct cyclone2_input_report {
     u16 left_trigger;
     u16 right_trigger;
     u8 hat;
-    u8 reserved;   /* always zero */
+    u8 reserved;
 };
 
-/* -32767..32767 onto 0..255 with 0 at 0x80. */
 static inline u8 cyclone2_stick_u8(s16 value)
 {
     return (u8)(((s32)value + 32768) >> 8);
 }
 
-/* -32767..32767 onto 1..65535 with 0 at 0x8000. */
 static inline u16 cyclone2_stick_u16(s16 value)
 {
     return (u16)((s32)value + 32768);
 }
 
-/* -32767..32767 onto center +/- half_range, rounded. */
 static inline u16 cyclone2_stick_scaled(s16 value, u16 center, u16 half_range)
 {
     s32 scaled = (s32)value * half_range;
@@ -147,12 +127,11 @@ static inline u8 cyclone2_trigger_u8(u16 value)
     return (u8)(value >> 8);
 }
 
-/* What the sensors report before calibration. */
 struct cyclone2_raw_input {
-    u16 stick[4];          /* left x, left y, right x, right y */
-    u16 trigger[2];        /* ADC, falls as the trigger is pressed */
-    u8 trigger_stop[2];    /* the trigger-stop microswitch is closed */
-    u8 sticks_valid;       /* the stick board is delivering good frames */
+    u16 stick[4];
+    u16 trigger[2];
+    u8 trigger_stop[2];
+    u8 sticks_valid;
 };
 
 struct cyclone2_input_stats {
@@ -166,13 +145,11 @@ struct cyclone2_input_stats {
     u32 max_backlog;
 };
 
-/* Returns 1..4 for a Home+A/B/X/Y chord captured during early board startup,
- * or zero if no complete chord was present. The result is consumed once. */
 u8 cyclone2_take_early_profile_chord(void);
 
 void cyclone2_input_initialize(void);
 void cyclone2_input_read(struct cyclone2_input_report *report);
-/* The sensor values the last cyclone2_input_read() mapped. */
+
 void cyclone2_input_get_raw(struct cyclone2_raw_input *raw);
 void cyclone2_input_get_stats(struct cyclone2_input_stats *stats);
 void cyclone2_input_reset_stats(void);

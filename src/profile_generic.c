@@ -41,8 +41,6 @@ static const u8 generic_pnp_id[] = {
     0x02, 0x37, 0x35, 0x75, 0x05, 0x00, 0x01,
 };
 
-/* The report the descriptor above declares: 16 buttons, the hat in the low
- * nibble of a byte, then X, Y, Rx, Ry, Z, Rz as 0..255. */
 #define GENERIC_REPORT_SIZE 9U
 
 static u8 last_report[GENERIC_REPORT_SIZE];
@@ -70,7 +68,7 @@ void cyclone2_generic_disconnect(void)
 
 int cyclone2_generic_exit(void)
 {
-    /* The BLE profiles are stubs; there is no session to wait for. */
+
     btstack_ble_exit(0);
     return 1;
 }
@@ -78,13 +76,6 @@ int cyclone2_generic_exit(void)
 int cyclone2_generic_is_connected(void)
 {
     return ble_hid_is_connected() != 0;
-}
-
-/* BLE reconnection is advertising-driven: the controller keeps advertising for
- * the bonded host, so there is no per-attempt page to re-arm here. */
-int cyclone2_generic_reconnect(void)
-{
-    return 0;
 }
 
 static void generic_make_report(u8 output[GENERIC_REPORT_SIZE],

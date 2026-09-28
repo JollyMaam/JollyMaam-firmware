@@ -15,13 +15,13 @@ typedef struct {
     u16 min_interval_slots;
     u8 attempt_slots;
     u8 timeout_slots;
-    u16 check_timer_period; // TRANSLATED: Check period.
-    u8 cnt_time;// TRANSLATED: Idle time in seconds before entering sniff mode.
+    u16 check_timer_period;
+    u8 cnt_time;
     u8 sniff_mode;
 } edr_sniff_par_t;
 
 typedef struct {
-    u32 class_type;// TRANSLATED: Icon shown during discovery.
+    u32 class_type;
     u16 page_timeout;
     u16 super_timeout;
     u8 io_capabilities: 2;
@@ -34,9 +34,9 @@ typedef struct {
 } edr_init_cfg_t;
 
 typedef struct {
-    // TRANSLATED: Use the same address for BLE and EDR.
+
     u8 same_address;
-    u16 appearance; // TRANSLATED: Icon shown during discovery.
+    u16 appearance;
     u16 report_map_size;
     const u8 *report_map;
 
@@ -71,11 +71,9 @@ typedef struct {
 #define ERROR_CODE_REMOTE_USER_TERMINATED_CONNECTION          0x13
 #define ERROR_CODE_CONNECTION_TERMINATED_BY_LOCAL_HOST        0x16
 
-#define CUSTOM_BB_AUTO_CANCEL_PAGE                            0xFD  //// app cancle page
-#define BB_CANCEL_PAGE                                        0xFE  //// bb cancle page
+#define CUSTOM_BB_AUTO_CANCEL_PAGE                            0xFD
+#define BB_CANCEL_PAGE                                        0xFE
 
-//-----------------------
-// TRANSLATED: Default Bluetooth disconnect wait time.
 #define WAIT_DISCONN_TIME_MS     (300)
 
 void btstack_ble_start_before_init(const ble_init_cfg_t *cfg, int param);
@@ -94,7 +92,7 @@ void btstack_edr_start_after_init(int param);
  * up before this one is down, or the two trample each other's stack state. */
 int btstack_edr_exit(int param);
 int bt_comm_edr_status_event_handler(struct bt_event *bt);
-// TRANSLATED: Exit and clear sniff mode.
+
 int bt_comm_edr_sniff_clean(void);
 void bt_comm_edr_mode_enable(u8 enable);
 void sys_auto_sniff_controle(u8 enable, u8 *addr);
@@ -104,10 +102,9 @@ void bt_comm_edr_get_remote_address(bd_addr_t address);
 void lmp_set_sniff_disable(void);
 extern void lmp_sniff_t_slot_attemp_reset(u16 slot, u16 attemp);
 extern const int sniff_support_reset_anchor_point;   // TRANSLATED: Allow sniff to reset to the most recent communication anchor, for HID.
-/* TRANSLATED: Simple pairing enable/disable interface. */
+
 void __set_simple_pair_flag(bool flag);
 
-// void le_hogp_set_direct_adv_type(u8 type);
 void le_hogp_set_reconnect_adv_cfg(u8 adv_type, u32 adv_timeout);
 
-#endif    //_APP_BT_COMMON_H_
+#endif

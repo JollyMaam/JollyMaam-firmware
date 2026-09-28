@@ -1,6 +1,6 @@
 RESET_MAILBOX_SIZE = 16;
 BRINGUP_LOG_BEGIN = 0x20010;
-BRINGUP_LOG_SIZE = 0x2100;  /* ring + head + boot counter */
+BRINGUP_LOG_SIZE = 0x2100;
 RESET_MAILBOX_BEGIN = 0x20000;
 
 SECTIONS
@@ -49,10 +49,6 @@ SECTIONS
         . = ALIGN(4);
     } > ram0
 
-    /*
-     * Bring-up instrumentation (see src/main.c).  It lives right after the
-     * mailbox so the mailbox itself keeps its fixed, preserved address.
-     */
     .bringup_log BRINGUP_LOG_BEGIN (NOLOAD) :
     {
         . = ALIGN(4);

@@ -1,17 +1,3 @@
-/*
- * Every setting the pad keeps, with its default and a line of help.
- *
- * Adding a setting: add the field to struct config (config.h) and an entry
- * here with a uid no entry has ever used.  Nothing else - it reads as its
- * default until someone sets it, and flash only stores values that differ
- * from the default, so no stored data needs migrating.  Changing a default
- * moves every pad that never set the value.  Changing a setting's type or
- * meaning: give it a new uid and retire the old one (list it below).
- *
- * Retired uids: 12 (profile.#.generation; `pair --fresh` hashes the address
- * instead).
- */
-
 #include "config.h"
 #include "profile_types.h"
 
@@ -58,7 +44,7 @@ static const char *check_trigger_deadzones(const struct config *c, u8 index)
 }
 
 const struct cfg_item config_items[] = {
-    /* ------------------------------------------------------------ general */
+
     { .uid = 1, .path = "global.autocommit", .type = CFG_BOOL, CFG_FIELD(autocommit),
       .group = CFG_GROUP_PREFS, .def = 1,
       .help = "write changes to flash by themselves; when off nothing is "
@@ -72,7 +58,6 @@ const struct cfg_item config_items[] = {
       .help = "what the pad's Bluetooth addresses are derived from; none = "
               "the flash chip's unique ID" },
 
-    /* --------------------------------------------------------------- log */
     { .uid = 60, .path = "log.console", .type = CFG_BOOL, CFG_FIELD(log.console),
       .group = CFG_GROUP_PREFS, .def = 1,
       .help = "print log lines on the console" },
@@ -85,7 +70,6 @@ const struct cfg_item config_items[] = {
       .help = "trace every HCI packet - a lot of output; stays on across a "
               "reboot, which is how to trace one" },
 
-    /* ---------------------------------------------------------- profiles */
     { .uid = 10, .path = "profile.#.type", .type = CFG_ENUM,
       CFG_PROFILE_FIELD(type), .group = CFG_GROUP_PREFS,
       .apply = CFG_NEXT_CONNECT, .choices = profile_types,
@@ -94,8 +78,7 @@ const struct cfg_item config_items[] = {
     { .uid = 11, .path = "profile.#.rumble", .type = CFG_BOOL,
       CFG_PROFILE_FIELD(rumble), .group = CFG_GROUP_PREFS, .def = 1,
       .help = "let the host drive the rumble motors" },
-    /* uid 20 was profile.#.bond.local, the address a bond was made with:
-     * the same thing, so a stored one carries over. */
+
     { .uid = 20, .path = "profile.#.address", .type = CFG_MAC,
       CFG_PROFILE_FIELD(address), .group = CFG_GROUP_BOND,
       .apply = CFG_NEXT_CONNECT, .derived = config_derived_address,
@@ -103,7 +86,6 @@ const struct cfg_item config_items[] = {
               "from the flash ID (identity.seed), the slot and its type; "
               "a pairing pins it, and `pair SLOT --fresh` moves it on" },
 
-    /* ------------------------------------------------ bonds, one per slot */
     { .uid = 21, .path = "profile.#.bond.peer", .type = CFG_MAC,
       CFG_PROFILE_FIELD(bond.peer), .group = CFG_GROUP_BOND,
       .apply = CFG_NEXT_CONNECT,
@@ -126,7 +108,6 @@ const struct cfg_item config_items[] = {
       .apply = CFG_NEXT_CONNECT,
       .help = "the Switch 2 LE long-term key" },
 
-    /* ------------------------------------------------------- calibration */
     { .uid = 40, .path = "cal.stick.#.minimum", .type = CFG_LIST,
       CFG_STICK_FIELD(minimum), .elements = 2, .group = CFG_GROUP_CAL,
       .def_ptr = default_stick_minimum,

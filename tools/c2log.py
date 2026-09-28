@@ -2,7 +2,7 @@
 """Capture the controller's USB console for a while.
 
 The firmware buffers runtime diagnostics and only flushes them while a host has
-the CDC port open (see docs/usb-control.md), so a capture has to be running
+the CDC port open, so a capture has to be running
 before the interesting traffic happens.  Starting a profile can reset the chip
 and re-enumerate USB, so this tool reopens the port when that happens.
 

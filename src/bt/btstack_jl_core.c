@@ -32,13 +32,9 @@
 #include "btstack_jl_le.h"
 
 #define BTSTACK_JL_MAX_QUEUED_REPORTS 24
-/* HIDP header + report id + body: a DualSense Bluetooth report 0x31 is 78
- * bytes with its id, the largest either direction of any profile. */
+
 #define BTSTACK_JL_MAX_REPORT_SIZE    80
-/* HID SDP record: service attributes plus the report descriptor, which
- * upstream stores inline in the record, and the record's text attributes
- * (service name, description, provider).  The largest descriptor is the Xbox
- * one at 334 bytes. */
+
 #define BTSTACK_JL_SDP_RECORD_SIZE    720
 
 typedef struct {
@@ -53,15 +49,12 @@ static void jl_address_to_jieli(const uint8_t in[6], uint8_t out[6]);
 static void jl_trace(uint32_t code);
 static void jl_apply_scan_state(void);
 static void jl_apply_local_address(void);
-/* btctrler.a: the controller's LE public address (wire order). */
+
 extern int le_controller_set_mac(const uint8_t *address);
 
 static uint8_t jl_address[6];
 static uint8_t jl_address_valid;
-/* The controller and the Jieli SDK keep device addresses in wire order (least
- * significant byte first).  BTstack's bd_addr_t is the human readable order and
- * reverses at the HCI boundary, so every address that crosses btstack_jl.h is
- * converted here. */
+
 static uint8_t jl_address_jieli[6];
 static uint8_t jl_peer_address[6];
 static uint8_t jl_peer_valid;
@@ -71,7 +64,6 @@ static uint8_t jl_working;
 static uint8_t jl_shutdown_requested;
 static uint8_t jl_send_pending;
 
-/* Requests queued by the application task and executed on the run-loop task. */
 enum {
     JL_REQUEST_SCAN       = 1 << 0,
     JL_REQUEST_CONNECT    = 1 << 1,
@@ -83,13 +75,11 @@ enum {
 };
 
 static volatile uint8_t jl_request;
-/* Pairings completed in this boot (a link key notification arrived). */
+
 static uint16_t jl_pairings;
 
-/* Debounce for the exit-sniff request: milliseconds until another one may be
- * sent, or 0 when none has been sent yet. */
 static uint32_t jl_unsniff_next_ms;
-/* Bring-up diagnostics for the report path. */
+
 static uint32_t jl_tx_sent;
 static uint32_t jl_tx_stall_since;
 static uint8_t  jl_tx_stall_reported;
@@ -104,20 +94,14 @@ static uint8_t jl_request_address[6];
 static uint16_t jl_hid_cid;
 static uint16_t jl_con_handle;
 static uint8_t  jl_con_handle_valid;
-/* A Classic ACL link is up: from a successful Connection Complete to its
- * Disconnection Complete (or a power-off).  Read from the application task. */
+
 static volatile uint8_t jl_acl_up;
 static btstack_timer_source_t jl_credit_timer;
 
-/* Bring-up diagnostics: how many ACL buffers BTstack believes it may use. */
 static void jl_credit_timer_handler(btstack_timer_source_t *ts)
 {
     if (jl_con_handle_valid) {
-        /* Only when the pool is empty: recording the healthy count every 500 ms
-         * fills the bring-up ring long before a session ends.  The handle also
-         * has to still exist - after a disconnect it is kept for the exit-sniff
-         * path, and asking about it logs an error every 300 ms until the next
-         * connection replaces it. */
+
         if (hci_connection_for_handle(jl_con_handle) == 0) {
             jl_con_handle_valid = 0;
         } else if (hci_number_free_acl_slots_for_handle(jl_con_handle) == 0) {
@@ -141,10 +125,7 @@ static uint8_t jl_sdp_service_buffer[BTSTACK_JL_SDP_RECORD_SIZE];
  * applied on the run loop.  Length 0 means advertising off. */
 static uint8_t jl_le_adv_data[31];
 static uint8_t jl_le_adv_len;
-/* Device ID (PnP) record: BlueZ takes the HID device's vendor and product from
- * it, and Linux's hid-nintendo binds only to 057e:2009.  Without it the pad
- * came up as 0000:0000 and a generic HID driver took it.  The profile picks
- * the ids (btstack_jl_config_t). */
+
 static uint8_t jl_sdp_device_id_buffer[100];
 
 static void jl_notify_ex(uint8_t type, uint8_t code, uint8_t status,
@@ -156,7 +137,7 @@ static void jl_notify_ex(uint8_t type, uint8_t code, uint8_t status,
     event.code = code;
     event.status = status;
     if (address != 0) {
-        /* The application expects the Jieli/wire order. */
+
         jl_address_to_jieli(address, event.address);
     } else {
         memset(event.address, 0, sizeof(event.address));
@@ -172,8 +153,6 @@ static void jl_notify(uint8_t type, uint8_t status, const uint8_t *address)
     jl_notify_ex(type, 0, status, address);
 }
 
-/* Application-level events land in the bring-up log as 0x500 | event so a
- * session can be read back from the console after the fact. */
 static void jl_notify_logged(uint8_t type, uint8_t status, const uint8_t *address)
 {
     if (jl_config.trace != 0) {
@@ -206,7 +185,6 @@ void btstack_jl_core_wake(void)
     if (jl_run_loop_up) btstack_run_loop_poll_data_sources_from_irq();
 }
 
-/* For btstack_jl_le.c, which shares the application/run-loop hand-off. */
 void jl_enter_critical_public(void)
 {
     jl_enter_critical();
@@ -224,7 +202,6 @@ static void jl_trace(uint32_t code)
     }
 }
 
-/* btstack order (MSB first) <-> Jieli/wire order (LSB first). */
 static void jl_address_to_jieli(const uint8_t in[6], uint8_t out[6])
 {
     uint8_t i;
@@ -233,7 +210,6 @@ static void jl_address_to_jieli(const uint8_t in[6], uint8_t out[6])
     }
 }
 
-/* Overrides the L2CAP instrumentation hook (see l2cap.c). */
 void btstack_l2cap_trace(uint32_t code)
 {
     jl_trace(0x2000u + code);
@@ -244,8 +220,6 @@ void jieli_btctrler_trace(uint32_t code)
 {
     jl_trace(0x100u + code);
 }
-
-/* --------------------------------------------------------------- link keys */
 
 static void jl_link_key_db_open(void)
 {
@@ -275,7 +249,7 @@ static int jl_link_key_db_get(bd_addr_t bd_addr, link_key_t link_key, link_key_t
     jl_address_to_jieli(bd_addr, jieli_addr);
     if ((jl_config.link_key_get == 0) ||
         (jl_config.link_key_get(jieli_addr, link_key, &key_type) == 0)) {
-        /* Bring-up log: 0x2602 = no key for this peer, 0x2601 = found. */
+
         jl_trace(0x2602u);
         return 0;
     }
@@ -353,8 +327,6 @@ static const btstack_link_key_db_t jl_link_key_db = {
     .iterator_done = &jl_link_key_db_iterator_done,
 };
 
-/* --------------------------------------------------------------- TX queue */
-
 /* The application queues a report from its own task, the run loop sends it.
  * os critical sections on the SDK side guard the indices. */
 static int jl_report_enqueue(const uint8_t *message, uint16_t size)
@@ -381,11 +353,6 @@ static int jl_report_enqueue(const uint8_t *message, uint16_t size)
     }
     jl_exit_critical();
 
-    /* The report path only ever runs with a live link, and it is where the
-     * deaths during a console session happen.  Record the *first* failure of
-     * each burst (not every one - the application sends 125/s) together with
-     * the queue depth, so a boot that dies mid-stream shows whether the send
-     * path was struggling: 0x2500|result, 0x2510|depth. */
     if (result != 0) {
         if (!reported_failure) {
             reported_failure = 1;
@@ -432,7 +399,7 @@ static void jl_exit_sniff_if_needed(void)
     }
     connection = hci_connection_for_handle(jl_con_handle);
     if (connection == 0 || connection->connection_mode == 0) {
-        return;                                 /* already active */
+        return;
     }
     hci_send_cmd(&hci_exit_sniff_mode, jl_con_handle);
     jl_unsniff_next_ms = jl_config.time_ms() + 50;
@@ -462,7 +429,7 @@ static void jl_tx_poll(btstack_data_source_t *data_source,
         jl_apply_scan_state();
     }
     if ((request & JL_REQUEST_ADDRESS) != 0) {
-        /* address holds the wire (Jieli) order the application asked for. */
+
         memcpy(jl_address_jieli, address, sizeof(jl_address_jieli));
         jl_address_to_jieli(jl_address_jieli, jl_address);
         jl_address_valid = 1;
@@ -489,12 +456,7 @@ static void jl_tx_poll(btstack_data_source_t *data_source,
             jl_address_to_jieli(address, peer);
             memcpy(jl_peer_address, peer, sizeof(jl_peer_address));
             jl_peer_valid = 1;
-            /* Reconnect: do not ask for the HID Control channel until the
-             * link is authenticated and encrypted.  A Pro Controller lets the
-             * console authenticate first; an L2CAP request on a bare link is
-             * answered with "authentication failure".  The level is captured
-             * when the channel is created, so raising it only around this
-             * call leaves the incoming (pairing) channels at LEVEL_0. */
+
             gap_set_security_level(LEVEL_2);
             hid_device_connect(peer, &hid_cid);
             gap_set_security_level(LEVEL_0);
@@ -506,8 +468,7 @@ static void jl_tx_poll(btstack_data_source_t *data_source,
             bd_addr_t none;
 
             memset(none, 0, sizeof(none));
-            /* Connectable undirected advertising (ADV_IND), 30 ms, all three
-             * channels - the shape a Switch 2 controller uses. */
+
             gap_advertisements_set_params(0x0030, 0x0030, 0, 0, none, 0x07, 0);
             gap_advertisements_set_data(jl_le_adv_len, jl_le_adv_data);
             gap_advertisements_enable(1);
@@ -520,10 +481,7 @@ static void jl_tx_poll(btstack_data_source_t *data_source,
     }
 
     if ((request & JL_REQUEST_SHUTDOWN) != 0) {
-        /* Leave sniff before the halt disconnects: the halt waits for the peer
-         * to confirm, and a peer that only answers on sniff anchors makes that
-         * wait long - the failure that lands in a profile switch while a
-         * console is connected. */
+
         jl_exit_sniff_if_needed();
         btstack_jl_core_power_off();
         return;
@@ -543,8 +501,6 @@ static void jl_tx_poll(btstack_data_source_t *data_source,
         hid_device_request_can_send_now_event(jl_hid_cid);
     }
 }
-
-/* --------------------------------------------------------- local state */
 
 static void jl_apply_scan_state(void)
 {
@@ -578,8 +534,6 @@ static void jl_peer_from_handle(uint16_t handle, uint8_t out[6])
         memcpy(out, jl_peer_address, 6);
     }
 }
-
-/* ------------------------------------------------------- packet handler */
 
 static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size)
 {
@@ -633,8 +587,7 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
                          status, event_addr);
             if (status == ERROR_CODE_SUCCESS) {
                 jl_acl_up = 1;
-                /* Read remote features for the incoming HID L2CAP requests;
-                 * let the Switch initiate authentication with the stored key. */
+
                 hci_remote_features_query(jl_con_handle);
                 jl_notify_logged(BTSTACK_JL_EVENT_CONNECTED, 0, event_addr);
             }
@@ -642,8 +595,7 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
 
         case HCI_EVENT_DISCONNECTION_COMPLETE:
             status = hci_event_disconnection_complete_get_reason(packet);
-            /* Always record the reason: the console detaching the link was the
-             * hardest failure to see. */
+
             jl_trace(0x2a00u | status);
             jl_peer_from_handle(
                 hci_event_disconnection_complete_get_connection_handle(packet),
@@ -657,7 +609,7 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
             break;
 
         case HCI_EVENT_LINK_KEY_REQUEST:
-            /* The console is asking us for the key of a peer we should know. */
+
             jl_trace(0x2801u);
             break;
 
@@ -692,8 +644,7 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
                         break;
                     }
                     jl_hid_cid = hid_subevent_connection_opened_get_hid_cid(packet);
-                    /* 0x2b00|1: the HID interrupt channel is open, which is
-                     * what the profile counts as "connected". */
+
                     jl_trace(0x2b00u | (jl_hid_cid != 0 ? 1u : 0u));
                     hid_subevent_connection_opened_get_bd_addr(packet, event_addr);
                     memcpy(jl_peer_address, event_addr, sizeof(jl_peer_address));
@@ -734,8 +685,6 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
     }
 }
 
-/* ------------------------------------------------------- HID callbacks */
-
 /* Output reports from the host (rumble + subcommands on the interrupt channel,
  * SET_REPORT on the control channel) have to reach the application, otherwise
  * the console's HID handshake never completes. */
@@ -757,9 +706,7 @@ static void jl_hid_report_data(uint16_t cid, hid_report_type_t report_type,
     if (report_size > 0) {
         memcpy(&packet[2], report, (size_t) report_size);
     }
-    /* Bring-up log: report id, and for a rumble+subcommand report the
-     * subcommand id and its first argument (the console asks the controller to
-     * stop/start sending input reports this way). */
+
     /* Skip the rumble-only report: the console sends it ~20 times a second,
      * alternating with the subcommand reports, so recording it fills the
      * bring-up ring long before a session ends.  0x01 (rumble + subcommand) is
@@ -783,7 +730,7 @@ static void jl_hid_set_report(uint16_t cid, hid_report_type_t report_type,
     if (jl_config.hid_output == 0) {
         return;
     }
-    /* report already carries the report id (if the descriptor declares one). */
+
     if ((unsigned) report_size + 1u > sizeof(packet)) {
         return;
     }
@@ -792,10 +739,6 @@ static void jl_hid_set_report(uint16_t cid, hid_report_type_t report_type,
     jl_config.hid_output(packet, (uint16_t)(report_size + 1));
 }
 
-/* GET_REPORT: handed to the profile (DualSense calibration, pairing and
- * firmware feature reports).  hid_device.c answers only if the body has
- * exactly the size the descriptor declares for that report, so ask for that
- * size.  The body goes into L2CAP's outgoing buffer (HID MTU 100). */
 static int jl_hid_report_request(uint16_t cid, hid_report_type_t report_type,
                                  uint16_t report_id, int *out_report_size,
                                  uint8_t *out_report)
@@ -820,10 +763,6 @@ static int jl_hid_report_request(uint16_t cid, hid_report_type_t report_type,
     return 1;
 }
 
-/* ------------------------------------------------------------ setup/exit */
-
-/* Bring-up diagnostics: record what L2CAP does, with the PSM / status in the
- * low bits, as 0x900 | value entries in the bring-up log. */
 static void jl_l2cap_event_handler(uint8_t packet_type, uint16_t channel,
                                    uint8_t *packet, uint16_t size)
 {
@@ -863,8 +802,6 @@ int btstack_jl_core_init(const btstack_jl_config_t *config,
     return 0;
 }
 
-/* Runs on the "btstack" task: the application task that calls btstack_init()
- * has a ~640 byte stack, far too small for SDP/L2CAP/HID initialization. */
 static int btstack_jl_core_setup(void)
 {
     hid_sdp_record_t hid_params;
@@ -902,7 +839,7 @@ static int btstack_jl_core_setup(void)
         gap_set_local_name(jl_config.local_name);
     }
     gap_set_class_of_device(jl_config.class_of_device);
-    /* A console becomes master and may pull the link into sniff mode. */
+
     gap_set_default_link_policy_settings(LM_LINK_POLICY_ENABLE_ROLE_SWITCH |
                                          LM_LINK_POLICY_ENABLE_SNIFF_MODE);
     gap_set_allow_role_switch(true);
@@ -914,8 +851,6 @@ static int btstack_jl_core_setup(void)
      * services are registered so their required security level is LEVEL_0. */
     gap_set_security_level(LEVEL_0);
 
-    /* SSP: no input, no output, general bonding.  btstack answers the IO
-     * capability request itself from these settings. */
     gap_ssp_set_enable(1);
     gap_ssp_set_io_capability(jl_config.io_capability);
     gap_ssp_set_authentication_requirement(jl_config.authentication_requirement);
@@ -924,11 +859,7 @@ static int btstack_jl_core_setup(void)
     memset(&hid_params, 0, sizeof(hid_params));
     hid_params.hid_device_subclass = (uint16_t) jl_config.class_of_device;
     hid_params.hid_country_code = 0;
-    /* A virtual-cable HID device is one that reconnects on its own without the
-     * user doing anything - which is exactly what this pad does, and what the
-     * console needs to be told before it will keep a record it can reconnect
-     * to.  A real Pro Controller advertises this as true; so does joycontrol,
-     * which the console does remember. */
+
     hid_params.hid_virtual_cable = 1;
     hid_params.hid_remote_wake = 1;
     hid_params.hid_reconnect_initiate = 1;
@@ -968,10 +899,7 @@ static int btstack_jl_core_setup(void)
 
     hid_device_init(false, jl_config.report_descriptor_size,
                     jl_config.report_descriptor);
-    /* The descriptor declares output report 0x01 at full length, but hosts
-     * send it trimmed to the subcommand's arguments (Linux hid-nintendo: 17
-     * bytes for an SPI read) and a Pro Controller accepts that.  Without this
-     * hid_device.c drops every such report and the host times out. */
+
     hid_device_accept_truncated_hid_reports(true);
     hid_device_register_report_data_callback(&jl_hid_report_data);
     hid_device_register_set_report_callback(&jl_hid_set_report);
@@ -981,7 +909,7 @@ static int btstack_jl_core_setup(void)
 
     jl_hci_event_registration.callback = &jl_packet_handler;
     hci_add_event_handler(&jl_hci_event_registration);
-    /* LE GATT server, when a profile configured one (Switch 2). */
+
     btstack_jl_le_setup();
 
     /* Poll the report queue from the run loop; the application queues from
@@ -989,7 +917,6 @@ static int btstack_jl_core_setup(void)
     btstack_run_loop_set_timer_handler(&jl_credit_timer, &jl_credit_timer_handler);
     btstack_run_loop_set_timer(&jl_credit_timer, 500);
     btstack_run_loop_add_timer(&jl_credit_timer);
-
 
     btstack_run_loop_set_data_source_handler(&jl_tx_data_source, &jl_tx_poll);
     btstack_run_loop_enable_data_source_callbacks(&jl_tx_data_source,
@@ -1117,8 +1044,6 @@ void btstack_jl_core_delete_all_link_keys(void)
 {
     bd_addr_t all_zero;
 
-    /* The HCI stack is torn down between radio sessions; a forget request that
-     * arrives while it is parked has nothing to talk to. */
     if (!jl_working) {
         return;
     }
@@ -1142,9 +1067,6 @@ void btstack_jl_core_request_start(void)
     jl_start_requested = 1;
 }
 
-/* Ask for active mode on the current link: called before a HID report is
- * handed over, the way the vendor host's bt_comm_edr_sniff_clean() did.  The
- * request is only honoured when the link really is in sniff. */
 void btstack_jl_core_request_unsniff(void)
 {
     jl_enter_critical();

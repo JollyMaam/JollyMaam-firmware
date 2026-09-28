@@ -18,10 +18,9 @@ const int config_dcdc_mode = 0;
 
 const int config_spi_code_user_cache = 0;
 
-#if(TCFG_CLOCK_SYS_SRC == SYS_CLOCK_INPUT_PLL_RCL) // TRANSLATED: System clock source.
-const int  clock_sys_src_use_lrc_hw = 1; // TRANSLATED: Using LRC requires special handling in timer.c.
+#if(TCFG_CLOCK_SYS_SRC == SYS_CLOCK_INPUT_PLL_RCL)
+const int  clock_sys_src_use_lrc_hw = 1;
 
-// TRANSLATED: Bluetooth is unsupported with this selection; disable its macros.
 #error "CLOCK_SYS_SRC NOT SUPPORT BT MODE!!!!!!"
 
 #else
@@ -36,12 +35,8 @@ const int keep_card_at_active_status = 0;
 
 const int sdx_can_operate_mmc_card = 0;
 
-const u8 lp_bt_sniff_use_btosc = 0;/*run xosc48m,AC632N*/
+const u8 lp_bt_sniff_use_btosc = 0;
 
-/**
- * @brief Log (Verbose/Info/Debug/Warn/Error)
- */
-/*-----------------------------------------------------------*/
 const char log_tag_const_v_CLOCK AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(FALSE) ;
 const char log_tag_const_i_CLOCK AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(FALSE) ;
 const char log_tag_const_d_CLOCK AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(TRUE);
@@ -139,7 +134,6 @@ const char log_tag_const_d_TRIM_VDD AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(1);
 const char log_tag_const_w_TRIM_VDD AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(TRUE);
 const char log_tag_const_e_TRIM_VDD AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(TRUE);
 
-//audio dac
 const char log_tag_const_v_SYS_DAC AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(FALSE);
 const char log_tag_const_i_SYS_DAC AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(FALSE);
 const char log_tag_const_d_SYS_DAC AT(.LOG_TAG_CONST) = CONFIG_DEBUG_LIB(FALSE);

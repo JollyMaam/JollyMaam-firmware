@@ -1,7 +1,7 @@
 #include <stdint.h>
 
-#include "wake_payload.h"
-#include "wakeup_code.h"
+#include "profile_switch_wake_payload.h"
+#include "profile_switch_wake_code.h"
 
 /* The 32 whitening states the reference walks, in the order it walks them.
  * The order matters: successive bursts are meant to land on successive
@@ -78,17 +78,5 @@ void wake_build_phase1(const uint8_t address[6], uint8_t *body, uint16_t length)
         body[WAKE_BODY_MAX - 3U] = 0;
         body[WAKE_BODY_MAX - 2U] = 0;
         body[WAKE_BODY_MAX - 1U] = 0;
-    }
-}
-
-void wake_build_phase3(const uint8_t address[6], uint8_t body[WAKE_PHASE3_BODY_LENGTH])
-{
-    unsigned i;
-
-    for (i = 0; i < 6U; ++i) {
-        body[i] = address[i];
-    }
-    for (i = 6U; i < WAKE_PHASE3_BODY_LENGTH; ++i) {
-        body[i] = 0;
     }
 }

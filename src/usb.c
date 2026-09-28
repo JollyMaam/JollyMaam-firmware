@@ -12,11 +12,6 @@
 #include "usb/device/cdc.h"
 #include "usb/device/usb_stack.h"
 
-/*
- * The USB CDC serial port the console runs on (console.c), and the way into
- * the MaskROM's UBOOT loader for flashing.
- */
-
 #define USB_CON0              (*(volatile u32 *)0x001e1800U)
 #define USB_CON1              (*(volatile u32 *)0x001e1804U)
 #define USB_IO_CON0           (*(volatile u32 *)0x001e5100U)
@@ -53,12 +48,9 @@ static void arm_maskrom_usb_token(void)
     flushinv_dcache((const void *)MASKROM_NVRAM_ADDRESS, 16U);
 }
 
-/* `uboot`: take the radio down, arm the MaskROM's USB token, answer, and
- * leave for UBOOT once the answer is out (uboot_step()). */
 void cyclone2_usb_uboot_request(void)
 {
-    /* Entering UBOOT with a connection up has hung the pad off USB until a
-     * replug. */
+
     if (cyclone2_disconnect_request() > 0) console_write("OK disconnecting first\r\n");
     uboot_started_ms = sys_timer_get_ms();
     arm_maskrom_usb_token();
@@ -98,8 +90,6 @@ static void enter_maskrom_uboot(void)
     }
 }
 
-/* Count down the reply delay once the radio is down (or 2 s have gone by
- * without it stopping), then leave for UBOOT. */
 static void uboot_step(void)
 {
     static u8 warned;
@@ -108,11 +98,10 @@ static void uboot_step(void)
         if (sys_timer_get_ms() - uboot_started_ms < UBOOT_RADIO_TIMEOUT_MS)
             return;
         if (!warned) {
-            /* Recorded for the next boot: 0x5e00 = UBOOT entered with the
-             * radio still up. */
+
             warned = 1U;
             cyclone2_bringup_record(0x5e00u);
-            /* Also on the console: a replug to recover loses the ring. */
+
             console_write("WARN radio still up after 5 s; entering UBOOT anyway\r\n");
         }
     }

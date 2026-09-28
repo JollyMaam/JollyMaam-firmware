@@ -1,17 +1,3 @@
-/*
- * Jieli SDK side of the BTstack port.
- *
- * The application modules (profile_switch.c, controller.c, ...) are written
- * against the vendor host library's little API - btstack_init(),
- * btstack_edr_start_before_init(), user_send_cmd_prepare(), edr_hid_data_send()
- * and the SYS_BT_EVENT notifications.  This file keeps that API and implements
- * it on top of the upstream BTstack host in btstack_jl_core.c, so the vendor
- * btstack.a is not linked any more.
- *
- * It is the only file that includes both the Jieli SDK headers and the port
- * interface; btstack_jl_core.c stays free of SDK types.
- */
-
 #include <system/includes.h>
 #include <system/task.h>
 #include <system/timer.h>
@@ -28,7 +14,6 @@
 #include "btstack_jl_hid_ext.h"
 #include "config.h"
 #include "controller.h"
-#include "identity.h"
 
 static const edr_init_cfg_t *edr_config;
 static const u8 *edr_report_map;
@@ -59,10 +44,6 @@ static int (*hid_get_report_handler)(u8 report_type, u8 report_id, u8 *report,
 static void jl_link_policy_apply(void);
 static void (*hid_send_wakeup)(void);
 
-/* ----------------------------------------------------------------- logging */
-
-/* config log.btstack; a function, because btstack_init() has a local
- * called config. */
 static int log_btstack(void)
 {
     return config.log.btstack;
@@ -71,23 +52,11 @@ static int log_btstack(void)
 #define BTSTACK_JL_LOG(...) \
     do { if (log_btstack()) cyclone2_usb_debug("BTSTACK: " __VA_ARGS__); } while (0)
 
-/* Controller-library entry points used by this file. */
 extern void lmp_set_sniff_establish_by_remote(u8 enable);
 extern void lmp_sniff_t_slot_attemp_reset(u16 slot, u16 attemp);
 extern void jieli_btctrler_get_local_address(uint8_t *address);
 extern const int sniff_support_reset_anchor_point;
 
-/* ------------------------------------------------------------- link keys */
-
-/* BTstack's link-key database is a view of the running slot's bond
- * (config.profile[slot].bond): one bond per slot, so a key is only ever
- * handed to the peer that slot is bonded with.  These run in the btstack
- * task; they only touch RAM - config.c writes flash later, from the
- * application task, once the pairing is over (docs/config.md).
- *
- * A key arriving here is the end of a pairing, so it also pins the slot's
- * address (config.profile[].address) to the one in use: an exported bond
- * then carries the identity the host knows. */
 static struct config_bond *running_bond(void)
 {
     return &config.profile[get_cur_bt_idx() % CONFIG_PROFILES].bond;
@@ -124,15 +93,13 @@ static void jl_link_key_put(const u8 address[6], const u8 key[16], u8 type)
     memcpy(bond->peer, address, 6);
     memcpy(bond->link_key, key, 16);
     bond->key_type = type;
-    /* Pin the address the bond was made with (config.h). */
+
     if (local) memcpy(config.profile[get_cur_bt_idx() % CONFIG_PROFILES].address,
                       local, 6);
     cyclone2_bringup_record(0x3500u | key[0]);
     cyclone2_bringup_record(0x3600u | key[15]);
 }
 
-/* Forget the running slot's key for that host (the peer address stays: it is
- * still who the slot pages). */
 static void jl_link_key_delete(const u8 address[6])
 {
     struct config_bond *bond = running_bond();
@@ -152,8 +119,6 @@ static int jl_link_key_iterator(u8 index, u8 address[6], u8 key[16], u8 *type)
     *type = bond->key_type;
     return 1;
 }
-
-/* ----------------------------------------------------------------- events */
 
 static u32 jl_time_ms(void)
 {
@@ -176,8 +141,6 @@ static void jl_trace(u32 code)
     cyclone2_bringup_record(code);
 }
 
-/* HIDP message from the host; hand it to the application's HID output handler
- * (switch_output() in profile_switch.c). */
 static void jl_hid_output(const u8 *packet, u16 size)
 {
     if (hid_output_handler != 0) {
@@ -274,17 +237,10 @@ static void jl_event_handler(const btstack_jl_event_t *event)
     }
 }
 
-/* ---------------------------------------------------------- link policy */
-
 extern void lmp_set_sniff_establish_by_remote(u8 enable);
 extern void lmp_sniff_t_slot_attemp_reset(u16 slot, u16 attemp);
 extern const int sniff_support_reset_anchor_point;
 
-/* The console asks for a 24 slot (15 ms) sniff interval as soon as the HID
- * channels are open.  The controller library's default answer is 800 slots
- * (500 ms); the console retries the negotiation three times and then drops the
- * link.  This weak hook in btctrler.a has to be overridden with the profile's
- * parameters, which is what the vendor host library used to do. */
 void sniff_negotiation_hook(u16 *T_sniff, u16 *attemp, u16 *timeout,
                             u8 negotiation)
 {
@@ -319,8 +275,6 @@ static void jl_link_policy_apply(void)
     }
 }
 
-/* ----------------------------------------------------------- stack task */
-
 static void btstack_task(void *argument)
 {
     (void) argument;
@@ -329,8 +283,6 @@ static void btstack_task(void *argument)
     /* Never returns: the task parks between radio sessions. */
     btstack_jl_core_run(0);
 }
-
-/* ------------------------------------------------- vendor host API ---- */
 
 void btstack_edr_start_before_init(const edr_init_cfg_t *cfg, int param)
 {
@@ -432,8 +384,7 @@ int btstack_edr_exit(int param)
         user_pairing_requested = 0;
         hid_ready = 0;
         stack_ready = 0;
-        /* BTstack calls have to happen on the run-loop task; the task parks
-         * itself once the controller is powered down. */
+
         btstack_jl_core_request_shutdown();
         return 0;
     }
@@ -448,10 +399,7 @@ int btstack_edr_exit(int param)
     }
 
     if (!forced && (sys_timer_get_ms() - started_ms) > 8000U) {
-        /* Past the profile's supervision timeout the peer is not going to
-         * confirm, so it is not a live link any more.  Drop it and end the run
-         * loop; the caller keeps polling until the teardown finishes, so the
-         * next session still starts on a clean stack. */
+
         forced = 1;
         cyclone2_bringup_record(0x4300u);
         btstack_jl_core_force_shutdown();
@@ -459,7 +407,6 @@ int btstack_edr_exit(int param)
     return 0;
 }
 
-/* Enable page and inquiry scan (pairing), or disable both (paging out). */
 void bt_wait_phone_connect_control(u8 enable)
 {
     user_pairing_requested = enable ? 1 : 0;
@@ -471,7 +418,6 @@ void bt_wait_phone_connect_control_ext(u8 inquiry_en, u8 page_scan_en)
     btstack_jl_core_set_scan(page_scan_en ? 1 : 0, inquiry_en ? 1 : 0);
 }
 
-/* Page the peer this controller was bonded to last. */
 int bt_connect_phone_back_start(void)
 {
     u8 address[6];
@@ -510,11 +456,7 @@ u32 user_send_cmd_prepare(USER_CMD_TYPE cmd, u16 param_len, u8 *param)
             return btstack_jl_core_disconnect();
 
         case USER_CTRL_HID_CONN:
-            /* The console is the HID host: it opens the control (0x11) and
-             * interrupt (0x13) channels itself once the link is encrypted, and
-             * BTstack's HID device profile accepts them.  Opening a second set
-             * from this side makes the connection fail, so the command is a
-             * no-op. */
+
             return 0;
 
         case USER_CTRL_HID_DISCONNECT:
@@ -523,7 +465,7 @@ u32 user_send_cmd_prepare(USER_CMD_TYPE cmd, u16 param_len, u8 *param)
         case USER_CTRL_HID_SEND_DATA: {
             hid_s_param_t *send = (hid_s_param_t *) param;
             if (param_len < sizeof(hid_s_param_t) || send == 0) return 2;
-            /* data_ptr already carries the HIDP header and report id. */
+
             return btstack_jl_core_send_report(send->data_ptr, send->data_len);
         }
 
@@ -532,9 +474,7 @@ u32 user_send_cmd_prepare(USER_CMD_TYPE cmd, u16 param_len, u8 *param)
             hid_ready = 0;
             memset(peer_address, 0, sizeof(peer_address));
             btstack_jl_core_delete_all_link_keys();
-            /* Only the running slot's key: the pairing flow sends this
-             * before every fresh pairing, and the other slots' bonds are
-             * other consoles. */
+
             {
                 struct config_bond *bond = running_bond();
 
@@ -544,7 +484,7 @@ u32 user_send_cmd_prepare(USER_CMD_TYPE cmd, u16 param_len, u8 *param)
             return 0;
 
         case USER_CTRL_ALL_SNIFF_EXIT:
-            /* The controller owns the sniff state machine. */
+
             return 0;
 
         default:
@@ -552,8 +492,6 @@ u32 user_send_cmd_prepare(USER_CMD_TYPE cmd, u16 param_len, u8 *param)
     }
 }
 
-/* Vendor controller-library hook: keep the link alive when a peer rejects a
- * stale link key so the same connection can fall back to a fresh pairing. */
 extern void edr_vendor_keep_connect_for_keymiss(u8 enable);
 
 int user_hid_send_data(u8 *buf, u32 len)
@@ -563,8 +501,7 @@ int user_hid_send_data(u8 *buf, u32 len)
 
 void user_hid_disconnect(void)
 {
-    /* Leave sniff before the link is torn down: the halt that follows waits for
-     * the peer to confirm the disconnect. */
+
     btstack_jl_core_request_unsniff();
     btstack_jl_core_disconnect();
 }
@@ -619,7 +556,7 @@ void btstack_jl_hid_set_get_report_handler(
 
 int edr_hid_data_send_ext(u8 report_type, u8 report_id, u8 *data, u16 len)
 {
-    /* HIDP header + report id + body; the core queues at most 80 bytes. */
+
     u8 message[80];
 
     if (len + 2 > sizeof(message)) {
@@ -633,8 +570,7 @@ int edr_hid_data_send_ext(u8 report_type, u8 report_id, u8 *data, u16 len)
 
 int edr_hid_data_send(u8 report_id, u8 *data, u16 len)
 {
-    /* Wake the link before handing over a report, exactly where the SDK's HID
-     * examples do it. */
+
     bt_comm_edr_sniff_clean();
     return edr_hid_data_send_ext(0xa1U, report_id, data, len);
 }
@@ -657,8 +593,6 @@ int edr_hid_tx_buff_is_ok(void)
     return 1;
 }
 
-/* The application still calls this before it starts a session; the controller
- * in this build keeps keys itself, so only the host bookkeeping is affected. */
 void delete_link_key(bd_addr_t *address, u8 index)
 {
     (void) index;
@@ -698,8 +632,6 @@ void set_multi_devices_adv_flag(u8 flag)
     (void) flag;
 }
 
-/* BTstack asserts through the C library's assert(); the Jieli runtime has no
- * __assert_func, so trap here where the console can show the failure. */
 void __assert_func(const char *file, int line, const char *function,
                    const char *expression)
 {

@@ -14,27 +14,17 @@
 #include "profile_classic.h"
 #include "rumble.h"
 #include "config.h"
-#include "identity.h"
 #include "user_cfg_id.h"
-#include "wake/wake.h"
-
-/* The controller library on its own, without BTstack (btstack-jl-port's
- * jieli-br23 bridge).  The wake needs the baseband set up - its buffer window
- * base is 0 once the library has been shut down, and __write_reg_txinfo()
- * resets the chip for a payload outside that window. */
-extern int jieli_btctrler_open(const uint8_t *bd_addr);
-extern void jieli_btctrler_close(void);
 
 #define CYCLONE2_CONTROL_PERIOD_MS           5U
 #define CYCLONE2_DEBOUNCE_MS                10U
 #define CYCLONE2_PROFILE_COUNT              4U
 #define CYCLONE2_HOME_GRACE_MS              150U
 #define CYCLONE2_LONG_HOLD_MS              5000U
-/* Home+M held this long starts the stick and trigger calibration. */
+
 #define CYCLONE2_CALIBRATE_HOLD_MS         3000U
 #define CYCLONE2_CONNECT_TIMEOUT_MS       30000U
-/* 3 minutes: with its Wi-Fi on, a Switch 2 took 24 s and a retry to find the
- * pad (2026-09-25), and it can miss a 60 s window entirely. */
+
 #define CYCLONE2_PAIR_TIMEOUT_MS          180000U
 /* How long the radio must have been in a quiet state before settings may be
  * written to flash (see radio_quiet()). */
@@ -55,8 +45,7 @@ extern void jieli_btctrler_close(void);
  * while a host is holding the CDC console open. */
 #define CYCLONE2_SLEEP_CONFIRM              4U
 #define CYCLONE2_SLEEP_RECHECK_MS         250U
-/* Time a live profile is given to emit its disconnect before the radio
- * session is stopped and the next profile is started. */
+
 #define CYCLONE2_PROFILE_SWITCH_MS          100U
 /* The stack's halt waits for the peer to confirm the disconnect, so the
  * teardown is polled from a timer instead of blocking the application task
@@ -64,9 +53,7 @@ extern void jieli_btctrler_close(void);
  * 8 s; past that we give up rather than wait forever. */
 #define CYCLONE2_PROFILE_EXIT_POLL_MS       100U
 #define CYCLONE2_PROFILE_EXIT_MAX_MS      12000U
-/* After a profile switch, the events still in flight belong to the session
- * that was just stopped.  Ignore a disconnect reported in this window while
- * the new session is still coming up. */
+
 #define CYCLONE2_STALE_EVENT_MS             400U
 
 #define CYCLONE2_FACE_BUTTONS \
@@ -88,8 +75,7 @@ enum cyclone2_radio_state {
     CYCLONE2_RADIO_PAIRING,
     CYCLONE2_RADIO_CONNECTED,
     CYCLONE2_RADIO_STOPPING,
-    /* The baseband belongs to the Switch 1 wake sequence: no profile is
-     * running, and the wake owns the transmit scheduler. */
+
     CYCLONE2_RADIO_WAKING,
 };
 
@@ -132,19 +118,12 @@ static u32 injection_next_transition_ms;
 static u32 injection_target_edges;
 static u8 injection_last_emitted;
 static u8 injection_release_pending;
-/* A wake request names a slot, because the access code is derived from the
- * console's address and each slot is its own console.  The request survives
- * the profile teardown that has to happen before the baseband is free. */
+
 static u8 wake_pending;
 static u8 wake_pending_slot;
 static u8 wake_pending_channel;
 static u8 wake_pending_seconds;
 static u8 wake_slot = 0xffU;
-/* The baseband registers and the transmit scheduler belong to the controller
- * library, which btstack_init() brings up with the first profile.  The wake
- * takes the scheduler over, so it must not run before that has ever happened:
- * a stored peer address survives a reflash, the controller does not. */
-static u8 controller_ready;
 
 extern void bt_pll_para(u32 osc, u32 sys, u8 low_power, u8 xosc);
 static void start_selected_profile(void);
@@ -175,8 +154,6 @@ u8 get_cur_bt_idx(void)
     return active_profile < CYCLONE2_PROFILE_COUNT ? active_profile : 0U;
 }
 
-/* What a slot speaks, from config (checked: a bad stored value is dropped at
- * load, but the struct can be written from anywhere). */
 static enum cyclone2_profile_type slot_type(u8 slot)
 {
     u8 type = config.profile[slot % CYCLONE2_PROFILE_COUNT].type;
@@ -188,7 +165,7 @@ static enum cyclone2_profile_type slot_type(u8 slot)
 /* Whether settings may be written to flash now: not while a pairing or a
  * radio transition is under way.  The resets that rule comes from were a
  * syscfg access inside the SSP exchange and during a profile start
- * (docs/reboot-hunting.md); a settled link, an idle radio, or paging with no
+ * (docs/power-reset.md); a settled link, an idle radio, or paging with no
  * link up take a write.  The state must have held for a moment. */
 static int radio_quiet(u32 now)
 {
@@ -227,34 +204,15 @@ int cyclone2_connect_request(u8 profile)
     return 1;
 }
 
-/* Wake the console this slot last connected to, then reconnect it.
- *
- * A sleeping Switch does not answer paging, which is why a pad that looks
- * paired can sit there doing nothing until the console is woken by hand.  The
- * wake is a radio-level sequence the standard host interface cannot produce
- * (see docs/ns1-wakeup.md), so this takes the baseband away from the profile
- * for the duration: the running session is torn down first, the bursts run
- * for `seconds`, and then the slot reconnects normally.
- *
- * The target address is read from the slot's own peer record, the same one a
- * working connection writes, so a pad paired with two different consoles
- * wakes the one the requested slot belongs to. */
 int cyclone2_wake_request(u8 slot, u8 channel, u8 seconds)
 {
-    u8 target[6];
-    static const u8 zero[6] = {0, 0, 0, 0, 0, 0};
+    int result;
 
     if (slot >= CYCLONE2_PROFILE_COUNT) return -1;
-    if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
-    if (radio_state == CYCLONE2_RADIO_WAKING) return -1;
-    /* No "controller must have been started" check any more: the wake opens
-     * the controller library itself (start_pending_wake). */
-    if (channel > WAKE_CHANNEL_MAX ||
-        seconds < WAKE_SECONDS_MIN || seconds > WAKE_SECONDS_MAX) return -2;
-    /* Nothing to aim at: a slot that has never connected has no console
-     * address, and the wake code is derived from that address. */
-    memcpy(target, config_peer(slot), sizeof(target));
-    if (!memcmp(target, zero, sizeof(target))) return -3;
+    if (radio_state == CYCLONE2_RADIO_STOPPING ||
+        radio_state == CYCLONE2_RADIO_WAKING) return -1;
+    result = cyclone2_profile_wake_check(slot_type(slot), slot, channel, seconds);
+    if (result) return result;
 
     injection_cancel();
     wake_pending = 1U;
@@ -271,18 +229,15 @@ int cyclone2_wake_request(u8 slot, u8 channel, u8 seconds)
     return 1;
 }
 
-/* The wake sequence has finished (or gave up); put the slot back on its
- * normal reconnect path.  Called from the wake session in the poll. */
-void cyclone2_wake_finished(void)
+static void wake_finished(void)
 {
     u8 slot = wake_slot;
 
     if (radio_state != CYCLONE2_RADIO_WAKING) return;
     radio_state = CYCLONE2_RADIO_OFF;
     wake_slot = 0xffU;
-    /* Hand the controller back closed, so the profile brings it up with
-     * BTstack exactly as it does from cold. */
-    jieli_btctrler_close();
+
+    cyclone2_profile_wake_stop();
     if (slot < CYCLONE2_PROFILE_COUNT) {
         cyclone2_usb_debug("wake done; reconnecting slot %s",
                            config_slot_name(slot));
@@ -290,9 +245,6 @@ void cyclone2_wake_finished(void)
     }
 }
 
-/* Take the baseband for the wake and start the bursts.  Only reached with no
- * profile running, which is what makes it safe to disable the idle task and
- * put our own task in the transmit scheduler. */
 static void start_pending_wake(void)
 {
     int result;
@@ -302,18 +254,15 @@ static void start_pending_wake(void)
     wake_slot = wake_pending_slot;
     wake_pending = 0U;
     radio_state = CYCLONE2_RADIO_WAKING;
-    /* Bring the controller library up without a host: the teardown before
-     * this shut it down, which also clears the baseband setup the wake's
-     * frame needs. */
-    result = jieli_btctrler_open(NULL);
-    if (result == 0) {
-        result = wake_start(wake_pending_slot, wake_pending_channel,
-                            wake_pending_seconds);
-    }
-    if (result != 0) {
+
+    result = cyclone2_profile_wake_start(pending_type, wake_pending_slot,
+                                         wake_pending_channel, wake_pending_seconds);
+    if (result > 0) {
+        wake_finished();
+    } else if (result < 0) {
         cyclone2_usb_debug("wake not started (%d); reconnecting slot %s",
                            result, config_slot_name(wake_pending_slot));
-        jieli_btctrler_close();
+        cyclone2_profile_wake_stop();
         radio_state = CYCLONE2_RADIO_OFF;
         wake_slot = 0xffU;
         profile_select(wake_pending_slot, 0U);
@@ -369,12 +318,7 @@ int cyclone2_clear_keys_request(void)
         store[index] = 0U;
     }
     __asm__ volatile("csync");
-    injection_cancel();
-    cyclone2_rumble_stop();
-    radio_state = CYCLONE2_RADIO_STOPPING;
-    if (active_profile < CYCLONE2_PROFILE_COUNT) cyclone2_profile_disconnect();
-    sys_timeout_add(NULL, soft_reset_now, 100U);
-    return 1;
+    return cyclone2_reboot_request();
 }
 
 /* Reset the chip and come back up as this same application.
@@ -395,14 +339,21 @@ int cyclone2_reboot_request(void)
     return 1;
 }
 
+void cyclone2_wake_cancel(void)
+{
+    if (wake_pending) pending_profile = 0xffU;
+    wake_pending = 0U;
+    if (radio_state != CYCLONE2_RADIO_WAKING) return;
+    cyclone2_profile_wake_stop();
+    wake_slot = 0xffU;
+    radio_state = CYCLONE2_RADIO_OFF;
+}
+
 int cyclone2_disconnect_request(void)
 {
     if (radio_state == CYCLONE2_RADIO_WAKING) {
-        /* There is no profile to disconnect: the baseband is the wake's. */
-        wake_stop();
-        wake_slot = 0xffU;
-        wake_pending = 0U;
-        radio_state = CYCLONE2_RADIO_OFF;
+
+        cyclone2_wake_cancel();
         return 1;
     }
     if (active_profile >= CYCLONE2_PROFILE_COUNT) return 0;
@@ -421,11 +372,6 @@ int cyclone2_disconnect_request(void)
     return 1;
 }
 
-/* Whether the radio is fully down: no profile stopping, no wake running, and
- * the BTstack task has powered the controller off and parked.  radio_state
- * alone goes OFF as soon as the shutdown is *requested* (radio_exit_only), so
- * it said "stopped" while the controller was still running - and entering
- * UBOOT that way hung the pad off USB (2026-09-27, DualSense slot pairing). */
 int cyclone2_radio_stopped(void)
 {
     return radio_state == CYCLONE2_RADIO_OFF && btstack_jl_core_idle();
@@ -466,8 +412,7 @@ int cyclone2_inject_start(u32 period_ms, u32 duration_ms)
     injection_status.overruns = 0U;
     injection_last_emitted = 0U;
     injection_release_pending = 0U;
-    /* Complete whole press/release cycles even if a caller supplies a
-     * duration that is not an exact multiple of the period. */
+
     injection_target_edges =
         ((duration_ms + period_ms - 1U) / period_ms) * 2U;
     injection_next_transition_ms = sys_timer_get_ms() + period_ms / 2U;
@@ -541,8 +486,6 @@ static int boot_request_consume(void)
 
     if (magic != CYCLONE2_BOOT_REQUEST_MAGIC) return 0;
 
-    /* A profile record is one-shot.  Leave diagnostic records intact for the
-     * USB status command after a failed recovery handoff. */
     reset_mailbox.magic = 0U;
     __asm__ volatile("csync");
 
@@ -590,12 +533,18 @@ static void profile_transition_now(void *private_data)
                                 CYCLONE2_PROFILE_EXIT_POLL_MS);
                 return;
             }
+            wake_pending = 0U;
             active_profile = 0xffU;
             radio_state = CYCLONE2_RADIO_OFF;
             cyclone2_usb_debug(
                 "profile switch aborted: the previous session did not stop");
             return;
         }
+    }
+    if (pending_profile >= CYCLONE2_PROFILE_COUNT) {
+        active_profile = 0xffU;
+        radio_state = CYCLONE2_RADIO_OFF;
+        return;
     }
     if (wake_pending) {
         /* The radio is quiet now, which is the only state the wake can take
@@ -611,9 +560,6 @@ static void profile_transition_now(void *private_data)
     start_selected_profile();
 }
 
-/* Queue a switch to another profile slot.  Returns immediately; the radio is
- * stopped and restarted from profile_transition_now() once the current profile
- * has had a moment to emit its protocol-level disconnect. */
 static void profile_request_transition(u8 profile, u8 pairing)
 {
     if (radio_state == CYCLONE2_RADIO_STOPPING) {
@@ -638,12 +584,8 @@ static void profile_select(u8 profile, u8 pairing)
 {
     injection_cancel();
     if (radio_state == CYCLONE2_RADIO_WAKING) {
-        /* Anything that wants the radio back - a connect, a pairing, a
-         * profile switch - takes it back from the wake. */
-        wake_stop();
-        wake_slot = 0xffU;
-        wake_pending = 0U;
-        radio_state = CYCLONE2_RADIO_OFF;
+
+        cyclone2_wake_cancel();
     }
     if (active_profile < CYCLONE2_PROFILE_COUNT) {
         profile_request_transition(profile, pairing);
@@ -665,9 +607,7 @@ static void poweroff_now(void *private_data)
     u32 terminal = cyclone2_cdc_terminal_open() ? 1U : 0U;
 
     (void)private_data;
-    /* What the sleep decision saw, so a pad that goes dark can be explained
-     * afterwards: 0x52xx with the USB-sense and OTG bits, 0x5300 when the
-     * firmware powers itself off. */
+
     cyclone2_bringup_record(0x5200u | sense | (otg << 1));
     cyclone2_bringup_record(0x5400u | terminal);
     if (sense || otg || terminal) {
@@ -703,14 +643,9 @@ static void radio_exit_and_poweroff(void *private_data)
 {
     (void)private_data;
     cyclone2_rumble_stop();
-    /* The wake can be reached from the sleep path (a long Home hold) as well
-     * as from a command, and it has to give the radio back before anything
-     * else takes over. */
+
     if (radio_state == CYCLONE2_RADIO_WAKING) {
-        wake_stop();
-        wake_slot = 0xffU;
-        wake_pending = 0U;
-        radio_state = CYCLONE2_RADIO_OFF;
+        cyclone2_wake_cancel();
     }
     if (cyclone2_usb_present()) {
         sleep_pending = 0U;
@@ -738,7 +673,7 @@ static void begin_sleep(void)
             cyclone2_usb_debug(
                 "Home hold: USB keeps console awake; Bluetooth is not connected");
         }
-        /* Make the long-hold action one-shot until Home is released. */
+
         home_state = CYCLONE2_HOME_INVALID_CHORD;
         return;
     }
@@ -750,9 +685,6 @@ static void begin_automatic_sleep(const char *reason)
     u32 sense = gpio_read(CYCLONE2_USB_SENSE) ? 1U : 0U;
     u32 otg = usb_otg_online(USB0) != DISCONN_MODE ? 1U : 0U;
 
-    /* 0x50xx with the USB-sense and OTG bits: entering the automatic-sleep
-     * path at all is worth recording, since a momentary "USB absent" here is
-     * what makes the firmware power itself off while it is on USB. */
     cyclone2_bringup_record(0x5000u | sense | (otg << 1));
     if (sense || otg) {
         cyclone2_usb_debug("%s; staying awake because USB is connected", reason);
@@ -842,8 +774,7 @@ static void update_home_state(void)
         }
         break;
     case CYCLONE2_HOME_CALIBRATE_CHORD:
-        /* Released early, or another button joined: no action, and nothing
-         * reaches the host until everything is let go. */
+
         if (!home || !(buttons & CYCLONE2_REPORT_BUTTON_M) ||
             (buttons & CYCLONE2_FACE_BUTTONS)) {
             home_state = CYCLONE2_HOME_INVALID_CHORD;
@@ -862,8 +793,7 @@ static void update_home_state(void)
 
 static void make_host_report(struct cyclone2_input_report *report)
 {
-    /* While calibrating, the sticks are being swung to their stops and A
-     * ends the routine: none of that is meant for the host. */
+
     if (calibrating) {
         memset(report, 0, sizeof(*report));
         report->hat = CYCLONE2_HAT_NEUTRAL;
@@ -936,7 +866,7 @@ static void update_status_led(void)
             calibration_led_colour = colour;
             cyclone2_led_set_home(red, green, blue);
         }
-        /* Neither on nor off, so the radio pattern is redrawn afterwards. */
+
         led_is_on = 2U;
         return;
     }
@@ -978,8 +908,7 @@ static void send_input_report(const struct cyclone2_input_report *report)
     result = cyclone2_profile_send(report);
     if (result > 0) {
         report_statistics.send_accepted++;
-        /* A synthesized short Home tap is a two-report transaction. Keep the
-         * current phase pending until the profile actually accepts it. */
+
         if (home_tap_phase != 0U) home_tap_phase--;
         if ((injection_status.active || injection_release_pending) &&
             injection_last_emitted != injection_status.synthetic_a) {
@@ -1003,11 +932,11 @@ static void cyclone2_poll(void *private_data)
     now = sys_timer_get_ms();
     report_statistics.poll_count++;
     cyclone2_usb_control_poll();
-    /* Settings are written from here, when nothing is pairing (config.c). */
+
     config_poll(now, radio_quiet(now));
-    /* The wake sequence runs the baseband itself: no profile is up, and this
-     * is what advances the burst sweep and ends the attempt. */
-    if (radio_state == CYCLONE2_RADIO_WAKING) wake_step(now);
+
+    if (radio_state == CYCLONE2_RADIO_WAKING &&
+        cyclone2_profile_wake_step(now)) wake_finished();
     cyclone2_rumble_poll(now);
     cyclone2_input_read(&sample);
     /* A console command may have started injection during this poll. Use a
@@ -1038,7 +967,7 @@ static void cyclone2_poll(void *private_data)
     if (radio_state != CYCLONE2_RADIO_STOPPING &&
         cyclone2_profile_is_connected()) {
         if (radio_state != CYCLONE2_RADIO_CONNECTED) {
-            /* First poll that sees the link usable. */
+
             cyclone2_bringup_record(0x6100u);
         }
         radio_state = CYCLONE2_RADIO_CONNECTED;
@@ -1091,22 +1020,17 @@ static void start_selected_profile(void)
                                    CYCLONE2_RADIO_CONNECTING;
     radio_start_ms = sys_timer_get_ms();
     connect_attempts = 0U;
-    /* A disconnect reported in the first moments of a session belongs to the
-     * session that was just stopped (a profile switch) or to a link the stack
-     * is still unwinding - not to this one, which has not connected yet.  Only
-     * a session that actually reached CONNECTED may be ended by one. */
+
     ignore_disconnect_until_ms = sys_timer_get_ms() + CYCLONE2_STALE_EVENT_MS;
     cyclone2_usb_debug("start slot %s type=%s pairing=%u",
                        config_slot_name(active_profile),
                        cyclone2_profile_name(active_type),
                        active_pairing);
-    /* Show that selection reached radio startup even if stack init fails. */
+
     update_status_led();
 
     cyclone2_profile_start(active_type, active_profile, active_pairing);
-    /* The controller library is up from here on, even after this session is
-     * stopped, which is what lets the wake sequence take the baseband. */
-    controller_ready = 1U;
+
 }
 
 static void cyclone2_start(void)
@@ -1162,9 +1086,7 @@ static int cyclone2_event_handler(struct application *application,
     if (result & CYCLONE2_PROFILE_EVENT_CONNECTED)
         radio_state = CYCLONE2_RADIO_CONNECTED;
     if (result & CYCLONE2_PROFILE_EVENT_DISCONNECTED) {
-        /* A disconnect that arrives while the session just started is a
-         * leftover from the session the profile switch stopped; only a
-         * session that has actually connected can be ended this way. */
+
         if (radio_state != CYCLONE2_RADIO_CONNECTED &&
             (s32)(sys_timer_get_ms() - ignore_disconnect_until_ms) < 0) {
             return 0;

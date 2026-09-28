@@ -29,7 +29,7 @@ state flaps, which it also does for reasons unrelated to the pad, so counting
 it reports reboots that did not happen.
 
 When the counter moves, the run also reports the latched reset-source registers
-and how long the previous boot survived (see docs/reboot-hunting.md), so a
+and how long the previous boot survived (see docs/power-reset.md), so a
 reset under test arrives with its cause attached rather than as unexplained
 silence.  That is why the test owns the console for the whole run: two
 processes cannot share one tty - the kernel hands each byte to a single reader,

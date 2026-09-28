@@ -12,8 +12,6 @@ enum cyclone2_profile_event {
     CYCLONE2_PROFILE_EVENT_DISCONNECTED = 1U << 1,
 };
 
-/* The application owns slot selection and policy.  This module hides the
- * SDK-specific differences between Classic HID and BLE HID. */
 void cyclone2_profile_start(enum cyclone2_profile_type type, u8 slot,
                             u8 pairing);
 void cyclone2_profile_disconnect(void);
@@ -32,22 +30,15 @@ void cyclone2_generic_start(u8 slot, u8 pairing);
 void cyclone2_generic_disconnect(void);
 int cyclone2_generic_exit(void);
 int cyclone2_generic_is_connected(void);
-int cyclone2_generic_reconnect(void);
 int cyclone2_generic_send(const struct cyclone2_input_report *report);
 enum cyclone2_profile_event cyclone2_generic_handle_event(
     const struct sys_event *event);
 
 void cyclone2_switch2_prepare_stack(void);
 void cyclone2_switch2_start(u8 slot, u8 pairing);
-void cyclone2_switch2_disconnect(void);
-int cyclone2_switch2_exit(void);
-int cyclone2_switch2_is_connected(void);
-int cyclone2_switch2_reconnect(void);
+int cyclone2_switch2_wake_check(u8 slot, u8 channel, u8 seconds);
 int cyclone2_switch2_send(const struct cyclone2_input_report *report);
-enum cyclone2_profile_event cyclone2_switch2_handle_event(
-    const struct sys_event *event);
 
-/* Classic HID profiles: the session itself is profile_classic.c. */
 void cyclone2_switch_start(u8 slot, u8 pairing);
 int cyclone2_switch_send(const struct cyclone2_input_report *report);
 
@@ -56,15 +47,21 @@ int cyclone2_xbox_send(const struct cyclone2_input_report *report);
 
 void cyclone2_xbox_ble_prepare_stack(void);
 void cyclone2_xbox_ble_start(u8 slot, u8 pairing);
-void cyclone2_xbox_ble_disconnect(void);
-int cyclone2_xbox_ble_exit(void);
-int cyclone2_xbox_ble_is_connected(void);
-int cyclone2_xbox_ble_reconnect(void);
 int cyclone2_xbox_ble_send(const struct cyclone2_input_report *report);
-enum cyclone2_profile_event cyclone2_xbox_ble_handle_event(
-    const struct sys_event *event);
 
 void cyclone2_dualsense_start(u8 slot, u8 pairing);
 int cyclone2_dualsense_send(const struct cyclone2_input_report *report);
+
+int cyclone2_profile_le_exit(void);
+enum cyclone2_profile_event cyclone2_profile_le_handle_event(
+    const struct sys_event *event);
+
+int cyclone2_profile_wake_check(enum cyclone2_profile_type type, u8 slot,
+                               u8 channel, u8 seconds);
+/* Positive means reconnect immediately; zero means poll the wake action. */
+int cyclone2_profile_wake_start(enum cyclone2_profile_type type, u8 slot,
+                               u8 channel, u8 seconds);
+void cyclone2_profile_wake_stop(void);
+int cyclone2_profile_wake_step(u32 now_ms);
 
 #endif

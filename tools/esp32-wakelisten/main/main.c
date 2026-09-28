@@ -36,7 +36,7 @@
 #define BT_CLKN_SAMPLE_REG 0x3ff7101cu
 
 /* Console c8:48:05:00:54:b1 (display order) and its wake parity, computed
- * with the pad's own src/wake/wakeup_code.c. */
+ * with the pad's own src/profile_switch_wake_code.c. */
 static const uint8_t TARGET[6] = {0xc8, 0x48, 0x05, 0x00, 0x54, 0xb1};
 #define WAKE_PARITY34 0x086245c86ull
 #define STD_PARITY34 0x079dba379ull

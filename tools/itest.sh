@@ -12,7 +12,7 @@
 #
 # Why this is the interesting test: with autocommit off every change is held in
 # RAM, so a pairing must leave the persistent regions alone.  Those are the VM
-# (syscfg, where the settings and bonds live, docs/config.md), BTIF
+# (syscfg, where the settings and bonds live, docs/flash-map.md), BTIF
 # (RF trim / MAC) and the key-mac area.  All of them sit above the application
 # image, so "everything from the end of the image onwards must be identical"
 # is exactly the property under test.  A difference means the build wrote flash

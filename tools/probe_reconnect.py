@@ -2,7 +2,7 @@
 """Drive one disconnect/reconnect cycle and capture the USB console.
 
 The firmware buffers its runtime diagnostics and only flushes them while a
-host holds the CDC port open (see docs/usb-control.md), so a reconnect can
+host holds the CDC port open, so a reconnect can
 only be debugged by a tool that is holding the port across the whole cycle.
 
     tools/probe_reconnect.py -p /dev/bwrap/ttyjl0 -o /work/nslog/reconnect1.txt

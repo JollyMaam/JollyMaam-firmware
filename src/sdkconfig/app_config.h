@@ -3,12 +3,7 @@
 
 #define CONFIG_RELEASE_ENABLE
 #undef CONFIG_DEBUG_ENABLE
-/* The controller and stack libraries gate their own logging on these tags.
- * A normal build leaves them all off.  `make DEBUG_LOG=1` turns on the
- * classic LMP/HCI tags so the USB console can show the Bluetooth controller's
- * own trace (see tools/patch_debug.py and docs/reconnect.md).  Only those
- * tags are switched, because the link is built with LTO: making every log
- * call site live grows the image past the 0x40000 code span. */
+/* Enabling every SDK log tag makes LTO retain enough code to overflow flash. */
 #ifdef CYCLONE2_LOG_TAGS_VERBOSE
 #define CYCLONE2_TAG(x)             (x)
 #else
@@ -22,23 +17,20 @@
 #define LIB_DEBUG 0
 #define CONFIG_DEBUG_LIB(x)         (x & LIB_DEBUG)
 
-#define CONFIG_HOGP_COMMON_ENABLE          1 // TRANSLATED: Shared HOGP module.
+#define CONFIG_HOGP_COMMON_ENABLE          1
 
-// TRANSLATED: BLE configuration.
-#define CONFIG_BT_GATT_COMMON_ENABLE       1 // TRANSLATED: Use the shared GATT module.
-#define CONFIG_BT_SM_SUPPORT_ENABLE        1 // TRANSLATED: Support encryption.
+#define CONFIG_BT_GATT_COMMON_ENABLE       1
+#define CONFIG_BT_SM_SUPPORT_ENABLE        1
 #define CONFIG_BT_GATT_CLIENT_NUM          0 // TRANSLATED: Number of central/client roles (not supported by this app).
-#define CONFIG_BT_GATT_SERVER_NUM          1 // TRANSLATED: Number of peripheral/server roles.
-#define CONFIG_BT_GATT_CONNECTION_NUM      (CONFIG_BT_GATT_SERVER_NUM + CONFIG_BT_GATT_CLIENT_NUM) // TRANSLATED: Total connection count.
+#define CONFIG_BT_GATT_SERVER_NUM          1
+#define CONFIG_BT_GATT_CONNECTION_NUM      (CONFIG_BT_GATT_SERVER_NUM + CONFIG_BT_GATT_CLIENT_NUM)
 #define CONFIG_BLE_HIGH_SPEED              0 // TRANSLATED: BLE high-speed mode: DLE + 2M PHY; payload must fit the PDU size.
 #if CONFIG_BT_GATT_CONNECTION_NUM > 8
 #error "SUPPORT MAX IS 8 !!!"
 #endif
 
-// TRANSLATED: Allow BLE central mode to discover/connect to the JL test box.
 #define SUPPORT_TEST_BOX_BLE_MASTER_TEST_EN    0
 
-// TRANSLATED: Default app configuration.
 #define TCFG_AEC_ENABLE                     1
 #define TCFG_MEDIA_LIB_USE_MALLOC           1
 
@@ -47,7 +39,7 @@
 #include "btcontroller_mode.h"
 #include "user_cfg_id.h"
 
-#define APP_PRIVATE_PROFILE_CFG // used by bt_common.h
+#define APP_PRIVATE_PROFILE_CFG
 
 #define CONFIG_BT_RX_BUFF_SIZE  (5 * 512)
 #define CONFIG_BT_TX_BUFF_SIZE  (5 * 512)

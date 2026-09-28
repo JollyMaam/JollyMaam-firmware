@@ -1,31 +1,7 @@
-# JieLi new-firmware images
+# Firmware image and configuration formats
 
-`jlnewfw` documents the format by reading and writing it. It is independent of
-the proprietary `isd_download` program. It builds raw BR23 NOR flash images
-(`jl_isd.bin`) and can inspect or unpack either raw images or `.fw`/UFW updater
-wrappers.
-
-## Commands
-
-```sh
-jlnewfw list firmware.img
-jlnewfw verify firmware.img
-jlnewfw unpack firmware.img output-directory
-jlnewfw pack --flash-size 0x80000 --code-limit 0x3e000 \
-    -c isd_config.ini -u uboot.boot \
-    -o jl_isd.bin app.bin cfg_tool.bin
-```
-
-`pack` consumes the same readable `isd_config.ini` used by the SDK. It encodes
-all `[SYS_CFG_PARAM]` values, derives the entry point and identity fields from
-`[EXTRA_CFG_PARAM]`, and implements the standard PRCT/VM/BTIF/key-mac layout
-from `[RESERVED_CONFIG]`. Numeric system values become little-endian 32-bit
-integers; other values become upper-case strings without a terminating NUL.
-Use `--flash-size` to preserve the physical device's layout independently of
-application size. Without it, `pack` selects the smallest fitting power of two.
-Use `--code-limit` to keep the PRCT/VM boundary fixed while emitting only the
-sectors containing application data. This prevents old application sectors
-from becoming VM storage merely because a later build is smaller.
+Recovered formats used by BR23 loaders and SDK configuration readers.
+Implementations: `tools/jlnewfw.c` and `tools/jlcfg.c`.
 
 ## Flash layout
 
@@ -67,14 +43,8 @@ The encoded `isd_config.ini` begins with the 32-byte chip-key encoding and its
 CRC16. Each following item is `data_size:u8`, `key:NUL`, and `data[data_size]`.
 String data is upper-case and does not include a terminating NUL; the key does.
 
-## Present scope
 
-The raw flash image is the safety-critical artifact and is implemented here.
-Vendor `.fw`/`.ufw` files add a 512-byte transport manifest plus burner-only
-files such as `wp_flash.bin`, a readable INI copy, and a tail record. That layer
-does not change flash contents and will be added separately after its metadata
-semantics are verified. Compressed BANKCB bootloaders can be preserved, but
-this tool does not itself LZ4-compress a bootloader.
+## UFW transport wrapper
 
 The reader does understand the UFW container. Its first 64 bytes decode as:
 
@@ -92,12 +62,47 @@ header and each entry are independently ENC-scrambled with key `0xffff`; the
 entry-list CRC covers the entries as stored (scrambled). Type zero is the raw
 `flash.bin` consumed by `jlnewfw`.
 
-## Cross-check against isd_download
 
-The implementation was compared with `isd_download` from the 2026-09-08 Linux
-post-build tools using 44,196-, 65,536-, 458,752-, and 520,000-byte app inputs.
-In every case it selected the same app base, code boundary, reserved-region
-addresses, and flash size. Each complete raw image differed in only 38 bytes:
-32 bytes of deliberately variable chip-key carrier data and six bytes of CRC
-fields which cover that data. The flash header, BANKCB ciphertext, entire SFC
-application area, and padding were byte-identical.
+## isd_config.bin
+
+This is the binary file named `isd_config.ini` inside the firmware image. It
+contains only the readable INI's `[SYS_CFG_PARAM]` section:
+
+```text
+32 bytes  encoded chip-key carrier
+u16       CRC16 of the carrier
+repeat until end of file:
+    u8    value length
+    char  upper-case, NUL-terminated key[]
+    u8    value[value length]
+```
+
+Plain integers are encoded as little-endian `u32`; other values are upper-case
+ASCII without a terminating NUL. Decoder output uses explicit `U32:`, `STR:`,
+and (for otherwise unrepresentable data) `HEX:` prefixes because the binary
+format itself has no type tag.
+
+## cfg_tool.bin
+
+The file uses the SDK's read-only VM-item format:
+
+```text
+u32 payload_size                 # complete file size minus four
+repeat:
+    u32 header
+    u8  data[data_length]
+
+header = (data_length << 20) | (item_id << 8) | (CRC16(data) & 0xff)
+```
+
+IDs and lengths are 12 bits. This BR23 SDK rejects an individual item larger
+than 800 bytes. Records have no padding or alignment. A zero-length item with
+ID zero terminates the stream.
+
+The stock 916-byte BR23 file contains key mappings, audio/charge/low-power
+settings, UI/tone status mappings, 20 Bluetooth names, a Bluetooth MAC and RF
+power, 17 floating-point AEC parameters, microphone bias settings, TWS pairing,
+auto-off, and LRC calibration. `cfg-decode` recognizes and comments these
+layouts while preserving their exact bytes. In particular, Bluetooth name ID
+101 is an SDK-special repeated group of `u8 enabled; char name[32]`, not merely
+a single 32-byte name as an older SDK note claims.

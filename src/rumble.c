@@ -106,7 +106,6 @@ int cyclone2_rumble_set(u8 left, u8 right, u16 duration_ms)
     return 0;
 }
 
-/* From the host: obeys the slot's profile.#.rumble setting. */
 void cyclone2_rumble_set_latched(u8 left, u8 right)
 {
     if (!config.profile[get_cur_bt_idx() % CONFIG_PROFILES].rumble)

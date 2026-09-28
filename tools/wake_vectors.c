@@ -3,7 +3,7 @@
  *
  * The reference (/shared/github.com-608-NS1-Wakeup-Demo, docs/
  * wakeup-protocol.en.md) publishes four worked examples.  This reproduces
- * them from the port in src/wake/ so a change to the maths cannot drift from
+ * them from src/profile_switch_wake_code.c so a change to the maths cannot drift from
  * the values a working implementation produces.  It is a host binary: it
  * never touches the pad.
  *
@@ -25,8 +25,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "wake_payload.h"
-#include "wakeup_code.h"
+#include "profile_switch_wake_payload.h"
+#include "profile_switch_wake_code.h"
 
 struct vector {
     const char *printed;      /* the reference's own spelling */

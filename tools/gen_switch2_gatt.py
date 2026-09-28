@@ -12,7 +12,7 @@ here in BTstack's binary format (att_db.c):
     per attribute: u16 size, u16 flags, u16 handle, uuid (2 or 16 bytes LE), value
     u16 0 terminator
 
-    tools/gen_switch2_gatt.py > src/switch2_att_db.h
+    tools/gen_switch2_gatt.py > src/profile_switch2_att_db.h
 """
 
 import sys

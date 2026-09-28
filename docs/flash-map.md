@@ -1,118 +1,53 @@
-# Flash map
+# Physical flash map
 
-The 1 MiB SPI NOR as this build lays it out.  Everything below was read back
-off the pad and decoded, not copied from a datasheet: the addresses come from
-`tools/jlnewfw.c` (the packer) and the contents from a full flash dump.
+The tested pad has **1 MiB SPI NOR** (`0x100000` bytes), established from full
+flash readback. Offsets here are on that physical device, not CPU addresses.
+The chip's exact manufacturer/part number is not established in these notes.
 
-> The tables were taken with a code limit of `0x40000`.  The code limit is now
-> `0x50000` (`CODE_LIMIT` in the Makefile; the image ends around `0x4A000`),
-> so the VM starts at `0x50000`; everything else is where it was.
+## Current layout
 
-There is no memory-mapped-in-place trick here.  The linker declares the `code0`
-region at `0x1E00120` with a 1 MiB length, and links the application there (see
-`docs/memory-map.md`); the SPI flash is a separate device that the loader and
-the VM driver address by offset.
+| Offset/range | Use |
+|---|---|
+| `0x000000..0x000020` | 32-byte flash header |
+| `0x000020..0x0000a0` | four 32-byte top-level JLFS entries |
+| `0x0000a0` | BANKCB `uboot.boot` (recorded size `0x1fe8`) |
+| `0x002088` | encoded `isd_config.ini` (recorded size `0x88`) |
+| `0x003000` | application-area header and nested entries |
+| `0x003120` | `app.bin`; length varies by build, then `cfg_tool.bin` |
+| image end through `0x050000` | unused remainder of protected code region |
+| `0x050000..0x052000` | VM/syscfg, 8 KiB |
+| `0x052000..0x0fe000` | unused/erased area |
+| `0x0fe000..0x0ff000` | BTIF: MAC and RF trim |
+| `0x0ff000..0x100000` | key_mac |
 
-## The whole device
+UBOOT/config sizes are from the recorded loader artifact and can change with
+its version. `CODE_LIMIT=0x50000` fixes the VM boundary; the image itself ends
+at the next 4 KiB boundary after application data. Moving the code limit moves
+VM and changes where settings are found. Older dumps used `0x40000` or
+`0x48000`; those are historical layouts, not different physical capacities.
 
-| offset | size | what |
-|---|---|---|
-| `0x000000` | `0x20` | flash header (32 bytes) |
-| `0x000020` | `0x80` | four top-level JLFS entries |
-| `0x0000A0` | `0x1FE8` | `uboot.boot`, the BANKCB second-stage bootloader |
-| `0x002088` | `0x88` | `isd_config.ini`, the encoded system configuration |
-| `0x003000` | `0x340D0` | application area, ends `0x370D0` (`app_area_head` + files + reserved entries) |
-| `0x0370D0` | `0xF30` | padding to the 4 KiB image boundary |
-| `0x038000` | `0x8000` | rest of PRCT; **not** transported by a reflash |
-| `0x040000` | `0x2000` | **VM** - the syscfg store (8 KiB) |
-| `0x042000` | `0xBC000` | unused / erased |
-| `0x0FE000` | `0x1000` | **BTIF** - MAC + RF trim |
-| `0x0FF000` | `0x1000` | **key_mac** |
+The header's declared flash length is `0xff000`: the key_mac sector occupies
+the final `0x1000` above it. BTIF is `flash_size - 0x1000 - btif_len`.
+Packing this board as 512 KiB incorrectly moved BTIF/key_mac to `0x7e000` /
+`0x7f000`, while factory identity and the controller expected `0xfe000` /
+`0xff000`. A smaller app does not imply a smaller flash chip.
 
-`make flash` writes only `0x000000..0x038000` (the image).  Everything from
-`0x040000` up survives a reflash, which is why bonds and the pad's identity do.
+## JLFS entries and address interpretation
 
-The packer's own summary line says the same thing:
+The top-level `app_dir_head` entry's offset field is `0x01e00120`, the CPU code
+entry point, with size `0xffffffff` and flags `0x81`. Application file offsets
+are relative to `app_area_head` at `0x3000`; reserved-region offsets are physical
+flash offsets. `app.bin` normally has nested offset `0x120` and flags `0x82`.
 
-    wrote build/firmware.img: 229376 bytes, app @0x3000, image end 0x38000,
-    code limit 0x40000, declared flash 0xff000 (total 0x100000)
+The VM entry's size spans from the code limit up to BTIF; the actual VM length
+(**8 KiB**) is stored separately in the trailing field. Reading the size field
+alone overstates the VM capacity. PRCT covers `0..CODE_LIMIT` even when the
+transported image is shorter. BTIF and PRCT entries use flags `0x92`; VM and
+key_mac use `0x12`. See [Image formats](image-formats.md) for byte layouts.
 
-Note `declared flash 0xff000` is the value stored *in the header*, while the
-chip is a full `0x100000`; `key_mac` occupies the last sector above it.  The
-addresses follow `tools/jlnewfw.c`:
+Application settings use VM. A normal image rewrite need not overwrite VM,
+BTIF or key_mac; survival depends on the actual write/erase range used by the
+flashing tool. Full-device backups must cover `0x100000`, not just 512 KiB.
 
-    vm   = code limit                      (0x40000 here)
-    btif = flash_size - 0x1000 - btif_len   (0xfe000)
-    keymac = flash_size - 0x1000            (0xff000)
-
-with `VM_LEN = 8K` and `BTIF_LEN = 0x1000` from `[RESERVED_CONFIG]`.
-
-## Header and top-level entries
-
-The 32-byte header carries the chip-key carrier and identity fields; the chip
-name is deliberately left readable (`AC635N` at `0x10`).  Each JLFS entry is
-32 bytes: `crc16 @0`, `data_crc @2`, `offset @4`, `size @8`, `flags @12`,
-`reserved @13`, `index @14`, `name[16] @16`.  The entries are ENC-scrambled
-(XOR stream, key `0xffff`); decoding a dump gives exactly the packer's list:
-
-| offset | name | offset field | size | flags | index |
-|---|---|---|---|---|---|
-| `0x020` | `uboot.boot` | `0xA0` | `0x1FE8` | `0x00` | `0` |
-| `0x040` | `isd_config.ini` | `0x2088` | `0x88` | `0x02` | `0` |
-| `0x060` | `app_dir_head` | `0x1E00120` | `0xFFFFFFFF` | `0x81` | `0` |
-| `0x080` | `key_mac` | `0xFF000` | `0x1000` | `0x12` | `0xFFFF` |
-
-`index` is the terminator: `0xFFFF` ends the list.  `app_dir_head` points at
-`0x1E00120`, which is the entry point recorded in `EXTRA_CFG_PARAM ENTRY` - the
-same number the linker links the application at.
-
-## Application area (0x3000)
-
-One 32-byte `app_area_head` (SFC-scrambled in 32-byte blocks, key
-`0xffff ^ (offset >> 2)`) followed by a nested JLFS list whose offsets are
-relative to `0x3000`:
-
-| nested offset | name | offset field | size | flags | trailing field |
-|---|---|---|---|---|---|
-| `+0x020` | `app.bin` | `0x120` | `0x33C1C` | `0x82` | `FF` |
-| `+0x040` | `cfg_tool.bin` | `0x33D3C` | `0x394` | `0x82` | `00FFFFFF` |
-| `+0x060` | `VM` | `0x40000` | `0xBE000` | `0x12` | `00200000` = 8 KiB |
-| `+0x080` | `PRCT` | `0` | `0x40000` | `0x92` | `"CODE"` |
-| `+0x0A0` | `BTIF` | `0xFE000` | `0x1000` | `0x92` | `"AUTO"` |
-
-The application binary itself therefore starts at `0x3000 + 0x120 = 0x3120`
-and runs to `0x36D3C`; `cfg_tool.bin` follows to `0x370D0`, and the image is
-padded to `0x38000`.
-
-Two details worth knowing:
-
-* The `VM` entry's *size* field spans `0x40000..0xFE000`, i.e. VM plus all the
-  unused flash up to BTIF, but the real VM length (8 KiB) is stored in the
-  entry's trailing field.  Read the size field alone and you will conclude the
-  syscfg store is 760 KiB.
-* `PRCT` is the code region: it is declared as `0x0..0x40000` even though only
-  the sectors holding application data are transported.  That is what
-  `--code-limit` is for; without it, a smaller build would let old application
-  sectors become VM storage.
-
-## What writes to flash, and when
-
-Full detail is in `docs/config.md`.  The firmware writes its settings - bonds,
-profile types, calibration - as a few VM items, and nothing else: the pad's
-address is derived, so BTIF is no longer written.
-
-With `config global.autocommit=false` none of those writes happen, so nothing above
-the image changes no matter how many times you pair, switch profile or change
-a setting.  That is the property `make itest` checks.
-
-## Reproducing this map
-
-* addresses: `make V=... ` build output, or `tools/jlnewfw.c` directly;
-* contents: `tools/itest.sh` dumps the full 1 MiB to
-  `/work/cyclone2-flash-backups/`, and a small decoder over that dump
-  reproduces both tables (CRC16/CCITT, poly `0x1021`, init 0).
-
-One caveat while reading dumps: `tools/flash.sh` still uses a 512 KiB window
-(`flash_size=0x80000`), so its `--backup` misses `0x80000..0x100000` and its
-`--erase-persistent` (`0x40000..0x7FFFF`) does not reach the MAC at `0xFE004`.
-`tools/itest.sh` covers the full megabyte.
+Evidence: decoded pad flash dumps, `tools/jlnewfw.c`, `Makefile`,
+`src/sdkconfig/board_config.h`, generated `build/isd_config.ini`.

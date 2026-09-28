@@ -4,10 +4,8 @@
 
 #include "main.h"
 
-/* VM_MAX_SIZE_CONFIG comes from CFLAGS in makefiles */
 const int vm_max_size_config = VM_MAX_SIZE_CONFIG;
 
-/* TRANSLATED: Task table. */
 const struct task_info task_info_table[] = {
     {"app_core",   2,  0,  1024, 128  },
     {"imu",        1,  0,  256,  0    },
@@ -20,35 +18,28 @@ const struct task_info task_info_table[] = {
     {0, 0},
 };
 
-/* required by app */
 u8 get_vbat_percent(void)
 {
   return 0xff;
 }
 
-/* required by ??? */
 u8 is_pwm_led_on(void)
 {
   return 0;
 }
 
-/* required by cpu/br23/liba/cpu.a(startup.S.o) */
 u16 update_result_get(void)
 {
-  return 0; /* UPDATA_NON from include_lib/update/update.h */
+  return 0;
 };
 
-/* from setup.c if debug define is enabled */
 void debug_uart_init(const struct uart_platform_data *data)
 {
 }
 
-/* TRANSLATED: With no pending task timeout, choose indefinite sleep or a
- * periodic 100 ms wakeup. */
 int eSystemConfirmStopStatus(void)
 {
-    //1:Endless Sleep
-    //0:100 ms wakeup
+
     return 1;
 }
 
@@ -64,8 +55,6 @@ __attribute__((used)) int *__errno()
 volatile struct cyclone2_boot_request reset_mailbox
     __attribute__((section(".reset_mailbox"), used, aligned(4)));
 
-/* Bring-up milestone record; see main.h.  Kept next to the boot request so a
- * crash during Bluetooth startup leaves evidence behind. */
 volatile u32 cyclone2_bringup_trace
     __attribute__((section(".bringup_log"), used, aligned(4)));
 
@@ -87,8 +76,6 @@ u8 cyclone2_reset_source;
 u8 cyclone2_reset_p33;
 u8 cyclone2_reset_rtc;
 
-/* Ring of bring-up milestones.  A crashed boot leaves the order in which the
- * Bluetooth stack came up (or failed) readable through the console. */
 volatile u32 cyclone2_bringup_log[CYCLONE2_BRINGUP_LOG_ENTRIES]
     __attribute__((section(".bringup_log"), used, aligned(4)));
 volatile u32 cyclone2_bringup_log_head
@@ -103,7 +90,6 @@ void cyclone2_bringup_record(u32 code)
     cyclone2_bringup_log_head = head + 1U;
 }
 
-/* entry point from SDK */
 void app_main()
 {
     struct intent it;

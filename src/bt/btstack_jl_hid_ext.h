@@ -1,16 +1,8 @@
 #ifndef BTSTACK_JL_HID_EXT_H
 #define BTSTACK_JL_HID_EXT_H
 
-/*
- * Classic HID settings the SDK's edr_init_cfg_t has no field for.  Set them
- * before btstack_init(), which uses them for that session and then puts back
- * the Switch profile's (Device ID 057e:2009 version 0x0001, no GET_REPORT
- * handler).
- */
-
 #include "generic/typedef.h"
 
-/* Device ID (PnP) SDP record, USB vendor-id source. */
 void btstack_jl_hid_set_device_id(u16 vendor, u16 product, u16 version);
 
 /* GET_REPORT from the host, on the BTstack run loop.  report_type is the HIDP
