@@ -632,10 +632,17 @@ void set_multi_devices_adv_flag(u8 flag)
     (void) flag;
 }
 
+void btstack_assert_failed(const char *file, uint16_t line)
+{
+    cyclone2_usb_debug("BTSTACK assert %s:%u", file, line);
+    for (;;) {
+    }
+}
+
 void __assert_func(const char *file, int line, const char *function,
                    const char *expression)
 {
-    cyclone2_usb_debug("BTSTACK assert %s:%d %s: %s", file, line,
+    cyclone2_usb_debug("assert %s:%d %s: %s", file, line,
                        function != 0 ? function : "?", expression);
     for (;;) {
     }

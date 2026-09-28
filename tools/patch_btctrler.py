@@ -14,7 +14,8 @@ two main modes:
 ``patch_ssp_remote_notify()`` below - so the console-driven pairing path hands
 the host the link key it derived.  Without it the host stack never learns the
 key, never stores it, and every later reconnect is turned away.  It also lets
-a received LMP_DETACH finish promptly - see ``patch_detach_drain_rx()``.
+a received LMP_DETACH finish promptly - see ``patch_detach_drain_rx()`` - and
+leaves out the unused eSCO link - see ``patch_drop_esco_setup()``.
 
 ``diagnostic`` is the older experiment: it replaces ``lmp_esco_sniff_check``
 with ``ret i1 1`` and adds three trace hooks.  The sniff override is not needed
@@ -1084,6 +1085,28 @@ def patch_detach_drain_rx(text: str) -> str:
     return text[:position] + drain + text[position:]
 
 
+def patch_drop_esco_setup(text: str) -> str:
+    """Leave out the eSCO (voice) link: about 2.4 KB of flash.
+
+    ``lmp_event_esco_link_setup`` is where a negotiated eSCO link is opened;
+    everything that moves eSCO data (``bredr_esco_link_open``,
+    ``bredr_esco_get_data``, ``bredr_esco_retransmit`` and their helpers) is
+    reachable only from there.  The pad never asks for eSCO
+    (CONFIG_LMP_MASTER_ESCO_ENABLE = 0), and BTstack declines a peer's
+    request: MAX_NR_HCI_CONNECTIONS is 1 and the ACL link holds it, so the
+    SCO connection request is rejected for limited resources before the LMP
+    negotiation can complete.  The body becomes ``ret void``.
+    """
+    start = text.find("define void @lmp_event_esco_link_setup(")
+    if start < 0:
+        raise RuntimeError("lmp_event_esco_link_setup was not found")
+    body = text.find("{", start) + 1
+    end = text.find("\n}\n", start)
+    if body <= 0 or end < 0:
+        raise RuntimeError("the body of lmp_event_esco_link_setup was not found")
+    return text[:body] + "\nentry:\n  ret void" + text[end:]
+
+
 def patch_bitcode_notify(source: Path, destination: Path, clang: str,
                          with_traces: bool = False,
                          with_markers: bool = False,
@@ -1095,6 +1118,7 @@ def patch_bitcode_notify(source: Path, destination: Path, clang: str,
          str(source), "-o", str(ir)])
     text = patch_ssp_remote_notify(ir.read_text())
     text = patch_detach_drain_rx(text)
+    text = patch_drop_esco_setup(text)
     if with_traces:
         # Print the key a pairing derived and the challenge/response of a
         # reconnect's authentication (needs make DEBUG_LOG=1 to be visible).

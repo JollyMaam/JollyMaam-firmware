@@ -4,11 +4,20 @@
 /* Port features.  The Jieli libc provides memcpy/strlen/..., but BTstack's
  * allocators must not rely on malloc: a pool configuration is required so
  * that every registered service/channel has its own storage. */
-#define HAVE_ASSERT
+/* BTstack's own assert: btstack_assert_failed() gets the file's basename and
+ * the line, without the path, function and expression strings of libc's
+ * assert() - about 3.4 KB less flash. */
+#define ENABLE_BTSTACK_ASSERT
 
 #define ENABLE_CLASSIC
+/* The pad never runs an inquiry, asks for a remote name or answers a pairing
+ * request itself (SSP auto-accept); 1.5 KB of hci.c. */
+#define DISABLE_CLASSIC_GAP_CLIENT
 
 #define ENABLE_BLE
+/* No LE Secure Connections, signed writes or Mesh: nothing queues a CMAC or
+ * CCM operation, so btstack_crypto leaves those engines out. */
+#define DISABLE_BTSTACK_CRYPTO_CMAC_CCM
 #define ENABLE_LE_PERIPHERAL
 #define MAX_NR_LE_DEVICE_DB_ENTRIES     4
 #define MAX_NR_SM_LOOKUP_ENTRIES        3
