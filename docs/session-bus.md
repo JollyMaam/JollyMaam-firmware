@@ -120,7 +120,7 @@ rework ignores the STX and is logged as it prints.
 
     stat up=8770 boots=7860ed6c slot=0 profile=switch state=off attempt=0 addr=000000000000 usb=1 reset=0 p33=64 rtc=1 btidle=1 pending=0
 
-Fields are key=value and only ever appended to.  `bringup` is the one that
+Fields are key=value and only ever appended to.  `debug.bringup` is the one that
 prints the marker ring.
 `p33` is the reset-cause register, so a session tool sees a reset immediately
 as `up` going backwards and `boots` changing.

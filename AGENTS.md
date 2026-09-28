@@ -128,9 +128,12 @@ too.
     disconnect            drop the link without sleeping
     reboot                reset the chip, come back as this build
     stat                  one key=value line: uptime, boots, slot, state, ...
-    bringup               reset mailbox and the bring-up marker ring
-    hcidump on|off        trace HCI to the console; survives the profile restart
-    peek/poke             read and write controller memory (poke wants
+    debug.bringup         reset mailbox and the bring-up marker ring
+    debug.*               diagnostics and tests (`help debug`): debug.log,
+                          debug.hcidump on|off (HCI trace; survives the profile
+                          restart), debug.wake, debug.inject, debug.rumble,
+                          debug.imu, debug.sensors, debug.bondstore, ...
+    debug.peek/poke       read and write controller memory (poke wants
                           contiguous hex: `deadbeef`, never `de ad be ef`)
 
 `tools/hostbt.py` is a Linux Bluetooth host to test the pad against.  The user

@@ -117,7 +117,7 @@ def injection_parameters(period, count):
     duration_ms = period_ms * count
     if duration_ms > 60000:
         raise ValueError("period_ms * count must be at most 60000 ms")
-    return period_ms, duration_ms, "inject a %d %d" % (period_ms, duration_ms)
+    return period_ms, duration_ms, "debug.inject a %d %d" % (period_ms, duration_ms)
 
 def run(args):
     try:
@@ -136,7 +136,7 @@ def run(args):
     cdc_buffer = ""
     started = False
     try:
-        print(command(cdc_fd, "inject status").decode(errors="replace"), end="")
+        print(command(cdc_fd, "status.inject").decode(errors="replace"), end="")
         # Discard queued edges from before this measurement.
         try:
             while os.read(event_fd, EVENT.size * 64):
@@ -173,7 +173,7 @@ def run(args):
                     elif typ == EV_KEY and code == args.code and value in (0, 1):
                         events.append((host_ns, sec, usec, typ, code, value))
     finally:
-        try: command(cdc_fd, "inject stop")
+        try: command(cdc_fd, "debug.inject stop")
         except (OSError, TimeoutError): pass
         os.close(cdc_fd); os.close(event_fd)
     with open(args.csv, "w", newline="") as output:

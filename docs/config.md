@@ -68,7 +68,7 @@ One bond per profile slot, `config.profile.A.bond.*` (and B, X, Y):
 | leaf | what |
 |---|---|
 | `local` | the pad's address when the bond was made |
-| `peer` | the Classic host the slot pages on `connect N` and wakes on `wake N` |
+| `peer` | the Classic host the slot pages on `connect A` and wakes on `debug.wake A` |
 | `link_key`, `key_type` | the Classic link key, as the stack keeps it |
 | `le_peer`, `ltk` | the Switch 2 console and its LE long-term key |
 
@@ -81,7 +81,7 @@ and `import` puts it back on any pad.  `tools/bond_capture.py` and
 old `BOND local=.. peer=..` files in `/work/cyclone2-bonds/`).
 
 The controller library's own pairing records in retention memory
-(`bondstore`, `clearkeys`) are separate controller state, as before.
+(`debug.bondstore`, `debug.clearkeys`) are separate controller state, as before.
 
 ## Addresses
 

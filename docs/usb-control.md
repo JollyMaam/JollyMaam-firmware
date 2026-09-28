@@ -21,6 +21,13 @@ typed: the line is erased, the log printed, and the prompt and what was
 typed redrawn.  `help` lists the commands; `help COMMAND`, `COMMAND -h` and
 `COMMAND --help` show one command's usage.
 
+Diagnostics and tests live in their own namespace, `debug.`: `debug.log`,
+`debug.hcidump`, `debug.wake`, `debug.inject`, `debug.rumble`, `debug.imu`,
+`debug.sensors`, `debug.input`, `debug.bleadv`, `debug.bringup`,
+`debug.bondstore`, `debug.clearkeys`, `debug.nvscan`, `debug.delall`,
+`debug.peek`, `debug.poke`.  `help debug` (or `debug` alone) lists only
+them.
+
 Settings are not commands: they are `config.PATH = VALUE`, and what the pad is
 doing is `status.PATH` (`docs/config.md`).  So `report 5` is now
 `config.report_ms = 5`, `profile 1 xbox` is `config.profile.1.type = xbox`,
@@ -28,7 +35,7 @@ doing is `status.PATH` (`docs/config.md`).  So `report 5` is now
 `input status` is `status.input`, `keys` is `export`, `setaddr`/`restore`/
 `bond`/`setkey` are `import` (or single `config.profile.N.bond.*` lines),
 `newaddr` and `unkey` are `pair N --fresh`, `store ...` is
-`config.autocommit`/`commit`, the old `status` dump is `bringup`, and the
+`config.autocommit`/`commit`, the old `status` dump is `debug.bringup`, and the
 battery reading is `status.battery`.  `stat` is one key=value line for tools.
 
 ## Machine mode
@@ -52,12 +59,12 @@ prints exactly that command's output and exits 1 on `ERR`
 (`docs/session-bus.md`).  Opening the port afresh (DTR rising) puts the
 console back in human mode.
 
-For example, `inject a 100 10000` holds synthetic A for the first 50 ms of
+For example, `debug.inject a 100 10000` holds synthetic A for the first 50 ms of
 each 100-ms cycle and releases it for the next 50 ms. The schedule uses device
 millisecond deadlines; `edges` counts only transitions accepted by the profile,
 while `overruns` counts scheduled transitions skipped when the control loop was
 late. Neither counter proves delivery to the host. Injection is stopped on
-disconnect and profile changes. `inject stop`
+disconnect and profile changes. `debug.inject stop`
 schedules a final synthetic release while preserving any physical A hold. Its
 schedule is not a one-way latency measurement: device and host clocks are unsynchronized,
 and host receipt time must be measured separately.

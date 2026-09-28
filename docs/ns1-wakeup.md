@@ -1,5 +1,8 @@
 # Waking a sleeping Switch 1 from this pad
 
+> The console command is now `debug.wake SLOT [CHANNEL] [SECONDS]` / `debug.wake stop`,
+> and its state is `status.wake`; the text below keeps the names it was written with.
+
 Status (2026-09-25): phase 1 runs on the pad and **the wake access code has
 been verified on the air** with an ESP32 listener (see "Bench results" at the
 end).  Not yet tried against a sleeping console.  Earlier status: `src/wake/`

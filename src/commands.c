@@ -206,23 +206,30 @@ static int cmd_cal(int argc, char **argv)
     } else if (!strcmp(argv[1], "cancel")) {
         cyclone2_calibration_cancel();
         console_ok("cancelled");
-    } else if (!strcmp(argv[1], "raw")) {
-        struct cyclone2_raw_input raw;
-        struct cyclone2_input_report report;
-
-        /* The poll read the sensors at most one control period ago. */
-        cyclone2_input_get_raw(&raw);
-        cyclone2_calibration_apply(&raw, &report);
-        console_printf("raw L %04x %04x R %04x %04x L2 %u R2 %u stop %u%u valid %u\r\n"
-                       "out L %d %d R %d %d L2 %u R2 %u\r\n",
-                       raw.stick[0], raw.stick[1], raw.stick[2], raw.stick[3],
-                       raw.trigger[0], raw.trigger[1], raw.trigger_stop[0],
-                       raw.trigger_stop[1], raw.sticks_valid,
-                       report.left_x, report.left_y, report.right_x,
-                       report.right_y, report.left_trigger, report.right_trigger);
     } else {
         return CONSOLE_USAGE;
     }
+    return 0;
+}
+
+/* Raw sensor values next to what the calibration maps them to. */
+static int cmd_sensors(int argc, char **argv)
+{
+    struct cyclone2_raw_input raw;
+    struct cyclone2_input_report report;
+
+    (void)argv;
+    if (argc != 1) return CONSOLE_USAGE;
+    /* The poll read the sensors at most one control period ago. */
+    cyclone2_input_get_raw(&raw);
+    cyclone2_calibration_apply(&raw, &report);
+    console_printf("raw L %04x %04x R %04x %04x L2 %u R2 %u stop %u%u valid %u\r\n"
+                   "out L %d %d R %d %d L2 %u R2 %u\r\n",
+                   raw.stick[0], raw.stick[1], raw.stick[2], raw.stick[3],
+                   raw.trigger[0], raw.trigger[1], raw.trigger_stop[0],
+                   raw.trigger_stop[1], raw.sticks_valid,
+                   report.left_x, report.left_y, report.right_x,
+                   report.right_y, report.left_trigger, report.right_trigger);
     return 0;
 }
 
@@ -473,7 +480,7 @@ static int cmd_poke(int argc, char **argv)
 static const char *const on_off[] = { "on", "off", NULL };
 static const char *const slots[] = { "A", "B", "X", "Y", NULL };
 static const char *const wake_words[] = { "A", "B", "X", "Y", "stop", NULL };
-static const char *const cal_words[] = { "start", "done", "cancel", "raw", NULL };
+static const char *const cal_words[] = { "start", "done", "cancel", NULL };
 static const char *const inject_words[] = { "a", "stop", NULL };
 static const char *const imu_words[] = { "init", "stop", "sample", NULL };
 static const char *const input_words[] = { "reset", NULL };
@@ -484,6 +491,8 @@ const struct console_command console_commands[] = {
     { "config", "[.PATH] [= VALUE]", "show or change settings (Tab completes paths)",
       NULL, NULL, 1 },
     { "status", "[.PATH]", "show what the pad is doing (read-only)", NULL, NULL, 1 },
+    { "debug", ".COMMAND ...", "diagnostics and tests (below); `help debug` lists only them",
+      NULL, NULL, 0 },
     { "help", "[COMMAND|PATH]", "this list, or help on one command or setting",
       console_cmd_help, NULL, 1 },
     { "unset", "PATH", "put settings back to their defaults (`unset config`: all "
@@ -504,37 +513,45 @@ const struct console_command console_commands[] = {
     { "disconnect", NULL, "stop Bluetooth without sleeping", cmd_disconnect, NULL, 0 },
     { "pair", "SLOT [--fresh]", "forget a slot's bond and wait to pair "
       "(--fresh: with a new address)", cmd_pair, slots, 0 },
-    { "wake", "SLOT [CHANNEL] [SECONDS] | stop", "wake a slot's sleeping "
-      "Switch, then reconnect", cmd_wake, wake_words, 0 },
+    { "cal", "start|done|cancel", "the stick and trigger calibration (as "
+      "Home+M 3 s)", cmd_cal, cal_words, 0 },
     { "reboot", NULL, "reset the chip into this build", cmd_reboot, NULL, 0 },
     { "uboot", NULL, "reboot into the BR23 UBOOT1.00 loader (flashing)",
       cmd_uboot, NULL, 0 },
-    { "cal", "start|done|cancel|raw", "the stick and trigger calibration (as "
-      "Home+M 3 s); raw: sensor values", cmd_cal, cal_words, 0 },
-    { "inject", "a PERIOD_MS DURATION_MS | stop", "press A over and over "
-      "(latency tests)", cmd_inject, inject_words, 0 },
-    { "rumble", "LEFT RIGHT MS | stop", "run the motors (0..255)", cmd_rumble,
-      rumble_words, 0 },
-    { "imu", "init|stop|sample", "the motion sensor", cmd_imu, imu_words, 0 },
-    { "input", "reset", "zero the input counters (status.input)", cmd_input,
-      input_words, 0 },
-    { "debug", "[on|off]", "log lines on the console", console_cmd_debug, on_off, 0 },
-    { "hcidump", "[on|off]", "trace HCI packets to the log", cmd_hcidump, on_off, 0 },
-    { "bleadv", "on|off", "LE-advertise the Switch 2 payload", cmd_bleadv, on_off, 0 },
     { "stat", NULL, "one line of numbers for tools", cmd_stat, NULL, 0 },
-    { "bringup", NULL, "reset mailbox, bring-up markers and MaskROM NVRAM",
-      cmd_bringup, NULL, 0 },
-    { "bondstore", NULL, "dump the controller's pairing records", cmd_bondstore,
-      NULL, 0 },
-    { "clearkeys", NULL, "zero the controller's pairing records and restart",
-      cmd_clearkeys, NULL, 0 },
-    { "nvscan", NULL, "non-blank lines of the controller's retention memory",
-      cmd_nvscan, NULL, 0 },
-    { "delall", NULL, "ask the stack to forget every device", cmd_delall, NULL, 0 },
-    { "peek", "ADDR [LEN]", "read RAM", cmd_peek, NULL, 0 },
-    { "poke", "ADDR HEX", "write RAM", cmd_poke, NULL, 0 },
     { "complete", "LINE", "what Tab would offer for LINE (for tools)",
       console_cmd_complete, NULL, 0 },
+
+    /* Diagnostics and tests: `help debug`. */
+    { "debug.log", "[on|off]", "log lines on the console", console_cmd_debug,
+      on_off, 0 },
+    { "debug.hcidump", "[on|off]", "trace HCI packets to the log", cmd_hcidump,
+      on_off, 0 },
+    { "debug.wake", "SLOT [CHANNEL] [SECONDS] | stop", "wake a slot's sleeping "
+      "Switch 1, then reconnect", cmd_wake, wake_words, 0 },
+    { "debug.inject", "a PERIOD_MS DURATION_MS | stop", "press A over and over "
+      "(latency tests)", cmd_inject, inject_words, 0 },
+    { "debug.rumble", "LEFT RIGHT MS | stop", "run the motors (0..255)",
+      cmd_rumble, rumble_words, 0 },
+    { "debug.imu", "init|stop|sample", "the motion sensor", cmd_imu, imu_words, 0 },
+    { "debug.sensors", NULL, "raw stick and trigger values and what they map to",
+      cmd_sensors, NULL, 0 },
+    { "debug.input", "reset", "zero the input counters (status.input)", cmd_input,
+      input_words, 0 },
+    { "debug.bleadv", "on|off", "LE-advertise the Switch 2 payload", cmd_bleadv,
+      on_off, 0 },
+    { "debug.bringup", NULL, "reset mailbox, bring-up markers and MaskROM NVRAM",
+      cmd_bringup, NULL, 0 },
+    { "debug.bondstore", NULL, "dump the controller's pairing records",
+      cmd_bondstore, NULL, 0 },
+    { "debug.clearkeys", NULL, "zero the controller's pairing records and restart",
+      cmd_clearkeys, NULL, 0 },
+    { "debug.nvscan", NULL, "non-blank lines of the controller's retention memory",
+      cmd_nvscan, NULL, 0 },
+    { "debug.delall", NULL, "ask the stack to forget every device", cmd_delall,
+      NULL, 0 },
+    { "debug.peek", "ADDR [LEN]", "read RAM", cmd_peek, NULL, 0 },
+    { "debug.poke", "ADDR HEX", "write RAM", cmd_poke, NULL, 0 },
 };
 
 const u16 console_command_count =

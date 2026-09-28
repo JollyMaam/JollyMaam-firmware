@@ -592,31 +592,57 @@ static void print_usage(const struct console_command *command)
                    command->usage ? command->usage : "", command->help);
 }
 
+/* One line per command: all of them, or with `group` ("debug") only that
+ * group's. */
+static void list_commands(const char *group)
+{
+    const struct console_command *command;
+    u32 group_length = group ? strlen(group) : 0U;
+    u16 index;
+
+    for (index = 0U; index < console_command_count; index++) {
+        int length;
+        int grouped;
+
+        command = &console_commands[index];
+        grouped = strchr(command->name, '.') != NULL;
+        if (group && !(grouped && !strncmp(command->name, group, group_length) &&
+                       command->name[group_length] == '.'))
+            continue;
+        length = snprintf(value_text, sizeof(value_text), "%s%s%s",
+                          command->name, command->usage ? " " : "",
+                          command->usage ? command->usage : "");
+        if (length < 0) continue;
+        while (length < 28 && length + 1 < (int)sizeof(value_text))
+            value_text[length++] = ' ';
+        value_text[length] = '\0';
+        console_printf("%s %s\r\n", value_text, command->help);
+    }
+}
+
+/* A group name alone ("debug"): its commands. */
+static int is_group(const struct console_command *command)
+{
+    return command && !command->run && strcmp(command->name, NAMESPACE_CONFIG) &&
+           strcmp(command->name, NAMESPACE_STATUS);
+}
+
 int console_cmd_help(int argc, char **argv)
 {
     const struct console_command *command;
-    u16 index;
 
     if (argc == 1) {
-        for (index = 0U; index < console_command_count; index++) {
-            int length;
-
-            command = &console_commands[index];
-            length = snprintf(value_text, sizeof(value_text), "%s%s%s",
-                              command->name, command->usage ? " " : "",
-                              command->usage ? command->usage : "");
-            if (length < 0) continue;
-            while (length < 28 && length + 1 < (int)sizeof(value_text))
-                value_text[length++] = ' ';
-            value_text[length] = '\0';
-            console_printf("%s %s\r\n", value_text, command->help);
-        }
+        list_commands(NULL);
         console_write("Tab completes; `help COMMAND` or `COMMAND --help` for "
                       "more, `help config.PATH` for a setting.\r\n");
         return 0;
     }
     if (argc != 2) return CONSOLE_USAGE;
     command = find_command(argv[1]);
+    if (is_group(command)) {
+        list_commands(command->name);
+        return 0;
+    }
     if (command && command->run) {
         print_usage(command);
         return 0;
@@ -690,6 +716,10 @@ static int run_line(char *text)
     argc = split(text, argv);
     if (argc < 0) return console_fail("too many arguments");
     command = find_command(argv[0]);
+    if (is_group(command) && argc == 1 && !importing) {
+        list_commands(command->name);
+        return 0;
+    }
     if (!command || !command->run) {
         if (importing) return console_fail("not a setting: %s", argv[0]);
         return console_fail("unknown command %s; type help", argv[0]);

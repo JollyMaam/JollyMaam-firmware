@@ -58,7 +58,7 @@ TUI_HELP = """TUI commands - a line starting with '/'; everything else goes to t
   /quit              leave (also /exit)
 
 Pad commands worth knowing: config (settings; `config.PATH = VALUE`), status,
-export, connect N, pair N, disconnect, hcidump on, debug on|off, and the pad's
+export, connect A, pair A, disconnect, debug.hcidump on, debug.log on|off, and the pad's
 own help for the full list.  Tab completes commands, settings and values - the
 pad itself answers.
 

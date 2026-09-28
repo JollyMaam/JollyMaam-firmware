@@ -11,7 +11,7 @@ survives the transitions that keep breaking it:
   * rapid back-to-back command bursts, so a profile switch lands while an
     earlier one is still in progress,
   * the console commands that touch the Bluetooth bond store while the radio
-    is stopped (`pair N --fresh`, `delall`, `bondstore`, `nvscan`).
+    is stopped (`pair N --fresh`, `debug.delall`, `debug.bondstore`, `debug.nvscan`).
 
 "Survives" means three things, checked throughout:
 
@@ -81,7 +81,7 @@ RAPID_BURST = [
     'connect 2', 'stat', 'disconnect', 'connect 0', 'pair 1',
     'pair 2 --fresh', 'config.profile.1.type = xbox', 'stat', 'connect 3',
     'disconnect', 'unset config.profile.1.type',
-    'delall', 'connect 0', 'bondstore', 'nvscan', 'stat',
+    'debug.delall', 'connect 0', 'debug.bondstore', 'debug.nvscan', 'stat',
 ]
 RAPID_SPACING_S = 0.02
 

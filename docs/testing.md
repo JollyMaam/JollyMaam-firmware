@@ -92,8 +92,8 @@ taken straight after the reset so the new boot cannot overwrite the dying
 one.  The fuzzer leaves the pad disconnected.
 
 `tools/ringdump.py [--boots N] [--tail M]` is the dump on its own: it reads
-the whole 2000-entry ring with `peek` (about 40 s) and prints it grouped by
-boot, where `bringup` shows only the newest 96 markers.  It needs
+the whole 2000-entry ring with `debug.peek` (about 40 s) and prints it grouped by
+boot, where `debug.bringup` shows only the newest 96 markers.  It needs
 `build/app.map` from the build that is on the pad.
 
 Entering the loader with `uboot` while the pad was connected twice left it
