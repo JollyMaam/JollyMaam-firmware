@@ -21,7 +21,10 @@
  *
  * and anything a reader does not recognise - an unknown uid, a length that
  * does not match, a value out of range - is skipped, so settings can be added
- * and defaults changed without migrating anything.
+ * and defaults changed without migrating anything.  uid 0 is padding: the VM
+ * silently keeps the previous record when an item is written with a single
+ * byte (measured), so a group that is all defaults is written as 0xC1 plus an
+ * empty padding record rather than 0xC1 alone.
  *
  * `committed` mirrors what flash holds; a leaf is pending while config and
  * committed disagree.
@@ -524,6 +527,11 @@ static u32 encode(u8 instance, u8 *out, u32 capacity)
         memcpy(out + length, cfg_leaf_data(&config, &leaf), leaf.item->size);
         length += leaf.item->size;
     }
+    if (length == 1U) {
+        out[length++] = 0U;     /* key: uid 0, padding */
+        out[length++] = 1U;
+        out[length++] = 0U;
+    }
     return length;
 }
 
@@ -556,6 +564,10 @@ static void decode(u8 instance, const u8 *data, u32 length)
         size = data[offset++];
         if (offset + size > length) return;
 
+        if (!(key >> LEAF_INDEX_SHIFT)) {     /* padding */
+            offset += size;
+            continue;
+        }
         leaf.item = item_by_uid(key >> LEAF_INDEX_SHIFT);
         leaf.index = (u8)(key & ((1U << LEAF_INDEX_SHIFT) - 1U));
         if (!leaf.item || leaf.item->size != size ||

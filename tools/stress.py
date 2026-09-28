@@ -56,6 +56,9 @@ import sys
 import termios
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import padbus  # noqa: E402
+
 STATUS_RE = re.compile(r'slot=(\d+) profile=(\w+) state=(\w+) attempt=(\d+)')
 BOOTS_RE = re.compile(r'boots=([0-9a-fA-F]{8})')
 SOURCE_RE = re.compile(r'reset=(\d+) p33=(\d+) rtc=(\d+)')
@@ -197,12 +200,90 @@ class Console:
         return (boots.group(1), int(source.group(2)), int(source.group(3)),
                 int(uptime.group(1)) if uptime else -1)
 
+    def burst(self, commands, spacing):
+        """Fire commands without waiting for each; everything printed."""
+        for command in commands:
+            if self.fd is None:
+                return None
+            try:
+                os.write(self.fd, (command + '\r\n').encode())
+            except OSError:
+                self.close()
+                return None
+            time.sleep(spacing)
+        return self.drain(0.6)
+
     def reopen(self, seconds=10.0):
         """Wait for the console to come back after it went away."""
         self.close()
         deadline = time.time() + seconds
         while time.time() < deadline:
             if self.open():
+                return True
+            time.sleep(0.5)
+        return False
+
+
+class BusConsole(Console):
+    """The same console through the padbus daemon, when one is running: the
+    daemon owns the port, and the run shows up in the shared log and TUI."""
+
+    CLIENT = 'stress'
+
+    def __init__(self, sock):
+        super().__init__()
+        self.sock = sock
+        self.path = 'padbus'
+
+    @classmethod
+    def attach(cls):
+        sock = padbus.probe_socket(padbus.DEFAULT_SOCKET)
+        if sock is None:
+            return None
+        sock.settimeout(None)
+        padbus.request(sock, op='hello', client=cls.CLIENT)
+        reply = padbus.request(sock, op='request', client=cls.CLIENT)
+        if not reply.get('ok'):
+            print(f"stress: padbus control is held by {reply.get('owner')}")
+            sock.close()
+            raise SystemExit(2)
+        return cls(sock)
+
+    def open(self):
+        return True
+
+    def close(self):
+        try:
+            padbus.request(self.sock, op='release', client=self.CLIENT)
+        except OSError:
+            pass
+
+    def ask(self, command, seconds=RESPONSE_LIMIT_S):
+        try:
+            reply = padbus.request(self.sock, op='cmd', client=self.CLIENT,
+                                   line=command, timeout=seconds)
+        except OSError:
+            return ''
+        text = '\n'.join(reply.get('lines', []))
+        if not reply.get('ok') and reply.get('error') != 'no answer':
+            text += '\nERR ' + reply.get('error', '')
+        return text
+
+    def burst(self, commands, spacing):
+        mark = f'>>> [{self.CLIENT}] {commands[0]}'
+        for command in commands:
+            padbus.request(self.sock, op='send', client=self.CLIENT, line=command)
+            time.sleep(spacing)
+        time.sleep(1.0)
+        log = padbus.request(self.sock, op='tail', n=400).get('log', [])
+        starts = [i for i, line in enumerate(log) if line == mark]
+        return '\n'.join(log[starts[-1]:] if starts else [])
+
+    def reopen(self, seconds=10.0):
+        # The daemon reopens the port itself; wait for the pad to answer.
+        deadline = time.time() + seconds
+        while time.time() < deadline:
+            if 'stat ' in self.ask('stat', 2.0):
                 return True
             time.sleep(0.5)
         return False
@@ -312,18 +393,10 @@ def phase_pair_cycle(console, report, rounds):
 def phase_rapid(console, report, rounds):
     print(f"-- rapid bursts x{rounds} (switches that land mid-transition)")
     for index in range(rounds):
-        for command in RAPID_BURST:
-            if console.fd is None:
-                report.fail(f'rapid burst {index}: console went away at {command!r}')
-                break
-            try:
-                os.write(console.fd, (command + '\r\n').encode())
-            except OSError as exc:
-                report.fail(f'rapid burst {index}: write failed at {command!r}: {exc}')
-                console.close()
-                break
-            time.sleep(RAPID_SPACING_S)
-        out = console.drain(0.6)
+        out = console.burst(RAPID_BURST, RAPID_SPACING_S)
+        if out is None:
+            report.fail(f'rapid burst {index}: the console went away')
+            out = ''
         report.rejected += out.count(REJECTED)
         for line in out.splitlines():
             if line.startswith('ERR') and REJECTED not in line:
@@ -351,10 +424,16 @@ def main():
                         help='seconds to idle in connect state (default 33)')
     parser.add_argument('--quick', action='store_true',
                         help='skip the timeout dwell')
-    parser.add_argument('--port', help='console device (default: auto-detect)')
+    parser.add_argument('--port', help='console device (default: padbus if it is '
+                        'running, else auto-detect)')
+    parser.add_argument('--no-reboot', action='store_true',
+                        help='leave the pad as the run left it (autocommit off, '
+                             'bonds cleared) instead of rebooting it')
     args = parser.parse_args()
 
-    console = Console(args.port)
+    console = None if args.port else BusConsole.attach()
+    if console is None:
+        console = Console(args.port)
     if not console.open():
         print('stress: no Cyclone 2 console found '
               '(looked for /dev/bwrap/ttyjl*, /dev/ttyACM*)')
@@ -376,6 +455,12 @@ def main():
     print(f'stress: console {console.path}, baseline boots={baseline} '
           f'p33={sample[1]} rtc={sample[2]}')
     print('stress: the check that matters is that boots= never changes')
+    # Nothing this run does may reach flash: it pairs and clears every slot.
+    if 'OK config.autocommit = false' not in console.ask('config.autocommit = false'):
+        print('stress: could not turn autocommit off; not running')
+        console.close()
+        return 2
+    print('stress: autocommit off - nothing is written to flash')
 
     phase_profile_switches(console, report, args.rounds)
     check_reset(console, report)
@@ -392,6 +477,14 @@ def main():
         report.fail('the console stopped answering by the end of the run')
     elif final != baseline:
         report.fail(f'the chip reset during the run: boots {baseline} -> {final}')
+    if not args.no_reboot:
+        # Back to what flash holds: the bonds and settings the run cleared.
+        console.ask('reboot')
+        time.sleep(3.0)
+        if console.reopen(20.0):
+            print('stress: rebooted; the pad is back to its saved settings')
+        else:
+            report.fail('the pad did not come back after the closing reboot')
     console.close()
 
     print()

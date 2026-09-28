@@ -281,19 +281,25 @@ class Pad:
         if need_open:
             self.open()
         with self.fd_lock:
-            try:
-                ready, _, _ = select.select([self.fd], [], [], 0.2)
-                if not ready:
-                    return ""
-                data = os.read(self.fd, 4096)
-                if not data:
-                    # CDC ACM commonly reports unplug as EOF rather than EIO.
-                    self._close_locked()
-                    return ""
-                return data.decode("utf-8", "replace")
-            except (OSError, ValueError, termios.error):
-                self._close_locked()
+            fd = self.fd
+        # Wait without the lock.  Holding it through the select made every
+        # write (a command, the ping) queue behind the reader for up to its
+        # timeout, and the reader re-took it at once, so a command could wait
+        # a second or two before it even reached the pad.
+        try:
+            ready, _, _ = select.select([fd], [], [], 0.2)
+            if not ready:
                 return ""
+            data = os.read(fd, 4096)
+        except (OSError, ValueError, termios.error):
+            data = None
+        if not data:
+            # CDC ACM commonly reports unplug as EOF rather than EIO.
+            with self.fd_lock:
+                if self.fd == fd:
+                    self._close_locked()
+            return ""
+        return data.decode("utf-8", "replace")
 
 
 class Server:

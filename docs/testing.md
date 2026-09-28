@@ -24,6 +24,12 @@ moves.  The boot counter is the reset detector; the console greeting is not
 used, because the firmware re-sends it whenever the host's CDC line state
 flaps, which reports reboots that did not happen.
 
+It runs with `config.autocommit = false` (it pairs and clears every slot, so
+none of that may reach flash) and reboots the pad at the end, which puts back
+what flash holds; `--no-reboot` leaves the pad as the run left it.  With the
+padbus daemon running it drives the pad through it (and shows up in the TUI);
+otherwise it opens the port itself.
+
     make test                       # default run
     make test TEST_ROUNDS=6         # more repetitions
     make test TEST_FLAGS=--quick    # skip the 33 s dwell

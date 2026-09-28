@@ -214,7 +214,7 @@ static void test_store(void)
     /* Back to the default: the record goes. */
     CHECK(set("report_ms", "8") == NULL);
     settle();
-    CHECK(flash_length[48] == 1);
+    CHECK(flash_length[48] == 4 && flash_data[48][1] == 0);
 
     /* A bond only rewrites its own slot's item. */
     writes_reset();
@@ -282,7 +282,7 @@ static void test_autocommit(void)
     config_reset_all(0);
     CHECK(config.autocommit == 1);
     CHECK(config_commit(1) == 1);
-    CHECK(flash_length[48] == 1);
+    CHECK(flash_length[48] == 4 && flash_data[48][1] == 0);
 }
 
 static void test_damage(void)
