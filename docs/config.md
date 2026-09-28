@@ -27,8 +27,8 @@ One grammar in every namespace: the word after it is one of its verbs
     config commit                       write it now
     status radio                        what the pad is doing (status get, status help)
 
-The groups are `global` (autocommit, report_ms), `identity`, `profile.A`..`Y`
-and `cal`.  After `config` or `status`, a word that is not a verb is a path,
+The groups are `global` (autocommit, report_ms), `log`, `identity`,
+`profile.A`..`Y` and `cal`.  After `config` or `status`, a word that is not a verb is a path,
 so `config profile` and `config profile.` both list the profile group.
 Every line `get` prints is a command: `config get --changed` output
 pasted back into the console restores those settings (a `# ...` comment is
@@ -48,6 +48,21 @@ once; `takes effect on the next connect or pair` ones (a slot's type, its
 address, its bond, the identity) wait for the slot to connect again -
 `status radio.stale` says the running slot is out of date.  Nothing needs a
 reboot today, though a setting may be marked so.
+
+## Logging
+
+What reaches the console's log is settings too, so it can be switched mid-
+session and - being a setting - also holds across a reboot, which is how to
+trace a boot:
+
+    config log.console=false            no log lines at all (was `debug log off`)
+    config log.btstack=false            without BTstack's messages and the port's BTSTACK: lines
+    config log.hcidump=true             every HCI packet (was `debug hcidump on`)
+
+BTstack is built with its error messages only.  Its info level would cost
+about 20 KiB of the 24 KiB of code space left below `CODE_LIMIT`, and its
+debug level does not fit at all; raising the limit moves the settings store
+(`docs/flash-map.md`), so that is a decision to make on purpose.
 
 ## When settings reach flash
 

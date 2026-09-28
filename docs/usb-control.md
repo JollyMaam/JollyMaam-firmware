@@ -30,7 +30,7 @@ help`.  After a namespace comes one of its verbs, or else a path: read it,
     config                  settings: config PATH, config PATH=VALUE, and
                             config get|reset|commit|pending
     status                  state, read-only: status PATH, status get
-    debug                   diagnostics and tests: debug log|hcidump|stat|
+    debug                   diagnostics and tests: debug stat|
                             sensors|wake|inject|rumble|imu|input|bleadv|bringup|
                             bondstore|clearkeys|nvscan|delall|peek|poke|complete
     connect, disconnect, pair, cal, reboot, uboot, help
@@ -45,7 +45,9 @@ status` is `status report`, `input status` is `status input`,
 and `unkey` are `pair A --fresh`, `store ...` is `global.autocommit`/`config
 commit`, `factory-reset` is `config reset --all`, `unset PATH` is `config
 reset PATH`, the old `status` dump is `debug bringup`, `stat` is `debug
-stat`, and the battery reading is `status battery`.
+stat`, `debug log on|off` is `config log.console=true|false`, `debug hcidump
+on|off` is `config log.hcidump=true|false`, and the battery reading is
+`status battery`.
 
 ## Machine mode
 

@@ -177,7 +177,7 @@ def capture(args):
     protect_log(args.log)
     session = Session(args.socket)
     try:
-        session.command("debug hcidump on", "HCI packet trace on")
+        session.command("config log.hcidump=true", "OK config log.hcidump=true")
         pair_command = f"pair {args.slot}" + (" --fresh" if args.fresh else "")
         marker = session.send(pair_command)
         print("Pairing started; waiting for an encrypted Switch link.",
@@ -205,7 +205,7 @@ def capture(args):
               f"SHA256[:16]={fingerprint}", flush=True)
         print(f"Protected bond file: {args.output} (mode 0600)", flush=True)
         print("Leave CGO for HOME, then start the reconnect loop.", flush=True)
-        session.command("debug hcidump off", "HCI packet trace off")
+        session.command("config log.hcidump=false", "OK config log.hcidump=false")
     finally:
         session.close()
 
@@ -224,7 +224,7 @@ def query_state(session: Session) -> str:
 
 def restore(session: Session, bond, slot: int, set_address: bool):
     """Import the saved bond (its address included) and page the console."""
-    session.command("debug hcidump on", "HCI packet trace on")
+    session.command("config log.hcidump=true", "OK config log.hcidump=true")
     for line in bond:
         if set_address or not re.match(r"config profile\.\w+\.address", line):
             session.cmd(line)
@@ -247,7 +247,7 @@ def reconnect_attempt(session: Session, bond, slot: int, set_address: bool,
                  success=("disconnected peer", "OK already disconnected"),
                  failure=("# RESET: boot counter",))
 
-    session.command("debug hcidump on", "HCI packet trace on")
+    session.command("config log.hcidump=true", "OK config log.hcidump=true")
     marker = session.send(f"connect {slot}")
     result, line, _ = wait_link_result(session, marker, timeout)
     return result, line, marker
@@ -275,7 +275,7 @@ def loop(args):
                 # Stop the high-volume packet trace between attempts.  It is
                 # enabled again immediately before the next reconnect.
                 try:
-                    session.command("debug hcidump off", "HCI packet trace off")
+                    session.command("config log.hcidump=false", "OK config log.hcidump=false")
                 except RuntimeError:
                     pass
                 needs_address = False

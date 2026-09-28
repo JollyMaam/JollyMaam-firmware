@@ -54,7 +54,6 @@ static char failure[160];
 static u8 failed;
 static u8 last_key_tab;
 
-static u8 debug_enabled = 1U;
 static u8 log_read;
 static u8 log_write;
 static u16 log_dropped;
@@ -178,7 +177,7 @@ void cyclone2_usb_debug(const char *format, ...)
     int length;
     va_list arguments;
 
-    if (!debug_enabled) return;
+    if (!config.log.console) return;
     next = (u8)((log_write + 1U) % LOG_LINES);
     if (next == log_read) {
         log_read = (u8)((log_read + 1U) % LOG_LINES);
@@ -221,20 +220,6 @@ static void flush_log_line(void)
     raw("\r\n", 2U);
     log_read = (u8)((log_read + 1U) % LOG_LINES);
     prompt();
-}
-
-int console_cmd_debug(int argc, char **argv)
-{
-    if (argc == 2 && !strcmp(argv[1], "on")) {
-        debug_enabled = 1U;
-    } else if (argc == 2 && !strcmp(argv[1], "off")) {
-        debug_enabled = 0U;
-        log_read = log_write;
-    } else if (argc != 1) {
-        return CONSOLE_USAGE;
-    }
-    console_ok("debug output %s", debug_enabled ? "on" : "off");
-    return 0;
 }
 
 /* ------------------------------------------------------------ leaves */
@@ -1186,7 +1171,12 @@ void console_poll(void)
 {
     u8 budget = 8U;
 
-    if (!debug_enabled) return;
+    if (!config.log.console) {
+        /* Switched off: what was waiting goes too. */
+        log_read = log_write;
+        log_dropped = 0U;
+        return;
+    }
     while (budget-- && log_read != log_write && !cyclone2_usb_uboot_pending())
         flush_log_line();
 }

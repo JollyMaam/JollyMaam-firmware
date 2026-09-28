@@ -61,7 +61,15 @@ static void (*hid_send_wakeup)(void);
 
 /* ----------------------------------------------------------------- logging */
 
-#define BTSTACK_JL_LOG(...) cyclone2_usb_debug("BTSTACK: " __VA_ARGS__)
+/* config log.btstack; a function, because btstack_init() has a local
+ * called config. */
+static int log_btstack(void)
+{
+    return config.log.btstack;
+}
+
+#define BTSTACK_JL_LOG(...) \
+    do { if (log_btstack()) cyclone2_usb_debug("BTSTACK: " __VA_ARGS__); } while (0)
 
 /* Controller-library entry points used by this file. */
 extern void lmp_set_sniff_establish_by_remote(u8 enable);

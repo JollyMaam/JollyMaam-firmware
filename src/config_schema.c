@@ -72,6 +72,19 @@ const struct cfg_item config_items[] = {
       .help = "what the pad's Bluetooth addresses are derived from; none = "
               "the flash chip's unique ID" },
 
+    /* --------------------------------------------------------------- log */
+    { .uid = 60, .path = "log.console", .type = CFG_BOOL, CFG_FIELD(log.console),
+      .group = CFG_GROUP_PREFS, .def = 1,
+      .help = "print log lines on the console" },
+    { .uid = 61, .path = "log.btstack", .type = CFG_BOOL, CFG_FIELD(log.btstack),
+      .group = CFG_GROUP_PREFS, .def = 1,
+      .help = "BTstack's own messages (errors; the build has no info level) "
+              "and the port's BTSTACK: lines" },
+    { .uid = 62, .path = "log.hcidump", .type = CFG_BOOL, CFG_FIELD(log.hcidump),
+      .group = CFG_GROUP_PREFS,
+      .help = "trace every HCI packet - a lot of output; stays on across a "
+              "reboot, which is how to trace one" },
+
     /* ---------------------------------------------------------- profiles */
     { .uid = 10, .path = "profile.#.type", .type = CFG_ENUM,
       CFG_PROFILE_FIELD(type), .group = CFG_GROUP_PREFS,

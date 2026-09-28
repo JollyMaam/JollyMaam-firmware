@@ -125,7 +125,8 @@ takes `help`, `-h`, `--help`; Tab completes):
     reboot                reset the chip, come back as this build
     debug stat            one key=value line: uptime, boots, slot, state, ...
     debug bringup         reset mailbox and the bring-up marker ring
-    debug hcidump on|off  HCI trace to the console; survives the profile restart
+    config log.hcidump=true  HCI trace to the console; survives the profile
+                          restart, and (a setting) a reboot - turn it off after
     debug peek/poke       read and write controller memory (poke wants
                           contiguous hex: `deadbeef`, never `de ad be ef`)
     debug help            the rest: log, wake, inject, rumble, imu, sensors, ...

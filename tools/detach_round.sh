@@ -8,7 +8,7 @@ A=FA:09:3A:F3:ED:E9
 P=tools/padbus.py; H=tools/hostbt.py
 $P request claude >/dev/null
 $H bt "remove $A" >/dev/null; sleep 1
-$P send claude "debug hcidump on" >/dev/null
+$P send claude "config log.hcidump=true" >/dev/null
 R0=$(grep -a -c 'BTSTACK: stack ready' /work/nslog/padbus.log)
 $P send claude "pair 1" >/dev/null
 for i in $(seq 50); do [ $(grep -a -c 'BTSTACK: stack ready' /work/nslog/padbus.log) -gt $R0 ] && break; sleep 0.2; done

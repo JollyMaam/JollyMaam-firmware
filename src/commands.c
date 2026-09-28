@@ -5,7 +5,6 @@
 #include "config.h"
 #include "console.h"
 #include "controller.h"
-#include "hci_dump_console.h"
 #include "imu.h"
 #include "input.h"
 #include "main.h"
@@ -176,16 +175,6 @@ static int cmd_bleadv(int argc, char **argv)
     } else {
         return CONSOLE_USAGE;
     }
-    return 0;
-}
-
-static int cmd_hcidump(int argc, char **argv)
-{
-    if (argc == 2 && !strcmp(argv[1], "on")) cyclone2_hci_dump_set_packets(1U);
-    else if (argc == 2 && !strcmp(argv[1], "off")) cyclone2_hci_dump_set_packets(0U);
-    else if (argc != 1) return CONSOLE_USAGE;
-    console_ok("HCI packet trace %s",
-               cyclone2_hci_dump_packets_enabled() ? "on" : "off");
     return 0;
 }
 
@@ -507,8 +496,6 @@ static const struct console_command status_commands[] = {
 };
 
 static const struct console_command debug_commands[] = {
-    { "log", "[on|off]", "log lines on the console", console_cmd_debug, on_off },
-    { "hcidump", "[on|off]", "trace HCI packets to the log", cmd_hcidump, on_off },
     { "stat", NULL, "one key=value line for tools: uptime, boots, state, ...",
       cmd_stat },
     { "sensors", NULL, "raw stick and trigger values and what they map to",

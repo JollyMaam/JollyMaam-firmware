@@ -50,7 +50,6 @@ void console_poll(void);
 
 /* Handlers the table in commands.c points at, implemented in console.c. */
 int console_cmd_help(int argc, char **argv);
-int console_cmd_debug(int argc, char **argv);
 int console_cmd_complete(int argc, char **argv);
 int config_cmd_get(int argc, char **argv);
 int config_cmd_reset(int argc, char **argv);

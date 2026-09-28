@@ -37,9 +37,17 @@ struct config_cal {
     struct cal_trigger trigger[2];
 };
 
+/* What reaches the console's log; not a build option. */
+struct config_log {
+    u8 console;         /* log lines at all */
+    u8 btstack;         /* BTstack's messages and the port's BTSTACK: lines */
+    u8 hcidump;         /* every HCI packet (a lot) */
+};
+
 struct config {
     u8 autocommit;
     u8 report_ms;
+    struct config_log log;
     u8 identity_seed[16];
     struct config_profile profile[CONFIG_PROFILES];
     struct config_cal cal;

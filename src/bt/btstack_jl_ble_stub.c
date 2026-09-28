@@ -19,10 +19,12 @@
 #include "le_common.h"
 #include "le_gatt_common.h"
 
+#include "config.h"
 #include "usb.h"
 
 #define BTSTACK_JL_BLE_LOG(...) \
-    cyclone2_usb_debug("BTSTACK BLE unavailable: " __VA_ARGS__)
+    do { if (config.log.btstack) \
+        cyclone2_usb_debug("BTSTACK BLE unavailable: " __VA_ARGS__); } while (0)
 
 void btstack_ble_start_before_init(const ble_init_cfg_t *cfg, int param)
 {
