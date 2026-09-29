@@ -12,6 +12,7 @@
 #include "main.h"
 #include "profile.h"
 #include "rumble.h"
+#include "lights.h"
 #include "profile_switch_wake.h"
 
 extern u16 config_dropped_records;
@@ -151,6 +152,23 @@ static void get_wake(void *out)
 #define REPORT(member)  CFG_STATUS_FIELD(struct cyclone2_report_statistics, member, get_report)
 #define INPUT(member)   CFG_STATUS_FIELD(struct cyclone2_input_stats, member, get_input)
 #define INJECT(member)  CFG_STATUS_FIELD(struct cyclone2_injection_status, member, get_inject)
+static const struct cfg_choice light_scenes[] = {
+    { CYCLONE2_SCENE_BOOT, "boot" }, { CYCLONE2_SCENE_IDLE, "idle" },
+    { CYCLONE2_SCENE_CONNECTING, "connecting" },
+    { CYCLONE2_SCENE_PAIRING, "pairing" },
+    { CYCLONE2_SCENE_CONNECTED, "connected" },
+    { CYCLONE2_SCENE_DISCONNECTED, "disconnected" },
+    { CYCLONE2_SCENE_WAKING, "waking" },
+    { CYCLONE2_SCENE_SWITCHING, "switching" }, { CYCLONE2_SCENE_OFF, "off" },
+    { 0, NULL },
+};
+
+static void get_lights(void *out)
+{
+    cyclone2_lights_status_get(out);
+}
+
+#define LIGHTS(member)  CFG_STATUS_FIELD(struct cyclone2_lights_status, member, get_lights)
 #define RUMBLE(member)  CFG_STATUS_FIELD(struct cyclone2_rumble_status, member, get_rumble)
 #define IMU(member)     CFG_STATUS_FIELD(struct status_imu, member, get_imu)
 #define WAKE(member)    CFG_STATUS_FIELD(struct wake_status, member, get_wake)
@@ -225,6 +243,22 @@ const struct cfg_item status_items[] = {
     { .path = "inject.edges", .type = CFG_UINT, INJECT(emitted_edges) },
     { .path = "inject.overruns", .type = CFG_UINT, INJECT(overruns) },
 
+    { .path = "led.scene", .type = CFG_ENUM, LIGHTS(scene),
+      .choices = light_scenes, .help = "what the lights show (lights_render.c)" },
+    { .path = "led.debug", .type = CFG_BOOL, LIGHTS(debug),
+      .help = "debug led holds the lights; debug led off gives them back" },
+    { .path = "led.low_battery", .type = CFG_BOOL, LIGHTS(low_battery) },
+    { .path = "led.host_players", .type = CFG_BOOL, LIGHTS(has_players),
+      .help = "the host set a player number" },
+    { .path = "led.players_on", .type = CFG_HEX, LIGHTS(players_on),
+      .help = "bar lights the host lit, bit 0 = top" },
+    { .path = "led.players_flash", .type = CFG_HEX, LIGHTS(players_flash) },
+    { .path = "led.host_lightbar", .type = CFG_BOOL, LIGHTS(has_lightbar),
+      .help = "the host set a lightbar colour (shown on the grips)" },
+    { .path = "led.lightbar", .type = CFG_COLOUR, LIGHTS(lightbar) },
+    { .path = "led.lit", .type = CFG_HEX, LIGHTS(lit),
+      .help = "rrggbb per light as sent: Home, bar top to bottom, left grip, "
+              "right grip, unused" },
     { .path = "rumble.active", .type = CFG_BOOL, RUMBLE(active) },
     { .path = "rumble.left", .type = CFG_UINT, RUMBLE(left) },
     { .path = "rumble.right", .type = CFG_UINT, RUMBLE(right) },

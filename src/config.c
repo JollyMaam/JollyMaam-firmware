@@ -167,7 +167,8 @@ void cfg_leaf_default(const struct cfg_leaf *leaf, u8 *out)
     } else if (item->type == CFG_LIST) {
         for (index = 0U; index < item->elements; index++)
             put_uint(out + index * 2U, 2U, item->def);
-    } else if (item->type == CFG_MAC || item->type == CFG_HEX) {
+    } else if (item->type == CFG_MAC || item->type == CFG_HEX ||
+               item->type == CFG_COLOUR) {
         memset(out, 0, item->size);
     } else {
         memset(out, 0, item->size);
@@ -280,6 +281,13 @@ void cfg_format(const struct cfg_item *item, const u8 *value, char *out,
         }
         out[length] = '\0';
         break;
+    case CFG_COLOUR:
+        for (index = 0U; index < 3U && length + 2U < size; index++) {
+            out[length++] = hex_digits[value[index] >> 4];
+            out[length++] = hex_digits[value[index] & 15U];
+        }
+        out[length] = '\0';
+        break;
     case CFG_LIST:
         for (index = 0U; index < item->elements; index++) {
             if (index) length = append(out, size, length, ",");
@@ -353,6 +361,18 @@ static int word_is(const char *text, const char *word)
     return !strcmp(text, word);
 }
 
+/* Names a colour setting also takes; it always shows as rrggbb. */
+static const struct {
+    const char *name;
+    u8 rgb[3];
+} colour_names[] = {
+    { "off", { 0x00, 0x00, 0x00 } }, { "white", { 0xff, 0xff, 0xff } },
+    { "red", { 0xff, 0x00, 0x00 } }, { "green", { 0x00, 0xff, 0x00 } },
+    { "blue", { 0x00, 0x00, 0xff } }, { "purple", { 0x80, 0x00, 0xff } },
+    { "yellow", { 0xff, 0xc0, 0x00 } }, { "orange", { 0xff, 0x50, 0x00 } },
+    { "cyan", { 0x00, 0xff, 0xff } }, { "pink", { 0xff, 0x20, 0x80 } },
+};
+
 const char *cfg_parse(const struct cfg_item *item, const char *text, u8 *out)
 {
     const struct cfg_choice *choice;
@@ -412,6 +432,24 @@ const char *cfg_parse(const struct cfg_item *item, const char *text, u8 *out)
             text += 2;
         }
         return *text ? "too many hex digits" : NULL;
+    case CFG_COLOUR:
+        for (index = 0U; index < sizeof(colour_names) / sizeof(colour_names[0]);
+             index++) {
+            if (word_is(text, colour_names[index].name)) {
+                memcpy(out, colour_names[index].rgb, 3U);
+                return NULL;
+            }
+        }
+        if (*text == '#') text++;
+        for (index = 0U; index < 3U; index++) {
+            int high = hex_value(text[0]);
+            int low = high < 0 ? -1 : hex_value(text[1]);
+
+            if (low < 0) return "expected rrggbb or a colour name";
+            out[index] = (u8)(high << 4 | low);
+            text += 2;
+        }
+        return *text ? "expected rrggbb or a colour name" : NULL;
     case CFG_LIST:
         for (index = 0U; index < item->elements; index++) {
             if (index) {
@@ -487,6 +525,8 @@ const char *cfg_type_name(const struct cfg_item *item)
 {
     static const char *const names[] = {
         "true/false", "number", "one of", "address", "hex", "list", "percent",
+        "colour (rrggbb, or off white red green blue purple yellow orange "
+        "cyan pink)",
     };
 
     return item->type < sizeof(names) / sizeof(names[0]) ?
@@ -749,6 +789,7 @@ static void check_schema(void)
         if (item->size > sizeof(value) || item->count > 8U ||
             (item->type == CFG_LIST && item->size != item->elements * 2U) ||
             (item->type == CFG_MAC && item->size != 6U) ||
+            (item->type == CFG_COLOUR && item->size != 3U) ||
             (item->type == CFG_PERCENT && item->size != 2U) ||
             ((item->type == CFG_UINT || item->type == CFG_ENUM ||
               item->type == CFG_BOOL) && item->size > 4U)) {

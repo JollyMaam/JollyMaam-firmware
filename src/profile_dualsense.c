@@ -7,6 +7,7 @@
 #include "input.h"
 #include "profile.h"
 #include "profile_classic.h"
+#include "lights.h"
 #include "rumble.h"
 #include "usb.h"
 
@@ -15,6 +16,13 @@
 
 #define DS_REPORT_SIMPLE        0x01U
 #define DS_REPORT_EXTENDED      0x31U
+/* Output report 0x31: offsets into its common effects block (after the
+ * report id and two tag bytes), as Linux hid-playstation lays it out. */
+#define DS_EFFECTS_SIZE              47U
+#define DS_EFFECT_PLAYER_LIGHTS      43U
+#define DS_EFFECT_LIGHTBAR           44U
+#define DS_VALID1_LIGHTBAR           0x04U
+#define DS_VALID1_PLAYER_LIGHTS      0x10U
 #define DS_FEATURE_CALIBRATION  0x05U
 #define DS_FEATURE_PAIRING      0x09U
 #define DS_FEATURE_FIRMWARE     0x20U
@@ -303,6 +311,22 @@ static void dualsense_output(u8 *packet, u16 size, u16 channel)
     } else if (valid1 == 0U) {
 
         cyclone2_rumble_stop();
+    }
+    if (size < 4U + DS_EFFECTS_SIZE) return;
+    if (valid1 & DS_VALID1_LIGHTBAR)
+        cyclone2_lights_host_lightbar(effects[DS_EFFECT_LIGHTBAR],
+                                      effects[DS_EFFECT_LIGHTBAR + 1],
+                                      effects[DS_EFFECT_LIGHTBAR + 2]);
+    if (valid1 & DS_VALID1_PLAYER_LIGHTS) {
+        /* Five lights, lit symmetrically: 1 player is the middle one, 5 is
+         * all of them.  The count is the player number; shown as that many
+         * of our four from the top, as a Switch numbers players. */
+        u8 players = effects[DS_EFFECT_PLAYER_LIGHTS] & 0x1fU;
+        u8 count = 0U;
+
+        for (; players; players &= (u8)(players - 1U)) count++;
+        if (count > CYCLONE2_PLAYER_LIGHTS) count = CYCLONE2_PLAYER_LIGHTS;
+        cyclone2_lights_host_players((u8)((1U << count) - 1U), 0U);
     }
 }
 

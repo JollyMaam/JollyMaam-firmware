@@ -17,6 +17,8 @@
 #include "profile_classic.h"
 #include "rumble.h"
 #include "config.h"
+#include "led.h"
+#include "lights.h"
 #include "user_cfg_id.h"
 
 #define CYCLONE2_CONTROL_PERIOD_US        1000U
@@ -35,10 +37,12 @@
 /* Extra outgoing connection attempts after one ends without a usable session.
  * Small and bounded: an unreachable host must not become a retry storm. */
 #define CYCLONE2_CONNECT_RETRIES               2U
-#define CYCLONE2_BOOT_LED_MS                500U
-#define CYCLONE2_LED_DIM_RED                 8U
-#define CYCLONE2_LED_SLOW_HALF_PERIOD_MS   500U
-#define CYCLONE2_LED_FAST_HALF_PERIOD_MS   120U
+/* No button, stick or trigger moved for this long: disconnect and sleep
+ * (USB power keeps the pad awake and connected). */
+#define CYCLONE2_IDLE_SLEEP_MS          300000U
+/* How far a stick or trigger must move to count as use rather than drift. */
+#define CYCLONE2_ACTIVITY_STICK           2048
+#define CYCLONE2_ACTIVITY_TRIGGER         4096
 #define CYCLONE2_INJECT_MIN_PERIOD_MS       20U
 #define CYCLONE2_INJECT_MAX_PERIOD_MS       1000U
 #define CYCLONE2_INJECT_MAX_DURATION_MS    60000U
@@ -76,7 +80,6 @@ static struct cyclone2_input_report candidate_report;
 static struct cyclone2_input_report current_report;
 static enum cyclone2_home_state home_state;
 static struct cyclone2_controller_state state;
-static u32 started_at_ms;
 static u32 home_start_ms;
 static u32 chord_start_ms;
 static u32 button_changed_us[16];
@@ -85,8 +88,8 @@ static u32 next_report_us;
 static u16 chord_button;
 static u8 requested_profile;
 static u8 home_tap_phase;
-static u8 led_is_on;
-static u32 calibration_led_colour;
+static struct cyclone2_input_report activity_reference;
+static u32 last_activity_ms;
 static u8 calibrating;
 static u8 ignore_chord_until_release;
 static struct cyclone2_report_statistics report_statistics;
@@ -108,30 +111,6 @@ static struct cyclone2_stop *request_transition(enum cyclone2_after_stop after);
 const struct cyclone2_controller_state *cyclone2_controller_state(void)
 {
     return &state;
-}
-
-const struct cyclone2_session *cyclone2_controller_session(
-    const struct cyclone2_controller_state *s)
-{
-    switch (s->kind) {
-    case CYCLONE2_CONTROLLER_CONNECTING: return &s->as.connecting.session;
-    case CYCLONE2_CONTROLLER_PAIRING: return &s->as.pairing.session;
-    case CYCLONE2_CONTROLLER_CONNECTED: return &s->as.connected.session;
-    case CYCLONE2_CONTROLLER_DISCONNECTED: return &s->as.disconnected.session;
-    case CYCLONE2_CONTROLLER_STOPPING:
-        return s->as.stopping.has_session ? &s->as.stopping.session : NULL;
-    default: return NULL;
-    }
-}
-
-const char *cyclone2_controller_kind_name(enum cyclone2_controller_kind kind)
-{
-    static const char *const names[CYCLONE2_CONTROLLER_KIND_COUNT] = {
-        "idle", "connecting", "pairing", "connected", "disconnected",
-        "waking", "stopping",
-    };
-
-    return kind < CYCLONE2_CONTROLLER_KIND_COUNT ? names[kind] : "?";
 }
 
 static const struct cyclone2_session *session(void)
@@ -736,7 +715,6 @@ static void radio_exit_and_poweroff(void *private_data)
      * stays recorded, so a USB cancel below leaves it disconnected and the
      * next connect tears it down properly. */
     if (stop->has_session) cyclone2_profile_exit();
-    cyclone2_led_set_home(0U, 0U, 0U);
     sys_timeout_add(NULL, poweroff_now, 300U);
 }
 
@@ -929,40 +907,35 @@ CYCLONE2_HOT static void debounce_digital_input(const struct cyclone2_input_repo
     }
 }
 
-static void update_status_led(void)
+static int moved(s32 now_value, s32 then_value, s32 threshold)
 {
-    u32 now = sys_timer_get_ms();
-    u32 half_period;
-    u8 on;
-    u8 red;
-    u8 green;
-    u8 blue;
+    s32 delta = now_value - then_value;
 
-    if (cyclone2_calibration_led(now, &red, &green, &blue)) {
-        u32 colour = 0x1000000U | ((u32)red << 16) | ((u32)green << 8) | blue;
+    return delta >= threshold || -delta >= threshold;
+}
 
-        if (colour != calibration_led_colour) {
-            calibration_led_colour = colour;
-            cyclone2_led_set_home(red, green, blue);
-        }
+/* Someone is holding the pad: a button or the hat changed, or a stick or
+ * trigger moved further than drift would. */
+static void track_activity(u32 now)
+{
+    const struct cyclone2_input_report *in = &current_report;
+    const struct cyclone2_input_report *ref = &activity_reference;
 
-        led_is_on = 2U;
-        return;
-    }
-    calibration_led_colour = 0U;
-    if (!session() && now - started_at_ms < CYCLONE2_BOOT_LED_MS) on = 1U;
-    else if (state.kind == CYCLONE2_CONTROLLER_CONNECTED) on = 1U;
-    else if (state.kind == CYCLONE2_CONTROLLER_CONNECTING ||
-             state.kind == CYCLONE2_CONTROLLER_PAIRING) {
-        half_period = state.kind == CYCLONE2_CONTROLLER_PAIRING ?
-                      CYCLONE2_LED_FAST_HALF_PERIOD_MS :
-                      CYCLONE2_LED_SLOW_HALF_PERIOD_MS;
-        on = ((now / half_period) & 1U) == 0U;
-    } else on = 0U;
-
-    if (on != led_is_on) {
-        led_is_on = on;
-        cyclone2_led_set_home(on ? CYCLONE2_LED_DIM_RED : 0U, 0U, 0U);
+    if (in->buttons != ref->buttons || in->hat != ref->hat ||
+        moved(in->left_x, ref->left_x, CYCLONE2_ACTIVITY_STICK) ||
+        moved(in->left_y, ref->left_y, CYCLONE2_ACTIVITY_STICK) ||
+        moved(in->right_x, ref->right_x, CYCLONE2_ACTIVITY_STICK) ||
+        moved(in->right_y, ref->right_y, CYCLONE2_ACTIVITY_STICK) ||
+        moved(in->left_trigger, ref->left_trigger, CYCLONE2_ACTIVITY_TRIGGER) ||
+        moved(in->right_trigger, ref->right_trigger,
+              CYCLONE2_ACTIVITY_TRIGGER)) {
+        activity_reference = *in;
+        last_activity_ms = now;
+    } else if (now - last_activity_ms >= CYCLONE2_IDLE_SLEEP_MS &&
+               state.kind != CYCLONE2_CONTROLLER_STOPPING) {
+        /* Counted again from here, so on USB this asks once per period. */
+        last_activity_ms = now;
+        begin_automatic_sleep("idle for 5 minutes");
     }
 }
 
@@ -1065,6 +1038,7 @@ CYCLONE2_HOT static void cyclone2_poll(void *private_data)
         ignore_chord_until_release = 1U;
     }
     if (!calibrating) update_home_state();
+    track_activity(now);
     update_injection(now);
     /* The ACL connection event precedes authentication and opening the HID
      * control/interrupt channels. Only the latter is a usable connection.
@@ -1097,7 +1071,7 @@ CYCLONE2_HOT static void cyclone2_poll(void *private_data)
         if ((s32)(now_us - next_report_us) >= 0) next_report_us = now_us + period_us;
     }
     cyclone2_timing_poll_done(now_us);
-    update_status_led();
+    cyclone2_lights_poll(now, &current_report);
     cyclone2_prof_mark(CYCLONE2_PROF_LED);
     if (state.kind == CYCLONE2_CONTROLLER_CONNECTING &&
         now - state.as.connecting.since_ms >= CYCLONE2_CONNECT_TIMEOUT_MS) {
@@ -1147,10 +1121,10 @@ static void start_session(u8 slot, u8 pairing, enum cyclone2_profile_type type)
         next.as.connecting.since_ms = now;
     }
     become(&next);
+    cyclone2_lights_host_clear();
     cyclone2_usb_debug("start slot %s type=%s pairing=%u",
                        config_slot_name(slot), cyclone2_profile_name(type),
                        pairing);
-    update_status_led();
 
     cyclone2_profile_start(type, slot, pairing);
 }
@@ -1163,8 +1137,8 @@ static void cyclone2_start(void)
     u8 boot_pairing;
 
     cyclone2_led_initialize();
+    cyclone2_lights_initialize();
     cyclone2_rumble_initialize();
-    cyclone2_led_set_home(CYCLONE2_LED_DIM_RED, 0U, 0U);
     clk_set("sys", BT_NORMAL_HZ);
     system_clock = clk_get("sys");
     bt_pll_para(TCFG_CLOCK_OSC_HZ, system_clock, 0, 0);
@@ -1173,7 +1147,8 @@ static void cyclone2_start(void)
     cyclone2_usb_control_initialize();
     cyclone2_input_read(&candidate_report);
     current_report = candidate_report;
-    started_at_ms = sys_timer_get_ms();
+    activity_reference = current_report;
+    last_activity_ms = sys_timer_get_ms();
     cyclone2_timing_reset();
     memset(button_changed_us, 0, sizeof(button_changed_us));
     hat_changed_us = 0U;
@@ -1219,10 +1194,8 @@ static int cyclone2_event_handler(struct application *application,
         }
         injection_cancel();
         cyclone2_rumble_stop();
-        /* A host player-light command may have changed LEDs without changing
-         * led_is_on.  Force every LED off when the radio disconnects. */
-        cyclone2_led_set_all(0U, 0U, 0U);
-        led_is_on = 0U;
+        /* What the host set belonged to that link. */
+        cyclone2_lights_host_clear();
         if (state.kind != CYCLONE2_CONTROLLER_STOPPING) {
             become_disconnected(s);
             begin_automatic_sleep("Bluetooth disconnected");

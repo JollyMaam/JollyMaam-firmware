@@ -100,7 +100,7 @@ else
 QUIET=@
 endif
 
-.PHONY: all default clean flash test itest rebootwatch wake-vectors calibration-test config-test aes128-test
+.PHONY: all default clean flash test itest rebootwatch wake-vectors calibration-test config-test aes128-test lights-test
 
 # Make must notice when the caller switches DEBUG_LOG; the value of a
 # command-line variable alone is not part of a target's timestamp
@@ -229,6 +229,16 @@ $O/aes128_test: tools/aes128_test.c src/aes128.c src/aes128.h $(RIJNDAEL_DIR)/ri
 
 aes128-test: $O/aes128_test
 	$(QUIET)$O/aes128_test
+
+# Host check for the light renderer: what each controller state shows.
+LIGHTS_TEST_SOURCES := tools/lights_test.c src/lights_render.c src/controller_state.c
+$O/lights_test: $(LIGHTS_TEST_SOURCES) src/lights.h src/controller_state.h src/config.h
+	@mkdir -p $(@D)
+	@echo [EXE] $@
+	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) -Itools/host -Isrc $(LIGHTS_TEST_SOURCES) -o $@
+
+lights-test: $O/lights_test
+	$(QUIET)$O/lights_test
 
 # Host check for the settings engine against an in-memory syscfg; see
 # docs/flash-map.md.

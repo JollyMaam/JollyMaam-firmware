@@ -23,6 +23,8 @@ struct config_profile {
     /* Input reports per second; 0 = auto, the type's own default
      * (cyclone2_profile_default_hz).  Back to auto when the type changes. */
     u16 report_hz;
+    /* The slot's colour (red, green, blue), before led.brightness. */
+    u8 colour[3];
     u8 address[6];
     struct config_bond bond;
 };
@@ -38,9 +40,21 @@ struct config_log {
     u8 hcidump;
 };
 
+/* What the grip lights answer to while connected (bits). */
+enum config_grip_effects {
+    CONFIG_GRIPS_RUMBLE = 1U << 0,
+    CONFIG_GRIPS_INPUT  = 1U << 1,
+};
+
+struct config_led {
+    u8 brightness;          /* percent of full scale, 1..100 */
+    u8 grips;               /* enum config_grip_effects */
+};
+
 struct config {
     u8 autocommit;
     struct config_log log;
+    struct config_led led;
     u8 identity_seed[16];
     struct config_profile profile[CONFIG_PROFILES];
     struct config_cal cal;
@@ -56,6 +70,7 @@ enum cfg_type {
     CFG_HEX,
     CFG_LIST,
     CFG_PERCENT,
+    CFG_COLOUR,     /* red, green, blue bytes: rrggbb, or a colour name */
 };
 
 enum cfg_apply {

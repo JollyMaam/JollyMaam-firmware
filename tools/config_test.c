@@ -153,6 +153,10 @@ static void test_defaults(void)
     CHECK(!strcmp(get("profile.1.bond.peer"), "none"));
     CHECK(!strcmp(get("cal.stick.1.minimum"), "5632,6720"));
     CHECK(!strcmp(get("cal.stick.0.center"), "16384,16384"));
+    CHECK(!strcmp(get("profile.A.colour"), "0000ff"));
+    CHECK(!strcmp(get("profile.X.colour"), "8000ff"));
+    CHECK(!strcmp(get("led.brightness"), "4"));
+    CHECK(!strcmp(get("led.grips"), "both"));
     CHECK(!config_pending());
 }
 
@@ -191,6 +195,15 @@ static void test_text(void)
     CHECK(!strcmp(get("cal.stick.1.minimum"), "100,200"));
     CHECK(set("cal.stick.1.minimum", "100") != NULL);
     CHECK(set("cal.stick.1.minimum", "100,200,300") != NULL);
+    CHECK(set("profile.B.colour", "#FF8000") == NULL &&
+          config.profile[1].colour[0] == 0xff && config.profile[1].colour[1] == 0x80 &&
+          config.profile[1].colour[2] == 0x00);
+    CHECK(!strcmp(get("profile.B.colour"), "ff8000"));
+    CHECK(set("profile.B.colour", "cyan") == NULL && !strcmp(get("profile.B.colour"), "00ffff"));
+    CHECK(set("profile.B.colour", "ff80") != NULL && !strcmp(get("profile.B.colour"), "00ffff"));
+    CHECK(set("profile.B.colour", "mauve") != NULL);
+    CHECK(set("led.brightness", "0") != NULL && set("led.brightness", "101") != NULL);
+    CHECK(set("led.grips", "rumble") == NULL && config.led.grips == 1);
 }
 
 static void test_store(void)
@@ -319,6 +332,10 @@ static void test_damage(void)
     CHECK(config.log.hcidump == 1);
     CHECK(config.profile[1].type == 0);
     CHECK(!strcmp(get("cal.stick.0.center"), "16384,16384"));
+    CHECK(!strcmp(get("profile.A.colour"), "0000ff"));
+    CHECK(!strcmp(get("profile.X.colour"), "8000ff"));
+    CHECK(!strcmp(get("led.brightness"), "4"));
+    CHECK(!strcmp(get("led.grips"), "both"));
     CHECK(!config_pending());
 }
 
@@ -413,7 +430,7 @@ static void test_paths(void)
         CHECK(strchr(path, '#') == NULL);
         count++;
     }
-    CHECK(count == 5 + 4 * 9 + 2 * 6 + 2 * 4);
+    CHECK(count == 7 + 4 * 10 + 2 * 6 + 2 * 4);
 }
 
 int main(int argc, char **argv)

@@ -111,6 +111,11 @@ const struct cyclone2_controller_state *cyclone2_controller_state(void);
 const struct cyclone2_session *cyclone2_controller_session(
     const struct cyclone2_controller_state *state);
 
+/* The slot the state is about: its session's, a wake's, or the one a stop
+ * is switching to.  Zero if there is none. */
+int cyclone2_controller_slot(const struct cyclone2_controller_state *state,
+                             u8 *slot);
+
 const char *cyclone2_controller_kind_name(enum cyclone2_controller_kind kind);
 
 #endif

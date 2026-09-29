@@ -5,7 +5,7 @@
 #include "app_comm_bt.h"
 #include "edr_hid_user.h"
 #include "imu.h"
-#include "led.h"
+#include "lights.h"
 #include "main.h"
 #include "profile_switch_hid.h"
 #include "profile_switch_spi.h"
@@ -519,9 +519,9 @@ static void reply_subcommand(u8 subcommand, const u8 *request, u16 request_size)
         break;
     case SWITCH_SUBCOMMAND_PLAYER_LIGHTS:
 
-        if (request_size != 0U) {
-            cyclone2_led_set_all(0U, request[0] & 0x0fU ? 8U : 0U, 0U);
-        }
+        /* Low nibble: lights on; high nibble: lights flashing. */
+        if (request_size != 0U)
+            cyclone2_lights_host_players(request[0] & 0x0fU, request[0] >> 4);
         break;
     case SWITCH_SUBCOMMAND_HOME_LIGHT:
         /* HOME_LIGHT is a separate Switch command.  Do not let it change

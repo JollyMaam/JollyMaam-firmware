@@ -2,14 +2,11 @@
 #define CYCLONE2_LED_H
 
 #include "generic/typedef.h"
+#include "lights.h"
 
+/* The LED hardware only.  What to show is decided in lights.c; the one
+ * other writer is the jump to the ROM loader (usb.c), which never returns. */
 void cyclone2_led_initialize(void);
-void cyclone2_led_set_all(u8 red, u8 green, u8 blue);
-void cyclone2_led_set_home(u8 red, u8 green, u8 blue);
-
-/* Only the LEDs in mask, in one colour, until a zero mask releases them. */
-void cyclone2_led_debug(u32 mask, u8 red, u8 green, u8 blue);
-/* Each LED its own colour: red green blue yellow cyan magenta white orange. */
-void cyclone2_led_debug_legend(void);
+void cyclone2_led_write(const struct cyclone2_light_frame *frame);
 
 #endif

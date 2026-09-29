@@ -8,7 +8,7 @@
 #include "controller_state.h"
 #include "imu.h"
 #include "input.h"
-#include "led.h"
+#include "lights.h"
 #include "main.h"
 #include "profile.h"
 #include "profile_classic.h"
@@ -378,20 +378,22 @@ static int cmd_rumble(int argc, char **argv)
     return 0;
 }
 
-/* debug led INDEX|MASK [R G B] | off: light LEDs for mapping them. */
+/* debug led INDEX|MASK [R G B] | legend | off: light LEDs by hand, over
+ * whatever the pad would show, until off. */
 static int cmd_led(int argc, char **argv)
 {
     u32 which;
     u32 rgb[3] = { 16U, 16U, 16U };
+    struct cyclone2_rgb colour;
     int i;
 
     if (argc == 2 && !strcmp(argv[1], "off")) {
-        cyclone2_led_debug(0U, 0U, 0U, 0U);
-        console_ok("LEDs released");
+        cyclone2_lights_debug(0U, colour);
+        console_ok("LEDs back to the pad's own");
         return 0;
     }
     if (argc == 2 && !strcmp(argv[1], "legend")) {
-        cyclone2_led_debug_legend();
+        cyclone2_lights_debug_legend();
         console_ok("0 red, 1 green, 2 blue, 3 yellow, 4 cyan, 5 magenta, "
                    "6 white, 7 orange");
         return 0;
@@ -403,12 +405,15 @@ static int cmd_led(int argc, char **argv)
             return CONSOLE_USAGE;
     /* A plain number is one LED; 0x... is a mask. */
     if (argv[1][0] != '0' || argv[1][1] != 'x') {
-        if (which >= CYCLONE2_LED_COUNT) return console_fail("LED 0..%u",
-                                                CYCLONE2_LED_COUNT - 1U);
+        if (which >= CYCLONE2_LIGHT_COUNT)
+            return console_fail("LED 0..%u", CYCLONE2_LIGHT_COUNT - 1U);
         which = 1U << which;
     }
-    if (!which || which >> CYCLONE2_LED_COUNT) return CONSOLE_USAGE;
-    cyclone2_led_debug(which, (u8)rgb[0], (u8)rgb[1], (u8)rgb[2]);
+    if (!which || which >> CYCLONE2_LIGHT_COUNT) return CONSOLE_USAGE;
+    colour.red = (u8)rgb[0];
+    colour.green = (u8)rgb[1];
+    colour.blue = (u8)rgb[2];
+    cyclone2_lights_debug(which, colour);
     console_ok("LED mask 0x%02x lit", (unsigned)which);
     return 0;
 }

@@ -72,7 +72,12 @@ static void cdc_receive_wakeup(struct usb_device_t *usb_device)
 __attribute__((noreturn))
 static void enter_maskrom_uboot(void)
 {
-    cyclone2_led_set_all(0U, 16U, 0U);
+    static const struct cyclone2_light_frame green = { .light = {
+        { 0, 16, 0 }, { 0, 16, 0 }, { 0, 16, 0 }, { 0, 16, 0 },
+        { 0, 16, 0 }, { 0, 16, 0 }, { 0, 16, 0 }, { 0, 16, 0 },
+    } };
+
+    cyclone2_led_write(&green);
     rom_mdelay(100U);
 
     local_irq_disable();

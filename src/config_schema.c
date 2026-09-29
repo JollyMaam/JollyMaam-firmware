@@ -31,6 +31,22 @@ static const u8 default_profile_types[CONFIG_PROFILES] = {
     CYCLONE2_PROFILE_GENERIC, CYCLONE2_PROFILE_SWITCH2,
 };
 
+/* Kept dim by led.brightness; these are the hues at full scale. */
+static const u8 default_profile_colours[CONFIG_PROFILES][3] = {
+    { 0x00, 0x00, 0xff },       /* A blue */
+    { 0xff, 0x00, 0x00 },       /* B red */
+    { 0x80, 0x00, 0xff },       /* X purple */
+    { 0x00, 0xff, 0x00 },       /* Y green */
+};
+
+static const struct cfg_choice grip_effects[] = {
+    { 0, "none" },
+    { CONFIG_GRIPS_RUMBLE, "rumble" },
+    { CONFIG_GRIPS_INPUT, "input" },
+    { CONFIG_GRIPS_RUMBLE | CONFIG_GRIPS_INPUT, "both" },
+    { 0, NULL },
+};
+
 /* Uncalibrated sticks: live sensor endpoints with a nominal 0x4000 centre,
  * measured on the first unit.  The vertical low endpoints differ slightly. */
 static const u16 default_stick_minimum[2][2] = {{0x1600, 0x1850},
@@ -79,6 +95,16 @@ const struct cfg_item config_items[] = {
       .help = "trace every HCI packet - a lot of output; stays on across a "
               "reboot, which is how to trace one" },
 
+    { .uid = 70, .path = "led.brightness", .type = CFG_UINT,
+      CFG_FIELD(led.brightness), .group = CFG_GROUP_PREFS, .def = 4,
+      .min = 1, .max = 100,
+      .help = "every light, % of full scale (the host's colours too)" },
+    { .uid = 71, .path = "led.grips", .type = CFG_ENUM, CFG_FIELD(led.grips),
+      .group = CFG_GROUP_PREFS, .choices = grip_effects,
+      .def = CONFIG_GRIPS_RUMBLE | CONFIG_GRIPS_INPUT,
+      .help = "while connected the grip lights brighten with that side's "
+              "rumble motor, or with its stick, trigger and buttons" },
+
     { .uid = 10, .path = "profile.#.type", .type = CFG_ENUM,
       CFG_PROFILE_FIELD(type), .group = CFG_GROUP_PREFS,
       .apply = CFG_NEXT_CONNECT, .choices = profile_types,
@@ -89,6 +115,11 @@ const struct cfg_item config_items[] = {
       .choices = report_rates,
       .help = "input reports per second; auto is what the slot's type uses "
               "with its real console.  `status report.hz` is what is sent" },
+    { .uid = 13, .path = "profile.#.colour", .type = CFG_COLOUR,
+      CFG_PROFILE_FIELD(colour), .group = CFG_GROUP_PREFS,
+      .def_ptr = default_profile_colours,
+      .help = "the slot's colour: Home while connecting, pairing and "
+              "connected, and the player lights" },
     { .uid = 11, .path = "profile.#.rumble", .type = CFG_BOOL,
       CFG_PROFILE_FIELD(rumble), .group = CFG_GROUP_PREFS, .def = 1,
       .help = "let the host drive the rumble motors" },
