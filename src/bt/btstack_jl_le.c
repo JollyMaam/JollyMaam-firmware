@@ -18,6 +18,7 @@
 #include "btstack_config.h"
 #include "bluetooth.h"
 #include "bluetooth_gatt.h"
+#include "btstack_crypto.h"
 #include "btstack_defines.h"
 #include "btstack_event.h"
 #include "btstack_run_loop.h"
@@ -75,6 +76,9 @@ static uint16_t le_ccc_handle[LE_MAX_CCC];
 static uint8_t le_ccc_value[LE_MAX_CCC];
 
 static volatile uint8_t le_disconnect_requested;
+/* The app asked to disconnect: it is shutting the radio down, so do not
+ * advertise again - the host would reconnect for the ~100 ms until it does. */
+static volatile uint8_t le_stopping;
 static uint8_t le_initialized;
 static uint8_t le_peer[6];
 static uint8_t le_peer_valid;
@@ -220,7 +224,8 @@ static void le_apply_advertising(void)
 
     if (!le_working) return;
     le_adv_dirty = 0;
-    if (le_adv_len == 0 || le_con_handle != HCI_CON_HANDLE_INVALID) {
+    if (le_adv_len == 0 || le_stopping ||
+        le_con_handle != HCI_CON_HANDLE_INVALID) {
         gap_advertisements_enable(0);
         return;
     }
@@ -420,6 +425,8 @@ int btstack_jl_le_connected(void)
 
 void btstack_jl_le_disconnect(void)
 {
+    le_stopping = 1;
+    le_adv_dirty = 1;
     le_disconnect_requested = 1;
     btstack_jl_core_wake();
 }
@@ -431,6 +438,7 @@ void btstack_jl_le_setup(void)
     le_pending_len = 0;
     le_report_dirty = 0;
     le_disconnect_requested = 0;
+    le_stopping = 0;
     memset(le_ccc_handle, 0, sizeof(le_ccc_handle));
     if (le_config == NULL || le_config->att_db == NULL) return;
     le_initialized = 1;
@@ -484,6 +492,11 @@ void btstack_jl_le_teardown(void)
     if (le_sm_active) {
         sm_remove_event_handler(&le_sm_registration);
         sm_deinit();
+        /* sm_init() starts the crypto engine only once per boot, and the next
+         * hci_init() drops its HCI handler: without this, every session after
+         * the first waits forever on LE Encrypt / LE Rand, so a reconnect
+         * never answers the host's LTK request and the link stays unencrypted. */
+        btstack_crypto_deinit();
         le_sm_active = 0;
     }
     le_con_handle = HCI_CON_HANDLE_INVALID;
