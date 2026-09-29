@@ -359,7 +359,10 @@ static int path_statement(char *text, int is_config)
         console_printf("OK config %s=", value_text);
         cfg_format(leaf.item, cfg_leaf_data(&config, &leaf), value_text,
                    sizeof(value_text));
-        console_printf("%s (%s%s)\r\n", value_text, cfg_apply_name(leaf.item->apply),
+        console_printf("%s (%s%s%s%s)\r\n", value_text,
+                       cfg_apply_name(leaf.item->apply),
+                       cfg_set_note() ? "; " : "",
+                       cfg_set_note() ? cfg_set_note() : "",
                        config.autocommit ? "" : "; not written: autocommit is off");
         return 0;
     }

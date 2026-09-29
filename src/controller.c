@@ -8,6 +8,7 @@
 #include "btstack_jl_le.h"
 #include "calibration.h"
 #include "controller.h"
+#include "timing.h"
 #include "main.h"
 #include "imu.h"
 #include "profile.h"
@@ -16,8 +17,8 @@
 #include "config.h"
 #include "user_cfg_id.h"
 
-#define CYCLONE2_CONTROL_PERIOD_MS           5U
-#define CYCLONE2_DEBOUNCE_MS                10U
+#define CYCLONE2_CONTROL_PERIOD_US        2000U
+#define CYCLONE2_DEBOUNCE_US             8000U
 #define CYCLONE2_PROFILE_COUNT              4U
 #define CYCLONE2_HOME_GRACE_MS              150U
 #define CYCLONE2_LONG_HOLD_MS              5000U
@@ -88,10 +89,9 @@ static u32 started_at_ms;
 static u32 home_start_ms;
 static u32 chord_start_ms;
 static u32 radio_start_ms;
-static u32 button_candidate_since_ms[16];
-static u32 hat_candidate_since_ms;
-static u32 next_report_ms;
-static u16 report_timer;
+static u32 button_changed_us[16];
+static u32 hat_changed_us;
+static u32 next_report_us;
 static u16 chord_button;
 static u8 active_profile = 0xffU;
 static u8 requested_profile;
@@ -129,6 +129,7 @@ extern void bt_pll_para(u32 osc, u32 sys, u8 low_power, u8 xosc);
 static void start_selected_profile(void);
 static void profile_select(u8 profile, u8 pairing);
 static void injection_cancel(void);
+static u32 active_report_hz(void);
 static void soft_reset_now(void *private_data);
 static void start_pending_wake(void);
 static void profile_request_transition(u8 profile, u8 pairing);
@@ -189,7 +190,12 @@ int cyclone2_radio_quiet(void)
 
 void cyclone2_report_statistics_get(struct cyclone2_report_statistics *stats)
 {
+    struct cyclone2_timing timing;
+
     *stats = report_statistics;
+    cyclone2_timing_get(&timing);
+    stats->target_hz = active_report_hz();
+    stats->hz = timing.last_second_hz;
 }
 
 int cyclone2_connect_request(u8 profile)
@@ -823,30 +829,27 @@ static void make_host_report(struct cyclone2_input_report *report)
     }
 }
 
+/* Eager debounce: a contact that changes is taken at once, and then held for
+ * CYCLONE2_DEBOUNCE_US while it bounces.  Waiting for it to settle first
+ * cost every press and release 10-20 ms. */
 static void debounce_digital_input(const struct cyclone2_input_report *sample,
-                                   u32 now)
+                                   u32 now_us)
 {
     unsigned bit;
 
     for (bit = 0; bit < 16U; bit++) {
         u16 mask = (u16)(1U << bit);
-        if ((sample->buttons & mask) != (candidate_report.buttons & mask)) {
-            candidate_report.buttons ^= mask;
-            button_candidate_since_ms[bit] = now;
-        } else if ((current_report.buttons & mask) !=
-                   (candidate_report.buttons & mask) &&
-                   now - button_candidate_since_ms[bit] >=
-                   CYCLONE2_DEBOUNCE_MS) {
+
+        if ((sample->buttons & mask) != (current_report.buttons & mask) &&
+            now_us - button_changed_us[bit] >= CYCLONE2_DEBOUNCE_US) {
             current_report.buttons ^= mask;
+            button_changed_us[bit] = now_us;
         }
     }
-
-    if (sample->hat != candidate_report.hat) {
-        candidate_report.hat = sample->hat;
-        hat_candidate_since_ms = now;
-    } else if (current_report.hat != candidate_report.hat &&
-               now - hat_candidate_since_ms >= CYCLONE2_DEBOUNCE_MS) {
-        current_report.hat = candidate_report.hat;
+    if (sample->hat != current_report.hat &&
+        now_us - hat_changed_us >= CYCLONE2_DEBOUNCE_US) {
+        current_report.hat = sample->hat;
+        hat_changed_us = now_us;
     }
 }
 
@@ -907,7 +910,11 @@ static void send_input_report(const struct cyclone2_input_report *report)
     report_statistics.send_attempts++;
     result = cyclone2_profile_send(report);
     if (result > 0) {
+        u32 now_us = cyclone2_time_us();
+
         report_statistics.send_accepted++;
+        cyclone2_timing_sent(now_us);
+        cyclone2_probe_sent(report->buttons, now_us);
 
         if (home_tap_phase != 0U) home_tap_phase--;
         if ((injection_status.active || injection_release_pending) &&
@@ -922,11 +929,24 @@ static void send_input_report(const struct cyclone2_input_report *report)
     else report_statistics.send_errors++;
 }
 
+/* The slot's report rate: its own setting, else its type's default. */
+static u32 active_report_hz(void)
+{
+    u32 hz = 0U;
+
+    if (active_profile < CYCLONE2_PROFILE_COUNT)
+        hz = config.profile[active_profile].report_hz;
+    if (!hz) hz = cyclone2_profile_default_hz(active_type);
+    return hz ? hz : 125U;
+}
+
 static void cyclone2_poll(void *private_data)
 {
     struct cyclone2_input_report sample;
     struct cyclone2_input_report host_report;
     u32 now;
+    u32 now_us;
+    int probe_a;
 
     (void)private_data;
     now = sys_timer_get_ms();
@@ -939,11 +959,18 @@ static void cyclone2_poll(void *private_data)
         cyclone2_profile_wake_step(now)) wake_finished();
     cyclone2_rumble_poll(now);
     cyclone2_input_read(&sample);
+    now_us = cyclone2_time_us();
+    probe_a = cyclone2_probe_sample(now_us);
+    cyclone2_timing_poll(now_us);
+    /* The probe stands in for the A contact, so it goes through the
+     * debounce and everything after it like a real press. */
+    if (probe_a > 0) sample.buttons |= CYCLONE2_REPORT_BUTTON_A;
+    else if (probe_a == 0) sample.buttons &= (u16)~CYCLONE2_REPORT_BUTTON_A;
     /* A console command may have started injection during this poll. Use a
      * timestamp taken after it, so unsigned elapsed time cannot underflow. */
     now = sys_timer_get_ms();
     accept_analog_input(&sample);
-    debounce_digital_input(&sample, now);
+    debounce_digital_input(&sample, now_us);
     cyclone2_calibration_step(now, current_report.buttons);
     if (cyclone2_calibration_phase() != CYCLONE2_CAL_IDLE) {
         calibrating = 1U;
@@ -977,14 +1004,17 @@ static void cyclone2_poll(void *private_data)
     if ((injection_status.active || injection_release_pending) &&
         injection_status.synthetic_a)
         host_report.buttons |= CYCLONE2_REPORT_BUTTON_A;
-    if ((s32)(now - next_report_ms) >= 0) {
+    if ((s32)(now_us - next_report_us) >= 0) {
+        u32 period_us = 1000000U / active_report_hz();
+
         send_input_report(&host_report);
-        /* Advance from the intended deadline rather than from a late callback.
-         * This preserves the average 8-ms rate on the 5-ms control clock. */
-        do {
-            next_report_ms += config.report_ms ? config.report_ms : 8U;
-        } while ((s32)(now - next_report_ms) >= 0);
+        /* Advance from the intended deadline rather than from a late poll,
+         * so the average rate holds; a poll more than a period late starts
+         * the schedule again instead of sending a burst. */
+        next_report_us += period_us;
+        if ((s32)(now_us - next_report_us) >= 0) next_report_us = now_us + period_us;
     }
+    cyclone2_timing_poll_done(now_us);
     update_status_led();
     if (sleep_pending) {
         sleep_pending = 0U;
@@ -1050,17 +1080,17 @@ static void cyclone2_start(void)
     cyclone2_input_read(&candidate_report);
     current_report = candidate_report;
     started_at_ms = sys_timer_get_ms();
-    memset(button_candidate_since_ms, 0, sizeof(button_candidate_since_ms));
-    hat_candidate_since_ms = started_at_ms;
-    next_report_ms = started_at_ms;
+    cyclone2_timing_reset();
+    memset(button_changed_us, 0, sizeof(button_changed_us));
+    hat_changed_us = 0U;
+    next_report_us = cyclone2_time_us();
     early_chord = cyclone2_take_early_profile_chord();
     if (boot_request_consume()) {
         start_selected_profile();
     } else if (early_chord != 0U) {
         profile_select(early_chord - 1U, 0U);
     }
-    report_timer = sys_timer_add(NULL, cyclone2_poll,
-                                 CYCLONE2_CONTROL_PERIOD_MS);
+    cyclone2_control_clock_start(cyclone2_poll, CYCLONE2_CONTROL_PERIOD_US);
 }
 
 static int cyclone2_state_machine(struct application *application,

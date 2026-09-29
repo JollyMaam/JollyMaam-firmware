@@ -24,6 +24,7 @@ int cyclone2_profile_send(const struct cyclone2_input_report *report);
 enum cyclone2_profile_event cyclone2_profile_handle_event(
     const struct sys_event *event);
 const char *cyclone2_profile_name(enum cyclone2_profile_type type);
+u16 cyclone2_profile_default_hz(enum cyclone2_profile_type type);
 
 void cyclone2_generic_prepare_stack(void);
 void cyclone2_generic_start(u8 slot, u8 pairing);

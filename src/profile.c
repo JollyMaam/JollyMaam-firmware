@@ -10,6 +10,9 @@
 
 struct profile_operations {
     const char *name;
+    /* profile.#.report_hz=auto: the rate the real controller uses with its
+     * console, so an unconfigured slot behaves like the real thing. */
+    u16 default_hz;
     int (*wake_check)(u8 slot, u8 channel, u8 seconds);
     int (*wake_start)(u8 slot, u8 channel, u8 seconds);
     void (*wake_stop)(void);
@@ -35,6 +38,7 @@ static int switch_wake_check(u8 slot, u8 channel, u8 seconds)
 static const struct profile_operations profiles[] = {
     [CYCLONE2_PROFILE_SWITCH] = {
         .name = "switch",
+        .default_hz = 66U,  /* Pro Controller full input mode: 15 ms */
         .wake_check = switch_wake_check,
         .wake_start = wake_start,
         .wake_stop = wake_stop,
@@ -49,6 +53,7 @@ static const struct profile_operations profiles[] = {
     },
     [CYCLONE2_PROFILE_GENERIC] = {
         .name = "generic",
+        .default_hz = 125U,
         .prepare = cyclone2_generic_prepare_stack,
         .start = cyclone2_generic_start,
         .disconnect = cyclone2_generic_disconnect,
@@ -59,6 +64,7 @@ static const struct profile_operations profiles[] = {
     },
     [CYCLONE2_PROFILE_SWITCH2] = {
         .name = "switch2",
+        .default_hz = 125U,
         .wake_check = cyclone2_switch2_wake_check,
         .prepare = cyclone2_switch2_prepare_stack,
         .start = cyclone2_switch2_start,
@@ -70,6 +76,7 @@ static const struct profile_operations profiles[] = {
     },
     [CYCLONE2_PROFILE_XBOX] = {
         .name = "xbox",
+        .default_hz = 125U, /* assumed; not yet measured on a real pad */
         .start = cyclone2_xbox_start,
         .disconnect = cyclone2_classic_disconnect,
         .exit = cyclone2_classic_exit,
@@ -80,6 +87,7 @@ static const struct profile_operations profiles[] = {
     },
     [CYCLONE2_PROFILE_DUALSENSE] = {
         .name = "dualsense",
+        .default_hz = 250U, /* assumed; not yet measured on a real pad */
         .start = cyclone2_dualsense_start,
         .disconnect = cyclone2_classic_disconnect,
         .exit = cyclone2_classic_exit,
@@ -90,6 +98,7 @@ static const struct profile_operations profiles[] = {
     },
     [CYCLONE2_PROFILE_XBOX_BLE] = {
         .name = "xboxble",
+        .default_hz = 125U, /* assumed; not yet measured on a real pad */
         .prepare = cyclone2_xbox_ble_prepare_stack,
         .start = cyclone2_xbox_ble_start,
         .disconnect = btstack_jl_le_disconnect,
@@ -160,6 +169,12 @@ enum cyclone2_profile_event cyclone2_profile_handle_event(
     const struct sys_event *event)
 {
     return active_profile->handle_event(event);
+}
+
+u16 cyclone2_profile_default_hz(enum cyclone2_profile_type type)
+{
+    if ((unsigned)type >= CYCLONE2_PROFILE_TYPE_COUNT) return 125U;
+    return profiles[type].default_hz;
 }
 
 const char *cyclone2_profile_name(enum cyclone2_profile_type type)

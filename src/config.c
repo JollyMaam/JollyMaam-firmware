@@ -428,14 +428,28 @@ const char *cfg_parse(const struct cfg_item *item, const char *text, u8 *out)
     return "unknown type";
 }
 
+static const char *set_note;
+
 const char *cfg_set(struct config *target, const struct cfg_leaf *leaf,
                     const char *text)
 {
     u8 value[CONFIG_ITEM_MAX / 4U];
+    u8 *data = cfg_leaf_data(target, leaf);
     const char *error = cfg_parse(leaf->item, text, value);
 
-    if (!error) memcpy(cfg_leaf_data(target, leaf), value, leaf->item->size);
-    return error;
+    set_note = NULL;
+    if (error) return error;
+    if (memcmp(data, value, leaf->item->size)) {
+        memcpy(data, value, leaf->item->size);
+        if (leaf->item->changed)
+            set_note = leaf->item->changed(target, leaf->index);
+    }
+    return NULL;
+}
+
+const char *cfg_set_note(void)
+{
+    return set_note;
 }
 
 const char *cfg_check(const struct config *target, const struct cfg_leaf *leaf)

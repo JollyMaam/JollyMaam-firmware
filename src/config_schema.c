@@ -1,9 +1,20 @@
 #include "config.h"
 #include "profile_types.h"
 
-static const struct cfg_choice report_periods[] = {
-    { 5, "5" }, { 8, "8" }, { 10, "10" }, { 16, "16" }, { 0, NULL },
+/* 66 Hz is a Pro Controller's own rate on a Switch (15 ms). */
+static const struct cfg_choice report_rates[] = {
+    { 0, "auto" }, { 66, "66" }, { 100, "100" }, { 125, "125" },
+    { 250, "250" }, { 500, "500" }, { 1000, "1000" }, { 0, NULL },
 };
+
+/* A new type is a new host relationship: its rate starts from the type's
+ * default again. */
+static const char *type_changed(struct config *c, u8 index)
+{
+    if (!c->profile[index].report_hz) return NULL;
+    c->profile[index].report_hz = 0U;
+    return "report_hz back to auto";
+}
 
 static const struct cfg_choice profile_types[] = {
     { CYCLONE2_PROFILE_SWITCH, "switch" },
@@ -43,15 +54,13 @@ static const char *check_trigger_deadzones(const struct config *c, u8 index)
            "inner and outer dead zones together must be at most 50%" : NULL;
 }
 
+/* Retired uids, never to be reused: 2 (global.report_ms). */
 const struct cfg_item config_items[] = {
 
     { .uid = 1, .path = "global.autocommit", .type = CFG_BOOL, CFG_FIELD(autocommit),
       .group = CFG_GROUP_PREFS, .def = 1,
       .help = "write changes to flash by themselves; when off nothing is "
               "written until `config commit`, and a reboot drops the changes" },
-    { .uid = 2, .path = "global.report_ms", .type = CFG_ENUM, CFG_FIELD(report_ms),
-      .group = CFG_GROUP_PREFS, .choices = report_periods, .def = 8,
-      .help = "how often an input report is sent, in ms" },
     { .uid = 3, .path = "identity.seed", .type = CFG_HEX,
       CFG_FIELD(identity_seed), .group = CFG_GROUP_PREFS,
       .apply = CFG_NEXT_CONNECT,
@@ -73,8 +82,13 @@ const struct cfg_item config_items[] = {
     { .uid = 10, .path = "profile.#.type", .type = CFG_ENUM,
       CFG_PROFILE_FIELD(type), .group = CFG_GROUP_PREFS,
       .apply = CFG_NEXT_CONNECT, .choices = profile_types,
-      .def_ptr = default_profile_types,
+      .def_ptr = default_profile_types, .changed = type_changed,
       .help = "what the slot pretends to be" },
+    { .uid = 12, .path = "profile.#.report_hz", .type = CFG_ENUM,
+      CFG_PROFILE_FIELD(report_hz), .group = CFG_GROUP_PREFS,
+      .choices = report_rates,
+      .help = "input reports per second; auto is what the slot's type uses "
+              "with its real console.  `status report.hz` is what is sent" },
     { .uid = 11, .path = "profile.#.rumble", .type = CFG_BOOL,
       CFG_PROFILE_FIELD(rumble), .group = CFG_GROUP_PREFS, .def = 1,
       .help = "let the host drive the rumble motors" },

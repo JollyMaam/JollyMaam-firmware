@@ -145,7 +145,8 @@ static void test_defaults(void)
     reboot();
     CHECK(config_schema_errors == 0);
     CHECK(config.autocommit == 1);
-    CHECK(!strcmp(get("global.report_ms"), "8"));
+    CHECK(!strcmp(get("profile.0.report_hz"), "auto"));
+    CHECK(!strcmp(get("log.hcidump"), "false"));
     CHECK(!strcmp(get("profile.0.type"), "switch"));
     CHECK(!strcmp(get("profile.2.type"), "generic"));
     CHECK(!strcmp(get("profile.3.type"), "switch2"));
@@ -167,8 +168,14 @@ static void test_text(void)
     CHECK(set("profile.0.bond.link_key", "00112233445566778899aabbccddeeff") == NULL);
     CHECK(!strcmp(get("profile.0.bond.link_key"), "00112233445566778899aabbccddeeff"));
     CHECK(set("profile.0.bond.link_key", "0011") != NULL);
-    CHECK(set("global.report_ms", "5") == NULL && config.report_ms == 5);
-    CHECK(set("global.report_ms", "6") != NULL && config.report_ms == 5);
+    CHECK(set("profile.0.report_hz", "250") == NULL && config.profile[0].report_hz == 250);
+    CHECK(set("profile.0.report_hz", "251") != NULL && config.profile[0].report_hz == 250);
+    CHECK(set("profile.0.type", "switch") == NULL && config.profile[0].report_hz == 250);
+    CHECK(cfg_set_note() == NULL);              /* same type: kept */
+    CHECK(set("profile.0.type", "dualsense") == NULL && config.profile[0].report_hz == 0);
+    CHECK(cfg_set_note() != NULL);              /* new type: back to auto */
+    CHECK(!strcmp(get("profile.0.report_hz"), "auto"));
+    CHECK(set("profile.0.type", "switch") == NULL);
     CHECK(set("profile.2.type", "xboxble") == NULL && !strcmp(get("profile.2.type"), "xboxble"));
     CHECK(set("profile.2.type", "ps5") != NULL);
     CHECK(set("profile.0.rumble", "off") == NULL && config.profile[0].rumble == 0);
@@ -193,7 +200,7 @@ static void test_store(void)
     memset(flash_length, 0, sizeof(flash_length));
     reboot();
     writes_reset();
-    CHECK(set("global.report_ms", "5") == NULL);
+    CHECK(set("log.hcidump", "true") == NULL);
     config_poll(now, 1);
     CHECK(total_writes() == 0);                  /* not settled yet */
     now += 50;
@@ -205,14 +212,15 @@ static void test_store(void)
     config_poll(now, 1);
     CHECK(flash_writes[48] == 1 && total_writes() == 1);
     CHECK(!config_pending());
-    /* 0xC1, key (uid 2 << 3 = 16), length 1, value 5 */
-    CHECK(flash_length[48] == 4 && flash_data[48][0] == 0xC1 &&
-          flash_data[48][1] == 16 && flash_data[48][2] == 1 && flash_data[48][3] == 5);
+    /* 0xC1, key (uid 62 << 3 = 496: f0 03), length 1, value 1 */
+    CHECK(flash_length[48] == 5 && flash_data[48][0] == 0xC1 &&
+          flash_data[48][1] == 0xF0 && flash_data[48][2] == 0x03 &&
+          flash_data[48][3] == 1 && flash_data[48][4] == 1);
     reboot();
-    CHECK(config.report_ms == 5 && !config_pending());
+    CHECK(config.log.hcidump == 1 && !config_pending());
 
     /* Back to the default: the record goes. */
-    CHECK(set("global.report_ms", "8") == NULL);
+    CHECK(set("log.hcidump", "false") == NULL);
     settle();
     CHECK(flash_length[48] == 4 && flash_data[48][1] == 0);
 
@@ -249,14 +257,14 @@ static void test_autocommit(void)
     reboot();
     writes_reset();
     CHECK(set("global.autocommit", "false") == NULL);
-    CHECK(set("global.report_ms", "10") == NULL);
+    CHECK(set("log.hcidump", "true") == NULL);
     settle();
     CHECK(total_writes() == 0);                  /* not even autocommit */
     reboot();
-    CHECK(config.autocommit == 1 && config.report_ms == 8);
+    CHECK(config.autocommit == 1 && config.log.hcidump == 0);
 
     CHECK(set("global.autocommit", "false") == NULL);
-    CHECK(set("global.report_ms", "10") == NULL);
+    CHECK(set("log.hcidump", "true") == NULL);
     CHECK(config_commit(0) == 0 && config_commit_queued());
     config_poll(now, 0);
     CHECK(total_writes() == 0);                  /* waits for the radio */
@@ -264,7 +272,7 @@ static void test_autocommit(void)
     config_poll(now, 1);
     CHECK(total_writes() == 1 && !config_commit_queued());
     reboot();
-    CHECK(config.autocommit == 0 && config.report_ms == 10);
+    CHECK(config.autocommit == 0 && config.log.hcidump == 1);
 
     /* Turning it back on writes what is pending. */
     CHECK(set("profile.1.type", "xbox") == NULL);
@@ -278,7 +286,7 @@ static void test_autocommit(void)
     /* unset config keeps autocommit; factory reset does not. */
     CHECK(set("global.autocommit", "off") == NULL);
     config_reset_all(1);
-    CHECK(config.autocommit == 0 && config.report_ms == 8);
+    CHECK(config.autocommit == 0 && config.log.hcidump == 0);
     config_reset_all(0);
     CHECK(config.autocommit == 1);
     CHECK(config_commit(1) == 1);
@@ -290,12 +298,12 @@ static void test_damage(void)
     static const u8 prefs[] = {
         0xC1,
         0xF8, 0x7F, 2, 1, 2,        /* unknown uid 2047: skipped */
-        2 << 3, 2, 5, 0,            /* report_ms, wrong length */
+        0xF0, 0x03, 2, 1, 0,        /* log.hcidump, wrong length */
         (10 << 3) | 1, 1, 99,       /* profile.1.type = 99: not a type */
         (10 << 3) | 7, 1, 2,        /* profile.7.type: no such slot */
         0xA8, 0x01, 6, 1, 2, 3, 4, 5, 6, /* profile.0.bond.peer, in PREFS */
         (11 << 3) | 2, 1, 0,        /* profile.2.rumble = false: fine */
-        2 << 3, 1, 16,              /* report_ms = 16: fine */
+        0xF0, 0x03, 1, 1,           /* log.hcidump = true: fine */
         (10 << 3) | 0, 9,           /* truncated */
     };
 
@@ -308,7 +316,7 @@ static void test_damage(void)
     reboot();
     CHECK(config_dropped_records == 5);
     CHECK(config.profile[2].rumble == 0);
-    CHECK(config.report_ms == 16);
+    CHECK(config.log.hcidump == 1);
     CHECK(config.profile[1].type == 0);
     CHECK(!strcmp(get("cal.stick.0.center"), "16384,16384"));
     CHECK(!config_pending());
@@ -405,7 +413,7 @@ static void test_paths(void)
         CHECK(strchr(path, '#') == NULL);
         count++;
     }
-    CHECK(count == 6 + 4 * 8 + 2 * 6 + 2 * 4);
+    CHECK(count == 5 + 4 * 9 + 2 * 6 + 2 * 4);
 }
 
 int main(int argc, char **argv)

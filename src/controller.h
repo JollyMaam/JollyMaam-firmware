@@ -10,6 +10,10 @@ struct cyclone2_report_statistics {
     u32 send_busy;
     u32 send_deferred;
     u32 send_errors;
+    /* Reports per second the slot is set to send, and what it sent in the
+     * last whole second. */
+    u32 target_hz;
+    u32 hz;
 };
 
 struct cyclone2_connection_status {

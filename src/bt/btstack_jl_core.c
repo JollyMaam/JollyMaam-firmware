@@ -79,6 +79,8 @@ static volatile uint8_t jl_request;
 static uint16_t jl_pairings;
 
 static uint32_t jl_unsniff_next_ms;
+/* Ask for a short poll interval once the HID channel is up (see jl_tx_poll). */
+static volatile uint8_t jl_qos_pending;
 
 static uint32_t jl_tx_sent;
 static uint32_t jl_tx_stall_since;
@@ -479,6 +481,18 @@ static void jl_tx_poll(btstack_data_source_t *data_source,
     if ((request & JL_REQUEST_UNSNIFF) != 0) {
         jl_exit_sniff_if_needed();
     }
+    /* The host is usually the master, and a slave may only transmit when the
+     * master polls it: every 40 slots (25 ms) by default, which delivered
+     * reports in bursts 25-40 ms apart.  Guaranteed service with a 1.25 ms
+     * latency asks the master for a poll interval to match.  (This
+     * controller reports the result with event code 0x01, not 0x0d; it
+     * accepts with the values asked for.) */
+    if (jl_qos_pending && jl_con_handle_valid &&
+        hci_can_send_command_packet_now()) {
+        jl_qos_pending = 0;
+        hci_send_cmd(&hci_qos_setup, jl_con_handle, 0, 2, 8000, 0, 1250,
+                     0xffffffffu);
+    }
 
     if ((request & JL_REQUEST_SHUTDOWN) != 0) {
 
@@ -649,6 +663,7 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
                     hid_subevent_connection_opened_get_bd_addr(packet, event_addr);
                     memcpy(jl_peer_address, event_addr, sizeof(jl_peer_address));
                     jl_peer_valid = 1;
+                    jl_qos_pending = 1;
                     jl_notify_logged(BTSTACK_JL_EVENT_HID_OPENED, 0, event_addr);
                     break;
 

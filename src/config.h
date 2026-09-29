@@ -20,6 +20,9 @@ struct config_bond {
 struct config_profile {
     u8 type;
     u8 rumble;
+    /* Input reports per second; 0 = auto, the type's own default
+     * (cyclone2_profile_default_hz).  Back to auto when the type changes. */
+    u16 report_hz;
     u8 address[6];
     struct config_bond bond;
 };
@@ -37,7 +40,6 @@ struct config_log {
 
 struct config {
     u8 autocommit;
-    u8 report_ms;
     struct config_log log;
     u8 identity_seed[16];
     struct config_profile profile[CONFIG_PROFILES];
@@ -97,6 +99,9 @@ struct cfg_item {
     void (*derived)(u8 index, u8 *out);
 
     void (*get)(void *out);
+    /* After a set that changed the value: adjust what depends on it, and
+     * say what else changed (NULL: nothing). */
+    const char *(*changed)(struct config *config, u8 index);
     const char *help;
 };
 
@@ -195,6 +200,8 @@ void cfg_format(const struct cfg_item *item, const u8 *value, char *out,
                 u32 size);
 const char *cfg_parse(const struct cfg_item *item, const char *text, u8 *out);
 
+/* What the last successful cfg_set also changed, or NULL. */
+const char *cfg_set_note(void);
 const char *cfg_set(struct config *target, const struct cfg_leaf *leaf,
                     const char *text);
 const char *cfg_check(const struct config *target, const struct cfg_leaf *leaf);

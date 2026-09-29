@@ -183,6 +183,10 @@ const struct cfg_item status_items[] = {
     { .path = "radio.idle", .type = CFG_BOOL, RADIO(idle),
       .help = "the Bluetooth task has powered the controller off" },
 
+    { .path = "report.target_hz", .type = CFG_UINT, REPORT(target_hz),
+      .help = "reports per second the slot is set to send (profile.#.report_hz)" },
+    { .path = "report.hz", .type = CFG_UINT, REPORT(hz),
+      .help = "reports the profile took in the last whole second" },
     { .path = "report.polls", .type = CFG_UINT, REPORT(poll_count) },
     { .path = "report.attempts", .type = CFG_UINT, REPORT(send_attempts) },
     { .path = "report.accepted", .type = CFG_UINT, REPORT(send_accepted) },

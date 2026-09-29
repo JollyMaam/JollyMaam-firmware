@@ -11,6 +11,7 @@
 #include "profile.h"
 #include "profile_classic.h"
 #include "rumble.h"
+#include "timing.h"
 #include "usb.h"
 #include "profile_switch_wake.h"
 
@@ -227,6 +228,81 @@ static int cmd_inject(int argc, char **argv)
     return 0;
 }
 
+static int cmd_clock(int argc, char **argv)
+{
+    (void)argv;
+    if (argc != 1) return CONSOLE_USAGE;
+    console_printf("clock %u\r\n", (unsigned)cyclone2_time_us());
+    return 0;
+}
+
+/* debug probe EDGES PERIOD_MS | take | stop.  `take` prints what is
+ * waiting, oldest first: p INDEX VALUE ARRIVAL_US SENT_US. */
+static int cmd_probe(int argc, char **argv)
+{
+    struct cyclone2_probe_record record;
+    u32 edges;
+    u32 period;
+    u32 count = 0U;
+
+    if (argc == 2 && !strcmp(argv[1], "stop")) {
+        cyclone2_probe_stop();
+        console_ok("probe stopped");
+        return 0;
+    }
+    if (argc == 2 && !strcmp(argv[1], "take")) {
+        while (count < 48U && cyclone2_probe_take(&record)) {
+            console_printf("p %u %u %u %u\r\n", (unsigned)record.index,
+                           (unsigned)record.value,
+                           (unsigned)record.arrival_us,
+                           (unsigned)record.sent_us);
+            count++;
+        }
+        console_ok("taken=%u lost=%u active=%u", (unsigned)count,
+                   (unsigned)cyclone2_probe_lost(),
+                   (unsigned)cyclone2_probe_active());
+        return 0;
+    }
+    if (argc != 3 || number(argv[1], &edges) != 0 ||
+        number(argv[2], &period) != 0) return CONSOLE_USAGE;
+    cyclone2_inject_stop();
+    if (cyclone2_probe_start(edges, period) != 0)
+        return console_fail("period is 40..2000 ms");
+    console_ok("probe started");
+    return 0;
+}
+
+/* debug timing [reset]: poll and report intervals since the last reset. */
+static int cmd_timing(int argc, char **argv)
+{
+    struct cyclone2_timing t;
+    unsigned bin;
+
+    if (argc == 2 && !strcmp(argv[1], "reset")) {
+        cyclone2_timing_reset();
+        console_ok("timing reset");
+        return 0;
+    }
+    if (argc != 1) return CONSOLE_USAGE;
+    cyclone2_timing_get(&t);
+    console_printf("timing polls=%u poll_min_us=%u poll_max_us=%u sends=%u "
+                   "send_min_us=%u send_max_us=%u send_avg_us=%u hz=%u\r\n",
+                   (unsigned)t.poll_count, (unsigned)t.poll_min_us,
+                   (unsigned)t.poll_max_us, (unsigned)t.send_count,
+                   (unsigned)t.send_min_us, (unsigned)t.send_max_us,
+                   t.send_count ? (unsigned)(t.send_total_us / t.send_count) : 0U,
+                   (unsigned)t.last_second_hz);
+    console_printf("busy_avg_us=%u busy_max_us=%u skipped=%u\r\n",
+                   t.poll_count ? (unsigned)(t.busy_total_us / t.poll_count) : 0U,
+                   (unsigned)t.busy_max_us,
+                   (unsigned)cyclone2_control_clock_skipped());
+    console_printf("send_ms");
+    for (bin = 0U; bin < CYCLONE2_TIMING_BINS; bin++)
+        console_printf(" %u", (unsigned)t.send_bins[bin]);
+    console_printf("\r\n");
+    return 0;
+}
+
 static int cmd_rumble(int argc, char **argv)
 {
     u32 left;
@@ -406,12 +482,29 @@ static int ram_address(const char *text, u32 *address)
     return number(text, address) != 0 || *address > 0x3ffffU ? -1 : 0;
 }
 
+/* Reading is also allowed in the CPU and peripheral register windows
+ * (0x100000-0x1fffff): timers, clocks and the like, for measurements. */
+static int sfr_or_ram_address(const char *text, u32 *address)
+{
+    char prefixed[12];
+
+    if (ram_address(text, address) == 0) return 0;
+    if (!(text[0] == '0' && (text[1] == 'x' || text[1] == 'X'))) {
+        if (strlen(text) > 8U) return -1;
+        snprintf(prefixed, sizeof(prefixed), "0x%s", text);
+        text = prefixed;
+    }
+    if (number(text, address) != 0) return -1;
+    return *address >= 0x100000U && *address < 0x200000U &&
+           !(*address & 3U) ? 0 : -1;
+}
+
 static int cmd_peek(int argc, char **argv)
 {
     u32 address;
     u32 length = 16U;
 
-    if (argc < 2 || argc > 3 || ram_address(argv[1], &address) != 0 ||
+    if (argc < 2 || argc > 3 || sfr_or_ram_address(argv[1], &address) != 0 ||
         (argc == 3 && (number(argv[2], &length) != 0 || !length || length > 64U)))
         return CONSOLE_USAGE;
     console_hex((const u8 *)address, length);
@@ -451,6 +544,8 @@ static const char *const inject_words[] = { "a", "stop", NULL };
 static const char *const imu_words[] = { "init", "stop", "sample", NULL };
 static const char *const input_words[] = { "reset", NULL };
 static const char *const rumble_words[] = { "stop", NULL };
+static const char *const probe_words[] = { "take", "stop", NULL };
+static const char *const timing_words[] = { "reset", NULL };
 static const char *const reset_words[] = { "--all", NULL };
 static const char *const get_words[] = { "--changed", NULL };
 
@@ -483,6 +578,11 @@ static const struct console_command debug_commands[] = {
       "(latency tests)", cmd_inject, inject_words },
     { "rumble", "LEFT RIGHT MS | stop", "run the motors (0..255)", cmd_rumble,
       rumble_words },
+    { "clock", NULL, "the pad's microsecond clock (latency tests)", cmd_clock },
+    { "probe", "EDGES PERIOD_MS | take | stop", "random-phase A edges before "
+      "the debounce, timestamped (latency tests)", cmd_probe, probe_words },
+    { "timing", "[reset]", "poll and report intervals", cmd_timing,
+      timing_words },
     { "imu", "init|stop|sample", "the motion sensor", cmd_imu, imu_words },
     { "input", "reset", "zero the input counters (status input)", cmd_input,
       input_words },
@@ -495,7 +595,7 @@ static const struct console_command debug_commands[] = {
     { "nvscan", NULL, "non-blank lines of the controller's retention memory",
       cmd_nvscan },
     { "delall", NULL, "ask the stack to forget every device", cmd_delall },
-    { "peek", "ADDR [LEN]", "read RAM (hex address)", cmd_peek },
+    { "peek", "ADDR [LEN]", "read RAM or registers (hex address)", cmd_peek },
     { "poke", "ADDR HEX", "write RAM: contiguous hex, deadbeef", cmd_poke },
     { "complete", "LINE", "what Tab would offer for LINE", console_cmd_complete },
     { NULL },
