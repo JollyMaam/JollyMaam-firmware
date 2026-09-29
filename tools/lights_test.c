@@ -160,6 +160,10 @@ static void test_grips(void)
     CHECK(same(light(CYCLONE2_LIGHT_GRIP_LEFT), blue));
     CHECK(same(light(CYCLONE2_LIGHT_GRIP_RIGHT), blue));
     CHECK(same(light(CYCLONE2_LIGHT_HOME), blue));      /* Home stays the slot's */
+    in.host.lightbar = dark;                            /* host switched it off */
+    render_at(100U);
+    CHECK(same(light(CYCLONE2_LIGHT_GRIP_LEFT), dark));
+    CHECK(same(light(CYCLONE2_LIGHT_GRIP_RIGHT), dark));
 
     /* Rumble and input only while connected. */
     reset(CYCLONE2_CONTROLLER_CONNECTING, 0U);

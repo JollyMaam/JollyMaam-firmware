@@ -254,7 +254,7 @@ const struct cfg_item status_items[] = {
       .help = "bar lights the host lit, bit 0 = top" },
     { .path = "led.players_flash", .type = CFG_HEX, LIGHTS(players_flash) },
     { .path = "led.host_lightbar", .type = CFG_BOOL, LIGHTS(has_lightbar),
-      .help = "the host requested solid grip lights (shown in profile colour)" },
+      .help = "the host sent a lightbar setting (black turns grips off)" },
     { .path = "led.lightbar", .type = CFG_COLOUR, LIGHTS(lightbar),
       .help = "the colour received from the host (grips use profile colour)" },
     { .path = "led.lit", .type = CFG_HEX, LIGHTS(lit),

@@ -81,8 +81,8 @@ struct cyclone2_bar_look {
 
 enum cyclone2_grips_show {
     CYCLONE2_GRIPS_WAVE,
-    /* The host may request solid grip lights, shown in the slot's colour;
-     * the grips also answer to rumble and input (led.grips). */
+    /* A nonblack host lightbar request lights the grips in the slot's
+     * colour; they also answer to rumble and input (led.grips). */
     CYCLONE2_GRIPS_LIGHTBAR,
 };
 

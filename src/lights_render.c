@@ -217,7 +217,9 @@ static void render_grips(const struct cyclone2_scene *scene,
         return;
     }
     for (side = 0U; side < 2U; side++) {
-        u32 level = in->host.has_lightbar ? 255U : 0U;
+        u32 level = in->host.has_lightbar &&
+                    (in->host.lightbar.red || in->host.lightbar.green ||
+                     in->host.lightbar.blue) ? 255U : 0U;
 
         if ((in->grip_effects & CONFIG_GRIPS_RUMBLE) && in->rumble[side] > level)
             level = in->rumble[side];
