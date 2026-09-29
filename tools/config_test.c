@@ -155,7 +155,7 @@ static void test_defaults(void)
     CHECK(!strcmp(get("cal.stick.0.center"), "16384,16384"));
     CHECK(!strcmp(get("profile.A.colour"), "0000ff"));
     CHECK(!strcmp(get("profile.X.colour"), "8000ff"));
-    CHECK(!strcmp(get("led.brightness"), "4"));
+    CHECK(!strcmp(get("led.brightness"), "2"));
     CHECK(!strcmp(get("led.grips"), "none"));
     CHECK(!config_pending());
 }
@@ -334,7 +334,7 @@ static void test_damage(void)
     CHECK(!strcmp(get("cal.stick.0.center"), "16384,16384"));
     CHECK(!strcmp(get("profile.A.colour"), "0000ff"));
     CHECK(!strcmp(get("profile.X.colour"), "8000ff"));
-    CHECK(!strcmp(get("led.brightness"), "4"));
+    CHECK(!strcmp(get("led.brightness"), "2"));
     CHECK(!strcmp(get("led.grips"), "none"));
     CHECK(!config_pending());
 }

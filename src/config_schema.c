@@ -96,7 +96,7 @@ const struct cfg_item config_items[] = {
               "reboot, which is how to trace one" },
 
     { .uid = 70, .path = "led.brightness", .type = CFG_UINT,
-      CFG_FIELD(led.brightness), .group = CFG_GROUP_PREFS, .def = 4,
+      CFG_FIELD(led.brightness), .group = CFG_GROUP_PREFS, .def = 2,
       .min = 1, .max = 100,
       .help = "every light, % of full scale (the host's colours too)" },
     { .uid = 71, .path = "led.grips", .type = CFG_ENUM, CFG_FIELD(led.grips),
