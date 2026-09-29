@@ -43,9 +43,9 @@ static const u8 default_battery_colour[3] = { 0x05, 0x02, 0x00 };
 
 static const struct cfg_choice grip_modes[] = {
     { CONFIG_GRIPS_NONE, "none" },
-    { CONFIG_GRIPS_RUMBLE, "rumble" },
-    { CONFIG_GRIPS_INPUT, "input" },
-    { CONFIG_GRIPS_BOTH, "both" },
+    { CONFIG_GRIPS_RUMBLE, "reactive-rumble" },
+    { CONFIG_GRIPS_INPUT, "reactive-input" },
+    { CONFIG_GRIPS_BOTH, "reactive" },
     { CONFIG_GRIPS_LIGHTBAR, "lightbar" },
     { 0, NULL },
 };
@@ -130,8 +130,9 @@ const struct cfg_item config_items[] = {
       CFG_PROFILE_FIELD(grips), .group = CFG_GROUP_PREFS,
       .choices = grip_modes, .def = CONFIG_GRIPS_LIGHTBAR,
       .help = "what drives the grip lights while connected: lightbar shows "
-              "host colour if supported, rumble/input follow that side, "
-              "both combines them, none keeps them dark" },
+              "host colour if supported; reactive-rumble follows rumble, "
+              "reactive-input follows controls, reactive combines both; "
+              "none keeps them dark" },
 
     { .uid = 20, .path = "profile.#.address", .type = CFG_MAC,
       CFG_PROFILE_FIELD(address), .group = CFG_GROUP_BOND,

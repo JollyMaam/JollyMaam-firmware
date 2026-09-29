@@ -197,10 +197,17 @@ static void test_text(void)
     CHECK(set("profile.0.rumble", "maybe") != NULL);
     CHECK(set("profile.Y.grips", "none") == NULL &&
           config.profile[3].grips == CONFIG_GRIPS_NONE);
-    CHECK(set("profile.Y.grips", "both") == NULL &&
+    CHECK(set("profile.Y.grips", "reactive") == NULL &&
           config.profile[3].grips == CONFIG_GRIPS_BOTH);
+    CHECK(set("profile.Y.grips", "reactive-input") == NULL &&
+          config.profile[3].grips == CONFIG_GRIPS_INPUT);
+    CHECK(set("profile.Y.grips", "reactive-rumble") == NULL &&
+          config.profile[3].grips == CONFIG_GRIPS_RUMBLE);
     CHECK(set("profile.Y.grips", "lightbar") == NULL &&
           config.profile[3].grips == CONFIG_GRIPS_LIGHTBAR);
+    CHECK(set("profile.Y.grips", "rumble") != NULL);
+    CHECK(set("profile.Y.grips", "input") != NULL);
+    CHECK(set("profile.Y.grips", "both") != NULL);
     CHECK(set("profile.Y.grips", "maybe") != NULL);
     CHECK(set("profile.0.bond.key_type", "9") != NULL);
     CHECK(set("profile.0.bond.key_type", "0x4") == NULL && config.profile[0].bond.key_type == 4);
@@ -290,10 +297,10 @@ static void test_store(void)
     CHECK(!strcmp(get("led.idle_colour"), "010203"));
     CHECK(!strcmp(get("led.battery_colour"), "050300"));
 
-    CHECK(set("profile.Y.grips", "rumble") == NULL);
+    CHECK(set("profile.Y.grips", "reactive-rumble") == NULL);
     settle();
     reboot();
-    CHECK(!strcmp(get("profile.Y.grips"), "rumble"));
+    CHECK(!strcmp(get("profile.Y.grips"), "reactive-rumble"));
 }
 
 static void test_autocommit(void)
