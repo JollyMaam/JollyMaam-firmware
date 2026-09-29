@@ -151,6 +151,8 @@ void config_init(void);
  * application task's poll. */
 void config_poll(u32 now_ms, int radio_quiet);
 
+
+
 int config_commit(int radio_quiet);
 int config_commit_queued(void);
 
@@ -169,9 +171,22 @@ void config_derived_address(u8 slot, u8 address[6]);
 
 void config_slot_address_fresh(u8 slot);
 
-#define config_peer(slot) (config.profile[(slot) % CONFIG_PROFILES].bond.peer)
+/* Read-only: `config` changes only through config.c (cfg_set and the
+ * setters below), which is how autocommit knows something changed. */
+#define config_peer(slot) \
+    ((const u8 *)config.profile[(slot) % CONFIG_PROFILES].bond.peer)
 
-void config_bond_clear(u8 slot);
+/* Run-time writers, from any task. */
+void config_bond_forget_keys(u8 slot);          /* keeps the peer address */
+void config_bond_set_peer(u8 slot, const u8 peer[6]);   /* NULL: none */
+void config_bond_set_link_key(u8 slot, const u8 peer[6], const u8 key[16],
+                              u8 type);
+void config_bond_clear_link_key(u8 slot);
+void config_bond_set_le(u8 slot, const u8 peer[6], const u8 ltk[16]);
+void config_pin_slot_address(u8 slot, const u8 address[6]);
+void config_set_stick_cal(u8 index, const struct cal_stick *stick);
+void config_set_trigger_cal(u8 index, const struct cal_trigger *trigger);
+void config_set_autocommit(u8 on);
 
 struct cfg_leaf {
     const struct cfg_item *item;

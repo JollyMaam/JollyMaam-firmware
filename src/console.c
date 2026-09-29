@@ -428,7 +428,7 @@ int config_cmd_reset(int argc, char **argv)
 
     if (argc >= 2 && !strcmp(argv[1], "--all")) {
         if (argc == 3 && !strcmp(argv[2], "--no-commit")) {
-            config.autocommit = 0U;
+            config_set_autocommit(0U);
             config_reset_all(1);
             console_ok("every setting is back to its default; nothing written "
                        "(config commit keeps it, a reboot undoes it)");

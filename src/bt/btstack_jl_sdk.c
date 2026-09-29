@@ -87,15 +87,10 @@ static int jl_link_key_get(const u8 address[6], u8 key[16], u8 *type)
 
 static void jl_link_key_put(const u8 address[6], const u8 key[16], u8 type)
 {
-    struct config_bond *bond = running_bond();
     const u8 *local = bt_get_mac_addr();
 
-    memcpy(bond->peer, address, 6);
-    memcpy(bond->link_key, key, 16);
-    bond->key_type = type;
-
-    if (local) memcpy(config.profile[get_cur_bt_idx() % CONFIG_PROFILES].address,
-                      local, 6);
+    config_bond_set_link_key(get_cur_bt_idx(), address, key, type);
+    if (local) config_pin_slot_address(get_cur_bt_idx(), local);
     cyclone2_bringup_record(0x3500u | key[0]);
     cyclone2_bringup_record(0x3600u | key[15]);
 }
@@ -105,8 +100,7 @@ static void jl_link_key_delete(const u8 address[6])
     struct config_bond *bond = running_bond();
 
     if (memcmp(bond->peer, address, 6) != 0) return;
-    memset(bond->link_key, 0, sizeof(bond->link_key));
-    bond->key_type = 0;
+    config_bond_clear_link_key(get_cur_bt_idx());
 }
 
 static int jl_link_key_iterator(u8 index, u8 address[6], u8 key[16], u8 *type)
@@ -475,12 +469,7 @@ u32 user_send_cmd_prepare(USER_CMD_TYPE cmd, u16 param_len, u8 *param)
             memset(peer_address, 0, sizeof(peer_address));
             btstack_jl_core_delete_all_link_keys();
 
-            {
-                struct config_bond *bond = running_bond();
-
-                memset(bond->link_key, 0, sizeof(bond->link_key));
-                bond->key_type = 0;
-            }
+            config_bond_clear_link_key(get_cur_bt_idx());
             return 0;
 
         case USER_CTRL_ALL_SNIFF_EXIT:

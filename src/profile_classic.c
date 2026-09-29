@@ -133,7 +133,7 @@ void cyclone2_classic_start(const struct cyclone2_classic_profile *profile,
     if (pairing) {
         memcpy(bond_to_delete, config_peer(slot), sizeof(bond_to_delete));
         bond_delete_pending = 1U;
-        memset(config_peer(slot), 0, 6U);
+        config_bond_set_peer(slot, NULL);
     }
 
     bt_set_local_name((char *)profile->local_name,
@@ -217,7 +217,7 @@ enum cyclone2_profile_event cyclone2_classic_handle_event(
             if (classic_profile && classic_profile->link_up)
                 classic_profile->link_up();
             log_peer_address("connected", event->u.bt.args);
-            memcpy(config_peer(classic_slot), event->u.bt.args, 6U);
+            config_bond_set_peer(classic_slot, event->u.bt.args);
         } else if (event->u.bt.event == BT_STATUS_ENCRY_COMPLETE) {
             cyclone2_bringup_record(0x6003u);
             log_peer_address("encrypted", event->u.bt.args);
@@ -226,7 +226,7 @@ enum cyclone2_profile_event cyclone2_classic_handle_event(
              * wake sequence aims at (see docs/radio.md), so it is worth
              * writing at the point where the console is known to have
              * completed the exchange, not only when the ACL came up. */
-            memcpy(config_peer(classic_slot), event->u.bt.args, 6U);
+            config_bond_set_peer(classic_slot, event->u.bt.args);
             sys_timeout_add(NULL, connect_hid_after_encryption,
                             CLASSIC_HID_CONNECT_DELAY_MS);
         } else if (event->u.bt.event == BT_STATUS_FIRST_DISCONNECT ||

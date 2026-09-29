@@ -24,7 +24,6 @@
 struct config config;
 static struct config committed;
 
-static u32 last_hash;
 static u32 changed_ms;
 static u8 commit_requested;
 static u8 buffer[CONFIG_ITEM_MAX];
@@ -429,6 +428,7 @@ const char *cfg_parse(const struct cfg_item *item, const char *text, u8 *out)
 }
 
 static const char *set_note;
+static void config_changed(void);
 
 const char *cfg_set(struct config *target, const struct cfg_leaf *leaf,
                     const char *text)
@@ -441,6 +441,7 @@ const char *cfg_set(struct config *target, const struct cfg_leaf *leaf,
     if (error) return error;
     if (memcmp(data, value, leaf->item->size)) {
         memcpy(data, value, leaf->item->size);
+        config_changed();
         if (leaf->item->changed)
             set_note = leaf->item->changed(target, leaf->index);
     }
@@ -658,28 +659,33 @@ static void flush(void)
     if (written) log("wrote %u group%s to flash", written, written == 1U ? "" : "s");
 }
 
-static u32 config_hash(void)
-{
-    const u8 *data = (const u8 *)&config;
-    u32 hash = 2166136261U;
-    u32 index;
+/* Bumped by every change (config_changed()), from any task; the poll only
+ * compares it, so an unchanged configuration costs nothing to watch. */
+static volatile u32 change_count;
+static u32 change_seen;
+/* Something may differ from flash: a change since the last write, or the
+ * identity seed drawn at boot. */
+static u8 check_needed = 1U;
 
-    for (index = 0U; index < sizeof(config); index++)
-        hash = (hash ^ data[index]) * 16777619U;
-    return hash;
+static void config_changed(void)
+{
+    change_count++;
 }
 
 void config_poll(u32 now_ms, int radio_quiet)
 {
-    u32 hash = config_hash();
+    u32 count = change_count;
 
-    if (hash != last_hash) {
-        last_hash = hash;
+    if (count != change_seen) {
+        change_seen = count;
         changed_ms = now_ms;
+        check_needed = 1U;
     }
+    if (!check_needed && !commit_requested) return;
     if (!(config.autocommit || commit_requested) || !radio_quiet ||
         now_ms - changed_ms < CONFIG_SETTLE_MS) return;
     commit_requested = 0U;
+    check_needed = 0U;
     if (config_pending()) flush();
 }
 
@@ -718,6 +724,7 @@ void config_reset_all(int keep_autocommit)
     while (cfg_leaf_next(config_items, config_item_count, &position, &leaf))
         cfg_leaf_default(&leaf, cfg_leaf_data(&config, &leaf));
     if (keep_autocommit) config.autocommit = autocommit;
+    config_changed();
     if (!config_flash_uid() && all_zero(config.identity_seed,
                                         sizeof(config.identity_seed)))
         get_random_number(config.identity_seed, sizeof(config.identity_seed));
@@ -778,7 +785,8 @@ void config_init(void)
     if (!config_flash_uid() &&
         all_zero(config.identity_seed, sizeof(config.identity_seed)))
         get_random_number(config.identity_seed, sizeof(config.identity_seed));
-    last_hash = config_hash();
+    change_seen = change_count;
+    check_needed = 1U;
 }
 
 #ifndef CONFIG_HOST_TEST
@@ -856,6 +864,7 @@ void config_slot_address_fresh(u8 slot)
     u32 hash;
 
     config_slot_address(slot, address);
+    config_changed();
     /* Least significant byte first: address[0..2] are the three octets
      * printed last. */
     hash = fnv1a(fnv1a(2166136261U, address, 6U), address, 6U);
@@ -866,8 +875,81 @@ void config_slot_address_fresh(u8 slot)
     address[2] = (u8)(hash >> 16);
 }
 
-void config_bond_clear(u8 slot)
+/* Writers for what the stack and profiles learn at run time.  Every change
+ * to `config` goes through this file, so autocommit sees all of them. */
+
+static struct config_bond *bond_of(u8 slot)
 {
-    if (slot >= CONFIG_PROFILES) return;
-    memset(&config.profile[slot].bond, 0, sizeof(config.profile[slot].bond));
+    return &config.profile[slot % CONFIG_PROFILES].bond;
+}
+
+void config_bond_forget_keys(u8 slot)
+{
+    struct config_bond *bond = bond_of(slot);
+
+    memset(bond->link_key, 0, sizeof(bond->link_key));
+    bond->key_type = 0U;
+    memset(bond->le_peer, 0, sizeof(bond->le_peer));
+    memset(bond->ltk, 0, sizeof(bond->ltk));
+    config_changed();
+}
+
+void config_bond_set_peer(u8 slot, const u8 peer[6])
+{
+    if (peer) memcpy(bond_of(slot)->peer, peer, 6U);
+    else memset(bond_of(slot)->peer, 0, 6U);
+    config_changed();
+}
+
+void config_bond_set_link_key(u8 slot, const u8 peer[6], const u8 key[16],
+                              u8 type)
+{
+    struct config_bond *bond = bond_of(slot);
+
+    memcpy(bond->peer, peer, 6U);
+    memcpy(bond->link_key, key, 16U);
+    bond->key_type = type;
+    config_changed();
+}
+
+void config_bond_clear_link_key(u8 slot)
+{
+    struct config_bond *bond = bond_of(slot);
+
+    memset(bond->link_key, 0, sizeof(bond->link_key));
+    bond->key_type = 0U;
+    config_changed();
+}
+
+void config_bond_set_le(u8 slot, const u8 peer[6], const u8 ltk[16])
+{
+    struct config_bond *bond = bond_of(slot);
+
+    memcpy(bond->le_peer, peer, 6U);
+    memcpy(bond->ltk, ltk, 16U);
+    config_changed();
+}
+
+void config_pin_slot_address(u8 slot, const u8 address[6])
+{
+    memcpy(config.profile[slot % CONFIG_PROFILES].address, address, 6U);
+    config_changed();
+}
+
+void config_set_stick_cal(u8 index, const struct cal_stick *stick)
+{
+    config.cal.stick[index % 2U] = *stick;
+    config_changed();
+}
+
+void config_set_trigger_cal(u8 index, const struct cal_trigger *trigger)
+{
+    config.cal.trigger[index % 2U] = *trigger;
+    config_changed();
+}
+
+void config_set_autocommit(u8 on)
+{
+    config.autocommit = on ? 1U : 0U;
+    config_changed();
 }

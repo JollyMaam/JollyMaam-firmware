@@ -220,7 +220,7 @@ static void finish_sweep(void)
         if (outcome[control] == CAL_OK)
             outcome[control] = cal_stick_finish(&stick_capture[index], &stick);
         if (outcome[control] == CAL_OK) {
-            config.cal.stick[index] = stick;
+            config_set_stick_cal(index, &stick);
             applied++;
             report_stick(index);
         }
@@ -229,7 +229,7 @@ static void finish_sweep(void)
             outcome[control] = cal_trigger_finish(&trigger_capture[index],
                                                   &trigger);
         if (outcome[control] == CAL_OK) {
-            config.cal.trigger[index] = trigger;
+            config_set_trigger_cal(index, &trigger);
             legacy_trigger_rest[index] = 0U;
             applied++;
             cyclone2_usb_debug("cal: %s ok rest %u full %u", control_name[control],

@@ -429,13 +429,8 @@ static u8 switch2_command_data(u8 command, u8 subcommand, const u8 *request,
             u8 console[6];
 
             if (switch2_ltk_valid && btstack_jl_le_peer_address(console)) {
-                struct config_bond *bond =
-                    &config.profile[switch2_slot % CONFIG_PROFILES].bond;
-
-                memcpy(bond->le_peer, console, sizeof(bond->le_peer));
-                memcpy(bond->ltk, switch2_ltk, sizeof(bond->ltk));
-                memcpy(config.profile[switch2_slot % CONFIG_PROFILES].address,
-                       bt_get_mac_addr(), 6U);
+                config_bond_set_le(switch2_slot, console, switch2_ltk);
+                config_pin_slot_address(switch2_slot, bt_get_mac_addr());
                 cyclone2_usb_debug("switch2: bond stored for slot %s",
                                    config_slot_name(switch2_slot));
             }

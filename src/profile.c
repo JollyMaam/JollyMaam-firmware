@@ -121,14 +121,7 @@ void cyclone2_profile_start(enum cyclone2_profile_type type, u8 slot,
         type = CYCLONE2_PROFILE_SWITCH;
     active_profile = &profiles[type];
 
-    if (pairing && slot < CONFIG_PROFILES) {
-        struct config_bond *bond = &config.profile[slot].bond;
-
-        memset(bond->link_key, 0, sizeof(bond->link_key));
-        bond->key_type = 0U;
-        memset(bond->le_peer, 0, sizeof(bond->le_peer));
-        memset(bond->ltk, 0, sizeof(bond->ltk));
-    }
+    if (pairing && slot < CONFIG_PROFILES) config_bond_forget_keys(slot);
     config_slot_address(slot, address);
     bt_set_mac_addr(address);
     set_multi_devices_adv_flag(1U);
