@@ -12,6 +12,7 @@
 #include "profile_classic.h"
 #include "rumble.h"
 #include "timing.h"
+#include "bounce.h"
 #include "ps.h"
 #include "usb.h"
 #include "profile_switch_wake.h"
@@ -226,6 +227,19 @@ static int cmd_inject(int argc, char **argv)
         return console_fail("needs a connection, an even period of 20..1000 ms "
                             "and 1..60000 ms");
     console_ok("injection started");
+    return 0;
+}
+
+static int cmd_bounce(int argc, char **argv)
+{
+    u32 seconds = 3U;
+    int raw = argc >= 2 && !strcmp(argv[argc - 1], "raw");
+
+    if (raw) argc--;
+    if (argc > 2 || (argc == 2 && number(argv[1], &seconds) != 0))
+        return CONSOLE_USAGE;
+    if (cyclone2_bounce_capture(seconds, raw) != 0)
+        return console_fail("1..3 seconds");
     return 0;
 }
 
@@ -619,6 +633,9 @@ static const struct console_command debug_commands[] = {
     { "ps", "[sample [SECONDS]]", "tasks: state, priority and CPU share "
       "(sample measures it; 5 s by default)", cmd_ps, ps_words },
     { "clock", NULL, "the pad's microsecond clock (latency tests)", cmd_clock },
+    { "bounce", "[SECONDS] [raw]", "watch the buttons up to 3 s and report "
+      "contact bounce (press and release them meanwhile); raw lists every "
+      "edge", cmd_bounce },
     { "probe", "EDGES PERIOD_MS | take | stop", "random-phase A edges before "
       "the debounce, timestamped (latency tests)", cmd_probe, probe_words },
     { "timing", "[reset]", "poll and report intervals", cmd_timing,

@@ -27,6 +27,23 @@ A live window with IMU and Bluetooth running recorded over 150,000 valid
 frames with no dropped bytes, CRC errors or ring overflows; maximum backlog
 was 224 bytes. This is evidence for that configuration, not a throughput limit.
 
+## Buttons and contact bounce
+
+Buttons and the d-pad are active-low GPIOs (pins in [board.md](board.md)).
+Bounce measured with `debug bounce` (port input registers sampled every
+~1.5 µs), 2026-09-29, one pad, by-hand presses:
+
+| Buttons | Bounce |
+|---|---|
+| A, B, X, Y | on most presses: 8-15 edges, pulses down to 13 µs, settled within 0.4 ms; releases 1-4 edges within ~0.15 ms |
+| d-pad | usually clean; occasionally 2-3 edges within 0.28 ms |
+| L1, R1, select, start, capture | one edge per press and release |
+
+L3/R3, L4/R4, home and M were not tested, nor the trigger end-stop switches
+(RTC-domain pins). No isolated glitches were seen on idle lines. The sampling
+loop can be interrupted for up to ~0.5 ms, so a bounce entirely inside such a
+gap would read as one edge.
+
 ## QMI8658A IMU and I2C
 
 The RAM diagnostic and live firmware identify **QMI8658A**, not the earlier

@@ -19,7 +19,7 @@
 #include "user_cfg_id.h"
 
 #define CYCLONE2_CONTROL_PERIOD_US        1000U
-#define CYCLONE2_DEBOUNCE_US             8000U
+#define CYCLONE2_DEBOUNCE_US             2000U
 #define CYCLONE2_PROFILE_COUNT              4U
 #define CYCLONE2_HOME_GRACE_MS              150U
 #define CYCLONE2_LONG_HOLD_MS              5000U
@@ -832,7 +832,9 @@ CYCLONE2_HOT static void make_host_report(struct cyclone2_input_report *report)
 
 /* Eager debounce: a contact that changes is taken at once, and then held for
  * CYCLONE2_DEBOUNCE_US while it bounces.  Waiting for it to settle first
- * cost every press and release 10-20 ms. */
+ * cost every press and release 10-20 ms.  The worst bounce measured (debug
+ * bounce, docs/peripherals.md) is ~0.4 ms, on the face buttons; 2 ms is
+ * five times that and two control polls. */
 CYCLONE2_HOT static void debounce_digital_input(const struct cyclone2_input_report *sample,
                                    u32 now_us)
 {
