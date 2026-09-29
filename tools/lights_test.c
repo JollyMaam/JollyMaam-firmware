@@ -22,6 +22,17 @@ static const struct cyclone2_rgb purple = { 0x80, 0x00, 0xff };
 static const struct cyclone2_rgb green = { 0x00, 0xff, 0x00 };
 static const struct cyclone2_rgb dark = { 0, 0, 0 };
 
+static struct cyclone2_rgb dim(struct cyclone2_rgb colour)
+{
+    struct cyclone2_rgb out = {
+        (u8)((colour.red + 1U) / 2U),
+        (u8)((colour.green + 1U) / 2U),
+        (u8)((colour.blue + 1U) / 2U),
+    };
+
+    return out;
+}
+
 static struct cyclone2_controller_state state;
 static struct cyclone2_lights_input in;
 static struct cyclone2_light_frame frame;
@@ -81,19 +92,19 @@ static void test_connecting(void)
 {
     reset(CYCLONE2_CONTROLLER_CONNECTING, 0U);
     render_at(0U);
-    CHECK(same(light(CYCLONE2_LIGHT_HOME), blue));      /* blinks, starting lit */
-    CHECK(same(player(0), blue));                       /* slot A: top light */
+    CHECK(same(light(CYCLONE2_LIGHT_HOME), dim(blue))); /* blinks, starting lit */
+    CHECK(same(player(0), dim(blue)));                  /* slot A: top light */
     CHECK(same(player(1), dark) && same(player(2), dark) && same(player(3), dark));
     CHECK(same(light(CYCLONE2_LIGHT_GRIP_LEFT), dark));
     CHECK(same(light(CYCLONE2_LIGHT_UNUSED), dark));
     render_at(600U);
     CHECK(same(light(CYCLONE2_LIGHT_HOME), dark));
-    CHECK(same(player(0), blue));
+    CHECK(same(player(0), dim(blue)));
 
     reset(CYCLONE2_CONTROLLER_CONNECTING, 3U);
     render_at(0U);
-    CHECK(same(light(CYCLONE2_LIGHT_HOME), green));
-    CHECK(same(player(3), green) && same(player(0), dark));
+    CHECK(same(light(CYCLONE2_LIGHT_HOME), dim(green)));
+    CHECK(same(player(3), dim(green)) && same(player(0), dark));
 }
 
 static void test_pairing_sweeps(void)
@@ -107,7 +118,7 @@ static void test_pairing_sweeps(void)
 
         render_at(step * 120U + 10U);
         for (index = 0U; index < 4U; index++)
-            CHECK(same(player(index), index == expected[step] ? red : dark));
+            CHECK(same(player(index), index == expected[step] ? dim(red) : dark));
     }
 }
 
@@ -115,24 +126,24 @@ static void test_connected(void)
 {
     reset(CYCLONE2_CONTROLLER_CONNECTED, 2U);
     render_at(5000U);
-    CHECK(same(light(CYCLONE2_LIGHT_HOME), purple));
+    CHECK(same(light(CYCLONE2_LIGHT_HOME), dim(purple)));
     /* No player number from the host yet: the slot's own light. */
-    CHECK(same(player(2), purple) && same(player(0), dark));
+    CHECK(same(player(2), dim(purple)) && same(player(0), dark));
     CHECK(same(light(CYCLONE2_LIGHT_GRIP_LEFT), dark));
 
     in.host.has_players = 1U;
     in.host.players_on = 0x3U;                          /* player 2 */
     render_at(5000U);
-    CHECK(same(player(0), purple) && same(player(1), purple));
+    CHECK(same(player(0), dim(purple)) && same(player(1), dim(purple)));
     CHECK(same(player(2), dark) && same(player(3), dark));
 
     /* Flashing lights follow the clock, 250 ms on and 250 ms off. */
     in.host.players_on = 0x1U;
     in.host.players_flash = 0x8U;
     render_at(500U);
-    CHECK(same(player(3), purple));
+    CHECK(same(player(3), dim(purple)));
     render_at(750U);
-    CHECK(same(player(3), dark) && same(player(0), purple));
+    CHECK(same(player(3), dark) && same(player(0), dim(purple)));
 }
 
 static void test_grips(void)
@@ -157,7 +168,7 @@ static void test_grips(void)
     render_at(100U);
     CHECK(same(light(CYCLONE2_LIGHT_GRIP_LEFT), orange));
     CHECK(same(light(CYCLONE2_LIGHT_GRIP_RIGHT), orange));
-    CHECK(same(light(CYCLONE2_LIGHT_HOME), blue));      /* Home stays the slot's */
+    CHECK(same(light(CYCLONE2_LIGHT_HOME), dim(blue))); /* Home stays the slot's */
 
     /* Rumble and input only while connected. */
     reset(CYCLONE2_CONTROLLER_CONNECTING, 0U);
@@ -171,9 +182,10 @@ static void test_brightness(void)
     reset(CYCLONE2_CONTROLLER_CONNECTED, 2U);
     in.brightness = 4U;
     render_at(100U);
-    CHECK(light(CYCLONE2_LIGHT_HOME).red == 5U &&
+    CHECK(light(CYCLONE2_LIGHT_HOME).red == 3U &&
           light(CYCLONE2_LIGHT_HOME).green == 0U &&
-          light(CYCLONE2_LIGHT_HOME).blue == 10U);
+          light(CYCLONE2_LIGHT_HOME).blue == 5U);
+    CHECK(same(player(2), (struct cyclone2_rgb){ 3U, 0U, 5U }));
 }
 
 static void test_boot_idle_off(void)
@@ -209,7 +221,7 @@ static void test_switching_shows_next_slot(void)
     state.as.stopping.after = CYCLONE2_AFTER_STOP_START;
     state.as.stopping.then.start.slot = 3U;
     render_at(10U);
-    CHECK(same(player(3), green) && same(player(0), dark));
+    CHECK(same(player(3), dim(green)) && same(player(0), dark));
     CHECK(same(light(CYCLONE2_LIGHT_HOME), dark));
 }
 
@@ -225,7 +237,7 @@ static void test_overlays(void)
     CHECK(same(light(CYCLONE2_LIGHT_HOME), red));
     in.now_ms = 3500U;
     cyclone2_lights_render(&in, &frame);
-    CHECK(same(light(CYCLONE2_LIGHT_HOME), blue));
+    CHECK(same(light(CYCLONE2_LIGHT_HOME), dim(blue)));
 
     in.has_calibration = 1U;
     in.calibration = calibration;

@@ -8,6 +8,7 @@
 #include "lights.h"
 
 #define WHITE { 0xff, 0xff, 0xff }
+#define STATUS_DIM_PERCENT 50U
 
 /* What each state looks like.  The colour is the slot's own
  * (profile.N.colour) unless a scene fixes one; everything is scaled by
@@ -239,25 +240,36 @@ static void render_grips(const struct cyclone2_scene *scene,
 void cyclone2_lights_render(const struct cyclone2_lights_input *in,
                             struct cyclone2_light_frame *frame)
 {
+    enum cyclone2_scene_id scene_id =
+        cyclone2_scene_for(in->state, in->since_boot_ms);
     const struct cyclone2_scene *scene =
-        &cyclone2_scenes[cyclone2_scene_for(in->state, in->since_boot_ms)];
+        &cyclone2_scenes[scene_id];
     u32 t = in->now_ms - in->state->entered_ms;
     u32 brightness = in->brightness;
+    u32 dimmed_brightness;
+    u32 home_brightness;
     struct cyclone2_rgb colour = scene->colour.fixed;
     u8 slot = 0U;
     int has_slot = cyclone2_controller_slot(in->state, &slot);
 
     memset(frame, 0, sizeof(*frame));
     if (brightness > 100U) brightness = 100U;
+    dimmed_brightness = (brightness * STATUS_DIM_PERCENT + 99U) / 100U;
     if (scene->colour.from == CYCLONE2_COLOUR_SLOT) {
         struct cyclone2_rgb white = WHITE;
 
         colour = has_slot ? in->slot_colour[slot] : white;
     }
 
+    home_brightness = brightness;
+    if (scene_id == CYCLONE2_SCENE_CONNECTING ||
+        scene_id == CYCLONE2_SCENE_PAIRING ||
+        scene_id == CYCLONE2_SCENE_CONNECTED)
+        home_brightness = dimmed_brightness;
+
     frame->light[CYCLONE2_LIGHT_HOME] =
-        scaled(colour, wave_level(&scene->home, t, 0U, 1U), brightness);
-    render_bar(scene, in, t, has_slot, slot, colour, brightness, frame);
+        scaled(colour, wave_level(&scene->home, t, 0U, 1U), home_brightness);
+    render_bar(scene, in, t, has_slot, slot, colour, dimmed_brightness, frame);
     render_grips(scene, in, t, colour, brightness, frame);
 
     if (in->low_battery && wave_level(&low_battery_wave, in->now_ms, 0U, 1U))
