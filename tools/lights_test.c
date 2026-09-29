@@ -200,17 +200,14 @@ static void test_colour_values(void)
 
 static void test_boot_idle_off(void)
 {
-    struct cyclone2_rgb home;
-
     reset(CYCLONE2_CONTROLLER_IDLE, 0U);
     in.since_boot_ms = 100U;
     render_at(0U);
     CHECK(cyclone2_scene_for(&state, 100U) == CYCLONE2_SCENE_BOOT);
     CHECK(same(light(CYCLONE2_LIGHT_HOME), dim_white));
     in.since_boot_ms = 10000U;
-    render_at(0U);                                      /* breathing, from lit */
-    home = light(CYCLONE2_LIGHT_HOME);
-    CHECK(same(home, dim_white));
+    render_at(0U);
+    CHECK(same(light(CYCLONE2_LIGHT_HOME), dark));
     render_at(2000U);
     CHECK(same(light(CYCLONE2_LIGHT_HOME), dark));
 
@@ -304,16 +301,18 @@ static void test_usb_overlays(void)
     CHECK(same(light(CYCLONE2_LIGHT_HOME), dim_white));
 }
 
-static void test_disconnected_sleep_deadline(void)
+static void test_offline_sleep_deadline(void)
 {
     reset(CYCLONE2_CONTROLLER_DISCONNECTED, 0U);
-    CHECK(!cyclone2_disconnected_sleep_due(&state, 15999U, 1000U, 0));
-    CHECK(cyclone2_disconnected_sleep_due(&state, 16000U, 1000U, 0));
-    CHECK(!cyclone2_disconnected_sleep_due(&state, 30000U, 1000U, 1));
-    CHECK(!cyclone2_disconnected_sleep_due(&state, 24999U, 20000U, 0));
-    CHECK(cyclone2_disconnected_sleep_due(&state, 25000U, 20000U, 0));
+    CHECK(!cyclone2_offline_sleep_due(&state, 15999U, 1000U, 0));
+    CHECK(cyclone2_offline_sleep_due(&state, 16000U, 1000U, 0));
+    CHECK(!cyclone2_offline_sleep_due(&state, 30000U, 1000U, 1));
+    CHECK(!cyclone2_offline_sleep_due(&state, 24999U, 20000U, 0));
+    CHECK(cyclone2_offline_sleep_due(&state, 25000U, 20000U, 0));
+    state.kind = CYCLONE2_CONTROLLER_IDLE;
+    CHECK(cyclone2_offline_sleep_due(&state, 25000U, 20000U, 0));
     state.kind = CYCLONE2_CONTROLLER_CONNECTED;
-    CHECK(!cyclone2_disconnected_sleep_due(&state, 30000U, 1000U, 0));
+    CHECK(!cyclone2_offline_sleep_due(&state, 30000U, 1000U, 0));
 }
 
 /* Every kind has a scene, and nothing ever lights the unused position. */
@@ -343,7 +342,7 @@ int main(void)
     test_switching_shows_next_slot();
     test_overlays();
     test_usb_overlays();
-    test_disconnected_sleep_deadline();
+    test_offline_sleep_deadline();
     test_every_state();
     if (failures) {
         printf("%d check%s failed\n", failures, failures == 1 ? "" : "s");

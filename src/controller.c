@@ -1,6 +1,7 @@
 #include <system/app_core.h>
 #include <system/includes.h>
 #include <usb/otg.h>
+#include <usb/usb_phy.h>
 #include <system/user_cfg.h>
 
 #include "app_config.h"
@@ -46,12 +47,11 @@
 #define CYCLONE2_INJECT_MIN_PERIOD_MS       20U
 #define CYCLONE2_INJECT_MAX_PERIOD_MS       1000U
 #define CYCLONE2_INJECT_MAX_DURATION_MS    60000U
-/* The console re-enumerates on its own (measured), and the USB-sense pin never
- * asserts on this board, so a single "USB absent" sample is not trustworthy.
- * Power off only after the condition has held this many times.  CDC DTR/RTS
- * can remain latched after unplug and cannot veto power-off by itself. */
+/* USB frame activity is checked repeatedly before power-off. CDC DTR/RTS can
+ * remain latched after unplug and cannot veto power-off by itself. */
 #define CYCLONE2_SLEEP_CONFIRM              4U
 #define CYCLONE2_SLEEP_RECHECK_MS         250U
+#define CYCLONE2_USB_SOF_STALE_MS         250U
 
 #define CYCLONE2_PROFILE_SWITCH_MS          100U
 /* The stack's halt waits for the peer to confirm the disconnect, so the
@@ -91,6 +91,9 @@ static u8 home_tap_phase;
 static struct cyclone2_input_report activity_reference;
 static u32 last_activity_ms;
 static u32 usb_absent_since_ms;
+static u32 usb_sof_seen_ms;
+static u16 usb_sof_frame;
+static u8 usb_sof_initialized;
 static u8 calibrating;
 static u8 ignore_chord_until_release;
 static struct cyclone2_report_statistics report_statistics;
@@ -197,8 +200,21 @@ static void radio_exit_only(void *private_data)
 
 int cyclone2_usb_present(void)
 {
-    return gpio_read(CYCLONE2_USB_SENSE) ||
-           usb_otg_online(USB0) != DISCONN_MODE;
+    u32 now = sys_timer_get_ms();
+    u16 frame = usb_read_sofframe(USB0);
+
+    /* PC3 is shared with LED SPI and reads low even with a cable attached.
+     * The SDK OTG state remains IDLE_MODE while this CDC device is live.
+     * A changing SOF frame counter proves that a USB host is present. */
+    if (!usb_sof_initialized) {
+        usb_sof_initialized = 1U;
+        usb_sof_frame = frame;
+        usb_sof_seen_ms = now - CYCLONE2_USB_SOF_STALE_MS;
+    } else if (frame != usb_sof_frame) {
+        usb_sof_frame = frame;
+        usb_sof_seen_ms = now;
+    }
+    return now - usb_sof_seen_ms < CYCLONE2_USB_SOF_STALE_MS;
 }
 
 u8 get_cur_bt_idx(void)
@@ -669,9 +685,9 @@ static void poweroff_now(void *private_data)
 
     cyclone2_bringup_record(0x5200u | sense | (otg << 1));
     cyclone2_bringup_record(0x5400u | terminal);
-    /* The CDC DTR/RTS latch may survive a physical unplug.  Only live USB
-     * hardware can veto power-off; keep the terminal bit in the trace. */
-    if (sense || otg) {
+    /* The CDC DTR/RTS latch may survive a physical unplug. Only fresh USB
+     * frames can veto power-off; keep the raw signals in the trace. */
+    if (cyclone2_usb_present()) {
         if (stop->has_session) become_disconnected(stop->session);
         else become_idle();
         cyclone2_usb_debug("sleep cancelled; USB is connected");
@@ -748,7 +764,7 @@ static void begin_automatic_sleep(const char *reason)
     u32 otg = usb_otg_online(USB0) != DISCONN_MODE ? 1U : 0U;
 
     cyclone2_bringup_record(0x5000u | sense | (otg << 1));
-    if (sense || otg) {
+    if (cyclone2_usb_present()) {
         cyclone2_usb_debug("%s; staying awake because USB is connected", reason);
         return;
     }
@@ -936,7 +952,8 @@ static void track_activity(u32 now)
         last_activity_ms = now;
     } else if (now - last_activity_ms >= CYCLONE2_IDLE_SLEEP_MS &&
                state.kind != CYCLONE2_CONTROLLER_STOPPING &&
-               state.kind != CYCLONE2_CONTROLLER_DISCONNECTED) {
+               state.kind != CYCLONE2_CONTROLLER_DISCONNECTED &&
+               state.kind != CYCLONE2_CONTROLLER_IDLE) {
         /* Counted again from here, so on USB this asks once per period. */
         last_activity_ms = now;
         begin_automatic_sleep("idle for 5 minutes");
@@ -1044,9 +1061,9 @@ CYCLONE2_HOT static void cyclone2_poll(void *private_data)
     }
     if (!calibrating) update_home_state();
     track_activity(now);
-    if (cyclone2_disconnected_sleep_due(&state, now, usb_absent_since_ms,
-                                        cyclone2_usb_present()))
-        begin_automatic_sleep("disconnected on battery");
+    if (cyclone2_offline_sleep_due(&state, now, usb_absent_since_ms,
+                                  cyclone2_usb_present()))
+        begin_automatic_sleep("offline on battery");
     update_injection(now);
     /* The ACL connection event precedes authentication and opening the HID
      * control/interrupt channels. Only the latter is a usable connection.

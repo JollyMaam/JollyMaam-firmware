@@ -30,13 +30,17 @@ writes and charger connection were not recovered. Evidence artifact:
 Home (PB11) is configured as a filtered falling-edge wake source with pull-up.
 The low-power configuration enables sleep, keeps the Bluetooth oscillator
 available and selects LDO15. These are configured settings, not measurements
-of sleep current. Normal-operation USB sensing on PC3 was unreliable; USB OTG
-state and CDC activity are additional evidence that power should stay on. The
-CDC terminal-open latch can survive unplugging, so automatic sleep uses live
-USB sense/OTG state and confirms absence four times before power-off. After a
-Bluetooth disconnect, battery sleep begins after 15 seconds disconnected and
-at least 5 seconds without USB. USB power keeps the pad awake and supplies the
-Home charging cue; this indicates USB presence, not measured charge current.
+of sleep current. In normal app operation PC3 reads low while USB is attached,
+the SDK OTG mode is `IDLE_MODE`, and its 5 V PMU detector stays low. These
+signals do not distinguish an attached cable here. The app instead uses a
+changing USB SOF frame counter to recognize an active host; it times out after
+250 ms without frames. The CDC terminal-open latch can survive unplugging and
+does not veto sleep. Automatic sleep confirms frame absence four times before
+power-off. In idle or after a Bluetooth disconnect, sleep begins after 15
+seconds in that state and at least 5 seconds without host frames. The Home
+charging cue indicates an active USB host, not measured charge current. A
+power-only USB source cannot currently be distinguished from a disconnected
+cable.
 
 ## Reset causes
 

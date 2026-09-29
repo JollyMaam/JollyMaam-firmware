@@ -118,10 +118,10 @@ int cyclone2_controller_slot(const struct cyclone2_controller_state *state,
 
 const char *cyclone2_controller_kind_name(enum cyclone2_controller_kind kind);
 
-/* A disconnected session gets reconnect and USB-detach grace periods before
- * battery power-off.  Activity on sticks and buttons does not reset them. */
-int cyclone2_disconnected_sleep_due(const struct cyclone2_controller_state *state,
-                                    u32 now_ms, u32 usb_absent_since_ms,
-                                    int usb_present);
+/* Idle and disconnected states get a short battery sleep grace period.
+ * Activity on sticks and buttons does not reset it. */
+int cyclone2_offline_sleep_due(const struct cyclone2_controller_state *state,
+                              u32 now_ms, u32 usb_absent_since_ms,
+                              int usb_present);
 
 #endif

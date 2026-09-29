@@ -4,15 +4,16 @@
 
 #include "controller_state.h"
 
-#define DISCONNECTED_SLEEP_MS 15000U
+#define OFFLINE_SLEEP_MS      15000U
 #define USB_UNPLUG_SLEEP_MS     5000U
 
-int cyclone2_disconnected_sleep_due(const struct cyclone2_controller_state *state,
-                                    u32 now_ms, u32 usb_absent_since_ms,
-                                    int usb_present)
+int cyclone2_offline_sleep_due(const struct cyclone2_controller_state *state,
+                              u32 now_ms, u32 usb_absent_since_ms,
+                              int usb_present)
 {
-    return state->kind == CYCLONE2_CONTROLLER_DISCONNECTED && !usb_present &&
-           now_ms - state->entered_ms >= DISCONNECTED_SLEEP_MS &&
+    return (state->kind == CYCLONE2_CONTROLLER_IDLE ||
+            state->kind == CYCLONE2_CONTROLLER_DISCONNECTED) && !usb_present &&
+           now_ms - state->entered_ms >= OFFLINE_SLEEP_MS &&
            now_ms - usb_absent_since_ms >= USB_UNPLUG_SLEEP_MS;
 }
 

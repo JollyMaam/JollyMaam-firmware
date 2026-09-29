@@ -63,10 +63,11 @@ PB5 is driven high. LED supply enable PB9 is active low.
   clock. These SPI labels describe the peripheral pin group, **not evidence
   that an external LED module uses a clock or data-in wire**. The SDK LED
   driver only configures PC5 as output for its one-wire waveform.
-- PC3 did not reliably assert as a USB-presence signal during normal app use.
-  USB OTG state and CDC activity were needed to avoid accidental sleep. The
-  loader-entry code still waits on PC3 after tearing USB down; behavior in
-  that state should not be inferred from normal-operation readings.
+- PC3 read low with USB attached during normal app use. The SDK OTG state was
+  `IDLE_MODE` and the PMU 5 V detector read low in the same condition, so the
+  app uses changing USB SOF frames as its active-host signal. The loader-entry
+  code still waits on PC3 after tearing USB down; behavior in that state
+  should not be inferred from normal-operation readings.
 - PB1 is configured as an active-low reset input with `CONFIG_RESET_TIME=8`.
   This is the configuration value, not a measured duration in seconds.
 - Home is PB11, also configured as a filtered falling-edge low-power wake input.

@@ -1,6 +1,9 @@
 #include <system/includes.h>
 #include <asm/adc_api.h>
 #include <asm/charge.h>
+#include <asm/power/p33.h>
+#include <usb/otg.h>
+#include <usb/usb_phy.h>
 
 #include "btstack_jl.h"
 #include "calibration.h"
@@ -60,6 +63,11 @@ struct status_system {
     u8 reset_p33;
     u8 reset_rtc;
     u8 usb;
+    u8 usb_sense;
+    u8 usb_otg;
+    u8 ldo5v_detect;
+    u8 ldo5v_enabled;
+    u16 usb_sof_frame;
     u32 vbat_mv;
     u8 charge;
     u8 cal_phase;
@@ -85,6 +93,15 @@ static void get_system(void *out)
     s->reset_p33 = cyclone2_reset_p33;
     s->reset_rtc = cyclone2_reset_rtc;
     s->usb = (u8)cyclone2_usb_present();
+    s->usb_sense = (u8)gpio_read(CYCLONE2_USB_SENSE);
+    s->usb_otg = (u8)usb_otg_online(USB0);
+    s->usb_sof_frame = usb_read_sofframe(USB0);
+    {
+        u8 ldo5v = p33_rx_1byte(P3_LDO5V_CON);
+
+        s->ldo5v_detect = (ldo5v >> 5) & 1U;
+        s->ldo5v_enabled = ldo5v & 1U;
+    }
 
     s->vbat_mv = adc_get_voltage(AD_CH_VBAT) * 4U;
     s->charge = (u8)get_charge_online_flag();
@@ -184,7 +201,18 @@ const struct cfg_item status_items[] = {
     { .path = "reset.source", .type = CFG_UINT, SYSTEM(reset_source) },
     { .path = "reset.p33", .type = CFG_UINT, SYSTEM(reset_p33) },
     { .path = "reset.rtc", .type = CFG_UINT, SYSTEM(reset_rtc) },
-    { .path = "system.usb", .type = CFG_BOOL, SYSTEM(usb), .help = "USB power seen" },
+    { .path = "system.usb", .type = CFG_BOOL, SYSTEM(usb),
+      .help = "active USB host frames seen recently" },
+    { .path = "system.usb_sense", .type = CFG_BOOL, SYSTEM(usb_sense),
+      .help = "PC3 input, shared with LED SPI" },
+    { .path = "system.usb_otg", .type = CFG_UINT, SYSTEM(usb_otg),
+      .help = "SDK USB OTG mode" },
+    { .path = "system.usb_sof_frame", .type = CFG_UINT, SYSTEM(usb_sof_frame),
+      .help = "host USB frame counter; freezes on disconnect or suspend" },
+    { .path = "system.ldo5v_detect", .type = CFG_BOOL, SYSTEM(ldo5v_detect),
+      .help = "PMU 5 V detect bit" },
+    { .path = "system.ldo5v_enabled", .type = CFG_BOOL, SYSTEM(ldo5v_enabled),
+      .help = "PMU 5 V detector enabled" },
     { .path = "battery.vbat_mv", .type = CFG_UINT, SYSTEM(vbat_mv),
       .help = "not a validated cell measurement; see docs/power-reset.md" },
     { .path = "battery.charging", .type = CFG_BOOL, SYSTEM(charge),
