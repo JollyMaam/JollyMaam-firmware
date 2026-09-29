@@ -57,8 +57,7 @@ ifeq ($(DEBUG_LOG),verbose)
 DEFINES += -DCYCLONE2_LOG_TAGS_VERBOSE_VERBOSE=1
 endif
 
-INCLUDES := -iquote src -iquote src/bt -iquote src/sdkconfig -iquote src/btstack \
-	-iquote $(O) \
+INCLUDES := -iquote src -iquote src/bt -iquote src/sdkconfig -iquote $(O) \
 	-I$(BTSTACK_DIR)/src -I$(BTSTACK_DIR)/src/classic -I$(BTSTACK_PORT_DIR) \
 	$(SDK_INCLUDES)
 PROJECT_SOURCES := $(wildcard src/*.c src/bt/*.c src/sdkconfig/*.c)
