@@ -2,6 +2,9 @@ RESET_MAILBOX_SIZE = 16;
 BRINGUP_LOG_BEGIN = 0x20010;
 BRINGUP_LOG_SIZE = 0x2100;
 RESET_MAILBOX_BEGIN = 0x20000;
+/* MaskROM's boot-state token, which `uboot` writes before its reset. */
+MASKROM_TOKEN_BEGIN = 0x10800;
+MASKROM_TOKEN_END = 0x10810;
 
 SECTIONS
 {
@@ -63,5 +66,12 @@ ASSERT(SIZEOF(.bringup_log) <= BRINGUP_LOG_SIZE,
        "bring-up log exceeds reserved SRAM")
 ASSERT(RESET_MAILBOX_BEGIN >= RAM_USED,
        "normal RAM sections overlap soft-reset mailbox")
+/* The Bluetooth controller's RAM (its baseband buffers among it) must not
+ * cover the token: the radio overwrote it and `uboot` rebooted into the app.
+ * The Makefile starts that block at MASKROM_TOKEN_END at the earliest; the
+ * space below it goes to the app's .bss or stays unused. */
+ASSERT(btctler_bss_start >= MASKROM_TOKEN_END ||
+       btctler_bss_end <= MASKROM_TOKEN_BEGIN,
+       "Bluetooth controller RAM covers the MaskROM uboot token")
 ASSERT(HEAP_END <= RESET_MAILBOX_BEGIN,
        "SDK heap overlaps soft-reset mailbox")

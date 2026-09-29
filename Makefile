@@ -271,11 +271,13 @@ $(PATCHED_BTCTRLR): $(VENDOR_BTCTRLR) tools/patch_btctrler.py $(BUILD_CONFIG)
 	@echo [PATCH] $@
 	$(QUIET)/work/bin/python3 tools/patch_btctrler.py $(VENDOR_BTCTRLR) $@ --clang $(CC) --ar $(LLVM_AR) --config $(BUILD_CONFIG)
 
-$O/sdk_ld.c: $(SDK)/cpu/br23/sdk_ld.c
+$O/sdk_ld.c: $(SDK)/cpu/br23/sdk_ld.c Makefile
 	@mkdir -p $(@D)
 	$(QUIET)sed \
 	  -e 's/^_HEAP_END = RAM_END;/_HEAP_END = RESET_MAILBOX_BEGIN;/' \
 	  -e 's/^PROVIDE(HEAP_END = RAM_END);/PROVIDE(HEAP_END = RESET_MAILBOX_BEGIN);/' \
+	  -e '/^    \.bss ALIGN(32) :$$/,/^        \*(\.bss)$$/s/^        \*(\.bss)$$/        cyclone2_bss_base = ABSOLUTE(.);\n&/' \
+	  -e 's|^\([[:space:]]*\)#include "btctrler/btctler_lib_bss.ld"|\1. = MAX(., 0x10810 - cyclone2_bss_base);\n&|' \
 		$< > $@
 
 $O/sdk.ld: $O/sdk_ld.c $(APP_CONFIG_DEPS)
