@@ -90,6 +90,16 @@ struct port_wakeup port0 = {
     .filter_enable      = ENABLE,
 };
 
+/* PC3 is the cable-detect input after the USB controller and LED driver have
+ * been shut down for soft power-off. It shares the LED SPI input at runtime. */
+struct port_wakeup usb_port = {
+    .pullup_down_enable = DISABLE,
+    .edge               = RISING_EDGE,
+    .attribute          = BLUETOOTH_RESUME,
+    .iomap              = CYCLONE2_USB_SENSE,
+    .filter_enable      = ENABLE,
+};
+
 const struct sub_wakeup sub_wkup = {
     .attribute  = BLUETOOTH_RESUME,
 };
@@ -100,6 +110,7 @@ const struct charge_wakeup charge_wkup = {
 
 const struct wakeup_param wk_param = {
     .port[1] = &port0,
+    .port[2] = &usb_port,
     .sub = &sub_wkup,
     .charge = &charge_wkup,
 };
@@ -169,6 +180,7 @@ void board_set_soft_poweroff(void)
     port_protect(port_group, CYCLONE2_BUTTON_B);
     port_protect(port_group, CYCLONE2_BUTTON_X);
     port_protect(port_group, CYCLONE2_BUTTON_Y);
+    port_protect(port_group, CYCLONE2_USB_SENSE);
 
     gpio_dir(GPIOA, 0, 16, port_group[PORTA_GROUP], GPIO_OR);
     gpio_set_pu(GPIOA, 0, 16, ~port_group[PORTA_GROUP], GPIO_AND);
@@ -207,6 +219,11 @@ void board_set_soft_poweroff(void)
     gpio_set_direction(IO_PORT_DM, 1);
     gpio_set_die(IO_PORT_DM, 0);
     gpio_set_dieh(IO_PORT_DM, 0);
+
+    gpio_set_pull_up(CYCLONE2_USB_SENSE, 0);
+    gpio_set_pull_down(CYCLONE2_USB_SENSE, 0);
+    gpio_direction_input(CYCLONE2_USB_SENSE);
+    gpio_set_die(CYCLONE2_USB_SENSE, 1);
 }
 
 #define     APP_IO_DEBUG_0(i,x)

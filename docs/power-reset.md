@@ -28,6 +28,9 @@ writes and charger connection were not recovered. Evidence artifact:
 ## Sleep and wake inputs
 
 Home (PB11) is configured as a filtered falling-edge wake source with pull-up.
+PC3 is also configured as a filtered rising-edge wake source and kept as an
+input during soft power-off. Whether USB insertion drives that input and wakes
+this pad has not yet been measured.
 The low-power configuration enables sleep, keeps the Bluetooth oscillator
 available and selects LDO15. These are configured settings, not measurements
 of sleep current. In normal app operation PC3 reads low while USB is attached,
