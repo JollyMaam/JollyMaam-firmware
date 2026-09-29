@@ -5,6 +5,7 @@
 #include "btstack_jl.h"
 #include "calibration.h"
 #include "config.h"
+#include "controller_state.h"
 #include "controller.h"
 #include "imu.h"
 #include "input.h"
@@ -17,8 +18,14 @@ extern u16 config_dropped_records;
 extern u16 config_schema_errors;
 
 static const struct cfg_choice radio_states[] = {
-    { 0, "off" }, { 1, "connecting" }, { 2, "pairing" }, { 3, "connected" },
-    { 4, "stopping" }, { 5, "waking" }, { 0, NULL },
+    { CYCLONE2_CONTROLLER_IDLE, "idle" },
+    { CYCLONE2_CONTROLLER_CONNECTING, "connecting" },
+    { CYCLONE2_CONTROLLER_PAIRING, "pairing" },
+    { CYCLONE2_CONTROLLER_CONNECTED, "connected" },
+    { CYCLONE2_CONTROLLER_DISCONNECTED, "disconnected" },
+    { CYCLONE2_CONTROLLER_WAKING, "waking" },
+    { CYCLONE2_CONTROLLER_STOPPING, "stopping" },
+    { 0, NULL },
 };
 
 static const struct cfg_choice profile_types[] = {

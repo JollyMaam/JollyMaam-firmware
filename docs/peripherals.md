@@ -94,9 +94,18 @@ unknown; the address definition is not proof of its contents.
 
 ## LED modules
 
-The app drives eight addressable RGB positions, with Home at index 0. Power is
-**PB9, active low**; waveform data is **PC5 / SPI1 group B DO**. The exact LED
-part number and physical order of positions 1–7 have not been established.
+The app drives eight addressable RGB positions. Power is **PB9, active low**;
+waveform data is **PC5 / SPI1 group B DO**. The exact LED part number has not
+been established. Positions, identified by lighting each index in a distinct
+colour and observing the pad:
+
+| Index | Position |
+|---|---|
+| 0 | Home button |
+| 1–4 | player bar under Home, top to bottom |
+| 5 | left grip |
+| 6 | right grip |
+| 7 | nothing visible |
 
 The SDK expands each LED's 24 color bits in **GRB, MSB-first** order to 24 bytes:
 `0x7c` for a one and `0x60` for a zero. SPI1 is configured for 8 MHz during data;

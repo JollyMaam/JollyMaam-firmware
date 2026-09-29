@@ -5,8 +5,10 @@
 #include "config.h"
 #include "console.h"
 #include "controller.h"
+#include "controller_state.h"
 #include "imu.h"
 #include "input.h"
+#include "led.h"
 #include "main.h"
 #include "profile.h"
 #include "profile_classic.h"
@@ -376,6 +378,41 @@ static int cmd_rumble(int argc, char **argv)
     return 0;
 }
 
+/* debug led INDEX|MASK [R G B] | off: light LEDs for mapping them. */
+static int cmd_led(int argc, char **argv)
+{
+    u32 which;
+    u32 rgb[3] = { 16U, 16U, 16U };
+    int i;
+
+    if (argc == 2 && !strcmp(argv[1], "off")) {
+        cyclone2_led_debug(0U, 0U, 0U, 0U);
+        console_ok("LEDs released");
+        return 0;
+    }
+    if (argc == 2 && !strcmp(argv[1], "legend")) {
+        cyclone2_led_debug_legend();
+        console_ok("0 red, 1 green, 2 blue, 3 yellow, 4 cyan, 5 magenta, "
+                   "6 white, 7 orange");
+        return 0;
+    }
+    if ((argc != 2 && argc != 5) || number(argv[1], &which) != 0)
+        return CONSOLE_USAGE;
+    for (i = 0; argc == 5 && i < 3; i++)
+        if (number(argv[2 + i], &rgb[i]) != 0 || rgb[i] > 255U)
+            return CONSOLE_USAGE;
+    /* A plain number is one LED; 0x... is a mask. */
+    if (argv[1][0] != '0' || argv[1][1] != 'x') {
+        if (which >= CYCLONE2_LED_COUNT) return console_fail("LED 0..%u",
+                                                CYCLONE2_LED_COUNT - 1U);
+        which = 1U << which;
+    }
+    if (!which || which >> CYCLONE2_LED_COUNT) return CONSOLE_USAGE;
+    cyclone2_led_debug(which, (u8)rgb[0], (u8)rgb[1], (u8)rgb[2]);
+    console_ok("LED mask 0x%02x lit", (unsigned)which);
+    return 0;
+}
+
 static int cmd_imu(int argc, char **argv)
 {
     if (argc != 2) return CONSOLE_USAGE;
@@ -413,9 +450,6 @@ static int cmd_input(int argc, char **argv)
  * are key=value and only ever appended to. */
 static int cmd_stat(int argc, char **argv)
 {
-    static const char *const states[] = {
-        "off", "connecting", "pairing", "connected", "stopping", "waking",
-    };
     struct cyclone2_connection_status status;
 
     (void)argv;
@@ -426,8 +460,8 @@ static int cmd_stat(int argc, char **argv)
                    "btidle=%u pending=%u\r\n",
                    (unsigned)sys_timer_get_ms(), (unsigned)cyclone2_boot_count,
                    status.slot, cyclone2_profile_name(status.profile_type),
-                   status.connection_state < 6U ?
-                   states[status.connection_state] : "unknown",
+                   cyclone2_controller_kind_name(
+                       (enum cyclone2_controller_kind)status.connection_state),
                    status.connect_attempts,
                    status.local_address[5], status.local_address[4],
                    status.local_address[3], status.local_address[2],
@@ -595,6 +629,7 @@ static const char *const inject_words[] = { "a", "stop", NULL };
 static const char *const imu_words[] = { "init", "stop", "sample", NULL };
 static const char *const input_words[] = { "reset", NULL };
 static const char *const rumble_words[] = { "stop", NULL };
+static const char *const led_words[] = { "off", "legend", NULL };
 static const char *const probe_words[] = { "take", "stop", NULL };
 static const char *const timing_words[] = { "reset", NULL };
 static const char *const ps_words[] = { "sample", NULL };
@@ -630,6 +665,8 @@ static const struct console_command debug_commands[] = {
       "(latency tests)", cmd_inject, inject_words },
     { "rumble", "LEFT RIGHT MS | stop", "run the motors (0..255)", cmd_rumble,
       rumble_words },
+    { "led", "INDEX|0xMASK [R G B] | legend | off", "light LEDs (others off) until "
+      "off", cmd_led, led_words },
     { "ps", "[sample [SECONDS]]", "tasks: state, priority and CPU share "
       "(sample measures it; 5 s by default)", cmd_ps, ps_words },
     { "clock", NULL, "the pad's microsecond clock (latency tests)", cmd_clock },

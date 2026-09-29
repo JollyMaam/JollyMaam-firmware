@@ -59,6 +59,8 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import padbus  # noqa: E402
 
+# Controller states with no link and nothing being tried.
+RADIO_OFF = ('idle', 'disconnected')
 STATUS_RE = re.compile(r'slot=(\d+) profile=(\w+) state=(\w+) attempt=(\d+)')
 BOOTS_RE = re.compile(r'boots=([0-9a-fA-F]{8})')
 SOURCE_RE = re.compile(r'reset=(\d+) p33=(\d+) rtc=(\d+)')
@@ -362,7 +364,7 @@ def phase_profile_switches(console, report, rounds):
             time.sleep(0.35)
             expect(report, f'connect {slot}', settle(console),
                    lambda s, slot=slot:
-                   None if s[0] == str(slot) and s[2] != 'off'
+                   None if s[0] == str(slot) and s[2] not in RADIO_OFF
                    else f'slot={s[0]} state={s[2]}')
         for slot in range(4):
             console.ask(f'pair {slot}', 2.5)
@@ -383,11 +385,11 @@ def phase_pair_cycle(console, report, rounds):
         console.ask('disconnect', 2.5)
         time.sleep(0.6)
         expect(report, f'cycle {index}: disconnect', settle(console),
-               lambda s: None if s[2] == 'off' else f'expected off, state={s[2]}')
+               lambda s: None if s[2] in RADIO_OFF else f'expected off, state={s[2]}')
         console.ask(f'connect {slot}', 2.5)
         time.sleep(0.4)
         expect(report, f'cycle {index}: connect {slot}', settle(console),
-               lambda s: None if s[2] != 'off' else 'left the radio off')
+               lambda s: None if s[2] not in RADIO_OFF else 'left the radio off')
 
 
 def phase_rapid(console, report, rounds):
@@ -410,7 +412,7 @@ def phase_dwell(console, report, seconds):
     time.sleep(seconds)
     state = console.state()
     expect(report, f'dwell {seconds:.0f}s: stat', state,
-           lambda s: None if s[2] != 'off' else 'radio went off during the dwell')
+           lambda s: None if s[2] not in RADIO_OFF else 'radio went off during the dwell')
     report.checks += 1
     if console.boots() is None:
         report.fail(f'dwell {seconds:.0f}s: no answer to status afterwards')

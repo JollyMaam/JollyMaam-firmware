@@ -8,6 +8,7 @@
 #include "btstack_jl_le.h"
 #include "calibration.h"
 #include "controller.h"
+#include "controller_state.h"
 #include "timing.h"
 #include "ps.h"
 #include "main.h"
@@ -71,48 +72,23 @@ enum cyclone2_home_state {
     CYCLONE2_HOME_CALIBRATE_CHORD,
 };
 
-enum cyclone2_radio_state {
-    CYCLONE2_RADIO_OFF,
-    CYCLONE2_RADIO_CONNECTING,
-    CYCLONE2_RADIO_PAIRING,
-    CYCLONE2_RADIO_CONNECTED,
-    CYCLONE2_RADIO_STOPPING,
-
-    CYCLONE2_RADIO_WAKING,
-};
-
 static struct cyclone2_input_report candidate_report;
 static struct cyclone2_input_report current_report;
 static enum cyclone2_home_state home_state;
-static enum cyclone2_radio_state radio_state;
-static enum cyclone2_profile_type active_type;
+static struct cyclone2_controller_state state;
 static u32 started_at_ms;
 static u32 home_start_ms;
 static u32 chord_start_ms;
-static u32 radio_start_ms;
 static u32 button_changed_us[16];
 static u32 hat_changed_us;
 static u32 next_report_us;
 static u16 chord_button;
-static u8 active_profile = 0xffU;
 static u8 requested_profile;
-static u8 active_pairing;
-static u8 pending_profile;
-static u8 pending_pairing;
-static enum cyclone2_profile_type pending_type;
-static u32 transition_started_ms;
-static u32 ignore_disconnect_until_ms;
 static u8 home_tap_phase;
 static u8 led_is_on;
 static u32 calibration_led_colour;
 static u8 calibrating;
-static u8 poweroff_flash_wait;
-static u8 sleep_pending;
-static u8 sleep_confirm_count;
 static u8 ignore_chord_until_release;
-static u8 connect_attempts;
-static enum cyclone2_radio_state quiet_state;
-static u32 quiet_since_ms;
 static struct cyclone2_report_statistics report_statistics;
 static struct cyclone2_injection_status injection_status;
 static u32 injection_next_transition_ms;
@@ -120,29 +96,123 @@ static u32 injection_target_edges;
 static u8 injection_last_emitted;
 static u8 injection_release_pending;
 
-static u8 wake_pending;
-static u8 wake_pending_slot;
-static u8 wake_pending_channel;
-static u8 wake_pending_seconds;
-static u8 wake_slot = 0xffU;
-
 extern void bt_pll_para(u32 osc, u32 sys, u8 low_power, u8 xosc);
-static void start_selected_profile(void);
+static void start_session(u8 slot, u8 pairing, enum cyclone2_profile_type type);
 static void profile_select(u8 profile, u8 pairing);
 static void injection_cancel(void);
 static u32 active_report_hz(void);
 static void soft_reset_now(void *private_data);
-static void start_pending_wake(void);
-static void profile_request_transition(u8 profile, u8 pairing);
+static void start_wake(struct cyclone2_wake_target target);
+static struct cyclone2_stop *request_transition(enum cyclone2_after_stop after);
+
+const struct cyclone2_controller_state *cyclone2_controller_state(void)
+{
+    return &state;
+}
+
+const struct cyclone2_session *cyclone2_controller_session(
+    const struct cyclone2_controller_state *s)
+{
+    switch (s->kind) {
+    case CYCLONE2_CONTROLLER_CONNECTING: return &s->as.connecting.session;
+    case CYCLONE2_CONTROLLER_PAIRING: return &s->as.pairing.session;
+    case CYCLONE2_CONTROLLER_CONNECTED: return &s->as.connected.session;
+    case CYCLONE2_CONTROLLER_DISCONNECTED: return &s->as.disconnected.session;
+    case CYCLONE2_CONTROLLER_STOPPING:
+        return s->as.stopping.has_session ? &s->as.stopping.session : NULL;
+    default: return NULL;
+    }
+}
+
+const char *cyclone2_controller_kind_name(enum cyclone2_controller_kind kind)
+{
+    static const char *const names[CYCLONE2_CONTROLLER_KIND_COUNT] = {
+        "idle", "connecting", "pairing", "connected", "disconnected",
+        "waking", "stopping",
+    };
+
+    return kind < CYCLONE2_CONTROLLER_KIND_COUNT ? names[kind] : "?";
+}
+
+static const struct cyclone2_session *session(void)
+{
+    return cyclone2_controller_session(&state);
+}
+
+/* Every change of state goes through here.  The time a kind was entered
+ * survives a change within the kind (a connect retry). */
+static void become(const struct cyclone2_controller_state *next)
+{
+    u32 entered = state.entered_ms;
+
+    if (next->kind != state.kind) entered = sys_timer_get_ms();
+    state = *next;
+    state.entered_ms = entered;
+}
+
+static void become_idle(void)
+{
+    struct cyclone2_controller_state next = {
+        .kind = CYCLONE2_CONTROLLER_IDLE,
+    };
+
+    become(&next);
+}
+
+static void become_connected(struct cyclone2_session s)
+{
+    struct cyclone2_controller_state next = {
+        .kind = CYCLONE2_CONTROLLER_CONNECTED, .as.connected.session = s,
+    };
+
+    become(&next);
+}
+
+static void become_disconnected(struct cyclone2_session s)
+{
+    struct cyclone2_controller_state next = {
+        .kind = CYCLONE2_CONTROLLER_DISCONNECTED,
+        .as.disconnected.session = s,
+    };
+
+    become(&next);
+}
+
+/* Stop whatever runs, headed for `after`; the caller fills in `then`. */
+static struct cyclone2_stop *begin_stop(enum cyclone2_after_stop after)
+{
+    const struct cyclone2_session *s = session();
+    struct cyclone2_controller_state next = {
+        .kind = CYCLONE2_CONTROLLER_STOPPING,
+    };
+
+    next.as.stopping.has_session = s != NULL;
+    if (s) next.as.stopping.session = *s;
+    next.as.stopping.since_ms = sys_timer_get_ms();
+    next.as.stopping.after = after;
+    become(&next);
+    return &state.as.stopping;
+}
+
+static int stopping_for(enum cyclone2_after_stop after)
+{
+    return state.kind == CYCLONE2_CONTROLLER_STOPPING &&
+           state.as.stopping.after == after;
+}
 
 static void radio_exit_only(void *private_data)
 {
+    struct cyclone2_stop *stop = &state.as.stopping;
+
     (void)private_data;
     cyclone2_rumble_stop();
-    if (active_profile < CYCLONE2_PROFILE_COUNT) {
-        cyclone2_profile_exit();
+    if (!stopping_for(CYCLONE2_AFTER_STOP_DISCONNECTED)) return;
+    if (!stop->has_session) {
+        become_idle();
+        return;
     }
-    radio_state = CYCLONE2_RADIO_OFF;
+    cyclone2_profile_exit();
+    become_disconnected(stop->session);
 }
 
 int cyclone2_usb_present(void)
@@ -153,7 +223,9 @@ int cyclone2_usb_present(void)
 
 u8 get_cur_bt_idx(void)
 {
-    return active_profile < CYCLONE2_PROFILE_COUNT ? active_profile : 0U;
+    const struct cyclone2_session *s = session();
+
+    return s ? s->slot : 0U;
 }
 
 static enum cyclone2_profile_type slot_type(u8 slot)
@@ -173,15 +245,12 @@ static int radio_quiet(u32 now)
 {
     int quiet;
 
-    if (radio_state != quiet_state) {
-        quiet_state = radio_state;
-        quiet_since_ms = now;
-    }
-    quiet = radio_state == CYCLONE2_RADIO_OFF ||
-            radio_state == CYCLONE2_RADIO_CONNECTED ||
-            (radio_state == CYCLONE2_RADIO_CONNECTING &&
+    quiet = state.kind == CYCLONE2_CONTROLLER_IDLE ||
+            state.kind == CYCLONE2_CONTROLLER_DISCONNECTED ||
+            state.kind == CYCLONE2_CONTROLLER_CONNECTED ||
+            (state.kind == CYCLONE2_CONTROLLER_CONNECTING &&
              !btstack_jl_core_link_up() && !btstack_jl_le_connected());
-    return quiet && now - quiet_since_ms >= CYCLONE2_RADIO_SETTLE_MS;
+    return quiet && now - state.entered_ms >= CYCLONE2_RADIO_SETTLE_MS;
 }
 
 int cyclone2_radio_quiet(void)
@@ -202,9 +271,9 @@ void cyclone2_report_statistics_get(struct cyclone2_report_statistics *stats)
 int cyclone2_connect_request(u8 profile)
 {
     if (profile >= CYCLONE2_PROFILE_COUNT) return -1;
-    if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
-    if (radio_state == CYCLONE2_RADIO_CONNECTED &&
-        active_profile == profile &&
+    if (state.kind == CYCLONE2_CONTROLLER_STOPPING) return -1;
+    if (state.kind == CYCLONE2_CONTROLLER_CONNECTED &&
+        state.as.connected.session.slot == profile &&
         cyclone2_profile_is_connected()) return 0;
     injection_cancel();
     profile_select(profile, 0U);
@@ -213,66 +282,61 @@ int cyclone2_connect_request(u8 profile)
 
 int cyclone2_wake_request(u8 slot, u8 channel, u8 seconds)
 {
+    struct cyclone2_stop *stop;
     int result;
 
     if (slot >= CYCLONE2_PROFILE_COUNT) return -1;
-    if (radio_state == CYCLONE2_RADIO_STOPPING ||
-        radio_state == CYCLONE2_RADIO_WAKING) return -1;
+    if (state.kind == CYCLONE2_CONTROLLER_STOPPING ||
+        state.kind == CYCLONE2_CONTROLLER_WAKING) return -1;
     result = cyclone2_profile_wake_check(slot_type(slot), slot, channel, seconds);
     if (result) return result;
 
     injection_cancel();
-    wake_pending = 1U;
-    wake_pending_slot = slot;
-    wake_pending_channel = channel;
-    wake_pending_seconds = seconds;
-
     /* Always deferred, even with no session running: profile_transition_now()
      * runs from a timer, and going through it keeps the command parser from
      * carrying the profile-start path on its own stack - the same reason the
-     * other commands queue their work.  That function sees wake_pending and
-     * starts the wake instead of bringing a profile up. */
-    profile_request_transition(slot, 0U);
+     * other commands queue their work. */
+    stop = request_transition(CYCLONE2_AFTER_STOP_WAKE);
+    if (!stop) return -1;
+    stop->then.wake.slot = slot;
+    stop->then.wake.type = slot_type(slot);
+    stop->then.wake.channel = channel;
+    stop->then.wake.seconds = seconds;
     return 1;
 }
 
 static void wake_finished(void)
 {
-    u8 slot = wake_slot;
+    u8 slot;
 
-    if (radio_state != CYCLONE2_RADIO_WAKING) return;
-    radio_state = CYCLONE2_RADIO_OFF;
-    wake_slot = 0xffU;
+    if (state.kind != CYCLONE2_CONTROLLER_WAKING) return;
+    slot = state.as.waking.slot;
+    become_idle();
 
     cyclone2_profile_wake_stop();
-    if (slot < CYCLONE2_PROFILE_COUNT) {
-        cyclone2_usb_debug("wake done; reconnecting slot %s",
-                           config_slot_name(slot));
-        profile_select(slot, 0U);
-    }
+    cyclone2_usb_debug("wake done; reconnecting slot %s",
+                       config_slot_name(slot));
+    profile_select(slot, 0U);
 }
 
-static void start_pending_wake(void)
+static void start_wake(struct cyclone2_wake_target target)
 {
+    struct cyclone2_controller_state next = {
+        .kind = CYCLONE2_CONTROLLER_WAKING, .as.waking = target,
+    };
     int result;
 
-    active_profile = 0xffU;
-    active_pairing = 0U;
-    wake_slot = wake_pending_slot;
-    wake_pending = 0U;
-    radio_state = CYCLONE2_RADIO_WAKING;
-
-    result = cyclone2_profile_wake_start(pending_type, wake_pending_slot,
-                                         wake_pending_channel, wake_pending_seconds);
+    become(&next);
+    result = cyclone2_profile_wake_start(target.type, target.slot,
+                                         target.channel, target.seconds);
     if (result > 0) {
         wake_finished();
     } else if (result < 0) {
         cyclone2_usb_debug("wake not started (%d); reconnecting slot %s",
-                           result, config_slot_name(wake_pending_slot));
+                           result, config_slot_name(target.slot));
         cyclone2_profile_wake_stop();
-        radio_state = CYCLONE2_RADIO_OFF;
-        wake_slot = 0xffU;
-        profile_select(wake_pending_slot, 0U);
+        become_idle();
+        profile_select(target.slot, 0U);
     }
 }
 
@@ -283,7 +347,7 @@ static void start_pending_wake(void)
 int cyclone2_pair_request(u8 profile)
 {
     if (profile >= CYCLONE2_PROFILE_COUNT) return -1;
-    if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
+    if (state.kind == CYCLONE2_CONTROLLER_STOPPING) return -1;
     injection_cancel();
     profile_select(profile, 1U);
     return 1;
@@ -295,7 +359,7 @@ int cyclone2_pair_request(u8 profile)
 int cyclone2_pair_fresh_request(u8 profile)
 {
     if (profile >= CYCLONE2_PROFILE_COUNT) return -1;
-    if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
+    if (state.kind == CYCLONE2_CONTROLLER_STOPPING) return -1;
     /* A new address: a host that still holds a key for the old one sees a
      * pad it has never met. */
     config_slot_address_fresh(profile);
@@ -320,7 +384,7 @@ int cyclone2_clear_keys_request(void)
     volatile u8 *store = CYCLONE2_BT_BOND_STORE;
     u32 index;
 
-    if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
+    if (state.kind == CYCLONE2_CONTROLLER_STOPPING) return -1;
     for (index = 0U; index < CYCLONE2_BT_BOND_STORE_SIZE; index++) {
         store[index] = 0U;
     }
@@ -337,42 +401,44 @@ int cyclone2_clear_keys_request(void)
  */
 int cyclone2_reboot_request(void)
 {
-    if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
+    if (state.kind == CYCLONE2_CONTROLLER_STOPPING) return -1;
     injection_cancel();
     cyclone2_rumble_stop();
-    radio_state = CYCLONE2_RADIO_STOPPING;
-    if (active_profile < CYCLONE2_PROFILE_COUNT) cyclone2_profile_disconnect();
+    if (begin_stop(CYCLONE2_AFTER_STOP_REBOOT)->has_session)
+        cyclone2_profile_disconnect();
     sys_timeout_add(NULL, soft_reset_now, 100U);
     return 1;
 }
 
 void cyclone2_wake_cancel(void)
 {
-    if (wake_pending) pending_profile = 0xffU;
-    wake_pending = 0U;
-    if (radio_state != CYCLONE2_RADIO_WAKING) return;
+    /* A wake still waiting for the radio to go quiet: stop there instead. */
+    if (stopping_for(CYCLONE2_AFTER_STOP_WAKE)) {
+        state.as.stopping.after = CYCLONE2_AFTER_STOP_IDLE;
+        return;
+    }
+    if (state.kind != CYCLONE2_CONTROLLER_WAKING) return;
     cyclone2_profile_wake_stop();
-    wake_slot = 0xffU;
-    radio_state = CYCLONE2_RADIO_OFF;
+    become_idle();
 }
 
 int cyclone2_disconnect_request(void)
 {
-    if (radio_state == CYCLONE2_RADIO_WAKING) {
-
+    if (state.kind == CYCLONE2_CONTROLLER_WAKING) {
         cyclone2_wake_cancel();
         return 1;
     }
-    if (active_profile >= CYCLONE2_PROFILE_COUNT) return 0;
-    if (radio_state == CYCLONE2_RADIO_STOPPING) return -1;
+    if (!session()) return 0;
+    if (state.kind == CYCLONE2_CONTROLLER_STOPPING) return -1;
 
     injection_cancel();
     cyclone2_rumble_stop();
-    radio_state = CYCLONE2_RADIO_STOPPING;
+    begin_stop(CYCLONE2_AFTER_STOP_DISCONNECTED);
     if (cyclone2_profile_is_connected()) cyclone2_profile_disconnect();
     /* Let the profile emit its protocol-level disconnect before shutting down
      * the shared Bluetooth stack. This also stops discoverability after a
-     * failed pairing attempt, where radio_state is OFF but btstack is active.
+     * failed pairing attempt, where the state is disconnected but btstack is
+     * active.
      * A later connect command uses the existing reset handoff to initialize
      * that stack from a clean state. */
     sys_timeout_add(NULL, radio_exit_only, 100U);
@@ -381,33 +447,36 @@ int cyclone2_disconnect_request(void)
 
 int cyclone2_radio_stopped(void)
 {
-    return radio_state == CYCLONE2_RADIO_OFF && btstack_jl_core_idle();
+    return (state.kind == CYCLONE2_CONTROLLER_IDLE ||
+            state.kind == CYCLONE2_CONTROLLER_DISCONNECTED) &&
+           btstack_jl_core_idle();
 }
 
 void cyclone2_connection_status_get(struct cyclone2_connection_status *status)
 {
-    u8 slot = active_profile < CYCLONE2_PROFILE_COUNT ? active_profile : 0U;
+    const struct cyclone2_session *s = session();
+    u8 slot = s ? s->slot : 0U;
+
     status->slot = slot;
-    status->profile_type = active_profile < CYCLONE2_PROFILE_COUNT ?
-                            active_type : slot_type(slot);
-    status->connection_state = (u8)radio_state;
+    status->profile_type = s ? s->type : slot_type(slot);
+    status->connection_state = (u8)state.kind;
     status->usb_present = (u8)cyclone2_usb_present();
-    status->connect_attempts = connect_attempts;
+    status->connect_attempts = state.kind == CYCLONE2_CONTROLLER_CONNECTING ?
+                               state.as.connecting.attempts : 0U;
     memcpy(status->local_address, bt_get_mac_addr(), 6U);
     status->stale = 0U;
-    if (active_profile < CYCLONE2_PROFILE_COUNT) {
+    if (s) {
         u8 address[6];
 
         config_slot_address(slot, address);
-        status->stale = active_type != slot_type(slot) ||
+        status->stale = s->type != slot_type(slot) ||
                         memcmp(address, status->local_address, 6U) != 0;
     }
 }
 
 int cyclone2_inject_start(u32 period_ms, u32 duration_ms)
 {
-    if (active_profile >= CYCLONE2_PROFILE_COUNT ||
-        !cyclone2_profile_is_connected() ||
+    if (!session() || !cyclone2_profile_is_connected() ||
         period_ms < CYCLONE2_INJECT_MIN_PERIOD_MS ||
         period_ms > CYCLONE2_INJECT_MAX_PERIOD_MS || duration_ms == 0U ||
         duration_ms > CYCLONE2_INJECT_MAX_DURATION_MS || (period_ms & 1U)) return -1;
@@ -479,7 +548,7 @@ static u16 boot_request_check(u8 profile, u8 pairing)
     return (u16)(0xc200U ^ profile ^ ((u16)pairing << 8));
 }
 
-static int boot_request_consume(void)
+static int boot_request_consume(u8 *slot, u8 *slot_pairing)
 {
     u32 magic;
     u16 check;
@@ -501,10 +570,9 @@ static int boot_request_consume(void)
 
     /* This is a reset handoff, not a saved active profile. Consume it before
      * starting the radio so a later unrelated reset returns to slot select. */
-    active_profile = profile;
-    active_pairing = pairing;
+    *slot = profile;
+    *slot_pairing = pairing;
     ignore_chord_until_release = 1U;
-    active_type = slot_type(profile);
     return 1;
 }
 
@@ -525,86 +593,88 @@ static void soft_reset_now(void *private_data)
  * leave the radio wedged if it happened at the wrong moment. */
 static void profile_transition_now(void *private_data)
 {
+    struct cyclone2_stop *stop = &state.as.stopping;
+
     (void)private_data;
     cyclone2_rumble_stop();
-    if (active_profile < CYCLONE2_PROFILE_COUNT) {
+    if (state.kind != CYCLONE2_CONTROLLER_STOPPING) return;
+    if (stop->has_session) {
         if (!cyclone2_profile_exit()) {
             /* Still going down: the stack's halt waits for the peer to confirm
              * the disconnect, which can take the supervision timeout.  Poll
              * from a timer rather than block here - the console shares this
              * task.  Starting the next session before this one is down is what
              * used to reset the chip. */
-            if ((s32)(sys_timer_get_ms() - transition_started_ms) <
+            if ((s32)(sys_timer_get_ms() - stop->since_ms) <
                 (s32)CYCLONE2_PROFILE_EXIT_MAX_MS) {
                 sys_timeout_add(NULL, profile_transition_now,
                                 CYCLONE2_PROFILE_EXIT_POLL_MS);
                 return;
             }
-            wake_pending = 0U;
-            active_profile = 0xffU;
-            radio_state = CYCLONE2_RADIO_OFF;
+            become_idle();
             cyclone2_usb_debug(
                 "profile switch aborted: the previous session did not stop");
             return;
         }
+        stop->has_session = 0U;
     }
-    if (pending_profile >= CYCLONE2_PROFILE_COUNT) {
-        active_profile = 0xffU;
-        radio_state = CYCLONE2_RADIO_OFF;
-        return;
+    switch (stop->after) {
+    case CYCLONE2_AFTER_STOP_START: {
+        struct cyclone2_stop_start next = stop->then.start;
+
+        home_state = CYCLONE2_HOME_IDLE;
+        ignore_chord_until_release = 1U;
+        start_session(next.slot, next.pairing, next.type);
+        break;
     }
-    if (wake_pending) {
+    case CYCLONE2_AFTER_STOP_WAKE:
         /* The radio is quiet now, which is the only state the wake can take
          * the baseband in. */
-        start_pending_wake();
-        return;
+        start_wake(stop->then.wake);
+        break;
+    default:
+        become_idle();
+        break;
     }
-    active_profile = pending_profile;
-    active_pairing = pending_pairing;
-    active_type = pending_type;
-    home_state = CYCLONE2_HOME_IDLE;
-    ignore_chord_until_release = 1U;
-    start_selected_profile();
 }
 
-static void profile_request_transition(u8 profile, u8 pairing)
+/* Take the running session down in place and then go where `after` says,
+ * on the same firmware image; NULL if a stop is already under way.  The
+ * caller fills in the stop's `then`. */
+static struct cyclone2_stop *request_transition(enum cyclone2_after_stop after)
 {
-    if (radio_state == CYCLONE2_RADIO_STOPPING) {
-        return;
-    }
+    struct cyclone2_stop *stop;
+    int connected;
+
+    if (state.kind == CYCLONE2_CONTROLLER_STOPPING) return NULL;
     injection_cancel();
     cyclone2_rumble_stop();
 
-    pending_profile = profile;
-    pending_pairing = pairing;
-    pending_type = slot_type(profile);
-
-    radio_state = CYCLONE2_RADIO_STOPPING;
-    if (cyclone2_profile_is_connected()) {
-        cyclone2_profile_disconnect();
-    }
-    transition_started_ms = sys_timer_get_ms();
+    connected = session() && cyclone2_profile_is_connected();
+    stop = begin_stop(after);
+    if (connected) cyclone2_profile_disconnect();
     sys_timeout_add(NULL, profile_transition_now, CYCLONE2_PROFILE_SWITCH_MS);
+    return stop;
 }
 
 static void profile_select(u8 profile, u8 pairing)
 {
     injection_cancel();
-    if (radio_state == CYCLONE2_RADIO_WAKING) {
+    if (state.kind == CYCLONE2_CONTROLLER_STOPPING) return;
+    if (state.kind == CYCLONE2_CONTROLLER_WAKING) cyclone2_wake_cancel();
+    if (session()) {
+        struct cyclone2_stop *stop =
+            request_transition(CYCLONE2_AFTER_STOP_START);
 
-        cyclone2_wake_cancel();
-    }
-    if (active_profile < CYCLONE2_PROFILE_COUNT) {
-        profile_request_transition(profile, pairing);
+        stop->then.start.slot = profile;
+        stop->then.start.pairing = pairing;
+        stop->then.start.type = slot_type(profile);
         return;
     }
 
-    active_profile = profile;
-    active_pairing = pairing;
-    active_type = slot_type(profile);
     home_state = CYCLONE2_HOME_IDLE;
     ignore_chord_until_release = 1U;
-    start_selected_profile();
+    start_session(profile, pairing, slot_type(profile));
 }
 
 static void poweroff_now(void *private_data)
@@ -612,19 +682,20 @@ static void poweroff_now(void *private_data)
     u32 sense = gpio_read(CYCLONE2_USB_SENSE) ? 1U : 0U;
     u32 otg = usb_otg_online(USB0) != DISCONN_MODE ? 1U : 0U;
     u32 terminal = cyclone2_cdc_terminal_open() ? 1U : 0U;
+    struct cyclone2_stop *stop = &state.as.stopping;
 
     (void)private_data;
+    if (!stopping_for(CYCLONE2_AFTER_STOP_SLEEP)) return;
 
     cyclone2_bringup_record(0x5200u | sense | (otg << 1));
     cyclone2_bringup_record(0x5400u | terminal);
     if (sense || otg || terminal) {
-        radio_state = CYCLONE2_RADIO_OFF;
+        if (stop->has_session) become_disconnected(stop->session);
+        else become_idle();
         cyclone2_usb_debug("sleep cancelled; USB is connected");
-        sleep_confirm_count = 0U;
-        poweroff_flash_wait = 0U;
         return;
     }
-    if (++sleep_confirm_count < CYCLONE2_SLEEP_CONFIRM) {
+    if (++stop->then.sleep.confirmations < CYCLONE2_SLEEP_CONFIRM) {
         /* Keep asking: a glitch that clears on the next poll must not put the
          * pad to sleep, because that leaves it dark until a power cycle. */
         sys_timeout_add(NULL, poweroff_now, CYCLONE2_SLEEP_RECHECK_MS);
@@ -634,37 +705,37 @@ static void poweroff_now(void *private_data)
      * moment to settle rather than lose them to the power-off.  With
      * autocommit off they are dropped, as a reboot would. */
     if (config_pending() && config.autocommit) {
-        if (!poweroff_flash_wait) {
-            poweroff_flash_wait = 1U;
+        if (!stop->then.sleep.waited_for_flash) {
+            stop->then.sleep.waited_for_flash = 1U;
             sys_timeout_add(NULL, poweroff_now, CYCLONE2_RADIO_SETTLE_MS);
             return;
         }
         config_commit(1);
     }
-    poweroff_flash_wait = 0U;
     cyclone2_bringup_record(0x5300u);
     power_set_soft_poweroff();
 }
 
 static void radio_exit_and_poweroff(void *private_data)
 {
+    struct cyclone2_stop *stop = &state.as.stopping;
+
     (void)private_data;
     cyclone2_rumble_stop();
+    if (!stopping_for(CYCLONE2_AFTER_STOP_SLEEP)) return;
 
-    if (radio_state == CYCLONE2_RADIO_WAKING) {
-        cyclone2_wake_cancel();
-    }
     if (cyclone2_usb_present()) {
-        sleep_pending = 0U;
-        radio_state = active_profile < CYCLONE2_PROFILE_COUNT &&
-                      cyclone2_profile_is_connected() ?
-                      CYCLONE2_RADIO_CONNECTED : CYCLONE2_RADIO_OFF;
+        if (!stop->has_session) become_idle();
+        else if (cyclone2_profile_is_connected())
+            become_connected(stop->session);
+        else become_disconnected(stop->session);
         cyclone2_usb_debug("sleep cancelled; USB is connected");
         return;
     }
-    if (active_profile < CYCLONE2_PROFILE_COUNT) {
-        cyclone2_profile_exit();
-    }
+    /* One call, not waited for: the pad powers off regardless.  The session
+     * stays recorded, so a USB cancel below leaves it disconnected and the
+     * next connect tears it down properly. */
+    if (stop->has_session) cyclone2_profile_exit();
     cyclone2_led_set_home(0U, 0U, 0U);
     sys_timeout_add(NULL, poweroff_now, 300U);
 }
@@ -672,7 +743,7 @@ static void radio_exit_and_poweroff(void *private_data)
 static void begin_sleep(void)
 {
     if (cyclone2_usb_present()) {
-        if (radio_state == CYCLONE2_RADIO_CONNECTED) {
+        if (state.kind == CYCLONE2_CONTROLLER_CONNECTED) {
             cyclone2_usb_debug(
                 "Home hold: disconnecting Bluetooth; USB keeps console awake");
             cyclone2_disconnect_request();
@@ -684,7 +755,10 @@ static void begin_sleep(void)
         home_state = CYCLONE2_HOME_INVALID_CHORD;
         return;
     }
-    if (radio_state != CYCLONE2_RADIO_STOPPING) sleep_pending = 1U;
+    if (state.kind == CYCLONE2_CONTROLLER_STOPPING) return;
+    if (state.kind == CYCLONE2_CONTROLLER_WAKING) cyclone2_profile_wake_stop();
+    begin_stop(CYCLONE2_AFTER_STOP_SLEEP);
+    sys_timeout_add(NULL, radio_exit_and_poweroff, 30U);
 }
 
 static void begin_automatic_sleep(const char *reason)
@@ -818,8 +892,7 @@ CYCLONE2_HOT static void make_host_report(struct cyclone2_input_report *report)
         home_state == CYCLONE2_HOME_CALIBRATE_CHORD ||
         home_state == CYCLONE2_HOME_INVALID_CHORD ||
         ignore_chord_until_release ||
-        sleep_pending ||
-        radio_state == CYCLONE2_RADIO_STOPPING) {
+        state.kind == CYCLONE2_CONTROLLER_STOPPING) {
         report->buttons &= ~(CYCLONE2_REPORT_BUTTON_HOME |
                              CYCLONE2_FACE_BUTTONS);
     }
@@ -877,12 +950,11 @@ static void update_status_led(void)
         return;
     }
     calibration_led_colour = 0U;
-    if (active_profile >= CYCLONE2_PROFILE_COUNT &&
-        now - started_at_ms < CYCLONE2_BOOT_LED_MS) on = 1U;
-    else if (radio_state == CYCLONE2_RADIO_CONNECTED) on = 1U;
-    else if (radio_state == CYCLONE2_RADIO_CONNECTING ||
-             radio_state == CYCLONE2_RADIO_PAIRING) {
-        half_period = radio_state == CYCLONE2_RADIO_PAIRING ?
+    if (!session() && now - started_at_ms < CYCLONE2_BOOT_LED_MS) on = 1U;
+    else if (state.kind == CYCLONE2_CONTROLLER_CONNECTED) on = 1U;
+    else if (state.kind == CYCLONE2_CONTROLLER_CONNECTING ||
+             state.kind == CYCLONE2_CONTROLLER_PAIRING) {
+        half_period = state.kind == CYCLONE2_CONTROLLER_PAIRING ?
                       CYCLONE2_LED_FAST_HALF_PERIOD_MS :
                       CYCLONE2_LED_SLOW_HALF_PERIOD_MS;
         on = ((now / half_period) & 1U) == 0U;
@@ -908,8 +980,7 @@ static void send_input_report(const struct cyclone2_input_report *report)
 {
     int result;
 
-    if (active_profile >= CYCLONE2_PROFILE_COUNT ||
-        radio_state != CYCLONE2_RADIO_CONNECTED) return;
+    if (state.kind != CYCLONE2_CONTROLLER_CONNECTED) return;
     report_statistics.send_attempts++;
     result = cyclone2_profile_send(report);
     if (result > 0) {
@@ -935,11 +1006,11 @@ static void send_input_report(const struct cyclone2_input_report *report)
 /* The slot's report rate: its own setting, else its type's default. */
 static u32 active_report_hz(void)
 {
+    const struct cyclone2_session *s = session();
     u32 hz = 0U;
 
-    if (active_profile < CYCLONE2_PROFILE_COUNT)
-        hz = config.profile[active_profile].report_hz;
-    if (!hz) hz = cyclone2_profile_default_hz(active_type);
+    if (s) hz = config.profile[s->slot].report_hz;
+    if (!hz) hz = cyclone2_profile_default_hz(s ? s->type : slot_type(0U));
     return hz ? hz : 125U;
 }
 
@@ -962,7 +1033,7 @@ CYCLONE2_HOT static void cyclone2_poll(void *private_data)
     config_poll(now, radio_quiet(now));
     cyclone2_prof_mark(CYCLONE2_PROF_CONFIG);
 
-    if (radio_state == CYCLONE2_RADIO_WAKING &&
+    if (state.kind == CYCLONE2_CONTROLLER_WAKING &&
         cyclone2_profile_wake_step(now)) wake_finished();
     cyclone2_rumble_poll(now);
     cyclone2_prof_mark(CYCLONE2_PROF_RUMBLE);
@@ -1003,14 +1074,11 @@ CYCLONE2_HOT static void cyclone2_poll(void *private_data)
      * in that case (USB keeps the controller awake), so a reconnect must be
      * picked up rather than ignored. Otherwise the link comes up and carries
      * no reports at all. */
-    if (radio_state != CYCLONE2_RADIO_STOPPING &&
+    if (session() && state.kind != CYCLONE2_CONTROLLER_STOPPING &&
+        state.kind != CYCLONE2_CONTROLLER_CONNECTED &&
         cyclone2_profile_is_connected()) {
-        if (radio_state != CYCLONE2_RADIO_CONNECTED) {
-
-            cyclone2_bringup_record(0x6100u);
-        }
-        radio_state = CYCLONE2_RADIO_CONNECTED;
-        connect_attempts = 0U;
+        cyclone2_bringup_record(0x6100u);
+        become_connected(*session());
     }
     make_host_report(&host_report);
     if ((injection_status.active || injection_release_pending) &&
@@ -1031,59 +1099,68 @@ CYCLONE2_HOT static void cyclone2_poll(void *private_data)
     cyclone2_timing_poll_done(now_us);
     update_status_led();
     cyclone2_prof_mark(CYCLONE2_PROF_LED);
-    if (sleep_pending) {
-        sleep_pending = 0U;
-        radio_state = CYCLONE2_RADIO_STOPPING;
-        sys_timeout_add(NULL, radio_exit_and_poweroff, 30U);
-    }
-    if ((radio_state == CYCLONE2_RADIO_CONNECTING &&
-         now - radio_start_ms >= CYCLONE2_CONNECT_TIMEOUT_MS) ||
-        (radio_state == CYCLONE2_RADIO_PAIRING &&
-         now - radio_start_ms >= CYCLONE2_PAIR_TIMEOUT_MS)) {
+    if (state.kind == CYCLONE2_CONTROLLER_CONNECTING &&
+        now - state.as.connecting.since_ms >= CYCLONE2_CONNECT_TIMEOUT_MS) {
         if (!cyclone2_usb_present()) {
             begin_automatic_sleep("Bluetooth timeout");
-        } else if (radio_state == CYCLONE2_RADIO_CONNECTING &&
-                   connect_attempts < CYCLONE2_CONNECT_RETRIES &&
+        } else if (state.as.connecting.attempts < CYCLONE2_CONNECT_RETRIES &&
                    cyclone2_profile_reconnect()) {
             /* An attempt that ended with the link up but no HID session leaves
              * the controller stuck; ask the profile for a fresh one instead of
              * idling on a dead connection until the user resets. */
-            connect_attempts++;
+            state.as.connecting.attempts++;
             cyclone2_usb_debug("Bluetooth connect attempt %u timed out; retrying",
-                               connect_attempts);
-            radio_start_ms = now;
+                               state.as.connecting.attempts);
+            state.as.connecting.since_ms = now;
         } else {
             cyclone2_usb_debug("Bluetooth timeout; staying awake for USB console");
-            radio_start_ms = now;
+            state.as.connecting.since_ms = now;
+        }
+    } else if (state.kind == CYCLONE2_CONTROLLER_PAIRING &&
+               now - state.as.pairing.since_ms >= CYCLONE2_PAIR_TIMEOUT_MS) {
+        if (!cyclone2_usb_present()) {
+            begin_automatic_sleep("Bluetooth timeout");
+        } else {
+            cyclone2_usb_debug("Bluetooth timeout; staying awake for USB console");
+            state.as.pairing.since_ms = now;
         }
     }
     cyclone2_prof_mark(CYCLONE2_PROF_TAIL);
     cyclone2_prof_end();
 }
 
-static void start_selected_profile(void)
+static void start_session(u8 slot, u8 pairing, enum cyclone2_profile_type type)
 {
-    radio_state = active_pairing ? CYCLONE2_RADIO_PAIRING :
-                                   CYCLONE2_RADIO_CONNECTING;
-    radio_start_ms = sys_timer_get_ms();
-    connect_attempts = 0U;
+    u32 now = sys_timer_get_ms();
+    struct cyclone2_session started = { .slot = slot, .type = type,
+                                        .started_ms = now };
+    struct cyclone2_controller_state next;
 
-    ignore_disconnect_until_ms = sys_timer_get_ms() + CYCLONE2_STALE_EVENT_MS;
+    memset(&next, 0, sizeof(next));
+    if (pairing) {
+        next.kind = CYCLONE2_CONTROLLER_PAIRING;
+        next.as.pairing.session = started;
+        next.as.pairing.since_ms = now;
+    } else {
+        next.kind = CYCLONE2_CONTROLLER_CONNECTING;
+        next.as.connecting.session = started;
+        next.as.connecting.since_ms = now;
+    }
+    become(&next);
     cyclone2_usb_debug("start slot %s type=%s pairing=%u",
-                       config_slot_name(active_profile),
-                       cyclone2_profile_name(active_type),
-                       active_pairing);
-
+                       config_slot_name(slot), cyclone2_profile_name(type),
+                       pairing);
     update_status_led();
 
-    cyclone2_profile_start(active_type, active_profile, active_pairing);
-
+    cyclone2_profile_start(type, slot, pairing);
 }
 
 static void cyclone2_start(void)
 {
     u32 system_clock;
     u8 early_chord;
+    u8 boot_slot;
+    u8 boot_pairing;
 
     cyclone2_led_initialize();
     cyclone2_rumble_initialize();
@@ -1102,8 +1179,8 @@ static void cyclone2_start(void)
     hat_changed_us = 0U;
     next_report_us = cyclone2_time_us();
     early_chord = cyclone2_take_early_profile_chord();
-    if (boot_request_consume()) {
-        start_selected_profile();
+    if (boot_request_consume(&boot_slot, &boot_pairing)) {
+        start_session(boot_slot, boot_pairing, slot_type(boot_slot));
     } else if (early_chord != 0U) {
         profile_select(early_chord - 1U, 0U);
     }
@@ -1124,18 +1201,20 @@ static int cyclone2_event_handler(struct application *application,
                                   struct sys_event *event)
 {
     enum cyclone2_profile_event result;
+    struct cyclone2_session s;
 
     (void)application;
-    if (event->type != SYS_BT_EVENT ||
-        active_profile >= CYCLONE2_PROFILE_COUNT) return 0;
+    if (event->type != SYS_BT_EVENT || !session()) return 0;
+    s = *session();
 
     result = cyclone2_profile_handle_event(event);
-    if (result & CYCLONE2_PROFILE_EVENT_CONNECTED)
-        radio_state = CYCLONE2_RADIO_CONNECTED;
+    if ((result & CYCLONE2_PROFILE_EVENT_CONNECTED) &&
+        state.kind != CYCLONE2_CONTROLLER_STOPPING)
+        become_connected(s);
     if (result & CYCLONE2_PROFILE_EVENT_DISCONNECTED) {
-
-        if (radio_state != CYCLONE2_RADIO_CONNECTED &&
-            (s32)(sys_timer_get_ms() - ignore_disconnect_until_ms) < 0) {
+        /* A disconnect from the session before this one, arriving late. */
+        if (state.kind != CYCLONE2_CONTROLLER_CONNECTED &&
+            sys_timer_get_ms() - s.started_ms < CYCLONE2_STALE_EVENT_MS) {
             return 0;
         }
         injection_cancel();
@@ -1144,8 +1223,8 @@ static int cyclone2_event_handler(struct application *application,
          * led_is_on.  Force every LED off when the radio disconnects. */
         cyclone2_led_set_all(0U, 0U, 0U);
         led_is_on = 0U;
-        if (radio_state != CYCLONE2_RADIO_STOPPING) {
-            radio_state = CYCLONE2_RADIO_OFF;
+        if (state.kind != CYCLONE2_CONTROLLER_STOPPING) {
+            become_disconnected(s);
             begin_automatic_sleep("Bluetooth disconnected");
         }
     }

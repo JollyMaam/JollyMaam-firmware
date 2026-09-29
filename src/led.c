@@ -9,6 +9,8 @@
 #define LED_FRAME_BYTES          (LED_COUNT * 24U)
 
 static u8 led_dma_buffer[LED_FRAME_BYTES] __attribute__((aligned(4)));
+/* debug led: the status LED code leaves the LEDs alone while this is set. */
+static u8 led_debug_hold;
 
 extern void led_spi_init(void);
 extern void led_spi_rgb_to_24byte(u8 red, u8 green, u8 blue,
@@ -47,14 +49,45 @@ static void led_send(void)
 
 void cyclone2_led_set_all(u8 red, u8 green, u8 blue)
 {
+    if (led_debug_hold) return;
     led_fill(red, green, blue);
     led_send();
 }
 
 void cyclone2_led_set_home(u8 red, u8 green, u8 blue)
 {
+    if (led_debug_hold) return;
     led_fill(0U, 0U, 0U);
     led_spi_rgb_to_24byte(red, green, blue, led_dma_buffer,
                           CYCLONE2_LED_HOME_INDEX);
+    led_send();
+}
+
+void cyclone2_led_debug(u32 mask, u8 red, u8 green, u8 blue)
+{
+    u32 led;
+
+    led_debug_hold = mask != 0U;
+    for (led = 0U; led < LED_COUNT; led++) {
+        if (mask & (1U << led))
+            led_spi_rgb_to_24byte(red, green, blue, led_dma_buffer, led);
+        else
+            led_spi_rgb_to_24byte(0U, 0U, 0U, led_dma_buffer, led);
+    }
+    led_send();
+}
+
+void cyclone2_led_debug_legend(void)
+{
+    static const u8 legend[LED_COUNT][3] = {
+        { 48, 0, 0 }, { 0, 48, 0 }, { 0, 0, 48 }, { 48, 48, 0 },
+        { 0, 48, 48 }, { 48, 0, 48 }, { 40, 40, 40 }, { 60, 16, 0 },
+    };
+    u32 led;
+
+    led_debug_hold = 1U;
+    for (led = 0U; led < LED_COUNT; led++)
+        led_spi_rgb_to_24byte(legend[led][0], legend[led][1], legend[led][2],
+                              led_dma_buffer, led);
     led_send();
 }
