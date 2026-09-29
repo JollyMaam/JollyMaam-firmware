@@ -70,6 +70,7 @@ static void reset(enum cyclone2_controller_kind kind, u8 slot)
     in.idle_colour = dim_white;
     in.battery_colour = dim_orange;
     in.grip_effects = CONFIG_GRIPS_RUMBLE | CONFIG_GRIPS_INPUT;
+    in.host_lightbar_enabled = 1U;
 }
 
 static void render_at(u32 t)
@@ -160,6 +161,11 @@ static void test_grips(void)
     CHECK(same(light(CYCLONE2_LIGHT_GRIP_LEFT), orange));
     CHECK(same(light(CYCLONE2_LIGHT_GRIP_RIGHT), orange));
     CHECK(same(light(CYCLONE2_LIGHT_HOME), blue));      /* Home stays the slot's */
+    in.host_lightbar_enabled = 0U;
+    render_at(100U);
+    CHECK(same(light(CYCLONE2_LIGHT_GRIP_LEFT), dark));
+    CHECK(same(light(CYCLONE2_LIGHT_GRIP_RIGHT), dark));
+    in.host_lightbar_enabled = 1U;
     in.host.lightbar = dark;                            /* host switched it off */
     render_at(100U);
     CHECK(same(light(CYCLONE2_LIGHT_GRIP_LEFT), dark));

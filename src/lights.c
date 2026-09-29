@@ -173,6 +173,7 @@ static void gather(u32 now, struct cyclone2_lights_input *in)
 {
     struct cyclone2_rumble_status rumble;
     u32 slot;
+    u8 active_slot;
 
     memset(in, 0, sizeof(*in));
     in->state = cyclone2_controller_state();
@@ -190,6 +191,9 @@ static void gather(u32 now, struct cyclone2_lights_input *in)
     in->battery_colour.green = config.led.battery_colour[1];
     in->battery_colour.blue = config.led.battery_colour[2];
     in->grip_effects = config.led.grips;
+    if (cyclone2_controller_slot(in->state, &active_slot) &&
+        active_slot < CONFIG_PROFILES)
+        in->host_lightbar_enabled = config.profile[active_slot].lightbar;
     cyclone2_lights_host_get(&in->host);
     in->low_battery = low_battery;
     cyclone2_rumble_get_status(&rumble);

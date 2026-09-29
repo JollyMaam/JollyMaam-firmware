@@ -20,6 +20,7 @@ struct config_bond {
 struct config_profile {
     u8 type;
     u8 rumble;
+    u8 lightbar;
     /* Input reports per second; 0 = auto, the type's own default
      * (cyclone2_profile_default_hz).  Back to auto when the type changes. */
     u16 report_hz;

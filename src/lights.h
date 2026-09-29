@@ -139,6 +139,7 @@ struct cyclone2_lights_input {
     struct cyclone2_rgb idle_colour;
     struct cyclone2_rgb battery_colour;
     u8 grip_effects;                /* enum config_grip_effects */
+    u8 host_lightbar_enabled;       /* active slot's profile.#.lightbar */
     struct cyclone2_host_lights host;
     u8 low_battery;
     /* Per grip, left then right, 0..255. */

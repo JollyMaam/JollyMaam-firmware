@@ -129,6 +129,10 @@ const struct cfg_item config_items[] = {
     { .uid = 11, .path = "profile.#.rumble", .type = CFG_BOOL,
       CFG_PROFILE_FIELD(rumble), .group = CFG_GROUP_PREFS, .def = 1,
       .help = "let the host drive the rumble motors" },
+    { .uid = 14, .path = "profile.#.lightbar", .type = CFG_BOOL,
+      CFG_PROFILE_FIELD(lightbar), .group = CFG_GROUP_PREFS, .def = 1,
+      .help = "show the host's lightbar colour on the grips; false ignores "
+              "host lightbar commands for this slot" },
 
     { .uid = 20, .path = "profile.#.address", .type = CFG_MAC,
       CFG_PROFILE_FIELD(address), .group = CFG_GROUP_BOND,

@@ -207,7 +207,7 @@ static void render_grips(const struct cyclone2_scene *scene,
                          const struct cyclone2_lights_input *in, u32 t,
                          struct cyclone2_rgb colour, struct cyclone2_light_frame *frame)
 {
-    int host_lightbar_on = in->host.has_lightbar &&
+    int host_lightbar_on = in->host_lightbar_enabled && in->host.has_lightbar &&
                            (in->host.lightbar.red || in->host.lightbar.green ||
                             in->host.lightbar.blue);
     u32 side;
