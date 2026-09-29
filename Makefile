@@ -26,14 +26,6 @@ HOST_CFLAGS := -O2 -g -std=c11 -Wall -Wextra -Wpedantic
 PYTHON ?= python3
 
 CFLAGS := $(SDK_CFLAGS)
-# Code size.  Merge identical block tails down to two instructions (LLVM's
-# default is 3).  The SDK groups globals into merged blocks up to 4 KiB apart
-# and merges constants too; on this image small groups of plain globals are
-# 3 KB smaller (measured over offsets 0..4096).  RAM section sizes unchanged.
-SDK_LFLAGS := $(filter-out --plugin-opt=-pi32v2-merge-max-offset=4096 \
-		--plugin-opt=-global-merge-on-const,$(SDK_LFLAGS)) \
-	--plugin-opt=-pi32v2-merge-max-offset=4 \
-	--plugin-opt=-tail-merge-size=2
 DEFINES := $(SDK_DEFINES)
 SDK_ARCHIVES := $(SDK_ARCHIVES_MINIMAL)
 SDK_SOURCES := $(SDK_SOURCES_MINIMAL) \
