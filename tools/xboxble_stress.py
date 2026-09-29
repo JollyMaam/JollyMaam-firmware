@@ -18,8 +18,9 @@ Ways to break the link, picked in turn or with --only:
 Needs: `tools/padbus.py serve` (this takes its control lock) and
 `hostbt.py serve` on the host (run as root so btmon is in its log).  The pad
 must be bonded with the host in SLOT already, unless the first step is
-`repair`.  Turns on log.console for the run; the pad's LE lines are how a
-failure gets its cause.
+`repair`.  Turns on log.console for the run (the pad's LE lines are how a
+failure gets its cause) and restores it afterwards.  Leave log.hcidump off:
+its per-packet output resets the pad (12 of 15 pairing-mode reconnects).
 
     tools/xboxble_stress.py --slot b --cycles 20
     tools/xboxble_stress.py --only repair,padcycle --cycles 6
@@ -157,6 +158,9 @@ class Stress:
                 self.addr = m.group(1).upper()
         if not self.addr:
             raise SystemExit("cannot read the slot's address")
+        self.console_was = next((l.split("=")[1].split()[0] for l in
+                                 self.pad.cmd("config log.console")
+                                 if "=" in l), "true")
         self.pad.cmd("config log.console=true")
         self.boots = self.pad.stat().get("boots")
         self.note(f"slot {self.slot} address {self.addr} boots {self.boots}")
@@ -361,6 +365,8 @@ def main():
     try:
         failures = stress.run()
     finally:
+        if getattr(stress, "console_was", "true") != "true":
+            stress.pad.cmd("config log.console=" + stress.console_was)
         stress.pad.close()
     sys.exit(1 if failures else 0)
 
