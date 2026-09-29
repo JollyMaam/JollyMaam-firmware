@@ -138,6 +138,8 @@ struct cyclone2_lights_input {
     struct cyclone2_rgb idle_colour;
     struct cyclone2_rgb battery_colour;
     u8 grip_mode;                   /* active slot's profile.#.grips */
+    u8 usb_powered;                 /* stable USB presence, charging cue */
+    u8 usb_plug_flash;              /* 0: none, 1: on, 2: off */
     struct cyclone2_host_lights host;
     u8 low_battery;
     /* Per grip, left then right, 0..255. */
@@ -149,6 +151,8 @@ struct cyclone2_lights_input {
 };
 
 #define CYCLONE2_BOOT_SCENE_MS 500U
+#define CYCLONE2_USB_PLUG_ON_MS 150U
+#define CYCLONE2_USB_PLUG_OFF_MS 150U
 
 enum cyclone2_scene_id cyclone2_scene_for(
     const struct cyclone2_controller_state *state, u32 since_boot_ms);

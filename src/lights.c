@@ -14,6 +14,7 @@
 /* 50 frames a second.  A send busy-waits ~0.33 ms on the SPI (reset gap
  * plus 192 data bytes), so it is not done every control tick. */
 #define LIGHTS_FRAME_MS            20U
+#define LIGHTS_USB_DEBOUNCE_MS    100U
 /* On battery.  No discharge curve has been measured; these are the usual
  * single-cell figures.  On USB the reading is the supply, so it is not
  * judged at all. */
@@ -37,6 +38,10 @@ static u32 boot_ms;
 static u32 next_frame_ms;
 static u32 battery_checked_ms;
 static u8 low_battery;
+static u8 usb_raw_present;
+static u8 usb_powered;
+static u32 usb_raw_changed_ms;
+static u32 usb_plugged_ms;
 static u8 reach[2];
 static u8 reach_peak[2];
 
@@ -45,6 +50,10 @@ void cyclone2_lights_initialize(void)
     boot_ms = sys_timer_get_ms();
     next_frame_ms = boot_ms;
     battery_checked_ms = boot_ms - LIGHTS_BATTERY_CHECK_MS;
+    usb_raw_present = (u8)cyclone2_usb_present();
+    usb_powered = usb_raw_present;
+    usb_raw_changed_ms = boot_ms;
+    usb_plugged_ms = boot_ms;
 }
 
 void cyclone2_lights_host_players(u8 on, u8 flash)
@@ -154,11 +163,25 @@ static void update_reach(void)
     }
 }
 
+static void update_usb(u32 now)
+{
+    u8 raw = (u8)cyclone2_usb_present();
+
+    if (raw != usb_raw_present) {
+        usb_raw_present = raw;
+        usb_raw_changed_ms = now;
+    }
+    if (raw != usb_powered && now - usb_raw_changed_ms >= LIGHTS_USB_DEBOUNCE_MS) {
+        usb_powered = raw;
+        if (raw) usb_plugged_ms = now;
+    }
+}
+
 static void update_battery(u32 now)
 {
     u32 millivolts;
 
-    if (cyclone2_usb_present()) {
+    if (usb_powered) {
         low_battery = 0U;
         return;
     }
@@ -190,6 +213,15 @@ static void gather(u32 now, struct cyclone2_lights_input *in)
     in->battery_colour.red = config.led.battery_colour[0];
     in->battery_colour.green = config.led.battery_colour[1];
     in->battery_colour.blue = config.led.battery_colour[2];
+    in->usb_powered = usb_powered;
+    if (usb_powered) {
+        u32 plugged_for = now - usb_plugged_ms;
+
+        if (plugged_for < CYCLONE2_USB_PLUG_ON_MS)
+            in->usb_plug_flash = 1U;
+        else if (plugged_for < CYCLONE2_USB_PLUG_ON_MS + CYCLONE2_USB_PLUG_OFF_MS)
+            in->usb_plug_flash = 2U;
+    }
     if (cyclone2_controller_slot(in->state, &active_slot) &&
         active_slot < CONFIG_PROFILES)
         in->grip_mode = config.profile[active_slot].grips;
@@ -216,6 +248,7 @@ void cyclone2_lights_poll(u32 now, const struct cyclone2_input_report *input)
     if ((s32)(now - next_frame_ms) < 0) return;
     next_frame_ms = now + LIGHTS_FRAME_MS;
     update_reach();
+    update_usb(now);
     update_battery(now);
 
     if (debug_active) {

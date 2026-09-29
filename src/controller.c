@@ -48,8 +48,8 @@
 #define CYCLONE2_INJECT_MAX_DURATION_MS    60000U
 /* The console re-enumerates on its own (measured), and the USB-sense pin never
  * asserts on this board, so a single "USB absent" sample is not trustworthy.
- * Power off only after the condition has held this many times, and never
- * while a host is holding the CDC console open. */
+ * Power off only after the condition has held this many times.  CDC DTR/RTS
+ * can remain latched after unplug and cannot veto power-off by itself. */
 #define CYCLONE2_SLEEP_CONFIRM              4U
 #define CYCLONE2_SLEEP_RECHECK_MS         250U
 
@@ -90,6 +90,7 @@ static u8 requested_profile;
 static u8 home_tap_phase;
 static struct cyclone2_input_report activity_reference;
 static u32 last_activity_ms;
+static u32 usb_absent_since_ms;
 static u8 calibrating;
 static u8 ignore_chord_until_release;
 static struct cyclone2_report_statistics report_statistics;
@@ -668,7 +669,9 @@ static void poweroff_now(void *private_data)
 
     cyclone2_bringup_record(0x5200u | sense | (otg << 1));
     cyclone2_bringup_record(0x5400u | terminal);
-    if (sense || otg || terminal) {
+    /* The CDC DTR/RTS latch may survive a physical unplug.  Only live USB
+     * hardware can veto power-off; keep the terminal bit in the trace. */
+    if (sense || otg) {
         if (stop->has_session) become_disconnected(stop->session);
         else become_idle();
         cyclone2_usb_debug("sleep cancelled; USB is connected");
@@ -932,7 +935,8 @@ static void track_activity(u32 now)
         activity_reference = *in;
         last_activity_ms = now;
     } else if (now - last_activity_ms >= CYCLONE2_IDLE_SLEEP_MS &&
-               state.kind != CYCLONE2_CONTROLLER_STOPPING) {
+               state.kind != CYCLONE2_CONTROLLER_STOPPING &&
+               state.kind != CYCLONE2_CONTROLLER_DISCONNECTED) {
         /* Counted again from here, so on USB this asks once per period. */
         last_activity_ms = now;
         begin_automatic_sleep("idle for 5 minutes");
@@ -999,6 +1003,7 @@ CYCLONE2_HOT static void cyclone2_poll(void *private_data)
     (void)private_data;
     cyclone2_prof_start();
     now = sys_timer_get_ms();
+    if (cyclone2_usb_present()) usb_absent_since_ms = now;
     report_statistics.poll_count++;
     cyclone2_usb_control_poll();
     cyclone2_prof_mark(CYCLONE2_PROF_USB);
@@ -1039,6 +1044,9 @@ CYCLONE2_HOT static void cyclone2_poll(void *private_data)
     }
     if (!calibrating) update_home_state();
     track_activity(now);
+    if (cyclone2_disconnected_sleep_due(&state, now, usb_absent_since_ms,
+                                        cyclone2_usb_present()))
+        begin_automatic_sleep("disconnected on battery");
     update_injection(now);
     /* The ACL connection event precedes authentication and opening the HID
      * control/interrupt channels. Only the latter is a usable connection.
@@ -1149,6 +1157,7 @@ static void cyclone2_start(void)
     current_report = candidate_report;
     activity_reference = current_report;
     last_activity_ms = sys_timer_get_ms();
+    usb_absent_since_ms = last_activity_ms;
     cyclone2_timing_reset();
     memset(button_changed_us, 0, sizeof(button_changed_us));
     hat_changed_us = 0U;
@@ -1198,7 +1207,8 @@ static int cyclone2_event_handler(struct application *application,
         cyclone2_lights_host_clear();
         if (state.kind != CYCLONE2_CONTROLLER_STOPPING) {
             become_disconnected(s);
-            begin_automatic_sleep("Bluetooth disconnected");
+            /* The control poll starts battery sleep after a reconnect grace
+             * period, independent of stick drift or button activity. */
         }
     }
     return 0;

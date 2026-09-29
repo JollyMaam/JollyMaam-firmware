@@ -31,7 +31,12 @@ Home (PB11) is configured as a filtered falling-edge wake source with pull-up.
 The low-power configuration enables sleep, keeps the Bluetooth oscillator
 available and selects LDO15. These are configured settings, not measurements
 of sleep current. Normal-operation USB sensing on PC3 was unreliable; USB OTG
-state and CDC activity are additional evidence that power should stay on.
+state and CDC activity are additional evidence that power should stay on. The
+CDC terminal-open latch can survive unplugging, so automatic sleep uses live
+USB sense/OTG state and confirms absence four times before power-off. After a
+Bluetooth disconnect, battery sleep begins after 15 seconds disconnected and
+at least 5 seconds without USB. USB power keeps the pad awake and supplies the
+Home charging cue; this indicates USB presence, not measured charge current.
 
 ## Reset causes
 

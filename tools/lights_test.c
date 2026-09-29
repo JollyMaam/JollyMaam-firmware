@@ -254,6 +254,68 @@ static void test_overlays(void)
     CHECK(same(light(CYCLONE2_LIGHT_HOME), calibration));
 }
 
+static void test_usb_overlays(void)
+{
+    reset(CYCLONE2_CONTROLLER_DISCONNECTED, 0U);
+    in.low_battery = 1U;
+    render_at(1400U);
+    CHECK(same(light(CYCLONE2_LIGHT_HOME), dark));
+
+    in.usb_powered = 1U;
+    in.low_battery = 0U;
+    render_at(1400U);                              /* charging breath at peak */
+    CHECK(same(light(CYCLONE2_LIGHT_HOME), dim_orange));
+    in.usb_plug_flash = 1U;
+    render_at(1400U);
+    CHECK(same(light(CYCLONE2_LIGHT_HOME), blue));
+    in.usb_plug_flash = 2U;
+    render_at(1400U);
+    CHECK(same(light(CYCLONE2_LIGHT_HOME), dark));
+
+    reset(CYCLONE2_CONTROLLER_CONNECTING, 1U);
+    in.usb_powered = 1U;
+    render_at(600U);                               /* Home's usual blink is off */
+    CHECK(same(light(CYCLONE2_LIGHT_HOME), dark));
+    in.usb_plug_flash = 1U;
+    render_at(600U);
+    CHECK(same(light(CYCLONE2_LIGHT_HOME), red));
+    in.usb_plug_flash = 2U;
+    render_at(600U);
+    CHECK(same(light(CYCLONE2_LIGHT_HOME), dark));
+
+    reset(CYCLONE2_CONTROLLER_PAIRING, 1U);
+    in.usb_powered = 1U;
+    render_at(0U);
+    CHECK(same(light(CYCLONE2_LIGHT_HOME), red));
+    reset(CYCLONE2_CONTROLLER_CONNECTED, 1U);
+    in.usb_powered = 1U;
+    render_at(0U);
+    CHECK(same(light(CYCLONE2_LIGHT_HOME), red));
+    in.usb_plug_flash = 2U;
+    render_at(0U);
+    CHECK(same(light(CYCLONE2_LIGHT_HOME), dark));
+
+    reset(CYCLONE2_CONTROLLER_IDLE, 0U);
+    in.usb_powered = 1U;
+    render_at(1400U);
+    CHECK(same(light(CYCLONE2_LIGHT_HOME), dim_orange));
+    in.usb_plug_flash = 1U;                     /* no slot: use idle colour */
+    render_at(1400U);
+    CHECK(same(light(CYCLONE2_LIGHT_HOME), dim_white));
+}
+
+static void test_disconnected_sleep_deadline(void)
+{
+    reset(CYCLONE2_CONTROLLER_DISCONNECTED, 0U);
+    CHECK(!cyclone2_disconnected_sleep_due(&state, 15999U, 1000U, 0));
+    CHECK(cyclone2_disconnected_sleep_due(&state, 16000U, 1000U, 0));
+    CHECK(!cyclone2_disconnected_sleep_due(&state, 30000U, 1000U, 1));
+    CHECK(!cyclone2_disconnected_sleep_due(&state, 24999U, 20000U, 0));
+    CHECK(cyclone2_disconnected_sleep_due(&state, 25000U, 20000U, 0));
+    state.kind = CYCLONE2_CONTROLLER_CONNECTED;
+    CHECK(!cyclone2_disconnected_sleep_due(&state, 30000U, 1000U, 0));
+}
+
 /* Every kind has a scene, and nothing ever lights the unused position. */
 static void test_every_state(void)
 {
@@ -280,6 +342,8 @@ int main(void)
     test_boot_idle_off();
     test_switching_shows_next_slot();
     test_overlays();
+    test_usb_overlays();
+    test_disconnected_sleep_deadline();
     test_every_state();
     if (failures) {
         printf("%d check%s failed\n", failures, failures == 1 ? "" : "s");

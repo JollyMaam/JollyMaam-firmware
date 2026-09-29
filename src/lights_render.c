@@ -46,12 +46,12 @@ const struct cyclone2_scene cyclone2_scenes[CYCLONE2_SCENE_COUNT] = {
         .bar = { CYCLONE2_BAR_PLAYER, CYCLONE2_SOLID },
         .grips = { CYCLONE2_GRIPS_CONNECTED },
     },
-    /* The link went away and the pad is not trying (it stays awake on USB;
-     * on battery it goes to sleep instead). */
+    /* A lost link has no status animation.  USB power may show the charging
+     * cue separately; on battery the controller is headed for sleep. */
     [CYCLONE2_SCENE_DISCONNECTED] = {
         .name = "disconnected",
         .colour = CYCLONE2_COLOUR_SLOT,
-        .home = CYCLONE2_BREATHE(3000),
+        .home = CYCLONE2_OFF,
         .bar = { CYCLONE2_BAR_SLOT, CYCLONE2_OFF },
         .grips = { CYCLONE2_GRIPS_WAVE, CYCLONE2_OFF },
     },
@@ -81,6 +81,7 @@ const struct cyclone2_scene cyclone2_scenes[CYCLONE2_SCENE_COUNT] = {
 
 /* Overlays, drawn over whatever the scene shows. */
 static const struct cyclone2_wave low_battery_wave = CYCLONE2_BLINK(150, 2850);
+static const struct cyclone2_wave charging_wave = CYCLONE2_BREATHE(2400);
 /* Switch player lights the host set flashing. */
 static const struct cyclone2_wave player_flash_wave = CYCLONE2_BLINK(250, 250);
 
@@ -239,8 +240,9 @@ static void render_grips(const struct cyclone2_scene *scene,
 void cyclone2_lights_render(const struct cyclone2_lights_input *in,
                             struct cyclone2_light_frame *frame)
 {
-    const struct cyclone2_scene *scene =
-        &cyclone2_scenes[cyclone2_scene_for(in->state, in->since_boot_ms)];
+    enum cyclone2_scene_id scene_id =
+        cyclone2_scene_for(in->state, in->since_boot_ms);
+    const struct cyclone2_scene *scene = &cyclone2_scenes[scene_id];
     u32 t = in->now_ms - in->state->entered_ms;
     struct cyclone2_rgb colour = in->idle_colour;
     u8 slot = 0U;
@@ -255,9 +257,21 @@ void cyclone2_lights_render(const struct cyclone2_lights_input *in,
     render_bar(scene, in, t, has_slot, slot, colour, frame);
     render_grips(scene, in, t, colour, frame);
 
-    if (in->low_battery && wave_level(&low_battery_wave, in->now_ms, 0U, 1U))
+    if (in->usb_powered &&
+        (scene_id == CYCLONE2_SCENE_BOOT || scene_id == CYCLONE2_SCENE_IDLE ||
+         scene_id == CYCLONE2_SCENE_DISCONNECTED))
+        frame->light[CYCLONE2_LIGHT_HOME] =
+            at_level(in->battery_colour,
+                     wave_level(&charging_wave, in->now_ms, 0U, 1U));
+    if (scene_id != CYCLONE2_SCENE_DISCONNECTED && in->low_battery &&
+        wave_level(&low_battery_wave, in->now_ms, 0U, 1U))
         frame->light[CYCLONE2_LIGHT_HOME] =
             in->battery_colour;
+    if (in->usb_plug_flash == 1U)
+        frame->light[CYCLONE2_LIGHT_HOME] = colour;
+    else if (in->usb_plug_flash == 2U)
+        frame->light[CYCLONE2_LIGHT_HOME] =
+            (struct cyclone2_rgb){ 0U, 0U, 0U };
     if (in->has_calibration)
         frame->light[CYCLONE2_LIGHT_HOME] = in->calibration;
 }

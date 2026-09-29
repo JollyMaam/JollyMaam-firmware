@@ -106,7 +106,8 @@ const struct cfg_item config_items[] = {
     { .uid = 73, .path = "led.battery_colour", .type = CFG_COLOUR,
       CFG_FIELD(led.battery_colour), .group = CFG_GROUP_PREFS,
       .def_ptr = default_battery_colour,
-      .help = "Home flash when battery is low; rrggbb sets its brightness" },
+      .help = "Home colour for low battery and the USB-power charging cue; "
+              "rrggbb sets brightness" },
 
     { .uid = 10, .path = "profile.#.type", .type = CFG_ENUM,
       CFG_PROFILE_FIELD(type), .group = CFG_GROUP_PREFS,
