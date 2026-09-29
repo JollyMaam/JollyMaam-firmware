@@ -157,8 +157,8 @@ static void test_grips(void)
     in.host.has_lightbar = 1U;
     in.host.lightbar = orange;
     render_at(100U);
-    CHECK(same(light(CYCLONE2_LIGHT_GRIP_LEFT), blue));
-    CHECK(same(light(CYCLONE2_LIGHT_GRIP_RIGHT), blue));
+    CHECK(same(light(CYCLONE2_LIGHT_GRIP_LEFT), orange));
+    CHECK(same(light(CYCLONE2_LIGHT_GRIP_RIGHT), orange));
     CHECK(same(light(CYCLONE2_LIGHT_HOME), blue));      /* Home stays the slot's */
     in.host.lightbar = dark;                            /* host switched it off */
     render_at(100U);

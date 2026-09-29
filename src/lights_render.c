@@ -207,6 +207,9 @@ static void render_grips(const struct cyclone2_scene *scene,
                          const struct cyclone2_lights_input *in, u32 t,
                          struct cyclone2_rgb colour, struct cyclone2_light_frame *frame)
 {
+    int host_lightbar_on = in->host.has_lightbar &&
+                           (in->host.lightbar.red || in->host.lightbar.green ||
+                            in->host.lightbar.blue);
     u32 side;
 
     if (scene->grips.shows == CYCLONE2_GRIPS_WAVE) {
@@ -217,16 +220,16 @@ static void render_grips(const struct cyclone2_scene *scene,
         return;
     }
     for (side = 0U; side < 2U; side++) {
-        u32 level = in->host.has_lightbar &&
-                    (in->host.lightbar.red || in->host.lightbar.green ||
-                     in->host.lightbar.blue) ? 255U : 0U;
+        u32 level = host_lightbar_on ? 255U : 0U;
+        struct cyclone2_rgb grip_colour =
+            host_lightbar_on ? in->host.lightbar : colour;
 
         if ((in->grip_effects & CONFIG_GRIPS_RUMBLE) && in->rumble[side] > level)
             level = in->rumble[side];
         if ((in->grip_effects & CONFIG_GRIPS_INPUT) && in->reach[side] > level)
             level = in->reach[side];
         frame->light[CYCLONE2_LIGHT_GRIP_LEFT + side] =
-            at_level(colour, level);
+            at_level(grip_colour, level);
     }
 }
 

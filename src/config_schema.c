@@ -124,7 +124,8 @@ const struct cfg_item config_items[] = {
     { .uid = 13, .path = "profile.#.colour", .type = CFG_COLOUR,
       CFG_PROFILE_FIELD(colour), .group = CFG_GROUP_PREFS,
       .def_ptr = default_profile_colours,
-      .help = "the slot's Home, player and grip colour; rrggbb sets brightness" },
+      .help = "the slot's Home and player colour, and grip effects when the "
+              "host lightbar is off; rrggbb sets brightness" },
     { .uid = 11, .path = "profile.#.rumble", .type = CFG_BOOL,
       CFG_PROFILE_FIELD(rumble), .group = CFG_GROUP_PREFS, .def = 1,
       .help = "let the host drive the rumble motors" },
