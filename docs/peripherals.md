@@ -31,9 +31,12 @@ was 224 bytes. This is evidence for that configuration, not a throughput limit.
 
 The RAM diagnostic and live firmware identify **QMI8658A**, not the earlier
 LSM6DS3 guess. I2C uses **PB4 SCL / PB6 SDA**, BR23 `JL_IIC`, route group C:
-`JL_IOMAP->CON1[19:18] = 2`. The current driver sets `BAUD=119`, enables input
-buffers/high drive, and disables internal pull-ups and pull-downs. External
-pull-up values and the measured bus frequency have not been recorded.
+`JL_IOMAP->CON1[19:18] = 2`. The current driver sets `BAUD=29`, enables input
+buffers/high drive, and disables internal pull-ups and pull-downs. With the
+24 MHz lsb clock and `lsb / (2 * (BAUD + 1))` that is 400 kHz (it was
+`BAUD=119`, 100 kHz); the formula is the SDK's, not a scope measurement. At
+29 the reads are error-free and the polling task's sampled CPU share fell
+from 26% to 9%. External pull-up values have not been recorded.
 
 The IMU's 7-bit address is **0x6a** (write byte **0xd4**, read byte **0xd5**).
 Register `0x00` returns device ID **0x05**, measured. The working register writes
@@ -49,6 +52,10 @@ were recovered from stock firmware function `0x01e3c2c6` and verified on the pad
 | `0b` | `01` |
 | `0a` | `12`, then `00` |
 | `08` | `83` |
+
+Writing `08` = `00` switches the accelerometer and gyro off; the driver does
+that whenever no profile wants motion, and at boot. The full sequence above
+turns them back on.
 
 Read 12 consecutive bytes from `0x35`: accel X/Y/Z, then gyro X/Y/Z, signed
 little-endian 16-bit values. No delay is needed for the BR23 hardware-I2C START

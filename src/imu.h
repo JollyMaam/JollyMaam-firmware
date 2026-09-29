@@ -23,6 +23,10 @@ struct cyclone2_imu_status {
     u8 enabled;
     u32 enable_requests;
     u32 disable_requests;
+    /* Accelerometer and gyro switched off (CTRL7 = 0) while not wanted. */
+    u8 asleep;
+    /* How long the last 12-byte sample read took on the bus. */
+    u32 read_us;
 };
 
 void cyclone2_imu_task(void *private_data);

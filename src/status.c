@@ -229,6 +229,10 @@ const struct cfg_item status_items[] = {
     { .path = "imu.id", .type = CFG_UINT, IMU(imu.device_id) },
     { .path = "imu.samples", .type = CFG_UINT, IMU(imu.samples) },
     { .path = "imu.errors", .type = CFG_UINT, IMU(imu.errors) },
+    { .path = "imu.asleep", .type = CFG_BOOL, IMU(imu.asleep),
+      .help = "accelerometer and gyro switched off: the profile does not use them" },
+    { .path = "imu.read_us", .type = CFG_UINT, IMU(imu.read_us),
+      .help = "time the last sample read took on the I2C bus" },
 
     { .path = "wake.active", .type = CFG_BOOL, WAKE(active) },
     { .path = "wake.slot", .type = CFG_UINT, WAKE(slot) },

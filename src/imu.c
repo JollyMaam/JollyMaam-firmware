@@ -4,12 +4,15 @@
 #include <system/timer.h>
 
 #include "imu.h"
+#include "timing.h"
 #include "input.h"
 
 #define QMI8658A_ADDRESS          CYCLONE2_IMU_I2C_ADDRESS
 #define QMI8658A_DEVICE_ID        0x05U
 #define QMI8658A_REG_WHO_AM_I     0x00U
 #define QMI8658A_REG_ACCEL_X_L    0x35U
+#define QMI8658A_REG_CTRL7        0x08U   /* sensor enables */
+#define QMI8658A_CTRL7_OFF        0x00U
 
 #define IIC_ROUTE_MASK            (3U << 18)
 #define IIC_ROUTE_GROUP_C         (2U << 18)
@@ -25,7 +28,10 @@
 #define IIC_PENDING_CLEAR         BIT(14)
 #define IIC_PENDING               BIT(15)
 #define IIC_START_PENDING_CLEAR   BIT(14)
-#define IIC_BAUD_DIVISOR          119U
+/* lsb / (2 * (BAUD + 1)): 29 at the 24 MHz lsb is 400 kHz, the QMI8658A's
+ * fast mode (119 was 100 kHz; the imu task busy-waits on the bus, so this is
+ * CPU time too).  Measured through status imu.read_us. */
+#define IIC_BAUD_DIVISOR          29U
 #define IIC_WAIT_ITERATIONS       100000U
 
 enum imu_error {
@@ -198,6 +204,7 @@ static int initialize(void)
     int result = probe();
 
     imu_status.initialized = 0U;
+    imu_status.asleep = 0U;
     if (result != 0) return result;
     for (index = 0U; index < sizeof(initialization) / sizeof(initialization[0]);
          index++) {
@@ -222,9 +229,13 @@ static int sample(struct cyclone2_imu_sample *sample_value)
     u8 data[12];
     int result;
 
+    u32 started_us;
+
     if (!sample_value || !imu_status.initialized)
         return record_result(IMU_ERROR_NOT_INITIALIZED);
+    started_us = cyclone2_time_us();
     result = read_registers(QMI8658A_REG_ACCEL_X_L, data, sizeof(data));
+    imu_status.read_us = cyclone2_time_us() - started_us;
     if (result != IMU_ERROR_NONE) return record_result(result);
     sample_value->accel_x = signed_word(data + 0U);
     sample_value->accel_y = signed_word(data + 2U);
@@ -245,11 +256,11 @@ void cyclone2_imu_enable(void)
     imu_status.enable_requests++;
 }
 
+/* The imu task puts the sensor to sleep: it owns the bus. */
 void cyclone2_imu_disable(void)
 {
     requested_enabled = 0U;
     imu_status.enabled = 0U;
-    imu_status.initialized = 0U;
     imu_status.disable_requests++;
 }
 
@@ -263,6 +274,17 @@ int cyclone2_imu_latest(struct cyclone2_imu_sample *sample_value)
     return 0;
 }
 
+/* Accelerometer and gyro off: the profile has no use for motion.  The
+ * sensor keeps its configuration; enabling runs the full initialization
+ * again anyway. */
+static void sleep_sensor(void)
+{
+    iic_bus_initialize();
+    imu_status.initialized = 0U;
+    imu_status.asleep =
+        write_register(QMI8658A_REG_CTRL7, QMI8658A_CTRL7_OFF) == IMU_ERROR_NONE;
+}
+
 void cyclone2_imu_task(void *private_data)
 {
     struct cyclone2_imu_sample new_sample;
@@ -270,6 +292,8 @@ void cyclone2_imu_task(void *private_data)
     u32 next_retry_ms = 0U;
 
     (void)private_data;
+    /* A soft reset leaves the sensor as the last session set it. */
+    sleep_sensor();
     for (;;) {
         if (requested_enabled) {
             if (!imu_status.initialized) {
@@ -285,8 +309,8 @@ void cyclone2_imu_task(void *private_data)
                 if (history_count < 8U) history_count++;
                 local_irq_enable();
             }
-        } else {
-            imu_status.initialized = 0U;
+        } else if (imu_status.initialized || !imu_status.asleep) {
+            sleep_sensor();
         }
         os_time_dly(1);
     }
