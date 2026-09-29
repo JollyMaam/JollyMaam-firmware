@@ -44,7 +44,7 @@ const struct cyclone2_scene cyclone2_scenes[CYCLONE2_SCENE_COUNT] = {
         .colour = CYCLONE2_COLOUR_SLOT,
         .home = CYCLONE2_SOLID,
         .bar = { CYCLONE2_BAR_PLAYER, CYCLONE2_SOLID },
-        .grips = { CYCLONE2_GRIPS_LIGHTBAR },
+        .grips = { CYCLONE2_GRIPS_CONNECTED },
     },
     /* The link went away and the pad is not trying (it stays awake on USB;
      * on battery it goes to sleep instead). */
@@ -207,7 +207,8 @@ static void render_grips(const struct cyclone2_scene *scene,
                          const struct cyclone2_lights_input *in, u32 t,
                          struct cyclone2_rgb colour, struct cyclone2_light_frame *frame)
 {
-    int host_lightbar_on = in->host_lightbar_enabled && in->host.has_lightbar &&
+    int host_lightbar_on = in->grip_mode == CONFIG_GRIPS_LIGHTBAR &&
+                           in->host.has_lightbar &&
                            (in->host.lightbar.red || in->host.lightbar.green ||
                             in->host.lightbar.blue);
     u32 side;
@@ -224,9 +225,11 @@ static void render_grips(const struct cyclone2_scene *scene,
         struct cyclone2_rgb grip_colour =
             host_lightbar_on ? in->host.lightbar : colour;
 
-        if ((in->grip_effects & CONFIG_GRIPS_RUMBLE) && in->rumble[side] > level)
+        if ((in->grip_mode == CONFIG_GRIPS_RUMBLE ||
+             in->grip_mode == CONFIG_GRIPS_BOTH) && in->rumble[side] > level)
             level = in->rumble[side];
-        if ((in->grip_effects & CONFIG_GRIPS_INPUT) && in->reach[side] > level)
+        if ((in->grip_mode == CONFIG_GRIPS_INPUT ||
+             in->grip_mode == CONFIG_GRIPS_BOTH) && in->reach[side] > level)
             level = in->reach[side];
         frame->light[CYCLONE2_LIGHT_GRIP_LEFT + side] =
             at_level(grip_colour, level);

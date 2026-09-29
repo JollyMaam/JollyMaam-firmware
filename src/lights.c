@@ -190,10 +190,9 @@ static void gather(u32 now, struct cyclone2_lights_input *in)
     in->battery_colour.red = config.led.battery_colour[0];
     in->battery_colour.green = config.led.battery_colour[1];
     in->battery_colour.blue = config.led.battery_colour[2];
-    in->grip_effects = config.led.grips;
     if (cyclone2_controller_slot(in->state, &active_slot) &&
         active_slot < CONFIG_PROFILES)
-        in->host_lightbar_enabled = config.profile[active_slot].lightbar;
+        in->grip_mode = config.profile[active_slot].grips;
     cyclone2_lights_host_get(&in->host);
     in->low_battery = low_battery;
     cyclone2_rumble_get_status(&rumble);

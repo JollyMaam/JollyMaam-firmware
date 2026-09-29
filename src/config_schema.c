@@ -41,11 +41,12 @@ static const u8 default_profile_colours[CONFIG_PROFILES][3] = {
 static const u8 default_idle_colour[3] = { 0x05, 0x05, 0x05 };
 static const u8 default_battery_colour[3] = { 0x05, 0x02, 0x00 };
 
-static const struct cfg_choice grip_effects[] = {
-    { 0, "none" },
+static const struct cfg_choice grip_modes[] = {
+    { CONFIG_GRIPS_NONE, "none" },
     { CONFIG_GRIPS_RUMBLE, "rumble" },
     { CONFIG_GRIPS_INPUT, "input" },
-    { CONFIG_GRIPS_RUMBLE | CONFIG_GRIPS_INPUT, "both" },
+    { CONFIG_GRIPS_BOTH, "both" },
+    { CONFIG_GRIPS_LIGHTBAR, "lightbar" },
     { 0, NULL },
 };
 
@@ -73,7 +74,7 @@ static const char *check_trigger_deadzones(const struct config *c, u8 index)
 }
 
 /* Retired uids, never to be reused: 2 (global.report_ms),
- * 70 (led.brightness). */
+ * 14 (profile.#.lightbar), 70 (led.brightness), 71 (led.grips). */
 const struct cfg_item config_items[] = {
 
     { .uid = 1, .path = "global.autocommit", .type = CFG_BOOL, CFG_FIELD(autocommit),
@@ -98,10 +99,6 @@ const struct cfg_item config_items[] = {
       .help = "trace every HCI packet - a lot of output; stays on across a "
               "reboot, which is how to trace one" },
 
-    { .uid = 71, .path = "led.grips", .type = CFG_ENUM, CFG_FIELD(led.grips),
-      .group = CFG_GROUP_PREFS, .choices = grip_effects,
-      .help = "while connected the grip lights brighten with that side's "
-              "rumble motor, or with its stick, trigger and buttons" },
     { .uid = 72, .path = "led.idle_colour", .type = CFG_COLOUR,
       CFG_FIELD(led.idle_colour), .group = CFG_GROUP_PREFS,
       .def_ptr = default_idle_colour,
@@ -124,15 +121,17 @@ const struct cfg_item config_items[] = {
     { .uid = 13, .path = "profile.#.colour", .type = CFG_COLOUR,
       CFG_PROFILE_FIELD(colour), .group = CFG_GROUP_PREFS,
       .def_ptr = default_profile_colours,
-      .help = "the slot's Home and player colour, and grip effects when the "
-              "host lightbar is off; rrggbb sets brightness" },
+      .help = "the slot's Home and player colour, and grip effect colour; "
+              "rrggbb sets brightness" },
     { .uid = 11, .path = "profile.#.rumble", .type = CFG_BOOL,
       CFG_PROFILE_FIELD(rumble), .group = CFG_GROUP_PREFS, .def = 1,
       .help = "let the host drive the rumble motors" },
-    { .uid = 14, .path = "profile.#.lightbar", .type = CFG_BOOL,
-      CFG_PROFILE_FIELD(lightbar), .group = CFG_GROUP_PREFS, .def = 1,
-      .help = "show the host's lightbar colour on the grips; false ignores "
-              "host lightbar commands for this slot" },
+    { .uid = 15, .path = "profile.#.grips", .type = CFG_ENUM,
+      CFG_PROFILE_FIELD(grips), .group = CFG_GROUP_PREFS,
+      .choices = grip_modes, .def = CONFIG_GRIPS_LIGHTBAR,
+      .help = "what drives the grip lights while connected: lightbar shows "
+              "host colour if supported, rumble/input follow that side, "
+              "both combines them, none keeps them dark" },
 
     { .uid = 20, .path = "profile.#.address", .type = CFG_MAC,
       CFG_PROFILE_FIELD(address), .group = CFG_GROUP_BOND,

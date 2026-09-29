@@ -150,7 +150,7 @@ static void test_defaults(void)
     CHECK(!strcmp(get("profile.0.report_hz"), "auto"));
     CHECK(!strcmp(get("log.hcidump"), "false"));
     CHECK(!strcmp(get("profile.0.type"), "switch"));
-    CHECK(!strcmp(get("profile.Y.lightbar"), "true"));
+    CHECK(!strcmp(get("profile.Y.grips"), "lightbar"));
     CHECK(!strcmp(get("profile.2.type"), "generic"));
     CHECK(!strcmp(get("profile.3.type"), "switch2"));
     CHECK(!strcmp(get("profile.1.bond.peer"), "none"));
@@ -164,7 +164,10 @@ static void test_defaults(void)
     CHECK(!strcmp(get("led.battery_colour"), "050200"));
     CHECK(cfg_leaf_find(config_items, config_item_count,
                         "led.brightness", &found) == -1);
-    CHECK(!strcmp(get("led.grips"), "none"));
+    CHECK(cfg_leaf_find(config_items, config_item_count,
+                        "led.grips", &found) == -1);
+    CHECK(cfg_leaf_find(config_items, config_item_count,
+                        "profile.Y.lightbar", &found) == -1);
     CHECK(!config_pending());
 }
 
@@ -192,9 +195,13 @@ static void test_text(void)
     CHECK(set("profile.2.type", "ps5") != NULL);
     CHECK(set("profile.0.rumble", "off") == NULL && config.profile[0].rumble == 0);
     CHECK(set("profile.0.rumble", "maybe") != NULL);
-    CHECK(set("profile.Y.lightbar", "false") == NULL &&
-          config.profile[3].lightbar == 0);
-    CHECK(set("profile.Y.lightbar", "maybe") != NULL);
+    CHECK(set("profile.Y.grips", "none") == NULL &&
+          config.profile[3].grips == CONFIG_GRIPS_NONE);
+    CHECK(set("profile.Y.grips", "both") == NULL &&
+          config.profile[3].grips == CONFIG_GRIPS_BOTH);
+    CHECK(set("profile.Y.grips", "lightbar") == NULL &&
+          config.profile[3].grips == CONFIG_GRIPS_LIGHTBAR);
+    CHECK(set("profile.Y.grips", "maybe") != NULL);
     CHECK(set("profile.0.bond.key_type", "9") != NULL);
     CHECK(set("profile.0.bond.key_type", "0x4") == NULL && config.profile[0].bond.key_type == 4);
     CHECK(set("cal.stick.0.deadzone_inner", "10") == NULL);
@@ -217,7 +224,6 @@ static void test_text(void)
           !strcmp(get("led.idle_colour"), "010203"));
     CHECK(set("led.battery_colour", "050300") == NULL &&
           !strcmp(get("led.battery_colour"), "050300"));
-    CHECK(set("led.grips", "rumble") == NULL && config.led.grips == 1);
 }
 
 static void test_store(void)
@@ -284,10 +290,10 @@ static void test_store(void)
     CHECK(!strcmp(get("led.idle_colour"), "010203"));
     CHECK(!strcmp(get("led.battery_colour"), "050300"));
 
-    CHECK(set("profile.Y.lightbar", "false") == NULL);
+    CHECK(set("profile.Y.grips", "rumble") == NULL);
     settle();
     reboot();
-    CHECK(!strcmp(get("profile.Y.lightbar"), "false"));
+    CHECK(!strcmp(get("profile.Y.grips"), "rumble"));
 }
 
 static void test_autocommit(void)
@@ -363,7 +369,7 @@ static void test_damage(void)
     CHECK(!strcmp(get("profile.X.colour"), "030005"));
     CHECK(!strcmp(get("led.idle_colour"), "050505"));
     CHECK(!strcmp(get("led.battery_colour"), "050200"));
-    CHECK(!strcmp(get("led.grips"), "none"));
+    CHECK(!strcmp(get("profile.Y.grips"), "lightbar"));
     CHECK(!config_pending());
 }
 
@@ -458,7 +464,7 @@ static void test_paths(void)
         CHECK(strchr(path, '#') == NULL);
         count++;
     }
-    CHECK(count == 8 + 4 * 11 + 2 * 6 + 2 * 4);
+    CHECK(count == 7 + 4 * 11 + 2 * 6 + 2 * 4);
 }
 
 int main(int argc, char **argv)

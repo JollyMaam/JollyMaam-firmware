@@ -81,9 +81,8 @@ struct cyclone2_bar_look {
 
 enum cyclone2_grips_show {
     CYCLONE2_GRIPS_WAVE,
-    /* A nonblack host lightbar request lights the grips in its requested
-     * colour; they also answer to rumble and input (led.grips). */
-    CYCLONE2_GRIPS_LIGHTBAR,
+    /* Connected grip lights follow the active profile's grips mode. */
+    CYCLONE2_GRIPS_CONNECTED,
 };
 
 struct cyclone2_grips_look {
@@ -138,8 +137,7 @@ struct cyclone2_lights_input {
     struct cyclone2_rgb slot_colour[CYCLONE2_PLAYER_LIGHTS];
     struct cyclone2_rgb idle_colour;
     struct cyclone2_rgb battery_colour;
-    u8 grip_effects;                /* enum config_grip_effects */
-    u8 host_lightbar_enabled;       /* active slot's profile.#.lightbar */
+    u8 grip_mode;                   /* active slot's profile.#.grips */
     struct cyclone2_host_lights host;
     u8 low_battery;
     /* Per grip, left then right, 0..255. */

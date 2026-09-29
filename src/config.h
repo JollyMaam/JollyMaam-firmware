@@ -20,7 +20,7 @@ struct config_bond {
 struct config_profile {
     u8 type;
     u8 rumble;
-    u8 lightbar;
+    u8 grips;
     /* Input reports per second; 0 = auto, the type's own default
      * (cyclone2_profile_default_hz).  Back to auto when the type changes. */
     u16 report_hz;
@@ -41,14 +41,16 @@ struct config_log {
     u8 hcidump;
 };
 
-/* What the grip lights answer to while connected (bits). */
-enum config_grip_effects {
-    CONFIG_GRIPS_RUMBLE = 1U << 0,
-    CONFIG_GRIPS_INPUT  = 1U << 1,
+/* What the grip lights answer to while connected. */
+enum config_grip_mode {
+    CONFIG_GRIPS_NONE = 0U,
+    CONFIG_GRIPS_RUMBLE = 1U,
+    CONFIG_GRIPS_INPUT = 2U,
+    CONFIG_GRIPS_BOTH = 3U,
+    CONFIG_GRIPS_LIGHTBAR = 4U,
 };
 
 struct config_led {
-    u8 grips;               /* enum config_grip_effects */
     u8 idle_colour[3];
     u8 battery_colour[3];
 };

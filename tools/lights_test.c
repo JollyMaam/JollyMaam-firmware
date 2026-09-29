@@ -69,8 +69,7 @@ static void reset(enum cyclone2_controller_kind kind, u8 slot)
     in.slot_colour[3] = green;
     in.idle_colour = dim_white;
     in.battery_colour = dim_orange;
-    in.grip_effects = CONFIG_GRIPS_RUMBLE | CONFIG_GRIPS_INPUT;
-    in.host_lightbar_enabled = 1U;
+    in.grip_mode = CONFIG_GRIPS_LIGHTBAR;
 }
 
 static void render_at(u32 t)
@@ -145,27 +144,33 @@ static void test_grips(void)
     reset(CYCLONE2_CONTROLLER_CONNECTED, 0U);
     in.rumble[0] = 255U;
     render_at(100U);
+    CHECK(same(light(CYCLONE2_LIGHT_GRIP_LEFT), dark)); /* no host lightbar */
+    in.grip_mode = CONFIG_GRIPS_BOTH;
+    render_at(100U);
     CHECK(same(light(CYCLONE2_LIGHT_GRIP_LEFT), blue));
     CHECK(same(light(CYCLONE2_LIGHT_GRIP_RIGHT), dark));
     in.rumble[0] = 0U;
     in.reach[1] = 128U;
     render_at(100U);
     CHECK(light(CYCLONE2_LIGHT_GRIP_RIGHT).blue == 128U);
-    in.grip_effects = CONFIG_GRIPS_RUMBLE;
+    in.grip_mode = CONFIG_GRIPS_RUMBLE;
     render_at(100U);
     CHECK(same(light(CYCLONE2_LIGHT_GRIP_RIGHT), dark));
 
     in.host.has_lightbar = 1U;
     in.host.lightbar = orange;
     render_at(100U);
+    CHECK(same(light(CYCLONE2_LIGHT_GRIP_LEFT), dark)); /* mode ignores host */
+    in.grip_mode = CONFIG_GRIPS_LIGHTBAR;
+    render_at(100U);
     CHECK(same(light(CYCLONE2_LIGHT_GRIP_LEFT), orange));
     CHECK(same(light(CYCLONE2_LIGHT_GRIP_RIGHT), orange));
     CHECK(same(light(CYCLONE2_LIGHT_HOME), blue));      /* Home stays the slot's */
-    in.host_lightbar_enabled = 0U;
+    in.grip_mode = CONFIG_GRIPS_NONE;
     render_at(100U);
     CHECK(same(light(CYCLONE2_LIGHT_GRIP_LEFT), dark));
     CHECK(same(light(CYCLONE2_LIGHT_GRIP_RIGHT), dark));
-    in.host_lightbar_enabled = 1U;
+    in.grip_mode = CONFIG_GRIPS_LIGHTBAR;
     in.host.lightbar = dark;                            /* host switched it off */
     render_at(100U);
     CHECK(same(light(CYCLONE2_LIGHT_GRIP_LEFT), dark));
@@ -173,6 +178,7 @@ static void test_grips(void)
 
     /* Rumble and input only while connected. */
     reset(CYCLONE2_CONTROLLER_CONNECTING, 0U);
+    in.grip_mode = CONFIG_GRIPS_BOTH;
     in.rumble[0] = in.reach[0] = 255U;
     render_at(100U);
     CHECK(same(light(CYCLONE2_LIGHT_GRIP_LEFT), dark));
@@ -185,6 +191,7 @@ static void test_colour_values(void)
     render_at(100U);
     CHECK(same(light(CYCLONE2_LIGHT_HOME), in.slot_colour[2]));
     CHECK(same(player(2), in.slot_colour[2]));
+    in.grip_mode = CONFIG_GRIPS_INPUT;
     in.reach[1] = 128U;
     render_at(100U);
     CHECK(same(light(CYCLONE2_LIGHT_GRIP_RIGHT),
