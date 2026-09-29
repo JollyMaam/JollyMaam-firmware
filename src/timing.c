@@ -5,6 +5,7 @@
 
 #include "input.h"
 #include "timing.h"
+#include "ps.h"
 
 /* The SDK's tick counter: one per 10 ms system tick. */
 extern volatile unsigned long jiffies;
@@ -12,7 +13,7 @@ extern volatile unsigned long jiffies;
 #define TICK_US 10000U
 #define PROBE_RING 128U
 
-u32 cyclone2_time_us(void)
+CYCLONE2_HOT u32 cyclone2_time_us(void)
 {
     static u32 last;
     u32 ticks;
@@ -25,8 +26,11 @@ u32 cyclone2_time_us(void)
         count = q32DSP(0)->TTMR_CNT;
         period = q32DSP(0)->TTMR_PRD;
     } while (ticks != jiffies);
+    /* The tick counter counts period per 10 ms: 24 per microsecond at the
+     * 24 MHz system clock.  One 32-bit divide; cheap enough to profile with. */
+    period /= TICK_US;
     if (!period) period = 1U;
-    now = ticks * TICK_US + (u32)(((u64)count * TICK_US) / period);
+    now = ticks * TICK_US + count / period;
     /* The counter wraps before its interrupt has counted the tick when
      * interrupts are held off; do not step back by that tick. */
     if ((s32)(now - last) < 0 && last - now < 2U * TICK_US) now += TICK_US;
@@ -50,12 +54,7 @@ static struct {
     u32 lost;
 } probe;
 
-/* In RAM bank 1: the main bank's .bss sits right below the Bluetooth
- * controller's own RAM, and growing it pushed the controller's LE state over
- * the MaskROM boot token at 0x10800 (`uboot` then rebooted into the app). */
-#define BANK1 __attribute__((section(".bss1")))
-
-static struct cyclone2_probe_record probe_ring[PROBE_RING] BANK1;
+static struct cyclone2_probe_record probe_ring[PROBE_RING];
 static volatile u16 probe_head;
 static volatile u16 probe_tail;
 
@@ -163,12 +162,23 @@ u32 cyclone2_probe_lost(void)
 
 static void (*control_poll)(void *);
 static volatile u8 control_queued;
+static volatile u32 control_fired_us;
 static u32 control_skipped;
+static u32 control_post_failed;
+static int control_post_error;
+static u32 queue_total_us;
+static u32 queue_max_us;
+static u32 queue_count;
 
 static void control_run(void *unused)
 {
+    u32 waited = cyclone2_time_us() - control_fired_us;
+
     (void)unused;
     control_queued = 0U;
+    queue_total_us += waited;
+    queue_count++;
+    if (waited > queue_max_us) queue_max_us = waited;
     control_poll(NULL);
 }
 
@@ -176,6 +186,8 @@ ___interrupt
 static void control_timer_isr(void)
 {
     int message[3];
+
+    int error;
 
     CONTROL_TIMER->CON |= BIT(14);
     if (control_queued) {
@@ -185,10 +197,14 @@ static void control_timer_isr(void)
     message[0] = (int)control_run;
     message[1] = 1;
     message[2] = 0;
-    if (os_taskq_post_type("app_core", Q_CALLBACK, 3, message) == 0)
+    control_fired_us = cyclone2_time_us();
+    error = os_taskq_post_type("app_core", Q_CALLBACK, 3, message);
+    if (error == 0) {
         control_queued = 1U;
-    else
-        control_skipped++;
+    } else {
+        control_post_failed++;
+        control_post_error = error;
+    }
 }
 
 void cyclone2_control_clock_start(void (*poll)(void *), u32 period_us)
@@ -202,14 +218,55 @@ void cyclone2_control_clock_start(void (*poll)(void *), u32 period_us)
     CONTROL_TIMER->CON = BIT(0) | BIT(3);
 }
 
-u32 cyclone2_control_clock_skipped(void)
+void cyclone2_control_clock_get(struct cyclone2_control_clock *out)
 {
-    return control_skipped;
+    out->skipped = control_skipped;
+    out->post_failed = control_post_failed;
+    out->post_error = control_post_error;
+    out->queue_avg_us = queue_count ? queue_total_us / queue_count : 0U;
+    out->queue_max_us = queue_max_us;
+}
+
+/* --- poll profile ------------------------------------------------------ */
+
+static struct cyclone2_profile_stats prof;
+static u32 prof_last_us;
+static u32 prof_start_us;
+
+void cyclone2_prof_start(void)
+{
+    prof_start_us = prof_last_us = cyclone2_time_us();
+}
+
+CYCLONE2_HOT void cyclone2_prof_mark(u8 section)
+{
+    u32 now = cyclone2_time_us();
+    u32 spent = now - prof_last_us;
+
+    prof_last_us = now;
+    if (section >= CYCLONE2_PROF_COUNT) return;
+    prof.total_us[section] += spent;
+    prof.count[section]++;
+    if (spent > prof.max_us[section]) prof.max_us[section] = spent;
+}
+
+void cyclone2_prof_end(void)
+{
+    u32 spent = cyclone2_time_us() - prof_start_us;
+
+    prof.poll_total_us += spent;
+    prof.polls++;
+    if (spent > prof.poll_max_us) prof.poll_max_us = spent;
+}
+
+void cyclone2_prof_get(struct cyclone2_profile_stats *out)
+{
+    *out = prof;
 }
 
 /* --- report timing ----------------------------------------------------- */
 
-static struct cyclone2_timing timing BANK1;
+static struct cyclone2_timing timing;
 static u32 last_poll_us;
 static u32 last_send_us;
 static u32 second_start_us;
@@ -218,13 +275,17 @@ static u16 second_count;
 void cyclone2_timing_reset(void)
 {
     memset(&timing, 0, sizeof(timing));
+    memset(&prof, 0, sizeof(prof));
+    control_skipped = 0U;
+    control_post_failed = 0U;
+    queue_total_us = queue_max_us = queue_count = 0U;
     timing.poll_min_us = 0xffffffffU;
     timing.send_min_us = 0xffffffffU;
     last_poll_us = 0U;
     last_send_us = 0U;
 }
 
-void cyclone2_timing_poll(u32 now_us)
+CYCLONE2_HOT void cyclone2_timing_poll(u32 now_us)
 {
     u32 interval = now_us - last_poll_us;
 

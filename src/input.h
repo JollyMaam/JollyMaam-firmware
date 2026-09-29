@@ -148,7 +148,10 @@ struct cyclone2_input_stats {
 u8 cyclone2_take_early_profile_chord(void);
 
 void cyclone2_input_initialize(void);
+/* Buttons, d-pad and raw analog values; the report's analog fields are left
+ * alone (cyclone2_input_map_analog fills them). */
 void cyclone2_input_read(struct cyclone2_input_report *report);
+void cyclone2_input_map_analog(struct cyclone2_input_report *report);
 
 void cyclone2_input_get_raw(struct cyclone2_raw_input *raw);
 void cyclone2_input_get_stats(struct cyclone2_input_stats *stats);

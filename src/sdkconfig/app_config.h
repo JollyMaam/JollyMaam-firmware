@@ -43,6 +43,6 @@
 
 #define CONFIG_BT_RX_BUFF_SIZE  (5 * 512)
 #define CONFIG_BT_TX_BUFF_SIZE  (5 * 512)
-#define BT_NORMAL_HZ (24 * 1000000L)
+#define BT_NORMAL_HZ (48 * 1000000L)
 
 #endif

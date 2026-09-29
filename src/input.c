@@ -7,8 +7,8 @@
 
 #include "calibration.h"
 #include "input.h"
+#include "timing.h"
 
-#define STICK_UART_DIVISOR          24U
 #define STICK_UART_FRAME_SIZE       4U
 #define STICK_UART_DMA_BUFFER_SIZE  512U
 #define STICK_UART_DMA_FRAME_SIZE   32U
@@ -100,28 +100,40 @@ static void sensor_power_enable(void)
     gpio_direction_output(CYCLONE2_SENSOR_POWER, 1);
 }
 
-static u8 stick_crc8(const u8 *frame)
-{
-    u8 crc = 0;
-    unsigned byte_index;
-    unsigned bit_index;
+/* CRC-8, polynomial 0x31, no reflection, initial 0.  A table: the sticks
+ * send about 5000 frames a second, and the bitwise form cost ~15% of the
+ * CPU. */
+static u8 stick_crc_table[256];
 
-    for (byte_index = 0; byte_index < 3U; byte_index++) {
-        crc ^= frame[byte_index];
-        for (bit_index = 0; bit_index < 8U; bit_index++) {
+static void stick_crc_init(void)
+{
+    unsigned value;
+    unsigned bit;
+
+    for (value = 0; value < 256U; value++) {
+        u8 crc = (u8)value;
+
+        for (bit = 0; bit < 8U; bit++)
             crc = crc & 0x80U ? (u8)((crc << 1) ^ 0x31U) : (u8)(crc << 1);
-        }
+        stick_crc_table[value] = crc;
     }
-    return crc;
 }
 
-static int stick_tag_is_known(u8 tag)
+CYCLONE2_HOT static u8 stick_crc8(const u8 *frame)
+{
+    u8 crc = stick_crc_table[frame[0]];
+
+    crc = stick_crc_table[crc ^ frame[1]];
+    return stick_crc_table[crc ^ frame[2]];
+}
+
+CYCLONE2_HOT static int stick_tag_is_known(u8 tag)
 {
     return tag == STICK_TAG_LEFT_X || tag == STICK_TAG_LEFT_Y ||
            tag == STICK_TAG_RIGHT_X || tag == STICK_TAG_RIGHT_Y;
 }
 
-static void stick_accept_frame(const u8 *frame)
+CYCLONE2_HOT static void stick_accept_frame(const u8 *frame)
 {
     u16 value = ((u16)frame[1] << 8) | frame[2];
 
@@ -146,7 +158,7 @@ static void stick_accept_frame(const u8 *frame)
 
 /* Use a sliding four-byte window so startup in the middle of a frame, or one
  * damaged byte, cannot permanently move the receiver out of phase. */
-static void stick_consume_byte(u8 byte)
+CYCLONE2_HOT static void stick_consume_byte(u8 byte)
 {
     unsigned index;
 
@@ -203,7 +215,7 @@ static void stick_uart_isr(void)
     }
 }
 
-static u32 stick_uart_read(u8 *buffer, u32 length)
+CYCLONE2_HOT static u32 stick_uart_read(u8 *buffer, u32 length)
 {
     u32 offset = stick_rx_out & (STICK_UART_DMA_BUFFER_SIZE - 1U);
     u32 first = STICK_UART_DMA_BUFFER_SIZE - offset;
@@ -215,7 +227,7 @@ static u32 stick_uart_read(u8 *buffer, u32 length)
     return length;
 }
 
-static void stick_uart_drain(void)
+CYCLONE2_HOT static void stick_uart_drain(void)
 {
     u8 capture[STICK_UART_READ_CHUNK];
     u32 available;
@@ -270,9 +282,10 @@ static void stick_uart_initialize(void)
     /* DMA receive, idle timeout interrupt, receive interrupt; 8-bit frames. */
     JL_UART2->CON0 |= BIT(6) | BIT(5) | BIT(3);
     JL_UART2->CON0 &= ~BIT(1);
-    /* 1 Mbaud.  The board's measured-good divisor is 24; the SDK's baud
-     * calculation produced CRC-invalid data here. */
-    JL_UART2->BAUD = STICK_UART_DIVISOR;
+    /* 1 Mbaud: one divisor step per lsb microsecond (24 at the 24 MHz lsb,
+     * measured good).  The SDK's baud calculation produced CRC-invalid data
+     * here. */
+    JL_UART2->BAUD = clk_get("lsb") / 1000000U;
     JL_UART2->OTCNT = STICK_UART_RX_TIMEOUT_MS * clk_get("lsb") / 1000U;
     __asm__ volatile("csync");
     JL_UART2->CON0 |= BIT(13) | BIT(12) | BIT(10) | BIT(0);
@@ -300,7 +313,7 @@ void cyclone2_input_get_raw(struct cyclone2_raw_input *raw)
     *raw = raw_input;
 }
 
-static u8 read_hat(void)
+CYCLONE2_HOT static u8 read_hat(void)
 {
     u8 up = !gpio_read(CYCLONE2_DPAD_UP);
     u8 right = !gpio_read(CYCLONE2_DPAD_RIGHT);
@@ -347,6 +360,8 @@ void cyclone2_input_initialize(void)
 {
     unsigned index;
 
+    stick_crc_init();
+
     for (index = 0; index < sizeof(buttons) / sizeof(buttons[0]); index++) {
         configure_active_low_input(buttons[index].gpio);
     }
@@ -366,11 +381,12 @@ void cyclone2_input_initialize(void)
     stick_uart_initialize();
 }
 
-void cyclone2_input_read(struct cyclone2_input_report *report)
+CYCLONE2_HOT void cyclone2_input_read(struct cyclone2_input_report *report)
 {
     unsigned index;
 
     stick_uart_drain();
+    cyclone2_prof_mark(CYCLONE2_PROF_UART);
 
     report->buttons = 0;
     for (index = 0; index < sizeof(buttons) / sizeof(buttons[0]); index++) {
@@ -381,6 +397,7 @@ void cyclone2_input_read(struct cyclone2_input_report *report)
 
     report->hat = read_hat();
     report->reserved = 0U;
+    cyclone2_prof_mark(CYCLONE2_PROF_GPIO);
 
     raw_input.stick[0] = stick_left_x;
     raw_input.stick[1] = stick_left_y;
@@ -390,10 +407,18 @@ void cyclone2_input_read(struct cyclone2_input_report *report)
         stick_receive_status == STICK_RECEIVE_VALID_FRAMES;
     raw_input.trigger[0] = adc_get_value(CYCLONE2_TRIGGER_L2_ADC_CHANNEL);
     raw_input.trigger[1] = adc_get_value(CYCLONE2_TRIGGER_R2_ADC_CHANNEL);
+    cyclone2_prof_mark(CYCLONE2_PROF_ADC);
     raw_input.trigger_stop[0] =
         !rtc_port_pr_read(CYCLONE2_TRIGGER_L2_SWITCH_PR);
     raw_input.trigger_stop[1] =
         !rtc_port_pr_read(CYCLONE2_TRIGGER_R2_SWITCH_PR);
+    cyclone2_prof_mark(CYCLONE2_PROF_STOPS);
+}
+
+/* The calibrated sticks and triggers from the last cyclone2_input_read().
+ * Only a report needs them, so this runs on report ticks, not every poll. */
+void cyclone2_input_map_analog(struct cyclone2_input_report *report)
+{
     cyclone2_calibration_apply(&raw_input, report);
 
     if (stick_receive_status == STICK_RECEIVE_NO_BYTES) {
@@ -414,4 +439,5 @@ void cyclone2_input_read(struct cyclone2_input_report *report)
     if (raw_input.trigger_stop[1]) {
         report->right_trigger = CYCLONE2_TRIGGER_MAX;
     }
+    cyclone2_prof_mark(CYCLONE2_PROF_CAL);
 }

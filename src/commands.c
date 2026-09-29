@@ -12,6 +12,7 @@
 #include "profile_classic.h"
 #include "rumble.h"
 #include "timing.h"
+#include "ps.h"
 #include "usb.h"
 #include "profile_switch_wake.h"
 
@@ -228,6 +229,24 @@ static int cmd_inject(int argc, char **argv)
     return 0;
 }
 
+static int cmd_ps(int argc, char **argv)
+{
+    u32 seconds = 5U;
+
+    if (argc >= 2 && !strcmp(argv[1], "sample")) {
+        if (argc == 3 && (number(argv[2], &seconds) != 0 || !seconds ||
+                          seconds > 600U)) return CONSOLE_USAGE;
+        if (argc > 3) return CONSOLE_USAGE;
+        cyclone2_ps_sample_for(seconds);
+        console_ok("sampling CPU share for %u s; debug ps shows it",
+                   (unsigned)seconds);
+        return 0;
+    }
+    if (argc != 1) return CONSOLE_USAGE;
+    cyclone2_ps_print();
+    return 0;
+}
+
 static int cmd_clock(int argc, char **argv)
 {
     (void)argv;
@@ -275,7 +294,13 @@ static int cmd_probe(int argc, char **argv)
 /* debug timing [reset]: poll and report intervals since the last reset. */
 static int cmd_timing(int argc, char **argv)
 {
+    static const char *const names[CYCLONE2_PROF_COUNT] = {
+        "usb", "config", "rumble", "uart", "gpio", "adc", "stops", "cal",
+        "logic", "send", "led", "tail",
+    };
     struct cyclone2_timing t;
+    struct cyclone2_control_clock clock;
+    struct cyclone2_profile_stats prof;
     unsigned bin;
 
     if (argc == 2 && !strcmp(argv[1], "reset")) {
@@ -292,10 +317,22 @@ static int cmd_timing(int argc, char **argv)
                    (unsigned)t.send_min_us, (unsigned)t.send_max_us,
                    t.send_count ? (unsigned)(t.send_total_us / t.send_count) : 0U,
                    (unsigned)t.last_second_hz);
-    console_printf("busy_avg_us=%u busy_max_us=%u skipped=%u\r\n",
-                   t.poll_count ? (unsigned)(t.busy_total_us / t.poll_count) : 0U,
-                   (unsigned)t.busy_max_us,
-                   (unsigned)cyclone2_control_clock_skipped());
+    cyclone2_control_clock_get(&clock);
+    cyclone2_prof_get(&prof);
+    console_printf("clock skipped=%u post_failed=%u post_error=%d "
+                   "queue_avg_us=%u queue_max_us=%u\r\n",
+                   (unsigned)clock.skipped, (unsigned)clock.post_failed,
+                   clock.post_error, (unsigned)clock.queue_avg_us,
+                   (unsigned)clock.queue_max_us);
+    console_printf("poll n=%u avg_us=%u max_us=%u\r\n", (unsigned)prof.polls,
+                   prof.polls ? (unsigned)(prof.poll_total_us / prof.polls) : 0U,
+                   (unsigned)prof.poll_max_us);
+    for (bin = 0U; bin < CYCLONE2_PROF_COUNT; bin++)
+        console_printf("  %-6s n=%u avg_us=%u max_us=%u\r\n", names[bin],
+                       (unsigned)prof.count[bin],
+                       prof.count[bin] ?
+                       (unsigned)(prof.total_us[bin] / prof.count[bin]) : 0U,
+                       (unsigned)prof.max_us[bin]);
     console_printf("send_ms");
     for (bin = 0U; bin < CYCLONE2_TIMING_BINS; bin++)
         console_printf(" %u", (unsigned)t.send_bins[bin]);
@@ -546,6 +583,7 @@ static const char *const input_words[] = { "reset", NULL };
 static const char *const rumble_words[] = { "stop", NULL };
 static const char *const probe_words[] = { "take", "stop", NULL };
 static const char *const timing_words[] = { "reset", NULL };
+static const char *const ps_words[] = { "sample", NULL };
 static const char *const reset_words[] = { "--all", NULL };
 static const char *const get_words[] = { "--changed", NULL };
 
@@ -578,6 +616,8 @@ static const struct console_command debug_commands[] = {
       "(latency tests)", cmd_inject, inject_words },
     { "rumble", "LEFT RIGHT MS | stop", "run the motors (0..255)", cmd_rumble,
       rumble_words },
+    { "ps", "[sample [SECONDS]]", "tasks: state, priority and CPU share "
+      "(sample measures it; 5 s by default)", cmd_ps, ps_words },
     { "clock", NULL, "the pad's microsecond clock (latency tests)", cmd_clock },
     { "probe", "EDGES PERIOD_MS | take | stop", "random-phase A edges before "
       "the debounce, timestamped (latency tests)", cmd_probe, probe_words },

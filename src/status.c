@@ -60,6 +60,8 @@ struct status_system {
     u16 dropped_records;
     u16 schema_errors;
     u8 flash_uid[16];
+    u32 sys_hz;
+    u32 lsb_hz;
 };
 
 static void get_system(void *out)
@@ -68,6 +70,8 @@ static void get_system(void *out)
     const u8 *uid = config_flash_uid();
 
     s->uptime_ms = sys_timer_get_ms();
+    s->sys_hz = clk_get("sys");
+    s->lsb_hz = clk_get("lsb");
     s->boots = cyclone2_boot_count;
     s->reset_source = cyclone2_reset_source;
     s->reset_p33 = cyclone2_reset_p33;
@@ -146,6 +150,10 @@ static void get_wake(void *out)
 
 const struct cfg_item status_items[] = {
     { .path = "system.uptime_ms", .type = CFG_UINT, SYSTEM(uptime_ms) },
+    { .path = "system.sys_hz", .type = CFG_UINT, SYSTEM(sys_hz),
+      .help = "CPU clock" },
+    { .path = "system.lsb_hz", .type = CFG_UINT, SYSTEM(lsb_hz),
+      .help = "peripheral bus clock: UART and I2C divisors count it" },
     { .path = "system.boots", .type = CFG_UINT, SYSTEM(boots),
       .help = "boot counter (survives resets, not power loss)" },
     { .path = "reset.source", .type = CFG_UINT, SYSTEM(reset_source) },
