@@ -20,6 +20,8 @@ static const struct cyclone2_rgb blue = { 0x00, 0x00, 0xff };
 static const struct cyclone2_rgb red = { 0xff, 0x00, 0x00 };
 static const struct cyclone2_rgb purple = { 0x80, 0x00, 0xff };
 static const struct cyclone2_rgb green = { 0x00, 0xff, 0x00 };
+static const struct cyclone2_rgb dim_white = { 5, 5, 5 };
+static const struct cyclone2_rgb dim_orange = { 5, 2, 0 };
 static const struct cyclone2_rgb dark = { 0, 0, 0 };
 
 static struct cyclone2_controller_state state;
@@ -41,8 +43,7 @@ static struct cyclone2_rgb player(unsigned index)
     return frame.light[CYCLONE2_LIGHT_PLAYER_0 + index];
 }
 
-/* A fresh input at full brightness, 10 s after boot, `t` ms into a state
- * entered at 1000. */
+/* A fresh input, 10 s after boot, `t` ms into a state entered at 1000. */
 static void reset(enum cyclone2_controller_kind kind, u8 slot)
 {
     struct cyclone2_session session = { .slot = slot,
@@ -66,7 +67,8 @@ static void reset(enum cyclone2_controller_kind kind, u8 slot)
     in.slot_colour[1] = red;
     in.slot_colour[2] = purple;
     in.slot_colour[3] = green;
-    in.brightness = 100U;
+    in.idle_colour = dim_white;
+    in.battery_colour = dim_orange;
     in.grip_effects = CONFIG_GRIPS_RUMBLE | CONFIG_GRIPS_INPUT;
 }
 
@@ -155,8 +157,8 @@ static void test_grips(void)
     in.host.has_lightbar = 1U;
     in.host.lightbar = orange;
     render_at(100U);
-    CHECK(same(light(CYCLONE2_LIGHT_GRIP_LEFT), orange));
-    CHECK(same(light(CYCLONE2_LIGHT_GRIP_RIGHT), orange));
+    CHECK(same(light(CYCLONE2_LIGHT_GRIP_LEFT), blue));
+    CHECK(same(light(CYCLONE2_LIGHT_GRIP_RIGHT), blue));
     CHECK(same(light(CYCLONE2_LIGHT_HOME), blue));      /* Home stays the slot's */
 
     /* Rumble and input only while connected. */
@@ -166,14 +168,17 @@ static void test_grips(void)
     CHECK(same(light(CYCLONE2_LIGHT_GRIP_LEFT), dark));
 }
 
-static void test_brightness(void)
+static void test_colour_values(void)
 {
     reset(CYCLONE2_CONTROLLER_CONNECTED, 2U);
-    in.brightness = 4U;
+    in.slot_colour[2] = (struct cyclone2_rgb){ 3U, 0U, 5U };
     render_at(100U);
-    CHECK(light(CYCLONE2_LIGHT_HOME).red == 5U &&
-          light(CYCLONE2_LIGHT_HOME).green == 0U &&
-          light(CYCLONE2_LIGHT_HOME).blue == 10U);
+    CHECK(same(light(CYCLONE2_LIGHT_HOME), in.slot_colour[2]));
+    CHECK(same(player(2), in.slot_colour[2]));
+    in.reach[1] = 128U;
+    render_at(100U);
+    CHECK(same(light(CYCLONE2_LIGHT_GRIP_RIGHT),
+               (struct cyclone2_rgb){ 2U, 0U, 3U }));
 }
 
 static void test_boot_idle_off(void)
@@ -184,12 +189,11 @@ static void test_boot_idle_off(void)
     in.since_boot_ms = 100U;
     render_at(0U);
     CHECK(cyclone2_scene_for(&state, 100U) == CYCLONE2_SCENE_BOOT);
-    CHECK(light(CYCLONE2_LIGHT_HOME).red == 0xffU &&
-          light(CYCLONE2_LIGHT_HOME).blue == 0xffU);
+    CHECK(same(light(CYCLONE2_LIGHT_HOME), dim_white));
     in.since_boot_ms = 10000U;
     render_at(0U);                                      /* breathing, from lit */
     home = light(CYCLONE2_LIGHT_HOME);
-    CHECK(home.red == 0xffU && home.green == 0xffU && home.blue == 0xffU);
+    CHECK(same(home, dim_white));
     render_at(2000U);
     CHECK(same(light(CYCLONE2_LIGHT_HOME), dark));
 
@@ -221,15 +225,14 @@ static void test_overlays(void)
     in.low_battery = 1U;
     in.now_ms = 3000U;
     memset(&frame, 0, sizeof(frame));
-    cyclone2_lights_render(&in, &frame);                /* flash: red */
-    CHECK(same(light(CYCLONE2_LIGHT_HOME), red));
+    cyclone2_lights_render(&in, &frame);                /* flash: orange */
+    CHECK(same(light(CYCLONE2_LIGHT_HOME), dim_orange));
     in.now_ms = 3500U;
     cyclone2_lights_render(&in, &frame);
     CHECK(same(light(CYCLONE2_LIGHT_HOME), blue));
 
     in.has_calibration = 1U;
     in.calibration = calibration;
-    in.brightness = 4U;
     cyclone2_lights_render(&in, &frame);                /* not scaled again */
     CHECK(same(light(CYCLONE2_LIGHT_HOME), calibration));
 }
@@ -256,7 +259,7 @@ int main(void)
     test_pairing_sweeps();
     test_connected();
     test_grips();
-    test_brightness();
+    test_colour_values();
     test_boot_idle_off();
     test_switching_shows_next_slot();
     test_overlays();

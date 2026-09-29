@@ -183,7 +183,12 @@ static void gather(u32 now, struct cyclone2_lights_input *in)
         in->slot_colour[slot].green = config.profile[slot].colour[1];
         in->slot_colour[slot].blue = config.profile[slot].colour[2];
     }
-    in->brightness = config.led.brightness;
+    in->idle_colour.red = config.led.idle_colour[0];
+    in->idle_colour.green = config.led.idle_colour[1];
+    in->idle_colour.blue = config.led.idle_colour[2];
+    in->battery_colour.red = config.led.battery_colour[0];
+    in->battery_colour.green = config.led.battery_colour[1];
+    in->battery_colour.blue = config.led.battery_colour[2];
     in->grip_effects = config.led.grips;
     cyclone2_lights_host_get(&in->host);
     in->low_battery = low_battery;

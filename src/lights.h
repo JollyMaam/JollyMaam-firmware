@@ -81,8 +81,8 @@ struct cyclone2_bar_look {
 
 enum cyclone2_grips_show {
     CYCLONE2_GRIPS_WAVE,
-    /* The host's lightbar colour, solid; dark if it set none.  The grips
-     * also answer to rumble and input (led.grips). */
+    /* The host may request solid grip lights, shown in the slot's colour;
+     * the grips also answer to rumble and input (led.grips). */
     CYCLONE2_GRIPS_LIGHTBAR,
 };
 
@@ -94,18 +94,13 @@ struct cyclone2_grips_look {
 enum cyclone2_colour_from {
     /* The colour of the slot the state is about (profile.N.colour). */
     CYCLONE2_COLOUR_SLOT,
-    CYCLONE2_COLOUR_FIXED,
-};
-
-struct cyclone2_colour_source {
-    enum cyclone2_colour_from from;
-    struct cyclone2_rgb fixed;
+    CYCLONE2_COLOUR_IDLE,
 };
 
 /* What the pad shows in one state. */
 struct cyclone2_scene {
     const char *name;
-    struct cyclone2_colour_source colour;
+    enum cyclone2_colour_from colour;
     struct cyclone2_wave home;
     struct cyclone2_bar_look bar;
     struct cyclone2_grips_look grips;
@@ -141,7 +136,8 @@ struct cyclone2_lights_input {
     u32 now_ms;
     u32 since_boot_ms;
     struct cyclone2_rgb slot_colour[CYCLONE2_PLAYER_LIGHTS];
-    u8 brightness;                  /* percent */
+    struct cyclone2_rgb idle_colour;
+    struct cyclone2_rgb battery_colour;
     u8 grip_effects;                /* enum config_grip_effects */
     struct cyclone2_host_lights host;
     u8 low_battery;

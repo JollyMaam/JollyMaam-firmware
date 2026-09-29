@@ -142,6 +142,8 @@ extern u16 config_schema_errors;
 
 static void test_defaults(void)
 {
+    struct cfg_leaf found;
+
     reboot();
     CHECK(config_schema_errors == 0);
     CHECK(config.autocommit == 1);
@@ -153,9 +155,14 @@ static void test_defaults(void)
     CHECK(!strcmp(get("profile.1.bond.peer"), "none"));
     CHECK(!strcmp(get("cal.stick.1.minimum"), "5632,6720"));
     CHECK(!strcmp(get("cal.stick.0.center"), "16384,16384"));
-    CHECK(!strcmp(get("profile.A.colour"), "0000ff"));
-    CHECK(!strcmp(get("profile.X.colour"), "8000ff"));
-    CHECK(!strcmp(get("led.brightness"), "2"));
+    CHECK(!strcmp(get("profile.A.colour"), "000005"));
+    CHECK(!strcmp(get("profile.B.colour"), "050000"));
+    CHECK(!strcmp(get("profile.X.colour"), "030005"));
+    CHECK(!strcmp(get("profile.Y.colour"), "000500"));
+    CHECK(!strcmp(get("led.idle_colour"), "050505"));
+    CHECK(!strcmp(get("led.battery_colour"), "050200"));
+    CHECK(cfg_leaf_find(config_items, config_item_count,
+                        "led.brightness", &found) == -1);
     CHECK(!strcmp(get("led.grips"), "none"));
     CHECK(!config_pending());
 }
@@ -202,7 +209,10 @@ static void test_text(void)
     CHECK(set("profile.B.colour", "cyan") == NULL && !strcmp(get("profile.B.colour"), "00ffff"));
     CHECK(set("profile.B.colour", "ff80") != NULL && !strcmp(get("profile.B.colour"), "00ffff"));
     CHECK(set("profile.B.colour", "mauve") != NULL);
-    CHECK(set("led.brightness", "0") != NULL && set("led.brightness", "101") != NULL);
+    CHECK(set("led.idle_colour", "010203") == NULL &&
+          !strcmp(get("led.idle_colour"), "010203"));
+    CHECK(set("led.battery_colour", "050300") == NULL &&
+          !strcmp(get("led.battery_colour"), "050300"));
     CHECK(set("led.grips", "rumble") == NULL && config.led.grips == 1);
 }
 
@@ -262,6 +272,13 @@ static void test_store(void)
     CHECK(!strcmp(get("cal.stick.1.maximum"), "60000,60001"));
     CHECK(!strcmp(get("cal.trigger.1.deadzone_outer"), "5"));
     CHECK(config.cal.stick[0].gate[15] == 30015);
+
+    CHECK(set("led.idle_colour", "010203") == NULL);
+    CHECK(set("led.battery_colour", "050300") == NULL);
+    settle();
+    reboot();
+    CHECK(!strcmp(get("led.idle_colour"), "010203"));
+    CHECK(!strcmp(get("led.battery_colour"), "050300"));
 }
 
 static void test_autocommit(void)
@@ -312,6 +329,7 @@ static void test_damage(void)
         0xC1,
         0xF8, 0x7F, 2, 1, 2,        /* unknown uid 2047: skipped */
         0xF0, 0x03, 2, 1, 0,        /* log.hcidump, wrong length */
+        0xB0, 0x04, 1, 4,           /* retired led.brightness: ignored */
         (10 << 3) | 1, 1, 99,       /* profile.1.type = 99: not a type */
         (10 << 3) | 7, 1, 2,        /* profile.7.type: no such slot */
         0xA8, 0x01, 6, 1, 2, 3, 4, 5, 6, /* profile.0.bond.peer, in PREFS */
@@ -327,14 +345,15 @@ static void test_damage(void)
     flash_length[49] = 3;
     config_dropped_records = 0;
     reboot();
-    CHECK(config_dropped_records == 5);
+    CHECK(config_dropped_records == 6);
     CHECK(config.profile[2].rumble == 0);
     CHECK(config.log.hcidump == 1);
     CHECK(config.profile[1].type == 0);
     CHECK(!strcmp(get("cal.stick.0.center"), "16384,16384"));
-    CHECK(!strcmp(get("profile.A.colour"), "0000ff"));
-    CHECK(!strcmp(get("profile.X.colour"), "8000ff"));
-    CHECK(!strcmp(get("led.brightness"), "2"));
+    CHECK(!strcmp(get("profile.A.colour"), "000005"));
+    CHECK(!strcmp(get("profile.X.colour"), "030005"));
+    CHECK(!strcmp(get("led.idle_colour"), "050505"));
+    CHECK(!strcmp(get("led.battery_colour"), "050200"));
     CHECK(!strcmp(get("led.grips"), "none"));
     CHECK(!config_pending());
 }
@@ -430,7 +449,7 @@ static void test_paths(void)
         CHECK(strchr(path, '#') == NULL);
         count++;
     }
-    CHECK(count == 7 + 4 * 10 + 2 * 6 + 2 * 4);
+    CHECK(count == 8 + 4 * 10 + 2 * 6 + 2 * 4);
 }
 
 int main(int argc, char **argv)

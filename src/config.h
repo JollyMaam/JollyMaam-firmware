@@ -23,7 +23,7 @@ struct config_profile {
     /* Input reports per second; 0 = auto, the type's own default
      * (cyclone2_profile_default_hz).  Back to auto when the type changes. */
     u16 report_hz;
-    /* The slot's colour (red, green, blue), before led.brightness. */
+    /* The slot's LED colour and output level (red, green, blue). */
     u8 colour[3];
     u8 address[6];
     struct config_bond bond;
@@ -47,8 +47,9 @@ enum config_grip_effects {
 };
 
 struct config_led {
-    u8 brightness;          /* percent of full scale, 1..100 */
     u8 grips;               /* enum config_grip_effects */
+    u8 idle_colour[3];
+    u8 battery_colour[3];
 };
 
 struct config {

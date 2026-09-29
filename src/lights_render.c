@@ -7,15 +7,12 @@
 #include "config.h"
 #include "lights.h"
 
-#define WHITE { 0xff, 0xff, 0xff }
-
-/* What each state looks like.  The colour is the slot's own
- * (profile.N.colour) unless a scene fixes one; everything is scaled by
- * led.brightness afterwards. */
+/* What each state looks like.  A slot uses its own profile colour; boot and
+ * idle use led.idle_colour.  RGB bytes are the final solid output level. */
 const struct cyclone2_scene cyclone2_scenes[CYCLONE2_SCENE_COUNT] = {
     [CYCLONE2_SCENE_BOOT] = {
         .name = "boot",
-        .colour = { CYCLONE2_COLOUR_FIXED, WHITE },
+        .colour = CYCLONE2_COLOUR_IDLE,
         .home = CYCLONE2_SOLID,
         .bar = { CYCLONE2_BAR_ALL, CYCLONE2_OFF },
         .grips = { CYCLONE2_GRIPS_WAVE, CYCLONE2_OFF },
@@ -23,28 +20,28 @@ const struct cyclone2_scene cyclone2_scenes[CYCLONE2_SCENE_COUNT] = {
     /* Awake with no slot chosen: Home+A/B/X/Y picks one. */
     [CYCLONE2_SCENE_IDLE] = {
         .name = "idle",
-        .colour = { CYCLONE2_COLOUR_FIXED, WHITE },
+        .colour = CYCLONE2_COLOUR_IDLE,
         .home = CYCLONE2_BREATHE(4000),
         .bar = { CYCLONE2_BAR_ALL, CYCLONE2_OFF },
         .grips = { CYCLONE2_GRIPS_WAVE, CYCLONE2_OFF },
     },
     [CYCLONE2_SCENE_CONNECTING] = {
         .name = "connecting",
-        .colour = { CYCLONE2_COLOUR_SLOT },
+        .colour = CYCLONE2_COLOUR_SLOT,
         .home = CYCLONE2_BLINK(500, 500),
         .bar = { CYCLONE2_BAR_SLOT, CYCLONE2_SOLID },
         .grips = { CYCLONE2_GRIPS_WAVE, CYCLONE2_OFF },
     },
     [CYCLONE2_SCENE_PAIRING] = {
         .name = "pairing",
-        .colour = { CYCLONE2_COLOUR_SLOT },
+        .colour = CYCLONE2_COLOUR_SLOT,
         .home = CYCLONE2_BLINK(120, 120),
         .bar = { CYCLONE2_BAR_ALL, CYCLONE2_SWEEP(120) },
         .grips = { CYCLONE2_GRIPS_WAVE, CYCLONE2_OFF },
     },
     [CYCLONE2_SCENE_CONNECTED] = {
         .name = "connected",
-        .colour = { CYCLONE2_COLOUR_SLOT },
+        .colour = CYCLONE2_COLOUR_SLOT,
         .home = CYCLONE2_SOLID,
         .bar = { CYCLONE2_BAR_PLAYER, CYCLONE2_SOLID },
         .grips = { CYCLONE2_GRIPS_LIGHTBAR },
@@ -53,14 +50,14 @@ const struct cyclone2_scene cyclone2_scenes[CYCLONE2_SCENE_COUNT] = {
      * on battery it goes to sleep instead). */
     [CYCLONE2_SCENE_DISCONNECTED] = {
         .name = "disconnected",
-        .colour = { CYCLONE2_COLOUR_SLOT },
+        .colour = CYCLONE2_COLOUR_SLOT,
         .home = CYCLONE2_BREATHE(3000),
         .bar = { CYCLONE2_BAR_SLOT, CYCLONE2_OFF },
         .grips = { CYCLONE2_GRIPS_WAVE, CYCLONE2_OFF },
     },
     [CYCLONE2_SCENE_WAKING] = {
         .name = "waking",
-        .colour = { CYCLONE2_COLOUR_SLOT },
+        .colour = CYCLONE2_COLOUR_SLOT,
         .home = CYCLONE2_BLINK(60, 240),
         .bar = { CYCLONE2_BAR_SLOT, CYCLONE2_BLINK(60, 240) },
         .grips = { CYCLONE2_GRIPS_WAVE, CYCLONE2_OFF },
@@ -68,14 +65,14 @@ const struct cyclone2_scene cyclone2_scenes[CYCLONE2_SCENE_COUNT] = {
     /* The bar already shows the slot being switched to. */
     [CYCLONE2_SCENE_SWITCHING] = {
         .name = "switching",
-        .colour = { CYCLONE2_COLOUR_SLOT },
+        .colour = CYCLONE2_COLOUR_SLOT,
         .home = CYCLONE2_OFF,
         .bar = { CYCLONE2_BAR_SLOT, CYCLONE2_SOLID },
         .grips = { CYCLONE2_GRIPS_WAVE, CYCLONE2_OFF },
     },
     [CYCLONE2_SCENE_OFF] = {
         .name = "off",
-        .colour = { CYCLONE2_COLOUR_FIXED },
+        .colour = CYCLONE2_COLOUR_IDLE,
         .home = CYCLONE2_OFF,
         .bar = { CYCLONE2_BAR_ALL, CYCLONE2_OFF },
         .grips = { CYCLONE2_GRIPS_WAVE, CYCLONE2_OFF },
@@ -83,7 +80,6 @@ const struct cyclone2_scene cyclone2_scenes[CYCLONE2_SCENE_COUNT] = {
 };
 
 /* Overlays, drawn over whatever the scene shows. */
-static const struct cyclone2_rgb low_battery_colour = { 0xff, 0x00, 0x00 };
 static const struct cyclone2_wave low_battery_wave = CYCLONE2_BLINK(150, 2850);
 /* Switch player lights the host set flashing. */
 static const struct cyclone2_wave player_flash_wave = CYCLONE2_BLINK(250, 250);
@@ -148,15 +144,13 @@ static u8 wave_level(const struct cyclone2_wave *wave, u32 t, u32 position,
     }
 }
 
-static struct cyclone2_rgb scaled(struct cyclone2_rgb colour, u32 level,
-                                  u32 brightness)
+static struct cyclone2_rgb at_level(struct cyclone2_rgb colour, u32 level)
 {
-    u32 scale = level * brightness;
     struct cyclone2_rgb out;
 
-    out.red = (u8)((colour.red * scale + 255U * 50U) / (255U * 100U));
-    out.green = (u8)((colour.green * scale + 255U * 50U) / (255U * 100U));
-    out.blue = (u8)((colour.blue * scale + 255U * 50U) / (255U * 100U));
+    out.red = (u8)((colour.red * level + 127U) / 255U);
+    out.green = (u8)((colour.green * level + 127U) / 255U);
+    out.blue = (u8)((colour.blue * level + 127U) / 255U);
     return out;
 }
 
@@ -171,7 +165,7 @@ static u32 count_bits(u32 mask)
 static void render_bar(const struct cyclone2_scene *scene,
                        const struct cyclone2_lights_input *in, u32 t,
                        int has_slot, u8 slot, struct cyclone2_rgb colour,
-                       u32 brightness, struct cyclone2_light_frame *frame)
+                       struct cyclone2_light_frame *frame)
 {
     u32 on = 0U;
     u32 flash = 0U;
@@ -205,25 +199,23 @@ static void render_bar(const struct cyclone2_scene *scene,
             level = wave_level(&scene->bar.wave, t, 0U, 1U) *
                     wave_level(&player_flash_wave, in->now_ms, 0U, 1U) / 255U;
         frame->light[CYCLONE2_LIGHT_PLAYER_0 + light] =
-            scaled(colour, level, brightness);
+            at_level(colour, level);
     }
 }
 
 static void render_grips(const struct cyclone2_scene *scene,
                          const struct cyclone2_lights_input *in, u32 t,
-                         struct cyclone2_rgb colour, u32 brightness,
-                         struct cyclone2_light_frame *frame)
+                         struct cyclone2_rgb colour, struct cyclone2_light_frame *frame)
 {
     u32 side;
 
     if (scene->grips.shows == CYCLONE2_GRIPS_WAVE) {
         u32 level = wave_level(&scene->grips.wave, t, 0U, 1U);
 
-        frame->light[CYCLONE2_LIGHT_GRIP_LEFT] = scaled(colour, level, brightness);
-        frame->light[CYCLONE2_LIGHT_GRIP_RIGHT] = scaled(colour, level, brightness);
+        frame->light[CYCLONE2_LIGHT_GRIP_LEFT] = at_level(colour, level);
+        frame->light[CYCLONE2_LIGHT_GRIP_RIGHT] = at_level(colour, level);
         return;
     }
-    if (in->host.has_lightbar) colour = in->host.lightbar;
     for (side = 0U; side < 2U; side++) {
         u32 level = in->host.has_lightbar ? 255U : 0U;
 
@@ -232,7 +224,7 @@ static void render_grips(const struct cyclone2_scene *scene,
         if ((in->grip_effects & CONFIG_GRIPS_INPUT) && in->reach[side] > level)
             level = in->reach[side];
         frame->light[CYCLONE2_LIGHT_GRIP_LEFT + side] =
-            scaled(colour, level, brightness);
+            at_level(colour, level);
     }
 }
 
@@ -242,27 +234,22 @@ void cyclone2_lights_render(const struct cyclone2_lights_input *in,
     const struct cyclone2_scene *scene =
         &cyclone2_scenes[cyclone2_scene_for(in->state, in->since_boot_ms)];
     u32 t = in->now_ms - in->state->entered_ms;
-    u32 brightness = in->brightness;
-    struct cyclone2_rgb colour = scene->colour.fixed;
+    struct cyclone2_rgb colour = in->idle_colour;
     u8 slot = 0U;
     int has_slot = cyclone2_controller_slot(in->state, &slot);
 
     memset(frame, 0, sizeof(*frame));
-    if (brightness > 100U) brightness = 100U;
-    if (scene->colour.from == CYCLONE2_COLOUR_SLOT) {
-        struct cyclone2_rgb white = WHITE;
-
-        colour = has_slot ? in->slot_colour[slot] : white;
-    }
+    if (scene->colour == CYCLONE2_COLOUR_SLOT && has_slot)
+        colour = in->slot_colour[slot];
 
     frame->light[CYCLONE2_LIGHT_HOME] =
-        scaled(colour, wave_level(&scene->home, t, 0U, 1U), brightness);
-    render_bar(scene, in, t, has_slot, slot, colour, brightness, frame);
-    render_grips(scene, in, t, colour, brightness, frame);
+        at_level(colour, wave_level(&scene->home, t, 0U, 1U));
+    render_bar(scene, in, t, has_slot, slot, colour, frame);
+    render_grips(scene, in, t, colour, frame);
 
     if (in->low_battery && wave_level(&low_battery_wave, in->now_ms, 0U, 1U))
         frame->light[CYCLONE2_LIGHT_HOME] =
-            scaled(low_battery_colour, 255U, brightness);
+            in->battery_colour;
     if (in->has_calibration)
         frame->light[CYCLONE2_LIGHT_HOME] = in->calibration;
 }

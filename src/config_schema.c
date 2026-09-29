@@ -31,13 +31,15 @@ static const u8 default_profile_types[CONFIG_PROFILES] = {
     CYCLONE2_PROFILE_GENERIC, CYCLONE2_PROFILE_SWITCH2,
 };
 
-/* Kept dim by led.brightness; these are the hues at full scale. */
+/* Direct LED channel values, close to the old 2% default output. */
 static const u8 default_profile_colours[CONFIG_PROFILES][3] = {
-    { 0x00, 0x00, 0xff },       /* A blue */
-    { 0xff, 0x00, 0x00 },       /* B red */
-    { 0x80, 0x00, 0xff },       /* X purple */
-    { 0x00, 0xff, 0x00 },       /* Y green */
+    { 0x00, 0x00, 0x05 },       /* A blue */
+    { 0x05, 0x00, 0x00 },       /* B red */
+    { 0x03, 0x00, 0x05 },       /* X purple */
+    { 0x00, 0x05, 0x00 },       /* Y green */
 };
+static const u8 default_idle_colour[3] = { 0x05, 0x05, 0x05 };
+static const u8 default_battery_colour[3] = { 0x05, 0x02, 0x00 };
 
 static const struct cfg_choice grip_effects[] = {
     { 0, "none" },
@@ -70,7 +72,8 @@ static const char *check_trigger_deadzones(const struct config *c, u8 index)
            "inner and outer dead zones together must be at most 50%" : NULL;
 }
 
-/* Retired uids, never to be reused: 2 (global.report_ms). */
+/* Retired uids, never to be reused: 2 (global.report_ms),
+ * 70 (led.brightness). */
 const struct cfg_item config_items[] = {
 
     { .uid = 1, .path = "global.autocommit", .type = CFG_BOOL, CFG_FIELD(autocommit),
@@ -95,14 +98,18 @@ const struct cfg_item config_items[] = {
       .help = "trace every HCI packet - a lot of output; stays on across a "
               "reboot, which is how to trace one" },
 
-    { .uid = 70, .path = "led.brightness", .type = CFG_UINT,
-      CFG_FIELD(led.brightness), .group = CFG_GROUP_PREFS, .def = 2,
-      .min = 1, .max = 100,
-      .help = "every light, % of full scale (the host's colours too)" },
     { .uid = 71, .path = "led.grips", .type = CFG_ENUM, CFG_FIELD(led.grips),
       .group = CFG_GROUP_PREFS, .choices = grip_effects,
       .help = "while connected the grip lights brighten with that side's "
               "rumble motor, or with its stick, trigger and buttons" },
+    { .uid = 72, .path = "led.idle_colour", .type = CFG_COLOUR,
+      CFG_FIELD(led.idle_colour), .group = CFG_GROUP_PREFS,
+      .def_ptr = default_idle_colour,
+      .help = "Home colour during boot and idle; rrggbb sets its brightness" },
+    { .uid = 73, .path = "led.battery_colour", .type = CFG_COLOUR,
+      CFG_FIELD(led.battery_colour), .group = CFG_GROUP_PREFS,
+      .def_ptr = default_battery_colour,
+      .help = "Home flash when battery is low; rrggbb sets its brightness" },
 
     { .uid = 10, .path = "profile.#.type", .type = CFG_ENUM,
       CFG_PROFILE_FIELD(type), .group = CFG_GROUP_PREFS,
@@ -117,8 +124,7 @@ const struct cfg_item config_items[] = {
     { .uid = 13, .path = "profile.#.colour", .type = CFG_COLOUR,
       CFG_PROFILE_FIELD(colour), .group = CFG_GROUP_PREFS,
       .def_ptr = default_profile_colours,
-      .help = "the slot's colour: Home while connecting, pairing and "
-              "connected, and the player lights" },
+      .help = "the slot's Home, player and grip colour; rrggbb sets brightness" },
     { .uid = 11, .path = "profile.#.rumble", .type = CFG_BOOL,
       CFG_PROFILE_FIELD(rumble), .group = CFG_GROUP_PREFS, .def = 1,
       .help = "let the host drive the rumble motors" },
