@@ -101,7 +101,6 @@ const struct cfg_item config_items[] = {
       .help = "every light, % of full scale (the host's colours too)" },
     { .uid = 71, .path = "led.grips", .type = CFG_ENUM, CFG_FIELD(led.grips),
       .group = CFG_GROUP_PREFS, .choices = grip_effects,
-      .def = CONFIG_GRIPS_RUMBLE | CONFIG_GRIPS_INPUT,
       .help = "while connected the grip lights brighten with that side's "
               "rumble motor, or with its stick, trigger and buttons" },
 
