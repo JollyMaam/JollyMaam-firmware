@@ -174,6 +174,18 @@ const struct cfg_item config_items[] = {
       .choices = report_rates,
       .help = "input reports per second; auto is what the slot's type uses "
               "with its real console.  `status report.hz` is what is sent" },
+    { .uid = 26, .path = "profile.#.in_flight", .type = CFG_UINT,
+      CFG_PROFILE_FIELD(in_flight), .group = CFG_GROUP_PREFS,
+      .apply = CFG_NEXT_CONNECT, .min = 1, .max = 10, .def = 2,
+      .help = "input reports that may wait in the Bluetooth controller at "
+              "once (it has 10 Classic and 4 LE buffers).  Few keep reports "
+              "fresh; more keep the link busy through retransmissions" },
+    { .uid = 27, .path = "profile.#.fifo", .type = CFG_BOOL,
+      CFG_PROFILE_FIELD(fifo), .group = CFG_GROUP_PREFS,
+      .apply = CFG_NEXT_CONNECT, .def = 0,
+      .help = "Classic: queue every input report in order, as the stock "
+              "firmware does, instead of sending only the newest (sticks) and "
+              "every button and d-pad change in order" },
     { .uid = 13, .path = "profile.#.colour", .type = CFG_COLOUR,
       CFG_PROFILE_FIELD(colour), .group = CFG_GROUP_PREFS,
       .def_ptr = default_profile_colours,

@@ -997,7 +997,7 @@ CYCLONE2_HOT static void digital_queue_apply(struct cyclone2_input_report *repor
     const struct digital_state *head;
     u32 now = sys_timer_get_ms();
 
-    if (calibrating ||
+    if (calibrating || btstack_jl_core_fifo() ||
         (!btstack_jl_core_hid_connected() && !btstack_jl_le_connected())) {
         digital_count = 0U;
         digital_head_posted = 0U;
@@ -1292,6 +1292,8 @@ static void start_session(u8 slot, u8 pairing, enum cyclone2_profile_type type)
                        config_slot_name(slot), cyclone2_profile_name(type),
                        pairing);
 
+    btstack_jl_core_set_link_mode(config.profile[slot].in_flight,
+                                  config.profile[slot].fifo);
     cyclone2_profile_start(type, slot, pairing);
 }
 

@@ -477,7 +477,7 @@ static void test_paths(void)
         CHECK(strchr(path, '#') == NULL);
         count++;
     }
-    CHECK(count == 7 + 8 * 15 + 2 * 6 + 2 * 4);
+    CHECK(count == 7 + 8 * 17 + 2 * 6 + 2 * 4);
 }
 
 /* Variants belong to types; the d-pad slots store their bonds apart. */

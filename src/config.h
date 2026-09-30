@@ -37,6 +37,11 @@ struct config_profile {
     u16 gyro_accel;
     /* enum config_variant: which layout of the type the slot uses. */
     u8 variant;
+    /* Input reports that may wait in the Bluetooth controller at once. */
+    u8 in_flight;
+    /* Classic: queue every input report in order, as the stock firmware
+     * does, instead of sending only the newest. */
+    u8 fifo;
     struct config_bond bond;
 };
 
