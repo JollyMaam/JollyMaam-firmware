@@ -21,8 +21,11 @@ vendor `btstack.a` is replaced, but `btctrler.a` is still linked.
 ## Build and checks
 
     PATH=/work/bin:$PATH make -j32
-    PATH=/work/bin:$PATH make config-test calibration-test wake-vectors wake-session-test aes128-test lights-test
+    PATH=/work/bin:$PATH make config-test calibration-test wake-vectors wake-session-test aes128-test lights-test ux-test
     tools/flash.sh
+
+Home gestures (hold times, chords, when each applies) are one table in
+`src/ux.c`; `make ux-test` checks it on the host.
 
 `src/build_config.h` selects controller-archive patches. Patches apply to a
 build copy, never the original SDK. `DEBUG_LOG=1` enables SDK tracing.
