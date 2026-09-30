@@ -952,58 +952,90 @@ CYCLONE2_HOT static void make_host_report(struct cyclone2_input_report *report)
     }
 }
 
-/* Tap latch.  The links send only the newest input report, and the report
- * schedule samples every few milliseconds; a press and release that both
- * fall between two reports the link takes would never reach the host.  A
- * press seen in any poll is therefore held in the reports until the link has
- * taken one carrying it.  M is left alone: its chords are shaped on
- * purpose (make_host_report).  Home is latched too: a chord hides it from
- * the host report, so only a real Home or a Home tap is ever held.  Only while a Classic HID channel
- * or our LE link is up, the paths that say which report the link took; and a
- * press no report picked up within TAP_LATCH_MAX_MS is let go, so a path
- * that stops posting can never leave a button held. */
-#define TAP_LATCH_MAX_MS 100U
-#define TAP_LATCH_BUTTONS ((u16)~CYCLONE2_REPORT_BUTTON_M)
-static u16 tap_previous;    /* host_report buttons in the last poll */
-static u16 tap_waiting;     /* presses not yet in a posted report */
-static u16 tap_posted;      /* presses posted, until the link takes them */
-static u32 tap_posted_seq;
-static u32 tap_waiting_since_ms;
+/* Digital state queue.  The links send only the newest input report, and
+ * behind obstacles the radio retransmits for tens of milliseconds at a time;
+ * a d-pad or button press and release that both fall in such a stretch would
+ * never reach the host.  The stock firmware queues every report, so every
+ * press arrives, if late.  Here only the digital part is queued: each change
+ * of buttons and hat, in order, one per report the link takes; sticks and
+ * triggers stay newest-wins.  Only while a Classic HID channel or our LE link
+ * is up, the paths that say which report the link took.  A full queue merges
+ * into its last entry, and a head the link has not taken within
+ * DIGITAL_QUEUE_MAX_MS drops the queue for the live state, so a path that
+ * stops posting can never hold a button. */
+#define DIGITAL_QUEUE_LENGTH 16U
+#define DIGITAL_QUEUE_MAX_MS 1000U
+struct digital_state {
+    u16 buttons;
+    u8 hat;
+};
+static struct digital_state digital_queue[DIGITAL_QUEUE_LENGTH];
+static u8 digital_head;
+static u8 digital_count;
+static u8 digital_head_posted;  /* the head went out in report digital_seq */
+static u32 digital_seq;
+static u32 digital_head_since_ms;
+static struct digital_state digital_last;   /* newest state seen */
 
-CYCLONE2_HOT static void tap_latch_apply(struct cyclone2_input_report *report)
+static int digital_equal(const struct digital_state *a,
+                         const struct digital_state *b)
 {
-    u16 pressed = report->buttons & ~tap_previous & TAP_LATCH_BUTTONS;
-
-    u32 now = sys_timer_get_ms();
-
-    tap_previous = report->buttons;
-    if (calibrating ||
-        (!btstack_jl_core_hid_connected() && !btstack_jl_le_connected())) {
-        tap_waiting = 0U;
-        tap_posted = 0U;
-        return;
-    }
-    if (tap_posted &&
-        (s32)(btstack_jl_core_input_taken() - tap_posted_seq) >= 0)
-        tap_posted = 0U;
-    if (tap_posted && now - tap_waiting_since_ms > TAP_LATCH_MAX_MS)
-        tap_posted = 0U;
-    if (tap_waiting && now - tap_waiting_since_ms > TAP_LATCH_MAX_MS)
-        tap_waiting = 0U;
-    if (pressed && !tap_waiting && !tap_posted) tap_waiting_since_ms = now;
-    tap_waiting |= pressed;
-    report->buttons |= tap_waiting | tap_posted;
+    return a->buttons == b->buttons && a->hat == b->hat;
 }
 
-/* After the report went to the profile: a new post carries tap_waiting. */
-CYCLONE2_HOT static void tap_latch_sent(u32 posted_before)
+static void digital_pop(u32 now)
+{
+    digital_head = (u8)((digital_head + 1U) % DIGITAL_QUEUE_LENGTH);
+    digital_count--;
+    digital_head_posted = 0U;
+    digital_head_since_ms = now;
+}
+
+CYCLONE2_HOT static void digital_queue_apply(struct cyclone2_input_report *report)
+{
+    struct digital_state live = { report->buttons, report->hat };
+    const struct digital_state *head;
+    u32 now = sys_timer_get_ms();
+
+    if (calibrating ||
+        (!btstack_jl_core_hid_connected() && !btstack_jl_le_connected())) {
+        digital_count = 0U;
+        digital_head_posted = 0U;
+        digital_last = live;
+        return;
+    }
+    if (digital_count && digital_head_posted &&
+        (s32)(btstack_jl_core_input_taken() - digital_seq) >= 0)
+        digital_pop(now);
+    if (digital_count && now - digital_head_since_ms > DIGITAL_QUEUE_MAX_MS) {
+        digital_count = 0U;
+        digital_head_posted = 0U;
+    }
+    if (!digital_equal(&live, &digital_last)) {
+        if (digital_count == 0U) digital_head_since_ms = now;
+        if (digital_count < DIGITAL_QUEUE_LENGTH) {
+            digital_queue[(digital_head + digital_count) % DIGITAL_QUEUE_LENGTH] = live;
+            digital_count++;
+        } else {
+            digital_queue[(digital_head + digital_count - 1U) % DIGITAL_QUEUE_LENGTH] = live;
+        }
+        digital_last = live;
+    }
+    if (!digital_count) return;
+    head = &digital_queue[digital_head];
+    report->buttons = head->buttons;
+    report->hat = head->hat;
+}
+
+/* After the report went to the profile: if it posted one, that report carries
+ * the queue's head. */
+CYCLONE2_HOT static void digital_queue_sent(u32 posted_before)
 {
     u32 posted = btstack_jl_core_input_posted();
 
-    if (!tap_waiting || posted == posted_before) return;
-    tap_posted |= tap_waiting;
-    tap_waiting = 0U;
-    tap_posted_seq = posted;
+    if (!digital_count || digital_head_posted || posted == posted_before) return;
+    digital_head_posted = 1U;
+    digital_seq = posted;
 }
 
 /* Eager debounce: a contact that changes is taken at once, and then held for
@@ -1189,14 +1221,14 @@ CYCLONE2_HOT static void cyclone2_poll(void *private_data)
     if ((injection_status.active || injection_release_pending) &&
         injection_status.synthetic_a)
         host_report.buttons |= CYCLONE2_REPORT_BUTTON_A;
-    tap_latch_apply(&host_report);
+    digital_queue_apply(&host_report);
     cyclone2_prof_mark(CYCLONE2_PROF_LOGIC);
     if (report_due) {
         u32 period_us = 1000000U / active_report_hz();
         u32 posted_before = btstack_jl_core_input_posted();
 
         send_input_report(&host_report);
-        tap_latch_sent(posted_before);
+        digital_queue_sent(posted_before);
         cyclone2_prof_mark(CYCLONE2_PROF_SEND);
         /* Advance from the intended deadline rather than from a late poll,
          * so the average rate holds; a poll more than a period late starts
