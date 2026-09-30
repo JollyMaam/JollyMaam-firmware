@@ -190,9 +190,8 @@ const struct cfg_item config_items[] = {
       .apply = CFG_NEXT_CONNECT, .choices = tx_powers,
       .def = CONFIG_TX_POWER_NORMAL,
       .help = "transmit power: normal is the controller's highest normal "
-              "step; high is its production-test mode (radio supply 1.40 V "
-              "instead of 1.30 V, pro power table), for range at some "
-              "battery cost" },
+              "step; high uses its production-test power table, about 3 dB "
+              "more (measured), at some battery cost" },
     { .uid = 29, .path = "profile.#.edr3", .type = CFG_BOOL,
       CFG_PROFILE_FIELD(edr3), .group = CFG_GROUP_PREFS,
       .apply = CFG_NEXT_CONNECT, .def = 1,

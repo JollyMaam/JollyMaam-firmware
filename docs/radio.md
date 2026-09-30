@@ -30,6 +30,11 @@ interfaces, not direct proof of over-the-air behavior.
   host (Intel AX210): without the call RSSI -25 and link quality 4 of 255
   next to the host; with bt_max_pwr_set(10, 5, 8, 6) RSSI -4 to -9 and link
   quality 80 a floor away (stock pad: -2 to -9, 255).
+- `bt_production_test(1)` selects the pro power table (top step TXSET
+  0xFFFFF2, TXPWR 0x70237F): about 3 dB more at the host (4 alternating runs,
+  -15.5 against -18.8 average). It also sets the radio supply VDC13 to 1.40 V
+  (step 7), and `bt_production_test(0)` to 1.30 V (step 5), but this board
+  boots at step 7 already; 1.30 V measured about 1 dB weaker.
 - On Classic, Read RSSI answers 0 (inside the golden range); only LE gives
   absolute dBm.
 - LE Read Buffer Size reports 4 LE buffers of 251 bytes.

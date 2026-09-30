@@ -1,6 +1,7 @@
 #include <system/app_core.h>
 #include <system/includes.h>
 #include <usb/otg.h>
+#include <asm/power/p33.h>
 #include <usb/usb_phy.h>
 #include <system/user_cfg.h>
 
@@ -1191,10 +1192,17 @@ static void apply_radio_settings(const struct config_profile *settings)
     u8 high = settings->tx_power == CONFIG_TX_POWER_HIGH;
 
     btstack_jl_core_set_in_flight(settings->in_flight);
-    /* The controller's production-test mode: the pro power table (a higher
-     * top step) and the radio supply VDC13 at 1.40 V instead of 1.30 V.
-     * Leaving it puts VDC13 back to 1.30 V, so only when it was on. */
-    if (high || tx_power_high) bt_production_test(high);
+    /* high: the controller's production-test mode, for its pro power table
+     * (a higher top step; about 3 dB at the host).  The same call sets the
+     * radio supply VDC13 to 1.40 V on the way in and 1.30 V on the way out,
+     * but this board already boots at 1.40 V (step 7), and 1.30 V measured
+     * about 1 dB weaker: the supply is put back as it was each time. */
+    if (high || tx_power_high) {
+        u8 vdc13 = p33_rx_1byte(P3_ANA_CON6) & 0x07U;
+
+        bt_production_test(high);
+        P33_CON_SET(P3_ANA_CON6, 0, 3, vdc13);
+    }
     tx_power_high = high;
     set_bt_data_rate_acl_3mbs_mode(settings->edr3 ? 1U : 0U);
 }
