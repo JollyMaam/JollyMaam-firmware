@@ -26,6 +26,9 @@
 #define CYCLONE2_DEBOUNCE_US             2000U
 #define CYCLONE2_PROFILE_COUNT              4U
 #define CYCLONE2_HOME_GRACE_MS              150U
+/* A Home released within the grace time, with no chord, still reaches the
+ * host: as a press this long, so a host sampling at its own rate sees it. */
+#define CYCLONE2_HOME_TAP_MS                 60U
 #define CYCLONE2_LONG_HOLD_MS              5000U
 
 #define CYCLONE2_CALIBRATE_HOLD_MS         3000U
@@ -87,7 +90,8 @@ static u32 hat_changed_us;
 static u32 next_report_us;
 static u16 chord_button;
 static u8 requested_profile;
-static u8 home_tap_phase;
+static u32 home_tap_start_ms;
+static u8 home_tap;
 static struct cyclone2_input_report activity_reference;
 static u32 last_activity_ms;
 static u32 usb_absent_since_ms;
@@ -820,7 +824,8 @@ CYCLONE2_HOT static void update_home_state(void)
         break;
     case CYCLONE2_HOME_PENDING:
         if (!home) {
-            home_tap_phase = 2U;
+            home_tap_start_ms = now;
+            home_tap = 1U;
             home_state = CYCLONE2_HOME_IDLE;
         } else if (!(buttons & CYCLONE2_FACE_BUTTONS) &&
                    (buttons & CYCLONE2_REPORT_BUTTON_M)) {
@@ -893,10 +898,10 @@ CYCLONE2_HOT static void make_host_report(struct cyclone2_input_report *report)
         report->buttons &= ~(CYCLONE2_REPORT_BUTTON_HOME |
                              CYCLONE2_FACE_BUTTONS);
     }
-    if (home_tap_phase == 2U) {
-        report->buttons |= CYCLONE2_REPORT_BUTTON_HOME;
-    } else if (home_tap_phase == 1U) {
-        report->buttons &= ~CYCLONE2_REPORT_BUTTON_HOME;
+    if (home_tap) {
+        if (sys_timer_get_ms() - home_tap_start_ms < CYCLONE2_HOME_TAP_MS)
+            report->buttons |= CYCLONE2_REPORT_BUTTON_HOME;
+        else home_tap = 0U;
     }
 }
 
@@ -904,14 +909,14 @@ CYCLONE2_HOT static void make_host_report(struct cyclone2_input_report *report)
  * schedule samples every few milliseconds; a press and release that both
  * fall between two reports the link takes would never reach the host.  A
  * press seen in any poll is therefore held in the reports until the link has
- * taken one carrying it.  Home and M are left alone: their taps and chords
- * are shaped on purpose (make_host_report).  Only while a Classic HID channel
+ * taken one carrying it.  M is left alone: its chords are shaped on
+ * purpose (make_host_report).  Home is latched too: a chord hides it from
+ * the host report, so only a real Home or a Home tap is ever held.  Only while a Classic HID channel
  * or our LE link is up, the paths that say which report the link took; and a
  * press no report picked up within TAP_LATCH_MAX_MS is let go, so a path
  * that stops posting can never leave a button held. */
 #define TAP_LATCH_MAX_MS 100U
-#define TAP_LATCH_BUTTONS ((u16)~(CYCLONE2_REPORT_BUTTON_HOME | \
-                                  CYCLONE2_REPORT_BUTTON_M))
+#define TAP_LATCH_BUTTONS ((u16)~CYCLONE2_REPORT_BUTTON_M)
 static u16 tap_previous;    /* host_report buttons in the last poll */
 static u16 tap_waiting;     /* presses not yet in a posted report */
 static u16 tap_posted;      /* presses posted, until the link takes them */
@@ -1038,7 +1043,6 @@ static void send_input_report(const struct cyclone2_input_report *report)
         cyclone2_timing_sent(now_us);
         cyclone2_probe_sent(report->buttons, now_us);
 
-        if (home_tap_phase != 0U) home_tap_phase--;
         if ((injection_status.active || injection_release_pending) &&
             injection_last_emitted != injection_status.synthetic_a) {
             injection_last_emitted = injection_status.synthetic_a;
