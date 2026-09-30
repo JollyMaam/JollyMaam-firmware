@@ -150,9 +150,17 @@ static void fill_extended(u8 report[DS4_EXTENDED_SIZE],
     report[0] = 0xc0U;
     fill_common(state, input);
     /* The sensor timestamp counts 16/3 microseconds, in 16 bits. */
-    if (playstation_motion(state + 12, &timestamp_us) == 0)
+    if (playstation_motion(state + 12, &timestamp_us) == 0) {
+        /* A real DualShock 4 reports pitch with the opposite sign to the
+         * DualSense; the shared layout is the DualSense's.  Hosts (SDL,
+         * hid-playstation) take both raw, so the DS4 pitch came out
+         * inverted. */
+        s16 pitch = (s16)(state[12] | (state[13] << 8));
+
+        playstation_put_u16(state + 12, (u16)(s16)-pitch);
         playstation_put_u16(state + 9,
                             (u16)(((u64)timestamp_us * 3U) >> 4));
+    }
     state[29] = DS4_STATUS_BATTERY_FULL;
     report[34] = 1U;
     touch_frame[0] = report_counter;
