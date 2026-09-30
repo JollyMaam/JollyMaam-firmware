@@ -67,11 +67,9 @@ host when Linux Bluetooth testing is needed; the client uses localhost:47807.
   (`jieli_btctrler_wait`). A one-tick `os_time_dly` held every wake to the
   10 ms system tick and capped Classic reports at 100 per second.
 - Input reports, Classic and LE, go through a newest-wins slot with at most
-  two packets in the controller (`BTSTACK_JL_MAX_IN_FLIGHT`).  Digital
-  state (buttons, hat) is not newest-wins: `controller.c` queues every change
-  and posts them in order, one per report the link takes.  Behind obstacles
-  the radio retransmits for tens of ms and a newest-wins d-pad lost presses;
-  the stock pad, which queues everything, did not.
+  two packets in the controller (`profile.#.in_flight`).  Nothing is queued,
+  buttons included: on a marginal link a lost input is preferred to a late
+  one.  (A digital-state queue was tried and felt clearly worse.)
   `status report.air.*` shows the slot wait and the hand-off-to-ack hold time.
 - `bt_max_pwr_set()` must be called at boot (`controller.c`): without it the
   radio ran at its lowest power step, 20 dB below the stock pad.

@@ -156,10 +156,8 @@ int  btstack_jl_core_send_report(const uint8_t *message, uint16_t size);
  * not gone yet, so the host only ever gets the newest.  0 on success. */
 int  btstack_jl_core_set_input_report(const uint8_t *message, uint16_t size);
 /* (any task) For the next link: input reports that may wait in the
- * controller at once (1..10), and whether input reports are queued in order
- * (fifo) instead of replacing each other. */
-void btstack_jl_core_set_link_mode(uint8_t in_flight, uint8_t fifo);
-uint8_t btstack_jl_core_fifo(void);
+ * controller at once (1..10). */
+void btstack_jl_core_set_in_flight(uint8_t in_flight);
 
 void btstack_jl_core_delete_all_link_keys(void);
 void btstack_jl_core_delete_link_key(const uint8_t address[6]);

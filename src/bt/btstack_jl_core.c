@@ -104,7 +104,6 @@ static uint32_t jl_unsniff_next_ms;
 static volatile uint8_t jl_qos_pending;
 static uint32_t jl_rssi_next_ms;
 static volatile uint8_t jl_in_flight = BTSTACK_JL_MAX_IN_FLIGHT;
-static volatile uint8_t jl_fifo;
 
 static uint32_t jl_tx_sent;
 static uint32_t jl_tx_stall_since;
@@ -1348,26 +1347,16 @@ int btstack_jl_core_send_report(const uint8_t *message, uint16_t size)
 /* Wakes the run loop only for a report into an empty slot with no send
  * outstanding: otherwise the pending CAN_SEND_NOW takes it, and waking the
  * loop for every report costs the application task its control polls. */
-void btstack_jl_core_set_link_mode(uint8_t in_flight, uint8_t fifo)
+void btstack_jl_core_set_in_flight(uint8_t in_flight)
 {
     if (in_flight < 1) in_flight = 1;
     if (in_flight > 10) in_flight = 10;
     jl_in_flight = in_flight;
-    jl_fifo = fifo ? 1 : 0;
-}
-
-uint8_t btstack_jl_core_fifo(void)
-{
-    return jl_fifo;
 }
 
 int btstack_jl_core_set_input_report(const uint8_t *message, uint16_t size)
 {
-    int result;
-
-    /* Stock-like: every report queued, none replaced. */
-    if (jl_fifo) return btstack_jl_core_send_report(message, size);
-    result = jl_input_set(message, size);
+    int result = jl_input_set(message, size);
 
     if (result == 0) btstack_jl_core_wake();
     return result < 0 ? 0 : result;

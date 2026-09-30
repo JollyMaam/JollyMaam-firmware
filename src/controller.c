@@ -116,6 +116,9 @@ static u8 injection_release_pending;
 
 extern void bt_pll_para(u32 osc, u32 sys, u8 low_power, u8 xosc);
 extern void bt_max_pwr_set(u8 pwr, u8 pg_pwr, u8 iq_pwr, u8 ble_pwr);
+extern void bt_production_test(u8 en);
+extern void set_bt_data_rate_acl_3mbs_mode(u8 en);
+static u8 tx_power_high;
 static void start_session(u8 slot, u8 pairing, enum cyclone2_profile_type type);
 static void profile_select(u8 profile, u8 pairing);
 static void injection_cancel(void);
@@ -953,92 +956,6 @@ CYCLONE2_HOT static void make_host_report(struct cyclone2_input_report *report)
     }
 }
 
-/* Digital state queue.  The links send only the newest input report, and
- * behind obstacles the radio retransmits for tens of milliseconds at a time;
- * a d-pad or button press and release that both fall in such a stretch would
- * never reach the host.  The stock firmware queues every report, so every
- * press arrives, if late.  Here only the digital part is queued: each change
- * of buttons and hat, in order, one per report the link takes; sticks and
- * triggers stay newest-wins.  Only while a Classic HID channel or our LE link
- * is up, the paths that say which report the link took.  A full queue merges
- * into its last entry, and a head the link has not taken within
- * DIGITAL_QUEUE_MAX_MS drops the queue for the live state, so a path that
- * stops posting can never hold a button. */
-#define DIGITAL_QUEUE_LENGTH 16U
-#define DIGITAL_QUEUE_MAX_MS 1000U
-struct digital_state {
-    u16 buttons;
-    u8 hat;
-};
-static struct digital_state digital_queue[DIGITAL_QUEUE_LENGTH];
-static u8 digital_head;
-static u8 digital_count;
-static u8 digital_head_posted;  /* the head went out in report digital_seq */
-static u32 digital_seq;
-static u32 digital_head_since_ms;
-static struct digital_state digital_last;   /* newest state seen */
-
-static int digital_equal(const struct digital_state *a,
-                         const struct digital_state *b)
-{
-    return a->buttons == b->buttons && a->hat == b->hat;
-}
-
-static void digital_pop(u32 now)
-{
-    digital_head = (u8)((digital_head + 1U) % DIGITAL_QUEUE_LENGTH);
-    digital_count--;
-    digital_head_posted = 0U;
-    digital_head_since_ms = now;
-}
-
-CYCLONE2_HOT static void digital_queue_apply(struct cyclone2_input_report *report)
-{
-    struct digital_state live = { report->buttons, report->hat };
-    const struct digital_state *head;
-    u32 now = sys_timer_get_ms();
-
-    if (calibrating || btstack_jl_core_fifo() ||
-        (!btstack_jl_core_hid_connected() && !btstack_jl_le_connected())) {
-        digital_count = 0U;
-        digital_head_posted = 0U;
-        digital_last = live;
-        return;
-    }
-    if (digital_count && digital_head_posted &&
-        (s32)(btstack_jl_core_input_taken() - digital_seq) >= 0)
-        digital_pop(now);
-    if (digital_count && now - digital_head_since_ms > DIGITAL_QUEUE_MAX_MS) {
-        digital_count = 0U;
-        digital_head_posted = 0U;
-    }
-    if (!digital_equal(&live, &digital_last)) {
-        if (digital_count == 0U) digital_head_since_ms = now;
-        if (digital_count < DIGITAL_QUEUE_LENGTH) {
-            digital_queue[(digital_head + digital_count) % DIGITAL_QUEUE_LENGTH] = live;
-            digital_count++;
-        } else {
-            digital_queue[(digital_head + digital_count - 1U) % DIGITAL_QUEUE_LENGTH] = live;
-        }
-        digital_last = live;
-    }
-    if (!digital_count) return;
-    head = &digital_queue[digital_head];
-    report->buttons = head->buttons;
-    report->hat = head->hat;
-}
-
-/* After the report went to the profile: if it posted one, that report carries
- * the queue's head. */
-CYCLONE2_HOT static void digital_queue_sent(u32 posted_before)
-{
-    u32 posted = btstack_jl_core_input_posted();
-
-    if (!digital_count || digital_head_posted || posted == posted_before) return;
-    digital_head_posted = 1U;
-    digital_seq = posted;
-}
-
 /* Eager debounce: a contact that changes is taken at once, and then held for
  * CYCLONE2_DEBOUNCE_US while it bounces.  Waiting for it to settle first
  * cost every press and release 10-20 ms.  The worst bounce measured (debug
@@ -1222,14 +1139,11 @@ CYCLONE2_HOT static void cyclone2_poll(void *private_data)
     if ((injection_status.active || injection_release_pending) &&
         injection_status.synthetic_a)
         host_report.buttons |= CYCLONE2_REPORT_BUTTON_A;
-    digital_queue_apply(&host_report);
     cyclone2_prof_mark(CYCLONE2_PROF_LOGIC);
     if (report_due) {
         u32 period_us = 1000000U / active_report_hz();
-        u32 posted_before = btstack_jl_core_input_posted();
 
         send_input_report(&host_report);
-        digital_queue_sent(posted_before);
         cyclone2_prof_mark(CYCLONE2_PROF_SEND);
         /* Advance from the intended deadline rather than from a late poll,
          * so the average rate holds; a poll more than a period late starts
@@ -1270,6 +1184,21 @@ CYCLONE2_HOT static void cyclone2_poll(void *private_data)
     cyclone2_prof_end();
 }
 
+/* The slot's radio settings, before its Bluetooth session starts: the host
+ * stack reads the controller's features during its own start-up. */
+static void apply_radio_settings(const struct config_profile *settings)
+{
+    u8 high = settings->tx_power == CONFIG_TX_POWER_HIGH;
+
+    btstack_jl_core_set_in_flight(settings->in_flight);
+    /* The controller's production-test mode: the pro power table (a higher
+     * top step) and the radio supply VDC13 at 1.40 V instead of 1.30 V.
+     * Leaving it puts VDC13 back to 1.30 V, so only when it was on. */
+    if (high || tx_power_high) bt_production_test(high);
+    tx_power_high = high;
+    set_bt_data_rate_acl_3mbs_mode(settings->edr3 ? 1U : 0U);
+}
+
 static void start_session(u8 slot, u8 pairing, enum cyclone2_profile_type type)
 {
     u32 now = sys_timer_get_ms();
@@ -1293,8 +1222,7 @@ static void start_session(u8 slot, u8 pairing, enum cyclone2_profile_type type)
                        config_slot_name(slot), cyclone2_profile_name(type),
                        pairing);
 
-    btstack_jl_core_set_link_mode(config.profile[slot].in_flight,
-                                  config.profile[slot].fifo);
+    apply_radio_settings(&config.profile[slot]);
     cyclone2_profile_start(type, slot, pairing);
 }
 

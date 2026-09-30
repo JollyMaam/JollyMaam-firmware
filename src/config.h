@@ -39,10 +39,18 @@ struct config_profile {
     u8 variant;
     /* Input reports that may wait in the Bluetooth controller at once. */
     u8 in_flight;
-    /* Classic: queue every input report in order, as the stock firmware
-     * does, instead of sending only the newest. */
-    u8 fifo;
+    /* enum config_tx_power: the radio's transmit power. */
+    u8 tx_power;
+    /* Classic: allow 3 Mbit/s EDR packets (3-DH1), as the stock firmware
+     * does; a DualShock 4 report then fits one single-slot packet. */
+    u8 edr3;
     struct config_bond bond;
+};
+
+/* profile.#.tx_power.  Stored by value: append, never renumber. */
+enum config_tx_power {
+    CONFIG_TX_POWER_NORMAL = 0U,
+    CONFIG_TX_POWER_HIGH = 1U,
 };
 
 /* Layouts a type can come in (profile.#.variant).  Stored by value: append,

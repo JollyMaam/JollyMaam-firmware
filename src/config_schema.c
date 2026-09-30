@@ -2,6 +2,11 @@
 #include "profile_types.h"
 
 /* 66 Hz is a Pro Controller's own rate on a Switch (15 ms). */
+static const struct cfg_choice tx_powers[] = {
+    { CONFIG_TX_POWER_NORMAL, "normal" }, { CONFIG_TX_POWER_HIGH, "high" },
+    { 0, NULL },
+};
+
 static const struct cfg_choice report_rates[] = {
     { 0, "auto" }, { 66, "66" }, { 100, "100" }, { 125, "125" },
     { 250, "250" }, { 500, "500" }, { 1000, "1000" }, { 0, NULL },
@@ -180,12 +185,20 @@ const struct cfg_item config_items[] = {
       .help = "input reports that may wait in the Bluetooth controller at "
               "once (it has 10 Classic and 4 LE buffers).  Few keep reports "
               "fresh; more keep the link busy through retransmissions" },
-    { .uid = 27, .path = "profile.#.fifo", .type = CFG_BOOL,
-      CFG_PROFILE_FIELD(fifo), .group = CFG_GROUP_PREFS,
-      .apply = CFG_NEXT_CONNECT, .def = 0,
-      .help = "Classic: queue every input report in order, as the stock "
-              "firmware does, instead of sending only the newest (sticks) and "
-              "every button and d-pad change in order" },
+    { .uid = 28, .path = "profile.#.tx_power", .type = CFG_ENUM,
+      CFG_PROFILE_FIELD(tx_power), .group = CFG_GROUP_PREFS,
+      .apply = CFG_NEXT_CONNECT, .choices = tx_powers,
+      .def = CONFIG_TX_POWER_NORMAL,
+      .help = "transmit power: normal is the controller's highest normal "
+              "step; high is its production-test mode (radio supply 1.40 V "
+              "instead of 1.30 V, pro power table), for range at some "
+              "battery cost" },
+    { .uid = 29, .path = "profile.#.edr3", .type = CFG_BOOL,
+      CFG_PROFILE_FIELD(edr3), .group = CFG_GROUP_PREFS,
+      .apply = CFG_NEXT_CONNECT, .def = 1,
+      .help = "Classic: allow 3 Mbit/s packets, as the stock pad does; a "
+              "DualShock 4 or DualSense report then fits one packet instead "
+              "of two.  They need a stronger signal than 2 Mbit/s ones" },
     { .uid = 13, .path = "profile.#.colour", .type = CFG_COLOUR,
       CFG_PROFILE_FIELD(colour), .group = CFG_GROUP_PREFS,
       .def_ptr = default_profile_colours,
