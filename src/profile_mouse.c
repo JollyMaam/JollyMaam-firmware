@@ -162,8 +162,12 @@ static const struct mouse_layout mouse_layouts[] = {
 static const u8 wasd_keys[4] = { KB_W, KB_D, KB_S, KB_A };
 static const u8 arrow_keys[4] = { KB_UP, KB_RIGHT, KB_DOWN, KB_LEFT };
 
-/* A scrolling stick: wheel notches per second all the way over. */
-#define MOUSE_SCROLL_PER_SECOND 20
+/* A scrolling stick: nothing within MOUSE_SCROLL_DEADZONE of the centre on
+ * an axis (so an up/down push does not also pan, and a resting stick never
+ * creeps a notch), then notches per second rising with the square of the
+ * rest of the travel, to MOUSE_SCROLL_PER_SECOND all the way over. */
+#define MOUSE_SCROLL_DEADZONE   (CYCLONE2_STICK_MAX * 35 / 100)
+#define MOUSE_SCROLL_PER_SECOND 15
 
 /* A report later than this is integrated as if it were this late. */
 #define MOUSE_MAX_DT_US         50000U
@@ -333,12 +337,23 @@ static void stick_motion(s16 x, s16 y, u32 dt_us, u32 speed, s32 out[2])
 static void scroll_motion(s16 x, s16 y, u32 dt_us, s32 out[2])
 {
     const s32 axis[2] = { y, x };
-    const s64 per_notch = (s64)CYCLONE2_STICK_MAX * 1000000;
+    const s32 travel = CYCLONE2_STICK_MAX - MOUSE_SCROLL_DEADZONE;
+    const s64 per_notch = (s64)travel * travel * 1000000;
     int index;
 
     for (index = 0; index < 2; index++) {
-        scroll_rest[index] += (s64)axis[index] * MOUSE_SCROLL_PER_SECOND *
-                              dt_us;
+        s32 past = (axis[index] < 0 ? -axis[index] : axis[index]) -
+                   MOUSE_SCROLL_DEADZONE;
+        s64 rate;
+
+        out[index] = 0;
+        if (past <= 0) {
+            scroll_rest[index] = 0;
+            continue;
+        }
+        if (past > travel) past = travel;
+        rate = (s64)past * past * MOUSE_SCROLL_PER_SECOND;
+        scroll_rest[index] += (axis[index] < 0 ? -rate : rate) * dt_us;
         out[index] = (s32)(scroll_rest[index] / per_notch);
         scroll_rest[index] -= (s64)out[index] * per_notch;
     }
