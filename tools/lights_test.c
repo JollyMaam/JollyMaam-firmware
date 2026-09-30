@@ -260,8 +260,15 @@ static void test_usb_overlays(void)
 
     in.usb_powered = 1U;
     in.low_battery = 0U;
-    render_at(1400U);                              /* charging breath at peak */
+    render_at(1400U);                              /* charging cue on */
     CHECK(same(light(CYCLONE2_LIGHT_HOME), dim_orange));
+    render_at(2200U);                              /* charging cue off */
+    CHECK(same(light(CYCLONE2_LIGHT_HOME), dark));
+    for (unsigned t = 0U; t < 2400U; t += 100U) {
+        render_at(t);
+        CHECK(same(light(CYCLONE2_LIGHT_HOME), dim_orange) ||
+              same(light(CYCLONE2_LIGHT_HOME), dark));
+    }
     in.usb_plug_flash = 1U;
     render_at(1400U);
     CHECK(same(light(CYCLONE2_LIGHT_HOME), blue));
@@ -296,9 +303,9 @@ static void test_usb_overlays(void)
     in.usb_powered = 1U;
     render_at(1400U);
     CHECK(same(light(CYCLONE2_LIGHT_HOME), dim_orange));
-    in.usb_plug_flash = 1U;                     /* no slot: use idle colour */
+    in.usb_plug_flash = 1U;                     /* no slot: use charging colour */
     render_at(1400U);
-    CHECK(same(light(CYCLONE2_LIGHT_HOME), dim_white));
+    CHECK(same(light(CYCLONE2_LIGHT_HOME), dim_orange));
 }
 
 static void test_offline_sleep_deadline(void)

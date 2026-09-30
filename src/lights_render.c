@@ -82,7 +82,9 @@ const struct cyclone2_scene cyclone2_scenes[CYCLONE2_SCENE_COUNT] = {
 
 /* Overlays, drawn over whatever the scene shows. */
 static const struct cyclone2_wave low_battery_wave = CYCLONE2_BLINK(150, 2850);
-static const struct cyclone2_wave charging_wave = CYCLONE2_BREATHE(2400);
+/* Very low RGB values lose their hue during a fade: green rounds to zero
+ * before red. Keep the configured orange intact for each lit frame. */
+static const struct cyclone2_wave charging_wave = CYCLONE2_BLINK(800, 1600);
 /* Switch player lights the host set flashing. */
 static const struct cyclone2_wave player_flash_wave = CYCLONE2_BLINK(250, 250);
 
@@ -269,7 +271,7 @@ void cyclone2_lights_render(const struct cyclone2_lights_input *in,
         frame->light[CYCLONE2_LIGHT_HOME] =
             in->battery_colour;
     if (in->usb_plug_flash == 1U)
-        frame->light[CYCLONE2_LIGHT_HOME] = colour;
+        frame->light[CYCLONE2_LIGHT_HOME] = has_slot ? colour : in->battery_colour;
     else if (in->usb_plug_flash == 2U)
         frame->light[CYCLONE2_LIGHT_HOME] =
             (struct cyclone2_rgb){ 0U, 0U, 0U };
