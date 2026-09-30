@@ -115,6 +115,7 @@ static u8 injection_last_emitted;
 static u8 injection_release_pending;
 
 extern void bt_pll_para(u32 osc, u32 sys, u8 low_power, u8 xosc);
+extern void bt_max_pwr_set(u8 pwr, u8 pg_pwr, u8 iq_pwr, u8 ble_pwr);
 static void start_session(u8 slot, u8 pairing, enum cyclone2_profile_type type);
 static void profile_select(u8 profile, u8 pairing);
 static void injection_cancel(void);
@@ -1310,6 +1311,13 @@ static void cyclone2_start(void)
     clk_set("sys", BT_NORMAL_HZ);
     system_clock = clk_get("sys");
     bt_pll_para(TCFG_CLOCK_OSC_HZ, system_clock, 0, 0);
+    /* Transmit power levels: connection, page, inquiry, LE.  Without this
+     * call they stay 0, the lowest step of the controller's TXSET table, and
+     * a Linux host measured our pad 20 dB below the stock one at the same
+     * spot (link quality 4 of 255 against 255).  These are the SDK's own
+     * defaults (apps/hid/modules/user_cfg.c); in normal mode the controller
+     * caps every level at its highest step, 4 (bt_get_pwr_max_level()). */
+    bt_max_pwr_set(10, 5, 8, 6);
     cyclone2_input_initialize();
     task_create(cyclone2_imu_task, NULL, "imu");
     cyclone2_usb_control_initialize();
