@@ -87,7 +87,10 @@ static const struct profile_operations profiles[] = {
     },
     [CYCLONE2_PROFILE_DUALSENSE] = {
         .name = "dualsense",
-        .default_hz = 250U, /* assumed; not yet measured on a real pad */
+        /* Measured (2026-09-30): at 250 the reports and BTstack left the
+         * lowest-priority imu task 20 samples a second, so most reports
+         * repeated a stale gyro sample; at 125 it keeps up (240 a second). */
+        .default_hz = 125U,
         .start = cyclone2_dualsense_start,
         .disconnect = cyclone2_classic_disconnect,
         .exit = cyclone2_classic_exit,
@@ -98,7 +101,7 @@ static const struct profile_operations profiles[] = {
     },
     [CYCLONE2_PROFILE_DUALSHOCK4] = {
         .name = "dualshock4",
-        .default_hz = 250U, /* assumed; not yet measured on a real pad */
+        .default_hz = 125U, /* as dualsense: the gyro needs the CPU */
         .start = cyclone2_dualshock4_start,
         .disconnect = cyclone2_classic_disconnect,
         .exit = cyclone2_classic_exit,

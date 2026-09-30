@@ -15,7 +15,13 @@ extern volatile unsigned long jiffies;
 
 CYCLONE2_HOT u32 cyclone2_time_us(void)
 {
-    static u32 last;
+    static volatile u32 last;
+    /* Taken before the counter: the control timer's interrupt calls this
+     * too, and a newer `last` stored by a call that interrupted this one
+     * made a correct reading look like an unseen wrap, and pushed the clock
+     * 10 ms ahead for good.  The IMU task, interrupted there often, put
+     * those jumps into the PlayStation profiles' sensor timestamps. */
+    u32 before = last;
     u32 ticks;
     u32 count;
     u32 period;
@@ -33,8 +39,8 @@ CYCLONE2_HOT u32 cyclone2_time_us(void)
     now = ticks * TICK_US + count / period;
     /* The counter wraps before its interrupt has counted the tick when
      * interrupts are held off; do not step back by that tick. */
-    if ((s32)(now - last) < 0 && last - now < 2U * TICK_US) now += TICK_US;
-    last = now;
+    if ((s32)(now - before) < 0 && before - now < 2U * TICK_US) now += TICK_US;
+    if ((s32)(now - last) > 0) last = now;
     return now;
 }
 
