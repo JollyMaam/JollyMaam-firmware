@@ -5,11 +5,15 @@
 #include "asm/gpio.h"
 #include "asm/adc_api.h"
 
-#define CYCLONE2_BUTTON_A           IO_PORTA_06
+/* Face buttons are named by the labels printed on the pad, which is
+ * Xbox-ordered: A south, B east, X west, Y north (measured with
+ * `debug bounce`, 2026-09-29).  Profiles that want Nintendo positions
+ * translate there; do not swap these names. */
+#define CYCLONE2_BUTTON_A           IO_PORTA_00
 #define CYCLONE2_DPAD_UP            IO_PORTA_02
 #define CYCLONE2_DPAD_DOWN          IO_PORTA_04
 #define CYCLONE2_BUTTON_L4          IO_PORTA_05
-#define CYCLONE2_BUTTON_B           IO_PORTA_00
+#define CYCLONE2_BUTTON_B           IO_PORTA_06
 #define CYCLONE2_BUTTON_X           IO_PORTA_07
 #define CYCLONE2_DPAD_RIGHT         IO_PORTA_10
 #define CYCLONE2_BUTTON_Y           IO_PORTA_13

@@ -12,13 +12,17 @@ has been established. The board configuration uses a 24 MHz oscillator and a
 These assignments are those used by the working input code in
 [`src/input.h`](../src/input.h), with qualifications below.
 
+The face buttons carry Xbox-ordered labels. Pressing each printed label
+under `debug bounce` (2026-09-29) gave A = PA0 (south), B = PA6 (east),
+X = PA7 (west) and Y = PA13 (north).
+
 | Signal | Pin |
 |---|---|
-| button a | PA6 |
+| button a | PA0 |
 | dpad up | PA2 |
 | dpad down | PA4 |
 | button l4 | PA5 |
-| button b | PA0 |
+| button b | PA6 |
 | button x | PA7 |
 | dpad right | PA10 |
 | button y | PA13 |

@@ -46,8 +46,8 @@
 
 #define JC_BTN_Y         BIT(0)
 #define JC_BTN_X         BIT(1)
-#define JC_BTN_A         BIT(2)
-#define JC_BTN_B         BIT(3)
+#define JC_BTN_B         BIT(2)
+#define JC_BTN_A         BIT(3)
 #define JC_BTN_SR_R      BIT(4)
 #define JC_BTN_SL_R      BIT(5)
 #define JC_BTN_R         BIT(6)

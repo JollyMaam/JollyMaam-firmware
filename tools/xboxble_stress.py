@@ -41,7 +41,7 @@ import padbus  # noqa: E402
 
 CLIENT = "xboxble-stress"
 INPUT_HANDLE = 0x001D
-BUTTON_A = (13, 0x02)
+BUTTON_A = (13, 0x01)
 MODES = ("padcycle", "hostdrop", "reboot", "repair", "dwell")
 
 

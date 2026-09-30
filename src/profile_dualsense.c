@@ -168,8 +168,8 @@ static void ds_buttons(const struct cyclone2_input_report *input, u8 out[3])
              CYCLONE2_HAT_NEUTRAL;
     if (buttons & CYCLONE2_REPORT_BUTTON_X) out[0] |= 0x10U;
 
-    if (buttons & CYCLONE2_REPORT_BUTTON_B) out[0] |= 0x20U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_A) out[0] |= 0x40U;
+    if (buttons & CYCLONE2_REPORT_BUTTON_A) out[0] |= 0x20U;
+    if (buttons & CYCLONE2_REPORT_BUTTON_B) out[0] |= 0x40U;
     if (buttons & CYCLONE2_REPORT_BUTTON_Y) out[0] |= 0x80U;
 
     out[1] = 0U;

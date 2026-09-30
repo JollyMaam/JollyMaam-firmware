@@ -150,11 +150,11 @@ static void switch2_make_report(u8 output[SWITCH2_REPORT_SIZE])
     output[0] = ++switch2_counter;
     output[1] = 0x20;
 
-    /* Direct: the pad's A/B/X/Y are Nintendo-positioned.  (Mapping A to B
-     * and X to Y, as the Classic profile does, came out swapped on the
-     * console - measured 2026-09-25 in the Switch 2's input test.) */
-    if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_A) buttons |= SWITCH2_BTN_A;
-    if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_B) buttons |= SWITCH2_BTN_B;
+    /* By position: the pad is Xbox-labelled, so its A (south) is the
+     * Switch's B.  X (west) to SWITCH2_BTN_X and Y (north) to SWITCH2_BTN_Y
+     * came out right in the Switch 2's input test (2026-09-25). */
+    if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_A) buttons |= SWITCH2_BTN_B;
+    if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_B) buttons |= SWITCH2_BTN_A;
     if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_X) buttons |= SWITCH2_BTN_X;
     if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_Y) buttons |= SWITCH2_BTN_Y;
     if (switch2_input.buttons & CYCLONE2_REPORT_BUTTON_R1) buttons |= SWITCH2_BTN_R;

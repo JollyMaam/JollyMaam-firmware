@@ -101,10 +101,7 @@ void cyclone2_xbox_fill_state(u8 state[XBOX_STATE_SIZE],
     put_u16(state + 10, (u16)(input->right_trigger >> 6));
     state[12] = input->hat < CYCLONE2_HAT_NEUTRAL ? (u8)(input->hat + 1U) : 0U;
 
-    state[13] = (u8)(buttons & ~(CYCLONE2_REPORT_BUTTON_A |
-                                 CYCLONE2_REPORT_BUTTON_B));
-    if (buttons & CYCLONE2_REPORT_BUTTON_A) state[13] |= 0x02U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_B) state[13] |= 0x01U;
+    state[13] = (u8)buttons;
     state[14] = (u8)((buttons >> 8) & 0x7fU);
     if (!series && (buttons & CYCLONE2_REPORT_BUTTON_SELECT)) state[15] = 0x01U;
 }
