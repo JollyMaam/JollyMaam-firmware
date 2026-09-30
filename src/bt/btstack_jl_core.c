@@ -42,6 +42,18 @@
 #define BTSTACK_JL_MAX_IN_FLIGHT      2
 #endif
 
+/* Classic ACL packet types for the connections we page, positive logic as
+ * hci_enable_acl_packet_types() takes them: single-slot only (DM1, DH1,
+ * 2-DH1, 3-DH1).  The stock firmware pages with exactly this set (HCI packet
+ * type 0x3318).  A report then never rides a three- or five-slot packet,
+ * which is longer on air, fails more often under interference and costs more
+ * when it has to be sent again.  The controller answers Change Connection
+ * Packet Type with Unknown HCI Command, so a host's own page keeps its set. */
+#define BTSTACK_JL_ACL_PACKET_TYPES   0x001eu
+
+#define BTSTACK_JL_RSSI_PERIOD_MS     1000u
+#define BTSTACK_JL_STALL_US           50000u
+
 #define BTSTACK_JL_SDP_RECORD_SIZE    720
 
 typedef struct {
@@ -91,6 +103,7 @@ static uint16_t jl_pairings;
 static uint32_t jl_unsniff_next_ms;
 /* Ask for a short poll interval once the HID channel is up (see jl_tx_poll). */
 static volatile uint8_t jl_qos_pending;
+static uint32_t jl_rssi_next_ms;
 
 static uint32_t jl_tx_sent;
 static uint32_t jl_tx_stall_since;
@@ -491,6 +504,7 @@ static void jl_hold_completed(const uint8_t *packet, uint16_t size)
             if ((int32_t) hold_us < 0) hold_us = 0;
             jl_enter_critical();
             jl_input_stats.hold_count++;
+            if (hold_us > BTSTACK_JL_STALL_US) jl_input_stats.stalls++;
             jl_input_hold_total_us += hold_us;
             if (hold_us > jl_input_stats.hold_max_us) {
                 jl_input_stats.hold_max_us = hold_us;
@@ -519,6 +533,34 @@ void btstack_jl_air_note_le(uint16_t interval, uint16_t latency,
     if (tx_phy != 0) {
         jl_input_stats.le_tx_phy = tx_phy;
         jl_input_stats.le_rx_phy = rx_phy;
+    }
+}
+
+/* (run loop) Read the link's RSSI once a second; the answer arrives as a
+ * Command Complete (jl_packet_handler). */
+void btstack_jl_air_poll_link(uint16_t handle)
+{
+    uint32_t now = jl_config.time_ms();
+
+    if ((int32_t)(now - jl_rssi_next_ms) < 0) return;
+    if (!hci_can_send_command_packet_now()) return;
+    jl_rssi_next_ms = now + BTSTACK_JL_RSSI_PERIOD_MS;
+    hci_send_cmd(&hci_read_rssi, handle);
+}
+
+static void jl_rssi_complete(const uint8_t *packet, uint16_t size)
+{
+    int8_t rssi;
+    uint8_t magnitude;
+
+    /* Command Complete: status at 5, handle at 6, RSSI at 8. */
+    if (size < 9 || packet[5] != 0) return;
+    rssi = (int8_t) packet[8];
+    magnitude = rssi < 0 ? (uint8_t)(-rssi) : 0u;
+    if (magnitude == 0) return;
+    jl_input_stats.rssi_last = magnitude;
+    if (magnitude > jl_input_stats.rssi_worst) {
+        jl_input_stats.rssi_worst = magnitude;
     }
 }
 
@@ -699,6 +741,9 @@ static void jl_tx_poll(btstack_data_source_t *data_source,
         hci_send_cmd(&hci_qos_setup, jl_con_handle, 0, 2, 8000, 0, 1250,
                      0xffffffffu);
     }
+    if (jl_hid_cid != 0 && jl_con_handle_valid) {
+        btstack_jl_air_poll_link(jl_con_handle);
+    }
 
     if ((request & JL_REQUEST_SHUTDOWN) != 0) {
 
@@ -816,6 +861,13 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
 
                 hci_remote_features_query(jl_con_handle);
                 jl_notify_logged(BTSTACK_JL_EVENT_CONNECTED, 0, event_addr);
+            }
+            break;
+
+        case HCI_EVENT_COMMAND_COMPLETE:
+            if (hci_event_command_complete_get_command_opcode(packet) ==
+                HCI_OPCODE_HCI_READ_RSSI) {
+                jl_rssi_complete(packet, size);
             }
             break;
 
@@ -1073,6 +1125,7 @@ static int btstack_jl_core_setup(void)
     hci_init(hci_transport_jl_br23_instance(), &transport_config);
     hci_set_link_key_db(&jl_link_key_db);
 
+    hci_enable_acl_packet_types(BTSTACK_JL_ACL_PACKET_TYPES);
     l2cap_init();
     jl_l2cap_event_registration.callback = &jl_l2cap_event_handler;
     l2cap_add_event_handler(&jl_l2cap_event_registration);

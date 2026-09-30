@@ -57,6 +57,7 @@ extern void btstack_jl_air_note_le(uint16_t interval, uint16_t latency,
                                    uint8_t tx_phy, uint8_t rx_phy);
 extern int btstack_jl_link_has_room(uint16_t handle);
 extern void btstack_jl_air_note_le_length(uint16_t tx_octets);
+extern void btstack_jl_air_poll_link(uint16_t handle);
 
 static const struct btstack_jl_le_config *le_config;
 static btstack_packet_callback_registration_t le_hci_registration;
@@ -549,6 +550,9 @@ void btstack_jl_le_poll(void)
         hci_can_send_command_packet_now()) {
         le_data_length_pending = 0;
         hci_send_cmd(&hci_le_set_data_length, le_con_handle, 251, 2120);
+    }
+    if (le_con_handle != HCI_CON_HANDLE_INVALID) {
+        btstack_jl_air_poll_link(le_con_handle);
     }
     if (le_report_dirty && le_con_handle != HCI_CON_HANDLE_INVALID) {
         le_try_send();

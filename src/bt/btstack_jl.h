@@ -113,6 +113,15 @@ typedef struct {
     uint8_t  le_tx_phy;
     uint8_t  le_rx_phy;
     uint16_t le_tx_octets;  /* LE PDU payload after Data Length Change */
+    /* Hand-off to acknowledgement over 50 ms: a retransmission burst the
+     * player would feel. */
+    uint32_t stalls;
+    /* Signal of the host as our receiver hears it (HCI Read RSSI, once a
+     * second), as a positive number: 62 means -62 dBm.  0 until measured,
+     * and always 0 on Classic: there the controller reports the offset from
+     * the golden range, 0 inside it.  LE reports absolute dBm. */
+    uint8_t  rssi_last;
+    uint8_t  rssi_worst;
 } btstack_jl_input_stats_t;
 void btstack_jl_core_input_stats(btstack_jl_input_stats_t *out);
 /* Sequence numbers of input reports: the last one stored by
