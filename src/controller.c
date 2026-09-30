@@ -21,6 +21,7 @@
 #include "led.h"
 #include "lights.h"
 #include "user_cfg_id.h"
+#include "usb.h"
 
 #define CYCLONE2_CONTROL_PERIOD_US        1000U
 #define CYCLONE2_DEBOUNCE_US             2000U
@@ -55,6 +56,9 @@
 #define CYCLONE2_SLEEP_CONFIRM              4U
 #define CYCLONE2_SLEEP_RECHECK_MS         250U
 #define CYCLONE2_USB_SOF_STALE_MS         250U
+/* Home+Start held at boot (pinhole reset, wake from sleep) enters UBOOT if
+ * USB turns up this soon after; enumeration takes well under this. */
+#define CYCLONE2_UBOOT_BOOT_WINDOW_MS     3000U
 
 #define CYCLONE2_PROFILE_SWITCH_MS          100U
 /* The stack's halt waits for the peer to confirm the disconnect, so the
@@ -98,6 +102,9 @@ static u32 usb_absent_since_ms;
 static u32 usb_sof_seen_ms;
 static u16 usb_sof_frame;
 static u8 usb_sof_initialized;
+static u8 usb_was_present;
+static u8 uboot_chord_at_boot;
+static u32 started_ms;
 static u8 calibrating;
 static u8 ignore_chord_until_release;
 static struct cyclone2_report_statistics report_statistics;
@@ -775,6 +782,29 @@ static void begin_automatic_sleep(const char *reason)
     begin_sleep();
 }
 
+/* Home+Start while USB is plugged in enters UBOOT, as the stock pad does:
+ * held at the plug-in, or at the boot (reset, wake) that found USB. */
+static void usb_poll(u32 now)
+{
+    const u16 uboot_chord = CYCLONE2_REPORT_BUTTON_HOME |
+                            CYCLONE2_REPORT_BUTTON_START;
+    int present = cyclone2_usb_present();
+
+    if (uboot_chord_at_boot &&
+        now - started_ms >= CYCLONE2_UBOOT_BOOT_WINDOW_MS)
+        uboot_chord_at_boot = 0U;
+    if (present) usb_absent_since_ms = now;
+    if (present && !usb_was_present &&
+        ((current_report.buttons & uboot_chord) == uboot_chord ||
+         uboot_chord_at_boot) &&
+        !cyclone2_usb_uboot_pending()) {
+        cyclone2_usb_debug("Home+Start at USB plug-in: entering UBOOT");
+        cyclone2_usb_uboot_request();
+    }
+    if (present) uboot_chord_at_boot = 0U;
+    usb_was_present = (u8)present;
+}
+
 static int selected_face_button(u16 buttons, u8 *profile)
 {
     u16 face = buttons & CYCLONE2_FACE_BUTTONS;
@@ -1078,7 +1108,7 @@ CYCLONE2_HOT static void cyclone2_poll(void *private_data)
     (void)private_data;
     cyclone2_prof_start();
     now = sys_timer_get_ms();
-    if (cyclone2_usb_present()) usb_absent_since_ms = now;
+    usb_poll(now);
     report_statistics.poll_count++;
     cyclone2_usb_control_poll();
     cyclone2_prof_mark(CYCLONE2_PROF_USB);
@@ -1236,6 +1266,8 @@ static void cyclone2_start(void)
     activity_reference = current_report;
     last_activity_ms = sys_timer_get_ms();
     usb_absent_since_ms = last_activity_ms;
+    started_ms = last_activity_ms;
+    uboot_chord_at_boot = cyclone2_take_early_uboot_chord();
     cyclone2_timing_reset();
     memset(button_changed_us, 0, sizeof(button_changed_us));
     hat_changed_us = 0U;

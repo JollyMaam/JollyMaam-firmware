@@ -49,7 +49,6 @@ static char scratch[192];
 static char value_text[112];
 
 extern void cyclone2_usb_write(const void *data, u32 length);
-extern int cyclone2_usb_uboot_pending(void);
 
 static void raw(const char *data, u32 length)
 {

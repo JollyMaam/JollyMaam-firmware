@@ -4,5 +4,7 @@
 void cyclone2_usb_control_initialize(void);
 void cyclone2_usb_control_poll(void);
 void cyclone2_usb_debug(const char *format, ...);
+void cyclone2_usb_uboot_request(void);
+int cyclone2_usb_uboot_pending(void);
 
 #endif

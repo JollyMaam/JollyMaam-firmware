@@ -21,7 +21,6 @@
 
 #define MASKROM_NVRAM_ADDRESS ((const volatile u8 *)0x00010800U)
 
-extern void cyclone2_usb_uboot_request(void);
 
 static int number(const char *text, u32 *value)
 {

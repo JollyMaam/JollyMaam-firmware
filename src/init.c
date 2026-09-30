@@ -21,6 +21,7 @@
 void board_power_init(void);
 
 static u8 cyclone2_early_profile_chord;
+static u8 cyclone2_early_uboot_chord;
 
 static void cyclone2_prepare_early_button(u32 gpio)
 {
@@ -30,7 +31,7 @@ static void cyclone2_prepare_early_button(u32 gpio)
     gpio_direction_input(gpio);
 }
 
-void cyclone2_latch_early_profile_chord(void)
+void cyclone2_latch_early_chords(void)
 {
     u8 chord = 0U;
 
@@ -39,13 +40,22 @@ void cyclone2_latch_early_profile_chord(void)
     cyclone2_prepare_early_button(CYCLONE2_BUTTON_B);
     cyclone2_prepare_early_button(CYCLONE2_BUTTON_X);
     cyclone2_prepare_early_button(CYCLONE2_BUTTON_Y);
+    cyclone2_prepare_early_button(CYCLONE2_BUTTON_START);
 
     if (gpio_read(CYCLONE2_BUTTON_HOME)) return;
+    if (!gpio_read(CYCLONE2_BUTTON_START)) cyclone2_early_uboot_chord = 1U;
     if (!gpio_read(CYCLONE2_BUTTON_A)) chord = 1U;
     if (!gpio_read(CYCLONE2_BUTTON_B)) chord = chord ? 0xffU : 2U;
     if (!gpio_read(CYCLONE2_BUTTON_X)) chord = chord ? 0xffU : 3U;
     if (!gpio_read(CYCLONE2_BUTTON_Y)) chord = chord ? 0xffU : 4U;
     if (chord != 0xffU) cyclone2_early_profile_chord = chord;
+}
+
+u8 cyclone2_take_early_uboot_chord(void)
+{
+    u8 chord = cyclone2_early_uboot_chord;
+    cyclone2_early_uboot_chord = 0U;
+    return chord;
 }
 
 u8 cyclone2_take_early_profile_chord(void)
@@ -68,7 +78,7 @@ const struct low_power_param power_param = {
 
 void board_init()
 {
-    cyclone2_latch_early_profile_chord();
+    cyclone2_latch_early_chords();
 
     config_init();
     board_power_init();
