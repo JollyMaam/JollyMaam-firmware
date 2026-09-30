@@ -151,6 +151,7 @@ struct cyclone2_input_stats {
 
 u8 cyclone2_take_early_profile_chord(void);
 u8 cyclone2_take_early_uboot_chord(void);
+u8 cyclone2_take_early_home(void);
 
 void cyclone2_input_initialize(void);
 /* Buttons, d-pad and raw analog values; the report's analog fields are left

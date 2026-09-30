@@ -55,6 +55,9 @@ __attribute__((used)) int *__errno()
 volatile struct cyclone2_boot_request reset_mailbox
     __attribute__((section(".reset_mailbox"), used, aligned(4)));
 
+volatile struct cyclone2_last_slot last_slot_record
+    __attribute__((section(".reset_mailbox"), used, aligned(4)));
+
 volatile u32 cyclone2_bringup_trace
     __attribute__((section(".bringup_log"), used, aligned(4)));
 

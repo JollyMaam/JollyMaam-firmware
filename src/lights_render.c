@@ -17,8 +17,8 @@ const struct cyclone2_scene cyclone2_scenes[CYCLONE2_SCENE_COUNT] = {
         .bar = { CYCLONE2_BAR_ALL, CYCLONE2_OFF },
         .grips = { CYCLONE2_GRIPS_WAVE, CYCLONE2_OFF },
     },
-    /* Awake with no slot chosen: Home+A/B/X/Y picks one. A USB host draws the
-     * charging cue over this dark battery scene. */
+    /* Awake with no slot chosen: Home or Home+A/B/X/Y picks one (ux.c).  A
+     * USB host draws the charging cue over this dark battery scene. */
     [CYCLONE2_SCENE_IDLE] = {
         .name = "idle",
         .colour = CYCLONE2_COLOUR_IDLE,

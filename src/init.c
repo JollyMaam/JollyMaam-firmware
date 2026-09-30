@@ -22,6 +22,7 @@ void board_power_init(void);
 
 static u8 cyclone2_early_profile_chord;
 static u8 cyclone2_early_uboot_chord;
+static u8 cyclone2_early_home;
 
 static void cyclone2_prepare_early_button(u32 gpio)
 {
@@ -52,7 +53,9 @@ void cyclone2_latch_early_chords(void)
     for (slot = 0U; slot < ARRAY_SIZE(slot_buttons); slot++)
         if (!gpio_read(slot_buttons[slot]))
             chord = chord ? 0xffU : (u8)(slot + 1U);
-    if (chord != 0xffU) cyclone2_early_profile_chord = chord;
+    if (chord == 0xffU) return;
+    cyclone2_early_profile_chord = chord;
+    cyclone2_early_home = !cyclone2_early_uboot_chord;
 }
 
 u8 cyclone2_take_early_uboot_chord(void)
@@ -60,6 +63,15 @@ u8 cyclone2_take_early_uboot_chord(void)
     u8 chord = cyclone2_early_uboot_chord;
     cyclone2_early_uboot_chord = 0U;
     return chord;
+}
+
+/* Home was down at boot (with at most one slot key): the press that woke the
+ * pad, still to be taken as a gesture. */
+u8 cyclone2_take_early_home(void)
+{
+    u8 home = cyclone2_early_home;
+    cyclone2_early_home = 0U;
+    return home;
 }
 
 u8 cyclone2_take_early_profile_chord(void)

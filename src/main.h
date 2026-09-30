@@ -15,6 +15,18 @@ struct cyclone2_boot_request {
 
 extern volatile struct cyclone2_boot_request reset_mailbox;
 
+/* The slot last started, for Home to connect again.  Beside the mailbox, so
+ * it survives a soft reset; never written to flash. */
+#define CYCLONE2_LAST_SLOT_MAGIC  0x43324c53U
+struct cyclone2_last_slot {
+    u32 magic;
+    u8 slot;
+    u8 check;
+    u16 reserved;
+};
+
+extern volatile struct cyclone2_last_slot last_slot_record;
+
 /* Last Bluetooth bring-up milestone.  Lives in the same preserved SRAM
  * section as the boot request so it survives the reset that follows a
  * controller crash, and is printed by the console `status` command. */

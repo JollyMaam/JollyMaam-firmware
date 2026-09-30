@@ -23,17 +23,11 @@
 #include "lights.h"
 #include "user_cfg_id.h"
 #include "usb.h"
+#include "ux.h"
 
 #define CYCLONE2_CONTROL_PERIOD_US        1000U
 #define CYCLONE2_DEBOUNCE_US             2000U
 #define CYCLONE2_PROFILE_COUNT              CONFIG_PROFILES
-#define CYCLONE2_HOME_GRACE_MS              150U
-/* A Home released within the grace time, with no chord, still reaches the
- * host: as a press this long, so a host sampling at its own rate sees it. */
-#define CYCLONE2_HOME_TAP_MS                 60U
-#define CYCLONE2_LONG_HOLD_MS              5000U
-
-#define CYCLONE2_CALIBRATE_HOLD_MS         3000U
 #define CYCLONE2_CONNECT_TIMEOUT_MS       30000U
 
 #define CYCLONE2_PAIR_TIMEOUT_MS          180000U
@@ -75,28 +69,12 @@
     (CYCLONE2_REPORT_BUTTON_A | CYCLONE2_REPORT_BUTTON_B | \
      CYCLONE2_REPORT_BUTTON_X | CYCLONE2_REPORT_BUTTON_Y)
 
-enum cyclone2_home_state {
-    CYCLONE2_HOME_IDLE,
-    CYCLONE2_HOME_PENDING,
-    CYCLONE2_HOME_REPORTED,
-    CYCLONE2_HOME_CHORD,
-    CYCLONE2_HOME_INVALID_CHORD,
-    CYCLONE2_HOME_CALIBRATE_CHORD,
-};
-
 static struct cyclone2_input_report candidate_report;
 static struct cyclone2_input_report current_report;
-static enum cyclone2_home_state home_state;
 static struct cyclone2_controller_state state;
-static u32 home_start_ms;
-static u32 chord_start_ms;
 static u32 button_changed_us[16];
 static u32 hat_changed_us;
 static u32 next_report_us;
-static u8 chord_key;
-static u8 requested_profile;
-static u32 home_tap_start_ms;
-static u8 home_tap;
 static struct cyclone2_input_report activity_reference;
 static u32 last_activity_ms;
 static u32 usb_absent_since_ms;
@@ -107,7 +85,6 @@ static u8 usb_was_present;
 static u8 uboot_chord_at_boot;
 static u32 started_ms;
 static u8 calibrating;
-static u8 ignore_chord_until_release;
 static struct cyclone2_report_statistics report_statistics;
 static struct cyclone2_injection_status injection_status;
 static u32 injection_next_transition_ms;
@@ -283,7 +260,8 @@ void cyclone2_report_statistics_get(struct cyclone2_report_statistics *stats)
 int cyclone2_connect_request(u8 profile)
 {
     if (profile >= CYCLONE2_PROFILE_COUNT) return -1;
-    if (state.kind == CYCLONE2_CONTROLLER_STOPPING) return -1;
+    if (state.kind == CYCLONE2_CONTROLLER_STOPPING &&
+        !stopping_for(CYCLONE2_AFTER_STOP_START)) return -1;
     if (state.kind == CYCLONE2_CONTROLLER_CONNECTED &&
         state.as.connected.session.slot == profile &&
         cyclone2_profile_is_connected()) return 0;
@@ -353,13 +331,14 @@ static void start_wake(struct cyclone2_wake_target target)
 }
 
 /* Same as a connect request except that the slot forgets its stored link key
- * and becomes pairable.  The physical chord is Home+face for five seconds;
+ * and becomes pairable.  The physical chord is in ux.c ("pair");
  * this is the equivalent for someone driving the controller over USB, e.g.
  * while the console sits on its "Change Grip/Order" screen. */
 int cyclone2_pair_request(u8 profile)
 {
     if (profile >= CYCLONE2_PROFILE_COUNT) return -1;
-    if (state.kind == CYCLONE2_CONTROLLER_STOPPING) return -1;
+    if (state.kind == CYCLONE2_CONTROLLER_STOPPING &&
+        !stopping_for(CYCLONE2_AFTER_STOP_START)) return -1;
     injection_cancel();
     profile_select(profile, 1U);
     return 1;
@@ -584,7 +563,6 @@ static int boot_request_consume(u8 *slot, u8 *slot_pairing)
      * starting the radio so a later unrelated reset returns to slot select. */
     *slot = profile;
     *slot_pairing = pairing;
-    ignore_chord_until_release = 1U;
     return 1;
 }
 
@@ -634,8 +612,6 @@ static void profile_transition_now(void *private_data)
     case CYCLONE2_AFTER_STOP_START: {
         struct cyclone2_stop_start next = stop->then.start;
 
-        home_state = CYCLONE2_HOME_IDLE;
-        ignore_chord_until_release = 1U;
         start_session(next.slot, next.pairing, next.type);
         break;
     }
@@ -672,6 +648,13 @@ static struct cyclone2_stop *request_transition(enum cyclone2_after_stop after)
 static void profile_select(u8 profile, u8 pairing)
 {
     injection_cancel();
+    /* Already on the way to a slot: the newest request is the one taken. */
+    if (stopping_for(CYCLONE2_AFTER_STOP_START)) {
+        state.as.stopping.then.start.slot = profile;
+        state.as.stopping.then.start.pairing = pairing;
+        state.as.stopping.then.start.type = slot_type(profile);
+        return;
+    }
     if (state.kind == CYCLONE2_CONTROLLER_STOPPING) return;
     if (state.kind == CYCLONE2_CONTROLLER_WAKING) cyclone2_wake_cancel();
     if (session()) {
@@ -684,8 +667,6 @@ static void profile_select(u8 profile, u8 pairing)
         return;
     }
 
-    home_state = CYCLONE2_HOME_IDLE;
-    ignore_chord_until_release = 1U;
     start_session(profile, pairing, slot_type(profile));
 }
 
@@ -758,20 +739,23 @@ static void begin_sleep(void)
     if (cyclone2_usb_present()) {
         if (state.kind == CYCLONE2_CONTROLLER_CONNECTED) {
             cyclone2_usb_debug(
-                "Home hold: disconnecting Bluetooth; USB keeps console awake");
+                "sleep: disconnecting Bluetooth; USB keeps console awake");
             cyclone2_disconnect_request();
         } else {
             cyclone2_usb_debug(
-                "Home hold: USB keeps console awake; Bluetooth is not connected");
+                "sleep: USB keeps console awake; Bluetooth is not connected");
         }
-
-        home_state = CYCLONE2_HOME_INVALID_CHORD;
         return;
     }
     if (state.kind == CYCLONE2_CONTROLLER_STOPPING) return;
     if (state.kind == CYCLONE2_CONTROLLER_WAKING) cyclone2_profile_wake_stop();
     begin_stop(CYCLONE2_AFTER_STOP_SLEEP);
     sys_timeout_add(NULL, radio_exit_and_poweroff, 30U);
+}
+
+void cyclone2_sleep_request(void)
+{
+    begin_sleep();
 }
 
 static void begin_automatic_sleep(const char *reason)
@@ -810,120 +794,6 @@ static void usb_poll(u32 now)
     usb_was_present = (u8)present;
 }
 
-/* The keys that pick a slot with Home, as a bit per slot: A B X Y, then the
- * d-pad's up, down, left and right.  A diagonal is two of them. */
-static u8 chord_keys(const struct cyclone2_input_report *report)
-{
-    static const u8 hat_keys[CYCLONE2_HAT_NEUTRAL] = {
-        0x10U, 0x10U | 0x80U, 0x80U, 0x20U | 0x80U,
-        0x20U, 0x20U | 0x40U, 0x40U, 0x10U | 0x40U,
-    };
-    u16 buttons = report->buttons;
-    u8 keys = 0U;
-
-    if (buttons & CYCLONE2_REPORT_BUTTON_A) keys |= 0x01U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_B) keys |= 0x02U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_X) keys |= 0x04U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_Y) keys |= 0x08U;
-    if (report->hat < CYCLONE2_HAT_NEUTRAL) keys |= hat_keys[report->hat];
-    return keys;
-}
-
-/* One key alone picks its slot. */
-static int selected_slot(u8 keys, u8 *profile)
-{
-    u8 slot;
-
-    for (slot = 0U; slot < CYCLONE2_PROFILE_COUNT; slot++) {
-        if (keys == (u8)(1U << slot)) {
-            *profile = slot;
-            return 1;
-        }
-    }
-    return 0;
-}
-
-CYCLONE2_HOT static void update_home_state(void)
-{
-    u16 buttons = current_report.buttons;
-    u8 keys = chord_keys(&current_report);
-    u32 now = sys_timer_get_ms();
-    u8 profile;
-    int home = (buttons & CYCLONE2_REPORT_BUTTON_HOME) != 0U;
-
-    if (ignore_chord_until_release) {
-        if (!home && !keys) ignore_chord_until_release = 0U;
-        return;
-    }
-
-    switch (home_state) {
-    case CYCLONE2_HOME_IDLE:
-        if (home) {
-            home_start_ms = now;
-            if (!keys && (buttons & CYCLONE2_REPORT_BUTTON_M)) {
-                chord_start_ms = now;
-                home_state = CYCLONE2_HOME_CALIBRATE_CHORD;
-            } else if (selected_slot(keys, &profile)) {
-                chord_key = keys;
-                chord_start_ms = now;
-                requested_profile = profile;
-                home_state = CYCLONE2_HOME_CHORD;
-            } else if (keys) {
-                home_state = CYCLONE2_HOME_INVALID_CHORD;
-            } else {
-                home_state = CYCLONE2_HOME_PENDING;
-            }
-        }
-        break;
-    case CYCLONE2_HOME_PENDING:
-        if (!home) {
-            home_tap_start_ms = now;
-            home_tap = 1U;
-            home_state = CYCLONE2_HOME_IDLE;
-        } else if (!keys && (buttons & CYCLONE2_REPORT_BUTTON_M)) {
-            chord_start_ms = now;
-            home_state = CYCLONE2_HOME_CALIBRATE_CHORD;
-        } else if (selected_slot(keys, &profile)) {
-            chord_key = keys;
-            chord_start_ms = now;
-            requested_profile = profile;
-            home_state = CYCLONE2_HOME_CHORD;
-        } else if (keys) {
-            home_state = CYCLONE2_HOME_INVALID_CHORD;
-        } else if (now - home_start_ms >= CYCLONE2_HOME_GRACE_MS) {
-            home_state = CYCLONE2_HOME_REPORTED;
-        }
-        break;
-    case CYCLONE2_HOME_REPORTED:
-        if (!home) home_state = CYCLONE2_HOME_IDLE;
-        else if (now - home_start_ms >= CYCLONE2_LONG_HOLD_MS)
-            begin_sleep();
-        break;
-    case CYCLONE2_HOME_CHORD:
-        if (!home || (keys & chord_key) == 0U) {
-            profile_select(requested_profile, 0U);
-        } else if (keys != chord_key) {
-            home_state = CYCLONE2_HOME_INVALID_CHORD;
-        } else if (now - chord_start_ms >= CYCLONE2_LONG_HOLD_MS) {
-            profile_select(requested_profile, 1U);
-        }
-        break;
-    case CYCLONE2_HOME_CALIBRATE_CHORD:
-
-        if (!home || !(buttons & CYCLONE2_REPORT_BUTTON_M) || keys) {
-            home_state = CYCLONE2_HOME_INVALID_CHORD;
-        } else if (now - chord_start_ms >= CYCLONE2_CALIBRATE_HOLD_MS) {
-            cyclone2_calibration_start();
-            home_state = CYCLONE2_HOME_INVALID_CHORD;
-        }
-        break;
-    case CYCLONE2_HOME_INVALID_CHORD:
-        if (!home && !keys && !(buttons & CYCLONE2_REPORT_BUTTON_M))
-            home_state = CYCLONE2_HOME_IDLE;
-        break;
-    }
-}
-
 CYCLONE2_HOT static void make_host_report(struct cyclone2_input_report *report)
 {
 
@@ -933,28 +803,13 @@ CYCLONE2_HOT static void make_host_report(struct cyclone2_input_report *report)
         return;
     }
     *report = current_report;
-    if (home_state == CYCLONE2_HOME_CALIBRATE_CHORD ||
-        (home_state == CYCLONE2_HOME_INVALID_CHORD &&
-         (report->buttons & CYCLONE2_REPORT_BUTTON_M) &&
-         !chord_keys(report))) {
-        report->buttons &= ~CYCLONE2_REPORT_BUTTON_M;
-    }
-    /* The chord's keys (face buttons and d-pad) stay away from the host. */
-    if (home_state == CYCLONE2_HOME_PENDING ||
-        home_state == CYCLONE2_HOME_CHORD ||
-        home_state == CYCLONE2_HOME_CALIBRATE_CHORD ||
-        home_state == CYCLONE2_HOME_INVALID_CHORD ||
-        ignore_chord_until_release ||
-        state.kind == CYCLONE2_CONTROLLER_STOPPING) {
+    /* A switch under way: the keys that chose it stay away from the host. */
+    if (state.kind == CYCLONE2_CONTROLLER_STOPPING) {
         report->buttons &= ~(CYCLONE2_REPORT_BUTTON_HOME |
                              CYCLONE2_FACE_BUTTONS);
         report->hat = CYCLONE2_HAT_NEUTRAL;
     }
-    if (home_tap) {
-        if (sys_timer_get_ms() - home_tap_start_ms < CYCLONE2_HOME_TAP_MS)
-            report->buttons |= CYCLONE2_REPORT_BUTTON_HOME;
-        else home_tap = 0U;
-    }
+    cyclone2_ux_filter(report, sys_timer_get_ms());
 }
 
 /* Eager debounce: a contact that changes is taken at once, and then held for
@@ -1113,10 +968,9 @@ CYCLONE2_HOT static void cyclone2_poll(void *private_data)
         /* Whatever is still held when the routine ends (A, usually) must
          * not start a chord or reach the host as a fresh press. */
         calibrating = 0U;
-        home_state = CYCLONE2_HOME_IDLE;
-        ignore_chord_until_release = 1U;
+        cyclone2_ux_block();
     }
-    if (!calibrating) update_home_state();
+    if (!calibrating) cyclone2_ux_poll(now, &current_report, state.kind);
     track_activity(now);
     if (cyclone2_offline_sleep_due(&state, now, usb_absent_since_ms,
                                   cyclone2_usb_present()))
@@ -1207,6 +1061,24 @@ static void apply_radio_settings(const struct config_profile *settings)
     set_bt_data_rate_acl_3mbs_mode(settings->edr3 ? 1U : 0U);
 }
 
+/* The slot Home connects again; kept in retained RAM, not in flash. */
+u8 cyclone2_last_slot(void)
+{
+    u8 slot = last_slot_record.slot;
+
+    if (last_slot_record.magic != CYCLONE2_LAST_SLOT_MAGIC ||
+        last_slot_record.check != (u8)~slot ||
+        slot >= CYCLONE2_PROFILE_COUNT) return CYCLONE2_UX_NO_SLOT;
+    return slot;
+}
+
+static void remember_slot(u8 slot)
+{
+    last_slot_record.slot = slot;
+    last_slot_record.check = (u8)~slot;
+    last_slot_record.magic = CYCLONE2_LAST_SLOT_MAGIC;
+}
+
 static void start_session(u8 slot, u8 pairing, enum cyclone2_profile_type type)
 {
     u32 now = sys_timer_get_ms();
@@ -1225,6 +1097,7 @@ static void start_session(u8 slot, u8 pairing, enum cyclone2_profile_type type)
         next.as.connecting.since_ms = now;
     }
     become(&next);
+    remember_slot(slot);
     cyclone2_lights_host_clear();
     cyclone2_usb_debug("start slot %s type=%s pairing=%u",
                        config_slot_name(slot), cyclone2_profile_name(type),
@@ -1271,8 +1144,12 @@ static void cyclone2_start(void)
     early_chord = cyclone2_take_early_profile_chord();
     if (boot_request_consume(&boot_slot, &boot_pairing)) {
         start_session(boot_slot, boot_pairing, slot_type(boot_slot));
-    } else if (early_chord != 0U) {
-        profile_select(early_chord - 1U, 0U);
+        cyclone2_ux_block();
+    } else {
+        cyclone2_ux_boot(cyclone2_take_early_home(),
+                         early_chord ? (u8)(early_chord - 1U) :
+                                       CYCLONE2_UX_NO_SLOT,
+                         &current_report, state.kind);
     }
     cyclone2_control_clock_start(cyclone2_poll, CYCLONE2_CONTROL_PERIOD_US);
 }

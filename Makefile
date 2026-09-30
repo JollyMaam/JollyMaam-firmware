@@ -100,7 +100,7 @@ else
 QUIET=@
 endif
 
-.PHONY: all default clean flash test itest rebootwatch wake-vectors calibration-test config-test aes128-test lights-test
+.PHONY: all default clean flash test itest rebootwatch wake-vectors calibration-test config-test aes128-test lights-test ux-test
 
 # Make must notice when the caller switches DEBUG_LOG; the value of a
 # command-line variable alone is not part of a target's timestamp
@@ -239,6 +239,16 @@ $O/lights_test: $(LIGHTS_TEST_SOURCES) src/lights.h src/controller_state.h src/c
 
 lights-test: $O/lights_test
 	$(QUIET)$O/lights_test
+
+# Host check for the Home gestures in src/ux.c.
+UX_TEST_SOURCES := tools/ux_test.c src/ux.c
+$O/ux_test: $(UX_TEST_SOURCES) src/ux.h src/controller.h src/controller_state.h src/input.h
+	@mkdir -p $(@D)
+	@echo [EXE] $@
+	$(QUIET)$(HOST_CC) $(HOST_CFLAGS) -Itools/host -Isrc $(UX_TEST_SOURCES) -o $@
+
+ux-test: $O/ux_test
+	$(QUIET)$O/ux_test
 
 # Host check for the settings engine against an in-memory syscfg; see
 # docs/flash-map.md.

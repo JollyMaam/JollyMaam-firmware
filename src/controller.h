@@ -52,6 +52,10 @@ int cyclone2_pair_fresh_request(u8 slot);
 int cyclone2_clear_keys_request(void);
 int cyclone2_reboot_request(void);
 int cyclone2_disconnect_request(void);
+/* Power off, or on USB power only disconnect. */
+void cyclone2_sleep_request(void);
+/* The slot last started since power was lost, or CYCLONE2_UX_NO_SLOT. */
+u8 cyclone2_last_slot(void);
 int cyclone2_radio_stopped(void);
 void cyclone2_connection_status_get(struct cyclone2_connection_status *status);
 int cyclone2_usb_present(void);
