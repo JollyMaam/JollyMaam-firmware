@@ -19,6 +19,9 @@
  * CCM operation, so btstack_crypto leaves those engines out. */
 #define DISABLE_BTSTACK_CRYPTO_CMAC_CCM
 #define ENABLE_LE_PERIPHERAL
+/* Ask for 251-byte LE PDUs on every connection: at the default 27 bytes a
+ * Switch 2 input report (70 bytes with headers) took three connection events. */
+#define ENABLE_LE_DATA_LENGTH_EXTENSION
 #define MAX_NR_LE_DEVICE_DB_ENTRIES     4
 #define MAX_NR_SM_LOOKUP_ENTRIES        3
 #define MAX_NR_WHITELIST_ENTRIES        1

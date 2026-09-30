@@ -45,6 +45,18 @@ extern void cyclone2_usb_debug(const char *format, ...);
 extern void btstack_jl_core_wake(void);
 extern void jl_enter_critical_public(void);
 extern void jl_exit_critical_public(void);
+/* Report statistics shared with the Classic path (btstack_jl_core.c). */
+extern uint32_t btstack_jl_time_us(void);
+extern void btstack_jl_air_reset(void);
+extern uint32_t btstack_jl_air_note_post(uint8_t replacing, uint32_t now_us,
+                                         uint32_t *posted_us);
+extern void btstack_jl_air_note_take(uint32_t seq, uint32_t posted_us,
+                                     uint32_t now_us);
+extern void btstack_jl_air_note_handoff(uint16_t handle);
+extern void btstack_jl_air_note_le(uint16_t interval, uint16_t latency,
+                                   uint8_t tx_phy, uint8_t rx_phy);
+extern int btstack_jl_link_has_room(uint16_t handle);
+extern void btstack_jl_air_note_le_length(uint16_t tx_octets);
 
 static const struct btstack_jl_le_config *le_config;
 static btstack_packet_callback_registration_t le_hci_registration;
@@ -66,6 +78,8 @@ static uint8_t le_report[LE_REPORT_MAX];
 static volatile uint16_t le_report_len;
 static volatile uint16_t le_report_handle;
 static volatile uint8_t le_report_dirty;
+static uint32_t le_report_seq;
+static uint32_t le_report_posted_us;
 
 /* One pending notification from the run loop (command responses). */
 static uint8_t le_pending[LE_PENDING_MAX];
@@ -76,6 +90,8 @@ static uint16_t le_ccc_handle[LE_MAX_CCC];
 static uint8_t le_ccc_value[LE_MAX_CCC];
 
 static volatile uint8_t le_disconnect_requested;
+/* Ask for 251-byte PDUs once the command channel is free (btstack_jl_le_poll). */
+static uint8_t le_data_length_pending;
 /* The app asked to disconnect: it is shutting the radio down, so do not
  * advertise again - the host would reconnect for the ~100 ms until it does. */
 static volatile uint8_t le_stopping;
@@ -173,18 +189,28 @@ static void le_try_send(void)
         if (le_report_dirty) att_server_request_can_send_now_event(le_con_handle);
         return;
     }
-    if (le_report_dirty) {
+    /* The controller holds four LE buffers, and a notification waiting in
+     * one cannot be replaced: keep the report here until the link has room
+     * (the Number Of Completed Packets event wakes the loop to retry). */
+    if (le_report_dirty && btstack_jl_link_has_room(le_con_handle)) {
         uint8_t copy[LE_REPORT_MAX];
         uint16_t length;
         uint16_t handle;
+        uint32_t now_us = btstack_jl_time_us();
+        int enabled;
 
         jl_enter_critical_public();
         length = le_report_len;
         handle = le_report_handle;
         memcpy(copy, le_report, length);
         le_report_dirty = 0;
+        enabled = btstack_jl_le_notifications_enabled(handle);
+        if (enabled) {
+            btstack_jl_air_note_take(le_report_seq, le_report_posted_us, now_us);
+        }
         jl_exit_critical_public();
-        if (btstack_jl_le_notifications_enabled(handle)) {
+        if (enabled) {
+            btstack_jl_air_note_handoff(le_con_handle);
             att_server_notify(le_con_handle, handle, copy, length);
         }
     }
@@ -208,14 +234,21 @@ void btstack_jl_le_notify(uint16_t handle, const uint8_t *data,
 void btstack_jl_le_set_report(uint16_t handle, const uint8_t *data,
                               uint16_t length)
 {
+    uint32_t now_us = btstack_jl_time_us();
+    uint8_t replacing;
+
     if (length > LE_REPORT_MAX) length = LE_REPORT_MAX;
     jl_enter_critical_public();
+    replacing = le_report_dirty;
+    le_report_seq = btstack_jl_air_note_post(replacing, now_us,
+                                             &le_report_posted_us);
     memcpy(le_report, data, length);
     le_report_len = length;
     le_report_handle = handle;
     le_report_dirty = 1;
     jl_exit_critical_public();
-    btstack_jl_core_wake();
+    /* A report already waiting has a wake or a completion on its way. */
+    if (!replacing) btstack_jl_core_wake();
 }
 
 static void le_apply_advertising(void)
@@ -284,6 +317,17 @@ static void le_hci_handler(uint8_t packet_type, uint16_t channel,
             }
             memset(le_ccc_value, 0, sizeof(le_ccc_value));
             le_pending_len = 0;
+            le_report_dirty = 0;
+            btstack_jl_air_reset();
+            btstack_jl_air_note_le(
+                hci_subevent_le_connection_complete_get_conn_interval(packet),
+                hci_subevent_le_connection_complete_get_conn_latency(packet),
+                0, 0);
+            /* Neither side asks for longer PDUs on its own: at the default
+             * 27 bytes a Switch 2 report (70 bytes with headers) went out in
+             * three connection events.  Sent directly: BTstack's connection
+             * task for it (gap_le_set_data_length) never ran here. */
+            le_data_length_pending = 1;
             if (!le_sm_active) {
                 /* att_server holds every ATT request while
                  * gap_reconnect_security_setup_active() says an identity
@@ -327,6 +371,29 @@ static void le_hci_handler(uint8_t packet_type, uint16_t channel,
             }
             break;
         }
+        case HCI_SUBEVENT_LE_CONNECTION_UPDATE_COMPLETE:
+            if (hci_subevent_le_connection_update_complete_get_status(packet) != 0) break;
+            btstack_jl_air_note_le(
+                hci_subevent_le_connection_update_complete_get_conn_interval(packet),
+                hci_subevent_le_connection_update_complete_get_conn_latency(packet),
+                0, 0);
+            cyclone2_usb_debug("LE connection interval %u x 1.25 ms, latency %u",
+                hci_subevent_le_connection_update_complete_get_conn_interval(packet),
+                hci_subevent_le_connection_update_complete_get_conn_latency(packet));
+            break;
+        case HCI_SUBEVENT_LE_DATA_LENGTH_CHANGE:
+            btstack_jl_air_note_le_length(
+                hci_subevent_le_data_length_change_get_max_tx_octets(packet));
+            cyclone2_usb_debug("LE data length tx %u rx %u",
+                hci_subevent_le_data_length_change_get_max_tx_octets(packet),
+                hci_subevent_le_data_length_change_get_max_rx_octets(packet));
+            break;
+        case HCI_SUBEVENT_LE_PHY_UPDATE_COMPLETE:
+            if (hci_subevent_le_phy_update_complete_get_status(packet) != 0) break;
+            btstack_jl_air_note_le(0, 0,
+                hci_subevent_le_phy_update_complete_get_tx_phy(packet),
+                packet[7]);   /* RX PHY: no getter in this BTstack */
+            break;
         default:
             break;
         }
@@ -477,6 +544,11 @@ void btstack_jl_le_poll(void)
     if (le_disconnect_requested) {
         le_disconnect_requested = 0;
         if (le_con_handle != HCI_CON_HANDLE_INVALID) gap_disconnect(le_con_handle);
+    }
+    if (le_data_length_pending && le_con_handle != HCI_CON_HANDLE_INVALID &&
+        hci_can_send_command_packet_now()) {
+        le_data_length_pending = 0;
+        hci_send_cmd(&hci_le_set_data_length, le_con_handle, 251, 2120);
     }
     if (le_report_dirty && le_con_handle != HCI_CON_HANDLE_INVALID) {
         le_try_send();

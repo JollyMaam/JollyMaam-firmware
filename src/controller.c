@@ -900,26 +900,33 @@ CYCLONE2_HOT static void make_host_report(struct cyclone2_input_report *report)
     }
 }
 
-/* Tap latch.  The Classic link sends only the newest input report, and the
- * report schedule samples every few milliseconds; a press and release that
- * both fall between two reports the link takes would never reach the host.
- * A press seen in any poll is therefore held in the reports until the link
- * has taken one carrying it.  Home and M are left alone: their taps and
- * chords are shaped on purpose (make_host_report).  Only while a Classic HID
- * channel is open, the one path that says which report the link took. */
+/* Tap latch.  The links send only the newest input report, and the report
+ * schedule samples every few milliseconds; a press and release that both
+ * fall between two reports the link takes would never reach the host.  A
+ * press seen in any poll is therefore held in the reports until the link has
+ * taken one carrying it.  Home and M are left alone: their taps and chords
+ * are shaped on purpose (make_host_report).  Only while a Classic HID channel
+ * or our LE link is up, the paths that say which report the link took; and a
+ * press no report picked up within TAP_LATCH_MAX_MS is let go, so a path
+ * that stops posting can never leave a button held. */
+#define TAP_LATCH_MAX_MS 100U
 #define TAP_LATCH_BUTTONS ((u16)~(CYCLONE2_REPORT_BUTTON_HOME | \
                                   CYCLONE2_REPORT_BUTTON_M))
 static u16 tap_previous;    /* host_report buttons in the last poll */
 static u16 tap_waiting;     /* presses not yet in a posted report */
 static u16 tap_posted;      /* presses posted, until the link takes them */
 static u32 tap_posted_seq;
+static u32 tap_waiting_since_ms;
 
 CYCLONE2_HOT static void tap_latch_apply(struct cyclone2_input_report *report)
 {
     u16 pressed = report->buttons & ~tap_previous & TAP_LATCH_BUTTONS;
 
+    u32 now = sys_timer_get_ms();
+
     tap_previous = report->buttons;
-    if (calibrating || !btstack_jl_core_hid_connected()) {
+    if (calibrating ||
+        (!btstack_jl_core_hid_connected() && !btstack_jl_le_connected())) {
         tap_waiting = 0U;
         tap_posted = 0U;
         return;
@@ -927,6 +934,11 @@ CYCLONE2_HOT static void tap_latch_apply(struct cyclone2_input_report *report)
     if (tap_posted &&
         (s32)(btstack_jl_core_input_taken() - tap_posted_seq) >= 0)
         tap_posted = 0U;
+    if (tap_posted && now - tap_waiting_since_ms > TAP_LATCH_MAX_MS)
+        tap_posted = 0U;
+    if (tap_waiting && now - tap_waiting_since_ms > TAP_LATCH_MAX_MS)
+        tap_waiting = 0U;
+    if (pressed && !tap_waiting && !tap_posted) tap_waiting_since_ms = now;
     tap_waiting |= pressed;
     report->buttons |= tap_waiting | tap_posted;
 }

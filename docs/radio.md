@@ -23,6 +23,16 @@ interfaces, not direct proof of over-the-air behavior.
 - QoS Setup (guaranteed, 1250 µs latency) completes with the values asked for,
   reported with event code 0x01. A Linux host (master after its role switch)
   still delivered the reports in clumps about 25 ms apart.
+- LE Read Buffer Size reports 4 LE buffers of 251 bytes.
+- A Switch 2 sets a 5 ms connection interval (4 units), peripheral latency 0
+  and a 2 s supervision timeout, then moves the link to the 2M PHY itself.
+  Neither side starts a data length update: until LE Set Data Length asks for
+  251 bytes the PDUs stay at 27, and the controller sent one per connection
+  event, so a 63-byte report went out every third event. The console accepts
+  251 bytes / 2120 µs both ways (measured 2026-09-29: reports acknowledged
+  14 ms after hand-off on average instead of 47 ms).
+- BTstack's own per-connection data length task (`gap_le_set_data_length`)
+  never issued the command here; the app sends it directly.
 - A default link policy without role switch (Write Default Link Policy 0x0004)
   did not keep the pad master: the Linux host's role switch still completed.
 - SDK local-name handling appears limited to 31 bytes: a longer name caused a

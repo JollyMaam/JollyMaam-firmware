@@ -134,11 +134,28 @@ static volatile uint16_t jl_report_count;
 static btstack_jl_report_t jl_input;
 static volatile uint8_t jl_input_pending;
 static uint32_t jl_input_posted_us;
-static btstack_jl_input_stats_t jl_input_stats;
 static uint32_t jl_input_seq;               /* of the report in jl_input */
+
+/* Report statistics and sequence numbers, shared by the Classic input slot
+ * and the LE one (btstack_jl_le.c). */
+static btstack_jl_input_stats_t jl_input_stats;
 static volatile uint32_t jl_input_posted_seq;
 static volatile uint32_t jl_input_taken_seq;
 static uint64_t jl_input_wait_total_us;
+static uint64_t jl_input_hold_total_us;
+
+/* Packets handed to the controller on one connection, waiting for their
+ * Number Of Completed Packets (run loop only).  A packet is complete once the
+ * connection's completion count reaches `target`. */
+#define JL_HOLD_RING 8
+static struct {
+    uint16_t handle;
+    uint32_t completed;
+    uint32_t target[JL_HOLD_RING];
+    uint32_t sent_us[JL_HOLD_RING];
+    uint8_t  head;
+    uint8_t  count;
+} jl_hold;
 
 static btstack_packet_callback_registration_t jl_hci_event_registration;
 static btstack_packet_callback_registration_t jl_l2cap_event_registration;
@@ -393,6 +410,129 @@ static uint32_t jl_time_us(void)
     return jl_config.time_us != 0 ? jl_config.time_us() : 0u;
 }
 
+uint32_t btstack_jl_time_us(void)
+{
+    return jl_time_us();
+}
+
+void btstack_jl_air_reset(void)
+{
+    jl_enter_critical();
+    memset(&jl_input_stats, 0, sizeof(jl_input_stats));
+    jl_input_wait_total_us = 0;
+    jl_input_hold_total_us = 0;
+    jl_exit_critical();
+    memset(&jl_hold, 0, sizeof(jl_hold));
+}
+
+/* An input report was stored in a slot, replacing an unsent one or not.
+ * Caller holds the critical section; returns the report's sequence number. */
+uint32_t btstack_jl_air_note_post(uint8_t replacing, uint32_t now_us,
+                                  uint32_t *posted_us)
+{
+    if (replacing) {
+        jl_input_stats.replaced++;
+    } else {
+        *posted_us = now_us;
+    }
+    return ++jl_input_posted_seq;
+}
+
+/* The report with this sequence number, first posted at posted_us, left its
+ * slot.  Caller holds the critical section. */
+void btstack_jl_air_note_take(uint32_t seq, uint32_t posted_us, uint32_t now_us)
+{
+    uint32_t wait_us = now_us - posted_us;
+
+    if ((int32_t) wait_us < 0) {
+        wait_us = 0;    /* the clocks of two tasks, a tick apart */
+    }
+    jl_input_taken_seq = seq;
+    jl_input_stats.sent++;
+    jl_input_wait_total_us += wait_us;
+    if (wait_us > jl_input_stats.wait_max_us) {
+        jl_input_stats.wait_max_us = wait_us;
+    }
+}
+
+/* (run loop) Just before a packet goes to the controller on this handle. */
+void btstack_jl_air_note_handoff(uint16_t handle)
+{
+    hci_connection_t *connection = hci_connection_for_handle(handle);
+    uint8_t index;
+
+    if (connection == 0) return;
+    if (handle != jl_hold.handle) {
+        memset(&jl_hold, 0, sizeof(jl_hold));
+        jl_hold.handle = handle;
+    }
+    if (jl_hold.count == JL_HOLD_RING) return;
+    index = (uint8_t)((jl_hold.head + jl_hold.count) % JL_HOLD_RING);
+    jl_hold.target[index] = jl_hold.completed + connection->num_packets_sent + 1u;
+    jl_hold.sent_us[index] = jl_time_us();
+    jl_hold.count++;
+}
+
+static void jl_hold_completed(const uint8_t *packet, uint16_t size)
+{
+    uint32_t now_us = jl_time_us();
+    uint32_t hold_us;
+    unsigned handles = size > 2 ? packet[2] : 0u;
+    unsigned i;
+
+    for (i = 0; i < handles && 3u + 4u * i + 4u <= size; i++) {
+        uint16_t handle = little_endian_read_16(packet, 3 + 4 * i) & 0x0fffu;
+
+        if (handle != jl_hold.handle) continue;
+        jl_hold.completed += little_endian_read_16(packet, 5 + 4 * i);
+        while (jl_hold.count != 0 &&
+               (int32_t)(jl_hold.completed - jl_hold.target[jl_hold.head]) >= 0) {
+            hold_us = now_us - jl_hold.sent_us[jl_hold.head];
+            if ((int32_t) hold_us < 0) hold_us = 0;
+            jl_enter_critical();
+            jl_input_stats.hold_count++;
+            jl_input_hold_total_us += hold_us;
+            if (hold_us > jl_input_stats.hold_max_us) {
+                jl_input_stats.hold_max_us = hold_us;
+            }
+            jl_exit_critical();
+            jl_hold.head = (uint8_t)((jl_hold.head + 1u) % JL_HOLD_RING);
+            jl_hold.count--;
+        }
+    }
+}
+
+/* (run loop) LE data length, for the statistics. */
+void btstack_jl_air_note_le_length(uint16_t tx_octets)
+{
+    jl_input_stats.le_tx_octets = tx_octets;
+}
+
+/* (run loop) LE connection parameters and PHY, for the statistics. */
+void btstack_jl_air_note_le(uint16_t interval, uint16_t latency,
+                            uint8_t tx_phy, uint8_t rx_phy)
+{
+    if (interval != 0) {
+        jl_input_stats.le_interval = interval;
+        jl_input_stats.le_latency = latency;
+    }
+    if (tx_phy != 0) {
+        jl_input_stats.le_tx_phy = tx_phy;
+        jl_input_stats.le_rx_phy = rx_phy;
+    }
+}
+
+/* (run loop) Fewer than BTSTACK_JL_MAX_IN_FLIGHT packets are waiting in the
+ * controller for this connection.  Its Number Of Completed Packets event
+ * wakes the loop to look again. */
+int btstack_jl_link_has_room(uint16_t handle)
+{
+    hci_connection_t *connection = hci_connection_for_handle(handle);
+
+    return connection == 0 ||
+           connection->num_packets_sent < BTSTACK_JL_MAX_IN_FLIGHT;
+}
+
 /* Returns 0 when stored and the run loop must be woken, -1 when stored and a
  * wake is already on its way (see btstack_jl_core_set_input_report). */
 static int jl_input_set(const uint8_t *message, uint16_t size)
@@ -410,19 +550,14 @@ static int jl_input_set(const uint8_t *message, uint16_t size)
     if ((jl_hid_cid == 0) || !jl_working) {
         result = 1;
     } else {
-        if (jl_input_pending) {
-            jl_input_stats.replaced++;
-            result = -1;
-        } else {
-            jl_input_posted_us = now_us;
-            if (jl_send_pending) result = -1;
-        }
+        if (jl_input_pending || jl_send_pending) result = -1;
         /* In sniff nothing drains until the loop takes the link out. */
         if (jl_link_sniff) result = 0;
+        jl_input_seq = btstack_jl_air_note_post(jl_input_pending, now_us,
+                                                &jl_input_posted_us);
         jl_input.size = size;
         memcpy(jl_input.data, message, size);
         jl_input_pending = 1;
-        jl_input_seq = ++jl_input_posted_seq;
     }
     jl_exit_critical();
     return result;
@@ -432,7 +567,6 @@ static int jl_input_set(const uint8_t *message, uint16_t size)
 static void jl_report_take(btstack_jl_report_t *out)
 {
     uint32_t now_us = jl_time_us();
-    uint32_t wait_us;
 
     jl_enter_critical();
     if (jl_report_count != 0) {
@@ -443,18 +577,9 @@ static void jl_report_take(btstack_jl_report_t *out)
     } else if (jl_input_pending) {
         *out = jl_input;
         jl_input_pending = 0;
-        jl_input_taken_seq = jl_input_seq;
         /* Measured from the first post the host has not seen, so a
          * replaced report counts as waiting from then on. */
-        wait_us = now_us - jl_input_posted_us;
-        if ((int32_t) wait_us < 0) {
-            wait_us = 0;    /* the clocks of two tasks, a tick apart */
-        }
-        jl_input_stats.sent++;
-        jl_input_wait_total_us += wait_us;
-        if (wait_us > jl_input_stats.wait_max_us) {
-            jl_input_stats.wait_max_us = wait_us;
-        }
+        btstack_jl_air_note_take(jl_input_seq, jl_input_posted_us, now_us);
     } else {
         out->size = 0;
     }
@@ -487,18 +612,6 @@ static void jl_exit_sniff_if_needed(void)
     hci_send_cmd(&hci_exit_sniff_mode, jl_con_handle);
     jl_unsniff_next_ms = jl_config.time_ms() + 50;
     jl_trace(0x2c00u | connection->connection_mode);
-}
-
-/* Fewer than BTSTACK_JL_MAX_IN_FLIGHT packets are waiting in the controller.
- * Its Number Of Completed Packets event wakes the loop to look again. */
-static int jl_link_has_room(void)
-{
-    hci_connection_t *connection;
-
-    if (!jl_con_handle_valid) return 1;
-    connection = hci_connection_for_handle(jl_con_handle);
-    return connection == 0 ||
-           connection->num_packets_sent < BTSTACK_JL_MAX_IN_FLIGHT;
 }
 
 static void jl_tx_poll(btstack_data_source_t *data_source,
@@ -599,7 +712,8 @@ static void jl_tx_poll(btstack_data_source_t *data_source,
         jl_exit_sniff_if_needed();
     }
     if (!jl_send_pending && ((jl_report_count != 0) || jl_input_pending) &&
-        (jl_hid_cid != 0) && jl_link_has_room()) {
+        (jl_hid_cid != 0) &&
+        (!jl_con_handle_valid || btstack_jl_link_has_room(jl_con_handle))) {
         jl_send_pending = 1;
         /* A report that cannot be handed over within a second means the link
          * is not draining: record it once with the free-slot count. */
@@ -705,6 +819,10 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
             }
             break;
 
+        case HCI_EVENT_NUMBER_OF_COMPLETED_PACKETS:
+            jl_hold_completed(packet, size);
+            break;
+
         case HCI_EVENT_MODE_CHANGE:
             jl_link_sniff = hci_event_mode_change_get_mode(packet) == 2;
             if (jl_link_sniff) jl_input_stats.sniff_entries++;
@@ -768,11 +886,8 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
                     memcpy(jl_peer_address, event_addr, sizeof(jl_peer_address));
                     jl_peer_valid = 1;
                     jl_qos_pending = 1;
-                    jl_enter_critical();
                     jl_input_pending = 0;
-                    memset(&jl_input_stats, 0, sizeof(jl_input_stats));
-                    jl_input_wait_total_us = 0;
-                    jl_exit_critical();
+                    btstack_jl_air_reset();
                     jl_notify_logged(BTSTACK_JL_EVENT_HID_OPENED, 0, event_addr);
                     break;
 
@@ -786,6 +901,7 @@ static void jl_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *pa
                     btstack_jl_report_t report;
                     jl_report_take(&report);
                     if (report.size != 0) {
+                        btstack_jl_air_note_handoff(jl_con_handle);
                         hid_device_send_interrupt_message(jl_hid_cid, report.data,
                                                           report.size);
                         jl_tx_sent++;
@@ -1203,6 +1319,8 @@ void btstack_jl_core_input_stats(btstack_jl_input_stats_t *out)
     *out = jl_input_stats;
     out->wait_avg_us = jl_input_stats.sent != 0 ?
         (uint32_t)(jl_input_wait_total_us / jl_input_stats.sent) : 0u;
+    out->hold_avg_us = jl_input_stats.hold_count != 0 ?
+        (uint32_t)(jl_input_hold_total_us / jl_input_stats.hold_count) : 0u;
     jl_exit_critical();
 }
 

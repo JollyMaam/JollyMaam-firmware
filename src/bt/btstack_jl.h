@@ -93,14 +93,26 @@ void btstack_jl_core_request_unsniff(void);
  * pending input report. */
 uint16_t btstack_jl_core_reports_queued(void);
 
-/* Interrupt-channel input reports since the HID channel opened. */
+/* Input reports since the link came up: the Classic HID interrupt channel
+ * or LE notifications, whichever is in use. */
 typedef struct {
-    uint32_t sent;          /* input reports handed to L2CAP */
+    uint32_t sent;          /* input reports handed to the stack */
     uint32_t replaced;      /* overwritten by a newer one before they went */
     uint32_t messages;      /* queued reports (replies, events) sent */
-    uint32_t wait_avg_us;   /* input posted -> handed to L2CAP */
+    uint32_t wait_avg_us;   /* input posted -> handed to the stack */
     uint32_t wait_max_us;
+    /* Handed to the controller -> its Number Of Completed Packets: the
+     * packet has been acknowledged over the air (or flushed). */
+    uint32_t hold_avg_us;
+    uint32_t hold_max_us;
+    uint32_t hold_count;
     uint32_t sniff_entries; /* the host put the link into sniff */
+    /* LE: connection interval (1.25 ms units), peripheral latency, PHY. */
+    uint16_t le_interval;
+    uint16_t le_latency;
+    uint8_t  le_tx_phy;
+    uint8_t  le_rx_phy;
+    uint16_t le_tx_octets;  /* LE PDU payload after Data Length Change */
 } btstack_jl_input_stats_t;
 void btstack_jl_core_input_stats(btstack_jl_input_stats_t *out);
 /* Sequence numbers of input reports: the last one stored by
