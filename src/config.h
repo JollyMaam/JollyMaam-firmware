@@ -5,7 +5,9 @@
 #include "generic/typedef.h"
 #include "calibration_math.h"
 
-#define CONFIG_PROFILES 4U
+/* Slots, named after the Home chord that selects them: A B X Y, then the
+ * d-pad's up, down, left and right. */
+#define CONFIG_PROFILES 8U
 
 /* One bond per profile slot.  Addresses are least significant byte first,
  * as the stack keeps them.  All zeroes means "none". */
@@ -31,8 +33,21 @@ struct config_profile {
      * per second with the stick all the way over, counts per degree turned. */
     u16 stick_speed;
     u16 gyro_speed;
+    /* Percent of gyro_speed for fast turns (100: no acceleration). */
+    u16 gyro_accel;
+    /* enum config_variant: which layout of the type the slot uses. */
+    u8 variant;
     struct config_bond bond;
 };
+
+/* Layouts a type can come in (profile.#.variant).  Stored by value: append,
+ * never renumber.  Which types take which is config_variant_fits(). */
+enum config_variant {
+    CONFIG_VARIANT_DEFAULT = 0U,
+    CONFIG_VARIANT_DESKTOP = 1U,
+};
+
+int config_variant_fits(u8 type, u8 variant);
 
 struct config_cal {
     struct cal_stick stick[2];

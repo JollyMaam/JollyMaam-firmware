@@ -34,6 +34,18 @@
 #define IIC_BAUD_DIVISOR          29U
 #define IIC_WAIT_ITERATIONS       100000U
 
+/* Sampling is paced in control polls (1 ms each).  The sensor runs at
+ * 448 Hz (CTRL3); the OS tick is 10 ms, which is all a sleeping task gets,
+ * so the control poll wakes this task instead.  A read busy-waits on the
+ * bus in the lowest-priority task: it takes only what the others leave, but
+ * that is CPU time and battery.  Measured (2026-09-29): all twelve bytes
+ * every 2 ms took 0.6 ms a read and 40% of the CPU.  So the full sensor
+ * goes every 4 ms (the rate of the reports that carry it), and the gyro
+ * alone, for pointing, every 2 ms. */
+#define IMU_FULL_POLLS            4U
+#define IMU_GYRO_POLLS            2U
+#define QMI8658A_REG_GYRO_X_L     0x3bU
+
 enum imu_error {
     IMU_ERROR_NONE,
     IMU_ERROR_TIMEOUT,
@@ -64,8 +76,12 @@ static const struct register_value initialization[] = {
 static struct cyclone2_imu_status imu_status;
 static struct cyclone2_imu_sample sample_history[8];
 static volatile u8 requested_enabled;
+static volatile u8 gyro_only;
 static volatile u8 history_write_index;
 static volatile u8 history_count;
+static OS_SEM sample_due;
+static u8 sample_due_ready;
+static u8 polls_since_sample;
 
 static void iic_bus_initialize(void)
 {
@@ -227,6 +243,7 @@ static s16 signed_word(const u8 *data)
 static int sample(struct cyclone2_imu_sample *sample_value)
 {
     u8 data[12];
+    u8 *gyro = data + 6U;
     int result;
 
     u32 started_us;
@@ -234,7 +251,12 @@ static int sample(struct cyclone2_imu_sample *sample_value)
     if (!sample_value || !imu_status.initialized)
         return record_result(IMU_ERROR_NOT_INITIALIZED);
     started_us = cyclone2_time_us();
-    result = read_registers(QMI8658A_REG_ACCEL_X_L, data, sizeof(data));
+    if (gyro_only) {
+        memset(data, 0, 6U);
+        result = read_registers(QMI8658A_REG_GYRO_X_L, gyro, 6U);
+    } else {
+        result = read_registers(QMI8658A_REG_ACCEL_X_L, data, sizeof(data));
+    }
     imu_status.read_us = cyclone2_time_us() - started_us;
     if (result != IMU_ERROR_NONE) return record_result(result);
     sample_value->accel_x = signed_word(data + 0U);
@@ -243,14 +265,34 @@ static int sample(struct cyclone2_imu_sample *sample_value)
     sample_value->gyro_x = signed_word(data + 6U);
     sample_value->gyro_y = signed_word(data + 8U);
     sample_value->gyro_z = signed_word(data + 10U);
-    sample_value->timestamp_ms = sys_timer_get_ms();
+    sample_value->timestamp_us = cyclone2_time_us();
     imu_status.samples++;
-    imu_status.last_sample_ms = sample_value->timestamp_ms;
+    sample_value->sequence = imu_status.samples;
+    imu_status.last_sample_ms = sys_timer_get_ms();
     return record_result(IMU_ERROR_NONE);
+}
+
+CYCLONE2_HOT void cyclone2_imu_tick(void)
+{
+    if (!sample_due_ready || !requested_enabled || !imu_status.initialized)
+        return;
+    if (++polls_since_sample < (gyro_only ? IMU_GYRO_POLLS : IMU_FULL_POLLS))
+        return;
+    polls_since_sample = 0U;
+    os_sem_post(&sample_due);
 }
 
 void cyclone2_imu_enable(void)
 {
+    gyro_only = 0U;
+    requested_enabled = 1U;
+    imu_status.enabled = 1U;
+    imu_status.enable_requests++;
+}
+
+void cyclone2_imu_enable_gyro(void)
+{
+    gyro_only = 1U;
     requested_enabled = 1U;
     imu_status.enabled = 1U;
     imu_status.enable_requests++;
@@ -274,6 +316,34 @@ int cyclone2_imu_latest(struct cyclone2_imu_sample *sample_value)
     return 0;
 }
 
+int cyclone2_imu_since(u32 sequence, struct cyclone2_imu_sample *samples,
+                       int count)
+{
+    struct cyclone2_imu_sample copy[8];
+    u8 end;
+    u8 have;
+    int found = 0;
+    int index;
+
+    local_irq_disable();
+    memcpy(copy, sample_history, sizeof(copy));
+    end = history_write_index;
+    have = history_count;
+    local_irq_enable();
+    /* Newest first, back to the first one not after `sequence`.  The
+     * oldest slot may be the one the task is writing: left out. */
+    for (index = 1; index < have; index++) {
+        const struct cyclone2_imu_sample *sample = &copy[(end - index) & 7U];
+
+        if ((s32)(sample->sequence - sequence) <= 0) break;
+        found++;
+    }
+    if (found > count) found = count;
+    for (index = 0; index < found; index++)
+        samples[index] = copy[(end - found + index) & 7U];
+    return found;
+}
+
 /* Accelerometer and gyro off: the profile has no use for motion.  The
  * sensor keeps its configuration; enabling runs the full initialization
  * again anyway. */
@@ -292,15 +362,17 @@ void cyclone2_imu_task(void *private_data)
     u32 next_retry_ms = 0U;
 
     (void)private_data;
+    os_sem_create(&sample_due, 0);
+    sample_due_ready = 1U;
     /* A soft reset leaves the sensor as the last session set it. */
     sleep_sensor();
     for (;;) {
-        if (requested_enabled) {
-            if (!imu_status.initialized) {
-                u32 now = sys_timer_get_ms();
-                if ((s32)(now - next_retry_ms) >= 0 && initialize() != 0)
-                    next_retry_ms = now + 1000U;
-            } else if (sample(&new_sample) == 0) {
+        if (requested_enabled && imu_status.initialized) {
+            /* Paced by cyclone2_imu_tick(); the timeout keeps sampling
+             * going, slowly, should the polls stop. */
+            os_sem_pend(&sample_due, 2);
+            os_sem_set(&sample_due, 0);
+            if (sample(&new_sample) == 0) {
                 index = history_write_index;
                 sample_history[index] = new_sample;
 
@@ -309,6 +381,13 @@ void cyclone2_imu_task(void *private_data)
                 if (history_count < 8U) history_count++;
                 local_irq_enable();
             }
+            continue;
+        }
+        if (requested_enabled) {
+            u32 now = sys_timer_get_ms();
+
+            if ((s32)(now - next_retry_ms) >= 0 && initialize() != 0)
+                next_retry_ms = now + 1000U;
         } else if (imu_status.initialized || !imu_status.asleep) {
             sleep_sensor();
         }

@@ -109,7 +109,9 @@ static const struct profile_operations profiles[] = {
     },
     [CYCLONE2_PROFILE_STICKMOUSE] = {
         .name = "stickmouse",
-        .default_hz = 250U, /* reports only go out while something moves */
+        /* Motion goes out as fast as the link takes it, and only while
+         * something moves; 500 is the most asked of it. */
+        .default_hz = 500U,
         .start = cyclone2_stickmouse_start,
         .disconnect = cyclone2_classic_disconnect,
         .exit = cyclone2_classic_exit,
@@ -120,7 +122,7 @@ static const struct profile_operations profiles[] = {
     },
     [CYCLONE2_PROFILE_GYROMOUSE] = {
         .name = "gyromouse",
-        .default_hz = 250U,
+        .default_hz = 500U,
         .start = cyclone2_gyromouse_start,
         .disconnect = cyclone2_classic_disconnect,
         .exit = cyclone2_classic_exit,

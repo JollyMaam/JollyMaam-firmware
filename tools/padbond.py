@@ -30,17 +30,19 @@ SETTING = re.compile(r"^config[ .]profile\.\w+\.(bond\.\w+|type|address|rumble)"
                      r"\s*=\s*(\S+)", re.M)
 
 
-SLOTS = "ABXY"      # named after the Home+button chord that selects them
+# Named after the Home chord that selects them: face buttons, then d-pad.
+SLOTS = ("A", "B", "X", "Y", "up", "down", "left", "right")
 
 
 def slot_name(slot):
-    """A, B, X or Y, from a name (any case) or a number 0..3."""
-    text = str(slot).strip().upper()
-    if text in SLOTS and len(text) == 1:
-        return text
+    """A slot's name, from a name (any case) or a number 0..7."""
+    text = str(slot).strip()
+    for name in SLOTS:
+        if text.lower() == name.lower():
+            return name
     if text.isdigit() and int(text) < len(SLOTS):
         return SLOTS[int(text)]
-    raise RuntimeError(f"no slot {slot!r}: use A, B, X or Y")
+    raise RuntimeError(f"no slot {slot!r}: use one of {' '.join(SLOTS)}")
 
 
 def read(path, slot):

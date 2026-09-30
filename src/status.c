@@ -46,7 +46,8 @@ static const struct cfg_choice profile_types[] = {
 };
 
 static const struct cfg_choice slots[] = {
-    { 0, "A" }, { 1, "B" }, { 2, "X" }, { 3, "Y" }, { 0, NULL },
+    { 0, "A" }, { 1, "B" }, { 2, "X" }, { 3, "Y" },
+    { 4, "up" }, { 5, "down" }, { 6, "left" }, { 7, "right" }, { 0, NULL },
 };
 
 static const struct cfg_choice cal_phases[] = {

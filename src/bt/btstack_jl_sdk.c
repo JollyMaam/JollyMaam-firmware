@@ -80,7 +80,7 @@ static int jl_link_key_get(const u8 address[6], u8 key[16], u8 *type)
         cyclone2_bringup_record(0x33ffu);
         return 0;
     }
-    cyclone2_bringup_record(0x3300u | (get_cur_bt_idx() & 0x03U));
+    cyclone2_bringup_record(0x3300u | (get_cur_bt_idx() & 0x07U));
     memcpy(key, bond->link_key, 16);
     *type = bond->key_type;
     return 1;

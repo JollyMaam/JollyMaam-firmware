@@ -11,9 +11,37 @@ static const struct cfg_choice report_rates[] = {
  * default again. */
 static const char *type_changed(struct config *c, u8 index)
 {
-    if (!c->profile[index].report_hz) return NULL;
-    c->profile[index].report_hz = 0U;
-    return "report_hz back to auto";
+    struct config_profile *profile = &c->profile[index];
+    int variant = !config_variant_fits(profile->type, profile->variant);
+
+    if (variant) profile->variant = CONFIG_VARIANT_DEFAULT;
+    if (!profile->report_hz)
+        return variant ? "variant back to default" : NULL;
+    profile->report_hz = 0U;
+    return variant ? "report_hz back to auto, variant back to default" :
+                     "report_hz back to auto";
+}
+
+static const struct cfg_choice variants[] = {
+    { CONFIG_VARIANT_DEFAULT, "default" },
+    { CONFIG_VARIANT_DESKTOP, "desktop" },
+    { 0, NULL },
+};
+
+/* Every type has its default layout; the mouse types also a desktop one. */
+int config_variant_fits(u8 type, u8 variant)
+{
+    if (variant == CONFIG_VARIANT_DEFAULT) return 1;
+    return variant == CONFIG_VARIANT_DESKTOP &&
+           (type == CYCLONE2_PROFILE_STICKMOUSE ||
+            type == CYCLONE2_PROFILE_GYROMOUSE);
+}
+
+static const char *check_variant(const struct config *c, u8 index)
+{
+    return config_variant_fits(c->profile[index].type,
+                               c->profile[index].variant) ?
+           NULL : "the slot's type has no such variant";
 }
 
 static const struct cfg_choice profile_types[] = {
@@ -31,6 +59,15 @@ static const struct cfg_choice profile_types[] = {
 static const u8 default_profile_types[CONFIG_PROFILES] = {
     CYCLONE2_PROFILE_SWITCH, CYCLONE2_PROFILE_SWITCH,
     CYCLONE2_PROFILE_GENERIC, CYCLONE2_PROFILE_SWITCH2,
+    CYCLONE2_PROFILE_STICKMOUSE, CYCLONE2_PROFILE_GYROMOUSE,     /* up, down */
+    CYCLONE2_PROFILE_STICKMOUSE, CYCLONE2_PROFILE_GYROMOUSE,     /* left, right */
+};
+
+static const u8 default_profile_variants[CONFIG_PROFILES] = {
+    CONFIG_VARIANT_DEFAULT, CONFIG_VARIANT_DEFAULT,
+    CONFIG_VARIANT_DEFAULT, CONFIG_VARIANT_DEFAULT,
+    CONFIG_VARIANT_DEFAULT, CONFIG_VARIANT_DEFAULT,
+    CONFIG_VARIANT_DESKTOP, CONFIG_VARIANT_DESKTOP,
 };
 
 /* Direct LED channel values, close to the old 2% default output. */
@@ -39,6 +76,10 @@ static const u8 default_profile_colours[CONFIG_PROFILES][3] = {
     { 0x05, 0x00, 0x00 },       /* B red */
     { 0x03, 0x00, 0x05 },       /* X purple */
     { 0x00, 0x05, 0x00 },       /* Y green */
+    { 0x00, 0x04, 0x04 },       /* up cyan */
+    { 0x04, 0x04, 0x00 },       /* down yellow */
+    { 0x04, 0x00, 0x03 },       /* left pink */
+    { 0x02, 0x04, 0x00 },       /* right lime */
 };
 static const u8 default_idle_colour[3] = { 0x05, 0x05, 0x05 };
 static const u8 default_battery_colour[3] = { 0x05, 0x02, 0x00 };
@@ -116,8 +157,17 @@ const struct cfg_item config_items[] = {
       .apply = CFG_NEXT_CONNECT, .choices = profile_types,
       .def_ptr = default_profile_types, .changed = type_changed,
       .help = "what the slot pretends to be; stickmouse and gyromouse are a "
-              "Bluetooth keyboard and mouse aimed with the right stick, or "
-              "with the gyro and the right stick" },
+              "Bluetooth keyboard and mouse aimed with a stick, or with the "
+              "gyro and a stick" },
+    { .uid = 18, .path = "profile.#.variant", .type = CFG_ENUM,
+      CFG_PROFILE_FIELD(variant), .group = CFG_GROUP_PREFS,
+      .choices = variants, .def_ptr = default_profile_variants,
+      .check = check_variant,
+      .help = "which layout of its type the slot uses.  Mouse types: default "
+              "is for games (left stick WASD, right stick aims, M scrolls); "
+              "desktop has the left stick point, the right stick scroll, A "
+              "and B click, M slow the pointer.  Other types: default only.  "
+              "The tables are in src/profile_mouse.c" },
     { .uid = 12, .path = "profile.#.report_hz", .type = CFG_ENUM,
       CFG_PROFILE_FIELD(report_hz), .group = CFG_GROUP_PREFS,
       .choices = report_rates,
@@ -150,6 +200,12 @@ const struct cfg_item config_items[] = {
       .help = "gyromouse: pointer counts per degree turned; dualsense: "
               "touchpad points per degree while M holds a finger on it "
               "(1920 across)" },
+    { .uid = 19, .path = "profile.#.gyro_accel", .type = CFG_UINT,
+      CFG_PROFILE_FIELD(gyro_accel), .group = CFG_GROUP_PREFS,
+      .min = 100, .max = 800, .def = 250,
+      .help = "gyro acceleration: percent of gyro_speed when turning fast "
+              "(150 degrees a second and up; full speed below 20); 100 is "
+              "none.  Lets a flick cross the screen while slow aim stays fine" },
 
     { .uid = 20, .path = "profile.#.address", .type = CFG_MAC,
       CFG_PROFILE_FIELD(address), .group = CFG_GROUP_BOND,

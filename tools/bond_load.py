@@ -21,7 +21,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("bond")
     parser.add_argument("--slot", default="A",
-                        help="A, B, X or Y (the Home+button chord) or 0..3")
+                        help="A B X Y up down left right (the Home chord) or 0..7")
     parser.add_argument("--connect", action="store_true",
                         help="page the bonded console afterwards")
     parser.add_argument("--no-write", action="store_true",

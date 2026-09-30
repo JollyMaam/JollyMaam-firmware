@@ -25,7 +25,7 @@
 
 #define CYCLONE2_CONTROL_PERIOD_US        1000U
 #define CYCLONE2_DEBOUNCE_US             2000U
-#define CYCLONE2_PROFILE_COUNT              4U
+#define CYCLONE2_PROFILE_COUNT              CONFIG_PROFILES
 #define CYCLONE2_HOME_GRACE_MS              150U
 /* A Home released within the grace time, with no chord, still reaches the
  * host: as a press this long, so a host sampling at its own rate sees it. */
@@ -92,7 +92,7 @@ static u32 chord_start_ms;
 static u32 button_changed_us[16];
 static u32 hat_changed_us;
 static u32 next_report_us;
-static u16 chord_button;
+static u8 chord_key;
 static u8 requested_profile;
 static u32 home_tap_start_ms;
 static u8 home_tap;
@@ -805,30 +805,49 @@ static void usb_poll(u32 now)
     usb_was_present = (u8)present;
 }
 
-static int selected_face_button(u16 buttons, u8 *profile)
+/* The keys that pick a slot with Home, as a bit per slot: A B X Y, then the
+ * d-pad's up, down, left and right.  A diagonal is two of them. */
+static u8 chord_keys(const struct cyclone2_input_report *report)
 {
-    u16 face = buttons & CYCLONE2_FACE_BUTTONS;
+    static const u8 hat_keys[CYCLONE2_HAT_NEUTRAL] = {
+        0x10U, 0x10U | 0x80U, 0x80U, 0x20U | 0x80U,
+        0x20U, 0x20U | 0x40U, 0x40U, 0x10U | 0x40U,
+    };
+    u16 buttons = report->buttons;
+    u8 keys = 0U;
 
-    if (face == CYCLONE2_REPORT_BUTTON_A) *profile = 0U;
-    else if (face == CYCLONE2_REPORT_BUTTON_B) *profile = 1U;
-    else if (face == CYCLONE2_REPORT_BUTTON_X) *profile = 2U;
-    else if (face == CYCLONE2_REPORT_BUTTON_Y) *profile = 3U;
-    else return 0;
-    return 1;
+    if (buttons & CYCLONE2_REPORT_BUTTON_A) keys |= 0x01U;
+    if (buttons & CYCLONE2_REPORT_BUTTON_B) keys |= 0x02U;
+    if (buttons & CYCLONE2_REPORT_BUTTON_X) keys |= 0x04U;
+    if (buttons & CYCLONE2_REPORT_BUTTON_Y) keys |= 0x08U;
+    if (report->hat < CYCLONE2_HAT_NEUTRAL) keys |= hat_keys[report->hat];
+    return keys;
+}
+
+/* One key alone picks its slot. */
+static int selected_slot(u8 keys, u8 *profile)
+{
+    u8 slot;
+
+    for (slot = 0U; slot < CYCLONE2_PROFILE_COUNT; slot++) {
+        if (keys == (u8)(1U << slot)) {
+            *profile = slot;
+            return 1;
+        }
+    }
+    return 0;
 }
 
 CYCLONE2_HOT static void update_home_state(void)
 {
     u16 buttons = current_report.buttons;
+    u8 keys = chord_keys(&current_report);
     u32 now = sys_timer_get_ms();
     u8 profile;
     int home = (buttons & CYCLONE2_REPORT_BUTTON_HOME) != 0U;
 
     if (ignore_chord_until_release) {
-        if (!(buttons & (CYCLONE2_REPORT_BUTTON_HOME |
-                         CYCLONE2_FACE_BUTTONS))) {
-            ignore_chord_until_release = 0U;
-        }
+        if (!home && !keys) ignore_chord_until_release = 0U;
         return;
     }
 
@@ -836,16 +855,15 @@ CYCLONE2_HOT static void update_home_state(void)
     case CYCLONE2_HOME_IDLE:
         if (home) {
             home_start_ms = now;
-            if (!(buttons & CYCLONE2_FACE_BUTTONS) &&
-                (buttons & CYCLONE2_REPORT_BUTTON_M)) {
+            if (!keys && (buttons & CYCLONE2_REPORT_BUTTON_M)) {
                 chord_start_ms = now;
                 home_state = CYCLONE2_HOME_CALIBRATE_CHORD;
-            } else if (selected_face_button(buttons, &profile)) {
-                chord_button = buttons & CYCLONE2_FACE_BUTTONS;
+            } else if (selected_slot(keys, &profile)) {
+                chord_key = keys;
                 chord_start_ms = now;
                 requested_profile = profile;
                 home_state = CYCLONE2_HOME_CHORD;
-            } else if (buttons & CYCLONE2_FACE_BUTTONS) {
+            } else if (keys) {
                 home_state = CYCLONE2_HOME_INVALID_CHORD;
             } else {
                 home_state = CYCLONE2_HOME_PENDING;
@@ -857,16 +875,15 @@ CYCLONE2_HOT static void update_home_state(void)
             home_tap_start_ms = now;
             home_tap = 1U;
             home_state = CYCLONE2_HOME_IDLE;
-        } else if (!(buttons & CYCLONE2_FACE_BUTTONS) &&
-                   (buttons & CYCLONE2_REPORT_BUTTON_M)) {
+        } else if (!keys && (buttons & CYCLONE2_REPORT_BUTTON_M)) {
             chord_start_ms = now;
             home_state = CYCLONE2_HOME_CALIBRATE_CHORD;
-        } else if (selected_face_button(buttons, &profile)) {
-            chord_button = buttons & CYCLONE2_FACE_BUTTONS;
+        } else if (selected_slot(keys, &profile)) {
+            chord_key = keys;
             chord_start_ms = now;
             requested_profile = profile;
             home_state = CYCLONE2_HOME_CHORD;
-        } else if (buttons & CYCLONE2_FACE_BUTTONS) {
+        } else if (keys) {
             home_state = CYCLONE2_HOME_INVALID_CHORD;
         } else if (now - home_start_ms >= CYCLONE2_HOME_GRACE_MS) {
             home_state = CYCLONE2_HOME_REPORTED;
@@ -878,9 +895,9 @@ CYCLONE2_HOT static void update_home_state(void)
             begin_sleep();
         break;
     case CYCLONE2_HOME_CHORD:
-        if (!home || (buttons & chord_button) == 0U) {
+        if (!home || (keys & chord_key) == 0U) {
             profile_select(requested_profile, 0U);
-        } else if ((buttons & CYCLONE2_FACE_BUTTONS) != chord_button) {
+        } else if (keys != chord_key) {
             home_state = CYCLONE2_HOME_INVALID_CHORD;
         } else if (now - chord_start_ms >= CYCLONE2_LONG_HOLD_MS) {
             profile_select(requested_profile, 1U);
@@ -888,8 +905,7 @@ CYCLONE2_HOT static void update_home_state(void)
         break;
     case CYCLONE2_HOME_CALIBRATE_CHORD:
 
-        if (!home || !(buttons & CYCLONE2_REPORT_BUTTON_M) ||
-            (buttons & CYCLONE2_FACE_BUTTONS)) {
+        if (!home || !(buttons & CYCLONE2_REPORT_BUTTON_M) || keys) {
             home_state = CYCLONE2_HOME_INVALID_CHORD;
         } else if (now - chord_start_ms >= CYCLONE2_CALIBRATE_HOLD_MS) {
             cyclone2_calibration_start();
@@ -897,8 +913,7 @@ CYCLONE2_HOT static void update_home_state(void)
         }
         break;
     case CYCLONE2_HOME_INVALID_CHORD:
-        if (!home && !(buttons & (CYCLONE2_FACE_BUTTONS |
-                                  CYCLONE2_REPORT_BUTTON_M)))
+        if (!home && !keys && !(buttons & CYCLONE2_REPORT_BUTTON_M))
             home_state = CYCLONE2_HOME_IDLE;
         break;
     }
@@ -916,9 +931,10 @@ CYCLONE2_HOT static void make_host_report(struct cyclone2_input_report *report)
     if (home_state == CYCLONE2_HOME_CALIBRATE_CHORD ||
         (home_state == CYCLONE2_HOME_INVALID_CHORD &&
          (report->buttons & CYCLONE2_REPORT_BUTTON_M) &&
-         !(report->buttons & CYCLONE2_FACE_BUTTONS))) {
+         !chord_keys(report))) {
         report->buttons &= ~CYCLONE2_REPORT_BUTTON_M;
     }
+    /* The chord's keys (face buttons and d-pad) stay away from the host. */
     if (home_state == CYCLONE2_HOME_PENDING ||
         home_state == CYCLONE2_HOME_CHORD ||
         home_state == CYCLONE2_HOME_CALIBRATE_CHORD ||
@@ -927,6 +943,7 @@ CYCLONE2_HOT static void make_host_report(struct cyclone2_input_report *report)
         state.kind == CYCLONE2_CONTROLLER_STOPPING) {
         report->buttons &= ~(CYCLONE2_REPORT_BUTTON_HOME |
                              CYCLONE2_FACE_BUTTONS);
+        report->hat = CYCLONE2_HAT_NEUTRAL;
     }
     if (home_tap) {
         if (sys_timer_get_ms() - home_tap_start_ms < CYCLONE2_HOME_TAP_MS)
@@ -1119,6 +1136,7 @@ CYCLONE2_HOT static void cyclone2_poll(void *private_data)
     if (state.kind == CYCLONE2_CONTROLLER_WAKING &&
         cyclone2_profile_wake_step(now)) wake_finished();
     cyclone2_rumble_poll(now);
+    cyclone2_imu_tick();
     cyclone2_prof_mark(CYCLONE2_PROF_RUMBLE);
     cyclone2_input_read(&sample);
     now_us = cyclone2_time_us();

@@ -217,14 +217,15 @@ static void ds_buttons(const struct cyclone2_input_report *input, u8 out[3])
  * click. */
 static void update_touch(struct cyclone2_input_report *input, u32 now)
 {
+    const struct config_profile *settings =
+        &config.profile[get_cur_bt_idx() % CONFIG_PROFILES];
     int held = (input->buttons & CYCLONE2_REPORT_BUTTON_M) != 0U;
     s32 x;
     s32 y;
 
     input->buttons &= (u16)~CYCLONE2_REPORT_BUTTON_M;
     /* Taken every report, so turns made without the finger are dropped. */
-    cyclone2_gyro_take(config.profile[get_cur_bt_idx() % CONFIG_PROFILES]
-                       .gyro_speed, &x, &y);
+    cyclone2_gyro_take(settings->gyro_speed, settings->gyro_accel, &x, &y);
     if (touch_clicking) {
         if (now - touch_click_ms < DS_TOUCH_CLICK_MS && !held) {
             input->buttons |= CYCLONE2_REPORT_BUTTON_M;
@@ -314,7 +315,8 @@ static void fill_extended(u8 report[DS_EXTENDED_SIZE],
         put_u16(state + 23, (u16)sample.accel_z);
         put_u16(state + 25, (u16)(s16)-sample.accel_x);
 
-        put_u32(state + 27, sample.timestamp_ms * 3000U);
+        /* The sensor timestamp counts 1/3 microseconds. */
+        put_u32(state + 27, sample.timestamp_us * 3U);
     }
     state[31] = 0x16U;
     fill_touch(state + 32);

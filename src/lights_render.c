@@ -166,6 +166,16 @@ static u32 count_bits(u32 mask)
     return count;
 }
 
+/* The bar for a slot: its own light for A B X Y, all but that one for the
+ * d-pad slots, so both sets tell apart at a glance. */
+static u32 slot_lights(u8 slot)
+{
+    u32 all = (1U << CYCLONE2_PLAYER_LIGHTS) - 1U;
+    u32 light = 1U << (slot % CYCLONE2_PLAYER_LIGHTS);
+
+    return slot < CYCLONE2_PLAYER_LIGHTS ? light : all & ~light;
+}
+
 static void render_bar(const struct cyclone2_scene *scene,
                        const struct cyclone2_lights_input *in, u32 t,
                        int has_slot, u8 slot, struct cyclone2_rgb colour,
@@ -186,11 +196,11 @@ static void render_bar(const struct cyclone2_scene *scene,
             on = in->host.players_on & 0x0fU;
             flash = in->host.players_flash & 0x0fU & ~on;
         } else if (has_slot) {
-            on = 1U << slot;        /* until the host gives a number */
+            on = slot_lights(slot);        /* until the host gives a number */
         }
         break;
     case CYCLONE2_BAR_SLOT:
-        if (has_slot) on = 1U << slot;
+        if (has_slot) on = slot_lights(slot);
         break;
     }
     count = count_bits(on);

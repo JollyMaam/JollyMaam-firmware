@@ -25,6 +25,8 @@ enum cyclone2_light {
 };
 
 #define CYCLONE2_PLAYER_LIGHTS 4U
+/* Slots: A B X Y, then the d-pad ones (config.h's CONFIG_PROFILES). */
+#define CYCLONE2_SLOTS 8U
 
 struct cyclone2_rgb {
     u8 red;
@@ -68,7 +70,8 @@ struct cyclone2_wave {
 /* Which of the four player lights a scene's bar uses. */
 enum cyclone2_bar_shows {
     CYCLONE2_BAR_ALL,
-    /* The one for the slot: A, B, X, Y top to bottom. */
+    /* The one for the slot: A, B, X, Y top to bottom; the d-pad slots
+     * light all but that one (up is all but the top). */
     CYCLONE2_BAR_SLOT,
     /* The player number the host set; the slot's light until it does. */
     CYCLONE2_BAR_PLAYER,
@@ -134,7 +137,7 @@ struct cyclone2_lights_input {
     const struct cyclone2_controller_state *state;
     u32 now_ms;
     u32 since_boot_ms;
-    struct cyclone2_rgb slot_colour[CYCLONE2_PLAYER_LIGHTS];
+    struct cyclone2_rgb slot_colour[CYCLONE2_SLOTS];
     struct cyclone2_rgb idle_colour;
     struct cyclone2_rgb battery_colour;
     u8 grip_mode;                   /* active slot's profile.#.grips */

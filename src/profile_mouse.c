@@ -12,12 +12,12 @@
 #include "input.h"
 #include "profile.h"
 #include "profile_classic.h"
+#include "timing.h"
 
 /* A Bluetooth Classic keyboard and mouse, for a desktop or a game that
- * wants one.  stickmouse aims with the right stick; gyromouse adds the gyro
- * on top of it.  M held turns the right stick into a scroll wheel, and in
- * gyromouse also lets go of the gyro, to put the pad back without moving
- * the pointer.  What every other control does is the table below. */
+ * wants one.  stickmouse aims with a stick; gyromouse adds the gyro on top
+ * of it.  What every control does is the slot's layout
+ * (profile.#.variant), one of the tables below. */
 
 #define MOUSE_REPORT_KEYBOARD   0x01U
 #define MOUSE_REPORT_MOUSE      0x02U
@@ -25,13 +25,14 @@
 #define MOUSE_MOUSE_SIZE        7U
 #define MOUSE_KEYS              6U
 
-/* HID keyboard usages (HID Usage Tables, page 0x07). */
+/* HID keyboard usages (HID Usage Tables, page 0x07).  The SDK already has
+ * KEY_* names, hence KB_. */
 enum mouse_key {
     KB_NONE = 0x00U,
     KB_A = 0x04U, KB_D = 0x07U, KB_E = 0x08U, KB_F = 0x09U,
     KB_Q = 0x14U, KB_R = 0x15U, KB_S = 0x16U, KB_W = 0x1aU,
-    KB_ENTER = 0x28U, KB_ESCAPE = 0x29U, KB_TAB = 0x2bU,
-    KB_SPACE = 0x2cU, KB_PRINT_SCREEN = 0x46U,
+    KB_ENTER = 0x28U, KB_ESCAPE = 0x29U, KB_BACKSPACE = 0x2aU,
+    KB_TAB = 0x2bU, KB_SPACE = 0x2cU, KB_PRINT_SCREEN = 0x46U,
     KB_RIGHT = 0x4fU, KB_LEFT = 0x50U, KB_DOWN = 0x51U, KB_UP = 0x52U,
     /* 0xe0..0xe7 are the modifiers, sent as bits rather than keys. */
     KB_LEFT_CTRL = 0xe0U, KB_LEFT_SHIFT = 0xe1U, KB_LEFT_ALT = 0xe2U,
@@ -46,16 +47,48 @@ enum mouse_button {
     MOUSE_FORWARD = 0x10U,
 };
 
-/* What each control sends: a key, a mouse button, or both.  Home is left
- * out: its chords select slots, and a tap of it would reach the host as a
- * key press after every one of them. */
-struct mouse_binding {
-    u16 button;
-    u8 key;
-    u8 mouse;
+/* Controls: the report's buttons, then the triggers and the d-pad. */
+#define CONTROL_L2              (1UL << 16)
+#define CONTROL_R2              (1UL << 17)
+#define CONTROL_UP              (1UL << 18)
+#define CONTROL_RIGHT           (1UL << 19)
+#define CONTROL_DOWN            (1UL << 20)
+#define CONTROL_LEFT            (1UL << 21)
+
+/* What a stick does. */
+enum mouse_stick {
+    STICK_NONE,
+    STICK_POINTER,
+    STICK_SCROLL,       /* wheel up/down, pan left/right */
+    STICK_WASD,
+    STICK_ARROWS,
 };
 
-static const struct mouse_binding mouse_bindings[] = {
+/* While a control with one of these is held. */
+#define HOLD_SCROLL             0x01U   /* the pointer stick scrolls */
+#define HOLD_GYRO_OFF           0x02U   /* the gyro lets go: put the pad back */
+#define HOLD_SLOW               0x04U   /* the pointer moves at a quarter */
+
+struct mouse_binding {
+    u32 control;
+    u8 key;
+    u8 mouse;
+    u8 hold;
+};
+
+struct mouse_layout {
+    u8 left_stick;
+    u8 right_stick;
+    const struct mouse_binding *bindings;
+    u8 count;
+};
+
+/* Home is in no layout: its chords select slots, and a tap of it would
+ * reach the host as a key press after every one of them. */
+
+/* profile.#.variant=default: games.  WASD on the left stick, aim on the
+ * right, triggers fire and aim down sights. */
+static const struct mouse_binding game_bindings[] = {
     { CYCLONE2_REPORT_BUTTON_A,          .key = KB_SPACE },
     { CYCLONE2_REPORT_BUTTON_B,          .key = KB_LEFT_CTRL },
     { CYCLONE2_REPORT_BUTTON_X,          .key = KB_R },
@@ -64,32 +97,76 @@ static const struct mouse_binding mouse_bindings[] = {
     { CYCLONE2_REPORT_BUTTON_R1,         .key = KB_F },
     { CYCLONE2_REPORT_BUTTON_L3,         .key = KB_LEFT_SHIFT },
     { CYCLONE2_REPORT_BUTTON_R3,         .mouse = MOUSE_MIDDLE },
+    { CONTROL_L2,                        .mouse = MOUSE_RIGHT },
+    { CONTROL_R2,                        .mouse = MOUSE_LEFT },
     { CYCLONE2_REPORT_BUTTON_SELECT,     .key = KB_TAB },
     { CYCLONE2_REPORT_BUTTON_START,      .key = KB_ESCAPE },
     { CYCLONE2_REPORT_BUTTON_SCREENSHOT, .key = KB_PRINT_SCREEN },
     { CYCLONE2_REPORT_BUTTON_L4,         .mouse = MOUSE_BACK },
     { CYCLONE2_REPORT_BUTTON_R4,         .mouse = MOUSE_FORWARD },
+    { CYCLONE2_REPORT_BUTTON_M,          .hold = HOLD_SCROLL | HOLD_GYRO_OFF },
+    { CONTROL_UP,                        .key = KB_UP },
+    { CONTROL_RIGHT,                     .key = KB_RIGHT },
+    { CONTROL_DOWN,                      .key = KB_DOWN },
+    { CONTROL_LEFT,                      .key = KB_LEFT },
 };
 
-/* The triggers are mouse buttons, pressed past this much of their travel. */
+/* profile.#.variant=desktop: point with the left stick, scroll with the
+ * right, click with A and B.  L4 is Alt and R4 Ctrl, to hold for shortcuts
+ * (L4 then Select is Alt+Tab). */
+static const struct mouse_binding desktop_bindings[] = {
+    { CYCLONE2_REPORT_BUTTON_A,          .mouse = MOUSE_LEFT },
+    { CYCLONE2_REPORT_BUTTON_B,          .mouse = MOUSE_RIGHT },
+    { CYCLONE2_REPORT_BUTTON_X,          .mouse = MOUSE_MIDDLE },
+    { CYCLONE2_REPORT_BUTTON_Y,          .key = KB_ENTER },
+    { CYCLONE2_REPORT_BUTTON_L1,         .mouse = MOUSE_BACK },
+    { CYCLONE2_REPORT_BUTTON_R1,         .mouse = MOUSE_FORWARD },
+    { CYCLONE2_REPORT_BUTTON_L3,         .key = KB_LEFT_GUI },
+    { CYCLONE2_REPORT_BUTTON_R3,         .key = KB_LEFT_SHIFT },
+    { CONTROL_L2,                        .mouse = MOUSE_RIGHT },
+    { CONTROL_R2,                        .mouse = MOUSE_LEFT },
+    { CYCLONE2_REPORT_BUTTON_SELECT,     .key = KB_TAB },
+    { CYCLONE2_REPORT_BUTTON_START,      .key = KB_ESCAPE },
+    { CYCLONE2_REPORT_BUTTON_SCREENSHOT, .key = KB_PRINT_SCREEN },
+    { CYCLONE2_REPORT_BUTTON_L4,         .key = KB_LEFT_ALT },
+    { CYCLONE2_REPORT_BUTTON_R4,         .key = KB_LEFT_CTRL },
+    { CYCLONE2_REPORT_BUTTON_M,          .hold = HOLD_SLOW | HOLD_GYRO_OFF },
+    { CONTROL_UP,                        .key = KB_UP },
+    { CONTROL_RIGHT,                     .key = KB_RIGHT },
+    { CONTROL_DOWN,                      .key = KB_DOWN },
+    { CONTROL_LEFT,                      .key = KB_LEFT },
+};
+
+static const struct mouse_layout mouse_layouts[] = {
+    [CONFIG_VARIANT_DEFAULT] = {
+        .left_stick = STICK_WASD,
+        .right_stick = STICK_POINTER,
+        .bindings = game_bindings,
+        .count = ARRAY_SIZE(game_bindings),
+    },
+    [CONFIG_VARIANT_DESKTOP] = {
+        .left_stick = STICK_POINTER,
+        .right_stick = STICK_SCROLL,
+        .bindings = desktop_bindings,
+        .count = ARRAY_SIZE(desktop_bindings),
+    },
+};
+
+/* The triggers are pressed past this much of their travel. */
 #define MOUSE_TRIGGER_PRESS     (CYCLONE2_TRIGGER_MAX / 4U)
-#define MOUSE_LEFT_TRIGGER      MOUSE_RIGHT
-#define MOUSE_RIGHT_TRIGGER     MOUSE_LEFT
 
-/* The d-pad's four directions, as the hat reports them. */
-static const u8 mouse_dpad_keys[4] = { KB_UP, KB_RIGHT, KB_DOWN, KB_LEFT };
-
-/* The left stick is WASD: a direction is pressed past MOUSE_MOVE_PRESS of
- * the stick's reach and let go below MOUSE_MOVE_RELEASE. */
+/* A stick used as keys presses a direction past MOUSE_MOVE_PRESS of its
+ * reach and lets go below MOUSE_MOVE_RELEASE. */
 #define MOUSE_MOVE_PRESS        (CYCLONE2_STICK_MAX / 2)
 #define MOUSE_MOVE_RELEASE      (CYCLONE2_STICK_MAX * 2 / 5)
-static const u8 mouse_move_keys[4] = { KB_W, KB_D, KB_S, KB_A };
+static const u8 wasd_keys[4] = { KB_W, KB_D, KB_S, KB_A };
+static const u8 arrow_keys[4] = { KB_UP, KB_RIGHT, KB_DOWN, KB_LEFT };
 
-/* M and the right stick: wheel notches per second all the way over. */
+/* A scrolling stick: wheel notches per second all the way over. */
 #define MOUSE_SCROLL_PER_SECOND 20
 
 /* A report later than this is integrated as if it were this late. */
-#define MOUSE_MAX_DT_MS         50U
+#define MOUSE_MAX_DT_US         50000U
 /* A mouse report the link has not taken within this is replaced anyway,
  * losing its motion: the link has gone, and must not hold the pointer. */
 #define MOUSE_TAKE_MAX_MS       100U
@@ -145,11 +222,11 @@ static u8 use_gyro;
 static u8 keyboard_last[MOUSE_KEYBOARD_SIZE];
 static u8 keyboard_sent;
 static u8 buttons_last;
-static u8 move_held;            /* bit per mouse_move_keys entry */
-static u32 last_step_ms;
+static u8 stick_keys_held[2];   /* bit per direction: up, right, down, left */
+static u32 last_step_us;
 static u8 have_step;
 static s64 pointer_rest[2];     /* sub-count stick motion */
-static s32 scroll_rest[2];
+static s64 scroll_rest[2];
 static s32 pending[2];          /* counts not yet in a report */
 static s32 pending_wheel[2];
 static u32 posted_seq;
@@ -174,6 +251,29 @@ static u32 isqrt(u32 value)
     return root;
 }
 
+static const struct mouse_layout *active_layout(void)
+{
+    u8 variant = config.profile[get_cur_bt_idx() % CONFIG_PROFILES].variant;
+
+    return variant < ARRAY_SIZE(mouse_layouts) ? &mouse_layouts[variant] :
+           &mouse_layouts[CONFIG_VARIANT_DEFAULT];
+}
+
+static u32 controls_of(const struct cyclone2_input_report *input)
+{
+    static const u32 hat_controls[CYCLONE2_HAT_NEUTRAL] = {
+        CONTROL_UP, CONTROL_UP | CONTROL_RIGHT, CONTROL_RIGHT,
+        CONTROL_DOWN | CONTROL_RIGHT, CONTROL_DOWN,
+        CONTROL_DOWN | CONTROL_LEFT, CONTROL_LEFT, CONTROL_UP | CONTROL_LEFT,
+    };
+    u32 controls = input->buttons;
+
+    if (input->left_trigger >= MOUSE_TRIGGER_PRESS) controls |= CONTROL_L2;
+    if (input->right_trigger >= MOUSE_TRIGGER_PRESS) controls |= CONTROL_R2;
+    if (input->hat < CYCLONE2_HAT_NEUTRAL) controls |= hat_controls[input->hat];
+    return controls;
+}
+
 static void press_key(u8 report[MOUSE_KEYBOARD_SIZE], u8 key)
 {
     u8 index;
@@ -192,62 +292,36 @@ static void press_key(u8 report[MOUSE_KEYBOARD_SIZE], u8 key)
     }
 }
 
-/* Directions of the left stick, with hysteresis per direction. */
-static void update_move_keys(const struct cyclone2_input_report *input)
+/* A stick as four keys, with hysteresis per direction. */
+static void stick_keys(u8 report[MOUSE_KEYBOARD_SIZE], u8 *held, s16 x, s16 y,
+                       const u8 keys[4])
 {
-    const s32 value[4] = { input->left_y, input->left_x, -(s32)input->left_y,
-                           -(s32)input->left_x };
+    const s32 value[4] = { y, x, -(s32)y, -(s32)x };
     u8 direction;
 
     for (direction = 0U; direction < 4U; direction++) {
         u8 bit = (u8)(1U << direction);
 
-        if (value[direction] >= MOUSE_MOVE_PRESS) move_held |= bit;
-        else if (value[direction] < MOUSE_MOVE_RELEASE) move_held &= (u8)~bit;
+        if (value[direction] >= MOUSE_MOVE_PRESS) *held |= bit;
+        else if (value[direction] < MOUSE_MOVE_RELEASE) *held &= (u8)~bit;
+        if (*held & bit) press_key(report, keys[direction]);
     }
 }
 
-static void make_keyboard(u8 report[MOUSE_KEYBOARD_SIZE], u8 *mouse_buttons,
-                          const struct cyclone2_input_report *input)
+/* The stick's motion over dt_us at `speed` counts per second all the way
+ * over: speed follows the square of the deflection, for fine aim near the
+ * centre.  The stick's y is up; the pointer's is down. */
+static void stick_motion(s16 x, s16 y, u32 dt_us, u32 speed, s32 out[2])
 {
-    u32 index;
-    u8 hat = input->hat;
-
-    memset(report, 0, MOUSE_KEYBOARD_SIZE);
-    *mouse_buttons = 0U;
-    for (index = 0U; index < ARRAY_SIZE(mouse_bindings); index++) {
-        if (!(input->buttons & mouse_bindings[index].button)) continue;
-        press_key(report, mouse_bindings[index].key);
-        *mouse_buttons |= mouse_bindings[index].mouse;
-    }
-    if (input->left_trigger >= MOUSE_TRIGGER_PRESS)
-        *mouse_buttons |= MOUSE_LEFT_TRIGGER;
-    if (input->right_trigger >= MOUSE_TRIGGER_PRESS)
-        *mouse_buttons |= MOUSE_RIGHT_TRIGGER;
-    /* Up, up-right, right, ...: an odd hat value is two directions. */
-    if (hat < CYCLONE2_HAT_NEUTRAL) {
-        press_key(report, mouse_dpad_keys[hat / 2U]);
-        if (hat & 1U) press_key(report, mouse_dpad_keys[(hat / 2U + 1U) & 3U]);
-    }
-    update_move_keys(input);
-    for (index = 0U; index < 4U; index++)
-        if (move_held & (1U << index)) press_key(report, mouse_move_keys[index]);
-}
-
-/* The right stick's motion over dt_ms at `speed` counts per second all the
- * way over: speed follows the square of the deflection, for fine aim near
- * the centre.  The stick's y is up; the pointer's is down. */
-static void stick_motion(const struct cyclone2_input_report *input, u32 dt_ms,
-                         u32 speed, s32 out[2])
-{
-    const s32 axis[2] = { input->right_x, -(s32)input->right_y };
+    const s32 axis[2] = { x, -(s32)y };
     u32 reach = isqrt((u32)(axis[0] * axis[0]) + (u32)(axis[1] * axis[1]));
-    const s64 per_count = (s64)CYCLONE2_STICK_MAX * CYCLONE2_STICK_MAX * 1000;
+    const s64 per_count = (s64)CYCLONE2_STICK_MAX * CYCLONE2_STICK_MAX *
+                          1000000;
     int index;
 
     if (reach > CYCLONE2_STICK_MAX) reach = CYCLONE2_STICK_MAX;
     for (index = 0; index < 2; index++) {
-        s64 total = (s64)axis[index] * (s32)reach * (s32)(speed * dt_ms) +
+        s64 total = (s64)axis[index] * (s32)reach * speed * dt_us +
                     pointer_rest[index];
 
         out[index] = (s32)(total / per_count);
@@ -256,18 +330,17 @@ static void stick_motion(const struct cyclone2_input_report *input, u32 dt_ms,
 }
 
 /* Wheel notches (up positive) and pan (right positive). */
-static void scroll_motion(const struct cyclone2_input_report *input,
-                          u32 dt_ms, s32 out[2])
+static void scroll_motion(s16 x, s16 y, u32 dt_us, s32 out[2])
 {
-    const s32 axis[2] = { input->right_y, input->right_x };
-    const s32 per_notch = CYCLONE2_STICK_MAX * 1000;
+    const s32 axis[2] = { y, x };
+    const s64 per_notch = (s64)CYCLONE2_STICK_MAX * 1000000;
     int index;
 
     for (index = 0; index < 2; index++) {
-        scroll_rest[index] += axis[index] * MOUSE_SCROLL_PER_SECOND *
-                              (s32)dt_ms;
-        out[index] = scroll_rest[index] / per_notch;
-        scroll_rest[index] -= out[index] * per_notch;
+        scroll_rest[index] += (s64)axis[index] * MOUSE_SCROLL_PER_SECOND *
+                              dt_us;
+        out[index] = (s32)(scroll_rest[index] / per_notch);
+        scroll_rest[index] -= (s64)out[index] * per_notch;
     }
 }
 
@@ -288,7 +361,7 @@ static void mouse_session_start(void)
 {
     keyboard_sent = 0U;
     buttons_last = 0U;
-    move_held = 0U;
+    stick_keys_held[0] = stick_keys_held[1] = 0U;
     have_step = 0U;
     posted = 0U;
     pointer_rest[0] = pointer_rest[1] = 0;
@@ -296,7 +369,7 @@ static void mouse_session_start(void)
     pending[0] = pending[1] = 0;
     pending_wheel[0] = pending_wheel[1] = 0;
     cyclone2_gyro_reset();
-    if (use_gyro) cyclone2_imu_enable();
+    if (use_gyro) cyclone2_imu_enable_gyro();
 }
 
 static void mouse_session_exit(void)
@@ -329,6 +402,34 @@ void cyclone2_gyromouse_start(u8 slot, u8 pairing)
     cyclone2_classic_start(&mouse_classic, slot, pairing);
 }
 
+/* One stick's part: keys into the keyboard report, motion into pending. */
+static void apply_stick(u8 role, u8 index, s16 x, s16 y, u8 hold, u32 dt_us,
+                        u32 speed, u8 keyboard[MOUSE_KEYBOARD_SIZE])
+{
+    s32 motion[2];
+
+    if (role == STICK_POINTER && (hold & HOLD_SCROLL)) role = STICK_SCROLL;
+    switch (role) {
+    case STICK_POINTER:
+        stick_motion(x, y, dt_us, hold & HOLD_SLOW ? speed / 4U : speed,
+                     motion);
+        pending[0] += motion[0];
+        pending[1] += motion[1];
+        break;
+    case STICK_SCROLL:
+        scroll_motion(x, y, dt_us, motion);
+        pending_wheel[0] += motion[0];
+        pending_wheel[1] += motion[1];
+        break;
+    case STICK_WASD:
+        stick_keys(keyboard, &stick_keys_held[index], x, y, wasd_keys);
+        break;
+    case STICK_ARROWS:
+        stick_keys(keyboard, &stick_keys_held[index], x, y, arrow_keys);
+        break;
+    }
+}
+
 /* The keyboard report goes in the queue when it changes: key presses are
  * events and must all arrive.  The mouse report carries relative motion, so
  * it may not replace one the link has not taken yet; motion is gathered
@@ -338,15 +439,18 @@ int cyclone2_mouse_send(const struct cyclone2_input_report *input)
 {
     const struct config_profile *settings =
         &config.profile[get_cur_bt_idx() % CONFIG_PROFILES];
+    const struct mouse_layout *layout = active_layout();
     u8 keyboard[MOUSE_KEYBOARD_SIZE];
     u8 mouse[MOUSE_MOUSE_SIZE];
-    u8 buttons;
+    u8 buttons = 0U;
+    u8 hold = 0U;
+    u32 controls = controls_of(input);
     u32 now = sys_timer_get_ms();
-    u32 dt = 0U;
-    s32 motion[2];
+    u32 now_us = cyclone2_time_us();
+    u32 dt_us = 0U;
+    u32 index;
     s32 x;
     s32 y;
-    int scrolling = (input->buttons & CYCLONE2_REPORT_BUTTON_M) != 0U;
     int result;
 
     if (!edr_hid_is_connected()) {
@@ -354,12 +458,34 @@ int cyclone2_mouse_send(const struct cyclone2_input_report *input)
         posted = 0U;
         return 0;
     }
-    if (have_step) dt = now - last_step_ms;
-    if (dt > MOUSE_MAX_DT_MS) dt = MOUSE_MAX_DT_MS;
-    last_step_ms = now;
+    if (have_step) dt_us = now_us - last_step_us;
+    if (dt_us > MOUSE_MAX_DT_US) dt_us = MOUSE_MAX_DT_US;
+    last_step_us = now_us;
     have_step = 1U;
 
-    make_keyboard(keyboard, &buttons, input);
+    memset(keyboard, 0, sizeof(keyboard));
+    for (index = 0U; index < layout->count; index++) {
+        const struct mouse_binding *binding = &layout->bindings[index];
+
+        if (!(controls & binding->control)) continue;
+        press_key(keyboard, binding->key);
+        buttons |= binding->mouse;
+        hold |= binding->hold;
+    }
+    apply_stick(layout->left_stick, 0U, input->left_x, input->left_y, hold,
+                dt_us, settings->stick_speed, keyboard);
+    apply_stick(layout->right_stick, 1U, input->right_x, input->right_y, hold,
+                dt_us, settings->stick_speed, keyboard);
+    if (use_gyro) {
+        /* Always taken, so turns made while the gyro is let go are
+         * dropped. */
+        cyclone2_gyro_take(settings->gyro_speed, settings->gyro_accel, &x, &y);
+        if (!(hold & HOLD_GYRO_OFF)) {
+            pending[0] += x;
+            pending[1] += y;
+        }
+    }
+
     if (!keyboard_sent || memcmp(keyboard, keyboard_last, sizeof(keyboard))) {
         result = edr_hid_data_send(MOUSE_REPORT_KEYBOARD, keyboard,
                                    sizeof(keyboard));
@@ -367,24 +493,6 @@ int cyclone2_mouse_send(const struct cyclone2_input_report *input)
         if (result != 0) return -2;
         memcpy(keyboard_last, keyboard, sizeof(keyboard));
         keyboard_sent = 1U;
-    }
-
-    if (scrolling) {
-        scroll_motion(input, dt, motion);
-        pending_wheel[0] += motion[0];
-        pending_wheel[1] += motion[1];
-    } else {
-        stick_motion(input, dt, settings->stick_speed, motion);
-        pending[0] += motion[0];
-        pending[1] += motion[1];
-    }
-    if (use_gyro) {
-        /* Always taken, so motion from while M was held is dropped. */
-        cyclone2_gyro_take(settings->gyro_speed, &x, &y);
-        if (!scrolling) {
-            pending[0] += x;
-            pending[1] += y;
-        }
     }
 
     if (!pending[0] && !pending[1] && !pending_wheel[0] &&

@@ -52,15 +52,17 @@ static int slot_argument(const char *text, u8 *slot)
     u32 value;
 
     for (index = 0U; index < CONFIG_PROFILES; index++) {
-        char name = cfg_slot_names[index][0];
+        const char *name = cfg_slot_names[index];
+        u32 at = 0U;
 
-        if (text[0] && !text[1] &&
-            (text[0] == name || text[0] == (char)(name - 'A' + 'a'))) {
+        while (text[at] && name[at] &&
+               (text[at] | 0x20) == (name[at] | 0x20)) at++;
+        if (!text[at] && !name[at]) {
             *slot = index;
             return 0;
         }
     }
-    if (number(text, &value) != 0 || value > 3U) return -1;
+    if (number(text, &value) != 0 || value >= CONFIG_PROFILES) return -1;
     *slot = (u8)value;
     return 0;
 }
@@ -423,6 +425,9 @@ static int cmd_imu(int argc, char **argv)
     if (!strcmp(argv[1], "init")) {
         cyclone2_imu_enable();
         console_ok("IMU initialization requested");
+    } else if (!strcmp(argv[1], "gyro")) {
+        cyclone2_imu_enable_gyro();
+        console_ok("IMU sampling the gyro alone, as gyromouse does");
     } else if (!strcmp(argv[1], "stop")) {
         cyclone2_imu_disable();
         console_ok("IMU sampling stopped");
@@ -431,8 +436,8 @@ static int cmd_imu(int argc, char **argv)
 
         if (cyclone2_imu_latest(&sample) != 0)
             return console_fail("no IMU sample yet; imu init");
-        console_printf("imu sample_ms=%u accel=%d,%d,%d gyro=%d,%d,%d\r\n",
-                       sample.timestamp_ms, sample.accel_x, sample.accel_y,
+        console_printf("imu sample_us=%u accel=%d,%d,%d gyro=%d,%d,%d\r\n",
+                       sample.timestamp_us, sample.accel_x, sample.accel_y,
                        sample.accel_z, sample.gyro_x, sample.gyro_y,
                        sample.gyro_z);
     } else {
@@ -630,7 +635,7 @@ static const char *const slots[] = { "A", "B", "X", "Y", NULL };
 static const char *const wake_words[] = { "A", "B", "X", "Y", "stop", NULL };
 static const char *const cal_words[] = { "start", "done", "cancel", NULL };
 static const char *const inject_words[] = { "a", "stop", NULL };
-static const char *const imu_words[] = { "init", "stop", "sample", NULL };
+static const char *const imu_words[] = { "init", "gyro", "stop", "sample", NULL };
 static const char *const input_words[] = { "reset", NULL };
 static const char *const rumble_words[] = { "stop", NULL };
 static const char *const led_words[] = { "off", "legend", NULL };
@@ -681,7 +686,7 @@ static const struct console_command debug_commands[] = {
       "the debounce, timestamped (latency tests)", cmd_probe, probe_words },
     { "timing", "[reset]", "poll and report intervals", cmd_timing,
       timing_words },
-    { "imu", "init|stop|sample", "the motion sensor", cmd_imu, imu_words },
+    { "imu", "init|gyro|stop|sample", "the motion sensor (gyro: the gyro alone, fast)", cmd_imu, imu_words },
     { "input", "reset", "zero the input counters (status input)", cmd_input,
       input_words },
     { "bleadv", "on|off", "LE-advertise the Switch 2 payload", cmd_bleadv, on_off },

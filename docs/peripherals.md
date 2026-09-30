@@ -78,11 +78,21 @@ Read 12 consecutive bytes from `0x35`: accel X/Y/Z, then gyro X/Y/Z, signed
 little-endian 16-bit values. No delay is needed for the BR23 hardware-I2C START
 operation itself. The soft-reset delay is required.
 
-Measured acquisition is approximately 95–100 samples/s with coherent values
-and no observed I2C errors. Linux reported about 4096 counts on the gravity
-axis while flat. Physical axis orientation and gyro bias still need controlled
-measurement. A 200 Hz polling experiment produced UART CRC errors and eventually
-reset; that does not establish a limit of the sensor itself. The current driver
+A task that sleeps between reads gets one OS tick (10 ms) at best; measured
+about 80–100 samples/s. Woken from the 1 ms control poll instead, the driver
+measured (2026-09-29, pad idle on USB): the 12 bytes every 4 ms at 254/s,
+~20% CPU; the 6 gyro bytes from `0x3b` every 2 ms at 508/s, ~25% CPU. Both are
+busy-waits in the lowest-priority task, and the per-read times include its
+preemption. A minute of the 508/s mode left the stick UART at zero CRC errors,
+zero IMU errors and 1016 control polls/s. (An earlier 200 Hz experiment from a
+higher-priority context produced UART CRC errors and eventually reset.)
+
+Linux reported about 4096 counts on the gravity axis while flat (through a
+profile's scaling). Lying face up on a table the raw accelerometer reads about +8450 on z (8192/g at
+±4 g), so z is the yaw axis in that pose. The gyro's zero-rate offset on this
+unit, at rest: about +141, +43, +44 counts on x, y, z (16 counts per °/s), so
+about 9 °/s on x; it must be removed before gyro data can steer anything.
+Which of x/y is the pad's left-right axis was set by use, not measured. The current driver
 does not test data-ready. No wired IMU interrupt pin has been established.
 
 ## EEPROM

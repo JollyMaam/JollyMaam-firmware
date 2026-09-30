@@ -15,7 +15,10 @@
 #define CONFIG_ITEM_MAX         256U
 #define CONFIG_ITEM_PREFS       48U
 #define CONFIG_ITEM_CAL         49U
+/* Bonds: slots A B X Y at 34..37, the d-pad slots at 52..55 (38..47 are
+ * the SDK's; 50..99 are VM-only items, 51 taken). */
 #define CONFIG_ITEM_BOND        34U
+#define CONFIG_ITEM_BOND_DPAD   52U
 #define CONFIG_INSTANCES        (2U + CONFIG_PROFILES)
 #define LEAF_INDEX_SHIFT        3U
 
@@ -65,7 +68,8 @@ int cfg_leaf_next(const struct cfg_item *items, u16 count, u32 *position,
     return 1;
 }
 
-const char *const cfg_slot_names[] = { "A", "B", "X", "Y" };
+const char *const cfg_slot_names[] = { "A", "B", "X", "Y",
+                                       "up", "down", "left", "right" };
 const char *const cfg_stick_names[] = { "left", "right" };
 const char *const cfg_trigger_names[] = { "l2", "r2" };
 
@@ -555,7 +559,8 @@ static u16 instance_item(u8 instance)
 {
     return instance == 0U ? CONFIG_ITEM_PREFS :
            instance == 1U ? CONFIG_ITEM_CAL :
-           (u16)(CONFIG_ITEM_BOND + instance - 2U);
+           instance < 6U ? (u16)(CONFIG_ITEM_BOND + instance - 2U) :
+           (u16)(CONFIG_ITEM_BOND_DPAD + instance - 6U);
 }
 
 static int leaf_in_instance(const struct cfg_leaf *leaf, u8 instance)

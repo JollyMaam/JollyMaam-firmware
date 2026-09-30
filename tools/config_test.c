@@ -353,7 +353,7 @@ static void test_damage(void)
         0xF0, 0x03, 2, 1, 0,        /* log.hcidump, wrong length */
         0xB0, 0x04, 1, 4,           /* retired led.brightness: ignored */
         (10 << 3) | 1, 1, 99,       /* profile.1.type = 99: not a type */
-        (10 << 3) | 7, 1, 2,        /* profile.7.type: no such slot */
+        (10 << 3) | 7, 1, 2,        /* profile.right.type = switch2: fine */
         0xA8, 0x01, 6, 1, 2, 3, 4, 5, 6, /* profile.0.bond.peer, in PREFS */
         (11 << 3) | 2, 1, 0,        /* profile.2.rumble = false: fine */
         0xF0, 0x03, 1, 1,           /* log.hcidump = true: fine */
@@ -367,7 +367,8 @@ static void test_damage(void)
     flash_length[49] = 3;
     config_dropped_records = 0;
     reboot();
-    CHECK(config_dropped_records == 6);
+    CHECK(config_dropped_records == 5);
+    CHECK(config.profile[7].type == 2);
     CHECK(config.profile[2].rumble == 0);
     CHECK(config.log.hcidump == 1);
     CHECK(config.profile[1].type == 0);
@@ -449,7 +450,11 @@ static void test_paths(void)
 
     CHECK(cfg_leaf_find(config_items, config_item_count, "profile.3.bond.ltk", &found) == 0);
     CHECK(found.index == 3);
-    CHECK(cfg_leaf_find(config_items, config_item_count, "profile.4.type", &found) != 0);
+    CHECK(cfg_leaf_find(config_items, config_item_count, "profile.8.type", &found) != 0);
+    CHECK(cfg_leaf_find(config_items, config_item_count, "profile.Up.type", &found) == 0 &&
+          found.index == 4);
+    CHECK(cfg_leaf_find(config_items, config_item_count, "profile.right.variant", &found) == 0 &&
+          found.index == 7);
     /* Slots by chord button, sticks and triggers by side; any case. */
     CHECK(cfg_leaf_find(config_items, config_item_count, "profile.X.type", &found) == 0 &&
           found.index == 2);
@@ -471,7 +476,31 @@ static void test_paths(void)
         CHECK(strchr(path, '#') == NULL);
         count++;
     }
-    CHECK(count == 7 + 4 * 13 + 2 * 6 + 2 * 4);
+    CHECK(count == 7 + 8 * 15 + 2 * 6 + 2 * 4);
+}
+
+/* Variants belong to types; the d-pad slots store their bonds apart. */
+static void test_slots(void)
+{
+    config_reset_all(0);
+    CHECK(!strcmp(get("profile.up.type"), "stickmouse"));
+    CHECK(!strcmp(get("profile.down.type"), "gyromouse"));
+    CHECK(!strcmp(get("profile.left.variant"), "desktop"));
+    CHECK(!strcmp(get("profile.right.variant"), "desktop"));
+    CHECK(!strcmp(get("profile.A.variant"), "default"));
+    CHECK(set("profile.A.variant", "desktop") != NULL);
+    CHECK(set("profile.up.variant", "desktop") == NULL);
+    CHECK(set("profile.up.type", "switch") == NULL);
+    CHECK(!strcmp(get("profile.up.variant"), "default"));
+
+    memset(flash_length, 0, sizeof(flash_length));
+    CHECK(set("profile.right.bond.peer", "11:22:33:44:55:66") == NULL);
+    CHECK(config_commit(1) == 1);
+    CHECK(flash_length[55] > 0 && flash_length[41] == 0);
+    reboot();
+    CHECK(!strcmp(get("profile.right.bond.peer"), "11:22:33:44:55:66"));
+    CHECK(!strcmp(get("profile.up.type"), "switch"));
+    config_reset_all(0);
 }
 
 int main(int argc, char **argv)
@@ -484,6 +513,7 @@ int main(int argc, char **argv)
     test_damage();
     test_addresses();
     test_paths();
+    test_slots();
     if (failures) {
         printf("%d check%s failed\n", failures, failures == 1 ? "" : "s");
         return 1;

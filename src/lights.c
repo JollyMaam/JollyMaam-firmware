@@ -202,7 +202,7 @@ static void gather(u32 now, struct cyclone2_lights_input *in)
     in->state = cyclone2_controller_state();
     in->now_ms = now;
     in->since_boot_ms = now - boot_ms;
-    for (slot = 0U; slot < CYCLONE2_PLAYER_LIGHTS; slot++) {
+    for (slot = 0U; slot < CYCLONE2_SLOTS && slot < CONFIG_PROFILES; slot++) {
         in->slot_colour[slot].red = config.profile[slot].colour[0];
         in->slot_colour[slot].green = config.profile[slot].colour[1];
         in->slot_colour[slot].blue = config.profile[slot].colour[2];

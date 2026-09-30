@@ -27,7 +27,7 @@ def main():
     parser.add_argument("-o", "--output", required=True,
                         help="new bond file; an existing one is never replaced")
     parser.add_argument("--slot", default="A",
-                        help="A, B, X or Y (the Home+button chord) or 0..3")
+                        help="A B X Y up down left right (the Home chord) or 0..7")
     parser.add_argument("--fresh", action="store_true",
                         help="pair under a new address (pair N --fresh)")
     parser.add_argument("--no-write", action="store_true",

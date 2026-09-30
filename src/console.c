@@ -660,8 +660,9 @@ int console_cmd_help(int argc, char **argv)
                       "--help) explains anything.\r\n\r\n");
         for (command = console_commands; command->name; command++)
             print_entry("", command);
-        console_write("\r\nSlots are A B X Y: the Home+button chord that "
-                      "selects them.\r\n");
+        console_write("\r\nSlots are A B X Y up down left right: named after "
+                      "the Home chord (face button or d-pad) that selects "
+                      "them.\r\n");
         return 0;
     }
     if (argc == 3 && strchr(argv[2], '.') &&

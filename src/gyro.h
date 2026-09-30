@@ -19,9 +19,11 @@ struct cyclone2_gyro_status {
 void cyclone2_gyro_reset(void);
 
 /* Rotation since the last take (or reset), in counts at `per_degree` counts
- * per degree: yaw to the right and pitch downwards are positive, as a mouse's
- * x and y.  Call every report; new samples are taken in as they arrive. */
-void cyclone2_gyro_take(u16 per_degree, s32 *x, s32 *y);
+ * per degree, up to `accel` percent of that for fast turns (100: no
+ * acceleration).  Yaw to the right and pitch downwards are positive, as a
+ * mouse's x and y.  Call every report; every sample since the last call is
+ * taken in. */
+void cyclone2_gyro_take(u16 per_degree, u16 accel, s32 *x, s32 *y);
 
 void cyclone2_gyro_get_status(struct cyclone2_gyro_status *status);
 

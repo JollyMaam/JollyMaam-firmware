@@ -33,21 +33,25 @@ static void cyclone2_prepare_early_button(u32 gpio)
 
 void cyclone2_latch_early_chords(void)
 {
+    /* Slot order: A B X Y, then the d-pad's up, down, left, right. */
+    static const u32 slot_buttons[] = {
+        CYCLONE2_BUTTON_A, CYCLONE2_BUTTON_B, CYCLONE2_BUTTON_X,
+        CYCLONE2_BUTTON_Y, CYCLONE2_DPAD_UP, CYCLONE2_DPAD_DOWN,
+        CYCLONE2_DPAD_LEFT, CYCLONE2_DPAD_RIGHT,
+    };
     u8 chord = 0U;
+    u8 slot;
 
     cyclone2_prepare_early_button(CYCLONE2_BUTTON_HOME);
-    cyclone2_prepare_early_button(CYCLONE2_BUTTON_A);
-    cyclone2_prepare_early_button(CYCLONE2_BUTTON_B);
-    cyclone2_prepare_early_button(CYCLONE2_BUTTON_X);
-    cyclone2_prepare_early_button(CYCLONE2_BUTTON_Y);
     cyclone2_prepare_early_button(CYCLONE2_BUTTON_START);
+    for (slot = 0U; slot < ARRAY_SIZE(slot_buttons); slot++)
+        cyclone2_prepare_early_button(slot_buttons[slot]);
 
     if (gpio_read(CYCLONE2_BUTTON_HOME)) return;
     if (!gpio_read(CYCLONE2_BUTTON_START)) cyclone2_early_uboot_chord = 1U;
-    if (!gpio_read(CYCLONE2_BUTTON_A)) chord = 1U;
-    if (!gpio_read(CYCLONE2_BUTTON_B)) chord = chord ? 0xffU : 2U;
-    if (!gpio_read(CYCLONE2_BUTTON_X)) chord = chord ? 0xffU : 3U;
-    if (!gpio_read(CYCLONE2_BUTTON_Y)) chord = chord ? 0xffU : 4U;
+    for (slot = 0U; slot < ARRAY_SIZE(slot_buttons); slot++)
+        if (!gpio_read(slot_buttons[slot]))
+            chord = chord ? 0xffU : (u8)(slot + 1U);
     if (chord != 0xffU) cyclone2_early_profile_chord = chord;
 }
 
