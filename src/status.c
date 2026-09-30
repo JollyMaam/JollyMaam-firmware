@@ -11,6 +11,7 @@
 #include "controller_state.h"
 #include "controller.h"
 #include "imu.h"
+#include "gyro.h"
 #include "input.h"
 #include "main.h"
 #include "profile.h"
@@ -39,6 +40,8 @@ static const struct cfg_choice profile_types[] = {
     { CYCLONE2_PROFILE_XBOX_BLE, "xboxble" },
     { CYCLONE2_PROFILE_DUALSENSE, "dualsense" },
     { CYCLONE2_PROFILE_GENERIC, "generic" },
+    { CYCLONE2_PROFILE_STICKMOUSE, "stickmouse" },
+    { CYCLONE2_PROFILE_GYROMOUSE, "gyromouse" },
     { 0, NULL },
 };
 
@@ -164,6 +167,11 @@ static void get_imu(void *out)
     s->state = s->imu.initialized ? 2U : s->imu.enabled ? 1U : 0U;
 }
 
+static void get_gyro(void *out)
+{
+    cyclone2_gyro_get_status(out);
+}
+
 static void get_wake(void *out)
 {
     wake_status_get(out);
@@ -194,6 +202,7 @@ static void get_lights(void *out)
 #define LIGHTS(member)  CFG_STATUS_FIELD(struct cyclone2_lights_status, member, get_lights)
 #define RUMBLE(member)  CFG_STATUS_FIELD(struct cyclone2_rumble_status, member, get_rumble)
 #define IMU(member)     CFG_STATUS_FIELD(struct status_imu, member, get_imu)
+#define GYRO(member)    CFG_STATUS_FIELD(struct cyclone2_gyro_status, member, get_gyro)
 #define WAKE(member)    CFG_STATUS_FIELD(struct wake_status, member, get_wake)
 
 const struct cfg_item status_items[] = {
@@ -333,6 +342,11 @@ const struct cfg_item status_items[] = {
       .help = "accelerometer and gyro switched off: the profile does not use them" },
     { .path = "imu.read_us", .type = CFG_UINT, IMU(imu.read_us),
       .help = "time the last sample read took on the I2C bus" },
+    { .path = "gyro.calibrated", .type = CFG_BOOL, GYRO(calibrated),
+      .help = "the gyro's offset is known: the pad has been held still "
+              "since boot, and gyro aiming works" },
+    { .path = "gyro.rests", .type = CFG_UINT, GYRO(rests),
+      .help = "moments the pad was still enough to correct the offset" },
 
     { .path = "wake.active", .type = CFG_BOOL, WAKE(active) },
     { .path = "wake.slot", .type = CFG_UINT, WAKE(slot) },

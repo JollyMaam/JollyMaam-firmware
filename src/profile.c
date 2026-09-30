@@ -107,6 +107,28 @@ static const struct profile_operations profiles[] = {
         .send = cyclone2_xbox_ble_send,
         .handle_event = cyclone2_profile_le_handle_event,
     },
+    [CYCLONE2_PROFILE_STICKMOUSE] = {
+        .name = "stickmouse",
+        .default_hz = 250U, /* reports only go out while something moves */
+        .start = cyclone2_stickmouse_start,
+        .disconnect = cyclone2_classic_disconnect,
+        .exit = cyclone2_classic_exit,
+        .is_connected = cyclone2_classic_is_connected,
+        .reconnect = cyclone2_classic_reconnect,
+        .send = cyclone2_mouse_send,
+        .handle_event = cyclone2_classic_handle_event,
+    },
+    [CYCLONE2_PROFILE_GYROMOUSE] = {
+        .name = "gyromouse",
+        .default_hz = 250U,
+        .start = cyclone2_gyromouse_start,
+        .disconnect = cyclone2_classic_disconnect,
+        .exit = cyclone2_classic_exit,
+        .is_connected = cyclone2_classic_is_connected,
+        .reconnect = cyclone2_classic_reconnect,
+        .send = cyclone2_mouse_send,
+        .handle_event = cyclone2_classic_handle_event,
+    },
 };
 
 static const struct profile_operations *active_profile =

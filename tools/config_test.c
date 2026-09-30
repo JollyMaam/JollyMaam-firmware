@@ -471,7 +471,7 @@ static void test_paths(void)
         CHECK(strchr(path, '#') == NULL);
         count++;
     }
-    CHECK(count == 7 + 4 * 11 + 2 * 6 + 2 * 4);
+    CHECK(count == 7 + 4 * 13 + 2 * 6 + 2 * 4);
 }
 
 int main(int argc, char **argv)

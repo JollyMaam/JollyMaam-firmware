@@ -4,6 +4,9 @@
 #include "app_comm_bt.h"
 #include "edr_hid_user.h"
 #include "btstack_jl_hid_ext.h"
+#include "config.h"
+#include "controller.h"
+#include "gyro.h"
 #include "imu.h"
 #include "input.h"
 #include "profile.h"
@@ -31,6 +34,16 @@
 #define DS_EXTENDED_SIZE        77U
 #define DS_SIMPLE_KEEPALIVE_MS  100U
 #define DS_TRIGGER_BUTTON_LEVEL 0x20U
+
+/* M puts a finger on the touchpad, in the middle, and the gyro moves it
+ * (profile.#.gyro_speed points per degree).  M is also the touchpad click;
+ * only a tap of it clicks, so that a finger moved with M held is not a
+ * click-and-drag.  The click is held DS_TOUCH_CLICK_MS after the tap, with
+ * the finger still down, as a real press would be. */
+#define DS_TOUCH_WIDTH          1920
+#define DS_TOUCH_HEIGHT         1080
+#define DS_TOUCH_TAP_MS         200U
+#define DS_TOUCH_CLICK_MS       60U
 
 /* Start with extended reports instead of waiting for the host to ask.
  * SDL decides at open time: a pad already sending 0x31 is run in full mode
@@ -113,6 +126,14 @@ static u8 simple_last[DS_SIMPLE_SIZE];
 static u8 simple_sent;
 static u32 simple_last_send_ms;
 
+static u8 touch_down;
+static u8 touch_id;
+static s32 touch_x;
+static s32 touch_y;
+static u32 touch_start_ms;
+static u8 touch_clicking;
+static u32 touch_click_ms;
+
 /* CRC-32 (IEEE, reflected, as zlib's crc32()), four bits at a time. */
 static u32 ds_crc32(u32 crc, const u8 *data, u16 length)
 {
@@ -192,6 +213,64 @@ static void ds_buttons(const struct cyclone2_input_report *input, u8 out[3])
     if (buttons & CYCLONE2_REPORT_BUTTON_R4) out[2] |= 0x80U;
 }
 
+/* The finger and the click, from M and the gyro; the report's M becomes the
+ * click. */
+static void update_touch(struct cyclone2_input_report *input, u32 now)
+{
+    int held = (input->buttons & CYCLONE2_REPORT_BUTTON_M) != 0U;
+    s32 x;
+    s32 y;
+
+    input->buttons &= (u16)~CYCLONE2_REPORT_BUTTON_M;
+    /* Taken every report, so turns made without the finger are dropped. */
+    cyclone2_gyro_take(config.profile[get_cur_bt_idx() % CONFIG_PROFILES]
+                       .gyro_speed, &x, &y);
+    if (touch_clicking) {
+        if (now - touch_click_ms < DS_TOUCH_CLICK_MS && !held) {
+            input->buttons |= CYCLONE2_REPORT_BUTTON_M;
+            return;
+        }
+        touch_clicking = 0U;
+        touch_down = 0U;
+    }
+    if (held && !touch_down) {
+        touch_down = 1U;
+        touch_id = (u8)((touch_id + 1U) & 0x7fU);
+        touch_x = DS_TOUCH_WIDTH / 2;
+        touch_y = DS_TOUCH_HEIGHT / 2;
+        touch_start_ms = now;
+    } else if (held) {
+        touch_x += x;
+        touch_y += y;
+        if (touch_x < 0) touch_x = 0;
+        if (touch_x > DS_TOUCH_WIDTH - 1) touch_x = DS_TOUCH_WIDTH - 1;
+        if (touch_y < 0) touch_y = 0;
+        if (touch_y > DS_TOUCH_HEIGHT - 1) touch_y = DS_TOUCH_HEIGHT - 1;
+    } else if (touch_down) {
+        if (now - touch_start_ms < DS_TOUCH_TAP_MS) {
+            touch_clicking = 1U;
+            touch_click_ms = now;
+            input->buttons |= CYCLONE2_REPORT_BUTTON_M;
+        } else {
+            touch_down = 0U;
+        }
+    }
+}
+
+/* One touch point: bit 7 of the first byte is "no finger", the rest its
+ * tracking id; then 12-bit x and y. */
+static void fill_touch(u8 point[4])
+{
+    if (!touch_down) {
+        point[0] = 0x80U;
+        return;
+    }
+    point[0] = touch_id;
+    point[1] = (u8)touch_x;
+    point[2] = (u8)(((touch_x >> 8) & 0x0f) | ((touch_y & 0x0f) << 4));
+    point[3] = (u8)(touch_y >> 4);
+}
+
 static void fill_simple(u8 report[DS_SIMPLE_SIZE],
                         const struct cyclone2_input_report *input)
 {
@@ -238,7 +317,7 @@ static void fill_extended(u8 report[DS_EXTENDED_SIZE],
         put_u32(state + 27, sample.timestamp_ms * 3000U);
     }
     state[31] = 0x16U;
-    state[32] = 0x80U;
+    fill_touch(state + 32);
     state[36] = 0x80U;
     state[52] = 0x0aU;
     state[53] = 0x00U;
@@ -337,6 +416,9 @@ static void dualsense_session_start(void)
     report_counter = 0U;
     packet_sequence = 0U;
     simple_sent = 0U;
+    touch_down = 0U;
+    touch_clicking = 0U;
+    cyclone2_gyro_reset();
     cyclone2_imu_enable();
 }
 
@@ -374,8 +456,10 @@ void cyclone2_dualsense_start(u8 slot, u8 pairing)
 /* Extended reports go out on every call (the scheduler's report period), as a
  * real pad streams them; simple reports on change plus a keepalive.  Returns
  * as cyclone2_profile_send() documents. */
-int cyclone2_dualsense_send(const struct cyclone2_input_report *input)
+int cyclone2_dualsense_send(const struct cyclone2_input_report *report_in)
 {
+    struct cyclone2_input_report shaped = *report_in;
+    const struct cyclone2_input_report *input = &shaped;
     u8 report[DS_EXTENDED_SIZE];
     u32 now;
     int result;
@@ -384,6 +468,7 @@ int cyclone2_dualsense_send(const struct cyclone2_input_report *input)
         simple_sent = 0U;
         return 0;
     }
+    update_touch(&shaped, sys_timer_get_ms());
     if (extended_reports) {
         fill_extended(report, input);
         result = edr_hid_input_send(DS_REPORT_EXTENDED, report,

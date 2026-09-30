@@ -23,6 +23,8 @@ static const struct cfg_choice profile_types[] = {
     { CYCLONE2_PROFILE_XBOX_BLE, "xboxble" },
     { CYCLONE2_PROFILE_DUALSENSE, "dualsense" },
     { CYCLONE2_PROFILE_GENERIC, "generic" },
+    { CYCLONE2_PROFILE_STICKMOUSE, "stickmouse" },
+    { CYCLONE2_PROFILE_GYROMOUSE, "gyromouse" },
     { 0, NULL },
 };
 
@@ -113,7 +115,9 @@ const struct cfg_item config_items[] = {
       CFG_PROFILE_FIELD(type), .group = CFG_GROUP_PREFS,
       .apply = CFG_NEXT_CONNECT, .choices = profile_types,
       .def_ptr = default_profile_types, .changed = type_changed,
-      .help = "what the slot pretends to be" },
+      .help = "what the slot pretends to be; stickmouse and gyromouse are a "
+              "Bluetooth keyboard and mouse aimed with the right stick, or "
+              "with the gyro and the right stick" },
     { .uid = 12, .path = "profile.#.report_hz", .type = CFG_ENUM,
       CFG_PROFILE_FIELD(report_hz), .group = CFG_GROUP_PREFS,
       .choices = report_rates,
@@ -134,6 +138,18 @@ const struct cfg_item config_items[] = {
               "host colour if supported; reactive-rumble follows rumble, "
               "reactive-input follows controls, reactive combines both; "
               "none keeps them dark" },
+
+    { .uid = 16, .path = "profile.#.stick_speed", .type = CFG_UINT,
+      CFG_PROFILE_FIELD(stick_speed), .group = CFG_GROUP_PREFS,
+      .min = 100, .max = 10000, .def = 1500,
+      .help = "mouse types: pointer counts per second with the right stick "
+              "all the way over (slower near the centre)" },
+    { .uid = 17, .path = "profile.#.gyro_speed", .type = CFG_UINT,
+      CFG_PROFILE_FIELD(gyro_speed), .group = CFG_GROUP_PREFS,
+      .min = 1, .max = 200, .def = 32,
+      .help = "gyromouse: pointer counts per degree turned; dualsense: "
+              "touchpad points per degree while M holds a finger on it "
+              "(1920 across)" },
 
     { .uid = 20, .path = "profile.#.address", .type = CFG_MAC,
       CFG_PROFILE_FIELD(address), .group = CFG_GROUP_BOND,

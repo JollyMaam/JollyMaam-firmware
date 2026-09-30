@@ -53,6 +53,10 @@ int cyclone2_xbox_ble_send(const struct cyclone2_input_report *report);
 void cyclone2_dualsense_start(u8 slot, u8 pairing);
 int cyclone2_dualsense_send(const struct cyclone2_input_report *report);
 
+void cyclone2_stickmouse_start(u8 slot, u8 pairing);
+void cyclone2_gyromouse_start(u8 slot, u8 pairing);
+int cyclone2_mouse_send(const struct cyclone2_input_report *report);
+
 int cyclone2_profile_le_exit(void);
 enum cyclone2_profile_event cyclone2_profile_le_handle_event(
     const struct sys_event *event);
