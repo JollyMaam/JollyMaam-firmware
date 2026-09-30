@@ -17,15 +17,29 @@
 #define GYRO_PITCH_SIGN         (-1)
 
 /* Offset learning.  Samples are looked at in windows; a window whose
- * readings stay within GYRO_STILL_SPREAD of each other on every axis is the
- * pad held still, and within GYRO_REST_SPREAD it is the pad lying on
- * something.  Lying down, the window's mean is the offset.  Held, hands
- * still shake and may be turning slowly on purpose, so after the first
- * offset only a small correction is taken, a quarter at a time. */
-#define GYRO_WINDOW             128U    /* ~0.25 s at 500 samples a second */
+ * readings stay within a spread of each other on every axis is the pad held
+ * still, and its mean is the offset.  In three steps:
+ *
+ * - none yet: a short window held roughly still (GYRO_QUICK_*) gives a
+ *   coarse offset at once, so pointing starts as the pad is picked up.
+ *   Waiting for a quarter of a second within 3 dps took a long while in the
+ *   hands (seen 2026-09-30).
+ * - coarse: the next long window held still (GYRO_STILL_SPREAD) replaces it.
+ * - fine: lying on something (GYRO_REST_SPREAD) still replaces it; held,
+ *   hands shake and may be turning slowly on purpose, so only a small
+ *   correction is taken, a quarter at a time. */
+#define GYRO_QUICK_WINDOW       32U     /* ~64 ms at 500 samples a second */
+#define GYRO_QUICK_SPREAD       (6 * GYRO_LSB_PER_DPS * 16)  /* 6 dps */
+#define GYRO_WINDOW             128U    /* ~0.25 s */
 #define GYRO_REST_SPREAD        (10 * 16)                    /* 1/16 LSB */
 #define GYRO_STILL_SPREAD       (3 * GYRO_LSB_PER_DPS * 16)  /* 3 dps */
 #define GYRO_DRIFT_MAX          (1 * GYRO_LSB_PER_DPS * 16)  /* 1 dps */
+
+enum gyro_quality {
+    GYRO_NONE,
+    GYRO_COARSE,
+    GYRO_FINE,
+};
 
 /* Below this rate motion is scaled down, quadratically to zero: what is left
  * of the offset and of the hands' shake does not creep the pointer. */
@@ -43,7 +57,7 @@
 
 /* Rates in 1/16 LSB, so the offset can move by less than one LSB. */
 static s32 bias[3];
-static u8 calibrated;
+static u8 quality;
 static u32 rests;
 
 static s32 window_sum[3];
@@ -71,6 +85,7 @@ static s32 absolute(s32 value)
 
 static void learn_offset(const s32 rate[3])
 {
+    u16 size = quality == GYRO_NONE ? GYRO_QUICK_WINDOW : GYRO_WINDOW;
     s32 mean[3];
     s32 spread = 0;
     int axis;
@@ -82,24 +97,30 @@ static void learn_offset(const s32 rate[3])
             window_max[axis] = rate[axis];
         window_sum[axis] = (window_count ? window_sum[axis] : 0) + rate[axis];
     }
-    if (++window_count < GYRO_WINDOW) return;
+    if (++window_count < size) return;
     window_count = 0U;
 
     for (axis = 0; axis < 3; axis++) {
-        mean[axis] = window_sum[axis] / (s32)GYRO_WINDOW;
+        mean[axis] = window_sum[axis] / (s32)size;
         if (window_max[axis] - window_min[axis] > spread)
             spread = window_max[axis] - window_min[axis];
     }
-    if (spread > GYRO_STILL_SPREAD) return;
-    if (spread <= GYRO_REST_SPREAD || !calibrated) {
-        for (axis = 0; axis < 3; axis++) bias[axis] = mean[axis];
+    if (quality == GYRO_NONE) {
+        if (spread > GYRO_QUICK_SPREAD) return;
+        quality = GYRO_COARSE;
+    } else if (spread > GYRO_STILL_SPREAD) {
+        return;
+    } else if (quality == GYRO_COARSE || spread <= GYRO_REST_SPREAD) {
+        quality = GYRO_FINE;
     } else {
         for (axis = 0; axis < 3; axis++)
             if (absolute(mean[axis] - bias[axis]) > GYRO_DRIFT_MAX) return;
         for (axis = 0; axis < 3; axis++)
             bias[axis] += (mean[axis] - bias[axis]) / 4;
+        rests++;
+        return;
     }
-    calibrated = 1U;
+    for (axis = 0; axis < 3; axis++) bias[axis] = mean[axis];
     rests++;
 }
 
@@ -152,7 +173,7 @@ static void take_samples(u16 accel)
         rate[1] = (s32)sample->gyro_y * 16;
         rate[2] = (s32)sample->gyro_z * 16;
         learn_offset(rate);
-        if (!calibrated) continue;
+        if (quality == GYRO_NONE) continue;
         yaw = GYRO_YAW_SIGN *
               tighten(rate[GYRO_YAW_AXIS] - bias[GYRO_YAW_AXIS]);
         pitch = GYRO_PITCH_SIGN *
@@ -188,7 +209,7 @@ void cyclone2_gyro_get_status(struct cyclone2_gyro_status *status)
 {
     int axis;
 
-    status->calibrated = calibrated;
+    status->offset = quality;
     for (axis = 0; axis < 3; axis++) status->bias[axis] = (s16)(bias[axis] / 16);
     status->rests = rests;
 }

@@ -168,6 +168,10 @@ static void get_imu(void *out)
     s->state = s->imu.initialized ? 2U : s->imu.enabled ? 1U : 0U;
 }
 
+static const struct cfg_choice gyro_offsets[] = {
+    { 0, "none" }, { 1, "coarse" }, { 2, "fine" }, { 0, NULL },
+};
+
 static void get_gyro(void *out)
 {
     cyclone2_gyro_get_status(out);
@@ -343,9 +347,10 @@ const struct cfg_item status_items[] = {
       .help = "accelerometer and gyro switched off: the profile does not use them" },
     { .path = "imu.read_us", .type = CFG_UINT, IMU(imu.read_us),
       .help = "time the last sample read took on the I2C bus" },
-    { .path = "gyro.calibrated", .type = CFG_BOOL, GYRO(calibrated),
-      .help = "the gyro's offset is known: the pad has been held still "
-              "since boot, and gyro aiming works" },
+    { .path = "gyro.offset", .type = CFG_ENUM, GYRO(offset),
+      .choices = gyro_offsets,
+      .help = "how well the gyro's zero is known: none (no gyro aiming yet), "
+              "coarse (from a moment held roughly still), fine" },
     { .path = "gyro.rests", .type = CFG_UINT, GYRO(rests),
       .help = "moments the pad was still enough to correct the offset" },
 

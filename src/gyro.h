@@ -9,7 +9,7 @@
  * The profile owns the IMU (cyclone2_imu_enable); this only reads it. */
 
 struct cyclone2_gyro_status {
-    u8 calibrated;
+    u8 offset;          /* 0 none yet, 1 coarse, 2 fine (gyro.c) */
     s16 bias[3];
     u32 rests;          /* windows taken as the pad at rest */
 };

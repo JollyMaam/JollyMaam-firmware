@@ -296,11 +296,12 @@ static void press_key(u8 report[MOUSE_KEYBOARD_SIZE], u8 key)
     }
 }
 
-/* A stick as four keys, with hysteresis per direction. */
+/* A stick as four keys, with hysteresis per direction.  A stick's y is
+ * positive pushed down, as a HID gamepad's. */
 static void stick_keys(u8 report[MOUSE_KEYBOARD_SIZE], u8 *held, s16 x, s16 y,
                        const u8 keys[4])
 {
-    const s32 value[4] = { y, x, -(s32)y, -(s32)x };
+    const s32 value[4] = { -(s32)y, x, y, -(s32)x };
     u8 direction;
 
     for (direction = 0U; direction < 4U; direction++) {
@@ -314,10 +315,10 @@ static void stick_keys(u8 report[MOUSE_KEYBOARD_SIZE], u8 *held, s16 x, s16 y,
 
 /* The stick's motion over dt_us at `speed` counts per second all the way
  * over: speed follows the square of the deflection, for fine aim near the
- * centre.  The stick's y is up; the pointer's is down. */
+ * centre.  Stick and pointer both have y positive downwards. */
 static void stick_motion(s16 x, s16 y, u32 dt_us, u32 speed, s32 out[2])
 {
-    const s32 axis[2] = { x, -(s32)y };
+    const s32 axis[2] = { x, y };
     u32 reach = isqrt((u32)(axis[0] * axis[0]) + (u32)(axis[1] * axis[1]));
     const s64 per_count = (s64)CYCLONE2_STICK_MAX * CYCLONE2_STICK_MAX *
                           1000000;
@@ -336,7 +337,7 @@ static void stick_motion(s16 x, s16 y, u32 dt_us, u32 speed, s32 out[2])
 /* Wheel notches (up positive) and pan (right positive). */
 static void scroll_motion(s16 x, s16 y, u32 dt_us, s32 out[2])
 {
-    const s32 axis[2] = { y, x };
+    const s32 axis[2] = { -(s32)y, x };  /* the wheel is up positive */
     const s32 travel = CYCLONE2_STICK_MAX - MOUSE_SCROLL_DEADZONE;
     const s64 per_notch = (s64)travel * travel * 1000000;
     int index;
