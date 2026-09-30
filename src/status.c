@@ -39,6 +39,7 @@ static const struct cfg_choice profile_types[] = {
     { CYCLONE2_PROFILE_XBOX, "xbox" },
     { CYCLONE2_PROFILE_XBOX_BLE, "xboxble" },
     { CYCLONE2_PROFILE_DUALSENSE, "dualsense" },
+    { CYCLONE2_PROFILE_DUALSHOCK4, "dualshock4" },
     { CYCLONE2_PROFILE_GENERIC, "generic" },
     { CYCLONE2_PROFILE_STICKMOUSE, "stickmouse" },
     { CYCLONE2_PROFILE_GYROMOUSE, "gyromouse" },

@@ -50,6 +50,7 @@ static const struct cfg_choice profile_types[] = {
     { CYCLONE2_PROFILE_XBOX, "xbox" },
     { CYCLONE2_PROFILE_XBOX_BLE, "xboxble" },
     { CYCLONE2_PROFILE_DUALSENSE, "dualsense" },
+    { CYCLONE2_PROFILE_DUALSHOCK4, "dualshock4" },
     { CYCLONE2_PROFILE_GENERIC, "generic" },
     { CYCLONE2_PROFILE_STICKMOUSE, "stickmouse" },
     { CYCLONE2_PROFILE_GYROMOUSE, "gyromouse" },
@@ -197,9 +198,9 @@ const struct cfg_item config_items[] = {
     { .uid = 17, .path = "profile.#.gyro_speed", .type = CFG_UINT,
       CFG_PROFILE_FIELD(gyro_speed), .group = CFG_GROUP_PREFS,
       .min = 1, .max = 200, .def = 32,
-      .help = "gyromouse: pointer counts per degree turned; dualsense: "
-              "touchpad points per degree while M holds a finger on it "
-              "(1920 across)" },
+      .help = "gyromouse: pointer counts per degree turned; dualsense and "
+              "dualshock4: touchpad points per degree while M holds a finger "
+              "on it (1920 across)" },
     { .uid = 19, .path = "profile.#.gyro_accel", .type = CFG_UINT,
       CFG_PROFILE_FIELD(gyro_accel), .group = CFG_GROUP_PREFS,
       .min = 100, .max = 800, .def = 250,

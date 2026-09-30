@@ -11,6 +11,7 @@
 #include "input.h"
 #include "profile.h"
 #include "profile_classic.h"
+#include "profile_playstation.h"
 #include "lights.h"
 #include "rumble.h"
 #include "usb.h"
@@ -33,17 +34,10 @@
 #define DS_SIMPLE_SIZE          9U
 #define DS_EXTENDED_SIZE        77U
 #define DS_SIMPLE_KEEPALIVE_MS  100U
-#define DS_TRIGGER_BUTTON_LEVEL 0x20U
 
-/* M puts a finger on the touchpad, in the middle, and the gyro moves it
- * (profile.#.gyro_speed points per degree).  M is also the touchpad click;
- * only a tap of it clicks, so that a finger moved with M held is not a
- * click-and-drag.  The click is held DS_TOUCH_CLICK_MS after the tap, with
- * the finger still down, as a real press would be. */
-#define DS_TOUCH_WIDTH          1920
-#define DS_TOUCH_HEIGHT         1080
-#define DS_TOUCH_TAP_MS         200U
-#define DS_TOUCH_CLICK_MS       60U
+/* The touchpad, driven by M and the gyro (see profile_playstation.h). */
+#define DS_TOUCH_WIDTH          1920U
+#define DS_TOUCH_HEIGHT         1080U
 
 /* Start with extended reports instead of waiting for the host to ask.
  * SDL decides at open time: a pad already sending 0x31 is run in full mode
@@ -126,150 +120,18 @@ static u8 simple_last[DS_SIMPLE_SIZE];
 static u8 simple_sent;
 static u32 simple_last_send_ms;
 
-static u8 touch_down;
-static u8 touch_id;
-static s32 touch_x;
-static s32 touch_y;
-static u32 touch_start_ms;
-static u8 touch_clicking;
-static u32 touch_click_ms;
+static struct playstation_touch touch;
 
-/* CRC-32 (IEEE, reflected, as zlib's crc32()), four bits at a time. */
-static u32 ds_crc32(u32 crc, const u8 *data, u16 length)
-{
-    static const u32 table[16] = {
-        0x00000000U, 0x1db71064U, 0x3b6e20c8U, 0x26d930acU,
-        0x76dc4190U, 0x6b6b51f4U, 0x4db26158U, 0x5005713cU,
-        0xedb88320U, 0xf00f9344U, 0xd6d6a3e8U, 0xcb61b38cU,
-        0x9b64c2b0U, 0x86d3d2d4U, 0xa00ae278U, 0xbdbdf21cU,
-    };
-
-    crc = ~crc;
-    while (length--) {
-        crc ^= *data++;
-        crc = (crc >> 4) ^ table[crc & 0x0fU];
-        crc = (crc >> 4) ^ table[crc & 0x0fU];
-    }
-    return ~crc;
-}
-
-static void put_u16(u8 *output, u16 value)
-{
-    output[0] = (u8)value;
-    output[1] = (u8)(value >> 8);
-}
-
-static void put_u32(u8 *output, u32 value)
-{
-    output[0] = (u8)value;
-    output[1] = (u8)(value >> 8);
-    output[2] = (u8)(value >> 16);
-    output[3] = (u8)(value >> 24);
-}
-
-/* CRC over the HIDP header byte, the report id and the body before the last
- * four bytes, stored little endian in those four bytes. */
-static void ds_seal(u8 header, u8 report_id, u8 *body, u16 size)
-{
-    u8 prefix[2];
-    u32 crc;
-
-    prefix[0] = header;
-    prefix[1] = report_id;
-    crc = ds_crc32(0U, prefix, sizeof(prefix));
-    crc = ds_crc32(crc, body, (u16)(size - 4U));
-    put_u32(body + size - 4U, crc);
-}
-
+/* The shared button bytes, plus the DualSense's mute (Screenshot) and the
+ * Edge's back paddles. */
 static void ds_buttons(const struct cyclone2_input_report *input, u8 out[3])
 {
     u16 buttons = input->buttons;
 
-    out[0] = input->hat <= CYCLONE2_HAT_NEUTRAL ? input->hat :
-             CYCLONE2_HAT_NEUTRAL;
-    if (buttons & CYCLONE2_REPORT_BUTTON_X) out[0] |= 0x10U;
-
-    if (buttons & CYCLONE2_REPORT_BUTTON_A) out[0] |= 0x20U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_B) out[0] |= 0x40U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_Y) out[0] |= 0x80U;
-
-    out[1] = 0U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_L1) out[1] |= 0x01U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_R1) out[1] |= 0x02U;
-    if (cyclone2_trigger_u8(input->left_trigger) > DS_TRIGGER_BUTTON_LEVEL)
-        out[1] |= 0x04U;
-    if (cyclone2_trigger_u8(input->right_trigger) > DS_TRIGGER_BUTTON_LEVEL)
-        out[1] |= 0x08U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_SELECT) out[1] |= 0x10U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_START) out[1] |= 0x20U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_L3) out[1] |= 0x40U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_R3) out[1] |= 0x80U;
-
-    out[2] = 0U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_HOME) out[2] |= 0x01U;
-    if (buttons & CYCLONE2_REPORT_BUTTON_M) out[2] |= 0x02U;
+    playstation_buttons(input, out);
     if (buttons & CYCLONE2_REPORT_BUTTON_SCREENSHOT) out[2] |= 0x04U;
     if (buttons & CYCLONE2_REPORT_BUTTON_L4) out[2] |= 0x40U;
     if (buttons & CYCLONE2_REPORT_BUTTON_R4) out[2] |= 0x80U;
-}
-
-/* The finger and the click, from M and the gyro; the report's M becomes the
- * click. */
-static void update_touch(struct cyclone2_input_report *input, u32 now)
-{
-    const struct config_profile *settings =
-        &config.profile[get_cur_bt_idx() % CONFIG_PROFILES];
-    int held = (input->buttons & CYCLONE2_REPORT_BUTTON_M) != 0U;
-    s32 x;
-    s32 y;
-
-    input->buttons &= (u16)~CYCLONE2_REPORT_BUTTON_M;
-    /* Taken every report, so turns made without the finger are dropped. */
-    cyclone2_gyro_take(settings->gyro_speed, settings->gyro_accel, &x, &y);
-    if (touch_clicking) {
-        if (now - touch_click_ms < DS_TOUCH_CLICK_MS && !held) {
-            input->buttons |= CYCLONE2_REPORT_BUTTON_M;
-            return;
-        }
-        touch_clicking = 0U;
-        touch_down = 0U;
-    }
-    if (held && !touch_down) {
-        touch_down = 1U;
-        touch_id = (u8)((touch_id + 1U) & 0x7fU);
-        touch_x = DS_TOUCH_WIDTH / 2;
-        touch_y = DS_TOUCH_HEIGHT / 2;
-        touch_start_ms = now;
-    } else if (held) {
-        touch_x += x;
-        touch_y += y;
-        if (touch_x < 0) touch_x = 0;
-        if (touch_x > DS_TOUCH_WIDTH - 1) touch_x = DS_TOUCH_WIDTH - 1;
-        if (touch_y < 0) touch_y = 0;
-        if (touch_y > DS_TOUCH_HEIGHT - 1) touch_y = DS_TOUCH_HEIGHT - 1;
-    } else if (touch_down) {
-        if (now - touch_start_ms < DS_TOUCH_TAP_MS) {
-            touch_clicking = 1U;
-            touch_click_ms = now;
-            input->buttons |= CYCLONE2_REPORT_BUTTON_M;
-        } else {
-            touch_down = 0U;
-        }
-    }
-}
-
-/* One touch point: bit 7 of the first byte is "no finger", the rest its
- * tracking id; then 12-bit x and y. */
-static void fill_touch(u8 point[4])
-{
-    if (!touch_down) {
-        point[0] = 0x80U;
-        return;
-    }
-    point[0] = touch_id;
-    point[1] = (u8)touch_x;
-    point[2] = (u8)(((touch_x >> 8) & 0x0f) | ((touch_y & 0x0f) << 4));
-    point[3] = (u8)(touch_y >> 4);
 }
 
 static void fill_simple(u8 report[DS_SIMPLE_SIZE],
@@ -292,8 +154,8 @@ static void fill_simple(u8 report[DS_SIMPLE_SIZE],
 static void fill_extended(u8 report[DS_EXTENDED_SIZE],
                           const struct cyclone2_input_report *input)
 {
-    struct cyclone2_imu_sample sample;
     u8 *state = report + 1;
+    u32 timestamp_us;
 
     memset(report, 0, DS_EXTENDED_SIZE);
     report[0] = (u8)(report_counter << 4);
@@ -305,25 +167,16 @@ static void fill_extended(u8 report[DS_EXTENDED_SIZE],
     state[5] = cyclone2_trigger_u8(input->right_trigger);
     state[6] = report_counter;
     ds_buttons(input, state + 7);
-    put_u32(state + 11, packet_sequence);
-    if (cyclone2_imu_latest(&sample) == 0) {
-
-        put_u16(state + 15, (u16)sample.gyro_y);
-        put_u16(state + 17, (u16)sample.gyro_z);
-        put_u16(state + 19, (u16)sample.gyro_x);
-        put_u16(state + 21, (u16)(s16)-sample.accel_y);
-        put_u16(state + 23, (u16)sample.accel_z);
-        put_u16(state + 25, (u16)(s16)-sample.accel_x);
-
-        /* The sensor timestamp counts 1/3 microseconds. */
-        put_u32(state + 27, sample.timestamp_us * 3U);
-    }
+    playstation_put_u32(state + 11, packet_sequence);
+    /* The sensor timestamp counts 1/3 microseconds. */
+    if (playstation_motion(state + 15, &timestamp_us) == 0)
+        playstation_put_u32(state + 27, timestamp_us * 3U);
     state[31] = 0x16U;
-    fill_touch(state + 32);
+    playstation_touch_fill(&touch, state + 32);
     state[36] = 0x80U;
     state[52] = 0x0aU;
     state[53] = 0x00U;
-    ds_seal(0xa1U, DS_REPORT_EXTENDED, report, DS_EXTENDED_SIZE);
+    playstation_seal(0xa1U, DS_REPORT_EXTENDED, report, DS_EXTENDED_SIZE);
 }
 
 /* Host GET_REPORT, on the BTstack run loop.  Reading any of these switches a
@@ -337,20 +190,20 @@ static int dualsense_get_report(u8 report_type, u8 report_id, u8 *report,
     case DS_FEATURE_CALIBRATION:
         if (size < 36U + 4U) return 0;
 
-        put_u16(report + 6, 8000U);
-        put_u16(report + 8, (u16)(s16)-8000);
-        put_u16(report + 10, 8000U);
-        put_u16(report + 12, (u16)(s16)-8000);
-        put_u16(report + 14, 8000U);
-        put_u16(report + 16, (u16)(s16)-8000);
-        put_u16(report + 18, 500U);
-        put_u16(report + 20, 500U);
-        put_u16(report + 22, 8192U);
-        put_u16(report + 24, (u16)(s16)-8192);
-        put_u16(report + 26, 8192U);
-        put_u16(report + 28, (u16)(s16)-8192);
-        put_u16(report + 30, 8192U);
-        put_u16(report + 32, (u16)(s16)-8192);
+        playstation_put_u16(report + 6, 8000U);
+        playstation_put_u16(report + 8, (u16)(s16)-8000);
+        playstation_put_u16(report + 10, 8000U);
+        playstation_put_u16(report + 12, (u16)(s16)-8000);
+        playstation_put_u16(report + 14, 8000U);
+        playstation_put_u16(report + 16, (u16)(s16)-8000);
+        playstation_put_u16(report + 18, 500U);
+        playstation_put_u16(report + 20, 500U);
+        playstation_put_u16(report + 22, 8192U);
+        playstation_put_u16(report + 24, (u16)(s16)-8192);
+        playstation_put_u16(report + 26, 8192U);
+        playstation_put_u16(report + 28, (u16)(s16)-8192);
+        playstation_put_u16(report + 30, 8192U);
+        playstation_put_u16(report + 32, (u16)(s16)-8192);
         break;
     case DS_FEATURE_PAIRING: {
         const u8 *address = bt_get_mac_addr();
@@ -362,12 +215,12 @@ static int dualsense_get_report(u8 report_type, u8 report_id, u8 *report,
     case DS_FEATURE_FIRMWARE:
         if (size < 45U + 4U) return 0;
 
-        put_u16(report + 43, 0x0400U);
+        playstation_put_u16(report + 43, 0x0400U);
         break;
     default:
         return 0;
     }
-    if (size >= 4U) ds_seal(0xa3U, report_id, report, size);
+    if (size >= 4U) playstation_seal(0xa3U, report_id, report, size);
     extended_reports = 1U;
     return 1;
 }
@@ -418,8 +271,7 @@ static void dualsense_session_start(void)
     report_counter = 0U;
     packet_sequence = 0U;
     simple_sent = 0U;
-    touch_down = 0U;
-    touch_clicking = 0U;
+    playstation_touch_reset(&touch, DS_TOUCH_WIDTH, DS_TOUCH_HEIGHT);
     cyclone2_gyro_reset();
     cyclone2_imu_enable();
 }
@@ -470,7 +322,7 @@ int cyclone2_dualsense_send(const struct cyclone2_input_report *report_in)
         simple_sent = 0U;
         return 0;
     }
-    update_touch(&shaped, sys_timer_get_ms());
+    playstation_touch_update(&touch, &shaped, sys_timer_get_ms());
     if (extended_reports) {
         fill_extended(report, input);
         result = edr_hid_input_send(DS_REPORT_EXTENDED, report,

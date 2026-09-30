@@ -192,6 +192,7 @@ static void test_text(void)
     CHECK(!strcmp(get("profile.0.report_hz"), "auto"));
     CHECK(set("profile.0.type", "switch") == NULL);
     CHECK(set("profile.2.type", "xboxble") == NULL && !strcmp(get("profile.2.type"), "xboxble"));
+    CHECK(set("profile.2.type", "dualshock4") == NULL && !strcmp(get("profile.2.type"), "dualshock4"));
     CHECK(set("profile.2.type", "ps5") != NULL);
     CHECK(set("profile.0.rumble", "off") == NULL && config.profile[0].rumble == 0);
     CHECK(set("profile.0.rumble", "maybe") != NULL);

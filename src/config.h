@@ -29,7 +29,7 @@ struct config_profile {
     /* The slot's LED colour and output level (red, green, blue). */
     u8 colour[3];
     u8 address[6];
-    /* Pointer speeds for the mouse types and the DualSense touchpad: counts
+    /* Pointer speeds for the mouse types and the PlayStation touchpads: counts
      * per second with the stick all the way over, counts per degree turned. */
     u16 stick_speed;
     u16 gyro_speed;

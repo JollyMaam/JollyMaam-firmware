@@ -96,6 +96,17 @@ static const struct profile_operations profiles[] = {
         .send = cyclone2_dualsense_send,
         .handle_event = cyclone2_classic_handle_event,
     },
+    [CYCLONE2_PROFILE_DUALSHOCK4] = {
+        .name = "dualshock4",
+        .default_hz = 250U, /* assumed; not yet measured on a real pad */
+        .start = cyclone2_dualshock4_start,
+        .disconnect = cyclone2_classic_disconnect,
+        .exit = cyclone2_classic_exit,
+        .is_connected = cyclone2_classic_is_connected,
+        .reconnect = cyclone2_classic_reconnect,
+        .send = cyclone2_dualshock4_send,
+        .handle_event = cyclone2_classic_handle_event,
+    },
     [CYCLONE2_PROFILE_XBOX_BLE] = {
         .name = "xboxble",
         .default_hz = 125U, /* assumed; not yet measured on a real pad */
