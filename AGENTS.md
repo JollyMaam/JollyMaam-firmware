@@ -73,6 +73,8 @@ host when Linux Bluetooth testing is needed; the client uses localhost:47807.
   the radio retransmits for tens of ms and a newest-wins d-pad lost presses;
   the stock pad, which queues everything, did not.
   `status report.air.*` shows the slot wait and the hand-off-to-ack hold time.
+- `bt_max_pwr_set()` must be called at boot (`controller.c`): without it the
+  radio ran at its lowest power step, 20 dB below the stock pad.
 - LE links must ask for 251-byte PDUs (`btstack_jl_le.c`); at 27 bytes a
   Switch 2 report took three connection events.
 - `app_core` runs above `btstack`: the other way round, BTstack's ~1 ms of

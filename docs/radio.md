@@ -23,6 +23,15 @@ interfaces, not direct proof of over-the-air behavior.
 - QoS Setup (guaranteed, 1250 µs latency) completes with the values asked for,
   reported with event code 0x01. A Linux host (master after its role switch)
   still delivered the reports in clumps about 25 ms apart.
+- Transmit power comes from the TXSET table (0xF010C2 at step 0 up to
+  0xFFFFC2 at step 4); TXPWR holds one value for every step. The steps start
+  from what bt_max_pwr_set() stores, 0 until it is called; in normal mode
+  bt_get_pwr_max_level() caps them at 4. Measured 2026-09-30 against a Linux
+  host (Intel AX210): without the call RSSI -25 and link quality 4 of 255
+  next to the host; with bt_max_pwr_set(10, 5, 8, 6) RSSI -4 to -9 and link
+  quality 80 a floor away (stock pad: -2 to -9, 255).
+- On Classic, Read RSSI answers 0 (inside the golden range); only LE gives
+  absolute dBm.
 - LE Read Buffer Size reports 4 LE buffers of 251 bytes.
 - A Switch 2 sets a 5 ms connection interval (4 units), peripheral latency 0
   and a 2 s supervision timeout, then moves the link to the 2M PHY itself.
