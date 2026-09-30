@@ -554,6 +554,10 @@ def main() -> None:
 
     args = parser.parse_args()
     if args.command == "serve":
+        before = sys.argv[1:sys.argv.index("serve")] if "serve" in sys.argv else []
+        if any(arg.startswith(("--host", "--token", "--port")) for arg in before):
+            parser.error("--host/--token/--port before serve are client options; "
+                         "the server takes serve --listen HOST:PORT --token SECRET")
         serve(args)
         return
     global TARGET, TOKEN
