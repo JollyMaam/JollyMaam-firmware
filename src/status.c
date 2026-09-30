@@ -131,6 +131,11 @@ static void get_report(void *out)
     cyclone2_report_statistics_get(out);
 }
 
+static void get_air(void *out)
+{
+    btstack_jl_core_input_stats(out);
+}
+
 static void get_input(void *out)
 {
     cyclone2_input_get_stats(out);
@@ -167,6 +172,7 @@ static void get_wake(void *out)
 #define SYSTEM(member)  CFG_STATUS_FIELD(struct status_system, member, get_system)
 #define RADIO(member)   CFG_STATUS_FIELD(struct status_radio, member, get_radio)
 #define REPORT(member)  CFG_STATUS_FIELD(struct cyclone2_report_statistics, member, get_report)
+#define AIR(member)     CFG_STATUS_FIELD(btstack_jl_input_stats_t, member, get_air)
 #define INPUT(member)   CFG_STATUS_FIELD(struct cyclone2_input_stats, member, get_input)
 #define INJECT(member)  CFG_STATUS_FIELD(struct cyclone2_injection_status, member, get_inject)
 static const struct cfg_choice light_scenes[] = {
@@ -255,6 +261,17 @@ const struct cfg_item status_items[] = {
     { .path = "report.busy", .type = CFG_UINT, REPORT(send_busy) },
     { .path = "report.deferred", .type = CFG_UINT, REPORT(send_deferred) },
     { .path = "report.errors", .type = CFG_UINT, REPORT(send_errors) },
+    { .path = "report.air.sent", .type = CFG_UINT, AIR(sent),
+      .help = "Classic input reports handed to the link since the HID channel opened" },
+    { .path = "report.air.replaced", .type = CFG_UINT, AIR(replaced),
+      .help = "input reports replaced by a newer one before the link took them" },
+    { .path = "report.air.messages", .type = CFG_UINT, AIR(messages),
+      .help = "queued reports (replies, events) sent" },
+    { .path = "report.air.wait_avg_us", .type = CFG_UINT, AIR(wait_avg_us),
+      .help = "input report posted -> handed to the link, average" },
+    { .path = "report.air.wait_max_us", .type = CFG_UINT, AIR(wait_max_us) },
+    { .path = "report.air.sniff_entries", .type = CFG_UINT, AIR(sniff_entries),
+      .help = "times the host put the link into sniff" },
 
     { .path = "input.valid", .type = CFG_UINT, INPUT(valid_frames) },
     { .path = "input.crc", .type = CFG_UINT, INPUT(crc_failures) },

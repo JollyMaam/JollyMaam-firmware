@@ -14,6 +14,7 @@
 #include "btstack_jl_hid_ext.h"
 #include "config.h"
 #include "controller.h"
+#include "timing.h"
 
 static const edr_init_cfg_t *edr_config;
 static const u8 *edr_report_map;
@@ -318,6 +319,7 @@ void btstack_init(void)
     config.link_key_delete = &jl_link_key_delete;
     config.link_key_iterator = &jl_link_key_iterator;
     config.time_ms = &jl_time_ms;
+    config.time_us = &cyclone2_time_us;
     config.critical_enter = &jl_critical_enter;
     config.critical_exit = &jl_critical_exit;
     config.trace = &jl_trace;
@@ -543,9 +545,9 @@ void btstack_jl_hid_set_get_report_handler(
     hid_get_report_handler = handler;
 }
 
-int edr_hid_data_send_ext(u8 report_type, u8 report_id, u8 *data, u16 len)
+static int hid_message_send(u8 report_type, u8 report_id, u8 *data, u16 len,
+                            u8 input)
 {
-
     u8 message[80];
 
     if (len + 2 > sizeof(message)) {
@@ -554,7 +556,13 @@ int edr_hid_data_send_ext(u8 report_type, u8 report_id, u8 *data, u16 len)
     message[0] = report_type;
     message[1] = report_id;
     memcpy(message + 2, data, len);
+    if (input) return btstack_jl_core_set_input_report(message, (u16)(len + 2));
     return btstack_jl_core_send_report(message, (u16)(len + 2));
+}
+
+int edr_hid_data_send_ext(u8 report_type, u8 report_id, u8 *data, u16 len)
+{
+    return hid_message_send(report_type, report_id, data, len, 0U);
 }
 
 int edr_hid_data_send(u8 report_id, u8 *data, u16 len)
@@ -564,17 +572,16 @@ int edr_hid_data_send(u8 report_id, u8 *data, u16 len)
     return edr_hid_data_send_ext(0xa1U, report_id, data, len);
 }
 
+/* No sniff_clean here: the run loop leaves sniff itself while an input report
+ * waits, without a wake per report. */
+int edr_hid_input_send(u8 report_id, u8 *data, u16 len)
+{
+    return hid_message_send(0xa1U, report_id, data, len, 1U);
+}
+
 int edr_hid_is_connected(void)
 {
     return btstack_jl_core_hid_connected();
-}
-
-/* A report is still waiting for the link.  A profile that streams its whole
- * state can skip a poll while this is true, so the host always gets the
- * newest state instead of a backlog of old ones. */
-int edr_hid_is_busy(void)
-{
-    return btstack_jl_core_reports_queued() != 0;
 }
 
 int edr_hid_tx_buff_is_ok(void)

@@ -900,6 +900,48 @@ CYCLONE2_HOT static void make_host_report(struct cyclone2_input_report *report)
     }
 }
 
+/* Tap latch.  The Classic link sends only the newest input report, and the
+ * report schedule samples every few milliseconds; a press and release that
+ * both fall between two reports the link takes would never reach the host.
+ * A press seen in any poll is therefore held in the reports until the link
+ * has taken one carrying it.  Home and M are left alone: their taps and
+ * chords are shaped on purpose (make_host_report).  Only while a Classic HID
+ * channel is open, the one path that says which report the link took. */
+#define TAP_LATCH_BUTTONS ((u16)~(CYCLONE2_REPORT_BUTTON_HOME | \
+                                  CYCLONE2_REPORT_BUTTON_M))
+static u16 tap_previous;    /* host_report buttons in the last poll */
+static u16 tap_waiting;     /* presses not yet in a posted report */
+static u16 tap_posted;      /* presses posted, until the link takes them */
+static u32 tap_posted_seq;
+
+CYCLONE2_HOT static void tap_latch_apply(struct cyclone2_input_report *report)
+{
+    u16 pressed = report->buttons & ~tap_previous & TAP_LATCH_BUTTONS;
+
+    tap_previous = report->buttons;
+    if (calibrating || !btstack_jl_core_hid_connected()) {
+        tap_waiting = 0U;
+        tap_posted = 0U;
+        return;
+    }
+    if (tap_posted &&
+        (s32)(btstack_jl_core_input_taken() - tap_posted_seq) >= 0)
+        tap_posted = 0U;
+    tap_waiting |= pressed;
+    report->buttons |= tap_waiting | tap_posted;
+}
+
+/* After the report went to the profile: a new post carries tap_waiting. */
+CYCLONE2_HOT static void tap_latch_sent(u32 posted_before)
+{
+    u32 posted = btstack_jl_core_input_posted();
+
+    if (!tap_waiting || posted == posted_before) return;
+    tap_posted |= tap_waiting;
+    tap_waiting = 0U;
+    tap_posted_seq = posted;
+}
+
 /* Eager debounce: a contact that changes is taken at once, and then held for
  * CYCLONE2_DEBOUNCE_US while it bounces.  Waiting for it to settle first
  * cost every press and release 10-20 ms.  The worst bounce measured (debug
@@ -1083,11 +1125,14 @@ CYCLONE2_HOT static void cyclone2_poll(void *private_data)
     if ((injection_status.active || injection_release_pending) &&
         injection_status.synthetic_a)
         host_report.buttons |= CYCLONE2_REPORT_BUTTON_A;
+    tap_latch_apply(&host_report);
     cyclone2_prof_mark(CYCLONE2_PROF_LOGIC);
     if (report_due) {
         u32 period_us = 1000000U / active_report_hz();
+        u32 posted_before = btstack_jl_core_input_posted();
 
         send_input_report(&host_report);
+        tap_latch_sent(posted_before);
         cyclone2_prof_mark(CYCLONE2_PROF_SEND);
         /* Advance from the intended deadline rather than from a late poll,
          * so the average rate holds; a poll more than a period late starts

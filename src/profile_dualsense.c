@@ -3,6 +3,7 @@
 
 #include "app_comm_bt.h"
 #include "edr_hid_user.h"
+#include "btstack_jl_hid_ext.h"
 #include "imu.h"
 #include "input.h"
 #include "profile.h"
@@ -383,14 +384,10 @@ int cyclone2_dualsense_send(const struct cyclone2_input_report *input)
         simple_sent = 0U;
         return 0;
     }
-    /* Never queue behind an unsent report: when the link drains slower than
-     * the report period (sniff), a queue of stale full-state reports is
-     * pure input lag.  The next poll sends the then-current state. */
-    if (edr_hid_is_busy()) return -1;
     if (extended_reports) {
         fill_extended(report, input);
-        result = edr_hid_data_send(DS_REPORT_EXTENDED, report,
-                                   DS_EXTENDED_SIZE);
+        result = edr_hid_input_send(DS_REPORT_EXTENDED, report,
+                                    DS_EXTENDED_SIZE);
     } else {
         now = sys_timer_get_ms();
         fill_simple(report, input);
@@ -402,7 +399,7 @@ int cyclone2_dualsense_send(const struct cyclone2_input_report *input)
             !memcmp(report + 7, simple_last + 7, DS_SIMPLE_SIZE - 7U) &&
             now - simple_last_send_ms < DS_SIMPLE_KEEPALIVE_MS)
             return 0;
-        result = edr_hid_data_send(DS_REPORT_SIMPLE, report, DS_SIMPLE_SIZE);
+        result = edr_hid_input_send(DS_REPORT_SIMPLE, report, DS_SIMPLE_SIZE);
         if (result == 0) {
             memcpy(simple_last, report, DS_SIMPLE_SIZE);
             simple_sent = 1U;

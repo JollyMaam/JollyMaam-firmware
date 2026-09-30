@@ -4,6 +4,7 @@
 
 #include "app_comm_bt.h"
 #include "edr_hid_user.h"
+#include "btstack_jl_hid_ext.h"
 #include "imu.h"
 #include "lights.h"
 #include "main.h"
@@ -630,8 +631,8 @@ int cyclone2_switch_send(const struct cyclone2_input_report *input)
         memset(report, 0, sizeof(report));
         fill_controller_state(report);
         fill_imu_samples(report + SWITCH_CONTROLLER_STATE_SIZE);
-        result = edr_hid_data_send(SWITCH_REPORT_FULL_STATE, report,
-                                   sizeof(report));
+        result = edr_hid_input_send(SWITCH_REPORT_FULL_STATE, report,
+                                    sizeof(report));
     } else {
         now = sys_timer_get_ms();
         if (!input_changed &&
@@ -639,8 +640,8 @@ int cyclone2_switch_send(const struct cyclone2_input_report *input)
             return 0;
         }
         fill_simple_state(report);
-        result = edr_hid_data_send(SWITCH_REPORT_SIMPLE_STATE, report,
-                                   SWITCH_SIMPLE_PAYLOAD_SIZE);
+        result = edr_hid_input_send(SWITCH_REPORT_SIMPLE_STATE, report,
+                                    SWITCH_SIMPLE_PAYLOAD_SIZE);
         if (result == 0) simple_last_send_ms = now;
     }
     if (tx_debug_remaining != 0U) {

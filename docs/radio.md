@@ -16,6 +16,15 @@ interfaces, not direct proof of over-the-air behavior.
   response. The app's transport supplies that completion as a workaround.
 - SDK `Write/Delete Stored Link Key` handlers are stubs. The controller retains
   a key for a connection; the app's flash VM supplies persistent bonds.
+- Read Buffer Size reports 10 ACL buffers of 640 bytes. The host may hand
+  over up to ten packets; one waiting in them cannot be replaced by a newer
+  report (measured 2026-09-29: unlimited hand-off gave a 63 ms median
+  button-to-host latency against a Linux host, two in flight 23.5 ms).
+- QoS Setup (guaranteed, 1250 µs latency) completes with the values asked for,
+  reported with event code 0x01. A Linux host (master after its role switch)
+  still delivered the reports in clumps about 25 ms apart.
+- A default link policy without role switch (Write Default Link Policy 0x0004)
+  did not keep the pad master: the Linux host's role switch still completed.
 - SDK local-name handling appears limited to 31 bytes: a longer name caused a
   startup reset in a measured 2026-09-27 run. This is an SDK limitation inferred
   from the failure, not a Bluetooth protocol limit.

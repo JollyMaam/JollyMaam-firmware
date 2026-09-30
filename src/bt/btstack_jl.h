@@ -61,6 +61,8 @@ typedef struct {
     btstack_jl_link_key_iterator_t link_key_iterator;
 
     uint32_t (*time_ms)(void);
+    /* Optional microsecond clock for the input-slot wait statistics. */
+    uint32_t (*time_us)(void);
     void     (*critical_enter)(void);
     void     (*critical_exit)(void);
     /* Optional progress trace; the code is stored in the reset-surviving
@@ -87,8 +89,25 @@ void btstack_jl_core_force_shutdown(void);
 void btstack_jl_core_request_start(void);
 
 void btstack_jl_core_request_unsniff(void);
-/* Input reports queued for the HID interrupt channel and not yet sent. */
+/* Reports queued for the HID interrupt channel and not yet sent, counting a
+ * pending input report. */
 uint16_t btstack_jl_core_reports_queued(void);
+
+/* Interrupt-channel input reports since the HID channel opened. */
+typedef struct {
+    uint32_t sent;          /* input reports handed to L2CAP */
+    uint32_t replaced;      /* overwritten by a newer one before they went */
+    uint32_t messages;      /* queued reports (replies, events) sent */
+    uint32_t wait_avg_us;   /* input posted -> handed to L2CAP */
+    uint32_t wait_max_us;
+    uint32_t sniff_entries; /* the host put the link into sniff */
+} btstack_jl_input_stats_t;
+void btstack_jl_core_input_stats(btstack_jl_input_stats_t *out);
+/* Sequence numbers of input reports: the last one stored by
+ * btstack_jl_core_set_input_report(), and the last one the link took.  A
+ * report is on its way once taken - (posted) >= 0 in wrapping arithmetic. */
+uint32_t btstack_jl_core_input_posted(void);
+uint32_t btstack_jl_core_input_taken(void);
 
 uint8_t btstack_jl_core_idle(void);
 
@@ -109,7 +128,12 @@ int  btstack_jl_core_hid_connect(const uint8_t address[6]);
 int  btstack_jl_core_disconnect(void);
 int  btstack_jl_core_hid_connected(void);
 
+/* A report that must reach the host - a reply, an event: queued, sent in
+ * order, ahead of any input report.  0 on success, 3 when the queue is full. */
 int  btstack_jl_core_send_report(const uint8_t *message, uint16_t size);
+/* The controller's current input state: replaces any input report that has
+ * not gone yet, so the host only ever gets the newest.  0 on success. */
+int  btstack_jl_core_set_input_report(const uint8_t *message, uint16_t size);
 
 void btstack_jl_core_delete_all_link_keys(void);
 void btstack_jl_core_delete_link_key(const uint8_t address[6]);

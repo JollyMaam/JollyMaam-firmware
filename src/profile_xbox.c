@@ -3,6 +3,7 @@
 
 #include "app_comm_bt.h"
 #include "edr_hid_user.h"
+#include "btstack_jl_hid_ext.h"
 #include "input.h"
 #include "profile.h"
 #include "profile_classic.h"
@@ -172,7 +173,8 @@ void cyclone2_xbox_start(u8 slot, u8 pairing)
 }
 
 /* Report 0x01 when the state changes (and every XBOX_KEEPALIVE_MS so an idle
- * link keeps moving), report 0x02 when Guide changes.  Returns as
+ * link keeps moving), report 0x02 when Guide changes.  The state replaces an
+ * unsent one; a Guide change is an event, queued so it is never lost.  Returns as
  * cyclone2_profile_send() documents: 1 sent, 0 skipped, -1 queue full,
  * -2 other failure. */
 int cyclone2_xbox_send(const struct cyclone2_input_report *input)
@@ -186,8 +188,6 @@ int cyclone2_xbox_send(const struct cyclone2_input_report *input)
         state_sent = 0U;
         return 0;
     }
-    /* Never queue behind an unsent report (see the DualSense profile). */
-    if (edr_hid_is_busy()) return -1;
     if (guide != last_guide) {
         result = edr_hid_data_send(XBOX_REPORT_GUIDE, &guide, 1U);
         if (result == 3) return -1;
@@ -198,7 +198,7 @@ int cyclone2_xbox_send(const struct cyclone2_input_report *input)
     if (state_sent && !memcmp(state, last_state, sizeof(state)) &&
         now - last_send_ms < XBOX_KEEPALIVE_MS)
         return 0;
-    result = edr_hid_data_send(XBOX_REPORT_STATE, state, sizeof(state));
+    result = edr_hid_input_send(XBOX_REPORT_STATE, state, sizeof(state));
     if (result == 3) return -1;
     if (result != 0) return -2;
     memcpy(last_state, state, sizeof(state));

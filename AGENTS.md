@@ -63,6 +63,14 @@ host when Linux Bluetooth testing is needed; the client uses localhost:47807.
   port transport supplies the response. Persistent bonds belong to app VM.
 - The SDK detach queue could retain the last received ACL packet and delay
   disconnect until supervision timeout. `patch_detach_drain_rx()` fixes it.
+- The BTstack run loop must sleep on the port's wake semaphore
+  (`jieli_btctrler_wait`). A one-tick `os_time_dly` held every wake to the
+  10 ms system tick and capped Classic reports at 100 per second.
+- Classic input reports go through a newest-wins slot with at most two
+  packets in the controller (`BTSTACK_JL_MAX_IN_FLIGHT`); the tap latch in
+  `controller.c` keeps short presses that would otherwise be replaced.
+- `app_core` runs above `btstack`: the other way round, BTstack's ~1 ms of
+  CPU per packet (it runs from flash) cost 19% of the 1 ms control polls.
 - `uxTaskGetStackHighWaterMark()` is unwired and resets the pad. P33 `0x40`
   does not distinguish a deliberate reset from a fault.
 - Raw Switch 1 wake access-code emission was measured; successful console
