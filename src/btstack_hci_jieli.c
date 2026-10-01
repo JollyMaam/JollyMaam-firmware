@@ -89,13 +89,27 @@ static void transport_init(const void *config)
     rx_read = rx_write = 0;
 }
 
-static int transport_open(void)
+/* The controller alone, without the host: the Switch 1 wake transmits on it
+ * before a session, which then takes it over. */
+int hci_jieli_open(void)
 {
     if (!controller_up) {
         if (btctrler_task_init(hci_transport_h4_controller_instance(), 0)) return -1;
         while (!btctrler_task_ready()) plat_delay_ms(20);
         controller_up = 1;
     }
+    return 0;
+}
+
+void hci_jieli_close(void)
+{
+    if (controller_up) btctrler_task_exit();
+    controller_up = 0;
+}
+
+static int transport_open(void)
+{
+    if (hci_jieli_open()) return -1;
     rx_active = 1;
     return 0;
 }
@@ -103,8 +117,7 @@ static int transport_open(void)
 static int transport_close(void)
 {
     rx_active = 0;
-    if (controller_up) btctrler_task_exit();
-    controller_up = 0;
+    hci_jieli_close();
     return 0;
 }
 

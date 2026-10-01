@@ -359,6 +359,9 @@ const struct profile profile_switch = {
     .report = report,
     .write = write,
     .host = host,
+#ifndef UNITTEST
+    .wake = &profile_switch_wake,
+#endif
 };
 
 /* ---- Switch 2 Pro Controller, over LE ------------------------------------------

@@ -32,6 +32,9 @@ static struct {
     u8 last_slot;
     const struct profile *prof;
     u8 radio;                    /* bt_start() until BT_EV_STOPPED */
+    u8 waking;                   /* the profile's wake runs before bt_start() */
+    u32 wake_next;
+    struct profile_session sess;
     struct ctl_request next;     /* STOPPING: what comes after */
     u8 to_loader;
     u8 uboot_chord;
@@ -70,6 +73,34 @@ static void become(u8 kind, u32 now)
     c.since = now;
 }
 
+static void radio_on(void)
+{
+    bt_start(c.prof, c.sess.address, c.sess.pairing ? NULL : c.sess.bond, c.sess.pairing);
+    c.radio = 1;
+}
+
+static void end_session(void)
+{
+    if (c.prof && c.prof->end) c.prof->end();
+    if (c.waking) c.prof->wake->stop();
+    c.waking = 0;
+    if (c.radio) bt_stop();
+}
+
+static void handle(struct ctl_request r, u32 now);
+
+/* The radio is down: the session is over. */
+static void stopped(u32 now)
+{
+    c.radio = 0;
+    if (c.kind == CTL_STOPPING) {
+        c.slot = SLOT_NONE;
+        c.prof = NULL;
+        become(CTL_IDLE, now);
+        handle(c.next, now);
+    }
+}
+
 static void start_session(struct ctl_request r, u32 now)
 {
     const struct profile *p = profile_for(set_slot(r.slot)->type);
@@ -96,8 +127,9 @@ static void start_session(struct ctl_request r, u32 now)
     plat_retain_slot(r.slot);
     memset(&c.host, 0, sizeof(c.host));
     c.begin_imu = p->begin(&s);
-    bt_start(p, s.address, pairing ? NULL : s.bond, pairing);
-    c.radio = 1;
+    c.sess = s;
+    c.waking = !pairing && p->wake && !p->wake->start(&s);
+    if (!c.waking) radio_on();
     util_log("session slot %u %s%s", r.slot, p->name, pairing ? " pairing" : "");
     become(pairing ? CTL_PAIRING : CTL_CONNECTING, now);
 }
@@ -107,9 +139,9 @@ static void stop(struct ctl_request next, u32 now)
 {
     c.next = next;
     if (c.kind != CTL_STOPPING) {
-        if (c.prof && c.prof->end) c.prof->end();
-        bt_stop();
+        end_session();
         become(CTL_STOPPING, now);
+        if (!c.radio) stopped(now);
     }
 }
 
@@ -117,10 +149,7 @@ static void stop(struct ctl_request next, u32 now)
  * controller still running hung the pad off USB). */
 static void shut_down(u8 kind, u32 now)
 {
-    if (c.radio) {
-        if (c.prof && c.prof->end) c.prof->end();
-        bt_stop();
-    }
+    if (c.radio || c.waking) end_session();
     become(kind, now);
 }
 
@@ -203,13 +232,7 @@ static void bt_event(const struct bt_ev *e, u32 now)
         }
         break;
     case BT_EV_STOPPED:
-        c.radio = 0;
-        if (c.kind == CTL_STOPPING) {
-            c.slot = SLOT_NONE;
-            c.prof = NULL;
-            become(CTL_IDLE, now);
-            handle(c.next, now);
-        }
+        stopped(now);
         break;
     }
 }
@@ -234,7 +257,12 @@ static void timeouts(u32 now)
         break;
     case CTL_CONNECTING:
         if (t >= ux_timeouts.connect_ms) stop(none, now);
-        else if (c.retry_at && (s32)(now - c.retry_at) >= 0) {
+        else if (c.waking) {
+            if (c.prof->wake->step(now, &c.wake_next)) {
+                c.waking = 0;
+                radio_on();
+            }
+        } else if (c.retry_at && (s32)(now - c.retry_at) >= 0) {
             c.retry_at = 0;
             bt_connect();
         }
@@ -270,7 +298,8 @@ static u32 state_deadline(void)
     switch (c.kind) {
     case CTL_BOOT: return c.since + (c.uboot_chord ? ux_timeouts.uboot_window_ms : ux_timeouts.boot_scene_ms);
     case CTL_IDLE: return c.since + ux_timeouts.offline_sleep_ms;
-    case CTL_CONNECTING: return c.retry_at ? c.retry_at : c.since + ux_timeouts.connect_ms;
+    case CTL_CONNECTING: if (c.waking) return c.wake_next;
+        return c.retry_at ? c.retry_at : c.since + ux_timeouts.connect_ms;
     case CTL_PAIRING: return c.since + ux_timeouts.pair_ms;
     case CTL_CONNECTED: return c.report_next;
     default: return plat_ms() + 10;
@@ -456,7 +485,7 @@ void ctl_main(void)
         timeouts(now);
         if (c.kind == CTL_CONNECTED) send_report(now);
         outputs(now);
-        set_poll(now, bt_radio_quiet() && c.kind != CTL_STOPPING && now - c.since >= QUIET_MS);
+        set_poll(now, bt_radio_quiet() && !c.waking && c.kind != CTL_STOPPING && now - c.since >= QUIET_MS);
         deadline = earliest(c.led_next, earliest(state_deadline(), earliest(ux_deadline(), c.imu_next)));
         if (c.calibrating) deadline = earliest(deadline, now + CAL_SAMPLE_MS);
         plat_wait(deadline);

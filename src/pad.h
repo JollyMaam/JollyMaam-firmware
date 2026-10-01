@@ -14,6 +14,7 @@ typedef signed short s16;
 typedef unsigned int u32;
 typedef signed int s32;
 typedef long long s64;
+typedef unsigned long long u64;
 
 #include <stddef.h>
 
@@ -229,10 +230,19 @@ struct profile {
     int (*write)(const struct bt_write *w, u32 now, struct bt_bond *bond);
     void (*host)(u32 now, struct profile_host *out);
     int (*read)(u8 kind, u16 id, u16 offset, u8 *out, u16 max);
+    const struct profile_wake *wake;   /* before connecting a bonded slot */
+};
+
+/* Runs before bt_start() with the radio otherwise quiet. */
+struct profile_wake {
+    int (*start)(const struct profile_session *s);   /* 0 started, <0 nothing to wake */
+    int (*step)(u32 now, u32 *next);  /* 1 finished; else call again at *next */
+    void (*stop)(void);
 };
 
 extern const struct profile profile_switch, profile_switch2, profile_xbox, profile_xbox_ble;
 extern const struct profile profile_dualsense, profile_dualshock4, profile_generic, profile_mouse;
+extern const struct profile_wake profile_switch_wake;
 
 /* ---- settings.c --------------------------------------------------------- */
 
