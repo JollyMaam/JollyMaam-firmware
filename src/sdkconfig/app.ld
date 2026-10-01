@@ -1,6 +1,6 @@
 RESET_MAILBOX_SIZE = 16;
-BRINGUP_LOG_BEGIN = 0x20010;
-BRINGUP_LOG_SIZE = 0x2100;
+RETAINED_BEGIN = 0x20010;
+RETAINED_SIZE = 0x2100;
 RESET_MAILBOX_BEGIN = 0x20000;
 /* MaskROM's boot-state token, which `uboot` writes before its reset. */
 MASKROM_TOKEN_BEGIN = 0x10800;
@@ -52,18 +52,18 @@ SECTIONS
         . = ALIGN(4);
     } > ram0
 
-    .bringup_log BRINGUP_LOG_BEGIN (NOLOAD) :
+    .retained RETAINED_BEGIN (NOLOAD) :
     {
         . = ALIGN(4);
-        KEEP(*(.bringup_log))
+        KEEP(*(.retained))
         . = ALIGN(4);
     } > ram0
 }
 
 ASSERT(SIZEOF(.reset_mailbox) <= RESET_MAILBOX_SIZE,
        "soft-reset mailbox exceeds reserved SRAM")
-ASSERT(SIZEOF(.bringup_log) <= BRINGUP_LOG_SIZE,
-       "bring-up log exceeds reserved SRAM")
+ASSERT(SIZEOF(.retained) <= RETAINED_SIZE,
+       "retained RAM exceeds its reservation")
 ASSERT(RESET_MAILBOX_BEGIN >= RAM_USED,
        "normal RAM sections overlap soft-reset mailbox")
 /* The Bluetooth controller's RAM (its baseband buffers among it) must not

@@ -1,154 +1,126 @@
-#include <system/includes.h>
-#include <asm/irq.h>
-#include <asm/wdt.h>
+#include <string.h>
+#include "pad.h"
 
-#include "console.h"
-#include "controller.h"
-#include "led.h"
-#include "main.h"
-#include "rom.h"
-#include "input.h"
-#include "usb.h"
-#include "usb/device/cdc.h"
-#include "usb/device/usb_stack.h"
+/* Vendor SCSI commands on the mass-storage interface; architecture/usb.md.
+ * CDB: [0] 0xF5, [1] command, [2..5] argument (little-endian).  The Jieli
+ * loader's own opcodes (0xFB 0xFC 0xFD) reboot into the loader, as the SDK
+ * does, so its tools find the loader behind a running pad. */
 
-#define USB_CON0              (*(volatile u32 *)0x001e1800U)
-#define USB_CON1              (*(volatile u32 *)0x001e1804U)
-#define USB_IO_CON0           (*(volatile u32 *)0x001e5100U)
-#define USB_FORCE_SE0         BIT(11)
-#define MASKROM_NVRAM_ADDRESS ((volatile u8 *)0x00010800U)
-#define RESPONSE_DELAY_TICKS  30U
-#define UBOOT_RADIO_TIMEOUT_MS 5000U
+#define OP          0xf5
+#define PROTOCOL    1
 
-static volatile u8 receive_pending;
-static u8 uboot_pending;
-static u8 response_delay;
-static u32 uboot_started_ms;
-static u8 terminal_was_open;
-static u32 terminal_generation;
+enum { CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02,
+       CMD_REBOOT = 0x10, CMD_REBOOT_LOADER = 0x11 };
 
-extern void usb_start(void);
-extern void nvram_set_boot_state(u32 state);
-extern void flushinv_dcache(const void *address, u32 size);
-extern u8 cyclone2_cdc_terminal_open(void);
-extern u32 cyclone2_cdc_terminal_generation(void);
+#ifndef BUILD_ID
+#define BUILD_ID "host"
+#endif
 
-void cyclone2_usb_write(const void *data, u32 length)
+static struct ctl_request pending;
+static const struct usb_status *status;
+
+u32 usb_command(const u8 cdb[16], u8 *data, u32 max)
 {
-    cdc_write_data(USB0, (u8 *)data, length);
-}
+    u32 n = 0;
 
-int cyclone2_usb_uboot_pending(void)
-{
-    return uboot_pending;
-}
-
-static void arm_maskrom_usb_token(void)
-{
-    nvram_set_boot_state(2U);
-    __asm__ volatile("csync");
-    flushinv_dcache((const void *)MASKROM_NVRAM_ADDRESS, 16U);
-}
-
-void cyclone2_usb_uboot_request(void)
-{
-
-    if (cyclone2_disconnect_request() > 0) console_write("OK disconnecting first\r\n");
-    uboot_started_ms = sys_timer_get_ms();
-    arm_maskrom_usb_token();
-    console_write("OK entering UBOOT1.00 token=");
-    console_hex((const u8 *)MASKROM_NVRAM_ADDRESS, 16U);
-    console_write("\r\n");
-    response_delay = RESPONSE_DELAY_TICKS;
-    uboot_pending = 1U;
-}
-
-static void cdc_receive_wakeup(struct usb_device_t *usb_device)
-{
-    (void)usb_device;
-    receive_pending = 1U;
-}
-
-__attribute__((noreturn))
-static void enter_maskrom_uboot(void)
-{
-    static const struct cyclone2_light_frame green = { .light = {
-        { 0, 16, 0 }, { 0, 16, 0 }, { 0, 16, 0 }, { 0, 16, 0 },
-        { 0, 16, 0 }, { 0, 16, 0 }, { 0, 16, 0 }, { 0, 16, 0 },
-    } };
-
-    cyclone2_led_write(&green);
-    rom_mdelay(100U);
-
-    local_irq_disable();
-    USB_CON0 = 0U;
-    USB_CON1 = 0U;
-    USB_IO_CON0 = USB_FORCE_SE0;
-    rom_mdelay(1000U);
-    USB_IO_CON0 = 0U;
-    rom_mdelay(250U);
-
-    while (!gpio_read(CYCLONE2_USB_SENSE)) rom_mdelay(100U);
-
-    arm_maskrom_usb_token();
-    wdt_init(WDT_256MS);
-    local_irq_disable();
-    for (;;) {
+    if (cdb[0] != OP) {
+        pending.kind = REQ_REBOOT_LOADER;
+        return 0;
     }
+    switch (cdb[1]) {
+    case CMD_IDENTIFY: {
+        const u8 *uid = plat_unique_id();
+
+        if (max < 40) return 0;
+        memcpy(data, "C2PD", 4);
+        util_put16(data + 4, PROTOCOL);
+        strncpy((char *)data + 8, BUILD_ID, 16);
+        if (uid) memcpy(data + 24, uid, 16);
+        n = 40;
+        break;
+    }
+    case CMD_STATUS:
+        if (max < 16 || !status) return 0;
+        data[0] = status->state;
+        data[1] = status->slot;
+        data[2] = status->usb_powered;
+        data[3] = status->low_battery;
+        util_put16(data + 4, status->battery_mv);
+        util_put32(data + 8, status->uptime_ms);
+        n = 16;
+        break;
+    case CMD_LOG: {
+        u32 seq = util_get32(cdb + 2);
+
+        if (max < 8) return 0;
+        n = util_log_read(&seq, (char *)data + 8, max - 8);
+        util_put32(data, seq);
+        util_put32(data + 4, n);
+        n += 8;
+        break;
+    }
+    case CMD_REBOOT:
+        pending.kind = REQ_REBOOT;
+        break;
+    case CMD_REBOOT_LOADER:
+        pending.kind = REQ_REBOOT_LOADER;
+        break;
+    }
+    return n;
 }
 
-static void uboot_step(void)
+struct ctl_request usb_poll(const struct usb_status *s)
 {
-    static u8 warned;
+    struct ctl_request r;
 
-    if (!cyclone2_radio_stopped()) {
-        if (sys_timer_get_ms() - uboot_started_ms < UBOOT_RADIO_TIMEOUT_MS)
-            return;
-        if (!warned) {
-
-            warned = 1U;
-            cyclone2_bringup_record(0x5e00u);
-
-            console_write("WARN radio still up after 5 s; entering UBOOT anyway\r\n");
-        }
-    }
-    if (--response_delay == 0U) enter_maskrom_uboot();
+    status = s;
+    plat_usb_service();
+    r = pending;
+    pending.kind = REQ_NONE;
+    pending.slot = SLOT_NONE;
+    return r;
 }
 
-void cyclone2_usb_control_initialize(void)
+#ifdef UNITTEST
+static const u8 uid[16] = { 1, 2, 3 };
+const u8 *plat_unique_id(void) { return uid; }
+void plat_usb_service(void) {}
+u32 util_log_read(u32 *seq, char *out, u32 max)
 {
-    usb_start();
-    cdc_set_wakeup_handler(cdc_receive_wakeup);
+    (void)max;
+    *seq = 7;
+    memcpy(out, "hi\n", 3);
+    return 3;
 }
+void util_put16(u8 *p, u16 v) { p[0] = (u8)v; p[1] = (u8)(v >> 8); }
+void util_put32(u8 *p, u32 v) { util_put16(p, (u16)v); util_put16(p + 2, (u16)(v >> 16)); }
+u32 util_get32(const u8 *p) { return p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (u32)p[3] << 24; }
 
-void cyclone2_usb_control_poll(void)
+int main(void)
 {
-    u8 receive_buffer[64];
-    u32 length;
-    u32 generation = cyclone2_cdc_terminal_generation();
+    u8 cdb[16] = { OP, CMD_IDENTIFY }, data[512];
+    struct usb_status st = { CTL_IDLE, SLOT_NONE, 1, 0, 3900, 1234 };
+    struct ctl_request r;
 
-    if (generation != terminal_generation) {
-        console_closed();
-        terminal_was_open = 0U;
-        terminal_generation = generation;
-    }
-    if (!cyclone2_cdc_terminal_open()) {
-        if (terminal_was_open) console_closed();
-        terminal_was_open = 0U;
-        if (uboot_pending) uboot_step();
-        return;
-    }
-    if (!terminal_was_open) {
-        terminal_was_open = 1U;
-        console_opened();
-    }
-    if (receive_pending && !uboot_pending) {
-        receive_pending = 0U;
-        do {
-            length = cdc_read_data(USB0, receive_buffer, sizeof(receive_buffer));
-            if (length != 0U) console_input(receive_buffer, length);
-        } while (length != 0U && !uboot_pending);
-    }
-    if (!uboot_pending) console_poll();
-    if (uboot_pending) uboot_step();
+    CHECK(usb_command(cdb, data, sizeof(data)) == 40);
+    CHECK(!memcmp(data, "C2PD", 4) && data[4] == PROTOCOL && data[25] == 2);
+    status = &st;
+    cdb[1] = CMD_STATUS;
+    CHECK(usb_command(cdb, data, sizeof(data)) == 16);
+    CHECK(data[0] == CTL_IDLE && data[4] == (3900 & 0xff) && data[8] == (1234 & 0xff));
+    cdb[1] = CMD_LOG;
+    cdb[2] = 5;
+    CHECK(usb_command(cdb, data, sizeof(data)) == 11 && data[0] == 7 && data[4] == 3);
+    r = usb_poll(&st);
+    CHECK(r.kind == REQ_NONE);
+    cdb[1] = CMD_REBOOT_LOADER;
+    usb_command(cdb, data, sizeof(data));
+    r = usb_poll(&st);
+    CHECK(r.kind == REQ_REBOOT_LOADER);
+    cdb[0] = 0xfc;
+    usb_command(cdb, data, sizeof(data));
+    CHECK(usb_poll(&st).kind == REQ_REBOOT_LOADER);
+    CHECK(usb_poll(&st).kind == REQ_NONE);
+    return TEST_DONE("usb");
 }
+#endif

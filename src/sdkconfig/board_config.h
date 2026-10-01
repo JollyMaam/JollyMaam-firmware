@@ -51,7 +51,7 @@
 #undef MODULE_DISABLED
 
 #include "usb_std_class_def.h"
-#define USB_DEVICE_CLASS_CONFIG     CDC_CLASS
+#define USB_DEVICE_CLASS_CONFIG     MASSSTORAGE_CLASS
 #define TCFG_OTG_USB_DEV_EN         BIT(0)
 
 #define AUDIO_OUTPUT_MODE           AUDIO_OUTPUT_STEREO
