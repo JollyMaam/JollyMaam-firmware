@@ -65,7 +65,7 @@ static u16 hid_cid;
 static hci_con_handle_t con_handle;
 static u32 unsniff_next;
 static btstack_data_source_t tx_source;
-static btstack_packet_callback_registration_t hci_registration;
+static btstack_packet_callback_registration_t hci_registration, l2cap_registration;
 static u8 sdp_hid[720];
 static u8 sdp_id[100];
 
@@ -198,12 +198,21 @@ static void emit_write(u8 kind, u16 id, const u8 *data, int len)
 static void kdb_nop(void) {}
 static void kdb_addr(bd_addr_t a) { (void)a; }
 
+static int has_key(void)
+{
+    static const u8 zero[16];
+    return memcmp(bond.link_key, zero, 16) != 0;
+}
+
 static int kdb_get(bd_addr_t a, link_key_t key, link_key_type_t *type)
 {
     u8 peer[6];
 
     reverse(a, peer);
-    if (!bond.key_type || memcmp(peer, bond.peer, 6)) return 0;
+    if (!has_key() || memcmp(peer, bond.peer, 6)) {
+        util_log("bt: no key for %s", bd_addr_to_str(a));
+        return 0;
+    }
     memcpy(key, bond.link_key, 16);
     *type = (link_key_type_t)bond.key_type;
     return 1;
@@ -214,6 +223,7 @@ static void kdb_put(bd_addr_t a, link_key_t key, link_key_type_t type)
     reverse(a, bond.peer);
     memcpy(bond.link_key, key, 16);
     bond.key_type = (u8)type;
+    util_log("bt: bonded %s type %u", bd_addr_to_str(a), type);
     emit(BT_EV_BONDED, 0);
 }
 
@@ -237,7 +247,7 @@ static int kdb_iter_init(btstack_link_key_iterator_t *it)
 static int kdb_iter_next(btstack_link_key_iterator_t *it, bd_addr_t a, link_key_t key,
                          link_key_type_t *type)
 {
-    if (it->context || !bond.key_type) return 0;
+    if (it->context || !has_key()) return 0;
     it->context = (void *)1;
     reverse(bond.peer, a);
     memcpy(key, bond.link_key, 16);
@@ -400,6 +410,8 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
         }
         break;
     case HCI_EVENT_CONNECTION_COMPLETE:
+        hci_event_connection_complete_get_bd_addr(packet, a);
+        util_log("bt: acl %s status 0x%02x", bd_addr_to_str(a), hci_event_connection_complete_get_status(packet));
         if (hci_event_connection_complete_get_status(packet)) break;
         con_handle = hci_event_connection_complete_get_connection_handle(packet);
         acl_up = 1;
@@ -408,12 +420,14 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
         emit(BT_EV_PEER, 0);
         break;
     case HCI_EVENT_DISCONNECTION_COMPLETE:
+        util_log("bt: acl down reason 0x%02x", hci_event_disconnection_complete_get_reason(packet));
         acl_up = 0;
         unlinked(hci_event_disconnection_complete_get_reason(packet));
         break;
     case HCI_EVENT_HID_META:
         switch (hci_event_hid_meta_get_subevent_code(packet)) {
         case HID_SUBEVENT_CONNECTION_OPENED:
+            util_log("bt: hid open status 0x%02x", hid_subevent_connection_opened_get_status(packet));
             if (hid_subevent_connection_opened_get_status(packet)) {
                 hid_cid = 0;
                 if (!acl_up) unlinked(hid_subevent_connection_opened_get_status(packet));
@@ -426,6 +440,7 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
             emit(BT_EV_LINKED, 0);
             break;
         case HID_SUBEVENT_CONNECTION_CLOSED:
+            util_log("bt: hid closed");
             hid_cid = 0;
             send_pending = 0;
             /* The host closed the HID channels: it means it.  Drop the link
@@ -436,6 +451,22 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
             send_now();
             break;
         }
+        break;
+    }
+}
+
+static void on_l2cap(u8 type, u16 channel, u8 *packet, u16 size)
+{
+    (void)channel;
+    (void)size;
+    if (type != HCI_EVENT_PACKET) return;
+    switch (hci_event_packet_get_type(packet)) {
+    case L2CAP_EVENT_INCOMING_CONNECTION:
+        util_log("bt: l2cap in psm 0x%02x", l2cap_event_incoming_connection_get_psm(packet));
+        break;
+    case L2CAP_EVENT_CHANNEL_OPENED:
+        util_log("bt: l2cap open psm 0x%02x status 0x%02x", l2cap_event_channel_opened_get_psm(packet),
+                 l2cap_event_channel_opened_get_status(packet));
         break;
     }
 }
@@ -488,6 +519,8 @@ static void setup(void)
     hci_set_link_key_db(&key_db);
     hci_enable_acl_packet_types(ACL_TYPES);
     l2cap_init();
+    l2cap_registration.callback = on_l2cap;
+    l2cap_add_event_handler(&l2cap_registration);
     sdp_init();
     gap_set_local_name(d->name);
     gap_set_class_of_device(d->class_of_device);

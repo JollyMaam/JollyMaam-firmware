@@ -143,4 +143,6 @@ $O/test/%: src/%.c src/pad.h src/test.h
 	@mkdir -p $(@D)
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) -DUNITTEST -Isrc $< -o $@
 
+$O/src/usb.o: $(wildcard .git/HEAD .git/index)
+
 -include $(OBJECTS:.o=.d)

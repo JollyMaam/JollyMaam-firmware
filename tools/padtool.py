@@ -124,7 +124,16 @@ def status(path):
 def log(path, follow):
     seq = 1
     while True:
-        d = cmd(path, 0x02, seq, 512)
+        try:
+            d = cmd(path, 0x02, seq, 512)
+        except OSError:
+            if not follow:
+                raise
+            print("-- pad gone; waiting --", flush=True)
+            path = wait_for("pad", 3600)
+            if not path:
+                return
+            continue
         first, n = struct.unpack_from("<II", d)
         text = d[8:8 + n].decode("utf-8", "replace")
         if first > seq and seq > 1:

@@ -41,6 +41,7 @@
 #define USB_SOF_STALE_MS 250
 
 extern void bt_pll_para(u32 osc, u32 sys, u8 low_power, u8 xosc);
+extern void bt_max_pwr_set(u8 pwr, u8 pg_pwr, u8 iq_pwr, u8 ble_pwr);
 extern void nvram_set_boot_state(u32 state);
 extern void flush_dcache(const void *address, u32 size);
 extern void flushinv_dcache(const void *address, u32 size);
@@ -787,6 +788,8 @@ static void ctl_thread(void *arg)
     (void)arg;
     clk_set("sys", BT_NORMAL_HZ);
     bt_pll_para(TCFG_CLOCK_OSC_HZ, clk_get("sys"), 0, 0);
+    /* Without this the radio stays at its lowest step, 20 dB below stock. */
+    bt_max_pwr_set(10, 5, 8, 6);
     util_log_init();
     leds_init();
     inputs_init();
