@@ -53,7 +53,7 @@ If a function is not in `pad.h`, it is `static`.
 | `settings_ux.c` | `ux_` | `ux.c` table, timeouts in `controller.c`/`controller_state.c`, scene table in `lights_render.c` |
 | `controller.c` | `ctl_` | `controller.c`, `controller_state.c`, `ux.c` engine, `rumble.c` policy |
 | `profile_switch.c` | `sw_` | `profile_switch.c`, `profile_switch2.c`, `profile_switch2_att_db.h`, the two `.bin` files |
-| `profile_switch_wake.c` | `swake_` | `profile_switch_wake*.c/h` (4 + 4 files) |
+| `profile_switch_wake.c` | `swake_` | `profile_switch_wake*.c/h` (4 + 4 files); the wake step of a `switch` connect |
 | `profile_xbox.c` | `xbox_` | `profile_xbox.c`, `profile_xbox_ble.c`, its att_db header and `.gatt` |
 | `profile_playstation.c` | `ps_` | `profile_playstation.c`, `profile_dualsense.c`, `profile_dualshock4.c` |
 | `profile_hid.c` | `hid_` | `profile_generic.c`, `profile_mouse.c` (stick and gyro mouse become one `mouse` profile) |

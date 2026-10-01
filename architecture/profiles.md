@@ -158,25 +158,37 @@ Classic bonds (peer address, link key) are handled by `bt.c` itself.
 
 ## Console wake: `profile_switch_wake.c`
 
-Waking a sleeping Switch 1 is not a Bluetooth link: the pad transmits
-raw packets for some seconds and then starts a normal `switch` session.  It sweeps the whitening states of the console's
-wake packets on one channel for up to 30 s.  Emission is measured; a
-console actually waking is not yet.  It is its own module with its own small interface,
-used only by the controller:
+Waking a sleeping Switch 1 is not a Bluetooth link: the pad transmits raw
+packets for some seconds, sweeping the whitening states of the console's wake
+packets on one channel.  Emission is measured; a console actually waking is
+not yet.
+
+It is part of connecting a `switch` slot.  The profile table carries it as an
+optional step that runs before the session starts:
 
 ```c
-int  swake_check(u8 slot, u8 channel, u8 seconds);   /* 0 ok, <0 why not */
-int  swake_start(u8 slot, u8 channel, u8 seconds);
-int  swake_step(u32 now_ms);                         /* 1 when finished */
-void swake_stop(void);
+struct profile_wake {
+    int  (*start)(u8 slot);          /* 0 started, <0 nothing to wake (no bonded console) */
+    int  (*step)(u32 now_ms);        /* 1 when finished */
+    void (*stop)(void);
+};
+/* in struct profile: */
+    const struct profile_wake *wake;  /* NULL for every profile but switch */
 ```
 
-It contains the access-code and payload generation (pure, unit-tested against
-the known vectors) and the radio register sequence (Jieli-specific; on another
-chip this part would be rewritten or the feature left out).  Switch 2 wake is
-just a flag in its advertisement and needs none of this.
+When the controller connects a slot (not pairing) whose profile has `wake`
+and a bonded console, it runs the wake (state `WAKING`) and then starts the
+session as usual.  The radio must be quiet for the wake, which is why it runs
+before `bt_start()`, not inside the session.  Channel and duration are
+constants in `profile_switch_wake.c` (today's defaults: channel 0, 8 s).
+There is no separate wake command or gesture.
 
-**Open: what starts it.**  Today only the console's `wake` command does, and
-the console is going.  Options: a Home+slot chord on a `switch` slot always
-wakes first and then connects; or a separate gesture row (for example
-Home+slot held 1 s); or the USB tool only, for now.
+This puts the wake in front of every connect of a `switch` slot, so a console
+that is already awake answers only after the wake is over (up to the full
+duration).  If that is too slow: page first for a moment, and wake only if the
+console does not answer.
+
+The file contains the access-code and payload generation (pure, unit-tested
+against the known vectors) and the radio register sequence (Jieli-specific; on
+another chip this part would be rewritten or the feature left out).  Switch 2
+wake is just a flag in its advertisement and needs none of this.

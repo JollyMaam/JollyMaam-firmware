@@ -34,7 +34,7 @@ data.
 | `PAIRING` | session started, discoverable for a new host | `BT_LINKED`; pair timeout → sleep |
 | `LINKED` | a host has the link; reports flow | `BT_UNLINKED` → `DISCONNECTED`; a gesture |
 | `DISCONNECTED` | session up, link gone; the host may come back | `BT_LINKED`; offline sleep |
-| `WAKING` | Switch 1 wake transmitting | wake done → `CONNECTING` |
+| `WAKING` | a connect's wake step (Switch 1) transmitting | wake done → `CONNECTING` |
 | `STOPPING` | session going down, then `after`: idle, start slot, wake, sleep, reboot | `BT_STOPPED` or stop timeout |
 
 A connect or pair requested while `STOPPING` towards another slot replaces
@@ -48,7 +48,6 @@ Called by gestures and by `usb.c` (control thread):
 int  ctl_connect(u8 slot);
 int  ctl_pair(u8 slot, int fresh_address);
 int  ctl_disconnect(void);
-int  ctl_wake(u8 slot, u8 channel, u8 seconds);
 void ctl_sleep(void);               /* on USB power: disconnect only */
 int  ctl_reboot(void);
 const struct ctl_state *ctl_state(void);

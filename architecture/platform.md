@@ -6,7 +6,7 @@ below.
 
 | File | Contains |
 |---|---|
-| `platform_jieli.c` | `app_main`, `board_init`, tasks, the 1 ms clock, timers, storage, USB CDC, the pin table, button/stick/trigger sampling, I2C, the LED chain, the motors, power-off and wake, the loader entry, the boot chords |
+| `platform_jieli.c` | `app_main`, `board_init`, tasks, the 1 ms clock, timers, storage, the USB mass-storage device, the pin table, button/stick/trigger sampling, I2C, the LED chain, the motors, power-off and wake, the loader entry, the boot chords |
 | `platform_jieli_sdk.c` | constants and hooks the SDK libraries require, which the firmware itself never reads |
 | `btstack_hci_jieli.c` | BTstack on the Jieli controller (see [bluetooth.md](bluetooth.md)) |
 
