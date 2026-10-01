@@ -82,14 +82,22 @@ reboot can still be read afterwards.
 ## Interface
 
 ```c
-void usb_init(void);
-void usb_poll(void);          /* from ctl_poll */
-int  usb_present(void);       /* a host is sending frames */
+struct ctl_request usb_poll(const struct usb_status *status);   /* from ctl_poll */
 ```
 
-The SDK's mass-storage class driver and `private_scsi_cmd()` hook are
-platform code; `usb.c` gets each vendor command as
-`usb_command(const u8 cdb[16], u8 *data, u32 len)` and returns a status.
+`usb_poll()` is called every millisecond.  If a vendor command is waiting it
+answers it and returns at most one request (`REQ_REBOOT`,
+`REQ_REBOOT_LOADER`, later others); the controller decides what to do with
+it, as with gestures.  `status` is what the controller chooses to report
+(state, slot, battery, calibration required, ...); `usb.c` keeps no copy of
+the pad's state.  `IDENTIFY` comes from constants and `plat_unique_id()`,
+`LOG` from the ring buffer in `utils.c`.
+
+The SDK's mass-storage driver runs outside the loop.  Its
+`private_scsi_cmd()` hook (platform code) parks each vendor command until the
+next `usb_poll()` takes it, at most a millisecond later; the host simply waits
+for the status.  Whether a host is present (`plat_usb_present()`) is the
+platform's, read by the controller for sleep decisions.
 
 ## Tools
 

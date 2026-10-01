@@ -32,24 +32,46 @@ both move the pointer, each at its own speed (`stick_speed`, `gyro_speed`;
 ## The interface
 
 ```c
+struct profile_session {          /* filled by the controller for begin() */
+    u8 slot;
+    u8 pairing;                       /* waiting for a new host */
+    u8 address[6];                    /* the pad's address in this slot */
+    const struct bt_bond *bond;       /* the bonded host, if any */
+    const struct set_slot *settings;  /* read-only: speeds, variant, ... */
+};
+
+struct profile_effects {          /* filled by write(); applied by the controller */
+    u8 rumble_set;  u8 rumble_left, rumble_right;  u16 rumble_ms;  /* ms 0: until changed */
+    u8 players_set; u8 players, players_flash;
+    u8 lightbar_set; u8 lightbar[3];
+    u8 bond_set;    struct bt_bond bond;          /* Switch 2: pairing finished */
+};
+
 struct profile {
     const char *name;                 /* "switch", "dualsense", ... */
-    u16 report_hz;                    /* default rate for profile.#.report_hz=auto */
-    const struct bt_device *device;   /* what the host sees; see below */
+    u16 report_hz;                    /* default for profile.#.report_hz=auto */
+    const struct bt_device *device;   /* what the host sees */
+    const struct profile_wake *wake;  /* Switch 1 only; see below */
 
-    void (*begin)(u8 slot, int pairing);
-    void (*linked)(void);
+    enum imu_mode (*begin)(const struct profile_session *s);
     void (*end)(void);
-
     int  (*report)(const struct pad *pad, u32 now_ms, u8 *out, u8 *id);
-    void (*write)(const struct bt_write *w);
-    int  (*read)(const struct bt_read *r, u8 *out, u16 max);
+    void (*write)(const struct bt_write *w, struct profile_effects *fx);
+    int  (*read)(const struct bt_read *r, u8 *out, u16 max);   /* bluetooth thread */
 };
 
 extern const struct profile *const profiles[PROFILE_TYPE_COUNT];
 ```
 
 Every function pointer may be NULL except `report`.
+
+A profile keeps its own session state (Switch input mode, PlayStation
+sequence numbers, the Switch 2 pairing exchange) in `static` variables: only
+the host and the reports change it, and `begin()` resets it.  Everything the
+controller decides (slot, settings, bond) comes in through
+`profile_session`, and everything the host asks of the pad goes back out
+through `profile_effects`.  A profile calls nothing else except
+`bt_send_message()` and `util_*()`.
 
 ### Identity: `device`
 
@@ -65,21 +87,20 @@ struct bt_device {
     const u8 *hid_descriptor; u16 hid_descriptor_len;
     const u8 *att_db; u16 att_db_len; /* LE: compiled GATT database */
     u16 input_handle;                 /* LE: characteristic carrying reports */
-    void (*advertising)(u8 slot, int pairing, u8 *data, u8 *len);  /* LE */
+    void (*advertising)(const struct profile_session *s, u8 *data, u8 *len);  /* LE */
 };
 ```
 
-### Session: `begin`, `linked`, `end`
+### Session: `begin`, `end`
 
-* `begin(slot, pairing)` – a session is starting for this slot.  Reset all
-  per-host state (Switch input mode, PlayStation sequence numbers, the Switch 2
-  pairing exchange).  `pairing` is true when the slot is waiting for a new
-  host.
-* `linked()` – the host is connected and can take reports (Classic: the HID
-  interrupt channel is open; LE: the host enabled notifications on
-  `input_handle`).
-* `end()` – the session is over.  Undo anything the host had set; the
-  controller also stops rumble and clears host lights.
+* `begin(s)` – a session is starting.  Reset the profile's state and return
+  the IMU mode it needs (`IMU_OFF`, `IMU_MOTION`, `IMU_GYRO`); the controller
+  sets it.  The mouse returns `IMU_GYRO` only if its gyro speed is not 0.
+* `end()` – the session is over.  The controller itself stops the rumble,
+  clears the host lights and turns the IMU off.
+
+When the host is ready for reports the controller learns it from
+`BT_EV_LINKED`; the profile does not need to be told.
 
 ### Pad to host: `report`
 
@@ -87,15 +108,15 @@ struct bt_device {
 int report(const struct pad *pad, u32 now_ms, u8 *out, u8 *id);
 ```
 
-Called by the controller at the slot's report rate while linked.  `pad` is the
-calibrated input (buttons, hat, sticks, triggers, latest IMU samples).  The
-profile writes one input report into `out`, sets `*id` (the HID report ID, or
-0 for LE), and returns its length.  Returning 0 means "nothing to send this
-time" (Switch simple mode and Xbox send an unchanged state only as an
-occasional keep-alive).
+Called by the controller at the slot's report rate while connected.  `pad` is
+the calibrated input (buttons, hat, sticks, triggers, latest IMU samples),
+with whatever the gestures or calibration hide already removed.  The profile
+writes one input report into `out`, sets `*id` (the HID report ID, or 0 for
+LE), and returns its length.  0 means "nothing to send this time" (Switch
+simple mode and Xbox send an unchanged state only as an occasional
+keep-alive).
 
 The controller hands the result to `bt_send_input()`, the newest-wins slot.
-The profile does not send input itself.
 
 ### Host to pad: `write`
 
@@ -108,23 +129,22 @@ struct bt_write {
 };
 ```
 
-Everything the host pushes to the pad arrives here: HID output reports on the
-interrupt channel (`OUTPUT`), HID SET_REPORT on the control channel
-(`FEATURE`), and writes to GATT characteristics (`ATT`).  Typical handling:
+Everything the host pushes to the pad: HID output reports on the interrupt
+channel (`OUTPUT`), HID SET_REPORT on the control channel (`FEATURE`), writes
+to GATT characteristics (`ATT`).  `bt.c` queues them as `BT_EV_WRITE`; the
+controller calls `write()` on the control thread and then applies `fx`.
 
 | Profile | Host writes | Profile does |
 |---|---|---|
-| switch | output report 0x01/0x10: rumble + subcommand | `ctl_rumble()`; answer the subcommand with `bt_send_message(0x21, ...)` |
-| switch2 | ATT command channel writes | answer with `bt_send_message()` on the response handle; on pairing, `set_bond_le()` |
-| xbox | rumble output report | `ctl_rumble()` |
-| dualsense / dualshock4 | output report: motors, lightbar, player LEDs | `ctl_rumble()`, `led_host_lightbar()`, `led_host_players()` |
+| switch | output report 0x01/0x10: rumble + subcommand | `fx.rumble`; answers the subcommand with `bt_send_message(0x21, ...)` |
+| switch2 | ATT command channel | answers with `bt_send_message()` on the response handle; `fx.rumble`; `fx.bond` when pairing finishes |
+| xbox | rumble output report | `fx.rumble` |
+| dualsense / dualshock4 | output report: motors, lightbar, player LEDs | `fx.rumble`, `fx.lightbar`, `fx.players` |
 
-Runs on the bluetooth thread: see the thread rules in [README.md](README.md).
-
-`bt_send_message(id, data, len)` is the second way to send to the host: an
-answer or an event that must not be dropped (a subcommand reply, the Xbox Guide
-button report, a Switch 2 response notification).  Messages are queued in
-order, few and small; input reports never go this way.
+`bt_send_message(id, data, len)` is the way to send the host something that
+must not be dropped: a subcommand reply, the Xbox Guide button report, a
+Switch 2 response notification.  Messages are queued in order, few and small;
+input reports never go this way.
 
 ### Host asks the pad: `read`
 
@@ -136,25 +156,11 @@ struct bt_read {
 };
 ```
 
-HID GET_REPORT (the PlayStation consoles read calibration and the MAC address
-as feature reports) and GATT reads.  Returns the length written to `out`, or
--1 for "no such report/handle".
-
-### What profiles may call
-
-Only these, all safe from the bluetooth thread:
-
-| Call | For |
-|---|---|
-| `bt_send_message(id, data, len)` | replies and events that must arrive |
-| `ctl_rumble(left, right, ms)` | motors; `ms` 0 = until changed; the slot's `rumble` setting is applied there, not in the profile |
-| `led_host_players(mask, flash)`, `led_host_lightbar(r, g, b)` | lights the host sets |
-| `set_bond_le(slot, peer, ltk)` | Switch 2 pairing result |
-| `set_slot(slot)` | read-only slot settings (`stick_speed`, `gyro_speed`, `variant`) |
-| `util_*()` | AES, byte packing |
-| `plat_mac_address()` | the pad's address, which some hosts expect in a report |
-
-Classic bonds (peer address, link key) are handled by `bt.c` itself.
+HID GET_REPORT (the PlayStation consoles read calibration and the pad's
+address as feature reports) and GATT reads.  Returns the length written to
+`out`, or -1 for "no such report or handle".  The answer has to be given at
+once, so `read()` runs on the bluetooth thread, and may only return constant
+data or data from `begin()` (the address).  It changes nothing.
 
 ## Console wake: `profile_switch_wake.c`
 
@@ -168,17 +174,19 @@ optional step that runs before the session starts:
 
 ```c
 struct profile_wake {
-    int  (*start)(u8 slot);          /* 0 started, <0 nothing to wake (no bonded console) */
+    int  (*start)(const struct profile_session *s);  /* 0 started, <0 nothing to wake */
     int  (*step)(u32 now_ms);        /* 1 when finished */
     void (*stop)(void);
 };
-/* in struct profile: */
-    const struct profile_wake *wake;  /* NULL for every profile but switch */
 ```
 
 When the controller connects a slot (not pairing) whose profile has `wake`
-and a bonded console, it runs the wake (state `WAKING`) and then starts the
-session as usual.  The radio must be quiet for the wake, which is why it runs
+and a bonded console, the first part of `CONNECTING` is the wake: the
+controller calls `step()` every millisecond until it reports finished (or
+`stop()` if the connect is abandoned), then calls `bt_start()`.  Whether the
+console woke makes no difference to what happens next: the pad pages it
+either way.  The wake keeps its own state (whitening state, burst timing);
+the controller only knows it is still running.  The radio must be quiet for the wake, which is why it runs
 before `bt_start()`, not inside the session.  Channel and duration are
 constants in `profile_switch_wake.c` (today's defaults: channel 0, 8 s).
 There is no separate wake command or gesture.

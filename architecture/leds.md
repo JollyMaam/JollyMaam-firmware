@@ -1,16 +1,50 @@
 # LEDs
 
-`leds.c` (prefix `led_`) works out what the eight lights show, from scratch
-every frame.  There is no stored "LED mode": a frame is a function of the
-controller state, the settings, what the host asked for, and the time.
+`leds.c` (prefix `led_`) has no state.  The controller keeps what it decides
+about the lights, and every millisecond asks `leds.c` for the frame to show.
 
 Lights: Home, the four player lights under it (top to bottom), the left and
 right grips, and one unused position in the chain (driven dark).
 
+## What the controller keeps
+
+```c
+struct led_state {
+    enum led_scene_id scene;   /* follows the controller state */
+    u32 scene_since_ms;        /* animations count from here */
+    u8 slot;                   /* whose colour and bar position */
+    u8 host_players, host_players_flash;   /* set by the host, through profile effects */
+    u8 host_lightbar_set, host_lightbar[3];
+    u8 calibrating;
+};
+```
+
+The controller sets `scene` and `scene_since_ms` whenever its state changes,
+sets the host fields from a profile's `write()` effects, and clears them when a
+session ends.  Nothing else changes this struct.
+
+## The one call
+
+```c
+void led_frame(const struct led_state *s, u32 now, const struct led_inputs *in,
+               struct led_frame *out);
+
+struct led_inputs {            /* what else the picture depends on */
+    const struct pad *pad;     /* grips can follow input */
+    u8 rumble_left, rumble_right;   /* grips can follow rumble */
+    u8 battery_low, usb_present, charging;
+    u8 cal_rgb[3]; u8 cal_lit;  /* the calibration routine's light (cal_led()) */
+};
+```
+
+`led_frame()` is pure: the same arguments always give the same frame.  The
+controller passes the result to `plat_leds()`.  This is the module's unit test:
+each scene at a few times, each overlay.
+
 ## Scenes
 
 What each controller state looks like is the table `ux_scenes[]` in
-`settings_ux.c`.  One row per state:
+`settings_ux.c`.  One row per scene:
 
 ```c
 [LED_SCENE_CONNECTING] = {
@@ -21,31 +55,14 @@ What each controller state looks like is the table `ux_scenes[]` in
 },
 ```
 
-Waves: `LED_OFF`, `LED_SOLID`, `LED_BLINK(on, off)`, `LED_BREATHE(period)`,
-`LED_SWEEP(step)`, timed from when the controller entered its state.  Bar
-modes: all four, the slot's light, or the player number the host set.  Grips:
-a wave, or, when linked, the slot's `grips` setting (rumble, input, lightbar).
+Waves, timed from `scene_since_ms`: `LED_OFF`, `LED_SOLID`,
+`LED_BLINK(on, off)`, `LED_BREATHE(period)`, `LED_SWEEP(step)`.  Bar: all four,
+the slot's light, or the player number the host set.  Grips: a wave, or, when
+connected, the slot's `grips` setting (rumble, input, lightbar).
 
-Scenes: boot, idle, connecting, pairing, linked, disconnected, waking,
-switching (between slots), off (going to sleep or rebooting).
+Scenes, one per controller state: boot, idle, connecting (including a Switch 1
+wake), pairing, connected, stopping (switching to another slot), sleeping,
+rebooting.
 
-Overlays drawn on top of the scene, in this order: host lights (player number,
-lightbar), the calibration routine's light (`cal_led()`), low battery, the
-USB charging cue.
-
-## Interface
-
-```c
-void led_poll(u32 now, const struct ctl_state *s, const struct pad *pad);
-void led_render(const struct led_inputs *in, struct led_frame *out);  /* pure */
-
-/* latches, safe from any thread (profiles' write handlers) */
-void led_host_players(u8 mask, u8 flash);
-void led_host_lightbar(u8 r, u8 g, u8 b);
-void led_host_clear(void);
-```
-
-`led_poll()` gathers the inputs, calls `led_render()` and passes the frame to
-`plat_leds(const struct led_frame *)`, which drives the LED chain over SPI.
-`led_render()` is pure and carries the unit test (each state's look, each
-overlay).
+Overlays drawn on top, in this order: host lights (player number, lightbar),
+the calibration light, low battery, the USB charging cue.

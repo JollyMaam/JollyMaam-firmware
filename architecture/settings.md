@@ -5,7 +5,7 @@ Two files:
 * `settings.c` (prefix `set_`) – the values the user can change, the bonds,
   the calibration; their defaults and storage.
 * `settings_ux.c` (prefix `ux_`) – fixed tables that decide how the pad
-  feels: gestures, timeouts, LED scenes.  Changed by editing and rebuilding.
+  feels; see [ux.md](ux.md).
 
 ## Records
 
@@ -52,51 +52,29 @@ today's schema does) or in the tools is decided then.
 
 ## Interface
 
+Called by the controller only, on the control thread.
+
 ```c
-extern const struct set_prefs  set;     /* read-only to everyone else */
 void set_init(void);
 void set_poll(u32 now, int radio_quiet);
-int  set_commit(void);              /* write now: before sleep or reboot */
-int  set_pending(void);
+void set_commit(void);                          /* write now: before sleep or reboot */
 
-const struct set_slot *set_slot(u8 slot);
-void set_slot_address(u8 slot, u8 out[6]);      /* pinned or derived */
-void set_bond_classic(u8 slot, const u8 peer[6], const u8 key[16], u8 type);
-void set_bond_le(u8 slot, const u8 peer[6], const u8 ltk[16]);
+const struct set_prefs *set_prefs(void);        /* led colours */
+const struct set_slot *set_slot(u8 slot);       /* type, rate, colour, speeds, ... */
+void set_slot_address(u8 slot, u8 out[6]);      /* pinned, or derived from the flash UID */
+
+const struct bt_bond *set_bond(u8 slot);
+void set_bond_store(u8 slot, const struct bt_bond *bond);   /* from BT_EV_BONDED or profile effects */
 void set_bond_forget(u8 slot);
-const struct set_bond *set_bond(u8 slot);
-void set_calibration(const struct set_cal *cal);
-const struct set_cal *set_cal(void);
+
+const struct set_cal *set_cal(void);            /* defaults if the record is missing or old */
 int  set_cal_required(void);
-
+void set_cal_store(const struct set_cal *cal);  /* from the calibration routine */
 ```
 
-Writers are safe from any thread; the bond setters are called from the
-bluetooth thread.
+The records and what is unsaved are this module's own state.  What goes into
+them is always the controller's decision: it stores a bond when `bt.c` or a
+profile reports one, and stores calibration when the routine reports done.
 
-## `settings_ux.c`
-
-```c
-extern const struct ux_gesture ux_gestures[];    /* Home chords */
-extern const struct ux_timeouts ux_timeouts;     /* every fixed time */
-extern const struct led_scene ux_scenes[];       /* what each state shows */
-```
-
-Gesture rows are as in today's `ux.c`: what is held with Home, when the row
-applies (always, linked, not linked, offline), the hold time (0 at once,
-`UX_TAP` on release), and the action.
-
-`ux_timeouts` collects every fixed time that is now a `#define` scattered over
-the controller:
-
-| Field | Now |
-|---|---|
-| `home_grace_ms`, `home_tap_ms` | 150, 60 |
-| `connect_ms`, `connect_retries` | 30 000, 2 |
-| `pair_ms` | 180 000 |
-| `idle_sleep_ms` | 300 000 (no input while linked, on battery) |
-| `offline_sleep_ms`, `unplug_sleep_ms` | 15 000, 5 000 |
-| `stop_max_ms` | 12 000 |
-| `boot_scene_ms` | 500 |
-| `rumble_max_ms` | 2 000 |
-| `uboot_window_ms` | 3 000 |
+The tables that decide how the pad feels are not settings; they are in
+`settings_ux.c` ([ux.md](ux.md)).

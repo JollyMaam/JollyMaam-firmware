@@ -6,7 +6,7 @@ below.
 
 | File | Contains |
 |---|---|
-| `platform_jieli.c` | `app_main`, `board_init`, tasks, the 1 ms clock, timers, storage, the USB mass-storage device, the pin table, button/stick/trigger sampling, I2C, the LED chain, the motors, power-off and wake, the loader entry, the boot chords |
+| `platform_jieli.c` | `app_main`, `board_init`, tasks, the 1 ms clock, storage, the USB mass-storage device, the pin table, button/stick/trigger sampling, I2C, the LED chain, the motors, power-off and wake, the loader entry, the boot chords |
 | `platform_jieli_sdk.c` | constants and hooks the SDK libraries require, which the firmware itself never reads |
 | `btstack_hci_jieli.c` | BTstack on the Jieli controller (see [bluetooth.md](bluetooth.md)) |
 
@@ -18,7 +18,6 @@ Kept to what the firmware actually uses, not a general HAL.
 /* time and threads */
 u32  plat_ms(void);
 u32  plat_us(void);                         /* wraps */
-void plat_after(void (*fn)(void *), void *arg, u32 ms);   /* runs on the control thread */
 void plat_lock(void);  void plat_unlock(void);            /* short critical sections */
 
 /* storage: one key per settings record */
@@ -29,8 +28,9 @@ void plat_random(u8 *buf, u16 len);
 
 /* board */
 void plat_input(struct in_raw *raw);
-int  plat_i2c_read(u8 dev, u8 reg, u8 *buf, u8 len);
-int  plat_i2c_write(u8 dev, u8 reg, const u8 *buf, u8 len);
+void plat_i2c_start(u8 dev, u8 reg, u8 *buf, u8 len);   /* read in the background (interrupt) */
+int  plat_i2c_done(void);                  /* 1 done, 0 busy, <0 error */
+int  plat_i2c_write(u8 dev, u8 reg, u8 value);   /* blocking, one register: set-up only */
 void plat_leds(const struct led_frame *f);
 void plat_motors(u8 left, u8 right);
 u8   plat_boot_chord(u8 *slot);             /* Home and keys held at power-on */
@@ -51,7 +51,6 @@ Calls into the firmware:
 ```c
 void ctl_start(void);    /* once, after the platform is up */
 void ctl_poll(void);     /* every 1 ms, on the control thread */
-void imu_task(void);     /* body of the imu thread */
 ```
 
 ## The SDK contract
@@ -95,8 +94,8 @@ Take a custom pad on an nRF52/nRF54 as the example.
 Things kept in mind so this stays true, without adding layers now:
 
 * No module outside the platform files includes an SDK or OS header.
-* Threads are named by role (control, bluetooth, imu), and the cross-thread
-  rules are latches and one newest-wins slot, which also hold on a single
+* Threads are named by role (control, bluetooth), and the cross-thread
+  traffic is two queues and one newest-wins slot inside `bt.c`, which also work on a single
   run loop.
 * Timing is in milliseconds from `plat_ms()`, never OS ticks.
 * The "hot" section attribute (run from RAM) is a macro the platform

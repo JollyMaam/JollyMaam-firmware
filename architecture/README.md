@@ -9,36 +9,39 @@ at the end; each module page says what it replaces.
 
 | Page | Covers |
 |---|---|
-| [controller.md](controller.md) | the main state machine and 1 ms loop, Home gestures, rumble policy |
+| [controller.md](controller.md) | the 1 ms loop, who owns which state, the states, requests, rumble |
+| [ux.md](ux.md) | the gesture table and engine, the timeout table |
 | [input.md](input.md) | buttons, sticks, triggers, calibration, IMU and gyro |
 | [leds.md](leds.md) | what the lights show and how |
 | [profiles.md](profiles.md) | the profile interface, and each console/host profile |
 | [bluetooth.md](bluetooth.md) | `bt.c` over BTstack, and the BTstack to controller transport |
-| [settings.md](settings.md) | settings, bonds and calibration storage; the UX tables |
+| [settings.md](settings.md) | settings, bonds and calibration storage |
 | [usb.md](usb.md) | USB: stock-pad upgrades, firmware updates, logs, settings |
 | [platform.md](platform.md) | the boundary to the Jieli SDK and board, and porting |
 
 ## Layers
 
-A module may call down, never up.  Calls up go through a callback that the
-upper layer registered, or through a value the upper layer polls.
+The controller is on top and calls everything else.  Nothing calls the
+controller: it polls the modules each millisecond and gets back what happened
+(a request, an event, a result).  The modules below it do not call each
+other, with two exceptions: a profile may send a message to the host
+(`bt_send_message`), and `bt.c` asks the running profile to answer a host
+read.
 
 ```
- settings_ux.c   const tables: gestures, timeouts, LED scenes
- ──────────────────────────────────────────────────────────────────────────
- controller.c    state machine, 1 ms loop, gestures, rumble policy
- ──────────────────────────────────────────────────────────────────────────
- profile_switch.c  profile_switch_wake.c  profile_xbox.c
- profile_playstation.c  profile_hid.c          what each host expects
- ──────────────────────────────────────────────────────────────────────────
- bt.c            Bluetooth host: Classic HID device, LE GATT server, bonds
- btstack_hci_jieli.c   BTstack <-> Jieli controller (btctrler.a)
- ──────────────────────────────────────────────────────────────────────────
- input.c  input_calibration.c  input_imu.c  leds.c  settings.c  usb.c
- utils.c
- ──────────────────────────────────────────────────────────────────────────
- platform_jieli.c       time, tasks, storage, USB CDC, pins, LED chain, motors
- platform_jieli_sdk.c   constants and hooks the Jieli libraries require
+                              controller.c
+               the 1 ms loop and every decision; owns the pad's state
+     │            │             │            │         │          │        │
+settings_ux.c  input.c       profile_*.c   bt.c     leds.c   settings.c  usb.c
+gestures,      input_         what each    BT host  frame     records    vendor
+timeouts,      calibration.c  host expects   │      from      in flash   commands
+scenes         input_imu.c        └─msg──>   │      state
+                                             │
+                                     btstack_hci_jieli.c
+─────────────────────────────────────────────────────────────────────────────
+utils.c               AES, byte packing, the log ring buffer (anyone)
+platform_jieli.c      time, storage, USB, pins, I2C, LED chain, motors, power
+platform_jieli_sdk.c  constants and hooks the Jieli libraries require
 ```
 
 `pad.h` is the only project header.  It has one section per module, in the
@@ -50,8 +53,8 @@ If a function is not in `pad.h`, it is `static`.
 | File | Prefix | Replaces (today's files) |
 |---|---|---|
 | `pad.h` | – | every project header |
-| `settings_ux.c` | `ux_` | `ux.c` table, timeouts in `controller.c`/`controller_state.c`, scene table in `lights_render.c` |
-| `controller.c` | `ctl_` | `controller.c`, `controller_state.c`, `ux.c` engine, `rumble.c` policy |
+| `settings_ux.c` | `ux_` | `ux.c` (table and engine), timeouts in `controller.c`/`controller_state.c`, scene table in `lights_render.c` |
+| `controller.c` | `ctl_` | `controller.c`, `controller_state.c`, `rumble.c` (timing), the LED state from `lights.c` |
 | `profile_switch.c` | `sw_` | `profile_switch.c`, `profile_switch2.c`, `profile_switch2_att_db.h`, the two `.bin` files |
 | `profile_switch_wake.c` | `swake_` | `profile_switch_wake*.c/h` (4 + 4 files); the wake step of a `switch` connect |
 | `profile_xbox.c` | `xbox_` | `profile_xbox.c`, `profile_xbox_ble.c`, its att_db header and `.gatt` |
@@ -61,8 +64,8 @@ If a function is not in `pad.h`, it is `static`.
 | `btstack_hci_jieli.c` | `hci_` | `btstack-jl-port/port/jieli-br23/*` |
 | `input.c` | `in_` | `input.c` |
 | `input_calibration.c` | `cal_` | `calibration.c`, `calibration_math.c` |
-| `input_imu.c` | `imu_` | `imu.c`, `gyro.c` |
-| `leds.c` | `led_` | `lights.c`, `lights_render.c` (renderer) |
+| `input_imu.c` | `imu_` | `imu.c` (no task), the offset learning from `gyro.c`; pointer maths moves to the mouse profile |
+| `leds.c` | `led_` | `lights_render.c` (renderer, now stateless) |
 | `settings.c` | `set_` | `config.c`, `config_schema.c` |
 | `usb.c` | `usb_` | `usb.c`; `console.c`, `commands.c` and `status.c` are removed (no serial console) |
 | `utils.c` | `util_` | `aes128.c`, byte packing helpers repeated in the profiles, the log ring buffer (`util_log`) |
@@ -101,30 +104,32 @@ Behaviour that someone might want to tune is a `const` table, not code:
 * `settings_ux.c`: the Home gesture table, the timeout table, the LED scene
   table.
 * each profile: a `const struct profile` (identity, descriptors, rates).
-* `settings.c`: the settings schema (path, type, default, range, help).
+* `settings.c`: the default value of everything in the records.
 * `platform_jieli.c`: the pin table.
 
 ## Threads
 
-Three threads touch application code.
+Two threads run application code.
 
 | Thread | Runs | Priority |
 |---|---|---|
-| control | `ctl_poll()` every 1 ms, USB vendor commands, timers posted with `plat_after()` | highest app priority |
-| bluetooth | BTstack run loop: `bt.c` and the profile `write`/`read` handlers | below control |
-| imu | IMU sampling for `input_imu.c` | lowest |
+| control | `ctl_poll()` every 1 ms, and through it every module except `bt.c` | highest app priority |
+| bluetooth | the BTstack run loop: `bt.c`, and the profiles' `read()` | below control |
 
-Rules:
+What crosses between them, all inside `bt.c`:
 
-* Profile `write`/`read` handlers run on the bluetooth thread.  They may only
-  call the "latch" functions documented as safe from any thread
-  (`ctl_rumble()`, `led_host_*()`, `bt_send_message()`, `set_bond_*()`).  Each
-  stores a value that the control thread picks up on its next poll.
-* Input reports cross from control to bluetooth through one newest-wins slot
-  in `bt.c`.  Nothing is queued: on a weak link a lost input is better than a
-  late one.
-* On a single-threaded system (an nRF run loop), the same rules hold
-  trivially.
+* control → bluetooth: the newest-wins input slot, and the ordered message
+  queue (`bt_send_message`).  Nothing else is queued: on a weak link a lost
+  input is better than a late one.
+* bluetooth → control: the event queue (`bt_poll`): link events, new bonds,
+  host writes.
+
+Host reads are the one thing answered on the bluetooth thread, because they
+need an answer at once; `read()` may only return constant data.
+
+There is no imu thread: the sensor is read without blocking from the loop
+(see [input.md](input.md)).  On a single-threaded system (an nRF run loop)
+the same design runs as is.
 
 ## Testing
 
@@ -141,8 +146,7 @@ int main(void) { ... }
 `make test` builds every `src/*.c` that contains `UNITTEST` with the host
 compiler (`cc -DUNITTEST -Isrc`) and runs it.  `test.h` supplies host
 typedefs and stubs for the few `plat_`/`bt_` calls a module makes.  Tested:
-gestures and the controller state machine, LED scenes, settings parse/format
-and records, calibration maths, each profile's report bytes, the Switch wake
+gestures and the controller state machine, LED frames, settings records, calibration maths, each profile's report bytes, the Switch wake
 code generation.  Not tested on the host: `platform_jieli*.c`,
 `btstack_hci_jieli.c`, `bt.c`.
 
