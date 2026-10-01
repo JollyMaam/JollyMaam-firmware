@@ -99,7 +99,7 @@ u32 util_get32(const u8 *p) { return p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (
 int main(void)
 {
     u8 cdb[16] = { OP, CMD_IDENTIFY }, data[512];
-    struct usb_status st = { CTL_IDLE, SLOT_NONE, 1, 0, 3900, 1234 };
+    static struct usb_status st = { CTL_IDLE, SLOT_NONE, 1, 0, 3900, 1234 };
     struct ctl_request r;
 
     CHECK(usb_command(cdb, data, sizeof(data)) == 40);
