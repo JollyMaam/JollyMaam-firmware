@@ -7,6 +7,7 @@
 #include <asm/rtc.h>
 #include <asm/wdt.h>
 #include <asm/adc_api.h>
+#include <asm/mcpwm.h>
 #include <usb/otg.h>
 #include <usb/scsi.h>
 #include <usb/device/msd.h>
@@ -216,6 +217,48 @@ u32 plat_wait(u32 deadline_ms)
     }
 }
 
+void plat_wake(u32 ev)
+{
+    local_irq_disable();
+    raise(ev);
+    local_irq_enable();
+}
+
+void plat_delay_ms(u32 ms)
+{
+    os_time_dly((ms + 9) / 10);
+}
+
+static OS_SEM bt_sem;
+static volatile u8 bt_woken;
+static void (*bt_body)(void);
+
+static void bt_thread(void *arg)
+{
+    (void)arg;
+    bt_body();
+}
+
+void plat_bt_thread(void (*body)(void))
+{
+    bt_body = body;
+    os_sem_create(&bt_sem, 0);
+    task_create(bt_thread, NULL, "btstack");
+}
+
+void plat_bt_wait(u32 ms)
+{
+    os_sem_pend(&bt_sem, (ms + 9) / 10);
+    bt_woken = 0;
+}
+
+void plat_bt_wake(void)
+{
+    if (bt_woken) return;
+    bt_woken = 1;
+    os_sem_post(&bt_sem);
+}
+
 static u8 hat_from(u32 d)
 {
     static const u8 hat[16] = {
@@ -390,6 +433,16 @@ const u8 *plat_unique_id(void)
     return get_norflash_uuid ? get_norflash_uuid() : NULL;
 }
 
+int plat_store_read(u16 key, void *buf, u16 len)
+{
+    return syscfg_read(key, buf, len);
+}
+
+int plat_store_write(u16 key, const void *buf, u16 len)
+{
+    return syscfg_write(key, (void *)buf, len);
+}
+
 /* ---- boot: what woke the chip and what was held --------------------------- */
 
 static struct plat_boot boot;
@@ -457,10 +510,43 @@ void plat_leds(const struct led_frame *f)
     led_spi_send_rgbbuf(led_dma, LIGHT_COUNT);
 }
 
+/* ---- motors: PWM at 25 kHz on PA9 (left) and PB0 (right) ----------------- */
+
+static const struct { u32 pin; pwm_ch_num_type ch; pwm_timer_num_type timer; } motor[2] = {
+    { IO_PORTA_09, pwm_ch4, pwm_timer4 }, { IO_PORTB_00, pwm_ch1, pwm_timer1 },
+};
+static u8 motor_level[2] = { 1, 1 };
+
+static void motor_set(u32 i, u8 level)
+{
+    struct pwm_platform_data cfg;
+
+    if (level == motor_level[i]) return;
+    motor_level[i] = level;
+    if (!level) {
+        mcpwm_ch_open_or_close(motor[i].ch, 0);
+        JL_MCPWM->MCPWM_CON0 &= ~BIT((u32)motor[i].timer + 8);
+        gpio_set_pull_up(motor[i].pin, 0);
+        gpio_set_pull_down(motor[i].pin, 0);
+        gpio_set_die(motor[i].pin, 1);
+        gpio_direction_output(motor[i].pin, 0);
+        return;
+    }
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.frequency = 25000;
+    cfg.pwm_ch_num = motor[i].ch;
+    cfg.pwm_timer_num = motor[i].timer;
+    cfg.duty = (u32)level * 10000 / 255;
+    cfg.pwm_aligned_mode = pwm_edge_aligned;
+    cfg.h_pin = (u8)motor[i].pin;
+    cfg.l_pin = (u8)-1;
+    mcpwm_init(&cfg);
+}
+
 void plat_motors(u8 left, u8 right)
 {
-    (void)left;
-    (void)right;
+    motor_set(0, left);
+    motor_set(1, right);
 }
 
 /* ---- USB: mass storage with no medium; vendor commands to usb.c ----------- */
@@ -705,6 +791,7 @@ static void ctl_thread(void *arg)
     leds_init();
     inputs_init();
     usb_init();
+    plat_motors(0, 0);
     tick_start();
     ctl_main();
 }

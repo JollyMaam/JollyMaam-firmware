@@ -14,7 +14,7 @@ include sdk-br23.mk
 
 CFLAGS := $(SDK_CFLAGS)
 DEFINES := $(SDK_DEFINES) -DBUILD_ID=\"$(shell git describe --always --dirty 2>/dev/null)\"
-INCLUDES := -iquote src -iquote src/sdkconfig $(SDK_INCLUDES)
+INCLUDES = -iquote src -iquote src/sdkconfig $(BTSTACK_INCLUDES) $(SDK_INCLUDES)
 
 SDK_USED := \
 	apps/common/debug/debug.c \
@@ -27,6 +27,7 @@ SDK_USED := \
 	cpu/br23/charge.c \
 	cpu/br23/clock_manager.c \
 	cpu/br23/led_spi.c \
+	cpu/br23/mcpwm.c \
 	cpu/br23/setup.c
 
 LLVM_AR := $(TOOL_DIR)/../../common/bin/llvm-ar
@@ -34,8 +35,26 @@ VENDOR_BTCTRLR := $(SDK)/cpu/br23/liba/btctrler.a
 PATCHED_BTCTRLR := $O/sdk-libs/btctrler.a
 ARCHIVES := $(subst $(VENDOR_BTCTRLR),$(PATCHED_BTCTRLR),$(SDK_ARCHIVES_MINIMAL))
 
+# Upstream BTstack, from the fork that carries its few patches.  btctrler.a
+# exports a few of the same names; BTstack's copies are renamed.
+BTSTACK := /work/btstack-jl-port
+BTSTACK_USED := \
+	src/btstack_hid_parser.c src/btstack_linked_list.c src/btstack_memory.c \
+	src/btstack_memory_pool.c src/btstack_run_loop.c src/btstack_run_loop_base.c \
+	src/btstack_crypto.c src/btstack_tlv.c src/btstack_util.c src/hci.c src/hci_cmd.c \
+	src/hci_event.c src/hci_dump.c src/l2cap.c src/l2cap_signaling.c src/ad_parser.c \
+	src/classic/device_id_server.c src/classic/hid_device.c src/classic/sdp_server.c \
+	src/classic/sdp_util.c src/ble/att_db.c src/ble/att_dispatch.c src/ble/att_server.c \
+	src/ble/le_device_db_memory.c src/ble/sm.c
+BTSTACK_RENAMES := -Dhci_send_cmd=btstack_hci_send_cmd \
+	-Dhci_event_disconnection_complete=btstack_hci_event_disconnection_complete \
+	-Dbig_endian_read_32=btstack_big_endian_read_32 \
+	-Dbig_endian_store_32=btstack_big_endian_store_32 \
+	-Dnibble_for_char=btstack_nibble_for_char
+BTSTACK_INCLUDES := -I$(BTSTACK)/src -I$(BTSTACK)/src/classic
+
 SOURCES := $(wildcard src/*.c)
-OBJECTS := $(SOURCES:%.c=$O/%.o) $(SDK_USED:%.c=$O/sdk/%.o)
+OBJECTS := $(SOURCES:%.c=$O/%.o) $(SDK_USED:%.c=$O/sdk/%.o) $(BTSTACK_USED:%.c=$O/btstack/%.o)
 
 ifeq ($(V),1)
 Q :=
@@ -63,6 +82,13 @@ $O/sdk/%.o: $(SDK)/%.c
 	@mkdir -p $(@D)
 	@echo [CC] $<
 	$(Q)$(CC) $(CFLAGS) $(DEFINES) $(INCLUDES) -MMD -MP -c $< -o $@
+
+$O/btstack/%.o: $(BTSTACK)/%.c
+	@mkdir -p $(@D)
+	@echo [CC] $<
+	$(Q)$(CC) $(CFLAGS) $(DEFINES) $(BTSTACK_RENAMES) $(INCLUDES) -MMD -MP -c $< -o $@
+
+$O/src/bt.o $O/src/btstack_hci_jieli.o: CFLAGS += $(BTSTACK_RENAMES)
 
 $O/app.elf: $O/sdk.ld $(OBJECTS) $(ARCHIVES)
 	@echo [LD] $@

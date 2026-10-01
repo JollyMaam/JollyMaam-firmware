@@ -5,23 +5,41 @@
 #define BATTERY_OK_MV    3600
 #define BATTERY_CHECK_MS 1000
 #define USB_DEBOUNCE_MS  100
+#define RETRY_MS         1000
+#define QUIET_MS         500
+#define CAL_SAMPLE_MS    2
 
 static const char *const names[CTL_KIND_COUNT] = {
     "boot", "idle", "connecting", "pairing", "connected", "stopping", "sleeping", "rebooting",
 };
+
+static const struct profile *profile_for(u8 type)
+{
+    switch (type) {
+    case PROFILE_SWITCH: return &profile_switch;
+    default: return NULL;
+    }
+}
 
 static struct {
     u8 kind;
     u32 since;
     u8 slot;                     /* the session's slot, SLOT_NONE without one */
     u8 last_slot;
+    const struct profile *prof;
+    u8 radio;                    /* bt_start() until BT_EV_STOPPED */
     struct ctl_request next;     /* STOPPING: what comes after */
-    u8 to_loader;                /* REBOOTING */
-    u8 uboot_chord;              /* Home+Start held at boot */
+    u8 to_loader;
+    u8 uboot_chord;
+    u32 retry_at;
+    u32 report_next;
     u8 calibrating;
-    struct pad pad;              /* as the host would see it */
+    struct set_cal cal;
+    struct in_raw raw;
+    struct pad pad;              /* as the host sees it */
     struct pad activity_ref;
     u32 activity_ms;
+    struct profile_host host;
     struct led_state led;
     struct led_frame shown;
     u8 reach[2];
@@ -33,7 +51,7 @@ static struct {
     u32 battery_ms;
 } c;
 
-static int radio_on(void)
+static int session(void)
 {
     return c.kind == CTL_CONNECTING || c.kind == CTL_PAIRING || c.kind == CTL_CONNECTED;
 }
@@ -46,19 +64,58 @@ static void become(u8 kind, u32 now)
     c.since = now;
 }
 
-static void start_session(u8 kind, u8 slot, u32 now)
+static void start_session(struct ctl_request r, u32 now)
 {
-    c.slot = slot;
-    c.last_slot = slot;
-    plat_retain_slot(slot);
-    become(kind, now);
+    const struct profile *p = profile_for(set_slot(r.slot)->type);
+    struct profile_session s;
+    int pairing = r.kind == REQ_PAIR;
+
+    if (!p) {
+        util_log("slot %u: profile type %u not in this build", r.slot, set_slot(r.slot)->type);
+        return;
+    }
+    if (pairing) {
+        set_bond_forget(r.slot);
+        if (r.generate_new_address) set_slot_new_address(r.slot);
+    }
+    memset(&s, 0, sizeof(s));
+    s.slot = r.slot;
+    s.pairing = (u8)pairing;
+    set_slot_address(r.slot, s.address);
+    s.bond = set_bond(r.slot);
+    s.settings = set_slot(r.slot);
+    c.prof = p;
+    c.slot = r.slot;
+    c.last_slot = r.slot;
+    plat_retain_slot(r.slot);
+    memset(&c.host, 0, sizeof(c.host));
+    p->begin(&s);
+    bt_start(p, s.address, pairing ? NULL : s.bond, pairing);
+    c.radio = 1;
+    util_log("session slot %u %s%s", r.slot, p->name, pairing ? " pairing" : "");
+    become(pairing ? CTL_PAIRING : CTL_CONNECTING, now);
 }
 
-/* Take the radio down and then do `next` (REQ_NONE: stay idle). */
+/* Take the session down, then do `next` (REQ_NONE: stay idle). */
 static void stop(struct ctl_request next, u32 now)
 {
     c.next = next;
-    become(CTL_STOPPING, now);
+    if (c.kind != CTL_STOPPING) {
+        if (c.prof && c.prof->end) c.prof->end();
+        bt_stop();
+        become(CTL_STOPPING, now);
+    }
+}
+
+/* Sleep or reboot: the radio goes down first (entering the loader with the
+ * controller still running hung the pad off USB). */
+static void shut_down(u8 kind, u32 now)
+{
+    if (c.radio) {
+        if (c.prof && c.prof->end) c.prof->end();
+        bt_stop();
+    }
+    become(kind, now);
 }
 
 static void handle(struct ctl_request r, u32 now)
@@ -70,75 +127,124 @@ static void handle(struct ctl_request r, u32 now)
     switch (r.kind) {
     case REQ_CONNECT:
     case REQ_PAIR:
-        if (r.slot == SLOT_NONE) return;
+        if (r.slot >= SLOTS) return;
         if (r.kind == REQ_CONNECT && c.kind == CTL_CONNECTED && c.slot == r.slot) return;
-        if (c.kind == CTL_STOPPING || radio_on()) stop(r, now);
-        else start_session(r.kind == REQ_PAIR ? CTL_PAIRING : CTL_CONNECTING, r.slot, now);
+        if (c.kind == CTL_STOPPING || session()) stop(r, now);
+        else start_session(r, now);
         break;
     case REQ_DISCONNECT:
-        if (c.kind == CTL_STOPPING || radio_on()) stop(none, now);
+        if (session()) stop(none, now);
+        else if (c.kind == CTL_STOPPING) c.next = none;
         break;
     case REQ_SLEEP:
-        if (c.usb_powered) {
-            if (c.kind == CTL_STOPPING || radio_on()) stop(none, now);
-        } else {
-            become(CTL_SLEEPING, now);
-        }
+        if (!c.usb_powered) shut_down(CTL_SLEEPING, now);
+        else if (session()) stop(none, now);
         break;
     case REQ_CALIBRATE:
-        util_log("calibration: not in this build yet");
+        c.calibrating = 1;
+        c.cal = *set_cal();
+        cal_start(now);
         break;
     case REQ_REBOOT:
     case REQ_REBOOT_LOADER:
         c.to_loader = r.kind == REQ_REBOOT_LOADER;
-        become(CTL_REBOOTING, now);
+        set_commit();
+        shut_down(CTL_REBOOTING, now);
         break;
     }
 }
 
-/* What happens with time alone: timeouts, sleep, the end of a stop. */
+static void bt_event(const struct bt_ev *e, u32 now)
+{
+    struct ctl_request none = { REQ_NONE, SLOT_NONE, 0 };
+    struct bt_bond bond;
+
+    switch (e->kind) {
+    case BT_EV_LINKED:
+        if (c.kind == CTL_CONNECTING || c.kind == CTL_PAIRING) {
+            become(CTL_CONNECTED, now);
+            c.report_next = now;
+            c.activity_ms = now;
+        }
+        break;
+    case BT_EV_UNLINKED:
+        util_log("link down, reason 0x%02x (%s)", e->reason, e->lost ? "lost" : "ended");
+        if (c.kind != CTL_CONNECTED) break;
+        memset(&c.host, 0, sizeof(c.host));
+        if (e->lost) {
+            become(CTL_CONNECTING, now);
+            bt_connect();
+        } else {
+            stop(none, now);
+        }
+        break;
+    case BT_EV_FAILED:
+        if (c.kind == CTL_CONNECTING) c.retry_at = now + RETRY_MS;
+        break;
+    case BT_EV_PEER:
+    case BT_EV_BONDED:
+        if (c.slot < SLOTS) set_bond_store(c.slot, &e->bond);
+        break;
+    case BT_EV_WRITE:
+        if (c.prof && c.prof->write && c.prof->write(&e->write, now, &bond) && c.slot < SLOTS)
+            set_bond_store(c.slot, &bond);
+        break;
+    case BT_EV_STOPPED:
+        c.radio = 0;
+        if (c.kind == CTL_STOPPING) {
+            c.slot = SLOT_NONE;
+            c.prof = NULL;
+            become(CTL_IDLE, now);
+            handle(c.next, now);
+        }
+        break;
+    }
+}
+
 static void timeouts(u32 now)
 {
     struct ctl_request none = { REQ_NONE, SLOT_NONE, 0 };
-    u32 in_state = now - c.since;
+    struct ctl_request loader = { REQ_REBOOT_LOADER, SLOT_NONE, 0 };
+    u32 t = now - c.since;
     int battery = !c.usb_powered;
 
     switch (c.kind) {
     case CTL_BOOT:
-        if (c.uboot_chord && c.usb_powered) handle((struct ctl_request){ REQ_REBOOT_LOADER, 0, 0 }, now);
-        else if (in_state >= (c.uboot_chord ? ux_timeouts.uboot_window_ms : ux_timeouts.boot_scene_ms))
+        if (c.uboot_chord && c.usb_powered) handle(loader, now);
+        else if (t >= (c.uboot_chord ? ux_timeouts.uboot_window_ms : ux_timeouts.boot_scene_ms))
             become(CTL_IDLE, now);
         break;
     case CTL_IDLE:
-        if (battery && in_state >= ux_timeouts.offline_sleep_ms &&
+        if (battery && t >= ux_timeouts.offline_sleep_ms &&
             now - c.usb_absent_ms >= ux_timeouts.unplug_sleep_ms)
-            become(CTL_SLEEPING, now);
+            shut_down(CTL_SLEEPING, now);
         break;
     case CTL_CONNECTING:
-        if (in_state >= ux_timeouts.connect_ms) stop(none, now);
-        break;
-    case CTL_PAIRING:
-        if (in_state >= ux_timeouts.pair_ms) stop(none, now);
-        break;
-    case CTL_CONNECTED:
-        if (battery && now - c.activity_ms >= ux_timeouts.idle_sleep_ms) become(CTL_SLEEPING, now);
-        break;
-    case CTL_STOPPING:
-        /* No radio yet: the stop is immediate. */
-        c.slot = SLOT_NONE;
-        become(CTL_IDLE, now);
-        handle(c.next, now);
-        break;
-    case CTL_SLEEPING:
-        if (c.usb_powered) {
-            become(CTL_IDLE, now);
-        } else if (in_state >= 50) {
-            util_log("power off");
-            plat_power_off();
+        if (t >= ux_timeouts.connect_ms) stop(none, now);
+        else if (c.retry_at && (s32)(now - c.retry_at) >= 0) {
+            c.retry_at = 0;
+            bt_connect();
         }
         break;
+    case CTL_PAIRING:
+        if (t >= ux_timeouts.pair_ms) stop(none, now);
+        break;
+    case CTL_CONNECTED:
+        if (battery && now - c.activity_ms >= ux_timeouts.idle_sleep_ms) shut_down(CTL_SLEEPING, now);
+        break;
+    case CTL_STOPPING:
+        if (t >= ux_timeouts.stop_max_ms) bt_abort();
+        break;
+    case CTL_SLEEPING:
+        if (c.usb_powered && !c.radio) become(CTL_IDLE, now);
+        else if (!c.radio && t >= 50) {
+            set_commit();
+            util_log("power off");
+            plat_power_off();
+        } else if (t >= ux_timeouts.stop_max_ms) bt_abort();
+        break;
     case CTL_REBOOTING:
-        if (in_state >= 100) {
+        if ((!c.radio && t >= 100) || t >= ux_timeouts.stop_max_ms) {
             if (c.to_loader) plat_reboot_loader();
             plat_reboot();
         }
@@ -151,14 +257,16 @@ static u32 state_deadline(void)
     switch (c.kind) {
     case CTL_BOOT: return c.since + (c.uboot_chord ? ux_timeouts.uboot_window_ms : ux_timeouts.boot_scene_ms);
     case CTL_IDLE: return c.since + ux_timeouts.offline_sleep_ms;
-    case CTL_CONNECTING: return c.since + ux_timeouts.connect_ms;
+    case CTL_CONNECTING: return c.retry_at ? c.retry_at : c.since + ux_timeouts.connect_ms;
     case CTL_PAIRING: return c.since + ux_timeouts.pair_ms;
-    default: return 0;
+    case CTL_CONNECTED: return c.report_next;
+    default: return plat_ms() + 10;
     }
 }
 
 static void sample_power(u32 now)
 {
+    struct ctl_request loader = { REQ_REBOOT_LOADER, SLOT_NONE, 0 };
     u8 raw = (u8)plat_usb_present();
 
     if (raw != c.usb_raw) {
@@ -167,12 +275,11 @@ static void sample_power(u32 now)
     }
     if (raw != c.usb_powered && now - c.usb_changed_ms >= USB_DEBOUNCE_MS) {
         c.usb_powered = raw;
+        util_log("usb %s", raw ? "present" : "gone");
         if (raw) {
             c.usb_plugged_ms = now;
-            if ((c.pad.buttons & (PAD_HOME | PAD_START)) == (PAD_HOME | PAD_START))
-                handle((struct ctl_request){ REQ_REBOOT_LOADER, 0, 0 }, now);
+            if ((c.raw.buttons & (PAD_HOME | PAD_START)) == (PAD_HOME | PAD_START)) handle(loader, now);
         }
-        util_log("usb %s", raw ? "present" : "gone");
     }
     if (c.usb_powered) c.usb_absent_ms = now;
     if (now - c.battery_ms >= BATTERY_CHECK_MS) {
@@ -184,40 +291,102 @@ static void sample_power(u32 now)
     }
 }
 
-static void lights(u32 now)
+static struct rgb rgb3(const u8 *v)
+{
+    struct rgb r = { v[0], v[1], v[2] };
+    return r;
+}
+
+static void outputs(u32 now)
 {
     const struct set_slot *slot;
     struct led_inputs in;
     struct led_frame f;
     u32 plugged = now - c.usb_plugged_ms;
     u8 scene = c.kind;
+    int rumble = c.kind == CTL_CONNECTED && !c.calibrating;
 
+    if (c.prof && c.prof->host) c.prof->host(now, &c.host);
+    slot = set_slot(c.slot < SLOTS ? c.slot : 0);
+    rumble = rumble && slot->rumble;
+    plat_motors(rumble ? c.host.rumble[0] : 0, rumble ? c.host.rumble[1] : 0);
+    if ((s32)(now - c.led_next) < 0) return;
+    c.led_next = now + ux_timeouts.led_frame_ms;
     if (c.kind == CTL_BOOT && now - c.since >= ux_timeouts.boot_scene_ms) scene = CTL_IDLE;
     if (scene != c.led.scene) {
         c.led.scene = scene;
         c.led.since_ms = now;
     }
     c.led.slot = c.kind == CTL_STOPPING && c.next.kind != REQ_NONE ? c.next.slot : c.slot;
-    slot = set_slot(c.led.slot == SLOT_NONE ? 0 : c.led.slot);
+    if (c.led.slot == SLOT_LAST) c.led.slot = c.last_slot;
     memset(&in, 0, sizeof(in));
-    in.slot_colour = (struct rgb){ slot->colour[0], slot->colour[1], slot->colour[2] };
-    in.idle_colour = (struct rgb){ set_prefs()->idle_colour[0], set_prefs()->idle_colour[1],
-                                   set_prefs()->idle_colour[2] };
-    in.battery_colour = (struct rgb){ set_prefs()->battery_colour[0], set_prefs()->battery_colour[1],
-                                      set_prefs()->battery_colour[2] };
+    in.slot_colour = rgb3(set_slot(c.led.slot < SLOTS ? c.led.slot : 0)->colour);
+    in.idle_colour = rgb3(set_prefs()->idle_colour);
+    in.battery_colour = rgb3(set_prefs()->battery_colour);
     in.grips = slot->grips;
     led_reach(c.reach, &c.pad);
     in.reach[0] = c.reach[0];
     in.reach[1] = c.reach[1];
+    in.rumble[0] = rumble ? c.host.rumble[0] : 0;
+    in.rumble[1] = rumble ? c.host.rumble[1] : 0;
     in.usb_powered = c.usb_powered;
     in.low_battery = c.low_battery;
     if (c.usb_powered && plugged < 2u * ux_timeouts.usb_plug_flash_ms)
         in.usb_plug_flash = plugged < ux_timeouts.usb_plug_flash_ms ? 1 : 2;
+    if (c.kind == CTL_CONNECTED) {
+        in.has_players = c.host.has_players;
+        in.players = c.host.players;
+        in.players_flash = c.host.players_flash;
+        in.has_lightbar = c.host.has_lightbar;
+        in.lightbar = rgb3(c.host.lightbar);
+    }
+    in.cal_lit = (u8)cal_led(now, &in.cal);
     led_frame(&ux_scenes[scene], &c.led, now, &in, &f);
     if (memcmp(&f, &c.shown, sizeof(f))) {
         c.shown = f;
         plat_leds(&f);
     }
+}
+
+static void read_input(u32 now)
+{
+    struct ctl_request none = { REQ_NONE, SLOT_NONE, 0 };
+    struct ctl_request r = none;
+
+    plat_input(&c.raw);
+    in_map(&c.raw, &c.pad);
+    cal_apply(set_cal(), &c.raw, &c.pad);
+    if (in_moved(&c.pad, &c.activity_ref)) {
+        c.activity_ref = c.pad;
+        c.activity_ms = now;
+    }
+    if (c.calibrating) {
+        int s = cal_step(&c.raw, now, &c.cal);
+
+        if (s == CAL_SAVE) set_cal_store(&c.cal);
+        if (s == CAL_IDLE) {
+            c.calibrating = 0;
+            ux_ignore_held();
+        }
+        c.pad.buttons = 0;
+        c.pad.hat = HAT_NEUTRAL;
+    } else {
+        r = ux_step(&c.pad, now, c.kind);
+    }
+    handle(r, now);
+}
+
+static void send_report(u32 now)
+{
+    u8 buf[80], id = 0;
+    u32 period = 1000 / (c.prof->report_hz ? c.prof->report_hz : 125);
+    int n;
+
+    if ((s32)(now - c.report_next) < 0) return;
+    c.report_next += period;
+    if ((s32)(now - c.report_next) >= 0) c.report_next = now + period;
+    n = c.prof->report(&c.pad, now, buf, &id);
+    if (n > 0) bt_send_input(id, buf, (u16)n);
 }
 
 static u32 earliest(u32 a, u32 b)
@@ -230,9 +399,9 @@ static u32 earliest(u32 a, u32 b)
 static void boot(u32 now)
 {
     struct plat_boot b;
-    struct in_raw raw;
 
     plat_boot_info(&b);
+    set_init();
     c.kind = CTL_BOOT;
     c.since = now;
     c.slot = SLOT_NONE;
@@ -244,28 +413,22 @@ static void boot(u32 now)
     c.battery_ms = now - BATTERY_CHECK_MS;
     util_log("boot cause %u held %04x last slot %u", b.cause, b.buttons_held, c.last_slot);
     c.uboot_chord = (b.buttons_held & (PAD_HOME | PAD_START)) == (PAD_HOME | PAD_START);
-    plat_input(&raw);
-    in_map(&raw, &c.pad);
+    plat_input(&c.raw);
     if (c.uboot_chord) ux_ignore_held();
-    else if (!(c.pad.buttons & PAD_HOME)) handle(ux_boot(b.buttons_held, b.hat_held, CTL_BOOT), now);
+    else if (!(c.raw.buttons & PAD_HOME)) handle(ux_boot(b.buttons_held, b.hat_held, CTL_BOOT), now);
 }
 
 void ctl_main(void)
 {
-    struct in_raw raw;
     struct usb_status st;
-    u32 now = plat_ms(), ev, deadline;
+    struct bt_ev e;
+    u32 now = plat_ms(), deadline;
 
     boot(now);
     for (;;) {
         now = plat_ms();
-        plat_input(&raw);
-        in_map(&raw, &c.pad);
-        if (in_moved(&c.pad, &c.activity_ref)) {
-            c.activity_ref = c.pad;
-            c.activity_ms = now;
-        }
-        handle(ux_step(&c.pad, now, c.kind), now);
+        read_input(now);
+        while (bt_poll(&e)) bt_event(&e, now);
         st.state = c.kind;
         st.slot = c.slot;
         st.usb_powered = c.usb_powered;
@@ -275,14 +438,11 @@ void ctl_main(void)
         handle(usb_poll(&st), now);
         sample_power(now);
         timeouts(now);
-        if ((s32)(now - c.led_next) >= 0) {
-            lights(now);
-            c.led_next = now + ux_timeouts.led_frame_ms;
-        }
+        if (c.kind == CTL_CONNECTED) send_report(now);
+        outputs(now);
+        set_poll(now, bt_radio_quiet() && c.kind != CTL_STOPPING && now - c.since >= QUIET_MS);
         deadline = earliest(c.led_next, earliest(state_deadline(), ux_deadline()));
-        if (c.kind == CTL_STOPPING || c.kind == CTL_SLEEPING || c.kind == CTL_REBOOTING)
-            deadline = now + 10;
-        ev = plat_wait(deadline);
-        (void)ev;
+        if (c.calibrating) deadline = earliest(deadline, now + CAL_SAMPLE_MS);
+        plat_wait(deadline);
     }
 }

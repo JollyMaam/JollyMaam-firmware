@@ -36,12 +36,12 @@ void bt_disconnect(void);              /* drop the link, keep the session */
 void bt_connect(void);                 /* one attempt to reach the bonded host */
 int  bt_send_input(u8 id, const u8 *data, u16 len);    /* newest-wins slot */
 int  bt_send_message(u8 id, const u8 *data, u16 len);  /* queued, in order */
-int  bt_poll(struct bt_event *ev);     /* 1 while there are events */
+int  bt_poll(struct bt_ev *ev);     /* 1 while there are events */
 int  bt_radio_quiet(void);             /* no pairing exchange or link set-up under way */
 ```
 
 ```c
-struct bt_event {
+struct bt_ev {
     enum {
         BT_EV_LINKED,      /* the host can take reports */
         BT_EV_UNLINKED,    /* .reason: BT_LOST or BT_ENDED */

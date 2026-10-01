@@ -3,8 +3,19 @@
 
 #ifdef UNITTEST
 #include "test.h"
-#else
-#include "generic/typedef.h"
+#endif
+
+/* The SDK's own definitions, spelled out so that files using BTstack (which
+ * has its own bool) need no SDK header.  Identical typedefs may repeat. */
+typedef unsigned char u8;
+typedef char s8;
+typedef unsigned short u16;
+typedef signed short s16;
+typedef unsigned int u32;
+typedef signed int s32;
+
+#ifndef NULL
+#define NULL ((void *)0)
 #endif
 
 #ifdef UNITTEST
@@ -12,6 +23,8 @@
 #else
 #define RETAINED __attribute__((section(".retained"), used, aligned(4)))
 #endif
+
+struct rgb { u8 r, g, b; };
 
 #define SLOTS     8
 #define SLOT_NONE 0xff
@@ -52,6 +65,31 @@ struct pad {
 void in_map(const struct in_raw *raw, struct pad *pad);
 int in_moved(const struct pad *now, const struct pad *ref);
 
+/* ---- input_calibration.c ------------------------------------------------ */
+
+#define CAL_GATE_KNOTS 16
+
+struct cal_stick {
+    u16 minimum[2], center[2], maximum[2];
+    u16 gate[CAL_GATE_KNOTS];
+    u16 inner_deadzone, outer_deadzone;
+};
+
+struct cal_trigger { u16 rest, full, inner_deadzone, outer_deadzone; };
+
+struct set_cal {
+    struct cal_stick stick[2];
+    struct cal_trigger trigger[2];
+};
+
+enum { CAL_IDLE, CAL_RUNNING, CAL_SAVE };
+
+void cal_apply(const struct set_cal *cal, const struct in_raw *raw, struct pad *pad);
+void cal_start(u32 now);
+void cal_cancel(u32 now);
+int cal_step(const struct in_raw *raw, u32 now, struct set_cal *cal);
+int cal_led(u32 now, struct rgb *out);
+
 /* ---- controller.c ------------------------------------------------------- */
 
 enum ctl_kind {
@@ -71,6 +109,95 @@ struct ctl_request {
 };
 
 void ctl_main(void);
+
+/* ---- bt.c --------------------------------------------------------------- */
+
+enum { BT_CLASSIC, BT_LE };
+
+struct bt_bond {
+    u8 peer[6];                  /* least significant byte first; all zero: none */
+    u8 link_key[16];
+    u8 key_type;
+    u8 le_peer[6];
+    u8 ltk[16];
+};
+
+struct bt_device {
+    u8 transport;
+    const char *name;
+    u32 class_of_device;
+    u16 vendor_id, product_id, version;
+    const u8 *hid_descriptor;
+    u16 hid_descriptor_len;
+    u16 sniff_slots, sniff_attempt;
+};
+
+#define BT_WRITE_MAX 64
+enum { BT_WRITE_OUTPUT, BT_WRITE_FEATURE, BT_WRITE_ATT };
+struct bt_write {
+    u8 kind;
+    u16 id;
+    u16 len;
+    u8 data[BT_WRITE_MAX];
+};
+
+enum { BT_EV_NONE, BT_EV_LINKED, BT_EV_UNLINKED, BT_EV_FAILED, BT_EV_STOPPED,
+       BT_EV_PEER, BT_EV_BONDED, BT_EV_WRITE };
+
+struct bt_ev {
+    u8 kind;
+    u8 lost;                     /* BT_EV_UNLINKED: the signal went, not the host */
+    u8 reason;                   /* HCI disconnect reason */
+    struct bt_bond bond;         /* BT_EV_PEER, BT_EV_BONDED */
+    struct bt_write write;       /* BT_EV_WRITE */
+};
+
+struct profile;
+void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond *bond,
+              int pairing);
+void bt_stop(void);
+void bt_abort(void);
+void bt_connect(void);
+void bt_disconnect(void);
+int bt_send_input(u8 id, const u8 *data, u16 len);
+int bt_send_message(u8 id, const u8 *data, u16 len);
+int bt_poll(struct bt_ev *ev);
+int bt_radio_quiet(void);
+
+/* ---- profile_*.c -------------------------------------------------------- */
+
+enum { IMU_OFF, IMU_MOTION, IMU_GYRO };
+
+struct set_slot;
+struct profile_session {
+    u8 slot;
+    u8 pairing;
+    u8 address[6];
+    const struct bt_bond *bond;
+    const struct set_slot *settings;
+};
+
+struct profile_host {
+    u8 rumble[2];
+    u8 has_players, players, players_flash;
+    u8 has_lightbar;
+    u8 lightbar[3];
+    u8 imu;
+};
+
+struct profile {
+    const char *name;
+    u16 report_hz;
+    const struct bt_device *device;
+    u8 (*begin)(const struct profile_session *s);
+    void (*end)(void);
+    int (*report)(const struct pad *pad, u32 now, u8 *out, u8 *id);
+    int (*write)(const struct bt_write *w, u32 now, struct bt_bond *bond);
+    void (*host)(u32 now, struct profile_host *out);
+    int (*read)(u8 kind, u16 id, u8 *out, u16 max);
+};
+
+extern const struct profile profile_switch;
 
 /* ---- settings.c --------------------------------------------------------- */
 
@@ -92,10 +219,18 @@ struct set_prefs {
 
 const struct set_slot *set_slot(u8 slot);
 const struct set_prefs *set_prefs(void);
+void set_init(void);
+void set_poll(u32 now, int radio_quiet);
+void set_commit(void);
+const struct bt_bond *set_bond(u8 slot);
+void set_bond_store(u8 slot, const struct bt_bond *bond);
+void set_bond_forget(u8 slot);
+void set_slot_address(u8 slot, u8 out[6]);
+void set_slot_new_address(u8 slot);
+const struct set_cal *set_cal(void);
+void set_cal_store(const struct set_cal *cal);
 
 /* ---- leds.c ------------------------------------------------------------- */
-
-struct rgb { u8 r, g, b; };
 
 enum { LIGHT_HOME, LIGHT_P0, LIGHT_P1, LIGHT_P2, LIGHT_P3, LIGHT_GRIP_L,
        LIGHT_GRIP_R, LIGHT_UNUSED, LIGHT_COUNT };
@@ -207,6 +342,11 @@ struct plat_boot {
 
 u32 plat_ms(void);
 u32 plat_wait(u32 deadline_ms);
+void plat_wake(u32 events);                 /* from another thread or an interrupt */
+void plat_delay_ms(u32 ms);                 /* blocking; set-up only */
+void plat_bt_thread(void (*body)(void));
+void plat_bt_wait(u32 ms);                  /* the bluetooth thread sleeps until woken */
+void plat_bt_wake(void);
 void plat_lock(void);
 void plat_unlock(void);
 void plat_boot_info(struct plat_boot *out);
@@ -217,6 +357,8 @@ int plat_usb_present(void);
 void plat_usb_service(void);
 u16 plat_battery_mv(void);
 const u8 *plat_unique_id(void);
+int plat_store_read(u16 key, void *buf, u16 len);
+int plat_store_write(u16 key, const void *buf, u16 len);
 u8 plat_retained_slot(void);
 void plat_retain_slot(u8 slot);
 void plat_power_off(void);
