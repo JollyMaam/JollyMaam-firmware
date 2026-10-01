@@ -72,8 +72,8 @@ int  cal_led(u32 now, u8 rgb[3]);      /* the routine's light, 0 if none */
 The routine: hands off (settle), rest sampling, sweep the sticks and triggers,
 result.  The result is stored as the calibration record
 ([settings.md](settings.md)); if that record is missing or from an older
-format, defaults are used and the console and lights say calibration is
-required.
+format, defaults are used, and the lights and the USB status say
+calibration is required.
 
 The maths (`cal_stick_map`, `cal_trigger_map`, the sanity checks) is pure and
 carries the unit test.
@@ -85,11 +85,11 @@ void imu_task(void);                       /* the imu thread's body */
 void imu_tick(void);                       /* from ctl_poll: paces sampling */
 void imu_mode(enum imu_mode m);            /* IMU_OFF, IMU_MOTION (4 ms), IMU_GYRO (2 ms) */
 int  imu_since(u32 seq, struct imu_sample *out, int max);
-void imu_pointer(u16 per_degree, u16 accel, s32 *x, s32 *y);   /* gyro mouse */
+void imu_pointer(u16 per_degree, u16 accel, s32 *x, s32 *y);   /* mouse */
 void imu_pointer_reset(void);
 ```
 
-Profiles choose the mode in `begin()` (PlayStation and Switch: motion; gyro
-mouse: gyro only; others: off).  The sensor register sequence is specific to
+Profiles choose the mode in `begin()` (PlayStation and Switch: motion; mouse
+with a gyro speed: gyro only; others: off).  The sensor register sequence is specific to
 the sensor, not the chip; the bus is `plat_i2c_read()`/`plat_i2c_write()`.
 The pointer learns the gyro's zero-rate offset whenever the pad is held still.

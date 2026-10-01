@@ -44,7 +44,7 @@ call.
 
 What `bt.c` does for each transport:
 
-| | Classic (switch, xbox, dualsense, dualshock4, mice) | LE (switch2, xboxble, generic) |
+| | Classic (switch, xbox, dualsense, dualshock4, mouse) | LE (switch2, xboxble, generic) |
 |---|---|---|
 | start | SDP HID record from `hid_descriptor`, Device ID record, class of device, page/inquiry scan when pairing | GATT db from `att_db`, advertising from `advertising()` |
 | reconnect | the pad pages the bonded host | the pad advertises to the bonded host |

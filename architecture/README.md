@@ -15,7 +15,7 @@ at the end; each module page says what it replaces.
 | [profiles.md](profiles.md) | the profile interface, and each console/host profile |
 | [bluetooth.md](bluetooth.md) | `bt.c` over BTstack, and the BTstack to controller transport |
 | [settings.md](settings.md) | settings, bonds and calibration storage; the UX tables |
-| [console.md](console.md) | the USB serial console |
+| [usb.md](usb.md) | USB: stock-pad upgrades, firmware updates, logs, settings |
 | [platform.md](platform.md) | the boundary to the Jieli SDK and board, and porting |
 
 ## Layers
@@ -34,7 +34,7 @@ upper layer registered, or through a value the upper layer polls.
  bt.c            Bluetooth host: Classic HID device, LE GATT server, bonds
  btstack_hci_jieli.c   BTstack <-> Jieli controller (btctrler.a)
  ──────────────────────────────────────────────────────────────────────────
- input.c  input_calibration.c  input_imu.c  leds.c  settings.c  console.c
+ input.c  input_calibration.c  input_imu.c  leds.c  settings.c  usb.c
  utils.c
  ──────────────────────────────────────────────────────────────────────────
  platform_jieli.c       time, tasks, storage, USB CDC, pins, LED chain, motors
@@ -56,7 +56,7 @@ If a function is not in `pad.h`, it is `static`.
 | `profile_switch_wake.c` | `swake_` | `profile_switch_wake*.c/h` (4 + 4 files) |
 | `profile_xbox.c` | `xbox_` | `profile_xbox.c`, `profile_xbox_ble.c`, its att_db header and `.gatt` |
 | `profile_playstation.c` | `ps_` | `profile_playstation.c`, `profile_dualsense.c`, `profile_dualshock4.c` |
-| `profile_hid.c` | `hid_` | `profile_generic.c`, `profile_mouse.c` |
+| `profile_hid.c` | `hid_` | `profile_generic.c`, `profile_mouse.c` (stick and gyro mouse become one `mouse` profile) |
 | `bt.c` | `bt_` | `bt/btstack_jl_core.c`, `bt/btstack_jl_le.c`, `bt/btstack_jl_sdk.c`, `bt/btstack_jl_ble_stub.c`, `bt/hci_dump_console.c`, `profile.c`, `profile_classic.c`, `profile_le.c`, `identity.c` |
 | `btstack_hci_jieli.c` | `hci_` | `btstack-jl-port/port/jieli-br23/*` |
 | `input.c` | `in_` | `input.c` |
@@ -64,8 +64,8 @@ If a function is not in `pad.h`, it is `static`.
 | `input_imu.c` | `imu_` | `imu.c`, `gyro.c` |
 | `leds.c` | `led_` | `lights.c`, `lights_render.c` (renderer) |
 | `settings.c` | `set_` | `config.c`, `config_schema.c` |
-| `console.c` | `con_` | `console.c`, `commands.c`, `status.c` |
-| `utils.c` | `util_` | `aes128.c`, byte packing helpers repeated in the profiles |
+| `usb.c` | `usb_` | `usb.c`; `console.c`, `commands.c` and `status.c` are removed (no serial console) |
+| `utils.c` | `util_` | `aes128.c`, byte packing helpers repeated in the profiles, the log ring buffer (`util_log`) |
 | `platform_jieli.c` | `plat_` | `init.c`, `main.c`, `usb.c`, `led.c`, `rumble.c` (motors), `rom.c`, `timing.c` (clock) |
 | `platform_jieli_sdk.c` | – | `sdkconfig/*.c` |
 
@@ -110,7 +110,7 @@ Three threads touch application code.
 
 | Thread | Runs | Priority |
 |---|---|---|
-| control | `ctl_poll()` every 1 ms, console input, timers posted with `plat_after()` | highest app priority |
+| control | `ctl_poll()` every 1 ms, USB vendor commands, timers posted with `plat_after()` | highest app priority |
 | bluetooth | BTstack run loop: `bt.c` and the profile `write`/`read` handlers | below control |
 | imu | IMU sampling for `input_imu.c` | lowest |
 
@@ -158,5 +158,8 @@ other profile) before the next.
    [bluetooth.md](bluetooth.md) must survive.
 4. Profiles onto `struct profile`; merge files.
 5. `controller.c`, `settings_ux.c`, `leds.c`.
-6. `input*.c`, then `settings.c` and `console.c`.
+6. `input*.c`, then `settings.c`.
+   `usb.c` and the PC tool `padtool` come before the CDC console is removed,
+   so there is always a way to read logs and reach the loader; that may
+   mean doing them first.
 7. `pad.h`, `UNITTEST` blocks, `make test`, update `AGENTS.md`.

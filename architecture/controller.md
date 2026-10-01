@@ -19,7 +19,7 @@ if report due and linked:
 rumble timer                  ctl_rumble() durations
 led_poll(now, state, pad)     leds.c
 set_poll(now, bt_radio_quiet())   settings.c writes pending records
-con_poll()                    console.c
+usb_poll()                    usb.c: vendor commands
 ```
 
 ## States
@@ -29,7 +29,7 @@ data.
 
 | Kind | Meaning | Left by |
 |---|---|---|
-| `IDLE` | no session (after boot, or after a stop) | a gesture or console connect/pair |
+| `IDLE` | no session (after boot, or after a stop) | a gesture |
 | `CONNECTING` | session started, waiting for the bonded host | `BT_LINKED`; connect timeout → retry or sleep |
 | `PAIRING` | session started, discoverable for a new host | `BT_LINKED`; pair timeout → sleep |
 | `LINKED` | a host has the link; reports flow | `BT_UNLINKED` → `DISCONNECTED`; a gesture |
@@ -42,7 +42,7 @@ that target (newest wins).
 
 ## Interface
 
-Called by the console and by gestures (control thread):
+Called by gestures and by `usb.c` (control thread):
 
 ```c
 int  ctl_connect(u8 slot);

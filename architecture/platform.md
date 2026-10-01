@@ -36,10 +36,8 @@ void plat_motors(u8 left, u8 right);
 u8   plat_boot_chord(u8 *slot);             /* Home and keys held at power-on */
 u16  plat_battery_mv(void);  int plat_charging(void);
 
-/* USB */
+/* USB: mass storage, no medium; vendor commands go to usb_command() */
 int  plat_usb_present(void);
-int  plat_usb_read(u8 *buf, int max);
-void plat_usb_write(const u8 *buf, int len);
 
 /* power */
 void plat_power_off(void);                  /* wakes on Home or USB */
@@ -65,6 +63,7 @@ or `platform_jieli.c` (functions).
 | Symbol | Needed by |
 |---|---|
 | `app_main`, `board_init`, `task_info_table`, `eSystemConfirmStopStatus` | system.a |
+| `private_scsi_cmd` | the SDK's mass-storage device (`msd.c`) |
 | `vm_max_size_config`, `support_vm_data_keep`, `is_pwm_led_on`, `btif_table` | cpu.a, system.a |
 | `user_send_cmd_prepare`, `sniff_negotiation_hook`, `config_update_mode` | btctrler.a |
 | `btstack_assert_failed` | upstream BTstack |
@@ -85,7 +84,8 @@ Take a custom pad on an nRF52/nRF54 as the example.
 
 | Part | Stays | Rewritten |
 |---|---|---|
-| controller, settings_ux, leds, input*, settings, console, utils | ✓ | |
+| controller, settings_ux, leds, input*, settings, utils | ✓ | |
+| `usb.c` command handling | ✓ | the mass-storage class driver underneath |
 | profiles | ✓ | |
 | `profile_switch_wake.c` code generation | ✓ | the raw-radio burst (or leave Switch 1 wake out) |
 | `bt.c` | ✓ with BTstack's nRF port | or reimplement the `bt_` interface on the vendor stack |

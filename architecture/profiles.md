@@ -18,11 +18,16 @@ same on any chip, and makes their report bytes testable on the host.
 | `profile_switch_wake.c` | console wake for `switch` | raw radio |
 | `profile_xbox.c` | `xbox`, `xboxble` | Classic, LE |
 | `profile_playstation.c` | `dualsense`, `dualshock4` | Classic |
-| `profile_hid.c` | `generic`, `stickmouse`, `gyromouse` | LE, Classic |
+| `profile_hid.c` | `generic`, `mouse` | LE, Classic |
 
 Profiles that share a file share their encoders: both Xbox transports send the
 same state bytes; DualSense and DualShock 4 share the button, stick, motion and
 touchpad packing.
+
+`mouse` replaces today's `stickmouse` and `gyromouse`: the stick and the gyro
+both move the pointer, each at its own speed (`stick_speed`, `gyro_speed`;
+0 turns that source off, and with the gyro off the IMU stays off).  The
+`desktop` variant still picks the button layout.
 
 ## The interface
 
@@ -170,3 +175,8 @@ It contains the access-code and payload generation (pure, unit-tested against
 the known vectors) and the radio register sequence (Jieli-specific; on another
 chip this part would be rewritten or the feature left out).  Switch 2 wake is
 just a flag in its advertisement and needs none of this.
+
+**Open: what starts it.**  Today only the console's `wake` command does, and
+the console is going.  Options: a Home+slot chord on a `switch` slot always
+wakes first and then connects; or a separate gesture row (for example
+Home+slot held 1 s); or the USB tool only, for now.

@@ -3,10 +3,9 @@
 Two files:
 
 * `settings.c` (prefix `set_`) – the values the user can change, the bonds,
-  the calibration; their defaults, storage, and text form for the console.
+  the calibration; their defaults and storage.
 * `settings_ux.c` (prefix `ux_`) – fixed tables that decide how the pad
-  feels: gestures, timeouts, LED scenes.  Changed by editing and rebuilding,
-  not from the console.
+  feels: gestures, timeouts, LED scenes.  Changed by editing and rebuilding.
 
 ## Records
 
@@ -19,9 +18,9 @@ struct set_header { u16 magic; u16 version; u16 size; u16 crc; };
 
 | Record | Contains | On a version or size mismatch |
 |---|---|---|
-| preferences | `global.autocommit`, `log.*`, `led.*`, per slot: type, variant, report rate, in-flight, tx power, EDR3, colour, rumble, grips, pointer speeds | defaults; the console says so once |
+| preferences | `led.*`, per slot: type, variant, report rate, in-flight, tx power, EDR3, colour, rumble, grips, pointer speeds | defaults |
 | bonds | identity seed; per slot: pinned address, Classic peer + link key + key type, LE peer + LTK | kept as far as the old layout is understood; if not, empty: every host must pair again |
-| calibration | stick min/centre/max/gate/dead zones, trigger rest/full/dead zones | defaults; the console and the lights say calibration is required |
+| calibration | stick min/centre/max/gate/dead zones, trigger rest/full/dead zones | defaults; the lights and the USB status say calibration is required |
 
 The version is bumped by hand when a struct's layout changes.  There is no
 per-field ID and no migration code: preferences are cheap to set again, bonds
@@ -35,27 +34,21 @@ syscfg VM items).
 ## When records are written
 
 Any change marks its record dirty.  `set_poll(now, radio_quiet)` writes dirty
-records once nothing has changed for 100 ms, `autocommit` is on (or a commit
-was asked for), and the radio is quiet: no pairing exchange or link set-up
+records once nothing has changed for 100 ms and the radio is quiet: no pairing exchange or link set-up
 under way.  Writes are otherwise allowed while connected.  Sleep writes what is
 pending before powering off.
 
-## Schema
+## Changing settings
 
-The console's view of the preferences is a table, one row per setting:
+For now there is no way to change settings from outside: no console, and the
+USB `SETTINGS_READ`/`SETTINGS_WRITE` commands ([usb.md](usb.md)) are
+reserved but not implemented.  Values are changed by editing the defaults in
+`settings.c`.  The records, the dirty/commit logic and the per-slot accessors
+are kept so the later USB commands only have to move bytes.
 
-```c
-{ .path = "profile.#.report_hz", .type = SET_ENUM, .choices = report_rates,
-  .field = SET_SLOT_FIELD(report_hz), .def = 0, .apply = SET_NEXT_CONNECT,
-  .help = "input reports per second; auto is the type's default" },
-```
-
-Rows give the path (`#` is the slot), type (bool, uint, enum, colour, MAC,
-hex, percent), field, default, range or choices, when the change applies
-(live, next connect, reboot), an optional check or side effect (changing the
-type resets the report rate), and help.  Bonds and calibration are shown
-read-only under `bond.#.*` and `cal.*`, and are changed by pairing and by the
-calibration routine, not typed in.
+When those commands come, the PC tool and the Android app need names, types
+and ranges for each field.  Whether that table lives in the firmware (as
+today's schema does) or in the tools is decided then.
 
 ## Interface
 
@@ -63,7 +56,7 @@ calibration routine, not typed in.
 extern const struct set_prefs  set;     /* read-only to everyone else */
 void set_init(void);
 void set_poll(u32 now, int radio_quiet);
-int  set_commit(void);
+int  set_commit(void);              /* write now: before sleep or reboot */
 int  set_pending(void);
 
 const struct set_slot *set_slot(u8 slot);
@@ -76,10 +69,6 @@ void set_calibration(const struct set_cal *cal);
 const struct set_cal *set_cal(void);
 int  set_cal_required(void);
 
-/* console */
-int  set_get(const char *path, char *out, u16 max);   /* also lists a prefix */
-const char *set_put(const char *path, const char *text);   /* error or NULL */
-void set_reset(const char *path);                      /* NULL: everything */
 ```
 
 Writers are safe from any thread; the bond setters are called from the
