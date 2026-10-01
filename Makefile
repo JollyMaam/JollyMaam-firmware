@@ -13,7 +13,7 @@ HOST_CFLAGS := -O2 -g -std=c11 -Wall -Wextra -Wno-unused-function
 include sdk-br23.mk
 
 CFLAGS := $(SDK_CFLAGS)
-DEFINES := $(SDK_DEFINES) -DBUILD_ID=\"$(shell git rev-parse --short HEAD 2>/dev/null)\"
+DEFINES := $(SDK_DEFINES) -DBUILD_ID=\"$(shell git describe --always --dirty 2>/dev/null)\"
 INCLUDES := -iquote src -iquote src/sdkconfig $(SDK_INCLUDES)
 
 SDK_USED := \

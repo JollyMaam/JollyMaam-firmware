@@ -50,7 +50,7 @@ extern u32 msd_mcu2usb(const struct usb_device_t *usb_device, const u8 *buffer, 
 extern u8 *get_norflash_uuid(void) __attribute__((weak));
 
 const struct task_info task_info_table[] = {
-    {"app_core",  1, 0, 256,  64  },
+    {"app_core",  1, 0, 1024, 128 },
     {"ctl",       3, 0, 1024, 0   },
     {"sys_event", 7, 0, 256,  0   },
     {"btctrler",  4, 0, 512,  256 },
@@ -665,6 +665,18 @@ static const struct low_power_param power_param = {
 };
 
 /* ---- start-up --------------------------------------------------------------- */
+
+/* Never let the SDK put the chip into low-power sleep on its own: the pad
+ * sleeps only by powering off. */
+static u8 never_idle(void)
+{
+    return 0;
+}
+
+REGISTER_LP_TARGET(pad_lp_target) = {
+    .name = "pad",
+    .is_idle = never_idle,
+};
 
 void board_init(void)
 {
