@@ -13,10 +13,9 @@ typedef unsigned short u16;
 typedef signed short s16;
 typedef unsigned int u32;
 typedef signed int s32;
+typedef long long s64;
 
-#ifndef NULL
-#define NULL ((void *)0)
-#endif
+#include <stddef.h>
 
 #ifdef UNITTEST
 #define RETAINED
@@ -55,15 +54,41 @@ struct in_raw {
     u8 trigger_stop[2];
 };
 
+struct imu_sample {
+    s16 accel[3];
+    s16 gyro[3];
+    u32 us;                      /* when it was read */
+};
+
+#define IMU_PER_REPORT 4
+
 struct pad {
     u16 buttons;
     u8 hat;
     s16 lx, ly, rx, ry;
     u16 l2, r2;
+    u8 imu_count;                /* samples new since the last report, oldest first */
+    struct imu_sample imu[IMU_PER_REPORT];
 };
+#define PAD_CONTROLS_SIZE ((u32)(size_t)&((struct pad *)0)->imu_count)
 
 void in_map(const struct in_raw *raw, struct pad *pad);
 int in_moved(const struct pad *now, const struct pad *ref);
+
+/* ---- input_imu.c -------------------------------------------------------- */
+
+enum { IMU_OFF, IMU_MOTION, IMU_GYRO };
+
+struct imu_pointer {
+    s64 motion[2];               /* what is left under a count */
+    u32 last_us;
+    u8 have;
+};
+
+u32 imu_poll(u32 now, u8 mode);   /* advances the sensor; returns its next deadline */
+int imu_take(u32 *seq, struct imu_sample *out, int max);
+void imu_pointer(struct imu_pointer *p, const struct imu_sample *s, int n, u16 per_degree,
+                 u16 accel, s32 *x, s32 *y);
 
 /* ---- input_calibration.c ------------------------------------------------ */
 
@@ -125,14 +150,23 @@ struct bt_bond {
 struct bt_device {
     u8 transport;
     const char *name;
+    /* Classic */
     u32 class_of_device;
     u16 vendor_id, product_id, version;
     const u8 *hid_descriptor;
     u16 hid_descriptor_len;
     u16 sniff_slots, sniff_attempt;
+    /* LE */
+    const u8 *att_db;
+    u16 input_handle;
+    u8 (*advertising)(const struct bt_bond *bond, int pairing, int wake, u8 out[31]);
+    const u8 *scan_response;
+    u8 scan_response_len;
+    const u8 *sm_er, *sm_ir;     /* security manager keys: NULL, no SMP */
+    u16 interval_min, interval_max;
 };
 
-#define BT_WRITE_MAX 64
+#define BT_WRITE_MAX 96
 enum { BT_WRITE_OUTPUT, BT_WRITE_FEATURE, BT_WRITE_ATT };
 struct bt_write {
     u8 kind;
@@ -160,13 +194,13 @@ void bt_abort(void);
 void bt_connect(void);
 void bt_disconnect(void);
 int bt_send_input(u8 id, const u8 *data, u16 len);
-int bt_send_message(u8 id, const u8 *data, u16 len);
+int bt_send_message(u16 id, const u8 *data, u16 len);
 int bt_poll(struct bt_ev *ev);
 int bt_radio_quiet(void);
+int bt_input_pending(void);
+void bt_update_bond(const struct bt_bond *bond);
 
 /* ---- profile_*.c -------------------------------------------------------- */
-
-enum { IMU_OFF, IMU_MOTION, IMU_GYRO };
 
 struct set_slot;
 struct profile_session {
@@ -194,10 +228,11 @@ struct profile {
     int (*report)(const struct pad *pad, u32 now, u8 *out, u8 *id);
     int (*write)(const struct bt_write *w, u32 now, struct bt_bond *bond);
     void (*host)(u32 now, struct profile_host *out);
-    int (*read)(u8 kind, u16 id, u8 *out, u16 max);
+    int (*read)(u8 kind, u16 id, u16 offset, u8 *out, u16 max);
 };
 
-extern const struct profile profile_switch;
+extern const struct profile profile_switch, profile_switch2, profile_xbox, profile_xbox_ble;
+extern const struct profile profile_dualsense, profile_dualshock4, profile_generic, profile_mouse;
 
 /* ---- settings.c --------------------------------------------------------- */
 
@@ -210,6 +245,10 @@ struct set_slot {
     u8 rumble;
     u8 grips;
     u8 colour[3];
+    u8 variant;              /* mouse: 0 games, 1 desktop */
+    u16 stick_speed;         /* mouse: pointer counts per second, stick all the way */
+    u16 gyro_speed;          /* mouse, touchpad: counts per degree turned; 0 off */
+    u16 gyro_accel;          /* percent of gyro_speed for fast turns */
 };
 
 struct set_prefs {
@@ -328,6 +367,7 @@ u32 util_log_read(u32 *seq, char *out, u32 max);
 void util_put16(u8 *p, u16 v);
 void util_put32(u8 *p, u32 v);
 u32 util_get32(const u8 *p);
+void util_aes128(const u8 key[16], const u8 in[16], u8 out[16]);
 
 /* ---- platform_jieli.c --------------------------------------------------- */
 
@@ -341,6 +381,10 @@ struct plat_boot {
 };
 
 u32 plat_ms(void);
+u32 plat_us(void);                          /* wraps */
+void plat_i2c_read(u8 dev, u8 reg, u8 *buf, u8 len);   /* starts; EV_IMU when done */
+void plat_i2c_write(u8 dev, u8 reg, u8 value);
+int plat_i2c_done(void);                    /* 1 done, 0 busy, -1 failed */
 u32 plat_wait(u32 deadline_ms);
 void plat_wake(u32 events);                 /* from another thread or an interrupt */
 void plat_delay_ms(u32 ms);                 /* blocking; set-up only */

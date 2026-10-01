@@ -143,6 +143,8 @@ static HOT void raise(u32 ev)
     }
 }
 
+static void i2c_tick(void);
+
 ___interrupt
 static HOT void tick_isr(void)
 {
@@ -166,6 +168,7 @@ static HOT void tick_isr(void)
         }
     }
     if (changed) raise(EV_BUTTONS);
+    i2c_tick();
     if (deadline_set && (s32)(ms_now - deadline) >= 0) {
         deadline_set = 0;
         raise(EV_DEADLINE);
@@ -278,6 +281,190 @@ static void split_lines(u32 down, u16 *buttons, u8 *hat)
     for (i = 0; i < BUTTON_LINES; i++)
         if (down & BIT(i)) *buttons |= lines[i].bit;
     *hat = hat_from(down >> BUTTON_LINES);
+}
+
+/* ---- I2C: one transfer at a time, a step per byte ---------------------------
+ * The BR23 block moves one byte and raises PENDING; each step starts the
+ * next.  Steps run from the I2C interrupt, and from the 250 us tick as a
+ * fallback should that interrupt not come.  Bus: PB4 SCL, PB6 SDA, 400 kHz. */
+
+#define IIC_ENABLE        BIT(0)
+#define IIC_CONFIG_DONE   BIT(2)
+#define IIC_DIRECTION_IN  BIT(3)
+#define IIC_PRESET_STOP   BIT(4)
+#define IIC_PRESET_START  BIT(5)
+#define IIC_RECEIVE_NACK  BIT(6)
+#define IIC_SENT_NACK     BIT(7)
+#define IIC_IE            BIT(8)
+#define IIC_STOP_CLEAR    BIT(12)
+#define IIC_STOP_PENDING  BIT(13)
+#define IIC_PENDING_CLEAR BIT(14)
+#define IIC_PENDING       BIT(15)
+#define IIC_TIMEOUT_TICKS 8
+
+enum { I2C_IDLE, I2C_ADDR_W, I2C_REG, I2C_ADDR_R, I2C_DATA_IN, I2C_DATA_OUT, I2C_STOP };
+
+static struct {
+    volatile u8 phase;
+    volatile s8 result;          /* 1 done, 0 busy, -1 failed */
+    u8 dev, reg, value, len, n, write, failed;
+    u8 *buf;
+    u8 ticks;
+} i2c;
+
+static HOT void i2c_send(u8 byte, int start)
+{
+    if (start) JL_IIC->CON0 |= IIC_PRESET_START;
+    JL_IIC->CON0 &= ~IIC_DIRECTION_IN;
+    JL_IIC->BUF = byte;
+    JL_IIC->CON0 |= IIC_CONFIG_DONE;
+}
+
+static HOT void i2c_receive(int last)
+{
+    JL_IIC->CON0 |= IIC_DIRECTION_IN;
+    if (last) JL_IIC->CON0 |= IIC_RECEIVE_NACK;
+    else JL_IIC->CON0 &= ~IIC_RECEIVE_NACK;
+    JL_IIC->BUF = 0xff;
+    JL_IIC->CON0 |= IIC_CONFIG_DONE;
+}
+
+static HOT void i2c_stop(int failed)
+{
+    i2c.failed = (u8)failed;
+    i2c.phase = I2C_STOP;
+    JL_IIC->CON0 |= IIC_PRESET_STOP | IIC_CONFIG_DONE;
+}
+
+static HOT void i2c_step(void)
+{
+    u32 con = JL_IIC->CON0;
+
+    if (i2c.phase == I2C_IDLE) return;
+    if (i2c.phase == I2C_STOP) {
+        if (!(con & IIC_STOP_PENDING)) return;
+        JL_IIC->CON0 |= IIC_STOP_CLEAR;
+        i2c.phase = I2C_IDLE;
+        i2c.result = i2c.failed ? -1 : 1;
+        raise(EV_IMU);
+        return;
+    }
+    if (!(con & IIC_PENDING)) return;
+    JL_IIC->CON0 |= IIC_PENDING_CLEAR;
+    i2c.ticks = 0;
+    if (i2c.phase != I2C_DATA_IN && (con & IIC_SENT_NACK)) {
+        i2c_stop(1);
+        return;
+    }
+    switch (i2c.phase) {
+    case I2C_ADDR_W:
+        i2c.phase = I2C_REG;
+        i2c_send(i2c.reg, 0);
+        break;
+    case I2C_REG:
+        if (i2c.write) {
+            i2c.phase = I2C_DATA_OUT;
+            i2c_send(i2c.value, 0);
+        } else {
+            i2c.phase = I2C_ADDR_R;
+            i2c_send(i2c.dev | 1, 1);
+        }
+        break;
+    case I2C_ADDR_R:
+        i2c.phase = I2C_DATA_IN;
+        i2c.n = 0;
+        i2c_receive(i2c.len == 1);
+        break;
+    case I2C_DATA_IN:
+        i2c.buf[i2c.n++] = (u8)JL_IIC->BUF;
+        if (i2c.n < i2c.len) i2c_receive(i2c.n + 1 == i2c.len);
+        else i2c_stop(0);
+        break;
+    case I2C_DATA_OUT:
+        i2c_stop(0);
+        break;
+    }
+}
+
+___interrupt
+static HOT void i2c_isr(void)
+{
+    i2c_step();
+}
+
+/* From the tick: steps a transfer whose interrupt did not come, and gives up
+ * on one that stopped moving. */
+static HOT void i2c_tick(void)
+{
+    if (i2c.phase == I2C_IDLE) return;
+    i2c_step();
+    if (i2c.phase != I2C_IDLE && ++i2c.ticks > IIC_TIMEOUT_TICKS) {
+        JL_IIC->CON0 |= IIC_PENDING_CLEAR | IIC_STOP_CLEAR;
+        i2c.phase = I2C_IDLE;
+        i2c.result = -1;
+        raise(EV_IMU);
+    }
+}
+
+static void i2c_init(void)
+{
+    JL_IOMAP->CON1 = (JL_IOMAP->CON1 & ~(3u << 18)) | (2u << 18);
+    gpio_set_hd(IO_PORTB_04, 1);
+    gpio_set_hd(IO_PORTB_06, 1);
+    gpio_set_pull_up(IO_PORTB_04, 0);
+    gpio_set_pull_up(IO_PORTB_06, 0);
+    gpio_set_pull_down(IO_PORTB_04, 0);
+    gpio_set_pull_down(IO_PORTB_06, 0);
+    gpio_set_die(IO_PORTB_04, 1);
+    gpio_set_die(IO_PORTB_06, 1);
+    JL_IIC->CON0 = 0;
+    JL_IIC->BAUD = 29;                      /* lsb / (2 * (29 + 1)) = 400 kHz */
+    JL_IIC->CON1 |= IIC_PENDING_CLEAR;
+    JL_IIC->CON0 = IIC_PENDING_CLEAR | IIC_STOP_CLEAR | IIC_ENABLE;
+    request_irq(IRQ_IIC_IDX, 1, i2c_isr, 0);   /* the tick's priority: they never nest */
+    JL_IIC->CON0 |= IIC_IE;
+}
+
+static void i2c_begin(u8 dev, u8 reg, u8 *buf, u8 len, int write, u8 value)
+{
+    local_irq_disable();
+    i2c.dev = dev;
+    i2c.reg = reg;
+    i2c.buf = buf;
+    i2c.len = len;
+    i2c.write = (u8)write;
+    i2c.value = value;
+    i2c.result = 0;
+    i2c.ticks = 0;
+    i2c.phase = I2C_ADDR_W;
+    i2c_send(dev & 0xfe, 1);
+    local_irq_enable();
+}
+
+void plat_i2c_read(u8 dev, u8 reg, u8 *buf, u8 len)
+{
+    i2c_begin(dev, reg, buf, len, 0, 0);
+}
+
+void plat_i2c_write(u8 dev, u8 reg, u8 value)
+{
+    i2c_begin(dev, reg, NULL, 0, 1, value);
+}
+
+int plat_i2c_done(void)
+{
+    return i2c.result;
+}
+
+u32 plat_us(void)
+{
+    u32 ms, cnt;
+
+    do {
+        ms = ms_now;
+        cnt = JL_TIMER3->CNT;
+    } while (ms != ms_now);
+    return ms * 1000 + quarter * TICK_US + cnt / 24;
 }
 
 /* ---- sticks: 4-byte frames from the stick MCU on UART2, by DMA ----------- */
@@ -407,7 +594,8 @@ static void inputs_init(void)
     stop_switch(PR_STOP_L2);
     stop_switch(PR_STOP_R2);
     sticks_init();
-    pull_up_input(IO_PORTA_02);    /* d-pad up shares the UART2 input mux */
+    pull_up_input(IO_PORTA_02);
+    i2c_init();    /* d-pad up shares the UART2 input mux */
 }
 
 void plat_input(struct in_raw *raw)

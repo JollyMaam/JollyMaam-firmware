@@ -15,10 +15,14 @@ static const char *const names[CTL_KIND_COUNT] = {
 
 static const struct profile *profile_for(u8 type)
 {
-    switch (type) {
-    case PROFILE_SWITCH: return &profile_switch;
-    default: return NULL;
-    }
+    static const struct profile *const profiles[PROFILE_COUNT] = {
+        [PROFILE_SWITCH] = &profile_switch, [PROFILE_SWITCH2] = &profile_switch2,
+        [PROFILE_XBOX] = &profile_xbox, [PROFILE_XBOX_BLE] = &profile_xbox_ble,
+        [PROFILE_DUALSENSE] = &profile_dualsense, [PROFILE_DUALSHOCK4] = &profile_dualshock4,
+        [PROFILE_GENERIC] = &profile_generic, [PROFILE_MOUSE] = &profile_mouse,
+    };
+
+    return type < PROFILE_COUNT ? profiles[type] : NULL;
 }
 
 static struct {
@@ -33,6 +37,8 @@ static struct {
     u8 uboot_chord;
     u32 retry_at;
     u32 report_next;
+    u8 imu_mode, begin_imu;
+    u32 imu_seq, imu_next;
     u8 calibrating;
     struct set_cal cal;
     struct in_raw raw;
@@ -89,7 +95,7 @@ static void start_session(struct ctl_request r, u32 now)
     c.last_slot = r.slot;
     plat_retain_slot(r.slot);
     memset(&c.host, 0, sizeof(c.host));
-    p->begin(&s);
+    c.begin_imu = p->begin(&s);
     bt_start(p, s.address, pairing ? NULL : s.bond, pairing);
     c.radio = 1;
     util_log("session slot %u %s%s", r.slot, p->name, pairing ? " pairing" : "");
@@ -186,8 +192,15 @@ static void bt_event(const struct bt_ev *e, u32 now)
         if (c.slot < SLOTS) set_bond_store(c.slot, &e->bond);
         break;
     case BT_EV_WRITE:
-        if (c.prof && c.prof->write && c.prof->write(&e->write, now, &bond) && c.slot < SLOTS)
-            set_bond_store(c.slot, &bond);
+        /* A pairing the profile ran itself (Switch 2): the key joins the
+         * slot's bond, and the stack needs it at once. */
+        if (c.prof && c.prof->write && c.prof->write(&e->write, now, &bond) && c.slot < SLOTS) {
+            struct bt_bond b = *set_bond(c.slot);
+
+            memcpy(b.ltk, bond.ltk, 16);
+            set_bond_store(c.slot, &b);
+            bt_update_bond(&b);
+        }
         break;
     case BT_EV_STOPPED:
         c.radio = 0;
@@ -307,6 +320,8 @@ static void outputs(u32 now)
     int rumble = c.kind == CTL_CONNECTED && !c.calibrating;
 
     if (c.prof && c.prof->host) c.prof->host(now, &c.host);
+    c.imu_mode = !session() ? IMU_OFF : c.prof && c.prof->host && c.host.imu ? c.host.imu : c.begin_imu;
+    c.imu_next = imu_poll(now, c.imu_mode);
     slot = set_slot(c.slot < SLOTS ? c.slot : 0);
     rumble = rumble && slot->rumble;
     plat_motors(rumble ? c.host.rumble[0] : 0, rumble ? c.host.rumble[1] : 0);
@@ -385,6 +400,7 @@ static void send_report(u32 now)
     if ((s32)(now - c.report_next) < 0) return;
     c.report_next += period;
     if ((s32)(now - c.report_next) >= 0) c.report_next = now + period;
+    c.pad.imu_count = (u8)imu_take(&c.imu_seq, c.pad.imu, IMU_PER_REPORT);
     n = c.prof->report(&c.pad, now, buf, &id);
     if (n > 0) bt_send_input(id, buf, (u16)n);
 }
@@ -441,7 +457,7 @@ void ctl_main(void)
         if (c.kind == CTL_CONNECTED) send_report(now);
         outputs(now);
         set_poll(now, bt_radio_quiet() && c.kind != CTL_STOPPING && now - c.since >= QUIET_MS);
-        deadline = earliest(c.led_next, earliest(state_deadline(), ux_deadline()));
+        deadline = earliest(c.led_next, earliest(state_deadline(), earliest(ux_deadline(), c.imu_next)));
         if (c.calibrating) deadline = earliest(deadline, now + CAL_SAMPLE_MS);
         plat_wait(deadline);
     }

@@ -1,13 +1,20 @@
-/* The Bluetooth host: a profile's bt_device turned into SDP records (Classic)
- * on upstream BTstack; architecture/bluetooth.md.  BTstack runs on its own
- * thread; the control thread talks to it through the requests, the input
- * slot and the message queue below, and hears back through bt_poll(). */
+/* The Bluetooth host on upstream BTstack; architecture/bluetooth.md.  A
+ * profile's bt_device becomes SDP records and a HID device (Classic) or a
+ * GATT server and advertising (LE).  BTstack runs on its own thread; the
+ * control thread talks to it through the requests, the input slot and the
+ * message queue below, and hears back through bt_poll(). */
 #include <string.h>
 #include "btstack_config.h"
+#include "bluetooth_gatt.h"
+#include "btstack_crypto.h"
 #include "btstack_event.h"
 #include "btstack_hid_parser.h"
 #include "btstack_memory.h"
 #include "btstack_run_loop.h"
+#include "ble/att_db.h"
+#include "ble/att_server.h"
+#include "ble/le_device_db.h"
+#include "ble/sm.h"
 #include "classic/btstack_link_key_db.h"
 #include "classic/device_id_server.h"
 #include "classic/hid_device.h"
@@ -25,10 +32,12 @@ void hci_jieli_drop_link(void);
 void hci_jieli_prepare(u16 slots, u16 attempt);
 void hci_jieli_link_policy(void);
 
-#define MAX_REPORT     80
-#define MESSAGES       8
+#define MAX_INPUT      80
+#define MAX_MESSAGE    160
+#define MESSAGES       6
 #define EVENTS         8
 #define IN_FLIGHT      2
+#define CCCS           8
 /* Single-slot ACL packets only (DM1 DH1 2-DH1 3-DH1), as the stock firmware
  * pages: a report never rides a longer packet that fails more often. */
 #define ACL_TYPES      0x001e
@@ -36,45 +45,46 @@ void hci_jieli_link_policy(void);
 
 enum { RQ_START = 1, RQ_CONNECT = 2, RQ_DISCONNECT = 4, RQ_STOP = 8, RQ_ABORT = 16 };
 
-struct report { u16 len; u8 data[MAX_REPORT]; };
+struct message { u16 handle; u16 len; u8 data[MAX_MESSAGE]; };
 
 static const struct profile *prof;
+static const struct bt_device *dev;
 static u8 addr[6];                       /* ours, least significant byte first */
 static struct bt_bond bond;
 static u8 pairing;
+static u8 le;
 
 static volatile u8 requests;
 static volatile u8 idle = 1;
-static volatile u8 loop_up;
 
-static struct report input;
+static u8 input[MAX_INPUT];
+static u16 input_len;
 static volatile u8 input_pending;
-static struct report messages[MESSAGES];
+static struct message messages[MESSAGES];
 static volatile u8 msg_read, msg_write;
 
 static struct bt_ev events[EVENTS];
 static volatile u8 ev_read, ev_write;
 
 /* bluetooth thread only */
-static u8 working;
-static u8 acl_up;
-static u8 linked;
-static u8 send_pending;
-static u8 qos_pending;
+static u8 working, acl_up, linked, send_pending, qos_pending, stopping;
 static u16 hid_cid;
 static hci_con_handle_t con_handle;
 static u32 unsniff_next;
 static btstack_data_source_t tx_source;
-static btstack_packet_callback_registration_t hci_registration, l2cap_registration;
+static btstack_packet_callback_registration_t hci_registration, sm_registration;
 static u8 sdp_hid[720];
 static u8 sdp_id[100];
+static u8 sm_on, wake_adv, data_length_pending;
+static u16 ccc_handle[CCCS];
+static u8 ccc_value[CCCS];
 
 /* ---- control thread side ------------------------------------------------- */
 
-static void reverse(const u8 in[6], u8 out[6])
+static void reverse(const u8 *in, u8 *out, int n)
 {
-    u32 i;
-    for (i = 0; i < 6; i++) out[i] = in[5 - i];
+    int i;
+    for (i = 0; i < n; i++) out[i] = in[n - 1 - i];
 }
 
 static void request(u8 r)
@@ -92,6 +102,8 @@ void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond
     static u8 thread;
 
     prof = p;
+    dev = p->device;
+    le = dev->transport == BT_LE;
     memcpy(addr, address, 6);
     memset(&bond, 0, sizeof(bond));
     if (b) bond = *b;
@@ -111,35 +123,63 @@ void bt_abort(void) { request(RQ_ABORT); }
 void bt_connect(void) { request(RQ_CONNECT); }
 void bt_disconnect(void) { request(RQ_DISCONNECT); }
 
+/* A bond learned by the profile (Switch 2 pairs in its own protocol): the
+ * host asks for the key right after. */
+void bt_update_bond(const struct bt_bond *b)
+{
+    plat_lock();
+    bond = *b;
+    plat_unlock();
+}
+
 int bt_send_input(u8 id, const u8 *data, u16 len)
 {
-    if (len + 2 > MAX_REPORT || !hid_cid) return 0;
+    if (!linked || len + 2 > MAX_INPUT) return 0;
     plat_lock();
-    input.data[0] = 0xa1;
-    input.data[1] = id;
-    memcpy(input.data + 2, data, len);
-    input.len = len + 2;
+    if (le) {
+        memcpy(input, data, len);
+        input_len = len;
+    } else {
+        input[0] = 0xa1;
+        input[1] = id;
+        memcpy(input + 2, data, len);
+        input_len = len + 2;
+    }
     input_pending = 1;
     plat_unlock();
     plat_bt_wake();
     return 1;
 }
 
-int bt_send_message(u8 id, const u8 *data, u16 len)
+int bt_input_pending(void)
 {
+    return input_pending;
+}
+
+/* Classic: id is the report ID; LE: the handle to notify. */
+int bt_send_message(u16 id, const u8 *data, u16 len)
+{
+    struct message *m;
     u8 next;
 
-    if (len + 2 > MAX_REPORT || !hid_cid) return 0;
+    if (!linked || len + 2 > MAX_MESSAGE) return 0;
     plat_lock();
     next = (u8)((msg_write + 1) % MESSAGES);
     if (next == msg_read) {
         plat_unlock();
         return 0;
     }
-    messages[msg_write].data[0] = 0xa1;
-    messages[msg_write].data[1] = id;
-    memcpy(messages[msg_write].data + 2, data, len);
-    messages[msg_write].len = len + 2;
+    m = &messages[msg_write];
+    m->handle = id;
+    if (le) {
+        memcpy(m->data, data, len);
+        m->len = len;
+    } else {
+        m->data[0] = 0xa1;
+        m->data[1] = id;
+        memcpy(m->data + 2, data, len);
+        m->len = len + 2;
+    }
     msg_write = next;
     plat_unlock();
     plat_bt_wake();
@@ -160,7 +200,7 @@ int bt_radio_quiet(void)
     return idle || (working && (!acl_up || linked));
 }
 
-/* ---- bluetooth thread ---------------------------------------------------- */
+/* ---- events up ------------------------------------------------------------- */
 
 static void emit(u8 kind, u8 reason)
 {
@@ -172,7 +212,8 @@ static void emit(u8 kind, u8 reason)
     memset(e, 0, sizeof(*e));
     e->kind = kind;
     e->reason = reason;
-    e->lost = reason == ERROR_CODE_CONNECTION_TIMEOUT || reason == ERROR_CODE_LMP_RESPONSE_TIMEOUT_LL_RESPONSE_TIMEOUT;
+    e->lost = reason == ERROR_CODE_CONNECTION_TIMEOUT ||
+              reason == ERROR_CODE_LMP_RESPONSE_TIMEOUT_LL_RESPONSE_TIMEOUT;
     e->bond = bond;
     ev_write = next;
     plat_wake(EV_BT);
@@ -183,7 +224,8 @@ static void emit_write(u8 kind, u16 id, const u8 *data, int len)
     struct bt_ev *e;
     u8 next = (u8)((ev_write + 1) % EVENTS);
 
-    if (next == ev_read || len < 0 || len > BT_WRITE_MAX) return;
+    if (next == ev_read || len < 0) return;
+    if (len > BT_WRITE_MAX) len = BT_WRITE_MAX;
     e = &events[ev_write];
     e->kind = BT_EV_WRITE;
     e->write.kind = kind;
@@ -194,22 +236,24 @@ static void emit_write(u8 kind, u16 id, const u8 *data, int len)
     plat_wake(EV_BT);
 }
 
-/* Link keys: only the slot's own bond, from the copy given to bt_start(). */
+static int zero(const u8 *p, int n)
+{
+    while (n--)
+        if (*p++) return 0;
+    return 1;
+}
+
+/* ---- Classic: link keys from the slot's bond --------------------------------- */
+
 static void kdb_nop(void) {}
 static void kdb_addr(bd_addr_t a) { (void)a; }
-
-static int has_key(void)
-{
-    static const u8 zero[16];
-    return memcmp(bond.link_key, zero, 16) != 0;
-}
 
 static int kdb_get(bd_addr_t a, link_key_t key, link_key_type_t *type)
 {
     u8 peer[6];
 
-    reverse(a, peer);
-    if (!has_key() || memcmp(peer, bond.peer, 6)) {
+    reverse(a, peer, 6);
+    if (zero(bond.link_key, 16) || memcmp(peer, bond.peer, 6)) {
         util_log("bt: no key for %s", bd_addr_to_str(a));
         return 0;
     }
@@ -220,7 +264,7 @@ static int kdb_get(bd_addr_t a, link_key_t key, link_key_type_t *type)
 
 static void kdb_put(bd_addr_t a, link_key_t key, link_key_type_t type)
 {
-    reverse(a, bond.peer);
+    reverse(a, bond.peer, 6);
     memcpy(bond.link_key, key, 16);
     bond.key_type = (u8)type;
     util_log("bt: bonded %s type %u", bd_addr_to_str(a), type);
@@ -231,7 +275,7 @@ static void kdb_delete(bd_addr_t a)
 {
     u8 peer[6];
 
-    reverse(a, peer);
+    reverse(a, peer, 6);
     if (memcmp(peer, bond.peer, 6)) return;
     memset(bond.link_key, 0, 16);
     bond.key_type = 0;
@@ -247,9 +291,9 @@ static int kdb_iter_init(btstack_link_key_iterator_t *it)
 static int kdb_iter_next(btstack_link_key_iterator_t *it, bd_addr_t a, link_key_t key,
                          link_key_type_t *type)
 {
-    if (it->context || !has_key()) return 0;
+    if (it->context || zero(bond.link_key, 16)) return 0;
     it->context = (void *)1;
-    reverse(bond.peer, a);
+    reverse(bond.peer, a, 6);
     memcpy(key, bond.link_key, 16);
     *type = (link_key_type_t)bond.key_type;
     return 1;
@@ -264,11 +308,7 @@ static const btstack_link_key_db_t key_db = {
     .iterator_done = kdb_iter_done,
 };
 
-static int has_peer(void)
-{
-    static const u8 zero[6];
-    return memcmp(bond.peer, zero, 6) != 0;
-}
+/* ---- Classic: connecting ------------------------------------------------------ */
 
 static void scan(int on)
 {
@@ -284,8 +324,8 @@ static void page(void)
     bd_addr_t peer;
     u16 cid;
 
-    if (hid_cid || !has_peer()) return;
-    reverse(bond.peer, peer);
+    if (hid_cid || zero(bond.peer, 6)) return;
+    reverse(bond.peer, peer, 6);
     gap_set_security_level(LEVEL_2);
     hid_device_connect(peer, &cid);
     gap_set_security_level(LEVEL_0);
@@ -297,18 +337,151 @@ static void unsniff(void)
 {
     hci_connection_t *c;
 
-    if (!acl_up || (s32)(plat_ms() - unsniff_next) < 0) return;
+    if (le || !acl_up || (s32)(plat_ms() - unsniff_next) < 0) return;
     c = hci_connection_for_handle(con_handle);
     if (!c || !c->connection_mode) return;
     hci_send_cmd(&hci_exit_sniff_mode, con_handle);
     unsniff_next = plat_ms() + UNSNIFF_MS;
 }
 
+/* ---- LE: advertising and the GATT server --------------------------------------- */
+
+static void advertise(void)
+{
+    u8 data[31];
+    u8 n;
+    bd_addr_t none;
+
+    if (!working || !le) return;
+    if (stopping || acl_up || !dev->advertising) {
+        gap_advertisements_enable(0);
+        return;
+    }
+    n = dev->advertising(&bond, pairing, wake_adv, data);
+    memset(none, 0, sizeof(none));
+    gap_advertisements_set_params(0x0020, 0x0020, 0, 0, none, 0x07, 0);
+    gap_advertisements_set_data(n, data);
+    if (dev->scan_response_len)
+        gap_scan_response_set_data(dev->scan_response_len, (u8 *)dev->scan_response);
+    gap_advertisements_enable(1);
+}
+
+static int ccc(u16 handle, int create)
+{
+    int i;
+
+    for (i = 0; i < CCCS; i++)
+        if (ccc_handle[i] == handle) return i;
+    if (!create) return -1;
+    for (i = 0; i < CCCS; i++) {
+        if (!ccc_handle[i]) {
+            ccc_handle[i] = handle;
+            ccc_value[i] = 0;
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int notifying(u16 value_handle)
+{
+    int i = ccc((u16)(value_handle + 1), 0);
+    return i >= 0 && (ccc_value[i] & 1);
+}
+
+static u16 copy_out(const u8 *v, u16 n, u16 offset, u8 *buf, u16 size)
+{
+    if (!buf) return n;
+    if (offset >= n) return 0;
+    if (size > n - offset) size = n - offset;
+    memcpy(buf, v + offset, size);
+    return size;
+}
+
+static u16 att_read(hci_con_handle_t h, u16 handle, u16 offset, u8 *buf, u16 size)
+{
+    u8 tmp[MAX_INPUT];
+    int i = ccc(handle, 0), n;
+
+    (void)h;
+    if (i >= 0) {
+        u8 v[2] = { ccc_value[i], 0 };
+        return copy_out(v, 2, offset, buf, size);
+    }
+    if (handle == dev->input_handle) return copy_out(input, input_len, offset, buf, size);
+    if (!prof->read) return 0;
+    n = prof->read(BT_WRITE_ATT, handle, 0, tmp, sizeof(tmp));
+    return n > 0 ? copy_out(tmp, (u16)n, offset, buf, size) : 0;
+}
+
+static int att_write(hci_con_handle_t h, u16 handle, u16 mode, u16 offset, u8 *buf, u16 size)
+{
+    (void)h;
+    (void)offset;
+    if (mode != ATT_TRANSACTION_MODE_NONE) return 0;
+    if (att_uuid_for_handle(handle) == GATT_CLIENT_CHARACTERISTICS_CONFIGURATION) {
+        int i = ccc(handle, 1);
+        if (i >= 0 && size) ccc_value[i] = buf[0];
+        return 0;
+    }
+    emit_write(BT_WRITE_ATT, handle, buf, size);
+    return 0;
+}
+
+static void on_sm(u8 type, u16 channel, u8 *packet, u16 size)
+{
+    (void)channel;
+    (void)size;
+    if (type != HCI_EVENT_PACKET) return;
+    switch (hci_event_packet_get_type(packet)) {
+    case SM_EVENT_JUST_WORKS_REQUEST:
+        sm_just_works_confirm(sm_event_just_works_request_get_handle(packet));
+        break;
+    case SM_EVENT_PAIRING_COMPLETE:
+        util_log("bt: le pairing status 0x%02x", sm_event_pairing_complete_get_status(packet));
+        break;
+    }
+}
+
+/* ---- sending -------------------------------------------------------------------- */
+
 static int room(void)
 {
     hci_connection_t *c = hci_connection_for_handle(con_handle);
     return !c || c->num_packets_sent < IN_FLIGHT;
 }
+
+static int have_data(void)
+{
+    return input_pending || msg_read != msg_write;
+}
+
+static void send_now(void)
+{
+    struct message m;
+
+    m.len = 0;
+    plat_lock();
+    if (msg_read != msg_write) {
+        m = messages[msg_read];
+        msg_read = (u8)((msg_read + 1) % MESSAGES);
+    } else if (input_pending && room()) {
+        m.handle = dev->input_handle;
+        m.len = input_len;
+        memcpy(m.data, input, input_len);
+        input_pending = 0;
+    }
+    plat_unlock();
+    if (m.len) {
+        if (!le) hid_device_send_interrupt_message(hid_cid, m.data, m.len);
+        else if (m.handle != dev->input_handle || notifying(m.handle))
+            att_server_notify(con_handle, m.handle, m.data, m.len);
+    }
+    send_pending = 0;
+    if (have_data()) plat_bt_wake();
+}
+
+/* ---- the run loop's own poll: requests and sends ------------------------------ */
 
 static void tx_poll(btstack_data_source_t *ds, btstack_data_source_callback_type_t t)
 {
@@ -327,6 +500,7 @@ static void tx_poll(btstack_data_source_t *ds, btstack_data_source_callback_type
     }
     if (r & RQ_STOP) {
         unsniff();
+        stopping = 1;
         working = 0;
         hci_power_control(HCI_POWER_OFF);
         return;
@@ -336,41 +510,31 @@ static void tx_poll(btstack_data_source_t *ds, btstack_data_source_callback_type
         if (hid_cid) hid_device_disconnect(hid_cid);
         else if (acl_up) gap_disconnect(con_handle);
     }
-    if ((r & RQ_CONNECT) && working) {
+    if ((r & RQ_CONNECT) && working && !le) {
         if (acl_up && !hid_cid) gap_disconnect(con_handle);
         else page();
     }
-    /* The host polls a peripheral every 25 ms by default, which delivered
-     * reports in bursts: ask for a 1.25 ms poll interval. */
+    if (le && data_length_pending && acl_up && hci_can_send_command_packet_now()) {
+        /* At the default 27 bytes a Switch 2 report took three connection
+         * events: ask for 251. */
+        data_length_pending = 0;
+        hci_send_cmd(&hci_le_set_data_length, con_handle, 251, 2120);
+    }
+    /* A Classic host polls a peripheral every 25 ms by default, which
+     * delivered reports in bursts: ask for a 1.25 ms poll interval. */
     if (qos_pending && acl_up && hci_can_send_command_packet_now()) {
         qos_pending = 0;
         hci_send_cmd(&hci_qos_setup, con_handle, 0, 2, 8000, 0, 1250, 0xffffffffu);
     }
-    if (input_pending || msg_read != msg_write) unsniff();
-    if (!send_pending && hid_cid && (input_pending || msg_read != msg_write) && room()) {
+    if (have_data()) unsniff();
+    if (!send_pending && linked && have_data() && (msg_read != msg_write || room())) {
         send_pending = 1;
-        hid_device_request_can_send_now_event(hid_cid);
+        if (le) att_server_request_can_send_now_event(con_handle);
+        else hid_device_request_can_send_now_event(hid_cid);
     }
 }
 
-static void send_now(void)
-{
-    struct report r;
-
-    r.len = 0;
-    plat_lock();
-    if (msg_read != msg_write) {
-        r = messages[msg_read];
-        msg_read = (u8)((msg_read + 1) % MESSAGES);
-    } else if (input_pending) {
-        r = input;
-        input_pending = 0;
-    }
-    plat_unlock();
-    if (r.len) hid_device_send_interrupt_message(hid_cid, r.data, r.len);
-    send_pending = 0;
-    if (input_pending || msg_read != msg_write) plat_bt_wake();
-}
+/* ---- link events ------------------------------------------------------------------ */
 
 static void unlinked(u8 reason)
 {
@@ -379,14 +543,43 @@ static void unlinked(u8 reason)
     linked = 0;
     hid_cid = 0;
     send_pending = 0;
-    if (pairing) scan(1);
+    acl_up = 0;
+    if (pairing && !le) scan(1);
+    wake_adv = 0;
+    advertise();
     if (was) emit(BT_EV_UNLINKED, reason);
-    else if (!pairing) emit(BT_EV_FAILED, reason);
+    else if (!pairing && !le) emit(BT_EV_FAILED, reason);
+}
+
+static void le_connected(u8 *packet)
+{
+    bd_addr_t a;
+    hci_connection_t *c;
+
+    if (hci_subevent_le_connection_complete_get_status(packet)) return;
+    con_handle = hci_subevent_le_connection_complete_get_connection_handle(packet);
+    acl_up = linked = 1;
+    hci_subevent_le_connection_complete_get_peer_address(packet, a);
+    util_log("bt: le %s", bd_addr_to_str(a));
+    reverse(a, bond.le_peer, 6);
+    memset(ccc_value, 0, sizeof(ccc_value));
+    data_length_pending = 1;
+    c = hci_connection_for_handle(con_handle);
+    if (!sm_on && c) {
+        /* Without SM nobody runs the identity lookup att_server waits for:
+         * mark it done, or every ATT request is held forever. */
+        c->sm_connection.sm_irk_lookup_state = IRK_LOOKUP_FAILED;
+        c->sm_connection.sm_le_db_index = -1;
+    }
+    if (sm_on) sm_request_pairing(con_handle);
+    emit(BT_EV_PEER, 0);
+    emit(BT_EV_LINKED, 0);
 }
 
 static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
 {
     bd_addr_t a;
+    u8 key[16];
 
     (void)channel;
     (void)size;
@@ -396,14 +589,19 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
         if (btstack_event_state_get_state(packet) == HCI_STATE_WORKING) {
             working = 1;
             hci_jieli_set_address(addr);
-            reverse(addr, a);
+            reverse(addr, a, 6);
             hci_set_bd_addr(a);
+            if (le) {
+                wake_adv = !pairing && !zero(bond.le_peer, 6);
+                advertise();
+                break;
+            }
             hci_jieli_link_policy();
             if (pairing) {
                 memset(a, 0, 6);
                 hci_send_cmd(&hci_delete_stored_link_key, a, 1);
             }
-            if (pairing || !has_peer()) scan(1);
+            if (pairing || zero(bond.peer, 6)) scan(1);
             else page();
         } else if (btstack_event_state_get_state(packet) == HCI_STATE_OFF && !working) {
             btstack_run_loop_trigger_exit();
@@ -415,14 +613,41 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
         if (hci_event_connection_complete_get_status(packet)) break;
         con_handle = hci_event_connection_complete_get_connection_handle(packet);
         acl_up = 1;
-        hci_event_connection_complete_get_bd_addr(packet, a);
-        reverse(a, bond.peer);
+        reverse(a, bond.peer, 6);
         emit(BT_EV_PEER, 0);
         break;
     case HCI_EVENT_DISCONNECTION_COMPLETE:
-        util_log("bt: acl down reason 0x%02x", hci_event_disconnection_complete_get_reason(packet));
-        acl_up = 0;
+        util_log("bt: down reason 0x%02x", hci_event_disconnection_complete_get_reason(packet));
         unlinked(hci_event_disconnection_complete_get_reason(packet));
+        break;
+    case HCI_EVENT_LE_META:
+        switch (hci_event_le_meta_get_subevent_code(packet)) {
+        case HCI_SUBEVENT_LE_CONNECTION_COMPLETE:
+            le_connected(packet);
+            break;
+        case HCI_SUBEVENT_LE_LONG_TERM_KEY_REQUEST:
+            if (sm_on) break;
+            if (zero(bond.ltk, 16)) {
+                hci_send_cmd(&hci_le_long_term_key_negative_reply, con_handle);
+                break;
+            }
+            reverse(bond.ltk, key, 16);     /* HCI takes it least significant byte first */
+            hci_send_cmd(&hci_le_long_term_key_request_reply, con_handle, key);
+            break;
+        }
+        break;
+    case HCI_EVENT_ENCRYPTION_CHANGE:
+        if (!le || !hci_event_encryption_change_get_encryption_enabled(packet)) break;
+        if (sm_on) {
+            int i = ccc((u16)(dev->input_handle + 1), 1);
+            if (i >= 0) ccc_value[i] = 1;
+        }
+        if (dev->interval_min)
+            gap_request_connection_parameter_update(con_handle, dev->interval_min,
+                                                    dev->interval_max, 0, 400);
+        break;
+    case ATT_EVENT_CAN_SEND_NOW:
+        send_now();
         break;
     case HCI_EVENT_HID_META:
         switch (hci_event_hid_meta_get_subevent_code(packet)) {
@@ -455,22 +680,6 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
     }
 }
 
-static void on_l2cap(u8 type, u16 channel, u8 *packet, u16 size)
-{
-    (void)channel;
-    (void)size;
-    if (type != HCI_EVENT_PACKET) return;
-    switch (hci_event_packet_get_type(packet)) {
-    case L2CAP_EVENT_INCOMING_CONNECTION:
-        util_log("bt: l2cap in psm 0x%02x", l2cap_event_incoming_connection_get_psm(packet));
-        break;
-    case L2CAP_EVENT_CHANNEL_OPENED:
-        util_log("bt: l2cap open psm 0x%02x status 0x%02x", l2cap_event_channel_opened_get_psm(packet),
-                 l2cap_event_channel_opened_get_status(packet));
-        break;
-    }
-}
-
 static void on_output(u16 cid, hid_report_type_t type, u16 id, int len, u8 *data)
 {
     (void)cid;
@@ -490,40 +699,28 @@ static void on_set_report(u16 cid, hid_report_type_t type, int len, u8 *data)
  * only return constant data. */
 static int on_get_report(u16 cid, hid_report_type_t type, u16 id, int *len, u8 *out)
 {
-    const struct bt_device *d = prof->device;
     int size;
 
     (void)cid;
     if (!prof->read) return 0;
-    size = btstack_hid_get_report_size_for_id(id, type, d->hid_descriptor, d->hid_descriptor_len);
-    if (size <= 0 || size > MAX_REPORT) return 0;
+    size = btstack_hid_get_report_size_for_id(id, type, dev->hid_descriptor, dev->hid_descriptor_len);
+    if (size <= 0 || size > MAX_INPUT) return 0;
     if (prof->read(type == HID_REPORT_TYPE_FEATURE ? BT_WRITE_FEATURE : BT_WRITE_OUTPUT,
-                   id, out, (u16)size) <= 0)
+                   id, 0, out, (u16)size) <= 0)
         return 0;
     *len = size;
     return 1;
 }
 
-static void setup(void)
+/* ---- sessions ----------------------------------------------------------------------- */
+
+static void setup_classic(void)
 {
-    const struct bt_device *d = prof->device;
     hid_sdp_record_t hid;
 
-    working = acl_up = linked = send_pending = qos_pending = 0;
-    hid_cid = 0;
-    hci_jieli_prepare(d->sniff_slots, d->sniff_attempt);
-    hci_jieli_set_address(addr);
-    btstack_memory_init();
-    btstack_run_loop_init(hci_jieli_run_loop());
-    hci_init(hci_jieli_transport(), NULL);
-    hci_set_link_key_db(&key_db);
-    hci_enable_acl_packet_types(ACL_TYPES);
-    l2cap_init();
-    l2cap_registration.callback = on_l2cap;
-    l2cap_add_event_handler(&l2cap_registration);
     sdp_init();
-    gap_set_local_name(d->name);
-    gap_set_class_of_device(d->class_of_device);
+    gap_set_local_name(dev->name);
+    gap_set_class_of_device(dev->class_of_device);
     gap_set_default_link_policy_settings(LM_LINK_POLICY_ENABLE_ROLE_SWITCH |
                                          LM_LINK_POLICY_ENABLE_SNIFF_MODE);
     gap_set_allow_role_switch(true);
@@ -533,29 +730,69 @@ static void setup(void)
     gap_ssp_set_authentication_requirement(SSP_IO_AUTHREQ_MITM_PROTECTION_NOT_REQUIRED_GENERAL_BONDING);
     gap_ssp_set_auto_accept(1);
     memset(&hid, 0, sizeof(hid));
-    hid.hid_device_subclass = (u16)d->class_of_device;
+    hid.hid_device_subclass = (u16)dev->class_of_device;
     hid.hid_virtual_cable = 1;
     hid.hid_remote_wake = 1;
     hid.hid_reconnect_initiate = 1;
     hid.hid_normally_connectable = true;
     hid.hid_supervision_timeout = 8000;
-    hid.hid_descriptor = d->hid_descriptor;
-    hid.hid_descriptor_size = d->hid_descriptor_len;
-    hid.device_name = d->name;
+    hid.hid_descriptor = dev->hid_descriptor;
+    hid.hid_descriptor_size = dev->hid_descriptor_len;
+    hid.device_name = dev->name;
     memset(sdp_hid, 0, sizeof(sdp_hid));
     hid_create_sdp_record(sdp_hid, sdp_create_service_record_handle(), &hid);
     if (sdp_register_service(sdp_hid)) util_log("bt: SDP HID record not registered");
     memset(sdp_id, 0, sizeof(sdp_id));
     device_id_create_sdp_record(sdp_id, sdp_create_service_record_handle(),
-                                DEVICE_ID_VENDOR_ID_SOURCE_USB, d->vendor_id, d->product_id,
-                                d->version);
+                                DEVICE_ID_VENDOR_ID_SOURCE_USB, dev->vendor_id, dev->product_id,
+                                dev->version);
     sdp_register_service(sdp_id);
-    hid_device_init(false, d->hid_descriptor_len, d->hid_descriptor);
+    hid_device_init(false, dev->hid_descriptor_len, dev->hid_descriptor);
     hid_device_accept_truncated_hid_reports(true);
     hid_device_register_report_data_callback(on_output);
     hid_device_register_set_report_callback(on_set_report);
     hid_device_register_report_request_callback(on_get_report);
     hid_device_register_packet_handler(on_event);
+}
+
+static void setup_le(void)
+{
+    sm_key_t key;
+
+    memset(ccc_handle, 0, sizeof(ccc_handle));
+    le_device_db_init();
+    /* SMP only for profiles that pair through it: the Switch 2 pairs in its
+     * own protocol and drops the link if SMP is attempted. */
+    sm_on = dev->sm_er != NULL;
+    if (sm_on) {
+        sm_init();
+        memcpy(key, dev->sm_er, 16);
+        sm_set_er(key);
+        memcpy(key, dev->sm_ir, 16);
+        sm_set_ir(key);
+        sm_set_io_capabilities(IO_CAPABILITY_NO_INPUT_NO_OUTPUT);
+        sm_set_authentication_requirements(SM_AUTHREQ_BONDING);
+        sm_registration.callback = on_sm;
+        sm_add_event_handler(&sm_registration);
+    }
+    att_server_init(dev->att_db, att_read, att_write);
+    att_server_register_packet_handler(on_event);
+}
+
+static void setup(void)
+{
+    working = acl_up = linked = send_pending = qos_pending = stopping = 0;
+    hid_cid = 0;
+    hci_jieli_prepare(dev->sniff_slots, dev->sniff_attempt);
+    hci_jieli_set_address(addr);
+    btstack_memory_init();
+    btstack_run_loop_init(hci_jieli_run_loop());
+    hci_init(hci_jieli_transport(), NULL);
+    hci_set_link_key_db(&key_db);
+    hci_enable_acl_packet_types(ACL_TYPES);
+    l2cap_init();
+    if (le) setup_le();
+    else setup_classic();
     hci_registration.callback = on_event;
     hci_add_event_handler(&hci_registration);
     btstack_run_loop_set_data_source_handler(&tx_source, tx_poll);
@@ -565,8 +802,20 @@ static void setup(void)
 
 static void teardown(void)
 {
-    hid_device_deinit();
-    sdp_deinit();
+    if (le) {
+        att_server_deinit();
+        if (sm_on) {
+            sm_remove_event_handler(&sm_registration);
+            sm_deinit();
+            /* sm_init() starts the crypto engine once per boot; without this
+             * every later session waits forever on LE Encrypt. */
+            btstack_crypto_deinit();
+            sm_on = 0;
+        }
+    } else {
+        hid_device_deinit();
+        sdp_deinit();
+    }
     l2cap_deinit();
     hci_deinit();
     btstack_run_loop_deinit();
@@ -584,10 +833,8 @@ static void body(void)
         requests = 0;
         plat_unlock();
         setup();
-        loop_up = 1;
         hci_power_control(HCI_POWER_ON);
         btstack_run_loop_execute();
-        loop_up = 0;
         teardown();
         working = acl_up = linked = 0;
         hid_cid = 0;
