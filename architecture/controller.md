@@ -77,8 +77,9 @@ Things to measure once it runs:
 * how late a wake is.  The control task (`app_core`, priority 3) is below the
   Bluetooth controller's own task (`btctrler`, priority 4) in the task table,
   so a wake can wait for it.
-* the interrupt load: about 4 000 button-sample interrupts and, with the
-  sensor running, about 10 000 short I2C byte interrupts a second.
+* the interrupt load: about 4 000 button-sample interrupts a second, and
+  with the sensor running about 2 000-4 000 short I2C byte interrupts a
+  second ([input.md](input.md) has the arithmetic).
 
 A later option, not part of the design yet: send a report as soon as a button
 changes instead of at the next report deadline.  The newest-wins slot and

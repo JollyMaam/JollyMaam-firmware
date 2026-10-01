@@ -137,49 +137,106 @@ the lowest priority and was starved (20 samples a second under load).
 * **Set-up needs a wait:** 20 ms after the soft reset.  It is a deadline the
   state machine checks, not a delay.
 
-### Design
+### How a transfer moves on the bus
 
-The transfer runs on the interrupt.  `platform_jieli.c` owns the I2C block
-and offers:
+The BR23 I2C block (`JL_IIC`: `CON0`, `CON1`, an 8-bit `BUF`, `BAUD`) holds
+**one byte**.  There is no queue.  The CPU drives every step:
+
+| Step | CPU does | Hardware does | Then |
+|---|---|---|---|
+| start | set `PRESET_START` | puts START on the bus with the next byte | |
+| send a byte | write `BUF`, set `CONFIG_DONE` | clocks out 8 bits, reads the sensor's ACK bit (9th clock) | `PENDING`; `SENT_NACK` if the sensor did not ACK |
+| receive a byte | choose ACK or NACK (`RECEIVE_NACK`), write `BUF`, set `CONFIG_DONE` | clocks in 8 bits, sends our ACK/NACK on the 9th clock | `PENDING`; the byte is in `BUF` |
+| stop | set `PRESET_STOP` + `CONFIG_DONE` | puts STOP on the bus | `STOP_PENDING` |
+
+So the hardware generates the ACK itself, but for **one byte at a time**: it
+ACKs (or NACKs) the byte it was told to receive, then stops and waits for the
+CPU to collect `BUF` and start the next byte.  The CPU decides ahead of each
+byte whether it will be ACKed: every byte but the last of a read, which is
+NACKed to tell the sensor to stop sending.  Between bytes the bus simply
+waits, which is why a late interrupt does no harm.
+
+Each `PENDING` is one interrupt when the byte-done interrupt is enabled.  So:
+
+**interrupts per second ≈ samples per second × bus steps per sample**
+
+| Read | Bus steps | Interrupts per sample |
+|---|---|---|
+| gyro only, `0x3B`–`0x40` (6 bytes) | address, register, address, 6 bytes, stop | 10 |
+| accelerometer + gyro, `0x35`–`0x40` (12 bytes) | address, register, address, 12 bytes, stop | 16 |
+| status + both, `0x2E`–`0x40` (19 bytes) | address, register, address, 19 bytes, stop | 23 |
+
+The earlier "about 10 000 a second" was the worst row at the rate the sensor
+is set to now: CTRL2 `0x14` and CTRL3 `0x74` set both accelerometer and gyro
+to 448.4 Hz, and 448 × 23 ≈ 10 300.  Each interrupt is a few instructions from
+RAM; the cost is small, but it is not free, and it is mostly avoidable.
+
+### Keeping it down
+
+The count is the sample rate times the bytes read.  So:
+
+* **Read only what the profile uses.**  The mouse needs the gyro (6 bytes);
+  the Switch and PlayStation profiles need both (12).
+* **Run the sensor at the rate the profile needs, not 448 Hz.**  The
+  QMI8658A offers 896.8, 448.4, 224.2, 112.1 Hz and lower.  A Switch report
+  carries 3 samples every 15 ms (200 a second): 224.2 Hz.  PlayStation and the
+  mouse: 224.2 Hz too, until something shows it needs more.  The mode the
+  profile asks for in `begin()` carries the rate.
+* **Status only if needed.**  Without a data-ready pin, the status bytes are
+  how a read knows its sample is new.  With the rate known, reads can instead
+  be timed just after each expected sample, and a repeated sample (same
+  values) dropped; status costs 7 more steps per sample, so it is the
+  fallback if timing proves unreliable.
+
+At 224.2 Hz with both sensors and no status that is 224 × 16 ≈ 3 600
+interrupts a second; gyro only, ≈ 2 200.  A data-ready pin, if wired, would
+not change the count (the data still moves a byte at a time); it would make
+every read find new data.
+
+### Platform side
+
+`platform_jieli.c` owns the I2C block and its interrupt:
 
 ```c
-void plat_i2c_start(u8 dev, u8 reg, u8 *buf, u8 len);   /* read; returns at once */
-int  plat_i2c_done(void);       /* 1 finished, 0 still going, <0 error (NACK, timeout) */
-void plat_i2c_write(u8 dev, u8 reg, u8 value);          /* same, a one-register write */
+void plat_i2c_read(u8 dev, u8 reg, u8 *buf, u8 len);   /* starts; returns at once */
+void plat_i2c_write(u8 dev, u8 reg, u8 value);         /* starts; returns at once */
+int  plat_i2c_done(void);       /* 1 finished, 0 still going, <0 NACK or timeout */
 ```
 
-The interrupt handler is a few instructions per byte, runs from RAM, and does
-nothing but advance the transfer.
+The handler does one step per interrupt (the table above), from RAM, and
+raises `EV_IMU` when the transfer ends.
 
-A read starts only when there is something to read.
+### Lifecycle
 
-1. **Data-ready pin**, if one turns out to be wired: enable data-ready on
-   INT1 and INT2 and look for a GPIO that toggles at the sample rate.  If one
-   does, its edge starts the read and the bus is idle otherwise.
-2. **Otherwise, status and data in one read.**  The sensor auto-increments
-   register addresses (enabled by the set-up), so one burst from STATUS0
-   (`0x2E`) through the last gyro byte (`0x40`) returns the sensor's status
-   and the sample together, 19 bytes, ~0.5 ms of bus time.  STATUS0 says
-   whether the sample is new; an old one is dropped.  The burst is started
-   about one sample period (~2.2 ms) after the last new sample, so most bursts
-   find one.
+`input_imu.c` is a small state machine.  The interrupt advances a transfer;
+`imu_poll()` (on `EV_IMU` or its deadline) advances the states.
 
-The interrupt chains the transfer byte by byte and raises `EV_IMU` only when
-a new sample is in.  The CPU cost is a few microseconds per byte; the ~0.5 ms
-is bus time, during which the CPU does other work.
+```
+            mode != OFF
+   OFF ──────────────────> RESET ── write 0x60=0xB0 (soft reset)
+    ^                        │ deadline: +20 ms
+    │                        v
+    │                    CONFIGURE ── write the set-up registers, one transfer each,
+    │                        │        with this mode's rate and sensors (CTRL7)
+    │                        v
+    │   mode == OFF      RUNNING ── at each expected sample time: start a read;
+    └── write CTRL7=0 ──     │      the interrupt chains its steps; done → EV_IMU
+                             │      new sample → into pad, next deadline = +1 period
+                             │ NACK, timeout, or a sensor that stops answering
+                             v
+                           RESET (after a back-off)
+```
 
-The 1-byte status register is the sensor's (QMI8658A STATUS0), read over the
-bus like any register.  A single-register read costs about 5 bytes on the bus
-(start, address, register, restart, address, the byte, stop), ~0.12 ms, which
-is why it is folded into the data burst rather than read on its own.  The
-I2C block's own "byte done" flag is a local chip register and costs nothing.
-
-The sensor's FIFO is not used: reading it is also a transfer, and it only
-pays off when several samples are fetched at once, which these rates do not
-need.
+* `OFF`: the sensor is asleep (CTRL7 = 0) and the bus is idle.
+* A mode change while `RUNNING` (motion ↔ gyro, another rate) goes through
+  `CONFIGURE` again; no reset needed.
+* Register writes are transfers like reads (address, register, value, stop:
+  4 interrupts each), so set-up never blocks either.
+* Only one transfer is ever on the bus; the state machine starts the next one
+  when the last has finished.
 
 (To check on hardware: the master-mode interrupt; whether a data-ready pin is
-wired; the exact STATUS0 bits for "new gyro" and "new accelerometer".)
+wired; that timed reads at 224.2 Hz stay in step with the sensor's clock.)
 
 The sensor register sequence (recovered from the stock firmware) is specific
 to the QMI8658A, not the chip.

@@ -28,9 +28,9 @@ void plat_random(u8 *buf, u16 len);
 
 /* board */
 void plat_input(struct in_raw *raw);
-void plat_i2c_start(u8 dev, u8 reg, u8 *buf, u8 len);   /* read in the background (interrupt) */
+void plat_i2c_read(u8 dev, u8 reg, u8 *buf, u8 len);   /* starts a read; returns at once */
 int  plat_i2c_done(void);                  /* 1 done, 0 busy, <0 error */
-void plat_i2c_write(u8 dev, u8 reg, u8 value);   /* one register, also on the interrupt */
+void plat_i2c_write(u8 dev, u8 reg, u8 value);         /* starts a one-register write */
 void plat_leds(const struct led_frame *f);
 void plat_motors(u8 left, u8 right);
 void plat_boot_info(struct plat_boot *out);  /* why the chip started, what was held */
