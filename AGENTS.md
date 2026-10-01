@@ -1,88 +1,63 @@
 # Working on this repository
 
-GameSir Cyclone 2 firmware: the Jieli BR23 controller SDK with a BlueKitchen
-BTstack host port. The app is the code built from this repository and
-`/work/btstack-jl-port`; the SDK includes the prebuilt Jieli archives. The
-vendor `btstack.a` is replaced, but `btctrler.a` is still linked.
+GameSir Cyclone 2 firmware: the Jieli BR23 SDK's runtime and controller
+library (`btctrler.a`) with upstream BTstack as the host
+(`/work/btstack-jl-port`).  The design is in [architecture/](architecture/README.md);
+hardware references are in [docs/](docs/README.md).
 
 ## Working rules
 
-- The user operates the physical pad and console. Building, flashing and
-  console commands are ours. Explain any requested physical action plainly.
-- Use the shared `tools/padbus.py` daemon rather than opening serial directly.
-  Keep the user informed during work. Restarting the daemon requires the user
-  to reopen `tools/pad_tui.py`.
+- The user operates the physical pad and console.  Building and flashing are
+  ours; explain any requested physical action plainly.
 - Commit at a logical checkpoint.
-- Say “the app” or “the SDK” when distinguishing code ownership.
-- Prefer measured evidence. Hardware references live in [docs/](docs/README.md);
-  distinguish board measurements, recovered binary behavior and assumptions.
+- Say "the app" or "the SDK" when distinguishing code ownership.
+- Prefer measured evidence.  In docs/, distinguish board measurements,
+  recovered binary behaviour and assumptions.
 - Do not add software plans or session diaries to the hardware documentation.
+- Keep architecture/ in step with the code when an interface changes.
 
-## Build and checks
+## Build, test, flash
 
     PATH=/work/bin:$PATH make -j32
-    PATH=/work/bin:$PATH make config-test calibration-test wake-vectors wake-session-test aes128-test lights-test ux-test
-    tools/flash.sh
+    PATH=/work/bin:$PATH make test        # every src/*.c with an #ifdef UNITTEST block, host cc
+    PATH=/work/bin:$PATH make flash       # over USB; reboots into the loader and back
 
-Home gestures (hold times, chords, when each applies) are one table in
-`src/ux.c`; `make ux-test` checks it on the host.
+`tools/padtool.py` talks to the running pad over USB (vendor SCSI commands on
+the mass-storage interface, `/dev/bwrap/sg*`): `identify`, `status`,
+`log [-f]`, `reboot`, `loader`, `flash IMAGE [--backup]`.  The log is a RAM
+ring that survives a reboot.  A pad that does not enumerate is recovered by
+holding Home+Start while plugging in USB (ROM loader, UBOOT1.00), then
+`padtool flash`.
 
-`src/build_config.h` selects controller-archive patches. Patches apply to a
-build copy, never the original SDK. `DEBUG_LOG=1` enables SDK tracing.
-The compiler's stack-size warnings are a vendor lint; inspect actual task
-budgets with `tools/stack_report.py` when changing call depth.
+What can be tuned by hand: Home gestures, timeouts and LED scenes in
+`src/settings_ux.c`; slot defaults in `src/settings.c`.
 
+`src/build_config.h` selects controller-archive patches, applied to a build
+copy, never the SDK.  The linker's stack-size warnings are a vendor lint.
 `CODE_LIMIT` fixes the VM boundary; moving it moves the settings store.
-`config global.autocommit=false` keeps settings changes in RAM;
-`config commit` persists them. A reboot loses uncommitted changes.
-
-## Shared hardware session
-
-    tools/padbus.py serve -p /dev/bwrap/ttyjl0 --ping-ms 500
-    tools/pad_tui.py
-    tools/padbus.py request codex
-    tools/padbus.py send codex "status connection"
-    tools/padbus.py release codex
-    tools/padbus.py tail -n 40
-
-The daemon rescans `/dev/bwrap/ttyjl*` after re-enumeration. For one command,
-`tools/padbus.py cmd codex LINE` waits for the response and exits nonzero on
-ERR. The byte-stream log may contain terminal control bytes; use its
-`printable()` helper before rendering untrusted log bytes.
-
-Console `help` lists commands; every namespace supports `help`, `-h`, `--help`.
-Slots are A/B/X/Y or 0..3. `pair SLOT [--fresh]`, `connect SLOT`, `disconnect`,
-`reboot`, `config`, `status`, and `debug` are the principal commands.
-The user runs `tools/hostbt.py serve` with the necessary permissions on the
-host when Linux Bluetooth testing is needed; the client uses localhost:47807.
 
 ## Measured constraints worth preserving
 
-- Classic reconnect initiates from the pad. Change Grip/Order on the console
-  instead initiates a new pairing. Opening outgoing HID before authentication
-  caused reason-5 failures; retain the outgoing LEVEL_2 / incoming LEVEL_0
-  distinction in `src/bt/btstack_jl_core.c`.
-- The SDK advertises Read Encryption Key Size but never completes it; the
-  port transport supplies the response. Persistent bonds belong to app VM.
-- The SDK detach queue could retain the last received ACL packet and delay
-  disconnect until supervision timeout. `patch_detach_drain_rx()` fixes it.
-- The BTstack run loop must sleep on the port's wake semaphore
-  (`jieli_btctrler_wait`). A one-tick `os_time_dly` held every wake to the
-  10 ms system tick and capped Classic reports at 100 per second.
-- Input reports, Classic and LE, go through a newest-wins slot with at most
-  two packets in the controller (`profile.#.in_flight`).  Nothing is queued,
-  buttons included: on a marginal link a lost input is preferred to a late
-  one.  (A digital-state queue was tried and felt clearly worse.)
-  `status report.air.*` shows the slot wait and the hand-off-to-ack hold time.
-- `bt_max_pwr_set()` must be called at boot (`controller.c`): without it the
-  radio ran at its lowest power step, 20 dB below the stock pad.
-- LE links must ask for 251-byte PDUs (`btstack_jl_le.c`); at 27 bytes a
-  Switch 2 report took three connection events.
-- `app_core` runs above `btstack`: the other way round, BTstack's ~1 ms of
-  CPU per packet (it runs from flash) cost 19% of the 1 ms control polls.
-- `uxTaskGetStackHighWaterMark()` is unwired and resets the pad. P33 `0x40`
-  does not distinguish a deliberate reset from a fault.
-- Raw Switch 1 wake access-code emission was measured; successful console
-  wake and whitening were not. Switch 2 uses its own LE wake advertisement.
-- No root or `/dev/bus/usb` here; use exposed `/dev/bwrap` devices. Do not
+- Classic reconnect initiates from the pad.  Opening outgoing HID before
+  authentication caused reason-5 failures: keep outgoing LEVEL_2 / incoming
+  LEVEL_0 (`src/bt.c`).
+- The controller lists Read Encryption Key Size but never answers it; the
+  transport answers (`src/btstack_hci_jieli.c`).  HCI Reset restores the
+  factory address, so ours is reapplied after it.
+- The BTstack run loop sleeps on a semaphore; a one-tick delay capped Classic
+  reports at 100 per second.
+- Input reports go through a newest-wins slot with at most two packets in the
+  controller.  Nothing is queued, buttons included.
+- `bt_max_pwr_set()` must be called at boot (`src/platform_jieli.c`); without
+  it the radio ran 20 dB below the stock pad.
+- LE links ask for 251-byte PDUs; at 27 bytes a Switch 2 report took three
+  connection events.
+- The control task runs above BTstack's: BTstack spends ~1 ms of CPU per
+  packet.
+- `REGISTER_LP_TARGET` keeps the SDK out of low-power sleep; without it USB
+  did not enumerate.
+- Switch 1 wake emission (`src/profile_switch_wake.c`) was measured on the
+  air; a console actually waking and the whitening state were not.  Switch 2
+  wakes from a flag in its LE advertisement.
+- No root or `/dev/bus/usb` here; use the devices in `/dev/bwrap`.  Do not
   attempt to leave the container.
