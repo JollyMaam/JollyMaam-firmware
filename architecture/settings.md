@@ -64,7 +64,7 @@ const struct set_slot *set_slot(u8 slot);       /* type, rate, colour, speeds, .
 void set_slot_address(u8 slot, u8 out[6]);      /* pinned, or derived from the flash UID */
 
 const struct bt_bond *set_bond(u8 slot);
-void set_bond_store(u8 slot, const struct bt_bond *bond);   /* from BT_EV_BONDED or profile effects */
+void set_bond_store(u8 slot, const struct bt_bond *bond);   /* from BT_EV_BONDED, or a Switch 2 write() */
 void set_bond_forget(u8 slot);
 
 const struct set_cal *set_cal(void);            /* defaults if the record is missing or old */

@@ -108,11 +108,11 @@ struct ux_timeouts {
     u16 stop_max_ms;        /* 12 000: radio did not confirm it is down */
     u16 boot_scene_ms;      /* 500 */
     u16 uboot_window_ms;    /* 3 000: Home+Start at boot, USB may arrive this late */
-    u16 rumble_max_ms;      /* 2 000: cap on one timed rumble */
 };
 extern const struct ux_timeouts ux_timeouts;
 ```
 
 Times that belong to a protocol, not to the feel, stay with that protocol (a
 Switch keep-alive period in `profile_switch.c`, the Switch 1 wake duration in
-`profile_switch_wake.c`).
+`profile_switch_wake.c`, the cap on an Xbox one-shot rumble in
+`profile_xbox.c`).

@@ -40,13 +40,6 @@ struct profile_session {          /* filled by the controller for begin() */
     const struct set_slot *settings;  /* read-only: speeds, variant, ... */
 };
 
-struct profile_effects {          /* filled by write(); applied by the controller */
-    u8 rumble_set;  u8 rumble_left, rumble_right;  u16 rumble_ms;  /* ms 0: until changed */
-    u8 players_set; u8 players, players_flash;
-    u8 lightbar_set; u8 lightbar[3];
-    u8 bond_set;    struct bt_bond bond;          /* Switch 2: pairing finished */
-};
-
 struct profile {
     const char *name;                 /* "switch", "dualsense", ... */
     u16 report_hz;                    /* default for profile.#.report_hz=auto */
@@ -56,7 +49,8 @@ struct profile {
     enum imu_mode (*begin)(const struct profile_session *s);
     void (*end)(void);
     int  (*report)(const struct pad *pad, u32 now_ms, u8 *out, u8 *id);
-    void (*write)(const struct bt_write *w, struct profile_effects *fx);
+    int  (*write)(const struct bt_write *w, u32 now_ms, struct bt_bond *bond);
+    void (*host)(u32 now_ms, struct profile_host *out);
     int  (*read)(const struct bt_read *r, u8 *out, u16 max);   /* bluetooth thread */
 };
 
@@ -65,13 +59,14 @@ extern const struct profile *const profiles[PROFILE_TYPE_COUNT];
 
 Every function pointer may be NULL except `report`.
 
-A profile keeps its own session state (Switch input mode, PlayStation
-sequence numbers, the Switch 2 pairing exchange) in `static` variables: only
-the host and the reports change it, and `begin()` resets it.  Everything the
-controller decides (slot, settings, bond) comes in through
-`profile_session`, and everything the host asks of the pad goes back out
-through `profile_effects`.  A profile calls nothing else except
-`bt_send_message()` and `util_*()`.
+A profile keeps its own session state in `static` variables: what the host
+last asked for (rumble, lights, Switch input mode), PlayStation sequence
+numbers, the Switch 2 pairing exchange.  Only the host and the reports change
+it, and `begin()` resets it.  Everything the controller decides (slot,
+settings, bond) comes in through `profile_session`.  What the host wants of
+the pad the controller reads with `host()` (states are polled); a finished
+pairing comes back from `write()` (events are returned).  A profile calls
+nothing else except `bt_send_message()` and `util_*()`.
 
 ### Identity: `device`
 
@@ -96,8 +91,8 @@ struct bt_device {
 * `begin(s)` – a session is starting.  Reset the profile's state and return
   the IMU mode it needs (`IMU_OFF`, `IMU_MOTION`, `IMU_GYRO`); the controller
   sets it.  The mouse returns `IMU_GYRO` only if its gyro speed is not 0.
-* `end()` – the session is over.  The controller itself stops the rumble,
-  clears the host lights and turns the IMU off.
+* `end()` – the session is over.  The controller stops asking `host()`, so
+  rumble and host lights stop with it, and it turns the IMU off.
 
 When the host is ready for reports the controller learns it from
 `BT_EV_LINKED`; the profile does not need to be told.
@@ -132,14 +127,30 @@ struct bt_write {
 Everything the host pushes to the pad: HID output reports on the interrupt
 channel (`OUTPUT`), HID SET_REPORT on the control channel (`FEATURE`), writes
 to GATT characteristics (`ATT`).  `bt.c` queues them as `BT_EV_WRITE`; the
-controller calls `write()` on the control thread and then applies `fx`.
+controller calls `write()` on the control thread.  It returns 1 when the write
+finished a pairing and filled `bond` (Switch 2 only), else 0.
 
-| Profile | Host writes | Profile does |
+| Profile | Host writes | Profile keeps / does |
 |---|---|---|
-| switch | output report 0x01/0x10: rumble + subcommand | `fx.rumble`; answers the subcommand with `bt_send_message(0x21, ...)` |
-| switch2 | ATT command channel | answers with `bt_send_message()` on the response handle; `fx.rumble`; `fx.bond` when pairing finishes |
-| xbox | rumble output report | `fx.rumble` |
-| dualsense / dualshock4 | output report: motors, lightbar, player LEDs | `fx.rumble`, `fx.lightbar`, `fx.players` |
+| switch | output report 0x01/0x10: rumble + subcommand | rumble levels; answers the subcommand with `bt_send_message(0x21, ...)` |
+| switch2 | ATT command channel | rumble levels; answers with `bt_send_message()` on the response handle; returns the bond when pairing finishes |
+| xbox | rumble output report | rumble levels and a one-shot's end time (capped) |
+| dualsense / dualshock4 | output report: motors, lightbar, player LEDs | rumble levels, lightbar, player lights |
+
+### What the host wants: `host`
+
+```c
+struct profile_host {
+    u8 rumble_left, rumble_right;     /* now; a timed-out one-shot reads 0 */
+    u8 players, players_flash;
+    u8 lightbar_set, lightbar[3];
+};
+void host(u32 now_ms, struct profile_host *out);
+```
+
+Read by the controller every poll.  The profile answers from what the host
+last wrote; it does not decide anything.  The controller decides what the
+motors and lights actually do with it ([controller.md](controller.md)).
 
 `bt_send_message(id, data, len)` is the way to send the host something that
 must not be dropped: a subcommand reply, the Xbox Guide button report, a

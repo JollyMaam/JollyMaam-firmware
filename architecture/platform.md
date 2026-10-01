@@ -6,7 +6,7 @@ below.
 
 | File | Contains |
 |---|---|
-| `platform_jieli.c` | `app_main`, `board_init`, tasks, the 1 ms clock, storage, the USB mass-storage device, the pin table, button/stick/trigger sampling, I2C, the LED chain, the motors, power-off and wake, the loader entry, the boot chords |
+| `platform_jieli.c` | `app_main`, `board_init`, tasks, the 1 ms clock, storage, the USB mass-storage device, the pin table, button/stick/trigger sampling, I2C on its interrupt, the LED chain, the motors, power-off and wake, the loader entry, the wake cause and buttons held at boot |
 | `platform_jieli_sdk.c` | constants and hooks the SDK libraries require, which the firmware itself never reads |
 | `btstack_hci_jieli.c` | BTstack on the Jieli controller (see [bluetooth.md](bluetooth.md)) |
 
@@ -30,10 +30,10 @@ void plat_random(u8 *buf, u16 len);
 void plat_input(struct in_raw *raw);
 void plat_i2c_start(u8 dev, u8 reg, u8 *buf, u8 len);   /* read in the background (interrupt) */
 int  plat_i2c_done(void);                  /* 1 done, 0 busy, <0 error */
-int  plat_i2c_write(u8 dev, u8 reg, u8 value);   /* blocking, one register: set-up only */
+void plat_i2c_write(u8 dev, u8 reg, u8 value);   /* one register, also on the interrupt */
 void plat_leds(const struct led_frame *f);
 void plat_motors(u8 left, u8 right);
-u8   plat_boot_chord(u8 *slot);             /* Home and keys held at power-on */
+void plat_boot_info(struct plat_boot *out);  /* why the chip started, what was held */
 u16  plat_battery_mv(void);  int plat_charging(void);
 
 /* USB: mass storage, no medium; vendor commands go to usb_command() */

@@ -14,14 +14,14 @@ only a module's own logic changes it, the module keeps it.
 |---|---|---|
 | connection state (below), slot, profile, attempts, timers | controller | every transition is the controller's decision |
 | last slot used (retained RAM, never flash) | controller | set when the controller starts a session |
-| rumble: motor levels, when they stop | controller | set from profile results; stopped by the controller at session end, during calibration, at sleep |
-| LED scene and when it began; host lights (player number, lightbar) | controller | the scene follows the connection state; host lights come from profile results and are cleared at session end |
+| what the motors and host lights actually do | controller | worked out every poll from what the profile says the host wants, the slot's `rumble` setting, calibration and the state; forced off at session end and sleep |
+| LED scene and when it began | controller | the scene follows the connection state |
 | calibrating or not | controller | the controller starts and cancels it, and suppresses buttons while it runs |
 | IMU mode | controller | chosen from the profile at session start, off at session end |
 | gesture tracking (Home down since, chord, rows fired) | gesture engine, [ux.md](ux.md) | changed only by the buttons; the controller can only tell it to ignore what is held |
 | calibration routine (phase, samples, result) | `input_calibration.c` | the routine's own progress; the controller only starts or cancels it |
 | IMU samples, the bus transfer in progress | `input_imu.c` | |
-| profile session state (Switch input mode, sequence numbers, Switch 2 pairing exchange) | each profile | changed only by host writes and reports; reset by `begin()` |
+| profile session state (what the host last asked for: rumble, lights, Switch input mode; sequence numbers; Switch 2 pairing exchange) | each profile | changed only by host writes and reports; reset by `begin()` |
 | link state, the newest-wins input slot, the event queue | `bt.c` | the radio's own progress; the controller asks for start, stop, disconnect |
 | settings records, what is unsaved | `settings.c` | |
 | log ring buffer | `utils.c` | |
@@ -51,21 +51,25 @@ if CONNECTED and a report is due:
     n = profile->report(&pad, now, buf, &id)
     if n: bt_send_input(id, buf, n)
 
-plat_motors(rumble levels, or 0 once the rumble time is over)
-plat_leds(led_frame(&leds, now, &pad))    leds.c, stateless
+profile->host(now, &host)              what the host wants: rumble, player lights, lightbar
+plat_motors(motors(&host))             0 unless connected, not calibrating, rumble allowed
+plat_leds(led_frame(&leds, &host, now, &pad))    leds.c, stateless
 set_poll(now, radio_quiet)             settings.c writes what is unsaved
 ```
 
 A host write (`BT_EV_WRITE`) goes to the running profile on this thread:
 
 ```c
-struct profile_effects fx = { 0 };
-profile->write(&ev.write, &fx);
-/* the controller applies fx: rumble, host lights, a new LE bond */
+struct bt_bond bond;
+if (profile->write(&ev.write, now, &bond))   /* 1: the write finished a pairing (Switch 2) */
+    set_bond_store(slot, &bond);
 ```
 
-So profiles never run on the bluetooth thread, and everything that changes
-the pad's outputs passes through the loop.
+Profiles therefore never run on the bluetooth thread.  The rule for what
+comes back from a profile: **states are polled, events are returned.**  What
+the host wants (rumble, lights) is a state the profile keeps and the loop
+reads every poll with `host()`; a finished pairing is an event, returned once
+by the `write()` that produced it.
 
 ## Requests
 
@@ -93,7 +97,7 @@ One tagged union; each kind carries only its own data.
 
 | State | Meaning | Leaves for |
 |---|---|---|
-| `BOOT` | just powered on or reset; radio off; boot scene; Home+Start with USB enters the loader | `IDLE` after `uboot_window_ms`, or at once on a request (a boot chord) |
+| `BOOT` | powered on, woken from sleep, or reset; radio off; boot scene.  Works out why it is awake (below) | `IDLE`, `CONNECTING`, `PAIRING` or `REBOOTING` (loader); see Boot |
 | `IDLE` | radio off | `CONNECTING`/`PAIRING` on a request; `SLEEPING` after `offline_sleep_ms` on battery |
 | `CONNECTING` | the profile's connect: its wake step if it has one (Switch 1), then paging or advertising to the bonded host | `CONNECTED` on `BT_EV_LINKED`; after `connect_ms`: `STOPPING` → `IDLE` |
 | `PAIRING` | discoverable for a new host | `CONNECTED` on `BT_EV_LINKED`; after `pair_ms`: `STOPPING` → `IDLE` |
@@ -113,20 +117,62 @@ One tagged union; each kind carries only its own data.
 * Calibration is not a state: it runs alongside any state, keeps the link,
   and sends the host no buttons until it ends.
 
+## Boot
+
+`BOOT` is where every start lands: first power, a reset, and waking from
+sleep (the pad's sleep is a power-off that Home or a USB plug-in ends, so a
+wake is a boot).  The platform reports why the chip started and what was held
+at the first instant, before the buttons could be let go:
+
+```c
+struct plat_boot {
+    enum { BOOT_POWER_ON, BOOT_HOME, BOOT_USB, BOOT_RESET } cause;
+    u16 buttons_held;        /* sampled at the earliest moment */
+    u8 hat_held;
+};
+void plat_boot_info(struct plat_boot *out);
+```
+
+What `BOOT` does with it:
+
+| Seen | Then |
+|---|---|
+| Home+Start held, and USB present now or within `uboot_window_ms` | `REBOOTING` into the ROM loader |
+| woken by Home, with a slot key held | the gesture table's "at once" rows for that slot: connect it |
+| woken by Home alone | the table's tap rows: connect the last slot (if one is known) |
+| woken by USB | `IDLE`: charging, ready for tools |
+| power-on or reset, nothing held | `IDLE` |
+
+The boot press goes through `ux_boot_chord()`, so the gesture table decides
+what it means, and a press still held when the loop starts continues as an
+ordinary gesture.  `BOOT` lasts at most `uboot_window_ms`; any request ends it
+early.  The last slot survives a reset (retained RAM), and whether it
+survives sleep is a hardware question still to measure (if not, Home alone
+after sleep does nothing).
+
 ## Rumble
 
-Rumble has one source: the host, through the profile.  A host write (Switch
-output report, Xbox or PlayStation motor report, Switch 2 vibration packet)
-is decoded by the profile into `fx.rumble = {left, right, ms}`, and the
-controller applies it.  A USB hardware check, if ever added, would be one
-more request.
+Rumble has one source: the host, through the profile.  The profile decodes
+the host's writes (Switch output report, Xbox or PlayStation motor report,
+Switch 2 vibration packet) and keeps what the host asked for, including a
+one-shot's end time, because only the host changes it and only the profile
+understands the protocol.  Every poll the loop reads it:
 
-The controller holds the motor state, not the profile, because the controller
-is what has to stop it: at session end, while calibrating, when going to
-sleep, when a timed rumble runs out.  Kept in the profiles, every one of them
-would need a "stop" and the loop would poll them for a value only the host
-changes.  The controller also applies the slot's `rumble` setting and caps
-one-shot durations at `rumble_max_ms`.
+```c
+struct profile_host {
+    u8 rumble_left, rumble_right;     /* what the host wants now (a one-shot already timed out reads 0) */
+    u8 players, players_flash;        /* player lights the host set */
+    u8 lightbar_set, lightbar[3];
+};
+profile->host(now, &host);
+```
+
+and decides what the motors actually do: the host's levels while
+`CONNECTED`, with the slot's `rumble` setting on, and not calibrating; 0
+otherwise.  So the controller owns the outcome and every reason to override
+it, and nothing has to be told to stop: when a session ends the loop stops
+asking.  Host lights work the same way and go to `led_frame()`.  A USB
+hardware check, if ever added, would be one more input to the same decision.
 
 ## Interface
 
