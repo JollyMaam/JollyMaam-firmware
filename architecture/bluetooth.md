@@ -32,25 +32,30 @@ struct bt_bond {                       /* what the slot remembers about its host
 void bt_start(const struct profile *p, const u8 address[6],
               const struct bt_bond *bond, int pairing);
 void bt_stop(void);                    /* BT_EV_STOPPED once the radio is down */
+void bt_abort(void);                   /* the same, without waiting for the host */
 void bt_disconnect(void);              /* drop the link, keep the session */
 void bt_connect(void);                 /* one attempt to reach the bonded host */
 int  bt_send_input(u8 id, const u8 *data, u16 len);    /* newest-wins slot */
-int  bt_send_message(u8 id, const u8 *data, u16 len);  /* queued, in order */
-int  bt_poll(struct bt_ev *ev);     /* 1 while there are events */
+int  bt_send_message(u16 id, const u8 *data, u16 len); /* queued, in order */
+int  bt_poll(struct bt_ev *ev);        /* 1 while there are events */
 int  bt_radio_quiet(void);             /* no pairing exchange or link set-up under way */
+int  bt_input_pending(void);
+void bt_update_bond(const struct bt_bond *bond);   /* a key the profile learned (Switch 2) */
 ```
 
 ```c
 struct bt_ev {
-    enum {
-        BT_EV_LINKED,      /* the host can take reports */
-        BT_EV_UNLINKED,    /* .reason: BT_LOST or BT_ENDED */
-        BT_EV_FAILED,      /* a connect attempt ended without a link */
-        BT_EV_STOPPED,     /* the radio is down; bt_start may be called again */
-        BT_EV_BONDED,      /* .bond: a new or changed bond to store for the slot */
-        BT_EV_WRITE,       /* .write: data the host sent (profiles.md) */
-    } kind;
-    ...
+    u8 kind;               /* BT_EV_LINKED      the host can take reports
+                              BT_EV_UNLINKED    the link went; .lost, .reason
+                              BT_EV_FAILED      a connect attempt ended without a link
+                              BT_EV_STOPPED     the radio is down; bt_start may be called again
+                              BT_EV_PEER        .bond: the host's address is known
+                              BT_EV_BONDED      .bond: a new or changed key to store
+                              BT_EV_WRITE       .write: data the host sent (profiles.md) */
+    u8 lost;               /* BT_EV_UNLINKED: the signal went, not the host */
+    u8 reason;             /* HCI disconnect reason */
+    struct bt_bond bond;
+    struct bt_write write;
 };
 ```
 
@@ -67,19 +72,19 @@ result instead; see [profiles.md](profiles.md).)
 ### Why a link ended
 
 `BT_EV_UNLINKED` carries the reason from the HCI disconnection (the same codes
-for Classic and LE), sorted into two:
+for Classic and LE), sorted into two (`.lost`):
 
 | HCI reason | Code | Sorted as |
 |---|---|---|
-| Connection Timeout | `0x08` | `BT_LOST`: signal |
-| LMP/LL Response Timeout | `0x22` | `BT_LOST` |
-| Remote User Terminated Connection | `0x13` | `BT_ENDED`: the host meant it |
-| Remote Device Terminated, Power Off | `0x15` | `BT_ENDED` |
-| Remote Low Resources | `0x14` | `BT_ENDED` |
-| the host closed the HID channels (link up or not) | – | `BT_ENDED` |
-| anything else | | `BT_ENDED` |
+| Connection Timeout | `0x08` | lost: signal |
+| LMP/LL Response Timeout | `0x22` | lost |
+| Remote User Terminated Connection | `0x13` | ended: the host meant it |
+| Remote Device Terminated, Power Off | `0x15` | ended |
+| Remote Low Resources | `0x14` | ended |
+| the host closed the HID channels (link up or not) | – | ended |
+| anything else | | ended |
 
-The controller reconnects after `BT_LOST` and stops after `BT_ENDED`.  Which
+The controller reconnects after a lost link and stops after an ended one.  Which
 codes a Switch, a Switch 2, a PlayStation and a PC actually send when they
 sleep, when the user removes the pad, and when the signal goes, is to be
 checked in the logs; the table is the one place to adjust.
@@ -125,7 +130,7 @@ any state ── bt_stop() ──> STOPPING ── BT_EV_STOPPED ──> OFF
 
 What `bt.c` does for each transport:
 
-| | Classic (switch, xbox, dualsense, dualshock4, mouse) | LE (switch2, xboxble, generic) |
+| | Classic (switch, xbox, dualsense, dualshock4, generic, mouse) | LE (switch2, xboxble) |
 |---|---|---|
 | start | SDP HID record from `hid_descriptor`, Device ID record, class of device | GATT db from `att_db`, advertising from `advertising()` |
 | connect | page the bonded host | advertise to the bonded host |
@@ -142,7 +147,7 @@ These come from failures seen on hardware; see `AGENTS.md`.
   2 outgoing, level 0 incoming.  Opening before authentication caused reason-5
   failures.
 * Input reports, Classic and LE, go through one newest-wins slot with at most
-  `profile.#.in_flight` (default 2) packets in the controller.  Nothing is
+  `IN_FLIGHT` (2) packets in the controller.  Nothing is
   queued.
 * LE links ask for 251-byte PDUs; at 27 bytes a Switch 2 report took three
   connection events.
@@ -161,15 +166,19 @@ These come from failures seen on hardware; see `AGENTS.md`.
 Used by `bt.c` only:
 
 ```c
-const hci_transport_t *hci_transport(void);
-const btstack_run_loop_t *hci_run_loop(void);
-void hci_open(const u8 address[6]);
-void hci_close(void);
-void hci_wake(void);           /* wake the run loop from any thread or interrupt */
+const hci_transport_t *hci_jieli_transport(void);
+const btstack_run_loop_t *hci_jieli_run_loop(void);
+void hci_jieli_set_address(const u8 a[6]);   /* also reapplied after every HCI Reset */
+void hci_jieli_drop_link(void);              /* stop the controller without the HCI halt */
+void hci_jieli_prepare(u16 sniff_slots, u16 sniff_attempt);
+void hci_jieli_link_policy(void);
+int  hci_jieli_open(void);                   /* the controller alone: the Switch 1 wake */
+void hci_jieli_close(void);
 ```
 
-It is the only file that includes both BTstack and Jieli headers (the SDK's
-`bool` conflicts with C99 `bool`; keep the include order the port uses).
+It includes BTstack headers and `pad.h` only, and declares the few
+controller-library entry points it calls; no SDK header (the SDK's `bool`
+conflicts with BTstack's).
 
 ## Porting
 

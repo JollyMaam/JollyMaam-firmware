@@ -7,56 +7,56 @@ animates) asks `leds.c` for the frame to show.
 Lights: Home, the four player lights under it (top to bottom), the left and
 right grips, and one unused position in the chain (driven dark).
 
-## What the controller keeps
+## What the controller keeps, and the call
 
 ```c
 struct led_state {
-    enum led_scene_id scene;   /* follows the controller state */
-    u32 scene_since_ms;        /* animations count from here */
-    u8 slot;                   /* whose colour and bar position */
-    u8 calibrating;
+    u8 scene;              /* enum ctl_kind */
+    u8 slot;               /* SLOT_NONE: none */
+    u32 since_ms;
 };
+
+struct led_inputs {
+    struct rgb slot_colour, idle_colour, battery_colour;
+    u8 grips;              /* the slot's grips setting */
+    u8 rumble[2];
+    u8 reach[2];
+    u8 usb_powered, usb_plug_flash, low_battery;
+    u8 has_players, players, players_flash;
+    u8 has_lightbar;
+    struct rgb lightbar;
+    u8 cal_lit;
+    struct rgb cal;
+};
+
+void led_frame(const struct led_scene *scene, const struct led_state *s, u32 now,
+               const struct led_inputs *in, struct led_frame *out);
+void led_reach(u8 reach[2], const struct pad *pad);   /* how far the sticks reach: grips can follow input */
 ```
 
-The controller sets `scene` and `scene_since_ms` whenever its state changes.
-Nothing else changes this struct.  The lights the host set (player number,
-lightbar) are not kept here: the loop reads them from the profile every poll
-(`profile->host()`, [controller.md](controller.md)) and passes them in, or
-passes none when there is no session.
-
-## The one call
-
-```c
-void led_frame(const struct led_state *s, const struct profile_host *host,
-               u32 now, const struct led_inputs *in, struct led_frame *out);
-
-struct led_inputs {            /* what else the picture depends on */
-    const struct pad *pad;     /* grips can follow input */
-    u8 rumble_left, rumble_right;   /* grips can follow rumble */
-    u8 battery_low, usb_present, charging;
-    u8 cal_rgb[3]; u8 cal_lit;  /* the calibration routine's light (cal_led()) */
-};
-```
+The controller sets `scene` and `since_ms` whenever its state changes (the
+STOPPING scene shows the slot it is switching to).  Nothing else changes
+`led_state`.  The lights the host set (player number, lightbar) are not kept
+here: the loop reads them from the profile every pass (`profile->host()`,
+[controller.md](controller.md)) and passes them in `led_inputs`, or passes
+none when not connected.
 
 `led_frame()` is pure: the same arguments always give the same frame.  The
-controller passes the result to `plat_leds()`.  This is the module's unit test:
-each scene at a few times, each overlay.
+controller calls it at most every `led_frame_ms` and passes a changed result
+to `plat_leds()`.  The unit test checks each scene at a few times, and each
+overlay.
 
 ## Scenes
 
 What each controller state looks like is the table `ux_scenes[]` in
-`settings_ux.c`.  One row per scene:
+`settings_ux.c`, indexed by controller state.  One row per state:
 
 ```c
-[LED_SCENE_CONNECTING] = {
-    .colour = LED_COLOUR_SLOT,                 /* profile.#.colour */
-    .home   = LED_BLINK(500, 500),
-    .bar    = { LED_BAR_SLOT, LED_SOLID },     /* the slot's light */
-    .grips  = { LED_GRIPS_WAVE, LED_OFF },
-},
+/*                   colour       home               bar         bar wave       grips       grips wave */
+[CTL_CONNECTING] = { COLOUR_SLOT, LED_BLINK(500, 500), BAR_SLOT, LED_SOLID,     GRIPS_WAVE, LED_OFF },
 ```
 
-Waves, timed from `scene_since_ms`: `LED_OFF`, `LED_SOLID`,
+Waves, timed from `since_ms`: `LED_OFF`, `LED_SOLID`,
 `LED_BLINK(on, off)`, `LED_BREATHE(period)`, `LED_SWEEP(step)`.  Bar: all four,
 the slot's light, or the player number the host set.  Grips: a wave, or, when
 connected, the slot's `grips` setting (rumble, input, lightbar).

@@ -38,43 +38,41 @@ for (;;) {
 }
 ```
 
-What wakes it:
+What wakes it (`plat_wake()` from an interrupt or the bluetooth thread):
 
-| Event | Raised by | Loop does |
-|---|---|---|
-| `EV_BUTTONS` | a timer interrupt that samples the button ports every 250 µs and sees a change | `in_map()`, gestures (`ux_step`), calibration step |
-| `EV_STICKS` | the stick UART: a whole frame from the stick microcontroller arrived | map and calibrate the sticks |
-| `EV_IMU` | the I2C interrupt: a sensor read finished with a new sample | add it to `pad.imu` |
-| `EV_BT` | `bt.c` queued an event | `bt_poll()` until empty |
-| `EV_USB` | the mass-storage driver parked a vendor command | `usb_poll()` |
-| deadline | the platform timer | whichever of these is due: the next report, the next LED frame (every 10 ms while anything animates), the next state timeout, the settings write |
+| Event | Raised by |
+|---|---|
+| `EV_BUTTONS` | the 250 µs tick interrupt, when a sampled button port changed (2 ms lockout after a change) |
+| `EV_IMU` | the I2C interrupt (or the tick, as a fallback), when a sensor read finished |
+| `EV_BT` | `bt.c`, when it queued an event |
+| `EV_USB` | the mass-storage driver, when it parked a vendor command |
+| `EV_DEADLINE` | the tick, when the deadline passed |
 
-After each wake the loop works out the earliest deadline from its own state
-(the slot's report time, the scene's next frame, the state's timeout) and
-passes it to `plat_wait()`.  So reports are sent on time without a 1 ms tick,
-nothing runs while nothing changes, and a button press reaches the gesture
-engine within 250 µs.
-
-On a report deadline, while `CONNECTED`:
+The bits only wake the loop: each pass does everything, in this order, and
+each step costs little when there is nothing for it.
 
 ```
-read the triggers (ADC), build pad from the latest buttons, sticks, triggers, imu
-n = profile->report(&pad, now, buf, &id)     with gestures/calibration hiding applied
-if n: bt_send_input(id, buf, n)
+read_input       plat_input() (buttons, sticks drained from the UART, triggers),
+                 in_map(), cal_apply(); then cal_step() or ux_step() -> request
+bt_poll()        until empty: link events, bonds, host writes
+usb_poll()       a parked vendor command -> request
+sample_power     USB present (debounced), battery every second
+timeouts         the state's timeout, retry, wake step
+send_report      while CONNECTED and the report is due:
+                 imu_take(), profile->report(), bt_send_input()
+outputs          profile->host(), imu_poll(), plat_motors(); at an LED
+                 deadline led_frame() and plat_leds() if the frame changed
+set_poll         write dirty records once the radio is quiet
+plat_wait(earliest of: LED frame, state deadline, gesture hold, IMU, calibration)
 ```
 
-On every wake, after the work for the event:
-
-```
-profile->host(now, &host)                    what the host wants: rumble, player lights, lightbar
-plat_motors(motors(&host))                   0 unless connected, not calibrating, rumble allowed
-```
-
-and on an LED deadline `plat_leds(led_frame(&leds, &host, now, &pad))`.
+So reports are sent on time without a 1 ms tick, nothing runs while nothing
+changes, and a button press reaches the gesture engine within 250 µs plus the
+lockout.
 
 Things to measure once it runs:
 
-* how late a wake is.  The control task (`app_core`, priority 3) is below the
+* how late a wake is.  The control task (`ctl`, priority 3) is below the
   Bluetooth controller's own task (`btctrler`, priority 4) in the task table,
   so a wake can wait for it.
 * the interrupt load: about 4 000 button-sample interrupts a second, and
@@ -83,14 +81,15 @@ Things to measure once it runs:
 
 A later option, not part of the design yet: send a report as soon as a button
 changes instead of at the next report deadline.  The newest-wins slot and
-`in_flight` already bound how much that can send.
+`IN_FLIGHT` already bound how much that can send.
 
 A host write (`BT_EV_WRITE`) goes to the running profile on this thread:
 
 ```c
 struct bt_bond bond;
-if (profile->write(&ev.write, now, &bond))   /* 1: the write finished a pairing (Switch 2) */
-    set_bond_store(slot, &bond);
+if (profile->write(&ev.write, now, &bond)) {  /* 1: the write finished a pairing (Switch 2) */
+    merge bond.ltk into the slot's bond; set_bond_store(); bt_update_bond();
+}
 ```
 
 Profiles therefore never run on the bluetooth thread.  The rule for what
@@ -171,7 +170,7 @@ What `BOOT` does with it:
 | woken by USB | `IDLE`: charging, ready for tools |
 | power-on or reset, nothing held | `IDLE` |
 
-The boot press goes through `ux_boot_chord()`, so the gesture table decides
+The boot press goes through `ux_boot()`, so the gesture table decides
 what it means, and a press still held when the loop starts continues as an
 ordinary gesture.  `BOOT` lasts at most `uboot_window_ms`; any request ends it
 early.  The last slot survives a reset (retained RAM), and whether it

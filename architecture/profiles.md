@@ -18,13 +18,13 @@ same on any chip, and makes their report bytes testable on the host.
 | `profile_switch_wake.c` | console wake for `switch` | raw radio |
 | `profile_xbox.c` | `xbox`, `xboxble` | Classic, LE |
 | `profile_playstation.c` | `dualsense`, `dualshock4` | Classic |
-| `profile_hid.c` | `generic`, `mouse` | LE, Classic |
+| `profile_hid.c` | `generic`, `mouse` | Classic |
 
 Profiles that share a file share their encoders: both Xbox transports send the
 same state bytes; DualSense and DualShock 4 share the button, stick, motion and
 touchpad packing.
 
-`mouse` replaces today's `stickmouse` and `gyromouse`: the stick and the gyro
+`mouse` replaces the old `stickmouse` and `gyromouse`: the stick and the gyro
 both move the pointer, each at its own speed (`stick_speed`, `gyro_speed`;
 0 turns that source off, and with the gyro off the IMU stays off).  The
 `desktop` variant still picks the button layout.
@@ -42,19 +42,16 @@ struct profile_session {          /* filled by the controller for begin() */
 
 struct profile {
     const char *name;                 /* "switch", "dualsense", ... */
-    u16 report_hz;                    /* default for profile.#.report_hz=auto */
+    u16 report_hz;
     const struct bt_device *device;   /* what the host sees */
-    const struct profile_wake *wake;  /* Switch 1 only; see below */
-
-    enum imu_mode (*begin)(const struct profile_session *s);
+    u8 (*begin)(const struct profile_session *s);   /* returns the IMU mode */
     void (*end)(void);
-    int  (*report)(const struct pad *pad, u32 now_ms, u8 *out, u8 *id);
-    int  (*write)(const struct bt_write *w, u32 now_ms, struct bt_bond *bond);
-    void (*host)(u32 now_ms, struct profile_host *out);
-    int  (*read)(const struct bt_read *r, u8 *out, u16 max);   /* bluetooth thread */
+    int (*report)(const struct pad *pad, u32 now, u8 *out, u8 *id);
+    int (*write)(const struct bt_write *w, u32 now, struct bt_bond *bond);
+    void (*host)(u32 now, struct profile_host *out);
+    int (*read)(u8 kind, u16 id, u16 offset, u8 *out, u16 max);   /* bluetooth thread */
+    const struct profile_wake *wake;  /* Switch 1 only; see below */
 };
-
-extern const struct profile *const profiles[PROFILE_TYPE_COUNT];
 ```
 
 Every function pointer may be NULL except `report`.
@@ -75,14 +72,20 @@ services and advertising.  The profile never calls BTstack.
 
 ```c
 struct bt_device {
-    enum bt_transport transport;      /* BT_CLASSIC or BT_LE */
+    u8 transport;                     /* BT_CLASSIC or BT_LE */
     const char *name;                 /* local name, e.g. "Pro Controller" */
-    u32 class_of_device;              /* Classic */
-    u16 vendor_id, product_id, version;   /* Device ID record / PnP ID */
+    /* Classic */
+    u32 class_of_device;
+    u16 vendor_id, product_id, version;   /* Device ID record */
     const u8 *hid_descriptor; u16 hid_descriptor_len;
-    const u8 *att_db; u16 att_db_len; /* LE: compiled GATT database */
-    u16 input_handle;                 /* LE: characteristic carrying reports */
-    void (*advertising)(const struct profile_session *s, u8 *data, u8 *len);  /* LE */
+    u16 sniff_slots, sniff_attempt;
+    /* LE */
+    const u8 *att_db;                 /* compiled GATT database */
+    u16 input_handle;                 /* characteristic carrying reports */
+    u8 (*advertising)(const struct bt_bond *bond, int pairing, int wake, u8 out[31]);
+    const u8 *scan_response; u8 scan_response_len;
+    const u8 *sm_er, *sm_ir;          /* security manager keys; NULL: no SMP */
+    u16 interval_min, interval_max;
 };
 ```
 
@@ -90,7 +93,7 @@ struct bt_device {
 
 * `begin(s)` – a session is starting.  Reset the profile's state and return
   the IMU mode it needs (`IMU_OFF`, `IMU_MOTION`, `IMU_GYRO`); the controller
-  sets it.  The mouse returns `IMU_GYRO` only if its gyro speed is not 0.
+  sets it, unless `host()` later names another.  The mouse returns `IMU_GYRO` only if its gyro speed is not 0.
 * `end()` – the session is over.  The controller stops asking `host()`, so
   rumble and host lights stop with it, and it turns the IMU off.
 
@@ -117,10 +120,10 @@ The controller hands the result to `bt_send_input()`, the newest-wins slot.
 
 ```c
 struct bt_write {
-    enum { BT_WRITE_OUTPUT, BT_WRITE_FEATURE, BT_WRITE_ATT } kind;
+    u8 kind;           /* BT_WRITE_OUTPUT, BT_WRITE_FEATURE, BT_WRITE_ATT */
     u16 id;            /* HID report ID, or ATT handle */
-    const u8 *data;
     u16 len;
+    u8 data[BT_WRITE_MAX];
 };
 ```
 
@@ -141,11 +144,12 @@ finished a pairing and filled `bond` (Switch 2 only), else 0.
 
 ```c
 struct profile_host {
-    u8 rumble_left, rumble_right;     /* now; a timed-out one-shot reads 0 */
-    u8 players, players_flash;
-    u8 lightbar_set, lightbar[3];
+    u8 rumble[2];                     /* left, right, now */
+    u8 has_players, players, players_flash;
+    u8 has_lightbar, lightbar[3];
+    u8 imu;                           /* IMU mode the host asked for; 0: begin()'s */
 };
-void host(u32 now_ms, struct profile_host *out);
+void host(u32 now, struct profile_host *out);
 ```
 
 Read by the controller every poll.  The profile answers from what the host
@@ -160,11 +164,8 @@ input reports never go this way.
 ### Host asks the pad: `read`
 
 ```c
-struct bt_read {
-    enum { BT_READ_FEATURE, BT_READ_ATT } kind;
-    u16 id;            /* report ID, or ATT handle */
-    u16 offset;        /* ATT long reads */
-};
+int read(u8 kind, u16 id, u16 offset, u8 *out, u16 max);
+/* kind: BT_WRITE_FEATURE (GET_REPORT) or BT_WRITE_ATT; id: report ID or handle */
 ```
 
 HID GET_REPORT (the PlayStation consoles read calibration and the pad's
@@ -185,8 +186,8 @@ optional step that runs before the session starts:
 
 ```c
 struct profile_wake {
-    int  (*start)(const struct profile_session *s);  /* 0 started, <0 nothing to wake */
-    int  (*step)(u32 now_ms, u32 *next_ms);   /* 1 when finished; else when to call again */
+    int (*start)(const struct profile_session *s);   /* 0 started, <0 nothing to wake */
+    int (*step)(u32 now, u32 *next);  /* 1 finished; else call again at *next */
     void (*stop)(void);
 };
 ```
@@ -199,7 +200,7 @@ console woke makes no difference to what happens next: the pad pages it
 either way.  The wake keeps its own state (whitening state, burst timing);
 the controller only knows it is still running.  The radio must be quiet for the wake, which is why it runs
 before `bt_start()`, not inside the session.  Channel and duration are
-constants in `profile_switch_wake.c` (today's defaults: channel 0, 8 s).
+constants in `profile_switch_wake.c` (channel 0, 8 s).
 There is no separate wake command or gesture.
 
 This puts the wake in front of every connect of a `switch` slot, so a console

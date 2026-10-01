@@ -48,7 +48,7 @@ uses, so one tool and one transport cover:
 
 The same as above, except step 1: the tool sends the "reboot to loader"
 command (or any loader opcode) to the running pad.  Home+Start at plug-in
-still works as a fallback, as it does today.
+still works as a fallback.
 
 ## Commands to the running firmware
 
@@ -58,11 +58,11 @@ little-endian.  Data goes in the SCSI data phase; the status is the CSW.
 
 | Sub | Name | Data | Status |
 |---|---|---|---|
-| `0x00` | IDENTIFY | in: magic `C2PD`, protocol version, firmware version and build ID, flash UID, Bluetooth address | now |
-| `0x01` | STATUS | in: state, slot, profile, battery, charging, calibration required, link quality | now |
-| `0x02` | LOG | out: from sequence number; in: next sequence number and text | now |
-| `0x10` | REBOOT | – | now |
-| `0x11` | REBOOT_LOADER | – (any loader opcode does the same) | now |
+| `0x00` | IDENTIFY | in (40): magic `C2PD`, u16 protocol, build ID (16 chars at 8), flash UID (16 at 24) | done |
+| `0x01` | STATUS | in (16): state, slot, USB powered, low battery, u16 battery mV, u32 uptime ms | done |
+| `0x02` | LOG | CDB bytes 2–5: from sequence number; in: u32 first sequence returned, u32 length, text | done |
+| `0x10` | REBOOT | – | done |
+| `0x11` | REBOOT_LOADER | – (any loader opcode does the same) | done |
 | `0x20` | SETTINGS_READ | record, offset → bytes | later |
 | `0x21` | SETTINGS_WRITE | record, offset, bytes | later |
 
@@ -82,11 +82,13 @@ reboot can still be read afterwards.
 ## Interface
 
 ```c
-struct ctl_request usb_poll(const struct usb_status *status);   /* on EV_USB */
+struct ctl_request usb_poll(const struct usb_status *status);   /* every pass of the loop */
+u32 usb_command(const u8 cdb[16], u8 *data, u32 max);          /* from the platform's SCSI hook */
 ```
 
-`usb_poll()` is called when the platform raises `EV_USB`.  If a vendor command is waiting it
-answers it and returns at most one request (`REQ_REBOOT`,
+`usb_poll()` runs on every pass of the loop (`EV_USB` wakes it).  It lets the
+platform service a parked command (`plat_usb_service()`), which calls
+`usb_command()` on the control thread; that answers it and returns at most one request (`REQ_REBOOT`,
 `REQ_REBOOT_LOADER`, later others); the controller decides what to do with
 it, as with gestures.  `status` is what the controller chooses to report
 (state, slot, battery, calibration required, ...); `usb.c` keeps no copy of
@@ -103,12 +105,8 @@ platform's, read by the controller for sleep decisions.
 
 The command set above is the contract.  Two clients use it:
 
-* a PC command-line tool (`padtool`): `flash`, `backup`, `restore`, `log -f`,
-  `status`, `reboot`.  This replaces `tools/flash.sh`, `padbus.py` and
-  `pad_tui.py`.
+* `tools/padtool.py` (Linux, SG_IO): `find`, `identify`, `status`,
+  `log [-f]`, `reboot`, `loader`, `flash IMAGE [--backup]`.  Flashing goes
+  through the loader with the Jieli `jluboottool`.  Still to come: `restore`
+  (a backup is a whole flash image, so it is `flash` of the backup), Windows.
 * an Android app, later, for users without a PC.
-
-Development (and the agent's hardware session) moves to `padtool log -f` and
-`padtool flash`.  Build `usb.c` and `padtool` before the CDC console is
-removed, so there is never a build with no way to read logs or reach the
-loader.

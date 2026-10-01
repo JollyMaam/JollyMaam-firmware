@@ -4,8 +4,8 @@ This folder describes how the application firmware is divided into modules and
 how those modules talk to each other.  Hardware facts (pins, radio, power,
 flash layout) live in [../docs/](../docs/README.md); this folder is about code.
 
-Status: **target design**.  The code is being moved onto it in the steps listed
-at the end; each module page says what it replaces.
+Status: implemented on branch `rewrite` (the old firmware, kept for reference,
+is branch `btstack`).
 
 | Page | Covers |
 |---|---|
@@ -50,37 +50,32 @@ If a function is not in `pad.h`, it is `static`.
 
 ## Files
 
-| File | Prefix | Replaces (today's files) |
+| File | Exports | Holds |
 |---|---|---|
-| `pad.h` | – | every project header |
-| `settings_ux.c` | `ux_` | `ux.c` (table and engine), timeouts in `controller.c`/`controller_state.c`, scene table in `lights_render.c` |
-| `controller.c` | `ctl_` | `controller.c`, `controller_state.c`, `rumble.c` (timing), the LED state from `lights.c` |
-| `profile_switch.c` | `sw_` | `profile_switch.c`, `profile_switch2.c`, `profile_switch2_att_db.h`, the two `.bin` files |
-| `profile_switch_wake.c` | `swake_` | `profile_switch_wake*.c/h` (4 + 4 files); the wake step of a `switch` connect |
-| `profile_xbox.c` | `xbox_` | `profile_xbox.c`, `profile_xbox_ble.c`, its att_db header and `.gatt` |
-| `profile_playstation.c` | `ps_` | `profile_playstation.c`, `profile_dualsense.c`, `profile_dualshock4.c` |
-| `profile_hid.c` | `hid_` | `profile_generic.c`, `profile_mouse.c` (stick and gyro mouse become one `mouse` profile) |
-| `bt.c` | `bt_` | `bt/btstack_jl_core.c`, `bt/btstack_jl_le.c`, `bt/btstack_jl_sdk.c`, `bt/btstack_jl_ble_stub.c`, `bt/hci_dump_console.c`, `profile.c`, `profile_classic.c`, `profile_le.c`, `identity.c` |
-| `btstack_hci_jieli.c` | `hci_` | `btstack-jl-port/port/jieli-br23/*` |
-| `input.c` | `in_` | `input.c` |
-| `input_calibration.c` | `cal_` | `calibration.c`, `calibration_math.c` |
-| `input_imu.c` | `imu_` | `imu.c` (no task), the offset learning from `gyro.c`; pointer maths moves to the mouse profile |
-| `leds.c` | `led_` | `lights_render.c` (renderer, now stateless) |
-| `settings.c` | `set_` | `config.c`, `config_schema.c` |
-| `usb.c` | `usb_` | `usb.c`; `console.c`, `commands.c` and `status.c` are removed (no serial console) |
-| `utils.c` | `util_` | `aes128.c`, byte packing helpers repeated in the profiles, the log ring buffer (`util_log`) |
-| `platform_jieli.c` | `plat_` | `init.c`, `main.c`, `usb.c`, `led.c`, `rumble.c` (motors), `rom.c`, `timing.c` (clock) |
-| `platform_jieli_sdk.c` | – | `sdkconfig/*.c` |
-
-Deleted without replacement: `bounce.c`, `ps.c`, the probe, injection and
-statistics parts of `timing.c` and `controller.c`, the bring-up log, the HCI
-dump, and the report "air" statistics in the Bluetooth layer.  Each was a
-measuring tool for a question that has been answered.
+| `pad.h` | – | every declaration shared between files |
+| `controller.c` | `ctl_main` | the loop, the state machine, all state the pad decides |
+| `settings_ux.c` | `ux_` | the gesture table and engine, the timeout table, the LED scene table |
+| `settings.c` | `set_` | slot defaults, bond and calibration records, slot addresses |
+| `input.c` | `in_` | raw input to `struct pad`, activity detection |
+| `input_calibration.c` | `cal_` | stick and trigger calibration: maths and routine |
+| `input_imu.c` | `imu_` | the motion sensor: polled reads, gyro bias, pointer maths |
+| `leds.c` | `led_` | the stateless frame renderer |
+| `profile_switch.c` | `profile_switch`, `profile_switch2` | Switch Pro (Classic), Switch 2 Pro (LE) |
+| `profile_switch_wake.c` | `profile_switch_wake` | Switch 1 console wake: code generation and the raw radio |
+| `profile_xbox.c` | `profile_xbox`, `profile_xbox_ble` | Xbox over Classic and LE |
+| `profile_playstation.c` | `profile_dualsense`, `profile_dualshock4` | PlayStation pads |
+| `profile_hid.c` | `profile_generic`, `profile_mouse` | generic gamepad, stick and gyro mouse |
+| `bt.c` | `bt_` | the Bluetooth host over BTstack, Classic and LE |
+| `btstack_hci_jieli.c` | `hci_jieli_` | BTstack's transport and run loop on the Jieli controller library |
+| `usb.c` | `usb_` | vendor SCSI commands (identify, status, log, reboot) |
+| `utils.c` | `util_` | the log ring, byte packing, AES-128 |
+| `platform_jieli.c` | `plat_` | pins, buttons, sticks, I2C, LEDs, motors, USB, storage, power, tasks |
+| `platform_jieli_sdk.c` | – | constants and hooks the Jieli libraries require |
 
 ## Naming
 
 * A public function, type or constant starts with its module's prefix:
-  `bt_send_input()`, `struct led_scene`, `UX_TAP`.  The prefix tells you which
+  `bt_send_input()`, `struct led_frame`, `IMU_GYRO`.  The prefix tells you which
   file it is in.
 * `static` functions have no prefix.
 * No `cyclone2_` prefix: the repository already says which project this is.
@@ -144,26 +139,10 @@ int main(void) { ... }
 ```
 
 `make test` builds every `src/*.c` that contains `UNITTEST` with the host
-compiler (`cc -DUNITTEST -Isrc`) and runs it.  `test.h` supplies host
-typedefs and stubs for the few `plat_`/`bt_` calls a module makes.  Tested:
-gestures and the controller state machine, LED frames, settings records, calibration maths, each profile's report bytes, the Switch wake
-code generation.  Not tested on the host: `platform_jieli*.c`,
-`btstack_hci_jieli.c`, `bt.c`.
-
-## Migration steps
-
-Each step builds, flashes and is checked on hardware (Switch, Switch 2, one
-other profile) before the next.
-
-1. Delete instrumentation and unused tools; strip comments.
-2. `platform_jieli.c`, `platform_jieli_sdk.c`; trim the SDK source list.
-3. `bt.c` and `btstack_hci_jieli.c` with the `bt_` API; delete the imitation of
-   the vendor host API.  Highest risk: the Classic reconnect rules in
-   [bluetooth.md](bluetooth.md) must survive.
-4. Profiles onto `struct profile`; merge files.
-5. `controller.c`, `settings_ux.c`, `leds.c`.
-6. `input*.c`, then `settings.c`.
-   `usb.c` and the PC tool `padtool` come before the CDC console is removed,
-   so there is always a way to read logs and reach the loader; that may
-   mean doing them first.
-7. `pad.h`, `UNITTEST` blocks, `make test`, update `AGENTS.md`.
+compiler (`cc -DUNITTEST -Isrc`) and runs it.  `test.h` has `CHECK` and
+`TEST_DONE`; each test stubs the few `plat_`/`bt_`/`util_` calls its module
+makes.  Tested: gestures, LED frames, calibration maths and routine, the IMU
+state machine and pointer, each profile's report and write handling, the
+Switch wake code generation, USB commands, the log ring and AES.  Not tested
+on the host: `controller.c`, `settings.c`, `bt.c`, `btstack_hci_jieli.c`,
+`platform_jieli*.c`.

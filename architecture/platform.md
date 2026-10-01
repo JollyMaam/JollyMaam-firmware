@@ -15,43 +15,48 @@ below.
 Kept to what the firmware actually uses, not a general HAL.
 
 ```c
-/* time and threads */
-u32  plat_ms(void);
-u32  plat_us(void);                         /* wraps */
-void plat_lock(void);  void plat_unlock(void);            /* short critical sections */
+enum { EV_BUTTONS = 1, EV_USB = 2, EV_BT = 4, EV_IMU = 8, EV_DEADLINE = 0x80 };
 
-/* storage: one key per settings record */
-int  plat_store_read(u8 key, void *buf, u16 len);
-int  plat_store_write(u8 key, const void *buf, u16 len);
-const u8 *plat_unique_id(void);             /* flash UID, NULL if none */
-void plat_random(u8 *buf, u16 len);
+enum { BOOT_POWER_ON, BOOT_HOME, BOOT_USB, BOOT_RESET };
+struct plat_boot {
+    u8 cause;
+    u8 hat_held;
+    u16 buttons_held;
+};
 
-/* board */
+u32 plat_ms(void);
+u32 plat_us(void);                          /* wraps */
+void plat_i2c_read(u8 dev, u8 reg, u8 *buf, u8 len);   /* starts; EV_IMU when done */
+void plat_i2c_write(u8 dev, u8 reg, u8 value);
+int plat_i2c_done(void);                    /* 1 done, 0 busy, -1 failed */
+u32 plat_wait(u32 deadline_ms);
+void plat_wake(u32 events);                 /* from another thread or an interrupt */
+void plat_delay_ms(u32 ms);                 /* blocking; set-up only */
+void plat_bt_thread(void (*body)(void));
+void plat_bt_wait(u32 ms);                  /* the bluetooth thread sleeps until woken */
+void plat_bt_wake(void);
+void plat_lock(void);
+void plat_unlock(void);
+void plat_boot_info(struct plat_boot *out);
 void plat_input(struct in_raw *raw);
-void plat_i2c_read(u8 dev, u8 reg, u8 *buf, u8 len);   /* starts a read; returns at once */
-int  plat_i2c_done(void);                  /* 1 done, 0 busy, <0 error */
-void plat_i2c_write(u8 dev, u8 reg, u8 value);         /* starts a one-register write */
 void plat_leds(const struct led_frame *f);
 void plat_motors(u8 left, u8 right);
-void plat_boot_info(struct plat_boot *out);  /* why the chip started, what was held */
-u16  plat_battery_mv(void);  int plat_charging(void);
-
-/* USB: mass storage, no medium; vendor commands go to usb_command() */
-int  plat_usb_present(void);
-
-/* power */
-void plat_power_off(void);                  /* wakes on Home or USB */
+int plat_usb_present(void);
+void plat_usb_service(void);
+u16 plat_battery_mv(void);
+const u8 *plat_unique_id(void);
+int plat_store_read(u16 key, void *buf, u16 len);
+int plat_store_write(u16 key, const void *buf, u16 len);
+u8 plat_retained_slot(void);
+void plat_retain_slot(u8 slot);
+void plat_power_off(void);
 void plat_reboot(void);
 void plat_reboot_loader(void);
-void plat_radio_power(enum plat_tx_power p, int edr3, u8 in_flight);
 ```
 
-Calls into the firmware:
-
-```c
-void ctl_start(void);    /* once, after the platform is up */
-u32  plat_wait(u32 deadline_ms);  /* control thread: sleep until an event bit or the deadline */
-```
+Called by the platform: `ctl_main()` (pad.h, controller), once, on the control
+thread after the board is up; it never returns.  `usb_command()` answers a
+parked vendor command from the loop, through `usb_poll()`.
 
 ## The SDK contract
 
@@ -70,12 +75,8 @@ or `platform_jieli.c` (functions).
 | `log_tag_const_*` (~110) | every archive |
 | `config_asser`, `config_printf_time`, `config_system_info`, `CONFIG_CPU_UNMASK_IRQ_ENABLE`, `clock_sys_src_use_lrc_hw` | system.a, cpu.a |
 
-Nothing else.  The imitation of the vendor host API that `bt/` has today
-(`user_hid_*`, `edr_hid_*`, `bt_comm_*`, `bt_wait_phone_connect_control`,
-`btstack_init`, the BLE stubs) is called only by our own code and goes away.
-
-The SDK `.c` files compiled from `sdk-br23.mk` are cut down to those that end
-up linked, and the `sdkconfig/*.h` headers to those they include.
+Nothing else: the old imitation of the vendor host API is gone.  The SDK
+`.c` files compiled are the `SDK_USED` list in the `Makefile`.
 
 ## Porting to another chip
 
@@ -100,4 +101,5 @@ Things kept in mind so this stays true, without adding layers now:
 * Timing is in milliseconds from `plat_ms()`, never OS ticks.
 * The "hot" section attribute (run from RAM) is a macro the platform
   defines; elsewhere it is empty.
-* Storage is three opaque records, so any key-value flash store will do.
+* Storage is a few opaque records (a bond per slot, calibration), so any
+  key-value flash store will do.

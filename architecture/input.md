@@ -16,9 +16,10 @@ microcontroller, the trigger ADC) is in `platform_jieli.c`, behind one call:
 struct in_raw {
     u16 buttons;          /* one bit per button, active high */
     u8  hat;              /* 0..7 clockwise from up, 8 neutral */
-    u16 stick[4];         /* LX LY RX RY, raw sensor counts */
-    u16 trigger[2];       /* L2 R2, raw ADC counts */
     u8  sticks_valid;
+    u16 stick[4];         /* LX LY RX RY, raw sensor counts */
+    u16 trigger[2];       /* L2 R2, raw counts */
+    u8  trigger_stop[2];  /* the trigger's end-stop switch */
 };
 void plat_input(struct in_raw *raw);
 ```
@@ -36,8 +37,8 @@ struct pad {
     u8  hat;
     s16 lx, ly, rx, ry;   /* -32767..32767, calibrated, dead zones applied */
     u16 l2, r2;           /* 0..65535 */
-    struct imu_sample imu[IMU_PER_REPORT]; /* samples new since the last report */
-    u8  imu_count;
+    u8  imu_count;        /* samples new since the last report, oldest first */
+    struct imu_sample imu[IMU_PER_REPORT];
 };
 ```
 
@@ -77,18 +78,19 @@ each time the inputs change, and cancels it.
 
 ```c
 void cal_start(u32 now);
-enum cal_result cal_step(const struct in_raw *raw, u32 now);   /* CAL_RUNNING, CAL_DONE, CAL_FAILED */
-void cal_cancel(void);
-void cal_result(struct set_cal *out);          /* after CAL_DONE */
-int  cal_led(u32 now, u8 rgb[3]);              /* the routine's light; 0 if none */
+void cal_cancel(u32 now);
+int  cal_step(const struct in_raw *raw, u32 now, struct set_cal *cal);   /* CAL_IDLE, CAL_RUNNING, CAL_SAVE */
+int  cal_led(u32 now, struct rgb *out);        /* the routine's light; 0 if none */
 
 void cal_apply(const struct set_cal *cal, const struct in_raw *raw, struct pad *pad);
 ```
 
 The routine: hands off (settle), rest sampling, sweep the sticks and
 triggers, the user presses A to finish (`cal_step` sees the buttons in
-`raw`), result.  On `CAL_DONE` the controller stores the result as the
-calibration record ([settings.md](settings.md)).  While it runs, the
+`raw`), result.  The controller passes a copy of the current calibration;
+the routine fills it, and on `CAL_SAVE` the controller stores it as the
+calibration record ([settings.md](settings.md)).  `CAL_IDLE` means the
+routine is over (saved or cancelled).  While it runs, the
 controller keeps the link and sends the host no buttons.
 
 `cal_apply()` is pure: the calibration it applies is passed in (the
@@ -102,13 +104,17 @@ test.
 ## `input_imu.c`
 
 ```c
-void imu_poll(u32 now, enum imu_mode mode, struct pad *pad, u32 *next_ms);
+u32 imu_poll(u32 now, u8 mode);   /* advances the sensor; returns its next deadline */
+int imu_take(u32 *seq, struct imu_sample *out, int max);   /* samples after *seq */
+void imu_pointer(struct imu_pointer *p, const struct imu_sample *s, int n,
+                 u16 per_degree, u16 accel, s32 *x, s32 *y);
 ```
 
-Called on `EV_IMU` and at the deadline it asks for (`next_ms`: when to start
-the next read).  It never waits.  It advances the sensor's state
-(set-up, sleeping, idle, reading) and puts the samples that arrived since the
-last call into `pad->imu`.  The mode is the controller's (from the profile's
+`imu_poll()` runs on every pass of the loop and asks to be called again at
+the deadline it returns.  It never waits.  It advances the sensor's state
+(reset, set-up, reading, asleep) and keeps the last 8 samples.  At each
+report the controller takes the ones newer than its own sequence number with
+`imu_take()` into `pad.imu`.  The mode is the controller's (from the profile's
 `begin()`): `IMU_MOTION` (accelerometer and gyro), `IMU_GYRO` (gyro only, the
 mouse), `IMU_OFF` (sensor asleep).  This replaces the imu task, which ran at
 the lowest priority and was starved (20 samples a second under load).
@@ -118,8 +124,8 @@ the lowest priority and was starved (20 samples a second under load).
 * **The bus moves one byte at a time.**  The BR23 hardware I2C has no DMA
   and no FIFO: the CPU has to act after every byte (about 22.5 µs at
   400 kHz).  A 12-byte sample is about 17 steps (start, address, register,
-  restart, address, 12 bytes, stop), ~0.4 ms on the wire; the current driver
-  busy-waits through it, measured 0.6 ms.
+  restart, address, 12 bytes, stop), ~0.4 ms on the wire; the old driver
+  busy-waited through it, measured 0.6 ms.
 * **It can interrupt.**  The I2C block has a byte-done interrupt (CON0 bit 8)
   and an end-of-transfer interrupt (bit 10), vector `IRQ_IIC_IDX` (22), per
   the SDK's `iic_hw.h`.  The SDK uses them only in slave mode; master mode on
@@ -129,8 +135,7 @@ the lowest priority and was starved (20 samples a second under load).
   have priority) stretches the transfer and corrupts nothing.
 * **New data has to be detected.**  The QMI8658A samples on its own clock
   (~448 Hz, about every 2.2 ms).  Reading on our own timer drifts against it:
-  it repeats a sample now and then and misses another, which today's driver
-  does.  The sensor can signal data-ready on its INT1/INT2 pins, but no wiring
+  it repeats a sample now and then and misses another.  The sensor can signal data-ready on its INT1/INT2 pins, but no wiring
   from either to the BR23 has been found.
 * **The bus is shared** with an EEPROM at 0x50 (unused): one transfer at a
   time.  The pull-up values are unknown; 400 kHz has been error-free.
@@ -204,7 +209,9 @@ int  plat_i2c_done(void);       /* 1 finished, 0 still going, <0 NACK or timeout
 ```
 
 The handler does one step per interrupt (the table above), from RAM, and
-raises `EV_IMU` when the transfer ends.
+raises `EV_IMU` when the transfer ends.  The 250 µs tick also steps a
+transfer whose interrupt has not come, and fails one stuck for 2 ms, so the
+driver works even if the master-mode interrupt does not.
 
 ### Lifecycle
 
@@ -228,21 +235,21 @@ raises `EV_IMU` when the transfer ends.
 ```
 
 * `OFF`: the sensor is asleep (CTRL7 = 0) and the bus is idle.
-* A mode change while `RUNNING` (motion ↔ gyro, another rate) goes through
-  `CONFIGURE` again; no reset needed.
+* A mode change (motion ↔ gyro) resets the sensor and sets it up again.
 * Register writes are transfers like reads (address, register, value, stop:
   4 interrupts each), so set-up never blocks either.
 * Only one transfer is ever on the bus; the state machine starts the next one
   when the last has finished.
 
-(To check on hardware: the master-mode interrupt; whether a data-ready pin is
-wired; that timed reads at 224.2 Hz stay in step with the sensor's clock.)
+(To check on hardware: whether the master-mode interrupt fires or the tick
+does the work; whether a data-ready pin is wired; that timed reads at
+224.2 Hz stay in step with the sensor's clock.)
 
 The sensor register sequence (recovered from the stock firmware) is specific
 to the QMI8658A, not the chip.
 
 The gyro offset (zero-rate bias) is learned whenever the pad is held still,
 and removed from the samples before they go into `pad`.  It belongs to the
-sensor, so it stays in this module across sessions.  Turning gyro motion into
-pointer movement is the mouse profile's job: it sums the samples in its
-reports.
+sensor, so it stays in this module across sessions.  `imu_pointer()` turns
+gyro samples into pointer movement (with acceleration and the remainder
+carried); the mouse profile calls it on the samples in each report.
