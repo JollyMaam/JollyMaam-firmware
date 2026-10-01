@@ -15,7 +15,7 @@ Two files:
 ```
 controller ──bt_start/stop/send──> bt.c ──> BTstack (patched fork) ──> btstack_hci_jieli.c ──> btctrler.a
      ^                              |
-     └──────── bt_poll(&ev) ────────┘   events, host writes, new bonds (queued, polled every 1 ms)
+     └──────── bt_poll(&ev) ────────┘   events, host writes, new bonds (queued; EV_BT wakes the loop)
 ```
 
 ## Interface

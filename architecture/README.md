@@ -9,7 +9,7 @@ at the end; each module page says what it replaces.
 
 | Page | Covers |
 |---|---|
-| [controller.md](controller.md) | the 1 ms loop, who owns which state, the states, requests, rumble |
+| [controller.md](controller.md) | the event-driven loop, who owns which state, the states, requests, rumble |
 | [ux.md](ux.md) | the gesture table and engine, the timeout table |
 | [input.md](input.md) | buttons, sticks, triggers, calibration, IMU and gyro |
 | [leds.md](leds.md) | what the lights show and how |
@@ -22,7 +22,7 @@ at the end; each module page says what it replaces.
 ## Layers
 
 The controller is on top and calls everything else.  Nothing calls the
-controller: it polls the modules each millisecond and gets back what happened
+controller: it wakes on events, calls the modules, and gets back what happened
 (a request, an event, a result).  The modules below it do not call each
 other, with two exceptions: a profile may send a message to the host
 (`bt_send_message`), and `bt.c` asks the running profile to answer a host
@@ -30,7 +30,7 @@ read.
 
 ```
                               controller.c
-               the 1 ms loop and every decision; owns the pad's state
+        the event-driven loop and every decision; owns the pad's state
      │            │             │            │         │          │        │
 settings_ux.c  input.c       profile_*.c   bt.c     leds.c   settings.c  usb.c
 gestures,      input_         what each    BT host  frame     records    vendor
@@ -113,7 +113,7 @@ Two threads run application code.
 
 | Thread | Runs | Priority |
 |---|---|---|
-| control | `ctl_poll()` every 1 ms, and through it every module except `bt.c` | highest app priority |
+| control | `ctl_main()`: sleeps in `plat_wait()`, wakes on events and deadlines, runs every module except `bt.c` | app priority (below the Bluetooth controller's task) |
 | bluetooth | the BTstack run loop: `bt.c`, and the profiles' `read()` | below control |
 
 What crosses between them, all inside `bt.c`:

@@ -60,7 +60,8 @@ void ux_ignore_held(void);     /* what is held now starts nothing until let go *
 void ux_boot_chord(u8 home, u8 slot);   /* a Home press seen at power-on */
 ```
 
-`ux_step()` is called every millisecond.  It follows Home and what is held
+`ux_step()` is called whenever the buttons change, and at its own deadline
+(`ux_next_deadline()`: the next hold time that could fire).  It follows Home and what is held
 with it, returns at most one request, and removes from `pad` what the host
 must not see (Home and the chord keys during a gesture), adding nothing.
 Rules:

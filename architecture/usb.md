@@ -82,10 +82,10 @@ reboot can still be read afterwards.
 ## Interface
 
 ```c
-struct ctl_request usb_poll(const struct usb_status *status);   /* from ctl_poll */
+struct ctl_request usb_poll(const struct usb_status *status);   /* on EV_USB */
 ```
 
-`usb_poll()` is called every millisecond.  If a vendor command is waiting it
+`usb_poll()` is called when the platform raises `EV_USB`.  If a vendor command is waiting it
 answers it and returns at most one request (`REQ_REBOOT`,
 `REQ_REBOOT_LOADER`, later others); the controller decides what to do with
 it, as with gestures.  `status` is what the controller chooses to report
@@ -95,7 +95,7 @@ the pad's state.  `IDENTIFY` comes from constants and `plat_unique_id()`,
 
 The SDK's mass-storage driver runs outside the loop.  Its
 `private_scsi_cmd()` hook (platform code) parks each vendor command until the
-next `usb_poll()` takes it, at most a millisecond later; the host simply waits
+next `usb_poll()` takes it, and raises `EV_USB` to wake the loop; the host simply waits
 for the status.  Whether a host is present (`plat_usb_present()`) is the
 platform's, read by the controller for sleep decisions.
 

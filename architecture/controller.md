@@ -1,6 +1,6 @@
 # Controller
 
-`controller.c` is the 1 ms loop.  It owns every decision about what the pad
+`controller.c` is the control loop.  It owns every decision about what the pad
 is doing, and calls the other modules as step functions: it gives them what
 they need for this millisecond and gets back what happened.  No module calls
 the controller, and no module changes what the pad is doing on its own.
@@ -28,34 +28,61 @@ only a module's own logic changes it, the module keeps it.
 
 ## The loop
 
-`ctl_poll()`, every millisecond, on the control thread:
+The control thread sleeps until something happens, does the work for what
+happened, and sleeps again.  It does not run on a fixed period.
+
+```c
+for (;;) {
+    u32 ev = plat_wait(next_deadline);   /* a bit per source; 0 = the deadline */
+    ...
+}
+```
+
+What wakes it:
+
+| Event | Raised by | Loop does |
+|---|---|---|
+| `EV_BUTTONS` | a timer interrupt that samples the button ports every 250 µs and sees a change | `in_map()`, gestures (`ux_step`), calibration step |
+| `EV_STICKS` | the stick UART: a whole frame from the stick microcontroller arrived | map and calibrate the sticks |
+| `EV_IMU` | the I2C interrupt: a sensor read finished with a new sample | add it to `pad.imu` |
+| `EV_BT` | `bt.c` queued an event | `bt_poll()` until empty |
+| `EV_USB` | the mass-storage driver parked a vendor command | `usb_poll()` |
+| deadline | the platform timer | whichever of these is due: the next report, the next LED frame (every 10 ms while anything animates), the next state timeout, the settings write |
+
+After each wake the loop works out the earliest deadline from its own state
+(the slot's report time, the scene's next frame, the state's timeout) and
+passes it to `plat_wait()`.  So reports are sent on time without a 1 ms tick,
+nothing runs while nothing changes, and a button press reaches the gesture
+engine within 250 µs.
+
+On a report deadline, while `CONNECTED`:
 
 ```
-now = plat_ms()
-plat_input(&raw)                       raw buttons, hat, axes
-in_map(&raw, &pad)                     input.c: buttons as read, axes mapped
-if calibrating:
-    r = cal_step(&raw, now)            input_calibration.c runs itself
-    if r != CAL_RUNNING: calibrating = 0, store the result if CAL_DONE
-else:
-    cal_apply(&raw, &pad)
-imu_poll(now, &pad)                    input_imu.c: collect a finished read, start the next
-
-handle(ux_step(&pad, now, state))      gestures -> a request; hides Home and chord keys in pad
-if calibrating: clear all buttons in pad
-handle(usb_poll(&status))              USB vendor commands -> a request
-while bt_poll(&ev): handle(ev)         link events, host writes, new bonds
-timeouts(now)                          ux_timeouts: connect, pair, idle, offline sleep
-
-if CONNECTED and a report is due:
-    n = profile->report(&pad, now, buf, &id)
-    if n: bt_send_input(id, buf, n)
-
-profile->host(now, &host)              what the host wants: rumble, player lights, lightbar
-plat_motors(motors(&host))             0 unless connected, not calibrating, rumble allowed
-plat_leds(led_frame(&leds, &host, now, &pad))    leds.c, stateless
-set_poll(now, radio_quiet)             settings.c writes what is unsaved
+read the triggers (ADC), build pad from the latest buttons, sticks, triggers, imu
+n = profile->report(&pad, now, buf, &id)     with gestures/calibration hiding applied
+if n: bt_send_input(id, buf, n)
 ```
+
+On every wake, after the work for the event:
+
+```
+profile->host(now, &host)                    what the host wants: rumble, player lights, lightbar
+plat_motors(motors(&host))                   0 unless connected, not calibrating, rumble allowed
+```
+
+and on an LED deadline `plat_leds(led_frame(&leds, &host, now, &pad))`.
+
+Things to measure once it runs:
+
+* how late a wake is.  The control task (`app_core`, priority 3) is below the
+  Bluetooth controller's own task (`btctrler`, priority 4) in the task table,
+  so a wake can wait for it.
+* the interrupt load: about 4 000 button-sample interrupts and, with the
+  sensor running, about 10 000 short I2C byte interrupts a second.
+
+A later option, not part of the design yet: send a report as soon as a button
+changes instead of at the next report deadline.  The newest-wins slot and
+`in_flight` already bound how much that can send.
 
 A host write (`BT_EV_WRITE`) goes to the running profile on this thread:
 
@@ -68,7 +95,7 @@ if (profile->write(&ev.write, now, &bond))   /* 1: the write finished a pairing 
 Profiles therefore never run on the bluetooth thread.  The rule for what
 comes back from a profile: **states are polled, events are returned.**  What
 the host wants (rumble, lights) is a state the profile keeps and the loop
-reads every poll with `host()`; a finished pairing is an event, returned once
+reads after every wake with `host()`; a finished pairing is an event, returned once
 by the `write()` that produced it.
 
 ## Requests
@@ -177,8 +204,7 @@ hardware check, if ever added, would be one more input to the same decision.
 ## Interface
 
 ```c
-void ctl_start(void);    /* once, from the platform, after it is up */
-void ctl_poll(void);     /* every 1 ms, from the platform */
+void ctl_main(void);     /* the control thread's body; never returns */
 ```
 
 Nothing else.  Everything else the controller calls.

@@ -186,14 +186,14 @@ optional step that runs before the session starts:
 ```c
 struct profile_wake {
     int  (*start)(const struct profile_session *s);  /* 0 started, <0 nothing to wake */
-    int  (*step)(u32 now_ms);        /* 1 when finished */
+    int  (*step)(u32 now_ms, u32 *next_ms);   /* 1 when finished; else when to call again */
     void (*stop)(void);
 };
 ```
 
 When the controller connects a slot (not pairing) whose profile has `wake`
 and a bonded console, the first part of `CONNECTING` is the wake: the
-controller calls `step()` every millisecond until it reports finished (or
+controller calls `step()` at the times it asks for until it reports finished (or
 `stop()` if the connect is abandoned), then calls `bt_start()`.  Whether the
 console woke makes no difference to what happens next: the pad pages it
 either way.  The wake keeps its own state (whitening state, burst timing);

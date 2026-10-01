@@ -1,7 +1,8 @@
 # LEDs
 
 `leds.c` (prefix `led_`) has no state.  The controller keeps what it decides
-about the lights, and every millisecond asks `leds.c` for the frame to show.
+about the lights, and at each LED deadline (every 10 ms while anything
+animates) asks `leds.c` for the frame to show.
 
 Lights: Home, the four player lights under it (top to bottom), the left and
 right grips, and one unused position in the chain (driven dark).

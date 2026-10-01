@@ -6,7 +6,7 @@ below.
 
 | File | Contains |
 |---|---|
-| `platform_jieli.c` | `app_main`, `board_init`, tasks, the 1 ms clock, storage, the USB mass-storage device, the pin table, button/stick/trigger sampling, I2C on its interrupt, the LED chain, the motors, power-off and wake, the loader entry, the wake cause and buttons held at boot |
+| `platform_jieli.c` | `app_main`, `board_init`, tasks, `plat_wait()` and its event sources, storage, the USB mass-storage device, the pin table, button/stick/trigger sampling, I2C on its interrupt, the LED chain, the motors, power-off and wake, the loader entry, the wake cause and buttons held at boot |
 | `platform_jieli_sdk.c` | constants and hooks the SDK libraries require, which the firmware itself never reads |
 | `btstack_hci_jieli.c` | BTstack on the Jieli controller (see [bluetooth.md](bluetooth.md)) |
 
@@ -50,7 +50,7 @@ Calls into the firmware:
 
 ```c
 void ctl_start(void);    /* once, after the platform is up */
-void ctl_poll(void);     /* every 1 ms, on the control thread */
+u32  plat_wait(u32 deadline_ms);  /* control thread: sleep until an event bit or the deadline */
 ```
 
 ## The SDK contract

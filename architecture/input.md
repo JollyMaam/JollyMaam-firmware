@@ -1,7 +1,7 @@
 # Input
 
-Three files turn the hardware into one `struct pad` per millisecond.  The
-controller calls each of them once per poll.
+Three files turn the hardware into a `struct pad`.  The controller calls
+them when their inputs change (see the events in [controller.md](controller.md)).
 
 | File | Prefix | Does | Keeps state |
 |---|---|---|---|
@@ -36,7 +36,7 @@ struct pad {
     u8  hat;
     s16 lx, ly, rx, ry;   /* -32767..32767, calibrated, dead zones applied */
     u16 l2, r2;           /* 0..65535 */
-    struct imu_sample imu[IMU_PER_POLL];  /* samples new since the last poll */
+    struct imu_sample imu[IMU_PER_REPORT]; /* samples new since the last report */
     u8  imu_count;
 };
 ```
@@ -53,11 +53,19 @@ void in_map(const struct in_raw *raw, struct pad *pad);   /* bits as read */
 int  in_moved(const struct pad *now, const struct pad *ref);   /* more than drift */
 ```
 
-No debouncing: buttons are taken as read each millisecond.  The worst bounce
-measured is ~0.4 ms (`docs/peripherals.md`), so a sample can occasionally land
-inside one and show a press or release lasting a single poll.  If that shows
-up (a doubled press, a Home tap that ends a chord early), debouncing comes back
-here; it would also be needed if buttons were sampled faster.
+### Sampling and debounce
+
+Buttons are sampled by a platform timer interrupt every 250 µs: it reads the
+GPIO port registers (a few register reads), applies the debounce, and raises
+`EV_BUTTONS` only when the debounced state changed.  Per-button pin
+interrupts are not possible: the BR23's edge-detect inputs go through a few
+wake-up channels (selected in `JL_IOMAP`), far fewer than the ~20 button and
+d-pad lines.
+
+At 250 µs a bounce (worst measured ~0.4 ms, `docs/peripherals.md`) is seen
+nearly every time, so the eager debounce stays: a pin that changes is taken at
+once, and then ignored for 2 ms while it bounces.  It adds no latency.  It
+lives in the sampling interrupt, so the loop only ever sees clean changes.
 
 The idle-sleep timer is the controller's: it keeps a reference `pad` and the
 time of the last activity, and asks `in_moved()` whether the pad moved since.
@@ -65,7 +73,7 @@ time of the last activity, and asks `in_moved()` whether the pad moved since.
 ## `input_calibration.c`
 
 The calibration routine runs itself; the controller only starts it, feeds it
-each poll, and cancels it.
+each time the inputs change, and cancels it.
 
 ```c
 void cal_start(u32 now);
@@ -94,12 +102,13 @@ test.
 ## `input_imu.c`
 
 ```c
-void imu_poll(u32 now, enum imu_mode mode, struct pad *pad);
+void imu_poll(u32 now, enum imu_mode mode, struct pad *pad, u32 *next_ms);
 ```
 
-One call per poll, and it never waits.  It advances the sensor's state
+Called on `EV_IMU` and at the deadline it asks for (`next_ms`: when to start
+the next read).  It never waits.  It advances the sensor's state
 (set-up, sleeping, idle, reading) and puts the samples that arrived since the
-last poll into `pad->imu`.  The mode is the controller's (from the profile's
+last call into `pad->imu`.  The mode is the controller's (from the profile's
 `begin()`): `IMU_MOTION` (accelerometer and gyro), `IMU_GYRO` (gyro only, the
 mouse), `IMU_OFF` (sensor asleep).  This replaces the imu task, which ran at
 the lowest priority and was starved (20 samples a second under load).
@@ -142,23 +151,35 @@ void plat_i2c_write(u8 dev, u8 reg, u8 value);          /* same, a one-register 
 The interrupt handler is a few instructions per byte, runs from RAM, and does
 nothing but advance the transfer.
 
-A read starts only when there is something to read.  In order of preference:
+A read starts only when there is something to read.
 
 1. **Data-ready pin**, if one turns out to be wired: enable data-ready on
-   INT1 and INT2 and look for a GPIO that toggles at the sample rate.  Then an
-   edge (seen by `plat_input()` or its own interrupt) starts the read, and the
-   bus is idle otherwise.
-2. **Status, then data:** read the 1-byte status register (about 5 bytes on
-   the bus, ~0.12 ms); if it says new data, read the sample.  Status checks
-   start about one sample period after the last sample, so it is one or two
-   checks per sample.
-3. **The sensor's FIFO:** read its fill level, then exactly the samples in
-   it.  Fewer transfers and no repeated or lost samples, at the cost of more
-   set-up.
+   INT1 and INT2 and look for a GPIO that toggles at the sample rate.  If one
+   does, its edge starts the read and the bus is idle otherwise.
+2. **Otherwise, status and data in one read.**  The sensor auto-increments
+   register addresses (enabled by the set-up), so one burst from STATUS0
+   (`0x2E`) through the last gyro byte (`0x40`) returns the sensor's status
+   and the sample together, 19 bytes, ~0.5 ms of bus time.  STATUS0 says
+   whether the sample is new; an old one is dropped.  The burst is started
+   about one sample period (~2.2 ms) after the last new sample, so most bursts
+   find one.
 
-Either way the loop never waits: it starts a transfer and finds it finished on
-a later poll.  (To check on hardware: the master-mode interrupt; whether a
-data-ready pin is wired.)
+The interrupt chains the transfer byte by byte and raises `EV_IMU` only when
+a new sample is in.  The CPU cost is a few microseconds per byte; the ~0.5 ms
+is bus time, during which the CPU does other work.
+
+The 1-byte status register is the sensor's (QMI8658A STATUS0), read over the
+bus like any register.  A single-register read costs about 5 bytes on the bus
+(start, address, register, restart, address, the byte, stop), ~0.12 ms, which
+is why it is folded into the data burst rather than read on its own.  The
+I2C block's own "byte done" flag is a local chip register and costs nothing.
+
+The sensor's FIFO is not used: reading it is also a transfer, and it only
+pays off when several samples are fetched at once, which these rates do not
+need.
+
+(To check on hardware: the master-mode interrupt; whether a data-ready pin is
+wired; the exact STATUS0 bits for "new gyro" and "new accelerometer".)
 
 The sensor register sequence (recovered from the stock firmware) is specific
 to the QMI8658A, not the chip.
