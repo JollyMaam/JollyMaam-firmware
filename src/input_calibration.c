@@ -526,7 +526,7 @@ void cal_cancel(u32 now)
 {
     if (r.phase == PH_IDLE || r.phase == PH_RESULT) return;
     util_log("cal: cancelled; calibration unchanged");
-    show(LED_LEVEL, 0, now);
+    enter(PH_IDLE, now);         /* no result light: nothing went wrong */
 }
 
 static int finish(struct set_cal *cal, u32 now)
@@ -599,8 +599,8 @@ int cal_step(const struct in_raw *raw, u32 now, struct set_cal *cal)
         else if (r.released && (ab & PAD_B)) cal_cancel(now);
         else if (r.released) return finish(cal, now);
         if (t >= SWEEP_MS) {
-            util_log("cal: timed out");
-            cal_cancel(now);
+            util_log("cal: timed out; calibration unchanged");
+            show(LED_LEVEL, 0, now);
         }
         return CAL_RUNNING;
     case PH_RESULT:
@@ -691,8 +691,10 @@ int main(void)
     cal_step(&raw, now + 5, &cal);
     raw.buttons = PAD_B;
     cal_step(&raw, now + 10, &cal);
-    CHECK(r.phase == PH_RESULT);
-    CHECK(cal_step(&raw, now + 10 + RESULT_MS, &cal) == CAL_IDLE);
+    CHECK(cal_step(&raw, now + 15, &cal) == CAL_IDLE && !cal_led(now + 15, &(struct rgb){ 0 }));
+    cal_start(now);
+    for (i = 0; i < SETTLE_MS + REST_MS + SWEEP_MS + 20; i += 5) cal_step(&raw, now + i, &cal);
+    CHECK(r.phase == PH_RESULT && r.result.r && !r.result.g);
     return TEST_DONE("input_calibration");
 }
 #endif

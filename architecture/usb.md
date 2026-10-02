@@ -73,7 +73,8 @@ fails.  Nothing is mounted.
 ## Logs
 
 `util_log(fmt, ...)` (in `utils.c`) appends a line to a RAM ring buffer of a
-few kilobytes.  Each line has a sequence number.  `LOG` returns lines from a
+few kilobytes.  Each line has a sequence number and the time since boot
+(`plat_ms()`), which `LOG` puts in front of the text as `seconds.ms`.  `LOG` returns lines from a
 given sequence number on, so a tool can follow the log by polling, and can
 tell when lines were overwritten before it read them.  The buffer can live in
 the SRAM section that survives a soft reset, so the lines before a crash or

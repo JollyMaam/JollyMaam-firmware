@@ -4,13 +4,13 @@
 #include "pad.h"
 
 #define LOG_LINES 64
-#define LOG_TEXT  124
-#define LOG_MAGIC 0x474f4c43
+#define LOG_TEXT  120          /* a line is 128 bytes with seq and ms */
+#define LOG_MAGIC 0x474f4c44   /* changes with the layout below */
 
 static struct {
     u32 magic;
     u32 head;
-    struct { u32 seq; char text[LOG_TEXT]; } line[LOG_LINES];
+    struct { u32 seq, ms; char text[LOG_TEXT]; } line[LOG_LINES];
 } ring RETAINED;
 
 void util_log_init(void)
@@ -32,11 +32,13 @@ void util_log(const char *fmt, ...)
     plat_lock();
     i = ring.head++ % LOG_LINES;
     ring.line[i].seq = ring.head;
+    ring.line[i].ms = plat_ms();
     memcpy(ring.line[i].text, text, sizeof(text));
     plat_unlock();
 }
 
-/* Lines from sequence number *seq on, "text\n" each, as many as fit.  *seq
+/* Lines from sequence number *seq on, "seconds.ms text\n" each (time since
+ * the boot that wrote the line), as many as fit.  *seq
  * becomes the number of the first line returned (later than asked if the
  * older ones were overwritten); the return is the byte count, and the next
  * read starts at *seq plus the lines returned, which the caller counts. */
@@ -49,11 +51,15 @@ u32 util_log_read(u32 *seq, char *out, u32 max)
     *seq = s;
     for (; s <= ring.head; s++) {
         const char *t = ring.line[(s - 1) % LOG_LINES].text;
+        u32 ms = ring.line[(s - 1) % LOG_LINES].ms;
+        char stamp[16];
+        u32 k = (u32)snprintf(stamp, sizeof(stamp), "%5u.%03u ", ms / 1000, ms % 1000);
         u32 n = strlen(t);
 
-        if (used + n + 1 > max) break;
-        memcpy(out + used, t, n);
-        used += n;
+        if (used + k + n + 1 > max) break;
+        memcpy(out + used, stamp, k);
+        memcpy(out + used + k, t, n);
+        used += k + n;
         out[used++] = '\n';
     }
     return used;
@@ -134,6 +140,8 @@ void util_aes128(const u8 key[16], const u8 in[16], u8 out[16])
 #ifdef UNITTEST
 void plat_lock(void) {}
 void plat_unlock(void) {}
+static u32 fake_ms = 1234;
+u32 plat_ms(void) { return fake_ms; }
 
 int main(void)
 {
@@ -145,21 +153,22 @@ int main(void)
     util_log("hello %d", 1);
     util_log("world");
     n = util_log_read(&seq, buf, sizeof(buf));
-    CHECK(seq == 1 && n == 14 && !memcmp(buf, "hello 1\nworld\n", 14));
+    CHECK(seq == 1 && n == 34 && !memcmp(buf, "    1.234 hello 1\n    1.234 world\n", 34));
     seq = 2;
     n = util_log_read(&seq, buf, sizeof(buf));
-    CHECK(seq == 2 && n == 6);
+    CHECK(seq == 2 && n == 16);
+    fake_ms = 0;
     for (i = 0; i < 100; i++) util_log("line %u", i);
     seq = 1;
     n = util_log_read(&seq, buf, sizeof(buf));
     CHECK(seq == 102 - LOG_LINES + 1);
-    CHECK(!memcmp(buf, "line 36\n", 8));
+    CHECK(!memcmp(buf, "    0.000 line 36\n", 18));
     seq = 1;
-    n = util_log_read(&seq, buf, 20);
-    CHECK(n == 16);
+    n = util_log_read(&seq, buf, 40);
+    CHECK(n == 36);
     util_log_init();
     seq = 102;
-    CHECK(util_log_read(&seq, buf, sizeof(buf)) == 8);
+    CHECK(util_log_read(&seq, buf, sizeof(buf)) == 18);
     {
         static const u8 key[16] = { 0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c };
         static const u8 in[16] = { 0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d, 0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34 };
