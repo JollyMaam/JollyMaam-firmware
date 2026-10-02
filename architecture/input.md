@@ -86,7 +86,7 @@ void cal_apply(const struct set_cal *cal, const struct in_raw *raw, struct pad *
 ```
 
 The routine: hands off (settle), rest sampling, sweep the sticks and
-triggers, the user presses A to finish (`cal_step` sees the buttons in
+triggers, the user presses A or B to finish, or M to cancel (`cal_step` sees the buttons in
 `raw`), result.  The controller passes a copy of the current calibration;
 the routine fills it, and on `CAL_SAVE` the controller stores it as the
 calibration record ([settings.md](settings.md)).  `CAL_IDLE` means the

@@ -557,11 +557,12 @@ static int finish(struct set_cal *cal, u32 now)
 }
 
 /* One step with the latest raw input.  CAL_SAVE: *cal was updated and should
- * be stored.  Buttons: A finishes the sweep, B cancels it. */
+ * be stored.  Buttons: A or B finishes the sweep (whichever is "accept" to
+ * the user: Xbox or Nintendo habit), M (which started it) cancels. */
 int cal_step(const struct in_raw *raw, u32 now, struct set_cal *cal)
 {
     u32 t = now - r.since, i;
-    u16 ab = raw->buttons & (PAD_A | PAD_B);
+    u16 ab = raw->buttons & (PAD_A | PAD_B | PAD_M);
 
     switch (r.phase) {
     case PH_SETTLE:
@@ -586,7 +587,7 @@ int cal_step(const struct in_raw *raw, u32 now, struct set_cal *cal)
             for (i = 0; i < 4; i++)
                 if (r.outcome[i] != CAL_OK) util_log("cal: %s at rest: %s", names[i], cal_result_name(r.outcome[i]));
             r.released = !ab;
-            util_log("cal: circle both sticks along the edge, press L2 and R2 fully; A done, B cancel");
+            util_log("cal: circle both sticks along the edge, press L2 and R2 fully; A or B done, M cancel");
             enter(PH_SWEEP, now);
         }
         return CAL_RUNNING;
@@ -596,7 +597,7 @@ int cal_step(const struct in_raw *raw, u32 now, struct set_cal *cal)
             cal_trigger_sweep_sample(&r.trigger[i], raw->trigger[i], raw->trigger_stop[i]);
         }
         if (!ab) r.released = 1;
-        else if (r.released && (ab & PAD_B)) cal_cancel(now);
+        else if (r.released && (ab & PAD_M)) cal_cancel(now);
         else if (r.released) return finish(cal, now);
         if (t >= SWEEP_MS) {
             util_log("cal: timed out; calibration unchanged");
@@ -685,11 +686,11 @@ int main(void)
     cal_start(now);
     CHECK(cal_step(&raw, now, &cal) == CAL_RUNNING);
     for (now = 0; now < SETTLE_MS + REST_MS + 10; now += 5) cal_step(&raw, now, &cal);
-    raw.buttons = PAD_B;
+    raw.buttons = PAD_M;         /* still held from the gesture: ignored */
     cal_step(&raw, now, &cal);
     raw.buttons = 0;
     cal_step(&raw, now + 5, &cal);
-    raw.buttons = PAD_B;
+    raw.buttons = PAD_M;
     cal_step(&raw, now + 10, &cal);
     CHECK(cal_step(&raw, now + 15, &cal) == CAL_IDLE && !cal_led(now + 15, &(struct rgb){ 0 }));
     cal_start(now);
