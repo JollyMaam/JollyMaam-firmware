@@ -9,11 +9,14 @@ Two files:
   states.
 * `btstack_hci_jieli.c` (prefix `hci_`) – the BTstack HCI transport and run
   loop on top of the Jieli controller library `btctrler.a`.  Moved here from
-  `btstack-jl-port/port/jieli-br23`; the fork keeps only its patches to
-  upstream BTstack sources.
+  `btstack-jl-port/port/jieli-br23`.  BTstack itself is unmodified upstream
+  (`master`).  Two small patches on the fork's `btstack-jl-port` branch save
+  about 3 KB, if that is ever needed: they make `DISABLE_CLASSIC_GAP_CLIENT`
+  and `DISABLE_BTSTACK_CRYPTO_CMAC_CCM` (set in `btstack_config.h`) take
+  effect.
 
 ```
-controller ──bt_start/stop/send──> bt.c ──> BTstack (patched fork) ──> btstack_hci_jieli.c ──> btctrler.a
+controller ──bt_start/stop/send──> bt.c ──> BTstack (upstream) ──> btstack_hci_jieli.c ──> btctrler.a
      ^                              |
      └──────── bt_poll(&ev) ────────┘   events, host writes, new bonds (queued; EV_BT wakes the loop)
 ```

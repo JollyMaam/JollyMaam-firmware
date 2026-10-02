@@ -11,12 +11,14 @@
 
 #define ENABLE_CLASSIC
 /* The pad never runs an inquiry, asks for a remote name or answers a pairing
- * request itself (SSP auto-accept); 1.5 KB of hci.c. */
+ * request itself (SSP auto-accept).  Only honoured by a BTstack carrying the
+ * patch (branch btstack-jl-port of the fork): 1.5 KB of hci.c. */
 #define DISABLE_CLASSIC_GAP_CLIENT
 
 #define ENABLE_BLE
 /* No LE Secure Connections, signed writes or Mesh: nothing queues a CMAC or
- * CCM operation, so btstack_crypto leaves those engines out. */
+ * CCM operation.  Only honoured by a BTstack carrying the patch (branch
+ * btstack-jl-port of the fork), which then leaves those engines out. */
 #define DISABLE_BTSTACK_CRYPTO_CMAC_CCM
 #define ENABLE_LE_PERIPHERAL
 /* Ask for 251-byte LE PDUs on every connection: at the default 27 bytes a

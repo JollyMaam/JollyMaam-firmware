@@ -35,9 +35,8 @@ VENDOR_BTCTRLR := $(SDK)/cpu/br23/liba/btctrler.a
 PATCHED_BTCTRLR := $O/sdk-libs/btctrler.a
 ARCHIVES := $(subst $(VENDOR_BTCTRLR),$(PATCHED_BTCTRLR),$(SDK_ARCHIVES_MINIMAL))
 
-# Upstream BTstack, branch rewrite of the fork: its few patches, and only the
-# files used here.  btctrler.a exports a few of the same names; BTstack's
-# copies are renamed.
+# Upstream BTstack (master), unmodified.  btctrler.a exports a few of the same
+# names; BTstack's copies are renamed.
 BTSTACK := /work/cyclone2-btstack
 BTSTACK_USED := \
 	src/btstack_hid_parser.c src/btstack_linked_list.c src/btstack_memory.c \
