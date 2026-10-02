@@ -18,9 +18,7 @@ extern void h4_hci_push_data(int type, void *packet, int size);
 extern int le_controller_set_mac(const void *address);
 extern void lmp_hci_write_local_address(const u8 *address);
 
-#define RX_DEPTH BR23_HCI_RX_QUEUE_DEPTH
-
-static struct { u8 type; u16 size; u8 data[HCI_INCOMING_PACKET_BUFFER_SIZE]; } rx[RX_DEPTH];
+static struct { u8 type; u16 size; u8 data[HCI_INCOMING_PACKET_BUFFER_SIZE]; } rx[RX_QUEUE_DEPTH];
 static volatile u8 rx_read, rx_write;
 static volatile u8 rx_active;
 static void (*host_handler)(u8 type, u8 *packet, u16 size);
@@ -43,7 +41,7 @@ int hci_packet_handler(u8 type, u8 *packet, u16 size)
         packet[4] == 0x0c && packet[5] == 0)
         lmp_hci_write_local_address(address);
     if (!rx_active || size > HCI_INCOMING_PACKET_BUFFER_SIZE) return 0;
-    next = (u8)((rx_write + 1) % RX_DEPTH);
+    next = (u8)((rx_write + 1) % RX_QUEUE_DEPTH);
     if (next == rx_read) return 0;
     rx[rx_write].type = type;
     rx[rx_write].size = size;
@@ -79,7 +77,7 @@ static void rx_process(btstack_data_source_t *ds, btstack_data_source_callback_t
     (void)t;
     while (rx_read != rx_write) {
         host_handler(rx[rx_read].type, rx[rx_read].data, rx[rx_read].size);
-        rx_read = (u8)((rx_read + 1) % RX_DEPTH);
+        rx_read = (u8)((rx_read + 1) % RX_QUEUE_DEPTH);
     }
 }
 

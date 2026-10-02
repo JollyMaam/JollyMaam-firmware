@@ -35,7 +35,7 @@
 /* RX queue entry size in the transport; must hold header + ACL payload. */
 #define HCI_INCOMING_PACKET_BUFFER_SIZE (HCI_ACL_PAYLOAD_SIZE + 8)
 
-#define BR23_HCI_RX_QUEUE_DEPTH         16
+#define RX_QUEUE_DEPTH                  16
 
 #define MAX_NR_HCI_CONNECTIONS          1
 #define MAX_NR_L2CAP_CHANNELS           8
