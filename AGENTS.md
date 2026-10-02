@@ -24,8 +24,8 @@ references are in [docs/](docs/README.md).
 
 `tools/padtool.py` talks to the running pad over USB (vendor SCSI commands on
 the mass-storage interface, `/dev/bwrap/sg*`): `identify`, `status`,
-`log [-f]`, `stats [-w SECONDS]`, `reboot`, `loader`, `flash IMAGE [--backup]`.  The log is a RAM
-ring that survives a reboot.  A pad that does not enumerate is recovered by
+`log [-f]`, `stats [-w SECONDS]`, `reboot`, `loader`, `flash IMAGE [--backup]`.
+The log is a RAM ring that survives a reboot.  A pad that does not enumerate is recovered by
 holding Home+Start while plugging in USB (ROM loader, UBOOT1.00), then
 `padtool flash`.
 
