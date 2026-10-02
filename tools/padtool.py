@@ -123,7 +123,7 @@ def status(path):
 
 def clock():
     t = time.time()
-    return time.strftime("%H:%M:%S", time.localtime(t)) + f".{int(t * 1000) % 1000:03d}"
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(t)) + f".{int(t * 1000) % 1000:03d}"
 
 
 def log(path, follow):
@@ -135,7 +135,7 @@ def log(path, follow):
             if not follow:
                 raise
             print(f"-- pad gone {clock()}; waiting --", flush=True)
-            path = wait_for("pad", 3600, 0.05)
+            path = wait_for("pad", 3600, 0.1)
             if not path:
                 return
             print(f"-- pad back {clock()} --", flush=True)
@@ -151,7 +151,7 @@ def log(path, follow):
         if not lines:
             if not follow:
                 return
-            time.sleep(0.05)
+            time.sleep(0.1)
 
 
 def flash(image, backup):
