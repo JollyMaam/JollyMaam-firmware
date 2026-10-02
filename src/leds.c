@@ -105,8 +105,9 @@ void led_frame(const struct led_scene *sc, const struct led_state *s, u32 now,
                const struct led_inputs *in, struct led_frame *out)
 {
     u32 t = now - s->since_ms;
-    struct rgb c = sc->colour == COLOUR_SLOT && s->slot != SLOT_NONE ? in->slot_colour
-                                                                     : in->idle_colour;
+    struct rgb c = s->slot == SLOT_NONE ? in->idle_colour
+                 : sc->colour == COLOUR_SLOT ? in->slot_colour
+                 : sc->colour == COLOUR_CONNECTED ? in->connected_colour : in->idle_colour;
     struct rgb *home = &out->light[LIGHT_HOME];
 
     memset(out, 0, sizeof(*out));
@@ -156,7 +157,7 @@ static const struct led_scene connecting = {
     COLOUR_SLOT, LED_BLINK(500, 500), BAR_SLOT, LED_SOLID, GRIPS_WAVE, LED_OFF,
 };
 static const struct led_scene connected = {
-    COLOUR_SLOT, LED_SOLID, BAR_PLAYER, LED_SOLID, GRIPS_SLOT_SETTING, LED_OFF,
+    COLOUR_CONNECTED, LED_SOLID, BAR_PLAYER, LED_SOLID, GRIPS_SLOT_SETTING, LED_OFF,
 };
 static const struct led_scene idle = {
     COLOUR_IDLE, LED_OFF, BAR_ALL, LED_OFF, GRIPS_WAVE, LED_OFF,
@@ -178,6 +179,7 @@ int main(void)
 
     memset(&in, 0, sizeof(in));
     in.slot_colour = red;
+    in.connected_colour = (struct rgb){ 2, 0, 0 };
     in.idle_colour = white;
     in.battery_colour = (struct rgb){ 5, 2, 0 };
 
@@ -199,7 +201,8 @@ int main(void)
     in.has_lightbar = 1;
     in.lightbar = (struct rgb){ 0, 0, 200 };
     led_frame(&connected, &s, 2000, &in, &f);
-    CHECK(same(f.light[LIGHT_P2], red) && same(f.light[LIGHT_P0], dark));
+    CHECK(same(f.light[LIGHT_HOME], in.connected_colour));
+    CHECK(same(f.light[LIGHT_P2], in.connected_colour) && same(f.light[LIGHT_P0], dark));
     CHECK(same(f.light[LIGHT_GRIP_L], in.lightbar));
 
     s.scene = CTL_IDLE;

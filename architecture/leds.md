@@ -56,6 +56,10 @@ What each controller state looks like is the table `ux_scenes[]` in
 [CTL_CONNECTING] = { COLOUR_SLOT, LED_BLINK(500, 500), BAR_SLOT, LED_SOLID,     GRIPS_WAVE, LED_OFF },
 ```
 
+Colour: `COLOUR_IDLE` (`set_prefs()->idle_colour`), `COLOUR_SLOT` (the
+slot's `colour`: connecting, pairing, stopping) or `COLOUR_CONNECTED` (the
+slot's `connected_colour`, dim red by default).
+
 Waves, timed from `since_ms`: `LED_OFF`, `LED_SOLID`,
 `LED_BLINK(on, off)`, `LED_BREATHE(period)`, `LED_SWEEP(step)`.  Bar: all four,
 the slot's light, or the player number the host set.  Grips: a wave, or, when

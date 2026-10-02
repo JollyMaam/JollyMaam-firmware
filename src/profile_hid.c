@@ -361,7 +361,7 @@ void imu_pointer(struct imu_pointer *pt, const struct imu_sample *s, int n, u16 
 
 int main(void)
 {
-    struct set_slot set = { PROFILE_MOUSE, 1, 0, { 0, 0, 0 }, 0, 1000, 32, 100 };
+    struct set_slot set = { .type = PROFILE_MOUSE, .rumble = 1, .stick_speed = 1000, .gyro_speed = 32, .gyro_accel = 100 };
     struct profile_session s = { 4, 0, { 0 }, 0, &set };
     struct pad p;
     u8 out[16], id;

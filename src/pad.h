@@ -254,7 +254,8 @@ struct set_slot {
     u8 type;
     u8 rumble;
     u8 grips;
-    u8 colour[3];
+    u8 colour[3];            /* connecting, pairing: which slot */
+    u8 connected_colour[3];
     u8 variant;              /* mouse: 0 games, 1 desktop */
     u16 stick_speed;         /* mouse: pointer counts per second, stick all the way */
     u16 gyro_speed;          /* mouse, touchpad: counts per degree turned; 0 off */
@@ -296,7 +297,7 @@ struct led_wave { u8 kind; u16 a, b; };    /* blink: on, off; breathe: period; s
 
 enum { BAR_ALL, BAR_SLOT, BAR_PLAYER };
 enum { GRIPS_WAVE, GRIPS_SLOT_SETTING };
-enum { COLOUR_IDLE, COLOUR_SLOT };
+enum { COLOUR_IDLE, COLOUR_SLOT, COLOUR_CONNECTED };
 
 struct led_scene {
     u8 colour;
@@ -314,7 +315,7 @@ struct led_state {
 };
 
 struct led_inputs {
-    struct rgb slot_colour, idle_colour, battery_colour;
+    struct rgb slot_colour, connected_colour, idle_colour, battery_colour;
     u8 grips;              /* the slot's grips setting */
     u8 rumble[2];
     u8 reach[2];

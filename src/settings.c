@@ -8,7 +8,9 @@ static const struct set_prefs prefs = {
     .battery_colour = { 5, 2, 0 },
 };
 
+#define DIM_RED { 2, 0, 0 }
 #define SLOT(t, r, g, b) { .type = t, .rumble = 1, .grips = GRIPS_LIGHTBAR, .colour = { r, g, b }, \
+                         .connected_colour = DIM_RED, \
                          .stick_speed = 1500, .gyro_speed = 32, .gyro_accel = 250 }
 
 static const struct set_slot slots[SLOTS] = {

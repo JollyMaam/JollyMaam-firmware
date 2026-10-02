@@ -381,6 +381,7 @@ static void outputs(u32 now)
     if (c.led.slot == SLOT_LAST) c.led.slot = c.last_slot;
     memset(&in, 0, sizeof(in));
     in.slot_colour = rgb3(set_slot(c.led.slot < SLOTS ? c.led.slot : 0)->colour);
+    in.connected_colour = rgb3(set_slot(c.led.slot < SLOTS ? c.led.slot : 0)->connected_colour);
     in.idle_colour = rgb3(set_prefs()->idle_colour);
     in.battery_colour = rgb3(set_prefs()->battery_colour);
     in.grips = slot->grips;
