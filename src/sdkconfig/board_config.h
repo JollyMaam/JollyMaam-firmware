@@ -92,6 +92,4 @@
 #define TCFG_USER_BLE_ENABLE 1
 #define TCFG_USER_EDR_ENABLE 1
 
-#define CONFIG_BT_NORMAL_HZ (24000000L)
-
 #endif

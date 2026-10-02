@@ -43,6 +43,9 @@
 
 #define CONFIG_BT_RX_BUFF_SIZE  (5 * 512)
 #define CONFIG_BT_TX_BUFF_SIZE  (5 * 512)
+/* The CPU clock (clk_set("sys") at boot).  48 MHz, not the SDK's 24: at 24 the
+ * old firmware's control loop starved the idle task that feeds the watchdog
+ * (commit 5575ae7).  The peripheral clock stays 24 MHz either way. */
 #define BT_NORMAL_HZ (48 * 1000000L)
 
 #endif
