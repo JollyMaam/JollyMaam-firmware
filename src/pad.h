@@ -24,6 +24,7 @@ typedef unsigned long long u64;
 #define RETAINED __attribute__((section(".retained"), used, aligned(4)))
 #endif
 
+#define RGB(r,g,b) { r, g, b }
 struct rgb { u8 r, g, b; };
 
 #define SLOTS     8

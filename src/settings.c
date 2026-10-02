@@ -8,21 +8,22 @@ static const struct set_prefs prefs = {
     .battery_colour = { 5, 2, 0 },
 };
 
-#define DIM_RED { 2, 0, 0 }
-#define SLOT(t, r, g, b) { .type = t, .rumble = 1, .grips = GRIPS_LIGHTBAR, .colour = { r, g, b }, \
-                         .connected_colour = DIM_RED, \
-                         .stick_speed = 1500, .gyro_speed = 32, .gyro_accel = 250 }
+#define SLOT(_name, t, c1, c2) { .type = t, .rumble = 1, .grips = GRIPS_LIGHTBAR, \
+  .colour = c1, .connected_colour = c2, \
+  .stick_speed = 1500, .gyro_speed = 32, .gyro_accel = 250 }
 
 static const struct set_slot slots[SLOTS] = {
-    SLOT(PROFILE_SWITCH, 0, 0, 5),      /* A: blue */
-    SLOT(PROFILE_SWITCH, 5, 0, 0),      /* B: red */
-    SLOT(PROFILE_GENERIC, 3, 0, 5),     /* X: purple */
-    SLOT(PROFILE_SWITCH2, 0, 5, 0),     /* Y: green */
-    SLOT(PROFILE_MOUSE, 0, 4, 4),       /* up: cyan */
-    SLOT(PROFILE_MOUSE, 4, 4, 0),       /* down: yellow */
-    SLOT(PROFILE_MOUSE, 4, 0, 3),       /* left: pink */
-    SLOT(PROFILE_MOUSE, 2, 4, 0),       /* right: lime */
+    SLOT("A",     PROFILE_SWITCH,  RGB(0,0,5), RGB(2,0,0)),
+    SLOT("B",     PROFILE_SWITCH,  RGB(5,0,0), RGB(2,0,0)),
+    SLOT("X",     PROFILE_GENERIC, RGB(3,0,5), RGB(2,0,0)),
+    SLOT("Y",     PROFILE_SWITCH2, RGB(0,5,0), RGB(2,0,0)),
+    SLOT("Up",    PROFILE_MOUSE,   RGB(0,4,4), RGB(2,0,0)),
+    SLOT("Down",  PROFILE_MOUSE,   RGB(4,4,0), RGB(2,0,0)),
+    SLOT("Left",  PROFILE_MOUSE,   RGB(4,0,3), RGB(2,0,0)),
+    SLOT("Right", PROFILE_MOUSE,   RGB(2,4,0), RGB(2,0,0)),
 };
+
+#undef SLOT
 
 const struct set_slot *set_slot(u8 slot)
 {
