@@ -2,7 +2,7 @@
 
 GameSir Cyclone 2 firmware: the Jieli BR23 SDK's runtime and controller
 library (`btctrler.a`) with upstream BTstack as the host
-(`/work/btstack-jl-port`).  The design is in [architecture/](architecture/README.md);
+(`/work/btstack-cyclone2`, branch `cyclone2` of the fork: only the files used).  The design is in [architecture/](architecture/README.md);
 hardware references are in [docs/](docs/README.md).
 
 ## Working rules
@@ -57,8 +57,7 @@ copy, never the SDK.  The linker's stack-size warnings are a vendor lint.
 - `REGISTER_LP_TARGET` keeps the SDK out of low-power sleep; without it USB
   did not enumerate.
 - Switch 1 wake emission (`src/profile_switch_wake.c`, 1 s after a failed
-  page) was measured on the
-  air; a console actually waking and the whitening state were not.  Switch 2
-  wakes from a flag in its LE advertisement.
+  page) was measured on the air; a console actually waking and the whitening
+  state were not.  Switch 2 wakes from a flag in its LE advertisement.
 - No root or `/dev/bus/usb` here; use the devices in `/dev/bwrap`.  Do not
   attempt to leave the container.
