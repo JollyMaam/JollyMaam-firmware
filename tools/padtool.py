@@ -92,13 +92,13 @@ def need_pad():
     return path
 
 
-def wait_for(kind, seconds):
+def wait_for(kind, seconds, every=0.5):
     end = time.time() + seconds
     while time.time() < end:
         path = find(kind)
         if path:
             return path
-        time.sleep(0.5)
+        time.sleep(every)
     return None
 
 
@@ -135,7 +135,7 @@ def log(path, follow):
             if not follow:
                 raise
             print(f"-- pad gone {clock()}; waiting --", flush=True)
-            path = wait_for("pad", 3600)
+            path = wait_for("pad", 3600, 0.05)
             if not path:
                 return
             print(f"-- pad back {clock()} --", flush=True)
@@ -151,7 +151,7 @@ def log(path, follow):
         if not lines:
             if not follow:
                 return
-            time.sleep(0.2)
+            time.sleep(0.05)
 
 
 def flash(image, backup):
