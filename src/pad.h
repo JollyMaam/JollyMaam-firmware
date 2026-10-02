@@ -391,7 +391,6 @@ struct ctl_stats {
     u32 since_ms, now_ms;
     u32 passes, reserved;
     struct stat_hist pass;       /* one pass of the loop, wake to sleep */
-    struct stat_hist late;       /* a deadline wake: how late the pass started */
     struct stat_hist interval;   /* between reports sent */
     struct stat_hist age;        /* button change to the report carrying it */
     u32 step_max[STEP_COUNT];
@@ -400,7 +399,7 @@ struct ctl_stats {
     struct bt_stats bt;
     struct plat_stats plat;
 };
-_Static_assert(sizeof(struct stat_hist) == 48 && sizeof(struct ctl_stats) == 304,
+_Static_assert(sizeof(struct stat_hist) == 48 && sizeof(struct ctl_stats) == 256,
                "padtool reads struct ctl_stats byte for byte");
 
 struct usb_status {

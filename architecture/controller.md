@@ -76,8 +76,6 @@ The loop measures itself all the time (`struct ctl_stats`, read with
 `padtool stats [-w SECONDS] [--reset]`):
 
 * each pass, wake to sleep, and each step's worst and total time;
-* how late a deadline wake starts (the control task, priority 3, sits below
-  the Bluetooth controller's task, priority 4);
 * the interval between reports sent, and the age of a button change when its
   report is sent (from the tick that saw it);
 * `bt.c`'s counters (reports sent, overwritten in the newest-wins slot,

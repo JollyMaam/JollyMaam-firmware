@@ -129,13 +129,13 @@ HIST = "<QII16H"
 def read_stats(path, reset=False):
     d = cmd(path, 0x03, 1 if reset else 0, 512)
     version, size = struct.unpack_from("<HH", d)
-    if version != 1:
+    if version != 2:
         sys.exit(f"padtool: stats version {version} not known to this padtool")
     d = d[4:4 + size]
     s = {}
     s["since"], s["now"], s["passes"] = struct.unpack_from("<III", d, 0)
     o = 16
-    for name in ("pass", "late", "interval", "age"):
+    for name in ("pass", "interval", "age"):
         v = struct.unpack_from(HIST, d, o)
         s[name] = {"sum": v[0], "count": v[1], "max": v[2], "buckets": v[3:]}
         o += struct.calcsize(HIST)
@@ -152,8 +152,8 @@ def show_stats(s):
     busy = s["pass"]["sum"] / 1e6 / secs * 100
     print(f"over {secs:.1f} s: {s['passes']} loop passes ({s['passes'] / secs:.0f}/s), busy {busy:.2f} %")
     print(f"{'':16} {'count':>7} {'avg us':>8} {'max us':>8}  distribution (us)")
-    for name, label in (("pass", "loop pass"), ("late", "late wake"),
-                        ("interval", "report interval"), ("age", "report age")):
+    for name, label in (("pass", "loop pass"), ("interval", "report interval"),
+                        ("age", "report age")):
         h = s[name]
         avg = h["sum"] / h["count"] if h["count"] else 0
         dist = "  ".join(f"<{32 << i}:{n}" if i < 15 else f">={32 << 14}:{n}"

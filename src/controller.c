@@ -532,7 +532,7 @@ void ctl_main(void)
 {
     struct usb_status st;
     struct bt_ev e;
-    u32 now = plat_ms(), deadline = 0, start, t;
+    u32 now = plat_ms(), deadline, start, t;
 
     boot(now);
     stats_reset(now);
@@ -542,7 +542,6 @@ void ctl_main(void)
     for (;;) {
         start = t = plat_us();
         now = plat_ms();
-        if (deadline && (s32)(now - deadline) >= 0) stat_add(&c.stats.late, start - deadline * 1000);
         read_input(now);
         STEP(STEP_INPUT);
         while (bt_poll(&e)) bt_event(&e, now);
