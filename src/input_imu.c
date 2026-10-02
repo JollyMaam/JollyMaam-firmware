@@ -133,6 +133,11 @@ int imu_take(u32 *seq, struct imu_sample *out, int max)
     return n;
 }
 
+void imu_gyro_bias(s32 out[3])
+{
+    memcpy(out, imu.bias, sizeof(imu.bias));
+}
+
 /* ---- gyro offset: learned whenever the pad is held still ---------------------
  * Windows of samples whose readings stay within a spread are the pad held
  * still; their mean is the offset.  A quick rough one first, so pointing

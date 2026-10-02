@@ -477,6 +477,10 @@ static struct {
     u8 pulse;
     u32 pulse_until;
     u8 feature_mask, features;   /* command 0x0c; bit 2 is motion */
+    float q[4];                  /* orientation from the gyro, w x y z */
+    u32 last_us;
+    u16 sample_prev;
+    u8 have_last;
 } s2;
 
 #define S2_FEATURE_MOTION 0x04
@@ -504,6 +508,105 @@ static void s2_stick(u8 *out, s16 x, s16 y)
     out[0] = (u8)px;
     out[1] = (u8)(px >> 8 | py << 4);
     out[2] = (u8)(py >> 4);
+}
+
+/* ---- Switch 2 motion: report bytes 0x0e.. (block length, then the block) ---
+ * Mode 12, the 30-byte block a Pro Controller 2 sends: its orientation as a
+ * quaternion integrated from the gyro (starting level, drifting like the real
+ * one), compressed to its three smallest components, and the accelerometer.
+ * The console gets no gyro rates.  Format: cyclone2-esp32/s2motion/recordings/
+ * NOTES.md (decoded with PIMU's layout and checked against Joy-Con 2 captures). */
+
+#define S2_MODE_ORIENTATION 12
+#define S2_GYRO_RAD_PER_LSB16 (3.14159265f / 180.0f / 16.0f / 16.0f)  /* 16 LSB per dps, bias in 1/16 */
+#define S2_ACCEL_SHIFT 15        /* 8192 LSB per g to 1 g = 2^28 */
+
+/* Our sensor axis for each Switch 2 axis, and its sign: x, y, z. */
+static const s8 s2_axis[3] = { 1, 2, 3 };
+
+static float s2_component(const s16 v[3], const s32 bias[3], int k)
+{
+    int a = (s2_axis[k] < 0 ? -s2_axis[k] : s2_axis[k]) - 1;
+    float r = (float)(v[a] * 16 - bias[a]) * S2_GYRO_RAD_PER_LSB16;
+
+    return s2_axis[k] < 0 ? -r : r;
+}
+
+static s32 s2_accel(const s16 v[3], int k)
+{
+    int a = (s2_axis[k] < 0 ? -s2_axis[k] : s2_axis[k]) - 1;
+    s32 r = (s32)v[a] * (1 << S2_ACCEL_SHIFT);
+
+    return s2_axis[k] < 0 ? -r : r;
+}
+
+/* q <- q * (1, w dt / 2), then normalised (one Newton step: |q| stays near 1). */
+static void s2_integrate(const struct imu_sample *m, const s32 bias[3])
+{
+    float h, w[3], a, b, c, d, n;
+    u32 dt = m->us - s2.last_us;
+    int k;
+
+    if (!s2.have_last || dt > 20000) dt = 0;
+    s2.last_us = m->us;
+    s2.have_last = 1;
+    h = (float)dt * 0.5e-6f;
+    for (k = 0; k < 3; k++) w[k] = s2_component(m->gyro, bias, k) * h;
+    a = s2.q[0]; b = s2.q[1]; c = s2.q[2]; d = s2.q[3];
+    s2.q[0] = a - b * w[0] - c * w[1] - d * w[2];
+    s2.q[1] = b + a * w[0] + c * w[2] - d * w[1];
+    s2.q[2] = c + a * w[1] - b * w[2] + d * w[0];
+    s2.q[3] = d + a * w[2] + b * w[1] - c * w[0];
+    n = s2.q[0] * s2.q[0] + s2.q[1] * s2.q[1] + s2.q[2] * s2.q[2] + s2.q[3] * s2.q[3];
+    n = 1.5f - 0.5f * n;
+    for (k = 0; k < 4; k++) s2.q[k] *= n;
+}
+
+static void s2_put32(u8 *p, u32 v)
+{
+    p[0] = (u8)v; p[1] = (u8)(v >> 8); p[2] = (u8)(v >> 16); p[3] = (u8)(v >> 24);
+}
+
+static void s2_motion(u8 *out, const struct pad *p)
+{
+    s32 bias[3];
+    u32 c[3];
+    u16 sample, delta;
+    int i, k, big = 0;
+    u8 *b = out + 1;             /* out[0]: block length */
+
+    imu_gyro_bias(bias);
+    for (i = 0; i < p->imu_count; i++) s2_integrate(&p->imu[i], bias);
+    sample = (u16)((s2.last_us / 1250) & 0xfff);
+    delta = (u16)((sample - s2.sample_prev) & 0xfff);
+    s2.sample_prev = sample;
+    for (k = 1; k < 4; k++)
+        if ((s2.q[k] < 0 ? -s2.q[k] : s2.q[k]) > (s2.q[big] < 0 ? -s2.q[big] : s2.q[big])) big = k;
+    for (k = 0, i = 0; k < 4; k++) {
+        float r;
+
+        if (k == big) continue;
+        r = s2.q[k] / s2.q[big] * 0.5f + 0.5f;
+        c[(k + 3 - big) % 4] = r >= 1.0f ? 0xffffffffu : r <= 0.0f ? 0 : (u32)(r * 4294967295.0f);
+        i++;
+    }
+    out[0] = 30;
+    memset(b, 0, 30);
+    b[0] = (u8)sample;
+    b[1] = (u8)((sample >> 8) | (delta << 4));
+    b[2] = (u8)(delta >> 4);
+    b[3] = S2_MODE_ORIENTATION;
+    b[4] = (u8)big;
+    b[5] = (u8)(c[0] >> 6); b[6] = (u8)(c[0] >> 14); b[7] = (u8)(c[0] >> 22);
+    b[8] = (u8)((c[0] >> 30) | ((c[1] >> 6) & 1) << 7);
+    b[9] = (u8)(c[1] >> 7); b[10] = (u8)(c[1] >> 15); b[11] = (u8)(c[1] >> 23);
+    b[12] = (u8)((c[1] >> 31) | (c[2] & 0xc0));
+    b[13] = (u8)(c[2] >> 8); b[14] = (u8)(c[2] >> 16); b[15] = (u8)(c[2] >> 24);
+    if (p->imu_count) {
+        const struct imu_sample *m = &p->imu[p->imu_count - 1];
+
+        for (k = 0; k < 3; k++) s2_put32(b + 16 + 4 * k, (u32)s2_accel(m->accel, k));
+    }
 }
 
 static int s2_report(const struct pad *p, u32 now, u8 *out, u8 *id)
@@ -543,7 +646,7 @@ static int s2_report(const struct pad *p, u32 now, u8 *out, u8 *id)
     s2_stick(out + 5, p->lx, (s16)-p->ly);
     s2_stick(out + 8, p->rx, (s16)-p->ry);
     out[11] = 0x38;
-    out[14] = 0x28;
+    if (s2.features & S2_FEATURE_MOTION) s2_motion(out + 14, p);
     *id = 0;
     return S2_REPORT_SIZE;
 }
@@ -604,10 +707,18 @@ static u8 s2_command(const u8 *c, u16 n, u8 *out, u32 now, int *bonded)
         return 4;
     case 0x0c04:
         s2.ready = 1;
+        if (n > 8 && (c[8] & s2.feature_mask & ~s2.features & S2_FEATURE_MOTION)) {
+            s2.q[0] = 1;         /* motion starts level, like a real controller */
+            s2.q[1] = s2.q[2] = s2.q[3] = 0;
+            s2.have_last = 0;
+        }
+        if (n > 8 && (c[8] & s2.feature_mask & ~s2.features & S2_FEATURE_MOTION))
+            util_log("switch2: host turns motion on");
         if (n > 8) s2.features |= c[8] & s2.feature_mask;
         memset(out, 0, 4);
         return 4;
     case 0x0c05:
+        if (n > 8 && (c[8] & s2.features & S2_FEATURE_MOTION)) util_log("switch2: host turns motion off");
         if (n > 8) s2.features &= (u8)~c[8];
         memset(out, 0, 4);
         return 4;
@@ -743,6 +854,7 @@ static u8 s2_advertising(const struct bt_bond *bond, int pairing, int wake, u8 *
 static u8 s2_begin(const struct profile_session *s)
 {
     memset(&s2, 0, sizeof(s2));
+    s2.q[0] = 1;
     memcpy(s2.address, s->address, 6);
     if (!s->pairing && s->bond) {
         memcpy(s2.ltk, s->bond->ltk, 16);
@@ -777,6 +889,7 @@ int bt_send_message(u16 id, const u8 *data, u16 len)
 void util_log(const char *fmt, ...) { (void)fmt; }
 void util_aes128(const u8 key[16], const u8 in[16], u8 out[16]) { u32 i; for (i = 0; i < 16; i++) out[i] = in[i] ^ key[i]; }
 void util_put16(u8 *p, u16 v) { p[0] = (u8)v; p[1] = (u8)(v >> 8); }
+void imu_gyro_bias(s32 out[3]) { out[0] = out[1] = out[2] = 0; }
 u32 util_get32(const u8 *p) { return p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (u32)p[3] << 24; }
 
 int main(void)
@@ -851,6 +964,39 @@ int main(void)
         CHECK(s2.ready && s2_report(&p, 0, out, &id) == S2_REPORT_SIZE && (out[2] & 1));
         s2_host(0, &h);
         CHECK(h.imu == IMU_MOTION);
+        {
+            /* 60 degrees about Z in one second, then decode the block the way
+             * the Joy-Con captures were decoded. */
+            struct pad mp;
+            u32 t, q1, q2, q3;
+            float r[3], m, qz, qw;
+            int i;
+
+            memset(&mp, 0, sizeof(mp));
+            mp.hat = HAT_NEUTRAL;
+            for (t = 0; t <= 1000000; t += 4000) {
+                mp.imu_count = 1;
+                mp.imu[0].us = t;
+                mp.imu[0].gyro[2] = 60 * 16;
+                mp.imu[0].accel[2] = 8192;
+                s2_report(&mp, 0, out, &id);
+            }
+            CHECK(out[14] == 30 && out[15 + 3] == 12 && (out[15 + 4] & 3) == 0);
+            q1 = (u32)out[20] << 6 | (u32)out[21] << 14 | (u32)out[22] << 22 | (u32)(out[23] & 3) << 30;
+            q2 = (u32)(out[23] >> 7) << 6 | (u32)out[24] << 7 | (u32)out[25] << 15 | (u32)out[26] << 23 |
+                 (u32)(out[27] & 1) << 31;
+            q3 = (u32)(out[27] & 0xc0) | (u32)out[28] << 8 | (u32)out[29] << 16 | (u32)out[30] << 24;
+            r[0] = ((float)q1 / 4294967296.0f - 0.5f) * 2;
+            r[1] = ((float)q2 / 4294967296.0f - 0.5f) * 2;
+            r[2] = ((float)q3 / 4294967296.0f - 0.5f) * 2;
+            m = 1.0f / (1.0f + r[0] * r[0] + r[1] * r[1] + r[2] * r[2]);
+            qw = m;              /* squared, to avoid sqrt in the test */
+            qz = r[2] * r[2] * m;
+            CHECK(r[0] > -0.01f && r[0] < 0.01f && r[1] > -0.01f && r[1] < 0.01f);
+            CHECK(qw > 0.73f && qw < 0.77f && qz > 0.23f && qz < 0.27f);  /* cos^2 30, sin^2 30 */
+            i = out[31] | out[32] << 8 | out[33] << 16 | out[34] << 24;
+            CHECK(out[15 + 24] == 0 && out[15 + 27] == 0x10 && i == 0);   /* accel z = 1 g = 2^28 */
+        }
         w.data[3] = 0x05; w.data[8] = S2_FEATURE_MOTION;
         s2_write(&w, 0, &bond);
         s2_host(0, &h);

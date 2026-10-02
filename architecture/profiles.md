@@ -174,6 +174,17 @@ address as feature reports) and GATT reads.  Returns the length written to
 once, so `read()` runs on the bluetooth thread, and may only return constant
 data or data from `begin()` (the address).  It changes nothing.
 
+## Switch 2 motion
+
+When the host enables motion (command `0x0c`, feature bit 2), the Switch 2
+profile runs the sensor and fills the report's motion block in mode 12, the
+30-byte form a Pro Controller 2 sends: its orientation as a quaternion
+integrated from the gyro (bias-corrected with `imu_gyro_bias()`, starting
+level when motion is turned on), sent as its three smallest components, plus
+the accelerometer (1 g = 2^28).  The console gets no gyro rates.  `s2_axis[]`
+maps our sensor's axes onto the controller's.  The format is in
+`cyclone2-esp32/s2motion/recordings/NOTES.md`.
+
 ## Console wake: `profile_switch_wake.c`
 
 Waking a sleeping Switch 1 is not a Bluetooth link: the pad transmits raw

@@ -90,6 +90,7 @@ struct imu_pointer {
 
 u32 imu_poll(u32 now, u8 mode);   /* advances the sensor; returns its next deadline */
 int imu_take(u32 *seq, struct imu_sample *out, int max);
+void imu_gyro_bias(s32 out[3]);  /* the learned zero-rate offset, 1/16 LSB */
 void imu_pointer(struct imu_pointer *p, const struct imu_sample *s, int n, u16 per_degree,
                  u16 accel, s32 *x, s32 *y);
 
