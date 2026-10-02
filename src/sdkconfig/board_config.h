@@ -23,10 +23,6 @@
 #include "usb_std_class_def.h"
 #define USB_DEVICE_CLASS_CONFIG     MASSSTORAGE_CLASS
 
-/* setup.c compares AUDIO_OUTPUT_WAY (undefined, so 0) with this to choose the
- * oscillator LDO setting; it must stay non-zero to keep the default (3). */
-#define AUDIO_OUTPUT_WAY_FM         2
-
 /* Clock and power set-up at boot: setup.c and platform_jieli.c. */
 #define TCFG_CLOCK_SYS_SRC  SYS_CLOCK_INPUT_PLL_BT_OSC
 #define TCFG_CLOCK_SYS_HZ   24000000
