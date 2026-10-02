@@ -68,6 +68,9 @@ u32 imu_poll(u32 now, u8 mode)
         if (done < 0) {
             util_log("imu: bus error in state %u", imu.state);
             enter(S_FAILED, now);
+        } else if (imu.state == S_READ) {
+            store();             /* and on to the next read's time below */
+            imu.state = S_RUN;
         }
     }
     if (mode != imu.mode && imu.state != S_FAILED) {
@@ -113,10 +116,6 @@ u32 imu_poll(u32 now, u8 mode)
         imu.busy = 1;
         imu.state = S_READ;
         return 0;
-    case S_READ:
-        store();
-        imu.state = S_RUN;
-        return now + 1;
     default:
         return 0;
     }
