@@ -24,7 +24,7 @@ references are in [docs/](docs/README.md).
 
 `tools/padtool.py` talks to the running pad over USB (vendor SCSI commands on
 the mass-storage interface, `/dev/bwrap/sg*`): `identify`, `status`,
-`log [-f]`, `reboot`, `loader`, `flash IMAGE [--backup]`.  The log is a RAM
+`log [-f]`, `stats [-w SECONDS]`, `reboot`, `loader`, `flash IMAGE [--backup]`.  The log is a RAM
 ring that survives a reboot.  A pad that does not enumerate is recovered by
 holding Home+Start while plugging in USB (ROM loader, UBOOT1.00), then
 `padtool flash`.
@@ -59,5 +59,9 @@ copy, never the SDK.  The linker's stack-size warnings are a vendor lint.
 - Switch 1 wake emission (`src/profile_switch_wake.c`, 1 s after a failed
   page) was measured on the air; a console actually waking and the whitening
   state were not.  Switch 2 wakes from a flag in its LE advertisement.
+- No `__attribute__((packed))` in state the loop writes.  With packed stats
+  structs the tick interrupt's millisecond count ran at 7 % speed: LTO merges
+  the globals into one block, and the unaligned stores to the packed fields
+  evidently clobbered the tick's byte.  Lay structs out without padding instead.
 - No root or `/dev/bus/usb` here; use the devices in `/dev/bwrap`.  Do not
   attempt to leave the container.

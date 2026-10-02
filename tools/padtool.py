@@ -4,6 +4,7 @@
     padtool find                  devices: the pad and/or its loader
     padtool identify | status     what the pad reports
     padtool log [-f]              the pad's log (-f: follow)
+    padtool stats [-w SECONDS] [--reset]   loop timing and counters (-w: every N s)
     padtool reboot | loader       restart; restart into the ROM loader
     padtool flash IMAGE [--backup]
 
@@ -121,6 +122,67 @@ def status(path):
             f"usb {usb} battery {mv} mV{' low' if low else ''} uptime {up / 1000:.1f} s")
 
 
+STEPS = ["input", "bt", "usb", "power", "timeouts", "report", "outputs", "settings"]
+HIST = "<QII16H"
+
+
+def read_stats(path, reset=False):
+    d = cmd(path, 0x03, 1 if reset else 0, 512)
+    version, size = struct.unpack_from("<HH", d)
+    if version != 1:
+        sys.exit(f"padtool: stats version {version} not known to this padtool")
+    d = d[4:4 + size]
+    s = {}
+    s["since"], s["now"], s["passes"] = struct.unpack_from("<III", d, 0)
+    o = 16
+    for name in ("pass", "late", "interval", "age"):
+        v = struct.unpack_from(HIST, d, o)
+        s[name] = {"sum": v[0], "count": v[1], "max": v[2], "buckets": v[3:]}
+        o += struct.calcsize(HIST)
+    s["steps"] = dict(zip(STEPS, struct.unpack_from("<8I", d, o)))
+    s["step_sums"] = dict(zip(STEPS, struct.unpack_from("<8I", d, o + 32)))
+    o += 64
+    (s["reports"], s["imu"], s["sent"], s["replaced"], s["acked"],
+     s["buttons"], s["frames"], s["resyncs"]) = struct.unpack_from("<8I", d, o)
+    return s
+
+
+def show_stats(s):
+    secs = max((s["now"] - s["since"]) / 1000, 0.001)
+    busy = s["pass"]["sum"] / 1e6 / secs * 100
+    print(f"over {secs:.1f} s: {s['passes']} loop passes ({s['passes'] / secs:.0f}/s), busy {busy:.2f} %")
+    print(f"{'':16} {'count':>7} {'avg us':>8} {'max us':>8}  distribution (us)")
+    for name, label in (("pass", "loop pass"), ("late", "late wake"),
+                        ("interval", "report interval"), ("age", "report age")):
+        h = s[name]
+        avg = h["sum"] / h["count"] if h["count"] else 0
+        dist = "  ".join(f"<{32 << i}:{n}" if i < 15 else f">={32 << 14}:{n}"
+                         for i, n in enumerate(h["buckets"]) if n)
+        print(f"{label:16} {h['count']:7} {avg:8.0f} {h['max']:8}  {dist}")
+    n = max(s["passes"], 1)
+    print(f"{'step':16} {'avg us':>8} {'max us':>8} {'share':>6}")
+    total = max(sum(s["step_sums"].values()), 1)
+    for k in STEPS:
+        print(f"{k:16} {s['step_sums'][k] / n:8.0f} {s['steps'][k]:8} {100 * s['step_sums'][k] / total:5.1f}%")
+    per = s["imu"] / s["reports"] if s["reports"] else 0
+    print(f"reports {s['reports']} ({s['reports'] / secs:.1f}/s), {per:.1f} imu samples each")
+    print(f"bluetooth: sent {s['sent']}, replaced before sending {s['replaced']}, "
+          f"packets on air {s['acked']} ({s['acked'] / secs:.1f}/s)")
+    print(f"input: button changes {s['buttons']}, stick frames {s['frames']} "
+          f"({s['frames'] / secs:.0f}/s), stick resyncs {s['resyncs']}")
+
+
+def stats(path, every, reset):
+    if not every:
+        show_stats(read_stats(path, reset))
+        return
+    read_stats(path, True)
+    while True:
+        time.sleep(every)
+        print(f"-- {clock()}")
+        show_stats(read_stats(path, True))
+
+
 def clock():
     t = time.time()
     return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(t)) + f".{int(t * 1000) % 1000:03d}"
@@ -188,10 +250,12 @@ def flash(image, backup):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["find", "identify", "status", "log", "reboot", "loader", "flash"])
+    p.add_argument("command", choices=["find", "identify", "status", "log", "stats", "reboot", "loader", "flash"])
     p.add_argument("image", nargs="?")
     p.add_argument("-f", "--follow", action="store_true")
     p.add_argument("--backup", help="save the whole flash here before writing")
+    p.add_argument("-w", "--watch", type=float, metavar="SECONDS", help="stats: show and reset every N seconds")
+    p.add_argument("--reset", action="store_true", help="stats: reset the counters after reading")
     a = p.parse_args()
     if a.command == "find":
         for kind, path, name in devices():
@@ -202,6 +266,11 @@ def main():
         print(status(need_pad()))
     elif a.command == "log":
         log(need_pad(), a.follow)
+    elif a.command == "stats":
+        try:
+            stats(need_pad(), a.watch, a.reset)
+        except KeyboardInterrupt:
+            pass
     elif a.command in ("reboot", "loader"):
         cmd(need_pad(), 0x10 if a.command == "reboot" else 0x11)
     elif a.command == "flash":

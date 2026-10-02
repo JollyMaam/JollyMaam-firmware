@@ -114,7 +114,7 @@ static const struct line lines[] = {
 #define LINE_COUNT (sizeof(lines) / sizeof(lines[0]))
 
 static volatile u32 ms_now;
-static u8 quarter;
+static volatile u8 quarter;
 static u32 line_state;
 static u8 line_lock[LINE_COUNT];
 static volatile u32 events;
@@ -122,6 +122,8 @@ static volatile u32 deadline;
 static volatile u8 deadline_set;
 static volatile u8 posted;
 static OS_SEM wake_sem;
+static volatile u32 changed_us;
+static struct plat_stats stats;
 
 static HOT u32 read_lines(void)
 {
@@ -153,7 +155,7 @@ static HOT void tick_isr(void)
     u32 i;
 
     JL_TIMER3->CON |= BIT(14);
-    if (++quarter == 4) {
+    if (++quarter >= 4) {
         quarter = 0;
         ms_now++;
     }
@@ -167,7 +169,11 @@ static HOT void tick_isr(void)
             changed = 1;
         }
     }
-    if (changed) raise(EV_BUTTONS);
+    if (changed) {
+        changed_us = ms_now * 1000 + quarter * TICK_US;
+        stats.button_changes++;
+        raise(EV_BUTTONS);
+    }
     i2c_tick();
     if (deadline_set && (s32)(ms_now - deadline) >= 0) {
         deadline_set = 0;
@@ -456,15 +462,21 @@ int plat_i2c_done(void)
     return i2c.result;
 }
 
+/* The tick count plus the timer's progress into the current tick.  A timer
+ * that has wrapped but whose interrupt has not run yet (pending) is a tick
+ * ahead of ms_now and quarter. */
 u32 plat_us(void)
 {
-    u32 ms, cnt;
+    u32 ms, q, cnt, pending;
 
     do {
         ms = ms_now;
+        q = quarter;
         cnt = JL_TIMER3->CNT;
-    } while (ms != ms_now);
-    return ms * 1000 + quarter * TICK_US + cnt / 24;
+        pending = JL_TIMER3->CON & BIT(15);
+    } while (ms != ms_now || q != quarter);
+    if (pending && cnt < 24 * TICK_US / 2) cnt += 24 * TICK_US;
+    return ms * 1000 + q * TICK_US + cnt / 24;
 }
 
 /* ---- sticks: 4-byte frames from the stick MCU on UART2, by DMA ----------- */
@@ -508,10 +520,12 @@ static void stick_byte(u8 b)
             stick_frame[3]) {
             stick[i] = (u16)(stick_frame[1] << 8 | stick_frame[2]);
             sticks_valid = 1;
+            stats.stick_frames++;
             stick_len = 0;
             return;
         }
     }
+    stats.stick_resyncs++;
     stick_frame[0] = stick_frame[1];
     stick_frame[1] = stick_frame[2];
     stick_frame[2] = stick_frame[3];
@@ -610,6 +624,14 @@ void plat_input(struct in_raw *raw)
     raw->trigger[1] = adc_get_value(ADC_TRIGGER_R2);
     raw->trigger_stop[0] = !rtc_port_pr_read(PR_STOP_L2);
     raw->trigger_stop[1] = !rtc_port_pr_read(PR_STOP_R2);
+    raw->changed_us = changed_us;
+}
+
+void plat_stats(struct plat_stats *out)
+{
+    plat_lock();
+    *out = stats;
+    plat_unlock();
 }
 
 u16 plat_battery_mv(void)

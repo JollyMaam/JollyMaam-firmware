@@ -70,14 +70,24 @@ So reports are sent on time without a 1 ms tick, nothing runs while nothing
 changes, and a button press reaches the gesture engine within 250 µs plus the
 lockout.
 
-Things to measure once it runs:
+### Timing stats
 
-* how late a wake is.  The control task (`ctl`, priority 3) is below the
-  Bluetooth controller's own task (`btctrler`, priority 4) in the task table,
-  so a wake can wait for it.
-* the interrupt load: about 4 000 button-sample interrupts a second, and
-  with the sensor running about 2 000-4 000 short I2C byte interrupts a
-  second ([input.md](input.md) has the arithmetic).
+The loop measures itself all the time (`struct ctl_stats`, read with
+`padtool stats [-w SECONDS] [--reset]`):
+
+* each pass, wake to sleep, and each step's worst and total time;
+* how late a deadline wake starts (the control task, priority 3, sits below
+  the Bluetooth controller's task, priority 4);
+* the interval between reports sent, and the age of a button change when its
+  report is sent (from the tick that saw it);
+* `bt.c`'s counters (reports sent, overwritten in the newest-wins slot,
+  packets the controller reports as gone) and the platform's (button changes,
+  stick frames, stick resyncs).
+
+Times are histograms of 16 doubling buckets from 32 µs.  The counters are
+reset with `--reset` (or every period with `-w`).  Measured idle, connected to
+nothing: about 56 passes a second at ~0.9 ms each, 5 % of the CPU, most of it
+parsing the 5 000 stick frames a second.
 
 A later option, not part of the design yet: send a report as soon as a button
 changes instead of at the next report deadline.  The newest-wins slot and

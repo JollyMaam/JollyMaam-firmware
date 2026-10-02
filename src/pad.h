@@ -54,6 +54,7 @@ struct in_raw {
     u16 stick[4];
     u16 trigger[2];
     u8 trigger_stop[2];
+    u32 changed_us;              /* when a button or the d-pad last changed (plat_us) */
 };
 
 struct imu_sample {
@@ -126,7 +127,7 @@ enum ctl_kind {
 
 enum req_kind {
     REQ_NONE, REQ_CONNECT, REQ_PAIR, REQ_DISCONNECT, REQ_SLEEP, REQ_CALIBRATE,
-    REQ_REBOOT, REQ_REBOOT_LOADER, REQ_HOME_TAP,
+    REQ_REBOOT, REQ_REBOOT_LOADER, REQ_HOME_TAP, REQ_STATS_RESET,
 };
 
 struct ctl_request {
@@ -201,6 +202,8 @@ int bt_poll(struct bt_ev *ev);
 int bt_radio_quiet(void);
 int bt_input_pending(void);
 void bt_update_bond(const struct bt_bond *bond);
+struct bt_stats;
+void bt_stats(struct bt_stats *out);
 
 /* ---- profile_*.c -------------------------------------------------------- */
 
@@ -359,6 +362,47 @@ struct ctl_request ux_boot(u16 buttons, u8 hat, u8 state);
 
 /* ---- usb.c -------------------------------------------------------------- */
 
+/* Timing and counters, kept by the loop, read over USB (padtool stats); times
+ * in µs.  Laid out without padding (checked below), so the bytes padtool reads
+ * are the struct as it is in memory. */
+#define STAT_BUCKETS 16          /* bucket i: below 32 << i µs; the last: the rest */
+struct stat_hist {
+    u64 sum;
+    u32 count, max;
+    u16 bucket[STAT_BUCKETS];
+};
+
+enum { STEP_INPUT, STEP_BT, STEP_USB, STEP_POWER, STEP_TIMEOUTS, STEP_REPORT, STEP_OUTPUTS,
+       STEP_SETTINGS, STEP_COUNT };
+
+struct bt_stats {
+    u32 sent;                    /* input reports handed to the controller */
+    u32 replaced;                /* overwritten in the newest-wins slot before that */
+    u32 acked;                   /* packets the controller reports as sent */
+};
+
+struct plat_stats {
+    u32 button_changes;          /* debounced changes seen by the tick */
+    u32 stick_frames;            /* good frames from the stick MCU */
+    u32 stick_resyncs;           /* bytes skipped to find a frame */
+};
+
+struct ctl_stats {
+    u32 since_ms, now_ms;
+    u32 passes, reserved;
+    struct stat_hist pass;       /* one pass of the loop, wake to sleep */
+    struct stat_hist late;       /* a deadline wake: how late the pass started */
+    struct stat_hist interval;   /* between reports sent */
+    struct stat_hist age;        /* button change to the report carrying it */
+    u32 step_max[STEP_COUNT];
+    u32 step_sum[STEP_COUNT];
+    u32 reports, imu_samples;
+    struct bt_stats bt;
+    struct plat_stats plat;
+};
+_Static_assert(sizeof(struct stat_hist) == 48 && sizeof(struct ctl_stats) == 304,
+               "padtool reads struct ctl_stats byte for byte");
+
 struct usb_status {
     u8 state;
     u8 slot;
@@ -366,6 +410,7 @@ struct usb_status {
     u8 low_battery;
     u16 battery_mv;
     u32 uptime_ms;
+    const struct ctl_stats *stats;
 };
 
 struct ctl_request usb_poll(const struct usb_status *status);
@@ -412,6 +457,7 @@ void plat_motors(u8 left, u8 right);
 int plat_usb_present(void);
 void plat_usb_service(void);
 u16 plat_battery_mv(void);
+void plat_stats(struct plat_stats *out);
 const u8 *plat_unique_id(void);
 int plat_store_read(u16 key, void *buf, u16 len);
 int plat_store_write(u16 key, const void *buf, u16 len);

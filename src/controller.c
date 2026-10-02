@@ -60,7 +60,41 @@ static struct {
     u16 battery_mv;
     u8 low_battery;
     u32 battery_ms;
+    struct ctl_stats stats;
+    struct bt_stats bt_base;     /* the counters at the last reset */
+    struct plat_stats plat_base;
+    u32 last_report_us;
+    u16 sent_buttons;
+    u8 sent_hat;
 } c;
+
+static void stat_add(struct stat_hist *h, u32 us)
+{
+    u32 b = 0, v = us >> 5;
+
+    while (v && b < STAT_BUCKETS - 1) {
+        v >>= 1;
+        b++;
+    }
+    h->sum += us;
+    h->count++;
+    if (us > h->max) h->max = us;
+    if (h->bucket[b] < 0xffff) h->bucket[b]++;
+}
+
+static void stats_reset(u32 now)
+{
+    memset(&c.stats, 0, sizeof(c.stats));
+    c.stats.since_ms = now;
+    bt_stats(&c.bt_base);
+    plat_stats(&c.plat_base);
+}
+
+/* The running counters of bt.c and the platform, counted from the reset. */
+static void counters_since(u32 *out, const u32 *now, const u32 *base, u32 n)
+{
+    while (n--) *out++ = *now++ - *base++;
+}
 
 static int session(void)
 {
@@ -186,6 +220,9 @@ static void handle(struct ctl_request r, u32 now)
         c.calibrating = 1;
         c.cal = *set_cal();
         cal_start(now);
+        break;
+    case REQ_STATS_RESET:
+        stats_reset(now);
         break;
     case REQ_REBOOT:
     case REQ_REBOOT_LOADER:
@@ -448,7 +485,18 @@ static void send_report(u32 now)
     if ((s32)(now - c.report_next) >= 0) c.report_next = now + period;
     c.pad.imu_count = (u8)imu_take(&c.imu_seq, c.pad.imu, IMU_PER_REPORT);
     n = c.prof->report(&c.pad, now, buf, &id);
-    if (n > 0) bt_send_input(id, buf, (u16)n);
+    if (n > 0 && bt_send_input(id, buf, (u16)n)) {
+        u32 us = plat_us();
+
+        if (c.stats.reports) stat_add(&c.stats.interval, us - c.last_report_us);
+        if (c.pad.buttons != c.sent_buttons || c.pad.hat != c.sent_hat)
+            stat_add(&c.stats.age, us - c.raw.changed_us);
+        c.last_report_us = us;
+        c.sent_buttons = c.pad.buttons;
+        c.sent_hat = c.pad.hat;
+        c.stats.reports++;
+        c.stats.imu_samples += c.pad.imu_count;
+    }
 }
 
 static u32 earliest(u32 a, u32 b)
@@ -484,27 +532,55 @@ void ctl_main(void)
 {
     struct usb_status st;
     struct bt_ev e;
-    u32 now = plat_ms(), deadline;
+    u32 now = plat_ms(), deadline = 0, start, t;
 
     boot(now);
+    stats_reset(now);
+/* Time since the last mark: that step's worst and its total. */
+#define STEP(i) do { u32 u = plat_us(); if (u - t > c.stats.step_max[i]) c.stats.step_max[i] = u - t; \
+                         c.stats.step_sum[i] += u - t; t = u; } while (0)
     for (;;) {
+        start = t = plat_us();
         now = plat_ms();
+        if (deadline && (s32)(now - deadline) >= 0) stat_add(&c.stats.late, start - deadline * 1000);
         read_input(now);
+        STEP(STEP_INPUT);
         while (bt_poll(&e)) bt_event(&e, now);
+        STEP(STEP_BT);
+        {
+            struct bt_stats b;
+            struct plat_stats p;
+
+            bt_stats(&b);
+            plat_stats(&p);
+            counters_since(&c.stats.bt.sent, &b.sent, &c.bt_base.sent, sizeof(b) / 4);
+            counters_since(&c.stats.plat.button_changes, &p.button_changes,
+                           &c.plat_base.button_changes, sizeof(p) / 4);
+        }
+        c.stats.now_ms = now;
         st.state = c.kind;
         st.slot = c.slot;
         st.usb_powered = c.usb_powered;
         st.low_battery = c.low_battery;
         st.battery_mv = c.battery_mv;
         st.uptime_ms = now;
+        st.stats = &c.stats;
         handle(usb_poll(&st), now);
+        STEP(STEP_USB);
         sample_power(now);
+        STEP(STEP_POWER);
         timeouts(now);
+        STEP(STEP_TIMEOUTS);
         if (c.kind == CTL_CONNECTED) send_report(now);
+        STEP(STEP_REPORT);
         outputs(now);
+        STEP(STEP_OUTPUTS);
         set_poll(now, bt_radio_quiet() && !c.waking && c.kind != CTL_STOPPING && now - c.since >= QUIET_MS);
+        STEP(STEP_SETTINGS);
         deadline = earliest(c.led_next, earliest(state_deadline(), earliest(ux_deadline(), c.imu_next)));
         if (c.calibrating) deadline = earliest(deadline, now + CAL_SAMPLE_MS);
+        c.stats.passes++;
+        stat_add(&c.stats.pass, plat_us() - start);
         plat_wait(deadline);
     }
 }

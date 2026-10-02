@@ -9,7 +9,9 @@
 #define OP          0xf5
 #define PROTOCOL    1
 
-enum { CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02,
+#define STATS_VERSION 1
+
+enum { CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02, CMD_STATS = 0x03,
        CMD_REBOOT = 0x10, CMD_REBOOT_LOADER = 0x11 };
 
 #ifndef BUILD_ID
@@ -59,6 +61,14 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max)
         n += 8;
         break;
     }
+    case CMD_STATS:              /* argument bit 0: reset after reading */
+        if (max < 4 + sizeof(struct ctl_stats) || !status || !status->stats) return 0;
+        util_put16(data, STATS_VERSION);
+        util_put16(data + 2, sizeof(struct ctl_stats));
+        memcpy(data + 4, status->stats, sizeof(struct ctl_stats));
+        n = 4 + sizeof(struct ctl_stats);
+        if (cdb[2] & 1) pending.kind = REQ_STATS_RESET;
+        break;
     case CMD_REBOOT:
         pending.kind = REQ_REBOOT;
         break;
@@ -113,6 +123,17 @@ int main(void)
     CHECK(usb_command(cdb, data, sizeof(data)) == 11 && data[0] == 7 && data[4] == 3);
     r = usb_poll(&st);
     CHECK(r.kind == REQ_NONE);
+    {
+        static struct ctl_stats stats;
+
+        stats.passes = 0x01020304;
+        st.stats = &stats;
+        cdb[1] = CMD_STATS;
+        cdb[2] = 1;
+        CHECK(usb_command(cdb, data, sizeof(data)) == 4 + sizeof(stats));
+        CHECK(data[0] == STATS_VERSION && data[2] == (u8)sizeof(stats) && data[4 + 8] == 4);
+        CHECK(usb_poll(&st).kind == REQ_STATS_RESET);
+    }
     cdb[1] = CMD_REBOOT_LOADER;
     usb_command(cdb, data, sizeof(data));
     r = usb_poll(&st);

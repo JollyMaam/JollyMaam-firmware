@@ -60,6 +60,7 @@ static volatile u8 idle = 1;
 static u8 input[MAX_INPUT];
 static u16 input_len;
 static volatile u8 input_pending;
+static struct bt_stats stats;
 static struct message messages[MESSAGES];
 static volatile u8 msg_read, msg_write;
 
@@ -145,10 +146,18 @@ int bt_send_input(u8 id, const u8 *data, u16 len)
         memcpy(input + 2, data, len);
         input_len = len + 2;
     }
+    if (input_pending) stats.replaced++;
     input_pending = 1;
     plat_unlock();
     plat_bt_wake();
     return 1;
+}
+
+void bt_stats(struct bt_stats *out)
+{
+    plat_lock();
+    *out = stats;
+    plat_unlock();
 }
 
 int bt_input_pending(void)
@@ -470,6 +479,7 @@ static void send_now(void)
         m.len = input_len;
         memcpy(m.data, input, input_len);
         input_pending = 0;
+        stats.sent++;
     }
     plat_unlock();
     if (m.len) {
@@ -585,6 +595,14 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
     (void)size;
     if (type != HCI_EVENT_PACKET) return;
     switch (hci_event_packet_get_type(packet)) {
+    case HCI_EVENT_NUMBER_OF_COMPLETED_PACKETS: {
+        u8 i;
+
+        for (i = 0; i < packet[2]; i++)
+            if (little_endian_read_16(packet, 3 + 4 * i) == con_handle)
+                stats.acked += little_endian_read_16(packet, 5 + 4 * i);
+        break;
+    }
     case BTSTACK_EVENT_STATE:
         if (btstack_event_state_get_state(packet) == HCI_STATE_WORKING) {
             working = 1;
