@@ -2,8 +2,9 @@
 
 GameSir Cyclone 2 firmware: the Jieli BR23 SDK's runtime and controller
 library (`btctrler.a`) with upstream BTstack as the host
-(`/work/btstack-cyclone2`, branch `cyclone2` of the fork: only the files used).  The design is in [architecture/](architecture/README.md);
-hardware references are in [docs/](docs/README.md).
+(`/work/cyclone2-btstack`, branch `rewrite` of the fork: only the files
+used).  The design is in [architecture/](architecture/README.md); hardware
+references are in [docs/](docs/README.md).
 
 ## Working rules
 
