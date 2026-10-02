@@ -431,6 +431,7 @@ static int att_write(hci_con_handle_t h, u16 handle, u16 mode, u16 offset, u8 *b
     if (att_uuid_for_handle(handle) == GATT_CLIENT_CHARACTERISTICS_CONFIGURATION) {
         int i = ccc(handle, 1);
         if (i >= 0 && size) ccc_value[i] = buf[0];
+        util_log("bt: host %s notifications on 0x%04x", size && buf[0] ? "enables" : "disables", handle - 1);
         return 0;
     }
     emit_write(BT_WRITE_ATT, handle, buf, size);
