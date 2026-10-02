@@ -54,8 +54,9 @@ struct ctl_request ux_boot(u16 buttons, u8 hat, u8 state);   /* the press that w
 
 `ux_step()` is called whenever the buttons change, and at its own deadline
 (`ux_deadline()`: the next hold time that could fire).  It follows Home and what is held
-with it, returns at most one request, and removes from `pad` what the host
-must not see (Home and the chord keys during a gesture), adding nothing.
+with it and returns at most one request.  With `keys_to_host` 0 it also
+removes from `pad` what the host must not see (Home and the chord keys during
+a gesture).
 Rules:
 
 * A gesture starts when Home goes down and ends when it comes up.
@@ -64,11 +65,11 @@ Rules:
 * Each row fires at most once per gesture, so holding a slot key goes
   connect, then pair.
 * Buttons not used by any row are ignored and pass through to the host.
-* Connected, Home alone for more than `home_grace_ms` goes to the host as it
-  is held; a release within the grace is shown to the host as a tap.  A
-  chord key pressed after Home went to the host takes Home back (the host
-  sees it released) and starts the chord then.  With a grace of 0, Home
-  reaches the host at once, and a chord costs the host a short Home press.
+* `keys_to_host` (next to the table) decides what the host sees.  1 (the
+  default): Home and the chord keys go to the host exactly as pressed, and
+  gestures fire as well.  0: they are held back during a gesture; connected,
+  Home alone goes to the host once held longer than `home_grace_ms` (and
+  chords stop counting), and a shorter press is shown to the host as a tap.
 
 The engine keeps its own tracking state (when Home went down, the chord, the
 rows fired); only the buttons change it.  `ux_ignore_held()` is how the

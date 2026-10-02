@@ -4,7 +4,7 @@
  * Home does.  Edit here and rebuild. */
 
 const struct ux_timeouts ux_timeouts = {
-    .home_grace_ms = 0,          /* connected: Home alone longer goes to the host */
+    .home_grace_ms = 0,          /* keys_to_host 0, connected: Home alone longer goes to the host */
     .home_tap_ms = 60,           /* how long a short Home press is shown to the host */
     .connect_ms = 30000,
     .pair_ms = 180000,
@@ -35,6 +35,13 @@ const struct led_scene ux_scenes[CTL_KIND_COUNT] = {
 
 enum { ALWAYS, CONNECTED, NOT_CONNECTED, OFFLINE };
 
+/* 1: the host sees Home and the chord keys exactly as pressed; gestures fire
+ *    as well.
+ * 0: they are held back from the host during a gesture.  Connected, Home
+ *    alone goes to the host once held longer than home_grace_ms (from then on
+ *    chords no longer count), and a shorter press is shown as a tap. */
+static const u8 keys_to_host = 1;
+
 static const struct gesture {
     const char *name;
     u32 with;                    /* held with Home; 0 = Home alone */
@@ -57,9 +64,7 @@ static const struct gesture {
 /* ---- the engine ------------------------------------------------------------
  * A gesture starts when Home goes down and ends when it comes up.  The first
  * thing held with Home is its chord; a chord that changes ends the gesture
- * and nothing more fires until all is let go.  Each row fires at most once.
- * Connected, Home alone goes to the host after home_grace_ms; a chord key
- * pressed after that takes Home back from the host and starts the chord. */
+ * and nothing more fires until all is let go.  Each row fires at most once. */
 
 static struct {
     u8 active, live, draining, chorded, fired, slot, tap, state;
@@ -117,7 +122,7 @@ static struct ctl_request fire(u32 i, u8 slot, u32 now)
     ux.fired = 1;
     util_log("ux: %s", gestures[i].name);
     if (r.kind == REQ_HOME_TAP) {
-        ux.tap = 1;
+        ux.tap = !keys_to_host;
         ux.tap_ms = now;
         r.kind = REQ_NONE;
     }
@@ -167,14 +172,6 @@ static struct ctl_request step(const struct pad *p, u32 now, u8 state)
         ux.draining = chord != 0;
         return !ux.chorded && !ux.fired ? due(now, 1, 0, SLOT_NONE) : none;
     }
-    if (ux.live && chord) {
-        ux.live = 0;
-        ux.chorded = 1;
-        ux.chord = chord;
-        ux.slot = slot;
-        ux.chord_ms = now;
-        return none;
-    }
     if (ux.live) return due(now, 0, 0, SLOT_NONE);
     if (chord != ux.chord || slot != ux.slot) {
         if (ux.chorded || ux.fired) {
@@ -186,21 +183,21 @@ static struct ctl_request step(const struct pad *p, u32 now, u8 state)
         ux.chord = chord;
         ux.slot = slot;
         ux.chord_ms = now;
-    } else if (!ux.chorded && !ux.fired && ux.state == CTL_CONNECTED &&
+    } else if (!keys_to_host && !ux.chorded && !ux.fired && ux.state == CTL_CONNECTED &&
                now - ux.home_ms >= ux_timeouts.home_grace_ms) {
         ux.live = 1;
     }
     return due(now, 0, ux.chord, ux.slot);
 }
 
-/* Follows Home through `pad`, takes out what the host must not see (Home and
- * the chord during a gesture), puts back a short Home tap, and returns at
- * most one request. */
+/* Follows Home through `pad` and returns at most one request.  With
+ * keys_to_host 0 it also takes out what the host must not see (Home and the
+ * chord during a gesture) and puts back a short Home tap. */
 struct ctl_request ux_step(struct pad *p, u32 now, u8 state)
 {
     struct ctl_request r = step(p, now, state);
 
-    if ((ux.active && !ux.live) || ux.draining) {
+    if (!keys_to_host && ((ux.active && !ux.live) || ux.draining)) {
         p->buttons &= (u16)~(PAD_HOME | PAD_FACE | chord_buttons());
         p->hat = HAT_NEUTRAL;
     }
@@ -218,7 +215,7 @@ u32 ux_deadline(void)
 
     if (ux.tap) next = ux.tap_ms + ux_timeouts.home_tap_ms;
     if (!ux.active) return next;
-    if (!ux.live && !ux.chorded && !ux.fired && ux.state == CTL_CONNECTED) {
+    if (!keys_to_host && !ux.live && !ux.chorded && !ux.fired && ux.state == CTL_CONNECTED) {
         t = ux.home_ms + ux_timeouts.home_grace_ms;
         if (!next || (s32)(t - next) < 0) next = t;
     }
@@ -323,7 +320,7 @@ int main(void)
     CHECK(ngot == 1);
     run(20);
     CHECK(ngot == 2 && got[1].kind == REQ_PAIR && got[1].slot == 1);
-    CHECK(!(seen.buttons & (PAD_HOME | PAD_B)));
+    CHECK(!(seen.buttons & (PAD_HOME | PAD_B)) == !keys_to_host);
     release(PAD_HOME); release(PAD_B); run(50);
     CHECK(ngot == 2);
 
@@ -343,7 +340,7 @@ int main(void)
 
     /* A short Home is held back, then shown to the host as a tap; a long one
      * goes to the host as it is held. */
-    if (grace >= 2) {
+    if (!keys_to_host && grace >= 2) {
         reset(CTL_CONNECTED);
         press(PAD_HOME); run(grace / 2);
         CHECK(!(seen.buttons & PAD_HOME));
@@ -354,18 +351,18 @@ int main(void)
         CHECK(!(seen.buttons & PAD_HOME) && ngot == 0);
     }
     reset(CTL_CONNECTED);
-    press(PAD_HOME); run(grace + 10);
+    press(PAD_HOME); run(keys_to_host ? 1 : grace + 10);
     CHECK(seen.buttons & PAD_HOME);
     release(PAD_HOME); run(1);
     CHECK(!(seen.buttons & PAD_HOME) && ngot == 0);
 
     reset(CTL_CONNECTED);
     press(PAD_SELECT); press(PAD_HOME); run(hold("disconnect") - 100);
-    CHECK(ngot == 0 && !(seen.buttons & PAD_SELECT));
+    CHECK(ngot == 0 && !(seen.buttons & PAD_SELECT) == !keys_to_host);
     run(200);
     CHECK(got1(REQ_DISCONNECT, SLOT_NONE));
     release(PAD_HOME);
-    CHECK(!(seen.buttons & PAD_SELECT));
+    CHECK(!(seen.buttons & PAD_SELECT) == !keys_to_host);
     release(PAD_SELECT);
 
     reset(CTL_IDLE);
@@ -373,7 +370,7 @@ int main(void)
     CHECK(got1(REQ_SLEEP, SLOT_NONE));
 
     reset(CTL_CONNECTED);
-    press(PAD_HOME); press(PAD_B); run(500); press(PAD_A); run(6000);
+    press(PAD_B); press(PAD_HOME); run(500); press(PAD_A); run(6000);   /* a changed chord */
     release(PAD_A); release(PAD_B); release(PAD_HOME);
     CHECK(ngot == 0);
 
@@ -390,16 +387,15 @@ int main(void)
     CHECK(got[0].kind == REQ_CONNECT && got[0].slot == 2);
     got[0] = ux_boot(PAD_X, HAT_NEUTRAL, CTL_BOOT);
     CHECK(got[0].kind == REQ_NONE);
-    /* Home first, a slot key after Home went to the host: the chord still counts. */
+    /* Home held a while, then a slot key: a switch when the keys go to the
+     * host; otherwise Home has gone live and the key is just a key. */
     reset(CTL_CONNECTED);
     press(PAD_HOME); run(grace + 10); press(PAD_A);
-    CHECK(!(seen.buttons & (PAD_HOME | PAD_A)));
-    run(sw - 10);
-    CHECK(ngot == 0);
-    run(20);
-    CHECK(got1(REQ_CONNECT, 0));
+    CHECK((seen.buttons & (PAD_HOME | PAD_A)) == (PAD_HOME | PAD_A));
+    run(sw + 10);
+    CHECK(keys_to_host ? got1(REQ_CONNECT, 0) : ngot == 0);
     release(PAD_A); release(PAD_HOME); run(50);
-    CHECK(ngot == 1);
+    CHECK(ngot == !!keys_to_host);
 
     return TEST_DONE("settings_ux");
 }
