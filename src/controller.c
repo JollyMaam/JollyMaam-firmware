@@ -32,7 +32,9 @@ static struct {
     u8 last_slot;
     const struct profile *prof;
     u8 radio;                    /* bt_start() until BT_EV_STOPPED */
-    u8 waking;                   /* the profile's wake runs before bt_start() */
+    u8 waking;                   /* the profile's wake is running, radio off */
+    u8 woke;                     /* this session has tried a wake */
+    u8 wake_after_stop;          /* the session stops to wake the host, then restarts */
     u32 wake_next;
     struct profile_session sess;
     struct ctl_request next;     /* STOPPING: what comes after */
@@ -84,6 +86,7 @@ static void end_session(void)
     if (c.prof && c.prof->end) c.prof->end();
     if (c.waking) c.prof->wake->stop();
     c.waking = 0;
+    c.wake_after_stop = 0;
     if (c.radio) bt_stop();
 }
 
@@ -93,7 +96,11 @@ static void handle(struct ctl_request r, u32 now);
 static void stopped(u32 now)
 {
     c.radio = 0;
-    if (c.kind == CTL_STOPPING) {
+    if (c.kind == CTL_CONNECTING && c.wake_after_stop) {
+        c.wake_after_stop = 0;
+        c.waking = !c.prof->wake->start(&c.sess);
+        if (!c.waking) radio_on();
+    } else if (c.kind == CTL_STOPPING) {
         c.slot = SLOT_NONE;
         c.prof = NULL;
         become(CTL_IDLE, now);
@@ -128,8 +135,8 @@ static void start_session(struct ctl_request r, u32 now)
     memset(&c.host, 0, sizeof(c.host));
     c.begin_imu = p->begin(&s);
     c.sess = s;
-    c.waking = !pairing && p->wake && !p->wake->start(&s);
-    if (!c.waking) radio_on();
+    c.woke = 0;
+    radio_on();
     util_log("session slot %u %s%s", r.slot, p->name, pairing ? " pairing" : "");
     become(pairing ? CTL_PAIRING : CTL_CONNECTING, now);
 }
@@ -214,7 +221,16 @@ static void bt_event(const struct bt_ev *e, u32 now)
         }
         break;
     case BT_EV_FAILED:
-        if (c.kind == CTL_CONNECTING) c.retry_at = now + RETRY_MS;
+        if (c.kind != CTL_CONNECTING) break;
+        /* The host did not answer: it may be asleep.  A profile that can
+         * wake it gets the radio to itself once, then the session restarts. */
+        if (c.prof->wake && !c.woke) {
+            c.woke = 1;
+            c.wake_after_stop = 1;
+            bt_stop();
+        } else {
+            c.retry_at = now + RETRY_MS;
+        }
         break;
     case BT_EV_PEER:
     case BT_EV_BONDED:

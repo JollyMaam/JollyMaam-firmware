@@ -56,7 +56,8 @@ copy, never the SDK.  The linker's stack-size warnings are a vendor lint.
   packet.
 - `REGISTER_LP_TARGET` keeps the SDK out of low-power sleep; without it USB
   did not enumerate.
-- Switch 1 wake emission (`src/profile_switch_wake.c`) was measured on the
+- Switch 1 wake emission (`src/profile_switch_wake.c`, 1 s after a failed
+  page) was measured on the
   air; a console actually waking and the whitening state were not.  Switch 2
   wakes from a flag in its LE advertisement.
 - No root or `/dev/bus/usb` here; use the devices in `/dev/bwrap`.  Do not

@@ -192,21 +192,17 @@ struct profile_wake {
 };
 ```
 
-When the controller connects a slot (not pairing) whose profile has `wake`
-and a bonded console, the first part of `CONNECTING` is the wake: the
-controller calls `step()` at the times it asks for until it reports finished (or
-`stop()` if the connect is abandoned), then calls `bt_start()`.  Whether the
-console woke makes no difference to what happens next: the pad pages it
-either way.  The wake keeps its own state (whitening state, burst timing);
-the controller only knows it is still running.  The radio must be quiet for the wake, which is why it runs
-before `bt_start()`, not inside the session.  Channel and duration are
-constants in `profile_switch_wake.c` (channel 0, 8 s).
+The controller connects first.  When the first attempt of a session fails
+(`BT_EV_FAILED`: the host did not answer the page) and the profile has `wake`
+and a bonded console, the controller stops the radio, runs the wake (calling
+`step()` at the times it asks for, or `stop()` if the connect is abandoned),
+and then starts the session again and pages as usual.  Once per session: a
+console that still does not answer gets the ordinary retries.  The wake keeps
+its own state (whitening state, burst timing); the controller only knows it
+is still running.  The radio must be quiet for the wake, which is why it runs
+between sessions, not inside one.  Channel and duration are constants in
+`profile_switch_wake.c` (channel 0, 1 s: about 30 ms per whitening state).
 There is no separate wake command or gesture.
-
-This puts the wake in front of every connect of a `switch` slot, so a console
-that is already awake answers only after the wake is over (up to the full
-duration).  If that is too slow: page first for a moment, and wake only if the
-console does not answer.
 
 The file contains the access-code and payload generation (pure, unit-tested
 against the known vectors) and the radio register sequence (Jieli-specific; on

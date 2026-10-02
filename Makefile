@@ -8,7 +8,7 @@ FLASH_SIZE := 0x100000
 CODE_LIMIT := 0x50000
 PYTHON := /work/bin/python3
 HOST_CC := gcc
-HOST_CFLAGS := -O2 -g -std=c11 -Wall -Wextra -Wno-unused-function
+HOST_CFLAGS := -O2 -g -std=c11 -Wall -Wextra -Wno-unused-function -Wno-missing-field-initializers
 
 include sdk-br23.mk
 

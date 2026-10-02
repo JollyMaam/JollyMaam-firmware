@@ -8,8 +8,8 @@
  * seen on the air; a console actually waking has not. */
 
 #define CHANNEL      0
-#define DURATION_MS  8000
-#define DWELL_MS     250         /* per whitening state: all 32 fit in 8 s */
+#define DURATION_MS  1000
+#define DWELL_MS     30          /* per whitening state (8 bursts): all 32 fit in 1 s */
 #define INTERVAL     6           /* slots between bursts (3.75 ms) */
 #define BODY         339
 #define SKIP_BITS    34          /* multi-slot header bits before the body */
@@ -304,9 +304,9 @@ int main(void)
     for (j = 4; j < BODY - 3; j++) CHECK(body[j] == body[j % 4]);
     CHECK(!body[BODY - 1] && !body[BODY - 3]);
     memcpy(again, body, BODY);
-    unwhiten(again, BODY, 0x69, SKIP_BITS);
+    unwhiten(again, BODY, seeds[0], SKIP_BITS);
     CHECK(memcmp(again, body, BODY));
-    unwhiten(again, BODY, 0x69, SKIP_BITS);
+    unwhiten(again, BODY, seeds[0], SKIP_BITS);
     CHECK(!memcmp(again, body, BODY));
     return TEST_DONE("profile_switch_wake");
 }
