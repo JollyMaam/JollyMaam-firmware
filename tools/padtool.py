@@ -129,10 +129,11 @@ def log(path, follow):
         except OSError:
             if not follow:
                 raise
-            print("-- pad gone; waiting --", flush=True)
+            print(f"-- pad gone {time.strftime('%H:%M:%S')}; waiting --", flush=True)
             path = wait_for("pad", 3600)
             if not path:
                 return
+            print(f"-- pad back {time.strftime('%H:%M:%S')} --", flush=True)
             continue
         first, n = struct.unpack_from("<II", d)
         text = d[8:8 + n].decode("utf-8", "replace")
