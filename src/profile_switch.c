@@ -745,7 +745,7 @@ static const struct bt_device s2_device = {
 };
 
 const struct profile profile_switch2 = {
-    .name = "switch2", .report_hz = 250, .device = &s2_device,
+    .name = "switch2", .report_hz = 125, .device = &s2_device,
     .begin = s2_begin, .report = s2_report, .write = s2_write, .host = s2_host, .read = s2_read,
 };
 
