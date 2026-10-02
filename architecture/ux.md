@@ -65,7 +65,10 @@ Rules:
   connect, then pair.
 * Buttons not used by any row are ignored and pass through to the host.
 * Connected, Home alone for more than `home_grace_ms` goes to the host as it
-  is held, and chords stop counting.  A release within the grace is a tap.
+  is held; a release within the grace is shown to the host as a tap.  A
+  chord key pressed after Home went to the host takes Home back (the host
+  sees it released) and starts the chord then.  With a grace of 0, Home
+  reaches the host at once, and a chord costs the host a short Home press.
 
 The engine keeps its own tracking state (when Home went down, the chord, the
 rows fired); only the buttons change it.  `ux_ignore_held()` is how the
