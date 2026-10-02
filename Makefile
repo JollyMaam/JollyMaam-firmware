@@ -117,7 +117,7 @@ $(PATCHED_BTCTRLR): $(VENDOR_BTCTRLR) tools/patch_btctrler.py src/build_config.h
 
 # The SDK's linker script, with the heap ending below the retained RAM and the
 # controller's RAM kept clear of the MaskROM boot token.
-$O/sdk_ld.c: $(SDK)/cpu/br23/sdk_ld.c Makefile
+$O/sdk_ld.c: $(SDK)/cpu/br23/sdk_ld.c Makefile $(wildcard src/sdkconfig/*.h)
 	@mkdir -p $(@D)
 	$(Q)sed \
 	  -e 's/^_HEAP_END = RAM_END;/_HEAP_END = RESET_MAILBOX_BEGIN;/' \
@@ -129,7 +129,7 @@ $O/sdk_ld.c: $(SDK)/cpu/br23/sdk_ld.c Makefile
 $O/sdk.ld: $O/sdk_ld.c
 	$(Q)$(CC) $(CFLAGS) $(DEFINES) $(INCLUDES) -D__LD__ -E -P $< -o $@
 
-$O/isd_config.ini: $(SDK)/cpu/br23/tools/isd_config_rule.c
+$O/isd_config.ini: $(SDK)/cpu/br23/tools/isd_config_rule.c $(wildcard src/sdkconfig/*.h)
 	@mkdir -p $(@D)
 	$(Q)$(CC) $(CFLAGS) $(DEFINES) $(INCLUDES) -D__LD__ -E -P $< -o $@
 	$(Q)sed -i -e /^$$/d $@
