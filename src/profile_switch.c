@@ -476,7 +476,10 @@ static struct {
     u8 rumble[2];
     u8 pulse;
     u32 pulse_until;
+    u8 feature_mask, features;   /* command 0x0c; bit 2 is motion */
 } s2;
+
+#define S2_FEATURE_MOTION 0x04
 
 static void s2_flash_read(u32 a, u8 *out, u16 n)
 {
@@ -591,12 +594,21 @@ static u8 s2_command(const u8 *c, u16 n, u8 *out, u32 now, int *bonded)
         memset(out, 0, 12);
         out[4] = 0x07; out[5] = 0x07; out[6] = 0x01;
         return 12;
+    case 0x0c02:                 /* set the mask the enable/disable commands obey */
+        if (n > 8) s2.feature_mask = c[8];
+        memset(out, 0, 4);
+        return 4;
+    case 0x0c03:
+        s2.feature_mask = 0;
+        memset(out, 0, 4);
+        return 4;
     case 0x0c04:
         s2.ready = 1;
-        /* fall through */
-    case 0x0c02:
-    case 0x0c03:
+        if (n > 8) s2.features |= c[8] & s2.feature_mask;
+        memset(out, 0, 4);
+        return 4;
     case 0x0c05:
+        if (n > 8) s2.features &= (u8)~c[8];
         memset(out, 0, 4);
         return 4;
     case 0x1001:
@@ -687,6 +699,9 @@ static void s2_host(u32 now, struct profile_host *h)
 
     h->rumble[0] = pulse ? 0x80 : s2.rumble[0];
     h->rumble[1] = pulse ? 0x80 : s2.rumble[1];
+    /* Motion's 40-byte block in the report is still sent as zeros: its packing
+     * is not known.  The sensor runs so the samples are there when it is. */
+    h->imu = s2.features & S2_FEATURE_MOTION ? IMU_MOTION : IMU_OFF;
 }
 
 static int s2_read(u8 kind, u16 id, u16 offset, u8 *out, u16 max)
@@ -827,9 +842,19 @@ int main(void)
         CHECK(sent[0] == S2_RESPONSE && sent[1 + S2_RESP_PREFIX] == 0x15);
         w.data[3] = 0x03; w.len = 9;
         CHECK(s2_write(&w, 0, &bond) == 1 && bond.ltk[0] == s2.ltk[0]);
-        w.data[0] = 0x0c; w.data[3] = 0x04;
+        struct profile_host h;
+
+        w.data[0] = 0x0c; w.data[3] = 0x02; w.data[8] = 0x2f; w.len = 12;
+        s2_write(&w, 0, &bond);
+        w.data[3] = 0x04;
         s2_write(&w, 0, &bond);
         CHECK(s2.ready && s2_report(&p, 0, out, &id) == S2_REPORT_SIZE && (out[2] & 1));
+        s2_host(0, &h);
+        CHECK(h.imu == IMU_MOTION);
+        w.data[3] = 0x05; w.data[8] = S2_FEATURE_MOTION;
+        s2_write(&w, 0, &bond);
+        s2_host(0, &h);
+        CHECK(h.imu == IMU_OFF);
         memset(&bond, 0, sizeof(bond));
         bond.le_peer[0] = 9;
         CHECK(s2_advertising(&bond, 0, 1, adv) == 31 && adv[16] == 0x81 && adv[17] == 9);
