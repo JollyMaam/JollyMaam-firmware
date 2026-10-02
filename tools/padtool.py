@@ -121,6 +121,11 @@ def status(path):
             f"usb {usb} battery {mv} mV{' low' if low else ''} uptime {up / 1000:.1f} s")
 
 
+def clock():
+    t = time.time()
+    return time.strftime("%H:%M:%S", time.localtime(t)) + f".{int(t * 1000) % 1000:03d}"
+
+
 def log(path, follow):
     seq = 1
     while True:
@@ -129,11 +134,11 @@ def log(path, follow):
         except OSError:
             if not follow:
                 raise
-            print(f"-- pad gone {time.strftime('%H:%M:%S')}; waiting --", flush=True)
+            print(f"-- pad gone {clock()}; waiting --", flush=True)
             path = wait_for("pad", 3600)
             if not path:
                 return
-            print(f"-- pad back {time.strftime('%H:%M:%S')} --", flush=True)
+            print(f"-- pad back {clock()} --", flush=True)
             continue
         first, n = struct.unpack_from("<II", d)
         text = d[8:8 + n].decode("utf-8", "replace")
