@@ -165,7 +165,9 @@ def show_stats(s):
     for k in STEPS:
         print(f"{k:16} {s['step_sums'][k] / n:8.0f} {s['steps'][k]:8} {100 * s['step_sums'][k] / total:5.1f}%")
     per = s["imu"] / s["reports"] if s["reports"] else 0
-    print(f"reports {s['reports']} ({s['reports'] / secs:.1f}/s), {per:.1f} imu samples each")
+    iv = s["interval"]
+    rate = f"{1e6 * iv['count'] / iv['sum']:.1f}/s while sending" if iv["count"] and iv["sum"] else "none sent"
+    print(f"reports {s['reports']} ({rate}), {per:.1f} imu samples each")
     print(f"bluetooth: sent {s['sent']}, replaced before sending {s['replaced']}, "
           f"packets on air {s['acked']} ({s['acked'] / secs:.1f}/s)")
     print(f"input: button changes {s['buttons']}, stick frames {s['frames']} "
