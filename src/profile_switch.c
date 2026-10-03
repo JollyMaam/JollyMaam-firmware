@@ -525,7 +525,7 @@ static void s2_stick(u8 *out, s16 x, s16 y)
 #define S2_ACCEL_SHIFT 15        /* 8192 LSB per g to 1 g = 2^28 */
 
 /* Our sensor axis for each Switch 2 axis, and its sign: x, y, z. */
-static const s8 s2_axis[3] = { 1, 2, 3 };
+static const s8 s2_axis[3] = { 2, -1, 3 };   /* x <- our y, y <- -our x: roll and pitch were swapped (2026-10-02) */
 
 static s32 s2_pick(const s16 v[3], int k, s32 scale, s32 offset_a, const s32 *offset)
 {
