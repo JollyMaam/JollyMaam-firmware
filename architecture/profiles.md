@@ -182,7 +182,8 @@ profile runs the sensor and fills the report's motion block in mode 12, the
 integrated from the gyro (bias-corrected with `imu_gyro_bias()`, starting
 level when motion is turned on), sent as its three smallest components, plus
 the accelerometer (1 g = 2^28).  The console gets no gyro rates.  `s2_axis[]`
-maps our sensor's axes onto the controller's.  The format is in
+maps our sensor's axes onto the controller's (checked in a game on a Switch 2:
+x <- our y, y <- -our x, z <- our z).  The format is in
 `cyclone2-esp32/s2motion/recordings/NOTES.md`.
 
 ## Console wake: `profile_switch_wake.c`
