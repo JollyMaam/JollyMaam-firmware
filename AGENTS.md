@@ -59,6 +59,10 @@ copy, never the SDK.  The linker's stack-size warnings are a vendor lint.
 - Switch 1 wake emission (`src/profile_switch_wake.c`, 1 s after a failed
   page) was measured on the air; a console actually waking and the whitening
   state were not.  Switch 2 wakes from a flag in its LE advertisement.
+- No floating point.  The BR23's FPU is emulated (the SDK's `emu_fpu_*`):
+  float instructions compile, but each traps into an emulator, and per-sample
+  float maths in the Switch 2 motion code slowed the millisecond tick to 5-9 %
+  of real time (everything lagged).  Use fixed point (Q30 with s64 products).
 - No `__attribute__((packed))` in state the loop writes.  With packed stats
   structs the tick interrupt's millisecond count ran at 7 % speed: LTO merges
   the globals into one block, and the unaligned stores to the packed fields

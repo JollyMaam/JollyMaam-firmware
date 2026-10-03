@@ -477,7 +477,7 @@ static struct {
     u8 pulse;
     u32 pulse_until;
     u8 feature_mask, features;   /* command 0x0c; bit 2 is motion */
-    float q[4];                  /* orientation from the gyro, w x y z */
+    s32 q[4];                    /* orientation from the gyro, w x y z, Q30 */
     u32 last_us;
     u16 sample_prev;
     u8 have_last;
@@ -518,53 +518,58 @@ static void s2_stick(u8 *out, s16 x, s16 y)
  * NOTES.md (decoded with PIMU's layout and checked against Joy-Con 2 captures). */
 
 #define S2_MODE_ORIENTATION 12
-#define S2_GYRO_RAD_PER_LSB16 (3.14159265f / 180.0f / 16.0f / 16.0f)  /* 16 LSB per dps, bias in 1/16 */
+#define S2_ONE (1 << 30)         /* fixed point: no FPU on this chip (it is emulated, and slow) */
+/* Half the rotation, in Q30 radians, for gyro in 1/256 dps (16 LSB per dps,
+ * bias in 1/16 LSB) over dt us: pi / 180 / 256 / 1e6 / 2 * 2^30 = 38382 / 2^20. */
+#define S2_HALF_ANGLE(raw, dt) ((s32)(((s64)(raw) * (s64)(dt) * 38382) >> 20))
 #define S2_ACCEL_SHIFT 15        /* 8192 LSB per g to 1 g = 2^28 */
 
 /* Our sensor axis for each Switch 2 axis, and its sign: x, y, z. */
 static const s8 s2_axis[3] = { 1, 2, 3 };
 
-static float s2_component(const s16 v[3], const s32 bias[3], int k)
+static s32 s2_pick(const s16 v[3], int k, s32 scale, s32 offset_a, const s32 *offset)
 {
     int a = (s2_axis[k] < 0 ? -s2_axis[k] : s2_axis[k]) - 1;
-    float r = (float)(v[a] * 16 - bias[a]) * S2_GYRO_RAD_PER_LSB16;
+    s32 r = v[a] * scale - (offset ? offset[a] : offset_a);
 
     return s2_axis[k] < 0 ? -r : r;
 }
 
-static s32 s2_accel(const s16 v[3], int k)
+static s32 s2_mul(s32 a, s32 b)
 {
-    int a = (s2_axis[k] < 0 ? -s2_axis[k] : s2_axis[k]) - 1;
-    s32 r = (s32)v[a] * (1 << S2_ACCEL_SHIFT);
-
-    return s2_axis[k] < 0 ? -r : r;
+    return (s32)(((s64)a * b) >> 30);
 }
 
 /* q <- q * (1, w dt / 2), then normalised (one Newton step: |q| stays near 1). */
 static void s2_integrate(const struct imu_sample *m, const s32 bias[3])
 {
-    float h, w[3], a, b, c, d, n;
+    s32 w[3], a, b, c, d, n, f;
     u32 dt = m->us - s2.last_us;
     int k;
 
     if (!s2.have_last || dt > 20000) dt = 0;
     s2.last_us = m->us;
     s2.have_last = 1;
-    h = (float)dt * 0.5e-6f;
-    for (k = 0; k < 3; k++) w[k] = s2_component(m->gyro, bias, k) * h;
+    for (k = 0; k < 3; k++) w[k] = S2_HALF_ANGLE(s2_pick(m->gyro, k, 16, 0, bias), dt);
     a = s2.q[0]; b = s2.q[1]; c = s2.q[2]; d = s2.q[3];
-    s2.q[0] = a - b * w[0] - c * w[1] - d * w[2];
-    s2.q[1] = b + a * w[0] + c * w[2] - d * w[1];
-    s2.q[2] = c + a * w[1] - b * w[2] + d * w[0];
-    s2.q[3] = d + a * w[2] + b * w[1] - c * w[0];
-    n = s2.q[0] * s2.q[0] + s2.q[1] * s2.q[1] + s2.q[2] * s2.q[2] + s2.q[3] * s2.q[3];
-    n = 1.5f - 0.5f * n;
-    for (k = 0; k < 4; k++) s2.q[k] *= n;
+    s2.q[0] = a - s2_mul(b, w[0]) - s2_mul(c, w[1]) - s2_mul(d, w[2]);
+    s2.q[1] = b + s2_mul(a, w[0]) + s2_mul(c, w[2]) - s2_mul(d, w[1]);
+    s2.q[2] = c + s2_mul(a, w[1]) - s2_mul(b, w[2]) + s2_mul(d, w[0]);
+    s2.q[3] = d + s2_mul(a, w[2]) + s2_mul(b, w[1]) - s2_mul(c, w[0]);
+    n = s2_mul(s2.q[0], s2.q[0]) + s2_mul(s2.q[1], s2.q[1]) + s2_mul(s2.q[2], s2.q[2]) +
+        s2_mul(s2.q[3], s2.q[3]);
+    f = (3 << 29) - (n >> 1);
+    for (k = 0; k < 4; k++) s2.q[k] = s2_mul(s2.q[k], f);
 }
 
 static void s2_put32(u8 *p, u32 v)
 {
     p[0] = (u8)v; p[1] = (u8)(v >> 8); p[2] = (u8)(v >> 16); p[3] = (u8)(v >> 24);
+}
+
+static s32 s2_abs(s32 v)
+{
+    return v < 0 ? -v : v;
 }
 
 static void s2_motion(u8 *out, const struct pad *p)
@@ -581,14 +586,14 @@ static void s2_motion(u8 *out, const struct pad *p)
     delta = (u16)((sample - s2.sample_prev) & 0xfff);
     s2.sample_prev = sample;
     for (k = 1; k < 4; k++)
-        if ((s2.q[k] < 0 ? -s2.q[k] : s2.q[k]) > (s2.q[big] < 0 ? -s2.q[big] : s2.q[big])) big = k;
-    for (k = 0, i = 0; k < 4; k++) {
-        float r;
+        if (s2_abs(s2.q[k]) > s2_abs(s2.q[big])) big = k;
+    /* Each other component as its ratio to the largest, -1..1 mapped to 0..2^32. */
+    for (k = 0; k < 4; k++) {
+        s64 r;
 
         if (k == big) continue;
-        r = s2.q[k] / s2.q[big] * 0.5f + 0.5f;
-        c[(k + 3 - big) % 4] = r >= 1.0f ? 0xffffffffu : r <= 0.0f ? 0 : (u32)(r * 4294967295.0f);
-        i++;
+        r = ((s64)s2.q[k] << 31) / s2.q[big] + ((s64)1 << 31);
+        c[(k + 3 - big) % 4] = r < 0 ? 0 : r > 0xffffffffLL ? 0xffffffffu : (u32)r;
     }
     out[0] = 30;
     memset(b, 0, 30);
@@ -605,7 +610,7 @@ static void s2_motion(u8 *out, const struct pad *p)
     if (p->imu_count) {
         const struct imu_sample *m = &p->imu[p->imu_count - 1];
 
-        for (k = 0; k < 3; k++) s2_put32(b + 16 + 4 * k, (u32)s2_accel(m->accel, k));
+        for (k = 0; k < 3; k++) s2_put32(b + 16 + 4 * k, (u32)s2_pick(m->accel, k, 1 << S2_ACCEL_SHIFT, 0, NULL));
     }
 }
 
@@ -708,7 +713,7 @@ static u8 s2_command(const u8 *c, u16 n, u8 *out, u32 now, int *bonded)
     case 0x0c04:
         s2.ready = 1;
         if (n > 8 && (c[8] & s2.feature_mask & ~s2.features & S2_FEATURE_MOTION)) {
-            s2.q[0] = 1;         /* motion starts level, like a real controller */
+            s2.q[0] = S2_ONE;    /* motion starts level, like a real controller */
             s2.q[1] = s2.q[2] = s2.q[3] = 0;
             s2.have_last = 0;
         }
@@ -854,7 +859,7 @@ static u8 s2_advertising(const struct bt_bond *bond, int pairing, int wake, u8 *
 static u8 s2_begin(const struct profile_session *s)
 {
     memset(&s2, 0, sizeof(s2));
-    s2.q[0] = 1;
+    s2.q[0] = S2_ONE;
     memcpy(s2.address, s->address, 6);
     if (!s->pairing && s->bond) {
         memcpy(s2.ltk, s->bond->ltk, 16);
