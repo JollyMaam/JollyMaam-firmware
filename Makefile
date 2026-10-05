@@ -129,10 +129,11 @@ $O/sdk_ld.c: $(SDK)/cpu/br23/sdk_ld.c Makefile $(wildcard src/sdkconfig/*.h)
 $O/sdk.ld: $O/sdk_ld.c
 	$(Q)$(CC) $(CFLAGS) $(DEFINES) $(INCLUDES) -D__LD__ -E -P $< -o $@
 
-$O/isd_config.ini: $(SDK)/cpu/br23/tools/isd_config_rule.c $(wildcard src/sdkconfig/*.h)
+# PID: what padtool flash checks before writing (a gamepad, not a dongle).
+$O/isd_config.ini: $(SDK)/cpu/br23/tools/isd_config_rule.c $(wildcard src/sdkconfig/*.h) Makefile
 	@mkdir -p $(@D)
 	$(Q)$(CC) $(CFLAGS) $(DEFINES) $(INCLUDES) -D__LD__ -E -P $< -o $@
-	$(Q)sed -i -e /^$$/d $@
+	$(Q)sed -i -e /^$$/d -e 's/^PID = .*;/PID = GS_C2_ADC_DEVICE;/' $@
 
 # Host unit tests: every src/*.c with a UNITTEST block.
 TESTS := $(shell grep -l 'ifdef UNITTEST' src/*.c)

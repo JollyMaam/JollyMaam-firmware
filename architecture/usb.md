@@ -44,6 +44,17 @@ uses, so one tool and one transport cover:
 5. The tool resets the pad.  The firmware starts with empty bonds and default
    settings and calibration.
 
+## Gamepad or dongle
+
+The GameSir dongle has the same chip and the same ROM loader, and in the
+loader both answer "BR23 UBOOT1.00".  An image says what it is for in its
+flash header: the PID, 16 plain bytes at offset 16 (`GS_C2_ADC_DEVICE` for
+the pad, which our build sets; `GS_C2_Dongle`).  Before writing, the tool
+reads the target's header through the loader and compares; when the PID
+there is unknown (our builds before this, a blank flash) it goes by the flash
+chip's size (1 MiB pad, 512 KiB dongle).  A mismatch is refused unless
+forced.
+
 ## Updating this firmware
 
 The same as above, except step 1: the tool sends the "reboot to loader"

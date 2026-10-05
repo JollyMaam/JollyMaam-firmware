@@ -6,7 +6,9 @@
     padtool log [-f]              the pad's log (-f: follow)
     padtool stats [-w SECONDS] [--reset]   loop timing and counters (-w: every N s)
     padtool reboot | loader       restart; restart into the ROM loader
-    padtool flash IMAGE [--backup]
+    padtool flash IMAGE [--backup FILE] [--device SG] [--force]
+                                  only onto the same kind of device: gamepad
+                                  (GS_C2_ADC_DEVICE) or dongle (GS_C2_Dongle)
 
     padtool fields                       every setting: name, values, default, help
     padtool get [TARGET [NAME]]          values; * marks a set one (else default)
@@ -236,34 +238,95 @@ def log(path, follow):
             time.sleep(0.1)
 
 
-def flash(image, backup):
+# What a firmware is for: the PID in the image's flash header (16 plain bytes
+# at 16).  A device in its ROM loader says only "BR23 UBOOT1.00", so it is
+# told by the PID of what is on its flash, or failing that (our older builds
+# say AC635N; a blank flash says nothing) by the size of its flash chip.
+KIND_BY_PID = {"GS_C2_ADC_DEVICE": "gamepad", "GS_C2_Dongle": "dongle"}
+KIND_BY_FLASH = {0x100000: "gamepad", 0x80000: "dongle"}
+
+
+def header_pid(head):
+    return head[16:32].split(b"\xff")[0].split(b"\0")[0].decode("ascii", "replace")
+
+
+def probe(loader):
+    """What a device in its loader is: (kind, PID on its flash, flash size)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        head = os.path.join(tmp, "head.bin")
+        r = subprocess.run([JL_PYTHON, os.path.join(JL_DIR, "jluboottool.py"), "--device", loader,
+                            f"read 0 0x20 {head}"], capture_output=True, text=True)
+        if r.returncode or not os.path.exists(head):
+            return None, "", 0
+        pid = header_pid(open(head, "rb").read())
+    m = [l for l in r.stdout.splitlines() if l.strip().startswith("ID: 0x")]
+    size = 1 << (int(m[0].split("0x")[1], 16) & 0xff) if m else 0
+    return KIND_BY_PID.get(pid) or KIND_BY_FLASH.get(size), pid, size
+
+
+def loaders_of(kind, known=None):
+    """Loaders holding a device of this kind; `known` remembers what was probed."""
+    found, known = [], {} if known is None else known
+    for k, path, _ in devices():
+        if k == "loader" and path not in known:
+            what = known[path] = probe(path)
+            print(f"loader at {path}: {what[0] or 'unknown'} (flash {what[2] // 1024} KiB, "
+                  f"firmware {what[1] or 'none'})")
+        if k == "loader" and known[path][0] == kind:
+            found.append((path, known[path]))
+    return found
+
+
+def flash(image, backup, device=None, force=False):
     data = open(image, "rb").read()
-    loader = find("loader")
-    if not loader:
-        pad = find("pad")
-        if pad:
+    kind = KIND_BY_PID.get(header_pid(data[:32]))
+    if not kind:
+        if not force:
+            sys.exit(f"padtool: {image} is for {header_pid(data[:32]) or 'nothing known'}, "
+                     f"not a gamepad or dongle (--force to write it anyway)")
+        kind = "gamepad"
+    print(f"{image}: {kind} firmware ({header_pid(data[:32])})")
+    if device:
+        what = probe(device)
+        if what[0] != kind and not force:
+            sys.exit(f"padtool: {device} is a {what[0] or 'device not known'}, not a {kind} "
+                     f"(--force to write it anyway)")
+        found = [(device, what)]
+    else:
+        known = {}
+        found = loaders_of(kind, known)
+        if not found and kind == "gamepad" and find("pad"):
             print("asking the pad to restart into its loader")
             try:
-                cmd(pad, 0x11)
+                cmd(find("pad"), 0x11)
             except OSError:
                 pass
-        else:
-            print("no pad and no loader: hold Home+Start and plug the pad in")
-        loader = wait_for("loader", 120)
-        if not loader:
-            sys.exit("padtool: no loader appeared")
-    print(f"loader at {loader}")
+            end = time.time() + 30
+            while not found and time.time() < end:
+                time.sleep(1)
+                found = loaders_of(kind, known)
+        if not found:
+            sys.exit(f"padtool: no {kind} in its loader" +
+                     (" (hold Home+Start and plug the pad in)" if kind == "gamepad" else ""))
+        if len(found) > 1:
+            sys.exit(f"padtool: more than one {kind} in its loader; pick one with --device")
+    loader, (_, _, size) = found[0]
+    if size and len(data) > size:
+        sys.exit(f"padtool: the image ({len(data)} bytes) is larger than the flash ({size})")
+    print(f"writing {loader}")
     with tempfile.TemporaryDirectory() as tmp:
         readback = os.path.join(tmp, "readback.bin")
         args = [JL_PYTHON, os.path.join(JL_DIR, "jluboottool.py"), "--device", loader]
         if backup:
-            os.makedirs(os.path.dirname(backup), exist_ok=True)
-            args.append(f"read 0 {FLASH_SIZE:#x} {backup}")
+            os.makedirs(os.path.dirname(backup) or ".", exist_ok=True)
+            args.append(f"read 0 {size or FLASH_SIZE:#x} {backup}")
         args += [f"write 0 {image}", f"read 0 {len(data):#x} {readback}", "reset"]
         subprocess.run(args, check=True)
         if open(readback, "rb").read() != data:
-            sys.exit("padtool: readback differs; the pad is left in the loader")
+            sys.exit("padtool: readback differs; the device is left in the loader")
     print("written and verified")
+    if kind != "gamepad":
+        return
     pad = wait_for("pad", 30)
     print(f"pad back at {pad}: {identify(pad)}" if pad else "the pad did not come back within 30 s")
 
@@ -519,6 +582,9 @@ def main():
     p.add_argument("--calibration", action="store_true", help="restore-settings: calibration too")
     p.add_argument("-f", "--follow", action="store_true")
     p.add_argument("--backup", help="save the whole flash here before writing")
+    p.add_argument("--device", help="flash: this loader (/dev/bwrap/sgN), not the one found")
+    p.add_argument("--force", action="store_true",
+                   help="flash: write even if image and device do not match")
     p.add_argument("-w", "--watch", type=float, metavar="SECONDS", help="stats: show and reset every N seconds")
     p.add_argument("--reset", action="store_true", help="stats: reset the counters after reading")
     a = p.parse_args()
@@ -541,7 +607,7 @@ def main():
     elif a.command == "flash":
         if len(a.args) != 1:
             sys.exit("padtool flash IMAGE")
-        flash(a.args[0], a.backup)
+        flash(a.args[0], a.backup, a.device, a.force)
     elif a.command == "fields":
         show_fields(need_pad())
     elif a.command == "get":
