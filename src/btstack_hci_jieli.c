@@ -240,6 +240,7 @@ extern void edr_vendor_keep_connect_for_keymiss(u8 enable);
 extern void bt_max_pwr_set(u8 pwr, u8 pg_pwr, u8 iq_pwr, u8 ble_pwr);
 extern void bt_production_test(u8 en);
 extern void P33_CON_SET(u16 addr, u8 start, u8 len, u8 data);
+extern u8 p33_rx_1byte(u16 addr);
 extern const int sniff_support_reset_anchor_point;
 
 static u16 sniff_slots = 24, sniff_attempt = 1;
@@ -255,18 +256,21 @@ void hci_jieli_prepare(u16 slots, u16 attempt)
 
 /* Transmit power for the next session (docs/radio.md): the controller uses
  * the smallest of the step, its normal-mode cap 4 and any fixed level, from
- * the normal table or, after bt_production_test(1), the pro one.  Leaving pro
- * through bt_production_test(0) also drops the radio supply to step 5; this
- * board boots at 7, so that is put back. */
+ * the normal table or, after bt_production_test(1), the pro one.  That call
+ * also sets the radio supply VDC13 (P3_ANA_CON6 bits 0-2): step 7 going in,
+ * 5 (about 1 dB weaker) going out.  The supply is put back as booted. */
+#define P3_ANA_CON6 0x06
+
 void hci_jieli_tx_power(u8 step, u8 pro)
 {
     static u8 was_pro;
 
     bt_max_pwr_set(step, 5, 8, step);
-    if (pro) bt_production_test(1);
-    else if (was_pro) {
-        bt_production_test(0);
-        P33_CON_SET(6, 0, 3, 7);
+    if (pro || was_pro) {
+        u8 vdc13 = p33_rx_1byte(P3_ANA_CON6) & 0x07;
+
+        bt_production_test(pro);
+        P33_CON_SET(P3_ANA_CON6, 0, 3, vdc13);
     }
     was_pro = pro;
 }
