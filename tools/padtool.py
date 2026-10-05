@@ -7,6 +7,8 @@
     padtool stats [-w SECONDS] [--reset]   loop timing and counters (-w: every N s)
     padtool reboot | loader       restart; restart into the ROM loader (for
                                   jlnewfw flash)
+    padtool relink                connected: drop the link and connect again
+                                  (new link settings apply; wakes nothing)
 
     padtool fields                       every setting: name, values, default, help
     padtool get [TARGET [NAME]]          values; * marks a set one (else default)
@@ -493,7 +495,7 @@ def keep(path):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["find", "identify", "status", "log", "stats", "reboot", "loader",
+    p.add_argument("command", choices=["find", "identify", "status", "log", "stats", "reboot", "loader", "relink",
                                        "fields", "get", "set", "reset", "backup-settings",
                                        "restore-settings", "factory-reset", "ephemeral", "keep"])
     p.add_argument("args", nargs="*")
@@ -516,6 +518,8 @@ def main():
             stats(need_pad(), a.watch, a.reset)
         except KeyboardInterrupt:
             pass
+    elif a.command == "relink":
+        cmd(need_pad(), 0x12)
     elif a.command in ("reboot", "loader"):
         cmd(need_pad(), 0x10 if a.command == "reboot" else 0x11)
     elif a.command == "fields":

@@ -129,6 +129,7 @@ enum ctl_kind {
 enum req_kind {
     REQ_NONE, REQ_CONNECT, REQ_PAIR, REQ_DISCONNECT, REQ_SLEEP, REQ_CALIBRATE,
     REQ_REBOOT, REQ_REBOOT_LOADER, REQ_HOME_TAP, REQ_STATS_RESET,
+    REQ_RELINK,              /* connected: take the session down and connect it again */
 };
 
 struct ctl_request {

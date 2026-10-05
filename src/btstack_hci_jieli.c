@@ -238,6 +238,7 @@ extern void lmp_set_sniff_establish_by_remote(u8 enable);
 extern void lmp_sniff_t_slot_attemp_reset(u16 slots, u16 attempt);
 extern void edr_vendor_keep_connect_for_keymiss(u8 enable);
 extern void bt_max_pwr_set(u8 pwr, u8 pg_pwr, u8 iq_pwr, u8 ble_pwr);
+extern void set_bt_data_rate_acl_3mbs_mode(u8 en);
 extern void bt_production_test(u8 en);
 extern void P33_CON_SET(u16 addr, u8 start, u8 len, u8 data);
 extern u8 p33_rx_1byte(u16 addr);
@@ -252,6 +253,11 @@ void hci_jieli_prepare(u16 slots, u16 attempt)
     if (slots) sniff_slots = slots;
     if (attempt) sniff_attempt = attempt;
     edr_vendor_keep_connect_for_keymiss(1);
+    /* The controller leaves 3 Mbit/s EDR out of its features unless told, and
+     * BTstack then never allows 3-DH1: an 80-byte DualShock 4 or DualSense
+     * report took two 2-DH1 packets instead of one, as the stock pad sends it.
+     * Before the host stack reads the features. */
+    set_bt_data_rate_acl_3mbs_mode(1);
 }
 
 /* Transmit power for the next session (docs/radio.md): the controller uses

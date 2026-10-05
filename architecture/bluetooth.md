@@ -182,6 +182,9 @@ These come from failures seen on hardware; see `AGENTS.md`.
 * Input reports, Classic and LE, go through one newest-wins slot with at most
   `in_flight` (default 2) packets in the controller.  Nothing is
   queued.
+* Classic: 3 Mbit/s EDR is switched on in the controller before the host
+  stack reads its features (`hci_jieli_prepare()`); without it 3-DH1 is never
+  allowed and an 80-byte report needs two packets.
 * LE links ask for 251-byte PDUs; at 27 bytes a Switch 2 report took three
   connection events.
 * The run loop sleeps on the transport's wake semaphore, not a timer tick: a

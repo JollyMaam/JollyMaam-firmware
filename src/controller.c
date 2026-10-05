@@ -215,6 +215,16 @@ static void handle(struct ctl_request r, u32 now)
     case REQ_STATS_RESET:
         stats_reset(now);
         break;
+    case REQ_RELINK:
+        /* Only while connected: the host is awake, so reconnecting wakes
+         * nothing.  The new session reads the slot's settings again. */
+        if (c.kind == CTL_CONNECTED) {
+            struct ctl_request again = { REQ_CONNECT, c.slot, 0 };
+
+            util_log("relink slot %u", c.slot);
+            stop(again, now);
+        }
+        break;
     case REQ_REBOOT:
     case REQ_REBOOT_LOADER:
         c.to_loader = r.kind == REQ_REBOOT_LOADER;

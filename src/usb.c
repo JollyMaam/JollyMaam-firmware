@@ -14,7 +14,7 @@
 #define STATS_VERSION 3
 
 enum { CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02, CMD_STATS = 0x03,
-       CMD_REBOOT = 0x10, CMD_REBOOT_LOADER = 0x11,
+       CMD_REBOOT = 0x10, CMD_REBOOT_LOADER = 0x11, CMD_RELINK = 0x12,
        CMD_FIELD = 0x20, CMD_READ = 0x21, CMD_WRITE = 0x22, CMD_COMMIT = 0x23, CMD_DROP = 0x24,
        CMD_EPHEMERAL = 0x25, CMD_RESULT = 0x26 };
 
@@ -82,6 +82,9 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         break;
     case CMD_REBOOT_LOADER:
         pending.kind = REQ_REBOOT_LOADER;
+        break;
+    case CMD_RELINK:
+        pending.kind = REQ_RELINK;
         break;
     case CMD_FIELD:              /* argument: field number */
         n = set_describe(util_get32(cdb + 2), data, max);
