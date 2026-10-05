@@ -78,6 +78,12 @@ key and the offset from the app area's start, not by flash address), so the
 same image is different bytes on chips with different keys. Seen: pads
 `0xffff`; dongles `0x4317` and `0xffff`.
 
+The pad image has a check entry in the 32 bytes before its app area (ENC
+0xffff like the top-level entries, size field the app area's): its data-CRC
+field is the CRC16 of the plain app area, its offset field the CRC16 of the
+encrypted one, so both change when the area is relocated or re-encrypted.
+The dongle image has none (erased there).
+
 The tool also changes the top-level `app_dir_head` (and `app_dir_head2`)
 entry's unused CRC field from `0xffff`, clearing bits: `0x0fff` on both
 dongles, `0x00ff` on the pad. And it stamps the last 32 bytes of PRCT (and on
@@ -93,7 +99,12 @@ erased up to BTIF, the image re-encrypted for it: as distributed (`EOFFSET`
 image boots from 0. The dongle image's `uboot.boot` (0xea4 bytes) is not the
 pad's (0x1fe8); that it fixes the image at 0x10000 is a guess.
 `padtool flash` (and `padtool place`) reproduces the tool's dongle layout
-(identical to the tool's output but for VM and the stamp).
+(identical to the tool's output but for VM and the stamp). `jlnewfw rekey`
+and `jlnewfw place` do the same without knowing pad or dongle (the layout's
+specifics are options); `place` with `--mark 0x00ff` and the stamp kept
+reproduces the second pad's flash but for VM, with `--mark 0x0fff --copy
+0:0:0x1000 --copy 0:0x1000:0x1000 --copy 0x1000:0x2000:0x7000` the dongle's.
+`padtool` does not yet update the pad's check entry.
 
 The chip key is per chip (eFuses; `0xffff` unprogrammed) and readable through
 the loader. The tool re-encrypts the app area (and the resources after it)

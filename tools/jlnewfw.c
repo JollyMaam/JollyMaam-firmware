@@ -641,6 +641,39 @@ static uint8_t *load_image(const char *path, size_t *size) {
   return NULL;
 }
 
+/* ---- the chip-key record --------------------------------------------------
+ * The first 34 bytes of isd_config.ini: 32 bytes and their CRC.  Bit j of the
+ * key is set when byte 16+j XOR byte 15-j is below a threshold taken from
+ * the sum of the first 16 bytes. */
+static uint8_t record_threshold(const uint8_t *d) {
+  uint8_t sum = 0;
+  for (unsigned j = 0; j < 16; j++)
+    sum += d[j];
+  return sum >= 0xe0 ? 0xaa : sum <= 0x10 ? 0x55 : sum;
+}
+static uint16_t record_key(const uint8_t *d) {
+  if (crc16(d, 32) != rd16(d + 32))
+    die("chip-key record CRC mismatch");
+  uint8_t t = record_threshold(d);
+  uint16_t key = 0;
+  for (unsigned j = 0; j < 16; j++)
+    if ((uint8_t)(d[16 + j] ^ d[15 - j]) < t)
+      key |= (uint16_t)(1u << j);
+  return key;
+}
+/* Only the bytes whose bit must change are changed, to some value on the
+ * right side of the threshold. */
+static void set_record_key(uint8_t *d, uint16_t key) {
+  uint8_t t = record_threshold(d);
+  for (unsigned j = 0; j < 16; j++) {
+    uint8_t v = d[16 + j] ^ d[15 - j];
+    bool want = key >> j & 1;
+    if ((v < t) != want)
+      d[16 + j] = d[15 - j] ^ (uint8_t)(want ? v % t : t + v % (256 - t));
+  }
+  wr16(d + 32, crc16(d, 32));
+}
+
 static void inspect(const char *path, const char *outdir, bool extract) {
   size_t n;
   uint8_t *image = load_image(path, &n), fh[32];
@@ -652,8 +685,9 @@ static void inspect(const char *path, const char *outdir, bool extract) {
   memcpy(vid, fh + 4, 4);
   memcpy(pid, fh + 16, 16);
   printf("base=0x%x burner=%u vid=%s flash_size=0x%x fs=%u align=%u "
-         "special=0x%02x pid=%s\n",
-         base, rd16(fh + 2), vid, rd32(fh + 8), fh[12], fh[13], fh[15], pid);
+         "special=0x%02x pid=%s eoffset=%u\n",
+         base, rd16(fh + 2), vid, rd32(fh + 8), fh[12], fh[13], fh[15], pid,
+         eoffset(image, n, base));
   if (extract)
     ensure_dir(outdir);
   struct entry top[MAX_FILES];
@@ -704,19 +738,8 @@ static void inspect(const char *path, const char *outdir, bool extract) {
   for (size_t i = 0; i < nt; i++) {
     char name[17];
     name_string(name, top[i].name);
-    if (!strcmp(name, "isd_config.ini") && top[i].size >= 34) {
-      const uint8_t *d = image + base + top[i].offset;
-      if (crc16(d, 32) != rd16(d + 32))
-        die("chip-key record CRC mismatch");
-      uint8_t sum = 0;
-      for (unsigned j = 0; j < 16; j++)
-        sum += d[j];
-      uint8_t t = sum >= 0xe0 ? 0xaa : sum <= 0x10 ? 0x55 : sum;
-      chipkey = 0;
-      for (unsigned j = 0; j < 16; j++)
-        if ((uint8_t)(d[16 + j] ^ d[15 - j]) < t)
-          chipkey |= 1u << j;
-    }
+    if (!strcmp(name, "isd_config.ini") && top[i].size >= 34)
+      chipkey = record_key(image + base + top[i].offset);
   }
   uint8_t oh[32];
   memcpy(oh, image + appbase, 32);
@@ -761,11 +784,330 @@ static void inspect(const char *path, const char *outdir, bool extract) {
   free(image);
 }
 
+
+/* ---- rekey and place ---------------------------------------------------------
+ * Both work on the image whose header find_base() picks, held from its
+ * header on.  Offsets in its top-level table are relative to the header;
+ * those of PRCT, VM and BTIF in the app area are flash addresses. */
+
+struct top_table {
+  struct entry e[MAX_FILES];
+  uint32_t at[MAX_FILES]; /* where each entry is, from the header */
+  size_t n;
+};
+static void read_top(const uint8_t *img, size_t n, struct top_table *t) {
+  t->n = 0;
+  for (uint32_t off = 32; off + 32 <= n && t->n < MAX_FILES; off += 32) {
+    uint8_t h[32];
+    memcpy(h, img + off, 32);
+    jl_enc(h, 32, 0xffff);
+    if (!decode_entry(h, &t->e[t->n]))
+      die("top-level header CRC mismatch");
+    t->at[t->n] = off;
+    if (t->e[t->n++].index)
+      break;
+  }
+}
+static int top_find(const struct top_table *t, const char *want) {
+  for (size_t i = 0; i < t->n; i++) {
+    char name[17];
+    name_string(name, t->e[i].name);
+    if (!strcmp(name, want))
+      return (int)i;
+  }
+  return -1;
+}
+static void top_store(uint8_t *img, const struct top_table *t, size_t i) {
+  encode_entry(img + t->at[i], &t->e[i]);
+  jl_enc(img + t->at[i], 32, 0xffff);
+}
+static uint16_t image_key(const uint8_t *img, const struct top_table *t) {
+  int i = top_find(t, "isd_config.ini");
+  if (i < 0 || t->e[i].size < 34)
+    die("no isd_config.ini chip-key record");
+  return record_key(img + t->e[i].offset);
+}
+
+/* Re-encrypt the image for `key` and make its chip-key record say so (with
+ * isd_config.ini's CRC in the table).  What is encrypted is the app area and
+ * what follows it (resources) up to raw 0xff padding before the end of PRCT;
+ * the cipher counts from the app area's start, so the bytes do not depend on
+ * where on flash they sit.  With `relocate`, PRCT and VM become those of an
+ * image at flash address `at` (VM from the end of PRCT to BTIF).  The image
+ * grows to cover what it encrypts; returns the PRCT length. */
+static uint32_t recrypt(uint8_t **imgp, size_t *n, uint16_t key, bool relocate,
+                        uint32_t at, uint32_t *btif_out) {
+  struct top_table t;
+  read_top(*imgp, *n, &t);
+  uint16_t old = image_key(*imgp, &t);
+  int ai = top_find(&t, "app_dir_head");
+  if (ai < 0)
+    die("no app_dir_head");
+  uint32_t app = t.e[ai].offset;
+  if ((uint64_t)app + 32 > *n)
+    die("app area outside the image");
+  uint8_t oh[32];
+  memcpy(oh, *imgp + app, 32);
+  jl_sfc(oh, 0, 32, 0, old);
+  struct entry outer;
+  if (!decode_entry(oh, &outer) || (uint64_t)app + outer.size > *n)
+    die("application-area header CRC mismatch");
+  uint8_t *plain = malloc(outer.size);
+  if (!plain)
+    die("out of memory");
+  memcpy(plain, *imgp + app, outer.size);
+  jl_sfc(plain, 0, outer.size, 0, old);
+  if (crc16(plain + 32, outer.size - 32) != outer.data_crc)
+    die("application-area data CRC mismatch (wrong key?)");
+  uint32_t prct = 0, vm = 0, btif = 0, code = 0;
+  struct entry prct_e = {0}, vm_e = {0};
+  for (uint32_t off = 32; off + 32 <= outer.size; off += 32) {
+    struct entry e;
+    if (!decode_entry(plain + off, &e))
+      die("nested header CRC mismatch");
+    char name[17];
+    name_string(name, e.name);
+    if (!strcmp(name, "PRCT"))
+      prct = off, prct_e = e, code = e.size;
+    if (!strcmp(name, "VM"))
+      vm = off, vm_e = e;
+    if (!strcmp(name, "BTIF"))
+      btif = e.offset;
+    if (e.index)
+      break;
+  }
+  if (!prct || code <= app)
+    die("no PRCT entry");
+  free(plain);
+  /* Grow to PRCT's end with padding, find where the padding starts. */
+  size_t length = *n;
+  if (*n < code) {
+    *imgp = realloc(*imgp, code);
+    if (!*imgp)
+      die("out of memory");
+    memset(*imgp + *n, 0xff, code - *n);
+    *n = code;
+  }
+  uint8_t *img = *imgp;
+  uint32_t used = code - app;
+  while (used && img[app + used - 1] == 0xff)
+    used--;
+  jl_sfc(img, app, used, app, old);
+  if (relocate) {
+    if (!vm || !btif || at + code > btif)
+      die("cannot place: PRCT, VM or BTIF missing, or the image runs into BTIF");
+    prct_e.offset = at;
+    encode_entry(img + app + prct, &prct_e);
+    vm_e.offset = at + code;
+    vm_e.size = btif - at - code;
+    encode_entry(img + app + vm, &vm_e);
+    outer.data_crc = crc16(img + app + 32, outer.size - 32);
+    encode_entry(img + app, &outer);
+  }
+  /* Some images (a pad's) have a check entry right before the app area, its
+   * size the area's: data CRC of the plain area, offset field the CRC of the
+   * encrypted one. */
+  struct entry check;
+  uint8_t ch[32];
+  bool has_check = false;
+  if (app >= 32) {
+    memcpy(ch, img + app - 32, 32);
+    jl_enc(ch, 32, 0xffff);
+    has_check = decode_entry(ch, &check) && check.size == outer.size;
+  }
+  if (has_check)
+    check.data_crc = crc16(img + app, outer.size);
+  jl_sfc(img, app, used, app, key);
+  if (has_check) {
+    check.offset = crc16(img + app, outer.size);
+    encode_entry(img + app - 32, &check);
+    jl_enc(img + app - 32, 32, 0xffff);
+  }
+  int ci = top_find(&t, "isd_config.ini");
+  uint8_t *rec = img + t.e[ci].offset;
+  set_record_key(rec, key);
+  t.e[ci].data_crc = crc16(rec, t.e[ci].size);
+  top_store(img, &t, (size_t)ci);
+  if (*n > length && length < app + used)
+    *n = app + used;
+  else if (*n > length)
+    *n = length;
+  if (btif_out)
+    *btif_out = btif;
+  return code;
+}
+
+/* The image (from its header on) out of a file: copied, the rest dropped. */
+static uint8_t *the_image(const char *path, size_t *n, uint32_t *base) {
+  size_t fn;
+  uint8_t *file = load_image(path, &fn), fh[32];
+  *base = find_base(file, fn, fh);
+  *n = fn - *base;
+  uint8_t *img = malloc(*n ? *n : 1);
+  if (!img)
+    die("out of memory");
+  memcpy(img, file + *base, *n);
+  free(file);
+  return img;
+}
+
+static void cmd_rekey(int argc, char **argv) {
+  if (argc != 3)
+    die("usage: jlnewfw rekey IMAGE KEY OUT");
+  size_t n;
+  uint32_t base;
+  uint8_t *img = the_image(argv[0], &n, &base);
+  struct top_table t;
+  read_top(img, n, &t);
+  uint16_t old = image_key(img, &t), key = (uint16_t)number(argv[1]);
+  recrypt(&img, &n, key, false, 0, NULL);
+  write_file(argv[2], img, n);
+  printf("wrote %s: chip key 0x%04x -> 0x%04x (image at 0x%x in %s, written "
+         "from its header on)\n",
+         argv[2], old, key, base, argv[0]);
+}
+
+static void range_arg(const char *s, uint32_t *a, uint32_t *b, uint32_t *c,
+                      int parts) {
+  char buf[128];
+  snprintf(buf, sizeof buf, "%s", s);
+  char *p = buf, *q;
+  uint32_t *out[3] = {a, b, c};
+  for (int i = 0; i < parts; i++) {
+    q = strchr(p, ':');
+    if ((q == NULL) != (i == parts - 1))
+      die("bad range: want ADDR:LEN or FROM:TO:LEN");
+    if (q)
+      *q = 0;
+    *out[i] = number(p);
+    p = q ? q + 1 : p;
+  }
+}
+
+static void cmd_place(int argc, char **argv) {
+  const char *in = NULL, *out = NULL, *keep = NULL;
+  uint32_t at = 0, size = 0, mark = 0, key = 0;
+  bool have_at = false, have_mark = false, have_key = false;
+  uint32_t copies[16][3], keeps[16][2];
+  size_t nc = 0, nk = 0;
+  for (int i = 0; i < argc; i++) {
+    if (!strcmp(argv[i], "--at") && ++i < argc)
+      at = number(argv[i]), have_at = true;
+    else if (!strcmp(argv[i], "--size") && ++i < argc)
+      size = number(argv[i]);
+    else if (!strcmp(argv[i], "--key") && ++i < argc)
+      key = number(argv[i]), have_key = true;
+    else if (!strcmp(argv[i], "--mark") && ++i < argc)
+      mark = number(argv[i]), have_mark = true;
+    else if (!strcmp(argv[i], "--copy") && ++i < argc && nc < 16)
+      range_arg(argv[i], &copies[nc][0], &copies[nc][1], &copies[nc][2], 3),
+          nc++;
+    else if (!strcmp(argv[i], "--keep") && ++i < argc)
+      keep = argv[i];
+    else if (!strcmp(argv[i], "--keep-range") && ++i < argc && nk < 16)
+      range_arg(argv[i], &keeps[nk][0], &keeps[nk][1], NULL, 2), nk++;
+    else if (argv[i][0] == '-')
+      die("unknown place option");
+    else if (!in)
+      in = argv[i];
+    else if (!out)
+      out = argv[i];
+    else
+      die("place takes one IMAGE and one OUT");
+  }
+  if (!in || !out)
+    die("usage: jlnewfw place [options] IMAGE OUT");
+  size_t n;
+  uint32_t base;
+  uint8_t *img = the_image(in, &n, &base);
+  struct top_table t;
+  read_top(img, n, &t);
+  if (!have_at)
+    at = eoffset(img, n, 0) * 0x1000;
+  if (!size) {
+    int k = top_find(&t, "key_mac");
+    if (k < 0)
+      die("no key_mac entry to take the flash size from; give --size");
+    size = t.e[k].offset + t.e[k].size;
+  }
+  uint16_t old = image_key(img, &t);
+  uint32_t btif;
+  uint32_t code = recrypt(&img, &n, have_key ? (uint16_t)key : old, true, at,
+                          &btif);
+  if (n < code) {
+    img = realloc(img, code);
+    if (!img)
+      die("out of memory");
+    memset(img + n, 0xff, code - n);
+  }
+  n = code;
+  if (have_mark) {
+    read_top(img, n, &t);
+    for (size_t i = 0; i < t.n; i++)
+      if (t.e[i].flags == 0x81) { /* app directories */
+        t.e[i].data_crc = (uint16_t)mark;
+        top_store(img, &t, i);
+      }
+  }
+  if ((uint64_t)at + n > size)
+    die("the image does not fit the flash at that address");
+  uint8_t *flash = malloc(size);
+  if (!flash)
+    die("out of memory");
+  memset(flash, 0xff, size);
+  memcpy(flash + at, img, n);
+  for (size_t i = 0; i < nc; i++) {
+    if ((uint64_t)copies[i][0] + copies[i][2] > n ||
+        (uint64_t)copies[i][1] + copies[i][2] > size)
+      die("--copy outside the image or the flash");
+    memcpy(flash + copies[i][1], img + copies[i][0], copies[i][2]);
+  }
+  if (keep) {
+    size_t dn;
+    uint8_t *dump = read_file(keep, &dn);
+    if (dn < size)
+      die("--keep: the dump is smaller than the flash");
+    memcpy(flash + btif, dump + btif, size - btif); /* BTIF, key_mac */
+    for (size_t i = 0; i < nk; i++) {
+      if ((uint64_t)keeps[i][0] + keeps[i][1] > size)
+        die("--keep-range outside the flash");
+      memcpy(flash + keeps[i][0], dump + keeps[i][0], keeps[i][1]);
+    }
+    free(dump);
+  } else if (nk) {
+    die("--keep-range needs --keep");
+  }
+  write_file(out, flash, size);
+  printf("wrote %s: 0x%x bytes, image (0x%x) at 0x%x, chip key 0x%04x, "
+         "VM 0x%x-0x%x\n",
+         out, size, (unsigned)n, at, have_key ? key : old, at + code, btif);
+}
+
 static void usage(void) {
-  puts("usage:\n  jlnewfw list IMAGE\n  jlnewfw verify IMAGE\n  jlnewfw unpack "
-       "IMAGE DIRECTORY\n  jlnewfw pack [--flash-size SIZE] "
-       "[--code-limit ADDRESS] -c isd_config.ini "
-       "-u uboot.boot -o jl_isd.bin app.bin [cfg_tool.bin ...]");
+  puts(
+      "usage:\n"
+      "  jlnewfw list IMAGE\n"
+      "  jlnewfw verify IMAGE\n"
+      "  jlnewfw unpack IMAGE DIRECTORY\n"
+      "  jlnewfw pack [--flash-size SIZE] [--code-limit ADDRESS] [-k KEY]\n"
+      "               -c isd_config.ini -u uboot.boot -o jl_isd.bin app.bin "
+      "[cfg_tool.bin ...]\n"
+      "  jlnewfw rekey IMAGE KEY OUT\n"
+      "  jlnewfw place [--at ADDR] [--size SIZE] [--key KEY] [--mark VALUE]\n"
+      "                [--copy FROM:TO:LEN]... [--keep DUMP [--keep-range "
+      "ADDR:LEN]...] IMAGE OUT\n"
+      "\n"
+      "An IMAGE is read from the header the boot code would take (EOFFSET is\n"
+      "followed).  KEY is a chip key: the app area is encrypted for one\n"
+      "(pack: -k, default 0xffff).\n"
+      "  rekey  re-encrypts for KEY and rewrites the chip-key record.\n"
+      "  place  writes a whole flash: the image at ADDR (default: its EOFFSET\n"
+      "         x 4 KiB) with PRCT and VM moved there (VM up to BTIF),\n"
+      "         optionally re-encrypted for KEY; SIZE defaults to the end of\n"
+      "         key_mac.  --mark sets the app directories' data-CRC field\n"
+      "         (unused by the format).  --copy copies image bytes FROM (offset in the\n"
+      "         image) to flash address TO.  --keep takes BTIF and key_mac,\n"
+      "         and each --keep-range, from a dump of the device.");
 }
 int main(int argc, char **argv) {
   if (argc < 2) {
@@ -774,6 +1116,14 @@ int main(int argc, char **argv) {
   }
   if (!strcmp(argv[1], "pack")) {
     cmd_pack(argc - 2, argv + 2);
+    return 0;
+  }
+  if (!strcmp(argv[1], "rekey")) {
+    cmd_rekey(argc - 2, argv + 2);
+    return 0;
+  }
+  if (!strcmp(argv[1], "place")) {
+    cmd_place(argc - 2, argv + 2);
     return 0;
   }
   if (!strcmp(argv[1], "list") && argc == 3) {
