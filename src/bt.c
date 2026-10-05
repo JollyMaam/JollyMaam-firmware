@@ -890,6 +890,14 @@ static int on_get_report(u16 cid, hid_report_type_t type, u16 id, int *len, u8 *
     return 1;
 }
 
+/* att_server also hands its handler LE connection and disconnection events
+ * (deprecated forwarding), which on_event already has from HCI. */
+static void on_att(u8 type, u16 channel, u8 *packet, u16 size)
+{
+    if (type == HCI_EVENT_PACKET && hci_event_packet_get_type(packet) == ATT_EVENT_CAN_SEND_NOW)
+        on_event(type, channel, packet, size);
+}
+
 /* ---- sessions ----------------------------------------------------------------------- */
 
 static void setup_classic(void)
@@ -954,7 +962,7 @@ static void setup_le(void)
         sm_add_event_handler(&sm_registration);
     }
     att_server_init(dev->att_db, att_read, att_write);
-    att_server_register_packet_handler(on_event);
+    att_server_register_packet_handler(on_att);
 }
 
 static void setup(void)
