@@ -250,15 +250,31 @@ def header_pid(head):
     return head[16:32].split(b"\xff")[0].split(b"\0")[0].decode("ascii", "replace")
 
 
+def valid_header(head):
+    """A flash header: ENC'd with key 0xffff, its first two bytes a CRC of the rest."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import dongle_place
+    h = dongle_place.enc(head[:32], 0xffff)
+    return (h[0] | h[1] << 8) and dongle_place.crc16(h[2:32]) == h[0] | h[1] << 8
+
+
 def probe(loader):
-    """What a device in its loader is: (kind, PID on its flash, flash size, chip key)."""
+    """What a device in its loader is: (kind, PID on its flash, flash size, chip key).
+    The header is at 0 on a pad written raw (ours, or factory), at 0x1000 on a pad
+    and at 0x10000 on a dongle GameSir's tool upgraded (stale copies before it)."""
     with tempfile.TemporaryDirectory() as tmp:
-        head = os.path.join(tmp, "head.bin")
-        r = subprocess.run([JL_PYTHON, os.path.join(JL_DIR, "jluboottool.py"), "--device", loader,
-                            f"read 0 0x20 {head}"], capture_output=True, text=True)
-        if r.returncode or not os.path.exists(head):
+        heads = [os.path.join(tmp, f"head{i}.bin") for i in range(3)]
+        r = subprocess.run([JL_PYTHON, os.path.join(JL_DIR, "jluboottool.py"), "--device", loader]
+                           + [f"read {a:#x} 0x20 {h}" for a, h in zip((0x10000, 0x1000, 0), heads)],
+                           capture_output=True, text=True)
+        if r.returncode or not all(os.path.exists(h) for h in heads):
             return None, "", 0, None
-        pid = header_pid(open(head, "rb").read())
+        pid = ""
+        for h in heads:
+            head = open(h, "rb").read()
+            if valid_header(head):
+                pid = header_pid(head)
+                break
     m = [l for l in r.stdout.splitlines() if l.strip().startswith("ID: 0x")]
     size = 1 << (int(m[0].split("0x")[1], 16) & 0xff) if m else 0
     k = [l for l in r.stdout.splitlines() if "Chip key: 0x" in l]

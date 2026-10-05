@@ -512,17 +512,52 @@ static void name_string(char out[17], const uint8_t raw[16]) {
     out[i] = (char)raw[i];
   out[i] = 0;
 }
+static bool header_at(const uint8_t *p, size_t n, uint32_t o, uint8_t clear[32]) {
+  if ((uint64_t)o + 32 > n)
+    return false;
+  memcpy(clear, p + o, 32);
+  jl_enc(clear, 32, 0xffff);
+  return rd16(clear) && crc16(clear + 2, 30) == rd16(clear);
+}
+/* EOFFSET from the isd_config.ini of the image at `o`, in 4 KiB units: where
+ * the boot code takes the image from.  0 when there is none. */
+static uint32_t eoffset(const uint8_t *p, size_t n, uint32_t o) {
+  for (uint32_t off = o + 32; (uint64_t)off + 32 <= n && off < o + 0x400; off += 32) {
+    uint8_t h[32];
+    struct entry e;
+    memcpy(h, p + off, 32);
+    jl_enc(h, 32, 0xffff);
+    if (!decode_entry(h, &e))
+      return 0;
+    char name[17];
+    name_string(name, e.name);
+    if (!strcmp(name, "isd_config.ini") && (uint64_t)o + e.offset + e.size <= n) {
+      const uint8_t *d = p + o + e.offset;
+      for (uint32_t i = 0; i + 12 <= e.size; i++)
+        if (!memcmp(d + i, "EOFFSET", 8))
+          return rd32(d + i + 8);
+      return 0;
+    }
+    if (e.index)
+      return 0;
+  }
+  return 0;
+}
+/* The first valid header, or, when its EOFFSET points at another valid one,
+ * that: an upgraded dongle keeps stale copies at 0 and 0x1000 and boots the
+ * image at 0x10000 (EOFFSET 16). */
 static uint32_t find_base(const uint8_t *p, size_t n, uint8_t clear[32]) {
   static const uint32_t candidates[] = {0,       0x1000,   0x10000,
                                         0x80000, 0x100000, 0x180000};
   for (size_t i = 0; i < sizeof candidates / sizeof *candidates; i++) {
     uint32_t o = candidates[i];
-    if ((uint64_t)o + 32 > n)
+    if (!header_at(p, n, o, clear))
       continue;
-    memcpy(clear, p + o, 32);
-    jl_enc(clear, 32, 0xffff);
-    if (rd16(clear) && crc16(clear + 2, 30) == rd16(clear))
-      return o;
+    uint32_t e = eoffset(p, n, o) * 0x1000;
+    if (e && e != o && e < n && header_at(p, n, e, clear))
+      return e;
+    header_at(p, n, o, clear);
+    return o;
   }
   die("no valid new-firmware flash header found");
   return 0;

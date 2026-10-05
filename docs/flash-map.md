@@ -51,3 +51,47 @@ flashing tool. Full-device backups must cover `0x100000`, not just 512 KiB.
 
 Evidence: decoded pad flash dumps, `tools/jlnewfw.c`, `Makefile`,
 `src/sdkconfig/board_config.h`, generated `build/isd_config.ini`.
+
+## Where GameSir's flash tool puts an image
+
+The distributed images (`fw_3.52.bin`, `donglefw_1.21.bin`) are built for flash
+address 0, with PRCT at 0 and VM right after the code. Written raw at 0 they
+verify, and the pad boots one (its stock backup here is exactly `fw_3.52.bin`
+at 0). GameSir's Windows tool instead places the image at `EOFFSET` × 4 KiB
+from `isd_config` (pad 1: `0x1000`; dongle 16: `0x10000`), as read back from
+two dongles and a pad it upgraded:
+
+| | pad (3.52) | dongle (1.21) |
+|---|---|---|
+| image | `0x1000` | `0x10000` |
+| `0x0000` | erased but for the stamp (below) | copy of the image's first 4 KiB |
+| `0x1000` | the image | copy of the image's first 4 KiB |
+| `0x2000..0x9000` | the image | copy of `image[0x1000:0x8000]` |
+| PRCT entry | `0x1000`, length unchanged | `0x10000`, length unchanged |
+| VM entry | end of PRCT to BTIF (`0xf7000`, 28 KiB) | end of PRCT to BTIF (`0x61000`, 116 KiB) |
+| BTIF, key_mac | kept | kept |
+
+The PRCT and VM entries sit in the encrypted app area: the tool decrypts it
+with the chip key, rewrites them, fixes the entry and area CRCs and
+re-encrypts. The app area is encrypted per chip (`jl_sfc`, keyed by the chip
+key and the offset from the app area's start, not by flash address), so the
+same image is different bytes on chips with different keys. Seen: pads
+`0xffff`; dongles `0x4317` and `0xffff`.
+
+The tool also changes the top-level `app_dir_head` (and `app_dir_head2`)
+entry's unused CRC field from `0xffff`, clearing bits: `0x0fff` on both
+dongles, `0x00ff` on the pad. And it stamps the last 32 bytes of PRCT (and on
+the pad also of the first 4 KiB) with the PID, 8 bytes the same on every
+device (`66 75 01 04 2f ff 00 10`) and 6 that changed when the same dongle was
+upgraded again; the firmware does not contain the PID string. Neither is
+understood.
+
+A dongle `donglefw_1.21.bin` written raw at 0 did not boot (the ROM loader
+came up instead), where the pad's raw image does; why is not established.
+`tools/dongle_place.py` reproduces the tool's dongle layout (identical to the
+tool's output but for VM and the stamp) and `padtool flash` takes dongle
+images only in that layout. `jlnewfw` follows `EOFFSET` to the image a
+device boots.
+
+Evidence: `/shared/gamesir-firmware/dongleflash_*`,
+`padflash_3.52_second_pad_official_full_1m.bin`, the stock pad backup.
