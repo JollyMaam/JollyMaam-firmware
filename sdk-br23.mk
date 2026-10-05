@@ -11,6 +11,7 @@ SYS_INC_DIR := $(TOOL_DIR)/../include
 
 SDK_UBOOT := $(SDK)/cpu/br23/tools/uboot.boot
 SDK_CONFIG_TOOL := $(SDK)/cpu/br23/tools/cfg_tool.bin
+SDK_LOADER := $(SDK)/cpu/br23/tools/br23loader.bin
 
 SDK_CFLAGS := \
 	-target pi32v2 \

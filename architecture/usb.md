@@ -39,8 +39,8 @@ uses, so one tool and one transport cover:
 2. The tool finds the device by its UBOOT1.00 inquiry string.
 3. The tool reads the whole flash and keeps it as the user's backup: that is
    the way back to stock.
-4. The tool writes the image and verifies it by reading back, as
-   `tools/flash.sh` does now.
+4. The tool writes the image and verifies it by reading back
+   (`jlnewfw flash`).
 5. The tool resets the pad.  The firmware starts with empty bonds and default
    settings and calibration.
 
@@ -49,19 +49,20 @@ uses, so one tool and one transport cover:
 The GameSir dongle has the same chip and the same ROM loader, and in the
 loader both answer "BR23 UBOOT1.00".  An image says what it is for in its
 flash header: the PID, 16 plain bytes at offset 16 (`GS_C2_ADC_DEVICE` for
-the pad, which our build sets; `GS_C2_Dongle`).  Before writing, the tool
-reads the target's header through the loader and compares; when the PID
-there is unknown (our builds before this, a blank flash) it goes by the flash
-chip's size (1 MiB pad, 512 KiB dongle).  A mismatch is refused unless
-forced.
+the pad, which our build sets; `GS_C2_Dongle`).  Before writing, `jlnewfw
+flash` reads the target's header through the loader (at 0, 0x1000 or
+0x10000, following `EOFFSET`) and refuses an image with another PID, or none
+there (a blank flash, our builds before the PID was set), unless
+`--force-pid`; and an image encrypted for another chip key unless
+`--force-key` (`flashpack` packs for the chip's key).
 
 A dongle does not boot from 0: its `isd_config` says `EOFFSET` 16 (4 KiB
 units), and GameSir's tool puts the image at 0x10000, points the app area's
 PRCT and VM entries at real flash addresses, and copies the first 4 KiB to 0
-and 0x1000 (read back from a dongle it upgraded).  `padtool flash` does the
-same with a distributed image (`donglefw_*.bin`), keeping the dongle's own
-BTIF, key_mac and stamp, and only onto the chip key the image was encrypted
-for; `padtool place` writes that layout to a file.
+and 0x1000 (read back from a dongle it upgraded).  `jlnewfw unpack` of a
+distributed image (`donglefw_*.bin`) and `jlnewfw flashpack` with `--mark
+0x0fff --copy 0:0:0x1000 --copy 0:0x1000:0x1000 --copy 0x1000:0x2000:0x7000
+--keep 0x60fe0:32` write it the same way (docs/flash-map.md).
 
 ## Updating this firmware
 
@@ -134,7 +135,7 @@ platform's, read by the controller for sleep decisions.
 The command set above is the contract.  Two clients use it:
 
 * `tools/padtool.py` (Linux, SG_IO): `find`, `identify`, `status`,
-  `log [-f]`, `reboot`, `loader`, `flash IMAGE [--backup]`.  Flashing goes
-  through the loader with the Jieli `jluboottool`.  Still to come: `restore`
-  (a backup is a whole flash image, so it is `flash` of the backup), Windows.
+  `log [-f]`, `stats`, `reboot`, `loader`, settings.  Flashing is
+  `tools/jlnewfw.c`'s, through the ROM loader (a backup is a whole flash
+  image: `jlnewfw flash` of the backup restores it).  Still to come: Windows.
 * an Android app, later, for users without a PC.

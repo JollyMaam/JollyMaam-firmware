@@ -20,18 +20,23 @@ references are in [docs/](docs/README.md).
 
     PATH=/work/bin:$PATH make -j32
     PATH=/work/bin:$PATH make test        # every src/*.c with an #ifdef UNITTEST block, host cc
-    PATH=/work/bin:$PATH make flash       # over USB; reboots into the loader and back
+    PATH=/work/bin:$PATH make flash       # over USB: padtool loader, then jlnewfw flash
 
 `tools/padtool.py` talks to the running pad over USB (vendor SCSI commands on
 the mass-storage interface, `/dev/bwrap/sg*`): `identify`, `status`,
-`log [-f]`, `stats [-w SECONDS]`, `reboot`, `loader`, `flash IMAGE [--backup]`
-(only onto the same kind of device as the image's PID says: gamepad
-`GS_C2_ADC_DEVICE`, as our build sets it, or dongle `GS_C2_Dongle`),
-and settings: `fields`, `get`, `set`, `reset`, `backup-settings`,
-`restore-settings`, `factory-reset`, `ephemeral`, `keep` (`padtool --help`).
-The log is a RAM ring that survives a reboot.  A pad that does not enumerate is recovered by
-holding Home+Start while plugging in USB (ROM loader, UBOOT1.00), then
-`padtool flash`.
+`log [-f]`, `stats [-w SECONDS]`, `reboot`, `loader`, and settings:
+`fields`, `get`, `set`, `reset`, `backup-settings`, `restore-settings`,
+`factory-reset`, `ephemeral`, `keep` (`padtool --help`).  The log is a RAM
+ring that survives a reboot.
+
+`tools/jlnewfw.c` (`build/jlnewfw`) is the image and flashing tool: `list`,
+`unpack`, `pack`, and `flash`/`flashpack` through the chip's ROM loader with
+the SDK's loader blob (`--loader $(SDK)/cpu/br23/tools/br23loader.bin`).  It
+writes only onto a device whose flash holds the image's PID (our build:
+`GS_C2_ADC_DEVICE`; the dongle: `GS_C2_Dongle`) and encrypted for the chip's
+key; `--force-pid` for a blank device or a deliberate change.  A pad that
+does not enumerate is recovered by holding Home+Start while plugging in USB
+(ROM loader, UBOOT1.00), then `make flash`.
 
 What can be tuned by hand: Home gestures, timeouts and LED scenes in
 `src/settings_ux.c`; setting defaults (the field table) and the default

@@ -98,8 +98,8 @@ erased up to BTIF, the image re-encrypted for it: as distributed (`EOFFSET`
 (the ROM loader came up on replug); the 0x10000 layout did. The pad's raw
 image boots from 0. The dongle image's `uboot.boot` (0xea4 bytes) is not the
 pad's (0x1fe8); that it fixes the image at 0x10000 is a guess.
-`padtool flash` (and `padtool place`) reproduces the tool's dongle layout
-(identical to the tool's output but for VM and the stamp). `jlnewfw unpack`
+`jlnewfw flashpack` (options in the next paragraph) reproduces the tool's
+dongle layout (identical to the tool's output but for VM and the stamp). `jlnewfw unpack`
 writes an image's files and an `isd_config.ini` that `jlnewfw pack` takes
 back, without knowing pad or dongle; `pack` places the image at its
 `EOFFSET` and takes the layout's specifics as options. Unpack then pack
@@ -121,9 +121,9 @@ the loader. The tool re-encrypts the app area (and the resources after it)
 for the target's key and rewrites the chip-key record in `isd_config.ini`,
 changing only the bytes whose bit must change, to values that look
 arbitrary, then fixes the record's CRC and isd_config's in the top-level
-table. `padtool flash` does the same for any image whose `EOFFSET` it
-handles (16: GameSir dongle, 0: ours), so one image fits every chip; a full
-dump goes back only to a chip with its key. Stock 1.21 laid out and
+table. `jlnewfw pack -k` (and `flashpack`, which takes the chip's key) does
+the same, so one image fits every chip; a full dump goes back only to a chip
+with its key. Stock 1.21 laid out and
 re-encrypted this way for a `0xffff` dongle booted. `jlnewfw` follows `EOFFSET` to the image a
 device boots.
 

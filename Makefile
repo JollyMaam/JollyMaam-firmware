@@ -65,8 +65,11 @@ endif
 .PHONY: all clean flash test
 all: $O/firmware.img
 
-flash: $O/firmware.img
-	$(Q)$(PYTHON) tools/padtool.py flash $<
+# A running pad is asked to restart into its ROM loader; jlnewfw writes the
+# image only onto a device whose flash holds the same PID.
+flash: $O/firmware.img $O/jlnewfw
+	-$(Q)$(PYTHON) tools/padtool.py loader 2>/dev/null
+	$(Q)$O/jlnewfw flash --wait 30 --loader $(SDK_LOADER) $<
 
 clean:
 	rm -rf $O

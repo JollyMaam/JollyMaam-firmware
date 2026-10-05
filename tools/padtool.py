@@ -1,19 +1,12 @@
 #!/usr/bin/env python3
-"""padtool: talk to a Cyclone 2 running this firmware, or to its ROM loader.
+"""padtool: talk to a Cyclone 2 running this firmware.
 
-    padtool find                  devices: the pad and/or its loader
+    padtool find                  pads running this firmware
     padtool identify | status     what the pad reports
     padtool log [-f]              the pad's log (-f: follow)
     padtool stats [-w SECONDS] [--reset]   loop timing and counters (-w: every N s)
-    padtool reboot | loader       restart; restart into the ROM loader
-    padtool flash IMAGE [--backup FILE] [--device SG] [--force]
-                                  only onto the same kind of device: gamepad
-                                  (GS_C2_ADC_DEVICE) or dongle (GS_C2_Dongle);
-                                  a dongle image as distributed is laid out
-                                  for the dongle first, as GameSir's tool does
-    padtool place IMAGE OUT [--keep DUMP] [--key KEY]
-                                  that layout, to a file: BTIF, key_mac and
-                                  stamp from a dump of the dongle
+    padtool reboot | loader       restart; restart into the ROM loader (for
+                                  jlnewfw flash)
 
     padtool fields                       every setting: name, values, default, help
     padtool get [TARGET [NAME]]          values; * marks a set one (else default)
@@ -30,14 +23,10 @@ brightness 0-15), #rrggbb for a palette entry, aa:bb:cc:dd:ee:ff for an
 address, hex for other bytes; "default" puts a field back to its default.
 
 The pad is a mass-storage device with no medium; commands are vendor SCSI
-CDBs (architecture/usb.md).  Flashing goes through the ROM loader with
-jl-uboot-tool.
+CDBs (architecture/usb.md).  Flashing is tools/jlnewfw.c's (make flash).
 """
-import argparse, ctypes, fcntl, glob, json, os, struct, subprocess, sys, tempfile, time
+import argparse, ctypes, fcntl, glob, json, os, struct, sys, time
 
-JL_DIR = os.environ.get("JLUBOOT_DIR", "/shared/github.com-kagaimiq/jl-uboot-tool")
-JL_PYTHON = os.environ.get("JLUBOOT_PYTHON", sys.executable)
-FLASH_SIZE = 0x100000
 OP = 0xF5
 STATES = ["boot", "idle", "connecting", "pairing", "connected", "stopping", "sleeping", "rebooting"]
 
@@ -86,41 +75,35 @@ def inquiry(path):
     return data[8:32].decode("ascii", "replace").strip()
 
 
-def devices():
+def pads():
+    """SCSI devices that answer IDENTIFY as this firmware."""
     found = []
     for path in sorted(glob.glob("/dev/sg*") + glob.glob("/dev/bwrap/sg*")):
         name = inquiry(path)
-        if not name:
-            continue
-        if "UBOOT" in name:
-            found.append(("loader", path, name))
-        else:
+        if name and "UBOOT" not in name:
             try:
                 if scsi(path, [OP, 0x00], 64, 1000)[:4] == b"C2PD":
-                    found.append(("pad", path, name))
+                    found.append((path, name))
             except OSError:
                 pass
     return found
 
 
-def find(kind):
-    for k, path, _ in devices():
-        if k == kind:
-            return path
-    return None
+def find_pad():
+    return pads()[0][0] if pads() else None
 
 
 def need_pad():
-    path = find("pad")
+    path = find_pad()
     if not path:
         sys.exit("padtool: no pad found (is it plugged in and running this firmware?)")
     return path
 
 
-def wait_for(kind, seconds, every=0.5):
+def wait_for_pad(seconds, every=0.5):
     end = time.time() + seconds
     while time.time() < end:
-        path = find(kind)
+        path = find_pad()
         if path:
             return path
         time.sleep(every)
@@ -224,7 +207,7 @@ def log(path, follow):
             if not follow:
                 raise
             print(f"-- pad gone {clock()}; waiting --", flush=True)
-            path = wait_for("pad", 3600, 0.1)
+            path = wait_for_pad(3600, 0.1)
             if not path:
                 return
             print(f"-- pad back {clock()} --", flush=True)
@@ -241,376 +224,6 @@ def log(path, follow):
             if not follow:
                 return
             time.sleep(0.1)
-
-
-# ---- dongle layout (docs/flash-map.md) ---------------------------------------
-#
-# A dongle firmware as distributed (donglefw_1.21.bin) is built for flash
-# address 0, its app area encrypted with the chip key it was made for.  The
-# dongle boots from 0x10000 (isd_config EOFFSET 16, in 4 KiB units), so
-# GameSir's tool, as read back from dongles it upgraded:
-#
-#   * moves the image to 0x10000 and points the app area's PRCT and VM entries
-#     at real flash addresses (PRCT 0x10000, VM from the image's end to BTIF);
-#   * marks the top-level app_dir_head entry (0xffff -> 0x0fff in a field the
-#     image leaves unused);
-#   * puts the image's first 4 KiB (header, uboot.boot, isd_config) at 0x0000
-#     and 0x1000, and image[0x1000:0x8000] at 0x2000;
-#   * leaves BTIF and key_mac (the last 8 KiB) as they were;
-#   * stamps the last 32 bytes of PRCT (0x60fe0) with a record of its own
-#     ("GS_C2_Dongle" and 16 bytes, 6 of them new each upgrade); not
-#     understood, so the device's is carried over.
-#
-# Checked against two dongles the tool upgraded to 1.21 (chip keys 0x4317 and
-# 0xffff): the result differs only in VM (written by the running firmware),
-# the stamp, and for another key than the image's, the arbitrary bytes of the
-# isd_config chip-key
-# record, which here is rewritten in the tool's manner (only the bytes that
-# must change).
-
-D_FLASH = 0x80000
-D_BASE = 0x10000
-D_BTIF = 0x7e000
-
-
-def crc16(p, crc=0):
-    for b in p:
-        crc ^= b << 8
-        for _ in range(8):
-            crc = ((crc << 1) ^ (0x1021 if crc & 0x8000 else 0)) & 0xffff
-    return crc
-
-
-def enc(p, key):
-    out = bytearray(p)
-    for i in range(len(out)):
-        out[i] ^= key & 0xff
-        key = ((key << 1) ^ (0x1021 if key & 0x8000 else 0)) & 0xffff
-    return out
-
-
-def sfc(p, key):
-    """The flash controller's cipher over an area, 32-byte blocks keyed by offset."""
-    out = bytearray()
-    for i in range(0, len(p), 32):
-        out += enc(p[i:i + 32], key ^ (i >> 2))
-    return out
-
-
-def top_table(image):
-    """The top-level entries of the image whose header is at its start, by
-    name: offsets relative to the header.  Each entry is ENC'd with key 0xffff."""
-    out = {}
-    for off in range(32, 0x1000, 32):
-        e = enc(image[off:off + 32], 0xffff)
-        if crc16(e[2:32]) != e[0] | e[1] << 8:
-            break
-        d = entry(e)
-        d["at"] = off
-        out[d["name"]] = d
-        if d["index"]:
-            break
-    return out
-
-
-def key_record(image):
-    """Where the chip-key record is: the first 34 bytes of isd_config.ini."""
-    t = top_table(image).get("isd_config.ini")
-    if not t:
-        sys.exit("padtool: the image has no isd_config.ini")
-    return t["offset"]
-
-
-def record_threshold(d):
-    s = sum(d[:16]) & 0xff
-    return 0xaa if s >= 0xe0 else 0x55 if s <= 0x10 else s
-
-
-def chip_key(image):
-    """The chip key an image is encrypted for, from its chip-key record
-    (jlnewfw's rule): bit j is set when record[16+j] ^ record[15-j] is below a
-    threshold taken from the first 16 bytes."""
-    o = key_record(image)
-    d = image[o:o + 34]
-    if crc16(d[:32]) != d[32] | d[33] << 8:
-        sys.exit("padtool: chip-key record CRC mismatch")
-    t = record_threshold(d)
-    return sum(1 << j for j in range(16) if (d[16 + j] ^ d[15 - j]) < t)
-
-
-def set_key_record(image, key):
-    """Make the record say `key`, changing only the bytes that must change (as
-    GameSir's tool does; the values it picks look arbitrary), and fix the CRCs:
-    the record's and isd_config.ini's in the top-level table."""
-    o = key_record(image)
-    d = image[o:o + 34]
-    t = record_threshold(d)
-    for j in range(16):
-        v = d[16 + j] ^ d[15 - j]
-        if (v < t) != bool(key >> j & 1):
-            v = v % t if key >> j & 1 else t + v % (256 - t)
-            d[16 + j] = d[15 - j] ^ v
-    d[32:34] = crc16(d[:32]).to_bytes(2, "little")
-    image[o:o + 34] = d
-    e = top_table(image)["isd_config.ini"]
-    h = enc(image[e["at"]:e["at"] + 32], 0xffff)
-    h[2:4] = crc16(image[o:o + e["size"]]).to_bytes(2, "little")
-    seal(h)
-    image[e["at"]:e["at"] + 32] = enc(h, 0xffff)
-
-
-def eoffset(image):
-    """EOFFSET from isd_config.ini: where the boot code takes the image from,
-    in 4 KiB units (GameSir dongle 16, pad 1, ours 0)."""
-    t = top_table(image)["isd_config.ini"]
-    d = bytes(image[t["offset"]:t["offset"] + t["size"]])
-    i = d.find(b"EOFFSET\0")
-    if i >= 0:
-        return int.from_bytes(d[i + 8:i + 12], "little")
-    m = d.find(b"EOFFSET")      # text form
-    return int(d[m:].split(b"=")[1].split(b";")[0].strip(), 0) if m >= 0 else 0
-
-
-def entry(p):
-    if crc16(p[2:32]) != p[0] | p[1] << 8:
-        sys.exit("padtool: header CRC mismatch")
-    return {"offset": int.from_bytes(p[4:8], "little"), "size": int.from_bytes(p[8:12], "little"),
-            "name": bytes(p[16:32]).split(b"\0")[0].decode("ascii", "replace"), "index": p[14] | p[15] << 8}
-
-
-def seal(p):
-    p[0:2] = crc16(p[2:32]).to_bytes(2, "little")
-
-
-def recrypt(image, new_key, base=None):
-    """The image (header at its start) encrypted for `new_key`, its chip-key
-    record saying so; with `base`, the app area's PRCT and VM entries moved to
-    flash addresses for an image at `base` (VM from the end of PRCT to BTIF).
-    Returns it and the PRCT length.
-
-    What is encrypted is the app area and what follows it (resources), up to
-    raw 0xff padding before the end of PRCT.  The cipher counts from the app
-    area's start, so the bytes do not depend on where on flash they sit."""
-    image = bytearray(image)
-    key = chip_key(image)
-    app = top_table(image)["app_dir_head"]["offset"]
-    size = entry(sfc(image[app:app + 32], key))["size"]
-    plain = sfc(image[app:app + size], key)
-    if crc16(plain[32:size]) != plain[2] | plain[3] << 8:
-        sys.exit("padtool: app area CRC mismatch (wrong key?)")
-    found, off = {}, 32
-    while True:
-        e = entry(plain[off:off + 32])
-        found[e["name"]] = (off, e)
-        if e["index"]:
-            break
-        off += 32
-    prct, prct_e = found["PRCT"]
-    code = prct_e["size"]                 # PRCT length: the image's code
-    raw = bytes(image[app:code]).ljust(code - app, b"\xff")
-    plain = sfc(raw, key)
-    used = len(raw.rstrip(b"\xff"))
-    plain[used:] = b"\xff" * (len(raw) - used)
-    if base is not None:
-        vm, _ = found["VM"]
-        btif = found["BTIF"][1]["offset"]
-        plain[prct + 4:prct + 8] = base.to_bytes(4, "little")
-        plain[vm + 4:vm + 8] = (base + code).to_bytes(4, "little")
-        plain[vm + 8:vm + 12] = (btif - base - code).to_bytes(4, "little")
-        for o in (prct, vm):
-            e = plain[o:o + 32]
-            seal(e)
-            plain[o:o + 32] = e
-        plain[2:4] = crc16(plain[32:size]).to_bytes(2, "little")
-        h = plain[0:32]
-        seal(h)
-        plain[0:32] = h
-    area = sfc(plain, new_key)
-    area[used:] = b"\xff" * (len(raw) - used)     # padding stays raw, as GameSir's tool leaves it
-    length = len(image)
-    image[app:code] = area
-    del image[max(length, app + used):]      # no longer than it was: the rest is padding
-    set_key_record(image, new_key)
-    return image, code
-
-
-def mark_installed(image):
-    """In the top-level app_dir_head entry the tool clears the top four bits of
-    the (unused) data CRC field, 0xffff -> 0x0fff: on every upgraded dongle,
-    in every copy of the header.  Entries are ENC'd with key 0xffff."""
-    for off in range(32, 0x1000, 32):
-        e = enc(image[off:off + 32], 0xffff)
-        if crc16(e[2:32]) != e[0] | e[1] << 8:
-            break
-        if bytes(e[16:32]).split(b"\0")[0] == b"app_dir_head":
-            e[2:4] = (0x0fff).to_bytes(2, "little")
-            seal(e)
-            image[off:off + 32] = enc(e, 0xffff)
-            return
-    sys.exit("padtool: no app_dir_head entry")
-
-
-def dongle_laid_out(data):
-    return len(data) == D_FLASH and header_pid(data[D_BASE:D_BASE + 32]) == "GS_C2_Dongle"
-
-
-def place(image, dump=None, key=None):
-    """The whole flash for a GameSir dongle image (EOFFSET 16), encrypted for
-    `key` (else the image's own); BTIF, key_mac and the stamp from `dump`
-    (else erased)."""
-    image, code = recrypt(image, chip_key(image) if key is None else key, D_BASE)
-    image = image.ljust(code, b"\xff")
-    mark_installed(image)
-    flash = bytearray(b"\xff" * D_FLASH)
-    flash[D_BASE:D_BASE + len(image)] = image
-    flash[0:0x1000] = image[0:0x1000]
-    flash[0x1000:0x2000] = image[0:0x1000]
-    flash[0x2000:0x9000] = image[0x1000:0x8000]
-    if dump:
-        flash[D_BTIF:] = dump[D_BTIF:D_FLASH]
-        tail = D_BASE + code - 32
-        flash[tail:tail + 32] = dump[tail:tail + 32]
-    return bytes(flash)
-
-
-# What a firmware is for: the PID in the image's flash header (16 plain bytes
-# at 16).  A device in its ROM loader says only "BR23 UBOOT1.00", so it is
-# told by the PID of what is on its flash, or failing that (our older builds
-# say AC635N; a blank flash says nothing) by the size of its flash chip.
-KIND_BY_PID = {"GS_C2_ADC_DEVICE": "gamepad", "GS_C2_Dongle": "dongle"}
-KIND_BY_FLASH = {0x100000: "gamepad", 0x80000: "dongle"}
-
-
-def header_pid(head):
-    return head[16:32].split(b"\xff")[0].split(b"\0")[0].decode("ascii", "replace")
-
-
-def valid_header(head):
-    """A flash header: ENC'd with key 0xffff, its first two bytes a CRC of the
-    rest, and a PID in plain text (a 16-bit CRC alone matches junk now and then)."""
-    h = enc(head[:32], 0xffff)
-    pid = head[16:32].split(b"\xff")[0].split(b"\0")[0]
-    return ((h[0] | h[1] << 8) and crc16(h[2:32]) == h[0] | h[1] << 8 and
-            pid.isascii() and pid.decode().isprintable())
-
-
-def probe(loader):
-    """What a device in its loader is: (kind, PID on its flash, flash size, chip key).
-    The header is at 0 on a pad written raw (ours, or factory), at 0x1000 on a pad
-    and at 0x10000 on a dongle GameSir's tool upgraded (stale copies before it)."""
-    with tempfile.TemporaryDirectory() as tmp:
-        heads = [os.path.join(tmp, f"head{i}.bin") for i in range(3)]
-        r = subprocess.run([JL_PYTHON, os.path.join(JL_DIR, "jluboottool.py"), "--device", loader]
-                           + [f"read {a:#x} 0x20 {h}" for a, h in zip((0x10000, 0x1000, 0), heads)],
-                           capture_output=True, text=True)
-        if r.returncode or not all(os.path.exists(h) for h in heads):
-            return None, "", 0, None
-        pid = ""
-        for h in heads:
-            head = open(h, "rb").read()
-            if valid_header(head):
-                pid = header_pid(head)
-                break
-    m = [l for l in r.stdout.splitlines() if l.strip().startswith("ID: 0x")]
-    size = 1 << (int(m[0].split("0x")[1], 16) & 0xff) if m else 0
-    k = [l for l in r.stdout.splitlines() if "Chip key: 0x" in l]
-    key = int(k[0].split("0x")[1][:4], 16) if k else None
-    return KIND_BY_PID.get(pid) or KIND_BY_FLASH.get(size), pid, size, key
-
-
-def loaders_of(kind, known=None):
-    """Loaders holding a device of this kind; `known` remembers what was probed."""
-    found, known = [], {} if known is None else known
-    for k, path, _ in devices():
-        if k == "loader" and path not in known:
-            what = known[path] = probe(path)
-            print(f"loader at {path}: {what[0] or 'unknown'} (flash {what[2] // 1024} KiB, "
-                  f"firmware {what[1] or 'none'})")
-        if k == "loader" and known[path][0] == kind:
-            found.append((path, known[path]))
-    return found
-
-
-def flash(image, backup, device=None, force=False):
-    data = open(image, "rb").read()
-    kind = KIND_BY_PID.get(header_pid(data[:32]))
-    if not kind:
-        if not force:
-            sys.exit(f"padtool: {image} is for {header_pid(data[:32]) or 'nothing known'}, "
-                     f"not a gamepad or dongle (--force to write it anyway)")
-        kind = "gamepad"
-    print(f"{image}: {kind} firmware ({header_pid(data[:32])})")
-    if device:
-        what = probe(device)
-        if what[0] != kind and not force:
-            sys.exit(f"padtool: {device} is a {what[0] or 'device not known'}, not a {kind} "
-                     f"(--force to write it anyway)")
-        found = [(device, what)]
-    else:
-        known = {}
-        found = loaders_of(kind, known)
-        if not found and kind == "gamepad" and find("pad"):
-            print("asking the pad to restart into its loader")
-            try:
-                cmd(find("pad"), 0x11)
-            except OSError:
-                pass
-            end = time.time() + 30
-            while not found and time.time() < end:
-                time.sleep(1)
-                found = loaders_of(kind, known)
-        if not found:
-            sys.exit(f"padtool: no {kind} in its loader" +
-                     (" (hold Home+Start and plug the pad in)" if kind == "gamepad" else ""))
-        if len(found) > 1:
-            sys.exit(f"padtool: more than one {kind} in its loader; pick one with --device")
-    loader, (_, _, size, chip) = found[0]
-    # The app area is encrypted for a chip key (each chip's, from its eFuses;
-    # 0xffff unprogrammed).  A dump is written back only to a chip with its key;
-    # an image GameSir built for a dongle (EOFFSET 16), or one of ours (EOFFSET
-    # 0), is re-encrypted for the chip in front of us.
-    laid_out = kind == "dongle" and dongle_laid_out(data)
-    made_for = chip_key(data[D_BASE:D_BASE + 0x1000] if laid_out else data)
-    where = None if laid_out else eoffset(data)
-    adapt = where == 0 or (kind == "dongle" and where * 0x1000 == D_BASE)
-    if chip is None and (adapt or not force):
-        sys.exit(f"padtool: could not read {loader}'s chip key")
-    if not adapt and chip is not None and made_for != chip and not force:
-        sys.exit(f"padtool: the image is made for chip key 0x{made_for:04x}, "
-                 f"{loader} has 0x{chip:04x}, and this kind of image is not re-encrypted")
-    if where == 0 and made_for != chip:
-        data = bytes(recrypt(data, chip)[0])
-        print(f"re-encrypted for chip key 0x{chip:04x}")
-    if size and len(data) > size:
-        sys.exit(f"padtool: the image ({len(data)} bytes) is larger than the flash ({size})")
-    with tempfile.TemporaryDirectory() as tmp:
-        readback = os.path.join(tmp, "readback.bin")
-        args = [JL_PYTHON, os.path.join(JL_DIR, "jluboottool.py"), "--device", loader]
-        if kind == "dongle" and where is not None and where * 0x1000 == D_BASE:
-            # Laid out as GameSir's tool does, keeping the dongle's own BTIF,
-            # key_mac and stamp: read it first (also the backup).
-            dump = backup or os.path.join(tmp, "dongle.bin")
-            if backup:
-                os.makedirs(os.path.dirname(backup) or ".", exist_ok=True)
-            print(f"reading {loader}")
-            subprocess.run(args + [f"read 0 {D_FLASH:#x} {dump}"], check=True, capture_output=True)
-            data = place(data, open(dump, "rb").read(), chip)
-            print(f"laid out for 0x{D_BASE:x} as GameSir's tool does, chip key 0x{chip:04x}")
-        elif backup:
-            os.makedirs(os.path.dirname(backup) or ".", exist_ok=True)
-            args.append(f"read 0 {size or FLASH_SIZE:#x} {backup}")
-        image = os.path.join(tmp, "image.bin")
-        open(image, "wb").write(data)
-        print(f"writing {loader}")
-        args += [f"write 0 {image}", f"read 0 {len(data):#x} {readback}", "reset"]
-        subprocess.run(args, check=True)
-        if open(readback, "rb").read() != data:
-            sys.exit("padtool: readback differs; the device is left in the loader")
-    print("written and verified")
-    if kind != "gamepad":
-        return
-    pad = wait_for("pad", 30)
-    print(f"pad back at {pad}: {identify(pad)}" if pad else "the pad did not come back within 30 s")
 
 
 # ---- settings (architecture/settings.md) ------------------------------------
@@ -846,7 +459,7 @@ def keep(path):
         except OSError:
             pass
         time.sleep(2)
-        path = wait_for("pad", 30)
+        path = wait_for_pad(30)
         if not path or ephemeral_now(path):
             sys.exit("padtool: the pad did not come back in normal mode")
     for b in batches:
@@ -858,23 +471,17 @@ def keep(path):
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("command", choices=["find", "identify", "status", "log", "stats", "reboot", "loader",
-                                       "flash", "place", "fields", "get", "set", "reset", "backup-settings",
+                                       "fields", "get", "set", "reset", "backup-settings",
                                        "restore-settings", "factory-reset", "ephemeral", "keep"])
     p.add_argument("args", nargs="*")
     p.add_argument("--calibration", action="store_true", help="restore-settings: calibration too")
-    p.add_argument("--keep", help="place: a dump of the dongle")
-    p.add_argument("--key", type=lambda v: int(v, 0), help="place: re-encrypt for this chip key")
     p.add_argument("-f", "--follow", action="store_true")
-    p.add_argument("--backup", help="save the whole flash here before writing")
-    p.add_argument("--device", help="flash: this loader (/dev/bwrap/sgN), not the one found")
-    p.add_argument("--force", action="store_true",
-                   help="flash: write even if image and device do not match")
     p.add_argument("-w", "--watch", type=float, metavar="SECONDS", help="stats: show and reset every N seconds")
     p.add_argument("--reset", action="store_true", help="stats: reset the counters after reading")
     a = p.parse_args()
     if a.command == "find":
-        for kind, path, name in devices():
-            print(f"{kind:6} {path}  {name}")
+        for path, name in pads():
+            print(f"pad {path}  {name}")
     elif a.command == "identify":
         print(identify(need_pad()))
     elif a.command == "status":
@@ -888,16 +495,6 @@ def main():
             pass
     elif a.command in ("reboot", "loader"):
         cmd(need_pad(), 0x10 if a.command == "reboot" else 0x11)
-    elif a.command == "flash":
-        if len(a.args) != 1:
-            sys.exit("padtool flash IMAGE")
-        flash(a.args[0], a.backup, a.device, a.force)
-    elif a.command == "place":
-        if len(a.args) != 2:
-            sys.exit("padtool place IMAGE OUT [--keep DUMP] [--key KEY]")
-        out = place(open(a.args[0], "rb").read(), open(a.keep, "rb").read() if a.keep else None, a.key)
-        open(a.args[1], "wb").write(out)
-        print(f"{a.args[1]}: laid out for 0x{D_BASE:x}")
     elif a.command == "fields":
         show_fields(need_pad())
     elif a.command == "get":

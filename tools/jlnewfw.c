@@ -1205,15 +1205,34 @@ static bool open_dev(struct dev *d, const char *path) {
   close(d->fd);
   return false;
 }
-/* --device, or the one ROM loader to be found. */
-static void find_dev(struct dev *d, const char *path) {
-  if (path) {
-    if (!open_dev(d, path))
-      die("the device is not a JieLi ROM loader (UBOOT1.00)");
-    return;
-  }
-  static const char *const dirs[] = {"/dev", "/dev/bwrap"};
+/* --device, or the one ROM loader to be found; waiting up to `wait` s for
+ * one to appear (a device restarting into it). */
+static size_t scan_dev(struct dev *d, char found[8][300]);
+static void find_dev(struct dev *d, const char *path, unsigned wait) {
   char found[8][300];
+  size_t nf = 0;
+  for (unsigned t = 0;; t++) {
+    if (path ? open_dev(d, path) : (nf = scan_dev(d, found)) != 0)
+      break;
+    if (t >= wait * 2)
+      die(path ? "the device is not a JieLi ROM loader (UBOOT1.00)"
+               : "no ROM loader (UBOOT1.00) found");
+    if (!t && wait)
+      printf("waiting up to %u s for a ROM loader\n", wait);
+    nanosleep(&(struct timespec){0, 500000000}, NULL);
+  }
+  if (path)
+    return;
+  if (nf != 1) {
+    for (size_t i = 0; i < nf; i++)
+      fprintf(stderr, "jlnewfw: ROM loader at %s\n", found[i]);
+    die("more than one ROM loader: pick one with --device");
+  }
+  if (!open_dev(d, strdup(found[0])))
+    die("the ROM loader went away");
+}
+static size_t scan_dev(struct dev *d, char found[8][300]) {
+  static const char *const dirs[] = {"/dev", "/dev/bwrap"};
   size_t nf = 0;
   for (size_t i = 0; i < 2; i++) {
     DIR *dir = opendir(dirs[i]);
@@ -1227,14 +1246,7 @@ static void find_dev(struct dev *d, const char *path) {
     if (dir)
       closedir(dir);
   }
-  if (nf != 1) {
-    for (size_t i = 0; i < nf; i++)
-      fprintf(stderr, "jlnewfw: ROM loader at %s\n", found[i]);
-    die(nf ? "more than one ROM loader: pick one with --device"
-           : "no ROM loader (UBOOT1.00) found");
-  }
-  if (!open_dev(d, strdup(found[0])))
-    die("the ROM loader went away");
+  return nf;
 }
 
 /* Load and start the flash loader, then ask what the chip is. */
@@ -1329,6 +1341,7 @@ static bool image_ident(const uint8_t *p, size_t n, char pid[17], uint16_t *key)
 
 struct flash_opts {
   const char *device, *loader, *backup;
+  unsigned wait;
   bool force_pid, force_key, dry_run;
   struct copy keep[16]; /* from the device: .to and .len */
   size_t nk;
@@ -1349,6 +1362,8 @@ static bool flash_arg(struct flash_opts *o, int argc, char **argv, int *i) {
     o->loader = argv[++*i];
   else if (!strcmp(a, "--backup"))
     o->backup = argv[++*i];
+  else if (!strcmp(a, "--wait"))
+    o->wait = number(argv[++*i]);
   else if (!strcmp(a, "--keep") && o->nk < 16) {
     char buf[64], *c;
     snprintf(buf, sizeof buf, "%s", argv[++*i]);
@@ -1466,7 +1481,7 @@ static void cmd_flash(int argc, char **argv) {
   size_t n;
   uint8_t *data = read_file(image, &n);
   struct dev d = {0};
-  find_dev(&d, o.device);
+  find_dev(&d, o.device, o.wait);
   start_loader(&d, o.loader);
   flash_image(&d, &o, data, n);
 }
@@ -1484,7 +1499,7 @@ static void cmd_flashpack(int argc, char **argv) {
     p.files[p.nf++] = argv[i];
   }
   struct dev d = {0};
-  find_dev(&d, o.device);
+  find_dev(&d, o.device, o.wait);
   start_loader(&d, o.loader);
   if (!p.have_key)
     p.key = d.key, p.have_key = true; /* for the chip in front of us */
@@ -1518,6 +1533,7 @@ static void usage(void) {
       "[--backup FILE]\n"
       "               [--keep ADDR:LEN]... [--force-pid] [--force-key] "
       "[--dry-run]\n"
+      "               [--wait SECONDS]\n"
       "\n"
       "An IMAGE is read from the header the boot code would take (EOFFSET is\n"
       "followed).  unpack writes the files and an isd_config.ini that pack\n"
