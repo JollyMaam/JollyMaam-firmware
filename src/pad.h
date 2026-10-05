@@ -197,8 +197,8 @@ struct bt_link {
     u8 le_phy;               /* 0 leave it; 1 ask for 2M */
     u8 in_flight;            /* input reports in the controller at once */
     u16 poll_us;             /* Classic: QoS latency asked for */
-    u8 tx_step;              /* transmit power step 0-4 (4: the top) */
-    u8 tx_table;             /* 0 normal, 1 pro: about 3 dB more at the top step */
+    u8 tx_power;             /* 0-5 shown as 1-6: the controller's steps 0-4, then
+                                step 4 from its pro table */
 };
 
 struct profile;

@@ -971,8 +971,8 @@ static void setup(void)
     working = acl_up = linked = send_pending = qos_pending = stopping = 0;
     hid_cid = 0;
     hci_jieli_prepare(dev->sniff_slots, dev->sniff_attempt);
-    hci_jieli_tx_power(link.tx_step, link.tx_table);
-    util_log("bt: tx power step %u %s table", link.tx_step, link.tx_table ? "pro" : "normal");
+    hci_jieli_tx_power(link.tx_power < 5 ? link.tx_power : 4, link.tx_power >= 5);
+    util_log("bt: tx power %u", link.tx_power + 1);
     hci_jieli_set_address(addr);
     btstack_memory_init();
     btstack_run_loop_init(hci_jieli_run_loop());

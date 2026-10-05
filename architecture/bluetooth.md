@@ -51,7 +51,7 @@ void bt_timing(struct bt_timing *out, int reset);  /* ack histograms, the link a
 ### Measuring the link
 
 `struct bt_link` comes from the slot's settings (`report_hz`, `le_interval_min`,
-`le_interval_max`, `le_phy`, `in_flight`, `poll_us`, `tx_step`, `tx_table`; settings.md) and applies
+`le_interval_max`, `le_phy`, `in_flight`, `poll_us`, `tx_power`; settings.md) and applies
 from the next connect.  Zero means the profile's or the stack's own:
 
 | field | what `bt.c` does with it |
@@ -60,7 +60,7 @@ from the next connect.  Zero means the profile's or the stack's own:
 | `le_phy` | 1: LE Set PHY to 2M both ways once linked. |
 | `in_flight` | input reports in the controller at once (default 2, at most 8). |
 | `poll_us` | Classic: the QoS latency asked for (default 1250; 0 asks nothing). |
-| `tx_step`, `tx_table` | transmit power for the session, through `hci_jieli_tx_power()`: step 0-4 (default 4, the controller's top in normal mode), normal or pro table ([radio.md](../docs/radio.md)). |
+| `tx_power` | radio strength 1-6 for the session, through `hci_jieli_tx_power(step, pro)`: 1-5 are the controller's normal steps 0-4 (5, the default, is its top in normal mode), 6 is step 4 of its pro table, about 3 dB more ([radio.md](../docs/radio.md)). |
 
 `bt_timing()` holds, beside the link as the controller last reported it
 (interval, PHY, data length, sniff mode, granted QoS latency, ACL buffers):
