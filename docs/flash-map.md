@@ -99,12 +99,22 @@ erased up to BTIF, the image re-encrypted for it: as distributed (`EOFFSET`
 image boots from 0. The dongle image's `uboot.boot` (0xea4 bytes) is not the
 pad's (0x1fe8); that it fixes the image at 0x10000 is a guess.
 `padtool flash` (and `padtool place`) reproduces the tool's dongle layout
-(identical to the tool's output but for VM and the stamp). `jlnewfw rekey`
-and `jlnewfw place` do the same without knowing pad or dongle (the layout's
-specifics are options); `place` with `--mark 0x00ff` and the stamp kept
-reproduces the second pad's flash but for VM, with `--mark 0x0fff --copy
-0:0:0x1000 --copy 0:0x1000:0x1000 --copy 0x1000:0x2000:0x7000` the dongle's.
-`padtool` does not yet update the pad's check entry.
+(identical to the tool's output but for VM and the stamp). `jlnewfw unpack`
+writes an image's files and an `isd_config.ini` that `jlnewfw pack` takes
+back, without knowing pad or dongle; `pack` places the image at its
+`EOFFSET` and takes the layout's specifics as options. Unpack then pack
+reproduces `donglefw_1.21.bin` (with `--at 0`) and our build byte for byte;
+with `--mark 0x0fff --copy 0:0:0x1000 --copy 0:0x1000:0x1000 --copy
+0x1000:0x2000:0x7000` the dongle's installed flash but for VM and the stamp
+(which `jlnewfw flash --keep 0x60fe0:32` carries over). `pack` builds
+neither the pad image's second app directory nor its check entry, so a
+repacked pad image is not GameSir's layout (untested on a pad).
+
+The resource area after the dongle's app area (`tone`) is built like the
+app area: a header (flags `0x83`, contents from its offset field `0x20` on,
+size including the header, CRC16 over the contents, index 1 on the last)
+and the contents, a small directory of their own. It is encrypted with the
+app area, the cipher continuing from the app area's start.
 
 The chip key is per chip (eFuses; `0xffff` unprogrammed) and readable through
 the loader. The tool re-encrypts the app area (and the resources after it)
