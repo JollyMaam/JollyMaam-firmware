@@ -251,17 +251,19 @@ def header_pid(head):
 
 
 def probe(loader):
-    """What a device in its loader is: (kind, PID on its flash, flash size)."""
+    """What a device in its loader is: (kind, PID on its flash, flash size, chip key)."""
     with tempfile.TemporaryDirectory() as tmp:
         head = os.path.join(tmp, "head.bin")
         r = subprocess.run([JL_PYTHON, os.path.join(JL_DIR, "jluboottool.py"), "--device", loader,
                             f"read 0 0x20 {head}"], capture_output=True, text=True)
         if r.returncode or not os.path.exists(head):
-            return None, "", 0
+            return None, "", 0, None
         pid = header_pid(open(head, "rb").read())
     m = [l for l in r.stdout.splitlines() if l.strip().startswith("ID: 0x")]
     size = 1 << (int(m[0].split("0x")[1], 16) & 0xff) if m else 0
-    return KIND_BY_PID.get(pid) or KIND_BY_FLASH.get(size), pid, size
+    k = [l for l in r.stdout.splitlines() if "Chip key: 0x" in l]
+    key = int(k[0].split("0x")[1][:4], 16) if k else None
+    return KIND_BY_PID.get(pid) or KIND_BY_FLASH.get(size), pid, size, key
 
 
 def loaders_of(kind, known=None):
@@ -286,6 +288,9 @@ def flash(image, backup, device=None, force=False):
                      f"not a gamepad or dongle (--force to write it anyway)")
         kind = "gamepad"
     print(f"{image}: {kind} firmware ({header_pid(data[:32])})")
+    if kind == "dongle" and (len(data) != 0x80000 or header_pid(data[0x10000:0x10020]) != "GS_C2_Dongle"):
+        sys.exit("padtool: a dongle boots its firmware from 0x10000, not from where this image "
+                 "starts; lay it out first: tools/dongle_place.py IMAGE OUT --keep DUMP_OF_THE_DONGLE")
     if device:
         what = probe(device)
         if what[0] != kind and not force:
@@ -310,7 +315,15 @@ def flash(image, backup, device=None, force=False):
                      (" (hold Home+Start and plug the pad in)" if kind == "gamepad" else ""))
         if len(found) > 1:
             sys.exit(f"padtool: more than one {kind} in its loader; pick one with --device")
-    loader, (_, _, size) = found[0]
+    loader, (_, _, size, chip) = found[0]
+    if kind == "dongle":
+        # Its app area is encrypted with the chip key it was made for.
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import dongle_place
+        made_for = dongle_place.chip_key(data[0x10000:0x11000])
+        if chip is not None and made_for != chip and not force:
+            sys.exit(f"padtool: the image is made for chip key 0x{made_for:04x}, "
+                     f"{loader} has 0x{chip:04x}")
     if size and len(data) > size:
         sys.exit(f"padtool: the image ({len(data)} bytes) is larger than the flash ({size})")
     print(f"writing {loader}")
