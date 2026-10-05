@@ -11,7 +11,7 @@
     padtool fields                       every setting: name, values, default, help
     padtool get [TARGET [NAME]]          values; * marks a set one (else default)
     padtool set TARGET NAME VALUE [NAME VALUE ...]   change and commit
-    padtool reset TARGET [NAME ...]      back to defaults: the fields, or all of it
+    padtool reset TARGET [NAME ...]      back to defaults: the fields, or all but the pairing
     padtool backup-settings FILE | restore-settings FILE [--calibration]
     padtool factory-reset                every slot and the palette (bonds too)
     padtool ephemeral                    from now until the next boot nothing is saved
@@ -19,7 +19,7 @@
 
 TARGET: a slot (A B X Y up down left right), palette or calibration.  VALUE:
 a name for a choice, a number, ENTRY:LEVEL for a colour (palette entry 0-15,
-brightness 0-255), #rrggbb for a palette entry, aa:bb:cc:dd:ee:ff for an
+brightness 0-15), #rrggbb for a palette entry, aa:bb:cc:dd:ee:ff for an
 address, hex for other bytes; "default" puts a field back to its default.
 
 The pad is a mass-storage device with no medium; commands are vendor SCSI
@@ -276,6 +276,7 @@ KINDS = ["slot", "palette", "calibration"]
 T_ENUM, T_NUMBER, T_COLOUR, T_RGB, T_BYTES = range(5)
 RESULTS = ["ok", "unknown field", "bad length", "out of range", "too many changes at once"]
 JOURNAL = os.path.expanduser("~/.cache/padtool/ephemeral.json")
+PAIRING = ("address", "bond")   # kept by a whole-slot reset
 
 
 def target_index(name):
@@ -478,8 +479,12 @@ def restore(path, file, calibration):
         items = [(t, 0, b"")]
         for f in table:           # table order: type before address and bond
             v = values.get(f["name"])
-            if f["kind"] == kind_of(t) and v and v["set"]:
+            if f["kind"] != kind_of(t) or not v:
+                continue
+            if v["set"]:
                 items.append((t, f["id"], parse_value(f, v["value"])))
+            elif f["name"] in PAIRING:
+                items.append((t, f["id"], b""))   # a reset keeps these
         send(path, items)
     print("restored" + ("" if calibration else " (calibration left as it was)"))
 
@@ -556,7 +561,13 @@ def main():
          lambda p, f: restore(p, f, a.calibration))(need_pad(), a.args[0])
     elif a.command == "factory-reset":
         path = need_pad()
-        send(path, [(t, 0, b"") for t in range(len(TARGETS) - 1)])
+        table = fields(path)
+        items = []
+        for t in range(len(TARGETS) - 1):
+            items.append((t, 0, b""))
+            if t < 8:
+                items += [(t, field_named(table, t, n)["id"], b"") for n in PAIRING]
+        send(path, items)
         print("every slot and the palette back to defaults; calibration kept")
     elif a.command == "ephemeral":
         path = need_pad()

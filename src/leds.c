@@ -77,30 +77,28 @@ static u32 bits(u32 m)
     return n;
 }
 
-/* Connected: the slot's players setting. */
+/* Connected: the slot's players setting.  Host: the console's player number
+ * in the secondary colour, the other lights in the primary, so the bar never
+ * reads as black case; dark until the console sets one. */
 static void players(const struct led_scene *sc, u32 now, u32 t, const struct led_inputs *in,
                     struct led_frame *out)
 {
-    struct rgb on = in->primary_colour, off = { 0, 0, 0 }, c;
-    u32 lit = 0xf, flash = 0, l = level(&sc->bar_wave, t, 0, 1), i;
+    struct rgb c = in->primary_colour;
+    u32 l = level(&sc->bar_wave, t, 0, 1), number = 0, i;
 
     switch (in->player_lights) {
     case PLAYERS_HOST:
-    case PLAYERS_HOST_SECONDARY:
         if (!in->has_players) return;
-        lit = in->players & 0xf;
-        flash = in->players_flash & 0xf & ~lit;
-        if (in->player_lights == PLAYERS_HOST_SECONDARY) off = in->secondary_colour;
+        number = in->players & 0xf;
+        if (level(&player_flash, now, 0, 1)) number |= in->players_flash & 0xf;
         break;
-    case PLAYERS_FADE: on = blend(in->secondary_colour, in->primary_colour, level(&fade, t, 0, 1)); break;
+    case PLAYERS_FADE: c = blend(in->secondary_colour, in->primary_colour, level(&fade, t, 0, 1)); break;
     case PLAYERS_PRIMARY: break;
-    case PLAYERS_SECONDARY: on = in->secondary_colour; break;
+    case PLAYERS_SECONDARY: c = in->secondary_colour; break;
     default: return;
     }
-    for (i = 0; i < PLAYERS; i++) {
-        c = lit & (1u << i) ? on : flash & (1u << i) && level(&player_flash, now, 0, 1) ? on : off;
-        out->light[LIGHT_P0 + i] = dim(c, l);
-    }
+    for (i = 0; i < PLAYERS; i++)
+        out->light[LIGHT_P0 + i] = dim(number & (1u << i) ? in->secondary_colour : c, l);
 }
 
 static void bar(const struct led_scene *sc, const struct led_state *s, u32 now, u32 t,
@@ -228,14 +226,14 @@ int main(void)
     struct led_inputs in;
     struct led_state s = { CTL_CONNECTING, 1, 1000 };
     struct led_frame f;
-    struct rgb red = { 255, 0, 0 }, dark = { 0, 0, 0 }, white = { 5, 5, 5 }, dim_red = { 1, 0, 0 };
+    struct rgb red = { 255, 0, 0 }, dark = { 0, 0, 0 }, white = { 5, 5, 5 }, dim_green = { 0, 1, 0 };
     struct pad p;
     u8 reach[2] = { 0, 0 };
 
     memset(&in, 0, sizeof(in));
     in.connect_colour = red;
     in.primary_colour = (struct rgb){ 2, 0, 0 };
-    in.secondary_colour = dim_red;
+    in.secondary_colour = dim_green;
     in.idle_colour = white;
     in.battery_colour = (struct rgb){ 5, 2, 0 };
 
@@ -264,17 +262,20 @@ int main(void)
     led_frame(&connected, &s, 2000, &in, &f);
     CHECK(same(f.light[LIGHT_HOME], in.primary_colour));
     CHECK(same(f.light[LIGHT_GRIP_L], in.lightbar));
-    in.player_lights = PLAYERS_HOST_SECONDARY;
-    led_frame(&connected, &s, 2000, &in, &f);
-    CHECK(same(f.light[LIGHT_P2], in.primary_colour) && same(f.light[LIGHT_P0], dim_red));
+    CHECK(same(f.light[LIGHT_P2], dim_green) && same(f.light[LIGHT_P0], in.primary_colour));
+    in.players_flash = 0x1;     /* flashing: the number's colour half the time */
+    led_frame(&connected, &s, 2100, &in, &f);
+    CHECK(same(f.light[LIGHT_P0], dim_green));
+    led_frame(&connected, &s, 2300, &in, &f);
+    CHECK(same(f.light[LIGHT_P0], in.primary_colour));
     in.player_lights = PLAYERS_SECONDARY;
     in.grips = GRIPS_PRIMARY;
     led_frame(&connected, &s, 2000, &in, &f);
-    CHECK(same(f.light[LIGHT_P2], dim_red) && same(f.light[LIGHT_GRIP_R], in.primary_colour));
+    CHECK(same(f.light[LIGHT_P2], dim_green) && same(f.light[LIGHT_GRIP_R], in.primary_colour));
     in.grips = GRIPS_RUMBLE;
     in.rumble[1] = 255;
     led_frame(&connected, &s, 2000, &in, &f);
-    CHECK(same(f.light[LIGHT_GRIP_L], dim_red) && same(f.light[LIGHT_GRIP_R], in.primary_colour));
+    CHECK(same(f.light[LIGHT_GRIP_L], dim_green) && same(f.light[LIGHT_GRIP_R], in.primary_colour));
     in.player_lights = PLAYERS_OFF;
     in.grips = GRIPS_OFF;
     led_frame(&connected, &s, 2000, &in, &f);

@@ -64,9 +64,8 @@ slot's `primary_colour`, dim red by default).
 Waves, timed from `since_ms`: `LED_OFF`, `LED_SOLID`,
 `LED_BLINK(on, off)`, `LED_BREATHE(period)`, `LED_SWEEP(step)`.  Bar: all four,
 the slot's light, or (`BAR_PLAYER`, connected) the slot's `players` setting:
-off, host (the player number in the primary colour; dark if the host sets
-none), host+secondary (the others in the secondary colour), fade, primary,
-secondary.  Grips: a wave, or, when connected, the slot's `grips` setting:
+off, host (the player number in the secondary colour, the other lights in
+the primary; dark until the host sets one), fade, primary, secondary.  Grips: a wave, or, when connected, the slot's `grips` setting:
 off, host (the lightbar colour; dark if none), fade, rumble, input,
 rumble+input (from the secondary colour towards the primary), primary,
 secondary.  Fade is a slow breathe between the secondary and primary colours.

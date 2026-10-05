@@ -37,7 +37,7 @@ static const char *const grips[] = {
     "off", "host", "fade", "rumble", "input", "rumble+input", "primary", "secondary", NULL,
 };
 static const char *const players[] = {
-    "off", "host", "host+secondary", "fade", "primary", "secondary", NULL,
+    "off", "host", "fade", "primary", "secondary", NULL,
 };
 static const char *const layouts[] = { "games", "desktop", NULL };
 
@@ -52,11 +52,11 @@ static const struct set_field slot_fields[] = {
                COLOUR(6, 4), COLOUR(7, 4), COLOUR(8, 4), COLOUR(9, 4) },
       .help = "Home and player lights while connecting and pairing: which slot" },
     { .id = 3, .name = "primary_colour", .type = T_COLOUR, FIELD(primary_colour),
-      .def = ALL(COLOUR(2, 2)),
-      .help = "Home while connected; player lights and grips where chosen" },
-    { .id = 4, .name = "secondary_colour", .type = T_COLOUR, FIELD(secondary_colour),
       .def = ALL(COLOUR(2, 1)),
-      .help = "the background: unlit player lights, resting grips, the other end of fade" },
+      .help = "Home while connected; the player lights around the player number" },
+    { .id = 4, .name = "secondary_colour", .type = T_COLOUR, FIELD(secondary_colour),
+      .def = ALL(COLOUR(5, 1)),
+      .help = "the console's player number; resting grips; the other end of fade" },
     { .id = 5, .name = "grips", .type = T_ENUM, .names = grips, FIELD(grips),
       .def = ALL(GRIPS_HOST),
       .help = "grip lights while connected: host is the console's lightbar colour" },
@@ -178,7 +178,7 @@ static u8 check(const struct set_field *f, const u8 *v, u32 len)
         x = f->size == 1 ? v[0] : v[0] | (u32)v[1] << 8;
         return x <= field_max(f) ? SET_OK : SET_RANGE;
     case T_COLOUR:
-        return v[0] < PALETTE ? SET_OK : SET_RANGE;
+        return v[0] < PALETTE && v[1] < LEVELS ? SET_OK : SET_RANGE;
     default:
         return SET_OK;
     }
@@ -221,6 +221,26 @@ static void clear(u8 t, u8 id)
     const struct set_field *f = find(t, id, &bit);
 
     put(t, f, bit, NULL, 0);
+}
+
+/* Id 0 from outside: a slot's pairing (address, bond) is kept, unless the
+ * type changes with the reset. */
+static void reset_keeping_pairing(u8 t)
+{
+    u32 n, i;
+    const struct set_field *f = fields_of(t, &n);
+    u8 type = slots[t % SLOTS].type;
+
+    if (t >= SLOTS) {
+        reset(t);
+        return;
+    }
+    for (i = 0; i < n; i++)
+        if (f[i].id != ID_ADDRESS && f[i].id != ID_BOND) put(t, &f[i], i, NULL, 0);
+    if (slots[t].type != type) {
+        clear(t, ID_ADDRESS);
+        clear(t, ID_BOND);
+    }
 }
 
 /* ---- records ------------------------------------------------------------------
@@ -311,13 +331,18 @@ const struct set_slot *set_slot(u8 slot)
     return &slots[slot % SLOTS];
 }
 
+/* Brightness levels: the LEDs are bright, so the low end goes in single
+ * steps and the rest about 1.4 times apart. */
+static const u8 levels[LEVELS] = { 0, 1, 2, 3, 4, 5, 7, 10, 14, 20, 28, 40, 56, 80, 128, 255 };
+
 struct rgb set_colour(struct colour c)
 {
     struct rgb p = palette[c.entry % PALETTE], o;
+    u32 level = levels[c.level % LEVELS];
 
-    o.r = (u8)((p.r * c.level + 127) / 255);
-    o.g = (u8)((p.g * c.level + 127) / 255);
-    o.b = (u8)((p.b * c.level + 127) / 255);
+    o.r = (u8)((p.r * level + 127) / 255);
+    o.g = (u8)((p.g * level + 127) / 255);
+    o.b = (u8)((p.b * level + 127) / 255);
     return o;
 }
 
@@ -409,7 +434,7 @@ void set_cal_store(const struct set_cal *c)
 
 /* ---- changes from outside: collect, then commit -------------------------------
  * Items are {target, id, len, value}; len 0 puts the field back to its
- * default, and id 0 (len 0) the whole target.  Each is checked as it arrives;
+ * default, and id 0 (len 0) the whole target, a slot's pairing kept.  Each is checked as it arrives;
  * commit applies them in order. */
 
 u32 set_write(const u8 *in, u32 len, u8 *results, u32 max)
@@ -445,7 +470,7 @@ void set_apply(void)
         const struct set_field *f;
 
         if (id == 0) {
-            reset(t);
+            reset_keeping_pairing(t);
         } else {
             f = find(t, id, &bit);
             /* A new type is a new device to the console: the old address
@@ -649,6 +674,9 @@ int main(void)
     CHECK(write1(1, 0, 0, NULL) == SET_OK);
     set_apply();
     CHECK(set_slot(1)->stick_speed == 1500 && set_bits[1] == 0);
+    col.level = LEVELS;
+    CHECK(write1(1, 2, 2, &col) == SET_RANGE);
+    col.level = 5;
     set_poll(ms, 1);
 
     /* An unknown id in a record is skipped. */
@@ -671,6 +699,9 @@ int main(void)
     CHECK(write1(0, 1, 1, &x) == SET_OK);      /* the same type: kept */
     set_apply();
     CHECK(set_bond(0)->peer[0] == 0x11);
+    CHECK(write1(0, 0, 0, NULL) == SET_OK);    /* reset, the same type: pairing kept */
+    set_apply();
+    CHECK(set_bond(0)->peer[0] == 0x11 && set_bits[0] == (1u << 11 | 1u << 12));
     x = PROFILE_XBOX;
     CHECK(write1(0, 1, 1, &x) == SET_OK);
     set_apply();

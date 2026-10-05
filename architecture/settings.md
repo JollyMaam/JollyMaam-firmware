@@ -28,8 +28,9 @@ Per slot: `type`, `connect_colour`, `primary_colour`, `secondary_colour`,
 `gyro_accel`, `address`, `bond` (`padtool fields` lists them with ranges and
 defaults).  `set_slot(slot)` returns them as a plain `struct set_slot`.
 
-**Colours** are `{palette entry, brightness}`: brightness 0-255 scales the
-entry, which is an RGB at full brightness.  Sixteen entries; 0 and 1 are the
+**Colours** are `{palette entry, brightness level}`: the entry is an RGB at
+full brightness, scaled by one of 16 levels (0, 1, 2, 3, 4, 5, then about 1.4
+times apart up to 255): the LEDs are bright, so the low end matters most.  Sixteen entries; 0 and 1 are the
 idle and battery roles, whose brightness is in `settings_ux.c`
 (`ux_colours`).  The default palette and brightnesses give the colours the
 pad had before.
@@ -41,7 +42,9 @@ type.
 ## Changing settings: collect, then commit
 
 From outside (USB) a change is items `{target, id, len, value}`; `len` 0 puts
-a field back to its default, id 0 (len 0) the whole target.
+a field back to its default, id 0 (len 0) the whole target.  A whole-slot
+reset keeps the pairing (`address`, `bond`) unless the type changes with it;
+those are reset by name.
 
 1. `set_write()` checks each item as it arrives and collects the good ones
    (up to 1 KB); a bad one is refused with a code (unknown, bad length, out

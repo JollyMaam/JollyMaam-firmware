@@ -255,11 +255,11 @@ enum { PROFILE_SWITCH, PROFILE_SWITCH2, PROFILE_XBOX, PROFILE_XBOX_BLE, PROFILE_
        PROFILE_DUALSHOCK4, PROFILE_GENERIC, PROFILE_MOUSE, PROFILE_COUNT };
 enum { GRIPS_OFF, GRIPS_HOST, GRIPS_FADE, GRIPS_RUMBLE, GRIPS_INPUT, GRIPS_BOTH,
        GRIPS_PRIMARY, GRIPS_SECONDARY };
-enum { PLAYERS_OFF, PLAYERS_HOST, PLAYERS_HOST_SECONDARY, PLAYERS_FADE, PLAYERS_PRIMARY,
-       PLAYERS_SECONDARY };
+enum { PLAYERS_OFF, PLAYERS_HOST, PLAYERS_FADE, PLAYERS_PRIMARY, PLAYERS_SECONDARY };
 
 #define PALETTE 16
-struct colour { u8 entry, level; };      /* a palette entry, scaled 0-255 */
+#define LEVELS  16
+struct colour { u8 entry, level; };      /* a palette entry at a brightness level */
 
 struct set_slot {
     u8 type;
