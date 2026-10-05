@@ -403,6 +403,7 @@ static void advertise(void)
     if (dev->scan_response_len)
         gap_scan_response_set_data(dev->scan_response_len, (u8 *)dev->scan_response);
     gap_advertisements_enable(1);
+    util_log("bt: advertising%s", wake_adv ? " to wake" : pairing ? " to pair" : "");
 }
 
 static int ccc(u16 handle, int create)
@@ -718,6 +719,7 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
     }
     case BTSTACK_EVENT_STATE:
         if (btstack_event_state_get_state(packet) == HCI_STATE_WORKING) {
+            util_log("bt: working");
             working = 1;
             hci_jieli_set_address(addr);
             reverse(addr, a, 6);

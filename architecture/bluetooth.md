@@ -189,6 +189,13 @@ These come from failures seen on hardware; see `AGENTS.md`.
   allowed and an 80-byte report needs two packets.
 * LE links ask for 251-byte PDUs; at 27 bytes a Switch 2 report took three
   connection events.
+* The BTstack thread runs above the control thread (`task_info_table`).
+  Below it, handing a report to the controller held the thread ~3.6 ms and
+  the report missed the next 5 ms Switch 2 connection event: 200 Hz gave
+  152 reports/s on air instead of 194 (measured 2026-10-05).  The cost: each
+  report takes ~1 ms in the hand-off and ~0.4 ms when its completion comes
+  back (the controller task working inside those calls), now inside control
+  loop passes (0.5 -> 1.2 ms average at 125 Hz).
 * The run loop sleeps on the transport's wake semaphore, not a timer tick: a
   10 ms tick capped Classic reports at 100 per second.
 * The controller advertises Read Encryption Key Size but never answers it; the

@@ -7,6 +7,7 @@
     padtool stats [-w SECONDS] [--reset]   loop timing and counters (-w: every N s)
     padtool reboot | loader       restart; restart into the ROM loader (for
                                   jlnewfw flash)
+    padtool connect [SLOT]        connect a slot (default: the last), as Home does
     padtool relink                connected: drop the link and connect again
                                   (new link settings apply; wakes nothing)
 
@@ -498,7 +499,7 @@ def keep(path):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["find", "identify", "status", "log", "stats", "reboot", "loader", "relink",
+    p.add_argument("command", choices=["find", "identify", "status", "log", "stats", "reboot", "loader", "relink", "connect",
                                        "fields", "get", "set", "reset", "backup-settings",
                                        "restore-settings", "factory-reset", "ephemeral", "keep"])
     p.add_argument("args", nargs="*")
@@ -521,6 +522,10 @@ def main():
             stats(need_pad(), a.watch, a.reset)
         except KeyboardInterrupt:
             pass
+    elif a.command == "connect":
+        names = "A B X Y up down left right".split()
+        slot = names.index(a.args[0]) if a.args else 0xfe
+        cmd(need_pad(), 0x13, slot)
     elif a.command == "relink":
         cmd(need_pad(), 0x12)
     elif a.command in ("reboot", "loader"):
