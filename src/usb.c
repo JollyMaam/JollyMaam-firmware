@@ -11,7 +11,7 @@
 #define OP          0xf5
 #define PROTOCOL    2
 
-#define STATS_VERSION 3
+#define STATS_VERSION 4
 
 enum { CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02, CMD_STATS = 0x03,
        CMD_REBOOT = 0x10, CMD_REBOOT_LOADER = 0x11, CMD_RELINK = 0x12,

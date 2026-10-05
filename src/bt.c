@@ -90,6 +90,7 @@ static btstack_packet_callback_registration_t l2cap_registration;
 static struct { u32 sent_us, slot_us; } flight[IN_FLIGHT_MAX];
 static u8 flight_n;
 static u32 last_ack_us;
+static u32 room_us;                      /* an ack made room while a report waited */
 
 /* ---- control thread side ------------------------------------------------- */
 
@@ -180,7 +181,7 @@ void bt_timing(struct bt_timing *out, int reset)
 {
     plat_lock();
     if (reset) {
-        memset(&timing.ack_wait, 0, 3 * sizeof(timing.ack_wait));
+        memset(&timing.ack_wait, 0, 4 * sizeof(timing.ack_wait));
         last_ack_us = 0;
     }
     *out = timing;
@@ -510,6 +511,10 @@ static void send_now(void)
         input_pending = 0;
         slot = slot_us;
         stats.sent++;
+        if (room_us) {
+            util_stat_add(&timing.ack_send, plat_us() - room_us);
+            room_us = 0;
+        }
     }
     plat_unlock();
     if (m.len) {
@@ -647,6 +652,7 @@ static void acked(void)
         if (flight[n].slot_us) util_stat_add(&timing.slot_ack, now - flight[n].slot_us);
         n++;
     }
+    if (n && flight_n >= link.in_flight && input_pending) room_us = now;
     plat_unlock();
     for (i = n; i < flight_n; i++) flight[i - n] = flight[i];
     flight_n = (u8)(flight_n - n);

@@ -68,7 +68,9 @@ from the next connect.  Zero means the profile's or the stack's own:
 * `ack_wait`: a report handed to the controller until Number Of Completed
   Packets says it went;
 * `slot_ack`: a report entering the input slot until then;
-* `ack_gap`: between Number Of Completed Packets events for the link.
+* `ack_gap`: between Number Of Completed Packets events for the link;
+* `ack_send`: an ack that made room in the controller, while a report waited
+  in the slot, until that report was handed over.
 
 When the controller reports a packet as completed (after the air
 acknowledgement or earlier) is the controller's choice; compare with a sniffer

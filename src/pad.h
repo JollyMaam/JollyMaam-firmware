@@ -440,6 +440,7 @@ struct bt_timing {
     struct stat_hist ack_wait;   /* report to the controller until it says sent */
     struct stat_hist slot_ack;   /* report into the input slot until it says sent */
     struct stat_hist ack_gap;    /* between Number Of Completed Packets for the link */
+    struct stat_hist ack_send;   /* an ack that made room until the waiting report went */
     struct bt_link_info link;
 };
 
@@ -462,7 +463,7 @@ struct ctl_stats {
     struct plat_stats plat;
     struct bt_timing bt_timing;
 };
-_Static_assert(sizeof(struct stat_hist) == 48 && sizeof(struct ctl_stats) == 256 + 3 * 48 + 24,
+_Static_assert(sizeof(struct stat_hist) == 48 && sizeof(struct ctl_stats) == 256 + 4 * 48 + 24,
                "padtool reads struct ctl_stats byte for byte");
 
 struct usb_status {

@@ -139,7 +139,7 @@ HIST = "<QII16H"
 def read_stats(path, reset=False):
     d = cmd(path, 0x03, 1 if reset else 0, 512)
     version, size = struct.unpack_from("<HH", d)
-    if version != 3:
+    if version != 4:
         sys.exit(f"padtool: stats version {version} not known to this padtool")
     d = d[4:4 + size]
     s = {}
@@ -155,7 +155,7 @@ def read_stats(path, reset=False):
     (s["reports"], s["imu"], s["sent"], s["replaced"], s["acked"],
      s["buttons"], s["frames"], s["resyncs"]) = struct.unpack_from("<8I", d, o)
     o += 32
-    for name in ("ack_wait", "slot_ack", "ack_gap"):
+    for name in ("ack_wait", "slot_ack", "ack_gap", "ack_send"):
         v = struct.unpack_from(HIST, d, o)
         s[name] = {"sum": v[0], "count": v[1], "max": v[2], "buckets": v[3:]}
         o += struct.calcsize(HIST)
@@ -185,7 +185,8 @@ def show_stats(s):
     print(f"{'':16} {'count':>7} {'avg us':>8} {'max us':>8}  distribution (us)")
     for name, label in (("pass", "loop pass"), ("interval", "report interval"),
                         ("age", "report age"), ("ack_wait", "sent to ack"),
-                        ("slot_ack", "slot to ack"), ("ack_gap", "between acks")):
+                        ("slot_ack", "slot to ack"), ("ack_gap", "between acks"),
+                        ("ack_send", "ack to send")):
         h = s[name]
         avg = h["sum"] / h["count"] if h["count"] else 0
         dist = "  ".join(f"<{32 << i}:{n}" if i < 15 else f">={32 << 14}:{n}"
