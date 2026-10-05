@@ -54,11 +54,11 @@ extern u8 *get_norflash_uuid(void) __attribute__((weak));
 
 const struct task_info task_info_table[] = {
     {"app_core",  1, 0, 1024, 128 },
-    {"ctl",       3, 0, 1024, 0   },
+    {"ctl",       2, 0, 1024, 0   },
     {"sys_event", 7, 0, 256,  0   },
     {"btctrler",  4, 0, 512,  256 },
     {"btencry",   1, 0, 512,  128 },
-    {"btstack",   2, 0, 2048, 256 },
+    {"btstack",   3, 0, 2048, 256 },
     {"systimer",  7, 0, 128,  0   },
     {"update",    1, 0, 512,  0   },
     {0, 0},

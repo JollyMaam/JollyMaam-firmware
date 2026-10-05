@@ -421,6 +421,8 @@ struct bt_stats {
     u32 sent;                    /* input reports handed to the controller */
     u32 replaced;                /* overwritten in the newest-wins slot before that */
     u32 acked;                   /* packets the controller reports as sent */
+    u32 loop_runs;               /* passes of the bluetooth thread's run loop */
+    u32 loop_us;                 /* time in them, wake to sleep (higher priorities included) */
 };
 
 /* The link as the controller reports it, and when it said packets went. */
@@ -463,7 +465,7 @@ struct ctl_stats {
     struct plat_stats plat;
     struct bt_timing bt_timing;
 };
-_Static_assert(sizeof(struct stat_hist) == 48 && sizeof(struct ctl_stats) == 256 + 4 * 48 + 24,
+_Static_assert(sizeof(struct stat_hist) == 48 && sizeof(struct ctl_stats) == 264 + 4 * 48 + 24,
                "padtool reads struct ctl_stats byte for byte");
 
 struct usb_status {

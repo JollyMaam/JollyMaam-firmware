@@ -31,6 +31,7 @@ void hci_jieli_set_address(const u8 a[6]);
 void hci_jieli_drop_link(void);
 void hci_jieli_prepare(u16 slots, u16 attempt);
 void hci_jieli_tx_power(u8 step, u8 pro);
+void hci_jieli_loop_stats(u32 *runs, u32 *us);
 void hci_jieli_link_policy(void);
 
 #define MAX_INPUT      80
@@ -175,6 +176,7 @@ void bt_stats(struct bt_stats *out)
     plat_lock();
     *out = stats;
     plat_unlock();
+    hci_jieli_loop_stats(&out->loop_runs, &out->loop_us);
 }
 
 void bt_timing(struct bt_timing *out, int reset)
@@ -518,12 +520,16 @@ static void send_now(void)
     }
     plat_unlock();
     if (m.len) {
+        /* Timed from before the hand-off: handing a packet over wakes the
+         * controller task, which can hold this thread for milliseconds. */
+        u32 sent = plat_us();
+
         if (!le) hid_device_send_interrupt_message(hid_cid, m.data, m.len);
         else if (m.handle != dev->input_handle || notifying(m.handle))
             att_server_notify(con_handle, m.handle, m.data, m.len);
         /* Messages ride along unmarked (slot 0): only reports are timed. */
         if (flight_n < IN_FLIGHT_MAX) {
-            flight[flight_n].sent_us = plat_us();
+            flight[flight_n].sent_us = sent;
             flight[flight_n].slot_us = slot;
             flight_n++;
         }

@@ -177,17 +177,31 @@ static void wake(void)
     plat_bt_wake();
 }
 
+static volatile u32 loop_runs, loop_us;
+
+/* The run loop's passes and the time in them, for bt_stats(). */
+void hci_jieli_loop_stats(u32 *runs, u32 *us)
+{
+    *runs = loop_runs;
+    *us = loop_us;
+}
+
 static void execute(void)
 {
+    u32 t = plat_us();
+
     while (!exit_requested) {
         btstack_run_loop_base_poll_data_sources();
         btstack_run_loop_base_execute_callbacks();
         btstack_run_loop_base_process_timers(now_ms());
+        loop_runs++;
         if (woken) {
             woken = 0;
             continue;
         }
+        loop_us += plat_us() - t;
         plat_bt_wait(10);
+        t = plat_us();
     }
 }
 
