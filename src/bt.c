@@ -63,6 +63,7 @@ static volatile u8 idle = 1;
 static u8 input[MAX_INPUT];
 static u16 input_len;
 static volatile u8 input_pending;
+static volatile u8 want;                 /* the controller has room and the slot is empty */
 static struct bt_stats stats;
 static struct bt_timing timing;          /* under plat_lock: read from the control thread */
 static struct bt_link link;
@@ -166,6 +167,7 @@ int bt_send_input(u8 id, const u8 *data, u16 len)
     if (input_pending) stats.replaced++;
     else slot_us = plat_us();
     input_pending = 1;
+    want = 0;
     plat_unlock();
     plat_bt_wake();
     return 1;
@@ -193,6 +195,12 @@ void bt_timing(struct bt_timing *out, int reset)
 int bt_input_pending(void)
 {
     return input_pending;
+}
+
+/* Pull: a report handed over now goes to the controller at once. */
+int bt_input_wanted(void)
+{
+    return want;
 }
 
 /* Classic: id is the report ID; LE: the handle to notify. */
@@ -594,6 +602,17 @@ static void tx_poll(btstack_data_source_t *ds, btstack_data_source_callback_type
         send_pending = 1;
         if (le) att_server_request_can_send_now_event(con_handle);
         else hid_device_request_can_send_now_event(hid_cid);
+    }
+    /* Ask the control thread for a report when one would go straight in:
+     * linked, nothing waiting in the slot, room in the controller. */
+    {
+        u8 r = linked && !send_pending && room(), wake = 0;
+
+        plat_lock();
+        if (r && !input_pending && !want) want = wake = 1;
+        else if (!r) want = 0;
+        plat_unlock();
+        if (wake) plat_wake(EV_BT);
     }
 }
 

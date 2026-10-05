@@ -214,6 +214,7 @@ int bt_send_message(u16 id, const u8 *data, u16 len);
 int bt_poll(struct bt_ev *ev);
 int bt_radio_quiet(void);
 int bt_input_pending(void);
+int bt_input_wanted(void);               /* the controller has room for a report now */
 void bt_update_bond(const struct bt_bond *bond);
 struct bt_stats;
 void bt_stats(struct bt_stats *out);

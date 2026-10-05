@@ -42,7 +42,7 @@ struct profile_session {          /* filled by the controller for begin() */
 
 struct profile {
     const char *name;                 /* "switch", "dualsense", ... */
-    u16 report_hz;
+    u16 report_hz;                       /* at most; reports are pulled (controller.md) */
     const struct bt_device *device;   /* what the host sees */
     u8 (*begin)(const struct profile_session *s);   /* returns the IMU mode */
     void (*end)(void);

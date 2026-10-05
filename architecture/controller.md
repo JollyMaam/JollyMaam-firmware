@@ -58,7 +58,7 @@ bt_poll()        until empty: link events, bonds, host writes
 usb_poll()       a parked vendor command -> request
 sample_power     USB present (debounced), battery every second
 timeouts         the state's timeout, retry, wake step
-send_report      while CONNECTED and the report is due:
+send_report      while CONNECTED, bt_input_wanted() and report_hz allows it:
                  imu_take(), profile->report(), bt_send_input()
 outputs          profile->host(), imu_poll(), plat_motors(); at an LED
                  deadline led_frame() and plat_leds() if the frame changed
@@ -69,6 +69,15 @@ plat_wait(earliest of: LED frame, state deadline, gesture hold, IMU, calibration
 So reports are sent on time without a 1 ms tick, nothing runs while nothing
 changes, and a button press reaches the gesture engine within 250 µs plus the
 lockout.
+
+Reports are pulled: `bt.c` raises `EV_BT` when the controller has room and the
+input slot is empty (`bt_input_wanted()`), and the loop builds the report then,
+from the newest input, at most `report_hz` a second (the slot's setting or the
+profile's cap).  A report built is a report sent: the IMU samples it takes
+are never dropped by the newest-wins slot.  On a Switch 2 (5 ms connection
+events) room appears ~3.4 ms after each event, so each report is built ~1.6 ms
+before the event that carries it: 195 reports a second, none replaced, built
+to acknowledged 9.0 ms (11.5 ms with a 200 Hz timer; measured 2026-10-05).
 
 ### Timing stats
 
@@ -87,9 +96,7 @@ reset with `--reset` (or every period with `-w`).  Measured idle, connected to
 nothing: about 56 passes a second at ~0.9 ms each, 5 % of the CPU, most of it
 parsing the 5 000 stick frames a second.
 
-A later option, not part of the design yet: send a report as soon as a button
-changes instead of at the next report deadline.  The newest-wins slot and
-`IN_FLIGHT` already bound how much that can send.
+
 
 A host write (`BT_EV_WRITE`) goes to the running profile on this thread:
 

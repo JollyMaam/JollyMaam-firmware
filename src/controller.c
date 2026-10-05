@@ -41,8 +41,8 @@ static struct {
     u8 to_loader;
     u8 uboot_chord;
     u32 retry_at;
-    u32 report_next;
-    u16 report_hz;               /* the session's: the slot's setting or the profile's */
+    u32 report_next;             /* the earliest the next report may be built */
+    u16 report_hz;               /* the session's cap: the slot's setting or the profile's */
     u8 imu_mode, begin_imu;
     u32 imu_seq, imu_next;
     u8 calibrating;
@@ -359,7 +359,8 @@ static u32 state_deadline(void)
     case CTL_CONNECTING: if (c.waking) return c.wake_next;
         return c.retry_at ? c.retry_at : c.since + ux_timeouts.connect_ms;
     case CTL_PAIRING: return c.since + ux_timeouts.pair_ms;
-    case CTL_CONNECTED: return c.report_next;
+    case CTL_CONNECTED:          /* bt.c wakes the loop (EV_BT) when it wants a report */
+        return bt_input_wanted() ? c.report_next : plat_ms() + 100;
     default: return plat_ms() + 10;
     }
 }
@@ -485,15 +486,17 @@ static void read_input(u32 now)
     handle(r, now);
 }
 
+/* Pull: a report is built when bt.c has room for it, from the newest input,
+ * and at most report_hz times a second.  A report built is a report sent, so
+ * the IMU samples it takes are never dropped. */
 static void send_report(u32 now)
 {
     u8 buf[80], id = 0;
     u32 period = 1000 / c.report_hz;
     int n;
 
-    if ((s32)(now - c.report_next) < 0) return;
-    c.report_next += period;
-    if ((s32)(now - c.report_next) >= 0) c.report_next = now + period;
+    if ((s32)(now - c.report_next) < 0 || !bt_input_wanted()) return;
+    c.report_next = now + period;
     c.pad.imu_count = (u8)imu_take(&c.imu_seq, c.pad.imu, IMU_PER_REPORT);
     n = c.prof->report(&c.pad, now, buf, &id);
     if (n > 0 && bt_send_input(id, buf, (u16)n)) {

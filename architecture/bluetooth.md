@@ -43,6 +43,7 @@ int  bt_send_message(u16 id, const u8 *data, u16 len); /* queued, in order */
 int  bt_poll(struct bt_ev *ev);        /* 1 while there are events */
 int  bt_radio_quiet(void);             /* no pairing exchange or link set-up under way */
 int  bt_input_pending(void);
+int  bt_input_wanted(void);       /* room in the controller, slot empty: pull a report (EV_BT) */
 void bt_update_bond(const struct bt_bond *bond);   /* a key the profile learned (Switch 2) */
 void bt_stats(struct bt_stats *out);               /* running counters */
 void bt_timing(struct bt_timing *out, int reset);  /* ack histograms, the link as it is */
