@@ -227,7 +227,7 @@ static void handle(struct ctl_request r, u32 now)
     case REQ_REBOOT:
     case REQ_REBOOT_LOADER:
         c.to_loader = r.kind == REQ_REBOOT_LOADER;
-        set_commit();
+        set_flush();
         shut_down(CTL_REBOOTING, now);
         break;
     }
@@ -304,8 +304,11 @@ static void timeouts(u32 now)
             become(CTL_IDLE, now);
         break;
     case CTL_IDLE:
-        if (battery && t >= ux_timeouts.offline_sleep_ms &&
-            now - c.usb_absent_ms >= ux_timeouts.unplug_sleep_ms)
+        /* Ephemeral: a sleep ends the test, so the idle wait is as long as
+         * when connected. */
+        if (battery && (set_is_ephemeral() ? now - c.activity_ms >= ux_timeouts.idle_sleep_ms :
+                        t >= ux_timeouts.offline_sleep_ms &&
+                        now - c.usb_absent_ms >= ux_timeouts.unplug_sleep_ms))
             shut_down(CTL_SLEEPING, now);
         break;
     case CTL_CONNECTING:
@@ -332,7 +335,7 @@ static void timeouts(u32 now)
     case CTL_SLEEPING:
         if (c.usb_powered && !c.radio) become(CTL_IDLE, now);
         else if (!c.radio && t >= 50) {
-            set_commit();
+            set_flush();
             util_log("power off");
             plat_power_off();
         } else if (t >= ux_timeouts.stop_max_ms) bt_abort();
@@ -350,7 +353,8 @@ static u32 state_deadline(void)
 {
     switch (c.kind) {
     case CTL_BOOT: return c.since + (c.uboot_chord ? ux_timeouts.uboot_window_ms : ux_timeouts.boot_scene_ms);
-    case CTL_IDLE: return c.since + ux_timeouts.offline_sleep_ms;
+    case CTL_IDLE: return set_is_ephemeral() ? c.activity_ms + ux_timeouts.idle_sleep_ms
+                                             : c.since + ux_timeouts.offline_sleep_ms;
     case CTL_CONNECTING: if (c.waking) return c.wake_next;
         return c.retry_at ? c.retry_at : c.since + ux_timeouts.connect_ms;
     case CTL_PAIRING: return c.since + ux_timeouts.pair_ms;
@@ -394,19 +398,21 @@ static struct rgb rgb3(const u8 *v)
 
 static void outputs(u32 now)
 {
-    const struct set_slot *slot;
+    const struct set_slot *slot, *shown;
     struct led_inputs in;
     struct led_frame f;
     u32 plugged = now - c.usb_plugged_ms;
     u8 scene = c.kind;
     int rumble = c.kind == CTL_CONNECTED && !c.calibrating;
+    u8 motor[2];
 
     if (c.prof && c.prof->host) c.prof->host(now, &c.host);
     c.imu_mode = !session() ? IMU_OFF : c.prof && c.prof->host && c.host.imu ? c.host.imu : c.begin_imu;
     c.imu_next = imu_poll(now, c.imu_mode);
     slot = set_slot(c.slot < SLOTS ? c.slot : 0);
-    rumble = rumble && slot->rumble;
-    plat_motors(rumble ? c.host.rumble[0] : 0, rumble ? c.host.rumble[1] : 0);
+    motor[0] = rumble ? (u8)(c.host.rumble[0] * slot->rumble / 100) : 0;
+    motor[1] = rumble ? (u8)(c.host.rumble[1] * slot->rumble / 100) : 0;
+    plat_motors(motor[0], motor[1]);
     if ((s32)(now - c.led_next) < 0) return;
     c.led_next = now + ux_timeouts.led_frame_ms;
     if (c.kind == CTL_BOOT && now - c.since >= ux_timeouts.boot_scene_ms) scene = CTL_IDLE;
@@ -417,16 +423,20 @@ static void outputs(u32 now)
     c.led.slot = c.kind == CTL_STOPPING && c.next.kind != REQ_NONE ? c.next.slot : c.slot;
     if (c.led.slot == SLOT_LAST) c.led.slot = c.last_slot;
     memset(&in, 0, sizeof(in));
-    in.slot_colour = rgb3(set_slot(c.led.slot < SLOTS ? c.led.slot : 0)->colour);
-    in.connected_colour = rgb3(set_slot(c.led.slot < SLOTS ? c.led.slot : 0)->connected_colour);
-    in.idle_colour = rgb3(set_prefs()->idle_colour);
-    in.battery_colour = rgb3(set_prefs()->battery_colour);
+    shown = set_slot(c.led.slot < SLOTS ? c.led.slot : 0);
+    in.connect_colour = set_colour(shown->connect_colour);
+    in.primary_colour = set_colour(shown->primary_colour);
+    in.secondary_colour = set_colour(shown->secondary_colour);
+    in.idle_colour = set_colour(ux_colours.idle);
+    in.battery_colour = set_colour(ux_colours.battery);
     in.grips = slot->grips;
+    in.player_lights = slot->players;
+    in.ephemeral = (u8)set_is_ephemeral();
     led_reach(c.reach, &c.pad);
     in.reach[0] = c.reach[0];
     in.reach[1] = c.reach[1];
-    in.rumble[0] = rumble ? c.host.rumble[0] : 0;
-    in.rumble[1] = rumble ? c.host.rumble[1] : 0;
+    in.rumble[0] = motor[0];
+    in.rumble[1] = motor[1];
     in.usb_powered = c.usb_powered;
     in.low_battery = c.low_battery;
     if (c.usb_powered && plugged < 2u * ux_timeouts.usb_plug_flash_ms)
@@ -563,6 +573,8 @@ void ctl_main(void)
         st.low_battery = c.low_battery;
         st.battery_mv = c.battery_mv;
         st.uptime_ms = now;
+        st.ephemeral = (u8)set_is_ephemeral();
+        st.staged = (u8)(set_staged() < 255 ? set_staged() : 255);
         st.stats = &c.stats;
         handle(usb_poll(&st), now);
         STEP(STEP_USB);

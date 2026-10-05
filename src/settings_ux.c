@@ -18,15 +18,21 @@ const struct ux_timeouts ux_timeouts = {
     .usb_plug_flash_ms = 150,
 };
 
+/* Palette entries 0 and 1 are these roles (settings.c); the brightness is here. */
+const struct ux_colours ux_colours = {
+    .idle = { 0, 5 },
+    .battery = { 1, 5 },
+};
+
 const struct led_scene ux_scenes[CTL_KIND_COUNT] = {
-    [CTL_BOOT] =       { COLOUR_IDLE, LED_SOLID,         BAR_ALL,    LED_OFF,       GRIPS_WAVE, LED_OFF },
-    [CTL_IDLE] =       { COLOUR_IDLE, LED_OFF,           BAR_ALL,    LED_OFF,       GRIPS_WAVE, LED_OFF },
-    [CTL_CONNECTING] = { COLOUR_SLOT, LED_BLINK(500, 500), BAR_SLOT, LED_SOLID,     GRIPS_WAVE, LED_OFF },
-    [CTL_PAIRING] =    { COLOUR_SLOT, LED_BLINK(120, 120), BAR_ALL,  LED_SWEEP(120), GRIPS_WAVE, LED_OFF },
-    [CTL_CONNECTED] =  { COLOUR_CONNECTED, LED_SOLID,         BAR_PLAYER, LED_SOLID,     GRIPS_SLOT_SETTING, LED_OFF },
-    [CTL_STOPPING] =   { COLOUR_SLOT, LED_OFF,           BAR_SLOT,   LED_SOLID,     GRIPS_WAVE, LED_OFF },
-    [CTL_SLEEPING] =   { COLOUR_IDLE, LED_OFF,           BAR_ALL,    LED_OFF,       GRIPS_WAVE, LED_OFF },
-    [CTL_REBOOTING] =  { COLOUR_IDLE, LED_OFF,           BAR_ALL,    LED_OFF,       GRIPS_WAVE, LED_OFF },
+    [CTL_BOOT] =       { COLOUR_IDLE,    LED_SOLID,           BAR_ALL,    LED_OFF,             GRIPS_WAVE, LED_OFF },
+    [CTL_IDLE] =       { COLOUR_IDLE,    LED_OFF,             BAR_ALL,    LED_OFF,             GRIPS_WAVE, LED_OFF },
+    [CTL_CONNECTING] = { COLOUR_CONNECT, LED_BLINK(500, 500), BAR_ALL,    LED_BLINK(500, 500), GRIPS_WAVE, LED_OFF },
+    [CTL_PAIRING] =    { COLOUR_CONNECT, LED_BLINK(120, 120), BAR_ALL,    LED_SWEEP(120),      GRIPS_WAVE, LED_OFF },
+    [CTL_CONNECTED] =  { COLOUR_PRIMARY, LED_SOLID,           BAR_PLAYER, LED_SOLID,           GRIPS_SLOT_SETTING, LED_OFF },
+    [CTL_STOPPING] =   { COLOUR_CONNECT, LED_OFF,             BAR_SLOT,   LED_SOLID,           GRIPS_WAVE, LED_OFF },
+    [CTL_SLEEPING] =   { COLOUR_IDLE,    LED_OFF,             BAR_ALL,    LED_OFF,             GRIPS_WAVE, LED_OFF },
+    [CTL_REBOOTING] =  { COLOUR_IDLE,    LED_OFF,             BAR_ALL,    LED_OFF,             GRIPS_WAVE, LED_OFF },
 };
 
 #define HOME_ALONE 0

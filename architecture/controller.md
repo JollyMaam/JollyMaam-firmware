@@ -203,8 +203,8 @@ profile->host(now, &host);
 ```
 
 and decides what the motors actually do: the host's levels while
-`CONNECTED`, with the slot's `rumble` setting on, and not calibrating; 0
-otherwise.  So the controller owns the outcome and every reason to override
+`CONNECTED`, scaled by the slot's `rumble` setting (percent), and not
+calibrating; 0 otherwise.  So the controller owns the outcome and every reason to override
 it, and nothing has to be told to stop: when a session ends the loop stops
 asking.  Host lights work the same way and go to `led_frame()`.  A USB
 hardware check, if ever added, would be one more input to the same decision.

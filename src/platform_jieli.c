@@ -49,6 +49,7 @@ extern void led_spi_init(void);
 extern void led_spi_rgb_to_24byte(u8 r, u8 g, u8 b, u8 *buffer, int index);
 extern void led_spi_send_rgbbuf(u8 *buffer, u16 count);
 extern u32 msd_mcu2usb(const struct usb_device_t *usb_device, const u8 *buffer, u32 len);
+extern u32 msd_usb2mcu(const struct usb_device_t *usb_device, u8 *buffer, u32 len);
 extern u8 *get_norflash_uuid(void) __attribute__((weak));
 
 const struct task_info task_info_table[] = {
@@ -779,9 +780,21 @@ u32 private_scsi_cmd(const struct usb_device_t *usb_device, struct usb_scsi_cbw 
     if (cdb[0] != USB_VENDOR_OP && cdb[0] != 0xfb && cdb[0] != 0xfc && cdb[0] != 0xfd)
         return 0;
     if (len > sizeof(usb_buf)) len = sizeof(usb_buf);
-    memset(usb_buf, 0, len);
-    usb_command(cdb, usb_buf, len);
-    if ((cbw->bmCBWFlags & 0x80) && len) msd_mcu2usb(usb_device, usb_buf, len);
+    memset(usb_buf, 0, sizeof(usb_buf));
+    if (!(cbw->bmCBWFlags & 0x80)) {
+        /* Host to pad: the data comes first, a packet at a time. */
+        u32 got = 0, n;
+
+        while (got < len) {
+            n = msd_usb2mcu(usb_device, usb_buf + got, len - got < 64 ? len - got : 64);
+            if (!n) break;
+            got += n;
+        }
+        usb_command(cdb, usb_buf, got, 1);
+        return 1;
+    }
+    usb_command(cdb, usb_buf, len, 0);
+    if (len) msd_mcu2usb(usb_device, usb_buf, len);
     return 1;
 }
 

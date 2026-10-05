@@ -59,13 +59,18 @@ little-endian.  Data goes in the SCSI data phase; the status is the CSW.
 | Sub | Name | Data | Status |
 |---|---|---|---|
 | `0x00` | IDENTIFY | in (40): magic `C2PD`, u16 protocol, build ID (16 chars at 8), flash UID (16 at 24) | done |
-| `0x01` | STATUS | in (16): state, slot, USB powered, low battery, u16 battery mV, u32 uptime ms | done |
+| `0x01` | STATUS | in (16): state, slot, USB powered, low battery, u16 battery mV, u32 uptime ms, ephemeral (12), settings items collected (13) | done |
 | `0x02` | LOG | CDB bytes 2–5: from sequence number; in: u32 first sequence returned, u32 length, text | done |
 | `0x03` | STATS | CDB byte 2 bit 0: reset after reading; in: u16 version, u16 size, `struct ctl_stats` as in memory | done |
 | `0x10` | REBOOT | – | done |
 | `0x11` | REBOOT_LOADER | – (any loader opcode does the same) | done |
-| `0x20` | SETTINGS_READ | record, offset → bytes | later |
-| `0x21` | SETTINGS_WRITE | record, offset, bytes | later |
+| `0x20` | FIELD | argument: field number; in: u8 version, target kind (0 slot, 1 palette, 2 calibration), id, type, size, –, u16 max, then name, help, enum names (NUL-terminated), defaults (one per slot for slot fields, fields up to 4 bytes); all zero past the last | done |
+| `0x21` | READ | CDB byte 2: target (0-7 slot, 8 palette, 9 calibration); in: u8 version, target, count, then per field id, set, len, value | done |
+| `0x22` | WRITE | out: items `{target, id, len, value}`, collected; `len` 0: default; id 0: the whole target | done |
+| `0x26` | RESULT | in: the last WRITE: u8 count, then a code per item (0 ok, 1 unknown, 2 bad length, 3 out of range, 4 full) | done |
+| `0x23` | COMMIT | – : apply what was collected, in order; save unless ephemeral | done |
+| `0x24` | DROP | – : throw away what was collected | done |
+| `0x25` | EPHEMERAL | – : nothing is written to flash until the next boot | done |
 
 The other SCSI commands return what makes operating systems leave the device
 alone: INQUIRY answers, TEST UNIT READY says "no medium", READ CAPACITY
@@ -85,7 +90,7 @@ reboot can still be read afterwards.
 
 ```c
 struct ctl_request usb_poll(const struct usb_status *status);   /* every pass of the loop */
-u32 usb_command(const u8 cdb[16], u8 *data, u32 max);          /* from the platform's SCSI hook */
+u32 usb_command(const u8 cdb[16], u8 *data, u32 len, int from_host);   /* the platform's SCSI hook */
 ```
 
 `usb_poll()` runs on every pass of the loop (`EV_USB` wakes it).  It lets the
@@ -95,7 +100,9 @@ platform service a parked command (`plat_usb_service()`), which calls
 it, as with gestures.  `status` is what the controller chooses to report
 (state, slot, battery, calibration required, ...); `usb.c` keeps no copy of
 the pad's state.  `IDENTIFY` comes from constants and `plat_unique_id()`,
-`LOG` from the ring buffer in `utils.c`.
+`LOG` from the ring buffer in `utils.c`, the settings commands from
+`settings.c` ([settings.md](settings.md)).  For a host-to-pad command the
+platform reads the data first and passes it with `from_host` set.
 
 The SDK's mass-storage driver runs outside the loop.  Its
 `private_scsi_cmd()` hook (platform code) parks each vendor command until the

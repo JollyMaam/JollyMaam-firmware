@@ -253,30 +253,42 @@ extern const struct profile_wake profile_switch_wake;
 
 enum { PROFILE_SWITCH, PROFILE_SWITCH2, PROFILE_XBOX, PROFILE_XBOX_BLE, PROFILE_DUALSENSE,
        PROFILE_DUALSHOCK4, PROFILE_GENERIC, PROFILE_MOUSE, PROFILE_COUNT };
-enum { GRIPS_NONE, GRIPS_RUMBLE, GRIPS_INPUT, GRIPS_BOTH, GRIPS_LIGHTBAR };
+enum { GRIPS_OFF, GRIPS_HOST, GRIPS_FADE, GRIPS_RUMBLE, GRIPS_INPUT, GRIPS_BOTH,
+       GRIPS_PRIMARY, GRIPS_SECONDARY };
+enum { PLAYERS_OFF, PLAYERS_HOST, PLAYERS_HOST_SECONDARY, PLAYERS_FADE, PLAYERS_PRIMARY,
+       PLAYERS_SECONDARY };
+
+#define PALETTE 16
+struct colour { u8 entry, level; };      /* a palette entry, scaled 0-255 */
 
 struct set_slot {
     u8 type;
-    u8 rumble;
+    struct colour connect_colour;        /* connecting, pairing: which slot */
+    struct colour primary_colour;        /* connected */
+    struct colour secondary_colour;      /* the background */
     u8 grips;
-    u8 colour[3];            /* connecting, pairing: which slot */
-    u8 connected_colour[3];
+    u8 players;
+    u8 rumble;               /* percent */
     u8 variant;              /* mouse: 0 games, 1 desktop */
     u16 stick_speed;         /* mouse: pointer counts per second, stick all the way */
     u16 gyro_speed;          /* mouse, touchpad: counts per degree turned; 0 off */
     u16 gyro_accel;          /* percent of gyro_speed for fast turns */
+    u8 address[6];           /* zero: derived */
+    struct bt_bond bond;
 };
 
-struct set_prefs {
-    u8 idle_colour[3];
-    u8 battery_colour[3];
-};
+/* What a change can be made to: a slot, the palette or calibration. */
+#define TARGET_PALETTE SLOTS
+#define TARGET_CAL     (SLOTS + 1)
+#define TARGETS        (SLOTS + 2)
 
-const struct set_slot *set_slot(u8 slot);
-const struct set_prefs *set_prefs(void);
+enum { SET_OK, SET_UNKNOWN, SET_BAD_LENGTH, SET_RANGE, SET_FULL };
+
 void set_init(void);
 void set_poll(u32 now, int radio_quiet);
-void set_commit(void);
+void set_flush(void);                    /* write what is pending now: before sleep or reboot */
+const struct set_slot *set_slot(u8 slot);
+struct rgb set_colour(struct colour c);
 const struct bt_bond *set_bond(u8 slot);
 void set_bond_store(u8 slot, const struct bt_bond *bond);
 void set_bond_forget(u8 slot);
@@ -284,6 +296,15 @@ void set_slot_address(u8 slot, u8 out[6]);
 void set_slot_new_address(u8 slot);
 const struct set_cal *set_cal(void);
 void set_cal_store(const struct set_cal *cal);
+/* Over USB: */
+u32 set_describe(u32 n, u8 *out, u32 max);
+u32 set_read(u8 target, u8 *out, u32 max);
+u32 set_write(const u8 *items, u32 len, u8 *results, u32 max);
+void set_apply(void);
+void set_drop(void);
+u32 set_staged(void);
+void set_ephemeral(void);
+int set_is_ephemeral(void);
 
 /* ---- leds.c ------------------------------------------------------------- */
 
@@ -300,9 +321,9 @@ struct led_wave { u8 kind; u16 a, b; };    /* blink: on, off; breathe: period; s
 #define LED_BREATHE(ms)    { WAVE_BREATHE, (ms), 0 }
 #define LED_SWEEP(ms)      { WAVE_SWEEP, (ms), 0 }
 
-enum { BAR_ALL, BAR_SLOT, BAR_PLAYER };
+enum { BAR_ALL, BAR_SLOT, BAR_PLAYER };       /* BAR_PLAYER: the slot's players setting */
 enum { GRIPS_WAVE, GRIPS_SLOT_SETTING };
-enum { COLOUR_IDLE, COLOUR_SLOT, COLOUR_CONNECTED };
+enum { COLOUR_IDLE, COLOUR_CONNECT, COLOUR_PRIMARY };
 
 struct led_scene {
     u8 colour;
@@ -320,8 +341,9 @@ struct led_state {
 };
 
 struct led_inputs {
-    struct rgb slot_colour, connected_colour, idle_colour, battery_colour;
-    u8 grips;              /* the slot's grips setting */
+    struct rgb connect_colour, primary_colour, secondary_colour, idle_colour, battery_colour;
+    u8 grips, player_lights;   /* the slot's settings */
+    u8 ephemeral;
     u8 rumble[2];
     u8 reach[2];
     u8 usb_powered, usb_plug_flash, low_battery;
@@ -353,7 +375,10 @@ struct ux_timeouts {
     u16 usb_plug_flash_ms;
 };
 
+struct ux_colours { struct colour idle, battery; };
+
 extern const struct ux_timeouts ux_timeouts;
+extern const struct ux_colours ux_colours;
 extern const struct led_scene ux_scenes[CTL_KIND_COUNT];
 
 struct ctl_request ux_step(struct pad *pad, u32 now, u8 state);
@@ -410,11 +435,13 @@ struct usb_status {
     u8 low_battery;
     u16 battery_mv;
     u32 uptime_ms;
+    u8 ephemeral;
+    u8 staged;               /* settings items waiting for commit */
     const struct ctl_stats *stats;
 };
 
 struct ctl_request usb_poll(const struct usb_status *status);
-u32 usb_command(const u8 cdb[16], u8 *data, u32 max);   /* from the platform's SCSI hook */
+u32 usb_command(const u8 cdb[16], u8 *data, u32 len, int from_host);   /* the platform's SCSI hook */
 
 /* ---- utils.c ------------------------------------------------------------ */
 

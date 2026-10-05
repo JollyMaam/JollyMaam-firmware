@@ -24,13 +24,16 @@ references are in [docs/](docs/README.md).
 
 `tools/padtool.py` talks to the running pad over USB (vendor SCSI commands on
 the mass-storage interface, `/dev/bwrap/sg*`): `identify`, `status`,
-`log [-f]`, `stats [-w SECONDS]`, `reboot`, `loader`, `flash IMAGE [--backup]`.
+`log [-f]`, `stats [-w SECONDS]`, `reboot`, `loader`, `flash IMAGE [--backup]`,
+and settings: `fields`, `get`, `set`, `reset`, `backup-settings`,
+`restore-settings`, `factory-reset`, `ephemeral`, `keep` (`padtool --help`).
 The log is a RAM ring that survives a reboot.  A pad that does not enumerate is recovered by
 holding Home+Start while plugging in USB (ROM loader, UBOOT1.00), then
 `padtool flash`.
 
 What can be tuned by hand: Home gestures, timeouts and LED scenes in
-`src/settings_ux.c`; slot defaults in `src/settings.c`.
+`src/settings_ux.c`; setting defaults (the field table) and the default
+palette in `src/settings.c`.  At run time over USB with `padtool set`.
 
 `src/build_config.h` selects controller-archive patches, applied to a build
 copy, never the SDK.  The linker's stack-size warnings are a vendor lint.

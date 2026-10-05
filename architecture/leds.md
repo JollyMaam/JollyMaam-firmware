@@ -17,8 +17,9 @@ struct led_state {
 };
 
 struct led_inputs {
-    struct rgb slot_colour, idle_colour, battery_colour;
-    u8 grips;              /* the slot's grips setting */
+    struct rgb connect_colour, primary_colour, secondary_colour, idle_colour, battery_colour;
+    u8 grips, player_lights;   /* the slot's settings */
+    u8 ephemeral;
     u8 rumble[2];
     u8 reach[2];
     u8 usb_powered, usb_plug_flash, low_battery;
@@ -52,22 +53,28 @@ What each controller state looks like is the table `ux_scenes[]` in
 `settings_ux.c`, indexed by controller state.  One row per state:
 
 ```c
-/*                   colour       home               bar         bar wave       grips       grips wave */
-[CTL_CONNECTING] = { COLOUR_SLOT, LED_BLINK(500, 500), BAR_SLOT, LED_SOLID,     GRIPS_WAVE, LED_OFF },
+/*                   colour          home                 bar      bar wave             grips       grips wave */
+[CTL_CONNECTING] = { COLOUR_CONNECT, LED_BLINK(500, 500), BAR_ALL, LED_BLINK(500, 500), GRIPS_WAVE, LED_OFF },
 ```
 
-Colour: `COLOUR_IDLE` (`set_prefs()->idle_colour`), `COLOUR_SLOT` (the
-slot's `colour`: connecting, pairing, stopping) or `COLOUR_CONNECTED` (the
-slot's `connected_colour`, dim red by default).
+Colour: `COLOUR_IDLE` (`ux_colours.idle`), `COLOUR_CONNECT` (the slot's
+`connect_colour`: connecting, pairing, stopping) or `COLOUR_PRIMARY` (the
+slot's `primary_colour`, dim red by default).
 
 Waves, timed from `since_ms`: `LED_OFF`, `LED_SOLID`,
 `LED_BLINK(on, off)`, `LED_BREATHE(period)`, `LED_SWEEP(step)`.  Bar: all four,
-the slot's light, or the player number the host set.  Grips: a wave, or, when
-connected, the slot's `grips` setting (rumble, input, lightbar).
+the slot's light, or (`BAR_PLAYER`, connected) the slot's `players` setting:
+off, host (the player number in the primary colour; dark if the host sets
+none), host+secondary (the others in the secondary colour), fade, primary,
+secondary.  Grips: a wave, or, when connected, the slot's `grips` setting:
+off, host (the lightbar colour; dark if none), fade, rumble, input,
+rumble+input (from the secondary colour towards the primary), primary,
+secondary.  Fade is a slow breathe between the secondary and primary colours.
 
 Scenes, one per controller state: boot, idle, connecting (including a Switch 1
 wake), pairing, connected, stopping (switching to another slot), sleeping,
 rebooting.
 
-Overlays drawn on top, in this order: host lights (player number, lightbar),
-the calibration light, low battery, the USB charging cue.
+Overlays drawn on top of Home, in this order: the USB charging cue, low
+battery, the USB plug flash, the ephemeral wink (dark for 100 ms twice every
+4 s), the calibration light.

@@ -8,6 +8,11 @@
 static const struct led_wave charging = LED_BLINK(800, 1600);
 static const struct led_wave low_battery = LED_BLINK(150, 2850);
 static const struct led_wave player_flash = LED_BLINK(250, 250);
+static const struct led_wave fade = LED_BREATHE(4000);
+
+/* Ephemeral mode: Home goes dark twice, briefly, every few seconds. */
+#define WINK_PERIOD_MS 4000
+#define WINK_MS        100
 
 static u8 level(const struct led_wave *w, u32 t, u32 pos, u32 count)
 {
@@ -43,6 +48,21 @@ static struct rgb dim(struct rgb c, u32 l)
     return o;
 }
 
+/* From a (l 0) to b (l 255). */
+static struct rgb blend(struct rgb a, struct rgb b, u32 l)
+{
+    struct rgb o = { (u8)((a.r * (255 - l) + b.r * l + 127) / 255),
+                     (u8)((a.g * (255 - l) + b.g * l + 127) / 255),
+                     (u8)((a.b * (255 - l) + b.b * l + 127) / 255) };
+    return o;
+}
+
+static int winking(u32 now)
+{
+    u32 t = now % WINK_PERIOD_MS;
+    return t < WINK_MS || (t >= 2 * WINK_MS && t < 3 * WINK_MS);
+}
+
 /* A B X Y light their own bar light; the d-pad slots all but that one. */
 static u32 slot_lights(u8 slot)
 {
@@ -57,47 +77,78 @@ static u32 bits(u32 m)
     return n;
 }
 
-static void bar(const struct led_scene *sc, const struct led_state *s, u32 now, u32 t,
-                const struct led_inputs *in, struct rgb c, struct led_frame *out)
+/* Connected: the slot's players setting. */
+static void players(const struct led_scene *sc, u32 now, u32 t, const struct led_inputs *in,
+                    struct led_frame *out)
 {
-    u32 on = 0, flash = 0, pos = 0, count, i;
+    struct rgb on = in->primary_colour, off = { 0, 0, 0 }, c;
+    u32 lit = 0xf, flash = 0, l = level(&sc->bar_wave, t, 0, 1), i;
 
-    if (sc->bar == BAR_ALL) {
-        on = 0xf;
-    } else if (sc->bar == BAR_PLAYER && in->has_players) {
-        on = in->players & 0xf;
-        flash = in->players_flash & 0xf & ~on;
-    } else if (s->slot != SLOT_NONE) {
-        on = slot_lights(s->slot);
+    switch (in->player_lights) {
+    case PLAYERS_HOST:
+    case PLAYERS_HOST_SECONDARY:
+        if (!in->has_players) return;
+        lit = in->players & 0xf;
+        flash = in->players_flash & 0xf & ~lit;
+        if (in->player_lights == PLAYERS_HOST_SECONDARY) off = in->secondary_colour;
+        break;
+    case PLAYERS_FADE: on = blend(in->secondary_colour, in->primary_colour, level(&fade, t, 0, 1)); break;
+    case PLAYERS_PRIMARY: break;
+    case PLAYERS_SECONDARY: on = in->secondary_colour; break;
+    default: return;
     }
-    count = bits(on);
     for (i = 0; i < PLAYERS; i++) {
-        u32 l = 0;
-        if (on & (1u << i)) l = level(&sc->bar_wave, t, pos++, count);
-        else if (flash & (1u << i))
-            l = level(&sc->bar_wave, t, 0, 1) * level(&player_flash, now, 0, 1) / 255;
+        c = lit & (1u << i) ? on : flash & (1u << i) && level(&player_flash, now, 0, 1) ? on : off;
         out->light[LIGHT_P0 + i] = dim(c, l);
     }
 }
 
+static void bar(const struct led_scene *sc, const struct led_state *s, u32 now, u32 t,
+                const struct led_inputs *in, struct rgb c, struct led_frame *out)
+{
+    u32 on = 0, pos = 0, count, i;
+
+    if (sc->bar == BAR_PLAYER) {
+        players(sc, now, t, in, out);
+        return;
+    }
+    if (sc->bar == BAR_ALL) on = 0xf;
+    else if (s->slot != SLOT_NONE) on = slot_lights(s->slot);
+    count = bits(on);
+    for (i = 0; i < PLAYERS; i++)
+        out->light[LIGHT_P0 + i] = dim(c, on & (1u << i) ? level(&sc->bar_wave, t, pos++, count) : 0);
+}
+
+/* Connected: the slot's grips setting.  The reactive ones brighten from the
+ * secondary colour to the primary with rumble or with how busy that half of
+ * the pad is. */
 static void grips(const struct led_scene *sc, u32 t, const struct led_inputs *in,
                   struct rgb c, struct led_frame *out)
 {
-    int lightbar = in->grips == GRIPS_LIGHTBAR && in->has_lightbar &&
-                   (in->lightbar.r || in->lightbar.g || in->lightbar.b);
-    u32 side;
+    struct rgb dark = { 0, 0, 0 };
+    u32 side, l;
 
     if (sc->grips == GRIPS_WAVE) {
         out->light[LIGHT_GRIP_L] = out->light[LIGHT_GRIP_R] = dim(c, level(&sc->grips_wave, t, 0, 1));
         return;
     }
     for (side = 0; side < 2; side++) {
-        u32 l = lightbar ? 255 : 0;
-        if ((in->grips == GRIPS_RUMBLE || in->grips == GRIPS_BOTH) && in->rumble[side] > l)
-            l = in->rumble[side];
-        if ((in->grips == GRIPS_INPUT || in->grips == GRIPS_BOTH) && in->reach[side] > l)
-            l = in->reach[side];
-        out->light[LIGHT_GRIP_L + side] = dim(lightbar ? in->lightbar : c, l);
+        switch (in->grips) {
+        case GRIPS_HOST: c = in->has_lightbar ? in->lightbar : dark; break;
+        case GRIPS_FADE: c = blend(in->secondary_colour, in->primary_colour, level(&fade, t, 0, 1)); break;
+        case GRIPS_RUMBLE:
+        case GRIPS_INPUT:
+        case GRIPS_BOTH:
+            l = 0;
+            if (in->grips != GRIPS_INPUT) l = in->rumble[side];
+            if (in->grips != GRIPS_RUMBLE && in->reach[side] > l) l = in->reach[side];
+            c = blend(in->secondary_colour, in->primary_colour, l);
+            break;
+        case GRIPS_PRIMARY: c = in->primary_colour; break;
+        case GRIPS_SECONDARY: c = in->secondary_colour; break;
+        default: c = dark; break;
+        }
+        out->light[LIGHT_GRIP_L + side] = c;
     }
 }
 
@@ -106,8 +157,8 @@ void led_frame(const struct led_scene *sc, const struct led_state *s, u32 now,
 {
     u32 t = now - s->since_ms;
     struct rgb c = s->slot == SLOT_NONE ? in->idle_colour
-                 : sc->colour == COLOUR_SLOT ? in->slot_colour
-                 : sc->colour == COLOUR_CONNECTED ? in->connected_colour : in->idle_colour;
+                 : sc->colour == COLOUR_CONNECT ? in->connect_colour
+                 : sc->colour == COLOUR_PRIMARY ? in->primary_colour : in->idle_colour;
     struct rgb *home = &out->light[LIGHT_HOME];
 
     memset(out, 0, sizeof(*out));
@@ -119,6 +170,7 @@ void led_frame(const struct led_scene *sc, const struct led_state *s, u32 now,
     if (in->low_battery && level(&low_battery, now, 0, 1)) *home = in->battery_colour;
     if (in->usb_plug_flash == 1) *home = s->slot != SLOT_NONE ? c : in->battery_colour;
     if (in->usb_plug_flash == 2) memset(home, 0, sizeof(*home));
+    if (in->ephemeral && winking(now)) memset(home, 0, sizeof(*home));
     if (in->cal_lit) *home = in->cal;
 }
 
@@ -154,10 +206,13 @@ void led_reach(u8 reach[2], const struct pad *p)
 
 #ifdef UNITTEST
 static const struct led_scene connecting = {
-    COLOUR_SLOT, LED_BLINK(500, 500), BAR_SLOT, LED_SOLID, GRIPS_WAVE, LED_OFF,
+    COLOUR_CONNECT, LED_BLINK(500, 500), BAR_ALL, LED_BLINK(500, 500), GRIPS_WAVE, LED_OFF,
+};
+static const struct led_scene stopping = {
+    COLOUR_CONNECT, LED_OFF, BAR_SLOT, LED_SOLID, GRIPS_WAVE, LED_OFF,
 };
 static const struct led_scene connected = {
-    COLOUR_CONNECTED, LED_SOLID, BAR_PLAYER, LED_SOLID, GRIPS_SLOT_SETTING, LED_OFF,
+    COLOUR_PRIMARY, LED_SOLID, BAR_PLAYER, LED_SOLID, GRIPS_SLOT_SETTING, LED_OFF,
 };
 static const struct led_scene idle = {
     COLOUR_IDLE, LED_OFF, BAR_ALL, LED_OFF, GRIPS_WAVE, LED_OFF,
@@ -173,37 +228,65 @@ int main(void)
     struct led_inputs in;
     struct led_state s = { CTL_CONNECTING, 1, 1000 };
     struct led_frame f;
-    struct rgb red = { 255, 0, 0 }, dark = { 0, 0, 0 }, white = { 5, 5, 5 };
+    struct rgb red = { 255, 0, 0 }, dark = { 0, 0, 0 }, white = { 5, 5, 5 }, dim_red = { 1, 0, 0 };
     struct pad p;
     u8 reach[2] = { 0, 0 };
 
     memset(&in, 0, sizeof(in));
-    in.slot_colour = red;
-    in.connected_colour = (struct rgb){ 2, 0, 0 };
+    in.connect_colour = red;
+    in.primary_colour = (struct rgb){ 2, 0, 0 };
+    in.secondary_colour = dim_red;
     in.idle_colour = white;
     in.battery_colour = (struct rgb){ 5, 2, 0 };
 
+    /* Connecting: Home and all four blink together. */
     led_frame(&connecting, &s, 1100, &in, &f);
     CHECK(same(f.light[LIGHT_HOME], red));
-    CHECK(same(f.light[LIGHT_P1], red) && same(f.light[LIGHT_P0], dark));
+    CHECK(same(f.light[LIGHT_P1], red) && same(f.light[LIGHT_P3], red));
     led_frame(&connecting, &s, 1600, &in, &f);
-    CHECK(same(f.light[LIGHT_HOME], dark));
+    CHECK(same(f.light[LIGHT_HOME], dark) && same(f.light[LIGHT_P0], dark));
 
+    s.scene = CTL_STOPPING;
     s.slot = 5;   /* down: all bar lights but the second */
-    led_frame(&connecting, &s, 1100, &in, &f);
+    led_frame(&stopping, &s, 1100, &in, &f);
     CHECK(same(f.light[LIGHT_P1], dark) && same(f.light[LIGHT_P0], red));
 
     s.scene = CTL_CONNECTED;
     s.slot = 0;
+    in.player_lights = PLAYERS_HOST;
+    in.grips = GRIPS_HOST;
+    led_frame(&connected, &s, 2000, &in, &f);   /* nothing from the console: dark */
+    CHECK(same(f.light[LIGHT_P0], dark) && same(f.light[LIGHT_GRIP_L], dark));
     in.has_players = 1;
     in.players = 0x4;
-    in.grips = GRIPS_LIGHTBAR;
     in.has_lightbar = 1;
     in.lightbar = (struct rgb){ 0, 0, 200 };
     led_frame(&connected, &s, 2000, &in, &f);
-    CHECK(same(f.light[LIGHT_HOME], in.connected_colour));
-    CHECK(same(f.light[LIGHT_P2], in.connected_colour) && same(f.light[LIGHT_P0], dark));
+    CHECK(same(f.light[LIGHT_HOME], in.primary_colour));
     CHECK(same(f.light[LIGHT_GRIP_L], in.lightbar));
+    in.player_lights = PLAYERS_HOST_SECONDARY;
+    led_frame(&connected, &s, 2000, &in, &f);
+    CHECK(same(f.light[LIGHT_P2], in.primary_colour) && same(f.light[LIGHT_P0], dim_red));
+    in.player_lights = PLAYERS_SECONDARY;
+    in.grips = GRIPS_PRIMARY;
+    led_frame(&connected, &s, 2000, &in, &f);
+    CHECK(same(f.light[LIGHT_P2], dim_red) && same(f.light[LIGHT_GRIP_R], in.primary_colour));
+    in.grips = GRIPS_RUMBLE;
+    in.rumble[1] = 255;
+    led_frame(&connected, &s, 2000, &in, &f);
+    CHECK(same(f.light[LIGHT_GRIP_L], dim_red) && same(f.light[LIGHT_GRIP_R], in.primary_colour));
+    in.player_lights = PLAYERS_OFF;
+    in.grips = GRIPS_OFF;
+    led_frame(&connected, &s, 2000, &in, &f);
+    CHECK(same(f.light[LIGHT_P2], dark) && same(f.light[LIGHT_GRIP_R], dark));
+
+    /* Ephemeral: Home winks. */
+    in.ephemeral = 1;
+    led_frame(&connected, &s, 8050, &in, &f);
+    CHECK(same(f.light[LIGHT_HOME], dark));
+    led_frame(&connected, &s, 8150, &in, &f);
+    CHECK(same(f.light[LIGHT_HOME], in.primary_colour));
+    in.ephemeral = 0;
 
     s.scene = CTL_IDLE;
     s.slot = SLOT_NONE;

@@ -7,7 +7,7 @@ Suggested order, smallest and most independent first:
 
 1. Prune the SDK config headers
 2. Loop profiling and timing stats
-3. Runtime settings in the firmware
+3. Runtime settings in the firmware — done
 4. Configuration tools: Python, then Android
 5. Battery and charging
 6. Rewrite `docs/`
@@ -45,66 +45,6 @@ prints a table, `-w` a running view.
 
 **Open.**  Whether "report age" should start at the GPIO change (tick ISR
 timestamp, more accurate) or at the loop seeing it.
-
----
-
-## 3. Runtime settings in the firmware
-
-Today: slot settings and preferences are `const` tables in `settings.c`;
-only bonds and calibration are stored.  Wanted: change them at runtime, keep
-them across power-off, and changes apply on the next connect (no reconnect
-forced).
-
-**What becomes a setting** (first set; easy to add to):
-
-| Setting | Per | Values |
-|---|---|---|
-| profile type | slot | switch, switch2, xbox, xboxble, dualsense, dualshock4, generic, mouse |
-| rumble strength | slot | 0-100 % (0 off) — replaces the on/off `rumble` |
-| colour | slot | RGB: connecting, pairing |
-| connected colour | slot | RGB |
-| grips | slot | wave, rumble, input, lightbar |
-| face buttons | slot | as printed / Nintendo positions (A↔B, X↔Y) / custom map |
-| mouse | slot | variant, stick speed, gyro speed, gyro accel |
-| idle colour, battery colour, brightness | pad | RGB, 0-100 % |
-
-**Face-button swap.**  Applied by the controller between `in_map()` and the
-profile (so every profile gets it), not in the gesture engine: Home+A always
-means slot A whatever the swap.  `[ed: gestures keep the physical button names, home+a always means slot A.]` or should gestures follow the swap?
-
-**The table stays code** (as you asked when the old config system was
-designed): one designated-initializer table in `settings.c`, each row a field
-with a never-reused id, name, type, range, default and one line of help:
-
-```c
-{ .id = 3, .name = "rumble", .per_slot = 1, .type = T_PERCENT,
-  .offset = offsetof(struct set_slot, rumble), .def = 100,
-  .help = "rumble strength; 0 turns it off" },
-```
-
-Defaults come from the table, so the `SLOT()` macros shrink to the per-slot
-differences (type, colour).
-
-**Storage.**  One record per slot plus one for the pad, written as
-`{id, value}` pairs rather than a raw struct, so adding a field never
-invalidates stored settings and a removed id is just skipped.  Same write
-rules as now: dirty, written once quiet; only held back during pairing (you
-said earlier the old firmware was too careful about this).
-
-**USB.**  Sub-commands, all versioned:
-
-| Sub | Name | |
-|---|---|---|
-| `0x20` | SETTINGS_SCHEMA | the field table: id, name, type, range, default, help, per-slot |
-| `0x21` | SETTINGS_READ | all values (or one slot) as id/value pairs |
-| `0x22` | SETTINGS_WRITE | id/value pairs for the pad or a slot; returns per-field ok/out-of-range |
-| `0x23` | SETTINGS_RESET | defaults, for a slot or everything (bonds untouched) |
-
-Because the firmware describes its own fields, the tools need no field list
-of their own: a new setting shows up in them without a tool update.
-
-**Test.**  Unit tests for encode/decode/validate; on the pad, change a slot's
-type from the tool and connect.
 
 ---
 
