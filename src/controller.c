@@ -42,6 +42,7 @@ static struct {
     u8 uboot_chord;
     u32 retry_at;
     u32 report_next;
+    u16 report_hz;               /* the session's: the slot's setting or the profile's */
     u8 imu_mode, begin_imu;
     u32 imu_seq, imu_next;
     u8 calibrating;
@@ -68,25 +69,12 @@ static struct {
     u8 sent_hat;
 } c;
 
-static void stat_add(struct stat_hist *h, u32 us)
-{
-    u32 b = 0, v = us >> 5;
-
-    while (v && b < STAT_BUCKETS - 1) {
-        v >>= 1;
-        b++;
-    }
-    h->sum += us;
-    h->count++;
-    if (us > h->max) h->max = us;
-    if (h->bucket[b] < 0xffff) h->bucket[b]++;
-}
-
 static void stats_reset(u32 now)
 {
     memset(&c.stats, 0, sizeof(c.stats));
     c.stats.since_ms = now;
     bt_stats(&c.bt_base);
+    bt_timing(&c.stats.bt_timing, 1);
     plat_stats(&c.plat_base);
 }
 
@@ -111,7 +99,8 @@ static void become(u8 kind, u32 now)
 
 static void radio_on(void)
 {
-    bt_start(c.prof, c.sess.address, c.sess.pairing ? NULL : c.sess.bond, c.sess.pairing);
+    bt_start(c.prof, c.sess.address, c.sess.pairing ? NULL : c.sess.bond, c.sess.pairing,
+             &c.sess.settings->link);
     c.radio = 1;
 }
 
@@ -167,6 +156,8 @@ static void start_session(struct ctl_request r, u32 now)
     c.last_slot = r.slot;
     plat_retain_slot(r.slot);
     memset(&c.host, 0, sizeof(c.host));
+    c.report_hz = s.settings->report_hz ? s.settings->report_hz
+                : p->report_hz ? p->report_hz : 125;
     c.begin_imu = p->begin(&s);
     c.sess = s;
     c.woke = 0;
@@ -487,7 +478,7 @@ static void read_input(u32 now)
 static void send_report(u32 now)
 {
     u8 buf[80], id = 0;
-    u32 period = 1000 / (c.prof->report_hz ? c.prof->report_hz : 125);
+    u32 period = 1000 / c.report_hz;
     int n;
 
     if ((s32)(now - c.report_next) < 0) return;
@@ -498,9 +489,9 @@ static void send_report(u32 now)
     if (n > 0 && bt_send_input(id, buf, (u16)n)) {
         u32 us = plat_us();
 
-        if (c.stats.reports) stat_add(&c.stats.interval, us - c.last_report_us);
+        if (c.stats.reports) util_stat_add(&c.stats.interval, us - c.last_report_us);
         if (c.pad.buttons != c.sent_buttons || c.pad.hat != c.sent_hat)
-            stat_add(&c.stats.age, us - c.raw.changed_us);
+            util_stat_add(&c.stats.age, us - c.raw.changed_us);
         c.last_report_us = us;
         c.sent_buttons = c.pad.buttons;
         c.sent_hat = c.pad.hat;
@@ -563,6 +554,7 @@ void ctl_main(void)
             bt_stats(&b);
             plat_stats(&p);
             counters_since(&c.stats.bt.sent, &b.sent, &c.bt_base.sent, sizeof(b) / 4);
+            bt_timing(&c.stats.bt_timing, 0);
             counters_since(&c.stats.plat.button_changes, &p.button_changes,
                            &c.plat_base.button_changes, sizeof(p) / 4);
         }
@@ -591,7 +583,7 @@ void ctl_main(void)
         deadline = earliest(c.led_next, earliest(state_deadline(), earliest(ux_deadline(), c.imu_next)));
         if (c.calibrating) deadline = earliest(deadline, now + CAL_SAMPLE_MS);
         c.stats.passes++;
-        stat_add(&c.stats.pass, plat_us() - start);
+        util_stat_add(&c.stats.pass, plat_us() - start);
         plat_wait(deadline);
     }
 }

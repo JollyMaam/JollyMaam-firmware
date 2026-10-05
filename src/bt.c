@@ -36,7 +36,8 @@ void hci_jieli_link_policy(void);
 #define MAX_MESSAGE    160
 #define MESSAGES       6
 #define EVENTS         8
-#define IN_FLIGHT      2
+#define IN_FLIGHT      2         /* when the slot's in_flight is 0 */
+#define IN_FLIGHT_MAX  8
 #define CCCS           8
 /* Single-slot ACL packets only (DM1 DH1 2-DH1 3-DH1), as the stock firmware
  * pages: a report never rides a longer packet that fails more often. */
@@ -61,6 +62,9 @@ static u8 input[MAX_INPUT];
 static u16 input_len;
 static volatile u8 input_pending;
 static struct bt_stats stats;
+static struct bt_timing timing;          /* under plat_lock: read from the control thread */
+static struct bt_link link;
+static u32 slot_us;                      /* when the slot's report came in */
 static struct message messages[MESSAGES];
 static volatile u8 msg_read, msg_write;
 
@@ -76,9 +80,15 @@ static btstack_data_source_t tx_source;
 static btstack_packet_callback_registration_t hci_registration, sm_registration;
 static u8 sdp_hid[720];
 static u8 sdp_id[100];
-static u8 sm_on, wake_adv, data_length_pending;
+static u8 sm_on, wake_adv, data_length_pending, phy_pending;
 static u16 ccc_handle[CCCS];
 static u8 ccc_value[CCCS];
+static btstack_packet_callback_registration_t l2cap_registration;
+/* Reports in the controller, oldest first: when each went in and when it
+ * entered the slot, to time Number Of Completed Packets against. */
+static struct { u32 sent_us, slot_us; } flight[IN_FLIGHT_MAX];
+static u8 flight_n;
+static u32 last_ack_us;
 
 /* ---- control thread side ------------------------------------------------- */
 
@@ -98,7 +108,8 @@ static void request(u8 r)
 
 static void body(void);
 
-void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond *b, int pair)
+void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond *b, int pair,
+              const struct bt_link *l)
 {
     static u8 thread;
 
@@ -109,6 +120,9 @@ void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond
     memset(&bond, 0, sizeof(bond));
     if (b) bond = *b;
     pairing = (u8)pair;
+    link = *l;
+    if (!link.in_flight) link.in_flight = IN_FLIGHT;
+    if (link.in_flight > IN_FLIGHT_MAX) link.in_flight = IN_FLIGHT_MAX;
     msg_read = msg_write = 0;
     input_pending = 0;
     idle = 0;
@@ -147,6 +161,7 @@ int bt_send_input(u8 id, const u8 *data, u16 len)
         input_len = len + 2;
     }
     if (input_pending) stats.replaced++;
+    else slot_us = plat_us();
     input_pending = 1;
     plat_unlock();
     plat_bt_wake();
@@ -157,6 +172,17 @@ void bt_stats(struct bt_stats *out)
 {
     plat_lock();
     *out = stats;
+    plat_unlock();
+}
+
+void bt_timing(struct bt_timing *out, int reset)
+{
+    plat_lock();
+    if (reset) {
+        memset(&timing.ack_wait, 0, 3 * sizeof(timing.ack_wait));
+        last_ack_us = 0;
+    }
+    *out = timing;
     plat_unlock();
 }
 
@@ -458,7 +484,7 @@ static void on_sm(u8 type, u16 channel, u8 *packet, u16 size)
 static int room(void)
 {
     hci_connection_t *c = hci_connection_for_handle(con_handle);
-    return !c || c->num_packets_sent < IN_FLIGHT;
+    return !c || c->num_packets_sent < link.in_flight;
 }
 
 static int have_data(void)
@@ -469,6 +495,7 @@ static int have_data(void)
 static void send_now(void)
 {
     struct message m;
+    u32 slot = 0;
 
     m.len = 0;
     plat_lock();
@@ -480,6 +507,7 @@ static void send_now(void)
         m.len = input_len;
         memcpy(m.data, input, input_len);
         input_pending = 0;
+        slot = slot_us;
         stats.sent++;
     }
     plat_unlock();
@@ -487,6 +515,12 @@ static void send_now(void)
         if (!le) hid_device_send_interrupt_message(hid_cid, m.data, m.len);
         else if (m.handle != dev->input_handle || notifying(m.handle))
             att_server_notify(con_handle, m.handle, m.data, m.len);
+        /* Messages ride along unmarked (slot 0): only reports are timed. */
+        if (flight_n < IN_FLIGHT_MAX) {
+            flight[flight_n].sent_us = plat_us();
+            flight[flight_n].slot_us = slot;
+            flight_n++;
+        }
     }
     send_pending = 0;
     if (have_data()) plat_bt_wake();
@@ -525,6 +559,10 @@ static void tx_poll(btstack_data_source_t *ds, btstack_data_source_callback_type
         if (acl_up && !hid_cid) gap_disconnect(con_handle);
         else page();
     }
+    if (le && phy_pending && acl_up && hci_can_send_command_packet_now()) {
+        phy_pending = 0;
+        gap_le_set_phy(con_handle, 0, 2, 2, 0);     /* 2M both ways */
+    }
     if (le && data_length_pending && acl_up && hci_can_send_command_packet_now()) {
         /* At the default 27 bytes a Switch 2 report took three connection
          * events: ask for 251. */
@@ -535,7 +573,8 @@ static void tx_poll(btstack_data_source_t *ds, btstack_data_source_callback_type
      * delivered reports in bursts: ask for a 1.25 ms poll interval. */
     if (qos_pending && acl_up && hci_can_send_command_packet_now()) {
         qos_pending = 0;
-        hci_send_cmd(&hci_qos_setup, con_handle, 0, 2, 8000, 0, 1250, 0xffffffffu);
+        if (link.poll_us)
+            hci_send_cmd(&hci_qos_setup, con_handle, 0, 2, 8000, 0, (u32)link.poll_us, 0xffffffffu);
     }
     if (have_data()) unsniff();
     if (!send_pending && linked && have_data() && (msg_read != msg_write || room())) {
@@ -555,11 +594,61 @@ static void unlinked(u8 reason)
     hid_cid = 0;
     send_pending = 0;
     acl_up = 0;
+    flight_n = 0;
+    plat_lock();
+    memset(&timing.link, 0, sizeof(timing.link));
+    plat_unlock();
     if (pairing && !le) scan(1);
     wake_adv = 0;
     advertise();
     if (was) emit(BT_EV_UNLINKED, reason);
     else if (!pairing && !le) emit(BT_EV_FAILED, reason);
+}
+
+/* ---- what the link turned out to be: bt_timing().link and the log ------------- */
+
+static void link_up(u8 transport)
+{
+    flight_n = 0;
+    plat_lock();
+    memset(&timing.link, 0, sizeof(timing.link));
+    timing.link.transport = transport;
+    timing.link.phy_tx = timing.link.phy_rx = transport == 2 ? 1 : 0;
+    timing.link.tx_octets = timing.link.rx_octets = transport == 2 ? 27 : 0;
+    timing.link.acl_buffers = (u16)hci_number_free_acl_slots_for_handle(con_handle);
+    plat_unlock();
+}
+
+static void le_params(u16 interval, u16 latency, u16 timeout)
+{
+    plat_lock();
+    timing.link.interval = interval;
+    timing.link.latency = latency;
+    timing.link.timeout = timeout;
+    plat_unlock();
+}
+
+/* Number Of Completed Packets: the controller says reports went.  BTstack's
+ * own packets (ATT responses, L2CAP) are acked here too and are not in
+ * flight[]; whatever the connection has outstanding beyond ours is theirs. */
+static void acked(void)
+{
+    hci_connection_t *c = hci_connection_for_handle(con_handle);
+    u32 now = plat_us();
+    int left = c ? c->num_packets_sent : 0;
+    u8 i, n = 0;
+
+    plat_lock();
+    if (last_ack_us) util_stat_add(&timing.ack_gap, now - last_ack_us);
+    last_ack_us = now;
+    while (flight_n - n > left && n < flight_n) {
+        util_stat_add(&timing.ack_wait, now - flight[n].sent_us);
+        if (flight[n].slot_us) util_stat_add(&timing.slot_ack, now - flight[n].slot_us);
+        n++;
+    }
+    plat_unlock();
+    for (i = n; i < flight_n; i++) flight[i - n] = flight[i];
+    flight_n = (u8)(flight_n - n);
 }
 
 static void le_connected(u8 *packet)
@@ -571,10 +660,18 @@ static void le_connected(u8 *packet)
     con_handle = hci_subevent_le_connection_complete_get_connection_handle(packet);
     acl_up = linked = 1;
     hci_subevent_le_connection_complete_get_peer_address(packet, a);
-    util_log("bt: le %s", bd_addr_to_str(a));
+    util_log("bt: le %s interval %u latency %u timeout %u", bd_addr_to_str(a),
+             hci_subevent_le_connection_complete_get_conn_interval(packet),
+             hci_subevent_le_connection_complete_get_conn_latency(packet),
+             hci_subevent_le_connection_complete_get_supervision_timeout(packet));
+    link_up(2);
+    le_params(hci_subevent_le_connection_complete_get_conn_interval(packet),
+              hci_subevent_le_connection_complete_get_conn_latency(packet),
+              hci_subevent_le_connection_complete_get_supervision_timeout(packet));
     reverse(a, bond.le_peer, 6);
     memset(ccc_value, 0, sizeof(ccc_value));
     data_length_pending = 1;
+    phy_pending = link.le_phy;
     c = hci_connection_for_handle(con_handle);
     if (!sm_on && c) {
         /* Without SM nobody runs the identity lookup att_server waits for:
@@ -600,8 +697,10 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
         u8 i;
 
         for (i = 0; i < packet[2]; i++)
-            if (little_endian_read_16(packet, 3 + 4 * i) == con_handle)
+            if (little_endian_read_16(packet, 3 + 4 * i) == con_handle) {
                 stats.acked += little_endian_read_16(packet, 5 + 4 * i);
+                if (acl_up) acked();
+            }
         break;
     }
     case BTSTACK_EVENT_STATE:
@@ -632,6 +731,7 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
         if (hci_event_connection_complete_get_status(packet)) break;
         con_handle = hci_event_connection_complete_get_connection_handle(packet);
         acl_up = 1;
+        link_up(1);
         reverse(a, bond.peer, 6);
         emit(BT_EV_PEER, 0);
         break;
@@ -643,6 +743,41 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
         switch (hci_event_le_meta_get_subevent_code(packet)) {
         case HCI_SUBEVENT_LE_CONNECTION_COMPLETE:
             le_connected(packet);
+            break;
+        case HCI_SUBEVENT_LE_CONNECTION_UPDATE_COMPLETE:
+            util_log("bt: le update status 0x%02x interval %u latency %u timeout %u",
+                     hci_subevent_le_connection_update_complete_get_status(packet),
+                     hci_subevent_le_connection_update_complete_get_conn_interval(packet),
+                     hci_subevent_le_connection_update_complete_get_conn_latency(packet),
+                     hci_subevent_le_connection_update_complete_get_supervision_timeout(packet));
+            if (!hci_subevent_le_connection_update_complete_get_status(packet))
+                le_params(hci_subevent_le_connection_update_complete_get_conn_interval(packet),
+                          hci_subevent_le_connection_update_complete_get_conn_latency(packet),
+                          hci_subevent_le_connection_update_complete_get_supervision_timeout(packet));
+            break;
+        case HCI_SUBEVENT_LE_DATA_LENGTH_CHANGE:
+            util_log("bt: le data length tx %u/%u us rx %u/%u us",
+                     hci_subevent_le_data_length_change_get_max_tx_octets(packet),
+                     hci_subevent_le_data_length_change_get_max_tx_time(packet),
+                     hci_subevent_le_data_length_change_get_max_rx_octets(packet),
+                     hci_subevent_le_data_length_change_get_max_rx_time(packet));
+            plat_lock();
+            timing.link.tx_octets = hci_subevent_le_data_length_change_get_max_tx_octets(packet);
+            timing.link.tx_time = hci_subevent_le_data_length_change_get_max_tx_time(packet);
+            timing.link.rx_octets = hci_subevent_le_data_length_change_get_max_rx_octets(packet);
+            timing.link.rx_time = hci_subevent_le_data_length_change_get_max_rx_time(packet);
+            plat_unlock();
+            break;
+        case HCI_SUBEVENT_LE_PHY_UPDATE_COMPLETE:
+            util_log("bt: le phy status 0x%02x tx %u rx %u",
+                     hci_subevent_le_phy_update_complete_get_status(packet),
+                     hci_subevent_le_phy_update_complete_get_tx_phy(packet),
+                     packet[7]);
+            if (hci_subevent_le_phy_update_complete_get_status(packet)) break;
+            plat_lock();
+            timing.link.phy_tx = hci_subevent_le_phy_update_complete_get_tx_phy(packet);
+            timing.link.phy_rx = packet[7];
+            plat_unlock();
             break;
         case HCI_SUBEVENT_LE_LONG_TERM_KEY_REQUEST:
             if (sm_on) break;
@@ -661,9 +796,33 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
             int i = ccc((u16)(dev->input_handle + 1), 1);
             if (i >= 0) ccc_value[i] = 1;
         }
-        if (dev->interval_min)
+        if (link.le_interval_min)
+            gap_request_connection_parameter_update(con_handle, link.le_interval_min,
+                link.le_interval_max ? link.le_interval_max : link.le_interval_min, 0, 400);
+        else if (dev->interval_min)
             gap_request_connection_parameter_update(con_handle, dev->interval_min,
                                                     dev->interval_max, 0, 400);
+        break;
+    case L2CAP_EVENT_CONNECTION_PARAMETER_UPDATE_RESPONSE:
+        util_log("bt: le parameter request %s",
+                 l2cap_event_connection_parameter_update_response_get_result(packet) ? "refused" : "accepted");
+        break;
+    case HCI_EVENT_QOS_SETUP_COMPLETE:
+        /* status, handle, flags, service type, token rate, peak bandwidth,
+         * latency, delay variation */
+        util_log("bt: qos status 0x%02x latency %u us", packet[2], little_endian_read_32(packet, 15));
+        if (packet[2]) break;
+        plat_lock();
+        timing.link.poll_us = little_endian_read_32(packet, 15);
+        plat_unlock();
+        break;
+    case HCI_EVENT_MODE_CHANGE:
+        util_log("bt: mode %u interval %u", hci_event_mode_change_get_mode(packet),
+                 hci_event_mode_change_get_interval(packet));
+        plat_lock();
+        timing.link.mode = hci_event_mode_change_get_mode(packet);
+        timing.link.interval = hci_event_mode_change_get_mode(packet) ? hci_event_mode_change_get_interval(packet) : 0;
+        plat_unlock();
         break;
     case ATT_EVENT_CAN_SEND_NOW:
         send_now();
@@ -814,6 +973,8 @@ static void setup(void)
     else setup_classic();
     hci_registration.callback = on_event;
     hci_add_event_handler(&hci_registration);
+    l2cap_registration.callback = on_event;
+    l2cap_add_event_handler(&l2cap_registration);
     btstack_run_loop_set_data_source_handler(&tx_source, tx_poll);
     btstack_run_loop_enable_data_source_callbacks(&tx_source, DATA_SOURCE_CALLBACK_POLL);
     btstack_run_loop_add_data_source(&tx_source);

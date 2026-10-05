@@ -190,9 +190,18 @@ struct bt_ev {
     struct bt_write write;       /* BT_EV_WRITE */
 };
 
+/* How the link is asked to run, from the slot's settings; 0 in a field: the
+ * profile's or the stack's own. */
+struct bt_link {
+    u16 le_interval_min, le_interval_max;    /* 1.25 ms units, requested after encryption */
+    u8 le_phy;               /* 0 leave it; 1 ask for 2M */
+    u8 in_flight;            /* input reports in the controller at once */
+    u16 poll_us;             /* Classic: QoS latency asked for */
+};
+
 struct profile;
 void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond *bond,
-              int pairing);
+              int pairing, const struct bt_link *link);
 void bt_stop(void);
 void bt_abort(void);
 void bt_connect(void);
@@ -205,6 +214,8 @@ int bt_input_pending(void);
 void bt_update_bond(const struct bt_bond *bond);
 struct bt_stats;
 void bt_stats(struct bt_stats *out);
+struct bt_timing;
+void bt_timing(struct bt_timing *out, int reset);
 
 /* ---- profile_*.c -------------------------------------------------------- */
 
@@ -275,6 +286,8 @@ struct set_slot {
     u16 gyro_accel;          /* percent of gyro_speed for fast turns */
     u8 address[6];           /* zero: derived */
     struct bt_bond bond;
+    u16 report_hz;           /* 0: the profile's */
+    struct bt_link link;
 };
 
 /* What a change can be made to: a slot, the palette or calibration. */
@@ -407,6 +420,26 @@ struct bt_stats {
     u32 acked;                   /* packets the controller reports as sent */
 };
 
+/* The link as the controller reports it, and when it said packets went. */
+struct bt_link_info {
+    u8 transport;                /* 0 none, 1 Classic, 2 LE */
+    u8 phy_tx, phy_rx;           /* LE: 1 1M, 2 2M, 3 coded */
+    u8 mode;                     /* Classic: 0 active, 2 sniff */
+    u16 interval;                /* LE: 1.25 ms units; Classic sniff: slots */
+    u16 latency, timeout;        /* LE: events; 10 ms units */
+    u16 tx_octets, tx_time;      /* LE: data length the controller sends with */
+    u16 rx_octets, rx_time;      /* LE: and takes */
+    u16 acl_buffers;             /* the controller's ACL packets (LE ones on LE) */
+    u32 poll_us;                 /* Classic: the QoS latency granted */
+};
+
+struct bt_timing {
+    struct stat_hist ack_wait;   /* report to the controller until it says sent */
+    struct stat_hist slot_ack;   /* report into the input slot until it says sent */
+    struct stat_hist ack_gap;    /* between Number Of Completed Packets for the link */
+    struct bt_link_info link;
+};
+
 struct plat_stats {
     u32 button_changes;          /* debounced changes seen by the tick */
     u32 stick_frames;            /* good frames from the stick MCU */
@@ -424,8 +457,9 @@ struct ctl_stats {
     u32 reports, imu_samples;
     struct bt_stats bt;
     struct plat_stats plat;
+    struct bt_timing bt_timing;
 };
-_Static_assert(sizeof(struct stat_hist) == 48 && sizeof(struct ctl_stats) == 256,
+_Static_assert(sizeof(struct stat_hist) == 48 && sizeof(struct ctl_stats) == 256 + 3 * 48 + 24,
                "padtool reads struct ctl_stats byte for byte");
 
 struct usb_status {
@@ -452,6 +486,7 @@ void util_put16(u8 *p, u16 v);
 void util_put32(u8 *p, u32 v);
 u32 util_get32(const u8 *p);
 void util_aes128(const u8 key[16], const u8 in[16], u8 out[16]);
+void util_stat_add(struct stat_hist *h, u32 us);
 
 /* ---- platform_jieli.c --------------------------------------------------- */
 

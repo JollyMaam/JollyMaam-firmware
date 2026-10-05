@@ -137,7 +137,7 @@ HIST = "<QII16H"
 def read_stats(path, reset=False):
     d = cmd(path, 0x03, 1 if reset else 0, 512)
     version, size = struct.unpack_from("<HH", d)
-    if version != 2:
+    if version != 3:
         sys.exit(f"padtool: stats version {version} not known to this padtool")
     d = d[4:4 + size]
     s = {}
@@ -152,7 +152,28 @@ def read_stats(path, reset=False):
     o += 64
     (s["reports"], s["imu"], s["sent"], s["replaced"], s["acked"],
      s["buttons"], s["frames"], s["resyncs"]) = struct.unpack_from("<8I", d, o)
+    o += 32
+    for name in ("ack_wait", "slot_ack", "ack_gap"):
+        v = struct.unpack_from(HIST, d, o)
+        s[name] = {"sum": v[0], "count": v[1], "max": v[2], "buckets": v[3:]}
+        o += struct.calcsize(HIST)
+    s["link"] = dict(zip(("transport", "phy_tx", "phy_rx", "mode", "interval", "latency", "timeout",
+                          "tx_octets", "tx_time", "rx_octets", "rx_time", "acl_buffers", "poll_us"),
+                         struct.unpack_from("<4B8HI", d, o)))
     return s
+
+
+def show_link(k):
+    if k["transport"] == 2:
+        print(f"link: LE interval {k['interval'] * 1.25:g} ms latency {k['latency']} "
+              f"timeout {k['timeout'] * 10} ms, phy tx {k['phy_tx']} rx {k['phy_rx']}, "
+              f"tx {k['tx_octets']} octets/{k['tx_time']} us rx {k['rx_octets']}/{k['rx_time']} us, "
+              f"{k['acl_buffers']} ACL buffers")
+    elif k["transport"] == 1:
+        mode = f"sniff {k['interval'] * 0.625:g} ms" if k["mode"] == 2 else f"mode {k['mode']}"
+        print(f"link: Classic {mode}, QoS latency {k['poll_us']} us, {k['acl_buffers']} ACL buffers")
+    else:
+        print("link: none")
 
 
 def show_stats(s):
@@ -161,7 +182,8 @@ def show_stats(s):
     print(f"over {secs:.1f} s: {s['passes']} loop passes ({s['passes'] / secs:.0f}/s), busy {busy:.2f} %")
     print(f"{'':16} {'count':>7} {'avg us':>8} {'max us':>8}  distribution (us)")
     for name, label in (("pass", "loop pass"), ("interval", "report interval"),
-                        ("age", "report age")):
+                        ("age", "report age"), ("ack_wait", "sent to ack"),
+                        ("slot_ack", "slot to ack"), ("ack_gap", "between acks")):
         h = s[name]
         avg = h["sum"] / h["count"] if h["count"] else 0
         dist = "  ".join(f"<{32 << i}:{n}" if i < 15 else f">={32 << 14}:{n}"
@@ -178,6 +200,7 @@ def show_stats(s):
     print(f"reports {s['reports']} ({rate}), {per:.1f} imu samples each")
     print(f"bluetooth: sent {s['sent']}, replaced before sending {s['replaced']}, "
           f"packets on air {s['acked']} ({s['acked'] / secs:.1f}/s)")
+    show_link(s["link"])
     print(f"input: button changes {s['buttons']}, stick frames {s['frames']} "
           f"({s['frames'] / secs:.0f}/s), stick resyncs {s['resyncs']}")
 

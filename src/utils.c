@@ -77,6 +77,21 @@ void util_put32(u8 *p, u32 v)
     util_put16(p + 2, (u16)(v >> 16));
 }
 
+/* Into a power-of-two histogram: bucket i holds values below 32 << i µs. */
+void util_stat_add(struct stat_hist *h, u32 us)
+{
+    u32 b = 0, v = us >> 5;
+
+    while (v && b < STAT_BUCKETS - 1) {
+        v >>= 1;
+        b++;
+    }
+    h->sum += us;
+    h->count++;
+    if (us > h->max) h->max = us;
+    if (h->bucket[b] < 0xffff) h->bucket[b]++;
+}
+
 u32 util_get32(const u8 *p)
 {
     return p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (u32)p[3] << 24;

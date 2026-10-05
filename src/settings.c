@@ -40,6 +40,7 @@ static const char *const players[] = {
     "off", "host", "fade", "primary", "secondary", NULL,
 };
 static const char *const layouts[] = { "games", "desktop", NULL };
+static const char *const phys[] = { "1m", "2m", NULL };
 
 /* Slots A B X Y up down left right.  Colours are {palette entry, brightness}. */
 static const struct set_field slot_fields[] = {
@@ -77,6 +78,21 @@ static const struct set_field slot_fields[] = {
       .help = "the slot's own address, least significant byte first; zero: derived" },
     { .id = ID_BOND, .name = "bond", .type = T_BYTES, FIELD(bond),
       .help = "the paired host: peer, link key, key type, LE peer, LTK" },
+    /* The link, for measuring it (architecture/bluetooth.md); next connect. */
+    { .id = 14, .name = "report_hz", .type = T_NUMBER, .max = 1000, FIELD(report_hz),
+      .def = ALL(0), .help = "reports per second, whole milliseconds apart; 0: the profile's" },
+    { .id = 15, .name = "le_interval_min", .type = T_NUMBER, .max = 3200,
+      FIELD(link.le_interval_min), .def = ALL(0),
+      .help = "LE: connection interval to ask for, 1.25 ms units (6 = 7.5 ms); 0: the profile's" },
+    { .id = 16, .name = "le_interval_max", .type = T_NUMBER, .max = 3200,
+      FIELD(link.le_interval_max), .def = ALL(0),
+      .help = "LE: the longest interval to accept; 0: le_interval_min" },
+    { .id = 17, .name = "le_phy", .type = T_ENUM, .names = phys, FIELD(link.le_phy),
+      .def = ALL(0), .help = "LE: 2m asks the host for the 2M PHY" },
+    { .id = 18, .name = "in_flight", .type = T_NUMBER, .max = 8, FIELD(link.in_flight),
+      .def = ALL(2), .help = "input reports in the controller at once; 0: 2" },
+    { .id = 19, .name = "poll_us", .type = T_NUMBER, .max = 40000, FIELD(link.poll_us),
+      .def = ALL(1250), .help = "Classic: the poll interval asked for (QoS latency); 0: none" },
 };
 
 #define ENTRY(i, r, g, b) { .id = (i) + 1, .name = "palette" #i, .type = T_RGB, \

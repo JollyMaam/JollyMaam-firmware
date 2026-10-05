@@ -33,7 +33,7 @@ struct bt_bond {                       /* what the slot remembers about its host
 };
 
 void bt_start(const struct profile *p, const u8 address[6],
-              const struct bt_bond *bond, int pairing);
+              const struct bt_bond *bond, int pairing, const struct bt_link *link);
 void bt_stop(void);                    /* BT_EV_STOPPED once the radio is down */
 void bt_abort(void);                   /* the same, without waiting for the host */
 void bt_disconnect(void);              /* drop the link, keep the session */
@@ -44,7 +44,36 @@ int  bt_poll(struct bt_ev *ev);        /* 1 while there are events */
 int  bt_radio_quiet(void);             /* no pairing exchange or link set-up under way */
 int  bt_input_pending(void);
 void bt_update_bond(const struct bt_bond *bond);   /* a key the profile learned (Switch 2) */
+void bt_stats(struct bt_stats *out);               /* running counters */
+void bt_timing(struct bt_timing *out, int reset);  /* ack histograms, the link as it is */
 ```
+
+### Measuring the link
+
+`struct bt_link` comes from the slot's settings (`report_hz`, `le_interval_min`,
+`le_interval_max`, `le_phy`, `in_flight`, `poll_us`; settings.md) and applies
+from the next connect.  Zero means the profile's or the stack's own:
+
+| field | what `bt.c` does with it |
+|---|---|
+| `le_interval_min/max` | L2CAP Connection Parameter Update Request after encryption, instead of the profile's `interval_min/max`.  The central decides; the log says whether it accepted, and the new interval when it applies. |
+| `le_phy` | 1: LE Set PHY to 2M both ways once linked. |
+| `in_flight` | input reports in the controller at once (default 2, at most 8). |
+| `poll_us` | Classic: the QoS latency asked for (default 1250; 0 asks nothing). |
+
+`bt_timing()` holds, beside the link as the controller last reported it
+(interval, PHY, data length, sniff mode, granted QoS latency, ACL buffers):
+
+* `ack_wait`: a report handed to the controller until Number Of Completed
+  Packets says it went;
+* `slot_ack`: a report entering the input slot until then;
+* `ack_gap`: between Number Of Completed Packets events for the link.
+
+When the controller reports a packet as completed (after the air
+acknowledgement or earlier) is the controller's choice; compare with a sniffer
+(`cyclone2-esp32/blesniff`) before reading `ack_wait` as air time.  BTstack's
+own packets (ATT responses, L2CAP) are completed in the same events; reports
+are matched oldest first against what the connection still has outstanding.
 
 ```c
 struct bt_ev {
@@ -150,7 +179,7 @@ These come from failures seen on hardware; see `AGENTS.md`.
   2 outgoing, level 0 incoming.  Opening before authentication caused reason-5
   failures.
 * Input reports, Classic and LE, go through one newest-wins slot with at most
-  `IN_FLIGHT` (2) packets in the controller.  Nothing is
+  `in_flight` (default 2) packets in the controller.  Nothing is
   queued.
 * LE links ask for 251-byte PDUs; at 27 bytes a Switch 2 report took three
   connection events.
