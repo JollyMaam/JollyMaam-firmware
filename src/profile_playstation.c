@@ -320,11 +320,12 @@ static int write(const struct bt_write *w, u32 now, struct bt_bond *bond)
     }
     if (e[1] & 0x10) {
         /* Five lights lit symmetrically; the count is the player number,
-         * shown as that many of ours from the top. */
+         * shown the way a Nintendo pad shows it (first light at the top). */
+        static const u8 nintendo[] = { 0x0, 0x1, 0x3, 0x7, 0xf, 0x9, 0x5, 0xd, 0x6 };
+
         for (n = e[43] & 0x1f, count = 0; n; n &= n - 1) count++;
-        if (count > 4) count = 4;
         ps.has_players = 1;
-        ps.players = (u8)((1u << count) - 1);
+        ps.players = nintendo[count];
     }
     return 0;
 }
@@ -485,6 +486,10 @@ int main(void)
     host(0, &h);
     CHECK(h.rumble[0] == 200 && h.rumble[1] == 30);
     CHECK(h.has_lightbar && h.lightbar[0] == 9 && h.has_players && h.players == 1);
+    w.data[2 + 43] = 0x1f;       /* five lights: player 5, first and fourth */
+    write(&w, 0, 0);
+    host(0, &h);
+    CHECK(h.players == 0x9);
 
     CHECK(read(BT_WRITE_FEATURE, 0x09, 0, r, 20) == 20 && r[0] == 1 && r[5] == 6);
 
