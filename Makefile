@@ -68,8 +68,7 @@ all: $O/firmware.img
 # A running pad is asked to restart into its ROM loader; jlnewfw writes the
 # image only onto a device whose flash holds the same PID.
 flash: $O/firmware.img $O/jlnewfw
-	-$(Q)$(PYTHON) tools/padtool.py loader 2>/dev/null
-	$(Q)$O/jlnewfw flash --wait 30 --loader $(SDK_LOADER) $<
+	$(Q)$O/jlnewfw flash --enter-loader --wait 30 --loader $(SDK_LOADER) $<
 
 clean:
 	rm -rf $O
@@ -132,7 +131,7 @@ $O/sdk_ld.c: $(SDK)/cpu/br23/sdk_ld.c Makefile $(wildcard src/sdkconfig/*.h)
 $O/sdk.ld: $O/sdk_ld.c
 	$(Q)$(CC) $(CFLAGS) $(DEFINES) $(INCLUDES) -D__LD__ -E -P $< -o $@
 
-# PID: what padtool flash checks before writing (a gamepad, not a dongle).
+# PID: what jlnewfw flash checks before writing (a gamepad, not a dongle).
 $O/isd_config.ini: $(SDK)/cpu/br23/tools/isd_config_rule.c $(wildcard src/sdkconfig/*.h) Makefile
 	@mkdir -p $(@D)
 	$(Q)$(CC) $(CFLAGS) $(DEFINES) $(INCLUDES) -D__LD__ -E -P $< -o $@

@@ -1194,6 +1194,43 @@ static void crc_cipher(uint8_t *p, size_t n, uint32_t key) {
   }
 }
 
+/* A running JieLi SDK firmware that shows itself as a disk (vendor: the
+ * chip name) reboots into its ROM loader on any of the loader's commands, as
+ * the SDK's mass-storage code does (and ours).  Sent to every such device;
+ * which one is written is then decided by PID. */
+static void enter_loaders(void) {
+  static const char *const dirs[] = {"/dev", "/dev/bwrap"};
+  for (size_t i = 0; i < 2; i++) {
+    DIR *dir = opendir(dirs[i]);
+    struct dirent *e;
+    while (dir && (e = readdir(dir))) {
+      char path[300], product[17];
+      uint8_t cdb[6] = {0x12, 0, 0, 0, 36, 0}, q[36], r[16];
+      if (strncmp(e->d_name, "sg", 2))
+        continue;
+      snprintf(path, sizeof path, "%s/%s", dirs[i], e->d_name);
+      int fd = open(path, O_RDWR);
+      if (fd < 0)
+        continue;
+      if (sg(fd, cdb, 6, SG_DXFER_FROM_DEV, q, 36, 2000) &&
+          !memcmp(q + 8, "BR23", 4)) {
+        memcpy(product, q + 16, 16);
+        product[16] = 0;
+        if (strncmp(product, "UBOOT", 5)) {
+          uint8_t c[16];
+          memset(c, 0xff, 16);
+          c[0] = 0xfc, c[1] = 0x0a; /* online device: any loader command */
+          printf("%s: asking it to restart into its ROM loader\n", path);
+          sg(fd, c, 16, SG_DXFER_FROM_DEV, r, 16, 2000);
+        }
+      }
+      close(fd);
+    }
+    if (dir)
+      closedir(dir);
+  }
+}
+
 static bool open_dev(struct dev *d, const char *path) {
   char product[17];
   d->fd = open(path, O_RDWR);
@@ -1317,7 +1354,7 @@ static bool image_ident(const uint8_t *p, size_t n, char pid[17], uint16_t *key)
 struct flash_opts {
   const char *device, *loader, *backup;
   unsigned wait;
-  bool force_pid, force_key, dry_run;
+  bool force_pid, force_key, dry_run, enter_loader;
   struct copy keep[16]; /* from the device: .to and .len */
   size_t nk;
 };
@@ -1329,6 +1366,8 @@ static bool flash_arg(struct flash_opts *o, int argc, char **argv, int *i) {
     return o->force_key = true;
   if (!strcmp(a, "--dry-run"))
     return o->dry_run = true;
+  if (!strcmp(a, "--enter-loader"))
+    return o->enter_loader = true;
   if (*i + 1 >= argc)
     return false;
   if (!strcmp(a, "--device"))
@@ -1371,6 +1410,8 @@ static void device_pid(struct dev *d, char pid[17]) {
  * that fits is refused. */
 static void select_dev(struct dev *out, const struct flash_opts *o,
                        const char *want) {
+  if (o->enter_loader)
+    enter_loaders();
   if (o->device) {
     for (unsigned t = 0; !open_dev(out, o->device); t++) {
       if (t >= o->wait * 2)
@@ -1588,7 +1629,7 @@ static void usage(void) {
       "[--backup FILE]\n"
       "               [--keep ADDR:LEN]... [--force-pid] [--force-key] "
       "[--dry-run]\n"
-      "               [--wait SECONDS]\n"
+      "               [--wait SECONDS] [--enter-loader]\n"
       "\n"
       "An IMAGE is read from the header the boot code would take (EOFFSET is\n"
       "followed).  unpack writes the files and an isd_config.ini that pack\n"
@@ -1603,9 +1644,11 @@ static void usage(void) {
       "the device and its chip key the chip's (--force-pid, --force-key).\n"
       "Without --device the device is the one in its ROM loader whose flash\n"
       "holds the image's PID (any, with --force-pid); more than one is\n"
-      "refused.  --keep writes back ranges of what the device held; --dry-run\n"
-      "checks only.  flashpack packs for the chip's key and flashes; -o also\n"
-      "saves what it wrote.");
+      "refused.  --enter-loader first asks running JieLi firmware that shows\n"
+      "itself as a disk to restart into its ROM loader (give --wait).\n"
+      "--keep writes back ranges of what the device held; --dry-run checks\n"
+      "only.  flashpack packs for the chip's key and flashes; -o also saves\n"
+      "what it wrote.");
 }
 
 int main(int argc, char **argv) {

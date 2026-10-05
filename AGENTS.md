@@ -20,7 +20,7 @@ references are in [docs/](docs/README.md).
 
     PATH=/work/bin:$PATH make -j32
     PATH=/work/bin:$PATH make test        # every src/*.c with an #ifdef UNITTEST block, host cc
-    PATH=/work/bin:$PATH make flash       # over USB: padtool loader, then jlnewfw flash
+    PATH=/work/bin:$PATH make flash       # over USB: jlnewfw flash --enter-loader
 
 `tools/padtool.py` talks to the running pad over USB (vendor SCSI commands on
 the mass-storage interface, `/dev/bwrap/sg*`): `identify`, `status`,
