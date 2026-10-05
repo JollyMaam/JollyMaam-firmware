@@ -263,13 +263,13 @@ def log(path, follow):
 #
 # Checked against two dongles the tool upgraded to 1.21 (chip keys 0x4317 and
 # 0xffff): the result differs only in VM (written by the running firmware),
-# the stamp, and for another key than the image's, the isd_config chip-key
-# record (not rewritten: flash a device only with the key the image was made
-# for).
+# the stamp, and for another key than the image's, the arbitrary bytes of the
+# isd_config chip-key
+# record, which here is rewritten in the tool's manner (only the bytes that
+# must change).
 
 D_FLASH = 0x80000
 D_BASE = 0x10000
-D_APP = 0x1000        # app_dir_head, relative to the image
 D_BTIF = 0x7e000
 
 
@@ -297,14 +297,78 @@ def sfc(p, key):
     return out
 
 
+def top_table(image):
+    """The top-level entries of the image whose header is at its start, by
+    name: offsets relative to the header.  Each entry is ENC'd with key 0xffff."""
+    out = {}
+    for off in range(32, 0x1000, 32):
+        e = enc(image[off:off + 32], 0xffff)
+        if crc16(e[2:32]) != e[0] | e[1] << 8:
+            break
+        d = entry(e)
+        d["at"] = off
+        out[d["name"]] = d
+        if d["index"]:
+            break
+    return out
+
+
+def key_record(image):
+    """Where the chip-key record is: the first 34 bytes of isd_config.ini."""
+    t = top_table(image).get("isd_config.ini")
+    if not t:
+        sys.exit("padtool: the image has no isd_config.ini")
+    return t["offset"]
+
+
+def record_threshold(d):
+    s = sum(d[:16]) & 0xff
+    return 0xaa if s >= 0xe0 else 0x55 if s <= 0x10 else s
+
+
 def chip_key(image):
-    """From the chip-key record at the start of isd_config.ini (jlnewfw's rule)."""
-    d = image[0xf44:0xf44 + 34]
+    """The chip key an image is encrypted for, from its chip-key record
+    (jlnewfw's rule): bit j is set when record[16+j] ^ record[15-j] is below a
+    threshold taken from the first 16 bytes."""
+    o = key_record(image)
+    d = image[o:o + 34]
     if crc16(d[:32]) != d[32] | d[33] << 8:
         sys.exit("padtool: chip-key record CRC mismatch")
-    s = sum(d[:16]) & 0xff
-    t = 0xaa if s >= 0xe0 else 0x55 if s <= 0x10 else s
+    t = record_threshold(d)
     return sum(1 << j for j in range(16) if (d[16 + j] ^ d[15 - j]) < t)
+
+
+def set_key_record(image, key):
+    """Make the record say `key`, changing only the bytes that must change (as
+    GameSir's tool does; the values it picks look arbitrary), and fix the CRCs:
+    the record's and isd_config.ini's in the top-level table."""
+    o = key_record(image)
+    d = image[o:o + 34]
+    t = record_threshold(d)
+    for j in range(16):
+        v = d[16 + j] ^ d[15 - j]
+        if (v < t) != bool(key >> j & 1):
+            v = v % t if key >> j & 1 else t + v % (256 - t)
+            d[16 + j] = d[15 - j] ^ v
+    d[32:34] = crc16(d[:32]).to_bytes(2, "little")
+    image[o:o + 34] = d
+    e = top_table(image)["isd_config.ini"]
+    h = enc(image[e["at"]:e["at"] + 32], 0xffff)
+    h[2:4] = crc16(image[o:o + e["size"]]).to_bytes(2, "little")
+    seal(h)
+    image[e["at"]:e["at"] + 32] = enc(h, 0xffff)
+
+
+def eoffset(image):
+    """EOFFSET from isd_config.ini: where the boot code takes the image from,
+    in 4 KiB units (GameSir dongle 16, pad 1, ours 0)."""
+    t = top_table(image)["isd_config.ini"]
+    d = bytes(image[t["offset"]:t["offset"] + t["size"]])
+    i = d.find(b"EOFFSET\0")
+    if i >= 0:
+        return int.from_bytes(d[i + 8:i + 12], "little")
+    m = d.find(b"EOFFSET")      # text form
+    return int(d[m:].split(b"=")[1].split(b";")[0].strip(), 0) if m >= 0 else 0
 
 
 def entry(p):
@@ -318,45 +382,56 @@ def seal(p):
     p[0:2] = crc16(p[2:32]).to_bytes(2, "little")
 
 
-def relocate(image, key, new_key):
-    """Everything after the first 4 KiB (app area, then resources, then raw
-    0xff padding up to the end of PRCT), plain, with PRCT and VM at flash
-    addresses; and that re-encrypted.  The cipher counts from the app area's
-    start, so the bytes do not depend on where on flash they sit."""
-    head = sfc(image[D_APP:D_APP + 32], key)
-    size = entry(head)["size"]
-    plain = sfc(image[D_APP:D_APP + size], key)
+def recrypt(image, new_key, base=None):
+    """The image (header at its start) encrypted for `new_key`, its chip-key
+    record saying so; with `base`, the app area's PRCT and VM entries moved to
+    flash addresses for an image at `base` (VM from the end of PRCT to BTIF).
+    Returns it and the PRCT length.
+
+    What is encrypted is the app area and what follows it (resources), up to
+    raw 0xff padding before the end of PRCT.  The cipher counts from the app
+    area's start, so the bytes do not depend on where on flash they sit."""
+    image = bytearray(image)
+    key = chip_key(image)
+    app = top_table(image)["app_dir_head"]["offset"]
+    size = entry(sfc(image[app:app + 32], key))["size"]
+    plain = sfc(image[app:app + size], key)
     if crc16(plain[32:size]) != plain[2] | plain[3] << 8:
         sys.exit("padtool: app area CRC mismatch (wrong key?)")
-    off = 32
+    found, off = {}, 32
     while True:
         e = entry(plain[off:off + 32])
-        if e["name"] == "PRCT":
-            prct = off
-        if e["name"] == "VM":
-            vm = off
+        found[e["name"]] = (off, e)
         if e["index"]:
             break
         off += 32
-    code = int.from_bytes(plain[prct + 8:prct + 12], "little")   # PRCT length: the image's code
-    raw = bytes(image[D_APP:code]).ljust(code - D_APP, b"\xff")
+    prct, prct_e = found["PRCT"]
+    code = prct_e["size"]                 # PRCT length: the image's code
+    raw = bytes(image[app:code]).ljust(code - app, b"\xff")
     plain = sfc(raw, key)
-    used = len(raw.rstrip(b"\xff"))      # then unencrypted padding
+    used = len(raw.rstrip(b"\xff"))
     plain[used:] = b"\xff" * (len(raw) - used)
-    plain[prct + 4:prct + 8] = D_BASE.to_bytes(4, "little")
-    plain[vm + 4:vm + 8] = (D_BASE + code).to_bytes(4, "little")
-    plain[vm + 8:vm + 12] = (D_BTIF - D_BASE - code).to_bytes(4, "little")
-    for o in (prct, vm):
-        e = plain[o:o + 32]
-        seal(e)
-        plain[o:o + 32] = e
-    plain[2:4] = crc16(plain[32:size]).to_bytes(2, "little")
-    h = plain[0:32]
-    seal(h)
-    plain[0:32] = h
+    if base is not None:
+        vm, _ = found["VM"]
+        btif = found["BTIF"][1]["offset"]
+        plain[prct + 4:prct + 8] = base.to_bytes(4, "little")
+        plain[vm + 4:vm + 8] = (base + code).to_bytes(4, "little")
+        plain[vm + 8:vm + 12] = (btif - base - code).to_bytes(4, "little")
+        for o in (prct, vm):
+            e = plain[o:o + 32]
+            seal(e)
+            plain[o:o + 32] = e
+        plain[2:4] = crc16(plain[32:size]).to_bytes(2, "little")
+        h = plain[0:32]
+        seal(h)
+        plain[0:32] = h
     area = sfc(plain, new_key)
     area[used:] = b"\xff" * (len(raw) - used)     # padding stays raw, as GameSir's tool leaves it
-    return plain, area, code
+    length = len(image)
+    image[app:code] = area
+    del image[max(length, app + used):]      # no longer than it was: the rest is padding
+    set_key_record(image, new_key)
+    return image, code
 
 
 def mark_installed(image):
@@ -380,12 +455,11 @@ def dongle_laid_out(data):
 
 
 def place(image, dump=None, key=None):
-    """The whole flash for a distributed dongle image; BTIF, key_mac and the
-    stamp from `dump` (else erased); re-encrypted for `key` (else the image's)."""
-    image = bytearray(image)
-    made_for = chip_key(image)
-    plain, area, code = relocate(image, made_for, made_for if key is None else key)
-    image = image[:D_APP] + area
+    """The whole flash for a GameSir dongle image (EOFFSET 16), encrypted for
+    `key` (else the image's own); BTIF, key_mac and the stamp from `dump`
+    (else erased)."""
+    image, code = recrypt(image, chip_key(image) if key is None else key, D_BASE)
+    image = image.ljust(code, b"\xff")
     mark_installed(image)
     flash = bytearray(b"\xff" * D_FLASH)
     flash[D_BASE:D_BASE + len(image)] = image
@@ -488,19 +562,28 @@ def flash(image, backup, device=None, force=False):
         if len(found) > 1:
             sys.exit(f"padtool: more than one {kind} in its loader; pick one with --device")
     loader, (_, _, size, chip) = found[0]
-    if kind == "dongle":
-        # Its app area is encrypted with the chip key it was made for.
-        laid_out = dongle_laid_out(data)
-        made_for = chip_key(data[D_BASE:D_BASE + 0x1000] if laid_out else data[:0x1000])
-        if chip is not None and made_for != chip and not force:
-            sys.exit(f"padtool: the image is made for chip key 0x{made_for:04x}, "
-                     f"{loader} has 0x{chip:04x}")
+    # The app area is encrypted for a chip key (each chip's, from its eFuses;
+    # 0xffff unprogrammed).  A dump is written back only to a chip with its key;
+    # an image GameSir built for a dongle (EOFFSET 16), or one of ours (EOFFSET
+    # 0), is re-encrypted for the chip in front of us.
+    laid_out = kind == "dongle" and dongle_laid_out(data)
+    made_for = chip_key(data[D_BASE:D_BASE + 0x1000] if laid_out else data)
+    where = None if laid_out else eoffset(data)
+    adapt = where == 0 or (kind == "dongle" and where * 0x1000 == D_BASE)
+    if chip is None and (adapt or not force):
+        sys.exit(f"padtool: could not read {loader}'s chip key")
+    if not adapt and chip is not None and made_for != chip and not force:
+        sys.exit(f"padtool: the image is made for chip key 0x{made_for:04x}, "
+                 f"{loader} has 0x{chip:04x}, and this kind of image is not re-encrypted")
+    if where == 0 and made_for != chip:
+        data = bytes(recrypt(data, chip)[0])
+        print(f"re-encrypted for chip key 0x{chip:04x}")
     if size and len(data) > size:
         sys.exit(f"padtool: the image ({len(data)} bytes) is larger than the flash ({size})")
     with tempfile.TemporaryDirectory() as tmp:
         readback = os.path.join(tmp, "readback.bin")
         args = [JL_PYTHON, os.path.join(JL_DIR, "jluboottool.py"), "--device", loader]
-        if kind == "dongle" and not laid_out:
+        if kind == "dongle" and where is not None and where * 0x1000 == D_BASE:
             # Laid out as GameSir's tool does, keeping the dongle's own BTIF,
             # key_mac and stamp: read it first (also the backup).
             dump = backup or os.path.join(tmp, "dongle.bin")
@@ -508,13 +591,13 @@ def flash(image, backup, device=None, force=False):
                 os.makedirs(os.path.dirname(backup) or ".", exist_ok=True)
             print(f"reading {loader}")
             subprocess.run(args + [f"read 0 {D_FLASH:#x} {dump}"], check=True, capture_output=True)
-            data = place(data, open(dump, "rb").read())
-            image = os.path.join(tmp, "placed.bin")
-            open(image, "wb").write(data)
-            print(f"laid out for 0x{D_BASE:x} as GameSir's tool does")
+            data = place(data, open(dump, "rb").read(), chip)
+            print(f"laid out for 0x{D_BASE:x} as GameSir's tool does, chip key 0x{chip:04x}")
         elif backup:
             os.makedirs(os.path.dirname(backup) or ".", exist_ok=True)
             args.append(f"read 0 {size or FLASH_SIZE:#x} {backup}")
+        image = os.path.join(tmp, "image.bin")
+        open(image, "wb").write(data)
         print(f"writing {loader}")
         args += [f"write 0 {image}", f"read 0 {len(data):#x} {readback}", "reset"]
         subprocess.run(args, check=True)

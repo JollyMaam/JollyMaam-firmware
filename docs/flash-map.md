@@ -89,7 +89,17 @@ understood.
 A dongle `donglefw_1.21.bin` written raw at 0 did not boot (the ROM loader
 came up instead), where the pad's raw image does; why is not established.
 `padtool flash` (and `padtool place`) reproduces the tool's dongle layout
-(identical to the tool's output but for VM and the stamp). `jlnewfw` follows `EOFFSET` to the image a
+(identical to the tool's output but for VM and the stamp).
+
+The chip key is per chip (eFuses; `0xffff` unprogrammed) and readable through
+the loader. The tool re-encrypts the app area (and the resources after it)
+for the target's key and rewrites the chip-key record in `isd_config.ini`,
+changing only the bytes whose bit must change, to values that look
+arbitrary, then fixes the record's CRC and isd_config's in the top-level
+table. `padtool flash` does the same for any image whose `EOFFSET` it
+handles (16: GameSir dongle, 0: ours), so one image fits every chip; a full
+dump goes back only to a chip with its key. Stock 1.21 laid out and
+re-encrypted this way for a `0xffff` dongle booted. `jlnewfw` follows `EOFFSET` to the image a
 device boots.
 
 Evidence: `/shared/gamesir-firmware/dongleflash_*`,
