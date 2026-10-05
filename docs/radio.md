@@ -26,7 +26,10 @@ interfaces, not direct proof of over-the-air behavior.
 - Transmit power comes from the TXSET table (0xF010C2 at step 0 up to
   0xFFFFC2 at step 4); TXPWR holds one value for every step. The steps start
   from what bt_max_pwr_set() stores, 0 until it is called; in normal mode
-  bt_get_pwr_max_level() caps them at 4. Measured 2026-09-30 against a Linux
+  bt_get_pwr_max_level() caps them at 4. Recovered from the library: the LE
+  step used is the smallest of that cap, bt_max_pwr_set()'s BLE value (bits
+  12-15 of its packed word) and a level fixed by ble_set_fix_pwr(); the 0-9
+  dBm list in the SDK header is not the table this mode uses. Measured 2026-09-30 against a Linux
   host (Intel AX210): without the call RSSI -25 and link quality 4 of 255
   next to the host; with bt_max_pwr_set(10, 5, 8, 6) RSSI -4 to -9 and link
   quality 80 a floor away (stock pad: -2 to -9, 255).

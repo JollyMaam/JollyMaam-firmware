@@ -237,6 +237,9 @@ const btstack_run_loop_t *hci_jieli_run_loop(void)
 extern void lmp_set_sniff_establish_by_remote(u8 enable);
 extern void lmp_sniff_t_slot_attemp_reset(u16 slots, u16 attempt);
 extern void edr_vendor_keep_connect_for_keymiss(u8 enable);
+extern void bt_max_pwr_set(u8 pwr, u8 pg_pwr, u8 iq_pwr, u8 ble_pwr);
+extern void bt_production_test(u8 en);
+extern void P33_CON_SET(u16 addr, u8 start, u8 len, u8 data);
 extern const int sniff_support_reset_anchor_point;
 
 static u16 sniff_slots = 24, sniff_attempt = 1;
@@ -248,6 +251,24 @@ void hci_jieli_prepare(u16 slots, u16 attempt)
     if (slots) sniff_slots = slots;
     if (attempt) sniff_attempt = attempt;
     edr_vendor_keep_connect_for_keymiss(1);
+}
+
+/* Transmit power for the next session (docs/radio.md): the controller uses
+ * the smallest of the step, its normal-mode cap 4 and any fixed level, from
+ * the normal table or, after bt_production_test(1), the pro one.  Leaving pro
+ * through bt_production_test(0) also drops the radio supply to step 5; this
+ * board boots at 7, so that is put back. */
+void hci_jieli_tx_power(u8 step, u8 pro)
+{
+    static u8 was_pro;
+
+    bt_max_pwr_set(step, 5, 8, step);
+    if (pro) bt_production_test(1);
+    else if (was_pro) {
+        bt_production_test(0);
+        P33_CON_SET(6, 0, 3, 7);
+    }
+    was_pro = pro;
 }
 
 /* Once the stack works: a HID device must accept the host's sniff request. */

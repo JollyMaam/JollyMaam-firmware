@@ -41,6 +41,7 @@ static const char *const players[] = {
 };
 static const char *const layouts[] = { "games", "desktop", NULL };
 static const char *const phys[] = { "1m", "2m", NULL };
+static const char *const tx_tables[] = { "normal", "pro", NULL };
 
 /* Slots A B X Y up down left right.  Colours are {palette entry, brightness}. */
 static const struct set_field slot_fields[] = {
@@ -93,6 +94,10 @@ static const struct set_field slot_fields[] = {
       .def = ALL(2), .help = "input reports in the controller at once; 0: 2" },
     { .id = 19, .name = "poll_us", .type = T_NUMBER, .max = 40000, FIELD(link.poll_us),
       .def = ALL(1250), .help = "Classic: the poll interval asked for (QoS latency); 0: none" },
+    { .id = 20, .name = "tx_step", .type = T_NUMBER, .max = 4, FIELD(link.tx_step),
+      .def = ALL(4), .help = "transmit power step, Classic and LE; 4 is the controller's top" },
+    { .id = 21, .name = "tx_table", .type = T_ENUM, .names = tx_tables, FIELD(link.tx_table),
+      .def = ALL(0), .help = "transmit power table: pro is about 3 dB stronger at step 4" },
 };
 
 #define ENTRY(i, r, g, b) { .id = (i) + 1, .name = "palette" #i, .type = T_RGB, \

@@ -51,7 +51,7 @@ void bt_timing(struct bt_timing *out, int reset);  /* ack histograms, the link a
 ### Measuring the link
 
 `struct bt_link` comes from the slot's settings (`report_hz`, `le_interval_min`,
-`le_interval_max`, `le_phy`, `in_flight`, `poll_us`; settings.md) and applies
+`le_interval_max`, `le_phy`, `in_flight`, `poll_us`, `tx_step`, `tx_table`; settings.md) and applies
 from the next connect.  Zero means the profile's or the stack's own:
 
 | field | what `bt.c` does with it |
@@ -60,6 +60,7 @@ from the next connect.  Zero means the profile's or the stack's own:
 | `le_phy` | 1: LE Set PHY to 2M both ways once linked. |
 | `in_flight` | input reports in the controller at once (default 2, at most 8). |
 | `poll_us` | Classic: the QoS latency asked for (default 1250; 0 asks nothing). |
+| `tx_step`, `tx_table` | transmit power for the session, through `hci_jieli_tx_power()`: step 0-4 (default 4, the controller's top in normal mode), normal or pro table ([radio.md](../docs/radio.md)). |
 
 `bt_timing()` holds, beside the link as the controller last reported it
 (interval, PHY, data length, sniff mode, granted QoS latency, ACL buffers):
@@ -203,6 +204,7 @@ const btstack_run_loop_t *hci_jieli_run_loop(void);
 void hci_jieli_set_address(const u8 a[6]);   /* also reapplied after every HCI Reset */
 void hci_jieli_drop_link(void);              /* stop the controller without the HCI halt */
 void hci_jieli_prepare(u16 sniff_slots, u16 sniff_attempt);
+void hci_jieli_tx_power(u8 step, u8 pro);     /* before the session's HCI power on */
 void hci_jieli_link_policy(void);
 int  hci_jieli_open(void);                   /* the controller alone: the Switch 1 wake */
 void hci_jieli_close(void);

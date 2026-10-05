@@ -30,6 +30,7 @@ const btstack_run_loop_t *hci_jieli_run_loop(void);
 void hci_jieli_set_address(const u8 a[6]);
 void hci_jieli_drop_link(void);
 void hci_jieli_prepare(u16 slots, u16 attempt);
+void hci_jieli_tx_power(u8 step, u8 pro);
 void hci_jieli_link_policy(void);
 
 #define MAX_INPUT      80
@@ -970,6 +971,8 @@ static void setup(void)
     working = acl_up = linked = send_pending = qos_pending = stopping = 0;
     hid_cid = 0;
     hci_jieli_prepare(dev->sniff_slots, dev->sniff_attempt);
+    hci_jieli_tx_power(link.tx_step, link.tx_table);
+    util_log("bt: tx power step %u %s table", link.tx_step, link.tx_table ? "pro" : "normal");
     hci_jieli_set_address(addr);
     btstack_memory_init();
     btstack_run_loop_init(hci_jieli_run_loop());

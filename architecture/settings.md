@@ -26,7 +26,7 @@ Two files:
 Per slot: `type`, `connect_colour`, `primary_colour`, `secondary_colour`,
 `grips`, `players`, `rumble`, `mouse_layout`, `stick_speed`, `gyro_speed`,
 `gyro_accel`, `address`, `bond`, and for measuring the link `report_hz`,
-`le_interval_min`, `le_interval_max`, `le_phy`, `in_flight`, `poll_us`
+`le_interval_min`, `le_interval_max`, `le_phy`, `in_flight`, `poll_us`, `tx_step`, `tx_table`
 ([bluetooth.md](bluetooth.md)) (`padtool fields` lists them with ranges and
 defaults).  `set_slot(slot)` returns them as a plain `struct set_slot`.
 
