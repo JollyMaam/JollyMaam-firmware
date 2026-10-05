@@ -10,6 +10,8 @@ tool, as read back from a dongle it upgraded:
 
   * moves the image to 0x10000 and points the app area's PRCT and VM entries
     at real flash addresses (PRCT 0x10000, VM from the image's end to BTIF);
+  * marks the top-level app_dir_head entry (0xffff -> 0x0fff in a field the
+    image leaves unused);
   * puts the image's first 4 KiB (header, uboot.boot, isd_config) at 0x0000
     and 0x1000, and image[0x1000:0x8000] at 0x2000;
   * leaves BTIF and key_mac (the last 8 KiB) as they were;
@@ -24,9 +26,10 @@ compare with a dump: flash a device only with the key the image was made
 for).  --keep copies BTIF, key_mac and the PRCT tail record from a dump of
 the device; without it they are erased.
 
-Checked against a dongle GameSir's tool upgraded to 1.21: with its key and
-its dump, the output differs only in the isd_config chip-key record and in
-VM (formatted by the running firmware).
+Checked against two dongles GameSir's tool upgraded to 1.21 (chip keys
+0x4317 and 0xffff): the output differs only in VM (written by the running
+firmware), the PRCT tail record, and for another key than the image's, the
+isd_config chip-key record.
 """
 import argparse, sys
 
@@ -122,6 +125,22 @@ def relocate(image, key, new_key):
     return plain, area, code
 
 
+def mark_installed(image):
+    """In the top-level app_dir_head entry the tool clears the top four bits of
+    the (unused) data CRC field, 0xffff -> 0x0fff: on every upgraded dongle,
+    in every copy of the header.  Entries are ENC'd with key 0xffff."""
+    for off in range(32, 0x1000, 32):
+        e = enc(image[off:off + 32], 0xffff)
+        if crc16(e[2:32]) != e[0] | e[1] << 8:
+            break
+        if bytes(e[16:32]).split(b"\0")[0] == b"app_dir_head":
+            e[2:4] = (0x0fff).to_bytes(2, "little")
+            seal(e)
+            image[off:off + 32] = enc(e, 0xffff)
+            return
+    sys.exit("dongle_place: no app_dir_head entry")
+
+
 def main():
     a = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     a.add_argument("image")
@@ -135,6 +154,7 @@ def main():
     new_key = key if args.key is None else args.key
     plain, area, code = relocate(image, key, new_key)
     image = image[:APP] + area
+    mark_installed(image)
     flash = bytearray(b"\xff" * FLASH)
     flash[BASE:BASE + len(image)] = image
     flash[0:0x1000] = image[0:0x1000]
