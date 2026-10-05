@@ -4,7 +4,7 @@
  * Home does.  Edit here and rebuild. */
 
 const struct ux_timeouts ux_timeouts = {
-    .home_grace_ms = 0,          /* keys_to_host 0, connected: Home alone longer goes to the host */
+    .home_grace_ms = 150,        /* keys_to_host 0, connected: Home alone longer goes to the host */
     .home_tap_ms = 60,           /* how long a short Home press is shown to the host */
     .connect_ms = 30000,
     .pair_ms = 180000,
