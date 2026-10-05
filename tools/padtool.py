@@ -486,9 +486,12 @@ def header_pid(head):
 
 
 def valid_header(head):
-    """A flash header: ENC'd with key 0xffff, its first two bytes a CRC of the rest."""
+    """A flash header: ENC'd with key 0xffff, its first two bytes a CRC of the
+    rest, and a PID in plain text (a 16-bit CRC alone matches junk now and then)."""
     h = enc(head[:32], 0xffff)
-    return (h[0] | h[1] << 8) and crc16(h[2:32]) == h[0] | h[1] << 8
+    pid = head[16:32].split(b"\xff")[0].split(b"\0")[0]
+    return ((h[0] | h[1] << 8) and crc16(h[2:32]) == h[0] | h[1] << 8 and
+            pid.isascii() and pid.decode().isprintable())
 
 
 def probe(loader):

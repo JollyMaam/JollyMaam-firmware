@@ -86,8 +86,12 @@ device (`66 75 01 04 2f ff 00 10`) and 6 that changed when the same dongle was
 upgraded again; the firmware does not contain the PID string. Neither is
 understood.
 
-A dongle `donglefw_1.21.bin` written raw at 0 did not boot (the ROM loader
-came up instead), where the pad's raw image does; why is not established.
+A dongle image does not boot from 0. Tried on a `0xffff` dongle with flash
+erased up to BTIF, the image re-encrypted for it: as distributed (`EOFFSET`
+16); with `EOFFSET` 0; and with that and the `app_dir_head` mark. None ran
+(the ROM loader came up on replug); the 0x10000 layout did. The pad's raw
+image boots from 0. The dongle image's `uboot.boot` (0xea4 bytes) is not the
+pad's (0x1fe8); that it fixes the image at 0x10000 is a guess.
 `padtool flash` (and `padtool place`) reproduces the tool's dongle layout
 (identical to the tool's output but for VM and the stamp).
 
