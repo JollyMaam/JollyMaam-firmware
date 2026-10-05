@@ -1205,32 +1205,7 @@ static bool open_dev(struct dev *d, const char *path) {
   close(d->fd);
   return false;
 }
-/* --device, or the one ROM loader to be found; waiting up to `wait` s for
- * one to appear (a device restarting into it). */
-static size_t scan_dev(struct dev *d, char found[8][300]);
-static void find_dev(struct dev *d, const char *path, unsigned wait) {
-  char found[8][300];
-  size_t nf = 0;
-  for (unsigned t = 0;; t++) {
-    if (path ? open_dev(d, path) : (nf = scan_dev(d, found)) != 0)
-      break;
-    if (t >= wait * 2)
-      die(path ? "the device is not a JieLi ROM loader (UBOOT1.00)"
-               : "no ROM loader (UBOOT1.00) found");
-    if (!t && wait)
-      printf("waiting up to %u s for a ROM loader\n", wait);
-    nanosleep(&(struct timespec){0, 500000000}, NULL);
-  }
-  if (path)
-    return;
-  if (nf != 1) {
-    for (size_t i = 0; i < nf; i++)
-      fprintf(stderr, "jlnewfw: ROM loader at %s\n", found[i]);
-    die("more than one ROM loader: pick one with --device");
-  }
-  if (!open_dev(d, strdup(found[0])))
-    die("the ROM loader went away");
-}
+/* The ROM loaders (UBOOT1.00) on the system, by path. */
 static size_t scan_dev(struct dev *d, char found[8][300]) {
   static const char *const dirs[] = {"/dev", "/dev/bwrap"};
   size_t nf = 0;
@@ -1377,6 +1352,84 @@ static bool flash_arg(struct flash_opts *o, int argc, char **argv, int *i) {
   return true;
 }
 
+
+/* What a device's flash holds: the PID of the image its boot code takes. */
+static void device_pid(struct dev *d, char pid[17]) {
+  uint32_t head_n = d->flash_size < 0x11000 ? d->flash_size : 0x11000;
+  uint8_t *head = malloc(head_n);
+  pid[0] = 0;
+  if (!head || !flash_read(d, 0, head, head_n))
+    die("could not read the device's flash");
+  if (!image_ident(head, head_n, pid, NULL))
+    pid[0] = 0;
+  free(head);
+}
+
+/* --device; or, of the devices in their ROM loader, the one whose flash
+ * holds `want` (any one with --force-pid).  New devices are looked for up
+ * to --wait seconds (a device restarting into its loader); more than one
+ * that fits is refused. */
+static void select_dev(struct dev *out, const struct flash_opts *o,
+                       const char *want) {
+  if (o->device) {
+    for (unsigned t = 0; !open_dev(out, o->device); t++) {
+      if (t >= o->wait * 2)
+        die("the device is not a JieLi ROM loader (UBOOT1.00)");
+      nanosleep(&(struct timespec){0, 500000000}, NULL);
+    }
+    start_loader(out, o->loader);
+    return;
+  }
+  struct {
+    char path[300], pid[17];
+    struct dev d;
+  } seen[8];
+  size_t ns = 0;
+  for (unsigned t = 0;; t++) {
+    char found[8][300];
+    struct dev probe;
+    size_t nf = scan_dev(&probe, found);
+    for (size_t i = 0; i < nf && ns < 8; i++) {
+      bool known = false;
+      for (size_t j = 0; j < ns; j++)
+        known |= !strcmp(seen[j].path, found[i]);
+      if (known || !open_dev(&seen[ns].d, strdup(found[i])))
+        continue;
+      memcpy(seen[ns].path, found[i], sizeof seen[ns].path);
+      start_loader(&seen[ns].d, o->loader);
+      device_pid(&seen[ns].d, seen[ns].pid);
+      printf("%s holds %s\n", seen[ns].path,
+             seen[ns].pid[0] ? seen[ns].pid : "no firmware header");
+      ns++;
+    }
+    size_t fit = 0, pick = 0;
+    for (size_t j = 0; j < ns; j++)
+      if (o->force_pid || !strcmp(seen[j].pid, want))
+        fit++, pick = j;
+    if (fit > 1)
+      die(o->force_pid ? "more than one ROM loader: pick one with --device"
+                       : "more than one ROM loader holds that PID: pick one "
+                         "with --device");
+    if (fit == 1) {
+      *out = seen[pick].d;
+      for (size_t j = 0; j < ns; j++)
+        if (j != pick)
+          close(seen[j].d.fd);
+      return;
+    }
+    if (t >= o->wait * 2) {
+      fprintf(stderr, "jlnewfw: no ROM loader holds %s%s\n", want,
+              ns ? "" : " (none found)");
+      die(ns ? "no device for this image (--device and --force-pid to write "
+               "one anyway)"
+             : "no ROM loader (UBOOT1.00) found");
+    }
+    if (!t && o->wait)
+      printf("waiting up to %u s for a ROM loader holding %s\n", o->wait, want);
+    nanosleep(&(struct timespec){0, 500000000}, NULL);
+  }
+}
+
 static void erase(struct dev *d, uint32_t from, uint32_t to) {
   uint8_t a[4];
   for (uint32_t at = from; at < to;) {
@@ -1391,17 +1444,12 @@ static void erase(struct dev *d, uint32_t from, uint32_t to) {
 static void flash_image(struct dev *d, const struct flash_opts *o,
                         uint8_t *data, size_t n) {
   char want[17], have[17] = "";
-  uint16_t want_key = 0xffff, have_key;
+  uint16_t want_key = 0xffff;
   if (!image_ident(data, n, want, &want_key))
     die("no flash header in what is to be written");
-  uint32_t head_n = d->flash_size < 0x11000 ? d->flash_size : 0x11000;
-  uint8_t *head = malloc(head_n);
-  if (!head || !flash_read(d, 0, head, head_n))
-    die("could not read the device's flash");
-  bool known = image_ident(head, head_n, have, &have_key);
-  free(head);
+  device_pid(d, have);
   printf("image: %s, chip key 0x%04x; device holds %s\n", want, want_key,
-         known ? have : "no firmware header");
+         have[0] ? have : "no firmware header");
   if (strcmp(want, have)) {
     if (!o->force_pid)
       die("PID mismatch: the image is for another device (--force-pid to "
@@ -1480,9 +1528,11 @@ static void cmd_flash(int argc, char **argv) {
     die("usage: jlnewfw flash [options] IMAGE");
   size_t n;
   uint8_t *data = read_file(image, &n);
+  char want[17];
+  if (!image_ident(data, n, want, NULL))
+    die("no flash header in what is to be written");
   struct dev d = {0};
-  find_dev(&d, o.device, o.wait);
-  start_loader(&d, o.loader);
+  select_dev(&d, &o, want);
   flash_image(&d, &o, data, n);
 }
 
@@ -1498,9 +1548,14 @@ static void cmd_flashpack(int argc, char **argv) {
       die("too many app files");
     p.files[p.nf++] = argv[i];
   }
+  if (!p.ini)
+    die("flashpack needs -c isd_config.ini");
+  struct config c = {0};
+  load_config(&c, p.ini);
+  char want[17];
+  snprintf(want, sizeof want, "%s", cfg(&c, "EXTRA_CFG_PARAM", "PID", ""));
   struct dev d = {0};
-  find_dev(&d, o.device, o.wait);
-  start_loader(&d, o.loader);
+  select_dev(&d, &o, want);
   if (!p.have_key)
     p.key = d.key, p.have_key = true; /* for the chip in front of us */
   struct blob b = build(&p, NULL);
@@ -1546,8 +1601,11 @@ static void usage(void) {
       "flash writes OUT through the ROM loader: erased and written from 0,\n"
       "read back, then the chip runs.  The image's PID must be the one on\n"
       "the device and its chip key the chip's (--force-pid, --force-key).\n"
-      "--keep writes back ranges of what the device held; --dry-run checks only.  flashpack packs\n"
-      "for the chip's key and flashes; -o also saves what it wrote.");
+      "Without --device the device is the one in its ROM loader whose flash\n"
+      "holds the image's PID (any, with --force-pid); more than one is\n"
+      "refused.  --keep writes back ranges of what the device held; --dry-run\n"
+      "checks only.  flashpack packs for the chip's key and flashes; -o also\n"
+      "saves what it wrote.");
 }
 
 int main(int argc, char **argv) {
