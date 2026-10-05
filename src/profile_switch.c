@@ -477,6 +477,7 @@ static struct {
     u8 pulse;
     u32 pulse_until;
     u8 feature_mask, features;   /* command 0x0c; bit 2 is motion */
+    u8 has_players, players, players_flash;
     s32 q[4];                    /* orientation from the gyro, w x y z, Q30 */
     u32 last_us;
     u16 sample_prev;
@@ -766,6 +767,14 @@ static u8 s2_command(const u8 *c, u16 n, u8 *out, u32 now, int *bonded)
         memset(out, 0, 8);
         out[2] = 0x40; out[3] = 0xf0; out[6] = 0x60;
         return 8;
+    case 0x0907:            /* player lights: as Switch 1, low nibble lit, high flashing */
+        if (n >= 9) {
+            s2.has_players = 1;
+            s2.players = c[8] & 0xf;
+            s2.players_flash = c[8] >> 4;
+            util_log("switch2: player lights %02x", c[8]);
+        }
+        return 0;
     case 0x0a02:            /* a short buzz */
         if (n >= 9 && c[8]) {
             s2.pulse = 1;
@@ -818,6 +827,9 @@ static void s2_host(u32 now, struct profile_host *h)
     /* Motion's 40-byte block in the report is still sent as zeros: its packing
      * is not known.  The sensor runs so the samples are there when it is. */
     h->imu = s2.features & S2_FEATURE_MOTION ? IMU_MOTION : IMU_OFF;
+    h->has_players = s2.has_players;
+    h->players = s2.players;
+    h->players_flash = s2.players_flash;
 }
 
 static int s2_read(u8 kind, u16 id, u16 offset, u8 *out, u16 max)
