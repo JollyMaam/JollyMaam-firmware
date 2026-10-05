@@ -443,7 +443,7 @@ struct bt_timing {
     struct stat_hist ack_wait;   /* report to the controller until it says sent */
     struct stat_hist slot_ack;   /* report into the input slot until it says sent */
     struct stat_hist ack_gap;    /* between Number Of Completed Packets for the link */
-    struct stat_hist ack_send;   /* an ack that made room until the waiting report went */
+    struct stat_hist want_send;  /* bt.c asked for a report until it was handed over */
     struct bt_link_info link;
 };
 
@@ -494,6 +494,13 @@ void util_put32(u8 *p, u32 v);
 u32 util_get32(const u8 *p);
 void util_aes128(const u8 key[16], const u8 in[16], u8 out[16]);
 void util_stat_add(struct stat_hist *h, u32 us);
+/* Timing trace: a ring of {µs, marker, argument}, any thread or interrupt;
+ * padtool trace reads it (usb.md, TRACE).  Markers: */
+enum { TR_WANT = 1, TR_BT_WAKE, TR_BT_SLEEP, TR_CTL_WAKE, TR_BUILT, TR_SENT, TR_ACK,
+       TR_CTL_SLEEP };
+void util_trace(u8 marker, u16 arg);
+u32 util_trace_read(u32 offset, u8 *out, u32 max);
+void util_trace_enable(int on);
 
 /* ---- platform_jieli.c --------------------------------------------------- */
 
@@ -514,6 +521,7 @@ u32 plat_us(void);                          /* wraps */
  * from a byte offset (architecture/usb.md, PROFILE). */
 void plat_prof_start(u16 hz, u32 zoom, u8 zoom_shift);   /* zoom: flash window start, 0 none */
 u32 plat_prof_read(u32 offset, u8 *out, u32 max);
+u32 plat_peek(u32 addr, u8 *out, u32 max);  /* 32-bit words from addr, for registers */
 void plat_i2c_read(u8 dev, u8 reg, u8 *buf, u8 len);   /* starts; EV_IMU when done */
 void plat_i2c_write(u8 dev, u8 reg, u8 value);
 int plat_i2c_done(void);                    /* 1 done, 0 busy, -1 failed */

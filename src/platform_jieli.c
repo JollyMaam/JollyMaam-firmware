@@ -575,6 +575,19 @@ void plat_prof_start(u16 hz, u32 zoom, u8 zoom_shift)
     JL_TIMER2->CON = BIT(0) | BIT(3);
 }
 
+u32 plat_peek(u32 addr, u8 *out, u32 max)
+{
+    u32 n;
+
+    addr &= ~3u;
+    for (n = 0; n + 4 <= max; n += 4) {
+        u32 v = *(volatile u32 *)(addr + n);
+
+        memcpy(out + n, &v, 4);
+    }
+    return n;
+}
+
 /* The header, then the flash, RAM and ROM counts, read from a byte offset. */
 u32 plat_prof_read(u32 offset, u8 *out, u32 max)
 {
@@ -1137,6 +1150,7 @@ static void ctl_thread(void *arg)
     usb_init();
     plat_motors(0, 0);
     tick_start();
+    util_log("tick: timer3 at %08x con %08x prd %u", (u32)JL_TIMER3, JL_TIMER3->CON, JL_TIMER3->PRD);
     ctl_main();
 }
 

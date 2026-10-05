@@ -92,7 +92,7 @@ static btstack_packet_callback_registration_t l2cap_registration;
 static struct { u32 sent_us, slot_us; } flight[IN_FLIGHT_MAX];
 static u8 flight_n;
 static u32 last_ack_us;
-static u32 room_us;                      /* an ack made room while a report waited */
+static u32 want_us;                      /* when bt_input_wanted() last became true */
 
 /* ---- control thread side ------------------------------------------------- */
 
@@ -505,6 +505,8 @@ static int have_data(void)
     return input_pending || msg_read != msg_write;
 }
 
+static void update_want(void);
+
 static void send_now(void)
 {
     struct message m;
@@ -522,10 +524,11 @@ static void send_now(void)
         input_pending = 0;
         slot = slot_us;
         stats.sent++;
-        if (room_us) {
-            util_stat_add(&timing.ack_send, plat_us() - room_us);
-            room_us = 0;
+        if (want_us) {
+            util_stat_add(&timing.want_send, plat_us() - want_us);
+            want_us = 0;
         }
+        util_trace(TR_SENT, 0);
     }
     plat_unlock();
     if (m.len) {
@@ -545,6 +548,9 @@ static void send_now(void)
     }
     send_pending = 0;
     if (have_data()) plat_bt_wake();
+    /* Room left after this one: ask for the next report now, so the
+     * controller holds one for the next connection event. */
+    update_want();
 }
 
 /* ---- the run loop's own poll: requests and sends ------------------------------ */
@@ -603,17 +609,25 @@ static void tx_poll(btstack_data_source_t *ds, btstack_data_source_callback_type
         if (le) att_server_request_can_send_now_event(con_handle);
         else hid_device_request_can_send_now_event(hid_cid);
     }
-    /* Ask the control thread for a report when one would go straight in:
-     * linked, nothing waiting in the slot, room in the controller. */
-    {
-        u8 r = linked && !send_pending && room(), wake = 0;
+    update_want();
+}
 
-        plat_lock();
-        if (r && !input_pending && !want) want = wake = 1;
-        else if (!r) want = 0;
-        plat_unlock();
-        if (wake) plat_wake(EV_BT);
+/* Ask the control thread for a report when one would go straight in:
+ * linked, nothing waiting in the slot, room in the controller. */
+static void update_want(void)
+{
+    u8 r = linked && !send_pending && room(), wake = 0;
+
+    plat_lock();
+    if (r && !input_pending && !want) {
+        want = wake = 1;
+        want_us = plat_us();
+        util_trace(TR_WANT, 0);
+    } else if (!r) {
+        want = 0;
     }
+    plat_unlock();
+    if (wake) plat_wake(EV_BT);
 }
 
 /* ---- link events ------------------------------------------------------------------ */
@@ -672,13 +686,13 @@ static void acked(void)
 
     plat_lock();
     if (last_ack_us) util_stat_add(&timing.ack_gap, now - last_ack_us);
+    util_trace(TR_ACK, (u16)(flight_n - left));
     last_ack_us = now;
     while (flight_n - n > left && n < flight_n) {
         util_stat_add(&timing.ack_wait, now - flight[n].sent_us);
         if (flight[n].slot_us) util_stat_add(&timing.slot_ack, now - flight[n].slot_us);
         n++;
     }
-    if (n && flight_n >= link.in_flight && input_pending) room_us = now;
     plat_unlock();
     for (i = n; i < flight_n; i++) flight[i - n] = flight[i];
     flight_n = (u8)(flight_n - n);

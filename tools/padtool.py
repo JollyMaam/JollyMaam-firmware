@@ -13,6 +13,9 @@
                                   N per second (2000); per function, from the ELF's
                                   DWARF (needs pyelftools); ZOOM: only flash from
                                   that hex address, in 1 << SHIFT (2) byte buckets
+    padtool peek ADDR [WORDS]     32-bit words from a (hex) address: registers
+    padtool trace [-w SECONDS] [--top N]   record the timing markers (0.5 s),
+                                  print the last N and the pull round trips
     padtool relink                connected: drop the link and connect again
                                   (new link settings apply; wakes nothing)
 
@@ -161,7 +164,7 @@ def read_stats(path, reset=False):
     (s["reports"], s["imu"], s["sent"], s["replaced"], s["acked"], s["loop_runs"], s["loop_us"],
      s["buttons"], s["frames"], s["resyncs"]) = struct.unpack_from("<10I", d, o)
     o += 40
-    for name in ("ack_wait", "slot_ack", "ack_gap", "ack_send"):
+    for name in ("ack_wait", "slot_ack", "ack_gap", "want_send"):
         v = struct.unpack_from(HIST, d, o)
         s[name] = {"sum": v[0], "count": v[1], "max": v[2], "buckets": v[3:]}
         o += struct.calcsize(HIST)
@@ -192,7 +195,7 @@ def show_stats(s):
     for name, label in (("pass", "loop pass"), ("interval", "report interval"),
                         ("age", "report age"), ("ack_wait", "sent to ack"),
                         ("slot_ack", "slot to ack"), ("ack_gap", "between acks"),
-                        ("ack_send", "ack to send")):
+                        ("want_send", "want to send")):
         h = s[name]
         avg = h["sum"] / h["count"] if h["count"] else 0
         dist = "  ".join(f"<{32 << i}:{n}" if i < 15 else f">={32 << 14}:{n}"
@@ -319,6 +322,53 @@ def profile(path, seconds, hz, top, elf, zoom=None, by=None):
         print(f"{100 * n / total:6.2f} %  {n:7.0f}  {name}")
     if h["other"]:
         print("outside: " + " ".join(f"{a:#x}" for a in h["other_pc"] if a))
+
+
+TRACE_NAMES = {1: "want", 2: "bt wake", 3: "bt sleep", 4: "ctl wake", 5: "built", 6: "sent",
+               7: "ack", 8: "ctl sleep"}
+
+
+def trace(path, seconds, last):
+    cmd(path, 0x16, 1)                       # byte 2: 1 start
+    time.sleep(seconds)
+    cmd(path, 0x16, 2)
+    d = b""
+    while len(d) < 4 + 8 * 1024:
+        d += cmd(path, 0x16, len(d) << 8, 512)
+    count = struct.unpack_from("<I", d)[0]
+    entries = [struct.unpack_from("<IHB", d, 4 + 8 * i) for i in range(1024)]
+    if count > 1024:
+        k = count % 1024
+        entries = entries[k:] + entries[:k]
+    else:
+        entries = entries[:count]
+    if not entries:
+        print("no markers")
+        return
+    t0 = entries[0][0]
+    rel = [((us - t0) & 0xffffffff, TRACE_NAMES.get(m, m), arg) for us, arg, m in entries]
+    print(f"{count} markers, showing the last {min(last, len(rel))} of {len(rel)} (µs from the first kept)")
+    prev = None
+    for us, name, arg in rel[-last:]:
+        print(f"{us:10} {'' if prev is None else f'+{us - prev:6}':>8}  {name}{f' {arg}' if arg else ''}")
+        prev = us
+    # each want: time to the next of each marker
+    after = collections.defaultdict(list)
+    for i, (us, name, _) in enumerate(rel):
+        if name != "want":
+            continue
+        seen = set()
+        for us2, name2, _ in rel[i + 1:]:
+            if name2 == "want":
+                break
+            if name2 not in seen:
+                seen.add(name2)
+                after[name2].append(us2 - us)
+    print("from want to the next:")
+    for name in ("bt sleep", "ctl wake", "built", "sent", "ack"):
+        v = sorted(after[name])
+        if v:
+            print(f"  {name:9} n {len(v):5}  median {v[len(v) // 2]:6} µs  p90 {v[len(v) * 9 // 10]:6}  max {v[-1]:6}")
 
 
 def stats(path, every, reset):
@@ -609,7 +659,7 @@ def keep(path):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["find", "identify", "status", "log", "stats", "reboot", "loader", "relink", "connect", "profile",
+    p.add_argument("command", choices=["find", "identify", "status", "log", "stats", "reboot", "loader", "relink", "connect", "profile", "peek", "trace",
                                        "fields", "get", "set", "reset", "backup-settings",
                                        "restore-settings", "factory-reset", "ephemeral", "keep"])
     p.add_argument("args", nargs="*")
@@ -637,6 +687,13 @@ def main():
             stats(need_pad(), a.watch, a.reset)
         except KeyboardInterrupt:
             pass
+    elif a.command == "trace":
+        trace(need_pad(), a.watch or 0.5, a.top)
+    elif a.command == "peek":
+        addr, words = int(a.args[0], 16), int(a.args[1]) if len(a.args) > 1 else 4
+        d = cmd(need_pad(), 0x15, addr, 4 * words)
+        for i in range(words):
+            print(f"{addr + 4 * i:08x}: {struct.unpack_from('<I', d, 4 * i)[0]:08x}")
     elif a.command == "profile":
         zoom = (int(a.args[0], 16), int(a.args[1]) if len(a.args) > 1 else 1) if a.args else None
         profile(need_pad(), a.watch or 10, a.hz, a.top, a.elf, zoom, a.by)

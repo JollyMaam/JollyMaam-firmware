@@ -499,6 +499,7 @@ static void send_report(u32 now)
     c.report_next = now + period;
     c.pad.imu_count = (u8)imu_take(&c.imu_seq, c.pad.imu, IMU_PER_REPORT);
     n = c.prof->report(&c.pad, now, buf, &id);
+    util_trace(TR_BUILT, (u16)n);
     if (n > 0 && bt_send_input(id, buf, (u16)n)) {
         u32 us = plat_us();
 
@@ -553,6 +554,10 @@ void ctl_main(void)
 /* Time since the last mark: that step's worst and its total. */
 #define STEP(i) do { u32 u = plat_us(); if (u - t > c.stats.step_max[i]) c.stats.step_max[i] = u - t; \
                          c.stats.step_sum[i] += u - t; t = u; } while (0)
+/* bt.c may ask for a report while this pass runs: answer between steps, not
+ * at the next pass (the connection event will not wait). */
+#define PULL() do { if (c.kind == CTL_CONNECTED && bt_input_wanted()) { send_report(now); \
+                         STEP(STEP_REPORT); } } while (0)
     for (;;) {
         start = t = plat_us();
         now = plat_ms();
@@ -560,6 +565,9 @@ void ctl_main(void)
         STEP(STEP_INPUT);
         while (bt_poll(&e)) bt_event(&e, now);
         STEP(STEP_BT);
+        /* Straight after the input: bt.c is waiting for this report. */
+        if (c.kind == CTL_CONNECTED) send_report(now);
+        STEP(STEP_REPORT);
         {
             struct bt_stats b;
             struct plat_stats p;
@@ -583,20 +591,23 @@ void ctl_main(void)
         st.stats = &c.stats;
         handle(usb_poll(&st), now);
         STEP(STEP_USB);
+        PULL();
         sample_power(now);
         STEP(STEP_POWER);
         timeouts(now);
         STEP(STEP_TIMEOUTS);
-        if (c.kind == CTL_CONNECTED) send_report(now);
-        STEP(STEP_REPORT);
+        PULL();
         outputs(now);
         STEP(STEP_OUTPUTS);
+        PULL();
         set_poll(now, bt_radio_quiet() && !c.waking && c.kind != CTL_STOPPING && now - c.since >= QUIET_MS);
         STEP(STEP_SETTINGS);
+        PULL();
         deadline = earliest(c.led_next, earliest(state_deadline(), earliest(ux_deadline(), c.imu_next)));
         if (c.calibrating) deadline = earliest(deadline, now + CAL_SAMPLE_MS);
         c.stats.passes++;
         util_stat_add(&c.stats.pass, plat_us() - start);
-        plat_wait(deadline);
+        util_trace(TR_CTL_SLEEP, 0);
+        util_trace(TR_CTL_WAKE, (u16)plat_wait(deadline));
     }
 }

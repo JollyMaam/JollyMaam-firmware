@@ -195,12 +195,19 @@ static void execute(void)
         btstack_run_loop_base_execute_callbacks();
         btstack_run_loop_base_process_timers(now_ms());
         loop_runs++;
+        /* A wake during the pass gets another pass at once.  Measured: without
+         * it (sleeping on the semaphore alone, until the next BTstack timer)
+         * the pass count fell 1071 -> 394/s but a Switch 2 link carried 131
+         * reports/s instead of 195 (2026-10-05); the cause is not found yet
+         * (padtool trace). */
         if (woken) {
             woken = 0;
             continue;
         }
         loop_us += plat_us() - t;
+        util_trace(TR_BT_SLEEP, 0);
         plat_bt_wait(10);
+        util_trace(TR_BT_WAKE, 0);
         t = plat_us();
     }
 }

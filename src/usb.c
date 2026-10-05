@@ -14,7 +14,7 @@
 #define STATS_VERSION 5
 
 enum { CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02, CMD_STATS = 0x03,
-       CMD_REBOOT = 0x10, CMD_REBOOT_LOADER = 0x11, CMD_RELINK = 0x12, CMD_CONNECT = 0x13, CMD_PROFILE = 0x14,
+       CMD_REBOOT = 0x10, CMD_REBOOT_LOADER = 0x11, CMD_RELINK = 0x12, CMD_CONNECT = 0x13, CMD_PROFILE = 0x14, CMD_PEEK = 0x15, CMD_TRACE = 0x16,
        CMD_FIELD = 0x20, CMD_READ = 0x21, CMD_WRITE = 0x22, CMD_COMMIT = 0x23, CMD_DROP = 0x24,
        CMD_EPHEMERAL = 0x25, CMD_RESULT = 0x26 };
 
@@ -93,6 +93,14 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         else if (cdb[2] == 2) plat_prof_start(0, 0, 0);
         else n = plat_prof_read(util_get32(cdb + 3), data, max);
         break;
+    case CMD_TRACE:              /* byte 2: 0 read from the offset in bytes 3-6, 1 start, 2 stop */
+        if (cdb[2] == 1) util_trace_enable(1);
+        else if (cdb[2] == 2) util_trace_enable(0);
+        else n = util_trace_read(util_get32(cdb + 3), data, max);
+        break;
+    case CMD_PEEK:               /* argument: address; in: 32-bit words from it */
+        n = plat_peek(util_get32(cdb + 2), data, max);
+        break;
     case CMD_CONNECT:            /* argument: slot, 0xfe the last */
         pending.kind = REQ_CONNECT;
         pending.slot = cdb[2];
@@ -143,6 +151,9 @@ const u8 *plat_unique_id(void) { return uid; }
 void plat_usb_service(void) {}
 void plat_prof_start(u16 hz, u32 zoom, u8 shift) { (void)hz; (void)zoom; (void)shift; }
 u32 plat_prof_read(u32 offset, u8 *out, u32 max) { (void)offset; (void)out; (void)max; return 0; }
+u32 plat_peek(u32 addr, u8 *out, u32 max) { (void)addr; (void)out; (void)max; return 0; }
+void util_trace_enable(int on) { (void)on; }
+u32 util_trace_read(u32 offset, u8 *out, u32 max) { (void)offset; (void)out; (void)max; return 0; }
 u32 util_log_read(u32 *seq, char *out, u32 max)
 {
     (void)max;

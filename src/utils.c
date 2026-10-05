@@ -77,6 +77,57 @@ void util_put32(u8 *p, u32 v)
     util_put16(p + 2, (u16)(v >> 16));
 }
 
+#define TRACE 1024
+static struct { u32 us; u16 arg; u8 marker, pad; } trace[TRACE];
+static u32 trace_n;
+static volatile u8 trace_on;
+
+void util_trace(u8 marker, u16 arg)
+{
+    u32 i;
+
+    if (!trace_on) return;
+    plat_lock();
+    i = trace_n++ % TRACE;
+    trace[i].us = plat_us();
+    trace[i].marker = marker;
+    trace[i].arg = arg;
+    plat_unlock();
+}
+
+void util_trace_enable(int on)
+{
+    plat_lock();
+    if (on) trace_n = 0;
+    trace_on = (u8)on;
+    plat_unlock();
+}
+
+/* u32 count, then the entries in ring order (the oldest at count % TRACE once full). */
+u32 util_trace_read(u32 offset, u8 *out, u32 max)
+{
+    u32 n = 0, k;
+
+    if (offset < 4) {
+        u8 head[4];
+
+        util_put32(head, trace_n);
+        k = 4 - offset < max ? 4 - offset : max;
+        memcpy(out, head + offset, k);
+        n = k;
+        offset = 0;
+    } else {
+        offset -= 4;
+    }
+    if (offset < sizeof(trace)) {
+        k = sizeof(trace) - offset;
+        if (k > max - n) k = max - n;
+        memcpy(out + n, (const u8 *)trace + offset, k);
+        n += k;
+    }
+    return n;
+}
+
 /* Into a power-of-two histogram: bucket i holds values below 32 << i µs. */
 void util_stat_add(struct stat_hist *h, u32 us)
 {
@@ -157,6 +208,7 @@ void plat_lock(void) {}
 void plat_unlock(void) {}
 static u32 fake_ms = 1234;
 u32 plat_ms(void) { return fake_ms; }
+u32 plat_us(void) { return fake_ms * 1000; }
 
 int main(void)
 {

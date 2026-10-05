@@ -70,8 +70,8 @@ from the next connect.  Zero means the profile's or the stack's own:
   Packets says it went;
 * `slot_ack`: a report entering the input slot until then;
 * `ack_gap`: between Number Of Completed Packets events for the link;
-* `ack_send`: an ack that made room in the controller, while a report waited
-  in the slot, until that report was handed over.
+* `want_send`: `bt_input_wanted()` becoming true until the report the control
+  thread built for it was handed over (the pull round trip).
 
 When the controller reports a packet as completed (after the air
 acknowledgement or earlier) is the controller's choice; compare with a sniffer
