@@ -58,10 +58,10 @@ forced.
 A dongle does not boot from 0: its `isd_config` says `EOFFSET` 16 (4 KiB
 units), and GameSir's tool puts the image at 0x10000, points the app area's
 PRCT and VM entries at real flash addresses, and copies the first 4 KiB to 0
-and 0x1000 (read back from a dongle it upgraded).  `tools/dongle_place.py`
-does the same with a distributed image (`donglefw_*.bin`); `padtool flash`
-takes a dongle image only in that layout and only for the chip key it was
-encrypted for.
+and 0x1000 (read back from a dongle it upgraded).  `padtool flash` does the
+same with a distributed image (`donglefw_*.bin`), keeping the dongle's own
+BTIF, key_mac and stamp, and only onto the chip key the image was encrypted
+for; `padtool place` writes that layout to a file.
 
 ## Updating this firmware
 

@@ -88,9 +88,8 @@ understood.
 
 A dongle `donglefw_1.21.bin` written raw at 0 did not boot (the ROM loader
 came up instead), where the pad's raw image does; why is not established.
-`tools/dongle_place.py` reproduces the tool's dongle layout (identical to the
-tool's output but for VM and the stamp) and `padtool flash` takes dongle
-images only in that layout. `jlnewfw` follows `EOFFSET` to the image a
+`padtool flash` (and `padtool place`) reproduces the tool's dongle layout
+(identical to the tool's output but for VM and the stamp). `jlnewfw` follows `EOFFSET` to the image a
 device boots.
 
 Evidence: `/shared/gamesir-firmware/dongleflash_*`,
