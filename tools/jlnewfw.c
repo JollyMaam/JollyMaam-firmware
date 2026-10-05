@@ -1067,8 +1067,10 @@ static void cmd_pack(int argc, char **argv) {
  * loader blob goes into RAM and runs, then takes erase/write/read commands.
  * Commands are 16-byte vendor CDBs: a big-endian 16-bit command, arguments,
  * 0xff padding; those without data answer with 16 bytes starting with the
- * command.  As in kagaimiq's jl-uboot-tool, whose BR23 loader blob this uses
- * (--loader or JLNEWFW_LOADER).  Linux SCSI generic only. */
+ * command (protocol as worked out by kagaimiq's jl-uboot-tool).  The loader
+ * blob is the SDK's (cpu/br23/tools/br23loader.bin; --loader or
+ * JLNEWFW_LOADER); jl-uboot-tool's older, smaller one works too.  Linux SCSI
+ * generic only. */
 
 #ifdef __linux__
 #include <dirent.h>
@@ -1241,7 +1243,7 @@ static void start_loader(struct dev *d, const char *loader) {
     loader = getenv("JLNEWFW_LOADER");
   if (!loader)
     die("give the BR23 loader blob with --loader or JLNEWFW_LOADER "
-        "(jl-uboot-tool's data/loaderblobs/usb/br23loader.bin)");
+        "(the SDK's cpu/br23/tools/br23loader.bin)");
   size_t n;
   uint8_t *blob = read_file(loader, &n);
   for (size_t off = 0; off < n; off += LOADER_BLOCK) {
@@ -1512,7 +1514,7 @@ static void usage(void) {
       "               [--at ADDR] [--mark VALUE] [--copy FROM:TO:LEN]...\n"
       "  jlnewfw flash [FLASH OPTIONS] IMAGE\n"
       "  jlnewfw flashpack [PACK OPTIONS] [FLASH OPTIONS] [app.bin ...]\n"
-      "FLASH OPTIONS: [--device /dev/sgN] [--loader br23loader.bin] "
+      "FLASH OPTIONS: [--device /dev/sgN] [--loader SDK/cpu/br23/tools/br23loader.bin] "
       "[--backup FILE]\n"
       "               [--keep ADDR:LEN]... [--force-pid] [--force-key] "
       "[--dry-run]\n"
