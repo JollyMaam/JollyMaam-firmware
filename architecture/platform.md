@@ -103,3 +103,24 @@ Things kept in mind so this stays true, without adding layers now:
   defines; elsewhere it is empty.
 * Storage is a few opaque records (a bond per slot, calibration), so any
   key-value flash store will do.
+
+## Sampling profiler
+
+`plat_prof_start(hz, zoom, shift)` runs timer 2 at priority 6, above the
+controller's BLE interrupts (2), the stick UART (3) and the tick (1).  Each
+interrupt reads RETI, the address it will return to, and counts it in a
+bucket: flash code (`text_code_begin`..`text_code_end`), RAM code
+(`_data_code_begin`..`_data_code_end`) and the mask ROM (0x110000, 32 KB),
+4096/512/512 u16 buckets of 64 bytes or more; a zoom puts the flash buckets
+over a narrower window.  The period is jittered (up to 1023 counts of the
+24 MHz clock) so samples do not lock to 5 ms connection events.  Code that
+runs with interrupts off is counted where they come back on
+(`local_irq_enable`).  `padtool profile` (USB PROFILE, usb.md) maps buckets
+to functions through the ELF's DWARF (pyelftools), per function, file or
+part (`--by`).
+
+The CPU's sleep shows as samples returning to the start of `wdt_clear`,
+attributed to it and its neighbours in `msd.c` (`check_disk_status`,
+`msd_mcu2usb`): about half the samples on an idle pad, 4 % at 200 reports/s
+on a Switch 2 (2026-10-05).
+

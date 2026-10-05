@@ -480,6 +480,124 @@ u32 plat_us(void)
     return ms * 1000 + q * TICK_US + cnt / 24;
 }
 
+/* ---- sampling profiler ------------------------------------------------------
+ * Timer 2 at priority 6, above the controller's BLE interrupts (2), the stick
+ * UART (3) and the tick (1): each interrupt reads RETI, the address it
+ * interrupted, and counts it in a 64-byte (or larger) bucket.  The period is
+ * jittered so samples do not lock to the 5 ms connection events.  Code that
+ * runs with interrupts off is counted at the instruction that turns them on. */
+
+extern char text_code_begin[], text_code_end[], _data_code_begin[], _data_code_end[];
+
+#define PROF_FLASH_BUCKETS 4096
+#define PROF_RAM_BUCKETS   512
+#define PROF_ROM_BUCKETS   512
+#define PROF_ROM_BEGIN     0x110000u
+#define PROF_ROM_SIZE      0x8000u
+#define PROF_VERSION       1
+
+static struct {
+    u16 version, hz;
+    u8 flash_shift, ram_shift, rom_shift, running;
+    u32 flash_begin, flash_buckets, ram_begin, ram_buckets, rom_begin, rom_buckets;
+    u32 samples, other, saturated;
+    u32 other_pc[8];
+} prof;
+static u16 prof_flash[PROF_FLASH_BUCKETS], prof_ram[PROF_RAM_BUCKETS], prof_rom[PROF_ROM_BUCKETS];
+static u32 prof_period, prof_lfsr = 0xace1u;
+
+static HOT void prof_count(u16 *b, u32 i)
+{
+    if (b[i] != 0xffff) b[i]++;
+    else prof.saturated++;
+}
+
+___interrupt
+static HOT void prof_isr(void)
+{
+    u32 pc, i;
+
+    __asm__ volatile("%0 = reti" : "=r"(pc));
+    JL_TIMER2->CON |= BIT(14);
+    prof_lfsr = (prof_lfsr >> 1) ^ (-(prof_lfsr & 1u) & 0xb400u);
+    JL_TIMER2->PRD = prof_period + (prof_lfsr & 0x3ff);
+    prof.samples++;
+    if (pc - prof.flash_begin < (prof.flash_buckets << prof.flash_shift)) {
+        prof_count(prof_flash, (pc - prof.flash_begin) >> prof.flash_shift);
+    } else if (pc - prof.ram_begin < (prof.ram_buckets << prof.ram_shift)) {
+        prof_count(prof_ram, (pc - prof.ram_begin) >> prof.ram_shift);
+    } else if (pc - prof.rom_begin < (prof.rom_buckets << prof.rom_shift)) {
+        prof_count(prof_rom, (pc - prof.rom_begin) >> prof.rom_shift);
+    } else {
+        i = prof.other++ & 7;
+        prof.other_pc[i] = pc;
+    }
+}
+
+static u8 shift_for(u32 size, u32 buckets)
+{
+    u8 s = 6;
+
+    while ((buckets << s) < size) s++;
+    return s;
+}
+
+void plat_prof_start(u16 hz, u32 zoom, u8 zoom_shift)
+{
+    JL_TIMER2->CON = BIT(14);
+    prof.running = 0;
+    if (!hz) return;
+    memset(&prof, 0, sizeof(prof));
+    memset(prof_flash, 0, sizeof(prof_flash));
+    memset(prof_ram, 0, sizeof(prof_ram));
+    memset(prof_rom, 0, sizeof(prof_rom));
+    prof.version = PROF_VERSION;
+    prof.hz = hz;
+    prof.flash_begin = (u32)text_code_begin;
+    prof.flash_shift = shift_for((u32)(text_code_end - text_code_begin), PROF_FLASH_BUCKETS);
+    prof.flash_buckets = PROF_FLASH_BUCKETS;
+    if (zoom) {                  /* the flash buckets over a narrower window */
+        prof.flash_begin = zoom;
+        prof.flash_shift = zoom_shift;
+    }
+    prof.ram_begin = (u32)_data_code_begin;
+    prof.ram_shift = shift_for((u32)(_data_code_end - _data_code_begin), PROF_RAM_BUCKETS);
+    prof.ram_buckets = PROF_RAM_BUCKETS;
+    prof.rom_begin = PROF_ROM_BEGIN;
+    prof.rom_shift = shift_for(PROF_ROM_SIZE, PROF_ROM_BUCKETS);
+    prof.rom_buckets = PROF_ROM_BUCKETS;
+    /* 24 MHz timer clock, as the tick; the jitter adds up to 1023 counts */
+    prof_period = 24000000u / hz - 512;
+    JL_TIMER2->CNT = 0;
+    JL_TIMER2->PRD = prof_period;
+    request_irq(IRQ_TIME2_IDX, 6, prof_isr, 0);
+    prof.running = 1;
+    JL_TIMER2->CON = BIT(0) | BIT(3);
+}
+
+/* The header, then the flash, RAM and ROM counts, read from a byte offset. */
+u32 plat_prof_read(u32 offset, u8 *out, u32 max)
+{
+    u32 n = 0, k;
+    const u8 *parts[4] = { (const u8 *)&prof, (const u8 *)prof_flash, (const u8 *)prof_ram,
+                           (const u8 *)prof_rom };
+    const u32 sizes[4] = { sizeof(prof), sizeof(prof_flash), sizeof(prof_ram), sizeof(prof_rom) };
+    u32 i;
+
+    for (i = 0; i < 4 && n < max; i++) {
+        if (offset >= sizes[i]) {
+            offset -= sizes[i];
+            continue;
+        }
+        k = sizes[i] - offset;
+        if (k > max - n) k = max - n;
+        memcpy(out + n, parts[i] + offset, k);
+        n += k;
+        offset = 0;
+    }
+    return n;
+}
+
 /* ---- sticks: 4-byte frames from the stick MCU on UART2, by DMA ----------- */
 
 #define STICK_BUF   512

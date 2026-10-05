@@ -8,6 +8,11 @@
     padtool reboot | loader       restart; restart into the ROM loader (for
                                   jlnewfw flash)
     padtool connect [SLOT]        connect a slot (default: the last), as Home does
+    padtool profile [ZOOM [SHIFT]] [-w SECONDS] [--hz N] [--top N] [--elf FILE]
+                                  sample where the CPU runs for SECONDS (10) at
+                                  N per second (2000); per function, from the ELF's
+                                  DWARF (needs pyelftools); ZOOM: only flash from
+                                  that hex address, in 1 << SHIFT (2) byte buckets
     padtool relink                connected: drop the link and connect again
                                   (new link settings apply; wakes nothing)
 
@@ -28,7 +33,7 @@ address, hex for other bytes; "default" puts a field back to its default.
 The pad is a mass-storage device with no medium; commands are vendor SCSI
 CDBs (architecture/usb.md).  Flashing is tools/jlnewfw.c's (make flash).
 """
-import argparse, ctypes, fcntl, glob, json, os, struct, sys, time
+import argparse, collections, ctypes, fcntl, glob, json, os, struct, sys, time
 
 OP = 0xF5
 STATES = ["boot", "idle", "connecting", "pairing", "connected", "stopping", "sleeping", "rebooting"]
@@ -209,6 +214,111 @@ def show_stats(s):
     show_link(s["link"])
     print(f"input: button changes {s['buttons']}, stick frames {s['frames']} "
           f"({s['frames'] / secs:.0f}/s), stick resyncs {s['resyncs']}")
+
+
+PROF_HEADER = "<HHBBBBIIIIIIIII8I"
+
+
+def read_profile(path):
+    d = cmd(path, 0x14, 0, 512)                 # byte 2: 0 read; bytes 3-6: offset
+    first = struct.unpack_from(PROF_HEADER, d)
+    total = struct.calcsize(PROF_HEADER) + 2 * (first[7] + first[9] + first[11])
+    while len(d) < total:
+        d += cmd(path, 0x14, len(d) << 8, 512)
+    v = struct.unpack_from(PROF_HEADER, d)
+    h = dict(zip(("version", "hz", "flash_shift", "ram_shift", "rom_shift", "running",
+                  "flash_begin", "flash_buckets", "ram_begin", "ram_buckets", "rom_begin",
+                  "rom_buckets", "samples", "other", "saturated"), v[:15]))
+    h["other_pc"] = v[15:]
+    o = struct.calcsize(PROF_HEADER)
+    for name in ("flash", "ram", "rom"):
+        n = h[name + "_buckets"]
+        h[name] = struct.unpack_from(f"<{n}H", d, o)
+        o += 2 * n
+    return h
+
+
+def functions(elf):
+    """(low, high, name, file) of every function the ELF's DWARF describes."""
+    try:
+        from elftools.elf.elffile import ELFFile
+    except ImportError:
+        sys.exit("padtool profile: needs pyelftools (pip install pyelftools)")
+    out = []
+    with open(elf, "rb") as f:
+        for cu in ELFFile(f).get_dwarf_info().iter_CUs():
+            top = cu.get_top_DIE().attributes
+            unit = top["DW_AT_name"].value.decode() if "DW_AT_name" in top else "?"
+            for die in cu.iter_DIEs():
+                at = die.attributes
+                if die.tag != "DW_TAG_subprogram" or "DW_AT_low_pc" not in at or "DW_AT_high_pc" not in at:
+                    continue
+                lo, hi = at["DW_AT_low_pc"].value, at["DW_AT_high_pc"]
+                hi = hi.value if hi.form == "DW_FORM_addr" else lo + hi.value
+                name = at["DW_AT_name"].value.decode() if "DW_AT_name" in at else "?"
+                out.append((lo, hi, name, unit))
+    out.sort()
+    return out
+
+
+def unit_group(unit):
+    """Which part of the firmware a compilation unit belongs to."""
+    u = unit.replace("\\", "/")
+    for key, name in (("/btctrler/", "controller"), ("port/br23/baseband", "controller"),
+                      ("cyclone2-btstack", "btstack"), ("/usb/", "usb (sdk)"),
+                      ("crypto_toolbox", "crypto (sdk)"), ("/FreeRTOS", "os"), ("/lib/system/", "os"),
+                      ("/lib/driver/", "drivers (sdk)"), ("fw-AC63_BT_SDK", "sdk app code")):
+        if key in u:
+            return name
+    return "app " + u.rsplit("/", 1)[-1]
+
+
+def profile(path, seconds, hz, top, elf, zoom=None, by=None):
+    import bisect
+    zoom_base, zoom_shift = zoom or (0, 0)
+    scsi(path, [OP, 0x14, 1, hz & 0xff, hz >> 8] + list(struct.pack("<I", zoom_base)) + [zoom_shift], 0)
+    time.sleep(seconds)
+    cmd(path, 0x14, 2)
+    h = read_profile(path)
+    funcs = functions(elf)
+    lows = [f[0] for f in funcs]
+    per = collections.Counter()
+    key = (lambda f: f[2]) if not by else (lambda f: f[3]) if by == "file" else (lambda f: unit_group(f[3]))
+    for name in ("flash", "ram", "rom"):
+        base, shift = h[name + "_begin"], h[name + "_shift"]
+        for i, n in enumerate(h[name]):
+            if not n:
+                continue
+            a = base + (i << shift)
+            if name == "rom":
+                per[f"rom+{a - base:#06x}"] += n
+                continue
+            # a bucket's samples go to the functions it overlaps, by overlap
+            end = a + (1 << shift)
+            parts = []
+            k = bisect.bisect_right(lows, a) - 1
+            k = max(k, 0)
+            while k < len(funcs) and funcs[k][0] < end:
+                lo, hi = funcs[k][0], funcs[k][1]
+                o = min(hi, end) - max(lo, a)
+                if o > 0:
+                    parts.append((o, key(funcs[k])))
+                k += 1
+            if not parts:
+                per[f"{a:#x}"] += n
+                continue
+            span = sum(o for o, _ in parts)
+            for o, fn in parts:
+                per[fn] += n * o / span
+    if zoom:
+        print(f"flash window {zoom_base:#x} + {4096 << zoom_shift:#x} bytes in {1 << zoom_shift}-byte buckets")
+    total = max(h["samples"], 1)
+    print(f"{h['samples']} samples over {seconds:g} s ({h['samples'] / seconds:.0f}/s), "
+          f"{h['other']} outside the known code, {h['saturated']} lost to full buckets")
+    for name, n in per.most_common(top):
+        print(f"{100 * n / total:6.2f} %  {n:7.0f}  {name}")
+    if h["other"]:
+        print("outside: " + " ".join(f"{a:#x}" for a in h["other_pc"] if a))
 
 
 def stats(path, every, reset):
@@ -499,7 +609,7 @@ def keep(path):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["find", "identify", "status", "log", "stats", "reboot", "loader", "relink", "connect",
+    p.add_argument("command", choices=["find", "identify", "status", "log", "stats", "reboot", "loader", "relink", "connect", "profile",
                                        "fields", "get", "set", "reset", "backup-settings",
                                        "restore-settings", "factory-reset", "ephemeral", "keep"])
     p.add_argument("args", nargs="*")
@@ -507,6 +617,11 @@ def main():
     p.add_argument("-f", "--follow", action="store_true")
     p.add_argument("-w", "--watch", type=float, metavar="SECONDS", help="stats: show and reset every N seconds")
     p.add_argument("--reset", action="store_true", help="stats: reset the counters after reading")
+    p.add_argument("--hz", type=int, default=2000, help="profile: samples per second")
+    p.add_argument("--top", type=int, default=40, help="profile: functions to show")
+    p.add_argument("--by", choices=["file", "group"], help="profile: add up per source file or per part")
+    p.add_argument("--elf", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build", "app.elf"),
+                   help="profile: the running build's ELF")
     a = p.parse_args()
     if a.command == "find":
         for path, name in pads():
@@ -522,6 +637,9 @@ def main():
             stats(need_pad(), a.watch, a.reset)
         except KeyboardInterrupt:
             pass
+    elif a.command == "profile":
+        zoom = (int(a.args[0], 16), int(a.args[1]) if len(a.args) > 1 else 1) if a.args else None
+        profile(need_pad(), a.watch or 10, a.hz, a.top, a.elf, zoom, a.by)
     elif a.command == "connect":
         names = "A B X Y up down left right".split()
         slot = names.index(a.args[0]) if a.args else 0xfe

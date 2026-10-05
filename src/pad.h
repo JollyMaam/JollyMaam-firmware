@@ -507,6 +507,12 @@ struct plat_boot {
 
 u32 plat_ms(void);
 u32 plat_us(void);                          /* wraps */
+/* Sampling profiler: a timer interrupt above everything else counts the
+ * interrupted code address, in buckets over flash code, RAM code and the mask
+ * ROM.  plat_prof_start(0) stops it; read returns the header and the counts
+ * from a byte offset (architecture/usb.md, PROFILE). */
+void plat_prof_start(u16 hz, u32 zoom, u8 zoom_shift);   /* zoom: flash window start, 0 none */
+u32 plat_prof_read(u32 offset, u8 *out, u32 max);
 void plat_i2c_read(u8 dev, u8 reg, u8 *buf, u8 len);   /* starts; EV_IMU when done */
 void plat_i2c_write(u8 dev, u8 reg, u8 value);
 int plat_i2c_done(void);                    /* 1 done, 0 busy, -1 failed */

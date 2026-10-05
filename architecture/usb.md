@@ -85,6 +85,7 @@ little-endian.  Data goes in the SCSI data phase; the status is the CSW.
 | `0x10` | REBOOT | – | done |
 | `0x11` | REBOOT_LOADER | – (any loader opcode does the same) | done |
 | `0x13` | CONNECT | CDB byte 2: slot (`0xfe` the last): start its session, as a Home connect does | done |
+| `0x14` | PROFILE | CDB byte 2: 1 start at the rate in bytes 3-4 (samples/s), 2 stop, 0 read from the byte offset in bytes 3-6; in: header (version, rate, bucket shifts, the flash/RAM/ROM ranges and bucket counts, samples, outside, saturated, the last 8 outside addresses), then u16 counts per bucket, flash, RAM, ROM | done |
 | `0x12` | RELINK | – : while connected, take the session down and connect the same slot again (the host is awake; nothing is woken) | done |
 | `0x20` | FIELD | argument: field number; in: u8 version, target kind (0 slot, 1 palette, 2 calibration), id, type, size, –, u16 max, then name, help, enum names (NUL-terminated), defaults (one per slot for slot fields, fields up to 4 bytes); all zero past the last | done |
 | `0x21` | READ | CDB byte 2: target (0-7 slot, 8 palette, 9 calibration); in: u8 version, target, count, then per field id, set, len, value | done |
