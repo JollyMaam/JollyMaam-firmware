@@ -4,10 +4,7 @@
  * The six-word SDK message is consumed synchronously by its role machine.
  * Debug printfs are omitted; valid-command event order is preserved. */
 #include <string.h>
-#include "btctrler_sdk_abi.h"
-
-extern const int CONFIG_BREDR_INQUIRY;
-extern const int CONFIG_LMP_MASTER_ESCO_ENABLE;
+#include "btctrler/glue.h"
 
 static unsigned short read16(const unsigned char *p)
 { return (unsigned short)(p[0] | ((unsigned short)p[1] << 8)); }
@@ -15,15 +12,15 @@ static unsigned int read32(const unsigned char *p)
 { return (unsigned int)p[0] | ((unsigned int)p[1] << 8) |
          ((unsigned int)p[2] << 16) | ((unsigned int)p[3] << 24); }
 static void status(unsigned short opcode, int error)
-{ BTCTRLER_BIN_hci_send_event(0x0f, "112", error, 1, (int)opcode); }
+{ hci_send_event(0x0f, "112", error, 1, (int)opcode); }
 static void complete(unsigned short opcode)
-{ BTCTRLER_BIN_hci_send_event_cmd_complete(opcode, "1", 0); }
+{ hci_send_event_cmd_complete(opcode, "1", 0); }
 static void address_complete(unsigned short opcode, unsigned char *address)
-{ BTCTRLER_BIN_hci_send_event_cmd_complete(opcode, "1A", 0, address); }
+{ hci_send_event_cmd_complete(opcode, "1A", 0, address); }
 
-int hci_lmp_link_control_cmd_handler(unsigned short opcode, unsigned char *cmd, int len)
+int hci_lmp_link_control_cmd_handler(u16 opcode, u8 *cmd, u32 len)
 {
-    int required;
+    u32 required;
     switch (opcode) {
     case 0x0401: /* Inquiry */
         if (!CONFIG_BREDR_INQUIRY) return 1;
@@ -64,12 +61,10 @@ int hci_lmp_link_control_cmd_handler(unsigned short opcode, unsigned char *cmd, 
         static const unsigned char no_address[6];
         if ((opcode >= 0x040b && opcode <= 0x040e) ||
             (opcode >= 0x042b && opcode <= 0x042f) || opcode == 0x0c60)
-            BTCTRLER_BIN_hci_send_event_cmd_complete(opcode, "1A", 0x12,
+            hci_send_event_cmd_complete(opcode, "1A", 0x12,
                 cmd && len >= 6 ? cmd : no_address);
-        else if (opcode == 0x0402) /* No parameters, only a negative length. */
-            BTCTRLER_BIN_hci_send_event_cmd_complete(opcode, "1", 0x12);
         else if (opcode == 0x041a)
-            BTCTRLER_BIN_hci_send_event_cmd_complete(opcode, "1", 0x12);
+            hci_send_event_cmd_complete(opcode, "1", 0x12);
         else status(opcode, 0x12);
         return 1;
     }
@@ -81,18 +76,18 @@ int hci_lmp_link_control_cmd_handler(unsigned short opcode, unsigned char *cmd, 
         unsigned int lap = (unsigned int)cmd[0] | ((unsigned int)cmd[1] << 8) |
                            ((unsigned int)cmd[2] << 16);
         status(opcode, 0);
-        BTCTRLER_BIN_link_inquiry_enable((unsigned char *)&lap, cmd[3] * 1280,
+        link_inquiry_enable((unsigned char *)&lap, cmd[3] * 1280,
                                        cmd[4], 0);
         break;
     }
     case 0x0402:
         complete(opcode);
-        BTCTRLER_BIN_link_inquiry_disable();
-        BTCTRLER_BIN_hci_send_event(1, "1", 0);
+        link_inquiry_disable();
+        hci_send_event(1, "1", 0);
         break;
     case 0x0405:
         status(opcode, 0);
-        BTCTRLER_BIN_link_page_try_start_enable(0, cmd, cmd[8], 0);
+        link_page_try_start_enable(0, cmd, cmd[8], 0);
         break;
     case 0x0409:
         status(opcode, 0);
@@ -103,7 +98,7 @@ int hci_lmp_link_control_cmd_handler(unsigned short opcode, unsigned char *cmd, 
     case 0x0413:
         status(opcode, 0);
         if (opcode == 0x0413) msg[1] = cmd[2];
-        BTCTRLER_BIN_lmp_hci_cmd_handler_to_conn(cmd, msg);
+        lmp_hci_cmd_handler_to_conn(cmd, msg);
         break;
     case 0x040b:
         memcpy(&msg[1], cmd + 6, 16);
@@ -133,35 +128,35 @@ int hci_lmp_link_control_cmd_handler(unsigned short opcode, unsigned char *cmd, 
         break;
     case 0x0419:
         status(opcode, 0);
-        BTCTRLER_BIN_lmp_hci_remote_name_request(cmd, cmd[6], read16(cmd + 8));
+        lmp_hci_remote_name_request(cmd, cmd[6], read16(cmd + 8));
         break;
     case 0x041a:
         complete(opcode);
-        BTCTRLER_BIN_link_page_disable(4);
+        link_page_disable(4);
         break;
     case 0x041b: case 0x041c: {
         unsigned short handle = read16(cmd) & 0x0fff;
-        if (!BTCTRLER_BIN_lmp_conn_for_handle(handle)) { status(opcode, 2); break; }
+        if (!lmp_conn_for_handle(handle)) { status(opcode, 2); break; }
         status(opcode, 0);
-        if (opcode == 0x041b) BTCTRLER_BIN_lmp_hci_read_remote_supported_features(handle);
-        else BTCTRLER_BIN_lmp_hci_read_remote_extended_features(handle);
+        if (opcode == 0x041b) lmp_hci_read_remote_supported_features(handle);
+        else lmp_hci_read_remote_extended_features(handle);
         /* The SDK helper has no page argument. Preserve that limitation. */
         break;
     }
     case 0x041f:
         status(opcode, 0);
-        BTCTRLER_BIN_lmp_hci_read_clock_offset(read16(cmd) & 0x0fff);
+        lmp_hci_read_clock_offset(read16(cmd) & 0x0fff);
         break;
     case 0x0428:
         status(opcode, 0);
-        BTCTRLER_BIN_lmp_hci_setup_sync_connection(read16(cmd), read32(cmd + 2),
+        lmp_hci_setup_sync_connection(read16(cmd), read32(cmd + 2),
             read32(cmd + 6), read16(cmd + 10), read16(cmd + 12), cmd[14], read16(cmd + 15));
         break;
     case 0x0429: case 0x042a:
         /* Retain the SDK's handle-based routing of these voice commands.
          * The pad disables this feature; this is not a corrected voice ABI. */
         msg[1] = cmd[2];
-        BTCTRLER_BIN_lmp_hci_cmd_handler_to_conn(cmd, msg);
+        lmp_hci_cmd_handler_to_conn(cmd, msg);
         if (opcode == 0x0429) status(opcode, 0);
         break;
     }
@@ -172,8 +167,8 @@ int hci_lmp_link_control_cmd_handler(unsigned short opcode, unsigned char *cmd, 
 #include <stdarg.h>
 #include "test.h"
 /* Exercise branches normally disabled by the pad's platform configuration. */
-const int CONFIG_BREDR_INQUIRY = 1;
-const int CONFIG_LMP_MASTER_ESCO_ENABLE = 1;
+int CONFIG_BREDR_INQUIRY = 1, CONFIG_LMP_MASTER_ESCO_ENABLE = 1;
+int config_btctler_modules, config_btctler_mode;
 static int sequence, event_at, route_at, event_kind, event_error, event_opcode;
 static int helper, words[6], found = 1;
 static unsigned char event_address[6], routed_address[6];
@@ -183,7 +178,7 @@ static void clear(void)
     sequence = event_at = route_at = event_kind = helper = 0;
     memset(words, 0xaa, sizeof(words)); memset(args, 0, sizeof(args));
 }
-int BTCTRLER_BIN_hci_send_event(int event, const char *format, ...)
+int hci_send_event(int event, const char *format, ...)
 {
     va_list ap; va_start(ap, format);
     event_at = ++sequence; event_kind = event; event_error = va_arg(ap, int);
@@ -192,7 +187,7 @@ int BTCTRLER_BIN_hci_send_event(int event, const char *format, ...)
     } else CHECK(event == 1 && !strcmp(format, "1"));
     va_end(ap); return 0;
 }
-int BTCTRLER_BIN_hci_send_event_cmd_complete(int opcode, const char *format, ...)
+int hci_send_event_cmd_complete(int opcode, const char *format, ...)
 {
     va_list ap; va_start(ap, format);
     event_at = ++sequence; event_kind = 0x0e; event_opcode = opcode;
@@ -205,40 +200,40 @@ void lmp_hci_cmd_addr_to_conn(unsigned char *cmd, int *msg)
 {
     route_at = ++sequence; memcpy(routed_address, cmd, 6); memcpy(words, msg, sizeof(words));
 }
-void BTCTRLER_BIN_lmp_hci_cmd_handler_to_conn(unsigned char *cmd, int *msg)
+void lmp_hci_cmd_handler_to_conn(unsigned char *cmd, int *msg)
 {
     route_at = ++sequence; args[0] = read16(cmd); memcpy(words, msg, sizeof(words));
 }
-struct lmp_connection *BTCTRLER_BIN_lmp_conn_for_handle(int handle)
+struct lmp_connection *lmp_conn_for_handle(int handle)
 { args[0] = handle; return found ? (struct lmp_connection *)args : 0; }
-void BTCTRLER_BIN_link_page_try_start_enable(unsigned char type, unsigned char *address,
+void link_page_try_start_enable(unsigned char type, unsigned char *address,
     unsigned char repetition, int timeout)
 {
     helper = 1; route_at = ++sequence; CHECK(type == 0 && timeout == 0);
     memcpy(routed_address, address, 6); args[0] = repetition;
 }
-int BTCTRLER_BIN_link_inquiry_enable(unsigned char *lap, int duration,
+int link_inquiry_enable(unsigned char *lap, int duration,
     unsigned char count, int (*result)(struct link_inquiry_result *))
 {
     helper = 2; route_at = ++sequence; args[0] = read32(lap); args[1] = duration;
     args[2] = count; CHECK(!result); return 0;
 }
-void BTCTRLER_BIN_link_inquiry_disable(void) { helper = 3; route_at = ++sequence; }
-void BTCTRLER_BIN_link_page_disable(int reason)
+void link_inquiry_disable(void) { helper = 3; route_at = ++sequence; }
+void link_page_disable(int reason)
 { helper = 4; route_at = ++sequence; args[0] = reason; }
-void BTCTRLER_BIN_lmp_hci_read_remote_supported_features(unsigned short handle)
+void lmp_hci_read_remote_supported_features(unsigned short handle)
 { helper = 5; route_at = ++sequence; args[0] = handle; }
-void BTCTRLER_BIN_lmp_hci_read_remote_extended_features(unsigned short handle)
+void lmp_hci_read_remote_extended_features(unsigned short handle)
 { helper = 6; route_at = ++sequence; args[0] = handle; }
-void BTCTRLER_BIN_lmp_hci_read_clock_offset(unsigned short handle)
+void lmp_hci_read_clock_offset(unsigned short handle)
 { helper = 7; route_at = ++sequence; args[0] = handle; }
-void BTCTRLER_BIN_lmp_hci_remote_name_request(unsigned char *address,
+void lmp_hci_remote_name_request(unsigned char *address,
     unsigned char repetition, unsigned short clock)
 {
     helper = 8; route_at = ++sequence; memcpy(routed_address, address, 6);
     args[0] = repetition; args[1] = clock;
 }
-void BTCTRLER_BIN_lmp_hci_setup_sync_connection(unsigned short handle,
+void lmp_hci_setup_sync_connection(unsigned short handle,
     unsigned int tx, unsigned int rx, unsigned short latency, unsigned short voice,
     unsigned char retransmission, unsigned short packets)
 {
@@ -261,7 +256,7 @@ int main(void)
     /* Null storage proves each rejection precedes any parameter access or
      * call to the connection machine, even for every partial length. */
     for (unsigned int i = 0; i < sizeof(commands)/sizeof(commands[0]); i++) {
-        for (int len = -1; len < commands[i].len; len++) {
+        for (int len = 0; len < commands[i].len; len++) {
             run(commands[i].opcode, 0, len);
             CHECK(event_kind == (commands[i].complete ? 0x0e : 0x0f));
             CHECK(event_error == 0x12 && event_opcode == commands[i].opcode);

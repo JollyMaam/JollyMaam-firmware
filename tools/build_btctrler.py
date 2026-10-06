@@ -4,22 +4,16 @@ import argparse
 import subprocess
 import tempfile
 from pathlib import Path
-from btctrler import archive, fixes, qos, recover, trace
+from btctrler import archive, recover
 from btctrler.ir import rewrite_member
 
-# Ordering is intentional: recover pristine definitions before applying the
-# remaining fixes; validated QoS interception runs after those LMP edits.
+# Each member's SDK definitions are removed from pristine IR: the
+# fingerprints are of the SDK's bodies.
 PIPELINE = {
     'device_manager.c.o': (recover.device_manager,),
     'hci_controller.c.o': (recover.command_dispatch,),
-    'lmp.c.o': (recover.recover, fixes.notify_remote_ssp_key,
-                fixes.drain_detach_rx, trace.authentication,
-                trace.remote_auth_stage,
-                trace.detach_flow, qos.lmp),
-    'lmp_hci_cmd_parser.c.o': (recover.link_control, recover.classic_baseband, qos.hci,),
-    'lmp_rxtx.c.o': (trace.lmp_send,),
-    'll_slave.c.o': (trace.le_receive,),
-    'link_layer.c.o': (trace.le_control_send,),
+    'lmp.c.o': (recover.lmp_member,),
+    'lmp_hci_cmd_parser.c.o': (recover.link_control, recover.classic_baseband, recover.link_policy),
 }
 
 

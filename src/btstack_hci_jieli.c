@@ -10,14 +10,14 @@
 #include "pad.h"
 #include "btstack_qos_jieli.h"
 
-extern int BTCTRLER_BIN_btctrler_task_init(const void *transport, const void *config) __asm__("btctrler_task_init");
-extern int BTCTRLER_BIN_btctrler_task_ready(void) __asm__("btctrler_task_ready");
-extern int BTCTRLER_BIN_btctrler_task_exit(void) __asm__("btctrler_task_exit");
-extern const void *BTCTRLER_BIN_hci_transport_h4_controller_instance(void) __asm__("hci_transport_h4_controller_instance");
-extern void (*BTCTRLER_BIN___h4_send_packet)(int type, const void *packet, int size) __asm__("__h4_send_packet");
-extern void BTCTRLER_BIN_h4_hci_push_data(int type, void *packet, int size) __asm__("h4_hci_push_data");
-extern int BTCTRLER_BIN_le_controller_set_mac(const void *address) __asm__("le_controller_set_mac");
-extern void BTCTRLER_BIN_lmp_hci_write_local_address(const u8 *address) __asm__("lmp_hci_write_local_address");
+extern int btctrler_task_init(const void *transport, const void *config);
+extern int btctrler_task_ready(void);
+extern int btctrler_task_exit(void);
+extern const void *hci_transport_h4_controller_instance(void);
+extern void (*__h4_send_packet)(int type, const void *packet, int size);
+extern void h4_hci_push_data(int type, void *packet, int size);
+extern int le_controller_set_mac(const void *address);
+extern void lmp_hci_write_local_address(const u8 *address);
 
 static struct { u8 type; u16 size; u8 data[HCI_INCOMING_PACKET_BUFFER_SIZE]; } rx[RX_QUEUE_DEPTH];
 static volatile u8 rx_read, rx_write;
@@ -42,7 +42,7 @@ int hci_packet_handler(u8 type, u8 *packet, u16 size)
      * reads it. */
     if (type == HCI_EVENT_PACKET && size >= 6 && packet[0] == 0x0e && packet[3] == 0x03 &&
         packet[4] == 0x0c && packet[5] == 0)
-        BTCTRLER_BIN_lmp_hci_write_local_address(address);
+        lmp_hci_write_local_address(address);
     if (!rx_active || size > HCI_INCOMING_PACKET_BUFFER_SIZE) return 0;
     next = (u8)((rx_write + 1) % RX_QUEUE_DEPTH);
     if (next == rx_read) return 0;
@@ -58,8 +58,8 @@ void hci_jieli_set_address(const u8 a[6])
 {
     memcpy(address, a, 6);
     if (!controller_up) return;
-    BTCTRLER_BIN_le_controller_set_mac(address);
-    BTCTRLER_BIN_lmp_hci_write_local_address(address);
+    le_controller_set_mac(address);
+    lmp_hci_write_local_address(address);
 }
 
 /* Drop the link without the HCI halt, which waits for a peer that may never
@@ -68,7 +68,7 @@ void hci_jieli_drop_link(void)
 {
     if (!rx_active) return;
     rx_active = 0;
-    BTCTRLER_BIN_btctrler_task_exit();
+    btctrler_task_exit();
     cyclone2_qos_reset();
     controller_up = 0;
 }
@@ -96,8 +96,8 @@ static void transport_init(const void *config)
 int hci_jieli_open(void)
 {
     if (!controller_up) {
-        if (BTCTRLER_BIN_btctrler_task_init(BTCTRLER_BIN_hci_transport_h4_controller_instance(), 0)) return -1;
-        while (!BTCTRLER_BIN_btctrler_task_ready()) plat_delay_ms(20);
+        if (btctrler_task_init(hci_transport_h4_controller_instance(), 0)) return -1;
+        while (!btctrler_task_ready()) plat_delay_ms(20);
         controller_up = 1;
     }
     return 0;
@@ -105,7 +105,7 @@ int hci_jieli_open(void)
 
 void hci_jieli_close(void)
 {
-    if (controller_up) BTCTRLER_BIN_btctrler_task_exit();
+    if (controller_up) btctrler_task_exit();
     controller_up = 0;
     cyclone2_qos_reset();
 }
@@ -153,8 +153,8 @@ static int transport_send(u8 type, u8 *packet, int size)
         hci_packet_handler(HCI_EVENT_PACKET, ev, sizeof(ev));
         return 0;
     }
-    if (BTCTRLER_BIN___h4_send_packet) BTCTRLER_BIN___h4_send_packet(type, packet, size);
-    else BTCTRLER_BIN_h4_hci_push_data(type, packet, size);
+    if (__h4_send_packet) __h4_send_packet(type, packet, size);
+    else h4_hci_push_data(type, packet, size);
     return 0;
 }
 
@@ -265,12 +265,12 @@ const btstack_run_loop_t *hci_jieli_run_loop(void)
 
 /* ---- link policy, and hooks the controller library calls ----------------- */
 
-extern void BTCTRLER_BIN_lmp_set_sniff_establish_by_remote(u8 enable) __asm__("lmp_set_sniff_establish_by_remote");
-extern void BTCTRLER_BIN_lmp_sniff_t_slot_attemp_reset(u16 slots, u16 attempt) __asm__("lmp_sniff_t_slot_attemp_reset");
-extern void BTCTRLER_BIN_edr_vendor_keep_connect_for_keymiss(u8 enable) __asm__("edr_vendor_keep_connect_for_keymiss");
-extern void BTCTRLER_BIN_bt_max_pwr_set(u8 pwr, u8 pg_pwr, u8 iq_pwr, u8 ble_pwr) __asm__("bt_max_pwr_set");
-extern void BTCTRLER_BIN_set_bt_data_rate_acl_3mbs_mode(u8 en) __asm__("set_bt_data_rate_acl_3mbs_mode");
-extern void BTCTRLER_BIN_bt_production_test(u8 en) __asm__("bt_production_test");
+extern void lmp_set_sniff_establish_by_remote(u8 enable);
+extern void lmp_sniff_t_slot_attemp_reset(u16 slots, u16 attempt);
+extern void edr_vendor_keep_connect_for_keymiss(u8 enable);
+extern void bt_max_pwr_set(u8 pwr, u8 pg_pwr, u8 iq_pwr, u8 ble_pwr);
+extern void set_bt_data_rate_acl_3mbs_mode(u8 en);
+extern void bt_production_test(u8 en);
 extern void P33_CON_SET(u16 addr, u8 start, u8 len, u8 data);
 extern u8 p33_rx_1byte(u16 addr);
 extern const int sniff_support_reset_anchor_point;
@@ -283,18 +283,18 @@ void hci_jieli_prepare(u16 slots, u16 attempt, int edr3)
 {
     if (slots) sniff_slots = slots;
     if (attempt) sniff_attempt = attempt;
-    BTCTRLER_BIN_edr_vendor_keep_connect_for_keymiss(1);
+    edr_vendor_keep_connect_for_keymiss(1);
     /* The controller leaves 3 Mbit/s EDR out of its features unless told
      * (and BTstack then never allows 3-DH1).  Off by default (slot setting
      * edr3): with it, 83-byte PlayStation reports on a Linux host stalled
      * for 20-60 ms more often than as two 2-DH1 packets.  Before the host
      * stack reads the features. */
-    BTCTRLER_BIN_set_bt_data_rate_acl_3mbs_mode(edr3 ? 1 : 0);
+    set_bt_data_rate_acl_3mbs_mode(edr3 ? 1 : 0);
 }
 
 /* Transmit power for the next session (docs/radio.md): the controller uses
  * the smallest of the step, its normal-mode cap 4 and any fixed level, from
- * the normal table or, after BTCTRLER_BIN_bt_production_test(1), the pro one.  That call
+ * the normal table or, after bt_production_test(1), the pro one.  That call
  * also sets the radio supply VDC13 (P3_ANA_CON6 bits 0-2): step 7 going in,
  * 5 (about 1 dB weaker) going out.  The supply is put back as booted. */
 #define P3_ANA_CON6 0x06
@@ -303,11 +303,11 @@ void hci_jieli_tx_power(u8 step, u8 pro)
 {
     static u8 was_pro;
 
-    BTCTRLER_BIN_bt_max_pwr_set(step, 5, 8, step);
+    bt_max_pwr_set(step, 5, 8, step);
     if (pro || was_pro) {
         u8 vdc13 = p33_rx_1byte(P3_ANA_CON6) & 0x07;
 
-        BTCTRLER_BIN_bt_production_test(pro);
+        bt_production_test(pro);
         P33_CON_SET(P3_ANA_CON6, 0, 3, vdc13);
     }
     was_pro = pro;
@@ -322,8 +322,8 @@ void hci_jieli_sniff_slots(u16 slots)
 /* Once the stack works: a HID device must accept the host's sniff request. */
 void hci_jieli_link_policy(void)
 {
-    BTCTRLER_BIN_lmp_set_sniff_establish_by_remote(1);
-    if (sniff_support_reset_anchor_point) BTCTRLER_BIN_lmp_sniff_t_slot_attemp_reset(sniff_slots, sniff_attempt);
+    lmp_set_sniff_establish_by_remote(1);
+    if (sniff_support_reset_anchor_point) lmp_sniff_t_slot_attemp_reset(sniff_slots, sniff_attempt);
 }
 
 void sniff_negotiation_hook(u16 *t_sniff, u16 *attempt, u16 *timeout, u8 negotiation)
@@ -350,9 +350,3 @@ void btstack_assert_failed(const char *file, u16 line)
     }
 }
 
-/* The retained controller calls this at its markers; the
- * bring-up log it fed is gone. */
-void cyclone2_bringup_record(u32 code)
-{
-    (void)code;
-}

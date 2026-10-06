@@ -1,4 +1,5 @@
 O := build
+comma := ,
 .DEFAULT_GOAL := all
 SDK := /shared/github.com-Jieli-Tech/fw-AC63_BT_SDK
 TOOL_DIR := /shared/jieli-linux-toolchains-20250324.1/pi32v2/bin
@@ -53,7 +54,7 @@ BTSTACK_RENAMES := -Dhci_send_cmd=btstack_hci_send_cmd \
 	-Dnibble_for_char=btstack_nibble_for_char
 BTSTACK_INCLUDES := -I$(BTSTACK)/src -I$(BTSTACK)/src/classic
 
-SOURCES := $(wildcard src/*.c)
+SOURCES := $(wildcard src/*.c src/btctrler/*.c)
 OBJECTS := $(SOURCES:%.c=$O/%.o) $(SDK_USED:%.c=$O/sdk/%.o) $(BTSTACK_USED:%.c=$O/btstack/%.o)
 
 ifeq ($(V),1)
@@ -143,14 +144,15 @@ $O/isd_config.ini: $(SDK)/cpu/br23/tools/isd_config_rule.c $(wildcard src/sdkcon
 	$(Q)$(CC) $(CFLAGS) $(DEFINES) $(INCLUDES) -D__LD__ -E -P $< -o $@
 	$(Q)sed -i -e /^$$/d -e 's/^PID = .*;/PID = GS_C2_ADC_DEVICE;/' $@
 
-# Host unit tests: every src/*.c with a UNITTEST block.
-TESTS := $(shell grep -l 'ifdef UNITTEST' src/*.c)
+# Host unit tests: every source with a UNITTEST block.
+TESTS := $(shell grep -l 'ifdef UNITTEST' src/*.c src/btctrler/*.c)
 test: $(TESTS:src/%.c=$O/test/%)
 	$(Q)for t in $^; do $$t || exit 1; done
 
-$O/test/%: src/%.c src/pad.h src/test.h
+$O/test/%: src/%.c src/pad.h src/test.h $(wildcard src/btctrler/*.h)
 	@mkdir -p $(@D)
-	$(Q)$(HOST_CC) $(HOST_CFLAGS) -DUNITTEST -Isrc $< -o $@
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) -DUNITTEST -Isrc -iquote src $< -o $@ \
+	  $(if $(findstring btctrler/,$*),-no-pie -Wl$(comma)--unresolved-symbols=ignore-all)
 
 $O/src/usb.o: $(wildcard .git/HEAD .git/index)
 

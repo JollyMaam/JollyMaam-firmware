@@ -1,93 +1,81 @@
-/* Recovered common controller/baseband and local-information dispatch.
- * Shared local-device storage remains SDK-owned behind typed accessors.
- * Controller task context, reset ordering and event formats follow SDK IR. */
+/* Owned common controller/baseband and local-information commands
+ * (device_manager.c): event masks, reset, version, features, address. */
 #include <string.h>
-#include "btctrler_sdk_abi.h"
+#include "btctrler/glue.h"
 
-#ifndef UNITTEST
-extern const int config_btctler_modules;
-extern const int config_btctler_mode;
-#else
-static int config_btctler_modules = 3, config_btctler_mode = 1;
-#endif
-
-int hci_controller_baseband_cmd_handler(unsigned short opcode, unsigned char *data, int len)
+int hci_controller_baseband_cmd_handler(u16 opcode, const u8 *data, u32 len)
 {
-    int required;
+    u32 required;
     switch (opcode) {
     case 0x0c01: case 0x0c63: required = 8; break; /* Event Mask / Page 2 */
     case 0x0c03: required = 0; break; /* Reset */
     default: return 0;
     }
     if (len < required || (required && !data)) {
-        BTCTRLER_BIN_hci_send_event_cmd_complete(opcode, "1", 0x12);
+        hci_send_event_cmd_complete(opcode, "1", 0x12);
         return 1;
     }
     switch (opcode) {
     case 0x0c01:
-        memcpy(BTCTRLER_ABI_event_mask(), data, 8);
+        memcpy(hci_param.event_mask, data, 8);
         break;
     case 0x0c63:
         /* The SDK acknowledges Page 2 without storing or applying it. */
         break;
     case 0x0c03:
-        if (config_btctler_modules & 1) BTCTRLER_BIN_lmp_reset();
+        if (config_btctler_modules & 1) lmp_reset();
         if (config_btctler_modules & 2) {
-            unsigned char *features = BTCTRLER_ABI_local_features();
-            features[4] |= 0x40;
-            features[6] |= 0x02;
-            if (config_btctler_mode & 1) BTCTRLER_BIN_ll_reset();
-            else if (config_btctler_mode & 4) BTCTRLER_BIN_le_dut_hci_reset_handle();
+            hci_param.features[4] |= 0x40;  /* LE supported (controller) */
+            hci_param.features[6] |= 0x02;  /* simultaneous LE and BR/EDR */
+            if (config_btctler_mode & 1) ll_reset();
+            else if (config_btctler_mode & 4) le_dut_hci_reset_handle();
         }
         break;
     }
-    BTCTRLER_BIN_hci_send_event_cmd_complete(opcode, "1", 0);
+    hci_send_event_cmd_complete(opcode, "1", 0);
     return 1;
 }
 
-int hci_informational_parameters_cmd_handler(unsigned short opcode, unsigned char *data, int len)
+int hci_informational_parameters_cmd_handler(u16 opcode, const u8 *data, u32 len)
 {
-    int required;
+    u32 required;
     switch (opcode) {
     case 0x1001: case 0x1002: case 0x1003: case 0x1009: required = 0; break;
     case 0x1004: required = 1; break;
     default: return 0;
     }
     if (len < required || (required && !data)) {
-        BTCTRLER_BIN_hci_send_event_cmd_complete(opcode, "1", 0x12);
+        hci_send_event_cmd_complete(opcode, "1", 0x12);
         return 1;
     }
     switch (opcode) {
     case 0x1001: /* Read Local Version Information */
-        BTCTRLER_BIN_hci_send_event_cmd_complete(opcode, "112122", 0,
-            (int)BTCTRLER_ABI_hci_version(), (int)BTCTRLER_ABI_hci_revision(),
-            (int)BTCTRLER_ABI_lmp_version(), (int)BTCTRLER_ABI_lmp_subversion(),
-            (int)BTCTRLER_ABI_manufacturer());
-        /* Preserve SDK ordering: subversion precedes manufacturer here. */
+        hci_send_event_cmd_complete(opcode, "112122", 0, hci_param.hci_version,
+            hci_param.hci_revision, hci_param.lmp_pal_version,
+            hci_param.manufacturer_name, hci_param.lmp_pal_subversion);
         break;
     case 0x1002: /* Read Local Supported Commands */
-        BTCTRLER_BIN_hci_send_event_cmd_complete(opcode, "1c64", 0, BTCTRLER_ABI_local_commands());
+        hci_send_event_cmd_complete(opcode, "1c64", 0, hci_param.local_supported_commands);
         break;
     case 0x1003: /* Read Local Supported Features */
-        BTCTRLER_BIN_hci_send_event_cmd_complete(opcode, "1c08", 0, BTCTRLER_ABI_local_features());
+        hci_send_event_cmd_complete(opcode, "1c08", 0, hci_param.features);
         break;
     case 0x1004: { /* Read Local Extended Features */
-        unsigned int page = data[0];
-        static const unsigned char empty[8];
-        /* SDK page zero points back to its standard-feature field. Name
-         * that storage explicitly and reject pages beyond the two-page
-         * extension array instead of reading adjacent device state. */
-        unsigned char *features = page == 0 ? BTCTRLER_ABI_local_features() :
-            page <= 2 ? BTCTRLER_ABI_local_extended_features() + (page - 1) * 8 : 0;
-        BTCTRLER_BIN_hci_send_event_cmd_complete(opcode, "111c08", features ? 0 : 0x12,
-            (int)page, 2, features ? features : empty);
+        /* Page 0 is the standard features, 1-2 ext_features.  The SDK
+         * indexed past ext_features for larger pages; refuse those. */
+        static const u8 empty[8];
+        u32 page = data[0];
+        const u8 *features = page == 0 ? hci_param.features :
+            page <= 2 ? hci_param.ext_features + (page - 1) * 8 : 0;
+        hci_send_event_cmd_complete(opcode, "111c08", features ? 0 : 0x12,
+            page, 2, features ? features : empty);
         break;
     }
-    case 0x1009: /* Read BD_ADDR: Classic takes precedence in a dual build. */
+    case 0x1009: /* Read BD_ADDR: Classic's in a dual-mode build. */
         if (config_btctler_modules & 1)
-            BTCTRLER_BIN_hci_send_event_cmd_complete(opcode, "1A", 0, BTCTRLER_ABI_classic_address());
+            hci_send_event_cmd_complete(opcode, "1A", 0, hci_param.addr);
         else if (config_btctler_modules & 2)
-            BTCTRLER_BIN_hci_send_event_cmd_complete(opcode, "1A", 0, BTCTRLER_ABI_le_address());
+            hci_send_event_cmd_complete(opcode, "1A", 0, le_param.public_address);
         break;
     }
     return 1;
@@ -96,27 +84,22 @@ int hci_informational_parameters_cmd_handler(unsigned short opcode, unsigned cha
 #ifdef UNITTEST
 #include <stdarg.h>
 #include "test.h"
-static unsigned char mask[8], features[8], extended[16], commands[64], classic[6], le[6];
+struct hci_parameter hci_param = { .hci_version = 13, .hci_revision = 12576, .lmp_pal_version = 13,
+    .manufacturer_name = 1494 /* Jieli, 0x05d6 */, .lmp_pal_subversion = 8891 };
+struct le_parameter le_param;
+int config_btctler_modules = 3, config_btctler_mode = 1, CONFIG_BREDR_INQUIRY, CONFIG_LMP_MASTER_ESCO_ENABLE;
+static u8 *const mask = hci_param.event_mask, *const features = hci_param.features,
+    *const extended = hci_param.ext_features, *const commands = hci_param.local_supported_commands,
+    *const classic = hci_param.addr, *const le = le_param.public_address;
 static int sequence, classic_at, le_at, dut_at, event_at, error, seen_opcode;
 static int values[5], page_seen, max_seen;
 static unsigned char payload[64];
 static const char *format_seen;
-unsigned char *BTCTRLER_ABI_event_mask(void) { return mask; }
-unsigned char *BTCTRLER_ABI_local_features(void) { return features; }
-unsigned char *BTCTRLER_ABI_local_extended_features(void) { return extended; }
-unsigned char *BTCTRLER_ABI_local_commands(void) { return commands; }
-unsigned char *BTCTRLER_ABI_classic_address(void) { return classic; }
-unsigned char *BTCTRLER_ABI_le_address(void) { return le; }
-unsigned char BTCTRLER_ABI_hci_version(void) { return 13; }
-unsigned short BTCTRLER_ABI_hci_revision(void) { return 12576; }
-unsigned char BTCTRLER_ABI_lmp_version(void) { return 13; }
-unsigned short BTCTRLER_ABI_manufacturer(void) { return 8891; }
-unsigned short BTCTRLER_ABI_lmp_subversion(void) { return 1494; }
-void BTCTRLER_BIN_lmp_reset(void) { classic_at = ++sequence; }
-void BTCTRLER_BIN_ll_reset(void)
+void lmp_reset(void) { classic_at = ++sequence; }
+void ll_reset(void)
 { le_at = ++sequence; CHECK(features[4] & 0x40); CHECK(features[6] & 2); }
-void BTCTRLER_BIN_le_dut_hci_reset_handle(void) { dut_at = ++sequence; }
-int BTCTRLER_BIN_hci_send_event_cmd_complete(int opcode, const char *format, ...)
+void le_dut_hci_reset_handle(void) { dut_at = ++sequence; }
+int hci_send_event_cmd_complete(int opcode, const char *format, ...)
 {
     va_list ap; va_start(ap, format); event_at = ++sequence; seen_opcode = opcode;
     format_seen = format; error = va_arg(ap, int);
@@ -135,7 +118,7 @@ static void clear(void)
 int main(void)
 {
     unsigned char data[8] = {1,2,3,4,5,6,7,8};
-    for (int n = -1; n < 8; n++) {
+    for (int n = 0; n < 8; n++) {
         clear(); CHECK(hci_controller_baseband_cmd_handler(0x0c01, 0, n) == 1);
         CHECK(error == 0x12 && event_at && !classic_at && !le_at);
         clear(); CHECK(hci_controller_baseband_cmd_handler(0x0c63, 0, n) == 1);

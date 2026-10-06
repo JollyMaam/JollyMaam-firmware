@@ -1,6 +1,7 @@
 #include "app_config.h"
 #include "system/includes.h"
 #include "system/user_cfg.h"
+#include "btctrler/config.h"
 
 /* Constants the Jieli libraries read at link time.  Only those the linked
  * archives reference; the values are the SDK defaults this pad was
@@ -8,10 +9,10 @@
 
 const int config_btctler_modules = 3;  /* classic and LE */
 const int config_btctler_le_tws = 0;
-const int CONFIG_BTCTLER_TWS_ENABLE = 0;
+const int CONFIG_BTCTLER_TWS_ENABLE = BTCFG_TWS;
 const int CONFIG_TWS_AFH_ENABLE = 0;
-const int CONFIG_BTCTLER_FAST_CONNECT_ENABLE = 0;
-const int config_btctler_hci_standard = 1;
+const int CONFIG_BTCTLER_FAST_CONNECT_ENABLE = BTCFG_FAST_CONNECT;
+const int config_btctler_hci_standard = BTCFG_HCI_STANDARD;
 const int config_btctler_mode = 0x01;
 const int CONFIG_TWS_POWER_BALANCE_ENABLE = 0;
 const int config_force_bt_pwr_tab_using_normal_level = 0;
@@ -26,16 +27,16 @@ const int config_btctler_eir_version_info_len = 0;
 const int CONFIG_TEST_DUT_CODE = 0;
 const int CONFIG_TEST_FCC_CODE = 0;
 const int CONFIG_TEST_DUT_ONLY_BOX_CODE = 0;
-const int CONFIG_BREDR_INQUIRY = 0;
+const int CONFIG_BREDR_INQUIRY = BTCFG_BREDR_INQUIRY;
 const int CONFIG_INQUIRY_PAGE_OFFSET_ADJUST = 0;
 const int CONFIG_ESCO_MUX_RX_BULK_ENABLE = 0;
-const int CONFIG_LMP_NAME_REQ_ENABLE = 1;
-const int CONFIG_LMP_PASSKEY_ENABLE = 0;
-const int CONFIG_LMP_MASTER_ESCO_ENABLE = 0;
+const int CONFIG_LMP_NAME_REQ_ENABLE = BTCFG_NAME_REQ;
+const int CONFIG_LMP_PASSKEY_ENABLE = BTCFG_PASSKEY;
+const int CONFIG_LMP_MASTER_ESCO_ENABLE = BTCFG_MASTER_ESCO;
 const int CONFIG_WIFI_DETECT_ENABLE = 0;
-const int ESCO_FORWARD_ENABLE = 0;
+const int ESCO_FORWARD_ENABLE = BTCFG_ESCO_FORWARD;
 const int config_bt_function = 0;
-const int config_btctler_bredr_master = 0;
+const int config_btctler_bredr_master = BTCFG_BREDR_MASTER;
 const int config_btctler_dual_a2dp = 0;
 const int config_bredr_afh_user = 0;
 const int config_bt_temperature_pll_trim = 0;
@@ -56,7 +57,7 @@ const int sniff_support_reset_anchor_point = 1;
 const int sniff_long_interval = (500 / 0.625);
 const int clock_sys_src_use_lrc_hw = 0;
 const int config_printf_time = 1;
-const int config_asser = 0;
+const int config_asser = BTCFG_ASSER;
 const int config_system_info = 0;
 const int CONFIG_CPU_UNMASK_IRQ_ENABLE = 2;
 const int config_update_mode = (1UL << (0)) | (1UL << (4)) | (1UL << (3)) | (1UL << (2));
