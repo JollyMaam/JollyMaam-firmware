@@ -62,7 +62,7 @@ static const struct set_field slot_fields[] = {
       .def = ALL(COLOUR(5, 1)),
       .help = "the console's player number; resting grips; the other end of fade" },
     { .id = 5, .name = "grips", .type = T_ENUM, .names = grips, FIELD(grips),
-      .def = ALL(GRIPS_HOST),
+      .def = ALL(GRIPS_OFF),
       .help = "grip lights while connected: host is the console's lightbar colour" },
     { .id = 6, .name = "players", .type = T_ENUM, .names = players, FIELD(players),
       .def = ALL(PLAYERS_HOST),
