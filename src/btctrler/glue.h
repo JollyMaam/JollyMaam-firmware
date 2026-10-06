@@ -35,6 +35,26 @@ void btctrler_assert_failed(const char *what, int value);
 extern BTCTRLER_CONFIG_ASSER int config_asser;
 void cpu_assert_debug(void);
 
+/* The SDK's cpu.h probes: inside an interrupt handler; interrupts disabled
+ * or masked (IPMASK at the controller's level 6). */
+#ifndef UNITTEST
+static inline int cpu_in_irq(void)
+{
+    int flag;
+    __asm__ volatile("%0 = icfg" : "=r"(flag));
+    return flag & 0xff;
+}
+static inline int cpu_irq_disabled(void)
+{
+    int flag;
+    __asm__ volatile("%0 = icfg" : "=r"(flag));
+    return (flag & 0x300) != 0x300 || *(volatile u32 *)0x10f1a8 == 6;
+}
+#else
+int cpu_in_irq(void);
+int cpu_irq_disabled(void);
+#endif
+
 /* CPU and OS runtime, outside btctrler.a. */
 void local_irq_disable(void);
 void local_irq_enable(void);

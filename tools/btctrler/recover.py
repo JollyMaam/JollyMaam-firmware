@@ -651,3 +651,47 @@ CONTROL_TX_OWNED = {
 
 def control_tx(text):
     return leftovers(own_all(text, CONTROL_TX_OWNED), 'lmp_rxtx.c', {'cpu_reset'})
+
+
+# link_bulk.c: the Classic packet buffers (link_bulk.c).  The heap-pool
+# option and its unused helpers go with the member.
+LINK_BULK_OWNED = {
+    'bredr_rx_bulk_empty': '9806c77e0a7597bb656eaa78adfb5465731e81c54b303698fb96aac8daccb8f9',
+    'bredr_rx_bulk_state': 'adaa383157207c2b757e0b17820d64b4e544d8a2320110ab665db914f4f024a1',
+    'bredr_rx_bulk_total_size': 'cdc054c51b2ef870d0851c6a9ad13059a14991edc9d0abcd2130983206ae4133',
+    'bredr_rx_bulk_remain_size': '440a8ab13a891cd563dd51e4b2b8012066f49e295a0107c7e4b4ae0528c8e6ed',
+    'bredr_rx_bulk_set_max_used_persent': 'ba3023c4fa03ac8072d3cfd32c69520ae156e065818ca8752f974e8eec5d665f',
+    'lmp_malloc': '9d190b579a33186eb4f2422f31f80e5f66abae0c3bd6a7544a74a098117b451e',
+    'bt_malloc': '36b53984adb1383074f77bbf9906253619e354aacd5e2f9ce475a01395256e97',
+    'lmp_free': '61640666584acf2980ac5e0a999958f1b72a037b47c8de300264cd5d196b23fe',
+    '__bredr_rx_bulk_alloc': '639b4e7c0ab36345acfcc2c8090bbdcfde5069e3a4765870119d6e82a9bfeb18',
+    'bredr_rx_bulk_alloc': '23f6b2e40efc7cfce0eee1821cb92733d834c9dd5e59098e5e128ed96249fd3f',
+    'bredr_rx_bulk_alloc_for': '8fb3c55fe55c39825696af52f35a7bd3edaf4063d3a39befad1ccfc7481ab009',
+    'bredr_rx_bulk_push': '8fc227ea6351073fdbc8568c649397a5043f7982164f6665a8b9095af9d6d823',
+    'bredr_rx_bulk_pop': '7c6ec3079db7743b18d40c73797a4f84170f7e819fbf3a80bf959b1d0d4756ca',
+    'bredr_rx_bulk_free': 'c886d84ac6eae2f24a74887ce17a328c3bd77f8fa266e12700f2162c8afb3929',
+    'bt_free': '6406fc99d96faeb1ff6f33da82bc4f6ccda780490d684353e6d36983dd8b543f',
+    'bredr_tx_bulk_empty': '547d3b020875b2f666de3decf054a0e6196b63e6c17de9dee03c39edf591675b',
+    'get_bredr_tx_remain_size': 'a9e92dddb073bd119418d7b2f3f6cfd52b50a845355df1e6b2486c8470fb12db',
+    'bredr_tx_bulk_alloc': 'cc852e302aefd54b89a93f55f867a797dc82023c8c9798510b525969595f26e5',
+    'bredr_tx_bulk_realloc': '5d286a815b971746cd134bf4a000e1942a98983eacc4592e93e367dd917cbf4c',
+    'bredr_tx_bulk_push': 'c38ab923cff7930aefc3e2041d130e4393a24924aad111552e1bda3225c46264',
+    'bredr_tx_bulk_pop': 'dc207d4867a50c1808bf2abce5281153dd7a4ff6472c8d6b075ac771f534facd',
+    'bredr_tx_bulk_free': '0e28a332ae728de44ace5b51431bb22cc58ef9c57b4ac2c2dba4835426f4fa4f',
+    'bredr_goto_background': '40beb56f9454d4e04d448b9e7a37001c8bd1b06beb6b970f3ba3dde22148f1da',
+    'bredr_goback_from_background': 'a884096c387f2d5a1728a30574d518a4f406aae603f32a7cbb4836eb6a8d2e05',
+    'bredr_rx_bulk_suspend': 'b5a563b1785680977b79d74772fb80c81906a4db183dca47bbc5731a561c86cd',
+    'bredr_rx_bulk_resume': 'ebfbd1b6223e01d49e3ddc842db50728e07a83a58ea994d8c8fe094aa1fb7cfb',
+    'link_bulk_init': 'd44dfc6d9fad5abf97e83e178ab94ca903521c112355b81bbdf2fe04fb28ecfd',
+    'link_change_bulk_init': '75eab3218d22e836a0afa069714e5dc623d06274d137588ab310cbff5fb2709b',
+    'bredr_rx_remain_bulk_empty': '0c2fb7be6cbc3a9da68ff274baf38883004c04ee3769674a1589e378fdbf3324',
+    'link_change_rx_bulk_size': 'c81d9cede84b0efe75e413e93bdbde17763f30b235749d975c68bbe52ec9d36b',
+}
+
+
+def link_bulk(text):
+    return leftovers(own_all(text, LINK_BULK_OWNED), 'link_bulk.c', {
+        'bredr_bulk_malloc_enable', 'bredr_rx_bulk_resume_wait', 'bredr_rx_bulk_used_reset',
+        'bredr_rx_bulk_alloc_reserve', 'bredr_rx_bulk_inc_ref', 'bredr_rx_bulk_get_suspend',
+        'zalloc_mux_rx_bulk', 'free_mux_rx_bulk', 'cpu_reset', 'cpu_in_irq', 'list_add_tail',
+        '__list_del_entry'})
