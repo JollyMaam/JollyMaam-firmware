@@ -695,3 +695,29 @@ def link_bulk(text):
         'bredr_rx_bulk_alloc_reserve', 'bredr_rx_bulk_inc_ref', 'bredr_rx_bulk_get_suspend',
         'zalloc_mux_rx_bulk', 'free_mux_rx_bulk', 'cpu_reset', 'cpu_in_irq', 'list_add_tail',
         '__list_del_entry'})
+
+
+# lbuf.c: the controller's block allocator and queues (lbuf.c).
+LBUF_OWNED = {
+    'lbuf_init_btctrler': '680abdac8fb32648dcf93afed6a8608b62885f80f1f28d9114a9cdbc30369e9f',
+    'lbuf_alloc_btctrler': 'a1a2a7ff05a96fd857a32d2eff62fe1954a7e833dc0c9093e82a2004a443b7f6',
+    'lbuf_realloc_btctrler': '7d4850e7ef864dc76a47e6b998baa0a8394585f5650b54df0e0f91f279d63331',
+    'lbuf_free_btctrler': '1fa352934800cf6b50106a43589794ae1d430e8669c92a9f3c24a6246f7a92f4',
+    'lbuf_empty_btctrler': '6537ca5336dfc842c7c0b05a19c3259f9536e116f5358824e87ea37ade5dd947',
+    'lbuf_clear_btctrler': '3712044c3419f2431b7b9f46327cabea8c50f3f1f29be544fbf96fbaa3f5952d',
+    'lbuf_push_btctrler': '0ea202779cb6e8590eb1aa99b06e25b98baf15a80e066e7826936aab88395090',
+    'lbuf_pop_btctrler': 'e085182890c7e464d917ed5be3d12b95c0a5971472cafbf053fe087216532acc',
+    'lbuf_debug_btctrler': '0b6ad5eb34a042402886b6f312abb08badebc1bd871d9b2ba3e3ddeedc3ea0db',
+    'lbuf_remain_len_btctrler': 'b588da4fa4eb83b9c4c426bd527c4c857b0d79e68616314776b59d7bfdd5ec17',
+    'lbuf_peek_btctrler': 'af6a4933791e57aa60559cd078f44f61db3f2e73b741841b1af5240031c36b7b',
+    'lbuf_push_queue_btctrler': '309ffd240c70f78017219955810676aa6d7c6c13b6719211584a2c03922021fa',
+    'lbuf_pop_queue_btctrler': 'edafae53e85aec0e879265fe35eb1025b306b94c36da4b90916dc8b00493f686',
+    'lbuf_peek_queue_btctrler': '0b34a056ac1c27e559b7e639c2d31b8278ba02b1220b21e323eff9480fcf3e23',
+    'lbuf_clear_queue_btctrler': '3b28c57113e10dc8febb5bf0f88cc6d365cab888b7ef5064c80bc5d7123ec40f',
+}
+
+
+def lbuf(text):
+    return leftovers(own_all(text, LBUF_OWNED), 'lbuf.c', {
+        'lbuf_get_chunk_num_btctrler', 'lbuf_more_data_btctrler', 'lbuf_query_used_btctrler',
+        'lbuf_info_btctrler', 'cpu_reset', 'list_add_tail', '__list_del_entry', 'list_del'})
