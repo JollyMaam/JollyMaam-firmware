@@ -30,8 +30,51 @@ COMMAND_DISPATCH_OWNED = {
 }
 
 
-def command_dispatch(text):
-    return own_all(text, COMMAND_DISPATCH_OWNED)
+
+
+# The rest of hci_controller.c (hci_transport.c): event senders, the HCI
+# thread, start and stop.  The SDK's host-side senders and voice/ISO
+# delivery have no caller.
+HCI_CONTROLLER_OWNED = {
+    'hci_send_acl_data': '70714d3e8a29da450227ff5d47f663dbb37d05d68d2fe551b99cd25e3570301e',
+    'hci_send_event': 'bed0bf39fe7416019c0c3093c5310563f20c097f34d17543c15d105f98d9e5b6',
+    'hci_send_ext_event': 'd3c149dcdc6be2e744cc3f1650bd42aaf6c91c4ebe20e1bf3de9d9e04b74c2e6',
+    'hci_send_event_payload': 'f30083a0e642dd46234ca47f20d553e3dca4de6a8d541e75178c077cca6f5a95',
+    'hci_send_event_cmd_complete': 'd39dffda84e66c94748aa16b199363495d209b3333adc9594005d8ba07e71167',
+    'hci_send_event_cmd_complete_payload': 'ba008e43e912ac7182a17c6494e1d4169f9a6a2112657e14e0701184065ef23b',
+    'hci_interface_setup': '84c9383762ce56fda85f68fa1cfe43b20b326f4a060eeb0a919f90ad9a5ce0de',
+    'hci_controller_run_loop': 'f62b9ea064e362adcc9b2dc69be6b14c96a359b99353dd4a64ca9c5ba1f16b3e',
+    'hci_controller_init': 'ed5e2e25e4840c6b1d52c1af7daf56a4c6b2c437a2952d1fe9b982051b8e1dbf',
+    'hci_controller_destory': '1f9845a42260f075e79d54634c749128e8fe6fe5cffe9ee7cbcaff689e8797c7',
+    'h4_hci_packet_handler': '5221cd5db3b5b96ce96d4f67f5ac2474234a08cd30d87c0ff00cffdf8fcef015',
+    'hci_h4_download_data': '80177117fef2e68678ab3d885475aab09f1bd0073e70060764dd988e5f65d017',
+    'hci_thread_process': '5dc049a796696a125c0e51277bcd419002b73bd3c20afd7811bb5b06a6131f84',
+}
+
+
+def hci_controller(text):
+    """hci_controller.c.o, one own_all: owning hci_command_process rewrites
+    the call in hci_thread_process."""
+    text = own_all(text, {**COMMAND_DISPATCH_OWNED, **HCI_CONTROLLER_OWNED})
+    return leftovers(text, 'hci_controller.c', {
+        'cpu_reset', 'hci_send_cmd', 'hci_send_cmd_payload', 'le_hci_send_acl_packet',
+        'hci_send_acl_packet', 'hci_send_iso_packet', 'hci_send_sco_data', 'hci_send_iso_data'})
+
+
+# The in-chip host transport (hci_transport.c).
+H4_CONTROLLER_OWNED = {
+    'h4_controller_can_send_now': '23fd8612020b1c23a9e8d2181981aaae8a5894aba58c3c7886aae7f066b82055',
+    'hci_transport_h4_controller_instance': '86b8a3183dd3257a4f1db1684d324f87b1df02bd31e08c19e8e36d9f42de9e2a',
+    'h4_controller_init': '67cda0029f0ebf25280c2bb29da8493fe97d84721f91c2814cb6019be353ddd4',
+    'h4_controller_open': '1c0a58e02edb5e59b65445ea5460324caf73cf87f899fb3f6c87803b714c5df4',
+    'h4_controller_close': '8954a228db1e57da4a43adc1fd785512451c267ea48ad9386a85ebf7ad2e1156',
+    'h4_controller_register_packet_handler': '9a0b85fc0c1bbedff89e9a8ef392b0c76697c0afd8aeade42d29544033f29a4b',
+    'h4_controller_send_packet': 'a15b9850d30b625c23789f8d2c11a8cbad7cbf6d4f685e43e432ec7f26c95629',
+}
+
+
+def h4_controller(text):
+    return leftovers(own_all(text, H4_CONTROLLER_OWNED), 'h4_controller_interface.c', ())
 
 
 def device_manager(text):

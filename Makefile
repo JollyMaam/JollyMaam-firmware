@@ -76,6 +76,9 @@ clean:
 
 $(OBJECTS) $O/sdk.ld: Makefile sdk-br23.mk $(wildcard src/sdkconfig/*)
 
+# The SDK flags include -w; owned controller C must not call undeclared
+# functions all the same.
+$O/src/btctrler/%.o: CFLAGS += -Werror=implicit-function-declaration
 $O/src/%.o: src/%.c
 	@mkdir -p $(@D)
 	@echo [CC] $<

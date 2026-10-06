@@ -12,7 +12,8 @@ from btctrler.ir import rewrite_member
 PIPELINE = {
     'btctrler_task.c.o': (recover.task_queue, recover.task_lifecycle, recover.task_dispatch),
     'device_manager.c.o': (recover.device_manager, recover.device_misc),
-    'hci_controller.c.o': (recover.command_dispatch,),
+    'hci_controller.c.o': (recover.hci_controller,),
+    'h4_controller_interface.c.o': (recover.h4_controller,),
     'lmp.c.o': (recover.lmp_member,),
     'lmp_rxtx.c.o': (recover.control_tx,),
     'lmp_hci.c.o': (recover.hci_procedures,),
@@ -21,8 +22,9 @@ PIPELINE = {
 }
 # Members owned C replaces completely: checked by their transforms above,
 # then left out of the archive.
-DROPPED = ('btctrler_task.c.o', 'device_manager.c.o', 'lmp.c.o', 'lmp_hci.c.o',
-           'lmp_hci_cmd_parser.c.o', 'lmp_rxtx.c.o', 'lmp_utils.c.o')
+DROPPED = ('btctrler_task.c.o', 'device_manager.c.o', 'h4_controller_interface.c.o',
+           'hci_controller.c.o', 'lmp.c.o', 'lmp_hci.c.o', 'lmp_hci_cmd_parser.c.o',
+           'lmp_rxtx.c.o', 'lmp_utils.c.o')
 
 
 def main():

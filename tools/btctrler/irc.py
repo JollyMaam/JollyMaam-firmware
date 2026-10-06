@@ -440,7 +440,7 @@ class Func:
                 fn, args = m.group(1), m.group(2)
             else:
                 fn, args = m.group(2), m.group(3)
-            fn = fn[1:]
+            fn = fn[1:] if fn.startswith('@') else f'({self.expr(fn)})'   # indirect: the pointer
             args = [self.value(a) for a in split_args(args)]
             if fn == 'log_print':
                 return f'// log {args[2] if len(args) > 2 else ""} {", ".join(args[3:])}'
