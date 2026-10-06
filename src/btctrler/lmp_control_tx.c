@@ -1,6 +1,13 @@
 /* Classic LMP transmit construction and handoff, from SDK lmp_rxtx.c.
  * Binary payload serialization and buffer allocation remain SDK APIs. */
+#include <stddef.h>
 #include "btctrler/glue.h"
+
+/* The PDU goes in data (SDK GEP field 13); payload_head is the 4 bytes
+ * before it, which only receive bulks use (for the HCI ACL header). */
+#ifndef UNITTEST
+_Static_assert(offsetof(struct bredr_tx_bulk, data) == 28, "SDK transmit-bulk payload offset");
+#endif
 
 void lmp_format_packet(struct bredr_tx_bulk *tx, const char *format, va_list argptr)
 {
@@ -20,7 +27,7 @@ void lmp_format_packet(struct bredr_tx_bulk *tx, const char *format, va_list arg
         default:
             tx->llid = 3;
             tx->packet = 3;
-            tx->len = __vsprintf(tx->payload_head, format, args);
+            tx->len = __vsprintf(tx->data, format, args);
             va_end(args);
             return;
         }
@@ -36,8 +43,8 @@ static int send_control(struct lmp_connection *conn, const char *format, va_list
         return -22;
     }
     lmp_format_packet(tx, format, args);
-    if (response) tx->payload_head[0] |= conn->tran_id;
-    else if (conn->core.role == 1) tx->payload_head[0] |= 1;
+    if (response) tx->data[0] |= conn->tran_id;
+    else if (conn->core.role == 1) tx->data[0] |= 1;
     link_conn_tx_bulk_avaiable(conn->link, tx);
     return 0;
 }
@@ -83,6 +90,7 @@ struct bredr_tx_bulk *bredr_tx_bulk_alloc(int size)
 int __vsprintf(u8 *data, const char *format, va_list args)
 {
     assert(!strcmp(format, expected_format));
+    assert(data == (allocated ? allocated->data : formatted.data));
     assert(va_arg(args, int) == serial_arg);
     data[0] = initial_opcode; data[1] = 0x5a;
     ++serialized; return serial_result;
@@ -91,7 +99,7 @@ void link_conn_tx_bulk_avaiable(struct link_connection *lc, struct bredr_tx_bulk
 {
     assert(lc == &link && tx == allocated && serialized == 1);
     assert(tx->llid == 3 && tx->packet == 3 && tx->len == serial_result);
-    assert(tx->payload_head[0] == expected_opcode && tx->payload_head[1] == 0x5a);
+    assert(tx->data[0] == expected_opcode && tx->data[1] == 0x5a);
     ++queued;
 }
 static void format_direct(struct bredr_tx_bulk *tx, const char *format, ...)

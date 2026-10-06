@@ -25,9 +25,13 @@ void lmp_hci_cmd_handler(int *cmd)
     }
     case 0x0cfd: link_page_try_start_disable(0xfd); break;
     case 0x0405:
-        /* Fix: the public create-connection API queues repetition before
-         * clock offset; the SDK dispatcher read these words in reverse. */
-        link_page_try_start_enable(0, (u8 *)(cmd + 1), (u8)cmd[4], cmd[5]);
+        /* cmd: address, packet type, repetition mode, clock offset, role
+         * switch.  The SDK passes them swapped: the clock offset's low byte
+         * becomes the scan mode and the repetition mode the offset (ignored
+         * without bit 15).  Kept: BTstack sends mode R1 with offset 0, so
+         * pages use R0's train switching (ab_train_table[0] = 1) instead of
+         * R1's 128 repetitions; reconnects were tested with that. */
+        link_page_try_start_enable(0, (u8 *)(cmd + 1), (u8)cmd[5], cmd[4]);
         if (cmd[6] == 0xaa) hci_param.emitter_or_receiver = 1;
         break;
     case 0x0419: {
@@ -131,7 +135,7 @@ int main(void)
     cmd[0] = 0x0405; cmd[4] = 0x102; cmd[5] = 0x12345; cmd[6] = 0xaa;
     hci_param.default_link_policy = 5; hci_param.scan_enable = 3;
     reset(); lmp_hci_cmd_handler(cmd);
-    CHECK(args[0] == 0 && args[1] == 2 && args[2] == 0x12345 && !memcmp(address, addr, 6));
+    CHECK(args[0] == 0 && args[1] == 0x45 && args[2] == 0x102 && !memcmp(address, addr, 6));
     CHECK(hci_param.emitter_or_receiver && hci_param.default_link_policy == 5 && hci_param.scan_enable == 3);
     hci_param.emitter_or_receiver = 0; cmd[6] = 1; lmp_hci_cmd_handler(cmd); CHECK(!hci_param.emitter_or_receiver);
     reset(); cmd[0] = 0x0419; cmd[3] = 0x103; cmd[4] = 0x12345; lmp_hci_cmd_handler(cmd);
