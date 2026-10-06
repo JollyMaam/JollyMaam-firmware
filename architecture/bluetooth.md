@@ -217,9 +217,10 @@ These come from failures seen on hardware; see `AGENTS.md`.
 * Input reports, Classic and LE, go through one newest-wins slot with at most
   `in_flight` (default 2) packets in the controller.  Nothing is
   queued.
-* Classic: 3 Mbit/s EDR is switched on in the controller before the host
-  stack reads its features (`hci_jieli_prepare()`); without it 3-DH1 is never
-  allowed and an 80-byte report needs two packets.
+* Classic: 3 Mbit/s EDR is set in the controller before the host stack reads
+  its features (`hci_jieli_prepare()`); off by default (`edr3`, developer):
+  83-byte reports in one 3-DH1 stalled more often on a Linux host than as
+  two 2-DH1.
 * LE links ask for 251-byte PDUs; at 27 bytes a Switch 2 report took three
   connection events.
 * The BTstack thread runs above the control thread (`task_info_table`):
@@ -253,7 +254,7 @@ const hci_transport_t *hci_jieli_transport(void);
 const btstack_run_loop_t *hci_jieli_run_loop(void);
 void hci_jieli_set_address(const u8 a[6]);   /* also reapplied after every HCI Reset */
 void hci_jieli_drop_link(void);              /* stop the controller without the HCI halt */
-void hci_jieli_prepare(u16 sniff_slots, u16 sniff_attempt);
+void hci_jieli_prepare(u16 sniff_slots, u16 sniff_attempt, int edr3);
 void hci_jieli_tx_power(u8 step, u8 pro);     /* before the session's HCI power on */
 void hci_jieli_link_policy(void);
 int  hci_jieli_open(void);                   /* the controller alone: the Switch 1 wake */

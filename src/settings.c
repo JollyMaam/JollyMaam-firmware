@@ -43,6 +43,7 @@ static const char *const players[] = {
 };
 static const char *const layouts[] = { "games", "desktop", NULL };
 static const char *const phys[] = { "1m", "2m", NULL };
+static const char *const onoff[] = { "on", "off", NULL };
 static const char *const tx_powers[] = { "1", "2", "3", "4", "5", "6", NULL };
 
 /* Slots A B X Y up down left right.  Colours are {palette entry, brightness}. */
@@ -100,6 +101,9 @@ static const struct set_field slot_fields[] = {
     { .id = 23, .flags = F_DEV, .name = "pull_delay_us", .type = T_NUMBER, .max = 5000, FIELD(pull_delay_us),
       .def = ALL(0), .help = "build a report this long after the radio asks for it (fresher, "
                              "until it misses the connection event)" },
+    { .id = 28, .flags = F_DEV, .name = "edr3", .type = T_ENUM, .names = onoff, FIELD(link.edr3_off),
+      .def = ALL(1), .help = "Classic: 3 Mbit/s packets (an 83-byte PlayStation report fits "
+                             "one, but a Linux host stalled more often); off: 2 Mbit/s only" },
     { .id = 26, .flags = F_DEV, .name = "sniff_max", .type = T_NUMBER, .max = 800, FIELD(link.sniff_max),
       .def = ALL(0), .help = "Classic: ask the host for sniff, at most this many 0.625 ms "
                              "slots (even); 0: take what the host chooses" },

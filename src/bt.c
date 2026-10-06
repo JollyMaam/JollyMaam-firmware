@@ -29,7 +29,7 @@ const hci_transport_t *hci_jieli_transport(void);
 const btstack_run_loop_t *hci_jieli_run_loop(void);
 void hci_jieli_set_address(const u8 a[6]);
 void hci_jieli_drop_link(void);
-void hci_jieli_prepare(u16 slots, u16 attempt);
+void hci_jieli_prepare(u16 slots, u16 attempt, int edr3);
 void hci_jieli_tx_power(u8 step, u8 pro);
 void hci_jieli_loop_stats(u32 *runs, u32 *us);
 void hci_jieli_sniff_slots(u16 slots);
@@ -1091,7 +1091,7 @@ static void setup(void)
 {
     working = acl_up = linked = send_pending = qos_pending = stopping = 0;
     hid_cid = 0;
-    hci_jieli_prepare(dev->sniff_slots, dev->sniff_attempt);
+    hci_jieli_prepare(dev->sniff_slots, dev->sniff_attempt, !link.edr3_off);
     hci_jieli_tx_power(link.tx_power < 5 ? link.tx_power : 4, link.tx_power >= 5);
     util_log("bt: tx power %u", link.tx_power + 1);
     hci_jieli_set_address(addr);

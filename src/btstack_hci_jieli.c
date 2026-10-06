@@ -265,16 +265,17 @@ static u16 sniff_slots = 24, sniff_attempt = 1;
 
 /* Before a session: the profile's sniff parameters, and keep the link when a
  * host's key is missing (it re-pairs instead of dropping). */
-void hci_jieli_prepare(u16 slots, u16 attempt)
+void hci_jieli_prepare(u16 slots, u16 attempt, int edr3)
 {
     if (slots) sniff_slots = slots;
     if (attempt) sniff_attempt = attempt;
     edr_vendor_keep_connect_for_keymiss(1);
-    /* The controller leaves 3 Mbit/s EDR out of its features unless told, and
-     * BTstack then never allows 3-DH1: an 80-byte DualShock 4 or DualSense
-     * report took two 2-DH1 packets instead of one, as the stock pad sends it.
-     * Before the host stack reads the features. */
-    set_bt_data_rate_acl_3mbs_mode(1);
+    /* The controller leaves 3 Mbit/s EDR out of its features unless told
+     * (and BTstack then never allows 3-DH1).  Off by default (slot setting
+     * edr3): with it, 83-byte PlayStation reports on a Linux host stalled
+     * for 20-60 ms more often than as two 2-DH1 packets.  Before the host
+     * stack reads the features. */
+    set_bt_data_rate_acl_3mbs_mode(edr3 ? 1 : 0);
 }
 
 /* Transmit power for the next session (docs/radio.md): the controller uses
