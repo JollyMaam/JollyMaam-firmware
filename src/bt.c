@@ -500,12 +500,12 @@ static int room(void)
     return !c || c->num_packets_sent < link.in_flight;
 }
 
+static void update_want(void);
+
 static int have_data(void)
 {
     return input_pending || msg_read != msg_write;
 }
-
-static void update_want(void);
 
 static void send_now(void)
 {
@@ -696,6 +696,10 @@ static void acked(void)
     plat_unlock();
     for (i = n; i < flight_n; i++) flight[i - n] = flight[i];
     flight_n = (u8)(flight_n - n);
+    /* Room appears here.  tx_poll ran before this event in the same pass
+     * (BTstack polls the data source added last first): ask now. */
+    update_want();
+    if (have_data()) plat_bt_wake();
 }
 
 static void le_connected(u8 *packet)

@@ -197,6 +197,11 @@ These come from failures seen on hardware; see `AGENTS.md`.
   report takes ~1 ms in the hand-off and ~0.4 ms when its completion comes
   back (the controller task working inside those calls), now inside control
   loop passes (0.5 -> 1.2 ms average at 125 Hz).
+* BTstack polls the data source added last first: `tx_poll` runs before the
+  transport's received packets in each pass.  So room in the controller is
+  re-checked where it appears (Number Of Completed Packets, `acked()`), not
+  only in `tx_poll`; otherwise a pulled report waited for the next wake and
+  a Switch 2 link carried 131 reports/s instead of 197 (2026-10-05).
 * The run loop sleeps on the transport's wake semaphore, not a timer tick: a
   10 ms tick capped Classic reports at 100 per second.
 * The controller advertises Read Encryption Key Size but never answers it; the

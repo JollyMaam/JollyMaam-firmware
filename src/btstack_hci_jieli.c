@@ -25,7 +25,7 @@ static void (*host_handler)(u8 type, u8 *packet, u16 size);
 static btstack_data_source_t rx_source;
 static u8 address[6];            /* controller order: least significant byte first */
 static u8 controller_up;
-static volatile u8 woken, exit_requested;
+static volatile u8 exit_requested;
 
 /* ---- controller --------------------------------------------------------- */
 
@@ -171,9 +171,10 @@ static void set_timer(btstack_timer_source_t *t, u32 ms)
     t->timeout = now_ms() + ms + 1;
 }
 
+/* A wake while a pass runs leaves the semaphore posted: the next wait
+ * returns at once, so no second pass is needed. */
 static void wake(void)
 {
-    woken = 1;
     plat_bt_wake();
 }
 
@@ -189,24 +190,19 @@ void hci_jieli_loop_stats(u32 *runs, u32 *us)
 static void execute(void)
 {
     u32 t = plat_us();
+    s32 next;
 
     while (!exit_requested) {
         btstack_run_loop_base_poll_data_sources();
         btstack_run_loop_base_execute_callbacks();
         btstack_run_loop_base_process_timers(now_ms());
         loop_runs++;
-        /* A wake during the pass gets another pass at once.  Measured: without
-         * it (sleeping on the semaphore alone, until the next BTstack timer)
-         * the pass count fell 1071 -> 394/s but a Switch 2 link carried 131
-         * reports/s instead of 195 (2026-10-05); the cause is not found yet
-         * (padtool trace). */
-        if (woken) {
-            woken = 0;
-            continue;
-        }
+        next = btstack_run_loop_base_get_time_until_timeout(now_ms());
+        if (next == 0) continue;             /* a timer is due */
         loop_us += plat_us() - t;
         util_trace(TR_BT_SLEEP, 0);
-        plat_bt_wait(10);
+        /* until woken or the next BTstack timer; the OS waits in 10 ms ticks */
+        plat_bt_wait(next < 0 || next > 1000 ? 1000 : (u32)next);
         util_trace(TR_BT_WAKE, 0);
         t = plat_us();
     }
@@ -215,7 +211,6 @@ static void execute(void)
 static void loop_init(void)
 {
     btstack_run_loop_base_init();
-    woken = 1;
     exit_requested = 0;
 }
 
