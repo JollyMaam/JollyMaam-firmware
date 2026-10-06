@@ -161,7 +161,6 @@ struct bt_device {
     const u8 *hid_descriptor;
     u16 hid_descriptor_len;
     u16 sniff_slots, sniff_attempt;
-    u8 keep_sniff;               /* send at the host's sniff anchors, never leave sniff */
     /* LE */
     const u8 *att_db;
     u16 input_handle;

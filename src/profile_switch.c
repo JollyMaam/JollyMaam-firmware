@@ -348,7 +348,7 @@ static const struct bt_device device = {
     .class_of_device = 0x002508,
     .vendor_id = 0x057e, .product_id = 0x2009, .version = 0x0001,
     .hid_descriptor = descriptor, .hid_descriptor_len = sizeof(descriptor),
-    .sniff_slots = 24, .sniff_attempt = 1, .keep_sniff = 1,
+    .sniff_slots = 24, .sniff_attempt = 1,
 };
 
 const struct profile profile_switch = {

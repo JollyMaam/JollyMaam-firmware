@@ -201,8 +201,9 @@ static void execute(void)
         if (next == 0) continue;             /* a timer is due */
         loop_us += plat_us() - t;
         util_trace(TR_BT_SLEEP, 0);
-        /* until woken or the next BTstack timer; the OS waits in 10 ms ticks */
-        plat_bt_wait(next < 0 || next > 1000 ? 1000 : (u32)next);
+        /* until woken or the next BTstack timer, at most 50 ms: bt.c's stall
+         * check runs without events too.  The OS waits in 10 ms ticks. */
+        plat_bt_wait(next < 0 || next > 50 ? 50 : (u32)next);
         util_trace(TR_BT_WAKE, 0);
         t = plat_us();
     }

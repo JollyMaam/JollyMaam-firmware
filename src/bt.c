@@ -45,6 +45,10 @@ void hci_jieli_link_policy(void);
  * pages: a report never rides a longer packet that fails more often. */
 #define ACL_TYPES      0x001e
 #define UNSNIFF_MS     50
+/* Classic: the host's sniff is kept up to this interval (16 slots, 10 ms)
+ * and left above it, or when a report waits longer than SNIFF_STALL_US. */
+#define SNIFF_KEEP_SLOTS 16
+#define SNIFF_STALL_US   50000
 
 enum { RQ_START = 1, RQ_CONNECT = 2, RQ_DISCONNECT = 4, RQ_STOP = 8, RQ_ABORT = 16 };
 
@@ -79,6 +83,7 @@ static u8 working, acl_up, linked, send_pending, qos_pending, stopping;
 static u16 hid_cid;
 static hci_con_handle_t con_handle;
 static u32 unsniff_next;
+static u16 sniff_slots;                  /* the host's sniff interval; 0: active */
 static btstack_data_source_t tx_source;
 static btstack_packet_callback_registration_t hci_registration, sm_registration;
 static u8 sdp_hid[720];
@@ -390,6 +395,22 @@ static void page(void)
 
 /* A host holding the link in sniff takes no data between anchors: leave sniff
  * before sending or tearing down, at most every 50 ms. */
+/* Whether to leave the host's sniff mode to send.  Measured 2026-10-05: a
+ * Switch 2 holding a Pro Controller link in 5 ms sniff polled it every
+ * ~15-30 ms once we left (build to ack 16.9 ms against 9.5 ms in sniff); a
+ * Linux host (Intel) in 1.25-5 ms sniff delivered every report on time and
+ * in 15 ms sniff 23.7 ms late (8 ms, in clumps, once left).  One 12 s stall
+ * was seen in 2.5 ms sniff, not reproduced: a report that waits too long
+ * leaves sniff too. */
+static int have_data(void);
+
+static int sniff_too_slow(void)
+{
+    if (le || !sniff_slots) return 0;
+    if (sniff_slots > SNIFF_KEEP_SLOTS && have_data()) return 1;
+    return flight_n && plat_us() - flight[0].sent_us > SNIFF_STALL_US;
+}
+
 static void unsniff(void)
 {
     hci_connection_t *c;
@@ -613,10 +634,7 @@ static void tx_poll(btstack_data_source_t *ds, btstack_data_source_callback_type
         if (link.poll_us)
             hci_send_cmd(&hci_qos_setup, con_handle, 0, 2, 8000, 0, (u32)link.poll_us, 0xffffffffu);
     }
-    /* Leaving the host's sniff to send: a Switch 2 holding a Pro Controller
-     * link in 5 ms sniff then polled it every ~15-30 ms instead (build to
-     * ack 16.9 ms against 9.5 ms in sniff, 2026-10-05). */
-    if (have_data() && !dev->keep_sniff) unsniff();
+    if (sniff_too_slow()) unsniff();
     if (!send_pending && linked && have_data() && (msg_read != msg_write || room())) {
         send_pending = 1;
         if (le) att_server_request_can_send_now_event(con_handle);
@@ -891,6 +909,7 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
         timing.link.mode = hci_event_mode_change_get_mode(packet);
         timing.link.interval = hci_event_mode_change_get_mode(packet) ? hci_event_mode_change_get_interval(packet) : 0;
         plat_unlock();
+        sniff_slots = hci_event_mode_change_get_mode(packet) == 2 ? hci_event_mode_change_get_interval(packet) : 0;
         break;
     case ATT_EVENT_CAN_SEND_NOW:
         send_now();

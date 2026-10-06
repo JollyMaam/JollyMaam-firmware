@@ -99,7 +99,7 @@ static const struct set_field slot_fields[] = {
       .def = ALL(0), .help = "build a report this long after the radio asks for it (fresher, "
                              "until it misses the connection event)" },
     /* ids 20, 21: tx_step and tx_table, replaced by tx_power before release;
-     * id 24: sniff_exit, now the profile's (bt_device.keep_sniff) */
+     * id 24: sniff_exit, now a rule in bt.c (sniff_too_slow) */
     { .id = 22, .name = "tx_power", .type = T_ENUM, .names = tx_powers, FIELD(link.tx_power),
       .def = ALL(4), .help = "radio strength 1-6: 1 is about 20 dB below 5; 6 about 3 dB "
                              "above 5, using more battery" },
