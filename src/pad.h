@@ -201,7 +201,6 @@ struct bt_link {
     u16 poll_us;             /* Classic: QoS latency asked for */
     u8 tx_power;             /* 0-5 shown as 1-6: the controller's steps 0-4, then
                                 step 4 from its pro table */
-    u8 sniff_exit;           /* Classic: 0 the profile's choice, 1 stay in sniff, 2 leave it */
 };
 
 struct profile;

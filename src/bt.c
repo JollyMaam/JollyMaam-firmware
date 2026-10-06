@@ -616,8 +616,7 @@ static void tx_poll(btstack_data_source_t *ds, btstack_data_source_callback_type
     /* Leaving the host's sniff to send: a Switch 2 holding a Pro Controller
      * link in 5 ms sniff then polled it every ~15-30 ms instead (build to
      * ack 16.9 ms against 9.5 ms in sniff, 2026-10-05). */
-    if (have_data() && (link.sniff_exit == 2 || (link.sniff_exit == 0 && !dev->keep_sniff)))
-        unsniff();
+    if (have_data() && !dev->keep_sniff) unsniff();
     if (!send_pending && linked && have_data() && (msg_read != msg_write || room())) {
         send_pending = 1;
         if (le) att_server_request_can_send_now_event(con_handle);

@@ -243,8 +243,9 @@ These come from failures seen on hardware; see `AGENTS.md`.
 * Classic: a Switch 2 holding a Pro Controller link puts it in 5 ms sniff
   (8 slots).  Leaving sniff to send made it poll every ~15-30 ms instead:
   build to ack 16.9 ms, at most ~100 reports/s; staying in sniff, 9.5 ms and
-  up to 197/s (measured 2026-10-05).  The Switch profile stays in sniff
-  (`keep_sniff`; slot setting `sniff_exit`).  The old branch left sniff
+  up to 197/s (measured 2026-10-05).  The profile decides
+  (`bt_device.keep_sniff`): the Switch stays in sniff; the others leave it to
+  send until measured on their hosts.  The old branch left sniff
   because reports queued into a sniffing link filled the controller and
   reset the chip; with at most `in_flight` packets in the controller and
   nothing queued that did not recur (3-minute soaks at 66 and 197/s).
