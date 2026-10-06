@@ -298,6 +298,12 @@ void hci_jieli_tx_power(u8 step, u8 pro)
     was_pro = pro;
 }
 
+/* What sniff_negotiation_hook answers with while our own request is out. */
+void hci_jieli_sniff_slots(u16 slots)
+{
+    if (slots) sniff_slots = slots;
+}
+
 /* Once the stack works: a HID device must accept the host's sniff request. */
 void hci_jieli_link_policy(void)
 {

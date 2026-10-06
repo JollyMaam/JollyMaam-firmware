@@ -32,6 +32,7 @@ void hci_jieli_drop_link(void);
 void hci_jieli_prepare(u16 slots, u16 attempt);
 void hci_jieli_tx_power(u8 step, u8 pro);
 void hci_jieli_loop_stats(u32 *runs, u32 *us);
+void hci_jieli_sniff_slots(u16 slots);
 void hci_jieli_link_policy(void);
 
 #define MAX_INPUT      80
@@ -84,6 +85,8 @@ static u16 hid_cid;
 static hci_con_handle_t con_handle;
 static u32 unsniff_next;
 static u16 sniff_slots;                  /* the host's sniff interval; 0: active */
+static u8 sniff_tries;                   /* our own sniff requests this link */
+static u32 sniff_next;
 static btstack_data_source_t tx_source;
 static btstack_packet_callback_registration_t hci_registration, sm_registration;
 static u8 sdp_hid[720];
@@ -400,8 +403,10 @@ static void page(void)
  * ~15-30 ms once we left (build to ack 16.9 ms against 9.5 ms in sniff); a
  * Linux host (Intel) in 1.25-5 ms sniff delivered every report on time and
  * in 15 ms sniff 23.7 ms late (8 ms, in clumps, once left).  One 12 s stall
- * was seen in 2.5 ms sniff, not reproduced: a report that waits too long
- * leaves sniff too. */
+ * was seen in 2.5 ms sniff: a report that waits too long leaves sniff too.
+ * We never ask for sniff ourselves: asked for 2-8 slots, the Linux host
+ * granted 6-12, and in 6 slots (3.75 ms) the link wedged for 12 s - exit
+ * sniff accepted, not carried out - every time (docs/radio.md). */
 static int have_data(void);
 
 static int sniff_too_slow(void)
@@ -411,6 +416,23 @@ static int sniff_too_slow(void)
     return flight_n && plat_us() - flight[0].sent_us > SNIFF_STALL_US;
 }
 
+/* Ask the host for sniff (slot settings sniff_max, sniff_min), from active
+ * mode only, three tries a link.  A Linux host answers the pad's request
+ * with its own interval (asked 8 -> 12, 4 -> 6; docs/radio.md). */
+static void request_sniff(void)
+{
+    u16 max = link.sniff_max, min = link.sniff_min ? link.sniff_min : link.sniff_max;
+
+    if (le || !hid_cid || !max || sniff_slots || sniff_tries >= 3 ||
+        (s32)(plat_ms() - sniff_next) < 0 || !hci_can_send_command_packet_now())
+        return;
+    sniff_next = plat_ms() + 2000;
+    sniff_tries++;
+    hci_jieli_sniff_slots(max);
+    util_log("bt: asking for sniff %u-%u slots", min, max);
+    hci_send_cmd(&hci_sniff_mode, con_handle, max, min, 1, 0);
+}
+
 static void unsniff(void)
 {
     hci_connection_t *c;
@@ -418,6 +440,8 @@ static void unsniff(void)
     if (le || !acl_up || (s32)(plat_ms() - unsniff_next) < 0) return;
     c = hci_connection_for_handle(con_handle);
     if (!c || !c->connection_mode) return;
+    if (flight_n && plat_us() - flight[0].sent_us > SNIFF_STALL_US)
+        util_log("bt: report waiting %u ms in sniff: leaving it", (plat_us() - flight[0].sent_us) / 1000);
     hci_send_cmd(&hci_exit_sniff_mode, con_handle);
     unsniff_next = plat_ms() + UNSNIFF_MS;
 }
@@ -635,6 +659,7 @@ static void tx_poll(btstack_data_source_t *ds, btstack_data_source_callback_type
             hci_send_cmd(&hci_qos_setup, con_handle, 0, 2, 8000, 0, (u32)link.poll_us, 0xffffffffu);
     }
     if (sniff_too_slow()) unsniff();
+    request_sniff();
     if (!send_pending && linked && have_data() && (msg_read != msg_write || room())) {
         send_pending = 1;
         if (le) att_server_request_can_send_now_event(con_handle);
@@ -672,6 +697,8 @@ static void unlinked(u8 reason)
     send_pending = 0;
     acl_up = 0;
     flight_n = 0;
+    sniff_slots = 0;
+    sniff_tries = 0;
     plat_lock();
     memset(&timing.link, 0, sizeof(timing.link));
     plat_unlock();
@@ -901,6 +928,14 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
         plat_lock();
         timing.link.poll_us = little_endian_read_32(packet, 15);
         plat_unlock();
+        break;
+    case HCI_EVENT_COMMAND_STATUS:
+        if ((hci_event_command_status_get_command_opcode(packet) == HCI_OPCODE_HCI_SNIFF_MODE ||
+             hci_event_command_status_get_command_opcode(packet) == HCI_OPCODE_HCI_EXIT_SNIFF_MODE) &&
+            hci_event_command_status_get_status(packet))
+            util_log("bt: %s refused 0x%02x",
+                     hci_event_command_status_get_command_opcode(packet) == HCI_OPCODE_HCI_SNIFF_MODE
+                         ? "sniff" : "exit sniff", hci_event_command_status_get_status(packet));
         break;
     case HCI_EVENT_MODE_CHANGE:
         util_log("bt: mode %u interval %u", hci_event_mode_change_get_mode(packet),

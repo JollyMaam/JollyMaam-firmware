@@ -30,6 +30,12 @@ Per slot: `type`, `connect_colour`, `primary_colour`, `secondary_colour`,
 ([bluetooth.md](bluetooth.md)) (`padtool fields` lists them with ranges and
 defaults).  `set_slot(slot)` returns them as a plain `struct set_slot`.
 
+**Developer settings** carry a flag in the table (`F_DEV`, sent in the
+field description): `report_hz`, `le_interval_min/max`, `le_phy`,
+`in_flight`, `poll_us`, `pull_delay_us`, `sniff_max`, `sniff_min`.  They are
+for measuring the link; `padtool fields` and `get` leave them out unless
+`--dev` is given or they are set, and `set` notes it.
+
 **Colours** are `{palette entry, brightness level}`: the entry is an RGB at
 full brightness, scaled by one of 16 levels (0, 1, 2, 3, 4, 5, then about 1.4
 times apart up to 255): the LEDs are bright, so the low end matters most.  Sixteen entries; 0 and 1 are the

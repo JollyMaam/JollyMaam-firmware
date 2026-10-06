@@ -19,7 +19,8 @@
     padtool relink                connected: drop the link and connect again
                                   (new link settings apply; wakes nothing)
 
-    padtool fields                       every setting: name, values, default, help
+    padtool fields [--dev]               every setting: name, values, default, help
+                                         (--dev: the developer settings too)
     padtool get [TARGET [NAME]]          values; * marks a set one (else default)
     padtool set TARGET NAME VALUE [NAME VALUE ...]   change and commit
     padtool reset TARGET [NAME ...]      back to defaults: the fields, or all but the pairing
@@ -476,7 +477,7 @@ def fields(path):
         d = cmd(path, 0x20, n, 512)
         if len(d) < 8 or not any(d):
             return out
-        _, kind, fid, typ, size, _, mx = struct.unpack_from("<BBBBBBH", d)
+        _, kind, fid, typ, size, flags, mx = struct.unpack_from("<BBBBBBH", d)
         o = 8
 
         def string():
@@ -489,7 +490,7 @@ def fields(path):
         names = [string() for _ in range(mx + 1)] if typ == T_ENUM else []
         nd = 8 if kind == 0 else 1
         defs = [d[o + i * size:o + (i + 1) * size] for i in range(nd)] if size <= 4 else []
-        out.append({"kind": kind, "id": fid, "type": typ, "size": size, "max": mx,
+        out.append({"kind": kind, "id": fid, "type": typ, "size": size, "max": mx, "dev": flags & 1,
                     "name": name, "help": help_, "names": names, "defaults": defs})
         n += 1
 
@@ -594,8 +595,18 @@ def ephemeral_now(path):
     return bool(cmd(path, 0x01, length=16)[12])
 
 
-def show_fields(path):
-    for f in fields(path):
+DEV = False
+
+
+def show_fields(path, dev=False):
+    table = fields(path)
+    shown_dev = False
+    for f in sorted(table, key=lambda f: f["dev"]):
+        if f["dev"] and not dev:
+            continue
+        if f["dev"] and not shown_dev:
+            print("\ndeveloper settings: for measuring the link, not for normal use")
+            shown_dev = True
         values = (" | ".join(f["names"]) if f["type"] == T_ENUM else
                   f"0-{f['max']}" if f["type"] == T_NUMBER else
                   "ENTRY:LEVEL" if f["type"] == T_COLOUR else
@@ -615,8 +626,11 @@ def get(path, target, name):
         for f in table:
             if f["kind"] != kind_of(t) or (name and f["name"] != name) or f["name"] not in values:
                 continue
+            if f["dev"] and not name and not DEV and not values[f["name"]][1]:
+                continue                     # developer settings at default: --dev shows them
             raw, is_set = values[f["name"]]
-            print(f"{TARGETS[t]:11} {f['name']:16} {'*' if is_set else ' '} {show_value(f, raw)}")
+            print(f"{TARGETS[t]:11} {f['name']:16} {'*' if is_set else ' '} {show_value(f, raw)}"
+              + ("   (developer)" if f["dev"] else ""))
 
 
 def set_values(path, target, pairs):
@@ -627,6 +641,8 @@ def set_values(path, target, pairs):
     for name, text in zip(pairs[::2], pairs[1::2]):
         f = field_named(table, t, name)
         items.append((t, f["id"], parse_value(f, text)))
+        if f["dev"]:
+            print(f"note: {name} is a developer setting, for measuring the link")
     send(path, items)
     print("changed" + (" (ephemeral: until the next boot)" if ephemeral_now(path) else ""))
 
@@ -700,12 +716,16 @@ def main():
     p.add_argument("-w", "--watch", type=float, metavar="SECONDS", help="stats: show and reset every N seconds")
     p.add_argument("--reset", action="store_true", help="stats: reset the counters after reading")
     p.add_argument("--hz", type=int, default=2000, help="profile: samples per second")
+    p.add_argument("--dev", action="store_true",
+                   help="fields, get: include the developer settings (for measuring the link)")
     p.add_argument("--top", type=int, default=40, help="profile: functions to show")
     p.add_argument("--by", choices=["file", "group", "line"],
                    help="profile: add up per source file, per part, or per source line (zoom first)")
     p.add_argument("--elf", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build", "app.elf"),
                    help="profile: the running build's ELF")
     a = p.parse_args()
+    global DEV
+    DEV = a.dev
     if a.command == "find":
         for path, name in pads():
             print(f"pad {path}  {name}")
@@ -739,7 +759,7 @@ def main():
     elif a.command in ("reboot", "loader"):
         cmd(need_pad(), 0x10 if a.command == "reboot" else 0x11)
     elif a.command == "fields":
-        show_fields(need_pad())
+        show_fields(need_pad(), a.dev)
     elif a.command == "get":
         get(need_pad(), a.args[0] if a.args else None, a.args[1] if len(a.args) > 1 else None)
     elif a.command == "set":

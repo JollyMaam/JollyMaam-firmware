@@ -22,7 +22,9 @@ struct set_field {
     const char *const *names;   /* T_ENUM, NULL-terminated */
     u32 def[SLOTS];          /* little-endian bytes of the default, per slot */
     const char *help;
+    u8 flags;                /* F_DEV: a developer setting (padtool --dev) */
 };
+#define F_DEV 1
 
 #define COLOUR(entry, level) ((entry) | (level) << 8)
 #define RGB24(r, g, b)       ((r) | (g) << 8 | (u32)(b) << 16)
@@ -80,26 +82,32 @@ static const struct set_field slot_fields[] = {
     { .id = ID_BOND, .name = "bond", .type = T_BYTES, FIELD(bond),
       .help = "the paired host: peer, link key, key type, LE peer, LTK" },
     /* The link, for measuring it (architecture/bluetooth.md); next connect. */
-    { .id = 14, .name = "report_hz", .type = T_NUMBER, .max = 1000, FIELD(report_hz),
+    { .id = 14, .flags = F_DEV, .name = "report_hz", .type = T_NUMBER, .max = 1000, FIELD(report_hz),
       .def = ALL(0), .help = "most reports per second, whole milliseconds apart; reports are "
                              "built when the radio has room; 0: the profile's" },
-    { .id = 15, .name = "le_interval_min", .type = T_NUMBER, .max = 3200,
+    { .id = 15, .flags = F_DEV, .name = "le_interval_min", .type = T_NUMBER, .max = 3200,
       FIELD(link.le_interval_min), .def = ALL(0),
       .help = "LE: connection interval to ask for, 1.25 ms units (6 = 7.5 ms); 0: the profile's" },
-    { .id = 16, .name = "le_interval_max", .type = T_NUMBER, .max = 3200,
+    { .id = 16, .flags = F_DEV, .name = "le_interval_max", .type = T_NUMBER, .max = 3200,
       FIELD(link.le_interval_max), .def = ALL(0),
       .help = "LE: the longest interval to accept; 0: le_interval_min" },
-    { .id = 17, .name = "le_phy", .type = T_ENUM, .names = phys, FIELD(link.le_phy),
+    { .id = 17, .flags = F_DEV, .name = "le_phy", .type = T_ENUM, .names = phys, FIELD(link.le_phy),
       .def = ALL(0), .help = "LE: 2m asks the host for the 2M PHY" },
-    { .id = 18, .name = "in_flight", .type = T_NUMBER, .max = 8, FIELD(link.in_flight),
+    { .id = 18, .flags = F_DEV, .name = "in_flight", .type = T_NUMBER, .max = 8, FIELD(link.in_flight),
       .def = ALL(2), .help = "input reports in the controller at once; 0: 2" },
-    { .id = 19, .name = "poll_us", .type = T_NUMBER, .max = 40000, FIELD(link.poll_us),
+    { .id = 19, .flags = F_DEV, .name = "poll_us", .type = T_NUMBER, .max = 40000, FIELD(link.poll_us),
       .def = ALL(1250), .help = "Classic: the poll interval asked for (QoS latency); 0: none" },
-    { .id = 23, .name = "pull_delay_us", .type = T_NUMBER, .max = 5000, FIELD(pull_delay_us),
+    { .id = 23, .flags = F_DEV, .name = "pull_delay_us", .type = T_NUMBER, .max = 5000, FIELD(pull_delay_us),
       .def = ALL(0), .help = "build a report this long after the radio asks for it (fresher, "
                              "until it misses the connection event)" },
+    { .id = 26, .flags = F_DEV, .name = "sniff_max", .type = T_NUMBER, .max = 800, FIELD(link.sniff_max),
+      .def = ALL(0), .help = "Classic: ask the host for sniff, at most this many 0.625 ms "
+                             "slots (even); 0: take what the host chooses" },
+    { .id = 27, .flags = F_DEV, .name = "sniff_min", .type = T_NUMBER, .max = 800, FIELD(link.sniff_min),
+      .def = ALL(0), .help = "Classic: the shortest sniff interval asked for; 0: sniff_max" },
     /* ids 20, 21: tx_step and tx_table, replaced by tx_power before release;
-     * id 24: sniff_exit, now a rule in bt.c (sniff_too_slow) */
+     * id 24: sniff_exit, now a rule in bt.c (sniff_too_slow); id 25: sniff_req,
+     * replaced by sniff_max and sniff_min */
     { .id = 22, .name = "tx_power", .type = T_ENUM, .names = tx_powers, FIELD(link.tx_power),
       .def = ALL(4), .help = "radio strength 1-6: 1 is about 20 dB below 5; 6 about 3 dB "
                              "above 5, using more battery" },
@@ -570,7 +578,7 @@ u32 set_describe(u32 n, u8 *out, u32 max)
     out[2] = f->id;
     out[3] = f->type;
     out[4] = f->size;
-    out[5] = 0;
+    out[5] = f->flags;
     util_put16(out + 6, (u16)field_max(f));
     o = put_string(out, 8, max, f->name);
     o = put_string(out, o, max, f->help);
