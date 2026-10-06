@@ -285,8 +285,8 @@ static u8 begin(const struct profile_session *s)
 /* The three newest motion samples, newest first (SDL's HIDAPI driver reads
  * slot 0 as the newest, as the stock firmware sends it), a sliding window: a
  * report with one new sample shifts the other two along, one with none
- * repeats them.  Accelerometer halved, gyro x and y negated: the Pro
- * Controller's axes. */
+ * repeats them.  Accelerometer halved, accelerometer x and gyro x and y
+ * negated: the Pro Controller's axes. */
 static void motion(u8 *out, const struct pad *p)
 {
     u32 k, a;
@@ -300,7 +300,7 @@ static void motion(u8 *out, const struct pad *p)
         const struct imu_sample *m = &sw.motion[k];
 
         for (a = 0; a < 3; a++) {
-            util_put16(out + 12 * k + 2 * a, (u16)(m->accel[a] / 2));
+            util_put16(out + 12 * k + 2 * a, (u16)(a == 0 ? -m->accel[a] / 2 : m->accel[a] / 2));
             util_put16(out + 12 * k + 6 + 2 * a, (u16)(a < 2 ? -m->gyro[a] : m->gyro[a]));
         }
     }
