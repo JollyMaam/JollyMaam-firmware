@@ -47,7 +47,7 @@ u16 sys_timer_add(void *priv, void (*func)(void *priv), u32 msec);
 void sys_timeout_del(u16 id);
 void p33_soft_reset(void);
 void *zalloc(u32 size);
-extern BTCTRLER_CONFIG int config_btctler_modules, config_btctler_mode;
+extern BTCTRLER_CONFIG int config_btctler_modules, config_btctler_mode, config_btctler_le_roles;
 extern BTCTRLER_CONFIG int CONFIG_BREDR_INQUIRY, CONFIG_LMP_MASTER_ESCO_ENABLE;
 extern const int sniff_long_interval, sniff_support_reset_anchor_point;   /* platform_jieli_sdk.c */
 

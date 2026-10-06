@@ -1,6 +1,7 @@
-/* Owned hci_controller.c command framing and group dispatch.  Called from
- * h4_hci_push_data (direct) and the HCI thread (queued).  The packet has its
- * HCI header and no H4 type byte. */
+/* Owned hci_controller.c host packet entry, command framing and group
+ * dispatch.  hci_command_process is called from h4_hci_push_data (direct)
+ * and the HCI thread (queued).  Packets have their HCI header and no H4
+ * type byte. */
 #include <stdio.h>
 #include "btctrler/glue.h"
 
@@ -63,6 +64,27 @@ void hci_command_process(u8 *packet, int size)
     if (!result) hci_send_event_cmd_complete(opcode, "1", 0x01);    /* Unknown HCI Command */
 }
 
+/* Host to controller (the transport's send).  ACL data goes to whichever
+ * link owns the handle; the SDK checks LE first and then Classic. */
+void h4_hci_push_data(int type, const u8 *packet, int size)
+{
+    switch (type) {
+    case 1: hci_command_process((u8 *)packet, size); break;
+    case 2: {
+        /* Fix: the SDK read the handle from, and copied, packets shorter
+         * than the ACL header. */
+        if (size < 4) break;
+        int handle = (packet[0] | packet[1] << 8) & 0x0fff;
+        if ((config_btctler_modules & 2) && (config_btctler_le_roles & 3) && ll_link_for_handle(handle))
+            ll_push_acl_data(packet, size);
+        if ((config_btctler_modules & 1) && lmp_conn_for_handle(handle))
+            lmp_hci_send_packet_standard(packet, size);
+        break;
+    }
+    case 5: hci_push_iso_sdu((u8 *)packet, (u16)size); break;
+    }
+}
+
 #ifndef UNITTEST
 void btctrler_assert_failed(const char *what, int value)
 {
@@ -80,6 +102,15 @@ void btctrler_assert_failed(const char *what, int value)
 #include "test.h"
 int config_btctler_modules = 3;
 int config_btctler_mode, CONFIG_BREDR_INQUIRY, CONFIG_LMP_MASTER_ESCO_ENABLE, config_asser;
+int config_btctler_le_roles = 6;
+static int le_handle = -1, classic_handle = -1, le_pushed, classic_sent, iso_pushed;
+static struct le_link *le_link_stub = (struct le_link *)1;
+static struct lmp_connection classic_conn;
+struct le_link *ll_link_for_handle(int handle) { return handle == le_handle ? le_link_stub : 0; }
+struct lmp_connection *lmp_conn_for_handle(int handle) { return handle == classic_handle ? &classic_conn : 0; }
+int ll_push_acl_data(const u8 *packet, int len) { (void)packet; le_pushed = len; return 0; }
+int lmp_hci_send_packet_standard(const u8 *packet, int len) { (void)packet; classic_sent = len; return 0; }
+void hci_push_iso_sdu(uint8_t *packet, uint16_t size) { (void)packet; iso_pushed = size; }
 static int returns[17], seen[2], calls, completions, error, asserted, event_opcode, length_seen;
 static u8 *parameters_seen;
 static int group(int id, u16 opcode, u8 *parameters, int length)
@@ -161,6 +192,20 @@ int main(void)
         packet[0] = 1; packet[1] = (u8)(ogf << 2);
         run(packet, 3); CHECK(!calls && asserted == 1 && completions == 1 && error == 0x01);
     }
+
+    /* Host packets: commands, ACL by handle owner, ISO. */
+    u8 acl[] = {0x34, 0x22, 1, 0, 9};
+    le_handle = 0x234; classic_handle = 0x30;
+    h4_hci_push_data(2, acl, 5); CHECK(le_pushed == 5 && !classic_sent);
+    le_pushed = 0; le_handle = -1; classic_handle = 0x234;
+    h4_hci_push_data(2, acl, 5); CHECK(!le_pushed && classic_sent == 5);
+    classic_sent = 0; config_btctler_modules = 2;
+    h4_hci_push_data(2, acl, 5); CHECK(!le_pushed && !classic_sent);
+    config_btctler_modules = 3;
+    h4_hci_push_data(2, acl, 3); CHECK(!classic_sent);           /* shorter than its header */
+    h4_hci_push_data(5, acl, 5); CHECK(iso_pushed == 5);
+    packet[0] = 0x03; packet[1] = 0x0c; packet[2] = 0; memset(returns, 0, sizeof(returns)); returns[5] = 1;
+    calls = 0; h4_hci_push_data(1, packet, 3); CHECK(calls == 1 && seen[0] == 5);
     return TEST_DONE("btctrler_hci_dispatch");
 }
 #endif

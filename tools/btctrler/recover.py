@@ -23,11 +23,15 @@ def link_control(text):
     return text
 
 
+# hci_controller.c host packet entry and command dispatch (hci_dispatch.c).
+COMMAND_DISPATCH_OWNED = {
+    'hci_command_process': '1c2e8fc4dd223408b67f8bb083901dc052c02c5d8c33bd61c9b9c5aac0bfe5ac',
+    'h4_hci_push_data': 'a1913c4b712c28e5f208960afcaad15e3e259e366cdf8f3a187dcaf67311c3df',
+}
+
+
 def command_dispatch(text):
-    """Own hci_command_process (src/btctrler/hci_dispatch.c)."""
-    text, _ = own(text, 'hci_command_process', 'void @hci_command_process(i8*, i32)',
-                  '1c2e8fc4dd223408b67f8bb083901dc052c02c5d8c33bd61c9b9c5aac0bfe5ac')
-    return text
+    return own_all(text, COMMAND_DISPATCH_OWNED)
 
 
 def device_manager(text):
@@ -527,6 +531,14 @@ CONTROL_TX_OWNED = {
     'lmp_format_packet': '59caad9b99e355813e32f6448f6b4efd291b2775c83950382099740c906f5fcd',
     'lmp_request': '672931262a86f1323ceded46178da2dd5830b4a0fa2ecd4f7857d4184ee4c4e1',
     'lmp_response': 'c666b949c5d2a762cbb4609ab1b6d91cd416848d0f0b636a1cd38d65abb79b8d',
+    # lmp_acl_tx.c
+    'lmp_private_get_tx_remain_buffer': '6af15c8ef6405097514e84320eddbb1950c6b6bdd79ced80dce2827312e7fdb9',
+    'lmp_private_get_tx_packet_buffer': 'fa40cbc638eae4c24280a30f41bf8f66fcde85f107df854905581d8ce8f5ec32',
+    'lmp_hci_send_packet': 'dced742298cafb009b8d7a1a77345ebf8362fb74c2dc12d42ca87e6309657b13',
+    'lmp_hci_send_packet_standard': '1e5228f42c35684a62ba5b9c2f1bf417f6fef2211cabf2da8d0ff84e930eeed3',
+    'lmp_hci_private_try_free_acl_packet': 'c3f0b20c568ea88dd01f876571aad1b9c770a35c31b23138ea02553f234fe9ff',
+    'lmp_hci_private_hold_acl_packet': '36a3039b6541fb720e1681a65df6c8934171b9ded1dfc14f1b1fda00836173af',
+    'lmp_hci_private_free_acl_packet': '675d33928e1b25e642370f53dd7c13781928ac6a47f802c3dadb0038e746f64b',
 }
 
 
