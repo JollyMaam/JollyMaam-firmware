@@ -114,6 +114,30 @@ void lmp_private_set_max_rx_buf_persent(u8 *addr, int persent)
     local_irq_enable();
 }
 
+/* The SDK's A2DP sink API (lmp_private_*_sbc_*), called only from TWS
+ * forwarding: no media channel is ever opened (sbc_open stays 0), so these
+ * give the SDK's "no channel" answers. */
+_Static_assert(!BTCFG_TWS, "A2DP forwarding is TWS-only");
+int __lmp_private_clear_a2dp_packet(void *conn, u16 seqn_number)
+{ (void)conn; (void)seqn_number; return -22; }
+int lmp_private_clear_a2dp_packet(void *conn, u16 seqn_number)
+{ return __lmp_private_clear_a2dp_packet(conn, seqn_number); }
+int lmp_private_get_sbc_data_len(void *conn) { (void)conn; return 0; }
+int lmp_private_get_sbc_packet(void *conn, u8 **frame, int block)
+{ (void)conn; (void)frame; (void)block; return -22; }
+/* A frame from lmp_private_get_sbc_packet: the payload after the L2CAP
+ * header of a received bulk. */
+void lmp_private_free_sbc_packet(void *_conn, void *packet)
+{
+    struct lmp_connection *conn = _conn;
+    struct bredr_rx_bulk *bulk = (void *)((u8 *)packet - 4 - offsetof(struct bredr_rx_bulk, data));
+    local_irq_disable();
+    remove_entry(&bulk->entry);
+    if (conn && conn->link) link_conn_rx_bulk_avaliable(conn->link, bulk);
+    else bredr_rx_bulk_free(bulk);
+    local_irq_enable();
+}
+
 #ifdef UNITTEST
 #include <stdlib.h>
 #include <string.h>
@@ -237,6 +261,17 @@ int main(void)
     lmp_private_set_max_rx_buf_persent(0, 60); CHECK(space_calls == 1 && percentage == 60);
     lmp_private_set_max_rx_buf_persent(addr, 45); CHECK(space_calls == 2 && percentage == 45);
     found = 0; lmp_private_set_max_rx_buf_persent(addr, 90); CHECK(space_calls == 2 && !irq_depth);
+    /* A2DP: no channel; a handed-out frame goes back to its link. */
+    CHECK(lmp_private_clear_a2dp_packet(c, 5) == -22 && !lmp_private_get_sbc_data_len(c));
+    u8 *frame = 0; CHECK(lmp_private_get_sbc_packet(c, &frame, 1) == -22 && !frame);
+    clear_list(&c->rx_acl_u);
+    struct bredr_rx_bulk *media = append(&c->rx_acl_u, 2, 0x1234, 1, 12);
+    int before = released;
+    lmp_private_free_sbc_packet(c, media->data + 4);
+    CHECK(released == before + 1 && c->rx_acl_u.next == &c->rx_acl_u && !irq_depth);
+    media = append(&c->rx_acl_u, 2, 0x1234, 1, 12); before = freed;
+    lmp_private_free_sbc_packet(0, media->data + 4);
+    CHECK(freed == before + 1 && c->rx_acl_u.next == &c->rx_acl_u);
     return TEST_DONE("btctrler_lmp_acl");
 }
 #endif

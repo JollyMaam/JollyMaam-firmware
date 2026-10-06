@@ -70,3 +70,34 @@ int lmp_hci_disconnect_sync_connection(int handle, u8 reason)
     (void)reason;
     return handle == 0;
 }
+
+/* Sniff with a voice link: the SDK only checked for non-standard hosts. */
+u8 lmp_esco_sniff_check(struct lmp_connection *conn)
+{
+    (void)conn;
+    _Static_assert(BTCFG_HCI_STANDARD, "eSCO sniff checks apply to non-standard hosts only");
+    return 1;
+}
+
+/* Drop received voice packets (bredr_link.c): there are none. */
+u32 lmp_private_clear_sco_packet(u8 clear_num)
+{
+    (void)clear_num;
+    return 0;
+}
+
+u8 remove_esco_link(struct lmp_connection *conn, u8 reason)
+{
+    bredr_esco_link_close(conn->link);
+    lmp_connection_ctl_slot(conn, 5);
+    lmp_send_max_slot(conn, 5);
+    lmp_esco_link_removed(conn, reason);
+    return 0;
+}
+
+/* A TWS peer's voice link (tws_pair.c): never set up. */
+u8 tws_fast_setup_esco_link(struct lmp_connection *conn, struct lmp_esco_pdu *pdu_data, u8 esco_link_setup)
+{
+    (void)conn; (void)pdu_data; (void)esco_link_setup;
+    return 0;
+}

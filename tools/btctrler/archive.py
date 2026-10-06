@@ -13,10 +13,10 @@ from pathlib import Path
 
 # Functions owned C defines in place of the SDK's (each is removed from the
 # archive by tools/btctrler/recover.py, against a fingerprint).
-from .recover import LMP_OWNED, DEVICE_MISC_OWNED, CLASSIC_MISC_OWNED, HCI_PROCEDURES_OWNED, TASK_QUEUE_OWNED, TASK_LIFECYCLE_OWNED, TASK_DISPATCH_OWNED, CONTROL_TX_OWNED
-OWNED = tuple(LMP_OWNED) + tuple(DEVICE_MISC_OWNED) + tuple(CLASSIC_MISC_OWNED) + tuple(HCI_PROCEDURES_OWNED) + tuple(TASK_QUEUE_OWNED) + tuple(TASK_LIFECYCLE_OWNED) + tuple(TASK_DISPATCH_OWNED) + tuple(CONTROL_TX_OWNED) + (
+from .recover import COMMAND_DISPATCH_OWNED, LMP_OWNED, DEVICE_MISC_OWNED, CLASSIC_MISC_OWNED, HCI_PROCEDURES_OWNED, TASK_QUEUE_OWNED, TASK_LIFECYCLE_OWNED, TASK_DISPATCH_OWNED, CONTROL_TX_OWNED
+OWNED = tuple(COMMAND_DISPATCH_OWNED) + tuple(LMP_OWNED) + tuple(DEVICE_MISC_OWNED) + tuple(CLASSIC_MISC_OWNED) + tuple(HCI_PROCEDURES_OWNED) + tuple(TASK_QUEUE_OWNED) + tuple(TASK_LIFECYCLE_OWNED) + tuple(TASK_DISPATCH_OWNED) + tuple(CONTROL_TX_OWNED) + (
     'hci_lmp_controller_baseband_cmd_handler', 'hci_controller_baseband_cmd_handler',
-    'hci_informational_parameters_cmd_handler', 'hci_command_process',
+    'hci_informational_parameters_cmd_handler',
     'hci_lmp_link_control_cmd_handler', 'hci_lmp_link_policy_cmd_handler')
 # This archive was inspected for pre-existing inline copies and call attributes.
 # Changing it requires repeating that audit, not just matching one definition.
@@ -33,7 +33,7 @@ def definitions(text):
     return re.findall(r'^define [^\n]*@([^ (]+)\(', text, re.M)
 
 
-def record(source, destination, members, originals, directory):
+def record(source, destination, members, originals, directory, dropped=()):
     changed = []
     for member in members:
         after = digest(directory / member)
@@ -44,6 +44,7 @@ def record(source, destination, members, originals, directory):
         'generated_archive_sha256': digest(destination),
         'owned_definitions': list(OWNED),
         'changed_members': changed,
+        'dropped_members': list(dropped),
         'members': [{'name': m, 'sdk_sha256': originals[m],
                      'generated_sha256': digest(directory / m)} for m in members],
     }

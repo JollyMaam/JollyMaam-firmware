@@ -5,7 +5,7 @@ the owned C was written from.  Owned C reaches SDK storage through
 src/btctrler/sdk.h.
 """
 import re
-from .ir import extract, export, own, own_all
+from .ir import extract, export, own_all
 
 def link_policy(text):
     """Own hci_lmp_link_policy_cmd_handler (src/btctrler/link_policy.c)."""
@@ -344,34 +344,76 @@ LMP_OWNED = {
     'lmp_esco_conn_for_handle': 'b7c0e401c2a4dc4bb83fcc8f21f122b4db3921bcbbd4e28c1701c9503f143318',
     'lmp_connection_esco_open': 'c6f87d54388732ce6110e416405bb512806ec7c1d3cc8f18c2e401f0615d31c1',
     'lmp_hci_disconnect_sync_connection': '59536135244e9616ad627a0f139e64577ed40ce224f5ff6b5ad91e523526fca1',
+    # lmp_state.c
+    '__bt_updata_lmp_connection_resume': '79b68b0a6b542dee88873f6149840c70ffdc1ba4c87a2b2925b96a62782c0c3a',
+    'a2dp_rx_notice_to_decode': 'bbb36e69a7b0818c4e977116e1c01f3d472a5e4042f515180092ca6e91c29d89',
+    'acl_u_packet_analyse': 'ac9e9e169ab265396041f417d00de96191c1fce3d51d07eecaad57bde0d5c7d0',
+    'bdhw_enable_afh': '874af7bdaef09ca0b6699e0459fb0c4fac2ea13ad856172146bb0daafadb98a5',
+    'get_random_number': '88f32f040c935ef00d584e2947982e8a2c05f18c3fc5d63a6858701e6ed6ee18',
+    'lmp_cmd_is_match_size': '0187d6c77fb80e16aba18d790491d2665167d7d498dfb9a8c6f9fbd7f490052c',
+    'lmp_conn_idle': '6caa73d8d66c7cafb9b9f640b35da55c9237d3770867859d6ed9cbfe3d2a708c',
+    'lmp_send_test_key': 'f49bde56acb285087f849ed61f6b741d9c1e19197eda330bef9d950e52cc78cc',
+    'lmp_send_user_info': '303e3421779883afff60bdfc8adb0afae6531cb7074eebe4e0410a1aeef6413a',
+    'wifibox_bt_freq_finish_post': 'd3392d6970810a9c2f46d154d6e5d7e81095cc39fdfa5f05b74a2cf2aa7d20fa',
+    'is_call_now': '81535a3413420ef75559f0dab494fd313f6f86cf8c4016521e6d27c61510e51e',
+    # lmp_esco.c
+    'lmp_esco_sniff_check': 'b24105b1efa2de14ee9bb7191185908893eaa69df83c3917eea49f17ebaf47fa',
+    'lmp_private_clear_sco_packet': '14993ae56430842adb01bf7ddd617534e1a01c704d77d6accefa790970b877a5',
+    'remove_esco_link': '76fe51af977891170ccbee88eea0bb4b0116e0a73f3050830a7e09cc0e254152',
+    'tws_fast_setup_esco_link': '9458cd474fdaea0e2f71306213923521b76ddfb813e76cf82e63bd559ec1023a',
+    # lmp_acl.c (A2DP)
+    '__lmp_private_clear_a2dp_packet': '82d462382d74d355fc2df60a88a7e01a1adb54aac0171fcd9ae78133010694d5',
+    'lmp_private_clear_a2dp_packet': '396bbdb9a6981876664673931244edf03226d24a85d66c41c6603a14eb45a115',
+    'lmp_private_free_sbc_packet': 'fd8e78428b0b9580ca3d730e6c19fa4df9848afa971b270dfcdf99c5be06e379',
+    'lmp_private_get_sbc_data_len': '8385534808fe5e9ee7b79f7bf4bfc1093ee93cb5d6eda1ab57e3e89e867e3f72',
+    'lmp_private_get_sbc_packet': 'caec794bf3537f1649d11e1667eb8c4d4407796071174824b5e9e8a78531df75',
 }
 
 
-# lmp.c statics that owned C calls: external linkage, C calling convention.
-LMP_EXPORTS = ('lmp_cmd_is_match_size',)
+# What is left of lmp.c once owned C replaces the above: nothing in this
+# firmware calls it.  Firmware update over Bluetooth (bt_updata_*, uboot,
+# lmp_update_*), test-box information and escape-3 requests, the A2DP and
+# eSCO media APIs and their TWS helpers, and file-static helpers of those.
+# The build drops the member, so a caller would fail the link.
+LMP_UNUSED = frozenset("""
+    INIT_LIST_HEAD __1to2_test_putchar_for_addr __bt_updata_save_connection_info
+    __get_last_a2dp_seqn_from_list __get_rtp_header_len __list_del_entry
+    __lmp_get_a2dp_packet_num bt_get_chip_key_crc bt_get_flash_id bt_get_sdk_ver_info
+    bt_get_uesr_info bt_testbox_ex_info_fill_buf bt_testbox_ex_info_get_handle_register
+    bt_updata_clr_flag bt_updata_control bt_updata_get_flag bt_updata_set_flag
+    bt_updata_tx_detch bt_update_link_close check_1to2_conn_exit_sniff
+    check_enter_esco_rx_bulk_change check_exit_esco_rx_bulk_change cpu_reset
+    creat_esco_forward_standard esco_media_get_packet_num ex_info_total_len_get
+    link_conn_a2dp_channel_close link_conn_a2dp_channel_open link_conn_disable_afh
+    link_conn_pll_comp_reset link_conn_run link_conn_run_enable link_conn_run_slots
+    link_conn_set_acl_u_tx_enable link_conn_set_afh_enable link_conn_set_esco_lt_addr
+    link_conn_set_first_anchor_point_timer list_add_tail list_empty
+    lmp_create_esco_hci_handle lmp_escape3_acl_u_s_send lmp_escape3_fre_offset
+    lmp_escape3_get_remote_addr lmp_escape3_get_remote_addr_res lmp_esco_conn_malloc
+    lmp_esco_negotiation_parameters lmp_esco_rejust_establish lmp_get_a2dp_data_cache_hi
+    lmp_get_a2dp_data_cache_low lmp_get_conn_step lmp_get_sbc_remain_time_form_list
+    lmp_private_a2dp_channel_exist lmp_private_close_sbc_channel lmp_private_dump_rx_time
+    lmp_private_esco_suspend_resume lmp_private_fetch_sbc_packet lmp_private_fetch_sco_packet
+    lmp_private_free_esco_packet lmp_private_get_esco_conn_exist lmp_private_get_esco_conn_num
+    lmp_private_get_esco_data_len lmp_private_get_esco_packet
+    lmp_private_get_esco_remain_buffer_size lmp_private_get_sbc_packet_num
+    lmp_private_get_sbc_remain_time lmp_private_is_clearing_a2dp_packet
+    lmp_private_open_sbc_channel lmp_private_sbc_source_slot lmp_private_send_esco_packet
+    lmp_private_set_a2dp_channel lmp_set_features_req_step lmp_setup_esco
+    lmp_tx_get_remote_addr_req lmp_update_exit lmp_update_init lmp_update_rx_handler_register
+    lmp_user0_command_process reg_revic_buf_addr testbox_get_key_action_test_flag
+    tws_check_sbc_data tws_lmp_clear_a2dp_packet uboot_rx_handler
+    wait_enter_esco_rx_bulk_change
+""".split())
 
 
 def lmp_member(text):
-    """lmp.c.o: remove what owned C replaces, link what it uses."""
+    """lmp.c.o: check every SDK definition is owned (by fingerprint) or
+    known unused; build_btctrler.py then drops the member."""
     text = own_all(text, LMP_OWNED)
-    for name in LMP_EXPORTS:
-        text = export(text, name)
-    # The ACL slot is file-static; owned C uses it.
-    slot = '@lmp_acl_link = internal global [1 x %struct.lmp_connection]'
-    if text.count(slot) != 1:
-        raise RuntimeError('controller: expected exactly one SDK ACL slot')
-    text = text.replace(slot, '@lmp_acl_link = global [1 x %struct.lmp_connection]')
-    # Receive dispatch shares the SDK's DUT and update-routing state.
-    for name, kind in (('lmp_dut_en', 'i8'), ('lmp_dut_phone_en', 'i8'),
-                       ('lmp_update_rx_handler', 'void (i32, %struct.bredr_rx_bulk*)*')):
-        static = f'@{name} = internal unnamed_addr global {kind}'
-        if text.count(static) != 1:
-            raise RuntimeError(f'controller: expected exactly one SDK {name}')
-        text = text.replace(static, f'@{name} = global {kind}')
-    # Owned C keeps the QoS poll interval (link_policy.c); nothing may still
-    # read the SDK's copy.
-    if len(re.findall(r'@set_qos_poll_interval\b', text)) != 1:
-        raise RuntimeError('controller: set_qos_poll_interval is still used')
+    left = set(re.findall(r'^define [^\n]*@([\w.]+)\(', text, re.M))
+    if left != LMP_UNUSED:
+        raise RuntimeError(f'controller: lmp.c leftovers changed: {sorted(left ^ LMP_UNUSED)}')
     return text
 
 

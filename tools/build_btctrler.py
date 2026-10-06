@@ -18,6 +18,9 @@ PIPELINE = {
     'lmp_hci.c.o': (recover.hci_procedures,),
     'lmp_hci_cmd_parser.c.o': (recover.link_control, recover.classic_baseband, recover.link_policy, recover.classic_misc),
 }
+# Members owned C replaces completely: checked by their transforms above,
+# then left out of the archive.
+DROPPED = ('lmp.c.o',)
 
 
 def main():
@@ -32,7 +35,7 @@ def main():
         raise ValueError('controller: destination must be a build copy, not the SDK archive')
     archive.require_audited_sdk(source)
     members = subprocess.check_output([args.ar, 't', str(source)], text=True).splitlines()
-    missing = set(PIPELINE) - set(members)
+    missing = (set(PIPELINE) | set(DROPPED)) - set(members)
     if missing:
         raise RuntimeError(f'controller: missing archive members: {sorted(missing)}')
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -42,11 +45,12 @@ def main():
         originals = {m: archive.digest(directory / m) for m in members}
         for member, transforms in PIPELINE.items():
             rewrite_member(directory / member, args.clang, transforms)
+        kept = [m for m in members if m not in DROPPED]
         # Rebuild from scratch so stale members cannot survive SDK changes.
         temporary = directory / 'retained.a'
-        subprocess.run([args.ar, 'rcs', str(temporary), *members], cwd=directory, check=True)
+        subprocess.run([args.ar, 'rcs', str(temporary), *kept], cwd=directory, check=True)
         temporary.replace(destination)
-        archive.record(source, destination, members, originals, directory)
+        archive.record(source, destination, kept, originals, directory, DROPPED)
 
 
 if __name__ == '__main__':
