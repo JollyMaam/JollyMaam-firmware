@@ -89,6 +89,16 @@ int hci_lmp_status_parameters_cmd_handler(u16 opcode, const u8 *data, u32 len)
 int hci_lmp_testing_cmd_handler(u16 opcode, const u8 *data, u32 len)
 { (void)opcode; (void)data; (void)len; return 0; }
 
+/* Classic vendor commands: OCF 1 sets the radio's FCC test parameters. */
+int hci_lmp_vendor_cmd_handler(u16 opcode, u8 *data, u32 len)
+{
+    (void)len;
+    if ((opcode & 0x3ff) != 1) return 0;
+    bredr_fcc_set_param(data);
+    hci_send_event_cmd_complete(opcode, "1", 0);
+    return 1;
+}
+
 #ifdef UNITTEST
 #include <stdarg.h>
 #include "test.h"

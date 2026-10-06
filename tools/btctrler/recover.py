@@ -424,23 +424,47 @@ def leftovers(text, member, expected):
 
 # Remaining common and Classic HCI boundaries (hci_misc.c).
 DEVICE_MISC_OWNED = {
+    # device_manager.c
+    'set_bt_full_name_event': 'bf968e99652177005dabd0f8a1269468a891e00f23260cddba9520176226681e',
+    'set_bt_need_enc': '2b95a01253bffe34f2accb76cfa1fba66a7dac10754d9184f1b55379ca9467d6',
+    'set_bt_version': '0cdfd1bf9fc1ce3935ad4f762fd1822aac14608fd82343e9efc43864b61f214c',
+    'set_bt_afh_classs_enc': '09cfbfd2623e3c2e7c2584b0c2bd59533d502b91e71e48babee78c166109d49f',
+    'set_bt_enhanced_power_control': 'bcc3b919feec641b53b9aaf2120e162c36a5a4485d2aa7ec51b51a97f208a625',
+    'set_bt_data_rate_acl_3mbs_mode': '58938c5c23c80de79c7f647323674a2f438af9a721f80fbf58b0e5732e397445',
+    'set_bt_data_rate_acl_2mbs_mode': '3a1b90cd81ba562d1db36893b10564283b9d2d9ceb3c31ca069373045d4f9d36',
+    'hci_read_remote_version_information_show': '0f977d31db7b124f81ce33cd07c0937577eb9d8607fbf2d2e5654c4f4834ae35',
+    # hci_misc.c
     'hci_link_control_cmd_handler': '62f3c9ba9d259dc6343af6d8d1fd524d18a83de8c95e7d6b3f2724e1130cebb6',
     'hci_link_policy_cmd_handler': '4589a777f3d37fb0f8158cb4789fda40721dcbfd48efd86d8fef7ba4401ed662',
     'hci_status_parameters_cmd_handler': '2bddaf215c4f586c4e034dfefb68e477b76040832d6d824ed9a8f92e535fda42',
     'hci_testing_cmd_handler': '1d50a9019c8da7083cb854634b9ad60401d4810031672aa876d04f235ae78094',
 }
 CLASSIC_MISC_OWNED = {
+    'hci_lmp_vendor_cmd_handler': 'd8dfd1ea6bc975a2885a6ce969e6663e8e0ccddff9c39b76f8aa531ac537ceee',
     'hci_lmp_informational_parameters_cmd_handler': 'f395dc5adb4a2a5811ec09a2c67833db7d9a6ab4399a2bae7f0719143de52d69',
     'hci_lmp_status_parameters_cmd_handler': 'ed89d10902bbcf2262b18051331d4fe1a3192471724574dbf6ea82cb833e4625',
     'hci_lmp_testing_cmd_handler': '62c269d8ca8b38ed378bd5861862304d856c361805bb1cf11a5c6c378de5dba4',
 }
 
 def device_misc(text):
-    return own_all(text, DEVICE_MISC_OWNED)
+    return leftovers(own_all(text, DEVICE_MISC_OWNED), 'device_manager.c', ())
 
 
 def classic_misc(text):
-    return own_all(text, CLASSIC_MISC_OWNED)
+    return leftovers(own_all(text, CLASSIC_MISC_OWNED), 'lmp_hci_cmd_parser.c', {'cpu_reset'})
+
+
+# lmp_utils.c: what bredr_link.c and the pairing code use.
+LMP_UTILS_OWNED = {
+    'endian_change': 'ce004fd52165d5aa9b33b370ce33488390c4561c9aaf69a34551f7e8e2576382',
+    '__get_access_addr': '20d892fb935170a14e8b5cff4758432131e9166a42c8a416fd30e4cc2abf9a58',
+}
+
+
+def lmp_utils(text):
+    return leftovers(own_all(text, LMP_UTILS_OWNED), 'lmp_utils.c', {
+        'lmp_bt_store_16', 'lmp_bt_store_32', 'lmp_net_store_16', 'lmp_net_store_32',
+        'lmp_bt_flip_addr', 'lmp_bt_flip_access_addr', 'lmp_char_for_nibble', 'lmp_bd_addr_to_str'})
 
 
 # Public Classic HCI procedures (lmp_hci_procedures.c).

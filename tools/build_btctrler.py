@@ -16,11 +16,13 @@ PIPELINE = {
     'lmp.c.o': (recover.lmp_member,),
     'lmp_rxtx.c.o': (recover.control_tx,),
     'lmp_hci.c.o': (recover.hci_procedures,),
+    'lmp_utils.c.o': (recover.lmp_utils,),
     'lmp_hci_cmd_parser.c.o': (recover.link_control, recover.classic_baseband, recover.link_policy, recover.classic_misc),
 }
 # Members owned C replaces completely: checked by their transforms above,
 # then left out of the archive.
-DROPPED = ('btctrler_task.c.o', 'lmp.c.o', 'lmp_rxtx.c.o', 'lmp_hci.c.o')
+DROPPED = ('btctrler_task.c.o', 'device_manager.c.o', 'lmp.c.o', 'lmp_hci.c.o',
+           'lmp_hci_cmd_parser.c.o', 'lmp_rxtx.c.o', 'lmp_utils.c.o')
 
 
 def main():

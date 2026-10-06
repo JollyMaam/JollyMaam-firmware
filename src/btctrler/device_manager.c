@@ -3,6 +3,46 @@
 #include <string.h>
 #include "btctrler/glue.h"
 
+/* The controller's identity and defaults (the SDK's device_manager.c):
+ * Core 5.4 (13), manufacturer Zhuhai Jieli (0x05d6). */
+__attribute__((section(".hci_controller_data"))) struct hci_parameter hci_param = {
+    .hci_version = 13, .hci_revision = 0x3120,
+    .lmp_pal_version = 13, .lmp_pal_subversion = 0x22bb,
+    .manufacturer_name = 0x05d6,
+    .local_supported_commands = {
+        0xff, 0xff, 0xff, 0x03, 0x80, 0xff, 0xff, 0xff, 0x3f, 0xff, 0xff, 0x1f, 0xf2, 0x0f, 0xe8, 0xfe,
+        0x3f, 0xf7, 0x8d, 0xff, 0x1c, 0x00, 0x00, 0x00, 0x7d, 0xf7, 0xff, 0xff, 0x7f,
+    },
+    .addr = { 0x57, 0x74, 0x78, 0xa2, 0x5a, 0xab },
+    .features = { 0xbf, 0xfe, 0x8d, 0xfa, 0xc8, 0x2d, 0x79, 0x83 },
+    .default_link_policy = 5,       /* role switch and sniff allowed */
+    .need_enc = 1,
+};
+
+/* Setters for the SDK's application layer.  LMP features page 0: byte 3
+ * bits 1-2 EDR ACL 2/3 Mb/s, bytes 4 and 5 bit 4 AFH classification as
+ * slave and as master, byte 7 bit 2 enhanced power control. */
+void set_bt_full_name_event(u8 en) { hci_param.full_name_event = en & 1; }
+void set_bt_need_enc(u8 enc) { hci_param.need_enc = enc & 1; }
+void set_bt_version(u8 version) { hci_param.hci_version = hci_param.lmp_pal_version = version; }
+void set_bt_afh_classs_enc(u8 afh_class)
+{
+    if (afh_class) { hci_param.features[4] |= 0x10; hci_param.features[5] |= 0x10; }
+    else { hci_param.features[4] &= ~0x10; hci_param.features[5] &= ~0x10; }
+}
+static void feature(int byte, u8 bit, u8 en)
+{
+    if (en) hci_param.features[byte] |= bit;
+    else hci_param.features[byte] &= ~bit;
+}
+void set_bt_enhanced_power_control(u8 en) { feature(7, 0x04, en); }
+void set_bt_data_rate_acl_3mbs_mode(u8 en) { feature(3, 0x04, en); }
+void set_bt_data_rate_acl_2mbs_mode(u8 en) { feature(3, 0x02, en); }
+
+/* The SDK printed the remote's manufacturer and version here (LE). */
+void hci_read_remote_version_information_show(const char *str, u8 version, u16 name, u16 subversion)
+{ (void)str; (void)version; (void)name; (void)subversion; }
+
 int hci_controller_baseband_cmd_handler(u16 opcode, const u8 *data, u32 len)
 {
     u32 required;
@@ -84,8 +124,6 @@ int hci_informational_parameters_cmd_handler(u16 opcode, const u8 *data, u32 len
 #ifdef UNITTEST
 #include <stdarg.h>
 #include "test.h"
-struct hci_parameter hci_param = { .hci_version = 13, .hci_revision = 12576, .lmp_pal_version = 13,
-    .manufacturer_name = 1494 /* Jieli, 0x05d6 */, .lmp_pal_subversion = 8891 };
 struct le_parameter le_param;
 int config_btctler_modules = 3, config_btctler_mode = 1, CONFIG_BREDR_INQUIRY, CONFIG_LMP_MASTER_ESCO_ENABLE;
 static u8 *const mask = hci_param.event_mask, *const features = hci_param.features,
