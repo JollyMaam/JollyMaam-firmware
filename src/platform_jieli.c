@@ -126,15 +126,25 @@ static OS_SEM wake_sem;
 static volatile u32 changed_us;
 static struct plat_stats stats;
 
-static HOT u32 read_lines(void)
+static u16 port_mask[4];                 /* the button pins on ports A-D */
+static u16 port_last[4];
+static u8 locks;                         /* lines still in their debounce lockout */
+
+static HOT u32 lines_from(const u32 port[4])
 {
-    u32 port[4] = { JL_PORTA->IN, JL_PORTB->IN, JL_PORTC->IN, JL_PORTD->IN };
     u32 down = 0;
     u32 i;
 
     for (i = 0; i < LINE_COUNT; i++)
         if (!(port[lines[i].gpio / 16] & BIT(lines[i].gpio % 16))) down |= BIT(i);
     return down;
+}
+
+static HOT u32 read_lines(void)
+{
+    u32 port[4] = { JL_PORTA->IN, JL_PORTB->IN, JL_PORTC->IN, JL_PORTD->IN };
+
+    return lines_from(port);
 }
 
 static HOT void raise(u32 ev)
@@ -160,14 +170,35 @@ static HOT void tick_isr(void)
         quarter = 0;
         ms_now++;
     }
-    raw = read_lines();
-    for (i = 0; i < LINE_COUNT; i++) {
-        if (line_lock[i]) {
-            line_lock[i]--;
-        } else if ((raw ^ line_state) & BIT(i)) {
-            line_state ^= BIT(i);
-            line_lock[i] = DEBOUNCE_TICKS;
-            changed = 1;
+    {
+        /* Most ticks: no pin moved and nothing in its lockout - done. */
+        u32 port[4] = { JL_PORTA->IN, JL_PORTB->IN, JL_PORTC->IN, JL_PORTD->IN };
+        u32 same = 1;
+
+        for (i = 0; i < 4; i++) {
+            u16 v = (u16)(port[i] & port_mask[i]);
+
+            if (v != port_last[i]) {
+                port_last[i] = v;
+                same = 0;
+            }
+        }
+        if (!same || locks) {
+            raw = lines_from(port);
+            locks = 0;
+            for (i = 0; i < LINE_COUNT; i++) {
+                if (line_lock[i]) {
+                    /* counted until the tick after it ends: that tick
+                     * compares the line again */
+                    line_lock[i]--;
+                    locks++;
+                } else if ((raw ^ line_state) & BIT(i)) {
+                    line_state ^= BIT(i);
+                    line_lock[i] = DEBOUNCE_TICKS;
+                    locks++;
+                    changed = 1;
+                }
+            }
         }
     }
     if (changed) {
@@ -184,7 +215,14 @@ static HOT void tick_isr(void)
 
 static void tick_start(void)
 {
+    u32 i;
+
+    for (i = 0; i < LINE_COUNT; i++) port_mask[lines[i].gpio / 16] |= (u16)BIT(lines[i].gpio % 16);
     line_state = read_lines();
+    port_last[0] = (u16)(JL_PORTA->IN & port_mask[0]);
+    port_last[1] = (u16)(JL_PORTB->IN & port_mask[1]);
+    port_last[2] = (u16)(JL_PORTC->IN & port_mask[2]);
+    port_last[3] = (u16)(JL_PORTD->IN & port_mask[3]);
     os_sem_create(&wake_sem, 0);
     JL_TIMER3->CON = BIT(14);
     JL_TIMER3->CNT = 0;
@@ -744,6 +782,9 @@ static void inputs_init(void)
     i2c_init();    /* d-pad up shares the UART2 input mux */
 }
 
+static u32 stop_next;
+static u8 stops[2];
+
 void plat_input(struct in_raw *raw)
 {
     u32 i;
@@ -754,8 +795,15 @@ void plat_input(struct in_raw *raw)
     raw->sticks_valid = sticks_valid;
     raw->trigger[0] = adc_get_value(ADC_TRIGGER_L2);
     raw->trigger[1] = adc_get_value(ADC_TRIGGER_R2);
-    raw->trigger_stop[0] = !rtc_port_pr_read(PR_STOP_L2);
-    raw->trigger_stop[1] = !rtc_port_pr_read(PR_STOP_R2);
+    /* The stop switches sit behind the slow P33 bus: every 4 ms is plenty
+     * for a switch at the end of the trigger's travel. */
+    if ((s32)(ms_now - stop_next) >= 0) {
+        stop_next = ms_now + 4;
+        stops[0] = !rtc_port_pr_read(PR_STOP_L2);
+        stops[1] = !rtc_port_pr_read(PR_STOP_R2);
+    }
+    raw->trigger_stop[0] = stops[0];
+    raw->trigger_stop[1] = stops[1];
     raw->changed_us = changed_us;
 }
 

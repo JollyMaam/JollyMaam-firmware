@@ -264,6 +264,29 @@ def functions(elf):
     return out
 
 
+def line_table(elf):
+    """Sorted (address, "file:line") rows of the ELF's DWARF line programs."""
+    from elftools.elf.elffile import ELFFile
+    rows = []
+    with open(elf, "rb") as f:
+        dwarf = ELFFile(f).get_dwarf_info()
+        for cu in dwarf.iter_CUs():
+            lp = dwarf.line_program_for_CU(cu)
+            if lp is None:
+                continue
+            names = lp["file_entry"]
+            base = 1 if lp.header.version < 5 else 0
+            for e in lp.get_entries():
+                st = e.state
+                if st is None or st.end_sequence:
+                    continue
+                i = st.file - base
+                name = names[i].name.decode() if 0 <= i < len(names) else "?"
+                rows.append((st.address, f"{name.rsplit('/', 1)[-1]}:{st.line}"))
+    rows.sort()
+    return rows
+
+
 def unit_group(unit):
     """Which part of the firmware a compilation unit belongs to."""
     u = unit.replace("\\", "/")
@@ -287,6 +310,9 @@ def profile(path, seconds, hz, top, elf, zoom=None, by=None):
     lows = [f[0] for f in funcs]
     per = collections.Counter()
     key = (lambda f: f[2]) if not by else (lambda f: f[3]) if by == "file" else (lambda f: unit_group(f[3]))
+    if by == "line":
+        rows = line_table(elf)
+        raddr = [r[0] for r in rows]
     for name in ("flash", "ram", "rom"):
         base, shift = h[name + "_begin"], h[name + "_shift"]
         for i, n in enumerate(h[name]):
@@ -295,6 +321,12 @@ def profile(path, seconds, hz, top, elf, zoom=None, by=None):
             a = base + (i << shift)
             if name == "rom":
                 per[f"rom+{a - base:#06x}"] += n
+                continue
+            if by == "line":
+                # the sample address is where the interrupt returns: the line
+                # of the instruction before it
+                k = bisect.bisect_right(raddr, a + (1 << shift) // 2 - 1) - 1
+                per[rows[k][1] if k >= 0 else f"{a:#x}"] += n
                 continue
             # a bucket's samples go to the functions it overlaps, by overlap
             end = a + (1 << shift)
@@ -669,7 +701,8 @@ def main():
     p.add_argument("--reset", action="store_true", help="stats: reset the counters after reading")
     p.add_argument("--hz", type=int, default=2000, help="profile: samples per second")
     p.add_argument("--top", type=int, default=40, help="profile: functions to show")
-    p.add_argument("--by", choices=["file", "group"], help="profile: add up per source file or per part")
+    p.add_argument("--by", choices=["file", "group", "line"],
+                   help="profile: add up per source file, per part, or per source line (zoom first)")
     p.add_argument("--elf", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build", "app.elf"),
                    help="profile: the running build's ELF")
     a = p.parse_args()
