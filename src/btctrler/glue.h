@@ -1,0 +1,80 @@
+/* What owned controller C needs beyond the recovered SDK header. */
+#ifndef BTCTRLER_GLUE_H
+#define BTCTRLER_GLUE_H
+
+#include "btctrler/sdk.h"
+#include "btctrler/config.h"
+
+#ifdef UNITTEST
+#define BTCTRLER_CONFIG          /* tests vary the configuration */
+#else
+#define BTCTRLER_CONFIG const
+#endif
+#define BTCTRLER_CONFIG_ASSER BTCTRLER_CONFIG
+
+/* lmp.c's file-static ACL slot; the archive build gives it external linkage. */
+extern struct lmp_connection lmp_acl_link[1];
+extern u8 lmp_dut_en, lmp_dut_phone_en;
+extern void (*lmp_update_rx_handler)(int, struct bredr_rx_bulk *);
+
+/* Entry points absent from the generated prototypes: owned C and SDK
+ * file-static helpers exported by the archive build. */
+void hci_command_process(u8 *cmd, int size);            /* hci_controller.c */
+void lmp_detach_check(void);                            /* lmp.c */
+void lmp_rx_handler(struct lmp_connection *conn);       /* lmp.c */
+void lmp_send_acl_u_packet_to_host(struct lmp_connection *conn);  /* lmp.c */
+void lmp_dhkey_check_accept(struct lmp_connection *conn);         /* lmp.c */
+void page_completed(u8 *addr, int err);                           /* lmp_inquiry_page.c */
+u8 lmp_cmd_is_match_size(u8 opcode, u8 *rx_data, u8 rx_len);     /* lmp.c */
+void lmp_send_aclu_en(struct lmp_connection *conn, u8 enable);    /* lmp.c */
+void link_conn_rx_remote_max_power_res(struct link_connection *link, u8 stop_incr);  /* lmp.c */
+
+/* The SDK's ASSERT() (hci_dispatch.c): with config_asser set, print and
+ * stop in cpu_assert_debug; otherwise reset the chip. */
+void btctrler_assert_failed(const char *what, int value);
+extern BTCTRLER_CONFIG_ASSER int config_asser;
+void cpu_assert_debug(void);
+
+/* The SDK's cpu.h probes: inside an interrupt handler; interrupts disabled
+ * or masked (IPMASK at the controller's level 6). */
+#ifndef UNITTEST
+static inline int cpu_in_irq(void)
+{
+    int flag;
+    __asm__ volatile("%0 = icfg" : "=r"(flag));
+    return flag & 0xff;
+}
+static inline int cpu_irq_disabled(void)
+{
+    int flag;
+    __asm__ volatile("%0 = icfg" : "=r"(flag));
+    return (flag & 0x300) != 0x300 || *(volatile u32 *)0x10f1a8 == 6;
+}
+#else
+int cpu_in_irq(void);
+int cpu_irq_disabled(void);
+#endif
+
+/* CPU and OS runtime, outside btctrler.a. */
+void local_irq_disable(void);
+void local_irq_enable(void);
+int os_sem_post(OS_SEM *sem);
+void os_time_dly(int ticks);
+void sys_timer_del(u16 id);
+int sys_timer_modify(u16 id, u32 msec);
+u16 sys_timeout_add(void *priv, void (*func)(void *priv), u32 msec);
+u16 sys_timer_add(void *priv, void (*func)(void *priv), u32 msec);
+void sys_timeout_del(u16 id);
+void p33_soft_reset(void);
+void *zalloc(u32 size);
+extern BTCTRLER_CONFIG int config_btctler_modules, config_btctler_mode, config_btctler_le_roles;
+extern BTCTRLER_CONFIG int CONFIG_BREDR_INQUIRY, CONFIG_LMP_MASTER_ESCO_ENABLE;
+extern const int sniff_long_interval, sniff_support_reset_anchor_point;   /* platform_jieli_sdk.c */
+
+/* QoS adapter (btstack_qos_jieli.c) and its controller-side calls. */
+void cyclone2_qos_setup(const u8 *parameters);
+u8 cyclone2_lmp_qos_send(u16 handle, u16 slots);
+u8 cyclone2_lmp_qos_answer(u16 handle, u8 status);
+extern u16 btctrler_qos_poll_slots;
+
+#endif

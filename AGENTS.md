@@ -1,7 +1,7 @@
 # Working on this repository
 
-GameSir Cyclone 2 firmware: the Jieli BR23 SDK's runtime and controller
-library (`btctrler.a`) with upstream BTstack as the host
+GameSir Cyclone 2 firmware: the Jieli BR23 SDK's runtime and an owned C
+Bluetooth controller with upstream BTstack as the host
 (`/work/cyclone2-btstack`, unmodified `master`).  The design is in [architecture/](architecture/README.md); hardware
 references are in [docs/](docs/README.md).
 
@@ -42,8 +42,10 @@ What can be tuned by hand: Home gestures, timeouts and LED scenes in
 `src/settings_ux.c`; setting defaults (the field table) and the default
 palette in `src/settings.c`.  At run time over USB with `padtool set`.
 
-`src/build_config.h` selects controller-archive patches, applied to a build
-copy, never the SDK.  The linker's stack-size warnings are a vendor lint.
+The controller in `src/btctrler/` links directly; no controller archive is built or
+linked. `make controller-ir` and `tools/btctrler/` inspect the pristine SDK for
+comparison with the owned implementation. The shared SDK remains unmodified.
+The linker's stack-size warnings are a vendor lint.
 `CODE_LIMIT` fixes the VM boundary; moving it moves the settings store.
 
 ## Measured constraints worth preserving

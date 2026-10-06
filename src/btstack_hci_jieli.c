@@ -1,4 +1,4 @@
-/* BTstack on the Jieli BR23 controller library (btctrler.a): the HCI
+/* BTstack on the owned Jieli BR23 controller: the HCI
  * transport, the run loop, and the few controller calls the host needs.
  * BTstack headers only; the controller's entry points are declared here. */
 #include <string.h>
@@ -8,6 +8,7 @@
 #include "hci.h"
 #include "hci_transport.h"
 #include "pad.h"
+#include "btstack_qos_jieli.h"
 
 extern int btctrler_task_init(const void *transport, const void *config);
 extern int btctrler_task_ready(void);
@@ -29,11 +30,13 @@ static volatile u8 exit_requested;
 
 /* ---- controller --------------------------------------------------------- */
 
-/* Called by btctrler.a for every event and ACL packet; the packet is only
+/* Called by the controller for every event and ACL packet; the packet is only
  * valid during the call. */
 int hci_packet_handler(u8 type, u8 *packet, u16 size)
 {
     u8 next;
+
+    if (type == HCI_EVENT_PACKET) cyclone2_qos_link_event(packet, size);
 
     /* HCI Reset puts the factory address back: reapply ours before BTstack
      * reads it. */
@@ -66,6 +69,7 @@ void hci_jieli_drop_link(void)
     if (!rx_active) return;
     rx_active = 0;
     btctrler_task_exit();
+    cyclone2_qos_reset();
     controller_up = 0;
 }
 
@@ -103,6 +107,7 @@ void hci_jieli_close(void)
 {
     if (controller_up) btctrler_task_exit();
     controller_up = 0;
+    cyclone2_qos_reset();
 }
 
 static int transport_open(void)
@@ -130,6 +135,14 @@ static void transport_register(void (*handler)(u8 type, u8 *packet, u16 size))
 static int transport_send(u8 type, u8 *packet, int size)
 {
     if (type == HCI_SCO_DATA_PACKET) return -1;
+    if (type == HCI_COMMAND_DATA_PACKET && size >= 3 &&
+        little_endian_read_16(packet, 0) == HCI_OPCODE_HCI_QOS_SETUP &&
+        (packet[2] != 20 || size != 23)) {
+        u8 ev[] = { HCI_EVENT_COMMAND_STATUS, 4, 0x12, 1, packet[0], packet[1] };
+        hci_packet_handler(HCI_EVENT_PACKET, ev, sizeof(ev));
+        return 0;
+    }
+
     /* The controller lists Read Encryption Key Size as supported but never
      * answers it, and BTstack holds every secured channel until it does:
      * answer for it (E0 always uses the full 16-byte key). */
@@ -193,6 +206,7 @@ static void execute(void)
     s32 next;
 
     while (!exit_requested) {
+        cyclone2_qos_tick();
         btstack_run_loop_base_poll_data_sources();
         btstack_run_loop_base_execute_callbacks();
         btstack_run_loop_base_process_timers(now_ms());
@@ -336,9 +350,3 @@ void btstack_assert_failed(const char *file, u16 line)
     }
 }
 
-/* The patched controller (build_config.h) calls this at its markers; the
- * bring-up log it fed is gone. */
-void cyclone2_bringup_record(u32 code)
-{
-    (void)code;
-}

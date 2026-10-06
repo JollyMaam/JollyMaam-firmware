@@ -9,4 +9,4 @@
 /tags
 *.swp
 *~
-tools/__pycache__/
+__pycache__/

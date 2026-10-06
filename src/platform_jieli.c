@@ -115,7 +115,9 @@ static const struct line lines[] = {
 #define LINE_COUNT (sizeof(lines) / sizeof(lines[0]))
 
 static volatile u32 ms_now;
-static volatile u8 quarter;
+/* Keep the ISR divider in its own word: byte globals may share a
+ * compiler-merged word with task-written flags on this toolchain. */
+static volatile u32 quarter;
 static u32 line_state;
 static u8 line_lock[LINE_COUNT];
 static volatile u32 events;

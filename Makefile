@@ -1,4 +1,5 @@
 O := build
+comma := ,
 .DEFAULT_GOAL := all
 SDK := /shared/github.com-Jieli-Tech/fw-AC63_BT_SDK
 TOOL_DIR := /shared/jieli-linux-toolchains-20250324.1/pi32v2/bin
@@ -31,12 +32,10 @@ SDK_USED := \
 	cpu/br23/setup.c
 
 LLVM_AR := $(TOOL_DIR)/../../common/bin/llvm-ar
-VENDOR_BTCTRLR := $(SDK)/cpu/br23/liba/btctrler.a
-PATCHED_BTCTRLR := $O/sdk-libs/btctrler.a
-ARCHIVES := $(subst $(VENDOR_BTCTRLR),$(PATCHED_BTCTRLR),$(SDK_ARCHIVES_MINIMAL))
+ARCHIVES := $(SDK_ARCHIVES_MINIMAL)
 
-# Upstream BTstack (master), unmodified.  btctrler.a exports a few of the same
-# names; BTstack's copies are renamed.
+# Upstream BTstack (master), unmodified. The owned controller exports a few
+# of the same names; BTstack's copies are renamed.
 BTSTACK := /work/cyclone2-btstack
 BTSTACK_USED := \
 	src/btstack_hid_parser.c src/btstack_linked_list.c src/btstack_memory.c \
@@ -53,7 +52,7 @@ BTSTACK_RENAMES := -Dhci_send_cmd=btstack_hci_send_cmd \
 	-Dnibble_for_char=btstack_nibble_for_char
 BTSTACK_INCLUDES := -I$(BTSTACK)/src -I$(BTSTACK)/src/classic
 
-SOURCES := $(wildcard src/*.c)
+SOURCES := $(wildcard src/*.c src/btctrler/*.c)
 OBJECTS := $(SOURCES:%.c=$O/%.o) $(SDK_USED:%.c=$O/sdk/%.o) $(BTSTACK_USED:%.c=$O/btstack/%.o)
 
 ifeq ($(V),1)
@@ -75,6 +74,9 @@ clean:
 
 $(OBJECTS) $O/sdk.ld: Makefile sdk-br23.mk $(wildcard src/sdkconfig/*)
 
+# The SDK flags include -w; owned controller C must not call undeclared
+# functions all the same.
+$O/src/btctrler/%.o: CFLAGS += -Werror=implicit-function-declaration
 $O/src/%.o: src/%.c
 	@mkdir -p $(@D)
 	@echo [CC] $<
@@ -112,11 +114,6 @@ $O/jlnewfw: tools/jlnewfw.c
 	@mkdir -p $(@D)
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) $< -o $@
 
-$(PATCHED_BTCTRLR): $(VENDOR_BTCTRLR) tools/patch_btctrler.py src/build_config.h
-	@mkdir -p $(@D)
-	@echo [PATCH] $@
-	$(Q)$(PYTHON) tools/patch_btctrler.py $< $@ --clang $(CC) --ar $(LLVM_AR) --config src/build_config.h
-
 # The SDK's linker script, with the heap ending below the retained RAM and the
 # controller's RAM kept clear of the MaskROM boot token.
 $O/sdk_ld.c: $(SDK)/cpu/br23/sdk_ld.c Makefile $(wildcard src/sdkconfig/*.h)
@@ -137,14 +134,15 @@ $O/isd_config.ini: $(SDK)/cpu/br23/tools/isd_config_rule.c $(wildcard src/sdkcon
 	$(Q)$(CC) $(CFLAGS) $(DEFINES) $(INCLUDES) -D__LD__ -E -P $< -o $@
 	$(Q)sed -i -e /^$$/d -e 's/^PID = .*;/PID = GS_C2_ADC_DEVICE;/' $@
 
-# Host unit tests: every src/*.c with a UNITTEST block.
-TESTS := $(shell grep -l 'ifdef UNITTEST' src/*.c)
+# Host unit tests: every source with a UNITTEST block.
+TESTS := $(shell grep -l 'ifdef UNITTEST' src/*.c src/btctrler/*.c)
 test: $(TESTS:src/%.c=$O/test/%)
 	$(Q)for t in $^; do $$t || exit 1; done
 
-$O/test/%: src/%.c src/pad.h src/test.h
+$O/test/%: src/%.c src/pad.h src/test.h $(wildcard src/btctrler/*.h)
 	@mkdir -p $(@D)
-	$(Q)$(HOST_CC) $(HOST_CFLAGS) -DUNITTEST -Isrc $< -o $@
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) -DUNITTEST -Isrc -iquote src $< -o $@ \
+	  $(if $(findstring btctrler/,$*),-no-pie -Wl$(comma)--unresolved-symbols=ignore-all)
 
 $O/src/usb.o: $(wildcard .git/HEAD .git/index)
 

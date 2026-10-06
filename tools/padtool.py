@@ -185,7 +185,7 @@ def show_link(k):
               f"{k['acl_buffers']} ACL buffers")
     elif k["transport"] == 1:
         mode = f"sniff {k['interval'] * 0.625:g} ms" if k["mode"] == 2 else f"mode {k['mode']}"
-        print(f"link: Classic {mode}, QoS latency {k['poll_us']} us, {k['acl_buffers']} ACL buffers")
+        print(f"link: Classic {mode}, accepted QoS poll {k['poll_us']} us, {k['acl_buffers']} ACL buffers")
     else:
         print("link: none")
 
