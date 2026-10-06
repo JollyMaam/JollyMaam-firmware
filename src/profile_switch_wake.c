@@ -88,24 +88,24 @@ struct link_task;
 struct bredr_tx_bulk;
 struct link_task_ops { int (*resume)(struct link_task *); int (*suspend)(struct link_task *); };
 
-extern struct ctrl_frame *bredr_bd_get_frame(void);
-extern void bredr_bd_put_frame(struct ctrl_frame *f);
-extern void bredr_bd_frame_enable(struct ctrl_frame *f, u8 flag, u8 set_en);
-extern void bredr_bd_frame_disable(struct ctrl_frame *f);
-extern void __write_reg_bdaddr(struct ctrl_frame *f, const u8 *address);
-extern void __write_reg_bch(struct ctrl_frame *f, const u8 *bch);
-extern void __write_reg_format(struct ctrl_frame *f, u8 train, u8 format);
-extern void __write_reg_miscntl(struct ctrl_frame *f, u8 ptt, u8 lt_addr);
-extern void __write_reg_linkcntl(struct ctrl_frame *f, int index, int value);
-extern void __write_reg_clkoffset(struct ctrl_frame *f, int clk_offset);
-extern void __write_reg_txinfo(struct ctrl_frame *f, int index, u8 *data, int len, int llid, int flow, int packet);
-extern void __clean_reg_txempty(struct ctrl_frame *f, int index);
-extern u16 *get_packet_type(int len, u8 edr, u8 slot);
-extern struct bredr_tx_bulk *bredr_tx_bulk_alloc(int size);
-extern void bredr_tx_bulk_free(struct bredr_tx_bulk *b);
-extern int link_task_idle_disable(void);
-extern void link_task_add(struct link_task *t);
-extern void link_task_del(struct link_task *t);
+extern struct ctrl_frame *BTCTRLER_BIN_bredr_bd_get_frame(void) __asm__("bredr_bd_get_frame");
+extern void BTCTRLER_BIN_bredr_bd_put_frame(struct ctrl_frame *f) __asm__("bredr_bd_put_frame");
+extern void BTCTRLER_BIN_bredr_bd_frame_enable(struct ctrl_frame *f, u8 flag, u8 set_en) __asm__("bredr_bd_frame_enable");
+extern void BTCTRLER_BIN_bredr_bd_frame_disable(struct ctrl_frame *f) __asm__("bredr_bd_frame_disable");
+extern void BTCTRLER_BIN___write_reg_bdaddr(struct ctrl_frame *f, const u8 *address) __asm__("__write_reg_bdaddr");
+extern void BTCTRLER_BIN___write_reg_bch(struct ctrl_frame *f, const u8 *bch) __asm__("__write_reg_bch");
+extern void BTCTRLER_BIN___write_reg_format(struct ctrl_frame *f, u8 train, u8 format) __asm__("__write_reg_format");
+extern void BTCTRLER_BIN___write_reg_miscntl(struct ctrl_frame *f, u8 ptt, u8 lt_addr) __asm__("__write_reg_miscntl");
+extern void BTCTRLER_BIN___write_reg_linkcntl(struct ctrl_frame *f, int index, int value) __asm__("__write_reg_linkcntl");
+extern void BTCTRLER_BIN___write_reg_clkoffset(struct ctrl_frame *f, int clk_offset) __asm__("__write_reg_clkoffset");
+extern void BTCTRLER_BIN___write_reg_txinfo(struct ctrl_frame *f, int index, u8 *data, int len, int llid, int flow, int packet) __asm__("__write_reg_txinfo");
+extern void BTCTRLER_BIN___clean_reg_txempty(struct ctrl_frame *f, int index) __asm__("__clean_reg_txempty");
+extern u16 *BTCTRLER_BIN_get_packet_type(int len, u8 edr, u8 slot) __asm__("get_packet_type");
+extern struct bredr_tx_bulk *BTCTRLER_BIN_bredr_tx_bulk_alloc(int size) __asm__("bredr_tx_bulk_alloc");
+extern void BTCTRLER_BIN_bredr_tx_bulk_free(struct bredr_tx_bulk *b) __asm__("bredr_tx_bulk_free");
+extern int BTCTRLER_BIN_link_task_idle_disable(void) __asm__("link_task_idle_disable");
+extern void BTCTRLER_BIN_link_task_add(struct link_task *t) __asm__("link_task_add");
+extern void BTCTRLER_BIN_link_task_del(struct link_task *t) __asm__("link_task_del");
 extern int hci_jieli_open(void);
 extern void hci_jieli_close(void);
 
@@ -126,7 +126,7 @@ static u8 running;
 static int resume(struct link_task *t)
 {
     (void)t;
-    if (frame) bredr_bd_frame_enable(frame, 0, 1);
+    if (frame) BTCTRLER_BIN_bredr_bd_frame_enable(frame, 0, 1);
     running = 1;
     return 0;
 }
@@ -134,7 +134,7 @@ static int resume(struct link_task *t)
 static int suspend(struct link_task *t)
 {
     (void)t;
-    if (frame) bredr_bd_frame_disable(frame);
+    if (frame) BTCTRLER_BIN_bredr_bd_frame_disable(frame);
     running = 0;
     return 0;
 }
@@ -147,9 +147,9 @@ static int radio_start(const u8 address[6], const u8 parity[5], u8 seed, const u
     u16 *type, len = BODY;
     u8 *payload;
 
-    if (!(frame = bredr_bd_get_frame())) return -1;
-    if (!(bulk = bredr_tx_bulk_alloc(BODY))) {
-        bredr_bd_put_frame(frame);
+    if (!(frame = BTCTRLER_BIN_bredr_bd_get_frame())) return -1;
+    if (!(bulk = BTCTRLER_BIN_bredr_tx_bulk_alloc(BODY))) {
+        BTCTRLER_BIN_bredr_bd_put_frame(frame);
         frame = NULL;
         return -1;
     }
@@ -157,25 +157,25 @@ static int radio_start(const u8 address[6], const u8 parity[5], u8 seed, const u
     memcpy(payload, body, BODY);
     if ((u32)payload - BB_BASE >= 32767) {   /* txinfo would reset the chip */
         util_log("wake: buffer out of the baseband window");
-        bredr_tx_bulk_free(bulk);
+        BTCTRLER_BIN_bredr_tx_bulk_free(bulk);
         bulk = NULL;
-        bredr_bd_put_frame(frame);
+        BTCTRLER_BIN_bredr_bd_put_frame(frame);
         frame = NULL;
         return -1;
     }
-    __write_reg_bdaddr(frame, address);
-    __write_reg_bch(frame, parity);
-    __write_reg_miscntl(frame, 0, 7);
-    __write_reg_clkoffset(frame, 0);
-    __write_reg_format(frame, 0, 2);
-    __write_reg_linkcntl(frame, 0, 16401);
-    __write_reg_linkcntl(frame, 1, 16385);
+    BTCTRLER_BIN___write_reg_bdaddr(frame, address);
+    BTCTRLER_BIN___write_reg_bch(frame, parity);
+    BTCTRLER_BIN___write_reg_miscntl(frame, 0, 7);
+    BTCTRLER_BIN___write_reg_clkoffset(frame, 0);
+    BTCTRLER_BIN___write_reg_format(frame, 0, 2);
+    BTCTRLER_BIN___write_reg_linkcntl(frame, 0, 16401);
+    BTCTRLER_BIN___write_reg_linkcntl(frame, 1, 16385);
     REG16(frame, F_BUFCTL) = (u16)((REG16(frame, F_BUFCTL) & ~0x0f00) | 0x0100);
-    type = get_packet_type(BODY, 0, 5);
+    type = BTCTRLER_BIN_get_packet_type(BODY, 0, 5);
     if (len > type[0]) len = type[0];
-    __write_reg_txinfo(frame, 0, payload, len, 2, 1, type[1]);
-    __clean_reg_txempty(frame, 0);
-    __clean_reg_txempty(frame, 1);
+    BTCTRLER_BIN___write_reg_txinfo(frame, 0, payload, len, 2, 1, type[1]);
+    BTCTRLER_BIN___clean_reg_txempty(frame, 0);
+    BTCTRLER_BIN___clean_reg_txempty(frame, 1);
     REG16(frame, F_BUFCTL) = (u16)((REG16(frame, F_BUFCTL) & ~0x0022) | 0x0001);
     REG16(frame, F_WINCNTL) = seed;
     REG8(frame, F_TXFREQ) = freq;
@@ -187,20 +187,20 @@ static int radio_start(const u8 address[6], const u8 parity[5], u8 seed, const u
     *(u16 *)(task + 6) = 4096;   /* type */
     *(u16 *)(task + 8) = INTERVAL;
     *(const struct link_task_ops **)(task + 24) = &task_ops;
-    link_task_idle_disable();
-    link_task_add((struct link_task *)task);
+    BTCTRLER_BIN_link_task_idle_disable();
+    BTCTRLER_BIN_link_task_add((struct link_task *)task);
     return 0;
 }
 
 static void radio_stop(void)
 {
     if (!frame) return;
-    link_task_del((struct link_task *)task);
-    if (running) bredr_bd_frame_disable(frame);
+    BTCTRLER_BIN_link_task_del((struct link_task *)task);
+    if (running) BTCTRLER_BIN_bredr_bd_frame_disable(frame);
     running = 0;
-    bredr_bd_put_frame(frame);
+    BTCTRLER_BIN_bredr_bd_put_frame(frame);
     frame = NULL;
-    if (bulk) bredr_tx_bulk_free(bulk);
+    if (bulk) BTCTRLER_BIN_bredr_tx_bulk_free(bulk);
     bulk = NULL;
 }
 

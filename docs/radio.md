@@ -20,9 +20,13 @@ interfaces, not direct proof of over-the-air behavior.
   over up to ten packets; one waiting in them cannot be replaced by a newer
   report (measured 2026-09-29: unlimited hand-off gave a 63 ms median
   button-to-host latency against a Linux host, two in flight 23.5 ms).
-- QoS Setup (guaranteed, 1250 µs latency) completes with the values asked for,
-  reported with event code 0x01. A Linux host (master after its role switch)
-  still delivered the reports in clumps about 25 ms apart.
+- The unpatched SDK's QoS Setup handler echoes the values asked for in event
+  code 0x01, without sending an LMP QoS request (recovered from the archive,
+  2026-10-06). The earlier 1250 µs "guaranteed" completion was therefore not
+  evidence of negotiation; Linux still delivered reports in clumps about
+  25 ms apart. Explicitly invoking the existing LMP QoS sender produced a
+  host-side successful completion at 3750 µs. The app's current adapter and
+  its supported scope are described in [bluetooth.md](../architecture/bluetooth.md).
 - Transmit power comes from the TXSET table (0xF010C2 at step 0 up to
   0xFFFFC2 at step 4); TXPWR holds one value for every step. The steps start
   from what bt_max_pwr_set() stores, 0 until it is called; in normal mode

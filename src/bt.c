@@ -86,7 +86,7 @@ static hci_con_handle_t con_handle;
 static u32 unsniff_next;
 static u16 sniff_slots;                  /* the host's sniff interval; 0: active */
 static u8 sniff_tries;                   /* our own sniff requests this link */
-static u32 sniff_next;
+static u32 sniff_next;                   /* not before: 2 s of active mode first */
 static btstack_data_source_t tx_source;
 static btstack_packet_callback_registration_t hci_registration, sm_registration;
 static u8 sdp_hid[720];
@@ -416,9 +416,10 @@ static int sniff_too_slow(void)
     return flight_n && plat_us() - flight[0].sent_us > SNIFF_STALL_US;
 }
 
-/* Ask the host for sniff (slot settings sniff_max, sniff_min), from active
- * mode only, three tries a link.  A Linux host answers the pad's request
- * with its own interval (asked 8 -> 12, 4 -> 6; docs/radio.md). */
+/* Ask the host for sniff (slot settings sniff_max, sniff_min), after 2 s
+ * of active mode - a host that sniffs by itself (a Switch, within ~50 ms
+ * of the link) is never asked - and three tries a link.  A Linux host
+ * answers the pad's request with its own interval (asked 8 -> 12). */
 static void request_sniff(void)
 {
     u16 max = link.sniff_max, min = link.sniff_min ? link.sniff_min : link.sniff_max;
@@ -440,8 +441,15 @@ static void unsniff(void)
     if (le || !acl_up || (s32)(plat_ms() - unsniff_next) < 0) return;
     c = hci_connection_for_handle(con_handle);
     if (!c || !c->connection_mode) return;
-    if (flight_n && plat_us() - flight[0].sent_us > SNIFF_STALL_US)
-        util_log("bt: report waiting %u ms in sniff: leaving it", (plat_us() - flight[0].sent_us) / 1000);
+    if (flight_n && plat_us() - flight[0].sent_us > SNIFF_STALL_US) {
+        static u32 logged;               /* once a second, not every try */
+
+        if (!logged || plat_ms() - logged >= 1000) {
+            logged = plat_ms() | 1;
+            util_log("bt: report waiting %u ms in sniff %u slots: leaving it",
+                     (plat_us() - flight[0].sent_us) / 1000, sniff_slots);
+        }
+    }
     hci_send_cmd(&hci_exit_sniff_mode, con_handle);
     unsniff_next = plat_ms() + UNSNIFF_MS;
 }
@@ -651,12 +659,13 @@ static void tx_poll(btstack_data_source_t *ds, btstack_data_source_callback_type
         data_length_pending = 0;
         hci_send_cmd(&hci_le_set_data_length, con_handle, 251, 2120);
     }
-    /* A Classic host polls a peripheral every 25 ms by default, which
-     * delivered reports in bursts: ask for a 1.25 ms poll interval. */
+    /* Ask once after HID is ready. QoS failure does not stop input. */
     if (qos_pending && acl_up && hci_can_send_command_packet_now()) {
         qos_pending = 0;
-        if (link.poll_us)
-            hci_send_cmd(&hci_qos_setup, con_handle, 0, 2, 8000, 0, (u32)link.poll_us, 0xffffffffu);
+        if (link.poll_us) {
+            util_log("bt: qos request %u us (best effort)", link.poll_us);
+            hci_send_cmd(&hci_qos_setup, con_handle, 0, 1, 0, 0, (u32)link.poll_us, 0xffffffffu);
+        }
     }
     if (sniff_too_slow()) unsniff();
     request_sniff();
@@ -696,6 +705,7 @@ static void unlinked(u8 reason)
     hid_cid = 0;
     send_pending = 0;
     acl_up = 0;
+    qos_pending = 0;
     flight_n = 0;
     sniff_slots = 0;
     sniff_tries = 0;
@@ -917,19 +927,26 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
         util_log("bt: le parameter request %s",
                  l2cap_event_connection_parameter_update_response_get_result(packet) ? "refused" : "accepted");
         break;
-    case 0x01:   /* this controller answers QoS Setup with code 0x01 (docs/radio.md) */
-        if (packet[1] < 19) break;
-        /* fall through */
     case HCI_EVENT_QOS_SETUP_COMPLETE:
-        /* status, handle, flags, service type, token rate, peak bandwidth,
-         * latency, delay variation */
-        util_log("bt: qos status 0x%02x latency %u us", packet[2], little_endian_read_32(packet, 15));
+        if (size < 23 || packet[1] != 21 || le || !acl_up ||
+            little_endian_read_16(packet, 3) != con_handle) break;
+        util_log("bt: qos status 0x%02x accepted poll %u us", packet[2], little_endian_read_32(packet, 15));
         if (packet[2]) break;
         plat_lock();
         timing.link.poll_us = little_endian_read_32(packet, 15);
         plat_unlock();
         break;
+    case HCI_EVENT_QOS_VIOLATION:
+        if (size < 4 || le || !acl_up || little_endian_read_16(packet, 2) != con_handle) break;
+        util_log("bt: qos no longer met");
+        plat_lock();
+        timing.link.poll_us = 0;
+        plat_unlock();
+        break;
     case HCI_EVENT_COMMAND_STATUS:
+        if (hci_event_command_status_get_command_opcode(packet) == HCI_OPCODE_HCI_QOS_SETUP &&
+            hci_event_command_status_get_status(packet))
+            util_log("bt: qos request refused 0x%02x", hci_event_command_status_get_status(packet));
         if ((hci_event_command_status_get_command_opcode(packet) == HCI_OPCODE_HCI_SNIFF_MODE ||
              hci_event_command_status_get_command_opcode(packet) == HCI_OPCODE_HCI_EXIT_SNIFF_MODE) &&
             hci_event_command_status_get_status(packet))
@@ -945,6 +962,7 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
         timing.link.interval = hci_event_mode_change_get_mode(packet) ? hci_event_mode_change_get_interval(packet) : 0;
         plat_unlock();
         sniff_slots = hci_event_mode_change_get_mode(packet) == 2 ? hci_event_mode_change_get_interval(packet) : 0;
+        if (!sniff_slots) sniff_next = plat_ms() + 2000;
         break;
     case ATT_EVENT_CAN_SEND_NOW:
         send_now();
@@ -959,6 +977,7 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
                 break;
             }
             hid_cid = hid_subevent_connection_opened_get_hid_cid(packet);
+            sniff_next = plat_ms() + 2000;
             linked = 1;
             qos_pending = 1;
             input_pending = 0;

@@ -97,7 +97,7 @@ static const struct set_field slot_fields[] = {
     { .id = 18, .flags = F_DEV, .name = "in_flight", .type = T_NUMBER, .max = 8, FIELD(link.in_flight),
       .def = ALL(2), .help = "input reports in the controller at once; 0: 2" },
     { .id = 19, .flags = F_DEV, .name = "poll_us", .type = T_NUMBER, .max = 40000, FIELD(link.poll_us),
-      .def = ALL(1250), .help = "Classic: the poll interval asked for (QoS latency); 0: none" },
+      .def = ALL(3750), .help = "Classic: Best Effort poll request in us (3750 minimum, rounded down to 1250 steps); 0: none" },
     { .id = 23, .flags = F_DEV, .name = "pull_delay_us", .type = T_NUMBER, .max = 5000, FIELD(pull_delay_us),
       .def = ALL(0), .help = "build a report this long after the radio asks for it (fresher, "
                              "until it misses the connection event)" },

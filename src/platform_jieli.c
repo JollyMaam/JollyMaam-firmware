@@ -40,8 +40,8 @@
 #define USB_VENDOR_OP   0xf5
 #define USB_SOF_STALE_MS 250
 
-extern void bt_pll_para(u32 osc, u32 sys, u8 low_power, u8 xosc);
-extern void bt_max_pwr_set(u8 pwr, u8 pg_pwr, u8 iq_pwr, u8 ble_pwr);
+extern void BTCTRLER_BIN_bt_pll_para(u32 osc, u32 sys, u8 low_power, u8 xosc) __asm__("bt_pll_para");
+extern void BTCTRLER_BIN_bt_max_pwr_set(u8 pwr, u8 pg_pwr, u8 iq_pwr, u8 ble_pwr) __asm__("bt_max_pwr_set");
 extern void nvram_set_boot_state(u32 state);
 extern void flush_dcache(const void *address, u32 size);
 extern void flushinv_dcache(const void *address, u32 size);
@@ -115,7 +115,9 @@ static const struct line lines[] = {
 #define LINE_COUNT (sizeof(lines) / sizeof(lines[0]))
 
 static volatile u32 ms_now;
-static volatile u8 quarter;
+/* Keep the ISR divider in its own word: byte globals may share a
+ * compiler-merged word with task-written flags on this toolchain. */
+static volatile u32 quarter;
 static u32 line_state;
 static u8 line_lock[LINE_COUNT];
 static volatile u32 events;
@@ -1200,9 +1202,9 @@ static void ctl_thread(void *arg)
 {
     (void)arg;
     clk_set("sys", BT_NORMAL_HZ);
-    bt_pll_para(TCFG_CLOCK_OSC_HZ, clk_get("sys"), 0, 0);
+    BTCTRLER_BIN_bt_pll_para(TCFG_CLOCK_OSC_HZ, clk_get("sys"), 0, 0);
     /* Without this the radio stays at its lowest step, 20 dB below stock. */
-    bt_max_pwr_set(10, 5, 8, 6);
+    BTCTRLER_BIN_bt_max_pwr_set(10, 5, 8, 6);
     util_log_init();
     leds_init();
     inputs_init();

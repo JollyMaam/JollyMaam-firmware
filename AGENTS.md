@@ -42,8 +42,8 @@ What can be tuned by hand: Home gestures, timeouts and LED scenes in
 `src/settings_ux.c`; setting defaults (the field table) and the default
 palette in `src/settings.c`.  At run time over USB with `padtool set`.
 
-`src/build_config.h` selects controller-archive patches, applied to a build
-copy, never the SDK.  The linker's stack-size warnings are a vendor lint.
+`tools/build_btctrler.py` and `tools/btctrler/` build the retained controller archive with owned
+policy extraction and the tested fixes, applied to a build copy, never the SDK.  The linker's stack-size warnings are a vendor lint.
 `CODE_LIMIT` fixes the VM boundary; moving it moves the settings store.
 
 ## Measured constraints worth preserving

@@ -197,7 +197,7 @@ struct bt_link {
     u16 le_interval_min, le_interval_max;    /* 1.25 ms units, requested after encryption */
     u8 le_phy;               /* 0 leave it; 1 ask for 2M */
     u8 in_flight;            /* input reports in the controller at once */
-    u16 poll_us;             /* Classic: QoS latency asked for */
+    u16 poll_us;             /* Classic: Best Effort poll interval requested (us) */
     u8 tx_power;             /* 0-5 shown as 1-6: the controller's steps 0-4, then
                                 step 4 from its pro table */
     u16 sniff_max, sniff_min; /* Classic: ask the host for sniff (slots); 0: don't */
@@ -439,7 +439,7 @@ struct bt_link_info {
     u16 tx_octets, tx_time;      /* LE: data length the controller sends with */
     u16 rx_octets, rx_time;      /* LE: and takes */
     u16 acl_buffers;             /* the controller's ACL packets (LE ones on LE) */
-    u32 poll_us;                 /* Classic: the QoS latency granted */
+    u32 poll_us;                 /* Classic: accepted poll interval (us), 0 unknown */
 };
 
 struct bt_timing {

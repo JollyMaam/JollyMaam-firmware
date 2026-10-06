@@ -36,6 +36,10 @@ field description): `report_hz`, `le_interval_min/max`, `le_phy`,
 for measuring the link; `padtool fields` and `get` leave them out unless
 `--dev` is given or they are set, and `set` notes it.
 
+`poll_us` defaults to 3750 µs for Classic Best Effort QoS. Zero disables the
+request; explicit older values below 3750 are refused without stopping input.
+Accepted intervals and request failures are reported by the Bluetooth layer.
+
 **Colours** are `{palette entry, brightness level}`: the entry is an RGB at
 full brightness, scaled by one of 16 levels (0, 1, 2, 3, 4, 5, then about 1.4
 times apart up to 255): the LEDs are bright, so the low end matters most.  Sixteen entries; 0 and 1 are the

@@ -15,6 +15,7 @@ is branch `btstack`).
 | [leds.md](leds.md) | what the lights show and how |
 | [profiles.md](profiles.md) | the profile interface, and each console/host profile |
 | [bluetooth.md](bluetooth.md) | `bt.c` over BTstack, and the BTstack to controller transport |
+| [btctrler.md](btctrler.md) | owned controller policy C, retained SDK bitcode, ABI and inspection artifacts |
 | [settings.md](settings.md) | settings, bonds and calibration storage |
 | [usb.md](usb.md) | USB: stock-pad upgrades, firmware updates, logs, settings |
 | [platform.md](platform.md) | the boundary to the Jieli SDK and board, and porting |

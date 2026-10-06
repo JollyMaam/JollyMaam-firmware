@@ -1,6 +1,6 @@
 # Bluetooth
 
-Two files:
+Host and controller adapter files:
 
 * `bt.c` (prefix `bt_`) – the Bluetooth host, written against upstream
   BTstack only.  It turns a profile's `struct bt_device` into SDP records, a
@@ -14,6 +14,21 @@ Two files:
   about 3 KB, if that is ever needed: they make `DISABLE_CLASSIC_GAP_CLIENT`
   and `DISABLE_BTSTACK_CRYPTO_CMAC_CCM` (set in `btstack_config.h`) take
   effect.
+
+* `btstack_qos_jieli.c` – the narrow Classic Best Effort QoS adapter. Small
+  hooks in the build copy of `btctrler.a` route HCI QoS Setup and validated
+  ordinary LMP replies/notifications here. Owned C sends requests through the
+  retained packet formatter; upstream BTstack is unchanged.
+
+* `btctrler_link_policy.c` – owned C implementation of the SDK's HCI link
+  policy dispatch boundary, QoS sending/configuration, request/response wrappers,
+  supervision policy and eSCO exclusion.
+  `btctrler_sdk_abi.h` declares the recovered SDK calls and opaque connection
+  accessors. See [the retained controller archive](btctrler.md).
+
+* `btctrler_address.c` – owned SDK address lookup and HCI command routing;
+  replaces the address fallback IR patch with the policy used by tested builds.
+  It reuses SDK connection storage and final assertion/role dispatch.
 
 ```
 controller ──bt_start/stop/send──> bt.c ──> BTstack (upstream) ──> btstack_hci_jieli.c ──> btctrler.a
@@ -60,11 +75,11 @@ from the next connect.  Zero means the profile's or the stack's own:
 | `le_interval_min/max` | L2CAP Connection Parameter Update Request after encryption, instead of the profile's `interval_min/max`.  The central decides; the log says whether it accepted, and the new interval when it applies. |
 | `le_phy` | 1: LE Set PHY to 2M both ways once linked. |
 | `in_flight` | input reports in the controller at once (default 2, at most 8). |
-| `poll_us` | Classic: the QoS latency asked for (default 1250; 0 asks nothing). |
+| `poll_us` | Classic: Best Effort poll request (default 3750 µs; 0 asks nothing). The supported minimum is six slots. Requests are rounded down to slot pairs (1250 µs) to stay within the requested latency. Values below 3750 µs are refused. |
 | `tx_power` | radio strength 1-6 for the session, through `hci_jieli_tx_power(step, pro)`: 1-5 are the controller's normal steps 0-4 (5, the default, is its top in normal mode), 6 is step 4 of its pro table, about 3 dB more ([radio.md](../docs/radio.md)). |
 
 `bt_timing()` holds, beside the link as the controller last reported it
-(interval, PHY, data length, sniff mode, granted QoS latency, ACL buffers):
+(interval, PHY, data length, sniff mode, accepted QoS poll interval, ACL buffers):
 
 * `ack_wait`: a report handed to the controller until Number Of Completed
   Packets says it went;
@@ -172,6 +187,51 @@ What `bt.c` does for each transport:
 | connect | page the bonded host | advertise to the bonded host |
 | pairing | page scan + inquiry scan | advertise to anyone |
 | input | HID interrupt channel | notification on `input_handle` |
+
+## Classic QoS
+
+After HID opens, `bt.c` sends one HCI QoS Setup request: Best Effort,
+unspecified token rate/peak bandwidth (zero), the slot's `poll_us` latency,
+and unspecified delay variation. Rejection does not gate input delivery.
+The setting is a scheduling request, not a measured input latency or a
+bandwidth guarantee.
+
+The retained-controller build always applies `tools/btctrler/qos.py`.
+It removes the SDK's complete HCI link policy dispatcher definition, using
+`btctrler_link_policy.c` instead, and adds a receive hook after LMP PDU
+validation. The C wrapper validates the
+handle and peripheral role and invokes the recovered C QoS sender. Its
+global interval is enabled only around that call; the SDK's later automatic
+MAX_SLOT_REQ trigger cannot send an extra request. The wrapper clears the
+sender's one-shot flag before an explicit new transaction.
+
+The adapter supports one Classic ACL connection, matching the app. It
+retains a handle rather than a vendor connection pointer. Command Status
+reports whether a request started; standard QoS Setup Complete is emitted
+only on a matching peripheral-transaction LMP acceptance/rejection. A central
+QoS notification is consumed and reported with its actual interval. A central
+QoS request is answered through the SDK response sender and reported after
+local acceptance; a zero interval is rejected. Other
+LMP traffic remains SDK-owned. Central-role QoS Setup, Guaranteed service,
+and bandwidth specifications are explicitly unsupported.
+
+The BTstack run loop checks for a two-second unanswered request. A timeout
+reports status `0x22`, leaves input running and disallows retries on that
+same link: LMP acceptance has no serial number, so a late reply could
+otherwise complete the wrong request. Disconnect, a fresh ACL connection,
+HCI Reset and controller close clear the transaction state. Short critical
+sections protect state and event enqueue across the controller and BTstack
+threads. Negotiation never waits synchronously for a radio reply.
+
+`bt_timing().link.poll_us` is zero until actual acceptance/notification and
+is cleared on a reported QoS violation or link loss. Requested values remain
+in the session settings; request, refusal, acceptance and timeout are logged.
+The SDK's old nonstandard event code 1 is no longer treated as QoS completion.
+
+Adding more peers can change central scheduling or negotiated QoS. The pad
+does not know the host's total connection count. It continues delivering the
+newest input through the existing bounded flight window rather than
+building a backlog or repeatedly demanding the original interval.
 
 ## One connection event, three threads
 
