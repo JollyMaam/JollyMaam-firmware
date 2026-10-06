@@ -272,6 +272,22 @@ class Func:
             for u in re.findall(r'%([\w.]+)', code):
                 self.uses[u] = self.uses.get(u, 0) + 1
         self.folded = {}
+        # A load folds into its use only if nothing can write memory in
+        # between: otherwise the pseudo-C would read after the write.
+        self.stale_loads = set()
+        where = {}
+        for i, line in enumerate(self.lines):
+            d = re.match(r'\s+%([\w.]+) = load ', line)
+            if d:
+                where[d.group(1)] = i
+        for name, i in where.items():
+            for j in range(i + 1, len(self.lines)):
+                line = self.lines[j]
+                if re.search(r'%' + re.escape(name) + r'\b', line):
+                    break
+                if re.search(r'\bstore\b|\bcall\b|\batomicrmw\b|\bcmpxchg\b|^[\w.]+:|^; <label>', line.strip()):
+                    self.stale_loads.add(name)
+                    break
         # Values a phi reads must keep their names: the phi prints first.
         self.in_phi = set()
         for line in self.lines:
@@ -357,7 +373,8 @@ class Func:
         text = self.translate(name, rhs)
         if text is None:
             return None
-        if name and self.uses.get(name, 0) == 1 and self.foldable(rhs) and name not in self.in_phi:
+        if (name and self.uses.get(name, 0) == 1 and self.foldable(rhs) and name not in self.in_phi
+                and name not in self.stale_loads):
             self.folded[name] = f'({text})' if re.search(r'[ ?]', text) and not wrapped(text) else text
             return None
         if name:
