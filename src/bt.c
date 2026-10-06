@@ -203,6 +203,16 @@ int bt_input_wanted(void)
     return want;
 }
 
+u32 bt_input_wanted_us(void)
+{
+    u32 t;
+
+    plat_lock();
+    t = want ? want_us | 1 : 0;          /* never 0 while wanted */
+    plat_unlock();
+    return t;
+}
+
 /* Classic: id is the report ID; LE: the handle to notify. */
 int bt_send_message(u16 id, const u8 *data, u16 len)
 {

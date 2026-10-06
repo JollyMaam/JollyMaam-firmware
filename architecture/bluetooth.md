@@ -173,6 +173,49 @@ What `bt.c` does for each transport:
 | pairing | page scan + inquiry scan | advertise to anyone |
 | input | HID interrupt channel | notification on `input_handle` |
 
+## One connection event, three threads
+
+Who runs on the CPU (one core; higher numbers preempt lower):
+
+| priority | what |
+|---|---|
+| interrupt 6 | profiler (timer 2), only while `padtool profile` runs |
+| interrupt 3 | stick UART (DMA chunk done) |
+| interrupt 2 | controller: BLE receive, BLE event |
+| interrupt 1 | tick (4 kHz: clock, button debounce, deadlines), I2C |
+| task 4 | `btctrler`: the controller library's link layer |
+| task 3 | `btstack`: BTstack and `bt.c` (this file's thread) |
+| task 2 | `ctl`: the control loop (`controller.c`) |
+
+A Switch 2 link, measured 2026-10-05 (`padtool trace`, `stats`):
+
+```
+event n        the console polls; the controller sends what it holds (report R1)
+event n+1      the console's packet acknowledges R1
+  +~1-1.5 ms   btctrler: Number Of Completed Packets -> hci_packet_handler ->
+               rx queue -> wakes btstack
+               btstack: acked() frees room -> bt_input_wanted() -> wakes ctl
+  +~0.5 ms     ctl (when btstack sleeps): read input, build R2, bt_send_input()
+               -> wakes btstack, which preempts ctl: att_server_notify() ->
+               controller (~1 ms of CPU, btctrler working inside the call)
+               want -> send: 1.2 ms median
+event n+2      R2 goes out, built ~3 ms earlier
+```
+
+Room appears once per event, after its acknowledgement, so the pull locks to
+the console's grid by itself; a longer interval (the console moved to 15 ms
+for a few seconds once) just spaces the pulls.  If the round trip ever
+outlasts the time left before the next event, the report rides one event
+later and the next one is asked for at once (two in flight): the rate holds
+and reports are ~5 ms staler, as with the old timer, never worse.
+
+`pull_delay_us` (a slot setting, default 0) holds the build back after the
+ask, for fresher reports.  Measured: 1000 / 1500 / 2000 µs gave build-to-ack
+8.8 / 8.5 / 8.1 ms (9.3 at 0) at 194-198 reports/s; 2500 µs fell off a cliff
+to 113-121 reports/s and 14 ms, every report missing its event.  The slack
+moves with CPU load and the controller's timing, so it stays 0; doing better
+needs the connection-event time from the controller, not a fixed delay.
+
 ## Rules that must survive (measured)
 
 These come from failures seen on hardware; see `AGENTS.md`.

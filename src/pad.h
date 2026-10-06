@@ -214,7 +214,8 @@ int bt_send_message(u16 id, const u8 *data, u16 len);
 int bt_poll(struct bt_ev *ev);
 int bt_radio_quiet(void);
 int bt_input_pending(void);
-int bt_input_wanted(void);               /* the controller has room for a report now */
+int bt_input_wanted(void);
+u32 bt_input_wanted_us(void);            /* when it became wanted (plat_us), 0: not wanted */               /* the controller has room for a report now */
 void bt_update_bond(const struct bt_bond *bond);
 struct bt_stats;
 void bt_stats(struct bt_stats *out);
@@ -291,6 +292,7 @@ struct set_slot {
     u8 address[6];           /* zero: derived */
     struct bt_bond bond;
     u16 report_hz;           /* 0: the profile's */
+    u16 pull_delay_us;       /* build a pulled report this long after bt.c asks */
     struct bt_link link;
 };
 
@@ -525,7 +527,7 @@ u32 plat_peek(u32 addr, u8 *out, u32 max);  /* 32-bit words from addr, for regis
 void plat_i2c_read(u8 dev, u8 reg, u8 *buf, u8 len);   /* starts; EV_IMU when done */
 void plat_i2c_write(u8 dev, u8 reg, u8 value);
 int plat_i2c_done(void);                    /* 1 done, 0 busy, -1 failed */
-u32 plat_wait(u32 deadline_ms);
+u32 plat_wait(u32 deadline_ms, u32 at_us);   /* either 0: none; at_us to 250 µs */
 void plat_wake(u32 events);                 /* from another thread or an interrupt */
 void plat_delay_ms(u32 ms);                 /* blocking; set-up only */
 void plat_bt_thread(void (*body)(void));

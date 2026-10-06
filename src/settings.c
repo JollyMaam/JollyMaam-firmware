@@ -95,6 +95,9 @@ static const struct set_field slot_fields[] = {
       .def = ALL(2), .help = "input reports in the controller at once; 0: 2" },
     { .id = 19, .name = "poll_us", .type = T_NUMBER, .max = 40000, FIELD(link.poll_us),
       .def = ALL(1250), .help = "Classic: the poll interval asked for (QoS latency); 0: none" },
+    { .id = 23, .name = "pull_delay_us", .type = T_NUMBER, .max = 5000, FIELD(pull_delay_us),
+      .def = ALL(0), .help = "build a report this long after the radio asks for it (fresher, "
+                             "until it misses the connection event)" },
     /* ids 20, 21: tx_step and tx_table, replaced by tx_power before release */
     { .id = 22, .name = "tx_power", .type = T_ENUM, .names = tx_powers, FIELD(link.tx_power),
       .def = ALL(4), .help = "radio strength 1-6: 1 is about 20 dB below 5; 6 about 3 dB "

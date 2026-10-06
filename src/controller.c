@@ -43,6 +43,7 @@ static struct {
     u32 retry_at;
     u32 report_next;             /* the earliest the next report may be built */
     u16 report_hz;               /* the session's cap: the slot's setting or the profile's */
+    u32 pull_at_us;              /* a pulled report waits for pull_delay_us until then */
     u8 imu_mode, begin_imu;
     u32 imu_seq, imu_next;
     u8 calibrating;
@@ -496,6 +497,15 @@ static void send_report(u32 now)
     int n;
 
     if ((s32)(now - c.report_next) < 0 || !bt_input_wanted()) return;
+    c.pull_at_us = 0;
+    if (c.sess.settings->pull_delay_us) {
+        u32 at = bt_input_wanted_us() + c.sess.settings->pull_delay_us;
+
+        if ((s32)(plat_us() - at) < 0) {
+            c.pull_at_us = at;
+            return;
+        }
+    }
     c.report_next = now + period;
     c.pad.imu_count = (u8)imu_take(&c.imu_seq, c.pad.imu, IMU_PER_REPORT);
     n = c.prof->report(&c.pad, now, buf, &id);
@@ -608,6 +618,7 @@ void ctl_main(void)
         c.stats.passes++;
         util_stat_add(&c.stats.pass, plat_us() - start);
         util_trace(TR_CTL_SLEEP, 0);
-        util_trace(TR_CTL_WAKE, (u16)plat_wait(deadline));
+        util_trace(TR_CTL_WAKE, (u16)plat_wait(deadline,
+                   c.kind == CTL_CONNECTED && bt_input_wanted() ? c.pull_at_us : 0));
     }
 }

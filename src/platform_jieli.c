@@ -121,6 +121,8 @@ static u8 line_lock[LINE_COUNT];
 static volatile u32 events;
 static volatile u32 deadline;
 static volatile u8 deadline_set;
+static volatile u32 deadline_us;         /* to the tick: 250 µs */
+static volatile u8 deadline_us_set;
 static volatile u8 posted;
 static OS_SEM wake_sem;
 static volatile u32 changed_us;
@@ -207,6 +209,10 @@ static HOT void tick_isr(void)
         raise(EV_BUTTONS);
     }
     i2c_tick();
+    if (deadline_us_set && (s32)(ms_now * 1000 + quarter * TICK_US - deadline_us) >= 0) {
+        deadline_us_set = 0;
+        raise(EV_DEADLINE);
+    }
     if (deadline_set && (s32)(ms_now - deadline) >= 0) {
         deadline_set = 0;
         raise(EV_DEADLINE);
@@ -246,7 +252,7 @@ void plat_unlock(void)
     local_irq_enable();
 }
 
-u32 plat_wait(u32 deadline_ms)
+u32 plat_wait(u32 deadline_ms, u32 at_us)
 {
     u32 ev;
 
@@ -256,9 +262,12 @@ u32 plat_wait(u32 deadline_ms)
         events = 0;
         posted = 0;
         if (!ev && deadline_ms && (s32)(ms_now - deadline_ms) >= 0) ev = EV_DEADLINE;
+        if (!ev && at_us && (s32)(ms_now * 1000 + quarter * TICK_US - at_us) >= 0) ev = EV_DEADLINE;
         if (!ev) {
             deadline = deadline_ms;
             deadline_set = deadline_ms != 0;
+            deadline_us = at_us;
+            deadline_us_set = at_us != 0;
         }
         local_irq_enable();
         if (ev) return ev;
