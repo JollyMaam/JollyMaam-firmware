@@ -260,12 +260,12 @@ static const struct bt_device ble_device = {
 };
 
 const struct profile profile_xbox = {
-    .name = "xbox", .report_hz = 125, .device = &classic_device,
+    .name = "xbox", .device = &classic_device,
     .begin = begin_classic, .report = report, .write = write, .host = host,
 };
 
 const struct profile profile_xbox_ble = {
-    .name = "xboxble", .report_hz = 125, .device = &ble_device,
+    .name = "xboxble", .device = &ble_device,
     .begin = begin_ble, .report = report, .write = write, .host = host, .read = read,
 };
 

@@ -89,7 +89,8 @@ static struct {
     u8 rumble[2];
     u8 players, players_flash, has_players;
     u32 simple_sent;
-    struct imu_sample motion;
+    u32 now;                     /* ms, from the last report() or write() */
+    struct imu_sample motion[3]; /* the newest three samples, newest first */
 } sw;
 
 static u8 spi_byte(u32 a)
@@ -131,8 +132,10 @@ static void state(u8 *s)
     u32 b = 0;
 
     memset(s, 0, 12);
-    sw.timer += 3;
-    s[0] = sw.timer;
+    /* Time in 5 ms units, the sample period: it advances by one per new
+     * motion sample, as the stock firmware's does, and between reports
+     * that carry no new sample it stays. */
+    s[0] = (u8)(sw.now / 5);
     s[1] = 0x8e;
     /* Nintendo positions: the pad's printed labels are Xbox-ordered. */
     if (p->buttons & PAD_X) b |= JC_Y;
@@ -279,17 +282,22 @@ static u8 begin(const struct profile_session *s)
     return IMU_OFF;
 }
 
-/* Three motion samples, the newest last; with fewer new ones the last is
- * repeated.  Accelerometer halved, gyro x and y negated: the Pro
+/* The three newest motion samples, newest first (SDL's HIDAPI driver reads
+ * slot 0 as the newest, as the stock firmware sends it), a sliding window: a
+ * report with one new sample shifts the other two along, one with none
+ * repeats them.  Accelerometer halved, gyro x and y negated: the Pro
  * Controller's axes. */
 static void motion(u8 *out, const struct pad *p)
 {
     u32 k, a;
 
-    if (p->imu_count) sw.motion = p->imu[p->imu_count - 1];
+    for (k = 0; k < p->imu_count; k++) {         /* p->imu is oldest first */
+        sw.motion[2] = sw.motion[1];
+        sw.motion[1] = sw.motion[0];
+        sw.motion[0] = p->imu[k];
+    }
     for (k = 0; k < 3; k++) {
-        int i = (int)p->imu_count - 3 + (int)k;
-        const struct imu_sample *m = i >= 0 ? &p->imu[i] : &sw.motion;
+        const struct imu_sample *m = &sw.motion[k];
 
         for (a = 0; a < 3; a++) {
             util_put16(out + 12 * k + 2 * a, (u16)(m->accel[a] / 2));
@@ -302,6 +310,7 @@ static int report(const struct pad *p, u32 now, u8 *out, u8 *id)
 {
     int changed = memcmp(&sw.pad, p, PAD_CONTROLS_SIZE);
 
+    sw.now = now;
     sw.pad = *p;
     if (sw.stopped) return 0;
     if (sw.mode == REPORT_FULL) {
@@ -320,8 +329,8 @@ static int report(const struct pad *p, u32 now, u8 *out, u8 *id)
 
 static int write(const struct bt_write *w, u32 now, struct bt_bond *bond)
 {
-    (void)now;
     (void)bond;
+    sw.now = now;
     if (w->kind != BT_WRITE_OUTPUT) return 0;
     if (w->id == OUT_RUMBLE && w->len >= 9) rumble(w->data + 1);
     if (w->id == OUT_SUBCMD && w->len >= 10) {
@@ -353,7 +362,6 @@ static const struct bt_device device = {
 
 const struct profile profile_switch = {
     .name = "switch",
-    .report_hz = 66,
     .device = &device,
     .begin = begin,
     .report = report,
@@ -889,7 +897,7 @@ static const struct bt_device s2_device = {
 };
 
 const struct profile profile_switch2 = {
-    .name = "switch2", .report_hz = 250, .device = &s2_device,
+    .name = "switch2", .device = &s2_device,
     .begin = s2_begin, .report = s2_report, .write = s2_write, .host = s2_host, .read = s2_read,
 };
 

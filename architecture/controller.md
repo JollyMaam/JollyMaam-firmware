@@ -72,8 +72,8 @@ lockout.
 
 Reports are pulled: `bt.c` raises `EV_BT` when the controller has room and the
 input slot is empty (`bt_input_wanted()`), and the loop builds the report then,
-from the newest input, at most `report_hz` a second (the slot's setting or the
-profile's cap).  A report built is a report sent: the IMU samples it takes
+from the newest input, at most `REPORT_HZ` (250) a second for every profile,
+Classic and LE (the developer setting `report_hz` overrides it).  A report built is a report sent: the IMU samples it takes
 are never dropped by the newest-wins slot.
 
 ### Timing stats

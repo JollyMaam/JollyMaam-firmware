@@ -428,12 +428,12 @@ static const struct bt_device ds4_device = {
 
 /* 125 reports a second: at 250 the IMU starved (measured 2026-09-30). */
 const struct profile profile_dualsense = {
-    .name = "dualsense", .report_hz = 125, .device = &ds_device,
+    .name = "dualsense", .device = &ds_device,
     .begin = begin_ds, .report = report, .write = write, .host = host, .read = read,
 };
 
 const struct profile profile_dualshock4 = {
-    .name = "dualshock4", .report_hz = 125, .device = &ds4_device,
+    .name = "dualshock4", .device = &ds4_device,
     .begin = begin_ds4, .report = report, .write = write, .host = host, .read = read,
 };
 

@@ -25,6 +25,11 @@ static const struct profile *profile_for(u8 type)
     return type < PROFILE_COUNT ? profiles[type] : NULL;
 }
 
+/* The most reports a second, for every profile and both transports: the
+ * host's polling sets the rate below it (pull), and it keeps the CPU's
+ * share bounded on a host that polls faster. */
+#define REPORT_HZ 250
+
 static struct {
     u8 kind;
     u32 since;
@@ -42,7 +47,7 @@ static struct {
     u8 uboot_chord;
     u32 retry_at;
     u32 report_next;             /* the earliest the next report may be built */
-    u16 report_hz;               /* the session's cap: the slot's setting or the profile's */
+    u16 report_hz;               /* the session's cap: the slot's setting or REPORT_HZ */
     u32 pull_at_us;              /* a pulled report waits for pull_delay_us until then */
     u8 imu_mode, begin_imu;
     u32 imu_seq, imu_next;
@@ -157,8 +162,7 @@ static void start_session(struct ctl_request r, u32 now)
     c.last_slot = r.slot;
     plat_retain_slot(r.slot);
     memset(&c.host, 0, sizeof(c.host));
-    c.report_hz = s.settings->report_hz ? s.settings->report_hz
-                : p->report_hz ? p->report_hz : 125;
+    c.report_hz = s.settings->report_hz ? s.settings->report_hz : REPORT_HZ;
     c.begin_imu = p->begin(&s);
     c.sess = s;
     c.woke = 0;

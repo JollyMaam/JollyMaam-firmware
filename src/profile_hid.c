@@ -56,7 +56,7 @@ static const struct bt_device generic_device = {
 };
 
 const struct profile profile_generic = {
-    .name = "generic", .report_hz = 125, .device = &generic_device,
+    .name = "generic", .device = &generic_device,
     .begin = generic_begin, .report = generic_report,
 };
 
@@ -341,7 +341,7 @@ static const struct bt_device mouse_device = {
 };
 
 const struct profile profile_mouse = {
-    .name = "mouse", .report_hz = 125, .device = &mouse_device,
+    .name = "mouse", .device = &mouse_device,
     .begin = mouse_begin, .report = mouse_report,
 };
 

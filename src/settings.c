@@ -83,8 +83,8 @@ static const struct set_field slot_fields[] = {
       .help = "the paired host: peer, link key, key type, LE peer, LTK" },
     /* The link, for measuring it (architecture/bluetooth.md); next connect. */
     { .id = 14, .flags = F_DEV, .name = "report_hz", .type = T_NUMBER, .max = 1000, FIELD(report_hz),
-      .def = ALL(0), .help = "most reports per second, whole milliseconds apart; reports are "
-                             "built when the radio has room; 0: the profile's" },
+      .def = ALL(0), .help = "most reports per second, Classic and LE, whole milliseconds apart; "
+                             "reports are built when the radio has room; 0: 250" },
     { .id = 15, .flags = F_DEV, .name = "le_interval_min", .type = T_NUMBER, .max = 3200,
       FIELD(link.le_interval_min), .def = ALL(0),
       .help = "LE: connection interval to ask for, 1.25 ms units (6 = 7.5 ms); 0: the profile's" },

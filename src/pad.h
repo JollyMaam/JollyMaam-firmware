@@ -244,7 +244,6 @@ struct profile_host {
 
 struct profile {
     const char *name;
-    u16 report_hz;
     const struct bt_device *device;
     u8 (*begin)(const struct profile_session *s);
     void (*end)(void);
@@ -292,7 +291,7 @@ struct set_slot {
     u16 gyro_accel;          /* percent of gyro_speed for fast turns */
     u8 address[6];           /* zero: derived */
     struct bt_bond bond;
-    u16 report_hz;           /* 0: the profile's */
+    u16 report_hz;           /* the most reports a second; 0: REPORT_HZ */
     u16 pull_delay_us;       /* build a pulled report this long after bt.c asks */
     struct bt_link link;
 };
