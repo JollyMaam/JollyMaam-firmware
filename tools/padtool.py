@@ -8,6 +8,8 @@
     padtool reboot | loader       restart; restart into the ROM loader (for
                                   jlnewfw flash)
     padtool connect [SLOT]        connect a slot (default: the last), as Home does
+    padtool pair SLOT             forget the slot's host and make it pairable
+                                  (same address)
     padtool profile [ZOOM [SHIFT]] [-w SECONDS] [--hz N] [--top N] [--elf FILE]
                                   sample where the CPU runs for SECONDS (10) at
                                   N per second (2000); per function, from the ELF's
@@ -707,7 +709,7 @@ def keep(path):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["find", "identify", "status", "log", "stats", "reboot", "loader", "relink", "connect", "profile", "peek", "trace",
+    p.add_argument("command", choices=["find", "identify", "status", "log", "stats", "reboot", "loader", "relink", "connect", "pair", "profile", "peek", "trace",
                                        "fields", "get", "set", "reset", "backup-settings",
                                        "restore-settings", "factory-reset", "ephemeral", "keep"])
     p.add_argument("args", nargs="*")
@@ -750,6 +752,10 @@ def main():
     elif a.command == "profile":
         zoom = (int(a.args[0], 16), int(a.args[1]) if len(a.args) > 1 else 1) if a.args else None
         profile(need_pad(), a.watch or 10, a.hz, a.top, a.elf, zoom, a.by)
+    elif a.command == "pair":
+        if not a.args:
+            sys.exit("padtool pair SLOT")
+        cmd(need_pad(), 0x17, "A B X Y up down left right".split().index(a.args[0]))
     elif a.command == "connect":
         names = "A B X Y up down left right".split()
         slot = names.index(a.args[0]) if a.args else 0xfe

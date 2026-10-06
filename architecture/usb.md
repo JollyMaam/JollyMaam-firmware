@@ -84,6 +84,7 @@ little-endian.  Data goes in the SCSI data phase; the status is the CSW.
 | `0x03` | STATS | CDB byte 2 bit 0: reset after reading; in: u16 version, u16 size, `struct ctl_stats` as in memory | done |
 | `0x10` | REBOOT | – | done |
 | `0x11` | REBOOT_LOADER | – (any loader opcode does the same) | done |
+| `0x17` | PAIR | CDB byte 2: slot: forget its host and start pairing, keeping its address | done |
 | `0x13` | CONNECT | CDB byte 2: slot (`0xfe` the last): start its session, as a Home connect does | done |
 | `0x14` | PROFILE | CDB byte 2: 1 start at the rate in bytes 3-4 (samples/s), 2 stop, 0 read from the byte offset in bytes 3-6; in: header (version, rate, bucket shifts, the flash/RAM/ROM ranges and bucket counts, samples, outside, saturated, the last 8 outside addresses), then u16 counts per bucket, flash, RAM, ROM | done |
 | `0x16` | TRACE | CDB byte 2: 1 start (clears), 2 stop, 0 read from the byte offset in bytes 3–6; in: u32 markers written, then 1024 entries `{u32 µs, u16 argument, u8 marker, u8 –}` (`util_trace()`, pad.h) | done |
