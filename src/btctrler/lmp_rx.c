@@ -210,7 +210,7 @@ void lmp_acl_c_handler(struct lmp_connection *conn, struct bredr_rx_bulk *rx,
         break;
     case ENCAPSULATED_PAYLOAD: lmp_rx_encapsulated_payload(conn, p); break;
     case SIMPLE_PAIRING_CONFIRM: lmp_rx_pairing_confirm(conn, p); break;
-    case SIMPLE_PAIRING_NUMBER: memcpy(conn->simple->remote_random_num, p, 16); break;
+    case SIMPLE_PAIRING_NUMBER: lmp_rx_pairing_number(conn, p); break;
     /* Logged by the SDK only. */
     case AUTO_RATE: case PREFERRED_RATE: case REMOVE_SCO_LINK_REQ: case TIMING_ACCURACY_RES:
     case SET_AFH: case ENCAPSULATED_HEADER: case DHKEY_CHECK: break;
@@ -274,6 +274,8 @@ void lmp_rx_not_accept_au_rand(struct lmp_connection *c, u8 *p) { (void)c; arg =
 void lmp_rx_not_accepted_host_connection_req(struct lmp_connection *c, u8 *p) { (void)c; arg = p; called("not_accepted_host_connection_req"); }
 void lmp_rx_packet_type_table_req(struct lmp_connection *c, u8 *p) { (void)c; arg = p; called("packet_type_table_req"); }
 void lmp_rx_pairing_confirm(struct lmp_connection *c, u8 *p) { (void)c; arg = p; called("pairing_confirm"); }
+void lmp_rx_pairing_number(struct lmp_connection *c, u8 *p)
+{ if (c->simple) memcpy(c->simple->remote_random_num, p, 16); arg = p; called("pairing_number"); }
 void lmp_rx_quality_of_service_req(struct lmp_connection *c, u8 *p) { (void)c; arg = p; called("quality_of_service_req"); }
 void lmp_rx_sco_link_req(struct lmp_connection *c, u8 *p) { (void)c; arg = p; called("sco_link_req"); }
 void lmp_rx_slot_offset(struct lmp_connection *c, u8 *p) { (void)c; arg = p; called("slot_offset"); }
@@ -332,7 +334,7 @@ int main(void)
         {33,"max_power"},{34,"min_power"},{37,"version_req"},{38,"version_res"},{39,"feature_req"},
         {42,"quality_of_service_req"},{43,"sco_link_req"},{45,"max_slot"},{46,"max_slot_req"},
         {47,"timing_accuracy_req"},{49,"setup_complete"},{51,"host_connection_req"},{52,"slot_offset"},
-        {55,"supervision_timeout"},{62,"encapsulated_payload"},{63,"pairing_confirm"},
+        {55,"supervision_timeout"},{62,"encapsulated_payload"},{63,"pairing_confirm"},{64,"pairing_number"},
     };
     for (unsigned i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
         rx((u8)(table[i].opcode << 1 | 1), 0, 0, 0);

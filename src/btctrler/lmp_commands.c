@@ -25,7 +25,9 @@ void lmp_hci_cmd_handler(int *cmd)
     }
     case 0x0cfd: link_page_try_start_disable(0xfd); break;
     case 0x0405:
-        link_page_try_start_enable(0, (u8 *)(cmd + 1), (u8)cmd[5], cmd[4]);
+        /* Fix: the public create-connection API queues repetition before
+         * clock offset; the SDK dispatcher read these words in reverse. */
+        link_page_try_start_enable(0, (u8 *)(cmd + 1), (u8)cmd[4], cmd[5]);
         if (cmd[6] == 0xaa) hci_param.emitter_or_receiver = 1;
         break;
     case 0x0419: {
@@ -126,13 +128,13 @@ int main(void)
     CHECK(!strcmp(trace, "detch ") && args[0] == 0x13 && !memcmp(address, addr, 6));
     reset(); found = 0; lmp_hci_cmd_handler(cmd); CHECK(!trace[0]); found = 1;
     reset(); cmd[0] = 0x0cfd; lmp_hci_cmd_handler(cmd); CHECK(args[0] == 0xfd);
-    cmd[0] = 0x0405; cmd[4] = 0x12345; cmd[5] = 0x102; cmd[6] = 0xaa;
+    cmd[0] = 0x0405; cmd[4] = 0x102; cmd[5] = 0x12345; cmd[6] = 0xaa;
     hci_param.default_link_policy = 5; hci_param.scan_enable = 3;
     reset(); lmp_hci_cmd_handler(cmd);
     CHECK(args[0] == 0 && args[1] == 2 && args[2] == 0x12345 && !memcmp(address, addr, 6));
     CHECK(hci_param.emitter_or_receiver && hci_param.default_link_policy == 5 && hci_param.scan_enable == 3);
     hci_param.emitter_or_receiver = 0; cmd[6] = 1; lmp_hci_cmd_handler(cmd); CHECK(!hci_param.emitter_or_receiver);
-    reset(); cmd[0] = 0x0419; cmd[3] = 0x103; lmp_hci_cmd_handler(cmd);
+    reset(); cmd[0] = 0x0419; cmd[3] = 0x103; cmd[4] = 0x12345; lmp_hci_cmd_handler(cmd);
     CHECK(args[0] == 3 && args[1] == 0x2345 && !memcmp(address, addr, 6));
     const u8 map[] = {1,2,3,4,5,6,7,8,9,10}; memcpy(cmd + 1, map, 10); cmd[0] = 0x0c3f;
     for (config_bredr_afh_user = 0; config_bredr_afh_user < 2; config_bredr_afh_user++) {

@@ -43,6 +43,9 @@ static void link_conn_run(struct link_connection *link)
     link_task_run(link ? &link->task : 0);
 }
 
+void tws_ble_sniff_slot_reset(u8 type)
+{ (void)type; sniff_t_slot = 800; }
+
 void lmp_sniff_t_slot_attemp_reset(u16 slot, u16 attemp)
 {
     sniff_t_slot = slot;
@@ -557,3 +560,49 @@ void lmp_rx_not_accepted_unsniff_req(struct lmp_connection *conn)
 {
     conn->core.operation_mode = ACTIVE_MODE;
 }
+
+#ifdef UNITTEST
+#include <assert.h>
+#include <stdio.h>
+struct hci_parameter hci_param;
+struct lmp_connection *main_conn, *other_conn;
+static struct link_connection test_link;
+static int requests, requested_interval, requested_attempt, requested_timeout;
+u8 slot_timer_get(void) { return 7; }
+u32 bredr_get_master_slot_clk(struct link_connection *lc)
+{ assert(lc == &test_link); return 0x4000000; }
+void btctrler_assert_failed(const char *what, int value)
+{ (void)what; (void)value; assert(0); }
+int lmp_request(struct lmp_connection *conn, const char *format, ...)
+{
+    assert(conn->link == &test_link && !strcmp(format, "112222"));
+    va_list args; va_start(args, format);
+    assert(va_arg(args, int) == 46); /* LMP_sniff_req */
+    assert(va_arg(args, int) == 2 && va_arg(args, int) == 0);
+    requested_interval = va_arg(args, int);
+    requested_attempt = va_arg(args, int); requested_timeout = va_arg(args, int);
+    va_end(args); ++requests; return 0;
+}
+static void negotiate_default(int expected)
+{
+    struct lmp_connection conn = {0}; conn.link = &test_link; conn.core.link_policy = 4;
+    memset(&test_link, 0, sizeof(test_link)); main_conn = other_conn = NULL;
+    hci_param.features[0] = 0x80; requests = 0;
+    lmp_hci_sniff_mode(&conn, 900, 2, 7, 3);
+    assert(requests == 1 && requested_interval == expected && requested_attempt == 7 && requested_timeout == 3);
+    assert(conn.sniff && conn.sniff->timer == 7);
+    free(conn.sniff); main_conn = other_conn = NULL;
+}
+int main(void)
+{
+    /* A BLE/TWS slot reset must affect the next owned Classic negotiation,
+     * after the application has changed its default interval. */
+    for (unsigned type = 0; type < 256; ++type) {
+        lmp_sniff_t_slot_attemp_reset(120, 4);
+        negotiate_default(120);
+        tws_ble_sniff_slot_reset(type);
+        negotiate_default(800);
+    }
+    puts("btctrler sniff default negotiation tests passed");
+}
+#endif

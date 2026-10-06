@@ -73,14 +73,29 @@ ABI_ATTRS = ('zeroext', 'signext', 'inreg', 'sret', 'byval')
 def declaration(text, name):
     """The C-ABI declaration of a defined function: linkage, calling
     convention, names and optimizer attributes dropped; zeroext etc. kept."""
-    m = re.search(r'^define ([^\n]*?)@' + re.escape(name) + r'\(([^\n]*?)\)[^\n]*\{$', text, re.M)
+    m = re.search(r'^define ([^\n]*?)@' + re.escape(name) + r'\(', text, re.M)
     if not m:
         raise RuntimeError(f'controller: missing function {name}')
+    # Callback types contain parentheses too. Stop at the balanced outer
+    # closing parenthesis, not the first callback's argument-list terminator.
+    depth = 1
+    parameter_text = None
+    for offset in range(m.end(), text.index('\n', m.end())):
+        ch = text[offset]
+        if ch == '(':
+            depth += 1
+        elif ch == ')':
+            depth -= 1
+            if depth == 0:
+                parameter_text = text[m.end():offset]
+                break
+    if parameter_text is None:
+        raise RuntimeError(f'controller: unclosed parameter list for {name}')
     words = [w for w in m.group(1).split() if w not in (
         'internal', 'fastcc', 'local_unnamed_addr', 'unnamed_addr', 'dso_local', 'weak', 'hidden', 'noalias')]
     params = []
     depth, cur = 0, ''
-    for ch in m.group(2) + ',':
+    for ch in parameter_text + ',':
         if ch in '([{<':
             depth += 1
         elif ch in ')]}>':

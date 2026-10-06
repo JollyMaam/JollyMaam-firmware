@@ -48,6 +48,53 @@ def classic_baseband(text):
 
 # lmp.c functions owned by src/btctrler/, by SDK body fingerprint.
 LMP_OWNED = {
+    # lmp_ssp.c
+    'lmp_ecdh_publickey': '54b2e9baeb86783121c95e444e2b13a2a778bf9e4d063e657f13e34fc85cf371',
+    'lmp_rx_encapsulated_payload': 'a19f3816b3c741960f1c371bb79528be764d66db3044b6e9d684bf16467a2360',
+    'lmp_f3_function': '9d16f9189492f4efcc43fcfaefdae29c806a2533775abffeb6af00963ec6f99a',
+    'master_first_dhkey_check': 'da1193e12d93f0b69986ded20322fa1dd840f5dc0a4a6136cdc970141b27908f',
+    'lmp_dhkey_check_accept': 'c0125cd57b6681f4bbc51c95401a78b36790ab8aa2c3c6fc0cce9fc0016fc57d',
+    'lmp_master_check_c': 'db88eae46dfd2560e7982c962f73358ecd3df20e97c6fa4633755f9347ed5c33',
+    'lmp_tx_user_passkey_request_reply': 'bade7f8896576d28d97fbcf56ba2022e2e2878b5c4699ed4539337c17ba57240',
+    # lmp_pairing_support.c
+    'make_rand_num': 'a99f7c5108cde493b39d419ded476b9ee0034f38e080c9fe2b071c5900d673dc',
+    'make_xor': 'd1e6d744b7502999ed1b1967dbcf387d6c740ce9621910e9f8c5bb206f2ad169',
+    'lmp_secure_connections_enbale': '025ac7514e93f342da9eb7a88e4c5e6801bd45dbba1833d0699b8633b60ffab0',
+    'lmp_rx_not_accepted_encryption_mode_req': 'ecbe31f2513ca9bcac807d9365d090c55ee306080f77b8e41747c461e45d7068',
+    'lmp_rx_accepted_encryption_mode_req': '6bc84097b981958eba7ba16029abca9bebfa2f56f1cd03d481cf154164935550',
+    'lmp_tx_encryption_key_size_req': 'd88227602bf8038fc51b533b354600b60d6d7e3c359c498de1a5ad68858d6366',
+    'lmp_rx_accepted_encryption_key_size_req': '73b2545000cc512db305b8e8ab1de3a6c0d60f12d58f134b73be687a605f78a6',
+    'lmp_tx_resume_encryption_req': '3283deb13a60684c24cc729e76d8550a2cf82839f2c74991e160a195ea856159',
+    'lmp_rx_temp_key': '39871c9ba39c52da969fae2b7466dc4a08c92182997dfb71faec13924c0de8d5',
+    'lmp_tx_keypress_notification': 'ccf6c3cf0f442f861ba248e1649cb488ab6a0e584f7295b0712a1b565b3e0222',
+    'lmp_authenticated_by_using_one_of_three_algorithms': '06189c326cb25bed83a73e10c81cf6b31d09ef1c32d4ee9fbc9f25b39fc6fe3d',
+    'lmp_io_capability_init': '4a0aef42fc9c6962c8ffff5a8e14f39511b7fcda47c61cfd16dbd6dbb847c04d',
+    'lmp_rx_io_capability_req': '1540589b9fd0bbd6e8a4958095a9b0ec04f00842d4afc42f03f014ab3baee1ab',
+    'lmp_rx_pairing_confirm': '1627ec179a5843e6204a9070b31c76b5f1198c2044b4f78b1a422d429f8e6af7',
+    'lmp_rx_pairing_number': '2347307aa826c569b79b5f2ff7d4c2af0fe0f45cb8054e17a4a77f9913fede2e',
+    # lmp_power.c
+    'link_conn_rx_remote_max_power_res': 'f84816a096fe4ea0e3aa4528a95360ce483116346d78c23dbf649cdffaee67c6',
+    'link_conn_rx_remote_min_power_res': '743e640b2c7144822f778f3fc5931a37ceab165a85d5ad14ccf980c916bfb42d',
+    'lmp_rx_max_power': '900d02da7b8c424c5e70dc933e2d2835cea7b83efb18859b93dc0d48ca4b2adb',
+    'lmp_rx_min_power': '43cc531de30870523b25a561e4043181c7e620d4441049e0cd777e6ce9818f45',
+    'lmp_set_fix_power': 'c560c229bda5c6de62ac524158d4b8239e527727ad06e24f5fc9b729d6eebd6c',
+    'lmp_rx_incr_power': 'f774d6be436fe7e686cd8fa2a9e3f65a64678a535fe02bf02dbccac15e4567ab',
+    'lmp_rx_decr_power': 'c6cd8b088faee0c1ce68693d1aeea64f4600844e99d69c49ec80a3862a5918d3',
+    'lmp_tx_power_req': 'f1f879173187cc78dee82651c69dd823f7fb8bc16da5da436bd02234b734720f',
+    # lmp_clock_setup.c
+    'lmp_rx_timing_accuracy_req': 'badd837bc85a3327d3c4c1c03dba5b5e3f8c84e17a263fd0a501ed93eaa5d3c4',
+    'lmp_rx_timing_accuracy_res': '8d5c978f5c93f3cbc81279b96dd3236dcf1dc8c5174bae428599261625be2248',
+    'lmp_tx_timing_accuracy_req': '9a431630a8c165c150b13505bb7ffd487cc6e31d3ba35584db47dab4a5dc13e6',
+    'lmp_tx_clkoffset_req': '9e89ae2bf29409cd311df6043afb84e393195463f6b2d74f45c7c8bfe906132b',
+    'lmp_rx_clkoffset_req': '6c68bd4f78ad5497eb6a2d029cf4c97b4d3575498450358b53f51801aaf181f6',
+    'lmp_rx_clkoffset_res': 'c9449fad5129cb5ea7766bd9010476bcb72af680591372b2debd8128f48bf8fa',
+    'lmp_rx_supervision_timeout': '93f9c0d91df2364938a1bc78b92175d0ba52156e8c86d822b7173122f4c52eef',
+    'lmp_rx_quality_of_service_req': '3e6a4c5c3d79d592b53def6e162b6f5ace3ad4441385796da6b94a0ba54440e6',
+    'lmp_rx_detch': 'db98461e95e58d463c9c1dd5ce7d6e53bd08bde44411aebe21741a5b97f33f73',
+    'lmp_rx_host_connection_req': '529b1414eda88ede4f1d3c1af9264822206680a19e1f66a1de0e5fcd75a932c8',
+    'lmp_rx_setup_complete': '92f8afe7c0d91911ed3c5af156934bb0778c7e59b619fb13cecc3c897615df96',
+    'lmp_rx_accepted_host_connection_req': '1ae53e05b27a798beab36f7e7781f1e487772654100f44ea004d17a752415040',
+    'lmp_rx_not_accepted_host_connection_req': '93d36ad6878345e3d1f4b9441b87d8801da13758c91d75fbe73ca41ebcfbfc12',
     # lmp_receive.c
     'lmp_rx_handler': 'a20b1d2123b3ccf9cb2f6f1871ae70ec4cb91a660bfd676ffadee61c747b2bb2',
     # address.c, link_policy.c
@@ -122,12 +169,29 @@ LMP_OWNED = {
     'lmp_connection_start': 'e6d47b96a5d51de21da23aa0dd8afc7a0f83c3dec4cd176e0098c068b2191d7f',
     'lmp_close_all': '6984419a73504611d9f11b49746a5c1b3bb93acb838c61276715095cbd606545',
     'lmp_reset': '969cc4eef6a72d60ffc257942ae625b6dcdd0943c076cc018ec7618e1297a4f4',
+    # lmp_queries.c
+    'bredr_get_rssi_for_address': 'cbecbbe77176b1b99004819743977a55f22d4648354e23fab25bb6ca2295cd55',
+    'link_conn_get_rssi': '92937b01bb107ce61bae2d251c8a37d7544a2f1f44b544430ce5ab0d9fe79f96',
+    'get_rssi_api': '78e8efc9144adca767d956463139eb7bf9bbd0ee7cc5b5f1db1c41c2a91e8764',
+    'lmp_private_remote_addr_for_handler': 'ed8871c3c0727cc642062355acfe64f13ed7c05a632be41b0956e4e47465807d',
+    'lmp_private_handler_for_remote_addr': '2e53995eee1f99a6ca8fe2ee01b6ecbc060e8934efa236a8eccd191971492859',
+    'lmp_get_tws_phone_addr': 'a820dac4bf5ccb03828ae18d241ce36e84fe87052c31a2c0c3a508b4bd65bfca',
+    'link_conn_set_max_slot': '56cac7efcded2df042f786392020a72a1b8a25cf2c49a826083103ad54a866b5',
+    'link_conn_get_max_slot': 'eae6ef9fafe4b2ceabef1ed1fef2284f860e7c79073195b3dead83831bf33ba7',
+    'bredr_set_dut_enble': 'd3c85e71321e527d290468873a9c0b799d83091475e826732d346f98670ff281',
+    'bredr_get_dut_enable': '35f4551728a7bf60d350b3c59bca1fe358d95bf97de578cb97b1da0333c98803',
+    'get_page_remote_name': '874b13889686e3bd6eb8e6b085378779403b1f8d28f81a5da917bb289fca593e',
+    'get_updata_conn': 'a9676c6a5cd81b3587e9b6fb3fd4bcef2542bc0b1c3c23b6f0d6444a0b675257',
     # lmp_commands.c
     'lmp_hci_cmd_handler': '17ee480f2dbff3686f11027e7be6e5d084c71a16ae9bd10be75840d98e40b14b',
     'lmp_hci_cmd_handler_to_conn': 'ca26661983ea85f4776db58a44d5738f660fdf9831aadf6d36c14c9f92b2c93d',
     'lmp_hci_cmd_to_conn_handler': 'dba4d7dd9451deb3c7d6547c861bed8f27f70c39957bc4e0d2e19cbb6731c475',
     # lmp_acl.c
     'lmp_send_acl_u_packet_to_host': '1ca311a7ab84acaec6b852b68b11ad4515b6e405450c89e694916366888c122b',
+    # lmp_suspend.c
+    'lmp_tx_suspend': '70bb433a0c9dc41b993e46e539982e856a1026c178cdab08d04977cce5a5144e',
+    'lmp_conn_suspend': '014d1d897388fcb90b8a2f227ba602145ebdcf21d8a5c21115534cca7b5308b7',
+    'lmp_conn_resume': '185e34cf8138bb9dbba91396d42a88435f690fa54b3e7e44e7e84f7c35227fc3',
     'lmp_private_abandon_sbc_data': '4dcb002e6432f6d509e9983efafff61ff3c455851ce194ffd18ae636f3741ac2',
     'lmp_send_aclu_en': '0a3ade18bfb90d8a8fd4aefe7cec6bfb0f616a0b1ab3aa6696b799366fb7d206',
     'lmp_private_get_rx_buffer_total_size': '0ebf2b88469c0c8f0297216ee7a596bebe842cf8aea39ca104ca34c3db3e5f32',
@@ -191,6 +255,17 @@ LMP_OWNED = {
     'lmp_role_switch_completed': '84d8039f4349cddb3e2aebc635bf94776babb2ea2d7f883bf6c0003a34a0549e',
     'lmp_role_switch_machine': 'adec2377b4d8e8a6413d4182e4638f9c71ec08fed4565e61ae6fe80cac0a43eb',
     'lmp_master_stage_role_switch_on_enc': '26dce942f5dd2d99a14be535cb69e10c531b59f549b65956085c390c72e98a4a',
+    # lmp_sniff_support.c (slot reset shares lmp_sniff.c defaults)
+    'sniff_achor_point_hook': 'ed1d483f1992fcdb5d1af255e60d2d325f2ac2b1d44306e2cd0b19651606d25b',
+    'sniff_hook': '48f51ac096eb90b3b6a2a1a0e2750a7307ce4da28a337df835eaeb7c9c240506',
+    'sniff_negotiation_hook': 'b982fbb0b0fb76327f68ccacb1e7def3bfbc9913f3044a8451bb77d972f8c4d1',
+    'lmp_rx_sniff_req_check': 'e07f8443a68c3978db37e3f44b7f7c16ced35249708be308dc8a1460d462a37b',
+    'lmp_set_sniff_establish_by_remote': 'cd225a5c3525ca2d4bac4ba7d7ea7aae75006cbba203da316925afd95967e73a',
+    'lmp_set_sniff_disable': 'ec134e0da3119382163efff9fc4f2724077c24a9c28ae78227d52ecff4ebf968',
+    'tws_ble_sniff_slot_reset': '48cf417c8c19907233842051711a71b437340c4abe10a9099a06c3e85e4e5234',
+    'get_1to2_conn_exit_sniff': 'f4172ad273e144237660870ded861cd9103bb2272ac4eeda0e5b551e03b4b6c8',
+    'lmp_in_sniff_mode': '063fee56d3fc52c0cc6aa7df245e470a340de3edbe4acb7b024b08f1fb231d52',
+    'lmp_sniff_pre_anchor_point_reset': '20322998433d1992e3a5857d9f26f86fb39921933637b8bf6f0055f2cfb5c39d',
     # lmp_sniff.c
     'lmp_sniff_misc_alloc': 'c76bac0b8909dfc33dd52d792ec0afffa9a72f431503b6f7bc3041d66606f293',
     'lmp_sniff_misc_free': 'e66650742d6f94f90fd09c73da77efe1b9981bc2daa492a4787686385e78d535',
@@ -269,8 +344,7 @@ LMP_OWNED = {
 
 
 # lmp.c statics that owned C calls: external linkage, C calling convention.
-LMP_EXPORTS = ('lmp_dhkey_check_accept',
-               'lmp_cmd_is_match_size', 'link_conn_rx_remote_max_power_res')
+LMP_EXPORTS = ('lmp_cmd_is_match_size',)
 
 
 def lmp_member(text):
@@ -320,6 +394,33 @@ def classic_misc(text):
 
 # Public Classic HCI procedures (lmp_hci_procedures.c).
 HCI_PROCEDURES_OWNED = {
+    # lmp_hci_control.c
+    'get_tws_internal_addr': 'aa55524c3e5bb0bf4736a9fabcd1aa384a3116150f132b20d547099a3573204a',
+    'lmp_hci_write_local_priv_version': '6e4c2f7942ac16eeaeeeef7e1e39a80be09b981e2721d74a1fc8d2fa4d66b4b3',
+    'lmp_hci_remote_name_request': 'f74afdd4004901142d260bfe410bb1ea76876fa0aea00c044afe74cf11278cd9',
+    'lmp_hci_create_connection': 'acbaaa024d0a3a6c7b6d8031db2b84148e87b969ec313332c016ddb63079c934',
+    'lmp_hci_cancel_page': '7f2fd2f561d4d42459a800b68c47fc6bcca168602a92bcf0d7f470d436b91c31',
+    'lmp_hci_connection_cancel': '98781936babdbcac260d430e246bd560faa2a015fce9f9fc5dbb2264ffc7c951',
+    'lmp_hci_inquiry': '6ffe63f399a79f259bbf299cbd1924415451d85688576ee31df15ead2c289be1',
+    'lmp_hci_cancel_inquiry': '356402f1262f8c86d853c0742c0eeeae00e2ab8c00b95c259915a18e9f373e96',
+    'lmp_hci_remote_name_request_cus': '26c2a0c1ea038133dfb4f9850644cb20708beea8ec9dd9300bacf607c7bb4f47',
+    'lmp_hci_tx_channel_chassification': '702d4820023f80bdf7e951c89a41e3bfed791c0c889893ae1830d2e960e58ccb',
+    'lmp_hci_setup_sync_connection': '998ce5b78f70c5e9fdf26826eafbdec86dcb9ebb49e51a86917cec3c36dfa6b9',
+    'lmp_hci_accept_sco_connection_request': '6659c3657c59f9483fb49799e7c187f30e2429986d018697fcdb79bc8ba8c3fb',
+    # lmp_hci_pairing.c
+    'lmp_hci_io_capability_request_reply': 'b4cad9061c3982c36977b46c8c997f5615f919f6720ebef87466e2600011f936',
+    'lmp_hci_user_confirmation_request_reply': 'e0dcab7ea64cc1c6ae53f2fc635f20c3243fb81ac80040c0d407b747be3914b0',
+    'lmp_hci_user_confirmation_request_negative_reply': 'e80fc256a8a9cd841684b77ea650fad789fc50d5bf9927fea73689720883a5ef',
+    'lmp_hci_pin_code_request_negative_reply': '84436de594a7644750a3f88db057df42cc8059e4b560edf3970106f6363d2d14',
+    'lmp_hci_link_key_request_negative_reply': '087333d729320ba59d67ecb74d91b2087ef535587a9f9d0c7c01e19a4b816b26',
+    'lmp_hci_accept_connection_request': '982a8e141a251ebef08e3fdff388ecc15453f48c50ba113e4d6226a06089a506',
+    'lmp_hci_reject_connection_request': 'ecb362f2db03728ffacb84636572bd27e1c9db614abc979428762dd160ababf2',
+    'lmp_hci_send_keypress_notification': '8af762b4bc74daa59c479bb8133f3ab43796e92cf8f92d75831b68099e515f75',
+    'lmp_hci_user_keypress_request_reply': 'e080a949ea072f287dc7a4315b6e0aef9d23b5c0daa3330e49196f758d0f1713',
+    'lmp_hci_user_keypress_request_negative_reply': 'af64a68d626f77710e825bf72be3520b95d632c162c4971bfa5183e6ec7c1f23',
+    'lmp_hci_link_key_request_reply': '7743276f3f31a16dd0890f557ffb81bd7d39b34dc2b019a1d6b8c07a6a0a51b3',
+    'lmp_hci_pin_code_request_reply': 'e18fe122e4405a41f82926b2d75848afbcc234854d86ea383145ba3246c4d1ae',
+    'lmp_hci_switch_role_command': '06c38d43a534ac713ff5faae46a7718a293963afa436a5acacd52311fc304c56',
     # lmp_hci_settings.c
     'lmp_hci_write_class_of_device': '611d2f778e9dce51d977352a97c474c259d621b75af7874a8a00960793edf6d9',
     'lmp_hci_write_local_name': 'bcf27db9ff369df2b3d9c3f075d6020b8d2b7eac0fd56ddd5a9aa1572c1f658d',
@@ -361,3 +462,73 @@ HCI_PROCEDURES_OWNED = {
 
 def hci_procedures(text):
     return own_all(text, HCI_PROCEDURES_OWNED)
+
+
+TASK_QUEUE_OWNED = {
+    'lmp_hci_cmd_to_conn_for_addr': 'd88e93d1006482ef0c99b32c5c6b985e554e620f4071e0cb6e61452c3938ccd3',
+    'lmp_hci_cmd_to_conn_for_handle': '173d4cc85514763cc762ad4a304bff7697b738efbb647444bf2680e2ea4cad9f',
+    'lmp_hci_cmd_to_conn': '095fe6b2f73d1ae460c444aac7a6cab67417950453728f19d5387019e33d7530',
+    '__cmd_to_lmp_conn': '0c4164d9c7f9cbdd7c3d38531e07611ef0763bbe765ac8b93b1cf91a6be12fe3',
+    'btctrler_hci_cmd_to_task': 'daefe5137ee2a25a3e1dee986c2665c0186f739c1011af4bad76dee30393a1d8',
+    'bredr_link_event': 'f4c84a84241404690a3d3c11accff94ab6009a88914b98b9f9aa6803c19dfc10',
+    'btctrl_msg_qfull_handler': 'cf10ddef85a004df1c0126d66357cfb97763925a9c4c96ac31e636c0abbf0468',
+}
+
+
+def task_queue(text):
+    text = own_all(text, TASK_QUEUE_OWNED)
+    for name in ("cpu_in_irq", "cpu_irq_disabled"):
+        text = export(text, name)
+    static = "@btctrl_qfull_cnt = internal unnamed_addr global i8"
+    if text.count(static) != 1:
+        raise RuntimeError("controller: missing queue-full counter")
+    return text.replace(static, "@btctrl_qfull_cnt = global i8", 1)
+
+
+TASK_LIFECYCLE_OWNED = {
+    'btctrler_task_ready': 'd8699f271c88e96b0c02257e587ed8604255d5bbb7ef340c593db2574cefa3cc',
+    'btctrler_resume_req': '553816fd92319c0f880a8ac5cb4d66929536a0e9ac039f5f42f148d015f9c48b',
+    'bredr_bulk_change': '6ef78110a1911ad83d33a369fd8168a64855728fd2e54c31cf1334aa86f4ce96',
+    'btctrler_suspend': 'e3b925e4363cfc833833a77c1030492105b628c8aa28ffe61a40111cf0b9e5a5',
+    'btctrler_resume': 'c3b3deb84fad54ad33ea6e6f3f71b22aa83c7ad27620cccf703e2c6dd85d0401',
+    'bredr_bulk_change_rx_bulk': 'e9b75932916bd773fb705e832bc1120b2a501d10c5f95d38bcfac343c4012753',
+    'btctrler_task_init': '6a71eee6342ad4665d615eecf514c06dc1c2153f6e9b49d90801c32f1ced54a3',
+    'btctrler_task_exit': '90453da9077e40f3d7c3fe1526106c9a2e013d60b1491956f77dc66cd7451836',
+    'btctrler_task_close_bredr': '2fbbe6fae1dcc2f51df1583ee3607619dc878787e2da11192dc1ea9ae6e6cc4f',
+    'btctrler_task_init_bredr': 'c9117126b1a45ea973a530e7729aae03c0c1add893a7344f1331a805c3235a74',
+}
+
+
+def task_lifecycle(text):
+    text = own_all(text, TASK_LIFECYCLE_OWNED)
+    return text
+
+
+TASK_DISPATCH_OWNED = {
+    'btctrler_task': '351593bc57a870325c99de59fb20ca73b684817ad4be833e66d6889ddca58caf',
+    'btctrler_testbox_update_msg_handle_register': '650df8b3bb626ccde86bfa0d6970b770bca99235f158fd96f1d63df462ccf8ba',
+    'bt_task_create': 'a4045a715cfbbbbe67aeea437b3c0ad30dc8ca72ea6f12b2858ef40cdf27e37a',
+    'bt_task_delete': '9496249c52e60f49545185ada6a542fa5d05197e94a216186344881c3c94a13b',
+    'bt_task_suspend': 'ae718038a9e0d24ef0ecdc0ec3903789990811a67f4673368e4f65ab698b3f6f',
+    'bt_task_resume': '2acb0467e07ce48208491696e54f7b75beea7ba9d2a8646fbdf89fb6a2a39683',
+    'btctrl_msg_qfull_hook': 'b501532b8d7b1e23d18c709987be7d062ad57c6441b567353d3b7024563643f5',
+}
+
+
+def task_dispatch(text):
+    text = own_all(text, TASK_DISPATCH_OWNED)
+    static = "@bt_testbox_update_msg_handle = internal unnamed_addr global"
+    if text.count(static) != 1:
+        raise RuntimeError("controller: missing update callback storage")
+    return text.replace(static, "@bt_testbox_update_msg_handle = global", 1)
+
+
+CONTROL_TX_OWNED = {
+    'lmp_format_packet': '59caad9b99e355813e32f6448f6b4efd291b2775c83950382099740c906f5fcd',
+    'lmp_request': '672931262a86f1323ceded46178da2dd5830b4a0fa2ecd4f7857d4184ee4c4e1',
+    'lmp_response': 'c666b949c5d2a762cbb4609ab1b6d91cd416848d0f0b636a1cd38d65abb79b8d',
+}
+
+
+def control_tx(text):
+    return own_all(text, CONTROL_TX_OWNED)
