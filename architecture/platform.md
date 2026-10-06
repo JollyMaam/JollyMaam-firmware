@@ -121,6 +121,5 @@ part (`--by`).
 
 The CPU's sleep shows as samples returning to the start of `wdt_clear`,
 attributed to it and its neighbours in `msd.c` (`check_disk_status`,
-`msd_mcu2usb`): about half the samples on an idle pad, 4 % at 200 reports/s
-on a Switch 2 (2026-10-05).
+`msd_mcu2usb`).
 
