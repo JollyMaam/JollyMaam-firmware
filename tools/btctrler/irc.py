@@ -413,7 +413,7 @@ class Func:
         if op == 'alloca':
             m = re.match(r'alloca (.*?)(?:, align \d+)?$', rhs)
             return f'local {m.group(1)}'
-        if 'call ' in rhs.split('(')[0] + ' ':
+        if re.match(r'(?:tail |musttail |notail )?call\b', rhs):
             m = re.match(r'(?:tail |musttail |notail )?call (?:fastcc )?(?:' + ATTRS + r')?(.*?)(@[\w.]+|%[\w.]+)\((.*)\)\s*$', rhs)
             if not m:
                 m = re.match(r'(?:tail )?call .*? bitcast \(.*? (@[\w.]+) to .*?\)\((.*)\)\s*$', rhs)

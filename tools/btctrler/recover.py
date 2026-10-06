@@ -48,6 +48,8 @@ def classic_baseband(text):
 
 # lmp.c functions owned by src/btctrler/, by SDK body fingerprint.
 LMP_OWNED = {
+    # lmp_receive.c
+    'lmp_rx_handler': 'a20b1d2123b3ccf9cb2f6f1871ae70ec4cb91a660bfd676ffadee61c747b2bb2',
     # address.c, link_policy.c
     'lmp_conn_for_address': 'b9f882812945540261c826ed1b8dfa721ec53fdee0f960a4a16e233e4c1d785c',
     'lmp_hci_cmd_addr_to_conn': 'b67a98ba022eb9150c51c971e292654f51887ab4b54d79b5f3a2911c190912cb',
@@ -55,6 +57,91 @@ LMP_OWNED = {
     'lmp_vendor_qos_interval_config': 'aab7bdb10cf8728cc97563fdcbaa418bdd06279d7318733f377b6d94e6d2d535',
     'lmp_event_esco_link_setup': '923b32a5ea7bd01ede5dfbf26f4f3713a6c3f88aed60f84c3628a474cde9dcbe',
     'lmp_tx_supervision_timeout': '4172dc19c2e9273ac9eeef8b0761b017599bf8e4d88797803c6a159f05938bfb',
+    # lmp_events.c, lmp_info.c
+    'lmp_send_event_encryption_change': 'fdb8b05e6ce83c5da4a27b1445979bc38f9994fd935190b832797523f24fbcbf',
+    'lmp_send_event_role_change': '1acabfae67d8d6dea77e859adc40b6ee87c2e4e2fc7e3501c167dcb08048aca1',
+    'lmp_send_event_link_key_notification': '3170c30944dd2f99ac6debe9c4dc89facaaeb157d885b90c193ae79c57781c82',
+    'lmp_send_event_connection_request': 'c68595dc7c3f58b6aab54df026f1069a87e2817b7c7ee7053f7d4253ea4a9f67',
+    'lmp_send_event_link_request': 'f6f3019a0edda10460782e6e45622291a9429be18b964dd9d75e7e0baa77559f',
+    'lmp_send_event_auth_complete': 'cdcdbd7be9b190070021936ddce694dda3dcd8403db1f8a4492c9abc67fb1988',
+    'lmp_send_event_connection_complete': '7787a5494066c9eb9155bdbe40ca9fea6cc2151c9d32cabe299f82f9370e9d53',
+    'lmp_send_event_mode_change': 'abdf82d37eb2abf19d5b4b3fc6046c9fa1b60005c604aa24eb281d6aa53bf235',
+    'lmp_setup_complete': '3e965dd502e396cca82c7c3261df1851186b140f54bfe93729aa9c30d72f91c4',
+    'lmp_tx_version_req': 'a284221e9e872f89e1665ce139733f352db92137843781c9946d740c94b6fd64',
+    'lmp_rx_feature_req': 'b15210705a582334eb951dbf354875e6eb0779297598d194513776bf901d1c06',
+    'lmp_rx_features_res': '85dadcb6e4e011aa5d4c48f0dcf4e6550e90e9a484c0b03b0583924bd3342357',
+    'lmp_rx_version_req': 'f0048697387e4bd697230f4aaef18bd46f75b5e40f42ced25c772ad1cc531e28',
+    'lmp_rx_version_res': 'f9639b28f6a6a0606df08c447582ebd9f8cafe622be496e7bf5ece003c65642b',
+    'lmp_rx_name_req': '2db94a1da615ed3a46d4d1ccdb6b72de44bd0a99337037a99ca22c40b0340a34',
+    'lmp_rx_name_res': 'f57554a513225158a87e726aff5feb3dd4f79811405f4254e7de95a5066eb5c7',
+    'lmp_rx_features_req_ext': 'a296aba450c57d5dc08a595380d1ee7713e8e5c573e37899b9566d72ef325b83',
+    'lmp_rx_features_res_ext': '06995095b47208557a42932c344948c1235d03dbe0a299d4a66bc0e3e8bec786',
+    'lmp_tx_features_req': 'ed2cc59e35cccafd27fa8c3006b0f3a34f65c3b08e2667a0f96a24ac54af576c',
+    'lmp_tx_features_req_ext': 'de70d04338f3a69de53d9ec5ccfec7cedf8dbff25ef5a4695be2181dc2a1b492',
+    'lmp_tx_name_req': '5cad91c950b85fbd30f43b1bd831701950a3dee27592831cf23f44f59db7833a',
+    'lmp_tx_connection_req': '6fedd26899eb9bb7b7ef4cd5ea0478f764f78642328503326a4db569661965dd',
+    'lmp_tx_setup_complete': 'aef2ae1419bb1f1da7b6ef5f3ce0f50c2773212f1cdfe988dfffa6fcf4120b2e',
+    # lmp_packets.c
+    'lmp_tx_max_slot': '77ffd34736e21ebd62cdaa90fb54caaccccffa4bb7a3c4be4dfc12af3a922dcf',
+    'lmp_rx_max_slot': '157fd592c06f2e1cf059849c88dd933e73be65d85007893b2805b8e4e0141585',
+    'lmp_rx_max_slot_req': '89d47da26d6e495326af3972f2638ecfa5ef755241336fe25649914aeabb2767',
+    'lmp_rx_accepted_max_slot_req': 'b7f918b09fe803559dd8fbb2fde9547718929d72d80de31928a3334cd030da20',
+    'lmp_rx_not_accepted_max_slot_req': '0189a2a36967f53710315959381979a3b6ef05cbc6c289b4e391f7fd5b51d5bc',
+    'lmp_tx_packet_type_table_req': 'a5d99f847a064bdc5b338bebb5fadc7b05904f42a67826286fb3245a281be86c',
+    'lmp_rx_packet_type_table_req': 'c007642fc86036e1ac4d753a9ad2a6941d34c4c010224ae689a9b72a8902616d',
+    'lmp_connection_ctl_slot': '30f3698cd869aadb51d028b898847b011460ea3ed69e56c513199ebe3a70546a',
+    'lmp_send_max_slot': 'abbb1385ea2e64650a9ec53a89291980000806e8c919a4a9ac68412639279b91',
+    'lmp_tx_max_slot_req': 'f41228c2e73d2475c18cc9f6b90e2523520bb619a2b175b3038d3f6ba57a63f0',
+    'lmp_tx_auto_rate': 'e6c6a4434a492fa649030286b3b6f7427ec0faa8b45a67d255b9d7bc655d00bd',
+    # lmp_afh.c
+    'lmp_tx_channel_classification_timeout': '7997604c4f6aff90a04a4389ab43ca7b05328df3a99884ace6af011022282e20',
+    'lmp_tx_channel_classification': '08d82e377fdabf6665917cbec3e9dad069de64c455344893dcec7125433c8d76',
+    'lmp_master_tx_set_afh_user': 'c197890c660235c94c37cb260237977c6ebe15b2ad42a6222180ad74e874ee5d',
+    'lmp_rx_channel_classification': 'c50064fcb2f20f539febf80506ddbf1cedd730dabe64dc86892963d9ca8f3411',
+    'lmp_tx_channel_classification_req': 'dffdb50f9a77e4c63ea249265ebd9d51f4ccd7eda3c94ae30f5ce48c32966646',
+    'lmp_rx_channel_classification_req': 'b842a94c0108bee52033de8a9413a95522fb51fe1944a24809c8ed27c16042a8',
+    'lmp_channel_classification_close': '3c756cd56f7024db9bf3cc97c9e622c94ebb1130a55ef942ba0bafc0220e96a8',
+    'lmp_rx_not_accepted_afh_req': '3361ee9043faee5ab68f29433e94659a22de55f7f25c7ef011675d24098e74c5',
+    '__lmp_enable_afh': '0cc6c7c55fc07f56e72c20b72d6250d61ce3d001ce3e69286931969ba1f2bcd7',
+    'lmp_tx_set_afh': 'b708a87085841fed647dfe9cd2df55e886e8369093755111a4771da7db58c7ce',
+    # lmp_connections.c
+    'lmp_init': 'bb217885d6242c2c65b1154cf37b1f89273ceb56b8e22d5b8e5e07a046d5f063',
+    'lmp_create_conn': 'cbcac5f9eabb8b236d8cf41fadd77e5c2ad89953ec83a19fa670323c2f73e3c4',
+    'lmp_conn_for_handle': '9be908fa94fb6545e5c9e23448ef93e2046e1351a67d13d26666377f61fc7cff',
+    'lmp_conn_for_link': '8014b1c991c55d441be2ffed55958b537b494ea1d41beb54b66cee0a1fa6282f',
+    'lmp_get_other_conn': 'a9d0f84d6e3f75f2437d5de26dad3869c6251d51e22ed7fd6e43f841cef39430',
+    'lmp_conn_remote_address': 'cc85878cde54791faba2d30496b8c32f9710c6350271175690b8816e81ad58c8',
+    'lmp_conn_for_active_state': 'c1415b000da23b231cdc86bc5b3bc7e4e755a4fb1791d72dfd7e21591dca193e',
+    'lmp_get_conn_num': '80be9553e62537137c84bfa01e280a352c14de128d0c9dc1b4cdefc43ff5d7d0',
+    'lmp_role_machine_handler_register': '0de74ce2f6aa0d31e1e1450babd0d0e9b8e78c369ca8dd0c328c9acc81f6b547',
+    'lmp_role_machine': 'e9b87acc6c19b5f8cd68d3daaf053e75a9201b3c4f1252e926b849cf2c1b46c0',
+    'lmp_tx_detch': '1d1ae111881f5b1d7a2599c8d8e85f0e512760989a37facd1481382d726141dd',
+    'lmp_tx_disconnect': 'f5eb22829ead86f0ac93f716416a0f74ae2ce99b6ca5fda67ee69d6929dffc69',
+    'lmp_set_supervision_timeout': '4fc5a8302861a688ca947b927ab6ca8d837ffc5de3236612c15b04788b55af4d',
+    'lmp_connection_timeout': '49ab2ca8075f0f784c8cd3ea6ea862012f32f928bc4b5de0e972fbeb2d2ee957',
+    'lmp_connection_start': 'e6d47b96a5d51de21da23aa0dd8afc7a0f83c3dec4cd176e0098c068b2191d7f',
+    'lmp_close_all': '6984419a73504611d9f11b49746a5c1b3bb93acb838c61276715095cbd606545',
+    'lmp_reset': '969cc4eef6a72d60ffc257942ae625b6dcdd0943c076cc018ec7618e1297a4f4',
+    # lmp_commands.c
+    'lmp_hci_cmd_handler': '17ee480f2dbff3686f11027e7be6e5d084c71a16ae9bd10be75840d98e40b14b',
+    'lmp_hci_cmd_handler_to_conn': 'ca26661983ea85f4776db58a44d5738f660fdf9831aadf6d36c14c9f92b2c93d',
+    'lmp_hci_cmd_to_conn_handler': 'dba4d7dd9451deb3c7d6547c861bed8f27f70c39957bc4e0d2e19cbb6731c475',
+    # lmp_acl.c
+    'lmp_send_acl_u_packet_to_host': '1ca311a7ab84acaec6b852b68b11ad4515b6e405450c89e694916366888c122b',
+    'lmp_private_abandon_sbc_data': '4dcb002e6432f6d509e9983efafff61ff3c455851ce194ffd18ae636f3741ac2',
+    'lmp_send_aclu_en': '0a3ade18bfb90d8a8fd4aefe7cec6bfb0f616a0b1ab3aa6696b799366fb7d206',
+    'lmp_private_get_rx_buffer_total_size': '0ebf2b88469c0c8f0297216ee7a596bebe842cf8aea39ca104ca34c3db3e5f32',
+    'lmp_private_get_rx_buffer_remain_size': '4a5f91031c148044127ac8893c7d394f941e72a238b5dc223434a9b6791fa13c',
+    'lmp_private_set_max_rx_buf_persent': '6053fca61d055fc781aa933d0dd2cc0cdf873d5b127d74d06eba6c0669bb05f6',
+    # lmp_link_events.c
+    'lmp_cmd_handler_in_irq': '7bbcbda0aeab9ae66d2fcc9eaf3a2e80410fae78b6c0aad24fca356c91e82bda',
+    'lmp_event_handler': 'eba36890cbc40a6e0050f967caba2a5e5e46fde4954b18050d3d8bfbb32fb1ec',
+    'bredr_close_all_scan': 'd4e4489fcc3fa0db6e8a600a1ccf85268e49b4b324e5943b37cf845d46b70037',
+    'check_lmp_detch_over': 'f4c24fafb9149bfcddd62f68d4acab5690396fe4ce012786dc5d1832760a1f2a',
+    'lmp_disconnect_all_standard_connect': '94be8cd62ffaf174593cf123c52a020a9764971cfde326ab8c815448dfb3f90f',
+    'lmp_standard_connect_check': '4b7bd45ae82057be95d994a8be7791c8220fc4de0d0fd6cf922753226f827c23',
+    'lmp_timeout_irq_handler': '8f9dd1ed415844462118bcf8f79029330dba39d973c2d50c35c31fb804e0d25a',
+    'lmp_authentication_requested': 'f9dc32119eb0185fc5b12909d0c9603a90853c049da79a5c285b17957887221a',
     # lmp.c, lmp_rx.c, lmp_encryption.c
     'lmp_detach_check': 'af524a60dd3d18dc17fab48ec1d5e8724f5482d1526ade439b90ad11ca96341a',
     'lmp_stage_auth_with_simple_pair_by_remote': '819e42100178ba8f38c522eb759019afbc42179f1d8770ac21210f0fe6615889',
@@ -182,8 +269,8 @@ LMP_OWNED = {
 
 
 # lmp.c statics that owned C calls: external linkage, C calling convention.
-LMP_EXPORTS = ('lmp_rx_handler', 'lmp_send_acl_u_packet_to_host', 'lmp_dhkey_check_accept',
-               'lmp_cmd_is_match_size', 'lmp_send_aclu_en', 'link_conn_rx_remote_max_power_res')
+LMP_EXPORTS = ('lmp_dhkey_check_accept',
+               'lmp_cmd_is_match_size', 'link_conn_rx_remote_max_power_res')
 
 
 def lmp_member(text):
@@ -196,8 +283,81 @@ def lmp_member(text):
     if text.count(slot) != 1:
         raise RuntimeError('controller: expected exactly one SDK ACL slot')
     text = text.replace(slot, '@lmp_acl_link = global [1 x %struct.lmp_connection]')
+    # Receive dispatch shares the SDK's DUT and update-routing state.
+    for name, kind in (('lmp_dut_en', 'i8'), ('lmp_dut_phone_en', 'i8'),
+                       ('lmp_update_rx_handler', 'void (i32, %struct.bredr_rx_bulk*)*')):
+        static = f'@{name} = internal unnamed_addr global {kind}'
+        if text.count(static) != 1:
+            raise RuntimeError(f'controller: expected exactly one SDK {name}')
+        text = text.replace(static, f'@{name} = global {kind}')
     # Owned C keeps the QoS poll interval (link_policy.c); nothing may still
     # read the SDK's copy.
     if len(re.findall(r'@set_qos_poll_interval\b', text)) != 1:
         raise RuntimeError('controller: set_qos_poll_interval is still used')
     return text
+
+
+# Remaining common and Classic HCI boundaries (hci_misc.c).
+DEVICE_MISC_OWNED = {
+    'hci_link_control_cmd_handler': '62f3c9ba9d259dc6343af6d8d1fd524d18a83de8c95e7d6b3f2724e1130cebb6',
+    'hci_link_policy_cmd_handler': '4589a777f3d37fb0f8158cb4789fda40721dcbfd48efd86d8fef7ba4401ed662',
+    'hci_status_parameters_cmd_handler': '2bddaf215c4f586c4e034dfefb68e477b76040832d6d824ed9a8f92e535fda42',
+    'hci_testing_cmd_handler': '1d50a9019c8da7083cb854634b9ad60401d4810031672aa876d04f235ae78094',
+}
+CLASSIC_MISC_OWNED = {
+    'hci_lmp_informational_parameters_cmd_handler': 'f395dc5adb4a2a5811ec09a2c67833db7d9a6ab4399a2bae7f0719143de52d69',
+    'hci_lmp_status_parameters_cmd_handler': 'ed89d10902bbcf2262b18051331d4fe1a3192471724574dbf6ea82cb833e4625',
+    'hci_lmp_testing_cmd_handler': '62c269d8ca8b38ed378bd5861862304d856c361805bb1cf11a5c6c378de5dba4',
+}
+
+def device_misc(text):
+    return own_all(text, DEVICE_MISC_OWNED)
+
+
+def classic_misc(text):
+    return own_all(text, CLASSIC_MISC_OWNED)
+
+
+# Public Classic HCI procedures (lmp_hci_procedures.c).
+HCI_PROCEDURES_OWNED = {
+    # lmp_hci_settings.c
+    'lmp_hci_write_class_of_device': '611d2f778e9dce51d977352a97c474c259d621b75af7874a8a00960793edf6d9',
+    'lmp_hci_write_local_name': 'bcf27db9ff369df2b3d9c3f075d6020b8d2b7eac0fd56ddd5a9aa1572c1f658d',
+    'lmp_hci_write_local_address': 'c071a0fbcad97680cf7963669d6ed3948ed1d90c286012e6d045dd8abf02243b',
+    'lmp_hci_read_local_address': 'a100ef394618f04b25ee36a52f842e330b89a0d9113d14ecf1000fbdb928f10a',
+    'lmp_hci_write_simple_pairing_mode': 'cbcca9439c8ef03f05524e084401f685084eed9fe0d10963ba57464d4bac9cf1',
+    'lmp_hci_host_num_of_completed_packets': '3728e188a05eb9b2e4d0a766c67cbff5c7e9c1ff6df130e198a2314987991931',
+    'lmp_hci_write_le_host_support': '05aa0efdbf403953dcd27250625b7459ba00316bc053d37d1fba6369f3a1737a',
+    'lmp_hci_write_page_timeout': '80ac408c28f48d7ca210192993d982982a6da5c8a3f5fc003748ff5ee8dac1f0',
+    'lmp_hci_write_super_timeout': 'f06f883f46bed6c3ee979cbed809540a17417e064c47dbe3ab68e85a4a1ed10e',
+    'lmp_hci_write_connection_accept_timeout': '5d3b8efe4f582298b6b715194fd1eba56ee6c9ce1cf110a7b8d57966befcec9f',
+    'lmp_hci_read_pin_type': 'c7497ef34448094c0851583b267caa437337c39d9cba92310d07ecea563ac71a',
+    'lmp_hci_write_pin_type': 'bbe75cd11be8b1cc8c2b0561baa5b9adc845bab30455a64c62743c8960b9dad0',
+    'lmp_hci_set_role_switch_supported': '9ebef49dad83c81d3e0b0056744c180ca3e53a6020e7d19ab60bb0d526babcf8',
+    'lmp_hci_read_local_supported_features': '5737d881ad84050951fce71d04b50fc6233fae40a4b992314ad94740dd7f3a8e',
+    'lmp_hci_write_local_supported_features': '031eebd91984aa5620218e220d38964e7844570dda012492c8e1e211605f199f',
+    'lmp_hci_reset': 'e63dcbcbd10ef0fa369348f75082a7ab1da63f827f8bc80bedafe6d177e5f3eb',
+    'lmp_hci_write_scan_enable': '262b08c3c47b0d00008a6b6d7ba7bb1bc21290533f067a9a6833cee4ee1b313b',
+    'lmp_hci_set_connection_encryption': '990eff357ea802308784fdc6ed812ba874904be1b129aa3a916d517b7911db03',
+    'lmp_hci_sniff_mode_command': '15a08c40c24eb981b20f901de209a7beb90d8794187f73b64ab4ce410dc1e336',
+    'lmp_hci_exit_sniff_mode_command': 'd2592437fa656fa5fb209657fe5a4f839b2355fcf017355623a861baa30bfecd',
+    'lmp_hci_authentication_requested': '6667d06da6aa85dac324e3dd4bdf13aa4a5e5401fd490f34ae5863ae008edebd',
+    'lmp_hci_write_link_supervision_timeout': '7f679bddcca1bedd0a31670da7ed1375d6517f25313abb49c158a82140c89575',
+    'lmp_hci_disconnect': 'b0cc2b2ec6cdaba52c8f8d5e07d457374027297ea75d3281619941934050be8e',
+    'lmp_hci_test_key_cmd': '80d773b6af7f212c4fa09c424969c1f0f8602a256ebbf549300b502c585b1a63',
+    'lmp_hci_send_user_info_cmd': 'dd4349b9f10a5583609b3f3c43580265d330c48029b92aa8db5e8e94f5569375',
+    'lmp_hci_read_remote_supported_features': '5c0a0b6f58753f788599f3e9b9772170b9c9f56081b635924ebbf5b2e6106403',
+    'lmp_hci_read_remote_extended_features': '0a672e4aefa107ee596fd943a610dceb622baa1c2593489afc63d198d8698949',
+    'lmp_hci_read_clock_offset': '9fc1b3b2e498781facdf2c6027bf27e66f8231b392a6a8fb1d445dd37ea29fd6',
+    'lmp_hci_read_remote_version_information': 'b42ba97c1e86e0c3de112c2150112e071ed9b33421537c4e6d4f112ab49970d4',
+    'lmp_hci_refresh_encryption_key': '3747b8f769fe7067908e1491a0d730f0cc422fb5715ca57e6afd9bacffb0991f',
+    'lmp_hci_role_discovery': 'a21e8ddccab39877b5f43d5a441b4bf4ae9ace5a46a151a643b242e38cc0feaa',
+    'lmp_hci_read_link_policy_settings': 'f5fb09ac02d5325a9d80dfd55f531198f5d971e4ae53de867786cc971102785e',
+    'lmp_hci_write_link_policy_settings': 'd329ce099530b288ebd0bed89ee672a07e2d76cdef4cabf60317b79cd563e1a1',
+    'lmp_hci_read_default_link_policy_settings': 'b43400e4157596ddec63d7cabd81f14bd081ef023404e4b627d23a979aa38fcb',
+    'lmp_hci_write_default_link_policy_settings': 'a7c3c234d3789167ee658257ad4559d530b556c94a03c06215f3b62b6359375c',
+}
+
+
+def hci_procedures(text):
+    return own_all(text, HCI_PROCEDURES_OWNED)

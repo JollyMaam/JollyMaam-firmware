@@ -23,7 +23,7 @@ static void accepted(struct lmp_connection *conn, int opcode)
 }
 
 /* Escape 4: p is the PDU after the two opcode bytes. */
-static void escape4(struct lmp_connection *conn, const u8 *pdu, u8 *opcode2)
+static void escape4(struct lmp_connection *conn, const u8 *pdu, u16 len, u8 *opcode2)
 {
     const u8 *p = pdu + 2;
     struct link_connection *link = conn->link;
@@ -46,8 +46,15 @@ static void escape4(struct lmp_connection *conn, const u8 *pdu, u8 *opcode2)
     case FEATURES_REQ_EXT: lmp_rx_features_req_ext(conn, (u8 *)p); break;
     case FEATURES_RES_EXT: lmp_rx_features_res_ext(conn, (u8 *)p); break;
     case PACKET_TYPE_TABLE_REQ: lmp_rx_packet_type_table_req(conn, (u8 *)p); break;
-    case CHANNEL_CLASSIFICATION_REQ: lmp_rx_channel_classification_req(conn, (u8 *)p); break;
-    case CHANNEL_CLASSIFICATION: memcpy(conn->afh_report.rx_channel_classification, p, 10); break;
+    case CHANNEL_CLASSIFICATION_REQ:
+    case CHANNEL_CLASSIFICATION:
+        /* These opcodes are absent from the SDK's size-check table. */
+        if (len != (pdu[1] == CHANNEL_CLASSIFICATION_REQ ? 7 : 12))
+            lmp_response(conn, "b05", ESCAPE_4 << 1, NOT_ACCEPTED_EXT, ESCAPE_4, pdu[1], 0x1e);
+        else if (pdu[1] == CHANNEL_CLASSIFICATION_REQ)
+            lmp_rx_channel_classification_req(conn, (u8 *)p);
+        else lmp_rx_channel_classification(conn, (u8 *)p);
+        break;
     case ESCO_LINK_REQ: lmp_rx_esco_link_req(conn, (u8 *)p); break;
     case POWER_CONTROL_REQ:
         /* Answer with the power reached: 63 at the minimum, 42 at the
@@ -129,7 +136,7 @@ void lmp_acl_c_handler(struct lmp_connection *conn, struct bredr_rx_bulk *rx,
         return;
     }
     if (opcode == ESCAPE_4) {
-        escape4(conn, pdu, opcode2);
+        escape4(conn, pdu, rx->len, opcode2);
         return;
     }
     /* The QoS adapter takes the PDUs of its own transactions. */
@@ -248,6 +255,7 @@ void lmp_rx_unsniff_req(struct lmp_connection *c) { (void)c; called("unsniff_req
 void lmp_rx_version_req(struct lmp_connection *c) { (void)c; called("version_req"); }
 void lmp_rx_au_rand(struct lmp_connection *c, u8 *p) { (void)c; arg = p; called("au_rand"); }
 void lmp_rx_channel_classification_req(struct lmp_connection *c, u8 *p) { (void)c; arg = p; called("channel_classification_req"); }
+void lmp_rx_channel_classification(struct lmp_connection *c, u8 *p) { (void)c; arg = p; called("channel_classification"); }
 void lmp_rx_clkoffset_res(struct lmp_connection *c, u8 *p) { (void)c; arg = p; called("clkoffset_res"); }
 void lmp_rx_comb_key(struct lmp_connection *c, u8 *p) { (void)c; arg = p; called("comb_key"); }
 void lmp_rx_detch(struct lmp_connection *c, u8 *p) { (void)c; arg = p; called("detch"); }
@@ -276,7 +284,8 @@ void lmp_rx_switch_req(struct lmp_connection *c, u8 *p) { (void)c; arg = p; call
 void lmp_rx_version_res(struct lmp_connection *c, u8 *p) { (void)c; arg = p; called("version_res"); }
 int lmp_response(struct lmp_connection *c, const char *format, ...)
 {
-    va_list ap; va_start(ap, format); int a = va_arg(ap, int), b = va_arg(ap, int), d = va_arg(ap, int);
+    va_list ap; va_start(ap, format); int a = va_arg(ap, int), b = va_arg(ap, int);
+    int d = strlen(format) > 2 ? va_arg(ap, int) : 0;
     va_end(ap); (void)c; snprintf(response, sizeof(response), "%s %d %d %d", format, a, b, strlen(format) > 2 ? d : 0);
     return 0;
 }
@@ -304,14 +313,15 @@ void sys_timer_del(u16 id) { (void)id; }
 
 static struct lmp_connection conn;
 static u8 op0, op1, op2;
-static void rx(u8 header, u8 b1, u8 b2, u8 b3)
+static void rx_size(u8 header, u8 b1, u8 b2, u8 b3, u16 len)
 {
     static u8 buf[sizeof(struct bredr_rx_bulk) + 32];
     struct bredr_rx_bulk *r = (struct bredr_rx_bulk *)buf;
     last[0] = response[0] = 0; arg = 0; op1 = op2 = 0xee;
-    r->len = 5; r->data[0] = header; r->data[1] = b1; r->data[2] = b2; r->data[3] = b3;
+    r->len = len; r->data[0] = header; r->data[1] = b1; r->data[2] = b2; r->data[3] = b3;
     lmp_acl_c_handler(&conn, r, &op0, &op1, &op2);
 }
+static void rx(u8 header, u8 b1, u8 b2, u8 b3) { rx_size(header, b1, b2, b3, 5); }
 int main(void)
 {
     /* Plain opcodes reach their SDK handlers, with the parameters after the opcode byte. */
@@ -343,6 +353,15 @@ int main(void)
     rx(127 << 1, 31, 0, 0); CHECK(!strcmp(response, "111 254 32 63"));
     rx(127 << 1, 99, 0, 0); CHECK(!strcmp(response, "b05 254 2 127"));
     rx(126 << 1, 5, 0, 0); CHECK(!strcmp(last, "escape3") && op1 == 5);
+    /* AFH request/report lengths are enforced even when the SDK allows them. */
+    for (u16 len = 2; len < 16; len++) {
+        rx_size(127 << 1, CHANNEL_CLASSIFICATION_REQ, 1, 0, len);
+        if (len == 7) CHECK(!strcmp(last, "channel_classification_req") && !response[0]);
+        else CHECK(!last[0] && !strcmp(response, "b05 254 2 127"));
+        rx_size(127 << 1, CHANNEL_CLASSIFICATION, 1, 0, len);
+        if (len == 12) CHECK(!strcmp(last, "channel_classification") && !response[0]);
+        else CHECK(!last[0] && !strcmp(response, "b05 254 2 127"));
+    }
     rx(124 << 1, 5, 0, 0); CHECK(!last[0] && op1 == 0xee);
     /* Wrong size: nothing, though escapes still report their opcode. */
     size_ok = 0; rx(127 << 1, 3, 0, 0); CHECK(!last[0] && op1 == 3);

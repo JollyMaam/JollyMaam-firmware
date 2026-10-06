@@ -10,10 +10,11 @@ from btctrler.ir import rewrite_member
 # Each member's SDK definitions are removed from pristine IR: the
 # fingerprints are of the SDK's bodies.
 PIPELINE = {
-    'device_manager.c.o': (recover.device_manager,),
+    'device_manager.c.o': (recover.device_manager, recover.device_misc),
     'hci_controller.c.o': (recover.command_dispatch,),
     'lmp.c.o': (recover.lmp_member,),
-    'lmp_hci_cmd_parser.c.o': (recover.link_control, recover.classic_baseband, recover.link_policy),
+    'lmp_hci.c.o': (recover.hci_procedures,),
+    'lmp_hci_cmd_parser.c.o': (recover.link_control, recover.classic_baseband, recover.link_policy, recover.classic_misc),
 }
 
 

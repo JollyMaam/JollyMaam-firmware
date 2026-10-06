@@ -14,9 +14,11 @@
 
 /* lmp.c's file-static ACL slot; the archive build gives it external linkage. */
 extern struct lmp_connection lmp_acl_link[1];
+extern u8 lmp_dut_en, lmp_dut_phone_en;
+extern void (*lmp_update_rx_handler)(int, struct bredr_rx_bulk *);
 
-/* SDK file-static functions: owned C replaces the first two; the build
- * gives the others external linkage so owned C can call them. */
+/* Entry points absent from the generated prototypes: owned C and SDK
+ * file-static helpers exported by the archive build. */
 void hci_command_process(u8 *cmd, int size);            /* hci_controller.c */
 void lmp_detach_check(void);                            /* lmp.c */
 void lmp_rx_handler(struct lmp_connection *conn);       /* lmp.c */
@@ -39,6 +41,7 @@ void local_irq_enable(void);
 int os_sem_post(OS_SEM *sem);
 void os_time_dly(int ticks);
 void sys_timer_del(u16 id);
+int sys_timer_modify(u16 id, u32 msec);
 u16 sys_timeout_add(void *priv, void (*func)(void *priv), u32 msec);
 u16 sys_timer_add(void *priv, void (*func)(void *priv), u32 msec);
 void sys_timeout_del(u16 id);

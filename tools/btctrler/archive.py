@@ -13,8 +13,8 @@ from pathlib import Path
 
 # Functions owned C defines in place of the SDK's (each is removed from the
 # archive by tools/btctrler/recover.py, against a fingerprint).
-from .recover import LMP_OWNED
-OWNED = tuple(LMP_OWNED) + (
+from .recover import LMP_OWNED, DEVICE_MISC_OWNED, CLASSIC_MISC_OWNED, HCI_PROCEDURES_OWNED
+OWNED = tuple(LMP_OWNED) + tuple(DEVICE_MISC_OWNED) + tuple(CLASSIC_MISC_OWNED) + tuple(HCI_PROCEDURES_OWNED) + (
     'hci_lmp_controller_baseband_cmd_handler', 'hci_controller_baseband_cmd_handler',
     'hci_informational_parameters_cmd_handler', 'hci_command_process',
     'hci_lmp_link_control_cmd_handler', 'hci_lmp_link_policy_cmd_handler')
