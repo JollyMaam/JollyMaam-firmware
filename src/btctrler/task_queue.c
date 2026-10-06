@@ -3,10 +3,27 @@
 #include <string.h>
 #include "btctrler/glue.h"
 
-extern u8 btctrl_qfull_cnt;
+__attribute__((section(".hci_controller_bss"))) u8 btctrl_qfull_cnt;
 int btctrl_msg_qfull_hook(u8 count);
+#ifndef UNITTEST
+/* The SDK's cpu.h probes: inside an interrupt handler; interrupts disabled
+ * or masked (IPMASK at the controller's level 6). */
+static inline int cpu_in_irq(void)
+{
+    int flag;
+    __asm__ volatile("%0 = icfg" : "=r"(flag));
+    return flag & 0xff;
+}
+static inline int cpu_irq_disabled(void)
+{
+    int flag;
+    __asm__ volatile("%0 = icfg" : "=r"(flag));
+    return (flag & 0x300) != 0x300 || *(volatile u32 *)0x10f1a8 == 6;
+}
+#else
 int cpu_in_irq(void);
 int cpu_irq_disabled(void);
+#endif
 int os_taskq_post_type(const char *name, int type, int argc, int *argv);
 const char *os_current_task(void);
 
@@ -110,7 +127,6 @@ int bredr_link_event(void *link, int argc, ...)
 #include <limits.h>
 #include <stdio.h>
 int config_btctler_modules = 3;
-u8 btctrl_qfull_cnt;
 static struct lmp_connection connection;
 static u8 address[6];
 static int missing, lookups, assertions, posts, delays, hooks, in_irq, disabled, task_reads;

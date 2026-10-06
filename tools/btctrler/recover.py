@@ -5,7 +5,7 @@ the owned C was written from.  Owned C reaches SDK storage through
 src/btctrler/sdk.h.
 """
 import re
-from .ir import extract, export, own_all
+from .ir import extract, own_all
 
 def link_policy(text):
     """Own hci_lmp_link_policy_cmd_handler (src/btctrler/link_policy.c)."""
@@ -410,10 +410,15 @@ LMP_UNUSED = frozenset("""
 def lmp_member(text):
     """lmp.c.o: check every SDK definition is owned (by fingerprint) or
     known unused; build_btctrler.py then drops the member."""
-    text = own_all(text, LMP_OWNED)
+    return leftovers(own_all(text, LMP_OWNED), 'lmp.c', LMP_UNUSED)
+
+
+def leftovers(text, member, expected):
+    """For a member the build drops: what owned C does not replace must be
+    exactly the expected (unused) definitions."""
     left = set(re.findall(r'^define [^\n]*@([\w.]+)\(', text, re.M))
-    if left != LMP_UNUSED:
-        raise RuntimeError(f'controller: lmp.c leftovers changed: {sorted(left ^ LMP_UNUSED)}')
+    if left != set(expected):
+        raise RuntimeError(f'controller: {member} leftovers changed: {sorted(left ^ set(expected))}')
     return text
 
 
@@ -507,7 +512,7 @@ HCI_PROCEDURES_OWNED = {
 
 
 def hci_procedures(text):
-    return own_all(text, HCI_PROCEDURES_OWNED)
+    return leftovers(own_all(text, HCI_PROCEDURES_OWNED), 'lmp_hci.c', {'cpu_reset'})
 
 
 TASK_QUEUE_OWNED = {
@@ -522,13 +527,7 @@ TASK_QUEUE_OWNED = {
 
 
 def task_queue(text):
-    text = own_all(text, TASK_QUEUE_OWNED)
-    for name in ("cpu_in_irq", "cpu_irq_disabled"):
-        text = export(text, name)
-    static = "@btctrl_qfull_cnt = internal unnamed_addr global i8"
-    if text.count(static) != 1:
-        raise RuntimeError("controller: missing queue-full counter")
-    return text.replace(static, "@btctrl_qfull_cnt = global i8", 1)
+    return own_all(text, TASK_QUEUE_OWNED)
 
 
 TASK_LIFECYCLE_OWNED = {
@@ -563,10 +562,9 @@ TASK_DISPATCH_OWNED = {
 
 def task_dispatch(text):
     text = own_all(text, TASK_DISPATCH_OWNED)
-    static = "@bt_testbox_update_msg_handle = internal unnamed_addr global"
-    if text.count(static) != 1:
-        raise RuntimeError("controller: missing update callback storage")
-    return text.replace(static, "@bt_testbox_update_msg_handle = global", 1)
+    # cpu.h's inline probes and cpu_reset (the SDK's ASSERT) are all that is
+    # left; task_queue.c has the probes.
+    return leftovers(text, 'btctrler_task.c', {'cpu_reset', 'cpu_in_irq', 'cpu_irq_disabled'})
 
 
 CONTROL_TX_OWNED = {
@@ -585,4 +583,4 @@ CONTROL_TX_OWNED = {
 
 
 def control_tx(text):
-    return own_all(text, CONTROL_TX_OWNED)
+    return leftovers(own_all(text, CONTROL_TX_OWNED), 'lmp_rxtx.c', {'cpu_reset'})

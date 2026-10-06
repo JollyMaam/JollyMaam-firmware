@@ -2,6 +2,19 @@
 #include <string.h>
 #include "btctrler/glue.h"
 
+/* The SDK's local device defaults (lmp_hci.c).  The host overwrites name,
+ * class and timeouts at power-on; drift and jitter (ppm, us) answer timing
+ * accuracy requests. */
+__attribute__((section(".classic_lmp_data"))) struct bredr_local_device gbredr_local_dev = {
+    .drift = 250, .jitter = 10,
+    .local_name = "JL-BR22",
+    .priv_version = { 'b', 'r', '2', '2', 'x', 'x', 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0xaa, 0xbb },
+    .super_timeout_value = 8000, .page_timeout_value = 8000,
+    .eir = { .sr = 1, .enable = 1, .type = 3 },
+    .internal_addr_local = { 0xcb, 0x35, 0x3a, 0x53, 0x98, 0xd7 },
+    .internal_addr_remote = { 0x80, 0xba, 0xa3, 0x28, 0x97, 0xad },
+};
+
 void lmp_hci_write_class_of_device(int class)
 { gbredr_local_dev.dev_class = class; }
 void lmp_hci_write_page_timeout(u16 timeout)
@@ -64,7 +77,6 @@ void lmp_hci_write_local_supported_features(u8 features, int octet)
 #include <limits.h>
 #include <stdarg.h>
 #include "test.h"
-struct bredr_local_device gbredr_local_dev;
 struct hci_parameter hci_param;
 static int asserts, assert_value, queued;
 void btctrler_assert_failed(const char *what, int value)

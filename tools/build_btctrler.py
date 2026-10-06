@@ -20,7 +20,7 @@ PIPELINE = {
 }
 # Members owned C replaces completely: checked by their transforms above,
 # then left out of the archive.
-DROPPED = ('lmp.c.o',)
+DROPPED = ('btctrler_task.c.o', 'lmp.c.o', 'lmp_rxtx.c.o', 'lmp_hci.c.o')
 
 
 def main():

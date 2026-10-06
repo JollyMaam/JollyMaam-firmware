@@ -9,6 +9,10 @@ void sys_event_notify(struct sys_event *event);
 int os_sem_create(OS_SEM *sem, int count);
 int os_sem_pend(OS_SEM *sem, int timeout);
 int os_taskq_post_type(const char *name, int type, int argc, int *argv);
+/* The host transport hci_interface_setup registers (btctrler_task.c). */
+__attribute__((section(".hci_controller_bss"))) const hci_transport_t *h4_transport;
+__attribute__((section(".hci_controller_bss"))) const void *h4_config;
+
 int task_create(void (*entry)(void *), void *priv, const char *name);
 int task_kill(const char *name);
 void btctrler_task(void);
@@ -177,8 +181,6 @@ void btctrler_task_init_bredr(void) { bredr_bd_init(); }
 #include <string.h>
 int config_btctler_modules;
 u8 log_tag_const_i_LMP, log_tag_const_e_LMP;
-const hci_transport_t *h4_transport;
-const void *h4_config;
 static OS_SEM test_sem;
 static int allocation_fails, create_result, post_result, allocations, frees, assertions;
 static int rx_busy, tx_busy, remain_busy, links_busy, connections_busy, remaining_checks;

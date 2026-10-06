@@ -5,7 +5,7 @@
 int os_taskq_pend(const char *name, int *msg, int count);
 int os_taskq_post_type(const char *name, int type, int argc, int *argv);
 extern BTCTRLER_CONFIG int config_btctler_le_roles;
-extern void (*bt_testbox_update_msg_handle)(int);
+__attribute__((section(".hci_controller_data"))) void (*bt_testbox_update_msg_handle)(int);
 
 void btctrler_testbox_update_msg_handle_register(void (*handle)(int))
 { bt_testbox_update_msg_handle = handle; }
@@ -64,6 +64,13 @@ int bt_task_suspend(u8 priority, u8 timeout)
 int bt_task_resume(void)
 { os_taskq_post_type("btctrler", 255, 0, NULL); return 0; }
 
+/* The owner of the controller task's threads (thread_create): the HCI
+ * command thread and the LE link layer's. */
+__attribute__((section(".hci_controller_data"))) struct thread_owner bt_task_thread = {
+    .create = (int (*)(void (*)(struct thread_owner *), u8))bt_task_create,
+    .delete = bt_task_delete, .suspend = bt_task_suspend, .resume = bt_task_resume,
+};
+
 #ifdef UNITTEST
 static int hook_putchar(int c);
 #define putchar hook_putchar
@@ -77,7 +84,6 @@ __attribute__((weak)) int btctrl_msg_qfull_hook(u8 qfull_cnt)
 #include <setjmp.h>
 #include <string.h>
 int config_btctler_modules, config_btctler_le_roles;
-void (*bt_testbox_update_msg_handle)(int);
 static jmp_buf stop;
 struct message { int result, type, initialized; };
 static struct message script[64];
