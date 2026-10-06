@@ -161,6 +161,7 @@ struct bt_device {
     const u8 *hid_descriptor;
     u16 hid_descriptor_len;
     u16 sniff_slots, sniff_attempt;
+    u8 keep_sniff;               /* send at the host's sniff anchors, never leave sniff */
     /* LE */
     const u8 *att_db;
     u16 input_handle;
@@ -200,6 +201,7 @@ struct bt_link {
     u16 poll_us;             /* Classic: QoS latency asked for */
     u8 tx_power;             /* 0-5 shown as 1-6: the controller's steps 0-4, then
                                 step 4 from its pro table */
+    u8 sniff_exit;           /* Classic: 0 the profile's choice, 1 stay in sniff, 2 leave it */
 };
 
 struct profile;
@@ -499,7 +501,7 @@ void util_stat_add(struct stat_hist *h, u32 us);
 /* Timing trace: a ring of {µs, marker, argument}, any thread or interrupt;
  * padtool trace reads it (usb.md, TRACE).  Markers: */
 enum { TR_WANT = 1, TR_BT_WAKE, TR_BT_SLEEP, TR_CTL_WAKE, TR_BUILT, TR_SENT, TR_ACK,
-       TR_CTL_SLEEP };
+       TR_CTL_SLEEP, TR_STICK };
 void util_trace(u8 marker, u16 arg);
 u32 util_trace_read(u32 offset, u8 *out, u32 max);
 void util_trace_enable(int on);

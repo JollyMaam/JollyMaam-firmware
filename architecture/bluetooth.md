@@ -240,6 +240,14 @@ These come from failures seen on hardware; see `AGENTS.md`.
   report takes ~1 ms in the hand-off and ~0.4 ms when its completion comes
   back (the controller task working inside those calls), now inside control
   loop passes (0.5 -> 1.2 ms average at 125 Hz).
+* Classic: a Switch 2 holding a Pro Controller link puts it in 5 ms sniff
+  (8 slots).  Leaving sniff to send made it poll every ~15-30 ms instead:
+  build to ack 16.9 ms, at most ~100 reports/s; staying in sniff, 9.5 ms and
+  up to 197/s (measured 2026-10-05).  The Switch profile stays in sniff
+  (`keep_sniff`; slot setting `sniff_exit`).  The old branch left sniff
+  because reports queued into a sniffing link filled the controller and
+  reset the chip; with at most `in_flight` packets in the controller and
+  nothing queued that did not recur (3-minute soaks at 66 and 197/s).
 * BTstack polls the data source added last first: `tx_poll` runs before the
   transport's received packets in each pass.  So room in the controller is
   re-checked where it appears (Number Of Completed Packets, `acked()`), not

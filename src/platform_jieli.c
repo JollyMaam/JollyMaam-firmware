@@ -679,10 +679,12 @@ static HOT void stick_isr(void)
         JL_UART2->CON0 |= BIT(7) | BIT(10) | BIT(12);
         (void)JL_UART2->HRXCNT;
         stick_in += STICK_CHUNK;
+        util_trace(TR_STICK, STICK_CHUNK);
     }
     if ((JL_UART2->CON0 & BIT(5)) && (JL_UART2->CON0 & BIT(11))) {
         JL_UART2->CON0 |= BIT(7) | BIT(10) | BIT(12);
         stick_in += JL_UART2->HRXCNT;
+        util_trace(TR_STICK, (u16)(0x8000 | (stick_in & 0x7fff)));
     }
 }
 

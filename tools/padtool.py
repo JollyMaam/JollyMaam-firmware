@@ -357,7 +357,7 @@ def profile(path, seconds, hz, top, elf, zoom=None, by=None):
 
 
 TRACE_NAMES = {1: "want", 2: "bt wake", 3: "bt sleep", 4: "ctl wake", 5: "built", 6: "sent",
-               7: "ack", 8: "ctl sleep"}
+               7: "ack", 8: "ctl sleep", 9: "stick"}
 
 
 def trace(path, seconds, last):

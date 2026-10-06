@@ -613,7 +613,11 @@ static void tx_poll(btstack_data_source_t *ds, btstack_data_source_callback_type
         if (link.poll_us)
             hci_send_cmd(&hci_qos_setup, con_handle, 0, 2, 8000, 0, (u32)link.poll_us, 0xffffffffu);
     }
-    if (have_data()) unsniff();
+    /* Leaving the host's sniff to send: a Switch 2 holding a Pro Controller
+     * link in 5 ms sniff then polled it every ~15-30 ms instead (build to
+     * ack 16.9 ms against 9.5 ms in sniff, 2026-10-05). */
+    if (have_data() && (link.sniff_exit == 2 || (link.sniff_exit == 0 && !dev->keep_sniff)))
+        unsniff();
     if (!send_pending && linked && have_data() && (msg_read != msg_write || room())) {
         send_pending = 1;
         if (le) att_server_request_can_send_now_event(con_handle);
@@ -869,6 +873,9 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
         util_log("bt: le parameter request %s",
                  l2cap_event_connection_parameter_update_response_get_result(packet) ? "refused" : "accepted");
         break;
+    case 0x01:   /* this controller answers QoS Setup with code 0x01 (docs/radio.md) */
+        if (packet[1] < 19) break;
+        /* fall through */
     case HCI_EVENT_QOS_SETUP_COMPLETE:
         /* status, handle, flags, service type, token rate, peak bandwidth,
          * latency, delay variation */
