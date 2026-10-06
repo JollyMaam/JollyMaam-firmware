@@ -74,10 +74,7 @@ Reports are pulled: `bt.c` raises `EV_BT` when the controller has room and the
 input slot is empty (`bt_input_wanted()`), and the loop builds the report then,
 from the newest input, at most `report_hz` a second (the slot's setting or the
 profile's cap).  A report built is a report sent: the IMU samples it takes
-are never dropped by the newest-wins slot.  On a Switch 2 (5 ms connection
-events) room appears ~3.4 ms after each event, so each report is built ~1.6 ms
-before the event that carries it: 195 reports a second, none replaced, built
-to acknowledged 9.0 ms (11.5 ms with a 200 Hz timer; measured 2026-10-05).
+are never dropped by the newest-wins slot.
 
 ### Timing stats
 

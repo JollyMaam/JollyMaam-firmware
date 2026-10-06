@@ -41,28 +41,6 @@ interfaces, not direct proof of over-the-air behavior.
 - On Classic, Read RSSI answers 0 (inside the golden range); only LE gives
   absolute dBm.
 - LE Read Buffer Size reports 4 LE buffers of 251 bytes.
-- Classic sniff as a peripheral, against a Linux host (Intel AX210 era
-  adapter, measured 2026-10-05): host-set sniff of 2, 8 and 24 slots carried
-  every report; 4 slots once stopped all traffic for 12 s (in five tries).
-  Sniff the pad requested (HCI Sniff Mode, 2-8 slots) was granted as 6-12
-  slots, and in 6 slots (3.75 ms) the link stopped twice in two tries: the
-  pad's reports stayed in the controller, HCI Exit Sniff Mode was accepted
-  (no error status) but the mode change came only ~12 s later.  Whether the
-  controller or the host stalls is not established (Classic air not
-  captured).  A Switch 2 uses 8 slots (5 ms).  The same Linux host grants
-  the pad's own request only 6 or 12 slots, multiples of 3.75 ms (asked
-  6-6: 6; 6-8, 8-10, 8-12: 12): 12 slots delivered a report every 15 ms
-  (build to ack 12.5 ms) instead of pairs 6/24 ms apart in active mode.
-- The stock firmware (a second pad, as a Pro Controller) on the same Linux
-  host, measured 2026-10-05 from the host's btmon: active mode, ~274 0x30
-  reports/s alone (~200/s next to this firmware's pad), gaps mostly under
-  5 ms; link quality 255.  Its timer byte advances by one per new motion
-  sample (~every 4-5 ms) and not between them: 192 of 410 reports repeated
-  the previous one (timer +0).  The three motion slots are a sliding
-  window, newest first (Linux hid-nintendo reads slot 0 as the oldest).
-  The host polls a peripheral that always has data far more often: this
-  firmware's pad at a 250 Hz cap was delivered at 183/s, every 5 ms (p90
-  7 ms), in active mode; at 66 Hz in pairs every ~30 ms.
 - A Switch 2 sets a 5 ms connection interval (4 units), peripheral latency 0
   and a 2 s supervision timeout, then moves the link to the 2M PHY itself.
   Neither side starts a data length update: until LE Set Data Length asks for
