@@ -774,6 +774,30 @@ BREDR_LOW_POWER_OWNED = {
 def bredr_low_power(text):
     return leftovers(own_all(text, BREDR_LOW_POWER_OWNED), 'bredr_low_power.c', {'cpu_reset'})
 
+# le_low_power.c: BLE connection-clock and suspend/resume low-power callbacks.
+LE_LOW_POWER_OWNED = {
+    '__get_clkn': 'b4fe6e9ccfb70718bcf8a155a0893d003cd4cc079c4a95bb3cd39b40ba066b50',
+    '__get_interval': 'f51f1f7cd21142e73e02bc288cd9dd52a161b08af4688c50438c8e889968a12f',
+    '__get_conn_event_count': '0957849e6edee46d46314107fa9781f68e9c2af660ac75e871ae917a4498db4d',
+    '__get_latency_valid': 'b2536b5ec3517b2685f7b3f15f7479eb764b63131fb675b4fb011475bf436ee4',
+    '__get_latency_cnt': '687e703d86057969e6a3566c9a0527b12cdb940e9d13a3ea9be6295555bf3a57',
+    '__power_get_timeout_post': '8242d099090253f3ada2eb4771b4e3f507351ab38fbb0078a111f64f7a97688c',
+    '__power_get_timeout': 'c4e9818e1c26960c3efe044da8891f94faa286c6ab64086813c73e1967a90144',
+    '__power_suspend_probe': 'ae92dd1243f282ea0901c4549f67f9489fafce4fca30d19ea05cd030862cac4b',
+    '__power_suspend_post': '01f208403f2fa6029fca06d0d11c23b5866308e1a119a2bbfa9bb66008e86988',
+    '__power_resume': 'a857cc36e1fb015df680ce97bf28876ba51346bf8cb75a5273d08db1e74f63f6',
+    '__power_resume_post': '47f1d1ab1b72d50b7dc622652bfd7deb89226c8008d30ec06f8b8c00322ebb0c',
+    'ble_power_get': '965f901f30ccb3fe635d4f59a44877e519f300b24dd55c820e3c3352de91bb10',
+    'ble_power_on': '40459258a1195024fba52af28df3a6a51a691dfd784bbd362285c2f43b146eb8',
+    'ble_power_off': '49049189e552ad7f1344606b296a5f161dc40a9a7849d963da6060196ffd3cc7',
+    'ble_power_put': '3bdad46e1cf2fd3b447034fa596c3f4f113f636ad5c0e985860264a001ad9bdd',
+    '__get_instant_count': 'ce7a4038de17de86f27671c6355a665b8102711697c0eeea8a1ea28e369096ec',
+}
+
+
+def le_low_power(text):
+    return leftovers(own_all(text, LE_LOW_POWER_OWNED), 'le_low_power.c', {'cpu_reset'})
+
 # bredr_slot_timer.c: the Classic baseband's eight slot-clock timers.
 BREDR_SLOT_TIMER_OWNED = {
     'slot_timer_irq_get_time_out': 'c38110c0ea8e8c8b534add8d5a89a44b899328b8634b3059af54331db16c1cb8',
