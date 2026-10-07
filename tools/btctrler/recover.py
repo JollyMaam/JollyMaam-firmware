@@ -752,6 +752,33 @@ def ll_master(text):
                      {'cpu_reset'})
 
 
+# ll_slave.c: BLE slave-role receive, connection update and vendor PDU handling.
+LL_SLAVE_OWNED = {
+    'll_get_update_handle': '2f85c97ebc1a9765738611b12b3994534fc7d15c71e06e7d8220346ff7e84a0c',
+    'll_set_update_handle': 'dfa3128d33dbbb5893b58f0eed29b0fb7f323d22323258f0c537530b185e81b9',
+    'slave_rx_conn_post_handler': '63b209fa6a779ec94c145e69a9bfd5f6cfeaaa47e5e53f6568983d05e81de041',
+    'conn_slave_rx_post_handler': 'c205ae8c8c207ba06b51e8442b2748c1c5dc3b25048511e6aed404e5f8b22bd5',
+    '__conn_slave_rx_post_handler': '06a662d6a177a773b457ba81e86604e8a2b16c9dcea809602aecd1a997705486',
+    '__ll_send_fre_offset_rsp': 'd8892cb01c06cf2b20d80a0a0db43b90525e77459494e8156caec3d240acdd8b',
+    '__ll_send_vendor_jl_chip_rsp': '6c32451ccd8c98177f0a3554863236b1064c8d92c58aa7039f85eb24c552c9ec',
+    '__ll_send_vendor_priv_cmd_rsp': 'd35c383e625b8940bb6f96d693138ad35544e1df885b8f1a2b64dd64098eeda2',
+    '__slave_ll_receive_conn_update_req_done': 'f0cd358def8de8d8478f8e3921275e16270d175209322bb2c93f13d95da60adb',
+    '__slave_receive_terminte_ind_done': '9650f3e712a6dfffdf116f016624cf27f292374f7f9057bd040984ce02f6a8d2',
+    '__slave_ll_send_reject_ind_auto': 'fc2c8976c48647409dc11ed1d05d1f5f14557b1dc47a97f2f36efd8597efad25',
+    'cpu_reset': '78a0d3be6461a675484d6db7de06be98f5b3fb2061f08f231f3d127c3bb37324',
+    '__slave_ll_send_enc_rsp_callback': '68f80f0a18e3eb9507364ce982d9bf1f494cd4c43515925a92bdedcc7f3a2364',
+}
+
+
+def ll_slave(text):
+    return leftovers(own_all(text, LL_SLAVE_OWNED), 'll_slave.c', {
+        'update_ll_send_control_data', 'll_update_send_data_handle',
+        'll_vendor_update_req_handle_register', 'unregister_ll_update_handle',
+        'register_ll_update_handle', 'ble_vendor_custom_cmds_handle_register',
+        'ble_vendor_priv_cmd_handle_register',
+    })
+
+
 # ll_data_extension.c: LE data length extension tables and per-link effective lengths.
 LL_DATA_EXTENSION_OWNED = {
     'll_read_maximum_data_length': '923d30a9f68b0464c1fbf73eb65e86bf15bd526a7aa760e2d04c8ad732fec8b6',
