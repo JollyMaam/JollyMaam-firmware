@@ -789,3 +789,19 @@ def btcontroller_heap(text):
         'btctler_memory_apply', 'btctler_memory_release',
         'btctler_nv_memory_release', 'btctler_nv_memory_debug',
     })
+
+
+THREAD_OWNED = {
+    'thread_owner_init': 'e8eb5dd0bb89c0696a1657f8940840920a897763e6323e00c169576b9e0da388',
+    'thread_create': '6d12b829d41e03ca0a9197cdde446821eb351d34ea6b6537a35b61f12dc39e50',
+    'thread_schedule': '782e024965fedaefb9b17247f98dd3666024f41c45fc72708dad9d9d837c292a',
+    'thread_suspend': 'b3d1fa825af725fb8c17c5c9b18e086a7d4a88efbc36a3fa87aeed9d2d410753',
+    'thread_resume': 'd531539940c33ca17f49839b60355fb04aa51ffbe82a506db364e060d9c076be',
+    'thread_delete': '2e593ccaa2183e2a1ed234c2bc626596f36d580dee3a1aa60dbd011e1a22a679',
+    'thread_run': 'de73b7faec0def87e4257c7b06229a6aff78a56b63a5ac05d373a3180d3776a3',
+}
+
+def thread(text):
+    return leftovers(own_all(text, THREAD_OWNED), 'thread.c', {
+        'thread_msg_alloc', 'thread_msg_free', 'thread_msg_send',
+        'thread_msg_recv', 'thread_msg_peek'})
