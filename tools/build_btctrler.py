@@ -10,6 +10,7 @@ from btctrler.ir import rewrite_member
 # Each member's SDK definitions are removed from pristine IR: the
 # fingerprints are of the SDK's bodies.
 PIPELINE = {
+    'tws_ll_adv.c.o': (recover.tws_ll_adv,),
     'local_media_sync.c.o': (recover.local_media_sync,),
     'tws_media_sync.c.o': (recover.tws_media_sync,),
     'hci_ll_5_cmds.c.o': (recover.hci_ll_5_cmds,),
@@ -38,7 +39,7 @@ PIPELINE = {
 }
 # Members owned C replaces completely: checked by their transforms above,
 # then left out of the archive.
-DROPPED = ('local_media_sync.c.o', 'tws_media_sync.c.o', 'hci_ll_5_cmds.c.o', 'll_white_list.c.o', 'btencry_task.c.o', 'thread.c.o', 'btcontroller_heap.c.o', 'sys_timer.c.o', 'authentication.c.o', 'bredr_utils.c.o', 'btctrler_task.c.o', 'device_manager.c.o', 'h4_controller_interface.c.o',
+DROPPED = ('tws_ll_adv.c.o', 'local_media_sync.c.o', 'tws_media_sync.c.o', 'hci_ll_5_cmds.c.o', 'll_white_list.c.o', 'btencry_task.c.o', 'thread.c.o', 'btcontroller_heap.c.o', 'sys_timer.c.o', 'authentication.c.o', 'bredr_utils.c.o', 'btctrler_task.c.o', 'device_manager.c.o', 'h4_controller_interface.c.o',
            'hci_controller.c.o', 'lbuf.c.o', 'link_bulk.c.o', 'lmp.c.o', 'lmp_hci.c.o', 'lmp_hci_cmd_parser.c.o',
            'lmp_rxtx.c.o', 'lmp_utils.c.o', 'misc_hw.c.o', 'misc_hw_common.c.o', 'hci_ll_cmds.c.o')
 

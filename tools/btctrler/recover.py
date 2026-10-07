@@ -869,6 +869,25 @@ def local_media_sync(text):
     return leftovers(own_all(text, LOCAL_MEDIA_SYNC_OWNED), 'local_media_sync.c', LOCAL_MEDIA_SYNC_LEFTOVERS)
 
 
+# tws_ll_adv.c: straggler member of the SDK's TWS code; only what other code
+# still references is owned (the rest is unreferenced and goes with it).
+TWS_LL_ADV_OWNED = {
+    'tws_ll_adv_set_params': '808a30df09498d7c25e1aa5e7f614c72a2bca2def81b8d3b88ddf6e438476914',
+    'tws_ll_adv_set_scan_rsp_data': 'e64e8aaf2a43039bf7550502a526637f89dd57be034ee520bc3ce271d407eb95',
+    'tws_ll_adv_open': 'c3cf47f4356de268a365df90ec1ab4a70c7abf96d7da2f367f6cd31b9cc86f38',
+    'tws_ll_adv_close': 'f0cf3be24d8cfe3724a3a7d0abe4a439c722ca50807389f540f8f7b02146b3e2',
+    'll_adv_init': 'db477c92600f6b6b818763ba51558010d0ef97df81a0ed86cffbb6714076afe9',
+    'adv_rx_probe_handler': '6502818ec961fbedb8c954a4b94d0a64e0fa9cce320b0e4b19bc52618afd8e90',
+}
+TWS_LL_ADV_LEFTOVERS = {
+    'tws_dump', 'tws_ll_adv_link_get',
+}
+
+
+def tws_ll_adv(text):
+    return leftovers(own_all(text, TWS_LL_ADV_OWNED), 'tws_ll_adv.c', TWS_LL_ADV_LEFTOVERS)
+
+
 # link_bulk.c: the Classic packet buffers (link_bulk.c).  The heap-pool
 # option and its unused helpers go with the member.
 LINK_BULK_OWNED = {
