@@ -662,6 +662,23 @@ def ll_master(text):
                      {'cpu_reset'})
 
 
+# ll_data_extension.c: LE data length extension tables and per-link effective lengths.
+LL_DATA_EXTENSION_OWNED = {
+    'll_read_maximum_data_length': '923d30a9f68b0464c1fbf73eb65e86bf15bd526a7aa760e2d04c8ad732fec8b6',
+    'll_read_suggested_default_data_length': 'de123ee5bc9dbc6bbfcbe8893272bbbe375eee1c6c6f67674792904460c1d080',
+    'll_write_suggested_default_data_length': 'fe8068bc0356ff0c19e031df78184add683654791289f5d4caf988f6c89dc618',
+    '__set_ll_effective_data_args': '5b1b1f740290008ac385d9b6388f7debc4b8562655ae4e38e4713883eafeb8d4',
+    'll_data_extension_init': '47770f228f03fbaeac410e401c9042cf92c1fb90da1aa6ba4301b9de16b9aa76',
+    'link_data_extension_init': '86a9c5b64f57c640ba60e7b754e558967a0008784fedc24590b6f5bd105439d3',
+    '__ll_receive_length_req': 'ac938a980153c824f86eb6013816b16481c899eaf08b3460480585725679c7d2',
+}
+
+
+def ll_data_extension(text):
+    return leftovers(own_all(text, LL_DATA_EXTENSION_OWNED), 'll_data_extension.c',
+                     {})
+
+
 # authentication.c: the Classic legacy security functions (SAFER+).  The
 # static helpers are owned too; only cpu_reset, the assertion helper, is left.
 AUTHENTICATION_OWNED = {
