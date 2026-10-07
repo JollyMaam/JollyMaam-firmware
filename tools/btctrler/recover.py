@@ -120,6 +120,29 @@ def hci_ll_cmds(text):
     return leftovers(own_all(text, HCI_LL_CMDS_OWNED), 'hci_ll_cmds.c', set())
 
 
+# DMA pool and queue entry points (hw_dma.c).
+HW_DMA_OWNED = {
+    'hw_dma_init': '228e22605872142cf982f17816f37953db1f91b2ca7e5f1f8fbf26914cd95331',
+    'hw_dma_alloc': '22535cb7c5afee297e6d499a40ae6b1d7cc0cb5be65d29985f033e5fd89f2166',
+    'cpu_reset': 'af2fbdddc5e4bec5a22f8fdc027678a0fbf73645a980c2fae96c0723c2381444',
+    'hw_dma_free': 'a4ca33fffd8f590b0fba922e6c20d0d5e02ee860eb6c569f16cd6094ff97d7c4',
+    'hw_dma_push': 'ef2f046d85f1f368c57a4bffc2d3b8e909cc919750cdce1d900781b95503304a',
+    'hw_dma_pop': '88b3382fb6939e613b97f0132fe752a4c480d80bccbee4f537570c6cefefa48e',
+    'list_del': '7a6586cbdbf527616b8934b412572c070aefa9754c3d12b475c19543354cafbc',
+    'hw_dma_empty': 'a0ad83c29c523cafbfca1f24c98daa9b469abb0b73ec9b7316a52ffce45341b9',
+    'hw_dma_clear': 'fbfbcd3a7b67f44c05d2dfb9322c324325c83db9f2a0e2212a0fa36df38784b9',
+    'hw_dma_destory': 'ebe23641212d327361489c2273c60a87782f4db71fdc2b1110059c368da7f032',
+}
+
+
+def hw_dma(text):
+    return leftovers(own_all(text, HW_DMA_OWNED), 'hw_dma.c', {
+        'hw_dma_debug', 'hw_dma_remain_len', 'hw_dma_realloc', 'hw_dma_peek',
+        'le_alloc_rx_pdu', 'le_realloc_rx_pdu', 'le_push_rx_pdu',
+        'le_pop_rx_pdu', 'le_peek_rx_pdu', 'le_free_rx_pdu',
+        'le_rx_queue_empty', 'le_rx_queue_clear'})
+
+
 def classic_baseband(text):
     text, _ = extract(text, 'hci_lmp_controller_baseband_cmd_handler',
                       'i32 @hci_lmp_controller_baseband_cmd_handler(i16 zeroext, i8*, i32)',
