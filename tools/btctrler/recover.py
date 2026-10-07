@@ -1505,6 +1505,58 @@ def bredr_dut(text):
     return leftovers(own_all(text, BREDR_DUT_OWNED), 'bredr_dut.c', set())
 
 
+# direct_test_dut.c: LE direct-test command handling, RF setup and IRQs.
+DIRECT_TEST_DUT_OWNED = {
+    '__ble_baseband_reset': 'e757d12ff76ababfc907c3a38755cd0e55b575a1bee00abc79616010f4509535',
+    '__dut_set_channel_map': '6dc9874521ce66889a7eff0711a7adf581f983a135b5b3b331e17a4f90f0bc14',
+    '__dut_set_data_rx_phy': '4a0e274d17567b03938065f08f5b2a7cb3db174304137fd2f6b5c5113d1898d8',
+    '__dut_set_data_tx_phy': 'd5d5d4e6580dbfff84661b55e6226baf31471aa0d0f1908bbe0469fa64997f91',
+    '__dut_set_data_tx_phy_coded_s': 'f23988b042a50c20fd3f7aebc4b669057e2f4bf275241309c9c8c3eb315df6ab',
+    '__get_ble_anchor_con': 'b03b234349d416caded02124373b9669c9a656077c4c263a43f9cd6d0550d3a3',
+    '__get_interval': '345eb0fc253f000a6db03bcc75aa76cca84388ae69639ea3cd97d72ebe23a540',
+    '__set_anchor_cnt': 'f63ead826b6fbcc572210fac50c0151ad1fb857b6637de70ff3539455a73f368',
+    '__set_anchor_cnt_disable': '97978a56ebb932c2371ab2c7ba80cf1a406fd68a227f35515d0642505a597de5',
+    '__set_ble_anchor_con': 'ae8f4fb2cab1bd3f522e4ef63c5a67e493ebea31170f5b35dc2894e0a0613375',
+    '__set_fixed_channel_index': 'cf6e737578f8f2bb84a22dae406b1f47afbd23d9cc9b6326f977805c3a6a86b1',
+    '__set_hw_state': '501f212de72110ca1dca1783d561a650b6710f30fb926dc8587ef5048b1981cd',
+    '__set_interval': 'ff97f80e311ecf7c379c7376077be5eba64b3f0c94649f5cc12788e327e0919f',
+    '__set_winsize': 'b9abce25c13999771099181bbec3bffd40070533baba464d2d9dc54ef79b5c66',
+    'ble_dut_mode_exit': 'e50d576d1de7723f17a80996728a223e317e9404eb4a90b197b2dd6fe54515e2',
+    'ble_dut_mode_init': '28e959a86979d369ea0a09b1c274c11f03741646355c8563468131a21af98212',
+    'ble_dut_mode_ioctrl': '094e1dcad2d268cc83528aec19ae6ab80c1d890a545bc7ed1bca30d78ada4402',
+    'ble_event_irq_handler': '94af32d2e387263a2706668e252327ef06f61fae109b284f1680547fe125d197',
+    'ble_rx_irq_handler': 'e9a426d7afb1eb518283dc813438a9b53ab7bd2cda52176282f11d8b400fbe7c',
+    'cpu_reset': '18e5909202c7d425402864fb3088d52488375a8908bb76688c4096a9d4d5c4ea',
+    'dut_ble4_hw_alloc': '2708d68f176fb456ea982c1ec6b2e30848ebcbca430a04ca229fcc2178d82775',
+    'dut_get_dual_mode_flag': '965fc0bcabc93112608428e9220a87c72363fe43db7dea8ddc872630b9940b37',
+    'dut_get_fcc_mode_flag': '7abdf46b458c3d5b8e2299065722a538a2b35ea2addf0c065ad216d788ff4d0a',
+    'dut_hci_emit_event_of_cmd_complete': '0c799e3b073daaf368fae527472390a95e4b1c8e9470c80d6ccc8a370531ef34',
+    'dut_le_hw_init': '4cd1179faf7090315f21ad54af52da7358de70d0bbb0226f4615299fa3cdf659',
+    'dut_le_hw_open': 'c7c40a875fc95b55e495f94de9ee490abaef4b954e1b0bd9fa6b416b4322ae68',
+    'dut_le_set_mac': '91ab26b9fef6c4905f66ad4eccfe54c1618b0bb85da70123ce7d15fb511e4a29',
+    'le_dut_hci_reset_handle': 'a31f5fa723bc65b279b6faab89841217cf603a88cf0835e901ec5fdb45efcd60',
+    'le_enhanced_receiver_test_handle': '7b0fbf485c8507bd8826b7e219cd9736f71ab6076c415a531649edae6c92513f',
+    'le_enhanced_transmitter_test_handle': '82b294dd1ad5935222cb0ab90bf1e560fd974c8852a43258da3ec286562b6803',
+    'le_receive_test': '4bedb740902645e2e6d1560cc5037cf674f7eecde4b80014948bf1f0ad1eac81',
+    'le_receive_test_handle': 'cd102b5ae73459e5479d6cbec15d62e57387bf6d249c60a5d15bfce3f9a25d9e',
+    'le_test_end': '9f3a9ce7744a150b2ea12ff7ccae9bd1dd5ed096f3b89f9b57f24e81dbda4371',
+    'le_test_end_handle': 'c23835ba42e0c3d9d8ce5adab47cad0ef6af58810db1e8ab8fed5974c33f4933',
+    'le_test_frame_init': '03d488fa7f1570a6189e2d4acdb589f65aace21e430da1efaf53e4a05a7e678a',
+    'le_transmitter_test': '109ab4071a6db9c4700ffcd0f0bb78f616f817f2225ae2dfbe7d4189f4ed6d52',
+    'le_transmitter_test_handle': 'ae38829a7305b866c057358e53da02415e4658692c4192ccc8e7435b19df9943',
+    'ogf_vendor_le_controller': 'f79d966a00a7d519afdec938d17cb0217f93b1e359802d32cadeb0ca97662f9d',
+    'prestart_cnt_adjust': 'b514028bbaf45e1b64de4f6ec7d94aa979ca21e05620b8a8ae5e39a04487f413',
+    'rx_test_pre_set': 'd697f8287be8dd94d6424deb900ab7124ddccc6b8ebbdcb9e93f77d8d05018b7',
+    'tx_test_pre_set': '75a250113c52794789f9b07f3ec2944e30bb59f84898f1325ac0a13cabac8865',
+}
+
+
+def direct_test_dut(text):
+    return leftovers(own_all(text, DIRECT_TEST_DUT_OWNED), 'direct_test_dut.c', {
+        'dut_hci_controller_init', 'dut_hci_le_process', 'dut_two_wire_le_process',
+        'le_test_event_process', 'two_wire_setup_process'})
+
+
 # btcontroller_util.c: the utility functions still called from elsewhere; the rest of the member is unused.
 BTCONTROLLER_UTIL_OWNED = {
     'btctler_little_endian_read_16': '83d72c5e74b43df72d93f90383967f3f30918284d2f6be94abd2cec505b0e7ee',
