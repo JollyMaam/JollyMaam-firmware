@@ -22,6 +22,7 @@ PIPELINE = {
     'lmp_hci.c.o': (recover.hci_procedures,),
     'lmp_utils.c.o': (recover.lmp_utils,),
     'bredr_utils.c.o': (recover.bredr_utils,),
+    'misc_hw.c.o': (recover.misc_hw,),
     'authentication.c.o': (recover.authentication,),
     'link_bulk.c.o': (recover.link_bulk,),
     'lbuf.c.o': (recover.lbuf,),
@@ -31,7 +32,7 @@ PIPELINE = {
 # then left out of the archive.
 DROPPED = ('thread.c.o', 'btcontroller_heap.c.o', 'sys_timer.c.o', 'authentication.c.o', 'bredr_utils.c.o', 'btctrler_task.c.o', 'device_manager.c.o', 'h4_controller_interface.c.o',
            'hci_controller.c.o', 'lbuf.c.o', 'link_bulk.c.o', 'lmp.c.o', 'lmp_hci.c.o', 'lmp_hci_cmd_parser.c.o',
-           'lmp_rxtx.c.o', 'lmp_utils.c.o')
+           'lmp_rxtx.c.o', 'lmp_utils.c.o', 'misc_hw.c.o')
 
 
 def main():

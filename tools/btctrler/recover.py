@@ -510,6 +510,18 @@ def lmp_utils(text):
         'lmp_bt_flip_addr', 'lmp_bt_flip_access_addr', 'lmp_char_for_nibble', 'lmp_bd_addr_to_str'})
 
 
+# misc_hw.c: CRC wrappers and the BR23 random register reader.
+MISC_HW_OWNED = {
+    'crc_get_32bit': '18106245b18f3ec48fb97b567f5ad32892bfda7b00f622952ff2a64b05892b77',
+    'crc_get_16bit': '436dfae2d1465df8f340e12303de3ea0beea351b991e5e5f3689a23bcfe2288a',
+    'pseudo_random_genrate': '4a331edfa504d74d287638d468c6eab958cc537190dea15c61d0fc4bc7b17de3',
+}
+
+
+def misc_hw(text):
+    return leftovers(own_all(text, MISC_HW_OWNED), 'misc_hw.c', set())
+
+
 # bredr_utils.c: Classic clock arithmetic.
 BREDR_UTILS_OWNED = {
     'bredr_clkn_after': 'adef4c01adbd5a7099a33030e495fc477d40b40b508c7a4eaee5b0857447443c',
