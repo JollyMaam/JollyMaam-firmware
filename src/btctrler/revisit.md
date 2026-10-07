@@ -148,3 +148,10 @@ here has been "fixed" unless it says so.
     from the SDK IR and formatter source during #50 review; preserved in
     owned C. The hardware effect and reachability of this null-rx path
     remain untested.
+
+18. **BLE RSSI can index past the AGC dBm table.** `analog_ble.c`,
+    `ble_analog_get_rssi`: the SDK uses `(RSSI2 >> 8) & 63` as an unchecked
+    index into `agc_dbm_tlb`, whose definition in `btagc.c` contains only
+    33 bytes. Indices 33..63 read beyond that definition. Proven from the
+    SDK IR during #53/#54 review; preserved in owned C. Whether the radio
+    can report those indices and the hardware effect remain untested.

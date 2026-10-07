@@ -51,6 +51,8 @@ Read the commit's **Review notes**, "Unsure" first.  Then:
   it matters.
 - **Leftovers:** every function left in the member really has no caller
   (`grep -l '@name(' build/controller-ir/retained/*.ll`, `grep -rn src/`).
+  Search symbol text for assembly-name aliases and inspect references in
+  compiled owned-object IR too; `name(` source searches miss aliased callers.
 - **Asserts and allocation:** the paths match the SDK (malloc vs lmp_malloc, free
   pairing, assert → `btctrler_assert_failed`).
 - **Tests:** the expected values come from the IR semantics or a published

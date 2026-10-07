@@ -94,6 +94,17 @@ that changes behaviour is a defect here.
 
 ## Pitfalls that have caused real bugs
 
+- **Callers through assembly-name aliases:** a source identifier can differ
+  from the linked symbol (`ll_generate_dh_key_ir` uses
+  `__asm__("ll_generate_dh_key")`). Before dropping unused code, search the
+  symbol text and inspect compiled owned-object IR as well as SDK references;
+  a source search for `name(` alone misses these callers.
+- **Lookup tables:** compare every initializer byte with raw SDK IR. Tests
+  copied from the same incorrect C table can pass (AGC dBm index 30 was
+  transcribed as 0x33 instead of 0x32). Use bounded byte-pointer/memcpy reads
+  when splitting a u64 table into words; avoid aliasing casts and walking
+  a pointer before the start of the array.
+
 - **Struct field order:** LLVM merges bitfields, so a GEP field index in the
   IR is not the member's position in the debug-info struct.  Map by the IR
   type layout and byte offsets; add `_Static_assert(offsetof(...) == N)` for
