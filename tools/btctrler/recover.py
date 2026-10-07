@@ -1860,3 +1860,12 @@ ANALOG_BLE_OWNED = {
 
 def analog_ble(text):
     return leftovers(own_all(text, ANALOG_BLE_OWNED), 'analog_ble.c', {'ble_agc_reset'})
+
+# TWS transmit synchronization entry point.
+TWS_TX_SYNC_OWNED = {
+    'tws_tx_sync_init': '66c39c5931ac59c98c8f7803b0668e54bf0ad1cac119a3c8e1df82a662338aec',
+}
+
+
+def tws_tx_sync(text):
+    return leftovers(own_all(text, TWS_TX_SYNC_OWNED), 'tws_tx_sync.c', set())
