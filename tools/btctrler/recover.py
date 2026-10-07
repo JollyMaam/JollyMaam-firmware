@@ -1541,6 +1541,46 @@ def hci_ll(text):
     return leftovers(own_all(text, HCI_LL_OWNED), 'hci_ll.c', {'ll_hci_init', 'll_hci_reset', 'll_hci_set_event_mask', 'll_hci_adv_set_params', 'll_hci_adv_set_data', 'll_hci_adv_scan_response_set_data', 'll_hci_set_random_address', 'll_hci_get_acl_data_len', 'll_hci_get_acl_total_num', 'll_hci_get_remote_features', 'll_hci_set_name', 'll_hci_scan_set_params', 'll_hci_adv_enable', 'll_hci_scan_enable', 'll_hci_create_conn', 'll_hci_create_conn_ext', 'll_hci_create_conn_cancel', 'll_hci_vendor_send_key_num', 'll_vendor_latency_hold_cnt', 'll_hci_encryption', 'll_hci_get_le_rand', 'll_hci_start_encryption', 'll_hci_long_term_key_request_reply', 'll_hci_long_term_key_request_nagative_reply', 'll_hci_connection_update', 'll_hci_disconnect', 'll_hci_read_local_p256_pb_key', 'll_hci_generate_dhkey', 'll_hci_set_data_length', 'll_hci_set_ext_adv_params', 'll_hci_set_ext_adv_data', 'll_hci_set_ext_adv_enable', 'll_hci_set_phy', 'll_hci_set_ext_scan_params', 'll_hci_set_ext_scan_enable', 'll_hci_ext_create_conn', 'll_hci_set_periodic_adv_params', 'll_hci_set_periodic_adv_data', 'll_hci_set_periodic_adv_enable', 'll_hci_periodic_adv_creat_sync', 'll_hci_periodic_adv_terminate_sync', 'll_hci_periodic_adv_create_sync_cancel', 'll_hci_set_host_channel_classification', 'll_hci_read_channel_map', 'll_hci_private_free_dma_rx', 'll_hci_param_config_get', 'hci_ll_get_device_address', 'hci_ll_get_link_local_address'})
 
 
+# BLE HCI event formatting and notification.
+LL_EVENTS_OWNED = {
+    'le_connection_update_complete_event': 'a831a516597d73e811030db04cd0eafade55f5dee8ba70f6e92f8e29b79c836f',
+    'le_read_remote_used_features_complete_event': '85edba9b92d11280190f2dccfebbb52d62406240092927f426f44c0bfa1da561',
+    'le_long_term_key_request_event': 'dcadebc0b85311a53e69c69bb6424bd1b1fb7b8577cb49f670999ef466efabf3',
+    'le_remote_connection_parameter_request_event': '15f487ff374aca0f44c24ff7a53741c7d8be3379e8e3589a631684d201a87e6e',
+    'le_enhanced_connection_complete_event': 'c98c47bc5f8663ab3485ad24365e9b0e18b6841be0a767698c8b2bb462226d12',
+    'le_connection_complete_event': 'dbe4baa0d19ff0d703da1468c44062056cc49647f87a0d3fb5b7b19177edfb53',
+    'le_connection_complete_event_emit': 'e2f2c0483135aa0a5e96473ddcd96314356b5ab7bf45486370542c5988203ec3',
+    'le_advertising_report_event': '6aff7ca051e2acd3dac89dcf20de7244b9ea99a3a192abb1765ac1f943db9734',
+    'le_direct_advertising_report_event': 'dcb352146aabae217e59fba78436efb9ed3bd2da867374af00594eb2bcd0b06a',
+    'le_data_length_change_event': 'a383a8a928d3fbf9ad2a5fa342fbd29308898d870bc4de56f063e58c51540f11',
+    'le_disconnect_complete_event': '429c52293d3b3a9a75350764d2b276ca005c21aa7228bacd67d484cc8043bcb4',
+    'hci_event_encryption_change': 'f5232b19f47eca7ba28e1164021963294b349fabfb62627d9c4a5eca5d7ae579',
+    'hci_event_encryption_refresh_complete': '25cac877b110aa4b685bd30f33556faee56d70532dd8dca3df6096628a021268',
+    'hci_event_disconnection_complete': '5136ecf809d7cf6581b565e9a6a36fb5c419e2e43510fbcd0cdc4be51d2af417',
+    'hci_event_number_of_completed_packets': '5d273af1877e2ff81e8846ca01a9c3a4b83ccf8240c8598a71c1a7403b89d6cd',
+    'hci_read_remote_version_information_complete': 'e8ea998035778af67fc8c8e3f695813b35584a91945535852ab3bcf45996261f',
+    'le_read_local_p256_public_key_complete_event': '20ddc9104215ad128aeae71c6666123b07d8428fd64fb89948449742385155ff',
+    'le_generate_DHKey_complete_event': '3af1eb70d2f92ab8fb9b40cd1c6037d057ea6d891b545bc9cd025eea66a6cc76',
+    'le_phy_update_complete_event': '3303d9f4cf8ab7e7243dd7c5c25d93c4cc9259fa29c1ef5409250a59ad8240be',
+    'le_extended_advertising_report_event': '948a1ce4a6887ab9d0870f31b95bf9abbff88316b4aa4911a473a45de77b2db5',
+    'le_periodic_advertising_sync_established_event': 'b01171ceb76fffc1ace58dd8e39be36bb27a723a65d17eaf08d736d4bf6f41c4',
+    'le_periodic_advertising_sync_lost_event': '26049b77b2acf26c5e3a29f1500d10a6ce0063d1a3171b70b363e71b7736e2f0',
+    'le_periodic_advertising_report_event': '02b674ce1c9f16e4cfaf49cde6b54b1200fbef8b349080ada1b46f12f801f89c',
+    'le_connless_iq_report_event': 'cdce08be0f9e664984ac2d3424d360d49bafbe24bd9a636022567ccaef89547c',
+    'le_private_iq_report_event': '653b21bef91808998c2d4377cf77f21e9aa4bf26cfb7f765944152435e74418e',
+    'le_connect_iq_report_event': '64b6ed060b674c50992cf3e3a8432383fcc027b3c5766aa57e2ef3cd3959ba70',
+    'le_advertising_set_terminated_event': 'ba5e6c5499f2d869ec1801e8dd3117eef71d9a548bc2fb0b4d65806f17c5c3ef',
+    'le_scan_request_received_event': 'b226ad1f55f45554a64bac05003356b68a94f1a44b5a032772575d9d9015971c',
+    'le_channel_selection_algorithm_event': '7d68977bdaa01be8662ae401cef5dccce8c7222215be6f3833bd2725890eee83',
+    'le_scan_timeout_event': '3b4fca7cacf5965b90c6fab37a2870ca07fa4137556225c845967dbdbaf07b65',
+    'le_vendor_interval_complete_event': '6fee54921ab942a77f2f90bc7dd3a7d47f76ccf3df5cdb68819d8ef2f52aaa33',
+}
+
+
+def ll_events(text):
+    return leftovers(own_all(text, LL_EVENTS_OWNED), 'll_events.c', {'cpu_reset'})
+
+
 # Legacy BLE advertising state and RX path.
 LL_ADV_OWNED = {
     'll_adv_timeout_stop': 'a6d69e185c9f1ade440e7669ae8c0d86ce834bfedca932736896f40bb29e4bc2',
