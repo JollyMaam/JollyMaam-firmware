@@ -1215,3 +1215,22 @@ AES_HW_OWNED = {
 
 def aes_hw(text):
     return leftovers(own_all(text, AES_HW_OWNED), 'aes_hw.c', {'aes_init', 'aes_irq_handler', 'aes_hw_test'})
+
+
+# bredr_dut.c: the Classic device-under-test mode.
+BREDR_DUT_OWNED = {
+    'dut_get_packet_max_len': 'e0eaa6817e096e9a4df3311e3cf355a16c05ba72202e2140e752ac9533ee78aa',
+    'dut_cfg_analog': 'cb2cb911e11ff3e6de77fa9b560443bdcf303365c30095deabe36136e4d0d829',
+    'cal_hop_fre': '258499d873dace8b3c619ee4d3cfbe9611483b804d034eed1d377d8cc6b68633',
+    'dut_clear_tx_buf': 'e0d027df0f45e57c42eae6ac382e2a686128084322af6a292e8d2eb8020471d9',
+    'dut_rx_handler': '962e37f2cb3d9f2487a4be3394829b8ddd78c3d92e574297a1a82bbf26dc2a73',
+    'bredr_dut_detch': 'f6782de59c41330f2ed79047fb81be2669fe186e63157b0a9b92e8d45fca50ce',
+    'check_rx_fill_tx_data': '2fba4268aba499bfc3b90cdcef804242a4ba3b379ead00bff0be9fc241039e94',
+    'list_empty': '1c3b6c09ac21102bd10d96e71b1c9a98539267eddeabecfdce8e69855d8d4fb0',
+    'list_add_tail': '1229afdd3421f41302b7c9b79cc6870b7f98980cda1678e9ed04d884689be975',
+    'list_del': '117b245557d8d85da508287d3704ed429362dd140c5c3b71d28104e23bee0cf5',
+}
+
+
+def bredr_dut(text):
+    return leftovers(own_all(text, BREDR_DUT_OWNED), 'bredr_dut.c', set())
