@@ -610,6 +610,22 @@ BREDR_SLOT_TIMER_OWNED = {
 def bredr_slot_timer(text):
     return leftovers(own_all(text, BREDR_SLOT_TIMER_OWNED), 'bredr_slot_timer.c', {'cpu_reset'})
 
+# ll_ext_init.c: BLE 5 extended initiating (LE Extended Create Connection link setup).
+LL_EXT_INIT_OWNED = {
+    'll_ext_init_rx_probe_handler': '0b99387c6988184d2c9b24fdce519245e0c21f14a7694099d6dd9bb29a760408',
+    'll_ext_init_event_probe_handler': 'ef9f23ea172c70e135b1bb3c73abb8117446aa7c1c225cbbcab140f284fc275f',
+    'destroy_le_ext_init': '199a808c7e1c0655754aaaeb9c9bed0f897bd01855516e17dbc03df250d14f9b',
+    'll_ext_init_close': '34192947c6c9b0fafe47903e16d06668ad0e387ee43b2d320dd1639ab868399b',
+    'll_ext_init_rx_post_process': '4e6dbf7836e359a3ba036cb285aced7d0648c61a35b537f13b2b9155b9df5363',
+    'll_ext_init_rx_post': '64c797d70c87a0a80397d52aff34577e60ad0e4e9cfb1396d408d21218225dd8',
+    'll_ext_init_open': '2e8880f337e686379b12c483553190f9bf2f6028d6d1dff40a867e1ec97de5e8',
+}
+
+
+def ll_ext_init(text):
+    return leftovers(own_all(text, LL_EXT_INIT_OWNED), 'll_ext_init.c',
+                     {})
+
 
 # authentication.c: the Classic legacy security functions (SAFER+).  The
 # static helpers are owned too; only cpu_reset, the assertion helper, is left.
