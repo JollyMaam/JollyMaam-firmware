@@ -888,6 +888,31 @@ def tws_ll_adv(text):
     return leftovers(own_all(text, TWS_LL_ADV_OWNED), 'tws_ll_adv.c', TWS_LL_ADV_LEFTOVERS)
 
 
+# tws_data_forwarding.c: straggler member of the SDK's TWS code; only what other code
+# still references is owned (the rest is unreferenced and goes with it).
+TWS_DATA_FORWARDING_OWNED = {
+    'tws_data_sync_clear_abandon_num': '071aaf997e0412a71a0435a165414fd7d5bc1305dc0f27f8c8b66e9c2bf3f9c1',
+    'tws_data_sync_resume': '514aa8ab26d331b59ec0929c78c64f70cd19b1f81800529b55e2939066b07615',
+    'tws_data_sync_rx_bulk_alloc': '1b6abc33511d13913525207986f72e95d0a25c7ca7418e8a1b07cfb17c9b44fc',
+    'tws_data_sync_init': 'f16881b227a3725d4cfd9fd8acfe1872af778986c9877054ac1123f18cd3b5b3',
+    'tws_data_sync_channel_open': 'fbdd82ce86e5d65fb88aeb824b2c375a5af1a45b3aa82d74ab67ff3573c6c4b6',
+    'tws_data_sync_channel_close': '9e9d13092458b2259e549658cb62fb67294c89124d592ab2c2320182b94235ea',
+    'tws_slave_data_abandon': 'cd0a4fd5df437c70558585ba1c8e942593de42bab731e1f541f9c336bcb81d61',
+    '__list_del_entry': 'bea6fd8c585e67f75e44639eac798781673072474fa21d053edf33e02a23f764',
+    'list_add_tail': '79fdf05d3dabf8781e969787763740058a3aabf87fedbe7fca725226e0d14cac',
+    'list_empty': 'a80c163cba6fbdaf00e6bdb966af06beb9837bcbbca328adb7caf1da75cca213',
+}
+TWS_DATA_FORWARDING_LEFTOVERS = {
+    'tws_data_sync_event_handler', 'tws_master_tx_bulk_suss', 'tws_master_sync_data_to_remote',
+    'cpu_reset', 'tws_data_sync_get_data', 'tws_data_sync_tx_data_list',
+    'tws_data_sync_rx_data_list', 'tws_data_sync_channel_state', '__slave_abandon_bulk_check',
+}
+
+
+def tws_data_forwarding(text):
+    return leftovers(own_all(text, TWS_DATA_FORWARDING_OWNED), 'tws_data_forwarding.c', TWS_DATA_FORWARDING_LEFTOVERS)
+
+
 # link_bulk.c: the Classic packet buffers (link_bulk.c).  The heap-pool
 # option and its unused helpers go with the member.
 LINK_BULK_OWNED = {
