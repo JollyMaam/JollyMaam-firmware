@@ -244,8 +244,8 @@ static void __conn_slave_rx_post_handler(void *priv, struct ble_rx *rx)
                 if (config_asser) btctrler_assert_failed("ROLE_IS_SLAVE(link)", 0);
                 else cpu_reset();
             }
-            link->skdm[0] = rx->data[11];
-            link->ivm[0] = rx->data[19];
+            memcpy(link->skdm, &rx->data[11], 8);   /* SKDm: one 8-byte copy in the SDK */
+            memcpy(link->ivm, &rx->data[19], 4);    /* IVm: one 4-byte copy */
             if (link->role != 1) {
                 if (config_asser) btctrler_assert_failed("ROLE_IS_SLAVE(link)", 0);
                 else cpu_reset();
