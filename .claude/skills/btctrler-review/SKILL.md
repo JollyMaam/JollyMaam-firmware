@@ -66,10 +66,6 @@ the titles in sequence (`btctrler #N: ...`; see `git log`).  Amend messages to
 record reviewer fixes, and keep both Co-Authored-By lines (worker and yours).
 Then `make -j32` and `make test` (exit 0) on the merged tree.
 
-Build a per-commit image for bisecting: for each merged commit, build in
-a scratch worktree and copy `build/firmware.img` to
-`build/bisect/<n>-<hash>.img` (create the directory; it is not in git).
-
 ## 4. Hardware test (the user has allowed PC tests; no rumble)
 
 Flash and check the pad's clock (some boots run slow):
@@ -90,8 +86,10 @@ see /work/cyclone2-bluetooth-benchmarks.md §5):
 Never wake the console or test rumble without the user.  Restore any setting
 you change (prefer `padtool ephemeral` + reboot).
 
-If something fails: flash bisect images backwards to find the first bad
-commit, and revert or fix only that one.
+If something fails: bisect by building and flashing commits from the main
+checkout (`git checkout <hash> && make flash`; builds take seconds and are
+reproducible there, not in other worktrees, where path strings shift the
+layout), then revert or fix only the first bad commit.
 
 ## 5. Clean up and report
 
