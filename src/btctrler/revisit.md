@@ -1,0 +1,70 @@
+# btctrler: findings to revisit
+
+Things the decompilation passes turned up that deserve a proper look once the
+passes are done.  Most interesting first.  Each entry says how we know it:
+**proven** (read from the SDK IR and/or tested), or **untested** (inferred,
+not yet confirmed on air or hardware).  Owned C keeps SDK behaviour; nothing
+here has been "fixed" unless it says so.
+
+1. **Vendor LMP commands answered before authentication (escape 3).**
+   `lmp_escape3.c`.  The SDK served a factory test box over the air: test
+   mode, oscillator trim written to flash, chip/flash ID, a chip-key CRC and
+   starting the firmware update loader, to any device that pages the pad,
+   before authentication.  Proven from the SDK code; we now refuse all of
+   them.  Untested on air: confirm against a stock pad (or another Jieli
+   device) from a patchable controller, then consider disclosure to Jieli.
+
+2. **Controller scheduler sleeps with an uninitialized timeout.**
+   `thread.c`, `thread_schedule`: the suspend timeout starts undefined (LLVM
+   `undef`) and is min-ed with each thread's timeout, then passed to
+   `owner->suspend`.  Proven in the SDK IR and in our final LTO IR (unchanged
+   by owning it).  The value depends on register allocation, so the
+   controller thread may wake early or sleep wrongly.  Untested whether it
+   matters; a candidate in the Classic sniff wedge and latency work.  Fix
+   deliberately (start from the largest timeout) with a hardware A/B.
+
+3. **Classic clock comparisons barely compare.**  `bredr_utils.c`: clocks
+   wrap at 2^27 (the spec's CLKN is 28 bits) and the "after/before" window
+   is 69,120,000, more than half the wrap, so `bredr_clkn_after/before` are
+   true for almost any pair.  Proven from the IR.  Untested what the radio
+   code relies on; look again while owning `bredr_link`/`bredr_frame`.
+
+4. **Key length reduction tables wrong for 5, 13 and 14 bytes.**
+   `authentication.c`: the g1/g2 rows for L=5 repeat L=4, and L=13/14 repeat
+   L=12, so Kc' differs from the spec for those effective key lengths.
+   Proven (IR bytes plus the spec's K_session vectors).  Our hosts use 16
+   bytes, so there's no effect today.
+
+5. **Secure Simple Pairing copies half of U/V.**  `btencry_task.c`: the
+   requests for g and f1 copy 24 of the 48-byte U/V arrays.  Proven from the
+   IR.  Untested what it implies: possibly only P-192 sized values are
+   supported (no Secure Connections), or a latent bug.  Request pointers
+   also stay dangling after free.  Fresh SSP pairing works with the PC.
+
+6. **Page arguments swapped.**  `lmp_commands.c` (HCI Create Connection →
+   `link_page_try_start_enable`): the SDK passes the clock offset's low
+   byte as the page scan repetition mode, and the repetition mode as the
+   offset.  BTstack sends R1 with offset 0, so the pad pages with R0's train
+   switching instead of R1's 128 repetitions.  Proven from the IR; kept
+   because every reconnect test so far ran with it.  Try the spec order with
+   a hardware A/B on reconnect speed and reliability (the "first page fails"
+   flakiness may be related).
+
+7. **White list: use after free, count overflow.**  `ll_white_list.c`:
+   removal compares the address and type of a node after freeing it, and
+   the "full" check is an exact `count == 25` on a u8, so nothing stops the
+   count once it is past 25.  Proven from the IR.  Low impact (only the host adds
+   entries).
+
+8. **Unchecked lengths in LE HCI commands.**  `hci_ll_cmds.c`
+   `vendor_handler` copies the caller's size into a 16-bit local (stack
+   overrun above 2 bytes); `hci_ll_5_cmds.c` copies caller sizes unchecked
+   and leaks the old scan parameters when replacing inactive ones.  Proven
+   from the IR.  Host-originated only (BTstack), so it's a robustness issue,
+   not an attack surface.
+
+9. **Stray ADC readings on the L2 trigger (outside the controller).**  One
+   reading of 735 against a rest of 482 left L2 half pressed (fixed in
+   `input_calibration.c`, e597eb2).  Source unknown; jumps of 64 or more are
+   now logged (`input: L2 reading ...`).  The RF code only uses the ADC in
+   factory trim mode, so the controller is not the likely culprit.  Untested.

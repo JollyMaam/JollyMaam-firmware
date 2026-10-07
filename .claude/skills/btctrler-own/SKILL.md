@@ -119,6 +119,8 @@ Review notes:
 - Globals moved: name (section, const?) ...
 - SDK quirks kept: ...
 - Unsure: <every place where you were not certain what the IR means>
+- Findings: <SDK bugs, odd behaviour or security-relevant code worth a
+  later look, each with where and how you know; "none" if none>
 - Tests: <what is covered, where expected values come from>
 - crosscheck: <differences and why>
 - make test: <last line>; make -j32: <last line>

@@ -91,7 +91,13 @@ checkout (`git checkout <hash> && make flash`; builds take seconds and are
 reproducible there, not in other worktrees, where path strings shift the
 layout), then revert or fix only the first bad commit.
 
-## 5. Clean up and report
+## 5. Findings
+
+Verify each item in the commits' "Findings" notes (and anything you found
+yourself) against the IR, then add it to `src/btctrler/revisit.md` in order
+of interest, marked proven or untested.  Workers do not edit that file.
+
+## 6. Clean up and report
 
 Remove merged worktrees and branches (`git worktree remove`, `git branch -D`).
 Report to the user, leading with the verdicts: per member, what was owned,
