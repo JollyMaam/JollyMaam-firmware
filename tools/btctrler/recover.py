@@ -1171,6 +1171,19 @@ def ll_common_iso(text):
                      {'ll_iso_pack_hdr', 'cpu_reset', 'le_cmd_set_iso', 'll_bis_process', 'll_iso_process', 'll_iso_init', 'll_iso_destroy', 'll_iso_cis_sdu_recombination', 'll_iso_cis_sdu_segmentation', 'll_iso_cis_sdu_reassembly', 'll_isoal_test', 'll_isoal_cis_fragmentation_test', 'll_isoal_cis_recombination_test', 'll_isoal_cis_segmentation_test', 'll_isoal_cis_reassembly_test', 'list_add_tail', 'll_iso_pack_seg_hdr'})
 
 
+# nv_memory.c: BR23 nonvolatile memory allocator over the lbuf pool.
+NV_MEMORY_OWNED = {
+    'nv_memory_apply': 'd969ca52ac1f21c41eaefcbf5bd245f87ab032b34174cbd4b68c51f13e5aa52b',
+    'nv_memory_release': 'f85bab4507e5e28397493ab2a77ada3f2f205ec5a73ccd1e331556118d19456d',
+    'nv_memory_malloc': '752cbdf415d9e16ba8ef8afa567f83b3dc0a120b26681a43d07ef5964faa37e9',
+    'nv_memory_free': '76ab0da15d9018dd3cb1d30dcfc7b1c019ff695b65e42d785b9144074770fbe8',
+}
+
+
+def nv_memory(text):
+    return leftovers(own_all(text, NV_MEMORY_OWNED), 'nv_memory.c', set())
+
+
 # ll_bis.c: LE broadcast isochronous (BIG/BIS) bookkeeping, data path and group session key.
 LL_BIS_OWNED = {
     'll_bis_by_handle': 'dcbae612fd34e1e204573a918dbc6531154bff69b379fc6e766f52228a132070',
