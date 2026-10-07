@@ -820,6 +820,28 @@ def hci_ll_5_cmds(text):
     return leftovers(own_all(text, HCI_LL_5_CMDS_OWNED), 'hci_ll_5_cmds.c', set())
 
 
+# tws_media_sync.c: straggler member of the SDK's TWS code; only what other code
+# still references is owned (the rest is unreferenced and goes with it).
+TWS_MEDIA_SYNC_OWNED = {
+    'get_bt_slot_time': '7ff75b9059f72720e3a7bedbde3637038efaf108fd2dffec0e735c4b897b3004',
+    'read_slot_info': '68aee508efc050bcd7f65df3f9f56d69223cb3dcd6a6f10a55ac6a6df3b841ce',
+}
+TWS_MEDIA_SYNC_LEFTOVERS = {
+    'dac_rd_flag', 'bt_audio_sync_nettime_select', 'bt_tws_master_slot_clk',
+    'test_dac', 'read_local_audio_us_time', 'get_remote_clk_bitoff',
+    'bt_send_audio_sync_data', 'bt_media_sync_set_handler', 'bt_media_sync_open',
+    'list_add', 'bt_media_sync_master', 'bt_media_device_online',
+    'bt_media_sync_close', 'list_del', 'sbc_sync_packet_len',
+    'tws_media_clear_msg_pool', 'tws_media_sync_tx_msg', 'tws_media_sync_rx_msg_and_tx_msg',
+    'tws_media_sync_rx_msg', 'tws_media_sync_event_handler', 'list_empty',
+    'tws_media_sync_tx_msg_suss', 'tws_media_other_offline',
+}
+
+
+def tws_media_sync(text):
+    return leftovers(own_all(text, TWS_MEDIA_SYNC_OWNED), 'tws_media_sync.c', TWS_MEDIA_SYNC_LEFTOVERS)
+
+
 # link_bulk.c: the Classic packet buffers (link_bulk.c).  The heap-pool
 # option and its unused helpers go with the member.
 LINK_BULK_OWNED = {
