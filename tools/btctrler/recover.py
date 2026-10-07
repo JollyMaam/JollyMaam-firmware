@@ -17,6 +17,18 @@ MISC_HW_COMMON_DUPLICATE = {
     'pseudo_random_genrate': '4a331edfa504d74d287638d468c6eab958cc537190dea15c61d0fc4bc7b17de3',
 }
 
+# interrupt.c.o only defines irq_get_status.  The complete retained SDK IR and
+# source tree contain no callers; fingerprint the definition before dropping
+# this unused member without adding owned C.
+INTERRUPT_UNUSED = {
+    'irq_get_status': 'dee8b1656964f7d2c96fc95c78b5ec3c84049dfcec00cff6f271dc7699cae9eb',
+}
+
+
+def interrupt(text):
+    """Check the unused interrupt helper before dropping interrupt.c.o."""
+    return leftovers(own_all(text, INTERRUPT_UNUSED), 'interrupt.c', set())
+
 
 def misc_hw_common(text):
     """Check the duplicate common misc_hw bodies before dropping the object."""
