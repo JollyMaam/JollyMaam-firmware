@@ -586,6 +586,54 @@ def ll_white_list(text):
                      {'cpu_reset'})
 
 
+# link_task.c: the Classic link scheduler and idle/power-down task.
+LINK_TASK_OWNED = {
+    'is_dac_power_off': 'c2283f1e39d2036ea2cdc62905495bc7cbdff22823796ea906d3b76ed73ed97c',
+    'link_task_close_all': '36e917af3397f1d6397a61a03cc937ccd6b1b6b5ae853a92589df8a435a38617',
+    'link_task_idle_disable': '62a364f64fd5659cf10ffe93870362c44334dd3102482e37e86c2c9ca1a59c0c',
+    'list_del': '2e69f1825d2150d1018ea4913c55feffa28c519e625790c0f888d1c638a4e383',
+    'get_curr_task': '7509ae0542b17ad3811423944e544f2ad0d3551fc1b83a0777e014f33ed75b46',
+    'link_task_schedule': 'c2d36774a82c19f955f2040979892ba6a0caa1da7c91b20dac0945c98815c874',
+    'link_task_switch': '537c66b8d7e46253dc453a652aced67eae08becf49ab34e527ebe82b457cee51',
+    'list_add_tail': 'cd53bfb99f0a137cfc3e231174e31a2864d0a95198d9d7b6fc7ed4507bf7e875',
+    'list_empty': '238facde40c59a4284320f59a64c7de58a483d504cdfe8282a30b4e1ce02b780',
+    'get_run_slot_whit_inquiry': 'e6633d1667bd7f28062f5ea42a424fe25d670b2b774095549fc1fdd7feba6ad7',
+    'link_tws_task_adjust': 'cfad466a9a23b1e638e596f5277d3d4b61ca3902d521fbbb8b93fee9d551e420',
+    'link_task_reset_slot': '9ceee16852e641ca9e4c55b64f4d136fd755aff9120020ccdb8d4bd25d3526c1',
+    'link_task_adjust': 'aa5f7690d898ff624acebefc0fcd9c48dbcf831667d45f26cb8a238b4951f34f',
+    'link_task_add': '286bb1069e877455183dba48979f1fd173ef86f71d589096a02310feae6402b8',
+    '__link_task_add': '1a71ef547117504142d410914d169b72d751635e5c3d3e1afacf5298064589fd',
+    'link_task_del': '4b727c6cbde34a0eb9ebf95c2f8e30d5ed6d51df11fe0311860195005dfa5e25',
+    '__link_task_del': '92e1e514b7870b02f995a94e48fa9dbeca7a04b5fd4f4cc3e61ff4488fb3fab2',
+    'link_task_run_set': '9208eb419ede3b89d9d77c67a6ac8a958d31fac1ec1de4a1d3246ce9e2b72330',
+    'link_task_run': 'f5f47c7d91d05cc30c275c2260ab8c70713655b4af64428a5bd0c9ffb141da8e',
+    'link_task_run_slots': '713a7f6f5b388044cb3b91c1a3c9e79254a37673434a35d09a568dcd535c9c01',
+    'link_task_try_run_slots': '8034036b8b1cba6c0ccbeabb4b16d8e2c4f92db9c31867b69d10e05a7b037993',
+    'link_task_remain_slot': '30084a954441376cc85c7779a5c6d7b364d679e3d03b61f98c9fdb9b2b8a569a',
+    'link_other_task_run_slots': '0d4769837827a6927ac1e399ca6798a2f54eb6d00c39f43abb8804debd8e7c81',
+    'link_task_set_slots': '7c5feb7a3c2d496f8d140961cd18a8d1710f75709ec502ab7be5918f7704f8ab',
+    'link_task_reset_sbc_slots': '13c94c63348cdc31c61ab69611c2bc76a769d02451c959cdaf22a573fbf0fdc2',
+    'link_task_schedule_reset': '0ed6dba25bdf3123eaec7da1638617db58bdd88ad65d223b62a395100afb330d',
+    'link_task_set_period': '14b28ea449e0c6db8a353772525c7db32e638c531baacb90d364a94471aae311',
+    'link_task_schedule_suspend': '4643222c1b4b20d9a6e8b71b368fde1e0bcfad493a08d14989400d2dcfa9b9d0',
+    'link_task_schedule_resume': '526a823840a051ea247825b5edf5c267c00e51ea0f912d7e530a9de2bf6438bc',
+    'link_task_set_sleep_slot': '1ae566fd342a12bd964940319a4e8335fc32124c0457b45015931e814c0622b9',
+    'link_task_schedule_active': '02cf3729caa097faf32b2add8614450c58601852a8d5b29c4e512fc7b556cd1f',
+    'set_idle_period_slot': 'bdf0413eda9708b9581c09f0cfb74200556dc35a66b5baa3a00ab8e1e5a42ba7',
+    'idle_resume': '01fb2760eef6d8fc0b65ed4f81d6317e72ef97b9af1c4d84e759218b04ae326c',
+    'idle_suspend': 'b0fd00ec48bd47b32e83f00d91a8d6a47a684662b585682fcf5fb330a77ff4d2',
+    'powerdown_entry': '672d10b9a523c5d7d3450ee9a4b6d60fb7d6e330e20f5c0f9d8797ab0a815b10',
+    'idle_reset': '199597709c811a68ef6135183b384ae45130ab5c794d1f9b8b36cb952274e561',
+    'get_idle_task_state': '2c98978bcd3d5ba6dad323db6f2e7939aa7907076c60e641a07b33a8ca4b00c4',
+    'link_task_idle_task_enable_detect': '9b0351d0a23f5112d6fdb90043154af73efd8d3c3ebf84406a8825afc3f9cabb',
+    'link_task_idle_enable': '508e1c936b8fc2ac973820185fe48ebf488ced2ac1853800e7338016a1058d5d',
+    'link_task_idle_run': '92ef387087f71d21d230f3c15c5db66915800432118ba2425446f5561ccc81aa',
+}
+
+
+def link_task(text):
+    return leftovers(own_all(text, LINK_TASK_OWNED), 'link_task.c', set())
+
 # bredr_low_power.c: the Classic baseband's low-power manager hooks.
 BREDR_LOW_POWER_OWNED = {
     'bredr_power_get': 'c02a711aa67906c6c605a84f97c08e7436eecb61f6023c497464a3dacaf69f35',
