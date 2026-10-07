@@ -440,14 +440,26 @@ static const u16 default_center[2] = { 0x4000, 0x4000 };
 static const u16 default_max[2] = { 0x6600, 0x6600 };
 static const s8 stick_sign[2] = { 1, -1 };
 
-/* An uncalibrated trigger follows its own rest position. */
+/* An uncalibrated trigger follows its own rest position.  The rest only
+ * creeps up, one step per reading after the first: a single stray ADC
+ * sample (one of 735 against a rest of 482 left L2 half pressed until
+ * reboot) moves it by one, not for good.  Such jumps are logged. */
+#define LEGACY_JUMP 64
+
 static u16 legacy_rest[2];
+static u8 legacy_jumps[2];
 
 static u16 legacy_trigger(u16 raw, u16 *rest)
 {
     u32 travel, moved;
 
-    if (raw > *rest && raw <= 0x3ff) *rest = raw;
+    if (raw > *rest && raw <= 0x3ff) {
+        if (*rest && raw >= *rest + LEGACY_JUMP && legacy_jumps[rest - legacy_rest] < 8) {
+            legacy_jumps[rest - legacy_rest]++;
+            util_log("input: %s reading %u above rest %u", rest == legacy_rest ? "L2" : "R2", raw, *rest);
+        }
+        *rest = *rest ? (u16)(*rest + 1) : raw;
+    }
     if (*rest < 64 || raw + 8 >= *rest) return 0;
     moved = *rest - raw - 8;
     travel = *rest * 3 / 4;
@@ -681,6 +693,19 @@ int main(void)
     raw.stick[2] = 0x6600;
     cal_apply(&cal, &raw, &pad);
     CHECK(pad.lx == 0 && pad.rx == -CAL_STICK_MAX);
+
+    /* Uncalibrated trigger: one stray high reading does not leave it pressed. */
+    raw.trigger[0] = 482;
+    for (i = 0; i < 4; i++) cal_apply(&cal, &raw, &pad);
+    CHECK(pad.l2 == 0 && legacy_rest[0] == 482);
+    raw.trigger[0] = 735;
+    cal_apply(&cal, &raw, &pad);
+    raw.trigger[0] = 482;
+    cal_apply(&cal, &raw, &pad);
+    CHECK(pad.l2 == 0 && legacy_jumps[0] == 1);
+    raw.trigger[0] = 100;
+    cal_apply(&cal, &raw, &pad);
+    CHECK(pad.l2 == CAL_TRIGGER_MAX);
 
     now = 0;
     cal_start(now);
