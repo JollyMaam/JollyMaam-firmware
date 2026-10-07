@@ -391,13 +391,20 @@ class Func:
             m = re.match(r'getelementptr (?:inbounds )?(.*)$', rhs)
             return self.gep(split_args(m.group(1)))
         if op == 'load':
-            m = re.match(r'load (?:volatile )?([^,]+), (.*?)(?:, align \d+)?$', rhs)
+            m = re.match(r'load (?:volatile )?([^,]+), (.*?)(?:, align (\d+))?$', rhs)
             p = self.value(m.group(2))
+            w = wide(m.group(1).strip(), m.group(3))
+            if w:   # an under-aligned wide load is a copy through a cast byte pointer
+                return f'*({w} *)({p})'
             return p[1:] if p.startswith('&') else f'*{p}'
         if op == 'store':
             m = re.match(r'store (?:volatile )?(.*?), ([^,]+\*?[^,]*? [%@][\w.]+|[^,]*getelementptr.*?\)|[^,]+)(?:, align \d+)?$', rhs)
             parts = split_args(rhs[len('store '):].replace(', align', ' ,align').split(' ,align')[0])
             v, p = self.value(parts[0]), self.value(parts[1])
+            am = re.search(r', align (\d+)$', rhs)
+            w = wide(parts[0].split(' ', 1)[0], am and am.group(1))
+            if w:
+                return f'*({w} *)({p}) = {v}'
             target = p[1:] if p.startswith('&') else f'*{p}'
             return f'{target} = {v}'
         m = re.match(r'(add|sub|mul|and|or|xor|shl|lshr|ashr|udiv|sdiv|urem|srem)(?: nuw| nsw| exact)* (\S+) (.*)$', rhs)
@@ -506,6 +513,14 @@ class Func:
 
 
 ENUMS = {}
+
+
+def wide(ty, align):
+    """'u16'/'u32'/'u64' for an i16/i32/i64 access below its natural alignment."""
+    bits = {'i16': 16, 'i32': 32, 'i64': 64}.get(ty)
+    if bits and align and int(align) < bits // 8:
+        return f'u{bits}'
+    return None
 
 
 def load_enums():

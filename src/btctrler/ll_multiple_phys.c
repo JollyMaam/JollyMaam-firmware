@@ -212,7 +212,8 @@ void __slave_ll_phy_update_done(struct le_link *link, struct ble_rx *rx)
         if (log_tag_const_i_LL_PHY) log_print(2, NULL, "[Info]: [LL_PHY]slave shall not change phy\r\n");
         return;
     }
-    link->phy_param.M_TO_S_PHY = tx;
+    link->phy_param.M_TO_S_PHY = tx;        /* both bytes: one 16-bit copy in the SDK */
+    link->phy_param.S_TO_M_PHY = rx_phy;
     if (__instant_link_lost(instant, rx->event_count) == 1) {
         if (log_tag_const_e_LL_PHY) log_print(4, NULL, "<Error>: [LL_PHY]- INSTANT_PASSED\r\n");
         __phy_update(link);

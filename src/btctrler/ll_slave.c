@@ -293,14 +293,14 @@ static void __conn_slave_rx_post_handler(void *priv, struct ble_rx *rx)
     case 8:
         if (log_tag_const_i_LL_S)
             log_print(2, NULL, "[Info]: [LL_S]Recv - LL_FEATURE_REQ\r\n");
-        *le_param.remote_features = *p;
+        memcpy(le_param.remote_features, p, 8);   /* one 8-byte copy in the SDK */
         ll_remote_feature(link);
         ll_send_control_data(link, 9, "c08", le_param.features);
         break;
     case 9:
         if (log_tag_const_i_LL_S)
             log_print(2, NULL, "[Info]: [LL_S]Recv - LL_FEATURE_RSP\r\n");
-        *le_param.remote_features = *p;
+        memcpy(le_param.remote_features, p, 8);   /* one 8-byte copy in the SDK */
         ll_remote_feature(link);
         break;
     case 10:
