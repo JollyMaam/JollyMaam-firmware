@@ -645,6 +645,23 @@ def ll_extended_advertising(text):
                      {})
 
 
+# ll_master.c: BLE master-role receive handling (connection complete, data and LL control PDUs).
+LL_MASTER_OWNED = {
+    'master_rx_conn_post_handler': '66f9b5c9bd26805964438eabe775b074783d903be04f020c5e9bbb01a65d04ee',
+    'conn_master_rx_post_handler': '0be85a8394dff0e863f35dcf1ed51cfe8a35d802b9c88216d5b1fe3c6f4bb301',
+    '__conn_master_rx_post_handler': 'a44b9b0a3333f12f4f04d1587a8af9548486b077ef09589fb473d8305c6a6287',
+    '__master_receive_terminte_ind_done': '3823c9f2989de87df7457272da259beb8350ad054c09a884c4820bc1483a3a07',
+    '__master_ll_receive_start_enc_req': '5e938cf79c1ee4e55ba1955981787e47678ee150c3a7d2bb5ee1a904f187bc83',
+    '__master_ll_send_conn_update_req_auto': '72308eab31c57902f34f34403cc0e17af7550195d1f7e3f86c356095b9080d52',
+    '__master_ll_send_conn_update_req_auto_done': '3f1c707ddd7a2a3c5a11b35d0fee11d2682b3b97b46f5f396990e69373677410',
+}
+
+
+def ll_master(text):
+    return leftovers(own_all(text, LL_MASTER_OWNED), 'll_master.c',
+                     {'cpu_reset'})
+
+
 # authentication.c: the Classic legacy security functions (SAFER+).  The
 # static helpers are owned too; only cpu_reset, the assertion helper, is left.
 AUTHENTICATION_OWNED = {
