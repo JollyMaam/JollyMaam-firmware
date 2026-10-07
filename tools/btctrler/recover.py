@@ -842,6 +842,33 @@ def tws_media_sync(text):
     return leftovers(own_all(text, TWS_MEDIA_SYNC_OWNED), 'tws_media_sync.c', TWS_MEDIA_SYNC_LEFTOVERS)
 
 
+# local_media_sync.c: straggler member of the SDK's TWS code; only what other code
+# still references is owned (the rest is unreferenced and goes with it).
+LOCAL_MEDIA_SYNC_OWNED = {
+    'tws_api_local_media_sync_rx_handler_notify': 'd3a93f1be8b0de249628192ad9a63b16af0f5e9d613c8b9d6df3e0f0dd1ca4b3',
+    'tws_api_local_media_packet_cnt': '3868761e7bd02bf3e1c4b070b72a0f2a8924a40e77f5052b9b8368ecd8f59017',
+    'tws_api_local_media_trans_get_total_buffer_size': '990fceb98e63f84072683ab04077c9c5e02096f50a8eae66bae6c007fd43e348',
+    'tws_local_media_sync_rx_bulk_alloc': '7a8c99794f005c7a7d4641bee4c6f5cd6e78a9b60ac37161c912e5999674ee80',
+    'tws_local_media_sync_rx_handler_in_irq': '8fd3ce7aa96dd3f244704f0a7133b9d6765d79a4ee3841cdcb0ad7e171fa16e1',
+    'list_add_tail': 'c961bff247246c7b0fd9dba04dbf1b06819359514f6f27010c826350ad78e91e',
+    'tws_local_media_sync_resume': 'a9fb7c5e7372f3aac08871a893152f8454268a2a2852b156b0bc23004278ba2b',
+}
+LOCAL_MEDIA_SYNC_LEFTOVERS = {
+    'tws_local_limit_send_num', 'tws_local_media_event_handler', 'tws_local_media_req_and_res',
+    'tws_local_media_req', 'tws_local_media_res', 'tws_api_local_media_trans_set_buf',
+    'tws_api_local_media_trans_alloc', 'tws_local_media_buffer_free', 'tws_api_local_media_trans_free',
+    'tws_api_local_media_trans_push', 'tws_api_local_media_trans_check_total', 'tws_api_local_media_trans_pop',
+    '__list_del_entry', 'tws_api_local_media_trans_fetch', 'tws_api_local_media_trans_start',
+    'tws_api_local_media_trans_stop', 'tws_api_local_media_trans_packet_del', 'tws_api_local_media_trans_check_ready_total',
+    'tws_api_local_media_trans_clear', 'tws_api_local_media_trans_clear_no_ready', 'tws_api_local_media_set_limit_size',
+    'tws_api_local_media_trans_check', 'tws_local_media_req_suss', 'tws_api_first_media_frame',
+}
+
+
+def local_media_sync(text):
+    return leftovers(own_all(text, LOCAL_MEDIA_SYNC_OWNED), 'local_media_sync.c', LOCAL_MEDIA_SYNC_LEFTOVERS)
+
+
 # link_bulk.c: the Classic packet buffers (link_bulk.c).  The heap-pool
 # option and its unused helpers go with the member.
 LINK_BULK_OWNED = {
