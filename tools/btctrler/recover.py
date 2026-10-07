@@ -1234,3 +1234,27 @@ BREDR_DUT_OWNED = {
 
 def bredr_dut(text):
     return leftovers(own_all(text, BREDR_DUT_OWNED), 'bredr_dut.c', set())
+
+
+# btcontroller_util.c: the utility functions still called from elsewhere; the rest of the member is unused.
+BTCONTROLLER_UTIL_OWNED = {
+    'btctler_little_endian_read_16': '83d72c5e74b43df72d93f90383967f3f30918284d2f6be94abd2cec505b0e7ee',
+    'btctler_little_endian_read_24': '36c837de1d1b66667e3335e3736f536958f59af00abf4e6c7884edb0367cb838',
+    'btctler_little_endian_read_32': '0b5ac22321dcfd9aa6dcded443b5da66225d49008fdc5884cc7f896501ecf865',
+    'btctler_little_endian_store_16': '1309fdc1eab8cd6bcd5a842d59cd5fc3c647750c4382a8ffce9c06f377788e25',
+    'btctler_reverse_bytes': 'b3d704bd19c3f52af0b2ec45f614505ffa30fe8bfde0675fca19624c82c12e74',
+    'btctler_reverse_128': '85febbe10f92be9a45ad1143959ed76219f8c33899c943bd0e88aa46e5f863ec',
+    'btctler_bd_addr_to_str': '923ed482d919311ec35bb75cd04b9581a6aab5c7f41cfb4547b325186075d5fa',
+    'btctler_char_for_high_nibble': '76d1f27402f204a04b7df005c675375f2cf2e9be6442b573d6e46ed2a8482303',
+    'btctler_char_for_low_nibble': '97ee280ae8b32ecc39e12d4597c7751f4b80f646b484f1d372c039e5396bb48a',
+    'btctler_char_for_nibble': '24c351ef1a05e9fef5812ac26417fbae0549f2f0b821ead4190ce97118c7baa6',
+    'crc8': '76d2adbf070e74fc5bb16e7e63984e2415d49ff60b69573120c36597c24b9deb',
+    'btctler_crc8': 'ea972229a6a9cb854dd0449e323d1d878a47ffed3930bd41208a4817161ba4ac',
+    'btctler_crc8_check': '8a57c34b95feaad92136875ceb03ee03989e1601ad1b8903f24c92d8bb0375ef',
+    'btctler_get_rand_from_assign_range': '20ded0b228556c0ab84fa8965e0caf9b55f76818d3be40032b87cdf0dbbf2d64',
+    'btctler_memcmp_zero': 'bdacd842ac9f39b0cd44b6b376fb8c21aa8f418f3dc123975e5b380f1310eefa',
+}
+
+
+def btcontroller_util(text):
+    return leftovers(own_all(text, BTCONTROLLER_UTIL_OWNED), 'btcontroller_util.c', {'btctler_bd_addr_cmp', 'btctler_bd_addr_copy', 'btctler_little_endian_store_24', 'btctler_little_endian_store_32', 'btctler_big_endian_read_16', 'btctler_big_endian_read_24', 'btctler_big_endian_read_32', 'btctler_big_endian_store_16', 'btctler_big_endian_store_24', 'btctler_big_endian_store_32', 'btctler_reverse_24', 'btctler_reverse_32', 'btctler_reverse_48', 'btctler_reverse_56', 'btctler_reverse_64', 'btctler_reverse_256', 'btctler_reverse_bd_addr', 'btctler_min', 'btctler_max', 'btctler_nibble_for_char', 'btctler_printf_hexdump', 'btctler_log_info_hexdump', 'btctler_log_info_key', 'btctler_uuid_add_bluetooth_prefix', 'btctler_uuid_has_bluetooth_prefix', 'btctler_uuid128_to_str', 'btctler_sscanf_bd_addr', 'btctler_atoi', 'btctler_string_len_for_uint32', 'btctler_count_set_bits_uint32', 'btctler_crc8_calc', 'btctler_CalcCrc32'})
