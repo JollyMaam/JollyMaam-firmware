@@ -717,6 +717,39 @@ def ll_bis(text):
                      {'cpu_reset', 'lctrComputeBisAccessAddr', 'll_bis_tx_test', 'll_bis_rx_test', 'll_bis_read_test_counters', 'll_bis_init', 'll_bis_msg_handler', 'll_bis_close', 'list_empty'})
 
 
+# ll_cis.c: LE connected isochronous (CIG/CIS) bookkeeping, lookups and sub-event durations.
+LL_CIS_OWNED = {
+    'll_cig_by_id': '8e685c71b90c24e8ff24166bf5c3e98922e459322846446f7bb0e1d6a45c8a4e',
+    'll_cig_alloc': 'bfc81edd31ce8492af76890a6b18b782ff7f01b118d502351ed577164a34b310',
+    'INIT_LIST_HEAD': '085a4cfd7bb506cd47fdbaea6bfa84a5b4b9d89eb0da3c4715fe74cc4d4e9cf8',
+    'list_add_tail': '61d69e0b56666a3f4f0f8c76323852eb56dc8fcea331bf870e4e1d6da2a3fd4d',
+    'll_cig_free': 'd567ab18e7b8834b8edde1566dfaebc52d08bdb81c057ed82aa8f9e55e293fd8',
+    'list_empty': 'b7bb2330b62cb936192f1809021da4a278f9e5a7cd17d1a82e2b098279cbfd71',
+    'll_cis_free': '120f90030181e0b06b0f78134afabbd5cf4022ab479b4170f8b9ff169eaef602',
+    'list_del': '321c1354175bdecf8f7e938ab79a610cc1ef409646320ae6286ee227400b0fee',
+    'll_cig_add_cis': '1715ae8dccefd3833726dd082bd9a09eb03c018b7c55b92eac73ab5d16a684e9',
+    'list_add': '2be4e010559225613a2910df62910e1bfdec1b255c63aabe2d927052ade74526',
+    'll_cig_add_cis_tail': '09443049ee2fa4c2add84b9a6f6da85d4258f6a0864bf6f094687d72c259573e',
+    'll_cis_by_handle': '46350f27182e212b9ce3903fc0e08fc1987062e7348c7c40b284ac268c029af5',
+    'll_cis_handle_alloc': '210f5195be216a91d4816897e1689146af763457cd31ad09ea8d0ccde04c08fa',
+    'll_cis_alloc': '0f329ed96a4cfd3eb58305030315bf079f970f0d8cddbf48c43bf7d67680f13e',
+    'll_cis_by_id': '8cd95b83e97a1c4a0e5c1ea521434775b34203759b85ad531e667d8044be47db',
+    'lctrCisIsHeadCis': 'aeaefc9de411a2ae21e82ff4c72074f5e5bc7431318dec23ac0ba2249a6cefd5',
+    'list_is_head': '9af85aa289963055242d54194e67ec9f9a855f6cd7853388a8daa96e84c8162e',
+    'll_cis_destory': '5a0dd94ace96f984b625309f0dd62bedfbe11d8a6bed77452b10a264fe95bd39',
+    'll_cis_is_established': '31ec8b143a6ab11faae974be5d9130f710874033cf7d2ef701af95e806fc7131',
+    'll_get_number_enable_cis': 'c9c1561e7d55b6e2a8cf19504117459e3345ea9191f828119452cbc027bf7395',
+    'll_get_number_avail_cis': '2d648a225df68d2c6496f3809fa303276c359f2a0ba6ff2c80e33d3b643ceaae',
+    'll_cis_calc_subevt_sequential_us': '998f84c55301b0863d033041509defd8f22375175ea4566b399874fb951404fc',
+    'll_cis_calc_subevt_interleaved_us': '8fd39d5a810e8e8062162e149fe707b56cf935c9740df36d178e7fc2556123a0',
+}
+
+
+def ll_cis(text):
+    return leftovers(own_all(text, LL_CIS_OWNED), 'll_cis.c',
+                     {'ll_cig_remove_cis', 'll_cig_get_head_cis', 'cpu_reset', 'll_cis_established', 'll_cis_established_fail', 'll_get_number_enable_cis_test', 'll_setup_channel_param', 'll_cis_tx_test', 'll_cis_rx_test', 'll_cis_read_test_counters', 'll_cis_init', 'll_cis_msg_handler', 'll_cis_close', 'hci_le_cis_established_event'})
+
+
 # authentication.c: the Classic legacy security functions (SAFER+).  The
 # static helpers are owned too; only cpu_reset, the assertion helper, is left.
 AUTHENTICATION_OWNED = {
