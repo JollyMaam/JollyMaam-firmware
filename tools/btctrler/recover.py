@@ -589,6 +589,15 @@ LL_KEYS_OWNED = {
 def ll_keys(text):
     return leftovers(own_all(text, LL_KEYS_OWNED), 'll_keys.c', set())
 
+# ll_pc.c: LE power-control opcodes currently log and complete with success.
+LL_PC_OWNED = {
+    'le_cmd_set_pc': '2cad5627ca220cd08ba7725760c0460576bbce40dd3eb128993762fab763f5b0',
+}
+
+
+def ll_pc(text):
+    return leftovers(own_all(text, LL_PC_OWNED), 'll_pc.c', set())
+
 
 # misc_hw.c: CRC wrappers and the BR23 random register reader.
 MISC_HW_OWNED = {
