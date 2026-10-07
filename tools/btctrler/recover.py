@@ -778,6 +778,36 @@ def ll_slave(text):
         'ble_vendor_priv_cmd_handle_register',
     })
 
+# ll_multiple_phys.c.o: LE PHY negotiation and HCI PHY commands.
+LL_MULTIPLE_PHYS_OWNED = {
+    'llValidatePhySupport': 'bd3faacc841b670216baa08a3684d9b56425207da769e219e4270ca09457125a',
+    'll_get_preferred_phy': 'a9c98384a599db416d211a40bb9761441f8e279bbf9811e90f035e50a4e7407b',
+    '__master_ll_phy_update_done': 'b821ccedeb4dd037da8eb5f1800643a1b6959a190793f0b6d2f63125e917dd05',
+    'get_if_MasterInitiativePhyUpdate': '6b399ee2163e7545a06329b70b00d0b3a4fba3f8da5ca6f949d06454e3a03df4',
+    '__phy_update': 'f8baa65e9e7ac113f6b1c8ff3380436ff5b515da9ad1e8cdaf7c91f17bc89f6d',
+    '__master_ll_phy_update_procedure_done': 'b88ba85f31d6f06c58be1ab594b896fbf5f960760afb91846b097fbfb76c02f4',
+    '__master_ll_send_phy_update_ind': '773597536f9b0cd0d8d9eb1969444b8ceeb41f41e8b95211900db539bbb54ed1',
+    '__master_ll_send_phy_update_ind_callback': '9003421ae0eaede52ff9f055d0a449ee9eea88506639a3b9bee3d14632cc4101',
+    'get_if_master_phy_change': '1638e96806495097f6063398d835e0fc5b91682bde22e9ead261b89c4c5bc64c',
+    'master_ll_receive_phy_rsp': 'fe7156633ef602546d26cc1e70c11617a16be0d25ecb34a27b20127543a69c3d',
+    'phy_negotiation': '830f23ce434647d2862c6ed60dda6ae0637bd5787633f8f13598478b594a674d',
+    'master_ll_receive_phy_req': '819c80c87446f180b80cd23523c11b90b95d85d37fe633b72751bebf2da66695',
+    '__slave_ll_phy_update_done': 'a365de9474e06da6c93c1afb86600ff3639cf97e3b6656c146c6fcfa68a4b757',
+    'get_if_SlaveInitiativePhyUpdate': '8149edbd2dffce7916c9095576b7f0733d4f362b4f3ab80152cf3df02815c2fe',
+    '__slave_ll_phy_update_procedure_done': 'c6bcbb00ebee81ce1e504e003d95be30e4a70a9f976cbe0b033597561b8d7a14',
+    'slave_ll_receive_phy_req': 'edeac43f952e1dbebb6ac757dd97c71c45e3d6f8a2fbdd51a77a9069f1694d0e',
+    '__reset_CodedPHY_conn_winsize': '192c587a0d2fd54732fb88bdb9d8018e356660e19429c03564345dd009e2a6bf',
+    'refresh_phy_param': '9a9a360938dea23644d0441b5ddfcfebdea638df9e6d731d68e6cb0d3c9eadf6',
+    '__ll_send_phy_req': '8e68c59a7eb444c7c842d395356180f1a0cb738b2bae14ef22a47987000895b5',
+    'll_set_default_prefers_phys': 'ae6428b6cffcb36cb274f85ebefe63eec65d71dc822ef744583d4218d1ac107c',
+    'll_read_phy': '5ecdf2903e0556c7789400e53bd47683db4214094ec33940b3107d85a5dbab55',
+    'll_set_phy': '085e73ba0c089f964e535cad3922fb13160d12433eb5e0be4ec6e793763e589c',
+}
+
+
+def ll_multiple_phys(text):
+    return leftovers(own_all(text, LL_MULTIPLE_PHYS_OWNED), 'll_multiple_phys.c', set())
+
 
 # ll_data_extension.c: LE data length extension tables and per-link effective lengths.
 LL_DATA_EXTENSION_OWNED = {
