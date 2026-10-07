@@ -56,6 +56,12 @@ that changes behaviour is a defect here.
 1. `make -j32 && make controller-ir` in your worktree.  This writes the SDK
    IR to `build/controller-ir/sdk/<member>.c.o.ll` (what you translate) and
    the retained archive's IR to `build/controller-ir/retained/` (the callers).
+   Inspection caches decoded members and ownership-independent metadata in
+   the shared Git directory. Worktrees reuse that cache automatically;
+   changed members and decoder/scanner changes invalidate the relevant
+   entries. Run the target again after changing the retained archive; the
+   unchanged SDK and members are reused. Do not copy potentially stale
+   inventories between worktrees or overlap runs in one output directory.
 2. List the member's definitions and globals:
    `grep -E '^(define|@)' build/controller-ir/sdk/<member>.c.o.ll`.
    For each function, find its callers: `grep -l '@name(' build/controller-ir/retained/*.ll`

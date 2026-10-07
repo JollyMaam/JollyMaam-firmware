@@ -4,6 +4,14 @@ Run from the repository root after `make -j32 && make controller-ir`.
 They compare the owned C (compiled object IR in `build/src/btctrler/*.o`)
 with the pristine SDK bodies in `build/controller-ir/sdk/*.ll`.
 
+`make controller-ir` reuses decoded members and their debug metadata from
+`controller-ir-cache/` in the repository's shared Git directory. Worktrees
+share this cache, and `make clean` does not remove it. Member content, the
+decoder binary, and the scanner implementation identify cache entries;
+changed members are regenerated, removed members disappear from output,
+and each invocation filters the metadata against its current ownership
+tables. Repeating the command does not require decoding the entire SDK.
+
 | Script | Use |
 |---|---|
 | `volseq.py MEMBER build/src/btctrler/FILE.o [FUNC...]` | per function: ordered volatile accesses (MMIO address or struct field path) and calls, SDK vs owned. Differences from not-yet-inlined helpers and assert paths are expected. |
