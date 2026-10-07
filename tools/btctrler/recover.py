@@ -1258,3 +1258,15 @@ BTCONTROLLER_UTIL_OWNED = {
 
 def btcontroller_util(text):
     return leftovers(own_all(text, BTCONTROLLER_UTIL_OWNED), 'btcontroller_util.c', {'btctler_bd_addr_cmp', 'btctler_bd_addr_copy', 'btctler_little_endian_store_24', 'btctler_little_endian_store_32', 'btctler_big_endian_read_16', 'btctler_big_endian_read_24', 'btctler_big_endian_read_32', 'btctler_big_endian_store_16', 'btctler_big_endian_store_24', 'btctler_big_endian_store_32', 'btctler_reverse_24', 'btctler_reverse_32', 'btctler_reverse_48', 'btctler_reverse_56', 'btctler_reverse_64', 'btctler_reverse_256', 'btctler_reverse_bd_addr', 'btctler_min', 'btctler_max', 'btctler_nibble_for_char', 'btctler_printf_hexdump', 'btctler_log_info_hexdump', 'btctler_log_info_key', 'btctler_uuid_add_bluetooth_prefix', 'btctler_uuid_has_bluetooth_prefix', 'btctler_uuid128_to_str', 'btctler_sscanf_bd_addr', 'btctler_atoi', 'btctler_string_len_for_uint32', 'btctler_count_set_bits_uint32', 'btctler_crc8_calc', 'btctler_CalcCrc32'})
+
+
+# hci_ll.c: the BLE HCI command entry.
+HCI_LL_OWNED = {
+    'll_hci_cmd_handler': '337df50773e0c7b14833231aa8b5f840daa062a8d790ce32bdf2bd29e065d2a2',
+    'll_event_handler': '0ba4a26be08581fed38d60ba623ba98061cab3af5d2c13186f0590b39b4ec256',
+    'll_hci_destory': '4be6e32ac622a81afc978350a076ed19f37e693c08ee7f08a90741448b069aeb',
+}
+
+
+def hci_ll(text):
+    return leftovers(own_all(text, HCI_LL_OWNED), 'hci_ll.c', {'ll_hci_init', 'll_hci_reset', 'll_hci_set_event_mask', 'll_hci_adv_set_params', 'll_hci_adv_set_data', 'll_hci_adv_scan_response_set_data', 'll_hci_set_random_address', 'll_hci_get_acl_data_len', 'll_hci_get_acl_total_num', 'll_hci_get_remote_features', 'll_hci_set_name', 'll_hci_scan_set_params', 'll_hci_adv_enable', 'll_hci_scan_enable', 'll_hci_create_conn', 'll_hci_create_conn_ext', 'll_hci_create_conn_cancel', 'll_hci_vendor_send_key_num', 'll_vendor_latency_hold_cnt', 'll_hci_encryption', 'll_hci_get_le_rand', 'll_hci_start_encryption', 'll_hci_long_term_key_request_reply', 'll_hci_long_term_key_request_nagative_reply', 'll_hci_connection_update', 'll_hci_disconnect', 'll_hci_read_local_p256_pb_key', 'll_hci_generate_dhkey', 'll_hci_set_data_length', 'll_hci_set_ext_adv_params', 'll_hci_set_ext_adv_data', 'll_hci_set_ext_adv_enable', 'll_hci_set_phy', 'll_hci_set_ext_scan_params', 'll_hci_set_ext_scan_enable', 'll_hci_ext_create_conn', 'll_hci_set_periodic_adv_params', 'll_hci_set_periodic_adv_data', 'll_hci_set_periodic_adv_enable', 'll_hci_periodic_adv_creat_sync', 'll_hci_periodic_adv_terminate_sync', 'll_hci_periodic_adv_create_sync_cancel', 'll_hci_set_host_channel_classification', 'll_hci_read_channel_map', 'll_hci_private_free_dma_rx', 'll_hci_param_config_get', 'hci_ll_get_device_address', 'hci_ll_get_link_local_address'})
