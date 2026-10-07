@@ -771,3 +771,21 @@ SYS_TIMER_OWNED = {
 
 def sys_timer(text):
     return leftovers(own_all(text, SYS_TIMER_OWNED), 'sys_timer.c', set())
+
+# btcontroller_heap.c: system-heap NV wrappers. Unused Classic functions
+# are checked leftovers.
+BTCONTROLLER_HEAP_OWNED = {
+    'btctler_nv_memory_apply': 'a4dedfa3a4f5647e5ad70a36d19a412341c2e501f805c3203da78b02722b7b26',
+    'btctler_nv_memory_malloc': 'e4662c3cdc654f9b14bd506a37205bc1529b7044296e8dea0ed4c105ef9ff45b',
+    'btctler_nv_memory_free': '4b5e3b14adfd1a59289ac7b8acd51011b2c0cf694eb8d8eda73242d45c4e3545',
+    '__bt_malloc': '5a77b0f3fe771def7d880d98293089bb7ab517bf76e5eb7a13b13b9f78919022',
+    '__bt_free': '1293d9671a1d35b27db3ce63bf14c304a4aaf14b7becdc1ed5d977be4b367fca',
+}
+
+
+def btcontroller_heap(text):
+    return leftovers(own_all(text, BTCONTROLLER_HEAP_OWNED), 'btcontroller_heap.c', {
+        'bt_classic_malloc', 'cpu_reset', 'bt_classic_free',
+        'btctler_memory_apply', 'btctler_memory_release',
+        'btctler_nv_memory_release', 'btctler_nv_memory_debug',
+    })
