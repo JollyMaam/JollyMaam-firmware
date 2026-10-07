@@ -754,3 +754,20 @@ def lbuf(text):
     return leftovers(own_all(text, LBUF_OWNED), 'lbuf.c', {
         'lbuf_get_chunk_num_btctrler', 'lbuf_more_data_btctrler', 'lbuf_query_used_btctrler',
         'lbuf_info_btctrler', 'cpu_reset', 'list_add_tail', '__list_del_entry', 'list_del'})
+
+
+# sys_timer.c: controller timer adapter.
+SYS_TIMER_OWNED = {
+    'sys_timer_get_time': '20808f724594292e96cb131a98de49405525d7159cd563b362be1e04f81e742d',
+    'sys_timer_register': '13eba4ce33b62ae700d623adda5a2b179c54b1b7e7aa4d162be31969d51a1cb7',
+    'sys_timer_register_periodic': '4340f19b2d45d858dbf5cf1c56917745bbd161f0fd1659b301169c3b524a220e',
+    'sys_timer_remove': 'ab3139909a46c37e180b62d133ffa7f7c30591727c8b2bc4c96f1f92987247ca',
+    'sys_timer_reset': '3685dc118683d04c607644ff3eae94561e1e85f223e1951774f022010b3d0dc7',
+    'sys_timer_change_period': 'a7b46312714459b0b811ac7729fe2045c128acbcc7887865646dc04501abc81c',
+    'sys_timer_set_context': 'acb2f9df0227e6c3bfda9e91886217690b9f7279befe7511c3e2fcc7cd3bcd19',
+    'sys_timer_get_context': '63feea11f8dad767fb274bd2cfc32e9ce0f6969e1dfe4ba2b276b86095a85036',
+}
+
+
+def sys_timer(text):
+    return leftovers(own_all(text, SYS_TIMER_OWNED), 'sys_timer.c', set())
