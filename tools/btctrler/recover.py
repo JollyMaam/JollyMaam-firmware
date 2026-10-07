@@ -7,6 +7,22 @@ src/btctrler/sdk.h.
 import re
 from .ir import extract, own_all
 
+
+# misc_hw_common.c.o duplicates the three functions in misc_hw.c.o byte for
+# byte at the function-body level.  This table checks the duplicate before
+# dropping the member; it does not register another owned C implementation.
+MISC_HW_COMMON_DUPLICATE = {
+    'crc_get_32bit': '18106245b18f3ec48fb97b567f5ad32892bfda7b00f622952ff2a64b05892b77',
+    'crc_get_16bit': '436dfae2d1465df8f340e12303de3ea0beea351b991e5e5f3689a23bcfe2288a',
+    'pseudo_random_genrate': '4a331edfa504d74d287638d468c6eab958cc537190dea15c61d0fc4bc7b17de3',
+}
+
+
+def misc_hw_common(text):
+    """Check the duplicate common misc_hw bodies before dropping the object."""
+    return leftovers(own_all(text, MISC_HW_COMMON_DUPLICATE),
+                     'misc_hw_common.c', set())
+
 def link_policy(text):
     """Own hci_lmp_link_policy_cmd_handler (src/btctrler/link_policy.c)."""
     text, _ = extract(text, 'hci_lmp_link_policy_cmd_handler',
