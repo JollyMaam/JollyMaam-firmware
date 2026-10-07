@@ -1204,3 +1204,14 @@ AES128_OWNED = {
 
 def aes128(text):
     return leftovers(own_all(text, AES128_OWNED), 'aes128.c', {'aes128_test', 'aes_ccm_test', 'cpu_reset'})
+
+
+# aes_hw.c: the AES hardware driver.
+AES_HW_OWNED = {
+    'aes128_start_enc': 'b2633aea31c8887bd9536ccc4cd9b3e50e023a17f632807fb336b993662b8700',
+    'ccm_memory_v2': 'ed0ec5f4ac7e4ea19f9e9942c0332dbcf58cf6353b349fdab266ec13aa0d2ac6',
+}
+
+
+def aes_hw(text):
+    return leftovers(own_all(text, AES_HW_OWNED), 'aes_hw.c', {'aes_init', 'aes_irq_handler', 'aes_hw_test'})
