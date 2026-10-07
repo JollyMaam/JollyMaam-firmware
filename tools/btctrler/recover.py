@@ -586,6 +586,31 @@ def ll_white_list(text):
                      {'cpu_reset'})
 
 
+# bredr_slot_timer.c: the Classic baseband's eight slot-clock timers.
+BREDR_SLOT_TIMER_OWNED = {
+    'slot_timer_irq_get_time_out': 'c38110c0ea8e8c8b534add8d5a89a44b899328b8634b3059af54331db16c1cb8',
+    'slot_timer_init': 'b24ce8ae53efc3fa204ca4d7d54d9dcba1476cbc92921717edd574b5b1e00340',
+    'slot_timer_uninit': 'fabf00456baa75e6fa2f078c145db96ee9e212315c446738205aec01f65bb196',
+    'slot_timer_get': 'b8d4edb22013dc65daa8a18e8310eddfa9163ea821441c3ebe8b0ddcbad83e8b',
+    'slot_timer_info': '3bdbcd3dbbb6cbf9ea50fad3b49f544d54d79f83e68c6b1a720de38284d5c444',
+    'slot_timer_set_ext': '0435fe76e617e040fd41315c7384485638b93f6b8272cc495144c30595343781',
+    'slot_timer_set': '15490ab32e8a170759c89987186efa08895a79af096794d3e295c0aa3b236229',
+    'slot_timer_get_func': '6a99f7ba0c81493bdfbdf0cdb55b3f25ca00831b2cfbe49c5941755aaf873c34',
+    'slot_timer_reset': 'd7868e57d3a286aba5492d2b3d24d0cc8f4edfc50619a2009f13f51dbdebb2a9',
+    'slot_timer_put': 'f1c5a42e0b8cd4628a4516edba933e945b87949ede347391cf6b6cd5b34ef95a',
+    'slot_timer_disable': '86f195e332ccc0686e78a056ee55eadb8317477ea3a5e5b6637fb411bb01bdf7',
+    'slot_timer_enable': 'c0c70ead125e193a8a308bae9e2e226febe454658deef4233a454e2282b2bc30',
+    'slot_timer_remain': 'c67ac1514478fb6c71b77ff9385098b90a8104aa9946d142f3225f09817ed22d',
+    'slot_timer_handler': '5c0940d7141914546df890f083d2078be1f34d0d520348d48c075d116231998b',
+    'slot_timer_oneshort_set': '314f5adca4d46bbbdd6ec2a2bea2a485acb1ea109d120543d6a0911b07a3ff2d',
+    'slot_timer_irq_handler': '5ad6c8401ac7e56260e09f53169f102cb43f1b49318f84030b617dae1d640e02',
+}
+
+
+def bredr_slot_timer(text):
+    return leftovers(own_all(text, BREDR_SLOT_TIMER_OWNED), 'bredr_slot_timer.c', {'cpu_reset'})
+
+
 # authentication.c: the Classic legacy security functions (SAFER+).  The
 # static helpers are owned too; only cpu_reset, the assertion helper, is left.
 AUTHENTICATION_OWNED = {

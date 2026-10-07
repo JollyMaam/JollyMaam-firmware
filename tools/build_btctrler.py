@@ -26,6 +26,7 @@ PIPELINE = {
     'lmp_hci.c.o': (recover.hci_procedures,),
     'lmp_utils.c.o': (recover.lmp_utils,),
     'bredr_utils.c.o': (recover.bredr_utils,),
+    'bredr_slot_timer.c.o': (recover.bredr_slot_timer,),
     'misc_hw.c.o': (recover.misc_hw,),
     'authentication.c.o': (recover.authentication,),
     'link_bulk.c.o': (recover.link_bulk,),
