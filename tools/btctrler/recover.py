@@ -1836,3 +1836,14 @@ LL_ADV_OWNED = {
 def ll_adv(text):
     return leftovers(own_all(text, LL_ADV_OWNED), 'll_adv.c',
                      {'cpu_reset', 'ble_adv_vendor_not_connect_same_master'})
+
+
+# Bluetooth AGC table upload and initialization.
+BTAGC_OWNED = {
+    'btagc_ram_init': 'd6f3ebda5cf300c3f022bb2687245e3a1841f3de6c76949397591449168a465d',
+    'btagc_init': '0fe4d6d880ee8d89ad1bab3e53f0f442111fe913e7a73c81137caae091f1a755',
+}
+
+
+def btagc(text):
+    return leftovers(own_all(text, BTAGC_OWNED), 'btagc.c', set())
