@@ -705,6 +705,39 @@ TASK_DISPATCH_OWNED = {
     'btctrl_msg_qfull_hook': 'b501532b8d7b1e23d18c709987be7d062ad57c6441b567353d3b7024563643f5',
 }
 
+BTENCRY_TASK_OWNED = {
+    'btencry_task_init': '48e8802756d6196a85bf125171cea8eec51c479ff9554599b40fd993a3306181',
+    'btencry_task_exit': '3b889a228102c58fe22c830aeec9b533176b93f48efbde2cda87178978587ea7',
+    'btencry_msg_to_task': '3551ec88a94a83ac077ad5a7d374c1b98248a2c154a08167c3a78dd0debba32f',
+    'btencry_function_E1': 'bd38321ce5d939d80f022110b8c609da5fd131880d4bd23740bbf00b0d973723',
+    'btencry_function_E21': '6fd6c43cdc66d715804742634b369568f26b3d5c4775b72548634f9d67b17dde',
+    'btencry_function_E22': '3dba748e8cb6f9ce07d17ecf2b58ccb99ace2af5c94474fef179334ffa4e29b0',
+    'btencry_function_E3': '6cc1b1339012660e3b4d7fd1d8b0e954acdfa2cdb54e6923e8ba526ed5040867',
+    'btencry_g_function': '2543b07bce8c2cde0525022fdcd22042d56375d474c3cfc2212ff3491f310d9b',
+    'btencry_f1_function': '14d2aeff9fc14814b99c90794efb25724c5741f68ac8e601ca6929055b2fd0ed',
+    'btencry_f2_function': '6594756a053eabfdb548a6816ae288d7264ddc5c7e6faf4fdf2aa2bd7629dff3',
+    'btencry_f3_function': 'bbf0c3140057872b08452bd0612d61885e790b5969d1753ef76c7d9a35635ecf',
+    'btencry_uECC_compute_public_key': '58a4c3ea98db3bbe427b1900a00abdb8550938e2288a92e4b44cb33595bb7f85',
+    'btencry_uECC_shared_secret': 'd7dd493c06a92d85a926f9cb6f8308ffeed96259c0e34845228afa41758463ab',
+    'uECC_shared_secret_result': '656e5585476b205b5de1a001712278520ad72018427efb8a6dc002b14fdd055e',
+    'function_E1_api': 'd1cb10aad0cdf5afbddf4d4648159e546b58361b64f923afdc0429d73e671751',
+    'function_E21_api': 'a2e936b75ef03a95812f06f8de51feece9998b7014c6a5035827af19c564dfad',
+    'function_E22_api': 'ecaa42d20a0dc6e9eca6833ef645141527cd6b6872b035d486f68536645bc45f',
+    'function_E3_api': '767d6fa03ed651f60e949e955b2cbdcd01228733e9feee3f23498d19d6760612',
+    'g_function_api': 'fb294811b38c4ec0f7d60498929bba55cca7663648c87b98785d99750669e0dd',
+    'f1_function_api': '4eebb28f0d67c8f45dab03a7b9303e3e7c43b3a9ca78cb18e7ef5def2c6ae1c2',
+    'f2_function_api': '1e567f307e592abdc5568137b50bc18823b6259ff6fad369270f16a6935b2bd8',
+    'f3_function_api': '760a9341a2d04c11fb856052174fd78a3956b531e24b4a7cea098412f0b82984',
+    'uECC_compute_public_key_api': '8a17b1ff662f06cbd43be1217ab28532e45a30820ae5d8a36cd99644c0593af3',
+    'uECC_shared_secret_api': '125fb2f98eb63886de54b89084b8fb1d7a282be5da2c3b002c913923b72af97c',
+    'btencry_task': '6527b5a672435f9cadd27942b4d64d2b97a2df4db731d1e1719901483150c0e9',
+}
+
+
+def btencry_task(text):
+    text = own_all(text, BTENCRY_TASK_OWNED)
+    return leftovers(text, 'btencry_task.c', {'cpu_reset', 'cpu_in_irq', 'cpu_irq_disabled'})
+
 
 def task_dispatch(text):
     text = own_all(text, TASK_DISPATCH_OWNED)
