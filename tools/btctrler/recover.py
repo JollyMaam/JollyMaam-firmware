@@ -1417,31 +1417,3 @@ HCI_LL_OWNED = {
 
 def hci_ll(text):
     return leftovers(own_all(text, HCI_LL_OWNED), 'hci_ll.c', {'ll_hci_init', 'll_hci_reset', 'll_hci_set_event_mask', 'll_hci_adv_set_params', 'll_hci_adv_set_data', 'll_hci_adv_scan_response_set_data', 'll_hci_set_random_address', 'll_hci_get_acl_data_len', 'll_hci_get_acl_total_num', 'll_hci_get_remote_features', 'll_hci_set_name', 'll_hci_scan_set_params', 'll_hci_adv_enable', 'll_hci_scan_enable', 'll_hci_create_conn', 'll_hci_create_conn_ext', 'll_hci_create_conn_cancel', 'll_hci_vendor_send_key_num', 'll_vendor_latency_hold_cnt', 'll_hci_encryption', 'll_hci_get_le_rand', 'll_hci_start_encryption', 'll_hci_long_term_key_request_reply', 'll_hci_long_term_key_request_nagative_reply', 'll_hci_connection_update', 'll_hci_disconnect', 'll_hci_read_local_p256_pb_key', 'll_hci_generate_dhkey', 'll_hci_set_data_length', 'll_hci_set_ext_adv_params', 'll_hci_set_ext_adv_data', 'll_hci_set_ext_adv_enable', 'll_hci_set_phy', 'll_hci_set_ext_scan_params', 'll_hci_set_ext_scan_enable', 'll_hci_ext_create_conn', 'll_hci_set_periodic_adv_params', 'll_hci_set_periodic_adv_data', 'll_hci_set_periodic_adv_enable', 'll_hci_periodic_adv_creat_sync', 'll_hci_periodic_adv_terminate_sync', 'll_hci_periodic_adv_create_sync_cancel', 'll_hci_set_host_channel_classification', 'll_hci_read_channel_map', 'll_hci_private_free_dma_rx', 'll_hci_param_config_get', 'hci_ll_get_device_address', 'hci_ll_get_link_local_address'})
-
-
-# Legacy BLE advertising state and RX path.
-LL_ADV_OWNED = {
-    'll_adv_timeout_stop': 'a6d69e185c9f1ade440e7669ae8c0d86ce834bfedca932736896f40bb29e4bc2',
-    'le_ll_adv_addr_process': 'b30fd57549dda662b11b6da2d03b6c972b257592d75727adf83f37d3aaa2eb9b',
-    'adv_rx_post_handler': '5d70708bbf3bd16e5d8c2b1a3ebe326aeb53129498358e08404b21e1ec78eaf3',
-    '__adv_rx_post_handler': 'eb8cc9dd0f082e7c7d12ca62757691f9289ec0052071160b32b94a4be69d8efd',
-    'll_adv_set_params': 'b0c1e3d08531414d4364be97fbccf786a6e6bc4a9b5bef6c4f2367b8b40f0dbe',
-    'll_adv_init': 'd8496cc2cbf9c0137f5fa26b4e817a338801acbdb7c51570dc10e315ef20c554',
-    'll_adv_set_adv_data': 'b1cdd1c7ec927b9731f6e3ed7fa7597bad63779e095365a8370b45c2b0bc2bd0',
-    'll_adv_set_scan_rsp_data': 'dbe9ab6cf2bbbc1863f61447b24fa68b77d63ba8b795f0520a16e448831a92ad',
-    'll_adv_open': '2f84a0aae53c2254dfd1a92feabc2381e664f1683a385c22860ca26b49b11d86',
-    '__set_ll_adv_state': '6a6b6655d92fe26c4abd5361accf89b37dd3d457b0d2ef45b702deec8db42734',
-    'll_adv_close': '8b42db2cedcfd7b5125524b56a4a230454c1fe298cab04dac2f2bc3222fdf775',
-    'll_adv_link_get': 'be28367c3b2b8e4c9e5bcc83673b7ac6523c5534d4099fee97dad163a548f4d5',
-    'll_adv_local_addr_refresh': '449f4530436d5eae2c3424da3e0e4715234ccf21a1ff4c4a1d10979ae7a92e68',
-    '__set_ll_adv_local_addr': 'd29ba3e4dca9baec5249c7eec61c988df75cd86d059f04776f94b99697b292ab',
-    'll_adv_resume': '2bed7b53747cef3877b4aedc7af41aab4dde24b431c310765abd8426d7d79727',
-    'adv_rx_probe_handler': 'bdd72fafa770bea2a13a256c3c673b850315709f2ef82b6dc71f8a4416e9689e',
-    '__set_ll_adv_peer_addr': '0e3395d966de8c507f620d9f4e5a0cc640ae549c4285fe96eab2cb399a8cabdd',
-    'll_adv_timeout_handler': 'fbfd3d7102ec1e23f2eb1e8a4fdf64c7da9a22f6bba7b1f0a354918497415f49',
-}
-
-
-def ll_adv(text):
-    return leftovers(own_all(text, LL_ADV_OWNED), 'll_adv.c',
-                     {'cpu_reset', 'ble_adv_vendor_not_connect_same_master'})
