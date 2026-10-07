@@ -510,6 +510,19 @@ def lmp_utils(text):
         'lmp_bt_flip_addr', 'lmp_bt_flip_access_addr', 'lmp_char_for_nibble', 'lmp_bd_addr_to_str'})
 
 
+# bredr_utils.c: Classic clock arithmetic.
+BREDR_UTILS_OWNED = {
+    'bredr_clkn_after': 'adef4c01adbd5a7099a33030e495fc477d40b40b508c7a4eaee5b0857447443c',
+    'bredr_clkn_before': 'ef85a3de9e2d6356b5a6d397e8f94d5b3141f89c1219ad4a7e3c0cc4d15dbaf1',
+    'bredr_clkn2offset': '1fe0bff49ecea1cf55a5e24bf7de3c25980087eb4c5c17836f2a717ecc60df37',
+    'bredr_offset2clkn': 'b8135cbdbd04cce807390e55c9a454308f2176d1ec242fd085679e5843bfec2a',
+}
+
+
+def bredr_utils(text):
+    return leftovers(own_all(text, BREDR_UTILS_OWNED), 'bredr_utils.c', set())
+
+
 # Public Classic HCI procedures (lmp_hci_procedures.c).
 HCI_PROCEDURES_OWNED = {
     # lmp_hci_control.c

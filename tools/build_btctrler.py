@@ -18,13 +18,14 @@ PIPELINE = {
     'lmp_rxtx.c.o': (recover.control_tx,),
     'lmp_hci.c.o': (recover.hci_procedures,),
     'lmp_utils.c.o': (recover.lmp_utils,),
+    'bredr_utils.c.o': (recover.bredr_utils,),
     'link_bulk.c.o': (recover.link_bulk,),
     'lbuf.c.o': (recover.lbuf,),
     'lmp_hci_cmd_parser.c.o': (recover.link_control, recover.classic_baseband, recover.link_policy, recover.classic_misc),
 }
 # Members owned C replaces completely: checked by their transforms above,
 # then left out of the archive.
-DROPPED = ('btctrler_task.c.o', 'device_manager.c.o', 'h4_controller_interface.c.o',
+DROPPED = ('bredr_utils.c.o', 'btctrler_task.c.o', 'device_manager.c.o', 'h4_controller_interface.c.o',
            'hci_controller.c.o', 'lbuf.c.o', 'link_bulk.c.o', 'lmp.c.o', 'lmp_hci.c.o', 'lmp_hci_cmd_parser.c.o',
            'lmp_rxtx.c.o', 'lmp_utils.c.o')
 
