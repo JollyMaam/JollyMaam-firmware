@@ -1195,6 +1195,16 @@ def ll_bis(text):
                      {'cpu_reset', 'lctrComputeBisAccessAddr', 'll_bis_tx_test', 'll_bis_rx_test', 'll_bis_read_test_counters', 'll_bis_init', 'll_bis_msg_handler', 'll_bis_close', 'list_empty'})
 
 
+# ll_bis_master.c: HCI command dispatch for BIG synchronization.
+LL_BIS_MASTER_OWNED = {
+    'le_cmd_set_bis_master': '76106bc5effa9b2e62ba7785ae30cc6ae360ce8ca170489e22478dad750acb62',
+}
+
+
+def ll_bis_master(text):
+    return leftovers(own_all(text, LL_BIS_MASTER_OWNED), 'll_bis_master.c', set())
+
+
 # ll_cis.c: LE connected isochronous (CIG/CIS) bookkeeping, lookups and sub-event durations.
 LL_CIS_OWNED = {
     'll_cig_by_id': '8e685c71b90c24e8ff24166bf5c3e98922e459322846446f7bb0e1d6a45c8a4e',
