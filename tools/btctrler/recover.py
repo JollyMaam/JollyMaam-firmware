@@ -102,6 +102,24 @@ def device_manager(text):
     return text
 
 
+# BLE command handling (hci_ll_cmds.c).
+HCI_LL_CMDS_OWNED = {
+    'll_push_acl_data': 'e98e297db59480254962063bebc2cbdbdf030d167aaa3a6c7d51695144b894ce',
+    'hci_le_controller_cmd_handler': 'ff6a1f52dea4d30bd2330f95a5796e8c676bad5a9b2959130771576ef4c8f867',
+    'le_controller_handler': 'a57c2f0f7045767f13a62e9a32916463a4b6d04bfae838cb28e590c8ae648e7d',
+    'le_controller_init': 'c48868ed6621bee0a5d477d5cddbccf7378536dcfafc21e9b90006f72e7a9a77',
+    'le_controller_set_mac': '134105988b6930e8d208c718d1bcab7f26ef3a64ce4430e7f1057ee31de0d01a',
+    'le_controller_get_mac': '6e7b265dbbc92263f594b0bb92fb5e2efecf74cb4364212e44843a771f6a14c9',
+    'le_controller_set_random_mac': 'b4dde14e09651f7ec1c5e0bfb6b357a71178edad185b57d833a590fccdfcff7c',
+    'le_controller_get_random_mac': '8e629dc09de8de9897a7662353a26249d2756cc02240c7c4b0dfd4a7c6de9354',
+    'vendor_handler': '30992ab995b5a0e4874a15a41c47cc6302152cd0242debe93384d6b4e76c8b5d',
+}
+
+
+def hci_ll_cmds(text):
+    return leftovers(own_all(text, HCI_LL_CMDS_OWNED), 'hci_ll_cmds.c', set())
+
+
 def classic_baseband(text):
     text, _ = extract(text, 'hci_lmp_controller_baseband_cmd_handler',
                       'i32 @hci_lmp_controller_baseband_cmd_handler(i16 zeroext, i8*, i32)',

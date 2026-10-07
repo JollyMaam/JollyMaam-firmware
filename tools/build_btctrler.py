@@ -15,6 +15,7 @@ PIPELINE = {
     'sys_timer.c.o': (recover.sys_timer,),
     'btctrler_task.c.o': (recover.task_queue, recover.task_lifecycle, recover.task_dispatch),
     'device_manager.c.o': (recover.device_manager, recover.device_misc),
+    'hci_ll_cmds.c.o': (recover.hci_ll_cmds,),
     'hci_controller.c.o': (recover.hci_controller,),
     'h4_controller_interface.c.o': (recover.h4_controller,),
     'lmp.c.o': (recover.lmp_member,),
@@ -33,7 +34,7 @@ PIPELINE = {
 # then left out of the archive.
 DROPPED = ('thread.c.o', 'btcontroller_heap.c.o', 'sys_timer.c.o', 'authentication.c.o', 'bredr_utils.c.o', 'btctrler_task.c.o', 'device_manager.c.o', 'h4_controller_interface.c.o',
            'hci_controller.c.o', 'lbuf.c.o', 'link_bulk.c.o', 'lmp.c.o', 'lmp_hci.c.o', 'lmp_hci_cmd_parser.c.o',
-           'lmp_rxtx.c.o', 'lmp_utils.c.o', 'misc_hw.c.o', 'misc_hw_common.c.o')
+           'lmp_rxtx.c.o', 'lmp_utils.c.o', 'misc_hw.c.o', 'misc_hw_common.c.o', 'hci_ll_cmds.c.o')
 
 
 def main():
