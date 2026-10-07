@@ -627,6 +627,24 @@ def ll_ext_init(text):
                      {})
 
 
+# ll_extended_advertising.c: BLE 5 extended roles' shared link plumbing.
+LL_EXTENDED_ADVERTISING_OWNED = {
+    '__set_ll_ext_local_addr': '16516d4012920427528cdf5c2d7d48c9c5435eddb8f2ffc5286bf5f8011ecdcc',
+    '__new_ext_link': 'afd64386df711f81d7bd620c9b9337d7f02fc754e3c86b65e60f61f371e1c28d',
+    '__ll_ext_link_close': '0ab33f5cb2d2d33b9c541d35cea29df14bcf41b0bbea8019fb690d2eab4f83e8',
+    'll_ext_create_legacy_connection': 'b431ccf25522ba3c5f0da1e8e57ba61bb44ac5b53d830110fb233811587b106a',
+    'll_ext_destroy': 'b9af8c6da7534a2a73ac2abe98142026a84e80432b6cb825ea134dfcb628e568',
+    'll_ext_rx_post_process': 'a0f3675dbe3b0cad2e029f134a870c0c91415aae13ecba44a3665195bcec84cd',
+    'll_ext_handle_malloc': '24c24cd3b598277487852ce0b80ff34170f9a1ee1002c554a246183a2b690927',
+    'INIT_LIST_HEAD': 'e9d9f58427a30a55e2633701c13130cc33bae32dd3a8b36c9122f95b50c48977',
+}
+
+
+def ll_extended_advertising(text):
+    return leftovers(own_all(text, LL_EXTENDED_ADVERTISING_OWNED), 'll_extended_advertising.c',
+                     {})
+
+
 # authentication.c: the Classic legacy security functions (SAFER+).  The
 # static helpers are owned too; only cpu_reset, the assertion helper, is left.
 AUTHENTICATION_OWNED = {
