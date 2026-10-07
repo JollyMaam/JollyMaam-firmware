@@ -33,6 +33,10 @@ Read the commit's **Review notes**, "Unsure" first.  Then:
   pseudo-C, `.ll` as authority).  Check signedness, widths, wrap
   constants, argument order at the call sites, early returns, and the order of side
   effects.
+- **Hardware and IRQ attributes:** check every `inttoptr` load/store against
+  the same MMIO address and volatility in the owned object. Check function
+  attributes too, especially `interrupt` on IRQ callbacks. Compare call
+  counts and volatile access order; a call-set match alone misses rereads.
 - **Globals and tables:** compare bytes programmatically, not by eye.  Parse
   each `@name = ... c"..."` initializer from the IR and the C array, and
   compare them.  Check every global's `section "..."` and `const` against the C

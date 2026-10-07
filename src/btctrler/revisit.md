@@ -138,3 +138,13 @@ here has been "fixed" unless it says so.
     reconnects, fails, tries the wake, and goes idle about 30 s later.  A
     firmware decision, not a controller bug: consider going idle (or fewer
     retries) after a timeout from a Switch host.
+
+17. **Missing remote LE features can read from address zero.**
+    `ll_events.c`, `le_read_remote_used_features_complete_event`: with null
+    `rx`, the SDK passes a null pointer to the `1Hc08` event formatter.
+    When the event is enabled, `link_layer.c` calls `__vsprintf`, whose
+    `c08` case copies eight bytes from that pointer. Info logging also
+    passes `&rx->data[1]` to `printf_buf` without checking `rx`. Proven
+    from the SDK IR and formatter source during #50 review; preserved in
+    owned C. The hardware effect and reachability of this null-rx path
+    remain untested.

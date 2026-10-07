@@ -107,6 +107,18 @@ that changes behaviour is a defect here.
   callback (`upload_data`, radio ops), do not re-read pointers through
   objects the callback may have freed; reuse the value the SDK kept in a
   local, exactly as the IR does.
+- **Hardware addresses disguised as globals:** debug metadata may name an
+  MMIO address after a variable. Translate the actual `inttoptr` access,
+  including volatility, rather than assigning the similarly named sdk.h
+  global (`bb_hdl`/`g_ble_fp` in direct-test initialization).
+- **Interrupt attributes and volatile accesses:** inspect the SDK function
+  attributes, not just its body. IRQ callbacks need the target's
+  `interrupt("")` attribute (guard it out for UNITTEST). Preserve volatile
+  globals such as IRQ counters; do not add volatility to regular accesses.
+- **Cached values versus rereads:** follow the SDK's SSA values across
+  event emitters, logging, assertions and callbacks. A fresh load after a
+  call must remain fresh, while a retained value must remain retained.
+  Crosscheck's call sets cannot detect missing repeated calls or loads.
 - **Argument order and meaning:** confirm at the call sites, not from names.
 - **Signed vs unsigned** compares (`icmp slt` vs `ult`), integer widths,
   wrap masks, `nsw` arithmetic.  Translate exactly.
