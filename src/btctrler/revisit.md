@@ -115,9 +115,12 @@ here has been "fixed" unless it says so.
     Switch 2 in 5 ms Classic sniff, 2026-10-07).  So `bredr_low_power.c`'s
     suspend and resume (#42, register sequences identical to the SDK) never
     run, and the pad keeps the CPU and radio awake between sniff anchors.
-    Worth understanding for battery life: what the low-power manager is
-    waiting for (our control loop never idles? the idle link task is never
-    enabled?) and what sleeping between anchors would save.
+    `platform_jieli.c` registers `pad_lp_target` with `never_idle`, which
+    always returns 0: the application deliberately blocks system sleep.
+    Proven in source during the #49 `le_low_power` review. Its BLE suspend
+    and resume callbacks match the SDK IR, but physical sleep/wake timing
+    remains untested under this policy. Worth measuring what sleeping
+    between anchors would save if the policy is deliberately changed.
 
 15. **The Classic sniff wedge happens on the Switch 2 too.**  On the
     pre-ownership baseline (fa7f562, SDK controller), slot A twice entered
