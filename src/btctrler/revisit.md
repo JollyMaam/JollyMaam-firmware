@@ -65,14 +65,29 @@ here has been "fixed" unless it says so.
    flakiness may be related).
 
 
-8. **White list: use after free, count overflow.**  `ll_white_list.c`:
+8. **Legacy advertising clears privacy-resolution failures before filtering.**
+   `ll_adv.c`, `le_ll_adv_addr_process`: a failed `ll_resolve_peer_addr`
+   sets `RESOLVE_ADDR_FAIL`, then the filter stage clears `ll_error_code`.
+   With privacy enabled and no resolved entry, list filtering returns
+   without marking a failure. Proven from the SDK IR; kept in owned C.
+   Untested on air whether the radio independently rejects such requests.
+
+
+9. **Legacy advertising data setters trust the host length.**  `ll_adv.c`,
+   `ll_adv_set_adv_data` and `ll_adv_set_scan_rsp_data`: copy the length
+   byte directly into 31-byte arrays without checking it. Proven from the
+   SDK IR; kept in owned C. HCI input is the source, so this is a host-side
+   robustness issue; malformed-command behavior is untested.
+
+
+10. **White list: use after free, count overflow.**  `ll_white_list.c`:
    removal compares the address and type of a node after freeing it, and
    the "full" check is an exact `count == 25` on a u8, so nothing stops the
    count once it is past 25.  Proven from the IR.  Low impact (only the host adds
    entries).
 
 
-9. **Unchecked lengths in LE HCI commands.**  `hci_ll_cmds.c`
+11. **Unchecked lengths in LE HCI commands.**  `hci_ll_cmds.c`
    `vendor_handler` copies the caller's size into a 16-bit local (stack
    overrun above 2 bytes); `hci_ll_5_cmds.c` copies caller sizes unchecked
    and leaks the old scan parameters when replacing inactive ones.  Proven
@@ -83,19 +98,19 @@ here has been "fixed" unless it says so.
    robustness issue, not an attack surface.
 
 
-10. **AES-CCM waits forever with interrupts off.**  `aes_hw.c`
+12. **AES-CCM waits forever with interrupts off.**  `aes_hw.c`
     `ccm_memory_v2` disables interrupts for the whole operation and polls the
     AES block's status with no bound.  Proven from the IR.  A stalled AES
     block would hang the pad; never seen.
 
 
-11. **Stray ADC readings on the L2 trigger (outside the controller).**  One
+13. **Stray ADC readings on the L2 trigger (outside the controller).**  One
     reading of 735 against a rest of 482 left L2 half pressed (fixed in
     `input_calibration.c`, e597eb2).  Source unknown; jumps of 64 or more are
     now logged (`input: L2 reading ...`).  The RF code only uses the ADC in
     factory trim mode, so the controller is not the likely culprit.  Untested.
 
-12. **The chip never enters light sleep, even on battery.**  A temporary
+14. **The chip never enters light sleep, even on battery.**  A temporary
     counter in `sleep_exit` stayed at 0 on USB and on battery (2 min on the
     Switch 2 in 5 ms Classic sniff, 2026-10-07).  So `bredr_low_power.c`'s
     suspend and resume (#42, register sequences identical to the SDK) never
@@ -104,7 +119,7 @@ here has been "fixed" unless it says so.
     waiting for (our control loop never idles? the idle link task is never
     enabled?) and what sleeping between anchors would save.
 
-13. **The Classic sniff wedge happens on the Switch 2 too.**  On the
+15. **The Classic sniff wedge happens on the Switch 2 too.**  On the
     pre-ownership baseline (fa7f562, SDK controller), slot A twice entered
     the console's 5 ms sniff, delivered no input, and dropped with 0x08
     about 12 s later; a retry then worked.  Same signature as the PC wedge
@@ -113,7 +128,7 @@ here has been "fixed" unless it says so.
     scheduler and low power are owned (#2-#43), instrument the sniff path
     (anchor misses, scheduler decisions, entry #3's undefined timeout).
 
-14. **The Switch 2 goes silent on Classic when it sleeps.**  With slot A
+16. **The Switch 2 goes silent on Classic when it sleeps.**  With slot A
     connected, putting the console to sleep ends the link by supervision
     timeout (0x08), on the baseline and on owned code alike; on LE it sends a
     proper disconnect (0x13).  The pad then treats it as a lost link,
