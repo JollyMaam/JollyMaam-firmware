@@ -693,6 +693,30 @@ def ll_common_iso(text):
                      {'ll_iso_pack_hdr', 'cpu_reset', 'le_cmd_set_iso', 'll_bis_process', 'll_iso_process', 'll_iso_init', 'll_iso_destroy', 'll_iso_cis_sdu_recombination', 'll_iso_cis_sdu_segmentation', 'll_iso_cis_sdu_reassembly', 'll_isoal_test', 'll_isoal_cis_fragmentation_test', 'll_isoal_cis_recombination_test', 'll_isoal_cis_segmentation_test', 'll_isoal_cis_reassembly_test', 'list_add_tail', 'll_iso_pack_seg_hdr'})
 
 
+# ll_bis.c: LE broadcast isochronous (BIG/BIS) bookkeeping, data path and group session key.
+LL_BIS_OWNED = {
+    'll_bis_by_handle': 'dcbae612fd34e1e204573a918dbc6531154bff69b379fc6e766f52228a132070',
+    'll_bis_handle_alloc': '1e5beabbacb6b25da4fd070ff1f5a6b7cec9117445a5e808c26006558b4d822a',
+    'll_bis_alloc': '502c957b008770f5a000386b0e158b334fa665186c92f3528927bb6b9a256e84',
+    'll_bis_free': '1b3be34198ecc5b280342ba1ac12324a60a6a2dfab5c6635b94f4148ae7b8209',
+    'list_del': '684348cc3ee335f04c3ab7778ddaab0fcfadfa8c9c53496c26c8010c053b01f1',
+    'll_big_by_handle': '6d6137d0701378e7a6ed7d732505d600d552d1eed4f981289add7a5ceb870cc7',
+    'll_big_alloc': 'b832bd47014dfdea8ba590bb4f28e7ea63ca6ffb9580faa16ab1654f0ff1aad9',
+    'INIT_LIST_HEAD': '8f2efb5fe248cb951b50d49edb15fbcd095bdf2322ffb3cfa6f076bb4f94fcda',
+    'list_add_tail': '44a82dcb47fb64420126d37ae0e8ef3e79cb17c8afb37ad391e816bb2d49544b',
+    'll_big_free': 'a304fe14df3bb75dcf347226070d6f90ab5adbf7344cfffdff87ed1b7ff8ea11',
+    'll_bis_setup_iso_data_path': 'f6b48f76252fb643f0e3bca8227b10d921bbdbb754278c6cba7458bb7c07a39e',
+    'll_get_number_avail_bis': '805c70b9ef0c9b83d8ba5577a39c5f2fac158679fa58556adc30d9711f96f6f0',
+    'lctrBisCalcGroupSessionKey': 'e9b5a994f84ec57cb6b16994e8edaff5b86497b97b3dc5cb47a89a94ba154ab4',
+    'll_bis_setup': 'd3a3c6cd24b3ecf12a00bf8fd867c08b7f75fd6cc453e755b515130529210692',
+}
+
+
+def ll_bis(text):
+    return leftovers(own_all(text, LL_BIS_OWNED), 'll_bis.c',
+                     {'cpu_reset', 'lctrComputeBisAccessAddr', 'll_bis_tx_test', 'll_bis_rx_test', 'll_bis_read_test_counters', 'll_bis_init', 'll_bis_msg_handler', 'll_bis_close', 'list_empty'})
+
+
 # authentication.c: the Classic legacy security functions (SAFER+).  The
 # static helpers are owned too; only cpu_reset, the assertion helper, is left.
 AUTHENTICATION_OWNED = {
