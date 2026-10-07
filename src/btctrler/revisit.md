@@ -95,9 +95,11 @@ here has been "fixed" unless it says so.
     now logged (`input: L2 reading ...`).  The RF code only uses the ADC in
     factory trim mode, so the controller is not the likely culprit.  Untested.
 
-12. **Light sleep never happens on USB; the baseband sleep hooks are
-    untested.**  A temporary counter in `sleep_exit` stayed at 0, idle and in
-    7.5 ms sniff, with USB connected.  So `bredr_low_power.c`'s suspend and
-    resume (owned in #42, register sequences identical to the SDK) only run
-    on battery.  Check that the pad sleeps on battery at all (battery life),
-    and run a battery session on Classic sniff after any change there.
+12. **The chip never enters light sleep, even on battery.**  A temporary
+    counter in `sleep_exit` stayed at 0 on USB and on battery (2 min on the
+    Switch 2 in 5 ms Classic sniff, 2026-10-07).  So `bredr_low_power.c`'s
+    suspend and resume (#42, register sequences identical to the SDK) never
+    run, and the pad keeps the CPU and radio awake between sniff anchors.
+    Worth understanding for battery life: what the low-power manager is
+    waiting for (our control loop never idles? the idle link task is never
+    enabled?) and what sleeping between anchors would save.
