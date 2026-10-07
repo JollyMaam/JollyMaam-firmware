@@ -1869,3 +1869,14 @@ TWS_TX_SYNC_OWNED = {
 
 def tws_tx_sync(text):
     return leftovers(own_all(text, TWS_TX_SYNC_OWNED), 'tws_tx_sync.c', set())
+
+# Audited unused hci_device_manager.c.o code; the member is dropped after
+# fingerprint checks and an empty-leftovers assertion.
+HCI_DEVICE_MANAGER_UNUSED = {
+    'dev_hci_set_event_mask': '96cb57fdc2d374ecd6f85d5151f46356089d73fe3c70f9cd620a797cc8761bdc',
+}
+
+
+def hci_device_manager_unused(text):
+    return leftovers(own_all(text, HCI_DEVICE_MANAGER_UNUSED),
+                     'hci_device_manager.c', set())
