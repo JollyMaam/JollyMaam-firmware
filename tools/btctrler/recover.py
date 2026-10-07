@@ -679,6 +679,20 @@ def ll_data_extension(text):
                      {})
 
 
+# ll_common_iso.c: LE isochronous common layer (HCI ISO data entry, header unpack, CIS fragmentation, BIS codec send).
+LL_COMMON_ISO_OWNED = {
+    'lctrIsoSendCodecSdu': 'b04789321618bf2edd25b625534e0e94b6ca428a7e6853b46e9a99e4a171e85b',
+    'hci_push_iso_sdu': 'b214a9f22b28c397803a230ffd1f1780eb53894a311dfaa4e7b4811d5d6be581',
+    'll_iso_unpack_hdr': '1356cdf51846773aac0df58daf758f2b084cf3de6ece6ef826b279fb47491e42',
+    'll_iso_cis_sdu_fragmentation': '3ed488e47f47e08d0c8f0b43c5b4182daa738adcaf45fabbad2c83838d095b2c',
+}
+
+
+def ll_common_iso(text):
+    return leftovers(own_all(text, LL_COMMON_ISO_OWNED), 'll_common_iso.c',
+                     {'ll_iso_pack_hdr', 'cpu_reset', 'le_cmd_set_iso', 'll_bis_process', 'll_iso_process', 'll_iso_init', 'll_iso_destroy', 'll_iso_cis_sdu_recombination', 'll_iso_cis_sdu_segmentation', 'll_iso_cis_sdu_reassembly', 'll_isoal_test', 'll_isoal_cis_fragmentation_test', 'll_isoal_cis_recombination_test', 'll_isoal_cis_segmentation_test', 'll_isoal_cis_reassembly_test', 'list_add_tail', 'll_iso_pack_seg_hdr'})
+
+
 # authentication.c: the Classic legacy security functions (SAFER+).  The
 # static helpers are owned too; only cpu_reset, the assertion helper, is left.
 AUTHENTICATION_OWNED = {
