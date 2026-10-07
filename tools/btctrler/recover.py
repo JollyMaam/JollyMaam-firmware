@@ -1182,3 +1182,15 @@ VSPRINTF_OWNED = {
 
 def vsprintf(text):
     return leftovers(own_all(text, VSPRINTF_OWNED), 'vsprintf.c', set())
+
+
+# vendor_manager.c: the vendor HCI command group (OGF 0x3f).
+VENDOR_MANAGER_OWNED = {
+    'user_bredr_fcc': '420469d3ca529c5a031b9de8bf9cac8e6ba18da34578b080a4ec31df71e7d928',
+    'hci_vendor_cmd_handler': '2ca8c2115e204b3a4e186acc00147930313000e0db243381e0f2719173cdaec3',
+    'vendor_handler': '58f327179296929657226c9e3fbe28199321f0aa5bb6b8cb46da656648a512c9',
+}
+
+
+def vendor_manager(text):
+    return leftovers(own_all(text, VENDOR_MANAGER_OWNED), 'vendor_manager.c', {'vendor_manager_init'})
