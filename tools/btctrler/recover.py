@@ -782,6 +782,19 @@ def control_tx(text):
     return leftovers(own_all(text, CONTROL_TX_OWNED), 'lmp_rxtx.c', {'cpu_reset'})
 
 
+# hci_ll_5_cmds.c: Bluetooth 5 extended advertising, scan and PHY commands.
+HCI_LL_5_CMDS_OWNED = {
+    'le_controller_handler_for_ble5': 'ea079993d43b47d8c068cb608f76a6fc2a9cbf224cc4136140f709efff2fff9b',
+    'list_add_tail': '5adc6457019bf108d035d9232ee14c1e490c73b8aae0d345e886f4483de55525',
+    'alloc_periodic_sync': 'be98cee67c85b258e61acb58fcb42ae76233bb452dbb52cf87aabea8c08efbe3',
+    'get_if_phy_support': '87fb1a7c3b123c458948a9566af7582fe12ab36f4811b46139c4c98e9d627194',
+}
+
+
+def hci_ll_5_cmds(text):
+    return leftovers(own_all(text, HCI_LL_5_CMDS_OWNED), 'hci_ll_5_cmds.c', set())
+
+
 # link_bulk.c: the Classic packet buffers (link_bulk.c).  The heap-pool
 # option and its unused helpers go with the member.
 LINK_BULK_OWNED = {
