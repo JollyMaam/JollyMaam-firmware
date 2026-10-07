@@ -569,6 +569,23 @@ def bredr_utils(text):
     return leftovers(own_all(text, BREDR_UTILS_OWNED), 'bredr_utils.c', set())
 
 
+# ll_white_list.c: BLE address white-list storage and traversal.
+LL_WHITE_LIST_OWNED = {
+    'll_white_list_match': '28b04ca428804366dc911987c3fc9d887124754589a8f128ad6938bffbc1e472',
+    'll_white_list_init': '034e6a72a88f8735ef36a9777589b68193be58ad21ef32864738d55a4e741e15',
+    'll_white_list_add': '2a31cca707c32f7430bdc725dbf4326dac36cff4d2e281a2db19f3850e82b2aa',
+    'll_white_list_remove': '5951f15c43cdd8462eb2be5d3fe843e888221c23f7ca83d1d0eb15d705566151',
+    'INIT_LIST_HEAD': '8f6571b9ca7a19a8015a579f91cd412ce8b4274d88272402666e5f6c1275656a',
+    'list_add': 'd40ee0538c80a33e346cefe5dabcafb49394d5005e21216ba362e3154618bc74',
+    'list_del': '9c990afcdc09fe6d3bdaa1f587360ae9026eaa8f8777258b2b6b2d92c6a05639',
+}
+
+
+def ll_white_list(text):
+    return leftovers(own_all(text, LL_WHITE_LIST_OWNED), 'll_white_list.c',
+                     {'cpu_reset'})
+
+
 # authentication.c: the Classic legacy security functions (SAFER+).  The
 # static helpers are owned too; only cpu_reset, the assertion helper, is left.
 AUTHENTICATION_OWNED = {
