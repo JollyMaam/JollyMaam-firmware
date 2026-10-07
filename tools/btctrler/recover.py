@@ -1194,3 +1194,13 @@ VENDOR_MANAGER_OWNED = {
 
 def vendor_manager(text):
     return leftovers(own_all(text, VENDOR_MANAGER_OWNED), 'vendor_manager.c', {'vendor_manager_init'})
+
+
+# aes128.c: the AES-128 entry point; the SDK self tests and cpu_reset have no caller.
+AES128_OWNED = {
+    'aes128_start': '362bcce8d10899eec5a7a34fd90f7b1721ed1a00e5e4ab02a7cdbd8c20e3152c',
+}
+
+
+def aes128(text):
+    return leftovers(own_all(text, AES128_OWNED), 'aes128.c', {'aes128_test', 'aes_ccm_test', 'cpu_reset'})
