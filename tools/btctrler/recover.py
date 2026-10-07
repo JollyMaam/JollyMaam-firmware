@@ -523,6 +523,26 @@ def bredr_utils(text):
     return leftovers(own_all(text, BREDR_UTILS_OWNED), 'bredr_utils.c', set())
 
 
+# authentication.c: the Classic legacy security functions (SAFER+).  The
+# static helpers are owned too; only cpu_reset, the assertion helper, is left.
+AUTHENTICATION_OWNED = {
+    'function_E1': 'a72b789192c9fac78da59d296d23bcd2213e4fb34090d06f88195e1c00de52d4',
+    'function_E13': 'd3df5aa80ebe4a3d458445fea7a85d12695853325a48b5efa02ccecc3142eca7',
+    'function_E21': 'e214c66dc302415fa70de1afe98b8983a8080be7c8dee248afd23a9be4785cfe',
+    'function_E22': 'af6972b7df8a2e805c257c5592096f3f6bdb023609787eb3f1e3f148980c8c83',
+    'function_E3': '02afb26fd07205263c9f481c49e91a051b040588afe1a5b1948baad9b26fca55',
+    'function_Ar01': 'e17bdc61a123d1efb6a99c43e5b12cfa8053760683483ff059bad94314307b49',
+    'roundkeygenerate': 'cc82a5e7ff979a56d7bd0cf346c6e98ef1e399ddc759289978c8252c55aeebfe',
+    'Entrypt_Key_Length_Change': 'b3bb752e63672c7b6c657d88b0517363c7e652019d2b99e37a36ea15ea483a1d',
+    'pht': 'b35ea99347f8976bd5edfbdef7dc0cbc27b2c9f640270bbe7af40a05f2ec76fd',
+    'premute': 'e0f4b36fb348a66093eab0cc937df3e6204928d93b53c72ce31b2da8188fcba3',
+}
+
+
+def authentication(text):
+    return leftovers(own_all(text, AUTHENTICATION_OWNED), 'authentication.c', {'cpu_reset'})
+
+
 # Public Classic HCI procedures (lmp_hci_procedures.c).
 HCI_PROCEDURES_OWNED = {
     # lmp_hci_control.c
