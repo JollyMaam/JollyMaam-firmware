@@ -586,6 +586,25 @@ def ll_white_list(text):
                      {'cpu_reset'})
 
 
+# bredr_low_power.c: the Classic baseband's low-power manager hooks.
+BREDR_LOW_POWER_OWNED = {
+    'bredr_power_get': 'c02a711aa67906c6c605a84f97c08e7436eecb61f6023c497464a3dacaf69f35',
+    'bredr_power_put': '5efc7a05baaa2fb57215b92ad23cff56edbb13edbcb414a03245057ed9df951d',
+    'bredr_power_off': '243f5669d92f7a390f314f37bc0c2d71d6f1c3d7152584769503bbd7451c7f1c',
+    'bredr_power_on': '1771889e6286446ed23f45d8b3efcde420502a002d0716aebbec080cc0bc4bb4',
+    'bredr_power_suspend': '6b99510ff63714e9585dfe4b4b1c7d85b4f2f9a0295df0d8ff77dfc7df90b78c',
+    'bredr_power_resume': '6e2015fe0cb020f472b90ef565c133b3e8c450857fb214306613197ffe5f4bd5',
+    '__power_get_timeout': '67b5ad611a07cb32d946b74b08dc826f71bbfd3e87abf214fef5738c47bb1e42',
+    '__power_suspend_probe': '47634808679ca04098465e18ef048129c49189903e0e7eb6981e183e1dda19a3',
+    '__power_suspend_post': '7979637b55f7f287351a70d5e41f2736541a03b9858325ad808a7ce147471874',
+    '__power_resume': 'fcb6f55ae80e368860f1c48eed5736878b1b3c2177050f081ac530946e8f6823',
+    '__power_resume_post': '55164da79340ba12fed03071cee4e47b9eea5a0e6f61b235f22a68b3a01648f8',
+}
+
+
+def bredr_low_power(text):
+    return leftovers(own_all(text, BREDR_LOW_POWER_OWNED), 'bredr_low_power.c', {'cpu_reset'})
+
 # bredr_slot_timer.c: the Classic baseband's eight slot-clock timers.
 BREDR_SLOT_TIMER_OWNED = {
     'slot_timer_irq_get_time_out': 'c38110c0ea8e8c8b534add8d5a89a44b899328b8634b3059af54331db16c1cb8',
