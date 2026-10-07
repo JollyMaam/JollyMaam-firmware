@@ -94,3 +94,10 @@ here has been "fixed" unless it says so.
     `input_calibration.c`, e597eb2).  Source unknown; jumps of 64 or more are
     now logged (`input: L2 reading ...`).  The RF code only uses the ADC in
     factory trim mode, so the controller is not the likely culprit.  Untested.
+
+12. **Light sleep never happens on USB; the baseband sleep hooks are
+    untested.**  A temporary counter in `sleep_exit` stayed at 0, idle and in
+    7.5 ms sniff, with USB connected.  So `bredr_low_power.c`'s suspend and
+    resume (owned in #42, register sequences identical to the SDK) only run
+    on battery.  Check that the pad sleeps on battery at all (battery life),
+    and run a battery session on Classic sniff after any change there.
