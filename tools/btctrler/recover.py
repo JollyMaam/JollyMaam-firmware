@@ -1171,3 +1171,14 @@ def thread(text):
     return leftovers(own_all(text, THREAD_OWNED), 'thread.c', {
         'thread_msg_alloc', 'thread_msg_free', 'thread_msg_send',
         'thread_msg_recv', 'thread_msg_peek'})
+
+
+# vsprintf.c: the binary packet serializer and its length counter.
+VSPRINTF_OWNED = {
+    '__vsprintf_len': '486015ba0a5a4a7cb337fe80fa42c723e0549798bd77edf19de5e62de5c2ec5b',
+    '__vsprintf': 'df3d5a14fda1f17f703d91aaa0b6b4a56495a0168e008cefb94135d8c7535d72',
+}
+
+
+def vsprintf(text):
+    return leftovers(own_all(text, VSPRINTF_OWNED), 'vsprintf.c', set())
