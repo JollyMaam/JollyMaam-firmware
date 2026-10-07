@@ -579,6 +579,17 @@ def lmp_utils(text):
         'lmp_bt_flip_addr', 'lmp_bt_flip_access_addr', 'lmp_char_for_nibble', 'lmp_bd_addr_to_str'})
 
 
+# The SDK supplies weak, zero-return placeholders for LE key generation.
+LL_KEYS_OWNED = {
+    'll_read_local_p256_public_key': '05c729331de0527c2db0d511b531b508ddae2d2a43e01480821d5fafdb11afaa',
+    'll_generate_dh_key': 'e586d76000b7bbe9a14a04d614e62bab2da9d8d47439b797ed2ef2aa67acfb8e',
+}
+
+
+def ll_keys(text):
+    return leftovers(own_all(text, LL_KEYS_OWNED), 'll_keys.c', set())
+
+
 # misc_hw.c: CRC wrappers and the BR23 random register reader.
 MISC_HW_OWNED = {
     'crc_get_32bit': '18106245b18f3ec48fb97b567f5ad32892bfda7b00f622952ff2a64b05892b77',
