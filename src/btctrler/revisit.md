@@ -103,3 +103,20 @@ here has been "fixed" unless it says so.
     Worth understanding for battery life: what the low-power manager is
     waiting for (our control loop never idles? the idle link task is never
     enabled?) and what sleeping between anchors would save.
+
+13. **The Classic sniff wedge happens on the Switch 2 too.**  On the
+    pre-ownership baseline (fa7f562, SDK controller), slot A twice entered
+    the console's 5 ms sniff, delivered no input, and dropped with 0x08
+    about 12 s later; a retry then worked.  Same signature as the PC wedge
+    in the benchmark notes (open problem 2), so it is in the SDK link layer
+    or the console, not in owned code.  Now that LMP, the slot timers, the
+    scheduler and low power are owned (#2-#43), instrument the sniff path
+    (anchor misses, scheduler decisions, entry #3's undefined timeout).
+
+14. **The Switch 2 goes silent on Classic when it sleeps.**  With slot A
+    connected, putting the console to sleep ends the link by supervision
+    timeout (0x08), on the baseline and on owned code alike; on LE it sends a
+    proper disconnect (0x13).  The pad then treats it as a lost link,
+    reconnects, fails, tries the wake, and goes idle about 30 s later.  A
+    firmware decision, not a controller bug: consider going idle (or fewer
+    retries) after a timeout from a Switch host.
