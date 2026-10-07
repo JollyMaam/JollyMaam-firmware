@@ -1847,3 +1847,16 @@ BTAGC_OWNED = {
 
 def btagc(text):
     return leftovers(own_all(text, BTAGC_OWNED), 'btagc.c', set())
+
+# Bluetooth LE analog power and RSSI controls.
+ANALOG_BLE_OWNED = {
+    'ble_agc_normal_set': '951e58292866d78062af6d6be86e2bcb27417e17a5cde62c2bd096d7a75534d5',
+    'ble5_agc_normal_set': 'f313c06835faf46e7b2d4b19cf145f4cd7eb25643bc2fda1954b51f86e8ec410',
+    'ble_analog_get_rssi': 'cc1068963021429015c4e0a29d9640513383e45e381c0681f8b29a5cf3126ba8',
+    'ble_txpwr_normal_set': '2be352a21e660f590695d9de32b82faaabc45322544cd06c03312ff5f31ccede',
+    'ble5_txpwr_normal_set': '4d0695a2e1d51f0e6ab815bb6c9c83a531dfbc9d58533c67912e52e2ed0d5154',
+}
+
+
+def analog_ble(text):
+    return leftovers(own_all(text, ANALOG_BLE_OWNED), 'analog_ble.c', {'ble_agc_reset'})
