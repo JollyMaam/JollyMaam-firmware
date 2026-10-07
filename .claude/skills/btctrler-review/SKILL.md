@@ -38,6 +38,10 @@ Read the commit's **Review notes**, "Unsure" first.  Then:
   compare them.  Check every global's `section "..."` and `const` against the C
   (a worker once claimed "plain const as in the SDK" when the SDK had a
   section).
+- **Wide copies:** for each owned function, compare the under-aligned
+  i16/i32/i64 loads and stores in the SDK body against the owned object
+  (a script over `build/controller-ir/sdk` and `build/src/btctrler/*.o`);
+  every one must be a memcpy, a helper read or a typed field in the C.
 - **Struct accesses:** any GEP on an SDK struct maps to the right member by
   byte offset (bitfield merging); `_Static_assert(offsetof)` present where
   it matters.

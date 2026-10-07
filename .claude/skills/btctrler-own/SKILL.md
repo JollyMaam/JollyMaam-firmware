@@ -98,6 +98,15 @@ that changes behaviour is a defect here.
   IR is not the member's position in the debug-info struct.  Map by the IR
   type layout and byte offsets; add `_Static_assert(offsetof(...) == N)` for
   any field you rely on.  (A PDU once got written 4 bytes early because of this.)
+- **Wide copies through byte pointers:** the SDK often copies 2/4/8 bytes
+  with one under-aligned load/store (`load i64 ... align 1`).  irc.py prints
+  these as `*(u64 *)(&rx->data[11])`; translate them as `memcpy` of that size,
+  never as a one-byte assignment.  (Three such one-byte copies broke LE
+  encryption, the peer feature set and PHY updates.)
+- **Callbacks that free what you hold:** after a call that can run a
+  callback (`upload_data`, radio ops), do not re-read pointers through
+  objects the callback may have freed; reuse the value the SDK kept in a
+  local, exactly as the IR does.
 - **Argument order and meaning:** confirm at the call sites, not from names.
 - **Signed vs unsigned** compares (`icmp slt` vs `ult`), integer widths,
   wrap masks, `nsw` arithmetic.  Translate exactly.
