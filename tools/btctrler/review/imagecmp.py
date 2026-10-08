@@ -35,6 +35,8 @@ def build(commit):
 
 
 def main():
+    if len(sys.argv) != 3 or sys.argv[1].startswith('-'):
+        sys.exit(__doc__)
     base, new = (git('rev-parse', c) for c in sys.argv[1:3])
     if not WORKTREE.exists():
         subprocess.run(['git', 'worktree', 'add', '-q', '--detach', str(WORKTREE), base],
