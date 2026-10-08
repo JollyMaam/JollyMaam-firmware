@@ -2196,6 +2196,20 @@ def ll_scan(text):
     return leftovers(own_all(text, LL_SCAN_OWNED), 'll_scan.c', {'cpu_reset'})
 
 
+# TWS legacy scanner: open/close the TWS scan radio link and relay RX PDUs.
+TWS_LL_SCAN_OWNED = {
+    'tws_ll_scan_open': '54fa06e5e160c5601f35eeb2bfdef9eb63872b631517ba96ee28c6eda38dbe99',
+    'tws_ll_scan_close': '2c59242cc149be6e30acd7ceaf275e20541fa2916bddc7ac566a17e22586f8ca',
+    'tws_ll_scan_link_get': '1407a0daa87e1928d8af9f8f949627fa5de964b591f784f25a39d515bf14650d',
+    'cpu_reset': '2699e52cd73585befdf7629222d514c27c9c810c0224299c93124e301c381078',
+    'scan_rx_probe_handler': 'e63d596320ba0d91c6320cbaed9c22e58bf0ac3e8fa7460067f5096ab37d6c07',
+}
+
+
+def tws_ll_scan(text):
+    return leftovers(own_all(text, TWS_LL_SCAN_OWNED), 'tws_ll_scan.c', set())
+
+
 # ll_periodic_advertising.c: LE periodic advertising and periodic sync.
 LL_PERIODIC_ADVERTISING_OWNED = {
     'll_periodic_sync_timer_handler': '94238cfd94e04756e3641a15138b0a21012930388d8a55b21f4992f275c6e088',
