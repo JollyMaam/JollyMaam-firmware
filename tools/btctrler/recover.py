@@ -624,6 +624,34 @@ def bredr_utils(text):
     return leftovers(own_all(text, BREDR_UTILS_OWNED), 'bredr_utils.c', set())
 
 
+# RF.c: public RF controls, bring-up/tear-down and timing helpers.
+RF_OWNED = {
+    'rf_bredr_para_prf': 'b78af9f97624263f367726105b6abbe669e6ba15871b005cc0714cc8f854a546',
+    'bt_production_test': '9f9ddd8b258d49a3442ce9ff9c629785cbe604c9903367dd1a0b59eb80b71751',
+    'bt_max_pwr_set': '72ceae5c6788b5e3271ae2c696bab6a106d9364a670054a0c88c76b9a09d737b',
+    'bt_set_fcc_dut_large_power': 'f510f6a971658e0f7276f728acccce7da917c5e5421009cbc0c1d141310c9523',
+    'bredr_set_fix_pwr': '33cb50d9546aafe957d5e035b46d0df7fbcd51ea13e9810f71b4bcddc6c10ba7',
+    'ble_set_fix_pwr': 'a4395b311a7905322e310230af3edc47972c1b37641258822ba06a4ba5a30657',
+    'bt_set_rxtx_status_enable': 'a3a05e0a7035fb7b1ec44cfde5e5978ff1e58445d289fbc333de1f21d94c9414',
+    'bt_set_ldos': 'b7674241329bafa08008c7786571811d03ab886f13ff643771af62e7b47e8f10',
+    'bt_set_fdv': '5569c5c2f15e57ecd5da42db52a0ca8b1d6c1e36edf48b8f49b8670114f5045f',
+    'bt_pll_para': 'dd094b955ed9173f3e48009106aa62c6d70c76c00e6f441250de9b7fe8a6fdef',
+    'bt_pll_reset': '8173489325701f7bbb5902355270b97527c43b5a2230b3e7ac826fb6298a0e33',
+    'RF_poweroff_recover': '7a088a8ce9cce47921c4f40c130e04447278b7e3f0523fb7e02ff59950011973',
+    'bt_rf_init': '39a8a53a11cf2d2bebf9b5fe9cbc0a7e43c98fd9e8e78bd2534668e639147d8c',
+    'bt_rf_close': 'df4609a8b66b9ff555c38a9d87ea08a8616124a4bf41edfc2397a08dd0e02c2f',
+    'bt_clk_close': '14030d6de0ecedcfb3358654c860bdbac19cd6d1c7d91fcde9c2755b6a5e0b1b',
+    'bt_process_before_init': 'c1cf9b31fcfd4ce8bce2b1db56f7d18dc7d849c86cd558bb42b481b26bb9eb18',
+    'bt_get_fine_cnt': '4881110fed2ad422c996a36464283e88479c9f6d97e58de8200b47c88edb6134',
+    'bt_rf_protect': '9c66fb4ac0e4235c1606b754d839a6e5f30ab45331be411514460f108a234e43',
+    'bt_bredr_is_sniff': '78152d1bab05c783c318d3cc74109994620be70dc2d2db72b427d0ff11d333ef',
+}
+
+
+def RF(text):
+    return leftovers(own_all(text, RF_OWNED), 'RF.c', set())
+
+
 # ll_vendor.c: BLE vendor helpers (per-handle queries, coded-PHY selection).
 LL_VENDOR_OWNED = {
     'ble_vendor_get_peer_rssi': '8c54f6803c5de0475aa542369b1607ca83cc7790d28de3284dc758f2f7c57ae2',
