@@ -2346,6 +2346,38 @@ TWS_SNIFF_OWNED = {
 def tws_sniff(text):
     return leftovers(own_all(text, TWS_SNIFF_OWNED), 'tws_sniff.c', {'cpu_reset'})
 
+
+# tws_link.c: the Classic TWS link state and the eSCO relay open/close that
+# other code still names, plus the link sync channel; the relay's data path
+# and the ACL hand-shake have no caller and go with the member.
+TWS_LINK_OWNED = {
+    'tws_link_read_slot_clk': '336acc04d19ed21854f80979e906483a24d759153f5d08e1110a30feb30cfef6',
+    'tws_link_master_2_slave': '29e3b155b1d89ee69168d0d5887e3d1ce38d9489b5124a5e842c1a84d044ed21',
+    'tws_monitor_enable': '2f146c33c70b4bcc16a144f3be54196f6c3bda2882508a95c1f1955f96c029d9',
+    'tws_link_slave_2_master': 'e2c3b7eca07aed458521894ea8c9444967d5c66d7e9d8d8e7414763cb2209ec8',
+    'tws_link_monitor_frame_init': 'c0e9df40c388ef3a465ac2496f8681c1e7bfa36261c16144d10d87ca1d64fa90',
+    'tws_link_monitor_frame_setup': '31d25d870d25aeadeb9cf9dd79cc804e140d50c8a0c98b855446bf44bafe1b80',
+    'tws_link_tx_sync_req': 'ee7d3bf12ee3ff1f4e239cb79ec7cc3e0765a36009177a35679724d60514a623',
+    'tws_link_rx_sync_req': '1074d138df0f27a01877672ade7a3ad549887416c2034e74d61adc8ec84afb63',
+    'tws_link_get_rxtx_state': '8ac9de1b708df04e8550b6c35506d642b538c12cd1d4f5b04a0095adca0c3d65',
+    'tws_link_set_rxtx_state': '24f4ad528a6345722d4a3c0e250501744af48d3b37aef18306ebeb7681f9d900',
+    'tws_link_rxtx_state_reset': '4bbca0530c774de6531820f723e222841a36420130c4a71d70b067689db724e8',
+    '__list_del_entry': '68e2dead3dafb58741e485910191b5482b2b1f173546ffcf2589a232c9108aa8',
+    'list_add': '412483f9e5b378564bc926b5c72eaacd7456b3e91b2f4db636a361dab5b7b3c4',
+    'INIT_LIST_HEAD': 'd1312cdd04c5afe835d92268b02c7dcf3bd9ed33dadff17dd4ed1178df680b65',
+    'bredr_esco_tws_link_open': '0fc2e83aec5a9a202ff3d068adaf255a55830f52cee9688e690a17fd081ee7e0',
+    'bredr_esco_tws_link_close': '6d7588f43846bb7019700c119fba015d2c2a32d6ba1cf50186c2cc62e623fe0a',
+}
+TWS_LINK_LEFTOVERS = {
+    'tws_link_disconnection', 'tws_esco_acl_communication', 'cpu_reset', 'bredr_get_tws_esco_packet',
+    'bredr_esco_packet_aligned', 'tws_esco_tx_requset', 'tws_esco_rx_requset', 'get_esco_packet_dump',
+    'bredr_tws_esco_send_data', 'tws_esco_transmit_deal', 'tws_esco_suspend_resume', 'list_empty',
+}
+
+
+def tws_link(text):
+    return leftovers(own_all(text, TWS_LINK_OWNED), 'tws_link.c', TWS_LINK_LEFTOVERS)
+
 # Audited unused hci_device_manager.c.o code; the member is dropped after
 # fingerprint checks and an empty-leftovers assertion.
 HCI_DEVICE_MANAGER_UNUSED = {
