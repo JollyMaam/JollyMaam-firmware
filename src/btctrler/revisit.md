@@ -248,3 +248,24 @@ here has been "fixed" unless it says so.
     not set that flag. Proven from raw SDK shifts/masks during #83 review;
     preserved. Other score flags still apply. The generator and its effects
     on actual peer links are untested on hardware and removed by LTO here.
+
+31. **BLE interspace search can read beyond its eight-entry array.**
+    `multilink_schedule.c`, `find_interspace_between_connected`: after sorting
+    the active distances, the gap search reads `distance[i + 1]` until it
+    finds a sentinel or a gap greater than 1874 us, without a count bound.
+    Eight occupied entries with no qualifying gap reach `distance[8]`.
+    Proven from SDK IR during #85 review; preserved. The master multilink
+    configuration is disabled and LTO removes this path in this firmware;
+    its hardware effect remains untested.
+
+32. **BLE polling trusts connection bookkeeping for timing and array sizes.**
+    `multilink_schedule.c`, `mult_slave_or_master_polling_mode`: the selected
+    link's clock and interval start as LLVM `undef` and are assigned only
+    when an active state-6/7 link matches `opt_next_id`. Subsequent timing
+    comparisons and divisions can use them without finding that link.
+    Both this function and `mult_slave_or_master_event_enter` size their
+    clock arrays from the saved connection count, then decrement a byte
+    index for each active state-6/7 hardware link without checking the
+    counts agree. Proven from SDK IR during #85 review; preserved. These
+    scheduling paths are removed by LTO here; inconsistent bookkeeping and
+    its hardware effects remain untested.

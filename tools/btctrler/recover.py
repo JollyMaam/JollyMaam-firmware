@@ -1196,6 +1196,50 @@ def ll_slave(text):
         'ble_vendor_priv_cmd_handle_register',
     })
 
+
+MULTILINK_SCHEDULE_OWNED = {
+    'multilink_debug_trace_info': '59848a31f96710ea50cef598167d865d168f8a092be691b965cefe8a766efb30',
+    'master_setup_connection_updatea_first_data_location': '6367adc0621ba0218ce0d857d1cb4f4e74c0a0370106de8f03ff4d7c07111e3a',
+    'master_setup_first_data_location': 'ad11cfa561fc53ef926c79158f94f3c61f5c7f16a2b1fa8467fffedc3611ce46',
+    '__get_assigned_hw_physical_distance_us': '2b0a33c9d0a7d4a45d865cfc1eb5e66e3182c800c689f0c5a66e1b43875865d4',
+    '__master_set_distance': '2d8761575a75970be48b7368d2a572cd038643e4961cddb2a95063fc0502146b',
+    'ajust_interspace_between_connected': '897adb9c8096e7fd346dd7b385534801424378899012461fe90bb3afe16344d8',
+    'find_interspace_between_connected': '2ff4865e7147064e8eba285e561eb772e29b812cdad9fc8e3415205117009c4f',
+    'rewrite_ConnReq_WinOffset_WinSize': '5407e52b17ee6533b74560760d56ec92c4c137e2bc081fbcc1467bb43296f915',
+    'suspend_init': '4c4d21d6e711ea8a94c9fb37701c028055e842ff298d911c958cf4360a24dcfa',
+    'refind_interspace_between_connected': '5174839867ebdf876a923d386dfff551a3352aab87c060bf11a44ed0a63e119b',
+    'ble_master_multilink_schedule': '807b36709594ce9c60ab719e0d819690e488107e21ee66a8e0031e6a75b734b3',
+    'mult_slave_or_master_idle_query': 'bf31d68768a4475c96258ce208c49f83524e6753a2b1806f7c65bab99aa55696',
+    'mult_slave_or_master_check_up_point': '3b27793b857ecc4b2a4f24ee33abcfb8782c564ec0df8b947a075b34b2c6f811',
+    'mult_slave_or_master_get_con_num': '476a5201ff73329a3f9a8768096f7d90115ff41265816126b291ddf46615f056',
+    'mult_slave_or_master_get_adv_num': 'a52a03f269bf22e7043b83431d1c81adfc1ab99ea18079f41cd61797e3ba722f',
+    'mult_slave_or_master_fist_con_event_set': '510ff8618162cbf21760d5f8ed1dad1f9f02257a68da368f9797a7ab17508564',
+    'mult_slave_or_master_set_adv_interval': '525dd68439752bdd636349c405bfa2b5e13beed05aa439cc0d417a436e5d5053',
+    'mult_slave_or_master_set_scan_param': '55f32fea00d35b19e553b078520bdd046523ad216ab056a76df6e8b2aea3263a',
+    'mult_slave_or_master_set_init_param': '8ddcfd969f42c54829dbdcfba27908672c7f00b41c873bf610bb21afe6bb4d71',
+    'mult_slave_or_master_save_conn_id': '3b9e14589e2a5c6466954f2a294265d9e3e24a84c3921e92031c33c5d3f5621f',
+    'mult_slave_or_master_del_conn_id': '82d4c22b2989e7979e391b49a685d0dc40dfa4b68815da9ae8140c0db9ce2407',
+    'mult_slave_or_master_open_hw_state': '8fd03732b758efa59b0c596f8f139909860de3b333d29d8f4814d58c69f2ca34',
+    'mult_slave_or_master_exit_latency_all_hw': 'c6c0006323fab16e7fd53309213c26ca132554df9fedf21b833158e84ba545c3',
+    'mult_slave_or_master_get_rx_irq_hw': '95e7efa1a0d3e36cf687f2d188081b043b36ac1818213f87f46a745cbd7ed9e4',
+    'mult_slave_or_master_event_enter': '98f0cf970e87d6683c5370743faf462eb9acd918c801e8cbf5bca2afd4f850a5',
+    'mult_slave_or_master_polling_mode': 'b96968bc3c3d9712be4d4a47a2b4ccdff6e9eeef68a80167e0e1cfdadf640984',
+    'mult_slave_or_master_sort': '5d5f738f593ec02d2a411d0b6d020067859e4f01a35ac60dc7aeff8181535d8d',
+    '__hw_distance_slots': '2406e97a26a69c40ed550f91b9b4a62881d0236edb0501f7ef50c1ef0f153d2e',
+    'mult_slave_or_master_hw_exit_latency': '5d581a19b3b8d0500601d633db47965a8e1450be5f69547f2268b525ad7dc22d',
+    'mult_slave_or_master_conn_update_timer': '2028d043c8cb356f2d3a668cf91436c890a78d5e05835709bcc7e6ea6a62c544',
+    'mult_slave_or_master_exit_latency_this_hw': '26107a70d21ae976d87e854c73a5f6d003329945bd810dcb13d5b3107660979c',
+    'mult_slave_or_master_mult_adv_event_end': 'ca53377c29d77e5d913fabe40b11b5403fa9b84df3408ced984cf1c598ff3012',
+    'mult_slave_or_master_adv_keep_open': '36e53892ad99d0a89094b31870cd2020fe8aa5554220de986c9ad29ff620ab69',
+    'mult_slave_or_master_adv_event_open': '2e57d7ba66b27ef0ca26e44dcdcbf0fa6071a7dac24319d496189c826e42e99b',
+    'mult_slave_or_master_adv_sm_end': '14b821acbf78d8e39bb1b426e926e8c8ef4d5690fa74723d9cc9c44d0e45e1ea',
+    'mult_slave_or_master_scan_or_init_win_close': '2bfd15768ed9984003893bd504c34e3de204cf28290915208f2dc8cdf9f573b8',
+}
+
+
+def multilink_schedule(text):
+    return leftovers(own_all(text, MULTILINK_SCHEDULE_OWNED), 'multilink_schedule.c', {'cpu_reset'})
+
 # ll_multiple_phys.c.o: LE PHY negotiation and HCI PHY commands.
 LL_MULTIPLE_PHYS_OWNED = {
     'llValidatePhySupport': 'bd3faacc841b670216baa08a3684d9b56425207da769e219e4270ca09457125a',
