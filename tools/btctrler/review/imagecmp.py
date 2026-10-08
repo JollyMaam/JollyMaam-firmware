@@ -11,6 +11,7 @@ build/text.bin and build/data.bin.  Both commit ids have the same length, so
 a translation that LTO reduces to the same code leaves only the hash bytes
 different.  Exit 0: identical apart from BUILD_ID.
 """
+import fcntl
 import os
 import subprocess
 import sys
@@ -38,6 +39,9 @@ def main():
     if len(sys.argv) != 3 or sys.argv[1].startswith('-'):
         sys.exit(__doc__)
     base, new = (git('rev-parse', c) for c in sys.argv[1:3])
+    # One shared worktree: serialize concurrent runs (reviewer and workers).
+    lock = open(Path(git('rev-parse', '--git-common-dir')).resolve() / 'imagecmp.lock', 'a')
+    fcntl.flock(lock, fcntl.LOCK_EX)
     if not WORKTREE.exists():
         subprocess.run(['git', 'worktree', 'add', '-q', '--detach', str(WORKTREE), base],
                        check=True)
