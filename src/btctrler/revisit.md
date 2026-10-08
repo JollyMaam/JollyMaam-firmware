@@ -269,3 +269,24 @@ here has been "fixed" unless it says so.
     counts agree. Proven from SDK IR during #85 review; preserved. These
     scheduling paths are removed by LTO here; inconsistent bookkeeping and
     its hardware effects remain untested.
+
+34. **BLE link creation continues after allocation failure.** `link_layer.c`,
+    `ll_create_conn_link`: a null allocation only produces an optional diagnostic;
+    execution then stores the hardware pointer through that null result. Proven
+    from SDK IR during #87 review; preserved. Allocation failure and its hardware
+    effect remain untested.
+
+35. **BLE ACL fragmentation can make no progress with oversized chunks.**
+    `link_layer.c`, `ll_send_acl_packet`: each chunk length is truncated to a byte
+    before sending, advancing the pointer, and subtracting the remaining size.
+    A maximum of 257 and a remaining size of 260 advance one byte repeatedly,
+    then stall at remaining 256 with a zero-length chunk. Proven from SDK IR
+    and a host regression checking the first two callbacks during #87 review;
+    preserved. Whether configuration validation excludes these values is
+    untested; the stall was not exercised on hardware.
+
+36. **BLE link deletion clears only five bytes of its procedure FIFO.**
+    `link_layer.c`, `ll_delete_link`: resets both FIFO indexes, but its memset
+    length is 5 rather than the five-entry FIFO size. Proven from SDK IR during
+    #87 review; preserved. The link is subsequently closed and freed; whether
+    any close callback observes the remaining entries is untested.
