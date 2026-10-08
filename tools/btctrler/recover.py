@@ -1966,6 +1966,31 @@ def ll_adv(text):
                      {'cpu_reset', 'ble_adv_vendor_not_connect_same_master'})
 
 
+# Legacy BLE scanner: parameters, radio link, duplicate filter and RX paths.
+LL_SCAN_OWNED = {
+    'le_scan_filter_duplicates_init': 'f5022208d35a170f057cbb10251b0bb7358aef9370a77e1080ab8030c655c636',
+    'INIT_LIST_HEAD': 'c8743fced20f81f9356183142823d4754aae1be948672c51f9676a73cc060c60',
+    'le_scan_filter_duplicates_query': '5c9c9baeb19a4dd7c58586e88859fd10fe1744886ad34b1ab4f3875538a5cd0b',
+    'le_scan_filter_duplicates': 'cc7c754f567c39aa26034d771b334643cef68e33e3f258e8dc52917de4500001',
+    'list_del': '7eda8f02f7b60c42afa5b7ea560030c0e9b432d816712ddf8744e288d6ee7023',
+    'list_add_tail': '27b79cbb2f95a2b99dccd732692d446d4add212cf00d672d8ae694cbdef12038',
+    'le_scan_filter_duplicates_destroy': '99e124f60784d8da2cf91b97d5bb273845062714b44dd2f65cc433a2a1807778',
+    'll_scan_destroy': 'a7cfc48c3b95a711b7f5a4a93c77ec92bbabe1312e112512115393b3d4da97cf',
+    'll_scan_close': 'fe61bbae681ac36ca405a907f282d534988f47d226df57d34b178978e8746d66',
+    'scan_rx_post_handler': '120c85c6be67a274d06538b01453ee9a6d2ebf019fee026532597aa650055c78',
+    '__scan_rx_post_handler': 'fba60b0c338bb5f5cac5dbff461b813d6cd977dc6027c5991a96f6d5c383845b',
+    'll_scan_set_params': '71d1289322642f768874bce7f36803c51bad046a589a84e124d9e52abb9b214e',
+    'll_scan_init': 'be989e1efe97b12b8bb24327690eea7c4291d146ebd030c459b69a5d4e0908b2',
+    'll_scan_open': '3b8a4f4a0f3582490fd5f973d88780d66317d6a0df360d550900a094b05d078e',
+    'll_scan_link_get': '8cad34e49e24b281a6acb3eb1a772d78f0c3d97133566c81bae243ad42117c6b',
+    'scan_rx_probe_handler': '7d5c2d99c42e449b1c7e79a9f11f5e88587b836f323dc547c2118f1676ebbe28',
+}
+
+
+def ll_scan(text):
+    return leftovers(own_all(text, LL_SCAN_OWNED), 'll_scan.c', {'cpu_reset'})
+
+
 # Bluetooth AGC table upload and initialization.
 BTAGC_OWNED = {
     'btagc_ram_init': 'd6f3ebda5cf300c3f022bb2687245e3a1841f3de6c76949397591449168a465d',
