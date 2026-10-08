@@ -2091,6 +2091,44 @@ def ll_resolve_list(text):
                      {'cpu_reset', 'debug_ll_privacy', 'll_vendor_device_address_generate'})
 
 
+# ll_ext_adv.c: BLE 5 extended advertising sets.
+LL_EXT_ADV_OWNED = {
+    'll_ext_adv_rx_probe_handler': '654358edeb2d5419ae3697cba180dee8e3a604b9032aed69aa58c54ddd385bc2',
+    'ext_primary_link_for_handle': 'cc1e3bb9340cc2878003f3954fb0a5b970eadbd9d8fd1ba1c3d5fc43e0c6c275',
+    'ext_periodic_link_for_handle': '6bd6112f2c600b7e0dd19b9ee9f1377099cde47ea6c8da9b960088f9cebe884f',
+    'll_exit_ext_legacy_adv_status': '623a955e68f7530ca6425934a9b45244649ab962c29443b36ac9f140a12223dc',
+    'll_advertising_set_terminated': '095486d8f851e616a8b8824265cf890c243778187cf651b3327a6cb6d3967acb',
+    'le_ext_adv_destroy': '9f1d3b2b6b882a4e12014134e806743294fa6f7428ffc65bdd9bbc1636e27730',
+    'll_remove_all_adv_set': 'af702adf2822c9777de699f0988dfe029c775c38d71774a2b44729a860bd63d3',
+    'll_ext_adv_close': '01e1459dbb48251a824b299719425552aaa3fe924580ccb182d8b702c0870919',
+    'll_ext_adv_rx_post_process': '76f8e0f8b940c38f3e60f5697a7f718abd32833fc38f6bbe41d8374ac7b52fc6',
+    'll_ext_adv_rx_post': '42485ee1a6e80c1ef5595f9a01222c21b88c3b9d483a71cc534ecc7ffb6a5aae',
+    'll_match_ext_adv_set_addr': '00f71bda3050c3a033b752e6078a14e32b234db7d06ed610b8beabb7d07c3ab4',
+    'll_remove_assigned_adv_set': 'd75b459a9191ab29ce5fa8d6f6140b9345887ec47f17b60f1b51efedf78cc67c',
+    'list_del': '41fc393d177860fed635168b06940280fd5dafcf260feed103d181645a2be04a',
+    'll_ext_adv_data_update': 'b8120b5ff82f94c07ec77c3c12309e5d891a8b8c3e418605873e84703f9ad445',
+    '__set_ll_ext_primary_adv_param': 'e19f408a4703370803b8a8d1159feb8e49a5e52461897b9fa87cac230fc78870',
+    '__set_ll_ext_primary_adv_data': '1149f73cef8d7090550f54e238e283352e3a3393a5cf4299441c25036a2f17d9',
+    '__set_ll_ext_secondary_adv_param': '8a041c737e95caf80f8031065ffa22d6babb7d321012094ed49a7126ccde275d',
+    'll_ext_adv_alive_timer_reset': 'ab9572c70754c42249a2e4c1ec92d8926ac21e989b9f84d8cfe020f5fc3a2053',
+    'll_ext_adv_timeout_stop': '6cd6366f20ff560e81168e9c608db12384452193b830e18ce01eb6759f7e26ba',
+    'll_ext_adv_create_alive_timer': '9063d9bd6f93ec6ef92f116f34d547491889bd473e7ebeefa6f47f78b3950901',
+    'll_ext_legacy_adv_open': 'e831a9efe6b437f652c79b675875171b7d2b7aaf77cf0f2f57892e3afcb187b7',
+    'exchange_ExtAdvParam_2_LegacyAdvParam': 'c356287eacb7ba42553316382f2903a19a4716c54f442b5ce53d619ef73b63e3',
+    'll_ext_adv_open': '9317f1365a755c6845153f8fec5dda893949b9253319707b7603d9f531afc05e',
+    'll_ext_legacy_adv_scan_req_received': '2c7ef99f4e82b0bb3638075086f819c3d362415a786cfb8fea2a044cc563a397',
+    'll_scan_request_received': 'f84e69bdd5996c38dd44711b950a6cca12a0eba47b71d744350928b4f1d265f7',
+    'll_ext_adv_timer_handler': '1b8242985e787dc2b1665e5241b5185b8a4c4ba0d6fe018a18402eb4af2c821b',
+    'list_add_tail': '1dc95bb127133e0a19cd936b9242c6cbdec493fd36630e5f4d2fda9147ccda8f',
+}
+
+
+def ll_ext_adv(text):
+    # LctrIsPerAdvEnabled, ll_acad_init and its handler: no caller.
+    return leftovers(own_all(text, LL_EXT_ADV_OWNED), 'll_ext_adv.c',
+                     {'LctrIsPerAdvEnabled', 'll_acad_init', 'll_acad_msg_handler'})
+
+
 # Bluetooth AGC table upload and initialization.
 BTAGC_OWNED = {
     'btagc_ram_init': 'd6f3ebda5cf300c3f022bb2687245e3a1841f3de6c76949397591449168a465d',
