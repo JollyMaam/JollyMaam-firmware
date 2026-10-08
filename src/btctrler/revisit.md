@@ -224,3 +224,27 @@ here has been "fixed" unless it says so.
     Proven from SDK IR during #76 review; preserved. Reachability with absent
     connection state and hardware effects remain untested. The retry path in
     `tws_sniff_ap_set` does guard the connection; it is not another instance.
+
+28. **TWS timed-call queue accepts a ninth entry in an eight-entry ring.**
+    `tws_sync_call.c`, `tws_api_sync_call_func_internal`: rejects only when
+    `sync_call_num > 8`, so a full queue accepts another call and overwrites
+    the ring entry at `rx_index`. The count becomes 9, and the transmit
+    callback copies nine records while wrapping around eight entries.
+    Proven from SDK IR and the full-queue host regression during #79 review;
+    preserved. Peer-visible loss/duplication remains untested on hardware;
+    these timed-call paths are removed by LTO in this firmware.
+
+29. **TWS key synchronization drops the second record.** `tws_event.c`:
+    transmit can send two four-byte records with a sequence byte (9 bytes),
+    but receive advances its loop counter by 12 while advancing the payload
+    pointer by 4. A 9-byte frame therefore delivers only its first record.
+    Proven from SDK IR and the two-record host regression during #81 review;
+    preserved. Actual TWS peer operation remains untested.
+
+30. **TWS access-address scorer compares bytes at different bit positions.**
+    `tws_le_acc.c`, `ble_sync_generation`: the byte-pattern flag compares
+    `(word << 8) & 0xff00` directly to masks at bits 8..15, 16..23 and 24..31.
+    All comparisons can hold only for word zero; repeated nonzero bytes do
+    not set that flag. Proven from raw SDK shifts/masks during #83 review;
+    preserved. Other score flags still apply. The generator and its effects
+    on actual peer links are untested on hardware and removed by LTO here.
