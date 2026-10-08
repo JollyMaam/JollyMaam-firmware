@@ -1587,6 +1587,61 @@ def tws_ll_adv(text):
     return leftovers(own_all(text, TWS_LL_ADV_OWNED), 'tws_ll_adv.c', TWS_LL_ADV_LEFTOVERS)
 
 
+# tws_task.c: the TWS API wrappers, task loop, init/exit and accessors; the
+# member's references keep tws_event, tws_sync_call and tws_power_balance linked.
+TWS_TASK_OWNED = {
+    'tws_key_event_handler': '4269bb6af69fdba051247c1d70a5e868ba7731981a2331acaebbf7e139bd4d54',
+    '__role_switch_test': '6986dc4148383c647c04a2cfe7dedfb11e0eab15bba132fddef35244a66027f0',
+    'tws_api_pair_all_way': '3a5fbe8371c4d84bbcb752edf855d166fee9aaee90932b0db4c5079a54b9fa22',
+    'tws_api_common_addr_en': 'be0071b9d9efb52f6c066dacf9e3781d7efda3c66e7ab696acf478c00da21ccd',
+    'tws_api_auto_role_switch_disable': '06fc2dffa11b86feecf550aa3dc25e9fb9f49253eaf4ca7dfa20b4d9aff36fc8',
+    'tws_api_auto_role_switch_enable': 'ebcdda4987b12dd971e23983445608c6d930d030b78e2bf89bc92c98aa90d510',
+    'tws_api_create_connection': '6234acd86231f851ebb21e50fa7b98c187d0b268e863f3f7ecc8219ee68b114f',
+    '__call_api_and_wait': '188092b6418ff5b1bab77e84b4e0d0ef5fce74156ca1cffea0412828b28953e0',
+    'tws_api_cancle_create_connection': 'd88fab2d8080abcb0a773510092c1373783a456cdba09a3f18057dfa83b4a467',
+    'tws_api_wait_connection': '74eace832563e40c71a0a07134edaf80c788be273feb9a9b97bdd18ac5eeaaa5',
+    'tws_api_detach': 'a96ec042fb9baf38de73eb235fd83f85fe045626820f4d439433f07475c9ca50',
+    'tws_api_get_role_internal': '8412858c897759539bf7addd442b6ccb23317dbfea5af32db8bf043af9002ad6',
+    'tws_api_get_role': '5646759544bf5c8c6c6f0198aed8050fc327c4cff54e066af7d60980ebc9071e',
+    'tws_api_get_tws_state': '7f2bcb6f5f62461f60a7a52de6925b3c2d712bbba0cd033da36af38be7a00995',
+    'tws_api_search_sibling_by_code': '365e19ad3f609e5bd66f91c1f8d1979f144f77d2a64601caa4b747d6e9834a8d',
+    'tws_api_wait_pair_by_ble': '8c4aca593050a1327d91edaa33accb62f57205d4f9d8b055956e2419b9395f30',
+    'tws_api_wait_pair_by_code': 'f7d419eb583887667be05edade524f0d962767f231242d58a1f382314de90cf4',
+    'tws_api_cancle_wait_pair': '5684dbe33342655d1bb0d97da81a4f8c3ea480efe45c1430dec1e52639ce9aa8',
+    'tws_api_remove_pairs': 'b59691c74f29a2d1be82d1a67cbd092e51c16ed740b8c462b6fceb03b78e8628',
+    'tws_api_sync_call_by_uuid': '80c25c6534c5b7008de3ab9ed190089b729c8f09a405147ea7b561f0b93dc183',
+    'tws_api_set_sibling_addr': 'aa7c5c33aefb65dd561fb38a59e01e4fa1fe869e1a78c8d30fc0bbe17fd0760e',
+    'tws_api_get_sibling_addr': '177aaa22e8fd64832a59d2d88249632259e1a5d2aee0487ae0d7463bffa930ee',
+    'tws_api_get_local_addr': '8263c7b3b1e699bd7df76fa2349d9486743882efa7b5038e8dedca803d5d719b',
+    'tws_api_set_local_channel': '59ffeed11bd08c579167b859871d4c3e1da131f266f27e0f5869c96f8e3a670c',
+    'tws_api_get_local_channel': '81d3da03533c2e4f8530d2142be5332585c6596a45f21435dffc9b2a6a86db9f',
+    'tws_api_send_data_to_sibling': 'c7f44abcbe10bee100290d2a959155f038a07aa8d69de28da52838eea0e60dfc',
+    'tws_api_send_data_to_slave': '0478c946fbaec880d0316542c14e1a0a79d76c3376a2d8467ed881e78ab38317',
+    'tws_api_connect_in_esco': '8ef7b0e0249022f41523b51bdf3d3b512489f22928dc3ae7273b74380db2240f',
+    'tws_api_cancle_connect_in_esco': '371c32843a8b8729e852d017f47b05b84e1006de3ede082332fe48d0fc9fb5d6',
+    'bt_get_tws_local_addr': 'bb0774c22f62d3642053ed37dde5a162b4e63eb97ab5908fcdf53e27c4b198f9',
+    'bt_set_tws_local_addr': '0f11485e4b54ac4930db6b44bb11b203a80a53146f8dc69c55c9719c02d0f7da',
+    'tws_task_init': '3cfa77aede2dbe0e01c4f0c06135e241c663366a6979f416a4f842239366eb01',
+    'tws_task': '92b4cc09510bef8bd917ee414e1e59b806859df71fb5fd17cbe4ad9d2cea262a',
+    'tws_task_exit': '21d36e96148bd68035f5e4df6e6d5e4272acef0e57139b75a2361bc88fdac2d4',
+    'tws_task_exit_internal': '19592f044d46e15e45c508591d7303aeb2c2a7f0d075a133652eb46a4c782973',
+    'tws_open_phone_wait_pair': '540b20f852124cdaba21fb95055e63da3c353c1f0e002473eb036c74c46d19fa',
+    'tws_open_tws_wait_pair': 'eb007921866b7231dac6c19e3747ad465cc59a711efc60273a2131f8d990d137',
+    'tws_open_tws_wait_conn': 'da46de1ea316de5ce9950fedf1247ecc506854b699513405f1b2105500d4c10f',
+    'tws_open_tws_conn': 'b355dabcb0daf1b51c74012f319574729d2eef237d1146c8f570a37b1f83d15a',
+    'tws_close_tws_pair': '9285f81b137aaa89fd6909daab059e26118b9849738da9d16f6284f48323c930',
+    'tws_close_phone_wait_pair': '94a455408a65bacc1859aebb003bf56bdbc630e7d06db9527db971d77e817949',
+    'tws_remove_tws_pairs': 'e3ce3c599d74f082b4c5c39e87f808ba75f6354ec1fc9114c1ebe9be423ca700',
+    'tws_disconnect': '70900675b83cc7972a99082873b881c5129d7bc799388f16c6c92286719896ea',
+    'tws_fast_conn_with_pair': '7de1abf822a6943f6efe7385c7fd5397fd05728db3ef37cdf9fd2a0ca724f25e',
+}
+TWS_TASK_LEFTOVERS = {'cpu_reset', 'cpu_in_irq'}
+
+
+def tws_task(text):
+    return leftovers(own_all(text, TWS_TASK_OWNED), 'tws_task.c', TWS_TASK_LEFTOVERS)
+
+
 # tws_data_forwarding.c: straggler member of the SDK's TWS code; only what other code
 # still references is owned (the rest is unreferenced and goes with it).
 TWS_DATA_FORWARDING_OWNED = {
