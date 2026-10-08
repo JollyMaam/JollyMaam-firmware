@@ -290,3 +290,15 @@ here has been "fixed" unless it says so.
     length is 5 rather than the five-entry FIFO size. Proven from SDK IR during
     #87 review; preserved. The link is subsequently closed and freed; whether
     any close callback observes the remaining entries is untested.
+
+37. **BLE instant validation can return with interrupts disabled.** `RF_ble5.c`,
+    `le_hw_check_all_instant_will_be_valid`: disables IRQs before checking
+    `bb_hdl`, then returns immediately when that handle is null without enabling
+    IRQs. Proven from raw SDK IR during #88 review; preserved. Reachability with
+    an absent baseband handle and its hardware effects remain untested.
+
+38. **A failed BLE extended ring write clears available storage.** `RF_ble5.c`,
+    `loop_cbuf_write`: when the request exceeds free space, clears that free
+    space but returns zero and leaves the cursors and readable count unchanged.
+    Proven from SDK IR and the rejected-write host fixture during #88 review;
+    preserved. Effects on DMA timing and concurrent consumption are untested.
