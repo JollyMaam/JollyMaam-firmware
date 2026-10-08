@@ -155,3 +155,28 @@ here has been "fixed" unless it says so.
     33 bytes. Indices 33..63 read beyond that definition. Proven from the
     SDK IR during #53/#54 review; preserved in owned C. Whether the radio
     can report those indices and the hardware effect remain untested.
+
+19. **Default LE key hooks never produce keys.** `ll_keys.c` defines weak
+    public-key and DH-key hooks that return zero without touching buffers or
+    emitting events. `hci_ll.c` and `hci_ll_cmds.c` send successful Command
+    Status for OCF 37/38 before invoking those hooks. With the default hooks,
+    no key-completion event follows. Proven from the SDK IR and compiled
+    callers during #58 review; preserved, including weak linkage. Direct
+    invocation of these HCI commands on hardware remains untested.
+
+20. **LE power-control and BIG-sync dispatchers acknowledge no-ops.**
+    `ll_pc.c` handles low-10-bit opcodes 118..122 and `ll_bis_master.c`
+    handles 107/108 by optionally logging and sending a success completion.
+    They ignore the payload and perform no requested operation. Proven
+    from the SDK IR during #59/#60 review; preserved in owned C. No caller
+    or symbol reference beyond declarations was found in the SDK or owned
+    production objects, so reachability in this firmware is unproven.
+
+21. **Nonvolatile allocator failure spins; pool release frees the base.**
+    `nv_memory.c` has a 256-byte lbuf pool. If allocation returns null,
+    `nv_memory_malloc` loops forever. `nv_memory_release` passes the pool
+    base to `lbuf_free_btctrler`, whose SDK implementation reads allocation
+    metadata from 16 bytes before its argument (head pointer at -8), outside
+    the pool. Both are proven from the SDK IR during #61 review and preserved
+    in owned C. No production callers were found for these four wrappers;
+    exhaustion and release effects on hardware remain untested.
