@@ -1587,6 +1587,21 @@ def tws_ll_adv(text):
     return leftovers(own_all(text, TWS_LL_ADV_OWNED), 'tws_ll_adv.c', TWS_LL_ADV_LEFTOVERS)
 
 
+# tws_power_balance.c: battery-voltage channel and the role-switch counter.
+TWS_POWER_BALANCE_OWNED = {
+    'tws_host_get_battery_voltage': 'fc60565dcd9661a3d0dc06aaa51de2fc607f03445e8a9d9baee5dce1a37bbca3',
+    'tws_power_balance_master_tx': '53282d28f30beeb370d76d3de49ab2e2bf167bac2111ec523f275cde8cac8d94',
+    'tws_power_balance_slave_tx': '84f8e0ee20d1aaced2b27704c381a5cfad4640475665865d98ea97febc650a8d',
+    'tws_power_balance_master_rx': '661eb7e519337b5877d78c6780efc282e0094a4372f1f3fc524e628a026b85b9',
+    'tws_power_banance_init': 'a3f38405a011b22c7d6aef3b6e89c12af1a57423f815cc0a1a8d08d4ca637217',
+}
+
+
+def tws_power_balance(text):
+    return leftovers(own_all(text, TWS_POWER_BALANCE_OWNED),
+                     'tws_power_balance.c', set())
+
+
 # tws_task.c: the TWS API wrappers, task loop, init/exit and accessors; the
 # member's references keep tws_event, tws_sync_call and tws_power_balance linked.
 TWS_TASK_OWNED = {
