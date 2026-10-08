@@ -404,9 +404,9 @@ static void page(void)
  * Linux host (Intel) in 1.25-5 ms sniff delivered every report on time and
  * in 15 ms sniff 23.7 ms late (8 ms, in clumps, once left).  One 12 s stall
  * was seen in 2.5 ms sniff: a report that waits too long leaves sniff too.
- * We never ask for sniff ourselves: asked for 2-8 slots, the Linux host
- * granted 6-12, and in 6 slots (3.75 ms) the link wedged for 12 s - exit
- * sniff accepted, not carried out - every time (docs/radio.md). */
+ * We never ask for sniff ourselves by default: asked for 2-8 slots, the Linux
+ * host grants 6-12.  (These measurements predate the sniff receive-window
+ * fix in hci_jieli_open; the 12 s wedges were that bug.) */
 static int have_data(void);
 
 static int sniff_too_slow(void)

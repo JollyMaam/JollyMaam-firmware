@@ -124,14 +124,22 @@ here has been "fixed" unless it says so.
     remains untested under this policy. Worth measuring what sleeping
     between anchors would save if the policy is deliberately changed.
 
-15. **The Classic sniff wedge happens on the Switch 2 too.**  On the
-    pre-ownership baseline (fa7f562, SDK controller), slot A twice entered
-    the console's 5 ms sniff, delivered no input, and dropped with 0x08
-    about 12 s later; a retry then worked.  Same signature as the PC wedge
-    in the benchmark notes (open problem 2), so it is in the SDK link layer
-    or the console, not in owned code.  Now that LMP, the slot timers, the
-    scheduler and low power are owned (#2-#43), instrument the sniff path
-    (anchor misses, scheduler decisions, entry #3's undefined timeout).
+15. **The Classic sniff wedge (fixed; not the SDK's fault).**  In sniff the
+    pad stopped hearing the central within seconds, exit sniff never got
+    through, and the host dropped the link with 0x08 about 12 s later (PC in
+    3.75 ms sniff at 66 reports/s, every time; Switch 2 in 5 ms sniff twice).
+    Cause: the application never called `lp_winsize_init`, which the SDK
+    app's `user_cfg.c` does (removed with the config cleanup, c6c6e89), so
+    `bredr_link_v.lp_ws` was NULL and the sniff receive-window table was read
+    from address 0, all 0xff: 65535 us windows and oscillator mode 0xff.
+    Proven with counters: anchors kept firing, receptions stopped, winsize
+    65535.  `hci_jieli_open` now installs the SDK HID app's table.
+    A second, smaller problem stayed: with `sniff_support_reset_anchor_point`
+    the controller skips anchors for 500 ms on a quiet link and only the
+    private host API (`lmp_hci_send_packet`) pulls the next one back, so via
+    standard HCI reports waited up to 500 ms (seen as 60 ms stalls and the
+    pad leaving sniff).  Turned off in `platform_jieli_sdk.c`.  PC verified;
+    Switch 2 not yet.
 
 16. **The Switch 2 signals sleep before going silent on Classic (handled).** With slot A
     connected, putting the console to sleep ends the link by supervision

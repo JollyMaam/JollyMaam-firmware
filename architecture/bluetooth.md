@@ -307,6 +307,9 @@ These come from failures seen on hardware; see `AGENTS.md`.
   Pro Controller in 5 ms sniff and polled it far less once we left.  (The
   old branch left sniff because queued reports filled the controller and
   reset the chip; nothing is queued now.)
+* Classic sniff needs the controller's receive-window table
+  (`lp_winsize_init`, installed in `hci_jieli_open`) and anchor skipping off
+  (`sniff_support_reset_anchor_point`): without either, sniff stalls or wedges.
 * BTstack polls the data source added last first: `tx_poll` runs before the
   transport's received packets in each pass.  So room in the controller is
   re-checked where it appears (Number Of Completed Packets, `acked()`), not

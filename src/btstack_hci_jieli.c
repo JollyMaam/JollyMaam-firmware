@@ -91,11 +91,32 @@ static void transport_init(const void *config)
     rx_read = rx_write = 0;
 }
 
+/* Classic sniff receive windows in microseconds (the SDK HID app's values):
+ * the window a slave opens at an anchor after hearing the central (init),
+ * widened by inc for each anchor it misses; mode 0 keeps the BT oscillator.
+ * Without this table the controller reads it from address 0 (all 0xff):
+ * windows of 65535 us, and in 3.75 ms sniff the pad stopped hearing the
+ * central within seconds until the link timed out. */
+struct lp_ws_t {                        /* the controller's layout */
+    u16 lrc_ws_inc, lrc_ws_init, bt_osc_ws_inc, bt_osc_ws_init;
+    u8 osc_change_mode;
+};
+extern void lp_winsize_init(struct lp_ws_t *lp);
+
+static struct lp_ws_t sniff_windows = {
+    .lrc_ws_inc = 480,
+    .lrc_ws_init = 160,
+    .bt_osc_ws_inc = 100,
+    .bt_osc_ws_init = 140,
+    .osc_change_mode = 0,
+};
+
 /* The controller alone, without the host: the Switch 1 wake transmits on it
  * before a session, which then takes it over. */
 int hci_jieli_open(void)
 {
     if (!controller_up) {
+        lp_winsize_init(&sniff_windows);
         if (btctrler_task_init(hci_transport_h4_controller_instance(), 0)) return -1;
         while (!btctrler_task_ready()) plat_delay_ms(20);
         controller_up = 1;
@@ -273,7 +294,6 @@ extern void set_bt_data_rate_acl_3mbs_mode(u8 en);
 extern void bt_production_test(u8 en);
 extern void P33_CON_SET(u16 addr, u8 start, u8 len, u8 data);
 extern u8 p33_rx_1byte(u16 addr);
-extern const int sniff_support_reset_anchor_point;
 
 static u16 sniff_slots = 24, sniff_attempt = 1;
 
@@ -323,7 +343,7 @@ void hci_jieli_sniff_slots(u16 slots)
 void hci_jieli_link_policy(void)
 {
     lmp_set_sniff_establish_by_remote(1);
-    if (sniff_support_reset_anchor_point) lmp_sniff_t_slot_attemp_reset(sniff_slots, sniff_attempt);
+    lmp_sniff_t_slot_attemp_reset(sniff_slots, sniff_attempt);
 }
 
 void sniff_negotiation_hook(u16 *t_sniff, u16 *attempt, u16 *timeout, u8 negotiation)

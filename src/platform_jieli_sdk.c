@@ -53,7 +53,12 @@ const int config_btctler_le_rx_nums = (((1) + (0)) * 3) + 2;
 const int config_btctler_le_acl_total_nums = (((1) + (0)) * 3) + 1;
 const int config_btctler_le_slave_conn_update_winden = 500;
 const int config_btctler_single_carrier_en = 1;
-const int sniff_support_reset_anchor_point = 1;
+/* 0: a sniffing slave wakes at every anchor point.  With 1 the controller
+ * skips anchors for sniff_long_interval (500 ms) once a short-interval link
+ * goes quiet, and only the SDK's private host API (lmp_hci_send_packet) pulls
+ * the next anchor back when data arrives; the standard HCI path BTstack uses
+ * does not, so reports waited up to 500 ms in sniff. */
+const int sniff_support_reset_anchor_point = 0;
 const int sniff_long_interval = (500 / 0.625);
 const int clock_sys_src_use_lrc_hw = 0;
 const int config_printf_time = 1;

@@ -2967,6 +2967,13 @@ RF_CODE u32 lc_local_slot_offset(struct link_connection *lc)
     return (u32)(b < 626 ? 1250 - b : 625 - b % 625);
 }
 
+/* The sniff receive-window table (lp_winsize_init in the SDK): the
+ * application must call this before the first sniff link. */
+void lp_winsize_init(struct lp_ws_t *lp)
+{
+    bredr_link_v.lp_ws = lp;
+}
+
 /* Low-power oscillator for the next sniff anchor (lc_lrc_osc_change in the
  * SDK): mode 1 uses the BT oscillator while any link waits for a sniff
  * packet, mode 2 always. */
