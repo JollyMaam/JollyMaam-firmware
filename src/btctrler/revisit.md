@@ -302,3 +302,10 @@ here has been "fixed" unless it says so.
     space but returns zero and leaves the cursors and readable count unchanged.
     Proven from SDK IR and the rejected-write host fixture during #88 review;
     preserved. Effects on DMA timing and concurrent consumption are untested.
+
+39. **BLE TX completion can dereference a slot cleared by its probe callback.**
+    `RF_ble.c`, `__hw_tx_buf_proess`: after calling `tx_probe_handler`, reloads
+    the selected TX slot and accesses its `ack_callback` without checking the
+    reloaded pointer. A callback that clears the slot can trigger a null access.
+    Proven from raw SDK IR during #89 review; preserved. Callback clearing and
+    its hardware effects remain untested.

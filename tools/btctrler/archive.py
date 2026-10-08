@@ -19,6 +19,8 @@ OWNED = tuple(LL_PERIODIC_ADVERTISING_OWNED) + tuple(LL_KEYS_OWNED) + tuple(HCI_
     'hci_lmp_link_control_cmd_handler', 'hci_lmp_link_policy_cmd_handler') + tuple(MULTILINK_SCHEDULE_OWNED) + tuple(ANALOG_OWNED)
 from .recover import RF_BLE5_OWNED
 OWNED += tuple(RF_BLE5_OWNED)
+from .recover import RF_BLE_OWNED
+OWNED += tuple(RF_BLE_OWNED)
 # This archive was inspected for pre-existing inline copies and call attributes.
 # Changing it requires repeating that audit, not just matching one definition.
 AUDITED_SDK_SHA256 = 'f63db0097b5d41096b3228ca038898f317694d6d293d1ba48beddfab85778869'
