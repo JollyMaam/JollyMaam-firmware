@@ -180,3 +180,25 @@ here has been "fixed" unless it says so.
     the pool. Both are proven from the SDK IR during #61 review and preserved
     in owned C. No production callers were found for these four wrappers;
     exhaustion and release effects on hardware remain untested.
+
+22. **LE AFH hit rate is always ~100%.** `conn_rx_probe_channel_handler`
+    (`ll_afh.c`) stores the incremented `rx_cnt` into `expected_rx_cnt` as
+    well (one 64-bit bitfield store), then adds one more for MD. The
+    per-channel hit rate `rx_cnt * 1000 / expected_rx_cnt` never sees missed
+    packets, so channel ranking rests on RSSI alone. Proven from the SDK IR
+    during #65 review; preserved. AFH is master-only and disabled in this
+    firmware (LTO removes it), so there is no hardware effect today.
+
+23. **FCC packet type index is unchecked.** `bredr_fcc_set_param` indexes the
+    9-byte `packet_table` with the vendor command's third byte. Proven from
+    the SDK IR during #63 review; preserved. Only reachable with
+    `CONFIG_TEST_FCC_CODE` set, which this firmware leaves at 0.
+
+24. **Initiator/scanner leftovers (worker-reported, unverified).** From the
+    #66/#67 commit notes: `ll_init_open` and `ll_scan_open` return 58 on a
+    failed radio open but leave the half-built link registered; a later
+    close/destroy then walks a list that only a successful open initialises.
+    `ll_init_open` computes the window offset as `random % (interval >> 1)`
+    with no zero guard (urem confirmed in IR; whether HCI validation rules out
+    interval < 2 is not checked). Both roles are removed by LTO in this
+    peripheral-only firmware.
