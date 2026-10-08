@@ -140,6 +140,22 @@ codes a Switch, a Switch 2, a PlayStation and a PC actually send when they
 sleep, when the user removes the pad, and when the signal goes, is to be
 checked in the logs; the table is the one place to adjust.
 
+A profile can also mark the session ended by a host command. With the Switch 1
+Classic profile on a Switch 2, a pad-side capture saw output subcommand
+`0x06 00` before traffic stopped, followed about 12 seconds later by timeout
+`0x08`. The profile stops reports on that command and marks the session ended.
+The controller handles that state immediately after the host write and calls
+the ordinary `bt_stop()` shutdown path. The command does not queue an
+acknowledgement. BTstack requests disconnection and has a one-second shutdown
+watchdog before closing the transport; the controller lifecycle is unchanged.
+On hardware this path reached idle 261 ms after the command and reported
+disconnection reason `0x13`, without a supervision timeout, reconnect or wake
+attempt. The earlier forced-reset path took 243 ms and was removed as unnecessary.
+Timeouts without this explicit command still reconnect. HID Suspend, Exit
+Suspend and Virtual Cable Unplug are logged separately; none was observed in
+that sleep capture. The capture records received traffic, not an independent
+over-the-air trace.
+
 ### Threads
 
 BTstack runs on the bluetooth thread.  Across to the control thread there is

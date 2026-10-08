@@ -147,6 +147,7 @@ struct profile_host {
     u8 has_players, players, players_flash;
     u8 has_lightbar, lightbar[3];
     u8 imu;                           /* IMU mode the host asked for; 0: begin()'s */
+    u8 ended;                         /* host ended this session; stop promptly */
 };
 void host(u32 now, struct profile_host *out);
 ```
@@ -154,6 +155,14 @@ void host(u32 now, struct profile_host *out);
 Read by the controller every poll.  The profile answers from what the host
 last wrote; it does not decide anything.  The controller decides what the
 motors and lights actually do with it ([controller.md](controller.md)).
+
+The Classic Switch profile latches `ended` on output report 0x01, subcommand
+0x06 with argument 0 (HCI state: disconnect), and resets it in `begin()`.
+The controller polls this state immediately after handling a host write and
+starts ordinary Bluetooth shutdown, without waiting for a subcommand
+acknowledgement or the supervision timeout. It also polls on link down as a
+fallback. No reply is queued for
+the end-session command; other Switch subcommands retain their replies.
 
 `bt_send_message(id, data, len)` is the way to send the host something that
 must not be dropped: a subcommand reply, the Xbox Guide button report, a

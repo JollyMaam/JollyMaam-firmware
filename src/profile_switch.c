@@ -240,8 +240,12 @@ static void reply(u8 cmd, const u8 *arg, u16 n)
         ack[0] = 0x83;
         for (i = 0; i < 14; i += 2) util_put16(d + i, 100);
         break;
-    case 0x06:  /* HCI state: 0 = the console disconnects us */
-        if (n && arg[0] == 0) sw.stopped = 1;
+    case 0x06:  /* HCI state: 0 = end this connection */
+        if (n) util_log("switch: host HCI state %u", arg[0]);
+        if (n && arg[0] == 0) {
+            sw.stopped = 1;
+            return; /* The host is ending the link; do not queue a reply. */
+        }
         break;
     case 0x10:  /* SPI read: address (32 bits) and length echoed, then the bytes */
         if (n >= 5) {
@@ -349,6 +353,7 @@ static void host(u32 now, struct profile_host *h)
     h->players = sw.players;
     h->players_flash = sw.players_flash;
     h->imu = sw.imu_on ? IMU_MOTION : IMU_OFF;
+    h->ended = sw.stopped;
 }
 
 static const struct bt_device device = {
@@ -966,6 +971,27 @@ int main(void)
     CHECK(report(&p, 1000, out, &id) == SIMPLE_SIZE && id == REPORT_SIMPLE && out[0] == 1);
     CHECK(report(&p, 1010, out, &id) == 0);
     CHECK(report(&p, 1200, out, &id) == SIMPLE_SIZE);
+    /* The sleep capture contains report 01, subcommand 06, argument 00.
+     * Missing arguments and other HCI states must not end the session. */
+    w.id = OUT_SUBCMD; w.data[9] = 0x06; w.len = 10;
+    write(&w, 1300, 0); host(1300, &h);
+    CHECK(!h.ended);
+    w.len = 11; w.data[10] = 1;
+    write(&w, 1301, 0); host(1301, &h);
+    CHECK(!h.ended);
+    w.kind = BT_WRITE_FEATURE; w.data[10] = 0;
+    write(&w, 1302, 0); host(1302, &h);
+    CHECK(!h.ended);
+    w.kind = BT_WRITE_OUTPUT;
+    sent_len = 0;
+    write(&w, 1303, 0); host(1303, &h);
+    CHECK(h.ended && report(&p, 1400, out, &id) == 0);
+    CHECK(sent_len == 0);
+    w.data[10] = 1;
+    write(&w, 1401, 0); host(1401, &h);
+    CHECK(h.ended); /* latched until the next session */
+    begin(&s); host(1500, &h);
+    CHECK(!h.ended && report(&p, 1500, out, &id) == FULL_SIZE);
     {   /* Switch 2: pairing exchange and the bond it returns */
         struct profile_session s2s = { 3, 1, { 6, 5, 4, 3, 2, 1 }, 0, 0 };
         struct bt_bond bond;

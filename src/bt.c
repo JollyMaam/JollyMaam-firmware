@@ -994,6 +994,15 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
         case HID_SUBEVENT_CAN_SEND_NOW:
             send_now();
             break;
+        case HID_SUBEVENT_SUSPEND:
+            util_log("bt: host HID suspend");
+            break;
+        case HID_SUBEVENT_EXIT_SUSPEND:
+            util_log("bt: host HID exit suspend");
+            break;
+        case HID_SUBEVENT_VIRTUAL_CABLE_UNPLUG:
+            util_log("bt: host HID virtual cable unplug");
+            break;
         }
         break;
     }

@@ -133,13 +133,20 @@ here has been "fixed" unless it says so.
     scheduler and low power are owned (#2-#43), instrument the sniff path
     (anchor misses, scheduler decisions, entry #3's undefined timeout).
 
-16. **The Switch 2 goes silent on Classic when it sleeps.**  With slot A
+16. **The Switch 2 signals sleep before going silent on Classic (handled).** With slot A
     connected, putting the console to sleep ends the link by supervision
     timeout (0x08), on the baseline and on owned code alike; on LE it sends a
     proper disconnect (0x13).  The pad then treats it as a lost link,
     reconnects, fails, tries the wake, and goes idle about 30 s later.  A
-    firmware decision, not a controller bug: consider going idle (or fewer
-    retries) after a timeout from a Switch host.
+    firmware decision, not a controller bug. A subsequent pad-side LMP/ACL
+    capture found output report 0x01, subcommand 0x06 with argument 0 before
+    silence; the timeout followed about 12 seconds later. No HID Suspend,
+    Virtual Cable Unplug or LMP detach was received in that capture. The
+    profile already stopped reports on this command; it now marks the
+    session ended so the controller starts ordinary shutdown on receipt, without
+    waiting
+    for the timeout, queueing an acknowledgement, reconnecting or waking.
+    An ordinary timeout without the command still reconnects.
 
 17. **Missing remote LE features can read from address zero.**
     `ll_events.c`, `le_read_remote_used_features_complete_event`: with null

@@ -252,17 +252,25 @@ static void bt_event(const struct bt_ev *e, u32 now)
             c.activity_ms = now;
         }
         break;
-    case BT_EV_UNLINKED:
-        util_log("link down, reason 0x%02x (%s)", e->reason, e->lost ? "lost" : "ended");
+    case BT_EV_UNLINKED: {
+        int lost = e->lost;
+        /* A host command and the disconnect can arrive in the same event
+         * batch, before outputs() has polled the profile's updated state. */
+        if (c.kind == CTL_CONNECTED && c.prof && c.prof->host) {
+            c.prof->host(now, &c.host);
+            if (c.host.ended) lost = 0;
+        }
+        util_log("link down, reason 0x%02x (%s)", e->reason, lost ? "lost" : "ended");
         if (c.kind != CTL_CONNECTED) break;
         memset(&c.host, 0, sizeof(c.host));
-        if (e->lost) {
+        if (lost) {
             become(CTL_CONNECTING, now);
             bt_connect();
         } else {
             stop(none, now);
         }
         break;
+    }
     case BT_EV_FAILED:
         if (c.kind != CTL_CONNECTING) break;
         /* The host did not answer: it may be asleep.  A profile that can
@@ -288,6 +296,13 @@ static void bt_event(const struct bt_ev *e, u32 now)
             memcpy(b.ltk, bond.ltk, 16);
             set_bond_store(c.slot, &b);
             bt_update_bond(&b);
+        }
+        if (c.kind == CTL_CONNECTED && c.prof && c.prof->host) {
+            c.prof->host(now, &c.host);
+            if (c.host.ended) {
+                util_log("host ended session: stopping radio");
+                stop(none, now);
+            }
         }
         break;
     case BT_EV_STOPPED:

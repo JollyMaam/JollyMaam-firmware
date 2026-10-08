@@ -241,6 +241,7 @@ struct profile_host {
     u8 has_lightbar;
     u8 lightbar[3];
     u8 imu;
+    u8 ended;                    /* host ended this session: stop locally */
 };
 
 struct profile {
