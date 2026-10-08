@@ -1737,6 +1737,20 @@ def bredr_dut(text):
     return leftovers(own_all(text, BREDR_DUT_OWNED), 'bredr_dut.c', set())
 
 
+# bredr_fcc.c: the Classic FCC continuous-transmit test mode.
+BREDR_FCC_OWNED = {
+    'bredr_fcc_set_param': '1ac2354228760c23830828b1faaeed49a5611bf1c553b427209cf45210358142',
+    'set_fcc_default_info': 'bee2c0cca5483275a379681e06900969f7bed789be5421326a49863dfccdfa57',
+    'bredr_fcc_init': '6c9211fe43b13799a8c4006763fb01f7b1ca15a86eab0c43cff9f593d63ae433',
+    'cal_hop_fre': 'dd6149a6c624e37671a3eb34544cdee9ae90220ce174e3e379c366ce3d9be41e',
+    'cpu_reset': '5eb48ac2f8bb9bb4db591560190cfbf940db97ee52bd2c12c989119c8e1b77ea',
+}
+
+
+def bredr_fcc(text):
+    return leftovers(own_all(text, BREDR_FCC_OWNED), 'bredr_fcc.c', set())
+
+
 # direct_test_dut.c: LE direct-test command handling, RF setup and IRQs.
 DIRECT_TEST_DUT_OWNED = {
     '__ble_baseband_reset': 'e757d12ff76ababfc907c3a38755cd0e55b575a1bee00abc79616010f4509535',
