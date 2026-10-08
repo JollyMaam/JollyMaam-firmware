@@ -270,6 +270,13 @@ here has been "fixed" unless it says so.
     scheduling paths are removed by LTO here; inconsistent bookkeeping and
     its hardware effects remain untested.
 
+33. **TWS eSCO removal stores a state through a possibly null link.**
+    `tws_pair.c`, `tws_master_notice_slave_step_fun` (event 2, step 0):
+    `esco_conn->reason` is written only when `esco_conn` is nonnull, but the
+    following `esco_conn->state = 5` has no check. Proven from SDK IR
+    (`if.end161` stores through the unguarded pointer) during the second
+    review of #78; preserved. Removed by LTO here; untested on hardware.
+
 34. **BLE link creation continues after allocation failure.** `link_layer.c`,
     `ll_create_conn_link`: a null allocation only produces an optional diagnostic;
     execution then stores the hardware pointer through that null result. Proven
