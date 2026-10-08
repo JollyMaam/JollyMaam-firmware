@@ -21,4 +21,5 @@ tables. Repeating the command does not require decoding the entire SDK.
 | `globals.py SDK_IR_DIR MEMBER...` | each moved global: section, const-ness vs the owned object. |
 | `leftovers.py MEMBER...` | SDK definitions not owned: any still referenced by retained IR or src/? |
 | `resolve.py FILE...` | resolve cherry-pick conflicts in the PIPELINE/DROPPED/OWNED tables by keeping both sides (check DROPPED still closes). |
+| `imagecmp.py BASE NEW` | main checkout, clean tree: build both commits and compare text/data, ignoring only BUILD_ID. For members LTO discards, an owned translation should leave the image identical. |
 | `btnwatch.py SECONDS` | PC test: decode Switch Pro 0x30 button bytes and rate from the hostbt log. |
