@@ -24,14 +24,16 @@ here has been "fixed" unless it says so.
    before pairing.  Worth a test from a controllable central (ESP32).
 
 
-3. **Controller scheduler sleeps with an uninitialized timeout.**
+3. **Controller scheduler passes an uninitialized timeout (fixed).**
    `thread.c`, `thread_schedule`: the suspend timeout starts undefined (LLVM
    `undef`) and is min-ed with each thread's timeout, then passed to
-   `owner->suspend`.  Proven in the SDK IR and in our final LTO IR (unchanged
-   by owning it).  The value depends on register allocation, so the
-   controller thread may wake early or sleep wrongly.  Untested whether it
-   matters; a candidate in the Classic sniff wedge and latency work.  Fix
-   deliberately (start from the largest timeout) with a hardware A/B.
+   `owner->suspend`. Proven in the SDK IR and initially preserved by ownership.
+   Fixed by starting at 255, the largest byte timeout, then selecting the
+   minimum; empty lists also pass 255. Host tests cover both traversal orders,
+   zero and maximum timeouts, empty lists and deletion of the last thread.
+   The sole current owner uses `bt_task_suspend`, which ignores the timeout:
+   this removes undefined behavior but provides no evidence that the timeout
+   caused the Classic sniff wedge or affected sleep timing.
 
 
 4. **Classic clock comparisons barely compare.**  `bredr_utils.c`: clocks

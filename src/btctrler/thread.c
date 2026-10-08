@@ -1,7 +1,7 @@
 /* Cooperative controller threads, as in the SDK. Name identity uses CRC only;
  * create leaves priority untouched, and timed suspend does not consume a resume.
- * The scheduler's timeout accumulator is uninitialized in the SDK IR; keep
- * that bug rather than supply a timeout the SDK never specified. */
+ * The SDK's undefined timeout accumulator is fixed: suspend receives the
+ * smallest thread timeout, or the largest byte timeout for an empty list. */
 #include "btctrler/glue.h"
 
 _Static_assert(offsetof(struct thread, entry) == 0, "thread list prefix");
@@ -35,7 +35,7 @@ static void thread_schedule(struct thread_owner *owner)
             p->fun(p);
         }
     }
-    int suspend_timeout; /* LLVM phi starts at undef, including empty lists. */
+    u8 suspend_timeout = 255;
     for (struct list_head *node = head->next; node != head; node = node->next) {
         struct thread *p = (struct thread *)node;
         if (p->resume_cnt && !p->suspend_timeout) return;
@@ -122,7 +122,7 @@ void thread_run(struct thread_owner *owner) { thread_schedule(owner); }
 #include "test.h"
 u8 log_tag_const_i_Thread;
 static int irq, creates, deletes, resumes, suspends, create_err, runs;
-static u8 deleted_priority;
+static u8 deleted_priority, suspended_timeout;
 static void (*scheduler)(struct thread_owner *);
 void log_print(int level, const char *tag, const char *format, ...)
 { (void)level; (void)tag; (void)format; }
@@ -136,7 +136,7 @@ static int create(void (*fn)(struct thread_owner *), u8 priority)
 static int delete(u8 priority)
 { deleted_priority = priority; deletes++; return -7; }
 static int suspend(u8 priority, u8 timeout)
-{ CHECK(priority == 0); (void)timeout; suspends++; return 0; }
+{ CHECK(priority == 0); suspended_timeout = timeout; suspends++; return 0; }
 static int resume(void) { CHECK(!irq); resumes++; return 0; }
 static void run(struct thread *th) { (void)th; runs++; }
 static void remove_self(struct thread *th) { runs++; thread_delete(th); }
@@ -170,7 +170,7 @@ int main(void)
     a.resume_cnt = 254;
     thread_resume(&a); thread_resume(&a);
     CHECK(a.resume_cnt == 255 && resumes == 3);
-    /* Active zero-timeout thread returns before reading the undefined minimum. */
+    /* A runnable zero-timeout thread prevents the owner from suspending. */
     thread_run(&owner);
     CHECK(runs == 2 && suspends == 0);
     a.fun = remove_self;
@@ -179,6 +179,28 @@ int main(void)
     CHECK(a.entry.next == &a.entry && a.entry.prev == &a.entry);
     CHECK(thread_delete(&b) == -7 && deletes == 1 && deleted_priority == 42);
     CHECK(owner.head.next == &owner.head && owner.head.prev == &owner.head);
+    thread_run(&owner);
+    CHECK(suspends == 1 && suspended_timeout == 255);
+    CHECK(thread_create(&a, "a", run, &owner) == 0);
+    CHECK(thread_create(&b, "b", run, &owner) == 0);
+    a.resume_cnt = b.resume_cnt = 0;
+    a.suspend_timeout = 200; b.suspend_timeout = 7;
+    thread_run(&owner);
+    CHECK(suspends == 2 && suspended_timeout == 7 && runs == 4);
+    a.suspend_timeout = 3; b.suspend_timeout = 200;
+    thread_run(&owner);
+    CHECK(suspends == 3 && suspended_timeout == 3);
+    a.suspend_timeout = b.suspend_timeout = 255;
+    thread_run(&owner);
+    CHECK(suspends == 4 && suspended_timeout == 255);
+    b.suspend_timeout = 0;
+    thread_run(&owner);
+    CHECK(suspends == 5 && suspended_timeout == 0);
+    /* The final callback may remove the last thread before the minimum pass. */
+    CHECK(thread_delete(&b) == 0);
+    a.fun = remove_self; a.resume_cnt = 1;
+    thread_run(&owner);
+    CHECK(suspends == 6 && suspended_timeout == 255 && runs == 5);
     return TEST_DONE("btctrler_thread");
 }
 #endif
