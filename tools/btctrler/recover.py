@@ -2014,6 +2014,28 @@ def ll_periodic_advertising(text):
     # cpu_reset: only the replaced assertion called it.
     return leftovers(own_all(text, LL_PERIODIC_ADVERTISING_OWNED), 'll_periodic_advertising.c', {'cpu_reset'})
 
+# ll_ext_scan.c: BLE 5 extended scanning (radio links, timers, extended advertising reports).
+LL_EXT_SCAN_OWNED = {
+    'll_ext_scan_rx_probe_handler': '8ac641ac925d14d97e23435a320e88cd6297eaf146950b02da89f0e3ac4c240f',
+    'll_get_ext_adv_pdu': 'cd676fb6e88b7c5f2036e7346fdef4beba96647588844f0654603229921be124',
+    'build_ext_aux_adv_report': '09022adb7ecec38ba5cdd1228a815e231e65c728f338fb730d24530f8c23a4f7',
+    'll_ext_header_resolve': '572bd3135ad6b805d31dff4df73cb3abe10eab89e939fb61cccc5f08912118c5',
+    'll_ext_scan_duration_end': 'f4ed8feffe4a83fcc05dd17e531d3410a1c9c711c7f0b001907085b93dbbba6b',
+    'll_ext_scan_close': '3c322a977ba2036339247d4c02aa4ee4ab941cf369bd127c7844243ad81752fb',
+    'll_ext_scan_timeout_start': '07e9ae966250168128754f1afe219c554e569801763d11ba41e27f4816ab8228',
+    'destroy_le_ext_scan': '5801a342ae64713601b40abbf8ba821fb6602069046be95fed00e4d3edfa2b65',
+    'll_ext_scan_rx_post_process': '3ce977a077df58c52f5ffd377779537db38a83468c10a0c4e6df6d13e0fad7b1',
+    'll_ext_scan_rx_post': '4158acdea2d004085d7afba01e03542ae8cf3043090bd7b1b4a8ebef7c52aac9',
+    'll_ext_scan_open': '845c2c9cb54a227f69628be29dc87ebf325809ba4e5d1855b917245ba2869443',
+    'll_ext_scan_timeout_stop': '84ec3900113309ec0d9531d489939ffa988ebc36c184f3d7f46e072df423b9b6',
+    'll_ext_scan_timer_handler': '2df9f15a09dfc5c364c27677ddec7a730f1c711887245db2c5e92c57258dd13e',
+    'le_ext_adv_report_event_handle': 'fd5e8bfe8a5658be49c30a55165a6786765df0a9c9b02e93d6eba3b8e0e134b5',
+}
+
+
+def ll_ext_scan(text):
+    return leftovers(own_all(text, LL_EXT_SCAN_OWNED), 'll_ext_scan.c', set())
+
 
 # ll_wifi_detect.c: LE vendor Wi-Fi detection / channel avoidance.
 LL_WIFI_DETECT_OWNED = {
