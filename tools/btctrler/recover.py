@@ -2307,6 +2307,45 @@ TWS_TX_SYNC_OWNED = {
 def tws_tx_sync(text):
     return leftovers(own_all(text, TWS_TX_SYNC_OWNED), 'tws_tx_sync.c', set())
 
+# TWS sniff coordination (tws_sniff.c): everything but cpu_reset, which has no
+# caller once the member's other functions are owned.
+TWS_SNIFF_OWNED = {
+    'tws_rx_sniff_req': '0729c0d375c822facb0dd53df61bda2db691cd8fbc37ab321fa2a6a06aa9f3e0',
+    'tws_lmp_rx_sniff_req': 'd330001d8fc34a391e6827f8539a418b334e1f72f11ed46f61cd28685255b80c',
+    'tws_sniff_with_phone': '60d927e575f8a944bdf7f12627348547246f1c4bde6883172399e69c37c6a168',
+    'tws_sniff_without_phone': '560ee9827480e5719e79fe060551275f77918c5d5e89dbd8fae88fd63e4bf665',
+    'tws_rx_unsniff_req': 'f358450a97af28d106f6780d24373ef85cd9a56eeb1a8fe096ae9278969c4cf6',
+    'tws_lmp_rx_unsniff_req': '8d814b7bf9191a2bbd8b8d7027b435002599783b7855daac3a57a30c37b12ce2',
+    'tws_unsniff_with_phone': '32db5a660e097e6aedcacd0f03ae2474613929453c28ed81f9c9b692b2796b4f',
+    'tws_unsniff_without_phone': 'f65dd5bf5d9abe9f715e80d5f211edb615b55766d3842e27ac36447c76f7353f',
+    'tws_rx_unsniff_accept': '51219647c2ac7d1efb4553a7aaf18ebcc65d0796279859e0cc64b8c6edddae14',
+    'tws_rx_sniff_accept': 'fafda73671e8fdace996c987b901fc221c3721133329729f3bfd5b1ee7fef898',
+    'tws_tx_unsniff_req': '7657278b76f8f9f60aa96138e769702b712198b5f14fd7b7ad3e036340d1f6d8',
+    'tws_tx_sniff_req': '81cde2e77c8f37b6f3d48d271212b19c9ac0f68cc0bdd3f5a1cc9781ec1076fb',
+    'tws_sniff_ap_exit': '0cbc57e46f48e82f304b327a813003c1e76230ff05d5c069047a67615bafd81b',
+    'tws_sniff_without_phone_ap_set': '97b588e3d71dd03597a096decf4cf17a357ef414f370bcefefca53dae39817a7',
+    'tws_sniff_ap_set': '1530b9579a019e505b4aee98cca013d4863beedba32063e26801d8741092b37d',
+    'tws_sniff_ap_enter': '728625e95eef34a49991034affaa824cafeb784a5339ec4d36ef58cb2c954713',
+    'tws_conn_sync_tx_operation_mode': 'e8882dd79e9ff4b05ca1c2d25d7b59c9f6fd62d5fd65f99748fd79beb9fda99b',
+    'tws_sniff_fap_set': 'a5e1603ddfa7466a39d423e99e72084ac5cffe6dfd8a3445f7b50e51ea4d3b08',
+    'tws_sniff_first_anchor_point': 'a7c68f3181167ef9123db47c6510a28c977ac50457448c8d943b9d66e5a63b3a',
+    'tws_sniff_wakeup': 'b1847986448453eb5914456398fbc3a9196e941bb18831650ff7c866aa4de233',
+    'tws_sniff_pre_anchor_point': '830111e5877519abb8dc5db62ec2189884c8cea99f8456ab9502a1e2a682f6b3',
+    'tws_sniff_detach': '721e4e135f39a630fc97884507774389d59ae066fc7f667742d43eb17df431ca',
+    'tws_reset_2_slot': '415e715e297bd64a17532fe3c0e7ce15a952c5020c72a4069ba332559803b445',
+    'tws_lmp_rx_sniff_sync': '28b704248889b19d887feee5e718d9202af034b6857df8fd3622e8c080eabaf1',
+    'tws_sniff_without_phone_wakeup': 'fbdca2abac7080c486c60806546b13b6505c1e77125ecadb77d0f141b86815b1',
+    'tws_sniff_without_phone_pre_ap': '1bd96a024cd2a954f28c7a938ade4fd764392d5770d05a1242b4a0f52840e14f',
+    'tws_sniff_without_phone_fap': 'ec4273c0ebeb4bc73bdb23d23b72ec46e4aea037add6ae70d04baa3a09024a7f',
+    'tws_sniff_without_phone_fap_set': '292710ac029e46d9e870c89935e1509af4bfd1ead2032e7fa9079915fbec8d22',
+    'tws_sniff_anchor_point_timeout': 'f60fe98f971aafaface830d5bf0a4452a3460f13b6924699790ea7687ffb60df',
+    'tws_sniff_without_phone_ap_timeout': '05788da1664ce6dbf7dd4517fbb468e551aed134519d4c2cf8bd4423ff9df994',
+}
+
+
+def tws_sniff(text):
+    return leftovers(own_all(text, TWS_SNIFF_OWNED), 'tws_sniff.c', {'cpu_reset'})
+
 # Audited unused hci_device_manager.c.o code; the member is dropped after
 # fingerprint checks and an empty-leftovers assertion.
 HCI_DEVICE_MANAGER_UNUSED = {
