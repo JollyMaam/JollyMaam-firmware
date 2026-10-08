@@ -1642,6 +1642,27 @@ def tws_task(text):
     return leftovers(own_all(text, TWS_TASK_OWNED), 'tws_task.c', TWS_TASK_LEFTOVERS)
 
 
+# tws_ble_link.c: the TWS-over-BLE hooks that ll_slave.c and link_layer.c call
+# (all empty stubs in this SDK build); the rest has no callers.
+TWS_BLE_LINK_OWNED = {
+    'tws_phone_ble_link_connection': '1645c8decd0cb62e1dcf7630533a518667054ec03ca1a58373886b8ed914ed92',
+    'tws_phone_ble_link_disconnection': '4c579b69d93f5acf69dbb5eb8d263027443b0f324a30bd8feec2d3d4e0d2ccbb',
+    'tws_link_ble_slave_conn_establish_probe_handler': '81f3f98251ce7410311ac13118eaf5b92c7f67330f69f252423074da362b8359',
+    'tws_link_ble_slave_conn_establish_handler': 'b9a5b00ab7998473eafb18c08c066e5fdf533bf33d181ddb2cd6df216c8110a8',
+    'tws_link_get_ble_role_slave': '74d2ba7dae233fded35f9c0f22556d1bcd05813a1adbb630b648a151f1ec40ea',
+}
+TWS_BLE_LINK_LEFTOVERS = {
+    'tws_host_get_ble_core_data', 'tws_host_set_ble_core_data', 'tws_host_ble_state_is_busy',
+    'tws_link_check_for_ble_link_switch', 'll_conn_idle', 'tws_rx_ble_setup_monitor_link_req',
+    'tws_master_tx_ble_start_monitor_req', 'tws_conn_ble_slave_start_monitor',
+    'tws_conn_slave_rx_ble_monitor_start_req',
+}
+
+
+def tws_ble_link(text):
+    return leftovers(own_all(text, TWS_BLE_LINK_OWNED), 'tws_ble_link.c', TWS_BLE_LINK_LEFTOVERS)
+
+
 # tws_data_forwarding.c: straggler member of the SDK's TWS code; only what other code
 # still references is owned (the rest is unreferenced and goes with it).
 TWS_DATA_FORWARDING_OWNED = {
