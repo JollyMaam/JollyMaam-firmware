@@ -2608,6 +2608,18 @@ TWS_PAIR_OWNED = {
 def tws_pair(text):
     return leftovers(own_all(text, TWS_PAIR_OWNED), 'tws_pair.c', {'cpu_reset'})
 
+
+# TWS LE access-address generation and its SDK bit-pattern validator.
+TWS_LE_ACC_OWNED = {
+    'ble_sync_generation': '8f26ba04a2739844ca86ff22143e264c3d3f7203b1800dac67b75f851e0deeb4',
+    'acc_rand': 'a26846bd89e55d5cb1ee2f014867c0948141b0ad77a8ede3b0630c2d940bcafd',
+    'tws_le_acc_generation': 'dcde073655ddb71a8fa1026997f5ab50bd71fe29483068f1484869cf1255a82a',
+}
+
+
+def tws_le_acc(text):
+    return leftovers(own_all(text, TWS_LE_ACC_OWNED), 'tws_le_acc.c', set())
+
 # Audited unused hci_device_manager.c.o code; the member is dropped after
 # fingerprint checks and an empty-leftovers assertion.
 HCI_DEVICE_MANAGER_UNUSED = {
