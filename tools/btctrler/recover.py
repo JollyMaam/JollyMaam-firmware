@@ -1642,6 +1642,25 @@ def tws_task(text):
     return leftovers(own_all(text, TWS_TASK_OWNED), 'tws_task.c', TWS_TASK_LEFTOVERS)
 
 
+# tws_sync_call.c: the registered channel and its scheduled-call queue.
+TWS_SYNC_CALL_OWNED = {
+    'get_sync_rec_instant_us_time': '64945297fd7bcda1b978762ef95fc553dbb40c2b60c9d591b9ad78bc9ad47b3f',
+    'tws_api_sync_call_func_internal': 'f27f6461068eb90ee1ce3dbd497d7fcf117fbbd41f9b9cc42f5d7b51947bd29d',
+    'tws_cmd_sync_call': '8f94e8c103ad8c8c4d8c7dcfc72b5a5088c2f910342591430e3efe4e789fb0d1',
+    'tws_sync_call_tx_events': '29d64d60faddb202377c07e7a15d87874ac5d4f704a7e753af98c37bc09bcf57',
+    'tws_sync_call_rx_events_and_tx_events': 'dabb9e61bcca6dc50dd8537b839aa9c600e1734d4b17d2242a13e82faf964150',
+    'tws_sync_call_rx_events': '5e26abe6ca4710e253e4acf708369dc3883df8a8f0eb6602e774e5c5fd582668',
+    'key_sync_call_event_hander': 'e2706803c1032a78bf8fe20c8d1eaf6e144014539012d571b140b1bb4e3b83b8',
+    'tws_sync_call_init': 'a70c70a23937d279744830b2a63704e48801e4f2517b3548cb84b503eb1927a5',
+    'tws_sync_call_tx_events_suss': '22eceb65eee7d4caad63fb1547dbc33ea5db0ca48cd7414ea54bef098479996f',
+}
+
+
+def tws_sync_call(text):
+    return leftovers(own_all(text, TWS_SYNC_CALL_OWNED),
+                     'tws_sync_call.c', set())
+
+
 # tws_ble_link.c: the TWS-over-BLE hooks that ll_slave.c and link_layer.c call
 # (all empty stubs in this SDK build); the rest has no callers.
 TWS_BLE_LINK_OWNED = {
