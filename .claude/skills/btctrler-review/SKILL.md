@@ -76,8 +76,8 @@ the titles in sequence (`btctrler #N: ...`; see `git log`).  Amend messages to
 record reviewer fixes, and keep both Co-Authored-By lines (worker and yours).
 Then `make -j32` and `make test` (exit 0) on the merged tree.
 For each merged commit also run
-`python3 tools/btctrler/review/imagecmp.py <commit>^ <commit>` (main
-checkout, clean tree).  Where LTO discards the member's code, the image
+`python3 tools/btctrler/review/imagecmp.py <commit>^ <commit>` (builds in
+its own worktree, /work/cyclone2-imagecmp).  Where LTO discards the member's code, the image
 must be identical apart from BUILD_ID; any difference must be explained
 (live code legitimately recompiled, global placement) before merging.
 

@@ -3,12 +3,13 @@
 
     python3 tools/btctrler/review/imagecmp.py BASE NEW
 
-Run in the main checkout with a clean tree (worktrees embed different path
-strings, so their layouts differ).  Checks out each commit, rebuilds usb.o
-(BUILD_ID is not a make dependency), builds, and compares build/text.bin and
-build/data.bin.  Both commit ids have the same length, so a translation that
-LTO reduces to the same code leaves only the hash bytes different.  Restores
-the original HEAD afterwards.  Exit 0: identical apart from BUILD_ID.
+Builds both commits in one dedicated worktree (/work/cyclone2-imagecmp,
+created on first use, detached), so the main checkout and other sessions are
+not disturbed; both builds share the directory, so path strings match.
+Rebuilds usb.o (BUILD_ID is not a make dependency) and compares
+build/text.bin and build/data.bin.  Both commit ids have the same length, so
+a translation that LTO reduces to the same code leaves only the hash bytes
+different.  Exit 0: identical apart from BUILD_ID.
 """
 import os
 import subprocess
@@ -16,29 +17,30 @@ import sys
 from pathlib import Path
 
 
-def git(*args):
-    return subprocess.check_output(['git', *args], text=True).strip()
+WORKTREE = Path('/work/cyclone2-imagecmp')
+
+
+def git(*args, cwd=None):
+    return subprocess.check_output(['git', *args], text=True, cwd=cwd).strip()
 
 
 def build(commit):
-    subprocess.run(['git', 'checkout', '-q', commit], check=True)
-    Path('src/usb.c').touch()
+    subprocess.run(['git', 'checkout', '-q', '--detach', commit], check=True, cwd=WORKTREE)
+    (WORKTREE / 'src/usb.c').touch()
     env = dict(os.environ, PATH='/work/bin:' + os.environ['PATH'])
-    subprocess.run(['make', '-j32'], check=True, env=env, stdout=subprocess.DEVNULL)
-    ident = git('describe', '--always', '--dirty')
-    return {f: Path('build', f).read_bytes() for f in ('text.bin', 'data.bin')}, ident
+    subprocess.run(['make', '-j32'], check=True, env=env, cwd=WORKTREE,
+                   stdout=subprocess.DEVNULL)
+    ident = git('describe', '--always', '--dirty', cwd=WORKTREE)
+    return {f: (WORKTREE / 'build' / f).read_bytes() for f in ('text.bin', 'data.bin')}, ident
 
 
 def main():
-    base, new = sys.argv[1:3]
-    if git('status', '--porcelain', '--untracked-files=no'):
-        sys.exit('imagecmp: tracked changes in the checkout; commit or stash first')
-    head = git('symbolic-ref', '-q', '--short', 'HEAD') or git('rev-parse', 'HEAD')
-    try:
-        a, ida = build(base)
-        b, idb = build(new)
-    finally:
-        subprocess.run(['git', 'checkout', '-q', head], check=True)
+    base, new = (git('rev-parse', c) for c in sys.argv[1:3])
+    if not WORKTREE.exists():
+        subprocess.run(['git', 'worktree', 'add', '-q', '--detach', str(WORKTREE), base],
+                       check=True)
+    a, ida = build(base)
+    b, idb = build(new)
     if len(ida) != len(idb):
         sys.exit(f'imagecmp: build ids differ in length ({ida}, {idb})')
     same = True
