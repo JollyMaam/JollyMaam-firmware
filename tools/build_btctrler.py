@@ -78,6 +78,17 @@ PIPELINE = {
 # then left out of the archive.
 DROPPED = ('bredr_frame.c.o', 'link_task.c.o', 'bredr_low_power.c.o', 'le_low_power.c.o', 'bredr_slot_timer.c.o', 'tws_data_forwarding.c.o', 'tws_ll_adv.c.o', 'local_media_sync.c.o', 'tws_media_sync.c.o', 'hci_ll_5_cmds.c.o', 'll_white_list.c.o', 'btencry_task.c.o', 'thread.c.o', 'btcontroller_heap.c.o', 'sys_timer.c.o', 'authentication.c.o', 'bredr_utils.c.o', 'btctrler_task.c.o', 'device_manager.c.o', 'h4_controller_interface.c.o', 'll_ext_init.c.o', 'll_extended_advertising.c.o', 'll_master.c.o', 'll_data_extension.c.o', 'll_common_iso.c.o', 'll_bis.c.o', 'll_cis.c.o', 'll_keys.c.o', 'hci_controller.c.o', 'lbuf.c.o', 'link_bulk.c.o', 'lmp.c.o', 'lmp_hci.c.o', 'lmp_hci_cmd_parser.c.o', 'lmp_rxtx.c.o', 'lmp_utils.c.o', 'misc_hw.c.o', 'misc_hw_common.c.o', 'hci_ll_cmds.c.o', 'vsprintf.c.o', 'vendor_manager.c.o', 'aes128.c.o', 'aes_hw.c.o', 'bredr_dut.c.o', 'btcontroller_util.c.o', 'hci_ll.c.o', 'hw_dma.c.o', 'll_slave.c.o', 'll_multiple_phys.c.o', 'll_adv.c.o', 'll_events.c.o', 'direct_test_dut.c.o', 'bredr_link.c.o', 'btagc.c.o', 'analog_ble.c.o', 'tws_tx_sync.c.o', 'hci_device_manager.c.o', 'interrupt.c.o', 'll_pc.c.o', 'll_bis_master.c.o', 'nv_memory.c.o')
 
+# Members the firmware link never pulls in: no symbol they define is
+# referenced.  Left out without translation; if owned C ever references one
+# of their symbols, the link fails with an undefined reference.
+UNLINKED = ('access_addr.c.o', 'au_law_codec.c.o', 'audio_codec.c.o',
+            'bredr_RF.c.o', 'btcontroller_linked_list.c.o',
+            'cte_data_algorithm.c.o', 'esco_codec.c.o', 'h4_uart_hw.c.o',
+            'h4_uart_interface_loop.c.o', 'h4_usb_descriptor.c.o',
+            'h4_usb_interface.c.o', 'hopping_channel.c.o', 'll_bis_slave.c.o',
+            'll_cis_master.c.o', 'll_cis_slave.c.o', 'll_cte.c.o', 'll_msg.c.o',
+            'tws_ci_data.c.o', 'tws_low_latency.c.o')
+
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
@@ -91,7 +102,7 @@ def main():
         raise ValueError('controller: destination must be a build copy, not the SDK archive')
     archive.require_audited_sdk(source)
     members = subprocess.check_output([args.ar, 't', str(source)], text=True).splitlines()
-    missing = (set(PIPELINE) | set(DROPPED)) - set(members)
+    missing = (set(PIPELINE) | set(DROPPED) | set(UNLINKED)) - set(members)
     if missing:
         raise RuntimeError(f'controller: missing archive members: {sorted(missing)}')
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -101,12 +112,12 @@ def main():
         originals = {m: archive.digest(directory / m) for m in members}
         for member, transforms in PIPELINE.items():
             rewrite_member(directory / member, args.clang, transforms)
-        kept = [m for m in members if m not in DROPPED]
+        kept = [m for m in members if m not in DROPPED + UNLINKED]
         # Rebuild from scratch so stale members cannot survive SDK changes.
         temporary = directory / 'retained.a'
         subprocess.run([args.ar, 'rcs', str(temporary), *kept], cwd=directory, check=True)
         temporary.replace(destination)
-        archive.record(source, destination, kept, originals, directory, DROPPED)
+        archive.record(source, destination, kept, originals, directory, DROPPED + UNLINKED)
 
 
 if __name__ == '__main__':
