@@ -1991,6 +1991,30 @@ def ll_scan(text):
     return leftovers(own_all(text, LL_SCAN_OWNED), 'll_scan.c', {'cpu_reset'})
 
 
+# ll_periodic_advertising.c: LE periodic advertising and periodic sync.
+LL_PERIODIC_ADVERTISING_OWNED = {
+    'll_periodic_sync_timer_handler': '94238cfd94e04756e3641a15138b0a21012930388d8a55b21f4992f275c6e088',
+    'le_periodic_sync_timeout_close': '1a82fe3b1b105dffa3b88449f5a388478131fd55192ec507802617db61156a7b',
+    'll_periodic_sync_close': 'a9e7de0555df9cebd1cec9e885b2d03a275a230888f619578d2e600070fcacb1',
+    'le_periodic_adv_report_event_handle': '4c6b51f3a9dbeeb144a631170b91b95e08b805c58181b46f5ae9fe234534caf7',
+    'll_periodic_sync_open': '24892ea1db90094b2a111105d096b7dac94c177a29fc3f37f56789f6616c6030',
+    'll_periodic_advertising_create_sync': '6762c15b06e7702e3336a4ccba6477568d893b6659f7727c1e63612f34848706',
+    'll_periodic_advertising_create_sync_cancel': '113b05a3134b3d8bd6043cffcce2a57834d6dc22ee927fa3c9b04a17675d0a17',
+    'll_periodic_advertising_terminate_sync': 'fbccf8bb286872252cf53c8b3187ebd8fca32377e2337fcf2c3c7f71e14387cc',
+    'll_periodic_adv_data_update': '4ac52305cf4a3ca09424452649358050fed148cc6148e7fb37a5e2c30cc59031',
+    '__set_ll_ext_periodic_adv_param': '4568dc885211e7e1881dc0bb0262f8272d89f6f59cdfe0a5795108ac9df34d2e',
+    'll_periodic_adv_open': '9c0adcfb97f423263f52a0e383b057234c2d41b3ff9b1335f7bd7e302bedcb0f',
+    'll_periodic_adv_close': '715c0e0ebecd560ba0984469d1564aecf1686f2f6889dd5fbebff287ef789ed1',
+    'list_add_tail': '5e4aea8979099e228aa2db974f4e7b6dd4ef73eeb6b922a474b0faa4922af58a',
+    'list_del': 'e8d63d8548a3f1843e4af5adfe14ef56e6545724d43ceee2c6838bb080767048',
+}
+
+
+def ll_periodic_advertising(text):
+    # cpu_reset: only the replaced assertion called it.
+    return leftovers(own_all(text, LL_PERIODIC_ADVERTISING_OWNED), 'll_periodic_advertising.c', {'cpu_reset'})
+
+
 # ll_wifi_detect.c: LE vendor Wi-Fi detection / channel avoidance.
 LL_WIFI_DETECT_OWNED = {
     'll_update_ch_done_wfdet_callback': '6181741891788b19b56408d6b23c2f577908d6fe37092f976c9e9a72283b5a3d',
