@@ -202,3 +202,25 @@ here has been "fixed" unless it says so.
     with no zero guard (urem confirmed in IR; whether HCI validation rules out
     interval < 2 is not checked). Both roles are removed by LTO in this
     peripheral-only firmware.
+
+25. **TWS eSCO relay leaves heap fields uninitialized.** `tws_link.c`,
+    `bredr_esco_tws_link_open`: allocates 80 bytes without clearing the
+    block, then initializes selected fields. Timer handles, toggle bits and
+    `tws_esco_tx_info` remain untouched; `esco_dump_cnt` also remains untouched
+    on the non-monitor path with queued phone frames. Proven from the SDK IR
+    during #77 review; preserved. TWS peer operation is unused here and removed
+    by LTO, so effects on a real relay remain untested.
+
+26. **TWS semaphore allocations are smaller than the declared type.**
+    `tws_pair.c`: three paths allocate 80 bytes for `OS_SEM`, while `sdk.h`
+    declares a 160-byte object. Proven allocation sizes and type layout from
+    SDK IR/header during #78 review; preserved. Whether the semaphore routines
+    touch beyond the allocation is untested; these TWS paths are removed by LTO.
+
+27. **TWS sniff assumes both peer and phone state exist.** `tws_sniff.c`,
+    `tws_sniff_with_phone`: a nonnull peer link permits an unchecked
+    `tws_conn.lmp_conn->sniff` read. `tws_rx_unsniff_req` also uses
+    `tws_link.link->task` without a null check for flags other than 0x55.
+    Proven from SDK IR during #76 review; preserved. Reachability with absent
+    connection state and hardware effects remain untested. The retry path in
+    `tws_sniff_ap_set` does guard the connection; it is not another instance.
