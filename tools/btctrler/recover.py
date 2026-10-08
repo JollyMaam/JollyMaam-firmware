@@ -1101,6 +1101,28 @@ def ll_master(text):
                      {'cpu_reset'})
 
 
+# ll_afh.c: BLE master adaptive frequency hopping statistics and channel map update.
+LL_AFH_OWNED = {
+    'll_update_ch_done_afh_callback': 'e5d62d0f7867d522a8f6f030d5707e645b4e4eac65ab2e2f59411f4abf096ed4',
+    'atomic_set': 'f98608503c1b9777a43ce1b802246b7a675483581299f13ba2225504a7f95f54',
+    'conn_evt_probe_evtchannel_handler': 'a450c0980b17fcef1c48b39543dfbcdc3fe2d50ad8d5ac36c10727f5f87759fa',
+    'conn_rx_probe_channel_handler': '620f75fa69176e16c4bb18c0cb33d5b275681078a648d8c319743d39dbb8597b',
+    'll_update_channel_map_post_handler': '5c034c1d87db709f4b23996d0a4e17c17d30cc071caca0ac6c3cf41172bbc683',
+    'll_afh_open': '4c0da95b207fed3971832823e278e0e70fdb83219460d78780efe764ab5a73e6',
+    'll_afh_close': '47f3cd86a354db0b94cf43510c67a73aeba64ebbb9d79136606d72616519ffac',
+    'list_del': '440e376dbccf200082bf4405f10850b031777f9d7a31b01d18b3367050f9d886',
+    'CUR_INTERVAL_EFFECT_TIMES': '070ba42e1c71aa1c764f1c756f6de796f3a5964f8f48f839aa64a6aeca5bf518',
+    'list_add': 'b5a02280664027c7d4fe4611f8990dfcd8d0a758d0835497e96d39eb2fc4ed5d',
+    'list_add_tail': '4c9f2c165023bbc200c455640a7106367446d02de5015aa767e8165b55b70256',
+    'channle_weight_sort': 'df8b58c948855f027dd4f21d3d674eb864f515e4d8223056e94f7872537f5537',
+    'INIT_LIST_HEAD': '86563651ca478669771c2595750cba67cfbbbdcedde1775a183327a8dee34b0c',
+}
+
+
+def ll_afh(text):
+    return leftovers(own_all(text, LL_AFH_OWNED), 'll_afh.c', {'cpu_reset'})
+
+
 # ll_slave.c: BLE slave-role receive, connection update and vendor PDU handling.
 LL_SLAVE_OWNED = {
     'll_get_update_handle': '2f85c97ebc1a9765738611b12b3994534fc7d15c71e06e7d8220346ff7e84a0c',
