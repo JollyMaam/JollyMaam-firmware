@@ -1049,6 +1049,25 @@ BREDR_SLOT_TIMER_OWNED = {
 def bredr_slot_timer(text):
     return leftovers(own_all(text, BREDR_SLOT_TIMER_OWNED), 'bredr_slot_timer.c', {'cpu_reset'})
 
+# ll_init.c: BLE initiator (LE Create Connection link setup and address filtering).
+LL_INIT_OWNED = {
+    'll_init_state_RPA_process': '01bda3a13e3a46162fc56770caf8160a8e126d6b73eb1a4a56a0028dce12ea62',
+    'le_ll_init_addr_process': '747a5dd148ad51550551398ec47cb8eed0ac8f4b050c039f1ecc464fa266828f',
+    'init_rx_post_handler': '033cdca9b1173e4eb39044c661307d343654f48edc5c3da09a78b6fb61878266',
+    '__init_rx_post_handler': 'e7c90aa11a4351d7d15090f8e37df8c302d01bb524a4ebd75998fb9082c1d919',
+    'll_init_open': '94c20568116543f6e6d484626d403702a0298148011ffc0061da2f802b222c71',
+    '__set_ll_init_state': 'c906c40f8a92bd1fd7a651efc1a93ea2873f0fba515fd5a18e6fe2cbee0c9985',
+    'll_init_close': 'f9c7f0fb761e532951edf3fe2a88fb1e9d77d770285cbb22fc4ebb9935961ee3',
+    'init_rx_probe_handler': 'a375369d13a2c87874dd8b6c43c644ee09794044b93ef328e8db69a0223c0f92',
+    'init_sync_param_handler': '3b3c0e388c77405fe25943ac5c7d264265926216df887642d70e0b54b7a011c6',
+}
+
+
+def ll_init(text):
+    # cpu_reset: only the replaced assertion called it; ll_init_link_get: no caller.
+    return leftovers(own_all(text, LL_INIT_OWNED), 'll_init.c', {'cpu_reset', 'll_init_link_get'})
+
+
 # ll_ext_init.c: BLE 5 extended initiating (LE Extended Create Connection link setup).
 LL_EXT_INIT_OWNED = {
     'll_ext_init_rx_probe_handler': '0b99387c6988184d2c9b24fdce519245e0c21f14a7694099d6dd9bb29a760408',
