@@ -2033,6 +2033,41 @@ LL_WIFI_DETECT_OWNED = {
 def ll_wifi_detect(text):
     return leftovers(own_all(text, LL_WIFI_DETECT_OWNED), 'll_wifi_detect.c', set())
 
+# ll_resolve_list.c: LE privacy (resolving list, RPA generation and resolution,
+# RPA refresh timer).  debug_ll_privacy and ll_vendor_device_address_generate
+# have no caller anywhere, so they stay SDK-only (dropped with the member).
+LL_RESOLVE_LIST_OWNED = {
+    'irk_enc': 'd2578dcf1215249e5e7f5d6ac5c3c6a77ff37826038b85b5b47d9622e3ae458a',
+    'll_resolve_list_IRK_verify': 'a52d4cbcbf86697f9abfdb12e2b96f64ce6bdcdeadf1e350c097a90824788b4f',
+    'll_resolving_list_match': 'ae2dfd53fe370cbf9a55aef1f7b611f9e15e8e4c173dbb30693d7338647fb558',
+    'll_resolve_list_set_local_RPA': '2164f0604f1b27a52aab8e4c946c4f541a9c35ea83fae76a6f1d63dabfe92216',
+    'device_addr_generate': '39bccf46061f2429309de5462f813f056e040410f984137f5fdb7383d0acf544',
+    'll_resolve_list_set_peer_RPA': '34344c123df7a265f856eeca0e683afcc8068499c0709682811d50ffaf8761c5',
+    'll_resolve_peer_addr': '487c8a3d71a0f71646368ed046a4d3c1590d04fae14bd042bcf96449201e7168',
+    'll_resolvable_private_addr_verify': 'a716235528d9b9088b26953ed90816322c28f45b1ba8c96cf94f23917999efe4',
+    'll_resolve_local_addr': '158f05f46927ae9e224c331bc17156dbb5e1fd5407a845fad36fc773a83d5b38',
+    'll_resolving_list_init': 'dc0cabe522d7dad7e8704f4189d035de2e1d0f80fdbf6e17f5a8544f6c62c075',
+    'INIT_LIST_HEAD': '335a3479087048ad5932c9997a911fac36d1a4b9d4b3ef4e46d3fceeb87e9417',
+    'll_resolving_list_add': '909427a9fa158868b3c6d7e108c0e789ee4e6992ec7800a61e093b641c4a3116',
+    'list_add_tail': 'a25c17357576f48cb8ff22394e3a95cb8bb05293461f75d78b55d223914cb995',
+    'll_resolving_list_remove': '6ec889dacea1bb294d1577476986ea9db0c0b40d53b3a0c5e9d4deed47df6248',
+    'list_del': 'e4fe489b463d2ddb14625043a5c2904b6813fd9faa39628905b68bf01bc42166',
+    'll_read_peer_resolvable_address': 'f7094fa7395067c88c91707fde9fb7372f456c32facbe62a2a107ffcf4ff3567',
+    'll_read_local_resolvable_address': 'e2fd311296dc17e785f75a75e718b1d0d3275777be7c730fe6ea08593f56654d',
+    'll_set_resolvable_private_address_timeout': '6da5025c982c7f67cf736a801b15397d681a8138f51f14e9608eff2767a2d9e9',
+    'll_RPA_timeout_stop': '552838e16ac8972973e320f94e915edb7df93abd1e43b6041183eee71e6f7273',
+    'll_RPA_timeout_start': '97a43fa50ca6749b31221e15c2d6c653cf3289e93eaec4d4de8450a223cb6c80',
+    'll_resolution_enable': 'fa09d93135abc2e6a5945a80c7d0fc3b03268708f029b63645fd28d8525146ab',
+    '__random48_update': 'cb153f703fa22d399c4a5d19dd9e786d17fd40ed5e2e8a6c917640e4cc2c6e82',
+    'll_resolution_disable': '739e911203c45228039f32dbec56ed22c917429eade8409cb760d15f62183f26',
+    'll_RPA_timeout_handler': 'b55aa0f8199bb26094a56221df48f299f5c557570031293de5e8ae10c4a0110b',
+}
+
+
+def ll_resolve_list(text):
+    return leftovers(own_all(text, LL_RESOLVE_LIST_OWNED), 'll_resolve_list.c',
+                     {'cpu_reset', 'debug_ll_privacy', 'll_vendor_device_address_generate'})
+
 
 # Bluetooth AGC table upload and initialization.
 BTAGC_OWNED = {
