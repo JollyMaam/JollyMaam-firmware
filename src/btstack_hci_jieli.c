@@ -1,4 +1,4 @@
-/* BTstack on the Jieli BR23 controller library (btctrler.a): the HCI
+/* BTstack on the owned Jieli BR23 controller: the HCI
  * transport, the run loop, and the few controller calls the host needs.
  * BTstack headers only; the controller's entry points are declared here. */
 #include <string.h>
@@ -30,7 +30,7 @@ static volatile u8 exit_requested;
 
 /* ---- controller --------------------------------------------------------- */
 
-/* Called by btctrler.a for every event and ACL packet; the packet is only
+/* Called by the controller for every event and ACL packet; the packet is only
  * valid during the call. */
 int hci_packet_handler(u8 type, u8 *packet, u16 size)
 {

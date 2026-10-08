@@ -32,12 +32,10 @@ SDK_USED := \
 	cpu/br23/setup.c
 
 LLVM_AR := $(TOOL_DIR)/../../common/bin/llvm-ar
-VENDOR_BTCTRLR := $(SDK)/cpu/br23/liba/btctrler.a
-RETAINED_BTCTRLR := $O/sdk-libs/btctrler.a
-ARCHIVES := $(subst $(VENDOR_BTCTRLR),$(RETAINED_BTCTRLR),$(SDK_ARCHIVES_MINIMAL))
+ARCHIVES := $(SDK_ARCHIVES_MINIMAL)
 
-# Upstream BTstack (master), unmodified.  btctrler.a exports a few of the same
-# names; BTstack's copies are renamed.
+# Upstream BTstack (master), unmodified. The owned controller exports a few
+# of the same names; BTstack's copies are renamed.
 BTSTACK := /work/cyclone2-btstack
 BTSTACK_USED := \
 	src/btstack_hid_parser.c src/btstack_linked_list.c src/btstack_memory.c \
@@ -115,17 +113,6 @@ $O/firmware.img: $O/app.bin $O/isd_config.ini $O/jlnewfw
 $O/jlnewfw: tools/jlnewfw.c
 	@mkdir -p $(@D)
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) $< -o $@
-
-$(RETAINED_BTCTRLR): $(VENDOR_BTCTRLR) tools/build_btctrler.py $(wildcard tools/btctrler/*.py)
-	@mkdir -p $(@D)
-	@echo [CONTROLLER] $@
-	$(Q)$(PYTHON) tools/build_btctrler.py $< $@ --clang $(CC) --ar $(LLVM_AR)
-
-# Optimized retained SDK implementation for inspection; generated, outside git.
-.PHONY: controller-ir
-controller-ir: $(RETAINED_BTCTRLR)
-	$(Q)$(PYTHON) tools/inspect_btctrler.py $(VENDOR_BTCTRLR) $O/controller-ir/sdk --clang $(CC) --ar $(LLVM_AR)
-	$(Q)$(PYTHON) tools/inspect_btctrler.py $(RETAINED_BTCTRLR) $O/controller-ir/retained --clang $(CC) --ar $(LLVM_AR)
 
 # The SDK's linker script, with the heap ending below the retained RAM and the
 # controller's RAM kept clear of the MaskROM boot token.

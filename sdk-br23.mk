@@ -159,6 +159,5 @@ SDK_ARCHIVES_MINIMAL := \
 	$(SDK)/cpu/br23/liba/crypto_toolbox_Osize.a \
 	$(SDK)/cpu/br23/liba/cpu.a \
 	$(SDK)/cpu/br23/liba/system.a \
-	$(SDK)/cpu/br23/liba/btctrler.a \
 	$(SDK)/cpu/br23/liba/update.a \
 

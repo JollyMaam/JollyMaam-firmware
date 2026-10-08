@@ -1,33 +1,27 @@
-# Retained Bluetooth controller implementation
+# Owned Bluetooth controller implementation
 
-The firmware links owned C controller policy with a generated SDK archive.
-This is a gradual recovery of implementation boundaries. It does not recover
-the original SDK C source or replace the radio controller.
+The firmware links the recovered C controller in `src/btctrler/` directly with
+BTstack and the SDK CPU/OS runtime. No `btctrler.a` is built or linked. The
+startup version symbol is supplied by `src/btctrler/version.c`, preserving the
+SDK's 34-byte `.sys.version` record.
 
-Owned controller policy and QoS are mandatory parts of the firmware. There is
-one archive construction path, using the policy tested on PC and console.
-The old archive mode menu, feature defines and SDK policy fallback are removed.
-
-## Layers and remaining implementation
+## Layers
 
 | Layer | Responsibility | Ownership |
 | --- | --- | --- |
 | Profiles and application | Report formats, cadence, pairing choices | App C |
 | Host stack | HID, L2CAP, connection management and HCI commands | BTstack and app integration |
-| HCI transport | Command, event and ACL transfer | App integration with retained SDK entry points |
-| Controller command handling | Decode commands, route connections, apply link policy | Outer dispatch, common device info and Classic control/policy/baseband in C; other handlers retained |
-| Link Manager / BLE Link Layer | Negotiation, connection procedures and state | Mostly retained SDK; selected C policy and QoS |
-| Baseband and radio | Scheduling, packets, retransmission, encryption and hardware timing | Retained SDK |
+| HCI transport | Command, event and ACL transfer | App integration with owned controller entry points |
+| Controller command handling | Decode commands, route connections, apply link policy | Owned C |
+| Link Manager / BLE Link Layer | Negotiation, connection procedures and state | Owned C |
+| Baseband and radio | Scheduling, packets, retransmission, encryption and hardware timing | Owned C |
 
-The Python package prepares the archive at build time. It is not a runtime
-layer. Recovering a command dispatcher still leaves its called procedures and
-radio machinery in the SDK. Subsequent useful boundaries are
-status/information command dispatch, queue admission and individual
-negotiation procedures.
-Each needs caller, state, locking and event-contract audits before extraction.
-No complete radio replacement or throughput improvement is implied.
+## Recovery history
 
-## Build and ownership
+The following extraction boundaries describe the earlier recovery process.
+The final build links all owned controller C directly; the archive construction
+pipeline has been retired.
+
 
 `src/btctrler_hci_dispatch.c` owns `hci_command_process`, including HCI
 header/packet-size validation and all nine SDK command groups. The packet
@@ -191,54 +185,25 @@ LMP receive state machine remain SDK implementation. The owned C objects
 are linked directly with the generated retained archive, allowing LTO across
 the boundary.
 
-## Generated artifacts
+## SDK comparison tools
 
-### Call provenance
-
-| Name | Implementation |
-| --- | --- |
-| `BTCTRLER_BIN_<name>` | Retained SDK code; assembler symbol labels bind directly to the original SDK entry point, with no forwarding wrapper. |
-| `BTCTRLER_ABI_<name>` | Generated typed SDK storage accessor, using the archive's LLVM struct layout. |
-| Ordinary C names | Owned implementation, including recovered SDK entry points and app callbacks. |
-
-Retained-call labels cover policy, transport, startup and Switch wake code.
-The extracted assertion/dispatch fragment is directly exported with its
-`BTCTRLER_BIN_` name. CPU runtime calls such as IRQ control are outside the
-controller archive and are identified separately in the ABI header.
-
-### Python build package
-
-`tools/build_btctrler.py` specifies the ordered transform pipeline. Each
-modified member is decoded once, transformed in order and re-emitted once.
-Archive publication uses a temporary directory on the destination filesystem
-and replaces the archive atomically; it cannot retain stale members.
+`PATH=/work/bin:$PATH make controller-ir` generates readable optimized LLVM IR
+and JSON inventories under `build/controller-ir/sdk/` from the pristine SDK
+archive. This optional inspection target is independent of the firmware build.
+The shared SDK archive is never edited. There is no generated controller archive,
+retained-member inventory or archive manifest.
 
 | Module under `tools/btctrler/` | Responsibility |
 | --- | --- |
 | `ir.py` | Checked function extraction, debug locations and bitcode round-trip. |
-| `recover.py` | Audited definition removal and retained assertion/dispatch fragment. |
-| `abi.py` | Typed layout-accessor generation. |
-| `qos.py` | HCI policy extraction and validated QoS receive interception. |
-| `fixes.py` | Remaining SSP notification and detach drain corrections. |
-| `trace.py` | Bring-up instrumentation. |
-| `archive.py` | Fingerprints, ownership/binding manifest and inspection. |
+| `recover.py` | Audited SDK definition fingerprints and historical extraction transforms. |
+| `archive.py` | SDK fingerprints, ownership inventory and inspection entry point. |
+| `inspection.py` | Cached IR decoding and reference/debug metadata inventories. |
+| `sdktypes.py` | Controller types recovered from the SDK debug metadata. |
+| `crosscheck.py` and `review/` | Compare owned object IR with the SDK implementation. |
 
-`tools/inspect_btctrler.py` is the inspection entry point. The former patching
-scripts are removed; there is no compatibility command or alternate pipeline.
-
-`make` produces `build/sdk-libs/btctrler.a` and
-`build/sdk-libs/btctrler.manifest.json`. The manifest records source/output
-archive fingerprints, owned definitions/wrappers, binary symbol bindings and each
-member's source/output fingerprint. Unmodified members are retained byte
-for byte. The shared SDK archive is never edited.
-
-`PATH=/work/bin:$PATH make controller-ir` generates readable optimized LLVM
-IR and JSON inventories under `build/controller-ir/sdk/` and
-`build/controller-ir/retained/`. They include function names, symbol
-references and debug metadata evidence of owned functions already inlined
-into callers. One archive member is native ELF version data and is recorded
-without pretending it is LLVM code. These are generated inspection artifacts,
-not source files to check into git.
+`tools/inspect_btctrler.py` is the inspection command. Generated inspection
+artifacts stay outside source control.
 
 ## Guardrails for subsequent recovery
 
