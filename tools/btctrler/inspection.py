@@ -4,9 +4,16 @@ import fcntl
 import hashlib
 import json
 from pathlib import Path
+import os
 import re
+import shutil
 import subprocess
 import tempfile
+import time
+
+# Entries for other decoder/scanner versions are kept this long after their
+# last use, so worktrees on older tooling commits do not thrash the cache.
+STALE_SECONDS = 14 * 24 * 3600
 
 
 def digest(path):
@@ -126,8 +133,14 @@ def inspect(source, output, clang, ar, owned, cache=None):
                                     'scanner': digest(__file__),
                                     'target': 'pi32v2', 'schema': 1},
                                    sort_keys=True).encode()).hexdigest()
-    cache = (Path(cache) if cache is not None else cache_root(output)) / key
+    root = Path(cache) if cache is not None else cache_root(output)
+    cache = root / key
     cache.mkdir(parents=True, exist_ok=True)
+    os.utime(cache)
+    for other in root.iterdir():
+        if other != cache and other.is_dir() and \
+                time.time() - other.stat().st_mtime > STALE_SECONDS:
+            shutil.rmtree(other, ignore_errors=True)
     members = subprocess.check_output([ar, 't', str(source)], text=True).splitlines()
     inventory, expected = [], set()
     reused = 0

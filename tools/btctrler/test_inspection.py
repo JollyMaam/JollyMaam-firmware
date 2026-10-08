@@ -1,16 +1,20 @@
-"""Run with: python3 -m unittest discover -s tools/btctrler -p test_inspection.py"""
+"""Run with: python3 tools/btctrler/test_inspection.py (or unittest discover -s tools/btctrler)"""
 import contextlib
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
-import inspection
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import inspection  # noqa: E402
 
 
 IR = '''define void @foo() { ret void }
@@ -115,6 +119,18 @@ class InspectionTest(unittest.TestCase):
             p.write_bytes(b'corrupt')
         self.inspect()
         self.assertEqual(len(self.decodes), 5)
+
+    def test_unused_versions_are_pruned(self):
+        self.inspect()
+        old = next(self.cache.iterdir())
+        self.clang.write_bytes(b'decoder version 2')
+        self.inspect()
+        self.assertEqual(len(list(self.cache.iterdir())), 2)
+        stale = time.time() - inspection.STALE_SECONDS - 60
+        os.utime(old, (stale, stale))
+        self.inspect()
+        self.assertEqual(len(list(self.cache.iterdir())), 1)
+        self.assertFalse(old.exists())
 
     def test_concurrent_same_member_is_decoded_once(self):
         member = self.root / 'a.o'

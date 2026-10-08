@@ -1,13 +1,13 @@
 ---
 name: btctrler-review
-description: Batch-review btctrler/<member> branches produced by other agents with the btctrler-own skill — check each against the SDK IR, fix or reject, merge onto rewrite, flash and test on hardware. Use when asked to review, merge or test agents' btctrler work.
+description: Batch-review btctrler/<member> branches produced by other agents with the btctrler-own skill — check each against the SDK IR, fix or reject, merge onto main, flash and test on hardware. Use when asked to review, merge or test agents' btctrler work.
 ---
 
 # Batch review of btctrler branches
 
 Workers follow `.claude/skills/btctrler-own/SKILL.md` and leave one commit
 per member on branches `btctrler/<member>`.  You are the gate: nothing
-reaches `rewrite` or the pad without passing this.
+reaches `main` or the pad without passing this.
 
 ## 1. Collect
 
@@ -16,7 +16,7 @@ cd /work/cyclone2-firmware
 git branch --list 'btctrler/*' 'worktree-agent-*'
 git worktree list
 ```
-For each branch: `git log --format='%h %s' rewrite..BRANCH` (expect one
+For each branch: `git log --format='%h %s' main..BRANCH` (expect one
 commit) and `git show --stat BRANCH`.  A branch touching files outside
 `src/btctrler/<member>.c`, `tools/btctrler/{recover,archive}.py` and
 `tools/build_btctrler.py` needs a reason.
@@ -69,7 +69,7 @@ reachable, or a note to the user).
 
 ## 3. Merge
 
-On `rewrite` in the main checkout, cherry-pick the approved commits.
+On `main` in the main checkout, cherry-pick the approved commits.
 Conflicts are almost always the `PIPELINE`, `DROPPED`, `archive.py` import
 lines and adjacent `recover.py` tables: keep both sides.  Renumber
 the titles in sequence (`btctrler #N: ...`; see `git log`).  Amend messages to

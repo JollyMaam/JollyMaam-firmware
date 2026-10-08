@@ -19,7 +19,7 @@ that changes behaviour is a defect here.
 - **Your own worktree and branch.**  Never edit the main checkout.  Start with:
   ```
   cd /work/cyclone2-firmware
-  git worktree add ../cyclone2-fw-<member> -b btctrler/<member> rewrite
+  git worktree add ../cyclone2-fw-<member> -b btctrler/<member> main
   cd ../cyclone2-fw-<member>
   ```
   (`<member>` without `.c.o`, e.g. `bredr_utils`.)  If your harness already
