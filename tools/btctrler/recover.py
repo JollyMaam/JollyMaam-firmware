@@ -1662,6 +1662,76 @@ TWS_BLE_LINK_LEFTOVERS = {
 def tws_ble_link(text):
     return leftovers(own_all(text, TWS_BLE_LINK_OWNED), 'tws_ble_link.c', TWS_BLE_LINK_LEFTOVERS)
 
+# tws_le_link.c: TWS LE advertising/scanning link.  Owned: everything retained
+# TWS code or owned C reaches.  The leftovers have no caller (bredr_link.c no
+# longer names the eSCO connect steps) and go with the member.
+TWS_LE_LINK_OWNED = {
+    'tws_le_get_esco_indicate': 'd20153eb2291f5ec92f0da7df971af64df8c622fd5833cf39a527a627a258351',
+    'tws_le_clr_esco_indicate': 'd53d7f64aae2570de1109e7dafc45b7de3e92bf2d0a8a9f0bdc03433719aaff5',
+    'tws_le_set_esco_indicate': 'ac5bdce1c26183141c5d644da593eb37c298fc31303cf7f87506da75bb2b18c8',
+    'tws_le_data_reset': '3cea67082d4d14be788143b57b5e65f5b3719a0e835b230b8f536afa6142a35b',
+    'tws_remote_search_working': 'ac16d8827fb6e78aec86e37299755ea38d8afc67dca3b9e518988a1600f5e801',
+    'tws_rx_probe_adv_pdu_handler': '928a2fa5c3589e9ab06bd0978c969351f33c45ba85230bfa4cc2453aadf6b655',
+    'tws_rx_probe_scan_pdu_handler': '8ccb774add00d8a2780fe7ff6bce75d1f1c81e429eb2bbb47d9069a2f97b9f61',
+    'le_scan_close': '824b12ad1205ddd43f1b559d5c674e98fe2100d6762d4297aba4086ef7fb41bb',
+    'tws_ble_adv_result_timerset': 'f11b4db1a806bd81b82daf693228e6d385636836919475131c3ba63f3c5d5da3',
+    'tws_le_result_check': '09992eed5b73ec720c802283c7c88c0521c98f252119404391b5eab5788cce76',
+    'tws_ble_adv_preset_reset': '549970940d995e1aaa3834de2ddd9bfcfa930c9a39e5310d6d6f06d29a425049',
+    'tws_le_adv_kickstart': '78bc28c177b5a21332b63ed6ba378c49718b6fbba096f260cd9bbc8e3c49da2d',
+    'tws_ble_adv_preset_start': '3911ee5646b72d11399ac472d5b39fc6c670a4ccddc88800d9b1e6837e17e129',
+    'tws_ble_adv_preset_close': '83ec1e9afdca08dc2b24b828b4e4b814e79945b38d39d9c3d6b9002dafd45dbd',
+    'adv_task_run_again': '43da0ce95c9e47ec4cfb50fc67cbc5b44d87c5f841769b142f62a145a156b68c',
+    'le_adv_close': '5bae2d73e7ec6d1020cc386764c6c6d78958c727e307eed0be11869008a55cbe',
+    'adv_disable': '97e843528230996eaa9e12038349bf7f075bdbb1b27d80567f97f2fb858febc1',
+    'adv_disable_for_connect_timeout': 'ec0f51a8acb58f2848c115d7ab7e24923d7c38943d5c3c03d863801ccaf033e7',
+    'le_adv_conn_data_reset': 'f982d477fcfbcd5cbf39b8440bf78c035f2500f2417ff5490a2dec47c6163c42',
+    'le_adv_scan_response_set_data': 'e2a4f38f27b54e68cf8ed4775dc4cf69d0ab7b9845b089a35cb8786372cb20b4',
+    'le_adv_search_data': '54ba73d2b705902425a8359186bbbb1ee7c4e4516419acface9a71deabcd0c07',
+    'link_le_adv_suspend_en': 'b8b17c51ac70d2382452749b85ba02a143edbfe49aafbe9ace0a63ed7d1717f0',
+    'link_le_adv_resume': 'eb4900a665b445cf85523b7743934233a46a2b9b437f6be7654a73109e08a245',
+    'link_le_adv_enable': '197b1d916a9d38a0b469f3ccef90dbb4aa85e02c4987f0652530b11cf66b6bd7',
+    'link_le_adv_disable': '4faa2bfb78f8c3e9db5c1e026c930a60f5299021c906f7c7ebb16d1c5ee0103a',
+    'link_le_adv_esco_enable': '03c52945f671464eca548c75dc4a3687ec914aa8c940f1c01a218a3fcf2e95a7',
+    'link_le_adv_esco_try_timeout_enable': '5d571c3d92b959e6130cbdac5a27d68f090d1976377a03b93cd5c1d5cf946a7d',
+    'link_le_adv_esco_try_start_enable': '2895f2035be16dbf441bb1575073d9e01bbd09fa1dbd862f26992ebae1cc6dba',
+    'link_le_adv_try_start_enable': 'fb280db0d8ccb473e9112217ba36fe1255be2dc0c7b68e9387fce5aa522bbfad',
+    'link_le_adv_try_start_disable': '91fee7e46982b7e4fe22cf0c96b49e994ed48a33eea5480ed01afd00f292c54c',
+    'scan_disable_for_connect_timeout': '5be87a35c34c1f8584518ab1b1125b1167c3af73acb7950c97ddd505969f54ac',
+    'link_le_scan_suspend_en': 'a24fef9d24a52f2917bfa76edb3be848958ba1d7615357fbc9dfdfabbfbe5024',
+    'link_le_scan_resume': 'acf2c8426e3f5f603894fd475f5c7eaf454c84d26e9565c061342ebee8d0403d',
+    'link_le_scan_enable': '9627699e3177c57e533397bbf81cab7fd61d30f82979566d0aff5829dff96c5d',
+    'link_le_scan_disable': '1281a209fc2e9b6435a5bb7daad521608c52f8ca703ea697ea011a6b3015d71f',
+    'link_le_scan_try_timeout_enable': '1a8ca0f1433b51405a9f0ba56fa63f6467d58019de8b9733ee7c7363f7836146',
+    'link_le_scan_try_start_enable': 'ac9a53d5c84c558748e8e0c56c5b108103f8dec31d52b8143d83fe5b3902ce04',
+    'link_le_scan_try_start_disable': '93dc4d6baabe15bab793442b1c35f57003137391c9643f1f0bf1ad6d4b9a591e',
+    'adv_idle_resume': 'e4c4e28324bd5a1275c709c4b4aeda4ab32effd6249c33ac255ec875cc4d306c',
+    'adv_idle_suspend': '91e6e19ef8e1110da33522f9d52680f3a44ca61e1b42fff66da9468896f7d03c',
+    'adv_resume': 'f96878dc6a3cadd29a030a70373833945bc348a283406aa58c5900dccd6314d3',
+    'adv_suspend': '48e4e53d2df2a6dcae826a1bfe8cb8470c9fe85679b01022149f804e48c7c0b9',
+    'scan_resume': '0729786630753d1e6fc817528d05dfb78d96e121f9b34676b8e1ed693be0f62c',
+    'scan_suspend': '82da78cddbdad1704006b62eb87d2a847d4763133b448753d29fb338f4abd377',
+}
+TWS_LE_LINK_LEFTOVERS = {
+    'le_tws_connect_timer_handle',
+    'link_adv_try_start',
+    'link_le_adv_set_timeout',
+    'link_le_adv_try_timeout_enable',
+    'tws_ble_adv_timer_for_search',
+    'tws_ble_connect_switch_bredr',
+    'tws_connect_info_clr_in_esco',
+    'tws_connect_kickstart_in_esco',
+    'tws_connect_pause_in_esco',
+    'tws_le_adv_scan_parm_init',
+    'tws_le_esco_connect_handle',
+    'tws_le_get_data_indicate',
+    'tws_le_set_channel_map_in_esco',
+    'tws_try_connect_disable',
+}
+
+
+def tws_le_link(text):
+    return leftovers(own_all(text, TWS_LE_LINK_OWNED), 'tws_le_link.c', TWS_LE_LINK_LEFTOVERS)
+
 
 # tws_data_forwarding.c: straggler member of the SDK's TWS code; only what other code
 # still references is owned (the rest is unreferenced and goes with it).
