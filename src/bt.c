@@ -327,6 +327,23 @@ static int kdb_get(bd_addr_t a, link_key_t key, link_key_type_t *type)
     return 1;
 }
 
+/* After a Classic pairing a host that only paired (a desktop's pairing
+ * dialog, bluetoothctl pair) reads SDP and drops the link about 5 s later
+ * without opening HID, and the pad showed up only after another connect.
+ * A Pro Controller opens HID itself; so do we, if the host has not after
+ * this long.  A host that opens HID at once (a Switch) is left alone. */
+#define BONDED_OPEN_MS 1500
+static btstack_timer_source_t bonded_open;
+static void page(void);
+
+static void bonded_open_timeout(btstack_timer_source_t *t)
+{
+    (void)t;
+    if (!acl_up || hid_cid || le) return;
+    util_log("bt: host paired without opening HID: opening it");
+    page();
+}
+
 static void kdb_put(bd_addr_t a, link_key_t key, link_key_type_t type)
 {
     reverse(a, bond.peer, 6);
@@ -334,6 +351,12 @@ static void kdb_put(bd_addr_t a, link_key_t key, link_key_type_t type)
     bond.key_type = (u8)type;
     util_log("bt: bonded %s type %u", bd_addr_to_str(a), type);
     emit(BT_EV_BONDED, 0);
+    if (pairing && !le) {
+        btstack_run_loop_remove_timer(&bonded_open);
+        btstack_run_loop_set_timer_handler(&bonded_open, bonded_open_timeout);
+        btstack_run_loop_set_timer(&bonded_open, BONDED_OPEN_MS);
+        btstack_run_loop_add_timer(&bonded_open);
+    }
 }
 
 static void kdb_delete(bd_addr_t a)
@@ -697,9 +720,31 @@ static void update_want(void)
 
 /* ---- link events ------------------------------------------------------------------ */
 
+/* Our page gave way to the host's own connection: the controller ends a page
+ * with this (non-standard) status when the paged device connects to us first
+ * (create_link_connection).  BlueZ retries a known HID device every ~30 s, so
+ * a pad that pages it at the same moment met this on about one connect in
+ * five, and treating it as a failure dropped the host's link (0x16).  Wait
+ * for that link instead; if it does not come, it is an ordinary failure. */
+#define PAGE_GAVE_WAY 0xfe
+#define GAVE_WAY_MS   3000
+static btstack_timer_source_t gave_way;
+static void unlinked(u8 reason);
+
+static void gave_way_timeout(btstack_timer_source_t *t)
+{
+    (void)t;
+    if (acl_up) return;
+    util_log("bt: the host's connection did not come");
+    unlinked(PAGE_GAVE_WAY);
+}
+
 static void unlinked(u8 reason)
 {
     int was = linked;
+
+    btstack_run_loop_remove_timer(&gave_way);
+    btstack_run_loop_remove_timer(&bonded_open);
 
     linked = 0;
     hid_cid = 0;
@@ -850,6 +895,7 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
         util_log("bt: acl %s status 0x%02x", bd_addr_to_str(a), hci_event_connection_complete_get_status(packet));
         if (hci_event_connection_complete_get_status(packet)) break;
         con_handle = hci_event_connection_complete_get_connection_handle(packet);
+        btstack_run_loop_remove_timer(&gave_way);
         acl_up = 1;
         link_up(1);
         reverse(a, bond.peer, 6);
@@ -971,6 +1017,14 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
         switch (hci_event_hid_meta_get_subevent_code(packet)) {
         case HID_SUBEVENT_CONNECTION_OPENED:
             util_log("bt: hid open status 0x%02x", hid_subevent_connection_opened_get_status(packet));
+            if (hid_subevent_connection_opened_get_status(packet) == PAGE_GAVE_WAY && !acl_up) {
+                hid_cid = 0;
+                util_log("bt: page gave way to the host's connection");
+                btstack_run_loop_set_timer_handler(&gave_way, gave_way_timeout);
+                btstack_run_loop_set_timer(&gave_way, GAVE_WAY_MS);
+                btstack_run_loop_add_timer(&gave_way);
+                break;
+            }
             if (hid_subevent_connection_opened_get_status(packet)) {
                 hid_cid = 0;
                 if (!acl_up) unlinked(hid_subevent_connection_opened_get_status(packet));
