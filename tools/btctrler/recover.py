@@ -1675,6 +1675,31 @@ def tws_sync_call(text):
     return leftovers(own_all(text, TWS_SYNC_CALL_OWNED),
                      'tws_sync_call.c', set())
 
+# tws_event.c: keyboard-event forwarding and its retained TWS channel.
+TWS_EVENT_OWNED = {
+    'tws_key_event_handler': '9f4480796aa69a40093cceb8fd78c5c0ee478432aa4bc706efd282b493a1cce7',
+    'tws_event_sync_tx_events': 'f50baeeff56113bbe6a48e8927baaab8ab73fe90558d12412525405e18cc21ec',
+    'tws_event_sync_rx_events_and_tx_events': '682624058f13959cdbfeec22ea30162eaa51974d52a59eab62f8aa34342ef542',
+    'tws_event_sync_rx_events': 'ba7416fc0cc42bc4d50f106a30c9bd6663cc7a745d30e3f2466bc24f6d722d06',
+    'key_event_sync_event_hander': 'ca20aeffe0496457e81944e3a783bb40f9a1a9485f32963e3bc52a55efc79ee0',
+    'tws_event_sync_init': 'acfe197a7d8769c76fcd0949cc14dfa2d0316c3c00044cf2e6a0b03764437940',
+    'tws_event_sync_tx_events_suss': '78f3e150623eecef173f3d6de136abc266abc1885a2fa1d2aaa2e99cdf016285',
+}
+
+
+def tws_event(text):
+    text = own_all(text, TWS_EVENT_OWNED)
+    # tws_task.c exports a different, two-argument function with this linked
+    # name.  Keep the event registration pointed at this member's private
+    # one-argument handler via its owned-C alias.
+    needle = 'void (%struct.sys_event*)* @tws_key_event_handler }'
+    if text.count(needle) != 1:
+        raise RuntimeError('controller: tws_event handler registration changed')
+    text = text.replace(needle,
+                        'void (%struct.sys_event*)* @tws_event_key_handler }')
+    text += '\ndeclare void @tws_event_key_handler(%struct.sys_event*)\n'
+    return leftovers(text, 'tws_event.c', set())
+
 
 # tws_ble_link.c: the TWS-over-BLE hooks that ll_slave.c and link_layer.c call
 # (all empty stubs in this SDK build); the rest has no callers.
