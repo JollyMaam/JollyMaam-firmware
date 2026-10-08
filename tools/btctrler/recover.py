@@ -624,6 +624,24 @@ def bredr_utils(text):
     return leftovers(own_all(text, BREDR_UTILS_OWNED), 'bredr_utils.c', set())
 
 
+# ll_vendor.c: BLE vendor helpers (per-handle queries, coded-PHY selection).
+LL_VENDOR_OWNED = {
+    'ble_vendor_get_peer_rssi': '8c54f6803c5de0475aa542369b1607ca83cc7790d28de3284dc758f2f7c57ae2',
+    'ble_vendor_is_slow_state': 'c2e9f67bae233bf8c914007144fe77ef9adb9233151bc190e1a113565ea6b227',
+    'ble_enter_dut_tx_mode': 'b3cbdc6b3c0eb66345bf818c3b3dcd8031ebb2940989a84d129ba8df79ad66ef',
+    'ble_vendor_interval_event_enable': 'f45f08f297a0818a7af885bebe11ec42b0819bb98762d662a30af16b0469de35',
+    'll_vendor_set_code_type': '02166c7bd46f299694730c3ab8c5e4b664ded86f949d9767934951b9d814b146',
+    'll_vendor_access_addr_generate': 'b6ea64b2f03a6ed98ffba38d86a09396d6475add2b2fbe60c1492a3528899acd',
+    'll_vendor_change_local_supervision_timeout': '6db1ac9e9505288de36863f8c88c0106b8f3b58637f30dd76751c92a06a8b13c',
+    'll_vendor_check_update_procedure_is_exist': 'bf3b4553ef1d8da485343f85cfd896280b1aef4ca58a3230cce47c34da0e2b6e',
+    'll_vendor_get_link_address_info': 'f228fb5e617b5a5befb407245e639d288b57c24ac7f2797ca9a41acbfdd85ba7',
+}
+
+
+def ll_vendor(text):
+    return leftovers(own_all(text, LL_VENDOR_OWNED), 'll_vendor.c', set())
+
+
 # ll_white_list.c: BLE address white-list storage and traversal.
 LL_WHITE_LIST_OWNED = {
     'll_white_list_match': '28b04ca428804366dc911987c3fc9d887124754589a8f128ad6938bffbc1e472',
