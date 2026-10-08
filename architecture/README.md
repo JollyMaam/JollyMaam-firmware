@@ -19,7 +19,7 @@ is branch `btstack`).
 | [settings.md](settings.md) | settings, bonds and calibration storage |
 | [usb.md](usb.md) | USB: stock-pad upgrades, firmware updates, logs, settings |
 | [platform.md](platform.md) | the boundary to the Jieli SDK and board, and porting |
-| [audio_ideas.md](audio_ideas.md) | proposed audio support and recovered stock pad/dongle audio evidence |
+| [audio_ideas.md](audio_ideas.md) | proposed audio features, software design and bring-up milestones |
 
 ## Layers
 

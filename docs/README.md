@@ -7,6 +7,7 @@ firmware or SDK code; configuration alone is not proof of a board connection.
 
 - [Board and GPIO](board.md): SoC, buttons, pin assignments and pin conflicts.
 - [Peripherals](peripherals.md): stick UART, IMU/I2C, LEDs, rumble and EEPROM.
+- [Headset audio](audio.md): recovered DAC/ADC settings, jack and amplifier pins, and stock pad/dongle audio paths.
 - [Power and reset](power-reset.md): charging evidence, wake sources, reset causes and USB loader entry.
 - [Memory map](memory-map.md): CPU address space, retained SRAM and boot workspace.
 - [Flash map](flash-map.md): physical NOR layout and reserved regions.
