@@ -64,6 +64,7 @@ PIPELINE = {
     'hci_ll.c.o': (recover.hci_ll,),
     'll_adv.c.o': (recover.ll_adv,),
     'll_scan.c.o': (recover.ll_scan,),
+    'll_wifi_detect.c.o': (recover.ll_wifi_detect,),
     'll_events.c.o': (recover.ll_events,),
     'btcontroller_util.c.o': (recover.btcontroller_util,),
     'bredr_dut.c.o': (recover.bredr_dut,),
@@ -81,7 +82,7 @@ PIPELINE = {
 }
 # Members owned C replaces completely: checked by their transforms above,
 # then left out of the archive.
-DROPPED = ('bredr_frame.c.o', 'link_task.c.o', 'bredr_low_power.c.o', 'le_low_power.c.o', 'bredr_slot_timer.c.o', 'tws_data_forwarding.c.o', 'tws_ll_adv.c.o', 'local_media_sync.c.o', 'tws_media_sync.c.o', 'hci_ll_5_cmds.c.o', 'll_white_list.c.o', 'btencry_task.c.o', 'thread.c.o', 'btcontroller_heap.c.o', 'sys_timer.c.o', 'authentication.c.o', 'bredr_utils.c.o', 'btctrler_task.c.o', 'device_manager.c.o', 'h4_controller_interface.c.o', 'll_ext_init.c.o', 'll_extended_advertising.c.o', 'll_master.c.o', 'll_data_extension.c.o', 'll_common_iso.c.o', 'll_bis.c.o', 'll_cis.c.o', 'll_keys.c.o', 'hci_controller.c.o', 'lbuf.c.o', 'link_bulk.c.o', 'lmp.c.o', 'lmp_hci.c.o', 'lmp_hci_cmd_parser.c.o', 'lmp_rxtx.c.o', 'lmp_utils.c.o', 'misc_hw.c.o', 'misc_hw_common.c.o', 'hci_ll_cmds.c.o', 'vsprintf.c.o', 'vendor_manager.c.o', 'aes128.c.o', 'aes_hw.c.o', 'bredr_dut.c.o', 'bredr_fcc.c.o', 'btcontroller_util.c.o', 'hci_ll.c.o', 'hw_dma.c.o', 'll_slave.c.o', 'll_multiple_phys.c.o', 'll_adv.c.o', 'll_events.c.o', 'direct_test_dut.c.o', 'bredr_link.c.o', 'btagc.c.o', 'analog_ble.c.o', 'tws_tx_sync.c.o', 'hci_device_manager.c.o', 'interrupt.c.o', 'll_pc.c.o', 'll_bis_master.c.o', 'nv_memory.c.o', 'll_vendor.c.o', 'll_afh.c.o', 'll_init.c.o', 'll_scan.c.o')
+DROPPED = ('bredr_frame.c.o', 'link_task.c.o', 'bredr_low_power.c.o', 'le_low_power.c.o', 'bredr_slot_timer.c.o', 'tws_data_forwarding.c.o', 'tws_ll_adv.c.o', 'local_media_sync.c.o', 'tws_media_sync.c.o', 'hci_ll_5_cmds.c.o', 'll_white_list.c.o', 'btencry_task.c.o', 'thread.c.o', 'btcontroller_heap.c.o', 'sys_timer.c.o', 'authentication.c.o', 'bredr_utils.c.o', 'btctrler_task.c.o', 'device_manager.c.o', 'h4_controller_interface.c.o', 'll_ext_init.c.o', 'll_extended_advertising.c.o', 'll_master.c.o', 'll_data_extension.c.o', 'll_common_iso.c.o', 'll_bis.c.o', 'll_cis.c.o', 'll_keys.c.o', 'hci_controller.c.o', 'lbuf.c.o', 'link_bulk.c.o', 'lmp.c.o', 'lmp_hci.c.o', 'lmp_hci_cmd_parser.c.o', 'lmp_rxtx.c.o', 'lmp_utils.c.o', 'misc_hw.c.o', 'misc_hw_common.c.o', 'hci_ll_cmds.c.o', 'vsprintf.c.o', 'vendor_manager.c.o', 'aes128.c.o', 'aes_hw.c.o', 'bredr_dut.c.o', 'bredr_fcc.c.o', 'btcontroller_util.c.o', 'hci_ll.c.o', 'hw_dma.c.o', 'll_slave.c.o', 'll_multiple_phys.c.o', 'll_adv.c.o', 'll_events.c.o', 'direct_test_dut.c.o', 'bredr_link.c.o', 'btagc.c.o', 'analog_ble.c.o', 'tws_tx_sync.c.o', 'hci_device_manager.c.o', 'interrupt.c.o', 'll_pc.c.o', 'll_bis_master.c.o', 'nv_memory.c.o', 'll_vendor.c.o', 'll_afh.c.o', 'll_init.c.o', 'll_scan.c.o', 'll_wifi_detect.c.o')
 
 # Members the firmware link never pulls in: no symbol they define is
 # referenced.  Left out without translation; if owned C ever references one

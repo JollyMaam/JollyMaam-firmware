@@ -1991,6 +1991,25 @@ def ll_scan(text):
     return leftovers(own_all(text, LL_SCAN_OWNED), 'll_scan.c', {'cpu_reset'})
 
 
+# ll_wifi_detect.c: LE vendor Wi-Fi detection / channel avoidance.
+LL_WIFI_DETECT_OWNED = {
+    'll_update_ch_done_wfdet_callback': '6181741891788b19b56408d6b23c2f577908d6fe37092f976c9e9a72283b5a3d',
+    'atomic_set': '8fe273a081c64119146b1ca25f20e393dbf8b311aed5f21bb40370d1531e71cb',
+    '__slave_vendor_wifi_detect_done': 'db74d9f16ce68702091805e04982ae19beecac9c5e45a5784531a28bbfca24a1',
+    '__slave_ll_send_vendor_wifi_detect_req': '95a3b6943f389d0cdc76e167abd1db07589c7117c46ab2c5102422588331d4f7',
+    '__slave_ll_vendor_wifi_detect_req_callback': 'c37ae6b865e78b1ec54cc0180dba15bb8a4ddc4551f734c3ed5a50c0408331b6',
+    'll_wifi_detect_thread': '9c311bb7459ec25cc540569a397802a5e6f3bbcdfdc84a85a05b5b20319bebac',
+    'll_wifi_detect_probe_process': 'eb8c0932709c4353a5504254dafaa9f381e021a87d7dfb5261a5c9020b2df962',
+    'll_master_rx_wifi_detect_report': '59ba90a64d3f092dfafc3a44f2318f9ed90c01b686d3210b58fcc45729bae887',
+    'll_wifi_detect_init': '1c6c02e5417b2869ee7e2ecd692e79982cfebfa6df6c24aaaf80cb7b301c6413',
+    'll_wifi_detect_ext': 'ee66337a2a29286ae259e9434d3efa122e466797d3b68f31ef9405d9a03aaa9e',
+}
+
+
+def ll_wifi_detect(text):
+    return leftovers(own_all(text, LL_WIFI_DETECT_OWNED), 'll_wifi_detect.c', set())
+
+
 # Bluetooth AGC table upload and initialization.
 BTAGC_OWNED = {
     'btagc_ram_init': 'd6f3ebda5cf300c3f022bb2687245e3a1841f3de6c76949397591449168a465d',
