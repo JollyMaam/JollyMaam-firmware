@@ -250,13 +250,14 @@ void lmp_master_init(struct lmp_connection *conn)
 }
 
 /* LMP_set_AFH at an instant 200 slots ahead (even, within the clock's
- * half range), if the peripheral supports AFH. */
+ * half range), if both our central and the remote peripheral support AFH. */
 void lmp_tx_set_afh_req(struct lmp_connection *conn, u8 *channel_map)
 {
     struct link_connection *link = conn->link;
     bredr_read_slot_clk();
     u32 clk = bredr_get_master_slot_clk(link);
-    if (conn->core.role != 0 || !(conn->core_s.remote_features[4] & 8)) return;
+    if (conn->core.role != 0 || !(hci_param.features[5] & 8) ||
+        !(conn->core_s.remote_features[4] & 8)) return;
     u32 instant = (clk + 200) & 0x0ffffffe;
     if (instant > 0x7ffffff) instant = (instant + 0x8000000) & 0x0ffffffe;
     link->afh.en = 1;
@@ -264,3 +265,62 @@ void lmp_tx_set_afh_req(struct lmp_connection *conn, u8 *channel_map)
     memcpy(link->channel_map, channel_map, 10);
     lmp_request(conn, "A141C010", PDU(SET_AFH), instant, 1, channel_map);
 }
+
+#ifdef UNITTEST
+#include <stdarg.h>
+#include "test.h"
+struct hci_parameter hci_param;
+static struct lmp_connection conn;
+static struct link_connection link;
+static u8 map[10], sent_map[10];
+static u32 clock_value, sent_instant;
+static int requests;
+u32 bredr_read_slot_clk(void) { return clock_value; }
+u32 bredr_get_master_slot_clk(struct link_connection *lc)
+{ CHECK(lc == &link); return clock_value; }
+int lmp_request(struct lmp_connection *c, const char *format, ...)
+{
+    CHECK(c == &conn && !strcmp(format, "A141C010"));
+    va_list ap; va_start(ap, format);
+    CHECK(va_arg(ap, int) == PDU(SET_AFH));
+    sent_instant = va_arg(ap, u32);
+    CHECK(va_arg(ap, int) == 1);
+    memcpy(sent_map, va_arg(ap, const u8 *), sizeof(sent_map));
+    va_end(ap);
+    requests++;
+    return 0;
+}
+int main(void)
+{
+    /* Classification support alone must not enable AFH. Exercise both
+     * roles and every combination of capability/classification bits. */
+    for (int role = 0; role < 2; role++)
+        for (int local = 0; local < 4; local++)
+            for (int remote = 0; remote < 4; remote++) {
+                memset(&conn, 0, sizeof(conn));
+                memset(&link, 0, sizeof(link));
+                memset(map, 0xff, sizeof(map));
+                map[9] = 0x7f;
+                memset(sent_map, 0, sizeof(sent_map));
+                conn.link = &link;
+                conn.core.role = role;
+                hci_param.features[5] = local << 3;
+                conn.core_s.remote_features[4] = remote << 3;
+                clock_value = 1000;
+                requests = 0;
+                lmp_tx_set_afh_req(&conn, map);
+                int enabled = role == 0 && (local & 1) && (remote & 1);
+                CHECK(requests == enabled && link.afh.en == enabled);
+                if (enabled) {
+                    CHECK(sent_instant == 1200 && link.afh.instant == 1200);
+                    CHECK(!memcmp(sent_map, map, sizeof(map)));
+                    CHECK(!memcmp(link.channel_map, map, sizeof(map)));
+                } else {
+                    static const u8 zero[10];
+                    CHECK(link.afh.instant == 0);
+                    CHECK(!memcmp(link.channel_map, zero, sizeof(zero)));
+                }
+            }
+    return TEST_DONE("btctrler_lmp_master_afh");
+}
+#endif
