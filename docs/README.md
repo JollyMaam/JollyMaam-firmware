@@ -1,7 +1,7 @@
 # Cyclone 2 hardware reference
 
 This folder records the hardware and firmware-image facts known for the tested
-GameSir Cyclone 2, as of 2026-09-28. It replaces the software plans and session
+GameSir Cyclone 2, as of 2026-10-09. It replaces the software plans and session
 logs. “Measured” means observed on the pad; “recovered” means read from stock
 firmware or SDK code; configuration alone is not proof of a board connection.
 
@@ -13,6 +13,8 @@ firmware or SDK code; configuration alone is not proof of a board connection.
 - [Flash map](flash-map.md): physical NOR layout and reserved regions.
 - [Image formats](image-formats.md): JLFS, scrambling and configuration records.
 - [Radio](radio.md): measured radio behavior, raw frame fields and wake limitations.
+- [Stock pad and dongle](stock-pad-dongle.md): Bluetooth connection sequence,
+  keepalive format, captured HID reports and the measured input rate.
 
 The app source and generated `build/sdk.ld` / `build/app.map` remain the authority
 for the current build's allocation. Historical addresses within `.data`, `.bss`
