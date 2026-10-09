@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""padtool: talk to a Cyclone 2 running this firmware.
+"""padtool: talk to a Cyclone 2 pad or dongle running this firmware.
 
-    padtool find                  pads running this firmware
+    padtool [--board pad|dongle] find    devices running this firmware
+    padtool --board dongle target ADDR  dongle: page this device (e.g. our pad in pairing)
+    padtool --board dongle pair   dongle: forget its bond and listen for pairing
     padtool identify | status     what the pad reports
     padtool log [-f]              the pad's log (-f: follow)
     padtool stats [-w SECONDS] [--reset]   loop timing and counters (-w: every N s)
@@ -90,35 +92,37 @@ def inquiry(path):
     return data[8:32].decode("ascii", "replace").strip()
 
 
-def pads():
-    """SCSI devices that answer IDENTIFY as this firmware."""
+def devices():
+    """SCSI devices running this firmware for the selected board."""
     found = []
-    for path in sorted(glob.glob("/dev/sg*") + glob.glob("/dev/bwrap/sg*")):
+    for path in sorted(set(glob.glob("/dev/sg*") + glob.glob("/dev/bwrap/sg*"))):
         name = inquiry(path)
         if name and "UBOOT" not in name:
             try:
-                if scsi(path, [OP, 0x00], 64, 1000)[:4] == b"C2PD":
+                d = scsi(path, [OP, 0x00], 64, 1000)
+                if len(d) >= 40 and d[:4] == b"C2PD" and d[6] == BOARD_IDS[BOARD]:
                     found.append((path, name))
             except OSError:
                 pass
     return found
 
 
-def find_pad():
-    return pads()[0][0] if pads() else None
+def find_device():
+    found = devices()
+    return found[0][0] if found else None
 
 
-def need_pad():
-    path = find_pad()
+def need_device():
+    path = find_device()
     if not path:
-        sys.exit("padtool: no pad found (is it plugged in and running this firmware?)")
+        sys.exit(f"padtool: no {BOARD} found (is it plugged in and running this firmware?)")
     return path
 
 
-def wait_for_pad(seconds, every=0.5):
-    end = time.time() + seconds
-    while time.time() < end:
-        path = find_pad()
+def wait_for_device(seconds, every=0.5):
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        path = find_device()
         if path:
             return path
         time.sleep(every)
@@ -436,11 +440,11 @@ def log(path, follow):
         except OSError:
             if not follow:
                 raise
-            print(f"-- pad gone {clock()}; waiting --", flush=True)
-            path = wait_for_pad(3600, 0.1)
+            print(f"-- {BOARD} gone {clock()}; waiting --", flush=True)
+            path = wait_for_device(3600, 0.1)
             if not path:
                 return
-            print(f"-- pad back {clock()} --", flush=True)
+            print(f"-- {BOARD} back {clock()} --", flush=True)
             continue
         first, n = struct.unpack_from("<II", d)
         text = d[8:8 + n].decode("utf-8", "replace")
@@ -608,6 +612,8 @@ def ephemeral_now(path):
 
 
 DEV = False
+BOARD_IDS = {"pad": 0, "dongle": 1}    # IDENTIFY byte 6
+BOARD = "pad"
 
 
 def show_fields(path, dev=False):
@@ -708,7 +714,7 @@ def keep(path):
         except OSError:
             pass
         time.sleep(2)
-        path = wait_for_pad(30)
+        path = wait_for_device(30)
         if not path or ephemeral_now(path):
             sys.exit("padtool: the pad did not come back in normal mode")
     for b in batches:
@@ -719,7 +725,7 @@ def keep(path):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["find", "identify", "status", "log", "stats", "reboot", "loader", "relink", "connect", "pair", "profile", "peek", "trace",
+    p.add_argument("command", choices=["target", "find", "identify", "status", "log", "stats", "reboot", "loader", "relink", "connect", "pair", "profile", "peek", "trace",
                                        "fields", "get", "set", "reset", "backup-settings",
                                        "restore-settings", "factory-reset", "ephemeral", "keep"])
     p.add_argument("args", nargs="*")
@@ -730,69 +736,101 @@ def main():
     p.add_argument("--hz", type=int, default=2000, help="profile: samples per second")
     p.add_argument("--dev", action="store_true",
                    help="fields, get: include the developer settings (for measuring the link)")
+    board = p.add_mutually_exclusive_group()
+    board.add_argument("--board", choices=BOARD_IDS, default="pad",
+                       help="board to talk to (default: pad)")
+    board.add_argument("--dongle", dest="board", action="store_const", const="dongle",
+                       help="alias for --board dongle")
     p.add_argument("--top", type=int, default=40, help="profile: functions to show")
     p.add_argument("--by", choices=["file", "group", "line"],
                    help="profile: add up per source file, per part, or per source line (zoom first)")
-    p.add_argument("--elf", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build", "app.elf"),
-                   help="profile: the running build's ELF")
+    p.add_argument("--elf", help="profile: the running build's ELF (default: selected board's build)")
     a = p.parse_args()
-    global DEV
+    global DEV, BOARD
     DEV = a.dev
-    if a.command == "find":
-        for path, name in pads():
-            print(f"pad {path}  {name}")
+    BOARD = a.board
+    if a.elf is None:
+        output = "build" if BOARD == "pad" else f"build-{BOARD}"
+        a.elf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", output, "app.elf")
+    if a.command == "target":
+        if BOARD != "dongle":
+            p.error("target requires --board dongle")
+        if len(a.args) != 1:
+            p.error("target requires an address: AA:BB:CC:DD:EE:FF")
+        parts = a.args[0].split(":")
+        try:
+            if len(parts) != 6 or any(len(part) != 2 for part in parts):
+                raise ValueError
+            address = bytes(int(part, 16) for part in parts)
+        except ValueError:
+            p.error("invalid address; expected AA:BB:CC:DD:EE:FF")
+    if BOARD == "dongle" and a.command in {
+        "stats", "relink", "connect", "fields", "get", "set", "reset",
+        "backup-settings", "restore-settings", "factory-reset", "keep",
+    }:
+        p.error(f"{a.command} is not supported by dongle firmware")
+    if a.command == "target":    # dongle: the device to page, AA:BB:CC:DD:EE:FF
+        scsi(need_device(), bytes([OP, 0x30]) + address, 0)
+    elif a.command == "find":
+        for path, name in devices():
+            print(f"{BOARD} {path}  {name}")
     elif a.command == "identify":
-        print(identify(need_pad()))
+        print(identify(need_device()))
     elif a.command == "status":
-        print(status(need_pad()))
+        print(status(need_device()))
     elif a.command == "log":
-        log(need_pad(), a.follow)
+        log(need_device(), a.follow)
     elif a.command == "stats":
         try:
-            stats(need_pad(), a.watch, a.reset)
+            stats(need_device(), a.watch, a.reset)
         except KeyboardInterrupt:
             pass
     elif a.command == "trace":
-        trace(need_pad(), a.watch or 0.5, a.top)
+        trace(need_device(), a.watch or 0.5, a.top)
     elif a.command == "peek":
         addr, words = int(a.args[0], 16), int(a.args[1]) if len(a.args) > 1 else 4
-        d = cmd(need_pad(), 0x15, addr, 4 * words)
+        d = cmd(need_device(), 0x15, addr, 4 * words)
         for i in range(words):
             print(f"{addr + 4 * i:08x}: {struct.unpack_from('<I', d, 4 * i)[0]:08x}")
     elif a.command == "profile":
         zoom = (int(a.args[0], 16), int(a.args[1]) if len(a.args) > 1 else 1) if a.args else None
-        profile(need_pad(), a.watch or 10, a.hz, a.top, a.elf, zoom, a.by)
+        profile(need_device(), a.watch or 10, a.hz, a.top, a.elf, zoom, a.by)
     elif a.command == "pair":
-        if not a.args:
-            sys.exit("padtool pair SLOT")
-        cmd(need_pad(), 0x17, "A B X Y up down left right".split().index(a.args[0]))
+        names = "A B X Y up down left right".split()
+        if BOARD == "dongle" and not a.args:
+            slot = 0                         # forget the dongle's single bond
+        elif len(a.args) == 1 and a.args[0] in names:
+            slot = names.index(a.args[0])
+        else:
+            p.error("pair requires a slot: A B X Y up down left right (optional for dongle)")
+        cmd(need_device(), 0x17, slot)
     elif a.command == "connect":
         names = "A B X Y up down left right".split()
         slot = names.index(a.args[0]) if a.args else 0xfe
-        cmd(need_pad(), 0x13, slot)
+        cmd(need_device(), 0x13, slot)
     elif a.command == "relink":
-        cmd(need_pad(), 0x12)
+        cmd(need_device(), 0x12)
     elif a.command in ("reboot", "loader"):
-        cmd(need_pad(), 0x10 if a.command == "reboot" else 0x11)
+        cmd(need_device(), 0x10 if a.command == "reboot" else 0x11)
     elif a.command == "fields":
-        show_fields(need_pad(), a.dev)
+        show_fields(need_device(), a.dev)
     elif a.command == "get":
-        get(need_pad(), a.args[0] if a.args else None, a.args[1] if len(a.args) > 1 else None)
+        get(need_device(), a.args[0] if a.args else None, a.args[1] if len(a.args) > 1 else None)
     elif a.command == "set":
         if not a.args:
             sys.exit("padtool set TARGET NAME VALUE [NAME VALUE ...]")
-        set_values(need_pad(), a.args[0], a.args[1:])
+        set_values(need_device(), a.args[0], a.args[1:])
     elif a.command == "reset":
         if not a.args:
             sys.exit("padtool reset TARGET [NAME ...]")
-        reset(need_pad(), a.args[0], a.args[1:])
+        reset(need_device(), a.args[0], a.args[1:])
     elif a.command in ("backup-settings", "restore-settings"):
         if len(a.args) != 1:
             sys.exit(f"padtool {a.command} FILE")
         (backup if a.command == "backup-settings" else
-         lambda p, f: restore(p, f, a.calibration))(need_pad(), a.args[0])
+         lambda p, f: restore(p, f, a.calibration))(need_device(), a.args[0])
     elif a.command == "factory-reset":
-        path = need_pad()
+        path = need_device()
         table = fields(path)
         items = []
         for t in range(len(TARGETS) - 1):
@@ -802,15 +840,17 @@ def main():
         send(path, items)
         print("every slot and the palette back to defaults; calibration kept")
     elif a.command == "ephemeral":
-        path = need_pad()
+        path = need_device()
         cmd(path, 0x25)
-        try:
-            os.remove(JOURNAL)
-        except OSError:
-            pass
-        print("ephemeral: nothing is saved until the next boot (Home winks)")
+        if BOARD == "pad":
+            try:
+                os.remove(JOURNAL)
+            except OSError:
+                pass
+        print("ephemeral: nothing is saved until the next boot" +
+              (" (Home winks)" if BOARD == "pad" else " (bond changes stay in RAM)"))
     elif a.command == "keep":
-        keep(need_pad())
+        keep(need_device())
 
 
 if __name__ == "__main__":

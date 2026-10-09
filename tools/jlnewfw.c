@@ -1200,7 +1200,9 @@ static void crc_cipher(uint8_t *p, size_t n, uint32_t key) {
  * which one is written is then decided by PID.  Repeat while waiting so
  * firmware connected after the command starts is also restarted; --device
  * limits restart requests to that path. */
-static void enter_loaders(const char *device) {
+/* IDENTIFY byte 6 distinguishes our pad and dongle builds. Keep firmware for
+ * the other board running; stock firmware is selected by PID in the loader. */
+static void enter_loaders(const char *device, const char *want) {
   static const char *const dirs[] = {"/dev", "/dev/bwrap"};
   for (size_t i = 0; i < 2; i++) {
     DIR *dir = opendir(dirs[i]);
@@ -1221,6 +1223,14 @@ static void enter_loaders(const char *device) {
         memcpy(product, q + 16, 16);
         product[16] = 0;
         if (strncmp(product, "UBOOT", 5)) {
+          uint8_t id[16] = {0xf5, 0x00}, ident[40] = {0};
+          if (want && sg(fd, id, 16, SG_DXFER_FROM_DEV, ident, sizeof ident, 2000) &&
+              !memcmp(ident, "C2PD", 4) &&
+              ident[6] != (strcmp(want, "GS_C2_Dongle") ? 0 : 1)) {
+            printf("%s: our firmware for the other board, left running\n", path);
+            close(fd);
+            continue;
+          }
           uint8_t c[16];
           memset(c, 0xff, 16);
           c[0] = 0xfc, c[1] = 0x0a; /* online device: any loader command */
@@ -1417,7 +1427,7 @@ static void select_dev(struct dev *out, const struct flash_opts *o,
   if (o->device) {
     for (unsigned t = 0;; t++) {
       if (o->enter_loader)
-        enter_loaders(o->device);
+        enter_loaders(o->device, o->force_pid ? NULL : want);
       if (open_dev(out, o->device))
         break;
       if (t >= o->wait * 2)
@@ -1434,7 +1444,7 @@ static void select_dev(struct dev *out, const struct flash_opts *o,
   size_t ns = 0;
   for (unsigned t = 0;; t++) {
     if (o->enter_loader)
-      enter_loaders(NULL);
+      enter_loaders(NULL, o->force_pid ? NULL : want);
     char found[8][300];
     struct dev probe;
     size_t nf = scan_dev(&probe, found);
