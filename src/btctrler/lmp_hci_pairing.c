@@ -54,7 +54,9 @@ void lmp_hci_switch_role_command(u8 *addr, u8 role)
     struct lmp_connection *conn = lmp_conn_for_address(addr);
     if (!conn) { btctrler_assert_failed("role switch connection", role); return; }
     hci_send_event(0x0f, "112", 0, 1, 0x080b);
-    if (conn->core.role != role) conn->core.role_switch = 1;
+    /* Drive the role machine on the LMP task. Setting the flag here can
+     * leave it pending forever when no further LMP PDU arrives. */
+    if (conn->core.role != role) lmp_hci_cmd_to_conn_for_addr(addr, 2, 0x080b, role);
     else hci_send_event(0x12, "1A1", 0, conn->core_s.remote_addr, role);
 }
 
@@ -123,9 +125,12 @@ int main(void)
     CHECK(calls == before && asserts == 240);
     for (int current = 0; current < 2; current++) for (int requested = 0; requested < 2; requested++) {
         conn.core.role = current; conn.core.role_switch = 0; events = 0;
+        int queued_before = calls;
         lmp_hci_switch_role_command(address, requested);
         CHECK(codes[0] == 0x0f && events == (current == requested ? 2 : 1));
-        CHECK(conn.core.role_switch == (current != requested));
+        CHECK(!conn.core.role_switch); /* Only the queued LMP task mutates it. */
+        CHECK(calls == queued_before + (current != requested));
+        if (current != requested) { expect(2, 0x080b); CHECK(words[1] == requested); }
         if (current == requested) CHECK(codes[1] == 0x12 && role_seen == requested);
     }
     found = 0; events = 0; lmp_hci_switch_role_command(address, 1);
