@@ -54,6 +54,60 @@ int hci_packet_handler(u8 type, u8 *packet, u16 size)
     return 0;
 }
 
+/* ---- anchors: when the central's packets arrive ---------------------------
+ * The controller calls cyclone2_air_rx for each packet a central sends on a
+ * connection (interrupt context).  The first packet more than half the
+ * link's period (hci_jieli_anchor_period; ANCHOR_GAP_US when not known)
+ * after the last anchor starts a new one: the others belong to the same
+ * connection event or sniff anchor (a 251-byte LE PDU at 1M takes 2.1 ms).
+ * A slave's packet goes out in answer to the central's, so a report has to
+ * be in the controller before the anchor it is meant for. */
+#define ANCHOR_GAP_US 1000
+#define ANCHORS       8                  /* a power of two */
+
+static volatile u32 anchor_at[ANCHORS], anchor_n, anchor_gap_us = ANCHOR_GAP_US;
+
+void cyclone2_air_rx(void)
+{
+    u32 now = plat_us();
+
+    if (!anchor_n || now - anchor_at[anchor_n % ANCHORS] >= anchor_gap_us) {
+        anchor_at[(anchor_n + 1) % ANCHORS] = now;
+        anchor_n++;
+        util_trace(TR_ANCHOR, 0);
+    }
+}
+
+/* The link's anchor period (us), 0 when it has none. */
+void hci_jieli_anchor_period(u32 us)
+{
+    anchor_gap_us = us ? us / 2 : ANCHOR_GAP_US;
+}
+
+/* Anchors so far; *at: when the newest one was. */
+u32 hci_jieli_anchor(u32 *at)
+{
+    u32 n;
+
+    plat_lock();
+    n = anchor_n;
+    *at = anchor_at[n % ANCHORS];
+    plat_unlock();
+    return n;
+}
+
+/* When anchor n was: 0 if it is not one of the last few. */
+int hci_jieli_anchor_at(u32 n, u32 *at)
+{
+    int ok;
+
+    plat_lock();
+    ok = n && n <= anchor_n && anchor_n - n < ANCHORS - 1;
+    if (ok) *at = anchor_at[n % ANCHORS];
+    plat_unlock();
+    return ok;
+}
+
 void hci_jieli_set_address(const u8 a[6])
 {
     memcpy(address, a, 6);

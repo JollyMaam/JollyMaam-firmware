@@ -276,3 +276,12 @@ divider: with byte storage in a compiler-merged word, uptime and reports
 advanced much too slowly; using a volatile 32-bit divider restored normal
 wall-clock timing and B/Y operation in the tested image. The exact interfering
 write is not established; keep the divider in word storage.
+
+## Hooks into the app
+
+Besides the QoS adapter, the controller calls `cyclone2_air_rx()` (declared
+in `glue.h`, defined in `btstack_hci_jieli.c`) for each packet received from
+the central on a connection: in the Classic receive handler where a valid
+packet updates the clock offset, and in the LE connection receive probe for
+a valid PDU.  It runs in interrupt context and only timestamps the link's
+anchors for the just-in-time report pull ([bluetooth.md](bluetooth.md)).

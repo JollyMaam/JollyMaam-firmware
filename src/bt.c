@@ -34,6 +34,9 @@ void hci_jieli_tx_power(u8 step, u8 pro);
 void hci_jieli_loop_stats(u32 *runs, u32 *us);
 void hci_jieli_sniff_slots(u16 slots);
 void hci_jieli_link_policy(void);
+u32 hci_jieli_anchor(u32 *at);
+int hci_jieli_anchor_at(u32 n, u32 *at);
+void hci_jieli_anchor_period(u32 us);
 
 #define MAX_INPUT      80
 #define MAX_MESSAGE    160
@@ -50,6 +53,16 @@ void hci_jieli_link_policy(void);
  * and left above it, or when a report waits longer than SNIFF_STALL_US. */
 #define SNIFF_KEEP_SLOTS 16
 #define SNIFF_STALL_US   50000
+/* Just in time (bt_input_due_us): the adaptive lead starts at LEAD_START_US,
+ * grows by LEAD_UP_US for each report that missed its anchor by one, and
+ * shrinks by LEAD_DOWN_US after LEAD_HITS on time; at least LEAD_MIN_US, and
+ * at least LEAD_ROOM_US short of the anchor period. */
+#define LEAD_START_US    2500
+#define LEAD_MIN_US      1000
+#define LEAD_UP_US       250
+#define LEAD_DOWN_US     100
+#define LEAD_HITS        50
+#define LEAD_ROOM_US     1000
 
 enum { RQ_START = 1, RQ_CONNECT = 2, RQ_DISCONNECT = 4, RQ_STOP = 8, RQ_ABORT = 16 };
 
@@ -97,10 +110,12 @@ static u8 ccc_value[CCCS];
 static btstack_packet_callback_registration_t l2cap_registration;
 /* Reports in the controller, oldest first: when each went in and when it
  * entered the slot, to time Number Of Completed Packets against. */
-static struct { u32 sent_us, slot_us; } flight[IN_FLIGHT_MAX];
+static struct { u32 sent_us, slot_us, anchor; } flight[IN_FLIGHT_MAX];
 static u8 flight_n;
 static u32 last_ack_us;
 static u32 want_us;                      /* when bt_input_wanted() last became true */
+static u32 lead_us = LEAD_START_US;      /* adaptive just-in-time lead */
+static u8 lead_hits;
 
 /* ---- control thread side ------------------------------------------------- */
 
@@ -183,10 +198,13 @@ int bt_send_input(u8 id, const u8 *data, u16 len)
 
 void bt_stats(struct bt_stats *out)
 {
+    u32 t;
+
     plat_lock();
     *out = stats;
     plat_unlock();
     hci_jieli_loop_stats(&out->loop_runs, &out->loop_us);
+    out->anchors = hci_jieli_anchor(&t);
 }
 
 void bt_timing(struct bt_timing *out, int reset)
@@ -219,6 +237,72 @@ u32 bt_input_wanted_us(void)
     t = want ? want_us | 1 : 0;          /* never 0 while wanted */
     plat_unlock();
     return t;
+}
+
+/* The central's anchors come every period_us: the connection interval or
+ * the sniff interval.  0: no fixed grid.  In Classic active mode the QoS poll
+ * interval is only the longest gap: a Linux host (Intel) with data waiting
+ * polled every ~1.3 ms, and a report built at once met the next poll. */
+static u32 period_us(void)
+{
+    if (timing.link.transport == 2) return timing.link.interval * 1250u;
+    if (timing.link.transport == 1 && timing.link.mode == 2) return timing.link.interval * 625u;
+    return 0;
+}
+
+/* The lead in use: the slot's jit_us when fixed (1: none), else the
+ * adaptive one; never closer than LEAD_ROOM_US to the period. */
+static u32 lead(u32 period)
+{
+    u32 l = link.jit_us == 1 ? 0 : link.jit_us ? link.jit_us : lead_us;
+
+    if (period < LEAD_MIN_US + LEAD_ROOM_US) return 0;
+    return l + LEAD_ROOM_US > period ? period - LEAD_ROOM_US : l;
+}
+
+/* Just in time: a report wanted now goes out at the next anchor (the one
+ * before it is already in the controller), so build it the lead before that
+ * anchor instead of at once; a report built at once waited most of an
+ * interval in the controller.  At once when the next anchor is closer than
+ * the lead, or when the anchors are not known. */
+u32 bt_input_due_us(void)
+{
+    u32 t = 0, p, l, at, next, now;
+
+    plat_lock();
+    if (want) {
+        t = want_us;
+        p = period_us();
+        l = lead(p);
+        if (l && hci_jieli_anchor(&at)) {
+            now = plat_us();
+            if (now - at < 8 * p) {
+                next = at + p;
+                while ((s32)(next - now) <= 0) next += p;
+                if ((s32)(next - l - t) > 0) t = next - l;
+            }
+        }
+        t |= 1;                          /* never 0 while wanted */
+    }
+    plat_unlock();
+    return t;
+}
+
+/* A report went out at the anchor it was meant for, or one later: move the
+ * adaptive lead.  Later than that is the host or the radio, not the lead. */
+static void lead_learn(u32 anchors_late)
+{
+    u32 p = period_us();
+
+    if (anchors_late == 1) {
+        lead_hits = 0;
+        if (lead_us + LEAD_UP_US + LEAD_ROOM_US <= p) lead_us += LEAD_UP_US;
+    } else if (!anchors_late && ++lead_hits >= LEAD_HITS) {
+        lead_hits = 0;
+        if (lead_us >= LEAD_MIN_US + LEAD_DOWN_US) lead_us -= LEAD_DOWN_US;
+    }
+    timing.link.lead_us = lead(p);
+    timing.link.period_us = p;
 }
 
 /* Classic: id is the report ID; LE: the handle to notify. */
@@ -620,15 +704,17 @@ static void send_now(void)
     if (m.len) {
         /* Timed from before the hand-off: handing a packet over wakes the
          * controller task, which can hold this thread for milliseconds. */
-        u32 sent = plat_us();
+        u32 sent = plat_us(), at, anchor = hci_jieli_anchor(&at);
 
         if (!le) hid_device_send_interrupt_message(hid_cid, m.data, m.len);
         else if (m.handle != dev->input_handle || notifying(m.handle))
             att_server_notify(con_handle, m.handle, m.data, m.len);
+        util_trace(TR_HANDED, 0);
         /* Messages ride along unmarked (slot 0): only reports are timed. */
         if (flight_n < IN_FLIGHT_MAX) {
             flight[flight_n].sent_us = sent;
             flight[flight_n].slot_us = slot;
+            flight[flight_n].anchor = anchor;
             flight_n++;
         }
     }
@@ -693,6 +779,12 @@ static void tx_poll(btstack_data_source_t *ds, btstack_data_source_callback_type
     if (sniff_too_slow()) unsniff();
     request_sniff();
     if (!send_pending && linked && have_data() && (msg_read != msg_write || room())) {
+        /* Straight in when the stack has a buffer: the can-send-now event
+         * round trip cost 0.3-0.9 ms between a report and the controller. */
+        if (le ? att_server_can_send_packet_now(con_handle) : hci_can_send_acl_packet_now(con_handle)) {
+            send_now();
+            return;
+        }
         send_pending = 1;
         if (le) att_server_request_can_send_now_event(con_handle);
         else hid_device_request_can_send_now_event(hid_cid);
@@ -769,6 +861,9 @@ static void unlinked(u8 reason)
 static void link_up(u8 transport)
 {
     flight_n = 0;
+    lead_us = LEAD_START_US;
+    lead_hits = 0;
+    hci_jieli_anchor_period(0);
     plat_lock();
     memset(&timing.link, 0, sizeof(timing.link));
     timing.link.transport = transport;
@@ -785,6 +880,7 @@ static void le_params(u16 interval, u16 latency, u16 timeout)
     timing.link.latency = latency;
     timing.link.timeout = timeout;
     plat_unlock();
+    hci_jieli_anchor_period(period_us());
 }
 
 /* Number Of Completed Packets: the controller says reports went.  BTstack's
@@ -793,7 +889,7 @@ static void le_params(u16 interval, u16 latency, u16 timeout)
 static void acked(void)
 {
     hci_connection_t *c = hci_connection_for_handle(con_handle);
-    u32 now = plat_us();
+    u32 now = plat_us(), at, anchor = hci_jieli_anchor(&at), air;
     int left = c ? c->num_packets_sent : 0;
     u8 i, n = 0;
 
@@ -803,7 +899,22 @@ static void acked(void)
     last_ack_us = now;
     while (flight_n - n > left && n < flight_n) {
         util_stat_add(&timing.ack_wait, now - flight[n].sent_us);
-        if (flight[n].slot_us) util_stat_add(&timing.slot_ack, now - flight[n].slot_us);
+        /* It went at the first anchor after the hand-off, and the central
+         * acknowledged it at the next one; acknowledged later, it went at
+         * the anchor before the acknowledging one (or was sent again). */
+        if (flight[n].slot_us && anchor > flight[n].anchor) {
+            u32 late = anchor - flight[n].anchor > 2 ? anchor - flight[n].anchor - 2 : 0;
+            u32 went = late ? anchor - 1 : flight[n].anchor + 1;
+
+            /* Without a fixed grid (active mode) a poll may come at any
+             * time: no anchor is the one a report was meant for. */
+            if (period_us()) {
+                if (late) stats.late++;
+                lead_learn(late);
+            }
+            if (hci_jieli_anchor_at(went, &air) && (s32)(air - flight[n].slot_us) > 0)
+                util_stat_add(&timing.slot_air, air - flight[n].slot_us);
+        }
         n++;
     }
     plat_unlock();
@@ -1007,6 +1118,7 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
         timing.link.mode = hci_event_mode_change_get_mode(packet);
         timing.link.interval = hci_event_mode_change_get_mode(packet) ? hci_event_mode_change_get_interval(packet) : 0;
         plat_unlock();
+        hci_jieli_anchor_period(period_us());
         sniff_slots = hci_event_mode_change_get_mode(packet) == 2 ? hci_event_mode_change_get_interval(packet) : 0;
         if (!sniff_slots) sniff_next = plat_ms() + 2000;
         break;

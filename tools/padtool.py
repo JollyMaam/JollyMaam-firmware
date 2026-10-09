@@ -151,7 +151,7 @@ HIST = "<QII16H"
 def read_stats(path, reset=False):
     d = cmd(path, 0x03, 1 if reset else 0, 512)
     version, size = struct.unpack_from("<HH", d)
-    if version != 5:
+    if version != 6:
         sys.exit(f"padtool: stats version {version} not known to this padtool")
     d = d[4:4 + size]
     s = {}
@@ -165,15 +165,15 @@ def read_stats(path, reset=False):
     s["step_sums"] = dict(zip(STEPS, struct.unpack_from("<8I", d, o + 32)))
     o += 64
     (s["reports"], s["imu"], s["sent"], s["replaced"], s["acked"], s["loop_runs"], s["loop_us"],
-     s["buttons"], s["frames"], s["resyncs"]) = struct.unpack_from("<10I", d, o)
-    o += 40
-    for name in ("ack_wait", "slot_ack", "ack_gap", "want_send"):
+     s["anchors"], s["late"], s["buttons"], s["frames"], s["resyncs"]) = struct.unpack_from("<12I", d, o)
+    o += 48
+    for name in ("ack_wait", "slot_air", "ack_gap", "want_send"):
         v = struct.unpack_from(HIST, d, o)
         s[name] = {"sum": v[0], "count": v[1], "max": v[2], "buckets": v[3:]}
         o += struct.calcsize(HIST)
     s["link"] = dict(zip(("transport", "phy_tx", "phy_rx", "mode", "interval", "latency", "timeout",
-                          "tx_octets", "tx_time", "rx_octets", "rx_time", "acl_buffers", "poll_us"),
-                         struct.unpack_from("<4B8HI", d, o)))
+                          "tx_octets", "tx_time", "rx_octets", "rx_time", "acl_buffers", "poll_us", "lead_us", "period_us"),
+                         struct.unpack_from("<4B8HIII", d, o)))
     return s
 
 
@@ -186,6 +186,9 @@ def show_link(k):
     elif k["transport"] == 1:
         mode = f"sniff {k['interval'] * 0.625:g} ms" if k["mode"] == 2 else f"mode {k['mode']}"
         print(f"link: Classic {mode}, accepted QoS poll {k['poll_us']} us, {k['acl_buffers']} ACL buffers")
+    if k["transport"]:
+        print(f"just in time: reports built {k['lead_us']} us before their anchor, every {k['period_us']} us"
+              if k["lead_us"] else "just in time: off (built when the radio has room)")
     else:
         print("link: none")
 
@@ -197,7 +200,7 @@ def show_stats(s):
     print(f"{'':16} {'count':>7} {'avg us':>8} {'max us':>8}  distribution (us)")
     for name, label in (("pass", "loop pass"), ("interval", "report interval"),
                         ("age", "report age"), ("ack_wait", "sent to ack"),
-                        ("slot_ack", "slot to ack"), ("ack_gap", "between acks"),
+                        ("slot_air", "slot to air"), ("ack_gap", "between acks"),
                         ("want_send", "want to send")):
         h = s[name]
         avg = h["sum"] / h["count"] if h["count"] else 0
@@ -214,7 +217,8 @@ def show_stats(s):
     rate = f"{1e6 * iv['count'] / iv['sum']:.1f}/s while sending" if iv["count"] and iv["sum"] else "none sent"
     print(f"reports {s['reports']} ({rate}), {per:.1f} imu samples each")
     print(f"bluetooth: sent {s['sent']}, replaced before sending {s['replaced']}, "
-          f"packets on air {s['acked']} ({s['acked'] / secs:.1f}/s)")
+          f"packets on air {s['acked']} ({s['acked'] / secs:.1f}/s), "
+          f"late {s['late']}, anchors {s['anchors'] / secs:.1f}/s")
     print(f"bluetooth thread: {s['loop_runs'] / secs:.0f} passes/s, "
           f"{s['loop_us'] / 1e6 / secs * 100:.1f} % of the time awake")
     show_link(s["link"])
@@ -360,7 +364,8 @@ def profile(path, seconds, hz, top, elf, zoom=None, by=None):
 
 
 TRACE_NAMES = {1: "want", 2: "bt wake", 3: "bt sleep", 4: "ctl wake", 5: "built", 6: "sent",
-               7: "ack", 8: "ctl sleep", 9: "stick"}
+               7: "ack", 8: "ctl sleep", 9: "stick", 10: "handed",
+               11: "anchor"}
 
 
 def trace(path, seconds, last):

@@ -48,7 +48,7 @@ static struct {
     u32 retry_at;
     u32 report_next;             /* the earliest the next report may be built */
     u16 report_hz;               /* the session's cap: the slot's setting or REPORT_HZ */
-    u32 pull_at_us;              /* a pulled report waits for pull_delay_us until then */
+    u32 pull_at_us;              /* a pulled report waits until then (jit_us, pull_delay_us) */
     u8 imu_mode, begin_imu;
     u32 imu_seq, imu_next;
     u8 calibrating;
@@ -379,8 +379,9 @@ static u32 state_deadline(void)
     case CTL_CONNECTING: if (c.waking) return c.wake_next;
         return c.retry_at ? c.retry_at : c.since + ux_timeouts.connect_ms;
     case CTL_PAIRING: return c.since + ux_timeouts.pair_ms;
-    case CTL_CONNECTED:          /* bt.c wakes the loop (EV_BT) when it wants a report */
-        return bt_input_wanted() ? c.report_next : plat_ms() + 100;
+    case CTL_CONNECTED:          /* bt.c wakes the loop (EV_BT) when it wants a report; one
+                                    waiting for its time (pull_at_us) wakes it through plat_wait */
+        return bt_input_wanted() && !c.pull_at_us ? c.report_next : plat_ms() + 100;
     default: return plat_ms() + 10;
     }
 }
@@ -515,10 +516,11 @@ static void send_report(u32 now)
     u32 period = 1000 / c.report_hz;
     int n;
 
-    if ((s32)(now - c.report_next) < 0 || !bt_input_wanted()) return;
     c.pull_at_us = 0;
-    if (c.sess.settings->pull_delay_us) {
-        u32 at = bt_input_wanted_us() + c.sess.settings->pull_delay_us;
+    if ((s32)(now - c.report_next) < 0 || !bt_input_wanted()) return;
+    {
+        u32 at = c.sess.settings->pull_delay_us ? bt_input_wanted_us() + c.sess.settings->pull_delay_us
+                                                : bt_input_due_us();
 
         if ((s32)(plat_us() - at) < 0) {
             c.pull_at_us = at;

@@ -58,12 +58,14 @@ bt_poll()        until empty: link events, bonds, host writes
 usb_poll()       a parked vendor command -> request
 sample_power     USB present (debounced), battery every second
 timeouts         the state's timeout, retry, wake step
-send_report      while CONNECTED, bt_input_wanted() and report_hz allows it:
-                 imu_take(), profile->report(), bt_send_input()
+send_report      while CONNECTED, bt_input_wanted(), report_hz allows it and
+                 bt_input_due_us() has come: imu_take(), profile->report(),
+                 bt_send_input()
 outputs          profile->host(), imu_poll(), plat_motors(); at an LED
                  deadline led_frame() and plat_leds() if the frame changed
 set_poll         write dirty records once the radio is quiet
-plat_wait(earliest of: LED frame, state deadline, gesture hold, IMU, calibration)
+plat_wait(earliest of: LED frame, state deadline, gesture hold, IMU, calibration;
+          the report's due time in µs)
 ```
 
 So reports are sent on time without a 1 ms tick, nothing runs while nothing
@@ -72,7 +74,9 @@ lockout.
 
 Reports are pulled: `bt.c` raises `EV_BT` when the controller has room and the
 input slot is empty (`bt_input_wanted()`), and the loop builds the report then,
-from the newest input, at most `REPORT_HZ` (250) a second for every profile,
+from the newest input, just before the connection event or sniff anchor it
+will go out at (`bt_input_due_us()`, [bluetooth.md](bluetooth.md)), and at
+most `REPORT_HZ` (250) a second for every profile,
 Classic and LE (the developer setting `report_hz` overrides it).  A report built is a report sent: the IMU samples it takes
 are never dropped by the newest-wins slot.
 

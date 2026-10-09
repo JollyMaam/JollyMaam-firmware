@@ -101,6 +101,9 @@ static const struct set_field slot_fields[] = {
     { .id = 23, .flags = F_DEV, .name = "pull_delay_us", .type = T_NUMBER, .max = 5000, FIELD(pull_delay_us),
       .def = ALL(0), .help = "build a report this long after the radio asks for it (fresher, "
                              "until it misses the connection event)" },
+    { .id = 29, .flags = F_DEV, .name = "jit_us", .type = T_NUMBER, .max = 10000, FIELD(link.jit_us),
+      .def = ALL(0), .help = "build a report this long before the connection event or sniff "
+                             "anchor it goes out at; 0: adaptive; 1: as soon as the radio has room" },
     { .id = 28, .flags = F_DEV, .name = "edr3", .type = T_ENUM, .names = onoff, FIELD(link.edr3_off),
       .def = ALL(1), .help = "Classic: 3 Mbit/s packets (an 83-byte PlayStation report fits "
                              "one, but a Linux host stalled more often); off: 2 Mbit/s only" },

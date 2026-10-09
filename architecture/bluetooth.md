@@ -59,6 +59,7 @@ int  bt_poll(struct bt_ev *ev);        /* 1 while there are events */
 int  bt_radio_quiet(void);             /* no pairing exchange or link set-up under way */
 int  bt_input_pending(void);
 int  bt_input_wanted(void);       /* room in the controller, slot empty: pull a report (EV_BT) */
+u32  bt_input_due_us(void);       /* when to build it: just before its anchor (plat_us), 0: not wanted */
 void bt_update_bond(const struct bt_bond *bond);   /* a key the profile learned (Switch 2) */
 void bt_stats(struct bt_stats *out);               /* running counters */
 void bt_timing(struct bt_timing *out, int reset);  /* ack histograms, the link as it is */
@@ -67,7 +68,7 @@ void bt_timing(struct bt_timing *out, int reset);  /* ack histograms, the link a
 ### Measuring the link
 
 `struct bt_link` comes from the slot's settings (`report_hz`, `le_interval_min`,
-`le_interval_max`, `le_phy`, `in_flight`, `poll_us`, `tx_power`; settings.md) and applies
+`le_interval_max`, `le_phy`, `in_flight`, `poll_us`, `jit_us`, `tx_power`; settings.md) and applies
 from the next connect.  Zero means the profile's or the stack's own:
 
 | field | what `bt.c` does with it |
@@ -75,15 +76,19 @@ from the next connect.  Zero means the profile's or the stack's own:
 | `le_interval_min/max` | L2CAP Connection Parameter Update Request after encryption, instead of the profile's `interval_min/max`.  The central decides; the log says whether it accepted, and the new interval when it applies. |
 | `le_phy` | 1: LE Set PHY to 2M both ways once linked. |
 | `in_flight` | input reports in the controller at once (default 2, at most 8). |
+| `jit_us` | lead before the anchor a report is built for (see Just in time): 0 adaptive (default), 1 none, else fixed µs. |
 | `poll_us` | Classic: Best Effort poll request (default 3750 µs; 0 asks nothing). The supported minimum is six slots. Requests are rounded down to slot pairs (1250 µs) to stay within the requested latency. Values below 3750 µs are refused. |
 | `tx_power` | radio strength 1-6 for the session, through `hci_jieli_tx_power(step, pro)`: 1-5 are the controller's normal steps 0-4 (5, the default, is its top in normal mode), 6 is step 4 of its pro table, about 3 dB more ([radio.md](../docs/radio.md)). |
 
 `bt_timing()` holds, beside the link as the controller last reported it
-(interval, PHY, data length, sniff mode, accepted QoS poll interval, ACL buffers):
+(interval, PHY, data length, sniff mode, accepted QoS poll interval, ACL buffers,
+the just-in-time lead and anchor period in use):
 
 * `ack_wait`: a report handed to the controller until Number Of Completed
   Packets says it went;
-* `slot_ack`: a report entering the input slot until then;
+* `slot_air`: a report entering the input slot (built) until the anchor it
+  went out at (the first after its hand-off, or the one before the
+  acknowledging one when it went later);
 * `ack_gap`: between Number Of Completed Packets events for the link;
 * `want_send`: `bt_input_wanted()` becoming true until the report the control
   thread built for it was handed over (the pull round trip).
@@ -278,8 +283,34 @@ event n+2      R2 goes out
 Room appears after each acknowledgement, so the pull follows the host's
 schedule by itself.  If the round trip misses an event, the next report is
 asked for at once and two are in flight: the rate holds, one event staler.
-`pull_delay_us` (developer) holds the build back; past the slack every report
-misses its event, so it stays 0.
+
+### Just in time
+
+The report asked for after event n+1 goes out at event n+2, so built at once
+it waited most of an interval in the controller.  Instead it is built a lead
+before that anchor (`bt_input_due_us()`; the control loop sleeps until then
+through `plat_wait`'s µs deadline):
+
+* Anchors are timed by the controller: `cyclone2_air_rx()` (in
+  `btstack_hci_jieli.c`, called from the Classic receive handler and the LE
+  connection receive probe, in interrupt context) marks the first packet
+  from the central more than half a period after the last anchor.
+* The period is the LE connection interval or the Classic sniff interval.
+  Classic active mode has no fixed grid (a host with QoS may poll much
+  more often than the accepted interval), so there the report is built at
+  once.
+* The lead adapts per link: a report that went out one anchor after the one
+  it was meant for (counted between hand-off and Number Of Completed Packets)
+  adds `LEAD_UP_US`; `LEAD_HITS` on time take `LEAD_DOWN_US` off; later than
+  one anchor is the host or the radio and is not counted.  It never comes
+  within `LEAD_ROOM_US` of the period.  `bt_stats().late` counts those reports,
+  `.anchors` the anchors.
+* A report goes straight into the stack when it has a buffer
+  (`att_server_can_send_packet_now`, `hci_can_send_acl_packet_now`); the
+  can-send-now request and event remain for when it has none.
+
+`pull_delay_us` (developer, the earlier fixed delay after the ask) replaces
+the lead when set.
 
 ## Rules that must survive (measured)
 

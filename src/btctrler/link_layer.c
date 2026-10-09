@@ -1959,6 +1959,7 @@ static void LL_CODE conn_rx_probe_handler(void *priv, struct ble_rx *rx)
     }
     local_irq_enable();
     if (!rx->invalid) {
+        cyclone2_air_rx();
         link->rssi = rx->rssi;
         conn_rx_probe_channel_handler(link, rx);
     }
@@ -2290,6 +2291,7 @@ u64 config_btctler_le_features;
 u8 log_tag_const_i_LL;
 u8 log_tag_const_e_LL;
 const struct ble_operation *__ble_ops;
+void cyclone2_air_rx(void) {}
 static u8 test_random_bytes[8];
 static struct le_link *test_finish_link;
 static int test_fail_alloc;

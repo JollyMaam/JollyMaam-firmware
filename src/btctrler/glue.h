@@ -77,4 +77,8 @@ u8 cyclone2_lmp_qos_send(u16 handle, u16 slots);
 u8 cyclone2_lmp_qos_answer(u16 handle, u8 status);
 extern u16 btctrler_qos_poll_slots;
 
+/* A packet from the central arrived on a connection (Classic or LE), in
+ * interrupt context: btstack_hci_jieli.c times the link's anchors with it. */
+void cyclone2_air_rx(void);
+
 #endif

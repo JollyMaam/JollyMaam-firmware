@@ -202,6 +202,7 @@ struct bt_link {
                                 step 4 from its pro table */
     u16 sniff_max, sniff_min; /* Classic: ask the host for sniff (slots); 0: don't */
     u8 edr3_off;             /* Classic: no 3 Mbit/s EDR packets */
+    u16 jit_us;              /* lead before the anchor a report is for: 0 adaptive, 1 none (when asked) */
 };
 
 struct profile;
@@ -217,7 +218,8 @@ int bt_poll(struct bt_ev *ev);
 int bt_radio_quiet(void);
 int bt_input_pending(void);
 int bt_input_wanted(void);
-u32 bt_input_wanted_us(void);            /* when it became wanted (plat_us), 0: not wanted */               /* the controller has room for a report now */
+u32 bt_input_wanted_us(void);            /* when it became wanted (plat_us), 0: not wanted */
+u32 bt_input_due_us(void);               /* when to build it (plat_us, jit_us), 0: not wanted */
 void bt_update_bond(const struct bt_bond *bond);
 struct bt_stats;
 void bt_stats(struct bt_stats *out);
@@ -428,6 +430,8 @@ struct bt_stats {
     u32 acked;                   /* packets the controller reports as sent */
     u32 loop_runs;               /* passes of the bluetooth thread's run loop */
     u32 loop_us;                 /* time in them, wake to sleep (higher priorities included) */
+    u32 anchors;                 /* connection events / sniff anchors the central's packets marked */
+    u32 late;                    /* reports that went out an anchor or more after the one after hand-over */
 };
 
 /* The link as the controller reports it, and when it said packets went. */
@@ -441,11 +445,13 @@ struct bt_link_info {
     u16 rx_octets, rx_time;      /* LE: and takes */
     u16 acl_buffers;             /* the controller's ACL packets (LE ones on LE) */
     u32 poll_us;                 /* Classic: accepted poll interval (us), 0 unknown */
+    u32 lead_us;                 /* reports are built this long before their anchor; 0: when asked */
+    u32 period_us;               /* between the central's anchors, as bt.c reckons it; 0 unknown */
 };
 
 struct bt_timing {
     struct stat_hist ack_wait;   /* report to the controller until it says sent */
-    struct stat_hist slot_ack;   /* report into the input slot until it says sent */
+    struct stat_hist slot_air;   /* report into the input slot until the anchor it went out at */
     struct stat_hist ack_gap;    /* between Number Of Completed Packets for the link */
     struct stat_hist want_send;  /* bt.c asked for a report until it was handed over */
     struct bt_link_info link;
@@ -470,7 +476,7 @@ struct ctl_stats {
     struct plat_stats plat;
     struct bt_timing bt_timing;
 };
-_Static_assert(sizeof(struct stat_hist) == 48 && sizeof(struct ctl_stats) == 264 + 4 * 48 + 24,
+_Static_assert(sizeof(struct stat_hist) == 48 && sizeof(struct ctl_stats) == 272 + 4 * 48 + 32,
                "padtool reads struct ctl_stats byte for byte");
 
 struct usb_status {
@@ -501,7 +507,7 @@ void util_stat_add(struct stat_hist *h, u32 us);
 /* Timing trace: a ring of {µs, marker, argument}, any thread or interrupt;
  * padtool trace reads it (usb.md, TRACE).  Markers: */
 enum { TR_WANT = 1, TR_BT_WAKE, TR_BT_SLEEP, TR_CTL_WAKE, TR_BUILT, TR_SENT, TR_ACK,
-       TR_CTL_SLEEP, TR_STICK };
+       TR_CTL_SLEEP, TR_STICK, TR_HANDED, TR_ANCHOR };
 void util_trace(u8 marker, u16 arg);
 u32 util_trace_read(u32 offset, u8 *out, u32 max);
 void util_trace_enable(int on);

@@ -32,7 +32,7 @@ defaults).  `set_slot(slot)` returns them as a plain `struct set_slot`.
 
 **Developer settings** carry a flag in the table (`F_DEV`, sent in the
 field description): `report_hz`, `le_interval_min/max`, `le_phy`,
-`in_flight`, `poll_us`, `pull_delay_us`, `sniff_max`, `sniff_min`, `edr3`.  They are
+`in_flight`, `poll_us`, `pull_delay_us`, `jit_us`, `sniff_max`, `sniff_min`, `edr3`.  They are
 for measuring the link; `padtool fields` and `get` leave them out unless
 `--dev` is given or they are set, and `set` notes it.
 
