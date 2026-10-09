@@ -1,6 +1,5 @@
 /* Connection teardown from the SDK's lmp.c (Classic link manager).  The
- * rest of lmp.c is spread over src/btctrler/lmp_*.c; the archive build drops
- * the SDK's member (tools/btctrler/recover.py, LMP_UNUSED). */
+ * rest of lmp.c is spread over src/btctrler/lmp_*.c. */
 #include "btctrler/glue.h"
 
 /* lmp_connection.core.state bits used here. */

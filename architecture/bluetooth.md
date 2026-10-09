@@ -222,9 +222,8 @@ and unspecified delay variation. Rejection does not gate input delivery.
 The setting is a scheduling request, not a measured input latency or a
 bandwidth guarantee.
 
-The retained-controller build always applies `tools/btctrler/qos.py`.
-It removes the SDK's complete HCI link policy dispatcher definition, using
-`btctrler_link_policy.c` instead, and adds a receive hook after LMP PDU
+The owned controller's `src/btctrler/link_policy.c` handles HCI link policy
+commands, and `src/btctrler/lmp_rx.c` notifies the QoS adapter after LMP PDU
 validation. The C wrapper validates the
 handle and peripheral role and invokes the recovered C QoS sender. Its
 global interval is enabled only around that call; the SDK's later automatic

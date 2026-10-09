@@ -9,7 +9,7 @@
  * Kept as the SDK has it unless a comment says otherwise.  Not owned (no
  * caller anywhere): eSCO data paths, TWS forwarding, the fixed rx/tx test
  * mode, the firmware-update hand-over and debug printers; see the leftover
- * list in recover.py. */
+ * list in recover.py on btctrler-decompiled. */
 #include "btctrler/glue.h"
 
 #include <stdint.h>

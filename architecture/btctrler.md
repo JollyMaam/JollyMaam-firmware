@@ -187,23 +187,10 @@ the boundary.
 
 ## SDK comparison tools
 
-`PATH=/work/bin:$PATH make controller-ir` generates readable optimized LLVM IR
-and JSON inventories under `build/controller-ir/sdk/` from the pristine SDK
-archive. This optional inspection target is independent of the firmware build.
-The shared SDK archive is never edited. There is no generated controller archive,
-retained-member inventory or archive manifest.
-
-| Module under `tools/btctrler/` | Responsibility |
-| --- | --- |
-| `ir.py` | Checked function extraction, debug locations and bitcode round-trip. |
-| `recover.py` | Audited SDK definition fingerprints and historical extraction transforms. |
-| `archive.py` | SDK fingerprints, ownership inventory and inspection entry point. |
-| `inspection.py` | Cached IR decoding and reference/debug metadata inventories. |
-| `sdktypes.py` | Controller types recovered from the SDK debug metadata. |
-| `crosscheck.py` and `review/` | Compare owned object IR with the SDK implementation. |
-
-`tools/inspect_btctrler.py` is the inspection command. Generated inspection
-artifacts stay outside source control.
+Decompilation and SDK comparison tools, including `tools/btctrler/` and
+`tools/inspect_btctrler.py`, are archived on the `btctrler-decompiled` branch.
+They are not part of this branch or its firmware build. Consult that branch
+for further recovery work; the shared SDK archive remains unmodified.
 
 ## Guardrails for subsequent recovery
 
@@ -224,14 +211,11 @@ purity/restricted-memory assumptions found.
 The caller's attributes were checked: they impose size preferences and
 `nounwind`, not stale purity or restricted memory effects.
 
-The owned boundary requires the audited source archive SHA-256 in
-`tools/btctrler/archive.py`. The removed definitions also have instruction
-body fingerprints in `tools/btctrler/qos.py` and `tools/btctrler/recover.py`.
-Address/supervision extraction is checked before unrelated patches run.
-Updating the SDK deliberately
-requires auditing the new implementation and its callers, then updating
-the fingerprints. Layout accessors use the SDK's LLVM types and checked
-field anchors; they do not guess C padding.
+The archived recovery tools on `btctrler-decompiled` contain the audited
+source archive SHA-256 and definition fingerprints. Updating the SDK requires
+auditing the new implementation and its callers against those records.
+Recovered layouts use the SDK's LLVM types and checked field anchors;
+they do not guess C padding.
 
 Debug metadata is useful evidence, not a universal proof that no code was
 inlined. An SDK update must inspect actual call sites and inline state too.

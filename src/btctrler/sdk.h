@@ -1,5 +1,6 @@
 /* Recovered BR23 controller (btctrler.a) types, from the archive's debug
- * metadata by tools/btctrler/sdktypes.py.  Names, layout and source files
+ * metadata by tools/btctrler/sdktypes.py on btctrler-decompiled.
+ * Names, layout and source files
  * are the SDK's; the assertions check the layout this compiler gives. */
 #ifndef BTCTRLER_SDK_H
 #define BTCTRLER_SDK_H
