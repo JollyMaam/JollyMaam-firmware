@@ -66,7 +66,7 @@ If a function is not in `pad.h`, it is `static`.
 | `profile_switch_wake.c` | `profile_switch_wake` | Switch 1 console wake: code generation and the raw radio |
 | `profile_xbox.c` | `profile_xbox`, `profile_xbox_ble` | Xbox over Classic and LE |
 | `profile_playstation.c` | `profile_dualsense`, `profile_dualshock4` | PlayStation pads |
-| `profile_hid.c` | `profile_generic`, `profile_mouse` | generic gamepad, stick and gyro mouse |
+| `profile_hid.c` | `profile_generic`, `profile_generic_ble`, `profile_mouse` | generic gamepad (Classic, LE), stick and gyro mouse |
 | `bt.c` | `bt_` | the Bluetooth host over BTstack, Classic and LE |
 | `btstack_hci_jieli.c` | `hci_jieli_` | BTstack's transport and run loop on the Jieli controller library |
 | `usb.c` | `usb_` | vendor SCSI commands (identify, status, log, reboot) |

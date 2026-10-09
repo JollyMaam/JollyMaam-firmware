@@ -2,7 +2,7 @@
 
 A profile is what one kind of host expects the pad to be: a Switch Pro
 Controller, a Switch 2 Pro Controller, an Xbox controller over Classic or LE, a
-DualSense, a DualShock 4, a generic HID gamepad, a mouse.  Each slot is set to
+DualSense, a DualShock 4, a generic HID gamepad (Classic or LE), a mouse.  Each slot is set to
 one profile type (`profile.#.type`).
 
 A profile knows **bytes and meanings**: what its reports look like, what the
@@ -18,7 +18,7 @@ same on any chip, and makes their report bytes testable on the host.
 | `profile_switch_wake.c` | console wake for `switch` | raw radio |
 | `profile_xbox.c` | `xbox`, `xboxble` | Classic, LE |
 | `profile_playstation.c` | `dualsense`, `dualshock4` | Classic |
-| `profile_hid.c` | `generic`, `mouse` | Classic |
+| `profile_hid.c` | `generic`, `mouse`; `genericble` | Classic; LE |
 
 Profiles that share a file share their encoders: both Xbox transports send the
 same state bytes; DualSense and DualShock 4 share the button, stick, motion and
@@ -181,6 +181,30 @@ address as feature reports) and GATT reads.  Returns the length written to
 `out`, or -1 for "no such report or handle".  The answer has to be given at
 once, so `read()` runs on the bluetooth thread, and may only return constant
 data or data from `begin()` (the address).  It changes nothing.
+
+## Generic gamepad over LE: `genericble`
+
+HID over GATT (Device Information with a PnP ID, Battery, HID with one input
+report) whose report map is laid out for Linux's HID input mapping, so SDL's
+evdev auto-mapping takes it as a gamepad without a database entry:
+
+| Pad | HID usage | Linux | SDL |
+|---|---|---|---|
+| A B X Y | Button 1 2 4 5 | BTN_SOUTH EAST NORTH(X) WEST(Y) | a b x y |
+| C/M | Button 3 | BTN_C | (button only) |
+| L1 R1 | Button 7 8 | BTN_TL TR | shoulders |
+| Select Start Home L3 R3 | Button 11-15 | BTN_SELECT ... BTN_THUMBR | back start guide sticks |
+| R4, L4 | Button 21, 23 (22, 24 always 0) | BTN_TRIGGER_HAPPY5, 7 | right/left paddle 1 |
+| Share (Screenshot) | Consumer Record | KEY_RECORD | misc1 |
+| sticks, L2 R2 | X Y Rx Ry 16-bit; Z Rz 16-bit | ABS_X ... ABS_RZ | sticks, analog triggers |
+| d-pad | hat | ABS_HAT0X/Y | d-pad |
+
+Button usages 6, 9, 10 and 16-20 are absent so nothing else claims a role.
+The PnP ID is fixed at Microsoft 0x045e:0x0bfe so SDL maps
+BTN_TRIGGER_HAPPY5-8 as paddles.  hid-generic binds it.  `read()` answers the
+fixed PnP ID; there is no vendor setting.  Share is Consumer Record (SDL's
+misc1), and C/M is Button 3.  Reports go on change only, like the Classic
+`generic`.
 
 ## Switch 2 motion
 

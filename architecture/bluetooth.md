@@ -202,7 +202,7 @@ any state ── bt_stop() ──> STOPPING ── BT_EV_STOPPED ──> OFF
 
 What `bt.c` does for each transport:
 
-| | Classic (switch, xbox, dualsense, dualshock4, generic, mouse) | LE (switch2, xboxble) |
+| | Classic (switch, xbox, dualsense, dualshock4, generic, mouse) | LE (switch2, xboxble, genericble) |
 |---|---|---|
 | start | SDP HID record from `hid_descriptor`, Device ID record, class of device | GATT db from `att_db`, advertising from `advertising()` |
 | connect | page the bonded host | advertise to the bonded host |

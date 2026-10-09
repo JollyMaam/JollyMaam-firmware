@@ -266,13 +266,14 @@ struct profile_wake {
 };
 
 extern const struct profile profile_switch, profile_switch2, profile_xbox, profile_xbox_ble;
-extern const struct profile profile_dualsense, profile_dualshock4, profile_generic, profile_mouse;
+extern const struct profile profile_dualsense, profile_dualshock4, profile_generic, profile_mouse,
+    profile_generic_ble;
 extern const struct profile_wake profile_switch_wake;
 
 /* ---- settings.c --------------------------------------------------------- */
 
 enum { PROFILE_SWITCH, PROFILE_SWITCH2, PROFILE_XBOX, PROFILE_XBOX_BLE, PROFILE_DUALSENSE,
-       PROFILE_DUALSHOCK4, PROFILE_GENERIC, PROFILE_MOUSE, PROFILE_COUNT };
+       PROFILE_DUALSHOCK4, PROFILE_GENERIC, PROFILE_MOUSE, PROFILE_GENERIC_BLE, PROFILE_COUNT };
 enum { GRIPS_OFF, GRIPS_HOST, GRIPS_FADE, GRIPS_RUMBLE, GRIPS_INPUT, GRIPS_BOTH,
        GRIPS_PRIMARY, GRIPS_SECONDARY };
 enum { PLAYERS_OFF, PLAYERS_HOST, PLAYERS_FADE, PLAYERS_PRIMARY, PLAYERS_SECONDARY };

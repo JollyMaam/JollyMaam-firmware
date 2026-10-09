@@ -1,8 +1,9 @@
 #include <string.h>
 #include "pad.h"
 
-/* Plain HID over Classic: a generic gamepad (SDL maps its button order without
- * a database entry), and a keyboard and mouse for desktops and games. */
+/* Plain HID: a generic gamepad over Classic and over LE (SDL maps their button
+ * order without a database entry), and a keyboard and mouse for desktops and
+ * games. */
 
 /* ---- generic gamepad ------------------------------------------------------------ */
 
@@ -58,6 +59,180 @@ static const struct bt_device generic_device = {
 const struct profile profile_generic = {
     .name = "generic", .device = &generic_device,
     .begin = generic_begin, .report = generic_report,
+};
+
+/* ---- generic gamepad over LE ---------------------------------------------------------
+ * HID over GATT, laid out for Linux's input mapping so SDL takes it as a
+ * gamepad without a database entry (its evdev auto-mapping): Button usages
+ * 1-15 become BTN_SOUTH ... BTN_THUMBR, 21-24 BTN_TRIGGER_HAPPY5-8 (SDL's
+ * Elite paddles, mapped only under Microsoft's vendor ID), Consumer Record
+ * KEY_RECORD (SDL's misc1), Z and Rz the analog triggers.  Usages 6, 9, 10
+ * (BTN_Z, BTN_TL2, BTN_TR2) and 16-20 are left out so nothing else claims a
+ * role; 22 and 24 stay 0 (SDL wants all four paddles before it maps any). */
+
+#define GBLE_SIZE    15
+#define GBLE_INPUT   0x001a
+#define GBLE_PNP     0x0010
+#define GBLE_VERSION 0x0100
+
+/* GATT database from this .gatt (BTstack's compile_gatt.py), the report map
+ * inline:
+ *
+ * PRIMARY_SERVICE, GAP_SERVICE
+ * CHARACTERISTIC, GAP_DEVICE_NAME, READ, "Cyclone 2 Gamepad"
+ * CHARACTERISTIC, GAP_APPEARANCE, READ, C4 03
+ * CHARACTERISTIC, GAP_PERIPHERAL_PREFERRED_CONNECTION_PARAMETERS, READ, 06 00 09 00 00 00 90 01
+ * PRIMARY_SERVICE, GATT_SERVICE
+ * CHARACTERISTIC, GATT_SERVICE_CHANGED, READ | INDICATE | DYNAMIC,
+ * PRIMARY_SERVICE, ORG_BLUETOOTH_SERVICE_DEVICE_INFORMATION
+ * CHARACTERISTIC, ORG_BLUETOOTH_CHARACTERISTIC_MANUFACTURER_NAME_STRING, READ, "GameSir"
+ * CHARACTERISTIC, ORG_BLUETOOTH_CHARACTERISTIC_PNP_ID, READ | DYNAMIC,                  0x0010
+ * PRIMARY_SERVICE, ORG_BLUETOOTH_SERVICE_BATTERY_SERVICE
+ * CHARACTERISTIC, ORG_BLUETOOTH_CHARACTERISTIC_BATTERY_LEVEL, READ, 64
+ * PRIMARY_SERVICE, ORG_BLUETOOTH_SERVICE_HUMAN_INTERFACE_DEVICE
+ * CHARACTERISTIC, ORG_BLUETOOTH_CHARACTERISTIC_HID_INFORMATION, READ, 11 01 00 02
+ * CHARACTERISTIC, ORG_BLUETOOTH_CHARACTERISTIC_REPORT_MAP, READ,
+ *   05 01 09 05 a1 01 85 01                    gamepad, report 1
+ *   05 09 09 01 09 02 09 03 09 04 09 05 09 07 09 08 09 0b 09 0c 09 0d 09 0e 09 0f
+ *   09 15 09 16 09 17 09 18 15 00 25 01 75 01 95 10 81 02         16 buttons
+ *   05 01 09 39 15 00 25 07 35 00 46 3b 01 65 14 75 04 95 01 81 42 hat, null state
+ *   45 00 65 00 05 0c 0a b2 00 15 00 25 01 75 01 95 01 81 02       Record (M)
+ *   75 03 95 01 81 03
+ *   05 01 15 00 27 ff ff 00 00 75 10 95 06
+ *   09 30 09 31 09 33 09 34 09 32 09 35 81 02                      X Y Rx Ry Z Rz
+ *   c0
+ * CHARACTERISTIC, ORG_BLUETOOTH_CHARACTERISTIC_REPORT, READ | NOTIFY | DYNAMIC | ENCRYPTION_KEY_SIZE_16,  0x001a
+ * REPORT_REFERENCE, READ, 1, 1
+ * CHARACTERISTIC, ORG_BLUETOOTH_CHARACTERISTIC_HID_CONTROL_POINT, WRITE_WITHOUT_RESPONSE | DYNAMIC,
+ */
+static const u8 gble_att_db[] = {
+    0x01, 0x0a, 0x00, 0x02, 0x00, 0x01, 0x00, 0x00, 0x28, 0x00, 0x18, 0x0d, 0x00, 0x02, 0x00, 0x02,
+    0x00, 0x03, 0x28, 0x02, 0x03, 0x00, 0x00, 0x2a, 0x19, 0x00, 0x02, 0x00, 0x03, 0x00, 0x00, 0x2a,
+    0x43, 0x79, 0x63, 0x6c, 0x6f, 0x6e, 0x65, 0x20, 0x32, 0x20, 0x47, 0x61, 0x6d, 0x65, 0x70, 0x61,
+    0x64, 0x0d, 0x00, 0x02, 0x00, 0x04, 0x00, 0x03, 0x28, 0x02, 0x05, 0x00, 0x01, 0x2a, 0x0a, 0x00,
+    0x02, 0x00, 0x05, 0x00, 0x01, 0x2a, 0xc4, 0x03, 0x0d, 0x00, 0x02, 0x00, 0x06, 0x00, 0x03, 0x28,
+    0x02, 0x07, 0x00, 0x04, 0x2a, 0x10, 0x00, 0x02, 0x00, 0x07, 0x00, 0x04, 0x2a, 0x06, 0x00, 0x09,
+    0x00, 0x00, 0x00, 0x90, 0x01, 0x0a, 0x00, 0x02, 0x00, 0x08, 0x00, 0x00, 0x28, 0x01, 0x18, 0x0d,
+    0x00, 0x02, 0x00, 0x09, 0x00, 0x03, 0x28, 0x22, 0x0a, 0x00, 0x05, 0x2a, 0x08, 0x00, 0x02, 0x01,
+    0x0a, 0x00, 0x05, 0x2a, 0x0a, 0x00, 0x0e, 0x01, 0x0b, 0x00, 0x02, 0x29, 0x00, 0x00, 0x0a, 0x00,
+    0x02, 0x00, 0x0c, 0x00, 0x00, 0x28, 0x0a, 0x18, 0x0d, 0x00, 0x02, 0x00, 0x0d, 0x00, 0x03, 0x28,
+    0x02, 0x0e, 0x00, 0x29, 0x2a, 0x0f, 0x00, 0x02, 0x00, 0x0e, 0x00, 0x29, 0x2a, 0x47, 0x61, 0x6d,
+    0x65, 0x53, 0x69, 0x72, 0x0d, 0x00, 0x02, 0x00, 0x0f, 0x00, 0x03, 0x28, 0x02, 0x10, 0x00, 0x50,
+    0x2a, 0x08, 0x00, 0x02, 0x01, 0x10, 0x00, 0x50, 0x2a, 0x0a, 0x00, 0x02, 0x00, 0x11, 0x00, 0x00,
+    0x28, 0x0f, 0x18, 0x0d, 0x00, 0x02, 0x00, 0x12, 0x00, 0x03, 0x28, 0x02, 0x13, 0x00, 0x19, 0x2a,
+    0x09, 0x00, 0x02, 0x00, 0x13, 0x00, 0x19, 0x2a, 0x64, 0x0a, 0x00, 0x02, 0x00, 0x14, 0x00, 0x00,
+    0x28, 0x12, 0x18, 0x0d, 0x00, 0x02, 0x00, 0x15, 0x00, 0x03, 0x28, 0x02, 0x16, 0x00, 0x4a, 0x2a,
+    0x0c, 0x00, 0x02, 0x00, 0x16, 0x00, 0x4a, 0x2a, 0x11, 0x01, 0x00, 0x02, 0x0d, 0x00, 0x02, 0x00,
+    0x17, 0x00, 0x03, 0x28, 0x02, 0x18, 0x00, 0x4b, 0x2a, 0x86, 0x00, 0x02, 0x00, 0x18, 0x00, 0x4b,
+    0x2a, 0x05, 0x01, 0x09, 0x05, 0xa1, 0x01, 0x85, 0x01, 0x05, 0x09, 0x09, 0x01, 0x09, 0x02, 0x09,
+    0x03, 0x09, 0x04, 0x09, 0x05, 0x09, 0x07, 0x09, 0x08, 0x09, 0x0b, 0x09, 0x0c, 0x09, 0x0d, 0x09,
+    0x0e, 0x09, 0x0f, 0x09, 0x15, 0x09, 0x16, 0x09, 0x17, 0x09, 0x18, 0x15, 0x00, 0x25, 0x01, 0x75,
+    0x01, 0x95, 0x10, 0x81, 0x02, 0x05, 0x01, 0x09, 0x39, 0x15, 0x00, 0x25, 0x07, 0x35, 0x00, 0x46,
+    0x3b, 0x01, 0x65, 0x14, 0x75, 0x04, 0x95, 0x01, 0x81, 0x42, 0x45, 0x00, 0x65, 0x00, 0x05, 0x0c,
+    0x0a, 0xb2, 0x00, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x01, 0x81, 0x02, 0x75, 0x03, 0x95,
+    0x01, 0x81, 0x03, 0x05, 0x01, 0x15, 0x00, 0x27, 0xff, 0xff, 0x00, 0x00, 0x75, 0x10, 0x95, 0x06,
+    0x09, 0x30, 0x09, 0x31, 0x09, 0x33, 0x09, 0x34, 0x09, 0x32, 0x09, 0x35, 0x81, 0x02, 0xc0, 0x0d,
+    0x00, 0x02, 0x00, 0x19, 0x00, 0x03, 0x28, 0x12, 0x1a, 0x00, 0x4d, 0x2a, 0x08, 0x00, 0x03, 0xf5,
+    0x1a, 0x00, 0x4d, 0x2a, 0x0a, 0x00, 0x0f, 0xf1, 0x1b, 0x00, 0x02, 0x29, 0x00, 0x00, 0x0a, 0x00,
+    0x02, 0x00, 0x1c, 0x00, 0x08, 0x29, 0x01, 0x01, 0x0d, 0x00, 0x02, 0x00, 0x1d, 0x00, 0x03, 0x28,
+    0x04, 0x1e, 0x00, 0x4c, 0x2a, 0x08, 0x00, 0x04, 0x01, 0x1e, 0x00, 0x4c, 0x2a, 0x00, 0x00,
+};
+
+static struct {
+    u8 last[GBLE_SIZE];
+    u8 sent;
+    u8 er[16], ir[16];
+} gb;
+
+static u8 gble_begin(const struct profile_session *s)
+{
+    static const u8 firmware_key[16] = { 'C', 'Y', 'C', 'L', 'O', 'N', 'E', '2',
+                                         '-', 'G', 'E', 'N', 'E', 'R', 'I', 'C' };
+    u8 block[16];
+
+    memset(&gb, 0, sizeof(gb));
+    /* LE security keys for this slot, as profile_xbox.c makes them. */
+    memset(block, 0, sizeof(block));
+    memcpy(block, s->address, 6);
+    block[6] = s->slot;
+    block[15] = 'E';
+    util_aes128(firmware_key, block, gb.er);
+    block[15] = 'I';
+    util_aes128(firmware_key, block, gb.ir);
+    return IMU_OFF;
+}
+
+static void put_axis(u8 *out, u16 v)
+{
+    out[0] = (u8)v;
+    out[1] = (u8)(v >> 8);
+}
+
+/* On change only, like the Classic generic gamepad. */
+static int gble_report(const struct pad *p, u32 now, u8 *out, u8 *id)
+{
+    u16 b = p->buttons;
+
+    (void)now;
+    out[0] = (u8)((b & (PAD_A | PAD_B | PAD_X | PAD_Y)) | (b & PAD_M ? 0x04 : 0) |
+                  (b & (PAD_L1 | PAD_R1)) >> 1 | (b & PAD_SELECT) >> 3);
+    out[1] = (u8)((b & (PAD_START | PAD_HOME | PAD_L3 | PAD_R3)) >> 11 |
+                  (b & PAD_R4 ? 0x10 : 0) | (b & PAD_L4 ? 0x40 : 0));
+    out[2] = (u8)((p->hat <= HAT_UP_LEFT ? p->hat : 8) | (b & PAD_SCREENSHOT ? 0x10 : 0));
+    put_axis(out + 3, (u16)(p->lx + 32768));
+    put_axis(out + 5, (u16)(p->ly + 32768));
+    put_axis(out + 7, (u16)(p->rx + 32768));
+    put_axis(out + 9, (u16)(p->ry + 32768));
+    put_axis(out + 11, p->l2);
+    put_axis(out + 13, p->r2);
+    if (gb.sent && !memcmp(out, gb.last, GBLE_SIZE)) return 0;
+    memcpy(gb.last, out, GBLE_SIZE);
+    gb.sent = 1;
+    *id = 1;
+    return GBLE_SIZE;
+}
+
+/* Bluetooth thread: fixed Microsoft PnP ID for SDL paddle mapping. */
+static int gble_read(u8 kind, u16 handle, u16 offset, u8 *out, u16 max)
+{
+    (void)offset;
+    if (kind != BT_WRITE_ATT || handle != GBLE_PNP || max < 7) return -1;
+    out[0] = 0x02;                                 /* vendor ID from the USB-IF */
+    put_axis(out + 1, 0x045e);
+    put_axis(out + 3, 0x0bfe);
+    put_axis(out + 5, GBLE_VERSION);
+    return 7;
+}
+
+static u8 gble_advertising(const struct bt_bond *bond, int pairing, int wake, u8 out[31])
+{
+    /* Flags, appearance gamepad, the HID service. */
+    static const u8 adv[] = { 0x02, 0x01, 0x06, 0x03, 0x19, 0xc4, 0x03, 0x03, 0x03, 0x12, 0x18 };
+
+    (void)bond;
+    (void)wake;
+    memcpy(out, adv, sizeof(adv));
+    out[2] = pairing ? 0x06 : 0x04;    /* general discoverable only when pairing */
+    return sizeof(adv);
+}
+
+static const u8 gble_scan_response[] = { 0x12, 0x09, 'C', 'y', 'c', 'l', 'o', 'n', 'e', ' ', '2', ' ',
+                                         'G', 'a', 'm', 'e', 'p', 'a', 'd' };
+
+static const struct bt_device gble_device = {
+    .transport = BT_LE,
+    .name = "Cyclone 2 Gamepad",
+    .att_db = gble_att_db,
+    .input_handle = GBLE_INPUT,
+    .advertising = gble_advertising,
+    .scan_response = gble_scan_response, .scan_response_len = sizeof(gble_scan_response),
+    .sm_er = gb.er, .sm_ir = gb.ir,
+    .interval_min = 6, .interval_max = 9,
+};
+
+const struct profile profile_generic_ble = {
+    .name = "genericble", .device = &gble_device,
+    .begin = gble_begin, .report = gble_report, .read = gble_read,
 };
 
 /* ---- keyboard and mouse ------------------------------------------------------------
@@ -351,6 +526,7 @@ static int input_pending;
 int bt_send_message(u16 id, const u8 *data, u16 len) { (void)id; memcpy(kb_sent, data, len); return 1; }
 int bt_input_pending(void) { return input_pending; }
 void util_put16(u8 *p, u16 v) { p[0] = (u8)v; p[1] = (u8)(v >> 8); }
+void util_aes128(const u8 key[16], const u8 in[16], u8 out[16]) { (void)key; memcpy(out, in, 16); }
 void imu_pointer(struct imu_pointer *pt, const struct imu_sample *s, int n, u16 per_degree, u16 accel,
                  s32 *x, s32 *y)
 {
@@ -390,6 +566,32 @@ int main(void)
     set.variant = 1;
     set.gyro_speed = 0;
     CHECK(mouse_begin(&s) == IMU_OFF && m.layout == &layouts[1]);
+
+    /* genericble: Linux button order, paddles at 21/23, Share as Record, C/M as Button 3. */
+    memset(&p, 0, sizeof(p));
+    p.hat = HAT_NEUTRAL;
+    CHECK(gble_begin(&s) == IMU_OFF && gb.er[6] == 4 && gb.er[15] == 'E');
+    p.buttons = PAD_A | PAD_Y | PAD_L1 | PAD_SELECT | PAD_START | PAD_R3 | PAD_R4 | PAD_L4 | PAD_SCREENSHOT;
+    p.lx = -32768;
+    p.ry = STICK_MAX;
+    p.l2 = TRIGGER_MAX;
+    CHECK(gble_report(&p, 0, out, &id) == GBLE_SIZE && id == 1);
+    CHECK(out[0] == (0x01 | 0x10 | 0x20 | 0x80) && out[1] == (0x01 | 0x08 | 0x10 | 0x40));
+    CHECK(out[2] == (8 | 0x10));
+    CHECK(out[3] == 0 && out[4] == 0 && out[5] == 0 && out[6] == 0x80 && out[9] == 0xff && out[10] == 0xff);
+    CHECK(out[11] == 0xff && out[12] == 0xff && out[13] == 0 && out[14] == 0);
+    CHECK(gble_report(&p, 1, out, &id) == 0);
+    p.buttons = PAD_M;
+    p.hat = HAT_LEFT;
+    CHECK(gble_report(&p, 2, out, &id) == GBLE_SIZE && out[0] == 0x04 && out[1] == 0 && out[2] == 6);
+    p.buttons = PAD_SCREENSHOT;
+    CHECK(gble_report(&p, 3, out, &id) == GBLE_SIZE && out[0] == 0 && out[1] == 0 && out[2] == (6 | 0x10));
+    CHECK(gble_read(BT_WRITE_ATT, GBLE_PNP, 0, out, 16) == 7 && out[0] == 2 &&
+          out[1] == 0x5e && out[2] == 0x04 && out[3] == 0xfe && out[4] == 0x0b &&
+          out[5] == 0 && out[6] == 1);
+    CHECK(gble_read(BT_WRITE_ATT, GBLE_INPUT, 0, out, 16) < 0);
+    /* The handles the code names are the ones the database has. */
+    CHECK(gble_att_db[0] == 1 && sizeof(gble_att_db) == 479);
     return TEST_DONE("profile_hid");
 }
 #endif

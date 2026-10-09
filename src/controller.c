@@ -20,6 +20,7 @@ static const struct profile *profile_for(u8 type)
         [PROFILE_XBOX] = &profile_xbox, [PROFILE_XBOX_BLE] = &profile_xbox_ble,
         [PROFILE_DUALSENSE] = &profile_dualsense, [PROFILE_DUALSHOCK4] = &profile_dualshock4,
         [PROFILE_GENERIC] = &profile_generic, [PROFILE_MOUSE] = &profile_mouse,
+        [PROFILE_GENERIC_BLE] = &profile_generic_ble,
     };
 
     return type < PROFILE_COUNT ? profiles[type] : NULL;

@@ -33,7 +33,8 @@ struct set_field {
                              .size = sizeof(((struct set_slot *)0)->f)
 
 static const char *const types[] = {
-    "switch", "switch2", "xbox", "xboxble", "dualsense", "dualshock4", "generic", "mouse", NULL,
+    "switch", "switch2", "xbox", "xboxble", "dualsense", "dualshock4", "generic", "mouse",
+    "genericble", NULL,
 };
 static const char *const grips[] = {
     "off", "host", "fade", "rumble", "input", "rumble+input", "primary", "secondary", NULL,
@@ -695,7 +696,7 @@ int main(void)
     CHECK(write1(1, 9, 2, &huge) == SET_RANGE);
     CHECK(write1(1, 99, 1, &x) == SET_UNKNOWN);
     CHECK(write1(1, 7, 2, &speed) == SET_BAD_LENGTH);
-    x = 8;
+    x = PROFILE_COUNT;
     CHECK(write1(1, 1, 1, &x) == SET_RANGE);
     CHECK(write1(TARGETS, 1, 1, &x) == SET_UNKNOWN);
     CHECK(set_staged() == 2 && set_slot(1)->rumble == 100);
