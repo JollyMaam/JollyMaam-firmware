@@ -1197,8 +1197,10 @@ static void crc_cipher(uint8_t *p, size_t n, uint32_t key) {
 /* A running JieLi SDK firmware that shows itself as a disk (vendor: the
  * chip name) reboots into its ROM loader on any of the loader's commands, as
  * the SDK's mass-storage code does (and ours).  Sent to every such device;
- * which one is written is then decided by PID. */
-static void enter_loaders(void) {
+ * which one is written is then decided by PID.  Repeat while waiting so
+ * firmware connected after the command starts is also restarted; --device
+ * limits restart requests to that path. */
+static void enter_loaders(const char *device) {
   static const char *const dirs[] = {"/dev", "/dev/bwrap"};
   for (size_t i = 0; i < 2; i++) {
     DIR *dir = opendir(dirs[i]);
@@ -1209,6 +1211,8 @@ static void enter_loaders(void) {
       if (strncmp(e->d_name, "sg", 2))
         continue;
       snprintf(path, sizeof path, "%s/%s", dirs[i], e->d_name);
+      if (device && strcmp(device, path))
+        continue;
       int fd = open(path, O_RDWR);
       if (fd < 0)
         continue;
@@ -1410,10 +1414,12 @@ static void device_pid(struct dev *d, char pid[17]) {
  * that fits is refused. */
 static void select_dev(struct dev *out, const struct flash_opts *o,
                        const char *want) {
-  if (o->enter_loader)
-    enter_loaders();
   if (o->device) {
-    for (unsigned t = 0; !open_dev(out, o->device); t++) {
+    for (unsigned t = 0;; t++) {
+      if (o->enter_loader)
+        enter_loaders(o->device);
+      if (open_dev(out, o->device))
+        break;
       if (t >= o->wait * 2)
         die("the device is not a JieLi ROM loader (UBOOT1.00)");
       nanosleep(&(struct timespec){0, 500000000}, NULL);
@@ -1427,6 +1433,8 @@ static void select_dev(struct dev *out, const struct flash_opts *o,
   } seen[8];
   size_t ns = 0;
   for (unsigned t = 0;; t++) {
+    if (o->enter_loader)
+      enter_loaders(NULL);
     char found[8][300];
     struct dev probe;
     size_t nf = scan_dev(&probe, found);
@@ -1644,8 +1652,8 @@ static void usage(void) {
       "the device and its chip key the chip's (--force-pid, --force-key).\n"
       "Without --device the device is the one in its ROM loader whose flash\n"
       "holds the image's PID (any, with --force-pid); more than one is\n"
-      "refused.  --enter-loader first asks running JieLi firmware that shows\n"
-      "itself as a disk to restart into its ROM loader (give --wait).\n"
+      "refused.  --enter-loader asks running JieLi firmware that shows\n"
+      "itself as a disk to restart into its ROM loader throughout --wait.\n"
       "--keep writes back ranges of what the device held; --dry-run checks\n"
       "only.  flashpack packs for the chip's key and flashes; -o also saves\n"
       "what it wrote.");

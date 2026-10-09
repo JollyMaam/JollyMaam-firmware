@@ -68,7 +68,9 @@ distributed image (`donglefw_*.bin`) and `jlnewfw flashpack` with `--mark
 
 The same as above, except step 1: the tool sends the "reboot to loader"
 command (or any loader opcode) to the running pad.  Home+Start at plug-in
-still works as a fallback.
+still works as a fallback.  `make flash` also checks for running firmware
+throughout its 30-second wait, so the pad can be plugged in after the command
+starts.
 
 ## Commands to the running firmware
 
