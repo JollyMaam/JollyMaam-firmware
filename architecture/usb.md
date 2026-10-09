@@ -80,13 +80,14 @@ little-endian.  Data goes in the SCSI data phase; the status is the CSW.
 
 | Sub | Name | Data | Status |
 |---|---|---|---|
-| `0x00` | IDENTIFY | in (40): magic `C2PD`, u16 protocol, build ID (16 chars at 8), flash UID (16 at 24) | done |
+| `0x00` | IDENTIFY | in (40): magic `C2PD`, u16 protocol, board (6: 0 pad, 1 dongle), build ID (16 chars at 8), flash UID (16 at 24) | done |
 | `0x01` | STATUS | in (16): state, slot, USB powered, low battery, u16 battery mV, u32 uptime ms, ephemeral (12), settings items collected (13) | done |
 | `0x02` | LOG | CDB bytes 2–5: from sequence number; in: u32 first sequence returned, u32 length, text | done |
 | `0x03` | STATS | CDB byte 2 bit 0: reset after reading; in: u16 version, u16 size, `struct ctl_stats` as in memory | done |
 | `0x10` | REBOOT | – | done |
 | `0x11` | REBOOT_LOADER | – (any loader opcode does the same) | done |
-| `0x17` | PAIR | CDB byte 2: slot: forget its host and start pairing, keeping its address | done |
+| `0x17` | PAIR | CDB byte 2: slot: forget its host and start pairing, keeping its address; dongle: forget its single bond (slot ignored) | done |
+| `0x30` | TARGET | dongle only: CDB bytes 2–7: Bluetooth address in written order (AA:BB:CC:DD:EE:FF); page that device | done |
 | `0x13` | CONNECT | CDB byte 2: slot (`0xfe` the last): start its session, as a Home connect does | done |
 | `0x14` | PROFILE | CDB byte 2: 1 start at the rate in bytes 3-4 (samples/s), 2 stop, 0 read from the byte offset in bytes 3-6; in: header (version, rate, bucket shifts, the flash/RAM/ROM ranges and bucket counts, samples, outside, saturated, the last 8 outside addresses), then u16 counts per bucket, flash, RAM, ROM | done |
 | `0x16` | TRACE | CDB byte 2: 1 start (clears), 2 stop, 0 read from the byte offset in bytes 3–6; in: u32 markers written, then 1024 entries `{u32 µs, u16 argument, u8 marker, u8 –}` (`util_trace()`, pad.h) | done |
@@ -98,7 +99,7 @@ little-endian.  Data goes in the SCSI data phase; the status is the CSW.
 | `0x26` | RESULT | in: the last WRITE: u8 count, then a code per item (0 ok, 1 unknown, 2 bad length, 3 out of range, 4 full) | done |
 | `0x23` | COMMIT | – : apply what was collected, in order; save unless ephemeral | done |
 | `0x24` | DROP | – : throw away what was collected | done |
-| `0x25` | EPHEMERAL | – : nothing is written to flash until the next boot | done |
+| `0x25` | EPHEMERAL | – : app settings/bond changes stay in RAM until the next boot; SDK radio trim writes are unaffected | done |
 
 The other SCSI commands return what makes operating systems leave the device
 alone: INQUIRY answers, TEST UNIT READY says "no medium", READ CAPACITY

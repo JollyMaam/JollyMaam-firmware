@@ -1,9 +1,8 @@
 #ifndef BOARD_CONFIG_H
 #define BOARD_CONFIG_H
 
-/* The flash image: isd_config.ini (cpu/br23/tools/isd_config_rule.c) and the
- * Makefile's flash size. */
-#define CONFIG_FLASH_SIZE (0x100000)
+/* The flash image: isd_config.ini (cpu/br23/tools/isd_config_rule.c).
+ * CONFIG_FLASH_SIZE comes from the Makefile (the board's flash). */
 #define CONFIG_UPDATE_JUMP_TO_MASK 0
 #define CONFIG_ONLY_GRENERATE_ALIGN_4K_CODE 1
 #define CONFIG_CHIP_NAME           AC635N

@@ -1,20 +1,51 @@
-O := build
+# BOARD=pad (the Cyclone 2, the default) or BOARD=dongle (GameSir's dongle):
+# the same platform with another board file and main loop.  The pad builds
+# into build/, another board into build-$(BOARD)/.
+BOARDS := pad dongle
+BOARD ?= pad
+$(if $(filter $(BOARDS),$(BOARD)),,$(error BOARD must be one of: $(BOARDS)))
+
 comma := ,
 .DEFAULT_GOAL := all
 SDK := /shared/github.com-Jieli-Tech/fw-AC63_BT_SDK
 TOOL_DIR := /shared/jieli-linux-toolchains-20250324.1/pi32v2/bin
-# Must match CONFIG_FLASH_SIZE in src/sdkconfig/board_config.h.
-FLASH_SIZE := 0x100000
-# Fixes the VM boundary; moving it moves the settings store.
-CODE_LIMIT := 0x50000
 PYTHON := /work/bin/python3
 HOST_CC := gcc
 HOST_CFLAGS := -O2 -g -std=c11 -Wall -Wextra -Wno-unused-function -Wno-missing-field-initializers
 
+# Cyclone 2 gamepad.
+O_pad := build
+pad pad-% $(O_pad)/%: override BOARD := pad
+FLASH_SIZE_pad := 0x100000
+CODE_LIMIT_pad := 0x50000
+PID_pad := GS_C2_ADC_DEVICE
+APP_SOURCES_pad := $(filter-out src/board_%.c src/dongle%.c,$(wildcard src/*.c))
+
+# GameSir dongle.
+O_dongle := build-dongle
+dongle dongle-% $(O_dongle)/%: override BOARD := dongle
+FLASH_SIZE_dongle := 0x80000
+CODE_LIMIT_dongle := 0x50000
+PID_dongle := GS_C2_Dongle
+BOARD_DEFINES_dongle := -DBOARD_DONGLE
+APP_SOURCES_dongle := src/platform_jieli.c src/platform_jieli_sdk.c \
+	src/dongle.c src/dongle_bt.c src/dongle_protocol.c src/btstack_hci_jieli.c src/btstack_qos_jieli.c \
+	src/usb.c src/utils.c
+
+O = $(O_$(BOARD))
+FLASH_SIZE = $(FLASH_SIZE_$(BOARD))
+# Note: changing CODE_LIMIT changes the location of settings/bonds storage
+CODE_LIMIT = $(CODE_LIMIT_$(BOARD))
+PID = $(PID_$(BOARD))
+BOARD_DEFINES = $(BOARD_DEFINES_$(BOARD))
+
 include sdk-br23.mk
 
 CFLAGS := $(SDK_CFLAGS)
-DEFINES := $(SDK_DEFINES) -DBUILD_ID=\"$(shell git describe --always --dirty 2>/dev/null)\"
+BUILD_ID := $(shell git describe --always --dirty 2>/dev/null)
+BUILD_REF := $(shell git symbolic-ref -q HEAD)
+BUILD_METADATA := $(shell git rev-parse --git-path HEAD --git-path index $(if $(BUILD_REF),--git-path $(BUILD_REF)))
+DEFINES = $(SDK_DEFINES) -DCONFIG_FLASH_SIZE=$(FLASH_SIZE) $(BOARD_DEFINES) -DBUILD_ID=\"$(BUILD_ID)\"
 INCLUDES = -iquote src -iquote src/sdkconfig $(BTSTACK_INCLUDES) $(SDK_INCLUDES)
 
 SDK_USED := \
@@ -52,8 +83,17 @@ BTSTACK_RENAMES := -Dhci_send_cmd=btstack_hci_send_cmd \
 	-Dnibble_for_char=btstack_nibble_for_char
 BTSTACK_INCLUDES := -I$(BTSTACK)/src -I$(BTSTACK)/src/classic
 
-SOURCES := $(wildcard src/*.c src/btctrler/*.c)
-OBJECTS := $(SOURCES:%.c=$O/%.o) $(SDK_USED:%.c=$O/sdk/%.o) $(BTSTACK_USED:%.c=$O/btstack/%.o)
+# Each output directory has its own dependency graph; recipes inherit BOARD
+# from the target-specific assignments above, including when built directly.
+OUTPUTS := $(foreach board,$(BOARDS),$(O_$(board)))
+$(foreach board,$(BOARDS),$(eval APP_OBJECTS_$(board) := \
+	$(patsubst %.c,$(O_$(board))/%.o,src/board_$(board).c $(APP_SOURCES_$(board)) $(wildcard src/btctrler/*.c))))
+APP_OBJECTS := $(foreach board,$(BOARDS),$(APP_OBJECTS_$(board)))
+SDK_OBJECTS := $(foreach output,$(OUTPUTS),$(SDK_USED:%.c=$(output)/sdk/%.o))
+BTSTACK_OBJECTS := $(foreach output,$(OUTPUTS),$(BTSTACK_USED:%.c=$(output)/btstack/%.o))
+OBJECTS = $(APP_OBJECTS_$(BOARD)) $(SDK_USED:%.c=$(O)/sdk/%.o) $(BTSTACK_USED:%.c=$(O)/btstack/%.o)
+ALL_OBJECTS := $(APP_OBJECTS) $(SDK_OBJECTS) $(BTSTACK_OBJECTS)
+.SECONDEXPANSION:
 
 ifeq ($(V),1)
 Q :=
@@ -62,61 +102,69 @@ Q := @
 endif
 
 .PHONY: all clean flash test
-all: $O/firmware.img
+all: $(BOARD)
+clean: $(BOARD)-clean
+flash: $(BOARD)-flash
+test: $(BOARD)-test
 
-# A running pad is asked to restart into its ROM loader; jlnewfw writes the
-# image only onto a device whose flash holds the same PID.
-flash: $O/firmware.img $O/jlnewfw
-	$(Q)$O/jlnewfw flash --enter-loader --wait 30 --loader $(SDK_LOADER) $<
+BOARD_ACTIONS := clean flash test
+BOARD_TARGETS := $(foreach board,$(BOARDS),$(addprefix $(board)-,$(BOARD_ACTIONS)))
+.PHONY: $(BOARDS) $(BOARD_TARGETS)
+$(BOARDS): $$(O)/firmware.img
 
-clean:
+# Ask running firmware to enter the ROM loader. For stock dongle firmware,
+# hold its button while plugging in. flashpack uses the connected chip's key.
+$(BOARDS:%=%-flash): $$(O)/app.bin $$(O)/isd_config.ini $$(O)/jlnewfw
+	$(Q)$O/jlnewfw flashpack --enter-loader --wait 30 --loader $(SDK_LOADER) \
+		--flash-size $(FLASH_SIZE) --code-limit $(CODE_LIMIT) \
+		-c $O/isd_config.ini -u $(SDK_UBOOT) $O/app.bin $(SDK_CONFIG_TOOL)
+
+$(BOARDS:%=%-clean):
 	rm -rf $O
-
-$(OBJECTS) $O/sdk.ld: Makefile sdk-br23.mk $(wildcard src/sdkconfig/*)
 
 # The SDK flags include -w; owned controller C must not call undeclared
 # functions all the same.
-$O/src/btctrler/%.o: CFLAGS += -Werror=implicit-function-declaration
-$O/src/%.o: src/%.c
+$(foreach output,$(OUTPUTS),$(eval $(output)/src/btctrler/%.o: CFLAGS += -Werror=implicit-function-declaration))
+$(APP_OBJECTS): $$(patsubst $$(O)/%.o,%.c,$$@)
 	@mkdir -p $(@D)
 	@echo [CC] $<
 	$(Q)$(CC) $(CFLAGS) $(DEFINES) $(INCLUDES) -MMD -MP -c $< -o $@
 
-$O/sdk/%.o: $(SDK)/%.c
+$(SDK_OBJECTS): $$(patsubst $$(O)/sdk/%.o,$$(SDK)/%.c,$$@)
 	@mkdir -p $(@D)
 	@echo [CC] $<
 	$(Q)$(CC) $(CFLAGS) $(DEFINES) $(INCLUDES) -MMD -MP -c $< -o $@
 
-$O/btstack/%.o: $(BTSTACK)/%.c
+$(BTSTACK_OBJECTS): $$(patsubst $$(O)/btstack/%.o,$$(BTSTACK)/%.c,$$@)
 	@mkdir -p $(@D)
 	@echo [CC] $<
 	$(Q)$(CC) $(CFLAGS) $(DEFINES) $(BTSTACK_RENAMES) $(INCLUDES) -MMD -MP -c $< -o $@
 
-$O/src/bt.o $O/src/btstack_hci_jieli.o: CFLAGS += $(BTSTACK_RENAMES)
+$(foreach output,$(OUTPUTS),$(addprefix $(output)/src/,bt.o dongle_bt.o btstack_hci_jieli.o)): CFLAGS += $(BTSTACK_RENAMES)
 
-$O/app.elf: $O/sdk.ld $(OBJECTS) $(ARCHIVES)
+$(OUTPUTS:%=%/app.elf): %/app.elf: %/sdk.ld $$(OBJECTS) $(ARCHIVES)
 	@echo [LD] $@
 	$(Q)$(LD) -o $@ $(OBJECTS) -T$O/sdk.ld -M=$O/app.map $(SDK_LFLAGS) \
 		--start-group $(ARCHIVES) --end-group $(SDK_RUNTIME_LIBS)
 
-$O/app.bin: $O/app.elf
+$(OUTPUTS:%=%/app.bin): %/app.bin: %/app.elf
 	@echo [BIN] $@
 	$(Q)$(OBJCOPY) -O binary -j .text $< $O/text.bin
 	$(Q)$(OBJCOPY) -O binary -j .data $< $O/data.bin
 	$(Q)cat $O/text.bin $O/data.bin > $@
 
-$O/firmware.img: $O/app.bin $O/isd_config.ini $O/jlnewfw
+$(OUTPUTS:%=%/firmware.img): %/firmware.img: %/app.bin %/isd_config.ini %/jlnewfw
 	@echo [FW] $@
 	$(Q)$O/jlnewfw pack --flash-size $(FLASH_SIZE) --code-limit $(CODE_LIMIT) \
 		-c $O/isd_config.ini -u $(SDK_UBOOT) -o $@ $O/app.bin $(SDK_CONFIG_TOOL)
 
-$O/jlnewfw: tools/jlnewfw.c
+$(OUTPUTS:%=%/jlnewfw): tools/jlnewfw.c
 	@mkdir -p $(@D)
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) $< -o $@
 
 # The SDK's linker script, with the heap ending below the retained RAM and the
 # controller's RAM kept clear of the MaskROM boot token.
-$O/sdk_ld.c: $(SDK)/cpu/br23/sdk_ld.c Makefile $(wildcard src/sdkconfig/*.h)
+$(OUTPUTS:%=%/sdk_ld.c): $(SDK)/cpu/br23/sdk_ld.c Makefile $(wildcard src/sdkconfig/*.h)
 	@mkdir -p $(@D)
 	$(Q)sed \
 	  -e 's/^_HEAP_END = RAM_END;/_HEAP_END = RESET_MAILBOX_BEGIN;/' \
@@ -125,25 +173,28 @@ $O/sdk_ld.c: $(SDK)/cpu/br23/sdk_ld.c Makefile $(wildcard src/sdkconfig/*.h)
 	  -e 's|^\([[:space:]]*\)#include "btctrler/btctler_lib_bss.ld"|\1. = MAX(., 0x10810 - cyclone2_bss_base);\n&|' \
 		$< > $@
 
-$O/sdk.ld: $O/sdk_ld.c
+$(OUTPUTS:%=%/sdk.ld): %/sdk.ld: %/sdk_ld.c
 	$(Q)$(CC) $(CFLAGS) $(DEFINES) $(INCLUDES) -D__LD__ -E -P $< -o $@
 
-# PID: what jlnewfw flash checks before writing (a gamepad, not a dongle).
-$O/isd_config.ini: $(SDK)/cpu/br23/tools/isd_config_rule.c $(wildcard src/sdkconfig/*.h) Makefile
+# PID: what jlnewfw flash checks before writing (a gamepad or a dongle).
+$(OUTPUTS:%=%/isd_config.ini): $(SDK)/cpu/br23/tools/isd_config_rule.c $(wildcard src/sdkconfig/*.h) Makefile
 	@mkdir -p $(@D)
 	$(Q)$(CC) $(CFLAGS) $(DEFINES) $(INCLUDES) -D__LD__ -E -P $< -o $@
-	$(Q)sed -i -e /^$$/d -e 's/^PID = .*;/PID = GS_C2_ADC_DEVICE;/' $@
+	$(Q)sed -i -e /^$$/d -e 's/^PID = .*;/PID = $(PID);/' $@
 
 # Host unit tests: every source with a UNITTEST block.
 TESTS := $(shell grep -l 'ifdef UNITTEST' src/*.c src/btctrler/*.c)
-test: $(TESTS:src/%.c=$O/test/%)
+TEST_BINARIES := $(foreach output,$(OUTPUTS),$(TESTS:src/%.c=$(output)/test/%))
+$(BOARDS:%=%-test): $$(patsubst src/%.c,$$(O)/test/%,$$(TESTS))
 	$(Q)for t in $^; do $$t || exit 1; done
 
-$O/test/%: src/%.c src/pad.h src/test.h $(wildcard src/btctrler/*.h)
+$(TEST_BINARIES): $$(patsubst $$(O)/test/%,src/%.c,$$@) src/pad.h src/dongle.h src/test.h $(wildcard src/btctrler/*.h)
 	@mkdir -p $(@D)
-	$(Q)$(HOST_CC) $(HOST_CFLAGS) -DUNITTEST -Isrc -iquote src $< -o $@ \
-	  $(if $(findstring btctrler/,$*),-no-pie -Wl$(comma)--unresolved-symbols=ignore-all)
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) $(BOARD_DEFINES) -DUNITTEST -Isrc -iquote src $< -o $@ \
+	  $(if $(findstring /btctrler/,$@),-no-pie -Wl$(comma)--unresolved-symbols=ignore-all)
 
-$O/src/usb.o: $(wildcard .git/HEAD .git/index)
+$(OUTPUTS:%=%/src/usb.o): $(wildcard $(BUILD_METADATA))
 
--include $(OBJECTS:.o=.d)
+$(ALL_OBJECTS) $(OUTPUTS:%=%/sdk.ld): Makefile sdk-br23.mk $(wildcard src/sdkconfig/*)
+
+-include $(ALL_OBJECTS:.o=.d)

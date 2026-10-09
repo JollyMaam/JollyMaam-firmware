@@ -20,7 +20,14 @@ references are in [docs/](docs/README.md).
 
     PATH=/work/bin:$PATH make -j32
     PATH=/work/bin:$PATH make test        # every src/*.c with an #ifdef UNITTEST block, host cc
-    PATH=/work/bin:$PATH make flash       # over USB: jlnewfw flash --enter-loader
+    PATH=/work/bin:$PATH make flash       # over USB: jlnewfw flashpack --enter-loader
+    PATH=/work/bin:$PATH make pad         # explicit gamepad build: build/
+    PATH=/work/bin:$PATH make dongle      # GameSir's dongle: build-dongle/
+    PATH=/work/bin:$PATH make dongle-flash # pack for the connected dongle's key
+    PATH=/work/bin:$PATH make dongle-clean
+
+`pad` and `dongle` also have `-flash`, `-clean` and `-test` targets.
+`make BOARD=dongle [flash|clean|test]` still works.
 
 `tools/padtool.py` talks to the running pad over USB (vendor SCSI commands on
 the mass-storage interface, `/dev/bwrap/sg*`): `identify`, `status`,
@@ -36,15 +43,30 @@ writes only onto a device whose flash holds the image's PID (our build:
 `GS_C2_ADC_DEVICE`; the dongle: `GS_C2_Dongle`) and encrypted for the chip's
 key; `--force-pid` for a blank device or a deliberate change.  A pad that
 does not enumerate is recovered by holding Home+Start while plugging in USB
-(ROM loader, UBOOT1.00), then `make flash`.
+(ROM loader, UBOOT1.00), then `make flash`; a dongle by holding its button
+while plugging it in, then `make dongle-flash` (packed for its chip
+key).
+`padtool --board dongle` (also `--dongle`) talks to a dongle running this
+firmware; `pair` clears its single bond (no slot needed), `target ADDR`
+pages a Bluetooth address, and `log -f` follows its log. Enable
+`padtool --dongle ephemeral` before connection experiments to keep bond
+changes in RAM until reboot; `status` shows `EPHEMERAL`. Like the pad, this
+leaves SDK radio trim writes enabled. It is off at boot, and dongle `keep`
+is not implemented.
+Board-specific sources, flash sizes, code limits and PIDs are selected
+at the top of `Makefile`, including target-specific `BOARD` assignments for
+board names, action targets and output paths. Shared rules use secondary
+expansion for board-dependent prerequisites; no recursive make is needed.
+`make -j32 pad dongle` builds both boards in one invocation.
 
 What can be tuned by hand: Home gestures, timeouts and LED scenes in
 `src/settings_ux.c`; setting defaults (the field table) and the default
 palette in `src/settings.c`.  At run time over USB with `padtool set`.
 
 The controller in `src/btctrler/` links directly; no controller archive is built or
-linked. `make controller-ir` and `tools/btctrler/` inspect the pristine SDK for
-comparison with the owned implementation. The shared SDK remains unmodified.
+linked. Decompilation and SDK comparison tooling is archived on the
+`btctrler-decompiled` branch; consult it when requested for further recovery
+work. The shared SDK remains unmodified.
 The linker's stack-size warnings are a vendor lint.
 `CODE_LIMIT` fixes the VM boundary; moving it moves the settings store.
 

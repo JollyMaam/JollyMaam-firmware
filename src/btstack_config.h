@@ -37,7 +37,12 @@
 
 #define RX_QUEUE_DEPTH                  16
 
+#ifdef BOARD_DONGLE
+/* The pad may page us while our own page to it is still running. */
+#define MAX_NR_HCI_CONNECTIONS          2
+#else
 #define MAX_NR_HCI_CONNECTIONS          1
+#endif
 #define MAX_NR_L2CAP_CHANNELS           8
 
 #define MAX_NR_L2CAP_SERVICES           4

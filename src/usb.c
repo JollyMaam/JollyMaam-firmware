@@ -16,10 +16,20 @@
 enum { CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02, CMD_STATS = 0x03,
        CMD_REBOOT = 0x10, CMD_REBOOT_LOADER = 0x11, CMD_RELINK = 0x12, CMD_CONNECT = 0x13, CMD_PROFILE = 0x14, CMD_PEEK = 0x15, CMD_TRACE = 0x16, CMD_PAIR = 0x17,
        CMD_FIELD = 0x20, CMD_READ = 0x21, CMD_WRITE = 0x22, CMD_COMMIT = 0x23, CMD_DROP = 0x24,
-       CMD_EPHEMERAL = 0x25, CMD_RESULT = 0x26 };
+       CMD_EPHEMERAL = 0x25, CMD_RESULT = 0x26, CMD_TARGET = 0x30 };
+
+#ifdef BOARD_DONGLE
+#include "dongle.h"
+#endif
 
 #ifndef BUILD_ID
 #define BUILD_ID "host"
+#endif
+
+#ifdef BOARD_DONGLE
+#define BOARD_KIND 1
+#else
+#define BOARD_KIND 0             /* the pad */
 #endif
 
 static struct ctl_request pending;
@@ -42,6 +52,8 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         if (max < 40) return 0;
         memcpy(data, "C2PD", 4);
         util_put16(data + 4, PROTOCOL);
+        data[6] = BOARD_KIND;
+        data[7] = 0;
         strncpy((char *)data + 8, BUILD_ID, 16);
         if (uid) memcpy(data + 24, uid, 16);
         n = 40;
@@ -134,6 +146,11 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
     case CMD_EPHEMERAL:
         set_ephemeral();
         break;
+#ifdef BOARD_DONGLE
+    case CMD_TARGET:             /* CDB bytes 2-7: the device to page, as written */
+        dongle_bt_target(cdb + 2);
+        break;
+#endif
     }
     return n;
 }
@@ -151,6 +168,10 @@ struct ctl_request usb_poll(const struct usb_status *s)
 }
 
 #ifdef UNITTEST
+#ifdef BOARD_DONGLE
+static u8 target_seen[6];
+void dongle_bt_target(const u8 addr[6]) { memcpy(target_seen, addr, 6); }
+#endif
 static const u8 uid[16] = { 1, 2, 3 };
 const u8 *plat_unique_id(void) { return uid; }
 void plat_usb_service(void) {}
@@ -191,6 +212,14 @@ int main(void)
 
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 40);
     CHECK(!memcmp(data, "C2PD", 4) && data[4] == PROTOCOL && data[25] == 2);
+    CHECK(data[6] == BOARD_KIND && data[7] == 0);
+#ifdef BOARD_DONGLE
+    cdb[1] = CMD_TARGET;
+    memcpy(cdb + 2, "ABCDEF", 6);
+    CHECK(usb_command(cdb, data, sizeof(data), 0) == 0);
+    CHECK(!memcmp(target_seen, "ABCDEF", 6));
+    memset(cdb + 2, 0, 6);
+#endif
     status = &st;
     cdb[1] = CMD_STATUS;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 16);

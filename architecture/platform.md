@@ -1,14 +1,20 @@
 # Platform
 
-Everything that depends on the Jieli BR23 SDK, its OS, or the Cyclone 2 board
-is in three files.  The rest of the firmware sees only the `plat_` functions
+Everything that depends on the Jieli BR23 SDK, its OS, or the board is in
+the files below.  The rest of the firmware sees only the `plat_` functions
 below.
 
 | File | Contains |
 |---|---|
-| `platform_jieli.c` | `app_main`, `board_init`, tasks, `plat_wait()` and its event sources, storage, the USB mass-storage device, the pin table, button/stick/trigger sampling, I2C on its interrupt, the LED chain, the motors, power-off and wake, the loader entry, the wake cause and buttons held at boot |
+| `platform_jieli.c` | `app_main`, `board_init`, tasks, the 250 µs tick with `plat_wait()` and its event sources, button debouncing over the board's pin table, storage, the USB mass-storage device, the profiler, power-off pins, the loader entry |
+| `board_pad.c` | the Cyclone 2: the pin table, stick/trigger sampling, I2C on its interrupt, the LED chain, the motors, wake-up pins, the wake cause and buttons held at boot (Home+Start: the loader) |
+| `board_dongle.c` | GameSir's dongle: one button (held at plug-in: the loader), always on USB |
+| `board.h` | between the two: what a board provides (`board_*`) and what the platform gives it |
 | `platform_jieli_sdk.c` | constants and hooks the SDK libraries require, which the firmware itself never reads |
 | `btstack_hci_jieli.c` | BTstack on the Jieli controller (see [bluetooth.md](bluetooth.md)) |
+
+`make BOARD=dongle` links the platform with `board_dongle.c` and `dongle.c`
+(its own `ctl_main()` and stock-pad Bluetooth host) instead of the pad's files.
 
 ## The `plat_` interface
 
