@@ -209,6 +209,11 @@ What `bt.c` does for each transport:
 | pairing | page scan + inquiry scan | advertise to anyone |
 | input | HID interrupt channel | notification on `input_handle` |
 
+When the host enables LE input notifications, `bt.c` queues the cached input
+report again.  The first report can have been built before the subscription;
+replaying it initializes the host's axes even when an on-change profile has
+nothing new to send.  Starting a session clears the cached report length.
+
 ## Classic QoS
 
 After HID opens, `bt.c` sends one HCI QoS Setup request: Best Effort,

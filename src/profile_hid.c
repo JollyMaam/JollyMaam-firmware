@@ -571,6 +571,11 @@ int main(void)
     memset(&p, 0, sizeof(p));
     p.hat = HAT_NEUTRAL;
     CHECK(gble_begin(&s) == IMU_OFF && gb.er[6] == 4 && gb.er[15] == 'E');
+    CHECK(gble_report(&p, 0, out, &id) == GBLE_SIZE && id == 1);
+    CHECK(out[0] == 0 && out[1] == 0 && out[2] == 8);
+    CHECK(out[3] == 0 && out[4] == 0x80 && out[5] == 0 && out[6] == 0x80 &&
+          out[7] == 0 && out[8] == 0x80 && out[9] == 0 && out[10] == 0x80);
+    CHECK(out[11] == 0 && out[12] == 0 && out[13] == 0 && out[14] == 0);
     p.buttons = PAD_A | PAD_Y | PAD_L1 | PAD_SELECT | PAD_START | PAD_R3 | PAD_R4 | PAD_L4 | PAD_SCREENSHOT;
     p.lx = -32768;
     p.ry = STICK_MAX;

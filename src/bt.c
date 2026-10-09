@@ -152,6 +152,7 @@ void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond
     if (link.in_flight > IN_FLIGHT_MAX) link.in_flight = IN_FLIGHT_MAX;
     msg_read = msg_write = 0;
     input_pending = 0;
+    input_len = 0;
     idle = 0;
     if (!thread) {
         thread = 1;
@@ -640,6 +641,19 @@ static int att_write(hci_con_handle_t h, u16 handle, u16 mode, u16 offset, u8 *b
     if (att_uuid_for_handle(handle) == GATT_CLIENT_CHARACTERISTICS_CONFIGURATION) {
         int i = ccc(handle, 1);
         if (i >= 0 && size) ccc_value[i] = buf[0];
+        if (i >= 0 && size && (buf[0] & 1) && handle == dev->input_handle + 1) {
+            /* The first report can precede the host's subscription.  Replay
+             * the cached state: an on-change profile may otherwise stay
+             * silent until a control moves. */
+            plat_lock();
+            if (input_len) {
+                if (!input_pending) slot_us = plat_us();
+                input_pending = 1;
+                want = 0;
+            }
+            plat_unlock();
+            plat_bt_wake();
+        }
         util_log("bt: host %s notifications on 0x%04x", size && buf[0] ? "enables" : "disables", handle - 1);
         return 0;
     }
