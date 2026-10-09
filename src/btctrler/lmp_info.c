@@ -140,6 +140,7 @@ void lmp_setup_complete(struct lmp_connection *conn)
     lmp_request(conn, "1", PDU(SETUP_COMPLETE));
     u8 map[10];
     memset(map, 0xff, sizeof(map));
+    map[9] = 0x7f; /* 79 Classic channels; bit 79 is reserved. */
     lmp_tx_set_afh_req(conn, map);
     lmp_tx_name_req(conn);
 }
@@ -198,7 +199,9 @@ void btctrler_assert_failed(const char *what, int value)
 { (void)what; (void)value; asserts++; }
 void lmp_tx_set_afh_req(struct lmp_connection *c, u8 *map)
 {
-    CHECK(c == &conn); for (int i = 0; i < 10; i++) CHECK(map[i] == 0xff);
+    CHECK(c == &conn);
+    for (int i = 0; i < 9; i++) CHECK(map[i] == 0xff);
+    CHECK(map[9] == 0x7f);
     afh_calls++; strcat(sequence, "a");
 }
 static void reset(void)
