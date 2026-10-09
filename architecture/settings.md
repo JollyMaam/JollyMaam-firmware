@@ -25,7 +25,8 @@ Two files:
 
 Per slot: `type`, `connect_colour`, `primary_colour`, `secondary_colour`,
 `grips`, `players`, `rumble`, `mouse_layout`, `stick_speed`, `gyro_speed`,
-`gyro_accel`, `address`, `bond`, and for measuring the link `report_hz`,
+`gyro_accel`, `left_curve`, `right_curve`, `left_curve_points`,
+`right_curve_points`, `address`, `bond`, and for measuring the link `report_hz`,
 `le_interval_min`, `le_interval_max`, `le_phy`, `in_flight`, `poll_us`, `tx_power`
 ([bluetooth.md](bluetooth.md)) (`padtool fields` lists them with ranges and
 defaults).  `set_slot(slot)` returns them as a plain `struct set_slot`.
@@ -80,7 +81,7 @@ instead of the short offline/unplug timeouts.  Any reboot or sleep ends it.
 ## Records
 
 One record per target, syscfg user items 1-8 (slots), 9 (palette), 10
-(calibration), each written at a fixed 160 bytes:
+(calibration), each written at a fixed 192 bytes (older 160-byte records remain readable):
 
 ```
 u16 magic 0x4332, u8 version, u8 used, then {u8 id, u8 len, value} per set field
@@ -145,3 +146,17 @@ int set_is_ephemeral(void);
 
 The tables that decide how the pad feels are not settings; they are in
 `settings_ux.c` ([ux.md](ux.md)).
+
+## Stick curves over USB
+
+Select curves per slot (example: slot A):
+
+```sh
+PATH=/work/bin:$PATH tools/padtool.py set A left_curve concave right_curve s-curve
+PATH=/work/bin:$PATH tools/padtool.py set A right_curve_points 0,10,30,60,100,180,255 right_curve custom
+PATH=/work/bin:$PATH tools/padtool.py set A right_curve default right_curve_points default
+```
+
+Custom points accept seven comma-separated decimal bytes or fourteen hex digits.
+Values must ascend (equal neighbours are allowed). Settings apply on the next
+input sample without reconnecting. See [input.md](input.md) for curve definitions.

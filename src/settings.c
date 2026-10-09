@@ -10,7 +10,9 @@
  * that was never set.  architecture/settings.md */
 
 enum { T_ENUM, T_NUMBER, T_COLOUR, T_RGB, T_BYTES };
-enum { ID_TYPE = 1, ID_ADDRESS = 12, ID_BOND = 13 };   /* the rows the code itself uses */
+/* The rows the code itself uses. */
+enum { ID_TYPE = 1, ID_ADDRESS = 12, ID_BOND = 13,
+       ID_LEFT_POINTS = 33, ID_RIGHT_POINTS = 34 };
 
 struct set_field {
     u8 id;                   /* stored and sent; never reused */
@@ -42,6 +44,9 @@ static const char *const grips[] = {
 static const char *const players[] = {
     "off", "host", "fade", "primary", "secondary", NULL,
 };
+static const char *const curves[] = { "linear", "concave", "s-curve", "custom", NULL };
+static const u8 linear_points[STICK_CURVE_POINTS] = { 32, 64, 96, 128, 159, 191, 223 };
+
 static const char *const layouts[] = { "games", "desktop", NULL };
 static const char *const phys[] = { "1m", "2m", NULL };
 static const char *const onoff[] = { "on", "off", NULL };
@@ -119,6 +124,14 @@ static const struct set_field slot_fields[] = {
     { .id = 22, .name = "tx_power", .type = T_ENUM, .names = tx_powers, FIELD(link.tx_power),
       .def = ALL(4), .help = "radio strength 1-6: 1 is about 20 dB below 5; 6 about 3 dB "
                              "above 5, using more battery" },
+    { .id = 31, .name = "left_curve", .type = T_ENUM, .names = curves, FIELD(left_curve),
+      .help = "left stick radial response; applies immediately after calibration" },
+    { .id = 32, .name = "right_curve", .type = T_ENUM, .names = curves, FIELD(right_curve),
+      .help = "right stick radial response; applies immediately after calibration" },
+    { .id = ID_LEFT_POINTS, .name = "left_curve_points", .type = T_BYTES, FIELD(left_curve_points),
+      .help = "custom: 7 ascending output bytes (0-255) at 12.5,25,37.5,50,62.5,75,87.5% input" },
+    { .id = ID_RIGHT_POINTS, .name = "right_curve_points", .type = T_BYTES, FIELD(right_curve_points),
+      .help = "custom: 7 ascending output bytes (0-255) at 12.5,25,37.5,50,62.5,75,87.5% input" },
 };
 
 #define ENTRY(i, r, g, b) { .id = (i) + 1, .name = "palette" #i, .type = T_RGB, \
@@ -148,7 +161,7 @@ static const struct set_field cal_fields[] = {
 
 #define MAGIC      0x4332
 #define VERSION    1
-#define RECORD_MAX 160
+#define RECORD_MAX 192
 #define SETTLE_MS  100
 #define STAGE_MAX  1024
 
@@ -214,6 +227,9 @@ static u8 check(const struct set_field *f, const u8 *v, u32 len)
     if (!f) return SET_UNKNOWN;
     if (!len) return SET_OK;
     if (len != f->size) return SET_BAD_LENGTH;
+    if (f->type == T_BYTES && (f->id == ID_LEFT_POINTS || f->id == ID_RIGHT_POINTS)) {
+        for (x = 1; x < len; x++) if (v[x] < v[x - 1]) return SET_RANGE;
+    }
     switch (f->type) {
     case T_ENUM:
     case T_NUMBER:
@@ -245,6 +261,8 @@ static void put(u8 t, const struct set_field *f, u32 bit, const u8 *v, u32 len)
     } else {
         memset(p, 0, f->size);
         memcpy(p, &def, f->size < 4 ? f->size : 4);
+        if (t < SLOTS && (f->id == ID_LEFT_POINTS || f->id == ID_RIGHT_POINTS))
+            memcpy(p, linear_points, sizeof(linear_points));
         set_bits[t] &= ~(1u << bit);
     }
 }
@@ -628,12 +646,14 @@ u32 set_read(u8 t, u8 *out, u32 max)
 #ifdef UNITTEST
 static u8 store[TARGETS + 1][RECORD_MAX];
 static int store_writes;
+static u16 read_size = RECORD_MAX;
 static u32 ms;
 static const u8 uid[16] = { 9, 8, 7 };
 
 int plat_store_read(u16 key, void *buf, u16 len)
 {
-    memcpy(buf, store[key], len < RECORD_MAX ? len : RECORD_MAX);
+    if (len > read_size) len = read_size;
+    memcpy(buf, store[key], len);
     return len;
 }
 int plat_store_write(u16 key, const void *buf, u16 len)
@@ -677,6 +697,7 @@ int main(void)
         if (used > worst) worst = used;
     }
     CHECK(worst <= RECORD_MAX && worst <= 255);
+    CHECK(COUNT(slot_fields) <= 32 && sizeof(struct set_slot) <= 256);
 
     set_init();
     CHECK(set_slot(0)->type == PROFILE_SWITCH && set_slot(4)->type == PROFILE_MOUSE);
@@ -707,7 +728,9 @@ int main(void)
 
     /* Back from the store; a default with nothing set; reset. */
     memset(slots, 0, sizeof(slots));
+    read_size = 160;   /* existing firmware records return their shorter length */
     set_init();
+    read_size = RECORD_MAX;
     CHECK(set_slot(1)->rumble == 60 && set_slot(1)->stick_speed == 3000);
     CHECK(set_slot(0)->rumble == 100);
     CHECK(write1(1, 7, 0, NULL) == SET_OK);
@@ -720,6 +743,33 @@ int main(void)
     CHECK(write1(1, 2, 2, &col) == SET_RANGE);
     col.level = 5;
     set_poll(ms, 1);
+
+    /* Curves: defaults, validation, staging, persistence and reset. */
+    {
+        u8 points[STICK_CURVE_POINTS] = { 0, 10, 30, 60, 100, 180, 255 };
+        u8 mode = STICK_CUSTOM;
+        CHECK(set_slot(1)->left_curve == STICK_LINEAR);
+        CHECK(!memcmp(set_slot(1)->left_curve_points, linear_points, sizeof(points)));
+        CHECK(write1(1, 31, 1, &mode) == SET_OK);
+        CHECK(write1(1, ID_LEFT_POINTS, sizeof(points), points) == SET_OK);
+        CHECK(write1(1, ID_RIGHT_POINTS, sizeof(points) - 1, points) == SET_BAD_LENGTH);
+        points[3] = 1;
+        CHECK(write1(1, ID_RIGHT_POINTS, sizeof(points), points) == SET_RANGE);
+        mode = STICK_CUSTOM + 1;
+        CHECK(write1(1, 32, 1, &mode) == SET_RANGE);
+        CHECK(set_slot(1)->left_curve == STICK_LINEAR);
+        set_apply();
+        set_poll(ms, 1);
+        set_init();
+        CHECK(set_slot(1)->left_curve == STICK_CUSTOM);
+        CHECK(set_slot(1)->left_curve_points[3] == 60);
+        CHECK(set_slot(1)->right_curve == STICK_LINEAR);
+        CHECK(write1(1, ID_LEFT_POINTS, 0, NULL) == SET_OK);
+        CHECK(write1(1, 31, 0, NULL) == SET_OK);
+        set_apply();
+        CHECK(set_slot(1)->left_curve == STICK_LINEAR);
+        CHECK(!memcmp(set_slot(1)->left_curve_points, linear_points, sizeof(points)));
+    }
 
     /* An unknown id in a record is skipped. */
     store[key_of(2)][3] = 4 + 3 + 3;

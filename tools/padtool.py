@@ -34,7 +34,8 @@
 TARGET: a slot (A B X Y up down left right), palette or calibration.  VALUE:
 a name for a choice, a number, ENTRY:LEVEL for a colour (palette entry 0-15,
 brightness 0-15), #rrggbb for a palette entry, aa:bb:cc:dd:ee:ff for an
-address, hex for other bytes; "default" puts a field back to its default.
+address, seven comma-separated output bytes for stick curve points, hex for other
+bytes; "default" puts a field back to its default.
 
 The pad is a mass-storage device with no medium; commands are vendor SCSI
 CDBs (architecture/usb.md).  Flashing is tools/jlnewfw.c's (make flash).
@@ -512,6 +513,8 @@ def show_value(f, raw):
         return f"{raw[0]}:{raw[1]}"
     if t == T_RGB:
         return "#" + raw.hex()
+    if f["name"] in ("left_curve_points", "right_curve_points"):
+        return ",".join(str(b) for b in raw)
     if f["name"] == "address":
         return "derived" if not any(raw) else ":".join(f"{b:02x}" for b in reversed(raw))
     return "none" if not any(raw) else raw.hex()
@@ -534,6 +537,8 @@ def parse_value(f, text):
             return bytes([int(e), int(l)])
         if t == T_RGB:
             v = bytes.fromhex(text.lstrip("#")) if "," not in text else bytes(int(x) for x in text.split(","))
+        elif f["name"] in ("left_curve_points", "right_curve_points") and "," in text:
+            v = bytes(int(x) for x in text.split(","))
         elif f["name"] == "address":
             v = bytes(reversed(bytes.fromhex(text.replace(":", ""))))
         else:

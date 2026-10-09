@@ -282,6 +282,9 @@ enum { PLAYERS_OFF, PLAYERS_HOST, PLAYERS_FADE, PLAYERS_PRIMARY, PLAYERS_SECONDA
 #define LEVELS  16
 struct colour { u8 entry, level; };      /* a palette entry at a brightness level */
 
+enum { STICK_LINEAR, STICK_CONCAVE, STICK_S_CURVE, STICK_CUSTOM };
+#define STICK_CURVE_POINTS 7
+
 struct set_slot {
     u8 type;
     struct colour connect_colour;        /* connecting, pairing: which slot */
@@ -299,7 +302,12 @@ struct set_slot {
     u16 report_hz;           /* the most reports a second; 0: REPORT_HZ */
     u16 pull_delay_us;       /* build a pulled report this long after bt.c asks */
     struct bt_link link;
+    u8 left_curve, right_curve;
+    u8 left_curve_points[STICK_CURVE_POINTS];
+    u8 right_curve_points[STICK_CURVE_POINTS];
 };
+
+void in_response(const struct set_slot *slot, struct pad *pad);
 
 /* What a change can be made to: a slot, the palette or calibration. */
 #define TARGET_PALETTE SLOTS

@@ -5,7 +5,7 @@ them when their inputs change (see the events in [controller.md](controller.md))
 
 | File | Prefix | Does | Keeps state |
 |---|---|---|---|
-| `input.c` | `in_` | button and d-pad bits, stick and trigger scaling, activity test | none |
+| `input.c` | `in_` | button and d-pad bits, stick response curves, activity test | none |
 | `input_calibration.c` | `cal_` | applying calibration; the calibration routine and its maths | the routine's progress |
 | `input_imu.c` | `imu_` | the IMU sensor, without blocking | the bus transfer, the gyro offset |
 
@@ -52,7 +52,30 @@ Nintendo positions translate.
 ```c
 void in_map(const struct in_raw *raw, struct pad *pad);   /* bits as read */
 int  in_moved(const struct pad *now, const struct pad *ref);   /* more than drift */
+void in_response(const struct set_slot *slot, struct pad *pad);
 ```
+
+### Stick response curves
+
+After calibration and dead zones, `in_response()` shapes each stick's radial
+magnitude, preserving its angle. The controller applies the current slot's
+settings on each input sample, after activity detection and Home gestures.
+All profiles, USB and Bluetooth, receive the shaped values. Calibration and
+activity detection use the calibrated values before response shaping.
+
+`left_curve` and `right_curve` independently select:
+
+* `linear` (default): exactly the calibrated sample.
+* `concave`: output = input squared, keeping more travel near the centre.
+* `s-curve`: output = 2x(1-x) below halfway, and 1-2x(1-x) above halfway.
+  Sensitivity is greatest at the centre and rim, lowest around halfway.
+* `custom`: linearly interpolate seven output points at input magnitudes
+  12.5%, 25%, 37.5%, 50%, 62.5%, 75%, 87.5%. Centre and rim are fixed
+  at 0% and 100%. Outputs are bytes 0..255, in nondecreasing order;
+  repeated values permit flat sections. Default points approximate linear.
+
+The names follow the requested feel; these are app curves, not recovered
+stock-firmware formulas. All calculations use integers, with no floating point.
 
 ### Sampling and debounce
 

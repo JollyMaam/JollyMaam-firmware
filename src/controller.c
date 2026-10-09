@@ -506,6 +506,7 @@ static void read_input(u32 now)
         r = ux_step(&c.pad, now, c.kind);
     }
     handle(r, now);
+    in_response(set_slot(c.slot < SLOTS ? c.slot : 0), &c.pad);
 }
 
 /* Pull: a report is built when bt.c has room for it, from the newest input,
