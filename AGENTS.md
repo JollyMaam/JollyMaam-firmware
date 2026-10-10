@@ -46,10 +46,10 @@ controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`)
 
 ## Build and test
 
-    make -j32            # pad: build/
+    make -j32            # pad: build/pad/
     make test
     make pad-flash       # over USB, through the ROM loader
-    make dongle          # build-dongle/
+    make dongle          # build/dongle/
     make dongle-flash    # packed for the connected dongle's key
     make -j32 pad dongle # both boards
 

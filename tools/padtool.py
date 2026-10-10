@@ -750,8 +750,7 @@ def main():
     DEV = a.dev
     BOARD = a.board
     if a.elf is None:
-        output = "build" if BOARD == "pad" else f"build-{BOARD}"
-        a.elf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", output, "app.elf")
+        a.elf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build", BOARD, "app.elf")
     if a.command == "target":
         if BOARD != "dongle":
             p.error("target requires --board dongle")
