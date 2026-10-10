@@ -5,13 +5,24 @@
 | Item | Value |
 |---|---|
 | Jieli SDK | `fw-AC63_BT_SDK` (BR23 platform); the linker script is patched at build time. SDK version `0x240001`, dated 2024-12-31 |
-| Compiler | clang for `pi32v2`, toolchain release 2025-03-24 (`/shared/jieli-linux-toolchains-20250324.1/pi32v2/bin`) |
+| Compiler | clang for `pi32v2`, from toolchain release jieli-linux-toolchains-20250324.1 |
 | Linker | `lto-wrapper` (LTO); `objcopy`; `llvm-ar` from the toolchain's `common/bin` |
 | Host tools | `gcc -std=c11`, for host unit tests and the image tool only |
 | BTstack | upstream master, unmodified, built from source. Some symbols are renamed at build time to avoid clashing with the SDK's controller. |
 | Controller | the project's own C controller policy. No SDK controller archive is linked. |
 
 The SDK tree is outside this repository. Its path is fixed by the build.
+
+## Downloads
+
+Vendor package-manager links:
+
+| Item | Link |
+|---|---|
+| Compiler toolchain, Linux | curl -LJO https://pkgman.jieliapp.com/s/linux-toolchain |
+| Compiler toolchain, Windows | curl -LJO https://pkgman.jieliapp.com/s/win-toolchain |
+| Post-build tools, Linux | curl -LJO https://pkgman.jieliapp.com/s/linux-postbuild |
+| Post-build tools, Windows | curl -LJO https://pkgman.jieliapp.com/s/downtool |
 
 ## Compiler flags
 

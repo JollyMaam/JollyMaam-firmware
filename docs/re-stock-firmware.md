@@ -30,8 +30,8 @@ instructions:
 - Scaled halfword indexes give wrong global addresses.
 
 Artifacts (not in this repository): the stock 3.52 flash backup, the Ghidra
-project for the 3.52 image, and the decompilation index with SDK byte matches,
-all under `/work/`. The images are in `/shared/gamesir-firmware/`.
+project for the 3.52 image, and the decompilation index with SDK byte matches.
+The images are in the `gamesir-firmware` directory beside the project.
 
 Use raw instruction effects for these findings. Disassemble with the toolchain's
 `cc`, `ld` and `objdump` (`pi32v2`), wrapping each image in an ELF section at the
