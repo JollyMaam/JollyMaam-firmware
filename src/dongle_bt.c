@@ -12,6 +12,7 @@
 #include "hci.h"
 #include "l2cap.h"
 #include "dongle.h"
+#include "dongle_link.h"
 
 const hci_transport_t *hci_jieli_transport(void);
 const btstack_run_loop_t *hci_jieli_run_loop(void);
@@ -104,16 +105,78 @@ static const btstack_link_key_db_t key_db = {
     .iterator_done = kdb_iter_done,
 };
 
-/* ---- HID keepalive ------------------------------------------------------- */
+/* ---- HID keepalive & custom downlink ------------------------------------ */
+
+static u8 peer_is_custom;
+static u8 downlink_seq;
+static struct {
+    u32 total_reports;
+    u32 last_sec_ms;
+    u32 reports_this_sec;
+    u32 dropped_this_sec;
+    u8 have_seq;
+    u8 last_seq;
+    struct dongle_uplink_pkt latest;
+} dongle_input_stats;
 
 static void send_output(void)
 {
-    u8 r[DONGLE_OUTPUT_SIZE];
     u8 status;
 
-    dongle_output(r);
-    status = l2cap_send(interrupt_cid, r, sizeof(r));
-    if (status) util_log("bt: keepalive send failed: 0x%02x", status);
+    if (peer_is_custom) {
+        u8 r[2 + sizeof(struct dongle_downlink_pkt)];
+        r[0] = 0xa2;
+        r[1] = DONGLE_CMD_ID;
+        struct dongle_downlink_pkt *cmd = (struct dongle_downlink_pkt *)(r + 2);
+        memset(cmd, 0, sizeof(*cmd));
+        cmd->seq = ++downlink_seq;
+        status = l2cap_send(interrupt_cid, r, sizeof(r));
+    } else {
+        u8 r[DONGLE_OUTPUT_SIZE];
+        dongle_output(r);
+        status = l2cap_send(interrupt_cid, r, sizeof(r));
+    }
+    if (status) util_log("bt: output send failed: 0x%02x", status);
+}
+
+static void dongle_on_input_report(const u8 *packet, u16 size)
+{
+    if (size < 2 || packet[0] != 0xa1) return;
+    u8 report_id = packet[1];
+
+    if (report_id == DONGLE_REPORT_ID && size >= 2 + DONGLE_UPLINK_BASE_SIZE) {
+        const struct dongle_uplink_pkt *pkt = (const struct dongle_uplink_pkt *)(packet + 2);
+        u32 now = plat_ms();
+
+        if (!peer_is_custom) {
+            peer_is_custom = 1;
+            util_log("bt: custom pad linked (seq %u)", pkt->seq);
+        }
+
+        dongle_input_stats.total_reports++;
+        dongle_input_stats.reports_this_sec++;
+
+        if (dongle_input_stats.have_seq) {
+            u8 delta = (u8)(pkt->seq - dongle_input_stats.last_seq);
+            if (delta > 1) {
+                dongle_input_stats.dropped_this_sec += (delta - 1);
+            }
+        }
+        dongle_input_stats.have_seq = 1;
+        dongle_input_stats.last_seq = pkt->seq;
+        dongle_input_stats.latest = *pkt;
+
+        if (!dongle_input_stats.last_sec_ms) dongle_input_stats.last_sec_ms = now;
+        if ((s32)(now - dongle_input_stats.last_sec_ms) >= 1000) {
+            util_log("dongle: %u rpt/s, %u drops | buttons 0x%04x sticks %d,%d",
+                     dongle_input_stats.reports_this_sec,
+                     dongle_input_stats.dropped_this_sec,
+                     pkt->buttons, pkt->current.lx, pkt->current.ly);
+            dongle_input_stats.reports_this_sec = 0;
+            dongle_input_stats.dropped_this_sec = 0;
+            dongle_input_stats.last_sec_ms = now;
+        }
+    }
 }
 
 static void request_output(void)
@@ -186,10 +249,12 @@ static void on_packet(u8 type, u16 channel, u8 *packet, u16 size)
     bd_addr_t a;
     u16 cid;
 
-    /* Input protocol is documented in architecture/dongle.md. Bridging these
-     * packets to a USB gamepad is future work. */
-    (void)size;
-    if (type == L2CAP_DATA_PACKET) return;
+    if (type == L2CAP_DATA_PACKET) {
+        if (channel == interrupt_cid) {
+            dongle_on_input_report(packet, size);
+        }
+        return;
+    }
     if (type != HCI_EVENT_PACKET) return;
     switch (hci_event_packet_get_type(packet)) {
     case BTSTACK_EVENT_STATE:
@@ -207,6 +272,23 @@ static void on_packet(u8 type, u16 channel, u8 *packet, u16 size)
         btstack_run_loop_set_timer_handler(&timer, on_timer);
         btstack_run_loop_set_timer(&timer, LISTEN_MS);
         btstack_run_loop_add_timer(&timer);
+        break;
+    case GAP_EVENT_INQUIRY_RESULT: {
+        bd_addr_t peer_addr;
+        gap_event_inquiry_result_get_bd_addr(packet, peer_addr);
+        u32 cod = gap_event_inquiry_result_get_class_of_device(packet);
+        util_log("bt: inquiry found %s (cod 0x%06x)", bd_addr_to_str(peer_addr), (unsigned)cod);
+        if ((cod & 0x002500) == 0x002500) {
+            gap_inquiry_stop();
+            paging = 1;
+            state = CTL_CONNECTING;
+            open_hid_channel(peer_addr, BLUETOOTH_PSM_HID_CONTROL, &cid);
+            util_log("bt: paging found gamepad at %s", bd_addr_to_str(peer_addr));
+        }
+        break;
+    }
+    case GAP_EVENT_INQUIRY_COMPLETE:
+        util_log("bt: inquiry complete");
         break;
     case HCI_EVENT_CONNECTION_REQUEST:
         paging = 1;              /* not while the pad comes to us */
@@ -232,6 +314,8 @@ static void on_packet(u8 type, u16 channel, u8 *packet, u16 size)
         util_log("bt: disconnected, reason 0x%02x",
                  hci_event_disconnection_complete_get_reason(packet));
         acl_up = 0;
+        peer_is_custom = 0;
+        memset(&dongle_input_stats, 0, sizeof(dongle_input_stats));
         state = CTL_IDLE;
         gap_connectable_control(1);
         paging = 0;
@@ -323,6 +407,10 @@ static void on_commands(btstack_data_source_t *ds, btstack_data_source_callback_
         dongle_store_write(STORE_BOND, &bond, sizeof(bond));
         util_log("bt: bond forgotten%s", set_is_ephemeral() ? " (ephemeral)" : "");
         if (acl_up) gap_disconnect(handle);
+        state = CTL_PAIRING;
+        gap_connectable_control(1);
+        gap_inquiry_start(5);
+        util_log("bt: pairing inquiry started (5s)");
     }
 }
 

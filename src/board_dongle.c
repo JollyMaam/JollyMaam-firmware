@@ -33,6 +33,7 @@ void plat_boot_info(struct plat_boot *out)
 
 void board_start(void)
 {
+    plat_pull_up_input(PIN_BUTTON);
 }
 
 HOT void board_tick(void)

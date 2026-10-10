@@ -36,7 +36,7 @@ struct set_field {
 
 static const char *const types[] = {
     "switch", "switch2", "xbox", "xboxble", "dualsense", "dualshock4", "generic", "mouse",
-    "genericble", NULL,
+    "genericble", "dongle", NULL,
 };
 static const char *const grips[] = {
     "off", "host", "fade", "rumble", "input", "rumble+input", "primary", "secondary", NULL,

@@ -7,22 +7,62 @@
 
 #define REBOOT_DELAY_MS 100      /* the command's status reaches the host first */
 
+int dongle_btn_update(struct dongle_btn *b, u32 now, int is_down, u32 hold_threshold_ms)
+{
+    if (is_down) {
+        if (!b->down) {
+            b->down = 1;
+            b->hold_fired = 0;
+            b->press_ms = now;
+            return DONGLE_BTN_DOWN;
+        }
+        if (!b->hold_fired && (s32)(now - b->press_ms) >= (s32)hold_threshold_ms) {
+            b->hold_fired = 1;
+            return DONGLE_BTN_HOLD;
+        }
+    } else {
+        if (b->down) {
+            b->down = 0;
+            if (!b->hold_fired) {
+                return DONGLE_BTN_TAP;
+            }
+        }
+    }
+    return DONGLE_BTN_NONE;
+}
+
 #ifndef UNITTEST
 void ctl_main(void)
 {
     struct usb_status st;
     struct ctl_request r;
+    struct dongle_btn btn;
     u32 reboot_at = 0;
     int to_loader = 0;
 
     memset(&st, 0, sizeof(st));
+    memset(&btn, 0, sizeof(btn));
     st.state = CTL_IDLE;
     st.slot = SLOT_NONE;
     st.usb_powered = 1;
     util_log("dongle up");
     dongle_bt_start();
     for (;;) {
-        st.uptime_ms = plat_ms();
+        u32 now = plat_ms();
+        u32 changed_us = 0;
+        int is_down = (plat_lines(&changed_us) & 1) != 0;
+        int act = dongle_btn_update(&btn, now, is_down, DONGLE_BTN_HOLD_PAIR_MS);
+
+        if (act == DONGLE_BTN_DOWN) {
+            util_log("dongle: button down");
+        } else if (act == DONGLE_BTN_HOLD) {
+            util_log("dongle: button hold (%u ms) -> pair", (unsigned)(now - btn.press_ms));
+            dongle_bt_forget();
+        } else if (act == DONGLE_BTN_TAP) {
+            util_log("dongle: button tap (%u ms)", (unsigned)(now - btn.press_ms));
+        }
+
+        st.uptime_ms = now;
         st.state = dongle_bt_state();
         st.ephemeral = (u8)set_is_ephemeral();
         r = usb_poll(&st);
@@ -30,13 +70,14 @@ void ctl_main(void)
         if ((r.kind == REQ_REBOOT || r.kind == REQ_REBOOT_LOADER) && !reboot_at) {
             to_loader = r.kind == REQ_REBOOT_LOADER;
             util_log(to_loader ? "reboot to the loader" : "reboot");
-            reboot_at = plat_ms() + REBOOT_DELAY_MS;
+            reboot_at = now + REBOOT_DELAY_MS;
         }
         if (reboot_at && (s32)(plat_ms() - reboot_at) >= 0) {
             if (to_loader) plat_reboot_loader();
             plat_reboot();
         }
-        plat_wait(reboot_at ? reboot_at : plat_ms() + 1000, 0);
+        u32 next_wake = reboot_at ? reboot_at : (btn.down ? now + 50 : now + 1000);
+        plat_wait(next_wake, 0);
     }
 }
 #endif
@@ -109,6 +150,22 @@ int main(void)
     memset(bond, 0, sizeof(bond)); /* forgetting the live bond is also ephemeral */
     CHECK(dongle_store_write(1, bond, sizeof(bond)) == sizeof(bond));
     CHECK(writes == 2);
+
+    /* Button gesture state machine tests */
+    struct dongle_btn b = {0};
+    CHECK(dongle_btn_update(&b, 100, 0, 1500) == DONGLE_BTN_NONE);
+    CHECK(dongle_btn_update(&b, 100, 1, 1500) == DONGLE_BTN_DOWN);
+    CHECK(dongle_btn_update(&b, 200, 1, 1500) == DONGLE_BTN_NONE);
+    CHECK(dongle_btn_update(&b, 300, 0, 1500) == DONGLE_BTN_TAP);
+    CHECK(dongle_btn_update(&b, 400, 0, 1500) == DONGLE_BTN_NONE);
+
+    /* Hold triggers hold-to-pair */
+    CHECK(dongle_btn_update(&b, 500, 1, 1500) == DONGLE_BTN_DOWN);
+    CHECK(dongle_btn_update(&b, 1999, 1, 1500) == DONGLE_BTN_NONE);
+    CHECK(dongle_btn_update(&b, 2000, 1, 1500) == DONGLE_BTN_HOLD);
+    CHECK(dongle_btn_update(&b, 2100, 1, 1500) == DONGLE_BTN_NONE);
+    CHECK(dongle_btn_update(&b, 2200, 0, 1500) == DONGLE_BTN_NONE);
+
     return TEST_DONE("dongle_ephemeral");
 }
 #endif
