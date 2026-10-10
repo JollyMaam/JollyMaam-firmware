@@ -1,105 +1,72 @@
 # Working on this repository
 
-GameSir Cyclone 2 firmware: the Jieli BR23 SDK's runtime and an owned C
-Bluetooth controller with upstream BTstack as the host
-(`/work/cyclone2-btstack`, unmodified `master`).  The design is in [architecture/](architecture/README.md); hardware
-references are in [docs/](docs/README.md).
+GameSir Cyclone 2 firmware: the Jieli BR23 SDK runtime, an owned C Bluetooth
+controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`).
+
+- Hardware and SoC reference: [docs/](docs/README.md). Reverse-engineering
+  notes are `docs/re-*.md`.
+- Module contracts: the section comments in `src/pad.h`.
 
 ## Working rules
 
-- The user operates the physical pad and console.  Building and flashing are
-  ours; explain any requested physical action plainly.
+- The user operates the physical pad and console. Building and flashing are
+  ours. Say plainly when a physical action is needed.
 - Commit at a logical checkpoint.
 - Say "the app" or "the SDK" when distinguishing code ownership.
-- Prefer measured evidence.  In docs/, distinguish board measurements,
-  recovered binary behaviour and assumptions.
-- Do not add software plans or session diaries to the hardware documentation.
-- Keep architecture/ in step with the code when an interface changes.
+- `docs/` holds proven hardware facts only: no test results, dates or plans.
+  Mark anything unproven as "not established".
+- Source may refer to `docs/`. `docs/` does not refer to source.
+- Keep the `src/pad.h` section comments in step with interface changes.
+- No root here. Use the devices in `/dev/bwrap`; do not try to leave the container.
 
-## Build, test, flash
+## Design
 
-    PATH=/work/bin:$PATH make -j32
-    PATH=/work/bin:$PATH make test        # every src/*.c with an #ifdef UNITTEST block, host cc
-    PATH=/work/bin:$PATH make flash       # over USB: jlnewfw flashpack --enter-loader
-    PATH=/work/bin:$PATH make pad         # explicit gamepad build: build/
-    PATH=/work/bin:$PATH make dongle      # GameSir's dongle: build-dongle/
-    PATH=/work/bin:$PATH make dongle-flash # pack for the connected dongle's key
-    PATH=/work/bin:$PATH make dongle-clean
+- **Event-driven loop.** `ctl_main()` sleeps until an event or a deadline, then
+  does the work for what happened. It does not run on a period. The controller
+  owns every decision and the pad's state.
+- **Mostly stateless modules.** Modules do not call each other, except that a
+  profile may send to the host (`bt_send_message`) and `bt.c` asks the running
+  profile to answer a host read.
+- **Two threads.** Control runs `ctl_main` and every module except `bt.c`.
+  Bluetooth runs BTstack, `bt.c` and the profiles' `read()`. Control to
+  Bluetooth: the input slot and the message queue. Bluetooth to control: the
+  event queue (`bt_poll`). Host reads are answered on the Bluetooth thread, so
+  `read()` returns only constant data.
+- **Newest wins.** Input is never queued, buttons included. A lost report beats
+  a late one.
+- **Naming.** Public names carry the module prefix (`bt_`, `ux_`, `set_`, `in_`,
+  `led_`, `util_`, `plat_`, `usb_`). Only `plat_` and `platform_jieli_sdk.c` use
+  Jieli names. Words: slot, profile, session, link, host, report, write, read.
+- **Configuration as data.** Tunable behaviour is a `const` table: Home gestures,
+  timeouts and LED scenes (`settings_ux.c`), profile descriptors (`profile_*.c`),
+  setting defaults (`settings.c`), pins (`platform_jieli.c`).
+- **Tests.** A module with logic has an `#ifdef UNITTEST` block at its end.
+  `make test` runs them on the host. Not covered: `controller.c`, `settings.c`,
+  `bt.c`, `btstack_hci_jieli.c`, `platform_jieli*.c`.
 
-`pad` and `dongle` also have `-flash`, `-clean` and `-test` targets.
-`make BOARD=dongle [flash|clean|test]` still works.
+## Build and test
 
-`tools/padtool.py` talks to the running pad over USB (vendor SCSI commands on
-the mass-storage interface, `/dev/bwrap/sg*`): `identify`, `status`,
-`log [-f]`, `stats [-w SECONDS]`, `reboot`, `loader`, and settings:
-`fields`, `get`, `set`, `reset`, `backup-settings`, `restore-settings`,
-`factory-reset`, `ephemeral`, `keep` (`padtool --help`).  The log is a RAM
-ring that survives a reboot.
+    make -j32            # pad: build/
+    make test
+    make pad-flash       # over USB, through the ROM loader
+    make dongle          # build-dongle/
+    make dongle-flash    # packed for the connected dongle's key
+    make -j32 pad dongle # both boards
 
-`tools/jlnewfw.c` (`build/jlnewfw`) is the image and flashing tool: `list`,
-`unpack`, `pack`, and `flash`/`flashpack` through the chip's ROM loader with
-the SDK's loader blob (`--loader $(SDK)/cpu/br23/tools/br23loader.bin`).  It
-writes only onto a device whose flash holds the image's PID (our build:
-`GS_C2_ADC_DEVICE`; the dongle: `GS_C2_Dongle`) and encrypted for the chip's
-key; `--force-pid` for a blank device or a deliberate change.  A pad that
-does not enumerate is recovered by holding Home+Start while plugging in USB
-(ROM loader, UBOOT1.00), then `make flash`; a dongle by holding its button
-while plugging it in, then `make dongle-flash` (packed for its chip
-key).
-`padtool --board dongle` (also `--dongle`) talks to a dongle running this
-firmware; `pair` clears its single bond (no slot needed), `target ADDR`
-pages a Bluetooth address, and `log -f` follows its log. Enable
-`padtool --dongle ephemeral` before connection experiments to keep bond
-changes in RAM until reboot; `status` shows `EPHEMERAL`. Like the pad, this
-leaves SDK radio trim writes enabled. It is off at boot, and dongle `keep`
-is not implemented.
-Board-specific sources, flash sizes, code limits and PIDs are selected
-at the top of `Makefile`, including target-specific `BOARD` assignments for
-board names, action targets and output paths. Shared rules use secondary
-expansion for board-dependent prerequisites; no recursive make is needed.
-`make -j32 pad dongle` builds both boards in one invocation.
+`make BOARD=dongle [flash|clean|test]` also works. Board differences (flash
+size, code limit, PID) are at the top of the `Makefile`.
 
-What can be tuned by hand: Home gestures, timeouts and LED scenes in
-`src/settings_ux.c`; setting defaults (the field table) and the default
-palette in `src/settings.c`.  At run time over USB with `padtool set`.
+`tools/padtool.py` talks to the running firmware over USB vendor commands
+(`padtool --help`). `padtool --dongle` does the same for the dongle.
 
-The controller in `src/btctrler/` links directly; no controller archive is built or
-linked. Decompilation and SDK comparison tooling is archived on the
-`btctrler-decompiled` branch; consult it when requested for further recovery
-work. The shared SDK remains unmodified.
-The linker's stack-size warnings are a vendor lint.
-`CODE_LIMIT` fixes the VM boundary; moving it moves the settings store.
+Recovering a pad that does not enumerate: hold Home and Start while plugging in
+USB (ROM loader, `UBOOT1.00`), then `make pad-flash`. For the dongle, hold its
+button while plugging it in, then `make dongle-flash`. Image layout and the
+`jlnewfw` tool are in [docs/re-application-image.md](docs/re-application-image.md).
 
-## Measured constraints worth preserving
+Tunable by hand: Home gestures, timeouts and LED scenes in `src/settings_ux.c`;
+setting defaults and palette in `src/settings.c`. At run time: `padtool set`.
 
-- Classic reconnect initiates from the pad.  Opening outgoing HID before
-  authentication caused reason-5 failures: keep outgoing LEVEL_2 / incoming
-  LEVEL_0 (`src/bt.c`).
-- The controller lists Read Encryption Key Size but never answers it; the
-  transport answers (`src/btstack_hci_jieli.c`).  HCI Reset restores the
-  factory address, so ours is reapplied after it.
-- The BTstack run loop sleeps on a semaphore; a one-tick delay capped Classic
-  reports at 100 per second.
-- Input reports go through a newest-wins slot with at most two packets in the
-  controller.  Nothing is queued, buttons included.
-- `bt_max_pwr_set()` must be called at boot (`src/platform_jieli.c`); without
-  it the radio ran 20 dB below the stock pad.
-- LE links ask for 251-byte PDUs; at 27 bytes a Switch 2 report took three
-  connection events.
-- The control task runs above BTstack's: BTstack spends ~1 ms of CPU per
-  packet.
-- `REGISTER_LP_TARGET` keeps the SDK out of low-power sleep; without it USB
-  did not enumerate.
-- Switch 1 wake emission (`src/profile_switch_wake.c`, 1 s after a failed
-  page) was measured on the air; a console actually waking and the whitening
-  state were not.  Switch 2 wakes from a flag in its LE advertisement.
-- No floating point.  The BR23's FPU is emulated (the SDK's `emu_fpu_*`):
-  float instructions compile, but each traps into an emulator, and per-sample
-  float maths in the Switch 2 motion code slowed the millisecond tick to 5-9 %
-  of real time (everything lagged).  Use fixed point (Q30 with s64 products).
-- No `__attribute__((packed))` in state the loop writes.  With packed stats
-  structs the tick interrupt's millisecond count ran at 7 % speed: LTO merges
-  the globals into one block, and the unaligned stores to the packed fields
-  evidently clobbered the tick's byte.  Lay structs out without padding instead.
-- No root or `/dev/bus/usb` here; use the devices in `/dev/bwrap`.  Do not
-  attempt to leave the container.
+The controller in `src/btctrler/` links directly; no controller archive is
+built. Recovery tooling is archived on the `btctrler-decompiled` branch. The
+SDK is unmodified.

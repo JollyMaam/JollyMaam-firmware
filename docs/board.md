@@ -1,80 +1,78 @@
 # Board and GPIO
 
-The controller uses a Jieli BR23-family SoC. The packed image identifies the
-chip family as `AC635N`; this is an image field, not a transcription of the
-package marking. Physical SPI NOR capacity is **1 MiB** (measured by full flash
-dumps). The SDK exposes 192 KiB of internal RAM. No populated external PSRAM
-has been established. The board configuration uses a 24 MHz oscillator and a
-24 MHz system-clock setting; runtime clocks can differ.
+## Pad (Cyclone 2)
 
-## Pin assignments
+Digital buttons and D-pad inputs are active low with internal pull-ups.
 
-These assignments are those used by the working input code in
-[`src/input.h`](../src/input.h), with qualifications below.
+### Buttons and D-pad
 
-The face buttons carry Xbox-ordered labels. Pressing each printed label
-under `debug bounce` (2026-09-29) gave A = PA0 (south), B = PA6 (east),
-X = PA7 (west) and Y = PA13 (north).
+| Function | Pin | Notes |
+|---|---|---|
+| button A (south) | PA0 | |
+| button B (east) | PA6 | |
+| button X (west) | PA7 | |
+| button Y (north) | PA13 | |
+| D-pad up | PA2 | UART setup can disturb it; see below |
+| D-pad down | PA4 | |
+| D-pad left | PB8 | |
+| D-pad right | PA10 | |
+| L1 | PC7 | |
+| R1 | PC0 | |
+| L3 (stick click) | PC1 | |
+| R3 (stick click) | PC2 | |
+| L4 | PA5 | |
+| R4 | PC4 | |
+| M | PB7 | |
+| Start | PA14 | |
+| Select | PA15 | |
+| Screenshot | PD5 | |
+| Home | PB11 | filtered falling-edge wake input with pull-up |
 
-| Signal | Pin |
-|---|---|
-| button a | PA0 |
-| dpad up | PA2 |
-| dpad down | PA4 |
-| button l4 | PA5 |
-| button b | PA6 |
-| button x | PA7 |
-| dpad right | PA10 |
-| button y | PA13 |
-| button start | PA14 |
-| button select | PA15 |
-| trigger l2 | PB3 |
-| button m | PB7 |
-| dpad left | PB8 |
-| trigger r2 | PB10 |
-| button home | PB11 |
-| button r1 | PC0 |
-| button l3 | PC1 |
-| button r3 | PC2 |
-| button r4 | PC4 |
-| button l1 | PC7 |
-| button screenshot | PD5 |
-| stick uart rx | PA3 |
-| sensor power | PB5 |
-| i2c scl | PB4 |
-| i2c sda | PB6 |
-| usb sense | PC3 |
-| led power | PB9 |
-| led spi di | PC3 |
-| led spi clock | PC4 |
-| led spi data | PC5 |
-| left motor PWM | PA9 |
-| right motor PWM | PB0 |
-| configured reset input | PB1 |
-| left trigger stop switch | PR1 |
-| right trigger stop switch | PR0 |
+### Analog and motion
 
-Digital buttons and D-pad inputs are active low, with internal pull-ups enabled.
-Trigger travel is analog on PB3/PB10, read through `AD_CH_PB3` / `AD_CH_PB10`;
-the PR stop switches are separate active-low inputs. The sensor supply enable
-PB5 is driven high. LED supply enable PB9 is active low.
+| Function | Pin | Notes |
+|---|---|---|
+| L2 trigger | PB3 | SAR ADC channel `AD_CH_PB3`, analog |
+| R2 trigger | PB10 | SAR ADC channel `AD_CH_PB10`, analog |
+| L2 stop switch | PR1 | RTC-domain input, active low |
+| R2 stop switch | PR0 | RTC-domain input, active low |
+| IMU / EEPROM I2C SCL | PB4 | I2C, route group C |
+| IMU / EEPROM I2C SDA | PB6 | I2C, route group C |
+| Sensor power enable | PB5 | driven high |
+| Stick UART RX | PA3 | UART2 RX; no TX pin used |
 
-## Pin multiplexing and unresolved labels
+### Rumble, LEDs, power and reset
 
-- Stick reception is UART2 RX on PA3. SDK UART setup can disturb PA2 (D-pad up);
-  the app restores PA2 as a pulled-up input after opening the UART.
-- PC3 is named both USB sense and LED SPI DI. PC4 is named both R4 and LED SPI
-  clock. These SPI labels describe the peripheral pin group, **not evidence
-  that an external LED module uses a clock or data-in wire**. The SDK LED
-  driver only configures PC5 as output for its one-wire waveform.
-- PC3 read low with USB attached during normal app use. The SDK OTG state was
-  `IDLE_MODE` and the PMU 5 V detector read low in the same condition, so the
-  app uses changing USB SOF frames as its active-host signal. The loader-entry
-  code still waits on PC3 after tearing USB down; behavior in that state
-  should not be inferred from normal-operation readings.
-- PB1 is configured as an active-low reset input with `CONFIG_RESET_TIME=8`.
-  This is the configuration value, not a measured duration in seconds.
-- Home is PB11, also configured as a filtered falling-edge low-power wake input.
+| Function | Pin | Notes |
+|---|---|---|
+| left motor PWM | PA9 | MCPWM channel 4, timer 4 |
+| right motor PWM | PB0 | MCPWM channel 1, timer 1 |
+| LED power enable | PB9 | active low |
+| LED data | PC5 | SPI1 group B data out |
+| USB sense | PC3 | see [power.md](power.md) for what it reads |
+| Configured reset input | PB1 | active low; reset time 8 (configuration value) |
 
-Sources: `src/input.c`, `src/init.c`, `src/rumble.c`,
-`src/sdkconfig/board_config.h`, SDK `cpu/br23/led_spi.c`.
+### Pin groups and conflicts
+
+- **PC3** is named both `USB sense` and `LED SPI DI` in the SDK's pin groups.
+  The LED driver drives only PC5. PC3 is not used as LED data.
+- **PC4** is named both `R4` and `LED SPI clock`. Same situation.
+- **PA2** (D-pad up) is changed by SDK UART setup. The app restores it as a
+  pulled-up input after opening UART2.
+- **PC7** (L1) is also the optional SDK microphone bias pin. See
+  [audio.md](audio.md).
+- Home (PB11) is a wake input. PB1 is the reset input. See [power.md](power.md).
+
+### Face button labels
+
+The face buttons use the Xbox layout: A south, B east, X west, Y north. The
+pins were identified by pressing each printed label.
+
+## Dongle (GameSir)
+
+| Function | Pin | Notes |
+|---|---|---|
+| button | PA0 | active low, pull-up |
+| LED | PD3 or PA13 | depends on board revision; not driven by the current firmware |
+
+Flash is 512 KiB ([flash-map.md](flash-map.md)).

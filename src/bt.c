@@ -1,4 +1,4 @@
-/* The Bluetooth host on upstream BTstack; architecture/bluetooth.md.  A
+/* The Bluetooth host on upstream BTstack.  A
  * profile's bt_device becomes SDP records and a HID device (Classic) or a
  * GATT server and advertising (LE).  BTstack runs on its own thread; the
  * control thread talks to it through the requests, the input slot and the

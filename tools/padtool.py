@@ -40,7 +40,7 @@ address, seven comma-separated output bytes for stick curve points, hex for othe
 bytes; "default" puts a field back to its default.
 
 The pad is a mass-storage device with no medium; commands are vendor SCSI
-CDBs (architecture/usb.md).  Flashing is tools/jlnewfw.c's (make flash).
+CDBs (see the comment at the top of src/usb.c).  Flashing is tools/jlnewfw.c's (make flash).
 """
 import argparse, collections, ctypes, fcntl, glob, json, os, struct, sys, time
 
@@ -460,7 +460,7 @@ def log(path, follow):
             time.sleep(0.1)
 
 
-# ---- settings (architecture/settings.md) ------------------------------------
+# ---- settings ------------------------------------
 
 SLOT_NAMES = ["A", "B", "X", "Y", "up", "down", "left", "right"]
 TARGETS = SLOT_NAMES + ["palette", "calibration"]

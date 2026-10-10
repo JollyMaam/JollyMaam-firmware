@@ -1,113 +1,104 @@
 # Peripherals
 
-## Stick controller and UART2
+Pins are in [board.md](board.md). Audio is in [audio.md](audio.md). Power and
+reset are in [power.md](power.md).
 
-The stick controller sends a continuous UART stream into **PA3 / UART2 RX**.
-Its chip model is not established in the retained evidence. PB5 is the sensor
-power enable, driven high. The app does not configure a UART TX pin.
+## Stick UART (UART2)
 
-The working setup requests 1,000,000 baud, then explicitly sets
-`JL_UART2->BAUD = 24`. **Divisor 24 is measured good**; the SDK's calculated
-value produced invalid CRCs. Treat the requested baud rate as configuration,
-not an independently measured wire rate. Reception uses 8-bit mode, a 512-byte
-DMA ring, 32-byte receive chunks and a 10 ms receive timeout.
+The stick controller sends a continuous serial stream into UART2 RX (PA3). The
+stick controller's part number is not established. No TX pin is used.
 
-Each frame is four bytes: `tag, value_hi, value_lo, crc8`. The value is an
-unsigned 16-bit big-endian axis position. CRC covers the first three bytes,
-initial value zero, polynomial `0x31`, MSB first, no final XOR.
+| Setting | Value |
+|---|---|
+| Requested baud rate | 1,000,000 |
+| `JL_UART2->BAUD` | 24. The SDK's calculated divisor produced invalid CRCs on this board. |
+| Data bits | 8 |
+| Receive buffer | 512-byte DMA ring |
+| Receive chunk | 32 bytes |
+| Receive timeout | 10 ms |
+
+The requested baud rate is configuration. The wire rate is not established.
+
+### Frame
+
+Each frame is four bytes: `tag`, `value_hi`, `value_lo`, `crc8`.
+
+- `value` is an unsigned 16-bit big-endian axis position.
+- CRC-8 covers the first three bytes: polynomial `0x31`, initial value 0,
+  MSB first, no final XOR.
 
 | Tag | Axis |
 |---|---|
-| `aa` | left X |
-| `55` | left Y |
-| `cc` | right X |
-| `33` | right Y |
+| `0xaa` | left X |
+| `0x55` | left Y |
+| `0xcc` | right X |
+| `0x33` | right Y |
 
-A live window with IMU and Bluetooth running recorded over 150,000 valid
-frames with no dropped bytes, CRC errors or ring overflows; maximum backlog
-was 224 bytes. This is evidence for that configuration, not a throughput limit.
+## I2C and IMU
 
-## Buttons and contact bounce
+I2C is the BR23 hardware controller (`JL_IIC`), route group C: SCL on PB4, SDA
+on PB6 (`JL_IOMAP->CON1[19:18] = 2`).
 
-Buttons and the d-pad are active-low GPIOs (pins in [board.md](board.md)).
-Bounce measured with `debug bounce` (port input registers sampled every
-~1.5 µs), 2026-09-29, one pad, by-hand presses:
+The current driver sets `BAUD = 29`, enables input buffers and high drive, and
+disables the internal pull-ups and pull-downs. With the 24 MHz lsb clock and
+`lsb / (2 × (BAUD + 1))`, the bus runs at 400 kHz. The formula is the SDK's.
+External pull-up values are not recorded.
 
-| Buttons | Bounce |
+### IMU: QMI8658A
+
+The IMU is a **QMI8658A**. The device ID is read from register `0x00`; it returns
+`0x05`.
+
+| Item | Value |
 |---|---|
-| A, B, X, Y | on most presses: 8-15 edges, pulses down to 13 µs, settled within 0.4 ms; releases 1-4 edges within ~0.15 ms |
-| d-pad | usually clean; occasionally 2-3 edges within 0.28 ms |
-| L1, R1, select, start, capture | one edge per press and release |
+| 7-bit address | `0x6a` |
+| Write byte | `0xd4` |
+| Read byte | `0xd5` |
 
-L3/R3, L4/R4, home and M were not tested, nor the trigger end-stop switches
-(RTC-domain pins). No isolated glitches were seen on idle lines. The sampling
-loop can be interrupted for up to ~0.5 ms, so a bounce entirely inside such a
-gap would read as one edge.
+Initialization writes, recovered from the stock firmware:
 
-## QMI8658A IMU and I2C
+| Register | Value | Meaning |
+|---|---|---|
+| `0x60` | `0xb0` | soft reset; wait 20 ms before the next write |
+| `0x02` | `0x60` | |
+| `0x03` | `0x14` | |
+| `0x04` | `0x74` | |
+| `0x06` | `0x55` | |
+| `0x0b` | `0x01` | |
+| `0x0a` | `0x12`, then `0x00` | |
+| `0x08` | `0x83` | enable accelerometer and gyro |
 
-The RAM diagnostic and live firmware identify **QMI8658A**, not the earlier
-LSM6DS3 guess. I2C uses **PB4 SCL / PB6 SDA**, BR23 `JL_IIC`, route group C:
-`JL_IOMAP->CON1[19:18] = 2`. The current driver sets `BAUD=29`, enables input
-buffers/high drive, and disables internal pull-ups and pull-downs. With the
-24 MHz lsb clock and `lsb / (2 * (BAUD + 1))` that is 400 kHz (it was
-`BAUD=119`, 100 kHz); the formula is the SDK's, not a scope measurement. At
-29 the reads are error-free and the polling task's sampled CPU share fell
-from 26% to 9%. External pull-up values have not been recorded.
+Writing `0x08 = 0x00` disables both sensors. The driver does this when no
+profile needs motion and at boot.
 
-The IMU's 7-bit address is **0x6a** (write byte **0xd4**, read byte **0xd5**).
-Register `0x00` returns device ID **0x05**, measured. The working register writes
-were recovered from stock firmware function `0x01e3c2c6` and verified on the pad:
+Reading 12 bytes from `0x35` returns accel X, Y, Z then gyro X, Y, Z, each a
+signed little-endian 16-bit value. The 20 ms delay after soft reset is required.
+The START condition of the hardware I2C needs no delay.
 
-| Register | Value |
-|---|---|
-| `60` | `b0` (soft reset; wait 20 ms) |
-| `02` | `60` |
-| `03` | `14` |
-| `04` | `74` |
-| `06` | `55` |
-| `0b` | `01` |
-| `0a` | `12`, then `00` |
-| `08` | `83` |
+Scale used by the driver:
 
-Writing `08` = `00` switches the accelerometer and gyro off; the driver does
-that whenever no profile wants motion, and at boot. The full sequence above
-turns them back on.
+- Accelerometer: 8192 counts per g, at ±4 g.
+- Gyroscope: 16 counts per °/s.
 
-Read 12 consecutive bytes from `0x35`: accel X/Y/Z, then gyro X/Y/Z, signed
-little-endian 16-bit values. No delay is needed for the BR23 hardware-I2C START
-operation itself. The soft-reset delay is required.
+The current driver does not test data-ready. A wired IMU interrupt pin is not
+established.
 
-A task that sleeps between reads gets one OS tick (10 ms) at best; measured
-about 80–100 samples/s. Woken from the 1 ms control poll instead, the driver
-measured (2026-09-29, pad idle on USB): the 12 bytes every 4 ms at 254/s,
-~20% CPU; the 6 gyro bytes from `0x3b` every 2 ms at 508/s, ~25% CPU. Both are
-busy-waits in the lowest-priority task, and the per-read times include its
-preemption. A minute of the 508/s mode left the stick UART at zero CRC errors,
-zero IMU errors and 1016 control polls/s. (An earlier 200 Hz experiment from a
-higher-priority context produced UART CRC errors and eventually reset.)
+### Gyro zero-rate offset
 
-Linux reported about 4096 counts on the gravity axis while flat (through a
-profile's scaling). Lying face up on a table the raw accelerometer reads about +8450 on z (8192/g at
-±4 g), so z is the yaw axis in that pose. The gyro's zero-rate offset on this
-unit, at rest: about +141, +43, +44 counts on x, y, z (16 counts per °/s), so
-about 9 °/s on x; it must be removed before gyro data can steer anything.
-Which of x/y is the pad's left-right axis was set by use, not measured. The current driver
-does not test data-ready. No wired IMU interrupt pin has been established.
+The gyro reads a non-zero value at rest. It must be subtracted before gyro data
+is used. Subtract the rest value in software, per unit.
 
 ## EEPROM
 
-The board definitions identify an EEPROM at write byte `0xa0` (7-bit `0x50`),
-previously described as 24C64. The exact package marking and contents have not
-been established here. Whether it holds factory stick calibration remains
-unknown; the address definition is not proof of its contents.
+The board definitions give an EEPROM at write byte `0xa0` (7-bit `0x50`). The
+part number and contents are not established. Whether it holds factory stick
+calibration is not established.
 
-## LED modules
+## LED chain
 
-The app drives eight addressable RGB positions. Power is **PB9, active low**;
-waveform data is **PC5 / SPI1 group B DO**. The exact LED part number has not
-been established. Positions, identified by lighting each index in a distinct
-colour and observing the pad:
+The app drives eight addressable RGB positions. The waveform is a one-wire
+protocol generated by SPI1 (PC5, SPI1 group B data out). The LED part number
+is not established.
 
 | Index | Position |
 |---|---|
@@ -115,30 +106,30 @@ colour and observing the pad:
 | 1–4 | player bar under Home, top to bottom |
 | 5 | left grip |
 | 6 | right grip |
-| 7 | nothing visible |
+| 7 | no visible position |
 
-The SDK expands each LED's 24 color bits in **GRB, MSB-first** order to 24 bytes:
-`0x7c` for a one and `0x60` for a zero. SPI1 is configured for 8 MHz during data;
-a reset interval sends sixteen zero bytes at 1 MHz. This is a one-wire LED
-waveform generated by SPI, not evidence of a clocked SPI LED module. The app
-flushes the data cache before sending the aligned DMA buffer. Startup leaves
-power off for 10 ms, initializes SPI, enables power, and waits 20 ms.
+Encoding (the SDK's LED SPI driver):
+
+- Each LED's 24 colour bits are sent in GRB order, MSB first.
+- Each bit becomes one SPI byte: `0x7c` for a one, `0x60` for a zero. That is
+  24 bytes per LED.
+- Data is sent at 8 MHz.
+- A reset interval of sixteen zero bytes at 1 MHz follows the data.
+- The driver flushes the data cache before the DMA transfer of the aligned
+  buffer.
+
+Startup sequence: LED power off for 10 ms, initialize SPI, LED power on, wait
+20 ms. LED power is PB9, active low.
 
 ## Rumble motors
 
-The recovered working diagnostic drives the motors independently:
+Two ERM motors, driven by MCPWM.
 
-| Motor label | Pin | MCPWM channel | Timer |
+| Motor | Pin | MCPWM channel | Timer |
 |---|---|---|---|
 | left | PA9 | 4 | 4 |
 | right | PB0 | 1 | 1 |
 
-The app uses edge-aligned **25 kHz PWM**, high output only, and drives the pin
-low when stopped. The motors are treated as ordinary ERM motors; Nintendo
-carrier-frequency fields are ignored. Linux effects produced independent
-left/right target values and an explicit zero on stop. Physical confirmation
-of the left/right labels and a motor/driver part-number identification were
-still outstanding in the recorded test notes.
-
-Sources: `src/input.c`, `src/imu.c`, `src/led.c`, `src/rumble.c`, SDK
-`cpu/br23/led_spi.c`; original diagnostics at `/work/ram_diagnostics/new_loader`.
+PWM: 25 kHz, edge-aligned, high output only. The pin is driven low when stopped.
+The app ignores carrier-frequency fields from the host. The motor part numbers
+and the left/right assignment on the physical pad are not established.

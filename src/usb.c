@@ -1,12 +1,75 @@
 #include <string.h>
 #include "pad.h"
 
-/* Vendor SCSI commands on the mass-storage interface; architecture/usb.md.
- * CDB: [0] 0xF5, [1] command, [2..5] argument (little-endian).  `data` holds
- * what the host sent for a host-to-pad command (WRITE), and takes the answer
- * for the others.  The Jieli
- * loader's own opcodes (0xFB 0xFC 0xFD) reboot into the loader, as the SDK
- * does, so its tools find the loader behind a running pad. */
+/* Vendor SCSI commands on the mass-storage interface.
+ *
+ * CDB: [0] 0xF5, [1] sub-command, [2..5] argument (little-endian).  The data
+ * phase carries what the host sent for a host-to-pad command (WRITE), or the
+ * answer for the others.  Status is the CSW.  Everything is little-endian.
+ *
+ * The Jieli loader's own opcodes (0xFB 0xFC 0xFD) reboot into the loader, as
+ * the SDK does, so its tools find the loader behind a running pad.
+ *
+ * Sub-commands (data is in the data phase; "in" is pad to host, "out" host to pad):
+ *   `0x00` IDENTIFY       in (40): magic `C2PD`, u16 protocol, board (6: 0 pad,
+ *                         1 dongle), build ID (16 chars at 8), flash UID (16 at
+ *                         24)
+ *   `0x01` STATUS         in (16): state, slot, USB powered, low battery, u16
+ *                         battery mV, u32 uptime ms, ephemeral (12), settings
+ *                         items collected (13)
+ *   `0x02` LOG            CDB bytes 2–5: from sequence number; in: u32 first
+ *                         sequence returned, u32 length, text
+ *   `0x03` STATS          CDB byte 2 bit 0: reset after reading; in: u16
+ *                         version, u16 size, `struct ctl_stats` as in memory
+ *   `0x10` REBOOT         –
+ *   `0x11` REBOOT_LOADER  – (any loader opcode does the same)
+ *   `0x17` PAIR           CDB byte 2: slot: forget its host and start pairing,
+ *                         keeping its address; dongle: forget its single bond
+ *                         (slot ignored)
+ *   `0x30` TARGET         dongle only: CDB bytes 2–7: Bluetooth address in
+ *                         written order (AA:BB:CC:DD:EE:FF); page that device
+ *   `0x13` CONNECT        CDB byte 2: slot (`0xfe` the last): start its
+ *                         session, as a Home connect does
+ *   `0x14` PROFILE        CDB byte 2: 1 start at the rate in bytes 3-4
+ *                         (samples/s), 2 stop, 0 read from the byte offset in
+ *                         bytes 3-6; in: header (version, rate, bucket shifts,
+ *                         the flash/RAM/ROM ranges and bucket counts, samples,
+ *                         outside, saturated, the last 8 outside addresses),
+ *                         then u16 counts per bucket, flash, RAM, ROM
+ *   `0x16` TRACE          CDB byte 2: 1 start (clears), 2 stop, 0 read from the
+ *                         byte offset in bytes 3–6; in: u32 markers written,
+ *                         then 1024 entries `{u32 µs, u16 argument, u8 marker,
+ *                         u8 –}` (`util_trace()`, pad.h)
+ *   `0x15` PEEK           CDB bytes 2–5: address; in: 32-bit words read from it
+ *                         (registers, RAM)
+ *   `0x12` RELINK         – : while connected, take the session down and
+ *                         connect the same slot again (the host is awake;
+ *                         nothing is woken)
+ *   `0x20` FIELD          argument: field number; in: u8 version, target kind
+ *                         (0 slot, 1 palette, 2 calibration), id, type, size,
+ *                         –, u16 max, then name, help, enum names (NUL-
+ *                         terminated), defaults (one per slot for slot fields,
+ *                         fields up to 4 bytes); all zero past the last
+ *   `0x21` READ           CDB byte 2: target (0-7 slot, 8 palette, 9
+ *                         calibration); in: u8 version, target, count, then per
+ *                         field id, set, len, value
+ *   `0x22` WRITE          out: items `{target, id, len, value}`, collected;
+ *                         `len` 0: default; id 0: the whole target
+ *   `0x26` RESULT         in: the last WRITE: u8 count, then a code per item (0
+ *                         ok, 1 unknown, 2 bad length, 3 out of range, 4 full)
+ *   `0x23` COMMIT         – : apply what was collected, in order; save unless
+ *                         ephemeral
+ *   `0x24` DROP           – : throw away what was collected
+ *   `0x25` EPHEMERAL      – : app settings/bond changes stay in RAM until the
+ *                         next boot; SDK radio trim writes are unaffected
+ *
+ * The other SCSI commands answer as a device with no medium: INQUIRY answers,
+ * TEST UNIT READY says "no medium", READ CAPACITY fails.  Nothing is mounted.
+ *
+ * usb_poll() runs on every pass of the loop and lets the platform service a
+ * parked command; usb_command() runs on the control thread.  The platform's
+ * private_scsi_cmd() hook parks each vendor command and raises EV_USB.
+ * padtool.py (Linux, SG_IO) is the main client. */
 
 #define OP          0xf5
 #define PROTOCOL    2

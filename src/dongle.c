@@ -2,7 +2,7 @@
 #include "dongle.h"
 
 /* The dongle's main loop (BOARD=dongle): USB as on the pad (identify, status,
- * the log, reboot, the loader; architecture/usb.md) and Bluetooth in
+ * the log, reboot, the loader; see usb.c) and Bluetooth in
  * dongle_bt.c on its own thread. */
 
 #define REBOOT_DELAY_MS 100      /* the command's status reaches the host first */

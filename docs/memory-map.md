@@ -1,54 +1,56 @@
 # CPU memory map
 
-Addresses are CPU addresses unless explicitly called flash offsets. The map
-comes from the BR23 linker script and recovered bootloader/MaskROM use.
-Ranges below are half-open (end excluded).
+Addresses are CPU addresses unless marked as flash offsets. Ranges are half-open.
+The layout comes from the SDK linker script and the MaskROM and loader layout.
+
+## Address space
 
 | Range | Size | Use |
 |---|---|---|
-| `0x00000000..0x0002bf00` | `0x2bf00` | ram0: data, BSS, IRQ stack, heap |
-| `0x0002bf00..0x0002c000` | `0x100` | interrupt vector/entry area |
-| `0x0002c000..0x0002ff80` | `0x3f80` | ram1: MMU TLB and second heap |
+| `0x00000000..0x0002bf00` | `0x2bf00` | ram0: `.data`, `.bss`, IRQ stack, heap |
+| `0x0002bf00..0x0002c000` | `0x100` | interrupt vector and entry area |
+| `0x0002c000..0x0002ff80` | `0x3f80` | ram1: MMU TLB, then second heap |
 | `0x0002ff80..0x00030000` | `0x80` | update handoff slot |
-| `0x00800000..0x00a00000` | 2 MiB | SDK-declared PSRAM window; populated hardware unconfirmed |
-| `0x01e00120..0x01f00120` | 1 MiB | application code window |
+| `0x00800000..0x00a00000` | 2 MiB | PSRAM window declared by the SDK; populated hardware not established |
+| `0x01e00120..0x01f00120` | 1 MiB | application code window (flash, through the MMU) |
 
-Total internal RAM address space is 192 KiB. The code window address is not a
-raw flash offset: the packed `app.bin` begins at flash offset `0x3120`.
-The MMU TLB occupies `0x2c000..0x2d200`; the second heap runs from `0x2d200`
-to `0x2ff80`. `.data`, `.bss`, IRQ stack, overlays, `NVRAM_DATA` and the main
-heap start change with the build; read `build/app.map` for their current values.
+Internal RAM is 192 KiB in total.
 
-## Preserved SRAM
+The MMU TLB occupies `0x2c000..0x2d200`. The second heap runs from `0x2d200` to
+`0x2ff80`.
 
-| Address | Reservation | Meaning |
+The code window is a CPU address, not a flash offset. The application image
+`app.bin` starts at flash offset `0x3120` ([flash-map.md](flash-map.md)).
+
+`.data`, `.bss`, overlays, `NVRAM_DATA` and the main heap move with the build.
+The linker map from the build lists current values. The main heap is capped below
+`0x20000`.
+
+## Retained SRAM
+
+These sections are `NOLOAD`: startup code does not clear them.
+
+| Address | Size | Use |
 |---|---|---|
-| `0x20000` | 16 bytes | legacy reset mailbox reservation |
-| `0x20010` | `0x2100` bytes maximum | bring-up log and boot counter |
+| `0x20000` | 16 bytes | reset mailbox (`.reset_mailbox`); no current producer |
+| `0x20010` | `0x2100` bytes maximum | bring-up log and boot counter (`.retained`) |
 
-The main heap is capped at `0x20000`. The bring-up log currently contains 2000
-32-bit entries plus metadata; its actual linked size is below the reservation.
-These `NOLOAD` sections are not cleared by normal SDK startup. The mailbox
-has no current producer; its layout is a legacy app ABI, not a hardware register.
+Retained SRAM survives software resets and loader-mediated reflashing while
+power stays on. Loss of supply clears it. Ordinary `.bss` is reinitialized at
+every application boot, even when the SRAM bits were retained.
 
-The chosen gap avoids known bootloader use: second-stage UBOOT is linked at
-`0x4000` within a 20 KiB window; recovered MaskROM low BSS ends near `0x11424`,
-and high workspace begins near `0x2bdc0`. These bounds come from reverse
-engineering, not a guarantee for all ROM/loader revisions.
+## Low SRAM used by MaskROM
 
-## Low SRAM aliases: do not treat as permanent bond storage
+| Address | Size | Use |
+|---|---|---|
+| `0x10800..0x10810` | 16 bytes | MaskROM boot-state token, written with `nvram_set_boot_state()` and a cache flush |
 
-`0x10800` is the MaskROM boot-state/token area (16 bytes), written through
-`nvram_set_boot_state()` with a cache flush. Earlier dumps showed address/key
-records around `0x10760`; a legacy debug operation clears `0x10700..0x10800`.
-These are SRAM addresses, **not NOR flash offsets**. The current app does not
-reserve `0x10700` as an independent persistent store. Its relation to the SDK's
-current allocation is not established; inspect the current map before using
-old absolute-address observations. App bonds persist in flash VM, not here.
+These are SRAM addresses, not flash offsets. The Bluetooth controller's RAM must
+not cover this token; the linker asserts that. Application bonds are stored in
+flash, not here.
 
-Preserved SRAM can survive software resets and a loader-mediated reflash when
-power remains present. Complete loss of supply loses SRAM. Normal app BSS is
-reinitialized on reset even if the underlying SRAM electrically retained bits.
-
-Sources: `src/sdkconfig/app.ld`, generated `build/sdk.ld`, `build/app.map`,
-`src/main.c`, `src/usb.c`.
+The bootloader's use of low SRAM and MaskROM's high workspace were found by
+reverse engineering. Their bounds are: second-stage loader linked at `0x4000`
+within a 20 KiB window, MaskROM low `.bss` ending near `0x11424`, and MaskROM
+high workspace starting near `0x2bdc0`. These bounds may differ between ROM and
+loader revisions.

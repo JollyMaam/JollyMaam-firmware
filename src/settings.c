@@ -7,7 +7,7 @@
  *
  * Each field is either default or set.  Only set fields are stored; reset
  * clears them, so a better default in a new firmware reaches every field
- * that was never set.  architecture/settings.md */
+ * that was never set. */
 
 enum { T_ENUM, T_NUMBER, T_COLOUR, T_RGB, T_BYTES };
 /* The rows the code itself uses. */
@@ -88,7 +88,7 @@ static const struct set_field slot_fields[] = {
       .help = "the slot's own address, least significant byte first; zero: derived" },
     { .id = ID_BOND, .name = "bond", .type = T_BYTES, FIELD(bond),
       .help = "the paired host: peer, link key, key type, LE peer, LTK" },
-    /* The link, for measuring it (architecture/bluetooth.md); next connect. */
+    /* The link, for measuring it; next connect. */
     { .id = 14, .flags = F_DEV, .name = "report_hz", .type = T_NUMBER, .max = 1000, FIELD(report_hz),
       .def = ALL(0), .help = "most reports per second, Classic and LE, whole milliseconds apart; "
                              "reports are built when the radio has room; 0: 250" },

@@ -514,7 +514,7 @@ u32 util_get32(const u8 *p);
 void util_aes128(const u8 key[16], const u8 in[16], u8 out[16]);
 void util_stat_add(struct stat_hist *h, u32 us);
 /* Timing trace: a ring of {µs, marker, argument}, any thread or interrupt;
- * padtool trace reads it (usb.md, TRACE).  Markers: */
+ * padtool trace reads it.  Markers: */
 enum { TR_WANT = 1, TR_BT_WAKE, TR_BT_SLEEP, TR_CTL_WAKE, TR_BUILT, TR_SENT, TR_ACK,
        TR_CTL_SLEEP, TR_STICK, TR_HANDED, TR_ANCHOR };
 void util_trace(u8 marker, u16 arg);
@@ -537,7 +537,7 @@ u32 plat_us(void);                          /* wraps */
 /* Sampling profiler: a timer interrupt above everything else counts the
  * interrupted code address, in buckets over flash code, RAM code and the mask
  * ROM.  plat_prof_start(0) stops it; read returns the header and the counts
- * from a byte offset (architecture/usb.md, PROFILE). */
+ * from a byte offset (padtool profile). */
 void plat_prof_start(u16 hz, u32 zoom, u8 zoom_shift);   /* zoom: flash window start, 0 none */
 u32 plat_prof_read(u32 offset, u8 *out, u32 max);
 u32 plat_peek(u32 addr, u8 *out, u32 max);  /* 32-bit words from addr, for registers */
