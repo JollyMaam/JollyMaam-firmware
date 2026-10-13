@@ -309,10 +309,31 @@ struct set_slot {
 
 void in_response(const struct set_slot *slot, struct pad *pad);
 
-/* What a change can be made to: a slot, the palette or calibration. */
+/* Targets: slots, palette, calibration, global shortcuts and global mapping. */
 #define TARGET_PALETTE SLOTS
 #define TARGET_CAL     (SLOTS + 1)
-#define TARGETS        (SLOTS + 2)
+#define TARGET_SHORTCUTS (SLOTS + 2)
+#define TARGET_MAPPING   (SLOTS + 3)
+#define TARGETS          (SLOTS + 4)
+
+/* Physical digital controls: button bits 0..14, d-pad U/R/D/L bits 16..19.
+ * Rules use little-endian {u32 keys, u16 hold_ms, u8 request, u8 slot}. */
+#define DIGITAL_MASK 0x000f7fffu
+#define SHORTCUT_RULES 20
+struct shortcut_rule { u32 keys; u16 hold_ms; u8 request, slot; };
+struct set_shortcuts {
+    u32 modifier;
+    u16 grace_ms;
+    u8 passthrough;
+    struct shortcut_rule rule[SHORTCUT_RULES];
+    u16 home_sleep_ms;        /* zero disables the standalone Home hold */
+};
+struct set_mapping {
+    u32 digital[20];          /* input bit -> output bits; zero disables */
+    u8 axis[6];               /* output LX/LY/RX/RY/L2/R2 -> source; 0 neutral */
+};
+const struct set_shortcuts *set_shortcuts(void);
+const struct set_mapping *set_mapping(void);
 
 enum { SET_OK, SET_UNKNOWN, SET_BAD_LENGTH, SET_RANGE, SET_FULL };
 
@@ -337,6 +358,15 @@ void set_drop(void);
 u32 set_staged(void);
 void set_ephemeral(void);
 int set_is_ephemeral(void);
+
+/* ---- mapping.c ---------------------------------------------------------- */
+
+/* Digital snapshot conversion and host-output mapping, after physical UX
+ * gestures, calibration and response curves. Digital outputs combine with
+ * OR; opposite d-pad directions cancel. Axes read the original snapshot. */
+u32 in_keys(const struct pad *pad);
+void in_set_keys(struct pad *pad, u32 keys);
+void in_remap(const struct set_mapping *mapping, struct pad *pad);
 
 /* ---- leds.c ------------------------------------------------------------- */
 
@@ -393,8 +423,7 @@ void led_reach(u8 reach[2], const struct pad *pad);
 /* ---- settings_ux.c ------------------------------------------------------ */
 
 struct ux_timeouts {
-    u16 home_grace_ms;
-    u16 home_tap_ms;
+    u16 tap_retry_ms;
     u32 connect_ms;
     u32 pair_ms;
     u32 idle_sleep_ms;
@@ -413,7 +442,13 @@ extern const struct ux_timeouts ux_timeouts;
 extern const struct ux_colours ux_colours;
 extern const struct led_scene ux_scenes[CTL_KIND_COUNT];
 
+/* Shortcuts consume physical keys before in_remap. Home wakes/connects last;
+ * modifier grace and exact chords come from global runtime settings.
+ * Unbound combinations pass through after grace; captured chords drain to
+ * release, including their remaining keys when the modifier is released.
+ * A deferred tap lasts until a report is accepted; ux_reported acknowledges it. */
 struct ctl_request ux_step(struct pad *pad, u32 now, u8 state);
+void ux_reported(void);
 u32 ux_deadline(void);                      /* when ux_step may next fire a hold, 0: none */
 void ux_ignore_held(void);
 struct ctl_request ux_boot(u16 buttons, u8 hat, u8 state);

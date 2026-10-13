@@ -507,6 +507,7 @@ static void read_input(u32 now)
     }
     handle(r, now);
     in_response(set_slot(c.slot < SLOTS ? c.slot : 0), &c.pad);
+    in_remap(set_mapping(), &c.pad);
 }
 
 /* Pull: a report is built when bt.c has room for it, from the newest input,
@@ -536,6 +537,7 @@ static void send_report(u32 now)
     if (n > 0 && bt_send_input(id, buf, (u16)n)) {
         u32 us = plat_us();
 
+        ux_reported();
         if (c.stats.reports) util_stat_add(&c.stats.interval, us - c.last_report_us);
         if (c.pad.buttons != c.sent_buttons || c.pad.hat != c.sent_hat)
             util_stat_add(&c.stats.age, us - c.raw.changed_us);
@@ -573,7 +575,7 @@ static void boot(u32 now)
     c.uboot_chord = (b.buttons_held & (PAD_HOME | PAD_START)) == (PAD_HOME | PAD_START);
     plat_input(&c.raw);
     if (c.uboot_chord) ux_ignore_held();
-    else if (!(c.raw.buttons & PAD_HOME)) handle(ux_boot(b.buttons_held, b.hat_held, CTL_BOOT), now);
+    else handle(ux_boot(b.buttons_held, b.hat_held, CTL_BOOT), now);
 }
 
 void ctl_main(void)

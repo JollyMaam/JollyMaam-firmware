@@ -3,7 +3,7 @@
 #include "pad.h"
 
 /* Stick and trigger calibration: the maths, applying it, and the routine
- * that measures it (Home+M).  The routine keeps its own progress; the
+ * that measures it (M+L3 or M+R3 by default).  The routine keeps its own progress; the
  * controller starts it, feeds it raw input, and stores what it returns. */
 
 #define CAL_STICK_MAX    32767

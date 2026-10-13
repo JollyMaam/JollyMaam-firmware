@@ -1,11 +1,9 @@
 #include "pad.h"
 
-/* How the pad feels: every fixed time, what each state looks like, and what
- * Home does.  Edit here and rebuild. */
+/* Fixed timeouts and LED scenes. Shortcuts and remapping are runtime settings. */
 
 const struct ux_timeouts ux_timeouts = {
-    .home_grace_ms = 150,        /* keys_to_host 0, connected: Home alone longer goes to the host */
-    .home_tap_ms = 60,           /* how long a short Home press is shown to the host */
+    .tap_retry_ms = 60,         /* retry a deferred tap when no report has been accepted */
     .connect_ms = 30000,
     .pair_ms = 180000,
     .idle_sleep_ms = 300000,     /* connected, no input, on battery */
@@ -35,374 +33,286 @@ const struct led_scene ux_scenes[CTL_KIND_COUNT] = {
     [CTL_REBOOTING] =  { COLOUR_IDLE,    LED_OFF,             BAR_ALL,    LED_OFF,             GRIPS_WAVE, LED_OFF },
 };
 
-#define HOME_ALONE 0
-#define SLOT_KEY 0x10000u        /* in .with: one of A B X Y up down left right */
-#define TAP      0xffffffffu     /* in .hold_ms: on a release, nothing else fired */
-
-enum { ALWAYS, CONNECTED, NOT_CONNECTED, OFFLINE };
-
-/* 1: the host sees Home and the chord keys exactly as pressed; gestures fire
- *    as well.
- * 0: they are held back from the host during a gesture.  Connected, Home
- *    alone goes to the host once held longer than home_grace_ms (from then on
- *    chords no longer count), and a shorter press is shown as a tap. */
-static const u8 keys_to_host = 1;
-
-static const struct gesture {
-    const char *name;
-    u32 with;                    /* held with Home; 0 = Home alone */
-    u8 when;                     /* judged when Home went down */
-    u32 hold_ms;                 /* 0 = at once */
-    u8 request;
-    u8 slot;                     /* for rows without a slot key */
-} gestures[] = {
-    { "home",         HOME_ALONE, CONNECTED,     TAP,  REQ_HOME_TAP,   SLOT_NONE },
-    { "connect last", HOME_ALONE, OFFLINE,       TAP,  REQ_CONNECT,    SLOT_LAST },
-    { "sleep",        HOME_ALONE, ALWAYS,        5000, REQ_SLEEP,      SLOT_NONE },
-    { "connect",      SLOT_KEY,   NOT_CONNECTED, 0,    REQ_CONNECT,    SLOT_NONE },
-    { "switch",       SLOT_KEY,   CONNECTED,     2000, REQ_CONNECT,    SLOT_NONE },
-    { "pair",         SLOT_KEY,   ALWAYS,        5000, REQ_PAIR,       SLOT_NONE },
-    { "disconnect",   PAD_SELECT, ALWAYS,        1500, REQ_DISCONNECT, SLOT_NONE },
-    { "calibrate",    PAD_M,      ALWAYS,        3000, REQ_CALIBRATE,  SLOT_NONE },
-};
-#define GESTURES (sizeof(gestures) / sizeof(gestures[0]))
-
-/* ---- the engine ------------------------------------------------------------
- * A gesture starts when Home goes down and ends when it comes up.  The first
- * thing held with Home is its chord; a chord that changes ends the gesture
- * and nothing more fires until all is let go.  Each row fires at most once. */
-
+/* A captured physical chord is never reinterpreted when keys change: drain
+ * it until release. Runtime edits similarly drain held keys. */
 static struct {
-    u8 active, live, draining, chorded, fired, slot, tap, state;
-    u32 home_ms, chord_ms, tap_ms, chord, done;
+    struct set_shortcuts config;
+    u32 started, chord_at, keys, captured, tap, tap_release_at, done;
+    u32 home_at, now;
+    u8 have_config, active, live, chorded, fired, draining;
+    u8 tap_reported, home_down, home_fired, home_ignore;
 } ux;
 
-static u16 chord_buttons(void)
+static struct ctl_request request(u8 kind, u8 slot)
 {
-    u32 b = 0, i;
-
-    for (i = 0; i < GESTURES; i++) b |= gestures[i].with;
-    return (u16)(b & ~(u32)(PAD_HOME | PAD_FACE));
-}
-
-/* Slot keys, a bit per slot: A B X Y, then up down left right. */
-static u32 held(const struct pad *p, u8 *slot)
-{
-    static const u8 hat_keys[HAT_NEUTRAL] = {
-        0x10, 0x10 | 0x80, 0x80, 0x20 | 0x80, 0x20, 0x20 | 0x40, 0x40, 0x10 | 0x40,
-    };
-    u8 keys = 0, i;
-
-    if (p->buttons & PAD_A) keys |= 1;
-    if (p->buttons & PAD_B) keys |= 2;
-    if (p->buttons & PAD_X) keys |= 4;
-    if (p->buttons & PAD_Y) keys |= 8;
-    if (p->hat < HAT_NEUTRAL) keys |= hat_keys[p->hat];
-    *slot = SLOT_NONE;
-    for (i = 0; i < SLOTS; i++)
-        if (keys == 1u << i) *slot = i;
-    return (p->buttons & chord_buttons()) | (keys ? SLOT_KEY : 0);
-}
-
-static int applies(u8 when, u8 state)
-{
-    switch (when) {
-    case CONNECTED: return state == CTL_CONNECTED;
-    case NOT_CONNECTED: return state != CTL_CONNECTED;
-    case OFFLINE: return state == CTL_IDLE || state == CTL_BOOT;
-    default: return 1;
-    }
-}
-
-static int matches(const struct gesture *g, u32 chord, u8 slot, u8 state)
-{
-    return g->with == chord && applies(g->when, state) &&
-           (!(chord & SLOT_KEY) || slot != SLOT_NONE);
-}
-
-static struct ctl_request fire(u32 i, u8 slot, u32 now)
-{
-    struct ctl_request r = { gestures[i].request, slot != SLOT_NONE ? slot : gestures[i].slot, 0 };
-
-    ux.done |= 1u << i;
-    ux.fired = 1;
-    util_log("ux: %s", gestures[i].name);
-    if (r.kind == REQ_HOME_TAP) {
-        ux.tap = !keys_to_host;
-        ux.tap_ms = now;
-        r.kind = REQ_NONE;
-    }
+    struct ctl_request r = {kind, slot, 0};
     return r;
 }
 
-static struct ctl_request due(u32 now, int release, u32 chord, u8 slot)
+static u32 earlier(u32 a, u32 b)
 {
-    struct ctl_request none = { REQ_NONE, SLOT_NONE, 0 };
-    u32 i;
-
-    for (i = 0; i < GESTURES; i++) {
-        const struct gesture *g = &gestures[i];
-
-        if ((ux.done & (1u << i)) || !matches(g, chord, slot, ux.state)) continue;
-        if (release ? g->hold_ms == TAP : g->hold_ms != TAP && now - ux.chord_ms >= g->hold_ms)
-            return fire(i, slot, now);
-    }
-    return none;
+    return !a || (b && (s32)(b - a) < 0) ? b : a;
 }
 
-static struct ctl_request step(const struct pad *p, u32 now, u8 state)
-{
-    struct ctl_request none = { REQ_NONE, SLOT_NONE, 0 };
-    int home = (p->buttons & PAD_HOME) != 0;
-    u8 slot;
-    u32 chord = held(p, &slot);
-
-    if (ux.draining) {
-        if (!home && !chord) ux.draining = 0;
-        return none;
-    }
-    if (!ux.active) {
-        if (!home) return none;
-        ux.active = 1;
-        ux.live = ux.fired = 0;
-        ux.chorded = chord != 0;
-        ux.state = state;
-        ux.home_ms = ux.chord_ms = now;
-        ux.chord = chord;
-        ux.slot = slot;
-        ux.done = 0;
-    }
-    if (!home) {
-        ux.active = 0;
-        if (ux.live) return none;
-        ux.draining = chord != 0;
-        return !ux.chorded && !ux.fired ? due(now, 1, 0, SLOT_NONE) : none;
-    }
-    if (ux.live) return due(now, 0, 0, SLOT_NONE);
-    if (chord != ux.chord || slot != ux.slot) {
-        if (ux.chorded || ux.fired) {
-            ux.active = 0;
-            ux.draining = 1;
-            return none;
-        }
-        ux.chorded = 1;
-        ux.chord = chord;
-        ux.slot = slot;
-        ux.chord_ms = now;
-    } else if (!keys_to_host && !ux.chorded && !ux.fired && ux.state == CTL_CONNECTED &&
-               now - ux.home_ms >= ux_timeouts.home_grace_ms) {
-        ux.live = 1;
-    }
-    return due(now, 0, ux.chord, ux.slot);
-}
-
-/* Follows Home through `pad` and returns at most one request.  With
- * keys_to_host 0 it also takes out what the host must not see (Home and the
- * chord during a gesture) and puts back a short Home tap. */
 struct ctl_request ux_step(struct pad *p, u32 now, u8 state)
 {
-    struct ctl_request r = step(p, now, state);
+    const struct set_shortcuts *config = set_shortcuts();
+    struct ctl_request r = request(REQ_NONE, SLOT_NONE);
+    u32 keys = in_keys(p), modifier, i, output = keys;
+    int home = (keys & PAD_HOME) != 0;
 
-    if (!keys_to_host && ((ux.active && !ux.live) || ux.draining)) {
-        p->buttons &= (u16)~(PAD_HOME | PAD_FACE | chord_buttons());
-        p->hat = HAT_NEUTRAL;
+    if (!ux.have_config || memcmp(&ux.config, config, sizeof(*config))) {
+        int changed = ux.have_config;
+        ux.config = *config;
+        ux.have_config = 1;
+        if (changed) {
+            ux.active = ux.live = ux.chorded = ux.fired = 0;
+            ux.draining = keys != 0;
+            ux.captured = keys;
+            ux.tap = 0;
+        }
     }
-    if (ux.tap) {
-        if (now - ux.tap_ms < ux_timeouts.home_tap_ms) p->buttons |= PAD_HOME;
-        else ux.tap = 0;
+    modifier = ux.config.modifier;
+    ux.now = now;
+
+    /* Home remains a normal host key. Offline, a tap connects the last slot;
+     * the configured hold powers off. Boot wake is handled by ux_boot(). */
+    if (ux.home_ignore) {
+        output &= ~PAD_HOME;
+        if (!home) ux.home_ignore = 0;
+    } else if (!(modifier & PAD_HOME)) {
+        if (home && !ux.home_down) { ux.home_at = now; ux.home_fired = 0; }
+        if (home && keys != PAD_HOME) ux.home_fired = 1;
+        if (home && !ux.home_fired && ux.config.home_sleep_ms && now - ux.home_at >= ux.config.home_sleep_ms) {
+            ux.home_fired = 1;
+            r = request(REQ_SLEEP, SLOT_NONE);
+        }
+        if (!home && ux.home_down && !ux.home_fired && (state == CTL_IDLE || state == CTL_BOOT))
+            r = request(REQ_CONNECT, SLOT_LAST);
     }
+    ux.home_down = home;
+
+    if (ux.tap && ux.tap_reported) ux.tap = 0;
+    if (ux.draining) {
+        if (!ux.config.passthrough) output &= ~ux.captured;
+        if (!(keys & ux.captured)) ux.draining = 0;
+    } else if (modifier) {
+        if (!ux.active && (keys & modifier) == modifier) {
+            ux.active = 1;
+            ux.live = ux.chorded = ux.fired = 0;
+            ux.done = 0;
+            ux.started = ux.chord_at = now;
+            ux.keys = modifier;
+            ux.captured = modifier;
+        }
+        if (ux.active) {
+            if ((keys & modifier) != modifier) {
+                if (!ux.live && !ux.chorded && !ux.fired && !ux.config.passthrough) {
+                    ux.tap |= modifier;
+                    ux.tap_reported = 0;
+                }
+                ux.active = 0;
+                ux.draining = (keys & ux.captured) != 0;
+            } else if (!ux.live || ux.config.passthrough) {
+                if (ux.chorded && keys != ux.keys) {
+                    ux.active = 0;
+                    ux.draining = 1;
+                    ux.captured |= keys;
+                } else {
+                    if (!ux.chorded && (ux.config.passthrough || now == ux.started ||
+                                        now - ux.started < ux.config.grace_ms)) {
+                        for (i = 0; i < SHORTCUT_RULES; i++) {
+                            const struct shortcut_rule *g = &ux.config.rule[i];
+                            if (!g->request || g->keys != keys) continue;
+                            ux.chorded = 1;
+                            ux.keys = keys;
+                            ux.chord_at = now;
+                            ux.captured |= keys;
+                            break;
+                        }
+                    }
+                    if (!ux.chorded && !ux.config.passthrough && now - ux.started >= ux.config.grace_ms)
+                        ux.live = 1;
+                    if (ux.chorded) for (i = 0; i < SHORTCUT_RULES; i++) {
+                        const struct shortcut_rule *g = &ux.config.rule[i];
+                        if ((ux.done & (1u << i)) || !g->request || g->keys != keys || now - ux.chord_at < g->hold_ms) continue;
+                        ux.done |= 1u << i;
+                        ux.fired = 1;
+                        r = request(g->request, g->slot);
+                        break;
+                    }
+                }
+            }
+            if (!ux.config.passthrough && !ux.live) output &= ~ux.captured;
+        }
+    }
+    in_set_keys(p, output | ux.tap);
+    /* A tap is held through at least one accepted report. Keep its release
+     * deadline armed until acknowledgement, so a sleeping loop still runs. */
+    if (ux.tap && !ux.tap_reported) ux.tap_release_at = now + ux_timeouts.tap_retry_ms;
     return r;
 }
 
-/* The next time ux_step has something to do without a button change. */
+void ux_reported(void)
+{
+    if (ux.tap) { ux.tap_reported = 1; ux.tap_release_at = ux.now + 1; }
+}
+
 u32 ux_deadline(void)
 {
-    u32 next = 0, i, t;
-
-    if (ux.tap) next = ux.tap_ms + ux_timeouts.home_tap_ms;
+    u32 next = 0, i;
+    if (ux.tap) next = ux.tap_release_at;
+    if (ux.home_down && !ux.home_fired && !ux.home_ignore && ux.config.home_sleep_ms && !(ux.config.modifier & PAD_HOME))
+        next = earlier(next, ux.home_at + ux.config.home_sleep_ms);
     if (!ux.active) return next;
-    if (!keys_to_host && !ux.live && !ux.chorded && !ux.fired && ux.state == CTL_CONNECTED) {
-        t = ux.home_ms + ux_timeouts.home_grace_ms;
-        if (!next || (s32)(t - next) < 0) next = t;
+    if (!ux.live && !ux.chorded && !ux.fired && !ux.config.passthrough)
+        next = earlier(next, ux.started + ux.config.grace_ms);
+    if (ux.chorded && (!ux.live || ux.config.passthrough)) for (i = 0; i < SHORTCUT_RULES; i++) {
+        const struct shortcut_rule *g = &ux.config.rule[i];
+        if (!(ux.done & (1u << i)) && g->request && g->keys == ux.keys) next = earlier(next, ux.chord_at + g->hold_ms);
     }
-    for (i = 0; i < GESTURES; i++) {
-        const struct gesture *g = &gestures[i];
-
-        if ((ux.done & (1u << i)) || g->hold_ms == TAP ||
-            !matches(g, ux.live ? 0 : ux.chord, ux.live ? SLOT_NONE : ux.slot, ux.state))
-            continue;
-        t = ux.chord_ms + g->hold_ms;
-        if (!next || (s32)(t - next) < 0) next = t;
-    }
-    return next ? next : 0;
+    return next;
 }
 
 void ux_ignore_held(void)
 {
-    ux.active = ux.live = 0;
+    ux.active = ux.live = ux.chorded = ux.fired = 0;
     ux.draining = 1;
+    ux.captured = DIGITAL_MASK;
+    ux.tap = 0;
+    ux.home_ignore = 1;
 }
 
-/* A press that woke the pad and was let go before the loop ran. */
 struct ctl_request ux_boot(u16 buttons, u8 hat, u8 state)
 {
-    struct ctl_request none = { REQ_NONE, SLOT_NONE, 0 };
-    struct pad p = { buttons, hat, 0, 0, 0, 0, 0, 0 };
-    u8 slot;
-    u32 chord = held(&p, &slot), i;
-
-    if (!(buttons & PAD_HOME)) return none;
-    ux.state = state;
-    ux.done = 0;
-    for (i = 0; i < GESTURES; i++) {
-        const struct gesture *g = &gestures[i];
-
-        if (!matches(g, chord, slot, state)) continue;
-        if (chord ? g->hold_ms == 0 : g->hold_ms == TAP) return fire(i, slot, 0);
-    }
-    return none;
+    (void)hat;
+    (void)state;
+    if (!(buttons & PAD_HOME)) return request(REQ_NONE, SLOT_NONE);
+    ux.home_ignore = 1;
+    return request(REQ_CONNECT, SLOT_LAST);
 }
 
 #ifdef UNITTEST
-void util_log(const char *fmt, ...) { (void)fmt; }
-
+static struct set_shortcuts config;
+const struct set_shortcuts *set_shortcuts(void) { return &config; }
+/* Keep the input helpers exercised independently in mapping.c. */
+u32 in_keys(const struct pad *p)
+{
+    static const u8 hats[] = {1,3,2,6,4,12,8,9,0};
+    return p->buttons | (u32)hats[p->hat] << 16;
+}
+void in_set_keys(struct pad *p, u32 k)
+{
+    static const u8 hats[] = {8,0,2,1,4,8,3,2,6,7,8,0,5,6,4,8};
+    p->buttons = (u16)k;
+    p->hat = hats[(k >> 16) & 15];
+}
 static u32 now;
-static u8 state;
 static struct pad pad, seen;
-static struct ctl_request got[16];
-static int ngot;
-
+static struct ctl_request last;
+static u8 state;
 static void run(u32 ms)
 {
-    while (ms--) {
-        struct ctl_request r;
-
-        now++;
-        seen = pad;
-        r = ux_step(&seen, now, state);
-        if (r.kind != REQ_NONE && ngot < 16) got[ngot++] = r;
-    }
+    while (ms--) { now++; seen = pad; last = ux_step(&seen, now, state); }
 }
-
-static void reset(u8 s)
+static void reset(void)
 {
-    state = s;
+    memset(&ux, 0, sizeof(ux));
+    memset(&config, 0, sizeof(config));
     memset(&pad, 0, sizeof(pad));
     pad.hat = HAT_NEUTRAL;
-    run(10);
-    ngot = 0;
+    config.modifier = PAD_M;
+    config.grace_ms = 150;
+    config.home_sleep_ms = 5000;
+    config.rule[0] = (struct shortcut_rule){PAD_M | PAD_B, 1500, REQ_CONNECT, 1};
+    config.rule[4] = (struct shortcut_rule){PAD_M | PAD_B, 5000, REQ_PAIR, 1};
+    config.rule[1] = (struct shortcut_rule){PAD_M | PAD_SELECT, 1500, REQ_DISCONNECT, SLOT_NONE};
+    config.rule[2] = (struct shortcut_rule){PAD_M | PAD_L3, 3000, REQ_CALIBRATE, SLOT_NONE};
+    config.rule[3] = (struct shortcut_rule){PAD_M | PAD_R3, 3000, REQ_CALIBRATE, SLOT_NONE};
+    state = CTL_CONNECTED;
+    now = 100;
+    run(1);
 }
-
-static void press(u16 b) { pad.buttons |= b; run(1); }
-static void release(u16 b) { pad.buttons &= (u16)~b; run(1); }
-
-static int got1(u8 kind, u8 slot)
-{
-    return ngot == 1 && got[0].kind == kind && got[0].slot == slot;
-}
-
-/* The table's hold time for a row, so the tests follow whatever is tuned. */
-static u32 hold(const char *name)
-{
-    u32 i;
-
-    for (i = 0; i < GESTURES; i++)
-        if (!strcmp(gestures[i].name, name)) return gestures[i].hold_ms;
-    return 0;
-}
-
 int main(void)
 {
-    const u32 sw = hold("switch"), pair = hold("pair"), grace = ux_timeouts.home_grace_ms;
+    u32 i;
+    reset(); pad.buttons = PAD_M; run(1);
+    CHECK(!seen.buttons && ux_deadline() == now + 150);
+    run(149); CHECK(!seen.buttons);
+    run(1); CHECK(seen.buttons == PAD_M);
+    pad.buttons |= PAD_B; run(2000);
+    CHECK(last.kind == REQ_NONE && seen.buttons == (PAD_M | PAD_B));
 
-    reset(CTL_IDLE);
-    press(PAD_HOME); run(80); release(PAD_HOME);
-    CHECK(got1(REQ_CONNECT, SLOT_LAST));
+    reset(); pad.buttons = PAD_M; run(10); pad.buttons = 0; run(1);
+    CHECK(seen.buttons == PAD_M);
+    run(1000); CHECK(seen.buttons == PAD_M); /* no host report: do not lose the tap */
+    ux_reported(); run(1);
+    CHECK(!seen.buttons);
 
-    reset(CTL_IDLE);
-    press(PAD_HOME); press(PAD_B);
-    CHECK(got1(REQ_CONNECT, 1));
-    run(pair - 10);
-    CHECK(ngot == 1);
-    run(20);
-    CHECK(ngot == 2 && got[1].kind == REQ_PAIR && got[1].slot == 1);
-    CHECK(!(seen.buttons & (PAD_HOME | PAD_B)) == !keys_to_host);
-    release(PAD_HOME); release(PAD_B); run(50);
-    CHECK(ngot == 2);
-
-    reset(CTL_IDLE);
-    pad.hat = HAT_LEFT; press(PAD_HOME);
-    CHECK(got1(REQ_CONNECT, 6));
-
-    reset(CTL_CONNECTED);
-    press(PAD_HOME); press(PAD_B); run(sw - 100); release(PAD_B); release(PAD_HOME);
-    CHECK(ngot == 0);
-    reset(CTL_CONNECTED);
-    press(PAD_B); press(PAD_HOME); run(sw - 10);
-    CHECK(ngot == 0);
-    CHECK(ux_deadline() == now + 10);
-    run(20);
-    CHECK(got1(REQ_CONNECT, 1));
-
-    /* A short Home is held back, then shown to the host as a tap; a long one
-     * goes to the host as it is held. */
-    if (!keys_to_host && grace >= 2) {
-        reset(CTL_CONNECTED);
-        press(PAD_HOME); run(grace / 2);
-        CHECK(!(seen.buttons & PAD_HOME));
-        release(PAD_HOME);
-        CHECK(seen.buttons & PAD_HOME);
-        CHECK(ux_deadline() == now + ux_timeouts.home_tap_ms);
-        run(ux_timeouts.home_tap_ms + 10);
-        CHECK(!(seen.buttons & PAD_HOME) && ngot == 0);
+    for (i = 0; i < 4; i++) {
+        u32 keys, hold;
+        reset(); keys = config.rule[i].keys; hold = config.rule[i].hold_ms;
+        pad.buttons = (u16)keys; run(1);
+        CHECK(!seen.buttons && ux_deadline() == now + hold);
+        run(hold - 1); CHECK(last.kind == REQ_NONE);
+        run(1); CHECK(last.kind == config.rule[i].request && last.slot == config.rule[i].slot);
+        run(10); CHECK(last.kind == REQ_NONE);
+        pad.buttons = (u16)(keys & ~PAD_M); run(1); CHECK(!seen.buttons);
+        run(100); CHECK(!seen.buttons);
+        pad.buttons = 0; run(1); CHECK(!seen.buttons);
     }
-    reset(CTL_CONNECTED);
-    press(PAD_HOME); run(keys_to_host ? 1 : grace + 10);
-    CHECK(seen.buttons & PAD_HOME);
-    release(PAD_HOME); run(1);
-    CHECK(!(seen.buttons & PAD_HOME) && ngot == 0);
-
-    reset(CTL_CONNECTED);
-    press(PAD_SELECT); press(PAD_HOME); run(hold("disconnect") - 100);
-    CHECK(ngot == 0 && !(seen.buttons & PAD_SELECT) == !keys_to_host);
-    run(200);
-    CHECK(got1(REQ_DISCONNECT, SLOT_NONE));
-    release(PAD_HOME);
-    CHECK(!(seen.buttons & PAD_SELECT) == !keys_to_host);
-    release(PAD_SELECT);
-
-    reset(CTL_IDLE);
-    press(PAD_HOME); run(hold("sleep") + 10); release(PAD_HOME);
-    CHECK(got1(REQ_SLEEP, SLOT_NONE));
-
-    reset(CTL_CONNECTED);
-    press(PAD_B); press(PAD_HOME); run(500); press(PAD_A); run(6000);   /* a changed chord */
-    release(PAD_A); release(PAD_B); release(PAD_HOME);
-    CHECK(ngot == 0);
-
-    reset(CTL_IDLE);
-    pad.buttons = PAD_HOME | PAD_A;
-    ux_ignore_held();
-    run(6000); release(PAD_A); release(PAD_HOME);
-    CHECK(ngot == 0);
-
-    reset(CTL_BOOT);
-    got[0] = ux_boot(PAD_HOME, HAT_NEUTRAL, CTL_BOOT);
-    CHECK(got[0].kind == REQ_CONNECT && got[0].slot == SLOT_LAST);
-    got[0] = ux_boot(PAD_HOME | PAD_X, HAT_NEUTRAL, CTL_BOOT);
-    CHECK(got[0].kind == REQ_CONNECT && got[0].slot == 2);
-    got[0] = ux_boot(PAD_X, HAT_NEUTRAL, CTL_BOOT);
-    CHECK(got[0].kind == REQ_NONE);
-    /* Home held a while, then a slot key: a switch when the keys go to the
-     * host; otherwise Home has gone live and the key is just a key. */
-    reset(CTL_CONNECTED);
-    press(PAD_HOME); run(grace + 10); press(PAD_A);
-    CHECK((seen.buttons & (PAD_HOME | PAD_A)) == (PAD_HOME | PAD_A));
-    run(sw + 10);
-    CHECK(keys_to_host ? got1(REQ_CONNECT, 0) : ngot == 0);
-    release(PAD_A); release(PAD_HOME); run(50);
-    CHECK(ngot == !!keys_to_host);
-
+    reset(); pad.buttons = PAD_M | PAD_B; run(1501); CHECK(last.kind == REQ_CONNECT);
+    run(3500); CHECK(last.kind == REQ_PAIR && last.slot == 1);
+    run(1); CHECK(last.kind == REQ_NONE);
+    reset(); pad.buttons = PAD_M; run(100); pad.buttons |= PAD_B; run(1500);
+    CHECK(last.kind == REQ_NONE); run(1); CHECK(last.kind == REQ_CONNECT);
+    reset(); pad.buttons = PAD_M | PAD_B; run(100); pad.buttons |= PAD_A; run(2000);
+    CHECK(last.kind == REQ_NONE && !seen.buttons);
+    pad.buttons = 0; run(100); CHECK(!seen.buttons); /* cancelled chord never taps */
+    reset(); pad.buttons = PAD_M | PAD_B; run(100); pad.buttons = PAD_B; run(1);
+    CHECK(!seen.buttons && !ux.tap);
+    reset(); config.passthrough = 1; run(1); pad.buttons = PAD_M | PAD_B; run(1);
+    CHECK(seen.buttons == pad.buttons); run(1500); CHECK(last.kind == REQ_CONNECT);
+    reset(); pad.buttons = PAD_M | PAD_B; run(100); config.grace_ms = 250; run(2000);
+    CHECK(last.kind == REQ_NONE && !seen.buttons);
+    pad.buttons = 0; run(1); pad.buttons = PAD_M; run(250); CHECK(!seen.buttons);
+    run(1); CHECK(seen.buttons == PAD_M);
+    reset(); pad.buttons = PAD_M | PAD_L1; run(150);
+    CHECK(seen.buttons == PAD_L1 && !ux.chorded);
+    run(1); CHECK(seen.buttons == (PAD_M | PAD_L1));
+    reset(); pad.buttons = PAD_M; run(1);
+    now += 150; pad.buttons |= PAD_B; run(1); /* late event cannot extend grace */
+    CHECK(seen.buttons == (PAD_M | PAD_B) && !ux.chorded);
+    reset(); config.grace_ms = 0; run(1); pad.buttons = PAD_M; run(1);
+    CHECK(seen.buttons == PAD_M);
+    reset(); config.grace_ms = 0; run(1); pad.buttons = PAD_M | PAD_B; run(1501);
+    CHECK(last.kind == REQ_CONNECT && !seen.buttons);
+    reset(); now = 0xffffffc0u; pad.buttons = PAD_M; run(151); CHECK(seen.buttons == PAD_M);
+    reset(); ux_ignore_held(); pad.buttons = PAD_HOME | PAD_M | PAD_B; run(6000);
+    CHECK(last.kind == REQ_NONE && !seen.buttons);
+    pad.buttons = 0; run(1);
+    reset(); last = ux_boot(PAD_HOME | PAD_X, HAT_NEUTRAL, CTL_BOOT);
+    CHECK(last.kind == REQ_CONNECT && last.slot == SLOT_LAST);
+    pad.buttons = PAD_HOME; run(6000); CHECK(last.kind == REQ_NONE && !seen.buttons);
+    pad.buttons = 0; run(1); state = CTL_IDLE; pad.buttons = PAD_HOME; run(1);
+    pad.buttons = 0; run(1); CHECK(last.kind == REQ_CONNECT && last.slot == SLOT_LAST);
+    reset(); pad.buttons = PAD_HOME; run(5001); CHECK(last.kind == REQ_SLEEP);
+    reset(); pad.buttons = PAD_HOME | PAD_A; run(6000); CHECK(last.kind == REQ_NONE);
+    reset(); config.home_sleep_ms = 0; run(1); pad.buttons = PAD_HOME;
+    run(6000); CHECK(last.kind == REQ_NONE && !ux_deadline());
+    reset(); config.modifier = PAD_L4;
+    config.rule[0] = (struct shortcut_rule){PAD_L4 | PAD_A, 100, REQ_CONNECT, 3};
+    run(1); pad.buttons = PAD_L4 | PAD_A; run(101);
+    CHECK(last.kind == REQ_CONNECT && last.slot == 3 && !seen.buttons);
+    for (i = 0; i < 4; i++) {
+        static const u8 hats[] = {HAT_UP, HAT_DOWN, HAT_LEFT, HAT_RIGHT};
+        static const u32 masks[] = {1u << 16, 1u << 18, 1u << 19, 1u << 17};
+        reset(); config.rule[0] = (struct shortcut_rule){PAD_M | masks[i], 1500, REQ_CONNECT, 4 + i};
+        run(1); pad.hat = hats[i]; pad.buttons = PAD_M; run(1501);
+        CHECK(last.kind == REQ_CONNECT && last.slot == 4 + i && !seen.buttons && seen.hat == HAT_NEUTRAL);
+        pad.buttons = 0; run(1); CHECK(seen.hat == HAT_NEUTRAL);
+        pad.hat = HAT_NEUTRAL; run(1);
+    }
     return TEST_DONE("settings_ux");
 }
 #endif

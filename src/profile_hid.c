@@ -238,7 +238,8 @@ const struct profile profile_generic_ble = {
 /* ---- keyboard and mouse ------------------------------------------------------------
  * What each control does is the slot's layout (variant).  The stick and the
  * gyro both move the pointer, each at its own speed; a gyro speed of 0 turns
- * the gyro off.  Home is in no layout: its chords select slots. */
+ * the gyro off. Home is in no layout. Physical shortcuts run before this
+ * layout, and an unconsumed M retains its layout function. */
 
 #define KEYBOARD_ID   1
 #define MOUSE_ID      2
