@@ -967,6 +967,27 @@ static u8 s2_advertising(const struct bt_bond *bond, int pairing, int wake, u8 *
 #define S2_USB_REPORT 0x09
 #define S2_USB_SIZE   63
 
+/* The factory stick calibration s2_flash serves (0x130a8, 0x130e8): centre,
+ * then the reach up and down, x and y.  Hosts read the raw values through it,
+ * so the sticks are encoded against it. */
+struct s2_cal { u16 cx, cy, xmax, ymax, xmin, ymin; };
+static const struct s2_cal s2_cal_left = { 0x7b3, 0x836, 0x62e, 0x5e6, 0x63a, 0x5f0 };
+static const struct s2_cal s2_cal_right = { 0x82c, 0x840, 0x5d1, 0x636, 0x62a, 0x622 };
+
+static u16 s2_cal_axis(s16 v, u16 centre, u16 up, u16 down)
+{
+    return (u16)(centre + (s32)v * (v >= 0 ? up : down) / STICK_MAX);
+}
+
+static void s2_cal_stick(u8 *out, s16 x, s16 y, const struct s2_cal *c)
+{
+    u16 px = s2_cal_axis(x, c->cx, c->xmax, c->xmin), py = s2_cal_axis(y, c->cy, c->ymax, c->ymin);
+
+    out[0] = (u8)px;
+    out[1] = (u8)(px >> 8 | py << 4);
+    out[2] = (u8)(py >> 4);
+}
+
 static int s2_usb_report(const struct pad *p, u32 now, u8 *out, u8 *id)
 {
     static const u8 hat_bits[HAT_NEUTRAL] = { 0x02, 0x06, 0x04, 0x05, 0x01, 0x09, 0x08, 0x0a };
@@ -986,8 +1007,8 @@ static int s2_usb_report(const struct pad *p, u32 now, u8 *out, u8 *id)
     out[6] = (u8)((p->hat < HAT_NEUTRAL ? hat_bits[p->hat] : 0) | (b & PAD_L1 ? 0x40 : 0) |
                   (p->l2 > TRIGGER_BUTTON ? 0x80 : 0));
     out[7] = (u8)((b & PAD_R4 ? 0x01 : 0) | (b & PAD_L4 ? 0x02 : 0));
-    s2_stick(out + 10, p->lx, (s16)-p->ly);
-    s2_stick(out + 13, p->rx, (s16)-p->ry);
+    s2_cal_stick(out + 10, p->lx, (s16)-p->ly, &s2_cal_left);
+    s2_cal_stick(out + 13, p->rx, (s16)-p->ry, &s2_cal_right);
     if (s2.features & S2_FEATURE_MOTION && m->us) {
         s2_put32(out + 42, m->us ? m->us : 1);
         util_put16(out + 48, (u16)(s16)(-m->accel[1] / 2));

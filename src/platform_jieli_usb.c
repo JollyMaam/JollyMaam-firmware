@@ -216,7 +216,8 @@ static void out_done(struct usb_device_t *dev, u32 ep)
     u32 n = usb_g_intr_read(0, ep, rx, sizeof(rx), 0);
 
     (void)dev;
-    host_wrote(ep == EP_BULK && ident->kind == USB_HID_BULK ? BT_WRITE_BULK : BT_WRITE_OUTPUT, rx, n);
+    if (ep == EP_BULK && ident->kind == USB_HID_BULK) push_write(BT_WRITE_BULK, 0, rx, n);  /* no report id */
+    else host_wrote(BT_WRITE_OUTPUT, rx, n);
 }
 
 static void endpoints(void)

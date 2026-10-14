@@ -20,19 +20,23 @@ static const u8 generic_descriptor[] = {
     0xc0,
 };
 
+#define GENERIC_KEEPALIVE_MS 100
+
 static u8 generic_last[GENERIC_SIZE];
-static u8 generic_sent;
+static u8 generic_sent, generic_wired;
+static u32 generic_sent_ms;
 
 static u8 generic_begin(const struct profile_session *s)
 {
-    (void)s;
     generic_sent = 0;
+    generic_wired = s->usb;
     return IMU_OFF;
 }
 
+/* On change; on USB also every 100 ms unchanged, because a host only polls
+ * while something has the device open and the first report may be missed. */
 static int generic_report(const struct pad *p, u32 now, u8 *out, u8 *id)
 {
-    (void)now;
     out[0] = (u8)p->buttons;
     out[1] = (u8)(p->buttons >> 8);
     out[2] = p->hat;
@@ -42,9 +46,12 @@ static int generic_report(const struct pad *p, u32 now, u8 *out, u8 *id)
     out[6] = (u8)((p->ry + 32768) >> 8);
     out[7] = (u8)(p->l2 >> 8);
     out[8] = (u8)(p->r2 >> 8);
-    if (generic_sent && !memcmp(out, generic_last, GENERIC_SIZE)) return 0;
+    if (generic_sent && !memcmp(out, generic_last, GENERIC_SIZE) &&
+        (!generic_wired || now - generic_sent_ms < GENERIC_KEEPALIVE_MS))
+        return 0;
     memcpy(generic_last, out, GENERIC_SIZE);
     generic_sent = 1;
+    generic_sent_ms = now;
     *id = GENERIC_ID;
     return GENERIC_SIZE;
 }
@@ -162,6 +169,7 @@ static u8 gble_begin(const struct profile_session *s)
     memset(&gb, 0, sizeof(gb));
     gb.usb = s->usb;
     generic_sent = 0;
+    generic_wired = s->usb;
     /* LE security keys for this slot, as profile_xbox.c makes them. */
     memset(block, 0, sizeof(block));
     memcpy(block, s->address, 6);
