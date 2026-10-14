@@ -1013,6 +1013,11 @@ int main(void)
         w.data[3] = 0x04;
         s2_write(&w, 0, &bond);
         CHECK(s2.ready && s2_report(&p, 0, out, &id) == S2_REPORT_SIZE && (out[2] & 1));
+        p.buttons = PAD_M;
+        CHECK(s2_report(&p, 1, out, &id) == S2_REPORT_SIZE && (out[4] & 0x10));
+        p.buttons = 0;
+        CHECK(s2_report(&p, 2, out, &id) == S2_REPORT_SIZE && !(out[4] & 0x10));
+        p.buttons = PAD_A;
         s2_host(0, &h);
         CHECK(h.imu == IMU_MOTION);
         {

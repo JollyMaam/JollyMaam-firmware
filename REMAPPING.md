@@ -1,4 +1,9 @@
-# Runtime shortcuts and remapping
+# Runtime shortcuts and remapping — design notes
+
+**Status:** the remapping implementation and runtime shortcut settings have
+been removed. The format and commands below describe the previous prototype
+and a proposed future design, for iteration; they are not currently available.
+The firmware now uses fixed M shortcuts in `src/settings_ux.c`.
 
 These settings are global, so they also work before a slot is selected. Change
 and commit them with `tools/padtool.py set`; they persist and are included in

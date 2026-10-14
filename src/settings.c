@@ -27,8 +27,6 @@ struct set_field {
     u8 flags;                /* F_DEV: a developer setting (padtool --dev) */
 };
 #define F_DEV 1
-#define F_RULE 2
-#define F_KEYS 4
 
 #define COLOUR(entry, level) ((entry) | (level) << 8)
 #define RGB24(r, g, b)       ((r) | (g) << 8 | (u32)(b) << 16)
@@ -155,84 +153,28 @@ static const struct set_field cal_fields[] = {
       .help = "sticks and triggers, from the calibration routine; zero: default ranges" },
 };
 
-#define UXFIELD(f) .offset = offsetof(struct set_shortcuts, f), .size = sizeof(((struct set_shortcuts *)0)->f)
-#define RULE(i) { .id = 4 + (i), .name = "rule" #i, .type = T_BYTES, .flags = F_RULE, \
-    UXFIELD(rule[i]), .help = "keys:action:slot:hold_ms; none disables this rule" }
-static const char *const pass_names[] = { "off", "on", NULL };
-static const struct set_field shortcut_fields[] = {
-    { .id = 1, .name = "modifier", .type = T_BYTES, .flags = F_KEYS, UXFIELD(modifier),
-      .def = { PAD_M }, .help = "physical modifier keys; e.g. m or home" },
-    { .id = 2, .name = "grace_ms", .type = T_NUMBER, .max = 5000, UXFIELD(grace_ms),
-      .def = { 150 }, .help = "wait for a chord; after this, modifier alone goes to host" },
-    { .id = 3, .name = "passthrough", .type = T_ENUM, .names = pass_names, UXFIELD(passthrough),
-      .help = "on: send modifier and chord keys to host as well as firing shortcuts" },
-    RULE(0), RULE(1), RULE(2), RULE(3), RULE(4), RULE(5),
-    RULE(6), RULE(7), RULE(8), RULE(9), RULE(10), RULE(11),
-    RULE(12), RULE(13), RULE(14), RULE(15), RULE(16), RULE(17), RULE(18), RULE(19),
-    { .id = 24, .name = "home_sleep_ms", .type = T_NUMBER, .max = 60000, UXFIELD(home_sleep_ms),
-      .def = { 5000 }, .help = "standalone Home hold to sleep; 0 disables" },
-};
-static const struct shortcut_rule default_rules[SHORTCUT_RULES] = {
-    {PAD_M | PAD_A, 1500, REQ_CONNECT, 0},
-    {PAD_M | PAD_B, 1500, REQ_CONNECT, 1},
-    {PAD_M | PAD_X, 1500, REQ_CONNECT, 2},
-    {PAD_M | PAD_Y, 1500, REQ_CONNECT, 3},
-    {PAD_M | (1u << 16), 1500, REQ_CONNECT, 4},
-    {PAD_M | (1u << 18), 1500, REQ_CONNECT, 5},
-    {PAD_M | (1u << 19), 1500, REQ_CONNECT, 6},
-    {PAD_M | (1u << 17), 1500, REQ_CONNECT, 7},
-    {PAD_M | PAD_SELECT, 1500, REQ_DISCONNECT, SLOT_NONE},
-    {PAD_M | PAD_L3, 3000, REQ_CALIBRATE, SLOT_NONE},
-    {PAD_M | PAD_R3, 3000, REQ_CALIBRATE, SLOT_NONE},
-    {PAD_M | PAD_A, 5000, REQ_PAIR, 0},
-    {PAD_M | PAD_B, 5000, REQ_PAIR, 1},
-    {PAD_M | PAD_X, 5000, REQ_PAIR, 2},
-    {PAD_M | PAD_Y, 5000, REQ_PAIR, 3},
-    {PAD_M | (1u << 16), 5000, REQ_PAIR, 4},
-    {PAD_M | (1u << 18), 5000, REQ_PAIR, 5},
-    {PAD_M | (1u << 19), 5000, REQ_PAIR, 6},
-    {PAD_M | (1u << 17), 5000, REQ_PAIR, 7},
-};
-#define KEY(i, n) { .id = 1 + (i), .name = n, .type = T_BYTES, .flags = F_KEYS, \
-    .offset = offsetof(struct set_mapping, digital[i]), .size = 4, .def = { 1u << (i) }, \
-    .help = "output keys joined with +; none disables; multiple inputs combine with OR" }
-#define AXIS(i, n, names_, d) { .id = 21 + (i), .name = n, .type = T_ENUM, .names = names_, \
-    .offset = offsetof(struct set_mapping, axis[i]), .size = 1, .def = { d }, \
-    .help = "source for this output axis; evaluated from the original calibrated inputs" }
-static const char *const stick_sources[] = { "none", "lx", "ly", "rx", "ry", "-lx", "-ly", "-rx", "-ry", NULL };
-static const char *const trigger_sources[] = { "none", "l2", "r2", NULL };
-static const struct set_field mapping_fields[] = {
-    KEY(0,"a"), KEY(1,"b"), KEY(2,"screenshot"), KEY(3,"x"), KEY(4,"y"), KEY(5,"m"),
-    KEY(6,"l1"), KEY(7,"r1"), KEY(8,"l4"), KEY(9,"r4"), KEY(10,"minus"), KEY(11,"plus"),
-    KEY(12,"home"), KEY(13,"l3"), KEY(14,"r3"),
-    KEY(16,"up"), KEY(17,"right"), KEY(18,"down"), KEY(19,"left"),
-    AXIS(0,"lx",stick_sources,1), AXIS(1,"ly",stick_sources,2),
-    AXIS(2,"rx",stick_sources,3), AXIS(3,"ry",stick_sources,4),
-    AXIS(4,"l2",trigger_sources,1), AXIS(5,"r2",trigger_sources,2),
-};
-
 #define COUNT(a) (sizeof(a) / sizeof((a)[0]))
 
 /* ---- the values -------------------------------------------------------------
  * A target is a slot, the palette or calibration: a struct of values and a
- * bit per field that is set. Shortcuts and mapping are global targets. */
+ * bit per field that is set. */
 
 #define MAGIC      0x4332
 #define VERSION    1
-#define RECORD_MAX 224
-#define RECORD_LEGACY 192
+#define RECORD_MAX 192
 #define SETTLE_MS  100
 #define STAGE_MAX  1024
+/* 11 and 12 belonged to the removed shortcut/mapping prototype; do not reuse. */
+#define LAST_SLOT_KEY 13
 
 static struct set_slot slots[SLOTS];
 static struct rgb palette[PALETTE];
 static struct set_cal cal;
-static struct set_shortcuts shortcuts;
-static struct set_mapping mapping;
 static u32 set_bits[TARGETS];
 static u16 dirty;            /* a bit per target */
 static u32 changed_ms;
 static u8 commit_now, ephemeral;
+static u8 last_slot = SLOT_NONE, last_slot_dirty;
 static u8 stage[STAGE_MAX];
 static u16 staged, staged_items;
 
@@ -240,21 +182,18 @@ static const struct set_field *fields_of(u8 t, u32 *count)
 {
     if (t < SLOTS) { *count = COUNT(slot_fields); return slot_fields; }
     if (t == TARGET_PALETTE) { *count = COUNT(palette_fields); return palette_fields; }
-    if (t == TARGET_SHORTCUTS) { *count = COUNT(shortcut_fields); return shortcut_fields; }
-    if (t == TARGET_MAPPING) { *count = COUNT(mapping_fields); return mapping_fields; }
     *count = COUNT(cal_fields);
     return cal_fields;
 }
 
 static u8 *values_of(u8 t)
 {
-    return t < SLOTS ? (u8 *)&slots[t] : t == TARGET_PALETTE ? (u8 *)palette :
-        t == TARGET_SHORTCUTS ? (u8 *)&shortcuts : t == TARGET_MAPPING ? (u8 *)&mapping : (u8 *)&cal;
+    return t < SLOTS ? (u8 *)&slots[t] : t == TARGET_PALETTE ? (u8 *)palette : (u8 *)&cal;
 }
 
 static u16 key_of(u8 t)
 {
-    return 1 + t;            /* slots 1-8, palette 9, calibration 10, shortcuts 11, mapping 12 */
+    return 1 + t;            /* syscfg user items: slots 1-8, palette 9, calibration 10 */
 }
 
 static const struct set_field *find(u8 t, u8 id, u32 *bit)
@@ -291,17 +230,6 @@ static u8 check(const struct set_field *f, const u8 *v, u32 len)
     if (!f) return SET_UNKNOWN;
     if (!len) return SET_OK;
     if (len != f->size) return SET_BAD_LENGTH;
-    if (f->flags & (F_RULE | F_KEYS)) {
-        u32 keys = v[0] | (u32)v[1] << 8 | (u32)v[2] << 16 | (u32)v[3] << 24;
-        if (keys & ~DIGITAL_MASK) return SET_RANGE;
-        if (f->flags & F_RULE) {
-            u8 action = v[6], slot = v[7];
-            if (action > REQ_CALIBRATE) return SET_RANGE;
-            if ((action == REQ_CONNECT || action == REQ_PAIR) && slot >= SLOTS && slot != SLOT_LAST)
-                return SET_RANGE;
-            if (action && !keys) return SET_RANGE;
-        }
-    }
     if (f->type == T_BYTES && (f->id == ID_LEFT_POINTS || f->id == ID_RIGHT_POINTS)) {
         for (x = 1; x < len; x++) if (v[x] < v[x - 1]) return SET_RANGE;
     }
@@ -338,8 +266,6 @@ static void put(u8 t, const struct set_field *f, u32 bit, const u8 *v, u32 len)
         memcpy(p, &def, f->size < 4 ? f->size : 4);
         if (t < SLOTS && (f->id == ID_LEFT_POINTS || f->id == ID_RIGHT_POINTS))
             memcpy(p, linear_points, sizeof(linear_points));
-        if (t == TARGET_SHORTCUTS && (f->flags & F_RULE))
-            memcpy(p, &default_rules[f->id - 4], sizeof(struct shortcut_rule));
         set_bits[t] &= ~(1u << bit);
     }
 }
@@ -427,9 +353,14 @@ void set_init(void)
     for (t = 0; t < TARGETS; t++) {
         reset(t);
         memset(buf, 0, sizeof(buf));
-        n = plat_store_read(key_of(t), buf, t == TARGET_SHORTCUTS ? RECORD_MAX : RECORD_LEGACY);
+        n = plat_store_read(key_of(t), buf, sizeof(buf));
         if (n > 0) decode(t, buf, (u32)n);
     }
+    last_slot = SLOT_NONE;
+    last_slot_dirty = 0;
+    n = plat_store_read(LAST_SLOT_KEY, buf, 8);
+    if (n == 8 && !memcmp(buf, "C2LS", 4) && buf[4] == 1 && buf[5] < SLOTS &&
+        buf[6] == (u8)~buf[5]) last_slot = buf[5];
     if (!(set_bits[TARGET_CAL] & 1)) util_log("settings: calibration required");
 }
 
@@ -442,9 +373,14 @@ static void write_dirty(void)
         if (dirty & (1u << t)) {
             memset(buf, 0, sizeof(buf));
             encode(t, buf);
-            plat_store_write(key_of(t), buf, t == TARGET_SHORTCUTS ? RECORD_MAX : RECORD_LEGACY);
+            plat_store_write(key_of(t), buf, sizeof(buf));
         }
-    if (dirty) util_log("settings: written");
+    if (last_slot_dirty) {
+        const u8 saved[8] = {'C','2','L','S',1,last_slot,(u8)~last_slot,0};
+        plat_store_write(LAST_SLOT_KEY, saved, sizeof(saved));
+    }
+    if (dirty || last_slot_dirty) util_log("settings: written");
+    last_slot_dirty = 0;
     dirty = 0;
     commit_now = 0;
 }
@@ -453,7 +389,7 @@ static void write_dirty(void)
  * set-up is under way (a flash write then has reset the chip). */
 void set_poll(u32 now, int radio_quiet)
 {
-    if (dirty && radio_quiet && (commit_now || now - changed_ms >= SETTLE_MS)) write_dirty();
+    if ((dirty || last_slot_dirty) && radio_quiet && (commit_now || now - changed_ms >= SETTLE_MS)) write_dirty();
 }
 
 void set_flush(void)
@@ -466,6 +402,17 @@ void set_flush(void)
 const struct set_slot *set_slot(u8 slot)
 {
     return &slots[slot % SLOTS];
+}
+
+/* The most recent selected slot survives a real power-off. Retained RAM in
+ * the platform is only a fast software-reset fallback. Save through the same
+ * quiet/flush path as settings, and respect ephemeral mode. */
+u8 set_last_slot(void) { return last_slot; }
+void set_remember_slot(u8 slot)
+{
+    if (slot >= SLOTS || slot == last_slot) return;
+    last_slot = slot;
+    if (!ephemeral) { last_slot_dirty = 1; changed_ms = plat_ms(); }
 }
 
 /* Brightness levels: the LEDs are bright, so the low end goes in single
@@ -556,9 +503,6 @@ void set_slot_new_address(u8 slot)
     put(slot % SLOTS, f, bit, a, 6);
     touch(slot % SLOTS);
 }
-
-const struct set_shortcuts *set_shortcuts(void) { return &shortcuts; }
-const struct set_mapping *set_mapping(void) { return &mapping; }
 
 const struct set_cal *set_cal(void)
 {
@@ -665,20 +609,19 @@ static u32 put_string(u8 *out, u32 o, u32 max, const char *s)
     return o + n;
 }
 
-/* Field number n over slots, palette, calibration, shortcuts and mapping.
- * [0] version [1] target kind [2] id [3] type [4] size [5] flags
- * (1 developer, 2 shortcut rule, 4 digital mask), [6..7] max, then
+/* Field number n over all targets: slots, then palette, then calibration.
+ * [0] version [1] target kind [2] id [3] type [4] size [6..7] max, then
  * name, help, the enum names (all NUL-terminated) and the defaults (one per
  * slot for slot fields).  0: past the last. */
 u32 set_describe(u32 n, u8 *out, u32 max)
 {
-    u32 kinds[] = { COUNT(slot_fields), COUNT(palette_fields), COUNT(cal_fields), COUNT(shortcut_fields), COUNT(mapping_fields) };
-    static const struct set_field *const tables[] = { slot_fields, palette_fields, cal_fields, shortcut_fields, mapping_fields };
+    u32 kinds[3] = { COUNT(slot_fields), COUNT(palette_fields), COUNT(cal_fields) };
+    static const struct set_field *const tables[3] = { slot_fields, palette_fields, cal_fields };
     const struct set_field *f;
     u32 kind = 0, o, i, defs;
 
-    while (kind < COUNT(kinds) && n >= kinds[kind]) n -= kinds[kind++];
-    if (kind == COUNT(kinds) || max < 8) return 0;
+    while (kind < 3 && n >= kinds[kind]) n -= kinds[kind++];
+    if (kind == 3 || max < 8) return 0;
     f = &tables[kind][n];
     out[0] = VERSION;
     out[1] = (u8)kind;
@@ -692,7 +635,7 @@ u32 set_describe(u32 n, u8 *out, u32 max)
     for (i = 0; f->type == T_ENUM && f->names[i]; i++) o = put_string(out, o, max, f->names[i]);
     defs = kind == 0 ? SLOTS : 1;
     for (i = 0; i < defs && o <= max; i++) {
-        u32 size = f->size <= 4 ? f->size : 0;
+        u32 size = f->size < 4 ? f->size : 0;
 
         if (o + size > max) return 0;
         memcpy(out + o, &f->def[i], size);
@@ -725,7 +668,7 @@ u32 set_read(u8 t, u8 *out, u32 max)
 }
 
 #ifdef UNITTEST
-static u8 store[TARGETS + 1][RECORD_MAX];
+static u8 store[LAST_SLOT_KEY + 1][RECORD_MAX];
 static int store_writes;
 static u16 read_size = RECORD_MAX;
 static u32 ms;
@@ -770,19 +713,15 @@ int main(void)
     u32 t, worst = 4;
 
     /* Every target fits a record with every field set. */
-    for (t = 0; t < TARGETS; t++) {
+    for (t = 0; t < 3; t++) {
         u32 n, i, used = 4;
-        const struct set_field *f = fields_of((u8)t, &n);
+        const struct set_field *f = fields_of(t == 0 ? 0 : t == 1 ? TARGET_PALETTE : TARGET_CAL, &n);
 
         for (i = 0; i < n; i++) used += 2u + f[i].size;
-        CHECK(used <= (t == TARGET_SHORTCUTS ? RECORD_MAX : RECORD_LEGACY));
         if (used > worst) worst = used;
     }
     CHECK(worst <= RECORD_MAX && worst <= 255);
     CHECK(COUNT(slot_fields) <= 32 && sizeof(struct set_slot) <= 256);
-    CHECK(COUNT(shortcut_fields) <= 32 && sizeof(struct set_shortcuts) <= 256);
-    CHECK(COUNT(mapping_fields) <= 32 && sizeof(struct set_mapping) <= 256);
-    CHECK(sizeof(struct shortcut_rule) == 8);
 
     set_init();
     CHECK(set_slot(0)->type == PROFILE_SWITCH && set_slot(4)->type == PROFILE_MOUSE);
@@ -795,33 +734,16 @@ int main(void)
         CHECK(c.r == 4 && c.g == 0 && c.b == 3);
     }
 
-    /* New global targets: defaults, validation, staging, reset and flash round-trip. */
-    CHECK(set_shortcuts()->modifier == PAD_M && set_shortcuts()->grace_ms == 150);
-    CHECK(set_shortcuts()->rule[0].hold_ms == 1500 && set_shortcuts()->rule[11].hold_ms == 5000);
-    CHECK(set_mapping()->digital[5] == PAD_M && set_mapping()->axis[3] == 4);
-    {
-        struct shortcut_rule rule = {PAD_M | PAD_A, 1750, REQ_CONNECT, 2};
-        u16 grace = 250;
-        u32 keys = PAD_B | PAD_X, bad = 1u << 31;
-        CHECK(write1(TARGET_SHORTCUTS, 2, 2, &grace) == SET_OK);
-        CHECK(write1(TARGET_SHORTCUTS, 4, 8, &rule) == SET_OK);
-        CHECK(write1(TARGET_MAPPING, 1, 4, &keys) == SET_OK);
-        CHECK(write1(TARGET_MAPPING, 1, 4, &bad) == SET_RANGE);
-        rule.slot = 9;
-        CHECK(write1(TARGET_SHORTCUTS, 4, 8, &rule) == SET_RANGE);
-        rule.slot = 2; rule.request = REQ_REBOOT;
-        CHECK(write1(TARGET_SHORTCUTS, 4, 8, &rule) == SET_RANGE);
-        CHECK(set_shortcuts()->grace_ms == 150);
-        set_apply(); set_flush(); set_init();
-        CHECK(set_shortcuts()->grace_ms == 250 && set_shortcuts()->rule[0].slot == 2);
-        CHECK(set_mapping()->digital[0] == keys);
-        CHECK(write1(TARGET_SHORTCUTS, 0, 0, NULL) == SET_OK);
-        CHECK(write1(TARGET_MAPPING, 0, 0, NULL) == SET_OK);
-        set_apply(); set_flush();
-        CHECK(set_shortcuts()->grace_ms == 150 && set_shortcuts()->rule[0].slot == 0);
-        CHECK(set_mapping()->digital[0] == PAD_A);
-    }
-
+    CHECK(set_last_slot() == SLOT_NONE);
+    set_remember_slot(3);
+    CHECK(set_last_slot() == 3);
+    set_flush(); set_init();
+    CHECK(set_last_slot() == 3);
+    t = store_writes;
+    set_remember_slot(3); set_flush(); CHECK(store_writes == (int)t);
+    set_remember_slot(SLOT_NONE); CHECK(set_last_slot() == 3);
+    store[LAST_SLOT_KEY][6] ^= 1; set_init(); CHECK(set_last_slot() == SLOT_NONE);
+    set_remember_slot(5); set_flush(); set_init(); CHECK(set_last_slot() == 5);
     store_writes = 0;
 
     /* Collected, not applied, until commit; then stored. */
@@ -941,14 +863,17 @@ int main(void)
     set_flush();
     CHECK(set_slot(3)->rumble == 10 && store_writes == (int)t);
 
+    t = store_writes;
+    set_remember_slot(7); set_flush();
+    CHECK(set_last_slot() == 7 && store_writes == (int)t); /* ephemeral */
+    set_init(); CHECK(set_last_slot() == 5);
+
     /* Describe and read. */
     CHECK(set_describe(0, buf, sizeof(buf)) > 8 && buf[2] == 1 && !strcmp((char *)buf + 8, "type"));
     CHECK(set_describe(COUNT(slot_fields), buf, sizeof(buf)) && buf[1] == 1);
     CHECK(set_describe(COUNT(slot_fields) + PALETTE, buf, sizeof(buf)) && buf[1] == 2);
-    CHECK(set_describe(COUNT(slot_fields) + PALETTE + 1, buf, sizeof(buf)) && buf[1] == 3);
-    CHECK(set_describe(COUNT(slot_fields) + PALETTE + 1 + COUNT(shortcut_fields), buf, sizeof(buf)) && buf[1] == 4);
-    CHECK(set_describe(COUNT(slot_fields) + PALETTE + 1 + COUNT(shortcut_fields) + COUNT(mapping_fields), buf, sizeof(buf)) == 0);
-    for (t = 0; t < COUNT(slot_fields) + PALETTE + 1 + COUNT(shortcut_fields) + COUNT(mapping_fields); t++) CHECK(set_describe(t, buf, 512) > 0);
+    CHECK(set_describe(COUNT(slot_fields) + PALETTE + 1, buf, sizeof(buf)) == 0);
+    for (t = 0; t < COUNT(slot_fields) + PALETTE + 1; t++) CHECK(set_describe(t, buf, 512) > 0);
     CHECK(set_read(3, buf, sizeof(buf)) > 3 && buf[2] == COUNT(slot_fields));
     CHECK(set_read(TARGET_CAL, buf, sizeof(buf)) == 6 + sizeof(struct set_cal));
     return TEST_DONE("settings");

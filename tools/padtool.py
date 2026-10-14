@@ -33,15 +33,11 @@
     padtool ephemeral                    from now until the next boot nothing is saved
     padtool keep                         reboot, then send what ephemeral mode tried
 
-TARGET: a slot (A B X Y up down left right), palette, calibration, shortcuts
-or mapping. VALUE:
+TARGET: a slot (A B X Y up down left right), palette or calibration.  VALUE:
 a name for a choice, a number, ENTRY:LEVEL for a colour (palette entry 0-15,
 brightness 0-15), #rrggbb for a palette entry, aa:bb:cc:dd:ee:ff for an
 address, seven comma-separated output bytes for stick curve points, hex for other
 bytes; "default" puts a field back to its default.
-Digital mappings: a key name, names joined with +, or none.
-Shortcut rules: KEYS:ACTION:SLOT:HOLD_MS, e.g. m+b:connect:B:1500; none disables.
-See REMAPPING.md for the wire format, defaults and examples.
 
 The pad is a mass-storage device with no medium; commands are vendor SCSI
 CDBs (see the comment at the top of src/usb.c).  Flashing is tools/jlnewfw.c's (make flash).
@@ -467,8 +463,8 @@ def log(path, follow):
 # ---- settings ------------------------------------
 
 SLOT_NAMES = ["A", "B", "X", "Y", "up", "down", "left", "right"]
-TARGETS = SLOT_NAMES + ["palette", "calibration", "shortcuts", "mapping"]
-KINDS = ["slot", "palette", "calibration", "shortcuts", "mapping"]
+TARGETS = SLOT_NAMES + ["palette", "calibration"]
+KINDS = ["slot", "palette", "calibration"]
 T_ENUM, T_NUMBER, T_COLOUR, T_RGB, T_BYTES = range(5)
 RESULTS = ["ok", "unknown field", "bad length", "out of range", "too many changes at once"]
 JOURNAL = os.path.expanduser("~/.cache/padtool/ephemeral.json")
@@ -507,42 +503,12 @@ def fields(path):
         nd = 8 if kind == 0 else 1
         defs = [d[o + i * size:o + (i + 1) * size] for i in range(nd)] if size <= 4 else []
         out.append({"kind": kind, "id": fid, "type": typ, "size": size, "max": mx, "dev": flags & 1,
-                    "flags": flags, "name": name, "help": help_, "names": names, "defaults": defs})
+                    "name": name, "help": help_, "names": names, "defaults": defs})
         n += 1
-
-
-KEY_NAMES = ["a", "b", "screenshot", "x", "y", "m", "l1", "r1", "l4", "r4",
-             "minus", "plus", "home", "l3", "r3", None, "up", "right", "down", "left"]
-ACTIONS = ["none", "connect", "pair", "disconnect", "sleep", "calibrate"]
-
-
-def show_keys(keys):
-    return "+".join(name for i, name in enumerate(KEY_NAMES) if name and keys & (1 << i)) or "none"
-
-
-def parse_keys(text):
-    if text == "none":
-        return 0
-    aliases = {"select": "minus", "start": "plus"}
-    keys = 0
-    for name in text.lower().split("+"):
-        name = aliases.get(name, name)
-        if name not in KEY_NAMES or name is None:
-            raise ValueError("unknown key")
-        keys |= 1 << KEY_NAMES.index(name)
-    return keys
 
 
 def show_value(f, raw):
     t = f["type"]
-    if f.get("flags", 0) & 2:
-        keys, hold, action, slot = struct.unpack("<IHBB", raw)
-        if not action:
-            return "none"
-        target = SLOT_NAMES[slot] if slot < 8 else "last" if slot == 254 else "none"
-        return f"{show_keys(keys)}:{ACTIONS[action]}:{target}:{hold}"
-    if f.get("flags", 0) & 4:
-        return show_keys(int.from_bytes(raw, "little"))
     if t == T_ENUM:
         return f["names"][raw[0]] if raw[0] < len(f["names"]) else str(raw[0])
     if t == T_NUMBER:
@@ -564,14 +530,6 @@ def parse_value(f, text):
     if text == "default":
         return b""
     try:
-        if f.get("flags", 0) & 2:
-            if text == "none":
-                return bytes(8)
-            keys, action, slot, hold = text.split(":")
-            target = 254 if slot == "last" else 255 if slot == "none" else target_index(slot)
-            return struct.pack("<IHBB", parse_keys(keys), int(hold), ACTIONS.index(action), target)
-        if f.get("flags", 0) & 4:
-            return parse_keys(text).to_bytes(4, "little")
         if t == T_ENUM:
             if text in f["names"]:
                 return bytes([f["names"].index(text)])
@@ -589,7 +547,7 @@ def parse_value(f, text):
             v = bytes(reversed(bytes.fromhex(text.replace(":", ""))))
         else:
             v = bytes.fromhex(text)
-    except (ValueError, OverflowError, struct.error):
+    except (ValueError, OverflowError):
         sys.exit(f"padtool: {f['name']}: cannot read {text!r}")
     if len(v) != f["size"]:
         sys.exit(f"padtool: {f['name']}: {f['size']} bytes, not {len(v)}")
@@ -667,14 +625,12 @@ def show_fields(path, dev=False):
         if f["dev"] and not shown_dev:
             print("\ndeveloper settings: for measuring the link, not for normal use")
             shown_dev = True
-        values = ("KEYS:ACTION:SLOT:HOLD_MS" if f.get("flags", 0) & 2 else
-                  "KEY+KEY | none" if f.get("flags", 0) & 4 else
-                  " | ".join(f["names"]) if f["type"] == T_ENUM else
+        values = (" | ".join(f["names"]) if f["type"] == T_ENUM else
                   f"0-{f['max']}" if f["type"] == T_NUMBER else
                   "ENTRY:LEVEL" if f["type"] == T_COLOUR else
                   "#rrggbb" if f["type"] == T_RGB else f"{f['size']} bytes")
         defs = ""
-        if f["defaults"] and (f["type"] != T_BYTES or f.get("flags", 0) & 4):
+        if f["defaults"] and f["type"] != T_BYTES:
             shown = [show_value(f, d) for d in f["defaults"]]
             defs = f"  default {shown[0]}" if len(set(shown)) == 1 else \
                    "  default " + " ".join(f"{SLOT_NAMES[i]}={v}" for i, v in enumerate(shown))
@@ -876,12 +832,12 @@ def main():
         path = need_device()
         table = fields(path)
         items = []
-        for t in (i for i in range(len(TARGETS)) if TARGETS[i] != "calibration"):
+        for t in range(len(TARGETS) - 1):
             items.append((t, 0, b""))
             if t < 8:
                 items += [(t, field_named(table, t, n)["id"], b"") for n in PAIRING]
         send(path, items)
-        print("every slot, palette, shortcuts and mapping back to defaults; calibration kept")
+        print("every slot and the palette back to defaults; calibration kept")
     elif a.command == "ephemeral":
         path = need_device()
         cmd(path, 0x25)

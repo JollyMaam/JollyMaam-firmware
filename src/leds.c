@@ -5,7 +5,6 @@
 #define REACH_QUIET 24
 #define REACH_DECAY 12
 
-static const struct led_wave charging = LED_BLINK(800, 1600);
 static const struct led_wave low_battery = LED_BLINK(150, 2850);
 static const struct led_wave player_flash = LED_BLINK(250, 250);
 static const struct led_wave fade = LED_BREATHE(4000);
@@ -164,12 +163,18 @@ void led_frame(const struct led_scene *sc, const struct led_state *s, u32 now,
     bar(sc, s, now, t, in, c, out);
     grips(sc, t, in, c, out);
     if (in->usb_powered && (s->scene == CTL_BOOT || s->scene == CTL_IDLE))
-        *home = dim(in->battery_colour, level(&charging, now, 0, 1));
+        memset(home, 0, sizeof(*home));
     if (in->low_battery && level(&low_battery, now, 0, 1)) *home = in->battery_colour;
-    if (in->usb_plug_flash == 1) *home = s->slot != SLOT_NONE ? c : in->battery_colour;
-    if (in->usb_plug_flash == 2) memset(home, 0, sizeof(*home));
+
     if (in->ephemeral && winking(now)) memset(home, 0, sizeof(*home));
     if (in->cal_lit) *home = in->cal;
+    if (in->power_debug) {
+        u32 i;
+        for (i = 0; i < LIGHT_COUNT; i++) out->light[i] = in->power_debug_colour;
+    }
+    /* USB acknowledgement is one solid interval, then the normal scene.
+     * Idle on USB stays dark; there is no charging animation. */
+    if (in->usb_plug_lit) *home = in->battery_colour;
 }
 
 static u8 stick_reach(s16 x, s16 y)
@@ -293,7 +298,22 @@ int main(void)
     s.slot = SLOT_NONE;
     in.usb_powered = 1;
     led_frame(&idle, &s, 100, &in, &f);
+    CHECK(same(f.light[LIGHT_HOME], dark));
+    in.usb_plug_lit = 1;
+    led_frame(&idle, &s, 100, &in, &f);
     CHECK(same(f.light[LIGHT_HOME], in.battery_colour));
+    led_frame(&idle, &s, 900, &in, &f);
+    CHECK(same(f.light[LIGHT_HOME], in.battery_colour));
+    in.usb_plug_lit = 0;
+    led_frame(&idle, &s, 1000, &in, &f); CHECK(same(f.light[LIGHT_HOME], dark));
+    led_frame(&idle, &s, 2400, &in, &f); CHECK(same(f.light[LIGHT_HOME], dark));
+    in.power_debug = 1; in.power_debug_colour = red;
+    led_frame(&idle, &s, 2400, &in, &f);
+    CHECK(same(f.light[LIGHT_HOME], red) && same(f.light[LIGHT_P0], red) && same(f.light[LIGHT_GRIP_R], red));
+    in.usb_plug_lit = 1;
+    led_frame(&idle, &s, 2400, &in, &f);
+    CHECK(same(f.light[LIGHT_HOME], in.battery_colour) && same(f.light[LIGHT_P0], red));
+    in.power_debug = in.usb_plug_lit = 0;
     in.cal_lit = 1;
     in.cal = white;
     led_frame(&idle, &s, 100, &in, &f);

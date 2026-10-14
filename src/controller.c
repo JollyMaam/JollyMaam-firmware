@@ -33,7 +33,7 @@ static const struct profile *profile_for(u8 type)
 
 static struct {
     u8 kind;
-    u32 since;
+    u32 since, boot_ms;
     u8 slot;                     /* the session's slot, SLOT_NONE without one */
     u8 last_slot;
     const struct profile *prof;
@@ -159,9 +159,12 @@ static void start_session(struct ctl_request r, u32 now)
     s.bond = set_bond(r.slot);
     s.settings = set_slot(r.slot);
     c.prof = p;
+    c.sent_buttons = 0;         /* no report from this session has been handed over yet */
+    c.sent_hat = HAT_NEUTRAL;
     c.slot = r.slot;
     c.last_slot = r.slot;
     plat_retain_slot(r.slot);
+    set_remember_slot(r.slot);
     memset(&c.host, 0, sizeof(c.host));
     c.report_hz = s.settings->report_hz ? s.settings->report_hz : REPORT_HZ;
     c.begin_imu = p->begin(&s);
@@ -356,7 +359,7 @@ static void timeouts(u32 now)
         break;
     case CTL_SLEEPING:
         if (c.usb_powered && !c.radio) become(CTL_IDLE, now);
-        else if (!c.radio && t >= 50) {
+        else if (!c.radio && t >= (ux_power_debug.enabled ? ux_power_debug.sleep_ms : 50)) {
             set_flush();
             util_log("power off");
             plat_power_off();
@@ -463,8 +466,11 @@ static void outputs(u32 now)
     in.rumble[1] = motor[1];
     in.usb_powered = c.usb_powered;
     in.low_battery = c.low_battery;
-    if (c.usb_powered && plugged < 2u * ux_timeouts.usb_plug_flash_ms)
-        in.usb_plug_flash = plugged < ux_timeouts.usb_plug_flash_ms ? 1 : 2;
+    in.usb_plug_lit = c.usb_powered && plugged < ux_timeouts.usb_plug_ms;
+    if (ux_power_debug.enabled && (c.kind == CTL_SLEEPING || now - c.boot_ms < ux_power_debug.wake_ms)) {
+        in.power_debug = 1;
+        in.power_debug_colour = c.kind == CTL_SLEEPING ? ux_power_debug.sleep_colour : ux_power_debug.wake_colour;
+    }
     if (c.kind == CTL_CONNECTED) {
         in.has_players = c.host.has_players;
         in.players = c.host.players;
@@ -485,6 +491,11 @@ static void read_input(u32 now)
     struct ctl_request none = { REQ_NONE, SLOT_NONE, 0 };
     struct ctl_request r = none;
 
+    /* Do not start a deferred M tap's minimum down time while its report is
+     * still waiting in the Bluetooth slot. Slow host polls must not compress
+     * down and up into the same send opportunity. */
+    if (c.kind == CTL_CONNECTED && (c.sent_buttons & PAD_M) && !bt_input_pending())
+        ux_reported(now);
     plat_input(&c.raw);
     in_map(&c.raw, &c.pad);
     cal_apply(set_cal(), &c.raw, &c.pad);
@@ -507,7 +518,6 @@ static void read_input(u32 now)
     }
     handle(r, now);
     in_response(set_slot(c.slot < SLOTS ? c.slot : 0), &c.pad);
-    in_remap(set_mapping(), &c.pad);
 }
 
 /* Pull: a report is built when bt.c has room for it, from the newest input,
@@ -537,7 +547,6 @@ static void send_report(u32 now)
     if (n > 0 && bt_send_input(id, buf, (u16)n)) {
         u32 us = plat_us();
 
-        ux_reported();
         if (c.stats.reports) util_stat_add(&c.stats.interval, us - c.last_report_us);
         if (c.pad.buttons != c.sent_buttons || c.pad.hat != c.sent_hat)
             util_stat_add(&c.stats.age, us - c.raw.changed_us);
@@ -562,20 +571,25 @@ static void boot(u32 now)
 
     plat_boot_info(&b);
     set_init();
+    now = plat_ms();            /* show a full boot interval after settings have loaded */
     c.kind = CTL_BOOT;
-    c.since = now;
+    c.since = c.boot_ms = now;
     c.slot = SLOT_NONE;
     c.last_slot = plat_retained_slot();
+    if (c.last_slot == SLOT_NONE) c.last_slot = set_last_slot();
     c.led.scene = CTL_BOOT;
     c.led.slot = SLOT_NONE;
     c.usb_raw = c.usb_powered = (u8)plat_usb_present();
-    c.usb_plugged_ms = now - 1000;
+    c.usb_plugged_ms = c.usb_powered ? now : now - ux_timeouts.usb_plug_ms;
     c.battery_ms = now - BATTERY_CHECK_MS;
     util_log("boot cause %u held %04x last slot %u", b.cause, b.buttons_held, c.last_slot);
     c.uboot_chord = (b.buttons_held & (PAD_HOME | PAD_START)) == (PAD_HOME | PAD_START);
     plat_input(&c.raw);
+    /* Render the development boot indication before starting a profile/radio;
+     * an immediate session must not skip it by replacing CTL_BOOT. */
+    outputs(now);
     if (c.uboot_chord) ux_ignore_held();
-    else handle(ux_boot(b.buttons_held, b.hat_held, CTL_BOOT), now);
+    else handle(ux_boot(b.buttons_held, b.hat_held, now), now);
 }
 
 void ctl_main(void)
