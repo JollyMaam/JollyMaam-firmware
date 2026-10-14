@@ -21,6 +21,7 @@
 #define TCFG_PC_ENABLE   MODULE_ENABLED
 #include "usb_std_class_def.h"
 #define USB_DEVICE_CLASS_CONFIG     MASSSTORAGE_CLASS
+#define USB_DMA_BUF_MAX_SIZE        1024    /* our endpoints, audio included */
 
 /* Clock and power set-up at boot: setup.c and platform_jieli.c. */
 #define TCFG_CLOCK_SYS_SRC  SYS_CLOCK_INPUT_PLL_BT_OSC

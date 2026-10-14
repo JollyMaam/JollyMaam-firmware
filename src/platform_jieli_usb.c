@@ -9,6 +9,9 @@
  * sees every request first and answers the descriptors, the HID class
  * requests and the vendor ones.  Interrupt IN carries reports, interrupt OUT
  * (or SET_REPORT) the host's writes; a Switch 2 also has a bulk pair.
+ * With audio, a USB speaker follows: the stock pad's 48 kHz stereo 16-bit on
+ * isochronous OUT 0x03, a feature unit with mute and volume 0 to 100, its
+ * packets straight to the DAC (platform_jieli_audio.c).
  *
  * plat_usb_mode(NULL) is the tool device: the SDK's mass storage, whose
  * vendor SCSI commands platform_jieli.c hands to usb.c. */
@@ -17,11 +20,13 @@
 #define EP_OUT       1           /* 0x01: the host's reports (XInput: 0x02) */
 #define EP_XOUT      2
 #define EP_BULK      2           /* 0x02 and 0x82: Switch 2's commands */
+#define EP_AUDIO     3           /* 0x03: isochronous, the speaker */
 #define PACKET       64
+#define AUDIO_PACKET 192         /* 1 ms of 48 kHz stereo 16-bit */
 #define MESSAGES     4
 #define MESSAGE_MAX  128         /* sent in packets of the endpoint's size */
 #define WRITES       6
-#define DESC_MAX     128
+#define DESC_MAX     256
 #define REQ_GET_REPORT 0x01
 #define REQ_GET_IDLE   0x02
 #define REQ_SET_REPORT 0x09
@@ -29,6 +34,19 @@
 #define REQ_SET_PROTOCOL 0x0b
 #define DT_HID       0x21
 #define DT_REPORT    0x22
+#define DT_CS_INTERFACE 0x24
+#define DT_CS_ENDPOINT  0x25
+#define UAC_SET_CUR  0x01
+#define UAC_GET_CUR  0x81
+#define UAC_GET_MIN  0x82
+#define UAC_GET_MAX  0x83
+#define UAC_GET_RES  0x84
+#define UAC_MUTE     1           /* feature unit control selectors */
+#define UAC_VOLUME   2
+#define UNIT_IN      1           /* the USB streaming input terminal */
+#define UNIT_FEATURE 2
+#define UNIT_OUT     3           /* the headphones */
+#define VOLUME_START 60
 
 extern u32 usb_read_txcsr(const usb_dev usb_id, const u32 ep);
 extern void usb_memory_init(void);
@@ -61,6 +79,14 @@ static struct bt_write writes[WRITES];
 static volatile u8 w_head, w_count;
 static u8 set_report_kind, set_report_id;
 static u8 rx[PACKET] __attribute__((aligned(4)));
+static u8 audio_if;              /* the audio control interface; streaming is the next; 0: none */
+static u8 *dma_audio;
+static volatile u8 audio_alt;
+static u8 volume[2] = { VOLUME_START, VOLUME_START }, mute;
+static u8 audio_cs, audio_ch;    /* the SET_CUR waiting for its data */
+
+static void reply(struct usb_device_t *dev, struct usb_ctrlrequest *req, const u8 *d, u32 n);
+static void stall(struct usb_device_t *dev);
 
 static u8 *put(u8 *p, const u8 *d, u32 n)
 {
@@ -78,6 +104,29 @@ static u8 *interface(u8 *p, u8 number, u8 endpoints, u8 cls, u8 sub, u8 proto)
 {
     u8 d[9] = { 9, USB_DT_INTERFACE, number, 0, endpoints, cls, sub, proto, 0 };
     return put(p, d, 9);
+}
+
+static u8 *speaker(u8 *p, u8 first)
+{
+    const u8 d[] = {
+        /* Audio control: a header, the streaming input terminal, a feature
+         * unit (mute on the master channel, volume on each), the
+         * headphones. */
+        9, USB_DT_INTERFACE, first, 0, 0, 1, 1, 0, 0,
+        9, DT_CS_INTERFACE, 1, 0x00, 0x01, 9 + 12 + 10 + 9, 0, 1, (u8)(first + 1),
+        12, DT_CS_INTERFACE, 2, UNIT_IN, 0x01, 0x01, 0, 2, 0x03, 0x00, 0, 0,
+        10, DT_CS_INTERFACE, 6, UNIT_FEATURE, UNIT_IN, 1, 0x01, 0x02, 0x02, 0,
+        9, DT_CS_INTERFACE, 3, UNIT_OUT, 0x02, 0x03, 0, UNIT_FEATURE, 0,
+        /* Streaming: alternate 0 is idle, 1 carries PCM. */
+        9, USB_DT_INTERFACE, (u8)(first + 1), 0, 0, 1, 2, 0, 0,
+        9, USB_DT_INTERFACE, (u8)(first + 1), 1, 1, 1, 2, 0, 0,
+        7, DT_CS_INTERFACE, 1, UNIT_IN, 1, 0x01, 0x00,
+        11, DT_CS_INTERFACE, 2, 1, 2, 2, 16, 1, 0x80, 0xbb, 0x00,
+        9, USB_DT_ENDPOINT, EP_AUDIO, 0x09, (u8)AUDIO_PACKET, AUDIO_PACKET >> 8, 1, 0, 0,
+        7, DT_CS_ENDPOINT, 1, 0, 0, 0, 0,
+    };
+
+    return put(p, d, sizeof(d));
 }
 
 static void build(const struct usb_identity *id)
@@ -123,10 +172,14 @@ static void build(const struct usb_identity *id)
             p = endpoint(p, 0x80 | EP_BULK, USB_ENDPOINT_XFER_BULK, PACKET, 0);
         }
     }
-    config_len = (u16)(p - config_desc);
     {
+        u8 n = id->kind == USB_HID_BULK ? 2 : 1;
+
+        audio_if = id->audio && board_audio ? n : 0;
+        if (audio_if) p = speaker(p, audio_if);
+        config_len = (u16)(p - config_desc);
         u8 head[9] = { 9, USB_DT_CONFIG, (u8)config_len, (u8)(config_len >> 8),
-                       (u8)(id->kind == USB_HID_BULK ? 2 : 1), 1, 0, 0xa0, id->max_power };
+                       (u8)(audio_if ? n + 2 : n), 1, 0, 0xa0, id->max_power };
         memcpy(config_desc, head, 9);
     }
 }
@@ -242,11 +295,96 @@ static void endpoints(void)
     }
 }
 
+/* ---- the speaker ------------------------------------------------------------ */
+
+static void audio_rx(struct usb_device_t *dev, u32 ep)
+{
+    u32 n = usb_g_iso_read(0, EP_AUDIO, NULL, AUDIO_PACKET, 0);
+
+    (void)dev;
+    (void)ep;
+    plat_audio_write(dma_audio, n);
+}
+
+static void stream(u8 alt)
+{
+    if (!audio_if || alt == audio_alt) return;
+    audio_alt = alt;
+    if (alt) {
+        usb_g_set_intr_hander(0, EP_AUDIO, audio_rx);
+        usb_g_ep_config(0, EP_AUDIO, USB_ENDPOINT_XFER_ISOC, 1, dma_audio, AUDIO_PACKET);
+    } else {
+        usb_clr_intr_rxe(0, EP_AUDIO);
+        usb_g_set_intr_hander(0, EP_AUDIO, NULL);
+    }
+    plat_audio_stream(alt);
+}
+
+static u32 audio_set_data(struct usb_device_t *dev, struct usb_ctrlrequest *req)
+{
+    u32 n = req->wLength < sizeof(rx) ? req->wLength : sizeof(rx);
+
+    (void)dev;
+    usb_read_ep0(0, rx, n);
+    if (audio_cs == UAC_MUTE && n >= 1) mute = rx[0] != 0;
+    if (audio_cs == UAC_VOLUME && n >= 2) {
+        u16 v = (u16)(rx[0] | rx[1] << 8);
+
+        v = v > 100 ? 100 : v;
+        if (audio_ch == 0 || audio_ch == 1) volume[0] = (u8)v;
+        if (audio_ch == 0 || audio_ch == 2) volume[1] = (u8)v;
+    }
+    plat_audio_volume(volume[0], volume[1], mute);
+    return USB_EP0_STAGE_SETUP;
+}
+
+/* Class requests to the audio control interface: the feature unit only. */
+static u32 audio_request(struct usb_device_t *dev, struct usb_ctrlrequest *req)
+{
+    u8 *buf = usb_get_setup_buffer(dev);
+    u8 cs = HIBYTE(req->wValue), ch = LOBYTE(req->wValue);
+    u16 v;
+
+    if (HIBYTE(req->wIndex) != UNIT_FEATURE || (cs != UAC_MUTE && cs != UAC_VOLUME)) {
+        stall(dev);
+        return 1;
+    }
+    if (req->bRequest == UAC_SET_CUR) {
+        audio_cs = cs;
+        audio_ch = ch;
+        usb_set_setup_recv(dev, audio_set_data);
+        return 1;
+    }
+    if (cs == UAC_MUTE) {
+        if (req->bRequest != UAC_GET_CUR) {
+            stall(dev);
+            return 1;
+        }
+        buf[0] = mute;
+        reply(dev, req, buf, 1);
+        return 1;
+    }
+    switch (req->bRequest) {
+    case UAC_GET_CUR: v = volume[ch == 2 ? 1 : 0]; break;
+    case UAC_GET_MIN: v = 0; break;
+    case UAC_GET_MAX: v = 100; break;
+    case UAC_GET_RES: v = 1; break;
+    default:
+        stall(dev);
+        return 1;
+    }
+    buf[0] = (u8)v;
+    buf[1] = (u8)(v >> 8);
+    reply(dev, req, buf, req->wLength < 2 ? req->wLength : 2);
+    return 1;
+}
+
 static void on_reset(struct usb_device_t *dev, u32 itf)
 {
     (void)dev;
     (void)itf;
     configured = 0;
+    stream(0);
     endpoints();
 }
 
@@ -329,23 +467,30 @@ static u32 hook(struct usb_device_t *dev, struct usb_ctrlrequest *req)
             stall(dev);
             return 1;
         case USB_REQ_SET_CONFIGURATION:
+            stream(0);
             endpoints();
             configured = LOBYTE(req->wValue) != 0;
             plat_raise(EV_USB);
             return 0;            /* the core answers it */
         case USB_REQ_GET_INTERFACE:
             if (recip != USB_RECIP_INTERFACE) return 0;
-            buf[0] = 0;
+            buf[0] = audio_if && LOBYTE(req->wIndex) == audio_if + 1 ? audio_alt : 0;
             reply(dev, req, buf, 1);
             return 1;
         case USB_REQ_SET_INTERFACE:
             if (recip != USB_RECIP_INTERFACE) return 0;
-            if (req->wValue) stall(dev);
+            if (audio_if && LOBYTE(req->wIndex) == audio_if + 1 && req->wValue <= 1) {
+                ok(dev);
+                stream((u8)req->wValue);
+            } else if (req->wValue) stall(dev);
             else ok(dev);
             return 1;
         }
         return 0;
     }
+    if (type == USB_TYPE_CLASS && recip == USB_RECIP_INTERFACE && audio_if &&
+        LOBYTE(req->wIndex) == audio_if)
+        return audio_request(dev, req);
     if (type == USB_TYPE_CLASS && recip == USB_RECIP_INTERFACE) {
         switch (req->bRequest) {
         case REQ_GET_REPORT:
@@ -390,9 +535,12 @@ void plat_usb_mode(const struct usb_identity *id,
     }
     plat_usb_hold_present(1500);         /* the re-enumeration is not an unplug */
     local_irq_disable();
+    stream(0);
     ident = NULL;
     configured = 0;
     local_irq_enable();
+    plat_audio_off();
+    audio_if = 0;
     usb_device_mode(0, 0);               /* off the bus: the host sees a new device */
     memset(&intr, 0, sizeof(intr));
     memset(&bulk, 0, sizeof(bulk));
@@ -414,6 +562,11 @@ void plat_usb_mode(const struct usb_identity *id,
     if (id->kind == USB_HID_BULK) {
         dma_bulk_in = usb_alloc_ep_dmabuffer(0, EP_BULK | USB_DIR_IN, PACKET);
         dma_bulk_out = usb_alloc_ep_dmabuffer(0, EP_BULK, PACKET);
+    }
+    if (audio_if) {
+        dma_audio = usb_alloc_ep_dmabuffer(0, EP_AUDIO, AUDIO_PACKET + 4);
+        plat_audio_on();
+        plat_audio_volume(volume[0], volume[1], mute);
     }
     usb_set_reset_hander(0, 0, on_reset);
     usb_set_setup_hook(usb_id2device(0), hook);

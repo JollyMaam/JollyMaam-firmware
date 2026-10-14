@@ -13,6 +13,8 @@ const u8 board_line_count = 1;
 const u32 board_keep_pins[] = { PIN_BUTTON };
 const u8 board_keep_count = 1;
 const struct wakeup_param *const board_wakeups = NULL;
+const u8 board_audio = 0;
+const u32 board_amp_enable = 0;
 
 static struct plat_boot boot;
 

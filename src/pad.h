@@ -261,6 +261,7 @@ struct usb_identity {
     u8 interval;                 /* interrupt endpoints, ms */
     u8 in_size, out_size;        /* their packet sizes; out_size 0: no OUT endpoint */
     u8 max_power;                /* 2 mA units */
+    u8 audio;                    /* a USB speaker beside it, on a board with one */
     const u8 *hid_descriptor;
     u16 hid_descriptor_len;
 };

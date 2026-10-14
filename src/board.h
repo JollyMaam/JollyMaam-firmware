@@ -22,6 +22,8 @@ extern const u8 board_line_count;        /* at most 32 */
 extern const u32 board_keep_pins[];      /* left alone at power-off */
 extern const u8 board_keep_count;
 extern const struct wakeup_param *const board_wakeups;   /* NULL: none */
+extern const u8 board_audio;             /* a DAC and headphone amplifier */
+extern const u32 board_amp_enable;       /* the amplifier, on while high */
 
 void board_latch(void);          /* first in board_init: what is held; may enter the loader */
 void board_start(void);          /* on the control thread, before the tick starts */
@@ -41,5 +43,13 @@ void plat_mdelay(u32 ms);                /* busy wait, interrupts may be off */
 void plat_flush_dcache(const void *address, u32 size);
 void plat_enter_loader(void);            /* now, without detaching USB first */
 void plat_pull_up_input(u32 gpio);
+
+/* ---- audio, between the platform's files (platform_jieli_audio.c) --------- */
+
+void plat_audio_on(void);                /* DAC running silent, amplifier off */
+void plat_audio_off(void);               /* amplifier off, then the DAC */
+void plat_audio_stream(int on);          /* the host's stream; from an interrupt */
+void plat_audio_write(const u8 *pcm, u32 len);   /* 48 kHz stereo s16; from an interrupt */
+void plat_audio_volume(u8 left, u8 right, u8 mute);   /* 0 to 100 */
 
 #endif

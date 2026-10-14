@@ -20,7 +20,7 @@
 #define PIN_SENSOR_POWER IO_PORTB_05
 #define PIN_TRIGGER_L2  IO_PORTB_03
 #define PIN_TRIGGER_R2  IO_PORTB_10
-#define PIN_AMP_ENABLE  IO_PORTA_08     /* audio amplifier, on while floating */
+#define PIN_AMP_ENABLE  IO_PORTA_08     /* audio amplifier, also on while floating */
 #define ADC_TRIGGER_L2  AD_CH_PB3
 #define ADC_TRIGGER_R2  AD_CH_PB10
 #define PR_STOP_L2      1
@@ -521,21 +521,18 @@ int board_usb_sense(void)
     return gpio_read(PIN_USB_SENSE);
 }
 
-#ifdef AUDIO_TEST_TONE
-void plat_tone_quiet(void);
-#endif
-
 void plat_power_off(void)
 {
     struct led_frame dark;
 
-#ifdef AUDIO_TEST_TONE
-    plat_tone_quiet();
-#endif
+    plat_audio_off();
     memset(&dark, 0, sizeof(dark));
     plat_leds(&dark);
     power_set_soft_poweroff();
 }
+
+const u8 board_audio = 1;
+const u32 board_amp_enable = PIN_AMP_ENABLE;
 
 const u32 board_keep_pins[] = { PIN_HOME, PIN_M, IO_PORTA_00, IO_PORTA_06, IO_PORTA_07,
                                 IO_PORTA_13, PIN_USB_SENSE };

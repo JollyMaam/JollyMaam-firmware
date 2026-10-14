@@ -38,10 +38,6 @@ extern u32 msd_mcu2usb(const struct usb_device_t *usb_device, const u8 *buffer, 
 extern u32 msd_usb2mcu(const struct usb_device_t *usb_device, u8 *buffer, u32 len);
 extern u8 *get_norflash_uuid(void) __attribute__((weak));
 
-#ifdef AUDIO_TEST_TONE
-void plat_tone_quiet(void);
-#endif
-
 const struct task_info task_info_table[] = {
     {"app_core",  1, 0, 1024, 128 },
     {"ctl",       2, 0, 1024, 0   },
@@ -587,9 +583,7 @@ void plat_enter_loader(void)
  * device. */
 void plat_reboot_loader(void)
 {
-#ifdef AUDIO_TEST_TONE
-    plat_tone_quiet();
-#endif
+    plat_audio_off();
     board_to_loader();
     plat_mdelay(100);
     local_irq_disable();
@@ -605,9 +599,7 @@ void plat_reboot_loader(void)
 
 void plat_reboot(void)
 {
-#ifdef AUDIO_TEST_TONE
-    plat_tone_quiet();
-#endif
+    plat_audio_off();
     p33_soft_reset();
 }
 
@@ -722,105 +714,6 @@ void board_init(void)
     power_set_mode(PWR_LDO15);
 }
 
-#ifdef AUDIO_TEST_TONE
-/* Test build only: a short tune on the DAC at start-up, headphones in mind
- * (low gain).  Settings follow the SDK's br23 demo board and the stock pad's
- * stereo output (docs/audio.md). */
-#include <asm/dac.h>
-#include <math.h>
-
-static struct audio_dac_hdl tone_dac;
-static struct dac_platform_data tone_dac_data = {
-    .output = DAC_OUTPUT_LR, .ldo_volt = DACVDD_LDO_2_70V,
-    .ldo_isel = 3, .ldo_fb_isel = 2, .lpf_isel = 0x8,
-};
-static u8 tone_on;
-static s16 tone_buf[2 * 1024] __attribute__((aligned(4)));
-
-static void tone_write(const s16 *data, u32 frames)
-{
-    while (frames) {
-        u32 room = JL_AUDIO->DAC_SWN, swp = JL_AUDIO->DAC_SWP, n;
-
-        if (swp + room > JL_AUDIO->DAC_LEN) room = JL_AUDIO->DAC_LEN - swp;
-        n = frames < room ? frames : room;
-        if (!n) {
-            os_time_dly(1);
-            continue;
-        }
-        memcpy((s16 *)JL_AUDIO->DAC_ADR + swp * 2, data, n * 4);
-        JL_AUDIO->DAC_SWN = n;
-        __asm_csync();
-        data += n * 2;
-        frames -= n;
-    }
-}
-
-static void tone_play(float hz, u32 ms, s16 amplitude)
-{
-    static s16 chunk[2 * 128];
-    static float phase;
-    u32 total = 48 * ms, i;
-
-    while (total) {
-        u32 n = total < 128 ? total : 128;
-
-        for (i = 0; i < n; i++) {
-            s16 v = hz ? (s16)(amplitude * sinf(phase)) : 0;
-
-            chunk[2 * i] = chunk[2 * i + 1] = v;
-            phase += 2 * 3.14159265f * hz / 48000;
-            if (phase > 2 * 3.14159265f) phase -= 2 * 3.14159265f;
-        }
-        tone_write(chunk, n);
-        total -= n;
-    }
-}
-
-/* Amplifier off before the DAC, so a reset does not pop. */
-void plat_tone_quiet(void)
-{
-    if (!tone_on) return;
-    tone_on = 0;
-    gpio_direction_output(IO_PORTA_08, 0);
-    plat_mdelay(50);
-    audio_dac_stop(&tone_dac);
-    audio_dac_close(&tone_dac);
-}
-
-static void tone_test(void)
-{
-    static const u16 notes[] = { 523, 659, 784, 1047, 0, 784, 1047 };
-    struct audio_dac_trim trim = {0};
-    u32 i;
-
-    gpio_set_pull_up(IO_PORTA_08, 0);
-    gpio_set_pull_down(IO_PORTA_08, 0);
-    gpio_direction_output(IO_PORTA_08, 0);          /* amplifier enable */
-    audio_dac_init(&tone_dac, &tone_dac_data);
-    audio_dac_set_buff(&tone_dac, tone_buf, sizeof(tone_buf));
-    audio_dac_do_trim(&tone_dac, &trim, 0);
-    audio_dac_set_trim_value(&tone_dac, &trim);
-    audio_dac_set_delay_time(&tone_dac, 1, 2);
-    audio_dac_set_sample_rate(&tone_dac, 48000);
-    audio_dac_start(&tone_dac);
-    JL_AUDIO->DAC_CON |= BIT(6) | BIT(5);
-    os_time_dly(5);
-    audio_dac_ch_analog_gain_set(&tone_dac, 0x3, 12);
-    audio_dac_ch_digital_gain_set(&tone_dac, 0x3, 16384);
-    JL_AUDIO->DAC_CON &= ~(BIT(12) | BIT(13) | BIT(14) | BIT(15));
-    tone_play(0, 300, 0);                           /* the DAC settles, then the amplifier */
-    gpio_direction_output(IO_PORTA_08, 1);
-    tone_on = 1;
-    tone_play(0, 100, 0);
-    util_log("tone: dac ch %u trim %d %d con %08x", tone_dac.channel, trim.left, trim.right,
-             JL_AUDIO->DAC_CON);
-    for (i = 0; i < sizeof(notes) / sizeof(notes[0]); i++) tone_play(notes[i], 180, 6000);
-    tone_play(0, 100, 0);
-    plat_tone_quiet();
-    util_log("tone: done, off");
-}
-#endif
 
 static void ctl_thread(void *arg)
 {
@@ -833,9 +726,6 @@ static void ctl_thread(void *arg)
     board_start();
     usb_init();
     tick_start();
-#ifdef AUDIO_TEST_TONE
-    tone_test();
-#endif
     util_log("tick: timer3 at %08x con %08x prd %u", (u32)JL_TIMER3, JL_TIMER3->CON, JL_TIMER3->PRD);
     ctl_main();
 }

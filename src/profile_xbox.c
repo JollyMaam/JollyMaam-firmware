@@ -327,6 +327,7 @@ static const struct usb_identity x360_usb = {
     .vendor_id = 0x045e, .product_id = 0x028e, .bcd_device = 0x0114,
     .manufacturer = "\xa9Microsoft Corporation", .product = "Controller", .serial = "08FEC93",
     .kind = USB_XINPUT, .interval = 1, .in_size = 32, .out_size = 32, .max_power = 250,
+    .audio = 1,
 };
 
 const struct profile profile_xbox = {
