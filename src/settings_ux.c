@@ -3,7 +3,7 @@
 /* Fixed M shortcuts, timeouts and LED scenes. */
 
 const struct ux_timeouts ux_timeouts = {
-    .m_grace_ms = 150,          /* wait for an M chord before sending M alone */
+    .m_grace_ms = 250,          /* wait for an M chord before sending M alone */
     .tap_ms = 60,               /* minimum synthesized down after its first report handoff */
     .connect_ms = 30000,
     .pair_ms = 180000,
@@ -51,7 +51,7 @@ const struct led_scene ux_scenes[CTL_KIND_COUNT] = {
 /* Temporary development indication. Set enabled to 0 once power transitions
  * are proven on the physical pad. Independent of slot and normal scenes. */
 const struct ux_power_debug ux_power_debug = {
-    .enabled = 1, .wake_ms = 1000, .sleep_ms = 1000,
+    .enabled = 0, .wake_ms = 500, .sleep_ms = 500,
     .wake_colour = {0, 12, 0}, .sleep_colour = {12, 0, 0},
 };
 
