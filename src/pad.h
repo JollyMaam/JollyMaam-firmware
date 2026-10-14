@@ -399,7 +399,6 @@ void led_reach(u8 reach[2], const struct pad *pad);
 struct ux_timeouts {
     u16 m_grace_ms;
     u16 tap_ms;
-    u16 wake_chord_ms;
     u32 connect_ms;
     u32 pair_ms;
     u32 idle_sleep_ms;
@@ -424,8 +423,9 @@ extern const struct ux_timeouts ux_timeouts;
 extern const struct ux_colours ux_colours;
 extern const struct led_scene ux_scenes[CTL_KIND_COUNT];
 
-/* Fixed physical M chords consume their keys until release. On boot, slot
- * connects are immediate for wake_chord_ms; pairing still needs 5 seconds.
+/* Fixed physical M chords consume their keys until release. Slot connects
+ * are immediate while disconnected/connecting and need 1.5 seconds while
+ * connected. Pairing still needs 5 seconds.
  * A short M tap survives until its down report leaves the BT slot, then
  * stays down tap_ms. ux_reported is the controller acknowledging that handoff. */
 struct ctl_request ux_step(struct pad *pad, u32 now, u8 state);

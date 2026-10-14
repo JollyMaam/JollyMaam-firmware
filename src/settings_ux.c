@@ -5,7 +5,6 @@
 const struct ux_timeouts ux_timeouts = {
     .m_grace_ms = 150,          /* wait for an M chord before sending M alone */
     .tap_ms = 60,               /* minimum synthesized down after its first report handoff */
-    .wake_chord_ms = 1000,      /* initial wake: M+slot connects without a hold */
     .connect_ms = 30000,
     .pair_ms = 180000,
     .idle_sleep_ms = 300000,     /* connected, no input, on battery */
@@ -84,8 +83,8 @@ static void show(struct pad *p, u32 keys)
  * it until release. */
 static struct {
     u32 started, chord_at, keys, captured, tap, tap_release_at, done;
-    u32 home_at, boot_at;
-    u8 active, live, chorded, fired, draining, wake_connect;
+    u32 home_at;
+    u8 active, live, chorded, fired, draining;
     u8 tap_reported, home_down, home_fired, home_ignore;
 } ux;
 
@@ -105,9 +104,8 @@ struct ctl_request ux_step(struct pad *p, u32 now, u8 state)
     struct ctl_request r = request(REQ_NONE, SLOT_NONE);
     u32 keys = held(p), modifier = PAD_M, i, output = keys;
     int home = (keys & PAD_HOME) != 0;
-    int waking;
-    if (ux.wake_connect && now - ux.boot_at >= ux_timeouts.wake_chord_ms) ux.wake_connect = 0;
-    waking = ux.wake_connect;
+    int disconnected = state == CTL_BOOT || state == CTL_IDLE || state == CTL_CONNECTING ||
+                       state == CTL_PAIRING || state == CTL_STOPPING;
 
     /* Home remains a normal host key. Offline, a tap connects the last slot;
      * a five-second hold powers off. Boot wake is handled by ux_boot(). */
@@ -149,13 +147,13 @@ struct ctl_request ux_step(struct pad *p, u32 now, u8 state)
                 }
                 ux.active = 0;
                 ux.draining = (keys & ux.captured) != 0;
-            } else if (!ux.live || keys_to_host || waking) {
+            } else if (!ux.live || keys_to_host || disconnected) {
                 if (ux.chorded && keys != ux.keys) {
                     ux.active = 0;
                     ux.draining = 1;
                     ux.captured |= keys;
                 } else {
-                    if (!ux.chorded && (keys_to_host || waking || now == ux.started ||
+                    if (!ux.chorded && (keys_to_host || disconnected || now == ux.started ||
                                         now - ux.started < ux_timeouts.m_grace_ms)) {
                         for (i = 0; i < GESTURES; i++) {
                             const struct gesture *g = &gestures[i];
@@ -173,7 +171,7 @@ struct ctl_request ux_step(struct pad *p, u32 now, u8 state)
                     if (ux.chorded) for (i = 0; i < GESTURES; i++) {
                         const struct gesture *g = &gestures[i];
                         u32 hold_ms = g->hold_ms;
-                        if (g->request == REQ_CONNECT && waking)
+                        if (g->request == REQ_CONNECT && disconnected)
                             hold_ms = 0;
                         if ((ux.done & (1u << i)) || !g->request || g->keys != keys || now - ux.chord_at < hold_ms) continue;
                         ux.done |= 1u << i;
@@ -231,8 +229,6 @@ struct ctl_request ux_boot(u16 buttons, u8 hat, u32 now)
 {
     struct pad p = {0};
     struct ctl_request r;
-    ux.boot_at = now;
-    ux.wake_connect = 1;
     ux.home_ignore = (buttons & PAD_HOME) != 0;
     p.buttons = buttons;
     p.hat = hat;
@@ -262,7 +258,7 @@ static void reset(u8 next_state)
 int main(void)
 {
     u32 i;
-    reset(CTL_CONNECTED); pad.buttons = PAD_M; run(150);
+    reset(CTL_CONNECTED); pad.buttons = PAD_M; run(ux_timeouts.m_grace_ms);
     CHECK(!seen.buttons); run(1); CHECK(seen.buttons == PAD_M);
     pad.buttons |= PAD_A; run(2000); CHECK(last.kind == REQ_NONE);
 
@@ -293,12 +289,12 @@ int main(void)
     reset(CTL_CONNECTED); pad.buttons = PAD_M | PAD_B; run(100); pad.buttons |= PAD_A; run(6000);
     CHECK(last.kind == REQ_NONE && !seen.buttons);
     pad.buttons = 0; run(100); CHECK(!seen.buttons && !ux.tap);
-    reset(CTL_CONNECTED); pad.buttons = PAD_M | PAD_L1; run(150);
+    reset(CTL_CONNECTED); pad.buttons = PAD_M | PAD_L1; run(ux_timeouts.m_grace_ms);
     CHECK(seen.buttons == PAD_L1 && !ux.chorded); run(1); CHECK(seen.buttons == pad.buttons);
     reset(CTL_CONNECTED); pad.buttons = PAD_M; run(1);
-    now += 150; pad.buttons |= PAD_B; run(1);
+    now += ux_timeouts.m_grace_ms; pad.buttons |= PAD_B; run(1);
     CHECK(seen.buttons == pad.buttons && !ux.chorded);
-    reset(CTL_CONNECTED); now = 0xffffffc0u; pad.buttons = PAD_M; run(151); CHECK(seen.buttons == PAD_M);
+    reset(CTL_CONNECTED); now = 0xffffffc0u; pad.buttons = PAD_M; run(ux_timeouts.m_grace_ms + 1); CHECK(seen.buttons == PAD_M);
     reset(CTL_BOOT); ux_ignore_held(); pad.buttons = PAD_HOME | PAD_M | PAD_B; run(6000);
     CHECK(last.kind == REQ_NONE && !seen.buttons);
 
@@ -319,9 +315,21 @@ int main(void)
     reset(CTL_BOOT); ux_boot(PAD_M, HAT_NEUTRAL, now);
     pad.buttons = PAD_M; run(300); pad.buttons |= PAD_B; run(1);
     CHECK(last.kind == REQ_CONNECT && last.slot == 1 && !seen.buttons); /* after grace, still waking */
-    reset(CTL_BOOT); ux_boot(0, HAT_NEUTRAL, now); run(ux_timeouts.wake_chord_ms);
-    pad.buttons = PAD_M | PAD_B; run(1); CHECK(last.kind == REQ_NONE);
-    run(1500); CHECK(last.kind == REQ_CONNECT);
+    /* Disconnected slot selection has no wake-time expiry. It also works
+     * after M's grace, since there is no connected host receiving M. */
+    for (i = CTL_BOOT; i <= CTL_STOPPING; i++) {
+        if (i == CTL_CONNECTED) continue;
+        reset((u8)i); run(5000);
+        pad.buttons = PAD_M; run(ux_timeouts.m_grace_ms + 100);
+        pad.buttons |= PAD_B; run(1);
+        CHECK(last.kind == REQ_CONNECT && last.slot == 1 && !seen.buttons);
+        state = CTL_CONNECTED; run(1); CHECK(last.kind == REQ_NONE);
+        run(4999); CHECK(last.kind == REQ_PAIR && last.slot == 1);
+    }
+    /* A normal connected press still waits 1.5 seconds, even just after boot. */
+    reset(CTL_BOOT); ux_boot(0, HAT_NEUTRAL, now); state = CTL_CONNECTED;
+    pad.buttons = PAD_M | PAD_B; run(1500); CHECK(last.kind == REQ_NONE);
+    run(1); CHECK(last.kind == REQ_CONNECT);
     reset(CTL_IDLE); pad.buttons = PAD_HOME; run(1); pad.buttons = 0; run(1);
     CHECK(last.kind == REQ_CONNECT && last.slot == SLOT_LAST);
     reset(CTL_IDLE); pad.buttons = PAD_M; run(10); pad.buttons = 0; run(1);
