@@ -17,6 +17,20 @@ const struct ux_timeouts ux_timeouts = {
     .usb_plug_ms = 1000,
 };
 
+/* Idle may sleep only after both the offline and unplug waits. Scheduling
+ * either earlier deadline after it has expired would spin the control loop
+ * while the other condition still prevents sleep, starving the SDK idle task. */
+u32 ux_idle_deadline(u32 idle_since, u32 activity_ms, u32 usb_seen_ms,
+                     int usb_powered, int ephemeral)
+{
+    u32 offline, unplug;
+    if (usb_powered) return 0;
+    if (ephemeral) return activity_ms + ux_timeouts.idle_sleep_ms;
+    offline = idle_since + ux_timeouts.offline_sleep_ms;
+    unplug = usb_seen_ms + ux_timeouts.unplug_sleep_ms;
+    return (s32)(offline - unplug) > 0 ? offline : unplug;
+}
+
 /* Palette entries 0 and 1 are these roles (settings.c); the brightness is here. */
 const struct ux_colours ux_colours = {
     .idle = { 0, 5 },
@@ -258,6 +272,15 @@ static void reset(u8 next_state)
 int main(void)
 {
     u32 i;
+    /* Long USB idle: no expired sleep deadline while attached; after unplug
+     * wait the complete five seconds, even if offline wait already expired. */
+    CHECK(ux_idle_deadline(1000, 1000, 100000, 1, 0) == 0);
+    CHECK(ux_idle_deadline(1000, 1000, 100000, 0, 0) == 105000);
+    CHECK(ux_idle_deadline(100000, 100000, 100000, 0, 0) == 115000);
+    CHECK(ux_idle_deadline(1000, 20000, 100000, 0, 1) == 320000);
+    CHECK(ux_idle_deadline(1000, 20000, 100000, 1, 1) == 0);
+    CHECK(ux_idle_deadline(0xfffffff0u, 0, 0xfffffff0u, 0, 0) == 14984);
+    CHECK(ux_idle_deadline(0xffff0000u, 0, 0xfffffff0u, 0, 0) == 4984);
     reset(CTL_CONNECTED); pad.buttons = PAD_M; run(ux_timeouts.m_grace_ms);
     CHECK(!seen.buttons); run(1); CHECK(seen.buttons == PAD_M);
     pad.buttons |= PAD_A; run(2000); CHECK(last.kind == REQ_NONE);

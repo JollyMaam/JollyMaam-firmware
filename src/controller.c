@@ -315,6 +315,12 @@ static void bt_event(const struct bt_ev *e, u32 now)
     }
 }
 
+static u32 idle_deadline(void)
+{
+    return ux_idle_deadline(c.since, c.activity_ms, c.usb_absent_ms,
+                            c.usb_powered, set_is_ephemeral());
+}
+
 static void timeouts(u32 now)
 {
     struct ctl_request none = { REQ_NONE, SLOT_NONE, 0 };
@@ -328,14 +334,11 @@ static void timeouts(u32 now)
         else if (t >= (c.uboot_chord ? ux_timeouts.uboot_window_ms : ux_timeouts.boot_scene_ms))
             become(CTL_IDLE, now);
         break;
-    case CTL_IDLE:
-        /* Ephemeral: a sleep ends the test, so the idle wait is as long as
-         * when connected. */
-        if (battery && (set_is_ephemeral() ? now - c.activity_ms >= ux_timeouts.idle_sleep_ms :
-                        t >= ux_timeouts.offline_sleep_ms &&
-                        now - c.usb_absent_ms >= ux_timeouts.unplug_sleep_ms))
-            shut_down(CTL_SLEEPING, now);
+    case CTL_IDLE: {
+        u32 at = idle_deadline();
+        if (at && (s32)(now - at) >= 0) shut_down(CTL_SLEEPING, now);
         break;
+    }
     case CTL_CONNECTING:
         if (t >= ux_timeouts.connect_ms) stop(none, now);
         else if (c.waking) {
@@ -378,8 +381,7 @@ static u32 state_deadline(void)
 {
     switch (c.kind) {
     case CTL_BOOT: return c.since + (c.uboot_chord ? ux_timeouts.uboot_window_ms : ux_timeouts.boot_scene_ms);
-    case CTL_IDLE: return set_is_ephemeral() ? c.activity_ms + ux_timeouts.idle_sleep_ms
-                                             : c.since + ux_timeouts.offline_sleep_ms;
+    case CTL_IDLE: return idle_deadline();
     case CTL_CONNECTING: if (c.waking) return c.wake_next;
         return c.retry_at ? c.retry_at : c.since + ux_timeouts.connect_ms;
     case CTL_PAIRING: return c.since + ux_timeouts.pair_ms;

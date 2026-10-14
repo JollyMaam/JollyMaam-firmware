@@ -430,6 +430,11 @@ extern const struct led_scene ux_scenes[CTL_KIND_COUNT];
  * stays down tap_ms. ux_reported is the controller acknowledging that handoff. */
 struct ctl_request ux_step(struct pad *pad, u32 now, u8 state);
 void ux_reported(u32 now);
+/* Earliest permitted idle power-off: 0 while USB powered, otherwise the
+ * later of offline/unplug waits (or the longer ephemeral inactivity wait).
+ * The controller uses this for both its sleep decision and wake deadline. */
+u32 ux_idle_deadline(u32 idle_since, u32 activity_ms, u32 usb_seen_ms,
+                     int usb_powered, int ephemeral);
 u32 ux_deadline(void);                      /* when ux_step may next fire a hold, 0: none */
 void ux_ignore_held(void);
 struct ctl_request ux_boot(u16 buttons, u8 hat, u32 now);
