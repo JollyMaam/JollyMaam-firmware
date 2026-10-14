@@ -160,4 +160,5 @@ SDK_ARCHIVES_MINIMAL := \
 	$(SDK)/cpu/br23/liba/cpu.a \
 	$(SDK)/cpu/br23/liba/system.a \
 	$(SDK)/cpu/br23/liba/update.a \
+	$(SDK)/cpu/br23/liba/media.a \
 

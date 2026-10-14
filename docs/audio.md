@@ -17,6 +17,9 @@ measurements of the board. The PCB and jack wiring are not established.
 | Headset detect | PA12 | SAR ADC channel 4 (`AD_CH_PA12`) |
 | Microphone input | PC6 | configured as analog input for capture |
 
+With the DAC in stereo mode (`DAC_OUTPUT_LR`) and PA8 high, DAC output is
+audible on headphones in the pad's jack.
+
 The amplifier enable is sequenced by stock firmware: it is set after a delay
 following the enable request, and cleared immediately on disable. The delay's
 time base is not established.
