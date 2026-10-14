@@ -212,7 +212,7 @@ static const struct led_scene connecting = {
     COLOUR_CONNECT, LED_BLINK(500, 500), BAR_ALL, LED_BLINK(500, 500), GRIPS_WAVE, LED_OFF,
 };
 static const struct led_scene stopping = {
-    COLOUR_CONNECT, LED_OFF, BAR_SLOT, LED_SOLID, GRIPS_WAVE, LED_OFF,
+    COLOUR_CONNECT, LED_OFF, BAR_ALL, LED_OFF, GRIPS_WAVE, LED_OFF,
 };
 static const struct led_scene connected = {
     COLOUR_PRIMARY, LED_SOLID, BAR_PLAYER, LED_SOLID, GRIPS_SLOT_SETTING, LED_OFF,
@@ -250,9 +250,10 @@ int main(void)
     CHECK(same(f.light[LIGHT_HOME], dark) && same(f.light[LIGHT_P0], dark));
 
     s.scene = CTL_STOPPING;
-    s.slot = 5;   /* down: all bar lights but the second */
+    s.slot = 5;   /* disconnecting must not show the slot on the player bar */
     led_frame(&stopping, &s, 1100, &in, &f);
-    CHECK(same(f.light[LIGHT_P1], dark) && same(f.light[LIGHT_P0], red));
+    CHECK(same(f.light[LIGHT_P0], dark) && same(f.light[LIGHT_P1], dark) &&
+          same(f.light[LIGHT_P2], dark) && same(f.light[LIGHT_P3], dark));
 
     s.scene = CTL_CONNECTED;
     s.slot = 0;
