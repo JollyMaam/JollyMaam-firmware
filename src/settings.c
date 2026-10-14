@@ -856,6 +856,38 @@ int main(void)
     set_slot_address(0, b);
     CHECK(!memcmp(a, b, 6));
 
+    /* Through the dongle the host stays when the type changes; moving to or
+     * from the dongle is a new host.  A dongle slot's address ignores its type. */
+    x = TRANSPORT_DONGLE;
+    CHECK(write1(1, ID_TRANSPORT, 1, &x) == SET_OK);
+    set_apply();
+    set_bond_store(1, &bond);
+    set_slot_address(1, a);
+    x = PROFILE_DUALSENSE;
+    CHECK(write1(1, ID_TYPE, 1, &x) == SET_OK);
+    set_apply();
+    set_slot_address(1, b);
+    CHECK(set_bond(1)->peer[0] == 0x11 && !memcmp(a, b, 6));
+    x = TRANSPORT_USB;
+    CHECK(write1(1, ID_TRANSPORT, 1, &x) == SET_OK);
+    set_apply();
+    CHECK(set_bond(1)->peer[0] == 0);
+    reset_keeping_pairing(1);
+    clear(1, ID_ADDRESS);
+    {
+        u8 d1[6], d2[6];
+
+        slots[1].transport = TRANSPORT_DONGLE;
+        slots[1].type = PROFILE_SWITCH;
+        set_slot_address(1, d1);
+        slots[1].type = PROFILE_XBOX;
+        set_slot_address(1, d2);
+        CHECK(!memcmp(d1, d2, 6));
+        slots[1].transport = TRANSPORT_BT;
+        set_slot_address(1, d2);
+        CHECK(memcmp(d1, d2, 6));
+    }
+
     /* Palette and colours. */
     CHECK(write1(TARGET_PALETTE, 5, 3, "\x10\x20\x30") == SET_OK);
     CHECK(write1(0, 2, 2, &col) == SET_OK);

@@ -3,7 +3,9 @@
 
     padtool [--board pad|dongle] find    devices running this firmware
     padtool --board dongle target ADDR  dongle: page this device (e.g. our pad in pairing)
-    padtool --board dongle pair   dongle: forget its bond and listen for pairing
+    padtool --board dongle pair   dongle: forget its bond and pair with a pad
+                                  whose dongle slot is pairing (30 s), as a
+                                  long press of its button does
     padtool identify | status     what the pad reports
     padtool log [-f]              the pad's log (-f: follow)
     padtool stats [-w SECONDS] [--reset]   loop timing and counters (-w: every N s)

@@ -577,6 +577,24 @@ int main(void)
     host(0, &h);
     CHECK(h.rumble[0] == 22 && h.rumble[1] == 11 && h.lightbar[2] == 3);
     CHECK(read(BT_WRITE_FEATURE, 0x02, 0, r, 37) == 37 && r[6] == (8000 & 0xff));
+    /* Wired: report 0x01 is the state block alone; output and features
+     * without the Bluetooth header and CRC. */
+    s.usb = 1;
+    begin_ds4(&s);
+    p.buttons = PAD_B;
+    p.lx = STICK_MAX;
+    CHECK(report(&p, 0, r, &id) == USB_STATE_SIZE && id == USB_STATE);
+    CHECK(r[0] == 0xff && r[4] == (HAT_NEUTRAL | 0x40) && r[29] == 0x1b);
+    memset(&w, 0, sizeof(w));
+    w.kind = BT_WRITE_OUTPUT; w.id = DS4_USB_OUTPUT; w.len = 31;
+    w.data[0] = 0x03; w.data[3] = 5; w.data[4] = 6; w.data[5] = 7;
+    write(&w, 0, 0);
+    host(0, &h);
+    CHECK(h.rumble[0] == 6 && h.rumble[1] == 5 && h.lightbar[0] == 7);
+    CHECK(read(BT_WRITE_FEATURE, 0x12, 0, r, 15) == 15 && r[0] == 1 && r[5] == 6);
+    begin_ds(&s);
+    CHECK(report(&p, 0, r, &id) == USB_STATE_SIZE && id == USB_STATE && r[52] == 0x2a);
+    CHECK(read(BT_WRITE_FEATURE, 0x05, 0, r, 40) == 40 && r[39] == 0);      /* no CRC */
     return TEST_DONE("profile_playstation");
 }
 #endif

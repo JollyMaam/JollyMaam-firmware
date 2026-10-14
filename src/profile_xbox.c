@@ -383,6 +383,26 @@ int main(void)
     CHECK(out[15] == 1 && out[13] == 0);
     CHECK(read(BT_WRITE_ATT, BLE_BATTERY, 0, out, 64) == 1 && out[0] == 100);
     CHECK(att_db[0] == 1 && sizeof(att_db) == 718);
+    /* Wired: the Xbox 360 report, y up; rumble and the ring of lights. */
+    s.usb = 1;
+    begin_classic(&s);
+    memset(&p, 0, sizeof(p));
+    p.hat = HAT_UP_LEFT;
+    p.buttons = PAD_A | PAD_HOME | PAD_START;
+    p.ly = -32768;
+    p.l2 = 65535;
+    CHECK(report(&p, 0, out, &id) == X360_SIZE && id == 0 && out[0] == 0 && out[1] == X360_SIZE);
+    CHECK(out[2] == (0x05 | 0x10) && out[3] == (0x10 | 0x04) && out[4] == 0xff);
+    CHECK(out[8] == 0xff && out[9] == 0x7f);
+    CHECK(report(&p, 1, out, &id) == 0);                    /* unchanged */
+    memset(&w, 0, sizeof(w));
+    w.kind = BT_WRITE_OUTPUT; w.len = 8;
+    w.data[1] = 0x08; w.data[3] = 200; w.data[4] = 100;
+    write(&w, 0, 0);
+    w.len = 3; w.data[0] = 0x01; w.data[1] = 0x03; w.data[2] = 0x07;   /* player 2, on */
+    write(&w, 0, 0);
+    host(0, &h);
+    CHECK(h.rumble[0] == 200 && h.rumble[1] == 100 && h.has_players && h.players == 0x3);
     return TEST_DONE("profile_xbox");
 }
 #endif

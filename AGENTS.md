@@ -25,8 +25,13 @@ controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`)
   does the work for what happened. It does not run on a period. The controller
   owns every decision and the pad's state.
 - **Mostly stateless modules.** Modules do not call each other, except that a
-  profile may send to the host (`bt_send_message`) and `bt.c` asks the running
-  profile to answer a host read.
+  profile may send to the host (`host_send`, over the session's transport) and
+  `bt.c` or the platform's USB asks the running profile to answer a host read.
+- **Transports.** A slot's `transport` is Bluetooth, USB (the profile's
+  `struct usb_identity`, built by `platform_jieli_usb.c`), USB while a USB host
+  is there, or our dongle.  A profile builds the USB formats when
+  `profile_session.usb` is set.  The dongle runs the same profiles on its USB
+  port from the pad's state (`link.h`, `profile_link.c`, `dongle*.c`).
 - **Two threads.** Control runs `ctl_main` and every module except `bt.c`.
   Bluetooth runs BTstack, `bt.c` and the profiles' `read()`. Control to
   Bluetooth: the input slot and the message queue. Bluetooth to control: the
@@ -57,7 +62,17 @@ controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`)
 size, code limit, PID) are at the top of the `Makefile`.
 
 `tools/padtool.py` talks to the running firmware over USB vendor commands
-(`padtool --help`). `padtool --dongle` does the same for the dongle.
+(`padtool --help`). `padtool --dongle` does the same for the dongle.  While a
+pad or dongle is a game controller on USB, the vendor commands are gone:
+`padtool tool` (feature report 0xf5 through hidraw, HID personalities only)
+or ending the session brings the tool device back.  A test build that ends
+USB sessions by itself: `make BOARD_DEFINES_pad=-DUSB_SESSION_TEST_MS=12000`
+(touch `src/controller.c` first).
+
+`tools/sdlpad.c` shows what SDL makes of the gamepads it sees (build line at
+its top).  In this container SDL needs the nodes from `/dev/bwrap` under
+`/dev/input` and `/dev`: `SDL_JOYSTICK_DISABLE_UDEV=1 unshare -rm
+tools/withdev.sh build/host/sdlpad 5`.
 
 Recovering a pad that does not enumerate: hold Home and Start while plugging in
 USB (ROM loader, `UBOOT1.00`), then `make pad-flash`. For the dongle, hold its

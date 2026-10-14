@@ -1204,6 +1204,39 @@ int main(void)
         CHECK(s2_advertising(&bond, 0, 0, adv) == 31 && adv[16] == 0);
         CHECK(s2_advertising(&bond, 1, 1, adv) == 31 && adv[17] == 0);
     }
+    {   /* Wired Pro Controller: 63-byte reports, the 0x80 handshake */
+        struct profile_session su = { 0, 0, { 1, 2, 3, 4, 5, 6 }, 0, 0, 1 };
+
+        begin(&su);
+        memset(&p, 0, sizeof(p));
+        p.hat = HAT_NEUTRAL;
+        CHECK(report(&p, 0, out, &id) == USB_SIZE && id == REPORT_FULL && out[1] == 0x81);
+        memset(&w, 0, sizeof(w));
+        w.kind = BT_WRITE_OUTPUT; w.id = OUT_USB; w.len = 1; w.data[0] = 0x01;
+        write(&w, 0, 0);
+        CHECK(sent[0] == REPORT_USB && sent_len == USB_SIZE && sent[1] == 0x01 && sent[3] == 0x03);
+        CHECK(sent[4] == 6 && sent[9] == 1);                   /* address, big-endian */
+        sent_len = 0;
+        w.data[0] = 0x04;                                     /* HID only: no answer */
+        write(&w, 0, 0);
+        CHECK(!sent_len);
+        w.id = OUT_SUBCMD; w.len = 11; w.data[9] = 0x02;
+        write(&w, 0, 0);
+        CHECK(sent[0] == REPORT_REPLY && sent_len == USB_SIZE);
+
+        /* Switch 2: the bulk command pipe and SDL's report layout */
+        s2_begin(&su);
+        memset(&w, 0, sizeof(w));
+        w.kind = BT_WRITE_BULK; w.len = 16;
+        w.data[0] = 0x02; w.data[1] = 0x91; w.data[3] = 0x01; w.data[5] = 0x08;
+        w.data[12] = 0x80; w.data[13] = 0x30; w.data[14] = 0x01;        /* 0x13080 */
+        s2_write(&w, 0, NULL);
+        CHECK(sent_len == 8 + 0x48 && sent[1] == 0x02 && sent[2] == 0x01 && sent[1 + 0x10] == 0x01);
+        p.buttons = PAD_A | PAD_HOME;
+        p.hat = HAT_DOWN;
+        CHECK(s2_any_report(&p, 0, out, &id) == S2_USB_SIZE && id == S2_USB_REPORT);
+        CHECK(out[4] == 0x04 && out[5] == 0x10 && out[6] == 0x01);
+    }
     return TEST_DONE("profile_switch");
 }
 #endif
