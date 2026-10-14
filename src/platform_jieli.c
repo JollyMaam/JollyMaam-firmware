@@ -524,28 +524,41 @@ void plat_usb_service(void)
     USB_MassStorage(dev);
 }
 
+static u32 sof_seen_ms;
+
 int plat_usb_present(void)
 {
     static u16 frame;
-    static u32 seen_ms;
     static u8 started;
     u16 f = usb_read_sofframe(USB0);
 
     if (!started) {
         started = 1;
         frame = f;
-        seen_ms = ms_now - USB_SOF_STALE_MS;
+        sof_seen_ms = ms_now - USB_SOF_STALE_MS;
     } else if (f != frame) {
         frame = f;
-        seen_ms = ms_now;
+        if ((s32)(ms_now - sof_seen_ms) > 0) sof_seen_ms = ms_now;
     }
-    return ms_now - seen_ms < USB_SOF_STALE_MS;
+    return (s32)(ms_now - sof_seen_ms) < USB_SOF_STALE_MS;
+}
+
+/* A re-enumeration (platform_jieli_usb.c) stops the frames for a while:
+ * a host that was there counts as there. */
+void plat_usb_hold_present(u32 ms)
+{
+    if (plat_usb_present()) sof_seen_ms = ms_now + ms;
+}
+
+void plat_usb_tool_mode(void)
+{
+    usb_device_mode(0, MASSSTORAGE_CLASS);
+    msd_set_wakeup_handle(usb_wakeup);
 }
 
 static void usb_init(void)
 {
-    usb_device_mode(0, MASSSTORAGE_CLASS);
-    msd_set_wakeup_handle(usb_wakeup);
+    plat_usb_tool_mode();
 }
 
 /* ---- power ---------------------------------------------------------------- */

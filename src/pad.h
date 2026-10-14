@@ -171,8 +171,11 @@ struct bt_device {
     u16 interval_min, interval_max;
 };
 
+/* A host write, from Bluetooth or USB: an output or feature report (id: its
+ * report id, data without it), an ATT write (id: the handle), or a USB bulk
+ * transfer (Switch 2's command pipe). */
 #define BT_WRITE_MAX 96
-enum { BT_WRITE_OUTPUT, BT_WRITE_FEATURE, BT_WRITE_ATT };
+enum { BT_WRITE_OUTPUT, BT_WRITE_FEATURE, BT_WRITE_ATT, BT_WRITE_BULK };
 struct bt_write {
     u8 kind;
     u16 id;
@@ -235,6 +238,7 @@ struct profile_session {
     u8 address[6];
     const struct bt_bond *bond;
     const struct set_slot *settings;
+    u8 usb;                      /* the session is a wired one: USB report formats */
 };
 
 struct profile_host {
@@ -246,9 +250,25 @@ struct profile_host {
     u8 ended;                    /* host ended this session: stop locally */
 };
 
+/* A profile that can be a wired controller too describes its USB device; the
+ * platform builds the descriptors from it.  kind: the interfaces it has. */
+enum { USB_HID, USB_XINPUT, USB_HID_BULK };
+struct usb_identity {
+    u16 vendor_id, product_id, bcd_device;
+    const char *manufacturer, *product, *serial;   /* ASCII; NULL: none */
+    u8 kind;
+    u8 report_ids;               /* HID: the first byte each way is the report id */
+    u8 interval;                 /* interrupt endpoints, ms */
+    u8 in_size, out_size;        /* their packet sizes; out_size 0: no OUT endpoint */
+    u8 max_power;                /* 2 mA units */
+    const u8 *hid_descriptor;
+    u16 hid_descriptor_len;
+};
+
 struct profile {
     const char *name;
     const struct bt_device *device;
+    const struct usb_identity *usb;    /* NULL: Bluetooth only */
     u8 (*begin)(const struct profile_session *s);
     void (*end)(void);
     int (*report)(const struct pad *pad, u32 now, u8 *out, u8 *id);
@@ -257,6 +277,13 @@ struct profile {
     int (*read)(u8 kind, u16 id, u16 offset, u8 *out, u16 max);
     const struct profile_wake *wake;   /* before connecting a bonded slot */
 };
+
+/* A profile's message to the host (a reply, a separate report), over the
+ * session's transport, never dropped while there is room.  HOST_BULK in id:
+ * USB bulk IN (Switch 2's command pipe).  The pad's controller.c and the
+ * dongle's dongle.c each have one. */
+#define HOST_BULK 0x8000
+int host_send(u16 id, const u8 *data, u16 len);
 
 /* Runs before bt_start() with the radio otherwise quiet. */
 struct profile_wake {
@@ -267,13 +294,18 @@ struct profile_wake {
 
 extern const struct profile profile_switch, profile_switch2, profile_xbox, profile_xbox_ble;
 extern const struct profile profile_dualsense, profile_dualshock4, profile_generic, profile_mouse,
-    profile_generic_ble, profile_dongle;
+    profile_generic_ble, profile_link;
 extern const struct profile_wake profile_switch_wake;
 
 /* ---- settings.c --------------------------------------------------------- */
 
 enum { PROFILE_SWITCH, PROFILE_SWITCH2, PROFILE_XBOX, PROFILE_XBOX_BLE, PROFILE_DUALSENSE,
-       PROFILE_DUALSHOCK4, PROFILE_GENERIC, PROFILE_MOUSE, PROFILE_GENERIC_BLE, PROFILE_DONGLE, PROFILE_COUNT };
+       PROFILE_DUALSHOCK4, PROFILE_GENERIC, PROFILE_MOUSE, PROFILE_GENERIC_BLE, PROFILE_COUNT };
+/* How a slot reaches its host: Bluetooth; USB (a wired controller); USB while
+ * a USB host is there, else Bluetooth; or through our dongle, which is the
+ * slot's type on its own USB port. */
+enum { TRANSPORT_BT, TRANSPORT_USB, TRANSPORT_BT_USB, TRANSPORT_DONGLE };
+const struct profile *profile_for(u8 type);
 enum { GRIPS_OFF, GRIPS_HOST, GRIPS_FADE, GRIPS_RUMBLE, GRIPS_INPUT, GRIPS_BOTH,
        GRIPS_PRIMARY, GRIPS_SECONDARY };
 enum { PLAYERS_OFF, PLAYERS_HOST, PLAYERS_FADE, PLAYERS_PRIMARY, PLAYERS_SECONDARY };
@@ -287,6 +319,7 @@ enum { STICK_LINEAR, STICK_CONCAVE, STICK_S_CURVE, STICK_CUSTOM };
 
 struct set_slot {
     u8 type;
+    u8 transport;
     struct colour connect_colour;        /* connecting, pairing: which slot */
     struct colour primary_colour;        /* connected */
     struct colour secondary_colour;      /* the background */
@@ -579,6 +612,22 @@ void plat_leds(const struct led_frame *f);
 void plat_motors(u8 left, u8 right);
 int plat_usb_present(void);
 void plat_usb_service(void);
+/* USB as a game controller.  plat_usb_mode(NULL) is the tool device (mass
+ * storage, the vendor commands); a personality re-enumerates as that device.
+ * read answers the host's GET_REPORT in the USB interrupt (constant data, as
+ * on Bluetooth).  Input is newest-wins: one waits, a newer one replaces it;
+ * messages queue behind each other and go first.  EV_USB when the host took
+ * a report or wrote one. */
+void plat_usb_mode(const struct usb_identity *id,
+                   int (*read)(u8 kind, u16 id, u16 offset, u8 *out, u16 max));
+int plat_usb_ready(void);                   /* the host configured the personality */
+int plat_usb_input_wanted(void);            /* nothing waits to go to the host */
+int plat_usb_send_input(u8 id, const u8 *data, u16 len);
+int plat_usb_send_message(u16 id, const u8 *data, u16 len);   /* HOST_BULK: bulk IN */
+int plat_usb_take(struct bt_write *w);      /* the host's next write, 0: none */
+/* Feature report 0xf5 "tool", whatever the personality (hidraw can send it):
+ * the session ends and USB is the tool device again. */
+#define USB_TOOL_REPORT 0xf5
 u16 plat_battery_mv(void);
 void plat_stats(struct plat_stats *out);
 const u8 *plat_unique_id(void);

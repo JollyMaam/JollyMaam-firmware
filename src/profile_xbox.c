@@ -3,7 +3,9 @@
 
 /* Xbox Wireless Controller, over Classic HID (the older 1708 model) and over
  * LE (Series X|S).  Both send the same 16-byte state; neither has been
- * compared with a real pad yet. */
+ * compared with a real pad yet.  Wired, both are a wired Xbox 360 controller
+ * (XInput): what Windows, Linux's xpad and SDL take without a driver; an Xbox
+ * console wants its own authentication, which this does not have. */
 
 #define REPORT_STATE  0x01
 #define REPORT_GUIDE  0x02
@@ -90,9 +92,13 @@ static const u8 att_db[] = {
     0x24, 0x00, 0x4c, 0x2a, 0x08, 0x00, 0x04, 0x01, 0x24, 0x00, 0x4c, 0x2a, 0x00, 0x00,
 };
 
+#define X360_SIZE 20
+
 static struct {
     u8 series;
-    u8 last[STATE_SIZE];
+    u8 usb;
+    u8 players;
+    u8 last[X360_SIZE];          /* the last state sent, either layout */
     u8 sent;
     u8 guide;
     u32 sent_ms;
@@ -147,6 +153,8 @@ static void host(u32 now, struct profile_host *h)
 
     h->rumble[0] = on ? xb.rumble[0] : 0;
     h->rumble[1] = on ? xb.rumble[1] : 0;
+    h->has_players = xb.usb;
+    h->players = xb.players;
 }
 
 static u8 begin(const struct profile_session *s)
@@ -158,6 +166,7 @@ static u8 begin(const struct profile_session *s)
 
     memset(&xb, 0, sizeof(xb));
     xb.series = series;
+    xb.usb = s->usb;
     /* LE security keys for this slot: AES of the slot's address under a
      * fixed key.  Not secret from someone with this firmware, which is as
      * much as a gamepad's bond needs. */
@@ -183,13 +192,64 @@ static u8 begin_ble(const struct profile_session *s)
     return begin(s);
 }
 
+static s16 up(s16 v)
+{
+    return v == -32768 ? 32767 : (s16)-v;
+}
+
+/* The wired Xbox 360 report: 0x00, its size, buttons, triggers, sticks with
+ * y up. */
+static int x360_report(const struct pad *p, u32 now, u8 *out, u8 *id)
+{
+    static const u8 hat_bits[HAT_NEUTRAL] = { 0x01, 0x09, 0x08, 0x0a, 0x02, 0x06, 0x04, 0x05 };
+    u16 b = p->buttons;
+
+    memset(out, 0, X360_SIZE);
+    out[1] = X360_SIZE;
+    out[2] = (u8)((p->hat < HAT_NEUTRAL ? hat_bits[p->hat] : 0) | (b & PAD_START ? 0x10 : 0) |
+                  (b & PAD_SELECT ? 0x20 : 0) | (b & PAD_L3 ? 0x40 : 0) | (b & PAD_R3 ? 0x80 : 0));
+    out[3] = (u8)((b & PAD_L1 ? 0x01 : 0) | (b & PAD_R1 ? 0x02 : 0) | (b & PAD_HOME ? 0x04 : 0) |
+                  (b & PAD_A ? 0x10 : 0) | (b & PAD_B ? 0x20 : 0) | (b & PAD_X ? 0x40 : 0) |
+                  (b & PAD_Y ? 0x80 : 0));
+    out[4] = (u8)(p->l2 >> 8);
+    out[5] = (u8)(p->r2 >> 8);
+    util_put16(out + 6, (u16)p->lx);
+    util_put16(out + 8, (u16)up(p->ly));
+    util_put16(out + 10, (u16)p->rx);
+    util_put16(out + 12, (u16)up(p->ry));
+    if (xb.sent && !memcmp(out, xb.last, X360_SIZE) && now - xb.sent_ms < KEEPALIVE_MS) return 0;
+    memcpy(xb.last, out, X360_SIZE);
+    xb.sent = 1;
+    xb.sent_ms = now;
+    *id = 0;
+    return X360_SIZE;
+}
+
+/* Rumble (00 08 00 big small) and the ring of lights (01 03 n): n 2-5 and
+ * 6-9 are players 1-4. */
+static void x360_write(const struct bt_write *w)
+{
+    static const u8 nintendo[] = { 0x1, 0x3, 0x7, 0xf };
+
+    if (w->len >= 5 && w->data[0] == 0x00 && w->data[1] == 0x08) {
+        xb.rumble[0] = w->data[3];
+        xb.rumble[1] = w->data[4];
+        xb.rumble_timed = 0;
+    } else if (w->len >= 3 && w->data[0] == 0x01 && w->data[1] == 0x03) {
+        u8 n = w->data[2];
+
+        xb.players = n >= 2 && n <= 5 ? nintendo[n - 2] : n >= 6 && n <= 9 ? nintendo[n - 6] : 0;
+    }
+}
+
 /* State on change, and every 100 ms unchanged so an idle link keeps moving;
  * Guide as its own report when it changes, which must not be lost. */
 static int report(const struct pad *p, u32 now, u8 *out, u8 *id)
 {
     u8 guide = (p->buttons & PAD_HOME) != 0;
 
-    if (!xb.series && guide != xb.guide && bt_send_message(REPORT_GUIDE, &guide, 1)) xb.guide = guide;
+    if (xb.usb) return x360_report(p, now, out, id);
+    if (!xb.series && guide != xb.guide && host_send(REPORT_GUIDE, &guide, 1)) xb.guide = guide;
     state(out, p);
     if (xb.sent && !memcmp(out, xb.last, STATE_SIZE) &&
         (xb.series || now - xb.sent_ms < KEEPALIVE_MS))
@@ -204,6 +264,10 @@ static int report(const struct pad *p, u32 now, u8 *out, u8 *id)
 static int write(const struct bt_write *w, u32 now, struct bt_bond *bond)
 {
     (void)bond;
+    if (xb.usb) {
+        if (w->kind == BT_WRITE_OUTPUT) x360_write(w);
+        return 0;
+    }
     if ((w->kind == BT_WRITE_OUTPUT && w->id == REPORT_RUMBLE && w->len >= 8) ||
         (w->kind == BT_WRITE_ATT && w->id == BLE_OUTPUT && w->len >= 8))
         rumble(w->data, now);
@@ -259,19 +323,25 @@ static const struct bt_device ble_device = {
     .interval_min = 6, .interval_max = 9,
 };
 
+static const struct usb_identity x360_usb = {
+    .vendor_id = 0x045e, .product_id = 0x028e, .bcd_device = 0x0114,
+    .manufacturer = "\xa9Microsoft Corporation", .product = "Controller", .serial = "08FEC93",
+    .kind = USB_XINPUT, .interval = 1, .in_size = 32, .out_size = 32, .max_power = 250,
+};
+
 const struct profile profile_xbox = {
-    .name = "xbox", .device = &classic_device,
+    .name = "xbox", .device = &classic_device, .usb = &x360_usb,
     .begin = begin_classic, .report = report, .write = write, .host = host,
 };
 
 const struct profile profile_xbox_ble = {
-    .name = "xboxble", .device = &ble_device,
+    .name = "xboxble", .device = &ble_device, .usb = &x360_usb,
     .begin = begin_ble, .report = report, .write = write, .host = host, .read = read,
 };
 
 #ifdef UNITTEST
 static u8 msg_id, msg_byte;
-int bt_send_message(u16 id, const u8 *data, u16 len) { (void)len; msg_id = id; msg_byte = data[0]; return 1; }
+int host_send(u16 id, const u8 *data, u16 len) { (void)len; msg_id = id; msg_byte = data[0]; return 1; }
 void util_put16(u8 *p, u16 v) { p[0] = (u8)v; p[1] = (u8)(v >> 8); }
 void util_aes128(const u8 key[16], const u8 in[16], u8 out[16]) { (void)key; memcpy(out, in, 16); }
 

@@ -22,6 +22,9 @@
                                   print the last N and the pull round trips
     padtool relink                connected: drop the link and connect again
                                   (new link settings apply; wakes nothing)
+    padtool tool [HIDRAW]         a pad or dongle that is a game controller on
+                                  USB (a HID one): back to the tool device, via
+                                  feature report 0xf5 on each hidraw (or HIDRAW)
 
     padtool fields [--dev]               every setting: name, values, default, help
                                          (--dev: the developer settings too)
@@ -723,11 +726,28 @@ def keep(path):
     print(f"kept {len(batches)} changes")
 
 
+def tool(paths):
+    """Feature report 0xf5 "tool": a USB personality (src/pad.h) ends and the
+    tool device comes back.  Only our firmware knows it; others refuse it."""
+    report = b"\xf5tool"
+    hidiocsfeature = 0xC0004806 | (len(report) << 16)
+    if not paths:
+        paths = sorted(glob.glob("/dev/bwrap/hidraw*") + glob.glob("/dev/hidraw*"))
+    for path in paths:
+        try:
+            with open(path, "rb+", buffering=0) as f:
+                fcntl.ioctl(f, hidiocsfeature, bytearray(report))
+            print(f"{path}: sent")
+        except OSError as e:
+            # Ours leaves the bus while answering: the request ends in EPROTO.
+            print(f"{path}: {'sent' if e.errno == 71 else e.strerror}")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("command", choices=["target", "find", "identify", "status", "log", "stats", "reboot", "loader", "relink", "connect", "pair", "profile", "peek", "trace",
                                        "fields", "get", "set", "reset", "backup-settings",
-                                       "restore-settings", "factory-reset", "ephemeral", "keep"])
+                                       "restore-settings", "factory-reset", "ephemeral", "keep", "tool"])
     p.add_argument("args", nargs="*")
     p.add_argument("--calibration", action="store_true", help="restore-settings: calibration too")
     p.add_argument("-f", "--follow", action="store_true")
@@ -768,6 +788,9 @@ def main():
         "backup-settings", "restore-settings", "factory-reset", "keep",
     }:
         p.error(f"{a.command} is not supported by dongle firmware")
+    if a.command == "tool":
+        tool(a.args)
+        return
     if a.command == "target":    # dongle: the device to page, AA:BB:CC:DD:EE:FF
         scsi(need_device(), bytes([OP, 0x30]) + address, 0)
     elif a.command == "find":

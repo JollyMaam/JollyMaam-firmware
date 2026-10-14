@@ -56,8 +56,16 @@ static const struct bt_device generic_device = {
     .sniff_slots = 24, .sniff_attempt = 1,
 };
 
+/* Wired, both generic gamepads are this one. */
+static const struct usb_identity generic_usb = {
+    .vendor_id = 0x3537, .product_id = 0x0575, .bcd_device = 0x0100,
+    .manufacturer = "GameSir", .product = "Cyclone 2 Gamepad",
+    .kind = USB_HID, .report_ids = 1, .interval = 1, .in_size = 16, .max_power = 250,
+    .hid_descriptor = generic_descriptor, .hid_descriptor_len = sizeof(generic_descriptor),
+};
+
 const struct profile profile_generic = {
-    .name = "generic", .device = &generic_device,
+    .name = "generic", .device = &generic_device, .usb = &generic_usb,
     .begin = generic_begin, .report = generic_report,
 };
 
@@ -141,6 +149,7 @@ static const u8 gble_att_db[] = {
 static struct {
     u8 last[GBLE_SIZE];
     u8 sent;
+    u8 usb;                      /* wired: the Classic generic gamepad's report */
     u8 er[16], ir[16];
 } gb;
 
@@ -151,6 +160,8 @@ static u8 gble_begin(const struct profile_session *s)
     u8 block[16];
 
     memset(&gb, 0, sizeof(gb));
+    gb.usb = s->usb;
+    generic_sent = 0;
     /* LE security keys for this slot, as profile_xbox.c makes them. */
     memset(block, 0, sizeof(block));
     memcpy(block, s->address, 6);
@@ -173,7 +184,7 @@ static int gble_report(const struct pad *p, u32 now, u8 *out, u8 *id)
 {
     u16 b = p->buttons;
 
-    (void)now;
+    if (gb.usb) return generic_report(p, now, out, id);
     out[0] = (u8)((b & (PAD_A | PAD_B | PAD_X | PAD_Y)) | (b & PAD_M ? 0x04 : 0) |
                   (b & (PAD_L1 | PAD_R1)) >> 1 | (b & PAD_SELECT) >> 3);
     out[1] = (u8)((b & (PAD_START | PAD_HOME | PAD_L3 | PAD_R3)) >> 11 |
@@ -231,7 +242,7 @@ static const struct bt_device gble_device = {
 };
 
 const struct profile profile_generic_ble = {
-    .name = "genericble", .device = &gble_device,
+    .name = "genericble", .device = &gble_device, .usb = &generic_usb,
     .begin = gble_begin, .report = gble_report, .read = gble_read,
 };
 
@@ -485,7 +496,7 @@ static int mouse_report(const struct pad *p, u32 now, u8 *out, u8 *id)
         }
     }
     if ((!m.keyboard_sent || memcmp(kb, m.keyboard, sizeof(kb))) &&
-        bt_send_message(KEYBOARD_ID, kb, sizeof(kb))) {
+        host_send(KEYBOARD_ID, kb, sizeof(kb))) {
         memcpy(m.keyboard, kb, sizeof(kb));
         m.keyboard_sent = 1;
     }
@@ -524,7 +535,7 @@ const struct profile profile_mouse = {
 #ifdef UNITTEST
 static u8 kb_sent[8];
 static int input_pending;
-int bt_send_message(u16 id, const u8 *data, u16 len) { (void)id; memcpy(kb_sent, data, len); return 1; }
+int host_send(u16 id, const u8 *data, u16 len) { (void)id; memcpy(kb_sent, data, len); return 1; }
 int bt_input_pending(void) { return input_pending; }
 void util_put16(u8 *p, u16 v) { p[0] = (u8)v; p[1] = (u8)(v >> 8); }
 void util_aes128(const u8 key[16], const u8 in[16], u8 out[16]) { (void)key; memcpy(out, in, 16); }

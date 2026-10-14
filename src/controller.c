@@ -13,23 +13,12 @@ static const char *const names[CTL_KIND_COUNT] = {
     "boot", "idle", "connecting", "pairing", "connected", "stopping", "sleeping", "rebooting",
 };
 
-static const struct profile *profile_for(u8 type)
-{
-    static const struct profile *const profiles[PROFILE_COUNT] = {
-        [PROFILE_SWITCH] = &profile_switch, [PROFILE_SWITCH2] = &profile_switch2,
-        [PROFILE_XBOX] = &profile_xbox, [PROFILE_XBOX_BLE] = &profile_xbox_ble,
-        [PROFILE_DUALSENSE] = &profile_dualsense, [PROFILE_DUALSHOCK4] = &profile_dualshock4,
-        [PROFILE_GENERIC] = &profile_generic, [PROFILE_MOUSE] = &profile_mouse,
-        [PROFILE_GENERIC_BLE] = &profile_generic_ble, [PROFILE_DONGLE] = &profile_dongle,
-    };
-
-    return type < PROFILE_COUNT ? profiles[type] : NULL;
-}
-
 /* The most reports a second, for every profile and both transports: the
  * host's polling sets the rate below it (pull), and it keeps the CPU's
- * share bounded on a host that polls faster. */
+ * share bounded on a host that polls faster.  On USB, and to our dongle,
+ * the host's polling is the only limit worth having. */
 #define REPORT_HZ 250
+#define REPORT_HZ_WIRED 1000
 
 static struct {
     u8 kind;
@@ -37,6 +26,7 @@ static struct {
     u8 slot;                     /* the session's slot, SLOT_NONE without one */
     u8 last_slot;
     const struct profile *prof;
+    u8 usb;                      /* the session is on USB, not the radio */
     u8 radio;                    /* bt_start() until BT_EV_STOPPED */
     u8 waking;                   /* the profile's wake is running, radio off */
     u8 woke;                     /* this session has tried a wake */
@@ -59,6 +49,7 @@ static struct {
     struct pad activity_ref;
     u32 activity_ms;
     struct profile_host host;
+    u8 rumble_logged[2];
     struct led_state led;
     struct led_frame shown;
     u8 reach[2];
@@ -104,8 +95,13 @@ static void become(u8 kind, u32 now)
     c.since = now;
 }
 
+/* The session's way to the host: the radio, or USB as the profile's device. */
 static void radio_on(void)
 {
+    if (c.usb) {
+        plat_usb_mode(c.prof->usb, c.prof->read);
+        return;
+    }
     bt_start(c.prof, c.sess.address, c.sess.pairing ? NULL : c.sess.bond, c.sess.pairing,
              &c.sess.settings->link);
     c.radio = 1;
@@ -118,6 +114,27 @@ static void end_session(void)
     c.waking = 0;
     c.wake_after_stop = 0;
     if (c.radio) bt_stop();
+    if (c.usb) plat_usb_mode(NULL, NULL);
+    c.usb = 0;
+}
+
+int host_send(u16 id, const u8 *data, u16 len)
+{
+    if (c.usb) return plat_usb_send_message(id, data, len);
+    return bt_send_message(id, data, len);
+}
+
+static int input_wanted(void)
+{
+    return c.usb ? plat_usb_input_wanted() : bt_input_wanted();
+}
+
+/* Which way a slot goes now: bluetooth+usb is USB while a USB host is there
+ * (frames on the bus, not just power) and the type has a USB device. */
+static int wants_usb(const struct set_slot *set, const struct profile *p)
+{
+    if (!p->usb) return 0;
+    return set->transport == TRANSPORT_USB || (set->transport == TRANSPORT_BT_USB && c.usb_powered);
 }
 
 static void handle(struct ctl_request r, u32 now);
@@ -140,14 +157,23 @@ static void stopped(u32 now)
 
 static void start_session(struct ctl_request r, u32 now)
 {
-    const struct profile *p = profile_for(set_slot(r.slot)->type);
+    const struct set_slot *set = set_slot(r.slot);
+    const struct profile *p = profile_for(set->type);
     struct profile_session s;
     int pairing = r.kind == REQ_PAIR;
+    int usb;
 
     if (!p) {
-        util_log("slot %u: profile type %u not in this build", r.slot, set_slot(r.slot)->type);
+        util_log("slot %u: profile type %u not in this build", r.slot, set->type);
         return;
     }
+    if (set->transport == TRANSPORT_USB && !p->usb) {
+        util_log("slot %u: %s has no USB device", r.slot, p->name);
+        return;
+    }
+    usb = wants_usb(set, p);
+    if (usb) pairing = 0;        /* a cable needs none; keep the radio's bond */
+    else if (set->transport == TRANSPORT_DONGLE) p = &profile_link;
     if (pairing) {
         set_bond_forget(r.slot);
         if (r.generate_new_address) set_slot_new_address(r.slot);
@@ -157,7 +183,9 @@ static void start_session(struct ctl_request r, u32 now)
     s.pairing = (u8)pairing;
     set_slot_address(r.slot, s.address);
     s.bond = set_bond(r.slot);
-    s.settings = set_slot(r.slot);
+    s.settings = set;
+    s.usb = (u8)usb;
+    c.usb = (u8)usb;
     c.prof = p;
     c.sent_buttons = 0;         /* no report from this session has been handed over yet */
     c.sent_hat = HAT_NEUTRAL;
@@ -166,12 +194,13 @@ static void start_session(struct ctl_request r, u32 now)
     plat_retain_slot(r.slot);
     set_remember_slot(r.slot);
     memset(&c.host, 0, sizeof(c.host));
-    c.report_hz = s.settings->report_hz ? s.settings->report_hz : REPORT_HZ;
+    c.report_hz = s.settings->report_hz ? s.settings->report_hz :
+                  usb || p == &profile_link ? REPORT_HZ_WIRED : REPORT_HZ;
     c.begin_imu = p->begin(&s);
     c.sess = s;
     c.woke = 0;
     radio_on();
-    util_log("session slot %u %s%s", r.slot, p->name, pairing ? " pairing" : "");
+    util_log("session slot %u %s%s%s", r.slot, p->name, usb ? " usb" : "", pairing ? " pairing" : "");
     become(pairing ? CTL_PAIRING : CTL_CONNECTING, now);
 }
 
@@ -315,6 +344,66 @@ static void bt_event(const struct bt_ev *e, u32 now)
     }
 }
 
+/* A USB session: the host's writes, and whether it has the device. */
+static void usb_session(u32 now)
+{
+    struct ctl_request none = { REQ_NONE, SLOT_NONE, 0 };
+    struct bt_write w;
+    struct bt_bond bond;
+    int wrote = 0;
+
+    if (!c.usb || !session()) return;
+#ifdef USB_SESSION_TEST_MS       /* a test build: the tool device comes back by itself */
+    if (now - c.since >= USB_SESSION_TEST_MS && c.kind == CTL_CONNECTED) {
+        util_log("usb: test session over");
+        stop(none, now);
+        return;
+    }
+#endif
+    while (plat_usb_take(&w)) {
+        if (w.kind == BT_WRITE_FEATURE && w.id == USB_TOOL_REPORT && w.len >= 4 &&
+            !memcmp(w.data, "tool", 4)) {
+            util_log("usb: back to the tool device");
+            stop(none, now);
+            return;
+        }
+        if (c.prof->write) c.prof->write(&w, now, &bond);
+        wrote = 1;
+    }
+    if (wrote && c.prof->host) {
+        c.prof->host(now, &c.host);
+        if (c.host.ended) {
+            util_log("host ended session: stopping");
+            stop(none, now);
+            return;
+        }
+    }
+    if (c.kind == CTL_CONNECTING && plat_usb_ready()) {
+        become(CTL_CONNECTED, now);
+        c.report_next = now;
+        c.activity_ms = now;
+    } else if (c.kind == CTL_CONNECTED && !plat_usb_ready()) {
+        memset(&c.host, 0, sizeof(c.host));
+        become(CTL_CONNECTING, now);
+    }
+}
+
+/* bluetooth+usb: a USB host came or went; the slot moves over. */
+static void follow_usb(u32 now)
+{
+    const struct set_slot *set;
+
+    if ((c.kind != CTL_CONNECTING && c.kind != CTL_CONNECTED) || c.slot >= SLOTS || c.waking) return;
+    set = set_slot(c.slot);
+    if (set->transport != TRANSPORT_BT_USB || wants_usb(set, profile_for(set->type)) == c.usb) return;
+    {
+        struct ctl_request again = { REQ_CONNECT, c.slot, 0 };
+
+        util_log("slot %u moves to %s", c.slot, c.usb ? "bluetooth" : "usb");
+        stop(again, now);
+    }
+}
+
 static u32 idle_deadline(void)
 {
     return ux_idle_deadline(c.since, c.activity_ms, c.usb_absent_ms,
@@ -387,7 +476,7 @@ static u32 state_deadline(void)
     case CTL_PAIRING: return c.since + ux_timeouts.pair_ms;
     case CTL_CONNECTED:          /* bt.c wakes the loop (EV_BT) when it wants a report; one
                                     waiting for its time (pull_at_us) wakes it through plat_wait */
-        return bt_input_wanted() && !c.pull_at_us ? c.report_next : plat_ms() + 100;
+        return input_wanted() && !c.pull_at_us ? c.report_next : plat_ms() + 100;
     default: return plat_ms() + 10;
     }
 }
@@ -436,6 +525,11 @@ static void outputs(u32 now)
     u8 motor[2];
 
     if (c.prof && c.prof->host) c.prof->host(now, &c.host);
+    if (!c.host.rumble[0] != !c.rumble_logged[0] || !c.host.rumble[1] != !c.rumble_logged[1]) {
+        util_log("host rumble %u %u", c.host.rumble[0], c.host.rumble[1]);
+        c.rumble_logged[0] = c.host.rumble[0];
+        c.rumble_logged[1] = c.host.rumble[1];
+    }
     c.imu_mode = !session() ? IMU_OFF : c.prof && c.prof->host && c.host.imu ? c.host.imu : c.begin_imu;
     c.imu_next = imu_poll(now, c.imu_mode);
     slot = set_slot(c.slot < SLOTS ? c.slot : 0);
@@ -496,7 +590,8 @@ static void read_input(u32 now)
     /* Do not start a deferred M tap's minimum down time while its report is
      * still waiting in the Bluetooth slot. Slow host polls must not compress
      * down and up into the same send opportunity. */
-    if (c.kind == CTL_CONNECTED && (c.sent_buttons & PAD_M) && !bt_input_pending())
+    if (c.kind == CTL_CONNECTED && (c.sent_buttons & PAD_M) &&
+        (c.usb ? plat_usb_input_wanted() : !bt_input_pending()))
         ux_reported(now);
     plat_input(&c.raw);
     in_map(&c.raw, &c.pad);
@@ -532,8 +627,8 @@ static void send_report(u32 now)
     int n;
 
     c.pull_at_us = 0;
-    if ((s32)(now - c.report_next) < 0 || !bt_input_wanted()) return;
-    {
+    if ((s32)(now - c.report_next) < 0 || !input_wanted()) return;
+    if (!c.usb) {
         u32 at = c.sess.settings->pull_delay_us ? bt_input_wanted_us() + c.sess.settings->pull_delay_us
                                                 : bt_input_due_us();
 
@@ -546,7 +641,7 @@ static void send_report(u32 now)
     c.pad.imu_count = (u8)imu_take(&c.imu_seq, c.pad.imu, IMU_PER_REPORT);
     n = c.prof->report(&c.pad, now, buf, &id);
     util_trace(TR_BUILT, (u16)n);
-    if (n > 0 && bt_send_input(id, buf, (u16)n)) {
+    if (n > 0 && (c.usb ? plat_usb_send_input(id, buf, (u16)n) : bt_send_input(id, buf, (u16)n))) {
         u32 us = plat_us();
 
         if (c.stats.reports) util_stat_add(&c.stats.interval, us - c.last_report_us);
@@ -607,7 +702,7 @@ void ctl_main(void)
                          c.stats.step_sum[i] += u - t; t = u; } while (0)
 /* bt.c may ask for a report while this pass runs: answer between steps, not
  * at the next pass (the connection event will not wait). */
-#define PULL() do { if (c.kind == CTL_CONNECTED && bt_input_wanted()) { send_report(now); \
+#define PULL() do { if (c.kind == CTL_CONNECTED && input_wanted()) { send_report(now); \
                          STEP(STEP_REPORT); } } while (0)
     for (;;) {
         start = t = plat_us();
@@ -641,9 +736,11 @@ void ctl_main(void)
         st.staged = (u8)(set_staged() < 255 ? set_staged() : 255);
         st.stats = &c.stats;
         handle(usb_poll(&st), now);
+        usb_session(now);
         STEP(STEP_USB);
         PULL();
         sample_power(now);
+        follow_usb(now);
         STEP(STEP_POWER);
         timeouts(now);
         STEP(STEP_TIMEOUTS);
@@ -660,6 +757,6 @@ void ctl_main(void)
         util_stat_add(&c.stats.pass, plat_us() - start);
         util_trace(TR_CTL_SLEEP, 0);
         util_trace(TR_CTL_WAKE, (u16)plat_wait(deadline,
-                   c.kind == CTL_CONNECTED && bt_input_wanted() ? c.pull_at_us : 0));
+                   c.kind == CTL_CONNECTED && input_wanted() ? c.pull_at_us : 0));
     }
 }

@@ -4,7 +4,14 @@
 /* DualSense (Edge) and DualShock 4 over Classic HID.  Both start in their
  * extended report (0x31, 0x11): SDL runs a pad already sending it in full
  * mode (gyro, touchpad, paddles, rumble).  Layouts follow Linux
- * hid-playstation; neither has been tried on a PlayStation. */
+ * hid-playstation; neither has been tried on a PlayStation.
+ *
+ * Over USB both send report 0x01: the same state block without the
+ * Bluetooth header and CRC, and take output 0x05 (DualShock 4) or 0x02
+ * (DualSense), whose bytes are the Bluetooth output's after its header.
+ * Feature reports are the same without the CRC; the DualShock 4 reads its
+ * calibration as 0x02 and its address as 0x12 there.  A PlayStation wants
+ * its own authentication over USB, which this does not have. */
 
 #define DS_EXTENDED      0x31
 #define DS4_EXTENDED     0x11
@@ -12,6 +19,35 @@
 #define TOUCH_TAP_MS     200
 #define TOUCH_CLICK_MS   60
 #define TRIGGER_BUTTON   0x20
+#define USB_STATE        0x01
+#define USB_STATE_SIZE   63
+#define DS4_USB_OUTPUT   0x05
+#define DS_USB_OUTPUT    0x02
+
+/* USB: report 0x01, the state block as hid-playstation reads it (sticks, hat
+ * and 14 buttons, a counter, triggers, then the rest as vendor bytes); the
+ * output report; the feature reports the drivers read. */
+#define USB_DESCRIPTOR(output_id, output_size, features...) \
+    0x05, 0x01, 0x09, 0x05, 0xa1, 0x01, 0x85, USB_STATE, \
+    0x09, 0x30, 0x09, 0x31, 0x09, 0x32, 0x09, 0x35, 0x15, 0x00, 0x26, 0xff, 0x00, \
+    0x75, 0x08, 0x95, 0x04, 0x81, 0x02, \
+    0x09, 0x39, 0x15, 0x00, 0x25, 0x07, 0x35, 0x00, 0x46, 0x3b, 0x01, 0x65, 0x14, \
+    0x75, 0x04, 0x95, 0x01, 0x81, 0x42, 0x65, 0x00, \
+    0x05, 0x09, 0x19, 0x01, 0x29, 0x0e, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x0e, 0x81, 0x02, \
+    0x06, 0x00, 0xff, 0x09, 0x20, 0x75, 0x06, 0x95, 0x01, 0x15, 0x00, 0x25, 0x3f, 0x81, 0x02, \
+    0x05, 0x01, 0x09, 0x33, 0x09, 0x34, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02, \
+    0x06, 0x00, 0xff, 0x09, 0x21, 0x95, USB_STATE_SIZE - 9, 0x81, 0x02, \
+    0x85, output_id, 0x09, 0x22, 0x95, output_size, 0x91, 0x02, \
+    features 0xc0
+#define FEATURE(id, size) 0x85, id, 0x09, id, 0x95, size, 0xb1, 0x02,
+
+static const u8 ds4_usb_descriptor[] = {
+    USB_DESCRIPTOR(DS4_USB_OUTPUT, 31, FEATURE(0x02, 36) FEATURE(0x12, 15) FEATURE(0xa3, 48))
+};
+
+static const u8 ds_usb_descriptor[] = {
+    USB_DESCRIPTOR(DS_USB_OUTPUT, 62, FEATURE(0x05, 40) FEATURE(0x09, 19) FEATURE(0x20, 63))
+};
 
 static const u8 ds_descriptor[] = {
     0x05, 0x01, 0x09, 0x05, 0xa1, 0x01, 0x85, 0x01, 0x09, 0x30, 0x09, 0x31, 0x09, 0x32, 0x09, 0x35,
@@ -60,6 +96,7 @@ static const u8 ds4_descriptor[] = {
 
 static struct {
     u8 ds4;
+    u8 usb;
     u8 address[6];
     u16 gyro_speed, gyro_accel;
     u8 counter;
@@ -206,6 +243,7 @@ static u8 begin(const struct profile_session *s)
 
     memset(&ps, 0, sizeof(ps));
     ps.ds4 = ds4;
+    ps.usb = s->usb;
     memcpy(ps.address, s->address, 6);
     ps.gyro_speed = s->settings ? s->settings->gyro_speed : 32;
     ps.gyro_accel = s->settings ? s->settings->gyro_accel : 250;
@@ -257,6 +295,13 @@ static int report(const struct pad *in, u32 now, u8 *r, u8 *id)
         r[35] = ps.counter;
         touch_point(r + 36);
         r[40] = 0x80;
+        if (ps.usb) {
+            st[29] = 0x1b;                                        /* cable, full */
+            memmove(r, st, USB_STATE_SIZE);
+            *id = USB_STATE;
+            ps.counter++;
+            return USB_STATE_SIZE;
+        }
         seal(0xa1, DS4_EXTENDED, r, EXTENDED_SIZE);
         *id = DS4_EXTENDED;
     } else {
@@ -277,6 +322,13 @@ static int report(const struct pad *in, u32 now, u8 *r, u8 *id)
         touch_point(st + 32);
         st[36] = 0x80;
         st[52] = 0x0a;
+        if (ps.usb) {
+            st[52] = 0x2a;                                        /* full, on the cable */
+            memmove(r, st, USB_STATE_SIZE);
+            *id = USB_STATE;
+            ps.counter++;
+            return USB_STATE_SIZE;
+        }
         seal(0xa1, DS_EXTENDED, r, EXTENDED_SIZE);
         *id = DS_EXTENDED;
     }
@@ -288,14 +340,15 @@ static int report(const struct pad *in, u32 now, u8 *r, u8 *id)
  * sets; the rest stay as they were. */
 static int write(const struct bt_write *w, u32 now, struct bt_bond *bond)
 {
-    const u8 *e = w->data + 2;
+    u32 head = ps.usb ? 0 : 2;   /* Bluetooth's header in front */
+    const u8 *e = w->data + head;
     u32 n, count;
 
     (void)now;
     (void)bond;
     if (w->kind != BT_WRITE_OUTPUT) return 0;
     if (ps.ds4) {
-        if (w->id != DS4_EXTENDED || w->len < 2 + 10) return 0;
+        if (w->id != (ps.usb ? DS4_USB_OUTPUT : DS4_EXTENDED) || w->len < head + 10) return 0;
         if (e[0] & 0x01) {
             ps.rumble[0] = e[4];
             ps.rumble[1] = e[3];
@@ -306,14 +359,14 @@ static int write(const struct bt_write *w, u32 now, struct bt_bond *bond)
         }
         return 0;
     }
-    if (w->id != DS_EXTENDED || w->len < 2 + 39) return 0;
+    if (w->id != (ps.usb ? DS_USB_OUTPUT : DS_EXTENDED) || w->len < head + 39) return 0;
     if ((e[0] & 0x01) || (e[38] & 0x04)) {
         ps.rumble[0] = e[3];
         ps.rumble[1] = e[2];
     } else if (!e[1]) {
         ps.rumble[0] = ps.rumble[1] = 0;
     }
-    if (w->len < 2 + 47) return 0;
+    if (w->len < head + 47) return 0;
     if (e[1] & 0x04) {
         ps.has_lightbar = 1;
         memcpy(ps.lightbar, e + 44, 3);
@@ -373,9 +426,13 @@ static int read(u8 kind, u16 id, u16 offset, u8 *r, u16 size)
     memset(r, 0, size);
     if (ps.ds4) {
         switch (id) {
-        case 0x02:
+        case 0x02:               /* USB: the gyro's plus and minus points interleaved */
             if (size < 34) return -1;
-            calibration(r, 1);
+            calibration(r, !ps.usb);
+            return size;
+        case 0x12:               /* USB: our address */
+            if (!ps.usb || size < 15) return -1;
+            memcpy(r, ps.address, 6);
             return size;
         case 0x05:
             if (size < 38) return -1;
@@ -408,7 +465,7 @@ static int read(u8 kind, u16 id, u16 offset, u8 *r, u16 size)
     default:
         return -1;
     }
-    seal(0xa3, (u8)id, r, size);
+    if (!ps.usb) seal(0xa3, (u8)id, r, size);
     return size;
 }
 
@@ -426,14 +483,30 @@ static const struct bt_device ds4_device = {
     .sniff_slots = 24, .sniff_attempt = 1,
 };
 
+/* The wired DualSense; Linux and SDL take the Edge's ID only with its own
+ * longer reports. */
+static const struct usb_identity ds_usb = {
+    .vendor_id = 0x054c, .product_id = 0x0ce6, .bcd_device = 0x0100,
+    .manufacturer = "Sony Interactive Entertainment", .product = "DualSense Wireless Controller",
+    .kind = USB_HID, .report_ids = 1, .interval = 1, .in_size = 64, .out_size = 64,
+    .max_power = 250, .hid_descriptor = ds_usb_descriptor, .hid_descriptor_len = sizeof(ds_usb_descriptor),
+};
+
+static const struct usb_identity ds4_usb = {
+    .vendor_id = 0x054c, .product_id = 0x09cc, .bcd_device = 0x0100,
+    .manufacturer = "Sony Interactive Entertainment", .product = "Wireless Controller",
+    .kind = USB_HID, .report_ids = 1, .interval = 1, .in_size = 64, .out_size = 64,
+    .max_power = 250, .hid_descriptor = ds4_usb_descriptor, .hid_descriptor_len = sizeof(ds4_usb_descriptor),
+};
+
 /* 125 reports a second: at 250 the IMU starved (measured 2026-09-30). */
 const struct profile profile_dualsense = {
-    .name = "dualsense", .device = &ds_device,
+    .name = "dualsense", .device = &ds_device, .usb = &ds_usb,
     .begin = begin_ds, .report = report, .write = write, .host = host, .read = read,
 };
 
 const struct profile profile_dualshock4 = {
-    .name = "dualshock4", .device = &ds4_device,
+    .name = "dualshock4", .device = &ds4_device, .usb = &ds4_usb,
     .begin = begin_ds4, .report = report, .write = write, .host = host, .read = read,
 };
 

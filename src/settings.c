@@ -11,7 +11,7 @@
 
 enum { T_ENUM, T_NUMBER, T_COLOUR, T_RGB, T_BYTES };
 /* The rows the code itself uses. */
-enum { ID_TYPE = 1, ID_ADDRESS = 12, ID_BOND = 13,
+enum { ID_TYPE = 1, ID_ADDRESS = 12, ID_BOND = 13, ID_TRANSPORT = 35,
        ID_LEFT_POINTS = 33, ID_RIGHT_POINTS = 34 };
 
 struct set_field {
@@ -36,8 +36,9 @@ struct set_field {
 
 static const char *const types[] = {
     "switch", "switch2", "xbox", "xboxble", "dualsense", "dualshock4", "generic", "mouse",
-    "genericble", "dongle", NULL,
+    "genericble", NULL,
 };
+static const char *const transports[] = { "bluetooth", "usb", "bluetooth+usb", "dongle", NULL };
 static const char *const grips[] = {
     "off", "host", "fade", "rumble", "input", "rumble+input", "primary", "secondary", NULL,
 };
@@ -58,6 +59,10 @@ static const struct set_field slot_fields[] = {
       .def = { PROFILE_SWITCH, PROFILE_SWITCH, PROFILE_GENERIC, PROFILE_SWITCH2,
                [4 ... 7] = PROFILE_MOUSE },
       .help = "what the slot connects as; changing it clears address and bond" },
+    { .id = ID_TRANSPORT, .name = "transport", .type = T_ENUM, .names = transports, FIELD(transport),
+      .def = ALL(TRANSPORT_BT),
+      .help = "how: bluetooth; usb, a wired controller; bluetooth+usb, usb while a usb host "
+              "is there; dongle, through our dongle, which is the type on its usb port" },
     { .id = 2, .name = "connect_colour", .type = T_COLOUR, FIELD(connect_colour),
       .def = { COLOUR(3, 5), COLOUR(2, 5), COLOUR(4, 5), COLOUR(5, 5),
                COLOUR(6, 4), COLOUR(7, 4), COLOUR(8, 4), COLOUR(9, 4) },
@@ -557,9 +562,16 @@ void set_apply(void)
             reset_keeping_pairing(t);
         } else {
             f = find(t, id, &bit);
+            u8 v = (u8)(l ? stage[o + 3] : f->def[t]);
+
             /* A new type is a new device to the console: the old address
-             * and bond belong to the old one. */
-            if (t < SLOTS && id == ID_TYPE && (l ? stage[o + 3] : f->def[t]) != slots[t].type) {
+             * and bond belong to the old one.  Through the dongle the host
+             * stays the dongle, whatever the type; moving to or from the
+             * dongle changes the host. */
+            if (t < SLOTS && ((id == ID_TYPE && v != slots[t].type &&
+                               slots[t].transport != TRANSPORT_DONGLE) ||
+                              (id == ID_TRANSPORT && (v == TRANSPORT_DONGLE) !=
+                               (slots[t].transport == TRANSPORT_DONGLE)))) {
                 clear(t, ID_ADDRESS);
                 clear(t, ID_BOND);
             }
@@ -822,14 +834,14 @@ int main(void)
     set_slot_address(0, a);
     set_bond_store(0, &bond);
     set_slot_address(0, b);
-    CHECK(!memcmp(a, b, 6) && set_bits[0] == (1u << 11 | 1u << 12));
+    CHECK(!memcmp(a, b, 6) && set_bits[0] == (1u << 12 | 1u << 13));
     x = PROFILE_SWITCH;
     CHECK(write1(0, 1, 1, &x) == SET_OK);      /* the same type: kept */
     set_apply();
     CHECK(set_bond(0)->peer[0] == 0x11);
     CHECK(write1(0, 0, 0, NULL) == SET_OK);    /* reset, the same type: pairing kept */
     set_apply();
-    CHECK(set_bond(0)->peer[0] == 0x11 && set_bits[0] == (1u << 11 | 1u << 12));
+    CHECK(set_bond(0)->peer[0] == 0x11 && set_bits[0] == (1u << 12 | 1u << 13));
     x = PROFILE_XBOX;
     CHECK(write1(0, 1, 1, &x) == SET_OK);
     set_apply();

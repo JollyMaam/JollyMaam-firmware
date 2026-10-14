@@ -11,6 +11,9 @@
 #define REPORT_SIMPLE 0x3f
 #define OUT_SUBCMD    0x01
 #define OUT_RUMBLE    0x10
+#define OUT_USB       0x80       /* USB only: the cable's own handshake */
+#define REPORT_USB    0x81       /* its answers */
+#define USB_SIZE      63         /* every report on USB, after its id */
 #define FULL_SIZE     48
 #define SIMPLE_SIZE   11
 #define KEEPALIVE_MS  100
@@ -33,6 +36,24 @@ static const u8 descriptor[170] = {
     0x08, 0x95, 0x09, 0x91, 0x02, 0x85, 0x11, 0x09, 0x11, 0x75, 0x08, 0x95,
     0x30, 0x91, 0x02, 0x85, 0x12, 0x09, 0x12, 0x75, 0x08, 0x95, 0x30, 0x91,
     0x02, 0xc0,
+};
+
+/* The wired Pro Controller's descriptor (as GP2040-CE reproduces it): every
+ * report 63 bytes after its id. */
+static const u8 usb_descriptor[203] = {
+    0x05, 0x01, 0x15, 0x00, 0x09, 0x04, 0xa1, 0x01, 0x85, 0x30, 0x05, 0x01, 0x05, 0x09, 0x19, 0x01,
+    0x29, 0x0a, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x0a, 0x55, 0x00, 0x65, 0x00, 0x81, 0x02,
+    0x05, 0x09, 0x19, 0x0b, 0x29, 0x0e, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x04, 0x81, 0x02,
+    0x75, 0x01, 0x95, 0x02, 0x81, 0x03, 0x0b, 0x01, 0x00, 0x01, 0x00, 0xa1, 0x00, 0x0b, 0x30, 0x00,
+    0x01, 0x00, 0x0b, 0x31, 0x00, 0x01, 0x00, 0x0b, 0x32, 0x00, 0x01, 0x00, 0x0b, 0x35, 0x00, 0x01,
+    0x00, 0x15, 0x00, 0x27, 0xff, 0xff, 0x00, 0x00, 0x75, 0x10, 0x95, 0x04, 0x81, 0x02, 0xc0, 0x0b,
+    0x39, 0x00, 0x01, 0x00, 0x15, 0x00, 0x25, 0x07, 0x35, 0x00, 0x46, 0x3b, 0x01, 0x65, 0x14, 0x75,
+    0x04, 0x95, 0x01, 0x81, 0x02, 0x05, 0x09, 0x19, 0x0f, 0x29, 0x12, 0x15, 0x00, 0x25, 0x01, 0x75,
+    0x01, 0x95, 0x04, 0x81, 0x02, 0x75, 0x08, 0x95, 0x34, 0x81, 0x03, 0x06, 0x00, 0xff, 0x85, 0x21,
+    0x09, 0x01, 0x75, 0x08, 0x95, 0x3f, 0x81, 0x03, 0x85, 0x81, 0x09, 0x02, 0x75, 0x08, 0x95, 0x3f,
+    0x81, 0x03, 0x85, 0x01, 0x09, 0x03, 0x75, 0x08, 0x95, 0x3f, 0x91, 0x83, 0x85, 0x10, 0x09, 0x04,
+    0x75, 0x08, 0x95, 0x3f, 0x91, 0x83, 0x85, 0x80, 0x09, 0x05, 0x75, 0x08, 0x95, 0x3f, 0x91, 0x83,
+    0x85, 0x82, 0x09, 0x06, 0x75, 0x08, 0x95, 0x3f, 0x91, 0x83, 0xc0,
 };
 
 /* The controller's     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -86,6 +107,7 @@ static struct {
     u8 mode;
     u8 timer;
     u8 rumble_on, imu_on, stopped;
+    u8 usb;
     u8 rumble[2];
     u8 players, players_flash, has_players;
     u32 simple_sent;
@@ -136,7 +158,7 @@ static void state(u8 *s)
      * motion sample, as the stock firmware's does, and between reports
      * that carry no new sample it stays. */
     s[0] = (u8)(sw.now / 5);
-    s[1] = 0x8e;
+    s[1] = sw.usb ? 0x81 : 0x8e;
     /* Nintendo positions: the pad's printed labels are Xbox-ordered. */
     if (p->buttons & PAD_X) b |= JC_Y;
     if (p->buttons & PAD_Y) b |= JC_X;
@@ -206,7 +228,7 @@ static void reply(u8 cmd, const u8 *arg, u16 n)
 {
     static const u8 name[24] = { 0x00, 0x25, 0x08, 'P', 'r', 'o', ' ', 'C', 'o', 'n', 't', 'r',
                                  'o', 'l', 'l', 'e', 'r', 0, 0, 0, 0, 0, 0, 0x68 };
-    u8 out[FULL_SIZE], *ack = out + 12, *d = out + 14;
+    u8 out[USB_SIZE], *ack = out + 12, *d = out + 14;
     u32 i;
 
     memset(out, 0, sizeof(out));
@@ -272,12 +294,29 @@ static void reply(u8 cmd, const u8 *arg, u16 n)
         if (!sw.rumble_on) sw.rumble[0] = sw.rumble[1] = 0;
         break;
     }
-    bt_send_message(REPORT_REPLY, out, sizeof(out));
+    host_send(REPORT_REPLY, out, sw.usb ? USB_SIZE : FULL_SIZE);
+}
+
+/* The USB handshake: status (the controller type and our address, big-
+ * endian), handshake and baud rate answered; "HID only" and the rest not. */
+static void usb_handshake(u8 cmd)
+{
+    u8 out[USB_SIZE];
+    u32 i;
+
+    memset(out, 0, sizeof(out));
+    out[0] = cmd;
+    if (cmd == 0x01) {
+        out[2] = 0x03;
+        for (i = 0; i < 6; i++) out[3 + i] = sw.address[5 - i];
+    }
+    if (cmd <= 0x03) host_send(REPORT_USB, out, sizeof(out));
 }
 
 static u8 begin(const struct profile_session *s)
 {
     memset(&sw, 0, sizeof(sw));
+    sw.usb = s->usb;
     sw.pad.hat = HAT_NEUTRAL;
     /* Full reports from the start: a console that opens the channels and
      * sees only sparse 0x3f reports drops the link within 300 ms. */
@@ -317,12 +356,12 @@ static int report(const struct pad *p, u32 now, u8 *out, u8 *id)
     sw.now = now;
     sw.pad = *p;
     if (sw.stopped) return 0;
-    if (sw.mode == REPORT_FULL) {
-        memset(out, 0, FULL_SIZE);
+    if (sw.mode == REPORT_FULL || sw.usb) {
+        memset(out, 0, USB_SIZE);
         state(out);
         if (sw.imu_on) motion(out + 12, p);
         *id = REPORT_FULL;
-        return FULL_SIZE;
+        return sw.usb ? USB_SIZE : FULL_SIZE;
     }
     if (!changed && now - sw.simple_sent < KEEPALIVE_MS) return 0;
     sw.simple_sent = now;
@@ -336,6 +375,7 @@ static int write(const struct bt_write *w, u32 now, struct bt_bond *bond)
     (void)bond;
     sw.now = now;
     if (w->kind != BT_WRITE_OUTPUT) return 0;
+    if (w->id == OUT_USB && w->len >= 1) usb_handshake(w->data[0]);
     if (w->id == OUT_RUMBLE && w->len >= 9) rumble(w->data + 1);
     if (w->id == OUT_SUBCMD && w->len >= 10) {
         rumble(w->data + 1);
@@ -365,14 +405,22 @@ static const struct bt_device device = {
     .sniff_slots = 24, .sniff_attempt = 1,
 };
 
+static const struct usb_identity usb = {
+    .vendor_id = 0x057e, .product_id = 0x2009, .bcd_device = 0x0210,
+    .manufacturer = "Nintendo Co., Ltd.", .product = "Pro Controller", .serial = "000000000001",
+    .kind = USB_HID, .report_ids = 1, .interval = 8, .in_size = 64, .out_size = 64,
+    .max_power = 250, .hid_descriptor = usb_descriptor, .hid_descriptor_len = sizeof(usb_descriptor),
+};
+
 const struct profile profile_switch = {
     .name = "switch",
     .device = &device,
+    .usb = &usb,
     .begin = begin,
     .report = report,
     .write = write,
     .host = host,
-#ifndef UNITTEST
+#if !defined(UNITTEST) && !defined(BOARD_DONGLE)
     .wake = &profile_switch_wake,
 #endif
 };
@@ -495,6 +543,8 @@ static struct {
     u32 last_us;
     u16 sample_prev;
     u8 have_last;
+    u8 usb;
+    struct imu_sample motion;    /* USB: the newest sample */
 } s2;
 
 #define S2_FEATURE_MOTION 0x04
@@ -709,6 +759,15 @@ static u8 s2_command(const u8 *c, u16 n, u8 *out, u32 now, int *bonded)
         out[1] = 0;
         s2_flash_read((u32)c[12] | (u32)c[13] << 8 | (u32)c[14] << 16, out + 8, c[8]);
         return (u8)(c[8] + 8);
+    case 0x0201:            /* USB flash read (SDL's): 0x40 bytes from the address at 12 */
+        if (n < 16) return 0;
+        memcpy(out, c + 8, 8);
+        out[0] = 0x40;
+        s2_flash_read((u32)c[12] | (u32)c[13] << 8 | (u32)c[14] << 16, out + 8, 0x40);
+        return 0x48;
+    case 0x030d:            /* USB: start the reports */
+        s2.ready = 1;
+        return 0;
     case 0x0701:
         out[0] = 0;
         return 1;
@@ -806,6 +865,25 @@ static int s2_write(const struct bt_write *w, u32 now, struct bt_bond *bond)
     u8 len;
     int bonded = 0;
 
+    /* USB: rumble in output report 0x02 (a sequence byte, then the two
+     * motors' blocks 16 apart); commands on the bulk pipe, answered there
+     * without the LE response's prefix.  A bond made over USB is not kept. */
+    if (s2.usb && w->kind == BT_WRITE_OUTPUT && w->id == 0x02 && w->len >= 0x16) {
+        s2.rumble[0] = s2_amplitude(w->data);
+        s2.rumble[1] = s2_amplitude(w->data + 0x10);
+        return 0;
+    }
+    if (s2.usb && w->kind == BT_WRITE_BULK && w->len >= 8) {
+        memset(resp, 0, sizeof(resp));
+        len = s2_command(w->data, w->len, resp + 8, now, &bonded);
+        memcpy(resp, w->data, 4);
+        resp[1] = 0x01;
+        resp[4] = 0x10;
+        resp[5] = 0x78;
+        if (w->data[0] != 0x02) util_log("switch2: usb cmd %02x %02x", w->data[0], w->data[3]);
+        host_send(HOST_BULK, resp, (u16)(8 + len));
+        return 0;
+    }
     if (w->kind != BT_WRITE_ATT) return 0;
     if (w->id == S2_VIBRATION) {
         s2_rumble(w->data, w->len);
@@ -824,7 +902,7 @@ static int s2_write(const struct bt_write *w, u32 now, struct bt_bond *bond)
     resp[S2_RESP_PREFIX + 5] = 0x78;
     if (c[1] == 0x91) resp[S2_RESP_PREFIX + 1] = 1;
     if (c[0] != 0x02) util_log("switch2: cmd %02x %02x", c[0], c[3]);
-    bt_send_message(S2_RESPONSE, resp, (u16)(S2_RESP_PREFIX + 8 + len));
+    host_send(S2_RESPONSE, resp, (u16)(S2_RESP_PREFIX + 8 + len));
     if (!bonded) return 0;
     memset(bond, 0, sizeof(*bond));
     memcpy(bond->ltk, s2.ltk, 16);
@@ -881,9 +959,72 @@ static u8 s2_advertising(const struct bt_bond *bond, int pairing, int wake, u8 *
     return 31;
 }
 
+/* USB: a 64-byte report laid out as SDL's Switch 2 driver reads it: buttons
+ * at 4-7 (after the id), 12-bit sticks at 10, the motion sample's time at
+ * 42, accelerometer at 48 (4096 a g) and gyro at 54 (16.4 a degree a
+ * second), in SDL's axes.  Report id 0x09 is a guess: the real descriptor
+ * is not known here. */
+#define S2_USB_REPORT 0x09
+#define S2_USB_SIZE   63
+
+static int s2_usb_report(const struct pad *p, u32 now, u8 *out, u8 *id)
+{
+    static const u8 hat_bits[HAT_NEUTRAL] = { 0x02, 0x06, 0x04, 0x05, 0x01, 0x09, 0x08, 0x0a };
+    const struct imu_sample *m = &s2.motion;
+    u16 b = p->buttons;
+
+    (void)now;
+    if (p->imu_count) s2.motion = p->imu[p->imu_count - 1];
+    memset(out, 0, S2_USB_SIZE);
+    out[0] = ++s2.counter;
+    /* By position: the pad's A (south) is the Switch's B. */
+    out[4] = (u8)((b & PAD_X ? 0x01 : 0) | (b & PAD_Y ? 0x02 : 0) | (b & PAD_A ? 0x04 : 0) |
+                  (b & PAD_B ? 0x08 : 0) | (b & PAD_R1 ? 0x40 : 0) | (p->r2 > TRIGGER_BUTTON ? 0x80 : 0));
+    out[5] = (u8)((b & PAD_SELECT ? 0x01 : 0) | (b & PAD_START ? 0x02 : 0) | (b & PAD_R3 ? 0x04 : 0) |
+                  (b & PAD_L3 ? 0x08 : 0) | (b & PAD_HOME ? 0x10 : 0) |
+                  (b & PAD_SCREENSHOT ? 0x20 : 0) | (b & PAD_M ? 0x40 : 0));
+    out[6] = (u8)((p->hat < HAT_NEUTRAL ? hat_bits[p->hat] : 0) | (b & PAD_L1 ? 0x40 : 0) |
+                  (p->l2 > TRIGGER_BUTTON ? 0x80 : 0));
+    out[7] = (u8)((b & PAD_R4 ? 0x01 : 0) | (b & PAD_L4 ? 0x02 : 0));
+    s2_stick(out + 10, p->lx, (s16)-p->ly);
+    s2_stick(out + 13, p->rx, (s16)-p->ry);
+    if (s2.features & S2_FEATURE_MOTION && m->us) {
+        s2_put32(out + 42, m->us ? m->us : 1);
+        util_put16(out + 48, (u16)(s16)(-m->accel[1] / 2));
+        util_put16(out + 50, (u16)(s16)(m->accel[0] / 2));
+        util_put16(out + 52, (u16)(s16)(m->accel[2] / 2));
+        util_put16(out + 54, (u16)m->gyro[1]);
+        util_put16(out + 56, (u16)(s16)-m->gyro[0]);
+        util_put16(out + 58, (u16)m->gyro[2]);
+    }
+    *id = S2_USB_REPORT;
+    return S2_USB_SIZE;
+}
+
+static int s2_any_report(const struct pad *p, u32 now, u8 *out, u8 *id)
+{
+    return s2.usb ? s2_usb_report(p, now, out, id) : s2_report(p, now, out, id);
+}
+
+static const u8 s2_usb_descriptor[] = {
+    0x05, 0x01, 0x09, 0x05, 0xa1, 0x01, 0x06, 0x00, 0xff, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08,
+    0x85, S2_USB_REPORT, 0x09, 0x09, 0x95, S2_USB_SIZE, 0x81, 0x02,
+    0x85, 0x02, 0x09, 0x02, 0x95, 0x3f, 0x91, 0x02,
+    0xc0,
+};
+
+static const struct usb_identity s2_usb = {
+    .vendor_id = 0x057e, .product_id = 0x2069, .bcd_device = 0x0100,
+    .manufacturer = "Nintendo", .product = "Switch 2 Pro Controller",
+    .kind = USB_HID_BULK, .report_ids = 1, .interval = 4, .in_size = 64, .out_size = 64,
+    .max_power = 250, .hid_descriptor = s2_usb_descriptor, .hid_descriptor_len = sizeof(s2_usb_descriptor),
+};
+
 static u8 s2_begin(const struct profile_session *s)
 {
     memset(&s2, 0, sizeof(s2));
+    s2.usb = s->usb;
+    s2.ready = s->usb;           /* a cable needs no start */
     s2.q[0] = S2_ONE;
     memcpy(s2.address, s->address, 6);
     if (!s->pairing && s->bond) {
@@ -902,16 +1043,16 @@ static const struct bt_device s2_device = {
 };
 
 const struct profile profile_switch2 = {
-    .name = "switch2", .device = &s2_device,
-    .begin = s2_begin, .report = s2_report, .write = s2_write, .host = s2_host, .read = s2_read,
+    .name = "switch2", .device = &s2_device, .usb = &s2_usb,
+    .begin = s2_begin, .report = s2_any_report, .write = s2_write, .host = s2_host, .read = s2_read,
 };
 
 #ifdef UNITTEST
 static u8 sent[64];
 static u16 sent_len;
-int bt_send_message(u16 id, const u8 *data, u16 len)
+int host_send(u16 id, const u8 *data, u16 len)
 {
-    sent[0] = id;
+    sent[0] = (u8)id;
     memcpy(sent + 1, data, len);
     sent_len = len;
     return 1;
