@@ -1,5 +1,8 @@
-/* Stock-pad HID host for the GameSir dongle. Maintains one bond and sends
- * the stock-format keepalive. USB input forwarding is not implemented yet. */
+/* The dongle's Classic HID host: one bond, our pad's link (link.h) or a
+ * stock pad (the stock-format keepalive, for investigation).  With a bond it
+ * only listens: our pad pages it, as it does a console, and the dongle takes
+ * the master role so its polling sets the link's pace.  The pad's state and
+ * config go to the control thread through newest-wins slots (dongle.h). */
 #include <string.h>
 #include "btstack_config.h"
 #include "btstack_event.h"
@@ -12,7 +15,7 @@
 #include "hci.h"
 #include "l2cap.h"
 #include "dongle.h"
-#include "dongle_link.h"
+#include "link.h"
 
 const hci_transport_t *hci_jieli_transport(void);
 const btstack_run_loop_t *hci_jieli_run_loop(void);
@@ -25,6 +28,20 @@ void hci_jieli_link_policy(void);
 static u8 own_addr[6];                    /* controller order, least significant byte first */
 static bd_addr_t pad_base;               /* display order */
 static u8 page_offsets, page_offset;
+static u32 pair_until;                   /* pairing: page the rendezvous address until then */
+
+#define PAIR_MS        30000
+
+static int pairing(void)
+{
+    return pair_until && (s32)(plat_ms() - pair_until) < 0;
+}
+
+/* link.h's rendezvous address, display order. */
+static void rendezvous(bd_addr_t a)
+{
+    reverse_bd_addr(link_pair_address, a);
+}
 
 #define LISTEN_MS      15000     /* before paging the pad ourselves (no bond only) */
 #define STORE_BOND     1         /* syscfg user item: peer, key, type */
@@ -44,7 +61,7 @@ static hci_con_handle_t handle;
 static volatile u8 state = CTL_BOOT;
 static btstack_data_source_t commands;
 static struct { u8 flags, target[6]; } pending;
-enum { SET_TARGET = 1, FORGET_BOND = 2 };
+enum { SET_TARGET = 1, FORGET_BOND = 2, SEND_OUTPUT = 4 };
 
 static void on_packet(u8 type, u16 channel, u8 *packet, u16 size);
 
@@ -67,6 +84,7 @@ static void kdb_put(bd_addr_t a, link_key_t k, link_key_type_t t)
     memcpy(bond.key, k, 16);
     bond.type = (u8)t;
     bond.valid = 1;
+    pair_until = 0;
     util_log("bt: bond %s: %d", set_is_ephemeral() ? "in RAM" : "saved",
              dongle_store_write(STORE_BOND, &bond, sizeof(bond)));
 }
@@ -105,31 +123,32 @@ static const btstack_link_key_db_t key_db = {
     .iterator_done = kdb_iter_done,
 };
 
-/* ---- HID keepalive & custom downlink ------------------------------------ */
+/* ---- the link: input and config in, output back ----------------------------- */
 
-static u8 peer_is_custom;
-static u8 downlink_seq;
+static u8 peer_is_link;          /* the peer speaks link.h, not the stock format */
+/* Bluetooth thread to control thread, under plat_lock. */
 static struct {
-    u32 total_reports;
-    u32 last_sec_ms;
-    u32 reports_this_sec;
-    u32 dropped_this_sec;
-    u8 have_seq;
-    u8 last_seq;
-    struct dongle_uplink_pkt latest;
-} dongle_input_stats;
+    struct pad pad;              /* newest; motion samples gathered until taken */
+    u8 have_pad;
+    struct link_config config;
+    u8 have_config;
+    u8 output[LINK_OUTPUT_SIZE];
+    struct link_stats stats;
+} x;
+static u8 last_seq, have_seq;
 
 static void send_output(void)
 {
     u8 status;
 
-    if (peer_is_custom) {
-        u8 r[2 + sizeof(struct dongle_downlink_pkt)];
+    if (peer_is_link) {
+        u8 r[2 + LINK_OUTPUT_SIZE];
+
         r[0] = 0xa2;
-        r[1] = DONGLE_CMD_ID;
-        struct dongle_downlink_pkt *cmd = (struct dongle_downlink_pkt *)(r + 2);
-        memset(cmd, 0, sizeof(*cmd));
-        cmd->seq = ++downlink_seq;
+        r[1] = LINK_OUTPUT_ID;
+        plat_lock();
+        memcpy(r + 2, x.output, LINK_OUTPUT_SIZE);
+        plat_unlock();
         status = l2cap_send(interrupt_cid, r, sizeof(r));
     } else {
         u8 r[DONGLE_OUTPUT_SIZE];
@@ -139,43 +158,62 @@ static void send_output(void)
     if (status) util_log("bt: output send failed: 0x%02x", status);
 }
 
+/* A newer state replaces the one waiting, but its motion samples join the
+ * waiting ones (the newest IMU_PER_REPORT): a sample is never sent twice and
+ * only dropped when the host falls that far behind. */
+static void take_input(const u8 *d, u16 n)
+{
+    struct pad p;
+    u8 seq, flags;
+    u32 i;
+
+    if (!link_unpack_input(d, n, &p, &seq, &flags)) return;
+    plat_lock();
+    if (x.have_pad) {
+        struct imu_sample all[IMU_PER_REPORT + LINK_IMU_MAX];
+        u32 k = 0;
+
+        for (i = 0; i < x.pad.imu_count; i++) all[k++] = x.pad.imu[i];
+        for (i = 0; i < p.imu_count; i++) all[k++] = p.imu[i];
+        p.imu_count = (u8)(k > IMU_PER_REPORT ? IMU_PER_REPORT : k);
+        memcpy(p.imu, all + (k - p.imu_count), p.imu_count * sizeof(all[0]));
+        x.stats.replaced++;
+    }
+    x.pad = p;
+    x.have_pad = 1;
+    x.stats.inputs++;
+    if (have_seq && (u8)(seq - last_seq) > 1) x.stats.lost += (u8)(seq - last_seq) - 1u;
+    plat_unlock();
+    have_seq = 1;
+    last_seq = seq;
+    plat_wake(EV_BT);
+}
+
 static void dongle_on_input_report(const u8 *packet, u16 size)
 {
+    struct link_config c;
+
     if (size < 2 || packet[0] != 0xa1) return;
-    u8 report_id = packet[1];
+    if (packet[1] == LINK_INPUT_ID) {
+        peer_is_link = 1;
+        take_input(packet + 2, (u16)(size - 2));
+    } else if (packet[1] == LINK_CONFIG_ID && link_unpack_config(packet + 2, (u16)(size - 2), &c)) {
+        bd_addr_t r;
 
-    if (report_id == DONGLE_REPORT_ID && size >= 2 + DONGLE_UPLINK_BASE_SIZE) {
-        const struct dongle_uplink_pkt *pkt = (const struct dongle_uplink_pkt *)(packet + 2);
-        u32 now = plat_ms();
-
-        if (!peer_is_custom) {
-            peer_is_custom = 1;
-            util_log("bt: custom pad linked (seq %u)", pkt->seq);
+        if (!peer_is_link) util_log("bt: our pad, type %u", c.type);
+        rendezvous(r);
+        if (bond.valid && !memcmp(bond.peer, r, 6)) {
+            /* Paired at the rendezvous: the slot's own address from now on. */
+            reverse_bd_addr(c.address, bond.peer);
+            util_log("bt: bond is %s's, saved: %d", bd_addr_to_str(bond.peer),
+                     dongle_store_write(STORE_BOND, &bond, sizeof(bond)));
         }
-
-        dongle_input_stats.total_reports++;
-        dongle_input_stats.reports_this_sec++;
-
-        if (dongle_input_stats.have_seq) {
-            u8 delta = (u8)(pkt->seq - dongle_input_stats.last_seq);
-            if (delta > 1) {
-                dongle_input_stats.dropped_this_sec += (delta - 1);
-            }
-        }
-        dongle_input_stats.have_seq = 1;
-        dongle_input_stats.last_seq = pkt->seq;
-        dongle_input_stats.latest = *pkt;
-
-        if (!dongle_input_stats.last_sec_ms) dongle_input_stats.last_sec_ms = now;
-        if ((s32)(now - dongle_input_stats.last_sec_ms) >= 1000) {
-            util_log("dongle: %u rpt/s, %u drops | buttons 0x%04x sticks %d,%d",
-                     dongle_input_stats.reports_this_sec,
-                     dongle_input_stats.dropped_this_sec,
-                     pkt->buttons, pkt->current.lx, pkt->current.ly);
-            dongle_input_stats.reports_this_sec = 0;
-            dongle_input_stats.dropped_this_sec = 0;
-            dongle_input_stats.last_sec_ms = now;
-        }
+        peer_is_link = 1;
+        plat_lock();
+        x.config = c;
+        x.have_config = 1;
+        plat_unlock();
+        plat_wake(EV_BT);
     }
 }
 
@@ -224,7 +262,8 @@ static void page_pad(void)
     u16 cid;
     u8 status;
 
-    if (bond.valid) memcpy(a, bond.peer, 6);
+    if (pairing()) rendezvous(a);
+    else if (bond.valid) memcpy(a, bond.peer, 6);
     else {
         if (!page_offsets) return;
         memcpy(a, pad_base, 6);
@@ -237,9 +276,16 @@ static void page_pad(void)
     util_log("bt: paging the pad at %s: status 0x%02x", bd_addr_to_str(a), status);
 }
 
+/* Paging is for a target given over USB (padtool target) or a stock pad
+ * found by its base address; a bonded pad of ours pages us. */
 static void on_timer(btstack_timer_source_t *t)
 {
-    if (!acl_up && !paging) page_pad();
+    if (pair_until && !pairing()) {
+        pair_until = 0;
+        util_log("bt: pairing ended");
+        if (!acl_up) state = CTL_IDLE;
+    }
+    if (!acl_up && !paging && (!bond.valid || pairing())) page_pad();
     btstack_run_loop_set_timer(t, PAGE_EVERY_MS);
     btstack_run_loop_add_timer(t);
 }
@@ -273,23 +319,6 @@ static void on_packet(u8 type, u16 channel, u8 *packet, u16 size)
         btstack_run_loop_set_timer(&timer, LISTEN_MS);
         btstack_run_loop_add_timer(&timer);
         break;
-    case GAP_EVENT_INQUIRY_RESULT: {
-        bd_addr_t peer_addr;
-        gap_event_inquiry_result_get_bd_addr(packet, peer_addr);
-        u32 cod = gap_event_inquiry_result_get_class_of_device(packet);
-        util_log("bt: inquiry found %s (cod 0x%06x)", bd_addr_to_str(peer_addr), (unsigned)cod);
-        if ((cod & 0x002500) == 0x002500) {
-            gap_inquiry_stop();
-            paging = 1;
-            state = CTL_CONNECTING;
-            open_hid_channel(peer_addr, BLUETOOTH_PSM_HID_CONTROL, &cid);
-            util_log("bt: paging found gamepad at %s", bd_addr_to_str(peer_addr));
-        }
-        break;
-    }
-    case GAP_EVENT_INQUIRY_COMPLETE:
-        util_log("bt: inquiry complete");
-        break;
     case HCI_EVENT_CONNECTION_REQUEST:
         paging = 1;              /* not while the pad comes to us */
         state = CTL_CONNECTING;
@@ -314,8 +343,11 @@ static void on_packet(u8 type, u16 channel, u8 *packet, u16 size)
         util_log("bt: disconnected, reason 0x%02x",
                  hci_event_disconnection_complete_get_reason(packet));
         acl_up = 0;
-        peer_is_custom = 0;
-        memset(&dongle_input_stats, 0, sizeof(dongle_input_stats));
+        peer_is_link = 0;
+        have_seq = 0;
+        plat_lock();
+        x.have_pad = 0;
+        plat_unlock();
         state = CTL_IDLE;
         gap_connectable_control(1);
         paging = 0;
@@ -402,15 +434,16 @@ static void on_commands(btstack_data_source_t *ds, btstack_data_source_callback_
         page_offset = 0;
         util_log("bt: target %s", bd_addr_to_str(pad_base));
     }
+    if ((flags & SEND_OUTPUT) && peer_is_link) request_output();
     if (flags & FORGET_BOND) {
         bond.valid = 0;
         dongle_store_write(STORE_BOND, &bond, sizeof(bond));
         util_log("bt: bond forgotten%s", set_is_ephemeral() ? " (ephemeral)" : "");
         if (acl_up) gap_disconnect(handle);
         state = CTL_PAIRING;
-        gap_connectable_control(1);
-        gap_inquiry_start(5);
-        util_log("bt: pairing inquiry started (5s)");
+        pair_until = plat_ms() + PAIR_MS;
+        util_log("bt: pairing: paging the rendezvous address for %u s", PAIR_MS / 1000);
+        if (!acl_up && !paging) page_pad();
     }
 }
 
@@ -434,6 +467,7 @@ static void body(void)
     gap_set_default_link_policy_settings(LM_LINK_POLICY_ENABLE_ROLE_SWITCH |
                                          LM_LINK_POLICY_ENABLE_SNIFF_MODE);
     gap_set_allow_role_switch(true);
+    hci_set_master_slave_policy(0);     /* the pad pages us: we take master */
     gap_set_page_timeout(0x2000);       /* 5.1 s a page, not 24 */
     gap_set_security_level(LEVEL_0);
     gap_ssp_set_enable(1);
@@ -474,6 +508,55 @@ void dongle_bt_forget(void)
 u8 dongle_bt_state(void)
 {
     return state;
+}
+
+int dongle_bt_linked(void)
+{
+    return state == CTL_CONNECTED && peer_is_link;
+}
+
+int dongle_bt_take_input(struct pad *p)
+{
+    int got;
+
+    plat_lock();
+    got = x.have_pad;
+    if (got) *p = x.pad;
+    x.have_pad = 0;
+    plat_unlock();
+    return got;
+}
+
+int dongle_bt_take_config(struct link_config *c)
+{
+    int got;
+
+    plat_lock();
+    got = x.have_config;
+    if (got) *c = x.config;
+    x.have_config = 0;
+    plat_unlock();
+    return got;
+}
+
+/* Changed output goes at once; the timer repeats it every LINK_OUTPUT_MS. */
+void dongle_bt_output(const u8 out[LINK_OUTPUT_SIZE])
+{
+    int changed;
+
+    plat_lock();
+    changed = memcmp(x.output, out, LINK_OUTPUT_SIZE) != 0;
+    memcpy(x.output, out, LINK_OUTPUT_SIZE);
+    if (changed) pending.flags |= SEND_OUTPUT;
+    plat_unlock();
+    if (changed) plat_bt_wake();
+}
+
+void dongle_bt_stats(struct link_stats *out)
+{
+    plat_lock();
+    *out = x.stats;
+    plat_unlock();
 }
 
 void dongle_bt_start(void)

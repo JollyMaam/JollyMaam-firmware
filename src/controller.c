@@ -1,5 +1,6 @@
 #include <string.h>
 #include "pad.h"
+#include "link.h"
 
 #define LOW_BATTERY_MV   3500
 #define BATTERY_OK_MV    3600
@@ -102,8 +103,9 @@ static void radio_on(void)
         plat_usb_mode(c.prof->usb, c.prof->read);
         return;
     }
-    bt_start(c.prof, c.sess.address, c.sess.pairing ? NULL : c.sess.bond, c.sess.pairing,
-             &c.sess.settings->link);
+    /* A dongle slot pairs at the rendezvous address (link.h). */
+    bt_start(c.prof, c.prof == &profile_link && c.sess.pairing ? link_pair_address : c.sess.address,
+             c.sess.pairing ? NULL : c.sess.bond, c.sess.pairing, &c.sess.settings->link);
     c.radio = 1;
 }
 
@@ -200,7 +202,9 @@ static void start_session(struct ctl_request r, u32 now)
     c.sess = s;
     c.woke = 0;
     radio_on();
-    util_log("session slot %u %s%s%s", r.slot, p->name, usb ? " usb" : "", pairing ? " pairing" : "");
+    util_log("session slot %u %s%s%s as %02x:%02x:%02x:%02x:%02x:%02x", r.slot, p->name,
+             usb ? " usb" : "", pairing ? " pairing" : "", s.address[5], s.address[4], s.address[3],
+             s.address[2], s.address[1], s.address[0]);
     become(pairing ? CTL_PAIRING : CTL_CONNECTING, now);
 }
 

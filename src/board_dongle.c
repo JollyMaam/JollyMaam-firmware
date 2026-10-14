@@ -48,3 +48,20 @@ int board_usb_sense(void)
 {
     return 1;
 }
+
+/* No sensors on the dongle: input_imu.c links for the profiles' motion
+ * maths, and its I2C reads fail. */
+void plat_i2c_read(u8 dev, u8 reg, u8 *buf, u8 len)
+{
+    (void)dev; (void)reg; (void)buf; (void)len;
+}
+
+void plat_i2c_write(u8 dev, u8 reg, u8 value)
+{
+    (void)dev; (void)reg; (void)value;
+}
+
+int plat_i2c_done(void)
+{
+    return -1;
+}

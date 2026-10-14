@@ -31,7 +31,13 @@
 #define LINK_OUTPUT_SIZE  10
 #define LINK_IMU_MAX      2
 #define LINK_OUTPUT_MS    100
-#define LINK_NAME         "Cyclone 2 Link"   /* what the dongle pairs with */
+#define LINK_NAME         "Cyclone 2 Link"
+/* Pairing: neither side can search (the controller does not inquire), so a
+ * pairing pad answers at this address and a pairing dongle pages it.  The
+ * dongle files the bond under the slot's own address from the config, which
+ * the pad uses from then on; the link key does not depend on the address.
+ * C2:32:4C:49:4E:4B, least significant byte first. */
+static const u8 link_pair_address[6] = { 0x4b, 0x4e, 0x49, 0x4c, 0x32, 0xc2 };
 
 enum { LINK_LOW_BATTERY = 4, LINK_USB_POWER = 8 };
 enum { LINK_HAS_PLAYERS = 1, LINK_HAS_LIGHTBAR = 2, LINK_USB_READY = 4 };

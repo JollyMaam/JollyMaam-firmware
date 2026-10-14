@@ -476,7 +476,9 @@ void set_slot_address(u8 slot, u8 out[6])
 {
     static const u8 zero[16];
     const u8 *seed = plat_unique_id();
-    u8 salt[3] = { (u8)(slot % SLOTS), set_slot(slot)->type, 0 };
+    /* Through the dongle the type can change under the same host. */
+    u8 salt[3] = { (u8)(slot % SLOTS), set_slot(slot)->transport == TRANSPORT_DONGLE ? 0xff :
+                                       set_slot(slot)->type, 0 };
     u32 a, b;
 
     if (memcmp(slots[slot % SLOTS].address, zero, 6)) {

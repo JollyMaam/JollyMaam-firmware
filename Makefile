@@ -26,9 +26,10 @@ FLASH_SIZE_dongle := 0x80000
 CODE_LIMIT_dongle := 0x50000
 PID_dongle := GS_C2_Dongle
 BOARD_DEFINES_dongle := -DBOARD_DONGLE
-APP_SOURCES_dongle := src/platform_jieli.c src/platform_jieli_sdk.c \
+APP_SOURCES_dongle := src/platform_jieli.c src/platform_jieli_sdk.c src/platform_jieli_usb.c \
 	src/dongle.c src/dongle_bt.c src/dongle_protocol.c src/btstack_hci_jieli.c src/btstack_qos_jieli.c \
-	src/usb.c src/utils.c
+	src/usb.c src/utils.c src/input_imu.c \
+	src/profile_link.c src/profile_switch.c src/profile_xbox.c src/profile_playstation.c src/profile_hid.c
 
 FLASH_SIZE = $(FLASH_SIZE_$(BOARD))
 # Note: changing CODE_LIMIT changes the location of settings/bonds storage
