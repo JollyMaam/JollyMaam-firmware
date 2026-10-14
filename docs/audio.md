@@ -57,6 +57,13 @@ The playback and capture formats are:
 At full-speed USB, 192 bytes is one millisecond of 48 kHz stereo 16-bit PCM,
 and 32 bytes is one millisecond of 16 kHz mono 16-bit PCM.
 
+The stock pad offers its audio interfaces only while a plug is in the jack. It
+re-enumerates on USB when the plug goes in or out. Its feature units report
+playback volume and microphone capture volume as 0 to 100 in steps of 1.
+
+On the stock pad, the amplifier hiss stops as soon as the host closes the
+playback stream, and starts again when the host opens it.
+
 The stock images also contain a 48 kHz mono capture descriptor. Which host mode
 advertises which configuration is not established.
 

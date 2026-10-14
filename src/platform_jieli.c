@@ -38,6 +38,10 @@ extern u32 msd_mcu2usb(const struct usb_device_t *usb_device, const u8 *buffer, 
 extern u32 msd_usb2mcu(const struct usb_device_t *usb_device, u8 *buffer, u32 len);
 extern u8 *get_norflash_uuid(void) __attribute__((weak));
 
+#ifdef AUDIO_TEST_TONE
+void plat_tone_quiet(void);
+#endif
+
 const struct task_info task_info_table[] = {
     {"app_core",  1, 0, 1024, 128 },
     {"ctl",       2, 0, 1024, 0   },
@@ -583,6 +587,9 @@ void plat_enter_loader(void)
  * device. */
 void plat_reboot_loader(void)
 {
+#ifdef AUDIO_TEST_TONE
+    plat_tone_quiet();
+#endif
     board_to_loader();
     plat_mdelay(100);
     local_irq_disable();
@@ -598,6 +605,9 @@ void plat_reboot_loader(void)
 
 void plat_reboot(void)
 {
+#ifdef AUDIO_TEST_TONE
+    plat_tone_quiet();
+#endif
     p33_soft_reset();
 }
 
@@ -724,6 +734,7 @@ static struct dac_platform_data tone_dac_data = {
     .output = DAC_OUTPUT_LR, .ldo_volt = DACVDD_LDO_2_70V,
     .ldo_isel = 3, .ldo_fb_isel = 2, .lpf_isel = 0x8,
 };
+static u8 tone_on;
 static s16 tone_buf[2 * 1024] __attribute__((aligned(4)));
 
 static void tone_write(const s16 *data, u32 frames)
@@ -766,6 +777,17 @@ static void tone_play(float hz, u32 ms, s16 amplitude)
     }
 }
 
+/* Amplifier off before the DAC, so a reset does not pop. */
+void plat_tone_quiet(void)
+{
+    if (!tone_on) return;
+    tone_on = 0;
+    gpio_direction_output(IO_PORTA_08, 0);
+    plat_mdelay(50);
+    audio_dac_stop(&tone_dac);
+    audio_dac_close(&tone_dac);
+}
+
 static void tone_test(void)
 {
     static const u16 notes[] = { 523, 659, 784, 1047, 0, 784, 1047 };
@@ -774,7 +796,7 @@ static void tone_test(void)
 
     gpio_set_pull_up(IO_PORTA_08, 0);
     gpio_set_pull_down(IO_PORTA_08, 0);
-    gpio_direction_output(IO_PORTA_08, 1);          /* amplifier enable */
+    gpio_direction_output(IO_PORTA_08, 0);          /* amplifier enable */
     audio_dac_init(&tone_dac, &tone_dac_data);
     audio_dac_set_buff(&tone_dac, tone_buf, sizeof(tone_buf));
     audio_dac_do_trim(&tone_dac, &trim, 0);
@@ -787,11 +809,16 @@ static void tone_test(void)
     audio_dac_ch_analog_gain_set(&tone_dac, 0x3, 12);
     audio_dac_ch_digital_gain_set(&tone_dac, 0x3, 16384);
     JL_AUDIO->DAC_CON &= ~(BIT(12) | BIT(13) | BIT(14) | BIT(15));
+    tone_play(0, 300, 0);                           /* the DAC settles, then the amplifier */
+    gpio_direction_output(IO_PORTA_08, 1);
+    tone_on = 1;
+    tone_play(0, 100, 0);
     util_log("tone: dac ch %u trim %d %d con %08x", tone_dac.channel, trim.left, trim.right,
              JL_AUDIO->DAC_CON);
     for (i = 0; i < sizeof(notes) / sizeof(notes[0]); i++) tone_play(notes[i], 180, 6000);
     tone_play(0, 100, 0);
-    util_log("tone: done");
+    plat_tone_quiet();
+    util_log("tone: done, off");
 }
 #endif
 

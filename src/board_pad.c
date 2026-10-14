@@ -20,6 +20,7 @@
 #define PIN_SENSOR_POWER IO_PORTB_05
 #define PIN_TRIGGER_L2  IO_PORTB_03
 #define PIN_TRIGGER_R2  IO_PORTB_10
+#define PIN_AMP_ENABLE  IO_PORTA_08     /* audio amplifier, on while floating */
 #define ADC_TRIGGER_L2  AD_CH_PB3
 #define ADC_TRIGGER_R2  AD_CH_PB10
 #define PR_STOP_L2      1
@@ -348,6 +349,9 @@ static void inputs_init(void)
 {
     u32 i;
 
+    gpio_set_pull_up(PIN_AMP_ENABLE, 0);
+    gpio_set_pull_down(PIN_AMP_ENABLE, 1);
+    gpio_direction_output(PIN_AMP_ENABLE, 0);
     for (i = 0; i < board_line_count; i++) plat_pull_up_input(board_lines[i].gpio);
     gpio_set_pull_down(PIN_SENSOR_POWER, 0);
     gpio_set_pull_up(PIN_SENSOR_POWER, 0);
@@ -517,10 +521,17 @@ int board_usb_sense(void)
     return gpio_read(PIN_USB_SENSE);
 }
 
+#ifdef AUDIO_TEST_TONE
+void plat_tone_quiet(void);
+#endif
+
 void plat_power_off(void)
 {
     struct led_frame dark;
 
+#ifdef AUDIO_TEST_TONE
+    plat_tone_quiet();
+#endif
     memset(&dark, 0, sizeof(dark));
     plat_leds(&dark);
     power_set_soft_poweroff();
