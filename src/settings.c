@@ -169,8 +169,9 @@ static const struct set_field cal_fields[] = {
 #define RECORD_MAX 192
 #define SETTLE_MS  100
 #define STAGE_MAX  1024
-/* 11 and 12 belonged to the removed shortcut/mapping prototype; do not reuse. */
-#define LAST_SLOT_KEY 13
+/* 11 and 12 belonged to the removed shortcut/mapping prototype, 13 to the
+ * last slot (now plat_retain_slot); do not reuse. */
+#define KEYS 14
 
 static struct set_slot slots[SLOTS];
 static struct rgb palette[PALETTE];
@@ -179,7 +180,6 @@ static u32 set_bits[TARGETS];
 static u16 dirty;            /* a bit per target */
 static u32 changed_ms;
 static u8 commit_now, ephemeral;
-static u8 last_slot = SLOT_NONE, last_slot_dirty;
 static u8 stage[STAGE_MAX];
 static u16 staged, staged_items;
 
@@ -361,11 +361,6 @@ void set_init(void)
         n = plat_store_read(key_of(t), buf, sizeof(buf));
         if (n > 0) decode(t, buf, (u32)n);
     }
-    last_slot = SLOT_NONE;
-    last_slot_dirty = 0;
-    n = plat_store_read(LAST_SLOT_KEY, buf, 8);
-    if (n == 8 && !memcmp(buf, "C2LS", 4) && buf[4] == 1 && buf[5] < SLOTS &&
-        buf[6] == (u8)~buf[5]) last_slot = buf[5];
     if (!(set_bits[TARGET_CAL] & 1)) util_log("settings: calibration required");
 }
 
@@ -380,12 +375,7 @@ static void write_dirty(void)
             encode(t, buf);
             plat_store_write(key_of(t), buf, sizeof(buf));
         }
-    if (last_slot_dirty) {
-        const u8 saved[8] = {'C','2','L','S',1,last_slot,(u8)~last_slot,0};
-        plat_store_write(LAST_SLOT_KEY, saved, sizeof(saved));
-    }
-    if (dirty || last_slot_dirty) util_log("settings: written");
-    last_slot_dirty = 0;
+    if (dirty) util_log("settings: written");
     dirty = 0;
     commit_now = 0;
 }
@@ -394,7 +384,7 @@ static void write_dirty(void)
  * set-up is under way (a flash write then has reset the chip). */
 void set_poll(u32 now, int radio_quiet)
 {
-    if ((dirty || last_slot_dirty) && radio_quiet && (commit_now || now - changed_ms >= SETTLE_MS)) write_dirty();
+    if (dirty && radio_quiet && (commit_now || now - changed_ms >= SETTLE_MS)) write_dirty();
 }
 
 void set_flush(void)
@@ -407,17 +397,6 @@ void set_flush(void)
 const struct set_slot *set_slot(u8 slot)
 {
     return &slots[slot % SLOTS];
-}
-
-/* The most recent selected slot survives a real power-off. Retained RAM in
- * the platform is only a fast software-reset fallback. Save through the same
- * quiet/flush path as settings, and respect ephemeral mode. */
-u8 set_last_slot(void) { return last_slot; }
-void set_remember_slot(u8 slot)
-{
-    if (slot >= SLOTS || slot == last_slot) return;
-    last_slot = slot;
-    if (!ephemeral) { last_slot_dirty = 1; changed_ms = plat_ms(); }
 }
 
 /* Brightness levels: the LEDs are bright, so the low end goes in single
@@ -682,7 +661,7 @@ u32 set_read(u8 t, u8 *out, u32 max)
 }
 
 #ifdef UNITTEST
-static u8 store[LAST_SLOT_KEY + 1][RECORD_MAX];
+static u8 store[KEYS][RECORD_MAX];
 static int store_writes;
 static u16 read_size = RECORD_MAX;
 static u32 ms;
@@ -748,16 +727,6 @@ int main(void)
         CHECK(c.r == 4 && c.g == 0 && c.b == 3);
     }
 
-    CHECK(set_last_slot() == SLOT_NONE);
-    set_remember_slot(3);
-    CHECK(set_last_slot() == 3);
-    set_flush(); set_init();
-    CHECK(set_last_slot() == 3);
-    t = store_writes;
-    set_remember_slot(3); set_flush(); CHECK(store_writes == (int)t);
-    set_remember_slot(SLOT_NONE); CHECK(set_last_slot() == 3);
-    store[LAST_SLOT_KEY][6] ^= 1; set_init(); CHECK(set_last_slot() == SLOT_NONE);
-    set_remember_slot(5); set_flush(); set_init(); CHECK(set_last_slot() == 5);
     store_writes = 0;
 
     /* Collected, not applied, until commit; then stored. */
@@ -909,10 +878,6 @@ int main(void)
     set_flush();
     CHECK(set_slot(3)->rumble == 10 && store_writes == (int)t);
 
-    t = store_writes;
-    set_remember_slot(7); set_flush();
-    CHECK(set_last_slot() == 7 && store_writes == (int)t); /* ephemeral */
-    set_init(); CHECK(set_last_slot() == 5);
 
     /* Describe and read. */
     CHECK(set_describe(0, buf, sizeof(buf)) > 8 && buf[2] == 1 && !strcmp((char *)buf + 8, "type"));

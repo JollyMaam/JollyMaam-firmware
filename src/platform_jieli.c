@@ -64,23 +64,26 @@ void plat_flush_dcache(const void *address, u32 size)
     f(address, size);
 }
 
-/* ---- retained RAM: survives a soft reset, not a power-off ---------------- */
+/* ---- the last slot: two RTC data registers, kept through a soft power-off -- */
 
-static volatile struct { u32 magic; u8 slot, check, pad[2]; } retained_slot
-    __attribute__((section(".reset_mailbox"), used, aligned(4)));
+static u8 retained_slot = SLOT_NONE;
+
+static void retained_read(void)
+{
+    u8 slot = p33_rx_1byte(R3_RTC_DAT0), check = p33_rx_1byte(R3_RTC_DAT4);
+    retained_slot = slot < SLOTS && check == (u8)~slot ? slot : SLOT_NONE;
+}
 
 u8 plat_retained_slot(void)
 {
-    if (retained_slot.magic != 0x43324c53 || retained_slot.check != (u8)~retained_slot.slot ||
-        retained_slot.slot >= SLOTS) return SLOT_NONE;
-    return retained_slot.slot;
+    return retained_slot;
 }
 
 void plat_retain_slot(u8 slot)
 {
-    retained_slot.slot = slot;
-    retained_slot.check = (u8)~slot;
-    retained_slot.magic = 0x43324c53;
+    p33_tx_1byte(R3_RTC_DAT0, slot);
+    p33_tx_1byte(R3_RTC_DAT4, (u8)~slot);
+    retained_slot = slot;
 }
 
 /* ---- buttons: sampled and debounced in the 250 us timer interrupt -------- */
@@ -746,6 +749,7 @@ REGISTER_LP_TARGET(pad_lp_target) = {
 void board_init(void)
 {
     board_latch();
+    retained_read();             /* before power_init(), which might touch the RTC domain */
     power_init(&power_param);
     gpio_longpress_pin0_reset_config(IO_PORTB_01, 0, 0);
     gpio_shortpress_reset_config(0);

@@ -372,8 +372,6 @@ void set_init(void);
 void set_poll(u32 now, int radio_quiet);
 void set_flush(void);                    /* write what is pending now: before sleep or reboot */
 const struct set_slot *set_slot(u8 slot);
-u8 set_last_slot(void);                     /* persistent most recently selected slot, or SLOT_NONE */
-void set_remember_slot(u8 slot);            /* save at next quiet write or flush; respects ephemeral */
 struct rgb set_colour(struct colour c);
 const struct bt_bond *set_bond(u8 slot);
 void set_bond_store(u8 slot, const struct bt_bond *bond);

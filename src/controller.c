@@ -210,7 +210,6 @@ static void start_session(struct ctl_request r, u32 now)
     c.slot = r.slot;
     c.last_slot = r.slot;
     plat_retain_slot(r.slot);
-    set_remember_slot(r.slot);
     memset(&c.host, 0, sizeof(c.host));
     c.report_hz = s.settings->report_hz ? s.settings->report_hz :
                   usb || p == &profile_link ? REPORT_HZ_WIRED : REPORT_HZ;
@@ -793,7 +792,6 @@ static void boot(u32 now)
     c.since = c.boot_ms = now;
     c.slot = SLOT_NONE;
     c.last_slot = plat_retained_slot();
-    if (c.last_slot == SLOT_NONE) c.last_slot = set_last_slot();
     c.led.scene = CTL_BOOT;
     c.led.slot = SLOT_NONE;
     c.usb_raw = c.usb_powered = (u8)plat_usb_present();

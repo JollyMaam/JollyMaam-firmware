@@ -86,6 +86,18 @@ SRAM at `0x20000` and `0x20010` survives software resets and loader resets while
 power is on. See [memory-map.md](memory-map.md). Ordinary `.bss` is cleared at
 every application boot.
 
+Soft power-off (`power_set_soft_poweroff()`) clears retained SRAM. Across a
+soft power-off and Home wake:
+
+| Storage | Result |
+|---|---|
+| Retained SRAM (`.retained`) | not kept |
+| P33 `0x20`, `0x21`, `0x2f` (reserved range) | read `0x00` |
+| `R3_RTC_DAT0`, `R3_RTC_DAT4` | written values kept |
+
+The RTC does not run in this configuration, so its data registers hold what
+was written. Whether they survive a loss of battery supply is not established.
+
 ### Boot counter and restarts
 
 The app keeps a boot counter in retained SRAM. A restart is established when

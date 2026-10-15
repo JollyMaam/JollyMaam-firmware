@@ -36,7 +36,7 @@ These sections are `NOLOAD`: startup code does not clear them.
 | `0x20010` | `0x2100` bytes maximum | bring-up log and boot counter (`.retained`) |
 
 Retained SRAM survives software resets and loader-mediated reflashing while
-power stays on. Loss of supply clears it. Ordinary `.bss` is reinitialized at
+power stays on. Loss of supply and soft power-off clear it. Ordinary `.bss` is reinitialized at
 every application boot, even when the SRAM bits were retained.
 
 ## Low SRAM used by MaskROM
