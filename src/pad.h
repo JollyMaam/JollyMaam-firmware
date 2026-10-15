@@ -452,7 +452,6 @@ struct ux_timeouts {
     u16 uboot_window_ms;
     u16 led_frame_ms;
     u16 usb_plug_ms;
-    u16 usb_wake_ms;         /* a USB session's host silent this long: wake it by radio */
 };
 
 struct ux_colours { struct colour idle, battery; };
