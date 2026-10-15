@@ -63,6 +63,7 @@
 extern u32 usb_read_txcsr(const usb_dev usb_id, const u32 ep);
 extern void usb_memory_init(void);
 void plat_usb_tool_mode(void);           /* platform_jieli.c: back to mass storage */
+void plat_usb_frames_rebase(void);       /* platform_jieli.c: after a core re-init */
 void plat_usb_hold_present(u32 ms);
 
 /* One IN endpoint: the input waiting (newest wins) and messages (queued). */
@@ -668,6 +669,7 @@ static void start(const struct usb_identity *id,
     w_head = w_count = 0;
     if (!id) {
         plat_usb_tool_mode();
+        plat_usb_frames_rebase();
         return;
     }
     host_read = read;
@@ -692,6 +694,7 @@ static void start(const struct usb_identity *id,
     }
     usb_set_reset_hander(0, 0, on_reset);
     usb_set_setup_hook(usb_id2device(0), hook);
+    plat_usb_frames_rebase();
 }
 
 void plat_usb_mode(const struct usb_identity *id,

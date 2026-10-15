@@ -7,7 +7,6 @@
 #define BATTERY_CHECK_MS 1000
 #define USB_DEBOUNCE_MS  100
 #define USB_GONE_MS      500     /* a USB slot's host without frames this long: unplugged */
-#define USB_PLUG_QUIET_MS 1000   /* frames this soon after a USB session: no plug-in light */
 #define USB_REARM_MS     500     /* a host's re-configuration this short keeps CONNECTED */
 #define RETRY_MS         1000
 #define QUIET_MS         500
@@ -37,7 +36,6 @@ static struct {
     u8 wake_after_stop;          /* the session stops to wake the host, then restarts */
     u8 usb_wake;                 /* USB session: may wake a silent host by radio, until it
                                     first configures us */
-    u32 usb_ended_ms;            /* the last USB session's end */
     u8 usb_configured;           /* USB session: the host has configured us */
     u8 usb_arrived;              /* a USB host appeared, not yet acted on (ux_usb_autoconnect) */
     u32 usb_unready_ms;          /* CONNECTED on USB: when the host unconfigured us, 0: it has not */
@@ -125,10 +123,7 @@ static void end_session(void)
     c.waking = 0;
     c.wake_after_stop = 0;
     if (c.radio) bt_stop();
-    if (c.usb) {
-        plat_usb_mode(NULL, NULL);
-        c.usb_ended_ms = plat_ms();
-    }
+    if (c.usb) plat_usb_mode(NULL, NULL);
     c.usb = 0;
     c.usb_wake = 0;
     c.usb_configured = 0;
@@ -598,11 +593,8 @@ static void sample_power(u32 now)
         c.usb_powered = raw;
         util_log("usb %s", raw ? "present" : "gone");
         if (raw) {
-            /* Frames just after a USB session (the host's last, as it sleeps)
-             * are no plug-in. */
-            c.usb_plugged_ms = now - (now - c.usb_ended_ms < USB_PLUG_QUIET_MS ?
-                                      ux_timeouts.usb_plug_ms : 0);
-            c.usb_arrived = now - c.usb_ended_ms >= USB_PLUG_QUIET_MS;
+            c.usb_plugged_ms = now;
+            c.usb_arrived = 1;
             if ((c.raw.buttons & (PAD_HOME | PAD_START)) == (PAD_HOME | PAD_START)) handle(loader, now);
         } else {
             c.usb_arrived = 0;
@@ -798,7 +790,6 @@ static void boot(u32 now)
     c.led.slot = SLOT_NONE;
     c.usb_raw = c.usb_powered = (u8)plat_usb_present();
     c.usb_plugged_ms = c.usb_powered ? now : now - ux_timeouts.usb_plug_ms;
-    c.usb_ended_ms = now - USB_PLUG_QUIET_MS;
     c.usb_arrived = c.usb_powered;  /* plugged in at power-up (or the plug-in woke us) */
     c.battery_ms = now - BATTERY_CHECK_MS;
     util_log("boot cause %u held %04x last slot %u", b.cause, b.buttons_held, c.last_slot);

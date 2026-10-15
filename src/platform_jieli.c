@@ -526,10 +526,10 @@ void plat_usb_service(void)
 }
 
 static u32 sof_seen_ms;
+static u16 frame;
 
 int plat_usb_present(void)
 {
-    static u16 frame;
     static u8 started;
     u16 f = usb_read_sofframe(USB0);
 
@@ -549,6 +549,13 @@ int plat_usb_present(void)
 int plat_usb_suspended(void)
 {
     return (usb_read_power(USB0) & BIT(1)) != 0;
+}
+
+/* Re-initialising the core resets its frame number: that change is ours,
+ * not a frame from a host. */
+void plat_usb_frames_rebase(void)
+{
+    frame = usb_read_sofframe(USB0);
 }
 
 /* A re-enumeration (platform_jieli_usb.c) stops the frames for a while:
