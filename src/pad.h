@@ -72,6 +72,7 @@ struct pad {
     u16 l2, r2;
     u8 imu_count;                /* samples new since the last report, oldest first */
     struct imu_sample imu[IMU_PER_REPORT];
+    u8 jack;                     /* a plug in the headphone jack */
 };
 #define PAD_CONTROLS_SIZE ((u32)(size_t)&((struct pad *)0)->imu_count)
 
@@ -629,6 +630,7 @@ void plat_usb_service(void);
 void plat_usb_mode(const struct usb_identity *id,
                    int (*read)(u8 kind, u16 id, u16 offset, u8 *out, u16 max));
 int plat_usb_ready(void);                   /* the host configured the personality */
+int plat_usb_jack_in(void);                 /* a plug in the headphone jack, debounced */
 int plat_usb_input_wanted(void);            /* nothing waits to go to the host */
 int plat_usb_send_input(u8 id, const u8 *data, u16 len);
 int plat_usb_send_message(u16 id, const u8 *data, u16 len);   /* HOST_BULK: bulk IN */

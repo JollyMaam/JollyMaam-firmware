@@ -651,6 +651,7 @@ static void send_report(u32 now)
     }
     c.report_next = now + period;
     c.pad.imu_count = (u8)imu_take(&c.imu_seq, c.pad.imu, IMU_PER_REPORT);
+    c.pad.jack = (u8)plat_usb_jack_in();
     n = c.prof->report(&c.pad, now, buf, &id);
     util_trace(TR_BUILT, (u16)n);
     if (n > 0 && (c.usb ? plat_usb_send_input(id, buf, (u16)n) : bt_send_input(id, buf, (u16)n))) {

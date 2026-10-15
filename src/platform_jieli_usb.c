@@ -741,6 +741,11 @@ void plat_usb_jack(void)
     }
 }
 
+int plat_usb_jack_in(void)
+{
+    return jack;
+}
+
 int plat_usb_ready(void)
 {
     return ident && configured;

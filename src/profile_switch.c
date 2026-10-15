@@ -721,6 +721,9 @@ static int s2_report(const struct pad *p, u32 now, u8 *out, u8 *id)
     s2_stick(out + 5, p->lx, (s16)-p->ly);
     s2_stick(out + 8, p->rx, (s16)-p->ry);
     out[11] = 0x38;
+    /* Headset audio state: 0x05 headphones, 0x07 a headset (ndeadly; bit 3,
+     * which a real one flips, not known).  USB only: LE audio is not ours. */
+    if (s2.usb && p->jack) out[13] = 0x05;
     if (s2.features & S2_FEATURE_MOTION) s2_motion(out + 14, p);
     *id = 0;
     return S2_REPORT_SIZE;
@@ -954,7 +957,7 @@ static int s2_read(u8 kind, u16 id, u16 offset, u8 *out, u16 max)
     if (kind == BT_WRITE_VENDOR) {
         /* USB, from the console's capture: 03 the device info (as flash
          * 0x13000), 02 a version and our address, 04 (wValue 0x0276) no data */
-        static const u8 version[10] = { 0x01, 0x01, 0x05, 0, 0, 0, 0x0c, 0, 0, 0 };
+        static const u8 version[10] = { 0x02, 0x01, 0x04, 0, 0, 0, 0x0c, 0, 0, 0 };   /* as 10/01 */
 
         (void)offset;
         if (id == 0x04) return 0;
@@ -1046,7 +1049,7 @@ static int s2_usb_report(const struct pad *p, u32 now, u8 *out, u8 *id)
                   (b & PAD_SCREENSHOT ? 0x20 : 0) | (b & PAD_M ? 0x40 : 0));
     out[6] = (u8)((p->hat < HAT_NEUTRAL ? hat_bits[p->hat] : 0) | (b & PAD_L1 ? 0x40 : 0) |
                   (p->l2 > TRIGGER_BUTTON ? 0x80 : 0));
-    out[7] = (u8)((b & PAD_R4 ? 0x01 : 0) | (b & PAD_L4 ? 0x02 : 0));
+    out[7] = (u8)((b & PAD_R4 ? 0x01 : 0) | (b & PAD_L4 ? 0x02 : 0) | (p->jack ? 0x10 : 0));
     s2_cal_stick(out + 10, p->lx, (s16)-p->ly, &s2_cal_left);
     s2_cal_stick(out + 13, p->rx, (s16)-p->ry, &s2_cal_right);
     if (s2.features & S2_FEATURE_MOTION && m->us) {
