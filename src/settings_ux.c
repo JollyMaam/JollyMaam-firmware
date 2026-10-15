@@ -60,8 +60,7 @@ const struct ux_power_debug ux_power_debug = {
     .wake_colour = {0, 12, 0}, .sleep_colour = {12, 0, 0},
 };
 
-#define DPAD_ALL (DPAD_UP | DPAD_RIGHT | DPAD_DOWN | DPAD_LEFT)
-#define DIGITAL_MASK (0x7fffu | DPAD_ALL)
+#define DIGITAL_MASK (0x7fffu | PAD_DPAD)
 
 /* keys held with Home, hold, request, slot, works connected, fires on release */
 static const struct gesture { u32 keys; u16 hold_ms; u8 request, slot, connected, release; } gestures[] = {
@@ -70,40 +69,22 @@ static const struct gesture { u32 keys; u16 hold_ms; u8 request, slot, connected
     {PAD_B, 0, REQ_CONNECT, 1, 0, 1},
     {PAD_X, 0, REQ_CONNECT, 2, 0, 1},
     {PAD_Y, 0, REQ_CONNECT, 3, 0, 1},
-    {DPAD_UP, 0, REQ_CONNECT, 4, 0, 1},
-    {DPAD_DOWN, 0, REQ_CONNECT, 5, 0, 1},
-    {DPAD_LEFT, 0, REQ_CONNECT, 6, 0, 1},
-    {DPAD_RIGHT, 0, REQ_CONNECT, 7, 0, 1},
+    {PAD_UP, 0, REQ_CONNECT, 4, 0, 1},
+    {PAD_DOWN, 0, REQ_CONNECT, 5, 0, 1},
+    {PAD_LEFT, 0, REQ_CONNECT, 6, 0, 1},
+    {PAD_RIGHT, 0, REQ_CONNECT, 7, 0, 1},
     {PAD_L3, 0, REQ_CALIBRATE, SLOT_NONE, 0, 0},
     {PAD_R3, 0, REQ_CALIBRATE, SLOT_NONE, 0, 0},
     {PAD_A, 5000, REQ_PAIR, 0, 0, 0},
     {PAD_B, 5000, REQ_PAIR, 1, 0, 0},
     {PAD_X, 5000, REQ_PAIR, 2, 0, 0},
     {PAD_Y, 5000, REQ_PAIR, 3, 0, 0},
-    {DPAD_UP, 5000, REQ_PAIR, 4, 0, 0},
-    {DPAD_DOWN, 5000, REQ_PAIR, 5, 0, 0},
-    {DPAD_LEFT, 5000, REQ_PAIR, 6, 0, 0},
-    {DPAD_RIGHT, 5000, REQ_PAIR, 7, 0, 0},
+    {PAD_UP, 5000, REQ_PAIR, 4, 0, 0},
+    {PAD_DOWN, 5000, REQ_PAIR, 5, 0, 0},
+    {PAD_LEFT, 5000, REQ_PAIR, 6, 0, 0},
+    {PAD_RIGHT, 5000, REQ_PAIR, 7, 0, 0},
 };
 #define GESTURES (sizeof(gestures) / sizeof(gestures[0]))
-
-static const u32 dpad[HAT_NEUTRAL + 1] = {
-    DPAD_UP, DPAD_UP | DPAD_RIGHT, DPAD_RIGHT, DPAD_DOWN | DPAD_RIGHT,
-    DPAD_DOWN, DPAD_DOWN | DPAD_LEFT, DPAD_LEFT, DPAD_UP | DPAD_LEFT, 0,
-};
-
-static u32 held(const struct pad *p)
-{
-    return p->buttons | dpad[p->hat < HAT_NEUTRAL ? p->hat : HAT_NEUTRAL];
-}
-
-static void show(struct pad *p, u32 keys)
-{
-    u8 hat = 0;
-    while (hat < HAT_NEUTRAL && dpad[hat] != (keys & DPAD_ALL)) hat++;
-    p->buttons = (u16)keys;
-    p->hat = hat;
-}
 
 /* keys: the chord, without Home. before: keys already down when Home went down. */
 static struct {
@@ -143,7 +124,7 @@ static struct ctl_request released(u32 chord)
 struct ctl_request ux_step(struct pad *p, u32 now, u8 state)
 {
     struct ctl_request r = request(REQ_NONE, SLOT_NONE);
-    u32 keys = held(p), chord = keys & ~PAD_HOME, output = keys, i;
+    u32 keys = p->buttons, chord = keys & ~PAD_HOME, output = keys, i;
     int offline = state == CTL_BOOT || state == CTL_IDLE || state == CTL_CONNECTING ||
                   state == CTL_PAIRING || state == CTL_STOPPING;
 
@@ -211,7 +192,7 @@ struct ctl_request ux_step(struct pad *p, u32 now, u8 state)
             if (!ux.live) output &= ~ux.captured;
         }
     }
-    show(p, output | ux.tap);
+    p->buttons = output | ux.tap;
     /* Until the down report leaves, keep the release deadline armed so the loop still runs. */
     if (ux.tap && !ux.tap_reported) ux.tap_release_at = now + ux_timeouts.tap_ms;
     return r;
@@ -258,11 +239,10 @@ void ux_ignore_held(void)
     ux.tap = 0;
 }
 
-struct ctl_request ux_boot(u16 buttons, u8 hat, u32 now)
+struct ctl_request ux_boot(u32 buttons, u32 now)
 {
     struct pad p = {0};
     p.buttons = buttons;
-    p.hat = hat;
     return ux_step(&p, now, CTL_BOOT);
 }
 
@@ -279,7 +259,6 @@ static void reset(u8 next_state)
 {
     memset(&ux, 0, sizeof(ux));
     memset(&pad, 0, sizeof(pad));
-    pad.hat = HAT_NEUTRAL;
     state = next_state;
     now = 100;
     run(1);
@@ -329,8 +308,8 @@ int main(void)
 
     /* Connected: slots, pairing and calibration are host keys. */
     for (i = 1; i < GESTURES; i++) {
-        reset(CTL_CONNECTED); show(&pad, PAD_HOME | gestures[i].keys); run(6000);
-        CHECK(last.kind == REQ_NONE && !ux.chorded && held(&seen) == (PAD_HOME | gestures[i].keys));
+        reset(CTL_CONNECTED); pad.buttons = PAD_HOME | gestures[i].keys; run(6000);
+        CHECK(last.kind == REQ_NONE && !ux.chorded && seen.buttons == (PAD_HOME | gestures[i].keys));
     }
 
     /* Offline: connect on release, or pair at 5 s. */
@@ -365,8 +344,8 @@ int main(void)
     run(4901); CHECK(last.kind == REQ_PAIR && last.slot == 1);
     reset(CTL_IDLE); pad.buttons = PAD_L3; run(100); pad.buttons |= PAD_HOME; run(1);
     CHECK(last.kind == REQ_CALIBRATE);
-    reset(CTL_IDLE); show(&pad, PAD_HOME | DPAD_RIGHT); run(1);
-    CHECK(seen.hat == HAT_NEUTRAL); show(&pad, PAD_HOME); run(1);
+    reset(CTL_IDLE); pad.buttons = PAD_HOME | PAD_RIGHT; run(1);
+    CHECK(!seen.buttons); pad.buttons = PAD_HOME; run(1);
     CHECK(last.kind == REQ_CONNECT && last.slot == 7);
     reset(CTL_IDLE); pad.buttons = PAD_HOME | PAD_B; run(100); pad.buttons |= PAD_A; run(6000);
     CHECK(last.kind == REQ_NONE && !seen.buttons);
@@ -384,29 +363,29 @@ int main(void)
 
     /* Waking with a slot. */
     for (i = 0; i < 8; i++) {
-        reset(CTL_BOOT); show(&pad, PAD_HOME | gestures[i + 1].keys);
-        last = ux_boot(pad.buttons, pad.hat, now);
+        reset(CTL_BOOT); pad.buttons = PAD_HOME | gestures[i + 1].keys;
+        last = ux_boot(pad.buttons, now);
         CHECK(last.kind == REQ_NONE);
-        state = CTL_IDLE; run(1); CHECK(last.kind == REQ_NONE && !seen.buttons && seen.hat == HAT_NEUTRAL);
+        state = CTL_IDLE; run(1); CHECK(last.kind == REQ_NONE && !seen.buttons);
         run(4999); CHECK(last.kind == REQ_PAIR && last.slot == i);
-        reset(CTL_BOOT); show(&pad, PAD_HOME | gestures[i + 1].keys); ux_boot(pad.buttons, pad.hat, now);
-        state = CTL_IDLE; run(300); pad.buttons = 0; pad.hat = HAT_NEUTRAL; run(1);
+        reset(CTL_BOOT); pad.buttons = PAD_HOME | gestures[i + 1].keys; ux_boot(pad.buttons, now);
+        state = CTL_IDLE; run(300); pad.buttons = 0; run(1);
         CHECK(last.kind == REQ_CONNECT && last.slot == i);
     }
-    reset(CTL_BOOT); last = ux_boot(PAD_HOME | PAD_R3, HAT_NEUTRAL, now);
+    reset(CTL_BOOT); last = ux_boot(PAD_HOME | PAD_R3, now);
     CHECK(last.kind == REQ_CALIBRATE);
     /* Waking with Home alone. */
-    reset(CTL_BOOT); last = ux_boot(PAD_HOME, HAT_NEUTRAL, now);
+    reset(CTL_BOOT); last = ux_boot(PAD_HOME, now);
     CHECK(last.kind == REQ_NONE && ux_armed() == SLOT_LAST);
     pad.buttons = PAD_HOME; run(300); CHECK(last.kind == REQ_NONE);
     pad.buttons = 0; run(1); CHECK(last.kind == REQ_CONNECT && last.slot == SLOT_LAST);
     CHECK(ux_armed() == SLOT_NONE);
-    reset(CTL_BOOT); ux_boot(PAD_HOME, HAT_NEUTRAL, now);
+    reset(CTL_BOOT); ux_boot(PAD_HOME, now);
     pad.buttons = PAD_HOME; state = CTL_IDLE; run(1000);
     pad.buttons |= PAD_X; run(1); CHECK(ux_armed() == 2);
     pad.buttons = PAD_HOME; run(1); CHECK(last.kind == REQ_CONNECT && last.slot == 2);
     pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE);
-    reset(CTL_BOOT); CHECK(ux_boot(PAD_M | PAD_B, HAT_NEUTRAL, now).kind == REQ_NONE);
+    reset(CTL_BOOT); CHECK(ux_boot(PAD_M | PAD_B, now).kind == REQ_NONE);
 
     /* M is a plain key everywhere. */
     reset(CTL_CONNECTED); pad.buttons = PAD_M; run(1); CHECK(seen.buttons == PAD_M);

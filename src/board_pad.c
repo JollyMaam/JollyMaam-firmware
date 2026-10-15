@@ -40,31 +40,18 @@ const struct line board_lines[] = {
     {IO_PORTC_01, PAD_L3}, {IO_PORTC_02, PAD_R3}, {IO_PORTA_15, PAD_SELECT},
     {IO_PORTA_14, PAD_START}, {IO_PORTB_11, PAD_HOME}, {IO_PORTD_05, PAD_SCREENSHOT},
     {IO_PORTA_05, PAD_L4}, {IO_PORTC_04, PAD_R4}, {IO_PORTB_07, PAD_M},
-    /* the d-pad: bit 0 up, 1 right, 2 down, 3 left */
-    {IO_PORTA_02, 1 << 0}, {IO_PORTA_10, 1 << 1}, {IO_PORTA_04, 1 << 2},
-    {IO_PORTB_08, 1 << 3},
+    {IO_PORTA_02, PAD_UP}, {IO_PORTA_10, PAD_RIGHT}, {IO_PORTA_04, PAD_DOWN},
+    {IO_PORTB_08, PAD_LEFT},
 };
 const u8 board_line_count = sizeof(board_lines) / sizeof(board_lines[0]);
-#define BUTTON_LINES 15
 
-static u8 hat_from(u32 d)
+static u32 buttons_of(u32 down)
 {
-    static const u8 hat[16] = {
-        HAT_NEUTRAL, HAT_UP, HAT_RIGHT, HAT_UP_RIGHT, HAT_DOWN, HAT_NEUTRAL,
-        HAT_DOWN_RIGHT, HAT_RIGHT, HAT_LEFT, HAT_UP_LEFT, HAT_NEUTRAL, HAT_UP,
-        HAT_DOWN_LEFT, HAT_LEFT, HAT_DOWN, HAT_NEUTRAL,
-    };
-    return hat[d & 15];
-}
+    u32 i, buttons = 0;
 
-static void split_lines(u32 down, u16 *buttons, u8 *hat)
-{
-    u32 i;
-
-    *buttons = 0;
-    for (i = 0; i < BUTTON_LINES; i++)
-        if (down & BIT(i)) *buttons |= board_lines[i].bit;
-    *hat = hat_from(down >> BUTTON_LINES);
+    for (i = 0; i < board_line_count; i++)
+        if (down & BIT(i)) buttons |= board_lines[i].bit;
+    return buttons;
 }
 
 /* ---- I2C: one transfer at a time, a step per byte ---------------------------
@@ -388,7 +375,7 @@ void plat_input(struct in_raw *raw)
 
     u32 changed_us;
 
-    split_lines(plat_lines(&changed_us), &raw->buttons, &raw->hat);
+    raw->buttons = buttons_of(plat_lines(&changed_us));
     sticks_drain();
     for (i = 0; i < 4; i++) raw->stick[i] = stick[i];
     raw->sticks_valid = sticks_valid;
@@ -418,7 +405,7 @@ void board_latch(void)
     u32 i;
 
     for (i = 0; i < board_line_count; i++) plat_pull_up_input(board_lines[i].gpio);
-    split_lines(plat_read_lines(), &boot.buttons_held, &boot.hat_held);
+    boot.buttons_held = buttons_of(plat_read_lines());
     gpio_set_pull_up(PIN_USB_SENSE, 0);
     gpio_set_pull_down(PIN_USB_SENSE, 0);
     gpio_set_die(PIN_USB_SENSE, 1);

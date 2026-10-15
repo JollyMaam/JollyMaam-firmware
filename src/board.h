@@ -13,7 +13,7 @@
 struct wakeup_param;
 
 /* A button: active low, pulled up, debounced in the tick. */
-struct line { u32 gpio; u16 bit; };
+struct line { u32 gpio; u32 bit; };
 
 /* ---- the board ---------------------------------------------------------- */
 

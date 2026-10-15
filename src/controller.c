@@ -71,8 +71,7 @@ static struct {
     struct bt_stats bt_base;     /* the counters at the last reset */
     struct plat_stats plat_base;
     u32 last_report_us;
-    u16 sent_buttons;
-    u8 sent_hat;
+    u32 sent_buttons;
 } c;
 
 static void stats_reset(u32 now)
@@ -200,7 +199,6 @@ static void start_session(struct ctl_request r, u32 now)
     c.usb = (u8)usb;
     c.prof = p;
     c.sent_buttons = 0;         /* no report from this session has been handed over yet */
-    c.sent_hat = HAT_NEUTRAL;
     c.slot = r.slot;
     c.last_slot = r.slot;
     plat_retain_slot(r.slot);
@@ -723,7 +721,6 @@ static void read_input(u32 now)
             ux_ignore_held();
         }
         c.pad.buttons = 0;
-        c.pad.hat = HAT_NEUTRAL;
     } else {
         r = ux_step(&c.pad, now, c.kind);
     }
@@ -760,11 +757,10 @@ static void send_report(u32 now)
         u32 us = plat_us();
 
         if (c.stats.reports) util_stat_add(&c.stats.interval, us - c.last_report_us);
-        if (c.pad.buttons != c.sent_buttons || c.pad.hat != c.sent_hat)
+        if (c.pad.buttons != c.sent_buttons)
             util_stat_add(&c.stats.age, us - c.raw.changed_us);
         c.last_report_us = us;
         c.sent_buttons = c.pad.buttons;
-        c.sent_hat = c.pad.hat;
         c.stats.reports++;
         c.stats.imu_samples += c.pad.imu_count;
     }
@@ -795,14 +791,14 @@ static void boot(u32 now)
     c.usb_plugged_ms = c.usb_powered ? now : now - ux_timeouts.usb_plug_ms;
     c.usb_arrived = c.usb_powered;  /* plugged in at power-up (or the plug-in woke us) */
     c.battery_ms = now - BATTERY_CHECK_MS;
-    util_log("boot cause %u held %04x last slot %u", b.cause, b.buttons_held, c.last_slot);
+    util_log("boot cause %u held %05x last slot %u", b.cause, b.buttons_held, c.last_slot);
     c.uboot_chord = (b.buttons_held & (PAD_HOME | PAD_START)) == (PAD_HOME | PAD_START);
     plat_input(&c.raw);
     /* Render the development boot indication before starting a profile/radio;
      * an immediate session must not skip it by replacing CTL_BOOT. */
     outputs(now);
     if (c.uboot_chord) ux_ignore_held();
-    else handle(ux_boot(b.buttons_held, b.hat_held, now), now);
+    else handle(ux_boot(b.buttons_held, now), now);
 }
 
 void ctl_main(void)

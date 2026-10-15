@@ -41,7 +41,6 @@ int bt_input_pending(void)       /* profile_hid.c's mouse asks; never on USB */
 static void at_rest(struct pad *p)
 {
     memset(p, 0, sizeof(*p));
-    p->hat = HAT_NEUTRAL;
 }
 
 static void drop_personality(const char *why)

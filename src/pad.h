@@ -38,19 +38,28 @@ enum {
     PAD_Y = 1 << 4, PAD_M = 1 << 5, PAD_L1 = 1 << 6, PAD_R1 = 1 << 7,
     PAD_L4 = 1 << 8, PAD_R4 = 1 << 9, PAD_SELECT = 1 << 10, PAD_START = 1 << 11,
     PAD_HOME = 1 << 12, PAD_L3 = 1 << 13, PAD_R3 = 1 << 14,
+    PAD_UP = 1 << 16, PAD_RIGHT = 1 << 17, PAD_DOWN = 1 << 18, PAD_LEFT = 1 << 19,
 };
 #define PAD_FACE (PAD_A | PAD_B | PAD_X | PAD_Y)
+#define PAD_DPAD (PAD_UP | PAD_RIGHT | PAD_DOWN | PAD_LEFT)
 
+/* The d-pad as a host hat value, for formats that carry one. */
 enum { HAT_UP, HAT_UP_RIGHT, HAT_RIGHT, HAT_DOWN_RIGHT, HAT_DOWN, HAT_DOWN_LEFT,
        HAT_LEFT, HAT_UP_LEFT, HAT_NEUTRAL };
-enum { DPAD_UP = 1 << 16, DPAD_RIGHT = 1 << 17, DPAD_DOWN = 1 << 18, DPAD_LEFT = 1 << 19 }; /* above the button bits */
+
+static inline u8 in_hat(u32 b)
+{
+    u32 right = b & PAD_RIGHT, left = b & PAD_LEFT;
+    if (b & PAD_UP) return right ? HAT_UP_RIGHT : left ? HAT_UP_LEFT : HAT_UP;
+    if (b & PAD_DOWN) return right ? HAT_DOWN_RIGHT : left ? HAT_DOWN_LEFT : HAT_DOWN;
+    return right ? HAT_RIGHT : left ? HAT_LEFT : HAT_NEUTRAL;
+}
 
 #define STICK_MAX   32767
 #define TRIGGER_MAX 65535u
 
 struct in_raw {
-    u16 buttons;
-    u8 hat;
+    u32 buttons;
     u8 sticks_valid;
     u16 stick[4];
     u16 trigger[2];
@@ -67,8 +76,7 @@ struct imu_sample {
 #define IMU_PER_REPORT 4
 
 struct pad {
-    u16 buttons;
-    u8 hat;
+    u32 buttons;                 /* PAD_*: opposite d-pad directions cancel */
     s16 lx, ly, rx, ry;
     u16 l2, r2;
     u8 imu_count;                /* samples new since the last report, oldest first */
@@ -480,7 +488,7 @@ u32 ux_idle_deadline(u32 idle_since, u32 activity_ms, u32 usb_seen_ms,
 u32 ux_deadline(void);                      /* when ux_step may next fire a hold, 0: none */
 u8 ux_armed(void);                          /* slot a release would connect, or SLOT_NONE */
 void ux_ignore_held(void);
-struct ctl_request ux_boot(u16 buttons, u8 hat, u32 now);
+struct ctl_request ux_boot(u32 buttons, u32 now);
 
 /* ---- usb.c -------------------------------------------------------------- */
 
@@ -592,8 +600,7 @@ enum { EV_BUTTONS = 1, EV_USB = 2, EV_BT = 4, EV_IMU = 8, EV_DEADLINE = 0x80 };
 enum { BOOT_POWER_ON, BOOT_HOME, BOOT_USB, BOOT_RESET };
 struct plat_boot {
     u8 cause;
-    u8 hat_held;
-    u16 buttons_held;
+    u32 buttons_held;
 };
 
 u32 plat_ms(void);

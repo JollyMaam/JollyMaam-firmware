@@ -146,10 +146,6 @@ static void stick(u8 *out, s16 x, s16 y)
  * charging, Bluetooth (0x81 would announce a wired controller). */
 static void state(u8 *s)
 {
-    static const u32 hat_bits[HAT_NEUTRAL] = {
-        JC_UP, JC_UP | JC_RIGHT, JC_RIGHT, JC_DOWN | JC_RIGHT, JC_DOWN, JC_DOWN | JC_LEFT,
-        JC_LEFT, JC_UP | JC_LEFT,
-    };
     const struct pad *p = &sw.pad;
     u32 b = 0;
 
@@ -174,7 +170,10 @@ static void state(u8 *s)
     if (p->buttons & PAD_R3) b |= JC_RSTICK;
     if (p->buttons & PAD_HOME) b |= JC_HOME;
     if (p->buttons & PAD_SCREENSHOT) b |= JC_CAP;
-    if (p->hat < HAT_NEUTRAL) b |= hat_bits[p->hat];
+    if (p->buttons & PAD_UP) b |= JC_UP;
+    if (p->buttons & PAD_RIGHT) b |= JC_RIGHT;
+    if (p->buttons & PAD_DOWN) b |= JC_DOWN;
+    if (p->buttons & PAD_LEFT) b |= JC_LEFT;
     s[2] = (u8)b;
     s[3] = (u8)(b >> 8);
     s[4] = (u8)(b >> 16);
@@ -201,7 +200,7 @@ static void simple(u8 *r)
     if (p->buttons & PAD_L3) r[1] |= 0x08;
     if (p->buttons & PAD_HOME) r[1] |= 0x10;
     if (p->buttons & PAD_SCREENSHOT) r[1] |= 0x20;
-    r[2] = p->hat;
+    r[2] = in_hat(p->buttons);
     util_put16(r + 3, (u16)(p->lx + 32768));
     util_put16(r + 5, (u16)(p->ly + 32768));
     util_put16(r + 7, (u16)(p->rx + 32768));
@@ -317,7 +316,6 @@ static u8 begin(const struct profile_session *s)
 {
     memset(&sw, 0, sizeof(sw));
     sw.usb = s->usb;
-    sw.pad.hat = HAT_NEUTRAL;
     /* Full reports from the start: a console that opens the channels and
      * sees only sparse 0x3f reports drops the link within 300 ms. */
     sw.mode = REPORT_FULL;
@@ -687,9 +685,6 @@ static void s2_motion(u8 *out, const struct pad *p)
 
 static int s2_report(const struct pad *p, u32 now, u8 *out, u8 *id)
 {
-    static const u32 hat_bits[HAT_NEUTRAL] = {
-        0x0800, 0x0a00, 0x0200, 0x0300, 0x0100, 0x0500, 0x0400, 0x0c00,
-    };
     u32 b = 0;
 
     (void)now;
@@ -715,7 +710,10 @@ static int s2_report(const struct pad *p, u32 now, u8 *out, u8 *id)
     if (p->buttons & PAD_R4) b |= 0x040000;
     if (p->buttons & PAD_L4) b |= 0x080000;
     if (p->buttons & PAD_M) b |= 0x100000;      /* C */
-    if (p->hat < HAT_NEUTRAL) b |= hat_bits[p->hat];
+    if (p->buttons & PAD_UP) b |= 0x0800;
+    if (p->buttons & PAD_RIGHT) b |= 0x0200;
+    if (p->buttons & PAD_DOWN) b |= 0x0100;
+    if (p->buttons & PAD_LEFT) b |= 0x0400;
     out[2] = (u8)b;
     out[3] = (u8)(b >> 8);
     out[4] = (u8)(b >> 16);
@@ -1048,9 +1046,8 @@ static void s2_cal_stick(u8 *out, s16 x, s16 y, const struct s2_cal *c)
 
 static int s2_usb_report(const struct pad *p, u32 now, u8 *out, u8 *id)
 {
-    static const u8 hat_bits[HAT_NEUTRAL] = { 0x02, 0x06, 0x04, 0x05, 0x01, 0x09, 0x08, 0x0a };
     const struct imu_sample *m = &s2.motion;
-    u16 b = p->buttons;
+    u32 b = p->buttons;
 
     (void)now;
     if (p->imu_count) s2.motion = p->imu[p->imu_count - 1];
@@ -1062,7 +1059,8 @@ static int s2_usb_report(const struct pad *p, u32 now, u8 *out, u8 *id)
     out[5] = (u8)((b & PAD_SELECT ? 0x01 : 0) | (b & PAD_START ? 0x02 : 0) | (b & PAD_R3 ? 0x04 : 0) |
                   (b & PAD_L3 ? 0x08 : 0) | (b & PAD_HOME ? 0x10 : 0) |
                   (b & PAD_SCREENSHOT ? 0x20 : 0) | (b & PAD_M ? 0x40 : 0));
-    out[6] = (u8)((p->hat < HAT_NEUTRAL ? hat_bits[p->hat] : 0) | (b & PAD_L1 ? 0x40 : 0) |
+    out[6] = (u8)((b & PAD_DOWN ? 0x01 : 0) | (b & PAD_UP ? 0x02 : 0) | (b & PAD_RIGHT ? 0x04 : 0) |
+                  (b & PAD_LEFT ? 0x08 : 0) | (b & PAD_L1 ? 0x40 : 0) |
                   (p->l2 > TRIGGER_BUTTON ? 0x80 : 0));
     out[7] = (u8)((b & PAD_R4 ? 0x01 : 0) | (b & PAD_L4 ? 0x02 : 0) | (p->jack ? 0x10 : 0));
     s2_cal_stick(out + 10, p->lx, (s16)-p->ly, &s2_cal_left);
@@ -1168,7 +1166,6 @@ int main(void)
 
     CHECK(begin(&s) == IMU_OFF);
     memset(&p, 0, sizeof(p));
-    p.hat = HAT_NEUTRAL;
     p.buttons = PAD_A;
     p.lx = STICK_MAX;
     CHECK(report(&p, 0, out, &id) == FULL_SIZE && id == REPORT_FULL);
@@ -1265,7 +1262,6 @@ int main(void)
             int i;
 
             memset(&mp, 0, sizeof(mp));
-            mp.hat = HAT_NEUTRAL;
             for (t = 0; t <= 1000000; t += 4000) {
                 mp.imu_count = 1;
                 mp.imu[0].us = t;
@@ -1304,7 +1300,6 @@ int main(void)
 
         begin(&su);
         memset(&p, 0, sizeof(p));
-        p.hat = HAT_NEUTRAL;
         CHECK(report(&p, 0, out, &id) == USB_SIZE && id == REPORT_FULL && out[1] == 0x81);
         memset(&w, 0, sizeof(w));
         w.kind = BT_WRITE_OUTPUT; w.id = OUT_USB; w.len = 1; w.data[0] = 0x01;
@@ -1328,8 +1323,7 @@ int main(void)
         s2_write(&w, 0, NULL);
         CHECK(sent_len == 8 + 0x48 && sent[1] == 0x02 && sent[2] == 0x01 && sent[1 + 0x10] == 0x01);
         CHECK(sent[5] == 0x00 && sent[6] == 0xf8);                     /* USB answer header */
-        p.buttons = PAD_A | PAD_HOME;
-        p.hat = HAT_DOWN;
+        p.buttons = PAD_A | PAD_HOME | PAD_DOWN;
         CHECK(s2_any_report(&p, 0, out, &id) == 0);                    /* not before 03/0d */
         memset(&w, 0, sizeof(w));
         w.kind = BT_WRITE_BULK; w.len = 16;

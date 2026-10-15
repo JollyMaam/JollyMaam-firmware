@@ -11,7 +11,7 @@
  *
  * Input (0x20, interrupt, newest wins), LINK_INPUT_SIZE bytes:
  *   0 sequence, 1 flags (bits 0-1 motion samples, 2 low battery, 3 on USB
- *   power), 2 hat, 3 -, 4 buttons (PAD_*), 6 lx ly rx ry (s16), 14 l2 r2,
+ *   power), 2 buttons (PAD_*, u32), 6 lx ly rx ry (s16), 14 l2 r2,
  *   18 the newest sample's time (plat_us), 22 µs between the two samples,
  *   24 samples oldest first: accel[3] gyro[3] (s16)
  * Config (0x22, a message, once a session and when it changes), LINK_CONFIG_SIZE:
@@ -25,7 +25,7 @@
 #define LINK_INPUT_ID     0x20
 #define LINK_OUTPUT_ID    0x21
 #define LINK_CONFIG_ID    0x22
-#define LINK_VERSION      1
+#define LINK_VERSION      2
 #define LINK_INPUT_SIZE   48
 #define LINK_CONFIG_SIZE  16
 #define LINK_OUTPUT_SIZE  10

@@ -192,14 +192,14 @@ static u8 max8(u8 a, u8 b)
  * per frame; it fades by itself. */
 void led_reach(u8 reach[2], const struct pad *p)
 {
-    const u16 left_buttons = PAD_L1 | PAD_L4 | PAD_L3 | PAD_SELECT;
-    const u16 right_buttons = PAD_R1 | PAD_R4 | PAD_R3 | PAD_START | PAD_FACE;
+    const u32 left_buttons = PAD_L1 | PAD_L4 | PAD_L3 | PAD_SELECT | PAD_DPAD;
+    const u32 right_buttons = PAD_R1 | PAD_R4 | PAD_R3 | PAD_START | PAD_FACE;
     u8 now[2];
     u32 side;
 
     now[0] = max8(stick_reach(p->lx, p->ly), p->l2 >> 8);
     now[1] = max8(stick_reach(p->rx, p->ry), p->r2 >> 8);
-    if ((p->buttons & left_buttons) || p->hat != HAT_NEUTRAL) now[0] = 255;
+    if (p->buttons & left_buttons) now[0] = 255;
     if (p->buttons & right_buttons) now[1] = 255;
     for (side = 0; side < 2; side++) {
         u8 faded = reach[side] > REACH_DECAY ? reach[side] - REACH_DECAY : 0;
@@ -321,7 +321,6 @@ int main(void)
     CHECK(same(f.light[LIGHT_HOME], white));
 
     memset(&p, 0, sizeof(p));
-    p.hat = HAT_NEUTRAL;
     p.buttons = PAD_A;
     led_reach(reach, &p);
     CHECK(reach[0] == 0 && reach[1] == 255);

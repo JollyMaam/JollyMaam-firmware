@@ -3,13 +3,15 @@
 #define MOVED_STICK   2048
 #define MOVED_TRIGGER 4096
 
-/* Buttons and d-pad as sampled; sticks and triggers are filled in by
- * cal_apply() (input_calibration.c). */
+/* Sticks and triggers are filled in by cal_apply() (input_calibration.c). */
 void in_map(const struct in_raw *raw, struct pad *pad)
 {
-    pad->buttons = raw->buttons;
-    pad->hat = raw->hat;
+    u32 b = raw->buttons;
+    if ((b & PAD_UP) && (b & PAD_DOWN)) b &= ~(u32)(PAD_UP | PAD_DOWN);
+    if ((b & PAD_LEFT) && (b & PAD_RIGHT)) b &= ~(u32)(PAD_LEFT | PAD_RIGHT);
+    pad->buttons = b;
 }
+
 
 static int far(s32 a, s32 b, s32 limit)
 {
@@ -18,7 +20,7 @@ static int far(s32 a, s32 b, s32 limit)
 
 int in_moved(const struct pad *now, const struct pad *ref)
 {
-    return now->buttons != ref->buttons || now->hat != ref->hat ||
+    return now->buttons != ref->buttons ||
            far(now->lx, ref->lx, MOVED_STICK) || far(now->ly, ref->ly, MOVED_STICK) ||
            far(now->rx, ref->rx, MOVED_STICK) || far(now->ry, ref->ry, MOVED_STICK) ||
            far(now->l2, ref->l2, MOVED_TRIGGER) || far(now->r2, ref->r2, MOVED_TRIGGER);
@@ -95,6 +97,17 @@ int main(void)
     u8 points[STICK_CURVE_POINTS] = { 0, 0, 64, 128, 192, 255, 255 };
     u32 mode, r, last;
 
+    struct in_raw raw = { 0 };
+
+    CHECK(in_hat(PAD_UP | PAD_LEFT) == HAT_UP_LEFT && in_hat(PAD_DOWN) == HAT_DOWN);
+    CHECK(in_hat(PAD_RIGHT) == HAT_RIGHT && in_hat(0) == HAT_NEUTRAL);
+    raw.buttons = PAD_A | PAD_UP | PAD_DOWN | PAD_RIGHT;
+    in_map(&raw, &pad);
+    CHECK(pad.buttons == (PAD_A | PAD_RIGHT) && in_hat(pad.buttons) == HAT_RIGHT);
+    raw.buttons = PAD_DPAD;
+    in_map(&raw, &pad);
+    CHECK(pad.buttons == 0 && in_hat(pad.buttons) == HAT_NEUTRAL);
+    pad = original;
     in_response(&slot, &pad);
     CHECK(!memcmp(&pad, &original, sizeof(pad)));
     for (mode = STICK_LINEAR; mode <= STICK_CUSTOM; mode++) {

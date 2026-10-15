@@ -146,9 +146,9 @@ static u8 stick8(s16 v)
  * sticks, then PS, the touchpad click, and the DualSense's mute and paddles. */
 static void buttons(const struct pad *p, u8 *out)
 {
-    u16 b = p->buttons;
+    u32 b = p->buttons;
 
-    out[0] = p->hat <= HAT_NEUTRAL ? p->hat : HAT_NEUTRAL;
+    out[0] = in_hat(b);
     if (b & PAD_X) out[0] |= 0x10;
     if (b & PAD_A) out[0] |= 0x20;
     if (b & PAD_B) out[0] |= 0x40;
@@ -190,7 +190,7 @@ static void touch_update(struct pad *p, u32 now)
     int held = (p->buttons & PAD_M) != 0;
     s32 x, y;
 
-    p->buttons &= (u16)~PAD_M;
+    p->buttons &= ~(u32)PAD_M;
     /* Taken every report, so turns made without the finger are dropped. */
     imu_pointer(&ps.pointer, p->imu, p->imu_count, ps.gyro_speed, ps.gyro_accel, &x, &y);
     if (ps.touch.clicking) {
@@ -532,7 +532,6 @@ int main(void)
 
     CHECK(begin_ds(&s) == IMU_MOTION);
     memset(&p, 0, sizeof(p));
-    p.hat = HAT_NEUTRAL;
     p.buttons = PAD_A | PAD_HOME;
     p.lx = STICK_MAX;
     p.imu_count = 1;

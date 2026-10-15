@@ -39,7 +39,7 @@ static int generic_report(const struct pad *p, u32 now, u8 *out, u8 *id)
 {
     out[0] = (u8)p->buttons;
     out[1] = (u8)(p->buttons >> 8);
-    out[2] = p->hat;
+    out[2] = in_hat(p->buttons);
     out[3] = (u8)((p->lx + 32768) >> 8);
     out[4] = (u8)((p->ly + 32768) >> 8);
     out[5] = (u8)((p->rx + 32768) >> 8);
@@ -190,14 +190,14 @@ static void put_axis(u8 *out, u16 v)
 /* On change only, like the Classic generic gamepad. */
 static int gble_report(const struct pad *p, u32 now, u8 *out, u8 *id)
 {
-    u16 b = p->buttons;
+    u32 b = p->buttons;
 
     if (gb.usb) return generic_report(p, now, out, id);
     out[0] = (u8)((b & (PAD_A | PAD_B | PAD_X | PAD_Y)) | (b & PAD_M ? 0x04 : 0) |
                   (b & (PAD_L1 | PAD_R1)) >> 1 | (b & PAD_SELECT) >> 3);
     out[1] = (u8)((b & (PAD_START | PAD_HOME | PAD_L3 | PAD_R3)) >> 11 |
                   (b & PAD_R4 ? 0x10 : 0) | (b & PAD_L4 ? 0x40 : 0));
-    out[2] = (u8)((p->hat <= HAT_UP_LEFT ? p->hat : 8) | (b & PAD_SCREENSHOT ? 0x10 : 0));
+    out[2] = (u8)(in_hat(b) | (b & PAD_SCREENSHOT ? 0x10 : 0));
     put_axis(out + 3, (u16)(p->lx + 32768));
     put_axis(out + 5, (u16)(p->ly + 32768));
     put_axis(out + 7, (u16)(p->rx + 32768));
@@ -273,13 +273,9 @@ enum {
 };
 enum { M_LEFT = 1, M_RIGHT = 2, M_MIDDLE = 4, M_BACK = 8, M_FORWARD = 16 };
 
-/* Controls: the pad's buttons, then the triggers and the d-pad. */
-#define C_L2    (1ul << 16)
-#define C_R2    (1ul << 17)
-#define C_UP    (1ul << 18)
-#define C_RIGHT (1ul << 19)
-#define C_DOWN  (1ul << 20)
-#define C_LEFT  (1ul << 21)
+/* Controls: the pad's buttons, then the triggers. */
+#define C_L2    (1ul << 20)
+#define C_R2    (1ul << 21)
 
 enum { STICK_NONE, STICK_POINTER, STICK_SCROLL, STICK_WASD };
 #define HOLD_SCROLL   1          /* the pointer stick scrolls */
@@ -295,7 +291,7 @@ static const struct binding game[] = {
     { C_L2, 0, M_RIGHT }, { C_R2, 0, M_LEFT }, { PAD_SELECT, KB_TAB }, { PAD_START, KB_ESCAPE },
     { PAD_SCREENSHOT, KB_PRINT }, { PAD_L4, 0, M_BACK }, { PAD_R4, 0, M_FORWARD },
     { PAD_M, 0, 0, HOLD_SCROLL | HOLD_GYRO_OFF },
-    { C_UP, KB_UP }, { C_RIGHT, KB_RIGHT }, { C_DOWN, KB_DOWN }, { C_LEFT, KB_LEFT },
+    { PAD_UP, KB_UP }, { PAD_RIGHT, KB_RIGHT }, { PAD_DOWN, KB_DOWN }, { PAD_LEFT, KB_LEFT },
 };
 
 /* L4 is Alt and R4 Ctrl, to hold for shortcuts (L4 then Select: Alt+Tab). */
@@ -305,7 +301,7 @@ static const struct binding desktop[] = {
     { C_L2, 0, M_RIGHT }, { C_R2, 0, M_LEFT }, { PAD_SELECT, KB_TAB }, { PAD_START, KB_ESCAPE },
     { PAD_SCREENSHOT, KB_PRINT }, { PAD_L4, KB_ALT }, { PAD_R4, KB_CTRL },
     { PAD_M, 0, 0, HOLD_SLOW | HOLD_GYRO_OFF },
-    { C_UP, KB_UP }, { C_RIGHT, KB_RIGHT }, { C_DOWN, KB_DOWN }, { C_LEFT, KB_LEFT },
+    { PAD_UP, KB_UP }, { PAD_RIGHT, KB_RIGHT }, { PAD_DOWN, KB_DOWN }, { PAD_LEFT, KB_LEFT },
 };
 
 static const struct layout layouts[2] = {
@@ -470,16 +466,12 @@ static u8 mouse_begin(const struct profile_session *s)
  * the last: motion gathers until it has. */
 static int mouse_report(const struct pad *p, u32 now, u8 *out, u8 *id)
 {
-    static const u32 hat_controls[HAT_NEUTRAL] = {
-        C_UP, C_UP | C_RIGHT, C_RIGHT, C_DOWN | C_RIGHT, C_DOWN, C_DOWN | C_LEFT, C_LEFT, C_UP | C_LEFT,
-    };
     u32 controls = p->buttons, dt = 0, i;
     u8 kb[KEYBOARD_SIZE], buttons = 0, hold = 0;
     s32 gx, gy, x, y;
 
     if (p->l2 >= TRIGGER_PRESS) controls |= C_L2;
     if (p->r2 >= TRIGGER_PRESS) controls |= C_R2;
-    if (p->hat < HAT_NEUTRAL) controls |= hat_controls[p->hat];
     if (m.have_last) dt = now - m.last_ms;
     if (dt > MAX_DT_MS) dt = MAX_DT_MS;
     m.last_ms = now;
@@ -563,7 +555,6 @@ int main(void)
     u8 out[16], id;
 
     memset(&p, 0, sizeof(p));
-    p.hat = HAT_NEUTRAL;
     CHECK(generic_begin(&s) == IMU_OFF);
     p.buttons = PAD_A | PAD_START;
     CHECK(generic_report(&p, 0, out, &id) == GENERIC_SIZE && out[0] == 1 && out[1] == 8 && out[3] == 0x80);
@@ -589,7 +580,6 @@ int main(void)
 
     /* genericble: Linux button order, paddles at 21/23, Share as Record, C/M as Button 3. */
     memset(&p, 0, sizeof(p));
-    p.hat = HAT_NEUTRAL;
     CHECK(gble_begin(&s) == IMU_OFF && gb.er[6] == 4 && gb.er[15] == 'E');
     CHECK(gble_report(&p, 0, out, &id) == GBLE_SIZE && id == 1);
     CHECK(out[0] == 0 && out[1] == 0 && out[2] == 8);
@@ -606,10 +596,9 @@ int main(void)
     CHECK(out[3] == 0 && out[4] == 0 && out[5] == 0 && out[6] == 0x80 && out[9] == 0xff && out[10] == 0xff);
     CHECK(out[11] == 0xff && out[12] == 0xff && out[13] == 0 && out[14] == 0);
     CHECK(gble_report(&p, 1, out, &id) == 0);
-    p.buttons = PAD_M;
-    p.hat = HAT_LEFT;
+    p.buttons = PAD_M | PAD_LEFT;
     CHECK(gble_report(&p, 2, out, &id) == GBLE_SIZE && out[0] == 0x04 && out[1] == 0 && out[2] == 6);
-    p.buttons = PAD_SCREENSHOT;
+    p.buttons = PAD_SCREENSHOT | PAD_LEFT;
     CHECK(gble_report(&p, 3, out, &id) == GBLE_SIZE && out[0] == 0 && out[1] == 0 && out[2] == (6 | 0x10));
     CHECK(gble_read(BT_WRITE_ATT, GBLE_PNP, 0, out, 16) == 7 && out[0] == 2 &&
           out[1] == 0x5e && out[2] == 0x04 && out[3] == 0xfe && out[4] == 0x0b &&

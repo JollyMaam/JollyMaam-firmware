@@ -53,8 +53,7 @@ void link_pack_input(const struct pad *p, u8 seq, u8 flags, u8 out[LINK_INPUT_SI
     memset(out, 0, LINK_INPUT_SIZE);
     out[0] = seq;
     out[1] = (u8)((flags & ~3u) | n);
-    out[2] = p->hat;
-    put16(out + 4, p->buttons);
+    put32(out + 2, p->buttons);
     put16(out + 6, (u16)p->lx);
     put16(out + 8, (u16)p->ly);
     put16(out + 10, (u16)p->rx);
@@ -80,8 +79,7 @@ int link_unpack_input(const u8 *in, u16 len, struct pad *p, u8 *seq, u8 *flags)
     memset(p, 0, sizeof(*p));
     *seq = in[0];
     *flags = in[1];
-    p->hat = in[2];
-    p->buttons = get16(in + 4);
+    p->buttons = get32(in + 2);
     p->lx = (s16)get16(in + 6);
     p->ly = (s16)get16(in + 8);
     p->rx = (s16)get16(in + 10);
@@ -251,8 +249,7 @@ int main(void)
     set.gyro_speed = 40;
     CHECK(begin(&s) == IMU_OFF);
     memset(&p, 0, sizeof(p));
-    p.buttons = PAD_A | PAD_HOME;
-    p.hat = HAT_LEFT;
+    p.buttons = PAD_A | PAD_HOME | PAD_LEFT;
     p.lx = -32768; p.ly = 32767; p.rx = 5; p.ry = -6;
     p.l2 = 65535; p.r2 = 7;
     p.imu_count = 3;             /* the newest two travel */
@@ -262,7 +259,7 @@ int main(void)
     CHECK(sent_id == LINK_CONFIG_ID && link_unpack_config(sent, LINK_CONFIG_SIZE, &c));
     CHECK(c.type == PROFILE_DUALSENSE && c.gyro_speed == 40 && c.address[5] == 6);
     CHECK(link_unpack_input(out, LINK_INPUT_SIZE, &q, &seq, &flags) && seq == 0);
-    CHECK(q.buttons == p.buttons && q.hat == p.hat && q.lx == -32768 && q.ly == 32767);
+    CHECK(q.buttons == p.buttons && q.lx == -32768 && q.ly == 32767);
     CHECK(q.rx == 5 && q.ry == -6 && q.l2 == 65535 && q.r2 == 7 && q.imu_count == 2);
     CHECK(q.imu[0].gyro[0] == 2 && q.imu[1].gyro[0] == 3 && q.imu[1].accel[2] == -4096);
     CHECK(q.imu[1].us == 5460 && q.imu[0].us == 1000);
