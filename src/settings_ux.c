@@ -64,7 +64,7 @@ const struct ux_power_debug ux_power_debug = {
 
 /* keys held with Home, hold, request, slot, works connected, fires on release */
 static const struct gesture { u32 keys; u16 hold_ms; u8 request, slot, connected, release; } gestures[] = {
-    {PAD_SELECT, 0, REQ_DISCONNECT, SLOT_NONE, 1, 0},
+    {PAD_SELECT, 0, REQ_DISCONNECT, SLOT_NONE, 1, 1},
     {PAD_A, 0, REQ_CONNECT, 0, 0, 1},
     {PAD_B, 0, REQ_CONNECT, 1, 0, 1},
     {PAD_X, 0, REQ_CONNECT, 2, 0, 1},
@@ -158,13 +158,19 @@ struct ctl_request ux_step(struct pad *p, u32 now, u8 state)
                 }
                 ux.active = 0;
                 ux.draining = (keys & ux.captured) != 0;
+            } else if (ux.chorded && !ux.offline && !ux.fired && chord != ux.keys &&
+                       (chord & ux.keys) == ux.keys) {
+                /* Connected, another key joined before the gesture fired: they are all the host's. */
+                ux.chorded = 0;
+                ux.fired = ux.live = 1;
+                ux.captured = 0;
             } else if (ux.chorded && chord != ux.keys) {
                 r = released(chord);
                 ux.active = 0;
                 ux.draining = 1;
                 ux.captured |= keys;
             } else {
-                if (!ux.chorded) {
+                if (!ux.chorded && !ux.fired) {
                     ux.offline = (u8)offline;
                     for (i = 0; i < GESTURES; i++) {
                         if (!allowed(&gestures[i], chord)) continue;
@@ -293,18 +299,33 @@ int main(void)
     state = CTL_IDLE; run(1); CHECK(!seen.buttons && !ux.tap);
     state = CTL_CONNECTED; run(1); CHECK(!seen.buttons);
 
-    /* Connected: Home then Minus. */
-    reset(CTL_CONNECTED); pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_SELECT; run(1);
-    CHECK(last.kind == REQ_DISCONNECT && !seen.buttons);
+    /* Connected: Home then Minus, on release. */
+    reset(CTL_CONNECTED); pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_SELECT; run(3000);
+    CHECK(last.kind == REQ_NONE && !seen.buttons && !ux_deadline());
+    pad.buttons = PAD_SELECT; run(1); CHECK(last.kind == REQ_DISCONNECT && !seen.buttons);
     run(10); CHECK(last.kind == REQ_NONE && !seen.buttons);
-    pad.buttons = PAD_HOME; run(1); CHECK(!seen.buttons);
+    pad.buttons = 0; run(1); CHECK(!seen.buttons && !ux.tap);
+    reset(CTL_CONNECTED); pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_SELECT; run(10);
+    pad.buttons = PAD_HOME; run(1); CHECK(last.kind == REQ_DISCONNECT && !seen.buttons);
     pad.buttons = 0; run(1); CHECK(!seen.buttons && !ux.tap);
     reset(CTL_CONNECTED); pad.buttons = PAD_HOME; run(3000); CHECK(seen.buttons == PAD_HOME);
-    pad.buttons |= PAD_SELECT; run(1); CHECK(last.kind == REQ_DISCONNECT && !seen.buttons);
+    pad.buttons |= PAD_SELECT; run(1); CHECK(!seen.buttons);
+    pad.buttons = 0; run(1); CHECK(last.kind == REQ_DISCONNECT && !seen.buttons);
     reset(CTL_CONNECTED); pad.buttons = PAD_SELECT; run(100); pad.buttons |= PAD_HOME; run(3000);
     CHECK(last.kind == REQ_NONE && (seen.buttons & PAD_SELECT));
     pad.buttons = PAD_HOME; run(1); pad.buttons |= PAD_SELECT; run(1); /* Minus again: now Home was first */
-    CHECK(last.kind == REQ_DISCONNECT);
+    pad.buttons = 0; run(1); CHECK(last.kind == REQ_DISCONNECT);
+    /* Home+Minus+Plus: all three are the host's, with any keys that follow. */
+    reset(CTL_CONNECTED); pad.buttons = PAD_HOME; run(1); pad.buttons |= PAD_SELECT; run(2000);
+    CHECK(!seen.buttons);
+    pad.buttons |= PAD_START; run(1); CHECK(seen.buttons == pad.buttons);
+    run(6000); CHECK(last.kind == REQ_NONE && seen.buttons == pad.buttons && !ux_deadline());
+    pad.buttons &= ~PAD_START; run(1000); CHECK(last.kind == REQ_NONE && seen.buttons == pad.buttons);
+    pad.buttons = PAD_SELECT; run(1); CHECK(last.kind == REQ_NONE && seen.buttons == PAD_SELECT && !ux.tap);
+    pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE && !seen.buttons);
+    reset(CTL_CONNECTED); pad.buttons = PAD_HOME; run(500); pad.buttons |= PAD_SELECT; run(100);
+    pad.buttons |= PAD_START; run(1); CHECK(seen.buttons == pad.buttons);
+    pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE && !seen.buttons && !ux.tap);
 
     /* Connected: slots, pairing and calibration are host keys. */
     for (i = 1; i < GESTURES; i++) {
