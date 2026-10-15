@@ -50,6 +50,6 @@ void plat_audio_on(void);                /* DAC running silent, amplifier off */
 void plat_audio_off(void);               /* amplifier off, then the DAC */
 void plat_audio_stream(int on);          /* the host's stream; from an interrupt */
 void plat_audio_write(const u8 *pcm, u32 len);   /* 48 kHz stereo s16; from an interrupt */
-void plat_audio_volume(u8 left, u8 right, u8 mute);   /* 0 to 100 */
+void plat_audio_volume(s16 left, s16 right, u8 mute);  /* 1/256 dB, <= 0 */
 
 #endif

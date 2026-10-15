@@ -10,8 +10,8 @@
  * requests and the vendor ones.  Interrupt IN carries reports, interrupt OUT
  * (or SET_REPORT) the host's writes; a Switch 2 also has a bulk pair.
  * With audio, a USB speaker follows: the stock pad's 48 kHz stereo 16-bit on
- * isochronous OUT 0x03, a feature unit with mute and volume 0 to 100, its
- * packets straight to the DAC (platform_jieli_audio.c).
+ * isochronous OUT 0x03, a feature unit with mute and volume in dB (-60 to 0
+ * in steps of 0.5, so hosts get a real dB scale), its packets straight to the DAC (platform_jieli_audio.c).
  *
  * plat_usb_mode(NULL) is the tool device: the SDK's mass storage, whose
  * vendor SCSI commands platform_jieli.c hands to usb.c. */
@@ -46,7 +46,9 @@
 #define UNIT_IN      1           /* the USB streaming input terminal */
 #define UNIT_FEATURE 2
 #define UNIT_OUT     3           /* the headphones */
-#define VOLUME_START 60
+#define VOLUME_MIN   (-60 * 256) /* UAC volume: 1/256 dB */
+#define VOLUME_RES   128
+#define VOLUME_START (-10 * 256)
 
 extern u32 usb_read_txcsr(const usb_dev usb_id, const u32 ep);
 extern void usb_memory_init(void);
@@ -82,7 +84,8 @@ static u8 rx[PACKET] __attribute__((aligned(4)));
 static u8 audio_if;              /* the audio control interface; streaming is the next; 0: none */
 static u8 *dma_audio;
 static volatile u8 audio_alt;
-static u8 volume[2] = { VOLUME_START, VOLUME_START }, mute;
+static s16 volume[2] = { VOLUME_START, VOLUME_START };
+static u8 mute;
 static u8 audio_cs, audio_ch;    /* the SET_CUR waiting for its data */
 
 static void reply(struct usb_device_t *dev, struct usb_ctrlrequest *req, const u8 *d, u32 n);
@@ -328,11 +331,11 @@ static u32 audio_set_data(struct usb_device_t *dev, struct usb_ctrlrequest *req)
     usb_read_ep0(0, rx, n);
     if (audio_cs == UAC_MUTE && n >= 1) mute = rx[0] != 0;
     if (audio_cs == UAC_VOLUME && n >= 2) {
-        u16 v = (u16)(rx[0] | rx[1] << 8);
+        s16 v = (s16)(rx[0] | rx[1] << 8);
 
-        v = v > 100 ? 100 : v;
-        if (audio_ch == 0 || audio_ch == 1) volume[0] = (u8)v;
-        if (audio_ch == 0 || audio_ch == 2) volume[1] = (u8)v;
+        v = v > 0 ? 0 : v < VOLUME_MIN ? VOLUME_MIN : v;
+        if (audio_ch == 0 || audio_ch == 1) volume[0] = v;
+        if (audio_ch == 0 || audio_ch == 2) volume[1] = v;
     }
     plat_audio_volume(volume[0], volume[1], mute);
     return USB_EP0_STAGE_SETUP;
@@ -343,7 +346,7 @@ static u32 audio_request(struct usb_device_t *dev, struct usb_ctrlrequest *req)
 {
     u8 *buf = usb_get_setup_buffer(dev);
     u8 cs = HIBYTE(req->wValue), ch = LOBYTE(req->wValue);
-    u16 v;
+    s16 v;
 
     if (HIBYTE(req->wIndex) != UNIT_FEATURE || (cs != UAC_MUTE && cs != UAC_VOLUME)) {
         stall(dev);
@@ -366,15 +369,15 @@ static u32 audio_request(struct usb_device_t *dev, struct usb_ctrlrequest *req)
     }
     switch (req->bRequest) {
     case UAC_GET_CUR: v = volume[ch == 2 ? 1 : 0]; break;
-    case UAC_GET_MIN: v = 0; break;
-    case UAC_GET_MAX: v = 100; break;
-    case UAC_GET_RES: v = 1; break;
+    case UAC_GET_MIN: v = VOLUME_MIN; break;
+    case UAC_GET_MAX: v = 0; break;
+    case UAC_GET_RES: v = VOLUME_RES; break;
     default:
         stall(dev);
         return 1;
     }
     buf[0] = (u8)v;
-    buf[1] = (u8)(v >> 8);
+    buf[1] = (u8)((u16)v >> 8);
     reply(dev, req, buf, req->wLength < 2 ? req->wLength : 2);
     return 1;
 }

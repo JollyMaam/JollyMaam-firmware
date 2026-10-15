@@ -86,11 +86,24 @@ void plat_audio_write(const u8 *pcm, u32 len)
     local_irq_enable();
 }
 
-/* 0 to 100, as the stock pad's feature unit; the square for loudness. */
-void plat_audio_volume(u8 left, u8 right, u8 mute)
+/* Attenuation in 1/256 dB to the DAC's linear gain: a table for the
+ * half-dB steps of one 6 dB octave, then halving per 6 dB (6.02 dB really;
+ * 0.2 dB off at -60). */
+static u32 gain(s16 db)
 {
-    u32 l = mute ? 0 : FULL_GAIN * left * left / 10000;
-    u32 r = mute ? 0 : FULL_GAIN * right * right / 10000;
+    static const u16 octave[12] = {    /* FULL_GAIN * 10^(-k/40) */
+        16384, 15467, 14602, 13785, 13014, 12286,
+        11599, 10950, 10338,  9759,  9213,  8698,
+    };
+    u32 att = (u32)(db < 0 ? -db : 0) / 128;     /* half dB steps */
+
+    return octave[att % 12] >> (att / 12);
+}
+
+void plat_audio_volume(s16 left, s16 right, u8 mute)
+{
+    u32 l = mute ? 0 : gain(left);
+    u32 r = mute ? 0 : gain(right);
 
     if (!running) return;
     audio_dac_ch_digital_gain_set(&dac, BIT(0), l);
