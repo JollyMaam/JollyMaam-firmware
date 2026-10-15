@@ -544,6 +544,13 @@ int plat_usb_present(void)
     return (s32)(ms_now - sof_seen_ms) < USB_SOF_STALE_MS;
 }
 
+/* The core's POWER register, bit 1 (SuspendMode): set while the bus is
+ * suspended, cleared by resume or reset. */
+int plat_usb_suspended(void)
+{
+    return (usb_read_power(USB0) & BIT(1)) != 0;
+}
+
 /* A re-enumeration (platform_jieli_usb.c) stops the frames for a while:
  * a host that was there counts as there. */
 void plat_usb_hold_present(u32 ms)

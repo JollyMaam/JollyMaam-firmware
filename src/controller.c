@@ -8,6 +8,7 @@
 #define USB_DEBOUNCE_MS  100
 #define USB_GONE_MS      500     /* a USB slot's host without frames this long: unplugged */
 #define USB_PLUG_QUIET_MS 1000   /* frames this soon after a USB session: no plug-in light */
+#define USB_REARM_MS     500     /* a host's re-configuration this short keeps CONNECTED */
 #define RETRY_MS         1000
 #define QUIET_MS         500
 #define CAL_SAMPLE_MS    2
@@ -37,6 +38,8 @@ static struct {
     u8 usb_wake;                 /* USB session: may wake a silent host by radio, until it
                                     first configures us */
     u32 usb_ended_ms;            /* the last USB session's end */
+    u8 usb_configured;           /* USB session: the host has configured us */
+    u32 usb_unready_ms;          /* CONNECTED on USB: when the host unconfigured us, 0: it has not */
     u32 wake_next;
     struct profile_session sess;
     struct ctl_request next;     /* STOPPING: what comes after */
@@ -127,6 +130,8 @@ static void end_session(void)
     }
     c.usb = 0;
     c.usb_wake = 0;
+    c.usb_configured = 0;
+    c.usb_unready_ms = 0;
 }
 
 int host_send(u16 id, const u8 *data, u16 len)
@@ -424,6 +429,7 @@ static void usb_session(u32 now)
     if (c.kind == CTL_CONNECTING && plat_usb_ready()) {
         c.usb_absent_ms = now;   /* configured: here, before its frames are counted */
         c.usb_wake = 0;
+        c.usb_configured = 1;
         if (c.radio) {
             util_log("usb: host here, radio off");
             bt_stop();
@@ -432,8 +438,16 @@ static void usb_session(u32 now)
         c.report_next = now;
         c.activity_ms = now;
     } else if (c.kind == CTL_CONNECTED && !plat_usb_ready()) {
-        memset(&c.host, 0, sizeof(c.host));
-        become(CTL_CONNECTING, now);
+        /* The Switch 2 configures us again as it goes to sleep: a short
+         * gap is no reconnect (reports wait for it anyway). */
+        if (!c.usb_unready_ms) c.usb_unready_ms = now | 1;
+        else if (now - c.usb_unready_ms >= USB_REARM_MS) {
+            c.usb_unready_ms = 0;
+            memset(&c.host, 0, sizeof(c.host));
+            become(CTL_CONNECTING, now);
+        }
+    } else if (plat_usb_ready()) {
+        c.usb_unready_ms = 0;
     }
 }
 
@@ -446,6 +460,16 @@ static void follow_usb(u32 now)
 
     if ((c.kind != CTL_CONNECTING && c.kind != CTL_CONNECTED) || c.slot >= SLOTS || c.waking) return;
     set = set_slot(c.slot);
+    /* A host that configured us and then suspended the bus sleeps (or the
+     * cable went: suspend comes 3 ms after the frames stop). */
+    if (set->transport == TRANSPORT_USB && c.usb && c.usb_configured && !c.radio &&
+        plat_usb_suspended()) {
+        struct ctl_request none = { REQ_NONE, SLOT_NONE, 0 };
+
+        util_log("slot %u: usb host suspended the bus", c.slot);
+        stop(none, now);
+        return;
+    }
     if (set->transport == TRANSPORT_USB && c.usb && !c.usb_powered && !c.radio && !c.usb_wake &&
         now - c.usb_absent_ms >= USB_GONE_MS) {
         struct ctl_request none = { REQ_NONE, SLOT_NONE, 0 };
@@ -565,6 +589,15 @@ static void sample_power(u32 now)
         }
     }
     if (c.usb_powered) c.usb_absent_ms = now;
+    {
+        static u8 suspended;
+        u8 s = (u8)plat_usb_suspended();
+
+        if (s != suspended) {
+            suspended = s;
+            util_log("usb: bus %s", s ? "suspended" : "awake");
+        }
+    }
     if (now - c.battery_ms >= BATTERY_CHECK_MS) {
         c.battery_ms = now;
         c.battery_mv = plat_battery_mv();

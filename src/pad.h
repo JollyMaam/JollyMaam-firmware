@@ -621,6 +621,7 @@ void plat_input(struct in_raw *raw);
 void plat_leds(const struct led_frame *f);
 void plat_motors(u8 left, u8 right);
 int plat_usb_present(void);
+int plat_usb_suspended(void);               /* the host suspended the bus (3 ms quiet) */
 void plat_usb_service(void);
 /* USB as a game controller.  plat_usb_mode(NULL) is the tool device (mass
  * storage, the vendor commands); a personality re-enumerates as that device.
