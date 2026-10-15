@@ -6,7 +6,8 @@
 #define BATTERY_OK_MV    3600
 #define BATTERY_CHECK_MS 1000
 #define USB_DEBOUNCE_MS  100
-#define USB_GONE_MS      2000    /* a USB slot's host without frames this long: unplugged */
+#define USB_GONE_MS      500     /* a USB slot's host without frames this long: unplugged */
+#define USB_PLUG_QUIET_MS 1000   /* frames this soon after a USB session: no plug-in light */
 #define RETRY_MS         1000
 #define QUIET_MS         500
 #define CAL_SAMPLE_MS    2
@@ -33,7 +34,9 @@ static struct {
     u8 waking;                   /* the profile's wake is running, radio off */
     u8 woke;                     /* this session has tried a wake */
     u8 wake_after_stop;          /* the session stops to wake the host, then restarts */
-    u8 usb_wake;                 /* USB session: wake the silent host by radio */
+    u8 usb_wake;                 /* USB session: may wake a silent host by radio, until it
+                                    first configures us */
+    u32 usb_ended_ms;            /* the last USB session's end */
     u32 wake_next;
     struct profile_session sess;
     struct ctl_request next;     /* STOPPING: what comes after */
@@ -118,7 +121,10 @@ static void end_session(void)
     c.waking = 0;
     c.wake_after_stop = 0;
     if (c.radio) bt_stop();
-    if (c.usb) plat_usb_mode(NULL, NULL);
+    if (c.usb) {
+        plat_usb_mode(NULL, NULL);
+        c.usb_ended_ms = plat_ms();
+    }
     c.usb = 0;
     c.usb_wake = 0;
 }
@@ -204,10 +210,10 @@ static void start_session(struct ctl_request r, u32 now)
     c.begin_imu = p->begin(&s);
     c.sess = s;
     c.woke = 0;
-    /* A USB session from Home or the console command, with no host sending
-     * frames (asleep), wakes it the radio's way with the slot's bond (Switch 2:
-     * its wake advertising). */
-    c.usb_wake = usb && !r.quiet && !c.usb_powered && p->device && p->device->transport == BT_LE &&
+    /* A USB session from Home or the console command may wake its host the
+     * radio's way with the slot's bond (Switch 2: its wake advertising) while
+     * no frames come, until the host first configures us. */
+    c.usb_wake = usb && !r.quiet && p->device && p->device->transport == BT_LE &&
                  s.bond && (s.bond->le_peer[0] | s.bond->le_peer[1] | s.bond->le_peer[2] |
                             s.bond->le_peer[3] | s.bond->le_peer[4] | s.bond->le_peer[5]);
     radio_on();
@@ -409,14 +415,15 @@ static void usb_session(u32 now)
             return;
         }
     }
-    if (c.kind == CTL_CONNECTING && c.usb_wake && !c.radio) {
+    if (c.kind == CTL_CONNECTING && c.usb_wake && !c.usb_powered && !c.radio && !c.woke) {
         util_log("usb: no host frames, waking it by radio");
-        c.usb_wake = 0;
+        c.woke = 1;
         bt_start(c.prof, c.sess.address, c.sess.bond, 0, &c.sess.settings->link);
         c.radio = 1;
     }
     if (c.kind == CTL_CONNECTING && plat_usb_ready()) {
         c.usb_absent_ms = now;   /* configured: here, before its frames are counted */
+        c.usb_wake = 0;
         if (c.radio) {
             util_log("usb: host here, radio off");
             bt_stop();
@@ -550,7 +557,10 @@ static void sample_power(u32 now)
         c.usb_powered = raw;
         util_log("usb %s", raw ? "present" : "gone");
         if (raw) {
-            c.usb_plugged_ms = now;
+            /* Frames just after a USB session (the host's last, as it sleeps)
+             * are no plug-in. */
+            c.usb_plugged_ms = now - (now - c.usb_ended_ms < USB_PLUG_QUIET_MS ?
+                                      ux_timeouts.usb_plug_ms : 0);
             if ((c.raw.buttons & (PAD_HOME | PAD_START)) == (PAD_HOME | PAD_START)) handle(loader, now);
         }
     }
@@ -735,6 +745,7 @@ static void boot(u32 now)
     c.led.slot = SLOT_NONE;
     c.usb_raw = c.usb_powered = (u8)plat_usb_present();
     c.usb_plugged_ms = c.usb_powered ? now : now - ux_timeouts.usb_plug_ms;
+    c.usb_ended_ms = now - USB_PLUG_QUIET_MS;
     c.battery_ms = now - BATTERY_CHECK_MS;
     util_log("boot cause %u held %04x last slot %u", b.cause, b.buttons_held, c.last_slot);
     c.uboot_chord = (b.buttons_held & (PAD_HOME | PAD_START)) == (PAD_HOME | PAD_START);
