@@ -312,8 +312,8 @@ extern const struct profile_wake profile_switch_wake;
 enum { PROFILE_SWITCH, PROFILE_SWITCH2, PROFILE_XBOX, PROFILE_XBOX_BLE, PROFILE_DUALSENSE,
        PROFILE_DUALSHOCK4, PROFILE_GENERIC, PROFILE_MOUSE, PROFILE_GENERIC_BLE, PROFILE_COUNT };
 /* How a slot reaches its host: Bluetooth; USB (a wired controller); USB while
- * a USB host is there, else Bluetooth; or through our dongle, which is the
- * slot's type on its own USB port. */
+ * a USB host is there, else Bluetooth (a USB session that ends does not move
+ * back); or through our dongle, which is the slot's type on its own USB port. */
 enum { TRANSPORT_BT, TRANSPORT_USB, TRANSPORT_BT_USB, TRANSPORT_DONGLE };
 const struct profile *profile_for(u8 type);
 enum { GRIPS_OFF, GRIPS_HOST, GRIPS_FADE, GRIPS_RUMBLE, GRIPS_INPUT, GRIPS_BOTH,

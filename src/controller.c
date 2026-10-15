@@ -145,7 +145,7 @@ static int input_wanted(void)
     return c.usb ? plat_usb_input_wanted() : bt_input_wanted();
 }
 
-/* Which way a slot goes now: bluetooth+usb is USB while a USB host is there
+/* Which way a session goes: bluetooth+usb is USB while a USB host is there
  * (frames on the bus, not just power) and the type has a USB device. */
 static int wants_usb(const struct set_slot *set, const struct profile *p)
 {
@@ -451,39 +451,33 @@ static void usb_session(u32 now)
     }
 }
 
-/* usb: no host frames for USB_GONE_MS (the cable went, or a long pause in
- * them), the session ends.  bluetooth+usb: a USB host came or
- * went; the slot moves over. */
+/* A USB session (usb, or bluetooth+usb that found a host) ends with its
+ * host: a bus suspend once it configured us (asleep; or the cable went, 3 ms
+ * after the frames stop), or no frames for USB_GONE_MS.  Nothing moves to
+ * the radio; the next connect chooses again.  A bluetooth+usb session on the
+ * radio moves to USB once a USB host is there. */
 static void follow_usb(u32 now)
 {
+    struct ctl_request none = { REQ_NONE, SLOT_NONE, 0 };
     const struct set_slot *set;
 
     if ((c.kind != CTL_CONNECTING && c.kind != CTL_CONNECTED) || c.slot >= SLOTS || c.waking) return;
     set = set_slot(c.slot);
-    /* A host that configured us and then suspended the bus sleeps (or the
-     * cable went: suspend comes 3 ms after the frames stop). */
-    if (set->transport == TRANSPORT_USB && c.usb && c.usb_configured && !c.radio &&
-        plat_usb_suspended()) {
-        struct ctl_request none = { REQ_NONE, SLOT_NONE, 0 };
-
-        util_log("slot %u: usb host suspended the bus", c.slot);
-        stop(none, now);
-        return;
-    }
-    if (set->transport == TRANSPORT_USB && c.usb && !c.usb_powered && !c.radio && !c.usb_wake &&
-        now - c.usb_absent_ms >= USB_GONE_MS) {
-        struct ctl_request none = { REQ_NONE, SLOT_NONE, 0 };
-
-        util_log("slot %u: usb cable gone", c.slot);
-        stop(none, now);
-        return;
-    }
-    if (set->transport != TRANSPORT_BT_USB || wants_usb(set, profile_for(set->type)) == c.usb) return;
-    {
+    if (!c.usb) {
         struct ctl_request again = { REQ_CONNECT, c.slot, 0, 1 };
 
-        util_log("slot %u moves to %s", c.slot, c.usb ? "bluetooth" : "usb");
+        if (set->transport != TRANSPORT_BT_USB || !wants_usb(set, profile_for(set->type))) return;
+        util_log("slot %u moves to usb", c.slot);
         stop(again, now);
+        return;
+    }
+    if (c.radio) return;
+    if (c.usb_configured && plat_usb_suspended()) {
+        util_log("slot %u: usb host suspended the bus", c.slot);
+        stop(none, now);
+    } else if (!c.usb_powered && !c.usb_wake && now - c.usb_absent_ms >= USB_GONE_MS) {
+        util_log("slot %u: usb cable gone", c.slot);
+        stop(none, now);
     }
 }
 

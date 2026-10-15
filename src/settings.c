@@ -62,7 +62,7 @@ static const struct set_field slot_fields[] = {
     { .id = ID_TRANSPORT, .name = "transport", .type = T_ENUM, .names = transports, FIELD(transport),
       .def = ALL(TRANSPORT_BT),
       .help = "how: bluetooth; usb, a wired controller; bluetooth+usb, usb while a usb host "
-              "is there; dongle, through our dongle, which is the type on its usb port" },
+              "is there, else bluetooth (never back to it mid-session); dongle, through our dongle, which is the type on its usb port" },
     { .id = 2, .name = "connect_colour", .type = T_COLOUR, FIELD(connect_colour),
       .def = { COLOUR(3, 5), COLOUR(2, 5), COLOUR(4, 5), COLOUR(5, 5),
                COLOUR(6, 4), COLOUR(7, 4), COLOUR(8, 4), COLOUR(9, 4) },
