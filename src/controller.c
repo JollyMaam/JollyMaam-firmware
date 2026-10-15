@@ -6,6 +6,7 @@
 #define BATTERY_OK_MV    3600
 #define BATTERY_CHECK_MS 1000
 #define USB_DEBOUNCE_MS  100
+#define USB_GONE_MS      2000    /* a USB slot's host without frames this long: unplugged */
 #define RETRY_MS         1000
 #define QUIET_MS         500
 #define CAL_SAMPLE_MS    2
@@ -429,7 +430,8 @@ static void usb_session(u32 now)
     }
 }
 
-/* usb: the cable went, the session ends.  bluetooth+usb: a USB host came or
+/* usb: no host frames for USB_GONE_MS (the cable went, or a long pause in
+ * them), the session ends.  bluetooth+usb: a USB host came or
  * went; the slot moves over. */
 static void follow_usb(u32 now)
 {
@@ -437,7 +439,8 @@ static void follow_usb(u32 now)
 
     if ((c.kind != CTL_CONNECTING && c.kind != CTL_CONNECTED) || c.slot >= SLOTS || c.waking) return;
     set = set_slot(c.slot);
-    if (set->transport == TRANSPORT_USB && c.usb && !c.usb_powered && !c.radio && !c.usb_wake) {
+    if (set->transport == TRANSPORT_USB && c.usb && !c.usb_powered && !c.radio && !c.usb_wake &&
+        now - c.usb_absent_ms >= USB_GONE_MS) {
         struct ctl_request none = { REQ_NONE, SLOT_NONE, 0 };
 
         util_log("slot %u: usb cable gone", c.slot);
@@ -455,6 +458,9 @@ static void follow_usb(u32 now)
 
 static u32 idle_deadline(void)
 {
+#ifdef STAY_ON_TEST              /* a test build: the log in RAM outlives a console test */
+    return 0;
+#endif
     return ux_idle_deadline(c.since, c.activity_ms, c.usb_absent_ms,
                             c.usb_powered, set_is_ephemeral());
 }
@@ -521,6 +527,7 @@ static u32 state_deadline(void)
     case CTL_BOOT: return c.since + (c.uboot_chord ? ux_timeouts.uboot_window_ms : ux_timeouts.boot_scene_ms);
     case CTL_IDLE: return idle_deadline();
     case CTL_CONNECTING: if (c.waking) return c.wake_next;
+        if (c.usb && !c.usb_powered && !c.radio) return c.usb_absent_ms + USB_GONE_MS;
         return c.retry_at ? c.retry_at : c.since + ux_timeouts.connect_ms;
     case CTL_PAIRING: return c.since + ux_timeouts.pair_ms;
     case CTL_CONNECTED:          /* bt.c wakes the loop (EV_BT) when it wants a report; one
