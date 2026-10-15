@@ -392,13 +392,21 @@ static void usb_session(u32 now)
     }
 }
 
-/* bluetooth+usb: a USB host came or went; the slot moves over. */
+/* usb: the cable went, the session ends.  bluetooth+usb: a USB host came or
+ * went; the slot moves over. */
 static void follow_usb(u32 now)
 {
     const struct set_slot *set;
 
     if ((c.kind != CTL_CONNECTING && c.kind != CTL_CONNECTED) || c.slot >= SLOTS || c.waking) return;
     set = set_slot(c.slot);
+    if (set->transport == TRANSPORT_USB && c.usb && !c.usb_powered) {
+        struct ctl_request none = { REQ_NONE, SLOT_NONE, 0 };
+
+        util_log("slot %u: usb cable gone", c.slot);
+        stop(none, now);
+        return;
+    }
     if (set->transport != TRANSPORT_BT_USB || wants_usb(set, profile_for(set->type)) == c.usb) return;
     {
         struct ctl_request again = { REQ_CONNECT, c.slot, 0 };

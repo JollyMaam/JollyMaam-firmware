@@ -173,9 +173,12 @@ struct bt_device {
 
 /* A host write, from Bluetooth or USB: an output or feature report (id: its
  * report id, data without it), an ATT write (id: the handle), or a USB bulk
- * transfer (Switch 2's command pipe). */
+ * transfer (Switch 2's command pipe).  The kinds also name what a profile's
+ * read() answers; BT_WRITE_VENDOR only there: a USB vendor request on EP0
+ * (id: bRequest, offset: wValue; max 0 for one without data to the host,
+ * accepted when read() returns 0). */
 #define BT_WRITE_MAX 96
-enum { BT_WRITE_OUTPUT, BT_WRITE_FEATURE, BT_WRITE_ATT, BT_WRITE_BULK };
+enum { BT_WRITE_OUTPUT, BT_WRITE_FEATURE, BT_WRITE_ATT, BT_WRITE_BULK, BT_WRITE_VENDOR };
 struct bt_write {
     u8 kind;
     u16 id;

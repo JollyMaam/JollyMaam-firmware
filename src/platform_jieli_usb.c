@@ -623,11 +623,24 @@ static u32 hook(struct usb_device_t *dev, struct usb_ctrlrequest *req)
         return 1;
     }
     /* Vendor requests: Windows asks a wired Xbox 360 pad for 20 bytes it
-     * does not need to make sense of; anything else is not ours. */
+     * does not need to make sense of; others go to the profile (a Switch 2
+     * reads its device info this way). */
     if (type == USB_TYPE_VENDOR && (req->bRequestType & USB_DIR_IN) && id->kind == USB_XINPUT) {
         n = req->wLength < 20 ? req->wLength : 20;
         memset(buf, 0, n);
         reply(dev, req, buf, n);
+        return 1;
+    }
+    if (type == USB_TYPE_VENDOR && host_read) {
+        u16 max = req->wLength < USB_SETUP_SIZE ? req->wLength : USB_SETUP_SIZE;
+        int got;
+
+        if (!(req->bRequestType & USB_DIR_IN)) max = 0;
+        if (!(req->bRequestType & USB_DIR_IN) && req->wLength) got = -1;   /* none with data yet */
+        else got = host_read(BT_WRITE_VENDOR, req->bRequest, req->wValue, buf, max);
+        if (got < 0) stall(dev);
+        else if (req->bRequestType & USB_DIR_IN) reply(dev, req, buf, (u32)got);
+        else ok(dev);
         return 1;
     }
     stall(dev);

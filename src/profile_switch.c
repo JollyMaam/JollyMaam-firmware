@@ -544,10 +544,16 @@ static struct {
     u16 sample_prev;
     u8 have_last;
     u8 usb;
+    u8 usb_report;               /* USB: the input report the host chose (0x05 or 0x09) */
     struct imu_sample motion;    /* USB: the newest sample */
 } s2;
 
 #define S2_FEATURE_MOTION 0x04
+
+/* USB input report ids (see s2_usb_report) */
+#define S2_USB_REPORT      0x09
+#define S2_USB_REPORT_FULL 0x05
+#define S2_USB_SIZE        63
 
 static void s2_flash_read(u32 a, u8 *out, u16 n)
 {
@@ -689,7 +695,7 @@ static int s2_report(const struct pad *p, u32 now, u8 *out, u8 *id)
     if (!s2.ready) return 0;
     memset(out, 0, S2_REPORT_SIZE);
     out[0] = ++s2.counter;
-    out[1] = 0x20;
+    out[1] = s2.usb ? 0x23 : 0x20;   /* USB: external power, charging */
     /* By position: the pad's A (south) is the Switch's B. */
     if (p->buttons & PAD_A) b |= 0x0001;
     if (p->buttons & PAD_B) b |= 0x0002;
@@ -765,9 +771,14 @@ static u8 s2_command(const u8 *c, u16 n, u8 *out, u32 now, int *bonded)
         out[0] = 0x40;
         s2_flash_read((u32)c[12] | (u32)c[13] << 8 | (u32)c[14] << 16, out + 8, 0x40);
         return 0x48;
+    case 0x030a:            /* USB: which input report (0x05 or 0x09); others are ignored */
+        if (n > 8 && (c[8] == S2_USB_REPORT_FULL || c[8] == S2_USB_REPORT)) s2.usb_report = c[8];
+        return 0;
     case 0x030d:            /* USB: start the reports */
         s2.ready = 1;
-        return 0;
+        memset(out, 0, 4);
+        out[0] = 1;
+        return 4;
     case 0x0701:
         out[0] = 0;
         return 1;
@@ -803,8 +814,8 @@ static u8 s2_command(const u8 *c, u16 n, u8 *out, u32 now, int *bonded)
     case 0x1001:
         memcpy(out, firmware, sizeof(firmware));
         return sizeof(firmware);
-    case 0x1101:
-        out[0] = 1; out[1] = out[2] = out[3] = 0;
+    case 0x1101:            /* 3 on USB, as the console's capture has it */
+        out[0] = s2.usb ? 3 : 1; out[1] = out[2] = out[3] = 0;
         return 4;
     case 0x1103:
         memcpy(out, unknown_1103, sizeof(unknown_1103));
@@ -832,6 +843,14 @@ static u8 s2_command(const u8 *c, u16 n, u8 *out, u32 now, int *bonded)
         *bonded = s2.ltk_valid;
         out[0] = 1;
         return 1;
+    case 0x0c06:            /* USB: looks like a sensor register transfer (count at 12,
+                               bytes from 16, the read bit 0x80); the answer the
+                               console got: the count, then the bytes clocked back */
+        if (n < 17) return 0;
+        memset(out, 0, 0x38);
+        out[4] = c[12];
+        if (c[16] == 0x8a) out[9] = 0x76;
+        return 0x38;
     case 0x1601:
         memset(out, 0, 0x18);
         return 0x18;
@@ -867,7 +886,8 @@ static int s2_write(const struct bt_write *w, u32 now, struct bt_bond *bond)
 
     /* USB: rumble in output report 0x02 (a sequence byte, then the two
      * motors' blocks 16 apart); commands on the bulk pipe, answered there
-     * without the LE response's prefix.  A bond made over USB is not kept. */
+     * without the LE response's prefix, 00 f8 at 4 as the console's capture
+     * has it (18/01: a bare status 0).  A bond made over USB is not kept. */
     if (s2.usb && w->kind == BT_WRITE_OUTPUT && w->id == 0x02 && w->len >= 0x16) {
         s2.rumble[0] = s2_amplitude(w->data);
         s2.rumble[1] = s2_amplitude(w->data + 0x10);
@@ -878,8 +898,11 @@ static int s2_write(const struct bt_write *w, u32 now, struct bt_bond *bond)
         len = s2_command(w->data, w->len, resp + 8, now, &bonded);
         memcpy(resp, w->data, 4);
         resp[1] = 0x01;
-        resp[4] = 0x10;
-        resp[5] = 0x78;
+        resp[5] = 0xf8;
+        if (w->data[0] == 0x18) {
+            resp[1] = 0;
+            len = 0;
+        }
         if (w->data[0] != 0x02) util_log("switch2: usb cmd %02x %02x", w->data[0], w->data[3]);
         host_send(HOST_BULK, resp, (u16)(8 + len));
         return 0;
@@ -928,6 +951,25 @@ static int s2_read(u8 kind, u16 id, u16 offset, u8 *out, u16 max)
     static const u8 info1[] = { 0x04, 0x00, 0x05, 0x00, 0x01, 0x01, 0x00 };
     static const u8 info2[] = { 0x36, 0x80, 0x74, 0xee, 0xbb, 0x3d, 0x8e, 0x13 };
 
+    if (kind == BT_WRITE_VENDOR) {
+        /* USB, from the console's capture: 03 the device info (as flash
+         * 0x13000), 02 a version and our address, 04 (wValue 0x0276) no data */
+        static const u8 version[10] = { 0x01, 0x01, 0x05, 0, 0, 0, 0x0c, 0, 0, 0 };
+
+        (void)offset;
+        if (id == 0x04) return 0;
+        if (id == 0x03) {
+            if (max > 0x40) max = 0x40;
+            s2_flash_read(0x13000, out, max);
+            return max;
+        }
+        if (id == 0x02 && max >= 16) {
+            memcpy(out, version, sizeof(version));
+            memcpy(out + 10, s2.address, 6);
+            return 16;
+        }
+        return -1;
+    }
     (void)offset;
     if (kind != BT_WRITE_ATT || max < 8) return -1;
     if (id == S2_INFO_1) {
@@ -959,13 +1001,11 @@ static u8 s2_advertising(const struct bt_bond *bond, int pairing, int wake, u8 *
     return 31;
 }
 
-/* USB: a 64-byte report laid out as SDL's Switch 2 driver reads it: buttons
- * at 4-7 (after the id), 12-bit sticks at 10, the motion sample's time at
- * 42, accelerometer at 48 (4096 a g) and gyro at 54 (16.4 a degree a
- * second), in SDL's axes.  Report id 0x09 is a guess: the real descriptor
- * is not known here. */
-#define S2_USB_REPORT 0x09
-#define S2_USB_SIZE   63
+/* USB input reports, as the real descriptor has them: 0x09 (the default, the
+ * console's) is the LE report; 0x05, which SDL selects with command 03/0a, is
+ * a 64-byte report with buttons at 4-7 (after the id), 12-bit sticks at 10,
+ * the motion sample's time at 42, accelerometer at 48 (4096 a g) and gyro at
+ * 54 (16.4 a degree a second), in SDL's axes. */
 
 /* The factory stick calibration s2_flash serves (0x130a8, 0x130e8): centre,
  * then the reach up and down, x and y.  Hosts read the raw values through it,
@@ -1018,25 +1058,39 @@ static int s2_usb_report(const struct pad *p, u32 now, u8 *out, u8 *id)
         util_put16(out + 56, (u16)(s16)-m->gyro[0]);
         util_put16(out + 58, (u16)m->gyro[2]);
     }
-    *id = S2_USB_REPORT;
+    *id = S2_USB_REPORT_FULL;
     return S2_USB_SIZE;
 }
 
 static int s2_any_report(const struct pad *p, u32 now, u8 *out, u8 *id)
 {
-    return s2.usb ? s2_usb_report(p, now, out, id) : s2_report(p, now, out, id);
+    int n;
+
+    if (s2.usb && !s2.ready) return 0;
+    if (s2.usb && s2.usb_report == S2_USB_REPORT_FULL) return s2_usb_report(p, now, out, id);
+    n = s2_report(p, now, out, id);
+    if (s2.usb) *id = S2_USB_REPORT;
+    return n;
 }
 
+/* The Pro Controller 2's own (ndeadly's descriptors.md). */
 static const u8 s2_usb_descriptor[] = {
-    0x05, 0x01, 0x09, 0x05, 0xa1, 0x01, 0x06, 0x00, 0xff, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08,
-    0x85, S2_USB_REPORT, 0x09, 0x09, 0x95, S2_USB_SIZE, 0x81, 0x02,
-    0x85, 0x02, 0x09, 0x02, 0x95, 0x3f, 0x91, 0x02,
+    0x05, 0x01, 0x09, 0x05, 0xa1, 0x01,
+    0x85, S2_USB_REPORT_FULL, 0x05, 0xff, 0x09, 0x01, 0x15, 0x00, 0x26, 0xff, 0x00,
+    0x95, 0x3f, 0x75, 0x08, 0x81, 0x02,
+    0x85, S2_USB_REPORT, 0x09, 0x01, 0x95, 0x02, 0x81, 0x02,
+    0x05, 0x09, 0x19, 0x01, 0x29, 0x15, 0x25, 0x01, 0x95, 0x15, 0x75, 0x01, 0x81, 0x02,
+    0x95, 0x01, 0x75, 0x03, 0x81, 0x03,
+    0x05, 0x01, 0x09, 0x01, 0xa1, 0x00, 0x09, 0x30, 0x09, 0x31, 0x09, 0x33, 0x09, 0x35,
+    0x26, 0xff, 0x0f, 0x95, 0x04, 0x75, 0x0c, 0x81, 0x02, 0xc0,
+    0x05, 0xff, 0x09, 0x02, 0x26, 0xff, 0x00, 0x95, 0x34, 0x75, 0x08, 0x81, 0x02,
+    0x85, 0x02, 0x09, 0x01, 0x95, 0x3f, 0x91, 0x02,
     0xc0,
 };
 
 static const struct usb_identity s2_usb = {
-    .vendor_id = 0x057e, .product_id = 0x2069, .bcd_device = 0x0100,
-    .manufacturer = "Nintendo", .product = "Switch 2 Pro Controller",
+    .vendor_id = 0x057e, .product_id = 0x2069, .bcd_device = 0x0200,
+    .manufacturer = "Nintendo", .product = "Switch 2 Pro Controller", .serial = "00",
     .kind = USB_HID_BULK, .report_ids = 1, .interval = 4, .in_size = 64, .out_size = 64,
     .max_power = 250, .audio = USB_AUDIO_HEADSET,
     .hid_descriptor = s2_usb_descriptor, .hid_descriptor_len = sizeof(s2_usb_descriptor),
@@ -1046,7 +1100,8 @@ static u8 s2_begin(const struct profile_session *s)
 {
     memset(&s2, 0, sizeof(s2));
     s2.usb = s->usb;
-    s2.ready = s->usb;           /* a cable needs no start */
+    s2.usb_report = S2_USB_REPORT;
+    s2.ready = 0;                /* LE: notifications; USB: command 03/0d */
     s2.q[0] = S2_ONE;
     memcpy(s2.address, s->address, 6);
     if (!s->pairing && s->bond) {
@@ -1070,7 +1125,7 @@ const struct profile profile_switch2 = {
 };
 
 #ifdef UNITTEST
-static u8 sent[64];
+static u8 sent[160];
 static u16 sent_len;
 int host_send(u16 id, const u8 *data, u16 len)
 {
@@ -1254,9 +1309,26 @@ int main(void)
         w.data[12] = 0x80; w.data[13] = 0x30; w.data[14] = 0x01;        /* 0x13080 */
         s2_write(&w, 0, NULL);
         CHECK(sent_len == 8 + 0x48 && sent[1] == 0x02 && sent[2] == 0x01 && sent[1 + 0x10] == 0x01);
+        CHECK(sent[5] == 0x00 && sent[6] == 0xf8);                     /* USB answer header */
         p.buttons = PAD_A | PAD_HOME;
         p.hat = HAT_DOWN;
-        CHECK(s2_any_report(&p, 0, out, &id) == S2_USB_SIZE && id == S2_USB_REPORT);
+        CHECK(s2_any_report(&p, 0, out, &id) == 0);                    /* not before 03/0d */
+        memset(&w, 0, sizeof(w));
+        w.kind = BT_WRITE_BULK; w.len = 16;
+        w.data[0] = 0x03; w.data[1] = 0x91; w.data[3] = 0x0d; w.data[5] = 0x08;
+        s2_write(&w, 0, NULL);
+        CHECK(sent_len == 12 && sent[9] == 0x01);
+        CHECK(s2_read(BT_WRITE_VENDOR, 0x03, 0, out, 0x40) == 0x40 && out[0] == 0x01 && out[0x12] == 0x7e);
+        CHECK(s2_read(BT_WRITE_VENDOR, 0x02, 0, out, 0x10) == 0x10 && out[10] == 1 && out[15] == 6);
+        CHECK(s2_read(BT_WRITE_VENDOR, 0x04, 0x0276, out, 0) == 0);
+        CHECK(s2_any_report(&p, 0, out, &id) == S2_REPORT_SIZE && id == S2_USB_REPORT);
+        CHECK(out[2] == 0x01 && out[3] == 0x01 && out[4] == 0x01);     /* B, down, Home */
+        memset(&w, 0, sizeof(w));
+        w.kind = BT_WRITE_BULK; w.len = 12;
+        w.data[0] = 0x03; w.data[1] = 0x91; w.data[3] = 0x0a; w.data[5] = 0x04;
+        w.data[8] = S2_USB_REPORT_FULL;
+        s2_write(&w, 0, NULL);
+        CHECK(s2_any_report(&p, 0, out, &id) == S2_USB_SIZE && id == S2_USB_REPORT_FULL);
         CHECK(out[4] == 0x04 && out[5] == 0x10 && out[6] == 0x01);
     }
     return TEST_DONE("profile_switch");
