@@ -89,7 +89,7 @@ static const struct gesture { u32 keys; u16 hold_ms; u8 request, slot, connected
 /* keys: the chord, without Home. before: keys already down when Home went down. */
 static struct {
     u32 started, chord_at, keys, captured, before, tap, tap_release_at, done;
-    u8 active, live, chorded, offline, fired, mixed, draining, tap_reported, state;
+    u8 active, live, chorded, offline, fired, mixed, draining, tap_reported;
 } ux;
 
 static struct ctl_request request(u8 kind, u8 slot)
@@ -128,7 +128,6 @@ struct ctl_request ux_step(struct pad *p, u32 now, u8 state)
     int offline = state == CTL_BOOT || state == CTL_IDLE || state == CTL_CONNECTING ||
                   state == CTL_PAIRING || state == CTL_STOPPING;
 
-    ux.state = state;
     if (state != CTL_CONNECTED) ux.tap = 0;
     if (ux.tap && ux.tap_reported && (s32)(now - ux.tap_release_at) >= 0) ux.tap = 0;
     if (ux.draining) {
@@ -224,8 +223,7 @@ u32 ux_deadline(void)
 u8 ux_armed(void)
 {
     u32 i;
-    if (!ux.active || ux.fired) return SLOT_NONE;
-    if (!ux.chorded) return !ux.mixed && (ux.state == CTL_IDLE || ux.state == CTL_BOOT) ? SLOT_LAST : SLOT_NONE;
+    if (!ux.active || ux.fired || !ux.chorded) return SLOT_NONE;
     for (i = 0; i < GESTURES; i++)
         if (gestures[i].release && allowed(&gestures[i], ux.keys)) return gestures[i].slot;
     return SLOT_NONE;
@@ -333,7 +331,7 @@ int main(void)
     }
     /* Armed. */
     reset(CTL_IDLE); CHECK(ux_armed() == SLOT_NONE);
-    pad.buttons = PAD_HOME; run(1); CHECK(ux_armed() == SLOT_LAST);
+    pad.buttons = PAD_HOME; run(1); CHECK(ux_armed() == SLOT_NONE);
     pad.buttons |= PAD_Y; run(1); CHECK(ux_armed() == 3);
     run(5000); CHECK(ux_armed() == SLOT_NONE); /* now pairing */
     reset(CTL_IDLE); pad.buttons = PAD_HOME | PAD_L1; run(1); CHECK(ux_armed() == SLOT_NONE);
@@ -378,7 +376,7 @@ int main(void)
     CHECK(last.kind == REQ_CALIBRATE);
     /* Waking with Home alone. */
     reset(CTL_BOOT); last = ux_boot(PAD_HOME, 1, now);
-    CHECK(last.kind == REQ_NONE && ux_armed() == SLOT_LAST);
+    CHECK(last.kind == REQ_NONE && ux_armed() == SLOT_NONE);
     pad.buttons = PAD_HOME; run(300); CHECK(last.kind == REQ_NONE);
     pad.buttons = 0; run(1); CHECK(last.kind == REQ_CONNECT && last.slot == SLOT_LAST);
     CHECK(ux_armed() == SLOT_NONE);
