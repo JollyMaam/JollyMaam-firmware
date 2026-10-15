@@ -519,6 +519,7 @@ void plat_usb_service(void)
 {
     const struct usb_device_t *dev = usb_pending;
 
+    plat_usb_jack();
     if (!dev) return;
     usb_pending = NULL;
     USB_MassStorage(dev);

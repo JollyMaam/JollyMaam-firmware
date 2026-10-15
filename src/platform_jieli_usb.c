@@ -11,7 +11,9 @@
  * (or SET_REPORT) the host's writes; a Switch 2 also has a bulk pair.
  * With audio, a USB speaker follows: the stock pad's 48 kHz stereo 16-bit on
  * isochronous OUT 0x03, a feature unit with mute and volume in dB (-60 to 0
- * in steps of 0.5, so hosts get a real dB scale), its packets straight to the DAC (platform_jieli_audio.c).
+ * in steps of 0.5, so hosts get a real dB scale), its packets straight to
+ * the DAC (platform_jieli_audio.c).  As on the stock pad the speaker is there
+ * only while a plug is in the jack: a plug going in or out re-enumerates.
  *
  * plat_usb_mode(NULL) is the tool device: the SDK's mass storage, whose
  * vendor SCSI commands platform_jieli.c hands to usb.c. */
@@ -49,6 +51,7 @@
 #define VOLUME_MIN   (-60 * 256) /* UAC volume: 1/256 dB */
 #define VOLUME_RES   128
 #define VOLUME_START (-10 * 256)
+#define JACK_SETTLE_MS 200
 
 extern u32 usb_read_txcsr(const usb_dev usb_id, const u32 ep);
 extern void usb_memory_init(void);
@@ -81,6 +84,7 @@ static struct bt_write writes[WRITES];
 static volatile u8 w_head, w_count;
 static u8 set_report_kind, set_report_id;
 static u8 rx[PACKET] __attribute__((aligned(4)));
+static u8 jack;                  /* debounced: a plug in the jack */
 static u8 audio_if;              /* the audio control interface; streaming is the next; 0: none */
 static u8 *dma_audio;
 static volatile u8 audio_alt;
@@ -137,7 +141,7 @@ static void build(const struct usb_identity *id)
     /* The Xbox 360 controller's vendor device class, but not beside a
      * speaker: Linux matches no class driver to the interfaces of a vendor
      * class device.  The stock pad's Xbox 360 mode has class 0 too. */
-    const u8 vendor = id->kind == USB_XINPUT && !(id->audio && board_audio) ? 0xff : 0;
+    const u8 vendor = id->kind == USB_XINPUT && !(id->audio && board_audio && jack) ? 0xff : 0;
     const u8 dev[18] = {
         18, USB_DT_DEVICE, 0x00, 0x02, vendor, vendor, vendor, EP0_SETUP_LEN,
         (u8)id->vendor_id, (u8)(id->vendor_id >> 8), (u8)id->product_id, (u8)(id->product_id >> 8),
@@ -180,7 +184,7 @@ static void build(const struct usb_identity *id)
     {
         u8 n = id->kind == USB_HID_BULK ? 2 : 1;
 
-        audio_if = id->audio && board_audio ? n : 0;
+        audio_if = id->audio && board_audio && jack ? n : 0;
         if (audio_if) p = speaker(p, audio_if);
         config_len = (u16)(p - config_desc);
         u8 head[9] = { 9, USB_DT_CONFIG, (u8)config_len, (u8)(config_len >> 8),
@@ -531,13 +535,9 @@ static u32 hook(struct usb_device_t *dev, struct usb_ctrlrequest *req)
 
 /* ---- the interface ---------------------------------------------------------- */
 
-void plat_usb_mode(const struct usb_identity *id,
-                   int (*read)(u8 kind, u16 id, u16 offset, u8 *out, u16 max))
+static void start(const struct usb_identity *id,
+                  int (*read)(u8 kind, u16 id, u16 offset, u8 *out, u16 max))
 {
-    if (id == ident) {
-        host_read = read;
-        return;
-    }
     plat_usb_hold_present(1500);         /* the re-enumeration is not an unplug */
     local_irq_disable();
     stream(0);
@@ -575,6 +575,32 @@ void plat_usb_mode(const struct usb_identity *id,
     }
     usb_set_reset_hander(0, 0, on_reset);
     usb_set_setup_hook(usb_id2device(0), hook);
+}
+
+void plat_usb_mode(const struct usb_identity *id,
+                   int (*read)(u8 kind, u16 id, u16 offset, u8 *out, u16 max))
+{
+    if (id == ident) {
+        host_read = read;
+        return;
+    }
+    start(id, read);
+}
+
+/* Control thread.  A plug in or out for JACK_SETTLE_MS changes the device. */
+void plat_usb_jack(void)
+{
+    static u32 since;
+    u8 now = (u8)board_jack();
+
+    if (!board_audio || now == jack) {
+        since = plat_now_ms;
+        return;
+    }
+    if (plat_now_ms - since < JACK_SETTLE_MS) return;
+    jack = now;
+    util_log("usb: jack %s", jack ? "in" : "out");
+    if (ident && ident->audio) start(ident, host_read);
 }
 
 int plat_usb_ready(void)

@@ -23,6 +23,8 @@
 #define PIN_AMP_ENABLE  IO_PORTA_08     /* audio amplifier, also on while floating */
 #define ADC_TRIGGER_L2  AD_CH_PB3
 #define ADC_TRIGGER_R2  AD_CH_PB10
+#define PIN_JACK        IO_PORTA_12
+#define ADC_JACK        AD_CH_PA12
 #define PR_STOP_L2      1
 #define PR_STOP_R2      0
 
@@ -361,11 +363,20 @@ static void inputs_init(void)
     analog_input(PIN_TRIGGER_R2);
     adc_add_sample_ch(ADC_TRIGGER_L2);
     adc_add_sample_ch(ADC_TRIGGER_R2);
+    analog_input(PIN_JACK);
+    adc_add_sample_ch(ADC_JACK);
     stop_switch(PR_STOP_L2);
     stop_switch(PR_STOP_R2);
     sticks_init();
     plat_pull_up_input(IO_PORTA_02);
     i2c_init();    /* d-pad up shares the UART2 input mux */
+}
+
+/* PA12 reads near the top of the ADC with a plug in and 0 without
+ * (docs/audio.md); stock takes the upper side as inserted too. */
+int board_jack(void)
+{
+    return adc_get_value(ADC_JACK) > 512;
 }
 
 static u32 stop_next;

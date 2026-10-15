@@ -16,6 +16,11 @@ const struct wakeup_param *const board_wakeups = NULL;
 const u8 board_audio = 0;
 const u32 board_amp_enable = 0;
 
+int board_jack(void)
+{
+    return 0;
+}
+
 static struct plat_boot boot;
 
 /* The button held at plug-in goes to the ROM loader before any of this

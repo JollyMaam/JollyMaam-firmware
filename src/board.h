@@ -30,6 +30,7 @@ void board_start(void);          /* on the control thread, before the tick start
 void board_tick(void);           /* every tick, in its interrupt */
 void board_to_loader(void);      /* about to restart into the loader */
 int board_usb_sense(void);       /* 5 V on the USB connector */
+int board_jack(void);            /* a plug in the headphone jack, not debounced */
 
 /* ---- the platform, for the board ----------------------------------------- */
 
@@ -51,5 +52,6 @@ void plat_audio_off(void);               /* amplifier off, then the DAC */
 void plat_audio_stream(int on);          /* the host's stream; from an interrupt */
 void plat_audio_write(const u8 *pcm, u32 len);   /* 48 kHz stereo s16; from an interrupt */
 void plat_audio_volume(s16 left, s16 right, u8 mute);  /* 1/256 dB, <= 0 */
+void plat_usb_jack(void);                /* control thread: follows the jack */
 
 #endif
