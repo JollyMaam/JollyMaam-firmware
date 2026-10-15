@@ -41,7 +41,7 @@ static struct {
     u32 usb_unready_ms;          /* CONNECTED on USB: when the host unconfigured us, 0: it has not */
     u32 wake_next;
     struct profile_session sess;
-    struct ctl_request next;     /* STOPPING: what comes after */
+    u8 radio_pending;            /* the session's radio waits for the last one's BT_EV_STOPPED */
     u8 to_loader;
     u8 uboot_chord;
     u32 retry_at;
@@ -121,6 +121,7 @@ static void end_session(void)
     if (c.waking) c.prof->wake->stop();
     c.waking = 0;
     c.wake_after_stop = 0;
+    c.radio_pending = 0;
     if (c.radio) bt_stop();
     if (c.usb) plat_usb_mode(NULL, NULL);
     c.usb = 0;
@@ -154,7 +155,10 @@ static void handle(struct ctl_request r, u32 now);
 static void stopped(u32 now)
 {
     c.radio = 0;
-    if (c.kind == CTL_CONNECTING && c.wake_after_stop) {
+    if (c.radio_pending) {
+        c.radio_pending = 0;
+        radio_on();
+    } else if (c.kind == CTL_CONNECTING && c.wake_after_stop) {
         c.wake_after_stop = 0;
         c.waking = !c.prof->wake->start(&c.sess);
         if (!c.waking) radio_on();
@@ -162,9 +166,10 @@ static void stopped(u32 now)
         c.slot = SLOT_NONE;
         c.prof = NULL;
         become(CTL_IDLE, now);
-        handle(c.next, now);
     }
 }
+
+static void stop(u32 now);
 
 static void start_session(struct ctl_request r, u32 now)
 {
@@ -176,12 +181,15 @@ static void start_session(struct ctl_request r, u32 now)
 
     if (!p) {
         util_log("slot %u: profile type %u not in this build", r.slot, set->type);
+        if (session()) stop(now);
         return;
     }
     if (set->transport == TRANSPORT_USB && !p->usb) {
         util_log("slot %u: %s has no USB device", r.slot, p->name);
+        if (session()) stop(now);
         return;
     }
+    if (session()) end_session();
     usb = wants_usb(set, p);
     if (usb) pairing = 0;        /* a cable needs none; keep the radio's bond */
     else if (set->transport == TRANSPORT_DONGLE) p = &profile_link;
@@ -209,6 +217,7 @@ static void start_session(struct ctl_request r, u32 now)
     c.begin_imu = p->begin(&s);
     c.sess = s;
     c.woke = 0;
+    c.retry_at = 0;
     c.usb_arrived = 0;
     /* A USB session from Home or the console command may wake its host the
      * radio's way with the slot's bond (Switch 2: its wake advertising) while
@@ -216,17 +225,18 @@ static void start_session(struct ctl_request r, u32 now)
     c.usb_wake = usb && !r.quiet && set->transport == TRANSPORT_USB && p->device && p->device->transport == BT_LE &&
                  s.bond && (s.bond->le_peer[0] | s.bond->le_peer[1] | s.bond->le_peer[2] |
                             s.bond->le_peer[3] | s.bond->le_peer[4] | s.bond->le_peer[5]);
-    radio_on();
+    if (c.radio && !usb) c.radio_pending = 1;
+    else radio_on();
     util_log("session slot %u %s%s%s as %02x:%02x:%02x:%02x:%02x:%02x", r.slot, p->name,
              usb ? " usb" : "", pairing ? " pairing" : "", s.address[5], s.address[4], s.address[3],
              s.address[2], s.address[1], s.address[0]);
     become(pairing ? CTL_PAIRING : CTL_CONNECTING, now);
+    c.since = now;
 }
 
-/* Take the session down, then do `next` (REQ_NONE: stay idle). */
-static void stop(struct ctl_request next, u32 now)
+/* Take the session down, to idle. */
+static void stop(u32 now)
 {
-    c.next = next;
     if (c.kind != CTL_STOPPING) {
         end_session();
         become(CTL_STOPPING, now);
@@ -244,7 +254,6 @@ static void shut_down(u8 kind, u32 now)
 
 static void handle(struct ctl_request r, u32 now)
 {
-    struct ctl_request none = { REQ_NONE, SLOT_NONE, 0 };
 
     if (r.kind == REQ_NONE || c.kind == CTL_SLEEPING || c.kind == CTL_REBOOTING) return;
     if (r.slot == SLOT_LAST) r.slot = c.last_slot;
@@ -253,16 +262,14 @@ static void handle(struct ctl_request r, u32 now)
     case REQ_PAIR:
         if (r.slot >= SLOTS) return;
         if (r.kind == REQ_CONNECT && c.kind == CTL_CONNECTED && c.slot == r.slot) return;
-        if (c.kind == CTL_STOPPING || session()) stop(r, now);
-        else start_session(r, now);
+        start_session(r, now);
         break;
     case REQ_DISCONNECT:
-        if (session()) stop(none, now);
-        else if (c.kind == CTL_STOPPING) c.next = none;
+        if (session()) stop(now);
         break;
     case REQ_SLEEP:
         if (!c.usb_powered) shut_down(CTL_SLEEPING, now);
-        else if (session()) stop(none, now);
+        else if (session()) stop(now);
         break;
     case REQ_CALIBRATE:
         c.calibrating = 1;
@@ -279,7 +286,7 @@ static void handle(struct ctl_request r, u32 now)
             struct ctl_request again = { REQ_CONNECT, c.slot, 0, 1 };
 
             util_log("relink slot %u", c.slot);
-            stop(again, now);
+            start_session(again, now);
         }
         break;
     case REQ_REBOOT:
@@ -293,9 +300,10 @@ static void handle(struct ctl_request r, u32 now)
 
 static void bt_event(const struct bt_ev *e, u32 now)
 {
-    struct ctl_request none = { REQ_NONE, SLOT_NONE, 0 };
     struct bt_bond bond;
 
+    /* The last session's radio, still stopping. */
+    if (c.radio_pending && e->kind != BT_EV_STOPPED) return;
     /* A USB session runs the radio only to wake its host: no link of its own. */
     if (c.usb && e->kind != BT_EV_STOPPED) {
         if (e->kind == BT_EV_LINKED) util_log("usb: the host linked by radio as well, ignored");
@@ -324,7 +332,7 @@ static void bt_event(const struct bt_ev *e, u32 now)
             become(CTL_CONNECTING, now);
             bt_connect();
         } else {
-            stop(none, now);
+            stop(now);
         }
         break;
     }
@@ -358,7 +366,7 @@ static void bt_event(const struct bt_ev *e, u32 now)
             c.prof->host(now, &c.host);
             if (c.host.ended) {
                 util_log("host ended session: stopping radio");
-                stop(none, now);
+                stop(now);
             }
         }
         break;
@@ -371,7 +379,6 @@ static void bt_event(const struct bt_ev *e, u32 now)
 /* A USB session: the host's writes, and whether it has the device. */
 static void usb_session(u32 now)
 {
-    struct ctl_request none = { REQ_NONE, SLOT_NONE, 0 };
     struct bt_write w;
     struct bt_bond bond;
     int wrote = 0;
@@ -380,7 +387,7 @@ static void usb_session(u32 now)
 #ifdef USB_SESSION_TEST_MS       /* a test build: the tool device comes back by itself */
     if (now - c.since >= USB_SESSION_TEST_MS && c.kind == CTL_CONNECTED) {
         util_log("usb: test session over");
-        stop(none, now);
+        stop(now);
         return;
     }
 #endif
@@ -388,7 +395,7 @@ static void usb_session(u32 now)
         if (w.kind == BT_WRITE_FEATURE && w.id == USB_TOOL_REPORT && w.len >= 4 &&
             !memcmp(w.data, "tool", 4)) {
             util_log("usb: back to the tool device");
-            stop(none, now);
+            stop(now);
             return;
         }
         /* A pairing over the cable (Switch 2): the slot's bond, for the radio */
@@ -411,7 +418,7 @@ static void usb_session(u32 now)
         c.prof->host(now, &c.host);
         if (c.host.ended) {
             util_log("host ended session: stopping");
-            stop(none, now);
+            stop(now);
             return;
         }
     }
@@ -453,7 +460,6 @@ static void usb_session(u32 now)
  * radio moves to USB once a USB host is there. */
 static void follow_usb(u32 now)
 {
-    struct ctl_request none = { REQ_NONE, SLOT_NONE, 0 };
     const struct set_slot *set;
 
     if ((c.kind != CTL_CONNECTING && c.kind != CTL_CONNECTED) || c.slot >= SLOTS || c.waking) return;
@@ -463,13 +469,13 @@ static void follow_usb(u32 now)
 
         if (set->transport != TRANSPORT_BT_USB || !wants_usb(set, profile_for(set->type))) return;
         util_log("slot %u moves to usb", c.slot);
-        stop(again, now);
+        start_session(again, now);
         return;
     }
     if (c.radio) return;
     if (c.usb_configured && plat_usb_suspended()) {
         util_log("slot %u: usb host suspended the bus", c.slot);
-        stop(none, now);
+        stop(now);
     } else if (!c.usb_powered && !c.usb_wake && now - c.usb_absent_ms >= USB_GONE_MS) {
         /* bluetooth+usb whose host went before configuring us: the radio
          * instead, as the connect would have chosen. */
@@ -477,10 +483,10 @@ static void follow_usb(u32 now)
 
         if (!c.usb_configured && set->transport == TRANSPORT_BT_USB) {
             util_log("slot %u: usb host gone before configuring, bluetooth instead", c.slot);
-            stop(again, now);
+            start_session(again, now);
         } else {
             util_log("slot %u: usb cable gone", c.slot);
-            stop(none, now);
+            stop(now);
         }
     }
 }
@@ -496,7 +502,6 @@ static u32 idle_deadline(void)
 
 static void timeouts(u32 now)
 {
-    struct ctl_request none = { REQ_NONE, SLOT_NONE, 0 };
     struct ctl_request loader = { REQ_REBOOT_LOADER, SLOT_NONE, 0 };
     u32 t = now - c.since;
     int battery = !c.usb_powered;
@@ -525,7 +530,9 @@ static void timeouts(u32 now)
         break;
     }
     case CTL_CONNECTING:
-        if (t >= ux_timeouts.connect_ms) stop(none, now);
+        if (c.radio_pending) {
+            if (t >= ux_timeouts.stop_max_ms) bt_abort();
+        } else if (t >= ux_timeouts.connect_ms) stop(now);
         else if (c.waking) {
             if (c.prof->wake->step(now, &c.wake_next)) {
                 c.waking = 0;
@@ -537,7 +544,9 @@ static void timeouts(u32 now)
         }
         break;
     case CTL_PAIRING:
-        if (t >= ux_timeouts.pair_ms) stop(none, now);
+        if (c.radio_pending) {
+            if (t >= ux_timeouts.stop_max_ms) bt_abort();
+        } else if (t >= ux_timeouts.pair_ms) stop(now);
         break;
     case CTL_CONNECTED:
         if (battery && now - c.activity_ms >= ux_timeouts.idle_sleep_ms) shut_down(CTL_SLEEPING, now);
@@ -567,10 +576,11 @@ static u32 state_deadline(void)
     switch (c.kind) {
     case CTL_BOOT: return c.since + (c.uboot_chord ? ux_timeouts.uboot_window_ms : ux_timeouts.boot_scene_ms);
     case CTL_IDLE: return idle_deadline();
-    case CTL_CONNECTING: if (c.waking) return c.wake_next;
+    case CTL_CONNECTING: if (c.radio_pending) return c.since + ux_timeouts.stop_max_ms;
+        if (c.waking) return c.wake_next;
         if (c.usb && !c.usb_powered && !c.radio) return c.usb_absent_ms + USB_GONE_MS;
         return c.retry_at ? c.retry_at : c.since + ux_timeouts.connect_ms;
-    case CTL_PAIRING: return c.since + ux_timeouts.pair_ms;
+    case CTL_PAIRING: return c.since + (c.radio_pending ? ux_timeouts.stop_max_ms : ux_timeouts.pair_ms);
     case CTL_CONNECTED:          /* bt.c wakes the loop (EV_BT) when it wants a report; one
                                     waiting for its time (pull_at_us) wakes it through plat_wait */
         return input_wanted() && !c.pull_at_us ? c.report_next : plat_ms() + 100;
@@ -654,8 +664,7 @@ static void outputs(u32 now)
         c.led.scene = scene;
         c.led.since_ms = now;
     }
-    c.led.slot = armed != SLOT_NONE ? armed
-               : c.kind == CTL_STOPPING && c.next.kind != REQ_NONE ? c.next.slot : c.slot;
+    c.led.slot = armed != SLOT_NONE ? armed : c.slot;
     if (c.led.slot == SLOT_LAST) c.led.slot = c.last_slot;
     memset(&in, 0, sizeof(in));
     shown = set_slot(c.led.slot < SLOTS ? c.led.slot : 0);
