@@ -134,10 +134,12 @@ static u8 *speaker(u8 *p, u8 first)
 
 static void build(const struct usb_identity *id)
 {
+    /* The Xbox 360 controller's vendor device class, but not beside a
+     * speaker: Linux matches no class driver to the interfaces of a vendor
+     * class device.  The stock pad's Xbox 360 mode has class 0 too. */
+    const u8 vendor = id->kind == USB_XINPUT && !(id->audio && board_audio) ? 0xff : 0;
     const u8 dev[18] = {
-        18, USB_DT_DEVICE, 0x00, 0x02,
-        (u8)(id->kind == USB_XINPUT ? 0xff : 0), (u8)(id->kind == USB_XINPUT ? 0xff : 0),
-        (u8)(id->kind == USB_XINPUT ? 0xff : 0), EP0_SETUP_LEN,
+        18, USB_DT_DEVICE, 0x00, 0x02, vendor, vendor, vendor, EP0_SETUP_LEN,
         (u8)id->vendor_id, (u8)(id->vendor_id >> 8), (u8)id->product_id, (u8)(id->product_id >> 8),
         (u8)id->bcd_device, (u8)(id->bcd_device >> 8),
         (u8)(id->manufacturer ? 1 : 0), (u8)(id->product ? 2 : 0), (u8)(id->serial ? 3 : 0), 1,
