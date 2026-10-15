@@ -68,7 +68,7 @@ static const struct usb_identity generic_usb = {
     .vendor_id = 0x3537, .product_id = 0x0575, .bcd_device = 0x0100,
     .manufacturer = "GameSir", .product = "Cyclone 2 Gamepad",
     .kind = USB_HID, .report_ids = 1, .interval = 1, .in_size = 16, .max_power = 250,
-    .audio = 1, .hid_descriptor = generic_descriptor, .hid_descriptor_len = sizeof(generic_descriptor),
+    .audio = USB_AUDIO_SPEAKER, .hid_descriptor = generic_descriptor, .hid_descriptor_len = sizeof(generic_descriptor),
 };
 
 const struct profile profile_generic = {

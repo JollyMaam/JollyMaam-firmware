@@ -67,7 +67,7 @@ pad or dongle is a game controller on USB, the vendor commands are gone:
 `padtool tool` (feature report 0xf5 through hidraw, HID personalities only)
 or ending the session brings the tool device back.  A test build that ends
 USB sessions by itself: `make BOARD_DEFINES_pad=-DUSB_SESSION_TEST_MS=12000`
-(touch `src/controller.c` first).
+(a change of `BOARD_DEFINES` rebuilds everything).
 
 `tools/sdlpad.c` shows what SDL makes of the gamepads it sees (build line at
 its top).  In this container SDL needs the nodes from `/dev/bwrap` under

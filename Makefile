@@ -120,17 +120,24 @@ $(BOARDS:%=%-flash): $$(O)/$$(BOARD)/app.bin $$(O)/$$(BOARD)/isd_config.ini $(O)
 # The SDK flags include -w; owned controller C must not call undeclared
 # functions all the same.
 $(foreach output,$(OUTPUTS),$(eval $(output)/src/btctrler/%.o: CFLAGS += -Werror=implicit-function-declaration))
-$(APP_OBJECTS): $$(patsubst $$(O)/$$(BOARD)/%.o,%.c,$$@)
+# Each board's defines, rewritten only when they change: a test build's -D
+# rebuilds every object, and the next normal build again.
+.PHONY: FORCE
+$(OUTPUTS:%=%/defines): FORCE
+	@mkdir -p $(@D)
+	@echo '$(BOARD_DEFINES)' | cmp -s - $@ 2>/dev/null || echo '$(BOARD_DEFINES)' > $@
+
+$(APP_OBJECTS): $$(patsubst $$(O)/$$(BOARD)/%.o,%.c,$$@) $$(O)/$$(BOARD)/defines
 	@mkdir -p $(@D)
 	@echo [CC $(BOARD)] $<
 	$(Q)$(CC) $(CFLAGS) $(DEFINES) $(INCLUDES) -MMD -MP -c $< -o $@
 
-$(SDK_OBJECTS): $$(patsubst $$(O)/$$(BOARD)/sdk/%.o,$$(SDK)/%.c,$$@)
+$(SDK_OBJECTS): $$(patsubst $$(O)/$$(BOARD)/sdk/%.o,$$(SDK)/%.c,$$@) $$(O)/$$(BOARD)/defines
 	@mkdir -p $(@D)
 	@echo [CC $(BOARD)] $<
 	$(Q)$(CC) $(CFLAGS) $(DEFINES) $(INCLUDES) -MMD -MP -c $< -o $@
 
-$(BTSTACK_OBJECTS): $$(patsubst $$(O)/$$(BOARD)/btstack/%.o,$$(BTSTACK)/%.c,$$@)
+$(BTSTACK_OBJECTS): $$(patsubst $$(O)/$$(BOARD)/btstack/%.o,$$(BTSTACK)/%.c,$$@) $$(O)/$$(BOARD)/defines
 	@mkdir -p $(@D)
 	@echo [CC $(BOARD)] $<
 	$(Q)$(CC) $(CFLAGS) $(DEFINES) $(BTSTACK_RENAMES) $(INCLUDES) -MMD -MP -c $< -o $@

@@ -14,6 +14,9 @@
  * in steps of 0.5, so hosts get a real dB scale), its packets straight to
  * the DAC (platform_jieli_audio.c).  As on the stock pad the speaker is there
  * only while a plug is in the jack: a plug going in or out re-enumerates.
+ * As a Switch 2 Pro Controller, the real one's headset instead, always there:
+ * every function behind an interface association, headphones on 0x03 and a
+ * 48 kHz stereo microphone on 0x83, which sends silence for now.
  *
  * plat_usb_mode(NULL) is the tool device: the SDK's mass storage, whose
  * vendor SCSI commands platform_jieli.c hands to usb.c. */
@@ -24,11 +27,11 @@
 #define EP_BULK      2           /* 0x02 and 0x82: Switch 2's commands */
 #define EP_AUDIO     3           /* 0x03: isochronous, the speaker */
 #define PACKET       64
-#define AUDIO_PACKET 192         /* 1 ms of 48 kHz stereo 16-bit */
+#define AUDIO_PACKET 192         /* 1 ms of 48 kHz stereo 16-bit, both ways */
 #define MESSAGES     4
 #define MESSAGE_MAX  128         /* sent in packets of the endpoint's size */
 #define WRITES       6
-#define DESC_MAX     256
+#define DESC_MAX     320
 #define REQ_GET_REPORT 0x01
 #define REQ_GET_IDLE   0x02
 #define REQ_SET_REPORT 0x09
@@ -38,6 +41,7 @@
 #define DT_REPORT    0x22
 #define DT_CS_INTERFACE 0x24
 #define DT_CS_ENDPOINT  0x25
+#define DT_IAD       0x0b
 #define UAC_SET_CUR  0x01
 #define UAC_GET_CUR  0x81
 #define UAC_GET_MIN  0x82
@@ -48,6 +52,7 @@
 #define UNIT_IN      1           /* the USB streaming input terminal */
 #define UNIT_FEATURE 2
 #define UNIT_OUT     3           /* the headphones */
+#define UNIT_MIC_FEATURE 5       /* headset: the microphone's, after its input terminal 4 */
 #define VOLUME_MIN   (-60 * 256) /* UAC volume: 1/256 dB */
 #define VOLUME_RES   128
 #define VOLUME_START (-10 * 256)
@@ -88,11 +93,14 @@ static u8 set_report_kind, set_report_id;
 static u8 rx[PACKET] __attribute__((aligned(4)));
 static u8 jack;                  /* debounced: a plug in the jack */
 static u8 audio_if;              /* the audio control interface; streaming is the next; 0: none */
-static u8 *dma_audio;
-static volatile u8 audio_alt;
+static u8 headset;               /* audio_if is a headset: the microphone's streaming follows */
+static u8 *dma_audio, *dma_mic;
+static volatile u8 audio_alt, mic_alt;
 static s16 volume[2] = { VOLUME_START, VOLUME_START };
 static u8 mute;
-static u8 audio_cs, audio_ch;    /* the SET_CUR waiting for its data */
+static s16 mic_volume = VOLUME_START;    /* kept for the host, the microphone is silent */
+static u8 mic_mute;
+static u8 audio_unit, audio_cs, audio_ch;    /* the SET_CUR waiting for its data */
 
 static void reply(struct usb_device_t *dev, struct usb_ctrlrequest *req, const u8 *d, u32 n);
 static void stall(struct usb_device_t *dev);
@@ -113,6 +121,43 @@ static u8 *interface(u8 *p, u8 number, u8 endpoints, u8 cls, u8 sub, u8 proto)
 {
     u8 d[9] = { 9, USB_DT_INTERFACE, number, 0, endpoints, cls, sub, proto, 0 };
     return put(p, d, 9);
+}
+
+static u8 *association(u8 *p, u8 first, u8 count, u8 cls, u8 sub)
+{
+    u8 d[8] = { 8, DT_IAD, first, count, cls, sub, 0, 0 };
+    return put(p, d, 8);
+}
+
+/* The Switch 2 Pro Controller's, as the real one describes it: master mute
+ * and volume on both feature units, synchronous endpoints of 7 bytes. */
+static u8 *headset_audio(u8 *p, u8 first)
+{
+    const u8 d[] = {
+        9, USB_DT_INTERFACE, first, 0, 0, 1, 1, 0, 0,
+        10, DT_CS_INTERFACE, 1, 0x00, 0x01, 71, 0, 2, (u8)(first + 1), (u8)(first + 2),
+        12, DT_CS_INTERFACE, 2, UNIT_IN, 0x01, 0x01, 0, 2, 0x03, 0x00, 0, 0,
+        10, DT_CS_INTERFACE, 6, UNIT_FEATURE, UNIT_IN, 1, 0x03, 0x00, 0x00, 0,
+        9, DT_CS_INTERFACE, 3, UNIT_OUT, 0x02, 0x03, 0, UNIT_FEATURE, 0,
+        12, DT_CS_INTERFACE, 2, 4, 0x01, 0x02, 0, 1, 0x00, 0x00, 0, 0,
+        9, DT_CS_INTERFACE, 6, UNIT_MIC_FEATURE, 4, 1, 0x03, 0x00, 0,
+        9, DT_CS_INTERFACE, 3, 6, 0x01, 0x01, 0, UNIT_MIC_FEATURE, 0,
+        9, USB_DT_INTERFACE, (u8)(first + 1), 0, 0, 1, 2, 0, 0,
+        9, USB_DT_INTERFACE, (u8)(first + 1), 1, 1, 1, 2, 0, 0,
+        7, DT_CS_INTERFACE, 1, UNIT_IN, 0, 0x01, 0x00,
+        11, DT_CS_INTERFACE, 2, 1, 2, 2, 16, 1, 0x80, 0xbb, 0x00,
+        7, USB_DT_ENDPOINT, EP_AUDIO, 0x0d, (u8)AUDIO_PACKET, AUDIO_PACKET >> 8, 1,
+        7, DT_CS_ENDPOINT, 1, 0, 0, 0, 0,
+        9, USB_DT_INTERFACE, (u8)(first + 2), 0, 0, 1, 2, 0, 0,
+        9, USB_DT_INTERFACE, (u8)(first + 2), 1, 1, 1, 2, 0, 0,
+        7, DT_CS_INTERFACE, 1, 6, 0, 0x01, 0x00,
+        11, DT_CS_INTERFACE, 2, 1, 2, 2, 16, 1, 0x80, 0xbb, 0x00,
+        7, USB_DT_ENDPOINT, 0x80 | EP_AUDIO, 0x0d, (u8)AUDIO_PACKET, AUDIO_PACKET >> 8, 1,
+        7, DT_CS_ENDPOINT, 1, 0, 0, 0, 0,
+    };
+
+    p = association(p, first, 3, 1, 1);
+    return put(p, d, sizeof(d));
 }
 
 static u8 *speaker(u8 *p, u8 first)
@@ -140,12 +185,18 @@ static u8 *speaker(u8 *p, u8 first)
 
 static void build(const struct usb_identity *id)
 {
+    /* Audio: the speaker with a plug in the jack, the headset always. */
+    const u8 audio = board_audio && (id->audio == USB_AUDIO_HEADSET ||
+                                     (id->audio == USB_AUDIO_SPEAKER && jack));
+    const u8 iad = audio && id->audio == USB_AUDIO_HEADSET;
     /* The Xbox 360 controller's vendor device class, but not beside a
      * speaker: Linux matches no class driver to the interfaces of a vendor
-     * class device.  The stock pad's Xbox 360 mode has class 0 too. */
-    const u8 vendor = id->kind == USB_XINPUT && !(id->audio && board_audio && jack) ? 0xff : 0;
+     * class device.  The stock pad's Xbox 360 mode has class 0 too.  With
+     * interface associations: the class that says so. */
+    const u8 vendor = id->kind == USB_XINPUT && !audio ? 0xff : 0;
     const u8 dev[18] = {
-        18, USB_DT_DEVICE, 0x00, 0x02, vendor, vendor, vendor, EP0_SETUP_LEN,
+        18, USB_DT_DEVICE, 0x00, 0x02, (u8)(iad ? 0xef : vendor), (u8)(iad ? 0x02 : vendor),
+        (u8)(iad ? 0x01 : vendor), EP0_SETUP_LEN,
         (u8)id->vendor_id, (u8)(id->vendor_id >> 8), (u8)id->product_id, (u8)(id->product_id >> 8),
         (u8)id->bcd_device, (u8)(id->bcd_device >> 8),
         (u8)(id->manufacturer ? 1 : 0), (u8)(id->product ? 2 : 0), (u8)(id->serial ? 3 : 0), 1,
@@ -172,12 +223,14 @@ static void build(const struct usb_identity *id)
                       (u8)id->hid_descriptor_len, (u8)(id->hid_descriptor_len >> 8) };
 
         out_ep = EP_OUT;
+        if (iad) p = association(p, 0, 1, USB_CLASS_HID, 0);
         p = interface(p, 0, id->out_size ? 2 : 1, USB_CLASS_HID, 0, 0);
         hid_at = (u8)(p - config_desc);
         p = put(p, hid, sizeof(hid));
         p = endpoint(p, 0x80 | EP_IN, USB_ENDPOINT_XFER_INT, id->in_size, id->interval);
         if (id->out_size) p = endpoint(p, EP_OUT, USB_ENDPOINT_XFER_INT, id->out_size, id->interval);
         if (id->kind == USB_HID_BULK) {
+            if (iad) p = association(p, 1, 1, 0xff, 0);
             p = interface(p, 1, 2, 0xff, 0, 0);
             p = endpoint(p, EP_BULK, USB_ENDPOINT_XFER_BULK, PACKET, 0);
             p = endpoint(p, 0x80 | EP_BULK, USB_ENDPOINT_XFER_BULK, PACKET, 0);
@@ -186,11 +239,13 @@ static void build(const struct usb_identity *id)
     {
         u8 n = id->kind == USB_HID_BULK ? 2 : 1;
 
-        audio_if = id->audio && board_audio && jack ? n : 0;
-        if (audio_if) p = speaker(p, audio_if);
+        audio_if = audio ? n : 0;
+        headset = iad;
+        if (headset) p = headset_audio(p, audio_if);
+        else if (audio_if) p = speaker(p, audio_if);
         config_len = (u16)(p - config_desc);
         u8 head[9] = { 9, USB_DT_CONFIG, (u8)config_len, (u8)(config_len >> 8),
-                       (u8)(audio_if ? n + 2 : n), 1, 0, 0xa0, id->max_power };
+                       (u8)(n + (headset ? 3 : audio_if ? 2 : 0)), 1, 0, 0xa0, id->max_power };
         memcpy(config_desc, head, 9);
     }
 }
@@ -331,12 +386,47 @@ static void stream(u8 alt)
     plat_audio_stream(alt);
 }
 
+
+/* The headset's microphone: a packet of silence every frame while the host
+ * listens.  Only with none still waiting: the SDK's write flushes the FIFO,
+ * and a flush interrupts again at once, a storm that starves everything
+ * else while the host is not taking packets. */
+
+static void mic_tx(struct usb_device_t *dev, u32 ep)
+{
+    (void)dev;
+    (void)ep;
+    if (usb_read_txcsr(0, EP_AUDIO) & 1) return;     /* TxPktRdy */
+    memset(dma_mic, 0, AUDIO_PACKET);
+    usb_g_iso_write(0, EP_AUDIO, NULL, AUDIO_PACKET);
+}
+
+static void mic(u8 alt)
+{
+    if (!headset || alt == mic_alt) return;
+    mic_alt = alt;
+    if (alt) {
+        usb_enable_ep(0, EP_AUDIO);       /* the number: the SDK's mic does so too */
+        usb_g_set_intr_hander(0, EP_AUDIO | USB_DIR_IN, mic_tx);
+        usb_g_ep_config(0, EP_AUDIO | USB_DIR_IN, USB_ENDPOINT_XFER_ISOC, 1, dma_mic, AUDIO_PACKET);
+        mic_tx(NULL, 0);
+    } else {
+        usb_clr_intr_txe(0, EP_AUDIO);
+        usb_g_set_intr_hander(0, EP_AUDIO | USB_DIR_IN, NULL);
+    }
+}
+
 static u32 audio_set_data(struct usb_device_t *dev, struct usb_ctrlrequest *req)
 {
     u32 n = req->wLength < sizeof(rx) ? req->wLength : sizeof(rx);
 
     (void)dev;
     usb_read_ep0(0, rx, n);
+    if (audio_unit == UNIT_MIC_FEATURE) {
+        if (audio_cs == UAC_MUTE && n >= 1) mic_mute = rx[0] != 0;
+        if (audio_cs == UAC_VOLUME && n >= 2) mic_volume = (s16)(rx[0] | rx[1] << 8);
+        return USB_EP0_STAGE_SETUP;
+    }
     if (audio_cs == UAC_MUTE && n >= 1) mute = rx[0] != 0;
     if (audio_cs == UAC_VOLUME && n >= 2) {
         s16 v = (s16)(rx[0] | rx[1] << 8);
@@ -352,15 +442,18 @@ static u32 audio_set_data(struct usb_device_t *dev, struct usb_ctrlrequest *req)
 /* Class requests to the audio control interface: the feature unit only. */
 static u32 audio_request(struct usb_device_t *dev, struct usb_ctrlrequest *req)
 {
+
     u8 *buf = usb_get_setup_buffer(dev);
     u8 cs = HIBYTE(req->wValue), ch = LOBYTE(req->wValue);
+    u8 unit = HIBYTE(req->wIndex), is_mic = unit == UNIT_MIC_FEATURE && headset;
     s16 v;
 
-    if (HIBYTE(req->wIndex) != UNIT_FEATURE || (cs != UAC_MUTE && cs != UAC_VOLUME)) {
+    if ((unit != UNIT_FEATURE && !is_mic) || (cs != UAC_MUTE && cs != UAC_VOLUME)) {
         stall(dev);
         return 1;
     }
     if (req->bRequest == UAC_SET_CUR) {
+        audio_unit = unit;
         audio_cs = cs;
         audio_ch = ch;
         usb_set_setup_recv(dev, audio_set_data);
@@ -371,12 +464,12 @@ static u32 audio_request(struct usb_device_t *dev, struct usb_ctrlrequest *req)
             stall(dev);
             return 1;
         }
-        buf[0] = mute;
+        buf[0] = is_mic ? mic_mute : mute;
         reply(dev, req, buf, 1);
         return 1;
     }
     switch (req->bRequest) {
-    case UAC_GET_CUR: v = volume[ch == 2 ? 1 : 0]; break;
+    case UAC_GET_CUR: v = is_mic ? mic_volume : volume[ch == 2 ? 1 : 0]; break;
     case UAC_GET_MIN: v = VOLUME_MIN; break;
     case UAC_GET_MAX: v = 0; break;
     case UAC_GET_RES: v = VOLUME_RES; break;
@@ -396,6 +489,7 @@ static void on_reset(struct usb_device_t *dev, u32 itf)
     (void)itf;
     configured = 0;
     stream(0);
+    mic(0);
     endpoints();
 }
 
@@ -479,13 +573,15 @@ static u32 hook(struct usb_device_t *dev, struct usb_ctrlrequest *req)
             return 1;
         case USB_REQ_SET_CONFIGURATION:
             stream(0);
+            mic(0);
             endpoints();
             configured = LOBYTE(req->wValue) != 0;
             plat_raise(EV_USB);
             return 0;            /* the core answers it */
         case USB_REQ_GET_INTERFACE:
             if (recip != USB_RECIP_INTERFACE) return 0;
-            buf[0] = audio_if && LOBYTE(req->wIndex) == audio_if + 1 ? audio_alt : 0;
+            buf[0] = audio_if && LOBYTE(req->wIndex) == audio_if + 1 ? audio_alt :
+                     headset && LOBYTE(req->wIndex) == audio_if + 2 ? mic_alt : 0;
             reply(dev, req, buf, 1);
             return 1;
         case USB_REQ_SET_INTERFACE:
@@ -493,6 +589,9 @@ static u32 hook(struct usb_device_t *dev, struct usb_ctrlrequest *req)
             if (audio_if && LOBYTE(req->wIndex) == audio_if + 1 && req->wValue <= 1) {
                 ok(dev);
                 stream((u8)req->wValue);
+            } else if (headset && LOBYTE(req->wIndex) == audio_if + 2 && req->wValue <= 1) {
+                ok(dev);
+                mic((u8)req->wValue);
             } else if (req->wValue) stall(dev);
             else ok(dev);
             return 1;
@@ -543,11 +642,13 @@ static void start(const struct usb_identity *id,
     plat_usb_hold_present(1500);         /* the re-enumeration is not an unplug */
     local_irq_disable();
     stream(0);
+    mic(0);
     ident = NULL;
     configured = 0;
     local_irq_enable();
     plat_audio_off();
     audio_if = 0;
+    headset = 0;
     usb_device_mode(0, 0);               /* off the bus: the host sees a new device */
     memset(&intr, 0, sizeof(intr));
     memset(&bulk, 0, sizeof(bulk));
@@ -572,6 +673,7 @@ static void start(const struct usb_identity *id,
     }
     if (audio_if) {
         dma_audio = usb_alloc_ep_dmabuffer(0, EP_AUDIO, AUDIO_PACKET + 4);
+        if (headset) dma_mic = usb_alloc_ep_dmabuffer(0, EP_AUDIO | USB_DIR_IN, AUDIO_PACKET);
         plat_audio_on();
         plat_audio_volume(volume[0], volume[1], mute);
     }
@@ -599,6 +701,7 @@ void plat_usb_jack(void)
     static u8 again;
     u8 now = (u8)board_jack();
 
+
     if (again && (configured || !ident)) again = 0;
     if (again && plat_now_ms - again_ms >= AGAIN_MS) {
         util_log("usb: not configured, again");
@@ -618,7 +721,7 @@ void plat_usb_jack(void)
     if (plat_now_ms - since < JACK_SETTLE_MS) return;
     jack = now;
     util_log("usb: jack %s", jack ? "in" : "out");
-    if (ident && ident->audio) {
+    if (ident && ident->audio == USB_AUDIO_SPEAKER) {
         start(ident, host_read);
         again = AGAIN_MAX;
         again_ms = plat_now_ms;

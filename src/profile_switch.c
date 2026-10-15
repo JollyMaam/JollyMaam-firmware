@@ -1038,7 +1038,8 @@ static const struct usb_identity s2_usb = {
     .vendor_id = 0x057e, .product_id = 0x2069, .bcd_device = 0x0100,
     .manufacturer = "Nintendo", .product = "Switch 2 Pro Controller",
     .kind = USB_HID_BULK, .report_ids = 1, .interval = 4, .in_size = 64, .out_size = 64,
-    .max_power = 250, .hid_descriptor = s2_usb_descriptor, .hid_descriptor_len = sizeof(s2_usb_descriptor),
+    .max_power = 250, .audio = USB_AUDIO_HEADSET,
+    .hid_descriptor = s2_usb_descriptor, .hid_descriptor_len = sizeof(s2_usb_descriptor),
 };
 
 static u8 s2_begin(const struct profile_session *s)

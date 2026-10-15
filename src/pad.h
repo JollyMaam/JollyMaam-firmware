@@ -253,6 +253,10 @@ struct profile_host {
 /* A profile that can be a wired controller too describes its USB device; the
  * platform builds the descriptors from it.  kind: the interfaces it has. */
 enum { USB_HID, USB_XINPUT, USB_HID_BULK };
+/* audio: the stock pad's speaker, only while a plug is in the jack; or the
+ * Switch 2 Pro Controller's headphones and microphone, always there, each
+ * function behind an interface association. */
+enum { USB_AUDIO_NONE, USB_AUDIO_SPEAKER, USB_AUDIO_HEADSET };
 struct usb_identity {
     u16 vendor_id, product_id, bcd_device;
     const char *manufacturer, *product, *serial;   /* ASCII; NULL: none */
@@ -261,7 +265,7 @@ struct usb_identity {
     u8 interval;                 /* interrupt endpoints, ms */
     u8 in_size, out_size;        /* their packet sizes; out_size 0: no OUT endpoint */
     u8 max_power;                /* 2 mA units */
-    u8 audio;                    /* a USB speaker beside it, on a board with one */
+    u8 audio;                    /* USB_AUDIO_*: a sound card beside it, on a board with one */
     const u8 *hid_descriptor;
     u16 hid_descriptor_len;
 };
