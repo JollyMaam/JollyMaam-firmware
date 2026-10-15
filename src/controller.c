@@ -39,6 +39,7 @@ static struct {
                                     first configures us */
     u32 usb_ended_ms;            /* the last USB session's end */
     u8 usb_configured;           /* USB session: the host has configured us */
+    u8 usb_arrived;              /* a USB host appeared, not yet acted on (ux_usb_autoconnect) */
     u32 usb_unready_ms;          /* CONNECTED on USB: when the host unconfigured us, 0: it has not */
     u32 wake_next;
     struct profile_session sess;
@@ -215,10 +216,11 @@ static void start_session(struct ctl_request r, u32 now)
     c.begin_imu = p->begin(&s);
     c.sess = s;
     c.woke = 0;
+    c.usb_arrived = 0;
     /* A USB session from Home or the console command may wake its host the
      * radio's way with the slot's bond (Switch 2: its wake advertising) while
      * no frames come, until the host first configures us. */
-    c.usb_wake = usb && !r.quiet && p->device && p->device->transport == BT_LE &&
+    c.usb_wake = usb && !r.quiet && set->transport == TRANSPORT_USB && p->device && p->device->transport == BT_LE &&
                  s.bond && (s.bond->le_peer[0] | s.bond->le_peer[1] | s.bond->le_peer[2] |
                             s.bond->le_peer[3] | s.bond->le_peer[4] | s.bond->le_peer[5]);
     radio_on();
@@ -476,8 +478,17 @@ static void follow_usb(u32 now)
         util_log("slot %u: usb host suspended the bus", c.slot);
         stop(none, now);
     } else if (!c.usb_powered && !c.usb_wake && now - c.usb_absent_ms >= USB_GONE_MS) {
-        util_log("slot %u: usb cable gone", c.slot);
-        stop(none, now);
+        /* bluetooth+usb whose host went before configuring us: the radio
+         * instead, as the connect would have chosen. */
+        struct ctl_request again = { REQ_CONNECT, c.slot, 0 };
+
+        if (!c.usb_configured && set->transport == TRANSPORT_BT_USB) {
+            util_log("slot %u: usb host gone before configuring, bluetooth instead", c.slot);
+            stop(again, now);
+        } else {
+            util_log("slot %u: usb cable gone", c.slot);
+            stop(none, now);
+        }
     }
 }
 
@@ -505,6 +516,18 @@ static void timeouts(u32 now)
         break;
     case CTL_IDLE: {
         u32 at = idle_deadline();
+
+        if (ux_usb_autoconnect && c.usb_arrived && c.usb_powered && c.last_slot < SLOTS) {
+            const struct set_slot *set = set_slot(c.last_slot);
+            struct ctl_request plug = { REQ_CONNECT, c.last_slot, 0, 1 };
+
+            c.usb_arrived = 0;
+            if (set->transport == TRANSPORT_USB || set->transport == TRANSPORT_BT_USB) {
+                util_log("usb host arrived: connect slot %u", c.last_slot);
+                handle(plug, now);
+                break;
+            }
+        }
         if (at && (s32)(now - at) >= 0) shut_down(CTL_SLEEPING, now);
         break;
     }
@@ -579,7 +602,10 @@ static void sample_power(u32 now)
              * are no plug-in. */
             c.usb_plugged_ms = now - (now - c.usb_ended_ms < USB_PLUG_QUIET_MS ?
                                       ux_timeouts.usb_plug_ms : 0);
+            c.usb_arrived = now - c.usb_ended_ms >= USB_PLUG_QUIET_MS;
             if ((c.raw.buttons & (PAD_HOME | PAD_START)) == (PAD_HOME | PAD_START)) handle(loader, now);
+        } else {
+            c.usb_arrived = 0;
         }
     }
     if (c.usb_powered) c.usb_absent_ms = now;
@@ -773,6 +799,7 @@ static void boot(u32 now)
     c.usb_raw = c.usb_powered = (u8)plat_usb_present();
     c.usb_plugged_ms = c.usb_powered ? now : now - ux_timeouts.usb_plug_ms;
     c.usb_ended_ms = now - USB_PLUG_QUIET_MS;
+    c.usb_arrived = c.usb_powered;  /* plugged in at power-up (or the plug-in woke us) */
     c.battery_ms = now - BATTERY_CHECK_MS;
     util_log("boot cause %u held %04x last slot %u", b.cause, b.buttons_held, c.last_slot);
     c.uboot_chord = (b.buttons_held & (PAD_HOME | PAD_START)) == (PAD_HOME | PAD_START);

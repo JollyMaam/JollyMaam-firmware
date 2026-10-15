@@ -463,6 +463,7 @@ struct ux_power_debug {
 };
 extern const struct ux_power_debug ux_power_debug;
 extern const struct ux_timeouts ux_timeouts;
+extern const u8 ux_usb_autoconnect;
 extern const struct ux_colours ux_colours;
 extern const struct led_scene ux_scenes[CTL_KIND_COUNT];
 

@@ -17,6 +17,11 @@ const struct ux_timeouts ux_timeouts = {
     .usb_plug_ms = 1000,
 };
 
+/* Idle, a USB host appearing (a plug-in, or the host waking) connects the
+ * last slot if it is usb or bluetooth+usb.  Off: the tool device stays, for
+ * flashing. */
+const u8 ux_usb_autoconnect = 0;
+
 /* Idle may sleep only after both the offline and unplug waits. Scheduling
  * either earlier deadline after it has expired would spin the control loop
  * while the other condition still prevents sleep, starving the SDK idle task. */
