@@ -545,17 +545,13 @@ void plat_power_off(void)
 const u8 board_audio = 1;
 const u32 board_amp_enable = PIN_AMP_ENABLE;
 
-const u32 board_keep_pins[] = { PIN_HOME, PIN_M, IO_PORTA_00, IO_PORTA_06, IO_PORTA_07,
+const u32 board_keep_pins[] = { PIN_HOME, IO_PORTA_00, IO_PORTA_06, IO_PORTA_07,
                                 IO_PORTA_13, PIN_USB_SENSE };
 const u8 board_keep_count = sizeof(board_keep_pins) / sizeof(board_keep_pins[0]);
 
 static struct port_wakeup home_wakeup = {
     .pullup_down_enable = ENABLE, .edge = FALLING_EDGE,
     .attribute = BLUETOOTH_RESUME, .iomap = PIN_HOME, .filter_enable = ENABLE,
-};
-static struct port_wakeup m_wakeup = {
-    .pullup_down_enable = ENABLE, .edge = FALLING_EDGE,
-    .attribute = BLUETOOTH_RESUME, .iomap = PIN_M, .filter_enable = ENABLE,
 };
 static struct port_wakeup usb_wakeup_port = {
     .pullup_down_enable = DISABLE, .edge = RISING_EDGE,
@@ -564,7 +560,7 @@ static struct port_wakeup usb_wakeup_port = {
 static const struct sub_wakeup sub_wkup = { .attribute = BLUETOOTH_RESUME };
 static const struct charge_wakeup charge_wkup = { .attribute = BLUETOOTH_RESUME };
 static const struct wakeup_param wakeups = {
-    .port[1] = &home_wakeup, .port[2] = &usb_wakeup_port, .port[3] = &m_wakeup,
+    .port[1] = &home_wakeup, .port[2] = &usb_wakeup_port,
     .sub = &sub_wkup, .charge = &charge_wkup,
 };
 const struct wakeup_param *const board_wakeups = &wakeups;

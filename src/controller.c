@@ -631,7 +631,7 @@ static void outputs(u32 now)
     struct led_inputs in;
     struct led_frame f;
     u32 plugged = now - c.usb_plugged_ms;
-    u8 scene = c.kind;
+    u8 scene = c.kind, armed = ux_armed();
     int rumble = c.kind == CTL_CONNECTED && !c.calibrating;
     u8 motor[2];
 
@@ -650,11 +650,14 @@ static void outputs(u32 now)
     if ((s32)(now - c.led_next) < 0) return;
     c.led_next = now + ux_timeouts.led_frame_ms;
     if (c.kind == CTL_BOOT && now - c.since >= ux_timeouts.boot_scene_ms) scene = CTL_IDLE;
+    if (armed != SLOT_NONE && c.kind != CTL_CONNECTED && !c.calibrating) scene = CTL_CONNECTING;
+    else armed = SLOT_NONE;
     if (scene != c.led.scene) {
         c.led.scene = scene;
         c.led.since_ms = now;
     }
-    c.led.slot = c.kind == CTL_STOPPING && c.next.kind != REQ_NONE ? c.next.slot : c.slot;
+    c.led.slot = armed != SLOT_NONE ? armed
+               : c.kind == CTL_STOPPING && c.next.kind != REQ_NONE ? c.next.slot : c.slot;
     if (c.led.slot == SLOT_LAST) c.led.slot = c.last_slot;
     memset(&in, 0, sizeof(in));
     shown = set_slot(c.led.slot < SLOTS ? c.led.slot : 0);
@@ -698,10 +701,10 @@ static void read_input(u32 now)
     struct ctl_request none = { REQ_NONE, SLOT_NONE, 0 };
     struct ctl_request r = none;
 
-    /* Do not start a deferred M tap's minimum down time while its report is
+    /* Do not start a deferred Home tap's minimum down time while its report is
      * still waiting in the Bluetooth slot. Slow host polls must not compress
      * down and up into the same send opportunity. */
-    if (c.kind == CTL_CONNECTED && (c.sent_buttons & PAD_M) &&
+    if (c.kind == CTL_CONNECTED && (c.sent_buttons & PAD_HOME) &&
         (c.usb ? plat_usb_input_wanted() : !bt_input_pending()))
         ux_reported(now);
     plat_input(&c.raw);

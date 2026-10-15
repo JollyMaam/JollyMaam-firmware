@@ -43,6 +43,7 @@ enum {
 
 enum { HAT_UP, HAT_UP_RIGHT, HAT_RIGHT, HAT_DOWN_RIGHT, HAT_DOWN, HAT_DOWN_LEFT,
        HAT_LEFT, HAT_UP_LEFT, HAT_NEUTRAL };
+enum { DPAD_UP = 1 << 16, DPAD_RIGHT = 1 << 17, DPAD_DOWN = 1 << 18, DPAD_LEFT = 1 << 19 }; /* above the button bits */
 
 #define STICK_MAX   32767
 #define TRIGGER_MAX 65535u
@@ -440,7 +441,7 @@ void led_reach(u8 reach[2], const struct pad *pad);
 /* ---- settings_ux.c ------------------------------------------------------ */
 
 struct ux_timeouts {
-    u16 m_grace_ms;
+    u16 home_grace_ms;
     u16 tap_ms;
     u32 connect_ms;
     u32 pair_ms;
@@ -467,11 +468,8 @@ extern const u8 ux_usb_autoconnect;
 extern const struct ux_colours ux_colours;
 extern const struct led_scene ux_scenes[CTL_KIND_COUNT];
 
-/* Fixed physical M chords consume their keys until release. Slot connects
- * are immediate while disconnected/connecting and need 1.5 seconds while
- * connected. Pairing still needs 5 seconds.
- * A short M tap survives until its down report leaves the BT slot, then
- * stays down tap_ms. ux_reported is the controller acknowledging that handoff. */
+/* Home gestures, table in settings_ux.c.  ux_reported: the controller saw a
+ * held-back Home tap's down report leave. */
 struct ctl_request ux_step(struct pad *pad, u32 now, u8 state);
 void ux_reported(u32 now);
 /* Earliest permitted idle power-off: 0 while USB powered, otherwise the
@@ -480,6 +478,7 @@ void ux_reported(u32 now);
 u32 ux_idle_deadline(u32 idle_since, u32 activity_ms, u32 usb_seen_ms,
                      int usb_powered, int ephemeral);
 u32 ux_deadline(void);                      /* when ux_step may next fire a hold, 0: none */
+u8 ux_armed(void);                          /* slot a release would connect, or SLOT_NONE */
 void ux_ignore_held(void);
 struct ctl_request ux_boot(u16 buttons, u8 hat, u32 now);
 
