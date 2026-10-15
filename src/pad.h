@@ -137,6 +137,7 @@ struct ctl_request {
     u8 kind;
     u8 slot;
     u8 generate_new_address;
+    u8 quiet;                /* a restart the pad made itself: it never wakes a host by USB */
 };
 
 void ctl_main(void);
@@ -451,6 +452,7 @@ struct ux_timeouts {
     u16 uboot_window_ms;
     u16 led_frame_ms;
     u16 usb_plug_ms;
+    u16 usb_wake_ms;         /* a USB session's host silent this long: wake it by radio */
 };
 
 struct ux_colours { struct colour idle, battery; };

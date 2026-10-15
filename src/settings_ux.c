@@ -15,6 +15,7 @@ const struct ux_timeouts ux_timeouts = {
     .uboot_window_ms = 3000,     /* Home+Start at boot: USB may arrive this late */
     .led_frame_ms = 20,
     .usb_plug_ms = 1000,
+    .usb_wake_ms = 1000,         /* an awake console configures us within ~20 ms */
 };
 
 /* Idle may sleep only after both the offline and unplug waits. Scheduling

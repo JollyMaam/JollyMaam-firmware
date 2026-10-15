@@ -545,6 +545,7 @@ static struct {
     u8 have_last;
     u8 usb;
     u8 usb_report;               /* USB: the input report the host chose (0x05 or 0x09) */
+    u8 peer[6];                  /* the console's first address from 15/01, LSB first */
     struct imu_sample motion;    /* USB: the newest sample */
 } s2;
 
@@ -823,7 +824,16 @@ static u8 s2_command(const u8 *c, u16 n, u8 *out, u32 now, int *bonded)
     case 0x1103:
         memcpy(out, unknown_1103, sizeof(unknown_1103));
         return sizeof(unknown_1103);
-    case 0x1501:            /* our address, least significant byte first */
+    case 0x1501:            /* the console's addresses (count at 9, from 10); ours back,
+                               least significant byte first */
+        if (n >= 16 && c[9]) {
+            memcpy(s2.peer, c + 10, 6);
+            util_log("switch2: console %02x:%02x:%02x:%02x:%02x:%02x, %u address%s", c[15], c[14],
+                     c[13], c[12], c[11], c[10], c[9], c[9] > 1 ? "es" : "");
+            if (n >= 22 && c[9] > 1)
+                util_log("switch2: console also %02x:%02x:%02x:%02x:%02x:%02x", c[21], c[20],
+                         c[19], c[18], c[17], c[16]);
+        }
         out[0] = 1; out[1] = 4; out[2] = 1;
         memcpy(out + 3, s2.address, 6);
         return 9;
@@ -890,7 +900,8 @@ static int s2_write(const struct bt_write *w, u32 now, struct bt_bond *bond)
     /* USB: rumble in output report 0x02 (a sequence byte, then the two
      * motors' blocks 16 apart); commands on the bulk pipe, answered there
      * without the LE response's prefix, 00 f8 at 4 as the console's capture
-     * has it (18/01: a bare status 0).  A bond made over USB is not kept. */
+     * has it (18/01: a bare status 0).  A pairing over USB returns the key
+     * and the console's address from 15/01, for the radio later. */
     if (s2.usb && w->kind == BT_WRITE_OUTPUT && w->id == 0x02 && w->len >= 0x16) {
         s2.rumble[0] = s2_amplitude(w->data);
         s2.rumble[1] = s2_amplitude(w->data + 0x10);
@@ -908,7 +919,11 @@ static int s2_write(const struct bt_write *w, u32 now, struct bt_bond *bond)
         }
         if (w->data[0] != 0x02) util_log("switch2: usb cmd %02x %02x", w->data[0], w->data[3]);
         host_send(HOST_BULK, resp, (u16)(8 + len));
-        return 0;
+        if (!bonded) return 0;
+        memset(bond, 0, sizeof(*bond));
+        memcpy(bond->ltk, s2.ltk, 16);
+        memcpy(bond->le_peer, s2.peer, 6);
+        return 1;
     }
     if (w->kind != BT_WRITE_ATT) return 0;
     if (w->id == S2_VIBRATION) {
