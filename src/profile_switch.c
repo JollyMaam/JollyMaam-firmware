@@ -847,10 +847,10 @@ static u8 s2_command(const u8 *c, u16 n, u8 *out, u32 now, int *bonded)
                                bytes from 16, the read bit 0x80); the answer the
                                console got: the count, then the bytes clocked back */
         if (n < 17) return 0;
-        memset(out, 0, 0x38);
+        memset(out, 0, 0x28);
         out[4] = c[12];
         if (c[16] == 0x8a) out[9] = 0x76;
-        return 0x38;
+        return 0x28;
     case 0x1601:
         memset(out, 0, 0x18);
         return 0x18;
