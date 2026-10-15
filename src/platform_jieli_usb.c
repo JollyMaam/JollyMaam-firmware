@@ -52,6 +52,8 @@
 #define VOLUME_RES   128
 #define VOLUME_START (-10 * 256)
 #define JACK_SETTLE_MS 200
+#define AGAIN_MS     2000        /* a host that has not configured us by then */
+#define AGAIN_MAX    3
 
 extern u32 usb_read_txcsr(const usb_dev usb_id, const u32 ep);
 extern void usb_memory_init(void);
@@ -587,11 +589,27 @@ void plat_usb_mode(const struct usb_identity *id,
     start(id, read);
 }
 
-/* Control thread.  A plug in or out for JACK_SETTLE_MS changes the device. */
+/* Control thread.  A plug in or out for JACK_SETTLE_MS changes the device.
+ * Now and then the host does not see us come back after such a change: the
+ * port stays empty until the next.  Not seeing a SET_CONFIGURATION within
+ * AGAIN_MS, we go off the bus and on again. */
 void plat_usb_jack(void)
 {
-    static u32 since;
+    static u32 since, again_ms;
+    static u8 again;
     u8 now = (u8)board_jack();
+
+    if (again && (configured || !ident)) again = 0;
+    if (again && plat_now_ms - again_ms >= AGAIN_MS) {
+        util_log("usb: not configured, again");
+        again_ms = plat_now_ms;
+        again--;
+        start(ident, host_read);
+    }
+
+#ifdef JACK_FLIP_TEST
+    now = (u8)(plat_now_ms / 6000 & 1);
+#endif
 
     if (!board_audio || now == jack) {
         since = plat_now_ms;
@@ -600,7 +618,11 @@ void plat_usb_jack(void)
     if (plat_now_ms - since < JACK_SETTLE_MS) return;
     jack = now;
     util_log("usb: jack %s", jack ? "in" : "out");
-    if (ident && ident->audio) start(ident, host_read);
+    if (ident && ident->audio) {
+        start(ident, host_read);
+        again = AGAIN_MAX;
+        again_ms = plat_now_ms;
+    }
 }
 
 int plat_usb_ready(void)

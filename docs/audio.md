@@ -20,6 +20,9 @@ measurements of the board. The PCB and jack wiring are not established.
 With the DAC in stereo mode (`DAC_OUTPUT_LR`) and PA8 high, DAC output is
 audible on headphones in the pad's jack.
 
+With PA12 as an analog input without pulls, the 10-bit SAR reading is about
+1015 with a three-contact headphone plug in the jack and 0 with the jack empty.
+
 The amplifier enable is sequenced by stock firmware: it is set after a delay
 following the enable request, and cleared immediately on disable. The delay's
 time base is not established.
@@ -39,7 +42,7 @@ microphone bias also uses PC7.
 - Amplifier part number and the electrical effect of PA8.
 - Microphone bias supply and network. Jack pinout, and which contact is the
   microphone.
-- Headset-detect voltages with the jack empty and with TRS or TRRS plugs. Whether
+- The headset-detect reading with a four-contact (TRRS) plug. Whether
   detection is a mechanical contact or an impedance network.
 - Gain, DC offset, mute behaviour, insertion pops, and output level with the
   stereo configuration.
