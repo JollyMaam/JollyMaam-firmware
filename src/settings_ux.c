@@ -239,9 +239,11 @@ void ux_ignore_held(void)
     ux.tap = 0;
 }
 
-struct ctl_request ux_boot(u32 buttons, u32 now)
+/* home_wake with Home already up: the wake was a tap. */
+struct ctl_request ux_boot(u32 buttons, int home_wake, u32 now)
 {
     struct pad p = {0};
+    if (home_wake && !(buttons & PAD_HOME)) return request(REQ_CONNECT, SLOT_LAST);
     p.buttons = buttons;
     return ux_step(&p, now, CTL_BOOT);
 }
@@ -364,28 +366,31 @@ int main(void)
     /* Waking with a slot. */
     for (i = 0; i < 8; i++) {
         reset(CTL_BOOT); pad.buttons = PAD_HOME | gestures[i + 1].keys;
-        last = ux_boot(pad.buttons, now);
+        last = ux_boot(pad.buttons, 1, now);
         CHECK(last.kind == REQ_NONE);
         state = CTL_IDLE; run(1); CHECK(last.kind == REQ_NONE && !seen.buttons);
         run(4999); CHECK(last.kind == REQ_PAIR && last.slot == i);
-        reset(CTL_BOOT); pad.buttons = PAD_HOME | gestures[i + 1].keys; ux_boot(pad.buttons, now);
+        reset(CTL_BOOT); pad.buttons = PAD_HOME | gestures[i + 1].keys; ux_boot(pad.buttons, 1, now);
         state = CTL_IDLE; run(300); pad.buttons = 0; run(1);
         CHECK(last.kind == REQ_CONNECT && last.slot == i);
     }
-    reset(CTL_BOOT); last = ux_boot(PAD_HOME | PAD_R3, now);
+    reset(CTL_BOOT); last = ux_boot(PAD_HOME | PAD_R3, 1, now);
     CHECK(last.kind == REQ_CALIBRATE);
     /* Waking with Home alone. */
-    reset(CTL_BOOT); last = ux_boot(PAD_HOME, now);
+    reset(CTL_BOOT); last = ux_boot(PAD_HOME, 1, now);
     CHECK(last.kind == REQ_NONE && ux_armed() == SLOT_LAST);
     pad.buttons = PAD_HOME; run(300); CHECK(last.kind == REQ_NONE);
     pad.buttons = 0; run(1); CHECK(last.kind == REQ_CONNECT && last.slot == SLOT_LAST);
     CHECK(ux_armed() == SLOT_NONE);
-    reset(CTL_BOOT); ux_boot(PAD_HOME, now);
+    reset(CTL_BOOT); ux_boot(PAD_HOME, 1, now);
     pad.buttons = PAD_HOME; state = CTL_IDLE; run(1000);
     pad.buttons |= PAD_X; run(1); CHECK(ux_armed() == 2);
     pad.buttons = PAD_HOME; run(1); CHECK(last.kind == REQ_CONNECT && last.slot == 2);
     pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE);
-    reset(CTL_BOOT); CHECK(ux_boot(PAD_M | PAD_B, now).kind == REQ_NONE);
+    reset(CTL_BOOT); CHECK(ux_boot(PAD_M | PAD_B, 0, now).kind == REQ_NONE);
+    reset(CTL_BOOT); last = ux_boot(0, 1, now);
+    CHECK(last.kind == REQ_CONNECT && last.slot == SLOT_LAST);
+    reset(CTL_BOOT); CHECK(ux_boot(0, 0, now).kind == REQ_NONE);
 
     /* M is a plain key everywhere. */
     reset(CTL_CONNECTED); pad.buttons = PAD_M; run(1); CHECK(seen.buttons == PAD_M);

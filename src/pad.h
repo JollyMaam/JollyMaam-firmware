@@ -486,7 +486,7 @@ u32 ux_idle_deadline(u32 idle_since, u32 activity_ms, u32 usb_seen_ms,
 u32 ux_deadline(void);                      /* when ux_step may next fire a hold, 0: none */
 u8 ux_armed(void);                          /* slot a release would connect, or SLOT_NONE */
 void ux_ignore_held(void);
-struct ctl_request ux_boot(u32 buttons, u32 now);
+struct ctl_request ux_boot(u32 buttons, int home_wake, u32 now);
 
 /* ---- usb.c -------------------------------------------------------------- */
 

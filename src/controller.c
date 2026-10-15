@@ -805,7 +805,7 @@ static void boot(u32 now)
      * an immediate session must not skip it by replacing CTL_BOOT. */
     outputs(now);
     if (c.uboot_chord) ux_ignore_held();
-    else handle(ux_boot(b.buttons_held, now), now);
+    else handle(ux_boot(b.buttons_held, b.cause == BOOT_HOME, now), now);
 }
 
 void ctl_main(void)

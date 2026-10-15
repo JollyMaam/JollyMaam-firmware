@@ -419,8 +419,11 @@ void board_latch(void)
     else boot.cause = BOOT_POWER_ON;
 }
 
+/* Until power_init(), the lines parked at soft power-off read low: only the
+ * loader check uses the early read. */
 void plat_boot_info(struct plat_boot *out)
 {
+    boot.buttons_held = buttons_of(plat_read_lines());
     *out = boot;
 }
 

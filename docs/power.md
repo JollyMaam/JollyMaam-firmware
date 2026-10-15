@@ -98,6 +98,14 @@ soft power-off and Home wake:
 The RTC does not run in this configuration, so its data registers hold what
 was written. Whether they survive a loss of battery supply is not established.
 
+### Input lines after soft power-off
+
+Pins not on the keep list are parked as inputs with digital input disabled
+during soft power-off. At the next boot, until `power_init()`, those lines
+read low (pressed) even with their pull-ups enabled; a 1 ms wait does not
+change this. After `power_init()` they read correctly. Lines on the keep list,
+Home among them, read correctly before `power_init()`.
+
 ### Boot counter and restarts
 
 The app keeps a boot counter in retained SRAM. A restart is established when
