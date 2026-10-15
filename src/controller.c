@@ -389,11 +389,10 @@ static void usb_session(u32 now)
         if (c.prof->write && c.prof->write(&w, now, &bond) && c.slot < SLOTS) {
             struct bt_bond b = *set_bond(c.slot);
 
-            /* The console's address only into an empty bond: which of the two
-             * it sends is the one its radio uses is not established. */
+            /* The console's first address from 15/01 is its radio's. */
             memcpy(b.ltk, bond.ltk, 16);
-            if (!(b.le_peer[0] | b.le_peer[1] | b.le_peer[2] | b.le_peer[3] | b.le_peer[4] |
-                  b.le_peer[5]))
+            if (bond.le_peer[0] | bond.le_peer[1] | bond.le_peer[2] | bond.le_peer[3] |
+                bond.le_peer[4] | bond.le_peer[5])
                 memcpy(b.le_peer, bond.le_peer, 6);
             if (memcmp(&b, set_bond(c.slot), sizeof(b))) {
                 util_log("usb: slot %u bond stored", c.slot);
@@ -417,6 +416,7 @@ static void usb_session(u32 now)
         c.radio = 1;
     }
     if (c.kind == CTL_CONNECTING && plat_usb_ready()) {
+        c.usb_absent_ms = now;   /* configured: here, before its frames are counted */
         if (c.radio) {
             util_log("usb: host here, radio off");
             bt_stop();
