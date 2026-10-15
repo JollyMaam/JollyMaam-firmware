@@ -64,8 +64,25 @@ playback volume and microphone capture volume as 0 to 100 in steps of 1.
 On the stock pad, the amplifier hiss stops as soon as the host closes the
 playback stream, and starts again when the host opens it.
 
+Wired in its Xbox 360 mode, with a plug in the jack, the stock pad (3.52)
+enumerates as `3537:1053`, `bcdDevice` `0x0352`, product string "Xbox 360
+Controller for Windows", with five interfaces:
+
+| Interface | Class | Endpoints |
+|---|---|---|
+| 0 | vendor `ff/5d/01` (XInput) | interrupt IN `0x82`, OUT `0x02`, 32 bytes |
+| 1 | HID, report descriptor 214 bytes | interrupt IN `0x84`, OUT `0x04`, 64 bytes |
+| 2 | audio control | none |
+| 3 | audio streaming, playback | OUT `0x03` as in the table above |
+| 4 | audio streaming, capture | IN `0x83` as in the table above |
+
+In this mode the playback output terminal is a speaker (`0x0301`). Capture
+runs from a microphone input terminal (`0x0201`) through a feature unit and a
+selector unit. Linux binds xpad to interface 0, usbhid to interface 1 and
+snd-usb-audio to interfaces 2 to 4.
+
 The stock images also contain a 48 kHz mono capture descriptor. Which host mode
-advertises which configuration is not established.
+advertises it is not established.
 
 ## Transport between pad and dongle
 
