@@ -30,9 +30,11 @@
 
 ## Clocks
 
-- System clock: 24 MHz, from the PLL with the Bluetooth oscillator as input
+- System clock: from the PLL with the Bluetooth oscillator as input
   (`SYS_CLOCK_INPUT_PLL_BT_OSC`). Clock mode is adaptive
-  (`CLOCK_MODE_ADAPTIVE`).
+  (`CLOCK_MODE_ADAPTIVE`). The board configuration starts it at 24 MHz; the
+  application raises it to 48 MHz at start-up, and `clk_get("sys")` reads
+  48 MHz while running.
 - Peripheral clock: the "lsb" clock, 24 MHz in this configuration. Peripheral
   dividers are computed from it (the I2C baud formula in
   [peripherals.md](peripherals.md) uses it).
