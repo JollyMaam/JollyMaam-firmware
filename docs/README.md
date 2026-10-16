@@ -13,7 +13,7 @@ protocol, and how software runs on the chip.
 | [board.md](board.md) | GPIO assignments for the pad and the dongle |
 | [peripherals.md](peripherals.md) | stick UART, IMU and I2C, EEPROM, LEDs, rumble motors |
 | [audio.md](audio.md) | DAC, microphone ADC, jack detect, amplifier enable, USB audio descriptors |
-| [power.md](power.md) | charger registers, sleep and wake inputs, reset sources, USB loader entry |
+| [power.md](power.md) | charger registers, sleep and wake inputs, reset sources, USB pin control and loader entry |
 | [radio.md](radio.md) | Bluetooth controller capabilities, TX power, baseband frame registers |
 | [stock-pad-dongle.md](stock-pad-dongle.md) | how a stock pad connects to a host, and the stock dongle's HID and keepalive traffic |
 

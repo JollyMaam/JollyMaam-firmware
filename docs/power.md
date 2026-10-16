@@ -112,33 +112,15 @@ The app keeps a boot counter in retained SRAM. A restart is established when
 the counter increases and uptime restarts together. USB re-enumeration or loss
 of console output alone does not prove a restart.
 
-## USB loader entry
+## USB pin control and loader entry
 
-The MaskROM USB loader is entered by a sequence the app runs before reset. The
-loader identifies itself as `UBOOT1.00`.
+### USB registers
 
-### Registers
-
-| Address | Register | Use in this sequence |
+| Address | Register | Function |
 |---|---|---|
-| `0x001e1800` | `USB_CON0` | cleared |
-| `0x001e1804` | `USB_CON1` | cleared |
-| `0x001e5100` | `USB_IO_CON0` | bit 11 selects GPIO mode |
-| `0x00010800` | MaskROM boot-state token (16 bytes, SRAM) | set to 2 |
-
-### Sequence
-
-1. `nvram_set_boot_state(2)` writes the token and flushes the data cache.
-2. Stop the Bluetooth controller. Stopping advertising alone is not enough.
-3. Disable interrupts and clear the USB control registers.
-4. Write only bit 11 to `USB_IO_CON0` for 1000 ms, then clear it.
-5. Wait 250 ms.
-6. Wait for USB sense (PC3).
-7. Re-arm the boot-state token.
-8. Let a 256 ms watchdog expire to reset.
-
-The delays are those of the current code. They are not established as hardware
-minimums.
+| `0x001e1800` | `USB_CON0` | PHY enable, USB core reset, bus mode and interrupt controls |
+| `0x001e1804` | `USB_CON1` | access to the MUSB core registers |
+| `0x001e5100` | `USB_IO_CON0` | D+ and D− GPIO mode, directions, levels and pulls |
 
 The SDK's BR23 `asm/usb.h` names the USB pin-control bits as follows:
 
@@ -154,3 +136,27 @@ The SDK's BR23 `asm/usb.h` names the USB pin-control bits as follows:
 The SDK's GPIO routines confirm the output, direction and pull bit assignments.
 `IO_MODE` is not a dedicated SE0 control. The exact pull-control behavior when
 `IO_PU_MODE` is clear is not established.
+
+### Disconnecting from the host
+
+The D+ pull-up signals a full-speed device's attachment. A reset of the USB
+core and removal of that attachment signal are separate controls. Before
+handing the bus to a fresh firmware instance, the host needs to observe a
+disconnect so it can enumerate the device again.
+
+GPIO mode allows explicit control of both USB lines and their pulls. Selecting
+`IO_MODE` and `IO_PU_MODE`, clearing `DPPU` and `DMPU`, and clearing the direction
+and output-level bits drives both lines low without pull-ups. That line state
+is SE0. USB interrupt handlers must not reconfigure the pins during handover.
+The minimum disconnect interval required by the connected host and hub is not
+established.
+
+### MaskROM loader
+
+The MaskROM USB loader identifies itself as `UBOOT1.00`. Its boot-state token
+occupies 16 bytes of SRAM at `0x00010800`. `nvram_set_boot_state(2)` selects
+loader entry; the token must reach SRAM through the data cache before reset.
+A watchdog reset can transfer control to the loader.
+
+The Bluetooth controller must be stopped before loader entry. Stopping
+advertising alone is not enough.
