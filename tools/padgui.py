@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Tkinter front end for padtool and jlnewfw. Run: python tools/padgui.py."""
+"""Tkinter front end for padtool and the Python BR23 flasher. Run: python tools/padgui.py."""
 import contextlib
 import io
 import os
 from pathlib import Path
 import queue
+import re
 import shutil
 import subprocess
 import threading
@@ -24,47 +25,60 @@ class App:
     def __init__(self, root):
         self.root = root
         root.title("Cyclone 2 · padtool")
-        root.geometry("1040x850")
-        root.minsize(900, 800)
+        root.geometry("1250x850")
+        root.minsize(1120, 800)
         self.events = queue.Queue()
         self.busy = False
-        self.table = []
+        self.cache = {}
+        self.nodes = {}
         self.editors = {}
         self.board = tk.StringVar(value="pad")
         self.device = tk.StringVar()
         self.target = tk.StringVar(value=pad.TARGETS[0])
         self.dev = tk.BooleanVar()
-        self.notice = tk.StringVar(value="Choose a board, then scan for devices.")
+        self.notice = tk.StringVar(value="Scan and load to browse all connected boards and their slots.")
+        self.pending = tk.StringVar(value="No pending changes")
         top = ttk.Frame(root, padding=10)
         top.pack(fill="x")
-        ttk.Label(top, text="Board").pack(side="left")
-        self.boards = ttk.Combobox(top, textvariable=self.board, values=list(PIDS), state="readonly", width=9)
-        self.boards.pack(side="left", padx=8)
-        self.boards.bind("<<ComboboxSelected>>", self.change_board)
-        self.devices = ttk.Combobox(top, textvariable=self.device, state="readonly", width=35)
-        self.devices.pack(side="left", padx=8)
-        self.devices.bind("<<ComboboxSelected>>", lambda e: self.clear_settings())
-        ttk.Button(top, text="Scan", command=self.scan).pack(side="left")
-        ttk.Button(top, text="Status", command=self.status).pack(side="left", padx=8)
-        ttk.Label(root, textvariable=self.notice, padding=(10, 0, 10, 8), wraplength=980).pack(fill="x")
-        self.tabs = ttk.Notebook(root)
-        self.tabs.pack(fill="both", expand=True, padx=10)
+        ttk.Button(top, text="Scan and load", command=self.scan).pack(side="left")
+        ttk.Button(top, text="Apply changes", command=self.apply_settings).pack(side="left", padx=8)
+        ttk.Label(top, textvariable=self.pending).pack(side="left", padx=10)
+        ttk.Button(top, text="Status", command=self.status).pack(side="right")
+        ttk.Label(root, textvariable=self.notice, padding=(10, 0, 10, 8), wraplength=1100).pack(fill="x")
+        pane = ttk.Panedwindow(root, orient="horizontal")
+        pane.pack(fill="both", expand=True, padx=10)
+        navigation = ttk.Frame(pane, width=250)
+        pane.add(navigation, weight=0)
+        ttk.Label(navigation, text="Devices and slots", padding=6).pack(anchor="w")
+        self.tree = ttk.Treeview(navigation, show="tree", selectmode="browse", height=22)
+        scrollbar = ttk.Scrollbar(navigation, orient="vertical", command=self.tree.yview)
+        scrollbar.pack(side="right", fill="y")
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        self.tree.pack(fill="both", expand=True)
+        self.tree.tag_configure("dirty", foreground="#b46300")
+        self.tree.bind("<<TreeviewSelect>>", self.select_node)
+        self.tree.bind("<Button-1>", lambda e: "break" if self.busy else None)
+        self.tree.bind("<Key>", lambda e: "break" if self.busy else None)
+        self.tabs = ttk.Notebook(pane)
+        pane.add(self.tabs, weight=1)
+        self.overview = ttk.Frame(self.tabs, padding=10)
         self.settings = ttk.Frame(self.tabs, padding=10)
         self.firmware = ttk.Frame(self.tabs, padding=10)
         self.diagnostics = ttk.Frame(self.tabs, padding=10)
-        self.tabs.add(self.settings, text="Settings")
+        self.tabs.add(self.overview, text="Slots")
+        self.tabs.add(self.settings, text="Details")
         self.tabs.add(self.firmware, text="Firmware")
         self.tabs.add(self.diagnostics, text="Diagnostics")
         self.build_settings()
         self.build_firmware()
         self.build_diagnostics()
+        self.render_overview()
         self.progress = ttk.Progressbar(root, mode="indeterminate")
         self.progress.pack(fill="x", padx=10, pady=6)
         self.output = tk.Text(root, height=9, wrap="word", state="disabled")
         self.output.pack(fill="both", padx=10, pady=(0, 10))
         root.protocol("WM_DELETE_WINDOW", self.close)
         self.poll = root.after(80, self.drain)
-        self.change_board()
 
     def log(self, text):
         self.output.configure(state="normal")
@@ -84,6 +98,7 @@ class App:
         if self.busy:
             return
         self.busy = True
+        self.tree.state(["disabled"])
         self.notice.set(label)
         self.saved_states = [(w, str(w.cget("state"))) for w in self.controls(self.root)]
         for w, _ in self.saved_states:
@@ -109,7 +124,17 @@ class App:
                 if kind == "log":
                     self.log(data)
                     continue
+                if kind == "applied":
+                    path, values = data
+                    if values is None:
+                        self.cache[path]["draft"] = {}
+                        self.cache[path]["error"] = "Settings were saved, but could not be reloaded. Scan and load again."
+                    else:
+                        self.install_values(self.cache[path], values)
+                    self.mark_dirty()
+                    continue
                 self.busy = False
+                self.tree.state(["!disabled"])
                 self.progress.stop()
                 for w, state in self.saved_states:
                     if w.winfo_exists():
@@ -118,6 +143,8 @@ class App:
                     error, output = data
                     self.log(output + "\n" + error)
                     self.notice.set("Operation failed. See the log.")
+                    self.render_overview()
+                    self.render_details()
                     messagebox.showerror("padtool", error)
                 else:
                     result, done, output = data
@@ -134,126 +161,334 @@ class App:
         if self.busy:
             messagebox.showinfo("Operation in progress", "Wait for the current operation to finish before closing.")
         else:
+            if self.dirty_count() and not messagebox.askyesno("Unsaved edits", "Discard pending edits and close?"):
+                return
             self.root.after_cancel(self.poll)
             self.root.destroy()
 
+    def record(self):
+        return self.cache.get(self.device.get())
+
     def clear_settings(self):
-        self.table = []
-        self.editors = {}
-        for w in self.form.winfo_children():
-            w.destroy()
+        self.cache.pop(self.device.get(), None)
+        self.device.set("")
+        self.render_tree()
+        self.render_overview()
+        self.render_details()
+        self.mark_dirty()
 
     def change_board(self, event=None):
+        self.tree.selection_remove(self.tree.selection())
         self.device.set("")
-        self.devices.configure(values=())
-        self.clear_settings()
         self.bundle.set(str(ROOT / "build" / self.board.get()))
         self.elf.set(str(ROOT / "build" / self.board.get() / "app.elf"))
-        if self.board.get() == "dongle":
-            self.tabs.tab(self.settings, state="disabled")
-            self.tabs.select(self.diagnostics)
-            self.notice.set("Dongle: pairing, diagnostics, backup and flashing. Firmware exposes no settings table.")
-        else:
-            self.tabs.tab(self.settings, state="normal")
-            self.notice.set("Pad: scan and choose a device. End an active USB gamepad session to access tool mode.")
+        self.render_overview()
+        self.render_details()
 
     def path(self):
         path = self.device.get()
         if not path:
-            messagebox.showinfo("Choose a device", "Scan and choose a running firmware device first.")
+            messagebox.showinfo("Choose a device", "Scan and load, then choose a device in the tree.")
         return path
 
+    def install_values(self, record, values):
+        draft = {}
+        for t, target_values in values.items():
+            for f in record["fields"]:
+                if f["kind"] != pad.kind_of(t) or f["name"] not in target_values:
+                    continue
+                raw, explicit = target_values[f["name"]]
+                original = pad.show_value(f, raw)
+                var, reset = tk.StringVar(value=original), tk.BooleanVar()
+                draft[t, f["name"]] = {"field": f, "var": var, "reset": reset,
+                                        "original": original, "explicit": explicit}
+                var.trace_add("write", lambda *_: self.mark_dirty())
+                reset.trace_add("write", lambda *_: self.mark_dirty())
+        record["draft"] = draft
+        record["values"] = values
+
+    def changed(self, entry):
+        return entry["reset"].get() or entry["var"].get() != entry["original"]
+
+    def dirty_count(self):
+        return sum(self.changed(e) for r in self.cache.values() for e in r.get("draft", {}).values())
+
+    def mark_dirty(self):
+        count = self.dirty_count()
+        self.pending.set(f"{count} pending change(s)" if count else "No pending changes")
+        for node, (path, target) in self.nodes.items():
+            record = self.cache.get(path)
+            if not record or not self.tree.exists(node):
+                continue
+            dirty = any(self.changed(e) for (t, name), e in record.get("draft", {}).items()
+                        if target is None or target == t)
+            self.tree.item(node, tags=("dirty",) if dirty else ())
+
     def scan(self):
-        def found(devices):
-            paths = [p for p, name in devices]
-            self.devices.configure(values=paths)
-            self.device.set(paths[0] if paths else "")
-            self.clear_settings()
-            self.notice.set(f"Found {len(paths)} device(s)." if paths else
-                            "No running firmware found. Check USB, tool mode and device permissions. Firmware operations can also find ROM loaders.")
-            for path, name in devices:
-                self.log(f"{path}: {name}")
-        self.run("Scanning…", pad.devices, found)
+        if self.dirty_count() and not messagebox.askyesno("Reload devices", "Discard pending edits and scan again?"):
+            return
+        def load():
+            records, errors = [], []
+            for path, name, identity in pad.discover_devices():
+                board = next(b for b, value in pad.BOARD_IDS.items() if value == identity[6])
+                try:
+                    table = pad.fields(path) if board == "pad" else []
+                    values = {t: pad.read_target(path, table, t) for t in range(len(pad.TARGETS))} if table else {}
+                    records.append({"path": path, "board": board, "name": name,
+                                    "identity": identity[:40], "fields": table, "values": values,
+                                    "status": pad.status(path)})
+                except (Exception, SystemExit) as error:
+                    errors.append(f"{path}: {error}")
+            return records, errors
+        def display(result):
+            records, errors = result
+            self.cache = {}
+            for record in records:
+                self.install_values(record, record["values"])
+                self.cache[record["path"]] = record
+            self.device.set("")
+            self.render_tree()
+            self.mark_dirty()
+            self.notice.set(f"Loaded {len(records)} device(s). Edits stay pending until Apply changes." if records else
+                            "No devices loaded. Check USB, tool mode and permissions. Firmware operations also find ROM loaders.")
+            for error in errors:
+                self.log(error)
+            if errors:
+                messagebox.showerror("Some devices could not be loaded", "\n".join(errors))
+        self.run("Scanning and loading all device settings…", load, display)
+
+    def render_tree(self):
+        self.tree.delete(*self.tree.get_children())
+        self.nodes = {}
+        for i, (path, record) in enumerate(self.cache.items()):
+            device_node = f"device{i}"
+            location = ""
+            if os.name != "nt":
+                topology = Path("/sys/class/scsi_generic", Path(path).name, "device").resolve()
+                ports = [part for part in topology.parts if re.fullmatch(r"[0-9]+-[0-9]+(?:\.[0-9]+)*", part)]
+                if ports:
+                    location = f"USB {ports[-1]} · "
+            self.tree.insert("", "end", iid=device_node, text=f"{location}{record['board'].title()} · {path}", open=True)
+            self.nodes[device_node] = (path, None)
+            targets = range(len(pad.TARGETS)) if record["board"] == "pad" else []
+            for t in targets:
+                label = f"Slot {pad.TARGETS[t]}" if t < 8 else pad.TARGETS[t].title()
+                node = f"{device_node}/{t}"
+                self.tree.insert(device_node, "end", iid=node, text=label)
+                self.nodes[node] = (path, t)
+        nodes = self.tree.get_children()
+        if nodes:
+            self.tree.selection_set(nodes[0])
+            self.select_node()
+        else:
+            self.render_overview()
+            self.render_details()
+
+    def select_node(self, event=None):
+        if self.busy or not self.tree.selection():
+            return
+        path, target = self.nodes[self.tree.selection()[0]]
+        record = self.cache[path]
+        self.device.set(path)
+        previous_board = self.board.get()
+        self.board.set(record["board"])
+        if previous_board != record["board"]:
+            self.bundle.set(str(ROOT / "build" / record["board"]))
+            self.elf.set(str(ROOT / "build" / record["board"] / "app.elf"))
+        if target is not None:
+            self.target.set(pad.TARGETS[target])
+            if target < 8:
+                self.slot.set(pad.TARGETS[target])
+        self.render_overview()
+        self.render_details()
+        self.tabs.select(self.overview if target is None else self.settings)
 
     def status(self):
         path = self.path()
         if path:
             self.run("Reading status…", lambda: pad.identify(path) + "\n" + pad.status(path), self.log)
 
-    def build_settings(self):
-        bar = ttk.Frame(self.settings)
-        bar.pack(fill="x")
-        ttk.Combobox(bar, textvariable=self.target, values=pad.TARGETS, state="readonly", width=16).pack(side="left")
-        ttk.Checkbutton(bar, text="Developer fields", variable=self.dev).pack(side="left", padx=8)
-        ttk.Button(bar, text="Load", command=self.load_settings).pack(side="left")
-        ttk.Button(bar, text="Apply changes", command=self.apply_settings).pack(side="left", padx=8)
-        ttk.Label(self.settings, text="Load a target before editing. Use Reset per field to return it to its firmware default.").pack(anchor="w", pady=8)
-        frame = ttk.Frame(self.settings)
+    def scroll_form(self, parent):
+        frame = ttk.Frame(parent)
         frame.pack(fill="both", expand=True)
         canvas = tk.Canvas(frame, highlightthickness=0)
-        scroll = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
-        canvas.configure(yscrollcommand=scroll.set)
-        scroll.pack(side="right", fill="y")
+        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
-        self.form = ttk.Frame(canvas)
-        window = canvas.create_window((0, 0), window=self.form, anchor="nw")
-        self.form.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        form = ttk.Frame(canvas)
+        window = canvas.create_window((0, 0), window=form, anchor="nw")
+        form.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.bind("<Configure>", lambda e: canvas.itemconfigure(window, width=e.width))
+        canvas.bind("<MouseWheel>", lambda e: canvas.yview_scroll(-1 if e.delta > 0 else 1, "units"))
+        canvas.bind("<Button-4>", lambda e: canvas.yview_scroll(-1, "units"))
+        canvas.bind("<Button-5>", lambda e: canvas.yview_scroll(1, "units"))
+        return form
+
+    def build_settings(self):
+        self.overview_form = self.scroll_form(self.overview)
+        bar = ttk.Frame(self.settings)
+        bar.pack(fill="x", pady=(0, 8))
+        self.details_title = tk.StringVar(value="Select a slot or settings group in the tree")
+        ttk.Label(bar, textvariable=self.details_title, font=("TkDefaultFont", 12, "bold")).pack(side="left")
+        ttk.Checkbutton(bar, text="Developer fields", variable=self.dev, command=self.render_details).pack(side="right")
+        ttk.Label(self.settings, text="Edits are retained while browsing. Reset uses the firmware default when Apply changes is clicked.", wraplength=850).pack(anchor="w", pady=(0, 8))
+        self.form = self.scroll_form(self.settings)
         bar = ttk.Frame(self.settings)
         bar.pack(fill="x", pady=(8, 0))
-        ttk.Button(bar, text="Back up settings…", command=self.backup_settings).pack(side="left")
-        ttk.Button(bar, text="Restore settings…", command=self.restore_settings).pack(side="left", padx=8)
+        self.settings_backup = ttk.Button(bar, text="Back up saved settings…", command=self.backup_settings)
+        self.settings_backup.pack(side="left")
+        self.settings_restore = ttk.Button(bar, text="Restore settings…", command=self.restore_settings)
+        self.settings_restore.pack(side="left", padx=8)
         self.calibration = tk.BooleanVar()
-        ttk.Checkbutton(bar, text="Include calibration on restore", variable=self.calibration).pack(side="left")
+        ttk.Checkbutton(bar, text="Restore calibration too", variable=self.calibration).pack(side="left")
 
-    def load_settings(self):
-        path = self.path()
-        if not path:
+    def show_target(self, target):
+        for node, key in self.nodes.items():
+            if key == (self.device.get(), target):
+                self.tree.selection_set(node)
+                self.select_node()
+                break
+
+    def render_overview(self):
+        for widget in self.overview_form.winfo_children():
+            widget.destroy()
+        f = self.overview_form
+        record = self.record()
+        if not record:
+            ttk.Label(f, text="Scan and load to discover pads, dongles and slot settings.", wraplength=800).pack(anchor="w", pady=12)
+            return
+        ttk.Label(f, text=f"{record['board'].title()} · {record['path']}", font=("TkDefaultFont", 13, "bold")).pack(anchor="w", pady=8)
+        ttk.Label(f, text=record["status"], wraplength=850).pack(anchor="w", pady=8)
+        if record.get("error"):
+            ttk.Label(f, text=record["error"]).pack(anchor="w", pady=8)
+            return
+        if record["board"] == "dongle":
+            ttk.Label(f, text="Dongle pairing and connection settings are in Diagnostics.").pack(anchor="w", pady=8)
+            ttk.Button(f, text="Pair dongle…", command=lambda: self.slot_action("pair", 0)).pack(anchor="w")
+            return
+        ttk.Label(f, text="Choose each slot's type here. Open Settings for transport, colours, response and other options.", wraplength=850).pack(anchor="w", pady=8)
+        for target in range(8):
+            row = ttk.Frame(f, padding=(0, 6))
+            row.pack(fill="x")
+            ttk.Label(row, text=f"Slot {pad.TARGETS[target]}", width=12).pack(side="left")
+            entry = record["draft"].get((target, "type"))
+            if entry:
+                ttk.Combobox(row, textvariable=entry["var"], values=entry["field"]["names"], state="readonly", width=20).pack(side="left", padx=(0, 8))
+            ttk.Button(row, text="Settings", command=lambda t=target: self.show_target(t)).pack(side="left", padx=(0, 8))
+            ttk.Button(row, text="Connect", command=lambda t=target: self.slot_action("connect", t)).pack(side="left", padx=(0, 8))
+            ttk.Button(row, text="Pair…", command=lambda t=target: self.slot_action("pair", t)).pack(side="left", padx=(0, 8))
+        groups = ttk.Frame(f)
+        groups.pack(fill="x", pady=12)
+        for target in (8, 9):
+            ttk.Button(groups, text=pad.TARGETS[target].title() + " settings", command=lambda t=target: self.show_target(t)).pack(side="left", padx=(0, 8))
+        ttk.Button(groups, text="Calibrate sensors…", state="normal" if int.from_bytes(record["identity"][4:6], "little") >= 3 else "disabled",
+                   command=self.calibrate).pack(side="left", padx=8)
+        ttk.Label(f, text="Sensor calibration is global. Calibrate requires firmware protocol 3 or newer.\n"
+                  "Connect and Pair use saved settings; apply pending edits for that slot first.", wraplength=850).pack(anchor="w", pady=10)
+
+    def render_details(self):
+        for widget in self.form.winfo_children():
+            widget.destroy()
+        self.editors = {}
+        record = self.record()
+        supported = record and record["board"] == "pad" and not record.get("error")
+        for button in (self.settings_backup, self.settings_restore):
+            button.configure(state="normal" if supported else "disabled")
+        if not supported:
+            self.details_title.set("Select a pad slot in the tree")
             return
         target = pad.target_index(self.target.get())
-        developer = self.dev.get()
-        def load():
-            table = pad.fields(path)
-            return table, pad.read_target(path, table, target)
-        def display(result):
-            self.clear_settings()
-            self.table, values = result
-            self.loaded = (path, target)
-            for f in self.table:
-                if f["name"] not in values or (f["dev"] and not developer) or f["kind"] != pad.kind_of(target):
-                    continue
-                raw, explicit = values[f["name"]]
-                row = len(self.editors)
-                value = pad.show_value(f, raw)
-                var = tk.StringVar(value=value)
-                reset = tk.BooleanVar()
-                ttk.Label(self.form, text=f["name"]).grid(row=row, column=0, sticky="w", padx=4, pady=4)
-                if f["type"] == pad.T_ENUM:
-                    editor = ttk.Combobox(self.form, textvariable=var, values=f["names"], state="readonly", width=24)
-                else:
-                    editor = ttk.Entry(self.form, textvariable=var, width=26)
-                editor.grid(row=row, column=1, sticky="ew", padx=4)
-                ttk.Checkbutton(self.form, text="Reset", variable=reset).grid(row=row, column=2)
-                ttk.Label(self.form, text=("Set · " if explicit else "Default · ") + f["help"], wraplength=440).grid(row=row, column=3, sticky="w", padx=8)
-                self.editors[f["name"]] = (f, var, reset, value)
-            self.form.columnconfigure(3, weight=1)
-        self.run("Loading settings…", load, display)
+        self.details_title.set(f"{record['path']} · " + (f"Slot {pad.TARGETS[target]}" if target < 8 else pad.TARGETS[target].title()))
+        for (t, name), entry in record["draft"].items():
+            f = entry["field"]
+            if t != target or (f["dev"] and not self.dev.get()):
+                continue
+            row = len(self.editors)
+            ttk.Label(self.form, text=name).grid(row=row, column=0, sticky="w", padx=4, pady=4)
+            if f["type"] == pad.T_ENUM:
+                editor = ttk.Combobox(self.form, textvariable=entry["var"], values=f["names"], state="readonly", width=23)
+            else:
+                editor = ttk.Entry(self.form, textvariable=entry["var"], width=25)
+            editor.grid(row=row, column=1, sticky="ew", padx=4)
+            ttk.Checkbutton(self.form, text="Reset", variable=entry["reset"]).grid(row=row, column=2)
+            ttk.Label(self.form, text=f["help"], wraplength=370).grid(row=row, column=3, sticky="w", padx=8)
+            self.editors[name] = entry
+        self.form.columnconfigure(3, weight=1)
+        if target < 8:
+            row = len(self.editors)
+            actions = ttk.Frame(self.form, padding=(0, 12))
+            actions.grid(row=row, column=0, columnspan=4, sticky="w")
+            for action in ("connect", "pair"):
+                ttk.Button(actions, text=action.title(),
+                           command=lambda a=action: self.slot_action(a, target)).pack(side="left", padx=4)
 
     def apply_settings(self):
-        path = self.path()
-        target = pad.target_index(self.target.get())
-        if not self.table or (path, target) != self.loaded:
-            messagebox.showinfo("Load settings", "Load this device and target before applying changes.")
-            return
+        jobs = []
         try:
-            items = [(target, f["id"], b"" if reset.get() else pad.parse_value(f, var.get()))
-                     for f, var, reset, original in self.editors.values()
-                     if reset.get() or var.get() != original]
+            for path, record in self.cache.items():
+                items = [(t, entry["field"]["id"], b"" if entry["reset"].get() else pad.parse_value(entry["field"], entry["var"].get()))
+                         for (t, name), entry in record.get("draft", {}).items() if self.changed(entry)]
+                if items:
+                    jobs.append((path, record, items))
         except (Exception, SystemExit) as error:
             messagebox.showerror("Invalid setting", str(error))
             return
-        if items:
-            self.run("Applying settings…", lambda: pad.send(path, items), lambda _: self.load_settings())
+        if not jobs:
+            self.notice.set("No pending changes")
+            return
+        def apply():
+            # Check every identity before the first commit: USB paths can be reused.
+            for path, record, items in jobs:
+                if pad.cmd(path, 0, length=64)[:40] != record["identity"]:
+                    raise ValueError(f"{path}: device changed since loading; scan and load again")
+            for path, record, items in jobs:
+                pad.send(path, items)
+                try:
+                    values = {t: pad.read_target(path, record["fields"], t) for t in range(len(pad.TARGETS))}
+                except (Exception, SystemExit) as error:
+                    self.events.put(("applied", (path, None)))
+                    raise RuntimeError(f"{path}: settings saved, but reload failed: {error}")
+                self.events.put(("applied", (path, values)))
+                self.flash_report(f"{path}: applied {len(items)} setting(s)")
+        def finished(_):
+            self.render_overview()
+            self.render_details()
+            self.mark_dirty()
+        self.run("Applying pending changes to all edited devices…", apply, finished)
+
+    def calibrate(self):
+        self.slot_action("calibrate", 0)
+
+    def slot_action(self, action, target):
+        path = self.path()
+        if not path:
+            return
+        record = self.cache[path]
+        if action in ("connect", "pair") and any(self.changed(e) for (t, name), e in record["draft"].items() if t == target):
+            messagebox.showinfo("Apply slot changes first", "Apply pending changes for this slot before connecting or pairing.")
+            return
+        if action == "connect" and record["board"] != "pad":
+            return
+        if action == "calibrate":
+            if record["board"] != "pad" or int.from_bytes(record["identity"][4:6], "little") < 3:
+                messagebox.showinfo("Firmware update required", "USB calibration needs pad firmware protocol 3 or newer.")
+                return
+            if not messagebox.askokcancel("Calibrate sensors", "Calibration is shared by all slots.\n\n"
+                                           "After starting, leave sticks and triggers untouched for 2.5 seconds. Then circle both sticks along their edges and press both triggers fully.\n\n"
+                                           "Press A or B on the pad to save; Home cancels. See the device log for results."):
+                return
+        if action == "pair" and not messagebox.askyesno("Pair", "Make this slot pairable? Its host is replaced after pairing succeeds. A dongle forgets its existing bond immediately."):
+            return
+        command = {"connect": 0x13, "pair": 0x17, "calibrate": 0x18}[action]
+        def perform():
+            if pad.cmd(path, 0, length=64)[:40] != record["identity"]:
+                raise ValueError("Device changed; scan and load again before sending an action")
+            pad.cmd(path, command, target if action != "calibrate" else 0)
+        def finished(_):
+            if action == "calibrate":
+                self.notice.set("Calibration started: hands off for 2.5 seconds, then sweep both sticks and triggers. A or B saves; Home cancels.")
+        self.run(action.title() + "…", perform, finished)
 
     def backup_settings(self):
         path = self.path()
@@ -295,6 +530,10 @@ class App:
         self.bundle = tk.StringVar(value=str(ROOT / "build/pad"))
         self.uboot = tk.StringVar(value=str(SDK / "uboot.boot"))
         self.cfgtool = tk.StringVar(value=str(SDK / "cfg_tool.bin"))
+        ttk.Label(f, text="Firmware board").grid(row=2, column=0, sticky="w")
+        self.boards = ttk.Combobox(f, textvariable=self.board, values=list(PIDS), state="readonly", width=12)
+        self.boards.grid(row=2, column=1, sticky="w", padx=8)
+        self.boards.bind("<<ComboboxSelected>>", self.change_board)
         self.file_row(f, 3, "BR23 loader", self.loader)
         self.file_row(f, 4, "Firmware image (.img / .ufw)", self.image)
         ttk.Button(f, text="Flash image…", command=lambda: self.flash(False)).grid(row=5, column=1, sticky="w", pady=8)
@@ -454,17 +693,18 @@ class App:
             return
         path = self.path()
         if path:
-            self.run(label + "…", lambda: fn(path))
+            record = self.record()
+            def perform():
+                if record and pad.cmd(path, 0, length=64)[:40] != record["identity"]:
+                    raise ValueError("Device changed; scan and load again before sending an action")
+                return fn(path)
+            self.run(label + "…", perform)
 
     def connect(self):
-        if self.board.get() == "pad":
-            slot = pad.SLOT_NAMES.index(self.slot.get())
-            self.diagnostic("Connect", lambda p: pad.cmd(p, 0x13, slot))
+        self.slot_action("connect", pad.SLOT_NAMES.index(self.slot.get()))
 
     def pair(self):
-        board, slot = self.board.get(), pad.SLOT_NAMES.index(self.slot.get())
-        if messagebox.askyesno("Pair", "Make this slot pairable? The dongle forgets its existing bond immediately; a pad slot replaces its host when pairing succeeds."):
-            self.diagnostic("Pair", lambda p: pad.cmd(p, 0x17, slot if board == "pad" else 0))
+        self.slot_action("pair", pad.SLOT_NAMES.index(self.slot.get()) if self.board.get() == "pad" else 0)
 
 
 if __name__ == "__main__":

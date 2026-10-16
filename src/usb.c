@@ -26,6 +26,7 @@
  *   `0x17` PAIR           CDB byte 2: slot: start pairing; its host is replaced once one pairs,
  *                         keeping its address; dongle: forget its single bond
  *                         (slot ignored)
+ *   `0x18` CALIBRATE      pad only: start shared sensor calibration; no slot argument
  *   `0x30` TARGET         dongle only: CDB bytes 2–7: Bluetooth address in
  *                         written order (AA:BB:CC:DD:EE:FF); page that device
  *   `0x13` CONNECT        CDB byte 2: slot (`0xfe` the last): start its
@@ -69,15 +70,15 @@
  * usb_poll() runs on every pass of the loop and lets the platform service a
  * parked command; usb_command() runs on the control thread.  The platform's
  * private_scsi_cmd() hook parks each vendor command and raises EV_USB.
- * padtool.py (Linux, SG_IO) is the main client. */
+ * padtool.py and padgui.py (Linux/Windows SCSI) are the clients. */
 
 #define OP          0xf5
-#define PROTOCOL    2
+#define PROTOCOL    3
 
 #define STATS_VERSION 6
 
 enum { CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02, CMD_STATS = 0x03,
-       CMD_REBOOT = 0x10, CMD_REBOOT_LOADER = 0x11, CMD_RELINK = 0x12, CMD_CONNECT = 0x13, CMD_PROFILE = 0x14, CMD_PEEK = 0x15, CMD_TRACE = 0x16, CMD_PAIR = 0x17,
+       CMD_REBOOT = 0x10, CMD_REBOOT_LOADER = 0x11, CMD_RELINK = 0x12, CMD_CONNECT = 0x13, CMD_PROFILE = 0x14, CMD_PEEK = 0x15, CMD_TRACE = 0x16, CMD_PAIR = 0x17, CMD_CALIBRATE = 0x18,
        CMD_FIELD = 0x20, CMD_READ = 0x21, CMD_WRITE = 0x22, CMD_COMMIT = 0x23, CMD_DROP = 0x24,
        CMD_EPHEMERAL = 0x25, CMD_RESULT = 0x26, CMD_TARGET = 0x30 };
 
@@ -180,6 +181,12 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         pending.kind = REQ_PAIR;
         pending.slot = cdb[2];
         pending.generate_new_address = 0;
+        break;
+    case CMD_CALIBRATE:
+#ifndef BOARD_DONGLE
+        pending.kind = REQ_CALIBRATE;
+        pending.slot = SLOT_NONE;
+#endif
         break;
     case CMD_CONNECT:            /* argument: slot, 0xfe the last */
         pending.kind = REQ_CONNECT;
@@ -303,6 +310,14 @@ int main(void)
         CHECK(data[0] == STATS_VERSION && data[2] == (u8)sizeof(stats) && data[4 + 8] == 4);
         CHECK(usb_poll(&st).kind == REQ_STATS_RESET);
     }
+    cdb[1] = CMD_CALIBRATE;
+    CHECK(usb_command(cdb, data, sizeof(data), 0) == 0);
+    r = usb_poll(&st);
+#ifdef BOARD_DONGLE
+    CHECK(r.kind == REQ_NONE);
+#else
+    CHECK(r.kind == REQ_CALIBRATE && r.slot == SLOT_NONE);
+#endif
     cdb[1] = CMD_FIELD;
     cdb[2] = 1;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 8 && data[0] == 1);

@@ -72,7 +72,10 @@ USB sessions by itself: `make BOARD_DEFINES_pad=-DUSB_SESSION_TEST_MS=12000`
 `tools/padgui.py` is the Tkinter GUI (`python tools/padgui.py`), sharing the
 padtool protocol and Linux/Windows SCSI transport. `tools/padflash.py` backs up
 and flashes images in Python using the bundled BR23 RAM loader. `jlnewfw` is
-only needed in the GUI to pack builds. Setup and host tests: `tools/README.md`.
+only needed in the GUI to pack builds. Scan and load caches every device and
+pad target; edits stay pending across navigation until Apply changes. Sensor
+calibration is global; the USB trigger requires protocol 3+. Setup and host
+tests: `tools/README.md`.
 
 `tools/sdlpad.c` shows what SDL makes of the gamepads it sees (build line at
 its top).  In this container SDL needs the nodes from `/dev/bwrap` under

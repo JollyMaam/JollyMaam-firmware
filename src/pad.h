@@ -572,6 +572,8 @@ struct ctl_stats {
 _Static_assert(sizeof(struct stat_hist) == 48 && sizeof(struct ctl_stats) == 272 + 4 * 48 + 32,
                "padtool reads struct ctl_stats byte for byte");
 
+/* Tool protocol 3 adds a USB request for shared sensor calibration (pad only).
+ * Like pairing and connecting, it is queued for the controller by usb_poll(). */
 struct usb_status {
     u8 state;
     u8 slot;

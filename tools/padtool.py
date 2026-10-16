@@ -9,6 +9,7 @@
     padtool identify | status     what the pad reports
     padtool log [-f]              the pad's log (-f: follow)
     padtool stats [-w SECONDS] [--reset]   loop timing and counters (-w: every N s)
+    padtool calibrate            start shared sensor calibration (protocol 3+)
     padtool reboot | loader       restart; restart into the ROM loader (for
                                   jlnewfw flash)
     padtool connect [SLOT]        connect a slot (default: the last), as Home does
@@ -64,22 +65,27 @@ def inquiry(path):
     return data[8:32].decode("ascii", "replace").strip()
 
 
-def devices(first=False):
-    """SCSI devices running this firmware for the selected board; with first,
-    the first one only, so a stuck device later in the list (each probe of
-    one takes the kernel's error handling, ~18 s) is not touched."""
-    found = []
+def discover_devices():
+    """Yield path, inquiry name and IDENTIFY for either board in one scan."""
     for path in device_paths():
         name = inquiry(path)
         if name and name.startswith("BR23") and "UBOOT" not in name:
             try:
-                d = scsi(path, [OP, 0x00], 64, 1000)
-                if len(d) >= 40 and d[:4] == b"C2PD" and d[6] == BOARD_IDS[BOARD]:
-                    found.append((path, name))
-                    if first:
-                        break
+                identity = scsi(path, [OP, 0x00], 64, 1000)
+                if len(identity) >= 40 and identity[:4] == b"C2PD" and identity[6] in BOARD_IDS.values():
+                    yield path, name, identity
             except OSError:
                 pass
+
+
+def devices(first=False):
+    """Running devices for the selected board; stop early with first=True."""
+    found = []
+    for path, name, identity in discover_devices():
+        if identity[6] == BOARD_IDS[BOARD]:
+            found.append((path, name))
+            if first:
+                break
     return found
 
 
@@ -720,7 +726,7 @@ def tool(paths):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["target", "find", "identify", "status", "log", "stats", "reboot", "loader", "relink", "connect", "pair", "profile", "peek", "trace",
+    p.add_argument("command", choices=["target", "find", "identify", "status", "log", "stats", "calibrate", "reboot", "loader", "relink", "connect", "pair", "profile", "peek", "trace",
                                        "fields", "get", "set", "reset", "backup-settings",
                                        "restore-settings", "factory-reset", "ephemeral", "keep", "tool"])
     p.add_argument("args", nargs="*")
@@ -759,7 +765,7 @@ def main():
         except ValueError:
             p.error("invalid address; expected AA:BB:CC:DD:EE:FF")
     if BOARD == "dongle" and a.command in {
-        "stats", "relink", "connect", "fields", "get", "set", "reset",
+        "stats", "calibrate", "relink", "connect", "fields", "get", "set", "reset",
         "backup-settings", "restore-settings", "factory-reset", "keep",
     }:
         p.error(f"{a.command} is not supported by dongle firmware")
@@ -807,6 +813,12 @@ def main():
         cmd(need_device(), 0x13, slot)
     elif a.command == "relink":
         cmd(need_device(), 0x12)
+    elif a.command == "calibrate":
+        path = need_device()
+        if int.from_bytes(cmd(path, 0, length=64)[4:6], "little") < 3:
+            p.error("calibrate needs pad firmware protocol 3 or newer")
+        cmd(path, 0x18)
+        print("Leave sticks and triggers untouched for 2.5 seconds; then circle both sticks and press both triggers fully. A or B saves; Home cancels.")
     elif a.command in ("reboot", "loader"):
         cmd(need_device(), 0x10 if a.command == "reboot" else 0x11)
     elif a.command == "fields":

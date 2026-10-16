@@ -117,6 +117,13 @@ class FlashTests(unittest.TestCase):
         self.assertEqual(self.device.commands[-1], 0xfc0c)
         self.assertLess(self.device.commands.index(0xfd05), self.device.commands.index(0xfb01))
 
+    def test_block_and_sector_erase_boundaries(self):
+        data = image() + b'\xff' * (0x11000 - 8192)
+        self.loader.flash(data, 'pad', self.backup)
+        self.assertEqual(self.device.commands.count(0xfb00), 1)
+        self.assertEqual(self.device.commands.count(0xfb01), 1)
+        self.assertEqual(self.device.flash[:len(data)], data)
+
     def test_pid_and_key_mismatch_refuse_to_erase(self):
         for data in (image('GS_C2_Dongle'), image(key=0x4317)):
             with self.assertRaises(ValueError):

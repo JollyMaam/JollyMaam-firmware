@@ -18,16 +18,33 @@ There are no pip requirements for configuration, image flashing or backups.
 CPU profiling additionally needs `pyelftools` and the ELF matching the running
 firmware; add `ps.pyelftools` to the Nix package list if needed.
 
-Select **pad** or **dongle**, scan, then select a device. Configuration and
-diagnostics use that selected device. A USB gamepad session must end before
-vendor commands become available. The Linux HID tool-mode button can request
-this for HID profiles; on Windows end the session using the pad first, then scan.
+Click **Scan and load** to discover both pads and dongles and read every pad
+slot, palette and global calibration setting. Select a device or settings group
+in the tree; Linux device labels also show USB topology when available.
+Configuration and diagnostics use the selected device. A USB gamepad session
+must end before vendor commands become available. The Linux HID tool-mode
+button can request this for HID profiles; on Windows end the session using the
+pad first, then scan.
 
-The Settings tab loads the field descriptions, choices, values and help from
-the pad firmware. Load each target before editing, apply changed fields together,
-or tick Reset to use a field's default. Settings backups include pairing data.
+The Slots page gives each slot a type dropdown, Settings, Connect and Pair.
+Details contains the remaining settings and developer fields. Edits persist
+while switching slots and devices. **Apply changes** validates all edited
+values, checks device identities, then commits all pending changes once per
+device. A failure on one device does not undo a previous device's commit;
+uncommitted edits remain pending. Reset uses the firmware default. Rescanning
+or closing asks before discarding pending edits.
+
+Connect and Pair use saved settings, so apply a slot's pending edits first.
+Sensor calibration is global, with one **Calibrate sensors** action on the
+pad's device page. USB calibration requires pad firmware protocol 3 or newer;
+older firmware shows the action disabled. Leave sticks and triggers untouched
+for 2.5 seconds after starting, then circle both sticks around their edges and
+press both triggers fully. A or B saves; Home cancels. Calibration settings and
+palette settings each have their own global entry in the tree.
+
+Settings backups read the saved device values, and include pairing data.
 Restores keep calibration unless explicitly selected. Dongle firmware has no
-settings table; use Diagnostics for its pairing and target address.
+settings table; its pairing and target address controls are in Diagnostics.
 
 ## Firmware
 
@@ -120,5 +137,5 @@ python -m unittest discover -s tools -p test_padgui.py -v
 The flasher tests simulate a SCSI device to check RAM upload, chip info, exact
 writes, backup-before-erase, identity/key rejection, short reads, ambiguous
 loaders and failure to verify. GUI tests cover worker failures, settings
-selection, changed-field commits, flash backup requirements and discovery
-filtering. Windows USB I/O still needs hardware validation on Windows.
+multi-slot drafts, identity checks, partial commits, global calibration
+capability checks, flash backup requirements and discovery filtering. Windows USB I/O still needs hardware validation on Windows.
