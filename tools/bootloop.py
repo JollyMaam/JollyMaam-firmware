@@ -9,8 +9,8 @@ reads the boot's "clock check" line (1000 host frames against the pad's
 milliseconds: healthy 998-1000), and any hang or assert lines.  A slow boot
 stops the loop with the pad left as it is, for a look, unless --keep-going.
 Every round is one line on stdout and in --out.  A pad that does not come back
-stops it too: after some reboots the tool device takes no commands until a USB
-session or a replug (not understood yet).
+stops it too. If the USB tool device stops taking commands, a USB session or
+a replug can recover it.
 """
 import argparse
 import os

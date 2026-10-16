@@ -123,7 +123,7 @@ loader identifies itself as `UBOOT1.00`.
 |---|---|---|
 | `0x001e1800` | `USB_CON0` | cleared |
 | `0x001e1804` | `USB_CON1` | cleared |
-| `0x001e5100` | `USB_IO_CON0` | bit 11 forces SE0 on the USB lines |
+| `0x001e5100` | `USB_IO_CON0` | bit 11 selects GPIO mode |
 | `0x00010800` | MaskROM boot-state token (16 bytes, SRAM) | set to 2 |
 
 ### Sequence
@@ -131,7 +131,7 @@ loader identifies itself as `UBOOT1.00`.
 1. `nvram_set_boot_state(2)` writes the token and flushes the data cache.
 2. Stop the Bluetooth controller. Stopping advertising alone is not enough.
 3. Disable interrupts and clear the USB control registers.
-4. Force SE0 for 1000 ms, then release it.
+4. Write only bit 11 to `USB_IO_CON0` for 1000 ms, then clear it.
 5. Wait 250 ms.
 6. Wait for USB sense (PC3).
 7. Re-arm the boot-state token.
@@ -139,3 +139,18 @@ loader identifies itself as `UBOOT1.00`.
 
 The delays are those of the current code. They are not established as hardware
 minimums.
+
+The SDK's BR23 `asm/usb.h` names the USB pin-control bits as follows:
+
+| Bits | Names | Function |
+|---|---|---|
+| 0, 1 | `DPOUT`, `DMOUT` | GPIO output levels |
+| 2, 3 | `DPIE`, `DMIE` | GPIO direction: 1 input, 0 output |
+| 4, 5 | `DPPD`, `DMPD` | pull-downs |
+| 6, 7 | `DPPU`, `DMPU` | pull-ups |
+| 8 | `IO_PU_MODE` | GPIO pull mode |
+| 11 | `IO_MODE` | GPIO mode |
+
+The SDK's GPIO routines confirm the output, direction and pull bit assignments.
+`IO_MODE` is not a dedicated SE0 control. The exact pull-control behavior when
+`IO_PU_MODE` is clear is not established.

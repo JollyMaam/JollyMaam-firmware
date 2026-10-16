@@ -107,7 +107,7 @@ in the SDK's register definitions (`map_adr(group, index)`).
 | SBC | `0x1e4200` | SBC codec hardware |
 | AES | `0x1e4300` | |
 | PORTA / PORTB / PORTC / PORTD | `0x1e5000` / `0x1e5040` / `0x1e5080` / `0x1e50c0` | GPIO |
-| USB_IO | `0x1e5100` | USB pin control; bit 11 forces SE0 |
+| USB_IO | `0x1e5100` | USB pin control; bit 11 selects GPIO mode |
 | WAKEUP | `0x1e5108` | wake sources |
 | IOMAP | `0x1e5118` | pin function map (`CON1`) |
 | PLED | `0x1e5200` | |

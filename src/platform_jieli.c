@@ -24,7 +24,6 @@
 #define USB_CON0        (*(volatile u32 *)0x001e1800)
 #define USB_CON1        (*(volatile u32 *)0x001e1804)
 #define USB_IO_CON0     (*(volatile u32 *)0x001e5100)
-#define USB_FORCE_SE0   BIT(11)
 #define MASKROM_TOKEN   ((volatile u8 *)0x00010800)
 #define USB_VENDOR_OP   0xf5
 #define USB_SOF_STALE_MS 250
@@ -747,7 +746,7 @@ void plat_reboot_loader(void)
     local_irq_disable();
     USB_CON0 = 0;
     USB_CON1 = 0;
-    USB_IO_CON0 = USB_FORCE_SE0;
+    USB_IO_CON0 = BIT(IO_MODE);
     plat_mdelay(1000);
     USB_IO_CON0 = 0;
     plat_mdelay(250);
@@ -757,7 +756,16 @@ void plat_reboot_loader(void)
 
 void plat_reboot(void)
 {
+    plat_watch_stop();
     plat_audio_off();
+    local_irq_disable();
+    USB_CON0 = 0;
+    USB_CON1 = 0;
+    /* Select GPIO mode for the pins and pulls. With DPPU/DMPU,
+     * DPIE/DMIE and DPOUT/DMOUT clear, both lines are driven low until
+     * reset, giving the hub time to detach. */
+    USB_IO_CON0 = BIT(IO_MODE) | BIT(IO_PU_MODE);
+    plat_mdelay(100);
     p33_soft_reset();
 }
 
