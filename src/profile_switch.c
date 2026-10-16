@@ -565,15 +565,22 @@ static void s2_flash_read(u32 a, u8 *out, u16 n)
                 out[k] = s2_flash[i].data[a + k - s2_flash[i].address];
 }
 
-static void s2_stick(u8 *out, s16 x, s16 y)
-{
-    s32 sx = (s32)x * 0x7ff, sy = (s32)y * 0x7ff;
-    u16 px, py;
+/* The factory stick calibration s2_flash serves (0x130a8, 0x130e8): centre,
+ * then the reach up and down, x and y.  Hosts read the raw values through it,
+ * so the sticks are encoded against it. */
+struct s2_cal { u16 cx, cy, xmax, ymax, xmin, ymin; };
+static const struct s2_cal s2_cal_left = { 0x7b3, 0x836, 0x62e, 0x5e6, 0x63a, 0x5f0 };
+static const struct s2_cal s2_cal_right = { 0x82c, 0x840, 0x5d1, 0x636, 0x62a, 0x622 };
 
-    sx += sx < 0 ? -(STICK_MAX / 2) : STICK_MAX / 2;
-    sy += sy < 0 ? -(STICK_MAX / 2) : STICK_MAX / 2;
-    px = (u16)(0x800 + sx / STICK_MAX);
-    py = (u16)(0x800 + sy / STICK_MAX);
+static u16 s2_cal_axis(s16 v, u16 centre, u16 up, u16 down)
+{
+    return (u16)(centre + (s32)v * (v >= 0 ? up : down) / STICK_MAX);
+}
+
+static void s2_cal_stick(u8 *out, s16 x, s16 y, const struct s2_cal *c)
+{
+    u16 px = s2_cal_axis(x, c->cx, c->xmax, c->xmin), py = s2_cal_axis(y, c->cy, c->ymax, c->ymin);
+
     out[0] = (u8)px;
     out[1] = (u8)(px >> 8 | py << 4);
     out[2] = (u8)(py >> 4);
@@ -717,8 +724,8 @@ static int s2_report(const struct pad *p, u32 now, u8 *out, u8 *id)
     out[2] = (u8)b;
     out[3] = (u8)(b >> 8);
     out[4] = (u8)(b >> 16);
-    s2_stick(out + 5, p->lx, (s16)-p->ly);
-    s2_stick(out + 8, p->rx, (s16)-p->ry);
+    s2_cal_stick(out + 5, p->lx, (s16)-p->ly, &s2_cal_left);
+    s2_cal_stick(out + 8, p->rx, (s16)-p->ry, &s2_cal_right);
     out[11] = 0x38;
     /* Headset audio state: 0x05 headphones, 0x07 a headset (ndeadly; bit 3,
      * which a real one flips, not known).  USB only: LE audio is not ours. */
@@ -1023,27 +1030,6 @@ static u8 s2_advertising(const struct bt_bond *bond, int pairing, int wake, u8 *
  * the motion sample's time at 42, accelerometer at 48 (4096 a g) and gyro at
  * 54 (16.4 a degree a second), in SDL's axes. */
 
-/* The factory stick calibration s2_flash serves (0x130a8, 0x130e8): centre,
- * then the reach up and down, x and y.  Hosts read the raw values through it,
- * so the sticks are encoded against it. */
-struct s2_cal { u16 cx, cy, xmax, ymax, xmin, ymin; };
-static const struct s2_cal s2_cal_left = { 0x7b3, 0x836, 0x62e, 0x5e6, 0x63a, 0x5f0 };
-static const struct s2_cal s2_cal_right = { 0x82c, 0x840, 0x5d1, 0x636, 0x62a, 0x622 };
-
-static u16 s2_cal_axis(s16 v, u16 centre, u16 up, u16 down)
-{
-    return (u16)(centre + (s32)v * (v >= 0 ? up : down) / STICK_MAX);
-}
-
-static void s2_cal_stick(u8 *out, s16 x, s16 y, const struct s2_cal *c)
-{
-    u16 px = s2_cal_axis(x, c->cx, c->xmax, c->xmin), py = s2_cal_axis(y, c->cy, c->ymax, c->ymin);
-
-    out[0] = (u8)px;
-    out[1] = (u8)(px >> 8 | py << 4);
-    out[2] = (u8)(py >> 4);
-}
-
 static int s2_usb_report(const struct pad *p, u32 now, u8 *out, u8 *id)
 {
     const struct imu_sample *m = &s2.motion;
@@ -1246,6 +1232,36 @@ int main(void)
         w.data[3] = 0x04;
         s2_write(&w, 0, &bond);
         CHECK(s2.ready && s2_report(&p, 0, out, &id) == S2_REPORT_SIZE && (out[2] & 1));
+        {   /* Bluetooth stick positions must agree with the flash calibration
+             * the console reads, including centre and each signed reach. */
+            static const s16 positions[] = {
+                -STICK_MAX, -STICK_MAX / 2, 0, STICK_MAX / 2, STICK_MAX
+            };
+            unsigned i, j, axis;
+            struct pad sticks = { 0 };
+            u8 cal[9];
+
+            for (i = 0; i < sizeof(positions) / sizeof(positions[0]); i++) {
+                sticks.lx = sticks.rx = positions[i];
+                sticks.ly = sticks.ry = (s16)-positions[i];
+                CHECK(s2_report(&sticks, i, out, &id) == S2_REPORT_SIZE);
+                for (j = 0; j < 2; j++) {
+                    const u8 *encoded = out + 5 + 3 * j;
+                    s2_flash_read(j ? 0x130e8 : 0x130a8, cal, sizeof(cal));
+                    for (axis = 0; axis < 2; axis++) {
+                        s32 centre = axis ? (cal[1] >> 4 | cal[2] << 4) :
+                                            (cal[0] | (cal[1] & 15) << 8);
+                        const u8 *reach = cal + (positions[i] < 0 ? 6 : 3);
+                        s32 span = axis ? (reach[1] >> 4 | reach[2] << 4) :
+                                          (reach[0] | (reach[1] & 15) << 8);
+                        s32 raw = axis ? (encoded[1] >> 4 | encoded[2] << 4) :
+                                         (encoded[0] | (encoded[1] & 15) << 8);
+                        s32 expected = centre + (s32)positions[i] * span / STICK_MAX;
+                        CHECK(raw == expected);
+                    }
+                }
+            }
+        }
         p.buttons = PAD_M;
         CHECK(s2_report(&p, 1, out, &id) == S2_REPORT_SIZE && (out[4] & 0x10));
         p.buttons = 0;
