@@ -5780,6 +5780,7 @@ void ll_control_procedure_pop(struct le_link *link, u8 procedure);
 void ll_control_step_verify(ll_step_extend step_ex, struct le_link *link, struct ble_rx *rx);
 ll_step ll_current_step(struct le_link *link);
 ll_step ll_current_no_step(struct le_link *link);
+u8 ll_version_exchange_pending(struct le_link *link);
 void ll_send_control_data_state_machine(struct le_link *link, struct ble_rx *rx);
 void ll_control_data_step_start(struct le_link *link, const ll_step_extend *steps);
 struct le_link *ll_link_for_address(u8 addr_type, const u8 *addr);

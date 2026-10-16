@@ -325,7 +325,10 @@ static void __conn_slave_rx_post_handler(void *priv, struct ble_rx *rx)
         le_param.remote_versnr = p[0];
         le_param.remote_compld = btctler_little_endian_read_16(p, 1);
         le_param.remote_subversnr = btctler_little_endian_read_16(p, 3);
-        if (ll_current_no_step(link) != 0)
+        /* The SDK answered only with no procedure of ours running: one that was
+         * (a length request just after connecting) left the peer's exchange
+         * unanswered for good, and an Android central then never encrypts. */
+        if (!ll_version_exchange_pending(link))
             ll_send_control_data(link, 12, "122", (int)le_param.versnr, (int)le_param.compld, (int)le_param.subversnr);
         break;
     case 13:

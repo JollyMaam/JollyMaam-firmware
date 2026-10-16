@@ -831,6 +831,12 @@ u8 LL_CODE ll_current_no_step(struct le_link *link)
     return link->procedure_fifo[link->fifo_rd].steps_ptr == NULL;
 }
 
+/* Our own version exchange is under way: a VERSION_IND received is its answer. */
+u8 LL_CODE ll_version_exchange_pending(struct le_link *link)
+{
+    return link->procedure_fifo[link->fifo_rd].steps_ptr == (const ll_step_extend *)version_ind_steps;
+}
+
 void LL_CODE ll_control_data_step_start(struct le_link *link, const ll_step_extend *steps)
 {
     u8 wr = link->fifo_wr;
@@ -2617,6 +2623,10 @@ int main(void)
     CHECK(ll_current_step(&link) == 0x00);
     link.procedure_fifo[0].steps_ptr = NULL;
     CHECK(ll_current_no_step(&link));
+    CHECK(!ll_version_exchange_pending(&link));
+    link.procedure_fifo[0].steps_ptr = (const ll_step_extend *)version_ind_steps;
+    CHECK(ll_version_exchange_pending(&link));
+    link.procedure_fifo[0].steps_ptr = NULL;
 
     CHECK(ll_control_procedure_case_remap(0) == 0);
     CHECK(ll_control_procedure_case_remap(16391) == 3);
