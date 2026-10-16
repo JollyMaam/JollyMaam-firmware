@@ -237,7 +237,10 @@ static void tick_start(void)
     JL_TIMER3->CNT = 0;
     JL_TIMER3->PRD = 24 * TICK_US;
     request_irq(IRQ_TIME3_IDX, 1, tick_isr, 0);
-    JL_TIMER3->CON = BIT(0) | BIT(3);
+    /* The lsb clock (24 MHz: sys 48 MHz / 2).  On the "osc" input (BIT(3)),
+     * as timer 2 still is, timer 3 counted about 1 MHz, unsteadily, on some
+     * boots (one in 15 to 35): the slow tick. */
+    JL_TIMER3->CON = BIT(0);
 }
 
 u32 plat_ms(void)

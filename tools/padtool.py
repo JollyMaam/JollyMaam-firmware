@@ -97,8 +97,10 @@ def inquiry(path):
     return data[8:32].decode("ascii", "replace").strip()
 
 
-def devices():
-    """SCSI devices running this firmware for the selected board."""
+def devices(first=False):
+    """SCSI devices running this firmware for the selected board; with first,
+    the first one only, so a stuck device later in the list (each probe of
+    one takes the kernel's error handling, ~18 s) is not touched."""
     found = []
     for path in sorted(set(glob.glob("/dev/sg*") + glob.glob("/dev/bwrap/sg*"))):
         name = inquiry(path)
@@ -107,13 +109,15 @@ def devices():
                 d = scsi(path, [OP, 0x00], 64, 1000)
                 if len(d) >= 40 and d[:4] == b"C2PD" and d[6] == BOARD_IDS[BOARD]:
                     found.append((path, name))
+                    if first:
+                        break
             except OSError:
                 pass
     return found
 
 
 def find_device():
-    found = devices()
+    found = devices(first=True)
     return found[0][0] if found else None
 
 
