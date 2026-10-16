@@ -497,7 +497,7 @@ void cal_apply(const struct set_cal *cal, const struct in_raw *raw, struct pad *
 
 #define SETTLE_MS   1000
 #define REST_MS     1500
-#define SWEEP_MS    300000
+#define SWEEP_MS    120000
 #define RESULT_MS   1500
 #define SUCCESS_ON_MS 1000
 #define FAILURE_BLINK_MS 100
@@ -729,7 +729,7 @@ int main(void)
     cal_start(now);
     for (i = 0; i < SETTLE_MS + REST_MS + SWEEP_MS + 20; i += 5) {
         cal_step(&raw, now + i, &cal);
-        if (i == SETTLE_MS + REST_MS + 120000) CHECK(r.phase == PH_SWEEP);
+        if (i == SETTLE_MS + REST_MS + SWEEP_MS - 5) CHECK(r.phase == PH_SWEEP);
     }
     CHECK(r.phase == PH_RESULT && r.result.r && !r.result.g);
     {

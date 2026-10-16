@@ -517,6 +517,9 @@ static void follow_usb(u32 now)
 
 static u32 idle_deadline(void)
 {
+    /* Offline calibration owns its timeout; the 15 s idle sleep must not
+     * interrupt the rest, sweep or result light. */
+    if (c.calibrating) return 0;
 #ifdef STAY_ON_TEST              /* a test build: the log in RAM outlives a console test */
     return 0;
 #endif
@@ -573,7 +576,7 @@ static void timeouts(u32 now)
         } else if (t >= ux_timeouts.pair_ms) stop(now);
         break;
     case CTL_CONNECTED:
-        if (battery && now - c.activity_ms >= ux_timeouts.idle_sleep_ms) shut_down(CTL_SLEEPING, now);
+        if (battery && !c.calibrating && now - c.activity_ms >= ux_timeouts.idle_sleep_ms) shut_down(CTL_SLEEPING, now);
         break;
     case CTL_STOPPING:
         if (t >= ux_timeouts.stop_max_ms) bt_abort();
@@ -751,6 +754,8 @@ static void read_input(u32 now)
         if (s == CAL_SAVE) set_cal_store(&c.cal);
         if (s == CAL_IDLE) {
             c.calibrating = 0;
+            c.activity_ms = now;
+            if (c.kind == CTL_IDLE) c.since = now;
             ux_ignore_held();
         }
         c.pad.buttons = 0;
