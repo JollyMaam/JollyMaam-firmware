@@ -255,6 +255,10 @@ void plat_unlock(void)
     local_irq_enable();
 }
 
+/* The hang watch's clock, counted by timer 2 (the profiler's), and when the
+ * main loop and the bluetooth thread last came by. */
+static volatile u32 watch_us, ctl_seen_us, bt_seen_us;
+
 u32 plat_wait(u32 deadline_ms, u32 at_us)
 {
     u32 ev;
@@ -273,6 +277,7 @@ u32 plat_wait(u32 deadline_ms, u32 at_us)
             deadline_us_set = at_us != 0;
         }
         local_irq_enable();
+        ctl_seen_us = watch_us;
         if (ev) return ev;
         os_sem_pend(&wake_sem, 100);
     }
@@ -337,6 +342,7 @@ void plat_bt_wait(u32 ms)
 {
     os_sem_pend(&bt_sem, (ms + 9) / 10);
     bt_woken = 0;
+    bt_seen_us = watch_us;
 }
 
 void plat_bt_wake(void)
@@ -409,15 +415,71 @@ static HOT void prof_count(u16 *b, u32 i)
     else prof.saturated++;
 }
 
+/* ---- hang watch -------------------------------------------------------------
+ * The same interrupt checks that the main loop still comes by: 3 s without it
+ * and the log gets what the processor was doing over the last second (task,
+ * interrupted addresses), then the pad restarts.  The log survives that. */
+
+#define WATCH_HZ      500       /* timer 2 counts to 65535 at most: 24 MHz / 500 fits */
+#define WATCH_TRIP_US 3000000u
+#define WATCH_PCS     8
+
+extern void *CurrentTCB;
+static u32 watch_pc[WATCH_PCS], watch_rets[WATCH_PCS], watch_n;
+static u32 timer2_period;
+
+static void watch(u32 pc, u32 rets, const u32 *usp)
+{
+    u32 gone, i;
+    const char *task;
+
+    watch_us += timer2_period / 24;
+    gone = watch_us - ctl_seen_us;
+    if (gone < WATCH_TRIP_US - 1000000u) {
+        watch_n = 0;
+        return;
+    }
+    watch_rets[watch_n % WATCH_PCS] = rets;
+    watch_pc[watch_n++ % WATCH_PCS] = pc;
+    if (gone < WATCH_TRIP_US) return;
+    task = CurrentTCB ? (const char *)CurrentTCB + 8 : "-";
+    util_log("hang: main loop gone %u ms, bt %u ms; task %.12s; tick at %u ms",
+             gone / 1000, (watch_us - bt_seen_us) / 1000, task, ms_now);
+    for (i = 0; i < WATCH_PCS; i += 4)
+        util_log("hang: pc %08x %08x %08x %08x", watch_pc[i], watch_pc[i + 1],
+                 watch_pc[i + 2], watch_pc[i + 3]);
+    for (i = 0; i < WATCH_PCS; i += 4)
+        util_log("hang: rets %08x %08x %08x %08x", watch_rets[i], watch_rets[i + 1],
+                 watch_rets[i + 2], watch_rets[i + 3]);
+    {   /* code addresses on the task's stack: its callers, roughly */
+        u32 found[8], n = 0;
+
+        for (i = 0; i < 96 && n < 8; i++) {
+            u32 v = usp[i];
+
+            if (v - (u32)text_code_begin < (u32)(text_code_end - text_code_begin)) found[n++] = v;
+        }
+        while (n < 8) found[n++] = 0;
+        util_log("hang: stack %08x %08x %08x %08x %08x %08x %08x %08x", found[0], found[1],
+                 found[2], found[3], found[4], found[5], found[6], found[7]);
+    }
+    p33_soft_reset();
+}
+
 ___interrupt
 static HOT void prof_isr(void)
 {
-    u32 pc, i;
+    u32 pc, rets, usp, i;
 
     __asm__ volatile("%0 = reti" : "=r"(pc));
+    __asm__ volatile("%0 = rets" : "=r"(rets));
+    __asm__ volatile("%0 = usp" : "=r"(usp));
     JL_TIMER2->CON |= BIT(14);
+    watch(pc, rets, (const u32 *)usp);
+    if (!prof.running) return;
     prof_lfsr = (prof_lfsr >> 1) ^ (-(prof_lfsr & 1u) & 0xb400u);
-    JL_TIMER2->PRD = prof_period + (prof_lfsr & 0x3ff);
+    timer2_period = prof_period + (prof_lfsr & 0x3ff);
+    JL_TIMER2->PRD = timer2_period;
     prof.samples++;
     if (pc - prof.flash_begin < (prof.flash_buckets << prof.flash_shift)) {
         prof_count(prof_flash, (pc - prof.flash_begin) >> prof.flash_shift);
@@ -439,36 +501,49 @@ static u8 shift_for(u32 size, u32 buckets)
     return s;
 }
 
+/* Before a long wait on purpose: entering the loader, powering off. */
+void plat_watch_stop(void)
+{
+    JL_TIMER2->CON = BIT(14);
+    prof.running = 0;
+}
+
+/* hz 0 stops profiling; timer 2 then runs on at WATCH_HZ for the hang watch. */
 void plat_prof_start(u16 hz, u32 zoom, u8 zoom_shift)
 {
     JL_TIMER2->CON = BIT(14);
     prof.running = 0;
-    if (!hz) return;
-    memset(&prof, 0, sizeof(prof));
-    memset(prof_flash, 0, sizeof(prof_flash));
-    memset(prof_ram, 0, sizeof(prof_ram));
-    memset(prof_rom, 0, sizeof(prof_rom));
-    prof.version = PROF_VERSION;
-    prof.hz = hz;
-    prof.flash_begin = (u32)text_code_begin;
-    prof.flash_shift = shift_for((u32)(text_code_end - text_code_begin), PROF_FLASH_BUCKETS);
-    prof.flash_buckets = PROF_FLASH_BUCKETS;
-    if (zoom) {                  /* the flash buckets over a narrower window */
-        prof.flash_begin = zoom;
-        prof.flash_shift = zoom_shift;
+    if (hz) {
+        if (hz < 400) hz = 400;  /* the period register counts to 65535 */
+        memset(&prof, 0, sizeof(prof));
+        memset(prof_flash, 0, sizeof(prof_flash));
+        memset(prof_ram, 0, sizeof(prof_ram));
+        memset(prof_rom, 0, sizeof(prof_rom));
+        prof.version = PROF_VERSION;
+        prof.hz = hz;
+        prof.flash_begin = (u32)text_code_begin;
+        prof.flash_shift = shift_for((u32)(text_code_end - text_code_begin), PROF_FLASH_BUCKETS);
+        prof.flash_buckets = PROF_FLASH_BUCKETS;
+        if (zoom) {              /* the flash buckets over a narrower window */
+            prof.flash_begin = zoom;
+            prof.flash_shift = zoom_shift;
+        }
+        prof.ram_begin = (u32)_data_code_begin;
+        prof.ram_shift = shift_for((u32)(_data_code_end - _data_code_begin), PROF_RAM_BUCKETS);
+        prof.ram_buckets = PROF_RAM_BUCKETS;
+        prof.rom_begin = PROF_ROM_BEGIN;
+        prof.rom_shift = shift_for(PROF_ROM_SIZE, PROF_ROM_BUCKETS);
+        prof.rom_buckets = PROF_ROM_BUCKETS;
+        /* 24 MHz timer clock, as the tick; the jitter adds up to 1023 counts */
+        prof_period = 24000000u / hz - 512;
+        timer2_period = prof_period;
+    } else {
+        timer2_period = 24000000u / WATCH_HZ;
     }
-    prof.ram_begin = (u32)_data_code_begin;
-    prof.ram_shift = shift_for((u32)(_data_code_end - _data_code_begin), PROF_RAM_BUCKETS);
-    prof.ram_buckets = PROF_RAM_BUCKETS;
-    prof.rom_begin = PROF_ROM_BEGIN;
-    prof.rom_shift = shift_for(PROF_ROM_SIZE, PROF_ROM_BUCKETS);
-    prof.rom_buckets = PROF_ROM_BUCKETS;
-    /* 24 MHz timer clock, as the tick; the jitter adds up to 1023 counts */
-    prof_period = 24000000u / hz - 512;
     JL_TIMER2->CNT = 0;
-    JL_TIMER2->PRD = prof_period;
+    JL_TIMER2->PRD = timer2_period;
     request_irq(IRQ_TIME2_IDX, 6, prof_isr, 0);
-    prof.running = 1;
+    prof.running = hz != 0;
     JL_TIMER2->CON = BIT(0) | BIT(3);
 }
 
@@ -650,6 +725,7 @@ static void arm_loader_token(void)
 
 void plat_enter_loader(void)
 {
+    plat_watch_stop();
     local_irq_disable();
     arm_loader_token();
     wdt_init(WDT_256MS);
@@ -661,6 +737,7 @@ void plat_enter_loader(void)
  * device. */
 void plat_reboot_loader(void)
 {
+    plat_watch_stop();
     plat_audio_off();
     board_to_loader();
     plat_mdelay(100);
@@ -805,6 +882,7 @@ static void ctl_thread(void *arg)
     board_start();
     usb_init();
     tick_start();
+    plat_prof_start(0, 0, 0);    /* the hang watch */
     util_log("tick: timer3 at %08x con %08x prd %u", (u32)JL_TIMER3, JL_TIMER3->CON, JL_TIMER3->PRD);
     hci_jieli_init();
     ctl_main();

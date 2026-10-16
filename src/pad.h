@@ -658,5 +658,6 @@ void plat_retain_slot(u8 slot);
 void plat_power_off(void);
 void plat_reboot(void);
 void plat_reboot_loader(void);
+void plat_watch_stop(void);                 /* the hang watch, before a long wait on purpose */
 
 #endif

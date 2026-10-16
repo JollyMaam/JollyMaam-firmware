@@ -526,6 +526,7 @@ void plat_power_off(void)
 {
     struct led_frame dark;
 
+    plat_watch_stop();
     plat_audio_off();
     memset(&dark, 0, sizeof(dark));
     plat_leds(&dark);
