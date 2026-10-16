@@ -566,7 +566,7 @@ static void unsniff(void)
 
 static void advertise(void)
 {
-    u8 data[31];
+    static u8 data[31];          /* BTstack keeps the pointer, not a copy */
     u8 n;
     bd_addr_t none;
 
@@ -579,8 +579,8 @@ static void advertise(void)
     memset(none, 0, sizeof(none));
     gap_advertisements_set_params(0x0020, 0x0020, 0, 0, none, 0x07, 0);
     gap_advertisements_set_data(n, data);
-    if (dev->scan_response_len)
-        gap_scan_response_set_data(dev->scan_response_len, (u8 *)dev->scan_response);
+    /* Always: the controller keeps the last session's otherwise. */
+    gap_scan_response_set_data(dev->scan_response_len, (u8 *)dev->scan_response);
     gap_advertisements_enable(1);
     util_log("bt: advertising%s", wake_adv ? " to wake" : pairing ? " to pair" : "");
 }
