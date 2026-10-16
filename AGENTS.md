@@ -74,7 +74,8 @@ padtool protocol and Linux/Windows SCSI transport. `tools/padflash.py` backs up
 and flashes images in Python using the bundled BR23 RAM loader. `jlnewfw` is
 only needed in the GUI to pack builds. Scan and load caches every device and
 pad target; edits stay pending across navigation until Apply changes. Sensor
-calibration is global; the USB trigger requires protocol 3+. Setup and host
+calibration is global; the USB trigger requires protocol 3+. Protocol 4 adds
+a read-only defaults query for Reset and default-value indicators. Setup and host
 tests: `tools/README.md`.
 
 `tools/sdlpad.c` shows what SDL makes of the gamepads it sees (build line at

@@ -32,6 +32,8 @@ class App:
         self.cache = {}
         self.nodes = {}
         self.editors = {}
+        self.indicators = []
+        self.swatches = []
         self.board = tk.StringVar(value="pad")
         self.device = tk.StringVar()
         self.target = tk.StringVar(value=pad.TARGETS[0])
@@ -199,16 +201,105 @@ class App:
                     continue
                 raw, explicit = target_values[f["name"]]
                 original = pad.show_value(f, raw)
+                defaults = record.get("defaults", {}).get(t, {})
+                default_raw = defaults[f["name"]][0] if f["name"] in defaults else None
+                if default_raw is None:
+                    known = f.get("defaults", [])
+                    index = t if f["kind"] == 0 else 0
+                    if index < len(known) and len(known[index]) == len(raw):
+                        default_raw = known[index]
+                    elif not explicit:
+                        default_raw = raw
                 var, reset = tk.StringVar(value=original), tk.BooleanVar()
-                draft[t, f["name"]] = {"field": f, "var": var, "reset": reset,
-                                        "original": original, "explicit": explicit}
-                var.trace_add("write", lambda *_: self.mark_dirty())
+                entry = {"field": f, "var": var, "reset": reset, "original": original,
+                         "original_raw": raw, "explicit": explicit, "default_raw": default_raw,
+                         "default_text": pad.show_value(f, default_raw) if default_raw is not None else None}
+                draft[t, f["name"]] = entry
+                def edited(*_, e=entry):
+                    e["reset"].set(False)
+                    self.mark_dirty()
+                var.trace_add("write", edited)
                 reset.trace_add("write", lambda *_: self.mark_dirty())
         record["draft"] = draft
         record["values"] = values
 
+    def value_bytes(self, entry):
+        text = entry["var"].get()
+        if text == entry["original"]:
+            return entry["original_raw"]
+        if entry["default_raw"] is not None and (text == entry["default_text"] or text == "default"):
+            return entry["default_raw"]
+        return pad.parse_value(entry["field"], text)
+
     def changed(self, entry):
-        return entry["reset"].get() or entry["var"].get() != entry["original"]
+        if entry["reset"].get() and entry["explicit"]:
+            return True
+        try:
+            return self.value_bytes(entry) != entry["original_raw"]
+        except (Exception, SystemExit):
+            return True
+
+    def differs_from_default(self, entry):
+        if entry["default_raw"] is None:
+            return None
+        return self.value_bytes(entry) != entry["default_raw"]
+
+    def reset_default(self, entry):
+        if entry["default_text"] is not None:
+            entry["var"].set(entry["default_text"])
+            entry["reset"].set(entry["explicit"])
+            self.mark_dirty()
+
+    def default_marker(self, parent, entry):
+        widget = ttk.Label(parent, width=2, foreground="#b46300")
+        self.indicators.append((entry, widget))
+        self.update_previews()
+        return widget
+
+    def color_preview(self, record, entry):
+        raw = self.value_bytes(entry)
+        if entry["field"]["type"] == pad.T_RGB and len(raw) == 3:
+            rgb = "#" + raw.hex()
+            return rgb, rgb
+        if entry["field"]["type"] == pad.T_COLOUR and len(raw) == 2:
+            palette, level = raw
+            if palette >= 16 or level >= 16:
+                raise ValueError("Invalid palette entry or brightness")
+            rgb = self.value_bytes(record["draft"][8, f"palette{palette}"])
+            # Same perceptual brightness table and rounding as set_colour().
+            brightness = (0, 1, 2, 3, 4, 5, 7, 10, 14, 20, 28, 40, 56, 80, 128, 255)[level]
+            dim = bytes((channel * brightness + 127) // 255 for channel in rgb)
+            return "#" + rgb.hex(), "#" + dim.hex()
+        raise ValueError("Not a colour")
+
+    def color_swatch(self, parent, record, entry):
+        swatch = tk.Canvas(parent, width=50, height=20, highlightthickness=0)
+        swatch.create_rectangle(1, 1, 25, 19, tags="colour", outline="#777777")
+        swatch.create_rectangle(25, 1, 49, 19, tags="brightness", outline="#777777")
+        swatch.create_text(25, 10, text="", tags="invalid")
+        self.swatches.append((record, entry, swatch))
+        self.update_previews()
+        return swatch
+
+    def update_previews(self):
+        self.indicators = [(e, w) for e, w in self.indicators if w.winfo_exists()]
+        for entry, widget in self.indicators:
+            try:
+                custom = self.differs_from_default(entry)
+                widget.configure(text="?" if custom is None else "*" if custom else "")
+            except (Exception, SystemExit):
+                widget.configure(text="!")
+        self.swatches = [(r, e, w) for r, e, w in self.swatches if w.winfo_exists()]
+        for record, entry, swatch in self.swatches:
+            try:
+                colour, brightness = self.color_preview(record, entry)
+                swatch.itemconfigure("colour", fill=colour)
+                swatch.itemconfigure("brightness", fill=brightness)
+                swatch.itemconfigure("invalid", text="")
+            except (Exception, SystemExit):
+                swatch.itemconfigure("colour", fill="#eeeeee")
+                swatch.itemconfigure("brightness", fill="#eeeeee")
+                swatch.itemconfigure("invalid", text="?")
 
     def dirty_count(self):
         return sum(self.changed(e) for r in self.cache.values() for e in r.get("draft", {}).values())
@@ -216,13 +307,23 @@ class App:
     def mark_dirty(self):
         count = self.dirty_count()
         self.pending.set(f"{count} pending change(s)" if count else "No pending changes")
+        self.update_previews()
         for node, (path, target) in self.nodes.items():
             record = self.cache.get(path)
             if not record or not self.tree.exists(node):
                 continue
             dirty = any(self.changed(e) for (t, name), e in record.get("draft", {}).items()
                         if target is None or target == t)
-            self.tree.item(node, tags=("dirty",) if dirty else ())
+            custom = False
+            for (t, name), entry in record.get("draft", {}).items():
+                if target is not None and target != t:
+                    continue
+                try:
+                    custom = custom or self.differs_from_default(entry) is True
+                except (Exception, SystemExit):
+                    pass
+            label = self.tree.item(node, "text").removesuffix(" *")
+            self.tree.item(node, text=label + (" *" if custom else ""), tags=("dirty",) if dirty else ())
 
     def scan(self):
         if self.dirty_count() and not messagebox.askyesno("Reload devices", "Discard pending edits and scan again?"):
@@ -234,7 +335,8 @@ class App:
                 try:
                     table = pad.fields(path) if board == "pad" else []
                     values = {t: pad.read_target(path, table, t) for t in range(len(pad.TARGETS))} if table else {}
-                    records.append({"path": path, "board": board, "name": name,
+                    defaults = {t: pad.read_target(path, table, t, defaults=True) for t in range(len(pad.TARGETS))} if table and int.from_bytes(identity[4:6], "little") >= 4 else {}
+                    records.append({"defaults": defaults, "path": path, "board": board, "name": name,
                                     "identity": identity[:40], "fields": table, "values": values,
                                     "status": pad.status(path)})
                 except (Exception, SystemExit) as error:
@@ -283,6 +385,7 @@ class App:
         else:
             self.render_overview()
             self.render_details()
+        self.mark_dirty()
 
     def select_node(self, event=None):
         if self.busy or not self.tree.selection():
@@ -332,7 +435,7 @@ class App:
         self.details_title = tk.StringVar(value="Select a slot or settings group in the tree")
         ttk.Label(bar, textvariable=self.details_title, font=("TkDefaultFont", 12, "bold")).pack(side="left")
         ttk.Checkbutton(bar, text="Developer fields", variable=self.dev, command=self.render_details).pack(side="right")
-        ttk.Label(self.settings, text="Edits are retained while browsing. Reset uses the firmware default when Apply changes is clicked.", wraplength=850).pack(anchor="w", pady=(0, 8))
+        ttk.Label(self.settings, text="* differs from default · ! invalid value · ? default unavailable. Reset fills in the default; Apply saves it.", wraplength=850).pack(anchor="w", pady=(0, 8))
         self.form = self.scroll_form(self.settings)
         bar = ttk.Frame(self.settings)
         bar.pack(fill="x", pady=(8, 0))
@@ -374,7 +477,8 @@ class App:
             ttk.Label(row, text=f"Slot {pad.TARGETS[target]}", width=12).pack(side="left")
             entry = record["draft"].get((target, "type"))
             if entry:
-                ttk.Combobox(row, textvariable=entry["var"], values=entry["field"]["names"], state="readonly", width=20).pack(side="left", padx=(0, 8))
+                ttk.Combobox(row, textvariable=entry["var"], values=entry["field"]["names"], state="readonly", width=20).pack(side="left")
+                self.default_marker(row, entry).pack(side="left", padx=(2, 6))
             ttk.Button(row, text="Settings", command=lambda t=target: self.show_target(t)).pack(side="left", padx=(0, 8))
             ttk.Button(row, text="Connect", command=lambda t=target: self.slot_action("connect", t)).pack(side="left", padx=(0, 8))
             ttk.Button(row, text="Pair…", command=lambda t=target: self.slot_action("pair", t)).pack(side="left", padx=(0, 8))
@@ -411,14 +515,22 @@ class App:
             else:
                 editor = ttk.Entry(self.form, textvariable=entry["var"], width=25)
             editor.grid(row=row, column=1, sticky="ew", padx=4)
-            ttk.Checkbutton(self.form, text="Reset", variable=entry["reset"]).grid(row=row, column=2)
-            ttk.Label(self.form, text=f["help"], wraplength=370).grid(row=row, column=3, sticky="w", padx=8)
+            if f["type"] in (pad.T_RGB, pad.T_COLOUR):
+                self.color_swatch(self.form, record, entry).grid(row=row, column=2, padx=4)
+            ttk.Button(self.form, text="Reset", width=6,
+                       state="normal" if entry["default_text"] is not None else "disabled",
+                       command=lambda e=entry: self.reset_default(e)).grid(row=row, column=3, padx=4)
+            self.default_marker(self.form, entry).grid(row=row, column=4)
+            help_text = f["help"]
+            if f["type"] == pad.T_COLOUR:
+                help_text += " (swatch: palette colour / LED brightness)"
+            ttk.Label(self.form, text=help_text, wraplength=290).grid(row=row, column=5, sticky="w", padx=8)
             self.editors[name] = entry
-        self.form.columnconfigure(3, weight=1)
+        self.form.columnconfigure(5, weight=1)
         if target < 8:
             row = len(self.editors)
             actions = ttk.Frame(self.form, padding=(0, 12))
-            actions.grid(row=row, column=0, columnspan=4, sticky="w")
+            actions.grid(row=row, column=0, columnspan=6, sticky="w")
             for action in ("connect", "pair"):
                 ttk.Button(actions, text=action.title(),
                            command=lambda a=action: self.slot_action(a, target)).pack(side="left", padx=4)
@@ -427,7 +539,7 @@ class App:
         jobs = []
         try:
             for path, record in self.cache.items():
-                items = [(t, entry["field"]["id"], b"" if entry["reset"].get() else pad.parse_value(entry["field"], entry["var"].get()))
+                items = [(t, entry["field"]["id"], b"" if entry["reset"].get() else self.value_bytes(entry))
                          for (t, name), entry in record.get("draft", {}).items() if self.changed(entry)]
                 if items:
                     jobs.append((path, record, items))

@@ -19,6 +19,7 @@
  *                         items collected (13)
  *   `0x02` LOG            CDB bytes 2–5: from sequence number; in: u32 first
  *                         sequence returned, u32 length, text
+ *   `0x27` DEFAULTS       pad only: same arguments and format as READ, no state changes
  *   `0x03` STATS          CDB byte 2 bit 0: reset after reading; in: u16
  *                         version, u16 size, `struct ctl_stats` as in memory
  *   `0x10` REBOOT         –
@@ -73,14 +74,14 @@
  * padtool.py and padgui.py (Linux/Windows SCSI) are the clients. */
 
 #define OP          0xf5
-#define PROTOCOL    3
+#define PROTOCOL    4
 
 #define STATS_VERSION 6
 
 enum { CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02, CMD_STATS = 0x03,
        CMD_REBOOT = 0x10, CMD_REBOOT_LOADER = 0x11, CMD_RELINK = 0x12, CMD_CONNECT = 0x13, CMD_PROFILE = 0x14, CMD_PEEK = 0x15, CMD_TRACE = 0x16, CMD_PAIR = 0x17, CMD_CALIBRATE = 0x18,
        CMD_FIELD = 0x20, CMD_READ = 0x21, CMD_WRITE = 0x22, CMD_COMMIT = 0x23, CMD_DROP = 0x24,
-       CMD_EPHEMERAL = 0x25, CMD_RESULT = 0x26, CMD_TARGET = 0x30 };
+       CMD_EPHEMERAL = 0x25, CMD_RESULT = 0x26, CMD_DEFAULTS = 0x27, CMD_TARGET = 0x30 };
 
 #ifdef BOARD_DONGLE
 #include "dongle.h"
@@ -195,6 +196,11 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
     case CMD_FIELD:              /* argument: field number */
         n = set_describe(util_get32(cdb + 2), data, max);
         break;
+    case CMD_DEFAULTS:           /* same packet as READ, all default values */
+#ifndef BOARD_DONGLE
+        n = set_read_defaults(cdb[2], data, max);
+#endif
+        break;
     case CMD_READ:               /* argument: target */
         n = set_read(cdb[2], data, max);
         break;
@@ -261,6 +267,7 @@ void util_put16(u8 *p, u16 v) { p[0] = (u8)v; p[1] = (u8)(v >> 8); }
 static u32 applied;
 u32 set_describe(u32 n, u8 *out, u32 max) { (void)max; out[0] = (u8)n; return n < 3 ? 8 : 0; }
 u32 set_read(u8 t, u8 *out, u32 max) { (void)max; out[1] = t; return 3; }
+u32 set_read_defaults(u8 t, u8 *out, u32 max) { return set_read(t, out, max); }
 u32 set_write(const u8 *items, u32 len, u8 *results, u32 max)
 {
     (void)max;
@@ -310,6 +317,13 @@ int main(void)
         CHECK(data[0] == STATS_VERSION && data[2] == (u8)sizeof(stats) && data[4 + 8] == 4);
         CHECK(usb_poll(&st).kind == REQ_STATS_RESET);
     }
+    cdb[1] = CMD_DEFAULTS;
+    cdb[2] = 2;
+#ifdef BOARD_DONGLE
+    CHECK(usb_command(cdb, data, sizeof(data), 0) == 0);
+#else
+    CHECK(usb_command(cdb, data, sizeof(data), 0) == 3 && data[1] == 2);
+#endif
     cdb[1] = CMD_CALIBRATE;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 0);
     r = usb_poll(&st);

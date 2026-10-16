@@ -543,9 +543,9 @@ def field_named(table, t, name):
     sys.exit(f"padtool: {TARGETS[t]} has no setting {name!r} (padtool fields)")
 
 
-def read_target(path, table, t):
+def read_target(path, table, t, defaults=False):
     """{name: (value bytes, set)} in table order."""
-    d = cmd(path, 0x21, t, 512)
+    d = cmd(path, 0x27 if defaults else 0x21, t, 512)
     count, o, by_id, out = d[2], 3, {}, {}
     for _ in range(count):
         fid, is_set, size = d[o], d[o + 1], d[o + 2]

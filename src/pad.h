@@ -397,6 +397,7 @@ void set_cal_store(const struct set_cal *cal);
 /* Over USB: */
 u32 set_describe(u32 n, u8 *out, u32 max);
 u32 set_read(u8 target, u8 *out, u32 max);
+u32 set_read_defaults(u8 target, u8 *out, u32 max); /* same format, no state changes */
 u32 set_write(const u8 *items, u32 len, u8 *results, u32 max);
 void set_apply(void);
 void set_drop(void);
@@ -572,7 +573,8 @@ struct ctl_stats {
 _Static_assert(sizeof(struct stat_hist) == 48 && sizeof(struct ctl_stats) == 272 + 4 * 48 + 32,
                "padtool reads struct ctl_stats byte for byte");
 
-/* Tool protocol 3 adds a USB request for shared sensor calibration (pad only).
+/* Tool protocol 3 adds shared sensor calibration; 4 adds read-only setting
+ * defaults (pad only).
  * Like pairing and connecting, it is queued for the controller by usb_poll(). */
 struct usb_status {
     u8 state;

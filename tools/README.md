@@ -31,8 +31,21 @@ Details contains the remaining settings and developer fields. Edits persist
 while switching slots and devices. **Apply changes** validates all edited
 values, checks device identities, then commits all pending changes once per
 device. A failure on one device does not undo a previous device's commit;
-uncommitted edits remain pending. Reset uses the firmware default. Rescanning
-or closing asks before discarding pending edits.
+uncommitted edits remain pending. Reset fills the value box with its firmware
+default and stages removal of the saved override; editing the box afterwards
+stages that new value instead. Rescanning or closing asks before discarding edits.
+
+A `*` beside a setting or tree entry means its effective value differs from the
+firmware default, including already-saved custom values. This is independent of
+the pending-changes count. Explicitly saved values equal to their default do not
+get a `*`. `!` indicates an invalid edited value; `?` means an older firmware
+could not supply the default. Protocol 4 provides full defaults for every field,
+including pairing bytes, custom curves and the calibration blob, through a
+read-only query. On older firmware, only known defaults can be reset in the GUI.
+
+Palette RGB fields show colour swatches. Slot colour references show both the
+palette colour and its LED brightness, using the firmware's brightness table.
+Swatches follow staged palette edits; there is no colour picker.
 
 Connect and Pair use saved settings, so apply a slot's pending edits first.
 Sensor calibration is global, with one **Calibrate sensors** action on the

@@ -148,6 +148,68 @@ class GuiTests(unittest.TestCase):
             self.app.slot_action("calibrate", 0)
             cmd.assert_not_called()
 
+    def test_reset_shows_default_and_later_edit_overrides_reset(self):
+        r = record()
+        r["values"][0]["rumble"] = (b"\x50", True)
+        r["defaults"] = {0: {"rumble": (b"\x64", False)}}
+        self.load([r])
+        entry = r["draft"][0, "rumble"]
+        self.assertTrue(self.app.differs_from_default(entry))
+        self.assertTrue(self.app.tree.item("device0/0", "text").endswith(" *"))
+        self.app.reset_default(entry)
+        self.assertEqual(entry["var"].get(), "100")
+        self.assertTrue(entry["reset"].get())
+        self.assertFalse(self.app.differs_from_default(entry))
+        self.assertFalse(self.app.tree.item("device0/0", "text").endswith(" *"))
+        entry["var"].set("99")
+        self.assertFalse(entry["reset"].get())
+        with patch.object(padgui.pad, "cmd", return_value=r["identity"]), \
+             patch.object(padgui.pad, "send") as send, \
+             patch.object(padgui.pad, "read_target", side_effect=lambda p, table, t: r["values"][t]):
+            self.app.apply_settings()
+            self.finish()
+            send.assert_called_once_with("fake", [(0, 2, b"\x63")])
+
+    def test_explicit_default_has_no_custom_indicator_but_reset_clears_override(self):
+        r = record()
+        r["values"][0]["rumble"] = (b"\x64", True)
+        r["defaults"] = {0: {"rumble": (b"\x64", False)}}
+        self.load([r])
+        entry = r["draft"][0, "rumble"]
+        self.assertFalse(self.app.differs_from_default(entry))
+        self.assertFalse(self.app.changed(entry))
+        self.app.reset_default(entry)
+        self.assertTrue(self.app.changed(entry))
+        with patch.object(padgui.pad, "cmd", return_value=r["identity"]), \
+             patch.object(padgui.pad, "send") as send, \
+             patch.object(padgui.pad, "read_target", side_effect=lambda p, table, t: r["values"][t]):
+            self.app.apply_settings()
+            self.finish()
+            send.assert_called_once_with("fake", [(0, 2, b"")])
+
+    def test_colour_preview_follows_staged_palette_and_brightness(self):
+        r = record()
+        r["fields"] += [
+            {"kind": 0, "id": 3, "name": "primary_colour", "type": padgui.pad.T_COLOUR,
+             "size": 2, "help": "Colour", "dev": False},
+            {"kind": 1, "id": 4, "name": "palette3", "type": padgui.pad.T_RGB,
+             "size": 3, "help": "Palette", "dev": False}]
+        r["values"][0]["primary_colour"] = (bytes([3, 15]), False)
+        r["values"][8] = {"palette3": (bytes([255, 0, 0]), False)}
+        self.load([r])
+        self.app.show_target(0)
+        colour = r["draft"][0, "primary_colour"]
+        palette = r["draft"][8, "palette3"]
+        self.assertEqual(self.app.color_preview(r, colour), ("#ff0000", "#ff0000"))
+        palette["var"].set("#00ff00")
+        self.assertEqual(self.app.color_preview(r, colour), ("#00ff00", "#00ff00"))
+        colour["var"].set("3:5")
+        self.assertEqual(self.app.color_preview(r, colour), ("#00ff00", "#000500"))
+        swatch = next(w for rec, entry, w in self.app.swatches if entry is colour and w.winfo_exists())
+        self.assertEqual(swatch.itemcget("brightness", "fill"), "#000500")
+        colour["var"].set("3:")
+        self.assertEqual(swatch.itemcget("invalid", "text"), "?")
+
     def test_flash_backup_is_required_and_cannot_overwrite_input(self):
         import tempfile
         from pathlib import Path

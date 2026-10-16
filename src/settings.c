@@ -271,21 +271,28 @@ static void touch(u8 t)
     changed_ms = plat_ms();
 }
 
+/* The reset path and read-only USB defaults query share these bytes. */
+static void default_value(u8 t, const struct set_field *f, u8 *out)
+{
+    u32 def = f->def[t < SLOTS ? t : 0];
+
+    memset(out, 0, f->size);
+    memcpy(out, &def, f->size < 4 ? f->size : 4);
+    if (t < SLOTS && (f->id == ID_LEFT_POINTS || f->id == ID_RIGHT_POINTS))
+        memcpy(out, linear_points, sizeof(linear_points));
+}
+
 /* A field back to its default (len 0) or set to v. */
 static void put(u8 t, const struct set_field *f, u32 bit, const u8 *v, u32 len)
 {
     u8 *p = values_of(t) + f->offset;
-    u32 def = f->def[t < SLOTS ? t : 0];
 
     if (len) {
         memset(p, 0, f->size);
         memcpy(p, v, len < f->size ? len : f->size);
         set_bits[t] |= 1u << bit;
     } else {
-        memset(p, 0, f->size);
-        memcpy(p, &def, f->size < 4 ? f->size : 4);
-        if (t < SLOTS && (f->id == ID_LEFT_POINTS || f->id == ID_RIGHT_POINTS))
-            memcpy(p, linear_points, sizeof(linear_points));
+        default_value(t, f, p);
         set_bits[t] &= ~(1u << bit);
     }
 }
@@ -655,7 +662,7 @@ u32 set_describe(u32 n, u8 *out, u32 max)
 
 /* [0] version [1] target [2] field count, then per field: id, set (0/1),
  * len, value. */
-u32 set_read(u8 t, u8 *out, u32 max)
+static u32 read_values(u8 t, u8 *out, u32 max, int defaults)
 {
     u32 n, i, o = 3;
     const struct set_field *f;
@@ -665,9 +672,10 @@ u32 set_read(u8 t, u8 *out, u32 max)
     for (i = 0; i < n; i++) {
         if (o + 3u + f[i].size > max) return 0;
         out[o] = f[i].id;
-        out[o + 1] = (set_bits[t] >> i) & 1;
+        out[o + 1] = defaults ? 0 : (set_bits[t] >> i) & 1;
         out[o + 2] = f[i].size;
-        memcpy(out + o + 3, values_of(t) + f[i].offset, f[i].size);
+        if (defaults) default_value(t, &f[i], out + o + 3);
+        else memcpy(out + o + 3, values_of(t) + f[i].offset, f[i].size);
         o += 3u + f[i].size;
     }
     out[0] = VERSION;
@@ -675,6 +683,9 @@ u32 set_read(u8 t, u8 *out, u32 max)
     out[2] = (u8)n;
     return o;
 }
+
+u32 set_read(u8 t, u8 *out, u32 max) { return read_values(t, out, max, 0); }
+u32 set_read_defaults(u8 t, u8 *out, u32 max) { return read_values(t, out, max, 1); }
 
 #ifdef UNITTEST
 static u8 store[KEYS][RECORD_MAX];
@@ -768,6 +779,22 @@ int main(void)
     read_size = RECORD_MAX;
     CHECK(set_slot(1)->rumble == 60 && set_slot(1)->stick_speed == 3000);
     CHECK(set_slot(0)->rumble == 100);
+    {
+        u8 defaults[512], current[512], again[512];
+        u32 size = set_read(1, current, sizeof(current));
+        CHECK(set_read_defaults(1, defaults, sizeof(defaults)) == size);
+        CHECK(set_read(1, again, sizeof(again)) == size && !memcmp(current, again, size));
+        u32 at = 3;
+        for (u32 i = 0; i < defaults[2]; i++) {
+            CHECK(defaults[at + 1] == 0);
+            if (defaults[at] == 7) CHECK(defaults[at + 3] == 100);
+            if (defaults[at] == ID_LEFT_POINTS)
+                CHECK(!memcmp(defaults + at + 3, linear_points, sizeof(linear_points)));
+            at += 3 + defaults[at + 2];
+        }
+        CHECK(set_read_defaults(TARGETS, defaults, sizeof(defaults)) == 0);
+        CHECK(set_read_defaults(0, defaults, 3) == 0);
+    }
     CHECK(write1(1, 7, 0, NULL) == SET_OK);
     set_apply();
     CHECK(set_slot(1)->rumble == 100 && set_slot(1)->stick_speed == 3000);
