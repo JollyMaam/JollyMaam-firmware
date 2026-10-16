@@ -69,6 +69,10 @@ or ending the session brings the tool device back.  A test build that ends
 USB sessions by itself: `make BOARD_DEFINES_pad=-DUSB_SESSION_TEST_MS=12000`
 (a change of `BOARD_DEFINES` rebuilds everything).
 
+`tools/padgui.py` is the Tkinter GUI (`python tools/padgui.py`), sharing the
+padtool protocol and Linux/Windows SCSI transport. It calls `jlnewfw` for flash
+backup and installation. Setup and host GUI tests: `tools/README.md`.
+
 `tools/sdlpad.c` shows what SDL makes of the gamepads it sees (build line at
 its top).  In this container SDL needs the nodes from `/dev/bwrap` under
 `/dev/input` and `/dev`: `SDL_JOYSTICK_DISABLE_UDEV=1 unshare -rm

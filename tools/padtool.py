@@ -47,46 +47,13 @@ bytes; "default" puts a field back to its default.
 The pad is a mass-storage device with no medium; commands are vendor SCSI
 CDBs (see the comment at the top of src/usb.c).  Flashing is tools/jlnewfw.c's (make flash).
 """
-import argparse, collections, ctypes, fcntl, glob, json, os, struct, sys, time
+import argparse, collections, glob, json, os, struct, sys, time
+from padtransport import scsi, device_paths
+if sys.platform == "linux":
+    import fcntl
 
 OP = 0xF5
 STATES = ["boot", "idle", "connecting", "pairing", "connected", "stopping", "sleeping", "rebooting"]
-
-
-class SgIoHdr(ctypes.Structure):
-    _fields_ = [
-        ("interface_id", ctypes.c_int), ("dxfer_direction", ctypes.c_int),
-        ("cmd_len", ctypes.c_ubyte), ("mx_sb_len", ctypes.c_ubyte),
-        ("iovec_count", ctypes.c_short), ("dxfer_len", ctypes.c_uint),
-        ("dxferp", ctypes.c_void_p), ("cmdp", ctypes.c_void_p), ("sbp", ctypes.c_void_p),
-        ("timeout", ctypes.c_uint), ("flags", ctypes.c_uint), ("pack_id", ctypes.c_int),
-        ("usr_ptr", ctypes.c_void_p), ("status", ctypes.c_ubyte), ("masked_status", ctypes.c_ubyte),
-        ("msg_status", ctypes.c_ubyte), ("sb_len_wr", ctypes.c_ubyte),
-        ("host_status", ctypes.c_ushort), ("driver_status", ctypes.c_ushort),
-        ("resid", ctypes.c_int), ("duration", ctypes.c_uint), ("info", ctypes.c_uint),
-    ]
-
-
-def scsi(path, cdb, length, timeout_ms=3000, out=None):
-    """Run one command: data in (length bytes, returned), or out (bytes sent)."""
-    cdb = bytes(cdb).ljust(16, b"\0")
-    if out is not None:
-        length = len(out)
-    buf = ctypes.create_string_buffer(bytes(out) if out else b"", max(length, 1))
-    sense = ctypes.create_string_buffer(32)
-    cmd = ctypes.create_string_buffer(cdb, 16)
-    direction = -1 if not length else -2 if out is not None else -3
-    h = SgIoHdr(interface_id=ord("S"), dxfer_direction=direction, cmd_len=16,
-                mx_sb_len=32, dxfer_len=length, dxferp=ctypes.addressof(buf),
-                cmdp=ctypes.addressof(cmd), sbp=ctypes.addressof(sense), timeout=timeout_ms)
-    fd = os.open(path, os.O_RDWR)
-    try:
-        fcntl.ioctl(fd, 0x2285, h)
-    finally:
-        os.close(fd)
-    if h.status or h.host_status or h.driver_status & ~0x8:
-        raise OSError(f"{path}: SCSI status {h.status} host {h.host_status} driver {h.driver_status}")
-    return buf.raw[:length - h.resid] if length and out is None else b""
 
 
 def inquiry(path):
@@ -102,9 +69,9 @@ def devices(first=False):
     the first one only, so a stuck device later in the list (each probe of
     one takes the kernel's error handling, ~18 s) is not touched."""
     found = []
-    for path in sorted(set(glob.glob("/dev/sg*") + glob.glob("/dev/bwrap/sg*"))):
+    for path in device_paths():
         name = inquiry(path)
-        if name and "UBOOT" not in name:
+        if name and name.startswith("BR23") and "UBOOT" not in name:
             try:
                 d = scsi(path, [OP, 0x00], 64, 1000)
                 if len(d) >= 40 and d[:4] == b"C2PD" and d[6] == BOARD_IDS[BOARD]:
@@ -735,6 +702,8 @@ def keep(path):
 def tool(paths):
     """Feature report 0xf5 "tool": a USB personality (src/pad.h) ends and the
     tool device comes back.  Only our firmware knows it; others refuse it."""
+    if sys.platform != "linux":
+        raise OSError("Tool-mode switching via HID is currently Linux-only; end the USB session on the pad first")
     report = b"\xf5tool"
     hidiocsfeature = 0xC0004806 | (len(report) << 16)
     if not paths:

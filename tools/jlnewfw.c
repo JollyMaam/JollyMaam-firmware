@@ -430,7 +430,11 @@ static void descramble_bankcb(uint8_t *p, size_t n) {
   }
 }
 static void ensure_dir(const char *p) {
+#ifdef _WIN32
+  if (mkdir(p) && errno != EEXIST)
+#else
   if (mkdir(p, 0777) && errno != EEXIST)
+#endif
     die_errno(p);
 }
 static void path_join(char *out, size_t n, const char *dir, const char *name) {
@@ -1070,8 +1074,9 @@ static void cmd_pack(int argc, char **argv) {
  * command (protocol as worked out by kagaimiq's jl-uboot-tool).  The loader
  * blob is the SDK's (cpu/br23/tools/br23loader.bin; --loader or
  * JLNEWFW_LOADER); jl-uboot-tool's older, smaller one works too.  Linux SCSI
- * generic only. */
+ * generic or Windows SCSI pass-through. */
 
+#if defined(__linux__) || defined(_WIN32)
 #ifdef __linux__
 #include <dirent.h>
 #include <fcntl.h>
@@ -1080,12 +1085,67 @@ static void cmd_pack(int argc, char **argv) {
 #include <time.h>
 #include <unistd.h>
 
+#else
+#include <windows.h>
+#include <winioctl.h>
+#include <ntddscsi.h>
+#include <time.h>
+#define SG_DXFER_NONE 0
+#define SG_DXFER_TO_DEV 1
+#define SG_DXFER_FROM_DEV 2
+#endif
+
+static void dev_sleep(unsigned ms) {
+#ifdef _WIN32
+  Sleep(ms);
+#else
+  nanosleep(&(struct timespec){ms / 1000, (ms % 1000) * 1000000L}, NULL);
+#endif
+}
+
+typedef intptr_t device_fd;
+static device_fd dev_open(const char *path) {
+#ifdef _WIN32
+  HANDLE h = CreateFileA(path, GENERIC_READ | GENERIC_WRITE,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+  return h == INVALID_HANDLE_VALUE ? -1 : (device_fd)h;
+#else
+  return open(path, O_RDWR);
+#endif
+}
+static void dev_close(device_fd fd) {
+#ifdef _WIN32
+  CloseHandle((HANDLE)fd);
+#else
+  close((int)fd);
+#endif
+}
+/* Inquiry only during enumeration; vendor commands require a matched identity. */
+static size_t device_paths(char paths[256][300]) {
+  size_t n = 0;
+#ifdef _WIN32
+  for (unsigned i = 0; i < 64; i++)
+    snprintf(paths[n++], 300, "\\\\.\\PhysicalDrive%u", i);
+#else
+  static const char *const dirs[] = {"/dev", "/dev/bwrap"};
+  for (size_t i = 0; i < 2; i++) {
+    DIR *dir = opendir(dirs[i]);
+    struct dirent *e;
+    while (dir && (e = readdir(dir)) && n < 256)
+      if (!strncmp(e->d_name, "sg", 2))
+        snprintf(paths[n++], 300, "%s/%s", dirs[i], e->d_name);
+    if (dir) closedir(dir);
+  }
+#endif
+  return n;
+}
+
 #define LOADER_ADDRESS 0x12000 /* BR23 */
 #define LOADER_BLOCK 512
 #define LOADER_ARG 1 /* target: SPI NOR */
 
 struct dev {
-  int fd;
+  device_fd fd;
   const char *path;
   uint32_t io;         /* largest flash transfer */
   uint16_t key;        /* chip key */
@@ -1093,8 +1153,34 @@ struct dev {
   uint32_t flash_id;
 };
 
-static bool sg(int fd, const uint8_t *cdb, int len, int dir, uint8_t *data,
+static bool sg(device_fd fd, const uint8_t *cdb, int len, int dir, uint8_t *data,
                uint32_t n, unsigned timeout_ms) {
+#ifdef _WIN32
+  /* Buffered pass-through avoids application buffer alignment constraints. */
+  size_t offset = sizeof(SCSI_PASS_THROUGH) + 32;
+  size_t total = offset + n;
+  uint8_t *packet = calloc(1, total);
+  if (!packet) return false;
+  SCSI_PASS_THROUGH *h = (SCSI_PASS_THROUGH *)packet;
+  h->Length = sizeof *h;
+  h->CdbLength = (UCHAR)len;
+  h->SenseInfoLength = 32;
+  h->SenseInfoOffset = sizeof *h;
+  h->DataIn = !n ? SCSI_IOCTL_DATA_UNSPECIFIED :
+              dir == SG_DXFER_FROM_DEV ? SCSI_IOCTL_DATA_IN : SCSI_IOCTL_DATA_OUT;
+  h->DataTransferLength = n;
+  h->TimeOutValue = (timeout_ms + 999) / 1000;
+  h->DataBufferOffset = offset;
+  memcpy(h->Cdb, cdb, len);
+  if (n && dir == SG_DXFER_TO_DEV) memcpy(packet + offset, data, n);
+  DWORD got;
+  bool ok = DeviceIoControl((HANDLE)fd, IOCTL_SCSI_PASS_THROUGH,
+                             packet, (DWORD)total, packet, (DWORD)total, &got, NULL) &&
+            !h->ScsiStatus && h->DataTransferLength == n;
+  if (ok && n && dir == SG_DXFER_FROM_DEV) memcpy(data, packet + offset, n);
+  free(packet);
+  return ok;
+#else
   uint8_t sense[32];
   sg_io_hdr_t h = {0};
   h.interface_id = 'S';
@@ -1117,8 +1203,10 @@ static bool sg(int fd, const uint8_t *cdb, int len, int dir, uint8_t *data,
     fprintf(stderr, "\n");
   }
   return r == 0 && (h.info & SG_INFO_OK_MASK) == SG_INFO_OK;
+#endif
 }
-static bool inquiry(int fd, char product[17]) {
+
+static bool inquiry(device_fd fd, char product[17]) {
   uint8_t cdb[6] = {0x12, 0, 0, 0, 36, 0}, d[36];
   if (!sg(fd, cdb, 6, SG_DXFER_FROM_DEV, d, 36, 2000))
     return false;
@@ -1203,74 +1291,60 @@ static void crc_cipher(uint8_t *p, size_t n, uint32_t key) {
 /* IDENTIFY byte 6 distinguishes our pad and dongle builds. Keep firmware for
  * the other board running; stock firmware is selected by PID in the loader. */
 static void enter_loaders(const char *device, const char *want) {
-  static const char *const dirs[] = {"/dev", "/dev/bwrap"};
-  for (size_t i = 0; i < 2; i++) {
-    DIR *dir = opendir(dirs[i]);
-    struct dirent *e;
-    while (dir && (e = readdir(dir))) {
-      char path[300], product[17];
-      uint8_t cdb[6] = {0x12, 0, 0, 0, 36, 0}, q[36], r[16];
-      if (strncmp(e->d_name, "sg", 2))
-        continue;
-      snprintf(path, sizeof path, "%s/%s", dirs[i], e->d_name);
-      if (device && strcmp(device, path))
-        continue;
-      int fd = open(path, O_RDWR);
-      if (fd < 0)
-        continue;
-      if (sg(fd, cdb, 6, SG_DXFER_FROM_DEV, q, 36, 2000) &&
-          !memcmp(q + 8, "BR23", 4)) {
-        memcpy(product, q + 16, 16);
-        product[16] = 0;
-        if (strncmp(product, "UBOOT", 5)) {
-          uint8_t id[16] = {0xf5, 0x00}, ident[40] = {0};
-          if (want && sg(fd, id, 16, SG_DXFER_FROM_DEV, ident, sizeof ident, 2000) &&
-              !memcmp(ident, "C2PD", 4) &&
-              ident[6] != (strcmp(want, "GS_C2_Dongle") ? 0 : 1)) {
-            printf("%s: our firmware for the other board, left running\n", path);
-            close(fd);
-            continue;
-          }
-          uint8_t c[16];
-          memset(c, 0xff, 16);
-          c[0] = 0xfc, c[1] = 0x0a; /* online device: any loader command */
-          printf("%s: asking it to restart into its ROM loader\n", path);
-          sg(fd, c, 16, SG_DXFER_FROM_DEV, r, 16, 2000);
+  char paths[256][300];
+  size_t n = device_paths(paths);
+  for (size_t i = 0; i < n; i++) {
+    const char *path = paths[i];
+    char product[17];
+    uint8_t cdb[6] = {0x12, 0, 0, 0, 36, 0}, q[36], r[16];
+    if (device && strcmp(device, path))
+      continue;
+    device_fd fd = dev_open(path);
+    if (fd < 0)
+      continue;
+    if (sg(fd, cdb, 6, SG_DXFER_FROM_DEV, q, 36, 2000) &&
+        !memcmp(q + 8, "BR23", 4)) {
+      memcpy(product, q + 16, 16);
+      product[16] = 0;
+      if (strncmp(product, "UBOOT", 5)) {
+        uint8_t id[16] = {0xf5, 0x00}, ident[40] = {0};
+        if (want && sg(fd, id, 16, SG_DXFER_FROM_DEV, ident, sizeof ident, 2000) &&
+            !memcmp(ident, "C2PD", 4) &&
+            ident[6] != (strcmp(want, "GS_C2_Dongle") ? 0 : 1)) {
+          printf("%s: our firmware for the other board, left running\n", path);
+          dev_close(fd);
+          continue;
         }
+        uint8_t c[16];
+        memset(c, 0xff, 16);
+        c[0] = 0xfc, c[1] = 0x0a; /* online device: any loader command */
+        printf("%s: asking it to restart into its ROM loader\n", path);
+        sg(fd, c, 16, SG_DXFER_FROM_DEV, r, 16, 2000);
       }
-      close(fd);
     }
-    if (dir)
-      closedir(dir);
+    dev_close(fd);
   }
 }
 
 static bool open_dev(struct dev *d, const char *path) {
   char product[17];
-  d->fd = open(path, O_RDWR);
+  d->fd = dev_open(path);
   d->path = path;
   if (d->fd < 0)
     return false;
   if (inquiry(d->fd, product) && !strncmp(product, "UBOOT", 5))
     return true;
-  close(d->fd);
+  dev_close(d->fd);
   return false;
 }
 /* The ROM loaders (UBOOT1.00) on the system, by path. */
 static size_t scan_dev(struct dev *d, char found[8][300]) {
-  static const char *const dirs[] = {"/dev", "/dev/bwrap"};
-  size_t nf = 0;
-  for (size_t i = 0; i < 2; i++) {
-    DIR *dir = opendir(dirs[i]);
-    struct dirent *e;
-    while (dir && (e = readdir(dir)))
-      if (!strncmp(e->d_name, "sg", 2) && nf < 8) {
-        snprintf(found[nf], sizeof found[nf], "%s/%s", dirs[i], e->d_name);
-        if (open_dev(d, found[nf]))
-          close(d->fd), nf++;
-      }
-    if (dir)
-      closedir(dir);
+  char paths[256][300];
+  size_t n = device_paths(paths), nf = 0;
+  for (size_t i = 0; i < n && nf < 8; i++) {
+    strcpy(found[nf], paths[i]);
+    if (open_dev(d, found[nf]))
+      dev_close(d->fd), nf++;
   }
   return nf;
 }
@@ -1309,7 +1383,7 @@ static void start_loader(struct dev *d, const char *loader) {
   uint8_t r[14];
   bool up = false;
   for (int i = 0; i < 20 && !(up = jl_exec(d, 0xfc0a, NULL, 0, r)); i++)
-    nanosleep(&(struct timespec){0, 100000000}, NULL);
+    dev_sleep(100);
   if (!up)
     die("the loader does not answer");
   d->flash_id = r[2] | (uint32_t)r[3] << 8 | (uint32_t)r[4] << 16;
@@ -1366,7 +1440,7 @@ static bool image_ident(const uint8_t *p, size_t n, char pid[17], uint16_t *key)
 }
 
 struct flash_opts {
-  const char *device, *loader, *backup;
+  const char *device, *loader, *backup, *pid;
   unsigned wait;
   bool force_pid, force_key, dry_run, enter_loader;
   struct copy keep[16]; /* from the device: .to and .len */
@@ -1388,6 +1462,8 @@ static bool flash_arg(struct flash_opts *o, int argc, char **argv, int *i) {
     o->device = argv[++*i];
   else if (!strcmp(a, "--loader"))
     o->loader = argv[++*i];
+  else if (!strcmp(a, "--pid"))
+    o->pid = argv[++*i];
   else if (!strcmp(a, "--backup"))
     o->backup = argv[++*i];
   else if (!strcmp(a, "--wait"))
@@ -1432,7 +1508,7 @@ static void select_dev(struct dev *out, const struct flash_opts *o,
         break;
       if (t >= o->wait * 2)
         die("the device is not a JieLi ROM loader (UBOOT1.00)");
-      nanosleep(&(struct timespec){0, 500000000}, NULL);
+      dev_sleep(500);
     }
     start_loader(out, o->loader);
     return;
@@ -1473,7 +1549,7 @@ static void select_dev(struct dev *out, const struct flash_opts *o,
       *out = seen[pick].d;
       for (size_t j = 0; j < ns; j++)
         if (j != pick)
-          close(seen[j].d.fd);
+          dev_close(seen[j].d.fd);
       return;
     }
     if (t >= o->wait * 2) {
@@ -1485,7 +1561,7 @@ static void select_dev(struct dev *out, const struct flash_opts *o,
     }
     if (!t && o->wait)
       printf("waiting up to %u s for a ROM loader holding %s\n", o->wait, want);
-    nanosleep(&(struct timespec){0, 500000000}, NULL);
+    dev_sleep(500);
   }
 }
 
@@ -1573,6 +1649,35 @@ static void flash_image(struct dev *d, const struct flash_opts *o,
   free(w);
 }
 
+/* Full raw backup; requires an explicit board PID or device path. */
+static void cmd_backup(int argc, char **argv) {
+  struct flash_opts o = {0};
+  const char *output = NULL;
+  for (int i = 0; i < argc; i++) {
+    if (flash_arg(&o, argc, argv, &i)) continue;
+    else if (argv[i][0] != '-' && !output) output = argv[i];
+    else die("backup: unexpected argument");
+  }
+  const char *pid = o.pid;
+  if (!output || (!pid && !o.device))
+    die("usage: jlnewfw backup --pid PID [FLASH OPTIONS] OUTPUT");
+  if (pid && strcmp(pid, "GS_C2_ADC_DEVICE") && strcmp(pid, "GS_C2_Dongle"))
+    die("backup: unsupported board PID");
+  struct dev d;
+  select_dev(&d, &o, pid ? pid : "");
+  if (pid) {
+    char have[17];
+    device_pid(&d, have);
+    if (strcmp(pid, have)) die("backup: board PID mismatch");
+  }
+  uint8_t *all = malloc(d.flash_size);
+  if (!all || !flash_read(&d, 0, all, d.flash_size)) die("backup: flash read failed");
+  write_file(output, all, d.flash_size);
+  printf("backup: %s (%u bytes); reconnect USB to leave the loader\n", output, d.flash_size);
+  free(all);
+  dev_close(d.fd);
+}
+
 static void cmd_flash(int argc, char **argv) {
   struct flash_opts o = {0};
   const char *image = NULL;
@@ -1586,10 +1691,12 @@ static void cmd_flash(int argc, char **argv) {
   if (!image)
     die("usage: jlnewfw flash [options] IMAGE");
   size_t n;
-  uint8_t *data = read_file(image, &n);
+  uint8_t *data = load_image(image, &n);
   char want[17];
   if (!image_ident(data, n, want, NULL))
     die("no flash header in what is to be written");
+  if (o.pid && strcmp(o.pid, want))
+    die("image PID does not match the selected board");
   struct dev d = {0};
   select_dev(&d, &o, want);
   flash_image(&d, &o, data, n);
@@ -1613,6 +1720,8 @@ static void cmd_flashpack(int argc, char **argv) {
   load_config(&c, p.ini);
   char want[17];
   snprintf(want, sizeof want, "%s", cfg(&c, "EXTRA_CFG_PARAM", "PID", ""));
+  if (o.pid && strcmp(o.pid, want))
+    die("image PID does not match the selected board");
   struct dev d = {0};
   select_dev(&d, &o, want);
   if (!p.have_key)
@@ -1625,9 +1734,10 @@ static void cmd_flashpack(int argc, char **argv) {
 #else
 static void cmd_flash(int argc, char **argv) {
   (void)argc, (void)argv;
-  die("flash: only on Linux (SCSI generic) so far");
+  die("device access supports Linux and Windows");
 }
 static void cmd_flashpack(int argc, char **argv) { cmd_flash(argc, argv); }
+static void cmd_backup(int argc, char **argv) { cmd_flash(argc, argv); }
 #endif
 
 static void usage(void) {
@@ -1641,9 +1751,10 @@ static void usage(void) {
       "               [-r RESOURCE]... [-k KEY] [--flash-size SIZE] "
       "[--code-limit ADDR]\n"
       "               [--at ADDR] [--mark VALUE] [--copy FROM:TO:LEN]...\n"
+      "  jlnewfw backup --pid PID [FLASH OPTIONS] OUTPUT\n"
       "  jlnewfw flash [FLASH OPTIONS] IMAGE\n"
       "  jlnewfw flashpack [PACK OPTIONS] [FLASH OPTIONS] [app.bin ...]\n"
-      "FLASH OPTIONS: [--device /dev/sgN] [--loader SDK/cpu/br23/tools/br23loader.bin] "
+      "FLASH OPTIONS: [--pid PID] [--device PATH] [--loader SDK/cpu/br23/tools/br23loader.bin] "
       "[--backup FILE]\n"
       "               [--keep ADDR:LEN]... [--force-pid] [--force-key] "
       "[--dry-run]\n"
@@ -1677,6 +1788,11 @@ int main(int argc, char **argv) {
   }
   if (!strcmp(argv[1], "pack")) {
     cmd_pack(argc - 2, argv + 2);
+    return 0;
+  }
+  setvbuf(stdout, NULL, _IOLBF, 0);
+  if (!strcmp(argv[1], "backup")) {
+    cmd_backup(argc - 2, argv + 2);
     return 0;
   }
   if (!strcmp(argv[1], "flash")) {
