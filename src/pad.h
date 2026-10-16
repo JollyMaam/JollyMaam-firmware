@@ -198,13 +198,13 @@ struct bt_write {
 };
 
 enum { BT_EV_NONE, BT_EV_LINKED, BT_EV_UNLINKED, BT_EV_FAILED, BT_EV_STOPPED,
-       BT_EV_PEER, BT_EV_BONDED, BT_EV_WRITE };
+       BT_EV_PEER, BT_EV_BONDED, BT_EV_PAIRED, BT_EV_WRITE };
 
 struct bt_ev {
     u8 kind;
     u8 lost;                     /* BT_EV_UNLINKED: the signal went, not the host */
     u8 reason;                   /* HCI disconnect reason */
-    struct bt_bond bond;         /* BT_EV_PEER, BT_EV_BONDED */
+    struct bt_bond bond;         /* BT_EV_PEER, BT_EV_BONDED, BT_EV_PAIRED */
     struct bt_write write;       /* BT_EV_WRITE */
 };
 
@@ -375,9 +375,9 @@ const struct set_slot *set_slot(u8 slot);
 struct rgb set_colour(struct colour c);
 const struct bt_bond *set_bond(u8 slot);
 void set_bond_store(u8 slot, const struct bt_bond *bond);
-void set_bond_forget(u8 slot);
 void set_slot_address(u8 slot, u8 out[6]);
-void set_slot_new_address(u8 slot);
+void set_slot_new_address(u8 slot, u8 out[6]);
+void set_pairing_store(u8 slot, const u8 address[6], const struct bt_bond *bond);
 const struct set_cal *set_cal(void);
 void set_cal_store(const struct set_cal *cal);
 /* Over USB: */

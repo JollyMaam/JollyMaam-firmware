@@ -12,7 +12,7 @@
     padtool reboot | loader       restart; restart into the ROM loader (for
                                   jlnewfw flash)
     padtool connect [SLOT]        connect a slot (default: the last), as Home does
-    padtool pair SLOT             forget the slot's host and make it pairable
+    padtool pair SLOT             make the slot pairable; its host is replaced once one pairs
                                   (same address)
     padtool profile [ZOOM [SHIFT]] [-w SECONDS] [--hz N] [--top N] [--elf FILE]
                                   sample where the CPU runs for SECONDS (10) at

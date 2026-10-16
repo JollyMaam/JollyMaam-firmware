@@ -437,12 +437,6 @@ void set_bond_store(u8 slot, const struct bt_bond *bond)
     touch(slot % SLOTS);
 }
 
-void set_bond_forget(u8 slot)
-{
-    clear(slot % SLOTS, ID_BOND);
-    touch(slot % SLOTS);
-}
-
 static u32 fnv1a(u32 h, const u8 *d, u32 n)
 {
     while (n--) h = (h ^ *d++) * 16777619u;
@@ -472,22 +466,29 @@ void set_slot_address(u8 slot, u8 out[6])
     out[5] = (u8)((out[5] | 0x02) & 0xfe);
 }
 
-/* A new address for the slot: a host that still holds a key for the old one
- * sees a pad it has never met. */
-void set_slot_new_address(u8 slot)
+/* A new address for the slot, not stored: a host that still holds a key for
+ * the old one sees a pad it has never met. */
+void set_slot_new_address(u8 slot, u8 out[6])
+{
+    u32 h;
+
+    set_slot_address(slot, out);
+    h = fnv1a(fnv1a(2166136261u, out, 6), out, 6) ^ plat_ms();
+    out[0] = (u8)h;
+    out[1] = (u8)(h >> 8);
+    out[2] = (u8)(h >> 16);
+}
+
+/* A pairing that succeeded: the address it ran at and its bond, together.
+ * Until then the slot keeps its old ones. */
+void set_pairing_store(u8 slot, const u8 address[6], const struct bt_bond *bond)
 {
     u32 bit;
     const struct set_field *f = find(slot % SLOTS, ID_ADDRESS, &bit);
-    u8 a[6];
-    u32 h;
 
-    set_slot_address(slot, a);
-    h = fnv1a(fnv1a(2166136261u, a, 6), a, 6) ^ plat_ms();
-    a[0] = (u8)h;
-    a[1] = (u8)(h >> 8);
-    a[2] = (u8)(h >> 16);
-    put(slot % SLOTS, f, bit, a, 6);
+    put(slot % SLOTS, f, bit, address, 6);
     touch(slot % SLOTS);
+    set_bond_store(slot, bond);
 }
 
 const struct set_cal *set_cal(void)
@@ -698,7 +699,7 @@ static u32 write1(u8 t, u8 id, u8 len, const void *v)
 
 int main(void)
 {
-    u8 buf[512], a[6], b[6];
+    u8 buf[512], a[6], b[6], n[6];
     struct bt_bond bond;
     u8 x;
     u16 speed = 3000, huge = 60000;
@@ -824,6 +825,14 @@ int main(void)
     set_apply();
     set_slot_address(0, b);
     CHECK(!memcmp(a, b, 6));
+    /* A new address is only a candidate; a pairing stores it with its bond. */
+    set_slot_new_address(0, b);
+    CHECK(memcmp(a, b, 6));
+    set_slot_address(0, n);
+    CHECK(!memcmp(a, n, 6));
+    set_pairing_store(0, b, &bond);
+    set_slot_address(0, n);
+    CHECK(!memcmp(b, n, 6) && set_bond(0)->peer[0] == 0x11);
 
     /* Through the dongle the host stays when the type changes; moving to or
      * from the dongle is a new host.  A dongle slot's address ignores its type. */

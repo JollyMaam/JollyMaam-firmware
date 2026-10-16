@@ -41,6 +41,8 @@ static struct {
     u32 usb_unready_ms;          /* CONNECTED on USB: when the host unconfigured us, 0: it has not */
     u32 wake_next;
     struct profile_session sess;
+    u8 pair_pending;             /* pairing: the slot keeps its old address and bond until the host pairs */
+    struct bt_bond pair_bond;    /* what the pairing has so far */
     u8 radio_pending;            /* the session's radio waits for the last one's BT_EV_STOPPED */
     u8 to_loader;
     u8 uboot_chord;
@@ -151,6 +153,29 @@ static int wants_usb(const struct set_slot *set, const struct profile *p)
 
 static void handle(struct ctl_request r, u32 now);
 
+/* The slot's bond as this session knows it. */
+static const struct bt_bond *session_bond(void)
+{
+    return c.pair_pending ? &c.pair_bond : set_bond(c.slot);
+}
+
+/* A pairing keeps what it learns to itself until the host has paired; then
+ * the session's address and the bond replace the slot's. */
+static void bond_update(const struct bt_bond *b, int paired)
+{
+    if (c.slot >= SLOTS) return;
+    if (!c.pair_pending) {
+        set_bond_store(c.slot, b);
+        return;
+    }
+    c.pair_bond = *b;
+    if (!paired) return;
+    c.pair_pending = 0;
+    set_pairing_store(c.slot, c.sess.address, b);
+    c.sess.bond = set_bond(c.slot);
+    util_log("slot %u paired: address and bond stored", c.slot);
+}
+
 /* The radio is down: the session is over. */
 static void stopped(u32 now)
 {
@@ -193,15 +218,14 @@ static void start_session(struct ctl_request r, u32 now)
     usb = wants_usb(set, p);
     if (usb) pairing = 0;        /* a cable needs none; keep the radio's bond */
     else if (set->transport == TRANSPORT_DONGLE) p = &profile_link;
-    if (pairing) {
-        set_bond_forget(r.slot);
-        if (r.generate_new_address) set_slot_new_address(r.slot);
-    }
     memset(&s, 0, sizeof(s));
     s.slot = r.slot;
     s.pairing = (u8)pairing;
-    set_slot_address(r.slot, s.address);
-    s.bond = set_bond(r.slot);
+    if (pairing && r.generate_new_address) set_slot_new_address(r.slot, s.address);
+    else set_slot_address(r.slot, s.address);
+    memset(&c.pair_bond, 0, sizeof(c.pair_bond));
+    c.pair_pending = (u8)pairing;
+    s.bond = pairing ? &c.pair_bond : set_bond(r.slot);
     s.settings = set;
     s.usb = (u8)usb;
     c.usb = (u8)usb;
@@ -349,16 +373,17 @@ static void bt_event(const struct bt_ev *e, u32 now)
         break;
     case BT_EV_PEER:
     case BT_EV_BONDED:
-        if (c.slot < SLOTS) set_bond_store(c.slot, &e->bond);
+    case BT_EV_PAIRED:
+        bond_update(&e->bond, e->kind == BT_EV_PAIRED);
         break;
     case BT_EV_WRITE:
         /* A pairing the profile ran itself (Switch 2): the key joins the
          * slot's bond, and the stack needs it at once. */
         if (c.prof && c.prof->write && c.prof->write(&e->write, now, &bond) && c.slot < SLOTS) {
-            struct bt_bond b = *set_bond(c.slot);
+            struct bt_bond b = *session_bond();
 
             memcpy(b.ltk, bond.ltk, 16);
-            set_bond_store(c.slot, &b);
+            bond_update(&b, 1);
             bt_update_bond(&b);
         }
         if (c.kind == CTL_CONNECTED && c.prof && c.prof->host) {

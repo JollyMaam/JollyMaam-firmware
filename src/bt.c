@@ -435,7 +435,7 @@ static void kdb_put(bd_addr_t a, link_key_t key, link_key_type_t type)
     memcpy(bond.link_key, key, 16);
     bond.key_type = (u8)type;
     util_log("bt: bonded %s type %u", bd_addr_to_str(a), type);
-    emit(BT_EV_BONDED, 0);
+    emit(BT_EV_PAIRED, 0);
     if (pairing && !le) {
         btstack_run_loop_remove_timer(&bonded_open);
         btstack_run_loop_set_timer_handler(&bonded_open, bonded_open_timeout);
@@ -672,6 +672,7 @@ static void on_sm(u8 type, u16 channel, u8 *packet, u16 size)
         break;
     case SM_EVENT_PAIRING_COMPLETE:
         util_log("bt: le pairing status 0x%02x", sm_event_pairing_complete_get_status(packet));
+        if (!sm_event_pairing_complete_get_status(packet)) emit(BT_EV_PAIRED, 0);
         break;
     }
 }

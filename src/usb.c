@@ -23,7 +23,7 @@
  *                         version, u16 size, `struct ctl_stats` as in memory
  *   `0x10` REBOOT         –
  *   `0x11` REBOOT_LOADER  – (any loader opcode does the same)
- *   `0x17` PAIR           CDB byte 2: slot: forget its host and start pairing,
+ *   `0x17` PAIR           CDB byte 2: slot: start pairing; its host is replaced once one pairs,
  *                         keeping its address; dongle: forget its single bond
  *                         (slot ignored)
  *   `0x30` TARGET         dongle only: CDB bytes 2–7: Bluetooth address in

@@ -191,6 +191,7 @@ struct ctl_request ux_step(struct pad *p, u32 now, u8 state)
                     ux.done |= 1u << i;
                     ux.fired = 1;
                     r = request(g->request, g->slot);
+                    r.generate_new_address = g->request == REQ_PAIR;
                     break;
                 }
             }
@@ -340,11 +341,11 @@ int main(void)
         pad.buttons = PAD_HOME; run(ux_timeouts.home_grace_ms + 100);
         pad.buttons |= PAD_B; run(5000);
         CHECK(last.kind == REQ_NONE && !seen.buttons && ux_deadline() == now + 1);
-        run(1); CHECK(last.kind == REQ_PAIR && last.slot == 1);
+        run(1); CHECK(last.kind == REQ_PAIR && last.slot == 1 && last.generate_new_address);
         pad.buttons = PAD_HOME; run(1); CHECK(last.kind == REQ_NONE);
         pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE && !seen.buttons && !ux.tap);
         reset((u8)i); pad.buttons = PAD_HOME | PAD_B; run(5000); CHECK(last.kind == REQ_NONE);
-        pad.buttons = PAD_HOME; run(1); CHECK(last.kind == REQ_CONNECT && last.slot == 1);
+        pad.buttons = PAD_HOME; run(1); CHECK(last.kind == REQ_CONNECT && last.slot == 1 && !last.generate_new_address);
         run(10); pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE && !ux.tap);
         reset((u8)i); pad.buttons = PAD_HOME | PAD_B; run(100);
         pad.buttons = PAD_B; run(1); CHECK(last.kind == REQ_CONNECT && last.slot == 1);
