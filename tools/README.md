@@ -43,9 +43,21 @@ could not supply the default. Protocol 4 provides full defaults for every field,
 including pairing bytes, custom curves and the calibration blob, through a
 read-only query. On older firmware, only known defaults can be reset in the GUI.
 
-Palette RGB fields show colour swatches. Slot colour references show both the
-palette colour and its LED brightness, using the firmware's brightness table.
-Swatches follow staged palette edits; there is no colour picker.
+Slot colour fields have a palette selector and a brightness dropdown. The
+selector shows the pad's 16 palette colours, with the full colour above and the
+selected brightness below. Brightness percentages use the firmware's actual
+nonlinear levels. Palette RGB fields still accept hex values and show swatches;
+all previews follow staged palette edits.
+
+Each setting has its own Apply button; it saves only that setting and retains
+all other drafts. Apply changes at the top saves all pending edits. Help is
+hidden behind each row's `?` button. Setting names use readable labels.
+
+Custom stick curve points have a graph with draggable handles, seven sliders,
+and percentage inputs. The inputs correspond to 12.5% through 87.5% stick
+travel. Outputs stay in increasing order, and the 0% and 100% endpoints stay
+fixed. Reset restores the default curve. Choose custom in the corresponding
+stick curve mode setting to activate the points.
 
 Connect and Pair use saved settings, so apply a slot's pending edits first.
 Sensor calibration is global, with one **Calibrate sensors** action on the
@@ -128,6 +140,7 @@ in its loader for recovery.
 ## Code and validation
 
 `padgui.py` owns the UI and serializes operations on a worker thread.
+`padwidgets.py` supplies the palette/brightness and stick curve editors.
 `padtool.py` supplies the firmware protocol and CLI. `padtransport.py` supplies
 Linux SG_IO and Windows buffered SCSI pass-through. `padflash.py` supplies the
 BR23 RAM-loader protocol, image identity checks, backup, erase/write and readback

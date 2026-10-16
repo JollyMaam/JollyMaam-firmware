@@ -210,6 +210,86 @@ class GuiTests(unittest.TestCase):
         colour["var"].set("3:")
         self.assertEqual(swatch.itemcget("invalid", "text"), "?")
 
+    def test_single_apply_preserves_other_drafts_on_same_device(self):
+        r = record()
+        self.load([r])
+        r["draft"][0, "type"]["var"].set("hid")
+        r["draft"][0, "rumble"]["var"].set("80")
+        r["draft"][1, "rumble"]["var"].set("90")
+        updated = dict(r["values"])
+        updated[0] = {"type": (b"\0", False), "rumble": (b"\x50", True)}
+        with patch.object(padgui.pad, "cmd", return_value=r["identity"]), \
+             patch.object(padgui.pad, "send") as send, \
+             patch.object(padgui.pad, "read_target", side_effect=lambda p, table, t: updated[t]):
+            self.app.apply_settings(("fake", 0, "rumble"))
+            self.finish()
+            send.assert_called_once_with("fake", [(0, 2, b"\x50")])
+        self.assertEqual(r["draft"][0, "type"]["var"].get(), "hid")
+        self.assertEqual(r["draft"][1, "rumble"]["var"].get(), "90")
+        self.assertEqual(self.app.dirty_count(), 2)
+
+    def test_single_apply_reload_failure_retains_other_edits(self):
+        r = record()
+        self.load([r])
+        r["draft"][0, "type"]["var"].set("hid")
+        r["draft"][0, "rumble"]["var"].set("80")
+        with patch.object(padgui.pad, "cmd", return_value=r["identity"]), \
+             patch.object(padgui.pad, "send"), \
+             patch.object(padgui.pad, "read_target", side_effect=OSError("disconnected")), \
+             patch.object(padgui.messagebox, "showerror"):
+            self.app.apply_settings(("fake", 0, "rumble"))
+            self.finish()
+        self.assertFalse(self.app.changed(r["draft"][0, "rumble"]))
+        self.assertTrue(self.app.changed(r["draft"][0, "type"]))
+        self.assertEqual(r["draft"][0, "type"]["var"].get(), "hid")
+        self.assertEqual(self.app.dirty_count(), 1)
+
+    def test_palette_picker_preserves_brightness_and_uses_staged_colours(self):
+        r = record()
+        r["fields"] += [
+            {"kind": 0, "id": 3, "name": "primary_colour", "type": padgui.pad.T_COLOUR,
+             "size": 2, "help": "Colour", "dev": False},
+            {"kind": 1, "id": 4, "name": "palette3", "type": padgui.pad.T_RGB,
+             "size": 3, "help": "Palette", "dev": False},
+            {"kind": 1, "id": 5, "name": "palette4", "type": padgui.pad.T_RGB,
+             "size": 3, "help": "Palette", "dev": False}]
+        r["values"][0]["primary_colour"] = (bytes([3, 15]), False)
+        r["values"][8] = {"palette3": (bytes([255, 0, 0]), False), "palette4": (bytes([0, 0, 255]), False)}
+        self.load([r])
+        self.app.show_target(0)
+        editor = next(w for w in self.app.special_editors if w.winfo_exists() and isinstance(w, padgui.PaletteEditor))
+        from padwidgets import BRIGHTNESS_LABELS
+        editor.level.set(BRIGHTNESS_LABELS[5])
+        editor.choose_brightness()
+        editor.open_palette()
+        self.assertEqual(len(editor.tiles), 16)
+        editor.choose_colour(4)
+        self.assertEqual(r["draft"][0, "primary_colour"]["var"].get(), "4:5")
+        self.assertEqual(editor.level.get(), BRIGHTNESS_LABELS[5])
+        self.assertIsNone(editor.popup)
+
+    def test_curve_controls_clamp_points_and_follow_reset(self):
+        r = record()
+        default = bytes([32, 64, 96, 128, 159, 191, 223])
+        r["fields"].append({"kind": 0, "id": 33, "name": "left_curve_points", "type": padgui.pad.T_BYTES,
+                            "size": 7, "help": "Curve", "dev": False})
+        r["values"][0]["left_curve_points"] = (default, False)
+        self.load([r])
+        self.app.show_target(0)
+        editor = next(w for w in self.app.special_editors if w.winfo_exists() and isinstance(w, padgui.CurveEditor))
+        editor.set_point(3, 0)
+        self.assertEqual(editor.points()[3], 96)
+        editor.set_point(3, 100)
+        self.assertEqual(editor.points()[3], 159)
+        self.app.reset_default(editor.entry)
+        self.assertEqual(editor.points(), list(default))
+        self.assertFalse(self.app.changed(editor.entry))
+        editor.outputs[3].set("55")
+        self.assertEqual(editor.points()[3], round(.55 * 255))
+        with patch.object(padgui.messagebox, "showinfo") as help_dialog:
+            self.app.show_help(editor.entry)
+            self.assertIn("Drag a point", help_dialog.call_args.args[1])
+
     def test_flash_backup_is_required_and_cannot_overwrite_input(self):
         import tempfile
         from pathlib import Path

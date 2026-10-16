@@ -15,6 +15,7 @@ from tkinter import filedialog, messagebox, ttk
 
 import padtool as pad
 import padflash
+from padwidgets import PaletteEditor, CurveEditor
 
 ROOT = Path(__file__).resolve().parent.parent
 SDK = Path(os.environ.get("JIELI_SDK", "/shared/github.com-Jieli-Tech/fw-AC63_BT_SDK")) / "cpu/br23/tools"
@@ -34,6 +35,8 @@ class App:
         self.editors = {}
         self.indicators = []
         self.swatches = []
+        self.special_editors = []
+        self.apply_buttons = []
         self.board = tk.StringVar(value="pad")
         self.device = tk.StringVar()
         self.target = tk.StringVar(value=pad.TARGETS[0])
@@ -92,7 +95,7 @@ class App:
 
     def controls(self, widget):
         for child in widget.winfo_children():
-            if isinstance(child, (ttk.Button, ttk.Combobox, ttk.Entry, ttk.Checkbutton)):
+            if isinstance(child, (ttk.Button, ttk.Combobox, ttk.Entry, ttk.Checkbutton, ttk.Scale, ttk.Spinbox)):
                 yield child
             yield from self.controls(child)
 
@@ -127,12 +130,27 @@ class App:
                     self.log(data)
                     continue
                 if kind == "applied":
-                    path, values = data
+                    path, values, applied_keys = data
                     if values is None:
-                        self.cache[path]["draft"] = {}
-                        self.cache[path]["error"] = "Settings were saved, but could not be reloaded. Scan and load again."
+                        record = self.cache[path]
+                        for key in applied_keys:
+                            entry = record["draft"][key]
+                            raw = self.value_bytes(entry)
+                            was_reset = entry["reset"].get()
+                            entry["original_raw"], entry["original"] = raw, entry["var"].get()
+                            entry["explicit"] = not was_reset
+                            entry["reset"].set(False)
+                        record["error"] = "Setting(s) saved, but reload failed. Other edits remain pending. Reconnect and scan to reload; scanning will ask before discarding edits."
                     else:
-                        self.install_values(self.cache[path], values)
+                        record = self.cache[path]
+                        pending = {key: (entry["var"].get(), entry["reset"].get())
+                                   for key, entry in record["draft"].items()
+                                   if key not in applied_keys and self.changed(entry)}
+                        self.install_values(record, values)
+                        for key, (text, reset) in pending.items():
+                            if key in record["draft"]:
+                                record["draft"][key]["var"].set(text)
+                                record["draft"][key]["reset"].set(reset)
                     self.mark_dirty()
                     continue
                 self.busy = False
@@ -300,6 +318,35 @@ class App:
                 swatch.itemconfigure("colour", fill="#eeeeee")
                 swatch.itemconfigure("brightness", fill="#eeeeee")
                 swatch.itemconfigure("invalid", text="?")
+
+        self.special_editors = [w for w in self.special_editors if w.winfo_exists()]
+        for widget in self.special_editors:
+            widget.sync()
+        self.apply_buttons = [(e, w) for e, w in self.apply_buttons if w.winfo_exists()]
+        for entry, button in self.apply_buttons:
+            button.configure(state="normal" if not self.busy and self.changed(entry) else "disabled")
+
+    def setting_apply_button(self, parent, record, target, name, entry):
+        button = ttk.Button(parent, text="Apply", width=6,
+                            command=lambda: self.apply_settings((record["path"], target, name)))
+        self.apply_buttons.append((entry, button))
+        self.update_previews()
+        return button
+
+    def show_help(self, entry):
+        field = entry["field"]
+        text = field["help"]
+        if field["type"] == pad.T_COLOUR:
+            text = ("Choose one of the 16 colours from the pad's palette, then select its brightness. "
+                    "The preview shows the full palette colour on the left and the LED brightness on the right. "
+                    "Palette edits also update these previews. Apply palette edits separately, or use Apply changes to save everything.\n\n" + text)
+        elif field["name"] in ("left_curve_points", "right_curve_points"):
+            text = ("These seven points control stick output at 12.5%, 25%, 37.5%, 50%, 62.5%, 75% and 87.5% travel. "
+                    "Drag a point on the graph, move its slider, or enter an output percentage and press Enter. "
+                    "Outputs stay in increasing order; zero and full travel stay fixed.\n\n"
+                    "Select custom in the corresponding stick curve setting to use these points. "
+                    "Apply saves this setting; Apply changes saves all pending edits.")
+        messagebox.showinfo(field["name"].replace("_", " ").capitalize(), text or "No extra help is available.")
 
     def dirty_count(self):
         return sum(self.changed(e) for r in self.cache.values() for e in r.get("draft", {}).values())
@@ -479,6 +526,7 @@ class App:
             if entry:
                 ttk.Combobox(row, textvariable=entry["var"], values=entry["field"]["names"], state="readonly", width=20).pack(side="left")
                 self.default_marker(row, entry).pack(side="left", padx=(2, 6))
+                self.setting_apply_button(row, record, target, "type", entry).pack(side="left", padx=(0, 8))
             ttk.Button(row, text="Settings", command=lambda t=target: self.show_target(t)).pack(side="left", padx=(0, 8))
             ttk.Button(row, text="Connect", command=lambda t=target: self.slot_action("connect", t)).pack(side="left", padx=(0, 8))
             ttk.Button(row, text="Pair…", command=lambda t=target: self.slot_action("pair", t)).pack(side="left", padx=(0, 8))
@@ -509,40 +557,54 @@ class App:
             if t != target or (f["dev"] and not self.dev.get()):
                 continue
             row = len(self.editors)
-            ttk.Label(self.form, text=name).grid(row=row, column=0, sticky="w", padx=4, pady=4)
-            if f["type"] == pad.T_ENUM:
+            ttk.Label(self.form, text=name.replace("_", " ").capitalize()).grid(row=row, column=0, sticky="nw", padx=4, pady=8)
+            if f["type"] == pad.T_COLOUR:
+                editor = PaletteEditor(self.form, self, record, entry)
+                self.special_editors.append(editor)
+            elif name in ("left_curve_points", "right_curve_points"):
+                editor = CurveEditor(self.form, self, entry)
+                self.special_editors.append(editor)
+            elif f["type"] == pad.T_ENUM:
                 editor = ttk.Combobox(self.form, textvariable=entry["var"], values=f["names"], state="readonly", width=23)
             else:
                 editor = ttk.Entry(self.form, textvariable=entry["var"], width=25)
-            editor.grid(row=row, column=1, sticky="ew", padx=4)
-            if f["type"] in (pad.T_RGB, pad.T_COLOUR):
+            editor.grid(row=row, column=1, sticky="ew", padx=4, pady=4)
+            if f["type"] == pad.T_RGB:
                 self.color_swatch(self.form, record, entry).grid(row=row, column=2, padx=4)
-            ttk.Button(self.form, text="Reset", width=6,
+            actions = ttk.Frame(self.form)
+            actions.grid(row=row, column=3, sticky="ne", padx=4, pady=4)
+            ttk.Button(actions, text="Reset", width=6,
                        state="normal" if entry["default_text"] is not None else "disabled",
-                       command=lambda e=entry: self.reset_default(e)).grid(row=row, column=3, padx=4)
-            self.default_marker(self.form, entry).grid(row=row, column=4)
-            help_text = f["help"]
-            if f["type"] == pad.T_COLOUR:
-                help_text += " (swatch: palette colour / LED brightness)"
-            ttk.Label(self.form, text=help_text, wraplength=290).grid(row=row, column=5, sticky="w", padx=8)
+                       command=lambda e=entry: self.reset_default(e)).pack(side="left", padx=2)
+            self.setting_apply_button(actions, record, target, name, entry).pack(side="left", padx=2)
+            ttk.Button(actions, text="?", width=2, command=lambda e=entry: self.show_help(e)).pack(side="left", padx=2)
+            self.default_marker(self.form, entry).grid(row=row, column=4, sticky="n", pady=8)
             self.editors[name] = entry
-        self.form.columnconfigure(5, weight=1)
+        self.form.columnconfigure(1, weight=1)
         if target < 8:
             row = len(self.editors)
             actions = ttk.Frame(self.form, padding=(0, 12))
-            actions.grid(row=row, column=0, columnspan=6, sticky="w")
+            actions.grid(row=row, column=0, columnspan=5, sticky="w")
             for action in ("connect", "pair"):
                 ttk.Button(actions, text=action.title(),
                            command=lambda a=action: self.slot_action(a, target)).pack(side="left", padx=4)
 
-    def apply_settings(self):
+    def apply_settings(self, only=None):
         jobs = []
         try:
+            selected_entry = self.cache[only[0]]["draft"][only[1:]] if only else None
+            for widget in self.special_editors:
+                if widget.winfo_exists() and isinstance(widget, CurveEditor) and (only is None or widget.entry is selected_entry):
+                    widget.commit_pending()
             for path, record in self.cache.items():
+                keys = {key for key, entry in record.get("draft", {}).items()
+                        if self.changed(entry) and (only is None or (path, *key) == only)}
                 items = [(t, entry["field"]["id"], b"" if entry["reset"].get() else self.value_bytes(entry))
-                         for (t, name), entry in record.get("draft", {}).items() if self.changed(entry)]
+                         for (t, name), entry in record.get("draft", {}).items() if (t, name) in keys]
                 if items:
-                    jobs.append((path, record, items))
+                    if record.get("error"):
+                        raise ValueError(f"{path}: reload this device before applying more settings")
+                    jobs.append((path, record, items, keys))
         except (Exception, SystemExit) as error:
             messagebox.showerror("Invalid setting", str(error))
             return
@@ -551,23 +613,23 @@ class App:
             return
         def apply():
             # Check every identity before the first commit: USB paths can be reused.
-            for path, record, items in jobs:
+            for path, record, items, keys in jobs:
                 if pad.cmd(path, 0, length=64)[:40] != record["identity"]:
                     raise ValueError(f"{path}: device changed since loading; scan and load again")
-            for path, record, items in jobs:
+            for path, record, items, keys in jobs:
                 pad.send(path, items)
                 try:
                     values = {t: pad.read_target(path, record["fields"], t) for t in range(len(pad.TARGETS))}
                 except (Exception, SystemExit) as error:
-                    self.events.put(("applied", (path, None)))
+                    self.events.put(("applied", (path, None, keys)))
                     raise RuntimeError(f"{path}: settings saved, but reload failed: {error}")
-                self.events.put(("applied", (path, values)))
+                self.events.put(("applied", (path, values, keys)))
                 self.flash_report(f"{path}: applied {len(items)} setting(s)")
         def finished(_):
             self.render_overview()
             self.render_details()
             self.mark_dirty()
-        self.run("Applying pending changes to all edited devices…", apply, finished)
+        self.run("Applying setting…" if only else "Applying pending changes to all edited devices…", apply, finished)
 
     def calibrate(self):
         self.slot_action("calibrate", 0)
