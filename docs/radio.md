@@ -22,6 +22,10 @@ marked.
 - **Read Encryption Key Size** is advertised as supported and never answered.
   The transport layer must supply the completion
 
+- **LE Read Local P-256 Public Key and LE Generate DHKey** are stubs that
+  never answer, and Read Local Supported Commands does not list them
+  (octet 34, bits 1 and 2). LE Secure Connections needs the host to supply
+  P-256.
 - **Write Stored Link Key and Delete Stored Link Key** are stubs. The controller
   holds link keys only for the life of a connection. Persistent bonds are kept
   in flash by the host.
