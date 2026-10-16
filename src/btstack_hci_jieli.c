@@ -9,6 +9,7 @@
 #include "hci_transport.h"
 #include "pad.h"
 #include "btstack_qos_jieli.h"
+#include "uECC.h"
 
 extern int btctrler_task_init(const void *transport, const void *config);
 extern int btctrler_task_ready(void);
@@ -18,6 +19,7 @@ extern void (*__h4_send_packet)(int type, const void *packet, int size);
 extern void h4_hci_push_data(int type, void *packet, int size);
 extern int le_controller_set_mac(const void *address);
 extern void lmp_hci_write_local_address(const u8 *address);
+extern void get_random_number(u8 *p, u8 len);
 
 static struct { u8 type; u16 size; u8 data[HCI_INCOMING_PACKET_BUFFER_SIZE]; } rx[RX_QUEUE_DEPTH];
 static volatile u8 rx_read, rx_write;
@@ -49,9 +51,149 @@ int hci_packet_handler(u8 type, u8 *packet, u16 size)
     rx[rx_write].type = type;
     rx[rx_write].size = size;
     memcpy(rx[rx_write].data, packet, size);
+    /* Supported Commands: the P-256 commands, which p256_command() answers
+     * (octet 34, bits 1 and 2); BTstack asserts on them. */
+    if (type == HCI_EVENT_PACKET && size >= 6 + 35 && packet[0] == 0x0e && packet[3] == 0x02 &&
+        packet[4] == 0x10)
+        rx[rx_write].data[6 + 34] |= 0x06;
     rx_write = next;
     btstack_run_loop_poll_data_sources_from_irq();
     return 0;
+}
+
+/* An event of our own for BTstack: queued with interrupts off, since the
+ * controller's task, above every caller of this, queues its own. */
+static void inject(u8 *event, u16 size)
+{
+    u8 next;
+
+    if (!rx_active) return;
+    plat_lock();
+    next = (u8)((rx_write + 1) % RX_QUEUE_DEPTH);
+    if (next != rx_read) {
+        rx[rx_write].type = HCI_EVENT_PACKET;
+        rx[rx_write].size = size;
+        memcpy(rx[rx_write].data, event, size);
+        rx_write = next;
+    }
+    plat_unlock();
+    btstack_run_loop_poll_data_sources_from_irq();
+}
+
+/* ---- P-256: the controller's commands are stubs that never answer -------
+ * LE Read Local P-256 Public Key and LE Generate DHKey are answered here by
+ * micro-ecc (the SDK library's) on a thread below the main loop: a key takes
+ * about 0.75 s, which on the bluetooth thread held BTstack and, above it, the
+ * main loop.  The thread keeps the next key pair ready, so BTstack, which asks
+ * for a fresh one at every start and after every pairing, gets it at once;
+ * each pair is handed out once.  HCI carries each coordinate least
+ * significant byte first, micro-ecc most significant first.  A DHKey result
+ * for a session that has since ended is dropped. */
+static struct {
+    u8 public[64], private[32];  /* the next pair, while ready */
+    volatile u8 ready;           /* set by the thread, cleared by the taker */
+    volatile u8 key_wanted;      /* BTstack asked while none was ready */
+    volatile u8 dhkey_wanted;
+    volatile u32 dhkey_session;  /* the session the DHKey request came in */
+    u8 peer[64];                 /* DHKey: the peer's key */
+    u8 private_out[32];          /* the private half of the key BTstack has */
+    u8 have_out;
+} p256;
+static volatile u32 session;     /* counts transport closes */
+
+static void reverse_into(u8 *out, const u8 *in, u32 n)
+{
+    u32 i;
+
+    for (i = 0; i < n; i++) out[i] = in[n - 1 - i];
+}
+
+static int p256_random(uint8_t *dest, unsigned size)
+{
+    while (size) {
+        u8 n = size > 255 ? 255 : (u8)size;
+        get_random_number(dest, n);
+        dest += n;
+        size -= n;
+    }
+    return 1;
+}
+
+/* The ready pair to BTstack: the caller has seen ready set. */
+static void p256_hand_out(void)
+{
+    u8 event[2 + 1 + 1 + 64];
+
+    memcpy(p256.private_out, p256.private, 32);
+    p256.have_out = 1;
+    event[0] = HCI_EVENT_LE_META;
+    event[1] = 1 + 1 + 64;
+    event[2] = HCI_SUBEVENT_LE_READ_LOCAL_P256_PUBLIC_KEY_COMPLETE;
+    event[3] = 0;
+    reverse_into(event + 4, p256.public, 32);
+    reverse_into(event + 36, p256.public + 32, 32);
+    p256.ready = 0;
+    inject(event, sizeof(event));
+}
+
+static void p256_dhkey(void)
+{
+    u8 event[2 + 1 + 1 + 32], secret[32];
+    u32 from = p256.dhkey_session;
+    int ok = p256.have_out && uECC_valid_public_key(p256.peer, uECC_secp256r1()) &&
+             uECC_shared_secret(p256.peer, p256.private_out, secret, uECC_secp256r1());
+
+    event[0] = HCI_EVENT_LE_META;
+    event[1] = 1 + 1 + 32;
+    event[2] = HCI_SUBEVENT_LE_GENERATE_DHKEY_COMPLETE;
+    event[3] = ok ? 0 : ERROR_CODE_INVALID_HCI_COMMAND_PARAMETERS;
+    if (ok) reverse_into(event + 4, secret, 32);
+    else memset(event + 4, 0xff, 32);
+    p256.dhkey_wanted = 0;
+    if (from == session) inject(event, sizeof(event));
+}
+
+static void p256_body(void)
+{
+    uECC_set_rng(p256_random);
+    for (;;) {
+        if (p256.dhkey_wanted) {
+            p256_dhkey();
+        } else if (!p256.ready) {
+            if (uECC_make_key(p256.public, p256.private, uECC_secp256r1())) p256.ready = 1;
+        } else if (p256.key_wanted) {
+            p256.key_wanted = 0;
+            p256_hand_out();
+        } else {
+            plat_p256_wait();
+        }
+    }
+}
+
+/* Command Status now, the result when there is one. */
+static void p256_command(u8 *packet, int size)
+{
+    u16 opcode = little_endian_read_16(packet, 0);
+    u8 status[] = { HCI_EVENT_COMMAND_STATUS, 4, 0, 1, packet[0], packet[1] };
+
+    if (opcode == HCI_OPCODE_HCI_LE_GENERATE_DHKEY) {
+        if (p256.dhkey_wanted) status[2] = ERROR_CODE_CONTROLLER_BUSY;
+        else if (size < 3 + 64) status[2] = ERROR_CODE_INVALID_HCI_COMMAND_PARAMETERS;
+        inject(status, sizeof(status));
+        if (status[2]) return;
+        reverse_into(p256.peer, packet + 3, 32);
+        reverse_into(p256.peer + 32, packet + 3 + 32, 32);
+        p256.dhkey_session = session;
+        p256.dhkey_wanted = 1;
+    } else {
+        inject(status, sizeof(status));
+        if (p256.ready) {
+            p256_hand_out();
+        } else {
+            p256.key_wanted = 1;
+        }
+    }
+    plat_p256_wake();
 }
 
 /* ---- anchors: when the central's packets arrive ---------------------------
@@ -185,6 +327,11 @@ void hci_jieli_close(void)
     cyclone2_qos_reset();
 }
 
+void hci_jieli_init(void)
+{
+    plat_p256_thread(p256_body);
+}
+
 static int transport_open(void)
 {
     if (hci_jieli_open()) return -1;
@@ -195,6 +342,8 @@ static int transport_open(void)
 static int transport_close(void)
 {
     rx_active = 0;
+    session++;                   /* a DHKey still being made is not this session's */
+    p256.key_wanted = 0;
     hci_jieli_close();
     return 0;
 }
@@ -214,7 +363,7 @@ static int transport_send(u8 type, u8 *packet, int size)
         little_endian_read_16(packet, 0) == HCI_OPCODE_HCI_QOS_SETUP &&
         (packet[2] != 20 || size != 23)) {
         u8 ev[] = { HCI_EVENT_COMMAND_STATUS, 4, 0x12, 1, packet[0], packet[1] };
-        hci_packet_handler(HCI_EVENT_PACKET, ev, sizeof(ev));
+        inject(ev, sizeof(ev));
         return 0;
     }
 
@@ -225,7 +374,13 @@ static int transport_send(u8 type, u8 *packet, int size)
         little_endian_read_16(packet, 0) == HCI_OPCODE_HCI_READ_ENCRYPTION_KEY_SIZE) {
         u8 ev[9] = { HCI_EVENT_COMMAND_COMPLETE, 7, 1, packet[0], packet[1], 0,
                      packet[3], packet[4], 16 };
-        hci_packet_handler(HCI_EVENT_PACKET, ev, sizeof(ev));
+        inject(ev, sizeof(ev));
+        return 0;
+    }
+    if (type == HCI_COMMAND_DATA_PACKET && size >= 3 &&
+        (little_endian_read_16(packet, 0) == HCI_OPCODE_HCI_LE_READ_LOCAL_P256_PUBLIC_KEY ||
+         little_endian_read_16(packet, 0) == HCI_OPCODE_HCI_LE_GENERATE_DHKEY)) {
+        p256_command(packet, size);
         return 0;
     }
     if (__h4_send_packet) __h4_send_packet(type, packet, size);
@@ -420,7 +575,6 @@ u32 user_send_cmd_prepare(int cmd, u16 len, u8 *param)
 void btstack_assert_failed(const char *file, u16 line)
 {
     util_log("btstack assert %s:%u", file, line);
-    for (;;) {
-    }
+    plat_reboot();               /* the log keeps the line */
 }
 

@@ -619,6 +619,9 @@ void plat_delay_ms(u32 ms);                 /* blocking; set-up only */
 void plat_bt_thread(void (*body)(void));
 void plat_bt_wait(u32 ms);                  /* the bluetooth thread sleeps until woken */
 void plat_bt_wake(void);
+void plat_p256_thread(void (*body)(void));  /* the P-256 thread, below the main loop */
+void plat_p256_wait(void);
+void plat_p256_wake(void);
 void plat_lock(void);
 void plat_unlock(void);
 void plat_boot_info(struct plat_boot *out);

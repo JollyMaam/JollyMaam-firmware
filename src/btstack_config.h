@@ -16,11 +16,10 @@
 #define DISABLE_CLASSIC_GAP_CLIENT
 
 #define ENABLE_BLE
-/* LE Secure Connections, P-256 in software: micro-ecc, the SDK library's
- * copy, declared in src/uECC.h.  The controller's P-256 commands are stubs
- * that never answer. */
+/* LE Secure Connections.  P-256 through the controller's HCI commands, which
+ * btstack_hci_jieli.c answers on a thread of its own (the controller's are
+ * stubs). */
 #define ENABLE_LE_SECURE_CONNECTIONS
-#define ENABLE_MICRO_ECC_P256
 #define ENABLE_LE_PERIPHERAL
 /* Ask for 251-byte LE PDUs on every connection: at the default 27 bytes a
  * Switch 2 input report (70 bytes with headers) took three connection events. */

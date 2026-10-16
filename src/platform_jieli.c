@@ -37,6 +37,7 @@ extern void flushinv_dcache(const void *address, u32 size);
 extern u32 msd_mcu2usb(const struct usb_device_t *usb_device, const u8 *buffer, u32 len);
 extern u32 msd_usb2mcu(const struct usb_device_t *usb_device, u8 *buffer, u32 len);
 extern u8 *get_norflash_uuid(void) __attribute__((weak));
+extern void hci_jieli_init(void);
 
 const struct task_info task_info_table[] = {
     {"app_core",  1, 0, 1024, 128 },
@@ -45,6 +46,7 @@ const struct task_info task_info_table[] = {
     {"btctrler",  4, 0, 512,  256 },
     {"btencry",   1, 0, 512,  128 },
     {"btstack",   3, 0, 2048, 256 },
+    {"p256",      1, 0, 2048, 0   },     /* below ctl: a key takes 0.75 s */
     {"systimer",  7, 0, 128,  0   },
     {"update",    1, 0, 512,  0   },
     {0, 0},
@@ -303,6 +305,32 @@ void plat_bt_thread(void (*body)(void))
     bt_body = body;
     os_sem_create(&bt_sem, 0);
     task_create(bt_thread, NULL, "btstack");
+}
+
+static OS_SEM p256_sem;
+static void (*p256_body)(void);
+
+static void p256_thread(void *arg)
+{
+    (void)arg;
+    p256_body();
+}
+
+void plat_p256_thread(void (*body)(void))
+{
+    p256_body = body;
+    os_sem_create(&p256_sem, 0);
+    task_create(p256_thread, NULL, "p256");
+}
+
+void plat_p256_wait(void)
+{
+    os_sem_pend(&p256_sem, 0);
+}
+
+void plat_p256_wake(void)
+{
+    os_sem_post(&p256_sem);
 }
 
 void plat_bt_wait(u32 ms)
@@ -778,6 +806,7 @@ static void ctl_thread(void *arg)
     usb_init();
     tick_start();
     util_log("tick: timer3 at %08x con %08x prd %u", (u32)JL_TIMER3, JL_TIMER3->CON, JL_TIMER3->PRD);
+    hci_jieli_init();
     ctl_main();
 }
 

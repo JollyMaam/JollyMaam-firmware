@@ -1,6 +1,6 @@
 /* micro-ecc 1.x, as the SDK's crypto_toolbox library builds it (uECC_new.c):
- * the declarations BTstack's btstack_crypto.c uses.  BTstack's own uECC.h is
- * the older API without a curve argument; the library would read garbage. */
+ * the declarations btstack_hci_jieli.c uses.  BTstack's bundled uECC.h is the
+ * older API without a curve argument; the library would read garbage. */
 #ifndef UECC_H
 #define UECC_H
 
