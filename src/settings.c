@@ -152,10 +152,24 @@ static const struct set_field palette_fields[PALETTE] = {
     ENTRY(12, 0, 0, 0), ENTRY(13, 0, 0, 0), ENTRY(14, 0, 0, 0), ENTRY(15, 0, 0, 0),
 };
 
+_Static_assert(offsetof(struct set_cal, deadzone) == 112, "stored calibration layout");
+
 static const struct set_field cal_fields[] = {
     { .id = 1, .name = "calibration", .type = T_BYTES, .offset = 0,
-      .size = sizeof(struct set_cal),
-      .help = "sticks and triggers, from the calibration routine; zero: default ranges" },
+      .size = offsetof(struct set_cal, deadzone),
+      .help = "sensor calibration for sticks and triggers; legacy stick deadzones ignored" },
+    { .id = 2, .name = "left_inner_deadzone", .type = T_NUMBER, .max = 25,
+      .offset = offsetof(struct set_cal, deadzone[0].inner), .size = 1,
+      .help = "left stick: percent around centre suppressed; immediate, preserved by calibration" },
+    { .id = 3, .name = "left_outer_deadzone", .type = T_NUMBER, .max = 25,
+      .offset = offsetof(struct set_cal, deadzone[0].outer), .size = 1,
+      .help = "left stick: percent of outer travel discarded; immediate, preserved by calibration" },
+    { .id = 4, .name = "right_inner_deadzone", .type = T_NUMBER, .max = 25,
+      .offset = offsetof(struct set_cal, deadzone[1].inner), .size = 1,
+      .help = "right stick: percent around centre suppressed; immediate, preserved by calibration" },
+    { .id = 5, .name = "right_outer_deadzone", .type = T_NUMBER, .max = 25,
+      .offset = offsetof(struct set_cal, deadzone[1].outer), .size = 1,
+      .help = "right stick: percent of outer travel discarded; immediate, preserved by calibration" },
 };
 
 #define COUNT(a) (sizeof(a) / sizeof((a)[0]))
@@ -499,7 +513,7 @@ const struct set_cal *set_cal(void)
 
 void set_cal_store(const struct set_cal *c)
 {
-    put(TARGET_CAL, &cal_fields[0], 0, (const u8 *)c, sizeof(*c));
+    put(TARGET_CAL, &cal_fields[0], 0, (const u8 *)c, cal_fields[0].size);
     touch(TARGET_CAL);
     commit_now = 1;
 }
@@ -893,10 +907,29 @@ int main(void)
     CHECK(set_describe(0, buf, sizeof(buf)) > 8 && buf[2] == 1 && !strcmp((char *)buf + 8, "type"));
     CHECK(set_describe(COUNT(slot_fields), buf, sizeof(buf)) && buf[1] == 1);
     CHECK(set_describe(COUNT(slot_fields) + PALETTE, buf, sizeof(buf)) && buf[1] == 2);
-    CHECK(set_describe(COUNT(slot_fields) + PALETTE + 1, buf, sizeof(buf)) == 0);
-    for (t = 0; t < COUNT(slot_fields) + PALETTE + 1; t++) CHECK(set_describe(t, buf, 512) > 0);
+    CHECK(set_describe(COUNT(slot_fields) + PALETTE + COUNT(cal_fields), buf, sizeof(buf)) == 0);
+    for (t = 0; t < COUNT(slot_fields) + PALETTE + COUNT(cal_fields); t++) CHECK(set_describe(t, buf, 512) > 0);
     CHECK(set_read(3, buf, sizeof(buf)) > 3 && buf[2] == COUNT(slot_fields));
-    CHECK(set_read(TARGET_CAL, buf, sizeof(buf)) == 6 + sizeof(struct set_cal));
+    CHECK(set_read(TARGET_CAL, buf, sizeof(buf)) == 6 + cal_fields[0].size + 4 * 4);
+
+    /* Deadzones are independent fields, never overwritten by calibration. */
+    x = 26;
+    CHECK(write1(TARGET_CAL, 2, 1, &x) == SET_RANGE);
+    x = 5;
+    CHECK(write1(TARGET_CAL, 2, 1, &x) == SET_OK);
+    set_apply();
+    CHECK(set_cal()->deadzone[0].inner == 5 && !set_cal()->deadzone[0].outer);
+    {
+        struct set_cal measured = cal;
+        measured.deadzone[0].inner = 0;
+        set_cal_store(&measured);
+        CHECK(set_cal()->deadzone[0].inner == 5);
+        u32 used = encode(TARGET_CAL, buf);
+        reset(TARGET_CAL);
+        CHECK(!set_cal()->deadzone[0].inner);
+        decode(TARGET_CAL, buf, used);
+        CHECK(set_cal()->deadzone[0].inner == 5);
+    }
 
     /* A bond stored before the identity fields still loads, zero-extended. */
     memset(&bond, 0x22, sizeof(bond));

@@ -41,7 +41,6 @@ enum cal_result { CAL_OK, CAL_NO_SAMPLES, CAL_MOVED_AT_REST, CAL_BAD_CENTER,
 #define STICK_GATE_MAX            47513U
 
 #define DEADZONE_3_PERCENT        983U
-#define DEADZONE_5_PERCENT        1638U
 #define DEADZONE_15_PERCENT       4915U
 #define DEADZONE_SUM_MAX          16383U
 
@@ -162,20 +161,19 @@ static int cal_stick_is_sane(const struct cal_stick *stick)
         if (stick->gate[index] < STICK_GATE_MIN ||
             stick->gate[index] > STICK_GATE_MAX) return 0;
     }
-    return (uint32_t)stick->inner_deadzone + stick->outer_deadzone <=
-           DEADZONE_SUM_MAX;
+    return 1;
 }
 
 static void cal_stick_map(const struct cal_stick *stick, uint16_t raw_x,
-                   uint16_t raw_y, int32_t *x, int32_t *y)
+                   uint16_t raw_y, uint32_t inner, uint32_t outer,
+                   int32_t *x, int32_t *y)
 {
     int32_t nx = axis_normalize(raw_x, stick->minimum[0], stick->center[0],
                                 stick->maximum[0]);
     int32_t ny = axis_normalize(raw_y, stick->minimum[1], stick->center[1],
                                 stick->maximum[1]);
     uint32_t radius = cal_isqrt((uint32_t)(nx * nx) + (uint32_t)(ny * ny));
-    uint32_t inner = stick->inner_deadzone;
-    uint32_t span = CAL_STICK_MAX - inner - stick->outer_deadzone;
+    uint32_t span = CAL_STICK_MAX - inner - outer;
     uint32_t scaled;
     uint32_t output;
 
@@ -315,9 +313,6 @@ static enum cal_result cal_stick_finish(const struct cal_stick_capture *capture,
                                  struct cal_stick *stick)
 {
     struct cal_stick result;
-    uint32_t noise = 0;
-    uint32_t half_range = 0xffffU;
-    uint32_t inner;
     unsigned axis;
     unsigned knot;
 
@@ -328,11 +323,6 @@ static enum cal_result cal_stick_finish(const struct cal_stick_capture *capture,
 
         if (below < STICK_MIN_HALF_RANGE || above < STICK_MIN_HALF_RANGE)
             return CAL_SHORT_RANGE;
-        if (below < half_range) half_range = below;
-        if (above < half_range) half_range = above;
-        if ((uint32_t)(capture->rest_high[axis] - capture->rest_low[axis]) >
-            noise)
-            noise = capture->rest_high[axis] - capture->rest_low[axis];
     }
     for (knot = 0; knot < CAL_GATE_KNOTS; knot++) {
         if (capture->far_r2[knot] <
@@ -367,10 +357,6 @@ static enum cal_result cal_stick_finish(const struct cal_stick_capture *capture,
             result.gate[knot] = STICK_GATE_MAX;
     }
 
-    inner = DEADZONE_3_PERCENT + 2U * noise * CAL_STICK_MAX / half_range;
-    result.inner_deadzone = (uint16_t)(inner > DEADZONE_15_PERCENT ?
-                                       DEADZONE_15_PERCENT : inner);
-    result.outer_deadzone = DEADZONE_5_PERCENT;
     *stick = result;
     return CAL_OK;
 }
@@ -481,7 +467,10 @@ void cal_apply(const struct set_cal *cal, const struct in_raw *raw, struct pad *
             cal_stick_default(&def, default_min[i], default_center, default_max);
             s = &def;
         }
-        if (raw->sticks_valid) cal_stick_map(s, raw->stick[2 * i], raw->stick[2 * i + 1], &x, &y);
+        if (raw->sticks_valid)
+            cal_stick_map(s, raw->stick[2 * i], raw->stick[2 * i + 1],
+                          (uint32_t)cal->deadzone[i].inner * CAL_STICK_MAX / 100,
+                          (uint32_t)cal->deadzone[i].outer * CAL_STICK_MAX / 100, &x, &y);
         *out[i][0] = (s16)(x * stick_sign[i]);
         *out[i][1] = (s16)(y * stick_sign[i]);
     }
@@ -667,11 +656,11 @@ int main(void)
 
     cal_stick_default(&s, default_min[0], default_center, default_max);
     CHECK(cal_stick_is_sane(&s));
-    cal_stick_map(&s, 0x4000, 0x4000, &x, &y);
+    cal_stick_map(&s, 0x4000, 0x4000, 0, 0, &x, &y);
     CHECK(x == 0 && y == 0);
-    cal_stick_map(&s, 0x6600, 0x4000, &x, &y);
+    cal_stick_map(&s, 0x6600, 0x4000, 0, 0, &x, &y);
     CHECK(x == CAL_STICK_MAX && y == 0);
-    cal_stick_map(&s, 0x1600, 0x4000, &x, &y);
+    cal_stick_map(&s, 0x1600, 0x4000, 0, 0, &x, &y);
     CHECK(x == -CAL_STICK_MAX);
     CHECK(cal_trigger_is_sane(&t));
     CHECK(cal_trigger_map(&t, 900) == 0 && cal_trigger_map(&t, 300) == CAL_TRIGGER_MAX);
@@ -687,6 +676,7 @@ int main(void)
         cal_stick_sweep_sample(&c, (u16)(0x4000 + dx * 8), (u16)(0x4000 + dy * 8));
     }
     CHECK(cal_stick_finish(&c, &s) == CAL_OK && cal_stick_is_sane(&s));
+    CHECK(!s.legacy_inner_deadzone && !s.legacy_outer_deadzone);
 
     cal_trigger_capture_begin(&tc);
     for (i = 0; i < 50; i++) cal_trigger_rest_sample(&tc, 880);
@@ -701,6 +691,28 @@ int main(void)
     raw.stick[2] = 0x6600;
     cal_apply(&cal, &raw, &pad);
     CHECK(pad.lx == 0 && pad.rx == -CAL_STICK_MAX);
+
+    /* Stored sensor measurements ignore the old embedded stick deadzones;
+     * only the independently configured percentages affect response. */
+    cal_stick_default(&cal.stick[0], default_min[0], default_center, default_max);
+    cal.stick[0].legacy_inner_deadzone = 4915;
+    cal.stick[0].legacy_outer_deadzone = 1638;
+    raw.stick[0] = 0x4100;
+    cal_apply(&cal, &raw, &pad);
+    CHECK(pad.lx > 0 && !pad.ly);
+    cal.deadzone[0].inner = 5;
+    cal_apply(&cal, &raw, &pad);
+    CHECK(!pad.lx && !pad.ly);
+    raw.stick[0] = 0x6400;
+    cal.deadzone[0].inner = 0;
+    cal_apply(&cal, &raw, &pad);
+    CHECK(pad.lx < STICK_MAX);
+    cal.deadzone[0].outer = 10;
+    cal_apply(&cal, &raw, &pad);
+    CHECK(pad.lx == STICK_MAX);
+    cal.deadzone[0].outer = 0;
+    cal_apply(&cal, &raw, &pad);
+    CHECK(pad.lx < STICK_MAX); /* runtime change requires no recalibration */
 
     /* Uncalibrated trigger: one stray high reading does not leave it pressed. */
     raw.trigger[0] = 482;
@@ -751,7 +763,12 @@ int main(void)
         memset(r.outcome, 0, sizeof(r.outcome));
         r.stick[0] = r.stick[1] = c;
         r.trigger[0] = r.trigger[1] = tc;
+        cal.deadzone[0] = (struct cal_deadzone){ 5, 10 };
+        cal.deadzone[1] = (struct cal_deadzone){ 2, 3 };
         CHECK(finish(&cal, started) == CAL_SAVE);
+        CHECK(cal.deadzone[0].inner == 5 && cal.deadzone[0].outer == 10);
+        CHECK(cal.deadzone[1].inner == 2 && cal.deadzone[1].outer == 3);
+        CHECK(!cal.stick[0].legacy_inner_deadzone && !cal.stick[0].legacy_outer_deadzone);
         CHECK(cal_led(started, &led) && !led.r && led.g == LED_LEVEL && !led.b);
         CHECK(cal_led(started + 999, &led) && led.g == LED_LEVEL);
         CHECK(cal_led(started + 1000, &led) && !led.r && !led.g && !led.b);

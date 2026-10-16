@@ -104,21 +104,28 @@ void imu_gyro_bias(s32 out[3]);  /* the learned zero-rate offset, 1/16 LSB */
 void imu_pointer(struct imu_pointer *p, const struct imu_sample *s, int n, u16 per_degree,
                  u16 accel, s32 *x, s32 *y);
 
-/* ---- input_calibration.c ------------------------------------------------ */
+/* ---- input_calibration.c ------------------------------------------------
+ * Sensor measurements are separate from global stick response preferences.
+ * Deadzones are radial percentages, default zero; recalibration preserves them.
+ * The original measurement blob keeps its layout; legacy stick deadzones are
+ * ignored. Trigger calibration is unchanged. */
 
 #define CAL_GATE_KNOTS 16
 
 struct cal_stick {
     u16 minimum[2], center[2], maximum[2];
     u16 gate[CAL_GATE_KNOTS];
-    u16 inner_deadzone, outer_deadzone;
+    u16 legacy_inner_deadzone, legacy_outer_deadzone;
 };
 
 struct cal_trigger { u16 rest, full, inner_deadzone, outer_deadzone; };
 
+struct cal_deadzone { u8 inner, outer; }; /* percent, each 0..25 */
+
 struct set_cal {
     struct cal_stick stick[2];
     struct cal_trigger trigger[2];
+    struct cal_deadzone deadzone[2];
 };
 
 enum { CAL_IDLE, CAL_RUNNING, CAL_SAVE };
