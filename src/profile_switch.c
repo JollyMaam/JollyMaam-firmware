@@ -510,6 +510,20 @@ static const u8 s2_key_b1[16] = {
     0x5c, 0xf6, 0xee, 0x79, 0x2c, 0xdf, 0x05, 0xe1, 0xba, 0x2b, 0x63, 0x25, 0xc4, 0x1a, 0x5f, 0x10,
 };
 
+/* Sensor calibration already produces -STICK_MAX..STICK_MAX.  Use all
+ * 12-bit codes on the wire: centre 2048, 2048 below and 2047 above.  Both
+ * sticks advertise the same synthetic calibration used to encode reports. */
+enum {
+    S2_STICK_CENTER = 0x800,
+    S2_STICK_UP = 0xfff - S2_STICK_CENTER,
+    S2_STICK_DOWN = S2_STICK_CENTER,
+};
+static const u8 s2_stick_calibration[9] = {
+    (u8)S2_STICK_CENTER, (u8)(S2_STICK_CENTER >> 8 | S2_STICK_CENTER << 4), (u8)(S2_STICK_CENTER >> 4),
+    (u8)S2_STICK_UP, (u8)(S2_STICK_UP >> 8 | S2_STICK_UP << 4), (u8)(S2_STICK_UP >> 4),
+    (u8)S2_STICK_DOWN, (u8)(S2_STICK_DOWN >> 8 | S2_STICK_DOWN << 4), (u8)(S2_STICK_DOWN >> 4),
+};
+
 /* The console reads this "flash": device info, IMU and stick calibration. */
 static const struct { u32 address; u8 len; const u8 *data; } s2_flash[] = {
     { 0x13000, 37, (const u8 *)"\x01\x00" "CYCLONE2-SW2\x00\x00\x00\x00\x7e\x05\x69\x20\x01\x06\x01"
@@ -518,11 +532,11 @@ static const struct { u32 address; u8 len; const u8 *data; } s2_flash[] = {
     { 0x13080, 40, (const u8 *)"\x01\xad\xd9\x9a\x55\x56\x65\xa0\x00\x0a\xa0\x00\x0a\xe2\x20\x0e"
                                "\xe2\x20\x0e\x9a\xad\xd9\x9a\xad\xd9\x0a\xa5\x50\x0a\xa5\x50\x2f"
                                "\xf6\x62\x2f\xf6\x62\x0a\xff\xff" },
-    { 0x130a8, 9, (const u8 *)"\xb3\x67\x83\x2e\x66\x5e\x3a\x06\x5f" },
+    { 0x130a8, 9, s2_stick_calibration },
     { 0x130c0, 40, (const u8 *)"\x01\xad\xd9\x9a\x55\x56\x65\xa0\x00\x0a\xa0\x00\x0a\xe2\x20\x0e"
                                "\xe2\x20\x0e\x9a\xad\xd9\x9a\xad\xd9\x0a\xa5\x50\x0a\xa5\x50\x2f"
                                "\xf6\x62\x2f\xf6\x62\x0a\xff\xff" },
-    { 0x130e8, 9, (const u8 *)"\x2c\x08\x84\xd1\x65\x63\x2a\x26\x62" },
+    { 0x130e8, 9, s2_stick_calibration },
     { 0x13100, 24, (const u8 *)"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
                                "\xa6\xf2\x62\xbd\xa8\x00\x08\x3d\x2f\xed\x20\x41" },
 };
@@ -565,21 +579,15 @@ static void s2_flash_read(u32 a, u8 *out, u16 n)
                 out[k] = s2_flash[i].data[a + k - s2_flash[i].address];
 }
 
-/* The factory stick calibration s2_flash serves (0x130a8, 0x130e8): centre,
- * then the reach up and down, x and y.  Hosts read the raw values through it,
- * so the sticks are encoded against it. */
-struct s2_cal { u16 cx, cy, xmax, ymax, xmin, ymin; };
-static const struct s2_cal s2_cal_left = { 0x7b3, 0x836, 0x62e, 0x5e6, 0x63a, 0x5f0 };
-static const struct s2_cal s2_cal_right = { 0x82c, 0x840, 0x5d1, 0x636, 0x62a, 0x622 };
-
-static u16 s2_cal_axis(s16 v, u16 centre, u16 up, u16 down)
+static u16 s2_cal_axis(s16 v)
 {
-    return (u16)(centre + (s32)v * (v >= 0 ? up : down) / STICK_MAX);
+    return (u16)(S2_STICK_CENTER + (s32)v *
+                 (v >= 0 ? S2_STICK_UP : S2_STICK_DOWN) / STICK_MAX);
 }
 
-static void s2_cal_stick(u8 *out, s16 x, s16 y, const struct s2_cal *c)
+static void s2_cal_stick(u8 *out, s16 x, s16 y)
 {
-    u16 px = s2_cal_axis(x, c->cx, c->xmax, c->xmin), py = s2_cal_axis(y, c->cy, c->ymax, c->ymin);
+    u16 px = s2_cal_axis(x), py = s2_cal_axis(y);
 
     out[0] = (u8)px;
     out[1] = (u8)(px >> 8 | py << 4);
@@ -724,8 +732,8 @@ static int s2_report(const struct pad *p, u32 now, u8 *out, u8 *id)
     out[2] = (u8)b;
     out[3] = (u8)(b >> 8);
     out[4] = (u8)(b >> 16);
-    s2_cal_stick(out + 5, p->lx, (s16)-p->ly, &s2_cal_left);
-    s2_cal_stick(out + 8, p->rx, (s16)-p->ry, &s2_cal_right);
+    s2_cal_stick(out + 5, p->lx, (s16)-p->ly);
+    s2_cal_stick(out + 8, p->rx, (s16)-p->ry);
     out[11] = 0x38;
     /* Headset audio state: 0x05 headphones, 0x07 a headset (ndeadly; bit 3,
      * which a real one flips, not known).  USB only: LE audio is not ours. */
@@ -1049,8 +1057,8 @@ static int s2_usb_report(const struct pad *p, u32 now, u8 *out, u8 *id)
                   (b & PAD_LEFT ? 0x08 : 0) | (b & PAD_L1 ? 0x40 : 0) |
                   (p->l2 > TRIGGER_BUTTON ? 0x80 : 0));
     out[7] = (u8)((b & PAD_R4 ? 0x01 : 0) | (b & PAD_L4 ? 0x02 : 0) | (p->jack ? 0x10 : 0));
-    s2_cal_stick(out + 10, p->lx, (s16)-p->ly, &s2_cal_left);
-    s2_cal_stick(out + 13, p->rx, (s16)-p->ry, &s2_cal_right);
+    s2_cal_stick(out + 10, p->lx, (s16)-p->ly);
+    s2_cal_stick(out + 13, p->rx, (s16)-p->ry);
     if (s2.features & S2_FEATURE_MOTION && m->us) {
         s2_put32(out + 42, m->us ? m->us : 1);
         util_put16(out + 48, (u16)(s16)(-m->accel[1] / 2));
@@ -1239,12 +1247,14 @@ int main(void)
             };
             unsigned i, j, axis;
             struct pad sticks = { 0 };
-            u8 cal[9];
+            u8 cal[9], usb_out[S2_USB_SIZE];
 
             for (i = 0; i < sizeof(positions) / sizeof(positions[0]); i++) {
                 sticks.lx = sticks.rx = positions[i];
                 sticks.ly = sticks.ry = (s16)-positions[i];
                 CHECK(s2_report(&sticks, i, out, &id) == S2_REPORT_SIZE);
+                CHECK(s2_usb_report(&sticks, i, usb_out, &id) == S2_USB_SIZE);
+                CHECK(memcmp(out + 5, usb_out + 10, 6) == 0);
                 for (j = 0; j < 2; j++) {
                     const u8 *encoded = out + 5 + 3 * j;
                     s2_flash_read(j ? 0x130e8 : 0x130a8, cal, sizeof(cal));
@@ -1257,7 +1267,11 @@ int main(void)
                         s32 raw = axis ? (encoded[1] >> 4 | encoded[2] << 4) :
                                          (encoded[0] | (encoded[1] & 15) << 8);
                         s32 expected = centre + (s32)positions[i] * span / STICK_MAX;
+                        CHECK(centre == 2048);
+                        CHECK(span == (positions[i] < 0 ? 2048 : 2047));
                         CHECK(raw == expected);
+                        if (positions[i] == -STICK_MAX) CHECK(raw == 0);
+                        if (positions[i] == STICK_MAX) CHECK(raw == 4095);
                     }
                 }
             }
