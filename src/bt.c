@@ -661,6 +661,26 @@ static int att_write(hci_con_handle_t h, u16 handle, u16 mode, u16 offset, u8 *b
     return 0;
 }
 
+/* A Secure Connections key is the pairing's own: the security manager keeps
+ * it only in RAM, so the bond takes it and the host's identity along. */
+static void bond_from_sm(void)
+{
+    int i = sm_le_device_index(con_handle), type, size, auth, authz, sc;
+    u16 ediv;
+    u8 rand[8];
+    bd_addr_t a;
+    sm_key_t irk, ltk;
+
+    if (i < 0) return;
+    le_device_db_encryption_get(i, &ediv, rand, ltk, &size, &auth, &authz, &sc);
+    if (!sc) return;
+    le_device_db_info(i, &type, a, irk);
+    memcpy(bond.ltk, ltk, 16);
+    memcpy(bond.le_irk, irk, 16);
+    reverse(a, bond.le_id, 6);
+    bond.le_id_type = (u8)type;
+}
+
 static void on_sm(u8 type, u16 channel, u8 *packet, u16 size)
 {
     (void)channel;
@@ -672,7 +692,9 @@ static void on_sm(u8 type, u16 channel, u8 *packet, u16 size)
         break;
     case SM_EVENT_PAIRING_COMPLETE:
         util_log("bt: le pairing status 0x%02x", sm_event_pairing_complete_get_status(packet));
-        if (!sm_event_pairing_complete_get_status(packet)) emit(BT_EV_PAIRED, 0);
+        if (sm_event_pairing_complete_get_status(packet)) break;
+        bond_from_sm();
+        emit(BT_EV_PAIRED, 0);
         break;
     }
 }
@@ -1351,6 +1373,17 @@ static void setup_le(void)
         sm_set_authentication_requirements(SM_AUTHREQ_BONDING | SM_AUTHREQ_SECURE_CONNECTION);
         sm_registration.callback = on_sm;
         sm_add_event_handler(&sm_registration);
+        if (!zero(bond.ltk, 16) && !zero(bond.le_id, 6)) {
+            u8 rand[8] = { 0 };
+            bd_addr_t a;
+            int i;
+
+            memcpy(key, bond.le_irk, 16);
+            reverse(bond.le_id, a, 6);
+            i = le_device_db_add(bond.le_id_type, a, key);
+            memcpy(key, bond.ltk, 16);
+            if (i >= 0) le_device_db_encryption_set(i, 0, rand, key, 16, 0, 0, 1);
+        }
 #ifdef BT_SMP_LOG
         hci_dump_init(&smp_log);
 #endif

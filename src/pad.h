@@ -161,7 +161,14 @@ struct bt_bond {
     u8 key_type;
     u8 le_peer[6];
     u8 ltk[16];
+    /* LE Secure Connections: the host's identity from the pairing, which
+     * with ltk restores the bond to the security manager.  Zero after a
+     * legacy pairing, whose key the security manager derives again. */
+    u8 le_irk[16];
+    u8 le_id[6];                 /* least significant byte first */
+    u8 le_id_type;
 };
+#define BT_BOND_V1_SIZE 45       /* a bond stored before the identity fields */
 
 struct bt_device {
     u8 transport;

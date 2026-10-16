@@ -234,7 +234,7 @@ static u8 check(const struct set_field *f, const u8 *v, u32 len)
 
     if (!f) return SET_UNKNOWN;
     if (!len) return SET_OK;
-    if (len != f->size) return SET_BAD_LENGTH;
+    if (len != f->size && !(f->id == ID_BOND && len == BT_BOND_V1_SIZE)) return SET_BAD_LENGTH;
     if (f->type == T_BYTES && (f->id == ID_LEFT_POINTS || f->id == ID_RIGHT_POINTS)) {
         for (x = 1; x < len; x++) if (v[x] < v[x - 1]) return SET_RANGE;
     }
@@ -264,7 +264,8 @@ static void put(u8 t, const struct set_field *f, u32 bit, const u8 *v, u32 len)
     u32 def = f->def[t < SLOTS ? t : 0];
 
     if (len) {
-        memcpy(p, v, f->size);
+        memset(p, 0, f->size);
+        memcpy(p, v, len < f->size ? len : f->size);
         set_bits[t] |= 1u << bit;
     } else {
         memset(p, 0, f->size);
@@ -896,6 +897,13 @@ int main(void)
     for (t = 0; t < COUNT(slot_fields) + PALETTE + 1; t++) CHECK(set_describe(t, buf, 512) > 0);
     CHECK(set_read(3, buf, sizeof(buf)) > 3 && buf[2] == COUNT(slot_fields));
     CHECK(set_read(TARGET_CAL, buf, sizeof(buf)) == 6 + sizeof(struct set_cal));
+
+    /* A bond stored before the identity fields still loads, zero-extended. */
+    memset(&bond, 0x22, sizeof(bond));
+    CHECK(write1(6, ID_BOND, BT_BOND_V1_SIZE, &bond) == SET_OK);
+    CHECK(write1(6, ID_BOND, BT_BOND_V1_SIZE + 1, &bond) == SET_BAD_LENGTH);
+    set_apply();
+    CHECK(set_bond(6)->ltk[15] == 0x22 && set_bond(6)->le_irk[0] == 0 && set_bond(6)->le_id_type == 0);
     return TEST_DONE("settings");
 }
 #endif
