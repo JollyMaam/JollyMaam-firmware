@@ -73,14 +73,14 @@ class GuiTests(unittest.TestCase):
             image = Path(tmp) / "image.img"
             image.write_bytes(b"fake")
             self.app.image.set(str(image))
-            with patch.object(self.app, "flash_args", return_value=("jlnewfw", [])), \
+            with patch.object(self.app, "loader_blob", return_value=b"loader"), \
                  patch.object(padgui.filedialog, "asksaveasfilename", return_value=str(image)), \
                  patch.object(padgui.messagebox, "showerror") as error, \
                  patch.object(self.app, "invoke") as invoke:
                 self.app.flash(False)
                 error.assert_called_once()
                 invoke.assert_not_called()
-            with patch.object(self.app, "flash_args", return_value=("jlnewfw", [])), \
+            with patch.object(self.app, "loader_blob", return_value=b"loader"), \
                  patch.object(padgui.filedialog, "asksaveasfilename", return_value=""), \
                  patch.object(self.app, "invoke") as invoke:
                 self.app.flash(False)

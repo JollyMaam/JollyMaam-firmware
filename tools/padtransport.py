@@ -34,7 +34,7 @@ class SgIoHdr(ctypes.Structure):
     ]
 
 
-def _linux_scsi(path, cdb, length, timeout_ms=3000, out=None):
+def _linux_scsi(path, cdb, length, timeout_ms=3000, out=None, raw_length=False):
     """Run one command: data in (length bytes, returned), or out (bytes sent)."""
     cdb = bytes(cdb).ljust(16, b"\0")
     if out is not None:
@@ -53,7 +53,7 @@ def _linux_scsi(path, cdb, length, timeout_ms=3000, out=None):
         os.close(fd)
     if h.status or h.host_status or h.driver_status & ~0x8:
         raise OSError(f"{path}: SCSI status {h.status} host {h.host_status} driver {h.driver_status}")
-    return buf.raw[:length - h.resid] if length and out is None else b""
+    return buf.raw[:length if raw_length else length - h.resid] if length and out is None else b""
 
 
 
@@ -67,7 +67,7 @@ class ScsiPassThrough(ctypes.Structure):
                 ("Cdb", ctypes.c_ubyte * 16)]
 
 
-def _windows_scsi(path, cdb, length, timeout_ms=3000, out=None):
+def _windows_scsi(path, cdb, length, timeout_ms=3000, out=None, raw_length=False):
     # Buffered SPT keeps alignment the storage driver's responsibility.
     from ctypes import wintypes as w
     k = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -103,16 +103,19 @@ def _windows_scsi(path, cdb, length, timeout_ms=3000, out=None):
             raise ctypes.WinError(ctypes.get_last_error())
         if h.ScsiStatus:
             raise OSError(f"{path}: SCSI status {h.ScsiStatus}")
-        return packet.raw[offset:offset + h.DataTransferLength] if out is None else b""
+        return packet.raw[offset:offset + (length if raw_length else h.DataTransferLength)] if out is None else b""
     finally:
         k.CloseHandle(handle)
 
 
-def scsi(path, cdb, length, timeout_ms=3000, out=None):
+def scsi(path, cdb, length, timeout_ms=3000, out=None, raw_length=False):
+    """raw_length is for BR23 loader transfers only: its CSW reports full
+    residue even after delivering data. Return the requested buffer, as the
+    C flasher does; callers validate command echoes and flash readback."""
     if not 1 <= len(cdb) <= 16:
         raise ValueError("SCSI CDB must be 1–16 bytes")
     if sys.platform == "win32":
-        return _windows_scsi(path, bytes(cdb).ljust(16, b"\0"), length, timeout_ms, out)
+        return _windows_scsi(path, bytes(cdb).ljust(16, b"\0"), length, timeout_ms, out, raw_length)
     if sys.platform == "linux":
-        return _linux_scsi(path, cdb, length, timeout_ms, out)
+        return _linux_scsi(path, cdb, length, timeout_ms, out, raw_length)
     raise OSError("Device access supports Linux and Windows")

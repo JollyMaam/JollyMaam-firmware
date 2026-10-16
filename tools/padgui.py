@@ -8,14 +8,16 @@ import queue
 import shutil
 import subprocess
 import threading
+import tempfile
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 import padtool as pad
+import padflash
 
 ROOT = Path(__file__).resolve().parent.parent
 SDK = Path(os.environ.get("JIELI_SDK", "/shared/github.com-Jieli-Tech/fw-AC63_BT_SDK")) / "cpu/br23/tools"
-PIDS = {"pad": "GS_C2_ADC_DEVICE", "dongle": "GS_C2_Dongle"}
+PIDS = padflash.PIDS
 
 
 class App:
@@ -283,36 +285,38 @@ class App:
         f = self.firmware
         f.columnconfigure(1, weight=1)
         ttk.Label(f, text="Full flash backup and verified firmware installation", font=("TkDefaultFont", 12, "bold")).grid(row=0, column=0, columnspan=3, sticky="w")
-        ttk.Label(f, text="Uses jlnewfw. Select one connected board; operations refuse ambiguous loader matches.\n"
+        ttk.Label(f, text="Python flasher with bundled BR23 loader. Operations refuse ambiguous loader matches.\n"
                   "If automatic loader entry fails: pad—hold Home + Start while plugging in USB; dongle—hold its button.\n"
                   "Backup leaves the device in its loader; reconnect USB when finished.", wraplength=940).grid(row=1, column=0, columnspan=3, sticky="w", pady=10)
         exe = ROOT / "build/host" / ("jlnewfw.exe" if os.name == "nt" else "jlnewfw")
         self.flasher = tk.StringVar(value=str(exe))
-        self.loader = tk.StringVar(value=str(SDK / "br23loader.bin"))
+        self.loader = tk.StringVar(value=str(padflash.DEFAULT_LOADER))
         self.image = tk.StringVar()
         self.bundle = tk.StringVar(value=str(ROOT / "build/pad"))
         self.uboot = tk.StringVar(value=str(SDK / "uboot.boot"))
         self.cfgtool = tk.StringVar(value=str(SDK / "cfg_tool.bin"))
-        self.file_row(f, 2, "jlnewfw executable", self.flasher)
         self.file_row(f, 3, "BR23 loader", self.loader)
         self.file_row(f, 4, "Firmware image (.img / .ufw)", self.image)
         ttk.Button(f, text="Flash image…", command=lambda: self.flash(False)).grid(row=5, column=1, sticky="w", pady=8)
         ttk.Separator(f).grid(row=6, column=0, columnspan=3, sticky="ew", pady=8)
-        ttk.Label(f, text="Or pack our build for the connected chip's key:").grid(row=7, column=0, columnspan=3, sticky="w")
-        self.file_row(f, 8, "Build folder (app.bin + isd_config.ini)", self.bundle, True)
-        self.file_row(f, 9, "SDK uboot.boot", self.uboot)
-        self.file_row(f, 10, "SDK cfg_tool.bin", self.cfgtool)
-        ttk.Button(f, text="Pack and flash build…", command=lambda: self.flash(True)).grid(row=11, column=1, sticky="w", pady=8)
-        ttk.Button(f, text="Back up full flash…", command=self.backup_flash).grid(row=12, column=1, sticky="w", pady=8)
+        ttk.Label(f, text="Optional: pack our build with jlnewfw for the connected chip's key:").grid(row=7, column=0, columnspan=3, sticky="w")
+        self.file_row(f, 8, "jlnewfw (build packing only)", self.flasher)
+        self.file_row(f, 9, "Build folder (app.bin + isd_config.ini)", self.bundle, True)
+        self.file_row(f, 10, "SDK uboot.boot", self.uboot)
+        self.file_row(f, 11, "SDK cfg_tool.bin", self.cfgtool)
+        ttk.Button(f, text="Pack and flash build…", command=lambda: self.flash(True)).grid(row=12, column=1, sticky="w", pady=8)
+        ttk.Button(f, text="Back up full flash…", command=self.backup_flash).grid(row=5, column=2, sticky="e", pady=8)
         ttk.Label(f, text="Flashing requires a backup destination and verifies every written byte. Image flashing enforces the chip key.\n"
                   "Select a build folder explicitly when switching boards. Settings in erased sectors are replaced by the image.", wraplength=940).grid(row=13, column=0, columnspan=3, sticky="w", pady=8)
 
-    def flash_args(self):
-        exe = shutil.which(self.flasher.get()) or self.flasher.get()
-        loader = self.loader.get()
-        if not Path(exe).is_file() or not Path(loader).is_file():
-            raise ValueError("Select an existing jlnewfw executable and BR23 loader blob.")
-        return exe, ["--enter-loader", "--wait", "30", "--loader", loader, "--pid", PIDS[self.board.get()]]
+    def loader_blob(self):
+        blob = Path(self.loader.get()).read_bytes()
+        if not blob:
+            raise ValueError("Select a nonempty BR23 loader blob.")
+        return blob
+
+    def flash_report(self, message):
+        self.events.put(("log", message))
 
     def invoke(self, args):
         self.events.put(("log", "Running: " + subprocess.list2cmdline(args)))
@@ -321,48 +325,75 @@ class App:
             for line in proc.stdout:
                 self.events.put(("log", line))
             if proc.wait():
-                raise RuntimeError(f"jlnewfw exited with status {proc.returncode}. See the log; reconnect the device if it remains in its loader.")
+                raise RuntimeError(f"jlnewfw packing failed with status {proc.returncode}. See the log.")
 
     def backup_flash(self):
         try:
-            exe, options = self.flash_args()
-        except ValueError as error:
+            blob = self.loader_blob()
+        except (ValueError, OSError) as error:
             messagebox.showerror("Firmware", str(error))
             return
-        file = filedialog.asksaveasfilename(defaultextension=".bin", initialfile=f"{self.board.get()}-flash-backup.bin")
-        if file:
-            args = [exe, "backup", *options, file]
-            self.run("Backing up flash…", lambda: self.invoke(args), lambda _: self.clear_settings())
+        board = self.board.get()
+        file = filedialog.asksaveasfilename(defaultextension=".bin", initialfile=f"{board}-flash-backup.bin")
+        if not file:
+            return
+        if Path(file).resolve() == Path(self.loader.get()).resolve():
+            messagebox.showerror("Backup destination", "Choose a file different from the BR23 loader.")
+            return
+        def backup():
+            loader = padflash.select_loader(board, blob, report=self.flash_report)
+            loader.backup(file)
+            self.flash_report("Backup complete. Reconnect USB to leave the loader.")
+        self.run("Backing up flash…", backup, lambda _: self.clear_settings())
 
     def flash(self, pack):
         try:
-            exe, options = self.flash_args()
+            blob = self.loader_blob()
             board = self.board.get()
             if pack:
+                exe = shutil.which(self.flasher.get()) or self.flasher.get()
                 bundle = Path(self.bundle.get())
                 files = [bundle / "app.bin", bundle / "isd_config.ini", Path(self.uboot.get()), Path(self.cfgtool.get())]
-                if not all(p.is_file() for p in files):
-                    raise ValueError("Select a build folder with app.bin and isd_config.ini, and both SDK files.")
-                args = [exe, "flashpack", *options, "--flash-size", "0x100000" if board == "pad" else "0x80000",
-                        "--code-limit", "0x50000", "-c", str(files[1]), "-u", str(files[2]), str(files[0]), str(files[3])]
+                if not Path(exe).is_file() or not all(p.is_file() for p in files):
+                    raise ValueError("Build packing needs jlnewfw, app.bin, isd_config.ini, uboot.boot and cfg_tool.bin.")
+                pack_args = [exe, "pack", "--flash-size", "0x100000" if board == "pad" else "0x80000",
+                             "--code-limit", "0x50000", "-c", str(files[1]), "-u", str(files[2]), str(files[0]), str(files[3])]
             else:
-                if not Path(self.image.get()).is_file():
+                image = Path(self.image.get())
+                if not image.is_file():
                     raise ValueError("Select an existing firmware image.")
-                args = [exe, "flash", *options, self.image.get()]
-        except ValueError as error:
+                files = [image]
+        except (ValueError, OSError) as error:
             messagebox.showerror("Firmware", str(error))
             return
         backup = filedialog.asksaveasfilename(title="Save automatic pre-flash backup", defaultextension=".bin", initialfile=f"{board}-before-flash.bin")
         if not backup:
             return
-        inputs = [Path(p).resolve() for p in (files if pack else [self.image.get()])]
+        inputs = [p.resolve() for p in files + [Path(self.loader.get())]]
+        if pack:
+            inputs.append(Path(exe).resolve())
         if Path(backup).resolve() in inputs:
             messagebox.showerror("Backup destination", "Choose a backup file different from the firmware input files.")
             return
-        if messagebox.askyesno("Flash firmware", f"Back up and flash the {board}?\n\n"
-                               "The flasher selects by firmware PID and chip key. Connect only the intended board. "
-                               "Settings in erased sectors will be replaced. Keep USB connected until verification finishes."):
-            self.run("Backing up and flashing…", lambda: self.invoke(args + ["--backup", backup]), lambda _: self.clear_settings())
+        if not messagebox.askyesno("Flash firmware", f"Back up and flash the {board}?\n\n"
+                                  "The flasher selects by firmware PID and chip key. Connect only the intended board. "
+                                  "Settings in erased sectors will be replaced. Keep USB connected until verification finishes."):
+            return
+        def flash():
+            with tempfile.TemporaryDirectory(prefix="padtool-") as temp:
+                packed = Path(temp) / "firmware.img"
+                if pack:
+                    self.invoke(pack_args + ["-k", "0xffff", "-o", str(packed)])
+                data = padflash.load_image(packed if pack else image)
+                pid, key = padflash.image_identity(data)
+                if pid != PIDS[board]:
+                    raise ValueError("Image does not match the selected board")
+                loader = padflash.select_loader(board, blob, report=self.flash_report)
+                if pack and key != loader.key:
+                    self.invoke(pack_args + ["-k", hex(loader.key), "-o", str(packed)])
+                    data = padflash.load_image(packed)
+                loader.flash(data, board, backup)
+        self.run("Backing up and flashing…", flash, lambda _: self.clear_settings())
 
     def build_diagnostics(self):
         f = self.diagnostics

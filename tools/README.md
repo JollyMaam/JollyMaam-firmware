@@ -7,9 +7,16 @@ python tools/padgui.py
 ```
 
 Windows Python's installer includes Tcl/Tk by default. On Linux install your
-Python distribution's Tk package (often `python3-tk`). There are no pip
-requirements for configuration or flashing. CPU profiling additionally needs
-`pyelftools` and the ELF matching the running firmware.
+Python distribution's Tk package (often `python3-tk`). With Nixpkgs:
+
+```sh
+nix-shell -p 'python3.withPackages (ps: [ ps.tkinter ])'
+python tools/padgui.py
+```
+
+There are no pip requirements for configuration, image flashing or backups.
+CPU profiling additionally needs `pyelftools` and the ELF matching the running
+firmware; add `ps.pyelftools` to the Nix package list if needed.
 
 Select **pad** or **dongle**, scan, then select a device. Configuration and
 diagnostics use that selected device. A USB gamepad session must end before
@@ -24,10 +31,29 @@ settings table; use Diagnostics for its pairing and target address.
 
 ## Firmware
 
-The GUI calls `jlnewfw` directly for full flash backup and installation. It does
-not call `make`, build firmware, or invoke the SDK's Windows flasher. Its log
-shows the invoked command and output. Choose the executable and BR23 loader on
-the Firmware tab. On Linux the default executable is `build/host/jlnewfw`:
+Full flash backup and image flashing run entirely in Python. The BR23 RAM
+loader is bundled in `tools/loaders/` with the SDK's Apache 2.0 license and
+provenance. No SDK checkout or external executable is needed for these actions.
+The loader is uploaded to RAM through UBOOT1.00; it provides SPI flash access.
+It is separate from the `uboot.boot` contained inside firmware images.
+
+Windows device access uses SCSI pass-through through the standard storage driver;
+run Python in an Administrator terminal. Linux needs read/write access to the
+matching `/dev/sg*` node. Inside our development container `/dev/bwrap/sg*` works.
+Windows discovery currently probes PhysicalDrive0 through PhysicalDrive63.
+
+Two install paths are available:
+
+- **Flash image:** writes a packed `firmware.img` unchanged, or extracts and
+  writes the flash.bin entry of a CRC-checked UFW. The image's PID must match
+  the selected board, and its chip key must match the device. A generic image
+  from another chip may fail this check; use build packing in that case.
+- **Pack and flash build:** optionally calls `jlnewfw pack` to prepare an image
+  for the connected chip's key, then flashes it through the Python backend.
+  Select a folder with `app.bin` and `isd_config.ini`, plus the SDK's
+  `uboot.boot` and `cfg_tool.bin`. Selecting a board sets its default build folder.
+
+For optional build packing, compile `jlnewfw` on Linux:
 
 ```sh
 make build/host/jlnewfw
@@ -41,41 +67,28 @@ mkdir -p build/host
 gcc -O2 -std=c11 -Wall -Wextra -o build/host/jlnewfw.exe tools/jlnewfw.c
 ```
 
-Windows device access uses SCSI pass-through through the standard storage driver;
-run Python in an Administrator terminal. Linux needs read/write access to the
-matching `/dev/sg*` node. Inside our development container `/dev/bwrap/sg*` works.
-Windows discovery currently probes PhysicalDrive0 through PhysicalDrive63.
-
-The SDK files are `cpu/br23/tools/br23loader.bin`, `uboot.boot` and `cfg_tool.bin`.
-The GUI derives defaults from `JIELI_SDK` if set; otherwise it uses this
-workspace's SDK location. Browse to those files when running elsewhere.
-
-Two install paths are available:
-
-- **Flash image:** a packed raw image or UFW. The image's PID must match the
-  selected board, and its chip key must match the device. A generic image from
-  another chip may fail this check.
-- **Pack and flash build:** select a folder with `app.bin` and `isd_config.ini`,
-  plus the SDK's `uboot.boot` and `cfg_tool.bin`. `jlnewfw` packs for the connected
-  chip's key. Selecting a board sets the default build folder for that board.
+The packing resources are `cpu/br23/tools/uboot.boot` and `cfg_tool.bin`. The GUI
+derives defaults from `JIELI_SDK` if set; otherwise it uses this workspace's SDK
+location. Browse to those files when packing elsewhere.
 
 Firmware operations discover ROM loaders separately from the running-device
 selector. Connect only the intended board: selection uses the board PID and
 refuses multiple matching loaders. Flashing asks for a full pre-flash backup,
-reads it before erasing, then writes and verifies the result. The GUI exposes
-no PID/key override. Settings in erased sectors are replaced by the image;
-back up settings separately if you want to restore them after installation.
+reads and saves it before erasing, then writes and verifies the result. The GUI
+exposes no PID/key override. Settings in erased sectors are replaced by the
+image; back up settings separately to restore them after installation.
 
-Full flash backup is also available without installing firmware:
+The Python backend can also run from a terminal:
 
 ```sh
-build/host/jlnewfw backup --pid GS_C2_ADC_DEVICE --enter-loader --wait 30 \
-  --loader /path/to/br23loader.bin pad-backup.bin
+python tools/padflash.py backup pad-backup.bin --board pad
+python tools/padflash.py flash build/pad/firmware.img --board pad --backup before-flash.bin
 ```
 
-Use `GS_C2_Dongle` for the dongle. An explicit `--device PATH` can back up a loader
-without a recognized firmware PID. A backup leaves the board in its loader;
-reconnect USB afterwards. Stock firmware restoration is outside the GUI's scope.
+Use `--board dongle` for the dongle and `--loader FILE` to override the bundled
+loader. A standalone backup leaves the board in its loader; reconnect USB
+afterwards. Stock firmware restoration is outside the GUI's scope. The C
+`jlnewfw` tool retains its own flashing, backup and Windows support.
 
 If automatic loader entry fails, unplug USB and hold Home + Start on the pad,
 or the dongle's button, while plugging USB back in. Wait for each operation to
@@ -86,10 +99,17 @@ in its loader for recovery.
 
 `padgui.py` owns the UI and serializes operations on a worker thread.
 `padtool.py` supplies the firmware protocol and CLI. `padtransport.py` supplies
-Linux SG_IO and Windows buffered SCSI pass-through. `jlnewfw.c` keeps packing,
-loader protocol, chip-key checks and readback verification in one implementation.
-An Android client will need its own USB host transport and UI; it can reuse the
-wire protocol and potentially the C image/loader code.
+Linux SG_IO and Windows buffered SCSI pass-through. `padflash.py` supplies the
+BR23 RAM-loader protocol, image identity checks, backup, erase/write and readback
+verification. It is ported from our `jlnewfw.c`; build packing remains in C.
+An Android client will need its own USB host transport and UI, and can reuse
+these protocol definitions.
+
+Run the flasher tests (no display or hardware required):
+
+```sh
+python -m unittest discover -s tools -p test_padflash.py -v
+```
 
 Run GUI boundary tests on a display or under Xvfb:
 
@@ -97,7 +117,8 @@ Run GUI boundary tests on a display or under Xvfb:
 python -m unittest discover -s tools -p test_padgui.py -v
 ```
 
-These tests do not access USB. They check worker failures, settings selection,
-changed-field commits, flash backup requirements and discovery filtering.
-Cross-compilation checks the Windows C code, but Windows USB I/O still needs
-hardware validation on Windows.
+The flasher tests simulate a SCSI device to check RAM upload, chip info, exact
+writes, backup-before-erase, identity/key rejection, short reads, ambiguous
+loaders and failure to verify. GUI tests cover worker failures, settings
+selection, changed-field commits, flash backup requirements and discovery
+filtering. Windows USB I/O still needs hardware validation on Windows.
