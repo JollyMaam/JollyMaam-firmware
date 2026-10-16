@@ -497,8 +497,11 @@ void cal_apply(const struct set_cal *cal, const struct in_raw *raw, struct pad *
 
 #define SETTLE_MS   1000
 #define REST_MS     1500
-#define SWEEP_MS    120000
-#define RESULT_MS   2000
+#define SWEEP_MS    300000
+#define RESULT_MS   1500
+#define SUCCESS_ON_MS 1000
+#define FAILURE_BLINK_MS 100
+#define FAILURE_BLINKS 3
 #define LED_LEVEL   12
 
 enum { PH_IDLE, PH_SETTLE, PH_REST, PH_SWEEP, PH_RESULT };
@@ -563,7 +566,6 @@ static int finish(struct set_cal *cal, u32 now)
         if (r.outcome[i] != CAL_OK) util_log("cal: %s unchanged: %s", names[i], cal_result_name(r.outcome[i]));
     util_log("cal: done, %u of 4 calibrated", applied);
     if (applied == 4) show(0, LED_LEVEL, now);
-    else if (applied) show(LED_LEVEL, LED_LEVEL / 2, now);
     else show(LED_LEVEL, 0, now);
     return applied ? CAL_SAVE : CAL_RUNNING;
 }
@@ -634,9 +636,15 @@ int cal_led(u32 now, struct rgb *out)
     case PH_SWEEP:
         *out = (struct rgb){ 0, 0, (u8)((now / 250) & 1 ? 0 : LED_LEVEL) };
         return 1;
-    case PH_RESULT:
-        *out = r.result;
+    case PH_RESULT: {
+        u32 t = now - r.since;
+        int lit = r.result.g ? t < SUCCESS_ON_MS :
+                  t < 2 * FAILURE_BLINK_MS * FAILURE_BLINKS &&
+                  (t / FAILURE_BLINK_MS) % 2 == 0;
+
+        *out = lit ? r.result : (struct rgb){ 0, 0, 0 };
         return 1;
+    }
     default:
         return 0;
     }
@@ -719,8 +727,51 @@ int main(void)
     cal_step(&raw, now + 10, &cal);
     CHECK(cal_step(&raw, now + 15, &cal) == CAL_IDLE && !cal_led(now + 15, &(struct rgb){ 0 }));
     cal_start(now);
-    for (i = 0; i < SETTLE_MS + REST_MS + SWEEP_MS + 20; i += 5) cal_step(&raw, now + i, &cal);
+    for (i = 0; i < SETTLE_MS + REST_MS + SWEEP_MS + 20; i += 5) {
+        cal_step(&raw, now + i, &cal);
+        if (i == SETTLE_MS + REST_MS + 120000) CHECK(r.phase == PH_SWEEP);
+    }
     CHECK(r.phase == PH_RESULT && r.result.r && !r.result.g);
+    {
+        struct rgb led;
+        struct set_cal before = cal;
+        u32 started = r.since;
+
+        /* Timeout leaves saved values alone and shows exactly three flashes. */
+        for (i = 0; i < RESULT_MS; i += FAILURE_BLINK_MS) {
+            CHECK(cal_led(started + i, &led));
+            CHECK(led.r == (i < 600 && (i / 100) % 2 == 0 ? LED_LEVEL : 0));
+            CHECK(!led.g && !led.b);
+        }
+        CHECK(cal_step(&raw, started + RESULT_MS, &cal) == CAL_IDLE);
+        CHECK(!cal_led(started + RESULT_MS, &led));
+        CHECK(memcmp(&before, &cal, sizeof(cal)) == 0);
+
+        /* All four valid captures produce one slow green blink. */
+        memset(r.outcome, 0, sizeof(r.outcome));
+        r.stick[0] = r.stick[1] = c;
+        r.trigger[0] = r.trigger[1] = tc;
+        CHECK(finish(&cal, started) == CAL_SAVE);
+        CHECK(cal_led(started, &led) && !led.r && led.g == LED_LEVEL && !led.b);
+        CHECK(cal_led(started + 999, &led) && led.g == LED_LEVEL);
+        CHECK(cal_led(started + 1000, &led) && !led.r && !led.g && !led.b);
+
+        /* Partial calibration is a failure signal; valid inputs still save
+         * and the failed input keeps its previous calibration. */
+        before = cal;
+        r.outcome[0] = CAL_NOT_CIRCLED;
+        cal.stick[0].center[0]++;
+        before.stick[0] = cal.stick[0];
+        CHECK(finish(&cal, started) == CAL_SAVE);
+        CHECK(memcmp(&before.stick[0], &cal.stick[0], sizeof(cal.stick[0])) == 0);
+        CHECK(cal_led(started, &led) && led.r == LED_LEVEL && !led.g && !led.b);
+        CHECK(cal_led(started + 100, &led) && !led.r && !led.g && !led.b);
+        for (i = 0; i < 4; i++) r.outcome[i] = CAL_NO_SAMPLES;
+        before = cal;
+        CHECK(finish(&cal, started) == CAL_RUNNING);
+        CHECK(memcmp(&before, &cal, sizeof(cal)) == 0);
+        CHECK(cal_led(started, &led) && led.r == LED_LEVEL && !led.g);
+    }
     return TEST_DONE("input_calibration");
 }
 #endif
