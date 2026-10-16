@@ -16,10 +16,11 @@
 #define DISABLE_CLASSIC_GAP_CLIENT
 
 #define ENABLE_BLE
-/* No LE Secure Connections, signed writes or Mesh: nothing queues a CMAC or
- * CCM operation.  Only honoured by a BTstack carrying the patch (branch
- * btstack-jl-port of the fork), which then leaves those engines out. */
-#define DISABLE_BTSTACK_CRYPTO_CMAC_CCM
+/* LE Secure Connections, P-256 in software: micro-ecc, the SDK library's
+ * copy, declared in src/uECC.h.  The controller's P-256 commands are stubs
+ * that never answer. */
+#define ENABLE_LE_SECURE_CONNECTIONS
+#define ENABLE_MICRO_ECC_P256
 #define ENABLE_LE_PERIPHERAL
 /* Ask for 251-byte LE PDUs on every connection: at the default 27 bytes a
  * Switch 2 input report (70 bytes with headers) took three connection events. */

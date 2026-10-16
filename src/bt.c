@@ -1272,6 +1272,66 @@ static void setup_classic(void)
     hid_device_register_packet_handler(on_event);
 }
 
+#ifdef BT_SMP_LOG
+#include "hci_dump.h"
+
+/* -DBT_SMP_LOG: LE pairing in the log: the SMP PDUs, the controller's
+ * encryption and P-256 commands and events, and BTstack's errors. */
+static void smp_log_packet(u8 type, u8 in, u8 *p, u16 len)
+{
+    char hex[3 * 18 + 1];
+    u16 op, i, n;
+
+    if (type == HCI_ACL_DATA_PACKET && len >= 9 && little_endian_read_16(p, 6) == L2CAP_CID_SECURITY_MANAGER_PROTOCOL) {
+        n = (u16)(len - 8 < 18 ? len - 8 : 18);
+        for (i = 0; i < n; i++) snprintf(hex + 3 * i, 4, " %02x", p[8 + i]);
+        hex[3 * n] = 0;
+        util_log("smp %s%s", in ? "<" : ">", hex);
+        return;
+    }
+    if (type == HCI_COMMAND_DATA_PACKET && len >= 2) {
+        op = little_endian_read_16(p, 0);
+        if (op == 0x2017 || op == 0x2018 || op == 0x201a || op == 0x201b || op == 0x2019 ||
+            op == 0x2025 || op == 0x2026)
+            util_log("hci cmd %04x", op);
+        return;
+    }
+    if (type != HCI_EVENT_PACKET || len < 2) return;
+    switch (p[0]) {
+    case HCI_EVENT_ENCRYPTION_CHANGE:
+    case HCI_EVENT_ENCRYPTION_KEY_REFRESH_COMPLETE:
+        util_log("hci ev %02x status %02x", p[0], p[2]);
+        break;
+    case HCI_EVENT_COMMAND_COMPLETE:
+        op = little_endian_read_16(p, 3);
+        if (len >= 6 && (op == 0x2017 || op == 0x2018 || op == 0x201a || op == 0x201b))
+            util_log("hci done %04x status %02x", op, p[5]);
+        break;
+    case HCI_EVENT_COMMAND_STATUS:
+        op = little_endian_read_16(p, 4);
+        if (len >= 6 && (op == 0x2017 || op == 0x2018 || op == 0x201a || op == 0x201b || op == 0x2019 ||
+                         op == 0x2025 || op == 0x2026))
+            util_log("hci status %04x %02x", op, p[2]);
+        break;
+    case HCI_EVENT_LE_META:
+        if (p[2] == HCI_SUBEVENT_LE_LONG_TERM_KEY_REQUEST) util_log("hci ev ltk request");
+        if (p[2] == 0x08 || p[2] == 0x09) util_log("hci ev p256 %02x status %02x", p[2], p[3]);
+        break;
+    }
+}
+
+static void smp_log_message(int level, const char *format, va_list ap)
+{
+    char text[96];
+
+    (void)level;
+    vsnprintf(text, sizeof(text), format, ap);
+    util_log("btstack: %s", text);
+}
+
+static const hci_dump_t smp_log = { NULL, smp_log_packet, smp_log_message };
+#endif
+
 static void setup_le(void)
 {
     sm_key_t key;
@@ -1288,9 +1348,12 @@ static void setup_le(void)
         memcpy(key, dev->sm_ir, 16);
         sm_set_ir(key);
         sm_set_io_capabilities(IO_CAPABILITY_NO_INPUT_NO_OUTPUT);
-        sm_set_authentication_requirements(SM_AUTHREQ_BONDING);
+        sm_set_authentication_requirements(SM_AUTHREQ_BONDING | SM_AUTHREQ_SECURE_CONNECTION);
         sm_registration.callback = on_sm;
         sm_add_event_handler(&sm_registration);
+#ifdef BT_SMP_LOG
+        hci_dump_init(&smp_log);
+#endif
     }
     att_server_init(dev->att_db, att_read, att_write);
     att_server_register_packet_handler(on_att);
@@ -1327,6 +1390,9 @@ static void teardown(void)
         att_server_deinit();
         if (sm_on) {
             sm_remove_event_handler(&sm_registration);
+#ifdef BT_SMP_LOG
+            hci_dump_init(NULL);
+#endif
             sm_deinit();
             /* sm_init() starts the crypto engine once per boot; without this
              * every later session waits forever on LE Encrypt. */
