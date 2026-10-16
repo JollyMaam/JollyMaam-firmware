@@ -79,7 +79,7 @@ in the SDK's register definitions (`map_adr(group, index)`).
 | RST | `0x1e00c0` | reset control |
 | MODE | `0x1e0100` | |
 | SYSTEM | `0x1e0200` | |
-| TIMER0 / 1 / 2 / 3 | `0x1e0400` / `0x500` / `0x600` / `0x700` | general timers; the period register counts to 65535 at most (a larger value is cut to its low 16 bits) |
+| TIMER0 / 1 / 2 / 3 | `0x1e0400` / `0x500` / `0x600` / `0x700` | general timers; the period register counts to 65535 at most (a larger value is cut to its low 16 bits). On the osc input (CON bits 3:2 = 2), timer 3 has counted about 1 MHz, unsteadily, on some boots, with its registers and CLK_CON0-2 as on a healthy boot, while timer 2 on the same input kept 24 MHz; cause not established. On the lsb input (bits 3:2 = 0) it has not |
 | PCNT | `0x1e1000` | pulse counter |
 | SD0 | `0x1e1400` | SD controller |
 | USB | `0x1e1800` | USB0 controller (`USB_CON0` at `0x1e1800`) |
