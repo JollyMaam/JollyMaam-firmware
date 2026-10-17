@@ -760,7 +760,8 @@ class App:
             ttk.Button(links, text="Settings", command=lambda t=target: self.show_target(t)).pack(side="left", padx=(0, 8))
             ttk.Button(links, text="Connect", command=lambda t=target: self.slot_action("connect", t)).pack(side="left", padx=(0, 8))
             ttk.Button(links, text="Pair…", command=lambda t=target: self.slot_action("pair", t)).pack(side="left", padx=(0, 8))
-            self.wrap_row(row, (types, links), self.overview)
+            types.grid(row=0, column=0, sticky="w", padx=(0, 8))
+            links.grid(row=0, column=1, sticky="w")
         ttk.Label(f, text="Connect and Pair use saved settings; apply pending edits for that slot first.", wraplength=850).pack(anchor="w", pady=10)
 
     def render_details(self):

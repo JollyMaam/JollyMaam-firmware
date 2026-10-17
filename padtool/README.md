@@ -35,9 +35,10 @@ settings, retaining pending edits. **Device tools** under running pads and dongl
 contains diagnostics and the operation log. Only `UBOOT1.00` devices have
 **Flash tools**, with firmware installation, full flash backups, progress and
 the flash log. Connect and Pair are on the device overview.
-There is no minimum window size. Toolbar and overview controls wrap in narrow
-windows, slot settings stack vertically, and pages provide horizontal scrolling
-when their controls cannot fit.
+There is no minimum window size. Toolbar and global device controls wrap in
+narrow windows. Slot rows keep their type, Apply, Settings, Connect and Pair
+controls on one line and scroll horizontally. Detailed settings stack vertically;
+pages provide horizontal scrolling when their controls cannot fit.
 The mouse wheel scrolls the current page anywhere in the window, including
 over dropdowns and number fields, without changing their values. Shift+wheel
 scrolls horizontally. Edits persist
