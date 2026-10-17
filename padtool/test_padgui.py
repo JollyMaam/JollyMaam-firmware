@@ -207,7 +207,10 @@ class GuiTests(unittest.TestCase):
         self.assertNotIn("Connect", [w.cget("text") for w in buttons])
         self.assertNotIn("Pair…", [w.cget("text") for w in buttons])
         unpair = [w for w in buttons if w.cget("text") == "Unpair"]
-        self.assertEqual(len(unpair), 2)
+        self.assertEqual(len(unpair), 8)
+        self.assertFalse(unpair[0].instate(["disabled"]))
+        self.assertFalse(unpair[1].instate(["disabled"]))
+        self.assertTrue(all(w.instate(["disabled"]) for w in unpair[2:]))
         r["draft"][3, "type"]["var"].set("hid")
         with patch.object(padgui.pad, "cmd") as cmd:
             unpair[0].invoke()
@@ -229,8 +232,11 @@ class GuiTests(unittest.TestCase):
             self.finish()
             send.assert_called_once_with("fake", [(1, 13, bytes(68))])
         self.assertEqual(r["draft"][3, "type"]["var"].get(), "hid")
-        self.assertEqual(len([w for w in self.app.controls(self.app.overview_form)
-                              if isinstance(w, padgui.ttk.Button) and w.cget("text") == "Unpair"]), 1)
+        unpair = [w for w in self.app.controls(self.app.overview_form)
+                  if isinstance(w, padgui.ttk.Button) and w.cget("text") == "Unpair"]
+        self.assertEqual(len(unpair), 8)
+        self.assertFalse(unpair[0].instate(["disabled"]))
+        self.assertTrue(all(w.instate(["disabled"]) for w in unpair[1:]))
 
     def test_rom_loader_scan_has_only_recovery_actions(self):
         with patch.object(padgui.pad, "discover_devices", return_value=[("rom", "BR23 UBOOT1.00", None)]), \

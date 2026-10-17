@@ -879,9 +879,9 @@ class App:
                     self.setting_action_button(types, record, target, "type", entry, action).pack(side="left", padx=(8, 0))
             ttk.Button(links, text="Settings", command=lambda t=target: self.show_target(t)).pack(side="left", padx=(0, 8))
             bond = record["draft"].get((target, "bond"))
-            if bond and self.has_pairing(bond["original_raw"]):
-                button = ttk.Button(links, text="Unpair", command=lambda t=target: self.unpair_slot(t))
-                button.pack(side="left", padx=(0, 8))
+            button = ttk.Button(links, text="Unpair", state="disabled", command=lambda t=target: self.unpair_slot(t))
+            button.pack(side="left", padx=(0, 8))
+            if bond is not None:
                 self.unpair_buttons.append((bond, button))
             types.grid(row=0, column=0, sticky="w", padx=(0, 8))
             links.grid(row=0, column=1, sticky="w")
