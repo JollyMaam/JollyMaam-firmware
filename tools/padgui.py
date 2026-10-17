@@ -562,7 +562,11 @@ class App:
                 editor = ttk.Combobox(self.form, textvariable=entry["var"], values=f["names"], state="readonly", width=23)
             else:
                 editor = ttk.Entry(self.form, textvariable=entry["var"], width=25)
-            editor.grid(row=row, column=1, sticky="ew", padx=4, pady=4)
+            editor.grid(row=row, column=1, columnspan=2 if isinstance(editor, (PaletteEditor, CurveEditor)) else 1,
+                        sticky="ew", padx=4, pady=4)
+            if f["type"] == pad.T_NUMBER:
+                maximum = f.get("max", (1 << (8 * f["size"])) - 1)
+                ttk.Label(self.form, text=f"0–{maximum}", foreground="#666666").grid(row=row, column=2, sticky="w", padx=6)
             if f["type"] == pad.T_RGB:
                 self.color_swatch(self.form, record, entry).grid(row=row, column=2, padx=4)
             actions = ttk.Frame(self.form)

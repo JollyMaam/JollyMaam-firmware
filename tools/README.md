@@ -51,6 +51,8 @@ all previews follow staged palette edits.
 Each setting has its own Apply button; it saves only that setting and retains
 all other drafts. Apply changes at the top saves all pending edits. Help is
 hidden behind each row's `?` button. Setting names use readable labels.
+Numeric inputs show their valid range beside the box, using firmware-reported
+limits.
 
 Custom stick curve points have a graph with draggable handles, seven sliders,
 and percentage inputs. The inputs correspond to 12.5% through 87.5% stick
