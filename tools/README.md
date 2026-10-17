@@ -28,7 +28,8 @@ pad first, then scan.
 
 Selecting a device in the tree shows its slots, each with a type dropdown,
 Settings, Connect and Pair. Slot and settings-group entries open detailed settings
-directly. **Console / diagnostics** under each device holds diagnostic controls
+directly. **Developer fields** at the bottom expands or collapses the advanced
+settings, retaining pending edits. **Console / diagnostics** under each device holds diagnostic controls
 and the operation log. **Firmware / flash…** opens flash and backup controls.
 The mouse wheel scrolls the current page anywhere in the window, including
 over dropdowns and number fields, without changing their values. Edits persist

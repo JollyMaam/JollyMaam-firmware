@@ -42,7 +42,7 @@ class App:
         self.board = tk.StringVar(value="pad")
         self.device = tk.StringVar()
         self.target = tk.StringVar(value=pad.TARGETS[0])
-        self.dev = tk.BooleanVar()
+        self.expanded_details = set()
         self.notice = tk.StringVar(value="Scan and load to browse all connected boards and their slots.")
         self.pending = tk.StringVar(value="No pending changes")
         top = ttk.Frame(root, padding=10)
@@ -529,7 +529,6 @@ class App:
         bar.pack(fill="x", pady=(0, 8))
         self.details_title = tk.StringVar(value="Select a slot or settings group in the tree")
         ttk.Label(bar, textvariable=self.details_title, font=("TkDefaultFont", 12, "bold")).pack(side="left")
-        ttk.Checkbutton(bar, text="Developer fields", variable=self.dev, command=self.render_details).pack(side="right")
         ttk.Label(self.settings, text="* differs from default · ! invalid value · ? default unavailable. Reset fills in the default; Apply saves it.", wraplength=850).pack(anchor="w", pady=(0, 8))
         self.form = self.scroll_form(self.settings)
         bar = ttk.Frame(self.settings)
@@ -600,48 +599,79 @@ class App:
             return
         target = pad.target_index(self.target.get())
         self.details_title.set(f"{record['path']} · " + (f"Slot {pad.TARGETS[target]}" if target < 8 else pad.TARGETS[target].title()))
+        advanced = ttk.Frame(self.form)
+        rows = {self.form: 0, advanced: 0}
         for (t, name), entry in record["draft"].items():
             f = entry["field"]
-            if t != target or (f["dev"] and not self.dev.get()):
+            if t != target:
                 continue
             if name.endswith("_curve_enabled") and (t, name.replace("_enabled", "_points")) in record["draft"]:
                 continue
-            row = len(self.editors)
-            ttk.Label(self.form, text=name.replace("_", " ").capitalize()).grid(row=row, column=0, sticky="nw", padx=4, pady=8)
+            parent = advanced if f["dev"] else self.form
+            row = rows[parent]
+            rows[parent] += 1
+            ttk.Label(parent, text=name.replace("_", " ").capitalize()).grid(row=row, column=0, sticky="nw", padx=4, pady=8)
             if f["type"] == pad.T_COLOUR:
-                editor = PaletteEditor(self.form, self, record, entry)
+                editor = PaletteEditor(parent, self, record, entry)
                 self.special_editors.append(editor)
             elif name in ("left_curve_points", "right_curve_points"):
-                editor = CurveEditor(self.form, self, entry, record["draft"].get((target, name.replace("_points", "_enabled"))))
+                editor = CurveEditor(parent, self, entry, record["draft"].get((target, name.replace("_points", "_enabled"))))
                 self.special_editors.append(editor)
             elif f["type"] == pad.T_ENUM:
-                editor = ttk.Combobox(self.form, textvariable=entry["var"], values=f["names"], state="readonly", width=23)
+                editor = ttk.Combobox(parent, textvariable=entry["var"], values=f["names"], state="readonly", width=23)
             else:
-                editor = ttk.Entry(self.form, textvariable=entry["var"], width=25)
+                editor = ttk.Entry(parent, textvariable=entry["var"], width=25)
             editor.grid(row=row, column=1, columnspan=2 if isinstance(editor, (PaletteEditor, CurveEditor)) else 1,
                         sticky="ew", padx=4, pady=4)
             if f["type"] == pad.T_NUMBER:
                 maximum = f.get("max", (1 << (8 * f["size"])) - 1)
-                ttk.Label(self.form, text=f"0–{maximum}", foreground="#666666").grid(row=row, column=2, sticky="w", padx=6)
+                ttk.Label(parent, text=f"0–{maximum}", foreground="#666666").grid(row=row, column=2, sticky="w", padx=6)
             if f["type"] == pad.T_RGB:
-                self.color_swatch(self.form, record, entry).grid(row=row, column=2, padx=4)
-            actions = ttk.Frame(self.form)
+                self.color_swatch(parent, record, entry).grid(row=row, column=2, padx=4)
+            actions = ttk.Frame(parent)
             actions.grid(row=row, column=3, sticky="ne", padx=4, pady=4)
             ttk.Button(actions, text="Reset", width=6,
                        state="normal" if entry["default_text"] is not None else "disabled",
                        command=lambda e=entry: self.reset_default(e)).pack(side="left", padx=2)
             self.setting_apply_button(actions, record, target, name, entry).pack(side="left", padx=2)
             ttk.Button(actions, text="?", width=2, command=lambda e=entry: self.show_help(e)).pack(side="left", padx=2)
-            self.default_marker(self.form, entry).grid(row=row, column=4, sticky="n", pady=8)
+            self.default_marker(parent, entry).grid(row=row, column=4, sticky="n", pady=8)
             self.editors[name] = entry
         self.form.columnconfigure(1, weight=1)
         if target < 8:
-            row = len(self.editors)
+            row = rows[self.form]
+            rows[self.form] += 1
             actions = ttk.Frame(self.form, padding=(0, 12))
             actions.grid(row=row, column=0, columnspan=5, sticky="w")
             for action in ("connect", "pair"):
                 ttk.Button(actions, text=action.title(),
                            command=lambda a=action: self.slot_action(a, target)).pack(side="left", padx=4)
+
+        if rows[advanced]:
+            key = (record["path"], target)
+            row = rows[self.form]
+            button = ttk.Button(self.form)
+            button.grid(row=row, column=0, columnspan=5, sticky="w", padx=4, pady=(12, 6))
+            advanced.grid(row=row + 1, column=0, columnspan=5, sticky="ew")
+            advanced.columnconfigure(1, weight=1)
+
+            def update_section():
+                expanded = key in self.expanded_details
+                button.configure(text="▾ Developer fields" if expanded else "▸ Developer fields")
+                if expanded:
+                    advanced.grid()
+                else:
+                    advanced.grid_remove()
+
+            def toggle_section():
+                if key in self.expanded_details:
+                    self.expanded_details.remove(key)
+                else:
+                    self.expanded_details.add(key)
+                update_section()
+
+            button.configure(command=toggle_section)
+            update_section()
 
     def apply_settings(self, only=None):
         jobs = []
