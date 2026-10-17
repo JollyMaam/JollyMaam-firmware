@@ -80,6 +80,11 @@ class GuiTests(unittest.TestCase):
         self.app.tree.selection_set("device1/tools")
         self.app.select_node()
         self.assertIs(self.app.active_page, self.app.tools_page)
+        titles = [w.cget("text") for w in self.app.controls(self.app.tools_page) if isinstance(w, padgui.ttk.Button)]
+        self.assertNotIn("Flash Firmware…", titles)
+        self.assertNotIn("Back up full flash…", titles)
+        self.app.log("Shared operation log")
+        self.assertIn("Shared operation log", self.app.flash_output.get("1.0", "end"))
         self.assertEqual(self.app.device.get(), "dongle")
         self.assertEqual(self.app.output.master.master, self.app.diagnostics)
         self.app.tree.selection_set("device0/tools")
@@ -153,12 +158,12 @@ class GuiTests(unittest.TestCase):
             status.assert_not_called()
         self.assertEqual(self.app.record()["board"], "loader")
         self.assertIn("UBOOT1.00", self.app.tree.item("device0", "text"))
-        self.assertEqual(self.app.tree.get_children("device0"), ("device0/tools",))
+        self.assertEqual(self.app.tree.get_children("device0"), ("device0/flash",))
         buttons = [w.cget("text") for w in self.app.controls(self.app.overview_form) if isinstance(w, padgui.ttk.Button)]
         self.assertEqual(buttons, ["Flash Firmware…"])
-        self.app.tree.selection_set("device0/tools")
+        self.app.tree.selection_set("device0/flash")
         self.app.select_node()
-        self.assertIs(self.app.active_page, self.app.tools_page)
+        self.assertIs(self.app.active_page, self.app.flash_page)
         self.assertTrue(all(str(w.cget("state")) == "disabled" for w in self.app.controls(self.app.diagnostics)))
         self.app.board.set("dongle")
         self.app.change_board()
@@ -181,6 +186,35 @@ class GuiTests(unittest.TestCase):
             self.app.choose_firmware()
             error.assert_called_once()
             flash.assert_not_called()
+
+    def test_narrow_window_wraps_controls_and_scrolls_horizontally(self):
+        self.load([record()])
+        self.root.deiconify()
+        self.root.geometry("440x360")
+        self.root.update()
+        self.assertEqual(self.root.winfo_width(), 440)
+        buttons = [w for w in self.app.controls(self.app.overview_form) if isinstance(w, padgui.ttk.Button)]
+        reset = next(w for w in buttons if w.cget("text") == "Reset all to defaults")
+        self.assertGreater(reset.grid_info()["row"], 0)
+        self.app.show_target(0)
+        self.root.update()
+        padgui.ttk.Frame(self.app.form, width=600, height=1).grid(row=1000, column=0, columnspan=4)
+        self.root.update()
+        canvas = self.app.scroll_canvases[self.app.settings]
+        horizontal = next(w for w in canvas.master.winfo_children()
+                          if isinstance(w, padgui.ttk.Scrollbar) and str(w.cget("orient")) == "horizontal")
+        self.assertTrue(horizontal.winfo_ismapped())
+        self.assertLess(canvas.xview()[1], 1)
+        combo = next(w for w in self.app.controls(self.app.form) if isinstance(w, padgui.ttk.Combobox))
+        value = combo.get()
+        combo.event_generate("<MouseWheel>", delta=-120, state=1)
+        self.root.update()
+        self.assertGreater(canvas.xview()[0], 0)
+        self.assertEqual(combo.get(), value)
+        self.root.geometry("1250x850")
+        self.root.update()
+        self.assertFalse(horizontal.winfo_ismapped())
+        self.assertEqual(canvas.xview(), (0, 1))
 
     def test_worker_failure_restores_controls(self):
         def refused():
@@ -624,6 +658,7 @@ class GuiTests(unittest.TestCase):
             scan.assert_called_once_with(automatic=True, select_path="new", firmware_board="pad")
 
     def test_flash_progress_updates_bar_and_stage(self):
+        self.load([loader_record()])
         self.app.start_flash_progress("Preparing")
         self.app.flash_progress("Writing firmware", 25, 100)
         # Queue-only updates are safe for the worker; the UI applies them in drain.
@@ -632,7 +667,7 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(self.app.flash_bar["value"], 25)
         self.assertIn("Writing firmware", self.app.flash_status.get())
         self.assertTrue(self.app.flash_progress_frame.winfo_manager())
-        self.assertIs(self.app.active_page, self.app.tools_page)
+        self.assertIs(self.app.active_page, self.app.flash_page)
 
 
 class TransportTests(unittest.TestCase):

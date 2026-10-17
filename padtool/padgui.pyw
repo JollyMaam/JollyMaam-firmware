@@ -28,12 +28,12 @@ class App:
         self.root = root
         root.title("Cyclone 2 · padtool")
         root.geometry("1250x850")
-        root.minsize(1120, 360)
         self.events = queue.Queue()
         self.busy = False
         self.flash_active = False
         self.batch_edits = False
         self.scroll_canvases = {}
+        self.responsive_rows = {}
         self.active_page = None
         self.cache = {}
         self.nodes = {}
@@ -54,19 +54,36 @@ class App:
         self.update_summary()
         top = ttk.Frame(root, padding=10)
         top.pack(fill="x")
-        ttk.Button(top, text="Refresh", command=self.scan).pack(side="left")
-        ttk.Button(top, text="Apply", command=self.apply_settings).pack(side="left", padx=8)
-        ttk.Button(top, text="Discard", command=self.discard_changes).pack(side="left")
-        ttk.Label(top, textvariable=self.summary, wraplength=750).pack(side="left", padx=10, fill="x", expand=True)
+        toolbar_buttons = [ttk.Button(top, text="Refresh", command=self.scan),
+                           ttk.Button(top, text="Apply", command=self.apply_settings),
+                           ttk.Button(top, text="Discard", command=self.discard_changes)]
+        toolbar_status = ttk.Label(top, textvariable=self.summary)
+        def resize_toolbar(event):
+            columns = 3 if event.width >= 300 else 2 if event.width >= 200 else 1
+            for index, button in enumerate(toolbar_buttons):
+                button.grid(row=index // columns, column=index % columns, sticky="w", padx=(0, 8))
+            wide = event.width >= 700
+            toolbar_status.configure(wraplength=max(80, min(750, event.width - (300 if wide else 20))))
+            toolbar_status.grid(row=0 if wide else (len(toolbar_buttons) + columns - 1) // columns,
+                                column=3 if wide else 0, columnspan=1 if wide else columns, sticky="w")
+        top.bind("<Configure>", resize_toolbar)
         pane = ttk.Panedwindow(root, orient="horizontal")
         pane.pack(fill="both", expand=True, padx=10)
+        self.pane_width = None
+        def resize_navigation(event):
+            if event.width != self.pane_width and len(pane.panes()) == 2:
+                self.pane_width = event.width
+                pane.sashpos(0, min(250, max(90, event.width // 4)))
+        pane.bind("<Configure>", resize_navigation)
         navigation = ttk.Frame(pane, width=250)
         pane.add(navigation, weight=0)
         ttk.Label(navigation, text="Devices and slots", padding=6).pack(anchor="w")
         self.tree = ttk.Treeview(navigation, show="tree", selectmode="browse", height=22)
         scrollbar = ttk.Scrollbar(navigation, orient="vertical", command=self.tree.yview)
         scrollbar.pack(side="right", fill="y")
-        self.tree.configure(yscrollcommand=scrollbar.set)
+        horizontal = ttk.Scrollbar(navigation, orient="horizontal", command=self.tree.xview)
+        horizontal.pack(side="bottom", fill="x")
+        self.tree.configure(yscrollcommand=scrollbar.set, xscrollcommand=horizontal.set)
         self.tree.pack(fill="both", expand=True)
         self.tree.tag_configure("dirty", foreground="#b46300")
         self.tree.bind("<<TreeviewSelect>>", self.select_node)
@@ -79,17 +96,23 @@ class App:
         self.overview = ttk.Frame(content, padding=10)
         self.settings = ttk.Frame(content, padding=10)
         self.tools_page = ttk.Frame(content, padding=10)
-        for page in (self.overview, self.settings, self.tools_page):
+        self.flash_page = ttk.Frame(content, padding=10)
+        for page in (self.overview, self.settings, self.tools_page, self.flash_page):
             page.grid(row=0, column=0, sticky="nsew")
         tools_form = self.scroll_form(self.tools_page)
         ttk.Label(tools_form, text="Device tools", font=("TkDefaultFont", 13, "bold")).pack(anchor="w", pady=(0, 8))
-        self.firmware = ttk.LabelFrame(tools_form, text="Firmware", padding=10)
+        flash_form = self.scroll_form(self.flash_page)
+        ttk.Label(flash_form, text="Flash tools", font=("TkDefaultFont", 13, "bold")).pack(anchor="w", pady=(0, 8))
+        self.firmware = ttk.LabelFrame(flash_form, text="Firmware", padding=10)
         self.firmware.pack(fill="x")
         self.diagnostics = ttk.LabelFrame(tools_form, text="Diagnostics and console", padding=10)
         self.diagnostics.pack(fill="both", expand=True, pady=(12, 0))
         self.build_settings()
         self.build_firmware()
         self.build_diagnostics()
+        flash_log = ttk.LabelFrame(flash_form, text="Flash log", padding=10)
+        flash_log.pack(fill="both", expand=True, pady=(12, 0))
+        self.flash_output = self.console_output(flash_log)
         self.render_overview()
         self.show_page(self.overview)
         self.render_tree()
@@ -104,12 +127,23 @@ class App:
         self.startup_scan = root.after_idle(self.scan) if auto_scan else None
 
     def log(self, text):
-        self.output.configure(state="normal")
-        self.output.insert("end", text.rstrip() + "\n")
-        if int(self.output.index("end-1c").split(".")[0]) > 5000:
-            self.output.delete("1.0", "1000.0")
-        self.output.see("end")
-        self.output.configure(state="disabled")
+        for output in (self.output, self.flash_output):
+            output.configure(state="normal")
+            output.insert("end", text.rstrip() + "\n")
+            if int(output.index("end-1c").split(".")[0]) > 5000:
+                output.delete("1.0", "1000.0")
+            output.see("end")
+            output.configure(state="disabled")
+
+    def console_output(self, parent):
+        frame = ttk.Frame(parent)
+        frame.pack(fill="both", expand=True)
+        output = tk.Text(frame, height=12, wrap="word", state="disabled")
+        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=output.yview)
+        output.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        output.pack(fill="both", expand=True)
+        return output
 
     def controls(self, widget):
         for child in widget.winfo_children():
@@ -503,9 +537,10 @@ class App:
                 node = f"{device_node}/{t}"
                 self.tree.insert(device_node, "end", iid=node, text=label)
                 self.nodes[node] = (path, t)
-            node = f"{device_node}/tools"
-            self.tree.insert(device_node, "end", iid=node, text="Device tools")
-            self.nodes[node] = (path, "tools")
+            tool = "flash" if record["board"] == "loader" else "tools"
+            node = f"{device_node}/{tool}"
+            self.tree.insert(device_node, "end", iid=node, text="Flash tools" if tool == "flash" else "Device tools")
+            self.nodes[node] = (path, tool)
         if not self.cache:
             self.tree.insert("", "end", iid="tools", text="Device tools")
             self.nodes["tools"] = (None, "tools")
@@ -543,32 +578,94 @@ class App:
         self.render_overview()
         self.render_details()
         self.update_tools()
-        pages = {"tools": self.tools_page, None: self.overview}
+        pages = {"tools": self.tools_page, "flash": self.flash_page, None: self.overview}
         self.show_page(pages.get(target, self.settings))
 
     def scroll_form(self, parent):
         frame = ttk.Frame(parent)
         frame.pack(fill="both", expand=True)
+        frame.columnconfigure(0, weight=1)
+        frame.rowconfigure(0, weight=1)
         canvas = tk.Canvas(frame, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
-        canvas.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side="right", fill="y")
-        canvas.pack(side="left", fill="both", expand=True)
+        vertical = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
+        horizontal = ttk.Scrollbar(frame, orient="horizontal", command=canvas.xview)
+        canvas.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        vertical.grid(row=0, column=1, sticky="ns")
+        horizontal.grid(row=1, column=0, sticky="ew")
+        horizontal.grid_remove()
         form = ttk.Frame(canvas)
         window = canvas.create_window((0, 0), window=form, anchor="nw")
+        self.responsive_rows[parent] = []
+
+        def wrap_labels(widget, width):
+            for child in widget.winfo_children():
+                if isinstance(child, ttk.Label) and float(child.cget("wraplength") or 0) > 0:
+                    if not hasattr(child, "original_wraplength"):
+                        child.original_wraplength = int(float(child.cget("wraplength")))
+                    child.configure(wraplength=min(child.original_wraplength, max(120, width - 32)))
+                wrap_labels(child, width)
+
         def update_region(event=None):
+            available = canvas.winfo_width()
+            wrap_labels(form, available)
+            for layout in self.responsive_rows[parent]:
+                layout(available)
+            width = max(available, form.winfo_reqwidth())
+            if int(canvas.itemcget(window, "width")) != width:
+                canvas.itemconfigure(window, width=width)
+            if width > available:
+                horizontal.grid()
+            else:
+                horizontal.grid_remove()
             bounds = canvas.bbox(window)
             if bounds:
-                canvas.configure(scrollregion=(0, 0, bounds[2], max(bounds[3], canvas.winfo_height())))
+                canvas.configure(scrollregion=(0, 0, width, max(bounds[3], canvas.winfo_height())))
 
         def resize(event):
-            canvas.itemconfigure(window, width=event.width)
             update_region()
 
         form.bind("<Configure>", update_region)
         canvas.bind("<Configure>", resize)
         self.scroll_canvases[parent] = canvas
         return form
+
+    def wrap_row(self, parent, widgets, page):
+        for widget in widgets:
+            if widget.winfo_manager() == "pack":
+                widget.pack_forget()
+        def layout(width):
+            row, column, used = 0, 0, 0
+            for widget in widgets:
+                needed = widget.winfo_reqwidth() + 8
+                if column and used + needed > max(1, width - 24):
+                    row, column, used = row + 1, 0, 0
+                info = widget.grid_info()
+                if not info or info["row"] != row or info["column"] != column:
+                    widget.grid(row=row, column=column, sticky="w", padx=(0, 8), pady=(0, 4))
+                used += needed
+                column += 1
+        self.responsive_rows[page].append(layout)
+        layout(self.scroll_canvases[page].winfo_width())
+
+    def stack_setting(self, label, editor, extra, actions, row):
+        last_compact = None
+        def layout(width):
+            nonlocal last_compact
+            compact = width < 700
+            if compact == last_compact:
+                return
+            last_compact = compact
+            special = isinstance(editor, (PaletteEditor, CurveEditor))
+            label.grid_configure(row=row, column=0, columnspan=4 if compact else 1)
+            editor.grid_configure(row=row + 1 if compact else row, column=0 if compact else 1,
+                                  columnspan=(4 if special else 3) if compact else (2 if special else 1))
+            if extra is not None:
+                extra.grid_configure(row=row + 1 if compact else row, column=3 if compact else 2)
+            actions.grid_configure(row=row + 2 if compact else row, column=0 if compact else 3,
+                                   columnspan=4 if compact else 1, sticky="nw" if compact else "ne")
+        self.responsive_rows[self.settings].append(layout)
+        layout(self.scroll_canvases[self.settings].winfo_width())
 
     def show_page(self, page):
         self.active_page = page
@@ -594,9 +691,10 @@ class App:
             steps = -int(delta / 120)
         else:
             steps = -1 if delta > 0 else 1 if delta < 0 else 0
-        target = self.output if event.widget is self.output else self.scroll_canvases.get(self.active_page)
+        horizontal = bool(getattr(event, "state", 0) & 1)
+        target = event.widget if not horizontal and event.widget in (self.output, self.flash_output) else self.scroll_canvases.get(self.active_page)
         if target is not None:
-            target.yview_scroll(steps, "units")
+            (target.xview_scroll if horizontal else target.yview_scroll)(steps, "units")
         return "break"
 
     def build_settings(self):
@@ -616,6 +714,7 @@ class App:
                 break
 
     def render_overview(self):
+        self.responsive_rows[self.overview] = []
         for widget in self.overview_form.winfo_children():
             widget.destroy()
         f = self.overview_form
@@ -633,6 +732,7 @@ class App:
             ttk.Button(actions, text="Back up pad settings…", command=self.backup_settings).pack(side="left", padx=(0, 8))
             ttk.Button(actions, text="Restore pad settings…", command=self.restore_settings).pack(side="left", padx=(0, 8))
             ttk.Button(actions, text="Reset all to defaults", command=self.reset_all_defaults).pack(side="left")
+        self.wrap_row(actions, actions.winfo_children(), self.overview)
         if record["board"] == "loader":
             ttk.Label(f, text="This device is in ROM loader mode. Select a firmware image to flash it.\n"
                       "Settings and diagnostics are available after firmware starts. Reconnect USB to leave loader mode.", wraplength=850).pack(anchor="w", pady=6)
@@ -648,19 +748,23 @@ class App:
         for target in range(8):
             row = ttk.Frame(f, padding=(0, 6))
             row.pack(fill="x")
+            types = ttk.Frame(row)
+            links = ttk.Frame(row)
             entry = record["draft"].get((target, "type"))
             if entry:
-                self.default_marker(row, entry).pack(side="left", padx=(0, 2))
-            ttk.Label(row, text=f"Slot {pad.TARGETS[target]}", width=12).pack(side="left")
+                self.default_marker(types, entry).pack(side="left", padx=(0, 2))
+            ttk.Label(types, text=f"Slot {pad.TARGETS[target]}", width=12).pack(side="left")
             if entry:
-                ttk.Combobox(row, textvariable=entry["var"], values=entry["field"]["names"], state="readonly", width=20).pack(side="left")
-                self.setting_apply_button(row, record, target, "type", entry).pack(side="left", padx=8)
-            ttk.Button(row, text="Settings", command=lambda t=target: self.show_target(t)).pack(side="left", padx=(0, 8))
-            ttk.Button(row, text="Connect", command=lambda t=target: self.slot_action("connect", t)).pack(side="left", padx=(0, 8))
-            ttk.Button(row, text="Pair…", command=lambda t=target: self.slot_action("pair", t)).pack(side="left", padx=(0, 8))
+                ttk.Combobox(types, textvariable=entry["var"], values=entry["field"]["names"], state="readonly", width=20).pack(side="left")
+                self.setting_apply_button(types, record, target, "type", entry).pack(side="left", padx=(8, 0))
+            ttk.Button(links, text="Settings", command=lambda t=target: self.show_target(t)).pack(side="left", padx=(0, 8))
+            ttk.Button(links, text="Connect", command=lambda t=target: self.slot_action("connect", t)).pack(side="left", padx=(0, 8))
+            ttk.Button(links, text="Pair…", command=lambda t=target: self.slot_action("pair", t)).pack(side="left", padx=(0, 8))
+            self.wrap_row(row, (types, links), self.overview)
         ttk.Label(f, text="Connect and Pair use saved settings; apply pending edits for that slot first.", wraplength=850).pack(anchor="w", pady=10)
 
     def render_details(self):
+        self.responsive_rows[self.settings] = []
         for widget in self.form.winfo_children():
             widget.destroy()
         self.editors = {}
@@ -687,11 +791,11 @@ class App:
                 continue
             parent = advanced if f["dev"] else self.form
             row = rows[parent]
-            rows[parent] += 1
+            rows[parent] += 3
             label = ttk.Frame(parent)
             label.grid(row=row, column=0, sticky="nw", padx=4, pady=8)
             self.default_marker(label, entry).pack(side="left", padx=(0, 2))
-            ttk.Label(label, text=name.replace("_", " ").capitalize()).pack(side="left")
+            ttk.Label(label, text=name.replace("_", " ").capitalize(), wraplength=350).pack(side="left")
             if f["type"] == pad.T_COLOUR:
                 editor = PaletteEditor(parent, self, record, entry)
                 self.special_editors.append(editor)
@@ -704,11 +808,14 @@ class App:
                 editor = ttk.Entry(parent, textvariable=entry["var"], width=25)
             editor.grid(row=row, column=1, columnspan=2 if isinstance(editor, (PaletteEditor, CurveEditor)) else 1,
                         sticky="ew", padx=4, pady=4)
+            extra = None
             if f["type"] == pad.T_NUMBER:
                 maximum = f.get("max", (1 << (8 * f["size"])) - 1)
-                ttk.Label(parent, text=f"0–{maximum}", foreground="#666666").grid(row=row, column=2, sticky="w", padx=6)
+                extra = ttk.Label(parent, text=f"0–{maximum}", foreground="#666666")
+                extra.grid(row=row, column=2, sticky="w", padx=6)
             if f["type"] == pad.T_RGB:
-                self.color_swatch(parent, record, entry).grid(row=row, column=2, padx=4)
+                extra = self.color_swatch(parent, record, entry)
+                extra.grid(row=row, column=2, padx=4)
             actions = ttk.Frame(parent)
             actions.grid(row=row, column=3, sticky="ne", padx=4, pady=4)
             ttk.Button(actions, text="Reset", width=6,
@@ -717,6 +824,7 @@ class App:
             self.setting_apply_button(actions, record, target, name, entry).pack(side="left", padx=2)
             ttk.Button(actions, text="?", width=2, command=lambda e=entry: self.show_help(e)).pack(side="left", padx=2)
             self.editors[name] = entry
+            self.stack_setting(label, editor, extra, actions, row)
         self.form.columnconfigure(1, weight=1)
         if rows[advanced]:
             key = (record["path"], target)
@@ -889,8 +997,6 @@ class App:
         self.backup_flash_button.pack(side="left", padx=(0, 8))
         self.flash_button = ttk.Button(actions, text="Flash Firmware…", command=self.choose_firmware)
         self.flash_button.pack(side="left", padx=(0, 8))
-        self.enter_loader_button = ttk.Button(actions, text="Enter flash loader", command=self.enter_flash_loader)
-        self.enter_loader_button.pack(side="left")
         self.flash_progress_frame = ttk.Frame(f)
         self.flash_progress_frame.grid(row=5, column=0, columnspan=3, sticky="ew", pady=8)
         self.flash_status = tk.StringVar()
@@ -960,8 +1066,9 @@ class App:
         self.flash_progress_frame.grid()
         self.flash_bar.configure(mode="indeterminate", value=0)
         self.flash_bar.start()
-        self.show_page(self.tools_page)
-        self.scroll_canvases[self.tools_page].yview_moveto(0)
+        if self.record() and self.record()["board"] == "loader":
+            self.show_page(self.flash_page)
+            self.scroll_canvases[self.flash_page].yview_moveto(0)
 
     def flash_progress(self, stage, done=0, total=None):
         self.events.put(("flash_progress", (stage, done, total)))
@@ -1122,7 +1229,8 @@ class App:
         bar = ttk.Frame(f)
         bar.pack(fill="x", pady=8)
         ttk.Button(bar, text="Reboot", command=lambda: self.diagnostic("Reboot", lambda p: pad.cmd(p, 0x10))).pack(side="left")
-        ttk.Button(bar, text="Enter flash loader", command=self.enter_flash_loader).pack(side="left", padx=8)
+        self.enter_loader_button = ttk.Button(bar, text="Enter flash loader", command=self.enter_flash_loader)
+        self.enter_loader_button.pack(side="left", padx=8)
         ttk.Button(bar, text="Tool mode (Linux HID)", command=lambda: self.run("Switching to tool mode…", lambda: pad.tool([]))).pack(side="left")
         targetbar = ttk.Frame(f)
         targetbar.pack(fill="x", pady=8)
@@ -1139,13 +1247,7 @@ class App:
         ttk.Label(f, text="Pairing replaces the selected slot's host after a successful pairing. The dongle has one bond.\n"
                   "End USB gamepad sessions to expose tool mode; then scan again. Logs appear below.", wraplength=900).pack(anchor="w", pady=12)
 
-        console = ttk.Frame(f)
-        console.pack(fill="both", expand=True)
-        self.output = tk.Text(console, height=12, wrap="word", state="disabled")
-        scrollbar = ttk.Scrollbar(console, orient="vertical", command=self.output.yview)
-        self.output.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side="right", fill="y")
-        self.output.pack(fill="both", expand=True)
+        self.output = self.console_output(f)
 
     def set_dongle_target(self):
         if self.board.get() != "dongle":

@@ -31,11 +31,16 @@ pad first, then scan.
 Selecting a device in the tree shows its slots, each with a type dropdown,
 Settings, Connect and Pair. Slot and settings-group entries open detailed settings
 directly. **Developer fields** at the bottom expands or collapses the advanced
-settings, retaining pending edits. **Device tools** under each device combines
-firmware flashing, full flash backup, diagnostic controls and the operation log.
-It remains available without a detected device for recovery flashing. Connect and Pair are on the device overview.
+settings, retaining pending edits. **Device tools** under running pads and dongles
+contains diagnostics and the operation log. Only `UBOOT1.00` devices have
+**Flash tools**, with firmware installation, full flash backups, progress and
+the flash log. Connect and Pair are on the device overview.
+There is no minimum window size. Toolbar and overview controls wrap in narrow
+windows, slot settings stack vertically, and pages provide horizontal scrolling
+when their controls cannot fit.
 The mouse wheel scrolls the current page anywhere in the window, including
-over dropdowns and number fields, without changing their values. Edits persist
+over dropdowns and number fields, without changing their values. Shift+wheel
+scrolls horizontally. Edits persist
 while switching slots and devices. **Apply** validates all edited
 values, checks device identities, then commits all pending changes once per
 device. A failure on one device does not undo a previous device's commit;
@@ -178,7 +183,7 @@ appearing loader is selected; ambiguous results require Refresh and selection.
 For a stock pad, connect USB while holding Home + Plus, then Refresh.
 
 Only a detected ROM loader offers flashing or a full flash backup in the GUI.
-Device tools places **Back up full flash…** before **Flash Firmware…**. Flash
+Flash tools places **Back up full flash…** before **Flash Firmware…**. Flash
 Firmware opens the sole image picker and immediately checks its product ID.
 The image selects pad versus dongle, with PID, capacity and chip-key checks
 before erasing. The selected loader path stays fixed during the operation; on
