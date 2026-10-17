@@ -60,7 +60,8 @@ class App:
         self.update_summary()
         top = ttk.Frame(root, padding=10)
         top.pack(fill="x")
-        toolbar_buttons = [ttk.Button(top, text="Apply", command=self.apply_settings),
+        self.apply_all_button = ttk.Button(top, text="Apply", command=self.apply_settings, state="disabled")
+        toolbar_buttons = [self.apply_all_button,
                            ttk.Button(top, text="Discard", command=self.discard_changes)]
         toolbar_status = ttk.Label(top, textvariable=self.summary)
         def resize_toolbar(event):
@@ -256,6 +257,7 @@ class App:
                     self.notice.set("Operation complete." if completed_flash else "")
                     if done:
                         done(result)
+                self.update_apply_state()
         except queue.Empty:
             pass
         self.poll = self.root.after(80, self.drain)
@@ -458,10 +460,14 @@ class App:
         self.mark_dirty()
         self.notice.set("")
 
+    def update_apply_state(self):
+        self.apply_all_button.configure(state="normal" if not self.busy and self.dirty_count() else "disabled")
+
     def mark_dirty(self):
         if self.batch_edits:
             return
         count = self.dirty_count()
+        self.update_apply_state()
         self.pending.set(f"{count} pending change(s)" if count else "No pending changes")
         self.update_previews()
         for node, (path, target) in self.nodes.items():
@@ -765,7 +771,6 @@ class App:
         bar.pack(fill="x", pady=(0, 8))
         self.details_title = tk.StringVar(value="Select a slot or settings group in the tree")
         ttk.Label(bar, textvariable=self.details_title, font=("TkDefaultFont", 12, "bold")).pack(side="left")
-        ttk.Label(self.settings, text="* differs from default · ! invalid value · ? default unavailable. Reset fills in the default; Apply saves it.", wraplength=850).pack(anchor="w", pady=(0, 8))
         self.form = self.scroll_form(self.settings)
 
     def show_target(self, target):
@@ -792,8 +797,11 @@ class App:
             self.dongle_title.set(f"Dongle · {record['path']}")
             self.dongle_status.set(record["status"])
             return
-        ttk.Label(f, text=f"{record['board'].title()} · {record.get('original_path', record['path'])}", font=("TkDefaultFont", 13, "bold")).pack(anchor="w", pady=(0, 2))
-        ttk.Label(f, text=record["status"] if record.get("online", True) else "Disconnected · pending edits retained", wraplength=850).pack(anchor="w", pady=(0, 4))
+        header = ttk.Frame(f)
+        header.pack(fill="x", pady=(0, 4))
+        ttk.Label(header, text=f"{record['board'].title()} · {record.get('original_path', record['path'])}",
+                  font=("TkDefaultFont", 13, "bold")).pack(side="left")
+        ttk.Label(header, text=record["status"] if record.get("online", True) else "Disconnected · pending edits retained").pack(side="left", padx=(16, 0))
         actions = ttk.Frame(f)
         actions.pack(fill="x", pady=(4, 8))
         ttk.Button(actions, text="Flash Firmware…" if record["board"] == "loader" else "Enter flash loader",
@@ -825,7 +833,6 @@ class App:
             ttk.Button(links, text="Pair…", command=lambda t=target: self.slot_action("pair", t)).pack(side="left", padx=(0, 8))
             types.grid(row=0, column=0, sticky="w", padx=(0, 8))
             links.grid(row=0, column=1, sticky="w")
-        ttk.Label(f, text="Connect and Pair use saved settings; apply pending edits for that slot first.", wraplength=850).pack(anchor="w", pady=10)
 
     def render_details(self):
         self.responsive_rows[self.settings] = []
@@ -914,6 +921,9 @@ class App:
 
             button.configure(command=toggle_section)
             update_section()
+        legend_row = rows[self.form] + (2 if rows[advanced] else 0)
+        ttk.Label(self.form, text="* differs from default · ! invalid value · ? default unavailable. Reset fills in the default; Apply saves it.",
+                  wraplength=850).grid(row=legend_row, column=0, columnspan=4, sticky="w", padx=4, pady=(16, 8))
 
     def apply_settings(self, only=None):
         jobs = []

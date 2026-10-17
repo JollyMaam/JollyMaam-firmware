@@ -134,10 +134,12 @@ class GuiTests(unittest.TestCase):
         one["values"][2]["rumble"] = (b"\x64", True)
         self.load([one, two])
         self.assertEqual(self.app.summary.get(), "Loaded 2 device(s). No pending changes.")
+        self.assertTrue(self.app.apply_all_button.instate(["disabled"]))
         one["draft"][0, "rumble"]["var"].set("invalid")
         two["draft"][1, "type"]["var"].set("hid")
         one["draft"][2, "rumble"]["reset"].set(True)
         self.assertIn("3 pending", self.app.summary.get())
+        self.assertFalse(self.app.apply_all_button.instate(["disabled"]))
         self.app.show_target(0)
         with patch.object(padgui.pad, "send") as send, patch.object(padgui.pad, "cmd") as cmd:
             self.app.discard_changes()
@@ -147,6 +149,7 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(two["draft"][1, "type"]["var"].get(), "switch")
         self.assertFalse(one["draft"][2, "rumble"]["reset"].get())
         self.assertEqual(self.app.dirty_count(), 0)
+        self.assertTrue(self.app.apply_all_button.instate(["disabled"]))
         self.assertEqual(self.app.summary.get(), "Loaded 2 device(s). No pending changes.")
 
     def test_rom_loader_scan_has_only_recovery_actions(self):

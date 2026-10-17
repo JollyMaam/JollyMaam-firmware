@@ -96,7 +96,7 @@ class CurveEditor(ttk.Frame):
         self.point_toggle.pack(side='left', padx=8)
         ttk.Button(bar, text='Copy points', command=self.copy_points).pack(side='left', padx=(0, 4))
         ttk.Button(bar, text='Paste points', command=self.paste_points).pack(side='left')
-        self.graph = tk.Canvas(self, width=250, height=190, background='#ffffff', highlightthickness=1, highlightbackground='#cccccc')
+        self.graph = tk.Canvas(self, width=280, height=210, background='#ffffff', highlightthickness=1, highlightbackground='#cccccc')
         self.graph.grid(row=1, column=0, sticky='nw', padx=(0, 10))
         controls = ttk.Frame(self)
         controls.grid(row=1, column=1, sticky='nw')
@@ -215,7 +215,7 @@ class CurveEditor(ttk.Frame):
     def start_drag(self, event):
         if self.app.busy:
             return
-        self.dragging = max(0, min(self.count - 1, round((event.x - 35) / 195 * (self.count + 1)) - 1))
+        self.dragging = max(0, min(self.count - 1, round((event.x - 55) / 195 * (self.count + 1)) - 1))
         self.drag(event)
 
     def drag(self, event):
@@ -238,21 +238,23 @@ class CurveEditor(ttk.Frame):
                     self.outputs[i].set(f'{value / 255 * 100:.1f}')
             self.graph.delete('all')
             for percent in (0, 25, 50, 75, 100):
-                x, y = 35 + 195 * percent / 100, 160 - 140 * percent / 100
+                x, y = 55 + 195 * percent / 100, 160 - 140 * percent / 100
                 self.graph.create_line(x, 20, x, 160, fill='#eeeeee')
-                self.graph.create_line(35, y, 230, y, fill='#eeeeee')
-                self.graph.create_text(22, y, text=str(percent), fill='#666666')
+                self.graph.create_line(55, y, 250, y, fill='#eeeeee')
+                self.graph.create_text(43, y, text=str(percent), fill='#666666')
                 self.graph.create_text(x, 173, text=str(percent), fill='#666666')
-            self.graph.create_text(133, 187, text='Stick travel %', fill='#666666')
-            self.graph.create_text(133, 8, text='Output %', fill='#666666')
-            self.graph.create_line(35, 160, 230, 20, fill='#bbbbbb', dash=(4, 4))
-            coords = [35, 160]
+            self.graph.create_text(153, 197, text='Stick travel (%) →', fill='#444444')
+            self.graph.create_text(12, 90, text='Output (%)', angle=90, fill='#444444')
+            self.graph.create_line(55, 160, 255, 160, fill='#666666', arrow='last')
+            self.graph.create_line(55, 160, 55, 15, fill='#666666', arrow='last')
+            self.graph.create_line(55, 160, 250, 20, fill='#bbbbbb', dash=(4, 4))
+            coords = [55, 160]
             for i, value in enumerate(points):
-                coords += [35 + (i + 1) / (self.count + 1) * 195, 160 - value / 255 * 140]
-            coords += [230, 20]
+                coords += [55 + (i + 1) / (self.count + 1) * 195, 160 - value / 255 * 140]
+            coords += [250, 20]
             self.graph.create_line(*coords, fill='#2185d0' if active else '#999999', width=2, dash=() if active else (4, 4))
             if not active:
-                self.graph.create_line(35, 160, 230, 20, fill='#2185d0', width=2)
+                self.graph.create_line(55, 160, 250, 20, fill='#2185d0', width=2)
             for i in range(1, self.count + 1):
                 x, y = coords[i * 2:i * 2 + 2]
                 self.graph.create_oval(x - 4, y - 4, x + 4, y + 4, fill='#2185d0', outline='#ffffff')
