@@ -194,6 +194,44 @@ class GuiTests(unittest.TestCase):
         entry["var"].set("invalid")
         self.assertFalse(buttons["Default"].instate(["disabled"]))
 
+    def test_main_page_unpair_stages_only_paired_slot_and_is_discardable(self):
+        r = record()
+        r["fields"].append({"kind": 0, "id": 13, "name": "bond", "type": padgui.pad.T_BYTES,
+                            "size": 68, "help": "Paired host", "dev": True})
+        classic = b"\x11" * 6 + bytes(62)
+        le = bytes(23) + b"\x22" * 6 + bytes(39)
+        for target, raw in ((0, classic), (1, le), (2, bytes(68))):
+            r["values"][target]["bond"] = (raw, bool(any(raw)))
+        self.load([r])
+        buttons = [w for w in self.app.controls(self.app.overview_form) if isinstance(w, padgui.ttk.Button)]
+        self.assertNotIn("Connect", [w.cget("text") for w in buttons])
+        self.assertNotIn("Pair…", [w.cget("text") for w in buttons])
+        unpair = [w for w in buttons if w.cget("text") == "Unpair"]
+        self.assertEqual(len(unpair), 2)
+        r["draft"][3, "type"]["var"].set("hid")
+        with patch.object(padgui.pad, "cmd") as cmd:
+            unpair[0].invoke()
+            cmd.assert_not_called()
+        self.assertEqual(self.app.value_bytes(r["draft"][0, "bond"]), bytes(68))
+        self.assertEqual(self.app.value_bytes(r["draft"][1, "bond"]), le)
+        self.assertTrue(unpair[0].instate(["disabled"]))
+        self.assertEqual(r["draft"][3, "type"]["var"].get(), "hid")
+        self.app.discard_setting((r["draft"][0, "bond"],))
+        self.assertEqual(self.app.value_bytes(r["draft"][0, "bond"]), classic)
+        self.assertFalse(unpair[0].instate(["disabled"]))
+        unpair[1].invoke()
+        self.assertEqual(self.app.value_bytes(r["draft"][1, "bond"]), bytes(68))
+        r["values"][1]["bond"] = (bytes(68), True)
+        with patch.object(padgui.pad, "cmd", return_value=r["identity"]), \
+             patch.object(padgui.pad, "send") as send, \
+             patch.object(padgui.pad, "read_target", side_effect=lambda p, table, t: r["values"][t]):
+            self.app.apply_settings(("fake", 1, "bond"))
+            self.finish()
+            send.assert_called_once_with("fake", [(1, 13, bytes(68))])
+        self.assertEqual(r["draft"][3, "type"]["var"].get(), "hid")
+        self.assertEqual(len([w for w in self.app.controls(self.app.overview_form)
+                              if isinstance(w, padgui.ttk.Button) and w.cget("text") == "Unpair"]), 1)
+
     def test_rom_loader_scan_has_only_recovery_actions(self):
         with patch.object(padgui.pad, "discover_devices", return_value=[("rom", "BR23 UBOOT1.00", None)]), \
              patch.object(padgui.pad, "fields") as fields, patch.object(padgui.pad, "status") as status:

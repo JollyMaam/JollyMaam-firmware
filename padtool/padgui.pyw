@@ -42,6 +42,7 @@ class App:
         self.special_editors = []
         self.apply_buttons = []
         self.default_buttons = []
+        self.unpair_buttons = []
         self.board = tk.StringVar()
         self.loader = tk.StringVar(value=str(padflash.DEFAULT_LOADER))
         self.image = tk.StringVar()
@@ -414,6 +415,13 @@ class App:
                 widget.sync(force=force_curve)
             else:
                 widget.sync()
+        self.unpair_buttons = [(e, w) for e, w in self.unpair_buttons if w.winfo_exists()]
+        for entry, button in self.unpair_buttons:
+            try:
+                paired = self.has_pairing(self.value_bytes(entry))
+            except (Exception, SystemExit):
+                paired = True
+            button.configure(state="normal" if paired and not self.busy else "disabled")
         self.default_buttons = [(entries, w) for entries, w in self.default_buttons if w.winfo_exists()]
         for entries, button in self.default_buttons:
             available = all(e["default_text"] is not None for e in entries)
@@ -870,8 +878,11 @@ class App:
                 for action in ("Default", "Discard", "Apply"):
                     self.setting_action_button(types, record, target, "type", entry, action).pack(side="left", padx=(8, 0))
             ttk.Button(links, text="Settings", command=lambda t=target: self.show_target(t)).pack(side="left", padx=(0, 8))
-            ttk.Button(links, text="Connect", command=lambda t=target: self.slot_action("connect", t)).pack(side="left", padx=(0, 8))
-            ttk.Button(links, text="Pair…", command=lambda t=target: self.slot_action("pair", t)).pack(side="left", padx=(0, 8))
+            bond = record["draft"].get((target, "bond"))
+            if bond and self.has_pairing(bond["original_raw"]):
+                button = ttk.Button(links, text="Unpair", command=lambda t=target: self.unpair_slot(t))
+                button.pack(side="left", padx=(0, 8))
+                self.unpair_buttons.append((bond, button))
             types.grid(row=0, column=0, sticky="w", padx=(0, 8))
             links.grid(row=0, column=1, sticky="w")
 
@@ -1010,6 +1021,24 @@ class App:
             self.render_details()
             self.mark_dirty()
         self.run("Applying setting…" if only else "Applying pending changes to all edited devices…", apply, finished)
+
+    @staticmethod
+    def has_pairing(bond):
+        # bt_bond stores the Classic peer at 0 and the LE peer at 23.
+        return any(bond[:6]) or any(bond[23:29])
+
+    def unpair_slot(self, target):
+        record = self.record()
+        if self.busy or not record or record["board"] != "pad":
+            return
+        entry = record["draft"].get((target, "bond"))
+        if entry is None:
+            return
+        empty = bytes(len(entry["original_raw"]))
+        if entry["default_raw"] == empty:
+            self.reset_default(entry)
+        else:
+            entry["var"].set(empty.hex())
 
     def calibrate(self):
         self.slot_action("calibrate", 0)

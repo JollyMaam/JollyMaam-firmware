@@ -29,12 +29,13 @@ use the selected device. A USB gamepad session must end before vendor commands
 become available. The Linux HID tool-mode button can request this for HID
 profiles; on Windows end the session using the pad first.
 
-Selecting a pad shows its slots, each with a type dropdown, Apply, Settings,
-Connect and Pair. Slot and settings-group entries open detailed settings.
+Selecting a pad shows its slots, each with a type dropdown, Default, Discard,
+Apply and Settings. Paired slots also offer Unpair; it stages removal of the
+saved host bond, keeping the slot’s own address. Apply saves it; Discard undoes it. Slot and settings-group entries open detailed settings.
 **Developer fields** at the bottom expands or collapses advanced settings,
 retaining pending edits. **Debug tools** under running pads contains diagnostics
 and the operation log. Dongle and ROM-loader actions are on their main entries.
-Connect and Pair are on the pad overview.
+Connect and Pair remain available in Debug tools.
 There is no minimum window size. Toolbar and global device controls wrap in
 narrow windows. Slot rows and detailed setting rows stay on one line and scroll
 horizontally. Shift+wheel also scrolls horizontally.
