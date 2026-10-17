@@ -75,7 +75,9 @@ and flashes images in Python using the bundled BR23 RAM loader. `jlnewfw` is
 only needed in the GUI to pack builds. Scan and load caches every device and
 pad target; edits stay pending across navigation until Apply changes. Sensor
 calibration is global; the USB trigger requires protocol 3+. Protocol 4 adds
-a read-only defaults query for Reset and default-value indicators. Setup and host
+a read-only defaults query for Reset and default-value indicators. Protocol 5
+uses 15-point curves plus enable flags; presets and migration are shared in
+`tools/padcurves.py`. Setup and host
 tests: `tools/README.md`.
 
 `tools/sdlpad.c` shows what SDL makes of the gamepads it sees (build line at

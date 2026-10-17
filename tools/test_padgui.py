@@ -270,22 +270,38 @@ class GuiTests(unittest.TestCase):
 
     def test_curve_controls_clamp_points_and_follow_reset(self):
         r = record()
-        default = bytes([32, 64, 96, 128, 159, 191, 223])
-        r["fields"].append({"kind": 0, "id": 33, "name": "left_curve_points", "type": padgui.pad.T_BYTES,
-                            "size": 7, "help": "Curve", "dev": False})
+        import padcurves
+        default = padcurves.preset("linear")
+        r["fields"].extend([
+            {"kind": 0, "id": 36, "name": "left_curve_enabled", "type": padgui.pad.T_ENUM,
+             "names": ["disabled", "enabled"], "size": 1, "help": "Enable curve", "dev": False},
+            {"kind": 0, "id": 38, "name": "left_curve_points", "type": padgui.pad.T_BYTES,
+             "size": 15, "help": "Curve", "dev": False}])
+        r["values"][0]["left_curve_enabled"] = (b"\0", False)
         r["values"][0]["left_curve_points"] = (default, False)
         self.load([r])
         self.app.show_target(0)
         editor = next(w for w in self.app.special_editors if w.winfo_exists() and isinstance(w, padgui.CurveEditor))
         editor.set_point(3, 0)
-        self.assertEqual(editor.points()[3], 96)
+        self.assertEqual(editor.points()[3], 48)
         editor.set_point(3, 100)
-        self.assertEqual(editor.points()[3], 159)
+        self.assertEqual(editor.points()[3], 80)
         self.app.reset_default(editor.entry)
         self.assertEqual(editor.points(), list(default))
         self.assertFalse(self.app.changed(editor.entry))
-        editor.outputs[3].set("55")
-        self.assertEqual(editor.points()[3], round(.55 * 255))
+        editor.outputs[7].set("55")
+        self.assertEqual(editor.points()[7], round(.55 * 255))
+        editor.preset_name.set("Concave")
+        editor.choose_preset()
+        self.assertEqual(bytes(editor.points()), padcurves.preset("concave"))
+        self.assertEqual(editor.enabled["var"].get(), "enabled")
+        with patch.object(padgui.pad, "cmd", return_value=r["identity"]), \
+             patch.object(padgui.pad, "send") as send, \
+             patch.object(padgui.pad, "read_target", side_effect=lambda p, table, t: r["values"][t]):
+            self.app.apply_settings(("fake", 0, "left_curve_points"))
+            self.finish()
+            self.assertEqual(dict((fid, value) for t, fid, value in send.call_args.args[1]),
+                             {36: b"\1", 38: padcurves.preset("concave")})
         with patch.object(padgui.messagebox, "showinfo") as help_dialog:
             self.app.show_help(editor.entry)
             self.assertIn("Drag a point", help_dialog.call_args.args[1])

@@ -263,6 +263,13 @@ class App:
         return self.value_bytes(entry) != entry["default_raw"]
 
     def reset_default(self, entry):
+        if entry["field"]["name"] in ("left_curve_points", "right_curve_points"):
+            for record in self.cache.values():
+                for (target, name), candidate in record["draft"].items():
+                    if candidate is entry:
+                        enabled = record["draft"].get((target, name.replace("_points", "_enabled")))
+                        if enabled:
+                            self.reset_default(enabled)
         if entry["default_text"] is not None:
             entry["var"].set(entry["default_text"])
             entry["reset"].set(entry["explicit"])
@@ -316,14 +323,15 @@ class App:
         self.special_editors = [w for w in self.special_editors if w.winfo_exists()]
         for widget in self.special_editors:
             widget.sync()
-        self.apply_buttons = [(e, w) for e, w in self.apply_buttons if w.winfo_exists()]
-        for entry, button in self.apply_buttons:
-            button.configure(state="normal" if not self.busy and self.changed(entry) else "disabled")
+        self.apply_buttons = [(e, w, other) for e, w, other in self.apply_buttons if w.winfo_exists()]
+        for entry, button, other in self.apply_buttons:
+            button.configure(state="normal" if not self.busy and (self.changed(entry) or (other is not None and self.changed(other))) else "disabled")
 
     def setting_apply_button(self, parent, record, target, name, entry):
         button = ttk.Button(parent, text="Apply", width=6,
                             command=lambda: self.apply_settings((record["path"], target, name)))
-        self.apply_buttons.append((entry, button))
+        companion = record["draft"].get((target, name.replace("_points", "_enabled"))) if name.endswith("_curve_points") else None
+        self.apply_buttons.append((entry, button, companion))
         self.update_previews()
         return button
 
@@ -335,10 +343,10 @@ class App:
                     "Previews show the full palette colour at every brightness level. "
                     "Palette edits also update these previews. Apply palette edits separately, or use Apply changes to save everything.\n\n" + text)
         elif field["name"] in ("left_curve_points", "right_curve_points"):
-            text = ("These seven points control stick output at 12.5%, 25%, 37.5%, 50%, 62.5%, 75% and 87.5% travel. "
+            text = ("These 15 points control stick output at 6.25% intervals from 6.25% through 93.75% travel. "
                     "Drag a point on the graph, move its slider, or enter an output percentage and press Enter. "
                     "Outputs stay in increasing order; zero and full travel stay fixed.\n\n"
-                    "Select custom in the corresponding stick curve setting to use these points. "
+                    "Use points enables the saved curve. Turning it off gives exact linear passthrough without losing points. Presets are shared with the CLI. "
                     "Apply saves this setting; Apply changes saves all pending edits.")
         messagebox.showinfo(field["name"].replace("_", " ").capitalize(), text or "No extra help is available.")
 
@@ -550,13 +558,15 @@ class App:
             f = entry["field"]
             if t != target or (f["dev"] and not self.dev.get()):
                 continue
+            if name.endswith("_curve_enabled") and (t, name.replace("_enabled", "_points")) in record["draft"]:
+                continue
             row = len(self.editors)
             ttk.Label(self.form, text=name.replace("_", " ").capitalize()).grid(row=row, column=0, sticky="nw", padx=4, pady=8)
             if f["type"] == pad.T_COLOUR:
                 editor = PaletteEditor(self.form, self, record, entry)
                 self.special_editors.append(editor)
             elif name in ("left_curve_points", "right_curve_points"):
-                editor = CurveEditor(self.form, self, entry)
+                editor = CurveEditor(self.form, self, entry, record["draft"].get((target, name.replace("_points", "_enabled"))))
                 self.special_editors.append(editor)
             elif f["type"] == pad.T_ENUM:
                 editor = ttk.Combobox(self.form, textvariable=entry["var"], values=f["names"], state="readonly", width=23)
@@ -590,13 +600,16 @@ class App:
     def apply_settings(self, only=None):
         jobs = []
         try:
+            allowed = {only} if only else None
+            if only and only[2].endswith("_curve_points"):
+                allowed.add((only[0], only[1], only[2].replace("_points", "_enabled")))
             selected_entry = self.cache[only[0]]["draft"][only[1:]] if only else None
             for widget in self.special_editors:
                 if widget.winfo_exists() and isinstance(widget, CurveEditor) and (only is None or widget.entry is selected_entry):
                     widget.commit_pending()
             for path, record in self.cache.items():
                 keys = {key for key, entry in record.get("draft", {}).items()
-                        if self.changed(entry) and (only is None or (path, *key) == only)}
+                        if self.changed(entry) and (allowed is None or (path, *key) in allowed)}
                 items = [(t, entry["field"]["id"], b"" if entry["reset"].get() else self.value_bytes(entry))
                          for (t, name), entry in record.get("draft", {}).items() if (t, name) in keys]
                 if items:
@@ -799,11 +812,13 @@ class App:
                 pid, key = padflash.image_identity(data)
                 if pid != PIDS[board]:
                     raise ValueError("Image does not match the selected board")
+                curve_backup = pad.prepare_curve_upgrade(board, backup)
                 loader = padflash.select_loader(board, blob, report=self.flash_report)
                 if pack and key != loader.key:
                     self.invoke(pack_args + ["-k", hex(loader.key), "-o", str(packed)])
                     data = padflash.load_image(packed)
                 loader.flash(data, board, backup)
+                pad.finish_curve_upgrade(curve_backup)
         self.run("Backing up and flashing…", flash, lambda _: self.clear_settings())
 
     def build_diagnostics(self):

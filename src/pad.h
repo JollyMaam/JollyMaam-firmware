@@ -347,8 +347,9 @@ enum { PLAYERS_OFF, PLAYERS_HOST, PLAYERS_FADE, PLAYERS_PRIMARY, PLAYERS_SECONDA
 #define LEVELS  16
 struct colour { u8 entry, level; };      /* a palette entry at a brightness level */
 
-enum { STICK_LINEAR, STICK_CONCAVE, STICK_S_CURVE, STICK_CUSTOM };
-#define STICK_CURVE_POINTS 7
+/* Curves are tool-defined point arrays; disabling retains the saved points
+ * and passes calibrated input through exactly. */
+#define STICK_CURVE_POINTS 15
 
 struct set_slot {
     u8 type;
@@ -368,7 +369,7 @@ struct set_slot {
     u16 report_hz;           /* the most reports a second; 0: REPORT_HZ */
     u16 pull_delay_us;       /* build a pulled report this long after bt.c asks */
     struct bt_link link;
-    u8 left_curve, right_curve;
+    u8 left_curve_enabled, right_curve_enabled;
     u8 left_curve_points[STICK_CURVE_POINTS];
     u8 right_curve_points[STICK_CURVE_POINTS];
 };
@@ -573,9 +574,9 @@ struct ctl_stats {
 _Static_assert(sizeof(struct stat_hist) == 48 && sizeof(struct ctl_stats) == 272 + 4 * 48 + 32,
                "padtool reads struct ctl_stats byte for byte");
 
-/* Tool protocol 3 adds shared sensor calibration; 4 adds read-only setting
- * defaults (pad only).
- * Like pairing and connecting, it is queued for the controller by usb_poll(). */
+/* Tool protocol 3 adds shared sensor calibration, queued by usb_poll().
+ * Protocol 4 adds read-only setting defaults; 5 uses 15-point stick curves
+ * and independent enable flags. These settings are pad-only. */
 struct usb_status {
     u8 state;
     u8 slot;

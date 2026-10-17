@@ -26,31 +26,19 @@ int in_moved(const struct pad *now, const struct pad *ref)
            far(now->l2, ref->l2, MOVED_TRIGGER) || far(now->r2, ref->r2, MOVED_TRIGGER);
 }
 
-/* Q15 radius, 0..32767. Concave keeps more travel near the centre;
- * the S has high slope at both ends and zero slope at the midpoint. */
-static u32 response(u32 r, u8 mode, const u8 *points)
+/* Uniform point interpolation in Q15 radius, with fixed 0/full endpoints. */
+static u32 response(u32 r, const u8 *points)
 {
     const u32 full = 32767;
     u32 t, k, a, b;
 
     if (r >= full) return full;
-    switch (mode) {
-    case STICK_CONCAVE:
-        return r * r / full;
-    case STICK_S_CURVE:
-        if (2 * r <= full) return 2 * r * (full - r) / full;
-        t = full - r;
-        return full - 2 * t * (full - t) / full;
-    case STICK_CUSTOM:
-        t = r * 8;
-        k = t / full;
-        t %= full;
-        a = k ? points[k - 1] : 0;
-        b = k == STICK_CURVE_POINTS ? 255 : points[k];
-        return (a * (full - t) + b * t + 127) / 255;
-    default:
-        return r;
-    }
+    t = r * (STICK_CURVE_POINTS + 1);
+    k = t / full;
+    t %= full;
+    a = k ? points[k - 1] : 0;
+    b = k == STICK_CURVE_POINTS ? 255 : points[k];
+    return (a * (full - t) + b * t + 127) / 255;
 }
 
 static u32 radius_of(s32 x, s32 y)
@@ -69,22 +57,22 @@ static u32 radius_of(s32 x, s32 y)
     return root;
 }
 
-static void stick_response(s16 *x, s16 *y, u8 mode, const u8 *points)
+static void stick_response(s16 *x, s16 *y, u8 enabled, const u8 *points)
 {
     u32 radius, output;
 
-    if (mode == STICK_LINEAR) return;   /* preserve calibrated samples exactly */
+    if (!enabled) return;   /* preserve calibrated samples exactly */
     radius = radius_of(*x, *y);
     if (!radius) return;
-    output = response(radius, mode, points);
+    output = response(radius, points);
     *x = (s16)((s32)*x * (s32)output / (s32)radius);
     *y = (s16)((s32)*y * (s32)output / (s32)radius);
 }
 
 void in_response(const struct set_slot *slot, struct pad *pad)
 {
-    stick_response(&pad->lx, &pad->ly, slot->left_curve, slot->left_curve_points);
-    stick_response(&pad->rx, &pad->ry, slot->right_curve, slot->right_curve_points);
+    stick_response(&pad->lx, &pad->ly, slot->left_curve_enabled, slot->left_curve_points);
+    stick_response(&pad->rx, &pad->ry, slot->right_curve_enabled, slot->right_curve_points);
 }
 
 #ifdef UNITTEST
@@ -94,8 +82,8 @@ int main(void)
     struct pad pad = { .lx = 12000, .ly = -16000, .rx = -32767, .ry = 0,
                        .buttons = PAD_A, .l2 = 1234 };
     struct pad original = pad;
-    u8 points[STICK_CURVE_POINTS] = { 0, 0, 64, 128, 192, 255, 255 };
-    u32 mode, r, last;
+    u8 points[STICK_CURVE_POINTS] = { 1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 143, 168, 195, 224 };
+    u32 r, last;
 
     struct in_raw raw = { 0 };
 
@@ -110,28 +98,28 @@ int main(void)
     pad = original;
     in_response(&slot, &pad);
     CHECK(!memcmp(&pad, &original, sizeof(pad)));
-    for (mode = STICK_LINEAR; mode <= STICK_CUSTOM; mode++) {
-        last = 0;
-        CHECK(response(0, mode, points) == 0);
-        CHECK(response(32767, mode, points) == 32767);
-        for (r = 0; r <= 32767; r++) {
-            u32 out = response(r, mode, points);
-            CHECK(out >= last && out <= 32767);
-            last = out;
-        }
+    last = 0;
+    CHECK(response(0, points) == 0);
+    CHECK(response(32767, points) == 32767);
+    for (r = 0; r <= 32767; r++) {
+        u32 out = response(r, points);
+        CHECK(out >= last && out <= 32767);
+        last = out;
     }
-    CHECK(response(16384, STICK_CONCAVE, points) == 8192);
-    CHECK(response(8192, STICK_S_CURVE, points) > 8192);
-    CHECK(response(24576, STICK_S_CURVE, points) < 24576);
-    CHECK(response(4095, STICK_CUSTOM, points) == 0);
-    CHECK(response(28672, STICK_CUSTOM, points) == 32767);
-    slot.left_curve = STICK_CONCAVE;
-    slot.right_curve = STICK_S_CURVE;
+    CHECK(response(16384, points) > 8100 && response(16384, points) < 8300);
+    memcpy(slot.left_curve_points, points, sizeof(points));
+    memcpy(slot.right_curve_points, points, sizeof(points));
+    slot.left_curve_enabled = slot.right_curve_enabled = 1;
     in_response(&slot, &pad);
     CHECK(pad.lx > 0 && pad.ly < 0 && pad.lx < original.lx);
     CHECK(pad.lx * 4 + pad.ly * 3 >= -4 && pad.lx * 4 + pad.ly * 3 <= 4);
     CHECK(pad.rx == original.rx && pad.ry == 0);
     CHECK(pad.buttons == PAD_A && pad.l2 == 1234);
+    slot.left_curve_enabled = slot.right_curve_enabled = 0;
+    pad = original;
+    in_response(&slot, &pad);
+    CHECK(!memcmp(&pad, &original, sizeof(pad)));
+    CHECK(!memcmp(slot.left_curve_points, points, sizeof(points)));
     pad.lx = pad.ly = 0;
     in_response(&slot, &pad);
     CHECK(pad.lx == 0 && pad.ly == 0);

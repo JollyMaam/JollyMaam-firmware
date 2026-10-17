@@ -12,7 +12,7 @@
 enum { T_ENUM, T_NUMBER, T_COLOUR, T_RGB, T_BYTES };
 /* The rows the code itself uses. */
 enum { ID_TYPE = 1, ID_ADDRESS = 12, ID_BOND = 13, ID_TRANSPORT = 35,
-       ID_LEFT_POINTS = 33, ID_RIGHT_POINTS = 34 };
+       ID_LEFT_ENABLED = 36, ID_RIGHT_ENABLED = 37, ID_LEFT_POINTS = 38, ID_RIGHT_POINTS = 39 };
 
 struct set_field {
     u8 id;                   /* stored and sent; never reused */
@@ -45,8 +45,8 @@ static const char *const grips[] = {
 static const char *const players[] = {
     "off", "host", "fade", "primary", "secondary", NULL,
 };
-static const char *const curves[] = { "linear", "concave", "s-curve", "custom", NULL };
-static const u8 linear_points[STICK_CURVE_POINTS] = { 32, 64, 96, 128, 159, 191, 223 };
+static const char *const curve_enabled[] = { "disabled", "enabled", NULL };
+static const u8 linear_points[STICK_CURVE_POINTS] = { 16, 32, 48, 64, 80, 96, 112, 128, 143, 159, 175, 191, 207, 223, 239 };
 
 static const char *const layouts[] = { "games", "desktop", NULL };
 static const char *const phys[] = { "1m", "2m", NULL };
@@ -129,14 +129,15 @@ static const struct set_field slot_fields[] = {
     { .id = 22, .name = "tx_power", .type = T_ENUM, .names = tx_powers, FIELD(link.tx_power),
       .def = ALL(4), .help = "radio strength 1-6: 1 is about 20 dB below 5; 6 about 3 dB "
                              "above 5, using more battery" },
-    { .id = 31, .name = "left_curve", .type = T_ENUM, .names = curves, FIELD(left_curve),
-      .help = "left stick radial response; applies immediately after calibration" },
-    { .id = 32, .name = "right_curve", .type = T_ENUM, .names = curves, FIELD(right_curve),
-      .help = "right stick radial response; applies immediately after calibration" },
+    /* IDs 31-34 were formula modes and seven-point arrays, retired. */
+    { .id = ID_LEFT_ENABLED, .name = "left_curve_enabled", .type = T_ENUM, .names = curve_enabled, FIELD(left_curve_enabled),
+      .help = "enable left stick points; disabled passes calibrated input through exactly and retains the points" },
+    { .id = ID_RIGHT_ENABLED, .name = "right_curve_enabled", .type = T_ENUM, .names = curve_enabled, FIELD(right_curve_enabled),
+      .help = "enable right stick points; disabled passes calibrated input through exactly and retains the points" },
     { .id = ID_LEFT_POINTS, .name = "left_curve_points", .type = T_BYTES, FIELD(left_curve_points),
-      .help = "custom: 7 ascending output bytes (0-255) at 12.5,25,37.5,50,62.5,75,87.5% input" },
+      .help = "15 nondecreasing output bytes (0-255) at 6.25% input intervals; endpoints fixed at zero and full" },
     { .id = ID_RIGHT_POINTS, .name = "right_curve_points", .type = T_BYTES, FIELD(right_curve_points),
-      .help = "custom: 7 ascending output bytes (0-255) at 12.5,25,37.5,50,62.5,75,87.5% input" },
+      .help = "15 nondecreasing output bytes (0-255) at 6.25% input intervals; endpoints fixed at zero and full" },
 };
 
 #define ENTRY(i, r, g, b) { .id = (i) + 1, .name = "palette" #i, .type = T_RGB, \
@@ -180,7 +181,7 @@ static const struct set_field cal_fields[] = {
 
 #define MAGIC      0x4332
 #define VERSION    1
-#define RECORD_MAX 192
+#define RECORD_MAX 224
 #define SETTLE_MS  100
 #define STAGE_MAX  1024
 /* 11 and 12 belonged to the removed shortcut/mapping prototype, 13 to the
@@ -360,15 +361,47 @@ static u32 encode(u8 t, u8 *out)
 static void decode(u8 t, const u8 *in, u32 len)
 {
     u32 used, o, bit;
+    u8 legacy_mode[2] = {0}, legacy_points[2][7], have_points[2] = {0};
 
     if (len < 4 || (in[0] | in[1] << 8) != MAGIC || in[2] != VERSION) return;
     used = in[3] < len ? in[3] : len;
     for (o = 4; o + 2 <= used && o + 2u + in[o + 1] <= used; o += 2u + in[o + 1]) {
         const struct set_field *f = find(t, in[o], &bit);
 
+        if (t < SLOTS && (in[o] == 31 || in[o] == 32) && in[o + 1] == 1)
+            legacy_mode[in[o] - 31] = in[o + 2];
+        if (t < SLOTS && (in[o] == 33 || in[o] == 34) && in[o + 1] == 7) {
+            u32 side = in[o] - 33, i;
+            have_points[side] = 1;
+            for (i = 1; i < 7; i++) if (in[o + 1 + i] > in[o + 2 + i]) have_points[side] = 0;
+            memcpy(legacy_points[side], in + o + 2, 7);
+        }
         if (in[o + 1] && check(f, in + o + 2, in[o + 1]) == SET_OK)
             put(t, f, bit, in + o + 2, in[o + 1]);
     }
+    /* Generic seven-to-fifteen resampling preserves saved custom data.
+     * Formula presets are migrated by the shared host tools, not compiled here. */
+    for (u32 side = 0; t < SLOTS && side < 2; side++) {
+        const struct set_field *points = find(t, side ? ID_RIGHT_POINTS : ID_LEFT_POINTS, &bit);
+        if (have_points[side] && !(set_bits[t] & (1u << bit))) {
+            u8 source[9] = {0}, converted[STICK_CURVE_POINTS];
+            memcpy(source + 1, legacy_points[side], 7);
+            source[8] = 255;
+            for (u32 i = 1; i <= STICK_CURVE_POINTS; i++) {
+                u32 at = i * 8 / (STICK_CURVE_POINTS + 1), rem = i * 8 % (STICK_CURVE_POINTS + 1);
+                converted[i - 1] = (u8)((source[at] * (STICK_CURVE_POINTS + 1 - rem) + source[at + 1] * rem + (STICK_CURVE_POINTS + 1) / 2) / (STICK_CURVE_POINTS + 1));
+            }
+            put(t, points, bit, converted, sizeof(converted));
+        }
+        const struct set_field *enabled = find(t, side ? ID_RIGHT_ENABLED : ID_LEFT_ENABLED, &bit);
+        if (!(set_bits[t] & (1u << bit)) && legacy_mode[side] == 3) {
+            u8 on = 1;
+            put(t, enabled, bit, &on, 1);
+        }
+        if (legacy_mode[side] == 1 || legacy_mode[side] == 2)
+            util_log("settings: slot %u legacy curve requires tool migration", t);
+    }
+
 }
 
 void set_init(void)
@@ -808,29 +841,47 @@ int main(void)
 
     /* Curves: defaults, validation, staging, persistence and reset. */
     {
-        u8 points[STICK_CURVE_POINTS] = { 0, 10, 30, 60, 100, 180, 255 };
-        u8 mode = STICK_CUSTOM;
-        CHECK(set_slot(1)->left_curve == STICK_LINEAR);
+        u8 points[STICK_CURVE_POINTS] = { 0, 5, 10, 20, 30, 45, 60, 80, 100, 140, 180, 200, 220, 240, 255 };
+        u8 mode = 1;
+        CHECK(set_slot(1)->left_curve_enabled == 0);
         CHECK(!memcmp(set_slot(1)->left_curve_points, linear_points, sizeof(points)));
-        CHECK(write1(1, 31, 1, &mode) == SET_OK);
+        CHECK(write1(1, ID_LEFT_ENABLED, 1, &mode) == SET_OK);
         CHECK(write1(1, ID_LEFT_POINTS, sizeof(points), points) == SET_OK);
         CHECK(write1(1, ID_RIGHT_POINTS, sizeof(points) - 1, points) == SET_BAD_LENGTH);
         points[3] = 1;
         CHECK(write1(1, ID_RIGHT_POINTS, sizeof(points), points) == SET_RANGE);
-        mode = STICK_CUSTOM + 1;
-        CHECK(write1(1, 32, 1, &mode) == SET_RANGE);
-        CHECK(set_slot(1)->left_curve == STICK_LINEAR);
+        mode = 2;
+        CHECK(write1(1, ID_RIGHT_ENABLED, 1, &mode) == SET_RANGE);
+        CHECK(set_slot(1)->left_curve_enabled == 0);
         set_apply();
         set_poll(ms, 1);
         set_init();
-        CHECK(set_slot(1)->left_curve == STICK_CUSTOM);
-        CHECK(set_slot(1)->left_curve_points[3] == 60);
-        CHECK(set_slot(1)->right_curve == STICK_LINEAR);
-        CHECK(write1(1, ID_LEFT_POINTS, 0, NULL) == SET_OK);
-        CHECK(write1(1, 31, 0, NULL) == SET_OK);
+        CHECK(set_slot(1)->left_curve_enabled == 1);
+        CHECK(set_slot(1)->left_curve_points[3] == 20);
+        CHECK(set_slot(1)->right_curve_enabled == 0);
+        mode = 0;
+        CHECK(write1(1, ID_LEFT_ENABLED, 1, &mode) == SET_OK);
         set_apply();
-        CHECK(set_slot(1)->left_curve == STICK_LINEAR);
+        CHECK(!set_slot(1)->left_curve_enabled && set_slot(1)->left_curve_points[3] == 20);
+        mode = 1;
+        CHECK(write1(1, ID_LEFT_ENABLED, 1, &mode) == SET_OK);
+        set_apply();
+        CHECK(set_slot(1)->left_curve_enabled && set_slot(1)->left_curve_points[3] == 20);
+        CHECK(write1(1, ID_LEFT_POINTS, 0, NULL) == SET_OK);
+        CHECK(write1(1, ID_LEFT_ENABLED, 0, NULL) == SET_OK);
+        set_apply();
+        CHECK(set_slot(1)->left_curve_enabled == 0);
         CHECK(!memcmp(set_slot(1)->left_curve_points, linear_points, sizeof(points)));
+    }
+
+    /* Legacy custom points migrate without a firmware preset table. */
+    {
+        u8 legacy[] = { (u8)MAGIC, MAGIC >> 8, VERSION, 16, 31, 1, 3, 33, 7,
+                        0, 10, 30, 60, 100, 180, 255 };
+        memcpy(store[key_of(2)], legacy, sizeof(legacy));
+        set_init();
+        CHECK(set_slot(2)->left_curve_enabled == 1);
+        for (u32 i = 0; i < 7; i++) CHECK(set_slot(2)->left_curve_points[2*i+1] == legacy[9+i]);
     }
 
     /* An unknown id in a record is skipped. */

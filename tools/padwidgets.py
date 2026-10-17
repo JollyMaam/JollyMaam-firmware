@@ -1,6 +1,7 @@
 """Tk editors for palette references and custom stick response curves."""
 import tkinter as tk
 import math
+import padcurves
 from tkinter import ttk
 
 BRIGHTNESS = (0, 1, 2, 3, 4, 5, 7, 10, 14, 20, 28, 40, 56, 80, 128, 255)
@@ -104,21 +105,33 @@ class PaletteEditor(ttk.Frame):
 
 
 class CurveEditor(ttk.Frame):
-    """Seven monotone output points, with fixed zero and full-scale endpoints."""
-    def __init__(self, parent, app, entry):
+    """Tool presets and monotone points, with fixed zero/full endpoints."""
+    def __init__(self, parent, app, entry, enabled=None):
         super().__init__(parent)
-        self.app, self.entry = app, entry
+        self.app, self.entry, self.enabled = app, entry, enabled
+        self.count = entry["field"]["size"]
         self.syncing = False
         self.dragging = None
+        bar = ttk.Frame(self)
+        bar.grid(row=0, column=0, columnspan=2, sticky='w', pady=(0, 6))
+        if enabled:
+            ttk.Checkbutton(bar, text='Use points', variable=enabled['var'], onvalue='enabled', offvalue='disabled').pack(side='left', padx=(0, 10))
+        ttk.Label(bar, text='Preset').pack(side='left', padx=(0, 4))
+        self.preset_name = tk.StringVar()
+        presets = ttk.Combobox(bar, textvariable=self.preset_name, values=['Linear', 'Concave', 'S-curve', 'Custom'], state='readonly', width=11)
+        presets.pack(side='left')
+        presets.bind('<<ComboboxSelected>>', self.choose_preset)
+        self.point_toggle = ttk.Button(bar, text='Point values ▸', command=self.toggle_points)
+        self.point_toggle.pack(side='left', padx=8)
         self.graph = tk.Canvas(self, width=250, height=190, background='#ffffff', highlightthickness=1, highlightbackground='#cccccc')
-        self.graph.grid(row=0, column=0, sticky='nw', padx=(0, 10))
+        self.graph.grid(row=1, column=0, sticky='nw', padx=(0, 10))
         controls = ttk.Frame(self)
-        controls.grid(row=0, column=1, sticky='nw')
+        controls.grid(row=1, column=1, sticky='nw')
         ttk.Label(controls, text='Stick travel').grid(row=0, column=0)
         ttk.Label(controls, text='Output %').grid(row=0, column=1, columnspan=2)
         self.sliders, self.outputs, self.spins = [], [], []
-        for index in range(7):
-            ttk.Label(controls, text=f'{(index + 1) * 12.5:g}%').grid(row=index + 1, column=0, sticky='e', padx=(0, 6))
+        for index in range(self.count):
+            ttk.Label(controls, text=f'{(index + 1) * 100 / (self.count + 1):g}%').grid(row=index + 1, column=0, sticky='e', padx=(0, 6))
             slider = ttk.Scale(controls, from_=0, to=100, length=100,
                                command=lambda v, i=index: self.set_point(i, float(v)))
             slider.grid(row=index + 1, column=1, padx=3, pady=2)
@@ -132,24 +145,40 @@ class CurveEditor(ttk.Frame):
             self.outputs.append(output)
             self.spins.append(spin)
             output.trace_add('write', lambda *_, i=index: self.edit_output(i))
-        ttk.Label(self, text='Drag the graph or adjust outputs. Select the custom curve mode to use these points.',
-                  wraplength=460).grid(row=1, column=0, columnspan=2, sticky='w', pady=(5, 0))
+        self.point_controls = controls
+        self.point_controls.grid_remove()
+        self.caption = ttk.Label(self, wraplength=460)
+        self.caption.grid(row=2, column=0, columnspan=2, sticky='w', pady=(5, 0))
         self.graph.bind('<Button-1>', self.start_drag)
         self.graph.bind('<B1-Motion>', self.drag)
         self.graph.bind('<ButtonRelease-1>', lambda e: setattr(self, 'dragging', None))
         self.sync()
 
+    def choose_preset(self, event=None):
+        if self.app.busy:
+            return
+        selected = self.preset_name.get().lower()
+        if selected != 'custom':
+            self.entry['var'].set(','.join(map(str, padcurves.preset(selected, self.count))))
+        if self.enabled:
+            self.enabled['var'].set('enabled')
+
+    def toggle_points(self):
+        if self.point_controls.winfo_manager():
+            self.point_controls.grid_remove()
+            self.point_toggle.configure(text='Point values ▸')
+        else:
+            self.point_controls.grid()
+            self.point_toggle.configure(text='Point values ▾')
+
     def points(self):
-        raw = self.app.value_bytes(self.entry)
-        if len(raw) != 7 or any(raw[i] > raw[i + 1] for i in range(6)):
-            raise ValueError('Curve outputs must increase with stick travel')
-        return list(raw)
+        return list(padcurves.validate(self.app.value_bytes(self.entry), self.count))
 
     def set_point(self, index, percent):
         if self.syncing or self.app.busy:
             return
         points = self.points()
-        lower, upper = points[index - 1] if index else 0, points[index + 1] if index < 6 else 255
+        lower, upper = points[index - 1] if index else 0, points[index + 1] if index < self.count - 1 else 255
         value = max(lower, min(upper, round(max(0, min(100, percent)) * 255 / 100)))
         if points[index] == value:
             self.sync()
@@ -186,7 +215,7 @@ class CurveEditor(ttk.Frame):
     def start_drag(self, event):
         if self.app.busy:
             return
-        self.dragging = max(0, min(6, round((event.x - 35) / 195 * 8) - 1))
+        self.dragging = max(0, min(self.count - 1, round((event.x - 35) / 195 * (self.count + 1)) - 1))
         self.drag(event)
 
     def drag(self, event):
@@ -197,6 +226,9 @@ class CurveEditor(ttk.Frame):
         self.syncing = True
         try:
             points = self.points()
+            active = not self.enabled or self.enabled['var'].get() == 'enabled'
+            self.preset_name.set(padcurves.identify(points).capitalize())
+            self.caption.configure(text='Curve active. Drag points or open Point values.' if active else 'Points disabled: input passes through unchanged. Your saved points are kept and can still be edited.')
             for i, value in enumerate(points):
                 self.sliders[i].set(value / 255 * 100)
                 if force or self.entry['reset'].get() or self.focus_get() is not self.spins[i]:
@@ -213,10 +245,12 @@ class CurveEditor(ttk.Frame):
             self.graph.create_line(35, 160, 230, 20, fill='#bbbbbb', dash=(4, 4))
             coords = [35, 160]
             for i, value in enumerate(points):
-                coords += [35 + (i + 1) / 8 * 195, 160 - value / 255 * 140]
+                coords += [35 + (i + 1) / (self.count + 1) * 195, 160 - value / 255 * 140]
             coords += [230, 20]
-            self.graph.create_line(*coords, fill='#2185d0', width=2)
-            for i in range(1, 8):
+            self.graph.create_line(*coords, fill='#2185d0' if active else '#999999', width=2, dash=() if active else (4, 4))
+            if not active:
+                self.graph.create_line(35, 160, 230, 20, fill='#2185d0', width=2)
+            for i in range(1, self.count + 1):
                 x, y = coords[i * 2:i * 2 + 2]
                 self.graph.create_oval(x - 4, y - 4, x + 4, y + 4, fill='#2185d0', outline='#ffffff')
         except (Exception, SystemExit):

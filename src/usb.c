@@ -74,7 +74,7 @@
  * padtool.py and padgui.py (Linux/Windows SCSI) are the clients. */
 
 #define OP          0xf5
-#define PROTOCOL    4
+#define PROTOCOL    5
 
 #define STATS_VERSION 6
 

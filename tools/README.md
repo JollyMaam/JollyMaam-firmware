@@ -54,11 +54,41 @@ hidden behind each row's `?` button. Setting names use readable labels.
 Numeric inputs show their valid range beside the box, using firmware-reported
 limits.
 
-Custom stick curve points have a graph with draggable handles, seven sliders,
-and percentage inputs. The inputs correspond to 12.5% through 87.5% stick
-travel. Outputs stay in increasing order, and the 0% and 100% endpoints stay
-fixed. Reset restores the default curve. Choose custom in the corresponding
-stick curve mode setting to activate the points.
+Each stick has a 15-point curve, with fixed zero and full-scale endpoints.
+**Use points** enables it; switching that off gives exact calibrated linear
+passthrough and retains all saved points. The graph shows active input in blue
+and, when disabled, the retained curve as a dashed line. **Point values** opens
+the 15 sliders and percentage inputs at 6.25% travel intervals. Reset restores
+the default points and disables the curve. The curve's Apply button saves its
+points and enable flag together.
+
+Linear, Concave and S-curve presets are defined in `padcurves.py`, shared by
+CLI and GUI. Selecting a preset fills the points and enables them; manual edits
+show Custom. Firmware contains point interpolation and bypass only. The curved
+presets approximate the previous formulas, with maximum full-scale differences
+under 0.3% at 15 points. To get exact linear passthrough, turn Use points off.
+
+The CLI uses the same presets and validation:
+
+```sh
+python tools/padtool.py set A left_curve concave
+python tools/padtool.py set A left_curve disabled
+python tools/padtool.py set A left_curve enabled
+python tools/padtool.py set A left_curve_points s-curve
+```
+
+The first command fills and enables points. Disabled/enabled only toggle the
+flag; the last command fills points without changing the enable flag.
+
+When upgrading from protocol 4 or older with a running pad connected, the GUI
+and Python flasher save a `.settings.json` next to the flash backup and restore
+it after the new firmware starts. Shared host migration converts old formula
+modes to presets and resamples seven-point custom curves, retaining their knots.
+Inactive custom points remain saved with the enable flag off. If the pad is
+already in the ROM loader, or another flasher is used, back up settings before
+the upgrade and restore them with the updated padtool afterwards. The firmware
+can resample legacy custom records itself; old Concave/S-curve modes require
+host conversion. Never-reused field IDs separate old and new layouts.
 
 Connect and Pair use saved settings, so apply a slot's pending edits first.
 Sensor calibration is global, with one **Calibrate sensors** action on the
@@ -142,6 +172,8 @@ in its loader for recovery.
 
 `padgui.py` owns the UI and serializes operations on a worker thread.
 `padwidgets.py` supplies the palette/brightness and stick curve editors.
+`padcurves.py` shares preset definitions, validation and legacy conversion with
+the CLI; `python -m unittest discover -s tools -p test_padcurves.py -v` tests it.
 `padtool.py` supplies the firmware protocol and CLI. `padtransport.py` supplies
 Linux SG_IO and Windows buffered SCSI pass-through. `padflash.py` supplies the
 BR23 RAM-loader protocol, image identity checks, backup, erase/write and readback

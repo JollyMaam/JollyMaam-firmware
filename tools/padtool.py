@@ -42,7 +42,7 @@
 TARGET: a slot (A B X Y up down left right), palette or calibration.  VALUE:
 a name for a choice, a number, ENTRY:LEVEL for a colour (palette entry 0-15,
 brightness 0-15), #rrggbb for a palette entry, aa:bb:cc:dd:ee:ff for an
-address, seven comma-separated output bytes for stick curve points, hex for other
+address, 15 comma-separated output bytes or a preset (linear, concave, s-curve) for stick curve points, hex for other
 bytes; "default" puts a field back to its default.
 
 The pad is a mass-storage device with no medium; commands are vendor SCSI
@@ -50,6 +50,7 @@ CDBs (see the comment at the top of src/usb.c).  Flashing is tools/jlnewfw.c's (
 """
 import argparse, collections, glob, json, os, struct, sys, time
 from padtransport import scsi, device_paths
+import padcurves
 if sys.platform == "linux":
     import fcntl
 
@@ -523,8 +524,9 @@ def parse_value(f, text):
             return bytes([int(e), int(l)])
         if t == T_RGB:
             v = bytes.fromhex(text.lstrip("#")) if "," not in text else bytes(int(x) for x in text.split(","))
-        elif f["name"] in ("left_curve_points", "right_curve_points") and "," in text:
-            v = bytes(int(x) for x in text.split(","))
+        elif f["name"] in ("left_curve_points", "right_curve_points"):
+            v = padcurves.preset(text, f["size"]) if text in padcurves.PRESET_NAMES else bytes(int(x) for x in text.split(",")) if "," in text else bytes.fromhex(text)
+            v = padcurves.validate(v, f["size"])
         elif f["name"] == "address":
             v = bytes(reversed(bytes.fromhex(text.replace(":", ""))))
         else:
@@ -639,6 +641,19 @@ def set_values(path, target, pairs):
     table, t = fields(path), target_index(target)
     items = []
     for name, text in zip(pairs[::2], pairs[1::2]):
+        if name in ("left_curve", "right_curve") and any(f["name"] == name + "_enabled" for f in table):
+            enabled = field_named(table, t, name + "_enabled")
+            points = field_named(table, t, name + "_points")
+            if text in ("disabled", "off"):
+                items.append((t, enabled["id"], parse_value(enabled, "disabled")))
+            elif text in ("custom", "enabled", "on"):
+                items.append((t, enabled["id"], parse_value(enabled, "enabled")))
+            elif text in padcurves.PRESET_NAMES:
+                items.extend([(t, points["id"], padcurves.preset(text, points["size"])),
+                              (t, enabled["id"], parse_value(enabled, "enabled"))])
+            else:
+                sys.exit(f"padtool: {name}: use linear, concave, s-curve, custom, enabled or disabled")
+            continue
         f = field_named(table, t, name)
         items.append((t, f["id"], parse_value(f, text)))
         if f["dev"]:
@@ -671,6 +686,9 @@ def restore(path, file, calibration):
         t = target_index(name)
         if name == "calibration" and not calibration:
             continue
+        if t < 8 and any(f["name"] == "left_curve_enabled" for f in table):
+            size = field_named(table, t, "left_curve_points")["size"]
+            values = padcurves.migrate_slot(values, size)
         items = [(t, 0, b"")]
         for f in table:           # table order: type before address and bond
             v = values.get(f["name"])
@@ -682,6 +700,34 @@ def restore(path, file, calibration):
                 items.append((t, f["id"], b""))   # a reset keeps these
         send(path, items)
     print("restored" + ("" if calibration else " (calibration left as it was)"))
+
+
+def prepare_curve_upgrade(board, backup_file):
+    """Capture legacy modes before entering the loader; shared by flash UIs."""
+    if board != "pad":
+        return None
+    found = [(path, ident) for path, _, ident in discover_devices() if ident[6] == BOARD_IDS["pad"]]
+    if len(found) != 1 or int.from_bytes(found[0][1][4:6], "little") >= 5:
+        return None
+    file = str(backup_file) + ".settings.json"
+    backup(found[0][0], file)
+    return file
+
+
+def finish_curve_upgrade(file):
+    if not file:
+        return
+    path = wait_for_device(30)
+    if not path:
+        raise RuntimeError(f"Pad did not return to tool mode; restore settings from {file}")
+    identity = cmd(path, 0, length=64)
+    with open(file) as stream:
+        saved = json.load(stream)
+    if identity[24:40].hex() != saved["flash_id"]:
+        raise RuntimeError(f"The detected pad differs from the upgrade backup; restore settings explicitly from {file}")
+    if int.from_bytes(identity[4:6], "little") >= 5:
+        restore(path, file, calibration=True)
+        print("Legacy curve settings migrated; settings and calibration restored")
 
 
 def keep(path):

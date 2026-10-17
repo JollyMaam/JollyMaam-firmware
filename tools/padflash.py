@@ -292,12 +292,15 @@ def main():
             p.error("image does not match selected board")
     elif args.file.resolve() == args.loader.resolve():
         p.error("backup must not overwrite the loader")
+    import padtool
+    curve_backup = padtool.prepare_curve_upgrade(args.board, args.backup) if args.command == "flash" else None
     loader = select_loader(args.board, args.loader.read_bytes())
     if args.command == "backup":
         loader.backup(args.file)
         print("Reconnect USB to leave the loader")
     else:
         loader.flash(data, args.board, args.backup)
+        padtool.finish_curve_upgrade(curve_backup)
 
 
 if __name__ == "__main__":
