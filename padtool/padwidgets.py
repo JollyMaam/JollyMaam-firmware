@@ -13,8 +13,12 @@ class PaletteEditor(ttk.Frame):
     def __init__(self, parent, app, record, entry):
         super().__init__(parent)
         self.app, self.record, self.entry = app, record, entry
-        self.popup = None
-        self.palette_button = ttk.Button(self, text='Choose colour…', command=self.open_palette, width=16)
+        self.palette_menu = tk.Menu(self, tearoff=False, postcommand=self.draw_palette)
+        self.palette_images = [tk.PhotoImage(master=self, width=22, height=16) for _ in range(16)]
+        for index, swatch in enumerate(self.palette_images):
+            self.palette_menu.add_command(label=f'Palette {index}', image=swatch, compound='left',
+                                          command=lambda i=index: self.choose_colour(i))
+        self.palette_button = ttk.Menubutton(self, text='Choose colour…', menu=self.palette_menu, direction='below', width=14)
         self.palette_button.pack(side='left')
         self.preview = app.color_swatch(self, record, entry)
         self.preview.pack(side='left', padx=6)
@@ -23,7 +27,6 @@ class PaletteEditor(ttk.Frame):
         self.brightness = ttk.Combobox(self, textvariable=self.level, values=BRIGHTNESS_LABELS, state='readonly', width=13)
         self.brightness.pack(side='left')
         self.brightness.bind('<<ComboboxSelected>>', self.choose_brightness)
-        self.bind('<Destroy>', self.destroy_popup, add=True)
         self.sync()
 
     def current(self):
@@ -35,10 +38,9 @@ class PaletteEditor(ttk.Frame):
     def sync(self):
         try:
             palette, level = self.current()
-            self.palette_button.configure(text=f'Palette {palette} ▾')
+            self.palette_button.configure(text=f'Palette {palette}')
             self.level.set(BRIGHTNESS_LABELS[level])
-            if self.popup and self.popup.winfo_exists():
-                self.draw_palette()
+            self.draw_palette()
         except (Exception, SystemExit):
             self.palette_button.configure(text='Choose colour…')
             self.level.set('')
@@ -48,7 +50,6 @@ class PaletteEditor(ttk.Frame):
             return
         _, level = self.current()
         self.entry['var'].set(f'{palette}:{level}')
-        self.destroy_popup()
 
     def choose_brightness(self, event=None):
         if self.app.busy:
@@ -56,53 +57,22 @@ class PaletteEditor(ttk.Frame):
         palette, _ = self.current()
         self.entry['var'].set(f'{palette}:{BRIGHTNESS_LABELS.index(self.level.get())}')
 
-    def open_palette(self):
-        if self.app.busy:
-            return
-        if self.popup and self.popup.winfo_exists():
-            self.popup.lift()
-            return
-        self.popup = tk.Toplevel(self)
-        self.popup.title('Choose a palette colour')
-        self.popup.transient(self.winfo_toplevel())
-        self.popup.resizable(False, False)
-        self.popup.protocol('WM_DELETE_WINDOW', self.destroy_popup)
-        ttk.Label(self.popup, text='Choose a palette colour', padding=8).pack()
-        grid = ttk.Frame(self.popup, padding=(8, 0, 8, 8))
-        grid.pack()
-        self.tiles = []
-        for index in range(16):
-            tile = tk.Canvas(grid, width=76, height=54, highlightthickness=0, cursor='hand2')
-            tile.grid(row=index // 4, column=index % 4, padx=3, pady=3)
-            tile.bind('<Button-1>', lambda e, i=index: self.choose_colour(i))
-            tile.bind('<Return>', lambda e, i=index: self.choose_colour(i))
-            tile.configure(takefocus=True)
-            self.tiles.append(tile)
-        self.draw_palette()
-        self.popup.geometry(f'+{self.winfo_rootx()}+{self.winfo_rooty() + self.winfo_height()}')
-        self.popup.bind('<Escape>', lambda e: self.destroy_popup())
-
     def draw_palette(self):
-        selected, _ = self.current()
-        for index, tile in enumerate(self.tiles):
-            tile.delete('all')
+        try:
+            selected, _ = self.current()
+        except (Exception, SystemExit):
+            selected = None
+        for index, swatch in enumerate(self.palette_images):
             try:
                 rgb = self.app.value_bytes(self.record['draft'][8, f'palette{index}'])
-                colour = '#' + rgb.hex()
-                foreground = '#ffffff' if sum(rgb) < 380 else '#111111'
-                tile.create_rectangle(2, 2, 74, 52, fill=colour, outline='')
-                tile.create_text(38, 35, text=f'{index}' + (' ✓' if index == selected else ''), fill=foreground)
+                if len(rgb) != 3:
+                    raise ValueError('Invalid palette colour')
+                colour, state = '#' + rgb.hex(), 'normal'
+                label = f'Palette {index}' + (' ✓' if index == selected else '')
             except (Exception, SystemExit):
-                tile.create_text(38, 27, text=f'{index}: invalid')
-            if index == selected:
-                tile.create_rectangle(1, 1, 75, 53, outline='#2185d0', width=3)
-
-    def destroy_popup(self, event=None):
-        if event is not None and event.widget is not self:
-            return
-        popup, self.popup = self.popup, None
-        if popup and popup.winfo_exists():
-            popup.destroy()
+                colour, state, label = '#cccccc', 'disabled', f'Palette {index} (invalid)'
+            swatch.put(colour, to=(1, 1, 21, 15))
+            self.palette_menu.entryconfigure(index, label=label, state=state)
 
 
 class CurveEditor(ttk.Frame):

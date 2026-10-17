@@ -61,7 +61,7 @@ controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`)
 `make BOARD=dongle [flash|clean|test]` also works. Board differences (flash
 size, code limit, PID) are at the top of the `Makefile`.
 
-`tools/padtool.py` talks to the running firmware over USB vendor commands
+`padtool/padtool.py` talks to the running firmware over USB vendor commands
 (`padtool --help`). `padtool --dongle` does the same for the dongle.  While a
 pad or dongle is a game controller on USB, the vendor commands are gone:
 `padtool tool` (feature report 0xf5 through hidraw, HID personalities only)
@@ -69,16 +69,16 @@ or ending the session brings the tool device back.  A test build that ends
 USB sessions by itself: `make BOARD_DEFINES_pad=-DUSB_SESSION_TEST_MS=12000`
 (a change of `BOARD_DEFINES` rebuilds everything).
 
-`tools/padgui.py` is the Tkinter GUI (`python tools/padgui.py`), sharing the
-padtool protocol and Linux/Windows SCSI transport. `tools/padflash.py` backs up
+`padtool/padgui.pyw` is the Tkinter GUI (`python padtool/padgui.pyw`), sharing the
+padtool protocol and Linux/Windows SCSI transport. `padtool/padflash.py` backs up
 and flashes images in Python using the SDK BR23 RAM loader (or a packaged copy). `jlnewfw` is
 only needed in the GUI to pack builds. Scan and load caches every device and
 pad target; edits stay pending across navigation until Apply changes. Sensor
 calibration is global; the USB trigger requires protocol 3+. Protocol 4 adds
 a read-only defaults query for Reset and default-value indicators. Protocol 5
 uses 15-point curves plus enable flags; presets and migration are shared in
-`tools/padcurves.py`. Setup and host
-tests: `tools/README.md`.
+`padtool/padcurves.py`. Setup and host
+tests: `padtool/README.md`.
 
 `tools/sdlpad.c` shows what SDL makes of the gamepads it sees (build line at
 its top).  In this container SDL needs the nodes from `/dev/bwrap` under

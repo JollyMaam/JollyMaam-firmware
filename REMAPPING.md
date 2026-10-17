@@ -6,7 +6,7 @@ and a proposed future design, for iteration; they are not currently available.
 The firmware now uses fixed M shortcuts in `src/settings_ux.c`.
 
 These settings are global, so they also work before a slot is selected. Change
-and commit them with `tools/padtool.py set`; they persist and are included in
+and commit them with `padtool/padtool.py set`; they persist and are included in
 `backup-settings`, `restore-settings` and `factory-reset`. `ephemeral` can be
 used to try settings without saving them. The current physical wake input is
 still Home. Home wake connects the last slot and consumes that initial Home
@@ -51,39 +51,39 @@ keys; release them before trying the edited configuration.
 
 ```sh
 # Adjust the window; retain normal M behavior outside chords.
-tools/padtool.py set shortcuts grace_ms 250
+padtool/padtool.py set shortcuts grace_ms 250
 
 # Send chord keys to the host too, or suppress them (default).
-tools/padtool.py set shortcuts passthrough on
-tools/padtool.py set shortcuts passthrough off
+padtool/padtool.py set shortcuts passthrough on
+padtool/padtool.py set shortcuts passthrough off
 
 # Change the disconnect shortcut's hold time.
-tools/padtool.py set shortcuts rule8 'm+minus:disconnect:none:2000'
+padtool/padtool.py set shortcuts rule8 'm+minus:disconnect:none:2000'
 
 # Use the spare rule for another action.
-tools/padtool.py set shortcuts rule19 'm+plus:sleep:none:2000'
+padtool/padtool.py set shortcuts rule19 'm+plus:sleep:none:2000'
 
 # Disable A-slot pairing while retaining its switch shortcut.
-tools/padtool.py set shortcuts rule11 none
+padtool/padtool.py set shortcuts rule11 none
 
 # Change the modifier AND corresponding rules together (update all wanted rules).
-tools/padtool.py set shortcuts modifier l4 rule0 'l4+a:connect:A:1500'
+padtool/padtool.py set shortcuts modifier l4 rule0 'l4+a:connect:A:1500'
 
 # Remap a physical input to one or several virtual controls.
-tools/padtool.py set mapping a b b a m home l4 'l1+r1'
-tools/padtool.py set mapping screenshot none
+padtool/padtool.py set mapping a b b a m home l4 'l1+r1'
+padtool/padtool.py set mapping screenshot none
 
 # Swap stick axes, invert one, and swap triggers. '--' allows negative selectors.
-tools/padtool.py set -- mapping lx rx rx lx ly -ry ry ly l2 r2 r2 l2
+padtool/padtool.py set -- mapping lx rx rx lx ly -ry ry ly l2 r2 r2 l2
 
 # Disable standalone Home sleep; wake/recovery remain available.
-tools/padtool.py set shortcuts home_sleep_ms 0
+padtool/padtool.py set shortcuts home_sleep_ms 0
 
 # Inspect/reset configuration.
-tools/padtool.py get shortcuts
-tools/padtool.py get mapping
-tools/padtool.py reset shortcuts
-tools/padtool.py reset mapping
+padtool/padtool.py get shortcuts
+padtool/padtool.py get mapping
+padtool/padtool.py reset shortcuts
+padtool/padtool.py reset mapping
 ```
 
 Shortcut matching uses **physical** controls, before output mapping. For

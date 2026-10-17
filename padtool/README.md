@@ -3,15 +3,17 @@
 Run from a checkout, with Python 3.10 or newer and Tk:
 
 ```sh
-python tools/padgui.py
+python padtool/padgui.pyw
 ```
 
+On Linux, `./padtool/padgui.pyw` also works. On Windows, double-click
+`padgui.pyw` to launch without a console window using the Python file association.
 Windows Python's installer includes Tcl/Tk by default. On Linux install your
 Python distribution's Tk package (often `python3-tk`). With Nixpkgs:
 
 ```sh
 nix-shell -p 'python3.withPackages (ps: [ ps.tkinter ])'
-python tools/padgui.py
+python padtool/padgui.pyw
 ```
 
 There are no pip requirements for configuration, image flashing or backups.
@@ -51,8 +53,9 @@ could not supply the default. Protocol 4 provides full defaults for every field,
 including pairing bytes, custom curves and the calibration blob, through a
 read-only query. On older firmware, only known defaults can be reset in the GUI.
 
-Slot colour fields have a palette selector and a brightness dropdown. The
-selector and swatches show the full palette colour at every brightness level.
+Slot colour fields have a palette dropdown with all 16 colour swatches and a
+separate brightness dropdown. The selector and swatches show the full palette
+colour at every brightness level.
 Brightness percentages use the firmware's actual nonlinear levels. Palette RGB fields still accept hex values and show swatches;
 all previews follow staged palette edits.
 
@@ -81,10 +84,10 @@ under 0.3% at 15 points. To get exact linear passthrough, turn Use points off.
 The CLI uses the same presets and validation:
 
 ```sh
-python tools/padtool.py set A left_curve concave
-python tools/padtool.py set A left_curve disabled
-python tools/padtool.py set A left_curve enabled
-python tools/padtool.py set A left_curve_points s-curve
+python padtool/padtool.py set A left_curve concave
+python padtool/padtool.py set A left_curve disabled
+python padtool/padtool.py set A left_curve enabled
+python padtool/padtool.py set A left_curve_points s-curve
 ```
 
 The first command fills and enables points. Disabled/enabled only toggle the
@@ -118,8 +121,8 @@ settings table; its pairing and target address controls are in Device tools.
 Full flash backup and image flashing run entirely in Python. The BR23 RAM
 loader is read from `JIELI_SDK/cpu/br23/tools/br23loader.bin` during development
 (or this workspace’s SDK location). It is not tracked in version control.
-A distribution can include it under `tools/loaders/`; that packaged copy takes
-precedence. Its Apache 2.0 license and provenance remain in `tools/loaders/`.
+A distribution can include it under `padtool/loaders/`; that packaged copy takes
+precedence. Its Apache 2.0 license and provenance remain in `padtool/loaders/`.
 No external flashing executable is needed.
 The loader is uploaded to RAM through UBOOT1.00; it provides SPI flash access.
 It is separate from the `uboot.boot` contained inside firmware images.
@@ -174,8 +177,8 @@ image; back up settings separately to restore them after installation.
 The Python backend can also run from a terminal:
 
 ```sh
-python tools/padflash.py backup pad-backup.bin --board pad
-python tools/padflash.py flash build/pad/firmware.img --board pad --backup before-flash.bin
+python padtool/padflash.py backup pad-backup.bin --board pad
+python padtool/padflash.py flash build/pad/firmware.img --board pad --backup before-flash.bin
 ```
 
 Use `--board dongle` for the dongle and `--loader FILE` to override the SDK or packaged
@@ -190,10 +193,10 @@ in its loader for recovery.
 
 ## Code and validation
 
-`padgui.py` owns the UI and serializes operations on a worker thread.
+`padgui.pyw` owns the UI and serializes operations on a worker thread.
 `padwidgets.py` supplies the palette/brightness and stick curve editors.
 `padcurves.py` shares preset definitions, validation and legacy conversion with
-the CLI; `python -m unittest discover -s tools -p test_padcurves.py -v` tests it.
+the CLI; `python -m unittest discover -s padtool -p test_padcurves.py -v` tests it.
 `padtool.py` supplies the firmware protocol and CLI. `padtransport.py` supplies
 Linux SG_IO and Windows buffered SCSI pass-through. `padflash.py` supplies the
 BR23 RAM-loader protocol, image identity checks, backup, erase/write and readback
@@ -204,13 +207,13 @@ these protocol definitions.
 Run the flasher tests (no display or hardware required):
 
 ```sh
-python -m unittest discover -s tools -p test_padflash.py -v
+python -m unittest discover -s padtool -p test_padflash.py -v
 ```
 
 Run GUI boundary tests on a display or under Xvfb:
 
 ```sh
-python -m unittest discover -s tools -p test_padgui.py -v
+python -m unittest discover -s padtool -p test_padgui.pyw -v
 ```
 
 The flasher tests simulate a SCSI device to check RAM upload, chip info, exact

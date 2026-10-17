@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tkinter front end for padtool and the Python BR23 flasher. Run: python tools/padgui.py."""
+"""Tkinter front end for padtool and the Python BR23 flasher. Run: python padtool/padgui.pyw."""
 import contextlib
 import io
 import os
@@ -110,7 +110,7 @@ class App:
 
     def controls(self, widget):
         for child in widget.winfo_children():
-            if isinstance(child, (ttk.Button, ttk.Combobox, ttk.Entry, ttk.Checkbutton, ttk.Scale, ttk.Spinbox)):
+            if isinstance(child, (ttk.Button, ttk.Menubutton, ttk.Combobox, ttk.Entry, ttk.Checkbutton, ttk.Scale, ttk.Spinbox)):
                 yield child
             yield from self.controls(child)
 

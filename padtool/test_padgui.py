@@ -6,7 +6,14 @@ import tkinter as tk
 import unittest
 from unittest.mock import patch
 
-import padgui
+from importlib.machinery import SourceFileLoader
+from importlib.util import module_from_spec, spec_from_loader
+from pathlib import Path
+
+# .pyw is a Windows GUI launch extension; Linux imports require an explicit loader.
+_gui_spec = spec_from_loader("padgui", SourceFileLoader("padgui", str(Path(__file__).with_name("padgui.pyw"))))
+padgui = module_from_spec(_gui_spec)
+_gui_spec.loader.exec_module(padgui)
 import padtransport
 
 
@@ -396,12 +403,16 @@ class GuiTests(unittest.TestCase):
         from padwidgets import BRIGHTNESS_LABELS
         editor.level.set(BRIGHTNESS_LABELS[5])
         editor.choose_brightness()
-        editor.open_palette()
-        self.assertEqual(len(editor.tiles), 16)
-        editor.choose_colour(4)
+        editor.draw_palette()
+        self.assertIsInstance(editor.palette_button, padgui.ttk.Menubutton)
+        self.assertEqual(editor.palette_menu.index("end"), 15)
+        self.assertEqual(editor.palette_images[3].get(10, 8), (255, 0, 0))
+        r["draft"][8, "palette4"]["var"].set("#00ff00")
+        self.assertEqual(editor.palette_images[4].get(10, 8), (0, 255, 0))
+        editor.palette_menu.invoke(4)
         self.assertEqual(r["draft"][0, "primary_colour"]["var"].get(), "4:5")
         self.assertEqual(editor.level.get(), BRIGHTNESS_LABELS[5])
-        self.assertIsNone(editor.popup)
+        self.assertFalse(any(isinstance(w, tk.Toplevel) for w in editor.winfo_children()))
 
     def test_curve_controls_clamp_points_and_follow_reset(self):
         r = record()

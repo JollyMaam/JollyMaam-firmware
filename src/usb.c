@@ -71,7 +71,7 @@
  * usb_poll() runs on every pass of the loop and lets the platform service a
  * parked command; usb_command() runs on the control thread.  The platform's
  * private_scsi_cmd() hook parks each vendor command and raises EV_USB.
- * padtool.py and padgui.py (Linux/Windows SCSI) are the clients. */
+ * padtool/padtool.py and padtool/padgui.pyw (Linux/Windows SCSI) are the clients. */
 
 #define OP          0xf5
 #define PROTOCOL    5
