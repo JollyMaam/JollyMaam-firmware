@@ -50,8 +50,6 @@ class App:
         ttk.Button(top, text="Scan and load", command=self.scan).pack(side="left")
         ttk.Button(top, text="Apply changes", command=self.apply_settings).pack(side="left", padx=8)
         ttk.Label(top, textvariable=self.pending).pack(side="left", padx=10)
-        ttk.Button(top, text="Firmware / flash…", command=lambda: self.show_page(self.firmware_page)).pack(side="right", padx=8)
-        ttk.Button(top, text="Status", command=self.status).pack(side="right")
         ttk.Label(root, textvariable=self.notice, padding=(10, 0, 10, 8), wraplength=1100).pack(fill="x")
         pane = ttk.Panedwindow(root, orient="horizontal")
         pane.pack(fill="both", expand=True, padx=10)
@@ -437,12 +435,14 @@ class App:
                 node = f"{device_node}/{t}"
                 self.tree.insert(device_node, "end", iid=node, text=label)
                 self.nodes[node] = (path, t)
-            node = f"{device_node}/console"
-            self.tree.insert(device_node, "end", iid=node, text="Console / diagnostics")
-            self.nodes[node] = (path, "console")
+            for item, title in (("firmware", "Firmware / flash"), ("console", "Console / diagnostics")):
+                node = f"{device_node}/{item}"
+                self.tree.insert(device_node, "end", iid=node, text=title)
+                self.nodes[node] = (path, item)
         if not self.cache:
-            self.tree.insert("", "end", iid="console", text="Console / diagnostics")
-            self.nodes["console"] = (None, "console")
+            for item, title in (("firmware", "Firmware / flash"), ("console", "Console / diagnostics")):
+                self.tree.insert("", "end", iid=item, text=title)
+                self.nodes[item] = (None, item)
         nodes = self.tree.get_children()
         if nodes:
             self.tree.selection_set(nodes[0])
@@ -457,7 +457,7 @@ class App:
             return
         path, target = self.nodes[self.tree.selection()[0]]
         if path is None:
-            self.show_page(self.diagnostics)
+            self.show_page(self.firmware_page if target == "firmware" else self.diagnostics)
             return
         record = self.cache[path]
         self.device.set(path)
@@ -472,12 +472,8 @@ class App:
                 self.slot.set(pad.TARGETS[target])
         self.render_overview()
         self.render_details()
-        self.show_page(self.diagnostics if target == "console" else self.overview if target is None else self.settings)
-
-    def status(self):
-        path = self.path()
-        if path:
-            self.run("Reading status…", lambda: pad.identify(path) + "\n" + pad.status(path), self.log)
+        pages = {"console": self.diagnostics, "firmware": self.firmware_page, None: self.overview}
+        self.show_page(pages.get(target, self.settings))
 
     def scroll_form(self, parent):
         frame = ttk.Frame(parent)
@@ -489,8 +485,17 @@ class App:
         canvas.pack(side="left", fill="both", expand=True)
         form = ttk.Frame(canvas)
         window = canvas.create_window((0, 0), window=form, anchor="nw")
-        form.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(window, width=e.width))
+        def update_region(event=None):
+            bounds = canvas.bbox(window)
+            if bounds:
+                canvas.configure(scrollregion=(0, 0, bounds[2], max(bounds[3], canvas.winfo_height())))
+
+        def resize(event):
+            canvas.itemconfigure(window, width=event.width)
+            update_region()
+
+        form.bind("<Configure>", update_region)
+        canvas.bind("<Configure>", resize)
         self.scroll_canvases[parent] = canvas
         return form
 
@@ -555,8 +560,8 @@ class App:
         if not record:
             ttk.Label(f, text="Scan and load to discover pads, dongles and slot settings.", wraplength=800).pack(anchor="w", pady=12)
             return
-        ttk.Label(f, text=f"{record['board'].title()} · {record['path']}", font=("TkDefaultFont", 13, "bold")).pack(anchor="w", pady=8)
-        ttk.Label(f, text=record["status"], wraplength=850).pack(anchor="w", pady=8)
+        ttk.Label(f, text=f"{record['board'].title()} · {record['path']}", font=("TkDefaultFont", 13, "bold")).pack(anchor="w", pady=(0, 2))
+        ttk.Label(f, text=record["status"], wraplength=850).pack(anchor="w", pady=(0, 4))
         if record.get("error"):
             ttk.Label(f, text=record["error"]).pack(anchor="w", pady=8)
             return
@@ -564,7 +569,7 @@ class App:
             ttk.Label(f, text="Choose Console / diagnostics in the tree for dongle pairing and connection settings.").pack(anchor="w", pady=8)
             ttk.Button(f, text="Pair dongle…", command=lambda: self.slot_action("pair", 0)).pack(anchor="w")
             return
-        ttk.Label(f, text="Choose each slot's type here. Open Settings for transport, colours, response and other options.", wraplength=850).pack(anchor="w", pady=8)
+        ttk.Label(f, text="Choose each slot's type here. Open Settings for transport, colours, response and other options.", wraplength=850).pack(anchor="w", pady=(0, 6))
         for target in range(8):
             row = ttk.Frame(f, padding=(0, 6))
             row.pack(fill="x")
@@ -641,15 +646,6 @@ class App:
             ttk.Button(actions, text="?", width=2, command=lambda e=entry: self.show_help(e)).pack(side="left", padx=2)
             self.editors[name] = entry
         self.form.columnconfigure(1, weight=1)
-        if target < 8:
-            row = rows[self.form]
-            rows[self.form] += 1
-            actions = ttk.Frame(self.form, padding=(0, 12))
-            actions.grid(row=row, column=0, columnspan=4, sticky="w")
-            for action in ("connect", "pair"):
-                ttk.Button(actions, text=action.title(),
-                           command=lambda a=action: self.slot_action(a, target)).pack(side="left", padx=4)
-
         if rows[advanced]:
             key = (record["path"], target)
             row = rows[self.form]

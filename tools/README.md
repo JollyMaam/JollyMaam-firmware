@@ -30,7 +30,9 @@ Selecting a device in the tree shows its slots, each with a type dropdown,
 Settings, Connect and Pair. Slot and settings-group entries open detailed settings
 directly. **Developer fields** at the bottom expands or collapses the advanced
 settings, retaining pending edits. **Console / diagnostics** under each device holds diagnostic controls
-and the operation log. **Firmware / flash…** opens flash and backup controls.
+and the operation log. **Firmware / flash** under each device opens its flash
+and backup controls. These entries remain available without a detected device
+for recovery flashing. Connect and Pair are on the device overview.
 The mouse wheel scrolls the current page anywhere in the window, including
 over dropdowns and number fields, without changing their values. Edits persist
 while switching slots and devices. **Apply changes** validates all edited

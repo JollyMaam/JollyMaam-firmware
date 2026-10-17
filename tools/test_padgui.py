@@ -67,8 +67,11 @@ class GuiTests(unittest.TestCase):
         self.assertIs(self.app.active_page, self.app.diagnostics)
         self.assertEqual(self.app.device.get(), "dongle")
         self.assertEqual(self.app.output.master.master, self.app.diagnostics)
-        self.app.show_page(self.app.firmware_page)
+        self.app.tree.selection_set("device0/firmware")
+        self.app.select_node()
         self.assertIs(self.app.active_page, self.app.firmware_page)
+        self.assertEqual(self.app.device.get(), "fake")
+        self.assertEqual(self.app.board.get(), "pad")
         self.assertFalse(hasattr(self.app, "tabs"))
         self.assertFalse(hasattr(self.app, "progress"))
 
@@ -186,8 +189,8 @@ class GuiTests(unittest.TestCase):
             self.finish()
             self.assertEqual(read.call_count, 10)
         self.assertEqual(len(self.app.cache), 2)
-        self.assertEqual(len(self.app.tree.get_children("device0")), 11)
-        self.assertEqual(len(self.app.tree.get_children("device1")), 1)
+        self.assertEqual(len(self.app.tree.get_children("device0")), 12)
+        self.assertEqual(len(self.app.tree.get_children("device1")), 2)
 
     def test_actions_target_slot_and_old_firmware_blocks_calibration(self):
         r = record()
