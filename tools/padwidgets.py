@@ -1,8 +1,9 @@
 """Tk editors for palette references and custom stick response curves."""
 import tkinter as tk
 import math
+import re
 import padcurves
-from tkinter import ttk
+from tkinter import ttk, messagebox
 
 BRIGHTNESS = (0, 1, 2, 3, 4, 5, 7, 10, 14, 20, 28, 40, 56, 80, 128, 255)
 BRIGHTNESS_LABELS = tuple('Off' if i == 0 else f'{i} · {v / 255:.1%}' for i, v in enumerate(BRIGHTNESS))
@@ -118,11 +119,13 @@ class CurveEditor(ttk.Frame):
             ttk.Checkbutton(bar, text='Use points', variable=enabled['var'], onvalue='enabled', offvalue='disabled').pack(side='left', padx=(0, 10))
         ttk.Label(bar, text='Preset').pack(side='left', padx=(0, 4))
         self.preset_name = tk.StringVar()
-        presets = ttk.Combobox(bar, textvariable=self.preset_name, values=['Linear', 'Concave', 'S-curve', 'Custom'], state='readonly', width=11)
+        self.presets = presets = ttk.Combobox(bar, textvariable=self.preset_name, values=['Linear', 'Concave', 'S-curve', 'Custom'], state='readonly', width=11, exportselection=False)
         presets.pack(side='left')
         presets.bind('<<ComboboxSelected>>', self.choose_preset)
         self.point_toggle = ttk.Button(bar, text='Point values ▸', command=self.toggle_points)
         self.point_toggle.pack(side='left', padx=8)
+        ttk.Button(bar, text='Copy points', command=self.copy_points).pack(side='left', padx=(0, 4))
+        ttk.Button(bar, text='Paste points', command=self.paste_points).pack(side='left')
         self.graph = tk.Canvas(self, width=250, height=190, background='#ffffff', highlightthickness=1, highlightbackground='#cccccc')
         self.graph.grid(row=1, column=0, sticky='nw', padx=(0, 10))
         controls = ttk.Frame(self)
@@ -158,10 +161,37 @@ class CurveEditor(ttk.Frame):
         if self.app.busy:
             return
         selected = self.preset_name.get().lower()
+        self.entry['custom_curve'] = selected == 'custom'
         if selected != 'custom':
             self.entry['var'].set(','.join(map(str, padcurves.preset(selected, self.count))))
         if self.enabled:
             self.enabled['var'].set('enabled')
+        self.sync()
+
+    def copy_points(self):
+        if self.app.busy:
+            return
+        try:
+            self.commit_pending()
+            points = self.points()
+        except (ValueError, OverflowError) as error:
+            messagebox.showerror('Invalid curve points', str(error))
+            return
+        self.clipboard_clear()
+        self.clipboard_append(','.join(map(str, points)))
+
+    def paste_points(self):
+        if self.app.busy:
+            return
+        try:
+            values = [int(value) for value in re.split(r'[\s,]+', self.clipboard_get().strip())]
+            points = padcurves.validate(values, self.count)
+        except (ValueError, tk.TclError) as error:
+            messagebox.showerror('Invalid curve points', f'Paste {self.count} nondecreasing integers from 0 to 255, separated by commas or spaces.\n{error}')
+            return
+        self.entry['custom_curve'] = True
+        self.entry['var'].set(','.join(map(str, points)))
+        self.sync(force=True)
 
     def toggle_points(self):
         if self.point_controls.winfo_manager():
@@ -227,7 +257,10 @@ class CurveEditor(ttk.Frame):
         try:
             points = self.points()
             active = not self.enabled or self.enabled['var'].get() == 'enabled'
-            self.preset_name.set(padcurves.identify(points).capitalize())
+            name = 'Custom' if self.entry.get('custom_curve') else padcurves.identify(points).capitalize()
+            if self.preset_name.get() != name:
+                self.preset_name.set(name)
+            self.presets.selection_clear()
             self.caption.configure(text='Curve active. Drag points or open Point values.' if active else 'Points disabled: input passes through unchanged. Your saved points are kept and can still be edited.')
             for i, value in enumerate(points):
                 self.sliders[i].set(value / 255 * 100)

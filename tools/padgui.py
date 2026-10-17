@@ -23,13 +23,15 @@ PIDS = padflash.PIDS
 
 
 class App:
-    def __init__(self, root):
+    def __init__(self, root, auto_scan=True):
         self.root = root
         root.title("Cyclone 2 · padtool")
         root.geometry("1250x850")
         root.minsize(1120, 800)
         self.events = queue.Queue()
         self.busy = False
+        self.scroll_canvases = {}
+        self.active_page = None
         self.cache = {}
         self.nodes = {}
         self.editors = {}
@@ -48,6 +50,7 @@ class App:
         ttk.Button(top, text="Scan and load", command=self.scan).pack(side="left")
         ttk.Button(top, text="Apply changes", command=self.apply_settings).pack(side="left", padx=8)
         ttk.Label(top, textvariable=self.pending).pack(side="left", padx=10)
+        ttk.Button(top, text="Firmware / flash…", command=lambda: self.show_page(self.firmware_page)).pack(side="right", padx=8)
         ttk.Button(top, text="Status", command=self.status).pack(side="right")
         ttk.Label(root, textvariable=self.notice, padding=(10, 0, 10, 8), wraplength=1100).pack(fill="x")
         pane = ttk.Panedwindow(root, orient="horizontal")
@@ -64,26 +67,32 @@ class App:
         self.tree.bind("<<TreeviewSelect>>", self.select_node)
         self.tree.bind("<Button-1>", lambda e: "break" if self.busy else None)
         self.tree.bind("<Key>", lambda e: "break" if self.busy else None)
-        self.tabs = ttk.Notebook(pane)
-        pane.add(self.tabs, weight=1)
-        self.overview = ttk.Frame(self.tabs, padding=10)
-        self.settings = ttk.Frame(self.tabs, padding=10)
-        self.firmware = ttk.Frame(self.tabs, padding=10)
-        self.diagnostics = ttk.Frame(self.tabs, padding=10)
-        self.tabs.add(self.overview, text="Slots")
-        self.tabs.add(self.settings, text="Details")
-        self.tabs.add(self.firmware, text="Firmware")
-        self.tabs.add(self.diagnostics, text="Diagnostics")
+        content = ttk.Frame(pane)
+        pane.add(content, weight=1)
+        content.rowconfigure(0, weight=1)
+        content.columnconfigure(0, weight=1)
+        self.overview = ttk.Frame(content, padding=10)
+        self.settings = ttk.Frame(content, padding=10)
+        self.firmware_page = ttk.Frame(content, padding=10)
+        self.diagnostics = ttk.Frame(content, padding=10)
+        for page in (self.overview, self.settings, self.firmware_page, self.diagnostics):
+            page.grid(row=0, column=0, sticky="nsew")
+        self.firmware = self.scroll_form(self.firmware_page)
         self.build_settings()
         self.build_firmware()
         self.build_diagnostics()
         self.render_overview()
-        self.progress = ttk.Progressbar(root, mode="indeterminate")
-        self.progress.pack(fill="x", padx=10, pady=6)
-        self.output = tk.Text(root, height=9, wrap="word", state="disabled")
-        self.output.pack(fill="both", padx=10, pady=(0, 10))
+        self.show_page(self.overview)
+        self.render_tree()
+        # Precede widget class bindings: wheels must never edit a value.
+        self.wheel_tag = f"PadtoolWheel{id(self)}"
+        for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            root.bind_class(self.wheel_tag, sequence, self.scroll_wheel)
+        root.bind_all("<Map>", lambda event: self.tag_wheel_widget(event.widget), add="+")
+        self.tag_wheel_tree(root)
         root.protocol("WM_DELETE_WINDOW", self.close)
         self.poll = root.after(80, self.drain)
+        self.startup_scan = root.after_idle(self.scan) if auto_scan else None
 
     def log(self, text):
         self.output.configure(state="normal")
@@ -108,7 +117,6 @@ class App:
         self.saved_states = [(w, str(w.cget("state"))) for w in self.controls(self.root)]
         for w, _ in self.saved_states:
             w.configure(state="disabled")
-        self.progress.start()
         board = self.board.get()
 
         def worker():
@@ -155,7 +163,6 @@ class App:
                     continue
                 self.busy = False
                 self.tree.state(["!disabled"])
-                self.progress.stop()
                 for w, state in self.saved_states:
                     if w.winfo_exists():
                         w.configure(state=state)
@@ -183,6 +190,8 @@ class App:
         else:
             if self.dirty_count() and not messagebox.askyesno("Unsaved edits", "Discard pending edits and close?"):
                 return
+            if self.startup_scan is not None:
+                self.root.after_cancel(self.startup_scan)
             self.root.after_cancel(self.poll)
             self.root.destroy()
 
@@ -263,6 +272,7 @@ class App:
         return self.value_bytes(entry) != entry["default_raw"]
 
     def reset_default(self, entry):
+        entry.pop("custom_curve", None)
         if entry["field"]["name"] in ("left_curve_points", "right_curve_points"):
             for record in self.cache.values():
                 for (target, name), candidate in record["draft"].items():
@@ -427,6 +437,12 @@ class App:
                 node = f"{device_node}/{t}"
                 self.tree.insert(device_node, "end", iid=node, text=label)
                 self.nodes[node] = (path, t)
+            node = f"{device_node}/console"
+            self.tree.insert(device_node, "end", iid=node, text="Console / diagnostics")
+            self.nodes[node] = (path, "console")
+        if not self.cache:
+            self.tree.insert("", "end", iid="console", text="Console / diagnostics")
+            self.nodes["console"] = (None, "console")
         nodes = self.tree.get_children()
         if nodes:
             self.tree.selection_set(nodes[0])
@@ -440,6 +456,9 @@ class App:
         if self.busy or not self.tree.selection():
             return
         path, target = self.nodes[self.tree.selection()[0]]
+        if path is None:
+            self.show_page(self.diagnostics)
+            return
         record = self.cache[path]
         self.device.set(path)
         previous_board = self.board.get()
@@ -447,13 +466,13 @@ class App:
         if previous_board != record["board"]:
             self.bundle.set(str(ROOT / "build" / record["board"]))
             self.elf.set(str(ROOT / "build" / record["board"] / "app.elf"))
-        if target is not None:
+        if isinstance(target, int):
             self.target.set(pad.TARGETS[target])
             if target < 8:
                 self.slot.set(pad.TARGETS[target])
         self.render_overview()
         self.render_details()
-        self.tabs.select(self.overview if target is None else self.settings)
+        self.show_page(self.diagnostics if target == "console" else self.overview if target is None else self.settings)
 
     def status(self):
         path = self.path()
@@ -472,10 +491,37 @@ class App:
         window = canvas.create_window((0, 0), window=form, anchor="nw")
         form.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.bind("<Configure>", lambda e: canvas.itemconfigure(window, width=e.width))
-        canvas.bind("<MouseWheel>", lambda e: canvas.yview_scroll(-1 if e.delta > 0 else 1, "units"))
-        canvas.bind("<Button-4>", lambda e: canvas.yview_scroll(-1, "units"))
-        canvas.bind("<Button-5>", lambda e: canvas.yview_scroll(1, "units"))
+        self.scroll_canvases[parent] = canvas
         return form
+
+    def show_page(self, page):
+        self.active_page = page
+        page.tkraise()
+
+    def tag_wheel_widget(self, widget):
+        if isinstance(widget, tk.Misc):
+            tags = widget.bindtags()
+            if self.wheel_tag not in tags:
+                widget.bindtags((self.wheel_tag,) + tags)
+
+    def tag_wheel_tree(self, widget):
+        self.tag_wheel_widget(widget)
+        for child in widget.winfo_children():
+            self.tag_wheel_tree(child)
+
+    def scroll_wheel(self, event):
+        number = getattr(event, "num", None)
+        delta = getattr(event, "delta", 0)
+        if number in (4, 5):
+            steps = -1 if number == 4 else 1
+        elif abs(delta) >= 120:
+            steps = -int(delta / 120)
+        else:
+            steps = -1 if delta > 0 else 1 if delta < 0 else 0
+        target = self.output if self.active_page is self.diagnostics else self.scroll_canvases.get(self.active_page)
+        if target is not None:
+            target.yview_scroll(steps, "units")
+        return "break"
 
     def build_settings(self):
         self.overview_form = self.scroll_form(self.overview)
@@ -516,7 +562,7 @@ class App:
             ttk.Label(f, text=record["error"]).pack(anchor="w", pady=8)
             return
         if record["board"] == "dongle":
-            ttk.Label(f, text="Dongle pairing and connection settings are in Diagnostics.").pack(anchor="w", pady=8)
+            ttk.Label(f, text="Choose Console / diagnostics in the tree for dongle pairing and connection settings.").pack(anchor="w", pady=8)
             ttk.Button(f, text="Pair dongle…", command=lambda: self.slot_action("pair", 0)).pack(anchor="w")
             return
         ttk.Label(f, text="Choose each slot's type here. Open Settings for transport, colours, response and other options.", wraplength=850).pack(anchor="w", pady=8)
@@ -855,6 +901,14 @@ class App:
         ttk.Button(advanced, text="Profile for 3 seconds", command=self.profile).grid(row=1, column=1, sticky="w", pady=8)
         ttk.Label(f, text="Pairing replaces the selected slot's host after a successful pairing. The dongle has one bond.\n"
                   "End USB gamepad sessions to expose tool mode; then scan again. Logs appear below.", wraplength=900).pack(anchor="w", pady=12)
+
+        console = ttk.Frame(f)
+        console.pack(fill="both", expand=True)
+        self.output = tk.Text(console, height=12, wrap="word", state="disabled")
+        scrollbar = ttk.Scrollbar(console, orient="vertical", command=self.output.yview)
+        self.output.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        self.output.pack(fill="both", expand=True)
 
     def set_dongle_target(self):
         if self.board.get() != "dongle":

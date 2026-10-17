@@ -18,16 +18,20 @@ There are no pip requirements for configuration, image flashing or backups.
 CPU profiling additionally needs `pyelftools` and the ELF matching the running
 firmware; add `ps.pyelftools` to the Nix package list if needed.
 
-Click **Scan and load** to discover both pads and dongles and read every pad
-slot, palette and global calibration setting. Select a device or settings group
+Startup automatically scans both pads and dongles and reads every pad
+slot, palette and global calibration setting. **Scan and load** refreshes them. Select a device or settings group
 in the tree; Linux device labels also show USB topology when available.
 Configuration and diagnostics use the selected device. A USB gamepad session
 must end before vendor commands become available. The Linux HID tool-mode
 button can request this for HID profiles; on Windows end the session using the
 pad first, then scan.
 
-The Slots page gives each slot a type dropdown, Settings, Connect and Pair.
-Details contains the remaining settings and developer fields. Edits persist
+Selecting a device in the tree shows its slots, each with a type dropdown,
+Settings, Connect and Pair. Slot and settings-group entries open detailed settings
+directly. **Console / diagnostics** under each device holds diagnostic controls
+and the operation log. **Firmware / flash…** opens flash and backup controls.
+The mouse wheel scrolls the current page anywhere in the window, including
+over dropdowns and number fields, without changing their values. Edits persist
 while switching slots and devices. **Apply changes** validates all edited
 values, checks device identities, then commits all pending changes once per
 device. A failure on one device does not undo a previous device's commit;
@@ -60,11 +64,13 @@ passthrough and retains all saved points. The graph shows active input in blue
 and, when disabled, the retained curve as a dashed line. **Point values** opens
 the 15 sliders and percentage inputs at 6.25% travel intervals. Reset restores
 the default points and disables the curve. The curve's Apply button saves its
-points and enable flag together.
+points and enable flag together. **Copy points** copies the comma-separated
+output bytes; **Paste points** accepts commas or spaces and stages them on another
+slot or stick. Pasting retains that stick’s Use points setting; Apply saves the edit.
 
 Linear, Concave and S-curve presets are defined in `padcurves.py`, shared by
 CLI and GUI. Selecting a preset fills the points and enables them; manual edits
-show Custom. Firmware contains point interpolation and bypass only. The curved
+show Custom. Selecting Custom keeps the current points for editing. Firmware contains point interpolation and bypass only. The curved
 presets approximate the previous formulas, with maximum full-scale differences
 under 0.3% at 15 points. To get exact linear passthrough, turn Use points off.
 
@@ -100,7 +106,7 @@ palette settings each have their own global entry in the tree.
 
 Settings backups read the saved device values, and include pairing data.
 Restores keep calibration unless explicitly selected. Dongle firmware has no
-settings table; its pairing and target address controls are in Diagnostics.
+settings table; its pairing and target address controls are in Console / diagnostics.
 
 ## Firmware
 

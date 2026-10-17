@@ -25,7 +25,7 @@ class GuiTests(unittest.TestCase):
     def setUp(self):
         self.root = tk.Tk()
         self.root.withdraw()
-        self.app = padgui.App(self.root)
+        self.app = padgui.App(self.root, auto_scan=False)
         self.errors = []
         self.root.report_callback_exception = lambda *args: self.errors.append(args)
 
@@ -47,6 +47,64 @@ class GuiTests(unittest.TestCase):
             self.app.cache[r["path"]] = r
         self.app.render_tree()
         self.root.update()
+
+    def test_startup_scans_without_a_click(self):
+        self.app.close()
+        self.root = tk.Tk()
+        self.root.withdraw()
+        with patch.object(padgui.App, "scan") as scan:
+            self.app = padgui.App(self.root)
+            self.root.update()
+            scan.assert_called_once_with()
+
+    def test_tree_switches_pages_and_firmware_has_no_tabs(self):
+        self.load([record(), record("dongle", "dongle")])
+        self.assertIs(self.app.active_page, self.app.overview)
+        self.app.show_target(0)
+        self.assertIs(self.app.active_page, self.app.settings)
+        self.app.tree.selection_set("device1/console")
+        self.app.select_node()
+        self.assertIs(self.app.active_page, self.app.diagnostics)
+        self.assertEqual(self.app.device.get(), "dongle")
+        self.assertEqual(self.app.output.master.master, self.app.diagnostics)
+        self.app.show_page(self.app.firmware_page)
+        self.assertIs(self.app.active_page, self.app.firmware_page)
+        self.assertFalse(hasattr(self.app, "tabs"))
+        self.assertFalse(hasattr(self.app, "progress"))
+
+    def test_wheel_over_inputs_scrolls_without_editing(self):
+        self.load([record()])
+        self.root.deiconify()
+        self.app.show_target(0)
+        self.root.update()
+        # Ensure a page tall enough to scroll and include all input classes.
+        form = padgui.ttk.Frame(self.app.form)
+        form.grid(row=1000, column=0)
+        variable = tk.StringVar(value="one")
+        combo = padgui.ttk.Combobox(form, values=["one", "two"], textvariable=variable, state="readonly")
+        combo.pack()
+        number = tk.StringVar(value="50")
+        spin = padgui.ttk.Spinbox(form, from_=0, to=100, textvariable=number)
+        spin.pack()
+        scale = padgui.ttk.Scale(form, from_=0, to=100)
+        scale.pack()
+        scale.set(50)
+        padgui.ttk.Frame(form, height=2000).pack()
+        self.root.update()
+        canvas = self.app.scroll_canvases[self.app.settings]
+        for widget in (combo, spin, scale, self.app.tree):
+            canvas.yview_moveto(0)
+            widget.event_generate("<Button-5>")
+            self.root.update()
+            self.assertGreater(canvas.yview()[0], 0)
+            self.assertEqual(variable.get(), "one")
+            self.assertEqual(number.get(), "50")
+            self.assertEqual(scale.get(), 50)
+        canvas.yview_moveto(0)
+        combo.event_generate("<MouseWheel>", delta=-120)
+        self.root.update()
+        self.assertGreater(canvas.yview()[0], 0)
+        self.assertEqual(variable.get(), "one")
 
     def test_worker_failure_restores_controls(self):
         def refused():
@@ -128,8 +186,8 @@ class GuiTests(unittest.TestCase):
             self.finish()
             self.assertEqual(read.call_count, 10)
         self.assertEqual(len(self.app.cache), 2)
-        self.assertEqual(len(self.app.tree.get_children("device0")), 10)
-        self.assertEqual(len(self.app.tree.get_children("device1")), 0)
+        self.assertEqual(len(self.app.tree.get_children("device0")), 11)
+        self.assertEqual(len(self.app.tree.get_children("device1")), 1)
 
     def test_actions_target_slot_and_old_firmware_blocks_calibration(self):
         r = record()
@@ -295,6 +353,28 @@ class GuiTests(unittest.TestCase):
         editor.choose_preset()
         self.assertEqual(bytes(editor.points()), padcurves.preset("concave"))
         self.assertEqual(editor.enabled["var"].get(), "enabled")
+        editor.preset_name.set("Custom")
+        editor.choose_preset()
+        editor.sync()
+        self.assertEqual(editor.preset_name.get(), "Custom")
+        self.assertFalse(editor.presets.selection_present())
+        editor.copy_points()
+        self.assertEqual(self.root.clipboard_get(), ','.join(map(str, padcurves.preset("concave"))))
+        # A second slot can consume the same clipboard; enabling stays independent.
+        from padwidgets import CurveEditor
+        target_entry = dict(editor.entry, var=tk.StringVar(value=','.join(map(str, default))))
+        target_enabled = dict(editor.enabled, var=tk.StringVar(value="disabled"))
+        other = CurveEditor(self.app.form, self.app, target_entry, target_enabled)
+        other.paste_points()
+        self.assertEqual(bytes(other.points()), padcurves.preset("concave"))
+        self.assertEqual(target_enabled["var"].get(), "disabled")
+        self.root.clipboard_clear()
+        self.root.clipboard_append("4,3,2")
+        with patch("padwidgets.messagebox.showerror") as error:
+            other.paste_points()
+            error.assert_called_once()
+        self.assertEqual(bytes(other.points()), padcurves.preset("concave"))
+        other.destroy()
         with patch.object(padgui.pad, "cmd", return_value=r["identity"]), \
              patch.object(padgui.pad, "send") as send, \
              patch.object(padgui.pad, "read_target", side_effect=lambda p, table, t: r["values"][t]):
