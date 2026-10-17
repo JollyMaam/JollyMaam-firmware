@@ -28,7 +28,7 @@ class App:
         self.root = root
         root.title("Cyclone 2 · padtool")
         root.geometry("1250x850")
-        root.minsize(1120, 800)
+        root.minsize(1120, 360)
         self.events = queue.Queue()
         self.busy = False
         self.flash_active = False
@@ -818,7 +818,7 @@ class App:
             pad.cmd(path, command, target if action != "calibrate" else 0)
         def finished(_):
             if action == "calibrate":
-                self.notice.set("Calibration started: hands off for 2.5 seconds, then sweep both sticks and triggers. A or B saves; Home cancels.")
+                self.notice.set("Calibration started.")
         self.run(action.title() + "…", perform, finished)
 
     def reset_all_defaults(self):
@@ -838,7 +838,7 @@ class App:
         self.render_overview()
         self.render_details()
         self.mark_dirty()
-        self.notice.set("Defaults staged for this pad, including pairing and calibration. Apply to save; Discard to revert.")
+        self.notice.set("")
 
     def backup_settings(self):
         path = self.path()

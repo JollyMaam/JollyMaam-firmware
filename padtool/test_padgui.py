@@ -320,7 +320,7 @@ class GuiTests(unittest.TestCase):
             self.assertEqual(self.app.value_bytes(entry), entry["default_raw"])
         self.assertEqual(one["draft"][1, "rumble"]["var"].get(), "100")
         self.assertEqual(other["draft"][0, "rumble"]["var"].get(), "80")
-        self.assertIn("Apply to save", self.app.notice.get())
+        self.assertEqual(self.app.notice.get(), "")
         self.assertFalse(self.app.batch_edits)
 
     def test_reset_shows_default_and_later_edit_overrides_reset(self):

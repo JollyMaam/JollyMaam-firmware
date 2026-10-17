@@ -6,7 +6,7 @@ import padcurves
 from tkinter import ttk, messagebox
 
 BRIGHTNESS = (0, 1, 2, 3, 4, 5, 7, 10, 14, 20, 28, 40, 56, 80, 128, 255)
-BRIGHTNESS_LABELS = tuple('Off' if i == 0 else f'{i} · {v / 255:.1%}' for i, v in enumerate(BRIGHTNESS))
+BRIGHTNESS_LABELS = tuple('Off' if i == 0 else f'{i}/15' for i in range(len(BRIGHTNESS)))
 
 
 class PaletteEditor(ttk.Frame):
@@ -24,7 +24,7 @@ class PaletteEditor(ttk.Frame):
         self.preview.pack(side='left', padx=6)
         ttk.Label(self, text='Brightness').pack(side='left', padx=(6, 4))
         self.level = tk.StringVar()
-        self.brightness = ttk.Combobox(self, textvariable=self.level, values=BRIGHTNESS_LABELS, state='readonly', width=13)
+        self.brightness = ttk.Combobox(self, textvariable=self.level, values=BRIGHTNESS_LABELS, state='readonly', width=7)
         self.brightness.pack(side='left')
         self.brightness.bind('<<ComboboxSelected>>', self.choose_brightness)
         self.sync()

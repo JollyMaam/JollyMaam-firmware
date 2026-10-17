@@ -56,7 +56,8 @@ read-only query. On older firmware, only known defaults can be reset in the GUI.
 Slot colour fields have a palette dropdown with all 16 colour swatches and a
 separate brightness dropdown. The selector and swatches show the full palette
 colour at every brightness level.
-Brightness percentages use the firmware's actual nonlinear levels. Palette RGB fields still accept hex values and show swatches;
+Brightness is shown as steps `1/15` through `15/15`, plus Off.
+Palette RGB fields still accept hex values and show swatches;
 all previews follow staged palette edits.
 
 Each setting has its own Apply button; it saves only that setting and retains
