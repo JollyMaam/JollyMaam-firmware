@@ -93,7 +93,8 @@ python padtool/padtool.py set A left_curve_points s-curve
 The first command fills and enables points. Disabled/enabled only toggle the
 flag; the last command fills points without changing the enable flag.
 
-When upgrading from protocol 4 or older with a running pad connected, the GUI
+When upgrading from protocol 4 or older with a running pad connected and a
+pre-flash backup requested, the GUI
 and Python flasher save a `.settings.json` next to the flash backup and restore
 it after the new firmware starts. Shared host migration converts old formula
 modes to presets and resamples seven-point custom curves, retaining their knots.
@@ -169,8 +170,11 @@ The same **Flash Firmware…** button on a running pad or dongle opens an image
 file picker. The image selects the board type; PID, flash size and chip key
 checks still apply before writing. A selected ROM loader is matched by its
 device path. Connect only the intended board: automatic selection uses the board
-PID and refuses multiple matching loaders. Flashing asks for a full pre-flash backup,
-reads and saves it before erasing, then writes and verifies the result. The GUI
+PID and refuses multiple matching loaders. Flashing asks whether to save a full
+pre-flash backup. Yes opens the destination picker; No flashes without a backup;
+Cancel stops. When requested, the backup completes before erasing. Flashing
+always checks the image product ID, device product ID and chip key and verifies
+the written bytes. Both image file pickers validate the product ID immediately. The GUI
 exposes no PID/key override. Settings in erased sectors are replaced by the
 image; back up settings separately to restore them after installation.
 
@@ -180,6 +184,8 @@ The Python backend can also run from a terminal:
 python padtool/padflash.py backup pad-backup.bin --board pad
 python padtool/padflash.py flash build/pad/firmware.img --board pad --backup before-flash.bin
 ```
+
+Omit `--backup` to flash without creating a backup.
 
 Use `--board dongle` for the dongle and `--loader FILE` to override the SDK or packaged
 loader. A standalone backup leaves the board in its loader; reconnect USB
@@ -220,4 +226,4 @@ The flasher tests simulate a SCSI device to check RAM upload, chip info, exact
 writes, backup-before-erase, identity/key rejection, short reads, ambiguous
 loaders and failure to verify. GUI tests cover worker failures, settings
 multi-slot drafts, identity checks, partial commits, global calibration
-capability checks, flash backup requirements and discovery filtering. Windows USB I/O still needs hardware validation on Windows.
+capability checks, optional flash backups and discovery filtering. Windows USB I/O still needs hardware validation on Windows.

@@ -474,14 +474,16 @@ class GuiTests(unittest.TestCase):
             self.app.show_help(editor.entry)
             self.assertIn("Drag a point", help_dialog.call_args.args[1])
 
-    def test_flash_backup_is_required_and_cannot_overwrite_input(self):
+    def test_requested_flash_backup_cannot_overwrite_input_and_cancel_aborts(self):
         import tempfile
         from pathlib import Path
         with tempfile.TemporaryDirectory() as tmp:
             image = Path(tmp) / "image.img"
-            image.write_bytes(b"fake")
+            from test_padflash import image as make_image
+            image.write_bytes(make_image())
             self.app.image.set(str(image))
             with patch.object(self.app, "loader_blob", return_value=b"loader"), \
+                 patch.object(padgui.messagebox, "askyesnocancel", return_value=True), \
                  patch.object(padgui.filedialog, "asksaveasfilename", return_value=str(image)), \
                  patch.object(padgui.messagebox, "showerror") as error, \
                  patch.object(self.app, "run") as run:
@@ -489,10 +491,53 @@ class GuiTests(unittest.TestCase):
                 error.assert_called_once()
                 run.assert_not_called()
             with patch.object(self.app, "loader_blob", return_value=b"loader"), \
+                 patch.object(padgui.messagebox, "askyesnocancel", return_value=True), \
                  patch.object(padgui.filedialog, "asksaveasfilename", return_value=""), \
                  patch.object(self.app, "run") as run:
                 self.app.flash(False)
                 run.assert_not_called()
+
+    def test_flash_can_skip_backup_and_cancel_before_device_access(self):
+        import tempfile
+        from test_padflash import image as make_image
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as tmp:
+            image = Path(tmp) / "image.img"
+            image.write_bytes(make_image())
+            self.app.image.set(str(image))
+            loader = Mock()
+            with patch.object(self.app, "loader_blob", return_value=b"loader"), \
+                 patch.object(padgui.messagebox, "askyesnocancel", return_value=False), \
+                 patch.object(padgui.messagebox, "askyesno", return_value=True), \
+                 patch.object(padgui.filedialog, "asksaveasfilename") as destination, \
+                 patch.object(padgui.padflash, "select_loader", return_value=loader), \
+                 patch.object(padgui.pad, "prepare_curve_upgrade") as upgrade, \
+                 patch.object(self.app, "run") as run:
+                self.app.flash(False)
+                run.assert_called_once()
+                run.call_args.args[1]()
+                destination.assert_not_called()
+                upgrade.assert_not_called()
+                loader.flash.assert_called_once_with(make_image(), "pad", None)
+            with patch.object(self.app, "loader_blob", return_value=b"loader"), \
+                 patch.object(padgui.messagebox, "askyesnocancel", return_value=None), \
+                 patch.object(self.app, "run") as run:
+                self.app.flash(False)
+                run.assert_not_called()
+
+    def test_firmware_browse_checks_product_id_immediately(self):
+        self.load([record()])
+        browse = next(w for w in self.app.firmware.winfo_children()
+                      if isinstance(w, padgui.ttk.Button) and w.grid_info().get("row") == 4)
+        with patch.object(padgui.filedialog, "askopenfilename", return_value="dongle.img"), \
+             patch.object(padgui.padflash, "load_image", return_value=b"image"), \
+             patch.object(padgui.padflash, "image_identity", return_value=(padgui.PIDS["dongle"], 0xffff)), \
+             patch.object(padgui.messagebox, "showerror") as error, \
+             patch.object(padgui.messagebox, "askyesnocancel") as backup:
+            browse.invoke()
+            error.assert_called_once()
+            backup.assert_not_called()
+            self.assertEqual(self.app.image.get(), "")
 
 
 class TransportTests(unittest.TestCase):

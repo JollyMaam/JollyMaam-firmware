@@ -117,6 +117,16 @@ class FlashTests(unittest.TestCase):
         self.assertEqual(self.device.commands[-1], 0xfc0c)
         self.assertLess(self.device.commands.index(0xfd05), self.device.commands.index(0xfb01))
 
+    def test_flash_without_backup_still_verifies_and_reboots(self):
+        data = image()
+        with patch.object(self.loader, 'backup') as backup:
+            self.loader.flash(data, 'pad')
+            backup.assert_not_called()
+        self.assertEqual(self.device.flash[:len(data)], data)
+        self.assertEqual(self.device.commands[-1], 0xfc0c)
+        self.assertIn(0xfd05, self.device.commands)
+        self.assertFalse(self.backup.exists())
+
     def test_block_and_sector_erase_boundaries(self):
         data = image() + b'\xff' * (0x11000 - 8192)
         self.loader.flash(data, 'pad', self.backup)

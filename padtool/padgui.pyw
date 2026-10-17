@@ -797,13 +797,16 @@ class App:
         if file and messagebox.askyesno("Restore pad settings", "Restore this pad’s slots, palette, pairing data and calibration from this file?"):
             self.run("Restoring settings…", lambda: pad.restore(path, file, True), lambda _: self.clear_settings())
 
-    def file_row(self, parent, row, label, var, directory=False):
+    def file_row(self, parent, row, label, var, directory=False, on_select=None):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=5)
         ttk.Entry(parent, textvariable=var).grid(row=row, column=1, sticky="ew", padx=8)
         def browse():
             path = filedialog.askdirectory() if directory else filedialog.askopenfilename()
             if path:
-                var.set(path)
+                if on_select:
+                    on_select(path)
+                else:
+                    var.set(path)
         ttk.Button(parent, text="Browse…", command=browse).grid(row=row, column=2)
 
     def build_firmware(self):
@@ -825,7 +828,7 @@ class App:
         self.boards.grid(row=2, column=1, sticky="w", padx=8)
         self.boards.bind("<<ComboboxSelected>>", self.change_board)
         self.file_row(f, 3, "BR23 loader", self.loader)
-        self.file_row(f, 4, "Firmware image (.img / .ufw)", self.image)
+        self.file_row(f, 4, "Firmware image (.img / .ufw)", self.image, on_select=self.select_firmware_image)
         ttk.Button(f, text="Flash Firmware…", command=self.choose_firmware).grid(row=5, column=1, sticky="w", pady=8)
         ttk.Separator(f).grid(row=6, column=0, columnspan=3, sticky="ew", pady=8)
         ttk.Label(f, text="Optional: pack our build with jlnewfw for the connected chip's key:").grid(row=7, column=0, columnspan=3, sticky="w")
@@ -835,7 +838,7 @@ class App:
         self.file_row(f, 11, "SDK cfg_tool.bin", self.cfgtool)
         ttk.Button(f, text="Pack and flash build…", command=lambda: self.flash(True)).grid(row=12, column=1, sticky="w", pady=8)
         ttk.Button(f, text="Back up full flash…", command=self.backup_flash).grid(row=5, column=2, sticky="e", pady=8)
-        ttk.Label(f, text="Flashing requires a backup destination and verifies every written byte. Image flashing enforces the chip key.\n"
+        ttk.Label(f, text="An optional full flash backup is offered before flashing. Every written byte is verified.\n"
                   "Select a build folder explicitly when switching boards. Settings in erased sectors are replaced by the image.", wraplength=940).grid(row=13, column=0, columnspan=3, sticky="w", pady=8)
 
     def update_tools(self):
@@ -853,6 +856,10 @@ class App:
         file = filedialog.askopenfilename(title="Select firmware to flash", filetypes=[("Firmware", "*.img *.ufw"), ("All files", "*")])
         if not file:
             return
+        if self.select_firmware_image(file):
+            self.flash(False)
+
+    def select_firmware_image(self, file):
         try:
             pid, _ = padflash.image_identity(padflash.load_image(file))
             board = next((name for name, value in PIDS.items() if value == pid), None)
@@ -863,10 +870,10 @@ class App:
                 raise ValueError("Image does not match the selected device.")
         except (ValueError, OSError) as error:
             messagebox.showerror("Firmware", str(error))
-            return
+            return False
         self.image.set(file)
         self.board.set(board)
-        self.flash(False)
+        return True
 
     def loader_blob(self):
         blob = Path(self.loader.get()).read_bytes()
@@ -923,21 +930,29 @@ class App:
                 image = Path(self.image.get())
                 if not image.is_file():
                     raise ValueError("Select an existing firmware image.")
+                if padflash.image_identity(padflash.load_image(image))[0] != PIDS[board]:
+                    raise ValueError("Image product ID does not match the selected board.")
                 files = [image]
         except (ValueError, OSError) as error:
             messagebox.showerror("Firmware", str(error))
             return
-        backup = filedialog.asksaveasfilename(title="Save automatic pre-flash backup", defaultextension=".bin", initialfile=f"{board}-before-flash.bin")
-        if not backup:
+        make_backup = messagebox.askyesnocancel("Back up flash first?", "Would you like to save a full flash backup before flashing?")
+        if make_backup is None:
             return
-        inputs = [p.resolve() for p in files + [Path(self.loader.get())]]
-        if pack:
-            inputs.append(Path(exe).resolve())
-        if Path(backup).resolve() in inputs:
-            messagebox.showerror("Backup destination", "Choose a backup file different from the firmware input files.")
-            return
-        if not messagebox.askyesno("Flash firmware", f"Back up and flash the {board}?\n\n"
-                                  "The flasher selects by firmware PID and chip key. Connect only the intended board. "
+        backup = None
+        if make_backup:
+            backup = filedialog.asksaveasfilename(title="Save pre-flash backup", defaultextension=".bin", initialfile=f"{board}-before-flash.bin")
+            if not backup:
+                return
+            inputs = [p.resolve() for p in files + [Path(self.loader.get())]]
+            if pack:
+                inputs.append(Path(exe).resolve())
+            if Path(backup).resolve() in inputs:
+                messagebox.showerror("Backup destination", "Choose a backup file different from the firmware input files.")
+                return
+        action = "Back up and flash" if backup else "Flash"
+        if not messagebox.askyesno("Flash firmware", f"{action} the {board}?\n\n"
+                                  "The flasher checks the firmware product ID and chip key. "
                                   "Settings in erased sectors will be replaced. Keep USB connected until verification finishes."):
             return
         record = self.record()
@@ -951,14 +966,14 @@ class App:
                 pid, key = padflash.image_identity(data)
                 if pid != PIDS[board]:
                     raise ValueError("Image does not match the selected board")
-                curve_backup = None if loader_path else pad.prepare_curve_upgrade(board, backup)
+                curve_backup = None if loader_path or not backup else pad.prepare_curve_upgrade(board, backup)
                 loader = padflash.select_loader(board, blob, report=self.flash_report, device_path=loader_path)
                 if pack and key != loader.key:
                     self.invoke(pack_args + ["-k", hex(loader.key), "-o", str(packed)])
                     data = padflash.load_image(packed)
                 loader.flash(data, board, backup)
                 pad.finish_curve_upgrade(curve_backup)
-        self.run("Backing up and flashing…", flash, lambda _: self.clear_settings())
+        self.run("Backing up and flashing…" if backup else "Flashing…", flash, lambda _: self.clear_settings())
 
     def build_diagnostics(self):
         f = self.diagnostics

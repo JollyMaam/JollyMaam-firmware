@@ -197,7 +197,7 @@ class Loader:
             os.fsync(stream.fileno())
         self.report(f"Saved full flash backup: {file} ({len(data)} bytes)")
 
-    def flash(self, data, board, backup):
+    def flash(self, data, board, backup=None):
         pid, key = image_identity(data)
         if pid != PIDS[board] or self.pid() != pid:
             raise ValueError("Firmware PID does not match the selected board and device")
@@ -205,9 +205,8 @@ class Loader:
             raise ValueError(f"Image key 0x{key:04x} differs from device key 0x{self.key:04x}; pack a build for this device")
         if self.flash_size != FLASH_SIZES[board] or not data or len(data) > self.flash_size:
             raise ValueError("Image or device flash size does not match the selected board")
-        if not backup:
-            raise ValueError("A pre-flash backup destination is required")
-        self.backup(backup)
+        if backup:
+            self.backup(backup)
         top = (len(data) + 4095) & ~4095
         self.report(f"Erasing 0x0–0x{top:x}")
         at = 0
@@ -288,18 +287,18 @@ def main():
     p.add_argument("file", type=Path)
     p.add_argument("--board", choices=PIDS, default="pad")
     p.add_argument("--loader", type=Path, default=DEFAULT_LOADER)
-    p.add_argument("--backup", type=Path, help="required for flash")
+    p.add_argument("--backup", type=Path, help="optional full flash backup before flashing")
     args = p.parse_args()
     if args.command == "flash":
-        if not args.backup or args.file.resolve() == args.backup.resolve() or args.loader.resolve() == args.backup.resolve():
-            p.error("flash requires --backup to a different file from the image and loader")
+        if args.backup and args.backup.resolve() in (args.file.resolve(), args.loader.resolve()):
+            p.error("--backup must be a different file from the image and loader")
         data = load_image(args.file)
         if image_identity(data)[0] != PIDS[args.board]:
             p.error("image does not match selected board")
     elif args.file.resolve() == args.loader.resolve():
         p.error("backup must not overwrite the loader")
     import padtool
-    curve_backup = padtool.prepare_curve_upgrade(args.board, args.backup) if args.command == "flash" else None
+    curve_backup = padtool.prepare_curve_upgrade(args.board, args.backup) if args.command == "flash" and args.backup else None
     loader = select_loader(args.board, args.loader.read_bytes())
     if args.command == "backup":
         loader.backup(args.file)
