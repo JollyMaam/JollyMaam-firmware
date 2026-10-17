@@ -110,7 +110,12 @@ for 2.5 seconds after starting, then circle both sticks around their edges and
 press both triggers fully. A or B saves; Home cancels. Calibration settings and
 palette settings each have their own global entry in the tree.
 
-On the pad’s device overview, **Back up pad settings…** reads all slots, the global palette and calibration
+On the pad’s device overview, backup, restore and **Reset all to defaults** sit
+next to **Enter flash loader**. Reset all stages defaults for this pad’s slots,
+palette, calibration and pairing data. **Apply** saves the changes; **Discard**
+reverts them. Other devices’ pending edits are retained.
+
+**Back up pad settings…** reads all slots, the global palette and calibration
 from the selected pad, including pairing data. It excludes pending GUI edits.
 **Restore pad settings…** restores the targets in that backup across the pad.
 Restores include calibration; run calibration again if needed. Dongle firmware has no

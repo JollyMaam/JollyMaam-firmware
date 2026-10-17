@@ -295,6 +295,34 @@ class GuiTests(unittest.TestCase):
             self.finish()
             restore.assert_called_once_with("fake", "settings.json", True)
 
+    def test_reset_all_stages_pairing_palette_and_calibration_for_selected_pad(self):
+        one, other = record(), record("other")
+        one["fields"].extend([
+            {"kind": 0, "id": 10, "name": "bond", "type": padgui.pad.T_BYTES, "size": 4, "help": "Bond", "dev": True},
+            {"kind": 1, "id": 11, "name": "palette0", "type": padgui.pad.T_RGB, "size": 3, "help": "Colour", "dev": False},
+            {"kind": 2, "id": 12, "name": "calibration_blob", "type": padgui.pad.T_BYTES, "size": 4, "help": "Calibration", "dev": False}])
+        one["values"][0]["bond"] = (b"bond", True)
+        one["values"][8] = {"palette0": (b"\xff\0\0", True)}
+        one["values"][9] = {"calibration_blob": (b"cal!", True)}
+        one["defaults"] = {0: {"bond": (b"\0" * 4, False)},
+                           8: {"palette0": (b"\0\xff\0", False)},
+                           9: {"calibration_blob": (b"\0" * 4, False)}}
+        self.load([one, other])
+        one["draft"][1, "rumble"]["var"].set("bad input")
+        other["draft"][0, "rumble"]["var"].set("80")
+        with patch.object(padgui.pad, "send") as send, patch.object(padgui.pad, "cmd") as cmd:
+            self.app.reset_all_defaults()
+            send.assert_not_called()
+            cmd.assert_not_called()
+        for key in ((0, "bond"), (8, "palette0"), (9, "calibration_blob")):
+            entry = one["draft"][key]
+            self.assertTrue(entry["reset"].get())
+            self.assertEqual(self.app.value_bytes(entry), entry["default_raw"])
+        self.assertEqual(one["draft"][1, "rumble"]["var"].get(), "100")
+        self.assertEqual(other["draft"][0, "rumble"]["var"].get(), "80")
+        self.assertIn("Apply to save", self.app.notice.get())
+        self.assertFalse(self.app.batch_edits)
+
     def test_reset_shows_default_and_later_edit_overrides_reset(self):
         r = record()
         r["values"][0]["rumble"] = (b"\x50", True)

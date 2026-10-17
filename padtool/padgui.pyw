@@ -32,6 +32,7 @@ class App:
         self.events = queue.Queue()
         self.busy = False
         self.flash_active = False
+        self.batch_edits = False
         self.scroll_canvases = {}
         self.active_page = None
         self.cache = {}
@@ -412,6 +413,8 @@ class App:
         self.notice.set("")
 
     def mark_dirty(self):
+        if self.batch_edits:
+            return
         count = self.dirty_count()
         self.pending.set(f"{count} pending change(s)" if count else "No pending changes")
         self.update_previews()
@@ -622,8 +625,14 @@ class App:
             return
         ttk.Label(f, text=f"{record['board'].title()} · {record['path']}", font=("TkDefaultFont", 13, "bold")).pack(anchor="w", pady=(0, 2))
         ttk.Label(f, text=record["status"], wraplength=850).pack(anchor="w", pady=(0, 4))
-        ttk.Button(f, text="Flash Firmware…" if record["board"] == "loader" else "Enter flash loader",
-                   command=self.choose_firmware if record["board"] == "loader" else self.enter_flash_loader).pack(anchor="w", pady=(4, 8))
+        actions = ttk.Frame(f)
+        actions.pack(fill="x", pady=(4, 8))
+        ttk.Button(actions, text="Flash Firmware…" if record["board"] == "loader" else "Enter flash loader",
+                   command=self.choose_firmware if record["board"] == "loader" else self.enter_flash_loader).pack(side="left", padx=(0, 8))
+        if record["board"] == "pad":
+            ttk.Button(actions, text="Back up pad settings…", command=self.backup_settings).pack(side="left", padx=(0, 8))
+            ttk.Button(actions, text="Restore pad settings…", command=self.restore_settings).pack(side="left", padx=(0, 8))
+            ttk.Button(actions, text="Reset all to defaults", command=self.reset_all_defaults).pack(side="left")
         if record["board"] == "loader":
             ttk.Label(f, text="This device is in ROM loader mode. Select a firmware image to flash it.\n"
                       "Settings and diagnostics are available after firmware starts. Reconnect USB to leave loader mode.", wraplength=850).pack(anchor="w", pady=6)
@@ -645,14 +654,10 @@ class App:
             ttk.Label(row, text=f"Slot {pad.TARGETS[target]}", width=12).pack(side="left")
             if entry:
                 ttk.Combobox(row, textvariable=entry["var"], values=entry["field"]["names"], state="readonly", width=20).pack(side="left")
-                self.setting_apply_button(row, record, target, "type", entry).pack(side="left", padx=(8, 20))
+                self.setting_apply_button(row, record, target, "type", entry).pack(side="left", padx=8)
             ttk.Button(row, text="Settings", command=lambda t=target: self.show_target(t)).pack(side="left", padx=(0, 8))
             ttk.Button(row, text="Connect", command=lambda t=target: self.slot_action("connect", t)).pack(side="left", padx=(0, 8))
             ttk.Button(row, text="Pair…", command=lambda t=target: self.slot_action("pair", t)).pack(side="left", padx=(0, 8))
-        actions = ttk.Frame(f)
-        actions.pack(fill="x", pady=(12, 0))
-        ttk.Button(actions, text="Back up pad settings…", command=self.backup_settings).pack(side="left")
-        ttk.Button(actions, text="Restore pad settings…", command=self.restore_settings).pack(side="left", padx=8)
         ttk.Label(f, text="Connect and Pair use saved settings; apply pending edits for that slot first.", wraplength=850).pack(anchor="w", pady=10)
 
     def render_details(self):
@@ -815,6 +820,25 @@ class App:
             if action == "calibrate":
                 self.notice.set("Calibration started: hands off for 2.5 seconds, then sweep both sticks and triggers. A or B saves; Home cancels.")
         self.run(action.title() + "…", perform, finished)
+
+    def reset_all_defaults(self):
+        record = self.record()
+        if self.busy or not record or record["board"] != "pad":
+            return
+        entries = list(record["draft"].values())
+        if record.get("error") or any(entry["default_text"] is None for entry in entries):
+            messagebox.showerror("Defaults unavailable", "Refresh this pad before resetting all settings to defaults.")
+            return
+        self.batch_edits = True
+        try:
+            for entry in entries:
+                self.reset_default(entry)
+        finally:
+            self.batch_edits = False
+        self.render_overview()
+        self.render_details()
+        self.mark_dirty()
+        self.notice.set("Defaults staged for this pad, including pairing and calibration. Apply to save; Discard to revert.")
 
     def backup_settings(self):
         path = self.path()
