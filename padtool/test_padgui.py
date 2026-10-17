@@ -29,6 +29,11 @@ def record(path="fake", board="pad", protocol=3):
             "values": values, "status": "idle", "name": "BR23 UDISK"}
 
 
+def loader_record(path="rom"):
+    return {"path": path, "board": "loader", "identity": None, "fields": [], "values": {}, "defaults": {},
+            "status": "UBOOT1.00 ROM loader", "name": "BR23 UBOOT1.00"}
+
+
 class GuiTests(unittest.TestCase):
     def setUp(self):
         # Collect Tk objects from earlier tests on the UI thread, before workers start.
@@ -159,8 +164,8 @@ class GuiTests(unittest.TestCase):
         self.app.change_board()
         self.assertEqual(self.app.device.get(), "rom")
 
-    def test_flash_picker_derives_board_and_rejects_wrong_device(self):
-        self.load([record()])
+    def test_flash_picker_derives_board_and_rejects_unknown_product(self):
+        self.load([loader_record()])
         with patch.object(padgui.filedialog, "askopenfilename", return_value="firmware.img") as picker, \
              patch.object(padgui.padflash, "load_image", return_value=b"image"), \
              patch.object(padgui.padflash, "image_identity", return_value=(padgui.PIDS["pad"], 0xffff)), \
@@ -171,7 +176,7 @@ class GuiTests(unittest.TestCase):
             self.assertEqual(self.app.image.get(), "firmware.img")
         with patch.object(padgui.filedialog, "askopenfilename", return_value="dongle.img"), \
              patch.object(padgui.padflash, "load_image", return_value=b"image"), \
-             patch.object(padgui.padflash, "image_identity", return_value=(padgui.PIDS["dongle"], 0xffff)), \
+             patch.object(padgui.padflash, "image_identity", return_value=("Unknown product", 0xffff)), \
              patch.object(padgui.messagebox, "showerror") as error, patch.object(self.app, "flash") as flash:
             self.app.choose_firmware()
             error.assert_called_once()
@@ -475,6 +480,7 @@ class GuiTests(unittest.TestCase):
             self.assertIn("Drag a point", help_dialog.call_args.args[1])
 
     def test_requested_flash_backup_cannot_overwrite_input_and_cancel_aborts(self):
+        self.load([loader_record()])
         import tempfile
         from pathlib import Path
         with tempfile.TemporaryDirectory() as tmp:
@@ -498,6 +504,7 @@ class GuiTests(unittest.TestCase):
                 run.assert_not_called()
 
     def test_flash_can_skip_backup_and_cancel_before_device_access(self):
+        self.load([loader_record()])
         import tempfile
         from test_padflash import image as make_image
         from unittest.mock import Mock
@@ -525,19 +532,75 @@ class GuiTests(unittest.TestCase):
                 self.app.flash(False)
                 run.assert_not_called()
 
-    def test_firmware_browse_checks_product_id_immediately(self):
+    def test_running_device_only_offers_loader_entry(self):
         self.load([record()])
-        browse = next(w for w in self.app.firmware.winfo_children()
-                      if isinstance(w, padgui.ttk.Button) and w.grid_info().get("row") == 4)
-        with patch.object(padgui.filedialog, "askopenfilename", return_value="dongle.img"), \
-             patch.object(padgui.padflash, "load_image", return_value=b"image"), \
-             patch.object(padgui.padflash, "image_identity", return_value=(padgui.PIDS["dongle"], 0xffff)), \
+        self.assertEqual(str(self.app.flash_button.cget("state")), "disabled")
+        self.assertEqual(str(self.app.backup_flash_button.cget("state")), "disabled")
+        self.assertEqual(str(self.app.enter_loader_button.cget("state")), "normal")
+        titles = [w.cget("text") for w in self.app.controls(self.app.overview_form) if isinstance(w, padgui.ttk.Button)]
+        self.assertIn("Enter flash loader", titles)
+        self.assertNotIn("Flash Firmware…", titles)
+        with patch.object(padgui.filedialog, "askopenfilename") as picker, patch.object(padgui.messagebox, "showinfo"):
+            self.app.choose_firmware()
+            picker.assert_not_called()
+
+    def test_loader_entry_handles_renumbering_and_refreshes_without_losing_other_drafts(self):
+        one, other = record("old"), record("other")
+        self.load([one, other])
+        other["draft"][0, "rumble"]["var"].set("80")
+        with patch.object(padgui, "usb_location", return_value=None), \
+             patch.object(padgui.pad, "cmd", return_value=one["identity"]) as cmd, \
+             patch.object(padgui.pad, "discover_devices", return_value=[("new", "BR23 UBOOT1.00", None), ("other", other["name"], other["identity"])]), \
+             patch.object(padgui.pad, "fields", return_value=other["fields"]), \
+             patch.object(padgui.pad, "read_target", side_effect=lambda p, table, t: other["values"][t]), \
+             patch.object(padgui.pad, "status", return_value="idle"), \
+             patch.object(padgui.messagebox, "askyesno") as discard:
+            self.app.enter_flash_loader()
+            self.finish()
+            self.assertEqual(cmd.call_args_list[-1].args, ("old", 0x11))
+            self.assertEqual(self.app.device.get(), "new")
+            self.assertEqual(self.app.record()["board"], "loader")
+            self.assertEqual(self.app.cache["other"]["draft"][0, "rumble"]["var"].get(), "80")
+            discard.assert_not_called()
+            self.assertEqual(str(self.app.flash_button.cget("state")), "normal")
+
+    def test_loader_entry_rejects_ambiguous_new_loaders(self):
+        one = record()
+        self.load([one])
+        with patch.object(padgui, "usb_location", return_value=None), \
+             patch.object(padgui.pad, "cmd", return_value=one["identity"]), \
+             patch.object(padgui.pad, "discover_devices", return_value=[("one", "UBOOT1.00", None), ("two", "UBOOT1.00", None)]), \
              patch.object(padgui.messagebox, "showerror") as error, \
-             patch.object(padgui.messagebox, "askyesnocancel") as backup:
-            browse.invoke()
+             patch.object(self.app, "scan") as scan:
+            self.app.enter_flash_loader()
+            self.finish()
             error.assert_called_once()
-            backup.assert_not_called()
-            self.assertEqual(self.app.image.get(), "")
+            scan.assert_not_called()
+            self.assertFalse(self.app.flash_active)
+            self.assertIn("failed", self.app.flash_status.get())
+
+    def test_loader_entry_uses_usb_port_when_other_loaders_appear(self):
+        one = record()
+        one["location"] = "5-2.1"
+        self.load([one])
+        with patch.object(padgui, "usb_location", side_effect=lambda path: "5-2.1" if path == "new" else "5-2.4"), \
+             patch.object(padgui.pad, "cmd", return_value=one["identity"]), \
+             patch.object(padgui.pad, "discover_devices", return_value=[("other", "UBOOT1.00", None), ("new", "UBOOT1.00", None)]), \
+             patch.object(self.app, "scan") as scan:
+            self.app.enter_flash_loader()
+            self.finish()
+            scan.assert_called_once_with(automatic=True, select_path="new")
+
+    def test_flash_progress_updates_bar_and_stage(self):
+        self.app.start_flash_progress("Preparing")
+        self.app.flash_progress("Writing firmware", 25, 100)
+        # Queue-only updates are safe for the worker; the UI applies them in drain.
+        self.root.after_cancel(self.app.poll)
+        self.app.drain()
+        self.assertEqual(self.app.flash_bar["value"], 25)
+        self.assertIn("Writing firmware", self.app.flash_status.get())
+        self.assertTrue(self.app.flash_progress_frame.winfo_manager())
+        self.assertIs(self.app.active_page, self.app.tools_page)
 
 
 class TransportTests(unittest.TestCase):

@@ -141,6 +141,26 @@ class FlashTests(unittest.TestCase):
             self.assert_no_flash_mutations()
         self.assertFalse(self.backup.exists())
 
+    def test_progress_reports_each_stage_and_byte_totals(self):
+        updates = []
+        self.loader.progress = lambda stage, done=0, total=None: updates.append((stage, done, total))
+        self.loader.flash(image(), 'pad', self.backup)
+        for stage, size in [('Backing up flash', self.loader.flash_size), ('Erasing flash', 8192),
+                            ('Writing firmware', 8192), ('Verifying firmware', 8192)]:
+            values = [(done, total) for name, done, total in updates if name == stage]
+            self.assertEqual(values[0], (0, size))
+            self.assertEqual(values[-1], (size, size))
+            self.assertEqual(values, sorted(values))
+        self.assertEqual(updates[-1][0], 'Restarting device')
+
+    def test_reused_device_path_is_refused_before_transfer(self):
+        self.loader.location = '1-2.1'
+        with patch.object(flash, 'usb_location', return_value='1-2.4'), patch.object(flash, 'scsi') as scsi:
+            with self.assertRaisesRegex(OSError, 'path was reused'):
+                self.loader.read(0, 32)
+            scsi.assert_not_called()
+        self.assert_no_flash_mutations()
+
     def test_failed_backup_prevents_erase(self):
         with self.assertRaises(OSError):
             self.loader.flash(image(), 'pad', Path(self.temp.name) / 'absent/backup.bin')

@@ -10,7 +10,7 @@ from pathlib import Path
 import struct
 import time
 
-from padtransport import device_paths, scsi
+from padtransport import device_paths, scsi, usb_location
 
 PIDS = {"pad": "GS_C2_ADC_DEVICE", "dongle": "GS_C2_Dongle"}
 FLASH_SIZES = {"pad": 0x100000, "dongle": 0x80000}
@@ -119,12 +119,16 @@ def decode_chip_key(data):
 
 
 class Loader:
-    def __init__(self, path, report=print):
+    def __init__(self, path, report=print, progress=None):
         self.path = path
+        self.location = usb_location(path)
         self.report = report
+        self.progress = progress or (lambda stage, done=0, total=None: None)
         self.io = 512
 
     def transfer(self, command, args=b"", length=0, out=None):
+        if self.location and usb_location(self.path) != self.location:
+            raise OSError("ROM loader disconnected or its device path was reused; refresh before continuing")
         cdb = (struct.pack(">H", command) + args).ljust(16, b"\xff")
         if len(cdb) != 16:
             raise ValueError("Loader arguments exceed CDB length")
@@ -146,9 +150,11 @@ class Loader:
     def start(self, blob):
         if not blob:
             raise ValueError("Empty BR23 loader")
+        self.progress("Loading flash helper", 0, len(blob))
         self.report(f"{self.path}: uploading BR23 loader to RAM")
         for offset in range(0, len(blob), 512):
             self.write(0xfb06, 0x12000 + offset, blob[offset:offset + 512])
+            self.progress("Loading flash helper", min(offset + 512, len(blob)), len(blob))
         self.execute(0xfb08, struct.pack(">IH", 0x12000, 1))
         for attempt in range(20):
             try:
@@ -173,22 +179,25 @@ class Loader:
         self.key = decode_chip_key(bytes([record[5], record[4]]))
         self.report(f"{self.path}: {self.flash_size // 1024} KiB flash, chip key 0x{self.key:04x}")
 
-    def read(self, address, size, progress=False):
+    def read(self, address, size, progress=False, stage="Reading flash"):
         if address < 0 or size < 0 or address + size > self.flash_size:
             raise ValueError("Read exceeds flash capacity")
         data = bytearray()
+        if progress:
+            self.progress(stage, 0, size)
         for offset in range(0, size, self.io):
             count = min(self.io, size - offset)
             data.extend(self.transfer(0xfd05, struct.pack(">IH", address + offset, count), count))
             if progress and (offset // 0x10000 != (offset + count) // 0x10000 or offset + count == size):
                 self.report(f"Read {offset + count}/{size} bytes")
+                self.progress(stage, offset + count, size)
         return bytes(data)
 
     def pid(self):
         return image_identity(self.read(0, min(self.flash_size, 0x11000)), require_key=False)[0]
 
     def backup(self, file):
-        data = self.read(0, self.flash_size, progress=True)
+        data = self.read(0, self.flash_size, progress=True, stage="Backing up flash")
         with open(file, "wb") as stream:
             if stream.write(data) != len(data):
                 raise OSError("Incomplete flash backup write")
@@ -208,29 +217,34 @@ class Loader:
         if backup:
             self.backup(backup)
         top = (len(data) + 4095) & ~4095
+        self.progress("Erasing flash", 0, top)
         self.report(f"Erasing 0x0–0x{top:x}")
         at = 0
         while at < top:
             block = at % 0x10000 == 0 and top - at >= 0x10000
             self.execute(0xfb00 if block else 0xfb01, struct.pack(">I", at))
             at += 0x10000 if block else 0x1000
+            self.progress("Erasing flash", at, top)
+        self.progress("Writing firmware", 0, len(data))
         for at in range(0, len(data), self.io):
             chunk = data[at:at + self.io]
             if any(byte != 255 for byte in chunk):
                 self.write(0xfb04, at, chunk)
-            if at // 0x10000 != (at + len(chunk)) // 0x10000 or at + len(chunk) == len(data):
+            if at // 0x4000 != (at + len(chunk)) // 0x4000 or at + len(chunk) == len(data):
                 self.report(f"Written {at + len(chunk)}/{len(data)} bytes")
+                self.progress("Writing firmware", at + len(chunk), len(data))
         self.report("Verifying flash readback")
-        if self.read(0, len(data), progress=True) != data:
+        if self.read(0, len(data), progress=True, stage="Verifying firmware") != data:
             raise OSError("Flash readback differs; device left in loader for recovery")
         self.report("Written and verified")
+        self.progress("Restarting device")
         try:
             self.execute(0xfc0c, struct.pack(">I", 1))
         except OSError:
             pass  # The successful reboot normally disconnects before replying.
 
 
-def select_loader(board, blob, wait=30, report=print, device_path=None):
+def select_loader(board, blob, wait=30, report=print, device_path=None, progress=None, expected_location=None):
     """Enter loader mode and match PID, or restrict to an already-selected ROM path."""
     if board not in PIDS or not blob:
         raise ValueError("Select a supported board and a nonempty BR23 loader")
@@ -241,6 +255,8 @@ def select_loader(board, blob, wait=30, report=print, device_path=None):
         for path in device_paths():
             if device_path is not None and path != device_path:
                 continue
+            if device_path and expected_location and usb_location(path) != expected_location:
+                raise OSError("Selected ROM loader moved or its device path was reused; refresh before continuing")
             if path in seen:
                 continue
             try:
@@ -261,7 +277,9 @@ def select_loader(board, blob, wait=30, report=print, device_path=None):
                 except OSError:
                     pass  # A reboot can disconnect without a reply.
                 continue
-            loader = Loader(path, report)
+            loader = Loader(path, report, progress)
+            if expected_location:
+                loader.location = expected_location
             loader.start(blob)
             try:
                 pid = loader.pid()

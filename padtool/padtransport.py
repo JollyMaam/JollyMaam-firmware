@@ -6,6 +6,8 @@ Only inquiry/identify probes are sent during discovery.
 import ctypes
 import glob
 import os
+from pathlib import Path
+import re
 import sys
 
 if sys.platform == "linux":
@@ -18,6 +20,15 @@ def device_paths():
     if sys.platform == "linux":
         return sorted(set(glob.glob("/dev/sg*") + glob.glob("/dev/bwrap/sg*")))
     raise OSError("Device access supports Linux and Windows")
+
+
+def usb_location(path):
+    """Linux USB port chain, stable across SCSI device renumbering; None if unknown."""
+    if sys.platform != "linux":
+        return None
+    topology = Path("/sys/class/scsi_generic", Path(path).name, "device").resolve()
+    ports = [part for part in topology.parts if re.fullmatch(r"[0-9]+-[0-9]+(?:\.[0-9]+)*", part)]
+    return ports[-1] if ports else None
 
 
 class SgIoHdr(ctypes.Structure):

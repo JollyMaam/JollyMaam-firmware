@@ -93,10 +93,9 @@ python padtool/padtool.py set A left_curve_points s-curve
 The first command fills and enables points. Disabled/enabled only toggle the
 flag; the last command fills points without changing the enable flag.
 
-When upgrading from protocol 4 or older with a running pad connected and a
-pre-flash backup requested, the GUI
-and Python flasher save a `.settings.json` next to the flash backup and restore
-it after the new firmware starts. Shared host migration converts old formula
+When the command-line flasher upgrades from protocol 4 or older with a running
+pad connected and a pre-flash backup requested, it saves a `.settings.json`
+next to the flash backup and restores it after the new firmware starts. Shared host migration converts old formula
 modes to presets and resamples seven-point custom curves, retaining their knots.
 Inactive custom points remain saved with the enable flag off. If the pad is
 already in the ROM loader, or another flasher is used, back up settings before
@@ -163,20 +162,34 @@ derives defaults from `JIELI_SDK` if set; otherwise it uses this workspace's SDK
 location. Browse to those files when packing elsewhere.
 
 **Refresh** also detects `UBOOT1.00` ROM loaders without uploading code or
-sending running-firmware commands. They appear as ROM loaders in the tree,
-with **Flash Firmware…** on their device page. Settings and diagnostics are
-disabled until the firmware runs. Reconnect USB to leave loader mode.
-The same **Flash Firmware…** button on a running pad or dongle opens an image
-file picker. The image selects the board type; PID, flash size and chip key
-checks still apply before writing. A selected ROM loader is matched by its
-device path. Connect only the intended board: automatic selection uses the board
-PID and refuses multiple matching loaders. Flashing asks whether to save a full
-pre-flash backup. Yes opens the destination picker; No flashes without a backup;
-Cancel stops. When requested, the backup completes before erasing. Flashing
-always checks the image product ID, device product ID and chip key and verifies
-the written bytes. Both image file pickers validate the product ID immediately. The GUI
-exposes no PID/key override. Settings in erased sectors are replaced by the
-image; back up settings separately to restore them after installation.
+sending running-firmware commands. A running pad or dongle offers **Enter flash
+loader**, which checks the selected device, requests the reboot, waits for the
+ROM loader, then refreshes and selects it automatically. Other devices' pending
+edits are retained; apply or discard edits on the rebooting device first. On
+Linux, the USB port chain identifies the returning loader even if its `sg`
+number changes. Where port information is unavailable, only a single newly
+appearing loader is selected; ambiguous results require Refresh and selection.
+For a stock pad, connect USB while holding Home + Plus, then Refresh.
+
+Only a detected ROM loader offers flashing or a full flash backup in the GUI.
+Device tools places **Back up full flash…** before **Flash Firmware…**. Flash
+Firmware opens the sole image picker and immediately checks its product ID.
+The image selects pad versus dongle, with PID, capacity and chip-key checks
+before erasing. The selected loader path stays fixed during the operation; on
+Linux its USB port is also checked to reject a reused device path. Settings
+and diagnostics are disabled while the device is in loader mode.
+
+The shared progress display shows waiting for the loader, loading the flash
+helper, backing up, erasing, writing, verifying and restarting. Transfer stages
+show byte-based percentages; waiting stages show an activity bar. Failures
+stop the bar and keep the error in the console. Reconnect USB to leave loader
+mode after a standalone backup.
+
+Flashing asks whether to save a full pre-flash backup. Yes opens the destination
+picker; No flashes without a backup; Cancel stops. When requested, the backup
+completes before erasing. Verification always checks the written bytes.
+Settings in erased sectors are replaced by the image; use a separate settings
+backup to restore them after installation. The GUI exposes no PID/key override.
 
 The Python backend can also run from a terminal:
 
