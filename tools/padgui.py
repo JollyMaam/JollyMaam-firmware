@@ -593,7 +593,7 @@ class App:
             ttk.Label(row, text=f"Slot {pad.TARGETS[target]}", width=12).pack(side="left")
             if entry:
                 ttk.Combobox(row, textvariable=entry["var"], values=entry["field"]["names"], state="readonly", width=20).pack(side="left")
-                self.setting_apply_button(row, record, target, "type", entry).pack(side="left", padx=(0, 8))
+                self.setting_apply_button(row, record, target, "type", entry).pack(side="left", padx=(8, 20))
             ttk.Button(row, text="Settings", command=lambda t=target: self.show_target(t)).pack(side="left", padx=(0, 8))
             ttk.Button(row, text="Connect", command=lambda t=target: self.slot_action("connect", t)).pack(side="left", padx=(0, 8))
             ttk.Button(row, text="Pair…", command=lambda t=target: self.slot_action("pair", t)).pack(side="left", padx=(0, 8))
