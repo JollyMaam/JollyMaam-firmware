@@ -568,11 +568,12 @@ class App:
         for target in range(8):
             row = ttk.Frame(f, padding=(0, 6))
             row.pack(fill="x")
-            ttk.Label(row, text=f"Slot {pad.TARGETS[target]}", width=12).pack(side="left")
             entry = record["draft"].get((target, "type"))
             if entry:
+                self.default_marker(row, entry).pack(side="left", padx=(0, 2))
+            ttk.Label(row, text=f"Slot {pad.TARGETS[target]}", width=12).pack(side="left")
+            if entry:
                 ttk.Combobox(row, textvariable=entry["var"], values=entry["field"]["names"], state="readonly", width=20).pack(side="left")
-                self.default_marker(row, entry).pack(side="left", padx=(2, 6))
                 self.setting_apply_button(row, record, target, "type", entry).pack(side="left", padx=(0, 8))
             ttk.Button(row, text="Settings", command=lambda t=target: self.show_target(t)).pack(side="left", padx=(0, 8))
             ttk.Button(row, text="Connect", command=lambda t=target: self.slot_action("connect", t)).pack(side="left", padx=(0, 8))
@@ -610,7 +611,10 @@ class App:
             parent = advanced if f["dev"] else self.form
             row = rows[parent]
             rows[parent] += 1
-            ttk.Label(parent, text=name.replace("_", " ").capitalize()).grid(row=row, column=0, sticky="nw", padx=4, pady=8)
+            label = ttk.Frame(parent)
+            label.grid(row=row, column=0, sticky="nw", padx=4, pady=8)
+            self.default_marker(label, entry).pack(side="left", padx=(0, 2))
+            ttk.Label(label, text=name.replace("_", " ").capitalize()).pack(side="left")
             if f["type"] == pad.T_COLOUR:
                 editor = PaletteEditor(parent, self, record, entry)
                 self.special_editors.append(editor)
@@ -635,14 +639,13 @@ class App:
                        command=lambda e=entry: self.reset_default(e)).pack(side="left", padx=2)
             self.setting_apply_button(actions, record, target, name, entry).pack(side="left", padx=2)
             ttk.Button(actions, text="?", width=2, command=lambda e=entry: self.show_help(e)).pack(side="left", padx=2)
-            self.default_marker(parent, entry).grid(row=row, column=4, sticky="n", pady=8)
             self.editors[name] = entry
         self.form.columnconfigure(1, weight=1)
         if target < 8:
             row = rows[self.form]
             rows[self.form] += 1
             actions = ttk.Frame(self.form, padding=(0, 12))
-            actions.grid(row=row, column=0, columnspan=5, sticky="w")
+            actions.grid(row=row, column=0, columnspan=4, sticky="w")
             for action in ("connect", "pair"):
                 ttk.Button(actions, text=action.title(),
                            command=lambda a=action: self.slot_action(a, target)).pack(side="left", padx=4)
@@ -651,8 +654,8 @@ class App:
             key = (record["path"], target)
             row = rows[self.form]
             button = ttk.Button(self.form)
-            button.grid(row=row, column=0, columnspan=5, sticky="w", padx=4, pady=(12, 6))
-            advanced.grid(row=row + 1, column=0, columnspan=5, sticky="ew")
+            button.grid(row=row, column=0, columnspan=4, sticky="w", padx=4, pady=(12, 6))
+            advanced.grid(row=row + 1, column=0, columnspan=4, sticky="ew")
             advanced.columnconfigure(1, weight=1)
 
             def update_section():
