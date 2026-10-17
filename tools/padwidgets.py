@@ -65,7 +65,7 @@ class PaletteEditor(ttk.Frame):
         self.popup.transient(self.winfo_toplevel())
         self.popup.resizable(False, False)
         self.popup.protocol('WM_DELETE_WINDOW', self.destroy_popup)
-        ttk.Label(self.popup, text='Palette colour above · selected brightness below', padding=8).pack()
+        ttk.Label(self.popup, text='Choose a palette colour', padding=8).pack()
         grid = ttk.Frame(self.popup, padding=(8, 0, 8, 8))
         grid.pack()
         self.tiles = []
@@ -81,17 +81,14 @@ class PaletteEditor(ttk.Frame):
         self.popup.bind('<Escape>', lambda e: self.destroy_popup())
 
     def draw_palette(self):
-        selected, level = self.current()
+        selected, _ = self.current()
         for index, tile in enumerate(self.tiles):
             tile.delete('all')
             try:
                 rgb = self.app.value_bytes(self.record['draft'][8, f'palette{index}'])
                 colour = '#' + rgb.hex()
-                dim = bytes((c * BRIGHTNESS[level] + 127) // 255 for c in rgb)
-                brightness = '#' + dim.hex()
-                foreground = '#ffffff' if sum(dim) < 380 else '#111111'
-                tile.create_rectangle(2, 2, 74, 18, fill=colour, outline='')
-                tile.create_rectangle(2, 18, 74, 52, fill=brightness, outline='')
+                foreground = '#ffffff' if sum(rgb) < 380 else '#111111'
+                tile.create_rectangle(2, 2, 74, 52, fill=colour, outline='')
                 tile.create_text(38, 35, text=f'{index}' + (' ✓' if index == selected else ''), fill=foreground)
             except (Exception, SystemExit):
                 tile.create_text(38, 27, text=f'{index}: invalid')

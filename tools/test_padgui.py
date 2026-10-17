@@ -187,7 +187,7 @@ class GuiTests(unittest.TestCase):
             self.finish()
             send.assert_called_once_with("fake", [(0, 2, b"")])
 
-    def test_colour_preview_follows_staged_palette_and_brightness(self):
+    def test_colour_preview_follows_staged_palette_at_every_brightness(self):
         r = record()
         r["fields"] += [
             {"kind": 0, "id": 3, "name": "primary_colour", "type": padgui.pad.T_COLOUR,
@@ -200,13 +200,13 @@ class GuiTests(unittest.TestCase):
         self.app.show_target(0)
         colour = r["draft"][0, "primary_colour"]
         palette = r["draft"][8, "palette3"]
-        self.assertEqual(self.app.color_preview(r, colour), ("#ff0000", "#ff0000"))
+        self.assertEqual(self.app.color_preview(r, colour), "#ff0000")
         palette["var"].set("#00ff00")
-        self.assertEqual(self.app.color_preview(r, colour), ("#00ff00", "#00ff00"))
+        self.assertEqual(self.app.color_preview(r, colour), "#00ff00")
         colour["var"].set("3:5")
-        self.assertEqual(self.app.color_preview(r, colour), ("#00ff00", "#000500"))
+        self.assertEqual(self.app.color_preview(r, colour), "#00ff00")
         swatch = next(w for rec, entry, w in self.app.swatches if entry is colour and w.winfo_exists())
-        self.assertEqual(swatch.itemcget("brightness", "fill"), "#000500")
+        self.assertEqual(swatch.itemcget("colour", "fill"), "#00ff00")
         colour["var"].set("3:")
         self.assertEqual(swatch.itemcget("invalid", "text"), "?")
 

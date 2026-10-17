@@ -278,22 +278,18 @@ class App:
         raw = self.value_bytes(entry)
         if entry["field"]["type"] == pad.T_RGB and len(raw) == 3:
             rgb = "#" + raw.hex()
-            return rgb, rgb
+            return rgb
         if entry["field"]["type"] == pad.T_COLOUR and len(raw) == 2:
             palette, level = raw
             if palette >= 16 or level >= 16:
                 raise ValueError("Invalid palette entry or brightness")
             rgb = self.value_bytes(record["draft"][8, f"palette{palette}"])
-            # Same perceptual brightness table and rounding as set_colour().
-            brightness = (0, 1, 2, 3, 4, 5, 7, 10, 14, 20, 28, 40, 56, 80, 128, 255)[level]
-            dim = bytes((channel * brightness + 127) // 255 for channel in rgb)
-            return "#" + rgb.hex(), "#" + dim.hex()
+            return "#" + rgb.hex()
         raise ValueError("Not a colour")
 
     def color_swatch(self, parent, record, entry):
         swatch = tk.Canvas(parent, width=50, height=20, highlightthickness=0)
-        swatch.create_rectangle(1, 1, 25, 19, tags="colour", outline="#777777")
-        swatch.create_rectangle(25, 1, 49, 19, tags="brightness", outline="#777777")
+        swatch.create_rectangle(1, 1, 49, 19, tags="colour", outline="#777777")
         swatch.create_text(25, 10, text="", tags="invalid")
         self.swatches.append((record, entry, swatch))
         self.update_previews()
@@ -310,13 +306,11 @@ class App:
         self.swatches = [(r, e, w) for r, e, w in self.swatches if w.winfo_exists()]
         for record, entry, swatch in self.swatches:
             try:
-                colour, brightness = self.color_preview(record, entry)
+                colour = self.color_preview(record, entry)
                 swatch.itemconfigure("colour", fill=colour)
-                swatch.itemconfigure("brightness", fill=brightness)
                 swatch.itemconfigure("invalid", text="")
             except (Exception, SystemExit):
                 swatch.itemconfigure("colour", fill="#eeeeee")
-                swatch.itemconfigure("brightness", fill="#eeeeee")
                 swatch.itemconfigure("invalid", text="?")
 
         self.special_editors = [w for w in self.special_editors if w.winfo_exists()]
@@ -338,7 +332,7 @@ class App:
         text = field["help"]
         if field["type"] == pad.T_COLOUR:
             text = ("Choose one of the 16 colours from the pad's palette, then select its brightness. "
-                    "The preview shows the full palette colour on the left and the LED brightness on the right. "
+                    "Previews show the full palette colour at every brightness level. "
                     "Palette edits also update these previews. Apply palette edits separately, or use Apply changes to save everything.\n\n" + text)
         elif field["name"] in ("left_curve_points", "right_curve_points"):
             text = ("These seven points control stick output at 12.5%, 25%, 37.5%, 50%, 62.5%, 75% and 87.5% travel. "

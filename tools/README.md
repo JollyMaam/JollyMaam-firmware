@@ -44,9 +44,8 @@ including pairing bytes, custom curves and the calibration blob, through a
 read-only query. On older firmware, only known defaults can be reset in the GUI.
 
 Slot colour fields have a palette selector and a brightness dropdown. The
-selector shows the pad's 16 palette colours, with the full colour above and the
-selected brightness below. Brightness percentages use the firmware's actual
-nonlinear levels. Palette RGB fields still accept hex values and show swatches;
+selector and swatches show the full palette colour at every brightness level.
+Brightness percentages use the firmware's actual nonlinear levels. Palette RGB fields still accept hex values and show swatches;
 all previews follow staged palette edits.
 
 Each setting has its own Apply button; it saves only that setting and retains
