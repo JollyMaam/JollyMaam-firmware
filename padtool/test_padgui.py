@@ -548,6 +548,7 @@ class GuiTests(unittest.TestCase):
         one, other = record("old"), record("other")
         self.load([one, other])
         other["draft"][0, "rumble"]["var"].set("80")
+        self.app.board.set("dongle")  # A previous selector value must not survive the pad transition.
         with patch.object(padgui, "usb_location", return_value=None), \
              patch.object(padgui.pad, "cmd", return_value=one["identity"]) as cmd, \
              patch.object(padgui.pad, "discover_devices", return_value=[("new", "BR23 UBOOT1.00", None), ("other", other["name"], other["identity"])]), \
@@ -560,6 +561,9 @@ class GuiTests(unittest.TestCase):
             self.assertEqual(cmd.call_args_list[-1].args, ("old", 0x11))
             self.assertEqual(self.app.device.get(), "new")
             self.assertEqual(self.app.record()["board"], "loader")
+            self.assertEqual(self.app.record()["firmware_board"], "pad")
+            self.assertEqual(self.app.board.get(), "pad")
+            self.assertEqual(self.app.bundle.get(), str(padgui.ROOT / "build/pad"))
             self.assertEqual(self.app.cache["other"]["draft"][0, "rumble"]["var"].get(), "80")
             discard.assert_not_called()
             self.assertEqual(str(self.app.flash_button.cget("state")), "normal")
@@ -589,7 +593,7 @@ class GuiTests(unittest.TestCase):
              patch.object(self.app, "scan") as scan:
             self.app.enter_flash_loader()
             self.finish()
-            scan.assert_called_once_with(automatic=True, select_path="new")
+            scan.assert_called_once_with(automatic=True, select_path="new", firmware_board="pad")
 
     def test_flash_progress_updates_bar_and_stage(self):
         self.app.start_flash_progress("Preparing")

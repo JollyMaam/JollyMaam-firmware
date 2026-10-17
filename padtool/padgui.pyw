@@ -432,7 +432,7 @@ class App:
             label = self.tree.item(node, "text").removesuffix(" *")
             self.tree.item(node, text=label + (" *" if custom else ""), tags=("dirty",) if dirty else ())
 
-    def scan(self, automatic=False, select_path=None):
+    def scan(self, automatic=False, select_path=None, firmware_board=None):
         if not automatic and self.dirty_count() and not messagebox.askyesno("Reload devices", "Discard pending edits and scan again?"):
             return
         def load():
@@ -459,6 +459,11 @@ class App:
             self.cache = {}
             for record in records:
                 old = previous.get(record["path"])
+                if record["board"] == "loader":
+                    if record["path"] == select_path and firmware_board in PIDS:
+                        record["firmware_board"] = firmware_board
+                    elif old and old["board"] == "loader" and old.get("location") == record.get("location"):
+                        record["firmware_board"] = old.get("firmware_board")
                 pending = {key: (entry["var"].get(), entry["reset"].get(), entry.get("custom_curve"))
                            for key, entry in old.get("draft", {}).items() if self.changed(entry)} if automatic and old and old["identity"] == record["identity"] else {}
                 self.install_values(record, record["values"])
@@ -522,11 +527,12 @@ class App:
         record = self.cache[path]
         self.device.set(path)
         previous_board = self.board.get()
-        if record["board"] in PIDS:
-            self.board.set(record["board"])
-        if record["board"] in PIDS and previous_board != record["board"]:
-            self.bundle.set(str(ROOT / "build" / record["board"]))
-            self.elf.set(str(ROOT / "build" / record["board"] / "app.elf"))
+        selected_board = record.get("firmware_board") if record["board"] == "loader" else record["board"]
+        if selected_board in PIDS:
+            self.board.set(selected_board)
+        if selected_board in PIDS and previous_board != selected_board:
+            self.bundle.set(str(ROOT / "build" / selected_board))
+            self.elf.set(str(ROOT / "build" / selected_board / "app.elf"))
         if isinstance(target, int):
             self.target.set(pad.TARGETS[target])
             if target < 8:
@@ -944,6 +950,7 @@ class App:
             messagebox.showinfo("Pending edits", "Apply or discard this device’s pending edits before entering flash loader.")
             return
         path, identity = record["path"], record["identity"]
+        firmware_board = record["board"]
         location = record.get("location") or usb_location(path)
         old_loaders = {r["path"] for r in self.cache.values() if r["board"] == "loader"}
         def enter():
@@ -967,7 +974,7 @@ class App:
                     raise OSError("UBOOT1.00 did not appear. Reconnect USB holding Home + Plus, then Refresh.")
                 time.sleep(0.25)
         self.start_flash_progress("Entering flash loader")
-        self.run("Entering flash loader…", enter, lambda path: self.scan(automatic=True, select_path=path))
+        self.run("Entering flash loader…", enter, lambda path: self.scan(automatic=True, select_path=path, firmware_board=firmware_board))
 
     def loader_blob(self):
         blob = Path(self.loader.get()).read_bytes()
