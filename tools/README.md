@@ -29,10 +29,9 @@ pad first, then scan.
 Selecting a device in the tree shows its slots, each with a type dropdown,
 Settings, Connect and Pair. Slot and settings-group entries open detailed settings
 directly. **Developer fields** at the bottom expands or collapses the advanced
-settings, retaining pending edits. **Console / diagnostics** under each device holds diagnostic controls
-and the operation log. **Firmware / flash** under each device opens its flash
-and backup controls. These entries remain available without a detected device
-for recovery flashing. Connect and Pair are on the device overview.
+settings, retaining pending edits. **Device tools** under each device combines
+firmware flashing, full flash backup, diagnostic controls and the operation log.
+It remains available without a detected device for recovery flashing. Connect and Pair are on the device overview.
 The mouse wheel scrolls the current page anywhere in the window, including
 over dropdowns and number fields, without changing their values. Edits persist
 while switching slots and devices. **Apply** validates all edited
@@ -112,13 +111,16 @@ On the pad’s device overview, **Back up pad settings…** reads all slots, the
 from the selected pad, including pairing data. It excludes pending GUI edits.
 **Restore pad settings…** restores the targets in that backup across the pad.
 Restores include calibration; run calibration again if needed. Dongle firmware has no
-settings table; its pairing and target address controls are in Console / diagnostics.
+settings table; its pairing and target address controls are in Device tools.
 
 ## Firmware
 
 Full flash backup and image flashing run entirely in Python. The BR23 RAM
-loader is bundled in `tools/loaders/` with the SDK's Apache 2.0 license and
-provenance. No SDK checkout or external executable is needed for these actions.
+loader is read from `JIELI_SDK/cpu/br23/tools/br23loader.bin` during development
+(or this workspace’s SDK location). It is not tracked in version control.
+A distribution can include it under `tools/loaders/`; that packaged copy takes
+precedence. Its Apache 2.0 license and provenance remain in `tools/loaders/`.
+No external flashing executable is needed.
 The loader is uploaded to RAM through UBOOT1.00; it provides SPI flash access.
 It is separate from the `uboot.boot` contained inside firmware images.
 
@@ -156,9 +158,15 @@ The packing resources are `cpu/br23/tools/uboot.boot` and `cfg_tool.bin`. The GU
 derives defaults from `JIELI_SDK` if set; otherwise it uses this workspace's SDK
 location. Browse to those files when packing elsewhere.
 
-Firmware operations discover ROM loaders separately from the running-device
-selector. Connect only the intended board: selection uses the board PID and
-refuses multiple matching loaders. Flashing asks for a full pre-flash backup,
+**Refresh** also detects `UBOOT1.00` ROM loaders without uploading code or
+sending running-firmware commands. They appear as ROM loaders in the tree,
+with **Flash Firmware…** on their device page. Settings and diagnostics are
+disabled until the firmware runs. Reconnect USB to leave loader mode.
+The same **Flash Firmware…** button on a running pad or dongle opens an image
+file picker. The image selects the board type; PID, flash size and chip key
+checks still apply before writing. A selected ROM loader is matched by its
+device path. Connect only the intended board: automatic selection uses the board
+PID and refuses multiple matching loaders. Flashing asks for a full pre-flash backup,
 reads and saves it before erasing, then writes and verifies the result. The GUI
 exposes no PID/key override. Settings in erased sectors are replaced by the
 image; back up settings separately to restore them after installation.
@@ -170,7 +178,7 @@ python tools/padflash.py backup pad-backup.bin --board pad
 python tools/padflash.py flash build/pad/firmware.img --board pad --backup before-flash.bin
 ```
 
-Use `--board dongle` for the dongle and `--loader FILE` to override the bundled
+Use `--board dongle` for the dongle and `--loader FILE` to override the SDK or packaged
 loader. A standalone backup leaves the board in its loader; reconnect USB
 afterwards. Stock firmware restoration is outside the GUI's scope. The C
 `jlnewfw` tool retains its own flashing, backup and Windows support.

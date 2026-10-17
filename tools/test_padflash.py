@@ -161,6 +161,27 @@ class FlashTests(unittest.TestCase):
                 flash.select_loader('pad', b'loader', wait=0, report=lambda _: None)
         self.assert_no_flash_mutations()
 
+    def test_explicit_loader_path_ignores_other_devices(self):
+        inquiry = b'\0' * 8 + b'BR23    ' + b'UBOOT1.00'.ljust(16, b' ') + b'\0' * 4
+        with patch.object(flash, 'device_paths', return_value=['one', 'two']), \
+             patch.object(flash, 'scsi', return_value=inquiry) as scsi, \
+             patch.object(flash.Loader, 'start', lambda obj, blob: (setattr(obj, 'flash_size', 0x100000), setattr(obj, 'key', 0xffff))), \
+             patch.object(flash.Loader, 'pid', return_value=flash.PIDS['pad']):
+            loader = flash.select_loader('pad', b'loader', wait=0, report=lambda _: None, device_path='two')
+            self.assertEqual(loader.path, 'two')
+            self.assertEqual([call.args[0] for call in scsi.call_args_list], ['two'])
+        self.assert_no_flash_mutations()
+
+    def test_explicit_loader_path_refuses_running_firmware(self):
+        inquiry = b'\0' * 8 + b'BR23    ' + b'UDISK'.ljust(16, b' ') + b'\0' * 4
+        with patch.object(flash, 'device_paths', return_value=['one']), \
+             patch.object(flash, 'scsi', return_value=inquiry) as scsi:
+            with self.assertRaisesRegex(OSError, 'changed mode'):
+                flash.select_loader('pad', b'loader', wait=0, device_path='one', report=lambda _: None)
+            self.assertEqual(scsi.call_count, 1)
+            self.assertEqual(scsi.call_args.args[1][0], 0x12)
+        self.assert_no_flash_mutations()
+
 
 class ImageTests(unittest.TestCase):
     def test_chip_keys_and_corruption(self):

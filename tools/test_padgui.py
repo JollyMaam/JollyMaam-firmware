@@ -65,14 +65,14 @@ class GuiTests(unittest.TestCase):
         self.assertIs(self.app.active_page, self.app.overview)
         self.app.show_target(0)
         self.assertIs(self.app.active_page, self.app.settings)
-        self.app.tree.selection_set("device1/console")
+        self.app.tree.selection_set("device1/tools")
         self.app.select_node()
-        self.assertIs(self.app.active_page, self.app.diagnostics)
+        self.assertIs(self.app.active_page, self.app.tools_page)
         self.assertEqual(self.app.device.get(), "dongle")
         self.assertEqual(self.app.output.master.master, self.app.diagnostics)
-        self.app.tree.selection_set("device0/firmware")
+        self.app.tree.selection_set("device0/tools")
         self.app.select_node()
-        self.assertIs(self.app.active_page, self.app.firmware_page)
+        self.assertIs(self.app.active_page, self.app.tools_page)
         self.assertEqual(self.app.device.get(), "fake")
         self.assertEqual(self.app.board.get(), "pad")
         self.assertFalse(hasattr(self.app, "tabs"))
@@ -131,6 +131,44 @@ class GuiTests(unittest.TestCase):
         self.assertFalse(one["draft"][2, "rumble"]["reset"].get())
         self.assertEqual(self.app.dirty_count(), 0)
         self.assertEqual(self.app.summary.get(), "Loaded 2 device(s). No pending changes.")
+
+    def test_rom_loader_scan_has_only_recovery_actions(self):
+        with patch.object(padgui.pad, "discover_devices", return_value=[("rom", "BR23 UBOOT1.00", None)]), \
+             patch.object(padgui.pad, "fields") as fields, patch.object(padgui.pad, "status") as status:
+            self.app.scan()
+            self.finish()
+            fields.assert_not_called()
+            status.assert_not_called()
+        self.assertEqual(self.app.record()["board"], "loader")
+        self.assertIn("UBOOT1.00", self.app.tree.item("device0", "text"))
+        self.assertEqual(self.app.tree.get_children("device0"), ("device0/tools",))
+        buttons = [w.cget("text") for w in self.app.controls(self.app.overview_form) if isinstance(w, padgui.ttk.Button)]
+        self.assertEqual(buttons, ["Flash Firmware…"])
+        self.app.tree.selection_set("device0/tools")
+        self.app.select_node()
+        self.assertIs(self.app.active_page, self.app.tools_page)
+        self.assertTrue(all(str(w.cget("state")) == "disabled" for w in self.app.controls(self.app.diagnostics)))
+        self.app.board.set("dongle")
+        self.app.change_board()
+        self.assertEqual(self.app.device.get(), "rom")
+
+    def test_flash_picker_derives_board_and_rejects_wrong_device(self):
+        self.load([record()])
+        with patch.object(padgui.filedialog, "askopenfilename", return_value="firmware.img") as picker, \
+             patch.object(padgui.padflash, "load_image", return_value=b"image"), \
+             patch.object(padgui.padflash, "image_identity", return_value=(padgui.PIDS["pad"], 0xffff)), \
+             patch.object(self.app, "flash") as flash:
+            self.app.choose_firmware()
+            picker.assert_called_once()
+            flash.assert_called_once_with(False)
+            self.assertEqual(self.app.image.get(), "firmware.img")
+        with patch.object(padgui.filedialog, "askopenfilename", return_value="dongle.img"), \
+             patch.object(padgui.padflash, "load_image", return_value=b"image"), \
+             patch.object(padgui.padflash, "image_identity", return_value=(padgui.PIDS["dongle"], 0xffff)), \
+             patch.object(padgui.messagebox, "showerror") as error, patch.object(self.app, "flash") as flash:
+            self.app.choose_firmware()
+            error.assert_called_once()
+            flash.assert_not_called()
 
     def test_worker_failure_restores_controls(self):
         def refused():
@@ -212,8 +250,8 @@ class GuiTests(unittest.TestCase):
             self.finish()
             self.assertEqual(read.call_count, 10)
         self.assertEqual(len(self.app.cache), 2)
-        self.assertEqual(len(self.app.tree.get_children("device0")), 12)
-        self.assertEqual(len(self.app.tree.get_children("device1")), 2)
+        self.assertEqual(len(self.app.tree.get_children("device0")), 11)
+        self.assertEqual(len(self.app.tree.get_children("device1")), 1)
 
     def test_actions_target_slot_and_calibration_is_global(self):
         r = record()
@@ -447,6 +485,15 @@ class GuiTests(unittest.TestCase):
 
 
 class TransportTests(unittest.TestCase):
+    def test_loader_discovery_only_sends_inquiry(self):
+        inquiry = b"\0" * 8 + b"BR23    " + b"UBOOT1.00".ljust(16, b" ") + b"\0" * 4
+        with patch.object(padgui.pad, "device_paths", return_value=["rom"]), \
+             patch.object(padgui.pad, "scsi", return_value=inquiry) as scsi:
+            self.assertEqual(list(padgui.pad.discover_devices()), [])
+            self.assertEqual(list(padgui.pad.discover_devices(include_loaders=True)), [("rom", "BR23    UBOOT1.00", None)])
+            self.assertEqual(scsi.call_count, 2)
+            self.assertTrue(all(call.args[1][0] == 0x12 for call in scsi.call_args_list))
+
     def test_windows_packet_layout(self):
         h = padtransport.ScsiPassThrough
         if ctypes.sizeof(ctypes.c_void_p) == 8:

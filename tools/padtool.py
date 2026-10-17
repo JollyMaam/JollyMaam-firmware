@@ -66,11 +66,15 @@ def inquiry(path):
     return data[8:32].decode("ascii", "replace").strip()
 
 
-def discover_devices():
-    """Yield path, inquiry name and IDENTIFY for either board in one scan."""
+def discover_devices(include_loaders=False):
+    """Yield path, name, IDENTIFY; opted-in ROM loaders have no IDENTIFY."""
     for path in device_paths():
         name = inquiry(path)
-        if name and name.startswith("BR23") and "UBOOT" not in name:
+        if name and name.startswith("BR23") and "UBOOT" in name:
+            if include_loaders:
+                yield path, name, None
+            continue
+        if name and name.startswith("BR23"):
             try:
                 identity = scsi(path, [OP, 0x00], 64, 1000)
                 if len(identity) >= 40 and identity[:4] == b"C2PD" and identity[6] in BOARD_IDS.values():

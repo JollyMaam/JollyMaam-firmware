@@ -1,6 +1,10 @@
 # BR23 USB RAM loader
 
-`br23loader.bin` is copied unchanged from Jieli's AC63 Bluetooth SDK.
+`br23loader.bin` is not tracked here. Development tools read it directly from
+Jieli's AC63 Bluetooth SDK (`JIELI_SDK/cpu/br23/tools/br23loader.bin`).
+A distribution can place an unchanged copy in this directory; the tools prefer
+that packaged copy when present. The license and provenance below are retained
+for distribution packaging.
 
 - Publisher: Jieli Technology
 - Repository: https://github.com/Jieli-Tech/fw-AC63_BT_SDK

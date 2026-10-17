@@ -14,7 +14,9 @@ from padtransport import device_paths, scsi
 
 PIDS = {"pad": "GS_C2_ADC_DEVICE", "dongle": "GS_C2_Dongle"}
 FLASH_SIZES = {"pad": 0x100000, "dongle": 0x80000}
-DEFAULT_LOADER = Path(__file__).resolve().parent / "loaders/br23loader.bin"
+PACKAGED_LOADER = Path(__file__).resolve().parent / "loaders/br23loader.bin"
+SDK_LOADER = Path(os.environ.get("JIELI_SDK", "/shared/github.com-Jieli-Tech/fw-AC63_BT_SDK")) / "cpu/br23/tools/br23loader.bin"
+DEFAULT_LOADER = PACKAGED_LOADER if PACKAGED_LOADER.is_file() else SDK_LOADER
 
 
 def crc16(data, seed=0):
@@ -229,8 +231,8 @@ class Loader:
             pass  # The successful reboot normally disconnects before replying.
 
 
-def select_loader(board, blob, wait=30, report=print):
-    """Enter loader mode, select by on-flash PID, refuse multiple matches."""
+def select_loader(board, blob, wait=30, report=print, device_path=None):
+    """Enter loader mode and match PID, or restrict to an already-selected ROM path."""
     if board not in PIDS or not blob:
         raise ValueError("Select a supported board and a nonempty BR23 loader")
     deadline = time.monotonic() + wait
@@ -238,6 +240,8 @@ def select_loader(board, blob, wait=30, report=print):
     report(f"Looking for {board}; if needed, connect it while holding its loader buttons")
     while True:
         for path in device_paths():
+            if device_path is not None and path != device_path:
+                continue
             if path in seen:
                 continue
             try:
@@ -247,6 +251,8 @@ def select_loader(board, blob, wait=30, report=print):
             if len(inquiry) != 36 or inquiry[8:12] != b"BR23":
                 continue
             if inquiry[16:21] != b"UBOOT":
+                if device_path is not None:
+                    raise OSError("Selected ROM loader changed mode; refresh devices before flashing")
                 try:
                     ident = scsi(path, [0xf5, 0], 64, 1000)
                     if ident[:4] == b"C2PD" and len(ident) >= 7 and ident[6] != (board == "dongle"):

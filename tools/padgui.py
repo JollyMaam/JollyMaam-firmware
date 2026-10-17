@@ -75,11 +75,15 @@ class App:
         content.columnconfigure(0, weight=1)
         self.overview = ttk.Frame(content, padding=10)
         self.settings = ttk.Frame(content, padding=10)
-        self.firmware_page = ttk.Frame(content, padding=10)
-        self.diagnostics = ttk.Frame(content, padding=10)
-        for page in (self.overview, self.settings, self.firmware_page, self.diagnostics):
+        self.tools_page = ttk.Frame(content, padding=10)
+        for page in (self.overview, self.settings, self.tools_page):
             page.grid(row=0, column=0, sticky="nsew")
-        self.firmware = self.scroll_form(self.firmware_page)
+        tools_form = self.scroll_form(self.tools_page)
+        ttk.Label(tools_form, text="Device tools", font=("TkDefaultFont", 13, "bold")).pack(anchor="w", pady=(0, 8))
+        self.firmware = ttk.LabelFrame(tools_form, text="Firmware", padding=10)
+        self.firmware.pack(fill="x")
+        self.diagnostics = ttk.LabelFrame(tools_form, text="Diagnostics and console", padding=10)
+        self.diagnostics.pack(fill="both", expand=True, pady=(12, 0))
         self.build_settings()
         self.build_firmware()
         self.build_diagnostics()
@@ -209,12 +213,15 @@ class App:
         self.mark_dirty()
 
     def change_board(self, event=None):
-        self.tree.selection_remove(self.tree.selection())
-        self.device.set("")
+        record = self.record()
+        if not record or record["board"] != "loader":
+            self.tree.selection_remove(self.tree.selection())
+            self.device.set("")
         self.bundle.set(str(ROOT / "build" / self.board.get()))
         self.elf.set(str(ROOT / "build" / self.board.get() / "app.elf"))
         self.render_overview()
         self.render_details()
+        self.update_tools()
 
     def path(self):
         path = self.device.get()
@@ -410,7 +417,11 @@ class App:
             return
         def load():
             records, errors = [], []
-            for path, name, identity in pad.discover_devices():
+            for path, name, identity in pad.discover_devices(include_loaders=True):
+                if identity is None:
+                    records.append({"defaults": {}, "path": path, "board": "loader", "name": name,
+                                    "identity": None, "fields": [], "values": {}, "status": "UBOOT1.00 ROM loader"})
+                    continue
                 board = next(b for b, value in pad.BOARD_IDS.items() if value == identity[6])
                 try:
                     table = pad.fields(path) if board == "pad" else []
@@ -449,7 +460,8 @@ class App:
                 ports = [part for part in topology.parts if re.fullmatch(r"[0-9]+-[0-9]+(?:\.[0-9]+)*", part)]
                 if ports:
                     location = f"USB {ports[-1]} · "
-            self.tree.insert("", "end", iid=device_node, text=f"{location}{record['board'].title()} · {path}", open=True)
+            label = "ROM loader (UBOOT1.00)" if record["board"] == "loader" else record["board"].title()
+            self.tree.insert("", "end", iid=device_node, text=f"{location}{label} · {path}", open=True)
             self.nodes[device_node] = (path, None)
             targets = range(len(pad.TARGETS)) if record["board"] == "pad" else []
             for t in targets:
@@ -457,14 +469,12 @@ class App:
                 node = f"{device_node}/{t}"
                 self.tree.insert(device_node, "end", iid=node, text=label)
                 self.nodes[node] = (path, t)
-            for item, title in (("firmware", "Firmware / flash"), ("console", "Console / diagnostics")):
-                node = f"{device_node}/{item}"
-                self.tree.insert(device_node, "end", iid=node, text=title)
-                self.nodes[node] = (path, item)
+            node = f"{device_node}/tools"
+            self.tree.insert(device_node, "end", iid=node, text="Device tools")
+            self.nodes[node] = (path, "tools")
         if not self.cache:
-            for item, title in (("firmware", "Firmware / flash"), ("console", "Console / diagnostics")):
-                self.tree.insert("", "end", iid=item, text=title)
-                self.nodes[item] = (None, item)
+            self.tree.insert("", "end", iid="tools", text="Device tools")
+            self.nodes["tools"] = (None, "tools")
         nodes = self.tree.get_children()
         if nodes:
             self.tree.selection_set(nodes[0])
@@ -479,13 +489,15 @@ class App:
             return
         path, target = self.nodes[self.tree.selection()[0]]
         if path is None:
-            self.show_page(self.firmware_page if target == "firmware" else self.diagnostics)
+            self.update_tools()
+            self.show_page(self.tools_page)
             return
         record = self.cache[path]
         self.device.set(path)
         previous_board = self.board.get()
-        self.board.set(record["board"])
-        if previous_board != record["board"]:
+        if record["board"] in PIDS:
+            self.board.set(record["board"])
+        if record["board"] in PIDS and previous_board != record["board"]:
             self.bundle.set(str(ROOT / "build" / record["board"]))
             self.elf.set(str(ROOT / "build" / record["board"] / "app.elf"))
         if isinstance(target, int):
@@ -494,7 +506,8 @@ class App:
                 self.slot.set(pad.TARGETS[target])
         self.render_overview()
         self.render_details()
-        pages = {"console": self.diagnostics, "firmware": self.firmware_page, None: self.overview}
+        self.update_tools()
+        pages = {"tools": self.tools_page, None: self.overview}
         self.show_page(pages.get(target, self.settings))
 
     def scroll_form(self, parent):
@@ -545,7 +558,7 @@ class App:
             steps = -int(delta / 120)
         else:
             steps = -1 if delta > 0 else 1 if delta < 0 else 0
-        target = self.output if self.active_page is self.diagnostics else self.scroll_canvases.get(self.active_page)
+        target = self.output if event.widget is self.output else self.scroll_canvases.get(self.active_page)
         if target is not None:
             target.yview_scroll(steps, "units")
         return "break"
@@ -576,11 +589,16 @@ class App:
             return
         ttk.Label(f, text=f"{record['board'].title()} · {record['path']}", font=("TkDefaultFont", 13, "bold")).pack(anchor="w", pady=(0, 2))
         ttk.Label(f, text=record["status"], wraplength=850).pack(anchor="w", pady=(0, 4))
+        ttk.Button(f, text="Flash Firmware…", command=self.choose_firmware).pack(anchor="w", pady=(4, 8))
+        if record["board"] == "loader":
+            ttk.Label(f, text="This device is in ROM loader mode. Select a firmware image to flash it.\n"
+                      "Settings and diagnostics are available after firmware starts. Reconnect USB to leave loader mode.", wraplength=850).pack(anchor="w", pady=6)
+            return
         if record.get("error"):
             ttk.Label(f, text=record["error"]).pack(anchor="w", pady=8)
             return
         if record["board"] == "dongle":
-            ttk.Label(f, text="Choose Console / diagnostics in the tree for dongle pairing and connection settings.").pack(anchor="w", pady=8)
+            ttk.Label(f, text="Choose Device tools in the tree for dongle pairing and connection settings.").pack(anchor="w", pady=8)
             ttk.Button(f, text="Pair dongle…", command=lambda: self.slot_action("pair", 0)).pack(anchor="w")
             return
         ttk.Label(f, text="Choose each slot's type here. Open Settings for transport, colours, response and other options.", wraplength=850).pack(anchor="w", pady=(0, 6))
@@ -792,7 +810,7 @@ class App:
         f = self.firmware
         f.columnconfigure(1, weight=1)
         ttk.Label(f, text="Full flash backup and verified firmware installation", font=("TkDefaultFont", 12, "bold")).grid(row=0, column=0, columnspan=3, sticky="w")
-        ttk.Label(f, text="Python flasher with bundled BR23 loader. Operations refuse ambiguous loader matches.\n"
+        ttk.Label(f, text="Python flasher using the BR23 loader from the SDK or distribution package.\n"
                   "If automatic loader entry fails: pad—hold Home + Start while plugging in USB; dongle—hold its button.\n"
                   "Backup leaves the device in its loader; reconnect USB when finished.", wraplength=940).grid(row=1, column=0, columnspan=3, sticky="w", pady=10)
         exe = ROOT / "build/host" / ("jlnewfw.exe" if os.name == "nt" else "jlnewfw")
@@ -808,7 +826,7 @@ class App:
         self.boards.bind("<<ComboboxSelected>>", self.change_board)
         self.file_row(f, 3, "BR23 loader", self.loader)
         self.file_row(f, 4, "Firmware image (.img / .ufw)", self.image)
-        ttk.Button(f, text="Flash image…", command=lambda: self.flash(False)).grid(row=5, column=1, sticky="w", pady=8)
+        ttk.Button(f, text="Flash Firmware…", command=self.choose_firmware).grid(row=5, column=1, sticky="w", pady=8)
         ttk.Separator(f).grid(row=6, column=0, columnspan=3, sticky="ew", pady=8)
         ttk.Label(f, text="Optional: pack our build with jlnewfw for the connected chip's key:").grid(row=7, column=0, columnspan=3, sticky="w")
         self.file_row(f, 8, "jlnewfw (build packing only)", self.flasher)
@@ -819,6 +837,36 @@ class App:
         ttk.Button(f, text="Back up full flash…", command=self.backup_flash).grid(row=5, column=2, sticky="e", pady=8)
         ttk.Label(f, text="Flashing requires a backup destination and verifies every written byte. Image flashing enforces the chip key.\n"
                   "Select a build folder explicitly when switching boards. Settings in erased sectors are replaced by the image.", wraplength=940).grid(row=13, column=0, columnspan=3, sticky="w", pady=8)
+
+    def update_tools(self):
+        record = self.record()
+        running = record is not None and record["board"] in PIDS
+        for widget in self.controls(self.diagnostics):
+            state = "readonly" if running and isinstance(widget, ttk.Combobox) else "normal" if running else "disabled"
+            if record is None and isinstance(widget, ttk.Button) and widget.cget("text") == "Tool mode (Linux HID)":
+                state = "normal"
+            widget.configure(state=state)
+
+    def choose_firmware(self):
+        if self.busy:
+            return
+        file = filedialog.askopenfilename(title="Select firmware to flash", filetypes=[("Firmware", "*.img *.ufw"), ("All files", "*")])
+        if not file:
+            return
+        try:
+            pid, _ = padflash.image_identity(padflash.load_image(file))
+            board = next((name for name, value in PIDS.items() if value == pid), None)
+            if board is None:
+                raise ValueError("This firmware image is not for a supported pad or dongle.")
+            record = self.record()
+            if record and record["board"] in PIDS and record["board"] != board:
+                raise ValueError("Image does not match the selected device.")
+        except (ValueError, OSError) as error:
+            messagebox.showerror("Firmware", str(error))
+            return
+        self.image.set(file)
+        self.board.set(board)
+        self.flash(False)
 
     def loader_blob(self):
         blob = Path(self.loader.get()).read_bytes()
@@ -851,8 +899,10 @@ class App:
         if Path(file).resolve() == Path(self.loader.get()).resolve():
             messagebox.showerror("Backup destination", "Choose a file different from the BR23 loader.")
             return
+        record = self.record()
+        loader_path = record["path"] if record and record["board"] == "loader" else None
         def backup():
-            loader = padflash.select_loader(board, blob, report=self.flash_report)
+            loader = padflash.select_loader(board, blob, report=self.flash_report, device_path=loader_path)
             loader.backup(file)
             self.flash_report("Backup complete. Reconnect USB to leave the loader.")
         self.run("Backing up flash…", backup, lambda _: self.clear_settings())
@@ -890,6 +940,8 @@ class App:
                                   "The flasher selects by firmware PID and chip key. Connect only the intended board. "
                                   "Settings in erased sectors will be replaced. Keep USB connected until verification finishes."):
             return
+        record = self.record()
+        loader_path = record["path"] if record and record["board"] == "loader" else None
         def flash():
             with tempfile.TemporaryDirectory(prefix="padtool-") as temp:
                 packed = Path(temp) / "firmware.img"
@@ -899,8 +951,8 @@ class App:
                 pid, key = padflash.image_identity(data)
                 if pid != PIDS[board]:
                     raise ValueError("Image does not match the selected board")
-                curve_backup = pad.prepare_curve_upgrade(board, backup)
-                loader = padflash.select_loader(board, blob, report=self.flash_report)
+                curve_backup = None if loader_path else pad.prepare_curve_upgrade(board, backup)
+                loader = padflash.select_loader(board, blob, report=self.flash_report, device_path=loader_path)
                 if pack and key != loader.key:
                     self.invoke(pack_args + ["-k", hex(loader.key), "-o", str(packed)])
                     data = padflash.load_image(packed)
@@ -976,6 +1028,8 @@ class App:
         path = self.path()
         if path:
             record = self.record()
+            if record and record["board"] == "loader":
+                return
             def perform():
                 if record and pad.cmd(path, 0, length=64)[:40] != record["identity"]:
                     raise ValueError("Device changed; refresh again before sending an action")
