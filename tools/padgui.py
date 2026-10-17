@@ -558,14 +558,6 @@ class App:
         ttk.Label(bar, textvariable=self.details_title, font=("TkDefaultFont", 12, "bold")).pack(side="left")
         ttk.Label(self.settings, text="* differs from default · ! invalid value · ? default unavailable. Reset fills in the default; Apply saves it.", wraplength=850).pack(anchor="w", pady=(0, 8))
         self.form = self.scroll_form(self.settings)
-        bar = ttk.Frame(self.settings)
-        bar.pack(fill="x", pady=(8, 0))
-        self.settings_backup = ttk.Button(bar, text="Back up pad settings…", command=self.backup_settings)
-        self.settings_backup.pack(side="left")
-        self.settings_restore = ttk.Button(bar, text="Restore pad settings…", command=self.restore_settings)
-        self.settings_restore.pack(side="left", padx=8)
-        self.calibration = tk.BooleanVar()
-        ttk.Checkbutton(bar, text="Restore calibration too", variable=self.calibration).pack(side="left")
 
     def show_target(self, target):
         for node, key in self.nodes.items():
@@ -605,14 +597,11 @@ class App:
             ttk.Button(row, text="Settings", command=lambda t=target: self.show_target(t)).pack(side="left", padx=(0, 8))
             ttk.Button(row, text="Connect", command=lambda t=target: self.slot_action("connect", t)).pack(side="left", padx=(0, 8))
             ttk.Button(row, text="Pair…", command=lambda t=target: self.slot_action("pair", t)).pack(side="left", padx=(0, 8))
-        groups = ttk.Frame(f)
-        groups.pack(fill="x", pady=12)
-        for target in (8, 9):
-            ttk.Button(groups, text=pad.TARGETS[target].title() + " settings", command=lambda t=target: self.show_target(t)).pack(side="left", padx=(0, 8))
-        ttk.Button(groups, text="Calibrate sensors…", state="normal" if int.from_bytes(record["identity"][4:6], "little") >= 3 else "disabled",
-                   command=self.calibrate).pack(side="left", padx=8)
-        ttk.Label(f, text="Sensor calibration is global. Calibrate requires firmware protocol 3 or newer.\n"
-                  "Connect and Pair use saved settings; apply pending edits for that slot first.", wraplength=850).pack(anchor="w", pady=10)
+        actions = ttk.Frame(f)
+        actions.pack(fill="x", pady=(12, 0))
+        ttk.Button(actions, text="Back up pad settings…", command=self.backup_settings).pack(side="left")
+        ttk.Button(actions, text="Restore pad settings…", command=self.restore_settings).pack(side="left", padx=8)
+        ttk.Label(f, text="Connect and Pair use saved settings; apply pending edits for that slot first.", wraplength=850).pack(anchor="w", pady=10)
 
     def render_details(self):
         for widget in self.form.winfo_children():
@@ -620,8 +609,6 @@ class App:
         self.editors = {}
         record = self.record()
         supported = record and record["board"] == "pad" and not record.get("error")
-        for button in (self.settings_backup, self.settings_restore):
-            button.configure(state="normal" if supported else "disabled")
         if not supported:
             self.details_title.set("Select a pad slot in the tree")
             return
@@ -629,6 +616,12 @@ class App:
         self.details_title.set(f"{record['path']} · " + (f"Slot {pad.TARGETS[target]}" if target < 8 else pad.TARGETS[target].title()))
         advanced = ttk.Frame(self.form)
         rows = {self.form: 0, advanced: 0}
+        if target == pad.target_index("calibration"):
+            calibration = ttk.Frame(self.form, padding=(4, 4, 4, 12))
+            calibration.grid(row=0, column=0, columnspan=4, sticky="w")
+            ttk.Button(calibration, text="Calibrate sensors…", command=self.calibrate).pack(anchor="w")
+            ttk.Label(calibration, text="Calibration is shared by all slots. Select Calibrate sensors for instructions.", wraplength=800).pack(anchor="w", pady=(6, 0))
+            rows[self.form] = 1
         for (t, name), entry in record["draft"].items():
             f = entry["field"]
             if t != target:
@@ -753,8 +746,7 @@ class App:
         if action == "connect" and record["board"] != "pad":
             return
         if action == "calibrate":
-            if record["board"] != "pad" or int.from_bytes(record["identity"][4:6], "little") < 3:
-                messagebox.showinfo("Firmware update required", "USB calibration needs pad firmware protocol 3 or newer.")
+            if record["board"] != "pad":
                 return
             if not messagebox.askokcancel("Calibrate sensors", "Calibration is shared by all slots.\n\n"
                                            "After starting, leave sticks and triggers untouched for 2.5 seconds. Then circle both sticks along their edges and press both triggers fully.\n\n"
@@ -784,10 +776,8 @@ class App:
         if not path:
             return
         file = filedialog.askopenfilename(filetypes=[("Settings", "*.json")])
-        calibration = self.calibration.get()
-        if file and messagebox.askyesno("Restore settings", "Restore this pad’s slots, palette and pairing data from this file?" +
-                                       (" Calibration will also be restored." if calibration else " Calibration will be kept.")):
-            self.run("Restoring settings…", lambda: pad.restore(path, file, calibration), lambda _: self.clear_settings())
+        if file and messagebox.askyesno("Restore pad settings", "Restore this pad’s slots, palette, pairing data and calibration from this file?"):
+            self.run("Restoring settings…", lambda: pad.restore(path, file, True), lambda _: self.clear_settings())
 
     def file_row(self, parent, row, label, var, directory=False):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=5)

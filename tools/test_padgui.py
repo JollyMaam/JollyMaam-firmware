@@ -1,5 +1,6 @@
 """GUI/device boundary tests. Use an X display (Xvfb is sufficient). No USB I/O."""
 import ctypes
+import gc
 import time
 import tkinter as tk
 import unittest
@@ -23,6 +24,8 @@ def record(path="fake", board="pad", protocol=3):
 
 class GuiTests(unittest.TestCase):
     def setUp(self):
+        # Collect Tk objects from earlier tests on the UI thread, before workers start.
+        gc.collect()
         self.root = tk.Tk()
         self.root.withdraw()
         self.app = padgui.App(self.root, auto_scan=False)
@@ -212,9 +215,18 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(len(self.app.tree.get_children("device0")), 12)
         self.assertEqual(len(self.app.tree.get_children("device1")), 2)
 
-    def test_actions_target_slot_and_old_firmware_blocks_calibration(self):
+    def test_actions_target_slot_and_calibration_is_global(self):
         r = record()
         self.load([r])
+        overview_buttons = [w.cget("text") for w in self.app.controls(self.app.overview_form) if isinstance(w, padgui.ttk.Button)]
+        self.assertIn("Back up pad settings…", overview_buttons)
+        self.assertNotIn("Calibrate sensors…", overview_buttons)
+        self.assertNotIn("Palette settings", overview_buttons)
+        self.app.show_target(9)
+        calibration_buttons = [w.cget("text") for w in self.app.controls(self.app.settings) if isinstance(w, padgui.ttk.Button)]
+        self.assertIn("Calibrate sensors…", calibration_buttons)
+        self.assertNotIn("Back up pad settings…", calibration_buttons)
+        self.assertFalse(hasattr(self.app, "calibration"))
         with patch.object(padgui.pad, "cmd", return_value=r["identity"]) as cmd:
             self.app.slot_action("connect", 5)
             self.finish()
@@ -224,10 +236,14 @@ class GuiTests(unittest.TestCase):
             self.app.calibrate()
             self.finish()
             self.assertEqual(cmd.call_args.args, ("fake", 0x18, 0))
-        r["identity"] = r["identity"][:4] + b"\2\0" + r["identity"][6:]
-        with patch.object(padgui.pad, "cmd") as cmd, patch.object(padgui.messagebox, "showinfo"):
-            self.app.slot_action("calibrate", 0)
-            cmd.assert_not_called()
+    def test_global_restore_always_includes_calibration(self):
+        self.load([record()])
+        with patch.object(padgui.filedialog, "askopenfilename", return_value="settings.json"), \
+             patch.object(padgui.messagebox, "askyesno", return_value=True), \
+             patch.object(padgui.pad, "restore") as restore:
+            self.app.restore_settings()
+            self.finish()
+            restore.assert_called_once_with("fake", "settings.json", True)
 
     def test_reset_shows_default_and_later_edit_overrides_reset(self):
         r = record()

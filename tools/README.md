@@ -102,17 +102,16 @@ can resample legacy custom records itself; old Concave/S-curve modes require
 host conversion. Never-reused field IDs separate old and new layouts.
 
 Connect and Pair use saved settings, so apply a slot's pending edits first.
-Sensor calibration is global, with one **Calibrate sensors** action on the
-pad's device page. USB calibration requires pad firmware protocol 3 or newer;
-older firmware shows the action disabled. Leave sticks and triggers untouched
+Sensor calibration is global, with one **Calibrate sensors** action in the
+**Calibration** tree page. Leave sticks and triggers untouched
 for 2.5 seconds after starting, then circle both sticks around their edges and
 press both triggers fully. A or B saves; Home cancels. Calibration settings and
 palette settings each have their own global entry in the tree.
 
-**Back up pad settings…** reads all slots, the global palette and calibration
+On the pad’s device overview, **Back up pad settings…** reads all slots, the global palette and calibration
 from the selected pad, including pairing data. It excludes pending GUI edits.
 **Restore pad settings…** restores the targets in that backup across the pad.
-Restores keep calibration unless explicitly selected. Dongle firmware has no
+Restores include calibration; run calibration again if needed. Dongle firmware has no
 settings table; its pairing and target address controls are in Console / diagnostics.
 
 ## Firmware
