@@ -109,6 +109,26 @@ class GuiTests(unittest.TestCase):
         self.assertGreater(canvas.yview()[0], 0)
         self.assertEqual(variable.get(), "one")
 
+    def test_discard_reverts_all_drafts_without_writing(self):
+        one, two = record(), record("other")
+        one["values"][2]["rumble"] = (b"\x64", True)
+        self.load([one, two])
+        self.assertEqual(self.app.summary.get(), "Loaded 2 device(s). No pending changes.")
+        one["draft"][0, "rumble"]["var"].set("invalid")
+        two["draft"][1, "type"]["var"].set("hid")
+        one["draft"][2, "rumble"]["reset"].set(True)
+        self.assertIn("3 pending", self.app.summary.get())
+        self.app.show_target(0)
+        with patch.object(padgui.pad, "send") as send, patch.object(padgui.pad, "cmd") as cmd:
+            self.app.discard_changes()
+            send.assert_not_called()
+            cmd.assert_not_called()
+        self.assertEqual(self.app.editors["rumble"]["var"].get(), "100")
+        self.assertEqual(two["draft"][1, "type"]["var"].get(), "switch")
+        self.assertFalse(one["draft"][2, "rumble"]["reset"].get())
+        self.assertEqual(self.app.dirty_count(), 0)
+        self.assertEqual(self.app.summary.get(), "Loaded 2 device(s). No pending changes.")
+
     def test_worker_failure_restores_controls(self):
         def refused():
             raise SystemExit("device refused change")

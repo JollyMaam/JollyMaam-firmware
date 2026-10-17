@@ -19,7 +19,7 @@ CPU profiling additionally needs `pyelftools` and the ELF matching the running
 firmware; add `ps.pyelftools` to the Nix package list if needed.
 
 Startup automatically scans both pads and dongles and reads every pad
-slot, palette and global calibration setting. **Scan and load** refreshes them. Select a device or settings group
+slot, palette and global calibration setting. **Refresh** refreshes them. Select a device or settings group
 in the tree; Linux device labels also show USB topology when available.
 Configuration and diagnostics use the selected device. A USB gamepad session
 must end before vendor commands become available. The Linux HID tool-mode
@@ -35,10 +35,12 @@ and backup controls. These entries remain available without a detected device
 for recovery flashing. Connect and Pair are on the device overview.
 The mouse wheel scrolls the current page anywhere in the window, including
 over dropdowns and number fields, without changing their values. Edits persist
-while switching slots and devices. **Apply changes** validates all edited
+while switching slots and devices. **Apply** validates all edited
 values, checks device identities, then commits all pending changes once per
 device. A failure on one device does not undo a previous device's commit;
-uncommitted edits remain pending. Reset fills the value box with its firmware
+uncommitted edits remain pending. **Discard** reverts all pending edits to the
+last loaded or applied values without writing to devices. The top toolbar shows
+the loaded device count and pending changes. Reset fills the value box with its firmware
 default and stages removal of the saved override; editing the box afterwards
 stages that new value instead. Rescanning or closing asks before discarding edits.
 
@@ -107,7 +109,9 @@ for 2.5 seconds after starting, then circle both sticks around their edges and
 press both triggers fully. A or B saves; Home cancels. Calibration settings and
 palette settings each have their own global entry in the tree.
 
-Settings backups read the saved device values, and include pairing data.
+**Back up pad settings…** reads all slots, the global palette and calibration
+from the selected pad, including pairing data. It excludes pending GUI edits.
+**Restore pad settings…** restores the targets in that backup across the pad.
 Restores keep calibration unless explicitly selected. Dongle firmware has no
 settings table; its pairing and target address controls are in Console / diagnostics.
 

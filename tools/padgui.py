@@ -43,14 +43,18 @@ class App:
         self.device = tk.StringVar()
         self.target = tk.StringVar(value=pad.TARGETS[0])
         self.expanded_details = set()
-        self.notice = tk.StringVar(value="Scan and load to browse all connected boards and their slots.")
+        self.notice = tk.StringVar()
         self.pending = tk.StringVar(value="No pending changes")
+        self.summary = tk.StringVar()
+        self.notice.trace_add("write", lambda *_: self.update_summary())
+        self.pending.trace_add("write", lambda *_: self.update_summary())
+        self.update_summary()
         top = ttk.Frame(root, padding=10)
         top.pack(fill="x")
-        ttk.Button(top, text="Scan and load", command=self.scan).pack(side="left")
-        ttk.Button(top, text="Apply changes", command=self.apply_settings).pack(side="left", padx=8)
-        ttk.Label(top, textvariable=self.pending).pack(side="left", padx=10)
-        ttk.Label(root, textvariable=self.notice, padding=(10, 0, 10, 8), wraplength=1100).pack(fill="x")
+        ttk.Button(top, text="Refresh", command=self.scan).pack(side="left")
+        ttk.Button(top, text="Apply", command=self.apply_settings).pack(side="left", padx=8)
+        ttk.Button(top, text="Discard", command=self.discard_changes).pack(side="left")
+        ttk.Label(top, textvariable=self.summary, wraplength=750).pack(side="left", padx=10, fill="x", expand=True)
         pane = ttk.Panedwindow(root, orient="horizontal")
         pane.pack(fill="both", expand=True, padx=10)
         navigation = ttk.Frame(pane, width=250)
@@ -175,7 +179,7 @@ class App:
                     result, done, output = data
                     if output:
                         self.log(output)
-                    self.notice.set("Ready")
+                    self.notice.set("")
                     if done:
                         done(result)
         except queue.Empty:
@@ -215,7 +219,7 @@ class App:
     def path(self):
         path = self.device.get()
         if not path:
-            messagebox.showinfo("Choose a device", "Scan and load, then choose a device in the tree.")
+            messagebox.showinfo("Choose a device", "Refresh, then choose a device in the tree.")
         return path
 
     def install_values(self, record, values):
@@ -349,17 +353,36 @@ class App:
         if field["type"] == pad.T_COLOUR:
             text = ("Choose one of the 16 colours from the pad's palette, then select its brightness. "
                     "Previews show the full palette colour at every brightness level. "
-                    "Palette edits also update these previews. Apply palette edits separately, or use Apply changes to save everything.\n\n" + text)
+                    "Palette edits also update these previews. Apply palette edits separately, or use Apply to save everything.\n\n" + text)
         elif field["name"] in ("left_curve_points", "right_curve_points"):
             text = ("These 15 points control stick output at 6.25% intervals from 6.25% through 93.75% travel. "
                     "Drag a point on the graph, move its slider, or enter an output percentage and press Enter. "
                     "Outputs stay in increasing order; zero and full travel stay fixed.\n\n"
                     "Use points enables the saved curve. Turning it off gives exact linear passthrough without losing points. Presets are shared with the CLI. "
-                    "Apply saves this setting; Apply changes saves all pending edits.")
+                    "Apply beside a setting saves it; the toolbar Apply saves all pending edits.")
         messagebox.showinfo(field["name"].replace("_", " ").capitalize(), text or "No extra help is available.")
 
     def dirty_count(self):
         return sum(self.changed(e) for r in self.cache.values() for e in r.get("draft", {}).values())
+
+    def update_summary(self):
+        text = f"Loaded {len(self.cache)} device(s). {self.pending.get()}."
+        if self.notice.get():
+            text += " " + self.notice.get()
+        self.summary.set(text)
+
+    def discard_changes(self):
+        if self.busy:
+            return
+        for record in self.cache.values():
+            for entry in record.get("draft", {}).values():
+                entry.pop("custom_curve", None)
+                entry["var"].set(entry["original"])
+                entry["reset"].set(False)
+        self.render_overview()
+        self.render_details()
+        self.mark_dirty()
+        self.notice.set("")
 
     def mark_dirty(self):
         count = self.dirty_count()
@@ -408,8 +431,7 @@ class App:
             self.device.set("")
             self.render_tree()
             self.mark_dirty()
-            self.notice.set(f"Loaded {len(records)} device(s). Edits stay pending until Apply changes." if records else
-                            "No devices loaded. Check USB, tool mode and permissions. Firmware operations also find ROM loaders.")
+            self.notice.set("")
             for error in errors:
                 self.log(error)
             if errors:
@@ -538,9 +560,9 @@ class App:
         self.form = self.scroll_form(self.settings)
         bar = ttk.Frame(self.settings)
         bar.pack(fill="x", pady=(8, 0))
-        self.settings_backup = ttk.Button(bar, text="Back up saved settings…", command=self.backup_settings)
+        self.settings_backup = ttk.Button(bar, text="Back up pad settings…", command=self.backup_settings)
         self.settings_backup.pack(side="left")
-        self.settings_restore = ttk.Button(bar, text="Restore settings…", command=self.restore_settings)
+        self.settings_restore = ttk.Button(bar, text="Restore pad settings…", command=self.restore_settings)
         self.settings_restore.pack(side="left", padx=8)
         self.calibration = tk.BooleanVar()
         ttk.Checkbutton(bar, text="Restore calibration too", variable=self.calibration).pack(side="left")
@@ -558,7 +580,7 @@ class App:
         f = self.overview_form
         record = self.record()
         if not record:
-            ttk.Label(f, text="Scan and load to discover pads, dongles and slot settings.", wraplength=800).pack(anchor="w", pady=12)
+            ttk.Label(f, text="Refresh to discover pads, dongles and slot settings.", wraplength=800).pack(anchor="w", pady=12)
             return
         ttk.Label(f, text=f"{record['board'].title()} · {record['path']}", font=("TkDefaultFont", 13, "bold")).pack(anchor="w", pady=(0, 2))
         ttk.Label(f, text=record["status"], wraplength=850).pack(anchor="w", pady=(0, 4))
@@ -695,13 +717,13 @@ class App:
             messagebox.showerror("Invalid setting", str(error))
             return
         if not jobs:
-            self.notice.set("No pending changes")
+            self.notice.set("")
             return
         def apply():
             # Check every identity before the first commit: USB paths can be reused.
             for path, record, items, keys in jobs:
                 if pad.cmd(path, 0, length=64)[:40] != record["identity"]:
-                    raise ValueError(f"{path}: device changed since loading; scan and load again")
+                    raise ValueError(f"{path}: device changed since loading; refresh again")
             for path, record, items, keys in jobs:
                 pad.send(path, items)
                 try:
@@ -743,7 +765,7 @@ class App:
         command = {"connect": 0x13, "pair": 0x17, "calibrate": 0x18}[action]
         def perform():
             if pad.cmd(path, 0, length=64)[:40] != record["identity"]:
-                raise ValueError("Device changed; scan and load again before sending an action")
+                raise ValueError("Device changed; refresh again before sending an action")
             pad.cmd(path, command, target if action != "calibrate" else 0)
         def finished(_):
             if action == "calibrate":
@@ -763,7 +785,7 @@ class App:
             return
         file = filedialog.askopenfilename(filetypes=[("Settings", "*.json")])
         calibration = self.calibration.get()
-        if file and messagebox.askyesno("Restore settings", "Replace saved settings and pairing data from this file?" +
+        if file and messagebox.askyesno("Restore settings", "Restore this pad’s slots, palette and pairing data from this file?" +
                                        (" Calibration will also be restored." if calibration else " Calibration will be kept.")):
             self.run("Restoring settings…", lambda: pad.restore(path, file, calibration), lambda _: self.clear_settings())
 
@@ -966,7 +988,7 @@ class App:
             record = self.record()
             def perform():
                 if record and pad.cmd(path, 0, length=64)[:40] != record["identity"]:
-                    raise ValueError("Device changed; scan and load again before sending an action")
+                    raise ValueError("Device changed; refresh again before sending an action")
                 return fn(path)
             self.run(label + "…", perform)
 
