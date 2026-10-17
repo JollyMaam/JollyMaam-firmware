@@ -40,7 +40,7 @@ class GuiTests(unittest.TestCase):
         gc.collect()
         self.root = tk.Tk()
         self.root.withdraw()
-        self.app = padgui.App(self.root, auto_scan=False)
+        self.app = padgui.App(self.root, auto_scan=False, auto_identify=False)
         self.errors = []
         self.root.report_callback_exception = lambda *args: self.errors.append(args)
 
@@ -77,14 +77,14 @@ class GuiTests(unittest.TestCase):
         self.assertIs(self.app.active_page, self.app.overview)
         self.app.show_target(0)
         self.assertIs(self.app.active_page, self.app.settings)
-        self.app.tree.selection_set("device1/tools")
+        self.app.tree.selection_set("device1")
         self.app.select_node()
-        self.assertIs(self.app.active_page, self.app.tools_page)
+        self.assertIs(self.app.active_page, self.app.dongle_page)
         titles = [w.cget("text") for w in self.app.controls(self.app.tools_page) if isinstance(w, padgui.ttk.Button)]
         self.assertNotIn("Flash Firmware…", titles)
         self.assertNotIn("Back up full flash…", titles)
         self.app.log("Shared operation log")
-        self.assertIn("Shared operation log", self.app.flash_output.get("1.0", "end"))
+        self.assertIn("Shared operation log", self.app.loader_output.get("1.0", "end"))
         self.assertEqual(self.app.device.get(), "dongle")
         self.assertEqual(self.app.output.master.master, self.app.diagnostics)
         self.app.tree.selection_set("device0/tools")
@@ -158,16 +158,18 @@ class GuiTests(unittest.TestCase):
             status.assert_not_called()
         self.assertEqual(self.app.record()["board"], "loader")
         self.assertIn("UBOOT1.00", self.app.tree.item("device0", "text"))
-        self.assertEqual(self.app.tree.get_children("device0"), ("device0/flash",))
-        buttons = [w.cget("text") for w in self.app.controls(self.app.overview_form) if isinstance(w, padgui.ttk.Button)]
-        self.assertEqual(buttons, ["Flash Firmware…"])
-        self.app.tree.selection_set("device0/flash")
-        self.app.select_node()
-        self.assertIs(self.app.active_page, self.app.flash_page)
+        self.assertEqual(self.app.tree.get_children("device0"), ())
+        buttons = [w.cget("text") for w in self.app.controls(self.app.loader_form) if isinstance(w, padgui.ttk.Button)]
+        self.assertIn("Flash Firmware…", buttons)
+        self.assertIn("Back up full flash…", buttons)
+        self.assertIn("Read product ID", buttons)
+        self.assertIs(self.app.active_page, self.app.loader_page)
         self.assertTrue(all(str(w.cget("state")) == "disabled" for w in self.app.controls(self.app.diagnostics)))
         self.app.board.set("dongle")
-        self.app.change_board()
-        self.assertEqual(self.app.device.get(), "rom")
+        self.app.select_node()
+        self.assertEqual(self.app.board.get(), "")
+        self.assertEqual(self.app.product_id.get(), "Not read")
+        self.assertFalse(hasattr(self.app, "boards"))
 
     def test_flash_picker_derives_board_and_rejects_unknown_product(self):
         self.load([loader_record()])
@@ -177,7 +179,7 @@ class GuiTests(unittest.TestCase):
              patch.object(self.app, "flash") as flash:
             self.app.choose_firmware()
             picker.assert_called_once()
-            flash.assert_called_once_with(False)
+            flash.assert_called_once_with()
             self.assertEqual(self.app.image.get(), "firmware.img")
         with patch.object(padgui.filedialog, "askopenfilename", return_value="dongle.img"), \
              patch.object(padgui.padflash, "load_image", return_value=b"image"), \
@@ -216,15 +218,86 @@ class GuiTests(unittest.TestCase):
         self.assertFalse(horizontal.winfo_ismapped())
         self.assertEqual(canvas.xview(), (0, 1))
 
+    def test_product_id_is_read_from_selected_loader_not_previous_board(self):
+        from unittest.mock import Mock
+        self.load([loader_record()])
+        self.app.board.set("dongle")
+        loader = Mock(product_id=padgui.PIDS["pad"])
+        with patch.object(padgui.padflash, "inspect_loader", return_value=loader) as inspect:
+            self.app.detect_loader_product_id()
+            self.finish()
+            self.assertEqual(inspect.call_args.args[0], "rom")
+            self.assertEqual(self.app.product_id.get(), padgui.PIDS["pad"])
+            self.assertEqual(self.app.record()["product_id"], padgui.PIDS["pad"])
+            loader.flash.assert_not_called()
+
+    def test_automatic_disconnect_and_reconnect_preserves_drafts(self):
+        one = record()
+        self.load([one])
+        one["draft"][0, "rumble"]["var"].set("80")
+        self.app.update_devices((0, {}, [], []))
+        self.assertFalse(self.app.record()["online"])
+        self.assertEqual(self.app.dirty_count(), 1)
+        self.assertIn("Loaded 0 device(s)", self.app.summary.get())
+        new = record("renumbered")
+        new["identity"] = one["identity"]
+        self.app.update_devices((0, {new["path"]: new["identity"]}, [new], []))
+        self.assertNotIn("fake", self.app.cache)
+        self.assertEqual(new["draft"][0, "rumble"]["var"].get(), "80")
+        self.assertEqual(self.app.dirty_count(), 1)
+
+    def test_reused_path_keeps_old_drafts_separate_from_new_device(self):
+        one = record()
+        self.load([one])
+        one["draft"][0, "rumble"]["var"].set("80")
+        replacement = record("different-id")
+        replacement["path"] = "fake"
+        self.app.update_devices((0, {"fake": replacement["identity"]}, [replacement], []))
+        self.assertEqual(self.app.cache["fake"]["draft"][0, "rumble"]["var"].get(), "100")
+        offline = next(r for r in self.app.cache.values() if not r.get("online", True))
+        self.assertEqual(offline["draft"][0, "rumble"]["var"].get(), "80")
+        with patch.object(padgui.messagebox, "showerror"), patch.object(padgui.pad, "send") as send:
+            self.app.apply_settings()
+            send.assert_not_called()
+
+    def test_manual_open_reused_path_preserves_old_drafts(self):
+        one = record()
+        self.load([one])
+        one["draft"][0, "rumble"]["var"].set("80")
+        replacement = record("different-id")
+        replacement["path"] = "fake"
+        with patch.object(padgui.simpledialog, "askstring", return_value="fake"), \
+             patch.object(padgui.pad, "discover_devices", return_value=[("fake", replacement["name"], replacement["identity"])]), \
+             patch.object(padgui, "read_device", return_value=replacement):
+            self.app.open_device_path()
+            self.finish()
+        offline = next(r for r in self.app.cache.values() if not r.get("online", True))
+        self.assertEqual(offline["draft"][0, "rumble"]["var"].get(), "80")
+        self.assertEqual(self.app.cache["fake"]["draft"][0, "rumble"]["var"].get(), "100")
+        self.app.discard_changes()
+        self.assertEqual(list(self.app.cache), ["fake"])
+
+    def test_manual_device_path_opens_and_is_monitored(self):
+        one = record("manual")
+        with patch.object(padgui.simpledialog, "askstring", return_value="manual"), \
+             patch.object(padgui.pad, "discover_devices", return_value=[("manual", one["name"], one["identity"])]), \
+             patch.object(padgui, "read_device", return_value=one):
+            self.app.open_device_path()
+            self.finish()
+            self.assertEqual(self.app.device.get(), "manual")
+            self.assertIn("manual", self.app.monitor.manual_paths)
+            self.assertEqual(self.app.monitor.known["manual"], one["identity"])
+
     def test_worker_failure_restores_controls(self):
+        self.load([record()])
         def refused():
             raise SystemExit("device refused change")
         with patch.object(padgui.messagebox, "showerror") as error:
             self.app.run("Apply", refused)
-            self.assertEqual(str(self.app.boards.cget("state")), "disabled")
+            self.assertEqual(str(self.app.enter_loader_button.cget("state")), "disabled")
             self.finish()
             error.assert_called_once()
-        self.assertEqual(str(self.app.boards.cget("state")), "readonly")
+        self.assertEqual(str(self.app.enter_loader_button.cget("state")), "normal")
 
     def test_slot_edits_survive_navigation_and_type_is_shared(self):
         one, two = record(), record("other")
@@ -297,7 +370,7 @@ class GuiTests(unittest.TestCase):
             self.assertEqual(read.call_count, 10)
         self.assertEqual(len(self.app.cache), 2)
         self.assertEqual(len(self.app.tree.get_children("device0")), 11)
-        self.assertEqual(len(self.app.tree.get_children("device1")), 1)
+        self.assertEqual(len(self.app.tree.get_children("device1")), 0)
 
     def test_actions_target_slot_and_calibration_is_global(self):
         r = record()
@@ -555,14 +628,14 @@ class GuiTests(unittest.TestCase):
                  patch.object(padgui.filedialog, "asksaveasfilename", return_value=str(image)), \
                  patch.object(padgui.messagebox, "showerror") as error, \
                  patch.object(self.app, "run") as run:
-                self.app.flash(False)
+                self.app.flash()
                 error.assert_called_once()
                 run.assert_not_called()
             with patch.object(self.app, "loader_blob", return_value=b"loader"), \
                  patch.object(padgui.messagebox, "askyesnocancel", return_value=True), \
                  patch.object(padgui.filedialog, "asksaveasfilename", return_value=""), \
                  patch.object(self.app, "run") as run:
-                self.app.flash(False)
+                self.app.flash()
                 run.assert_not_called()
 
     def test_flash_can_skip_backup_and_cancel_before_device_access(self):
@@ -579,10 +652,10 @@ class GuiTests(unittest.TestCase):
                  patch.object(padgui.messagebox, "askyesnocancel", return_value=False), \
                  patch.object(padgui.messagebox, "askyesno", return_value=True), \
                  patch.object(padgui.filedialog, "asksaveasfilename") as destination, \
-                 patch.object(padgui.padflash, "select_loader", return_value=loader), \
+                 patch.object(self.app, "open_loader", return_value=loader), \
                  patch.object(padgui.pad, "prepare_curve_upgrade") as upgrade, \
                  patch.object(self.app, "run") as run:
-                self.app.flash(False)
+                self.app.flash()
                 run.assert_called_once()
                 run.call_args.args[1]()
                 destination.assert_not_called()
@@ -591,7 +664,7 @@ class GuiTests(unittest.TestCase):
             with patch.object(self.app, "loader_blob", return_value=b"loader"), \
                  patch.object(padgui.messagebox, "askyesnocancel", return_value=None), \
                  patch.object(self.app, "run") as run:
-                self.app.flash(False)
+                self.app.flash()
                 run.assert_not_called()
 
     def test_running_device_only_offers_loader_entry(self):
@@ -623,9 +696,8 @@ class GuiTests(unittest.TestCase):
             self.assertEqual(cmd.call_args_list[-1].args, ("old", 0x11))
             self.assertEqual(self.app.device.get(), "new")
             self.assertEqual(self.app.record()["board"], "loader")
-            self.assertEqual(self.app.record()["firmware_board"], "pad")
-            self.assertEqual(self.app.board.get(), "pad")
-            self.assertEqual(self.app.bundle.get(), str(padgui.ROOT / "build/pad"))
+            self.assertEqual(self.app.board.get(), "")
+            self.assertEqual(self.app.product_id.get(), "Not read")
             self.assertEqual(self.app.cache["other"]["draft"][0, "rumble"]["var"].get(), "80")
             discard.assert_not_called()
             self.assertEqual(str(self.app.flash_button.cget("state")), "normal")
@@ -655,7 +727,7 @@ class GuiTests(unittest.TestCase):
              patch.object(self.app, "scan") as scan:
             self.app.enter_flash_loader()
             self.finish()
-            scan.assert_called_once_with(automatic=True, select_path="new", firmware_board="pad")
+            scan.assert_called_once_with(automatic=True, select_path="new")
 
     def test_flash_progress_updates_bar_and_stage(self):
         self.load([loader_record()])
@@ -667,7 +739,7 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(self.app.flash_bar["value"], 25)
         self.assertIn("Writing firmware", self.app.flash_status.get())
         self.assertTrue(self.app.flash_progress_frame.winfo_manager())
-        self.assertIs(self.app.active_page, self.app.flash_page)
+        self.assertIs(self.app.active_page, self.app.loader_page)
 
 
 class TransportTests(unittest.TestCase):

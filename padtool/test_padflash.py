@@ -161,6 +161,16 @@ class FlashTests(unittest.TestCase):
             scsi.assert_not_called()
         self.assert_no_flash_mutations()
 
+    def test_inspect_loader_reads_actual_product_id_without_flashing(self):
+        inquiry = b'\0' * 8 + b'BR23    ' + b'UBOOT1.00'.ljust(16, b' ') + b'\0' * 4
+        with patch.object(flash, 'scsi', return_value=inquiry), \
+             patch.object(flash.Loader, 'start'), \
+             patch.object(flash.Loader, 'pid', return_value=flash.PIDS['pad']):
+            detected = flash.inspect_loader('selected', b'loader', report=lambda _: None)
+            self.assertEqual(detected.path, 'selected')
+            self.assertEqual(detected.product_id, flash.PIDS['pad'])
+        self.assert_no_flash_mutations()
+
     def test_failed_backup_prevents_erase(self):
         with self.assertRaises(OSError):
             self.loader.flash(image(), 'pad', Path(self.temp.name) / 'absent/backup.bin')

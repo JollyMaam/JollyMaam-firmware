@@ -14,7 +14,7 @@ from padtransport import device_paths, scsi, usb_location
 
 PIDS = {"pad": "GS_C2_ADC_DEVICE", "dongle": "GS_C2_Dongle"}
 FLASH_SIZES = {"pad": 0x100000, "dongle": 0x80000}
-PACKAGED_LOADER = Path(__file__).resolve().parent / "loaders/br23loader.bin"
+PACKAGED_LOADER = Path(__file__).resolve().parent / "br23loader.bin"
 SDK_LOADER = Path(os.environ.get("JIELI_SDK", "/shared/github.com-Jieli-Tech/fw-AC63_BT_SDK")) / "cpu/br23/tools/br23loader.bin"
 DEFAULT_LOADER = PACKAGED_LOADER if PACKAGED_LOADER.is_file() else SDK_LOADER
 
@@ -242,6 +242,25 @@ class Loader:
             self.execute(0xfc0c, struct.pack(">I", 1))
         except OSError:
             pass  # The successful reboot normally disconnects before replying.
+
+
+def inspect_loader(path, blob, report=print, progress=None, expected_location=None):
+    """Read the selected ROM loader's actual on-flash PID; never enter another device."""
+    if expected_location and usb_location(path) != expected_location:
+        raise OSError("Selected ROM loader moved or its device path was reused; refresh before continuing")
+    inquiry = scsi(path, [0x12, 0, 0, 0, 36], 36, 1000)
+    if len(inquiry) != 36 or inquiry[8:12] != b"BR23" or inquiry[16:21] != b"UBOOT":
+        raise OSError("Selected device is no longer a ROM loader; refresh before continuing")
+    loader = Loader(path, report, progress)
+    if expected_location:
+        loader.location = expected_location
+    loader.start(blob)
+    try:
+        loader.product_id = loader.pid()
+    except ValueError:
+        loader.product_id = None
+    report(f"{path}: product ID {loader.product_id or 'unavailable'}")
+    return loader
 
 
 def select_loader(board, blob, wait=30, report=print, device_path=None, progress=None, expected_location=None):

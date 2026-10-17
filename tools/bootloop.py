@@ -22,8 +22,9 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-PADTOOL = [sys.executable, os.path.join(HERE, "padtool.py")]
-sys.path.insert(0, HERE)
+PADTOOL_DIR = os.path.join(REPO, "padtool")
+PADTOOL = [sys.executable, os.path.join(PADTOOL_DIR, "padtool.py")]
+sys.path.insert(0, PADTOOL_DIR)
 import padtool as pt  # noqa: E402
 CLOCK = re.compile(r"clock check: (\d+) host frames in (\d+) ms")
 

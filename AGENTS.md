@@ -71,9 +71,11 @@ USB sessions by itself: `make BOARD_DEFINES_pad=-DUSB_SESSION_TEST_MS=12000`
 
 `padtool/padgui.pyw` is the Tkinter GUI (`python padtool/padgui.pyw`), sharing the
 padtool protocol and Linux/Windows SCSI transport. `padtool/padflash.py` backs up
-and flashes images in Python using the SDK BR23 RAM loader (or a packaged copy). `jlnewfw` is
-only needed in the GUI to pack builds. Scan and load caches every device and
-pad target; edits stay pending across navigation until Apply changes. Sensor
+and flashes prepared images in Python using the SDK BR23 RAM loader (or a packaged
+copy beside the scripts). Device discovery runs once per second; only new or
+changed devices reload settings. Edits stay pending across navigation until Apply.
+Pad diagnostics live in Debug tools; dongle and ROM-loader actions live on their
+main device pages. `tools/bootloop.py` is a development stress-test helper. Sensor
 calibration is global; the USB trigger requires protocol 3+. Protocol 4 adds
 a read-only defaults query for Reset and default-value indicators. Protocol 5
 uses 15-point curves plus enable flags; presets and migration are shared in

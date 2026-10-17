@@ -20,25 +20,24 @@ There are no pip requirements for configuration, image flashing or backups.
 CPU profiling additionally needs `pyelftools` and the ELF matching the running
 firmware; add `ps.pyelftools` to the Nix package list if needed.
 
-Startup automatically scans both pads and dongles and reads every pad
-slot, palette and global calibration setting. **Refresh** refreshes them. Select a device or settings group
-in the tree; Linux device labels also show USB topology when available.
-Configuration and diagnostics use the selected device. A USB gamepad session
-must end before vendor commands become available. The Linux HID tool-mode
-button can request this for HID profiles; on Windows end the session using the
-pad first, then scan.
+Startup reads every pad slot, palette and global calibration setting. Devices
+are detected automatically about once per second; unchanged devices keep their
+cached settings and pending edits. **Open device path…** at the bottom of the
+device tree lets you enter a path manually, including reloading that device.
+Linux labels show USB topology when available. Configuration and diagnostics
+use the selected device. A USB gamepad session must end before vendor commands
+become available. The Linux HID tool-mode button can request this for HID
+profiles; on Windows end the session using the pad first.
 
-Selecting a device in the tree shows its slots, each with a type dropdown,
-Settings, Connect and Pair. Slot and settings-group entries open detailed settings
-directly. **Developer fields** at the bottom expands or collapses the advanced
-settings, retaining pending edits. **Device tools** under running pads and dongles
-contains diagnostics and the operation log. Only `UBOOT1.00` devices have
-**Flash tools**, with firmware installation, full flash backups, progress and
-the flash log. Connect and Pair are on the device overview.
+Selecting a pad shows its slots, each with a type dropdown, Apply, Settings,
+Connect and Pair. Slot and settings-group entries open detailed settings.
+**Developer fields** at the bottom expands or collapses advanced settings,
+retaining pending edits. **Debug tools** under running pads contains diagnostics
+and the operation log. Dongle and ROM-loader actions are on their main entries.
+Connect and Pair are on the pad overview.
 There is no minimum window size. Toolbar and global device controls wrap in
-narrow windows. Slot rows keep their type, Apply, Settings, Connect and Pair
-controls on one line and scroll horizontally. Detailed settings stack vertically;
-pages provide horizontal scrolling when their controls cannot fit.
+narrow windows. Slot rows and detailed setting rows stay on one line and scroll
+horizontally. Shift+wheel also scrolls horizontally.
 The mouse wheel scrolls the current page anywhere in the window, including
 over dropdowns and number fields, without changing their values. Shift+wheel
 scrolls horizontally. Edits persist
@@ -49,7 +48,8 @@ uncommitted edits remain pending. **Discard** reverts all pending edits to the
 last loaded or applied values without writing to devices. The top toolbar shows
 the loaded device count and pending changes. Reset fills the value box with its firmware
 default and stages removal of the saved override; editing the box afterwards
-stages that new value instead. Rescanning or closing asks before discarding edits.
+stages that new value instead. Closing asks before discarding edits. Disconnected devices with pending edits
+remain in the tree until they reconnect or their edits are discarded.
 
 A `*` beside a setting or tree entry means its effective value differs from the
 firmware default, including already-saved custom values. This is independent of
@@ -67,7 +67,7 @@ Palette RGB fields still accept hex values and show swatches;
 all previews follow staged palette edits.
 
 Each setting has its own Apply button; it saves only that setting and retains
-all other drafts. Apply changes at the top saves all pending edits. Help is
+all other drafts. Apply at the top saves all pending edits. Help is
 hidden behind each row's `?` button. Setting names use readable labels.
 Numeric inputs show their valid range beside the box, using firmware-reported
 limits.
@@ -126,15 +126,15 @@ reverts them. Other devices’ pending edits are retained.
 from the selected pad, including pairing data. It excludes pending GUI edits.
 **Restore pad settings…** restores the targets in that backup across the pad.
 Restores include calibration; run calibration again if needed. Dongle firmware has no
-settings table; its pairing and target address controls are in Device tools.
+settings table; its pairing and target address controls are on its main page.
 
 ## Firmware
 
 Full flash backup and image flashing run entirely in Python. The BR23 RAM
 loader is read from `JIELI_SDK/cpu/br23/tools/br23loader.bin` during development
 (or this workspace’s SDK location). It is not tracked in version control.
-A distribution can include it under `padtool/loaders/`; that packaged copy takes
-precedence. Its Apache 2.0 license and provenance remain in `padtool/loaders/`.
+A future distribution can include `padtool/br23loader.bin` beside the Python
+scripts; that untracked packaged copy takes precedence.
 No external flashing executable is needed.
 The loader is uploaded to RAM through UBOOT1.00; it provides SPI flash access.
 It is separate from the `uboot.boot` contained inside firmware images.
@@ -144,47 +144,25 @@ run Python in an Administrator terminal. Linux needs read/write access to the
 matching `/dev/sg*` node. Inside our development container `/dev/bwrap/sg*` works.
 Windows discovery currently probes PhysicalDrive0 through PhysicalDrive63.
 
-Two install paths are available:
+**Flash Firmware…** accepts a packed `firmware.img` unchanged, or extracts the
+flash.bin entry of a CRC-checked UFW. Prepare images with the firmware build
+before using the GUI; it does not pack builds or call an external flasher.
+The image’s product ID and chip key must match the selected device.
 
-- **Flash image:** writes a packed `firmware.img` unchanged, or extracts and
-  writes the flash.bin entry of a CRC-checked UFW. The image's PID must match
-  the selected board, and its chip key must match the device. A generic image
-  from another chip may fail this check; use build packing in that case.
-- **Pack and flash build:** optionally calls `jlnewfw pack` to prepare an image
-  for the connected chip's key, then flashes it through the Python backend.
-  Select a folder with `app.bin` and `isd_config.ini`, plus the SDK's
-  `uboot.boot` and `cfg_tool.bin`. Selecting a board sets its default build folder.
-
-For optional build packing, compile `jlnewfw` on Linux:
-
-```sh
-make build/host/jlnewfw
-```
-
-For Windows, compile `tools/jlnewfw.c` with MinGW-w64 (or use the cross-compiled
-`build/host/jlnewfw.exe` when supplied). From a MinGW terminal:
-
-```sh
-mkdir -p build/host
-gcc -O2 -std=c11 -Wall -Wextra -o build/host/jlnewfw.exe tools/jlnewfw.c
-```
-
-The packing resources are `cpu/br23/tools/uboot.boot` and `cfg_tool.bin`. The GUI
-derives defaults from `JIELI_SDK` if set; otherwise it uses this workspace's SDK
-location. Browse to those files when packing elsewhere.
-
-**Refresh** also detects `UBOOT1.00` ROM loaders without uploading code or
-sending running-firmware commands. A running pad or dongle offers **Enter flash
-loader**, which checks the selected device, requests the reboot, waits for the
-ROM loader, then refreshes and selects it automatically. Other devices' pending
-edits are retained; apply or discard edits on the rebooting device first. On
-Linux, the USB port chain identifies the returning loader even if its `sg`
-number changes. Where port information is unavailable, only a single newly
-appearing loader is selected; ambiguous results require Refresh and selection.
-For a stock pad, connect USB while holding Home + Plus, then Refresh.
+Automatic discovery detects `UBOOT1.00` ROM loaders. Selecting one uploads the
+RAM helper and reads the product ID stored in flash; the page displays the actual
+ID rather than a board selector. Invalid or blank headers show an unavailable ID.
+Discovery itself only probes device identity and does not upload code.
+A running pad or dongle offers **Enter flash loader**, which checks its identity,
+requests the reboot, waits for the ROM loader, then selects it automatically.
+Other devices’ pending edits are retained; apply or discard edits on the
+rebooting device first. On Linux, the USB port chain identifies the returning
+loader even if its `sg` number changes. Where port information is unavailable,
+only a single newly appearing loader is selected; ambiguous results require
+manual selection. For a stock pad, connect USB while holding Home + Plus.
 
 Only a detected ROM loader offers flashing or a full flash backup in the GUI.
-Flash tools places **Back up full flash…** before **Flash Firmware…**. Flash
+Its main page places **Back up full flash…** before **Flash Firmware…**. Flash
 Firmware opens the sole image picker and immediately checks its product ID.
 The image selects pad versus dongle, with PID, capacity and chip-key checks
 before erasing. The selected loader path stays fixed during the operation; on
@@ -225,6 +203,8 @@ in its loader for recovery.
 ## Code and validation
 
 `padgui.pyw` owns the UI and serializes operations on a worker thread.
+`paddevices.py` monitors device presence, pausing during other USB operations.
+`tools/bootloop.py` is a development stress-test helper, separate from padtool.
 `padwidgets.py` supplies the palette/brightness and stick curve editors.
 `padcurves.py` shares preset definitions, validation and legacy conversion with
 the CLI; `python -m unittest discover -s padtool -p test_padcurves.py -v` tests it.
@@ -244,7 +224,7 @@ python -m unittest discover -s padtool -p test_padflash.py -v
 Run GUI boundary tests on a display or under Xvfb:
 
 ```sh
-python -m unittest discover -s padtool -p test_padgui.pyw -v
+python -m unittest discover -s padtool -p test_padgui.py -v
 ```
 
 The flasher tests simulate a SCSI device to check RAM upload, chip info, exact

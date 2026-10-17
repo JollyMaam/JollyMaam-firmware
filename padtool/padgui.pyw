@@ -2,33 +2,32 @@
 """Tkinter front end for padtool and the Python BR23 flasher. Run: python padtool/padgui.pyw."""
 import contextlib
 import io
-import os
 from pathlib import Path
 import queue
-import shutil
-import subprocess
 import threading
-import tempfile
 import time
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import padtool as pad
 import padflash
 from padtransport import usb_location
+from paddevices import DeviceMonitor, read_device
 from padwidgets import PaletteEditor, CurveEditor
 
 ROOT = Path(__file__).resolve().parent.parent
-SDK = Path(os.environ.get("JIELI_SDK", "/shared/github.com-Jieli-Tech/fw-AC63_BT_SDK")) / "cpu/br23/tools"
 PIDS = padflash.PIDS
 
 
 class App:
-    def __init__(self, root, auto_scan=True):
+    def __init__(self, root, auto_scan=True, auto_identify=True):
         self.root = root
+        self.auto_identify = auto_identify
         root.title("Cyclone 2 · padtool")
         root.geometry("1250x850")
         self.events = queue.Queue()
+        self.monitor = DeviceMonitor(self.events)
+        self.automatic_devices = auto_scan
         self.busy = False
         self.flash_active = False
         self.batch_edits = False
@@ -42,7 +41,14 @@ class App:
         self.swatches = []
         self.special_editors = []
         self.apply_buttons = []
-        self.board = tk.StringVar(value="pad")
+        self.board = tk.StringVar()
+        self.loader = tk.StringVar(value=str(padflash.DEFAULT_LOADER))
+        self.image = tk.StringVar()
+        self.product_id = tk.StringVar(value="Not read")
+        self.address = tk.StringVar()
+        self.loader_title = tk.StringVar()
+        self.dongle_title = tk.StringVar()
+        self.dongle_status = tk.StringVar()
         self.device = tk.StringVar()
         self.target = tk.StringVar(value=pad.TARGETS[0])
         self.expanded_details = set()
@@ -54,8 +60,7 @@ class App:
         self.update_summary()
         top = ttk.Frame(root, padding=10)
         top.pack(fill="x")
-        toolbar_buttons = [ttk.Button(top, text="Refresh", command=self.scan),
-                           ttk.Button(top, text="Apply", command=self.apply_settings),
+        toolbar_buttons = [ttk.Button(top, text="Apply", command=self.apply_settings),
                            ttk.Button(top, text="Discard", command=self.discard_changes)]
         toolbar_status = ttk.Label(top, textvariable=self.summary)
         def resize_toolbar(event):
@@ -78,6 +83,7 @@ class App:
         navigation = ttk.Frame(pane, width=250)
         pane.add(navigation, weight=0)
         ttk.Label(navigation, text="Devices and slots", padding=6).pack(anchor="w")
+        ttk.Button(navigation, text="Open device path…", command=self.open_device_path).pack(side="bottom", fill="x", pady=6)
         self.tree = ttk.Treeview(navigation, show="tree", selectmode="browse", height=22)
         scrollbar = ttk.Scrollbar(navigation, orient="vertical", command=self.tree.yview)
         scrollbar.pack(side="right", fill="y")
@@ -96,23 +102,18 @@ class App:
         self.overview = ttk.Frame(content, padding=10)
         self.settings = ttk.Frame(content, padding=10)
         self.tools_page = ttk.Frame(content, padding=10)
-        self.flash_page = ttk.Frame(content, padding=10)
-        for page in (self.overview, self.settings, self.tools_page, self.flash_page):
+        self.loader_page = ttk.Frame(content, padding=10)
+        self.dongle_page = ttk.Frame(content, padding=10)
+        for page in (self.overview, self.settings, self.tools_page, self.loader_page, self.dongle_page):
             page.grid(row=0, column=0, sticky="nsew")
         tools_form = self.scroll_form(self.tools_page)
-        ttk.Label(tools_form, text="Device tools", font=("TkDefaultFont", 13, "bold")).pack(anchor="w", pady=(0, 8))
-        flash_form = self.scroll_form(self.flash_page)
-        ttk.Label(flash_form, text="Flash tools", font=("TkDefaultFont", 13, "bold")).pack(anchor="w", pady=(0, 8))
-        self.firmware = ttk.LabelFrame(flash_form, text="Firmware", padding=10)
-        self.firmware.pack(fill="x")
+        ttk.Label(tools_form, text="Debug tools", font=("TkDefaultFont", 13, "bold")).pack(anchor="w", pady=(0, 8))
         self.diagnostics = ttk.LabelFrame(tools_form, text="Diagnostics and console", padding=10)
-        self.diagnostics.pack(fill="both", expand=True, pady=(12, 0))
+        self.diagnostics.pack(fill="both", expand=True)
         self.build_settings()
-        self.build_firmware()
         self.build_diagnostics()
-        flash_log = ttk.LabelFrame(flash_form, text="Flash log", padding=10)
-        flash_log.pack(fill="both", expand=True, pady=(12, 0))
-        self.flash_output = self.console_output(flash_log)
+        self.build_loader_page()
+        self.build_dongle_page()
         self.render_overview()
         self.show_page(self.overview)
         self.render_tree()
@@ -127,7 +128,7 @@ class App:
         self.startup_scan = root.after_idle(self.scan) if auto_scan else None
 
     def log(self, text):
-        for output in (self.output, self.flash_output):
+        for output in (self.output, self.loader_output, self.dongle_output):
             output.configure(state="normal")
             output.insert("end", text.rstrip() + "\n")
             if int(output.index("end-1c").split(".")[0]) > 5000:
@@ -155,6 +156,8 @@ class App:
         if self.busy:
             return
         self.busy = True
+        self.monitor.busy.set()
+        self.monitor.invalidate()
         self.tree.state(["disabled"])
         self.notice.set(label)
         self.saved_states = [(w, str(w.cget("state"))) for w in self.controls(self.root)]
@@ -166,7 +169,7 @@ class App:
             stream = io.StringIO()
             try:
                 pad.BOARD = board
-                with contextlib.redirect_stdout(stream):
+                with self.monitor.lock, contextlib.redirect_stdout(stream):
                     result = work()
                 self.events.put(("done", (result, done, stream.getvalue())))
             except (Exception, SystemExit) as error:
@@ -179,6 +182,18 @@ class App:
                 kind, data = self.events.get_nowait()
                 if kind == "log":
                     self.log(data)
+                    continue
+                if kind == "devices":
+                    if not self.busy and data[0] == self.monitor.generation:
+                        self.update_devices(data)
+                    continue
+                if kind == "product_id":
+                    path, pid = data
+                    record = self.cache.get(path)
+                    if record and record["board"] == "loader":
+                        record["product_id"] = pid
+                        if self.device.get() == path:
+                            self.product_id.set(pid or "Unavailable")
                     continue
                 if kind == "flash_progress":
                     stage, done, total = data
@@ -202,7 +217,7 @@ class App:
                             entry["original_raw"], entry["original"] = raw, entry["var"].get()
                             entry["explicit"] = not was_reset
                             entry["reset"].set(False)
-                        record["error"] = "Setting(s) saved, but reload failed. Other edits remain pending. Reconnect and scan to reload; scanning will ask before discarding edits."
+                        record["error"] = "Setting(s) saved, but reload failed. Other edits remain pending. Reconnect or use Open device path to reload; other pending edits are retained."
                     else:
                         record = self.cache[path]
                         pending = {key: (entry["var"].get(), entry["reset"].get())
@@ -222,6 +237,7 @@ class App:
                     self.flash_status.set("Complete" if kind == "done" else "Operation failed · see console")
                     self.flash_active = False
                 self.busy = False
+                self.monitor.busy.clear()
                 self.tree.state(["!disabled"])
                 for w, state in self.saved_states:
                     if w.winfo_exists():
@@ -253,6 +269,7 @@ class App:
             if self.startup_scan is not None:
                 self.root.after_cancel(self.startup_scan)
             self.root.after_cancel(self.poll)
+            self.monitor.stop.set()
             self.flash_bar.stop()
             self.root.destroy()
 
@@ -261,27 +278,20 @@ class App:
 
     def clear_settings(self):
         self.cache.pop(self.device.get(), None)
+        self.sync_devices()
         self.device.set("")
         self.render_tree()
         self.render_overview()
         self.render_details()
         self.mark_dirty()
 
-    def change_board(self, event=None):
-        record = self.record()
-        if not record or record["board"] != "loader":
-            self.tree.selection_remove(self.tree.selection())
-            self.device.set("")
-        self.bundle.set(str(ROOT / "build" / self.board.get()))
-        self.elf.set(str(ROOT / "build" / self.board.get() / "app.elf"))
-        self.render_overview()
-        self.render_details()
-        self.update_tools()
-
     def path(self):
         path = self.device.get()
         if not path:
-            messagebox.showinfo("Choose a device", "Refresh, then choose a device in the tree.")
+            messagebox.showinfo("Choose a device", "Choose a device in the tree, or use Open device path.")
+        elif self.record() and not self.record().get("online", True):
+            messagebox.showinfo("Device disconnected", "Reconnect the device to use this action. Pending edits are retained.")
+            return None
         return path
 
     def install_values(self, record, values):
@@ -428,7 +438,7 @@ class App:
         return sum(self.changed(e) for r in self.cache.values() for e in r.get("draft", {}).values())
 
     def update_summary(self):
-        text = f"Loaded {len(self.cache)} device(s). {self.pending.get()}."
+        text = f"Loaded {sum(r.get('online', True) for r in self.cache.values())} device(s). {self.pending.get()}."
         if self.notice.get():
             text += " " + self.notice.get()
         self.summary.set(text)
@@ -441,6 +451,8 @@ class App:
                 entry.pop("custom_curve", None)
                 entry["var"].set(entry["original"])
                 entry["reset"].set(False)
+        self.cache = {path: record for path, record in self.cache.items() if record.get("online", True)}
+        self.render_tree()
         self.render_overview()
         self.render_details()
         self.mark_dirty()
@@ -469,59 +481,128 @@ class App:
             label = self.tree.item(node, "text").removesuffix(" *")
             self.tree.item(node, text=label + (" *" if custom else ""), tags=("dirty",) if dirty else ())
 
-    def scan(self, automatic=False, select_path=None, firmware_board=None):
+    def scan(self, automatic=False, select_path=None):
         if not automatic and self.dirty_count() and not messagebox.askyesno("Reload devices", "Discard pending edits and scan again?"):
             return
         def load():
             records, errors = [], []
-            for path, name, identity in pad.discover_devices(include_loaders=True):
-                if identity is None:
-                    records.append({"defaults": {}, "path": path, "board": "loader", "name": name,
-                                    "identity": None, "fields": [], "values": {}, "status": "UBOOT1.00 ROM loader", "location": usb_location(path)})
-                    continue
-                board = next(b for b, value in pad.BOARD_IDS.items() if value == identity[6])
+            paths = sorted(set(pad.device_paths()) | self.monitor.manual_paths)
+            for path, name, identity in pad.discover_devices(include_loaders=True, paths=paths):
                 try:
-                    table = pad.fields(path) if board == "pad" else []
-                    values = {t: pad.read_target(path, table, t) for t in range(len(pad.TARGETS))} if table else {}
-                    defaults = {t: pad.read_target(path, table, t, defaults=True) for t in range(len(pad.TARGETS))} if table and int.from_bytes(identity[4:6], "little") >= 4 else {}
-                    records.append({"defaults": defaults, "path": path, "board": board, "name": name,
-                                    "identity": identity[:40], "fields": table, "values": values,
-                                    "status": pad.status(path), "location": usb_location(path)})
+                    records.append(read_device(path, name, identity))
                 except (Exception, SystemExit) as error:
                     errors.append(f"{path}: {error}")
             return records, errors
         def display(result):
             records, errors = result
-            previous = self.cache
+            if automatic:
+                self.update_devices((self.monitor.generation,
+                                     {r["path"]: r["identity"] for r in records}, records, errors))
+                self.render_tree(select_path)
+                self.notice.set("")
+                if self.automatic_devices:
+                    self.monitor.start()
+                return
             self.cache = {}
             for record in records:
-                old = previous.get(record["path"])
-                if record["board"] == "loader":
-                    if record["path"] == select_path and firmware_board in PIDS:
-                        record["firmware_board"] = firmware_board
-                    elif old and old["board"] == "loader" and old.get("location") == record.get("location"):
-                        record["firmware_board"] = old.get("firmware_board")
-                pending = {key: (entry["var"].get(), entry["reset"].get(), entry.get("custom_curve"))
-                           for key, entry in old.get("draft", {}).items() if self.changed(entry)} if automatic and old and old["identity"] == record["identity"] else {}
                 self.install_values(record, record["values"])
                 self.cache[record["path"]] = record
-                for key, (text, reset, custom) in pending.items():
-                    if key in record["draft"]:
-                        entry = record["draft"][key]
-                        entry["var"].set(text)
-                        entry["reset"].set(reset)
-                        entry["custom_curve"] = custom
             self.device.set("")
             self.render_tree(select_path)
             self.mark_dirty()
             self.notice.set("")
+            self.sync_devices()
+            if self.automatic_devices:
+                self.monitor.start()
             for error in errors:
                 self.log(error)
             if errors:
                 messagebox.showerror("Some devices could not be loaded", "\n".join(errors))
         self.run("Scanning and loading all device settings…", load, display)
 
+    def sync_devices(self):
+        self.monitor.known = {path: record["identity"] for path, record in self.cache.items() if record.get("online", True)}
+
+    def park_device(self, path, record):
+        record["online"] = False
+        offline_path = "offline:" + record["identity"].hex()
+        record["original_path"] = record.get("original_path", path)
+        record["path"] = offline_path
+        self.cache.pop(path)
+        self.cache[offline_path] = record
+        for node, (node_path, target) in list(self.nodes.items()):
+            if node_path == path:
+                self.nodes[node] = (offline_path, target)
+
+    def merge_device(self, record):
+        path = record["path"]
+        old = self.cache.get(path)
+        if old and old["identity"] != record["identity"]:
+            if any(self.changed(entry) for entry in old.get("draft", {}).values()):
+                self.park_device(path, old)
+            old = None
+        if old is None and record["identity"] is not None:
+            matches = [r for r in self.cache.values() if not r.get("online", True) and r["identity"] == record["identity"]]
+            if len(matches) == 1:
+                old = matches[0]
+                self.cache.pop(old["path"])
+        pending = {key: (entry["var"].get(), entry["reset"].get(), entry.get("custom_curve"))
+                   for key, entry in old.get("draft", {}).items() if self.changed(entry)} if old and old["identity"] == record["identity"] else {}
+        self.install_values(record, record["values"])
+        self.cache[path] = record
+        for key, (text, reset, custom) in pending.items():
+            if key in record["draft"]:
+                entry = record["draft"][key]
+                entry["var"].set(text)
+                entry["reset"].set(reset)
+                entry["custom_curve"] = custom
+
+    def update_devices(self, snapshot):
+        generation, present, records, errors = snapshot
+        changed = False
+        for path, record in list(self.cache.items()):
+            if path not in present or record["identity"] != present[path]:
+                if any(self.changed(entry) for entry in record.get("draft", {}).values()):
+                    changed = changed or record.get("online", True)
+                    record["online"] = False
+                    if path in present and record["identity"] != present[path]:
+                        self.park_device(path, record)
+                else:
+                    self.cache.pop(path)
+                    changed = True
+        for record in records:
+            self.merge_device(record)
+            changed = True
+        if changed:
+            self.render_tree()
+            self.mark_dirty()
+        self.sync_devices()
+        for error in errors:
+            self.log(error)
+
+    def open_device_path(self):
+        if self.busy:
+            return
+        path = simpledialog.askstring("Open device", "Device path (for example /dev/sg2 or \\\\.\\PhysicalDrive2):", parent=self.root)
+        if not path or not path.strip():
+            return
+        path = path.strip()
+        def load():
+            devices = list(pad.discover_devices(include_loaders=True, paths=[path]))
+            if not devices:
+                raise ValueError(f"No supported pad, dongle or UBOOT1.00 device found at {path}")
+            return read_device(*devices[0])
+        def display(record):
+            self.monitor.manual_paths = self.monitor.manual_paths | {path}
+            self.merge_device(record)
+            self.sync_devices()
+            self.render_tree(select_path=path)
+            self.mark_dirty()
+        self.run("Opening device…", load, display)
+
     def render_tree(self, select_path=None):
+        selected = self.tree.selection()
+        previous = self.nodes.get(selected[0]) if selected else None
         self.tree.delete(*self.tree.get_children())
         self.nodes = {}
         for i, (path, record) in enumerate(self.cache.items()):
@@ -529,7 +610,9 @@ class App:
             port = record.get("location") or usb_location(path)
             location = f"USB {port} · " if port else ""
             label = "ROM loader (UBOOT1.00)" if record["board"] == "loader" else record["board"].title()
-            self.tree.insert("", "end", iid=device_node, text=f"{location}{label} · {path}", open=True)
+            if not record.get("online", True):
+                label += " (disconnected)"
+            self.tree.insert("", "end", iid=device_node, text=f"{location}{label} · {record.get('original_path', path)}", open=True)
             self.nodes[device_node] = (path, None)
             targets = range(len(pad.TARGETS)) if record["board"] == "pad" else []
             for t in targets:
@@ -537,16 +620,16 @@ class App:
                 node = f"{device_node}/{t}"
                 self.tree.insert(device_node, "end", iid=node, text=label)
                 self.nodes[node] = (path, t)
-            tool = "flash" if record["board"] == "loader" else "tools"
-            node = f"{device_node}/{tool}"
-            self.tree.insert(device_node, "end", iid=node, text="Flash tools" if tool == "flash" else "Device tools")
-            self.nodes[node] = (path, tool)
+            if record["board"] == "pad":
+                node = f"{device_node}/tools"
+                self.tree.insert(device_node, "end", iid=node, text="Debug tools")
+                self.nodes[node] = (path, "tools")
         if not self.cache:
-            self.tree.insert("", "end", iid="tools", text="Device tools")
+            self.tree.insert("", "end", iid="tools", text="Debug tools")
             self.nodes["tools"] = (None, "tools")
         nodes = self.tree.get_children()
         if nodes:
-            selected = next((node for node, key in self.nodes.items() if key == (select_path, None)), nodes[0])
+            selected = next((node for node, key in self.nodes.items() if key == ((select_path, None) if select_path else previous)), nodes[0])
             self.tree.selection_set(selected)
             self.select_node()
         else:
@@ -564,13 +647,7 @@ class App:
             return
         record = self.cache[path]
         self.device.set(path)
-        previous_board = self.board.get()
-        selected_board = record.get("firmware_board") if record["board"] == "loader" else record["board"]
-        if selected_board in PIDS:
-            self.board.set(selected_board)
-        if selected_board in PIDS and previous_board != selected_board:
-            self.bundle.set(str(ROOT / "build" / selected_board))
-            self.elf.set(str(ROOT / "build" / selected_board / "app.elf"))
+        self.board.set(record["board"] if record["board"] in PIDS else "")
         if isinstance(target, int):
             self.target.set(pad.TARGETS[target])
             if target < 8:
@@ -578,8 +655,12 @@ class App:
         self.render_overview()
         self.render_details()
         self.update_tools()
-        pages = {"tools": self.tools_page, "flash": self.flash_page, None: self.overview}
+        main = self.loader_page if record["board"] == "loader" else self.dongle_page if record["board"] == "dongle" else self.overview
+        pages = {"tools": self.tools_page, None: main}
         self.show_page(pages.get(target, self.settings))
+        if record["board"] == "loader" and self.auto_identify and not record.get("id_checked"):
+            record["id_checked"] = True
+            self.root.after_idle(self.detect_loader_product_id)
 
     def scroll_form(self, parent):
         frame = ttk.Frame(parent)
@@ -648,25 +729,6 @@ class App:
         self.responsive_rows[page].append(layout)
         layout(self.scroll_canvases[page].winfo_width())
 
-    def stack_setting(self, label, editor, extra, actions, row):
-        last_compact = None
-        def layout(width):
-            nonlocal last_compact
-            compact = width < 700
-            if compact == last_compact:
-                return
-            last_compact = compact
-            special = isinstance(editor, (PaletteEditor, CurveEditor))
-            label.grid_configure(row=row, column=0, columnspan=4 if compact else 1)
-            editor.grid_configure(row=row + 1 if compact else row, column=0 if compact else 1,
-                                  columnspan=(4 if special else 3) if compact else (2 if special else 1))
-            if extra is not None:
-                extra.grid_configure(row=row + 1 if compact else row, column=3 if compact else 2)
-            actions.grid_configure(row=row + 2 if compact else row, column=0 if compact else 3,
-                                   columnspan=4 if compact else 1, sticky="nw" if compact else "ne")
-        self.responsive_rows[self.settings].append(layout)
-        layout(self.scroll_canvases[self.settings].winfo_width())
-
     def show_page(self, page):
         self.active_page = page
         page.tkraise()
@@ -692,7 +754,7 @@ class App:
         else:
             steps = -1 if delta > 0 else 1 if delta < 0 else 0
         horizontal = bool(getattr(event, "state", 0) & 1)
-        target = event.widget if not horizontal and event.widget in (self.output, self.flash_output) else self.scroll_canvases.get(self.active_page)
+        target = event.widget if not horizontal and event.widget in (self.output, self.loader_output, self.dongle_output) else self.scroll_canvases.get(self.active_page)
         if target is not None:
             (target.xview_scroll if horizontal else target.yview_scroll)(steps, "units")
         return "break"
@@ -720,29 +782,30 @@ class App:
         f = self.overview_form
         record = self.record()
         if not record:
-            ttk.Label(f, text="Refresh to discover pads, dongles and slot settings.", wraplength=800).pack(anchor="w", pady=12)
+            ttk.Label(f, text="Connect a pad, dongle or ROM loader, or use Open device path.", wraplength=800).pack(anchor="w", pady=12)
             return
-        ttk.Label(f, text=f"{record['board'].title()} · {record['path']}", font=("TkDefaultFont", 13, "bold")).pack(anchor="w", pady=(0, 2))
-        ttk.Label(f, text=record["status"], wraplength=850).pack(anchor="w", pady=(0, 4))
+        if record["board"] == "loader":
+            self.loader_title.set(f"ROM loader (UBOOT1.00) · {record['path']}")
+            self.product_id.set(record.get("product_id") or ("Unavailable" if record.get("id_checked") else "Not read"))
+            return
+        if record["board"] == "dongle":
+            self.dongle_title.set(f"Dongle · {record['path']}")
+            self.dongle_status.set(record["status"])
+            return
+        ttk.Label(f, text=f"{record['board'].title()} · {record.get('original_path', record['path'])}", font=("TkDefaultFont", 13, "bold")).pack(anchor="w", pady=(0, 2))
+        ttk.Label(f, text=record["status"] if record.get("online", True) else "Disconnected · pending edits retained", wraplength=850).pack(anchor="w", pady=(0, 4))
         actions = ttk.Frame(f)
         actions.pack(fill="x", pady=(4, 8))
         ttk.Button(actions, text="Flash Firmware…" if record["board"] == "loader" else "Enter flash loader",
-                   command=self.choose_firmware if record["board"] == "loader" else self.enter_flash_loader).pack(side="left", padx=(0, 8))
+                   command=self.choose_firmware if record["board"] == "loader" else self.enter_flash_loader,
+                   state="normal" if record.get("online", True) else "disabled").pack(side="left", padx=(0, 8))
         if record["board"] == "pad":
-            ttk.Button(actions, text="Back up pad settings…", command=self.backup_settings).pack(side="left", padx=(0, 8))
-            ttk.Button(actions, text="Restore pad settings…", command=self.restore_settings).pack(side="left", padx=(0, 8))
+            ttk.Button(actions, text="Back up pad settings…", command=self.backup_settings, state="normal" if record.get("online", True) else "disabled").pack(side="left", padx=(0, 8))
+            ttk.Button(actions, text="Restore pad settings…", command=self.restore_settings, state="normal" if record.get("online", True) else "disabled").pack(side="left", padx=(0, 8))
             ttk.Button(actions, text="Reset all to defaults", command=self.reset_all_defaults).pack(side="left")
         self.wrap_row(actions, actions.winfo_children(), self.overview)
-        if record["board"] == "loader":
-            ttk.Label(f, text="This device is in ROM loader mode. Select a firmware image to flash it.\n"
-                      "Settings and diagnostics are available after firmware starts. Reconnect USB to leave loader mode.", wraplength=850).pack(anchor="w", pady=6)
-            return
         if record.get("error"):
             ttk.Label(f, text=record["error"]).pack(anchor="w", pady=8)
-            return
-        if record["board"] == "dongle":
-            ttk.Label(f, text="Choose Device tools in the tree for dongle pairing and connection settings.").pack(anchor="w", pady=8)
-            ttk.Button(f, text="Pair dongle…", command=lambda: self.slot_action("pair", 0)).pack(anchor="w")
             return
         ttk.Label(f, text="Choose each slot's type here. Open Settings for transport, colours, response and other options.", wraplength=850).pack(anchor="w", pady=(0, 6))
         for target in range(8):
@@ -792,11 +855,11 @@ class App:
                 continue
             parent = advanced if f["dev"] else self.form
             row = rows[parent]
-            rows[parent] += 3
+            rows[parent] += 1
             label = ttk.Frame(parent)
             label.grid(row=row, column=0, sticky="nw", padx=4, pady=8)
             self.default_marker(label, entry).pack(side="left", padx=(0, 2))
-            ttk.Label(label, text=name.replace("_", " ").capitalize(), wraplength=350).pack(side="left")
+            ttk.Label(label, text=name.replace("_", " ").capitalize()).pack(side="left")
             if f["type"] == pad.T_COLOUR:
                 editor = PaletteEditor(parent, self, record, entry)
                 self.special_editors.append(editor)
@@ -825,7 +888,6 @@ class App:
             self.setting_apply_button(actions, record, target, name, entry).pack(side="left", padx=2)
             ttk.Button(actions, text="?", width=2, command=lambda e=entry: self.show_help(e)).pack(side="left", padx=2)
             self.editors[name] = entry
-            self.stack_setting(label, editor, extra, actions, row)
         self.form.columnconfigure(1, weight=1)
         if rows[advanced]:
             key = (record["path"], target)
@@ -869,6 +931,8 @@ class App:
                 items = [(t, entry["field"]["id"], b"" if entry["reset"].get() else self.value_bytes(entry))
                          for (t, name), entry in record.get("draft", {}).items() if (t, name) in keys]
                 if items:
+                    if not record.get("online", True):
+                        raise ValueError("A device with pending edits is disconnected. Reconnect it before applying.")
                     if record.get("error"):
                         raise ValueError(f"{path}: reload this device before applying more settings")
                     jobs.append((path, record, items, keys))
@@ -923,7 +987,7 @@ class App:
         command = {"connect": 0x13, "pair": 0x17, "calibrate": 0x18}[action]
         def perform():
             if pad.cmd(path, 0, length=64)[:40] != record["identity"]:
-                raise ValueError("Device changed; refresh again before sending an action")
+                raise ValueError("Device changed; wait for device detection before sending an action")
             pad.cmd(path, command, target if action != "calibrate" else 0)
         def finished(_):
             if action == "calibrate":
@@ -936,7 +1000,7 @@ class App:
             return
         entries = list(record["draft"].values())
         if record.get("error") or any(entry["default_text"] is None for entry in entries):
-            messagebox.showerror("Defaults unavailable", "Refresh this pad before resetting all settings to defaults.")
+            messagebox.showerror("Defaults unavailable", "Reconnect this pad to load its defaults before resetting all settings.")
             return
         self.batch_edits = True
         try:
@@ -973,54 +1037,81 @@ class App:
                 var.set(path)
         ttk.Button(parent, text="Browse…", command=browse).grid(row=row, column=2)
 
-    def build_firmware(self):
-        f = self.firmware
-        f.columnconfigure(1, weight=1)
-        ttk.Label(f, text="Full flash backup and verified firmware installation", font=("TkDefaultFont", 12, "bold")).grid(row=0, column=0, columnspan=3, sticky="w")
-        ttk.Label(f, text="Python flasher using the BR23 loader from the SDK or distribution package.\n"
-                  "First enter flash loader from the device page. For a stock pad, hold Home + Plus while connecting USB.\n"
-                  "Backup leaves the device in its loader; reconnect USB when finished.", wraplength=940).grid(row=1, column=0, columnspan=3, sticky="w", pady=10)
-        exe = ROOT / "build/host" / ("jlnewfw.exe" if os.name == "nt" else "jlnewfw")
-        self.flasher = tk.StringVar(value=str(exe))
-        self.loader = tk.StringVar(value=str(padflash.DEFAULT_LOADER))
-        self.image = tk.StringVar()
-        self.bundle = tk.StringVar(value=str(ROOT / "build/pad"))
-        self.uboot = tk.StringVar(value=str(SDK / "uboot.boot"))
-        self.cfgtool = tk.StringVar(value=str(SDK / "cfg_tool.bin"))
-        ttk.Label(f, text="Firmware board").grid(row=2, column=0, sticky="w")
-        self.boards = ttk.Combobox(f, textvariable=self.board, values=list(PIDS), state="readonly", width=12)
-        self.boards.grid(row=2, column=1, sticky="w", padx=8)
-        self.boards.bind("<<ComboboxSelected>>", self.change_board)
-        self.file_row(f, 3, "BR23 loader", self.loader)
+    def build_loader_page(self):
+        self.loader_form = self.scroll_form(self.loader_page)
+        f = self.loader_form
+        ttk.Label(f, textvariable=self.loader_title, font=("TkDefaultFont", 13, "bold")).pack(anchor="w", pady=(0, 8))
+        identity = ttk.Frame(f)
+        identity.pack(fill="x", pady=(0, 8))
+        ttk.Label(identity, text="Product ID:").pack(side="left", padx=(0, 8))
+        ttk.Label(identity, textvariable=self.product_id).pack(side="left", padx=(0, 8))
+        ttk.Button(identity, text="Read product ID", command=self.detect_loader_product_id).pack(side="left")
+        files = ttk.Frame(f)
+        files.pack(fill="x")
+        files.columnconfigure(1, weight=1)
+        self.file_row(files, 0, "BR23 loader", self.loader)
         actions = ttk.Frame(f)
-        actions.grid(row=4, column=0, columnspan=3, sticky="w", pady=8)
+        actions.pack(fill="x", pady=8)
         self.backup_flash_button = ttk.Button(actions, text="Back up full flash…", command=self.backup_flash)
         self.backup_flash_button.pack(side="left", padx=(0, 8))
         self.flash_button = ttk.Button(actions, text="Flash Firmware…", command=self.choose_firmware)
-        self.flash_button.pack(side="left", padx=(0, 8))
+        self.flash_button.pack(side="left")
+        self.wrap_row(actions, actions.winfo_children(), self.loader_page)
         self.flash_progress_frame = ttk.Frame(f)
-        self.flash_progress_frame.grid(row=5, column=0, columnspan=3, sticky="ew", pady=8)
         self.flash_status = tk.StringVar()
         ttk.Label(self.flash_progress_frame, textvariable=self.flash_status).pack(anchor="w")
         self.flash_bar = ttk.Progressbar(self.flash_progress_frame, maximum=100)
         self.flash_bar.pack(fill="x", pady=(4, 0))
-        self.flash_progress_frame.grid_remove()
-        ttk.Separator(f).grid(row=6, column=0, columnspan=3, sticky="ew", pady=8)
-        ttk.Label(f, text="Optional: pack our build with jlnewfw for the connected chip's key:").grid(row=7, column=0, columnspan=3, sticky="w")
-        self.file_row(f, 8, "jlnewfw (build packing only)", self.flasher)
-        self.file_row(f, 9, "Build folder (app.bin + isd_config.ini)", self.bundle, True)
-        self.file_row(f, 10, "SDK uboot.boot", self.uboot)
-        self.file_row(f, 11, "SDK cfg_tool.bin", self.cfgtool)
-        self.pack_flash_button = ttk.Button(f, text="Pack and flash build…", command=lambda: self.flash(True))
-        self.pack_flash_button.grid(row=12, column=1, sticky="w", pady=8)
-        ttk.Label(f, text="An optional full flash backup is offered before flashing. Every written byte is verified.\n"
-                  "Select a build folder explicitly when switching boards. Settings in erased sectors are replaced by the image.", wraplength=940).grid(row=13, column=0, columnspan=3, sticky="w", pady=8)
+        ttk.Label(f, text="Choose a firmware image to flash this device. Backup is optional; every written byte is verified.\nReconnect USB to leave loader mode after a standalone backup.", wraplength=850).pack(anchor="w", pady=8)
+        self.loader_output = self.console_output(f)
+
+    def build_dongle_page(self):
+        f = self.scroll_form(self.dongle_page)
+        ttk.Label(f, textvariable=self.dongle_title, font=("TkDefaultFont", 13, "bold")).pack(anchor="w", pady=(0, 4))
+        ttk.Label(f, text=f"Product ID: {PIDS['dongle']}").pack(anchor="w")
+        ttk.Label(f, textvariable=self.dongle_status, wraplength=850).pack(anchor="w", pady=8)
+        actions = ttk.Frame(f)
+        actions.pack(fill="x", pady=8)
+        for text, command in (("Enter flash loader", self.enter_flash_loader),
+                              ("Pair dongle…", lambda: self.slot_action("pair", 0)),
+                              ("Reboot", lambda: self.diagnostic("Reboot", lambda p: pad.cmd(p, 0x10))),
+                              ("Read log", lambda: self.diagnostic("Read log", lambda p: pad.log(p, False))),
+                              ("Timing trace", lambda: self.diagnostic("Timing trace", lambda p: pad.trace(p, 0.5, 40)))):
+            ttk.Button(actions, text=text, command=command).pack(side="left")
+        self.wrap_row(actions, actions.winfo_children(), self.dongle_page)
+        target = ttk.Frame(f)
+        target.pack(fill="x", pady=8)
+        ttk.Label(target, text="Target address").pack(side="left", padx=(0, 8))
+        ttk.Entry(target, textvariable=self.address, width=24).pack(side="left", padx=(0, 8))
+        ttk.Button(target, text="Set target", command=self.set_dongle_target).pack(side="left")
+        self.dongle_output = self.console_output(f)
+
+    def open_loader(self, record, blob):
+        loader = padflash.inspect_loader(record["path"], blob, report=self.flash_report,
+                                         progress=self.flash_progress, expected_location=record.get("location"))
+        self.events.put(("product_id", (record["path"], loader.product_id)))
+        return loader
+
+    def detect_loader_product_id(self):
+        record = self.record()
+        if self.busy or not record or record["board"] != "loader":
+            return
+        record["id_checked"] = True
+        try:
+            blob = self.loader_blob()
+        except (ValueError, OSError) as error:
+            self.product_id.set("Unavailable")
+            self.log(str(error))
+            return
+        self.product_id.set("Reading…")
+        self.start_flash_progress("Reading product ID")
+        self.run("Reading product ID…", lambda: self.open_loader(record, blob))
 
     def update_tools(self):
         record = self.record()
-        running = record is not None and record["board"] in PIDS
+        running = record is not None and record.get("online", True) and record["board"] in PIDS
         in_loader = record is not None and record["board"] == "loader"
-        for button in (self.backup_flash_button, self.flash_button, self.pack_flash_button):
+        for button in (self.backup_flash_button, self.flash_button):
             button.configure(state="normal" if in_loader else "disabled")
         self.enter_loader_button.configure(state="normal" if running else "disabled")
         for widget in self.controls(self.diagnostics):
@@ -1036,7 +1127,7 @@ class App:
         if not file:
             return
         if self.select_firmware_image(file):
-            self.flash(False)
+            self.flash()
 
     def select_firmware_image(self, file):
         try:
@@ -1045,8 +1136,8 @@ class App:
             if board is None:
                 raise ValueError("This firmware image is not for a supported pad or dongle.")
             record = self.record()
-            if record and record["board"] in PIDS and record["board"] != board:
-                raise ValueError("Image does not match the selected device.")
+            if record and record.get("product_id") and record["product_id"] != pid:
+                raise ValueError(f"Image product ID {pid} does not match this device ({record['product_id']}).")
         except (ValueError, OSError) as error:
             messagebox.showerror("Firmware", str(error))
             return False
@@ -1058,36 +1149,35 @@ class App:
         record = self.record()
         if record and record["board"] == "loader":
             return True
-        messagebox.showinfo("Enter flash loader first", "Select a UBOOT1.00 device. Use Enter flash loader on running firmware, or connect the pad holding Home + Plus, then Refresh.")
+        messagebox.showinfo("Enter flash loader first", "Select a UBOOT1.00 device. Use Enter flash loader on running firmware, or connect the pad holding Home + Plus; it will appear automatically.")
         return False
 
     def start_flash_progress(self, stage):
         self.flash_active = True
         self.flash_status.set(stage)
-        self.flash_progress_frame.grid()
+        self.flash_progress_frame.pack(fill="x", pady=8, before=self.loader_output.master)
         self.flash_bar.configure(mode="indeterminate", value=0)
         self.flash_bar.start()
         if self.record() and self.record()["board"] == "loader":
-            self.show_page(self.flash_page)
-            self.scroll_canvases[self.flash_page].yview_moveto(0)
+            self.show_page(self.loader_page)
+            self.scroll_canvases[self.loader_page].yview_moveto(0)
 
     def flash_progress(self, stage, done=0, total=None):
         self.events.put(("flash_progress", (stage, done, total)))
 
     def enter_flash_loader(self):
         record = self.record()
-        if self.busy or not record or record["board"] not in PIDS:
+        if self.busy or not record or not record.get("online", True) or record["board"] not in PIDS:
             return
         if any(self.changed(entry) for entry in record.get("draft", {}).values()):
             messagebox.showinfo("Pending edits", "Apply or discard this device’s pending edits before entering flash loader.")
             return
         path, identity = record["path"], record["identity"]
-        firmware_board = record["board"]
         location = record.get("location") or usb_location(path)
         old_loaders = {r["path"] for r in self.cache.values() if r["board"] == "loader"}
         def enter():
             if pad.cmd(path, 0, length=64)[:40] != identity:
-                raise ValueError("Device changed; refresh before entering flash loader")
+                raise ValueError("Device changed; wait for device detection before entering flash loader")
             self.flash_progress("Entering flash loader")
             try:
                 pad.cmd(path, 0x11)
@@ -1101,12 +1191,12 @@ class App:
                 if len(matches) == 1:
                     return matches[0]
                 if len(matches) > 1:
-                    raise ValueError("Multiple ROM loaders appeared. Refresh and select the intended device.")
+                    raise ValueError("Multiple ROM loaders appeared. Select the intended device from the tree.")
                 if time.monotonic() >= deadline:
-                    raise OSError("UBOOT1.00 did not appear. Reconnect USB holding Home + Plus, then Refresh.")
+                    raise OSError("UBOOT1.00 did not appear. Reconnect USB holding Home + Plus, then wait for device detection.")
                 time.sleep(0.25)
         self.start_flash_progress("Entering flash loader")
-        self.run("Entering flash loader…", enter, lambda path: self.scan(automatic=True, select_path=path, firmware_board=firmware_board))
+        self.run("Entering flash loader…", enter, lambda path: self.scan(automatic=True, select_path=path))
 
     def loader_blob(self):
         blob = Path(self.loader.get()).read_bytes()
@@ -1117,15 +1207,6 @@ class App:
     def flash_report(self, message):
         self.events.put(("log", message))
 
-    def invoke(self, args):
-        self.events.put(("log", "Running: " + subprocess.list2cmdline(args)))
-        with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                              errors="replace", bufsize=1) as proc:
-            for line in proc.stdout:
-                self.events.put(("log", line))
-            if proc.wait():
-                raise RuntimeError(f"jlnewfw packing failed with status {proc.returncode}. See the log.")
-
     def backup_flash(self):
         if self.busy or not self.require_loader():
             return
@@ -1134,43 +1215,32 @@ class App:
         except (ValueError, OSError) as error:
             messagebox.showerror("Firmware", str(error))
             return
-        board = self.board.get()
-        file = filedialog.asksaveasfilename(defaultextension=".bin", initialfile=f"{board}-flash-backup.bin")
+        file = filedialog.asksaveasfilename(defaultextension=".bin", initialfile="flash-backup.bin")
         if not file:
             return
         if Path(file).resolve() == Path(self.loader.get()).resolve():
             messagebox.showerror("Backup destination", "Choose a file different from the BR23 loader.")
             return
         record = self.record()
-        loader_path = record["path"] if record and record["board"] == "loader" else None
         def backup():
-            loader = padflash.select_loader(board, blob, report=self.flash_report, device_path=loader_path, progress=self.flash_progress, expected_location=record.get("location"))
+            loader = self.open_loader(record, blob)
             loader.backup(file)
             self.flash_report("Backup complete. Reconnect USB to leave the loader.")
         self.start_flash_progress("Backing up flash")
-        self.run("Backing up flash…", backup, lambda _: self.clear_settings())
+        self.run("Backing up flash…", backup)
 
-    def flash(self, pack):
+    def flash(self):
         if self.busy or not self.require_loader():
             return
+        record = self.record()
         try:
             blob = self.loader_blob()
-            board = self.board.get()
-            if pack:
-                exe = shutil.which(self.flasher.get()) or self.flasher.get()
-                bundle = Path(self.bundle.get())
-                files = [bundle / "app.bin", bundle / "isd_config.ini", Path(self.uboot.get()), Path(self.cfgtool.get())]
-                if not Path(exe).is_file() or not all(p.is_file() for p in files):
-                    raise ValueError("Build packing needs jlnewfw, app.bin, isd_config.ini, uboot.boot and cfg_tool.bin.")
-                pack_args = [exe, "pack", "--flash-size", "0x100000" if board == "pad" else "0x80000",
-                             "--code-limit", "0x50000", "-c", str(files[1]), "-u", str(files[2]), str(files[0]), str(files[3])]
-            else:
-                image = Path(self.image.get())
-                if not image.is_file():
-                    raise ValueError("Select an existing firmware image.")
-                if padflash.image_identity(padflash.load_image(image))[0] != PIDS[board]:
-                    raise ValueError("Image product ID does not match the selected board.")
-                files = [image]
+            image = Path(self.image.get())
+            data = padflash.load_image(image)
+            pid, key = padflash.image_identity(data)
+            board = next((b for b, value in PIDS.items() if value == pid), None)
+            if board is None or (record.get("product_id") and record["product_id"] != pid):
+                raise ValueError("Image product ID does not match this device.")
         except (ValueError, OSError) as error:
             messagebox.showerror("Firmware", str(error))
             return
@@ -1182,35 +1252,16 @@ class App:
             backup = filedialog.asksaveasfilename(title="Save pre-flash backup", defaultextension=".bin", initialfile=f"{board}-before-flash.bin")
             if not backup:
                 return
-            inputs = [p.resolve() for p in files + [Path(self.loader.get())]]
-            if pack:
-                inputs.append(Path(exe).resolve())
-            if Path(backup).resolve() in inputs:
+            if Path(backup).resolve() in (image.resolve(), Path(self.loader.get()).resolve()):
                 messagebox.showerror("Backup destination", "Choose a backup file different from the firmware input files.")
                 return
-        action = "Back up and flash" if backup else "Flash"
-        if not messagebox.askyesno("Flash firmware", f"{action} the {board}?\n\n"
-                                  "The flasher checks the firmware product ID and chip key. "
-                                  "Settings in erased sectors will be replaced. Keep USB connected until verification finishes."):
+        if not messagebox.askyesno("Flash firmware", f"Flash firmware for {pid}?\n\nSettings in erased sectors will be replaced. Keep USB connected until verification finishes."):
             return
-        record = self.record()
-        loader_path = record["path"] if record and record["board"] == "loader" else None
-        def flash():
-            with tempfile.TemporaryDirectory(prefix="padtool-") as temp:
-                packed = Path(temp) / "firmware.img"
-                if pack:
-                    self.invoke(pack_args + ["-k", "0xffff", "-o", str(packed)])
-                data = padflash.load_image(packed if pack else image)
-                pid, key = padflash.image_identity(data)
-                if pid != PIDS[board]:
-                    raise ValueError("Image does not match the selected board")
-                loader = padflash.select_loader(board, blob, report=self.flash_report, device_path=loader_path, progress=self.flash_progress, expected_location=record.get("location"))
-                if pack and key != loader.key:
-                    self.invoke(pack_args + ["-k", hex(loader.key), "-o", str(packed)])
-                    data = padflash.load_image(packed)
-                loader.flash(data, board, backup)
+        def write():
+            loader = self.open_loader(record, blob)
+            loader.flash(data, board, backup)
         self.start_flash_progress("Preparing firmware")
-        self.run("Backing up and flashing…" if backup else "Flashing…", flash, lambda _: self.clear_settings())
+        self.run("Backing up and flashing…" if backup else "Flashing…", write, lambda _: self.clear_settings())
 
     def build_diagnostics(self):
         f = self.diagnostics
@@ -1233,20 +1284,14 @@ class App:
         self.enter_loader_button = ttk.Button(bar, text="Enter flash loader", command=self.enter_flash_loader)
         self.enter_loader_button.pack(side="left", padx=8)
         ttk.Button(bar, text="Tool mode (Linux HID)", command=lambda: self.run("Switching to tool mode…", lambda: pad.tool([]))).pack(side="left")
-        targetbar = ttk.Frame(f)
-        targetbar.pack(fill="x", pady=8)
-        self.address = tk.StringVar()
-        ttk.Label(targetbar, text="Dongle target address").pack(side="left")
-        ttk.Entry(targetbar, textvariable=self.address, width=24).pack(side="left", padx=8)
-        ttk.Button(targetbar, text="Set target", command=self.set_dongle_target).pack(side="left")
         advanced = ttk.LabelFrame(f, text="CPU profiling · requires pyelftools", padding=8)
         advanced.pack(fill="x", pady=12)
         advanced.columnconfigure(1, weight=1)
         self.elf = tk.StringVar(value=str(ROOT / "build/pad/app.elf"))
         self.file_row(advanced, 0, "Running build ELF", self.elf)
         ttk.Button(advanced, text="Profile for 3 seconds", command=self.profile).grid(row=1, column=1, sticky="w", pady=8)
-        ttk.Label(f, text="Pairing replaces the selected slot's host after a successful pairing. The dongle has one bond.\n"
-                  "End USB gamepad sessions to expose tool mode; then scan again. Logs appear below.", wraplength=900).pack(anchor="w", pady=12)
+        ttk.Label(f, text="Pairing replaces the selected slot's host after a successful pairing.\n"
+                  "End USB gamepad sessions to expose tool mode. Devices appear automatically; logs appear below.", wraplength=900).pack(anchor="w", pady=12)
 
         self.output = self.console_output(f)
 
@@ -1279,7 +1324,7 @@ class App:
                 return
             def perform():
                 if record and pad.cmd(path, 0, length=64)[:40] != record["identity"]:
-                    raise ValueError("Device changed; refresh again before sending an action")
+                    raise ValueError("Device changed; wait for device detection before sending an action")
                 return fn(path)
             self.run(label + "…", perform)
 

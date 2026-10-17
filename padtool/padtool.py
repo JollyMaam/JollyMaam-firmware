@@ -66,9 +66,9 @@ def inquiry(path):
     return data[8:32].decode("ascii", "replace").strip()
 
 
-def discover_devices(include_loaders=False):
+def discover_devices(include_loaders=False, paths=None):
     """Yield path, name, IDENTIFY; opted-in ROM loaders have no IDENTIFY."""
-    for path in device_paths():
+    for path in device_paths() if paths is None else paths:
         name = inquiry(path)
         if name and name.startswith("BR23") and "UBOOT" in name:
             if include_loaders:
