@@ -141,16 +141,58 @@ class GuiTests(unittest.TestCase):
         self.assertIn("3 pending", self.app.summary.get())
         self.assertFalse(self.app.apply_all_button.instate(["disabled"]))
         self.app.show_target(0)
-        with patch.object(padgui.pad, "send") as send, patch.object(padgui.pad, "cmd") as cmd:
+        original_widgets = self.app.form.winfo_children()
+        with patch.object(padgui.pad, "send") as send, patch.object(padgui.pad, "cmd") as cmd, \
+             patch.object(self.app, "render_tree") as tree, \
+             patch.object(self.app, "render_details") as details, \
+             patch.object(self.app, "render_overview") as overview, \
+             patch.object(self.app, "update_previews", wraps=self.app.update_previews) as previews:
             self.app.discard_changes()
             send.assert_not_called()
             cmd.assert_not_called()
+            tree.assert_not_called()
+            details.assert_not_called()
+            overview.assert_not_called()
+            previews.assert_called_once()
+        self.assertEqual(self.app.form.winfo_children(), original_widgets)
         self.assertEqual(self.app.editors["rumble"]["var"].get(), "100")
         self.assertEqual(two["draft"][1, "type"]["var"].get(), "switch")
         self.assertFalse(one["draft"][2, "rumble"]["reset"].get())
         self.assertEqual(self.app.dirty_count(), 0)
         self.assertTrue(self.app.apply_all_button.instate(["disabled"]))
         self.assertEqual(self.app.summary.get(), "Loaded 2 device(s). No pending changes.")
+
+    def test_setting_default_and_discard_keep_unrelated_drafts(self):
+        r = record()
+        r["values"][0]["rumble"] = (b"\x50", True)
+        r["defaults"] = {0: {"rumble": (b"\x64", False)}}
+        self.load([r])
+        self.app.show_target(0)
+        entry = r["draft"][0, "rumble"]
+        marker = next(w for e, w in self.app.indicators if e is entry and w.winfo_exists())
+        row = int(marker.master.grid_info()["row"])
+        actions = next(w for w in self.app.form.winfo_children()
+                       if w.grid_info().get("row") == row and w.grid_info().get("column") == 3)
+        buttons = {w.cget("text"): w for w in actions.winfo_children()}
+        self.assertNotIn("Reset", buttons)
+        self.assertFalse(buttons["Default"].instate(["disabled"]))
+        self.assertTrue(buttons["Discard"].instate(["disabled"]))
+        r["draft"][1, "type"]["var"].set("hid")
+        with patch.object(padgui.pad, "cmd") as cmd:
+            buttons["Default"].invoke()
+            self.assertEqual(entry["var"].get(), "100")
+            self.assertTrue(entry["reset"].get())
+            self.assertTrue(buttons["Default"].instate(["disabled"]))
+            self.assertFalse(buttons["Discard"].instate(["disabled"]))
+            buttons["Discard"].invoke()
+            cmd.assert_not_called()
+        self.assertEqual(entry["var"].get(), "80")
+        self.assertFalse(entry["reset"].get())
+        self.assertTrue(buttons["Discard"].instate(["disabled"]))
+        self.assertFalse(buttons["Default"].instate(["disabled"]))
+        self.assertEqual(r["draft"][1, "type"]["var"].get(), "hid")
+        entry["var"].set("invalid")
+        self.assertFalse(buttons["Default"].instate(["disabled"]))
 
     def test_rom_loader_scan_has_only_recovery_actions(self):
         with patch.object(padgui.pad, "discover_devices", return_value=[("rom", "BR23 UBOOT1.00", None)]), \
@@ -589,6 +631,17 @@ class GuiTests(unittest.TestCase):
         editor.sync()
         self.assertEqual(editor.preset_name.get(), "Custom")
         self.assertFalse(editor.presets.selection_present())
+        entries = self.app.setting_entries(r, 0, "left_curve_points", editor.entry)
+        r["draft"][1, "type"]["var"].set("hid")
+        with patch.object(padgui.pad, "cmd") as cmd:
+            self.app.discard_setting(entries)
+            cmd.assert_not_called()
+        self.assertEqual(editor.points(), list(default))
+        self.assertEqual(editor.enabled["var"].get(), "disabled")
+        self.assertEqual(editor.preset_name.get(), "Linear")
+        self.assertEqual(r["draft"][1, "type"]["var"].get(), "hid")
+        editor.preset_name.set("Concave")
+        editor.choose_preset()
         editor.copy_points()
         self.assertEqual(self.root.clipboard_get(), ','.join(map(str, padcurves.preset("concave"))))
         # A second slot can consume the same clipboard; enabling stays independent.

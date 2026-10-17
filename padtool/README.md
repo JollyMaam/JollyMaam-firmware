@@ -46,10 +46,11 @@ values, checks device identities, then commits all pending changes once per
 device. A failure on one device does not undo a previous device's commit;
 uncommitted edits remain pending. **Discard** reverts all pending edits to the
 last loaded or applied values without writing to devices. The top toolbar shows
-the loaded device count and pending changes. Reset fills the value box with its firmware
-default and stages removal of the saved override; editing the box afterwards
-stages that new value instead. Closing asks before discarding edits. Disconnected devices with pending edits
-remain in the tree until they reconnect or their edits are discarded.
+the loaded device count and pending changes. Discard updates existing controls
+from the cached values without reading devices or rebuilding pages. Default
+fills the value box with its firmware default and stages removal of the saved override; editing the box afterwards
+stages that new value instead. Closing asks before discarding edits.
+Disconnected devices with pending edits remain in the tree until they reconnect or their edits are discarded.
 
 A `*` beside a setting or tree entry means its effective value differs from the
 firmware default, including already-saved custom values. This is independent of
@@ -66,9 +67,11 @@ Brightness is shown as steps `1/15` through `15/15`, plus Off.
 Palette RGB fields still accept hex values and show swatches;
 all previews follow staged palette edits.
 
-Each setting has its own Apply button; it saves only that setting and retains
-all other drafts. Apply at the top saves all pending edits. Help is
-hidden behind each row's `?` button. Setting names use readable labels.
+Each setting has Default, Discard and Apply buttons. Default stages the firmware
+default and is disabled when the value already matches it. Discard reverts only
+that setting to its last loaded or applied value. Apply saves only that setting;
+other drafts are retained. Discard and Apply are disabled without pending edits.
+Apply at the top saves all pending edits. Help is hidden behind each row's `?` button. Setting names use readable labels.
 Numeric inputs show their valid range beside the box, using firmware-reported
 limits.
 
@@ -76,9 +79,9 @@ Each stick has a 15-point curve, with fixed zero and full-scale endpoints.
 **Use points** enables it; switching that off gives exact calibrated linear
 passthrough and retains all saved points. The graph shows active input in blue
 and, when disabled, the retained curve as a dashed line. **Point values** opens
-the 15 sliders and percentage inputs at 6.25% travel intervals. Reset restores
-the default points and disables the curve. The curve's Apply button saves its
-points and enable flag together. **Copy points** copies the comma-separated
+the 15 sliders and percentage inputs at 6.25% travel intervals. Default restores
+the default points and disables the curve. The curve's Default, Discard and Apply
+buttons handle its points and enable flag together. **Copy points** copies the comma-separated
 output bytes; **Paste points** accepts commas or spaces and stages them on another
 slot or stick. Pasting retains that stick’s Use points setting; Apply saves the edit.
 

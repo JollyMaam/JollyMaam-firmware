@@ -41,6 +41,7 @@ class App:
         self.swatches = []
         self.special_editors = []
         self.apply_buttons = []
+        self.default_buttons = []
         self.board = tk.StringVar()
         self.loader = tk.StringVar(value=str(padflash.DEFAULT_LOADER))
         self.image = tk.StringVar()
@@ -388,7 +389,7 @@ class App:
         self.update_previews()
         return swatch
 
-    def update_previews(self):
+    def update_previews(self, force=False):
         self.indicators = [(e, w) for e, w in self.indicators if w.winfo_exists()]
         for entry, widget in self.indicators:
             try:
@@ -408,16 +409,37 @@ class App:
 
         self.special_editors = [w for w in self.special_editors if w.winfo_exists()]
         for widget in self.special_editors:
-            widget.sync()
+            if isinstance(widget, CurveEditor):
+                force_curve = force is True or (force is not False and any(widget.entry is e for e in force))
+                widget.sync(force=force_curve)
+            else:
+                widget.sync()
+        self.default_buttons = [(entries, w) for entries, w in self.default_buttons if w.winfo_exists()]
+        for entries, button in self.default_buttons:
+            available = all(e["default_text"] is not None for e in entries)
+            try:
+                custom = any(self.differs_from_default(e) for e in entries)
+            except (Exception, SystemExit):
+                custom = True
+            button.configure(state="normal" if available and custom and not self.busy else "disabled")
         self.apply_buttons = [(e, w, other) for e, w, other in self.apply_buttons if w.winfo_exists()]
         for entry, button, other in self.apply_buttons:
             button.configure(state="normal" if not self.busy and (self.changed(entry) or (other is not None and self.changed(other))) else "disabled")
 
-    def setting_apply_button(self, parent, record, target, name, entry):
-        button = ttk.Button(parent, text="Apply", width=6,
-                            command=lambda: self.apply_settings((record["path"], target, name)))
+    def setting_entries(self, record, target, name, entry):
         companion = record["draft"].get((target, name.replace("_points", "_enabled"))) if name.endswith("_curve_points") else None
-        self.apply_buttons.append((entry, button, companion))
+        return (entry, companion) if companion is not None else (entry,)
+
+    def setting_action_button(self, parent, record, target, name, entry, action):
+        entries = self.setting_entries(record, target, name, entry)
+        commands = {"Apply": lambda: self.apply_settings((record["path"], target, name)),
+                    "Discard": lambda: self.discard_setting(entries),
+                    "Default": lambda: self.reset_default(entry)}
+        button = ttk.Button(parent, text=action, width=7, command=commands[action])
+        if action == "Default":
+            self.default_buttons.append((entries, button))
+        else:
+            self.apply_buttons.append((entry, button, entries[1] if len(entries) > 1 else None))
         self.update_previews()
         return button
 
@@ -445,31 +467,49 @@ class App:
             text += " " + self.notice.get()
         self.summary.set(text)
 
+    def restore_entries(self, entries):
+        previous_batch = self.batch_edits
+        self.batch_edits = True
+        try:
+            for entry in entries:
+                entry.pop("custom_curve", None)
+                if entry["var"].get() != entry["original"]:
+                    entry["var"].set(entry["original"])
+                if entry["reset"].get():
+                    entry["reset"].set(False)
+        finally:
+            self.batch_edits = previous_batch
+
+    def discard_setting(self, entries):
+        if self.busy:
+            return
+        self.restore_entries(entries)
+        self.mark_dirty(force_previews=entries)
+        self.notice.set("")
+
     def discard_changes(self):
         if self.busy:
             return
-        for record in self.cache.values():
-            for entry in record.get("draft", {}).values():
-                entry.pop("custom_curve", None)
-                entry["var"].set(entry["original"])
-                entry["reset"].set(False)
-        self.cache = {path: record for path, record in self.cache.items() if record.get("online", True)}
-        self.render_tree()
-        self.render_overview()
-        self.render_details()
-        self.mark_dirty()
+        self.restore_entries(entry for record in self.cache.values() for entry in record.get("draft", {}).values())
+        online = {path: record for path, record in self.cache.items() if record.get("online", True)}
+        if len(online) != len(self.cache):
+            self.cache = online
+            self.render_tree()
+        self.mark_dirty(force_previews=True)
         self.notice.set("")
 
-    def update_apply_state(self):
-        self.apply_all_button.configure(state="normal" if not self.busy and self.dirty_count() else "disabled")
+    def update_apply_state(self, count=None):
+        if count is None:
+            count = self.dirty_count()
+        self.apply_all_button.configure(state="normal" if not self.busy and count else "disabled")
 
-    def mark_dirty(self):
+    def mark_dirty(self, force_previews=False):
         if self.batch_edits:
             return
         count = self.dirty_count()
-        self.update_apply_state()
+        self.update_apply_state(count)
         self.pending.set(f"{count} pending change(s)" if count else "No pending changes")
-        self.update_previews()
+        self.update_previews(force=force_previews)
         for node, (path, target) in self.nodes.items():
             record = self.cache.get(path)
             if not record or not self.tree.exists(node):
@@ -827,7 +867,8 @@ class App:
             ttk.Label(types, text=f"Slot {pad.TARGETS[target]}", width=12).pack(side="left")
             if entry:
                 ttk.Combobox(types, textvariable=entry["var"], values=entry["field"]["names"], state="readonly", width=20).pack(side="left")
-                self.setting_apply_button(types, record, target, "type", entry).pack(side="left", padx=(8, 0))
+                for action in ("Default", "Discard", "Apply"):
+                    self.setting_action_button(types, record, target, "type", entry, action).pack(side="left", padx=(8, 0))
             ttk.Button(links, text="Settings", command=lambda t=target: self.show_target(t)).pack(side="left", padx=(0, 8))
             ttk.Button(links, text="Connect", command=lambda t=target: self.slot_action("connect", t)).pack(side="left", padx=(0, 8))
             ttk.Button(links, text="Pair…", command=lambda t=target: self.slot_action("pair", t)).pack(side="left", padx=(0, 8))
@@ -889,10 +930,8 @@ class App:
                 extra.grid(row=row, column=2, padx=4)
             actions = ttk.Frame(parent)
             actions.grid(row=row, column=3, sticky="ne", padx=4, pady=4)
-            ttk.Button(actions, text="Reset", width=6,
-                       state="normal" if entry["default_text"] is not None else "disabled",
-                       command=lambda e=entry: self.reset_default(e)).pack(side="left", padx=2)
-            self.setting_apply_button(actions, record, target, name, entry).pack(side="left", padx=2)
+            for action in ("Default", "Discard", "Apply"):
+                self.setting_action_button(actions, record, target, name, entry, action).pack(side="left", padx=2)
             ttk.Button(actions, text="?", width=2, command=lambda e=entry: self.show_help(e)).pack(side="left", padx=2)
             self.editors[name] = entry
         self.form.columnconfigure(1, weight=1)
@@ -922,7 +961,7 @@ class App:
             button.configure(command=toggle_section)
             update_section()
         legend_row = rows[self.form] + (2 if rows[advanced] else 0)
-        ttk.Label(self.form, text="* differs from default · ! invalid value · ? default unavailable. Reset fills in the default; Apply saves it.",
+        ttk.Label(self.form, text="* differs from default · ! invalid value · ? default unavailable. Default stages the default; Discard undoes edits; Apply saves.",
                   wraplength=850).grid(row=legend_row, column=0, columnspan=4, sticky="w", padx=4, pady=(16, 8))
 
     def apply_settings(self, only=None):

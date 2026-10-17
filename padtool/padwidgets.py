@@ -260,6 +260,6 @@ class CurveEditor(ttk.Frame):
                 self.graph.create_oval(x - 4, y - 4, x + 4, y + 4, fill='#2185d0', outline='#ffffff')
         except (Exception, SystemExit):
             self.graph.delete('all')
-            self.graph.create_text(125, 90, text='Invalid curve points. Use Reset to restore defaults.', width=210)
+            self.graph.create_text(125, 90, text='Invalid curve points. Use Default to restore defaults.', width=210)
         finally:
             self.syncing = False
