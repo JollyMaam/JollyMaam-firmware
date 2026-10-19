@@ -601,16 +601,7 @@ class App:
                 continue
             dirty = any(self.changed(e) for (t, name), e in record.get("draft", {}).items()
                         if target is None or target == t)
-            custom = False
-            for (t, name), entry in record.get("draft", {}).items():
-                if target is not None and target != t:
-                    continue
-                try:
-                    custom = custom or self.differs_from_default(entry) is True
-                except (Exception, SystemExit):
-                    pass
-            label = self.tree.item(node, "text").removesuffix(" *")
-            self.tree.item(node, text=label + (" *" if custom else ""), tags=("dirty",) if dirty else ())
+            self.tree.item(node, tags=("dirty",) if dirty else ())
 
     def scan(self, automatic=False, select_path=None):
         if not automatic and self.dirty_count() and not messagebox.askyesno("Reload devices", "Discard pending edits and scan again?"):

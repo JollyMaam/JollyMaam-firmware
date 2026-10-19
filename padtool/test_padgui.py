@@ -768,7 +768,8 @@ class GuiTests(unittest.TestCase):
         self.load([r])
         entry = r["draft"][0, "rumble"]
         self.assertTrue(self.app.differs_from_default(entry))
-        self.assertTrue(self.app.tree.item("device0/0", "text").endswith(" *"))
+        self.assertEqual(self.app.tree.item("device0/0", "text"), "Slot A")
+        self.assertFalse(self.app.tree.item("device0", "text").endswith(" *"))
         self.app.reset_default(entry)
         self.assertEqual(entry["var"].get(), "100")
         self.assertTrue(entry["reset"].get())
