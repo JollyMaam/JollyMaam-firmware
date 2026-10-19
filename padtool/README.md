@@ -17,15 +17,15 @@ python padtool/padgui.pyw
 ```
 
 There are no pip requirements for configuration, image flashing or backups.
-CPU profiling additionally needs `pyelftools` and the ELF matching the running
+Advanced diagnostics and CPU profiling are available through the command-line
+padtool. CLI profiling needs `pyelftools` and the ELF matching the running
 firmware; add `ps.pyelftools` to the Nix package list if needed.
 
 Startup reads every pad slot, palette and global calibration setting. Devices
 are detected automatically about once per second; unchanged devices keep their
 cached settings and pending edits. **Open device path…** at the bottom of the
 device tree lets you enter a path manually, including reloading that device.
-Linux labels show USB topology when available. Configuration and diagnostics
-use the selected device. A USB gamepad session must end before vendor commands
+Linux labels show USB topology when available. Configuration and Show console use the selected device. A USB gamepad session must end before vendor commands
 become available. The Linux HID tool-mode button can request this for HID
 profiles; on Windows end the session using the pad first.
 
@@ -47,9 +47,13 @@ python padtool/padtool.py unpair A
 ```
 
 **Developer fields** at the bottom expands or collapses advanced settings,
-retaining pending edits. **Debug tools** under running pads contains diagnostics
-and the operation log. Dongle and ROM-loader actions are on their main entries.
-Connect and Pair remain available in Debug tools.
+retaining pending edits. **Show console** on a running pad or dongle opens a
+separate window with its live firmware log. That window stays with the device
+when browsing other devices, follows it if its device path changes, and pauses
+USB reads during settings or flash operations. Selecting Show console again
+raises the existing window. Scrolling up pauses automatic scrolling to the end.
+Closing the window stops its log polling. Advanced debug tools use the CLI.
+Dongle and ROM-loader actions remain on their main entries.
 There is no minimum window size. Toolbar and global device controls wrap in
 narrow windows. Slot rows and detailed setting rows stay on one line and scroll
 horizontally. Shift+wheel also scrolls horizontally.
@@ -67,13 +71,15 @@ fills the value box with its firmware default and stages removal of the saved ov
 stages that new value instead. Closing asks before discarding edits.
 Disconnected devices with pending edits remain in the tree until they reconnect or their edits are discarded.
 
-A `*` beside a setting or tree entry means its effective value differs from the
-firmware default, including already-saved custom values. This is independent of
-the pending-changes count. Explicitly saved values equal to their default do not
-get a `*`. `!` indicates an invalid edited value; `?` means an older firmware
-could not supply the default. Protocol 4 provides full defaults for every field,
-including pairing bytes, custom curves and the calibration blob, through a
-read-only query. On older firmware, only known defaults can be reset in the GUI.
+A `*` on a setting status button means it has a staged edit; clicking it discards
+that setting's edits. `✓` means its saved value differs from the firmware default;
+clicking it stages the default, changing the marker to `*`. Blank means already
+at the default. `!` marks an invalid edit and also offers discard. `?` means the
+firmware could not supply its default; pending edits can still be discarded.
+Hover over a status for its meaning and action. Curve points and their enable
+flag share a status button. A `*` on a tree entry retains its separate meaning:
+the entry contains values different from firmware defaults; colour marks drafts.
+Protocol 4 provides full defaults through a read-only query.
 
 Slot colour fields have a palette dropdown with all 16 colour swatches and a
 separate brightness dropdown. The selector and swatches show the full palette
@@ -82,12 +88,13 @@ Brightness is shown as steps `1/15` through `15/15`, plus Off.
 Palette RGB fields still accept hex values and show swatches;
 all previews follow staged palette edits.
 
-On detailed settings pages, the leftmost status is a button: `*` differs from
-the default, `!` is invalid, `?` means the default is unavailable, and `✓` is
-already at the default. Hover for an explanation. Click the status to stage the
-firmware default; it is disabled when already at default or when no default is
-available. The device overview retains its separate Default buttons. Apply and Discard at the top of a slot,
-Palette or Calibration page affect only that page's settings. Device-page
+On detailed settings pages, the leftmost status button replaces the separate
+Default button and legend. A blank status is disabled; saved custom values can
+be set to default, and staged edits can be undone from the same button.
+The device overview retains its separate Default buttons. Apply and
+Discard beside the slot, Palette or Calibration title affect only that page’s
+settings. The header stays visible while settings scroll vertically, and follows
+the horizontal scrollbar in narrow windows. Device-page
 Apply and Discard cover the selected pad, including all slots, palette and
 calibration. The global toolbar controls cover all devices. Other drafts are
 retained when using a narrower scope. Page controls are disabled without
@@ -192,7 +199,7 @@ Firmware opens the sole image picker and immediately checks its product ID.
 The image selects pad versus dongle, with PID, capacity and chip-key checks
 before erasing. The selected loader path stays fixed during the operation; on
 Linux its USB port is also checked to reject a reused device path. Settings
-and diagnostics are disabled while the device is in loader mode.
+and the live firmware console are unavailable while the device is in loader mode.
 
 The shared progress display shows waiting for the loader, loading the flash
 helper, backing up, erasing, writing, verifying and restarting. Transfer stages
@@ -229,6 +236,7 @@ in its loader for recovery.
 
 `padgui.pyw` owns the UI and serializes operations on a worker thread.
 `paddevices.py` monitors device presence, pausing during other USB operations.
+`padconsole.py` owns the live console windows and shares the USB operation lock.
 `tools/bootloop.py` is a development stress-test helper, separate from padtool.
 `padwidgets.py` supplies the palette/brightness and stick curve editors.
 `padcurves.py` shares preset definitions, validation and legacy conversion with

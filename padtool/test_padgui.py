@@ -104,6 +104,48 @@ class GuiTests(unittest.TestCase):
             self.root.update()
             scan.assert_called_once_with()
 
+    def test_console_windows_are_bound_to_device_and_reused(self):
+        from unittest.mock import Mock
+        one, two = record(), record("dongle", "dongle")
+        self.load([one, two])
+        first, second = Mock(), Mock()
+        with patch.object(padgui, "LiveConsole", side_effect=[first, second]) as create:
+            self.app.show_console()
+            self.app.show_console()
+            self.assertEqual(create.call_count, 1)
+            first.window.lift.assert_called_once()
+            self.app.tree.selection_set("device1")
+            self.app.select_node()
+            self.app.show_console()
+            self.assertEqual(create.call_count, 2)
+            self.assertEqual(create.call_args_list[0].args[2], one["identity"])
+            self.assertEqual(create.call_args_list[1].args[2], two["identity"])
+            self.assertEqual(self.app.console_path(one["identity"]), "fake")
+            create.call_args_list[0].args[5]()  # Closing one leaves the other console open.
+            self.assertNotIn(one["identity"], self.app.consoles)
+            self.assertIn(two["identity"], self.app.consoles)
+            create.call_args_list[1].args[5]()
+
+    def test_slot_header_stays_visible_and_shares_horizontal_scroll(self):
+        self.load([record()])
+        self.root.deiconify()
+        self.root.geometry("440x300")
+        self.app.show_target(0)
+        padgui.ttk.Frame(self.app.form, width=900, height=1000).grid(row=1000, column=0, columnspan=4)
+        self.root.update()
+        header_y = self.app.details_header.winfo_rooty()
+        canvas = self.app.scroll_canvases[self.app.settings]
+        canvas.yview_moveto(1)
+        canvas.xview_moveto(.3)
+        self.root.update()
+        self.assertEqual(self.app.details_header.winfo_rooty(), header_y)
+        self.assertGreater(self.app.header_canvas.xview()[0], 0)
+        self.assertAlmostEqual(self.app.header_canvas.xview()[0], canvas.xview()[0], places=2)
+        titles = [w.cget("text") for w in self.app.controls(self.app.details_header) if isinstance(w, padgui.ttk.Button)]
+        self.assertEqual(titles, ["Apply", "Discard"])
+        self.assertTrue(all(w.cget("text") not in ("Apply", "Discard") for w in self.app.controls(self.app.form)
+                            if isinstance(w, padgui.ttk.Button)))
+
     def test_tree_switches_pages_and_firmware_has_no_tabs(self):
         self.load([record(), record("dongle", "dongle")])
         self.assertIs(self.app.active_page, self.app.overview)
@@ -112,17 +154,15 @@ class GuiTests(unittest.TestCase):
         self.app.tree.selection_set("device1")
         self.app.select_node()
         self.assertIs(self.app.active_page, self.app.dongle_page)
-        titles = [w.cget("text") for w in self.app.controls(self.app.tools_page) if isinstance(w, padgui.ttk.Button)]
-        self.assertNotIn("Flash Firmware…", titles)
-        self.assertNotIn("Back up full flash…", titles)
         self.app.log("Shared operation log")
         self.assertIn("Shared operation log", self.app.loader_output.get("1.0", "end"))
         self.assertEqual(self.app.device.get(), "dongle")
-        self.assertEqual(self.app.output.master.master, self.app.diagnostics)
-        self.app.tree.selection_set("device0/tools")
+        self.assertEqual(len(self.app.tree.get_children("device0")), len(padgui.pad.TARGETS))
+        self.assertFalse(hasattr(self.app, "tools_page"))
+        self.assertFalse(any(target == "tools" for path, target in self.app.nodes.values()))
+        self.app.tree.selection_set("device0")
         self.app.select_node()
-        self.assertIs(self.app.active_page, self.app.tools_page)
-        self.assertEqual(self.app.device.get(), "fake")
+        self.assertIs(self.app.active_page, self.app.overview)
         self.assertEqual(self.app.board.get(), "pad")
         self.assertFalse(hasattr(self.app, "tabs"))
         self.assertFalse(hasattr(self.app, "progress"))
@@ -208,7 +248,7 @@ class GuiTests(unittest.TestCase):
         buttons = {w.cget("text"): w for w in actions.winfo_children()}
         self.assertEqual(set(buttons), {"?"})
         self.assertIsInstance(marker, padgui.ttk.Button)
-        self.assertEqual(marker.cget("text"), "*")
+        self.assertEqual(marker.cget("text"), "✓")
         self.assertIn("Click to stage", marker.tooltip.text())
         page_buttons = {action: button for rec, t, action, button in self.app.scope_buttons
                         if rec is r and t == 0 and button.winfo_exists()}
@@ -220,9 +260,14 @@ class GuiTests(unittest.TestCase):
             marker.invoke()
             self.assertEqual(entry["var"].get(), "100")
             self.assertTrue(entry["reset"].get())
-            self.assertTrue(marker.instate(["disabled"]))
+            self.assertFalse(marker.instate(["disabled"]))
+            self.assertEqual(marker.cget("text"), "*")
+            self.assertIn("Click to discard", marker.tooltip.text())
+            marker.invoke()
+            self.assertEqual(entry["var"].get(), "80")
             self.assertEqual(marker.cget("text"), "✓")
-            self.assertIn("At the firmware default", marker.tooltip.text())
+            marker.invoke()
+            self.assertEqual(marker.cget("text"), "*")
             self.assertFalse(page_buttons["Discard"].instate(["disabled"]))
             page_buttons["Discard"].invoke()
             cmd.assert_not_called()
@@ -236,11 +281,20 @@ class GuiTests(unittest.TestCase):
         self.assertFalse(marker.instate(["disabled"]))
         self.assertEqual(marker.cget("text"), "!")
         self.assertIn("Invalid value", marker.tooltip.text())
+        marker.invoke()
+        self.assertEqual(entry["var"].get(), "80")
+        self.assertEqual(marker.cget("text"), "✓")
         entry["default_raw"] = entry["default_text"] = None
         self.app.mark_dirty()
         self.assertEqual(marker.cget("text"), "?")
         self.assertTrue(marker.instate(["disabled"]))
         self.assertIn("default unavailable", marker.tooltip.text())
+        entry["var"].set("90")
+        self.assertEqual(marker.cget("text"), "*")
+        self.assertFalse(marker.instate(["disabled"]))
+        marker.invoke()
+        self.assertEqual(marker.cget("text"), "?")
+        self.assertTrue(marker.instate(["disabled"]))
         labels = [w.cget("text") for w in self.app.form.winfo_children() if isinstance(w, padgui.ttk.Label)]
         self.assertFalse(any("differs from default" in text for text in labels))
 
@@ -252,6 +306,7 @@ class GuiTests(unittest.TestCase):
         entry = self.app.editors["rumble"]
         marker = next(w for e, w in self.app.indicators if e is entry and w.winfo_exists())
         self.assertTrue(marker.instate(["disabled"]))
+        self.assertEqual(marker.cget("text"), "")
         marker.event_generate("<Enter>")
         self.assertIsNotNone(marker.tooltip.timer)
         marker.tooltip.hide()
@@ -298,8 +353,12 @@ class GuiTests(unittest.TestCase):
         one["draft"][1, "rumble"]["var"].set("invalid")
         two["draft"][0, "rumble"]["var"].set("90")
         titles = [w.cget("text") for w in self.app.controls(self.app.form) if isinstance(w, padgui.ttk.Button)]
-        self.assertEqual(titles.count("Apply"), 1)
-        self.assertEqual(titles.count("Discard"), 1)
+        self.assertNotIn("Apply", titles)
+        self.assertNotIn("Discard", titles)
+        header_titles = [w.cget("text") for w in self.app.controls(self.app.details_header) if isinstance(w, padgui.ttk.Button)]
+        self.assertEqual(header_titles.count("Apply"), 1)
+        self.assertEqual(header_titles.count("Discard"), 1)
+        self.assertIs(self.app.details_actions.master, self.app.details_header)
         button = next(w for r, t, action, w in self.app.scope_buttons
                       if r is one and t == 0 and action == "Apply" and w.winfo_exists())
         updated = dict(one["values"])
@@ -389,7 +448,7 @@ class GuiTests(unittest.TestCase):
         self.assertIn("Back up full flash…", buttons)
         self.assertIn("Read product ID", buttons)
         self.assertIs(self.app.active_page, self.app.loader_page)
-        self.assertTrue(all(str(w.cget("state")) == "disabled" for w in self.app.controls(self.app.diagnostics)))
+        self.assertFalse(hasattr(self.app, "diagnostics"))
         self.app.board.set("dongle")
         self.app.select_node()
         self.assertEqual(self.app.board.get(), "")
@@ -594,7 +653,7 @@ class GuiTests(unittest.TestCase):
             self.finish()
             self.assertEqual(read.call_count, 10)
         self.assertEqual(len(self.app.cache), 2)
-        self.assertEqual(len(self.app.tree.get_children("device0")), 11)
+        self.assertEqual(len(self.app.tree.get_children("device0")), len(padgui.pad.TARGETS))
         self.assertEqual(len(self.app.tree.get_children("device1")), 0)
 
     def test_actions_target_slot_and_calibration_is_global(self):
@@ -1008,7 +1067,7 @@ class FlasherTests(unittest.TestCase):
         import subprocess
         import tempfile
         from pathlib import Path
-        exe = padgui.ROOT / "build/host/jlnewfw"
+        exe = Path(__file__).resolve().parent.parent / "build/host/jlnewfw"
         if not exe.is_file():
             self.skipTest("build jlnewfw first")
         with tempfile.TemporaryDirectory() as tmp:

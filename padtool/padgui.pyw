@@ -13,9 +13,9 @@ import padtool as pad
 import padflash
 from padtransport import usb_location
 from paddevices import DeviceMonitor, read_device
+from padconsole import LiveConsole
 from padwidgets import PaletteEditor, CurveEditor, Tooltip
 
-ROOT = Path(__file__).resolve().parent.parent
 PIDS = padflash.PIDS
 
 
@@ -35,6 +35,7 @@ class App:
         self.responsive_rows = {}
         self.active_page = None
         self.cache = {}
+        self.consoles = {}
         self.nodes = {}
         self.editors = {}
         self.indicators = []
@@ -104,17 +105,11 @@ class App:
         content.columnconfigure(0, weight=1)
         self.overview = ttk.Frame(content, padding=10)
         self.settings = ttk.Frame(content, padding=10)
-        self.tools_page = ttk.Frame(content, padding=10)
         self.loader_page = ttk.Frame(content, padding=10)
         self.dongle_page = ttk.Frame(content, padding=10)
-        for page in (self.overview, self.settings, self.tools_page, self.loader_page, self.dongle_page):
+        for page in (self.overview, self.settings, self.loader_page, self.dongle_page):
             page.grid(row=0, column=0, sticky="nsew")
-        tools_form = self.scroll_form(self.tools_page)
-        ttk.Label(tools_form, text="Debug tools", font=("TkDefaultFont", 13, "bold")).pack(anchor="w", pady=(0, 8))
-        self.diagnostics = ttk.LabelFrame(tools_form, text="Diagnostics and console", padding=10)
-        self.diagnostics.pack(fill="both", expand=True)
         self.build_settings()
-        self.build_diagnostics()
         self.build_loader_page()
         self.build_dongle_page()
         self.render_overview()
@@ -131,13 +126,31 @@ class App:
         self.startup_scan = root.after_idle(self.scan) if auto_scan else None
 
     def log(self, text):
-        for output in (self.output, self.loader_output, self.dongle_output):
-            output.configure(state="normal")
-            output.insert("end", text.rstrip() + "\n")
-            if int(output.index("end-1c").split(".")[0]) > 5000:
-                output.delete("1.0", "1000.0")
-            output.see("end")
-            output.configure(state="disabled")
+        output = self.loader_output
+        output.configure(state="normal")
+        output.insert("end", text.rstrip() + "\n")
+        if int(output.index("end-1c").split(".")[0]) > 5000:
+            output.delete("1.0", "1000.0")
+        output.see("end")
+        output.configure(state="disabled")
+
+    def show_console(self):
+        record = self.record()
+        if not record or record["board"] not in PIDS:
+            return
+        identity = record["identity"]
+        if identity in self.consoles:
+            window = self.consoles[identity].window
+            window.deiconify()
+            window.lift()
+            return
+        self.consoles[identity] = LiveConsole(self.root, self.monitor, identity, record["board"],
+                                             self.console_path, lambda: self.consoles.pop(identity, None))
+
+    def console_path(self, identity):
+        matches = [r["path"] for r in self.cache.values()
+                   if r.get("online", True) and r["identity"] == identity and r["board"] in PIDS]
+        return matches[0] if len(matches) == 1 else None
 
     def console_output(self, parent):
         frame = ttk.Frame(parent)
@@ -250,7 +263,7 @@ class App:
                 if kind == "error":
                     error, output = data
                     self.log(output + "\n" + error)
-                    self.notice.set("Operation failed. See the log.")
+                    self.notice.set("Operation failed.")
                     self.render_overview()
                     self.render_details()
                     messagebox.showerror("padtool", error)
@@ -277,6 +290,8 @@ class App:
                 self.root.after_cancel(self.startup_scan)
             self.root.after_cancel(self.poll)
             self.monitor.stop.set()
+            for console in list(self.consoles.values()):
+                console.close()
             self.flash_bar.stop()
             self.root.destroy()
 
@@ -373,13 +388,20 @@ class App:
             self.mark_dirty()
 
     def default_status(self, entries):
+        try:
+            for entry in entries:
+                self.value_bytes(entry)
+        except (Exception, SystemExit):
+            return "!", "Invalid value."
+        if any(self.changed(e) for e in entries):
+            return "*", "Pending change."
         if any(e["default_raw"] is None for e in entries):
             return "?", "Firmware default unavailable."
         try:
             custom = any(self.differs_from_default(e) for e in entries)
         except (Exception, SystemExit):
             return "!", "Invalid value."
-        return ("*", "Different from the firmware default.") if custom else ("✓", "At the firmware default.")
+        return ("✓", "Saved value differs from the firmware default.") if custom else ("", "At the firmware default.")
 
     def default_tooltip(self, entries, clickable=True):
         symbol, text = self.default_status(entries)
@@ -387,11 +409,21 @@ class App:
             return text + "\nThis firmware did not provide the default, so it cannot be restored here."
         if self.busy:
             return text + "\nWait for the current operation to finish."
-        if symbol != "✓":
+        if symbol in ("*", "!"):
+            text += "\n" + ("Click to discard this setting’s edits." if clickable else "Use Discard to undo pending edits.")
+        elif symbol == "✓":
             text += "\n" + ("Click" if clickable else "Use Default") + " to stage the firmware default. Apply saves the change."
         if len(entries) > 1:
-            text += "\nRestores curve points and Use points together."
+            text += "\nCurve points and Use points are handled together."
         return text
+
+    def toggle_setting_status(self, entries):
+        if self.busy:
+            return
+        if any(self.changed(e) for e in entries):
+            self.discard_setting(entries)
+        else:
+            self.reset_default(entries[0])
 
     def default_marker(self, parent, entry, record=None, target=None, name=None):
         if record is None:
@@ -399,7 +431,7 @@ class App:
             entries = (entry,)
         else:
             entries = self.setting_entries(record, target, name, entry)
-            widget = ttk.Button(parent, width=2, padding=0, command=lambda: self.reset_default(entry))
+            widget = ttk.Button(parent, width=2, padding=0, command=lambda: self.toggle_setting_status(entries))
             self.default_buttons.append((entries, widget))
         widget.default_entries = entries
         widget.tooltip = Tooltip(widget, lambda: self.default_tooltip(entries, record is not None))
@@ -432,7 +464,7 @@ class App:
         self.indicators = [(e, w) for e, w in self.indicators if w.winfo_exists()]
         for entry, widget in self.indicators:
             symbol, _ = self.default_status(widget.default_entries)
-            widget.configure(text="" if symbol == "✓" and isinstance(widget, ttk.Label) else symbol)
+            widget.configure(text=symbol)
         self.swatches = [(r, e, w) for r, e, w in self.swatches if w.winfo_exists()]
         for record, entry, swatch in self.swatches:
             try:
@@ -464,7 +496,8 @@ class App:
                 custom = any(self.differs_from_default(e) for e in entries)
             except (Exception, SystemExit):
                 custom = True
-            button.configure(state="normal" if available and custom and not self.busy else "disabled")
+            pending = hasattr(button, "default_entries") and any(self.changed(e) for e in entries)
+            button.configure(state="normal" if not self.busy and (pending or (available and custom)) else "disabled")
         self.scope_buttons = [(r, t, action, w) for r, t, action, w in self.scope_buttons if w.winfo_exists()]
         for record, target, action, button in self.scope_buttons:
             pending = any(self.changed(e) for (t, name), e in record.get("draft", {}).items()
@@ -726,44 +759,34 @@ class App:
                 node = f"{device_node}/{t}"
                 self.tree.insert(device_node, "end", iid=node, text=label)
                 self.nodes[node] = (path, t)
-            if record["board"] == "pad":
-                node = f"{device_node}/tools"
-                self.tree.insert(device_node, "end", iid=node, text="Debug tools")
-                self.nodes[node] = (path, "tools")
-        if not self.cache:
-            self.tree.insert("", "end", iid="tools", text="Debug tools")
-            self.nodes["tools"] = (None, "tools")
         nodes = self.tree.get_children()
         if nodes:
             selected = next((node for node, key in self.nodes.items() if key == ((select_path, None) if select_path else previous)), nodes[0])
             self.tree.selection_set(selected)
             self.select_node()
         else:
+            self.device.set("")
+            self.board.set("")
             self.render_overview()
             self.render_details()
+            self.update_loader_actions()
+            self.show_page(self.overview)
         self.mark_dirty()
 
     def select_node(self, event=None):
         if self.busy or not self.tree.selection():
             return
         path, target = self.nodes[self.tree.selection()[0]]
-        if path is None:
-            self.update_tools()
-            self.show_page(self.tools_page)
-            return
         record = self.cache[path]
         self.device.set(path)
         self.board.set(record["board"] if record["board"] in PIDS else "")
         if isinstance(target, int):
             self.target.set(pad.TARGETS[target])
-            if target < 8:
-                self.slot.set(pad.TARGETS[target])
         self.render_overview()
         self.render_details()
-        self.update_tools()
+        self.update_loader_actions()
         main = self.loader_page if record["board"] == "loader" else self.dongle_page if record["board"] == "dongle" else self.overview
-        pages = {"tools": self.tools_page, None: main}
-        self.show_page(pages.get(target, self.settings))
+        self.show_page(main if target is None else self.settings)
         if record["board"] == "loader" and self.auto_identify and not record.get("id_checked"):
             record["id_checked"] = True
             self.root.after_idle(self.detect_loader_product_id)
@@ -799,6 +822,12 @@ class App:
             for layout in self.responsive_rows[parent]:
                 layout(available)
             width = max(available, form.winfo_reqwidth())
+            if parent is self.settings:
+                width = max(width, self.details_header.winfo_reqwidth())
+                height = self.details_header.winfo_reqheight()
+                self.header_canvas.configure(height=height, scrollregion=(0, 0, width, height))
+                if int(self.header_canvas.itemcget(self.header_window, "width")) != width:
+                    self.header_canvas.itemconfigure(self.header_window, width=width)
             if int(canvas.itemcget(window, "width")) != width:
                 canvas.itemconfigure(window, width=width)
             if width > available:
@@ -814,6 +843,17 @@ class App:
 
         form.bind("<Configure>", update_region)
         canvas.bind("<Configure>", resize)
+        if parent is self.settings:
+            # Keep the title/actions fixed vertically, but scroll them with the
+            # settings horizontally when a tiling window is forced too narrow.
+            self.header_canvas.pack_configure(padx=(0, vertical.winfo_reqwidth()))
+            self.details_header.bind("<Configure>", update_region)
+
+            def horizontal_position(first, last):
+                horizontal.set(first, last)
+                self.header_canvas.xview_moveto(float(first))
+
+            canvas.configure(xscrollcommand=horizontal_position)
         self.scroll_canvases[parent] = canvas
         return form
 
@@ -860,15 +900,19 @@ class App:
         else:
             steps = -1 if delta > 0 else 1 if delta < 0 else 0
         horizontal = bool(getattr(event, "state", 0) & 1)
-        target = event.widget if not horizontal and event.widget in (self.output, self.loader_output, self.dongle_output) else self.scroll_canvases.get(self.active_page)
+        target = event.widget if isinstance(event.widget, tk.Text) else self.scroll_canvases.get(self.active_page)
         if target is not None:
             (target.xview_scroll if horizontal else target.yview_scroll)(steps, "units")
         return "break"
 
     def build_settings(self):
         self.overview_form = self.scroll_form(self.overview)
-        bar = ttk.Frame(self.settings)
-        bar.pack(fill="x", pady=(0, 8))
+        self.header_canvas = tk.Canvas(self.settings, height=1, highlightthickness=0,
+                                       background=ttk.Style().lookup("TFrame", "background") or self.root.cget("background"))
+        self.header_canvas.pack(fill="x", pady=(0, 8))
+        self.details_header = bar = ttk.Frame(self.header_canvas)
+        self.header_window = self.header_canvas.create_window((0, 0), window=bar, anchor="nw")
+        self.details_actions = None
         self.details_title = tk.StringVar(value="Select a slot or settings group in the tree")
         ttk.Label(bar, textvariable=self.details_title, font=("TkDefaultFont", 12, "bold")).pack(side="left")
         self.form = self.scroll_form(self.settings)
@@ -904,8 +948,10 @@ class App:
         ttk.Label(header, text=record["status"] if record.get("online", True) else "Disconnected · pending edits retained").pack(side="left", padx=(16, 0))
         actions = ttk.Frame(f)
         actions.pack(fill="x", pady=(4, 8))
-        ttk.Button(actions, text="Flash Firmware…" if record["board"] == "loader" else "Enter flash loader",
-                   command=self.choose_firmware if record["board"] == "loader" else self.enter_flash_loader,
+        self.enter_loader_button = ttk.Button(actions, text="Enter flash loader", command=self.enter_flash_loader,
+                                              state="normal" if record.get("online", True) else "disabled")
+        self.enter_loader_button.pack(side="left", padx=(0, 8))
+        ttk.Button(actions, text="Show console", command=self.show_console,
                    state="normal" if record.get("online", True) else "disabled").pack(side="left", padx=(0, 8))
         if record["board"] == "pad":
             ttk.Button(actions, text="Back up pad settings…", command=self.backup_settings, state="normal" if record.get("online", True) else "disabled").pack(side="left", padx=(0, 8))
@@ -942,6 +988,9 @@ class App:
         for widget in self.form.winfo_children():
             widget.destroy()
         self.editors = {}
+        if self.details_actions is not None:
+            self.details_actions.destroy()
+            self.details_actions = None
         record = self.record()
         supported = record and record["board"] == "pad" and not record.get("error")
         if not supported:
@@ -950,14 +999,15 @@ class App:
         target = pad.target_index(self.target.get())
         self.details_title.set(f"{record['path']} · " + (f"Slot {pad.TARGETS[target]}" if target < 8 else pad.TARGETS[target].title()))
         advanced = ttk.Frame(self.form)
-        self.scope_actions(self.form, record, target).grid(row=0, column=0, columnspan=4, sticky="w", padx=4, pady=(0, 8))
-        rows = {self.form: 1, advanced: 0}
+        self.details_actions = self.scope_actions(self.details_header, record, target)
+        self.details_actions.pack(side="left", padx=(12, 0))
+        rows = {self.form: 0, advanced: 0}
         if target == pad.target_index("calibration"):
             calibration = ttk.Frame(self.form, padding=(4, 4, 4, 12))
-            calibration.grid(row=1, column=0, columnspan=4, sticky="w")
+            calibration.grid(row=0, column=0, columnspan=4, sticky="w")
             ttk.Button(calibration, text="Calibrate sensors…", command=self.calibrate).pack(anchor="w")
             ttk.Label(calibration, text="Calibration is shared by all slots. Select Calibrate sensors for instructions.", wraplength=800).pack(anchor="w", pady=(6, 0))
-            rows[self.form] = 2
+            rows[self.form] = 1
         for (t, name), entry in record["draft"].items():
             f = entry["field"]
             if t != target:
@@ -1220,9 +1270,8 @@ class App:
         actions.pack(fill="x", pady=8)
         for text, command in (("Enter flash loader", self.enter_flash_loader),
                               ("Pair dongle…", lambda: self.slot_action("pair", 0)),
-                              ("Reboot", lambda: self.diagnostic("Reboot", lambda p: pad.cmd(p, 0x10))),
-                              ("Read log", lambda: self.diagnostic("Read log", lambda p: pad.log(p, False))),
-                              ("Timing trace", lambda: self.diagnostic("Timing trace", lambda p: pad.trace(p, 0.5, 40)))):
+                              ("Reboot", lambda: self.device_action("Reboot", lambda p: pad.cmd(p, 0x10))),
+                              ("Show console", self.show_console)):
             ttk.Button(actions, text=text, command=command).pack(side="left")
         self.wrap_row(actions, actions.winfo_children(), self.dongle_page)
         target = ttk.Frame(f)
@@ -1230,7 +1279,6 @@ class App:
         ttk.Label(target, text="Target address").pack(side="left", padx=(0, 8))
         ttk.Entry(target, textvariable=self.address, width=24).pack(side="left", padx=(0, 8))
         ttk.Button(target, text="Set target", command=self.set_dongle_target).pack(side="left")
-        self.dongle_output = self.console_output(f)
 
     def open_loader(self, record, blob):
         loader = padflash.inspect_loader(record["path"], blob, report=self.flash_report,
@@ -1253,18 +1301,11 @@ class App:
         self.start_flash_progress("Reading product ID")
         self.run("Reading product ID…", lambda: self.open_loader(record, blob))
 
-    def update_tools(self):
+    def update_loader_actions(self):
         record = self.record()
-        running = record is not None and record.get("online", True) and record["board"] in PIDS
-        in_loader = record is not None and record["board"] == "loader"
+        in_loader = record is not None and record["board"] == "loader" and record.get("online", True)
         for button in (self.backup_flash_button, self.flash_button):
             button.configure(state="normal" if in_loader else "disabled")
-        self.enter_loader_button.configure(state="normal" if running else "disabled")
-        for widget in self.controls(self.diagnostics):
-            state = "readonly" if running and isinstance(widget, ttk.Combobox) else "normal" if running else "disabled"
-            if record is None and isinstance(widget, ttk.Button) and widget.cget("text") == "Tool mode (Linux HID)":
-                state = "normal"
-            widget.configure(state=state)
 
     def choose_firmware(self):
         if self.busy or not self.require_loader():
@@ -1409,38 +1450,6 @@ class App:
         self.start_flash_progress("Preparing firmware")
         self.run("Backing up and flashing…" if backup else "Flashing…", write, lambda _: self.clear_settings())
 
-    def build_diagnostics(self):
-        f = self.diagnostics
-        ttk.Label(f, text="Operations use the selected running firmware device.").pack(anchor="w", pady=6)
-        bar = ttk.Frame(f)
-        bar.pack(fill="x")
-        for title, function in [("Read log", lambda p: pad.log(p, False)),
-                                ("Statistics (pad)", lambda p: pad.show_stats(pad.read_stats(p))),
-                                ("Timing trace", lambda p: pad.trace(p, 0.5, 40))]:
-            ttk.Button(bar, text=title, command=lambda fn=function, name=title: self.diagnostic(name, fn)).pack(side="left", padx=(0, 8))
-        bar = ttk.Frame(f)
-        bar.pack(fill="x", pady=12)
-        self.slot = tk.StringVar(value=pad.SLOT_NAMES[0])
-        ttk.Combobox(bar, textvariable=self.slot, values=pad.SLOT_NAMES, state="readonly", width=10).pack(side="left", padx=(0, 8))
-        ttk.Button(bar, text="Connect slot (pad)", command=self.connect).pack(side="left", padx=(0, 8))
-        ttk.Button(bar, text="Pair…", command=self.pair).pack(side="left")
-        bar = ttk.Frame(f)
-        bar.pack(fill="x", pady=8)
-        ttk.Button(bar, text="Reboot", command=lambda: self.diagnostic("Reboot", lambda p: pad.cmd(p, 0x10))).pack(side="left")
-        self.enter_loader_button = ttk.Button(bar, text="Enter flash loader", command=self.enter_flash_loader)
-        self.enter_loader_button.pack(side="left", padx=8)
-        ttk.Button(bar, text="Tool mode (Linux HID)", command=lambda: self.run("Switching to tool mode…", lambda: pad.tool([]))).pack(side="left")
-        advanced = ttk.LabelFrame(f, text="CPU profiling · requires pyelftools", padding=8)
-        advanced.pack(fill="x", pady=12)
-        advanced.columnconfigure(1, weight=1)
-        self.elf = tk.StringVar(value=str(ROOT / "build/pad/app.elf"))
-        self.file_row(advanced, 0, "Running build ELF", self.elf)
-        ttk.Button(advanced, text="Profile for 3 seconds", command=self.profile).grid(row=1, column=1, sticky="w", pady=8)
-        ttk.Label(f, text="Pairing replaces the selected slot's host after a successful pairing.\n"
-                  "End USB gamepad sessions to expose tool mode. Devices appear automatically; logs appear below.", wraplength=900).pack(anchor="w", pady=12)
-
-        self.output = self.console_output(f)
-
     def set_dongle_target(self):
         if self.board.get() != "dongle":
             messagebox.showinfo("Dongle only", "Select a dongle to set its target address.")
@@ -1453,16 +1462,9 @@ class App:
         except ValueError:
             messagebox.showerror("Address", "Use AA:BB:CC:DD:EE:FF.")
             return
-        self.diagnostic("Set dongle target", lambda p: pad.scsi(p, bytes([pad.OP, 0x30]) + address, 0))
+        self.device_action("Set dongle target", lambda p: pad.scsi(p, bytes([pad.OP, 0x30]) + address, 0))
 
-    def profile(self):
-        elf = self.elf.get()
-        self.diagnostic("CPU profile", lambda p: pad.profile(p, 3, 2000, 40, elf))
-
-    def diagnostic(self, label, fn):
-        if label == "Statistics (pad)" and self.board.get() != "pad":
-            messagebox.showinfo("Unavailable", "Dongle firmware does not expose pad statistics.")
-            return
+    def device_action(self, label, fn):
         path = self.path()
         if path:
             record = self.record()
@@ -1474,11 +1476,6 @@ class App:
                 return fn(path)
             self.run(label + "…", perform)
 
-    def connect(self):
-        self.slot_action("connect", pad.SLOT_NAMES.index(self.slot.get()))
-
-    def pair(self):
-        self.slot_action("pair", pad.SLOT_NAMES.index(self.slot.get()) if self.board.get() == "pad" else 0)
 
 
 if __name__ == "__main__":

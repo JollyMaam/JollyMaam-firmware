@@ -76,9 +76,12 @@ copy beside the scripts). Device discovery runs once per second; only new or
 changed devices reload settings. Edits stay pending across navigation until Apply.
 Apply/Discard scope is all devices in the global toolbar, one pad on its main
 page, and one target on slot/palette/calibration pages. Individual fields keep
-a clickable status marker that stages Default, with a hover explanation.
-Pad diagnostics live in Debug tools; dongle and ROM-loader actions live on their
-main device pages. `tools/bootloop.py` is a development stress-test helper. Sensor
+a status button: blank is default, checkmark is saved custom, * is a staged
+edit. Clicking a saved checkmark stages Default; clicking * or ! discards that
+setting’s edits. Hover explains the status/action.
+Show console opens a per-device live log window (`padtool/padconsole.py`);
+advanced diagnostics use the CLI. Slot Apply/Discard stay in the title header
+while settings scroll. Dongle and ROM-loader actions live on their main pages. `tools/bootloop.py` is a development stress-test helper. Sensor
 calibration is global; the USB trigger requires protocol 3+. Protocol 4 adds
 a read-only defaults query for Reset and default-value indicators. Protocol 5
 uses 15-point curves plus enable flags; presets and migration are shared in

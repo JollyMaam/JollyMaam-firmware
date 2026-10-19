@@ -420,11 +420,22 @@ def clock():
     return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(t)) + f".{int(t * 1000) % 1000:03d}"
 
 
+def read_log(path, seq):
+    """Return the first sequence and text in one firmware log chunk."""
+    data = cmd(path, 0x02, seq, 512)
+    if len(data) < 8:
+        raise ValueError("Short firmware log header")
+    first, size = struct.unpack_from("<II", data)
+    if size > len(data) - 8:
+        raise ValueError("Short firmware log data")
+    return first, data[8:8 + size].decode("utf-8", "replace")
+
+
 def log(path, follow):
     seq = 1
     while True:
         try:
-            d = cmd(path, 0x02, seq, 512)
+            first, text = read_log(path, seq)
         except OSError:
             if not follow:
                 raise
@@ -434,8 +445,6 @@ def log(path, follow):
                 return
             print(f"-- {BOARD} back {clock()} --", flush=True)
             continue
-        first, n = struct.unpack_from("<II", d)
-        text = d[8:8 + n].decode("utf-8", "replace")
         if first > seq and seq > 1:
             print(f"... {first - seq} lines lost")
         lines = text.splitlines()
