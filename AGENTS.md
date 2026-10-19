@@ -81,7 +81,9 @@ a read-only defaults query for Reset and default-value indicators. Protocol 5
 uses 15-point curves plus enable flags; presets and migration are shared in
 `padtool/padcurves.py`. Protocol 6 adds the staged slot Unpair action (WRITE
 id 0xfe, length 0): firmware clears the bond and renews the address at COMMIT.
-GUI Unpair and `padtool unpair SLOT` share this action. Setup and host
+GUI Unpair and `padtool unpair SLOT` share this action. Address renewal hashes
+the full previous address and tick, with no fixed prefix or generation counter.
+Type changes renew identities (except through the dongle). Setup and host
 tests: `padtool/README.md`.
 
 `tools/sdlpad.c` shows what SDL makes of the gamepads it sees (build line at

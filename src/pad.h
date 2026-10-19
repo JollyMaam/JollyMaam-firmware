@@ -392,6 +392,8 @@ struct rgb set_colour(struct colour c);
 const struct bt_bond *set_bond(u8 slot);
 void set_bond_store(u8 slot, const struct bt_bond *bond);
 void set_slot_address(u8 slot, u8 out[6]);
+/* Hash the full current address and tick into a candidate, including a new
+ * prefix; preserve local/unicast bits. Does not change the saved identity. */
 void set_slot_new_address(u8 slot, u8 out[6]);
 void set_pairing_store(u8 slot, const u8 address[6], const struct bt_bond *bond);
 const struct set_cal *set_cal(void);

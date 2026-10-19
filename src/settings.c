@@ -58,7 +58,7 @@ static const struct set_field slot_fields[] = {
     { .id = ID_TYPE, .name = "type", .type = T_ENUM, .names = types, FIELD(type),
       .def = { PROFILE_SWITCH, PROFILE_SWITCH, PROFILE_GENERIC, PROFILE_SWITCH2,
                [4 ... 7] = PROFILE_MOUSE },
-      .help = "what the slot connects as; changing it clears address and bond" },
+      .help = "what the slot connects as; changing it renews address and clears bond" },
     { .id = ID_TRANSPORT, .name = "transport", .type = T_ENUM, .names = transports, FIELD(transport),
       .def = ALL(TRANSPORT_BT),
       .help = "how: bluetooth; usb, a wired controller; bluetooth+usb, usb while a usb host "
@@ -314,13 +314,24 @@ static void clear(u8 t, u8 id)
     put(t, f, bit, NULL, 0);
 }
 
-/* Id 0 from outside: a slot's pairing (address, bond) is kept, unless the
- * type changes with the reset. */
+static void renew_identity(u8 slot)
+{
+    u8 address[6];
+    u32 bit;
+    const struct set_field *f = find(slot, ID_ADDRESS, &bit);
+
+    set_slot_new_address(slot, address);
+    clear(slot, ID_BOND);
+    put(slot, f, bit, address, sizeof(address));
+}
+
+/* Id 0 from outside keeps pairing unless it changes the host identity. */
 static void reset_keeping_pairing(u8 t)
 {
     u32 n, i;
     const struct set_field *f = fields_of(t, &n);
     u8 type = slots[t % SLOTS].type;
+    u8 transport = slots[t % SLOTS].transport;
 
     if (t >= SLOTS) {
         reset(t);
@@ -328,10 +339,9 @@ static void reset_keeping_pairing(u8 t)
     }
     for (i = 0; i < n; i++)
         if (f[i].id != ID_ADDRESS && f[i].id != ID_BOND) put(t, &f[i], i, NULL, 0);
-    if (slots[t].type != type) {
-        clear(t, ID_ADDRESS);
-        clear(t, ID_BOND);
-    }
+    if ((slots[t].type != type && transport != TRANSPORT_DONGLE) ||
+        (transport == TRANSPORT_DONGLE) != (slots[t].transport == TRANSPORT_DONGLE))
+        renew_identity(t);
 }
 
 /* ---- records ------------------------------------------------------------------
@@ -521,17 +531,19 @@ void set_slot_address(u8 slot, u8 out[6])
     out[5] = (u8)((out[5] | 0x02) & 0xfe);
 }
 
-/* A new address for the slot, not stored: a host that still holds a key for
- * the old one sees a pad it has never met. */
+/* Roll all address bytes from the complete previous identity and current tick,
+ * with no fixed prefix or stored generation counter. This is only a candidate:
+ * the caller decides when to store it. */
 void set_slot_new_address(u8 slot, u8 out[6])
 {
-    u32 h;
+    u32 a, b, now = plat_ms();
 
     set_slot_address(slot, out);
-    h = fnv1a(fnv1a(2166136261u, out, 6), out, 6) ^ plat_ms();
-    out[0] = (u8)h;
-    out[1] = (u8)(h >> 8);
-    out[2] = (u8)(h >> 16);
+    a = fnv1a(fnv1a(2166136261u, out, 6), (const u8 *)&now, sizeof(now));
+    b = fnv1a(fnv1a(0x811c9dc5u ^ 0x5a5a5a5au, out, 6), (const u8 *)&now, sizeof(now));
+    memcpy(out, &a, 4);
+    memcpy(out + 4, &b, 2);
+    out[5] = (u8)((out[5] | 0x02) & 0xfe);
 }
 
 /* A pairing that succeeded: the address it ran at and its bond, together.
@@ -598,11 +610,7 @@ void set_apply(void)
         const struct set_field *f;
 
         if (id == SET_UNPAIR) {
-            u8 address[6];
-            set_slot_new_address(t, address);
-            clear(t, ID_BOND);
-            f = find(t, ID_ADDRESS, &bit);
-            put(t, f, bit, address, sizeof(address));
+            renew_identity(t);
         } else if (id == 0) {
             reset_keeping_pairing(t);
         } else {
@@ -617,8 +625,7 @@ void set_apply(void)
                                slots[t].transport != TRANSPORT_DONGLE) ||
                               (id == ID_TRANSPORT && (v == TRANSPORT_DONGLE) !=
                                (slots[t].transport == TRANSPORT_DONGLE)))) {
-                clear(t, ID_ADDRESS);
-                clear(t, ID_BOND);
+                renew_identity(t);
             }
             put(t, f, bit, stage + o + 3, l);
         }
@@ -902,7 +909,7 @@ int main(void)
     set_init();
     CHECK(set_slot(2)->rumble == 42);
 
-    /* Pairing pins the address; a new type clears address and bond. */
+    /* Pairing pins the address; a new type rolls the address and clears bond. */
     memset(&bond, 0x11, sizeof(bond));
     set_slot_address(0, a);
     set_bond_store(0, &bond);
@@ -920,6 +927,21 @@ int main(void)
     set_apply();
     set_slot_address(0, b);
     CHECK(set_bond(0)->peer[0] == 0 && memcmp(a, b, 6) && set_slot(0)->type == PROFILE_XBOX);
+    memcpy(n, b, 6);
+    x = PROFILE_SWITCH;
+    CHECK(write1(0, ID_TYPE, 1, &x) == SET_OK);
+    set_apply();
+    set_slot_address(0, b);
+    CHECK(memcmp(a, b, 6) && memcmp(n, b, 6));  /* Switch -> Xbox -> Switch never restores a */
+    memcpy(n, b, 6);
+    x = PROFILE_XBOX;
+    CHECK(write1(0, ID_TYPE, 1, &x) == SET_OK);
+    set_apply();
+    set_slot_address(0, b);
+    CHECK(write1(0, 0, 0, NULL) == SET_OK);    /* resetting type also rolls the identity */
+    set_apply();
+    set_slot_address(0, a);
+    CHECK(memcmp(a, b, 6) && memcmp(a, n, 6));
     /* ... and an address after the type stays. */
     memset(a, 0x22, 6);
     CHECK(write1(0, 1, 1, &x) == SET_OK && write1(0, 12, 6, a) == SET_OK);
@@ -929,6 +951,17 @@ int main(void)
     /* A new address is only a candidate; a pairing stores it with its bond. */
     set_slot_new_address(0, b);
     CHECK(memcmp(a, b, 6));
+    CHECK(memcmp(a + 3, b + 3, 3) && (b[5] & 3) == 2);
+    {
+        u8 changed_prefix[6], same[6];
+        /* Both halves of the candidate depend on the old prefix too. */
+        set_slot_new_address(0, same);
+        CHECK(!memcmp(same, b, 6));
+        slots[0].address[4] ^= 0x80;
+        set_slot_new_address(0, changed_prefix);
+        slots[0].address[4] ^= 0x80;
+        CHECK(memcmp(b, changed_prefix, 3) && memcmp(b + 3, changed_prefix + 3, 3));
+    }
     set_slot_address(0, n);
     CHECK(!memcmp(a, n, 6));
     set_pairing_store(0, b, &bond);
@@ -948,7 +981,7 @@ int main(void)
     CHECK(write1(0, 7, 1, &(u8){ 75 }) == SET_OK);
     set_apply();
     set_slot_address(0, b);
-    CHECK(memcmp(a, b, 6) && !memcmp(a + 3, b + 3, 3));
+    CHECK(memcmp(a, b, 6) && memcmp(a + 3, b + 3, 3) && (b[5] & 3) == 2);
     memset(&bond, 0, sizeof(bond));
     CHECK(!memcmp(set_bond(0), &bond, sizeof(bond)) && set_slot(0)->rumble == 75);
     CHECK(write1(0, SET_UNPAIR, 0, NULL) == SET_OK);

@@ -33,7 +33,12 @@ Selecting a pad shows its slots, each with a type dropdown, Default, Discard,
 Apply, Settings and Unpair. Unpair is disabled without a pairing or on firmware
 older than protocol 6. It stages an action: on Apply, firmware clears the entire
 Classic/LE bond and generates and saves a replacement Bluetooth address.
-Discard cancels it without touching the pad. Slot and settings-group entries
+Address renewal hashes the complete previous address, including its prefix,
+and the current tick to roll all six bytes while retaining the local/unicast
+bits. There is no fixed per-pad prefix or generation counter. Changing a slot’s
+type also renews its identity rather than returning to an earlier type’s
+address; type changes through the dongle retain its existing pairing.
+Discard cancels Unpair without touching the pad. Slot and settings-group entries
 open detailed settings. The same firmware action is available from the CLI:
 
 ```sh
