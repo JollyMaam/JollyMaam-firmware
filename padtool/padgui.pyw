@@ -333,6 +333,8 @@ class App:
                         default_raw = known[index]
                     elif not explicit:
                         default_raw = raw
+                if f["name"] == "address" and not explicit:
+                    default_raw = raw  # The firmware returns the effective derived identity.
                 var, reset = tk.StringVar(value=original), tk.BooleanVar()
                 entry = {"field": f, "var": var, "reset": reset, "original": original,
                          "original_raw": raw, "explicit": explicit, "default_raw": default_raw,

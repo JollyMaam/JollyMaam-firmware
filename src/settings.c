@@ -559,6 +559,15 @@ void set_slot_new_address(u8 slot, u8 out[6])
     out[5] = (u8)((out[5] | 0x02) & 0xfe);
 }
 
+/* First pairing uses the inspectable identity; replacing a bond may renew it. */
+void set_pairing_address(u8 slot, int renew, u8 out[6])
+{
+    static const struct bt_bond empty;
+
+    if (renew && memcmp(set_bond(slot), &empty, sizeof(empty))) set_slot_new_address(slot, out);
+    else set_slot_address(slot, out);
+}
+
 /* A pairing that succeeded: the address it ran at and its bond, together.
  * Until then the slot keeps its old ones. */
 void set_pairing_store(u8 slot, const u8 address[6], const struct bt_bond *bond)
@@ -736,6 +745,7 @@ static u32 read_values(u8 t, u8 *out, u32 max, int defaults)
         out[o + 1] = defaults ? 0 : (set_bits[t] >> i) & 1;
         out[o + 2] = f[i].size;
         if (defaults) default_value(t, &f[i], out + o + 3);
+        else if (t < SLOTS && f[i].id == ID_ADDRESS) set_slot_address(t, out + o + 3);
         else memcpy(out + o + 3, values_of(t) + f[i].offset, f[i].size);
         o += 3u + f[i].size;
     }
@@ -811,6 +821,39 @@ int main(void)
     CHECK(set_slot(2)->transport == TRANSPORT_DONGLE && set_slot(3)->transport == TRANSPORT_BT_USB);
     for (t = 4; t < SLOTS; t++) CHECK(set_slot(t)->type == PROFILE_NONE);
     CHECK(set_slot(1)->rumble == 100 && set_slot(7)->stick_speed == 1500);
+    /* Inspecting an unused slot reveals its first pairing identity without
+     * saving it. Classic and LE replacements can still request a new one. */
+    {
+        u8 address[6], pair[6], values[512];
+        u32 size = set_read(7, values, sizeof(values)), at;
+        int found = 0;
+
+        set_slot_address(7, address);
+        set_pairing_address(7, 1, pair);
+        CHECK(!memcmp(address, pair, 6) && !set_bits[7]);
+        for (at = 3; at + 3 <= size; at += 3u + values[at + 2]) {
+            if (values[at] != ID_ADDRESS) continue;
+            CHECK(values[at + 1] == 0 && values[at + 2] == 6);
+            CHECK(!memcmp(values + at + 3, address, 6));
+            found = 1;
+        }
+        CHECK(found && !set_bits[7] && !dirty);
+        size = set_read_defaults(7, values, sizeof(values));
+        for (at = 3; at + 3 <= size; at += 3u + values[at + 2])
+            if (values[at] == ID_ADDRESS) CHECK(!memcmp(values + at + 3, (u8[6]){0}, 6));
+        slots[7].bond.peer[0] = 1;
+        set_pairing_address(7, 1, pair);
+        CHECK(memcmp(address, pair, 6));
+        set_pairing_address(7, 0, pair);
+        CHECK(!memcmp(address, pair, 6));
+        slots[7].bond.peer[0] = 0;
+        slots[7].bond.le_peer[0] = 1;
+        set_pairing_address(7, 1, pair);
+        CHECK(memcmp(address, pair, 6));
+        slots[7].bond.le_peer[0] = 0;
+        set_slot_address(7, pair);
+        CHECK(!memcmp(address, pair, 6) && !set_bits[7] && !dirty);
+    }
     CHECK(set_slot(0)->connect_colour.entry == 5 && set_slot(0)->connect_colour.level == 5);
     {
         struct rgb c = set_colour(set_slot(2)->connect_colour);   /* X: green */

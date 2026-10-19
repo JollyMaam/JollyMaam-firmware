@@ -222,7 +222,7 @@ static void start_session(struct ctl_request r, u32 now)
     memset(&s, 0, sizeof(s));
     s.slot = r.slot;
     s.pairing = (u8)pairing;
-    if (pairing && r.generate_new_address) set_slot_new_address(r.slot, s.address);
+    if (pairing) set_pairing_address(r.slot, r.generate_new_address, s.address);
     else set_slot_address(r.slot, s.address);
     memset(&c.pair_bond, 0, sizeof(c.pair_bond));
     c.pair_pending = (u8)pairing;

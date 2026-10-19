@@ -761,6 +761,20 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(self.app.notice.get(), "")
         self.assertFalse(self.app.batch_edits)
 
+    def test_effective_derived_address_is_visible_without_a_custom_setting(self):
+        r = record()
+        r["fields"].append({"kind": 0, "id": 12, "name": "address", "type": padgui.pad.T_BYTES,
+                            "size": 6, "help": "Address", "dev": True})
+        raw = bytes.fromhex("102030405002")
+        r["values"][0]["address"] = (raw, False)
+        r["defaults"] = {0: {"address": (bytes(6), False)}}
+        self.load([r])
+        entry = r["draft"][0, "address"]
+        self.assertEqual(entry["var"].get(), "02:50:40:30:20:10")
+        self.assertFalse(self.app.changed(entry))
+        self.assertFalse(self.app.differs_from_default(entry))
+        self.assertEqual(self.app.value_bytes(entry), raw)
+
     def test_reset_shows_default_and_later_edit_overrides_reset(self):
         r = record()
         r["values"][0]["rumble"] = (b"\x50", True)

@@ -396,11 +396,16 @@ void set_slot_address(u8 slot, u8 out[6]);
 /* Hash the full current address and tick into a candidate, including a new
  * prefix; preserve local/unicast bits. Does not change the saved identity. */
 void set_slot_new_address(u8 slot, u8 out[6]);
+/* Use the current identity for first pairing; renew only to replace a bond.
+ * A candidate is saved with the bond after successful pairing. */
+void set_pairing_address(u8 slot, int renew, u8 out[6]);
 void set_pairing_store(u8 slot, const u8 address[6], const struct bt_bond *bond);
 const struct set_cal *set_cal(void);
 void set_cal_store(const struct set_cal *cal);
 /* Over USB: */
 u32 set_describe(u32 n, u8 *out, u32 max);
+/* Current values include the effective slot address, even when still derived;
+ * its set flag stays clear until saved. Defaults retain zero for derived. */
 u32 set_read(u8 target, u8 *out, u32 max);
 u32 set_read_defaults(u8 target, u8 *out, u32 max); /* same format, no state changes */
 /* WRITE items: {target, id, length, bytes}; SET_UNPAIR clears the bond and
