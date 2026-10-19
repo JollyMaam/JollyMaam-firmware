@@ -29,8 +29,9 @@ Linux labels show USB topology when available. Configuration and Show console us
 become available. The Linux HID tool-mode button can request this for HID
 profiles; on Windows end the session using the pad first.
 
-Selecting a pad shows its slots, each with a type dropdown, Default and Unpair.
-Apply and Discard below the device actions affect all settings on that pad.
+Selecting a pad shows its slots, each with a status button, type dropdown and
+Unpair. Apply, Discard and Reset all to defaults below the device actions affect
+all settings on that pad.
 Select a slot or settings group in the tree to edit its detailed settings. Unpair is disabled without a pairing or on firmware
 older than protocol 6. It stages an action: on Apply, firmware clears the entire
 Classic/LE bond and generates and saves a replacement Bluetooth address.
@@ -91,14 +92,15 @@ all previews follow staged palette edits.
 On detailed settings pages, the leftmost status button replaces the separate
 Default button and legend. A blank status is disabled; saved custom values can
 be set to default, and staged edits can be undone from the same button.
-The device overview retains its separate Default buttons. Apply and
-Discard beside the slot, Palette or Calibration title affect only that page’s
-settings. The header stays visible while settings scroll vertically, and follows
+The device overview uses the same status-button logic for slot types. Apply,
+Discard and Reset all to defaults beside the slot, Palette or Calibration title
+affect only that page’s settings. The header stays visible while settings scroll vertically, and follows
 the horizontal scrollbar in narrow windows. Device-page
 Apply and Discard cover the selected pad, including all slots, palette and
 calibration. The global toolbar controls cover all devices. Other drafts are
-retained when using a narrower scope. Page controls are disabled without
-pending edits in their scope. Discard uses cached originals and keeps the
+retained when using a narrower scope. Page Apply and Discard are disabled
+without pending edits in their scope. Reset requires defaults to be available
+for all settings in its scope. Discard uses cached originals and keeps the
 existing editors. Help is hidden behind each row's `?` button.
 Setting names use readable labels.
 Numeric inputs show their valid range beside the box, using firmware-reported
@@ -149,10 +151,12 @@ for 2.5 seconds after starting, then circle both sticks around their edges and
 press both triggers fully. A or B saves; Home cancels. Calibration settings and
 palette settings each have their own global entry in the tree.
 
-On the pad’s device overview, backup, restore and **Reset all to defaults** sit
-next to **Enter flash loader**. Reset all stages defaults for this pad’s slots,
-palette, calibration and pairing data. **Apply** saves the changes; **Discard**
-reverts them. Other devices’ pending edits are retained.
+On the pad’s device overview, backup and restore sit next to **Enter flash
+loader**. **Reset all to defaults** sits beside Apply and Discard and stages
+defaults for this pad’s slots, palette, calibration and pairing data. On a slot
+page, the same button resets only that slot, including its developer settings
+and pairing data. **Apply** saves the changes; **Discard** reverts them. Other
+slots’ and devices’ edits outside the selected scope are retained.
 
 **Back up pad settings…** reads all slots, the global palette and calibration
 from the selected pad, including pairing data. It excludes pending GUI edits.

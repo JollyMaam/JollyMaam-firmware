@@ -78,7 +78,9 @@ Apply/Discard scope is all devices in the global toolbar, one pad on its main
 page, and one target on slot/palette/calibration pages. Individual fields keep
 a status button: blank is default, checkmark is saved custom, * is a staged
 edit. Clicking a saved checkmark stages Default; clicking * or ! discards that
-setting’s edits. Hover explains the status/action.
+setting’s edits. The device overview uses the same buttons for slot types.
+Reset all to defaults sits beside Apply/Discard and stages defaults within the
+selected device or target scope. Hover explains the status/action.
 Show console opens a per-device live log window (`padtool/padconsole.py`);
 advanced diagnostics use the CLI. Slot Apply/Discard stay in the title header
 while settings scroll. Dongle and ROM-loader actions live on their main pages. `tools/bootloop.py` is a development stress-test helper. Sensor

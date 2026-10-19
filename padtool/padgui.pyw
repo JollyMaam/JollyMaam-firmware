@@ -403,16 +403,16 @@ class App:
             return "!", "Invalid value."
         return ("✓", "Saved value differs from the firmware default.") if custom else ("", "At the firmware default.")
 
-    def default_tooltip(self, entries, clickable=True):
+    def default_tooltip(self, entries):
         symbol, text = self.default_status(entries)
         if symbol == "?":
             return text + "\nThis firmware did not provide the default, so it cannot be restored here."
         if self.busy:
             return text + "\nWait for the current operation to finish."
         if symbol in ("*", "!"):
-            text += "\n" + ("Click to discard this setting’s edits." if clickable else "Use Discard to undo pending edits.")
+            text += "\nClick to discard this setting’s edits."
         elif symbol == "✓":
-            text += "\n" + ("Click" if clickable else "Use Default") + " to stage the firmware default. Apply saves the change."
+            text += "\nClick to stage the firmware default. Apply saves the change."
         if len(entries) > 1:
             text += "\nCurve points and Use points are handled together."
         return text
@@ -425,16 +425,12 @@ class App:
         else:
             self.reset_default(entries[0])
 
-    def default_marker(self, parent, entry, record=None, target=None, name=None):
-        if record is None:
-            widget = ttk.Label(parent, width=2, foreground="#b46300")
-            entries = (entry,)
-        else:
-            entries = self.setting_entries(record, target, name, entry)
-            widget = ttk.Button(parent, width=2, padding=0, command=lambda: self.toggle_setting_status(entries))
-            self.default_buttons.append((entries, widget))
+    def default_marker(self, parent, entry, record, target, name):
+        entries = self.setting_entries(record, target, name, entry)
+        widget = ttk.Button(parent, width=2, padding=0, command=lambda: self.toggle_setting_status(entries))
+        self.default_buttons.append((entries, widget))
         widget.default_entries = entries
-        widget.tooltip = Tooltip(widget, lambda: self.default_tooltip(entries, record is not None))
+        widget.tooltip = Tooltip(widget, lambda: self.default_tooltip(entries))
         self.indicators.append((entry, widget))
         self.update_previews()
         return widget
@@ -496,20 +492,24 @@ class App:
                 custom = any(self.differs_from_default(e) for e in entries)
             except (Exception, SystemExit):
                 custom = True
-            pending = hasattr(button, "default_entries") and any(self.changed(e) for e in entries)
+            pending = any(self.changed(e) for e in entries)
             button.configure(state="normal" if not self.busy and (pending or (available and custom)) else "disabled")
         self.scope_buttons = [(r, t, action, w) for r, t, action, w in self.scope_buttons if w.winfo_exists()]
         for record, target, action, button in self.scope_buttons:
-            pending = any(self.changed(e) for (t, name), e in record.get("draft", {}).items()
-                          if target is None or t == target)
+            entries = [e for (t, name), e in record.get("draft", {}).items() if target is None or t == target]
+            pending = any(self.changed(e) for e in entries)
             available = action == "Discard" or (record.get("online", True) and not record.get("error"))
+            if action == "Reset all to defaults":
+                pending = bool(entries)
+                available = not record.get("error") and all(e["default_text"] is not None for e in entries)
             button.configure(state="normal" if pending and available and not self.busy else "disabled")
 
     def scope_actions(self, parent, record, target=None):
         bar = ttk.Frame(parent)
         commands = {"Apply": lambda: self.apply_settings(device_path=record["path"], target=target),
-                    "Discard": lambda: self.discard_scope(record["path"], target)}
-        for action in ("Apply", "Discard"):
+                    "Discard": lambda: self.discard_scope(record["path"], target),
+                    "Reset all to defaults": lambda: self.reset_scope_defaults(record["path"], target)}
+        for action in ("Apply", "Discard", "Reset all to defaults"):
             button = ttk.Button(bar, text=action, command=commands[action])
             button.pack(side="left", padx=(0, 8))
             self.scope_buttons.append((record, target, action, button))
@@ -519,13 +519,6 @@ class App:
     def setting_entries(self, record, target, name, entry):
         companion = record["draft"].get((target, name.replace("_points", "_enabled"))) if name.endswith("_curve_points") else None
         return (entry, companion) if companion is not None else (entry,)
-
-    def setting_default_button(self, parent, record, target, name, entry):
-        entries = self.setting_entries(record, target, name, entry)
-        button = ttk.Button(parent, text="Default", width=7, command=lambda: self.reset_default(entry))
-        self.default_buttons.append((entries, button))
-        self.update_previews()
-        return button
 
     def show_help(self, entry):
         field = entry["field"]
@@ -956,7 +949,6 @@ class App:
         if record["board"] == "pad":
             ttk.Button(actions, text="Back up pad settings…", command=self.backup_settings, state="normal" if record.get("online", True) else "disabled").pack(side="left", padx=(0, 8))
             ttk.Button(actions, text="Restore pad settings…", command=self.restore_settings, state="normal" if record.get("online", True) else "disabled").pack(side="left", padx=(0, 8))
-            ttk.Button(actions, text="Reset all to defaults", command=self.reset_all_defaults).pack(side="left")
         self.wrap_row(actions, actions.winfo_children(), self.overview)
         self.scope_actions(f, record).pack(anchor="w", pady=(0, 10))
         if record.get("error"):
@@ -970,11 +962,10 @@ class App:
             links = ttk.Frame(row)
             entry = record["draft"].get((target, "type"))
             if entry:
-                self.default_marker(types, entry).pack(side="left", padx=(0, 2))
+                self.default_marker(types, entry, record, target, "type").pack(side="left", padx=(0, 4))
             ttk.Label(types, text=f"Slot {pad.TARGETS[target]}", width=12).pack(side="left")
             if entry:
                 ttk.Combobox(types, textvariable=entry["var"], values=entry["field"]["names"], state="readonly", width=20).pack(side="left")
-                self.setting_default_button(types, record, target, "type", entry).pack(side="left", padx=(8, 0))
             bond = record["draft"].get((target, "bond"))
             button = ttk.Button(links, text="Unpair", state="disabled", command=lambda t=target: self.unpair_slot(t))
             button.pack(side="left", padx=(0, 8))
@@ -1191,22 +1182,24 @@ class App:
         self.run(action.title() + "…", perform, finished)
 
     def reset_all_defaults(self):
-        record = self.record()
+        self.reset_scope_defaults(self.device.get())
+
+    def reset_scope_defaults(self, path, target=None):
+        record = self.cache.get(path)
         if self.busy or not record or record["board"] != "pad":
             return
-        entries = list(record["draft"].values())
+        entries = tuple(e for (t, name), e in record["draft"].items() if target is None or t == target)
         if record.get("error") or any(entry["default_text"] is None for entry in entries):
-            messagebox.showerror("Defaults unavailable", "Reconnect this pad to load its defaults before resetting all settings.")
+            messagebox.showerror("Defaults unavailable", "Reconnect this pad to load its defaults before resetting settings.")
             return
+        previous_batch = self.batch_edits
         self.batch_edits = True
         try:
             for entry in entries:
                 self.reset_default(entry)
         finally:
-            self.batch_edits = False
-        self.render_overview()
-        self.render_details()
-        self.mark_dirty()
+            self.batch_edits = previous_batch
+        self.mark_dirty(force_previews=entries)
         self.notice.set("")
 
     def backup_settings(self):

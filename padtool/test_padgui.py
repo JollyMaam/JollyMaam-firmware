@@ -142,7 +142,7 @@ class GuiTests(unittest.TestCase):
         self.assertGreater(self.app.header_canvas.xview()[0], 0)
         self.assertAlmostEqual(self.app.header_canvas.xview()[0], canvas.xview()[0], places=2)
         titles = [w.cget("text") for w in self.app.controls(self.app.details_header) if isinstance(w, padgui.ttk.Button)]
-        self.assertEqual(titles, ["Apply", "Discard"])
+        self.assertEqual(titles, ["Apply", "Discard", "Reset all to defaults"])
         self.assertTrue(all(w.cget("text") not in ("Apply", "Discard") for w in self.app.controls(self.app.form)
                             if isinstance(w, padgui.ttk.Button)))
 
@@ -319,6 +319,52 @@ class GuiTests(unittest.TestCase):
         self.assertIsNone(marker.tooltip.window)
         self.assertIsNone(marker.tooltip.timer)
 
+    def test_main_status_button_toggles_default_and_discard(self):
+        r = record()
+        r["values"][0]["type"] = (b"\1", True)
+        r["defaults"] = {0: {"type": (b"\0", False)}}
+        self.load([r])
+        entry = r["draft"][0, "type"]
+        marker = next(w for e, w in self.app.indicators if e is entry and w.winfo_exists())
+        self.assertIsInstance(marker, padgui.ttk.Button)
+        self.assertEqual(marker.cget("text"), "✓")
+        self.assertNotIn("Default", [w.cget("text") for w in self.app.controls(self.app.overview_form)
+                                     if isinstance(w, padgui.ttk.Button)])
+        with patch.object(padgui.pad, "cmd") as cmd:
+            marker.invoke()
+            self.assertEqual(entry["var"].get(), "switch")
+            self.assertEqual(marker.cget("text"), "*")
+            marker.invoke()
+            self.assertEqual(entry["var"].get(), "hid")
+            self.assertEqual(marker.cget("text"), "✓")
+            cmd.assert_not_called()
+
+    def test_slot_reset_defaults_is_scoped_and_staged(self):
+        one, two = record(), record("other")
+        one["values"][0]["rumble"] = (b"\x50", True)
+        one["defaults"] = {0: {"rumble": (b"\x64", False)}}
+        self.load([one, two])
+        self.app.show_target(0)
+        one["draft"][1, "rumble"]["var"].set("70")
+        two["draft"][0, "rumble"]["var"].set("60")
+        # Unknown defaults elsewhere must not block resetting this slot.
+        one["draft"][1, "type"]["default_raw"] = None
+        one["draft"][1, "type"]["default_text"] = None
+        button = next(w for r, t, action, w in self.app.scope_buttons
+                      if r is one and t == 0 and action == "Reset all to defaults" and w.winfo_exists())
+        widgets = self.app.form.winfo_children()
+        with patch.object(padgui.pad, "cmd") as cmd, patch.object(padgui.pad, "send") as send:
+            button.invoke()
+            cmd.assert_not_called()
+            send.assert_not_called()
+        self.assertEqual(self.app.form.winfo_children(), widgets)
+        self.assertEqual(one["draft"][0, "rumble"]["var"].get(), "100")
+        self.assertTrue(one["draft"][0, "rumble"]["reset"].get())
+        self.assertEqual(one["draft"][1, "rumble"]["var"].get(), "70")
+        self.assertEqual(two["draft"][0, "rumble"]["var"].get(), "60")
+        self.app.discard_scope("fake", 0)
+        self.assertEqual(one["draft"][0, "rumble"]["var"].get(), "80")
+
     def test_device_apply_saves_all_its_slots_and_preserves_other_devices(self):
         one, two = record(), record("other")
         self.load([one, two])
@@ -372,7 +418,7 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(one["draft"][1, "rumble"]["var"].get(), "invalid")
         page_buttons = {action: w for r, t, action, w in self.app.scope_buttons
                         if r is one and t == 0 and w.winfo_exists()}
-        self.assertTrue(all(w.instate(["disabled"]) for w in page_buttons.values()))
+        self.assertTrue(all(page_buttons[action].instate(["disabled"]) for action in ("Apply", "Discard")))
         device_discard = next(w for r, t, action, w in self.app.scope_buttons
                               if r is one and t is None and action == "Discard" and w.winfo_exists())
         widgets = self.app.form.winfo_children()
@@ -481,7 +527,8 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(self.root.winfo_width(), 440)
         buttons = [w for w in self.app.controls(self.app.overview_form) if isinstance(w, padgui.ttk.Button)]
         reset = next(w for w in buttons if w.cget("text") == "Reset all to defaults")
-        self.assertGreater(reset.grid_info()["row"], 0)
+        self.assertEqual([w.cget("text") for w in reset.master.winfo_children()],
+                         ["Apply", "Discard", "Reset all to defaults"])
         self.app.show_target(0)
         self.root.update()
         padgui.ttk.Frame(self.app.form, width=600, height=1).grid(row=1000, column=0, columnspan=4)
