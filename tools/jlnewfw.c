@@ -1290,9 +1290,9 @@ static void crc_cipher(uint8_t *p, size_t n, uint32_t key) {
  * limits restart requests to that path. */
 /* IDENTIFY byte 6 distinguishes our pad and dongle builds. Keep firmware for
  * the other board running; stock firmware is selected by PID in the loader. */
-static void enter_loaders(const char *device, const char *want) {
+static size_t enter_loaders(const char *device, const char *want, char selected[256][300]) {
   char paths[256][300];
-  size_t n = device_paths(paths);
+  size_t n = device_paths(paths), count = 0;
   for (size_t i = 0; i < n; i++) {
     const char *path = paths[i];
     char product[17];
@@ -1321,9 +1321,13 @@ static void enter_loaders(const char *device, const char *want) {
         printf("%s: asking it to restart into its ROM loader\n", path);
         sg(fd, c, 16, SG_DXFER_FROM_DEV, r, 16, 2000);
       }
+      if (selected)
+        strcpy(selected[count], path);
+      count++;
     }
     dev_close(fd);
   }
+  return count;
 }
 
 static bool open_dev(struct dev *d, const char *path) {
@@ -1338,11 +1342,11 @@ static bool open_dev(struct dev *d, const char *path) {
   return false;
 }
 /* The ROM loaders (UBOOT1.00) on the system, by path. */
-static size_t scan_dev(struct dev *d, char found[8][300]) {
+static size_t scan_dev(struct dev *d, char found[8][300], const char selected[256][300], size_t count) {
   char paths[256][300];
-  size_t n = device_paths(paths), nf = 0;
+  size_t n = count ? count : device_paths(paths), nf = 0;
   for (size_t i = 0; i < n && nf < 8; i++) {
-    strcpy(found[nf], paths[i]);
+    strcpy(found[nf], count ? selected[i] : paths[i]);
     if (open_dev(d, found[nf]))
       dev_close(d->fd), nf++;
   }
@@ -1503,7 +1507,7 @@ static void select_dev(struct dev *out, const struct flash_opts *o,
   if (o->device) {
     for (unsigned t = 0;; t++) {
       if (o->enter_loader)
-        enter_loaders(o->device, o->force_pid ? NULL : want);
+        enter_loaders(o->device, o->force_pid ? NULL : want, NULL);
       if (open_dev(out, o->device))
         break;
       if (t >= o->wait * 2)
@@ -1518,12 +1522,21 @@ static void select_dev(struct dev *out, const struct flash_opts *o,
     struct dev d;
   } seen[8];
   size_t ns = 0;
+  char selected[256][300];
+  size_t count = 0;
   for (unsigned t = 0;; t++) {
-    if (o->enter_loader)
-      enter_loaders(NULL, o->force_pid ? NULL : want);
+    if (o->enter_loader) {
+      /* Once candidates are known, follow their restart. Reprobing unrelated
+       * failing devices can block in kernel storage recovery for 30 seconds. */
+      if (!count)
+        count = enter_loaders(NULL, o->force_pid ? NULL : want, selected);
+      else
+        for (size_t i = 0; i < count; i++)
+          enter_loaders(selected[i], o->force_pid ? NULL : want, NULL);
+    }
     char found[8][300];
     struct dev probe;
-    size_t nf = scan_dev(&probe, found);
+    size_t nf = scan_dev(&probe, found, selected, count);
     for (size_t i = 0; i < nf && ns < 8; i++) {
       bool known = false;
       for (size_t j = 0; j < ns; j++)
