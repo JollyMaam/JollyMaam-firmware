@@ -36,7 +36,7 @@ struct set_field {
 
 static const char *const types[] = {
     "switch", "switch2", "xbox", "xboxble", "dualsense", "dualshock4", "generic", "mouse",
-    "genericble", NULL,
+    "genericble", "none", NULL,
 };
 static const char *const transports[] = { "bluetooth", "usb", "bluetooth+usb", "dongle", NULL };
 static const char *const grips[] = {
@@ -56,22 +56,24 @@ static const char *const tx_powers[] = { "1", "2", "3", "4", "5", "6", NULL };
 /* Slots A B X Y up down left right.  Colours are {palette entry, brightness}. */
 static const struct set_field slot_fields[] = {
     { .id = ID_TYPE, .name = "type", .type = T_ENUM, .names = types, FIELD(type),
-      .def = { PROFILE_SWITCH, PROFILE_SWITCH, PROFILE_GENERIC, PROFILE_SWITCH2,
-               [4 ... 7] = PROFILE_MOUSE },
+      .def = { PROFILE_GENERIC_BLE, PROFILE_DUALSENSE, PROFILE_XBOX, PROFILE_SWITCH2,
+               [4 ... 7] = PROFILE_NONE },
       .help = "what the slot connects as; changing it renews address and clears bond" },
     { .id = ID_TRANSPORT, .name = "transport", .type = T_ENUM, .names = transports, FIELD(transport),
-      .def = ALL(TRANSPORT_BT),
+      .def = { TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_DONGLE, TRANSPORT_BT_USB,
+               [4 ... 7] = TRANSPORT_BT },
       .help = "how: bluetooth; usb, a wired controller; bluetooth+usb, usb while a usb host "
               "is there, else bluetooth (never back to it mid-session); dongle, through our dongle, which is the type on its usb port" },
     { .id = 2, .name = "connect_colour", .type = T_COLOUR, FIELD(connect_colour),
-      .def = { COLOUR(3, 5), COLOUR(2, 5), COLOUR(4, 5), COLOUR(5, 5),
-               COLOUR(6, 4), COLOUR(7, 4), COLOUR(8, 4), COLOUR(9, 4) },
+      .def = { COLOUR(5, 5), COLOUR(11, 5), COLOUR(7, 5), COLOUR(1, 5),
+               COLOUR(9, 4), COLOUR(13, 4), COLOUR(3, 4), COLOUR(15, 4) },
       .help = "Home and player lights while connecting and pairing: which slot" },
     { .id = 3, .name = "primary_colour", .type = T_COLOUR, FIELD(primary_colour),
-      .def = ALL(COLOUR(2, 1)),
+      .def = { COLOUR(5, 1), COLOUR(11, 1), COLOUR(7, 1), COLOUR(1, 1),
+               COLOUR(9, 1), COLOUR(13, 1), COLOUR(3, 1), COLOUR(15, 1) },
       .help = "Home while connected; the player lights around the player number" },
     { .id = 4, .name = "secondary_colour", .type = T_COLOUR, FIELD(secondary_colour),
-      .def = ALL(COLOUR(5, 1)),
+      .def = ALL(COLOUR(7, 1)),
       .help = "the console's player number; resting grips; the other end of fade" },
     { .id = 5, .name = "grips", .type = T_ENUM, .names = grips, FIELD(grips),
       .def = ALL(GRIPS_OFF),
@@ -143,14 +145,25 @@ static const struct set_field slot_fields[] = {
 #define ENTRY(i, r, g, b) { .id = (i) + 1, .name = "palette" #i, .type = T_RGB, \
   .offset = 3 * (i), .size = 3, .def = { RGB24(r, g, b) } }
 
-/* Full brightness; entries 0 and 1 are the idle and battery roles
- * (settings_ux.c).  The defaults are today's colours. */
+/* Full brightness: white, then rainbow order from red through pink.
+ * Idle uses white (0); battery uses orange (3), selected in settings_ux.c. */
 static const struct set_field palette_fields[PALETTE] = {
-    ENTRY(0, 255, 255, 255), ENTRY(1, 255, 102, 0), ENTRY(2, 255, 0, 0),
-    ENTRY(3, 0, 0, 255), ENTRY(4, 153, 0, 255), ENTRY(5, 0, 255, 0),
-    ENTRY(6, 0, 255, 255), ENTRY(7, 255, 255, 0), ENTRY(8, 255, 0, 191),
-    ENTRY(9, 128, 255, 0), ENTRY(10, 0, 0, 0), ENTRY(11, 0, 0, 0),
-    ENTRY(12, 0, 0, 0), ENTRY(13, 0, 0, 0), ENTRY(14, 0, 0, 0), ENTRY(15, 0, 0, 0),
+    ENTRY(0, 255, 255, 255), /* white */
+    ENTRY(1, 255, 0, 0),    /* red */
+    ENTRY(2, 255, 51, 0),   /* vermilion */
+    ENTRY(3, 255, 102, 0),  /* orange */
+    ENTRY(4, 255, 191, 0),  /* amber */
+    ENTRY(5, 255, 255, 0),  /* yellow */
+    ENTRY(6, 128, 255, 0),  /* lime */
+    ENTRY(7, 0, 255, 0),    /* green */
+    ENTRY(8, 0, 255, 128),  /* mint */
+    ENTRY(9, 0, 255, 255),  /* cyan */
+    ENTRY(10, 0, 128, 255), /* azure */
+    ENTRY(11, 0, 0, 255),   /* blue */
+    ENTRY(12, 77, 0, 255),  /* indigo */
+    ENTRY(13, 153, 0, 255), /* violet */
+    ENTRY(14, 255, 0, 255), /* magenta */
+    ENTRY(15, 255, 0, 128), /* pink */
 };
 
 _Static_assert(offsetof(struct set_cal, deadzone) == 112, "stored calibration layout");
@@ -792,14 +805,18 @@ int main(void)
     CHECK(COUNT(slot_fields) <= 32 && sizeof(struct set_slot) <= 256);
 
     set_init();
-    CHECK(set_slot(0)->type == PROFILE_SWITCH && set_slot(4)->type == PROFILE_MOUSE);
+    CHECK(set_slot(0)->type == PROFILE_GENERIC_BLE && set_slot(1)->type == PROFILE_DUALSENSE);
+    CHECK(set_slot(2)->type == PROFILE_XBOX && set_slot(3)->type == PROFILE_SWITCH2);
+    CHECK(set_slot(0)->transport == TRANSPORT_BT_USB && set_slot(1)->transport == TRANSPORT_BT_USB);
+    CHECK(set_slot(2)->transport == TRANSPORT_DONGLE && set_slot(3)->transport == TRANSPORT_BT_USB);
+    for (t = 4; t < SLOTS; t++) CHECK(set_slot(t)->type == PROFILE_NONE);
     CHECK(set_slot(1)->rumble == 100 && set_slot(7)->stick_speed == 1500);
-    CHECK(set_slot(0)->connect_colour.entry == 3 && set_slot(0)->connect_colour.level == 5);
+    CHECK(set_slot(0)->connect_colour.entry == 5 && set_slot(0)->connect_colour.level == 5);
     {
-        struct rgb c = set_colour(set_slot(2)->connect_colour);   /* today's X: 3,0,5 */
-        CHECK(c.r == 3 && c.g == 0 && c.b == 5);
-        c = set_colour(set_slot(6)->connect_colour);              /* left: 4,0,3 */
-        CHECK(c.r == 4 && c.g == 0 && c.b == 3);
+        struct rgb c = set_colour(set_slot(2)->connect_colour);   /* X: green */
+        CHECK(c.r == 0 && c.g == 5 && c.b == 0);
+        c = set_colour(set_slot(6)->connect_colour);              /* left: orange */
+        CHECK(c.r == 4 && c.g == 2 && c.b == 0);
     }
 
     store_writes = 0;
@@ -915,7 +932,7 @@ int main(void)
     set_bond_store(0, &bond);
     set_slot_address(0, b);
     CHECK(!memcmp(a, b, 6) && set_bits[0] == (1u << 12 | 1u << 13));
-    x = PROFILE_SWITCH;
+    x = PROFILE_GENERIC_BLE;
     CHECK(write1(0, 1, 1, &x) == SET_OK);      /* the same type: kept */
     set_apply();
     CHECK(set_bond(0)->peer[0] == 0x11);

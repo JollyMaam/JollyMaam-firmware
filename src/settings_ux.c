@@ -36,10 +36,10 @@ u32 ux_idle_deadline(u32 idle_since, u32 activity_ms, u32 usb_seen_ms,
     return (s32)(offline - unplug) > 0 ? offline : unplug;
 }
 
-/* Palette entries 0 and 1 are these roles (settings.c); the brightness is here. */
+/* Palette roles: white idle, orange battery (settings.c); brightness here. */
 const struct ux_colours ux_colours = {
     .idle = { 0, 5 },
-    .battery = { 1, 5 },
+    .battery = { 3, 5 },
 };
 
 const struct led_scene ux_scenes[CTL_KIND_COUNT] = {

@@ -14,7 +14,7 @@ const struct profile *profile_for(u8 type)
         [PROFILE_XBOX] = &profile_xbox, [PROFILE_XBOX_BLE] = &profile_xbox_ble,
         [PROFILE_DUALSENSE] = &profile_dualsense, [PROFILE_DUALSHOCK4] = &profile_dualshock4,
         [PROFILE_GENERIC] = &profile_generic, [PROFILE_MOUSE] = &profile_mouse,
-        [PROFILE_GENERIC_BLE] = &profile_generic_ble,
+        [PROFILE_GENERIC_BLE] = &profile_generic_ble, [PROFILE_NONE] = NULL,
     };
 
     return type < PROFILE_COUNT ? profiles[type] : NULL;
@@ -280,6 +280,7 @@ int main(void)
     CHECK(h.rumble[0] == 200 && h.rumble[1] == 9 && h.has_players && h.players == 3);
     CHECK(h.players_flash == 4 && h.has_lightbar && h.lightbar[2] == 77 && h.imu == IMU_MOTION);
     CHECK(link_unpack_output(w.data, w.len, &h, &ready) && ready);
+    CHECK(profile_for(PROFILE_NONE) == NULL);
     CHECK(profile_for(PROFILE_COUNT) == NULL && profile_for(PROFILE_XBOX) == &profile_xbox);
     return TEST_DONE("profile_link");
 }
