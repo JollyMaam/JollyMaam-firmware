@@ -194,7 +194,7 @@ class GuiTests(unittest.TestCase):
         self.assertTrue(self.app.apply_all_button.instate(["disabled"]))
         self.assertEqual(self.app.summary.get(), "Loaded 2 device(s). No pending changes.")
 
-    def test_setting_default_and_discard_keep_unrelated_drafts(self):
+    def test_setting_default_and_slot_discard_keep_unrelated_drafts(self):
         r = record()
         r["values"][0]["rumble"] = (b"\x50", True)
         r["defaults"] = {0: {"rumble": (b"\x64", False)}}
@@ -206,25 +206,89 @@ class GuiTests(unittest.TestCase):
         actions = next(w for w in self.app.form.winfo_children()
                        if w.grid_info().get("row") == row and w.grid_info().get("column") == 3)
         buttons = {w.cget("text"): w for w in actions.winfo_children()}
-        self.assertNotIn("Reset", buttons)
+        self.assertEqual(set(buttons), {"Default", "?"})
+        page_buttons = {action: button for rec, t, action, button in self.app.scope_buttons
+                        if rec is r and t == 0 and button.winfo_exists()}
         self.assertFalse(buttons["Default"].instate(["disabled"]))
-        self.assertTrue(buttons["Discard"].instate(["disabled"]))
+        self.assertTrue(page_buttons["Discard"].instate(["disabled"]))
         r["draft"][1, "type"]["var"].set("hid")
+        r["draft"][0, "type"]["var"].set("hid")
         with patch.object(padgui.pad, "cmd") as cmd:
             buttons["Default"].invoke()
             self.assertEqual(entry["var"].get(), "100")
             self.assertTrue(entry["reset"].get())
             self.assertTrue(buttons["Default"].instate(["disabled"]))
-            self.assertFalse(buttons["Discard"].instate(["disabled"]))
-            buttons["Discard"].invoke()
+            self.assertFalse(page_buttons["Discard"].instate(["disabled"]))
+            page_buttons["Discard"].invoke()
             cmd.assert_not_called()
         self.assertEqual(entry["var"].get(), "80")
         self.assertFalse(entry["reset"].get())
-        self.assertTrue(buttons["Discard"].instate(["disabled"]))
+        self.assertEqual(r["draft"][0, "type"]["var"].get(), "switch")
+        self.assertTrue(page_buttons["Discard"].instate(["disabled"]))
         self.assertFalse(buttons["Default"].instate(["disabled"]))
         self.assertEqual(r["draft"][1, "type"]["var"].get(), "hid")
         entry["var"].set("invalid")
         self.assertFalse(buttons["Default"].instate(["disabled"]))
+
+    def test_device_apply_saves_all_its_slots_and_preserves_other_devices(self):
+        one, two = record(), record("other")
+        self.load([one, two])
+        one["draft"][0, "type"]["var"].set("hid")
+        one["draft"][1, "rumble"]["var"].set("80")
+        two["draft"][0, "rumble"]["var"].set("invalid")
+        titles = [w.cget("text") for w in self.app.controls(self.app.overview_form) if isinstance(w, padgui.ttk.Button)]
+        self.assertEqual(titles.count("Apply"), 1)
+        self.assertEqual(titles.count("Discard"), 1)
+        self.assertNotIn("Settings", titles)
+        button = next(w for r, t, action, w in self.app.scope_buttons
+                      if r is one and t is None and action == "Apply" and w.winfo_exists())
+        updated = dict(one["values"])
+        updated[0] = {"type": (b"\1", True), "rumble": (b"\x64", False)}
+        updated[1] = {"type": (b"\0", False), "rumble": (b"\x50", True)}
+        with patch.object(padgui.pad, "cmd", return_value=one["identity"]) as cmd, \
+             patch.object(padgui.pad, "send") as send, \
+             patch.object(padgui.pad, "read_target", side_effect=lambda p, table, t: updated[t]):
+            button.invoke()
+            self.finish()
+            send.assert_called_once_with("fake", [(0, 1, b"\1"), (1, 2, b"\x50")])
+            self.assertEqual({call.args[0] for call in cmd.call_args_list}, {"fake"})
+        self.assertEqual(two["draft"][0, "rumble"]["var"].get(), "invalid")
+        self.assertEqual(self.app.dirty_count(), 1)
+
+    def test_slot_apply_and_device_discard_have_separate_scopes(self):
+        one, two = record(), record("other")
+        self.load([one, two])
+        self.app.show_target(0)
+        one["draft"][0, "type"]["var"].set("hid")
+        one["draft"][0, "rumble"]["var"].set("80")
+        one["draft"][1, "rumble"]["var"].set("invalid")
+        two["draft"][0, "rumble"]["var"].set("90")
+        titles = [w.cget("text") for w in self.app.controls(self.app.form) if isinstance(w, padgui.ttk.Button)]
+        self.assertEqual(titles.count("Apply"), 1)
+        self.assertEqual(titles.count("Discard"), 1)
+        button = next(w for r, t, action, w in self.app.scope_buttons
+                      if r is one and t == 0 and action == "Apply" and w.winfo_exists())
+        updated = dict(one["values"])
+        updated[0] = {"type": (b"\1", True), "rumble": (b"\x50", True)}
+        with patch.object(padgui.pad, "cmd", return_value=one["identity"]), \
+             patch.object(padgui.pad, "send") as send, \
+             patch.object(padgui.pad, "read_target", side_effect=lambda p, table, t: updated[t]):
+            button.invoke()
+            self.finish()
+            send.assert_called_once_with("fake", [(0, 1, b"\1"), (0, 2, b"\x50")])
+        self.assertEqual(one["draft"][1, "rumble"]["var"].get(), "invalid")
+        page_buttons = {action: w for r, t, action, w in self.app.scope_buttons
+                        if r is one and t == 0 and w.winfo_exists()}
+        self.assertTrue(all(w.instate(["disabled"]) for w in page_buttons.values()))
+        device_discard = next(w for r, t, action, w in self.app.scope_buttons
+                              if r is one and t is None and action == "Discard" and w.winfo_exists())
+        widgets = self.app.form.winfo_children()
+        with patch.object(padgui.pad, "cmd") as cmd:
+            device_discard.invoke()
+            cmd.assert_not_called()
+        self.assertEqual(self.app.form.winfo_children(), widgets)
+        self.assertEqual(self.app.dirty_count(), 1)
+        self.assertEqual(two["draft"][0, "rumble"]["var"].get(), "90")
 
     def test_main_page_unpair_stages_only_paired_slot_and_is_discardable(self):
         r = record(protocol=6)

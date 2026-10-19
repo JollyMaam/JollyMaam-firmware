@@ -74,6 +74,9 @@ padtool protocol and Linux/Windows SCSI transport. `padtool/padflash.py` backs u
 and flashes prepared images in Python using the SDK BR23 RAM loader (or a packaged
 copy beside the scripts). Device discovery runs once per second; only new or
 changed devices reload settings. Edits stay pending across navigation until Apply.
+Apply/Discard scope is all devices in the global toolbar, one pad on its main
+page, and one target on slot/palette/calibration pages. Individual fields keep
+Default only.
 Pad diagnostics live in Debug tools; dongle and ROM-loader actions live on their
 main device pages. `tools/bootloop.py` is a development stress-test helper. Sensor
 calibration is global; the USB trigger requires protocol 3+. Protocol 4 adds

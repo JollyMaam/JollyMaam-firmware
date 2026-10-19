@@ -40,7 +40,7 @@ class App:
         self.indicators = []
         self.swatches = []
         self.special_editors = []
-        self.apply_buttons = []
+        self.scope_buttons = []
         self.default_buttons = []
         self.unpair_buttons = []
         self.board = tk.StringVar()
@@ -262,6 +262,7 @@ class App:
                     if done:
                         done(result)
                 self.update_apply_state()
+                self.update_previews()
         except queue.Empty:
             pass
         self.poll = self.root.after(80, self.drain)
@@ -438,24 +439,32 @@ class App:
             except (Exception, SystemExit):
                 custom = True
             button.configure(state="normal" if available and custom and not self.busy else "disabled")
-        self.apply_buttons = [(e, w, other) for e, w, other in self.apply_buttons if w.winfo_exists()]
-        for entry, button, other in self.apply_buttons:
-            button.configure(state="normal" if not self.busy and (self.changed(entry) or (other is not None and self.changed(other))) else "disabled")
+        self.scope_buttons = [(r, t, action, w) for r, t, action, w in self.scope_buttons if w.winfo_exists()]
+        for record, target, action, button in self.scope_buttons:
+            pending = any(self.changed(e) for (t, name), e in record.get("draft", {}).items()
+                          if target is None or t == target)
+            available = action == "Discard" or (record.get("online", True) and not record.get("error"))
+            button.configure(state="normal" if pending and available and not self.busy else "disabled")
+
+    def scope_actions(self, parent, record, target=None):
+        bar = ttk.Frame(parent)
+        commands = {"Apply": lambda: self.apply_settings(device_path=record["path"], target=target),
+                    "Discard": lambda: self.discard_scope(record["path"], target)}
+        for action in ("Apply", "Discard"):
+            button = ttk.Button(bar, text=action, command=commands[action])
+            button.pack(side="left", padx=(0, 8))
+            self.scope_buttons.append((record, target, action, button))
+        self.update_previews()
+        return bar
 
     def setting_entries(self, record, target, name, entry):
         companion = record["draft"].get((target, name.replace("_points", "_enabled"))) if name.endswith("_curve_points") else None
         return (entry, companion) if companion is not None else (entry,)
 
-    def setting_action_button(self, parent, record, target, name, entry, action):
+    def setting_default_button(self, parent, record, target, name, entry):
         entries = self.setting_entries(record, target, name, entry)
-        commands = {"Apply": lambda: self.apply_settings((record["path"], target, name)),
-                    "Discard": lambda: self.discard_setting(entries),
-                    "Default": lambda: self.reset_default(entry)}
-        button = ttk.Button(parent, text=action, width=7, command=commands[action])
-        if action == "Default":
-            self.default_buttons.append((entries, button))
-        else:
-            self.apply_buttons.append((entry, button, entries[1] if len(entries) > 1 else None))
+        button = ttk.Button(parent, text="Default", width=7, command=lambda: self.reset_default(entry))
+        self.default_buttons.append((entries, button))
         self.update_previews()
         return button
 
@@ -465,13 +474,13 @@ class App:
         if field["type"] == pad.T_COLOUR:
             text = ("Choose one of the 16 colours from the pad's palette, then select its brightness. "
                     "Previews show the full palette colour at every brightness level. "
-                    "Palette edits also update these previews. Apply palette edits separately, or use Apply to save everything.\n\n" + text)
+                    "Palette edits also update these previews. The Palette page Apply saves palette edits; the global toolbar Apply saves all devices’ edits.\n\n" + text)
         elif field["name"] in ("left_curve_points", "right_curve_points"):
             text = ("These 15 points control stick output at 6.25% intervals from 6.25% through 93.75% travel. "
                     "Drag a point on the graph, move its slider, or enter an output percentage and press Enter. "
                     "Outputs stay in increasing order; zero and full travel stay fixed.\n\n"
                     "Use points enables the saved curve. Turning it off gives exact linear passthrough without losing points. Presets are shared with the CLI. "
-                    "Apply beside a setting saves it; the toolbar Apply saves all pending edits.")
+                    "Apply at the top of this page saves this slot; the toolbar Apply saves all devices’ pending edits.")
         messagebox.showinfo(field["name"].replace("_", " ").capitalize(), text or "No extra help is available.")
 
     def dirty_count(self):
@@ -503,6 +512,13 @@ class App:
         self.restore_entries(entries)
         self.mark_dirty(force_previews=entries)
         self.notice.set("")
+
+    def discard_scope(self, path, target=None):
+        record = self.cache.get(path)
+        if self.busy or record is None:
+            return
+        entries = tuple(e for (t, name), e in record.get("draft", {}).items() if target is None or t == target)
+        self.discard_setting(entries)
 
     def discard_changes(self):
         if self.busy:
@@ -870,10 +886,11 @@ class App:
             ttk.Button(actions, text="Restore pad settings…", command=self.restore_settings, state="normal" if record.get("online", True) else "disabled").pack(side="left", padx=(0, 8))
             ttk.Button(actions, text="Reset all to defaults", command=self.reset_all_defaults).pack(side="left")
         self.wrap_row(actions, actions.winfo_children(), self.overview)
+        self.scope_actions(f, record).pack(anchor="w", pady=(0, 10))
         if record.get("error"):
             ttk.Label(f, text=record["error"]).pack(anchor="w", pady=8)
             return
-        ttk.Label(f, text="Choose each slot's type here. Open Settings for transport, colours, response and other options.", wraplength=850).pack(anchor="w", pady=(0, 6))
+        ttk.Label(f, text="Choose each slot's type here. Select a slot in the tree for transport, colours, response and other options.", wraplength=850).pack(anchor="w", pady=(0, 6))
         for target in range(8):
             row = ttk.Frame(f, padding=(0, 6))
             row.pack(fill="x")
@@ -885,9 +902,7 @@ class App:
             ttk.Label(types, text=f"Slot {pad.TARGETS[target]}", width=12).pack(side="left")
             if entry:
                 ttk.Combobox(types, textvariable=entry["var"], values=entry["field"]["names"], state="readonly", width=20).pack(side="left")
-                for action in ("Default", "Discard", "Apply"):
-                    self.setting_action_button(types, record, target, "type", entry, action).pack(side="left", padx=(8, 0))
-            ttk.Button(links, text="Settings", command=lambda t=target: self.show_target(t)).pack(side="left", padx=(0, 8))
+                self.setting_default_button(types, record, target, "type", entry).pack(side="left", padx=(8, 0))
             bond = record["draft"].get((target, "bond"))
             button = ttk.Button(links, text="Unpair", state="disabled", command=lambda t=target: self.unpair_slot(t))
             button.pack(side="left", padx=(0, 8))
@@ -909,13 +924,14 @@ class App:
         target = pad.target_index(self.target.get())
         self.details_title.set(f"{record['path']} · " + (f"Slot {pad.TARGETS[target]}" if target < 8 else pad.TARGETS[target].title()))
         advanced = ttk.Frame(self.form)
-        rows = {self.form: 0, advanced: 0}
+        self.scope_actions(self.form, record, target).grid(row=0, column=0, columnspan=4, sticky="w", padx=4, pady=(0, 8))
+        rows = {self.form: 1, advanced: 0}
         if target == pad.target_index("calibration"):
             calibration = ttk.Frame(self.form, padding=(4, 4, 4, 12))
-            calibration.grid(row=0, column=0, columnspan=4, sticky="w")
+            calibration.grid(row=1, column=0, columnspan=4, sticky="w")
             ttk.Button(calibration, text="Calibrate sensors…", command=self.calibrate).pack(anchor="w")
             ttk.Label(calibration, text="Calibration is shared by all slots. Select Calibrate sensors for instructions.", wraplength=800).pack(anchor="w", pady=(6, 0))
-            rows[self.form] = 1
+            rows[self.form] = 2
         for (t, name), entry in record["draft"].items():
             f = entry["field"]
             if t != target:
@@ -951,8 +967,7 @@ class App:
                 extra.grid(row=row, column=2, padx=4)
             actions = ttk.Frame(parent)
             actions.grid(row=row, column=3, sticky="ne", padx=4, pady=4)
-            for action in ("Default", "Discard", "Apply"):
-                self.setting_action_button(actions, record, target, name, entry, action).pack(side="left", padx=2)
+            self.setting_default_button(actions, record, target, name, entry).pack(side="left", padx=2)
             ttk.Button(actions, text="?", width=2, command=lambda e=entry: self.show_help(e)).pack(side="left", padx=2)
             self.editors[name] = entry
         self.form.columnconfigure(1, weight=1)
@@ -985,19 +1000,28 @@ class App:
         ttk.Label(self.form, text="* differs from default · ! invalid value · ? default unavailable. Default stages the default; Discard undoes edits; Apply saves.",
                   wraplength=850).grid(row=legend_row, column=0, columnspan=4, sticky="w", padx=4, pady=(16, 8))
 
-    def apply_settings(self, only=None):
+    def apply_settings(self, only=None, *, device_path=None, target=None):
+        if self.busy:
+            return
         jobs = []
         try:
             allowed = {only} if only else None
             if only and only[2].endswith("_curve_points"):
                 allowed.add((only[0], only[1], only[2].replace("_points", "_enabled")))
-            selected_entry = self.cache[only[0]]["draft"][only[1:]] if only else None
+
+            def in_scope(path, key):
+                return ((device_path is None or path == device_path) and
+                        (target is None or key[0] == target) and
+                        (allowed is None or (path, *key) in allowed))
+
+            selected_entries = {id(entry) for path, record in self.cache.items()
+                                for key, entry in record.get("draft", {}).items() if in_scope(path, key)}
             for widget in self.special_editors:
-                if widget.winfo_exists() and isinstance(widget, CurveEditor) and (only is None or widget.entry is selected_entry):
+                if widget.winfo_exists() and isinstance(widget, CurveEditor) and id(widget.entry) in selected_entries:
                     widget.commit_pending()
             for path, record in self.cache.items():
                 keys = {key for key, entry in record.get("draft", {}).items()
-                        if self.changed(entry) and (allowed is None or (path, *key) in allowed)}
+                        if self.changed(entry) and in_scope(path, key)}
                 items = [(t, pad.UNPAIR_ID if entry.get("unpair") else entry["field"]["id"],
                           b"" if entry.get("unpair") or entry["reset"].get() else self.value_bytes(entry))
                          for (t, name), entry in record.get("draft", {}).items() if (t, name) in keys]
@@ -1031,7 +1055,7 @@ class App:
             self.render_overview()
             self.render_details()
             self.mark_dirty()
-        self.run("Applying setting…" if only else "Applying pending changes to all edited devices…", apply, finished)
+        self.run("Applying settings…" if only or device_path else "Applying pending changes to all edited devices…", apply, finished)
 
     @staticmethod
     def has_pairing(bond):

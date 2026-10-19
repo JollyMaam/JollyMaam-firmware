@@ -29,8 +29,9 @@ use the selected device. A USB gamepad session must end before vendor commands
 become available. The Linux HID tool-mode button can request this for HID
 profiles; on Windows end the session using the pad first.
 
-Selecting a pad shows its slots, each with a type dropdown, Default, Discard,
-Apply, Settings and Unpair. Unpair is disabled without a pairing or on firmware
+Selecting a pad shows its slots, each with a type dropdown, Default and Unpair.
+Apply and Discard below the device actions affect all settings on that pad.
+Select a slot or settings group in the tree to edit its detailed settings. Unpair is disabled without a pairing or on firmware
 older than protocol 6. It stages an action: on Apply, firmware clears the entire
 Classic/LE bond and generates and saves a replacement Bluetooth address.
 Address renewal hashes the complete previous address, including its prefix,
@@ -55,10 +56,10 @@ horizontally. Shift+wheel also scrolls horizontally.
 The mouse wheel scrolls the current page anywhere in the window, including
 over dropdowns and number fields, without changing their values. Shift+wheel
 scrolls horizontally. Edits persist
-while switching slots and devices. **Apply** validates all edited
+while switching slots and devices. The global toolbar **Apply** validates all edited
 values, checks device identities, then commits all pending changes once per
 device. A failure on one device does not undo a previous device's commit;
-uncommitted edits remain pending. **Discard** reverts all pending edits to the
+uncommitted edits remain pending. The global toolbar **Discard** reverts all pending edits to the
 last loaded or applied values without writing to devices. The top toolbar shows
 the loaded device count and pending changes. Discard updates existing controls
 from the cached values without reading devices or rebuilding pages. Default
@@ -81,11 +82,15 @@ Brightness is shown as steps `1/15` through `15/15`, plus Off.
 Palette RGB fields still accept hex values and show swatches;
 all previews follow staged palette edits.
 
-Each setting has Default, Discard and Apply buttons. Default stages the firmware
-default and is disabled when the value already matches it. Discard reverts only
-that setting to its last loaded or applied value. Apply saves only that setting;
-other drafts are retained. Discard and Apply are disabled without pending edits.
-Apply at the top saves all pending edits. Help is hidden behind each row's `?` button. Setting names use readable labels.
+Each setting has a Default button. It stages the firmware default and is disabled
+when the value already matches it. Apply and Discard at the top of a slot,
+Palette or Calibration page affect only that page's settings. Device-page
+Apply and Discard cover the selected pad, including all slots, palette and
+calibration. The global toolbar controls cover all devices. Other drafts are
+retained when using a narrower scope. Page controls are disabled without
+pending edits in their scope. Discard uses cached originals and keeps the
+existing editors. Help is hidden behind each row's `?` button.
+Setting names use readable labels.
 Numeric inputs show their valid range beside the box, using firmware-reported
 limits.
 
@@ -94,8 +99,8 @@ Each stick has a 15-point curve, with fixed zero and full-scale endpoints.
 passthrough and retains all saved points. The graph shows active input in blue
 and, when disabled, the retained curve as a dashed line. **Point values** opens
 the 15 sliders and percentage inputs at 6.25% travel intervals. Default restores
-the default points and disables the curve. The curve's Default, Discard and Apply
-buttons handle its points and enable flag together. **Copy points** copies the comma-separated
+the default points and disables the curve. The slot page's Apply saves the
+points and enable flag with the other edited settings on that slot. **Copy points** copies the comma-separated
 output bytes; **Paste points** accepts commas or spaces and stages them on another
 slot or stick. Pasting retains that stick’s Use points setting; Apply saves the edit.
 
