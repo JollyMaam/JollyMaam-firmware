@@ -13,7 +13,7 @@ import padtool as pad
 import padflash
 from padtransport import usb_location
 from paddevices import DeviceMonitor, read_device
-from padwidgets import PaletteEditor, CurveEditor
+from padwidgets import PaletteEditor, CurveEditor, Tooltip
 
 ROOT = Path(__file__).resolve().parent.parent
 PIDS = padflash.PIDS
@@ -372,8 +372,37 @@ class App:
             entry["reset"].set(entry["explicit"])
             self.mark_dirty()
 
-    def default_marker(self, parent, entry):
-        widget = ttk.Label(parent, width=2, foreground="#b46300")
+    def default_status(self, entries):
+        if any(e["default_raw"] is None for e in entries):
+            return "?", "Firmware default unavailable."
+        try:
+            custom = any(self.differs_from_default(e) for e in entries)
+        except (Exception, SystemExit):
+            return "!", "Invalid value."
+        return ("*", "Different from the firmware default.") if custom else ("✓", "At the firmware default.")
+
+    def default_tooltip(self, entries, clickable=True):
+        symbol, text = self.default_status(entries)
+        if symbol == "?":
+            return text + "\nThis firmware did not provide the default, so it cannot be restored here."
+        if self.busy:
+            return text + "\nWait for the current operation to finish."
+        if symbol != "✓":
+            text += "\n" + ("Click" if clickable else "Use Default") + " to stage the firmware default. Apply saves the change."
+        if len(entries) > 1:
+            text += "\nRestores curve points and Use points together."
+        return text
+
+    def default_marker(self, parent, entry, record=None, target=None, name=None):
+        if record is None:
+            widget = ttk.Label(parent, width=2, foreground="#b46300")
+            entries = (entry,)
+        else:
+            entries = self.setting_entries(record, target, name, entry)
+            widget = ttk.Button(parent, width=2, padding=0, command=lambda: self.reset_default(entry))
+            self.default_buttons.append((entries, widget))
+        widget.default_entries = entries
+        widget.tooltip = Tooltip(widget, lambda: self.default_tooltip(entries, record is not None))
         self.indicators.append((entry, widget))
         self.update_previews()
         return widget
@@ -402,11 +431,8 @@ class App:
     def update_previews(self, force=False):
         self.indicators = [(e, w) for e, w in self.indicators if w.winfo_exists()]
         for entry, widget in self.indicators:
-            try:
-                custom = self.differs_from_default(entry)
-                widget.configure(text="?" if custom is None else "*" if custom else "")
-            except (Exception, SystemExit):
-                widget.configure(text="!")
+            symbol, _ = self.default_status(widget.default_entries)
+            widget.configure(text="" if symbol == "✓" and isinstance(widget, ttk.Label) else symbol)
         self.swatches = [(r, e, w) for r, e, w in self.swatches if w.winfo_exists()]
         for record, entry, swatch in self.swatches:
             try:
@@ -943,7 +969,7 @@ class App:
             rows[parent] += 1
             label = ttk.Frame(parent)
             label.grid(row=row, column=0, sticky="nw", padx=4, pady=8)
-            self.default_marker(label, entry).pack(side="left", padx=(0, 2))
+            self.default_marker(label, entry, record, target, name).pack(side="left", padx=(0, 4))
             ttk.Label(label, text=name.replace("_", " ").capitalize()).pack(side="left")
             if f["type"] == pad.T_COLOUR:
                 editor = PaletteEditor(parent, self, record, entry)
@@ -967,7 +993,6 @@ class App:
                 extra.grid(row=row, column=2, padx=4)
             actions = ttk.Frame(parent)
             actions.grid(row=row, column=3, sticky="ne", padx=4, pady=4)
-            self.setting_default_button(actions, record, target, name, entry).pack(side="left", padx=2)
             ttk.Button(actions, text="?", width=2, command=lambda e=entry: self.show_help(e)).pack(side="left", padx=2)
             self.editors[name] = entry
         self.form.columnconfigure(1, weight=1)
@@ -996,9 +1021,6 @@ class App:
 
             button.configure(command=toggle_section)
             update_section()
-        legend_row = rows[self.form] + (2 if rows[advanced] else 0)
-        ttk.Label(self.form, text="* differs from default · ! invalid value · ? default unavailable. Default stages the default; Discard undoes edits; Apply saves.",
-                  wraplength=850).grid(row=legend_row, column=0, columnspan=4, sticky="w", padx=4, pady=(16, 8))
 
     def apply_settings(self, only=None, *, device_path=None, target=None):
         if self.busy:

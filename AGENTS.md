@@ -76,7 +76,7 @@ copy beside the scripts). Device discovery runs once per second; only new or
 changed devices reload settings. Edits stay pending across navigation until Apply.
 Apply/Discard scope is all devices in the global toolbar, one pad on its main
 page, and one target on slot/palette/calibration pages. Individual fields keep
-Default only.
+a clickable status marker that stages Default, with a hover explanation.
 Pad diagnostics live in Debug tools; dongle and ROM-loader actions live on their
 main device pages. `tools/bootloop.py` is a development stress-test helper. Sensor
 calibration is global; the USB trigger requires protocol 3+. Protocol 4 adds

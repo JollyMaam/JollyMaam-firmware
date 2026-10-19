@@ -9,6 +9,45 @@ BRIGHTNESS = (0, 1, 2, 3, 4, 5, 7, 10, 14, 20, 28, 40, 56, 80, 128, 255)
 BRIGHTNESS_LABELS = tuple('Off' if i == 0 else f'{i}/15' for i in range(len(BRIGHTNESS)))
 
 
+class Tooltip:
+    """Delayed hover text, including on disabled controls; owned by its widget."""
+    def __init__(self, widget, text):
+        self.widget, self.text = widget, text
+        self.timer = None
+        self.window = None
+        widget.bind('<Enter>', self.schedule, add='+')
+        for event in ('<Leave>', '<ButtonPress>', '<Unmap>', '<Destroy>'):
+            widget.bind(event, self.hide, add='+')
+
+    def schedule(self, event=None):
+        self.hide()
+        self.timer = self.widget.after(450, self.show)
+
+    def show(self):
+        self.timer = None
+        if not self.widget.winfo_exists() or not self.widget.winfo_ismapped():
+            return
+        self.window = window = tk.Toplevel(self.widget)
+        window.withdraw()
+        window.overrideredirect(True)
+        window.attributes('-topmost', True)
+        ttk.Label(window, text=self.text(), padding=7, wraplength=360,
+                  relief='solid', borderwidth=1).pack()
+        window.update_idletasks()
+        x = min(self.widget.winfo_pointerx() + 12, window.winfo_screenwidth() - window.winfo_reqwidth())
+        y = min(self.widget.winfo_pointery() + 18, window.winfo_screenheight() - window.winfo_reqheight())
+        window.geometry(f'+{max(0, x)}+{max(0, y)}')
+        window.deiconify()
+
+    def hide(self, event=None):
+        if self.timer is not None:
+            self.widget.after_cancel(self.timer)
+            self.timer = None
+        if self.window is not None:
+            self.window.destroy()
+            self.window = None
+
+
 class PaletteEditor(ttk.Frame):
     def __init__(self, parent, app, record, entry):
         super().__init__(parent)

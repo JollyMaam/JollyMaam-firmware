@@ -82,8 +82,11 @@ Brightness is shown as steps `1/15` through `15/15`, plus Off.
 Palette RGB fields still accept hex values and show swatches;
 all previews follow staged palette edits.
 
-Each setting has a Default button. It stages the firmware default and is disabled
-when the value already matches it. Apply and Discard at the top of a slot,
+On detailed settings pages, the leftmost status is a button: `*` differs from
+the default, `!` is invalid, `?` means the default is unavailable, and `✓` is
+already at the default. Hover for an explanation. Click the status to stage the
+firmware default; it is disabled when already at default or when no default is
+available. The device overview retains its separate Default buttons. Apply and Discard at the top of a slot,
 Palette or Calibration page affect only that page's settings. Device-page
 Apply and Discard cover the selected pad, including all slots, palette and
 calibration. The global toolbar controls cover all devices. Other drafts are
