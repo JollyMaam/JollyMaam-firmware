@@ -9,6 +9,7 @@ comma := ,
 .DEFAULT_GOAL := all
 SDK := /shared/github.com-Jieli-Tech/fw-AC63_BT_SDK
 TOOL_DIR := /shared/jieli-linux-toolchains-20250324.1/pi32v2/bin
+BTSTACK := /shared/github.com-bluekitchen-btstack
 HOST_CC := gcc
 O := build
 HOST_CFLAGS := -O2 -g -std=c11 -Wall -Wextra -Wno-unused-function -Wno-missing-field-initializers
@@ -60,9 +61,6 @@ SDK_USED := \
 	cpu/br23/mcpwm.c \
 	cpu/br23/setup.c
 
-# Upstream BTstack (master), unmodified. The owned controller exports a few
-# of the same names; BTstack's copies are renamed.
-BTSTACK := /work/cyclone2-btstack
 BTSTACK_USED := \
 	src/btstack_hid_parser.c src/btstack_linked_list.c src/btstack_memory.c \
 	src/btstack_memory_pool.c src/btstack_run_loop.c src/btstack_run_loop_base.c \
