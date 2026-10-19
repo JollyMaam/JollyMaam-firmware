@@ -180,10 +180,15 @@ run Python in an Administrator terminal. Linux needs read/write access to the
 matching `/dev/sg*` node. Inside our development container `/dev/bwrap/sg*` works.
 Windows discovery currently probes PhysicalDrive0 through PhysicalDrive63.
 
-**Flash Firmware…** accepts a packed `firmware.img` unchanged, or extracts the
+**Flash Firmware…** accepts a packed `firmware.img`, or extracts the
 flash.bin entry of a CRC-checked UFW. Prepare images with the firmware build
 before using the GUI; it does not pack builds or call an external flasher.
-The image’s product ID and chip key must match the selected device.
+The image’s product ID must match the selected device. If its chip key differs,
+the shared GUI/CLI flasher validates and converts the application and resources
+in memory for the connected chip, updating the key record and checksums before
+any erase. The original image file stays unchanged. Conversion supports our
+generated builds; stock images with secondary application directories or check
+records are rejected rather than converted with incomplete format support.
 
 Automatic discovery detects `UBOOT1.00` ROM loaders. Selecting one uploads the
 RAM helper and reads the product ID stored in flash; the page displays the actual
@@ -200,7 +205,7 @@ manual selection. For a stock pad, connect USB while holding Home + Plus.
 Only a detected ROM loader offers flashing or a full flash backup in the GUI.
 Its main page places **Back up full flash…** before **Flash Firmware…**. Flash
 Firmware opens the sole image picker and immediately checks its product ID.
-The image selects pad versus dongle, with PID, capacity and chip-key checks
+The image selects pad versus dongle, with PID, capacity and chip-key conversion checks
 before erasing. The selected loader path stays fixed during the operation; on
 Linux its USB port is also checked to reject a reused device path. Settings
 and the live firmware console are unavailable while the device is in loader mode.

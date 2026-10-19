@@ -1,7 +1,7 @@
 """BR23 RAM-loader protocol and raw image flashing, shared by GUI and CLI.
 
 Ported from our jlnewfw implementation. No external flashing executable is
-needed. A supplied image must already be packed for the connected chip's key.
+needed. Images are converted in memory to the connected chip's key.
 """
 import argparse
 import binascii
@@ -56,7 +56,7 @@ def entries(data, base):
         yield name(h[16:32]), base + u32(h, 4), u32(h, 8), u16(h, 14)
 
 
-def image_identity(data, require_key=True):
+def image_base(data):
     """Same boot-image selection as jlnewfw, including EOFFSET stale copies."""
     base = next((o for o in (0, 0x1000, 0x10000) if valid_header(data, o)), None)
     if base is None:
@@ -72,6 +72,11 @@ def image_identity(data, require_key=True):
             break
         if index:
             break
+    return base
+
+
+def image_identity(data, require_key=True):
+    base = image_base(data)
     pid = name(data[base + 16:base + 32])
     if not require_key:
         return pid, None
@@ -85,6 +90,103 @@ def image_identity(data, require_key=True):
             key = sum(1 << j for j in range(16) if (record[16 + j] ^ record[15 - j]) < threshold)
             return pid, key
     raise ValueError("Image has no valid chip-key record")
+
+
+def sfc(data, key):
+    """Application cipher; block offsets are relative to the application area."""
+    return b"".join(enc(data[at:at + 32], key ^ (at >> 2)) for at in range(0, len(data), 32))
+
+
+def rekey_image(data, key):
+    """Convert a packed build without changing its layout or the input buffer.
+
+    Validate the source directories and application/resource CRCs before
+    changing any bytes. Reserved flash regions and image padding stay intact.
+    """
+    if not 0 <= key <= 0xffff:
+        raise ValueError("Chip key must fit in 16 bits")
+    pid, old_key = image_identity(data)
+    if key == old_key:
+        return bytes(data)
+
+    def header(blob, at, scrambled=True):
+        h = blob[at:at + 32]
+        if scrambled:
+            h = enc(h)
+        if len(h) != 32 or crc16(h[2:]) != u16(h):
+            raise ValueError("Image directory header CRC mismatch or truncated header")
+        return bytearray(h)
+
+    base = image_base(data)
+    config = app = None
+    for at in range(base + 32, base + 0x400, 32):
+        h = header(data, at)
+        n = name(h[16:32])
+        if n == "isd_config.ini":
+            if config is not None:
+                raise ValueError("Multiple chip-key records in image")
+            config = (at, h)
+        elif n == "app_dir_head":
+            if app is not None:
+                raise ValueError("Multiple application directories in image")
+            app = base + u32(h, 4)
+        elif n == "app_dir_head2":
+            raise ValueError("Chip-key conversion of secondary application directories is unsupported")
+        if u16(h, 14):
+            break
+    else:
+        raise ValueError("Unterminated image directory")
+    if config is None or app is None:
+        raise ValueError("Image lacks a chip-key record or application directory")
+    config_at, config_header = config
+    config_start, config_size = base + u32(config_header, 4), u32(config_header, 8)
+    if not (at + 32 <= config_start and config_size >= 34 and
+            config_start + config_size <= app < len(data)):
+        raise ValueError("Image configuration or application lies outside its expected bounds")
+    config_data = bytearray(data[config_start:config_start + config_size])
+    if crc16(config_data) != u16(config_header, 2):
+        raise ValueError("Image configuration CRC mismatch")
+    # Stock pad check records and secondary directories need their own rules;
+    # do not silently leave a key-dependent check unchanged.
+    check = enc(data[app - 32:app])
+    if crc16(check[2:]) == u16(check) and name(check[16:32]) == "check":
+        raise ValueError("Chip-key conversion of stock application check records is unsupported")
+
+    plain = sfc(data[app:], old_key)
+    end = 0
+    while True:
+        h = header(plain, end, scrambled=False)
+        if h[12] != 0x83 or (not end and name(h[16:32]) != "app_area_head"):
+            raise ValueError("Invalid application or resource area")
+        size = u32(h, 8)
+        if size < 32 or end + size > len(plain):
+            raise ValueError("Application or resource area is truncated")
+        if crc16(plain[end + 32:end + size]) != u16(h, 2):
+            raise ValueError("Application or resource data CRC mismatch")
+        end += size
+        if u16(h, 14):
+            break
+
+    # Preserve the carrier's random bytes and change only bits that need a
+    # different classification, using the same threshold rule as jlnewfw.
+    threshold = sum(config_data[:16]) & 255
+    threshold = 0xaa if threshold >= 0xe0 else 0x55 if threshold <= 0x10 else threshold
+    for bit in range(16):
+        value = config_data[16 + bit] ^ config_data[15 - bit]
+        want = bool(key & (1 << bit))
+        if (value < threshold) != want:
+            value = value % threshold if want else threshold + value % (256 - threshold)
+            config_data[16 + bit] = config_data[15 - bit] ^ value
+    struct.pack_into("<H", config_data, 32, crc16(config_data[:32]))
+    struct.pack_into("<H", config_header, 2, crc16(config_data))
+    struct.pack_into("<H", config_header, 0, crc16(config_header[2:]))
+    out = bytearray(data)
+    out[config_start:config_start + config_size] = config_data
+    out[config_at:config_at + 32] = enc(config_header)
+    out[app:app + end] = sfc(plain[:end], key)
+    if image_identity(out) != (pid, key):
+        raise ValueError("Converted image identity does not match the requested key")
+    return bytes(out)
 
 
 def load_image(path):
@@ -210,10 +312,12 @@ class Loader:
         pid, key = image_identity(data)
         if pid != PIDS[board] or self.pid() != pid:
             raise ValueError("Firmware PID does not match the selected board and device")
-        if key != self.key:
-            raise ValueError(f"Image key 0x{key:04x} differs from device key 0x{self.key:04x}; pack a build for this device")
         if self.flash_size != FLASH_SIZES[board] or not data or len(data) > self.flash_size:
             raise ValueError("Image or device flash size does not match the selected board")
+        if key != self.key:
+            self.progress("Converting firmware chip key")
+            self.report(f"Converting image key 0x{key:04x} to device key 0x{self.key:04x}")
+            data = rekey_image(data, self.key)
         if backup:
             self.backup(backup)
         top = (len(data) + 4095) & ~4095

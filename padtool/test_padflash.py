@@ -9,7 +9,7 @@ from unittest.mock import patch
 import padflash as flash
 
 
-def image(pid='GS_C2_ADC_DEVICE', key=0xffff, eoffset=None):
+def image(pid='GS_C2_ADC_DEVICE', key=0xffff, eoffset=None, resource=b''):
     data = bytearray(b'\xff' * 8192)
     header = bytearray(b'\xff' * 32)
     header[16:32] = pid.encode().ljust(16, b'\0')
@@ -26,6 +26,27 @@ def image(pid='GS_C2_ADC_DEVICE', key=0xffff, eoffset=None):
     struct.pack_into('<H', entry, 0, binascii.crc_hqx(entry[2:], 0))
     data[32:64] = flash.enc(entry)
     data[0x200:0x200 + len(record)] = record
+    def entry(label, offset, size, crc=0xffff, flags=0x82, last=0):
+        h = bytearray(b'\xff' * 32)
+        struct.pack_into('<HII', h, 2, crc, offset, size)
+        h[12] = flags
+        struct.pack_into('<H', h, 14, last)
+        h[16:32] = label.encode().ljust(16, b'\xff')
+        struct.pack_into('<H', h, 0, binascii.crc_hqx(h[2:], 0))
+        return bytes(h)
+    data[64:96] = flash.enc(entry('app_dir_head', 0x1000, 0xffffffff, flags=0x81))
+    data[96:128] = flash.enc(entry('key_mac', 0xff000, 0x1000, flags=0x12, last=0xffff))
+    payload = bytes(range(127))
+    plain = bytearray(b'\xff' * (0x120 + len(payload)))
+    plain[32:64] = entry('app.bin', 0x120, len(payload), flash.crc16(payload), last=1)
+    plain[0x120:] = payload
+    plain[:32] = entry('app_area_head', 0x1e00120, len(plain), flash.crc16(plain[32:]),
+                      flags=0x83, last=0 if resource else 1)
+    if resource:
+        plain.extend(entry('resources', 32, 32 + len(resource), flash.crc16(resource), flags=0x83, last=1))
+        plain.extend(resource)
+    data[0x1000:0x1000 + len(plain)] = b''.join(
+        flash.enc(plain[at:at + 32], key ^ (at >> 2)) for at in range(0, len(plain), 32))
     data[-4:] = b'test'
     return bytes(data)
 
@@ -134,12 +155,29 @@ class FlashTests(unittest.TestCase):
         self.assertEqual(self.device.commands.count(0xfb01), 1)
         self.assertEqual(self.device.flash[:len(data)], data)
 
-    def test_pid_and_key_mismatch_refuse_to_erase(self):
-        for data in (image('GS_C2_Dongle'), image(key=0x4317)):
+    def test_pid_mismatch_and_corrupt_conversion_refuse_to_erase(self):
+        corrupt = bytearray(image(key=0x4317))
+        corrupt[0x1120] ^= 1
+        for data in (image('GS_C2_Dongle'), corrupt):
             with self.assertRaises(ValueError):
                 self.loader.flash(data, 'pad', self.backup)
             self.assert_no_flash_mutations()
         self.assertFalse(self.backup.exists())
+
+    def test_different_key_is_converted_before_backup_erase_and_verification(self):
+        self.loader.flash_size = 0x80000
+        self.loader.key = 0x4317
+        self.device.flash[:8192] = image('GS_C2_Dongle', key=0x4317)
+        source = image('GS_C2_Dongle')
+        before = bytes(self.device.flash[:0x80000])
+        reports = []
+        self.loader.report = reports.append
+        self.loader.flash(source, 'dongle', self.backup)
+        self.assertEqual(self.backup.read_bytes(), before)
+        self.assertEqual(self.device.flash[:len(source)], image('GS_C2_Dongle', key=0x4317))
+        self.assertEqual(source, image('GS_C2_Dongle'))
+        self.assertIn('Converting image key 0xffff to device key 0x4317', reports)
+        self.assertEqual(self.device.commands[-1], 0xfc0c)
 
     def test_progress_reports_each_stage_and_byte_totals(self):
         updates = []
@@ -224,6 +262,43 @@ class FlashTests(unittest.TestCase):
 
 
 class ImageTests(unittest.TestCase):
+    def test_rekey_round_trip_preserves_payload_padding_and_input(self):
+        for old, new in ((0xffff, 0x4317), (0x4317, 0xffff), (0, 0xa55a)):
+            original = image(key=old, resource=b'resource payload' * 3)
+            source = bytearray(original)
+            converted = flash.rekey_image(source, new)
+            self.assertEqual(source, original)
+            self.assertEqual(converted, image(key=new, resource=b'resource payload' * 3))
+            self.assertEqual(flash.rekey_image(converted, old), original)
+            self.assertEqual(flash.image_identity(converted), ('GS_C2_ADC_DEVICE', new))
+        self.assertEqual(flash.rekey_image(original, old), original)
+
+    def test_rekey_uses_active_eoffset_copy(self):
+        source = image(eoffset=16).ljust(0x10000, b'\xff') + image(key=0x4317)
+        converted = flash.rekey_image(source, 0x1234)
+        self.assertEqual(converted[:0x10000], source[:0x10000])
+        self.assertEqual(converted[0x10000:], image(key=0x1234))
+        self.assertEqual(flash.image_identity(converted), ('GS_C2_ADC_DEVICE', 0x1234))
+
+    def test_rekey_rejects_corrupt_and_truncated_areas(self):
+        for at in (32, 64, 0x200, 0x1000, 0x1120, 0x11bf):
+            data = bytearray(image(resource=b'R' * 50))
+            data[at] ^= 1
+            with self.subTest(at=at), self.assertRaises(ValueError):
+                flash.rekey_image(data, 0x4317)
+        with self.assertRaises(ValueError):
+            flash.rekey_image(image()[:0x1150], 0x4317)
+
+    def test_rekey_rejects_unsupported_stock_directories_and_check_records(self):
+        for offset, label in ((96, b'app_dir_head2'), (0xfe0, b'check')):
+            source = bytearray(image())
+            h = bytearray(flash.enc(source[96:128]))
+            h[16:32] = label.ljust(16, b'\xff')
+            struct.pack_into('<H', h, 0, flash.crc16(h[2:]))
+            source[offset:offset + 32] = flash.enc(h)
+            with self.subTest(label=label), self.assertRaisesRegex(ValueError, 'unsupported'):
+                flash.rekey_image(source, 0x4317)
+
     def test_chip_keys_and_corruption(self):
         for key in (0, 0xffff, 0x4317):
             self.assertEqual(flash.image_identity(image(key=key)), ('GS_C2_ADC_DEVICE', key))
@@ -255,6 +330,7 @@ class ImageTests(unittest.TestCase):
             path = Path(tmp) / 'image.ufw'
             path.write_bytes(ufw)
             self.assertEqual(flash.load_image(path), raw)
+            self.assertEqual(flash.rekey_image(flash.load_image(path), 0x4317), image(key=0x4317))
             ufw[-1] ^= 1
             path.write_bytes(ufw)
             with self.assertRaisesRegex(ValueError, 'CRC mismatch'):

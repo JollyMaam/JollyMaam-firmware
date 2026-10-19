@@ -1024,6 +1024,32 @@ class GuiTests(unittest.TestCase):
                 self.app.flash()
                 run.assert_not_called()
 
+    def test_gui_flashes_dongle_image_with_a_different_chip_key(self):
+        from test_padflash import Device, image as make_image
+        import tempfile
+        self.load([loader_record()])
+        device = Device()
+        device.flash[:8192] = make_image('GS_C2_Dongle', key=0x4317)
+        loader = padgui.padflash.Loader('rom', lambda _: None)
+        loader.key, loader.flash_size = 0x4317, 0x80000
+        original = make_image('GS_C2_Dongle')
+        with tempfile.TemporaryDirectory() as tmp:
+            image = Path(tmp) / 'dongle.img'
+            image.write_bytes(original)
+            self.app.image.set(str(image))
+            with patch.object(self.app, 'loader_blob', return_value=b'loader'), \
+                 patch.object(self.app, 'open_loader', return_value=loader), \
+                 patch.object(padgui.messagebox, 'askyesnocancel', return_value=False), \
+                 patch.object(padgui.messagebox, 'askyesno', return_value=True), \
+                 patch.object(padgui.padflash, 'scsi', side_effect=device.scsi), \
+                 patch.object(self.app, 'run') as run:
+                self.app.flash()
+                run.assert_called_once()
+                run.call_args.args[1]()
+            self.assertEqual(image.read_bytes(), original)
+        self.assertEqual(device.flash[:8192], make_image('GS_C2_Dongle', key=0x4317))
+        self.assertEqual(device.commands[-1], 0xfc0c)
+
     def test_running_device_only_offers_loader_entry(self):
         self.load([record()])
         self.assertEqual(str(self.app.flash_button.cget("state")), "disabled")

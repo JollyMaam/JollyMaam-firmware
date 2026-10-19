@@ -1244,7 +1244,7 @@ class App:
         ttk.Label(self.flash_progress_frame, textvariable=self.flash_status).pack(anchor="w")
         self.flash_bar = ttk.Progressbar(self.flash_progress_frame, maximum=100)
         self.flash_bar.pack(fill="x", pady=(4, 0))
-        ttk.Label(f, text="Choose a firmware image to flash this device. Backup is optional; every written byte is verified.\nReconnect USB to leave loader mode after a standalone backup.", wraplength=850).pack(anchor="w", pady=8)
+        ttk.Label(f, text="Choose a firmware image to flash this device. Chip-key conversion is automatic.\nBackup is optional; every written byte is verified. Reconnect USB to leave loader mode after a standalone backup.", wraplength=850).pack(anchor="w", pady=8)
         self.loader_output = self.console_output(f)
 
     def build_dongle_page(self):
