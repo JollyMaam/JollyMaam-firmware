@@ -215,7 +215,8 @@ static void start_session(struct ctl_request r, u32 now)
         return;
     }
     if (session()) end_session();
-    usb = wants_usb(set, p);
+    /* An explicit pairing uses the radio even with a USB host present. */
+    usb = wants_usb(set, p) && !(pairing && set->transport == TRANSPORT_BT_USB);
     if (usb) pairing = 0;        /* a cable needs none; keep the radio's bond */
     else if (set->transport == TRANSPORT_DONGLE) p = &profile_link;
     memset(&s, 0, sizeof(s));
@@ -481,7 +482,7 @@ static void usb_session(u32 now)
  * host: a bus suspend once it configured us (asleep; or the cable went, 3 ms
  * after the frames stop), or no frames for USB_GONE_MS.  Nothing moves to
  * the radio; the next connect chooses again.  A bluetooth+usb session on the
- * radio moves to USB once a USB host is there. */
+ * radio moves to USB once a USB host is there, unless it began as pairing. */
 static void follow_usb(u32 now)
 {
     const struct set_slot *set;
@@ -491,7 +492,7 @@ static void follow_usb(u32 now)
     if (!c.usb) {
         struct ctl_request again = { REQ_CONNECT, c.slot, 0, 1 };
 
-        if (set->transport != TRANSPORT_BT_USB || !wants_usb(set, profile_for(set->type))) return;
+        if (c.sess.pairing || set->transport != TRANSPORT_BT_USB || !wants_usb(set, profile_for(set->type))) return;
         util_log("slot %u moves to usb", c.slot);
         start_session(again, now);
         return;
