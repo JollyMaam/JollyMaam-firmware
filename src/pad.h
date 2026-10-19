@@ -382,6 +382,7 @@ void in_response(const struct set_slot *slot, struct pad *pad);
 #define TARGETS        (SLOTS + 2)
 
 enum { SET_OK, SET_UNKNOWN, SET_BAD_LENGTH, SET_RANGE, SET_FULL };
+enum { SET_UNPAIR = 0xfe };       /* WRITE action: slot only, zero-length; applied on COMMIT */
 
 void set_init(void);
 void set_poll(u32 now, int radio_quiet);
@@ -399,6 +400,8 @@ void set_cal_store(const struct set_cal *cal);
 u32 set_describe(u32 n, u8 *out, u32 max);
 u32 set_read(u8 target, u8 *out, u32 max);
 u32 set_read_defaults(u8 target, u8 *out, u32 max); /* same format, no state changes */
+/* WRITE items: {target, id, length, bytes}; SET_UNPAIR clears the bond and
+ * stores a new address at COMMIT. DROP cancels it like any other setting edit. */
 u32 set_write(const u8 *items, u32 len, u8 *results, u32 max);
 void set_apply(void);
 void set_drop(void);

@@ -79,7 +79,9 @@ main device pages. `tools/bootloop.py` is a development stress-test helper. Sens
 calibration is global; the USB trigger requires protocol 3+. Protocol 4 adds
 a read-only defaults query for Reset and default-value indicators. Protocol 5
 uses 15-point curves plus enable flags; presets and migration are shared in
-`padtool/padcurves.py`. Setup and host
+`padtool/padcurves.py`. Protocol 6 adds the staged slot Unpair action (WRITE
+id 0xfe, length 0): firmware clears the bond and renews the address at COMMIT.
+GUI Unpair and `padtool unpair SLOT` share this action. Setup and host
 tests: `padtool/README.md`.
 
 `tools/sdlpad.c` shows what SDL makes of the gamepads it sees (build line at

@@ -219,18 +219,20 @@ class App:
                             was_reset = entry["reset"].get()
                             entry["original_raw"], entry["original"] = raw, entry["var"].get()
                             entry["explicit"] = not was_reset
+                            entry.pop("unpair", None)
                             entry["reset"].set(False)
                         record["error"] = "Setting(s) saved, but reload failed. Other edits remain pending. Reconnect or use Open device path to reload; other pending edits are retained."
                     else:
                         record = self.cache[path]
-                        pending = {key: (entry["var"].get(), entry["reset"].get())
+                        pending = {key: (entry["var"].get(), entry["reset"].get(), entry.get("unpair", False))
                                    for key, entry in record["draft"].items()
                                    if key not in applied_keys and self.changed(entry)}
                         self.install_values(record, values)
-                        for key, (text, reset) in pending.items():
+                        for key, (text, reset, unpair) in pending.items():
                             if key in record["draft"]:
                                 record["draft"][key]["var"].set(text)
                                 record["draft"][key]["reset"].set(reset)
+                                record["draft"][key]["unpair"] = unpair
                     self.mark_dirty()
                     continue
                 completed_flash = self.flash_active
@@ -321,6 +323,7 @@ class App:
                          "default_text": pad.show_value(f, default_raw) if default_raw is not None else None}
                 draft[t, f["name"]] = entry
                 def edited(*_, e=entry):
+                    e.pop("unpair", None)
                     e["reset"].set(False)
                     self.mark_dirty()
                 var.trace_add("write", edited)
@@ -329,6 +332,8 @@ class App:
         record["values"] = values
 
     def value_bytes(self, entry):
+        if entry.get("unpair"):
+            return bytes(len(entry["original_raw"]))
         text = entry["var"].get()
         if text == entry["original"]:
             return entry["original_raw"]
@@ -337,6 +342,8 @@ class App:
         return pad.parse_value(entry["field"], text)
 
     def changed(self, entry):
+        if entry.get("unpair"):
+            return True
         if entry["reset"].get() and entry["explicit"]:
             return True
         try:
@@ -350,6 +357,7 @@ class App:
         return self.value_bytes(entry) != entry["default_raw"]
 
     def reset_default(self, entry):
+        entry.pop("unpair", None)
         entry.pop("custom_curve", None)
         if entry["field"]["name"] in ("left_curve_points", "right_curve_points"):
             for record in self.cache.values():
@@ -480,6 +488,7 @@ class App:
         self.batch_edits = True
         try:
             for entry in entries:
+                entry.pop("unpair", None)
                 entry.pop("custom_curve", None)
                 if entry["var"].get() != entry["original"]:
                     entry["var"].set(entry["original"])
@@ -600,16 +609,17 @@ class App:
             if len(matches) == 1:
                 old = matches[0]
                 self.cache.pop(old["path"])
-        pending = {key: (entry["var"].get(), entry["reset"].get(), entry.get("custom_curve"))
+        pending = {key: (entry["var"].get(), entry["reset"].get(), entry.get("custom_curve"), entry.get("unpair", False))
                    for key, entry in old.get("draft", {}).items() if self.changed(entry)} if old and old["identity"] == record["identity"] else {}
         self.install_values(record, record["values"])
         self.cache[path] = record
-        for key, (text, reset, custom) in pending.items():
+        for key, (text, reset, custom, unpair) in pending.items():
             if key in record["draft"]:
                 entry = record["draft"][key]
                 entry["var"].set(text)
                 entry["reset"].set(reset)
                 entry["custom_curve"] = custom
+                entry["unpair"] = unpair
 
     def update_devices(self, snapshot):
         generation, present, records, errors = snapshot
@@ -881,7 +891,7 @@ class App:
             bond = record["draft"].get((target, "bond"))
             button = ttk.Button(links, text="Unpair", state="disabled", command=lambda t=target: self.unpair_slot(t))
             button.pack(side="left", padx=(0, 8))
-            if bond is not None:
+            if bond is not None and int.from_bytes(record["identity"][4:6], "little") >= pad.UNPAIR_PROTOCOL:
                 self.unpair_buttons.append((bond, button))
             types.grid(row=0, column=0, sticky="w", padx=(0, 8))
             links.grid(row=0, column=1, sticky="w")
@@ -988,7 +998,8 @@ class App:
             for path, record in self.cache.items():
                 keys = {key for key, entry in record.get("draft", {}).items()
                         if self.changed(entry) and (allowed is None or (path, *key) in allowed)}
-                items = [(t, entry["field"]["id"], b"" if entry["reset"].get() else self.value_bytes(entry))
+                items = [(t, pad.UNPAIR_ID if entry.get("unpair") else entry["field"]["id"],
+                          b"" if entry.get("unpair") or entry["reset"].get() else self.value_bytes(entry))
                          for (t, name), entry in record.get("draft", {}).items() if (t, name) in keys]
                 if items:
                     if not record.get("online", True):
@@ -1034,11 +1045,22 @@ class App:
         entry = record["draft"].get((target, "bond"))
         if entry is None:
             return
-        empty = bytes(len(entry["original_raw"]))
-        if entry["default_raw"] == empty:
-            self.reset_default(entry)
-        else:
-            entry["var"].set(empty.hex())
+        if int.from_bytes(record["identity"][4:6], "little") < pad.UNPAIR_PROTOCOL:
+            messagebox.showinfo("Update firmware", "Unpair with a new address requires updated firmware (protocol 6+).")
+            return
+        previous_batch = self.batch_edits
+        self.batch_edits = True
+        try:
+            # Firmware generates and saves the replacement address only at COMMIT.
+            # Discarding this draft does not touch the pad or consume an address.
+            address = record["draft"].get((target, "address"))
+            if address is not None:
+                self.restore_entries((address,))
+            entry["var"].set(bytes(len(entry["original_raw"])).hex())
+            entry["unpair"] = True
+        finally:
+            self.batch_edits = previous_batch
+        self.mark_dirty()
 
     def calibrate(self):
         self.slot_action("calibrate", 0)

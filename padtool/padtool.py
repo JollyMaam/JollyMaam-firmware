@@ -15,6 +15,7 @@
     padtool connect [SLOT]        connect a slot (default: the last), as Home does
     padtool pair SLOT             make the slot pairable; its host is replaced once one pairs
                                   (same address)
+    padtool unpair SLOT           forget the host and save a new Bluetooth address (protocol 6+)
     padtool profile [ZOOM [SHIFT]] [-w SECONDS] [--hz N] [--top N] [--elf FILE]
                                   sample where the CPU runs for SECONDS (10) at
                                   N per second (2000); per function, from the ELF's
@@ -563,10 +564,26 @@ def read_target(path, table, t, defaults=False):
     return out
 
 
+UNPAIR_ID = 0xfe
+UNPAIR_PROTOCOL = 6
+
+
+def unpair(path, slot):
+    """Firmware clears the bond and generates a new address in the same commit."""
+    if not 0 <= slot < 8:
+        raise ValueError("Unpair requires a pad slot")
+    identity = cmd(path, 0, length=64)
+    if len(identity) < 40 or identity[:4] != b"C2PD" or identity[6] != BOARD_IDS["pad"]:
+        raise ValueError("Unpair requires a pad")
+    if int.from_bytes(identity[4:6], "little") < UNPAIR_PROTOCOL:
+        raise ValueError("Unpair with a new address requires updated firmware (protocol 6+)")
+    send(path, [(slot, UNPAIR_ID, b"")])
+
+
 def send(path, items, journal=True):
     """items: [(target, id, value bytes)], value b"" for a default; id 0 resets
-    the target.  Written in chunks, then committed; nothing applies if any is
-    refused."""
+    the target; UNPAIR_ID unpairs a slot and renews its address. Written in
+    chunks, then committed; nothing applies if any is refused."""
     chunk, chunks = b"", []
     for t, fid, v in items:
         item = bytes([t, fid, len(v)]) + v
@@ -588,11 +605,27 @@ def send(path, items, journal=True):
     if journal and ephemeral_now(path):
         os.makedirs(os.path.dirname(JOURNAL), exist_ok=True)
         try:
-            j = json.load(open(JOURNAL))
+            with open(JOURNAL) as file:
+                j = json.load(file)
         except (OSError, ValueError):
             j = []
-        j.append([[t, fid, v.hex()] for t, fid, v in items])
-        json.dump(j, open(JOURNAL, "w"))
+        saved, table = [], None
+        for t, fid, v in items:
+            if fid == UNPAIR_ID:
+                # Replay the resulting identity, not an action that would
+                # generate a different address when `keep` reboots the pad.
+                if table is None:
+                    table = fields(path)
+                values = read_target(path, table, t)
+                for name in PAIRING:
+                    field = field_named(table, t, name)
+                    raw, explicit = values[name]
+                    saved.append([t, field["id"], raw.hex() if explicit else ""])
+            else:
+                saved.append([t, fid, v.hex()])
+        j.append(saved)
+        with open(JOURNAL, "w") as file:
+            json.dump(j, file)
 
 
 def ephemeral_now(path):
@@ -776,7 +809,7 @@ def tool(paths):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["target", "find", "identify", "status", "log", "stats", "calibrate", "reboot", "loader", "relink", "connect", "pair", "profile", "peek", "trace",
+    p.add_argument("command", choices=["target", "find", "identify", "status", "log", "stats", "calibrate", "reboot", "loader", "relink", "connect", "pair", "unpair", "profile", "peek", "trace",
                                        "fields", "get", "set", "reset", "backup-settings",
                                        "restore-settings", "factory-reset", "ephemeral", "keep", "tool"])
     p.add_argument("args", nargs="*")
@@ -848,6 +881,13 @@ def main():
     elif a.command == "profile":
         zoom = (int(a.args[0], 16), int(a.args[1]) if len(a.args) > 1 else 1) if a.args else None
         profile(need_device(), a.watch or 10, a.hz, a.top, a.elf, zoom, a.by)
+    elif a.command == "unpair":
+        if BOARD != "pad" or len(a.args) != 1 or a.args[0] not in SLOT_NAMES:
+            p.error("unpair requires a pad slot: A B X Y up down left right")
+        try:
+            unpair(need_device(), SLOT_NAMES.index(a.args[0]))
+        except ValueError as error:
+            p.error(str(error))
     elif a.command == "pair":
         names = "A B X Y up down left right".split()
         if BOARD == "dongle" and not a.args:

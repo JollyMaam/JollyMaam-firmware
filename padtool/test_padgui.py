@@ -34,6 +34,38 @@ def loader_record(path="rom"):
             "status": "UBOOT1.00 ROM loader", "name": "BR23 UBOOT1.00"}
 
 
+class UnpairTests(unittest.TestCase):
+    def test_cli_unpair_uses_firmware_action_and_rejects_unsupported_devices(self):
+        for board, protocol in (("pad", 6), ("pad", 5), ("dongle", 6)):
+            identity = record(board=board, protocol=protocol)["identity"]
+            with self.subTest(board=board, protocol=protocol), \
+                 patch.object(padgui.pad, "cmd", return_value=identity), \
+                 patch.object(padgui.pad, "send") as send:
+                if board == "pad" and protocol >= 6:
+                    padgui.pad.unpair("fake", 1)
+                    send.assert_called_once_with("fake", [(1, padgui.pad.UNPAIR_ID, b"")])
+                else:
+                    with self.assertRaises(ValueError):
+                        padgui.pad.unpair("fake", 1)
+                    send.assert_not_called()
+
+    def test_ephemeral_unpair_journals_firmware_result_instead_of_repeating_action(self):
+        import json
+        import tempfile
+        table = [{"kind": 0, "id": 12, "name": "address"},
+                 {"kind": 0, "id": 13, "name": "bond"}]
+        address = bytes.fromhex("102030405002")
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(padgui.pad, "JOURNAL", str(Path(directory) / "journal.json")), \
+             patch.object(padgui.pad, "cmd", return_value=b"\x01\0"), \
+             patch.object(padgui.pad, "ephemeral_now", return_value=True), \
+             patch.object(padgui.pad, "fields", return_value=table), \
+             patch.object(padgui.pad, "read_target", return_value={"address": (address, True), "bond": (bytes(68), False)}):
+            padgui.pad.send("fake", [(1, padgui.pad.UNPAIR_ID, b"")])
+            self.assertEqual(json.loads(Path(padgui.pad.JOURNAL).read_text()),
+                             [[[1, 12, address.hex()], [1, 13, ""]]])
+
+
 class GuiTests(unittest.TestCase):
     def setUp(self):
         # Collect Tk objects from earlier tests on the UI thread, before workers start.
@@ -195,7 +227,7 @@ class GuiTests(unittest.TestCase):
         self.assertFalse(buttons["Default"].instate(["disabled"]))
 
     def test_main_page_unpair_stages_only_paired_slot_and_is_discardable(self):
-        r = record()
+        r = record(protocol=6)
         r["fields"].append({"kind": 0, "id": 13, "name": "bond", "type": padgui.pad.T_BYTES,
                             "size": 68, "help": "Paired host", "dev": True})
         classic = b"\x11" * 6 + bytes(62)
@@ -224,13 +256,19 @@ class GuiTests(unittest.TestCase):
         self.assertFalse(unpair[0].instate(["disabled"]))
         unpair[1].invoke()
         self.assertEqual(self.app.value_bytes(r["draft"][1, "bond"]), bytes(68))
-        r["values"][1]["bond"] = (bytes(68), True)
+        refreshed = record(protocol=6)
+        refreshed["fields"] = r["fields"]
+        refreshed["values"] = r["values"]
+        self.app.merge_device(refreshed)
+        r = refreshed
+        self.assertTrue(r["draft"][1, "bond"]["unpair"])
+        r["values"][1]["bond"] = (bytes(68), False)
         with patch.object(padgui.pad, "cmd", return_value=r["identity"]), \
              patch.object(padgui.pad, "send") as send, \
              patch.object(padgui.pad, "read_target", side_effect=lambda p, table, t: r["values"][t]):
             self.app.apply_settings(("fake", 1, "bond"))
             self.finish()
-            send.assert_called_once_with("fake", [(1, 13, bytes(68))])
+            send.assert_called_once_with("fake", [(1, padgui.pad.UNPAIR_ID, b"")])
         self.assertEqual(r["draft"][3, "type"]["var"].get(), "hid")
         unpair = [w for w in self.app.controls(self.app.overview_form)
                   if isinstance(w, padgui.ttk.Button) and w.cget("text") == "Unpair"]

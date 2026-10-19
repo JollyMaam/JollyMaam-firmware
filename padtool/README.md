@@ -30,8 +30,16 @@ become available. The Linux HID tool-mode button can request this for HID
 profiles; on Windows end the session using the pad first.
 
 Selecting a pad shows its slots, each with a type dropdown, Default, Discard,
-Apply, Settings and Unpair. Unpair is disabled without a pairing; it stages removal of the
-saved host bond, keeping the slot’s own address. Apply saves it; Discard undoes it. Slot and settings-group entries open detailed settings.
+Apply, Settings and Unpair. Unpair is disabled without a pairing or on firmware
+older than protocol 6. It stages an action: on Apply, firmware clears the entire
+Classic/LE bond and generates and saves a replacement Bluetooth address.
+Discard cancels it without touching the pad. Slot and settings-group entries
+open detailed settings. The same firmware action is available from the CLI:
+
+```sh
+python padtool/padtool.py unpair A
+```
+
 **Developer fields** at the bottom expands or collapses advanced settings,
 retaining pending edits. **Debug tools** under running pads contains diagnostics
 and the operation log. Dongle and ROM-loader actions are on their main entries.

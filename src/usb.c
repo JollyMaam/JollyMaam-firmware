@@ -57,6 +57,8 @@
  *                         field id, set, len, value
  *   `0x22` WRITE          out: items `{target, id, len, value}`, collected;
  *                         `len` 0: default; id 0: the whole target
+ *                         id 0xfe, len 0: unpair slot, generate and save a new
+ *                         address on COMMIT (protocol 6+); DROP cancels
  *   `0x26` RESULT         in: the last WRITE: u8 count, then a code per item (0
  *                         ok, 1 unknown, 2 bad length, 3 out of range, 4 full)
  *   `0x23` COMMIT         – : apply what was collected, in order; save unless
@@ -74,7 +76,7 @@
  * padtool/padtool.py and padtool/padgui.pyw (Linux/Windows SCSI) are the clients. */
 
 #define OP          0xf5
-#define PROTOCOL    5
+#define PROTOCOL    6
 
 #define STATS_VERSION 6
 

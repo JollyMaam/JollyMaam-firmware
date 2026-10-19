@@ -561,6 +561,7 @@ void set_cal_store(const struct set_cal *c)
 /* ---- changes from outside: collect, then commit -------------------------------
  * Items are {target, id, len, value}; len 0 puts the field back to its
  * default, and id 0 (len 0) the whole target, a slot's pairing kept.  Each is checked as it arrives;
+ * SET_UNPAIR (len 0, slot only) clears the bond and generates a new address.
  * commit applies them in order. */
 
 u32 set_write(const u8 *in, u32 len, u8 *results, u32 max)
@@ -573,8 +574,9 @@ u32 set_write(const u8 *in, u32 len, u8 *results, u32 max)
         u8 r;
 
         if (o + 3u + l > len) { results[n++] = SET_BAD_LENGTH; break; }
-        r = t >= TARGETS ? SET_UNKNOWN : id == 0 ? (l ? SET_BAD_LENGTH : SET_OK)
-                                                 : check(f, in + o + 3, l);
+        if (t >= TARGETS || (id == SET_UNPAIR && t >= SLOTS)) r = SET_UNKNOWN;
+        else if (id == 0 || id == SET_UNPAIR) r = l ? SET_BAD_LENGTH : SET_OK;
+        else r = check(f, in + o + 3, l);
         if (r == SET_OK && staged + 3u + l > STAGE_MAX) r = SET_FULL;
         if (r == SET_OK) {
             memcpy(stage + staged, in + o, 3u + l);
@@ -595,7 +597,13 @@ void set_apply(void)
         u8 t = stage[o], id = stage[o + 1], l = stage[o + 2];
         const struct set_field *f;
 
-        if (id == 0) {
+        if (id == SET_UNPAIR) {
+            u8 address[6];
+            set_slot_new_address(t, address);
+            clear(t, ID_BOND);
+            f = find(t, ID_ADDRESS, &bit);
+            put(t, f, bit, address, sizeof(address));
+        } else if (id == 0) {
             reset_keeping_pairing(t);
         } else {
             f = find(t, id, &bit);
@@ -926,6 +934,32 @@ int main(void)
     set_pairing_store(0, b, &bond);
     set_slot_address(0, n);
     CHECK(!memcmp(b, n, 6) && set_bond(0)->peer[0] == 0x11);
+
+    /* Unpair is an ordered, cancellable settings action. It renews the
+     * address and clears the whole Classic/LE bond in the same commit. */
+    CHECK(write1(TARGET_PALETTE, SET_UNPAIR, 0, NULL) == SET_UNKNOWN);
+    CHECK(write1(0, SET_UNPAIR, 1, &x) == SET_BAD_LENGTH);
+    CHECK(write1(0, SET_UNPAIR, 0, NULL) == SET_OK);
+    set_slot_address(0, a);
+    CHECK(!memcmp(a, n, 6) && set_bond(0)->peer[0] == 0x11);
+    set_drop();
+    CHECK(set_bond(0)->peer[0] == 0x11);
+    CHECK(write1(0, SET_UNPAIR, 0, NULL) == SET_OK);
+    CHECK(write1(0, 7, 1, &(u8){ 75 }) == SET_OK);
+    set_apply();
+    set_slot_address(0, b);
+    CHECK(memcmp(a, b, 6) && !memcmp(a + 3, b + 3, 3));
+    memset(&bond, 0, sizeof(bond));
+    CHECK(!memcmp(set_bond(0), &bond, sizeof(bond)) && set_slot(0)->rumble == 75);
+    CHECK(write1(0, SET_UNPAIR, 0, NULL) == SET_OK);
+    set_apply();
+    set_slot_address(0, n);
+    CHECK(memcmp(b, n, 6));   /* even two commits within the same tick */
+    set_flush();
+    set_init();
+    set_slot_address(0, a);
+    CHECK(!memcmp(a, n, 6) && !memcmp(set_bond(0), &bond, sizeof(bond)));
+    memset(&bond, 0x11, sizeof(bond));
 
     /* Through the dongle the host stays when the type changes; moving to or
      * from the dongle is a new host.  A dongle slot's address ignores its type. */
