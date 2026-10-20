@@ -728,7 +728,7 @@ def show_fields(path, dev=False):
         if f["dev"] and not dev:
             continue
         if f["dev"] and not shown_dev:
-            print("\ndeveloper settings: for measuring the link, not for normal use")
+            print("\ndeveloper settings: not for normal use")
             shown_dev = True
         values = (" | ".join(f["names"]) if f["type"] == T_ENUM else
                   f"0-{f['max']}" if f["type"] == T_NUMBER else
@@ -785,7 +785,7 @@ def set_values(path, target, pairs):
         f = field_named(table, t, name)
         items.append((t, f["id"], parse_value(f, text)))
         if f["dev"]:
-            print(f"note: {name} is a developer setting, for measuring the link")
+            print(f"note: {name} is a developer setting")
     send(path, items)
     print("changed" + (" (ephemeral: until the next boot)" if ephemeral_now(path) else ""))
 
@@ -914,7 +914,7 @@ def main():
     p.add_argument("--reset", action="store_true", help="stats: reset the counters after reading")
     p.add_argument("--hz", type=int, default=2000, help="profile: samples per second")
     p.add_argument("--dev", action="store_true",
-                   help="fields, get: include the developer settings (for measuring the link)")
+                   help="fields, get: include the developer settings")
     board = p.add_mutually_exclusive_group()
     board.add_argument("--board", choices=BOARD_IDS, default="pad",
                        help="board to talk to (default: pad)")
