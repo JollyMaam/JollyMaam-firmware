@@ -8,6 +8,7 @@
 static const struct led_wave low_battery = LED_BLINK(150, 2850);
 static const struct led_wave player_flash = LED_BLINK(250, 250);
 static const struct led_wave fade = LED_BREATHE(4000);
+static const struct led_wave config_grips = LED_BLINK(200, 200);   /* remap config mode, instead of the grips setting */
 
 /* Ephemeral mode: Home goes dark twice, briefly, every few seconds. */
 #define WINK_PERIOD_MS 4000
@@ -168,6 +169,9 @@ void led_frame(const struct led_scene *sc, const struct led_state *s, u32 now,
 
     if (in->ephemeral && winking(now)) memset(home, 0, sizeof(*home));
     if (in->cal_lit) *home = in->cal;
+    if (in->config)
+        out->light[LIGHT_GRIP_L] = out->light[LIGHT_GRIP_R] =
+            dim(in->connect_colour, level(&config_grips, in->config_ms, 0, 1));
     if (in->power_debug) {
         u32 i;
         for (i = 0; i < LIGHT_COUNT; i++) out->light[i] = in->power_debug_colour;

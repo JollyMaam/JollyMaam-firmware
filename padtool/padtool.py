@@ -36,15 +36,26 @@
     padtool set TARGET NAME VALUE [NAME VALUE ...]   change and commit
     padtool reset TARGET [NAME ...]      back to defaults: the fields, or all but the pairing
     padtool backup-settings FILE | restore-settings FILE [--calibration]
-    padtool factory-reset                every slot and the palette (bonds too)
+    padtool factory-reset                every slot, the palette and the remap slots (bonds too)
     padtool ephemeral                    from now until the next boot nothing is saved
     padtool keep                         reboot, then send what ephemeral mode tried
 
-TARGET: a slot (A B X Y up down left right), palette or calibration.  VALUE:
+TARGET: a slot (A B X Y up down left right), palette, calibration or a remap
+slot (remap-a ... remap-right).  VALUE:
 a name for a choice, a number, ENTRY:LEVEL for a colour (palette entry 0-15,
 brightness 0-15), #rrggbb for a palette entry, aa:bb:cc:dd:ee:ff for an
 address, 15 comma-separated output bytes or a preset (linear, concave, s-curve) for stick curve points, hex for other
 bytes; "default" puts a field back to its default.
+
+A remap slot's map is "KEY held: hold KEY" (or nothing), one per key:
+"x=y y=x capture=none"; its rules are ';'-separated
+"INPUT TRIGGER[:MS] EFFECT [OUT+OUT][@HZ|@max]":
+    triggers held, held_for:MS  with  hold, turbo, nothing
+             pressed, released, tapped:MS, double_tapped:MS  with  tap, toggle_hold, toggle_turbo
+    e.g. "r4 held hold l1+r1; a held turbo a@max; r4 tapped:300 tap a; r4 held_for:300 hold l1"
+Rules add to a key's map row; r4=none drops R4's own press.  A remap slot
+also has left_/right_curve (as a slot had) and the four deadzones.  Keys: a b x y up down left right l1 r1
+l4 r4 l3 r3 minus plus home m capture (or screenshot).
 
 The pad is a mass-storage device with no medium; commands are vendor SCSI
 CDBs (see the comment at the top of src/usb.c).  Flashing is tools/jlnewfw.c's (make flash).
@@ -52,6 +63,7 @@ CDBs (see the comment at the top of src/usb.c).  Flashing is tools/jlnewfw.c's (
 import argparse, collections, glob, json, os, struct, sys, time
 from padtransport import scsi, device_paths
 import padcurves
+import padremap
 if sys.platform == "linux":
     import fcntl
 
@@ -460,9 +472,11 @@ def log(path, follow):
 # ---- settings ------------------------------------
 
 SLOT_NAMES = ["A", "B", "X", "Y", "up", "down", "left", "right"]
-TARGETS = SLOT_NAMES + ["palette", "calibration"]
-KINDS = ["slot", "palette", "calibration"]
-T_ENUM, T_NUMBER, T_COLOUR, T_RGB, T_BYTES = range(5)
+REMAP_NAMES = ["remap-" + n.lower() for n in SLOT_NAMES]
+TARGETS = SLOT_NAMES + ["palette", "calibration"] + REMAP_NAMES
+REMAP_TARGET = 10
+KINDS = ["slot", "palette", "calibration", "remap"]
+T_ENUM, T_NUMBER, T_COLOUR, T_RGB, T_BYTES, T_TEXT = range(6)
 RESULTS = ["ok", "unknown field", "bad length", "out of range", "too many changes at once"]
 JOURNAL = os.path.expanduser("~/.cache/padtool/ephemeral.json")
 PAIRING = ("address", "bond")   # kept by a whole-slot reset
@@ -476,7 +490,16 @@ def target_index(name):
 
 
 def kind_of(t):
-    return 0 if t < 8 else t - 7
+    return 0 if t < 8 else 3 if t >= REMAP_TARGET else t - 7
+
+
+def targets(table):
+    """The targets this firmware has: remap slots only where it describes them."""
+    return list(range(len(TARGETS) if any(f["kind"] == 3 for f in table) else REMAP_TARGET))
+
+
+def remap_field(f, name):
+    return f["kind"] == 3 and f["name"] == name
 
 
 def fields(path):
@@ -506,6 +529,12 @@ def fields(path):
 
 def show_value(f, raw):
     t = f["type"]
+    if t == T_TEXT:
+        return padremap.show_name(raw)
+    if remap_field(f, "map"):
+        return padremap.show_map(raw)
+    if remap_field(f, "rules"):
+        return padremap.show_rules(raw)
     if t == T_ENUM:
         return f["names"][raw[0]] if raw[0] < len(f["names"]) else str(raw[0])
     if t == T_NUMBER:
@@ -521,12 +550,49 @@ def show_value(f, raw):
     return "none" if not any(raw) else raw.hex()
 
 
+STICK_FULL = 32767         # CAL_STICK_MAX: a stick's full deflection, and the deadzone scale
+
+
+def describe_calibration(raw):
+    """struct set_cal (src/pad.h) in words: sensor readings and the measured
+    outer edge of each stick, each trigger's travel.  Lines of text."""
+    raw = bytes(raw)
+    if len(raw) < 112:
+        return ["(not the calibration layout)"]
+    words = struct.unpack_from("<56H", raw)
+    lines = []
+    for side, base in (("Left", 0), ("Right", 24)):
+        minimum, center, maximum = words[base:base + 2], words[base + 2:base + 4], words[base + 4:base + 6]
+        gate = words[base + 6:base + 22]
+        if all(minimum[a] < center[a] < maximum[a] for a in (0, 1)) and all(gate):
+            edge = [g * 100 / STICK_FULL for g in gate]
+            lines.append(f"{side} stick: X {minimum[0]}–{center[0]}–{maximum[0]}, "
+                         f"Y {minimum[1]}–{center[1]}–{maximum[1]} (sensor low–rest–high); "
+                         f"outer edge {min(edge):.0f}–{max(edge):.0f}% of full around 16 directions")
+        else:
+            lines.append(f"{side} stick: not calibrated (built-in defaults)")
+    for side, base in (("Left", 48), ("Right", 52)):
+        rest, full, inner, outer = words[base:base + 4]
+        if rest > full:
+            lines.append(f"{side} trigger: rest {rest}, fully pressed {full} (sensor); "
+                         f"deadzones {inner * 100 / STICK_FULL:.0f}% at rest, {outer * 100 / STICK_FULL:.0f}% at the end")
+        else:
+            lines.append(f"{side} trigger: not calibrated (built-in handling)")
+    return lines
+
+
 def parse_value(f, text):
     """Bytes for a field, or b"" for its default."""
     t = f["type"]
     if text == "default":
         return b""
     try:
+        if t == T_TEXT:
+            return padremap.parse_name(text, f["size"])
+        if remap_field(f, "map"):
+            return padremap.parse_map(text)
+        if remap_field(f, "rules"):
+            return padremap.parse_rules(text)
         if t == T_ENUM:
             if text in f["names"]:
                 return bytes([f["names"].index(text)])
@@ -545,6 +611,8 @@ def parse_value(f, text):
             v = bytes(reversed(bytes.fromhex(text.replace(":", ""))))
         else:
             v = bytes.fromhex(text)
+    except padremap.RemapError as error:
+        sys.exit(f"padtool: {f['name']}: {error}")
     except (ValueError, OverflowError):
         sys.exit(f"padtool: {f['name']}: cannot read {text!r}")
     if len(v) != f["size"]:
@@ -562,6 +630,8 @@ def field_named(table, t, name):
 def read_target(path, table, t, defaults=False):
     """{name: (value bytes, set)} in table order."""
     d = cmd(path, 0x27 if defaults else 0x21, t, 512)
+    if len(d) < 3:
+        return {}
     count, o, by_id, out = d[2], 3, {}, {}
     for _ in range(count):
         fid, is_set, size = d[o], d[o + 1], d[o + 2]
@@ -658,7 +728,10 @@ def show_fields(path, dev=False):
         values = (" | ".join(f["names"]) if f["type"] == T_ENUM else
                   f"0-{f['max']}" if f["type"] == T_NUMBER else
                   "ENTRY:LEVEL" if f["type"] == T_COLOUR else
-                  "#rrggbb" if f["type"] == T_RGB else f"{f['size']} bytes")
+                  "#rrggbb" if f["type"] == T_RGB else f"text, {f['size']} bytes" if f["type"] == T_TEXT else
+                  "KEY=KEY ... | identity" if remap_field(f, "map") else
+                  "INPUT TRIGGER EFFECT OUT; ... | none (padtool -h)" if remap_field(f, "rules") else
+                  f"{f['size']} bytes")
         defs = ""
         if f["defaults"] and f["type"] != T_BYTES:
             shown = [show_value(f, d) for d in f["defaults"]]
@@ -669,7 +742,7 @@ def show_fields(path, dev=False):
 
 def get(path, target, name):
     table = fields(path)
-    for t in [target_index(target)] if target else range(len(TARGETS)):
+    for t in [target_index(target)] if target else targets(table):
         values = read_target(path, table, t)
         for f in table:
             if f["kind"] != kind_of(t) or (name and f["name"] != name) or f["name"] not in values:
@@ -677,6 +750,10 @@ def get(path, target, name):
             if f["dev"] and not name and not DEV and not values[f["name"]][1]:
                 continue                     # developer settings at default: --dev shows them
             raw, is_set = values[f["name"]]
+            if f["kind"] == 2 and f["name"] == "calibration":
+                print(f"{TARGETS[t]:11} {f['name']:16} {'*' if is_set else ' '} " +
+                      f"\n{'':30}".join(describe_calibration(raw)))
+                continue
             print(f"{TARGETS[t]:11} {f['name']:16} {'*' if is_set else ' '} {show_value(f, raw)}"
               + ("   (developer)" if f["dev"] else ""))
 
@@ -718,7 +795,8 @@ def backup(path, file):
     ident = cmd(path, 0x00, length=64)
     out = {"format": 1, "build": ident[8:24].split(b"\0")[0].decode(), "flash_id": ident[24:40].hex(),
            "notes": {}, "targets": {}}
-    for t, name in enumerate(TARGETS):
+    for t in targets(table):
+        name = TARGETS[t]
         values = read_target(path, table, t)
         out["targets"][name] = {n: {"value": show_value(field_named(table, t, n), raw), "set": s}
                                 for n, (raw, s) in values.items()}
@@ -732,7 +810,10 @@ def restore(path, file, calibration):
         t = target_index(name)
         if name == "calibration" and not calibration:
             continue
-        if t < 8 and any(f["name"] == "left_curve_enabled" for f in table):
+        if t not in targets(table):
+            print(f"{name}: not in this firmware, skipped")
+            continue
+        if t < 8 and any(f["kind"] == 0 and f["name"] == "left_curve_enabled" for f in table):
             size = field_named(table, t, "left_curve_points")["size"]
             values = padcurves.migrate_slot(values, size)
         items = [(t, 0, b"")]
@@ -941,12 +1022,14 @@ def main():
         path = need_device()
         table = fields(path)
         items = []
-        for t in range(len(TARGETS) - 1):
+        for t in targets(table):
+            if TARGETS[t] == "calibration":
+                continue
             items.append((t, 0, b""))
             if t < 8:
                 items += [(t, field_named(table, t, n)["id"], b"") for n in PAIRING]
         send(path, items)
-        print("every slot and the palette back to defaults; calibration kept")
+        print("every slot, the palette and the remap slots back to defaults; calibration kept")
     elif a.command == "ephemeral":
         path = need_device()
         cmd(path, 0x25)

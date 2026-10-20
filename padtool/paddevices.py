@@ -1,4 +1,4 @@
-"""Background device discovery: unchanged devices never reload their settings."""
+"""Device discovery on Refresh: unchanged devices never reload their settings."""
 import threading
 import time
 
@@ -12,8 +12,8 @@ def read_device(path, name, identity):
                 "values": {}, "defaults": {}, "status": "UBOOT1.00 ROM loader", "location": usb_location(path)}
     board = next(board for board, number in pad.BOARD_IDS.items() if number == identity[6])
     table = pad.fields(path) if board == "pad" else []
-    values = {t: pad.read_target(path, table, t) for t in range(len(pad.TARGETS))} if table else {}
-    defaults = {t: pad.read_target(path, table, t, defaults=True) for t in range(len(pad.TARGETS))} if table and int.from_bytes(identity[4:6], "little") >= 4 else {}
+    values = {t: pad.read_target(path, table, t) for t in pad.targets(table)} if table else {}
+    defaults = {t: pad.read_target(path, table, t, defaults=True) for t in pad.targets(table)} if table and int.from_bytes(identity[4:6], "little") >= 4 else {}
     return {"path": path, "name": name, "board": board, "identity": identity[:40], "fields": table,
             "values": values, "defaults": defaults, "status": pad.status(path), "location": usb_location(path)}
 
@@ -29,25 +29,23 @@ class DeviceMonitor:
         self.generation = 0
         self.last_reported = None
         self.retry_after = {}
-        self.thread = None
 
     def invalidate(self):
         self.generation += 1
         self.last_reported = None
 
-    def start(self):
-        if self.thread is None:
-            self.thread = threading.Thread(target=self.watch, daemon=True)
-            self.thread.start()
-
-    def watch(self):
-        while not self.stop.wait(1):
+    def refresh(self):
+        """Look once, in the background; ends with a "refreshed" event."""
+        def once():
             try:
+                self.retry_after.clear()
                 snapshot = self.poll_once()
                 if snapshot is not None:
                     self.events.put(("devices", snapshot))
             except (Exception, SystemExit) as error:
                 self.events.put(("log", f"Device detection: {error}"))
+            self.events.put(("refreshed", None))
+        threading.Thread(target=once, daemon=True).start()
 
     def poll_once(self):
         if self.busy.is_set():

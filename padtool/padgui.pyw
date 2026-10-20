@@ -4,6 +4,7 @@ import contextlib
 import io
 from pathlib import Path
 import queue
+import sys
 import threading
 import time
 import tkinter as tk
@@ -14,9 +15,25 @@ import padflash
 from padtransport import usb_location
 from paddevices import DeviceMonitor, read_device
 from padconsole import LiveConsole
-from padwidgets import PaletteEditor, CurveEditor, Tooltip
+from padwidgets import PaletteEditor, CurveEditor, RemapEditor, Tooltip
 
 PIDS = padflash.PIDS
+
+
+class CalibrationView(ttk.Label):
+    """The calibration blob in words; read-only, refreshed with the editors."""
+    def __init__(self, parent, app, entry):
+        super().__init__(parent, justify="left")
+        self.app, self.entry = app, entry
+        self.sync()
+
+    def sync(self):
+        try:
+            text = "\n".join(pad.describe_calibration(self.app.value_bytes(self.entry)))
+        except (Exception, SystemExit):
+            text = "Unreadable calibration. Run Calibrate sensors."
+        if self.cget("text") != text:
+            self.configure(text=text)
 
 
 class App:
@@ -27,7 +44,6 @@ class App:
         root.geometry("1250x850")
         self.events = queue.Queue()
         self.monitor = DeviceMonitor(self.events)
-        self.automatic_devices = auto_scan
         self.busy = False
         self.flash_active = False
         self.batch_edits = False
@@ -64,17 +80,18 @@ class App:
         top = ttk.Frame(root, padding=10)
         top.pack(fill="x")
         self.apply_all_button = ttk.Button(top, text="Apply", command=self.apply_settings, state="disabled")
-        toolbar_buttons = [self.apply_all_button,
+        toolbar_buttons = [ttk.Button(top, text="Refresh", command=self.refresh_devices),
+                           self.apply_all_button,
                            ttk.Button(top, text="Discard", command=self.discard_changes)]
         toolbar_status = ttk.Label(top, textvariable=self.summary)
         def resize_toolbar(event):
-            columns = 3 if event.width >= 300 else 2 if event.width >= 200 else 1
+            columns = 4 if event.width >= 400 else 3 if event.width >= 300 else 2 if event.width >= 200 else 1
             for index, button in enumerate(toolbar_buttons):
                 button.grid(row=index // columns, column=index % columns, sticky="w", padx=(0, 8))
             wide = event.width >= 700
             toolbar_status.configure(wraplength=max(80, min(750, event.width - (300 if wide else 20))))
             toolbar_status.grid(row=0 if wide else (len(toolbar_buttons) + columns - 1) // columns,
-                                column=3 if wide else 0, columnspan=1 if wide else columns, sticky="w")
+                                column=len(toolbar_buttons) if wide else 0, columnspan=1 if wide else columns, sticky="w")
         top.bind("<Configure>", resize_toolbar)
         pane = ttk.Panedwindow(root, orient="horizontal")
         pane.pack(fill="both", expand=True, padx=10)
@@ -86,7 +103,12 @@ class App:
         pane.bind("<Configure>", resize_navigation)
         navigation = ttk.Frame(pane, width=250)
         pane.add(navigation, weight=0)
-        ttk.Label(navigation, text="Devices and slots", padding=6).pack(anchor="w")
+        heading = ttk.Frame(navigation)
+        heading.pack(anchor="w", fill="x")
+        ttk.Label(heading, text="Devices and slots", padding=6).pack(side="left", anchor="n")
+        # That we are looking, or that nothing is there: beside the heading.
+        self.tree_status = ttk.Label(heading, padding=(0, 6, 6, 6), foreground="#666666", wraplength=150)
+        self.tree_status.pack(side="left", anchor="n")
         ttk.Button(navigation, text="Open device path…", command=self.open_device_path).pack(side="bottom", fill="x", pady=6)
         self.tree = ttk.Treeview(navigation, show="tree", selectmode="browse", height=22)
         scrollbar = ttk.Scrollbar(navigation, orient="vertical", command=self.tree.yview)
@@ -95,6 +117,7 @@ class App:
         horizontal.pack(side="bottom", fill="x")
         self.tree.configure(yscrollcommand=scrollbar.set, xscrollcommand=horizontal.set)
         self.tree.pack(fill="both", expand=True)
+        self.looking = False
         self.tree.tag_configure("dirty", foreground="#b46300")
         self.tree.bind("<<TreeviewSelect>>", self.select_node)
         self.tree.bind("<Button-1>", lambda e: "break" if self.busy else None)
@@ -199,6 +222,10 @@ class App:
                 if kind == "log":
                     self.log(data)
                     continue
+                if kind == "refreshed":
+                    self.looking = False
+                    self.update_tree_status()
+                    continue
                 if kind == "devices":
                     if not self.busy and data[0] == self.monitor.generation:
                         self.update_devices(data)
@@ -261,6 +288,8 @@ class App:
                     if w.winfo_exists():
                         w.configure(state=state)
                 if kind == "error":
+                    self.looking = False
+                    self.update_tree_status()
                     error, output = data
                     self.log(output + "\n" + error)
                     self.notice.set("Operation failed.")
@@ -346,6 +375,8 @@ class App:
                     self.mark_dirty()
                 var.trace_add("write", edited)
                 reset.trace_add("write", lambda *_: self.mark_dirty())
+                if f["kind"] == 3 and f["name"] == "name":
+                    var.trace_add("write", lambda *_, r=record, t=t: self.rename_node(r, t))
         record["draft"] = draft
         record["values"] = values
 
@@ -416,7 +447,7 @@ class App:
         elif symbol == "✓":
             text += "\nClick to stage the firmware default. Apply saves the change."
         if len(entries) > 1:
-            text += "\nCurve points and Use points are handled together."
+            text += "\nThese settings are handled together."
         return text
 
     def toggle_setting_status(self, entries):
@@ -425,7 +456,8 @@ class App:
         if any(self.changed(e) for e in entries):
             self.discard_setting(entries)
         else:
-            self.reset_default(entries[0])
+            for entry in entries:
+                self.reset_default(entry)
 
     def default_marker(self, parent, entry, record, target, name):
         entries = self.setting_entries(record, target, name, entry)
@@ -434,7 +466,8 @@ class App:
         widget.default_entries = entries
         widget.tooltip = Tooltip(widget, lambda: self.default_tooltip(entries))
         self.indicators.append((entry, widget))
-        self.update_previews()
+        widget.configure(text=self.default_status(entries)[0])
+        self.schedule_previews()
         return widget
 
     def color_preview(self, record, entry):
@@ -455,8 +488,28 @@ class App:
         swatch.create_rectangle(1, 1, 49, 19, tags="colour", outline="#777777")
         swatch.create_text(25, 10, text="", tags="invalid")
         self.swatches.append((record, entry, swatch))
-        self.update_previews()
+        self.paint_swatch(record, entry, swatch)
+        self.schedule_previews()
         return swatch
+
+    def paint_swatch(self, record, entry, swatch):
+        try:
+            colour = self.color_preview(record, entry)
+            swatch.itemconfigure("colour", fill=colour)
+            swatch.itemconfigure("invalid", text="")
+        except (Exception, SystemExit):
+            swatch.itemconfigure("colour", fill="#eeeeee")
+            swatch.itemconfigure("invalid", text="?")
+
+    def schedule_previews(self):
+        """One update_previews once the page is built, not one per widget:
+        each pass walks every widget on the page."""
+        if not getattr(self, "previews_pending", None):
+            self.previews_pending = self.root.after_idle(self.scheduled_previews)
+
+    def scheduled_previews(self):
+        self.previews_pending = None
+        self.update_previews()
 
     def update_previews(self, force=False):
         self.indicators = [(e, w) for e, w in self.indicators if w.winfo_exists()]
@@ -465,13 +518,7 @@ class App:
             widget.configure(text=symbol)
         self.swatches = [(r, e, w) for r, e, w in self.swatches if w.winfo_exists()]
         for record, entry, swatch in self.swatches:
-            try:
-                colour = self.color_preview(record, entry)
-                swatch.itemconfigure("colour", fill=colour)
-                swatch.itemconfigure("invalid", text="")
-            except (Exception, SystemExit):
-                swatch.itemconfigure("colour", fill="#eeeeee")
-                swatch.itemconfigure("invalid", text="?")
+            self.paint_swatch(record, entry, swatch)
 
         self.special_editors = [w for w in self.special_editors if w.winfo_exists()]
         for widget in self.special_editors:
@@ -512,14 +559,15 @@ class App:
                     "Discard": lambda: self.discard_scope(record["path"], target),
                     "Reset all to defaults": lambda: self.reset_scope_defaults(record["path"], target)}
         for action in ("Apply", "Discard", "Reset all to defaults"):
-            button = ttk.Button(bar, text=action, command=commands[action])
+            button = ttk.Button(bar, text=action, command=commands[action], state="disabled")
             button.pack(side="left", padx=(0, 8))
             self.scope_buttons.append((record, target, action, button))
-        self.update_previews()
+        self.schedule_previews()
         return bar
 
     def setting_entries(self, record, target, name, entry):
-        companion = record["draft"].get((target, name.replace("_points", "_enabled"))) if name.endswith("_curve_points") else None
+        companion = record["draft"].get((target, name.replace("_points", "_enabled"))) if name.endswith("_curve_points") else \
+                    record["draft"].get((target, "rules")) if entry["field"]["kind"] == 3 and name == "map" else None
         return (entry, companion) if companion is not None else (entry,)
 
     def show_help(self, entry):
@@ -533,8 +581,8 @@ class App:
             text = ("These 15 points control stick output at 6.25% intervals from 6.25% through 93.75% travel. "
                     "Drag a point on the graph, move its slider, or enter an output percentage and press Enter. "
                     "Outputs stay in increasing order; zero and full travel stay fixed.\n\n"
-                    "Use points enables the saved curve. Turning it off gives exact linear passthrough without losing points. Presets are shared with the CLI. "
-                    "Apply at the top of this page saves this slot; the toolbar Apply saves all devices’ pending edits.")
+                    "Linear is no curve at all: calibrated input passes through exactly. Any other curve is used as drawn. Presets are shared with the CLI. "
+                    "Apply at the top of this page saves this remap slot; the toolbar Apply saves all devices’ pending edits.")
         messagebox.showinfo(field["name"].replace("_", " ").capitalize(), text or "No extra help is available.")
 
     def dirty_count(self):
@@ -605,7 +653,17 @@ class App:
                         if target is None or target == t)
             self.tree.item(node, tags=("dirty",) if dirty else ())
 
+    def refresh_devices(self):
+        """Look for devices now: only new or changed ones are read, and
+        edits to devices still there are kept."""
+        if not self.busy:
+            self.looking = True
+            self.update_tree_status()
+            self.monitor.refresh()
+
     def scan(self, automatic=False, select_path=None):
+        if self.busy:
+            return
         if not automatic and self.dirty_count() and not messagebox.askyesno("Reload devices", "Discard pending edits and scan again?"):
             return
         def load():
@@ -619,13 +677,12 @@ class App:
             return records, errors
         def display(result):
             records, errors = result
+            self.looking = False
             if automatic:
                 self.update_devices((self.monitor.generation,
                                      {r["path"]: r["identity"] for r in records}, records, errors))
                 self.render_tree(select_path)
                 self.notice.set("")
-                if self.automatic_devices:
-                    self.monitor.start()
                 return
             self.cache = {}
             for record in records:
@@ -636,13 +693,13 @@ class App:
             self.mark_dirty()
             self.notice.set("")
             self.sync_devices()
-            if self.automatic_devices:
-                self.monitor.start()
             for error in errors:
                 self.log(error)
             if errors:
                 messagebox.showerror("Some devices could not be loaded", "\n".join(errors))
-        self.run("Scanning and loading all device settings…", load, display)
+        self.looking = True
+        self.update_tree_status()
+        self.run("", load, display)
 
     def sync_devices(self):
         self.monitor.known = {path: record["identity"] for path, record in self.cache.items() if record.get("online", True)}
@@ -725,6 +782,13 @@ class App:
             self.mark_dirty()
         self.run("Opening device…", load, display)
 
+    def update_tree_status(self):
+        """Above the device tree: that we are looking, or that nothing is there."""
+        text = "Looking…" if self.looking else "None found" if not self.cache else ""
+        if not self.cache and not self.device.get():
+            self.render_overview()
+        self.tree_status.configure(text=text)
+
     def render_tree(self, select_path=None):
         selected = self.tree.selection()
         previous = self.nodes.get(selected[0]) if selected else None
@@ -739,11 +803,10 @@ class App:
                 label += " (disconnected)"
             self.tree.insert("", "end", iid=device_node, text=f"{location}{label} · {record.get('original_path', path)}", open=True)
             self.nodes[device_node] = (path, None)
-            targets = range(len(pad.TARGETS)) if record["board"] == "pad" else []
+            targets = pad.targets(record["fields"]) if record["board"] == "pad" else []
             for t in targets:
-                label = f"Slot {pad.TARGETS[t]}" if t < 8 else pad.TARGETS[t].title()
                 node = f"{device_node}/{t}"
-                self.tree.insert(device_node, "end", iid=node, text=label)
+                self.tree.insert(device_node, "end", iid=node, text=self.target_label(record, t))
                 self.nodes[node] = (path, t)
         nodes = self.tree.get_children()
         if nodes:
@@ -757,7 +820,24 @@ class App:
             self.render_details()
             self.update_loader_actions()
             self.show_page(self.overview)
+        self.update_tree_status()
         self.mark_dirty()
+
+    @staticmethod
+    def target_label(record, t):
+        if t < 8:
+            return f"Slot {pad.TARGETS[t]}"
+        if t < pad.REMAP_TARGET:
+            return pad.TARGETS[t].title()
+        label = f"Remap {pad.SLOT_NAMES[t - pad.REMAP_TARGET]}"
+        entry = record.get("draft", {}).get((t, "name"))
+        name = entry["var"].get().strip() if entry else ""
+        return f"{label} · {name}" if name else label
+
+    def rename_node(self, record, t):
+        for node, key in self.nodes.items():
+            if key == (record["path"], t) and self.tree.exists(node):
+                self.tree.item(node, text=self.target_label(record, t))
 
     def select_node(self, event=None):
         if self.busy or not self.tree.selection():
@@ -917,7 +997,8 @@ class App:
         f = self.overview_form
         record = self.record()
         if not record:
-            ttk.Label(f, text="Connect a pad, dongle or ROM loader, or use Open device path.", wraplength=800).pack(anchor="w", pady=12)
+            ttk.Label(f, text="Looking for devices…" if self.looking else
+                      "Connect a pad, dongle or ROM loader, then press Refresh, or use Open device path.", wraplength=800).pack(anchor="w", pady=12)
             return
         if record["board"] == "loader":
             self.loader_title.set(f"ROM loader (UBOOT1.00) · {record['path']}")
@@ -981,7 +1062,7 @@ class App:
             self.details_title.set("Select a pad slot in the tree")
             return
         target = pad.target_index(self.target.get())
-        self.details_title.set(f"{record['path']} · " + (f"Slot {pad.TARGETS[target]}" if target < 8 else pad.TARGETS[target].title()))
+        self.details_title.set(f"{record['path']} · " + self.target_label(record, target).split(" · ")[0])
         advanced = ttk.Frame(self.form)
         self.details_actions = self.scope_actions(self.details_header, record, target)
         self.details_actions.pack(side="left", padx=(12, 0))
@@ -998,9 +1079,18 @@ class App:
                 continue
             if name.endswith("_curve_enabled") and (t, name.replace("_enabled", "_points")) in record["draft"]:
                 continue
+            if f["kind"] == 3 and name == "rules" and (t, "map") in record["draft"]:
+                continue                     # one table with the map
             parent = advanced if f["dev"] else self.form
             row = rows[parent]
             rows[parent] += 1
+            if f["kind"] == 3 and name == "map":
+                editor = RemapEditor(parent, self, entry, record["draft"][target, "rules"],
+                                     record["draft"].get((target, "name")), pad.TARGETS[target])
+                editor.grid(row=row, column=0, columnspan=4, sticky="w", padx=4, pady=(12, 4))
+                self.special_editors.append(editor)
+                self.editors[name] = entry
+                continue
             label = ttk.Frame(parent)
             label.grid(row=row, column=0, sticky="nw", padx=4, pady=8)
             self.default_marker(label, entry, record, target, name).pack(side="left", padx=(0, 4))
@@ -1011,11 +1101,14 @@ class App:
             elif name in ("left_curve_points", "right_curve_points"):
                 editor = CurveEditor(parent, self, entry, record["draft"].get((target, name.replace("_points", "_enabled"))))
                 self.special_editors.append(editor)
+            elif f["kind"] == 2 and name == "calibration":
+                editor = CalibrationView(parent, self, entry)
+                self.special_editors.append(editor)
             elif f["type"] == pad.T_ENUM:
                 editor = ttk.Combobox(parent, textvariable=entry["var"], values=f["names"], state="readonly", width=23)
             else:
                 editor = ttk.Entry(parent, textvariable=entry["var"], width=25)
-            editor.grid(row=row, column=1, columnspan=2 if isinstance(editor, (PaletteEditor, CurveEditor)) else 1,
+            editor.grid(row=row, column=1, columnspan=2 if isinstance(editor, (PaletteEditor, CurveEditor, CalibrationView)) else 1,
                         sticky="ew", padx=4, pady=4)
             extra = None
             if f["type"] == pad.T_NUMBER:
@@ -1101,7 +1194,7 @@ class App:
             for path, record, items, keys in jobs:
                 pad.send(path, items)
                 try:
-                    values = {t: pad.read_target(path, record["fields"], t) for t in range(len(pad.TARGETS))}
+                    values = {t: pad.read_target(path, record["fields"], t) for t in pad.targets(record["fields"])}
                 except (Exception, SystemExit) as error:
                     self.events.put(("applied", (path, None, keys)))
                     raise RuntimeError(f"{path}: settings saved, but reload failed: {error}")
@@ -1428,13 +1521,11 @@ class App:
             if Path(backup).resolve() in (image.resolve(), Path(self.loader.get()).resolve()):
                 messagebox.showerror("Backup destination", "Choose a backup file different from the firmware input files.")
                 return
-        if not messagebox.askyesno("Flash firmware", f"Flash firmware for {pid}?\n\nSettings in erased sectors will be replaced. Keep USB connected until verification finishes."):
-            return
         def write():
             loader = self.open_loader(record, blob)
             loader.flash(data, board, backup)
         self.start_flash_progress("Preparing firmware")
-        self.run("Backing up and flashing…" if backup else "Flashing…", write, lambda _: self.clear_settings())
+        self.run("Backing up and flashing… keep USB connected" if backup else "Flashing… keep USB connected", write, lambda _: self.clear_settings())
 
     def set_dongle_target(self):
         if self.board.get() != "dongle":
@@ -1464,5 +1555,21 @@ class App:
 
 
 
+def elevate():
+    """Windows: SCSI pass-through needs admin, so ask for it (the UAC prompt)
+    and start again elevated.  Declined or --no-elevate: run as we are."""
+    import ctypes
+    import subprocess
+    if sys.platform != "win32" or "--no-elevate" in sys.argv or ctypes.windll.shell32.IsUserAnAdmin():
+        return False
+    exe = Path(sys.executable)
+    windowed = exe.with_name("pythonw.exe")
+    params = subprocess.list2cmdline([str(Path(__file__).resolve()), *sys.argv[1:], "--no-elevate"])
+    started = ctypes.windll.shell32.ShellExecuteW(None, "runas", str(windowed if windowed.exists() else exe),
+                                                  params, str(Path(__file__).resolve().parent), 1)
+    return started > 32
+
+
 if __name__ == "__main__":
-    App(tk.Tk()).root.mainloop()
+    if not elevate():
+        App(tk.Tk()).root.mainloop()

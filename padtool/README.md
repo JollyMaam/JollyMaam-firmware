@@ -21,8 +21,9 @@ Advanced diagnostics and CPU profiling are available through the command-line
 padtool. CLI profiling needs `pyelftools` and the ELF matching the running
 firmware; add `ps.pyelftools` to the Nix package list if needed.
 
-Startup reads every pad slot, palette and global calibration setting. Devices
-are detected automatically about once per second; unchanged devices keep their
+Startup reads every pad slot, palette and global calibration setting. After
+that, **Refresh** in the toolbar looks for devices that were plugged in, changed
+or removed; nothing polls in the background. Unchanged devices keep their
 cached settings and pending edits. **Open device path…** at the bottom of the
 device tree lets you enter a path manually, including reloading that device.
 Linux labels show USB topology when available. Configuration and Show console use the selected device. A USB gamepad session must end before vendor commands
@@ -106,43 +107,48 @@ Setting names use readable labels.
 Numeric inputs show their valid range beside the box, using firmware-reported
 limits.
 
-Each stick has a 15-point curve, with fixed zero and full-scale endpoints.
-**Use points** enables it; switching that off gives exact calibrated linear
-passthrough and retains all saved points. The graph shows active input in blue
-and, when disabled, the retained curve as a dashed line. **Point values** opens
-the 15 sliders and percentage inputs at 6.25% travel intervals. Default restores
-the default points and disables the curve. The slot page's Apply saves the
-points and enable flag with the other edited settings on that slot. **Copy points** copies the comma-separated
-output bytes; **Paste points** accepts commas or spaces and stages them on another
-slot or stick. Pasting retains that stick’s Use points setting; Apply saves the edit.
+Remap A–right are tree pages after Calibration. A connection slot's **Remap**
+setting picks the one each connect starts with; Home+M then a slot key picks
+another while connected. A slot whose remap is none gets the sticks exactly as
+calibrated and the keys as they are. Remap A starts as "Swap A/B X/Y".
 
-Linear, Concave and S-curve presets are defined in `padcurves.py`, shared by
-CLI and GUI. Selecting a preset fills the points and enables them; manual edits
-show Custom. Selecting Custom keeps the current points for editing. Firmware contains point interpolation and bypass only. The curved
-presets approximate the previous formulas, with maximum full-scale differences
-under 0.3% at 15 points. To get exact linear passthrough, turn Use points off.
+A remap page has a **Name** (shown in the tree), then a row per key, "**KEY**
+maps to [KEY / Nothing]", which costs no rule entries. Its status box covers
+the key's mapping and rules together: click it to discard their edits or to
+stage the default. **Add rule** adds a rule under that key: [is held / is held for / is pressed / is
+released / is tapped under / is double-tapped within] [effect] [keys]. "Is
+held" and "is held for" go with hold and turbo; the others with tap, toggle
+hold and toggle turbo. Turbo runs at 1–30 Hz, or at max, which flips the keys
+every report. Rules add to the key's mapping; map it to Nothing to drop the
+key's own press. 16 rule entries fit. **Select preset** sets common rows (swap
+A/B and X/Y, swap A/B, swap X/Y, Capture off) and keeps the rules; **Import
+preset…** and **Export preset…** load and save a whole page as JSON, in the
+CLI's text.
 
-The CLI uses the same presets and validation:
+Below the rows are each stick's 15-point curve, with fixed zero and full-scale
+endpoints, and its inner and outer deadzones (percent, 0–25). The Linear
+preset is no curve at all: calibrated input passes through exactly. Any other
+preset, a dragged point or pasted points turn the curve on. **Point values** opens the 15
+sliders and percentage inputs at 6.25% travel intervals. **Copy points** copies
+the comma-separated output bytes; **Paste points** accepts commas or spaces and
+stages them on another stick or remap. Linear, Concave and S-curve presets are
+defined in `padcurves.py`, shared by CLI and GUI.
+
+The CLI sets the same fields in the same text (`padremap.py`):
 
 ```sh
-python padtool/padtool.py set A left_curve concave
-python padtool/padtool.py set A left_curve disabled
-python padtool/padtool.py set A left_curve enabled
-python padtool/padtool.py set A left_curve_points s-curve
+python padtool/padtool.py set remap-b name "Mario Kart" map swap-ab-xy
+python padtool/padtool.py set remap-b rules "r4 tapped:300 tap a; r4 held_for:300 hold l1; l4 pressed toggle_turbo a@15"
+python padtool/padtool.py set remap-b left_curve concave left_inner_deadzone 5
+python padtool/padtool.py set A remap b
 ```
 
-The first command fills and enables points. Disabled/enabled only toggle the
-flag; the last command fills points without changing the enable flag.
+`left_curve concave` fills and enables points; `disabled`/`enabled` only toggle
+the flag; `left_curve_points s-curve` fills points without changing the flag.
 
-When the command-line flasher upgrades from protocol 4 or older with a running
-pad connected and a pre-flash backup requested, it saves a `.settings.json`
-next to the flash backup and restores it after the new firmware starts. Shared host migration converts old formula
-modes to presets and resamples seven-point custom curves, retaining their knots.
-Inactive custom points remain saved with the enable flag off. If the pad is
-already in the ROM loader, or another flasher is used, back up settings before
-the upgrade and restore them with the updated padtool afterwards. The firmware
-can resample legacy custom records itself; old Concave/S-curve modes require
-host conversion. Never-reused field IDs separate old and new layouts.
+Curves were a connection slot's setting and deadzones calibration's in older
+firmware; those values are not carried over, so set them again on a remap
+page.
 
 Connect and Pair use saved settings, so apply a slot's pending edits first.
 Sensor calibration is global, with one **Calibrate sensors** action in the
@@ -175,8 +181,9 @@ No external flashing executable is needed.
 The loader is uploaded to RAM through UBOOT1.00; it provides SPI flash access.
 It is separate from the `uboot.boot` contained inside firmware images.
 
-Windows device access uses SCSI pass-through through the standard storage driver;
-run Python in an Administrator terminal. Linux needs read/write access to the
+Windows device access uses SCSI pass-through through the standard storage driver,
+which needs admin: `padgui.pyw` asks for it with the UAC prompt and starts again
+elevated (`--no-elevate` skips that). Run the CLI from an Administrator terminal. Linux needs read/write access to the
 matching `/dev/sg*` node. Inside our development container `/dev/bwrap/sg*` works.
 Windows discovery currently probes PhysicalDrive0 through PhysicalDrive63.
 
@@ -190,7 +197,7 @@ any erase. The original image file stays unchanged. Conversion supports our
 generated builds; stock images with secondary application directories or check
 records are rejected rather than converted with incomplete format support.
 
-Automatic discovery detects `UBOOT1.00` ROM loaders. Selecting one uploads the
+Discovery (startup and Refresh) detects `UBOOT1.00` ROM loaders. Selecting one uploads the
 RAM helper and reads the product ID stored in flash; the page displays the actual
 ID rather than a board selector. Invalid or blank headers show an unavailable ID.
 Discovery itself only probes device identity and does not upload code.
@@ -244,7 +251,7 @@ in its loader for recovery.
 ## Code and validation
 
 `padgui.pyw` owns the UI and serializes operations on a worker thread.
-`paddevices.py` monitors device presence, pausing during other USB operations.
+`paddevices.py` finds new, changed and removed devices on Refresh, and waits for other USB operations.
 `padconsole.py` owns the live console windows and shares the USB operation lock.
 `tools/bootloop.py` is a development stress-test helper, separate from padtool.
 `padwidgets.py` supplies the palette/brightness and stick curve editors.

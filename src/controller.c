@@ -53,6 +53,14 @@ static struct {
     u8 imu_mode, begin_imu;
     u32 imu_seq, imu_next;
     u8 calibrating;
+    u8 remap, remap_slot;        /* the remap slot in use (SLOT_NONE: none), and whose it is */
+    u8 remap_chosen;             /* picked in config mode: kept when remap_slot reconnects */
+    u8 remap_live;               /* remap.c state belongs to remap_live - 1 at remap_edits */
+    u32 remap_edits;
+    u32 ux_buttons;              /* as ux_step left them, before the remap */
+    u32 turbo_max;               /* keys flipped every report, down first */
+    u8 turbo_up;
+    struct imu_sample rest;      /* the newest motion sent outside config mode */
     struct set_cal cal;
     struct in_raw raw;
     struct pad pad;              /* as the host sees it */
@@ -73,7 +81,7 @@ static struct {
     struct bt_stats bt_base;     /* the counters at the last reset */
     struct plat_stats plat_base;
     u32 last_report_us;
-    u32 sent_buttons;
+    u32 sent_buttons, sent_ux;   /* the last report handed over: its buttons, and before the remap */
 } c;
 
 static void stats_reset(u32 now)
@@ -196,6 +204,12 @@ static void stopped(u32 now)
 
 static void stop(u32 now);
 
+static const char *remap_name(u8 remap)
+{
+    static const char *const names[SLOTS] = { "a", "b", "x", "y", "up", "down", "left", "right" };
+    return remap < SLOTS ? names[remap] : "none";
+}
+
 static void start_session(struct ctl_request r, u32 now)
 {
     const struct set_slot *set = set_slot(r.slot);
@@ -231,9 +245,16 @@ static void start_session(struct ctl_request r, u32 now)
     s.usb = (u8)usb;
     c.usb = (u8)usb;
     c.prof = p;
-    c.sent_buttons = 0;         /* no report from this session has been handed over yet */
+    c.sent_buttons = c.sent_ux = 0;  /* no report from this session has been handed over yet */
     c.slot = r.slot;
     c.last_slot = r.slot;
+    /* A remap picked in config mode lasts across this slot's reconnects (a
+     * lost link, a cable, relink) until a disconnect or sleep. */
+    if (!c.remap_chosen || c.remap_slot != r.slot) {
+        c.remap = set->remap ? (u8)(set->remap - 1) : SLOT_NONE;
+        c.remap_slot = r.slot;
+        c.remap_chosen = 0;
+    }
     plat_retain_slot(r.slot);
     memset(&c.host, 0, sizeof(c.host));
     c.report_hz = s.settings->report_hz ? s.settings->report_hz :
@@ -251,9 +272,9 @@ static void start_session(struct ctl_request r, u32 now)
                             s.bond->le_peer[3] | s.bond->le_peer[4] | s.bond->le_peer[5]);
     if (c.radio && !usb) c.radio_pending = 1;
     else radio_on();
-    util_log("session slot %u %s%s%s as %02x:%02x:%02x:%02x:%02x:%02x", r.slot, p->name,
+    util_log("session slot %u %s%s%s as %02x:%02x:%02x:%02x:%02x:%02x remap %s", r.slot, p->name,
              usb ? " usb" : "", pairing ? " pairing" : "", s.address[5], s.address[4], s.address[3],
-             s.address[2], s.address[1], s.address[0]);
+             s.address[2], s.address[1], s.address[0], remap_name(c.remap));
     become(pairing ? CTL_PAIRING : CTL_CONNECTING, now);
     c.since = now;
 }
@@ -272,6 +293,7 @@ static void stop(u32 now)
  * controller still running hung the pad off USB). */
 static void shut_down(u8 kind, u32 now)
 {
+    c.remap_chosen = 0;
     if (c.radio || c.waking) end_session();
     become(kind, now);
 }
@@ -289,7 +311,14 @@ static void handle(struct ctl_request r, u32 now)
         start_session(r, now);
         break;
     case REQ_DISCONNECT:
+        c.remap_chosen = 0;
         if (session()) stop(now);
+        break;
+    case REQ_REMAP:
+        if (c.kind != CTL_CONNECTED) return;
+        c.remap = r.slot < SLOTS ? r.slot : SLOT_NONE;
+        c.remap_chosen = 1;
+        util_log("slot %u remap %s", c.slot, remap_name(c.remap));
         break;
     case REQ_SLEEP:
         if (!c.usb_powered) shut_down(CTL_SLEEPING, now);
@@ -666,7 +695,7 @@ static void outputs(u32 now)
     const struct set_slot *slot, *shown;
     struct led_inputs in;
     struct led_frame f;
-    u32 plugged = now - c.usb_plugged_ms;
+    u32 plugged = now - c.usb_plugged_ms, since = 0;
     u8 scene = c.kind, armed = ux_armed();
     int rumble = c.kind == CTL_CONNECTED && !c.calibrating;
     u8 motor[2];
@@ -724,11 +753,43 @@ static void outputs(u32 now)
         in.lightbar = rgb3(c.host.lightbar);
     }
     in.cal_lit = (u8)cal_led(now, &in.cal);
+    if (c.kind == CTL_CONNECTED && ux_config(&since)) {
+        in.config = 1;
+        in.config_ms = now - since;
+    }
     led_frame(&ux_scenes[scene], &c.led, now, &in, &f);
     if (memcmp(&f, &c.shown, sizeof(f))) {
         c.shown = f;
         plat_leds(&f);
     }
+}
+
+/* The remap slot whose curves and deadzones the sticks take: connected only;
+ * NULL, linear and none. */
+static const struct set_remap *sticks(void)
+{
+    return c.kind == CTL_CONNECTED && c.remap < SLOTS ? set_remap(c.remap) : NULL;
+}
+
+/* Connected, outside config mode and calibration: the remap slot in use.
+ * Its state starts over with another remap slot or new settings. */
+static void remap(u32 now)
+{
+    u32 edits = set_edits();
+
+    c.ux_buttons = c.pad.buttons;
+    c.turbo_max = 0;
+    if (c.kind != CTL_CONNECTED || c.remap >= SLOTS || c.calibrating || ux_config(NULL)) {
+        if (c.remap_live) remap_reset();
+        c.remap_live = 0;
+        return;
+    }
+    if (c.remap_live != c.remap + 1 || c.remap_edits != edits) {
+        remap_reset();
+        c.remap_live = (u8)(c.remap + 1);
+        c.remap_edits = edits;
+    }
+    c.pad.buttons = remap_step(set_remap(c.remap), c.pad.buttons, now, &c.turbo_max);
 }
 
 static void read_input(u32 now)
@@ -739,12 +800,12 @@ static void read_input(u32 now)
     /* Do not start a deferred Home tap's minimum down time while its report is
      * still waiting in the Bluetooth slot. Slow host polls must not compress
      * down and up into the same send opportunity. */
-    if (c.kind == CTL_CONNECTED && (c.sent_buttons & PAD_HOME) &&
+    if (c.kind == CTL_CONNECTED && (c.sent_ux & PAD_HOME) &&
         (c.usb ? plat_usb_input_wanted() : !bt_input_pending()))
         ux_reported(now);
     plat_input(&c.raw);
     in_map(&c.raw, &c.pad);
-    cal_apply(set_cal(), &c.raw, &c.pad);
+    cal_apply(set_cal(), sticks() ? sticks()->deadzone : NULL, &c.raw, &c.pad);
     if (in_moved(&c.pad, &c.activity_ref)) {
         c.activity_ref = c.pad;
         c.activity_ms = now;
@@ -764,7 +825,26 @@ static void read_input(u32 now)
         r = ux_step(&c.pad, now, c.kind);
     }
     handle(r, now);
-    in_response(set_slot(c.slot < SLOTS ? c.slot : 0), &c.pad);
+    remap(now);
+    in_response(sticks(), &c.pad);
+}
+
+/* Remap config mode: the host sees the pad lying still where it last was,
+ * the gyro at its zero-rate offset (profiles repeat their last sample when a
+ * report has none, so leaving samples out would keep a turn going). */
+static void at_rest(struct pad *p)
+{
+    s32 bias[3];
+    u32 i, k;
+
+    imu_gyro_bias(bias);
+    for (k = 0; k < 3; k++) c.rest.gyro[k] = (s16)((bias[k] + (bias[k] < 0 ? -8 : 8)) / 16);
+    for (i = 0; i < p->imu_count; i++) {
+        u32 us = p->imu[i].us;
+
+        p->imu[i] = c.rest;
+        p->imu[i].us = us;
+    }
 }
 
 /* Pull: a report is built when bt.c has room for it, from the newest input,
@@ -773,7 +853,7 @@ static void read_input(u32 now)
 static void send_report(u32 now)
 {
     u8 buf[80], id = 0;
-    u32 period = 1000 / c.report_hz;
+    u32 period = 1000 / c.report_hz, buttons = c.pad.buttons;
     int n;
 
     c.pull_at_us = 0;
@@ -789,17 +869,23 @@ static void send_report(u32 now)
     }
     c.report_next = now + period;
     c.pad.imu_count = (u8)imu_take(&c.imu_seq, c.pad.imu, IMU_PER_REPORT);
+    if (ux_config(NULL)) at_rest(&c.pad);
+    else if (c.pad.imu_count) c.rest = c.pad.imu[c.pad.imu_count - 1];
     c.pad.jack = (u8)plat_usb_jack_in();
+    if (!c.turbo_up) c.pad.buttons = in_dpad(buttons | c.turbo_max);
     n = c.prof->report(&c.pad, now, buf, &id);
+    c.pad.buttons = buttons;     /* a profile may change them while building */
     util_trace(TR_BUILT, (u16)n);
     if (n > 0 && (c.usb ? plat_usb_send_input(id, buf, (u16)n) : bt_send_input(id, buf, (u16)n))) {
         u32 us = plat_us();
 
         if (c.stats.reports) util_stat_add(&c.stats.interval, us - c.last_report_us);
-        if (c.pad.buttons != c.sent_buttons)
+        if (buttons != c.sent_buttons)
             util_stat_add(&c.stats.age, us - c.raw.changed_us);
         c.last_report_us = us;
-        c.sent_buttons = c.pad.buttons;
+        c.sent_buttons = buttons;
+        c.sent_ux = c.ux_buttons;
+        c.turbo_up = c.turbo_max && !c.turbo_up;
         c.stats.reports++;
         c.stats.imu_samples += c.pad.imu_count;
     }
@@ -902,6 +988,7 @@ void ctl_main(void)
         STEP(STEP_SETTINGS);
         PULL();
         deadline = earliest(c.led_next, earliest(state_deadline(), earliest(ux_deadline(), c.imu_next)));
+        deadline = earliest(deadline, remap_deadline());
         if (c.calibrating) deadline = earliest(deadline, now + CAL_SAMPLE_MS);
         c.stats.passes++;
         util_stat_add(&c.stats.pass, plat_us() - start);

@@ -9,10 +9,9 @@
  * clears them, so a better default in a new firmware reaches every field
  * that was never set. */
 
-enum { T_ENUM, T_NUMBER, T_COLOUR, T_RGB, T_BYTES };
+enum { T_ENUM, T_NUMBER, T_COLOUR, T_RGB, T_BYTES, T_TEXT };
 /* The rows the code itself uses. */
-enum { ID_TYPE = 1, ID_ADDRESS = 12, ID_BOND = 13, ID_TRANSPORT = 35,
-       ID_LEFT_ENABLED = 36, ID_RIGHT_ENABLED = 37, ID_LEFT_POINTS = 38, ID_RIGHT_POINTS = 39 };
+enum { ID_TYPE = 1, ID_ADDRESS = 12, ID_BOND = 13, ID_TRANSPORT = 35 };
 
 struct set_field {
     u8 id;                   /* stored and sent; never reused */
@@ -46,6 +45,7 @@ static const char *const players[] = {
     "off", "host", "fade", "primary", "secondary", NULL,
 };
 static const char *const curve_enabled[] = { "disabled", "enabled", NULL };
+static const char *const remap_names[] = { "none", "a", "b", "x", "y", "up", "down", "left", "right", NULL };
 static const u8 linear_points[STICK_CURVE_POINTS] = { 16, 32, 48, 64, 80, 96, 112, 128, 143, 159, 175, 191, 207, 223, 239 };
 
 static const char *const layouts[] = { "games", "desktop", NULL };
@@ -130,15 +130,11 @@ static const struct set_field slot_fields[] = {
     { .id = 22, .name = "tx_power", .type = T_ENUM, .names = tx_powers, FIELD(link.tx_power),
       .def = ALL(4), .help = "radio strength 1-6: 1 is about 20 dB below 5; 6 about 3 dB "
                              "above 5, using more battery" },
-    /* IDs 31-34 were formula modes and seven-point arrays, retired. */
-    { .id = ID_LEFT_ENABLED, .name = "left_curve_enabled", .type = T_ENUM, .names = curve_enabled, FIELD(left_curve_enabled),
-      .help = "enable left stick points; disabled passes calibrated input through exactly and retains the points" },
-    { .id = ID_RIGHT_ENABLED, .name = "right_curve_enabled", .type = T_ENUM, .names = curve_enabled, FIELD(right_curve_enabled),
-      .help = "enable right stick points; disabled passes calibrated input through exactly and retains the points" },
-    { .id = ID_LEFT_POINTS, .name = "left_curve_points", .type = T_BYTES, FIELD(left_curve_points),
-      .help = "15 nondecreasing output bytes (0-255) at 6.25% input intervals; endpoints fixed at zero and full" },
-    { .id = ID_RIGHT_POINTS, .name = "right_curve_points", .type = T_BYTES, FIELD(right_curve_points),
-      .help = "15 nondecreasing output bytes (0-255) at 6.25% input intervals; endpoints fixed at zero and full" },
+    /* IDs 31-34 were formula modes and seven-point arrays, 36-39 the stick
+     * curves, now a remap slot's; retired. */
+    { .id = 40, .name = "remap", .type = T_ENUM, .names = remap_names, FIELD(remap),
+      .def = ALL(0), .help = "the remap slot each connect starts with; Home+M then a slot key picks "
+                             "another until a disconnect, another slot or sleep" },
 };
 
 #define ENTRY(i, r, g, b) { .id = (i) + 1, .name = "palette" #i, .type = T_RGB, \
@@ -165,24 +161,57 @@ static const struct set_field palette_fields[PALETTE] = {
     ENTRY(15, 255, 0, 128), /* pink */
 };
 
-_Static_assert(offsetof(struct set_cal, deadzone) == 112, "stored calibration layout");
+#define REMAP(f) .offset = offsetof(struct set_remap, f), .size = sizeof(((struct set_remap *)0)->f)
+
+_Static_assert(sizeof(struct remap_rule) == 10, "stored rule layout");
+
+/* Remap slots A-right; the tools read and write map and rules as text. */
+static const struct set_field remap_fields[] = {
+    { .id = 1, .name = "name", .type = T_TEXT, REMAP(name),
+      .help = "what this remap is for; UTF-8, up to 24 bytes" },
+    { .id = 2, .name = "map", .type = T_BYTES, REMAP(map),
+      .help = "each key's base row: while held it sends itself (default), another key or "
+              "nothing; its rules add to that" },
+    { .id = 3, .name = "rules", .type = T_BYTES, REMAP(rule),
+      .help = "up to 16: when a key is held, held for, pressed, released, tapped or double-tapped, "
+              "hold, turbo, tap or toggle other keys, or nothing" },
+    /* From here on the second record (REMAP_STICKS). */
+    { .id = 4, .name = "left_curve_enabled", .type = T_ENUM, .names = curve_enabled, REMAP(left_curve_enabled),
+      .help = "enable left stick points; disabled passes calibrated input through exactly and retains the points" },
+    { .id = 5, .name = "right_curve_enabled", .type = T_ENUM, .names = curve_enabled, REMAP(right_curve_enabled),
+      .help = "enable right stick points; disabled passes calibrated input through exactly and retains the points" },
+    { .id = 6, .name = "left_curve_points", .type = T_BYTES, REMAP(left_curve_points),
+      .help = "15 nondecreasing output bytes (0-255) at 6.25% input intervals; endpoints fixed at zero and full" },
+    { .id = 7, .name = "right_curve_points", .type = T_BYTES, REMAP(right_curve_points),
+      .help = "15 nondecreasing output bytes (0-255) at 6.25% input intervals; endpoints fixed at zero and full" },
+    { .id = 8, .name = "left_inner_deadzone", .type = T_NUMBER, .max = 25, REMAP(deadzone[0].inner),
+      .help = "left stick: percent around centre suppressed" },
+    { .id = 9, .name = "left_outer_deadzone", .type = T_NUMBER, .max = 25, REMAP(deadzone[0].outer),
+      .help = "left stick: percent of outer travel discarded" },
+    { .id = 10, .name = "right_inner_deadzone", .type = T_NUMBER, .max = 25, REMAP(deadzone[1].inner),
+      .help = "right stick: percent around centre suppressed" },
+    { .id = 11, .name = "right_outer_deadzone", .type = T_NUMBER, .max = 25, REMAP(deadzone[1].outer),
+      .help = "right stick: percent of outer travel discarded" },
+};
+#define REMAP_STICKS 3                    /* remap fields from this index: the second record */
+#define LEFT_POINTS  (&remap_fields[5])
+#define RIGHT_POINTS (&remap_fields[6])
+#define MAP_FIELD   (&remap_fields[1])
+#define RULES_FIELD (&remap_fields[2])
+
+/* What a remap slot is until it is changed.  Map: the key with bit n - 1. */
+static const struct set_remap remap_defaults[SLOTS] = {
+    [0] = { .name = "Swap A/B X/Y",
+            .map = { [0] = 1 + 1, [1] = 0 + 1, [3] = 4 + 1, [4] = 3 + 1 } },  /* A=B B=A X=Y Y=X */
+};
+
+_Static_assert(sizeof(struct set_cal) == 112, "stored calibration layout");
 
 static const struct set_field cal_fields[] = {
     { .id = 1, .name = "calibration", .type = T_BYTES, .offset = 0,
-      .size = offsetof(struct set_cal, deadzone),
+      .size = sizeof(struct set_cal),
       .help = "sensor calibration for sticks and triggers; legacy stick deadzones ignored" },
-    { .id = 2, .name = "left_inner_deadzone", .type = T_NUMBER, .max = 25,
-      .offset = offsetof(struct set_cal, deadzone[0].inner), .size = 1,
-      .help = "left stick: percent around centre suppressed; immediate, preserved by calibration" },
-    { .id = 3, .name = "left_outer_deadzone", .type = T_NUMBER, .max = 25,
-      .offset = offsetof(struct set_cal, deadzone[0].outer), .size = 1,
-      .help = "left stick: percent of outer travel discarded; immediate, preserved by calibration" },
-    { .id = 4, .name = "right_inner_deadzone", .type = T_NUMBER, .max = 25,
-      .offset = offsetof(struct set_cal, deadzone[1].inner), .size = 1,
-      .help = "right stick: percent around centre suppressed; immediate, preserved by calibration" },
-    { .id = 5, .name = "right_outer_deadzone", .type = T_NUMBER, .max = 25,
-      .offset = offsetof(struct set_cal, deadzone[1].outer), .size = 1,
-      .help = "right stick: percent of outer travel discarded; immediate, preserved by calibration" },
+    /* IDs 2-5 were the deadzones, now a remap slot's; retired. */
 };
 
 #define COUNT(a) (sizeof(a) / sizeof((a)[0]))
@@ -197,14 +226,19 @@ static const struct set_field cal_fields[] = {
 #define SETTLE_MS  100
 #define STAGE_MAX  1024
 /* 11 and 12 belonged to the removed shortcut/mapping prototype, 13 to the
- * last slot (now plat_retain_slot); do not reuse. */
-#define KEYS 14
+ * last slot (now plat_retain_slot); do not reuse.  Remap slots: 14-21, their
+ * sticks 22-29. */
+#define KEY_REMAP        14
+#define KEY_REMAP_STICKS (KEY_REMAP + SLOTS)
+#define KEYS             (KEY_REMAP_STICKS + SLOTS)
 
 static struct set_slot slots[SLOTS];
 static struct rgb palette[PALETTE];
 static struct set_cal cal;
+static struct set_remap remaps[SLOTS];
 static u32 set_bits[TARGETS];
-static u16 dirty;            /* a bit per target */
+static u32 dirty;            /* a bit per target */
+static u32 edits;
 static u32 changed_ms;
 static u8 commit_now, ephemeral;
 static u8 stage[STAGE_MAX];
@@ -214,18 +248,33 @@ static const struct set_field *fields_of(u8 t, u32 *count)
 {
     if (t < SLOTS) { *count = COUNT(slot_fields); return slot_fields; }
     if (t == TARGET_PALETTE) { *count = COUNT(palette_fields); return palette_fields; }
+    if (t >= TARGET_REMAP) { *count = COUNT(remap_fields); return remap_fields; }
     *count = COUNT(cal_fields);
     return cal_fields;
 }
 
 static u8 *values_of(u8 t)
 {
-    return t < SLOTS ? (u8 *)&slots[t] : t == TARGET_PALETTE ? (u8 *)palette : (u8 *)&cal;
+    return t < SLOTS ? (u8 *)&slots[t] : t == TARGET_PALETTE ? (u8 *)palette :
+           t == TARGET_CAL ? (u8 *)&cal : (u8 *)&remaps[t - TARGET_REMAP];
 }
 
-static u16 key_of(u8 t)
+/* A target is one record, a remap slot two: its rules, then its sticks. */
+static u32 parts_of(u8 t)
 {
-    return 1 + t;            /* syscfg user items: slots 1-8, palette 9, calibration 10 */
+    return t >= TARGET_REMAP ? 2 : 1;
+}
+
+static u32 part_of(u8 t, u32 field)
+{
+    return t >= TARGET_REMAP && field >= REMAP_STICKS;
+}
+
+static u16 key_of(u8 t, u32 part)
+{
+    /* syscfg user items: slots 1-8, palette 9, calibration 10, remap slots 14-21 and 22-29 */
+    if (t < TARGET_REMAP) return (u16)(1 + t);
+    return (u16)((part ? KEY_REMAP_STICKS : KEY_REMAP) + t - TARGET_REMAP);
 }
 
 static const struct set_field *find(u8 t, u8 id, u32 *bit)
@@ -255,6 +304,36 @@ static u32 field_max(const struct set_field *f)
     return f->type == T_ENUM ? enum_count(f) - 1 : f->type == T_COLOUR ? PALETTE - 1 : f->max;
 }
 
+/* Each input a key, itself or none; bit 15 is no key. */
+static int map_ok(const u8 *v)
+{
+    u32 i;
+
+    for (i = 0; i < REMAP_INPUTS; i++)
+        if (v[i] != REMAP_OFF && (v[i] > REMAP_INPUTS || v[i] == 15 + 1 || (i == 15 && v[i])))
+            return 0;
+    return 1;
+}
+
+static int rules_ok(const u8 *v)
+{
+    u32 i;
+
+    for (i = 0; i < REMAP_RULES; i++) {
+        const struct remap_rule *r = (const struct remap_rule *)(v + i * sizeof(*r));
+        u32 o = r->outputs[0] | r->outputs[1] << 8 | (u32)r->outputs[2] << 16 | (u32)r->outputs[3] << 24;
+        int level = r->trigger == RT_HELD || r->trigger == RT_HELD_FOR;
+        int timed = r->trigger == RT_HELD_FOR || r->trigger == RT_TAPPED || r->trigger == RT_DOUBLE;
+
+        if (!r->trigger) continue;
+        if (r->trigger >= RT_COUNT || r->input >= REMAP_INPUTS || r->input == 15 ||
+            r->effect >= RE_COUNT || level != (r->effect < RE_TAP) || (timed && !r->ms10) ||
+            (o & ~PAD_DIGITAL) || r->rate > REMAP_MAX_HZ || r->reserved)
+            return 0;
+    }
+    return 1;
+}
+
 static u8 check(const struct set_field *f, const u8 *v, u32 len)
 {
     u32 x;
@@ -262,9 +341,11 @@ static u8 check(const struct set_field *f, const u8 *v, u32 len)
     if (!f) return SET_UNKNOWN;
     if (!len) return SET_OK;
     if (len != f->size && !(f->id == ID_BOND && len == BT_BOND_V1_SIZE)) return SET_BAD_LENGTH;
-    if (f->type == T_BYTES && (f->id == ID_LEFT_POINTS || f->id == ID_RIGHT_POINTS)) {
+    if (f == LEFT_POINTS || f == RIGHT_POINTS) {
         for (x = 1; x < len; x++) if (v[x] < v[x - 1]) return SET_RANGE;
     }
+    if (f == MAP_FIELD && !map_ok(v)) return SET_RANGE;
+    if (f == RULES_FIELD && !rules_ok(v)) return SET_RANGE;
     switch (f->type) {
     case T_ENUM:
     case T_NUMBER:
@@ -280,7 +361,7 @@ static u8 check(const struct set_field *f, const u8 *v, u32 len)
 static void touch(u8 t)
 {
     if (ephemeral) return;
-    dirty |= (u16)(1u << t);
+    dirty |= 1u << t;
     changed_ms = plat_ms();
 }
 
@@ -291,7 +372,9 @@ static void default_value(u8 t, const struct set_field *f, u8 *out)
 
     memset(out, 0, f->size);
     memcpy(out, &def, f->size < 4 ? f->size : 4);
-    if (t < SLOTS && (f->id == ID_LEFT_POINTS || f->id == ID_RIGHT_POINTS))
+    if (t >= TARGET_REMAP)
+        memcpy(out, (const u8 *)&remap_defaults[t - TARGET_REMAP] + f->offset, f->size);
+    if (f == LEFT_POINTS || f == RIGHT_POINTS)
         memcpy(out, linear_points, sizeof(linear_points));
 }
 
@@ -361,13 +444,13 @@ static void reset_keeping_pairing(u8 t)
  * {u16 magic, u8 version, u8 used}.  An unknown id or a value out of range is
  * dropped on load, so rows can come and go without invalidating the rest. */
 
-static u32 encode(u8 t, u8 *out)
+static u32 encode(u8 t, u32 part, u8 *out)
 {
     u32 n, i, used = 4;
     const struct set_field *f = fields_of(t, &n);
 
     for (i = 0; i < n; i++) {
-        if (!(set_bits[t] & (1u << i))) continue;
+        if (!(set_bits[t] & (1u << i)) || part_of(t, i) != part) continue;
         out[used] = f[i].id;
         out[used + 1] = f[i].size;
         memcpy(out + used + 2, values_of(t) + f[i].offset, f[i].size);
@@ -383,60 +466,31 @@ static u32 encode(u8 t, u8 *out)
 static void decode(u8 t, const u8 *in, u32 len)
 {
     u32 used, o, bit;
-    u8 legacy_mode[2] = {0}, legacy_points[2][7], have_points[2] = {0};
 
     if (len < 4 || (in[0] | in[1] << 8) != MAGIC || in[2] != VERSION) return;
     used = in[3] < len ? in[3] : len;
     for (o = 4; o + 2 <= used && o + 2u + in[o + 1] <= used; o += 2u + in[o + 1]) {
         const struct set_field *f = find(t, in[o], &bit);
 
-        if (t < SLOTS && (in[o] == 31 || in[o] == 32) && in[o + 1] == 1)
-            legacy_mode[in[o] - 31] = in[o + 2];
-        if (t < SLOTS && (in[o] == 33 || in[o] == 34) && in[o + 1] == 7) {
-            u32 side = in[o] - 33, i;
-            have_points[side] = 1;
-            for (i = 1; i < 7; i++) if (in[o + 1 + i] > in[o + 2 + i]) have_points[side] = 0;
-            memcpy(legacy_points[side], in + o + 2, 7);
-        }
         if (in[o + 1] && check(f, in + o + 2, in[o + 1]) == SET_OK)
             put(t, f, bit, in + o + 2, in[o + 1]);
     }
-    /* Generic seven-to-fifteen resampling preserves saved custom data.
-     * Formula presets are migrated by the shared host tools, not compiled here. */
-    for (u32 side = 0; t < SLOTS && side < 2; side++) {
-        const struct set_field *points = find(t, side ? ID_RIGHT_POINTS : ID_LEFT_POINTS, &bit);
-        if (have_points[side] && !(set_bits[t] & (1u << bit))) {
-            u8 source[9] = {0}, converted[STICK_CURVE_POINTS];
-            memcpy(source + 1, legacy_points[side], 7);
-            source[8] = 255;
-            for (u32 i = 1; i <= STICK_CURVE_POINTS; i++) {
-                u32 at = i * 8 / (STICK_CURVE_POINTS + 1), rem = i * 8 % (STICK_CURVE_POINTS + 1);
-                converted[i - 1] = (u8)((source[at] * (STICK_CURVE_POINTS + 1 - rem) + source[at + 1] * rem + (STICK_CURVE_POINTS + 1) / 2) / (STICK_CURVE_POINTS + 1));
-            }
-            put(t, points, bit, converted, sizeof(converted));
-        }
-        const struct set_field *enabled = find(t, side ? ID_RIGHT_ENABLED : ID_LEFT_ENABLED, &bit);
-        if (!(set_bits[t] & (1u << bit)) && legacy_mode[side] == 3) {
-            u8 on = 1;
-            put(t, enabled, bit, &on, 1);
-        }
-        if (legacy_mode[side] == 1 || legacy_mode[side] == 2)
-            util_log("settings: slot %u legacy curve requires tool migration", t);
-    }
-
 }
 
 void set_init(void)
 {
     u8 buf[RECORD_MAX];
     u8 t;
+    u32 part;
     int n;
 
     for (t = 0; t < TARGETS; t++) {
         reset(t);
-        memset(buf, 0, sizeof(buf));
-        n = plat_store_read(key_of(t), buf, sizeof(buf));
-        if (n > 0) decode(t, buf, (u32)n);
+        for (part = 0; part < parts_of(t); part++) {
+            memset(buf, 0, sizeof(buf));
+            n = plat_store_read(key_of(t, part), buf, sizeof(buf));
+            if (n > 0) decode(t, buf, (u32)n);
+        }
     }
     if (!(set_bits[TARGET_CAL] & 1)) util_log("settings: calibration required");
 }
@@ -448,9 +502,13 @@ static void write_dirty(void)
 
     for (t = 0; t < TARGETS; t++)
         if (dirty & (1u << t)) {
-            memset(buf, 0, sizeof(buf));
-            encode(t, buf);
-            plat_store_write(key_of(t), buf, sizeof(buf));
+            u32 part;
+
+            for (part = 0; part < parts_of(t); part++) {
+                memset(buf, 0, sizeof(buf));
+                encode(t, part, buf);
+                plat_store_write(key_of(t, part), buf, sizeof(buf));
+            }
         }
     if (dirty) util_log("settings: written");
     dirty = 0;
@@ -584,6 +642,16 @@ const struct set_cal *set_cal(void)
     return &cal;
 }
 
+const struct set_remap *set_remap(u8 remap)
+{
+    return &remaps[remap % SLOTS];
+}
+
+u32 set_edits(void)
+{
+    return edits;
+}
+
 void set_cal_store(const struct set_cal *c)
 {
     put(TARGET_CAL, &cal_fields[0], 0, (const u8 *)c, cal_fields[0].size);
@@ -636,7 +704,7 @@ void set_apply(void)
             reset_keeping_pairing(t);
         } else {
             f = find(t, id, &bit);
-            u8 v = (u8)(l ? stage[o + 3] : f->def[t]);
+            u8 v = (u8)(l ? stage[o + 3] : t < SLOTS ? f->def[t] : 0);
 
             /* A new type is a new device to the console: the old address
              * and bond belong to the old one.  Through the dongle the host
@@ -652,7 +720,10 @@ void set_apply(void)
         }
         touch(t);
     }
-    if (staged) util_log("settings: %u changes%s", staged_items, ephemeral ? " (ephemeral)" : "");
+    if (staged) {
+        edits++;
+        util_log("settings: %u changes%s", staged_items, ephemeral ? " (ephemeral)" : "");
+    }
     commit_now = 1;
     set_drop();
 }
@@ -694,19 +765,19 @@ static u32 put_string(u8 *out, u32 o, u32 max, const char *s)
     return o + n;
 }
 
-/* Field number n over all targets: slots, then palette, then calibration.
+/* Field number n over all targets: slots, palette, calibration, remap slots.
  * [0] version [1] target kind [2] id [3] type [4] size [6..7] max, then
  * name, help, the enum names (all NUL-terminated) and the defaults (one per
  * slot for slot fields).  0: past the last. */
 u32 set_describe(u32 n, u8 *out, u32 max)
 {
-    u32 kinds[3] = { COUNT(slot_fields), COUNT(palette_fields), COUNT(cal_fields) };
-    static const struct set_field *const tables[3] = { slot_fields, palette_fields, cal_fields };
+    u32 kinds[4] = { COUNT(slot_fields), COUNT(palette_fields), COUNT(cal_fields), COUNT(remap_fields) };
+    static const struct set_field *const tables[4] = { slot_fields, palette_fields, cal_fields, remap_fields };
     const struct set_field *f;
     u32 kind = 0, o, i, defs;
 
-    while (kind < 3 && n >= kinds[kind]) n -= kinds[kind++];
-    if (kind == 3 || max < 8) return 0;
+    while (kind < 4 && n >= kinds[kind]) n -= kinds[kind++];
+    if (kind == 4 || max < 8) return 0;
     f = &tables[kind][n];
     out[0] = VERSION;
     out[1] = (u8)kind;
@@ -802,12 +873,13 @@ int main(void)
     struct colour col = { 4, 5 };
     u32 t, worst = 4;
 
-    /* Every target fits a record with every field set. */
-    for (t = 0; t < 3; t++) {
+    /* Every record fits with every field set. */
+    for (t = 0; t < 5; t++) {
+        u8 target = t == 0 ? 0 : t == 1 ? TARGET_PALETTE : t == 2 ? TARGET_CAL : TARGET_REMAP;
         u32 n, i, used = 4;
-        const struct set_field *f = fields_of(t == 0 ? 0 : t == 1 ? TARGET_PALETTE : TARGET_CAL, &n);
+        const struct set_field *f = fields_of(target, &n);
 
-        for (i = 0; i < n; i++) used += 2u + f[i].size;
+        for (i = 0; i < n; i++) if (part_of(target, i) == (t == 4)) used += 2u + f[i].size;
         if (used > worst) worst = used;
     }
     CHECK(worst <= RECORD_MAX && worst <= 255);
@@ -853,6 +925,15 @@ int main(void)
         set_slot_address(7, pair);
         CHECK(!memcmp(address, pair, 6) && !set_bits[7] && !dirty);
     }
+    /* Remap A is the swap until changed; the others are empty. */
+    CHECK(!strcmp(set_remap(0)->name, "Swap A/B X/Y") && set_remap(0)->map[0] == 2 && set_remap(0)->map[4] == 4);
+    CHECK(!set_remap(1)->name[0] && !set_remap(1)->map[0] && !set_remap(0)->rule[0].trigger);
+    {
+        u8 d[512];
+        u32 n = set_read_defaults(TARGET_REMAP, d, sizeof(d));
+
+        CHECK(n > 3 && d[3] == 1 && !d[4] && !memcmp(d + 6, "Swap A/B X/Y", 13));
+    }
     CHECK(set_slot(0)->connect_colour.entry == 5 && set_slot(0)->connect_colour.level == 5);
     {
         struct rgb c = set_colour(set_slot(2)->connect_colour);   /* X: green */
@@ -895,8 +976,6 @@ int main(void)
         for (u32 i = 0; i < defaults[2]; i++) {
             CHECK(defaults[at + 1] == 0);
             if (defaults[at] == 7) CHECK(defaults[at + 3] == 100);
-            if (defaults[at] == ID_LEFT_POINTS)
-                CHECK(!memcmp(defaults + at + 3, linear_points, sizeof(linear_points)));
             at += 3 + defaults[at + 2];
         }
         CHECK(set_read_defaults(TARGETS, defaults, sizeof(defaults)) == 0);
@@ -913,58 +992,46 @@ int main(void)
     col.level = 5;
     set_poll(ms, 1);
 
-    /* Curves: defaults, validation, staging, persistence and reset. */
+    /* Curves, a remap slot's second record: defaults, validation, staging,
+     * persistence and reset. */
     {
         u8 points[STICK_CURVE_POINTS] = { 0, 5, 10, 20, 30, 45, 60, 80, 100, 140, 180, 200, 220, 240, 255 };
-        u8 mode = 1;
-        CHECK(set_slot(1)->left_curve_enabled == 0);
-        CHECK(!memcmp(set_slot(1)->left_curve_points, linear_points, sizeof(points)));
-        CHECK(write1(1, ID_LEFT_ENABLED, 1, &mode) == SET_OK);
-        CHECK(write1(1, ID_LEFT_POINTS, sizeof(points), points) == SET_OK);
-        CHECK(write1(1, ID_RIGHT_POINTS, sizeof(points) - 1, points) == SET_BAD_LENGTH);
+        u8 mode = 1, r = TARGET_REMAP + 3;
+        CHECK(set_remap(3)->left_curve_enabled == 0);
+        CHECK(!memcmp(set_remap(3)->left_curve_points, linear_points, sizeof(points)));
+        CHECK(!memcmp(set_remap(0)->right_curve_points, linear_points, sizeof(points)));
+        CHECK(write1(r, 4, 1, &mode) == SET_OK);
+        CHECK(write1(r, 6, sizeof(points), points) == SET_OK);
+        CHECK(write1(r, 7, sizeof(points) - 1, points) == SET_BAD_LENGTH);
         points[3] = 1;
-        CHECK(write1(1, ID_RIGHT_POINTS, sizeof(points), points) == SET_RANGE);
+        CHECK(write1(r, 7, sizeof(points), points) == SET_RANGE);
         mode = 2;
-        CHECK(write1(1, ID_RIGHT_ENABLED, 1, &mode) == SET_RANGE);
-        CHECK(set_slot(1)->left_curve_enabled == 0);
+        CHECK(write1(r, 5, 1, &mode) == SET_RANGE);
+        CHECK(write1(1, 38, sizeof(points), points) == SET_UNKNOWN);   /* no longer a slot's */
+        CHECK(set_remap(3)->left_curve_enabled == 0);
         set_apply();
         set_poll(ms, 1);
+        CHECK(store[KEY_REMAP_STICKS + 3][4] == 4 && store[KEY_REMAP + 3][3] == 4);   /* curves in the sticks record */
         set_init();
-        CHECK(set_slot(1)->left_curve_enabled == 1);
-        CHECK(set_slot(1)->left_curve_points[3] == 20);
-        CHECK(set_slot(1)->right_curve_enabled == 0);
+        CHECK(set_remap(3)->left_curve_enabled == 1);
+        CHECK(set_remap(3)->left_curve_points[3] == 20);
+        CHECK(set_remap(3)->right_curve_enabled == 0);
         mode = 0;
-        CHECK(write1(1, ID_LEFT_ENABLED, 1, &mode) == SET_OK);
+        CHECK(write1(r, 4, 1, &mode) == SET_OK);
         set_apply();
-        CHECK(!set_slot(1)->left_curve_enabled && set_slot(1)->left_curve_points[3] == 20);
-        mode = 1;
-        CHECK(write1(1, ID_LEFT_ENABLED, 1, &mode) == SET_OK);
+        CHECK(!set_remap(3)->left_curve_enabled && set_remap(3)->left_curve_points[3] == 20);
+        CHECK(write1(r, 6, 0, NULL) == SET_OK);
         set_apply();
-        CHECK(set_slot(1)->left_curve_enabled && set_slot(1)->left_curve_points[3] == 20);
-        CHECK(write1(1, ID_LEFT_POINTS, 0, NULL) == SET_OK);
-        CHECK(write1(1, ID_LEFT_ENABLED, 0, NULL) == SET_OK);
-        set_apply();
-        CHECK(set_slot(1)->left_curve_enabled == 0);
-        CHECK(!memcmp(set_slot(1)->left_curve_points, linear_points, sizeof(points)));
-    }
-
-    /* Legacy custom points migrate without a firmware preset table. */
-    {
-        u8 legacy[] = { (u8)MAGIC, MAGIC >> 8, VERSION, 16, 31, 1, 3, 33, 7,
-                        0, 10, 30, 60, 100, 180, 255 };
-        memcpy(store[key_of(2)], legacy, sizeof(legacy));
-        set_init();
-        CHECK(set_slot(2)->left_curve_enabled == 1);
-        for (u32 i = 0; i < 7; i++) CHECK(set_slot(2)->left_curve_points[2*i+1] == legacy[9+i]);
+        CHECK(!memcmp(set_remap(3)->left_curve_points, linear_points, sizeof(points)));
     }
 
     /* An unknown id in a record is skipped. */
-    store[key_of(2)][3] = 4 + 3 + 3;
-    store[key_of(2)][0] = (u8)MAGIC;
-    store[key_of(2)][1] = MAGIC >> 8;
-    store[key_of(2)][2] = VERSION;
-    store[key_of(2)][4] = 200; store[key_of(2)][5] = 1; store[key_of(2)][6] = 1;
-    store[key_of(2)][7] = 7; store[key_of(2)][8] = 1; store[key_of(2)][9] = 42;
+    store[key_of(2, 0)][3] = 4 + 3 + 3;
+    store[key_of(2, 0)][0] = (u8)MAGIC;
+    store[key_of(2, 0)][1] = MAGIC >> 8;
+    store[key_of(2, 0)][2] = VERSION;
+    store[key_of(2, 0)][4] = 200; store[key_of(2, 0)][5] = 1; store[key_of(2, 0)][6] = 1;
+    store[key_of(2, 0)][7] = 7; store[key_of(2, 0)][8] = 1; store[key_of(2, 0)][9] = 42;
     set_init();
     CHECK(set_slot(2)->rumble == 42);
 
@@ -1111,28 +1178,76 @@ int main(void)
     CHECK(set_describe(0, buf, sizeof(buf)) > 8 && buf[2] == 1 && !strcmp((char *)buf + 8, "type"));
     CHECK(set_describe(COUNT(slot_fields), buf, sizeof(buf)) && buf[1] == 1);
     CHECK(set_describe(COUNT(slot_fields) + PALETTE, buf, sizeof(buf)) && buf[1] == 2);
-    CHECK(set_describe(COUNT(slot_fields) + PALETTE + COUNT(cal_fields), buf, sizeof(buf)) == 0);
-    for (t = 0; t < COUNT(slot_fields) + PALETTE + COUNT(cal_fields); t++) CHECK(set_describe(t, buf, 512) > 0);
+    t = COUNT(slot_fields) + PALETTE + COUNT(cal_fields);
+    CHECK(set_describe(t, buf, sizeof(buf)) && buf[1] == 3 && buf[3] == T_TEXT);
+    CHECK(set_describe(t + COUNT(remap_fields), buf, sizeof(buf)) == 0);
+    for (t = 0; t < COUNT(slot_fields) + PALETTE + COUNT(cal_fields) + COUNT(remap_fields); t++)
+        CHECK(set_describe(t, buf, 512) > 0);
     CHECK(set_read(3, buf, sizeof(buf)) > 3 && buf[2] == COUNT(slot_fields));
-    CHECK(set_read(TARGET_CAL, buf, sizeof(buf)) == 6 + cal_fields[0].size + 4 * 4);
+    CHECK(set_read(TARGET_CAL, buf, sizeof(buf)) == 6 + cal_fields[0].size);
+    CHECK(set_read(TARGET_REMAP + 7, buf, sizeof(buf)) == 3 + 3 * COUNT(remap_fields) + sizeof(struct set_remap));
 
-    /* Deadzones are independent fields, never overwritten by calibration. */
-    x = 26;
-    CHECK(write1(TARGET_CAL, 2, 1, &x) == SET_RANGE);
-    x = 5;
-    CHECK(write1(TARGET_CAL, 2, 1, &x) == SET_OK);
-    set_apply();
-    CHECK(set_cal()->deadzone[0].inner == 5 && !set_cal()->deadzone[0].outer);
+    /* Remap slots: checked, stored under their own keys, read back. */
     {
-        struct set_cal measured = cal;
-        measured.deadzone[0].inner = 0;
-        set_cal_store(&measured);
-        CHECK(set_cal()->deadzone[0].inner == 5);
-        u32 used = encode(TARGET_CAL, buf);
-        reset(TARGET_CAL);
-        CHECK(!set_cal()->deadzone[0].inner);
-        decode(TARGET_CAL, buf, used);
-        CHECK(set_cal()->deadzone[0].inner == 5);
+        u8 map[REMAP_INPUTS] = { 0 }, rules[sizeof(remaps[0].rule)] = { 0 };
+        struct remap_rule *r = (struct remap_rule *)rules;
+        u32 used;
+
+        set_drop();
+        map[3] = 4 + 1; map[4] = 3 + 1; map[2] = REMAP_OFF;
+        CHECK(write1(TARGET_REMAP + 1, 2, sizeof(map), map) == SET_OK);
+        map[0] = 15 + 1;
+        CHECK(write1(TARGET_REMAP + 1, 2, sizeof(map), map) == SET_RANGE);
+        map[0] = REMAP_INPUTS + 1;
+        CHECK(write1(TARGET_REMAP + 1, 2, sizeof(map), map) == SET_RANGE);
+        CHECK(write1(TARGET_REMAP + 1, 1, 10, "Mario Kart") == SET_BAD_LENGTH);
+        CHECK(write1(TARGET_REMAP + 1, 1, REMAP_NAME, "Mario Kart\0\0\0\0\0\0\0\0\0\0\0\0\0\0") == SET_OK);
+        r[0].trigger = RT_HELD; r[0].input = 9; r[0].effect = RE_TURBO; r[0].outputs[0] = PAD_A; r[0].rate = 0;
+        r[1].trigger = RT_TAPPED; r[1].input = 5; r[1].effect = RE_TAP; r[1].outputs[1] = PAD_HOME >> 8;
+        CHECK(write1(TARGET_REMAP + 1, 3, sizeof(rules), rules) == SET_RANGE);   /* tapped under 0 ms */
+        r[1].ms10 = 20;
+        CHECK(write1(TARGET_REMAP + 1, 3, sizeof(rules), rules) == SET_OK);
+        r[1].effect = RE_HOLD;                                                   /* an event, a level effect */
+        CHECK(write1(TARGET_REMAP + 1, 3, sizeof(rules), rules) == SET_RANGE);
+        r[1].effect = RE_TAP; r[0].rate = REMAP_MAX_HZ + 1;
+        CHECK(write1(TARGET_REMAP + 1, 3, sizeof(rules), rules) == SET_RANGE);
+        r[0].rate = 0; r[0].outputs[1] = 0x80;                                   /* bit 15 */
+        CHECK(write1(TARGET_REMAP + 1, 3, sizeof(rules), rules) == SET_RANGE);
+        r[0].outputs[1] = 0; r[0].input = 15;
+        CHECK(write1(TARGET_REMAP + 1, 3, sizeof(rules), rules) == SET_RANGE);
+        r[0].input = 9;
+        t = set_edits();
+        set_apply();
+        CHECK(set_edits() == t + 1);
+        CHECK(set_remap(1)->map[3] == 5 && set_remap(1)->map[2] == REMAP_OFF && set_remap(2)->map[3] == 0);
+        CHECK(!strcmp(set_remap(1)->name, "Mario Kart") && set_remap(1)->rule[1].ms10 == 20);
+        CHECK(key_of(TARGET_REMAP + 1, 0) == KEY_REMAP + 1 && key_of(TARGET_REMAP + 1, 1) == KEY_REMAP_STICKS + 1);
+        CHECK(key_of(TARGET_CAL, 0) == 10 && KEYS - 1 <= 49);
+        used = encode(TARGET_REMAP + 1, 0, buf);
+        CHECK(encode(TARGET_REMAP + 1, 1, buf + 256) == 4);
+        reset(TARGET_REMAP + 1);
+        CHECK(set_remap(1)->map[3] == 0 && !set_remap(1)->name[0]);
+        decode(TARGET_REMAP + 1, buf, used);
+        CHECK(set_remap(1)->map[3] == 5 && set_remap(1)->rule[0].input == 9 && set_remap(1)->rule[1].trigger == RT_TAPPED);
+        CHECK(write1(TARGET_REMAP + 1, 0, 0, NULL) == SET_OK);
+        set_apply();
+        CHECK(set_remap(1)->rule[0].trigger == RT_NONE && set_remap(1)->map[3] == 0);
+    }
+
+    /* Deadzones: a remap slot's, beside its curves; calibration has none. */
+    x = 26;
+    CHECK(write1(TARGET_REMAP + 2, 8, 1, &x) == SET_RANGE);
+    CHECK(write1(TARGET_CAL, 2, 1, &x) == SET_UNKNOWN);
+    x = 5;
+    CHECK(write1(TARGET_REMAP + 2, 8, 1, &x) == SET_OK);
+    set_apply();
+    CHECK(set_remap(2)->deadzone[0].inner == 5 && !set_remap(2)->deadzone[0].outer);
+    {
+        u32 used = encode(TARGET_REMAP + 2, 1, buf);
+        reset(TARGET_REMAP + 2);
+        CHECK(!set_remap(2)->deadzone[0].inner);
+        decode(TARGET_REMAP + 2, buf, used);
+        CHECK(set_remap(2)->deadzone[0].inner == 5);
     }
 
     /* A bond stored before the identity fields still loads, zero-extended. */

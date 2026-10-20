@@ -15,6 +15,7 @@ _gui_spec = spec_from_loader("padgui", SourceFileLoader("padgui", str(Path(__fil
 padgui = module_from_spec(_gui_spec)
 _gui_spec.loader.exec_module(padgui)
 import padtransport
+import padwidgets
 
 
 def record(path="fake", board="pad", protocol=3):
@@ -27,6 +28,30 @@ def record(path="fake", board="pad", protocol=3):
               for t in range(10)} if board == "pad" else {}
     return {"path": path, "board": board, "identity": identity, "fields": fields if board == "pad" else [],
             "values": values, "status": "idle", "name": "BR23 UDISK"}
+
+
+def remap_record(path="fake"):
+    r = record(path)
+    r["fields"] += [{"kind": 3, "id": 1, "name": "name", "type": padgui.pad.T_TEXT, "size": 24, "help": "Name", "dev": False},
+                    {"kind": 3, "id": 2, "name": "map", "type": padgui.pad.T_BYTES, "size": 20, "help": "Map", "dev": False},
+                    {"kind": 3, "id": 3, "name": "rules", "type": padgui.pad.T_BYTES, "size": 160, "help": "Rules", "dev": False}]
+    for i, side in enumerate(("left", "right")):
+        r["fields"] += [{"kind": 3, "id": 4 + i, "name": f"{side}_curve_enabled", "type": padgui.pad.T_ENUM,
+                         "names": ["disabled", "enabled"], "size": 1, "help": "Curve", "dev": False},
+                        {"kind": 3, "id": 6 + i, "name": f"{side}_curve_points", "type": padgui.pad.T_BYTES,
+                         "size": 15, "help": "Points", "dev": False}]
+    for i, name in enumerate(("left_inner", "left_outer", "right_inner", "right_outer")):
+        r["fields"].append({"kind": 3, "id": 8 + i, "name": f"{name}_deadzone", "type": padgui.pad.T_NUMBER,
+                            "size": 1, "max": 25, "help": "Deadzone", "dev": False})
+    linear = padgui.pad.padcurves.preset("linear")
+    for t in range(10, 18):
+        r["values"][t] = {"name": (bytes(24), False), "map": (bytes(20), False), "rules": (bytes(160), False),
+                          "left_curve_enabled": (b"\0", False), "right_curve_enabled": (b"\0", False),
+                          "left_curve_points": (linear, False), "right_curve_points": (linear, False),
+                          "left_inner_deadzone": (b"\0", False), "left_outer_deadzone": (b"\0", False),
+                          "right_inner_deadzone": (b"\0", False), "right_outer_deadzone": (b"\0", False)}
+    r["defaults"] = {t: dict(r["values"][t]) for t in range(10, 18)}
+    return r
 
 
 def loader_record(path="rom"):
@@ -66,7 +91,8 @@ class UnpairTests(unittest.TestCase):
                              [[[1, 12, address.hex()], [1, 13, ""]]])
 
 
-class GuiTests(unittest.TestCase):
+class GuiCase(unittest.TestCase):
+    """A withdrawn app per test; helpers for loading records and waiting."""
     def setUp(self):
         # Collect Tk objects from earlier tests on the UI thread, before workers start.
         gc.collect()
@@ -95,6 +121,9 @@ class GuiTests(unittest.TestCase):
         self.app.render_tree()
         self.root.update()
 
+
+
+class GuiTests(GuiCase):
     def test_startup_scans_without_a_click(self):
         self.app.close()
         self.root = tk.Tk()
@@ -157,7 +186,7 @@ class GuiTests(unittest.TestCase):
         self.app.log("Shared operation log")
         self.assertIn("Shared operation log", self.app.loader_output.get("1.0", "end"))
         self.assertEqual(self.app.device.get(), "dongle")
-        self.assertEqual(len(self.app.tree.get_children("device0")), len(padgui.pad.TARGETS))
+        self.assertEqual(len(self.app.tree.get_children("device0")), padgui.pad.REMAP_TARGET)
         self.assertFalse(hasattr(self.app, "tools_page"))
         self.assertFalse(any(target == "tools" for path, target in self.app.nodes.values()))
         self.app.tree.selection_set("device0")
@@ -690,6 +719,35 @@ class GuiTests(unittest.TestCase):
         self.assertEqual(self.app.dirty_count(), 1)
         self.assertTrue(self.app.changed(two["draft"][0, "rumble"]))
 
+    def test_refresh_button_rescans_and_nothing_polls(self):
+        buttons = [w for w in self.app.controls(self.app.root) if isinstance(w, padgui.ttk.Button) and w.cget("text") == "Refresh"]
+        self.assertEqual(len(buttons), 1)
+        one = record()
+        with patch.object(padgui.pad, "discover_devices", return_value=[(one["path"], one["name"], one["identity"])]), \
+             patch("paddevices.read_device", return_value=one):
+            buttons[0].invoke()
+            self.assertEqual(self.app.tree_status.cget("text"), "Looking…")
+            self.assertNotIn("Looking", self.app.summary.get())
+            for _ in range(200):
+                self.root.update()
+                if not self.app.looking:
+                    break
+                time.sleep(0.01)
+        self.assertIn(one["path"], self.app.cache)
+        self.assertEqual(self.app.tree_status.cget("text"), "")
+
+    def test_device_tree_says_while_looking_and_when_empty(self):
+        self.assertIn("None found", self.app.tree_status.cget("text"))
+        with patch.object(padgui.pad, "discover_devices", side_effect=lambda **kw: time.sleep(0.2) or []):
+            self.app.scan()
+            self.assertEqual(self.app.tree_status.cget("text"), "Looking…")
+            self.assertNotIn("Scanning", self.app.summary.get())
+            self.finish()
+        self.assertIn("None found", self.app.tree_status.cget("text"))
+        self.load([record()])
+        self.app.render_tree()
+        self.assertEqual(self.app.tree_status.cget("text"), "")
+
     def test_scan_loads_both_boards_and_all_pad_targets(self):
         one, two = record(), record("dongle", "dongle")
         with patch.object(padgui.pad, "discover_devices", return_value=[(r["path"], r["name"], r["identity"]) for r in (one, two)]), \
@@ -700,7 +758,7 @@ class GuiTests(unittest.TestCase):
             self.finish()
             self.assertEqual(read.call_count, 10)
         self.assertEqual(len(self.app.cache), 2)
-        self.assertEqual(len(self.app.tree.get_children("device0")), len(padgui.pad.TARGETS))
+        self.assertEqual(len(self.app.tree.get_children("device0")), padgui.pad.REMAP_TARGET)
         self.assertEqual(len(self.app.tree.get_children("device1")), 0)
 
     def test_actions_target_slot_and_calibration_is_global(self):
@@ -914,8 +972,11 @@ class GuiTests(unittest.TestCase):
         self.load([r])
         self.app.show_target(0)
         editor = next(w for w in self.app.special_editors if w.winfo_exists() and isinstance(w, padgui.CurveEditor))
+        self.assertFalse(any(isinstance(w, tk.Checkbutton) or type(w).__name__ == "Checkbutton"
+                             for w in self.app.controls(editor)))
         editor.set_point(3, 0)
         self.assertEqual(editor.points()[3], 48)
+        self.assertEqual(editor.enabled["var"].get(), "enabled")      # a drawn curve is on
         editor.set_point(3, 100)
         self.assertEqual(editor.points()[3], 80)
         self.app.reset_default(editor.entry)
@@ -927,6 +988,11 @@ class GuiTests(unittest.TestCase):
         editor.choose_preset()
         self.assertEqual(bytes(editor.points()), padcurves.preset("concave"))
         self.assertEqual(editor.enabled["var"].get(), "enabled")
+        editor.preset_name.set("Linear")
+        editor.choose_preset()
+        self.assertEqual(editor.enabled["var"].get(), "disabled")     # Linear is no curve
+        editor.preset_name.set("Concave")
+        editor.choose_preset()
         editor.preset_name.set("Custom")
         editor.choose_preset()
         editor.sync()
@@ -945,14 +1011,14 @@ class GuiTests(unittest.TestCase):
         editor.choose_preset()
         editor.copy_points()
         self.assertEqual(self.root.clipboard_get(), ','.join(map(str, padcurves.preset("concave"))))
-        # A second slot can consume the same clipboard; enabling stays independent.
+        # A second stick can take the same clipboard; a pasted curve is on.
         from padwidgets import CurveEditor
         target_entry = dict(editor.entry, var=tk.StringVar(value=','.join(map(str, default))))
         target_enabled = dict(editor.enabled, var=tk.StringVar(value="disabled"))
         other = CurveEditor(self.app.form, self.app, target_entry, target_enabled)
         other.paste_points()
         self.assertEqual(bytes(other.points()), padcurves.preset("concave"))
-        self.assertEqual(target_enabled["var"].get(), "disabled")
+        self.assertEqual(target_enabled["var"].get(), "enabled")
         self.root.clipboard_clear()
         self.root.clipboard_append("4,3,2")
         with patch("padwidgets.messagebox.showerror") as error:
@@ -1007,13 +1073,14 @@ class GuiTests(unittest.TestCase):
             loader = Mock()
             with patch.object(self.app, "loader_blob", return_value=b"loader"), \
                  patch.object(padgui.messagebox, "askyesnocancel", return_value=False), \
-                 patch.object(padgui.messagebox, "askyesno", return_value=True), \
+                 patch.object(padgui.messagebox, "askyesno") as confirm, \
                  patch.object(padgui.filedialog, "asksaveasfilename") as destination, \
                  patch.object(self.app, "open_loader", return_value=loader), \
                  patch.object(padgui.pad, "prepare_curve_upgrade") as upgrade, \
                  patch.object(self.app, "run") as run:
                 self.app.flash()
                 run.assert_called_once()
+                confirm.assert_not_called()      # only the backup question
                 run.call_args.args[1]()
                 destination.assert_not_called()
                 upgrade.assert_not_called()
@@ -1168,6 +1235,205 @@ class FlasherTests(unittest.TestCase):
             self.assertNotIn("ROM loader", result.stderr)
 
 
+
+class CalibrationViewTests(GuiCase):
+    def test_calibration_reads_as_words(self):
+        import struct
+        r = record()
+        r["fields"].append({"kind": 2, "id": 1, "name": "calibration", "type": padgui.pad.T_BYTES,
+                            "size": 112, "help": "Calibration", "dev": False})
+        stick = [5944, 7433, 16555, 16339, 26834, 26851] + [32767] * 16 + [0, 0]
+        blob = struct.pack("<56H", *(stick + stick + [482, 12, 1638, 983] + [0, 0, 0, 0]))
+        r["values"][9] = {"calibration": (blob, True)}
+        self.load([r])
+        self.app.show_target(9)
+        view = next(w for w in self.app.special_editors if w.winfo_exists() and isinstance(w, padgui.CalibrationView))
+        text = view.cget("text")
+        self.assertIn("Left stick: X 5944–16555–26834", text)
+        self.assertIn("outer edge 100–100%", text)
+        self.assertIn("Left trigger: rest 482, fully pressed 12", text)
+        self.assertIn("deadzones 5% at rest, 3% at the end", text)
+        self.assertIn("Right trigger: not calibrated", text)
+        r["draft"][9, "calibration"]["var"].set(bytes(112).hex())
+        self.app.mark_dirty()
+        self.assertIn("Left stick: not calibrated", view.cget("text"))
+
+
+class RemapGuiTests(GuiCase):
+    def open_remap(self, r, t=11):
+        self.load([r])
+        self.app.render_tree()
+        self.app.show_target(t)
+        return self.editor()
+
+    def editor(self):
+        return next(w for w in self.app.special_editors if w.winfo_exists() and type(w).__name__ == "RemapEditor")
+
+    def test_remap_slots_are_tree_nodes_named_after_their_name(self):
+        r = remap_record()
+        self.load([r])
+        self.app.render_tree()
+        children = self.app.tree.get_children("device0")
+        self.assertEqual(len(children), 18)
+        self.assertEqual(self.app.tree.item(children[11], "text"), "Remap B")
+        r["draft"][11, "name"]["var"].set("Mario Kart")
+        self.assertEqual(self.app.tree.item(children[11], "text"), "Remap B · Mario Kart")
+
+    def test_remap_page_has_the_stick_curves_and_deadzones(self):
+        r = remap_record()
+        self.open_remap(r)
+        self.root.update()
+        curves = [w for w in self.app.special_editors if w.winfo_exists() and type(w).__name__ == "CurveEditor"]
+        self.assertEqual(len(curves), 2)
+        self.assertIn("left_inner_deadzone", self.app.editors)
+        r["draft"][11, "left_inner_deadzone"]["var"].set("5")
+        self.assertTrue(self.app.changed(r["draft"][11, "left_inner_deadzone"]))
+
+    def test_every_key_has_a_base_row_and_rules_add_to_it(self):
+        r = remap_record()
+        editor = self.open_remap(r)
+        mapping, rules = r["draft"][11, "map"], r["draft"][11, "rules"]
+        self.assertEqual(len(editor.base), 19)
+        self.assertEqual(len(editor.adds), 19)
+        self.assertIn(" 0 of 16 used", editor.slots.cget("text"))
+        editor.change(lambda: editor.base.update(x="y", y="x", capture=None))
+        self.assertEqual((mapping["var"].get(), rules["var"].get()), ("capture=none x=y y=x", "none"))
+        self.assertIn(" 0 of 16 used", editor.slots.cget("text"))
+        editor.adds[11].invoke()                          # R4's +
+        self.assertEqual(editor.rules[0]["input"], "r4")
+        rule = editor.rules[0]
+        editor.change(lambda: editor.retrigger(rule, "tapped"))
+        editor.change(lambda: editor.output(rule, "a", True))
+        self.assertEqual(rules["var"].get(), "r4 tapped:200 tap a")
+        self.assertIn(" 1 of 16 used", editor.slots.cget("text"))
+        editor.change(lambda: editor.retrigger(rule, "held"))
+        editor.change(lambda: rule.update(effect="turbo", rate=0))
+        self.assertEqual(rules["var"].get(), "r4 held turbo a@max")
+        # Reloaded from the entries: the same table.
+        editor.shown = None
+        editor.sync()
+        self.assertEqual((editor.base["x"], editor.base["capture"]), ("y", None))
+        self.assertEqual([padgui.pad.padremap.show_rule(x) for x in editor.rules], ["r4 held turbo a@max"])
+        editor.change(lambda: editor.rules.pop(0))
+        editor.change(lambda: editor.base.update(x="x", y="y", capture="capture"))
+        self.assertEqual((mapping["var"].get(), rules["var"].get()), ("identity", "none"))
+        self.assertFalse(self.app.changed(mapping) or self.app.changed(rules))
+        self.assertFalse(self.errors)
+
+    def test_columns_do_not_move_as_rules_come_and_go(self):
+        r = remap_record()
+        self.open_remap(r)
+        self.root.update()
+        before = [b.winfo_x() for b in self.editor().adds]
+        r["draft"][11, "rules"]["var"].set("a double_tapped:300 toggle_turbo b@15; x tapped:200 tap a+b+x+y")
+        self.app.mark_dirty()
+        self.root.update()
+        self.assertEqual([b.winfo_x() for b in self.editor().adds], before)
+
+    def test_each_key_has_a_status_box_for_its_mapping_and_rules(self):
+        r = remap_record()
+        r["values"][11]["map"] = (padgui.pad.padremap.parse_map("x=y"), True)        # saved, not default
+        editor = self.open_remap(r)
+        self.assertEqual((editor.status("a")[0], editor.status("x")[0]), ("", "✓"))
+        editor.change(lambda: editor.base.update(a="b"), redraw=False)
+        editor.change(lambda: editor.rules.append(padgui.pad.padremap.rule("a", "held", "turbo", ["a"], rate=0)))
+        editor = self.editor()
+        self.assertEqual(editor.marks["a"].cget("text"), "*")
+        editor.toggle("a")                                # discard A's edits: mapping and rules
+        editor = self.editor()
+        self.assertEqual((editor.base["a"], editor.rules), ("a", []))
+        self.assertEqual(editor.marks["a"].cget("text"), "")
+        editor.toggle("x")                                # back to the firmware default
+        editor = self.editor()
+        self.assertEqual(editor.base["x"], "x")
+        self.assertEqual(r["draft"][11, "map"]["var"].get(), "identity")
+        self.assertEqual(editor.marks["x"].cget("text"), "*")   # pending until Apply
+        editor.change(lambda: editor.base.update(y=None), redraw=False)
+        self.assertEqual(r["draft"][11, "map"]["var"].get(), "y=none")
+        self.assertEqual(editor.marks["y"].cget("text"), "*")
+
+    def test_plus_buttons_stop_at_sixteen_rule_entries(self):
+        r = remap_record()
+        editor = self.open_remap(r)
+        for _ in range(16):
+            editor.adds[0].invoke()
+            editor = self.editor()
+        self.assertEqual(len(editor.rules), 16)
+        self.assertEqual({str(b.cget("state")) for b in editor.adds}, {"disabled"})
+        self.assertIn(" 16 of 16 used", editor.slots.cget("text"))
+
+    def test_preset_sets_base_rows_and_keeps_rules(self):
+        r = remap_record()
+        editor = self.open_remap(r)
+        editor.change(lambda: editor.rules.append(padgui.pad.padremap.rule("a", "held", "turbo", ["a"], rate=0)))
+        editor.preset("swap-ab-xy")
+        self.assertEqual(r["draft"][11, "map"]["var"].get(), "a=b b=a x=y y=x")
+        self.assertEqual(r["draft"][11, "rules"]["var"].get(), "a held turbo a@max")
+
+    def test_export_then_import_a_preset_file(self):
+        import json
+        import tempfile
+        r = remap_record()
+        editor = self.open_remap(r)
+        r["draft"][11, "name"]["var"].set("Mario Kart")
+        editor.preset("swap-ab-xy")
+        editor.change(lambda: editor.rules.append(padgui.pad.padremap.rule("r4", "tapped", "tap", ["a"], ms=300)))
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "kart.json")
+            with patch.object(padwidgets.filedialog, "asksaveasfilename", return_value=path) as ask:
+                editor.export_file()
+                self.assertEqual(ask.call_args.kwargs["initialfile"], "Mario-Kart.json")
+            data = json.loads(Path(path).read_text())
+            self.assertEqual(data, {"format": 1, "name": "Mario Kart", "map": "a=b b=a x=y y=x",
+                                    "rules": "r4 tapped:300 tap a"})
+            self.app.show_target(12)
+            self.root.update()
+            other = self.editor()
+            with patch.object(padwidgets.filedialog, "askopenfilename", return_value=path):
+                other.import_file()
+        self.assertEqual(r["draft"][12, "name"]["var"].get(), "Mario Kart")
+        self.assertEqual(r["draft"][12, "map"]["var"].get(), "a=b b=a x=y y=x")
+        self.assertEqual(r["draft"][12, "rules"]["var"].get(), "r4 tapped:300 tap a")
+        self.assertEqual([padgui.pad.padremap.show_rule(x) for x in other.rules], ["r4 tapped:300 tap a"])
+
+    def test_import_refuses_a_bad_file_and_changes_nothing(self):
+        import tempfile
+        r = remap_record()
+        editor = self.open_remap(r)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bad.json"
+            path.write_text('{"format": 1, "map": "a=q"}')
+            with patch.object(padwidgets.filedialog, "askopenfilename", return_value=str(path)), \
+                 patch.object(padwidgets.messagebox, "showerror") as error:
+                editor.import_file()
+                error.assert_called_once()
+        self.assertEqual(r["draft"][11, "map"]["var"].get(), "identity")
+
+    def test_default_marker_resets_map_and_rules_together(self):
+        r = remap_record()
+        self.open_remap(r)
+        r["draft"][11, "map"]["var"].set("x=y")
+        r["draft"][11, "rules"]["var"].set("a held turbo a@max")
+        entries = self.app.setting_entries(r, 11, "map", r["draft"][11, "map"])
+        self.assertEqual(len(entries), 2)
+        self.app.discard_setting(entries)
+        self.assertEqual((r["draft"][11, "map"]["var"].get(), r["draft"][11, "rules"]["var"].get()), ("identity", "none"))
+        self.assertEqual(self.editor().rules, [])
+        self.assertEqual(self.editor().base["x"], "x")
+
+    def test_apply_sends_remap_bytes(self):
+        r = remap_record()
+        self.load([r])
+        r["draft"][12, "rules"]["var"].set("l4 pressed toggle_turbo a@15")
+        r["draft"][12, "name"]["var"].set("Zelda")
+        with patch.object(padgui.pad, "cmd", return_value=r["identity"]), \
+             patch.object(padgui.pad, "send") as send, \
+             patch.object(padgui.pad, "read_target", side_effect=lambda p, table, t: r["values"][t]):
+            self.app.apply_settings()
+            self.finish()
+        items = dict(((t, fid), v) for t, fid, v in send.call_args[0][1])
+        self.assertEqual(items[12, 1], b"Zelda".ljust(24, b"\0"))
+        self.assertEqual(items[12, 3][:10], bytes([3, 8, 0, 5, 1, 0, 0, 0, 15, 0]))
 
 if __name__ == "__main__":
     unittest.main()

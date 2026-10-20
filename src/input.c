@@ -6,10 +6,7 @@
 /* Sticks and triggers are filled in by cal_apply() (input_calibration.c). */
 void in_map(const struct in_raw *raw, struct pad *pad)
 {
-    u32 b = raw->buttons;
-    if ((b & PAD_UP) && (b & PAD_DOWN)) b &= ~(u32)(PAD_UP | PAD_DOWN);
-    if ((b & PAD_LEFT) && (b & PAD_RIGHT)) b &= ~(u32)(PAD_LEFT | PAD_RIGHT);
-    pad->buttons = b;
+    pad->buttons = in_dpad(raw->buttons);
 }
 
 
@@ -69,16 +66,17 @@ static void stick_response(s16 *x, s16 *y, u8 enabled, const u8 *points)
     *y = (s16)((s32)*y * (s32)output / (s32)radius);
 }
 
-void in_response(const struct set_slot *slot, struct pad *pad)
+void in_response(const struct set_remap *m, struct pad *pad)
 {
-    stick_response(&pad->lx, &pad->ly, slot->left_curve_enabled, slot->left_curve_points);
-    stick_response(&pad->rx, &pad->ry, slot->right_curve_enabled, slot->right_curve_points);
+    if (!m) return;
+    stick_response(&pad->lx, &pad->ly, m->left_curve_enabled, m->left_curve_points);
+    stick_response(&pad->rx, &pad->ry, m->right_curve_enabled, m->right_curve_points);
 }
 
 #ifdef UNITTEST
 int main(void)
 {
-    struct set_slot slot = { 0 };
+    struct set_remap slot = { 0 };
     struct pad pad = { .lx = 12000, .ly = -16000, .rx = -32767, .ry = 0,
                        .buttons = PAD_A, .l2 = 1234 };
     struct pad original = pad;
@@ -97,6 +95,8 @@ int main(void)
     CHECK(pad.buttons == 0 && in_hat(pad.buttons) == HAT_NEUTRAL);
     pad = original;
     in_response(&slot, &pad);
+    CHECK(!memcmp(&pad, &original, sizeof(pad)));
+    in_response(NULL, &pad);
     CHECK(!memcmp(&pad, &original, sizeof(pad)));
     last = 0;
     CHECK(response(0, points) == 0);

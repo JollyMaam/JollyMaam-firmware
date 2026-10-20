@@ -1,9 +1,11 @@
-"""Tk editors for palette references and custom stick response curves."""
+"""Tk editors for palette references, custom stick response curves and remap slots."""
 import tkinter as tk
+import json
 import math
 import re
 import padcurves
-from tkinter import ttk, messagebox
+import padremap
+from tkinter import ttk, messagebox, filedialog
 
 BRIGHTNESS = (0, 1, 2, 3, 4, 5, 7, 10, 14, 20, 28, 40, 56, 80, 128, 255)
 BRIGHTNESS_LABELS = tuple('Off' if i == 0 else f'{i}/15' for i in range(len(BRIGHTNESS)))
@@ -115,7 +117,9 @@ class PaletteEditor(ttk.Frame):
 
 
 class CurveEditor(ttk.Frame):
-    """Tool presets and monotone points, with fixed zero/full endpoints."""
+    """Tool presets and monotone points, with fixed zero/full endpoints.  The
+    enable flag follows the points: Linear is off (calibrated input exactly),
+    any other curve on."""
     def __init__(self, parent, app, entry, enabled=None):
         super().__init__(parent)
         self.app, self.entry, self.enabled = app, entry, enabled
@@ -124,8 +128,6 @@ class CurveEditor(ttk.Frame):
         self.dragging = None
         bar = ttk.Frame(self)
         bar.grid(row=0, column=0, columnspan=2, sticky='w', pady=(0, 6))
-        if enabled:
-            ttk.Checkbutton(bar, text='Use points', variable=enabled['var'], onvalue='enabled', offvalue='disabled').pack(side='left', padx=(0, 10))
         ttk.Label(bar, text='Preset').pack(side='left', padx=(0, 4))
         self.preset_name = tk.StringVar()
         self.presets = presets = ttk.Combobox(bar, textvariable=self.preset_name, values=['Linear', 'Concave', 'S-curve', 'Custom'], state='readonly', width=11, exportselection=False)
@@ -173,9 +175,19 @@ class CurveEditor(ttk.Frame):
         self.entry['custom_curve'] = selected == 'custom'
         if selected != 'custom':
             self.entry['var'].set(','.join(map(str, padcurves.preset(selected, self.count))))
-        if self.enabled:
-            self.enabled['var'].set('enabled')
+        self.follow()
         self.sync()
+
+    def follow(self):
+        """The enable flag for the points: off for Linear, else on."""
+        if not self.enabled:
+            return
+        try:
+            state = 'disabled' if self.points() == list(padcurves.preset('linear', self.count)) else 'enabled'
+        except (Exception, SystemExit):
+            return
+        if self.enabled['var'].get() != state:
+            self.enabled['var'].set(state)
 
     def copy_points(self):
         if self.app.busy:
@@ -200,6 +212,7 @@ class CurveEditor(ttk.Frame):
             return
         self.entry['custom_curve'] = True
         self.entry['var'].set(','.join(map(str, points)))
+        self.follow()
         self.sync(force=True)
 
     def toggle_points(self):
@@ -224,6 +237,7 @@ class CurveEditor(ttk.Frame):
             return
         points[index] = value
         self.entry['var'].set(','.join(map(str, points)))
+        self.follow()
 
     def edit_output(self, index):
         if self.syncing or self.app.busy:
@@ -270,7 +284,10 @@ class CurveEditor(ttk.Frame):
             if self.preset_name.get() != name:
                 self.preset_name.set(name)
             self.presets.selection_clear()
-            self.caption.configure(text='Curve active. Drag points or open Point values.' if active else 'Points disabled: input passes through unchanged. Your saved points are kept and can still be edited.')
+            linear = points == list(padcurves.preset('linear', self.count))
+            self.caption.configure(text='Curve active. Drag points or open Point values.' if active else
+                                   'Linear: calibrated input passes through exactly. Choose a preset or drag a point for a curve.' if linear else
+                                   'Curve off (set elsewhere): input passes through unchanged. Edit a point to turn it on.')
             for i, value in enumerate(points):
                 self.sliders[i].set(value / 255 * 100)
                 if force or self.entry['reset'].get() or self.focus_get() is not self.spins[i]:
@@ -302,3 +319,292 @@ class CurveEditor(ttk.Frame):
             self.graph.create_text(125, 90, text='Invalid curve points. Use Default to restore defaults.', width=210)
         finally:
             self.syncing = False
+
+
+# ---- remap slots ----------------------------------------------------------------
+
+KEY_ORDER = ('a', 'b', 'x', 'y', 'up', 'down', 'left', 'right', 'l1', 'r1', 'l4', 'r4',
+             'l3', 'r3', 'minus', 'plus', 'home', 'm', 'capture')
+KEY_LABELS = {k: k.upper() if k in ('a', 'b', 'x', 'y', 'm', 'l1', 'r1', 'l4', 'r4', 'l3', 'r3') else k.capitalize()
+              for k in KEY_ORDER}
+NOTHING = 'Nothing'
+TRIGGER_LABELS = {'held': 'is held', 'held_for': 'is held for', 'pressed': 'is pressed',
+                  'released': 'is released', 'tapped': 'is tapped under',
+                  'double_tapped': 'is double-tapped within'}
+EFFECT_LABELS = {'hold': 'hold', 'turbo': 'turbo', 'nothing': 'nothing', 'tap': 'tap',
+                 'toggle_hold': 'toggle hold', 'toggle_turbo': 'toggle turbo'}
+RATES = tuple(str(hz) for hz in range(1, padremap.MAX_HZ + 1)) + ('max',)
+
+
+def key_of(label):
+    return next(k for k, v in KEY_LABELS.items() if v == label)
+
+
+def value_of(labels, label):
+    return next(k for k, v in labels.items() if v == label)
+
+
+class RemapEditor(ttk.Frame):
+    """A remap slot as one table: every key's base row (the map: sends itself,
+    another key or nothing while held), each followed by its rules.  Rows are
+    redrawn from the editor's own model, reloaded only when the entries change
+    from outside (default, discard, apply)."""
+    def __init__(self, parent, app, map_entry, rules_entry, name_entry=None, file_name='remap'):
+        super().__init__(parent)
+        self.app, self.entries, self.name_entry, self.file_name = app, (map_entry, rules_entry), name_entry, file_name
+        self.shown, self.saving = None, False
+        self.base, self.rules = None, []
+        self.sync()
+
+    def texts(self):
+        return tuple(e['var'].get() for e in self.entries)
+
+    def sync(self):
+        if self.saving or self.texts() == self.shown:
+            return
+        self.shown = self.texts()
+        try:
+            map_raw, rules_raw = (self.app.value_bytes(e) for e in self.entries)
+            self.base, self.rules = padremap.decode_map(map_raw), padremap.decode_rules(rules_raw)
+            self.original = self.decode('original_raw')
+            self.default = self.decode('default_raw')
+        except (Exception, SystemExit):
+            self.base = None
+        self.draw()
+
+    def decode(self, which):
+        raws = [e.get(which) for e in self.entries]
+        if any(raw is None for raw in raws):
+            return None
+        return padremap.decode_map(raws[0]), padremap.decode_rules(raws[1])
+
+    # ---- each key's status box: its mapping and its rules together ----
+
+    def state(self, key, base=None, rules=None):
+        base, rules = (self.base, self.rules) if base is None else (base, rules)
+        return base[key], [padremap.show_rule(r) for r in rules if r['input'] == key]
+
+    def status(self, key):
+        if self.state(key) != self.state(key, *self.original):
+            return '*', 'Pending change.\nClick to discard this key\'s edits.'
+        if self.default is None:
+            return '?', 'Firmware default unavailable.'
+        if self.state(key) != self.state(key, *self.default):
+            return '✓', 'Saved value differs from the firmware default.\nClick to stage the firmware default. Apply saves the change.'
+        return '', 'At the firmware default.'
+
+    def toggle(self, key):
+        symbol, _ = self.status(key)
+        source = self.original if symbol == '*' else self.default if symbol == '✓' else None
+        if source is None:
+            return
+
+        def restore():
+            base, rules = source
+            self.base[key] = base[key]
+            self.rules[:] = [r for r in self.rules if r['input'] != key] + \
+                            [dict(r, outputs=list(r['outputs'])) for r in rules if r['input'] == key]
+        self.change(restore)
+
+    def refresh(self):
+        self.count()
+        for key, mark in self.marks.items():
+            if mark.winfo_exists():
+                mark.configure(text=self.status(key)[0])
+
+    def save(self, redraw=True):
+        texts = (padremap.show_map(padremap.encode_map(self.base)),
+                 padremap.show_rules(padremap.encode_rules(self.rules)))
+        self.saving = True
+        try:
+            for entry, text in zip(self.entries, texts):
+                entry['var'].set(text)
+        finally:
+            self.saving = False
+        self.shown = self.texts()
+        if redraw:
+            self.draw()
+        else:
+            self.refresh()
+
+    def change(self, edit, redraw=True):
+        if self.app.busy:
+            self.draw()
+            return
+        edit()
+        self.save(redraw)
+
+    def count(self):
+        if self.slots.winfo_exists():
+            self.slots.configure(text=f'Rule entries: {len(self.rules)} of {padremap.RULES} used')
+
+    def draw(self):
+        for widget in self.winfo_children():
+            widget.destroy()
+        self.keep = []                 # Tk variables live as long as their Python objects
+        self.adds, self.marks = [], {}
+        if self.base is None:
+            ttk.Label(self, text='This remap cannot be read. Reset it to defaults.').grid(sticky='w')
+            return
+        bar = ttk.Frame(self)
+        bar.grid(row=0, column=0, sticky='w', pady=(0, 8))
+        presets = ttk.Menubutton(bar, text='Select preset ▾', direction='below')
+        menu = tk.Menu(presets, tearoff=False)
+        for name, (label, _) in padremap.PRESETS.items():
+            menu.add_command(label=label, command=lambda n=name: self.preset(n))
+        presets['menu'] = menu
+        presets.pack(side='left')
+        ttk.Button(bar, text='Import preset…', command=self.import_file).pack(side='left', padx=(8, 0))
+        ttk.Button(bar, text='Export preset…', command=self.export_file).pack(side='left', padx=(8, 0))
+        self.slots = ttk.Label(bar, foreground='#666666')
+        self.slots.pack(side='left', padx=10)
+        self.count()
+        body = ttk.Frame(self)
+        body.grid(row=1, column=0, sticky='w')
+        probe = ttk.Button(body, width=2, padding=0)  # rules start past the status boxes
+        probe.update_idletasks()
+        indent = probe.winfo_reqwidth() + 6 + 8
+        probe.destroy()
+        full = len(self.rules) >= padremap.RULES
+        for key in KEY_ORDER:
+            base = ttk.Frame(body)
+            base.pack(anchor='w', pady=(6, 1))
+            self.base_row(base, key, full)
+            mine = [(index, rule) for index, rule in enumerate(self.rules) if rule['input'] == key]
+            if mine:
+                table = ttk.Frame(body)
+                table.pack(anchor='w', padx=(indent, 0))
+                for line, (index, rule) in enumerate(mine):
+                    self.rule_row(table, line, index, rule)
+
+    def combo(self, parent, values, value, width, on_change):
+        var = tk.StringVar(value=value)
+        box = ttk.Combobox(parent, textvariable=var, values=values, state='readonly', width=width)
+        var.trace_add('write', lambda *_: on_change(var.get()))
+        self.keep.append(var)
+        return box
+
+    def base_row(self, row, key, full):
+        """[status] KEY maps to [key or Nothing] [Add rule]; fixed widths, so
+        every base row lines up and nothing moves."""
+        to = self.base[key]
+        mark = ttk.Button(row, width=2, padding=0, text=self.status(key)[0], command=lambda: self.toggle(key))
+        mark.pack(side='left', padx=(0, 6))
+        Tooltip(mark, lambda: self.status(key)[1])
+        self.marks[key] = mark
+        ttk.Label(row, text=KEY_LABELS[key], width=max(map(len, KEY_LABELS.values())), anchor='e',
+                  font=('TkDefaultFont', 10, 'bold')).pack(side='left')
+        ttk.Label(row, text='maps to').pack(side='left', padx=(4, 4))
+        self.combo(row, [KEY_LABELS[k] for k in KEY_ORDER] + [NOTHING], KEY_LABELS[to] if to else NOTHING, 14,
+                   lambda v: self.change(lambda: self.base.update({key: None if v == NOTHING else key_of(v)}), redraw=False)
+                   ).pack(side='left', padx=2)
+        add = ttk.Button(row, text='Add rule', state='disabled' if full else 'normal',
+                         command=lambda: self.change(lambda: self.rules.append(padremap.rule(key, 'held', 'hold', []))))
+        add.pack(side='left', padx=(12, 0))
+        Tooltip(add, lambda: f'Add a rule for {KEY_LABELS[key]}' if not full else f'All {padremap.RULES} rule entries are used')
+        self.adds.append(add)
+
+    # A key's rules, a small table of their own under its base row: 0 delete
+    # and When, 2 trigger, 3 time, 4 effect, 5 keys, 6 turbo rate.
+    def rule_row(self, table, line, index, rule):
+        when = ttk.Frame(table)
+        when.grid(row=line, column=0, sticky='w', pady=1)
+        remove = ttk.Button(when, text='✕', width=2, padding=0, command=lambda: self.change(lambda: self.rules.pop(index)))
+        remove.pack(side='left', padx=(0, 6))
+        Tooltip(remove, lambda: 'Delete this rule')
+        ttk.Label(when, text='When').pack(side='left')
+        ttk.Label(when, text=KEY_LABELS[rule['input']], font=('TkDefaultFont', 10, 'bold')).pack(side='left', padx=(4, 6))
+        self.combo(table, list(TRIGGER_LABELS.values()), TRIGGER_LABELS[rule['trigger']], 20,
+                   lambda v: self.change(lambda: self.retrigger(rule, value_of(TRIGGER_LABELS, v)))).grid(row=line, column=2, sticky='w', padx=2)
+        if rule['trigger'] in padremap.TIMED:
+            timed = ttk.Frame(table)
+            timed.grid(row=line, column=3, sticky='w')
+            ms = tk.StringVar(value=str(rule['ms']))
+            self.keep.append(ms)
+            spin = ttk.Spinbox(timed, from_=10, to=2550, increment=10, width=5, textvariable=ms,
+                               command=lambda: self.set_ms(rule, ms))
+            spin.pack(side='left', padx=2)
+            spin.bind('<Return>', lambda e: self.set_ms(rule, ms))
+            spin.bind('<FocusOut>', lambda e: self.set_ms(rule, ms))
+            ttk.Label(timed, text='ms').pack(side='left')
+        effects = [e for e in padremap.effects_for(rule['trigger']) if e != 'nothing' or rule['effect'] == 'nothing']
+        self.combo(table, [EFFECT_LABELS[e] for e in effects], EFFECT_LABELS[rule['effect']], 12,
+                   lambda v: self.change(lambda: rule.update(effect=value_of(EFFECT_LABELS, v)))).grid(row=line, column=4, sticky='w', padx=(8, 2))
+        if rule['effect'] != 'nothing':
+            button = ttk.Menubutton(table, text='+'.join(KEY_LABELS[k] for k in rule['outputs']) or 'Choose keys…',
+                                    width=14, direction='below')
+            menu = tk.Menu(button, tearoff=False)
+            for key in KEY_ORDER:
+                chosen = tk.BooleanVar(master=menu, value=key in rule['outputs'])
+                menu.add_checkbutton(label=KEY_LABELS[key], variable=chosen,
+                                     command=lambda k=key, c=chosen: self.change(lambda: self.output(rule, k, c.get())))
+                self.keep.append(chosen)
+            button['menu'] = menu
+            button.grid(row=line, column=5, sticky='w', padx=2)
+        if rule['effect'] in padremap.TURBO:
+            rate = ttk.Frame(table)
+            rate.grid(row=line, column=6, sticky='w', padx=(12, 0))
+            ttk.Label(rate, text='at').pack(side='left', padx=(0, 2))
+            box = self.combo(rate, RATES, str(rule['rate']) if rule['rate'] else 'max', 4,
+                             lambda v: self.change(lambda: rule.update(rate=0 if v == 'max' else int(v))))
+            box.pack(side='left')
+            ttk.Label(rate, text='Hz' if rule['rate'] else '(every report)').pack(side='left', padx=(2, 0))
+
+    @staticmethod
+    def retrigger(rule, trigger):
+        rule['trigger'] = trigger
+        if rule['effect'] not in padremap.effects_for(trigger):
+            rule['effect'] = padremap.effects_for(trigger)[0]
+        if trigger in padremap.TIMED and not rule['ms']:
+            rule['ms'] = padremap.TIMED[trigger]
+
+    @staticmethod
+    def output(rule, key, on):
+        rule['outputs'] = [k for k in KEY_ORDER if (k == key and on) or (k != key and k in rule['outputs'])]
+
+    def set_ms(self, rule, var):
+        try:
+            ms = max(10, min(2550, round(int(var.get()) / 10) * 10))
+        except ValueError:
+            ms = rule['ms']
+        var.set(str(ms))
+        if ms != rule['ms']:
+            self.change(lambda: rule.update(ms=ms), redraw=False)
+
+    def export_file(self):
+        name = self.name_entry['var'].get().strip() if self.name_entry else ''
+        path = filedialog.asksaveasfilename(parent=self, title='Export remap preset', defaultextension='.json',
+                                            initialfile=(re.sub(r'[^\w.-]+', '-', name).strip('-') or self.file_name) + '.json',
+                                            filetypes=[('Remap preset', '*.json'), ('All files', '*')])
+        if not path:
+            return
+        data = padremap.export_preset(name, padremap.encode_map(self.base), padremap.encode_rules(self.rules))
+        try:
+            with open(path, 'w', encoding='utf-8') as file:
+                json.dump(data, file, indent=1, ensure_ascii=False)
+                file.write('\n')
+        except OSError as error:
+            messagebox.showerror('Export failed', str(error))
+
+    def import_file(self):
+        if self.app.busy:
+            return
+        path = filedialog.askopenfilename(parent=self, title='Import remap preset',
+                                          filetypes=[('Remap preset', '*.json'), ('All files', '*')])
+        if not path:
+            return
+        try:
+            with open(path, encoding='utf-8') as file:
+                name, map_raw, rules_raw = padremap.import_preset(json.load(file))
+            if self.name_entry:
+                padremap.parse_name(name, self.name_entry['field']['size'])
+        except (OSError, ValueError) as error:
+            messagebox.showerror('Import failed', str(error))
+            return
+        if self.name_entry and name:
+            self.name_entry['var'].set(name)
+        self.base, self.rules = padremap.decode_map(map_raw), padremap.decode_rules(rules_raw)
+        self.save()
+
+    def preset(self, name):
+        self.change(lambda: self.base.update(padremap.apply_preset(self.base, name)))

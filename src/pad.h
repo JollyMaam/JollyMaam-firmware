@@ -42,6 +42,7 @@ enum {
 };
 #define PAD_FACE (PAD_A | PAD_B | PAD_X | PAD_Y)
 #define PAD_DPAD (PAD_UP | PAD_RIGHT | PAD_DOWN | PAD_LEFT)
+#define PAD_DIGITAL (0x7fffu | PAD_DPAD)  /* every button and direction */
 
 /* The d-pad as a host hat value, for formats that carry one. */
 enum { HAT_UP, HAT_UP_RIGHT, HAT_RIGHT, HAT_DOWN_RIGHT, HAT_DOWN, HAT_DOWN_LEFT,
@@ -85,6 +86,14 @@ struct pad {
 };
 #define PAD_CONTROLS_SIZE ((u32)(size_t)&((struct pad *)0)->imu_count)
 
+/* Opposite d-pad directions cancel. */
+static inline u32 in_dpad(u32 b)
+{
+    if ((b & PAD_UP) && (b & PAD_DOWN)) b &= ~(u32)(PAD_UP | PAD_DOWN);
+    if ((b & PAD_LEFT) && (b & PAD_RIGHT)) b &= ~(u32)(PAD_LEFT | PAD_RIGHT);
+    return b;
+}
+
 void in_map(const struct in_raw *raw, struct pad *pad);
 int in_moved(const struct pad *now, const struct pad *ref);
 
@@ -105,10 +114,9 @@ void imu_pointer(struct imu_pointer *p, const struct imu_sample *s, int n, u16 p
                  u16 accel, s32 *x, s32 *y);
 
 /* ---- input_calibration.c ------------------------------------------------
- * Sensor measurements are separate from global stick response preferences.
- * Deadzones are radial percentages, default zero; recalibration preserves them.
- * The original measurement blob keeps its layout; legacy stick deadzones are
- * ignored. Trigger calibration is unchanged. */
+ * Sensor measurements only; deadzones (radial percentages) belong to the
+ * remap slot in use.  The measurement blob keeps its layout; legacy stick
+ * deadzones are ignored.  Trigger calibration is unchanged. */
 
 #define CAL_GATE_KNOTS 16
 
@@ -125,12 +133,13 @@ struct cal_deadzone { u8 inner, outer; }; /* percent, each 0..25 */
 struct set_cal {
     struct cal_stick stick[2];
     struct cal_trigger trigger[2];
-    struct cal_deadzone deadzone[2];
 };
 
 enum { CAL_IDLE, CAL_RUNNING, CAL_SAVE };
 
-void cal_apply(const struct set_cal *cal, const struct in_raw *raw, struct pad *pad);
+/* deadzone: per stick, NULL none. */
+void cal_apply(const struct set_cal *cal, const struct cal_deadzone *deadzone,
+               const struct in_raw *raw, struct pad *pad);
 void cal_start(u32 now);
 void cal_cancel(u32 now);
 int cal_step(const struct in_raw *raw, u32 now, struct set_cal *cal);
@@ -147,6 +156,7 @@ enum req_kind {
     REQ_NONE, REQ_CONNECT, REQ_PAIR, REQ_DISCONNECT, REQ_SLEEP, REQ_CALIBRATE,
     REQ_REBOOT, REQ_REBOOT_LOADER, REQ_HOME_TAP, REQ_STATS_RESET,
     REQ_RELINK,              /* connected: take the session down and connect it again */
+    REQ_REMAP,               /* connected: remap slot .slot, SLOT_NONE none; kept until a disconnect, another slot or sleep */
 };
 
 struct ctl_request {
@@ -370,17 +380,52 @@ struct set_slot {
     u16 report_hz;           /* the most reports a second; 0: REPORT_HZ */
     u16 pull_delay_us;       /* build a pulled report this long after bt.c asks */
     struct bt_link link;
+    u8 remap;                /* the remap slot each connect starts with: 0 none, 1-8 slots A-right */
+};
+
+
+/* A remap slot: the simple map, then rules for the keys that need more.
+ * Inputs and outputs are PAD_* bit numbers (0-19, not 15). */
+#define REMAP_NAME   24
+#define REMAP_INPUTS 20
+#define REMAP_RULES  16
+#define REMAP_OFF    0xff        /* map: the key sends nothing */
+#define REMAP_MAX_HZ 30          /* turbo rate 0: flips every report */
+
+/* Level triggers (held, held for) go with level effects (hold, turbo,
+ * nothing); the others are events, with tap, toggle hold, toggle turbo. */
+enum { RT_NONE, RT_HELD, RT_HELD_FOR, RT_PRESSED, RT_RELEASED, RT_TAPPED, RT_DOUBLE, RT_COUNT };
+enum { RE_HOLD, RE_TURBO, RE_NOTHING, RE_TAP, RE_TOGGLE_HOLD, RE_TOGGLE_TURBO, RE_COUNT };
+
+struct remap_rule {
+    u8 trigger, input;
+    u8 ms10;                 /* held for, tapped under, double-tapped within: 10 ms units */
+    u8 effect;
+    u8 outputs[4];           /* PAD_* mask, little-endian */
+    u8 rate;                 /* turbo Hz; 0: every report */
+    u8 reserved;             /* zero: room for a condition key */
+};
+
+struct set_remap {
+    char name[REMAP_NAME];   /* NUL-padded UTF-8 */
+    u8 map[REMAP_INPUTS];    /* each key's base row, while held: 0 itself, n the key with bit
+                                n - 1, REMAP_OFF nothing; its rules add to it */
+    struct remap_rule rule[REMAP_RULES];
+    /* The sticks (a second record): curves, disabled = calibrated input exactly. */
     u8 left_curve_enabled, right_curve_enabled;
     u8 left_curve_points[STICK_CURVE_POINTS];
     u8 right_curve_points[STICK_CURVE_POINTS];
+    struct cal_deadzone deadzone[2];
 };
 
-void in_response(const struct set_slot *slot, struct pad *pad);
+/* The remap slot's curves; NULL: none. */
+void in_response(const struct set_remap *m, struct pad *pad);
 
-/* What a change can be made to: a slot, the palette or calibration. */
+/* What a change can be made to: a slot, the palette, calibration or a remap slot. */
 #define TARGET_PALETTE SLOTS
 #define TARGET_CAL     (SLOTS + 1)
-#define TARGETS        (SLOTS + 2)
+#define TARGET_REMAP   (SLOTS + 2)
+#define TARGETS        (TARGET_REMAP + SLOTS)
 
 enum { SET_OK, SET_UNKNOWN, SET_BAD_LENGTH, SET_RANGE, SET_FULL };
 enum { SET_UNPAIR = 0xfe };       /* WRITE action: slot only, zero-length; applied on COMMIT */
@@ -401,6 +446,8 @@ void set_slot_new_address(u8 slot, u8 out[6]);
 void set_pairing_address(u8 slot, int renew, u8 out[6]);
 void set_pairing_store(u8 slot, const u8 address[6], const struct bt_bond *bond);
 const struct set_cal *set_cal(void);
+const struct set_remap *set_remap(u8 remap);
+u32 set_edits(void);                     /* counts commits from the tools */
 void set_cal_store(const struct set_cal *cal);
 /* Over USB: */
 u32 set_describe(u32 n, u8 *out, u32 max);
@@ -465,11 +512,22 @@ struct led_inputs {
     struct rgb lightbar;
     u8 cal_lit;
     struct rgb cal;
+    u8 config;                            /* remap config mode: the grips flash connect_colour instead */
+    u32 config_ms;                        /* since it began */
 };
 
 void led_frame(const struct led_scene *scene, const struct led_state *s, u32 now,
                const struct led_inputs *in, struct led_frame *out);
 void led_reach(u8 reach[2], const struct pad *pad);
+
+/* ---- remap.c ------------------------------------------------------------ */
+
+/* The remap slot's buttons from the ones ux_step leaves.  every_report: keys
+ * at turbo rate 0, for the report builder to flip.  Reset when the remap
+ * slot or its settings change, and outside a connection. */
+u32 remap_step(const struct set_remap *m, u32 in, u32 now, u32 *every_report);
+void remap_reset(void);
+u32 remap_deadline(void);                   /* the next turbo edge, pulse end or hold time; 0: none */
 
 /* ---- settings_ux.c ------------------------------------------------------ */
 
@@ -486,6 +544,7 @@ struct ux_timeouts {
     u16 uboot_window_ms;
     u16 led_frame_ms;
     u16 usb_plug_ms;
+    u32 config_ms;           /* remap config mode with no key pressed */
 };
 
 struct ux_colours { struct colour idle, battery; };
@@ -513,6 +572,7 @@ u32 ux_idle_deadline(u32 idle_since, u32 activity_ms, u32 usb_seen_ms,
 u32 ux_deadline(void);                      /* when ux_step may next fire a hold, 0: none */
 u8 ux_armed(void);                          /* slot a release would connect, or SLOT_NONE */
 void ux_ignore_held(void);
+int ux_config(u32 *since);                  /* in remap config mode; since: when it began */
 struct ctl_request ux_boot(u32 buttons, int home_wake, u32 now);
 
 /* ---- usb.c -------------------------------------------------------------- */

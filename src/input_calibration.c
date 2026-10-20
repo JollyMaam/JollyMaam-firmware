@@ -452,8 +452,10 @@ static u16 legacy_trigger(u16 raw, u16 *rest)
     return moved >= travel ? CAL_TRIGGER_MAX : (u16)(moved * CAL_TRIGGER_MAX / travel);
 }
 
-void cal_apply(const struct set_cal *cal, const struct in_raw *raw, struct pad *pad)
+void cal_apply(const struct set_cal *cal, const struct cal_deadzone *deadzone,
+               const struct in_raw *raw, struct pad *pad)
 {
+    static const struct cal_deadzone none[2];
     struct cal_stick def;
     int32_t x, y;
     u32 i;
@@ -469,8 +471,8 @@ void cal_apply(const struct set_cal *cal, const struct in_raw *raw, struct pad *
         }
         if (raw->sticks_valid)
             cal_stick_map(s, raw->stick[2 * i], raw->stick[2 * i + 1],
-                          (uint32_t)cal->deadzone[i].inner * CAL_STICK_MAX / 100,
-                          (uint32_t)cal->deadzone[i].outer * CAL_STICK_MAX / 100, &x, &y);
+                          (uint32_t)(deadzone ? deadzone : none)[i].inner * CAL_STICK_MAX / 100,
+                          (uint32_t)(deadzone ? deadzone : none)[i].outer * CAL_STICK_MAX / 100, &x, &y);
         *out[i][0] = (s16)(x * stick_sign[i]);
         *out[i][1] = (s16)(y * stick_sign[i]);
     }
@@ -649,6 +651,7 @@ int main(void)
     struct cal_stick_capture c;
     struct cal_trigger_capture tc;
     struct set_cal cal;
+    struct cal_deadzone dz[2] = { { 0, 0 }, { 0, 0 } };
     struct in_raw raw;
     struct pad pad;
     int32_t x, y;
@@ -689,7 +692,7 @@ int main(void)
     raw.sticks_valid = 1;
     raw.stick[0] = raw.stick[1] = raw.stick[2] = raw.stick[3] = 0x4000;
     raw.stick[2] = 0x6600;
-    cal_apply(&cal, &raw, &pad);
+    cal_apply(&cal, dz, &raw, &pad);
     CHECK(pad.lx == 0 && pad.rx == -CAL_STICK_MAX);
 
     /* Stored sensor measurements ignore the old embedded stick deadzones;
@@ -698,33 +701,33 @@ int main(void)
     cal.stick[0].legacy_inner_deadzone = 4915;
     cal.stick[0].legacy_outer_deadzone = 1638;
     raw.stick[0] = 0x4100;
-    cal_apply(&cal, &raw, &pad);
+    cal_apply(&cal, dz, &raw, &pad);
     CHECK(pad.lx > 0 && !pad.ly);
-    cal.deadzone[0].inner = 5;
-    cal_apply(&cal, &raw, &pad);
+    dz[0].inner = 5;
+    cal_apply(&cal, dz, &raw, &pad);
     CHECK(!pad.lx && !pad.ly);
     raw.stick[0] = 0x6400;
-    cal.deadzone[0].inner = 0;
-    cal_apply(&cal, &raw, &pad);
+    dz[0].inner = 0;
+    cal_apply(&cal, dz, &raw, &pad);
     CHECK(pad.lx < STICK_MAX);
-    cal.deadzone[0].outer = 10;
-    cal_apply(&cal, &raw, &pad);
+    dz[0].outer = 10;
+    cal_apply(&cal, dz, &raw, &pad);
     CHECK(pad.lx == STICK_MAX);
-    cal.deadzone[0].outer = 0;
-    cal_apply(&cal, &raw, &pad);
+    dz[0].outer = 0;
+    cal_apply(&cal, dz, &raw, &pad);
     CHECK(pad.lx < STICK_MAX); /* runtime change requires no recalibration */
 
     /* Uncalibrated trigger: one stray high reading does not leave it pressed. */
     raw.trigger[0] = 482;
-    for (i = 0; i < 4; i++) cal_apply(&cal, &raw, &pad);
+    for (i = 0; i < 4; i++) cal_apply(&cal, dz, &raw, &pad);
     CHECK(pad.l2 == 0 && legacy_rest[0] == 482);
     raw.trigger[0] = 735;
-    cal_apply(&cal, &raw, &pad);
+    cal_apply(&cal, dz, &raw, &pad);
     raw.trigger[0] = 482;
-    cal_apply(&cal, &raw, &pad);
+    cal_apply(&cal, dz, &raw, &pad);
     CHECK(pad.l2 == 0 && legacy_jumps[0] == 1);
     raw.trigger[0] = 100;
-    cal_apply(&cal, &raw, &pad);
+    cal_apply(&cal, dz, &raw, &pad);
     CHECK(pad.l2 == CAL_TRIGGER_MAX);
 
     now = 0;
@@ -763,11 +766,7 @@ int main(void)
         memset(r.outcome, 0, sizeof(r.outcome));
         r.stick[0] = r.stick[1] = c;
         r.trigger[0] = r.trigger[1] = tc;
-        cal.deadzone[0] = (struct cal_deadzone){ 5, 10 };
-        cal.deadzone[1] = (struct cal_deadzone){ 2, 3 };
         CHECK(finish(&cal, started) == CAL_SAVE);
-        CHECK(cal.deadzone[0].inner == 5 && cal.deadzone[0].outer == 10);
-        CHECK(cal.deadzone[1].inner == 2 && cal.deadzone[1].outer == 3);
         CHECK(!cal.stick[0].legacy_inner_deadzone && !cal.stick[0].legacy_outer_deadzone);
         CHECK(cal_led(started, &led) && !led.r && led.g == LED_LEVEL && !led.b);
         CHECK(cal_led(started + 999, &led) && led.g == LED_LEVEL);
