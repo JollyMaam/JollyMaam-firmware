@@ -525,14 +525,10 @@ void board_start(void)
     plat_motors(0, 0);
 }
 
+/* The lights hold the loader scene's last frame (leds.c) while the loader
+ * runs: let it finish going out. */
 void board_to_loader(void)
 {
-    static const struct led_frame green = { .light = {
-        {0, 16, 0}, {0, 16, 0}, {0, 16, 0}, {0, 16, 0},
-        {0, 16, 0}, {0, 16, 0}, {0, 16, 0}, {0, 16, 0},
-    } };
-
-    plat_leds(&green);
     led_wait();
 }
 

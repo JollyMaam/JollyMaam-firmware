@@ -13,7 +13,7 @@
 static const struct led_wave low_battery = LED_BLINK(150, 2850);
 static const struct led_wave player_flash = LED_BLINK(250, 250);
 static const struct led_wave fade = LED_BREATHE(4000);
-static const struct led_wave config_grips = LED_BLINK(200, 200);   /* remap config mode, instead of the grips setting */
+static const struct led_wave config_breathe = LED_BREATHE(1600);
 
 /* Ephemeral mode: Home goes dark twice, briefly, every few seconds. */
 #define WINK_PERIOD_MS 4000
@@ -293,6 +293,51 @@ static void grips(const struct led_scene *sc, u32 t, const struct led_inputs *in
     }
 }
 
+/* ---- the whole pad ------------------------------------------------------------ */
+
+/* How far down the pad a light is: Home, the bar top to bottom, the grips. */
+static const u8 depth[LIGHT_COUNT] = { 0, 1, 2, 3, 4, 5, 5, 0 };
+#define DEPTHS 6
+
+#define CONFIG_HUE_STEP 200      /* colour between one light and the next down */
+#define LOADER_FILL_MS  500      /* the light runs down the pad */
+#define LOADER_FLASH_MS 300      /* everything bright, then down to what is held */
+#define LOADER_HOLD     (K_ONE * 35 / 100)
+static const struct rgb loader_green = { 0, 255, 0 };
+
+static u32 loader(u32 t, u32 d)
+{
+    u64 head;
+    u32 at = d * K_ONE, k = 0;
+
+    if (t >= LOADER_FILL_MS) {   /* the flash, and down to the hold */
+        t -= LOADER_FILL_MS;
+        return t >= LOADER_FLASH_MS ? LOADER_HOLD
+                                    : LOADER_HOLD + (u32)((u64)(K_ONE - LOADER_HOLD) * (K_ONE - ease(t * K_ONE / LOADER_FLASH_MS)) >> 16);
+    }
+    head = (u64)t * (DEPTHS + 1) * K_ONE / LOADER_FILL_MS;    /* where the light is, in lights */
+    if (head > at) k = LOADER_HOLD;                          /* passed: lit behind it */
+    if (head + K_ONE > at && head < at + 2 * K_ONE) {        /* near: its glow */
+        u32 off = (u32)(head > at ? head - at : at - head);
+        u32 glow = off >= K_ONE ? 0 : bright(K_ONE - off);
+
+        if (glow > k) k = glow;
+    }
+    return k;
+}
+
+static void whole_pad(const struct led_scene *sc, u32 t, const struct led_inputs *in, struct led_fine *out)
+{
+    u32 i, k = K_ONE / 3 + (u32)((u64)wave(&config_breathe, t, 0, 1) * 2 / 3);
+
+    for (i = 0; i < LIGHT_UNUSED; i++) {
+        if (sc->effect == EFFECT_CONFIG)          /* the colours flow down the pad, breathing */
+            put(out->light[i], scale(lit(hue(rainbow(2 * t) + 6 * 1536 - depth[i] * CONFIG_HUE_STEP, in->animation)), k));
+        else if (sc->effect == EFFECT_LOADER)
+            put(out->light[i], scale(lit((struct shade){ loader_green, in->animation }), loader(t, depth[i])));
+    }
+}
+
 void led_frame(const struct led_scene *sc, const struct led_state *s, u32 now,
                const struct led_inputs *in, struct led_fine *out)
 {
@@ -304,11 +349,15 @@ void led_frame(const struct led_scene *sc, const struct led_state *s, u32 now,
     u32 k;
 
     memset(out, 0, sizeof(*out));
-    put(home, scale(lit(c), wave(&sc->home, t, 0, 1)));
-    bar(sc, s, now, t, in, c, out);
-    grips(sc, t, in, c, out);
-    if (in->usb_powered && (s->scene == CTL_BOOT || s->scene == CTL_IDLE))
-        put(home, dark);
+    if (sc->effect) {
+        whole_pad(sc, t, in, out);
+    } else {
+        put(home, scale(lit(c), wave(&sc->home, t, 0, 1)));
+        bar(sc, s, now, t, in, c, out);
+        grips(sc, t, in, c, out);
+        if (in->usb_powered && (s->scene == CTL_BOOT || s->scene == CTL_IDLE))
+            put(home, dark);
+    }
     if (t < FADE_IN_MS) {
         k = ease(t * K_ONE / FADE_IN_MS);
         for (i = 0; i < LIGHT_COUNT; i++)
@@ -319,10 +368,6 @@ void led_frame(const struct led_scene *sc, const struct led_state *s, u32 now,
         put(home, mix(got(home), lit(in->battery_colour), k));
     if (in->ephemeral && winking(now)) put(home, dark);
     if (in->cal_lit) put(home, lit_rgb(in->cal));
-    if (in->config) {
-        put(out->light[LIGHT_GRIP_L], scale(lit(in->connect_colour), wave(&config_grips, in->config_ms, 0, 1)));
-        memcpy(out->light[LIGHT_GRIP_R], out->light[LIGHT_GRIP_L], sizeof(out->light[0]));
-    }
     /* USB acknowledgement is one solid interval, then the normal scene.
      * Idle on USB stays dark; there is no charging animation. */
     if (in->usb_plug_lit) put(home, lit(in->battery_colour));
@@ -596,6 +641,34 @@ int main(void)
     in.cal = white;
     frame(&idle, &s, 100, &in, &f);
     CHECK(same(f.light[LIGHT_HOME], white));
+
+    /* The whole pad: to the loader, a light runs down and fills it, a flash,
+     * then the dim green the LEDs hold; config mode, colours down the pad. */
+    {
+        static const struct led_scene to_loader = { .effect = EFFECT_LOADER }, config = { .effect = EFFECT_CONFIG };
+        u32 i, held = 400 * 35 / 100 / 10;
+
+        s.scene = CTL_REBOOTING;
+        s.since_ms = 0;
+        in.cal_lit = in.usb_powered = 0;
+        frame(&to_loader, &s, 300, &in, &f);
+        CHECK(f.light[LIGHT_HOME].g == held && f.light[LIGHT_P3].g > held && !f.light[LIGHT_GRIP_L].r);
+        CHECK(f.light[LIGHT_GRIP_L].g < held);                     /* not reached yet */
+        for (t = 260, last = 0; t < LOADER_FILL_MS; t += 20) {     /* once passed, never below the hold */
+            frame(&to_loader, &s, t, &in, &f);
+            CHECK(f.light[LIGHT_P0].g >= held);
+        }
+        frame(&to_loader, &s, LOADER_FILL_MS, &in, &f);
+        for (i = 0; i < LIGHT_UNUSED; i++) CHECK(same(f.light[i], ((struct rgb){ 0, 40, 0 })));
+        frame(&to_loader, &s, LED_LOADER_MS, &in, &f);
+        for (i = 0; i < LIGHT_UNUSED; i++) CHECK(same(f.light[i], ((struct rgb){ 0, (u8)held, 0 })));
+        CHECK(LOADER_FILL_MS + LOADER_FLASH_MS <= LED_LOADER_MS - 2 * 20);   /* held for the last frames */
+        frame(&config, &s, 1000, &in, &f);
+        CHECK(!same(f.light[LIGHT_HOME], f.light[LIGHT_P1]) && !same(f.light[LIGHT_P1], f.light[LIGHT_P3]));
+        CHECK(same(f.light[LIGHT_GRIP_L], f.light[LIGHT_GRIP_R]) && bright_as(f.light[LIGHT_HOME]) > 0);
+        frame(&config, &s, 1500, &in, &g);
+        CHECK(!same(f.light[LIGHT_HOME], g.light[LIGHT_HOME]));   /* flowing */
+    }
 
     memset(&p, 0, sizeof(p));
     p.buttons = PAD_A;

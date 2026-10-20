@@ -69,6 +69,7 @@ static struct {
     struct profile_host host;
     u8 rumble_logged[2];
     struct led_state led;
+    const struct led_scene *led_scene;   /* the one drawn: a change fades in */
     struct led_fine frame;       /* the scene as drawn */
     struct led_frame shown;      /* what the LEDs show */
     u16 dither_acc[LIGHT_COUNT][3];
@@ -634,8 +635,8 @@ static void timeouts(u32 now)
             plat_power_off();
         } else if (t >= ux_timeouts.stop_max_ms) bt_abort();
         break;
-    case CTL_REBOOTING:
-        if ((!c.radio && t >= 100) || t >= ux_timeouts.stop_max_ms) {
+    case CTL_REBOOTING:          /* to the loader: after its LED launch, whose last frame stays */
+        if ((!c.radio && t >= (c.to_loader ? LED_LOADER_MS : 100)) || t >= ux_timeouts.stop_max_ms) {
             if (c.to_loader) plat_reboot_loader();
             plat_reboot();
         }
@@ -736,8 +737,9 @@ static void outputs(u32 now)
     const struct set_slot *slot, *shown;
     const struct set_brightness *b = set_brightness();
     const struct ux_led_demo *demo = NULL;
+    const struct led_scene *sc;
     struct led_inputs in;
-    u32 plugged = now - c.usb_plugged_ms, since = 0;
+    u32 plugged = now - c.usb_plugged_ms;
     u8 scene = c.kind, armed = ux_armed();
     int rumble = c.kind == CTL_CONNECTED && !c.calibrating;
     u8 motor[2];
@@ -772,8 +774,15 @@ static void outputs(u32 now)
         scene = demo->scene;
         armed = 0;
     }
-    if (scene != c.led.scene) {
+    sc = demo && demo->kind == LED_DEMO_CONFIG ? &ux_config_scene :
+         demo && demo->kind == LED_DEMO_LOADER ? &ux_loader_scene :
+         demo ? &ux_scenes[scene] :
+         c.kind == CTL_CONNECTED && ux_config(NULL) ? &ux_config_scene :
+         c.kind == CTL_REBOOTING && c.to_loader ? &ux_loader_scene : &ux_scenes[scene];
+    if (scene != c.led.scene || sc != c.led_scene ||
+        (demo && demo->kind == LED_DEMO_LOADER && now - c.led.since_ms >= LED_LOADER_MS + 1500)) {
         c.led.scene = scene;
+        c.led_scene = sc;
         c.led.since_ms = now;
         c.led.from = c.frame;    /* the new scene fades in over it */
     }
@@ -811,11 +820,7 @@ static void outputs(u32 now)
         in.players_flash = 0;
     }
     in.cal_lit = (u8)cal_led(now, &in.cal);
-    if (c.kind == CTL_CONNECTED && ux_config(&since)) {
-        in.config = 1;
-        in.config_ms = now - since;
-    }
-    led_frame(&ux_scenes[scene], &c.led, now, &in, &c.frame);
+    led_frame(sc, &c.led, now, &in, &c.frame);
     show(now);
 }
 

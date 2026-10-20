@@ -527,6 +527,12 @@ struct led_wave { u8 kind; u16 a, b; };    /* blink: on, off; breathe: period; s
 enum { BAR_ALL, BAR_SLOT, BAR_PLAYER };       /* BAR_PLAYER: the slot's players setting */
 enum { GRIPS_WAVE, GRIPS_SLOT_SETTING };
 enum { COLOUR_IDLE, COLOUR_CONNECT, COLOUR_PRIMARY };
+/* The whole pad as one, instead of Home, the bar and the grips: remap config
+ * mode (colours flowing down the pad); restarting into the ROM loader (a
+ * green light runs down and fills the pad, a flash, then dim green, which
+ * the LEDs hold while the loader runs; LED_LOADER_MS in all). */
+enum { EFFECT_NONE, EFFECT_CONFIG, EFFECT_LOADER };
+#define LED_LOADER_MS 900
 
 struct led_scene {
     u8 colour;
@@ -535,6 +541,7 @@ struct led_scene {
     struct led_wave bar_wave;
     u8 grips;
     struct led_wave grips_wave;
+    u8 effect;               /* EFFECT_*: then the rest is unused */
 };
 
 /* A new scene fades in over the frame shown when it began (from). */
@@ -558,8 +565,6 @@ struct led_inputs {
     struct rgb lightbar;
     u8 cal_lit;
     struct rgb cal;
-    u8 config;                            /* remap config mode: the grips flash connect_colour instead */
-    u32 config_ms;                        /* since it began */
 };
 
 void led_frame(const struct led_scene *scene, const struct led_state *s, u32 now,
@@ -608,9 +613,11 @@ extern const struct ux_colours ux_colours;
  * UX_LED_DEMO_MS after the last request for it. */
 #define UX_LED_DEMO_MS 30000
 enum { LED_DEMO_DITHER_PALETTE, LED_DEMO_DITHER_OFF, LED_DEMO_DITHER_ON };
+enum { LED_DEMO_SCENE, LED_DEMO_CONFIG, LED_DEMO_LOADER };   /* the scene, or one of the others */
 struct ux_led_demo {
     const char *name;
     u8 scene;                /* enum ctl_kind: its LED scene */
+    u8 kind;                 /* LED_DEMO_*; the loader's runs again every couple of seconds */
     u8 grips, players;       /* connected: GRIPS_*, PLAYERS_* */
     u16 steady, animation;
     u8 dither;               /* LED_DEMO_DITHER_* */
@@ -618,6 +625,7 @@ struct ux_led_demo {
 extern const struct ux_led_demo ux_led_demos[];
 extern const u8 ux_led_demo_count;
 extern const struct led_scene ux_scenes[CTL_KIND_COUNT];
+extern const struct led_scene ux_config_scene, ux_loader_scene;   /* remap config mode, to the loader */
 
 /* Home gestures, table in settings_ux.c.  ux_reported: the controller saw a
  * held-back Home tap's down report leave. */
