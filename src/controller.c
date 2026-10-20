@@ -73,7 +73,10 @@ static struct {
     u8 rumble_test[2];           /* padtool rumble: these duties until rumble_test_until */
     u8 rumble_testing;
     u32 rumble_test_until;
-    u8 rumble_step, rumble_step_set;     /* config mode L1/R1: over the remap's rumble, until a restart */
+    /* Config mode L1/R1: over the remap's rumble, as long as a remap picked
+     * there (remap_chosen) and until the tools next change a setting. */
+    u8 rumble_step, rumble_step_set;
+    u32 rumble_step_edits;
     struct led_state led;
     const struct led_scene *led_scene;   /* the one drawn: a change fades in */
     struct led_fine frame;       /* the scene as drawn */
@@ -231,7 +234,7 @@ static const struct set_remap *remap_settings(void)
 
 static u8 rumble_step(void)
 {
-    return c.rumble_step_set ? c.rumble_step : remap_settings()->rumble;
+    return c.rumble_step_set && c.rumble_step_edits == set_edits() ? c.rumble_step : remap_settings()->rumble;
 }
 
 /* Host rumble times step / RUMBLE_STEPS, held between rumble_min and
@@ -288,6 +291,7 @@ static void start_session(struct ctl_request r, u32 now)
     c.last_slot = r.slot;
     /* A remap picked in config mode lasts across this slot's reconnects (a
      * lost link, a cable, relink) until a disconnect or sleep. */
+    if (c.remap_slot != r.slot) c.rumble_step_set = 0;
     if (!c.remap_chosen || c.remap_slot != r.slot) {
         c.remap = set->remap ? (u8)(set->remap - 1) : SLOT_NONE;
         c.remap_slot = r.slot;
@@ -341,7 +345,7 @@ static void stop(u32 now)
  * controller still running hung the pad off USB). */
 static void shut_down(u8 kind, u32 now)
 {
-    c.remap_chosen = 0;
+    c.remap_chosen = c.rumble_step_set = 0;
     if (c.radio || c.waking) end_session();
     become(kind, now);
 }
@@ -358,7 +362,7 @@ static void handle(struct ctl_request r, u32 now)
         start_session(r, now);
         break;
     case REQ_DISCONNECT:
-        c.remap_chosen = 0;
+        c.remap_chosen = c.rumble_step_set = 0;
         if (session()) stop(now);
         break;
     case REQ_LED_DEMO:
@@ -381,6 +385,7 @@ static void handle(struct ctl_request r, u32 now)
         if (!r.slot && step) step--;
         c.rumble_step = step;
         c.rumble_step_set = 1;
+        c.rumble_step_edits = set_edits();
         util_log("rumble step %u", step);
         c.rumble_test[0] = motor_duty(255, 0);
         c.rumble_test[1] = motor_duty(255, 1);
