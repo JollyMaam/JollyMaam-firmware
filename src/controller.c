@@ -234,18 +234,18 @@ static u8 rumble_step(void)
     return c.rumble_step_set ? c.rumble_step : remap_settings()->rumble;
 }
 
-/* Host rumble 1-255 spans rumble_min up to the step's share of the range to
- * rumble_max, then each motor takes its percent of that. */
+/* Host rumble times step / RUMBLE_STEPS, held between rumble_min and
+ * rumble_max percent motor power; then each motor takes its percent of that. */
 static u8 motor_duty(u8 host, int right)
 {
     const struct set_remap *m = remap_settings();
-    u32 step = rumble_step(), lo = m->rumble_min, top, pct;
+    u32 step = rumble_step(), duty;
 
     if (!host || !step) return 0;
-    top = m->rumble_max > lo ? lo + (m->rumble_max - lo) * step / RUMBLE_STEPS : lo;
-    pct = lo * 254 + (top - lo) * (host - 1u);              /* percent, times 254 */
-    pct = pct * (right ? m->rumble_right : m->rumble_left) / 100;
-    return (u8)(pct * 255 / (100 * 254));
+    duty = (u32)host * step / RUMBLE_STEPS;
+    if (duty > 255u * m->rumble_max / 100) duty = 255u * m->rumble_max / 100;
+    if (duty < 255u * m->rumble_min / 100) duty = 255u * m->rumble_min / 100;
+    return (u8)(duty * (right ? m->rumble_right : m->rumble_left) / 100);
 }
 
 static void start_session(struct ctl_request r, u32 now)

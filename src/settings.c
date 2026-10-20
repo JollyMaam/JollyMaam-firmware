@@ -228,12 +228,12 @@ static const struct set_field remap_fields[] = {
     { .id = 7, .name = "right_curve_points", .type = T_BYTES, REMAP(right_curve_points),
       .help = "15 nondecreasing output bytes (0-255) at 6.25% input intervals; endpoints fixed at zero and full" },
     { .id = 18, .name = "rumble", .type = T_ENUM, .names = rumble_steps, REMAP(rumble),
-      .def = RUMBLE_STEPS, .help = "how strong the motors are; Home+M then L1/R1 changes it until a restart" },
+      .def = RUMBLE_STEPS, .help = "how strong the motors are: 5 is the host's rumble as asked, each step "
+                                   "below a fifth less; Home+M then L1/R1 changes it until a restart" },
     { .id = 19, .flags = F_DEV, .name = "rumble_min", .type = T_NUMBER, .max = 100, REMAP(rumble_min),
-      .def = 20, .help = "percent motor power for the lightest rumble" },
+      .def = 20, .help = "percent motor power: any rumble runs at least this (the motors stall or rattle below)" },
     { .id = 20, .flags = F_DEV, .name = "rumble_max", .type = T_NUMBER, .max = 100, REMAP(rumble_max),
-      .def = 80, .help = "percent motor power for full rumble at the top step; lower steps share the "
-                         "range above rumble_min evenly" },
+      .def = 80, .help = "percent motor power: rumble is held to at most this" },
     { .id = 21, .flags = F_DEV, .name = "rumble_left", .type = T_NUMBER, .max = 100, REMAP(rumble_left),
       .def = 75, .help = "percent of the rumble the left motor gets: below rumble_right moves the balance right" },
     { .id = 22, .flags = F_DEV, .name = "rumble_right", .type = T_NUMBER, .max = 100, REMAP(rumble_right),
