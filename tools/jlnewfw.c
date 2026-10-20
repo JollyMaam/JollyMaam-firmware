@@ -1557,17 +1557,25 @@ static void device_pid(struct dev *d, char pid[17]) {
 static void select_dev(struct dev *out, const struct flash_opts *o,
                        const char *want) {
   if (o->device) {
+    /* Its loader may come back under another node: follow its USB port. */
+    static char sel[256][300], port[256][64], look[256][300];
+    snprintf(sel[0], sizeof sel[0], "%s", o->device);
+    if (!usb_port(o->device, port[0]))
+      port[0][0] = 0;
     for (unsigned t = 0;; t++) {
-      if (o->enter_loader)
-        enter_loaders(o->device, o->force_pid ? NULL : want, NULL);
-      if (open_dev(out, o->device))
-        break;
+      size_t nl = follow(port, sel, 1, look);
+      for (size_t i = 0; i < nl; i++) {
+        if (o->enter_loader)
+          enter_loaders(look[i], o->force_pid ? NULL : want, NULL);
+        if (open_dev(out, strdup(look[i]))) {
+          start_loader(out, o->loader);
+          return;
+        }
+      }
       if (t >= o->wait * 2)
         die("the device is not a JieLi ROM loader (UBOOT1.00)");
       dev_sleep(500);
     }
-    start_loader(out, o->loader);
-    return;
   }
   struct {
     char path[300], pid[17];
