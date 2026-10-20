@@ -384,7 +384,10 @@ int main(void)
     report(&p, 0, out, &id);
     CHECK(out[15] == 1 && out[13] == 0);
     CHECK(read(BT_WRITE_ATT, BLE_BATTERY, 0, out, 64) == 1 && out[0] == 100);
-    CHECK(att_db[0] == 1 && sizeof(att_db) == 718);
+    /* The handles the code names are the ones the database has; bt.c takes
+     * the one after the input report for its notification switch. */
+    CHECK(test_att_uuid(att_db, BLE_INPUT) == 0x2a4d && test_att_uuid(att_db, BLE_INPUT + 1) == 0x2902);
+    CHECK(test_att_uuid(att_db, BLE_OUTPUT) == 0x2a4d && test_att_uuid(att_db, BLE_BATTERY) == 0x2a19);
     /* Wired: the Xbox 360 report, y up; rumble and the ring of lights. */
     s.usb = 1;
     begin_classic(&s);

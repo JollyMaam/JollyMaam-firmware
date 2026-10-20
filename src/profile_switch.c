@@ -1370,6 +1370,11 @@ int main(void)
         CHECK(s2_any_report(&p, 0, out, &id) == S2_USB_SIZE && id == S2_USB_REPORT_FULL);
         CHECK(out[4] == 0x04 && out[5] == 0x10 && out[6] == 0x01);
     }
+    /* The Switch 2's handles are in its database; bt.c takes the one after
+     * the input report for its notification switch. */
+    CHECK(test_att_uuid(s2_att_db, S2_INPUT) && test_att_uuid(s2_att_db, S2_INPUT + 1) == 0x2902);
+    CHECK(test_att_uuid(s2_att_db, S2_VIBRATION) && test_att_uuid(s2_att_db, S2_COMMAND) &&
+          test_att_uuid(s2_att_db, S2_VIB_COMMAND) && test_att_uuid(s2_att_db, S2_RESPONSE));
     return TEST_DONE("profile_switch");
 }
 #endif

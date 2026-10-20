@@ -593,8 +593,10 @@ int main(void)
           out[1] == 0x5e && out[2] == 0x04 && out[3] == 0xfe && out[4] == 0x0b &&
           out[5] == 0 && out[6] == 1);
     CHECK(gble_read(BT_WRITE_ATT, GBLE_INPUT, 0, out, 16) < 0);
-    /* The handles the code names are the ones the database has. */
-    CHECK(gble_att_db[0] == 1 && sizeof(gble_att_db) == 479);
+    /* The handles the code names are the ones the database has; bt.c takes
+     * the one after the input report for its notification switch. */
+    CHECK(test_att_uuid(gble_att_db, GBLE_INPUT) == 0x2a4d && test_att_uuid(gble_att_db, GBLE_INPUT + 1) == 0x2902);
+    CHECK(test_att_uuid(gble_att_db, GBLE_PNP) == 0x2a50);
     return TEST_DONE("profile_hid");
 }
 #endif
