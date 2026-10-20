@@ -25,7 +25,7 @@ static const char *const names[CTL_KIND_COUNT] = {
 
 static struct {
     u8 kind;
-    u32 since, boot_ms;
+    u32 since;
     u8 slot;                     /* the session's slot, SLOT_NONE without one */
     u8 last_slot;
     const struct profile *prof;
@@ -73,6 +73,7 @@ static struct {
     u8 reach[2];
     u32 led_next;
     u8 usb_raw, usb_powered;
+    u8 usb_suspended;            /* as last logged */
     u32 usb_changed_ms, usb_plugged_ms, usb_absent_ms;
     u16 battery_mv;
     u8 low_battery;
@@ -158,8 +159,6 @@ static int wants_usb(const struct set_slot *set, const struct profile *p)
     if (!p->usb) return 0;
     return set->transport == TRANSPORT_USB || (set->transport == TRANSPORT_BT_USB && c.usb_powered);
 }
-
-static void handle(struct ctl_request r, u32 now);
 
 /* The slot's bond as this session knows it. */
 static const struct bt_bond *session_bond(void)
@@ -613,7 +612,7 @@ static void timeouts(u32 now)
         break;
     case CTL_SLEEPING:
         if (c.usb_powered && !c.radio) become(CTL_IDLE, now);
-        else if (!c.radio && t >= (ux_power_debug.enabled ? ux_power_debug.sleep_ms : 50)) {
+        else if (!c.radio && t >= 50) {
             set_flush();
             util_log("power off");
             plat_power_off();
@@ -666,14 +665,9 @@ static void sample_power(u32 now)
         }
     }
     if (c.usb_powered) c.usb_absent_ms = now;
-    {
-        static u8 suspended;
-        u8 s = (u8)plat_usb_suspended();
-
-        if (s != suspended) {
-            suspended = s;
-            util_log("usb: bus %s", s ? "suspended" : "awake");
-        }
+    if ((u8)plat_usb_suspended() != c.usb_suspended) {
+        c.usb_suspended = !c.usb_suspended;
+        util_log("usb: bus %s", c.usb_suspended ? "suspended" : "awake");
     }
     if (now - c.battery_ms >= BATTERY_CHECK_MS) {
         c.battery_ms = now;
@@ -741,10 +735,6 @@ static void outputs(u32 now)
     in.usb_powered = c.usb_powered;
     in.low_battery = c.low_battery;
     in.usb_plug_lit = c.usb_powered && plugged < ux_timeouts.usb_plug_ms;
-    if (ux_power_debug.enabled && (c.kind == CTL_SLEEPING || now - c.boot_ms < ux_power_debug.wake_ms)) {
-        in.power_debug = 1;
-        in.power_debug_colour = c.kind == CTL_SLEEPING ? ux_power_debug.sleep_colour : ux_power_debug.wake_colour;
-    }
     if (c.kind == CTL_CONNECTED) {
         in.has_players = c.host.has_players;
         in.players = c.host.players;
@@ -906,7 +896,7 @@ static void boot(u32 now)
     set_init();
     now = plat_ms();            /* show a full boot interval after settings have loaded */
     c.kind = CTL_BOOT;
-    c.since = c.boot_ms = now;
+    c.since = now;
     c.slot = SLOT_NONE;
     c.last_slot = plat_retained_slot();
     c.led.scene = CTL_BOOT;
@@ -918,8 +908,8 @@ static void boot(u32 now)
     util_log("boot cause %u held %05x last slot %u", b.cause, b.buttons_held, c.last_slot);
     c.uboot_chord = (b.buttons_held & (PAD_HOME | PAD_START)) == (PAD_HOME | PAD_START);
     plat_input(&c.raw);
-    /* Render the development boot indication before starting a profile/radio;
-     * an immediate session must not skip it by replacing CTL_BOOT. */
+    /* Show the boot scene before a profile or the radio starts: an
+     * immediate session must not skip it by replacing CTL_BOOT. */
     outputs(now);
     if (c.uboot_chord) ux_ignore_held();
     else handle(ux_boot(b.buttons_held, b.cause == BOOT_HOME, now), now);

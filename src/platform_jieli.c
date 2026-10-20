@@ -136,31 +136,6 @@ HOT void plat_raise(u32 ev)
     }
 }
 
-/* Once a boot: the tick against a host's frames, one a millisecond (the
- * intermittent ~20x slow tick).  Counted in the tick while frames come
- * steadily; a jump (a re-init, a gap) starts again.  Logged by the loop. */
-#define CLOCK_CHECK_FRAMES 1000
-static struct { u8 state; u16 last, frames; u32 since_ms, took_ms; } clock_check;
-
-static HOT void clock_check_tick(void)
-{
-    u16 f, df;
-
-    if (clock_check.state) return;
-    f = usb_read_sofframe(USB0);
-    df = (u16)((f - clock_check.last) & 0x7ff);
-    clock_check.last = f;
-    if (!df || df > 50) {
-        clock_check.frames = 0;
-        return;
-    }
-    if (!clock_check.frames) clock_check.since_ms = ms_now;
-    clock_check.frames += df;
-    if (clock_check.frames < CLOCK_CHECK_FRAMES) return;
-    clock_check.took_ms = ms_now - clock_check.since_ms;
-    clock_check.state = 1;
-}
-
 ___interrupt
 static HOT void tick_isr(void)
 {
@@ -172,7 +147,6 @@ static HOT void tick_isr(void)
     if (++quarter >= 4) {
         quarter = 0;
         ms_now++;
-        clock_check_tick();
     }
     {
         /* Most ticks: no pin moved and nothing in its lockout - done. */
@@ -681,12 +655,6 @@ int plat_usb_present(void)
         frame = f;
         if ((s32)(ms_now - sof_seen_ms) > 0) sof_seen_ms = ms_now;
     }
-    if (clock_check.state == 1) {
-        clock_check.state = 2;
-        util_log("clock check: %u host frames in %u ms (sys %u lsb %u timer %u, timer3 con %08x)",
-                 clock_check.frames, clock_check.took_ms, clk_get("sys"), clk_get("lsb"),
-                 clk_get("timer"), JL_TIMER3->CON);
-    }
     return (s32)(ms_now - sof_seen_ms) < USB_SOF_STALE_MS;
 }
 
@@ -907,7 +875,6 @@ static void ctl_thread(void *arg)
 
         util_log("boot: reset source %02x", power_reset_src);
     }
-    util_log("tick: timer3 at %08x con %08x prd %u", (u32)JL_TIMER3, JL_TIMER3->CON, JL_TIMER3->PRD);
     hci_jieli_init();
     ctl_main();
 }

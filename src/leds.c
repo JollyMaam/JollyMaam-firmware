@@ -172,10 +172,6 @@ void led_frame(const struct led_scene *sc, const struct led_state *s, u32 now,
     if (in->config)
         out->light[LIGHT_GRIP_L] = out->light[LIGHT_GRIP_R] =
             dim(in->connect_colour, level(&config_grips, in->config_ms, 0, 1));
-    if (in->power_debug) {
-        u32 i;
-        for (i = 0; i < LIGHT_COUNT; i++) out->light[i] = in->power_debug_colour;
-    }
     /* USB acknowledgement is one solid interval, then the normal scene.
      * Idle on USB stays dark; there is no charging animation. */
     if (in->usb_plug_lit) *home = in->battery_colour;
@@ -312,13 +308,6 @@ int main(void)
     in.usb_plug_lit = 0;
     led_frame(&idle, &s, 1000, &in, &f); CHECK(same(f.light[LIGHT_HOME], dark));
     led_frame(&idle, &s, 2400, &in, &f); CHECK(same(f.light[LIGHT_HOME], dark));
-    in.power_debug = 1; in.power_debug_colour = red;
-    led_frame(&idle, &s, 2400, &in, &f);
-    CHECK(same(f.light[LIGHT_HOME], red) && same(f.light[LIGHT_P0], red) && same(f.light[LIGHT_GRIP_R], red));
-    in.usb_plug_lit = 1;
-    led_frame(&idle, &s, 2400, &in, &f);
-    CHECK(same(f.light[LIGHT_HOME], in.battery_colour) && same(f.light[LIGHT_P0], red));
-    in.power_debug = in.usb_plug_lit = 0;
     in.cal_lit = 1;
     in.cal = white;
     led_frame(&idle, &s, 100, &in, &f);

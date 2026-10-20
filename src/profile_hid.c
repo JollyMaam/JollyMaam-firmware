@@ -315,7 +315,6 @@ static const struct layout layouts[2] = {
 #define SCROLL_DEADZONE (STICK_MAX * 35 / 100)
 #define SCROLL_PER_SEC  15
 #define MAX_DT_MS       50
-#define TAKE_MAX_MS     100      /* a report not taken by then is replaced, motion and all */
 
 static const u8 mouse_descriptor[] = {
     0x05, 0x01, 0x09, 0x06, 0xa1, 0x01, 0x85, 0x01, 0x05, 0x07, 0x19, 0xe0, 0x29, 0xe7, 0x15, 0x00,
@@ -339,8 +338,6 @@ static struct {
     u8 have_last;
     s64 rest[2], scroll_rest[2];
     s32 pending[2], wheel[2];
-    u32 posted_ms;
-    u8 posted;
     struct imu_pointer pointer;
 } m;
 
@@ -462,8 +459,8 @@ static u8 mouse_begin(const struct profile_session *s)
 }
 
 /* Keys go as messages, each change of them must arrive.  Mouse reports
- * carry relative motion, so one is not replaced while the link has not taken
- * the last: motion gathers until it has. */
+ * carry relative motion; they are only built when the link has room for one
+ * (pull), so motion gathers until then and none is replaced. */
 static int mouse_report(const struct pad *p, u32 now, u8 *out, u8 *id)
 {
     u32 controls = p->buttons, dt = 0, i;
@@ -501,7 +498,6 @@ static int mouse_report(const struct pad *p, u32 now, u8 *out, u8 *id)
         m.keyboard_sent = 1;
     }
     if (!m.pending[0] && !m.pending[1] && !m.wheel[0] && !m.wheel[1] && buttons == m.buttons) return 0;
-    if (m.posted && bt_input_pending() && now - m.posted_ms < TAKE_MAX_MS) return 0;
     x = clamp(m.pending[0], 32767);
     y = clamp(m.pending[1], 32767);
     out[0] = buttons;
@@ -514,8 +510,6 @@ static int mouse_report(const struct pad *p, u32 now, u8 *out, u8 *id)
     m.wheel[0] -= (s8)out[5];
     m.wheel[1] -= (s8)out[6];
     m.buttons = buttons;
-    m.posted = 1;
-    m.posted_ms = now;
     *id = MOUSE_ID;
     return MOUSE_SIZE;
 }
@@ -534,9 +528,7 @@ const struct profile profile_mouse = {
 
 #ifdef UNITTEST
 static u8 kb_sent[8];
-static int input_pending;
 int host_send(u16 id, const u8 *data, u16 len) { (void)id; memcpy(kb_sent, data, len); return 1; }
-int bt_input_pending(void) { return input_pending; }
 void util_put16(u8 *p, u16 v) { p[0] = (u8)v; p[1] = (u8)(v >> 8); }
 void util_aes128(const u8 key[16], const u8 in[16], u8 out[16]) { (void)key; memcpy(out, in, 16); }
 void imu_pointer(struct imu_pointer *pt, const struct imu_sample *s, int n, u16 per_degree, u16 accel,
@@ -568,11 +560,8 @@ int main(void)
     CHECK(mouse_report(&p, 0, out, &id) == MOUSE_SIZE && id == MOUSE_ID);
     CHECK(kb_sent[2] == KB_SPACE && kb_sent[3] == KB_W && out[0] == M_LEFT);
     CHECK((s16)(out[1] | out[2] << 8) == 5);
-    input_pending = 1;
-    CHECK(mouse_report(&p, 10, out, &id) == 0);   /* last report not taken: motion waits */
-    input_pending = 0;
     CHECK(mouse_report(&p, 20, out, &id) == MOUSE_SIZE);
-    CHECK((s16)(out[1] | out[2] << 8) == 20 + 10);   /* 20 ms of stick at 1000/s, 2 gyro takes */
+    CHECK((s16)(out[1] | out[2] << 8) == 20 + 5);    /* 20 ms of stick at 1000/s, a gyro take */
 
     set.variant = 1;
     set.gyro_speed = 0;

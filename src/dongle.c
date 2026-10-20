@@ -33,11 +33,6 @@ int host_send(u16 id, const u8 *data, u16 len)
     return d.prof ? plat_usb_send_message(id, data, len) : 0;
 }
 
-int bt_input_pending(void)       /* profile_hid.c's mouse asks; never on USB */
-{
-    return 0;
-}
-
 static void at_rest(struct pad *p)
 {
     memset(p, 0, sizeof(*p));
@@ -257,7 +252,7 @@ void util_log(const char *fmt, ...) { (void)fmt; }
 
 int main(void)
 {
-    u8 bond[24] = {0};
+    static u8 bond[24];
 
     CHECK(!set_is_ephemeral());
     write_result = sizeof(bond);

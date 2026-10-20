@@ -427,6 +427,8 @@ static void clear(u8 t, u8 id)
     put(t, f, bit, NULL, 0);
 }
 
+static void set_slot_new_address(u8 slot, u8 out[6]);
+
 static void renew_identity(u8 slot)
 {
     u8 address[6];
@@ -620,9 +622,9 @@ void set_slot_address(u8 slot, u8 out[6])
 }
 
 /* Roll all address bytes from the complete previous identity and current tick,
- * with no fixed prefix or stored generation counter. This is only a candidate:
- * the caller decides when to store it. */
-void set_slot_new_address(u8 slot, u8 out[6])
+ * with no fixed prefix or stored generation counter, keeping the local and
+ * unicast bits.  This is only a candidate: the caller decides when to store it. */
+static void set_slot_new_address(u8 slot, u8 out[6])
 {
     u32 a, b, now = plat_ms();
 
@@ -1202,7 +1204,7 @@ int main(void)
     for (t = 0; t < COUNT(slot_fields) + PALETTE + COUNT(cal_fields) + COUNT(remap_fields); t++)
         CHECK(set_describe(t, buf, 512) > 0);
     CHECK(set_read(3, buf, sizeof(buf)) > 3 && buf[2] == COUNT(slot_fields));
-    CHECK(set_read(TARGET_CAL, buf, sizeof(buf)) == 6 + cal_fields[0].size);
+    CHECK(set_read(TARGET_CAL, buf, sizeof(buf)) == 6u + cal_fields[0].size);
     CHECK(set_read(TARGET_REMAP + 7, buf, sizeof(buf)) == 3 + 3 * COUNT(remap_fields) + sizeof(struct set_remap));
 
     /* Remap slots: checked, stored under their own keys, read back. */

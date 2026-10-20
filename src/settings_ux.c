@@ -55,13 +55,6 @@ const struct led_scene ux_scenes[CTL_KIND_COUNT] = {
     [CTL_REBOOTING] =  { COLOUR_IDLE,    LED_OFF,             BAR_ALL,    LED_OFF,             GRIPS_WAVE, LED_OFF },
 };
 
-/* Temporary development indication. Set enabled to 0 once power transitions
- * are proven on the physical pad. Independent of slot and normal scenes. */
-const struct ux_power_debug ux_power_debug = {
-    .enabled = 0, .wake_ms = 500, .sleep_ms = 500,
-    .wake_colour = {0, 12, 0}, .sleep_colour = {12, 0, 0},
-};
-
 /* Home+M: remap config mode, which ux_step runs itself.  Every input is held
  * back from the host; releasing a slot key picks that remap slot, releasing
  * Home or M picks none, ux_timeouts.config_ms without a press leaves it as it

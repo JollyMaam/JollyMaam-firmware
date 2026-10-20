@@ -528,7 +528,7 @@ void cal_start(u32 now)
     enter(PH_SETTLE, now);
 }
 
-void cal_cancel(u32 now)
+static void cal_cancel(u32 now)
 {
     if (r.phase == PH_IDLE || r.phase == PH_RESULT) return;
     util_log("cal: cancelled; calibration unchanged");

@@ -141,7 +141,6 @@ enum { CAL_IDLE, CAL_RUNNING, CAL_SAVE };
 void cal_apply(const struct set_cal *cal, const struct cal_deadzone *deadzone,
                const struct in_raw *raw, struct pad *pad);
 void cal_start(u32 now);
-void cal_cancel(u32 now);
 int cal_step(const struct in_raw *raw, u32 now, struct set_cal *cal);
 int cal_led(u32 now, struct rgb *out);
 
@@ -252,7 +251,6 @@ void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond
 void bt_stop(void);
 void bt_abort(void);
 void bt_connect(void);
-void bt_disconnect(void);
 int bt_send_input(u8 id, const u8 *data, u16 len);
 int bt_send_message(u16 id, const u8 *data, u16 len);
 int bt_poll(struct bt_ev *ev);
@@ -451,9 +449,6 @@ struct rgb set_colour(struct colour c);
 const struct bt_bond *set_bond(u8 slot);
 void set_bond_store(u8 slot, const struct bt_bond *bond);
 void set_slot_address(u8 slot, u8 out[6]);
-/* Hash the full current address and tick into a candidate, including a new
- * prefix; preserve local/unicast bits. Does not change the saved identity. */
-void set_slot_new_address(u8 slot, u8 out[6]);
 /* Use the current identity for first pairing; renew only to replace a bond.
  * A candidate is saved with the bond after successful pairing. */
 void set_pairing_address(u8 slot, int renew, u8 out[6]);
@@ -518,8 +513,6 @@ struct led_inputs {
     u8 rumble[2];
     u8 reach[2];
     u8 usb_powered, usb_plug_lit, low_battery;
-    u8 power_debug;                       /* temporary dev overlay, colour below */
-    struct rgb power_debug_colour;
     u8 has_players, players, players_flash;
     u8 has_lightbar;
     struct rgb lightbar;
@@ -562,12 +555,6 @@ struct ux_timeouts {
 
 struct ux_colours { struct colour idle, battery; };
 
-struct ux_power_debug {
-    u8 enabled;              /* hardcoded development option; disable after hardware verification */
-    u16 wake_ms, sleep_ms;
-    struct rgb wake_colour, sleep_colour;
-};
-extern const struct ux_power_debug ux_power_debug;
 extern const struct ux_timeouts ux_timeouts;
 extern const u8 ux_usb_autoconnect;
 extern const struct ux_colours ux_colours;

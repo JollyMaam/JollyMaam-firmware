@@ -64,7 +64,7 @@ void hci_jieli_anchor_period(u32 us);
 #define LEAD_HITS        50
 #define LEAD_ROOM_US     1000
 
-enum { RQ_START = 1, RQ_CONNECT = 2, RQ_DISCONNECT = 4, RQ_STOP = 8, RQ_ABORT = 16 };
+enum { RQ_START = 1, RQ_CONNECT = 2, RQ_STOP = 4, RQ_ABORT = 8 };
 
 struct message { u16 handle; u16 len; u8 data[MAX_MESSAGE]; };
 
@@ -164,7 +164,6 @@ void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond
 void bt_stop(void) { request(RQ_STOP); }
 void bt_abort(void) { request(RQ_ABORT); }
 void bt_connect(void) { request(RQ_CONNECT); }
-void bt_disconnect(void) { request(RQ_DISCONNECT); }
 
 /* A bond learned by the profile (Switch 2 pairs in its own protocol): the
  * host asks for the key right after. */
@@ -785,11 +784,6 @@ static void tx_poll(btstack_data_source_t *ds, btstack_data_source_callback_type
         working = 0;
         hci_power_control(HCI_POWER_OFF);
         return;
-    }
-    if (r & RQ_DISCONNECT) {
-        unsniff();
-        if (hid_cid) hid_device_disconnect(hid_cid);
-        else if (acl_up) gap_disconnect(con_handle);
     }
     if ((r & RQ_CONNECT) && working && !le) {
         if (acl_up && !hid_cid) gap_disconnect(con_handle);
