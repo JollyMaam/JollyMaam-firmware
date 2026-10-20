@@ -77,6 +77,9 @@ static struct {
      * there (remap_chosen) and until the tools next change a setting. */
     u8 rumble_step, rumble_step_set;
     u32 rumble_step_edits;
+    u8 rumble_raw;               /* the test duties are padtool's: no kick */
+    u8 motor_on[2], kicking[2];  /* a motor started: full power until kick_until */
+    u32 kick_until[2];
     struct led_state led;
     const struct led_scene *led_scene;   /* the one drawn: a change fades in */
     struct led_fine frame;       /* the scene as drawn */
@@ -237,18 +240,17 @@ static u8 rumble_step(void)
     return c.rumble_step_set && c.rumble_step_edits == set_edits() ? c.rumble_step : remap_settings()->rumble;
 }
 
-/* Host rumble times step / RUMBLE_STEPS, held between rumble_min and
- * rumble_max percent motor power; then each motor takes its percent of that. */
+/* Host rumble times step / RUMBLE_STEPS spreads over the motor's own range:
+ * 1 is its rumble_min, 255 its rumble_max. */
 static u8 motor_duty(u8 host, int right)
 {
     const struct set_remap *m = remap_settings();
-    u32 step = rumble_step(), duty;
+    u32 v = (u32)host * rumble_step() / RUMBLE_STEPS;
+    u32 lo = 255u * m->rumble_min[right] / 100, hi = 255u * m->rumble_max[right] / 100;
 
-    if (!host || !step) return 0;
-    duty = (u32)host * step / RUMBLE_STEPS;
-    if (duty > 255u * m->rumble_max / 100) duty = 255u * m->rumble_max / 100;
-    if (duty < 255u * m->rumble_min / 100) duty = 255u * m->rumble_min / 100;
-    return (u8)(duty * (right ? m->rumble_right : m->rumble_left) / 100);
+    if (!v) return 0;
+    if (hi < lo) hi = lo;
+    return (u8)(lo + (hi - lo) * (v - 1) / 254);
 }
 
 static void start_session(struct ctl_request r, u32 now)
@@ -375,6 +377,7 @@ static void handle(struct ctl_request r, u32 now)
     case REQ_RUMBLE:
         c.rumble_test[0] = r.motor[0];
         c.rumble_test[1] = r.motor[1];
+        c.rumble_raw = 1;
         c.rumble_testing = r.ms != 0;
         c.rumble_test_until = now + (r.ms < RUMBLE_TEST_MAX_MS ? r.ms : RUMBLE_TEST_MAX_MS);
         break;
@@ -389,6 +392,7 @@ static void handle(struct ctl_request r, u32 now)
         util_log("rumble step %u", step);
         c.rumble_test[0] = motor_duty(255, 0);
         c.rumble_test[1] = motor_duty(255, 1);
+        c.rumble_raw = 0;
         c.rumble_testing = step != 0;
         c.rumble_test_until = now + ux_timeouts.rumble_feedback_ms;
         break;
@@ -798,6 +802,22 @@ static void show(u32 now)
 }
 
 
+/* A motor starting from stopped: full power for the remap's rumble_kick_ms. */
+static void kick(u8 motor[2], u32 now, int allowed)
+{
+    u32 ms = remap_settings()->rumble_kick_ms, i;
+
+    for (i = 0; i < 2; i++) {
+        if (motor[i] && !c.motor_on[i] && allowed && ms) {
+            c.kicking[i] = 1;
+            c.kick_until[i] = now + ms;
+        }
+        if (!motor[i] || (s32)(now - c.kick_until[i]) >= 0) c.kicking[i] = 0;
+        c.motor_on[i] = motor[i] != 0;
+        if (c.kicking[i]) motor[i] = 255;
+    }
+}
+
 static void outputs(u32 now)
 {
     const struct set_slot *slot, *shown;
@@ -826,6 +846,7 @@ static void outputs(u32 now)
         motor[0] = c.rumble_test[0];
         motor[1] = c.rumble_test[1];
     }
+    kick(motor, now, !(c.rumble_testing && c.rumble_raw));
     plat_motors(motor[0], motor[1]);
     if ((s32)(now - c.led_next) < 0) {
         if (c.dithering && (s32)(now - c.dither_next) >= 0) show(now);
@@ -1128,6 +1149,8 @@ void ctl_main(void)
         deadline = earliest(deadline, remap_deadline());
         if (c.dithering) deadline = earliest(deadline, c.dither_next);
         if (c.rumble_testing) deadline = earliest(deadline, c.rumble_test_until);
+        if (c.kicking[0]) deadline = earliest(deadline, c.kick_until[0]);
+        if (c.kicking[1]) deadline = earliest(deadline, c.kick_until[1]);
         if (c.calibrating) deadline = earliest(deadline, now + CAL_SAMPLE_MS);
         c.stats.passes++;
         util_stat_add(&c.stats.pass, plat_us() - start);

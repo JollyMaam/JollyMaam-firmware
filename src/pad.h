@@ -465,9 +465,9 @@ struct set_remap {
     u8 invert[2][2];         /* [stick][x, y] 1: inverted */
     u8 maps_to[2];           /* STICK_*: the host stick it drives */
     u8 rumble;               /* step: 0 off, 1-RUMBLE_STEPS */
-    u8 rumble_min, rumble_max;       /* percent duty: the lightest rumble, full rumble at the top step */
-    u8 rumble_left, rumble_right;    /* percent of that each motor gets */
+    u8 rumble_min[2], rumble_max[2]; /* [left, right] percent duty: the lightest rumble, full at the top step */
     u8 mouse_layout;         /* mouse: 0 games, 1 desktop */
+    u16 rumble_kick_ms;      /* full power this long when a motor starts */
     u16 stick_speed;         /* mouse: pointer counts per second, stick all the way */
     u16 gyro_speed;          /* mouse, touchpad: counts per degree turned; 0 off */
     u16 gyro_accel;          /* percent of gyro_speed for fast turns */

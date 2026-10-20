@@ -21,8 +21,11 @@
     padtool rumble-test [list | N] [--seconds S]   rumble strengths, one side,
                                   ramps and short pulses, from N: Enter for the
                                   next, r again (or all, S seconds apart)
-    padtool rumble-sticks         left stick up/down sets the strength of both
-                                  motors, right stick left/right the balance;
+    padtool rumble-sticks [--left MIN-MAX] [--right MIN-MAX] [--kick MS] [--full]
+                                  left stick up/down sets one strength, spread
+                                  over each motor's range as the firmware does
+                                  (its defaults unless given; --full: 0-100, no
+                                  kick), right stick left/right the balance;
                                   each stays where it is left (L1: strength 0,
                                   R1: even); Ctrl-C stops (protocol 9+)
     padtool input [-f]            buttons, sticks and triggers, calibrated and
@@ -927,15 +930,28 @@ def nudge(value, push, dt, low, high, rate=0.4):
     return max(low, min(high, value + push * rate * (high - low) * dt))
 
 
-def rumble_sticks(path):
-    """Left stick up/down: strength for both motors; right stick left/right:
-    the balance.  Each stays where it is left; L1 zeroes the strength, R1
-    evens the balance."""
-    print("Left stick: push up for stronger, down for weaker; it stays when you let go.  L1: back to 0.\n"
+RUMBLE_RANGES = ((25, 60), (15, 45))   # the firmware's rumble_{left,right}_{min,max} defaults
+RUMBLE_KICK_MS = 30                     # and rumble_kick_ms
+
+
+def motor_percent(strength, low, high):
+    """As the firmware spreads rumble: the lightest is low, full is high."""
+    return 0.0 if strength <= 0 else low + (high - low) * strength / 100
+
+
+def rumble_sticks(path, ranges=RUMBLE_RANGES, kick_ms=RUMBLE_KICK_MS):
+    """Left stick up/down: one strength, spread over each motor's range as the
+    firmware does, a kick when a motor starts; right stick left/right: the
+    balance.  Each stays where it is left; L1 zeroes the strength, R1 evens
+    the balance."""
+    print(f"Left motor {ranges[0][0]}-{ranges[0][1]}%, right motor {ranges[1][0]}-{ranges[1][1]}%, "
+          f"kick {kick_ms} ms.\n"
+          "Left stick: push up for stronger, down for weaker; it stays when you let go.  L1: back to 0.\n"
           "Right stick: push left or right to move the balance that way; it stays too.  R1: back to even.\n"
           "Ctrl-C: stop.")
     strength, balance, last = 0.0, 0.0, time.monotonic()   # balance -1: left only, +1: right only
     gains = (1.0, 1.0)
+    kick_until = [0.0, 0.0]
     try:
         while True:
             i = read_input(path)
@@ -948,11 +964,18 @@ def rumble_sticks(path):
             if "r1" in i["keys"]:
                 balance = 0.0
             gains = (1 - max(0.0, balance), 1 + min(0.0, balance))
-            left, right = strength * gains[0], strength * gains[1]
+            want = [motor_percent(strength, *ranges[side]) * gains[side] for side in (0, 1)]
+            for side in (0, 1):
+                if not want[side]:
+                    kick_until[side] = 0.0
+                elif not kick_until[side]:
+                    kick_until[side] = now + kick_ms / 1000
+            left, right = (100.0 if want[side] and now < kick_until[side] else want[side] for side in (0, 1))
             if left or right:
                 rumble(path, left, right, 200)
             else:
                 rumble(path, 0, 0, 0)
+            left, right = want
             print(f"\rstrength: {strength:3.0f}% {strength_bar(strength)}   balance: {balance_text(balance):<16} "
                   f"{balance_bar(balance)}   [left: {left:3.0f}%  right: {right:3.0f}%]  ", end="", flush=True)
             time.sleep(0.02)
@@ -1261,6 +1284,21 @@ def main():
                    " rumble-test: play them all, this long apart")
     p.add_argument("-d", "--device", help="which pad or dongle, when several are connected: its path, "
                    "or part of its flash ID (padtool find)")
+    def percent_range(text):
+        try:
+            low, high = (int(v) for v in text.split("-"))
+        except ValueError:
+            raise argparse.ArgumentTypeError("MIN-MAX, percent, e.g. 25-60")
+        if not 0 <= low <= high <= 100:
+            raise argparse.ArgumentTypeError("MIN-MAX with 0 <= MIN <= MAX <= 100")
+        return low, high
+    p.add_argument("--left", type=percent_range, default=RUMBLE_RANGES[0], metavar="MIN-MAX",
+                   help="rumble-sticks: left motor percent range")
+    p.add_argument("--right", type=percent_range, default=RUMBLE_RANGES[1], metavar="MIN-MAX",
+                   help="rumble-sticks: right motor percent range")
+    p.add_argument("--kick", type=int, default=RUMBLE_KICK_MS, metavar="MS",
+                   help="rumble-sticks: full power this long when a motor starts")
+    p.add_argument("--full", action="store_true", help="rumble-sticks: both motors 0-100, no kick")
     p.add_argument("--dev", action="store_true",
                    help="fields, get: include the developer settings")
     board = p.add_mutually_exclusive_group()
@@ -1369,9 +1407,10 @@ def main():
         if a.command == "input":
             show_input(path, a.follow)
         elif a.args:
-            p.error("rumble-sticks takes no arguments")
+            p.error("rumble-sticks takes no arguments, only options")
         else:
-            rumble_sticks(path)
+            rumble_sticks(path, ((0, 100), (0, 100)) if a.full else (a.left, a.right),
+                          0 if a.full else a.kick)
     elif a.command in ("rumble", "rumble-test"):
         path = need_device()
         if int.from_bytes(cmd(path, 0, length=64)[4:6], "little") < 8:

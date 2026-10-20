@@ -230,14 +230,18 @@ static const struct set_field remap_fields[] = {
     { .id = 18, .name = "rumble", .type = T_ENUM, .names = rumble_steps, REMAP(rumble),
       .def = RUMBLE_STEPS, .help = "how strong the motors are: 5 is the host's rumble as asked, each step "
                                    "below a fifth less; Home+M then L1/R1 changes it until a disconnect" },
-    { .id = 19, .flags = F_DEV, .name = "rumble_min", .type = T_NUMBER, .max = 100, REMAP(rumble_min),
-      .def = 20, .help = "percent motor power: any rumble runs at least this (the motors stall or rattle below)" },
-    { .id = 20, .flags = F_DEV, .name = "rumble_max", .type = T_NUMBER, .max = 100, REMAP(rumble_max),
-      .def = 80, .help = "percent motor power: rumble is held to at most this" },
-    { .id = 21, .flags = F_DEV, .name = "rumble_left", .type = T_NUMBER, .max = 100, REMAP(rumble_left),
-      .def = 75, .help = "percent of the rumble the left motor gets: below rumble_right moves the balance right" },
-    { .id = 22, .flags = F_DEV, .name = "rumble_right", .type = T_NUMBER, .max = 100, REMAP(rumble_right),
-      .def = 100, .help = "percent of the rumble the right motor gets" },
+    /* 19-22 were one rumble range and a balance; retired. */
+    { .id = 27, .flags = F_DEV, .name = "rumble_left_min", .type = T_NUMBER, .max = 100, REMAP(rumble_min[0]),
+      .def = 25, .help = "left motor: percent power for the lightest rumble (lower rattles and is not felt)" },
+    { .id = 28, .flags = F_DEV, .name = "rumble_left_max", .type = T_NUMBER, .max = 100, REMAP(rumble_max[0]),
+      .def = 60, .help = "left motor: percent power for full rumble at step 5; rumble between spreads evenly" },
+    { .id = 29, .flags = F_DEV, .name = "rumble_right_min", .type = T_NUMBER, .max = 100, REMAP(rumble_min[1]),
+      .def = 15, .help = "right motor: percent power for the lightest rumble" },
+    { .id = 30, .flags = F_DEV, .name = "rumble_right_max", .type = T_NUMBER, .max = 100, REMAP(rumble_max[1]),
+      .def = 45, .help = "right motor: percent power for full rumble at step 5" },
+    { .id = 31, .flags = F_DEV, .name = "rumble_kick_ms", .type = T_NUMBER, .max = 200, REMAP(rumble_kick_ms),
+      .def = 30, .help = "a motor starting from stopped runs at full power this long first, so a low "
+                         "minimum still starts it; 0: no kick" },
     { .id = 23, .flags = F_DEV, .name = "mouse_layout", .type = T_ENUM, .names = layouts, REMAP(mouse_layout),
       .def = 0, .help = "mouse: what each control does; from the next connect" },
     { .id = 24, .flags = F_DEV, .name = "stick_speed", .type = T_NUMBER, .max = 20000, REMAP(stick_speed),
@@ -252,7 +256,7 @@ static const struct set_field remap_fields[] = {
 #define RIGHT_POINTS (&remap_fields[16])
 #define MAP_FIELD   (&remap_fields[1])
 #define RULES_FIELD (&remap_fields[2])
-_Static_assert(sizeof(remap_fields) / sizeof(remap_fields[0]) == 26, "LEFT_POINTS, RIGHT_POINTS");
+_Static_assert(sizeof(remap_fields) / sizeof(remap_fields[0]) == 27, "LEFT_POINTS, RIGHT_POINTS");
 
 /* What remap slot A is until it is changed; the others start empty.  Map:
  * the key with bit n - 1. */
@@ -1014,11 +1018,11 @@ int main(void)
     CHECK(!set_remap(1)->name[0] && !set_remap(1)->map[0] && !set_remap(0)->rule[0].trigger);
     /* Rumble and the mouse take their field defaults, remap A's too. */
     for (t = 0; t < 2; t++)
-        CHECK(set_remap(t)->rumble == RUMBLE_STEPS && set_remap(t)->rumble_min == 20 &&
-              set_remap(t)->rumble_max == 80 && set_remap(t)->rumble_left == 75 &&
-              set_remap(t)->rumble_right == 100 && set_remap(t)->stick_speed == 1500 &&
-              set_remap(t)->gyro_accel == 250);
-    CHECK(set_remap_defaults()->rumble_left == 75 && set_remap_defaults()->gyro_speed == 32 &&
+        CHECK(set_remap(t)->rumble == RUMBLE_STEPS && set_remap(t)->rumble_min[0] == 25 &&
+              set_remap(t)->rumble_max[0] == 60 && set_remap(t)->rumble_min[1] == 15 &&
+              set_remap(t)->rumble_max[1] == 45 && set_remap(t)->rumble_kick_ms == 30 &&
+              set_remap(t)->stick_speed == 1500 && set_remap(t)->gyro_accel == 250);
+    CHECK(set_remap_defaults()->rumble_min[0] == 25 && set_remap_defaults()->gyro_speed == 32 &&
           !set_remap_defaults()->name[0] && !set_remap_defaults()->map[0]);
     {
         u8 d[512];
