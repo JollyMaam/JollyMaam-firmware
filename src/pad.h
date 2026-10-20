@@ -167,7 +167,7 @@ enum req_kind {
     REQ_REMAP,               /* connected: remap slot .slot, SLOT_NONE none; kept until a disconnect, another slot or sleep */
     REQ_LED_DEMO,                /* the lights show LED demo .slot (ux_led_demos), SLOT_NONE: stop */
     REQ_RUMBLE,              /* the motors run at .motor (0-255 duty) for .ms, over the host's; 0 ms: stop */
-    REQ_RUMBLE_STEP,         /* config mode L1/R1: .slot 0 lower, 1 raise the rumble level (RAM only) */
+    REQ_RUMBLE_STEP,         /* config mode L1/R1: .slot 0 lower, 1 raise the rumble step (RAM only) */
 };
 
 struct ctl_request {
@@ -405,7 +405,7 @@ struct set_slot {
     u8 secondary_colour;                 /* the background */
     u8 grips;
     u8 players;
-    u8 rumble;               /* percent */
+    /* Not stored with the slot: a session's copy takes them from its remap slot. */
     u8 variant;              /* mouse: 0 games, 1 desktop */
     u16 stick_speed;         /* mouse: pointer counts per second, stick all the way */
     u16 gyro_speed;          /* mouse, touchpad: counts per degree turned; 0 off */
@@ -464,7 +464,15 @@ struct set_remap {
     /* Each physical stick: its curve, inversion, then where it goes. */
     u8 invert[2][2];         /* [stick][x, y] 1: inverted */
     u8 maps_to[2];           /* STICK_*: the host stick it drives */
+    u8 rumble;               /* step: 0 off, 1-RUMBLE_STEPS */
+    u8 rumble_min, rumble_max;       /* percent duty: the lightest rumble, full rumble at the top step */
+    u8 rumble_left, rumble_right;    /* percent of that each motor gets */
+    u8 mouse_layout;         /* mouse: 0 games, 1 desktop */
+    u16 stick_speed;         /* mouse: pointer counts per second, stick all the way */
+    u16 gyro_speed;          /* mouse, touchpad: counts per degree turned; 0 off */
+    u16 gyro_accel;          /* percent of gyro_speed for fast turns */
 };
+#define RUMBLE_STEPS 5
 
 /* The remap slot's sticks: curves, inversion, which host stick each drives;
  * NULL: as calibrated. */
@@ -494,6 +502,7 @@ void set_pairing_address(u8 slot, int renew, u8 out[6]);
 void set_pairing_store(u8 slot, const u8 address[6], const struct bt_bond *bond);
 const struct set_cal *set_cal(void);
 const struct set_remap *set_remap(u8 remap);
+const struct set_remap *set_remap_defaults(void);   /* what no remap slot gets: every default */
 u32 set_edits(void);                     /* counts commits from the tools */
 void set_cal_store(const struct set_cal *cal);
 /* Over USB: */
@@ -606,7 +615,7 @@ struct ux_timeouts {
     u16 led_frame_ms;
     u16 usb_plug_ms;
     u32 config_ms;           /* remap config mode with no key pressed */
-    u16 rumble_feedback_ms;  /* config mode L1/R1: the new level at full strength */
+    u16 rumble_feedback_ms;  /* config mode L1/R1: the new step at full strength */
 };
 
 struct ux_colours { u8 idle, battery; u16 idle_brightness, battery_brightness; };
@@ -614,11 +623,6 @@ struct ux_colours { u8 idle, battery; u16 idle_brightness, battery_brightness; }
 extern const struct ux_timeouts ux_timeouts;
 extern const u8 ux_usb_autoconnect;
 extern const struct ux_colours ux_colours;
-/* Config mode L1/R1 step through these rumble percents, in RAM until a restart;
- * the first step starts from the slot's rumble setting. */
-extern const u8 ux_rumble_levels[];
-extern const u8 ux_rumble_level_count;
-extern const u8 ux_rumble_floor;     /* percent duty for the lightest host rumble */
 
 /* LED demos (padtool led-demo): a scene in slot A's colours, with these instead
  * of the slot's settings; 0 in a brightness: the palette's.  A demo lasts

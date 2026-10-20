@@ -70,7 +70,6 @@ static void configure(const struct link_config *c)
     d.set.stick_speed = c->stick_speed;
     d.set.gyro_speed = c->gyro_speed;
     d.set.gyro_accel = c->gyro_accel;
-    d.set.rumble = 100;
     memset(&d.sess, 0, sizeof(d.sess));
     memcpy(d.sess.address, c->address, 6);
     d.sess.settings = &d.set;

@@ -18,7 +18,7 @@ enum { ID_TYPE = 1, ID_ADDRESS = 12, ID_BOND = 13, ID_TRANSPORT = 35 };
 struct set_field {
     u8 id;                   /* stored and sent; never reused */
     u8 type;
-    u8 offset;               /* in the target's struct */
+    u16 offset;              /* in the target's struct */
     u8 size;
     u16 max;                 /* T_NUMBER: largest value; T_ENUM: from names */
     const char *name;
@@ -55,6 +55,7 @@ static const char *const remap_names[] = { "none", "a", "b", "x", "y", "up", "do
 static const u8 linear_points[STICK_CURVE_POINTS] = { 16, 32, 48, 64, 80, 96, 112, 128, 143, 159, 175, 191, 207, 223, 239 };
 
 static const char *const layouts[] = { "games", "desktop", NULL };
+static const char *const rumble_steps[] = { "off", "1", "2", "3", "4", "5", NULL };   /* RUMBLE_STEPS */
 static const char *const phys[] = { "1m", "2m", NULL };
 static const char *const onoff[] = { "on", "off", NULL };
 static const char *const tx_powers[] = { "1", "2", "3", "4", "5", "6", NULL };
@@ -89,16 +90,7 @@ static const struct set_field slot_fields[] = {
       .def = PLAYERS_HOST,
       .help = "player lights while connected: host is the console's player number; fade and "
               "rainbow are animations, lit brighter than the steady colours" },
-    { .id = 7, .name = "rumble", .type = T_NUMBER, .max = 100, FIELD(rumble),
-      .def = 100, .help = "motor power at full rumble, percent; any rumble runs at least at 30%; 0 turns it off" },
-    { .id = 8, .flags = F_DEV, .name = "mouse_layout", .type = T_ENUM, .names = layouts, FIELD(variant),
-      .def = 0, .help = "mouse: what each control does" },
-    { .id = 9, .flags = F_DEV, .name = "stick_speed", .type = T_NUMBER, .max = 20000, FIELD(stick_speed),
-      .def = 1500, .help = "mouse: pointer counts per second, stick all the way" },
-    { .id = 10, .flags = F_DEV, .name = "gyro_speed", .type = T_NUMBER, .max = 1000, FIELD(gyro_speed),
-      .def = 32, .help = "mouse, touchpad: counts per degree turned; 0 off" },
-    { .id = 11, .flags = F_DEV, .name = "gyro_accel", .type = T_NUMBER, .max = 1000, FIELD(gyro_accel),
-      .def = 250, .help = "mouse, touchpad: percent of gyro_speed for fast turns" },
+    /* 7-11 were rumble and the mouse settings, now a remap slot's; retired. */
     { .id = ID_ADDRESS, .name = "address", .type = T_BYTES, FIELD(address),
       .help = "the slot's own address, least significant byte first; zero: derived" },
     { .id = ID_BOND, .name = "bond", .type = T_BYTES, FIELD(bond),
@@ -206,7 +198,7 @@ static const struct set_field remap_fields[] = {
               "hold, turbo, tap or toggle other keys, nothing, or make chosen keys turbo while it is on "
               "(turbo modifier)" },
     /* From here on the second record (REMAP_STICKS), a stick at a time; ids
-     * 1-11 as first released, 12-17 added. */
+     * 1-11 as first released, 12-17 added; then rumble and the mouse (18-26). */
     { .id = 12, .name = "left_maps_to", .type = T_ENUM, .names = left_to, REMAP(maps_to[0]),
       .help = "the host stick the physical left stick drives; if both drive one, the one pushed further wins" },
     { .id = 14, .name = "left_x_axis", .type = T_ENUM, .names = axis_way, REMAP(invert[0][0]),
@@ -235,13 +227,32 @@ static const struct set_field remap_fields[] = {
       .help = "enable right stick points; disabled passes calibrated input through exactly and retains the points" },
     { .id = 7, .name = "right_curve_points", .type = T_BYTES, REMAP(right_curve_points),
       .help = "15 nondecreasing output bytes (0-255) at 6.25% input intervals; endpoints fixed at zero and full" },
+    { .id = 18, .name = "rumble", .type = T_ENUM, .names = rumble_steps, REMAP(rumble),
+      .def = RUMBLE_STEPS, .help = "how strong the motors are; Home+M then L1/R1 changes it until a restart" },
+    { .id = 19, .flags = F_DEV, .name = "rumble_min", .type = T_NUMBER, .max = 100, REMAP(rumble_min),
+      .def = 20, .help = "percent motor power for the lightest rumble" },
+    { .id = 20, .flags = F_DEV, .name = "rumble_max", .type = T_NUMBER, .max = 100, REMAP(rumble_max),
+      .def = 80, .help = "percent motor power for full rumble at the top step; lower steps share the "
+                         "range above rumble_min evenly" },
+    { .id = 21, .flags = F_DEV, .name = "rumble_left", .type = T_NUMBER, .max = 100, REMAP(rumble_left),
+      .def = 75, .help = "percent of the rumble the left motor gets: below rumble_right moves the balance right" },
+    { .id = 22, .flags = F_DEV, .name = "rumble_right", .type = T_NUMBER, .max = 100, REMAP(rumble_right),
+      .def = 100, .help = "percent of the rumble the right motor gets" },
+    { .id = 23, .flags = F_DEV, .name = "mouse_layout", .type = T_ENUM, .names = layouts, REMAP(mouse_layout),
+      .def = 0, .help = "mouse: what each control does; from the next connect" },
+    { .id = 24, .flags = F_DEV, .name = "stick_speed", .type = T_NUMBER, .max = 20000, REMAP(stick_speed),
+      .def = 1500, .help = "mouse: pointer counts per second, stick all the way; from the next connect" },
+    { .id = 25, .flags = F_DEV, .name = "gyro_speed", .type = T_NUMBER, .max = 1000, REMAP(gyro_speed),
+      .def = 32, .help = "mouse, touchpad: counts per degree turned; 0 off; from the next connect" },
+    { .id = 26, .flags = F_DEV, .name = "gyro_accel", .type = T_NUMBER, .max = 1000, REMAP(gyro_accel),
+      .def = 250, .help = "mouse, touchpad: percent of gyro_speed for fast turns; from the next connect" },
 };
 #define REMAP_STICKS 3                    /* remap fields from this index: the second record */
 #define LEFT_POINTS  (&remap_fields[9])
 #define RIGHT_POINTS (&remap_fields[16])
 #define MAP_FIELD   (&remap_fields[1])
 #define RULES_FIELD (&remap_fields[2])
-_Static_assert(sizeof(remap_fields) / sizeof(remap_fields[0]) == 17, "LEFT_POINTS, RIGHT_POINTS");
+_Static_assert(sizeof(remap_fields) / sizeof(remap_fields[0]) == 26, "LEFT_POINTS, RIGHT_POINTS");
 
 /* What remap slot A is until it is changed; the others start empty.  Map:
  * the key with bit n - 1. */
@@ -426,7 +437,7 @@ static void default_value(u8 t, const struct set_field *f, u8 *out)
 
     memset(out, 0, f->size);
     memcpy(out, &def, f->size < 4 ? f->size : 4);
-    if (t == TARGET_REMAP)
+    if (t == TARGET_REMAP && f < &remap_fields[REMAP_STICKS])
         memcpy(out, (const u8 *)&remap_a_default + f->offset, f->size);
     if (f == LEFT_POINTS || f == RIGHT_POINTS)
         memcpy(out, linear_points, sizeof(linear_points));
@@ -698,6 +709,20 @@ const struct set_remap *set_remap(u8 remap)
     return &remaps[remap % SLOTS];
 }
 
+const struct set_remap *set_remap_defaults(void)
+{
+    static struct set_remap d;
+    static u8 made;
+    u32 i;
+
+    if (!made) {
+        for (i = 0; i < COUNT(remap_fields); i++)
+            default_value(TARGET_REMAP + 1, &remap_fields[i], (u8 *)&d + remap_fields[i].offset);
+        made = 1;
+    }
+    return &d;
+}
+
 u32 set_edits(void)
 {
     return edits;
@@ -880,6 +905,14 @@ u32 set_read(u8 t, u8 *out, u32 max) { return read_values(t, out, max, 0); }
 u32 set_read_defaults(u8 t, u8 *out, u32 max) { return read_values(t, out, max, 1); }
 
 #ifdef UNITTEST
+/* A field's bit in set_bits. */
+static u32 bit_of(u8 t, u8 id)
+{
+    u32 bit;
+
+    find(t, id, &bit);
+    return 1u << bit;
+}
 static u8 store[KEYS][RECORD_MAX];
 static int store_writes;
 static u16 read_size = RECORD_MAX;
@@ -942,7 +975,7 @@ int main(void)
     CHECK(set_slot(0)->transport == TRANSPORT_BT_USB && set_slot(1)->transport == TRANSPORT_BT_USB);
     CHECK(set_slot(2)->transport == TRANSPORT_DONGLE && set_slot(3)->transport == TRANSPORT_BT_USB);
     for (t = 4; t < SLOTS; t++) CHECK(set_slot(t)->type == PROFILE_NONE);
-    CHECK(set_slot(1)->rumble == 100 && set_slot(7)->stick_speed == 1500);
+    CHECK(set_slot(1)->link.in_flight == 2 && set_slot(7)->link.poll_us == 3750);
     /* Inspecting an unused slot reveals its first pairing identity without
      * saving it. Classic and LE replacements can still request a new one. */
     {
@@ -979,6 +1012,14 @@ int main(void)
     /* Remap A is the swap until changed; the others are empty. */
     CHECK(!strcmp(set_remap(0)->name, "Swap A/B X/Y") && set_remap(0)->map[0] == 2 && set_remap(0)->map[4] == 4);
     CHECK(!set_remap(1)->name[0] && !set_remap(1)->map[0] && !set_remap(0)->rule[0].trigger);
+    /* Rumble and the mouse take their field defaults, remap A's too. */
+    for (t = 0; t < 2; t++)
+        CHECK(set_remap(t)->rumble == RUMBLE_STEPS && set_remap(t)->rumble_min == 20 &&
+              set_remap(t)->rumble_max == 80 && set_remap(t)->rumble_left == 75 &&
+              set_remap(t)->rumble_right == 100 && set_remap(t)->stick_speed == 1500 &&
+              set_remap(t)->gyro_accel == 250);
+    CHECK(set_remap_defaults()->rumble_left == 75 && set_remap_defaults()->gyro_speed == 32 &&
+          !set_remap_defaults()->name[0] && !set_remap_defaults()->map[0]);
     {
         u8 d[512];
         u32 n = set_read_defaults(TARGET_REMAP, d, sizeof(d));
@@ -998,18 +1039,18 @@ int main(void)
     store_writes = 0;
 
     /* Collected, not applied, until commit; then stored. */
-    x = 60;
-    CHECK(write1(1, 7, 1, &x) == SET_OK);
-    CHECK(write1(1, 9, 2, &speed) == SET_OK);
-    CHECK(write1(1, 9, 2, &huge) == SET_RANGE);
+    x = 6;
+    CHECK(write1(1, 18, 1, &x) == SET_OK);
+    CHECK(write1(1, 19, 2, &speed) == SET_OK);
+    CHECK(write1(1, 19, 2, &huge) == SET_RANGE);
     CHECK(write1(1, 99, 1, &x) == SET_UNKNOWN);
-    CHECK(write1(1, 7, 2, &speed) == SET_BAD_LENGTH);
+    CHECK(write1(1, 18, 2, &speed) == SET_BAD_LENGTH);
     x = PROFILE_COUNT;
     CHECK(write1(1, 1, 1, &x) == SET_RANGE);
     CHECK(write1(TARGETS, 1, 1, &x) == SET_UNKNOWN);
-    CHECK(set_staged() == 2 && set_slot(1)->rumble == 100);
+    CHECK(set_staged() == 2 && set_slot(1)->link.in_flight == 2);
     set_apply();
-    CHECK(set_slot(1)->rumble == 60 && set_slot(1)->stick_speed == 3000 && set_staged() == 0);
+    CHECK(set_slot(1)->link.in_flight == 6 && set_slot(1)->link.poll_us == 3000 && set_staged() == 0);
     set_poll(ms, 1);
     CHECK(store_writes == 1);
 
@@ -1018,8 +1059,8 @@ int main(void)
     read_size = 160;   /* existing firmware records return their shorter length */
     set_init();
     read_size = RECORD_MAX;
-    CHECK(set_slot(1)->rumble == 60 && set_slot(1)->stick_speed == 3000);
-    CHECK(set_slot(0)->rumble == 100);
+    CHECK(set_slot(1)->link.in_flight == 6 && set_slot(1)->link.poll_us == 3000);
+    CHECK(set_slot(0)->link.in_flight == 2);
     {
         u8 defaults[512], current[512], again[512];
         u32 size = set_read(1, current, sizeof(current));
@@ -1034,12 +1075,12 @@ int main(void)
         CHECK(set_read_defaults(TARGETS, defaults, sizeof(defaults)) == 0);
         CHECK(set_read_defaults(0, defaults, 3) == 0);
     }
-    CHECK(write1(1, 7, 0, NULL) == SET_OK);
+    CHECK(write1(1, 18, 0, NULL) == SET_OK);
     set_apply();
-    CHECK(set_slot(1)->rumble == 100 && set_slot(1)->stick_speed == 3000);
+    CHECK(set_slot(1)->link.in_flight == 2 && set_slot(1)->link.poll_us == 3000);
     CHECK(write1(1, 0, 0, NULL) == SET_OK);
     set_apply();
-    CHECK(set_slot(1)->stick_speed == 1500 && set_bits[1] == 0);
+    CHECK(set_slot(1)->link.poll_us == 3750 && set_bits[1] == 0);
     CHECK(write1(1, 2, 1, &(u8){ PALETTE }) == SET_RANGE);
     set_poll(ms, 1);
 
@@ -1082,23 +1123,23 @@ int main(void)
     store[key_of(2, 0)][1] = MAGIC >> 8;
     store[key_of(2, 0)][2] = VERSION;
     store[key_of(2, 0)][4] = 200; store[key_of(2, 0)][5] = 1; store[key_of(2, 0)][6] = 1;
-    store[key_of(2, 0)][7] = 7; store[key_of(2, 0)][8] = 1; store[key_of(2, 0)][9] = 42;
+    store[key_of(2, 0)][7] = 18; store[key_of(2, 0)][8] = 1; store[key_of(2, 0)][9] = 4;
     set_init();
-    CHECK(set_slot(2)->rumble == 42);
+    CHECK(set_slot(2)->link.in_flight == 4);
 
     /* Pairing pins the address; a new type rolls the address and clears bond. */
     memset(&bond, 0x11, sizeof(bond));
     set_slot_address(0, a);
     set_bond_store(0, &bond);
     set_slot_address(0, b);
-    CHECK(!memcmp(a, b, 6) && set_bits[0] == (1u << 12 | 1u << 13));
+    CHECK(!memcmp(a, b, 6) && set_bits[0] == (bit_of(0, ID_ADDRESS) | bit_of(0, ID_BOND)));
     x = PROFILE_GENERIC_BLE;
     CHECK(write1(0, 1, 1, &x) == SET_OK);      /* the same type: kept */
     set_apply();
     CHECK(set_bond(0)->peer[0] == 0x11);
     CHECK(write1(0, 0, 0, NULL) == SET_OK);    /* reset, the same type: pairing kept */
     set_apply();
-    CHECK(set_bond(0)->peer[0] == 0x11 && set_bits[0] == (1u << 12 | 1u << 13));
+    CHECK(set_bond(0)->peer[0] == 0x11 && set_bits[0] == (bit_of(0, ID_ADDRESS) | bit_of(0, ID_BOND)));
     x = PROFILE_XBOX;
     CHECK(write1(0, 1, 1, &x) == SET_OK);
     set_apply();
@@ -1155,12 +1196,12 @@ int main(void)
     set_drop();
     CHECK(set_bond(0)->peer[0] == 0x11);
     CHECK(write1(0, SET_UNPAIR, 0, NULL) == SET_OK);
-    CHECK(write1(0, 7, 1, &(u8){ 75 }) == SET_OK);
+    CHECK(write1(0, 18, 1, &(u8){ 7 }) == SET_OK);
     set_apply();
     set_slot_address(0, b);
     CHECK(memcmp(a, b, 6) && memcmp(a + 3, b + 3, 3) && (b[5] & 3) == 2);
     memset(&bond, 0, sizeof(bond));
-    CHECK(!memcmp(set_bond(0), &bond, sizeof(bond)) && set_slot(0)->rumble == 75);
+    CHECK(!memcmp(set_bond(0), &bond, sizeof(bond)) && set_slot(0)->link.in_flight == 7);
     CHECK(write1(0, SET_UNPAIR, 0, NULL) == SET_OK);
     set_apply();
     set_slot_address(0, n);
@@ -1255,14 +1296,14 @@ int main(void)
     set_poll(ms, 1);
     t = (u32)store_writes;
     set_ephemeral();
-    x = 10;
-    CHECK(write1(3, 7, 1, &x) == SET_OK);
+    x = 1;
+    CHECK(write1(3, 18, 1, &x) == SET_OK);
     set_apply();
     set_bond_store(3, &bond);
     set_cal_store(&cal);
     set_poll(ms + 1000, 1);
     set_flush();
-    CHECK(set_slot(3)->rumble == 10 && store_writes == (int)t);
+    CHECK(set_slot(3)->link.in_flight == 1 && store_writes == (int)t);
 
 
     /* Describe and read. */

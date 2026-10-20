@@ -41,6 +41,7 @@ static struct {
     u32 usb_unready_ms;          /* CONNECTED on USB: when the host unconfigured us, 0: it has not */
     u32 wake_next;
     struct profile_session sess;
+    struct set_slot sess_set;    /* sess.settings: the slot's, with its remap's mouse settings */
     u8 pair_pending;             /* pairing: the slot keeps its old address and bond until the host pairs */
     struct bt_bond pair_bond;    /* what the pairing has so far */
     u8 radio_pending;            /* the session's radio waits for the last one's BT_EV_STOPPED */
@@ -72,7 +73,7 @@ static struct {
     u8 rumble_test[2];           /* padtool rumble: these duties until rumble_test_until */
     u8 rumble_testing;
     u32 rumble_test_until;
-    u8 rumble_level, rumble_level_set;   /* config mode L1/R1: over the slot's rumble, until a restart */
+    u8 rumble_step, rumble_step_set;     /* config mode L1/R1: over the remap's rumble, until a restart */
     struct led_state led;
     const struct led_scene *led_scene;   /* the one drawn: a change fades in */
     struct led_fine frame;       /* the scene as drawn */
@@ -222,6 +223,31 @@ static const char *remap_name(u8 remap)
     return remap < SLOTS ? names[remap] : "none";
 }
 
+/* Rumble and mouse settings: the remap slot in use, or every default without one. */
+static const struct set_remap *remap_settings(void)
+{
+    return c.remap < SLOTS ? set_remap(c.remap) : set_remap_defaults();
+}
+
+static u8 rumble_step(void)
+{
+    return c.rumble_step_set ? c.rumble_step : remap_settings()->rumble;
+}
+
+/* Host rumble 1-255 spans rumble_min up to the step's share of the range to
+ * rumble_max, then each motor takes its percent of that. */
+static u8 motor_duty(u8 host, int right)
+{
+    const struct set_remap *m = remap_settings();
+    u32 step = rumble_step(), lo = m->rumble_min, top, pct;
+
+    if (!host || !step) return 0;
+    top = m->rumble_max > lo ? lo + (m->rumble_max - lo) * step / RUMBLE_STEPS : lo;
+    pct = lo * 254 + (top - lo) * (host - 1u);              /* percent, times 254 */
+    pct = pct * (right ? m->rumble_right : m->rumble_left) / 100;
+    return (u8)(pct * 255 / (100 * 254));
+}
+
 static void start_session(struct ctl_request r, u32 now)
 {
     const struct set_slot *set = set_slot(r.slot);
@@ -254,7 +280,6 @@ static void start_session(struct ctl_request r, u32 now)
     memset(&c.pair_bond, 0, sizeof(c.pair_bond));
     c.pair_pending = (u8)pairing;
     s.bond = pairing ? &c.pair_bond : set_bond(r.slot);
-    s.settings = set;
     s.usb = (u8)usb;
     c.usb = (u8)usb;
     c.prof = p;
@@ -267,6 +292,16 @@ static void start_session(struct ctl_request r, u32 now)
         c.remap = set->remap ? (u8)(set->remap - 1) : SLOT_NONE;
         c.remap_slot = r.slot;
         c.remap_chosen = 0;
+    }
+    {
+        const struct set_remap *m = remap_settings();
+
+        c.sess_set = *set;
+        c.sess_set.variant = m->mouse_layout;
+        c.sess_set.stick_speed = m->stick_speed;
+        c.sess_set.gyro_speed = m->gyro_speed;
+        c.sess_set.gyro_accel = m->gyro_accel;
+        s.settings = &c.sess_set;
     }
     plat_retain_slot(r.slot);
     memset(&c.host, 0, sizeof(c.host));
@@ -340,18 +375,16 @@ static void handle(struct ctl_request r, u32 now)
         c.rumble_test_until = now + (r.ms < RUMBLE_TEST_MAX_MS ? r.ms : RUMBLE_TEST_MAX_MS);
         break;
     case REQ_RUMBLE_STEP: {
-        u8 level = c.rumble_level_set ? c.rumble_level : set_slot(c.slot < SLOTS ? c.slot : 0)->rumble;
-        u8 i, n = ux_rumble_level_count;
-        if (r.slot) {
-            for (i = 0; i < n - 1 && ux_rumble_levels[i] <= level; i++) {}
-        } else {
-            for (i = n - 1; i > 0 && ux_rumble_levels[i] >= level; i--) {}
-        }
-        c.rumble_level = ux_rumble_levels[i];
-        c.rumble_level_set = 1;
-        util_log("rumble level %u%%", c.rumble_level);
-        c.rumble_test[0] = c.rumble_test[1] = (u8)(255 * c.rumble_level / 100);
-        c.rumble_testing = c.rumble_level != 0;
+        u8 step = rumble_step();
+
+        if (r.slot && step < RUMBLE_STEPS) step++;
+        if (!r.slot && step) step--;
+        c.rumble_step = step;
+        c.rumble_step_set = 1;
+        util_log("rumble step %u", step);
+        c.rumble_test[0] = motor_duty(255, 0);
+        c.rumble_test[1] = motor_duty(255, 1);
+        c.rumble_testing = step != 0;
         c.rumble_test_until = now + ux_timeouts.rumble_feedback_ms;
         break;
     }
@@ -759,14 +792,6 @@ static void show(u32 now)
     }
 }
 
-/* Host rumble 1-255 spans ux_rumble_floor up to level percent duty. */
-static u8 motor_duty(u8 host, u8 level)
-{
-    u32 top = 255u * level / 100, floor = 255u * ux_rumble_floor / 100;
-    if (!host || !level) return 0;
-    if (top <= floor) return (u8)top;
-    return (u8)(floor + (top - floor) * (host - 1u) / 254);
-}
 
 static void outputs(u32 now)
 {
@@ -778,7 +803,7 @@ static void outputs(u32 now)
     u32 plugged = now - c.usb_plugged_ms;
     u8 scene = c.kind, armed = ux_armed();
     int rumble = c.kind == CTL_CONNECTED && !c.calibrating;
-    u8 motor[2], level;
+    u8 motor[2];
 
     if (c.prof && c.prof->host) c.prof->host(now, &c.host);
     if (!c.host.rumble[0] != !c.rumble_logged[0] || !c.host.rumble[1] != !c.rumble_logged[1]) {
@@ -789,9 +814,8 @@ static void outputs(u32 now)
     c.imu_mode = !session() ? IMU_OFF : c.prof && c.prof->host && c.host.imu ? c.host.imu : c.begin_imu;
     c.imu_next = imu_poll(now, c.imu_mode);
     slot = set_slot(c.slot < SLOTS ? c.slot : 0);
-    level = c.rumble_level_set ? c.rumble_level : slot->rumble;
-    motor[0] = rumble ? motor_duty(c.host.rumble[0], level) : 0;
-    motor[1] = rumble ? motor_duty(c.host.rumble[1], level) : 0;
+    motor[0] = rumble ? motor_duty(c.host.rumble[0], 0) : 0;
+    motor[1] = rumble ? motor_duty(c.host.rumble[1], 1) : 0;
     if (c.rumble_testing && (s32)(now - c.rumble_test_until) >= 0) c.rumble_testing = 0;
     if (c.rumble_testing) {
         motor[0] = c.rumble_test[0];

@@ -20,12 +20,6 @@ const struct ux_timeouts ux_timeouts = {
     .rumble_feedback_ms = 1000,
 };
 
-/* Below about 25% duty the motors barely turn or rattle, and 40% full strength
- * already feels weak: levels are the duty at full host rumble, and any rumble
- * at all runs the motors at least at ux_rumble_floor percent. */
-const u8 ux_rumble_levels[] = { 0, 50, 60, 70, 85, 100 };
-const u8 ux_rumble_floor = 30;
-const u8 ux_rumble_level_count = sizeof(ux_rumble_levels);
 
 /* Idle, a USB host appearing (a plug-in, or the host waking) connects the
  * last slot if it is usb or bluetooth+usb.  Off: the tool device stays, for
@@ -89,7 +83,7 @@ const struct led_scene ux_scenes[CTL_KIND_COUNT] = {
 /* Home+M: remap config mode, which ux_step runs itself.  Every input is held
  * back from the host; releasing a slot key picks that remap slot, releasing
  * Home or M picks none, ux_timeouts.config_ms without a press leaves it as it
- * was.  Releasing L1 or R1 lowers or raises the rumble level and stays. */
+ * was.  Releasing L1 or R1 lowers or raises the rumble step and stays. */
 #define REQ_CONFIG 0xff
 
 /* Where a gesture works (offline: any state but connected), and whether it
