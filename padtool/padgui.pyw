@@ -48,6 +48,7 @@ class App:
         self.flash_active = False
         self.batch_edits = False
         self.scroll_canvases = {}
+        self.scroll_updaters = {}            # a scroll form's scroll region, brought up to date now
         self.responsive_rows = {}
         self.active_page = None
         self.cache = {}
@@ -293,8 +294,7 @@ class App:
                     error, output = data
                     self.log(output + "\n" + error)
                     self.notice.set("Operation failed.")
-                    self.render_overview()
-                    self.render_details()
+                    self.rerender_in_place()
                     messagebox.showerror("padtool", error)
                 else:
                     result, done, output = data
@@ -925,6 +925,7 @@ class App:
 
             canvas.configure(xscrollcommand=horizontal_position)
         self.scroll_canvases[parent] = canvas
+        self.scroll_updaters[parent] = update_region
         return form
 
     def wrap_row(self, parent, widgets, page):
@@ -1262,10 +1263,23 @@ class App:
                 self.events.put(("applied", (path, values, keys)))
                 self.flash_report(f"{path}: applied {len(items)} setting(s)")
         def finished(_):
-            self.render_overview()
-            self.render_details()
+            self.rerender_in_place()
             self.mark_dirty()
         self.run("Applying settings…" if only or device_path else "Applying pending changes to all edited devices…", apply, finished)
+
+    def rerender_in_place(self):
+        """Rebuild the overview and details of the same device and page,
+        scrolled where they were (a rebuild would show their tops)."""
+        pages = (self.overview, self.settings)
+        where = {page: (self.scroll_canvases[page].xview()[0], self.scroll_canvases[page].yview()[0])
+                 for page in pages if page in self.scroll_canvases}
+        self.render_overview()
+        self.render_details()
+        self.root.update_idletasks()
+        for page, (x, y) in where.items():
+            self.scroll_updaters[page]()
+            self.scroll_canvases[page].xview_moveto(x)
+            self.scroll_canvases[page].yview_moveto(y)
 
     @staticmethod
     def has_pairing(bond):

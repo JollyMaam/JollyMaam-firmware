@@ -1533,5 +1533,24 @@ class RemapGuiTests(GuiCase):
         self.assertEqual(items[12, 1], b"Zelda".ljust(24, b"\0"))
         self.assertEqual(items[12, 3][:10], bytes([3, 8, 0, 5, 1, 0, 0, 0, 15, 0]))
 
+    def test_apply_keeps_the_page_scrolled_where_it_was(self):
+        r = remap_record()
+        self.open_remap(r, 12)
+        self.root.geometry("900x300")
+        self.root.update()
+        canvas = self.app.scroll_canvases[self.app.settings]
+        canvas.yview_moveto(0.5)
+        self.root.update()
+        before = canvas.yview()[0]
+        self.assertGreater(before, 0.2)
+        r["draft"][12, "name"]["var"].set("Zelda")
+        with patch.object(padgui.pad, "cmd", return_value=r["identity"]), \
+             patch.object(padgui.pad, "send"), \
+             patch.object(padgui.pad, "read_target", side_effect=lambda p, table, t: r["values"][t]):
+            self.app.apply_settings()
+            self.finish()
+        self.root.update()
+        self.assertAlmostEqual(canvas.yview()[0], before, places=2)
+
 if __name__ == "__main__":
     unittest.main()
