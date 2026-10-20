@@ -6,7 +6,7 @@
  * encoded SYS_CFG_PARAM stream, app files, and PRCT/VM/BTIF/key_mac reserved
  * regions.  See docs/re-application-image.md for the on-flash layout.
  */
-#define _POSIX_C_SOURCE 200809L
+#define _XOPEN_SOURCE 700
 #include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -1140,6 +1140,34 @@ static size_t device_paths(char paths[256][300]) {
   return n;
 }
 
+/* The USB port a SCSI node's device is on ("5-2.1", from sysfs).  A device
+ * restarting into its ROM loader comes back on the same port, but often on
+ * another sg node: the number is the kernel's next free one. */
+static bool usb_port(const char *path, char port[64]) {
+#ifdef _WIN32
+  (void)path, (void)port;
+  return false;
+#else
+  const char *name = strrchr(path, '/');
+  char link[400], *real, *host, *iface, *colon;
+  bool ok = false;
+  snprintf(link, sizeof link, "/sys/class/scsi_generic/%s/device", name ? name + 1 : path);
+  real = realpath(link, NULL);
+  /* .../usb5/5-2/5-2.1/5-2.1:1.0/host7/target7:0:0/7:0:0:0 */
+  if (real && strstr(real, "/usb") && (host = strstr(real, "/host"))) {
+    *host = 0;
+    iface = strrchr(real, '/');
+    if (iface && (colon = strchr(++iface, ':'))) {
+      *colon = 0;
+      snprintf(port, 64, "%s", iface);
+      ok = true;
+    }
+  }
+  free(real);
+  return ok;
+#endif
+}
+
 #define LOADER_ADDRESS 0x12000 /* BR23 */
 #define LOADER_BLOCK 512
 #define LOADER_ARG 1 /* target: SPI NOR */
@@ -1341,16 +1369,40 @@ static bool open_dev(struct dev *d, const char *path) {
   dev_close(d->fd);
   return false;
 }
-/* The ROM loaders (UBOOT1.00) on the system, by path. */
-static size_t scan_dev(struct dev *d, char found[8][300], const char selected[256][300], size_t count) {
-  char paths[256][300];
-  size_t n = count ? count : device_paths(paths), nf = 0;
+/* The ROM loaders (UBOOT1.00) among paths. */
+static size_t scan_dev(struct dev *d, char found[8][300], const char paths[256][300], size_t n) {
+  size_t nf = 0;
   for (size_t i = 0; i < n && nf < 8; i++) {
-    strcpy(found[nf], count ? selected[i] : paths[i]);
+    strcpy(found[nf], paths[i]);
     if (open_dev(d, found[nf]))
       dev_close(d->fd), nf++;
   }
   return nf;
+}
+
+/* The nodes to look at while candidates restart: those on a candidate's USB
+ * port, whatever their sg number now, and candidates whose port is not known
+ * by name.  Unrelated devices are left alone: probing one that fails can
+ * block in kernel storage recovery for 30 seconds.  Without any ports (no
+ * sysfs), every node. */
+static size_t follow(const char ports[256][64], const char selected[256][300], size_t count,
+                     char out[256][300]) {
+  char paths[256][300], port[64];
+  size_t n = device_paths(paths), m = 0;
+  bool any = false;
+  for (size_t i = 0; i < count; i++)
+    any |= ports[i][0] != 0;
+  for (size_t i = 0; i < n; i++) {
+    bool take = !any;
+    if (any && usb_port(paths[i], port))
+      for (size_t j = 0; j < count; j++)
+        take |= !strcmp(ports[j], port);
+    for (size_t j = 0; j < count && !take; j++)
+      take = !ports[j][0] && !strcmp(selected[j], paths[i]);
+    if (take)
+      strcpy(out[m++], paths[i]);
+  }
+  return m;
 }
 
 /* Load and start the flash loader, then ask what the chip is. */
@@ -1522,21 +1574,25 @@ static void select_dev(struct dev *out, const struct flash_opts *o,
     struct dev d;
   } seen[8];
   size_t ns = 0;
-  char selected[256][300];
-  size_t count = 0;
+  char selected[256][300], ports[256][64], look[256][300];
+  size_t count = 0, nl;
   for (unsigned t = 0;; t++) {
-    if (o->enter_loader) {
-      /* Once candidates are known, follow their restart. Reprobing unrelated
-       * failing devices can block in kernel storage recovery for 30 seconds. */
-      if (!count)
+    /* Once candidates are known, follow their restart (follow()). */
+    if (!count) {
+      if (o->enter_loader)
         count = enter_loaders(NULL, o->force_pid ? NULL : want, selected);
-      else
-        for (size_t i = 0; i < count; i++)
-          enter_loaders(selected[i], o->force_pid ? NULL : want, NULL);
+      for (size_t i = 0; i < count; i++)
+        if (!usb_port(selected[i], ports[i]))
+          ports[i][0] = 0;
+    } else if (o->enter_loader) {
+      nl = follow(ports, selected, count, look);
+      for (size_t i = 0; i < nl; i++)
+        enter_loaders(look[i], o->force_pid ? NULL : want, NULL);
     }
+    nl = count ? follow(ports, selected, count, look) : device_paths(look);
     char found[8][300];
     struct dev probe;
-    size_t nf = scan_dev(&probe, found, selected, count);
+    size_t nf = scan_dev(&probe, found, look, nl);
     for (size_t i = 0; i < nf && ns < 8; i++) {
       bool known = false;
       for (size_t j = 0; j < ns; j++)
