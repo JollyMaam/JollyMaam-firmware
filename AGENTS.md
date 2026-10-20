@@ -32,7 +32,8 @@ controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`)
   `struct pad`, so the dongle can run the same profiles.
 - **Transports.** A slot's `transport` is Bluetooth, USB (the profile's
   `struct usb_identity`, built by `platform_jieli_usb.c`), USB while a USB host
-  is there, or our dongle.  A profile builds the USB formats when
+  is there (else Bluetooth), our dongle, or USB while a USB host is there (else
+  the dongle).  A profile builds the USB formats when
   `profile_session.usb` is set.  The dongle runs the same profiles on its USB
   port from the pad's state (`link.h`, `profile_link.c`, `dongle*.c`).
 - **Two threads.** Control runs `ctl_main` and every module except `bt.c`.

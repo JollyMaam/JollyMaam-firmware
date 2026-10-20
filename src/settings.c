@@ -38,7 +38,7 @@ static const char *const types[] = {
     "switch", "switch2", "xbox", "xboxble", "dualsense", "dualshock4", "generic", "mouse",
     "genericble", "none", NULL,
 };
-static const char *const transports[] = { "bluetooth", "usb", "bluetooth+usb", "dongle", NULL };
+static const char *const transports[] = { "bluetooth", "usb", "bluetooth+usb", "dongle", "dongle+usb", NULL };
 static const char *const grips[] = {
     "off", "host", "fade", "rumble", "input", "rumble+input", "primary", "secondary", NULL,
 };
@@ -67,7 +67,8 @@ static const struct set_field slot_fields[] = {
       PER_SLOT(TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_DONGLE, TRANSPORT_BT_USB,
                [4 ... 7] = TRANSPORT_BT_USB),
       .help = "how: bluetooth; usb, a wired controller; bluetooth+usb, usb while a usb host "
-              "is there, else bluetooth (never back to it mid-session); dongle, through our dongle, which is the type on its usb port" },
+              "is there, else bluetooth (never back to it mid-session); dongle, through our dongle, which is the type on its usb port; "
+              "dongle+usb, usb while a usb host is there, else the dongle" },
     { .id = 2, .name = "connect_colour", .type = T_COLOUR, FIELD(connect_colour),
       PER_SLOT(COLOUR(5, 5), COLOUR(11, 5), COLOUR(7, 5), COLOUR(1, 5),
                COLOUR(9, 4), COLOUR(13, 4), COLOUR(3, 4), COLOUR(15, 4)),
@@ -462,8 +463,8 @@ static void reset_keeping_pairing(u8 t)
     }
     for (i = 0; i < n; i++)
         if (f[i].id != ID_ADDRESS && f[i].id != ID_BOND) put(t, &f[i], i, NULL, 0);
-    if ((slots[t].type != type && transport != TRANSPORT_DONGLE) ||
-        (transport == TRANSPORT_DONGLE) != (slots[t].transport == TRANSPORT_DONGLE))
+    if ((slots[t].type != type && !set_via_dongle(transport)) ||
+        set_via_dongle(transport) != set_via_dongle(slots[t].transport))
         renew_identity(t);
 }
 
@@ -613,7 +614,7 @@ void set_slot_address(u8 slot, u8 out[6])
     static const u8 zero[16];
     const u8 *seed = plat_unique_id();
     /* Through the dongle the type can change under the same host. */
-    u8 salt[3] = { (u8)(slot % SLOTS), set_slot(slot)->transport == TRANSPORT_DONGLE ? 0xff :
+    u8 salt[3] = { (u8)(slot % SLOTS), set_via_dongle(set_slot(slot)->transport) ? 0xff :
                                        set_slot(slot)->type, 0 };
     u32 a, b;
 
@@ -737,11 +738,11 @@ void set_apply(void)
             /* A new type is a new device to the console: the old address
              * and bond belong to the old one.  Through the dongle the host
              * stays the dongle, whatever the type; moving to or from the
-             * dongle changes the host. */
+             * dongle changes the host (dongle and dongle+usb share it). */
             if (t < SLOTS && ((id == ID_TYPE && v != slots[t].type &&
-                               slots[t].transport != TRANSPORT_DONGLE) ||
-                              (id == ID_TRANSPORT && (v == TRANSPORT_DONGLE) !=
-                               (slots[t].transport == TRANSPORT_DONGLE)))) {
+                               !set_via_dongle(slots[t].transport)) ||
+                              (id == ID_TRANSPORT && set_via_dongle(v) !=
+                               set_via_dongle(slots[t].transport)))) {
                 renew_identity(t);
             }
             put(t, f, bit, stage + o + 3, l);
@@ -1175,10 +1176,39 @@ int main(void)
         slots[1].type = PROFILE_XBOX;
         set_slot_address(1, d2);
         CHECK(!memcmp(d1, d2, 6));
+        slots[1].transport = TRANSPORT_DONGLE_USB;          /* the same host as dongle */
+        set_slot_address(1, d2);
+        CHECK(!memcmp(d1, d2, 6));
         slots[1].transport = TRANSPORT_BT;
         set_slot_address(1, d2);
         CHECK(memcmp(d1, d2, 6));
     }
+    /* dongle+usb: the dongle's host too.  To and from dongle, or a new type,
+     * keeps the pairing; to bluetooth+usb is a new host. */
+    x = TRANSPORT_DONGLE_USB;
+    CHECK(write1(1, ID_TRANSPORT, 1, &x) == SET_OK);
+    set_apply();
+    CHECK(set_slot(1)->transport == TRANSPORT_DONGLE_USB && set_usb_first(TRANSPORT_DONGLE_USB));
+    set_bond_store(1, &bond);
+    set_slot_address(1, a);
+    x = TRANSPORT_DONGLE;
+    CHECK(write1(1, ID_TRANSPORT, 1, &x) == SET_OK);
+    x = TRANSPORT_DONGLE_USB;
+    CHECK(write1(1, ID_TRANSPORT, 1, &x) == SET_OK);
+    x = PROFILE_SWITCH2;
+    CHECK(write1(1, ID_TYPE, 1, &x) == SET_OK);
+    set_apply();
+    set_slot_address(1, b);
+    CHECK(set_bond(1)->peer[0] == 0x11 && !memcmp(a, b, 6));
+    x = TRANSPORT_BT_USB;
+    CHECK(write1(1, ID_TRANSPORT, 1, &x) == SET_OK);
+    set_apply();
+    set_slot_address(1, b);
+    CHECK(set_bond(1)->peer[0] == 0 && memcmp(a, b, 6));
+    x = TRANSPORT_DONGLE_USB + 1;
+    CHECK(write1(1, ID_TRANSPORT, 1, &x) == SET_RANGE);
+    reset_keeping_pairing(1);
+    clear(1, ID_ADDRESS);
 
     /* Palette and colours. */
     CHECK(write1(TARGET_PALETTE, 5, 3, "\x10\x20\x30") == SET_OK);

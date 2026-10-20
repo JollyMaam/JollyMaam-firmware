@@ -353,8 +353,21 @@ enum { PROFILE_SWITCH, PROFILE_SWITCH2, PROFILE_XBOX, PROFILE_XBOX_BLE, PROFILE_
        PROFILE_DUALSHOCK4, PROFILE_GENERIC, PROFILE_MOUSE, PROFILE_GENERIC_BLE, PROFILE_NONE, PROFILE_COUNT };
 /* How a slot reaches its host: Bluetooth; USB (a wired controller); USB while
  * a USB host is there, else Bluetooth (a USB session that ends does not move
- * back); or through our dongle, which is the slot's type on its own USB port. */
-enum { TRANSPORT_BT, TRANSPORT_USB, TRANSPORT_BT_USB, TRANSPORT_DONGLE };
+ * back); through our dongle, which is the slot's type on its own USB port; or
+ * USB while a USB host is there, else the dongle. */
+enum { TRANSPORT_BT, TRANSPORT_USB, TRANSPORT_BT_USB, TRANSPORT_DONGLE, TRANSPORT_DONGLE_USB };
+
+/* bluetooth+usb, dongle+usb: USB while a USB host is there, else the radio. */
+static inline int set_usb_first(u8 transport)
+{
+    return transport == TRANSPORT_BT_USB || transport == TRANSPORT_DONGLE_USB;
+}
+
+/* dongle, dongle+usb: the radio's host is our dongle, whatever the type. */
+static inline int set_via_dongle(u8 transport)
+{
+    return transport == TRANSPORT_DONGLE || transport == TRANSPORT_DONGLE_USB;
+}
 enum { GRIPS_OFF, GRIPS_HOST, GRIPS_FADE, GRIPS_RUMBLE, GRIPS_INPUT, GRIPS_BOTH,
        GRIPS_PRIMARY, GRIPS_SECONDARY };
 enum { PLAYERS_OFF, PLAYERS_HOST, PLAYERS_FADE, PLAYERS_PRIMARY, PLAYERS_SECONDARY };

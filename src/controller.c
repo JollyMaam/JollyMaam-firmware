@@ -152,12 +152,13 @@ static int input_wanted(void)
     return c.usb ? plat_usb_input_wanted() : bt_input_wanted();
 }
 
-/* Which way a session goes: bluetooth+usb is USB while a USB host is there
- * (frames on the bus, not just power) and the type has a USB device. */
+/* Which way a session goes: bluetooth+usb and dongle+usb are USB while a USB
+ * host is there (frames on the bus, not just power) and the type has a USB
+ * device. */
 static int wants_usb(const struct set_slot *set, const struct profile *p)
 {
     if (!p->usb) return 0;
-    return set->transport == TRANSPORT_USB || (set->transport == TRANSPORT_BT_USB && c.usb_powered);
+    return set->transport == TRANSPORT_USB || (set_usb_first(set->transport) && c.usb_powered);
 }
 
 /* The slot's bond as this session knows it. */
@@ -228,10 +229,11 @@ static void start_session(struct ctl_request r, u32 now)
         return;
     }
     if (session()) end_session();
-    /* An explicit pairing uses the radio even with a USB host present. */
-    usb = wants_usb(set, p) && !(pairing && set->transport == TRANSPORT_BT_USB);
+    /* An explicit pairing uses the radio (or the dongle) even with a USB host
+     * present. */
+    usb = wants_usb(set, p) && !(pairing && set_usb_first(set->transport));
     if (usb) pairing = 0;        /* a cable needs none; keep the radio's bond */
-    else if (set->transport == TRANSPORT_DONGLE) p = &profile_link;
+    else if (set_via_dongle(set->transport)) p = &profile_link;
     memset(&s, 0, sizeof(s));
     s.slot = r.slot;
     s.pairing = (u8)pairing;
@@ -505,11 +507,12 @@ static void usb_session(u32 now)
     }
 }
 
-/* A USB session (usb, or bluetooth+usb that found a host) ends with its
- * host: a bus suspend once it configured us (asleep; or the cable went, 3 ms
- * after the frames stop), or no frames for USB_GONE_MS.  Nothing moves to
- * the radio; the next connect chooses again.  A bluetooth+usb session on the
- * radio moves to USB once a USB host is there, unless it began as pairing. */
+/* A USB session (usb, or bluetooth+usb or dongle+usb that found a host) ends
+ * with its host: a bus suspend once it configured us (asleep; or the cable
+ * went, 3 ms after the frames stop), or no frames for USB_GONE_MS.  Nothing
+ * moves to the radio; the next connect chooses again.  A bluetooth+usb or
+ * dongle+usb session on the radio moves to USB once a USB host is there,
+ * unless it began as pairing. */
 static void follow_usb(u32 now)
 {
     const struct set_slot *set;
@@ -519,7 +522,7 @@ static void follow_usb(u32 now)
     if (!c.usb) {
         struct ctl_request again = { REQ_CONNECT, c.slot, 0, 1 };
 
-        if (c.sess.pairing || set->transport != TRANSPORT_BT_USB || !wants_usb(set, profile_for(set->type))) return;
+        if (c.sess.pairing || !set_usb_first(set->transport) || !wants_usb(set, profile_for(set->type))) return;
         util_log("slot %u moves to usb", c.slot);
         start_session(again, now);
         return;
@@ -529,12 +532,13 @@ static void follow_usb(u32 now)
         util_log("slot %u: usb host suspended the bus", c.slot);
         stop(now);
     } else if (!c.usb_powered && !c.usb_wake && now - c.usb_absent_ms >= USB_GONE_MS) {
-        /* bluetooth+usb whose host went before configuring us: the radio
-         * instead, as the connect would have chosen. */
+        /* bluetooth+usb or dongle+usb whose host went before configuring us:
+         * the radio instead, as the connect would have chosen. */
         struct ctl_request again = { REQ_CONNECT, c.slot, 0 };
 
-        if (!c.usb_configured && set->transport == TRANSPORT_BT_USB) {
-            util_log("slot %u: usb host gone before configuring, bluetooth instead", c.slot);
+        if (!c.usb_configured && set_usb_first(set->transport)) {
+            util_log("slot %u: usb host gone before configuring, %s instead", c.slot,
+                     set_via_dongle(set->transport) ? "the dongle" : "bluetooth");
             start_session(again, now);
         } else {
             util_log("slot %u: usb cable gone", c.slot);
@@ -575,7 +579,7 @@ static void timeouts(u32 now)
             struct ctl_request plug = { REQ_CONNECT, c.last_slot, 0, 1 };
 
             c.usb_arrived = 0;
-            if (set->transport == TRANSPORT_USB || set->transport == TRANSPORT_BT_USB) {
+            if (set->transport == TRANSPORT_USB || set_usb_first(set->transport)) {
                 util_log("usb host arrived: connect slot %u", c.last_slot);
                 handle(plug, now);
                 break;
