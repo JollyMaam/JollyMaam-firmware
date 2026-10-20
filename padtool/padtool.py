@@ -144,13 +144,38 @@ def matching():
     return found
 
 
+def is_path(device):
+    """--device names a device node rather than part of a flash ID."""
+    return device.startswith("\\\\.\\") or os.sep in device or "/" in device or os.path.exists(device)
+
+
+def answers(path):
+    """The flash ID of our firmware at path, else None."""
+    try:
+        identity = scsi(path, [OP, 0x00], 64, 1000)
+    except OSError:
+        return None
+    return identity[24:40].hex() if len(identity) >= 40 and identity[:4] == b"C2PD" else None
+
+
 def find_device():
+    if DEVICE and is_path(DEVICE):
+        here = answers(DEVICE)
+        if here and (not DEVICE_ID or here == DEVICE_ID):
+            return DEVICE
+        found = matching() if DEVICE_ID else []   # renumbered after a reboot
+        return found[0][0] if found else None
     found = matching()
     return found[0][0] if found else None
 
 
 def need_device():
     global DEVICE_ID
+    if DEVICE and is_path(DEVICE):    # used as given, found or not
+        if not DEVICE.startswith("\\\\.\\") and not os.path.exists(DEVICE):
+            sys.exit(f"padtool: {DEVICE} does not exist")
+        DEVICE_ID = answers(DEVICE)
+        return DEVICE
     found = matching()
     if not found:
         sys.exit(f"padtool: no {BOARD} {'matching ' + DEVICE + ' ' if DEVICE else ''}found "
