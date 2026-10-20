@@ -717,6 +717,7 @@ static void outputs(u32 now)
     if (scene != c.led.scene) {
         c.led.scene = scene;
         c.led.since_ms = now;
+        c.led.from = c.shown;    /* the new scene fades in over it */
     }
     c.led.slot = armed != SLOT_NONE ? armed : c.slot;
     if (c.led.slot == SLOT_LAST) c.led.slot = c.last_slot;
@@ -727,6 +728,7 @@ static void outputs(u32 now)
     in.secondary_colour = set_colour(shown->secondary_colour);
     in.idle_colour = set_colour(ux_colours.idle);
     in.battery_colour = set_colour(ux_colours.battery);
+    in.effect_level = ux_colours.effect_level;
     in.grips = slot->grips;
     in.player_lights = slot->players;
     in.ephemeral = (u8)set_is_ephemeral();

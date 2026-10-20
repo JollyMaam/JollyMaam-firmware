@@ -26,6 +26,8 @@ typedef unsigned long long u64;
 
 #define RGB(r,g,b) { r, g, b }
 struct rgb { u8 r, g, b; };
+/* A colour at full strength and the brightness it is lit at (0-255). */
+struct shade { struct rgb rgb; u8 level; };
 
 #define SLOTS     8
 #define SLOT_NONE 0xff
@@ -369,8 +371,8 @@ static inline int set_via_dongle(u8 transport)
     return transport == TRANSPORT_DONGLE || transport == TRANSPORT_DONGLE_USB;
 }
 enum { GRIPS_OFF, GRIPS_HOST, GRIPS_FADE, GRIPS_RUMBLE, GRIPS_INPUT, GRIPS_BOTH,
-       GRIPS_PRIMARY, GRIPS_SECONDARY };
-enum { PLAYERS_OFF, PLAYERS_HOST, PLAYERS_FADE, PLAYERS_PRIMARY, PLAYERS_SECONDARY };
+       GRIPS_PRIMARY, GRIPS_SECONDARY, GRIPS_RAINBOW, GRIPS_HEARTBEAT };
+enum { PLAYERS_OFF, PLAYERS_HOST, PLAYERS_FADE, PLAYERS_PRIMARY, PLAYERS_SECONDARY, PLAYERS_RAINBOW };
 
 #define PALETTE 16
 #define LEVELS  16
@@ -466,7 +468,7 @@ void set_init(void);
 void set_poll(u32 now, int radio_quiet);
 void set_flush(void);                    /* write what is pending now: before sleep or reboot */
 const struct set_slot *set_slot(u8 slot);
-struct rgb set_colour(struct colour c);
+struct shade set_colour(struct colour c);
 const struct bt_bond *set_bond(u8 slot);
 void set_bond_store(u8 slot, const struct bt_bond *bond);
 void set_slot_address(u8 slot, u8 out[6]);
@@ -500,6 +502,8 @@ enum { LIGHT_HOME, LIGHT_P0, LIGHT_P1, LIGHT_P2, LIGHT_P3, LIGHT_GRIP_L,
 
 struct led_frame { struct rgb light[LIGHT_COUNT]; };
 
+/* Blinks have soft edges, breathing eases in and out, a sweep is a light
+ * gliding to and fro (a step: the time from one light to the next). */
 enum { WAVE_OFF, WAVE_SOLID, WAVE_BLINK, WAVE_BREATHE, WAVE_SWEEP };
 struct led_wave { u8 kind; u16 a, b; };    /* blink: on, off; breathe: period; sweep: step */
 #define LED_OFF            { WAVE_OFF, 0, 0 }
@@ -521,14 +525,17 @@ struct led_scene {
     struct led_wave grips_wave;
 };
 
+/* A new scene fades in over the frame shown when it began (from). */
 struct led_state {
     u8 scene;              /* enum ctl_kind */
     u8 slot;               /* SLOT_NONE: none */
     u32 since_ms;
+    struct led_frame from;
 };
 
 struct led_inputs {
-    struct rgb connect_colour, primary_colour, secondary_colour, idle_colour, battery_colour;
+    struct shade connect_colour, primary_colour, secondary_colour, idle_colour, battery_colour;
+    u8 effect_level;       /* animated grips and player lights: their colours at this brightness */
     u8 grips, player_lights;   /* the slot's settings */
     u8 ephemeral;
     u8 rumble[2];
@@ -574,7 +581,7 @@ struct ux_timeouts {
     u32 config_ms;           /* remap config mode with no key pressed */
 };
 
-struct ux_colours { struct colour idle, battery; };
+struct ux_colours { struct colour idle, battery; u8 effect_level; };
 
 extern const struct ux_timeouts ux_timeouts;
 extern const u8 ux_usb_autoconnect;

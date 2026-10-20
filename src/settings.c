@@ -40,10 +40,11 @@ static const char *const types[] = {
 };
 static const char *const transports[] = { "bluetooth", "usb", "bluetooth+usb", "dongle", "dongle+usb", NULL };
 static const char *const grips[] = {
-    "off", "host", "fade", "rumble", "input", "rumble+input", "primary", "secondary", NULL,
+    "off", "host", "fade", "rumble", "input", "rumble+input", "primary", "secondary", "rainbow",
+    "heartbeat", NULL,
 };
 static const char *const players[] = {
-    "off", "host", "fade", "primary", "secondary", NULL,
+    "off", "host", "fade", "primary", "secondary", "rainbow", NULL,
 };
 static const char *const curve_enabled[] = { "disabled", "enabled", NULL };
 static const char *const left_to[] = { "left stick", "right stick", "nothing", NULL };
@@ -81,10 +82,12 @@ static const struct set_field slot_fields[] = {
       .help = "the console's player number; resting grips; the other end of fade" },
     { .id = 5, .name = "grips", .type = T_ENUM, .names = grips, FIELD(grips),
       .def = GRIPS_OFF,
-      .help = "grip lights while connected: host is the console's lightbar colour" },
+      .help = "grip lights while connected: host is the console's lightbar colour; fade, rumble, "
+              "input, rainbow and heartbeat are animations, lit brighter than the steady colours" },
     { .id = 6, .name = "players", .type = T_ENUM, .names = players, FIELD(players),
       .def = PLAYERS_HOST,
-      .help = "player lights while connected: host is the console's player number" },
+      .help = "player lights while connected: host is the console's player number; fade and "
+              "rainbow are animations, lit brighter than the steady colours" },
     { .id = 7, .name = "rumble", .type = T_NUMBER, .max = 100, FIELD(rumble),
       .def = 100, .help = "motor strength in percent; 0 turns it off" },
     { .id = 8, .flags = F_DEV, .name = "mouse_layout", .type = T_ENUM, .names = layouts, FIELD(variant),
@@ -567,15 +570,11 @@ const struct set_slot *set_slot(u8 slot)
  * steps and the rest about 1.4 times apart. */
 static const u8 levels[LEVELS] = { 0, 1, 2, 3, 4, 5, 7, 10, 14, 20, 28, 40, 56, 80, 128, 255 };
 
-struct rgb set_colour(struct colour c)
+struct shade set_colour(struct colour c)
 {
-    struct rgb p = palette[c.entry % PALETTE], o;
-    u32 level = levels[c.level % LEVELS];
+    struct shade s = { palette[c.entry % PALETTE], levels[c.level % LEVELS] };
 
-    o.r = (u8)((p.r * level + 127) / 255);
-    o.g = (u8)((p.g * level + 127) / 255);
-    o.b = (u8)((p.b * level + 127) / 255);
-    return o;
+    return s;
 }
 
 const struct bt_bond *set_bond(u8 slot)
@@ -965,10 +964,10 @@ int main(void)
     }
     CHECK(set_slot(0)->connect_colour.entry == 5 && set_slot(0)->connect_colour.level == 5);
     {
-        struct rgb c = set_colour(set_slot(2)->connect_colour);   /* X: green */
-        CHECK(c.r == 0 && c.g == 5 && c.b == 0);
-        c = set_colour(set_slot(6)->connect_colour);              /* left: orange */
-        CHECK(c.r == 4 && c.g == 2 && c.b == 0);
+        struct shade c = set_colour(set_slot(2)->connect_colour);  /* X: green */
+        CHECK(c.rgb.r == 0 && c.rgb.g == 255 && c.rgb.b == 0 && c.level == 5);
+        c = set_colour(set_slot(6)->connect_colour);               /* left: orange */
+        CHECK(c.rgb.r == 255 && c.rgb.g == 102 && c.rgb.b == 0 && c.level == 4);
     }
 
     store_writes = 0;
