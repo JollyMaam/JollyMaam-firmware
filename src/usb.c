@@ -48,12 +48,12 @@
  *                         connect the same slot again (the host is awake;
  *                         nothing is woken)
  *   `0x20` FIELD          argument: field number; in: u8 version, target kind
- *                         (0 slot, 1 palette, 2 calibration), id, type, size,
- *                         –, u16 max, then name, help, enum names (NUL-
+ *                         (0 slot, 1 palette, 2 calibration, 3 remap slot), id,
+ *                         type, size, flags, u16 max, then name, help, enum names (NUL-
  *                         terminated), defaults (one per slot for slot fields,
  *                         fields up to 4 bytes); all zero past the last
  *   `0x21` READ           CDB byte 2: target (0-7 slot, 8 palette, 9
- *                         calibration); in: u8 version, target, count, then per
+ *                         calibration, 10-17 remap slot); in: u8 version, target, count, then per
  *                         field id, set, len, value
  *   `0x22` WRITE          out: items `{target, id, len, value}`, collected;
  *                         `len` 0: default; id 0: the whole target

@@ -25,8 +25,11 @@ controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`)
   does the work for what happened. It does not run on a period. The controller
   owns every decision and the pad's state.
 - **Mostly stateless modules.** Modules do not call each other, except that a
-  profile may send to the host (`host_send`, over the session's transport) and
-  `bt.c` or the platform's USB asks the running profile to answer a host read.
+  profile may send to the host (`host_send`, over the session's transport),
+  `bt.c` or the platform's USB asks the running profile to answer a host read,
+  and `usb.c` (the tools' commands) reads and writes settings itself.  What a
+  profile needs from other modules (the gyro bias included) comes in
+  `struct pad`, so the dongle can run the same profiles.
 - **Transports.** A slot's `transport` is Bluetooth, USB (the profile's
   `struct usb_identity`, built by `platform_jieli_usb.c`), USB while a USB host
   is there, or our dongle.  A profile builds the USB formats when
@@ -44,10 +47,10 @@ controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`)
   Jieli names. Words: slot, profile, session, link, host, report, write, read.
 - **Configuration as data.** Tunable behaviour is a `const` table: Home gestures,
   timeouts and LED scenes (`settings_ux.c`), profile descriptors (`profile_*.c`),
-  setting defaults (`settings.c`), pins (`platform_jieli.c`).
+  setting defaults (`settings.c`), pins (`board_pad.c`, `board_dongle.c`).
 - **Tests.** A module with logic has an `#ifdef UNITTEST` block at its end.
-  `make test` runs them on the host. Not covered: `controller.c`, `settings.c`,
-  `bt.c`, `btstack_hci_jieli.c`, `platform_jieli*.c`.
+  `make test` runs them on the host. Not covered: `controller.c`, `bt.c`,
+  `btstack_hci_jieli.c`, `platform_jieli*.c`.
 
 ## Build and test
 

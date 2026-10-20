@@ -299,7 +299,6 @@ static void shut_down(u8 kind, u32 now)
 
 static void handle(struct ctl_request r, u32 now)
 {
-
     if (r.kind == REQ_NONE || c.kind == CTL_SLEEPING || c.kind == CTL_REBOOTING) return;
     if (r.slot == SLOT_LAST) r.slot = c.last_slot;
     switch (r.kind) {

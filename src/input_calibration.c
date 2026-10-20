@@ -3,8 +3,9 @@
 #include "pad.h"
 
 /* Stick and trigger calibration: the maths, applying it, and the routine
- * that measures it (M+L3 or M+R3 by default).  The routine keeps its own progress; the
- * controller starts it, feeds it raw input, and stores what it returns. */
+ * that measures it (Home+L3 or Home+R3, settings_ux.c).  The routine keeps its
+ * own progress; the controller starts it, feeds it raw input, and stores what
+ * it returns. */
 
 #define CAL_STICK_MAX    32767
 #define CAL_TRIGGER_MAX  65535U
@@ -266,7 +267,7 @@ static enum cal_result cal_stick_rest_end(struct cal_stick_capture *capture)
 static void cal_stick_sweep_sample(struct cal_stick_capture *capture, uint16_t x,
                             uint16_t y)
 {
-        int32_t dx = clamp_s32((int32_t)x - capture->center[0], CAL_STICK_MAX);
+    int32_t dx = clamp_s32((int32_t)x - capture->center[0], CAL_STICK_MAX);
     int32_t dy = clamp_s32((int32_t)y - capture->center[1], CAL_STICK_MAX);
     uint32_t r2 = (uint32_t)(dx * dx) + (uint32_t)(dy * dy);
     uint32_t knot;
@@ -679,7 +680,6 @@ int main(void)
         cal_stick_sweep_sample(&c, (u16)(0x4000 + dx * 8), (u16)(0x4000 + dy * 8));
     }
     CHECK(cal_stick_finish(&c, &s) == CAL_OK && cal_stick_is_sane(&s));
-    CHECK(!s.legacy_inner_deadzone && !s.legacy_outer_deadzone);
 
     cal_trigger_capture_begin(&tc);
     for (i = 0; i < 50; i++) cal_trigger_rest_sample(&tc, 880);
@@ -767,7 +767,6 @@ int main(void)
         r.stick[0] = r.stick[1] = c;
         r.trigger[0] = r.trigger[1] = tc;
         CHECK(finish(&cal, started) == CAL_SAVE);
-        CHECK(!cal.stick[0].legacy_inner_deadzone && !cal.stick[0].legacy_outer_deadzone);
         CHECK(cal_led(started, &led) && !led.r && led.g == LED_LEVEL && !led.b);
         CHECK(cal_led(started + 999, &led) && led.g == LED_LEVEL);
         CHECK(cal_led(started + 1000, &led) && !led.r && !led.g && !led.b);

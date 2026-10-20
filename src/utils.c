@@ -181,7 +181,7 @@ void util_aes128(const u8 key[16], const u8 in[16], u8 out[16])
     memcpy(k, key, 16);
     for (u32 i = 0; i < 16; i++) s[i] = in[i] ^ k[i];
     for (int round = 1; round <= 10; round++) {
-                for (u32 i = 0; i < 16; i++) t[i] = sbox[s[(i + 4 * (i & 3)) & 15]];
+        for (u32 i = 0; i < 16; i++) t[i] = sbox[s[(i + 4 * (i & 3)) & 15]];
         if (round < 10) {
             for (int c = 0; c < 16; c += 4) {
                 u8 a0 = t[c], a1 = t[c + 1], a2 = t[c + 2], a3 = t[c + 3];

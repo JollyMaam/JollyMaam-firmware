@@ -343,6 +343,9 @@ extern const struct profile profile_switch, profile_switch2, profile_xbox, profi
 extern const struct profile profile_dualsense, profile_dualshock4, profile_generic, profile_mouse,
     profile_generic_ble, profile_link;
 extern const struct profile_wake profile_switch_wake;
+/* The profile for a slot type (PROFILE_*, settings.c); NULL for none.  In
+ * profile_link.c, which both boards build. */
+const struct profile *profile_for(u8 type);
 
 /* ---- settings.c --------------------------------------------------------- */
 
@@ -352,8 +355,6 @@ enum { PROFILE_SWITCH, PROFILE_SWITCH2, PROFILE_XBOX, PROFILE_XBOX_BLE, PROFILE_
  * a USB host is there, else Bluetooth (a USB session that ends does not move
  * back); or through our dongle, which is the slot's type on its own USB port. */
 enum { TRANSPORT_BT, TRANSPORT_USB, TRANSPORT_BT_USB, TRANSPORT_DONGLE };
-/* None disables a slot; profile_for returns NULL for it. */
-const struct profile *profile_for(u8 type);
 enum { GRIPS_OFF, GRIPS_HOST, GRIPS_FADE, GRIPS_RUMBLE, GRIPS_INPUT, GRIPS_BOTH,
        GRIPS_PRIMARY, GRIPS_SECONDARY };
 enum { PLAYERS_OFF, PLAYERS_HOST, PLAYERS_FADE, PLAYERS_PRIMARY, PLAYERS_SECONDARY };
@@ -435,7 +436,8 @@ struct set_remap {
     u8 maps_to[2];           /* STICK_*: the host stick it drives */
 };
 
-/* The remap slot's curves; NULL: none. */
+/* The remap slot's sticks: curves, inversion, which host stick each drives;
+ * NULL: as calibrated. */
 void in_response(const struct set_remap *m, struct pad *pad);
 
 /* What a change can be made to: a slot, the palette, calibration or a remap slot. */

@@ -4,13 +4,13 @@
 /* A remap slot on the buttons ux_step leaves, so the Home gestures keep
  * working on the physical keys.  Each key's map entry is its base row, "held:
  * hold KEY" (itself by default) or nothing; its rules add to that.  Rules
- * read inputs, never
- * each other's outputs, and their outputs OR together.  Nothing waits to see
- * what comes next: held for fires at its time, tapped on a quick release,
- * double tapped on the second press.  Timed output follows the clock and never
- * catches up after a stall.  A turbo modifier, while on, pulses what its keys
- * send while held (their base rows and hold rules), each from the later of its
- * press and the modifier coming on; the first modifier on for a key wins. */
+ * read inputs, never each other's outputs, and their outputs OR together.
+ * Nothing waits to see what comes next: held for fires at its time, tapped on
+ * a quick release, double tapped on the second press.  Timed output follows
+ * the clock and never catches up after a stall.  A turbo modifier, while on,
+ * pulses what its keys send while held (their base rows and hold rules), each
+ * from the later of its press and the modifier coming on; the first modifier
+ * on for a key wins. */
 
 static struct {
     u32 prev;                        /* the input last pass */
