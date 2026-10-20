@@ -940,7 +940,9 @@ void ctl_main(void)
         /* Straight after the input: bt.c is waiting for this report. */
         if (c.kind == CTL_CONNECTED) send_report(now);
         STEP(STEP_REPORT);
-        {
+        /* The counters are cumulative: bring the copy up to date only while
+         * the tool device, which reads it, can be there. */
+        if (c.usb_powered && !c.usb) {
             struct bt_stats b;
             struct plat_stats p;
 
