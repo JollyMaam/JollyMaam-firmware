@@ -87,7 +87,7 @@ Reset all to defaults sits beside Apply/Discard and stages defaults within the
 selected device or target scope. Hover explains the status/action.
 Show console opens a per-device live log window (`padtool/padconsole.py`);
 advanced diagnostics use the CLI. Slot Apply/Discard stay in the title header
-while settings scroll. Dongle and ROM-loader actions live on their main pages. `tools/bootloop.py` is a development stress-test helper. Sensor
+while settings scroll. Dongle and ROM-loader actions live on their main pages. `tools/bootloop.py` is a development stress-test helper; `tools/buildcommits.sh [-q] [-o DIR] [-m MAKEARGS] [-c CMD] COMMIT|A..B...` builds each commit in a temporary worktree (output in `DIR/<date>-<hash>` with `-o`; `CMD` runs in the worktree with `$O` and `$COMMIT`). Sensor
 calibration is global; the USB trigger requires protocol 3+. Protocol 4 adds
 a read-only defaults query for Reset and default-value indicators. Protocol 5
 uses 15-point curves plus enable flags; presets and migration are shared in
