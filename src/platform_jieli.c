@@ -280,6 +280,12 @@ u32 plat_wait(u32 deadline_ms, u32 at_us)
         }
         local_irq_enable();
         ctl_seen_us = watch_us;
+        /* The SDK's setup arms the 4 s watchdog, and only its mass-storage
+         * commands and the OS's sleep clear it: a USB personality on a busy
+         * bus has neither (the dongle reset 4 s after becoming the slot's
+         * type).  The main loop clears it; the 3 s hang watch still logs
+         * and restarts first. */
+        wdt_clear();
         if (ev) return ev;
         os_sem_pend(&wake_sem, 100);
     }
@@ -894,6 +900,13 @@ static void ctl_thread(void *arg)
     usb_init();
     tick_start();
     plat_prof_start(0, 0, 0);    /* the hang watch */
+    {
+        /* The SDK's setup.c reads why the chip started (bits not decoded
+         * yet: compare a power-on, a reboot and a watchdog). */
+        extern u8 power_reset_src;
+
+        util_log("boot: reset source %02x", power_reset_src);
+    }
     util_log("tick: timer3 at %08x con %08x prd %u", (u32)JL_TIMER3, JL_TIMER3->CON, JL_TIMER3->PRD);
     hci_jieli_init();
     ctl_main();

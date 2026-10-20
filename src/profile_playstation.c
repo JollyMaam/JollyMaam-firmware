@@ -6,6 +6,11 @@
  * mode (gyro, touchpad, paddles, rumble).  Layouts follow Linux
  * hid-playstation; neither has been tried on a PlayStation.
  *
+ * Bluetooth starts in the simple report 0x01 (sticks, buttons, triggers),
+ * which Windows' own driver reads, as the real pads do; reading the
+ * calibration feature or sending the extended output moves to the extended
+ * report, as hid-playstation and SDL do.
+ *
  * Over USB both send report 0x01: the same state block without the
  * Bluetooth header and CRC, and take output 0x05 (DualShock 4) or 0x02
  * (DualSense), whose bytes are the Bluetooth output's after its header.
@@ -20,33 +25,47 @@
 #define TOUCH_CLICK_MS   60
 #define TRIGGER_BUTTON   0x20
 #define USB_STATE        0x01
+#define SIMPLE           0x01    /* Bluetooth until the host asks for more */
+#define SIMPLE_SIZE      9
 #define USB_STATE_SIZE   63
 #define DS4_USB_OUTPUT   0x05
 #define DS_USB_OUTPUT    0x02
 
-/* USB: report 0x01, the state block as hid-playstation reads it (sticks, hat
- * and 14 buttons, a counter, triggers, then the rest as vendor bytes); the
- * output report; the feature reports the drivers read. */
-#define USB_DESCRIPTOR(output_id, output_size, features...) \
-    0x05, 0x01, 0x09, 0x05, 0xa1, 0x01, 0x85, USB_STATE, \
-    0x09, 0x30, 0x09, 0x31, 0x09, 0x32, 0x09, 0x35, 0x15, 0x00, 0x26, 0xff, 0x00, \
-    0x75, 0x08, 0x95, 0x04, 0x81, 0x02, \
-    0x09, 0x39, 0x15, 0x00, 0x25, 0x07, 0x35, 0x00, 0x46, 0x3b, 0x01, 0x65, 0x14, \
-    0x75, 0x04, 0x95, 0x01, 0x81, 0x42, 0x65, 0x00, \
-    0x05, 0x09, 0x19, 0x01, 0x29, 0x0e, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x0e, 0x81, 0x02, \
-    0x06, 0x00, 0xff, 0x09, 0x20, 0x75, 0x06, 0x95, 0x01, 0x15, 0x00, 0x25, 0x3f, 0x81, 0x02, \
-    0x05, 0x01, 0x09, 0x33, 0x09, 0x34, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02, \
-    0x06, 0x00, 0xff, 0x09, 0x21, 0x95, USB_STATE_SIZE - 9, 0x81, 0x02, \
+/* USB: report 0x01, the state block as the pads lay it out, so a driver
+ * that reads the descriptor (Windows) finds what hid-playstation reads at
+ * fixed places; the output report; the feature reports the drivers read.
+ * The DualShock 4: sticks, hat and 14 buttons, a counter, triggers.  The
+ * DualSense: sticks and triggers, a counter, hat and 15 buttons. */
+#define HAT \
+    0x05, 0x01, 0x09, 0x39, 0x15, 0x00, 0x25, 0x07, 0x35, 0x00, 0x46, 0x3b, 0x01, 0x65, 0x14, \
+    0x75, 0x04, 0x95, 0x01, 0x81, 0x42, 0x65, 0x00
+#define USB_TAIL(used, output_id, output_size, features...) \
+    0x06, 0x00, 0xff, 0x09, 0x21, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, \
+    0x95, USB_STATE_SIZE - (used), 0x81, 0x02, \
     0x85, output_id, 0x09, 0x22, 0x95, output_size, 0x91, 0x02, \
     features 0xc0
 #define FEATURE(id, size) 0x85, id, 0x09, id, 0x95, size, 0xb1, 0x02,
 
 static const u8 ds4_usb_descriptor[] = {
-    USB_DESCRIPTOR(DS4_USB_OUTPUT, 31, FEATURE(0x02, 36) FEATURE(0x12, 15) FEATURE(0xa3, 48))
+    0x05, 0x01, 0x09, 0x05, 0xa1, 0x01, 0x85, USB_STATE,
+    0x09, 0x30, 0x09, 0x31, 0x09, 0x32, 0x09, 0x35, 0x15, 0x00, 0x26, 0xff, 0x00,
+    0x75, 0x08, 0x95, 0x04, 0x81, 0x02,
+    HAT,
+    0x05, 0x09, 0x19, 0x01, 0x29, 0x0e, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x0e, 0x81, 0x02,
+    0x06, 0x00, 0xff, 0x09, 0x20, 0x75, 0x06, 0x95, 0x01, 0x15, 0x00, 0x25, 0x3f, 0x81, 0x02,
+    0x05, 0x01, 0x09, 0x33, 0x09, 0x34, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02,
+    USB_TAIL(9, DS4_USB_OUTPUT, 31, FEATURE(0x02, 36) FEATURE(0x12, 15) FEATURE(0xa3, 48))
 };
 
 static const u8 ds_usb_descriptor[] = {
-    USB_DESCRIPTOR(DS_USB_OUTPUT, 62, FEATURE(0x05, 40) FEATURE(0x09, 19) FEATURE(0x20, 63))
+    0x05, 0x01, 0x09, 0x05, 0xa1, 0x01, 0x85, USB_STATE,
+    0x09, 0x30, 0x09, 0x31, 0x09, 0x32, 0x09, 0x35, 0x09, 0x33, 0x09, 0x34,
+    0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x06, 0x81, 0x02,
+    0x06, 0x00, 0xff, 0x09, 0x20, 0x95, 0x01, 0x81, 0x02,
+    HAT,
+    0x05, 0x09, 0x19, 0x01, 0x29, 0x0f, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x0f, 0x81, 0x02,
+    0x06, 0x00, 0xff, 0x09, 0x20, 0x95, 0x0d, 0x81, 0x02,
+    USB_TAIL(11, DS_USB_OUTPUT, 62, FEATURE(0x05, 40) FEATURE(0x09, 19) FEATURE(0x20, 63))
 };
 
 static const u8 ds_descriptor[] = {
@@ -97,6 +116,7 @@ static const u8 ds4_descriptor[] = {
 static struct {
     u8 ds4;
     u8 usb;
+    u8 extended;                 /* Bluetooth: the host asked for the extended report */
     u8 address[6];
     u16 gyro_speed, gyro_accel;
     u8 counter;
@@ -272,6 +292,21 @@ static int report(const struct pad *in, u32 now, u8 *r, u8 *id)
     if (p.imu_count) ps.motion = p.imu[p.imu_count - 1];
     touch_update(&p, now);
     memset(r, 0, EXTENDED_SIZE);
+    if (!ps.usb && !ps.extended) {
+        /* Both pads' simple report: sticks, hat and 14 buttons, a counter,
+         * triggers. */
+        r[0] = stick8(p.lx);
+        r[1] = stick8(p.ly);
+        r[2] = stick8(p.rx);
+        r[3] = stick8(p.ry);
+        buttons(&p, r + 4);
+        r[6] = (u8)((r[6] & 0x03) | (u8)(ps.counter << 2));
+        r[7] = (u8)(p.l2 >> 8);
+        r[8] = (u8)(p.r2 >> 8);
+        *id = SIMPLE;
+        ps.counter++;
+        return SIMPLE_SIZE;
+    }
     if (ps.ds4) {
         /* Two bytes of Bluetooth header (0xc0: HID data follows), the
          * 32-byte state USB also sends, touch frames, the CRC. */
@@ -347,6 +382,7 @@ static int write(const struct bt_write *w, u32 now, struct bt_bond *bond)
     (void)now;
     (void)bond;
     if (w->kind != BT_WRITE_OUTPUT) return 0;
+    if (w->id == (ps.ds4 ? DS4_EXTENDED : DS_EXTENDED)) ps.extended = 1;
     if (ps.ds4) {
         if (w->id != (ps.usb ? DS4_USB_OUTPUT : DS4_EXTENDED) || w->len < head + 10) return 0;
         if (e[0] & 0x01) {
@@ -423,6 +459,7 @@ static int read(u8 kind, u16 id, u16 offset, u8 *r, u16 size)
 {
     (void)offset;
     if (kind != BT_WRITE_FEATURE) return -1;
+    if (id == 0x05 || (ps.ds4 && id == 0x02)) ps.extended = 1;    /* the calibration */
     memset(r, 0, size);
     if (ps.ds4) {
         switch (id) {
@@ -534,8 +571,13 @@ int main(void)
     memset(&p, 0, sizeof(p));
     p.buttons = PAD_A | PAD_HOME;
     p.lx = STICK_MAX;
+    p.l2 = 0xff00;
     p.imu_count = 1;
     p.imu[0].gyro[1] = 100;
+    /* Simple until the host reads the calibration. */
+    CHECK(report(&p, 0, r, &id) == SIMPLE_SIZE && id == SIMPLE);
+    CHECK(r[0] == 0xff && r[4] == (HAT_NEUTRAL | 0x20) && (r[5] & 0x04) && (r[6] & 1) && r[7] == 0xff);
+    CHECK(read(BT_WRITE_FEATURE, 0x05, 0, r, 41) == 41);
     CHECK(report(&p, 0, r, &id) == EXTENDED_SIZE && id == DS_EXTENDED);
     CHECK(r[1] == 0xff && r[8] == (HAT_NEUTRAL | 0x20) && (r[10] & 1));
     CHECK(r[16] == 100);
@@ -567,6 +609,9 @@ int main(void)
 
     begin_ds4(&s);
     p.buttons = PAD_B;
+    CHECK(report(&p, 0, r, &id) == SIMPLE_SIZE && id == SIMPLE && r[4] == (HAT_NEUTRAL | 0x40));
+    w.kind = BT_WRITE_OUTPUT; w.id = DS4_EXTENDED; w.len = 2;
+    write(&w, 0, 0);
     CHECK(report(&p, 0, r, &id) == EXTENDED_SIZE && id == DS4_EXTENDED && r[0] == 0xc0);
     CHECK(r[6] == (HAT_NEUTRAL | 0x40));
     w.id = DS4_EXTENDED; w.len = 12;

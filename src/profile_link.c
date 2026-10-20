@@ -163,9 +163,16 @@ static const u8 descriptor[] = {
     0xc0,
 };
 
+/* The config goes first and then once a second: the session outlives a lost
+ * link (the pad pages the dongle again) and the dongle may have restarted,
+ * and the dongle only becomes the slot's type on USB once it has it.  It
+ * ignores a config that changes nothing. */
+#define CONFIG_EVERY_MS 1000
+
 static struct {
     u8 config[LINK_CONFIG_SIZE];
     u8 config_sent;
+    u32 config_ms;
     u8 seq;
     u8 usb_ready;
     struct profile_host host;
@@ -191,8 +198,11 @@ static u8 begin(const struct profile_session *s)
 
 static int report(const struct pad *p, u32 now, u8 *out, u8 *id)
 {
-    (void)now;
-    if (!lk.config_sent && host_send(LINK_CONFIG_ID, lk.config, LINK_CONFIG_SIZE)) lk.config_sent = 1;
+    if ((!lk.config_sent || now - lk.config_ms >= CONFIG_EVERY_MS) &&
+        host_send(LINK_CONFIG_ID, lk.config, LINK_CONFIG_SIZE)) {
+        lk.config_sent = 1;
+        lk.config_ms = now;
+    }
     link_pack_input(p, lk.seq++, 0, out);
     *id = LINK_INPUT_ID;
     return LINK_INPUT_SIZE;
@@ -264,8 +274,10 @@ int main(void)
     CHECK(q.imu[0].gyro[0] == 2 && q.imu[1].gyro[0] == 3 && q.imu[1].accel[2] == -4096);
     CHECK(q.imu[1].us == 5460 && q.imu[0].us == 1000);
     sent_id = 0;
-    report(&p, 0, out, &id);
-    CHECK(!sent_id && out[0] == 1);                 /* the config goes once */
+    report(&p, 999, out, &id);
+    CHECK(!sent_id && out[0] == 1);                 /* the config goes first */
+    report(&p, 1000, out, &id);
+    CHECK(sent_id == LINK_CONFIG_ID);               /* and again a second later */
     CHECK(!link_unpack_input(out, LINK_INPUT_SIZE - 1, &q, &seq, &flags));
 
     memset(&g, 0, sizeof(g));

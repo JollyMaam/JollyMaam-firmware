@@ -251,6 +251,9 @@ static void build(const struct usb_identity *id)
     }
 }
 
+#define MS_OS_STRING 0xee
+#define MS_OS_VENDOR 0x90        /* the stock dongle's vendor code */
+
 static u32 string(u8 index, u8 *out)
 {
     const struct usb_identity *id = ident;
@@ -261,6 +264,22 @@ static u32 string(u8 index, u8 *out)
     if (!index) {
         out[0] = 4; out[1] = USB_DT_STRING; out[2] = 0x09; out[3] = 0x04;
         return 4;
+    }
+    if (index == MS_OS_STRING && id->kind == USB_XINPUT) {
+        /* Microsoft OS 1.0: "MSFT100" and our vendor request, so Windows
+         * asks for the compatible ID that loads its Xbox 360 driver for an
+         * ID it does not list (the stock dongle does the same). */
+        static const char sig[] = "MSFT100";
+
+        for (n = 0; n < 7; n++) {
+            out[2 + 2 * n] = (u8)sig[n];
+            out[3 + 2 * n] = 0;
+        }
+        out[16] = MS_OS_VENDOR;
+        out[17] = 0;
+        out[0] = 18;
+        out[1] = USB_DT_STRING;
+        return 18;
     }
     if (!s) return 0;
     while (s[n] && n < 62) {
@@ -541,6 +560,31 @@ static u32 get_report(struct usb_device_t *dev, struct usb_ctrlrequest *req)
     return 1;
 }
 
+/* Debug: the host's control requests after a personality starts, kept here
+ * (the hook runs in the interrupt) and logged from the control thread,
+ * "type/request value index length" each.  Shows what an enumeration asked. */
+#define SETUP_LOG 24
+static struct { u8 type, request; u16 value, index, length; } setup_log[SETUP_LOG];
+static volatile u8 setup_count, setup_logged;
+
+static void setup_log_flush(void)
+{
+    char line[120];
+    u32 n = 0, end = setup_count < SETUP_LOG ? setup_count : SETUP_LOG;
+
+    while (setup_logged < end) {
+        n += (u32)snprintf(line + n, sizeof(line) - n, " %02x/%02x %04x %04x %u",
+                           setup_log[setup_logged].type, setup_log[setup_logged].request,
+                           setup_log[setup_logged].value, setup_log[setup_logged].index,
+                           setup_log[setup_logged].length);
+        setup_logged++;
+        if (n > sizeof(line) - 24 || setup_logged == end) {
+            util_log("usb setup:%s", line);
+            n = 0;
+        }
+    }
+}
+
 static u32 hook(struct usb_device_t *dev, struct usb_ctrlrequest *req)
 {
     const struct usb_identity *id = ident;
@@ -550,6 +594,14 @@ static u32 hook(struct usb_device_t *dev, struct usb_ctrlrequest *req)
     u32 n;
 
     if (!id) return 0;
+    if (setup_count < SETUP_LOG) {
+        setup_log[setup_count].type = req->bRequestType;
+        setup_log[setup_count].request = req->bRequest;
+        setup_log[setup_count].value = req->wValue;
+        setup_log[setup_count].index = req->wIndex;
+        setup_log[setup_count].length = req->wLength;
+    }
+    if (setup_count < 255) setup_count++;
     if (type == USB_TYPE_STANDARD) {
         switch (req->bRequest) {
         case USB_REQ_GET_DESCRIPTOR:
@@ -623,9 +675,21 @@ static u32 hook(struct usb_device_t *dev, struct usb_ctrlrequest *req)
         stall(dev);
         return 1;
     }
-    /* Vendor requests: Windows asks a wired Xbox 360 pad for 20 bytes it
-     * does not need to make sense of; others go to the profile (a Switch 2
-     * reads its device info this way). */
+    /* Vendor requests: an Xbox 360 pad's compatible ID "XUSB10" for
+     * Windows (interface 0, 40 bytes, as the stock dongle sends it); Windows
+     * also asks a wired Xbox 360 pad for 20 bytes it does not need to make
+     * sense of; others go to the profile (a Switch 2 reads its device info
+     * this way). */
+    if (type == USB_TYPE_VENDOR && (req->bRequestType & USB_DIR_IN) && id->kind == USB_XINPUT &&
+        req->bRequest == MS_OS_VENDOR && req->wIndex == 4) {
+        static const u8 compat[40] = {
+            40, 0, 0, 0, 0x00, 0x01, 0x04, 0x00, 1, 0, 0, 0, 0, 0, 0, 0,
+            0, 1, 'X', 'U', 'S', 'B', '1', '0', 0, 0,
+        };
+
+        reply(dev, req, compat, req->wLength < 40 ? req->wLength : 40);
+        return 1;
+    }
     if (type == USB_TYPE_VENDOR && (req->bRequestType & USB_DIR_IN) && id->kind == USB_XINPUT) {
         n = req->wLength < 20 ? req->wLength : 20;
         memset(buf, 0, n);
@@ -655,6 +719,7 @@ static void start(const struct usb_identity *id,
 {
     plat_usb_hold_present(1500);         /* the re-enumeration is not an unplug */
     local_irq_disable();
+    setup_count = setup_logged = 0;
     stream(0);
     mic(0);
     ident = NULL;
@@ -717,6 +782,7 @@ void plat_usb_jack(void)
     static u8 again;
     u8 now = (u8)board_jack();
 
+    setup_log_flush();
 
     if (again && (configured || !ident)) again = 0;
     if (again && plat_now_ms - again_ms >= AGAIN_MS) {
