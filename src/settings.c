@@ -45,6 +45,9 @@ static const char *const players[] = {
     "off", "host", "fade", "primary", "secondary", NULL,
 };
 static const char *const curve_enabled[] = { "disabled", "enabled", NULL };
+static const char *const left_to[] = { "left stick", "right stick", "nothing", NULL };
+static const char *const right_to[] = { "right stick", "left stick", "nothing", NULL };
+static const char *const axis_way[] = { "normal", "inverted", NULL };
 static const char *const remap_names[] = { "none", "a", "b", "x", "y", "up", "down", "left", "right", NULL };
 static const u8 linear_points[STICK_CURVE_POINTS] = { 16, 32, 48, 64, 80, 96, 112, 128, 143, 159, 175, 191, 207, 223, 239 };
 
@@ -174,30 +177,45 @@ static const struct set_field remap_fields[] = {
               "nothing; its rules add to that" },
     { .id = 3, .name = "rules", .type = T_BYTES, REMAP(rule),
       .help = "up to 16: when a key is held, held for, pressed, released, tapped or double-tapped, "
-              "hold, turbo, tap or toggle other keys, or nothing" },
-    /* From here on the second record (REMAP_STICKS). */
-    { .id = 4, .name = "left_curve_enabled", .type = T_ENUM, .names = curve_enabled, REMAP(left_curve_enabled),
-      .help = "enable left stick points; disabled passes calibrated input through exactly and retains the points" },
-    { .id = 5, .name = "right_curve_enabled", .type = T_ENUM, .names = curve_enabled, REMAP(right_curve_enabled),
-      .help = "enable right stick points; disabled passes calibrated input through exactly and retains the points" },
-    { .id = 6, .name = "left_curve_points", .type = T_BYTES, REMAP(left_curve_points),
-      .help = "15 nondecreasing output bytes (0-255) at 6.25% input intervals; endpoints fixed at zero and full" },
-    { .id = 7, .name = "right_curve_points", .type = T_BYTES, REMAP(right_curve_points),
-      .help = "15 nondecreasing output bytes (0-255) at 6.25% input intervals; endpoints fixed at zero and full" },
+              "hold, turbo, tap or toggle other keys, nothing, or make chosen keys turbo while it is on "
+              "(turbo modifier)" },
+    /* From here on the second record (REMAP_STICKS), a stick at a time; ids
+     * 1-11 as first released, 12-17 added. */
+    { .id = 12, .name = "left_maps_to", .type = T_ENUM, .names = left_to, REMAP(maps_to[0]),
+      .help = "the host stick the physical left stick drives; if both drive one, the one pushed further wins" },
+    { .id = 14, .name = "left_x_axis", .type = T_ENUM, .names = axis_way, REMAP(invert[0][0]),
+      .help = "inverted: the left stick's left and right are swapped" },
+    { .id = 15, .name = "left_y_axis", .type = T_ENUM, .names = axis_way, REMAP(invert[0][1]),
+      .help = "inverted: the left stick's up and down are swapped" },
     { .id = 8, .name = "left_inner_deadzone", .type = T_NUMBER, .max = 25, REMAP(deadzone[0].inner),
       .help = "left stick: percent around centre suppressed" },
     { .id = 9, .name = "left_outer_deadzone", .type = T_NUMBER, .max = 25, REMAP(deadzone[0].outer),
       .help = "left stick: percent of outer travel discarded" },
+    { .id = 4, .name = "left_curve_enabled", .type = T_ENUM, .names = curve_enabled, REMAP(left_curve_enabled),
+      .help = "enable left stick points; disabled passes calibrated input through exactly and retains the points" },
+    { .id = 6, .name = "left_curve_points", .type = T_BYTES, REMAP(left_curve_points),
+      .help = "15 nondecreasing output bytes (0-255) at 6.25% input intervals; endpoints fixed at zero and full" },
+    { .id = 13, .name = "right_maps_to", .type = T_ENUM, .names = right_to, REMAP(maps_to[1]),
+      .help = "the host stick the physical right stick drives; if both drive one, the one pushed further wins" },
+    { .id = 16, .name = "right_x_axis", .type = T_ENUM, .names = axis_way, REMAP(invert[1][0]),
+      .help = "inverted: the right stick's left and right are swapped" },
+    { .id = 17, .name = "right_y_axis", .type = T_ENUM, .names = axis_way, REMAP(invert[1][1]),
+      .help = "inverted: the right stick's up and down are swapped" },
     { .id = 10, .name = "right_inner_deadzone", .type = T_NUMBER, .max = 25, REMAP(deadzone[1].inner),
       .help = "right stick: percent around centre suppressed" },
     { .id = 11, .name = "right_outer_deadzone", .type = T_NUMBER, .max = 25, REMAP(deadzone[1].outer),
       .help = "right stick: percent of outer travel discarded" },
+    { .id = 5, .name = "right_curve_enabled", .type = T_ENUM, .names = curve_enabled, REMAP(right_curve_enabled),
+      .help = "enable right stick points; disabled passes calibrated input through exactly and retains the points" },
+    { .id = 7, .name = "right_curve_points", .type = T_BYTES, REMAP(right_curve_points),
+      .help = "15 nondecreasing output bytes (0-255) at 6.25% input intervals; endpoints fixed at zero and full" },
 };
 #define REMAP_STICKS 3                    /* remap fields from this index: the second record */
-#define LEFT_POINTS  (&remap_fields[5])
-#define RIGHT_POINTS (&remap_fields[6])
+#define LEFT_POINTS  (&remap_fields[9])
+#define RIGHT_POINTS (&remap_fields[16])
 #define MAP_FIELD   (&remap_fields[1])
 #define RULES_FIELD (&remap_fields[2])
+_Static_assert(sizeof(remap_fields) / sizeof(remap_fields[0]) == 17, "LEFT_POINTS, RIGHT_POINTS");
 
 /* What a remap slot is until it is changed.  Map: the key with bit n - 1. */
 static const struct set_remap remap_defaults[SLOTS] = {
@@ -327,7 +345,7 @@ static int rules_ok(const u8 *v)
 
         if (!r->trigger) continue;
         if (r->trigger >= RT_COUNT || r->input >= REMAP_INPUTS || r->input == 15 ||
-            r->effect >= RE_COUNT || level != (r->effect < RE_TAP) || (timed && !r->ms10) ||
+            r->effect >= RE_COUNT || level != remap_level_effect(r->effect) || (timed && !r->ms10) ||
             (o & ~PAD_DIGITAL) || r->rate > REMAP_MAX_HZ || r->reserved)
             return 0;
     }
@@ -1215,16 +1233,31 @@ int main(void)
         CHECK(write1(TARGET_REMAP + 1, 3, sizeof(rules), rules) == SET_RANGE);
         r[0].outputs[1] = 0; r[0].input = 15;
         CHECK(write1(TARGET_REMAP + 1, 3, sizeof(rules), rules) == SET_RANGE);
-        r[0].input = 9;
+        r[0].input = 9; r[0].effect = RE_TURBO_MODIFIER;                         /* a level effect */
+        CHECK(write1(TARGET_REMAP + 1, 3, sizeof(rules), rules) == SET_OK);
+        r[0].trigger = RT_PRESSED;
+        CHECK(write1(TARGET_REMAP + 1, 3, sizeof(rules), rules) == SET_RANGE);
+        r[0].effect = RE_TOGGLE_TURBO_MODIFIER;
+        CHECK(write1(TARGET_REMAP + 1, 3, sizeof(rules), rules) == SET_OK);
+        r[0].effect = RE_COUNT;
+        CHECK(write1(TARGET_REMAP + 1, 3, sizeof(rules), rules) == SET_RANGE);
+        r[0].trigger = RT_HELD; r[0].effect = RE_TURBO;
+        {
+            u8 on = 1, two = 2;
+
+            CHECK(write1(TARGET_REMAP + 1, 12, 1, &on) == SET_OK);               /* left sends to the right */
+            CHECK(write1(TARGET_REMAP + 1, 17, 1, &two) == SET_RANGE);           /* right y axis */
+        }
         t = set_edits();
         set_apply();
         CHECK(set_edits() == t + 1);
         CHECK(set_remap(1)->map[3] == 5 && set_remap(1)->map[2] == REMAP_OFF && set_remap(2)->map[3] == 0);
         CHECK(!strcmp(set_remap(1)->name, "Mario Kart") && set_remap(1)->rule[1].ms10 == 20);
+        CHECK(set_remap(1)->maps_to[0] == STICK_OTHER && !set_remap(1)->invert[1][1]);
         CHECK(key_of(TARGET_REMAP + 1, 0) == KEY_REMAP + 1 && key_of(TARGET_REMAP + 1, 1) == KEY_REMAP_STICKS + 1);
         CHECK(key_of(TARGET_CAL, 0) == 10 && KEYS - 1 <= 49);
         used = encode(TARGET_REMAP + 1, 0, buf);
-        CHECK(encode(TARGET_REMAP + 1, 1, buf + 256) == 4);
+        CHECK(encode(TARGET_REMAP + 1, 1, buf + 256) == 4u + 3);                 /* left sends to: the sticks record */
         reset(TARGET_REMAP + 1);
         CHECK(set_remap(1)->map[3] == 0 && !set_remap(1)->name[0]);
         decode(TARGET_REMAP + 1, buf, used);

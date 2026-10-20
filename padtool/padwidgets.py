@@ -332,7 +332,12 @@ TRIGGER_LABELS = {'held': 'is held', 'held_for': 'is held for', 'pressed': 'is p
                   'released': 'is released', 'tapped': 'is tapped under',
                   'double_tapped': 'is double-tapped within'}
 EFFECT_LABELS = {'hold': 'hold', 'turbo': 'turbo', 'nothing': 'nothing', 'tap': 'tap',
-                 'toggle_hold': 'toggle hold', 'toggle_turbo': 'toggle turbo'}
+                 'toggle_hold': 'toggle hold', 'toggle_turbo': 'toggle turbo',
+                 'turbo_modifier': 'turbo modifier', 'toggle_turbo_modifier': 'toggle turbo modifier'}
+# Switching between a level and an event trigger keeps the effect's kind.
+EFFECT_TWINS = {'hold': 'tap', 'tap': 'hold', 'toggle_hold': 'hold', 'turbo': 'toggle_turbo',
+                'toggle_turbo': 'turbo', 'turbo_modifier': 'toggle_turbo_modifier',
+                'toggle_turbo_modifier': 'turbo_modifier'}
 RATES = tuple(str(hz) for hz in range(1, padremap.MAX_HZ + 1)) + ('max',)
 
 
@@ -342,6 +347,85 @@ def key_of(label):
 
 def value_of(labels, label):
     return next(k for k, v in labels.items() if v == label)
+
+
+class KeyPicker(ttk.Button):
+    """A button naming the chosen keys; it opens a panel of check boxes that
+    stays open while keys are ticked, until Done, Escape or a click outside."""
+    COLUMNS = 4
+
+    def __init__(self, parent, chosen, on_toggle, empty='Choose keys…', width=14):
+        super().__init__(parent, width=width, command=self.toggle_panel)
+        self.chosen, self.on_toggle, self.empty = list(chosen), on_toggle, empty
+        self.panel = None
+        self.bind('<Destroy>', lambda e: self.close() if e.widget is self else None, add='+')
+        self.label()
+
+    def label(self):
+        self.configure(text='+'.join(KEY_LABELS[k] for k in KEY_ORDER if k in self.chosen) or self.empty)
+
+    def toggle_panel(self):
+        if self.panel:
+            self.close()
+        else:
+            self.open()
+
+    def open(self):
+        panel = self.panel = tk.Toplevel(self)
+        panel.withdraw()
+        panel.overrideredirect(True)
+        panel.transient(self.winfo_toplevel())
+        frame = ttk.Frame(panel, padding=6, relief='solid', borderwidth=1)
+        frame.pack(fill='both', expand=True)
+        self.vars = {}
+        for n, key in enumerate(KEY_ORDER):
+            var = tk.BooleanVar(master=panel, value=key in self.chosen)
+            self.vars[key] = var
+            ttk.Checkbutton(frame, text=KEY_LABELS[key], variable=var,
+                            command=lambda k=key, v=var: self.pick(k, v.get())
+                            ).grid(row=n // self.COLUMNS, column=n % self.COLUMNS, sticky='w', padx=4, pady=1)
+        ttk.Button(frame, text='Done', command=self.close).grid(
+            row=len(KEY_ORDER) // self.COLUMNS + 1, column=0, columnspan=self.COLUMNS, sticky='e', pady=(6, 0))
+        panel.bind('<Escape>', lambda e: self.close())
+        panel.bind('<ButtonPress>', self.click)
+        panel.geometry(f'+{self.winfo_rootx()}+{self.winfo_rooty() + self.winfo_height()}')
+        panel.deiconify()
+        panel.lift()
+        self.grab(panel, 20)
+
+    def grab(self, panel, tries):
+        """Grab once the panel is on screen; never wait for it in a nested loop."""
+        if panel is not self.panel or not panel.winfo_exists():
+            return
+        try:
+            panel.grab_set()
+            panel.focus_set()
+        except tk.TclError:          # not viewable yet
+            if tries:
+                panel.after(25, lambda: self.grab(panel, tries - 1))
+
+    def click(self, event):
+        """Under the grab every click comes here; one outside the panel closes it."""
+        panel = self.panel
+        if not panel:
+            return
+        x, y = event.x_root - panel.winfo_rootx(), event.y_root - panel.winfo_rooty()
+        if not (0 <= x < panel.winfo_width() and 0 <= y < panel.winfo_height()):
+            self.close()
+
+    def pick(self, key, on):
+        self.chosen = [k for k in KEY_ORDER if (k == key and on) or (k != key and k in self.chosen)]
+        self.label()
+        self.on_toggle(key, on)
+
+    def close(self):
+        panel, self.panel = self.panel, None
+        if panel and panel.winfo_exists():
+            try:
+                panel.grab_release()
+            except tk.TclError:
+                pass
+            panel.destroy()
 
 
 class RemapEditor(ttk.Frame):
@@ -442,7 +526,7 @@ class RemapEditor(ttk.Frame):
         for widget in self.winfo_children():
             widget.destroy()
         self.keep = []                 # Tk variables live as long as their Python objects
-        self.adds, self.marks = [], {}
+        self.adds, self.marks, self.pickers = [], {}, []
         if self.base is None:
             ttk.Label(self, text='This remap cannot be read. Reset it to defaults.').grid(sticky='w')
             return
@@ -531,16 +615,13 @@ class RemapEditor(ttk.Frame):
         self.combo(table, [EFFECT_LABELS[e] for e in effects], EFFECT_LABELS[rule['effect']], 12,
                    lambda v: self.change(lambda: rule.update(effect=value_of(EFFECT_LABELS, v)))).grid(row=line, column=4, sticky='w', padx=(8, 2))
         if rule['effect'] != 'nothing':
-            button = ttk.Menubutton(table, text='+'.join(KEY_LABELS[k] for k in rule['outputs']) or 'Choose keys…',
-                                    width=14, direction='below')
-            menu = tk.Menu(button, tearoff=False)
-            for key in KEY_ORDER:
-                chosen = tk.BooleanVar(master=menu, value=key in rule['outputs'])
-                menu.add_checkbutton(label=KEY_LABELS[key], variable=chosen,
-                                     command=lambda k=key, c=chosen: self.change(lambda: self.output(rule, k, c.get())))
-                self.keep.append(chosen)
-            button['menu'] = menu
-            button.grid(row=line, column=5, sticky='w', padx=2)
+            modifier = rule['effect'] in padremap.MODIFIERS
+            picker = KeyPicker(table, rule['outputs'], empty='Choose keys…',
+                               on_toggle=lambda k, on: self.change(lambda: self.output(rule, k, on), redraw=False))
+            picker.grid(row=line, column=5, sticky='w', padx=2)
+            Tooltip(picker, lambda: 'The keys that pulse while this is on: whatever they send while you hold them'
+                    if modifier else 'The keys this sends')
+            self.pickers.append(picker)
         if rule['effect'] in padremap.TURBO:
             rate = ttk.Frame(table)
             rate.grid(row=line, column=6, sticky='w', padx=(12, 0))
@@ -554,7 +635,8 @@ class RemapEditor(ttk.Frame):
     def retrigger(rule, trigger):
         rule['trigger'] = trigger
         if rule['effect'] not in padremap.effects_for(trigger):
-            rule['effect'] = padremap.effects_for(trigger)[0]
+            twin = EFFECT_TWINS.get(rule['effect'])
+            rule['effect'] = twin if twin in padremap.effects_for(trigger) else padremap.effects_for(trigger)[0]
         if trigger in padremap.TIMED and not rule['ms']:
             rule['ms'] = padremap.TIMED[trigger]
 

@@ -393,18 +393,28 @@ struct set_slot {
 #define REMAP_MAX_HZ 30          /* turbo rate 0: flips every report */
 
 /* Level triggers (held, held for) go with level effects (hold, turbo,
- * nothing); the others are events, with tap, toggle hold, toggle turbo. */
+ * nothing, turbo modifier); the others are events, with tap, toggle hold,
+ * toggle turbo, toggle turbo modifier.  A turbo modifier's outputs are input
+ * keys: while it is on, whatever they send while held pulses at its rate. */
 enum { RT_NONE, RT_HELD, RT_HELD_FOR, RT_PRESSED, RT_RELEASED, RT_TAPPED, RT_DOUBLE, RT_COUNT };
-enum { RE_HOLD, RE_TURBO, RE_NOTHING, RE_TAP, RE_TOGGLE_HOLD, RE_TOGGLE_TURBO, RE_COUNT };
+enum { RE_HOLD, RE_TURBO, RE_NOTHING, RE_TAP, RE_TOGGLE_HOLD, RE_TOGGLE_TURBO,
+       RE_TURBO_MODIFIER, RE_TOGGLE_TURBO_MODIFIER, RE_COUNT };
+
+static inline int remap_level_effect(u8 e)
+{
+    return e < RE_TAP || e == RE_TURBO_MODIFIER;
+}
 
 struct remap_rule {
     u8 trigger, input;
     u8 ms10;                 /* held for, tapped under, double-tapped within: 10 ms units */
     u8 effect;
     u8 outputs[4];           /* PAD_* mask, little-endian */
-    u8 rate;                 /* turbo Hz; 0: every report */
+    u8 rate;                 /* turbo or turbo modifier Hz; 0: every report */
     u8 reserved;             /* zero: room for a condition key */
 };
+
+enum { STICK_SAME, STICK_OTHER, STICK_NOTHING };   /* two on one host stick: the further out wins */
 
 struct set_remap {
     char name[REMAP_NAME];   /* NUL-padded UTF-8 */
@@ -416,6 +426,9 @@ struct set_remap {
     u8 left_curve_points[STICK_CURVE_POINTS];
     u8 right_curve_points[STICK_CURVE_POINTS];
     struct cal_deadzone deadzone[2];
+    /* Each physical stick: its curve, inversion, then where it goes. */
+    u8 invert[2][2];         /* [stick][x, y] 1: inverted */
+    u8 maps_to[2];           /* STICK_*: the host stick it drives */
 };
 
 /* The remap slot's curves; NULL: none. */

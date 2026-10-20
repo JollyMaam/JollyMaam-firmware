@@ -48,12 +48,16 @@ class RemapTextTests(unittest.TestCase):
     def test_rules_round_trip(self):
         text = ("r4 held hold l1+r1; a held turbo a@max; l4 pressed toggle_turbo a@15; "
                 "r4 tapped:300 tap a; r4 held_for:300 hold l1; capture held nothing; "
-                "m double_tapped:250 tap home; l3 pressed toggle_hold up")
+                "m double_tapped:250 tap home; l3 pressed toggle_hold up; "
+                "r4 held turbo_modifier a+b@10; l4 released toggle_turbo_modifier x@max")
         raw = remap.parse_rules(text)
         self.assertEqual(len(raw), remap.RULES * remap.RULE_SIZE)
         self.assertEqual(remap.show_rules(raw), text)
         self.assertEqual(raw[0:10], bytes([1, 9, 0, 0, 0xC0, 0, 0, 0, 0, 0]))
         self.assertEqual(raw[30:40], bytes([5, 9, 30, 3, 1, 0, 0, 0, 0, 0]))
+        self.assertEqual(raw[80:90], bytes([1, 9, 0, 6, 3, 0, 0, 0, 10, 0]))
+        with self.assertRaises(remap.RemapError):
+            remap.parse_rule("r4 pressed turbo_modifier a")
         self.assertEqual(remap.show_rules(bytes(160)), "none")
         self.assertEqual(remap.parse_rules("none"), bytes(160))
         self.assertEqual(remap.parse_rule("select held hold start")["outputs"], ["plus"])

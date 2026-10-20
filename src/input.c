@@ -66,11 +66,47 @@ static void stick_response(s16 *x, s16 *y, u8 enabled, const u8 *points)
     *y = (s16)((s32)*y * (s32)output / (s32)radius);
 }
 
+static s16 flip(s16 v)
+{
+    return v == -32768 ? 32767 : (s16)-v;
+}
+
+static u32 reach(const s16 *v)
+{
+    return (u32)((s32)v[0] * v[0]) + (u32)((s32)v[1] * v[1]);
+}
+
+/* Each physical stick, after its curve: inverted, then onto the host stick it
+ * drives.  Two on one host stick: the one pushed further wins. */
+static void stick_route(const struct set_remap *m, s16 *xy[2][2])
+{
+    s16 v[2][2], out[2][2] = { { 0, 0 }, { 0, 0 } };
+    u8 used[2] = { 0, 0 };
+    u32 s, a, to;
+
+    for (s = 0; s < 2; s++)
+        for (a = 0; a < 2; a++)
+            v[s][a] = m->invert[s][a] ? flip(*xy[s][a]) : *xy[s][a];
+    for (s = 0; s < 2; s++) {
+        if (m->maps_to[s] == STICK_NOTHING) continue;
+        to = m->maps_to[s] == STICK_OTHER ? 1 - s : s;
+        if (used[to] && reach(v[s]) <= reach(out[to])) continue;
+        out[to][0] = v[s][0];
+        out[to][1] = v[s][1];
+        used[to] = 1;
+    }
+    for (s = 0; s < 2; s++)
+        for (a = 0; a < 2; a++) *xy[s][a] = out[s][a];
+}
+
 void in_response(const struct set_remap *m, struct pad *pad)
 {
+    s16 *xy[2][2] = { { &pad->lx, &pad->ly }, { &pad->rx, &pad->ry } };
+
     if (!m) return;
     stick_response(&pad->lx, &pad->ly, m->left_curve_enabled, m->left_curve_points);
     stick_response(&pad->rx, &pad->ry, m->right_curve_enabled, m->right_curve_points);
+    stick_route(m, xy);
 }
 
 #ifdef UNITTEST
@@ -123,6 +159,30 @@ int main(void)
     pad.lx = pad.ly = 0;
     in_response(&slot, &pad);
     CHECK(pad.lx == 0 && pad.ly == 0);
+    /* Inverted, sent elsewhere: each setting stays with its physical stick. */
+    memset(&slot, 0, sizeof(slot));
+    pad = original;
+    pad.ry = -32768;
+    slot.invert[0][1] = slot.invert[1][1] = 1;
+    in_response(&slot, &pad);
+    CHECK(pad.lx == 12000 && pad.ly == 16000 && pad.rx == -32767 && pad.ry == 32767);
+    slot.maps_to[0] = slot.maps_to[1] = STICK_OTHER;          /* swapped */
+    pad = original;
+    in_response(&slot, &pad);
+    CHECK(pad.lx == -32767 && pad.ly == 0 && pad.rx == 12000 && pad.ry == 16000);
+    slot.maps_to[1] = STICK_NOTHING;                           /* left to the right, right off */
+    pad = original;
+    in_response(&slot, &pad);
+    CHECK(pad.lx == 0 && pad.ly == 0 && pad.rx == 12000 && pad.ry == 16000);
+    slot.maps_to[1] = STICK_OTHER; slot.maps_to[0] = STICK_SAME; /* both on the left: further wins */
+    pad = original;
+    in_response(&slot, &pad);
+    CHECK(pad.lx == -32767 && pad.ly == 0 && pad.rx == 0 && pad.ry == 0);
+    pad.rx = 100;
+    pad.lx = 12000; pad.ly = -16000;
+    in_response(&slot, &pad);
+    CHECK(pad.lx == 12000 && pad.ly == 16000 && pad.rx == 0);
+    CHECK(pad.buttons == PAD_A && pad.l2 == 1234);
     return TEST_DONE("input response");
 }
 #endif

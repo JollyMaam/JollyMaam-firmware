@@ -1067,6 +1067,39 @@ class App:
         self.details_actions = self.scope_actions(self.details_header, record, target)
         self.details_actions.pack(side="left", padx=(12, 0))
         rows = {self.form: 0, advanced: 0}
+        sticks = {}                      # a remap page: each stick's settings in its own box
+        self.stick_boxes = sticks
+        for var, trace in getattr(self, "page_traces", ()):
+            try:
+                var.trace_remove("write", trace)
+            except tk.TclError:
+                pass
+        self.page_traces, self.page_vars = [], []
+
+        def mirror(entry, view, to_view, to_entry):
+            """view shows entry's value; each follows the other."""
+            def show(*_):
+                if view.get() != to_view(entry["var"].get()):
+                    view.set(to_view(entry["var"].get()))
+
+            def store(*_):
+                value = to_entry(view.get())
+                if entry["var"].get() != value:
+                    entry["var"].set(value)
+            show()
+            view.trace_add("write", store)
+            self.page_traces.append((entry["var"], entry["var"].trace_add("write", show)))
+            self.page_vars.append(view)
+
+        def stick_box(side):
+            if side not in sticks:
+                box = sticks[side] = ttk.Frame(self.form, padding=(6, 4, 6, 6), relief="groove", borderwidth=2)
+                box.grid(row=rows[self.form], column=0, columnspan=4, sticky="ew", padx=4, pady=(12, 0))
+                box.columnconfigure(3, weight=1)
+                box.columnconfigure(0, minsize=170)
+                rows[self.form] += 1
+                rows[box] = 0
+            return sticks[side]
         if target == pad.target_index("calibration"):
             calibration = ttk.Frame(self.form, padding=(4, 4, 4, 12))
             calibration.grid(row=0, column=0, columnspan=4, sticky="w")
@@ -1082,6 +1115,9 @@ class App:
             if f["kind"] == 3 and name == "rules" and (t, "map") in record["draft"]:
                 continue                     # one table with the map
             parent = advanced if f["dev"] else self.form
+            side = name.split("_")[0] if target >= pad.REMAP_TARGET and name.startswith(("left_", "right_")) else None
+            if side and not f["dev"]:
+                parent = stick_box(side)
             row = rows[parent]
             rows[parent] += 1
             if f["kind"] == 3 and name == "map":
@@ -1094,8 +1130,29 @@ class App:
             label = ttk.Frame(parent)
             label.grid(row=row, column=0, sticky="nw", padx=4, pady=8)
             self.default_marker(label, entry, record, target, name).pack(side="left", padx=(0, 4))
-            ttk.Label(label, text=name.replace("_", " ").capitalize()).pack(side="left")
-            if f["type"] == pad.T_COLOUR:
+            shown = name[len(side) + 1:] if side and parent is sticks.get(side) else name
+            in_box = side and parent is sticks.get(side)
+            if in_box and shown == "maps_to":     # like a key's row: Left stick maps to [Right stick]
+                ttk.Label(label, text=f"{side.capitalize()} stick", font=("TkDefaultFont", 10, "bold")).pack(side="left")
+                ttk.Label(label, text="maps to").pack(side="left", padx=(4, 0))
+            elif in_box and shown in ("x_axis", "y_axis"):
+                ttk.Label(label, text=f"Invert {shown[0].upper()} axis").pack(side="left")
+            else:
+                ttk.Label(label, text=shown.replace("_", " ").capitalize()).pack(side="left")
+            if in_box and shown == "maps_to":
+                names = f["names"]
+                view = tk.StringVar()
+                mirror(entry, view, lambda v: v.capitalize(),
+                       lambda v, names=names: next((n for n in names if n.capitalize() == v), names[0]))
+                editor = ttk.Combobox(parent, textvariable=view, values=[n.capitalize() for n in names],
+                                      state="readonly", width=14)
+            elif in_box and shown in ("x_axis", "y_axis"):
+                names = f["names"]
+                view = tk.BooleanVar()
+                mirror(entry, view, lambda v, names=names: v == names[1],
+                       lambda on, names=names: names[1] if on else names[0])
+                editor = ttk.Checkbutton(parent, variable=view)
+            elif f["type"] == pad.T_COLOUR:
                 editor = PaletteEditor(parent, self, record, entry)
                 self.special_editors.append(editor)
             elif name in ("left_curve_points", "right_curve_points"):
@@ -1109,7 +1166,7 @@ class App:
             else:
                 editor = ttk.Entry(parent, textvariable=entry["var"], width=25)
             editor.grid(row=row, column=1, columnspan=2 if isinstance(editor, (PaletteEditor, CurveEditor, CalibrationView)) else 1,
-                        sticky="ew", padx=4, pady=4)
+                        sticky="w" if in_box and not isinstance(editor, CurveEditor) else "ew", padx=4, pady=4)
             extra = None
             if f["type"] == pad.T_NUMBER:
                 maximum = f.get("max", (1 << (8 * f["size"])) - 1)

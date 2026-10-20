@@ -50,11 +50,16 @@ bytes; "default" puts a field back to its default.
 A remap slot's map is "KEY held: hold KEY" (or nothing), one per key:
 "x=y y=x capture=none"; its rules are ';'-separated
 "INPUT TRIGGER[:MS] EFFECT [OUT+OUT][@HZ|@max]":
-    triggers held, held_for:MS  with  hold, turbo, nothing
-             pressed, released, tapped:MS, double_tapped:MS  with  tap, toggle_hold, toggle_turbo
+    triggers held, held_for:MS  with  hold, turbo, turbo_modifier, nothing
+             pressed, released, tapped:MS, double_tapped:MS  with  tap, toggle_hold, toggle_turbo,
+                                                               toggle_turbo_modifier
     e.g. "r4 held hold l1+r1; a held turbo a@max; r4 tapped:300 tap a; r4 held_for:300 hold l1"
+A turbo modifier's keys are the ones pressed: "r4 held turbo_modifier a+b@15"
+pulses whatever A and B send while R4 is held.
 Rules add to a key's map row; r4=none drops R4's own press.  A remap slot
-also has left_/right_curve (as a slot had) and the four deadzones.  Keys: a b x y up down left right l1 r1
+also has, per physical stick, left_/right_maps_to ("left stick", "right
+stick", nothing), left_/right_x_/y_axis (normal, inverted), the inner and
+outer deadzones and left_/right_curve (as a slot had).  Keys: a b x y up down left right l1 r1
 l4 r4 l3 r3 minus plus home m capture (or screenshot).
 
 The pad is a mass-storage device with no medium; commands are vendor SCSI

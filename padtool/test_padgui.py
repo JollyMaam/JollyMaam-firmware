@@ -35,14 +35,23 @@ def remap_record(path="fake"):
     r["fields"] += [{"kind": 3, "id": 1, "name": "name", "type": padgui.pad.T_TEXT, "size": 24, "help": "Name", "dev": False},
                     {"kind": 3, "id": 2, "name": "map", "type": padgui.pad.T_BYTES, "size": 20, "help": "Map", "dev": False},
                     {"kind": 3, "id": 3, "name": "rules", "type": padgui.pad.T_BYTES, "size": 160, "help": "Rules", "dev": False}]
+    sticks = []
     for i, side in enumerate(("left", "right")):
+        names = ["left stick", "right stick", "nothing"]
+        sticks += [(f"{side}_maps_to", names if side == "left" else [names[1], names[0], names[2]]),
+                   (f"{side}_x_axis", ["normal", "inverted"]), (f"{side}_y_axis", ["normal", "inverted"])]
+        r["fields"] += [{"kind": 3, "id": 12 + i, "name": f"{side}_maps_to", "type": padgui.pad.T_ENUM,
+                         "names": sticks[-3][1], "size": 1, "help": "Maps to", "dev": False}]
+        r["fields"] += [{"kind": 3, "id": 14 + 2 * i + a, "name": f"{side}_{axis}_axis", "type": padgui.pad.T_ENUM,
+                         "names": ["normal", "inverted"], "size": 1, "help": "Axis", "dev": False}
+                        for a, axis in enumerate("xy")]
+        r["fields"] += [{"kind": 3, "id": 8 + 2 * i + n, "name": f"{side}_{which}_deadzone", "type": padgui.pad.T_NUMBER,
+                         "size": 1, "max": 25, "help": "Deadzone", "dev": False}
+                        for n, which in enumerate(("inner", "outer"))]
         r["fields"] += [{"kind": 3, "id": 4 + i, "name": f"{side}_curve_enabled", "type": padgui.pad.T_ENUM,
                          "names": ["disabled", "enabled"], "size": 1, "help": "Curve", "dev": False},
                         {"kind": 3, "id": 6 + i, "name": f"{side}_curve_points", "type": padgui.pad.T_BYTES,
                          "size": 15, "help": "Points", "dev": False}]
-    for i, name in enumerate(("left_inner", "left_outer", "right_inner", "right_outer")):
-        r["fields"].append({"kind": 3, "id": 8 + i, "name": f"{name}_deadzone", "type": padgui.pad.T_NUMBER,
-                            "size": 1, "max": 25, "help": "Deadzone", "dev": False})
     linear = padgui.pad.padcurves.preset("linear")
     for t in range(10, 18):
         r["values"][t] = {"name": (bytes(24), False), "map": (bytes(20), False), "rules": (bytes(160), False),
@@ -50,6 +59,7 @@ def remap_record(path="fake"):
                           "left_curve_points": (linear, False), "right_curve_points": (linear, False),
                           "left_inner_deadzone": (b"\0", False), "left_outer_deadzone": (b"\0", False),
                           "right_inner_deadzone": (b"\0", False), "right_outer_deadzone": (b"\0", False)}
+        r["values"][t].update({name: (b"\0", False) for name, _ in sticks})
     r["defaults"] = {t: dict(r["values"][t]) for t in range(10, 18)}
     return r
 
@@ -1318,6 +1328,71 @@ class RemapGuiTests(GuiCase):
         editor.change(lambda: editor.base.update(x="x", y="y", capture="capture"))
         self.assertEqual((mapping["var"].get(), rules["var"].get()), ("identity", "none"))
         self.assertFalse(self.app.changed(mapping) or self.app.changed(rules))
+        self.assertFalse(self.errors)
+
+    def test_turbo_modifier_keys_list_stays_open_while_picking(self):
+        r = remap_record()
+        editor = self.open_remap(r)
+        rules = r["draft"][11, "rules"]
+        editor.adds[11].invoke()                          # R4's Add rule
+        editor = self.editor()
+        editor.change(lambda: editor.rules[0].update(effect="turbo_modifier"))
+        self.root.update()
+        editor = self.editor()
+        picker = editor.pickers[0]
+        picker.invoke()
+        self.root.update()
+        boxes = [w for w in picker.panel.winfo_children()[0].winfo_children() if isinstance(w, padgui.ttk.Checkbutton)]
+        self.assertEqual(len(boxes), 19)
+        boxes[0].invoke()                                 # A
+        boxes[1].invoke()                                 # B
+        self.root.update()
+        self.assertTrue(picker.panel and picker.panel.winfo_exists())
+        self.assertEqual(picker.cget("text"), "A+B")
+        self.assertEqual(rules["var"].get(), "r4 held turbo_modifier a+b@15")
+        boxes[0].invoke()
+        self.assertEqual(rules["var"].get(), "r4 held turbo_modifier b@15")
+        done = next(w for w in picker.panel.winfo_children()[0].winfo_children()
+                    if isinstance(w, padgui.ttk.Button) and w.cget("text") == "Done")
+        done.invoke()
+        self.assertIsNone(picker.panel)
+        editor.change(lambda: editor.retrigger(editor.rules[0], "pressed"))
+        self.assertEqual(rules["var"].get(), "r4 pressed toggle_turbo_modifier b@15")
+        editor = self.editor()
+        editor.pickers[0].invoke()
+        self.root.update()
+        editor.pickers[0].invoke()                        # the button again closes it
+        self.assertIsNone(editor.pickers[0].panel)
+        self.assertFalse(self.errors)
+
+    def test_each_stick_has_its_settings_in_one_box(self):
+        r = remap_record()
+        self.open_remap(r)
+        self.root.update()
+        boxes = [self.app.stick_boxes[side] for side in ("left", "right")]
+        self.assertEqual([str(b.cget("relief")) for b in boxes], ["groove", "groove"])
+        for box, side in zip(boxes, ("left", "right")):
+            labels = [l.cget("text") for f in box.winfo_children() if type(f) is padgui.ttk.Frame
+                      for l in f.winfo_children() if type(l) is padgui.ttk.Label]
+            self.assertEqual(labels, [f"{side.capitalize()} stick", "maps to", "Invert X axis", "Invert Y axis",
+                                      "Inner deadzone", "Outer deadzone", "Curve points"])
+            curve = next(w for w in box.winfo_children() if type(w).__name__ == "CurveEditor")
+            self.assertIs(curve.entry, r["draft"][11, f"{side}_curve_points"])
+        left, x = boxes[0], r["draft"][11, "left_x_axis"]
+        combo = next(w for w in left.winfo_children() if isinstance(w, padgui.ttk.Combobox))
+        self.assertEqual((combo.get(), list(combo.cget("values"))), ("Left stick", ["Left stick", "Right stick", "Nothing"]))
+        combo.set("Right stick")
+        self.assertEqual(r["draft"][11, "left_maps_to"]["var"].get(), "right stick")
+        self.assertTrue(self.app.changed(r["draft"][11, "left_maps_to"]))
+        self.assertEqual(self.app.value_bytes(r["draft"][11, "left_maps_to"]), b"\1")
+        self.assertEqual(self.app.value_bytes(r["draft"][11, "right_maps_to"]), b"\0")
+        check = next(w for w in left.winfo_children() if isinstance(w, padgui.ttk.Checkbutton))
+        check.invoke()
+        self.assertEqual((x["var"].get(), self.app.value_bytes(x)), ("inverted", b"\1"))
+        x["var"].set("normal")                            # discard, default: the box follows
+        self.assertFalse(check.instate(["selected"]))
+        r["draft"][11, "left_maps_to"]["var"].set("nothing")
+        self.assertEqual(combo.get(), "Nothing")
         self.assertFalse(self.errors)
 
     def test_columns_do_not_move_as_rules_come_and_go(self):

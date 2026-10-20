@@ -117,16 +117,20 @@ maps to [KEY / Nothing]", which costs no rule entries. Its status box covers
 the key's mapping and rules together: click it to discard their edits or to
 stage the default. **Add rule** adds a rule under that key: [is held / is held for / is pressed / is
 released / is tapped under / is double-tapped within] [effect] [keys]. "Is
-held" and "is held for" go with hold and turbo; the others with tap, toggle
-hold and toggle turbo. Turbo runs at 1–30 Hz, or at max, which flips the keys
-every report. Rules add to the key's mapping; map it to Nothing to drop the
-key's own press. 16 rule entries fit. **Select preset** sets common rows (swap
+held" and "is held for" go with hold, turbo and turbo modifier; the others with
+tap, toggle hold, toggle turbo and toggle turbo modifier. Turbo runs at 1–30
+Hz, or at max, which flips the keys every report. A turbo modifier's keys are
+the ones you press: while it is on, whatever they send pulses at its rate, each
+from its own press, and other keys are left alone. For example, "R4 is held
+turbo modifier A+B at 15 Hz", with R4 mapped to Nothing. The keys list stays
+open while you tick keys; Done, Escape or a click outside closes it. Rules add
+to the key's mapping; map it to Nothing to drop the key's own press. 16 rule entries fit. **Select preset** sets common rows (swap
 A/B and X/Y, swap A/B, swap X/Y, Capture off) and keeps the rules; **Import
 preset…** and **Export preset…** load and save a whole page as JSON, in the
 CLI's text.
 
-Below the rows are each stick's 15-point curve, with fixed zero and full-scale
-endpoints, and its inner and outer deadzones (percent, 0–25). The Linear
+Below the rows is a box per stick (see below). Its curve has 15 points, with
+fixed zero and full-scale endpoints; its deadzones are percent, 0–25. The Linear
 preset is no curve at all: calibrated input passes through exactly. Any other
 preset, a dragged point or pasted points turn the curve on. **Point values** opens the 15
 sliders and percentage inputs at 6.25% travel intervals. **Copy points** copies
@@ -134,12 +138,22 @@ the comma-separated output bytes; **Paste points** accepts commas or spaces and
 stages them on another stick or remap. Linear, Concave and S-curve presets are
 defined in `padcurves.py`, shared by CLI and GUI.
 
+Each stick has its own box, starting like a key's row: "**Left stick** maps
+to [Left stick / Right stick / Nothing]". Then come **Invert X axis** and
+**Invert Y axis** (check boxes), the inner and outer deadzones and the curve.
+Every setting in a box belongs to that physical stick, wherever it is mapped:
+map the left stick to the right and the right to the left to swap them. If both sticks go to one host stick, the one pushed
+further wins. L3 and R3 stay where they are; map them too if you want them
+swapped.
+
 The CLI sets the same fields in the same text (`padremap.py`):
 
 ```sh
 python padtool/padtool.py set remap-b name "Mario Kart" map swap-ab-xy
 python padtool/padtool.py set remap-b rules "r4 tapped:300 tap a; r4 held_for:300 hold l1; l4 pressed toggle_turbo a@15"
 python padtool/padtool.py set remap-b left_curve concave left_inner_deadzone 5
+python padtool/padtool.py set remap-b rules "r4 held turbo_modifier a+b+x@15" map r4=none
+python padtool/padtool.py set remap-b left_maps_to "right stick" right_maps_to "left stick" right_y_axis inverted
 python padtool/padtool.py set A remap b
 ```
 

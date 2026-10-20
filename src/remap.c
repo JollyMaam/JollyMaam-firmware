@@ -8,7 +8,9 @@
  * each other's outputs, and their outputs OR together.  Nothing waits to see
  * what comes next: held for fires at its time, tapped on a quick release,
  * double tapped on the second press.  Timed output follows the clock and never
- * catches up after a stall. */
+ * catches up after a stall.  A turbo modifier, while on, pulses what its keys
+ * send while held (their base rows and hold rules), each from the later of its
+ * press and the modifier coming on; the first modifier on for a key wins. */
 
 static struct {
     u32 prev;                        /* the input last pass */
@@ -40,22 +42,20 @@ static int turbo_on(u8 rate, u32 since, u32 now)
     return !(n & 1);
 }
 
-static int level(u8 effect)
-{
-    return effect == RE_HOLD || effect == RE_TURBO || effect == RE_NOTHING;
-}
-
 u32 remap_step(const struct set_remap *m, u32 in, u32 now, u32 *every_report)
 {
     u32 pressed = in & ~rm.prev, released = rm.prev & ~in, out = 0, max = 0, doubled = 0, i;
+    u32 sends[REMAP_INPUTS];         /* what each held key sends: its base row and hold rules */
+    u8 modifier[REMAP_INPUTS];       /* the turbo modifier on for it, rule + 1; 0 none */
 
     rm.next = 0;
+    memset(modifier, 0, sizeof(modifier));
     for (i = 0; i < REMAP_INPUTS; i++)
         if (pressed & (1u << i)) rm.down_at[i] = now;
     for (i = 0; i < REMAP_INPUTS; i++) {
         u8 to = m->map[i];
 
-        if ((in & (1u << i)) && to != REMAP_OFF) out |= 1u << (to ? to - 1u : i);
+        sends[i] = (in & (1u << i)) && to != REMAP_OFF ? 1u << (to ? to - 1u : i) : 0;
     }
     for (i = 0; i < REMAP_RULES; i++) {
         const struct remap_rule *r = &m->rule[i];
@@ -96,12 +96,33 @@ u32 remap_step(const struct set_remap *m, u32 in, u32 now, u32 *every_report)
                 rm.pulsing &= ~bit;
             }
         }
-        if (!(level(r->effect) ? active : (rm.latched & bit) != 0)) continue;
-        if (r->effect == RE_HOLD || r->effect == RE_TOGGLE_HOLD) out |= o;
+        if (!(remap_level_effect(r->effect) ? active : (rm.latched & bit) != 0)) continue;
+        if (r->effect == RE_HOLD) sends[r->input] |= o;
+        else if (r->effect == RE_TOGGLE_HOLD) out |= o;
         else if (r->effect == RE_TURBO || r->effect == RE_TOGGLE_TURBO) {
             if (!r->rate) max |= o;
             else if (turbo_on(r->rate, rm.since[i], now)) out |= o;
+        } else if (r->effect == RE_TURBO_MODIFIER || r->effect == RE_TOGGLE_TURBO_MODIFIER) {
+            u32 k;
+
+            for (k = 0; k < REMAP_INPUTS; k++)
+                if ((o & (1u << k)) && !modifier[k]) modifier[k] = (u8)(i + 1);
         }
+    }
+    for (i = 0; i < REMAP_INPUTS; i++) {
+        const struct remap_rule *r;
+        u32 since;
+
+        if (!sends[i]) continue;
+        if (!modifier[i]) {
+            out |= sends[i];
+            continue;
+        }
+        r = &m->rule[modifier[i] - 1];
+        since = rm.since[modifier[i] - 1];
+        if ((s32)(rm.down_at[i] - since) > 0) since = rm.down_at[i];
+        if (!r->rate) max |= sends[i];
+        else if (turbo_on(r->rate, since, now)) out |= sends[i];
     }
     rm.second |= doubled;
     rm.armed &= ~pressed;
@@ -238,6 +259,26 @@ int main(void)
     at(0, 10260); at(PAD_M, 10300); CHECK(out == 0);
     at(0, 10350); at(PAD_M, 10400); CHECK(out == PAD_HOME); /* after a plain press again */
     at(0, 11000); at(PAD_M, 11400); at(0, 11450); CHECK(out == 0); /* too slow */
+    memset(&m, 0, sizeof(m)); remap_reset();
+
+    /* Turbo modifier: while R4 is held, A and B (here B sends X) pulse at
+     * 10 Hz from the later of their press and R4's; Y is not chosen. */
+    m.map[9] = REMAP_OFF; m.map[1] = 3 + 1;
+    rule(0, RT_HELD, 9, 0, RE_TURBO_MODIFIER, PAD_A | PAD_B, 10);
+    rule(1, RT_HELD, 0, 0, RE_HOLD, PAD_L1, 0);     /* A's hold rule pulses with it */
+    at(PAD_A | PAD_Y, 13000); CHECK(out == (PAD_A | PAD_L1 | PAD_Y));
+    at(PAD_A | PAD_Y | PAD_R4, 13100); CHECK(out == (PAD_A | PAD_L1 | PAD_Y) && remap_deadline() == 13150);
+    at(PAD_A | PAD_Y | PAD_R4, 13150); CHECK(out == PAD_Y);
+    at(PAD_A | PAD_B | PAD_Y | PAD_R4, 13170); CHECK(out == (PAD_X | PAD_Y));   /* B's own phase */
+    at(PAD_A | PAD_B | PAD_Y | PAD_R4, 13200); CHECK(out == (PAD_A | PAD_L1 | PAD_X | PAD_Y));
+    at(PAD_A | PAD_B | PAD_Y | PAD_R4, 13220); CHECK(out == (PAD_A | PAD_L1 | PAD_Y));
+    at(PAD_A | PAD_B | PAD_Y, 13230); CHECK(out == (PAD_A | PAD_L1 | PAD_X | PAD_Y)); /* off: held again */
+    at(PAD_R4, 13240); CHECK(out == 0 && !remap_deadline());
+    /* At max the report builder flips them; toggled on by a press. */
+    rule(0, RT_PRESSED, 9, 0, RE_TOGGLE_TURBO_MODIFIER, PAD_A, 0);
+    at(0, 13300); at(PAD_R4, 13310); at(0, 13320);
+    at(PAD_A, 13330); CHECK(out == 0 && every == (PAD_A | PAD_L1));
+    at(PAD_A | PAD_R4, 13340); at(PAD_A, 13350); CHECK(out == (PAD_A | PAD_L1) && !every);
     memset(&m, 0, sizeof(m)); remap_reset();
 
     /* A held key counts as pressed after a reset. */

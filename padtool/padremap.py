@@ -7,7 +7,9 @@ Map: space-separated KEY=KEY or KEY=none for keys that differ from
 themselves; "identity" when none do.
 
 Rules: ';'-separated, each "INPUT TRIGGER[:MS] EFFECT [OUT+OUT...][@HZ|@max]",
-e.g. "r4 held hold l1+r1; a held turbo a@max; r4 tapped:300 tap a".
+e.g. "r4 held hold l1+r1; a held turbo a@max; r4 tapped:300 tap a".  A turbo
+modifier's keys are the keys pressed: "r4 held turbo_modifier a+b@10" pulses
+whatever A and B send while R4 is held.
 "none" when there are none.  The layout matches struct remap_rule (src/pad.h).
 """
 
@@ -23,12 +25,14 @@ RULE_SIZE = 10
 MAX_HZ = 30
 
 TRIGGERS = (None, "held", "held_for", "pressed", "released", "tapped", "double_tapped")
-EFFECTS = ("hold", "turbo", "nothing", "tap", "toggle_hold", "toggle_turbo")
+EFFECTS = ("hold", "turbo", "nothing", "tap", "toggle_hold", "toggle_turbo",
+           "turbo_modifier", "toggle_turbo_modifier")
 LEVEL_TRIGGERS = ("held", "held_for")
-LEVEL_EFFECTS = ("hold", "turbo", "nothing")
-EVENT_EFFECTS = ("tap", "toggle_hold", "toggle_turbo")
+LEVEL_EFFECTS = ("hold", "turbo", "turbo_modifier", "nothing")
+EVENT_EFFECTS = ("tap", "toggle_hold", "toggle_turbo", "toggle_turbo_modifier")
 TIMED = {"held_for": 300, "tapped": 200, "double_tapped": 300}   # the GUI's starting times
-TURBO = ("turbo", "toggle_turbo")
+MODIFIERS = ("turbo_modifier", "toggle_turbo_modifier")   # its keys are inputs: what they send pulses
+TURBO = ("turbo", "toggle_turbo") + MODIFIERS
 TURBO_HZ = 15
 
 
