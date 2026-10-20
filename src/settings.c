@@ -21,7 +21,8 @@ struct set_field {
     u16 max;                 /* T_NUMBER: largest value; T_ENUM: from names */
     const char *name;
     const char *const *names;   /* T_ENUM, NULL-terminated */
-    u32 def[SLOTS];          /* little-endian bytes of the default, per slot */
+    u32 def;                 /* little-endian bytes of the default */
+    const u32 *slot_def;     /* slot fields: a default per slot instead; NULL: def */
     const char *help;
     u8 flags;                /* F_DEV: a developer setting (padtool --dev) */
 };
@@ -29,7 +30,7 @@ struct set_field {
 
 #define COLOUR(entry, level) ((entry) | (level) << 8)
 #define RGB24(r, g, b)       ((r) | (g) << 8 | (u32)(b) << 16)
-#define ALL(v)               { [0 ... SLOTS - 1] = (v) }
+#define PER_SLOT(...)        .slot_def = (const u32[SLOTS]){ __VA_ARGS__ }
 #define FIELD(f)             .offset = offsetof(struct set_slot, f), \
                              .size = sizeof(((struct set_slot *)0)->f)
 
@@ -59,89 +60,89 @@ static const char *const tx_powers[] = { "1", "2", "3", "4", "5", "6", NULL };
 /* Slots A B X Y up down left right.  Colours are {palette entry, brightness}. */
 static const struct set_field slot_fields[] = {
     { .id = ID_TYPE, .name = "type", .type = T_ENUM, .names = types, FIELD(type),
-      .def = { PROFILE_GENERIC_BLE, PROFILE_DUALSENSE, PROFILE_XBOX, PROFILE_SWITCH2,
-               [4 ... 7] = PROFILE_NONE },
+      PER_SLOT(PROFILE_GENERIC_BLE, PROFILE_DUALSENSE, PROFILE_XBOX, PROFILE_SWITCH2,
+               [4 ... 7] = PROFILE_NONE),
       .help = "what the slot connects as; changing it renews address and clears bond" },
     { .id = ID_TRANSPORT, .name = "transport", .type = T_ENUM, .names = transports, FIELD(transport),
-      .def = { TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_DONGLE, TRANSPORT_BT_USB,
-               [4 ... 7] = TRANSPORT_BT_USB },
+      PER_SLOT(TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_DONGLE, TRANSPORT_BT_USB,
+               [4 ... 7] = TRANSPORT_BT_USB),
       .help = "how: bluetooth; usb, a wired controller; bluetooth+usb, usb while a usb host "
               "is there, else bluetooth (never back to it mid-session); dongle, through our dongle, which is the type on its usb port" },
     { .id = 2, .name = "connect_colour", .type = T_COLOUR, FIELD(connect_colour),
-      .def = { COLOUR(5, 5), COLOUR(11, 5), COLOUR(7, 5), COLOUR(1, 5),
-               COLOUR(9, 4), COLOUR(13, 4), COLOUR(3, 4), COLOUR(15, 4) },
+      PER_SLOT(COLOUR(5, 5), COLOUR(11, 5), COLOUR(7, 5), COLOUR(1, 5),
+               COLOUR(9, 4), COLOUR(13, 4), COLOUR(3, 4), COLOUR(15, 4)),
       .help = "Home and player lights while connecting and pairing: which slot" },
     { .id = 3, .name = "primary_colour", .type = T_COLOUR, FIELD(primary_colour),
-      .def = ALL(COLOUR(1, 1)),
+      .def = COLOUR(1, 1),
       .help = "Home while connected; the player lights around the player number" },
     { .id = 4, .name = "secondary_colour", .type = T_COLOUR, FIELD(secondary_colour),
-      .def = ALL(COLOUR(7, 1)),
+      .def = COLOUR(7, 1),
       .help = "the console's player number; resting grips; the other end of fade" },
     { .id = 5, .name = "grips", .type = T_ENUM, .names = grips, FIELD(grips),
-      .def = ALL(GRIPS_OFF),
+      .def = GRIPS_OFF,
       .help = "grip lights while connected: host is the console's lightbar colour" },
     { .id = 6, .name = "players", .type = T_ENUM, .names = players, FIELD(players),
-      .def = ALL(PLAYERS_HOST),
+      .def = PLAYERS_HOST,
       .help = "player lights while connected: host is the console's player number" },
     { .id = 7, .name = "rumble", .type = T_NUMBER, .max = 100, FIELD(rumble),
-      .def = ALL(100), .help = "motor strength in percent; 0 turns it off" },
+      .def = 100, .help = "motor strength in percent; 0 turns it off" },
     { .id = 8, .name = "mouse_layout", .type = T_ENUM, .names = layouts, FIELD(variant),
-      .def = ALL(0), .help = "mouse: what each control does" },
+      .def = 0, .help = "mouse: what each control does" },
     { .id = 9, .name = "stick_speed", .type = T_NUMBER, .max = 20000, FIELD(stick_speed),
-      .def = ALL(1500), .help = "mouse: pointer counts per second, stick all the way" },
+      .def = 1500, .help = "mouse: pointer counts per second, stick all the way" },
     { .id = 10, .name = "gyro_speed", .type = T_NUMBER, .max = 1000, FIELD(gyro_speed),
-      .def = ALL(32), .help = "mouse, touchpad: counts per degree turned; 0 off" },
+      .def = 32, .help = "mouse, touchpad: counts per degree turned; 0 off" },
     { .id = 11, .name = "gyro_accel", .type = T_NUMBER, .max = 1000, FIELD(gyro_accel),
-      .def = ALL(250), .help = "mouse, touchpad: percent of gyro_speed for fast turns" },
+      .def = 250, .help = "mouse, touchpad: percent of gyro_speed for fast turns" },
     { .id = ID_ADDRESS, .name = "address", .type = T_BYTES, FIELD(address),
       .help = "the slot's own address, least significant byte first; zero: derived" },
     { .id = ID_BOND, .name = "bond", .type = T_BYTES, FIELD(bond),
       .help = "the paired host: peer, link key, key type, LE peer, LTK" },
     /* The link, for measuring it; next connect. */
     { .id = 14, .flags = F_DEV, .name = "report_hz", .type = T_NUMBER, .max = 1000, FIELD(report_hz),
-      .def = ALL(0), .help = "most reports per second, Classic and LE, whole milliseconds apart; "
+      .def = 0, .help = "most reports per second, Classic and LE, whole milliseconds apart; "
                              "reports are built when the radio has room; 0: 250" },
     { .id = 15, .flags = F_DEV, .name = "le_interval_min", .type = T_NUMBER, .max = 3200,
-      FIELD(link.le_interval_min), .def = ALL(0),
+      FIELD(link.le_interval_min), .def = 0,
       .help = "LE: connection interval to ask for, 1.25 ms units (6 = 7.5 ms); 0: the profile's" },
     { .id = 16, .flags = F_DEV, .name = "le_interval_max", .type = T_NUMBER, .max = 3200,
-      FIELD(link.le_interval_max), .def = ALL(0),
+      FIELD(link.le_interval_max), .def = 0,
       .help = "LE: the longest interval to accept; 0: le_interval_min" },
     { .id = 17, .flags = F_DEV, .name = "le_phy", .type = T_ENUM, .names = phys, FIELD(link.le_phy),
-      .def = ALL(0), .help = "LE: 2m asks the host for the 2M PHY" },
+      .def = 0, .help = "LE: 2m asks the host for the 2M PHY" },
     { .id = 18, .flags = F_DEV, .name = "in_flight", .type = T_NUMBER, .max = 8, FIELD(link.in_flight),
-      .def = ALL(2), .help = "input reports in the controller at once; 0: 2" },
+      .def = 2, .help = "input reports in the controller at once; 0: 2" },
     { .id = 19, .flags = F_DEV, .name = "poll_us", .type = T_NUMBER, .max = 40000, FIELD(link.poll_us),
-      .def = ALL(3750), .help = "Classic: Best Effort poll request in us (3750 minimum, rounded down to 1250 steps); 0: none" },
+      .def = 3750, .help = "Classic: Best Effort poll request in us (3750 minimum, rounded down to 1250 steps); 0: none" },
     { .id = 23, .flags = F_DEV, .name = "pull_delay_us", .type = T_NUMBER, .max = 5000, FIELD(pull_delay_us),
-      .def = ALL(0), .help = "build a report this long after the radio asks for it (fresher, "
+      .def = 0, .help = "build a report this long after the radio asks for it (fresher, "
                              "until it misses the connection event)" },
     { .id = 29, .flags = F_DEV, .name = "jit_us", .type = T_NUMBER, .max = 10000, FIELD(link.jit_us),
-      .def = ALL(0), .help = "build a report this long before the connection event or sniff "
+      .def = 0, .help = "build a report this long before the connection event or sniff "
                              "anchor it goes out at; 0: adaptive; 1: as soon as the radio has room" },
     { .id = 28, .flags = F_DEV, .name = "edr3", .type = T_ENUM, .names = onoff, FIELD(link.edr3_off),
-      .def = ALL(1), .help = "Classic: 3 Mbit/s packets (an 83-byte PlayStation report fits "
+      .def = 1, .help = "Classic: 3 Mbit/s packets (an 83-byte PlayStation report fits "
                              "one, but a Linux host stalled more often); off: 2 Mbit/s only" },
     { .id = 26, .flags = F_DEV, .name = "sniff_max", .type = T_NUMBER, .max = 800, FIELD(link.sniff_max),
-      .def = ALL(0), .help = "Classic: ask the host for sniff, at most this many 0.625 ms "
+      .def = 0, .help = "Classic: ask the host for sniff, at most this many 0.625 ms "
                              "slots (even); 0: take what the host chooses" },
     { .id = 27, .flags = F_DEV, .name = "sniff_min", .type = T_NUMBER, .max = 800, FIELD(link.sniff_min),
-      .def = ALL(0), .help = "Classic: the shortest sniff interval asked for; 0: sniff_max" },
+      .def = 0, .help = "Classic: the shortest sniff interval asked for; 0: sniff_max" },
     /* ids 20, 21: tx_step and tx_table, replaced by tx_power before release;
      * id 24: sniff_exit, now a rule in bt.c (sniff_too_slow); id 25: sniff_req,
      * replaced by sniff_max and sniff_min */
     { .id = 22, .name = "tx_power", .type = T_ENUM, .names = tx_powers, FIELD(link.tx_power),
-      .def = ALL(4), .help = "radio strength 1-6: 1 is about 20 dB below 5; 6 about 3 dB "
+      .def = 4, .help = "radio strength 1-6: 1 is about 20 dB below 5; 6 about 3 dB "
                              "above 5, using more battery" },
     /* IDs 31-34 were formula modes and seven-point arrays, 36-39 the stick
      * curves, now a remap slot's; retired. */
     { .id = 40, .name = "remap", .type = T_ENUM, .names = remap_names, FIELD(remap),
-      .def = ALL(0), .help = "the remap slot each connect starts with; Home+M then a slot key picks "
+      .def = 0, .help = "the remap slot each connect starts with; Home+M then a slot key picks "
                              "another until a disconnect, another slot or sleep" },
 };
 
 #define ENTRY(i, r, g, b) { .id = (i) + 1, .name = "palette" #i, .type = T_RGB, \
-  .offset = 3 * (i), .size = 3, .def = { RGB24(r, g, b) } }
+  .offset = 3 * (i), .size = 3, .def = RGB24(r, g, b) }
 
 /* Full brightness: white, then rainbow order from red through pink.
  * Idle uses white (0); battery uses orange (3), selected in settings_ux.c. */
@@ -217,10 +218,11 @@ static const struct set_field remap_fields[] = {
 #define RULES_FIELD (&remap_fields[2])
 _Static_assert(sizeof(remap_fields) / sizeof(remap_fields[0]) == 17, "LEFT_POINTS, RIGHT_POINTS");
 
-/* What a remap slot is until it is changed.  Map: the key with bit n - 1. */
-static const struct set_remap remap_defaults[SLOTS] = {
-    [0] = { .name = "Swap A/B X/Y",
-            .map = { [0] = 1 + 1, [1] = 0 + 1, [3] = 4 + 1, [4] = 3 + 1 } },  /* A=B B=A X=Y Y=X */
+/* What remap slot A is until it is changed; the others start empty.  Map:
+ * the key with bit n - 1. */
+static const struct set_remap remap_a_default = {
+    .name = "Swap A/B X/Y",
+    .map = { [0] = 1 + 1, [1] = 0 + 1, [3] = 4 + 1, [4] = 3 + 1 },     /* A=B B=A X=Y Y=X */
 };
 
 _Static_assert(sizeof(struct set_cal) == 112, "stored calibration layout");
@@ -309,6 +311,12 @@ static const struct set_field *find(u8 t, u8 id, u32 *bit)
     return NULL;
 }
 
+/* A field's default in target t (a slot's own, if it has one). */
+static u32 field_def(const struct set_field *f, u8 t)
+{
+    return f->slot_def && t < SLOTS ? f->slot_def[t] : f->def;
+}
+
 static u32 enum_count(const struct set_field *f)
 {
     u32 n = 0;
@@ -386,12 +394,12 @@ static void touch(u8 t)
 /* The reset path and read-only USB defaults query share these bytes. */
 static void default_value(u8 t, const struct set_field *f, u8 *out)
 {
-    u32 def = f->def[t < SLOTS ? t : 0];
+    u32 def = field_def(f, t);
 
     memset(out, 0, f->size);
     memcpy(out, &def, f->size < 4 ? f->size : 4);
-    if (t >= TARGET_REMAP)
-        memcpy(out, (const u8 *)&remap_defaults[t - TARGET_REMAP] + f->offset, f->size);
+    if (t == TARGET_REMAP)
+        memcpy(out, (const u8 *)&remap_a_default + f->offset, f->size);
     if (f == LEFT_POINTS || f == RIGHT_POINTS)
         memcpy(out, linear_points, sizeof(linear_points));
 }
@@ -724,7 +732,7 @@ void set_apply(void)
             reset_keeping_pairing(t);
         } else {
             f = find(t, id, &bit);
-            u8 v = (u8)(l ? stage[o + 3] : t < SLOTS ? f->def[t] : 0);
+            u8 v = (u8)(l ? stage[o + 3] : field_def(f, t));
 
             /* A new type is a new device to the console: the old address
              * and bond belong to the old one.  Through the dongle the host
@@ -811,10 +819,10 @@ u32 set_describe(u32 n, u8 *out, u32 max)
     for (i = 0; f->type == T_ENUM && f->names[i]; i++) o = put_string(out, o, max, f->names[i]);
     defs = kind == 0 ? SLOTS : 1;
     for (i = 0; i < defs && o <= max; i++) {
-        u32 size = f->size < 4 ? f->size : 0;
+        u32 size = f->size < 4 ? f->size : 0, def = field_def(f, (u8)i);
 
         if (o + size > max) return 0;
-        memcpy(out + o, &f->def[i], size);
+        memcpy(out + o, &def, size);
         o += size;
     }
     return o <= max ? o : 0;
