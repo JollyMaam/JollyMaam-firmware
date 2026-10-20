@@ -894,9 +894,11 @@ def rumble_balance(path):
     balance towards that side and leaves it there; R3 evens it."""
     print("Left stick: strength (farther out is stronger).\n"
           "Right stick: push left or right to move the balance that way; it stays when you let go.\n"
+          "L1: lock the strength where it is (L1 again unlocks).\n"
           "R3 (click the right stick): back to even.  Ctrl-C: stop.")
     balance, last = 0.0, time.monotonic()        # -1: left only, +1: right only
     gains = (1.0, 1.0)
+    locked, l1_was = None, False                 # locked: the strength held by L1
     try:
         while True:
             i = read_input(path)
@@ -908,11 +910,17 @@ def rumble_balance(path):
             if "r3" in i["keys"]:
                 balance = 0.0
             gains = (1 - max(0.0, balance), 1 + min(0.0, balance))
+            l1 = "l1" in i["keys"]
             strength = stick_strength(*i["left"])
             strength = strength if strength >= 5 else 0
+            if l1 and not l1_was:
+                locked = strength if locked is None else None
+            l1_was = l1
+            if locked is not None:
+                strength = locked
             left, right = strength * gains[0], strength * gains[1]
             duty = rumble(path, left, right, 200) if left or right else rumble(path, 0, 0, 0)
-            print(f"\rstrength: {strength:3.0f}%   balance: {balance_text(balance):<16} {balance_bar(balance)}   "
+            print(f"\rstrength: {strength:3.0f}%{' (locked)' if locked is not None else '         '}   balance: {balance_text(balance):<16} {balance_bar(balance)}   "
                   f"[left: {left:3.0f}%  right: {right:3.0f}%]  ", end="", flush=True)
             time.sleep(0.02)
     except KeyboardInterrupt:
