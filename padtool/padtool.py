@@ -19,8 +19,10 @@
     padtool rumble-test [list | N] [--seconds S]   rumble strengths, one side,
                                   ramps and short pulses, from N: Enter for the
                                   next, r again (or all, S seconds apart)
-    padtool rumble-sticks         each stick drives its side's motor: farther
-                                  from centre is stronger; Ctrl-C stops (protocol 9+)
+    padtool rumble-sticks [balance]   each stick drives its side's motor: farther
+                                  from centre is stronger; balance: the left stick
+                                  drives both, right stick left/right shifts the
+                                  balance (R3 evens it); Ctrl-C stops (protocol 9+)
     padtool input [-f]            buttons, sticks and triggers, calibrated and
                                   as read (-f: live) (protocol 9+)
     padtool reboot | loader       restart; restart into the ROM loader (for
@@ -873,6 +875,38 @@ def rumble_sticks(path):
         rumble(path, 0, 0, 0)
 
 
+def rumble_balance(path):
+    """Left stick: strength for both motors.  Right stick left/right moves the
+    balance towards that side and leaves it there; R3 evens it."""
+    print("Left stick: strength, both motors.  Right stick left/right: shift the balance (it stays).\n"
+          "R3: even.  Ctrl-C stops.")
+    balance, last = 0.0, time.monotonic()        # -1: left only, +1: right only
+    gains = (1.0, 1.0)
+    try:
+        while True:
+            i = read_input(path)
+            now = time.monotonic()
+            dt, last = now - last, now
+            push = i["right"][0] / 32767
+            if abs(push) > 0.15:
+                balance = max(-1.0, min(1.0, balance + push * 0.4 * dt))   # full push: 40%/s
+            if "r3" in i["keys"]:
+                balance = 0.0
+            gains = (1 - max(0.0, balance), 1 + min(0.0, balance))
+            strength = stick_strength(*i["left"])
+            strength = strength if strength >= 5 else 0
+            left, right = strength * gains[0], strength * gains[1]
+            duty = rumble(path, left, right, 200) if left or right else rumble(path, 0, 0, 0)
+            print(f"\rstrength {strength:5.1f}%   left x{gains[0]:.2f} = {left:5.1f}% ({duty[0]:3}/255)   "
+                  f"right x{gains[1]:.2f} = {right:5.1f}% ({duty[1]:3}/255)  ", end="", flush=True)
+            time.sleep(0.02)
+    except KeyboardInterrupt:
+        print()
+    finally:
+        rumble(path, 0, 0, 0)
+    print(f"balance: left x{gains[0]:.2f}, right x{gains[1]:.2f}")
+
+
 def rumble_test(path, first, seconds):
     """Play RUMBLE_TESTS from `first`: all of them, `seconds` apart, or (seconds
     None) Enter for the next, r again, a number for that one, b back, q quit."""
@@ -1273,7 +1307,14 @@ def main():
         path = need_device()
         if int.from_bytes(cmd(path, 0, length=64)[4:6], "little") < 9:
             p.error(f"{a.command} needs pad firmware protocol 9 or newer")
-        show_input(path, a.follow) if a.command == "input" else rumble_sticks(path)
+        if a.command == "input":
+            show_input(path, a.follow)
+        elif a.args == ["balance"]:
+            rumble_balance(path)
+        elif a.args:
+            p.error("rumble-sticks [balance]")
+        else:
+            rumble_sticks(path)
     elif a.command in ("rumble", "rumble-test"):
         path = need_device()
         if int.from_bytes(cmd(path, 0, length=64)[4:6], "little") < 8:
