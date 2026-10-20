@@ -165,6 +165,7 @@ enum req_kind {
     REQ_REBOOT, REQ_REBOOT_LOADER, REQ_HOME_TAP, REQ_STATS_RESET,
     REQ_RELINK,              /* connected: take the session down and connect it again */
     REQ_REMAP,               /* connected: remap slot .slot, SLOT_NONE none; kept until a disconnect, another slot or sleep */
+    REQ_LED_DEMO,                /* the lights show LED demo .slot (ux_led_demos), SLOT_NONE: stop */
 };
 
 struct ctl_request {
@@ -601,6 +602,21 @@ struct ux_colours { u8 idle, battery; u16 idle_brightness, battery_brightness; }
 extern const struct ux_timeouts ux_timeouts;
 extern const u8 ux_usb_autoconnect;
 extern const struct ux_colours ux_colours;
+
+/* LED demos (padtool led-demo): a scene in slot A's colours, with these instead
+ * of the slot's settings; 0 in a brightness: the palette's.  A demo lasts
+ * UX_LED_DEMO_MS after the last request for it. */
+#define UX_LED_DEMO_MS 30000
+enum { LED_DEMO_DITHER_PALETTE, LED_DEMO_DITHER_OFF, LED_DEMO_DITHER_ON };
+struct ux_led_demo {
+    const char *name;
+    u8 scene;                /* enum ctl_kind: its LED scene */
+    u8 grips, players;       /* connected: GRIPS_*, PLAYERS_* */
+    u16 steady, animation;
+    u8 dither;               /* LED_DEMO_DITHER_* */
+};
+extern const struct ux_led_demo ux_led_demos[];
+extern const u8 ux_led_demo_count;
 extern const struct led_scene ux_scenes[CTL_KIND_COUNT];
 
 /* Home gestures, table in settings_ux.c.  ux_reported: the controller saw a

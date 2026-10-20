@@ -45,6 +45,23 @@ const struct ux_colours ux_colours = {
     .battery = 3, .battery_brightness = 50,
 };
 
+/* padtool led-demo shows these in turn. */
+const struct ux_led_demo ux_led_demos[] = {
+    { "connecting: Home and the bar blink, soft edges", CTL_CONNECTING },
+    { "pairing: a quick blink, a light gliding along the bar", CTL_PAIRING },
+    { "connected, steady: Home, players and grips at steady_brightness", CTL_CONNECTED, GRIPS_PRIMARY, PLAYERS_HOST },
+    { "fade: grips and players", CTL_CONNECTED, GRIPS_FADE, PLAYERS_FADE },
+    { "input: press buttons, move the sticks; each grip follows its half", CTL_CONNECTED, GRIPS_INPUT, PLAYERS_PRIMARY },
+    { "rainbow: grips and players", CTL_CONNECTED, GRIPS_RAINBOW, PLAYERS_RAINBOW },
+    { "heartbeat: grips", CTL_CONNECTED, GRIPS_HEARTBEAT, PLAYERS_PRIMARY },
+    { "steady 1.5, dithered", CTL_CONNECTED, GRIPS_PRIMARY, PLAYERS_PRIMARY, 15, 0, LED_DEMO_DITHER_ON },
+    { "steady 1.5, not dithered (shows 2)", CTL_CONNECTED, GRIPS_PRIMARY, PLAYERS_PRIMARY, 15, 0, LED_DEMO_DITHER_OFF },
+    { "steady 0.5, dithered", CTL_CONNECTED, GRIPS_PRIMARY, PLAYERS_PRIMARY, 5, 0, LED_DEMO_DITHER_ON },
+    { "dim fade up to 3, dithered", CTL_CONNECTED, GRIPS_FADE, PLAYERS_FADE, 0, 30, LED_DEMO_DITHER_ON },
+    { "dim fade up to 3, not dithered", CTL_CONNECTED, GRIPS_FADE, PLAYERS_FADE, 0, 30, LED_DEMO_DITHER_OFF },
+};
+const u8 ux_led_demo_count = sizeof(ux_led_demos) / sizeof(ux_led_demos[0]);
+
 const struct led_scene ux_scenes[CTL_KIND_COUNT] = {
     [CTL_BOOT] =       { COLOUR_IDLE,    LED_SOLID,           BAR_ALL,    LED_OFF,             GRIPS_WAVE, LED_OFF },
     [CTL_IDLE] =       { COLOUR_IDLE,    LED_OFF,             BAR_ALL,    LED_OFF,             GRIPS_WAVE, LED_OFF },

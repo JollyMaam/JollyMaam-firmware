@@ -10,6 +10,9 @@
     padtool log [-f]              the pad's log (-f: follow)
     padtool stats [-w SECONDS] [--reset]   loop timing and counters (-w: every N s)
     padtool calibrate            start shared sensor calibration (protocol 3+)
+    padtool led-demo [list | N] [--seconds S]   the pad shows its LED animations
+                                  in turn, from N: Enter for the next (or
+                                  every S seconds); list: what there is (protocol 7+)
     padtool reboot | loader       restart; restart into the ROM loader (for
                                   jlnewfw flash)
     padtool connect [SLOT]        connect a slot (default: the last), as Home does
@@ -66,7 +69,7 @@ l4 r4 l3 r3 minus plus home m capture (or screenshot).
 The pad is a mass-storage device with no medium; commands are vendor SCSI
 CDBs (see the comment at the top of src/usb.c).  Flashing is tools/jlnewfw.c's (make flash).
 """
-import argparse, collections, glob, json, os, struct, sys, time
+import argparse, collections, glob, json, os, struct, sys, threading, time
 from padtransport import scsi, device_paths
 import padcurves
 import padremap
@@ -657,6 +660,64 @@ UNPAIR_ID = 0xfe
 UNPAIR_PROTOCOL = 6
 
 
+CMD_LED_DEMO = 0x19
+LED_DEMO_REFRESH = 10        # s; the pad ends a demo 30 s after the last request
+
+
+def led_demo_names(path):
+    names = []
+    for i in range(255):
+        name = cmd(path, CMD_LED_DEMO, i, 128).split(b"\0")[0].decode()
+        if not name:
+            break
+        names.append(name)
+    return names
+
+
+def led_demo(path, names, first, seconds):
+    """Show the pad's LED demos from `first`: one after another every `seconds`,
+    or (seconds None) Enter for the next, a number for that one, b back, q quit."""
+    lock, done, current = threading.Lock(), threading.Event(), [first]
+
+    def show(i):
+        with lock:
+            cmd(path, CMD_LED_DEMO, i | 1 << 8, 128)
+
+    def keep():                          # the pad lets a demo go without these
+        while not done.wait(LED_DEMO_REFRESH):
+            show(current[0])
+
+    def announce(i):
+        current[0] = i
+        show(i)
+        print(f"{i + 1}/{len(names)}  {names[i]}")
+
+    threading.Thread(target=keep, daemon=True).start()
+    try:
+        if seconds is not None:
+            for i in range(first, len(names)):
+                announce(i)
+                time.sleep(seconds)
+            return
+        print("Enter: next   b: back   number: that demo   q: quit")
+        announce(first)
+        while True:
+            answer = input().strip().lower()
+            if answer == "q":
+                return
+            i = current[0] - 1 if answer == "b" else int(answer) - 1 if answer.isdigit() else current[0] + 1
+            if 0 <= i < len(names):
+                announce(i)
+            elif not answer and i == len(names):
+                return
+    except (KeyboardInterrupt, EOFError):
+        pass
+    finally:
+        done.set()
+        with lock:
+            cmd(path, CMD_LED_DEMO, 0xff)
+
+
 def unpair(path, slot):
     """Firmware clears the bond and generates a new address in the same commit."""
     if not 0 <= slot < 8:
@@ -910,7 +971,7 @@ def tool(paths):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["target", "find", "identify", "status", "log", "stats", "calibrate", "reboot", "loader", "relink", "connect", "pair", "unpair", "profile", "peek", "trace",
+    p.add_argument("command", choices=["target", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "reboot", "loader", "relink", "connect", "pair", "unpair", "profile", "peek", "trace",
                                        "fields", "get", "set", "reset", "backup-settings",
                                        "restore-settings", "factory-reset", "ephemeral", "keep", "tool"])
     p.add_argument("args", nargs="*")
@@ -919,6 +980,7 @@ def main():
     p.add_argument("-w", "--watch", type=float, metavar="SECONDS", help="stats: show and reset every N seconds")
     p.add_argument("--reset", action="store_true", help="stats: reset the counters after reading")
     p.add_argument("--hz", type=int, default=2000, help="profile: samples per second")
+    p.add_argument("--seconds", type=float, help="led-demo: show each this long, then the next")
     p.add_argument("--dev", action="store_true",
                    help="fields, get: include the developer settings")
     board = p.add_mutually_exclusive_group()
@@ -949,7 +1011,7 @@ def main():
         except ValueError:
             p.error("invalid address; expected AA:BB:CC:DD:EE:FF")
     if BOARD == "dongle" and a.command in {
-        "stats", "calibrate", "relink", "connect", "fields", "get", "set", "reset",
+        "stats", "calibrate", "led-demo", "relink", "connect", "fields", "get", "set", "reset",
         "backup-settings", "restore-settings", "factory-reset", "keep",
     }:
         p.error(f"{a.command} is not supported by dongle firmware")
@@ -1004,6 +1066,18 @@ def main():
         cmd(need_device(), 0x13, slot)
     elif a.command == "relink":
         cmd(need_device(), 0x12)
+    elif a.command == "led-demo":
+        path = need_device()
+        if int.from_bytes(cmd(path, 0, length=64)[4:6], "little") < 7:
+            p.error("led-demo needs pad firmware protocol 7 or newer")
+        names = led_demo_names(path)
+        if a.args and a.args[0] == "list":
+            for i, name in enumerate(names):
+                print(f"{i + 1:3}  {name}")
+            return
+        if a.args and (not a.args[0].isdigit() or not 1 <= int(a.args[0]) <= len(names)):
+            p.error(f"led-demo: a number 1-{len(names)}, or list")
+        led_demo(path, names, int(a.args[0]) - 1 if a.args else 0, a.seconds)
     elif a.command == "calibrate":
         path = need_device()
         if int.from_bytes(cmd(path, 0, length=64)[4:6], "little") < 3:

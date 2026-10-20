@@ -28,6 +28,9 @@
  *                         keeping its address; dongle: forget its single bond
  *                         (slot ignored)
  *   `0x18` CALIBRATE      pad only: start shared sensor calibration; no slot argument
+ *   `0x19` LED_DEMO       pad only, protocol 7+: CDB byte 2: LED demo number (0xff:
+ *                         stop), byte 3 1: show it (for UX_LED_DEMO_MS); in: its name,
+ *                         NUL-terminated, empty past the last
  *   `0x30` TARGET         dongle only: CDB bytes 2–7: Bluetooth address in
  *                         written order (AA:BB:CC:DD:EE:FF); page that device
  *   `0x13` CONNECT        CDB byte 2: slot (`0xfe` the last): start its
@@ -76,12 +79,12 @@
  * padtool/padtool.py and padtool/padgui.pyw (Linux/Windows SCSI) are the clients. */
 
 #define OP          0xf5
-#define PROTOCOL    6
+#define PROTOCOL    7
 
 #define STATS_VERSION 6
 
 enum { CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02, CMD_STATS = 0x03,
-       CMD_REBOOT = 0x10, CMD_REBOOT_LOADER = 0x11, CMD_RELINK = 0x12, CMD_CONNECT = 0x13, CMD_PROFILE = 0x14, CMD_PEEK = 0x15, CMD_TRACE = 0x16, CMD_PAIR = 0x17, CMD_CALIBRATE = 0x18,
+       CMD_REBOOT = 0x10, CMD_REBOOT_LOADER = 0x11, CMD_RELINK = 0x12, CMD_CONNECT = 0x13, CMD_PROFILE = 0x14, CMD_PEEK = 0x15, CMD_TRACE = 0x16, CMD_PAIR = 0x17, CMD_CALIBRATE = 0x18, CMD_LED_DEMO = 0x19,
        CMD_FIELD = 0x20, CMD_READ = 0x21, CMD_WRITE = 0x22, CMD_COMMIT = 0x23, CMD_DROP = 0x24,
        CMD_EPHEMERAL = 0x25, CMD_RESULT = 0x26, CMD_DEFAULTS = 0x27, CMD_TARGET = 0x30 };
 
@@ -191,6 +194,20 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         pending.slot = SLOT_NONE;
 #endif
         break;
+    case CMD_LED_DEMO:
+#ifndef BOARD_DONGLE
+        if (cdb[2] < ux_led_demo_count && max) {
+            n = (u32)strlen(ux_led_demos[cdb[2]].name) + 1;
+            if (n > max) n = max;
+            memcpy(data, ux_led_demos[cdb[2]].name, n);
+            data[n - 1] = 0;
+        }
+        if (cdb[3] || cdb[2] == 0xff) {
+            pending.kind = REQ_LED_DEMO;
+            pending.slot = cdb[2] < ux_led_demo_count ? cdb[2] : SLOT_NONE;
+        }
+#endif
+        break;
     case CMD_CONNECT:            /* argument: slot, 0xfe the last */
         pending.kind = REQ_CONNECT;
         pending.slot = cdb[2];
@@ -251,6 +268,10 @@ static u8 target_seen[6];
 void dongle_bt_target(const u8 addr[6]) { memcpy(target_seen, addr, 6); }
 #endif
 static const u8 uid[16] = { 1, 2, 3 };
+#ifndef BOARD_DONGLE
+const struct ux_led_demo ux_led_demos[] = { { "one" }, { "two" } };
+const u8 ux_led_demo_count = 2;
+#endif
 const u8 *plat_unique_id(void) { return uid; }
 void plat_usb_service(void) {}
 void plat_prof_start(u16 hz, u32 zoom, u8 shift) { (void)hz; (void)zoom; (void)shift; }
@@ -333,6 +354,23 @@ int main(void)
     CHECK(r.kind == REQ_NONE);
 #else
     CHECK(r.kind == REQ_CALIBRATE && r.slot == SLOT_NONE);
+#endif
+#ifndef BOARD_DONGLE
+    cdb[1] = CMD_LED_DEMO;
+    cdb[2] = 1;
+    CHECK(usb_command(cdb, data, sizeof(data), 0) == 4 && !strcmp((char *)data, "two"));
+    CHECK(usb_poll(&st).kind == REQ_NONE);                  /* the name only */
+    cdb[3] = 1;
+    usb_command(cdb, data, sizeof(data), 0);
+    r = usb_poll(&st);
+    CHECK(r.kind == REQ_LED_DEMO && r.slot == 1);
+    cdb[2] = 2;
+    CHECK(usb_command(cdb, data, sizeof(data), 0) == 0);    /* past the last */
+    cdb[2] = 0xff; cdb[3] = 0;
+    usb_command(cdb, data, sizeof(data), 0);
+    r = usb_poll(&st);
+    CHECK(r.kind == REQ_LED_DEMO && r.slot == SLOT_NONE);
+    cdb[3] = 0;
 #endif
     cdb[1] = CMD_FIELD;
     cdb[2] = 1;

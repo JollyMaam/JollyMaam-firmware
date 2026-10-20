@@ -74,6 +74,8 @@ static struct {
     u16 dither_acc[LIGHT_COUNT][3];
     u8 dithering;                /* a dim light between steps: refresh at dither_next */
     u32 dither_next;
+    u8 led_demo;                 /* the LED demo shown (ux_led_demos), SLOT_NONE: none */
+    u32 led_demo_ms;             /* when it was last asked for */
     u8 reach[2];
     u32 led_next;
     u8 usb_raw, usb_powered;
@@ -317,6 +319,13 @@ static void handle(struct ctl_request r, u32 now)
     case REQ_DISCONNECT:
         c.remap_chosen = 0;
         if (session()) stop(now);
+        break;
+    case REQ_LED_DEMO:
+        if (r.slot != c.led_demo) util_log("led demo %d", r.slot == SLOT_NONE ? -1 : (int)r.slot);
+        c.led_demo = r.slot;
+        c.led_demo_ms = now;
+        c.led.scene = CTL_KIND_COUNT;    /* fade into it, from the start */
+        c.led_next = now;
         break;
     case REQ_REMAP:
         if (c.kind != CTL_CONNECTED) return;
@@ -697,14 +706,25 @@ static struct shade shade(u8 entry, u16 brightness)
     return s;
 }
 
+/* The palette's dither_ms, or a demo's. */
+static u8 dither_ms(void)
+{
+    u8 ms = set_brightness()->dither_ms;
+
+    if (c.led_demo == SLOT_NONE) return ms;
+    if (ux_led_demos[c.led_demo].dither == LED_DEMO_DITHER_OFF) return 0;
+    if (ux_led_demos[c.led_demo].dither == LED_DEMO_DITHER_ON && !ms) return 2;
+    return ms;
+}
+
 /* The LEDs from the frame drawn: again between frames while dithering. */
 static void show(u32 now)
 {
-    const struct set_brightness *b = set_brightness();
+    u8 ms = dither_ms();
     struct led_frame f;
 
-    c.dithering = (u8)led_dither(&c.frame, c.dither_acc, b->dither_ms != 0, &f);
-    if (c.dithering) c.dither_next = now + b->dither_ms;
+    c.dithering = (u8)led_dither(&c.frame, c.dither_acc, ms != 0, &f);
+    if (c.dithering) c.dither_next = now + ms;
     if (memcmp(&f, &c.shown, sizeof(f))) {
         c.shown = f;
         plat_leds(&f);
@@ -715,6 +735,7 @@ static void outputs(u32 now)
 {
     const struct set_slot *slot, *shown;
     const struct set_brightness *b = set_brightness();
+    const struct ux_led_demo *demo = NULL;
     struct led_inputs in;
     u32 plugged = now - c.usb_plugged_ms, since = 0;
     u8 scene = c.kind, armed = ux_armed();
@@ -741,6 +762,16 @@ static void outputs(u32 now)
     if (c.kind == CTL_BOOT && now - c.since >= ux_timeouts.boot_scene_ms) scene = CTL_IDLE;
     if (armed != SLOT_NONE && c.kind != CTL_CONNECTED && !c.calibrating) scene = CTL_CONNECTING;
     else armed = SLOT_NONE;
+    if (c.led_demo != SLOT_NONE && now - c.led_demo_ms >= UX_LED_DEMO_MS) {
+        util_log("led demo over");
+        c.led_demo = SLOT_NONE;
+        c.led.scene = CTL_KIND_COUNT;
+    }
+    if (c.led_demo != SLOT_NONE) {   /* slot A's colours, the demo's settings */
+        demo = &ux_led_demos[c.led_demo];
+        scene = demo->scene;
+        armed = 0;
+    }
     if (scene != c.led.scene) {
         c.led.scene = scene;
         c.led.since_ms = now;
@@ -751,13 +782,13 @@ static void outputs(u32 now)
     memset(&in, 0, sizeof(in));
     shown = set_slot(c.led.slot < SLOTS ? c.led.slot : 0);
     in.connect_colour = shade(shown->connect_colour, b->connect);
-    in.primary_colour = shade(shown->primary_colour, b->steady);
-    in.secondary_colour = shade(shown->secondary_colour, b->steady);
+    in.primary_colour = shade(shown->primary_colour, demo && demo->steady ? demo->steady : b->steady);
+    in.secondary_colour = shade(shown->secondary_colour, demo && demo->steady ? demo->steady : b->steady);
     in.idle_colour = shade(ux_colours.idle, ux_colours.idle_brightness);
     in.battery_colour = shade(ux_colours.battery, ux_colours.battery_brightness);
-    in.animation = b->animation;
-    in.grips = slot->grips;
-    in.player_lights = slot->players;
+    in.animation = demo && demo->animation ? demo->animation : b->animation;
+    in.grips = demo ? demo->grips : slot->grips;
+    in.player_lights = demo ? demo->players : slot->players;
     in.ephemeral = (u8)set_is_ephemeral();
     led_reach(c.reach, &c.pad);
     in.reach[0] = c.reach[0];
@@ -773,6 +804,11 @@ static void outputs(u32 now)
         in.players_flash = c.host.players_flash;
         in.has_lightbar = c.host.has_lightbar;
         in.lightbar = rgb3(c.host.lightbar);
+    }
+    if (demo) {                  /* the console's player 1 */
+        in.has_players = 1;
+        in.players = 1;
+        in.players_flash = 0;
     }
     in.cal_lit = (u8)cal_led(now, &in.cal);
     if (c.kind == CTL_CONNECTED && ux_config(&since)) {
@@ -930,6 +966,7 @@ static void boot(u32 now)
     c.last_slot = plat_retained_slot();
     c.led.scene = CTL_BOOT;
     c.led.slot = SLOT_NONE;
+    c.led_demo = SLOT_NONE;
     c.usb_raw = c.usb_powered = (u8)plat_usb_present();
     c.usb_plugged_ms = c.usb_powered ? now : now - ux_timeouts.usb_plug_ms;
     c.usb_arrived = c.usb_powered;  /* plugged in at power-up (or the plug-in woke us) */

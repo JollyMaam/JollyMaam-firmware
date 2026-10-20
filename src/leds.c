@@ -5,8 +5,7 @@
 #define REACH_QUIET 24
 #define REACH_DECAY 12
 #define K_ONE        65536u      /* a wave's full light */
-#define EDGE_MS      60          /* a blink fades in and out over this, at most a third of it */
-#define FADE_IN_MS   250         /* a new scene over the last frame of the old */
+#define FADE_IN_MS   250         /* a new scene over the last frame of the old; a blink's edges */
 #define RAINBOW_MS   6000        /* once round the colours */
 #define HEARTBEAT_MS 1200
 #define SWEEP_WIDTH  (K_ONE * 5 / 4)    /* how far a sweep's glow reaches, in lights */
@@ -116,15 +115,17 @@ static u32 wave(const struct led_wave *w, u32 t, u32 pos, u32 count)
     switch (w->kind) {
     case WAVE_SOLID:
         return K_ONE;
-    case WAVE_BLINK:
+    case WAVE_BLINK:            /* fading as a new scene does: up as it goes on, down in the off time */
         period = (u32)w->a + w->b;
         if (!period) return 0;
         phase = t % period;
-        if (phase >= w->a) return 0;
-        edge = w->a / 3 < EDGE_MS ? w->a / 3 : EDGE_MS;
-        if (edge && phase < edge) return bright(ease(phase * K_ONE / edge));
-        if (edge && w->a - phase < edge) return bright(ease((w->a - phase) * K_ONE / edge));
-        return K_ONE;
+        if (phase < w->a) {
+            edge = w->a / 2 < FADE_IN_MS ? w->a / 2 : FADE_IN_MS;
+            return edge && phase < edge ? ease(phase * K_ONE / edge) : K_ONE;
+        }
+        edge = w->b / 2 < FADE_IN_MS ? w->b / 2 : FADE_IN_MS;
+        phase -= w->a;
+        return edge && phase < edge ? ease(K_ONE - phase * K_ONE / edge) : 0;
     case WAVE_BREATHE:          /* brightest at its start */
         period = w->a ? w->a : 1;
         phase = (t + period / 2) % period;
@@ -218,7 +219,8 @@ static void players(const struct led_scene *sc, u32 now, u32 t, const struct led
     case PLAYERS_HOST:
         if (!in->has_players) return;
         number = in->players & 0xf;
-        if (wave(&player_flash, now, 0, 1) >= K_ONE / 2) number |= in->players_flash & 0xf;
+        if (now % ((u32)player_flash.a + player_flash.b) < player_flash.a)   /* switched, not faded */
+            number |= in->players_flash & 0xf;
         break;
     case PLAYERS_FADE:
         c = mix(lit(at(in->secondary_colour, in->animation)), lit(at(in->primary_colour, in->animation)),
@@ -469,15 +471,24 @@ int main(void)
     frame(&connecting, &s, 1300, &in, &f);
     CHECK(same(f.light[LIGHT_HOME], red));
     CHECK(same(f.light[LIGHT_P1], red) && same(f.light[LIGHT_P3], red));
-    frame(&connecting, &s, 1600, &in, &f);
+    frame(&connecting, &s, 1800, &in, &f);
     CHECK(same(f.light[LIGHT_HOME], dark_rgb) && same(f.light[LIGHT_P0], dark_rgb));
-    for (t = 0, last = 0; t <= EDGE_MS; t += 5) {   /* the edge rises steadily */
+    for (t = 0, last = 0; t <= FADE_IN_MS; t += 5) {   /* up as a new scene fades in */
         u32 k = wave(&connecting.home, t, 0, 1);
 
-        CHECK(k >= last);
+        CHECK(k >= last && k == ease(t * K_ONE / FADE_IN_MS));
         last = k;
     }
-    CHECK(last == K_ONE && wave(&connecting.home, 500 - 1, 0, 1) < K_ONE / 4);
+    for (t = 500; t <= 500 + FADE_IN_MS; t += 5) {     /* and down in the off time */
+        u32 k = wave(&connecting.home, t, 0, 1);
+
+        CHECK(k <= last);
+        last = k;
+    }
+    CHECK(wave(&connecting.home, 499, 0, 1) == K_ONE && !last);
+    /* A quick blink is all edges: up and down over half of each. */
+    CHECK(wave(&pairing.home, 30, 0, 1) == K_ONE / 2 && wave(&pairing.home, 60, 0, 1) == K_ONE &&
+          wave(&pairing.home, 120 + 30, 0, 1) == K_ONE / 2 && !wave(&pairing.home, 120 + 60, 0, 1));
     /* Breathing eases out of its brightest and back. */
     CHECK(wave(&fade, 0, 0, 1) == K_ONE && wave(&fade, 2000, 0, 1) == 0);
     CHECK(wave(&fade, 1000, 0, 1) > K_ONE / 8 && wave(&fade, 1000, 0, 1) < K_ONE / 2);
