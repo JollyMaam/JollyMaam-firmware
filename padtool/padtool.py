@@ -22,7 +22,7 @@
     padtool rumble-sticks [balance]   each stick drives its side's motor: farther
                                   from centre is stronger; balance: the left stick
                                   drives both, right stick left/right shifts the
-                                  balance (R3 evens it); Ctrl-C stops (protocol 9+)
+                                  balance (R1 evens it, L1 locks the strength); Ctrl-C stops (protocol 9+)
     padtool input [-f]            buttons, sticks and triggers, calibrated and
                                   as read (-f: live) (protocol 9+)
     padtool reboot | loader       restart; restart into the ROM loader (for
@@ -891,11 +891,11 @@ def balance_bar(balance, half=10):
 
 def rumble_balance(path):
     """Left stick: strength for both motors.  Right stick left/right moves the
-    balance towards that side and leaves it there; R3 evens it."""
+    balance towards that side and leaves it there; R1 evens it."""
     print("Left stick: strength (farther out is stronger).\n"
           "Right stick: push left or right to move the balance that way; it stays when you let go.\n"
           "L1: lock the strength where it is (L1 again unlocks).\n"
-          "R3 (click the right stick): back to even.  Ctrl-C: stop.")
+          "R1: back to even.  Ctrl-C: stop.")
     balance, last = 0.0, time.monotonic()        # -1: left only, +1: right only
     gains = (1.0, 1.0)
     locked, l1_was = None, False                 # locked: the strength held by L1
@@ -907,7 +907,7 @@ def rumble_balance(path):
             push = i["right"][0] / 32767
             if abs(push) > 0.15:
                 balance = max(-1.0, min(1.0, balance + push * 0.4 * dt))   # full push: 40%/s
-            if "r3" in i["keys"]:
+            if "r1" in i["keys"]:
                 balance = 0.0
             gains = (1 - max(0.0, balance), 1 + min(0.0, balance))
             l1 = "l1" in i["keys"]
