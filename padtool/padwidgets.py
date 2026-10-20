@@ -63,24 +63,28 @@ class PaletteEditor(ttk.Frame):
         self.palette_button.pack(side='left')
         self.preview = app.color_swatch(self, record, entry)
         self.preview.pack(side='left', padx=6)
-        ttk.Label(self, text='Brightness').pack(side='left', padx=(6, 4))
+        # An entry alone (T_ENTRY): its brightness is the palette's; older
+        # firmware's colours carry a level of their own.
+        self.with_level = entry['field']['size'] == 2
         self.level = tk.StringVar()
-        self.brightness = ttk.Combobox(self, textvariable=self.level, values=BRIGHTNESS_LABELS, state='readonly', width=7)
-        self.brightness.pack(side='left')
-        self.brightness.bind('<<ComboboxSelected>>', self.choose_brightness)
+        if self.with_level:
+            ttk.Label(self, text='Brightness').pack(side='left', padx=(6, 4))
+            self.brightness = ttk.Combobox(self, textvariable=self.level, values=BRIGHTNESS_LABELS, state='readonly', width=7)
+            self.brightness.pack(side='left')
+            self.brightness.bind('<<ComboboxSelected>>', self.choose_brightness)
         self.sync()
 
     def current(self):
         raw = self.app.value_bytes(self.entry)
-        if len(raw) != 2 or raw[0] > 15 or raw[1] > 15:
+        if len(raw) != (2 if self.with_level else 1) or raw[0] > 15 or (self.with_level and raw[1] > 15):
             raise ValueError('Invalid palette reference')
-        return raw
+        return (raw[0], raw[1]) if self.with_level else (raw[0], None)
 
     def sync(self):
         try:
             palette, level = self.current()
             self.palette_button.configure(text=f'Palette {palette}')
-            self.level.set(BRIGHTNESS_LABELS[level])
+            self.level.set(BRIGHTNESS_LABELS[level] if level is not None else '')
             self.draw_palette()
         except (Exception, SystemExit):
             self.palette_button.configure(text='Choose colour…')
@@ -90,7 +94,7 @@ class PaletteEditor(ttk.Frame):
         if self.app.busy:
             return
         _, level = self.current()
-        self.entry['var'].set(f'{palette}:{level}')
+        self.entry['var'].set(f'{palette}:{level}' if level is not None else str(palette))
 
     def choose_brightness(self, event=None):
         if self.app.busy:

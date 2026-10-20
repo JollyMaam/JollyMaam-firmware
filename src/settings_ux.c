@@ -38,13 +38,11 @@ u32 ux_idle_deadline(u32 idle_since, u32 activity_ms, u32 usb_seen_ms,
     return (s32)(offline - unplug) > 0 ? offline : unplug;
 }
 
-/* Palette roles: white idle, orange battery (settings.c); brightness here.
- * effect_level: what animated grips and player lights are lit at (0-255),
- * far above the steady lights. */
+/* Palette roles: white idle, orange battery (settings.c); brightness here,
+ * in tenths of the LEDs' smallest step.  The rest is the palette's. */
 const struct ux_colours ux_colours = {
-    .idle = { 0, 5 },
-    .battery = { 3, 5 },
-    .effect_level = 40,
+    .idle = 0, .idle_brightness = 50,
+    .battery = 3, .battery_brightness = 50,
 };
 
 const struct led_scene ux_scenes[CTL_KIND_COUNT] = {

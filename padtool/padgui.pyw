@@ -475,8 +475,8 @@ class App:
         if entry["field"]["type"] == pad.T_RGB and len(raw) == 3:
             rgb = "#" + raw.hex()
             return rgb
-        if entry["field"]["type"] == pad.T_COLOUR and len(raw) == 2:
-            palette, level = raw
+        if (entry["field"]["type"] == pad.T_COLOUR and len(raw) == 2) or (entry["field"]["type"] == pad.T_ENTRY and len(raw) == 1):
+            palette, level = raw[0], raw[1] if len(raw) == 2 else 0
             if palette >= 16 or level >= 16:
                 raise ValueError("Invalid palette entry or brightness")
             rgb = self.value_bytes(record["draft"][8, f"palette{palette}"])
@@ -573,7 +573,11 @@ class App:
     def show_help(self, entry):
         field = entry["field"]
         text = field["help"]
-        if field["type"] == pad.T_COLOUR:
+        if field["type"] == pad.T_ENTRY:
+            text = ("Choose one of the 16 colours from the pad's palette. How bright it is lit is the "
+                    "palette's: steady, animation and connecting brightness on the Palette page. "
+                    "Palette edits also update these previews. The Palette page Apply saves palette edits; the global toolbar Apply saves all devices’ edits.\n\n" + text)
+        elif field["type"] == pad.T_COLOUR:
             text = ("Choose one of the 16 colours from the pad's palette, then select its brightness. "
                     "Previews show the full palette colour at every brightness level. "
                     "Palette edits also update these previews. The Palette page Apply saves palette edits; the global toolbar Apply saves all devices’ edits.\n\n" + text)
@@ -1152,7 +1156,7 @@ class App:
                 mirror(entry, view, lambda v, names=names: v == names[1],
                        lambda on, names=names: names[1] if on else names[0])
                 editor = ttk.Checkbutton(parent, variable=view)
-            elif f["type"] == pad.T_COLOUR:
+            elif f["type"] in (pad.T_COLOUR, pad.T_ENTRY):
                 editor = PaletteEditor(parent, self, record, entry)
                 self.special_editors.append(editor)
             elif name in ("left_curve_points", "right_curve_points"):

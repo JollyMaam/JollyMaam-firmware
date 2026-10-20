@@ -42,8 +42,9 @@
 
 TARGET: a slot (A B X Y up down left right), palette, calibration or a remap
 slot (remap-a ... remap-right).  VALUE:
-a name for a choice, a number, ENTRY:LEVEL for a colour (palette entry 0-15,
-brightness 0-15), #rrggbb for a palette entry, aa:bb:cc:dd:ee:ff for an
+a name for a choice, a number, a palette entry 0-15 for a colour (how bright
+is the palette's: steady_brightness and the others), #rrggbb for a palette
+entry, aa:bb:cc:dd:ee:ff for an
 address, 15 comma-separated output bytes or a preset (linear, concave, s-curve) for stick curve points, hex for other
 bytes; "default" puts a field back to its default.
 
@@ -481,7 +482,7 @@ REMAP_NAMES = ["remap-" + n.lower() for n in SLOT_NAMES]
 TARGETS = SLOT_NAMES + ["palette", "calibration"] + REMAP_NAMES
 REMAP_TARGET = 10
 KINDS = ["slot", "palette", "calibration", "remap"]
-T_ENUM, T_NUMBER, T_COLOUR, T_RGB, T_BYTES, T_TEXT = range(6)
+T_ENUM, T_NUMBER, T_COLOUR, T_RGB, T_BYTES, T_TEXT, T_ENTRY = range(7)   # T_COLOUR: older firmware
 RESULTS = ["ok", "unknown field", "bad length", "out of range", "too many changes at once"]
 JOURNAL = os.path.expanduser("~/.cache/padtool/ephemeral.json")
 PAIRING = ("address", "bond")   # kept by a whole-slot reset
@@ -546,6 +547,8 @@ def show_value(f, raw):
         return str(int.from_bytes(raw, "little"))
     if t == T_COLOUR:
         return f"{raw[0]}:{raw[1]}"
+    if t == T_ENTRY:
+        return str(raw[0])
     if t == T_RGB:
         return "#" + raw.hex()
     if f["name"] in ("left_curve_points", "right_curve_points"):
@@ -607,6 +610,8 @@ def parse_value(f, text):
         if t == T_COLOUR:
             e, l = text.split(":")
             return bytes([int(e), int(l)])
+        if t == T_ENTRY:
+            return bytes([int(text.split(":")[0])])     # ENTRY:LEVEL from older firmware: the entry
         if t == T_RGB:
             v = bytes.fromhex(text.lstrip("#")) if "," not in text else bytes(int(x) for x in text.split(","))
         elif f["name"] in ("left_curve_points", "right_curve_points"):
@@ -733,6 +738,7 @@ def show_fields(path, dev=False):
         values = (" | ".join(f["names"]) if f["type"] == T_ENUM else
                   f"0-{f['max']}" if f["type"] == T_NUMBER else
                   "ENTRY:LEVEL" if f["type"] == T_COLOUR else
+                  "palette ENTRY 0-15" if f["type"] == T_ENTRY else
                   "#rrggbb" if f["type"] == T_RGB else f"text, {f['size']} bytes" if f["type"] == T_TEXT else
                   "KEY=KEY ... | identity" if remap_field(f, "map") else
                   "INPUT TRIGGER EFFECT OUT; ... | none (padtool -h)" if remap_field(f, "rules") else

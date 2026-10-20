@@ -26,8 +26,9 @@ typedef unsigned long long u64;
 
 #define RGB(r,g,b) { r, g, b }
 struct rgb { u8 r, g, b; };
-/* A colour at full strength and the brightness it is lit at (0-255). */
-struct shade { struct rgb rgb; u8 level; };
+/* A colour at full strength and how bright it is lit: tenths of the LEDs'
+ * smallest step, 0-2550 (10: 1 of 255). */
+struct shade { struct rgb rgb; u16 brightness; };
 
 #define SLOTS     8
 #define SLOT_NONE 0xff
@@ -375,8 +376,15 @@ enum { GRIPS_OFF, GRIPS_HOST, GRIPS_FADE, GRIPS_RUMBLE, GRIPS_INPUT, GRIPS_BOTH,
 enum { PLAYERS_OFF, PLAYERS_HOST, PLAYERS_FADE, PLAYERS_PRIMARY, PLAYERS_SECONDARY, PLAYERS_RAINBOW };
 
 #define PALETTE 16
-#define LEVELS  16
-struct colour { u8 entry, level; };      /* a palette entry at a brightness level */
+
+/* How bright each kind of light is, for the whole pad (the palette's
+ * settings): tenths of the LEDs' smallest step (10: 1 of 255). */
+struct set_brightness {
+    u16 steady;              /* Home and the player lights connected, steady grips */
+    u16 animation;           /* animated grips and player lights */
+    u16 connect;             /* connecting and pairing */
+    u8 dither_ms;            /* dim lights between steps: refresh this often; 0 off */
+};
 
 /* Curves are tool-defined point arrays; disabling retains the saved points
  * and passes calibrated input through exactly. */
@@ -385,9 +393,9 @@ struct colour { u8 entry, level; };      /* a palette entry at a brightness leve
 struct set_slot {
     u8 type;
     u8 transport;
-    struct colour connect_colour;        /* connecting, pairing: which slot */
-    struct colour primary_colour;        /* connected */
-    struct colour secondary_colour;      /* the background */
+    u8 connect_colour;                   /* palette entries: connecting, pairing; which slot */
+    u8 primary_colour;                   /* connected */
+    u8 secondary_colour;                 /* the background */
     u8 grips;
     u8 players;
     u8 rumble;               /* percent */
@@ -468,7 +476,8 @@ void set_init(void);
 void set_poll(u32 now, int radio_quiet);
 void set_flush(void);                    /* write what is pending now: before sleep or reboot */
 const struct set_slot *set_slot(u8 slot);
-struct shade set_colour(struct colour c);
+struct rgb set_colour(u8 entry);         /* a palette entry, at full strength */
+const struct set_brightness *set_brightness(void);
 const struct bt_bond *set_bond(u8 slot);
 void set_bond_store(u8 slot, const struct bt_bond *bond);
 void set_slot_address(u8 slot, u8 out[6]);
@@ -501,6 +510,8 @@ enum { LIGHT_HOME, LIGHT_P0, LIGHT_P1, LIGHT_P2, LIGHT_P3, LIGHT_GRIP_L,
        LIGHT_GRIP_R, LIGHT_UNUSED, LIGHT_COUNT };
 
 struct led_frame { struct rgb light[LIGHT_COUNT]; };
+/* A frame finer than the LEDs: 1/256 of their steps, 0-65280. */
+struct led_fine { u16 light[LIGHT_COUNT][3]; };
 
 /* Blinks have soft edges, breathing eases in and out, a sweep is a light
  * gliding to and fro (a step: the time from one light to the next). */
@@ -530,12 +541,12 @@ struct led_state {
     u8 scene;              /* enum ctl_kind */
     u8 slot;               /* SLOT_NONE: none */
     u32 since_ms;
-    struct led_frame from;
+    struct led_fine from;
 };
 
 struct led_inputs {
     struct shade connect_colour, primary_colour, secondary_colour, idle_colour, battery_colour;
-    u8 effect_level;       /* animated grips and player lights: their colours at this brightness */
+    u16 animation;         /* animated grips and player lights: their colours at this brightness */
     u8 grips, player_lights;   /* the slot's settings */
     u8 ephemeral;
     u8 rumble[2];
@@ -551,7 +562,11 @@ struct led_inputs {
 };
 
 void led_frame(const struct led_scene *scene, const struct led_state *s, u32 now,
-               const struct led_inputs *in, struct led_frame *out);
+               const struct led_inputs *in, struct led_fine *out);
+/* The fine frame in the LEDs' steps.  dither: a dim light between two steps
+ * shows each in turn, carrying what is left (acc, the caller's) to the next
+ * refresh.  Returns whether refreshing again soon shows more than this. */
+int led_dither(const struct led_fine *f, u16 acc[LIGHT_COUNT][3], int dither, struct led_frame *out);
 void led_reach(u8 reach[2], const struct pad *pad);
 
 /* ---- remap.c ------------------------------------------------------------ */
@@ -581,7 +596,7 @@ struct ux_timeouts {
     u32 config_ms;           /* remap config mode with no key pressed */
 };
 
-struct ux_colours { struct colour idle, battery; u8 effect_level; };
+struct ux_colours { u8 idle, battery; u16 idle_brightness, battery_brightness; };
 
 extern const struct ux_timeouts ux_timeouts;
 extern const u8 ux_usb_autoconnect;

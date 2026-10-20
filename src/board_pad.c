@@ -30,7 +30,6 @@
 
 extern void led_spi_init(void);
 extern void led_spi_rgb_to_24byte(u8 r, u8 g, u8 b, u8 *buffer, int index);
-extern void led_spi_send_rgbbuf(u8 *buffer, u16 count);
 
 /* ---- buttons: debounced by the platform's tick ---------------------------- */
 
@@ -430,6 +429,7 @@ void plat_boot_info(struct plat_boot *out)
 /* ---- LEDs: a chain of 8 on SPI ------------------------------------------- */
 
 static u8 led_dma[LIGHT_COUNT * 24] __attribute__((aligned(4)));
+static u8 led_sending;
 
 static void led_power(int on)
 {
@@ -444,18 +444,36 @@ static void leds_init(void)
     led_power(0);
     plat_mdelay(10);
     led_spi_init();
+    JL_SPI1->BAUD = clk_get("lsb") / 8000000 - 1;   /* the data rate the SDK's send sets each time */
     led_power(1);
     plat_mdelay(20);
 }
 
+/* The last frame out: under 0.2 ms after it started. */
+static void led_wait(void)
+{
+    while (led_sending && !(JL_SPI1->CON & BIT(15)))
+        ;
+    led_sending = 0;
+}
+
+/* The SDK's send clocks a 128 us reset at 1 MHz first and waits out the
+ * 192 us of data, every frame; dithering refreshes often.  This starts the
+ * data and returns.  The line rests low between frames, milliseconds apart,
+ * which is the chain's reset; whether the chain needs the SDK's leading
+ * reset as well is not established. */
 void plat_leds(const struct led_frame *f)
 {
     u32 i;
 
+    led_wait();
     for (i = 0; i < LIGHT_COUNT; i++)
         led_spi_rgb_to_24byte(f->light[i].r, f->light[i].g, f->light[i].b, led_dma, i);
     plat_flush_dcache(led_dma, sizeof(led_dma));
-    led_spi_send_rgbbuf(led_dma, LIGHT_COUNT);
+    JL_SPI1->CON |= BIT(14);     /* clear the last frame's done */
+    JL_SPI1->ADR = (u32)led_dma;
+    JL_SPI1->CNT = sizeof(led_dma);
+    led_sending = 1;
 }
 
 /* ---- motors: PWM at 25 kHz on PA9 (left) and PB0 (right) ----------------- */
@@ -515,6 +533,7 @@ void board_to_loader(void)
     } };
 
     plat_leds(&green);
+    led_wait();
 }
 
 int board_usb_sense(void)
@@ -530,6 +549,7 @@ void plat_power_off(void)
     plat_audio_off();
     memset(&dark, 0, sizeof(dark));
     plat_leds(&dark);
+    led_wait();
     power_set_soft_poweroff();
 }
 

@@ -69,7 +69,11 @@ static struct {
     struct profile_host host;
     u8 rumble_logged[2];
     struct led_state led;
-    struct led_frame shown;
+    struct led_fine frame;       /* the scene as drawn */
+    struct led_frame shown;      /* what the LEDs show */
+    u16 dither_acc[LIGHT_COUNT][3];
+    u8 dithering;                /* a dim light between steps: refresh at dither_next */
+    u32 dither_next;
     u8 reach[2];
     u32 led_next;
     u8 usb_raw, usb_powered;
@@ -687,11 +691,31 @@ static struct rgb rgb3(const u8 *v)
     return r;
 }
 
+static struct shade shade(u8 entry, u16 brightness)
+{
+    struct shade s = { set_colour(entry), brightness };
+    return s;
+}
+
+/* The LEDs from the frame drawn: again between frames while dithering. */
+static void show(u32 now)
+{
+    const struct set_brightness *b = set_brightness();
+    struct led_frame f;
+
+    c.dithering = (u8)led_dither(&c.frame, c.dither_acc, b->dither_ms != 0, &f);
+    if (c.dithering) c.dither_next = now + b->dither_ms;
+    if (memcmp(&f, &c.shown, sizeof(f))) {
+        c.shown = f;
+        plat_leds(&f);
+    }
+}
+
 static void outputs(u32 now)
 {
     const struct set_slot *slot, *shown;
+    const struct set_brightness *b = set_brightness();
     struct led_inputs in;
-    struct led_frame f;
     u32 plugged = now - c.usb_plugged_ms, since = 0;
     u8 scene = c.kind, armed = ux_armed();
     int rumble = c.kind == CTL_CONNECTED && !c.calibrating;
@@ -709,7 +733,10 @@ static void outputs(u32 now)
     motor[0] = rumble ? (u8)(c.host.rumble[0] * slot->rumble / 100) : 0;
     motor[1] = rumble ? (u8)(c.host.rumble[1] * slot->rumble / 100) : 0;
     plat_motors(motor[0], motor[1]);
-    if ((s32)(now - c.led_next) < 0) return;
+    if ((s32)(now - c.led_next) < 0) {
+        if (c.dithering && (s32)(now - c.dither_next) >= 0) show(now);
+        return;
+    }
     c.led_next = now + ux_timeouts.led_frame_ms;
     if (c.kind == CTL_BOOT && now - c.since >= ux_timeouts.boot_scene_ms) scene = CTL_IDLE;
     if (armed != SLOT_NONE && c.kind != CTL_CONNECTED && !c.calibrating) scene = CTL_CONNECTING;
@@ -717,18 +744,18 @@ static void outputs(u32 now)
     if (scene != c.led.scene) {
         c.led.scene = scene;
         c.led.since_ms = now;
-        c.led.from = c.shown;    /* the new scene fades in over it */
+        c.led.from = c.frame;    /* the new scene fades in over it */
     }
     c.led.slot = armed != SLOT_NONE ? armed : c.slot;
     if (c.led.slot == SLOT_LAST) c.led.slot = c.last_slot;
     memset(&in, 0, sizeof(in));
     shown = set_slot(c.led.slot < SLOTS ? c.led.slot : 0);
-    in.connect_colour = set_colour(shown->connect_colour);
-    in.primary_colour = set_colour(shown->primary_colour);
-    in.secondary_colour = set_colour(shown->secondary_colour);
-    in.idle_colour = set_colour(ux_colours.idle);
-    in.battery_colour = set_colour(ux_colours.battery);
-    in.effect_level = ux_colours.effect_level;
+    in.connect_colour = shade(shown->connect_colour, b->connect);
+    in.primary_colour = shade(shown->primary_colour, b->steady);
+    in.secondary_colour = shade(shown->secondary_colour, b->steady);
+    in.idle_colour = shade(ux_colours.idle, ux_colours.idle_brightness);
+    in.battery_colour = shade(ux_colours.battery, ux_colours.battery_brightness);
+    in.animation = b->animation;
     in.grips = slot->grips;
     in.player_lights = slot->players;
     in.ephemeral = (u8)set_is_ephemeral();
@@ -752,11 +779,8 @@ static void outputs(u32 now)
         in.config = 1;
         in.config_ms = now - since;
     }
-    led_frame(&ux_scenes[scene], &c.led, now, &in, &f);
-    if (memcmp(&f, &c.shown, sizeof(f))) {
-        c.shown = f;
-        plat_leds(&f);
-    }
+    led_frame(&ux_scenes[scene], &c.led, now, &in, &c.frame);
+    show(now);
 }
 
 /* The remap slot whose curves and deadzones the sticks take: connected only;
@@ -986,6 +1010,7 @@ void ctl_main(void)
         PULL();
         deadline = earliest(c.led_next, earliest(state_deadline(), earliest(ux_deadline(), c.imu_next)));
         deadline = earliest(deadline, remap_deadline());
+        if (c.dithering) deadline = earliest(deadline, c.dither_next);
         if (c.calibrating) deadline = earliest(deadline, now + CAL_SAMPLE_MS);
         c.stats.passes++;
         util_stat_add(&c.stats.pass, plat_us() - start);

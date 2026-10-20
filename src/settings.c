@@ -9,7 +9,9 @@
  * clears them, so a better default in a new firmware reaches every field
  * that was never set. */
 
-enum { T_ENUM, T_NUMBER, T_COLOUR, T_RGB, T_BYTES, T_TEXT };
+/* 2 was a palette entry with a brightness level, before brightness became
+ * the palette's. */
+enum { T_ENUM, T_NUMBER, T_RETIRED_COLOUR, T_RGB, T_BYTES, T_TEXT, T_ENTRY };
 /* The rows the code itself uses. */
 enum { ID_TYPE = 1, ID_ADDRESS = 12, ID_BOND = 13, ID_TRANSPORT = 35 };
 
@@ -28,7 +30,6 @@ struct set_field {
 };
 #define F_DEV 1
 
-#define COLOUR(entry, level) ((entry) | (level) << 8)
 #define RGB24(r, g, b)       ((r) | (g) << 8 | (u32)(b) << 16)
 #define PER_SLOT(...)        .slot_def = (const u32[SLOTS]){ __VA_ARGS__ }
 #define FIELD(f)             .offset = offsetof(struct set_slot, f), \
@@ -58,7 +59,8 @@ static const char *const phys[] = { "1m", "2m", NULL };
 static const char *const onoff[] = { "on", "off", NULL };
 static const char *const tx_powers[] = { "1", "2", "3", "4", "5", "6", NULL };
 
-/* Slots A B X Y up down left right.  Colours are {palette entry, brightness}. */
+/* Slots A B X Y up down left right.  Colours are palette entries; how
+ * bright they are is the palette's. */
 static const struct set_field slot_fields[] = {
     { .id = ID_TYPE, .name = "type", .type = T_ENUM, .names = types, FIELD(type),
       PER_SLOT(PROFILE_GENERIC_BLE, PROFILE_DUALSENSE, PROFILE_XBOX, PROFILE_SWITCH2,
@@ -70,15 +72,14 @@ static const struct set_field slot_fields[] = {
       .help = "how: bluetooth; usb, a wired controller; bluetooth+usb, usb while a usb host "
               "is there, else bluetooth (never back to it mid-session); dongle, through our dongle, which is the type on its usb port; "
               "dongle+usb, usb while a usb host is there, else the dongle" },
-    { .id = 2, .name = "connect_colour", .type = T_COLOUR, FIELD(connect_colour),
-      PER_SLOT(COLOUR(5, 5), COLOUR(11, 5), COLOUR(7, 5), COLOUR(1, 5),
-               COLOUR(9, 4), COLOUR(13, 4), COLOUR(3, 4), COLOUR(15, 4)),
+    { .id = 2, .name = "connect_colour", .type = T_ENTRY, FIELD(connect_colour),
+      PER_SLOT(5, 11, 7, 1, 9, 13, 3, 15),
       .help = "Home and player lights while connecting and pairing: which slot" },
-    { .id = 3, .name = "primary_colour", .type = T_COLOUR, FIELD(primary_colour),
-      .def = COLOUR(1, 1),
+    { .id = 3, .name = "primary_colour", .type = T_ENTRY, FIELD(primary_colour),
+      .def = 1,
       .help = "Home while connected; the player lights around the player number" },
-    { .id = 4, .name = "secondary_colour", .type = T_COLOUR, FIELD(secondary_colour),
-      .def = COLOUR(7, 1),
+    { .id = 4, .name = "secondary_colour", .type = T_ENTRY, FIELD(secondary_colour),
+      .def = 7,
       .help = "the console's player number; resting grips; the other end of fade" },
     { .id = 5, .name = "grips", .type = T_ENUM, .names = grips, FIELD(grips),
       .def = GRIPS_OFF,
@@ -145,12 +146,21 @@ static const struct set_field slot_fields[] = {
                              "another until a disconnect, another slot or sleep" },
 };
 
+/* The palette target: the colours, and how bright each kind of light is. */
+struct set_palette {
+    struct rgb entry[PALETTE];
+    struct set_brightness brightness;
+};
+
 #define ENTRY(i, r, g, b) { .id = (i) + 1, .name = "palette" #i, .type = T_RGB, \
   .offset = 3 * (i), .size = 3, .def = RGB24(r, g, b) }
+#define BRIGHTNESS(f)     .offset = offsetof(struct set_palette, brightness.f), \
+                          .size = sizeof(((struct set_palette *)0)->brightness.f)
 
 /* Full brightness: white, then rainbow order from red through pink.
- * Idle uses white (0); battery uses orange (3), selected in settings_ux.c. */
-static const struct set_field palette_fields[PALETTE] = {
+ * Idle uses white (0); battery uses orange (3), selected in settings_ux.c.
+ * Brightness in tenths of the LEDs' smallest step: 10 is 1 of 255. */
+static const struct set_field palette_fields[] = {
     ENTRY(0, 255, 255, 255), /* white */
     ENTRY(1, 255, 0, 0),    /* red */
     ENTRY(2, 255, 51, 0),   /* vermilion */
@@ -167,6 +177,17 @@ static const struct set_field palette_fields[PALETTE] = {
     ENTRY(13, 153, 0, 255), /* violet */
     ENTRY(14, 255, 0, 255), /* magenta */
     ENTRY(15, 255, 0, 128), /* pink */
+    { .id = 17, .name = "steady_brightness", .type = T_NUMBER, .max = 2550, BRIGHTNESS(steady),
+      .def = 10, .help = "Home and the player lights while connected, and steady grips: tenths of "
+                         "the LEDs' smallest step (10 is 1 of 255); in-between values need dithering" },
+    { .id = 18, .name = "animation_brightness", .type = T_NUMBER, .max = 2550, BRIGHTNESS(animation),
+      .def = 400, .help = "animated grips and player lights (fade, rumble, input, rainbow, heartbeat), "
+                          "in tenths of the LEDs' smallest step" },
+    { .id = 19, .name = "connect_brightness", .type = T_NUMBER, .max = 2550, BRIGHTNESS(connect),
+      .def = 50, .help = "the lights while connecting and pairing, in tenths of the LEDs' smallest step" },
+    { .id = 20, .flags = F_DEV, .name = "dither_ms", .type = T_NUMBER, .max = 20, BRIGHTNESS(dither_ms),
+      .def = 2, .help = "experiment: refresh dim lights this often (ms), alternating the steps on either "
+                        "side, for brightness between them and smooth dim fades; 0 off" },
 };
 
 #define REMAP(f) .offset = offsetof(struct set_remap, f), .size = sizeof(((struct set_remap *)0)->f)
@@ -257,7 +278,7 @@ static const struct set_field cal_fields[] = {
 #define KEYS             (KEY_REMAP_STICKS + SLOTS)
 
 static struct set_slot slots[SLOTS];
-static struct rgb palette[PALETTE];
+static struct set_palette pal;
 static struct set_cal cal;
 static struct set_remap remaps[SLOTS];
 static u32 set_bits[TARGETS];
@@ -279,7 +300,7 @@ static const struct set_field *fields_of(u8 t, u32 *count)
 
 static u8 *values_of(u8 t)
 {
-    return t < SLOTS ? (u8 *)&slots[t] : t == TARGET_PALETTE ? (u8 *)palette :
+    return t < SLOTS ? (u8 *)&slots[t] : t == TARGET_PALETTE ? (u8 *)&pal :
            t == TARGET_CAL ? (u8 *)&cal : (u8 *)&remaps[t - TARGET_REMAP];
 }
 
@@ -331,7 +352,7 @@ static u32 enum_count(const struct set_field *f)
 
 static u32 field_max(const struct set_field *f)
 {
-    return f->type == T_ENUM ? enum_count(f) - 1 : f->type == T_COLOUR ? PALETTE - 1 : f->max;
+    return f->type == T_ENUM ? enum_count(f) - 1 : f->type == T_ENTRY ? PALETTE - 1 : f->max;
 }
 
 /* Each input a key, itself or none; bit 15 is no key. */
@@ -370,7 +391,10 @@ static u8 check(const struct set_field *f, const u8 *v, u32 len)
 
     if (!f) return SET_UNKNOWN;
     if (!len) return SET_OK;
-    if (len != f->size && !(f->id == ID_BOND && len == BT_BOND_V1_SIZE)) return SET_BAD_LENGTH;
+    /* Stored before: a bond without the identity fields, a colour with its
+     * brightness level after the entry (dropped). */
+    if (len != f->size && !(f->id == ID_BOND && len == BT_BOND_V1_SIZE) && !(f->type == T_ENTRY && len == 2))
+        return SET_BAD_LENGTH;
     if (f == LEFT_POINTS || f == RIGHT_POINTS) {
         for (x = 1; x < len; x++) if (v[x] < v[x - 1]) return SET_RANGE;
     }
@@ -381,8 +405,8 @@ static u8 check(const struct set_field *f, const u8 *v, u32 len)
     case T_NUMBER:
         x = f->size == 1 ? v[0] : v[0] | (u32)v[1] << 8;
         return x <= field_max(f) ? SET_OK : SET_RANGE;
-    case T_COLOUR:
-        return v[0] < PALETTE && v[1] < LEVELS ? SET_OK : SET_RANGE;
+    case T_ENTRY:
+        return v[0] < PALETTE ? SET_OK : SET_RANGE;
     default:
         return SET_OK;
     }
@@ -566,15 +590,14 @@ const struct set_slot *set_slot(u8 slot)
     return &slots[slot % SLOTS];
 }
 
-/* Brightness levels: the LEDs are bright, so the low end goes in single
- * steps and the rest about 1.4 times apart. */
-static const u8 levels[LEVELS] = { 0, 1, 2, 3, 4, 5, 7, 10, 14, 20, 28, 40, 56, 80, 128, 255 };
-
-struct shade set_colour(struct colour c)
+struct rgb set_colour(u8 entry)
 {
-    struct shade s = { palette[c.entry % PALETTE], levels[c.level % LEVELS] };
+    return pal.entry[entry % PALETTE];
+}
 
-    return s;
+const struct set_brightness *set_brightness(void)
+{
+    return &pal.brightness;
 }
 
 const struct bt_bond *set_bond(u8 slot)
@@ -898,7 +921,7 @@ int main(void)
     struct bt_bond bond;
     u8 x;
     u16 speed = 3000, huge = 60000;
-    struct colour col = { 4, 5 };
+    u8 col[2] = { 4, 5 };
     u32 t, worst = 4;
 
     /* Every record fits with every field set. */
@@ -962,12 +985,14 @@ int main(void)
 
         CHECK(n > 3 && d[3] == 1 && !d[4] && !memcmp(d + 6, "Swap A/B X/Y", 13));
     }
-    CHECK(set_slot(0)->connect_colour.entry == 5 && set_slot(0)->connect_colour.level == 5);
+    CHECK(set_slot(0)->connect_colour == 5);
     {
-        struct shade c = set_colour(set_slot(2)->connect_colour);  /* X: green */
-        CHECK(c.rgb.r == 0 && c.rgb.g == 255 && c.rgb.b == 0 && c.level == 5);
+        struct rgb c = set_colour(set_slot(2)->connect_colour);    /* X: green */
+        CHECK(c.r == 0 && c.g == 255 && c.b == 0);
         c = set_colour(set_slot(6)->connect_colour);               /* left: orange */
-        CHECK(c.rgb.r == 255 && c.rgb.g == 102 && c.rgb.b == 0 && c.level == 4);
+        CHECK(c.r == 255 && c.g == 102 && c.b == 0);
+        CHECK(set_brightness()->steady == 10 && set_brightness()->animation == 400 &&
+              set_brightness()->connect == 50 && set_brightness()->dither_ms == 2);
     }
 
     store_writes = 0;
@@ -1015,9 +1040,7 @@ int main(void)
     CHECK(write1(1, 0, 0, NULL) == SET_OK);
     set_apply();
     CHECK(set_slot(1)->stick_speed == 1500 && set_bits[1] == 0);
-    col.level = LEVELS;
-    CHECK(write1(1, 2, 2, &col) == SET_RANGE);
-    col.level = 5;
+    CHECK(write1(1, 2, 1, &(u8){ PALETTE }) == SET_RANGE);
     set_poll(ms, 1);
 
     /* Curves, a remap slot's second record: defaults, validation, staging,
@@ -1211,11 +1234,22 @@ int main(void)
 
     /* Palette and colours. */
     CHECK(write1(TARGET_PALETTE, 5, 3, "\x10\x20\x30") == SET_OK);
-    CHECK(write1(0, 2, 2, &col) == SET_OK);
-    col.entry = PALETTE;
-    CHECK(write1(0, 2, 2, &col) == SET_RANGE);
+    CHECK(write1(0, 2, 1, col) == SET_OK);
+    col[0] = PALETTE;
+    CHECK(write1(0, 2, 1, col) == SET_RANGE);
+    col[0] = 6;
+    CHECK(write1(0, 3, 2, col) == SET_OK);       /* stored before: entry, then a level, dropped */
+    col[0] = 4;
+    CHECK(write1(0, 3, 3, col) == SET_BAD_LENGTH);
+    {
+        u16 b = 15, huge = 2551;
+
+        CHECK(write1(TARGET_PALETTE, 17, 2, &b) == SET_OK);
+        CHECK(write1(TARGET_PALETTE, 18, 2, &huge) == SET_RANGE);
+    }
     set_apply();
-    CHECK(palette[4].r == 0x10 && set_slot(0)->connect_colour.entry == 4);
+    CHECK(pal.entry[4].r == 0x10 && set_slot(0)->connect_colour == 4 && set_slot(0)->primary_colour == 6);
+    CHECK(set_brightness()->steady == 15);
 
     /* Ephemeral: applied, never stored, pairing included. */
     set_poll(ms, 1);
@@ -1234,11 +1268,11 @@ int main(void)
     /* Describe and read. */
     CHECK(set_describe(0, buf, sizeof(buf)) > 8 && buf[2] == 1 && !strcmp((char *)buf + 8, "type"));
     CHECK(set_describe(COUNT(slot_fields), buf, sizeof(buf)) && buf[1] == 1);
-    CHECK(set_describe(COUNT(slot_fields) + PALETTE, buf, sizeof(buf)) && buf[1] == 2);
-    t = COUNT(slot_fields) + PALETTE + COUNT(cal_fields);
+    CHECK(set_describe(COUNT(slot_fields) + COUNT(palette_fields), buf, sizeof(buf)) && buf[1] == 2);
+    t = COUNT(slot_fields) + COUNT(palette_fields) + COUNT(cal_fields);
     CHECK(set_describe(t, buf, sizeof(buf)) && buf[1] == 3 && buf[3] == T_TEXT);
     CHECK(set_describe(t + COUNT(remap_fields), buf, sizeof(buf)) == 0);
-    for (t = 0; t < COUNT(slot_fields) + PALETTE + COUNT(cal_fields) + COUNT(remap_fields); t++)
+    for (t = 0; t < COUNT(slot_fields) + COUNT(palette_fields) + COUNT(cal_fields) + COUNT(remap_fields); t++)
         CHECK(set_describe(t, buf, 512) > 0);
     CHECK(set_read(3, buf, sizeof(buf)) > 3 && buf[2] == COUNT(slot_fields));
     CHECK(set_read(TARGET_CAL, buf, sizeof(buf)) == 6u + cal_fields[0].size);

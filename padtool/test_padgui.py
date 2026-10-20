@@ -968,6 +968,29 @@ class GuiTests(GuiCase):
         self.assertEqual(editor.level.get(), BRIGHTNESS_LABELS[5])
         self.assertFalse(any(isinstance(w, tk.Toplevel) for w in editor.winfo_children()))
 
+    def test_palette_entry_picker_has_no_brightness(self):
+        r = record()
+        r["fields"] += [
+            {"kind": 0, "id": 3, "name": "primary_colour", "type": padgui.pad.T_ENTRY,
+             "size": 1, "help": "Colour", "dev": False},
+            {"kind": 1, "id": 4, "name": "palette3", "type": padgui.pad.T_RGB,
+             "size": 3, "help": "Palette", "dev": False},
+            {"kind": 1, "id": 5, "name": "palette4", "type": padgui.pad.T_RGB,
+             "size": 3, "help": "Palette", "dev": False}]
+        r["values"][0]["primary_colour"] = (bytes([3]), False)
+        r["values"][8] = {"palette3": (bytes([255, 0, 0]), False), "palette4": (bytes([0, 0, 255]), False)}
+        self.load([r])
+        self.app.show_target(0)
+        editor = next(w for w in self.app.special_editors if w.winfo_exists() and isinstance(w, padgui.PaletteEditor))
+        self.assertFalse(editor.with_level)
+        self.assertFalse(any(isinstance(w, padgui.ttk.Combobox) for w in editor.winfo_children()))
+        colour = r["draft"][0, "primary_colour"]
+        self.assertEqual(self.app.color_preview(r, colour), "#ff0000")
+        editor.palette_menu.invoke(4)
+        self.assertEqual(colour["var"].get(), "4")
+        self.assertEqual(self.app.color_preview(r, colour), "#0000ff")
+        self.assertEqual(self.app.value_bytes(colour), bytes([4]))
+
     def test_curve_controls_clamp_points_and_follow_reset(self):
         r = record()
         import padcurves

@@ -21,29 +21,31 @@ static const struct led_wave config_grips = LED_BLINK(200, 200);   /* remap conf
 #define WINK_MS        100
 
 /* ---- light ------------------------------------------------------------------
- * A channel times its brightness, 0-65025.  The LEDs' PWM is linear in light,
- * so colours mix here and are rounded to the LEDs' 8 bits once, at the end:
- * at the low brightness of the steady lights every step counts. */
+ * A channel times its brightness (tenths of the LEDs' steps), 0-650250.  The
+ * LEDs' PWM is linear in light, so colours mix here; a frame keeps 1/256 of
+ * a step (struct led_fine), and led_dither() makes the LEDs' 8 bits of it. */
 
 struct light { u32 r, g, b; };
+
+#define FULL 2550                /* an rgb value at full strength: 255 steps, in tenths */
 
 static const struct light dark;
 
 static struct light lit(struct shade s)
 {
-    struct light l = { (u32)s.rgb.r * s.level, (u32)s.rgb.g * s.level, (u32)s.rgb.b * s.level };
+    struct light l = { (u32)s.rgb.r * s.brightness, (u32)s.rgb.g * s.brightness, (u32)s.rgb.b * s.brightness };
     return l;
 }
 
-static struct shade at(struct shade s, u8 level)
+static struct shade at(struct shade s, u16 brightness)
 {
-    s.level = level;
+    s.brightness = brightness;
     return s;
 }
 
 static struct light lit_rgb(struct rgb c)
 {
-    struct light l = { c.r * 255u, c.g * 255u, c.b * 255u };
+    struct light l = { c.r * FULL, c.g * FULL, c.b * FULL };
     return l;
 }
 
@@ -68,10 +70,25 @@ static struct light mix(struct light a, struct light b, u32 k)
     return l;
 }
 
-static struct rgb shown(struct light l)
+/* In 1/256 steps, and back. */
+static u16 fine1(u32 v)
 {
-    struct rgb c = { (u8)((l.r + 127) / 255), (u8)((l.g + 127) / 255), (u8)((l.b + 127) / 255) };
-    return c;
+    v = (v * 128 + FULL / 4) / (FULL / 2);
+    return (u16)(v > 255 * 256 ? 255 * 256 : v);
+}
+
+static void put(u16 out[3], struct light l)
+{
+    out[0] = fine1(l.r);
+    out[1] = fine1(l.g);
+    out[2] = fine1(l.b);
+}
+
+static struct light got(const u16 in[3])
+{
+    struct light l = { (in[0] * (FULL / 2) + 64) / 128, (in[1] * (FULL / 2) + 64) / 128,
+                       (in[2] * (FULL / 2) + 64) / 128 };
+    return l;
 }
 
 /* ---- shapes -----------------------------------------------------------------
@@ -144,10 +161,10 @@ static u32 heartbeat(u32 t)
 }
 
 /* Full colour round the hue circle, 0-1535. */
-static struct shade hue(u32 h, u8 level)
+static struct shade hue(u32 h, u16 brightness)
 {
     u8 f = (u8)(h % 256);
-    struct shade s = { { 0, 0, 0 }, level };
+    struct shade s = { { 0, 0, 0 }, brightness };
 
     switch (h / 256 % 6) {
     case 0: s.rgb = (struct rgb){ 255, f, 0 }; break;
@@ -190,9 +207,9 @@ static u32 bits(u32 m)
 /* Connected: the slot's players setting.  Host: the console's player number
  * in the secondary colour, the other lights in the primary, so the bar never
  * reads as black case; dark until the console sets one.  The animated ones
- * are lit at effect_level. */
+ * are lit at the animation brightness. */
 static void players(const struct led_scene *sc, u32 now, u32 t, const struct led_inputs *in,
-                    struct led_frame *out)
+                    struct led_fine *out)
 {
     struct light c = lit(in->primary_colour), number_colour = lit(in->secondary_colour);
     u32 k = wave(&sc->bar_wave, t, 0, 1), number = 0, i;
@@ -204,23 +221,23 @@ static void players(const struct led_scene *sc, u32 now, u32 t, const struct led
         if (wave(&player_flash, now, 0, 1) >= K_ONE / 2) number |= in->players_flash & 0xf;
         break;
     case PLAYERS_FADE:
-        c = mix(lit(at(in->secondary_colour, in->effect_level)), lit(at(in->primary_colour, in->effect_level)),
+        c = mix(lit(at(in->secondary_colour, in->animation)), lit(at(in->primary_colour, in->animation)),
                 wave(&fade, t, 0, 1));
         break;
     case PLAYERS_PRIMARY: break;
     case PLAYERS_SECONDARY: c = lit(in->secondary_colour); break;
     case PLAYERS_RAINBOW:        /* the colours run down the bar */
         for (i = 0; i < PLAYERS; i++)
-            out->light[LIGHT_P0 + i] = shown(scale(lit(hue(rainbow(t) + 1536 - i * 128, in->effect_level)), k));
+            put(out->light[LIGHT_P0 + i], scale(lit(hue(rainbow(t) + 1536 - i * 128, in->animation)), k));
         return;
     default: return;
     }
     for (i = 0; i < PLAYERS; i++)
-        out->light[LIGHT_P0 + i] = shown(scale(number & (1u << i) ? number_colour : c, k));
+        put(out->light[LIGHT_P0 + i], scale(number & (1u << i) ? number_colour : c, k));
 }
 
 static void bar(const struct led_scene *sc, const struct led_state *s, u32 now, u32 t,
-                const struct led_inputs *in, struct shade c, struct led_frame *out)
+                const struct led_inputs *in, struct shade c, struct led_fine *out)
 {
     u32 on = 0, pos = 0, count, i;
 
@@ -232,28 +249,29 @@ static void bar(const struct led_scene *sc, const struct led_state *s, u32 now, 
     else if (s->slot != SLOT_NONE) on = slot_lights(s->slot);
     count = bits(on);
     for (i = 0; i < PLAYERS; i++)
-        out->light[LIGHT_P0 + i] = shown(scale(lit(c), on & (1u << i) ? wave(&sc->bar_wave, t, pos++, count) : 0));
+        put(out->light[LIGHT_P0 + i], scale(lit(c), on & (1u << i) ? wave(&sc->bar_wave, t, pos++, count) : 0));
 }
 
 /* Connected: the slot's grips setting.  The reactive ones brighten from the
- * secondary colour to the primary at effect_level with rumble or with how
- * busy that half of the pad is. */
+ * secondary colour (steady) to the primary (animation brightness) with
+ * rumble or with how busy that half of the pad is. */
 static void grips(const struct led_scene *sc, u32 t, const struct led_inputs *in,
-                  struct shade c, struct led_frame *out)
+                  struct shade c, struct led_fine *out)
 {
-    struct light primary_fx = lit(at(in->primary_colour, in->effect_level));
+    struct light primary_fx = lit(at(in->primary_colour, in->animation));
     struct light l;
     u32 side, r;
 
     if (sc->grips == GRIPS_WAVE) {
-        out->light[LIGHT_GRIP_L] = out->light[LIGHT_GRIP_R] = shown(scale(lit(c), wave(&sc->grips_wave, t, 0, 1)));
+        put(out->light[LIGHT_GRIP_L], scale(lit(c), wave(&sc->grips_wave, t, 0, 1)));
+        memcpy(out->light[LIGHT_GRIP_R], out->light[LIGHT_GRIP_L], sizeof(out->light[0]));
         return;
     }
     for (side = 0; side < 2; side++) {
         switch (in->grips) {
         case GRIPS_HOST: l = in->has_lightbar ? lit_rgb(in->lightbar) : dark; break;
         case GRIPS_FADE:
-            l = mix(lit(at(in->secondary_colour, in->effect_level)), primary_fx, wave(&fade, t, 0, 1));
+            l = mix(lit(at(in->secondary_colour, in->animation)), primary_fx, wave(&fade, t, 0, 1));
             break;
         case GRIPS_RUMBLE:
         case GRIPS_INPUT:
@@ -265,46 +283,73 @@ static void grips(const struct led_scene *sc, u32 t, const struct led_inputs *in
             break;
         case GRIPS_PRIMARY: l = lit(in->primary_colour); break;
         case GRIPS_SECONDARY: l = lit(in->secondary_colour); break;
-        case GRIPS_RAINBOW: l = lit(hue(rainbow(t) + side * 768, in->effect_level)); break;
+        case GRIPS_RAINBOW: l = lit(hue(rainbow(t) + side * 768, in->animation)); break;
         case GRIPS_HEARTBEAT: l = mix(lit(in->secondary_colour), primary_fx, heartbeat(t)); break;
         default: l = dark; break;
         }
-        out->light[LIGHT_GRIP_L + side] = shown(l);
+        put(out->light[LIGHT_GRIP_L + side], l);
     }
 }
 
 void led_frame(const struct led_scene *sc, const struct led_state *s, u32 now,
-               const struct led_inputs *in, struct led_frame *out)
+               const struct led_inputs *in, struct led_fine *out)
 {
     u32 t = now - s->since_ms, i;
     struct shade c = s->slot == SLOT_NONE ? in->idle_colour
                    : sc->colour == COLOUR_CONNECT ? in->connect_colour
                    : sc->colour == COLOUR_PRIMARY ? in->primary_colour : in->idle_colour;
-    struct rgb *home = &out->light[LIGHT_HOME];
+    u16 *home = out->light[LIGHT_HOME];
     u32 k;
 
     memset(out, 0, sizeof(*out));
-    *home = shown(scale(lit(c), wave(&sc->home, t, 0, 1)));
+    put(home, scale(lit(c), wave(&sc->home, t, 0, 1)));
     bar(sc, s, now, t, in, c, out);
     grips(sc, t, in, c, out);
     if (in->usb_powered && (s->scene == CTL_BOOT || s->scene == CTL_IDLE))
-        memset(home, 0, sizeof(*home));
+        put(home, dark);
     if (t < FADE_IN_MS) {
         k = ease(t * K_ONE / FADE_IN_MS);
         for (i = 0; i < LIGHT_COUNT; i++)
-            out->light[i] = shown(mix(lit_rgb(s->from.light[i]), lit_rgb(out->light[i]), k));
+            put(out->light[i], mix(got(s->from.light[i]), got(out->light[i]), k));
     }
     /* What follows shows at once, over the scene. */
     if (in->low_battery && (k = wave(&low_battery, now, 0, 1)))
-        *home = shown(mix(lit_rgb(*home), lit(in->battery_colour), k));
-    if (in->ephemeral && winking(now)) memset(home, 0, sizeof(*home));
-    if (in->cal_lit) *home = in->cal;
-    if (in->config)
-        out->light[LIGHT_GRIP_L] = out->light[LIGHT_GRIP_R] =
-            shown(scale(lit(in->connect_colour), wave(&config_grips, in->config_ms, 0, 1)));
+        put(home, mix(got(home), lit(in->battery_colour), k));
+    if (in->ephemeral && winking(now)) put(home, dark);
+    if (in->cal_lit) put(home, lit_rgb(in->cal));
+    if (in->config) {
+        put(out->light[LIGHT_GRIP_L], scale(lit(in->connect_colour), wave(&config_grips, in->config_ms, 0, 1)));
+        memcpy(out->light[LIGHT_GRIP_R], out->light[LIGHT_GRIP_L], sizeof(out->light[0]));
+    }
     /* USB acknowledgement is one solid interval, then the normal scene.
      * Idle on USB stays dark; there is no charging animation. */
-    if (in->usb_plug_lit) *home = shown(lit(in->battery_colour));
+    if (in->usb_plug_lit) put(home, lit(in->battery_colour));
+}
+
+/* Only dim lights are dithered: there a step is a big part of the light (one
+ * step at 1 of 255 is all of it), and higher up rounding is not seen. */
+#define DITHER_BELOW (16 * 256)
+
+int led_dither(const struct led_fine *f, u16 acc[LIGHT_COUNT][3], int dither, struct led_frame *out)
+{
+    u32 i, k, v, more = 0;
+
+    for (i = 0; i < LIGHT_COUNT; i++)
+        for (k = 0; k < 3; k++) {
+            u8 *o = k == 0 ? &out->light[i].r : k == 1 ? &out->light[i].g : &out->light[i].b;
+
+            v = f->light[i][k];
+            if (dither && v < DITHER_BELOW && (v & 255)) {
+                v += acc[i][k];
+                acc[i][k] = (u16)(v & 255);
+                more = 1;
+            } else {
+                v += 128;
+                acc[i][k] = 0;
+            }
+            *o = (u8)(v >> 8 > 255 ? 255 : v >> 8);
+        }
+    return (int)more;
 }
 
 static u8 stick_reach(s16 x, s16 y)
@@ -354,6 +399,17 @@ static const struct led_scene idle = {
     COLOUR_IDLE, LED_OFF, BAR_ALL, LED_OFF, GRIPS_WAVE, LED_OFF,
 };
 
+/* A frame at the LEDs' steps, rounded. */
+static void frame(const struct led_scene *sc, const struct led_state *s, u32 now,
+                  const struct led_inputs *in, struct led_frame *out)
+{
+    struct led_fine fine;
+    u16 acc[LIGHT_COUNT][3];
+
+    led_frame(sc, s, now, in, &fine);
+    led_dither(&fine, acc, 0, out);
+}
+
 static int same(struct rgb a, struct rgb b)
 {
     return a.r == b.r && a.g == b.g && a.b == b.b;
@@ -376,24 +432,44 @@ int main(void)
     u32 t, last;
 
     memset(&in, 0, sizeof(in));
-    in.connect_colour = (struct shade){ { 255, 0, 0 }, 255 };
-    in.primary_colour = (struct shade){ { 255, 0, 0 }, 2 };
-    in.secondary_colour = (struct shade){ { 0, 255, 0 }, 1 };
-    in.idle_colour = (struct shade){ { 255, 255, 255 }, 5 };
-    in.battery_colour = (struct shade){ { 255, 102, 0 }, 5 };
-    in.effect_level = 40;
+    in.connect_colour = (struct shade){ { 255, 0, 0 }, 2550 };
+    in.primary_colour = (struct shade){ { 255, 0, 0 }, 20 };
+    in.secondary_colour = (struct shade){ { 0, 255, 0 }, 10 };
+    in.idle_colour = (struct shade){ { 255, 255, 255 }, 50 };
+    in.battery_colour = (struct shade){ { 255, 102, 0 }, 50 };
+    in.animation = 400;
 
-    /* The light maths: rounded once, at the end. */
-    CHECK(same(shown(lit(in.primary_colour)), dim_red));
-    CHECK(same(shown(scale(lit(in.connect_colour), K_ONE / 2)), ((struct rgb){ 127, 0, 0 })));
+    /* The light maths: 1/256 of a step kept, rounded only for the LEDs. */
+    {
+        struct led_fine fine;
+        u16 acc[LIGHT_COUNT][3] = { { 0 } };
+        u32 i, sum = 0;
+
+        memset(&fine, 0, sizeof(fine));
+        put(fine.light[0], lit(in.primary_colour));
+        put(fine.light[1], scale(lit(in.connect_colour), K_ONE / 2));
+        put(fine.light[2], lit((struct shade){ { 255, 0, 0 }, 15 }));     /* 1.5 */
+        put(fine.light[3], lit((struct shade){ { 255, 0, 0 }, 405 }));    /* 40.5: not dim */
+        CHECK(fine.light[0][0] == 2 * 256 && fine.light[2][0] == 384);
+        CHECK(!led_dither(&fine, acc, 0, &f) && f.light[2].r == 2);       /* rounded */
+        CHECK(same(f.light[0], dim_red) && f.light[1].r == 128 && f.light[3].r == 41);
+        for (i = 0; i < 8; i++) {                                          /* 1, 2, 1, 2: 1.5 */
+            CHECK(led_dither(&fine, acc, 1, &f));
+            CHECK(f.light[2].r == 1 + (i & 1) && f.light[0].r == 2 && f.light[3].r == 41);
+            sum += f.light[2].r;
+        }
+        CHECK(sum == 12);
+        memset(&fine.light[2], 0, sizeof(fine.light[2]));
+        CHECK(!led_dither(&fine, acc, 1, &f));                             /* whole steps: nothing to do */
+    }
     CHECK(ease(0) == 0 && ease(K_ONE) == K_ONE && ease(K_ONE / 2) == K_ONE / 2);
     CHECK(bright(K_ONE) == K_ONE && bright(K_ONE / 2) == K_ONE / 4);
 
     /* Connecting: Home and all four blink together, with soft edges. */
-    led_frame(&connecting, &s, 1300, &in, &f);
+    frame(&connecting, &s, 1300, &in, &f);
     CHECK(same(f.light[LIGHT_HOME], red));
     CHECK(same(f.light[LIGHT_P1], red) && same(f.light[LIGHT_P3], red));
-    led_frame(&connecting, &s, 1600, &in, &f);
+    frame(&connecting, &s, 1600, &in, &f);
     CHECK(same(f.light[LIGHT_HOME], dark_rgb) && same(f.light[LIGHT_P0], dark_rgb));
     for (t = 0, last = 0; t <= EDGE_MS; t += 5) {   /* the edge rises steadily */
         u32 k = wave(&connecting.home, t, 0, 1);
@@ -422,12 +498,12 @@ int main(void)
     s.scene = CTL_STOPPING;
     s.slot = 5;   /* disconnecting must not show the slot on the player bar */
     memset(&s.from, 0, sizeof(s.from));
-    s.from.light[LIGHT_P0] = red;
-    led_frame(&stopping, &s, 1000, &in, &f);
+    s.from.light[LIGHT_P0][0] = 255 * 256;
+    frame(&stopping, &s, 1000, &in, &f);
     CHECK(same(f.light[LIGHT_P0], red));
-    led_frame(&stopping, &s, 1000 + FADE_IN_MS / 2, &in, &f);
+    frame(&stopping, &s, 1000 + FADE_IN_MS / 2, &in, &f);
     CHECK(f.light[LIGHT_P0].r > 0 && f.light[LIGHT_P0].r < 255);
-    led_frame(&stopping, &s, 1000 + FADE_IN_MS, &in, &f);
+    frame(&stopping, &s, 1000 + FADE_IN_MS, &in, &f);
     CHECK(same(f.light[LIGHT_P0], dark_rgb) && same(f.light[LIGHT_P1], dark_rgb) &&
           same(f.light[LIGHT_P2], dark_rgb) && same(f.light[LIGHT_P3], dark_rgb));
     memset(&s.from, 0, sizeof(s.from));
@@ -436,61 +512,61 @@ int main(void)
     s.slot = 0;
     in.player_lights = PLAYERS_HOST;
     in.grips = GRIPS_HOST;
-    led_frame(&connected, &s, 2000, &in, &f);   /* nothing from the console: dark */
+    frame(&connected, &s, 2000, &in, &f);   /* nothing from the console: dark */
     CHECK(same(f.light[LIGHT_P0], dark_rgb) && same(f.light[LIGHT_GRIP_L], dark_rgb));
     in.has_players = 1;
     in.players = 0x4;
     in.has_lightbar = 1;
     in.lightbar = (struct rgb){ 0, 0, 200 };
-    led_frame(&connected, &s, 2000, &in, &f);
+    frame(&connected, &s, 2000, &in, &f);
     CHECK(same(f.light[LIGHT_HOME], dim_red));
     CHECK(same(f.light[LIGHT_GRIP_L], in.lightbar));
     CHECK(same(f.light[LIGHT_P2], dim_green) && same(f.light[LIGHT_P0], dim_red));
     in.players_flash = 0x1;     /* flashing: the number's colour half the time */
-    led_frame(&connected, &s, 2100, &in, &f);
+    frame(&connected, &s, 2100, &in, &f);
     CHECK(same(f.light[LIGHT_P0], dim_green));
-    led_frame(&connected, &s, 2300, &in, &f);
+    frame(&connected, &s, 2300, &in, &f);
     CHECK(same(f.light[LIGHT_P0], dim_red));
     in.player_lights = PLAYERS_SECONDARY;
     in.grips = GRIPS_PRIMARY;
-    led_frame(&connected, &s, 2000, &in, &f);
+    frame(&connected, &s, 2000, &in, &f);
     CHECK(same(f.light[LIGHT_P2], dim_green) && same(f.light[LIGHT_GRIP_R], dim_red));
     /* Reactive grips: resting in the secondary, at effect_level when busy. */
     in.grips = GRIPS_RUMBLE;
     in.rumble[1] = 255;
-    led_frame(&connected, &s, 2000, &in, &f);
+    frame(&connected, &s, 2000, &in, &f);
     CHECK(same(f.light[LIGHT_GRIP_L], dim_green) && same(f.light[LIGHT_GRIP_R], ((struct rgb){ 40, 0, 0 })));
     /* Animations are lit at effect_level, far above the steady lights. */
     in.grips = GRIPS_FADE;
     in.player_lights = PLAYERS_FADE;
-    led_frame(&connected, &s, 1000 + 4000, &in, &f);
+    frame(&connected, &s, 1000 + 4000, &in, &f);
     CHECK(same(f.light[LIGHT_GRIP_L], ((struct rgb){ 40, 0, 0 })) && same(f.light[LIGHT_P3], ((struct rgb){ 40, 0, 0 })));
-    led_frame(&connected, &s, 3000, &in, &f);
+    frame(&connected, &s, 3000, &in, &f);
     CHECK(same(f.light[LIGHT_GRIP_L], ((struct rgb){ 0, 40, 0 })));
     in.grips = GRIPS_RAINBOW;
     in.player_lights = PLAYERS_RAINBOW;
-    led_frame(&connected, &s, 1000 + RAINBOW_MS, &in, &f);
+    frame(&connected, &s, 1000 + RAINBOW_MS, &in, &f);
     CHECK(same(f.light[LIGHT_GRIP_L], ((struct rgb){ 40, 0, 0 })) && same(f.light[LIGHT_GRIP_R], ((struct rgb){ 0, 40, 40 })));
     CHECK(!same(f.light[LIGHT_P0], f.light[LIGHT_P1]) && bright_as(f.light[LIGHT_P2]) >= 40);
-    led_frame(&connected, &s, 1000 + RAINBOW_MS / 3, &in, &f);
+    frame(&connected, &s, 1000 + RAINBOW_MS / 3, &in, &f);
     CHECK(same(f.light[LIGHT_GRIP_L], ((struct rgb){ 0, 40, 0 })));
     in.grips = GRIPS_HEARTBEAT;
-    led_frame(&connected, &s, 1000 + HEARTBEAT_MS + 60, &in, &f);         /* the first beat's top */
-    led_frame(&connected, &s, 1000 + HEARTBEAT_MS + 250 + 60, &in, &g);   /* the second's, softer */
+    frame(&connected, &s, 1000 + HEARTBEAT_MS + 60, &in, &f);         /* the first beat's top */
+    frame(&connected, &s, 1000 + HEARTBEAT_MS + 250 + 60, &in, &g);   /* the second's, softer */
     CHECK(same(f.light[LIGHT_GRIP_L], ((struct rgb){ 40, 0, 0 })));
     CHECK(g.light[LIGHT_GRIP_L].r > 2 && g.light[LIGHT_GRIP_L].r < 40);
-    led_frame(&connected, &s, 1000 + HEARTBEAT_MS + 1000, &in, &f);       /* resting */
+    frame(&connected, &s, 1000 + HEARTBEAT_MS + 1000, &in, &f);       /* resting */
     CHECK(same(f.light[LIGHT_GRIP_L], dim_green));
     in.player_lights = PLAYERS_OFF;
     in.grips = GRIPS_OFF;
-    led_frame(&connected, &s, 2000, &in, &f);
+    frame(&connected, &s, 2000, &in, &f);
     CHECK(same(f.light[LIGHT_P2], dark_rgb) && same(f.light[LIGHT_GRIP_R], dark_rgb));
 
     /* Ephemeral: Home winks. */
     in.ephemeral = 1;
-    led_frame(&connected, &s, 8050, &in, &f);
+    frame(&connected, &s, 8050, &in, &f);
     CHECK(same(f.light[LIGHT_HOME], dark_rgb));
-    led_frame(&connected, &s, 8150, &in, &f);
+    frame(&connected, &s, 8150, &in, &f);
     CHECK(same(f.light[LIGHT_HOME], dim_red));
     in.ephemeral = 0;
 
@@ -498,16 +574,16 @@ int main(void)
     s.slot = SLOT_NONE;
     s.since_ms = 0;
     in.usb_powered = 1;
-    led_frame(&idle, &s, 1000, &in, &f);
+    frame(&idle, &s, 1000, &in, &f);
     CHECK(same(f.light[LIGHT_HOME], dark_rgb));
     in.usb_plug_lit = 1;
-    led_frame(&idle, &s, 100, &in, &f);      /* at once, not faded in */
-    CHECK(same(f.light[LIGHT_HOME], shown(lit(in.battery_colour))));
+    frame(&idle, &s, 100, &in, &f);      /* at once, not faded in */
+    CHECK(same(f.light[LIGHT_HOME], ((struct rgb){ 5, 2, 0 })));
     in.usb_plug_lit = 0;
-    led_frame(&idle, &s, 2400, &in, &f); CHECK(same(f.light[LIGHT_HOME], dark_rgb));
+    frame(&idle, &s, 2400, &in, &f); CHECK(same(f.light[LIGHT_HOME], dark_rgb));
     in.cal_lit = 1;
     in.cal = white;
-    led_frame(&idle, &s, 100, &in, &f);
+    frame(&idle, &s, 100, &in, &f);
     CHECK(same(f.light[LIGHT_HOME], white));
 
     memset(&p, 0, sizeof(p));
