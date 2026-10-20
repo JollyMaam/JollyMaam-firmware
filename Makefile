@@ -110,8 +110,10 @@ $(BOARDS): $$(O)/$$(BOARD)/firmware.img
 
 # Ask running firmware to enter the ROM loader. For stock dongle firmware,
 # hold its button while plugging in. flashpack uses the connected chip's key.
+# DEVICE=/dev/...: only that one, with several connected (padtool find).
+DEVICE ?=
 $(BOARDS:%=%-flash): $$(O)/$$(BOARD)/app.bin $$(O)/$$(BOARD)/isd_config.ini $(O)/host/jlnewfw
-	$(Q)$(O)/host/jlnewfw flashpack --enter-loader --wait 30 --loader $(SDK_LOADER) \
+	$(Q)$(O)/host/jlnewfw flashpack --enter-loader --wait 30 --loader $(SDK_LOADER) $(if $(DEVICE),--device $(DEVICE)) \
 		--flash-size $(FLASH_SIZE) --code-limit $(CODE_LIMIT) \
 		-c $(O)/$(BOARD)/isd_config.ini -u $(SDK_UBOOT) $(O)/$(BOARD)/app.bin $(SDK_CONFIG_TOOL)
 

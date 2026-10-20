@@ -2,6 +2,8 @@
 """padtool: talk to a Cyclone 2 pad or dongle running this firmware.
 
     padtool [--board pad|dongle] find    devices running this firmware
+    padtool -d DEVICE ...         with several connected: the one at that path,
+                                  or whose flash ID contains DEVICE (from find)
     padtool --board dongle target ADDR  dongle: page this device (e.g. our pad in pairing)
     padtool --board dongle pair   dongle: forget its bond and pair with a pad
                                   whose dongle slot is pairing (30 s), as a
@@ -117,27 +119,48 @@ def discover_devices(include_loaders=False, paths=None):
                 pass
 
 
-def devices(first=False):
+DEVICE = None        # --device: a path or part of a flash ID
+DEVICE_ID = None     # the flash ID of the one chosen: found again after a reboot
+
+
+def devices(first=False, identities=False):
     """Running devices for the selected board; stop early with first=True."""
     found = []
     for path, name, identity in discover_devices():
         if identity[6] == BOARD_IDS[BOARD]:
-            found.append((path, name))
+            found.append((path, name, identity) if identities else (path, name))
             if first:
                 break
     return found
 
 
+def matching():
+    """(path, flash ID) of the devices --device (or the earlier choice) picks."""
+    found = [(path, identity[24:40].hex()) for path, _, identity in devices(identities=True)]
+    if DEVICE_ID:
+        return [d for d in found if d[1] == DEVICE_ID]
+    if DEVICE:
+        return [d for d in found if d[0] == DEVICE or DEVICE.lower() in d[1]]
+    return found
+
+
 def find_device():
-    found = devices(first=True)
+    found = matching()
     return found[0][0] if found else None
 
 
 def need_device():
-    path = find_device()
-    if not path:
-        sys.exit(f"padtool: no {BOARD} found (is it plugged in and running this firmware?)")
-    return path
+    global DEVICE_ID
+    found = matching()
+    if not found:
+        sys.exit(f"padtool: no {BOARD} {'matching ' + DEVICE + ' ' if DEVICE else ''}found "
+                 f"(is it plugged in and running this firmware?)")
+    if len(found) > 1:
+        lines = "\n".join(f"  {path}  flash-id {fid}" for path, fid in found)
+        sys.exit(f"padtool: {len(found)} {BOARD}s found; pick one with --device PATH or part of its flash ID "
+                 f"(padtool find):\n{lines}")
+    DEVICE_ID = found[0][1]
+    return found[0][0]
 
 
 def wait_for_device(seconds, every=0.5):
@@ -1226,6 +1249,8 @@ def main():
     p.add_argument("--hz", type=int, default=2000, help="profile: samples per second")
     p.add_argument("--seconds", type=float, help="led-demo: show each this long, then the next; rumble: how long (1);"
                    " rumble-test: play them all, this long apart")
+    p.add_argument("-d", "--device", help="which pad or dongle, when several are connected: its path, "
+                   "or part of its flash ID (padtool find)")
     p.add_argument("--dev", action="store_true",
                    help="fields, get: include the developer settings")
     board = p.add_mutually_exclusive_group()
@@ -1238,8 +1263,9 @@ def main():
                    help="profile: add up per source file, per part, or per source line (zoom first)")
     p.add_argument("--elf", help="profile: the running build's ELF (default: selected board's build)")
     a = p.parse_args()
-    global DEV, BOARD
+    global DEV, BOARD, DEVICE
     DEV = a.dev
+    DEVICE = a.device
     BOARD = a.board
     if a.elf is None:
         a.elf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build", BOARD, "app.elf")
@@ -1266,8 +1292,8 @@ def main():
     if a.command == "target":    # dongle: the device to page, AA:BB:CC:DD:EE:FF
         scsi(need_device(), bytes([OP, 0x30]) + address, 0)
     elif a.command == "find":
-        for path, name in devices():
-            print(f"{BOARD} {path}  {name}")
+        for path, _ in devices():
+            print(f"{BOARD} {path}  {identify(path)}  {status(path)}")
     elif a.command == "identify":
         print(identify(need_device()))
     elif a.command == "status":
