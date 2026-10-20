@@ -486,7 +486,7 @@ static int mouse_report(const struct pad *p, u32 now, u8 *out, u8 *id)
     stick(m.layout->right, 1, p->rx, p->ry, hold, dt, kb);
     if (m.gyro_speed) {
         /* Always taken, so turns made while the gyro is let go are dropped. */
-        imu_pointer(&m.pointer, p->imu, p->imu_count, m.gyro_speed, m.gyro_accel, &gx, &gy);
+        imu_pointer(&m.pointer, p, m.gyro_speed, m.gyro_accel, &gx, &gy);
         if (!(hold & HOLD_GYRO_OFF)) {
             m.pending[0] += gx;
             m.pending[1] += gy;
@@ -531,10 +531,10 @@ static u8 kb_sent[8];
 int host_send(u16 id, const u8 *data, u16 len) { (void)id; memcpy(kb_sent, data, len); return 1; }
 void util_put16(u8 *p, u16 v) { p[0] = (u8)v; p[1] = (u8)(v >> 8); }
 void util_aes128(const u8 key[16], const u8 in[16], u8 out[16]) { (void)key; memcpy(out, in, 16); }
-void imu_pointer(struct imu_pointer *pt, const struct imu_sample *s, int n, u16 per_degree, u16 accel,
+void imu_pointer(struct imu_pointer *pt, const struct pad *pad, u16 per_degree, u16 accel,
                  s32 *x, s32 *y)
 {
-    (void)pt; (void)s; (void)n; (void)per_degree; (void)accel;
+    (void)pt; (void)pad; (void)per_degree; (void)accel;
     *x = 5;
     *y = -3;
 }

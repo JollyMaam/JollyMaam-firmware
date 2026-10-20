@@ -105,10 +105,14 @@ void link_pack_config(const struct link_config *c, u8 out[LINK_CONFIG_SIZE])
     out[0] = LINK_VERSION;
     out[1] = c->type;
     out[2] = c->variant;
+    out[3] = c->gyro_bias_known ? 1 : 0;
     put16(out + 4, c->stick_speed);
     put16(out + 6, c->gyro_speed);
     put16(out + 8, c->gyro_accel);
     memcpy(out + 10, c->address, 6);
+    put16(out + 16, (u16)c->gyro_bias[0]);
+    put16(out + 18, (u16)c->gyro_bias[1]);
+    put16(out + 20, (u16)c->gyro_bias[2]);
 }
 
 int link_unpack_config(const u8 *in, u16 len, struct link_config *c)
@@ -120,6 +124,10 @@ int link_unpack_config(const u8 *in, u16 len, struct link_config *c)
     c->gyro_speed = get16(in + 6);
     c->gyro_accel = get16(in + 8);
     memcpy(c->address, in + 10, 6);
+    c->gyro_bias_known = in[3] & 1;
+    c->gyro_bias[0] = (s16)get16(in + 16);
+    c->gyro_bias[1] = (s16)get16(in + 18);
+    c->gyro_bias[2] = (s16)get16(in + 20);
     return 1;
 }
 
@@ -166,11 +174,12 @@ static const u8 descriptor[] = {
 /* The config goes first and then once a second: the session outlives a lost
  * link (the pad pages the dongle again) and the dongle may have restarted,
  * and the dongle only becomes the slot's type on USB once it has it.  It
- * ignores a config that changes nothing. */
+ * ignores a config that changes nothing but the gyro bias, which it takes
+ * for the profiles' motion maths. */
 #define CONFIG_EVERY_MS 1000
 
 static struct {
-    u8 config[LINK_CONFIG_SIZE];
+    struct link_config config;
     u8 config_sent;
     u32 config_ms;
     u8 seq;
@@ -180,28 +189,38 @@ static struct {
 
 static u8 begin(const struct profile_session *s)
 {
-    struct link_config c;
+    struct link_config *c = &lk.config;
 
     memset(&lk, 0, sizeof(lk));
-    memset(&c, 0, sizeof(c));
     if (s->settings) {
-        c.type = s->settings->type;
-        c.variant = s->settings->variant;
-        c.stick_speed = s->settings->stick_speed;
-        c.gyro_speed = s->settings->gyro_speed;
-        c.gyro_accel = s->settings->gyro_accel;
+        c->type = s->settings->type;
+        c->variant = s->settings->variant;
+        c->stick_speed = s->settings->stick_speed;
+        c->gyro_speed = s->settings->gyro_speed;
+        c->gyro_accel = s->settings->gyro_accel;
     }
-    memcpy(c.address, s->address, 6);
-    link_pack_config(&c, lk.config);
+    memcpy(c->address, s->address, 6);
     return IMU_OFF;              /* until the dongle's host asks for motion */
+}
+
+static s16 clamp16(s32 v)
+{
+    return (s16)(v > 32767 ? 32767 : v < -32768 ? -32768 : v);
 }
 
 static int report(const struct pad *p, u32 now, u8 *out, u8 *id)
 {
-    if ((!lk.config_sent || now - lk.config_ms >= CONFIG_EVERY_MS) &&
-        host_send(LINK_CONFIG_ID, lk.config, LINK_CONFIG_SIZE)) {
-        lk.config_sent = 1;
-        lk.config_ms = now;
+    if (!lk.config_sent || now - lk.config_ms >= CONFIG_EVERY_MS) {
+        u8 config[LINK_CONFIG_SIZE];
+        u32 k;
+
+        for (k = 0; k < 3; k++) lk.config.gyro_bias[k] = clamp16(p->gyro_bias[k]);
+        lk.config.gyro_bias_known = p->gyro_bias_known;
+        link_pack_config(&lk.config, config);
+        if (host_send(LINK_CONFIG_ID, config, LINK_CONFIG_SIZE)) {
+            lk.config_sent = 1;
+            lk.config_ms = now;
+        }
     }
     link_pack_input(p, lk.seq++, 0, out);
     *id = LINK_INPUT_ID;
@@ -265,9 +284,11 @@ int main(void)
     p.imu_count = 3;             /* the newest two travel */
     p.imu[0].gyro[0] = 1; p.imu[1].gyro[0] = 2; p.imu[2].gyro[0] = 3;
     p.imu[1].us = 1000; p.imu[2].us = 5460; p.imu[2].accel[2] = -4096;
+    p.gyro_bias_known = 1; p.gyro_bias[0] = -300; p.gyro_bias[2] = 40000;
     CHECK(report(&p, 0, out, &id) == LINK_INPUT_SIZE && id == LINK_INPUT_ID);
     CHECK(sent_id == LINK_CONFIG_ID && link_unpack_config(sent, LINK_CONFIG_SIZE, &c));
     CHECK(c.type == PROFILE_DUALSENSE && c.gyro_speed == 40 && c.address[5] == 6);
+    CHECK(c.gyro_bias_known && c.gyro_bias[0] == -300 && !c.gyro_bias[1] && c.gyro_bias[2] == 32767);
     CHECK(link_unpack_input(out, LINK_INPUT_SIZE, &q, &seq, &flags) && seq == 0);
     CHECK(q.buttons == p.buttons && q.lx == -32768 && q.ly == 32767);
     CHECK(q.rx == 5 && q.ry == -6 && q.l2 == 65535 && q.r2 == 7 && q.imu_count == 2);

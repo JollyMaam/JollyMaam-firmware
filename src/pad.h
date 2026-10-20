@@ -83,6 +83,10 @@ struct pad {
     u8 imu_count;                /* samples new since the last report, oldest first */
     struct imu_sample imu[IMU_PER_REPORT];
     u8 jack;                     /* a plug in the headphone jack */
+    /* The gyro's zero-rate offset as learned so far (input_imu.c, or the pad
+     * through the link), 1/16 LSB; known 0: none yet. */
+    s32 gyro_bias[3];
+    u8 gyro_bias_known;
 };
 #define PAD_CONTROLS_SIZE ((u32)(size_t)&((struct pad *)0)->imu_count)
 
@@ -109,9 +113,11 @@ struct imu_pointer {
 
 u32 imu_poll(u32 now, u8 mode);   /* advances the sensor; returns its next deadline */
 int imu_take(u32 *seq, struct imu_sample *out, int max);
-void imu_gyro_bias(s32 out[3]);  /* the learned zero-rate offset, 1/16 LSB */
-void imu_pointer(struct imu_pointer *p, const struct imu_sample *s, int n, u16 per_degree,
-                 u16 accel, s32 *x, s32 *y);
+int imu_gyro_bias(s32 out[3]);   /* the learned zero-rate offset, 1/16 LSB; 0: none yet */
+/* The gyro samples in a report as pointer counts, with the pad's gyro_bias;
+ * p carries what is left between calls. */
+void imu_pointer(struct imu_pointer *p, const struct pad *pad, u16 per_degree, u16 accel,
+                 s32 *x, s32 *y);
 
 /* ---- input_calibration.c ------------------------------------------------
  * Sensor measurements only; deadzones (radial percentages) belong to the

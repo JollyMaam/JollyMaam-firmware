@@ -20,6 +20,8 @@ static struct {
     struct profile_session sess;
     u8 begin_imu;
     struct pad pad;              /* the newest state from the pad, motion since the last report */
+    s32 gyro_bias[3];            /* the pad's, from its config */
+    u8 gyro_bias_known;
     u8 fresh;
     u8 linked;
     u32 lost_ms;
@@ -51,7 +53,10 @@ static void drop_personality(const char *why)
 static void configure(const struct link_config *c)
 {
     const struct profile *p = profile_for(c->type);
+    u32 k;
 
+    for (k = 0; k < 3; k++) d.gyro_bias[k] = c->gyro_bias[k];
+    d.gyro_bias_known = c->gyro_bias_known;
     if (!p || !p->usb) {
         util_log("dongle: type %u has no USB device", c->type);
         drop_personality("unsupported type");
@@ -128,6 +133,8 @@ static void personality(u32 now)
         if (d.prof->write) d.prof->write(&w, now, &bond);
     }
     if (plat_usb_input_wanted() && (d.fresh || now - d.report_ms >= REPORT_IDLE_MS)) {
+        memcpy(d.pad.gyro_bias, d.gyro_bias, sizeof(d.gyro_bias));
+        d.pad.gyro_bias_known = d.gyro_bias_known;
         n = d.prof->report(&d.pad, now, buf, &id);
         d.pad.imu_count = 0;
         d.fresh = 0;

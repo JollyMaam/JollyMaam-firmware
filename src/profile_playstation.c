@@ -212,7 +212,7 @@ static void touch_update(struct pad *p, u32 now)
 
     p->buttons &= ~(u32)PAD_M;
     /* Taken every report, so turns made without the finger are dropped. */
-    imu_pointer(&ps.pointer, p->imu, p->imu_count, ps.gyro_speed, ps.gyro_accel, &x, &y);
+    imu_pointer(&ps.pointer, p, ps.gyro_speed, ps.gyro_accel, &x, &y);
     if (ps.touch.clicking) {
         if (now - ps.touch.click < TOUCH_CLICK_MS && !held) {
             p->buttons |= PAD_M;
@@ -550,10 +550,10 @@ const struct profile profile_dualshock4 = {
 #ifdef UNITTEST
 void util_put16(u8 *p, u16 v) { p[0] = (u8)v; p[1] = (u8)(v >> 8); }
 void util_put32(u8 *p, u32 v) { util_put16(p, (u16)v); util_put16(p + 2, (u16)(v >> 16)); }
-void imu_pointer(struct imu_pointer *p, const struct imu_sample *s, int n, u16 per_degree, u16 accel,
+void imu_pointer(struct imu_pointer *p, const struct pad *pad, u16 per_degree, u16 accel,
                  s32 *x, s32 *y)
 {
-    (void)p; (void)s; (void)n; (void)per_degree; (void)accel;
+    (void)p; (void)pad; (void)per_degree; (void)accel;
     *x = 10;
     *y = 0;
 }

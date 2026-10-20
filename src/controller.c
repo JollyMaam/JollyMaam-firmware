@@ -824,10 +824,9 @@ static void read_input(u32 now)
  * report has none, so leaving samples out would keep a turn going). */
 static void at_rest(struct pad *p)
 {
-    s32 bias[3];
+    const s32 *bias = p->gyro_bias;
     u32 i, k;
 
-    imu_gyro_bias(bias);
     for (k = 0; k < 3; k++) c.rest.gyro[k] = (s16)((bias[k] + (bias[k] < 0 ? -8 : 8)) / 16);
     for (i = 0; i < p->imu_count; i++) {
         u32 us = p->imu[i].us;
@@ -859,6 +858,7 @@ static void send_report(u32 now)
     }
     c.report_next = now + period;
     c.pad.imu_count = (u8)imu_take(&c.imu_seq, c.pad.imu, IMU_PER_REPORT);
+    c.pad.gyro_bias_known = (u8)imu_gyro_bias(c.pad.gyro_bias);
     if (ux_config(NULL)) at_rest(&c.pad);
     else if (c.pad.imu_count) c.rest = c.pad.imu[c.pad.imu_count - 1];
     c.pad.jack = (u8)plat_usb_jack_in();

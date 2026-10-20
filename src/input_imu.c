@@ -21,6 +21,7 @@ static const u8 setup[][2] = {
     { 0x0b, 0x01 }, { 0x0a, 0x12 }, { 0x0a, 0x00 }, { 0x08, 0x83 },
 };
 
+enum { Q_NONE, Q_COARSE, Q_FINE };        /* how well the gyro offset is known */
 enum { S_OFF, S_RESET, S_RESET_WAIT, S_SETUP, S_RUN, S_READ, S_SLEEP, S_FAILED };
 
 static struct {
@@ -133,9 +134,10 @@ int imu_take(u32 *seq, struct imu_sample *out, int max)
     return n;
 }
 
-void imu_gyro_bias(s32 out[3])
+int imu_gyro_bias(s32 out[3])
 {
     memcpy(out, imu.bias, sizeof(imu.bias));
+    return imu.quality != Q_NONE;
 }
 
 /* ---- gyro offset: learned whenever the pad is held still ---------------------
@@ -151,8 +153,6 @@ void imu_gyro_bias(s32 out[3])
 #define REST_SPREAD    (10 * 16)
 #define STILL_SPREAD   (3 * LSB_DPS * 16)
 #define DRIFT_MAX      (1 * LSB_DPS * 16)
-
-enum { Q_NONE, Q_COARSE, Q_FINE };
 
 static s32 absval(s32 v)
 {
@@ -220,23 +220,24 @@ static s32 accel_percent(s32 yaw, s32 pitch, u16 accel)
     return 100 + (s32)(accel - 100) * (speed - ACCEL_SLOW) / (ACCEL_FAST - ACCEL_SLOW);
 }
 
-void imu_pointer(struct imu_pointer *p, const struct imu_sample *s, int n, u16 per_degree,
-                 u16 accel, s32 *x, s32 *y)
+void imu_pointer(struct imu_pointer *p, const struct pad *pad, u16 per_degree, u16 accel,
+                 s32 *x, s32 *y)
 {
     const s64 per_count = (s64)LSB_DPS * 16 * 1000000 * 100;
+    const struct imu_sample *s = pad->imu;
     s32 *out[2] = { x, y };
     int i, a;
 
-    for (i = 0; i < n; i++) {
+    for (i = 0; i < pad->imu_count; i++) {
         u32 dt = p->have ? s[i].us - p->last_us : 0;
         s32 yaw, pitch, pct;
 
         p->have = 1;
         p->last_us = s[i].us;
-        if (imu.quality == Q_NONE) continue;
+        if (!pad->gyro_bias_known) continue;
         if (dt > MAX_DT_US) dt = MAX_DT_US;
-        yaw = -tighten(s[i].gyro[YAW] * 16 - imu.bias[YAW]);
-        pitch = -tighten(s[i].gyro[PITCH] * 16 - imu.bias[PITCH]);
+        yaw = -tighten(s[i].gyro[YAW] * 16 - pad->gyro_bias[YAW]);
+        pitch = -tighten(s[i].gyro[PITCH] * 16 - pad->gyro_bias[PITCH]);
         pct = accel_percent(yaw, pitch, accel);
         p->motion[0] += (s64)yaw * (s32)dt * pct;
         p->motion[1] += (s64)pitch * (s32)dt * pct;
@@ -272,6 +273,7 @@ int main(void)
 {
     struct imu_sample out[8];
     struct imu_pointer p;
+    struct pad pad;
     u32 now, seq = 0, writes = 0;
     s32 x, y, sx = 0;
     int n, i;
@@ -295,15 +297,20 @@ int main(void)
     for (fake_us = 140000; fake_us < 1140000; fake_us += 500) imu_poll(fake_us / 1000, IMU_MOTION);
     CHECK(imu.quality == Q_FINE && imu.bias[2] == 16 * 16);
     memset(&p, 0, sizeof(p));
+    memset(&pad, 0, sizeof(pad));
+    pad.gyro_bias_known = (u8)imu_gyro_bias(pad.gyro_bias);
+    CHECK(pad.gyro_bias_known && pad.gyro_bias[2] == 16 * 16);
+    pad.imu_count = 1;
     for (i = 0; i < 100; i++) {
-        struct imu_sample s;
-        memset(&s, 0, sizeof(s));
-        s.gyro[2] = 16 + 160;     /* 10 dps right of the learned offset */
-        s.us = i * 10000;
-        imu_pointer(&p, &s, 1, 32, 100, &x, &y);
+        pad.imu[0].gyro[2] = 16 + 160;     /* 10 dps right of the learned offset */
+        pad.imu[0].us = i * 10000;
+        imu_pointer(&p, &pad, 32, 100, &x, &y);
         sx += x;
     }
     CHECK(sx <= -310 && sx >= -320);  /* 10 dps for 0.99 s at 32 per degree */
+    pad.gyro_bias_known = 0;          /* nothing learned: no pointer, no catching up later */
+    imu_pointer(&p, &pad, 32, 100, &x, &y);
+    CHECK(!x && !y);
     imu_poll(1200, IMU_OFF);
     CHECK(last_reg == REG_CTRL7 && last_value == 0);
     return TEST_DONE("input_imu");

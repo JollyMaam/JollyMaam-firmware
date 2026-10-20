@@ -658,14 +658,12 @@ static s32 s2_abs(s32 v)
 
 static void s2_motion(u8 *out, const struct pad *p)
 {
-    s32 bias[3];
     u32 c[3];
     u16 sample, delta;
     int i, k, big = 0;
     u8 *b = out + 1;             /* out[0]: block length */
 
-    imu_gyro_bias(bias);
-    for (i = 0; i < p->imu_count; i++) s2_integrate(&p->imu[i], bias);
+    for (i = 0; i < p->imu_count; i++) s2_integrate(&p->imu[i], p->gyro_bias);
     sample = (u16)((s2.last_us / 1250) & 0xfff);
     delta = (u16)((sample - s2.sample_prev) & 0xfff);
     s2.sample_prev = sample;
@@ -1147,7 +1145,6 @@ int host_send(u16 id, const u8 *data, u16 len)
 void util_log(const char *fmt, ...) { (void)fmt; }
 void util_aes128(const u8 key[16], const u8 in[16], u8 out[16]) { u32 i; for (i = 0; i < 16; i++) out[i] = in[i] ^ key[i]; }
 void util_put16(u8 *p, u16 v) { p[0] = (u8)v; p[1] = (u8)(v >> 8); }
-void imu_gyro_bias(s32 out[3]) { out[0] = out[1] = out[2] = 0; }
 u32 util_get32(const u8 *p) { return p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (u32)p[3] << 24; }
 
 int main(void)

@@ -14,9 +14,10 @@
  *   power), 2 buttons (PAD_*, u32), 6 lx ly rx ry (s16), 14 l2 r2,
  *   18 the newest sample's time (plat_us), 22 µs between the two samples,
  *   24 samples oldest first: accel[3] gyro[3] (s16)
- * Config (0x22, a message, once a session and when it changes), LINK_CONFIG_SIZE:
- *   0 version, 1 type (PROFILE_*), 2 mouse layout, 3 -, 4 stick_speed,
- *   6 gyro_speed, 8 gyro_accel, 10 the slot's address
+ * Config (0x22, a message, first and then every second), LINK_CONFIG_SIZE:
+ *   0 version, 1 type (PROFILE_*), 2 mouse layout, 3 flags (bit 0: gyro bias
+ *   known), 4 stick_speed, 6 gyro_speed, 8 gyro_accel, 10 the slot's address,
+ *   16 the gyro's zero-rate offset (s16 x3, 1/16 LSB)
  * Output (0x21, dongle to pad, on change and every LINK_OUTPUT_MS), LINK_OUTPUT_SIZE:
  *   0 rumble left, right, 2 flags (0 players, 1 lightbar, 2 the USB host
  *   took the personality), 3 players, 4 players flashing, 5 lightbar rgb,
@@ -25,9 +26,9 @@
 #define LINK_INPUT_ID     0x20
 #define LINK_OUTPUT_ID    0x21
 #define LINK_CONFIG_ID    0x22
-#define LINK_VERSION      2
+#define LINK_VERSION      3
 #define LINK_INPUT_SIZE   48
-#define LINK_CONFIG_SIZE  16
+#define LINK_CONFIG_SIZE  22
 #define LINK_OUTPUT_SIZE  10
 #define LINK_IMU_MAX      2
 #define LINK_OUTPUT_MS    100
@@ -46,6 +47,8 @@ struct link_config {
     u8 type, variant;
     u16 stick_speed, gyro_speed, gyro_accel;
     u8 address[6];
+    s16 gyro_bias[3];            /* struct pad's, clamped */
+    u8 gyro_bias_known;
 };
 
 void link_pack_input(const struct pad *p, u8 seq, u8 flags, u8 out[LINK_INPUT_SIZE]);
