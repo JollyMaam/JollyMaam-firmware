@@ -64,10 +64,15 @@ static struct {
     struct set_cal cal;
     struct in_raw raw;
     struct pad pad;              /* as the host sees it */
+    struct pad input;            /* calibrated, before Home gestures and the remap (padtool input) */
     struct pad activity_ref;
     u32 activity_ms;
     struct profile_host host;
     u8 rumble_logged[2];
+    u8 rumble_test[2];           /* padtool rumble: these duties until rumble_test_until */
+    u8 rumble_testing;
+    u32 rumble_test_until;
+    u8 rumble_level, rumble_level_set;   /* config mode L1/R1: over the slot's rumble, until a restart */
     struct led_state led;
     const struct led_scene *led_scene;   /* the one drawn: a change fades in */
     struct led_fine frame;       /* the scene as drawn */
@@ -328,6 +333,28 @@ static void handle(struct ctl_request r, u32 now)
         c.led.scene = CTL_KIND_COUNT;    /* fade into it, from the start */
         c.led_next = now;
         break;
+    case REQ_RUMBLE:
+        c.rumble_test[0] = r.motor[0];
+        c.rumble_test[1] = r.motor[1];
+        c.rumble_testing = r.ms != 0;
+        c.rumble_test_until = now + (r.ms < RUMBLE_TEST_MAX_MS ? r.ms : RUMBLE_TEST_MAX_MS);
+        break;
+    case REQ_RUMBLE_STEP: {
+        u8 level = c.rumble_level_set ? c.rumble_level : set_slot(c.slot < SLOTS ? c.slot : 0)->rumble;
+        u8 i, n = ux_rumble_level_count;
+        if (r.slot) {
+            for (i = 0; i < n - 1 && ux_rumble_levels[i] <= level; i++) {}
+        } else {
+            for (i = n - 1; i > 0 && ux_rumble_levels[i] >= level; i--) {}
+        }
+        c.rumble_level = ux_rumble_levels[i];
+        c.rumble_level_set = 1;
+        util_log("rumble level %u%%", c.rumble_level);
+        c.rumble_test[0] = c.rumble_test[1] = (u8)(255 * c.rumble_level / 100);
+        c.rumble_testing = c.rumble_level != 0;
+        c.rumble_test_until = now + ux_timeouts.rumble_feedback_ms;
+        break;
+    }
     case REQ_REMAP:
         if (c.kind != CTL_CONNECTED) return;
         c.remap = r.slot < SLOTS ? r.slot : SLOT_NONE;
@@ -732,6 +759,15 @@ static void show(u32 now)
     }
 }
 
+/* Host rumble 1-255 spans ux_rumble_floor up to level percent duty. */
+static u8 motor_duty(u8 host, u8 level)
+{
+    u32 top = 255u * level / 100, floor = 255u * ux_rumble_floor / 100;
+    if (!host || !level) return 0;
+    if (top <= floor) return (u8)top;
+    return (u8)(floor + (top - floor) * (host - 1u) / 254);
+}
+
 static void outputs(u32 now)
 {
     const struct set_slot *slot, *shown;
@@ -742,7 +778,7 @@ static void outputs(u32 now)
     u32 plugged = now - c.usb_plugged_ms;
     u8 scene = c.kind, armed = ux_armed();
     int rumble = c.kind == CTL_CONNECTED && !c.calibrating;
-    u8 motor[2];
+    u8 motor[2], level;
 
     if (c.prof && c.prof->host) c.prof->host(now, &c.host);
     if (!c.host.rumble[0] != !c.rumble_logged[0] || !c.host.rumble[1] != !c.rumble_logged[1]) {
@@ -753,8 +789,14 @@ static void outputs(u32 now)
     c.imu_mode = !session() ? IMU_OFF : c.prof && c.prof->host && c.host.imu ? c.host.imu : c.begin_imu;
     c.imu_next = imu_poll(now, c.imu_mode);
     slot = set_slot(c.slot < SLOTS ? c.slot : 0);
-    motor[0] = rumble ? (u8)(c.host.rumble[0] * slot->rumble / 100) : 0;
-    motor[1] = rumble ? (u8)(c.host.rumble[1] * slot->rumble / 100) : 0;
+    level = c.rumble_level_set ? c.rumble_level : slot->rumble;
+    motor[0] = rumble ? motor_duty(c.host.rumble[0], level) : 0;
+    motor[1] = rumble ? motor_duty(c.host.rumble[1], level) : 0;
+    if (c.rumble_testing && (s32)(now - c.rumble_test_until) >= 0) c.rumble_testing = 0;
+    if (c.rumble_testing) {
+        motor[0] = c.rumble_test[0];
+        motor[1] = c.rumble_test[1];
+    }
     plat_motors(motor[0], motor[1]);
     if ((s32)(now - c.led_next) < 0) {
         if (c.dithering && (s32)(now - c.dither_next) >= 0) show(now);
@@ -866,6 +908,7 @@ static void read_input(u32 now)
     plat_input(&c.raw);
     in_map(&c.raw, &c.pad);
     cal_apply(set_cal(), sticks() ? sticks()->deadzone : NULL, &c.raw, &c.pad);
+    c.input = c.pad;
     if (in_moved(&c.pad, &c.activity_ref)) {
         c.activity_ref = c.pad;
         c.activity_ms = now;
@@ -1034,6 +1077,8 @@ void ctl_main(void)
         st.ephemeral = (u8)set_is_ephemeral();
         st.staged = (u8)(set_staged() < 255 ? set_staged() : 255);
         st.stats = &c.stats;
+        st.input = &c.input;
+        st.raw = &c.raw;
         handle(usb_poll(&st), now);
         usb_session(now);
         STEP(STEP_USB);
@@ -1053,6 +1098,7 @@ void ctl_main(void)
         deadline = earliest(c.led_next, earliest(state_deadline(), earliest(ux_deadline(), c.imu_next)));
         deadline = earliest(deadline, remap_deadline());
         if (c.dithering) deadline = earliest(deadline, c.dither_next);
+        if (c.rumble_testing) deadline = earliest(deadline, c.rumble_test_until);
         if (c.calibrating) deadline = earliest(deadline, now + CAL_SAMPLE_MS);
         c.stats.passes++;
         util_stat_add(&c.stats.pass, plat_us() - start);

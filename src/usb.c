@@ -20,6 +20,11 @@
  *   `0x02` LOG            CDB bytes 2–5: from sequence number; in: u32 first
  *                         sequence returned, u32 length, text
  *   `0x27` DEFAULTS       pad only: same arguments and format as READ, no state changes
+ *   `0x04` INPUT          pad only, protocol 9+: in (36): u8 version (1), flags
+ *                         (bit 0: sticks read), u16 –, u32 buttons (PAD_*), s16
+ *                         lx ly rx ry and u16 l2 r2 calibrated, before Home
+ *                         gestures and the remap; u16 raw sticks [4] and
+ *                         triggers [2] as read, u32 uptime ms
  *   `0x03` STATS          CDB byte 2 bit 0: reset after reading; in: u16
  *                         version, u16 size, `struct ctl_stats` as in memory
  *   `0x10` REBOOT         –
@@ -31,6 +36,10 @@
  *   `0x19` LED_DEMO       pad only, protocol 7+: CDB byte 2: LED demo number (0xff:
  *                         stop), byte 3 1: show it (for UX_LED_DEMO_MS); in: its name,
  *                         NUL-terminated, empty past the last
+ *   `0x1a` RUMBLE         pad only, protocol 8+: CDB bytes 2, 3: left, right motor
+ *                         duty (0-255, the slot's rumble percent not applied),
+ *                         bytes 4-5: for how many ms (at most RUMBLE_TEST_MAX_MS;
+ *                         0 stops), over whatever the host asks for
  *   `0x30` TARGET         dongle only: CDB bytes 2–7: Bluetooth address in
  *                         written order (AA:BB:CC:DD:EE:FF); page that device
  *   `0x13` CONNECT        CDB byte 2: slot (`0xfe` the last): start its
@@ -79,12 +88,12 @@
  * padtool/padtool.py and padtool/padgui.pyw (Linux/Windows SCSI) are the clients. */
 
 #define OP          0xf5
-#define PROTOCOL    7
+#define PROTOCOL    9
 
 #define STATS_VERSION 6
 
-enum { CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02, CMD_STATS = 0x03,
-       CMD_REBOOT = 0x10, CMD_REBOOT_LOADER = 0x11, CMD_RELINK = 0x12, CMD_CONNECT = 0x13, CMD_PROFILE = 0x14, CMD_PEEK = 0x15, CMD_TRACE = 0x16, CMD_PAIR = 0x17, CMD_CALIBRATE = 0x18, CMD_LED_DEMO = 0x19,
+enum { CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02, CMD_STATS = 0x03, CMD_INPUT = 0x04,
+       CMD_REBOOT = 0x10, CMD_REBOOT_LOADER = 0x11, CMD_RELINK = 0x12, CMD_CONNECT = 0x13, CMD_PROFILE = 0x14, CMD_PEEK = 0x15, CMD_TRACE = 0x16, CMD_PAIR = 0x17, CMD_CALIBRATE = 0x18, CMD_LED_DEMO = 0x19, CMD_RUMBLE = 0x1a,
        CMD_FIELD = 0x20, CMD_READ = 0x21, CMD_WRITE = 0x22, CMD_COMMIT = 0x23, CMD_DROP = 0x24,
        CMD_EPHEMERAL = 0x25, CMD_RESULT = 0x26, CMD_DEFAULTS = 0x27, CMD_TARGET = 0x30 };
 
@@ -159,6 +168,28 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         n = 4 + sizeof(struct ctl_stats);
         if (cdb[2] & 1) pending.kind = REQ_STATS_RESET;
         break;
+    case CMD_INPUT: {
+        const struct pad *p = status ? status->input : NULL;
+        const struct in_raw *raw = status ? status->raw : NULL;
+        u32 i;
+        if (!p || !raw || max < 36) return 0;
+        memset(data, 0, 36);
+        data[0] = 1;
+        data[1] = raw->sticks_valid;
+        util_put32(data + 4, p->buttons);
+        util_put16(data + 8, (u16)p->lx);
+        util_put16(data + 10, (u16)p->ly);
+        util_put16(data + 12, (u16)p->rx);
+        util_put16(data + 14, (u16)p->ry);
+        util_put16(data + 16, p->l2);
+        util_put16(data + 18, p->r2);
+        for (i = 0; i < 4; i++) util_put16(data + 20 + 2 * i, raw->stick[i]);
+        util_put16(data + 28, raw->trigger[0]);
+        util_put16(data + 30, raw->trigger[1]);
+        util_put32(data + 32, status->uptime_ms);
+        n = 36;
+        break;
+    }
     case CMD_REBOOT:
         pending.kind = REQ_REBOOT;
         break;
@@ -206,6 +237,14 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
             pending.kind = REQ_LED_DEMO;
             pending.slot = cdb[2] < ux_led_demo_count ? cdb[2] : SLOT_NONE;
         }
+#endif
+        break;
+    case CMD_RUMBLE:
+#ifndef BOARD_DONGLE
+        pending.kind = REQ_RUMBLE;
+        pending.motor[0] = cdb[2];
+        pending.motor[1] = cdb[3];
+        pending.ms = (u16)(cdb[4] | cdb[5] << 8);
 #endif
         break;
     case CMD_CONNECT:            /* argument: slot, 0xfe the last */
@@ -324,6 +363,20 @@ int main(void)
     cdb[1] = CMD_STATUS;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 16);
     CHECK(data[0] == CTL_IDLE && data[4] == (3900 & 0xff) && data[8] == (1234 & 0xff));
+    cdb[1] = CMD_INPUT;
+    CHECK(usb_command(cdb, data, sizeof(data), 0) == 0);    /* none */
+    {
+        static struct pad in = { PAD_A | PAD_LEFT, -2, 3, 0, 0, 0, 65535 };
+        static struct in_raw raw = { 0, 1, { 100, 200, 300, 400 }, { 5, 6 } };
+
+        st.input = &in;
+        st.raw = &raw;
+        CHECK(usb_command(cdb, data, sizeof(data), 0) == 36);
+        CHECK(data[0] == 1 && data[1] == 1 && data[4] == PAD_A && data[6] == (PAD_LEFT >> 16));
+        CHECK(data[8] == 0xfe && data[9] == 0xff && data[10] == 3 && data[18] == 0xff);
+        CHECK(data[20] == 100 && data[26] == (400 & 0xff) && data[28] == 5 && data[32] == (1234 & 0xff));
+        st.input = NULL;
+    }
     cdb[1] = CMD_LOG;
     cdb[2] = 5;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 11 && data[0] == 7 && data[4] == 3);
@@ -371,6 +424,12 @@ int main(void)
     r = usb_poll(&st);
     CHECK(r.kind == REQ_LED_DEMO && r.slot == SLOT_NONE);
     cdb[3] = 0;
+    cdb[1] = CMD_RUMBLE;
+    cdb[2] = 64; cdb[3] = 255; cdb[4] = 0xe8; cdb[5] = 0x03;
+    CHECK(usb_command(cdb, data, sizeof(data), 0) == 0);
+    r = usb_poll(&st);
+    CHECK(r.kind == REQ_RUMBLE && r.motor[0] == 64 && r.motor[1] == 255 && r.ms == 1000);
+    memset(cdb + 2, 0, 4);
 #endif
     cdb[1] = CMD_FIELD;
     cdb[2] = 1;

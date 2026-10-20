@@ -13,6 +13,16 @@
     padtool led-demo [list | N] [--seconds S]   the pad shows its LED animations
                                   in turn, from N: Enter for the next (or
                                   every S seconds); list: what there is (protocol 7+)
+    padtool rumble LEFT [RIGHT] [--seconds S]   run the motors at LEFT and RIGHT
+                                  percent of full power (default RIGHT = LEFT) for
+                                  S seconds (1; at most 10); 0 stops (protocol 8+)
+    padtool rumble-test [list | N] [--seconds S]   rumble strengths, one side,
+                                  ramps and short pulses, from N: Enter for the
+                                  next, r again (or all, S seconds apart)
+    padtool rumble-sticks         each stick drives its side's motor: farther
+                                  from centre is stronger; Ctrl-C stops (protocol 9+)
+    padtool input [-f]            buttons, sticks and triggers, calibrated and
+                                  as read (-f: live) (protocol 9+)
     padtool reboot | loader       restart; restart into the ROM loader (for
                                   jlnewfw flash)
     padtool connect [SLOT]        connect a slot (default: the last), as Home does
@@ -718,6 +728,183 @@ def led_demo(path, names, first, seconds):
             cmd(path, CMD_LED_DEMO, 0xff)
 
 
+CMD_RUMBLE = 0x1a
+RUMBLE_MAX_MS = 10000
+
+
+def rumble(path, left, right, ms):
+    """Motors at left/right percent of full PWM duty for ms; the slot's rumble
+    percent is not applied.  0 ms stops."""
+    duty = [round(max(0, min(100, v)) * 255 / 100) for v in (left, right)]
+    cmd(path, CMD_RUMBLE, duty[0] | duty[1] << 8 | min(int(ms), RUMBLE_MAX_MS) << 16)
+    return duty
+
+
+def ramp(left, right, ms, steps=40):
+    return [(left * i / steps, right * i / steps, ms / steps) for i in range(1, steps + 1)]
+
+
+def pulses(ms, level=100, count=4, gap=400):
+    return [(level, level, ms), (0, 0, gap)] * count
+
+
+def sweep(left, right, low=8, high=40, step=2, ms=1000):
+    """Steps from low to high percent on the chosen sides, each one printed."""
+    return [(v if left else 0, v if right else 0, ms, f"  {v}%") for v in range(low, high + 1, step)]
+
+
+def kick(level, ms=1500, kick_ms=30, kick_level=100):
+    """Full power for kick_ms to get the motors spinning, then level."""
+    return [(kick_level, kick_level, kick_ms), (level, level, ms)]
+
+
+def texture(high, low, hz, ms=2000):
+    """Alternate high and low percent hz times a second."""
+    half = 500 / hz
+    return [(high, high, half), (low, low, half)] * round(ms / (2 * half))
+
+
+RUMBLE_TESTS = (
+    [(f"both {v}%", [(v, v, 1500)]) for v in (5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100)] +
+    [(f"{side} only {v}%", [(v if side == "left" else 0, v if side == "right" else 0, 1500)])
+     for side in ("left", "right") for v in (30, 60, 100)] +
+    [("ramp both 0-100% over 4 s", ramp(100, 100, 4000)),
+     ("ramp left 0-100% over 4 s", ramp(100, 0, 4000)),
+     ("ramp right 0-100% over 4 s", ramp(0, 100, 4000)),
+     ("ramp both 100-0% over 4 s", ramp(100, 100, 4000)[::-1]),
+     ("left then right, 60%, alternating", [(60, 0, 300), (0, 60, 300)] * 4)] +
+    [(f"pulses: {ms} ms at 100%", pulses(ms)) for ms in (20, 40, 80, 150)] +
+    [(f"pulses: 80 ms at {v}%", pulses(80, v)) for v in (30, 60)] +
+    # Where does the rattle start and stop, and which motor makes it?
+    [("find the rattle: both 8-40% in 2% steps, 1 s each", sweep(True, True)),
+     ("find the rattle: left only 8-40%", sweep(True, False)),
+     ("find the rattle: right only 8-40%", sweep(False, True))] +
+    # A stopped motor needs more to start than to keep turning: kick it first.
+    [(f"kick 30 ms at 100%, then both {v}%", kick(v)) for v in (6, 10, 15, 20)] +
+    [("kick 60 ms at 100%, then both 10%", kick(10, kick_ms=60)),
+     ("soft kick 100 ms at 40%, then both 12%", kick(12, kick_ms=100, kick_level=40))] +
+    # Gentle without running slowly: short bursts at a higher level.
+    [("bursts: 50% 40 ms on, 160 ms off (5/s)", [(50, 50, 40), (0, 0, 160)] * 10),
+     ("bursts: 40% 30 ms on, 70 ms off (10/s)", [(40, 40, 30), (0, 0, 70)] * 20),
+     ("bursts: 35% 20 ms on, 20 ms off (25/s)", texture(35, 0, 25))] +
+    # Textures: two levels alternating.
+    [("purr: 50% / 20% at 25/s", texture(50, 20, 25)),
+     ("engine idle: 60% / 25% at 12/s", texture(60, 25, 12)),
+     ("engine rev: 90% / 50% at 20/s", texture(90, 50, 20)),
+     ("heartbeat", [(80, 80, 70), (0, 0, 130), (55, 55, 70), (0, 0, 600)] * 3),
+     ("crisp tap: kick 25 ms at 100%, then 50% for 40 ms", [(100, 100, 25), (50, 50, 40), (0, 0, 500)] * 4),
+     ("left 30% + right 10% (blend)", [(30, 10, 2000)]),
+     ("left 10% + right 30% (blend)", [(10, 30, 2000)])]
+)
+
+
+def play_rumble(path, steps):
+    """Each step runs a little past its time; the next one takes over."""
+    for left, right, ms, *label in steps:
+        start = time.monotonic()
+        if label:
+            print(label[0], flush=True)
+        if left or right:
+            rumble(path, left, right, ms + 100)
+        else:
+            rumble(path, 0, 0, 0)
+        time.sleep(max(0, ms / 1000 - (time.monotonic() - start)))
+    rumble(path, 0, 0, 0)
+
+
+CMD_INPUT = 0x04
+
+
+def read_input(path):
+    """The controls as the pad reads them: calibrated, before Home gestures and
+    the remap, and raw.  None if the pad has none."""
+    d = cmd(path, CMD_INPUT, length=64)
+    if len(d) < 36:
+        return None
+    _, flags, _, buttons, lx, ly, rx, ry, l2, r2 = struct.unpack_from("<BBHI4h2H", d)
+    return {"buttons": buttons, "keys": [k for i, k in enumerate(padremap.KEYS) if k and buttons >> i & 1],
+            "left": (lx, ly), "right": (rx, ry), "l2": l2, "r2": r2, "sticks_read": bool(flags & 1),
+            "raw_sticks": struct.unpack_from("<4H", d, 20), "raw_triggers": struct.unpack_from("<2H", d, 28),
+            "ms": struct.unpack_from("<I", d, 32)[0]}
+
+
+def input_line(i):
+    return (f"L {i['left'][0]:6} {i['left'][1]:6}  R {i['right'][0]:6} {i['right'][1]:6}  "
+            f"L2 {i['l2']:5}  R2 {i['r2']:5}  raw {' '.join(f'{v:4}' for v in i['raw_sticks'] + i['raw_triggers'])}  "
+            f"{' '.join(i['keys']) or '-'}")
+
+
+def show_input(path, follow):
+    i = read_input(path)
+    if not i:
+        sys.exit("padtool: the pad reports no input")
+    if not follow:
+        print(input_line(i))
+        return
+    try:
+        while True:
+            print("\r" + input_line(read_input(path)).ljust(110), end="", flush=True)
+            time.sleep(0.03)
+    except KeyboardInterrupt:
+        print()
+
+
+def stick_strength(x, y):
+    """Percent: 0 at the centre, 100 at the edge."""
+    return min(100.0, (x * x + y * y) ** 0.5 * 100 / 32767)
+
+
+def rumble_sticks(path):
+    print("Left stick: left motor, right stick: right motor; farther from centre is stronger. Ctrl-C stops.")
+    try:
+        while True:
+            i = read_input(path)
+            left, right = stick_strength(*i["left"]), stick_strength(*i["right"])
+            left, right = (v if v >= 5 else 0 for v in (left, right))   # sticks rest a few % off centre
+            if left or right:
+                duty = rumble(path, left, right, 200)
+            else:
+                duty = rumble(path, 0, 0, 0)
+            print(f"\rleft {left:5.1f}% ({duty[0]:3}/255)   right {right:5.1f}% ({duty[1]:3}/255)", end="", flush=True)
+            time.sleep(0.02)
+    except KeyboardInterrupt:
+        print()
+    finally:
+        rumble(path, 0, 0, 0)
+
+
+def rumble_test(path, first, seconds):
+    """Play RUMBLE_TESTS from `first`: all of them, `seconds` apart, or (seconds
+    None) Enter for the next, r again, a number for that one, b back, q quit."""
+    def announce(i):
+        print(f"{i + 1}/{len(RUMBLE_TESTS)}  {RUMBLE_TESTS[i][0]}", flush=True)
+        play_rumble(path, RUMBLE_TESTS[i][1])
+
+    try:
+        if seconds is not None:
+            for i in range(first, len(RUMBLE_TESTS)):
+                announce(i)
+                time.sleep(seconds)
+            return
+        print("Enter: next   r: again   b: back   number: that test   q: quit")
+        i = first
+        announce(i)
+        while True:
+            answer = input().strip().lower()
+            if answer == "q":
+                return
+            n = i if answer == "r" else i - 1 if answer == "b" else int(answer) - 1 if answer.isdigit() else i + 1
+            if 0 <= n < len(RUMBLE_TESTS):
+                i = n
+                announce(i)
+            elif not answer and n == len(RUMBLE_TESTS):
+                return
+    except (KeyboardInterrupt, EOFError):
+        pass
+    finally:
+        rumble(path, 0, 0, 0)
+
+
 def unpair(path, slot):
     """Firmware clears the bond and generates a new address in the same commit."""
     if not 0 <= slot < 8:
@@ -971,7 +1158,7 @@ def tool(paths):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["target", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "reboot", "loader", "relink", "connect", "pair", "unpair", "profile", "peek", "trace",
+    p.add_argument("command", choices=["target", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "reboot", "loader", "relink", "connect", "pair", "unpair", "profile", "peek", "trace",
                                        "fields", "get", "set", "reset", "backup-settings",
                                        "restore-settings", "factory-reset", "ephemeral", "keep", "tool"])
     p.add_argument("args", nargs="*")
@@ -980,7 +1167,8 @@ def main():
     p.add_argument("-w", "--watch", type=float, metavar="SECONDS", help="stats: show and reset every N seconds")
     p.add_argument("--reset", action="store_true", help="stats: reset the counters after reading")
     p.add_argument("--hz", type=int, default=2000, help="profile: samples per second")
-    p.add_argument("--seconds", type=float, help="led-demo: show each this long, then the next")
+    p.add_argument("--seconds", type=float, help="led-demo: show each this long, then the next; rumble: how long (1);"
+                   " rumble-test: play them all, this long apart")
     p.add_argument("--dev", action="store_true",
                    help="fields, get: include the developer settings")
     board = p.add_mutually_exclusive_group()
@@ -1011,7 +1199,7 @@ def main():
         except ValueError:
             p.error("invalid address; expected AA:BB:CC:DD:EE:FF")
     if BOARD == "dongle" and a.command in {
-        "stats", "calibrate", "led-demo", "relink", "connect", "fields", "get", "set", "reset",
+        "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "relink", "connect", "fields", "get", "set", "reset",
         "backup-settings", "restore-settings", "factory-reset", "keep",
     }:
         p.error(f"{a.command} is not supported by dongle firmware")
@@ -1078,6 +1266,38 @@ def main():
         if a.args and (not a.args[0].isdigit() or not 1 <= int(a.args[0]) <= len(names)):
             p.error(f"led-demo: a number 1-{len(names)}, or list")
         led_demo(path, names, int(a.args[0]) - 1 if a.args else 0, a.seconds)
+    elif a.command == "rumble-test" and a.args[:1] == ["list"]:
+        for i, (name, _) in enumerate(RUMBLE_TESTS):
+            print(f"{i + 1:3}  {name}")
+    elif a.command in ("input", "rumble-sticks"):
+        path = need_device()
+        if int.from_bytes(cmd(path, 0, length=64)[4:6], "little") < 9:
+            p.error(f"{a.command} needs pad firmware protocol 9 or newer")
+        show_input(path, a.follow) if a.command == "input" else rumble_sticks(path)
+    elif a.command in ("rumble", "rumble-test"):
+        path = need_device()
+        if int.from_bytes(cmd(path, 0, length=64)[4:6], "little") < 8:
+            p.error(f"{a.command} needs pad firmware protocol 8 or newer")
+        if a.command == "rumble-test":
+            if a.args and (not a.args[0].isdigit() or not 1 <= int(a.args[0]) <= len(RUMBLE_TESTS)):
+                p.error(f"rumble-test: a number 1-{len(RUMBLE_TESTS)}, or list")
+            rumble_test(path, int(a.args[0]) - 1 if a.args else 0, a.seconds)
+            return
+        try:
+            levels = [float(v) for v in a.args]
+        except ValueError:
+            levels = []
+        if not 1 <= len(levels) <= 2 or not all(0 <= v <= 100 for v in levels):
+            p.error("rumble LEFT [RIGHT]: percent, 0-100")
+        left, right = levels[0], levels[-1]
+        ms = (a.seconds if a.seconds is not None else 1) * 1000
+        if not left and not right:
+            rumble(path, 0, 0, 0)
+            return
+        if not 0 < ms <= RUMBLE_MAX_MS:
+            p.error("rumble: --seconds above 0, at most 10")
+        duty = rumble(path, left, right, ms)
+        print(f"left {duty[0]}/255  right {duty[1]}/255  for {ms / 1000:g} s")
     elif a.command == "calibrate":
         path = need_device()
         if int.from_bytes(cmd(path, 0, length=64)[4:6], "little") < 3:

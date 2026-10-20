@@ -166,6 +166,8 @@ enum req_kind {
     REQ_RELINK,              /* connected: take the session down and connect it again */
     REQ_REMAP,               /* connected: remap slot .slot, SLOT_NONE none; kept until a disconnect, another slot or sleep */
     REQ_LED_DEMO,                /* the lights show LED demo .slot (ux_led_demos), SLOT_NONE: stop */
+    REQ_RUMBLE,              /* the motors run at .motor (0-255 duty) for .ms, over the host's; 0 ms: stop */
+    REQ_RUMBLE_STEP,         /* config mode L1/R1: .slot 0 lower, 1 raise the rumble level (RAM only) */
 };
 
 struct ctl_request {
@@ -173,7 +175,11 @@ struct ctl_request {
     u8 slot;
     u8 generate_new_address;
     u8 quiet;                /* a restart the pad made itself: it never wakes a host by USB */
+    u8 motor[2];             /* REQ_RUMBLE: left, right */
+    u16 ms;                  /* REQ_RUMBLE */
 };
+
+#define RUMBLE_TEST_MAX_MS 10000
 
 void ctl_main(void);
 
@@ -600,6 +606,7 @@ struct ux_timeouts {
     u16 led_frame_ms;
     u16 usb_plug_ms;
     u32 config_ms;           /* remap config mode with no key pressed */
+    u16 rumble_feedback_ms;  /* config mode L1/R1: the new level at full strength */
 };
 
 struct ux_colours { u8 idle, battery; u16 idle_brightness, battery_brightness; };
@@ -607,6 +614,11 @@ struct ux_colours { u8 idle, battery; u16 idle_brightness, battery_brightness; }
 extern const struct ux_timeouts ux_timeouts;
 extern const u8 ux_usb_autoconnect;
 extern const struct ux_colours ux_colours;
+/* Config mode L1/R1 step through these rumble percents, in RAM until a restart;
+ * the first step starts from the slot's rumble setting. */
+extern const u8 ux_rumble_levels[];
+extern const u8 ux_rumble_level_count;
+extern const u8 ux_rumble_floor;     /* percent duty for the lightest host rumble */
 
 /* LED demos (padtool led-demo): a scene in slot A's colours, with these instead
  * of the slot's settings; 0 in a brightness: the palette's.  A demo lasts
@@ -725,6 +737,8 @@ struct usb_status {
     u8 ephemeral;
     u8 staged;               /* settings items waiting for commit */
     const struct ctl_stats *stats;
+    const struct pad *input;     /* the controls, calibrated, before Home gestures and the remap; NULL: none */
+    const struct in_raw *raw;    /* as read */
 };
 
 struct ctl_request usb_poll(const struct usb_status *status);

@@ -17,7 +17,15 @@ const struct ux_timeouts ux_timeouts = {
     .led_frame_ms = 20,
     .usb_plug_ms = 1000,
     .config_ms = 30000,          /* remap config mode, from its last key press */
+    .rumble_feedback_ms = 1000,
 };
+
+/* Below about 25% duty the motors barely turn or rattle, and 40% full strength
+ * already feels weak: levels are the duty at full host rumble, and any rumble
+ * at all runs the motors at least at ux_rumble_floor percent. */
+const u8 ux_rumble_levels[] = { 0, 50, 60, 70, 85, 100 };
+const u8 ux_rumble_floor = 30;
+const u8 ux_rumble_level_count = sizeof(ux_rumble_levels);
 
 /* Idle, a USB host appearing (a plug-in, or the host waking) connects the
  * last slot if it is usb or bluetooth+usb.  Off: the tool device stays, for
@@ -81,7 +89,7 @@ const struct led_scene ux_scenes[CTL_KIND_COUNT] = {
 /* Home+M: remap config mode, which ux_step runs itself.  Every input is held
  * back from the host; releasing a slot key picks that remap slot, releasing
  * Home or M picks none, ux_timeouts.config_ms without a press leaves it as it
- * was. */
+ * was.  Releasing L1 or R1 lowers or raises the rumble level and stays. */
 #define REQ_CONFIG 0xff
 
 /* Where a gesture works (offline: any state but connected), and whether it
@@ -167,6 +175,8 @@ static struct ctl_request config_step(struct pad *p, u32 now)
     if (up & (PAD_HOME | PAD_M)) {
         r = request(REQ_REMAP, SLOT_NONE);
         done = 1;
+    } else if (up & (PAD_L1 | PAD_R1)) {
+        r = request(REQ_RUMBLE_STEP, (up & PAD_R1) ? 1 : 0);
     } else for (i = 0; i < GESTURES && up; i++) {
         if (gestures[i].request != REQ_CONNECT || !(up & gestures[i].keys)) continue;
         r = request(REQ_REMAP, gestures[i].slot);
@@ -514,7 +524,7 @@ int main(void)
     CHECK(!ux_config(NULL) && !seen.buttons);
     pad.buttons = PAD_HOME; run(1); CHECK(ux_config(NULL) && last.kind == REQ_NONE && !seen.buttons);
     pad.buttons = 0; run(100); CHECK(ux_config(NULL) && last.kind == REQ_NONE); /* Home from the chord */
-    pad.buttons = PAD_L1; pad.lx = 9000; pad.r2 = 30000; run(100);
+    pad.buttons = PAD_L4; pad.lx = 9000; pad.r2 = 30000; run(100);
     CHECK(ux_config(NULL) && !seen.buttons && !seen.lx && !seen.r2); /* nothing for the host */
     pad.buttons = 0; run(1); CHECK(ux_config(NULL) && last.kind == REQ_NONE);
     pad.buttons = PAD_X; run(100); CHECK(last.kind == REQ_NONE && !seen.buttons);
@@ -546,6 +556,13 @@ int main(void)
     run(ux_timeouts.config_ms - 1000); pad.buttons = PAD_R1; run(1); pad.buttons = 0;
     run(ux_timeouts.config_ms - 1); CHECK(ux_config(NULL));
     run(1); CHECK(!ux_config(NULL) && last.kind == REQ_NONE);
+    /* L1 and R1 step the rumble level and stay in it. */
+    config();
+    pad.buttons = PAD_L1; run(10); pad.buttons = 0; run(1);
+    CHECK(last.kind == REQ_RUMBLE_STEP && last.slot == 0 && ux_config(NULL) && !seen.buttons);
+    pad.buttons = PAD_R1; run(10); pad.buttons = 0; run(1);
+    CHECK(last.kind == REQ_RUMBLE_STEP && last.slot == 1 && ux_config(NULL));
+    run(1); CHECK(last.kind == REQ_NONE);
     /* The session going ends it. */
     config();
     state = CTL_CONNECTING; run(1); CHECK(!ux_config(NULL) && last.kind == REQ_NONE);

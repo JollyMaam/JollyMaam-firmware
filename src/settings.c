@@ -90,7 +90,7 @@ static const struct set_field slot_fields[] = {
       .help = "player lights while connected: host is the console's player number; fade and "
               "rainbow are animations, lit brighter than the steady colours" },
     { .id = 7, .name = "rumble", .type = T_NUMBER, .max = 100, FIELD(rumble),
-      .def = 100, .help = "motor strength in percent; 0 turns it off" },
+      .def = 100, .help = "motor power at full rumble, percent; any rumble runs at least at 30%; 0 turns it off" },
     { .id = 8, .flags = F_DEV, .name = "mouse_layout", .type = T_ENUM, .names = layouts, FIELD(variant),
       .def = 0, .help = "mouse: what each control does" },
     { .id = 9, .flags = F_DEV, .name = "stick_speed", .type = T_NUMBER, .max = 20000, FIELD(stick_speed),
