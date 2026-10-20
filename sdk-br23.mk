@@ -143,7 +143,6 @@ SDK_LFLAGS := \
 	--plugin-opt=-inline-max-allocated-size=32 \
 	--plugin-opt=-inline-normal-into-special-section=true \
 	--plugin-opt=-dont-used-symbol-list=malloc,free,sprintf,printf,puts,putchar \
-	--plugin-opt=save-temps \
 	--plugin-opt=-pi32v2-enable-rep-memop \
 	--plugin-opt=-warn-stack-size=256 \
 	--sort-common \
