@@ -875,11 +875,26 @@ def rumble_sticks(path):
         rumble(path, 0, 0, 0)
 
 
+def balance_text(balance):
+    """How much the other side is turned down."""
+    pct = round(abs(balance) * 100)
+    return "even" if not pct else f"{pct}% to {'right' if balance > 0 else 'left'}"
+
+
+def balance_bar(balance, half=10):
+    """L----|----R, the mark where the balance is."""
+    cells = ["-"] * (2 * half + 1)
+    cells[half] = "|"
+    cells[round(half + balance * half)] = "O"
+    return "L " + "".join(cells) + " R"
+
+
 def rumble_balance(path):
     """Left stick: strength for both motors.  Right stick left/right moves the
     balance towards that side and leaves it there; R3 evens it."""
-    print("Left stick: strength, both motors.  Right stick left/right: shift the balance (it stays).\n"
-          "R3: even.  Ctrl-C stops.")
+    print("Left stick: strength (farther out is stronger).\n"
+          "Right stick: push left or right to move the balance that way; it stays when you let go.\n"
+          "R3 (click the right stick): back to even.  Ctrl-C: stop.")
     balance, last = 0.0, time.monotonic()        # -1: left only, +1: right only
     gains = (1.0, 1.0)
     try:
@@ -897,14 +912,14 @@ def rumble_balance(path):
             strength = strength if strength >= 5 else 0
             left, right = strength * gains[0], strength * gains[1]
             duty = rumble(path, left, right, 200) if left or right else rumble(path, 0, 0, 0)
-            print(f"\rstrength {strength:5.1f}%   left x{gains[0]:.2f} = {left:5.1f}% ({duty[0]:3}/255)   "
-                  f"right x{gains[1]:.2f} = {right:5.1f}% ({duty[1]:3}/255)  ", end="", flush=True)
+            print(f"\rstrength: {strength:3.0f}%   balance: {balance_text(balance):<16} {balance_bar(balance)}   "
+                  f"[left: {left:3.0f}%  right: {right:3.0f}%]  ", end="", flush=True)
             time.sleep(0.02)
     except KeyboardInterrupt:
         print()
     finally:
         rumble(path, 0, 0, 0)
-    print(f"balance: left x{gains[0]:.2f}, right x{gains[1]:.2f}")
+    print(f"balance: {balance_text(balance)} (left x{gains[0]:.2f}, right x{gains[1]:.2f})")
 
 
 def rumble_test(path, first, seconds):
