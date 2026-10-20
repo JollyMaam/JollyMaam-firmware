@@ -240,17 +240,18 @@ static u8 rumble_step(void)
     return c.rumble_step_set && c.rumble_step_edits == set_edits() ? c.rumble_step : remap_settings()->rumble;
 }
 
-/* Host rumble times step / RUMBLE_STEPS spreads over the motor's own range:
- * 1 is its rumble_min, 255 its rumble_max. */
+/* Host rumble spreads over the motor's range for the step: 1 is its
+ * rumble_min, 255 its rumble_max. */
 static u8 motor_duty(u8 host, int right)
 {
     const struct set_remap *m = remap_settings();
-    u32 v = (u32)host * rumble_step() / RUMBLE_STEPS;
-    u32 lo = 255u * m->rumble_min[right] / 100, hi = 255u * m->rumble_max[right] / 100;
+    u32 step = rumble_step(), lo, hi;
 
-    if (!v) return 0;
+    if (!host || !step) return 0;
+    lo = 255u * m->rumble_min[right][step - 1] / 100;
+    hi = 255u * m->rumble_max[right][step - 1] / 100;
     if (hi < lo) hi = lo;
-    return (u8)(lo + (hi - lo) * (v - 1) / 254);
+    return (u8)(lo + (hi - lo) * (host - 1u) / 254);
 }
 
 static void start_session(struct ctl_request r, u32 now)
@@ -805,7 +806,7 @@ static void show(u32 now)
 /* A motor starting from stopped: full power for the remap's rumble_kick_ms. */
 static void kick(u8 motor[2], u32 now, int allowed)
 {
-    u32 ms = remap_settings()->rumble_kick_ms, i;
+    u32 step = rumble_step(), ms = step ? remap_settings()->rumble_kick_ms[step - 1] : 0, i;
 
     for (i = 0; i < 2; i++) {
         if (motor[i] && !c.motor_on[i] && allowed && ms) {

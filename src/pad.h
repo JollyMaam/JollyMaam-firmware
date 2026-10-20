@@ -419,6 +419,8 @@ struct set_slot {
 };
 
 
+#define RUMBLE_STEPS 5
+
 /* A remap slot: the simple map, then rules for the keys that need more.
  * Inputs and outputs are PAD_* bit numbers (0-19, not 15). */
 #define REMAP_NAME   24
@@ -465,14 +467,15 @@ struct set_remap {
     u8 invert[2][2];         /* [stick][x, y] 1: inverted */
     u8 maps_to[2];           /* STICK_*: the host stick it drives */
     u8 rumble;               /* step: 0 off, 1-RUMBLE_STEPS */
-    u8 rumble_min[2], rumble_max[2]; /* [left, right] percent duty: the lightest rumble, full at the top step */
+    /* Per step: [left, right] percent duty for the lightest and the full
+     * rumble, and full power this long when a motor starts. */
+    u8 rumble_min[2][RUMBLE_STEPS], rumble_max[2][RUMBLE_STEPS];
+    u8 rumble_kick_ms[RUMBLE_STEPS];
     u8 mouse_layout;         /* mouse: 0 games, 1 desktop */
-    u16 rumble_kick_ms;      /* full power this long when a motor starts */
     u16 stick_speed;         /* mouse: pointer counts per second, stick all the way */
     u16 gyro_speed;          /* mouse, touchpad: counts per degree turned; 0 off */
     u16 gyro_accel;          /* percent of gyro_speed for fast turns */
 };
-#define RUMBLE_STEPS 5
 
 /* The remap slot's sticks: curves, inversion, which host stick each drives;
  * NULL: as calibrated. */

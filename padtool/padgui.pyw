@@ -1177,6 +1177,9 @@ class App:
                 maximum = f.get("max", (1 << (8 * f["size"])) - 1)
                 extra = ttk.Label(parent, text=f"0–{maximum}", foreground="#666666")
                 extra.grid(row=row, column=2, sticky="w", padx=6)
+            if f["type"] == pad.T_LIST:
+                extra = ttk.Label(parent, text=f"{f['size']} × 0–{f['max']}", foreground="#666666")
+                extra.grid(row=row, column=2, sticky="w", padx=6)
             if f["type"] == pad.T_RGB:
                 extra = self.color_swatch(parent, record, entry)
                 extra.grid(row=row, column=2, padx=4)

@@ -21,11 +21,12 @@
     padtool rumble-test [list | N] [--seconds S]   rumble strengths, one side,
                                   ramps and short pulses, from N: Enter for the
                                   next, r again (or all, S seconds apart)
-    padtool rumble-sticks [--left MIN-MAX] [--right MIN-MAX] [--kick MS] [--full]
+    padtool rumble-sticks [--step N] [--left MIN-MAX] [--right MIN-MAX] [--kick MS] [--full]
                                   left stick up/down sets one strength, spread
                                   over each motor's range as the firmware does
-                                  (its defaults unless given; --full: 0-100, no
-                                  kick), right stick left/right the balance;
+                                  (its defaults for step N, 1 unless given;
+                                  --full: 0-100, no kick), right stick
+                                  left/right the balance;
                                   each stays where it is left (L1: strength 0,
                                   R1: even); Ctrl-C stops (protocol 9+)
     padtool input [-f]            buttons, sticks and triggers, calibrated and
@@ -548,7 +549,8 @@ REMAP_NAMES = ["remap-" + n.lower() for n in SLOT_NAMES]
 TARGETS = SLOT_NAMES + ["palette", "calibration"] + REMAP_NAMES
 REMAP_TARGET = 10
 KINDS = ["slot", "palette", "calibration", "remap"]
-T_ENUM, T_NUMBER, T_COLOUR, T_RGB, T_BYTES, T_TEXT, T_ENTRY = range(7)   # T_COLOUR: older firmware
+T_ENUM, T_NUMBER, T_COLOUR, T_RGB, T_BYTES, T_TEXT, T_ENTRY, T_LIST = range(8)   # T_COLOUR: older firmware
+# T_LIST: size numbers of a byte each, each at most max, shown and written "15,15,15,15,15"
 RESULTS = ["ok", "unknown field", "bad length", "out of range", "too many changes at once"]
 JOURNAL = os.path.expanduser("~/.cache/padtool/ephemeral.json")
 PAIRING = ("address", "bond")   # kept by a whole-slot reset
@@ -617,6 +619,8 @@ def show_value(f, raw):
         return str(raw[0])
     if t == T_RGB:
         return "#" + raw.hex()
+    if t == T_LIST:
+        return ",".join(str(b) for b in raw)
     if f["name"] in ("left_curve_points", "right_curve_points"):
         return ",".join(str(b) for b in raw)
     if f["name"] == "address":
@@ -678,6 +682,13 @@ def parse_value(f, text):
             return bytes([int(e), int(l)])
         if t == T_ENTRY:
             return bytes([int(text.split(":")[0])])     # ENTRY:LEVEL from older firmware: the entry
+        if t == T_LIST:
+            numbers = [int(x) for x in text.replace(",", " ").split()]
+            if len(numbers) != f["size"]:
+                sys.exit(f"padtool: {f['name']}: {f['size']} numbers, not {len(numbers)}")
+            if any(not 0 <= n <= f["max"] for n in numbers):
+                sys.exit(f"padtool: {f['name']}: each 0-{f['max']}")
+            return bytes(numbers)
         if t == T_RGB:
             v = bytes.fromhex(text.lstrip("#")) if "," not in text else bytes(int(x) for x in text.split(","))
         elif f["name"] in ("left_curve_points", "right_curve_points"):
@@ -930,8 +941,10 @@ def nudge(value, push, dt, low, high, rate=0.4):
     return max(low, min(high, value + push * rate * (high - low) * dt))
 
 
-RUMBLE_RANGES = ((25, 60), (15, 45))   # the firmware's rumble_{left,right}_{min,max} defaults
-RUMBLE_KICK_MS = 30                     # and rumble_kick_ms
+# The firmware's defaults per rumble step 1-5: (left range, right range, kick ms),
+# from rumble_{left,right}_{min,max} and rumble_kick_ms.
+RUMBLE_STEP_DEFAULTS = (((15, 35), (15, 50), 0), ((15, 45), (15, 60), 0), ((15, 55), (15, 70), 0),
+                        ((15, 55), (15, 70), 30), ((15, 65), (15, 80), 30))
 
 
 def motor_percent(strength, low, high):
@@ -939,7 +952,7 @@ def motor_percent(strength, low, high):
     return 0.0 if strength <= 0 else low + (high - low) * strength / 100
 
 
-def rumble_sticks(path, ranges=RUMBLE_RANGES, kick_ms=RUMBLE_KICK_MS):
+def rumble_sticks(path, ranges=RUMBLE_STEP_DEFAULTS[0][:2], kick_ms=RUMBLE_STEP_DEFAULTS[0][2]):
     """Left stick up/down: one strength, spread over each motor's range as the
     firmware does, a kick when a motor starts; right stick left/right: the
     balance.  Each stays where it is left; L1 zeroes the strength, R1 evens
@@ -1098,6 +1111,7 @@ def show_fields(path, dev=False):
             shown_dev = True
         values = (" | ".join(f["names"]) if f["type"] == T_ENUM else
                   f"0-{f['max']}" if f["type"] == T_NUMBER else
+                  f"{f['size']} numbers 0-{f['max']}, N,N,..." if f["type"] == T_LIST else
                   "ENTRY:LEVEL" if f["type"] == T_COLOUR else
                   "palette ENTRY 0-15" if f["type"] == T_ENTRY else
                   "#rrggbb" if f["type"] == T_RGB else f"text, {f['size']} bytes" if f["type"] == T_TEXT else
@@ -1292,11 +1306,13 @@ def main():
         if not 0 <= low <= high <= 100:
             raise argparse.ArgumentTypeError("MIN-MAX with 0 <= MIN <= MAX <= 100")
         return low, high
-    p.add_argument("--left", type=percent_range, default=RUMBLE_RANGES[0], metavar="MIN-MAX",
+    p.add_argument("--step", type=int, choices=range(1, 6), default=1,
+                   help="rumble-sticks: the firmware's default ranges and kick for this rumble step")
+    p.add_argument("--left", type=percent_range, metavar="MIN-MAX",
                    help="rumble-sticks: left motor percent range")
-    p.add_argument("--right", type=percent_range, default=RUMBLE_RANGES[1], metavar="MIN-MAX",
+    p.add_argument("--right", type=percent_range, metavar="MIN-MAX",
                    help="rumble-sticks: right motor percent range")
-    p.add_argument("--kick", type=int, default=RUMBLE_KICK_MS, metavar="MS",
+    p.add_argument("--kick", type=int, metavar="MS",
                    help="rumble-sticks: full power this long when a motor starts")
     p.add_argument("--full", action="store_true", help="rumble-sticks: both motors 0-100, no kick")
     p.add_argument("--dev", action="store_true",
@@ -1409,8 +1425,10 @@ def main():
         elif a.args:
             p.error("rumble-sticks takes no arguments, only options")
         else:
-            rumble_sticks(path, ((0, 100), (0, 100)) if a.full else (a.left, a.right),
-                          0 if a.full else a.kick)
+            left, right, kick = RUMBLE_STEP_DEFAULTS[a.step - 1]
+            if a.full:
+                left, right, kick = (0, 100), (0, 100), 0
+            rumble_sticks(path, (a.left or left, a.right or right), kick if a.kick is None else a.kick)
     elif a.command in ("rumble", "rumble-test"):
         path = need_device()
         if int.from_bytes(cmd(path, 0, length=64)[4:6], "little") < 8:
