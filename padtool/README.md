@@ -45,7 +45,7 @@ Discard cancels Unpair without touching the pad. Slot and settings-group entries
 open detailed settings. The same firmware action is available from the CLI:
 
 ```sh
-python padtool/padtool.py unpair A
+python padtool/padtool.py unpair slot-a
 ```
 
 **Developer fields** at the bottom expands or collapses advanced settings,
@@ -154,7 +154,7 @@ python padtool/padtool.py set remap-b rules "r4 tapped:300 tap a; r4 held_for:30
 python padtool/padtool.py set remap-b left_curve concave left_inner_deadzone 5
 python padtool/padtool.py set remap-b rules "r4 held turbo_modifier a+b+x@15" map r4=none
 python padtool/padtool.py set remap-b left_maps_to "right stick" right_maps_to "left stick" right_y_axis inverted
-python padtool/padtool.py set A remap b
+python padtool/padtool.py set slot-a remap b
 ```
 
 `left_curve concave` fills and enables points; `disabled`/`enabled` only toggle

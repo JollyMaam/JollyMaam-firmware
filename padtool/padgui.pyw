@@ -830,7 +830,7 @@ class App:
     @staticmethod
     def target_label(record, t):
         if t < 8:
-            return f"Slot {pad.TARGETS[t]}"
+            return f"Slot {pad.SLOT_NAMES[t]}"
         if t < pad.REMAP_TARGET:
             return pad.TARGETS[t].title()
         label = f"Remap {pad.SLOT_NAMES[t - pad.REMAP_TARGET]}"
@@ -1042,7 +1042,7 @@ class App:
             entry = record["draft"].get((target, "type"))
             if entry:
                 self.default_marker(types, entry, record, target, "type").pack(side="left", padx=(0, 4))
-            ttk.Label(types, text=f"Slot {pad.TARGETS[target]}", width=12).pack(side="left")
+            ttk.Label(types, text=f"Slot {pad.SLOT_NAMES[target]}", width=12).pack(side="left")
             if entry:
                 ttk.Combobox(types, textvariable=entry["var"], values=entry["field"]["names"], state="readonly", width=20).pack(side="left")
             bond = record["draft"].get((target, "bond"))

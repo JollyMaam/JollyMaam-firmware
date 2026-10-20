@@ -231,21 +231,21 @@ static const struct set_field remap_fields[] = {
     { .id = 7, .name = "right_curve_points", .type = T_BYTES, REMAP(right_curve_points),
       .help = "15 nondecreasing output bytes (0-255) at 6.25% input intervals; endpoints fixed at zero and full" },
     { .id = 18, .name = "rumble", .type = T_ENUM, .names = rumble_steps, REMAP(rumble),
-      .def = 1, .help = "how strong the motors are: each step has its own motor ranges and kick "
+      .def = 3, .help = "how strong the motors are: each step has its own motor ranges and kick "
                         "(developer settings); Home+M then L1/R1 changes it until a disconnect" },
     /* 19-22 were one rumble range and a balance; retired. */
     /* 27-31: one range per motor and a kick for every step; retired. */
     { .id = 32, .flags = F_DEV, .name = "rumble_left_min", .type = T_LIST, .max = 100, REMAP(rumble_min[0]),
-      PER_STEP(15, 15, 15, 15, 15), .help = "left motor, steps 1-5: percent power for the lightest rumble; "
+      PER_STEP(15, 20, 25, 25, 25), .help = "left motor, steps 1-5: percent power for the lightest rumble; "
                                             "rumble between this and the max spreads evenly" },
     { .id = 33, .flags = F_DEV, .name = "rumble_left_max", .type = T_LIST, .max = 100, REMAP(rumble_max[0]),
-      PER_STEP(35, 45, 55, 55, 65), .help = "left motor, steps 1-5: percent power for full rumble" },
+      PER_STEP(35, 55, 75, 80, 90), .help = "left motor, steps 1-5: percent power for full rumble" },
     { .id = 34, .flags = F_DEV, .name = "rumble_right_min", .type = T_LIST, .max = 100, REMAP(rumble_min[1]),
       PER_STEP(15, 15, 15, 15, 15), .help = "right motor, steps 1-5: percent power for the lightest rumble" },
     { .id = 35, .flags = F_DEV, .name = "rumble_right_max", .type = T_LIST, .max = 100, REMAP(rumble_max[1]),
-      PER_STEP(50, 60, 70, 70, 80), .help = "right motor, steps 1-5: percent power for full rumble" },
+      PER_STEP(50, 60, 70, 80, 90), .help = "right motor, steps 1-5: percent power for full rumble" },
     { .id = 36, .flags = F_DEV, .name = "rumble_kick_ms", .type = T_LIST, .max = 255, REMAP(rumble_kick_ms),
-      PER_STEP(0, 0, 0, 30, 30), .help = "steps 1-5: a motor starting from stopped runs at full power "
+      PER_STEP(0, 0, 0, 25, 30), .help = "steps 1-5: a motor starting from stopped runs at full power "
                                          "this long first, so a low minimum still starts it; 0: no kick" },
     { .id = 23, .flags = F_DEV, .name = "mouse_layout", .type = T_ENUM, .names = layouts, REMAP(mouse_layout),
       .def = 0, .help = "mouse: what each control does; from the next connect" },
@@ -1028,11 +1028,11 @@ int main(void)
     CHECK(!set_remap(1)->name[0] && !set_remap(1)->map[0] && !set_remap(0)->rule[0].trigger);
     /* Rumble and the mouse take their field defaults, remap A's too. */
     for (t = 0; t < 2; t++)
-        CHECK(set_remap(t)->rumble == 1 && set_remap(t)->rumble_min[0][0] == 15 &&
-              set_remap(t)->rumble_max[0][0] == 35 && set_remap(t)->rumble_max[1][4] == 80 &&
-              set_remap(t)->rumble_kick_ms[0] == 0 && set_remap(t)->rumble_kick_ms[3] == 30 &&
+        CHECK(set_remap(t)->rumble == 3 && set_remap(t)->rumble_min[0][1] == 20 &&
+              set_remap(t)->rumble_max[0][0] == 35 && set_remap(t)->rumble_max[1][4] == 90 &&
+              set_remap(t)->rumble_kick_ms[0] == 0 && set_remap(t)->rumble_kick_ms[3] == 25 &&
               set_remap(t)->stick_speed == 1500 && set_remap(t)->gyro_accel == 250);
-    CHECK(set_remap_defaults()->rumble_max[0][1] == 45 && set_remap_defaults()->gyro_speed == 32 &&
+    CHECK(set_remap_defaults()->rumble_max[0][1] == 55 && set_remap_defaults()->gyro_speed == 32 &&
           !set_remap_defaults()->name[0] && !set_remap_defaults()->map[0]);
     /* A list: every number in range, the whole length. */
     CHECK(write1(TARGET_REMAP + 1, 32, 5, (const u8[]){ 10, 20, 30, 40, 101 }) == SET_RANGE);

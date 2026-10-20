@@ -24,7 +24,7 @@
     padtool rumble-sticks [--step N] [--left MIN-MAX] [--right MIN-MAX] [--kick MS] [--full]
                                   left stick up/down sets one strength, spread
                                   over each motor's range as the firmware does
-                                  (its defaults for step N, 1 unless given;
+                                  (its defaults for step N, 3 unless given;
                                   --full: 0-100, no kick), right stick
                                   left/right the balance;
                                   each stays where it is left (L1: strength 0,
@@ -61,8 +61,9 @@
     padtool ephemeral                    from now until the next boot nothing is saved
     padtool keep                         reboot, then send what ephemeral mode tried
 
-TARGET: a slot (A B X Y up down left right), palette, calibration or a remap
-slot (remap-a ... remap-right).  VALUE:
+TARGET: a slot (slot-a slot-b slot-x slot-y slot-up slot-down slot-left
+slot-right; A, up, ... also work), palette, calibration or a remap slot
+(remap-a ... remap-right).  VALUE:
 a name for a choice, a number, a palette entry 0-15 for a colour (how bright
 is the palette's: steady_brightness and the others), #rrggbb for a palette
 entry, aa:bb:cc:dd:ee:ff for an
@@ -545,8 +546,9 @@ def log(path, follow):
 # ---- settings ------------------------------------
 
 SLOT_NAMES = ["A", "B", "X", "Y", "up", "down", "left", "right"]
+SLOT_TARGETS = ["slot-" + n.lower() for n in SLOT_NAMES]
 REMAP_NAMES = ["remap-" + n.lower() for n in SLOT_NAMES]
-TARGETS = SLOT_NAMES + ["palette", "calibration"] + REMAP_NAMES
+TARGETS = SLOT_TARGETS + ["palette", "calibration"] + REMAP_NAMES
 REMAP_TARGET = 10
 KINDS = ["slot", "palette", "calibration", "remap"]
 T_ENUM, T_NUMBER, T_COLOUR, T_RGB, T_BYTES, T_TEXT, T_ENTRY, T_LIST = range(8)   # T_COLOUR: older firmware
@@ -556,10 +558,22 @@ JOURNAL = os.path.expanduser("~/.cache/padtool/ephemeral.json")
 PAIRING = ("address", "bond")   # kept by a whole-slot reset
 
 
+def slot_number(name):
+    """A slot by its key (A, up) or target name (slot-a, slot-up); None if neither."""
+    name = name.lower()
+    for i, n in enumerate(SLOT_NAMES):
+        if name in (n.lower(), SLOT_TARGETS[i]):
+            return i
+    return None
+
+
 def target_index(name):
     for i, t in enumerate(TARGETS):
         if t.lower() == name.lower():
             return i
+    slot = slot_number(name)              # A, up: what slots were called before slot-a
+    if slot is not None:
+        return slot
     sys.exit(f"padtool: no target {name!r}; one of {' '.join(TARGETS)}")
 
 
@@ -943,8 +957,9 @@ def nudge(value, push, dt, low, high, rate=0.4):
 
 # The firmware's defaults per rumble step 1-5: (left range, right range, kick ms),
 # from rumble_{left,right}_{min,max} and rumble_kick_ms.
-RUMBLE_STEP_DEFAULTS = (((15, 35), (15, 50), 0), ((15, 45), (15, 60), 0), ((15, 55), (15, 70), 0),
-                        ((15, 55), (15, 70), 30), ((15, 65), (15, 80), 30))
+RUMBLE_STEP_DEFAULTS = (((15, 35), (15, 50), 0), ((20, 55), (15, 60), 0), ((25, 75), (15, 70), 0),
+                        ((25, 80), (15, 80), 25), ((25, 90), (15, 90), 30))
+RUMBLE_STEP_DEFAULT = 3
 
 
 def motor_percent(strength, low, high):
@@ -952,7 +967,8 @@ def motor_percent(strength, low, high):
     return 0.0 if strength <= 0 else low + (high - low) * strength / 100
 
 
-def rumble_sticks(path, ranges=RUMBLE_STEP_DEFAULTS[0][:2], kick_ms=RUMBLE_STEP_DEFAULTS[0][2]):
+def rumble_sticks(path, ranges=RUMBLE_STEP_DEFAULTS[RUMBLE_STEP_DEFAULT - 1][:2],
+                  kick_ms=RUMBLE_STEP_DEFAULTS[RUMBLE_STEP_DEFAULT - 1][2]):
     """Left stick up/down: one strength, spread over each motor's range as the
     firmware does, a kick when a motor starts; right stick left/right: the
     balance.  Each stays where it is left; L1 zeroes the strength, R1 evens
@@ -1306,7 +1322,7 @@ def main():
         if not 0 <= low <= high <= 100:
             raise argparse.ArgumentTypeError("MIN-MAX with 0 <= MIN <= MAX <= 100")
         return low, high
-    p.add_argument("--step", type=int, choices=range(1, 6), default=1,
+    p.add_argument("--step", type=int, choices=range(1, 6), default=RUMBLE_STEP_DEFAULT,
                    help="rumble-sticks: the firmware's default ranges and kick for this rumble step")
     p.add_argument("--left", type=percent_range, metavar="MIN-MAX",
                    help="rumble-sticks: left motor percent range")
@@ -1380,24 +1396,25 @@ def main():
         zoom = (int(a.args[0], 16), int(a.args[1]) if len(a.args) > 1 else 1) if a.args else None
         profile(need_device(), a.watch or 10, a.hz, a.top, a.elf, zoom, a.by)
     elif a.command == "unpair":
-        if BOARD != "pad" or len(a.args) != 1 or a.args[0] not in SLOT_NAMES:
-            p.error("unpair requires a pad slot: A B X Y up down left right")
+        if BOARD != "pad" or len(a.args) != 1 or slot_number(a.args[0]) is None:
+            p.error("unpair requires a pad slot: slot-a ... slot-right (or A B X Y up down left right)")
         try:
-            unpair(need_device(), SLOT_NAMES.index(a.args[0]))
+            unpair(need_device(), slot_number(a.args[0]))
         except ValueError as error:
             p.error(str(error))
     elif a.command == "pair":
-        names = "A B X Y up down left right".split()
         if BOARD == "dongle" and not a.args:
             slot = 0                         # forget the dongle's single bond
-        elif len(a.args) == 1 and a.args[0] in names:
-            slot = names.index(a.args[0])
+        elif len(a.args) == 1 and slot_number(a.args[0]) is not None:
+            slot = slot_number(a.args[0])
         else:
-            p.error("pair requires a slot: A B X Y up down left right (optional for dongle)")
+            p.error("pair requires a slot: slot-a ... slot-right (or A B X Y up down left right; "
+                    "optional for dongle)")
         cmd(need_device(), 0x17, slot)
     elif a.command == "connect":
-        names = "A B X Y up down left right".split()
-        slot = names.index(a.args[0]) if a.args else 0xfe
+        slot = slot_number(a.args[0]) if a.args else 0xfe
+        if slot is None:
+            p.error("connect: a slot: slot-a ... slot-right (or A B X Y up down left right)")
         cmd(need_device(), 0x13, slot)
     elif a.command == "relink":
         cmd(need_device(), 0x12)
