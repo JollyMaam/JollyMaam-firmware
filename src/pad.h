@@ -164,7 +164,7 @@ enum req_kind {
     REQ_NONE, REQ_CONNECT, REQ_PAIR, REQ_DISCONNECT, REQ_SLEEP, REQ_CALIBRATE,
     REQ_REBOOT, REQ_REBOOT_LOADER, REQ_HOME_TAP, REQ_STATS_RESET,
     REQ_RELINK,              /* connected: take the session down and connect it again */
-    REQ_REMAP,               /* connected: remap slot .slot, SLOT_NONE none; kept until a disconnect, another slot or sleep */
+    REQ_REMAP,               /* connected: remap slot .slot, SLOT_NONE the base; kept until a disconnect, another slot or sleep */
     REQ_LED_DEMO,                /* the lights show LED demo .slot (ux_led_demos), SLOT_NONE: stop */
     REQ_RUMBLE,              /* the motors run at .motor (0-255 duty) for .ms, over the host's; 0 ms: stop */
     REQ_RUMBLE_STEP,         /* config mode L1/R1: .slot 0 lower, 1 raise the rumble step (RAM only) */
@@ -485,7 +485,8 @@ void in_response(const struct set_remap *m, struct pad *pad);
 #define TARGET_PALETTE SLOTS
 #define TARGET_CAL     (SLOTS + 1)
 #define TARGET_REMAP   (SLOTS + 2)
-#define TARGETS        (TARGET_REMAP + SLOTS)
+#define TARGET_BASE    (TARGET_REMAP + SLOTS)   /* the base remap: what remap slots inherit */
+#define TARGETS        (TARGET_BASE + 1)
 
 enum { SET_OK, SET_UNKNOWN, SET_BAD_LENGTH, SET_RANGE, SET_FULL };
 enum { SET_UNPAIR = 0xfe };       /* WRITE action: slot only, zero-length; applied on COMMIT */
@@ -504,8 +505,10 @@ void set_slot_address(u8 slot, u8 out[6]);
 void set_pairing_address(u8 slot, int renew, u8 out[6]);
 void set_pairing_store(u8 slot, const u8 address[6], const struct bt_bond *bond);
 const struct set_cal *set_cal(void);
+/* Remap slot 0-7, or REMAP_BASE: the base remap, which the slots take every
+ * field they have not set from (but their names; A keeps its own swap). */
+#define REMAP_BASE SLOTS
 const struct set_remap *set_remap(u8 remap);
-const struct set_remap *set_remap_defaults(void);   /* what no remap slot gets: every default */
 u32 set_edits(void);                     /* counts commits from the tools */
 void set_cal_store(const struct set_cal *cal);
 /* Over USB: */

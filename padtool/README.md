@@ -107,10 +107,14 @@ Setting names use readable labels.
 Numeric inputs show their valid range beside the box, using firmware-reported
 limits.
 
-Remap A–right are tree pages after Calibration. A connection slot's **Remap**
-setting picks the one each connect starts with; Home+M then a slot key picks
-another while connected. A slot whose remap is none gets the sticks exactly as
-calibrated and the keys as they are. Remap A starts as "Swap A/B X/Y".
+Remap base and Remap A–right are tree pages after Calibration. A connection
+slot's **Remap** setting picks the one each connect starts with (base by
+default); Home+M then a slot key picks another while connected, Home or M the
+base. A remap slot takes every setting it has not set from Remap base, so the
+base is where to set what all of them share; a setting's default on a remap
+slot is the base's value. Names are each remap's own, and Remap A keeps its
+"Swap A/B X/Y" keys. Remap base at its defaults sends the keys as they are and
+the sticks exactly as calibrated (firmware protocol 10+).
 
 A remap page has a **Name** (shown in the tree), then a row per key, "**KEY**
 maps to [KEY / Nothing]", which costs no rule entries. Its status box covers

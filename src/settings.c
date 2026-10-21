@@ -54,7 +54,7 @@ static const char *const curve_enabled[] = { "disabled", "enabled", NULL };
 static const char *const left_to[] = { "left stick", "right stick", "nothing", NULL };
 static const char *const right_to[] = { "right stick", "left stick", "nothing", NULL };
 static const char *const axis_way[] = { "normal", "inverted", NULL };
-static const char *const remap_names[] = { "none", "a", "b", "x", "y", "up", "down", "left", "right", NULL };
+static const char *const remap_names[] = { "base", "a", "b", "x", "y", "up", "down", "left", "right", NULL };
 static const u8 linear_points[STICK_CURVE_POINTS] = { 16, 32, 48, 64, 80, 96, 112, 128, 143, 159, 175, 191, 207, 223, 239 };
 
 static const char *const layouts[] = { "games", "desktop", NULL };
@@ -137,8 +137,9 @@ static const struct set_field slot_fields[] = {
     /* IDs 31-34 were formula modes and seven-point arrays, 36-39 the stick
      * curves, now a remap slot's; retired. */
     { .id = 40, .name = "remap", .type = T_ENUM, .names = remap_names, FIELD(remap),
-      .def = 0, .help = "the remap slot each connect starts with; Home+M then a slot key picks "
-                             "another until a disconnect, another slot or sleep" },
+      .def = 0, .help = "the remap each connect starts with: base, or a remap slot (which takes what it "
+                             "has not set from base); Home+M then a slot key picks another until a "
+                             "disconnect, another slot or sleep" },
 };
 
 /* The palette target: the colours, and how bright each kind of light is. */
@@ -259,6 +260,7 @@ static const struct set_field remap_fields[] = {
 #define REMAP_STICKS 3                    /* remap fields from this index: the second record */
 #define LEFT_POINTS  (&remap_fields[9])
 #define RIGHT_POINTS (&remap_fields[16])
+#define NAME_FIELD  (&remap_fields[0])
 #define MAP_FIELD   (&remap_fields[1])
 #define RULES_FIELD (&remap_fields[2])
 _Static_assert(sizeof(remap_fields) / sizeof(remap_fields[0]) == 27, "LEFT_POINTS, RIGHT_POINTS");
@@ -292,15 +294,17 @@ static const struct set_field cal_fields[] = {
 #define STAGE_MAX  1024
 /* 11 and 12 belonged to the removed shortcut/mapping prototype, 13 to the
  * last slot (now plat_retain_slot); do not reuse.  Remap slots: 14-21, their
- * sticks 22-29. */
+ * sticks 22-29; the base remap 30 and its sticks 31. */
 #define KEY_REMAP        14
 #define KEY_REMAP_STICKS (KEY_REMAP + SLOTS)
-#define KEYS             (KEY_REMAP_STICKS + SLOTS)
+#define KEY_BASE         (KEY_REMAP_STICKS + SLOTS)
+#define KEY_BASE_STICKS  (KEY_BASE + 1)
+#define KEYS             (KEY_BASE_STICKS + 1)
 
 static struct set_slot slots[SLOTS];
 static struct set_palette pal;
 static struct set_cal cal;
-static struct set_remap remaps[SLOTS];
+static struct set_remap remaps[SLOTS + 1];   /* the slots, then the base */
 static u32 set_bits[TARGETS];
 static u32 dirty;            /* a bit per target */
 static u32 edits;
@@ -337,8 +341,9 @@ static u32 part_of(u8 t, u32 field)
 
 static u16 key_of(u8 t, u32 part)
 {
-    /* syscfg user items: slots 1-8, palette 9, calibration 10, remap slots 14-21 and 22-29 */
+    /* syscfg user items: slots 1-8, palette 9, calibration 10, remap slots 14-21 and 22-29, the base 30 and 31 */
     if (t < TARGET_REMAP) return (u16)(1 + t);
+    if (t == TARGET_BASE) return (u16)(part ? KEY_BASE_STICKS : KEY_BASE);
     return (u16)((part ? KEY_REMAP_STICKS : KEY_REMAP) + t - TARGET_REMAP);
 }
 
@@ -449,12 +454,27 @@ static void default_value(u8 t, const struct set_field *f, u8 *out)
 
     memset(out, 0, f->size);
     memcpy(out, &def, f->size < 4 ? f->size : 4);
-    if (t == TARGET_REMAP && f < &remap_fields[REMAP_STICKS])
-        memcpy(out, (const u8 *)&remap_a_default + f->offset, f->size);
     if (f == LEFT_POINTS || f == RIGHT_POINTS)
         memcpy(out, linear_points, sizeof(linear_points));
     if (f->list_def)
         memcpy(out, f->list_def, f->size);
+    /* A remap slot: the base's value, but its own name; A's swap as its map. */
+    if (t == TARGET_REMAP && f < &remap_fields[REMAP_STICKS])
+        memcpy(out, (const u8 *)&remap_a_default + f->offset, f->size);
+    else if (t >= TARGET_REMAP && t < TARGET_BASE && f != NAME_FIELD)
+        memcpy(out, (const u8 *)&remaps[REMAP_BASE] + f->offset, f->size);
+}
+
+/* The remap slots' unset fields follow the base. */
+static void inherit(void)
+{
+    u32 i;
+    u8 t;
+
+    for (t = TARGET_REMAP; t < TARGET_BASE; t++)
+        for (i = 0; i < COUNT(remap_fields); i++)
+            if (!(set_bits[t] & (1u << i)))
+                default_value(t, &remap_fields[i], values_of(t) + remap_fields[i].offset);
 }
 
 /* A field back to its default (len 0) or set to v. */
@@ -573,6 +593,7 @@ void set_init(void)
             if (n > 0) decode(t, buf, (u32)n);
         }
     }
+    inherit();
     if (!(set_bits[TARGET_CAL] & 1)) util_log("settings: calibration required");
 }
 
@@ -720,21 +741,7 @@ const struct set_cal *set_cal(void)
 
 const struct set_remap *set_remap(u8 remap)
 {
-    return &remaps[remap % SLOTS];
-}
-
-const struct set_remap *set_remap_defaults(void)
-{
-    static struct set_remap d;
-    static u8 made;
-    u32 i;
-
-    if (!made) {
-        for (i = 0; i < COUNT(remap_fields); i++)
-            default_value(TARGET_REMAP + 1, &remap_fields[i], (u8 *)&d + remap_fields[i].offset);
-        made = 1;
-    }
-    return &d;
+    return &remaps[remap < SLOTS ? remap : REMAP_BASE];
 }
 
 u32 set_edits(void)
@@ -810,6 +817,7 @@ void set_apply(void)
         }
         touch(t);
     }
+    inherit();
     if (staged) {
         edits++;
         util_log("settings: %u changes%s", staged_items, ephemeral ? " (ephemeral)" : "");
@@ -1032,13 +1040,47 @@ int main(void)
               set_remap(t)->rumble_max[0][0] == 35 && set_remap(t)->rumble_max[1][4] == 90 &&
               set_remap(t)->rumble_kick_ms[0] == 0 && set_remap(t)->rumble_kick_ms[3] == 25 &&
               set_remap(t)->stick_speed == 1500 && set_remap(t)->gyro_accel == 250);
-    CHECK(set_remap_defaults()->rumble_max[0][1] == 55 && set_remap_defaults()->gyro_speed == 32 &&
-          !set_remap_defaults()->name[0] && !set_remap_defaults()->map[0]);
+    CHECK(set_remap(REMAP_BASE)->rumble_max[0][1] == 55 && set_remap(REMAP_BASE)->gyro_speed == 32 &&
+          !set_remap(REMAP_BASE)->name[0] && !set_remap(REMAP_BASE)->map[0]);
+    CHECK(set_remap(SLOT_NONE) == set_remap(REMAP_BASE));
     /* A list: every number in range, the whole length. */
     CHECK(write1(TARGET_REMAP + 1, 32, 5, (const u8[]){ 10, 20, 30, 40, 101 }) == SET_RANGE);
     CHECK(write1(TARGET_REMAP + 1, 32, 4, (const u8[]){ 10, 20, 30, 40 }) == SET_BAD_LENGTH);
     CHECK(write1(TARGET_REMAP + 1, 32, 5, (const u8[]){ 10, 20, 30, 40, 100 }) == SET_OK);
     set_drop();
+    /* The remap slots take what they have not set from the base, but their
+     * names; A keeps its swap. */
+    {
+        u8 map[REMAP_INPUTS] = { [3] = REMAP_OFF }, d[512];
+        char name[REMAP_NAME] = "Base";
+
+        CHECK(write1(TARGET_BASE, 18, 1, &(u8){ 1 }) == SET_OK);
+        CHECK(write1(TARGET_BASE, 1, sizeof(name), name) == SET_OK);
+        CHECK(write1(TARGET_BASE, 2, sizeof(map), map) == SET_OK);
+        set_apply();
+        CHECK(set_remap(1)->rumble == 1 && set_remap(0)->rumble == 1 && set_remap(7)->map[3] == REMAP_OFF);
+        CHECK(set_remap(0)->map[3] == 4 + 1 && !set_remap(1)->name[0] && !strcmp(set_remap(0)->name, "Swap A/B X/Y"));
+        CHECK(set_read_defaults(TARGET_REMAP + 2, d, sizeof(d)) > 3);   /* a slot's default: the base's */
+        CHECK(write1(TARGET_REMAP + 1, 18, 1, &(u8){ 4 }) == SET_OK);
+        set_apply();
+        CHECK(write1(TARGET_BASE, 18, 1, &(u8){ 2 }) == SET_OK);
+        set_apply();
+        CHECK(set_remap(1)->rumble == 4 && set_remap(2)->rumble == 2);
+        CHECK(write1(TARGET_REMAP + 1, 18, 0, NULL) == SET_OK);
+        set_apply();
+        CHECK(set_remap(1)->rumble == 2);
+        /* Stored under its own keys, and followed again after a restart. */
+        set_flush();
+        CHECK(store[KEY_BASE][2] == VERSION && store[KEY_BASE_STICKS][2] == VERSION);
+        memset(remaps, 0, sizeof(remaps));
+        set_init();
+        CHECK(set_remap(3)->rumble == 2 && set_remap(3)->map[3] == REMAP_OFF && set_remap(0)->map[3] == 4 + 1);
+        CHECK(!strcmp(set_remap(REMAP_BASE)->name, "Base"));
+        CHECK(write1(TARGET_BASE, 0, 0, NULL) == SET_OK);
+        set_apply();
+        set_flush();
+        CHECK(set_remap(1)->rumble == 3 && !set_remap(1)->map[3] && !set_remap(REMAP_BASE)->name[0]);
+    }
     {
         u8 d[512];
         u32 n = set_read_defaults(TARGET_REMAP, d, sizeof(d));

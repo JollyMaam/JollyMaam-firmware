@@ -82,7 +82,7 @@ const struct led_scene ux_scenes[CTL_KIND_COUNT] = {
 
 /* Home+M: remap config mode, which ux_step runs itself.  Every input is held
  * back from the host; releasing a slot key picks that remap slot, releasing
- * Home or M picks none, ux_timeouts.config_ms without a press leaves it as it
+ * Home or M picks the base remap, ux_timeouts.config_ms without a press leaves it as it
  * was.  Releasing L1 or R1 lowers or raises the rumble step and stays. */
 #define REQ_CONFIG 0xff
 
@@ -530,7 +530,7 @@ int main(void)
     pad.buttons = 0; run(1); CHECK(ux_config(NULL) && last.kind == REQ_NONE); /* M from the chord */
     pad.buttons = PAD_LEFT; run(10); pad.buttons = 0; run(1);
     CHECK(last.kind == REQ_REMAP && last.slot == 6);
-    /* Home or M picks none; Home does not reach the host. */
+    /* Home or M picks the base; Home does not reach the host. */
     for (i = 0; i < 2; i++) {
         config();
         pad.buttons = i ? PAD_M : PAD_HOME; run(1000); CHECK(ux_config(NULL) && !seen.buttons);

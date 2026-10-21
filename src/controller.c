@@ -54,7 +54,7 @@ static struct {
     u8 imu_mode, begin_imu;
     u32 imu_seq, imu_next;
     u8 calibrating;
-    u8 remap, remap_slot;        /* the remap slot in use (SLOT_NONE: none), and whose it is */
+    u8 remap, remap_slot;        /* the remap in use (REMAP_BASE: the base), and whose it is */
     u8 remap_chosen;             /* picked in config mode: kept when remap_slot reconnects */
     u8 remap_live;               /* remap.c state belongs to remap_live - 1 at remap_edits */
     u32 remap_edits;
@@ -226,13 +226,13 @@ static void stop(u32 now);
 static const char *remap_name(u8 remap)
 {
     static const char *const names[SLOTS] = { "a", "b", "x", "y", "up", "down", "left", "right" };
-    return remap < SLOTS ? names[remap] : "none";
+    return remap < SLOTS ? names[remap] : "base";
 }
 
-/* Rumble and mouse settings: the remap slot in use, or every default without one. */
+/* The remap in use: a remap slot or the base (REMAP_BASE). */
 static const struct set_remap *remap_settings(void)
 {
-    return c.remap < SLOTS ? set_remap(c.remap) : set_remap_defaults();
+    return set_remap(c.remap);
 }
 
 static u8 rumble_step(void)
@@ -296,7 +296,7 @@ static void start_session(struct ctl_request r, u32 now)
      * lost link, a cable, relink) until a disconnect or sleep. */
     if (c.remap_slot != r.slot) c.rumble_step_set = 0;
     if (!c.remap_chosen || c.remap_slot != r.slot) {
-        c.remap = set->remap ? (u8)(set->remap - 1) : SLOT_NONE;
+        c.remap = set->remap ? (u8)(set->remap - 1) : REMAP_BASE;
         c.remap_slot = r.slot;
         c.remap_chosen = 0;
     }
@@ -400,7 +400,7 @@ static void handle(struct ctl_request r, u32 now)
     }
     case REQ_REMAP:
         if (c.kind != CTL_CONNECTED) return;
-        c.remap = r.slot < SLOTS ? r.slot : SLOT_NONE;
+        c.remap = r.slot < SLOTS ? r.slot : REMAP_BASE;
         c.remap_chosen = 1;
         util_log("slot %u remap %s", c.slot, remap_name(c.remap));
         break;
@@ -917,11 +917,11 @@ static void outputs(u32 now)
     show(now);
 }
 
-/* The remap slot whose curves and deadzones the sticks take: connected only;
+/* The remap whose curves and deadzones the sticks take: connected only;
  * NULL, linear and none. */
 static const struct set_remap *sticks(void)
 {
-    return c.kind == CTL_CONNECTED && c.remap < SLOTS ? set_remap(c.remap) : NULL;
+    return c.kind == CTL_CONNECTED ? set_remap(c.remap) : NULL;
 }
 
 /* Connected, outside config mode and calibration: the remap slot in use.
@@ -932,7 +932,7 @@ static void remap(u32 now)
 
     c.ux_buttons = c.pad.buttons;
     c.turbo_max = 0;
-    if (c.kind != CTL_CONNECTED || c.remap >= SLOTS || c.calibrating || ux_config(NULL)) {
+    if (c.kind != CTL_CONNECTED || c.calibrating || ux_config(NULL)) {
         if (c.remap_live) remap_reset();
         c.remap_live = 0;
         return;
@@ -1066,6 +1066,7 @@ static void boot(u32 now)
     c.led.scene = CTL_BOOT;
     c.led.slot = SLOT_NONE;
     c.led_demo = SLOT_NONE;
+    c.remap = REMAP_BASE;
     c.usb_raw = c.usb_powered = (u8)plat_usb_present();
     c.usb_plugged_ms = c.usb_powered ? now : now - ux_timeouts.usb_plug_ms;
     c.usb_arrived = c.usb_powered;  /* plugged in at power-up (or the plug-in woke us) */

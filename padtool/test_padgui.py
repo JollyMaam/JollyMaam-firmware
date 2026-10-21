@@ -1552,5 +1552,18 @@ class RemapGuiTests(GuiCase):
         self.root.update()
         self.assertAlmostEqual(canvas.yview()[0], before, places=2)
 
+    def test_base_remap_is_listed_before_the_remap_slots_from_protocol_10(self):
+        r = remap_record()
+        r["values"][padgui.pad.BASE_TARGET] = dict(r["values"][10])
+        self.load([r])
+        labels = [self.app.tree.item(node, "text") for node in self.app.tree.get_children("device0")]
+        self.assertNotIn("Remap base", labels)
+        r["fields"] = padgui.pad.FieldTable(r["fields"])
+        r["fields"].protocol = 10
+        self.app.render_tree()
+        labels = [self.app.tree.item(node, "text") for node in self.app.tree.get_children("device0")]
+        self.assertEqual(labels[labels.index("Calibration") + 1], "Remap base")
+        self.assertTrue(labels[labels.index("Remap base") + 1].startswith("Remap A"))
+
 if __name__ == "__main__":
     unittest.main()

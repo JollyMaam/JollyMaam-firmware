@@ -833,7 +833,7 @@ class App:
             return f"Slot {pad.SLOT_NAMES[t]}"
         if t < pad.REMAP_TARGET:
             return pad.TARGETS[t].title()
-        label = f"Remap {pad.SLOT_NAMES[t - pad.REMAP_TARGET]}"
+        label = "Remap base" if t == pad.BASE_TARGET else f"Remap {pad.SLOT_NAMES[t - pad.REMAP_TARGET]}"
         entry = record.get("draft", {}).get((t, "name"))
         name = entry["var"].get().strip() if entry else ""
         return f"{label} · {name}" if name else label

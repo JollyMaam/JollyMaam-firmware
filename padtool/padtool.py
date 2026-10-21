@@ -62,8 +62,9 @@
     padtool keep                         reboot, then send what ephemeral mode tried
 
 TARGET: a slot (slot-a slot-b slot-x slot-y slot-up slot-down slot-left
-slot-right; A, up, ... also work), palette, calibration or a remap slot
-(remap-a ... remap-right).  VALUE:
+slot-right; A, up, ... also work), palette, calibration, a remap slot
+(remap-a ... remap-right) or remap-base, whose values the remap slots take
+for every setting they have not set (but their names; remap-a keeps its swap).  VALUE:
 a name for a choice, a number, a palette entry 0-15 for a colour (how bright
 is the palette's: steady_brightness and the others), #rrggbb for a palette
 entry, aa:bb:cc:dd:ee:ff for an
@@ -548,8 +549,10 @@ def log(path, follow):
 SLOT_NAMES = ["A", "B", "X", "Y", "up", "down", "left", "right"]
 SLOT_TARGETS = ["slot-" + n.lower() for n in SLOT_NAMES]
 REMAP_NAMES = ["remap-" + n.lower() for n in SLOT_NAMES]
-TARGETS = SLOT_TARGETS + ["palette", "calibration"] + REMAP_NAMES
+TARGETS = SLOT_TARGETS + ["palette", "calibration"] + REMAP_NAMES + ["remap-base"]
 REMAP_TARGET = 10
+BASE_TARGET = 18            # the base remap: what the remap slots inherit (protocol 10+)
+BASE_PROTOCOL = 10
 KINDS = ["slot", "palette", "calibration", "remap"]
 T_ENUM, T_NUMBER, T_COLOUR, T_RGB, T_BYTES, T_TEXT, T_ENTRY, T_LIST = range(8)   # T_COLOUR: older firmware
 # T_LIST: size numbers of a byte each, each at most max, shown and written "15,15,15,15,15"
@@ -581,9 +584,18 @@ def kind_of(t):
     return 0 if t < 8 else 3 if t >= REMAP_TARGET else t - 7
 
 
+class FieldTable(list):
+    """fields(): the table, and the firmware's protocol."""
+    protocol = 0
+
+
 def targets(table):
-    """The targets this firmware has: remap slots only where it describes them."""
-    return list(range(len(TARGETS) if any(f["kind"] == 3 for f in table) else REMAP_TARGET))
+    """The targets this firmware has: remap slots only where it describes them, the
+    base remap (listed before them) from protocol 10."""
+    if not any(f["kind"] == 3 for f in table):
+        return list(range(REMAP_TARGET))
+    base = [BASE_TARGET] if getattr(table, "protocol", 0) >= BASE_PROTOCOL else []
+    return list(range(REMAP_TARGET)) + base + list(range(REMAP_TARGET, BASE_TARGET))
 
 
 def remap_field(f, name):
@@ -592,7 +604,8 @@ def remap_field(f, name):
 
 def fields(path):
     """The field table, as the firmware describes it."""
-    out, n = [], 0
+    out, n = FieldTable(), 0
+    out.protocol = int.from_bytes(cmd(path, 0, length=64)[4:6], "little")
     while True:
         d = cmd(path, 0x20, n, 512)
         if len(d) < 8 or not any(d):

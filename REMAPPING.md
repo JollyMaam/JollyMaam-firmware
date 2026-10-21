@@ -7,14 +7,24 @@ in `src/pad.h`; the tools' text form is `padtool/padremap.py`.
 
 ## Choosing a remap
 
-Eight remap slots, A–right. Each connection slot's `remap` setting names the
-one each connect starts with (default none). Connected, Home+M (on release)
-enters config mode: the grips flash the slot's connect colour and the host
-sees a neutral pad, motion at rest. Releasing a slot key picks that remap;
-releasing Home or M picks none; 30 s without a press leaves it as it was. A
+Eight remap slots, A–right, and the base remap. Each connection slot's
+`remap` setting names the one each connect starts with (default base).
+Connected, Home+M (on release) enters config mode: the grips flash the slot's
+connect colour and the host sees a neutral pad, motion at rest. Releasing a
+slot key picks that remap; releasing Home or M picks the base; 30 s without a
+press leaves it as it was. A
 picked remap lasts across that slot's own reconnects and ends with Home+Minus,
 another slot or sleep. Its state (toggles, turbo phase) starts over whenever
 the remap or any setting changes.
+
+## The base remap
+
+The base has every remap setting (store keys 30 and 31). A remap slot takes
+each field it has not set from the base, live: changing the base changes every
+slot that has not set that field. Two exceptions: a slot's name is its own,
+and remap A keeps its "Swap A/B X/Y" name, map and rules as its own defaults.
+Resetting a slot's field makes it follow the base again. The base at its
+defaults sends every key as itself and the sticks as calibrated.
 
 ## A remap slot
 
@@ -27,11 +37,11 @@ the remap or any setting changes.
   host stick it maps to (itself, the other, nothing), X and Y inversion, a
   15-point curve and its enable flag, inner and outer deadzone in percent.
   Order: deadzone, curve, inversion, then the routing; two sticks on one host
-  stick, the one pushed further wins. A slot with no
-  remap gets the sticks exactly as calibrated: no curve, no deadzone.
+  stick, the one pushed further wins. The base at its defaults gives the
+  sticks exactly as calibrated: no curve, no deadzone.
   Calibration holds only the sensor measurements.
 
-Remap A defaults to "Swap A/B X/Y" (`remap_defaults` in `src/settings.c`).
+Remap A defaults to "Swap A/B X/Y" (`remap_a_default` in `src/settings.c`).
 
 A key nothing mentions sends itself. A key with a map entry or rules sends
 only what they make, all of it together; there is no precedence. The map is

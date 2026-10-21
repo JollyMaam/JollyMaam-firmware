@@ -65,7 +65,8 @@
  *                         terminated), defaults (one per slot for slot fields,
  *                         fields up to 4 bytes); all zero past the last
  *   `0x21` READ           CDB byte 2: target (0-7 slot, 8 palette, 9
- *                         calibration, 10-17 remap slot); in: u8 version, target, count, then per
+ *                         calibration, 10-17 remap slot, 18 (protocol 10+) the base
+ *                         remap); in: u8 version, target, count, then per
  *                         field id, set, len, value
  *   `0x22` WRITE          out: items `{target, id, len, value}`, collected;
  *                         `len` 0: default; id 0: the whole target
@@ -88,7 +89,7 @@
  * padtool/padtool.py and padtool/padgui.pyw (Linux/Windows SCSI) are the clients. */
 
 #define OP          0xf5
-#define PROTOCOL    9
+#define PROTOCOL    10
 
 #define STATS_VERSION 6
 
