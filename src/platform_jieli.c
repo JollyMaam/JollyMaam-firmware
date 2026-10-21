@@ -679,10 +679,15 @@ void plat_usb_hold_present(u32 ms)
     if (plat_usb_present()) sof_seen_ms = ms_now + ms;
 }
 
+/* The SDK sets up the bulk endpoints only on GET_MAX_LUN, which a host
+ * sends when it first probes us, not after a port reset of a device it
+ * already has (Linux after a reboot it did not see, or on resume).  msd_reset
+ * sets them up again on every bus reset. */
 void plat_usb_tool_mode(void)
 {
     usb_device_mode(0, MASSSTORAGE_CLASS);
     msd_set_wakeup_handle(usb_wakeup);
+    msd_set_reset_wakeup_handle(msd_reset);
 }
 
 static void usb_init(void)
@@ -710,7 +715,10 @@ void plat_enter_loader(void)
 }
 
 /* Off the bus for a second first, so the host sees the loader as a new
- * device. */
+ * device.  The lines stay let go (GPIO inputs, no pulls, as the ROM has
+ * them at boot) until the ROM loader attaches by itself: putting the USB
+ * function back before the reset let a hub see us half a second before
+ * the loader could answer, and that enumeration failed. */
 void plat_reboot_loader(void)
 {
     plat_watch_stop();
@@ -720,10 +728,8 @@ void plat_reboot_loader(void)
     local_irq_disable();
     USB_CON0 = 0;
     USB_CON1 = 0;
-    USB_IO_CON0 = BIT(IO_MODE);
+    USB_IO_CON0 = BIT(IO_MODE) | BIT(IO_PU_MODE) | BIT(DPIE) | BIT(DMIE);
     plat_mdelay(1000);
-    USB_IO_CON0 = 0;
-    plat_mdelay(250);
     while (!board_usb_sense()) plat_mdelay(100);
     plat_enter_loader();
 }
@@ -733,13 +739,6 @@ void plat_reboot(void)
     plat_watch_stop();
     plat_audio_off();
     local_irq_disable();
-    USB_CON0 = 0;
-    USB_CON1 = 0;
-    /* Select GPIO mode for the pins and pulls. With DPPU/DMPU,
-     * DPIE/DMIE and DPOUT/DMOUT clear, both lines are driven low until
-     * reset, giving the hub time to detach. */
-    USB_IO_CON0 = BIT(IO_MODE) | BIT(IO_PU_MODE);
-    plat_mdelay(100);
     p33_soft_reset();
 }
 
