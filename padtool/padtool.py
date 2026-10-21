@@ -5,6 +5,9 @@
     padtool -d DEVICE ...         with several connected: the one at that path,
                                   or whose flash ID contains DEVICE (from find)
     padtool --board dongle target ADDR  dongle: page this device (e.g. our pad in pairing)
+    padtool --board dongle tool-only  dongle: stay this tool device until it reboots, also
+                                  while a pad is linked, for its log (the pad's type is not
+                                  put on USB; padtool tool brings the tool device back first)
     padtool --board dongle pair   dongle: forget its bond and pair with a pad
                                   whose dongle slot is pairing (30 s), as a
                                   press of its button does
@@ -1276,7 +1279,7 @@ def tool(paths):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["target", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "reboot", "loader", "relink", "connect", "pair", "unpair", "profile", "peek", "trace",
+    p.add_argument("command", choices=["target", "tool-only", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "reboot", "loader", "relink", "connect", "pair", "unpair", "profile", "peek", "trace",
                                        "fields", "get", "set", "reset", "backup-settings",
                                        "restore-settings", "factory-reset", "ephemeral", "keep", "tool"])
     p.add_argument("args", nargs="*")
@@ -1344,8 +1347,13 @@ def main():
     if a.command == "tool":
         tool(a.args)
         return
+    if a.command == "tool-only" and BOARD != "dongle":
+        p.error("tool-only requires --board dongle")
     if a.command == "target":    # dongle: the device to page, AA:BB:CC:DD:EE:FF
         scsi(need_device(), bytes([OP, 0x30]) + address, 0)
+    elif a.command == "tool-only":
+        cmd(need_device(), 0x31)
+        print("dongle: tool device until it reboots")
     elif a.command == "find":
         for path, _ in devices():
             print(f"{BOARD} {path}  {identify(path)}  {status(path)}")

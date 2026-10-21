@@ -6,6 +6,7 @@
 
 void dongle_bt_start(void);
 void dongle_bt_target(const u8 addr[6]);   /* display order */
+void dongle_tool_only(void);              /* USB stays the tool device until the next boot */
 void dongle_bt_forget(void);
 u8 dongle_bt_state(void);
 int dongle_bt_linked(void);                 /* our pad, its HID channels open */

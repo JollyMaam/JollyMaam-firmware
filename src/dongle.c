@@ -28,6 +28,7 @@ static struct {
     u32 report_ms;
     struct profile_host host;
     u32 output_ms;
+    u8 tool_only;                /* padtool tool-only: never a personality, until reboot */
 } d;
 
 int host_send(u16 id, const u8 *data, u16 len)
@@ -49,6 +50,17 @@ static void drop_personality(const char *why)
     plat_usb_mode(NULL, NULL);
 }
 
+/* For debugging the link: the log and padtool stay reachable while a pad is
+ * linked.  Its input still arrives (and shows in the link rate); it goes
+ * nowhere. */
+void dongle_tool_only(void)
+{
+    if (d.tool_only) return;
+    d.tool_only = 1;
+    util_log("dongle: tool only until reboot (a linked pad's type is not put on USB)");
+    drop_personality("tool only");
+}
+
 /* The pad says what the slot is: the dongle becomes that on USB. */
 static void configure(const struct link_config *c)
 {
@@ -62,6 +74,7 @@ static void configure(const struct link_config *c)
         drop_personality("unsupported type");
         return;
     }
+    if (d.tool_only) return;
     if (d.prof == p && d.set.variant == c->variant) return;
     drop_personality("new type");
     memset(&d.set, 0, sizeof(d.set));
