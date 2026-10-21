@@ -333,3 +333,18 @@ here has been "fixed" unless it says so.
     reloaded pointer. A callback that clears the slot can trigger a null access.
     Proven from raw SDK IR during #89 review; preserved. Callback clearing and
     its hardware effects remain untested.
+
+40. **HCI page timeout used as milliseconds.**  `bredr_link.c`
+    `link_page_enable` passed `page_timeout_value` (HCI slots) to
+    `__page_enable`, which takes milliseconds: BTstack's 0x6000 paged for
+    24.6 s instead of 15.36 s.  Proven on hardware (page timeouts at 24.6 s);
+    fixed in 1b5885e (converted to milliseconds).
+
+41. **A failed switch to master went back with a master's timing.**
+    `bredr_link.c` `role_switch_page_timeout`: the old slave gave up with
+    clock offset 0, bit offset 0, its own access code and master link control,
+    so it no longer heard its old master; the master's retries timed out and
+    the connection failed after ~8 s (about 1 dongle connection in 60).  The
+    `bredr_role_switch` `bitoff` and `clk_offset` fields were never written.
+    Proven on hardware with an injected failure; fixed in bed4661 (the slave
+    timing is saved at the switch and restored).
