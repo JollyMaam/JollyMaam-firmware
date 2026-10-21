@@ -2791,8 +2791,17 @@ static RF_CODE void page_timeout(void)
     }
 }
 
+/* The slave timing a switch to master leaves (bredr_switch_role_to_master);
+ * the clock and bit offsets are in the bredr_role_switch. */
+static struct {
+    u16 wincntl, bdaddr[3], bchl, bchm;
+    u8 bchh;
+    s16 last_signed_bitoff;
+} old_slave RF_DATA;
+
 /* Role switch (rs->page): the first timeout restarts the page response from
- * the backup LT address; the second gives up (role switch result 1). */
+ * the backup LT address; the second gives up (role switch result 1) and
+ * goes back to the old slave timing, so the master's retry is heard. */
 static RF_CODE void role_switch_page_timeout(struct link_connection *lc)
 {
     struct bredr_role_switch *rs = lc->rs;
@@ -2829,22 +2838,36 @@ static RF_CODE void role_switch_page_timeout(struct link_connection *lc)
         return;
     }
     if (log_tag_const_c_BL) putchar('F');
-    __write_reg_clkoffset(frame, 0);
-    __write_reg_lt_addr(frame, pg->remote.lt_addr);
-    __write_reg_format(frame, pg->ab_train, 2);
-    __write_reg_linkcntl(frame, ttog, 16401);
-    __write_reg_linkcntl(frame, ttog ^ 1, 16385);
+    /* Back to our slave timing in the old piconet, as saved at the start. */
+    __write_reg_clkoffset(frame, (s32)rs->clk_offset);
+    frame->bdaddr0 = old_slave.bdaddr[0];
+    frame->bdaddr1 = old_slave.bdaddr[1];
+    frame->bdaddr2 = old_slave.bdaddr[2];
+    frame->bchl = old_slave.bchl;
+    frame->bchm = old_slave.bchm;
+    frame->bchh = old_slave.bchh;
+    frame->wincntl = old_slave.wincntl;
+    lc->last_signed_bitoff = old_slave.last_signed_bitoff;
+    frame->miscntl &= 63;
+    frame->format &= ~64;
+    __put_lt_addr(pg->lt_addr);
+    __write_reg_lt_addr(frame, pg->backup_lt_addr);
+    __write_reg_format(frame, pg->ab_train, 3);
+    __write_reg_linkcntl(frame, ttog, 16400);
+    __write_reg_linkcntl(frame, ttog ^ 1, 16384);
     __write_reg_txphdr(frame, ttog, 2);
     __write_reg_txphdr(frame, ttog ^ 1, 2);
     for (int i = 0; i < 2; i++) link_conn_set_rx_bulk_in_irq(lc, i);
-    frame->bitoff = 0;
+    frame->bitoff = rs->bitoff;
+    frame->rxtog = 0;
     frame->txtog = 0;
     frame->txbuf0cntl |= 1;
     frame->txbuf1cntl |= 1;
     __timer_remove();
     frame->bufcntl &= ~0xf00;
-    frame->bufcntl |= 256;
-    bd_frame_odd_even(frame, 0);
+    frame->bufcntl &= ~32;
+    frame->bufcntl |= 3;
+    bd_frame_odd_even(frame, rs->clk_offset & 1 ? 1 : 0);
     bt_free(lc->rs->page);
     bt_free(lc->rs);
     lc->rs = 0;
@@ -3112,6 +3135,18 @@ RF_CODE void bredr_switch_role_to_master(struct link_connection *link, int offse
     link->rs = rs;
     struct ctrl_frame *frame = link->frame;
     pg->backup_lt_addr = frame->miscntl & 7;
+    /* Our slave timing, for going back if the switch fails (the SDK went
+     * back with a master's: clock offset 0, our own access code). */
+    rs->clk_offset = (u32)__read_reg_clkoffset(frame);
+    rs->bitoff = frame->bitoff;
+    old_slave.wincntl = frame->wincntl;
+    old_slave.last_signed_bitoff = link->last_signed_bitoff;
+    old_slave.bdaddr[0] = frame->bdaddr0;
+    old_slave.bdaddr[1] = frame->bdaddr1;
+    old_slave.bdaddr[2] = frame->bdaddr2;
+    old_slave.bchl = frame->bchl;
+    old_slave.bchm = frame->bchm;
+    old_slave.bchh = frame->bchh;
 
     struct link_page *p = rs->page;
     if (log_tag_const_i_BL) log_print(2, NULL, "[Info]: [BL]role_switch_page\n\r\n");
