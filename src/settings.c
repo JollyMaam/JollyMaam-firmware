@@ -9,12 +9,10 @@
  * clears them, so a better default in a new firmware reaches every field
  * that was never set. */
 
-/* 2 was a palette entry with a brightness level, before brightness became
- * the palette's. */
 /* T_LIST: size numbers of a byte each, each at most max. */
-enum { T_ENUM, T_NUMBER, T_RETIRED_COLOUR, T_RGB, T_BYTES, T_TEXT, T_ENTRY, T_LIST };
+enum { T_ENUM, T_NUMBER, T_RGB, T_BYTES, T_TEXT, T_ENTRY, T_LIST };
 /* The rows the code itself uses. */
-enum { ID_TYPE = 1, ID_ADDRESS = 12, ID_BOND = 13, ID_TRANSPORT = 35 };
+enum { ID_TYPE = 1, ID_TRANSPORT = 2, ID_ADDRESS = 8, ID_BOND = 9 };
 
 struct set_field {
     u8 id;                   /* stored and sent; never reused */
@@ -76,67 +74,61 @@ static const struct set_field slot_fields[] = {
       .help = "how: bluetooth; usb, a wired controller; bluetooth+usb, usb while a usb host "
               "is there, else bluetooth (never back to it mid-session); dongle, through our dongle, which is the type on its usb port; "
               "dongle+usb, usb while a usb host is there, else the dongle" },
-    { .id = 2, .name = "connect_colour", .type = T_ENTRY, FIELD(connect_colour),
+    { .id = 3, .name = "connect_colour", .type = T_ENTRY, FIELD(connect_colour),
       PER_SLOT(5, 11, 7, 1, 9, 13, 3, 15),
       .help = "Home and player lights while connecting and pairing: which slot" },
-    { .id = 3, .name = "primary_colour", .type = T_ENTRY, FIELD(primary_colour),
+    { .id = 4, .name = "primary_colour", .type = T_ENTRY, FIELD(primary_colour),
       .def = 1,
       .help = "Home while connected; the player lights around the player number" },
-    { .id = 4, .name = "secondary_colour", .type = T_ENTRY, FIELD(secondary_colour),
+    { .id = 5, .name = "secondary_colour", .type = T_ENTRY, FIELD(secondary_colour),
       .def = 7,
       .help = "the console's player number; resting grips; the other end of fade" },
-    { .id = 5, .name = "grips", .type = T_ENUM, .names = grips, FIELD(grips),
+    { .id = 6, .name = "grips", .type = T_ENUM, .names = grips, FIELD(grips),
       .def = GRIPS_OFF,
       .help = "grip lights while connected: host is the console's lightbar colour; fade, rumble, "
               "input, rainbow and heartbeat are animations, lit brighter than the steady colours" },
-    { .id = 6, .name = "players", .type = T_ENUM, .names = players, FIELD(players),
+    { .id = 7, .name = "players", .type = T_ENUM, .names = players, FIELD(players),
       .def = PLAYERS_HOST,
       .help = "player lights while connected: host is the console's player number; fade and "
               "rainbow are animations, lit brighter than the steady colours" },
-    /* 7-11 were rumble and the mouse settings, now a remap slot's; retired. */
     { .id = ID_ADDRESS, .name = "address", .type = T_BYTES, FIELD(address),
       .help = "the slot's own address, least significant byte first; zero: derived" },
     { .id = ID_BOND, .name = "bond", .type = T_BYTES, FIELD(bond),
       .help = "the paired host: peer, link key, key type, LE peer, LTK" },
     /* The link, for measuring it; next connect. */
-    { .id = 14, .flags = F_DEV, .name = "report_hz", .type = T_NUMBER, .max = 1000, FIELD(report_hz),
+    { .id = 10, .flags = F_DEV, .name = "report_hz", .type = T_NUMBER, .max = 1000, FIELD(report_hz),
       .def = 0, .help = "most reports per second, Classic and LE, whole milliseconds apart; "
                              "reports are built when the radio has room; 0: 250" },
-    { .id = 15, .flags = F_DEV, .name = "le_interval_min", .type = T_NUMBER, .max = 3200,
+    { .id = 11, .flags = F_DEV, .name = "le_interval_min", .type = T_NUMBER, .max = 3200,
       FIELD(link.le_interval_min), .def = 0,
       .help = "LE: connection interval to ask for, 1.25 ms units (6 = 7.5 ms); 0: the profile's" },
-    { .id = 16, .flags = F_DEV, .name = "le_interval_max", .type = T_NUMBER, .max = 3200,
+    { .id = 12, .flags = F_DEV, .name = "le_interval_max", .type = T_NUMBER, .max = 3200,
       FIELD(link.le_interval_max), .def = 0,
       .help = "LE: the longest interval to accept; 0: le_interval_min" },
-    { .id = 17, .flags = F_DEV, .name = "le_phy", .type = T_ENUM, .names = phys, FIELD(link.le_phy),
+    { .id = 13, .flags = F_DEV, .name = "le_phy", .type = T_ENUM, .names = phys, FIELD(link.le_phy),
       .def = 0, .help = "LE: 2m asks the host for the 2M PHY" },
-    { .id = 18, .flags = F_DEV, .name = "in_flight", .type = T_NUMBER, .max = 8, FIELD(link.in_flight),
+    { .id = 14, .flags = F_DEV, .name = "in_flight", .type = T_NUMBER, .max = 8, FIELD(link.in_flight),
       .def = 2, .help = "input reports in the controller at once; 0: 2" },
-    { .id = 19, .flags = F_DEV, .name = "poll_us", .type = T_NUMBER, .max = 40000, FIELD(link.poll_us),
+    { .id = 15, .flags = F_DEV, .name = "poll_us", .type = T_NUMBER, .max = 40000, FIELD(link.poll_us),
       .def = 3750, .help = "Classic: Best Effort poll request in us (3750 minimum, rounded down to 1250 steps); 0: none" },
-    { .id = 23, .flags = F_DEV, .name = "pull_delay_us", .type = T_NUMBER, .max = 5000, FIELD(pull_delay_us),
+    { .id = 16, .flags = F_DEV, .name = "pull_delay_us", .type = T_NUMBER, .max = 5000, FIELD(pull_delay_us),
       .def = 0, .help = "build a report this long after the radio asks for it (fresher, "
                              "until it misses the connection event)" },
-    { .id = 29, .flags = F_DEV, .name = "jit_us", .type = T_NUMBER, .max = 10000, FIELD(link.jit_us),
+    { .id = 17, .flags = F_DEV, .name = "jit_us", .type = T_NUMBER, .max = 10000, FIELD(link.jit_us),
       .def = 0, .help = "build a report this long before the connection event or sniff "
                              "anchor it goes out at; 0: adaptive; 1: as soon as the radio has room" },
-    { .id = 28, .flags = F_DEV, .name = "edr3", .type = T_ENUM, .names = onoff, FIELD(link.edr3_off),
+    { .id = 18, .flags = F_DEV, .name = "edr3", .type = T_ENUM, .names = onoff, FIELD(link.edr3_off),
       .def = 1, .help = "Classic: 3 Mbit/s packets (an 83-byte PlayStation report fits "
                              "one, but a Linux host stalled more often); off: 2 Mbit/s only" },
-    { .id = 26, .flags = F_DEV, .name = "sniff_max", .type = T_NUMBER, .max = 800, FIELD(link.sniff_max),
+    { .id = 19, .flags = F_DEV, .name = "sniff_max", .type = T_NUMBER, .max = 800, FIELD(link.sniff_max),
       .def = 0, .help = "Classic: ask the host for sniff, at most this many 0.625 ms "
                              "slots (even); 0: take what the host chooses" },
-    { .id = 27, .flags = F_DEV, .name = "sniff_min", .type = T_NUMBER, .max = 800, FIELD(link.sniff_min),
+    { .id = 20, .flags = F_DEV, .name = "sniff_min", .type = T_NUMBER, .max = 800, FIELD(link.sniff_min),
       .def = 0, .help = "Classic: the shortest sniff interval asked for; 0: sniff_max" },
-    /* ids 20, 21: tx_step and tx_table, replaced by tx_power before release;
-     * id 24: sniff_exit, now a rule in bt.c (sniff_too_slow); id 25: sniff_req,
-     * replaced by sniff_max and sniff_min */
-    { .id = 22, .name = "tx_power", .type = T_ENUM, .names = tx_powers, FIELD(link.tx_power),
+    { .id = 21, .name = "tx_power", .type = T_ENUM, .names = tx_powers, FIELD(link.tx_power),
       .def = 4, .help = "radio strength 1-6: 1 is about 20 dB below 5; 6 about 3 dB "
                              "above 5, using more battery" },
-    /* IDs 31-34 were formula modes and seven-point arrays, 36-39 the stick
-     * curves, now a remap slot's; retired. */
-    { .id = 40, .name = "remap", .type = T_ENUM, .names = remap_names, FIELD(remap),
+    { .id = 22, .name = "remap", .type = T_ENUM, .names = remap_names, FIELD(remap),
       .def = 0, .help = "the remap each connect starts with: base, or a remap slot (which takes what it "
                              "has not set from base); Home+M then a slot key picks another until a "
                              "disconnect, another slot or sleep" },
@@ -201,60 +193,58 @@ static const struct set_field remap_fields[] = {
       .help = "up to 16: when a key is held, held for, pressed, released, tapped or double-tapped, "
               "hold, turbo, tap or toggle other keys, nothing, or make chosen keys turbo while it is on "
               "(turbo modifier)" },
-    /* From here on the second record (REMAP_STICKS), a stick at a time; ids
-     * 1-11 as first released, 12-17 added; then rumble and the mouse (18-26). */
-    { .id = 12, .name = "left_maps_to", .type = T_ENUM, .names = left_to, REMAP(maps_to[0]),
+    /* From here on the second record (REMAP_STICKS): a stick at a time, then
+     * rumble and the mouse. */
+    { .id = 4, .name = "left_maps_to", .type = T_ENUM, .names = left_to, REMAP(maps_to[0]),
       .help = "the host stick the physical left stick drives; if both drive one, the one pushed further wins" },
-    { .id = 14, .name = "left_x_axis", .type = T_ENUM, .names = axis_way, REMAP(invert[0][0]),
+    { .id = 5, .name = "left_x_axis", .type = T_ENUM, .names = axis_way, REMAP(invert[0][0]),
       .help = "inverted: the left stick's left and right are swapped" },
-    { .id = 15, .name = "left_y_axis", .type = T_ENUM, .names = axis_way, REMAP(invert[0][1]),
+    { .id = 6, .name = "left_y_axis", .type = T_ENUM, .names = axis_way, REMAP(invert[0][1]),
       .help = "inverted: the left stick's up and down are swapped" },
-    { .id = 8, .name = "left_inner_deadzone", .type = T_NUMBER, .max = 25, REMAP(deadzone[0].inner),
+    { .id = 7, .name = "left_inner_deadzone", .type = T_NUMBER, .max = 25, REMAP(deadzone[0].inner),
       .help = "left stick: percent around centre suppressed" },
-    { .id = 9, .name = "left_outer_deadzone", .type = T_NUMBER, .max = 25, REMAP(deadzone[0].outer),
+    { .id = 8, .name = "left_outer_deadzone", .type = T_NUMBER, .max = 25, REMAP(deadzone[0].outer),
       .help = "left stick: percent of outer travel discarded" },
-    { .id = 4, .name = "left_curve_enabled", .type = T_ENUM, .names = curve_enabled, REMAP(left_curve_enabled),
+    { .id = 9, .name = "left_curve_enabled", .type = T_ENUM, .names = curve_enabled, REMAP(left_curve_enabled),
       .help = "enable left stick points; disabled passes calibrated input through exactly and retains the points" },
-    { .id = 6, .name = "left_curve_points", .type = T_BYTES, REMAP(left_curve_points),
+    { .id = 10, .name = "left_curve_points", .type = T_BYTES, REMAP(left_curve_points),
       .help = "15 nondecreasing output bytes (0-255) at 6.25% input intervals; endpoints fixed at zero and full" },
-    { .id = 13, .name = "right_maps_to", .type = T_ENUM, .names = right_to, REMAP(maps_to[1]),
+    { .id = 11, .name = "right_maps_to", .type = T_ENUM, .names = right_to, REMAP(maps_to[1]),
       .help = "the host stick the physical right stick drives; if both drive one, the one pushed further wins" },
-    { .id = 16, .name = "right_x_axis", .type = T_ENUM, .names = axis_way, REMAP(invert[1][0]),
+    { .id = 12, .name = "right_x_axis", .type = T_ENUM, .names = axis_way, REMAP(invert[1][0]),
       .help = "inverted: the right stick's left and right are swapped" },
-    { .id = 17, .name = "right_y_axis", .type = T_ENUM, .names = axis_way, REMAP(invert[1][1]),
+    { .id = 13, .name = "right_y_axis", .type = T_ENUM, .names = axis_way, REMAP(invert[1][1]),
       .help = "inverted: the right stick's up and down are swapped" },
-    { .id = 10, .name = "right_inner_deadzone", .type = T_NUMBER, .max = 25, REMAP(deadzone[1].inner),
+    { .id = 14, .name = "right_inner_deadzone", .type = T_NUMBER, .max = 25, REMAP(deadzone[1].inner),
       .help = "right stick: percent around centre suppressed" },
-    { .id = 11, .name = "right_outer_deadzone", .type = T_NUMBER, .max = 25, REMAP(deadzone[1].outer),
+    { .id = 15, .name = "right_outer_deadzone", .type = T_NUMBER, .max = 25, REMAP(deadzone[1].outer),
       .help = "right stick: percent of outer travel discarded" },
-    { .id = 5, .name = "right_curve_enabled", .type = T_ENUM, .names = curve_enabled, REMAP(right_curve_enabled),
+    { .id = 16, .name = "right_curve_enabled", .type = T_ENUM, .names = curve_enabled, REMAP(right_curve_enabled),
       .help = "enable right stick points; disabled passes calibrated input through exactly and retains the points" },
-    { .id = 7, .name = "right_curve_points", .type = T_BYTES, REMAP(right_curve_points),
+    { .id = 17, .name = "right_curve_points", .type = T_BYTES, REMAP(right_curve_points),
       .help = "15 nondecreasing output bytes (0-255) at 6.25% input intervals; endpoints fixed at zero and full" },
     { .id = 18, .name = "rumble", .type = T_ENUM, .names = rumble_steps, REMAP(rumble),
       .def = 3, .help = "how strong the motors are: each step has its own motor ranges and kick "
                         "(developer settings); Home+M then L1/R1 changes it until a disconnect" },
-    /* 19-22 were one rumble range and a balance; retired. */
-    /* 27-31: one range per motor and a kick for every step; retired. */
-    { .id = 32, .flags = F_DEV, .name = "rumble_left_min", .type = T_LIST, .max = 100, REMAP(rumble_min[0]),
+    { .id = 19, .flags = F_DEV, .name = "rumble_left_min", .type = T_LIST, .max = 100, REMAP(rumble_min[0]),
       PER_STEP(15, 20, 25, 25, 25), .help = "left motor, steps 1-5: percent power for the lightest rumble; "
                                             "rumble between this and the max spreads evenly" },
-    { .id = 33, .flags = F_DEV, .name = "rumble_left_max", .type = T_LIST, .max = 100, REMAP(rumble_max[0]),
+    { .id = 20, .flags = F_DEV, .name = "rumble_left_max", .type = T_LIST, .max = 100, REMAP(rumble_max[0]),
       PER_STEP(35, 55, 75, 80, 90), .help = "left motor, steps 1-5: percent power for full rumble" },
-    { .id = 34, .flags = F_DEV, .name = "rumble_right_min", .type = T_LIST, .max = 100, REMAP(rumble_min[1]),
+    { .id = 21, .flags = F_DEV, .name = "rumble_right_min", .type = T_LIST, .max = 100, REMAP(rumble_min[1]),
       PER_STEP(15, 15, 15, 15, 15), .help = "right motor, steps 1-5: percent power for the lightest rumble" },
-    { .id = 35, .flags = F_DEV, .name = "rumble_right_max", .type = T_LIST, .max = 100, REMAP(rumble_max[1]),
+    { .id = 22, .flags = F_DEV, .name = "rumble_right_max", .type = T_LIST, .max = 100, REMAP(rumble_max[1]),
       PER_STEP(50, 60, 70, 80, 90), .help = "right motor, steps 1-5: percent power for full rumble" },
-    { .id = 36, .flags = F_DEV, .name = "rumble_kick_ms", .type = T_LIST, .max = 255, REMAP(rumble_kick_ms),
+    { .id = 23, .flags = F_DEV, .name = "rumble_kick_ms", .type = T_LIST, .max = 255, REMAP(rumble_kick_ms),
       PER_STEP(0, 0, 0, 25, 30), .help = "steps 1-5: a motor starting from stopped runs at full power "
                                          "this long first, so a low minimum still starts it; 0: no kick" },
-    { .id = 23, .flags = F_DEV, .name = "mouse_layout", .type = T_ENUM, .names = layouts, REMAP(mouse_layout),
+    { .id = 24, .flags = F_DEV, .name = "mouse_layout", .type = T_ENUM, .names = layouts, REMAP(mouse_layout),
       .def = 0, .help = "mouse: what each control does; from the next connect" },
-    { .id = 24, .flags = F_DEV, .name = "stick_speed", .type = T_NUMBER, .max = 20000, REMAP(stick_speed),
+    { .id = 25, .flags = F_DEV, .name = "stick_speed", .type = T_NUMBER, .max = 20000, REMAP(stick_speed),
       .def = 1500, .help = "mouse: pointer counts per second, stick all the way; from the next connect" },
-    { .id = 25, .flags = F_DEV, .name = "gyro_speed", .type = T_NUMBER, .max = 1000, REMAP(gyro_speed),
+    { .id = 26, .flags = F_DEV, .name = "gyro_speed", .type = T_NUMBER, .max = 1000, REMAP(gyro_speed),
       .def = 32, .help = "mouse, touchpad: counts per degree turned; 0 off; from the next connect" },
-    { .id = 26, .flags = F_DEV, .name = "gyro_accel", .type = T_NUMBER, .max = 1000, REMAP(gyro_accel),
+    { .id = 27, .flags = F_DEV, .name = "gyro_accel", .type = T_NUMBER, .max = 1000, REMAP(gyro_accel),
       .def = 250, .help = "mouse, touchpad: percent of gyro_speed for fast turns; from the next connect" },
 };
 #define REMAP_STICKS 3                    /* remap fields from this index: the second record */
@@ -278,7 +268,6 @@ static const struct set_field cal_fields[] = {
     { .id = 1, .name = "calibration", .type = T_BYTES, .offset = 0,
       .size = sizeof(struct set_cal),
       .help = "sensor calibration for sticks and triggers; legacy stick deadzones ignored" },
-    /* IDs 2-5 were the deadzones, now a remap slot's; retired. */
 };
 
 #define COUNT(a) (sizeof(a) / sizeof((a)[0]))
@@ -292,10 +281,9 @@ static const struct set_field cal_fields[] = {
 #define RECORD_MAX 224
 #define SETTLE_MS  100
 #define STAGE_MAX  1024
-/* 11 and 12 belonged to the removed shortcut/mapping prototype, 13 to the
- * last slot (now plat_retain_slot); do not reuse.  Remap slots: 14-21, their
- * sticks 22-29; the base remap 30 and its sticks 31. */
-#define KEY_REMAP        14
+/* syscfg items: slots 1-8, palette 9, calibration 10, remap slots 11-18,
+ * their sticks 19-26; the base remap 27 and its sticks 28. */
+#define KEY_REMAP        11
 #define KEY_REMAP_STICKS (KEY_REMAP + SLOTS)
 #define KEY_BASE         (KEY_REMAP_STICKS + SLOTS)
 #define KEY_BASE_STICKS  (KEY_BASE + 1)
@@ -341,7 +329,6 @@ static u32 part_of(u8 t, u32 field)
 
 static u16 key_of(u8 t, u32 part)
 {
-    /* syscfg user items: slots 1-8, palette 9, calibration 10, remap slots 14-21 and 22-29, the base 30 and 31 */
     if (t < TARGET_REMAP) return (u16)(1 + t);
     if (t == TARGET_BASE) return (u16)(part ? KEY_BASE_STICKS : KEY_BASE);
     return (u16)((part ? KEY_REMAP_STICKS : KEY_REMAP) + t - TARGET_REMAP);
@@ -416,10 +403,7 @@ static u8 check(const struct set_field *f, const u8 *v, u32 len)
 
     if (!f) return SET_UNKNOWN;
     if (!len) return SET_OK;
-    /* Stored before: a bond without the identity fields, a colour with its
-     * brightness level after the entry (dropped). */
-    if (len != f->size && !(f->id == ID_BOND && len == BT_BOND_V1_SIZE) && !(f->type == T_ENTRY && len == 2))
-        return SET_BAD_LENGTH;
+    if (len != f->size) return SET_BAD_LENGTH;
     if (f == LEFT_POINTS || f == RIGHT_POINTS) {
         for (x = 1; x < len; x++) if (v[x] < v[x - 1]) return SET_RANGE;
     }
@@ -606,11 +590,8 @@ static void write_dirty(void)
         if (dirty & (1u << t)) {
             u32 part;
 
-            for (part = 0; part < parts_of(t); part++) {
-                memset(buf, 0, sizeof(buf));
-                encode(t, part, buf);
-                plat_store_write(key_of(t, part), buf, sizeof(buf));
-            }
+            for (part = 0; part < parts_of(t); part++)
+                plat_store_write(key_of(t, part), buf, (u16)encode(t, part, buf));
         }
     if (dirty) util_log("settings: written");
     dirty = 0;
@@ -935,21 +916,24 @@ static u32 bit_of(u8 t, u8 id)
     find(t, id, &bit);
     return 1u << bit;
 }
+/* As VM: an item is as long as written, and a read returns at most that. */
 static u8 store[KEYS][RECORD_MAX];
+static u16 store_len[KEYS];
 static int store_writes;
-static u16 read_size = RECORD_MAX;
 static u32 ms;
 static const u8 uid[16] = { 9, 8, 7 };
 
 int plat_store_read(u16 key, void *buf, u16 len)
 {
-    if (len > read_size) len = read_size;
+    if (len > store_len[key]) len = store_len[key];
     memcpy(buf, store[key], len);
     return len;
 }
 int plat_store_write(u16 key, const void *buf, u16 len)
 {
-    memcpy(store[key], buf, len < RECORD_MAX ? len : RECORD_MAX);
+    if (len > RECORD_MAX) len = RECORD_MAX;
+    memcpy(store[key], buf, len);
+    store_len[key] = len;
     store_writes++;
     return len;
 }
@@ -1044,9 +1028,9 @@ int main(void)
           !set_remap(REMAP_BASE)->name[0] && !set_remap(REMAP_BASE)->map[0]);
     CHECK(set_remap(SLOT_NONE) == set_remap(REMAP_BASE));
     /* A list: every number in range, the whole length. */
-    CHECK(write1(TARGET_REMAP + 1, 32, 5, (const u8[]){ 10, 20, 30, 40, 101 }) == SET_RANGE);
-    CHECK(write1(TARGET_REMAP + 1, 32, 4, (const u8[]){ 10, 20, 30, 40 }) == SET_BAD_LENGTH);
-    CHECK(write1(TARGET_REMAP + 1, 32, 5, (const u8[]){ 10, 20, 30, 40, 100 }) == SET_OK);
+    CHECK(write1(TARGET_REMAP + 1, 19, 5, (const u8[]){ 10, 20, 30, 40, 101 }) == SET_RANGE);
+    CHECK(write1(TARGET_REMAP + 1, 19, 4, (const u8[]){ 10, 20, 30, 40 }) == SET_BAD_LENGTH);
+    CHECK(write1(TARGET_REMAP + 1, 19, 5, (const u8[]){ 10, 20, 30, 40, 100 }) == SET_OK);
     set_drop();
     /* The remap slots take what they have not set from the base, but their
      * names; A keeps its swap. */
@@ -1101,11 +1085,11 @@ int main(void)
 
     /* Collected, not applied, until commit; then stored. */
     x = 6;
-    CHECK(write1(1, 18, 1, &x) == SET_OK);
-    CHECK(write1(1, 19, 2, &speed) == SET_OK);
-    CHECK(write1(1, 19, 2, &huge) == SET_RANGE);
+    CHECK(write1(1, 14, 1, &x) == SET_OK);
+    CHECK(write1(1, 15, 2, &speed) == SET_OK);
+    CHECK(write1(1, 15, 2, &huge) == SET_RANGE);
     CHECK(write1(1, 99, 1, &x) == SET_UNKNOWN);
-    CHECK(write1(1, 18, 2, &speed) == SET_BAD_LENGTH);
+    CHECK(write1(1, 14, 2, &speed) == SET_BAD_LENGTH);
     x = PROFILE_COUNT;
     CHECK(write1(1, 1, 1, &x) == SET_RANGE);
     CHECK(write1(TARGETS, 1, 1, &x) == SET_UNKNOWN);
@@ -1117,9 +1101,8 @@ int main(void)
 
     /* Back from the store; a default with nothing set; reset. */
     memset(slots, 0, sizeof(slots));
-    read_size = 160;   /* existing firmware records return their shorter length */
+    CHECK(store_len[key_of(1, 0)] == 4 + (2 + 1) + (2 + 2));   /* only what is set: in_flight, poll_us */
     set_init();
-    read_size = RECORD_MAX;
     CHECK(set_slot(1)->link.in_flight == 6 && set_slot(1)->link.poll_us == 3000);
     CHECK(set_slot(0)->link.in_flight == 2);
     {
@@ -1130,19 +1113,18 @@ int main(void)
         u32 at = 3;
         for (u32 i = 0; i < defaults[2]; i++) {
             CHECK(defaults[at + 1] == 0);
-            if (defaults[at] == 7) CHECK(defaults[at + 3] == 100);
             at += 3 + defaults[at + 2];
         }
         CHECK(set_read_defaults(TARGETS, defaults, sizeof(defaults)) == 0);
         CHECK(set_read_defaults(0, defaults, 3) == 0);
     }
-    CHECK(write1(1, 18, 0, NULL) == SET_OK);
+    CHECK(write1(1, 14, 0, NULL) == SET_OK);
     set_apply();
     CHECK(set_slot(1)->link.in_flight == 2 && set_slot(1)->link.poll_us == 3000);
     CHECK(write1(1, 0, 0, NULL) == SET_OK);
     set_apply();
     CHECK(set_slot(1)->link.poll_us == 3750 && set_bits[1] == 0);
-    CHECK(write1(1, 2, 1, &(u8){ PALETTE }) == SET_RANGE);
+    CHECK(write1(1, 3, 1, &(u8){ PALETTE }) == SET_RANGE);
     set_poll(ms, 1);
 
     /* Curves, a remap slot's second record: defaults, validation, staging,
@@ -1153,27 +1135,26 @@ int main(void)
         CHECK(set_remap(3)->left_curve_enabled == 0);
         CHECK(!memcmp(set_remap(3)->left_curve_points, linear_points, sizeof(points)));
         CHECK(!memcmp(set_remap(0)->right_curve_points, linear_points, sizeof(points)));
-        CHECK(write1(r, 4, 1, &mode) == SET_OK);
-        CHECK(write1(r, 6, sizeof(points), points) == SET_OK);
-        CHECK(write1(r, 7, sizeof(points) - 1, points) == SET_BAD_LENGTH);
+        CHECK(write1(r, 9, 1, &mode) == SET_OK);
+        CHECK(write1(r, 10, sizeof(points), points) == SET_OK);
+        CHECK(write1(r, 17, sizeof(points) - 1, points) == SET_BAD_LENGTH);
         points[3] = 1;
-        CHECK(write1(r, 7, sizeof(points), points) == SET_RANGE);
+        CHECK(write1(r, 17, sizeof(points), points) == SET_RANGE);
         mode = 2;
-        CHECK(write1(r, 5, 1, &mode) == SET_RANGE);
-        CHECK(write1(1, 38, sizeof(points), points) == SET_UNKNOWN);   /* no longer a slot's */
+        CHECK(write1(r, 16, 1, &mode) == SET_RANGE);
         CHECK(set_remap(3)->left_curve_enabled == 0);
         set_apply();
         set_poll(ms, 1);
-        CHECK(store[KEY_REMAP_STICKS + 3][4] == 4 && store[KEY_REMAP + 3][3] == 4);   /* curves in the sticks record */
+        CHECK(store[KEY_REMAP_STICKS + 3][4] == 9 && store[KEY_REMAP + 3][3] == 4);   /* curves in the sticks record */
         set_init();
         CHECK(set_remap(3)->left_curve_enabled == 1);
         CHECK(set_remap(3)->left_curve_points[3] == 20);
         CHECK(set_remap(3)->right_curve_enabled == 0);
         mode = 0;
-        CHECK(write1(r, 4, 1, &mode) == SET_OK);
+        CHECK(write1(r, 9, 1, &mode) == SET_OK);
         set_apply();
         CHECK(!set_remap(3)->left_curve_enabled && set_remap(3)->left_curve_points[3] == 20);
-        CHECK(write1(r, 6, 0, NULL) == SET_OK);
+        CHECK(write1(r, 10, 0, NULL) == SET_OK);
         set_apply();
         CHECK(!memcmp(set_remap(3)->left_curve_points, linear_points, sizeof(points)));
     }
@@ -1184,7 +1165,8 @@ int main(void)
     store[key_of(2, 0)][1] = MAGIC >> 8;
     store[key_of(2, 0)][2] = VERSION;
     store[key_of(2, 0)][4] = 200; store[key_of(2, 0)][5] = 1; store[key_of(2, 0)][6] = 1;
-    store[key_of(2, 0)][7] = 18; store[key_of(2, 0)][8] = 1; store[key_of(2, 0)][9] = 4;
+    store[key_of(2, 0)][7] = 14; store[key_of(2, 0)][8] = 1; store[key_of(2, 0)][9] = 4;
+    store_len[key_of(2, 0)] = 10;
     set_init();
     CHECK(set_slot(2)->link.in_flight == 4);
 
@@ -1223,7 +1205,7 @@ int main(void)
     CHECK(memcmp(a, b, 6) && memcmp(a, n, 6));
     /* ... and an address after the type stays. */
     memset(a, 0x22, 6);
-    CHECK(write1(0, 1, 1, &x) == SET_OK && write1(0, 12, 6, a) == SET_OK);
+    CHECK(write1(0, 1, 1, &x) == SET_OK && write1(0, ID_ADDRESS, 6, a) == SET_OK);
     set_apply();
     set_slot_address(0, b);
     CHECK(!memcmp(a, b, 6));
@@ -1257,7 +1239,7 @@ int main(void)
     set_drop();
     CHECK(set_bond(0)->peer[0] == 0x11);
     CHECK(write1(0, SET_UNPAIR, 0, NULL) == SET_OK);
-    CHECK(write1(0, 18, 1, &(u8){ 7 }) == SET_OK);
+    CHECK(write1(0, 14, 1, &(u8){ 7 }) == SET_OK);
     set_apply();
     set_slot_address(0, b);
     CHECK(memcmp(a, b, 6) && memcmp(a + 3, b + 3, 3) && (b[5] & 3) == 2);
@@ -1336,13 +1318,12 @@ int main(void)
 
     /* Palette and colours. */
     CHECK(write1(TARGET_PALETTE, 5, 3, "\x10\x20\x30") == SET_OK);
-    CHECK(write1(0, 2, 1, col) == SET_OK);
+    CHECK(write1(0, 3, 1, col) == SET_OK);
     col[0] = PALETTE;
-    CHECK(write1(0, 2, 1, col) == SET_RANGE);
+    CHECK(write1(0, 3, 1, col) == SET_RANGE);
     col[0] = 6;
-    CHECK(write1(0, 3, 2, col) == SET_OK);       /* stored before: entry, then a level, dropped */
-    col[0] = 4;
-    CHECK(write1(0, 3, 3, col) == SET_BAD_LENGTH);
+    CHECK(write1(0, 4, 1, col) == SET_OK);
+    CHECK(write1(0, 4, 2, col) == SET_BAD_LENGTH);
     {
         u16 b = 15, huge = 2551;
 
@@ -1358,7 +1339,7 @@ int main(void)
     t = (u32)store_writes;
     set_ephemeral();
     x = 1;
-    CHECK(write1(3, 18, 1, &x) == SET_OK);
+    CHECK(write1(3, 14, 1, &x) == SET_OK);
     set_apply();
     set_bond_store(3, &bond);
     set_cal_store(&cal);
@@ -1426,8 +1407,8 @@ int main(void)
         {
             u8 on = 1, two = 2;
 
-            CHECK(write1(TARGET_REMAP + 1, 12, 1, &on) == SET_OK);               /* left sends to the right */
-            CHECK(write1(TARGET_REMAP + 1, 17, 1, &two) == SET_RANGE);           /* right y axis */
+            CHECK(write1(TARGET_REMAP + 1, 4, 1, &on) == SET_OK);               /* left sends to the right */
+            CHECK(write1(TARGET_REMAP + 1, 13, 1, &two) == SET_RANGE);           /* right y axis */
         }
         t = set_edits();
         set_apply();
@@ -1450,10 +1431,10 @@ int main(void)
 
     /* Deadzones: a remap slot's, beside its curves; calibration has none. */
     x = 26;
-    CHECK(write1(TARGET_REMAP + 2, 8, 1, &x) == SET_RANGE);
+    CHECK(write1(TARGET_REMAP + 2, 7, 1, &x) == SET_RANGE);
     CHECK(write1(TARGET_CAL, 2, 1, &x) == SET_UNKNOWN);
     x = 5;
-    CHECK(write1(TARGET_REMAP + 2, 8, 1, &x) == SET_OK);
+    CHECK(write1(TARGET_REMAP + 2, 7, 1, &x) == SET_OK);
     set_apply();
     CHECK(set_remap(2)->deadzone[0].inner == 5 && !set_remap(2)->deadzone[0].outer);
     {
@@ -1464,12 +1445,8 @@ int main(void)
         CHECK(set_remap(2)->deadzone[0].inner == 5);
     }
 
-    /* A bond stored before the identity fields still loads, zero-extended. */
     memset(&bond, 0x22, sizeof(bond));
-    CHECK(write1(6, ID_BOND, BT_BOND_V1_SIZE, &bond) == SET_OK);
-    CHECK(write1(6, ID_BOND, BT_BOND_V1_SIZE + 1, &bond) == SET_BAD_LENGTH);
-    set_apply();
-    CHECK(set_bond(6)->ltk[15] == 0x22 && set_bond(6)->le_irk[0] == 0 && set_bond(6)->le_id_type == 0);
+    CHECK(write1(6, ID_BOND, sizeof(bond) - 1, &bond) == SET_BAD_LENGTH);
     return TEST_DONE("settings");
 }
 #endif

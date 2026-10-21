@@ -200,7 +200,6 @@ struct bt_bond {
     u8 le_id[6];                 /* least significant byte first */
     u8 le_id_type;
 };
-#define BT_BOND_V1_SIZE 45       /* a bond stored before the identity fields */
 
 struct bt_device {
     u8 transport;

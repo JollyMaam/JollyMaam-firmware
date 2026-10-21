@@ -26,7 +26,7 @@
 #define LINK_INPUT_ID     0x20
 #define LINK_OUTPUT_ID    0x21
 #define LINK_CONFIG_ID    0x22
-#define LINK_VERSION      3
+#define LINK_VERSION      1
 #define LINK_INPUT_SIZE   48
 #define LINK_CONFIG_SIZE  22
 #define LINK_OUTPUT_SIZE  10

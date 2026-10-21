@@ -13,7 +13,7 @@ def read_device(path, name, identity):
     board = next(board for board, number in pad.BOARD_IDS.items() if number == identity[6])
     table = pad.fields(path) if board == "pad" else []
     values = {t: pad.read_target(path, table, t) for t in pad.targets(table)} if table else {}
-    defaults = {t: pad.read_target(path, table, t, defaults=True) for t in pad.targets(table)} if table and int.from_bytes(identity[4:6], "little") >= 4 else {}
+    defaults = {t: pad.read_target(path, table, t, defaults=True) for t in pad.targets(table)} if table else {}
     return {"path": path, "name": name, "board": board, "identity": identity[:40], "fields": table,
             "values": values, "defaults": defaults, "status": pad.status(path), "location": usb_location(path)}
 

@@ -11,13 +11,13 @@
     padtool identify | status     what the pad reports
     padtool log [-f]              the pad's log (-f: follow)
     padtool stats [-w SECONDS] [--reset]   loop timing and counters (-w: every N s)
-    padtool calibrate            start shared sensor calibration (protocol 3+)
+    padtool calibrate            start shared sensor calibration
     padtool led-demo [list | N] [--seconds S]   the pad shows its LED animations
                                   in turn, from N: Enter for the next (or
-                                  every S seconds); list: what there is (protocol 7+)
+                                  every S seconds); list: what there is
     padtool rumble LEFT [RIGHT] [--seconds S]   run the motors at LEFT and RIGHT
                                   percent of full power (default RIGHT = LEFT) for
-                                  S seconds (1; at most 10); 0 stops (protocol 8+)
+                                  S seconds (1; at most 10); 0 stops
     padtool rumble-test [list | N] [--seconds S]   rumble strengths, one side,
                                   ramps and short pulses, from N: Enter for the
                                   next, r again (or all, S seconds apart)
@@ -28,15 +28,15 @@
                                   --full: 0-100, no kick), right stick
                                   left/right the balance;
                                   each stays where it is left (L1: strength 0,
-                                  R1: even); Ctrl-C stops (protocol 9+)
+                                  R1: even); Ctrl-C stops
     padtool input [-f]            buttons, sticks and triggers, calibrated and
-                                  as read (-f: live) (protocol 9+)
+                                  as read (-f: live)
     padtool reboot | loader       restart; restart into the ROM loader (for
                                   jlnewfw flash)
     padtool connect [SLOT]        connect a slot (default: the last), as Home does
     padtool pair SLOT             make the slot pairable; its host is replaced once one pairs
                                   (same address)
-    padtool unpair SLOT           forget the host and save a new Bluetooth address (protocol 6+)
+    padtool unpair SLOT           forget the host and save a new Bluetooth address
     padtool profile [ZOOM [SHIFT]] [-w SECONDS] [--hz N] [--top N] [--elf FILE]
                                   sample where the CPU runs for SECONDS (10) at
                                   N per second (2000); per function, from the ELF's
@@ -231,7 +231,7 @@ HIST = "<QII16H"
 def read_stats(path, reset=False):
     d = cmd(path, 0x03, 1 if reset else 0, 512)
     version, size = struct.unpack_from("<HH", d)
-    if version != 6:
+    if version != 1:
         sys.exit(f"padtool: stats version {version} not known to this padtool")
     d = d[4:4 + size]
     s = {}
@@ -551,10 +551,10 @@ SLOT_TARGETS = ["slot-" + n.lower() for n in SLOT_NAMES]
 REMAP_NAMES = ["remap-" + n.lower() for n in SLOT_NAMES]
 TARGETS = SLOT_TARGETS + ["palette", "calibration"] + REMAP_NAMES + ["remap-base"]
 REMAP_TARGET = 10
-BASE_TARGET = 18            # the base remap: what the remap slots inherit (protocol 10+)
-BASE_PROTOCOL = 10
+BASE_TARGET = 18            # the base remap: what the remap slots inherit
+PROTOCOL = 1                # the vendor commands this padtool speaks (IDENTIFY)
 KINDS = ["slot", "palette", "calibration", "remap"]
-T_ENUM, T_NUMBER, T_COLOUR, T_RGB, T_BYTES, T_TEXT, T_ENTRY, T_LIST = range(8)   # T_COLOUR: older firmware
+T_ENUM, T_NUMBER, T_RGB, T_BYTES, T_TEXT, T_ENTRY, T_LIST = range(7)
 # T_LIST: size numbers of a byte each, each at most max, shown and written "15,15,15,15,15"
 RESULTS = ["ok", "unknown field", "bad length", "out of range", "too many changes at once"]
 JOURNAL = os.path.expanduser("~/.cache/padtool/ephemeral.json")
@@ -586,16 +586,15 @@ def kind_of(t):
 
 class FieldTable(list):
     """fields(): the table, and the firmware's protocol."""
-    protocol = 0
+    protocol = PROTOCOL
 
 
 def targets(table):
-    """The targets this firmware has: remap slots only where it describes them, the
-    base remap (listed before them) from protocol 10."""
+    """The targets the table describes: remap slots only where it has their fields,
+    the base remap listed before them."""
     if not any(f["kind"] == 3 for f in table):
         return list(range(REMAP_TARGET))
-    base = [BASE_TARGET] if getattr(table, "protocol", 0) >= BASE_PROTOCOL else []
-    return list(range(REMAP_TARGET)) + base + list(range(REMAP_TARGET, BASE_TARGET))
+    return list(range(REMAP_TARGET)) + [BASE_TARGET] + list(range(REMAP_TARGET, BASE_TARGET))
 
 
 def remap_field(f, name):
@@ -606,6 +605,9 @@ def fields(path):
     """The field table, as the firmware describes it."""
     out, n = FieldTable(), 0
     out.protocol = int.from_bytes(cmd(path, 0, length=64)[4:6], "little")
+    if out.protocol != PROTOCOL:
+        sys.exit(f"padtool: the firmware speaks protocol {out.protocol}, this padtool {PROTOCOL}; "
+                 "use the padtool from the same build")
     while True:
         d = cmd(path, 0x20, n, 512)
         if len(d) < 8 or not any(d):
@@ -640,8 +642,6 @@ def show_value(f, raw):
         return f["names"][raw[0]] if raw[0] < len(f["names"]) else str(raw[0])
     if t == T_NUMBER:
         return str(int.from_bytes(raw, "little"))
-    if t == T_COLOUR:
-        return f"{raw[0]}:{raw[1]}"
     if t == T_ENTRY:
         return str(raw[0])
     if t == T_RGB:
@@ -704,11 +704,8 @@ def parse_value(f, text):
             sys.exit(f"padtool: {f['name']}: one of {' '.join(f['names'])}")
         if t == T_NUMBER:
             return int(text, 0).to_bytes(f["size"], "little")
-        if t == T_COLOUR:
-            e, l = text.split(":")
-            return bytes([int(e), int(l)])
         if t == T_ENTRY:
-            return bytes([int(text.split(":")[0])])     # ENTRY:LEVEL from older firmware: the entry
+            return bytes([int(text)])
         if t == T_LIST:
             numbers = [int(x) for x in text.replace(",", " ").split()]
             if len(numbers) != f["size"]:
@@ -758,7 +755,6 @@ def read_target(path, table, t, defaults=False):
 
 
 UNPAIR_ID = 0xfe
-UNPAIR_PROTOCOL = 6
 
 
 CMD_LED_DEMO = 0x19
@@ -1067,8 +1063,6 @@ def unpair(path, slot):
     identity = cmd(path, 0, length=64)
     if len(identity) < 40 or identity[:4] != b"C2PD" or identity[6] != BOARD_IDS["pad"]:
         raise ValueError("Unpair requires a pad")
-    if int.from_bytes(identity[4:6], "little") < UNPAIR_PROTOCOL:
-        raise ValueError("Unpair with a new address requires updated firmware (protocol 6+)")
     send(path, [(slot, UNPAIR_ID, b"")])
 
 
@@ -1141,7 +1135,6 @@ def show_fields(path, dev=False):
         values = (" | ".join(f["names"]) if f["type"] == T_ENUM else
                   f"0-{f['max']}" if f["type"] == T_NUMBER else
                   f"{f['size']} numbers 0-{f['max']}, N,N,..." if f["type"] == T_LIST else
-                  "ENTRY:LEVEL" if f["type"] == T_COLOUR else
                   "palette ENTRY 0-15" if f["type"] == T_ENTRY else
                   "#rrggbb" if f["type"] == T_RGB else f"text, {f['size']} bytes" if f["type"] == T_TEXT else
                   "KEY=KEY ... | identity" if remap_field(f, "map") else
@@ -1228,9 +1221,6 @@ def restore(path, file, calibration):
         if t not in targets(table):
             print(f"{name}: not in this firmware, skipped")
             continue
-        if t < 8 and any(f["kind"] == 0 and f["name"] == "left_curve_enabled" for f in table):
-            size = field_named(table, t, "left_curve_points")["size"]
-            values = padcurves.migrate_slot(values, size)
         items = [(t, 0, b"")]
         for f in table:           # table order: type before address and bond
             v = values.get(f["name"])
@@ -1242,34 +1232,6 @@ def restore(path, file, calibration):
                 items.append((t, f["id"], b""))   # a reset keeps these
         send(path, items)
     print("restored" + ("" if calibration else " (calibration left as it was)"))
-
-
-def prepare_curve_upgrade(board, backup_file):
-    """Capture legacy modes before entering the loader; shared by flash UIs."""
-    if board != "pad":
-        return None
-    found = [(path, ident) for path, _, ident in discover_devices() if ident[6] == BOARD_IDS["pad"]]
-    if len(found) != 1 or int.from_bytes(found[0][1][4:6], "little") >= 5:
-        return None
-    file = str(backup_file) + ".settings.json"
-    backup(found[0][0], file)
-    return file
-
-
-def finish_curve_upgrade(file):
-    if not file:
-        return
-    path = wait_for_device(30)
-    if not path:
-        raise RuntimeError(f"Pad did not return to tool mode; restore settings from {file}")
-    identity = cmd(path, 0, length=64)
-    with open(file) as stream:
-        saved = json.load(stream)
-    if identity[24:40].hex() != saved["flash_id"]:
-        raise RuntimeError(f"The detected pad differs from the upgrade backup; restore settings explicitly from {file}")
-    if int.from_bytes(identity[4:6], "little") >= 5:
-        restore(path, file, calibration=True)
-        print("Legacy curve settings migrated; settings and calibration restored")
 
 
 def keep(path):
@@ -1433,8 +1395,6 @@ def main():
         cmd(need_device(), 0x12)
     elif a.command == "led-demo":
         path = need_device()
-        if int.from_bytes(cmd(path, 0, length=64)[4:6], "little") < 7:
-            p.error("led-demo needs pad firmware protocol 7 or newer")
         names = led_demo_names(path)
         if a.args and a.args[0] == "list":
             for i, name in enumerate(names):
@@ -1448,8 +1408,6 @@ def main():
             print(f"{i + 1:3}  {name}")
     elif a.command in ("input", "rumble-sticks"):
         path = need_device()
-        if int.from_bytes(cmd(path, 0, length=64)[4:6], "little") < 9:
-            p.error(f"{a.command} needs pad firmware protocol 9 or newer")
         if a.command == "input":
             show_input(path, a.follow)
         elif a.args:
@@ -1461,8 +1419,6 @@ def main():
             rumble_sticks(path, (a.left or left, a.right or right), kick if a.kick is None else a.kick)
     elif a.command in ("rumble", "rumble-test"):
         path = need_device()
-        if int.from_bytes(cmd(path, 0, length=64)[4:6], "little") < 8:
-            p.error(f"{a.command} needs pad firmware protocol 8 or newer")
         if a.command == "rumble-test":
             if a.args and (not a.args[0].isdigit() or not 1 <= int(a.args[0]) <= len(RUMBLE_TESTS)):
                 p.error(f"rumble-test: a number 1-{len(RUMBLE_TESTS)}, or list")
@@ -1485,8 +1441,6 @@ def main():
         print(f"left {duty[0]}/255  right {duty[1]}/255  for {ms / 1000:g} s")
     elif a.command == "calibrate":
         path = need_device()
-        if int.from_bytes(cmd(path, 0, length=64)[4:6], "little") < 3:
-            p.error("calibrate needs pad firmware protocol 3 or newer")
         cmd(path, 0x18)
         print("Leave sticks and triggers untouched for 2.5 seconds; then circle both sticks and press both triggers fully. A or B saves; Home cancels.")
     elif a.command in ("reboot", "loader"):

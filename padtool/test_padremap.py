@@ -99,9 +99,8 @@ class RemapTextTests(unittest.TestCase):
         self.assertEqual(padtool.target_index("remap-B"), 11)
         self.assertEqual(padtool.kind_of(17), 3)
         self.assertEqual(padtool.kind_of(9), 2)
-        old = [{"kind": 0}, {"kind": 2}]
-        self.assertEqual(padtool.targets(old), list(range(10)))
-        self.assertEqual(padtool.targets(old + [{"kind": 3}]), list(range(18)))
+        self.assertEqual(padtool.targets([{"kind": 0}]), list(range(10)))
+        self.assertEqual(padtool.targets([{"kind": 3}]), list(range(10)) + [18] + list(range(10, 18)))
         rules = {"kind": 3, "name": "rules", "type": padtool.T_BYTES, "size": 160}
         self.assertEqual(padtool.show_value(rules, padtool.parse_value(rules, "a held hold b")), "a held hold b")
 

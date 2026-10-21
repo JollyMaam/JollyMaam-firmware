@@ -7,9 +7,6 @@ import padcurves
 import padremap
 from tkinter import ttk, messagebox, filedialog
 
-BRIGHTNESS = (0, 1, 2, 3, 4, 5, 7, 10, 14, 20, 28, 40, 56, 80, 128, 255)
-BRIGHTNESS_LABELS = tuple('Off' if i == 0 else f'{i}/15' for i in range(len(BRIGHTNESS)))
-
 
 class Tooltip:
     """Delayed hover text, including on disabled controls; owned by its widget."""
@@ -63,48 +60,30 @@ class PaletteEditor(ttk.Frame):
         self.palette_button.pack(side='left')
         self.preview = app.color_swatch(self, record, entry)
         self.preview.pack(side='left', padx=6)
-        # An entry alone (T_ENTRY): its brightness is the palette's; older
-        # firmware's colours carry a level of their own.
-        self.with_level = entry['field']['size'] == 2
-        self.level = tk.StringVar()
-        if self.with_level:
-            ttk.Label(self, text='Brightness').pack(side='left', padx=(6, 4))
-            self.brightness = ttk.Combobox(self, textvariable=self.level, values=BRIGHTNESS_LABELS, state='readonly', width=7)
-            self.brightness.pack(side='left')
-            self.brightness.bind('<<ComboboxSelected>>', self.choose_brightness)
+        # How bright the entry is lit is the palette's.
         self.sync()
 
     def current(self):
         raw = self.app.value_bytes(self.entry)
-        if len(raw) != (2 if self.with_level else 1) or raw[0] > 15 or (self.with_level and raw[1] > 15):
+        if len(raw) != 1 or raw[0] > 15:
             raise ValueError('Invalid palette reference')
-        return (raw[0], raw[1]) if self.with_level else (raw[0], None)
+        return raw[0]
 
     def sync(self):
         try:
-            palette, level = self.current()
-            self.palette_button.configure(text=f'Palette {palette}')
-            self.level.set(BRIGHTNESS_LABELS[level] if level is not None else '')
+            self.palette_button.configure(text=f'Palette {self.current()}')
             self.draw_palette()
         except (Exception, SystemExit):
             self.palette_button.configure(text='Choose colour…')
-            self.level.set('')
 
     def choose_colour(self, palette):
         if self.app.busy:
             return
-        _, level = self.current()
-        self.entry['var'].set(f'{palette}:{level}' if level is not None else str(palette))
-
-    def choose_brightness(self, event=None):
-        if self.app.busy:
-            return
-        palette, _ = self.current()
-        self.entry['var'].set(f'{palette}:{BRIGHTNESS_LABELS.index(self.level.get())}')
+        self.entry['var'].set(str(palette))
 
     def draw_palette(self):
         try:
-            selected, _ = self.current()
+            selected = self.current()
         except (Exception, SystemExit):
             selected = None
         for index, swatch in enumerate(self.palette_images):

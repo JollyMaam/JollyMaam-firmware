@@ -33,8 +33,7 @@ profiles; on Windows end the session using the pad first.
 Selecting a pad shows its slots, each with a status button, type dropdown and
 Unpair. Apply, Discard and Reset all to defaults below the device actions affect
 all settings on that pad.
-Select a slot or settings group in the tree to edit its detailed settings. Unpair is disabled without a pairing or on firmware
-older than protocol 6. It stages an action: on Apply, firmware clears the entire
+Select a slot or settings group in the tree to edit its detailed settings. Unpair is disabled without a pairing. It stages an action: on Apply, firmware clears the entire
 Classic/LE bond and generates and saves a replacement Bluetooth address.
 Address renewal hashes the complete previous address, including its prefix,
 and the current tick to roll all six bytes while retaining the local/unicast
@@ -81,7 +80,7 @@ firmware could not supply its default; pending edits can still be discarded.
 Hover over a status for its meaning and action. Curve points and their enable
 flag share a status button. A `*` on a tree entry retains its separate meaning:
 the entry contains values different from firmware defaults; colour marks drafts.
-Protocol 4 provides full defaults through a read-only query.
+Firmware provides full defaults through a read-only query.
 
 Slot colour fields have a palette dropdown with all 16 colour swatches and a
 separate brightness dropdown. The selector and swatches show the full palette
@@ -114,7 +113,7 @@ base. A remap slot takes every setting it has not set from Remap base, so the
 base is where to set what all of them share; a setting's default on a remap
 slot is the base's value. Names are each remap's own, and Remap A keeps its
 "Swap A/B X/Y" keys. Remap base at its defaults sends the keys as they are and
-the sticks exactly as calibrated (firmware protocol 10+).
+the sticks exactly as calibrated.
 
 A remap page has a **Name** (shown in the tree), then a row per key, "**KEY**
 maps to [KEY / Nothing]", which costs no rule entries. Its status box covers
@@ -272,8 +271,8 @@ in its loader for recovery.
 `paddevices.py` finds new, changed and removed devices on Refresh, and waits for other USB operations.
 `padconsole.py` owns the live console windows and shares the USB operation lock.
 `tools/bootloop.py` is a development stress-test helper, separate from padtool.
-`padwidgets.py` supplies the palette/brightness and stick curve editors.
-`padcurves.py` shares preset definitions, validation and legacy conversion with
+`padwidgets.py` supplies the palette and stick curve editors.
+`padcurves.py` shares preset definitions and validation with
 the CLI; `python -m unittest discover -s padtool -p test_padcurves.py -v` tests it.
 `padtool.py` supplies the firmware protocol and CLI. `padtransport.py` supplies
 Linux SG_IO and Windows buffered SCSI pass-through. `padflash.py` supplies the

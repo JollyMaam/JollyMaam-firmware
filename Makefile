@@ -17,14 +17,12 @@ HOST_CFLAGS := -O2 -g -std=c11 -Wall -Wextra -Wno-unused-function -Wno-missing-f
 # Cyclone 2 gamepad.
 pad pad-% $(O)/pad/%: override BOARD := pad
 FLASH_SIZE_pad := 0x100000
-CODE_LIMIT_pad := 0x50000
 PID_pad := GS_C2_ADC_DEVICE
 APP_SOURCES_pad := $(filter-out src/board_%.c src/dongle%.c,$(wildcard src/*.c))
 
 # GameSir dongle.
 dongle dongle-% $(O)/dongle/%: override BOARD := dongle
 FLASH_SIZE_dongle := 0x80000
-CODE_LIMIT_dongle := 0x50000
 PID_dongle := GS_C2_Dongle
 BOARD_DEFINES_dongle := -DBOARD_DONGLE
 APP_SOURCES_dongle := src/platform_jieli.c src/platform_jieli_sdk.c src/platform_jieli_usb.c src/platform_jieli_audio.c \
@@ -33,8 +31,11 @@ APP_SOURCES_dongle := src/platform_jieli.c src/platform_jieli_sdk.c src/platform
 	src/profile_link.c src/profile_switch.c src/profile_xbox.c src/profile_playstation.c src/profile_hid.c
 
 FLASH_SIZE = $(FLASH_SIZE_$(BOARD))
-# Note: changing CODE_LIMIT changes the location of settings/bonds storage
-CODE_LIMIT = $(CODE_LIMIT_$(BOARD))
+# VM (settings and bonds) is the VM_KB below BTIF (4 KiB) and key_mac (4 KiB)
+# at the end of flash; code may use everything below it (CODE_LIMIT).
+# Changing VM_KB or the flash size moves VM.  16 KiB is the SDK's largest.
+VM_KB := 16
+CODE_LIMIT = $(shell printf 0x%x $$(( $(FLASH_SIZE) - 0x2000 - $(VM_KB) * 1024 )))
 PID = $(PID_$(BOARD))
 BOARD_DEFINES = $(BOARD_DEFINES_$(BOARD))
 
@@ -181,7 +182,7 @@ $(OUTPUTS:%=%/sdk.ld): %/sdk.ld: %/sdk_ld.c
 # PID: what jlnewfw flash checks before writing (a gamepad or a dongle).
 $(OUTPUTS:%=%/isd_config.ini): $(SDK)/cpu/br23/tools/isd_config_rule.c $(wildcard src/sdkconfig/*.h) Makefile
 	@mkdir -p $(@D)
-	$(Q)$(CC) $(CFLAGS) $(DEFINES) $(INCLUDES) -D__LD__ -E -P $< -o $@
+	$(Q)$(CC) $(CFLAGS) $(DEFINES) $(INCLUDES) -D__LD__ -DCONFIG_VM_LEAST_SIZE=$(VM_KB)K -E -P $< -o $@
 	$(Q)sed -i -e /^$$/d -e 's/^PID = .*;/PID = $(PID);/' $@
 
 # Host unit tests: every source with a UNITTEST block.

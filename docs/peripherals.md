@@ -90,9 +90,39 @@ is used. Subtract the rest value in software, per unit.
 
 ## EEPROM
 
-The board definitions give an EEPROM at write byte `0xa0` (7-bit `0x50`). The
-part number and contents are not established. Whether it holds factory stick
-calibration is not established.
+An I2C EEPROM shares the IMU's bus (PB4/PB6).
+
+| Item | Value |
+|---|---|
+| 7-bit address | `0x50` |
+| Write byte | `0xa0` |
+| Read byte | `0xa1` |
+| Word address | 16 bits, high byte first (24C64 style) |
+| Readable size | 8 KiB (`0x0000..0x1fff`) |
+
+Two full reads of `0x0000..0x1fff` are identical, and the two 4 KiB halves
+differ, so the part does not wrap at 4 KiB. Whether it is larger than 8 KiB,
+its part number and its write page size are not established. Our firmware
+does not use it.
+
+### Stock contents
+
+The stock pad keeps its controller settings and calibration here. Its
+Bluetooth address and bonds are in flash VM ([flash-map.md](flash-map.md#vm-format)).
+The layout below comes from the stock firmware's EEPROM addresses and
+lengths, and from a dump of one pad:
+
+| Range | Contents |
+|---|---|
+| `0x0000..0x0fdf` | five profile slots of `0x2a8` bytes (at `0x0000`, `0x02a8`, `0x0550`, `0x07f8`, `0x0aa0`), handled as one `0xfc3`-byte image |
+| `0x1600` | selected profile |
+| `0x16fe..0x16ff` | `51 6a`: EEPROM initialized |
+| `0x1700..0x1741` | stick and trigger calibration, 64 bytes as big-endian 16-bit values, then marker `a6 6a` |
+| `0x1800..0x1803` | saved mode state, the last two bytes a marker (`65 66`) |
+| `0x1820..0x182d` | six signed little-endian IMU offsets, then marker `68 67` |
+| `0x1900..0x197f` | 128-byte user-data record; its first eight bytes are a manufacturing field the stock firmware calls "Usb Bt Addr" |
+
+The rest was erased (`0xff`) in the dumped pad.
 
 ## LED chain
 

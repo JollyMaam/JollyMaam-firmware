@@ -18,7 +18,7 @@ import padtransport
 import padwidgets
 
 
-def record(path="fake", board="pad", protocol=3):
+def record(path="fake", board="pad", protocol=padgui.pad.PROTOCOL):
     fields = [{"kind": 0, "id": 1, "name": "type", "type": padgui.pad.T_ENUM,
                "names": ["switch", "hid"], "help": "Profile", "dev": False},
               {"kind": 0, "id": 2, "name": "rumble", "type": padgui.pad.T_NUMBER,
@@ -53,7 +53,7 @@ def remap_record(path="fake"):
                         {"kind": 3, "id": 6 + i, "name": f"{side}_curve_points", "type": padgui.pad.T_BYTES,
                          "size": 15, "help": "Points", "dev": False}]
     linear = padgui.pad.padcurves.preset("linear")
-    for t in range(10, 18):
+    for t in range(10, 19):          # the remap slots and the base
         r["values"][t] = {"name": (bytes(24), False), "map": (bytes(20), False), "rules": (bytes(160), False),
                           "left_curve_enabled": (b"\0", False), "right_curve_enabled": (b"\0", False),
                           "left_curve_points": (linear, False), "right_curve_points": (linear, False),
@@ -71,12 +71,12 @@ def loader_record(path="rom"):
 
 class UnpairTests(unittest.TestCase):
     def test_cli_unpair_uses_firmware_action_and_rejects_unsupported_devices(self):
-        for board, protocol in (("pad", 6), ("pad", 5), ("dongle", 6)):
+        for board, protocol in (("pad", 1), ("dongle", 1)):
             identity = record(board=board, protocol=protocol)["identity"]
             with self.subTest(board=board, protocol=protocol), \
                  patch.object(padgui.pad, "cmd", return_value=identity), \
                  patch.object(padgui.pad, "send") as send:
-                if board == "pad" and protocol >= 6:
+                if board == "pad":
                     padgui.pad.unpair("fake", 1)
                     send.assert_called_once_with("fake", [(1, padgui.pad.UNPAIR_ID, b"")])
                 else:
@@ -111,6 +111,10 @@ class GuiCase(unittest.TestCase):
         self.app = padgui.App(self.root, auto_scan=False, auto_identify=False)
         self.errors = []
         self.root.report_callback_exception = lambda *args: self.errors.append(args)
+        # An unexpected error dialog fails the test instead of waiting for a click.
+        dialog = patch.object(padgui.messagebox, "showerror", side_effect=lambda *args, **kw: self.errors.append(args))
+        dialog.start()
+        self.addCleanup(dialog.stop)
 
     def tearDown(self):
         with patch.object(padgui.messagebox, "askyesno", return_value=True):
@@ -469,7 +473,7 @@ class GuiTests(GuiCase):
         self.assertEqual(two["draft"][0, "rumble"]["var"].get(), "90")
 
     def test_main_page_unpair_stages_only_paired_slot_and_is_discardable(self):
-        r = record(protocol=6)
+        r = record()
         r["fields"].append({"kind": 0, "id": 13, "name": "bond", "type": padgui.pad.T_BYTES,
                             "size": 68, "help": "Paired host", "dev": True})
         classic = b"\x11" * 6 + bytes(62)
@@ -498,7 +502,7 @@ class GuiTests(GuiCase):
         self.assertFalse(unpair[0].instate(["disabled"]))
         unpair[1].invoke()
         self.assertEqual(self.app.value_bytes(r["draft"][1, "bond"]), bytes(68))
-        refreshed = record(protocol=6)
+        refreshed = record()
         refreshed["fields"] = r["fields"]
         refreshed["values"] = r["values"]
         self.app.merge_device(refreshed)
@@ -762,11 +766,11 @@ class GuiTests(GuiCase):
         one, two = record(), record("dongle", "dongle")
         with patch.object(padgui.pad, "discover_devices", return_value=[(r["path"], r["name"], r["identity"]) for r in (one, two)]), \
              patch.object(padgui.pad, "fields", return_value=one["fields"]), \
-             patch.object(padgui.pad, "read_target", side_effect=lambda p, table, t: one["values"][t]) as read, \
+             patch.object(padgui.pad, "read_target", side_effect=lambda p, table, t, defaults=False: one["values"][t]) as read, \
              patch.object(padgui.pad, "status", return_value="idle"):
             self.app.scan()
             self.finish()
-            self.assertEqual(read.call_count, 10)
+            self.assertEqual(read.call_count, 20)      # values and defaults
         self.assertEqual(len(self.app.cache), 2)
         self.assertEqual(len(self.app.tree.get_children("device0")), padgui.pad.REMAP_TARGET)
         self.assertEqual(len(self.app.tree.get_children("device1")), 0)
@@ -883,14 +887,14 @@ class GuiTests(GuiCase):
             self.finish()
             send.assert_called_once_with("fake", [(0, 2, b"")])
 
-    def test_colour_preview_follows_staged_palette_at_every_brightness(self):
+    def test_colour_preview_follows_staged_palette(self):
         r = record()
         r["fields"] += [
-            {"kind": 0, "id": 3, "name": "primary_colour", "type": padgui.pad.T_COLOUR,
-             "size": 2, "help": "Colour", "dev": False},
+            {"kind": 0, "id": 4, "name": "primary_colour", "type": padgui.pad.T_ENTRY,
+             "size": 1, "help": "Colour", "dev": False},
             {"kind": 1, "id": 4, "name": "palette3", "type": padgui.pad.T_RGB,
              "size": 3, "help": "Palette", "dev": False}]
-        r["values"][0]["primary_colour"] = (bytes([3, 15]), False)
+        r["values"][0]["primary_colour"] = (bytes([3]), False)
         r["values"][8] = {"palette3": (bytes([255, 0, 0]), False)}
         self.load([r])
         self.app.show_target(0)
@@ -899,11 +903,9 @@ class GuiTests(GuiCase):
         self.assertEqual(self.app.color_preview(r, colour), "#ff0000")
         palette["var"].set("#00ff00")
         self.assertEqual(self.app.color_preview(r, colour), "#00ff00")
-        colour["var"].set("3:5")
-        self.assertEqual(self.app.color_preview(r, colour), "#00ff00")
         swatch = next(w for rec, entry, w in self.app.swatches if entry is colour and w.winfo_exists())
         self.assertEqual(swatch.itemcget("colour", "fill"), "#00ff00")
-        colour["var"].set("3:")
+        colour["var"].set("x")
         self.assertEqual(swatch.itemcget("invalid", "text"), "?")
 
     def test_single_apply_preserves_other_drafts_on_same_device(self):
@@ -940,34 +942,6 @@ class GuiTests(GuiCase):
         self.assertEqual(r["draft"][0, "type"]["var"].get(), "hid")
         self.assertEqual(self.app.dirty_count(), 1)
 
-    def test_palette_picker_preserves_brightness_and_uses_staged_colours(self):
-        r = record()
-        r["fields"] += [
-            {"kind": 0, "id": 3, "name": "primary_colour", "type": padgui.pad.T_COLOUR,
-             "size": 2, "help": "Colour", "dev": False},
-            {"kind": 1, "id": 4, "name": "palette3", "type": padgui.pad.T_RGB,
-             "size": 3, "help": "Palette", "dev": False},
-            {"kind": 1, "id": 5, "name": "palette4", "type": padgui.pad.T_RGB,
-             "size": 3, "help": "Palette", "dev": False}]
-        r["values"][0]["primary_colour"] = (bytes([3, 15]), False)
-        r["values"][8] = {"palette3": (bytes([255, 0, 0]), False), "palette4": (bytes([0, 0, 255]), False)}
-        self.load([r])
-        self.app.show_target(0)
-        editor = next(w for w in self.app.special_editors if w.winfo_exists() and isinstance(w, padgui.PaletteEditor))
-        from padwidgets import BRIGHTNESS_LABELS
-        editor.level.set(BRIGHTNESS_LABELS[5])
-        editor.choose_brightness()
-        editor.draw_palette()
-        self.assertIsInstance(editor.palette_button, padgui.ttk.Menubutton)
-        self.assertEqual(editor.palette_menu.index("end"), 15)
-        self.assertEqual(editor.palette_images[3].get(10, 8), (255, 0, 0))
-        r["draft"][8, "palette4"]["var"].set("#00ff00")
-        self.assertEqual(editor.palette_images[4].get(10, 8), (0, 255, 0))
-        editor.palette_menu.invoke(4)
-        self.assertEqual(r["draft"][0, "primary_colour"]["var"].get(), "4:5")
-        self.assertEqual(editor.level.get(), BRIGHTNESS_LABELS[5])
-        self.assertFalse(any(isinstance(w, tk.Toplevel) for w in editor.winfo_children()))
-
     def test_palette_entry_picker_has_no_brightness(self):
         r = record()
         r["fields"] += [
@@ -982,7 +956,6 @@ class GuiTests(GuiCase):
         self.load([r])
         self.app.show_target(0)
         editor = next(w for w in self.app.special_editors if w.winfo_exists() and isinstance(w, padgui.PaletteEditor))
-        self.assertFalse(editor.with_level)
         self.assertFalse(any(isinstance(w, padgui.ttk.Combobox) for w in editor.winfo_children()))
         colour = r["draft"][0, "primary_colour"]
         self.assertEqual(self.app.color_preview(r, colour), "#ff0000")
@@ -1109,14 +1082,12 @@ class GuiTests(GuiCase):
                  patch.object(padgui.messagebox, "askyesno") as confirm, \
                  patch.object(padgui.filedialog, "asksaveasfilename") as destination, \
                  patch.object(self.app, "open_loader", return_value=loader), \
-                 patch.object(padgui.pad, "prepare_curve_upgrade") as upgrade, \
                  patch.object(self.app, "run") as run:
                 self.app.flash()
                 run.assert_called_once()
                 confirm.assert_not_called()      # only the backup question
                 run.call_args.args[1]()
                 destination.assert_not_called()
-                upgrade.assert_not_called()
                 loader.flash.assert_called_once_with(make_image(), "pad", None)
             with patch.object(self.app, "loader_blob", return_value=b"loader"), \
                  patch.object(padgui.messagebox, "askyesnocancel", return_value=None), \
@@ -1307,10 +1278,11 @@ class RemapGuiTests(GuiCase):
         self.load([r])
         self.app.render_tree()
         children = self.app.tree.get_children("device0")
-        self.assertEqual(len(children), 18)
-        self.assertEqual(self.app.tree.item(children[11], "text"), "Remap B")
+        self.assertEqual(len(children), 19)
+        self.assertEqual(self.app.tree.item(children[10], "text"), "Remap base")
+        self.assertEqual(self.app.tree.item(children[12], "text"), "Remap B")
         r["draft"][11, "name"]["var"].set("Mario Kart")
-        self.assertEqual(self.app.tree.item(children[11], "text"), "Remap B · Mario Kart")
+        self.assertEqual(self.app.tree.item(children[12], "text"), "Remap B · Mario Kart")
 
     def test_remap_page_has_the_stick_curves_and_deadzones(self):
         r = remap_record()
@@ -1552,15 +1524,10 @@ class RemapGuiTests(GuiCase):
         self.root.update()
         self.assertAlmostEqual(canvas.yview()[0], before, places=2)
 
-    def test_base_remap_is_listed_before_the_remap_slots_from_protocol_10(self):
+    def test_base_remap_is_listed_before_the_remap_slots(self):
         r = remap_record()
         r["values"][padgui.pad.BASE_TARGET] = dict(r["values"][10])
         self.load([r])
-        labels = [self.app.tree.item(node, "text") for node in self.app.tree.get_children("device0")]
-        self.assertNotIn("Remap base", labels)
-        r["fields"] = padgui.pad.FieldTable(r["fields"])
-        r["fields"].protocol = 10
-        self.app.render_tree()
         labels = [self.app.tree.item(node, "text") for node in self.app.tree.get_children("device0")]
         self.assertEqual(labels[labels.index("Calibration") + 1], "Remap base")
         self.assertTrue(labels[labels.index("Remap base") + 1].startswith("Remap A"))
