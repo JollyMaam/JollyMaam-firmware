@@ -28,7 +28,7 @@ static struct {
     u32 report_ms;
     struct profile_host host;
     u32 output_ms;
-    u8 tool_only;                /* padtool tool-only: never a personality, until reboot */
+    u8 tool_only;                /* padtool tool-only: never a personality, until power loss */
 } d;
 
 int host_send(u16 id, const u8 *data, u16 len)
@@ -52,12 +52,16 @@ static void drop_personality(const char *why)
 
 /* For debugging the link: the log and padtool stay reachable while a pad is
  * linked.  Its input still arrives (and shows in the link rate); it goes
- * nowhere. */
+ * nowhere.  Kept through soft reboots (padtool reboot), not a power loss. */
+#define TOOL_ONLY_KEPT 0x746f6f6cu
+static u32 tool_only_kept RETAINED;
+
 void dongle_tool_only(void)
 {
     if (d.tool_only) return;
     d.tool_only = 1;
-    util_log("dongle: tool only until reboot (a linked pad's type is not put on USB)");
+    tool_only_kept = TOOL_ONLY_KEPT;
+    util_log("dongle: tool only until power loss (a linked pad's type is not put on USB)");
     drop_personality("tool only");
 }
 
@@ -173,6 +177,10 @@ void ctl_main(void)
     st.slot = SLOT_NONE;
     st.usb_powered = 1;
     util_log("dongle up");
+    if (tool_only_kept == TOOL_ONLY_KEPT) {
+        d.tool_only = 1;
+        util_log("dongle: still tool only");
+    }
     dongle_bt_start();
     for (;;) {
         u32 now = plat_ms();

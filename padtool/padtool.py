@@ -5,7 +5,7 @@
     padtool -d DEVICE ...         with several connected: the one at that path,
                                   or whose flash ID contains DEVICE (from find)
     padtool --board dongle target ADDR  dongle: page this device (e.g. our pad in pairing)
-    padtool --board dongle tool-only  dongle: stay this tool device until it reboots, also
+    padtool --board dongle tool-only  dongle: stay this tool device until power loss, also
                                   while a pad is linked, for its log (the pad's type is not
                                   put on USB; padtool tool brings the tool device back first)
     padtool --board dongle pair   dongle: forget its bond and pair with a pad
@@ -1353,7 +1353,7 @@ def main():
         scsi(need_device(), bytes([OP, 0x30]) + address, 0)
     elif a.command == "tool-only":
         cmd(need_device(), 0x31)
-        print("dongle: tool device until it reboots")
+        print("dongle: tool device until power loss")
     elif a.command == "find":
         for path, _ in devices():
             print(f"{BOARD} {path}  {identify(path)}  {status(path)}")

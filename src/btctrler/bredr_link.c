@@ -871,11 +871,14 @@ RF_CODE int __page_enable(u8 *remote_addr, u8 remote_sr, int clk_offset, u8 *loc
     return 0;
 }
 
-/* The clock offset from HCI Create Connection counts if bit 15 says valid. */
+/* The clock offset from HCI Create Connection counts if bit 15 says valid.
+ * The HCI page timeout is in slots; __page_enable takes milliseconds (the
+ * SDK passed the slots as they were: BTstack's 0x6000 paged for 24.6 s). */
 RF_CODE int link_page_enable(u8 *remote_addr, u8 remote_sr, int clk_offset, void (*completed)(u8 *, int))
 {
     int off = (s16)clk_offset < 0 ? ((clk_offset << 1) & 0xfffe) : 0;
-    return __page_enable(remote_addr, remote_sr, off, hci_param.addr, gbredr_local_dev.page_timeout_value, 0, completed);
+    u32 ms = (u32)gbredr_local_dev.page_timeout_value * 625 / 1000;
+    return __page_enable(remote_addr, remote_sr, off, hci_param.addr, (u16)ms, 0, completed);
 }
 
 static RF_CODE void page_disable(u8 put_lt_addr, int err)
@@ -4430,7 +4433,7 @@ int main(void)
         tasks_added = tasks_deleted = frames_put = 0;
         CHECK(link_page_enable(addr, 1, 0x8123, page_done) == 0);
         CHECK(page && page->lt_addr == 1 && page->remote.clk_offset == 0x0246 && page->ab_train_max == 128);
-        CHECK(page->timeout == 1000 + 12800 && page->task.type == 16 && page->task.run_slot == 32);
+        CHECK(page->timeout == 1000 + 8000 && page->task.type == 16 && page->task.run_slot == 32);
         CHECK((bredr_link_v.bredr_link_state & 1) && tasks_added == 1);
         CHECK(link_page_enable(addr, 1, 0x0123, page_done) == 0);   /* already paging */
         link_page_disable(7);

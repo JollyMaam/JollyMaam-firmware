@@ -1257,6 +1257,9 @@ static void setup_classic(void)
     gap_set_default_link_policy_settings(LM_LINK_POLICY_ENABLE_ROLE_SWITCH |
                                          LM_LINK_POLICY_ENABLE_SNIFF_MODE);
     gap_set_allow_role_switch(true);
+    /* The dongle: a page that has not reached it in 5 s is given up and
+     * tried again (about 1 in 7 pages right after a lost link never does). */
+    if (prof == &profile_link) gap_set_page_timeout(0x2000);
     gap_set_security_level(LEVEL_0);
     gap_ssp_set_enable(1);
     gap_ssp_set_io_capability(SSP_IO_CAPABILITY_NO_INPUT_NO_OUTPUT);
