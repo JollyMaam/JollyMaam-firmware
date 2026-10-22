@@ -341,7 +341,7 @@ static void flash_header(uint8_t out[32], const struct config *c,
   jl_enc(out, 32, 0xffff); /* enter the header's CRC domain */
   wr16(out + 2, 544);
   wr32(out + 8, flash_size);
-  out[12] = 2;
+  out[12] = (uint8_t)number(cfg(c, "JLNEWFW", "HEADER_FS", "2")); /* BD19: 11 */
   out[13] = 16;
   uint32_t special = number(cfg(c, "EXTRA_CFG_PARAM", "SPECIAL_OPT", "0"));
   out[15] = special ? (uint8_t)special : 0xff;
@@ -550,6 +550,7 @@ static void inspect(const char *path, const char *outdir, bool extract) {
   const uint8_t *sys = NULL;
   uint32_t sys_n = 0;
   char uboot_name[17] = "";
+  uint8_t top_uboot_flags = 0;
   for (uint32_t off = base + 32;; off += 32) {
     if ((uint64_t)off + 32 > n || nt == MAX_FILES)
       die("invalid top-level list");
@@ -571,7 +572,7 @@ static void inspect(const char *path, const char *outdir, bool extract) {
                                                    top[nt].size <= n)
       sys = image + base + top[nt].offset, sys_n = top[nt].size;
     if (!strcmp(name, "uboot.boot"))
-      snprintf(uboot_name, sizeof uboot_name, "%s", name);
+      snprintf(uboot_name, sizeof uboot_name, "%s", name), top_uboot_flags = top[nt].flags;
     if (!(top[nt].flags & 0x10) && top[nt].flags != 0x81) {
       if ((uint64_t)base + top[nt].offset + top[nt].size > n)
         die("top-level file is truncated");
@@ -627,7 +628,9 @@ static void inspect(const char *path, const char *outdir, bool extract) {
     die("application-area data CRC mismatch");
   char files[MAX_FILES][17], res[MAX_FILES][17];
   size_t nfiles = 0, nres = 0;
-  uint32_t code = 0, vm_len = 0, btif_len = 0;
+  struct entry areas[MAX_FILES]; /* the reserved list, as it is */
+  size_t nareas = 0;
+  uint32_t code = 0, vm_len = 0, btif_len = 0, vm_at = 0;
   for (uint32_t off = 32;; off += 32) {
     struct entry e;
     if (off + 32 > outer.size || !decode_entry(plain + off, &e))
@@ -638,12 +641,16 @@ static void inspect(const char *path, const char *outdir, bool extract) {
            e.offset, e.size, e.flags, e.reserved, e.index);
     if (!strcmp(name, "PRCT"))
       code = e.size;
-    if (!strcmp(name, "VM"))
+    if (!strcmp(name, "VM")) {
       vm_len = rd32(e.name + 12);
+      vm_at = e.offset;
+    }
     if (!strcmp(name, "BTIF"))
       btif_len = e.size;
     if (e.flags == 0x82 && nfiles < MAX_FILES)
       memcpy(files[nfiles++], name, 17);
+    if (e.flags != 0x82 && nareas < MAX_FILES)
+      areas[nareas++] = e;
     if (e.flags == 0x82) {
       if ((uint64_t)e.offset + e.size > outer.size)
         die("nested file outside app area");
@@ -658,12 +665,14 @@ static void inspect(const char *path, const char *outdir, bool extract) {
     if (e.index)
       break;
   }
-  /* Resources: areas like the app area, each a header (contents from its
+  /* Resources: areas after the app area, each a header (contents from its
    * offset field on, size including the header, CRC over the contents) and
-   * the contents (a small directory of its own), until one says last. */
+   * one file, until one says last.  Flags 0x83 (resources) or 0x82 (the
+   * BD19's p11_code.bin); "name:82" in RES keeps the latter. */
+  uint8_t res_flags[MAX_FILES];
   for (uint32_t off = outer.size; !outer.index && off + 32 <= plain_n;) {
     struct entry e;
-    if (!decode_entry(plain + off, &e) || e.flags != 0x83)
+    if (!decode_entry(plain + off, &e) || (e.flags != 0x83 && e.flags != 0x82))
       die("resource header CRC mismatch");
     char name[17];
     name_string(name, e.name);
@@ -677,8 +686,10 @@ static void inspect(const char *path, const char *outdir, bool extract) {
       path_join(dst, sizeof dst, outdir, name);
       write_file(dst, plain + off + e.offset, e.size - e.offset);
     }
-    if (nres < MAX_FILES)
+    if (nres < MAX_FILES) {
+      res_flags[nres] = e.flags;
       memcpy(res[nres++], name, 17);
+    }
     if (e.index)
       break;
     off += e.size;
@@ -720,16 +731,26 @@ static void inspect(const char *path, const char *outdir, bool extract) {
                "PRCT_OPT = 2;\nVM_ADR = 0;\nVM_LEN = 0x%x;\nVM_OPT = 1;\n"
                "BTIF_ADR = AUTO;\nBTIF_LEN = 0x%x;\nBTIF_OPT = 1;\n[JLNEWFW]\n",
             vm_len, btif_len);
-    fprintf(f, "UBOOT = %s;\nFILES = ", uboot_name);
+    fprintf(f, "UBOOT = %s;\nUBOOT_FLAGS = 0x%02x;\nHEADER_FS = %u;\nAREAS = ", uboot_name,
+            top_uboot_flags, fh[12]);
+    for (size_t i = 0; i < nareas; i++) {
+      fprintf(f, "%s0x%x:0x%x:0x%02x:0x%02x:0x%04x:", i ? ", " : "", areas[i].offset,
+              areas[i].size, areas[i].flags, areas[i].reserved, areas[i].data_crc);
+      for (unsigned k = 0; k < 16; k++)
+        fprintf(f, "%02x", areas[i].name[k]);
+    }
+    fprintf(f, ";\nFILES = ");
     for (size_t i = 0; i < nfiles; i++)
       fprintf(f, "%s%s", i ? ", " : "", files[i]);
     fprintf(f, ";\n");
     if (nres) {
       fprintf(f, "RES = ");
       for (size_t i = 0; i < nres; i++)
-        fprintf(f, "%s%s", i ? ", " : "", res[i]);
+        fprintf(f, "%s%s%s", i ? ", " : "", res[i], res_flags[i] == 0x82 ? ":82" : "");
       fprintf(f, ";\n");
     }
+    if (!code && vm_at > base) /* no PRCT entry (BD19): the code ends where VM starts */
+      code = vm_at - base;
     fprintf(f, "FLASH_SIZE = 0x%x;\nCODE_LIMIT = 0x%x;\nHEADER_SPECIAL = 0x%02x;\n"
                "CHIP_KEY = 0x%04x;\nCHIP_KEY_RECORD = ",
             flash_end, code, fh[15], chipkey);
@@ -905,9 +926,16 @@ static struct blob build(struct pack_opts *o, uint16_t *key_out) {
   size_t uboot_n;
   uint8_t *uboot = read_file(o->uboot, &uboot_n);
   struct app_file files[2 * MAX_FILES];
+  uint8_t area_flags[2 * MAX_FILES]; /* resources: 0x83, or 0x82 for "name:82" */
   size_t nall = o->nf + o->nr;
   for (size_t i = 0; i < nall; i++) {
-    const char *path = i < o->nf ? o->files[i] : o->res[i - o->nf];
+    char *path = strdup(i < o->nf ? o->files[i] : o->res[i - o->nf]);
+    size_t pn = strlen(path);
+    area_flags[i] = 0x83;
+    if (i >= o->nf && pn > 3 && !strcmp(path + pn - 3, ":82")) {
+      path[pn - 3] = 0;
+      area_flags[i] = 0x82;
+    }
     files[i] = (struct app_file){path, base_name(path), NULL, 0};
     files[i].data = read_file(path, &files[i].size);
   }
@@ -915,7 +943,32 @@ static struct blob build(struct pack_opts *o, uint16_t *key_out) {
       align_up((uint32_t)(32 + 4 * 32 + uboot_n + sys.n), 0x1000);
   uint32_t entry = number(cfg(&c, "EXTRA_CFG_PARAM", "ENTRY", "0x1e00120"));
   uint32_t appoff = entry & 0xfffffu;
-  size_t nested_n = o->nf + 3;
+  /* The reserved list as unpack found it (AREAS: offset:size:flags:reserved:
+   * CRC field:name field, 16 bytes in hex), or else VM, PRCT and BTIF from the
+   * layout. */
+  struct entry areas[MAX_FILES];
+  size_t nareas = 0;
+  if ((v = cfg(&c, "JLNEWFW", "AREAS", NULL)) && *v) {
+    char *copy = strdup(v), *save = NULL;
+    for (char *t = strtok_r(copy, ",", &save); t && nareas < MAX_FILES;
+         t = strtok_r(NULL, ",", &save)) {
+      unsigned off, size, flags, res, crc;
+      char hex[33];
+      if (sscanf(trim(t), "%x:%x:%x:%x:%x:%32s", &off, &size, &flags, &res, &crc, hex) != 6 ||
+          strlen(hex) != 32)
+        die("AREAS entry is offset:size:flags:reserved:crc:name-hex");
+      struct entry *a = &areas[nareas++];
+      *a = (struct entry){(uint16_t)crc, off, size, (uint8_t)flags, (uint8_t)res, 0, {0}};
+      for (unsigned k = 0; k < 16; k++) {
+        unsigned b;
+        sscanf(hex + 2 * k, "%2x", &b);
+        a->name[k] = (uint8_t)b;
+      }
+    }
+    free(copy);
+    areas[nareas - 1].index = 1;
+  }
+  size_t nested_n = o->nf + (nareas ? nareas : 3);
   if (appoff < 32 + (uint32_t)nested_n * 32)
     die("ENTRY's flash offset overlaps the app-area headers");
   uint32_t cursor = appoff;
@@ -961,8 +1014,8 @@ static struct blob build(struct pack_opts *o, uint16_t *key_out) {
   uint32_t top_data = 32 + 4 * 32, uboot_off = top_data,
            sys_off = uboot_off + (uint32_t)uboot_n;
   struct entry top[4] = {0};
-  top[0] = (struct entry){
-      crc16(uboot, uboot_n), uboot_off, (uint32_t)uboot_n, 0, 0, 0, {0}};
+  top[0] = (struct entry){crc16(uboot, uboot_n), uboot_off, (uint32_t)uboot_n,
+                          (uint8_t)number(cfg(&c, "JLNEWFW", "UBOOT_FLAGS", "0")), 0, 0, {0}};
   set_name(top[0].name, "uboot.boot");
   top[1] = (struct entry){
       crc16(sys.p, sys.n), sys_off, (uint32_t)sys.n, 0x02, 0xff, 0, {0}};
@@ -1002,14 +1055,14 @@ static struct blob build(struct pack_opts *o, uint16_t *key_out) {
   r[2] = (struct entry){0xffff, btif, btif_len, 0x92, 0x81, 1, {0}};
   set_name(r[2].name, "BTIF");
   memcpy(r[2].name + 12, "AUTO", 4);
-  for (unsigned i = 0; i < 3; i++)
-    encode_entry(image.p + appbase + 32 + (uint32_t)(o->nf + i) * 32, &r[i]);
+  for (unsigned i = 0; i < (nareas ? nareas : 3); i++)
+    encode_entry(image.p + appbase + 32 + (uint32_t)(o->nf + i) * 32, nareas ? &areas[i] : &r[i]);
   outer.data_crc = crc16(image.p + appbase + 32, outer_size - 32);
   encode_entry(image.p + appbase, &outer);
   uint32_t pos = appbase + outer_size;
   for (size_t i = o->nf; i < nall; i++) {
     struct entry e = {crc16(files[i].data, files[i].size), 32,
-                      32 + (uint32_t)files[i].size, 0x83, 0xff,
+                      32 + (uint32_t)files[i].size, area_flags[i], 0xff,
                       (uint16_t)(i + 1 == nall), {0}};
     set_name(e.name, files[i].name);
     encode_entry(image.p + pos, &e);

@@ -33,6 +33,15 @@ Cyclone 2 PIDs are in [../gamesir-cyclone2/flash-map.md](../gamesir-cyclone2/fla
 Unpack followed by pack, with `--at 0`, reproduces this project's build byte
 for byte.
 
+`unpack` writes into the `[JLNEWFW]` section what `pack` cannot derive: the
+files and resource areas (`RES`, `name:82` for an area with flags `0x82`),
+`UBOOT_FLAGS`, `HEADER_FS` (flash-header byte 12), and `AREAS`, the app
+area's reserved list as found (`offset:size:flags:reserved:crc:name field`).
+With `AREAS` given, `pack` writes that list instead of computing VM, PRCT and
+BTIF. The GameSir Nova 2 Lite's stock pad and dongle images unpack and pack
+back byte for byte, except the 32 bytes before VM that GameSir's updater
+stamps (see the Cyclone 2's flash map); `flash --keep` carries them over.
+
 ## Telling devices apart
 
 | Class | Known by | PID from | Into the loader |

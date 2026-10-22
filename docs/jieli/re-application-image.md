@@ -121,6 +121,19 @@ offset field `0x20` onward, a size that includes the header, a CRC16 over the
 contents, and index 1 on the last. It is a small directory of its own. It is
 encrypted with the app area, the cipher continuing from the app area's start.
 
+An area with flags `0x82` in the same place holds one file. The AC632N (BD19)
+image of the GameSir Nova 2 Lite dongle has `p11_code.bin` there: 4096 bytes,
+code for the chip's P11 core.
+
+### AC632N (BD19) images
+
+The AC632N image read from that dongle differs from a BR23 image in these
+fields: flash-header byte 12 is 11 (BR23: 2); the `uboot.boot` entry's flags
+are `0x40` (BR23: `0x00`); the app area's reserved list is VM, BTIF, EXIF and
+USERIF, with no PRCT. The AC695X image of the GameSir Nova 2 Lite pad also has
+EXIF and USERIF after BTIF. Neither the meaning of byte 12 nor flag `0x40` is
+established.
+
 ## UFW container
 
 The reader understands the UFW transport container. Its first 64 bytes decode as:
