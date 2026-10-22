@@ -16,5 +16,5 @@ BTSTACK_RENAMES := -Dhci_send_cmd=btstack_hci_send_cmd \
 	-Dbig_endian_store_32=btstack_big_endian_store_32 \
 	-Dnibble_for_char=btstack_nibble_for_char
 BTSTACK_INCLUDES := -I$(BTSTACK)/src -I$(BTSTACK)/src/classic
-# Our files that call BTstack: built with its renames.
-BTSTACK_USERS := src/platform/btstack/bt.c src/platform/gamesir/dongle/dongle_bt.c src/platform/jieli/btstack_hci_jieli.c
+# Our files that call BTstack, built with its renames; a product adds its own.
+BTSTACK_USERS := src/platform/jieli/btstack_hci_jieli.c

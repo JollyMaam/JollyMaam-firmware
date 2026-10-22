@@ -113,7 +113,7 @@ static void stats_reset(u32 now)
     plat_stats(&c.plat_base);
 }
 
-/* The running counters of bt.c and the platform, counted from the reset. */
+/* The running counters of bt_pad.c and the platform, counted from the reset. */
 static void counters_since(u32 *out, const u32 *now, const u32 *base, u32 n)
 {
     while (n--) *out++ = *now++ - *base++;
@@ -724,7 +724,7 @@ static u32 state_deadline(void)
         if (c.usb && !c.usb_powered && !c.radio) return c.usb_absent_ms + USB_GONE_MS;
         return c.retry_at ? c.retry_at : c.since + ux_timeouts.connect_ms;
     case CTL_PAIRING: return c.since + (c.radio_pending ? ux_timeouts.stop_max_ms : ux_timeouts.pair_ms);
-    case CTL_CONNECTED:          /* bt.c wakes the loop (EV_BT) when it wants a report; one
+    case CTL_CONNECTED:          /* bt_pad.c wakes the loop (EV_BT) when it wants a report; one
                                     waiting for its time (pull_at_us) wakes it through plat_wait */
         return input_wanted() && !c.pull_at_us ? c.report_next : plat_ms() + 100;
     default: return plat_ms() + 10;
@@ -1000,7 +1000,7 @@ static void at_rest(struct pad *p)
     }
 }
 
-/* Pull: a report is built when bt.c has room for it, from the newest input,
+/* Pull: a report is built when bt_pad.c has room for it, from the newest input,
  * and at most report_hz times a second.  A report built is a report sent, so
  * the IMU samples it takes are never dropped. */
 static void send_report(u32 now)
@@ -1092,7 +1092,7 @@ void ctl_main(void)
 /* Time since the last mark: that step's worst and its total. */
 #define STEP(i) do { u32 u = plat_us(); if (u - t > c.stats.step_max[i]) c.stats.step_max[i] = u - t; \
                          c.stats.step_sum[i] += u - t; t = u; } while (0)
-/* bt.c may ask for a report while this pass runs: answer between steps, not
+/* bt_pad.c may ask for a report while this pass runs: answer between steps, not
  * at the next pass (the connection event will not wait). */
 #define PULL() do { if (c.kind == CTL_CONNECTED && input_wanted()) { send_report(now); \
                          STEP(STEP_REPORT); } } while (0)
@@ -1103,7 +1103,7 @@ void ctl_main(void)
         STEP(STEP_INPUT);
         while (bt_poll(&e)) bt_event(&e, now);
         STEP(STEP_BT);
-        /* Straight after the input: bt.c is waiting for this report. */
+        /* Straight after the input: bt_pad.c is waiting for this report. */
         if (c.kind == CTL_CONNECTED) send_report(now);
         STEP(STEP_REPORT);
         /* The counters are cumulative: bring the copy up to date only while

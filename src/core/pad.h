@@ -183,7 +183,7 @@ struct ctl_request {
 
 void ctl_main(void);
 
-/* ---- bt.c --------------------------------------------------------------- */
+/* ---- bt_pad.c (the board's Bluetooth on BTstack) ------------------------ */
 
 enum { BT_CLASSIC, BT_LE };
 
@@ -412,7 +412,7 @@ struct set_slot {
     u8 address[6];           /* zero: derived */
     struct bt_bond bond;
     u16 report_hz;           /* the most reports a second; 0: REPORT_HZ */
-    u16 pull_delay_us;       /* build a pulled report this long after bt.c asks */
+    u16 pull_delay_us;       /* build a pulled report this long after bt_pad.c asks */
     struct bt_link link;
     u8 remap;                /* the remap slot each connect starts with: 0 none, 1-8 slots A-right */
 };
@@ -700,14 +700,14 @@ struct bt_link_info {
     u16 acl_buffers;             /* the controller's ACL packets (LE ones on LE) */
     u32 poll_us;                 /* Classic: accepted poll interval (us), 0 unknown */
     u32 lead_us;                 /* reports are built this long before their anchor; 0: when asked */
-    u32 period_us;               /* between the central's anchors, as bt.c reckons it; 0 unknown */
+    u32 period_us;               /* between the central's anchors, as bt_pad.c reckons it; 0 unknown */
 };
 
 struct bt_timing {
     struct stat_hist ack_wait;   /* report to the controller until it says sent */
     struct stat_hist slot_air;   /* report into the input slot until the anchor it went out at */
     struct stat_hist ack_gap;    /* between Number Of Completed Packets for the link */
-    struct stat_hist want_send;  /* bt.c asked for a report until it was handed over */
+    struct stat_hist want_send;  /* bt_pad.c asked for a report until it was handed over */
     struct bt_link_info link;
 };
 

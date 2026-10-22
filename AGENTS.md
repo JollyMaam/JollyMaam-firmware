@@ -10,11 +10,11 @@ controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`)
 - Module contracts: the section comments in `src/core/pad.h`.
 - Sources: `src/core/` (the controller loop, input, settings, Home gestures,
   LEDs, remap, the tools' protocol; no SDK or BTstack), `src/profiles/`,
-  `src/platform/btstack/` (`bt.c`: the `bt_` interface on BTstack, for a chip
-  with an HCI controller), `src/platform/gamesir/dongle/` (the dongle's loop),
+  `src/platform/gamesir/dongle/` (the dongle's loop),
   `src/platform/jieli/` (the BR23: platform, `board.h`, HCI glue, `sdkconfig/`,
   our controller in `btctrler/`), `src/boards/<product>/` (pins, board
-  hooks and `btstack_config.h`, for one platform).
+  hooks, the `bt_` module on BTstack (`bt_pad.c`, `bt_dongle.c`) and
+  `btstack_config.h`: what only that product uses).
 
 ## Working rules
 
@@ -35,7 +35,7 @@ controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`)
   owns every decision and the pad's state.
 - **Mostly stateless modules.** Modules do not call each other, except that a
   profile may send to the host (`host_send`, over the session's transport),
-  `bt.c` or the platform's USB asks the running profile to answer a host read,
+  `bt_pad.c` or the platform's USB asks the running profile to answer a host read,
   and `usb.c` (the tools' commands) reads and writes settings itself.  What a
   profile needs from other modules (the gyro bias included) comes in
   `struct pad`, so the dongle can run the same profiles.
@@ -45,8 +45,8 @@ controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`)
   the dongle).  A profile builds the USB formats when
   `profile_session.usb` is set.  The dongle runs the same profiles on its USB
   port from the pad's state (`link.h`, `profile_link.c`, `dongle*.c`).
-- **Two threads.** Control runs `ctl_main` and every module except `bt.c`.
-  Bluetooth runs BTstack, `bt.c` and the profiles' `read()`. Control to
+- **Two threads.** Control runs `ctl_main` and every module except `bt_pad.c`.
+  Bluetooth runs BTstack, `bt_pad.c` and the profiles' `read()`. Control to
   Bluetooth: the input slot and the message queue. Bluetooth to control: the
   event queue (`bt_poll`). Host reads are answered on the Bluetooth thread, so
   `read()` returns only constant data.
@@ -59,7 +59,7 @@ controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`)
   timeouts and LED scenes (`settings_ux.c`), profile descriptors (`profile_*.c`),
   setting defaults (`settings.c`), pins (`board_pad.c`, `board_dongle.c`).
 - **Tests.** A module with logic has an `#ifdef UNITTEST` block at its end.
-  `make test` runs them on the host. Not covered: `controller.c`, `bt.c`,
+  `make test` runs them on the host. Not covered: `controller.c`, `bt_pad.c`,
   `btstack_hci_jieli.c`, `platform_jieli*.c`.
 
 ## Build and test

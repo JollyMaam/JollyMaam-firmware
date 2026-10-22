@@ -4,7 +4,7 @@
 #include "pad.h"
 
 /* The pad to dongle link (transport dongle).  Classic HID: the pad is the HID
- * device (profile_link.c), the dongle its host and master (dongle_bt.c).  The
+ * device (profile_link.c), the dongle its host and master (bt_dongle.c).  The
  * pad sends its state, the dongle turns it into the slot's type on USB with
  * the same profile code the pad uses on its own USB port.  Little-endian,
  * byte by byte (no struct layout).
