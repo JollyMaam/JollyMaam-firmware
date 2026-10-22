@@ -8,7 +8,7 @@ HOST_CFLAGS := -O2 -g -std=c11 -Wall -Wextra -Wno-unused-function -Wno-missing-f
 # make gamesir-cyclone-2-pad EXTRA_DEFINES=-DUSB_SESSION_TEST_MS=12000
 EXTRA_DEFINES :=
 # Where the app's own headers are ("..." includes), for firmware and tests.
-SRC_INCLUDES := -iquote src/core -iquote src/profiles -iquote src/bt/btstack -iquote src/dongle \
+SRC_INCLUDES := -iquote src/core -iquote src/profiles -iquote src/platform/btstack -iquote src/platform/gamesir/dongle \
 	-iquote src/platform/jieli
 # What changes the build: every object depends on these.
 MAKE_FILES := Makefile $(wildcard make/*.mk)

@@ -17,4 +17,4 @@ BTSTACK_RENAMES := -Dhci_send_cmd=btstack_hci_send_cmd \
 	-Dnibble_for_char=btstack_nibble_for_char
 BTSTACK_INCLUDES := -I$(BTSTACK)/src -I$(BTSTACK)/src/classic
 # Our files that call BTstack: built with its renames.
-BTSTACK_USERS := src/bt/btstack/bt.c src/dongle/dongle_bt.c src/platform/jieli/btstack_hci_jieli.c
+BTSTACK_USERS := src/platform/btstack/bt.c src/platform/gamesir/dongle/dongle_bt.c src/platform/jieli/btstack_hci_jieli.c
