@@ -24,7 +24,7 @@ def record(**values):
         f.write(json.dumps(dict(name=name, pid=os.getpid(), **values))+'\n')
 def sleep_with_child():
     child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])
-    record(child=child.pid, qt=os.environ.get('QT_QPA_PLATFORM'), tmp=os.environ.get('TMPDIR'))
+    record(child=child.pid, qt=os.environ.get('QT_QPA_PLATFORM'), tmp=os.environ.get('TMPDIR'), args=args)
     while True: time.sleep(1)
 if name == 'gradlew':
     if os.environ.get('PADTOOL_TEST_BUILD_OK'):
@@ -145,6 +145,9 @@ class LauncherTests(unittest.TestCase):
         self.assertIsNone(p.poll(),'Launcher must remain in foreground')
         emulator=next(r for r in self.records() if r['name']=='emulator')
         self.assertEqual('xcb',emulator['qt'])
+        args=emulator['args']
+        features=[args[i+1] for i, arg in enumerate(args) if arg == '-feature']
+        self.assertEqual(['VirtioTablet', '-VirtioMouse', '-VirtioDualModeMouse'], features)
         self.assertTrue(Path(emulator['tmp']).is_dir())
         os.killpg(p.pid,signal.SIGINT)
         p.wait(timeout=10)

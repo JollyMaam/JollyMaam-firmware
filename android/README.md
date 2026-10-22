@@ -56,6 +56,13 @@ back to `~/.local/state/cyclone-padtool/emulator`. GPU rendering uses
 SwiftShader, while KVM accelerates the CPU by default. `--software` also
 disables CPU acceleration and gives first boot a longer timeout.
 
+The launcher enables `VirtioTablet` and disables the alternative mouse devices
+to expose native wheel input without pointer capture. Otherwise the emulator
+can translate wheel ticks into animated touchscreen swipes, which also trigger
+Android's touch flinging. After updating an older launcher, stop it and run
+`./android/run-emulator --cold-boot` once so the new input hardware is used.
+Reloading the APK with **r + Enter** does not change emulator hardware options.
+
 `QT_QPA_PLATFORM` is passed through. The launcher defaults to `xcb` when
 `DISPLAY` is available. To explicitly use X11/XWayland:
 

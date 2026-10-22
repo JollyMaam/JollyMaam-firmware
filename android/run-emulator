@@ -153,6 +153,10 @@ disk.dataPartition.size=2G
 CONFIG
 fi
 options=(-avd "$avd_name" -port "$port" -no-boot-anim -no-audio -camera-back none -camera-front none -gpu swiftshader)
+# Without a wheel-capable device Qt synthesizes an animated touchscreen swipe
+# per wheel tick. Expose an absolute mouse with a real wheel instead. Disable
+# the alternative mouse devices so pointer capture is not required.
+options+=(-feature VirtioTablet -feature -VirtioMouse -feature -VirtioDualModeMouse)
 if $headless; then options+=(-no-window); fi
 if $cold; then options+=(-no-snapshot-load); fi
 if $software; then options+=(-accel off); fi
