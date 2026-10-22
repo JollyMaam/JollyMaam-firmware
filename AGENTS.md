@@ -10,11 +10,11 @@ controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`)
 - Module contracts: the section comments in `src/core/pad.h`.
 - Sources: `src/core/` (the controller loop, input, settings, Home gestures,
   LEDs, remap, the tools' protocol; no SDK or BTstack), `src/profiles/`,
-  `src/platform/gamesir/dongle/` (the dongle's loop),
   `src/platform/jieli/` (the BR23: platform, `board.h`, HCI glue, `sdkconfig/`,
   our controller in `btctrler/`), `src/boards/<product>/` (pins, board
-  hooks, the `bt_` module on BTstack (`bt_pad.c`, `bt_dongle.c`) and
-  `btstack_config.h`: what only that product uses).
+  hooks, the `bt_` module on BTstack (`bt_pad.c`, `bt_dongle.c`), the
+  dongle's loop (`dongle*.c`) and `btstack_config.h`: what only that product
+  uses).
 
 ## Working rules
 

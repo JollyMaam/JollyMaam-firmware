@@ -31,7 +31,7 @@ $(CYCLONE2_DONGLE)_BOARD_DIR := src/boards/gamesir-cyclone-2
 $(CYCLONE2_DONGLE)_SOURCES := src/boards/gamesir-cyclone-2/board_dongle.c \
 	src/platform/jieli/platform_jieli.c src/platform/jieli/platform_jieli_sdk.c \
 	src/platform/jieli/platform_jieli_usb.c src/platform/jieli/platform_jieli_audio.c \
-	src/platform/gamesir/dongle/dongle.c src/boards/gamesir-cyclone-2/bt_dongle.c src/platform/gamesir/dongle/dongle_protocol.c \
+	src/boards/gamesir-cyclone-2/dongle.c src/boards/gamesir-cyclone-2/bt_dongle.c src/boards/gamesir-cyclone-2/dongle_protocol.c \
 	src/platform/jieli/btstack_hci_jieli.c src/platform/jieli/btstack_qos_jieli.c \
 	src/core/usb.c src/core/utils.c src/core/input_imu.c \
 	src/profiles/profile_link.c src/profiles/profile_switch.c src/profiles/profile_xbox.c \
