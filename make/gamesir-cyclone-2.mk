@@ -11,7 +11,7 @@ CYCLONE2_PAD := gamesir-cyclone-2-pad
 $(CYCLONE2_PAD)_FLASH_SIZE := 0x100000
 $(CYCLONE2_PAD)_PID := GS_C2_ADC_DEVICE
 $(CYCLONE2_PAD)_DEFINES :=
-$(CYCLONE2_PAD)_LOADER_HINT := Stock firmware: hold Home+Start while plugging in USB.
+$(CYCLONE2_PAD)_LOADER_HINT := Stock firmware: Xbox 360 mode (green), or hold Home+Start while plugging in USB.
 $(CYCLONE2_PAD)_BOARD_DIR := src/boards/gamesir-cyclone-2
 $(CYCLONE2_PAD)_SOURCES := src/boards/gamesir-cyclone-2/board_pad.c \
 	src/boards/gamesir-cyclone-2/bt_pad.c src/platform/jieli/btstack_hci_jieli.c src/platform/jieli/btstack_qos_jieli.c \

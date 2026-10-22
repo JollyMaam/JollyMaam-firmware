@@ -34,12 +34,22 @@ Wired, `3537:100f`, product "XBOX 360 For Windows", manufacturer "2.4G":
 | 1 | HID keyboard (report 1) and consumer control (report 3) |
 | 2 | vendor HID, usage page `0xff7a`, 64-byte input and output, no report IDs |
 
+Its three wired modes, by LED colour. Only the Xbox 360 mode has the vendor
+interface.
+
+| Mode | VID:PID | bcdDevice | Manufacturer / product / serial | Interfaces |
+|---|---|---|---|---|
+| Xbox 360 (green) | `3537:100f` | `0x0100` | "2.4G" / "XBOX 360 For Windows" / — | as above |
+| Switch (red) | `057e:2009` | `0x0200` | "Zikway" / "Pro Controller" / `314838353800c9c4` | one HID: the Pro Controller's 203-byte descriptor |
+| DS4 (blue) | `054c:09cc` | `0x0100` | "Sony Computer Entertainment" / "Wireless Controller" / — | one HID: 507-byte DS4 descriptor |
+
 ### Loader entry
 
-The output report `f2 00 04 f6` on interface 2 restarts the pad into the
-MaskROM loader: `4c4a:2342` `BR23UBOOT1.00`, one mass-storage interface
-(`08/06/50`, full speed), as in [../jieli/power.md](../jieli/power.md). GameSir
-Connect for Windows sends this, then writes a `.ufw` through that loader.
+In Xbox 360 mode, the output report `f2 00 04 f6` on interface 2 restarts
+the pad into the MaskROM loader: `4c4a:2342` `BR23UBOOT1.00`, one
+mass-storage interface (`08/06/50`, full speed), as in
+[../jieli/power.md](../jieli/power.md). GameSir Connect for Windows sends
+this, then writes a `.ufw` through that loader.
 
 ## Not established
 

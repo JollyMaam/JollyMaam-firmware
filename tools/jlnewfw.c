@@ -1377,10 +1377,13 @@ static void crc_cipher(uint8_t *p, size_t n, uint32_t key) {
 static const struct {
   const char *pid;              /* the stock image's */
   uint16_t vid, product, usage_page;
-  uint8_t report[5];            /* report ID 0, then the command */
+  uint8_t len;                  /* written: the report ID byte (0: none) and the report */
+  uint8_t report[5];            /* that byte, then the command; zero-padded to len */
 } stock_hid[] = {
+  /* GameSir Cyclone 2 3.52, wired: report 0x0f (docs/gamesir-cyclone2/stock-pad-dongle.md) */
+  {"GS_C2_ADC_DEVICE", 0x3537, 0x1053, 0xfff0, 64, {0x0f, 0x17, 0x55, 0x88, 0x00}},
   /* GameSir Nova 2 Lite, wired: its vendor interface (docs/gamesir-nova-lite-2/) */
-  {"AC695X_TRANS", 0x3537, 0x100f, 0xff7a, {0x00, 0xf2, 0x00, 0x04, 0xf6}},
+  {"AC695X_TRANS", 0x3537, 0x100f, 0xff7a, 65, {0x00, 0xf2, 0x00, 0x04, 0xf6}},
 };
 
 /* The stock_hid entry a HID interface is, for `want` (any, if NULL). */
@@ -1393,7 +1396,25 @@ static int stock_hid_match(const char *want, unsigned vid, unsigned product,
   return -1;
 }
 
-/* Writes the entry's report, zero-padded to the 64-byte output report. */
+/* Whether a report descriptor has a usage page item for page. */
+static bool has_usage_page(const uint8_t *d, size_t n, unsigned page) {
+  for (size_t i = 0; i < n;) {
+    if (d[i] == 0xfe) { /* long item: size in the next byte */
+      i += 3 + (i + 1 < n ? d[i + 1] : 0);
+      continue;
+    }
+    size_t size = (d[i] & 3) == 3 ? 4 : d[i] & 3;
+    unsigned v = 0;
+    for (size_t k = 0; k < size && i + 1 + k < n; k++)
+      v |= (unsigned)d[i + 1 + k] << 8 * k;
+    if ((d[i] & 0xfc) == 0x04 && v == page)
+      return true;
+    i += 1 + size;
+  }
+  return false;
+}
+
+/* Writes the entry's report, zero-padded to its output report. */
 static size_t enter_stock_hid(const char *want, char selected[256][300], size_t count) {
 #ifdef _WIN32
   GUID guid;
@@ -1423,11 +1444,11 @@ static size_t enter_stock_hid(const char *want, char selected[256][300], size_t 
     int e = stock_hid_match(want, a.VendorID, a.ProductID, caps.UsagePage);
     uint8_t out[65] = {0};
     DWORD done;
-    if (e >= 0 && caps.OutputReportByteLength <= sizeof out) {
+    if (e >= 0 && caps.OutputReportByteLength == stock_hid[e].len) {
       memcpy(out, stock_hid[e].report, sizeof stock_hid[e].report);
       printf("%s: stock firmware, asking it to restart into its ROM loader\n",
              detail.d.DevicePath);
-      if (WriteFile(h, out, caps.OutputReportByteLength, &done, NULL))
+      if (WriteFile(h, out, stock_hid[e].len, &done, NULL))
         snprintf(selected[count++], 300, "%s", detail.d.DevicePath);
     }
     CloseHandle(h);
@@ -1442,7 +1463,8 @@ static size_t enter_stock_hid(const char *want, char selected[256][300], size_t 
     while (dir && (e = readdir(dir)) && count < 256) {
       char path[300], sys[400], line[128];
       unsigned bus, vid = 0, product = 0;
-      uint8_t rd[3] = {0};
+      uint8_t rd[4096];
+      size_t rn = 0;
       if (strncmp(e->d_name, "hidraw", 6))
         continue;
       snprintf(path, sizeof path, "%s/%s", dirs[i], e->d_name);
@@ -1457,19 +1479,21 @@ static size_t enter_stock_hid(const char *want, char selected[256][300], size_t 
         fclose(f);
       snprintf(sys, sizeof sys, "/sys/class/hidraw/%s/device/report_descriptor", e->d_name);
       f = fopen(sys, "rb");
-      if (f && fread(rd, 1, 3, f) != 3)
-        rd[0] = 0;
-      if (f)
+      if (f) {
+        rn = fread(rd, 1, sizeof rd, f);
         fclose(f);
-      /* The descriptor opens with its usage page (06 lo hi). */
-      int m = rd[0] == 0x06 ? stock_hid_match(want, vid, product, rd[1] | rd[2] << 8) : -1;
+      }
+      int m = -1;
+      for (size_t k = 0; k < sizeof stock_hid / sizeof stock_hid[0] && m < 0; k++)
+        if (has_usage_page(rd, rn, stock_hid[k].usage_page))
+          m = stock_hid_match(want, vid, product, stock_hid[k].usage_page);
       if (m < 0)
         continue;
       uint8_t out[65] = {0};
       memcpy(out, stock_hid[m].report, sizeof stock_hid[m].report);
       int fd = open(path, O_RDWR);
       printf("%s: stock firmware, asking it to restart into its ROM loader\n", path);
-      if (fd >= 0 && write(fd, out, sizeof out) == (ssize_t)sizeof out) {
+      if (fd >= 0 && write(fd, out, stock_hid[m].len) == (ssize_t)stock_hid[m].len) {
         if (n_asked < 16)
           usb_device(path, asked[n_asked++]);
         snprintf(selected[count++], 300, "%s", path);

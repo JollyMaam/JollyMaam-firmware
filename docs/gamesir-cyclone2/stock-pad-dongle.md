@@ -86,3 +86,26 @@ In complete one-second movement windows the pad delivered 998–1006 records per
 second, inside roughly 200 HID packets per second. This shows stick data at about
 1 kHz through batching. It does not mean the radio sent 1000 packets per second,
 and it says nothing about the pad's ADC rate or button-to-report latency.
+
+## Wired pad: USB identity and loader entry
+
+The stock pad 3.52, wired in its default mode, is `3537:1053` (`bcdDevice`
+`0x0352`), product "Xbox 360 Controller for Windows": interface 0 XInput,
+interface 1 HID with keyboard (report 3), consumer (report 2), mouse
+(report 9) and a vendor collection (usage page `0xfff0`, usage `0x40`):
+input reports `0x10` and `0x12`, output report `0x0f`, 63 bytes each.
+
+Output report `0f 17 55 88` restarts the pad into the MaskROM loader
+(`4c4a:2342` `BR23UBOOT1.00`). GameSir Connect for Windows sends it as its
+"quick update".
+
+The pad's three wired modes, by LED colour. Only the Xbox 360 mode has the
+vendor collection, so the loader command reaches the pad only in that mode.
+
+| Mode | VID:PID | bcdDevice | Manufacturer / product / serial | Interfaces |
+|---|---|---|---|---|
+| Xbox 360 (green) | `3537:1053` | `0x0352` | — / "Xbox 360 Controller for Windows" / `00006F64096B22E7` | XInput; HID as above |
+| Switch (red) | `057e:2009` | `0x0352` | — / "Gamepad" / — | one HID: the Pro Controller's 203-byte descriptor |
+| DS4 (blue) | `054c:09cc` | `0x0352` | "Guangzhou Chicken Run Network Technology Co., Ltd." / "Wireless Controller" / — | one HID: 467-byte DS4 descriptor, no vendor collection of GameSir's |
+
+`bcdDevice` carries the firmware version in every mode.
