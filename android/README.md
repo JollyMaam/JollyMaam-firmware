@@ -22,12 +22,17 @@ invocation downloads the emulator/image; subsequent invocations reuse them.
 An x86_64 Linux host with read/write access to `/dev/kvm` is expected.
 
 The script builds the debug APK, creates a compact phone AVD if needed, boots
-it (or reuses the running instance), waits for Android, installs the APK and
-launches directly into **Simulated pad**. Run the same command after editing
-to rebuild/reinstall without rebooting Android. Applied simulated settings and
-pending drafts survive reinstalls; the overview's **Reset simulated pad**
-returns the demo to its initial state. The emulator stays running after the
-script exits. Close its window to shut it down.
+it, waits for Android, installs the APK and launches directly into **Simulated
+pad**. Keep the script running. Press **r + Enter** to rebuild/reinstall after
+editing, keeping Android booted. Press **q + Enter** or **Ctrl-C** to stop the
+session. Closing the emulator window also ends the session. A failed reload
+leaves the emulator available so you can fix the error and press r again.
+
+Cleanup stops the build and its descendants, emulator and private adb server,
+removes this run's temporary directory, then releases the launcher lock. The
+supervisor waits for cleanup before returning. Saved AVD data, simulated
+settings, APK build outputs and diagnostic logs are persistent and remain for
+the next run. The overview's **Reset simulated pad** resets the demo settings.
 
 Useful options:
 
@@ -38,14 +43,44 @@ Useful options:
 ./android/run-emulator --software   # opt into slow CPU emulation without KVM
 ```
 
-The dedicated emulator uses port 5580 and serial `emulator-5580`; set
-`PADTOOL_EMULATOR_PORT` to another even port from 5554 to 5584 if occupied.
-All adb install/launch commands target that serial explicitly. A different
-emulator occupying the requested serial is rejected. State, AVD files and
-`emulator.log` live under `$XDG_STATE_HOME/cyclone-padtool/emulator`, falling
+The dedicated emulator uses console port 5580, device port 5581 and serial
+`emulator-5580`; set `PADTOOL_EMULATOR_PORT` to another even port from 5554 to
+5584 if occupied. The private adb server uses emulator port + 1000 (6580 by
+default), overridable with `PADTOOL_ADB_PORT`. The script stops only its own
+server; an existing system adb server is untouched. All adb install/launch
+commands target the emulator serial explicitly. An emulator already running
+at the requested serial is rejected rather than adopted. State, AVD files,
+`adb.log` and `emulator.log` live under `$XDG_STATE_HOME/cyclone-padtool/emulator`, falling
 back to `~/.local/state/cyclone-padtool/emulator`. GPU rendering uses
 SwiftShader, while KVM accelerates the CPU by default. `--software` also
 disables CPU acceleration and gives first boot a longer timeout.
+
+`QT_QPA_PLATFORM` is passed through. The launcher defaults to `xcb` when
+`DISPLAY` is available. To explicitly use X11/XWayland:
+
+```sh
+QT_QPA_PLATFORM=xcb ./android/run-emulator --no-build
+```
+
+If a launcher is still active, the lock error includes the lock path and
+`fuser` process information. Stop the earlier launcher before retrying. Older
+launcher versions could leak their lock descriptor into a child process;
+stop that reported process once if it is still running. The updated
+supervisor never passes the lock descriptor to its children. The empty
+`launch.lock` file remains as a stable coordination file; an existing file by
+itself does not mean a lock is held.
+
+To stop/check Gradle on the host, from `android/`:
+
+```sh
+nix-shell --run './gradlew --stop'
+nix-shell --run './gradlew --status'
+pgrep -af '[G]radleDaemon|[K]otlinCompileDaemon'
+```
+
+`--stop` covers this Gradle version; `pgrep` checks processes across versions.
+No `pgrep` output means neither named daemon is running. Entries marked
+STOPPED in Gradle's registry are historical, not live processes.
 
 In a debug APK, **Devices → Simulated pad (no USB)** also opens the simulator
 manually. The `simulate=true` launch extra is used by the script. The simulator
@@ -72,6 +107,17 @@ python3 android/tools/generate_simulation.py
 The exporter invokes the firmware's actual `set_describe`, `set_read` and
 `set_read_defaults` with its host-test storage stubs; it does not access USB or
 the SDK. Ordinary app builds and emulator launches use the checked-in fixture.
+
+Launcher lifecycle tests (Linux, Python 3 and util-linux; no emulator/USB):
+
+```sh
+python3 android/tools/test_launcher.py
+```
+
+These use fake build/emulator/adb processes with real process groups, signals,
+locks, sockets and a terminal. They cover interrupted builds, Ctrl-C after
+launch, Qt startup failure/retry, process descendants, temporary-directory
+cleanup, terminal reload/quit and propagation of `QT_QPA_PLATFORM`.
 
 ## Build and install
 

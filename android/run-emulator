@@ -1,25 +1,27 @@
 #!/usr/bin/env nix-shell
 #!nix-shell --expr 'import ./emulator.nix' -i bash
-# Nix >= 2.24 resolves the import relative to this script. Run on the Linux host.
+# Nix >= 2.24 resolves this import relative to the script. Run on the Linux host.
 set -euo pipefail
 
 usage() {
     cat <<'USAGE'
 Usage: run-emulator [--no-build] [--headless] [--cold-boot] [--software]
 
-Build padtool, boot/reuse its Android 15 x86_64 emulator, install and launch the
-simulated pad. Rerun to rebuild/reinstall; emulator and saved settings persist.
+Build padtool, boot Android 15, and launch the simulated pad. Keep this command
+running. Ctrl-C stops this run's build, emulator and private adb server, and
+removes its temporary files. The AVD and saved simulated settings are kept.
+In the terminal, r + Enter rebuilds/reinstalls; q + Enter stops the session.
 
   --no-build   Install the existing app/build/outputs/apk/debug/app-debug.apk
   --headless   Start without a window (for automation)
-  --cold-boot  Start without loading a snapshot (if not already running)
+  --cold-boot  Start without loading a snapshot
   --software  Disable KVM; much slower (allows ten minutes to boot)
   --help       Show this help
 
-PADTOOL_EMULATOR_PORT: even emulator port, default 5580.
+PADTOOL_EMULATOR_PORT: even emulator port, default 5580 (adb device port 5581).
+PADTOOL_ADB_PORT: private adb server port, default emulator port + 1000.
+QT_QPA_PLATFORM is respected; defaults to xcb when DISPLAY is available.
 State/logs: $XDG_STATE_HOME/cyclone-padtool/emulator, or ~/.local/state/...
-The emulator stays running. Close its window, or stop it with:
-  adb -s emulator-5580 emu kill
 USAGE
 }
 fail() { echo "padtool emulator: $*" >&2; exit 1; }
@@ -50,28 +52,95 @@ if (( port < 5554 || port > 5584 || port % 2 != 0 )); then fail 'port must be ev
 serial="emulator-$port"
 apk="$android_dir/app/build/outputs/apk/debug/app-debug.apk"
 log_file="$state_dir/emulator.log"
-# Do not race another launcher or pass the lock into the long-lived emulator.
-exec 9>"$state_dir/launch.lock"
-flock -w 5 9 || fail 'another launcher is already building or booting this emulator'
 
-if $build; then ./gradlew :app:assembleDebug; fi
-[[ -f $apk ]] || fail 'APK not found; run again without --no-build'
-adb start-server
-running_name=$(timeout 5s adb -s "$serial" emu avd name 2>/dev/null | sed '/^OK/d;s/\r$//' || true)
-if [[ $running_name == "$avd_name" ]]; then
-    echo "Reusing $serial ($avd_name)"
-else
-    [[ -z $(adb devices | awk -v serial="$serial" '$1 == serial { print $1 }') ]] || fail "$serial is occupied by another or unresponsive emulator; choose another PADTOOL_EMULATOR_PORT"
-    if ! $software; then
-        [[ -r /dev/kvm && -w /dev/kvm ]] || fail 'KVM is unavailable. Run on the host with access to /dev/kvm, or use --software.'
-        emulator -accel-check || fail 'KVM acceleration check failed; use --software for slow emulation'
+# A supervisor holds a close-on-exec lock and forwards signals to the worker.
+# It waits for cleanup before returning, so retry cannot race a dying session.
+if [[ ${PADTOOL_EMULATOR_LOCK_HELD:-} != "$state_dir" ]]; then
+    exec python3 "$android_dir/tools/launcher_lock.py" "$state_dir/launch.lock" "$BASH" "$android_dir/run-emulator" "$@"
+fi
+unset PADTOOL_EMULATOR_LOCK_HELD
+
+run_dir=$(mktemp -d "$state_dir/run.XXXXXX")
+build_pid=
+emulator_pid=
+adb_pid=
+stop_group() {
+    local pid=$1
+    [[ -n $pid ]] || return 0
+    kill -TERM -- "-$pid" 2>/dev/null || true
+    for _ in {1..30}; do
+        if ! kill -0 -- "-$pid" 2>/dev/null; then break; fi
+        sleep 0.1
+    done
+    kill -KILL -- "-$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+}
+cleanup() {
+    local result=$?
+    trap - EXIT
+    trap '' INT TERM HUP
+    stop_group "$build_pid"
+    if [[ -n $emulator_pid && -n $adb_pid ]] && kill -0 "$adb_pid" 2>/dev/null; then
+        timeout 3s adb -s "$serial" emu kill >/dev/null 2>&1 || true
     fi
-    if [[ ! -f $ANDROID_AVD_HOME/$avd_name.avd/config.ini ]]; then
-        echo 'Creating Android 15 virtual device (AOSP, no Google account required)'
-        avdmanager create avd --name "$avd_name" --package 'system-images;android-35;default;x86_64' --device pixel <<< no
-        config="$ANDROID_AVD_HOME/$avd_name.avd/config.ini"
-        sed -i -E '/^(hw\.(lcd\.(width|height|density)|keyboard|ramSize)|skin\.(name|dynamic)|showDeviceFrame|disk\.dataPartition\.size)=/d' "$config"
-        cat >> "$config" <<'CONFIG'
+    stop_group "$emulator_pid"
+    stop_group "$adb_pid"
+    rm -rf -- "$run_dir"
+    exit "$result"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+
+# Each long-lived child has its own process group, including its descendants.
+# The launcher remains in the foreground so signals always trigger cleanup.
+build_app() {
+    local result=0
+    setsid ./gradlew --no-daemon :app:assembleDebug &
+    build_pid=$!
+    wait "$build_pid" || result=$?
+    stop_group "$build_pid"
+    build_pid=
+    return "$result"
+}
+if $build; then build_app; fi
+[[ -f $apk ]] || fail 'APK not found; run again without --no-build'
+if ! $software; then
+    [[ -r /dev/kvm && -w /dev/kvm ]] || fail 'KVM is unavailable. Run on the host with access to /dev/kvm, or use --software.'
+    emulator -accel-check || fail 'KVM acceleration check failed; use --software for slow emulation'
+fi
+
+# A private foreground adb server lets cleanup stop everything it started
+# without disrupting an existing adb server or a connected physical phone.
+adb_port=${PADTOOL_ADB_PORT:-$((port + 1000))}
+if [[ ! $adb_port =~ ^[1-9][0-9]{3,4}$ ]]; then fail 'private adb port must be between 1024 and 65535'; fi
+if (( adb_port < 1024 || adb_port > 65535 || adb_port == port || adb_port == port + 1 )); then fail 'invalid private adb port'; fi
+socket_open() { (exec 3<>"/dev/tcp/127.0.0.1/$adb_port") 2>/dev/null; }
+if socket_open; then fail "private adb port $adb_port is occupied; choose PADTOOL_ADB_PORT"; fi
+export ADB_SERVER_SOCKET="tcp:127.0.0.1:$adb_port"
+export ANDROID_ADB_SERVER_PORT="$adb_port"
+export ANDROID_ADB_SERVER_ADDRESS=127.0.0.1
+export ADB_MDNS_AUTO_CONNECT=
+setsid adb -L "tcp:$adb_port" server nodaemon >"$state_dir/adb.log" 2>&1 &
+adb_pid=$!
+for _ in {1..50}; do
+    if ! kill -0 "$adb_pid" 2>/dev/null; then cat "$state_dir/adb.log" >&2; fail 'private adb server exited'; fi
+    if socket_open; then break; fi
+    sleep 0.1
+done
+socket_open || fail 'private adb server did not become ready'
+# Never adopt an emulator from an earlier run; ownership must remain explicit.
+if [[ -n $(adb devices | awk -v serial="$serial" '$1 == serial { print $1 }') ]]; then
+    fail "$serial is already running; stop the old emulator before launching this session"
+fi
+
+if [[ ! -f $ANDROID_AVD_HOME/$avd_name.avd/config.ini ]]; then
+    echo 'Creating Android 15 virtual device (AOSP, no Google account required)'
+    avdmanager create avd --name "$avd_name" --package 'system-images;android-35;default;x86_64' --device pixel <<< no
+    config="$ANDROID_AVD_HOME/$avd_name.avd/config.ini"
+    sed -i -E '/^(hw\.(lcd\.(width|height|density)|keyboard|ramSize)|skin\.(name|dynamic)|showDeviceFrame|disk\.dataPartition\.size)=/d' "$config"
+    cat >> "$config" <<'CONFIG'
 hw.lcd.width=540
 hw.lcd.height=1080
 hw.lcd.density=240
@@ -82,38 +151,45 @@ skin.dynamic=yes
 showDeviceFrame=no
 disk.dataPartition.size=2G
 CONFIG
-    fi
-    # Software graphics avoids dependence on host GPU drivers; KVM still
-    # accelerates the guest CPU unless --software was explicitly requested.
-    options=(-avd "$avd_name" -port "$port" -no-boot-anim -no-audio -camera-back none -camera-front none -gpu swiftshader)
-    if $headless; then options+=(-no-window); fi
-    if $cold; then options+=(-no-snapshot-load); fi
-    if $software; then options+=(-accel off); fi
-    echo "Starting $serial; log: $log_file"
-    # nix-shell removes its temporary directory on exit; the emulator outlives it.
-    mkdir -p "$state_dir/tmp"
-    TMPDIR="$state_dir/tmp" nohup emulator "${options[@]}" >"$log_file" 2>&1 </dev/null 9>&- &
-    emulator_pid=$!
 fi
+options=(-avd "$avd_name" -port "$port" -no-boot-anim -no-audio -camera-back none -camera-front none -gpu swiftshader)
+if $headless; then options+=(-no-window); fi
+if $cold; then options+=(-no-snapshot-load); fi
+if $software; then options+=(-accel off); fi
+if [[ -z ${QT_QPA_PLATFORM:-} && -n ${DISPLAY:-} ]]; then export QT_QPA_PLATFORM=xcb; fi
+echo "Starting $serial; log: $log_file"
+TMPDIR="$run_dir" setsid emulator "${options[@]}" >"$log_file" 2>&1 </dev/null &
+emulator_pid=$!
 
 boot_timeout=180
 if $software; then boot_timeout=600; fi
 deadline=$((SECONDS + boot_timeout))
 echo 'Waiting for Android to finish booting…'
 until [[ $(timeout 3s adb -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true) == 1 ]]; do
-    if [[ -n ${emulator_pid:-} ]] && ! kill -0 "$emulator_pid" 2>/dev/null; then
-        tail -n 40 "$log_file" >&2
-        fail "emulator exited; see $log_file"
-    fi
-    if (( SECONDS >= deadline )); then
-        [[ ! -f $log_file ]] || tail -n 40 "$log_file" >&2
-        fail "Android did not boot within $boot_timeout seconds; see $log_file"
-    fi
+    if ! kill -0 "$emulator_pid" 2>/dev/null; then tail -n 40 "$log_file" >&2; fail "emulator exited; see $log_file"; fi
+    if ! kill -0 "$adb_pid" 2>/dev/null; then fail 'private adb server exited'; fi
+    if (( SECONDS >= deadline )); then tail -n 40 "$log_file" >&2; fail "Android did not boot within $boot_timeout seconds; see $log_file"; fi
     sleep 1
 done
-adb -s "$serial" shell input keyevent KEYCODE_WAKEUP
-adb -s "$serial" shell wm dismiss-keyguard
-adb -s "$serial" install -r "$apk"
-adb -s "$serial" shell am force-stop dev.cyclone.padtool
-adb -s "$serial" shell am start -W -n dev.cyclone.padtool/.MainActivity --ez simulate true
-echo "Simulated pad launched on $serial. Rerun this script after editing the app."
+install_app() {
+    adb -s "$serial" shell input keyevent KEYCODE_WAKEUP || return
+    adb -s "$serial" shell wm dismiss-keyguard || return
+    adb -s "$serial" install -r "$apk" || return
+    adb -s "$serial" shell am force-stop dev.cyclone.padtool || return
+    adb -s "$serial" shell am start -W -n dev.cyclone.padtool/.MainActivity --ez simulate true
+}
+install_app
+echo "Simulated pad launched on $serial (private adb port $adb_port)."
+echo 'Ctrl-C stops this session. Saved AVD/settings are kept.'
+if [[ -t 0 ]]; then
+    echo 'r + Enter: rebuild/reinstall; q + Enter: stop.'
+    while kill -0 "$emulator_pid" 2>/dev/null; do
+        if IFS= read -r -t 1 action; then
+            case "$action" in
+                r) if build_app && install_app; then echo 'Reloaded.'; else echo 'Reload failed; fix the error and press r + Enter to retry.' >&2; fi ;;
+                q) exit 0 ;;
+            esac
+        fi
+    done
+fi
+wait "$emulator_pid"
