@@ -140,7 +140,7 @@ void lmp_acl_c_handler(struct lmp_connection *conn, struct bredr_rx_bulk *rx,
         return;
     }
     /* The QoS adapter takes the PDUs of its own transactions. */
-    if (cyclone2_qos_rx(conn->core_s.handle, conn->core.role, header, p, rx->len)) return;
+    if (btctrlermod_qos_rx(conn->core_s.handle, conn->core.role, header, p, rx->len)) return;
     switch (opcode) {
     case ACCEPTED: *opcode1 = p[0] << 1; answer(conn, 1, p); break;
     case NOT_ACCEPTED: *opcode1 = p[0] << 1; answer(conn, 0, p); break;
@@ -292,7 +292,7 @@ int lmp_response(struct lmp_connection *c, const char *format, ...)
     return 0;
 }
 int hci_send_event(int e, const char *f, ...) { (void)e; (void)f; return 0; }
-int cyclone2_qos_rx(u16 h, u8 role, u8 header, const u8 *p, u16 size)
+int btctrlermod_qos_rx(u16 h, u8 role, u8 header, const u8 *p, u16 size)
 { (void)h; (void)role; (void)p; (void)size; return qos_takes && header >> 1 == 3; }
 u8 lmp_cmd_is_match_size(u8 op, u8 *d, u8 len) { (void)op; (void)d; (void)len; return (u8)size_ok; }
 void lmp_escape3_command_process(struct lmp_connection *c, u8 op, u8 *o, u8 *p) { (void)c; (void)op; (void)o; (void)p; called("escape3"); }

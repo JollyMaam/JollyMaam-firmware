@@ -38,7 +38,7 @@ int hci_packet_handler(u8 type, u8 *packet, u16 size)
 {
     u8 next;
 
-    if (type == HCI_EVENT_PACKET) cyclone2_qos_link_event(packet, size);
+    if (type == HCI_EVENT_PACKET) btctrlermod_qos_link_event(packet, size);
 
     /* HCI Reset puts the factory address back: reapply ours before BTstack
      * reads it. */
@@ -197,7 +197,7 @@ static void p256_command(u8 *packet, int size)
 }
 
 /* ---- anchors: when the central's packets arrive ---------------------------
- * The controller calls cyclone2_air_rx for each packet a central sends on a
+ * The controller calls btctrlermod_air_rx for each packet a central sends on a
  * connection (interrupt context).  The first packet more than half the
  * link's period (hci_jieli_anchor_period; ANCHOR_GAP_US when not known)
  * after the last anchor starts a new one: the others belong to the same
@@ -209,7 +209,7 @@ static void p256_command(u8 *packet, int size)
 
 static volatile u32 anchor_at[ANCHORS], anchor_n, anchor_gap_us = ANCHOR_GAP_US;
 
-void cyclone2_air_rx(void)
+void btctrlermod_air_rx(void)
 {
     u32 now = plat_us();
 
@@ -265,7 +265,7 @@ void hci_jieli_drop_link(void)
     if (!rx_active) return;
     rx_active = 0;
     btctrler_task_exit();
-    cyclone2_qos_reset();
+    btctrlermod_qos_reset();
     controller_up = 0;
 }
 
@@ -324,7 +324,7 @@ void hci_jieli_close(void)
 {
     if (controller_up) btctrler_task_exit();
     controller_up = 0;
-    cyclone2_qos_reset();
+    btctrlermod_qos_reset();
 }
 
 void hci_jieli_init(void)
@@ -436,7 +436,7 @@ static void execute(void)
     s32 next;
 
     while (!exit_requested) {
-        cyclone2_qos_tick();
+        btctrlermod_qos_tick();
         btstack_run_loop_base_poll_data_sources();
         btstack_run_loop_base_execute_callbacks();
         btstack_run_loop_base_process_timers(now_ms());

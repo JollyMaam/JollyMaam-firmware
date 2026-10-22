@@ -72,13 +72,13 @@ extern BTCTRLER_CONFIG int CONFIG_BREDR_INQUIRY, CONFIG_LMP_MASTER_ESCO_ENABLE;
 extern const int sniff_long_interval, sniff_support_reset_anchor_point;   /* platform_jieli_sdk.c */
 
 /* QoS adapter (btstack_qos_jieli.c) and its controller-side calls. */
-void cyclone2_qos_setup(const u8 *parameters);
-u8 cyclone2_lmp_qos_send(u16 handle, u16 slots);
-u8 cyclone2_lmp_qos_answer(u16 handle, u8 status);
+void btctrlermod_qos_setup(const u8 *parameters);
+u8 btctrlermod_lmp_qos_send(u16 handle, u16 slots);
+u8 btctrlermod_lmp_qos_answer(u16 handle, u8 status);
 extern u16 btctrler_qos_poll_slots;
 
 /* A packet from the central arrived on a connection (Classic or LE), in
  * interrupt context: btstack_hci_jieli.c times the link's anchors with it. */
-void cyclone2_air_rx(void);
+void btctrlermod_air_rx(void);
 
 #endif

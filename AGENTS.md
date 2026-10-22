@@ -54,7 +54,8 @@ controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`)
   a late one.
 - **Naming.** Public names carry the module prefix (`bt_`, `ux_`, `set_`, `in_`,
   `led_`, `util_`, `plat_`, `usb_`). Only `plat_` and `platform_jieli_sdk.c` use
-  Jieli names. Words: slot, profile, session, link, host, report, write, read.
+  Jieli names; our additions to the BR23 controller and its HCI glue carry
+  `btctrlermod_`. Words: slot, profile, session, link, host, report, write, read.
 - **Configuration as data.** Tunable behaviour is a `const` table: Home gestures,
   timeouts and LED scenes (`settings_ux.c`), profile descriptors (`profile_*.c`),
   setting defaults (`settings.c`), pins (`board_pad.c`, `board_dongle.c`).

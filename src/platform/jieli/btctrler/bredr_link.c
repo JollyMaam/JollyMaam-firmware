@@ -1193,7 +1193,7 @@ static RF_CODE void connection_rx_handler(struct link_connection *lc, int irq)
             connection_tx_handler(lc);
         }
         if (irq == 1 && !adjust && (st & 2)) {
-            cyclone2_air_rx();
+            btctrlermod_air_rx();
             if (lc->state == 2) bt_rf_protect(lc->frame, 0);
             if (lc->adjust_clkoffset_enable && lc->role) {
                 if (lc->sniff_rx_flag) lc->winsize = bredr_link_v.lp_ws->lrc_ws_init;
@@ -4216,7 +4216,7 @@ const int sniff_support_reset_anchor_point = 1, sniff_long_interval = 800;
 const u8 log_tag_const_i_BL, log_tag_const_d_BL, log_tag_const_e_BL, log_tag_const_c_BL;
 struct bredr_dut *g_dut_hdl;
 u8 g_lmp_update_start_flag;
-void cyclone2_air_rx(void) {}
+void btctrlermod_air_rx(void) {}
 struct common_rf_param rf;
 struct hci_parameter hci_param;
 struct bredr_local_device gbredr_local_dev;

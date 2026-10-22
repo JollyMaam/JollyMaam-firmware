@@ -36,7 +36,7 @@ int hci_lmp_link_policy_cmd_handler(u16 opcode, u8 *data, u32 len)
                                read16(data + 6), read16(data + 8));
         else lmp_hci_exit_sniff_mode(conn);
         break;
-    case 0x0807: cyclone2_qos_setup(data); break;
+    case 0x0807: btctrlermod_qos_setup(data); break;
     case 0x0809: lmp_hci_role_discovery(read16(data) & 0x0fff); break;
     case 0x080b: lmp_hci_switch_role_command(data, data[6]); break;
     case 0x080c: lmp_hci_read_link_policy_settings(read16(data) & 0x0fff); break;
@@ -76,7 +76,7 @@ void lmp_event_esco_link_setup(struct lmp_connection *conn)
     (void)conn;
 }
 
-u8 cyclone2_lmp_qos_send(u16 handle, u16 slots)
+u8 btctrlermod_lmp_qos_send(u16 handle, u16 slots)
 {
     struct lmp_connection *conn = lmp_conn_for_handle(handle);
     if (!conn) return 2;
@@ -90,7 +90,7 @@ u8 cyclone2_lmp_qos_send(u16 handle, u16 slots)
     return 0;
 }
 
-u8 cyclone2_lmp_qos_answer(u16 handle, u8 status)
+u8 btctrlermod_lmp_qos_answer(u16 handle, u8 status)
 {
     struct lmp_connection *conn = lmp_conn_for_handle(handle);
     if (!conn) return 2;
@@ -159,7 +159,7 @@ int lmp_response(struct lmp_connection *c, const char *format, ...)
     else CHECK(test_a == 6 && !strcmp(format, "11"));
     va_end(ap); return 0;
 }
-void cyclone2_qos_setup(const u8 *p) { test_action = 7; test_a = p[12]; }
+void btctrlermod_qos_setup(const u8 *p) { test_action = 7; test_a = p[12]; }
 int main(void)
 {
     u8 p[20] = { 0x34, 0x12, 24, 0, 8, 0, 2, 0, 1, 0, 0, 0, 0xa6 };
@@ -181,9 +181,9 @@ int main(void)
     CHECK(!test_action && test_status == 0x12);
     CHECK(hci_lmp_link_policy_cmd_handler(0x0811, 0, 0) == 1);
     CHECK(hci_lmp_link_policy_cmd_handler(0x0405, 0, 0) == 0);
-    test_present = 0; CHECK(cyclone2_lmp_qos_send(256, 6) == 2);
-    test_present = 1; test_conn.core.role = 0; CHECK(cyclone2_lmp_qos_send(256, 6) == 0x0c);
-    test_conn.core.role = 1; CHECK(cyclone2_lmp_qos_send(256, 6) == 0);
+    test_present = 0; CHECK(btctrlermod_lmp_qos_send(256, 6) == 2);
+    test_present = 1; test_conn.core.role = 0; CHECK(btctrlermod_lmp_qos_send(256, 6) == 0x0c);
+    test_conn.core.role = 1; CHECK(btctrlermod_lmp_qos_send(256, 6) == 0);
     CHECK(test_action == 42 && test_interval == 6 && !btctrler_qos_poll_slots);
     CHECK(test_conn.core.state & QOS_REQUESTED);
     lmp_vendor_qos_interval_config(8); lmp_tx_qos_req(&test_conn);
@@ -197,9 +197,9 @@ int main(void)
     CHECK(test_qos_sends == 2 && test_conn.core.state == (0x20 | QOS_REQUESTED));
     lmp_vendor_qos_interval_config(0);
     lmp_event_esco_link_setup(&test_conn);
-    CHECK(cyclone2_lmp_qos_answer(256, 0) == 0 && test_a == 6);
-    CHECK(cyclone2_lmp_qos_answer(256, 0x1e) == 0 && test_a == 8 && test_b == 0x1e);
-    test_present = 0; CHECK(cyclone2_lmp_qos_answer(256, 0) == 2);
+    CHECK(btctrlermod_lmp_qos_answer(256, 0) == 0 && test_a == 6);
+    CHECK(btctrlermod_lmp_qos_answer(256, 0x1e) == 0 && test_a == 8 && test_b == 0x1e);
+    test_present = 0; CHECK(btctrlermod_lmp_qos_answer(256, 0) == 2);
     test_conn.core.role = 1; test_d = 0; lmp_tx_supervision_timeout(&test_conn);
     CHECK(test_d == 0);
     test_conn.core.role = 0; test_d = 0; lmp_tx_supervision_timeout(&test_conn);

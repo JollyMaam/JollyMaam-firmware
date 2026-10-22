@@ -252,8 +252,8 @@ $(O)/$(1)/sdk_ld.c: $(JIELI_SDK)/cpu/br23/sdk_ld.c $(MAKE_FILES) $(wildcard src/
 	$$(Q)sed \
 	  -e 's/^_HEAP_END = RAM_END;/_HEAP_END = RESET_MAILBOX_BEGIN;/' \
 	  -e 's/^PROVIDE(HEAP_END = RAM_END);/PROVIDE(HEAP_END = RESET_MAILBOX_BEGIN);/' \
-	  -e '/^    \.bss ALIGN(32) :$$$$/,/^        \*(\.bss)$$$$/s/^        \*(\.bss)$$$$/        cyclone2_bss_base = ABSOLUTE(.);\n&/' \
-	  -e 's|^\([[:space:]]*\)#include "btctrler/btctler_lib_bss.ld"|\1. = MAX(., 0x10810 - cyclone2_bss_base);\n&|' \
+	  -e '/^    \.bss ALIGN(32) :$$$$/,/^        \*(\.bss)$$$$/s/^        \*(\.bss)$$$$/        btctrlermod_bss_base = ABSOLUTE(.);\n&/' \
+	  -e 's|^\([[:space:]]*\)#include "btctrler/btctler_lib_bss.ld"|\1. = MAX(., 0x10810 - btctrlermod_bss_base);\n&|' \
 		$$< > $$@
 
 $(O)/$(1)/sdk.ld: $(O)/$(1)/sdk_ld.c
