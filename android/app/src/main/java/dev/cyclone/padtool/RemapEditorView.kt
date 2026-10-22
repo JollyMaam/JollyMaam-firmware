@@ -70,6 +70,11 @@ class RemapEditorView(context: Context, private val map: ByteArray, rulesRaw: By
                 stage(updated, Remap.encodeRules(rules))
             }
         }
+        val labels = order.map(::keyLabel)
+        val namePaint = TextView(context).apply { textSize = 14f }.paint
+        val valuePaint = Button(context).apply { textSize = 14f }.paint
+        val nameWidth = maxOf(dp(64), kotlin.math.ceil(labels.maxOf { namePaint.measureText(it) }.toDouble()).toInt() + dp(8))
+        val valueWidth = maxOf(dp(80), kotlin.math.ceil((labels + "Nothing").maxOf { valuePaint.measureText(it) }.toDouble()).toInt() + dp(16))
         for (key in order) {
             val current = state(key, map, rules)
             val dirty = current != state(key, savedMap, original)
@@ -83,15 +88,19 @@ class RemapEditorView(context: Context, private val map: ByteArray, rulesRaw: By
                 if (restored.size > 16) {
                     AlertDialog.Builder(context).setTitle("Rule limit").setMessage("Restoring this key would exceed 16 rules. Remove another rule first.").setPositiveButton("OK", null).show()
                 } else stage(updated, Remap.encodeRules(restored))
-            }.apply { contentDescription = "${if (dirty) "Discard" else "Default"} ${keyLabel(key)} mapping and rules" }
-            val name = text(line, "${keyLabel(key)} maps to")
+            }.apply {
+                layoutParams = LayoutParams(dp(40), dp(48))
+                contentDescription = "${if (dirty) "Discard" else "Default"} ${keyLabel(key)} mapping and rules"
+            }
+            val name = text(line, keyLabel(key)).apply { layoutParams = LayoutParams(nameWidth, -2) }
+            text(line, "maps to")
             val to = mapping(map, key)
-            val value = button(line, if (to == "Nothing") to else keyLabel(to), "remap-map-$key", weight = true) {
+            val value = button(line, if (to == "Nothing") to else keyLabel(to), "remap-map-$key") {
                 val choices = order + "Nothing"
                 choose("${keyLabel(key)} maps to", choices.map { if (it == "Nothing") it else keyLabel(it) }, choices.indexOf(to)) { i ->
                     val updated = map.copyOf(); setMapping(updated, key, choices[i]); stage(updated, Remap.encodeRules(rules))
                 }
-            }
+            }.apply { layoutParams = LayoutParams(valueWidth, -2) }
             val help = "While held, ${keyLabel(key)} sends this mapping. Rules add to it.\n\nDefault: " +
                 mapping(defaultMap, key).let { if (it == "Nothing") it else keyLabel(it) } +
                 defaults.filter { it.input == key }.joinToString("\n", prefix = "\n") { summary(it) }
