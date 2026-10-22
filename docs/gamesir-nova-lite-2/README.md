@@ -152,8 +152,16 @@ None of these 15 pins, driven high for 2 s and low for 2 s, lit an LED:
 `PB10`, `PB11`, `PC3`, `PC6`, `PC7`. The stock image has the string
 `app_rgb_init` and no code that references it.
 
+## Power
+
+With USB connected, the BR23's LDOIN detectors read 0: `LDO5V_DET` (bit 5
+of `P3_LDO5V_CON`) and `LVCMP_DET` (bit 5 of `P3_LVCMP_CON`, LDOIN against
+VBAT), after `LDO5V_EN(1)`, `LVCMP_EN(1)`, `LVCMP_CMP_SEL(1)`. The chip's
+charger, which charges from LDOIN, has no input. With it off, the battery
+read 4064 mV, then 4152 mV about an hour later, USB connected throughout.
+
 ## Not established
 
-Pins of the LEDs, USB presence and the charger; why each motor has two pins; what drives
+Pins of the LEDs, USB presence and the charger IC; why each motor has two pins; what drives
 `PA2` and links `PA0` with `PC7`; whether a button combination enters the
 pad's loader (Home + Menu, GameSir's instruction for its updater, did not).
