@@ -97,6 +97,9 @@ AGP 8.7.3, Kotlin 2.0.21 and the Android SDK/build-tools versions are pinned in
 the project. Android Studio can also open this directory directly.
 
 The debug APK is signed with the local Android debug key and can be sideloaded.
+Builds disable the persistent Gradle daemon by default and run the Kotlin
+compiler in the build process. Gradle may fork a single-use JVM to satisfy its
+memory settings; that process exits when the build finishes.
 `assembleRelease` produces an optimized unsigned APK; production signing keys
 are not included. There are no runtime dependencies beyond Kotlin's standard
 library and Android. The app requests USB device access, not storage, network,
