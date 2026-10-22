@@ -2,7 +2,7 @@
 
 Board facts for the GameSir Nova 2 Lite pad (GameSir's code T4N2), a Jieli
 BR23 ([../jieli/](../jieli/README.md)), and what its stock firmware shows.
-The inputs' pins are established; the outputs' are not.
+The inputs' and motors' pins are established; the LEDs' are not.
 
 ## Chip and flash
 
@@ -76,7 +76,7 @@ afterwards starts the written firmware.
 
 ## Inputs
 
-Found with a probe firmware (`src/boards/gamesir-nova-lite-2/pinprobe.c`)
+Found with a probe firmware (`pinprobe.c`, removed after commit 7607b19)
 while each control was pressed. The stock image's ADC scan table (file
 offset `0x53bd4`, address `0x01e53cf4`: `0x0050000f` (VBAT), then
 `gpio, 0, channel` triples) lists the same six analog pins.
@@ -130,8 +130,30 @@ pins `PA13`, `PA14` left alone; the flash is on SPI0 port B, 2-bit):
 - `PB12`..`PB15` and `PC8`..`PC15` read low either way.
 - `PA0` follows `PC7` when `PC7` is driven, and the other way round.
 
+## Motors
+
+Two motors. Each runs while either of two pins is driven high (one pin at a
+time, others floating), felt in the grips:
+
+| Motor | Pins |
+|---|---|
+| left | `PC3`, `PB9` |
+| right | `PB10`, `PA12` |
+
+The stock image's motor table at `0x01e4ffa8` holds two 12-byte records,
+`gpio, 2, 2` for `PC3` and `gpio, 3, 3` for `PB10`; the code at `0x01e3485e`
+reads byte 4 of a record and scales a 0..255 level to 0..10000 (the SDK's
+duty units). `PB9` is MCPWM channel 3's H pin and `PB10` its L pin
+(`pwm_hw_h_pin`, `pwm_hw_l_pin` in the SDK's `mcpwm.c`); `PC3` and `PA12` are
+no channel's own pin.
+
+None of these 15 pins, driven high for 2 s and low for 2 s, lit an LED:
+`PA0`, `PA2`, `PA9`, `PA11`, `PA12`, `PA15`, `PB0`, `PB4`, `PB6`, `PB9`,
+`PB10`, `PB11`, `PC3`, `PC6`, `PC7`. The stock image has the string
+`app_rgb_init` and no code that references it.
+
 ## Not established
 
-Pins of the LEDs, the motors, USB presence and the charger; what drives
+Pins of the LEDs, USB presence and the charger; why each motor has two pins; what drives
 `PA2` and links `PA0` with `PC7`; whether a button combination enters the
 pad's loader (Home + Menu, GameSir's instruction for its updater, did not).
