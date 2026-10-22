@@ -1326,7 +1326,7 @@ def main():
     DEVICE = a.device
     BOARD = a.board
     if a.elf is None:
-        a.elf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build", BOARD, "app.elf")
+        a.elf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build", "gamesir-cyclone-2-" + BOARD, "app.elf")
     if a.command == "target":
         if BOARD != "dongle":
             p.error("target requires --board dongle")

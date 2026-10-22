@@ -57,23 +57,27 @@ controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`)
 
 ## Build and test
 
-    make -j32            # pad: build/pad/
-    make test
-    make pad-flash       # over USB, through the ROM loader
-    make dongle          # build/dongle/
-    make dongle-flash    # packed for the connected dongle's key
-    make -j32 pad dongle # both boards
+    make -j32                              # every product
+    make test                              # every product's unit tests
+    make -j32 gamesir-cyclone-2-pad        # build/gamesir-cyclone-2-pad/
+    make gamesir-cyclone-2-pad-flash       # over USB, through the ROM loader
+    make -j32 gamesir-cyclone-2-dongle     # build/gamesir-cyclone-2-dongle/
+    make gamesir-cyclone-2-dongle-flash    # packed for the connected dongle's key
+    make -j32 gamesir-cyclone-2-all        # both boards
+    make gamesir-cyclone-2-pad-test        # one board's unit tests
 
-`make BOARD=dongle [flash|clean|test]` also works. Board differences (flash
-size, code limit, PID) are at the top of the `Makefile`.
+The build is in `make/`: `common.mk` and `host.mk` are shared, `jieli.mk`
+holds the BR23 toolchain, SDK and the board template (`jieli_board`),
+`btstack.mk` BTstack, and each product's `make/<product>.mk` its boards
+(flash size, PID, sources, defines) and targets.
 
 `padtool/padtool.py` talks to the running firmware over USB vendor commands
 (`padtool --help`). `padtool --dongle` does the same for the dongle.  While a
 pad or dongle is a game controller on USB, the vendor commands are gone:
 `padtool tool` (feature report 0xf5 through hidraw, HID personalities only)
 or ending the session brings the tool device back.  A test build that ends
-USB sessions by itself: `make BOARD_DEFINES_pad=-DUSB_SESSION_TEST_MS=12000`
-(a change of `BOARD_DEFINES` rebuilds everything).
+USB sessions by itself: `make gamesir-cyclone-2-pad EXTRA_DEFINES=-DUSB_SESSION_TEST_MS=12000`
+(a change of a board's defines rebuilds that board).
 
 `padtool/padgui.pyw` is the Tkinter GUI (`python padtool/padgui.pyw`), sharing the
 padtool protocol and Linux/Windows SCSI transport. `padtool/padflash.py` backs up
@@ -107,8 +111,8 @@ its top).  In this container SDL needs the nodes from `/dev/bwrap` under
 tools/withdev.sh build/host/sdlpad 5`.
 
 Recovering a pad that does not enumerate: hold Home and Start while plugging in
-USB (ROM loader, `UBOOT1.00`), then `make pad-flash`. For the dongle, hold its
-button while plugging it in, then `make dongle-flash`. Image layout and the
+USB (ROM loader, `UBOOT1.00`), then `make gamesir-cyclone-2-pad-flash`. For the dongle, hold its
+button while plugging it in, then `make gamesir-cyclone-2-dongle-flash`. Image layout and the
 `jlnewfw` tool are in [docs/jieli/re-application-image.md](docs/jieli/re-application-image.md)
 and [docs/firmware/image-tool.md](docs/firmware/image-tool.md).
 

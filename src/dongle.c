@@ -1,7 +1,7 @@
 #include <string.h>
 #include "dongle.h"
 
-/* The dongle's main loop (BOARD=dongle): USB as on the pad (identify, status,
+/* The dongle's main loop (gamesir-cyclone-2-dongle): USB as on the pad (identify, status,
  * the log, reboot, the loader; see usb.c) and Bluetooth in dongle_bt.c on
  * its own thread.  While our pad is linked the dongle is the pad's slot type
  * on USB, built by the same profile code the pad uses on its own cable. */

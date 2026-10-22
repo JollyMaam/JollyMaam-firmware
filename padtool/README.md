@@ -250,7 +250,7 @@ The Python backend can also run from a terminal:
 
 ```sh
 python padtool/padflash.py backup pad-backup.bin --board pad
-python padtool/padflash.py flash build/pad/firmware.img --board pad --backup before-flash.bin
+python padtool/padflash.py flash build/gamesir-cyclone-2-pad/firmware.img --board pad --backup before-flash.bin
 ```
 
 Omit `--backup` to flash without creating a backup.
