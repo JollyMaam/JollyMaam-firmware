@@ -185,6 +185,7 @@ JIELI_SDK_USED := \
 #   NAME_PID         the image's PID: the flasher writes only over the same PID
 #   NAME_SOURCES     the app's sources; our controller (btctrler/) and BTstack come with it
 #   NAME_DEFINES     -D flags for this board (EXTRA_DEFINES adds to them)
+#   NAME_BOARD_DIR   the board's headers (btstack_config.h)
 # Targets: NAME (firmware.img), NAME-flash (through the ROM loader; DEVICE=
 # picks one of several).  Inside the template, $(1) is NAME, $(...) is
 # expanded once when it is called, and $$(...) when the rule runs.
@@ -194,7 +195,7 @@ $(1)_OBJECTS := $(patsubst %.c,$(O)/$(1)/%.o,$($(1)_SOURCES) $(wildcard src/plat
 	$(JIELI_SDK_USED:%.c=$(O)/$(1)/sdk/%.o) $(BTSTACK_USED:%.c=$(O)/$(1)/btstack/%.o)
 $(1)_FLAGS := $(JIELI_CFLAGS) $(JIELI_DEFINES) -DCONFIG_FLASH_SIZE=$($(1)_FLASH_SIZE) \
 	$($(1)_DEFINES) $(EXTRA_DEFINES) -DBUILD_ID=\"$(BUILD_ID)\"
-$(1)_INCLUDES := $(SRC_INCLUDES) -iquote src/platform/jieli/sdkconfig $(BTSTACK_INCLUDES) $(JIELI_INCLUDES)
+$(1)_INCLUDES := $(SRC_INCLUDES) -iquote $($(1)_BOARD_DIR) -iquote src/platform/jieli/sdkconfig $(BTSTACK_INCLUDES) $(JIELI_INCLUDES)
 
 .PHONY: $(1) $(1)-flash
 $(1): $(O)/$(1)/firmware.img

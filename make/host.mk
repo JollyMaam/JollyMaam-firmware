@@ -16,6 +16,6 @@ $(1)-test: $(TESTS:src/%.c=$(O)/host/test-$(1)/%)
 
 $(O)/host/test-$(1)/%: src/%.c $(wildcard src/*/*.h src/*/*/*.h src/*/*/*/*.h) $(O)/$(1)/defines
 	@mkdir -p $$(@D)
-	$$(Q)$(HOST_CC) $(HOST_CFLAGS) $($(1)_DEFINES) $(EXTRA_DEFINES) -DUNITTEST $(SRC_INCLUDES) $$< -o $$@ \
+	$$(Q)$(HOST_CC) $(HOST_CFLAGS) $($(1)_DEFINES) $(EXTRA_DEFINES) -DUNITTEST $(SRC_INCLUDES) -iquote $($(1)_BOARD_DIR) $$< -o $$@ \
 	  $$(if $$(findstring /btctrler/,$$@),-no-pie -Wl$$(comma)--unresolved-symbols=ignore-all)
 endef
