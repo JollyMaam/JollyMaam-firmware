@@ -1678,28 +1678,36 @@ static size_t hid_devices(struct hid_dev *out, size_t max) {
   return n;
 }
 
+/* Whether path's device was already named in a message: true from the
+ * second call on. */
+static bool told_before(const char *path) {
+  static char told[16][USB_ID_MAX];
+  static size_t n_told;
+  char id[USB_ID_MAX];
+  usb_device(path, id);
+  if (!id[0])
+    snprintf(id, sizeof id, "%.299s", path);
+  for (size_t k = 0; k < n_told; k++)
+    if (!strcmp(told[k], id))
+      return true;
+  if (n_told < 16)
+    snprintf(told[n_told++], USB_ID_MAX, "%s", id);
+  return false;
+}
+
 /* Sends the loader command to each stock HID pad for `want` (any, if NULL)
  * that takes one; a pad in a mode without one is named once, with the mode
  * that has it. */
 static size_t enter_stock_hid(const char *want, char selected[256][300], size_t count) {
   static struct hid_dev h[64];
-  static char told[16][USB_ID_MAX];
-  static size_t n_told;
   size_t n = hid_devices(h, 64);
   for (size_t i = 0; i < n && count < 256; i++) {
     int e = stock_hid_entry(&h[i]);
-    char id[USB_ID_MAX];
     if (e < 0 || (want && strcmp(want, stock_hid[e].pid)) || restarting(h[i].path))
       continue;
     if (!stock_hid[e].usage_page) {
-      bool done = false;
-      usb_device(h[i].path, id);
-      for (size_t k = 0; k < n_told && !done; k++)
-        done = !strcmp(told[k], id[0] ? id : h[i].path);
-      if (done)
+      if (told_before(h[i].path))
         continue;
-      if (n_told < 16)
-        snprintf(told[n_told++], USB_ID_MAX, "%.299s", id[0] ? id : h[i].path);
       for (size_t k = 0; k < STOCK_HID_COUNT; k++)
         if (!strcmp(stock_hid[k].pid, stock_hid[e].pid) && stock_hid[k].usage_page) {
           printf("%s: stock %s in its %s mode, which has no command for its loader: "
@@ -1758,7 +1766,8 @@ static size_t enter_loaders(const char *device, const char *want, char selected[
       continue;
     enum disk_class c = classify_disk(fd, pid);
     if (c == DISK_OURS && want && strcmp(pid, want)) {
-      printf("%s: our firmware for %s, left running\n", path, pid);
+      if (!told_before(path))
+        printf("%s: our firmware for %s, left running\n", path, pid);
       c = DISK_OTHER;
     }
     if (c == DISK_OURS || c == DISK_JIELI) {
