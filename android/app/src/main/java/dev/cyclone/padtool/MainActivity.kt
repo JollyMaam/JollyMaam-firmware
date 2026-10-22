@@ -60,8 +60,15 @@ class MainActivity : Activity() {
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED) else registerReceiver(receiver, filter)
         model.changed = ::render; model.progressChanged = ::updateProgress
         render(); model.refreshDevices()
+        if (lastNonConfigurationInstance == null && BuildConfig.DEBUG && intent.getBooleanExtra("simulate", false)) model.loadSimulation()
     }
-    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); if (!model.busy) model.refreshDevices() }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent); setIntent(intent)
+        if (!model.busy) {
+            if (BuildConfig.DEBUG && intent.getBooleanExtra("simulate", false)) model.loadSimulation()
+            else model.refreshDevices()
+        }
+    }
     override fun onResume() {
         super.onResume(); model.changed = ::render; model.progressChanged = ::updateProgress
         handler.post(polling); render()
@@ -100,6 +107,7 @@ class MainActivity : Activity() {
         }
         setContentView(root)
         title(root, "Cyclone padtool")
+        if (model.simulation != null) root.addView(label("SIMULATION · No USB device is accessed", 14f))
         status = label(model.message, 14f).apply { setTextIsSelectable(true); maxLines = 6 }
         root.addView(status)
         if (model.busy) root.addView(ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { isIndeterminate = true })
@@ -107,15 +115,15 @@ class MainActivity : Activity() {
         val nav = row(root)
         button(nav, "Devices") { model.page = -2; model.live = null; render() }
         button(nav, "Refresh") {
-            if (model.selected != null && !model.loaderMode && model.session != null) model.run("Refreshing settings") { model.withPad { pad, s -> model.read(pad, s) } }
+            if (model.hasDevice && !model.loaderMode && model.session != null) model.run("Refreshing settings") { model.withPad { pad, s -> model.read(pad, s) } }
             else model.refreshDevices()
         }
-        if (model.selected != null) button(nav, "Overview") { model.page = -1; model.live = null; render() }
+        if (model.hasDevice) button(nav, "Overview") { model.page = -1; model.live = null; render() }
         val content = column()
         root.addView(ScrollView(this).apply { isFillViewport = true; addView(content) }, LinearLayout.LayoutParams(-1, 0, 1f))
         liveText = null
         when {
-            model.page == -2 || model.selected == null -> devicePage(content)
+            model.page == -2 || !model.hasDevice -> devicePage(content)
             model.loaderMode -> loaderPage(content)
             model.session == null -> content.addView(label("Select a tool device to read settings."))
             model.page == -3 || model.page == -4 -> livePage(content)
@@ -133,10 +141,11 @@ class MainActivity : Activity() {
     }
     private fun devicePage(parent: LinearLayout) {
         title(parent, "USB devices")
+        if (BuildConfig.DEBUG) button(parent, "Simulated pad (no USB)") { model.loadSimulation() }
         parent.addView(label("USB tool mode is required. On the pad, end the active gamepad session first. Bluetooth configuration is not available."))
         for (device in model.devices) button(parent, "${device.productName ?: "USB device"} · %04x:%04x\n${device.deviceName}".format(device.vendorId, device.productId)) { choose(device) }
         if (model.devices.isEmpty()) parent.addView(label("No tool devices found. Use a USB data cable and a phone with USB host support."))
-        for (s in model.sessions.values.filter { it.drafts.edits.isNotEmpty() && (model.selected == null || it !== model.session) }) {
+        for (s in model.sessions.values.filter { it.drafts.edits.isNotEmpty() && (!model.hasDevice || it !== model.session) }) {
             parent.addView(label("Retained edits: ${s.identity.flashId.take(12)} · ${s.drafts.edits.size} pending"))
             button(parent, "Discard those edits") { s.drafts.discard(); model.saveDrafts(s); render() }
         }
@@ -145,7 +154,7 @@ class MainActivity : Activity() {
         val count = s.drafts.edits.count { target == null || it.key.first == target }
         parent.addView(label("$count pending change${if (count == 1) "" else "s"}" + if (s.needsRefresh) " · refresh required" else "", 14f))
         val bar = row(parent)
-        button(bar, "Apply", count > 0 && !s.needsRefresh && model.selected != null) { model.apply(target) }
+        button(bar, "Apply", count > 0 && !s.needsRefresh && model.hasDevice) { model.apply(target) }
         button(bar, "Discard", count > 0) { s.drafts.discard(target); model.saveDrafts(s); render() }
         button(bar, "Defaults", s.fields.isNotEmpty()) {
             val targets = if (target == null) Protocol.targets(s.fields) else listOf(target)
@@ -156,7 +165,7 @@ class MainActivity : Activity() {
     }
     private fun overview(parent: LinearLayout, s: PadSession) {
         val id = s.identity
-        title(parent, if (id.board == 0) "Pad" else "Dongle")
+        title(parent, if (model.simulation != null) "Simulated pad" else if (id.board == 0) "Pad" else "Dongle")
         parent.addView(label("${id.build} · protocol ${id.protocol}\n${id.flashId}\n${s.status}", 14f).apply { setTextIsSelectable(true) })
         if (id.board == 0) {
             // Kept outside the scrolling settings list on detailed pages.
@@ -189,7 +198,11 @@ class MainActivity : Activity() {
         }
         button(parent, "Firmware console") { model.page = -3; model.live = "console"; render() }
         button(parent, "Restart device", s.drafts.edits.isEmpty()) { action("Restarting", 0x10) }
-        button(parent, "Enter flash loader", s.drafts.edits.isEmpty()) {
+        if (model.simulation != null) {
+            button(parent, "Reset simulated pad") { model.loadSimulation(reset = true) }
+            button(parent, "Disconnect simulated pad") { model.disconnectSimulation() }
+        }
+        button(parent, "Enter flash loader", s.drafts.edits.isEmpty() && model.simulation == null) {
             confirm("Enter flash loader", "The device will reconnect as UBOOT. Select it from Devices and grant USB access again.") { action("Entering flash loader", 0x11) }
         }
     }
@@ -447,7 +460,7 @@ class MainActivity : Activity() {
     }
     override fun onBackPressed() {
         if (model.busy) { model.message = "Wait for the USB operation to finish"; updateProgress(); return }
-        if (model.page != -1 && model.selected != null) { model.page = -1; model.live = null; render(); return }
+        if (model.page != -1 && model.hasDevice) { model.page = -1; model.live = null; render(); return }
         if (model.session?.drafts?.edits?.isNotEmpty() == true) confirm("Leave padtool?", "Pending edits are kept on this phone and restored when this firmware is read again.") { finish() }
         else super.onBackPressed()
     }

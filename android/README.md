@@ -7,6 +7,72 @@ required. Configuration uses this firmware's USB tool interface, with protocol
 
 The desktop CLI and Tkinter GUI are independent and remain available.
 
+## Quick UI iteration on Linux
+
+Run this on the Linux host, outside the development container:
+
+```sh
+/work/cyclone2-android/android/run-emulator
+```
+
+The executable has a Nix shell shebang and works from any directory with Nix
+2.24 or newer. It supplies the SDK, emulator, AOSP Android 15 x86_64 system
+image, JDK and adb. No Android Studio or Google account is needed. The first
+invocation downloads the emulator/image; subsequent invocations reuse them.
+An x86_64 Linux host with read/write access to `/dev/kvm` is expected.
+
+The script builds the debug APK, creates a compact phone AVD if needed, boots
+it (or reuses the running instance), waits for Android, installs the APK and
+launches directly into **Simulated pad**. Run the same command after editing
+to rebuild/reinstall without rebooting Android. Applied simulated settings and
+pending drafts survive reinstalls; the overview's **Reset simulated pad**
+returns the demo to its initial state. The emulator stays running after the
+script exits. Close its window to shut it down.
+
+Useful options:
+
+```sh
+./android/run-emulator --no-build   # install the existing debug APK
+./android/run-emulator --cold-boot  # skip snapshot restore when starting
+./android/run-emulator --headless   # start without a window
+./android/run-emulator --software   # opt into slow CPU emulation without KVM
+```
+
+The dedicated emulator uses port 5580 and serial `emulator-5580`; set
+`PADTOOL_EMULATOR_PORT` to another even port from 5554 to 5584 if occupied.
+All adb install/launch commands target that serial explicitly. A different
+emulator occupying the requested serial is rejected. State, AVD files and
+`emulator.log` live under `$XDG_STATE_HOME/cyclone-padtool/emulator`, falling
+back to `~/.local/state/cyclone-padtool/emulator`. GPU rendering uses
+SwiftShader, while KVM accelerates the CPU by default. `--software` also
+disables CPU acceleration and gives first boot a longer timeout.
+
+In a debug APK, **Devices → Simulated pad (no USB)** also opens the simulator
+manually. The `simulate=true` launch extra is used by the script. The simulator
+uses the normal field decoder, settings reads, WRITE/RESULT/COMMIT flow, draft
+handling, editors and JSON files. It includes all firmware fields/defaults,
+some saved sample remap settings, a synthetic bond for Unpair, moving input,
+and logs for pairing, connect, rumble and LED actions. It models remap-base
+inheritance, range checks and the 1024-byte staging limit. Calibration writes
+synthetic readings immediately. It is a UI/protocol development aid, not an
+emulation of controller timing, radios or sensors; flashing is disabled.
+
+Simulation is explicitly labelled and cannot open the USB transport. Its
+fixture is packaged only in debug builds; release builds expose neither the
+simulation button nor the launch-extra path. Real device operation still uses
+the Android USB transport and needs separate phone/hardware validation.
+
+Regenerate the checked-in simulation fixture when the firmware field table or
+defaults change (requires Python 3 and a host C compiler):
+
+```sh
+python3 android/tools/generate_simulation.py
+```
+
+The exporter invokes the firmware's actual `set_describe`, `set_read` and
+`set_read_defaults` with its host-test storage stubs; it does not access USB or
+the SDK. Ordinary app builds and emulator launches use the checked-in fixture.
+
 ## Build and install
 
 With JDK 17, Android SDK platform 35 and build-tools 34.0.0 installed:

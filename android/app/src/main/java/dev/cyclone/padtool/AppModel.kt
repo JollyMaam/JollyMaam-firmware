@@ -32,6 +32,8 @@ class AppModel(context: Context) {
     @Volatile var message = "Connect the pad with a USB data cable. End its gamepad session to use tool mode."
     var devices = emptyList<UsbDevice>()
     var selected: UsbDevice? = null
+    var simulation: SimulatedPad? = null; private set
+    val hasDevice get() = selected != null || simulation != null
     var session: PadSession? = null
     val sessions: MutableMap<String, PadSession> = ConcurrentHashMap()
     var loaderMode = false
@@ -77,16 +79,23 @@ class AppModel(context: Context) {
         handler.post { progressChanged?.invoke() }
     }
     fun <T> transport(block: (UsbTransport) -> T): T {
+        require(simulation == null) { "USB operations are unavailable in simulation mode" }
         val device = selected ?: error("Select the reconnected USB device first")
         require(usb.deviceList[device.deviceName]?.deviceId == device.deviceId) { "USB device changed; select it again" }
         return UsbTransport.open(usb, device).use(block)
     }
-    fun <T> withPad(block: (Protocol, PadSession) -> T): T = transport { tr ->
+    fun <T> withPad(block: (Protocol, PadSession) -> T): T {
+        val simulated = simulation
+        return if (simulated != null) checkedPad(simulated, block) else transport { checkedPad(it, block) }
+    }
+    private fun <T> checkedPad(tr: Scsi, block: (Protocol, PadSession) -> T): T {
         val pad = Protocol(tr); val s = session ?: error("Read the device first")
         require(pad.identity() == s.identity) { "Device identity changed; select it again" }
-        block(pad, s)
+        return block(pad, s)
     }
     fun load(device: UsbDevice) {
+        if (busy) return
+        simulation = null
         selected = device; session = null; loaderMode = false; pendingImage = null
         page = -1; live = null; console = ""; logSequence = 1; loaderPid = null
         run("Reading device") {
@@ -104,6 +113,31 @@ class AppModel(context: Context) {
                 session = s; sessions[id.flashId] = s
             }
         }
+    }
+    fun loadSimulation(reset: Boolean = false) {
+        require(BuildConfig.DEBUG) { "Simulation is available in debug builds only" }
+        if (busy) return
+        if (reset) {
+            preferences.edit().remove("simulation-state").remove(SimulatedPad.FLASH_ID).apply()
+            sessions.remove(SimulatedPad.FLASH_ID)
+        }
+        selected = null; loaderMode = false; pendingImage = null; loaderPid = null
+        page = -1; live = null; console = ""; logSequence = 1
+        run("Opening simulated pad") {
+            val sim = SimulatedPad(context.assets.open("simulated-pad.json").bufferedReader().use { it.readText() },
+                preferences.getString("simulation-state", null),
+                { preferences.edit().putString("simulation-state", it).apply() })
+            val pad = Protocol(sim)
+            val s = sessions[sim.identity.flashId] ?: PadSession(sim.identity, pad.fields()).also { loadDrafts(it) }
+            read(pad, s)
+            simulation = sim; session = s; sessions[s.identity.flashId] = s
+        }
+    }
+    fun disconnectSimulation() {
+        if (busy) return
+        simulation = null; session = null; live = null; page = -2
+        message = "Simulated pad disconnected. Pending edits are retained."
+        changed?.invoke()
     }
     fun read(pad: Protocol, s: PadSession) {
         if (s.identity.board == 0) {
@@ -158,7 +192,7 @@ class AppModel(context: Context) {
     }
     fun poll() {
         val mode = live ?: return
-        if (busy || selected == null) return
+        if (busy || !hasDevice) return
         busy = true
         worker.execute {
             var text = ""

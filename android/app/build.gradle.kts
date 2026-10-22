@@ -11,10 +11,12 @@ android {
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
+    buildFeatures { buildConfig = true }
     buildTypes { release { isMinifyEnabled = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt")) } }
     // A developer utility with an English UI; settings text also comes from firmware.
     lint { warningsAsErrors = true; disable += setOf("HardcodedText", "SetTextI18n") }
     testOptions { unitTests.isIncludeAndroidResources = true }
+    sourceSets.getByName("test").resources.srcDir("src/debug/assets")
 }
 dependencies {
     testImplementation("junit:junit:4.13.2")
