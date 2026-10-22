@@ -320,3 +320,9 @@ writes, backup-before-erase, identity/key rejection, short reads, ambiguous
 loaders and failure to verify. GUI tests cover worker failures, settings
 multi-slot drafts, identity checks, partial commits, global calibration
 capability checks, optional flash backups and discovery filtering. Windows USB I/O still needs hardware validation on Windows.
+
+## Android
+
+The native Kotlin USB host app is in [`android/`](../android/README.md). It shares
+settings-backup and remap-preset formats with these Python tools. Build commands,
+USB setup and the Android hardware-validation boundary are described there.

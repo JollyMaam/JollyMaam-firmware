@@ -1,0 +1,4 @@
+<resources>
+    <!-- Jieli's tool and UBOOT identities. Other mass-storage devices can be selected manually. -->
+    <usb-device vendor-id="19020" />
+</resources>
