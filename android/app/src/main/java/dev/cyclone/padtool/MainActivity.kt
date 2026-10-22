@@ -235,14 +235,26 @@ class MainActivity : Activity() {
             model.stage(s, edits)
         }
     }
+    private fun divider(parent: LinearLayout, name: String) {
+        parent.addView(View(this).apply {
+            tag = "$name-divider"; setBackgroundColor(Color.GRAY)
+            layoutParams = LinearLayout.LayoutParams(-1, dp(1)).apply { setMargins(0, dp(10), 0, dp(10)) }
+        })
+    }
     private fun overview(parent: LinearLayout, s: PadSession) {
         val id = s.identity
         if (id.board == 0) {
-            for (t in Protocol.targets(s.fields)) button(parent, targetLabel(t) + if (s.drafts.edits.any { it.key.first == t }) " *" else "") { model.page = t; render() }
-            parent.addView(View(this).apply {
-                tag = "actions-divider"; setBackgroundColor(Color.GRAY)
-                layoutParams = LinearLayout.LayoutParams(-1, dp(1)).apply { setMargins(0, dp(10), 0, dp(10)) }
-            })
+            val targets = Protocol.targets(s.fields)
+            val groups = listOf(
+                "slots" to targets.filter { it < 8 },
+                "remaps" to targets.filter { it >= 10 },
+                "other-settings" to targets.filter { it in 8..9 }
+            ).filter { it.second.isNotEmpty() }
+            for ((index, group) in groups.withIndex()) {
+                if (index > 0) divider(parent, group.first)
+                for (t in group.second) button(parent, targetLabel(t) + if (s.drafts.edits.any { it.key.first == t }) " *" else "") { model.page = t; render() }
+            }
+            divider(parent, "actions")
             defaultsButton(parent, s, null)
             button(parent, "Back up saved settings…") { document("backup-settings", true, "cyclone-settings.json", "application/json") }
             button(parent, "Restore settings…", s.drafts.edits.isEmpty()) { document("restore-settings", false, mime = "application/json") }

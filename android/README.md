@@ -186,9 +186,12 @@ must be reconnected and selected before global Apply can succeed.
 
 Refresh enumerates USB devices and returns to the
 device list; selecting a device reads its settings. Back returns from a
-settings page to the pad, and from the pad to the device list. A divider on the
-pad page separates settings from actions such as backup, restore and Reset to
-defaults. Detailed pages also have a Reset to defaults button in their body.
+settings page to the pad, and from the pad to the device list. The pad page
+groups Slots, Remaps (Base first), other settings (Palette and Calibration),
+then actions such as backup, restore and Reset to defaults, with dividers
+between groups. This is app layout; it does not change protocol IDs, firmware
+field ordering or write ordering. Detailed pages also have a Reset to defaults
+button in their body.
 
 The single status line below the toolbar includes the page, simulation marker,
 pending changes, operation/progress and device state. Long press it for full
