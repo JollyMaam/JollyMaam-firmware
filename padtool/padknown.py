@@ -14,6 +14,21 @@ class Product:
     by_hand: str = ""            # how to enter the ROM loader without a command
 
 
+@dataclass(frozen=True)
+class Chip:
+    address: int                 # where its RAM loader runs
+    blob: str                    # the SDK's RAM loader for it
+    sdk_dir: str                 # under the SDK's cpu/
+
+
+# By a ROM loader's INQUIRY vendor (the BD19's from kagaimiq's jl-uboot-tool
+# data; docs/gamesir-nova-lite-2/).
+CHIPS = {
+    "BR23": Chip(0x12000, "br23loader.bin", "br23"),
+    "BD19": Chip(0x2000, "bd19loader.bin", "bd19"),
+}
+
+
 # By the image PID: what the flash holds, what our firmware reports.
 PRODUCTS = {
     "GS_C2_ADC_DEVICE": Product("GameSir Cyclone 2", "pad", 0x100000,
@@ -22,6 +37,8 @@ PRODUCTS = {
                             "This firmware: hold the dongle's button while connecting USB."),
     "AC695X_TRANS": Product("GameSir Nova 2 Lite", "pad", 0x100000,
                             "Stock firmware: switch it to Xbox 360 mode (green) and use Enter flash loader."),
+    "AC632N_TRANS": Product("GameSir Nova 2 Lite dongle", "dongle", 0x80000,
+                            "Hold its pairing button while connecting USB, and on after."),
 }
 
 
@@ -55,11 +72,8 @@ STOCK = [
               manufacturer="Zikway", product_name="Pro Controller"),
     StockMode("AC695X_TRANS", "", "DS4 (blue)", 0x054c, 0x09cc, 0x0100,
               manufacturer="Sony Computer Entertainment", product_name="Wireless Controller"),
-    StockMode("", "GameSir Nova 2 Lite dongle", "Zikway", 0x3537, 0x2106, 0x0100,
-              manufacturer="Zikway", product_name="HID zk",
-              note="A Jieli AC632N (BD19). Hold its pairing button while connecting USB, and on after: "
-                   "it restarts into its ROM loader (BR34UBOOT1.00), which padtool and "
-                   "jlnewfw cannot use yet."),
+    StockMode("AC632N_TRANS", "", "", 0x3537, 0x2106, 0x0100,
+              manufacturer="Zikway", product_name="HID zk"),
 ]
 
 

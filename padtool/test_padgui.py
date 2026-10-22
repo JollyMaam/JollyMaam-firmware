@@ -1253,13 +1253,14 @@ class StockGuiTests(GuiCase):
             self.app.enter_flash_loader()
             write.assert_not_called()
 
-    def test_device_without_a_loader_is_named_with_its_note(self):
-        entry = next(e for e in padknown.STOCK if not e.pid)
+    def test_device_entered_by_hand_says_how(self):
+        entry = next(e for e in padknown.STOCK if e.pid == "AC632N_TRANS")
         r = stock_record("Switch (red)")
-        r.update(product_id="", stock=entry, identity=b"stock::dongle")
+        r.update(product_id=entry.pid, stock=entry, identity=b"stock:AC632N_TRANS::")
         self.load([r])
-        self.assertIn(entry.name, self.app.tree.item(self.app.tree.get_children()[0], "text"))
+        self.assertIn("GameSir Nova 2 Lite dongle · stock", self.app.tree.item(self.app.tree.get_children()[0], "text"))
         self.assertIn("pairing button", self.app.stock_help.get())
+        self.assertIn("enter it by hand", self.app.stock_help.get())
         self.assertEqual(str(self.app.stock_enter_button.cget("state")), "disabled")
 
     def test_our_firmware_and_loader_are_named_by_product(self):

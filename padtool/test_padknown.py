@@ -55,15 +55,14 @@ class StockTests(unittest.TestCase):
                                          location="5-2.4", path="dongle")])
         self.assertEqual(sorted(h["path"] for h, e in found), ["dongle", "vendor"])
         dongle = next(e for h, e in found if h["path"] == "dongle")
-        self.assertEqual((dongle.pid, known.stock_name(dongle)), ("", "GameSir Nova 2 Lite dongle"))
+        self.assertEqual((dongle.pid, known.stock_name(dongle)), ("AC632N_TRANS", "GameSir Nova 2 Lite dongle"))
 
-    def test_every_stock_pid_has_a_product_and_a_mode_with_a_command(self):
+    def test_every_stock_device_has_a_product_and_a_way_into_its_loader(self):
         for entry in known.STOCK:
-            if entry.pid:
-                self.assertIn(entry.pid, known.PRODUCTS)
-                self.assertIsNotNone(known.command_mode(entry.pid))
-                if entry.usage_page:
-                    self.assertTrue(1 < len(entry.report) <= entry.length <= 65)
+            self.assertIn(entry.pid, known.PRODUCTS)
+            self.assertTrue(known.command_mode(entry.pid) or known.PRODUCTS[entry.pid].by_hand)
+            if entry.usage_page:
+                self.assertTrue(1 < len(entry.report) <= entry.length <= 65)
 
 
 if __name__ == "__main__":

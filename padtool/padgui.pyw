@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tkinter front end for padtool and the Python BR23 flasher. Run: python padtool/padgui.pyw."""
+"""Tkinter front end for padtool and the Python Jieli flasher. Run: python padtool/padgui.pyw."""
 import contextlib
 import io
 from pathlib import Path
@@ -849,7 +849,7 @@ class App:
             return f"ROM loader · {product_name(pid)}" if pid else "ROM loader (UBOOT1.00)"
         if record["board"] == "stock":
             entry = record["stock"]
-            return f"{stock_name(entry)} · stock, {entry.mode}" if entry.pid else stock_name(entry)
+            return f"{stock_name(entry)} · stock" + (f", {entry.mode}" if entry.mode else "")
         default = "GameSir Cyclone 2 dongle" if record["board"] == "dongle" else record["board"].title()
         return f"{product_name(pid) if pid else default} · this firmware"
 
@@ -1429,7 +1429,7 @@ class App:
         files = ttk.Frame(f)
         files.pack(fill="x")
         files.columnconfigure(1, weight=1)
-        self.file_row(files, 0, "BR23 loader", self.loader)
+        self.file_row(files, 0, "RAM loaders (SDK or folder)", self.loader, directory=True)
         actions = ttk.Frame(f)
         actions.pack(fill="x", pady=8)
         self.backup_flash_button = ttk.Button(actions, text="Back up full flash…", command=self.backup_flash)
@@ -1478,8 +1478,8 @@ class App:
         """A stock pad or dongle: what it is, and how it gets to its loader."""
         entry = record["stock"]
         self.stock_title.set(f"{self.device_label(record)} · {record['path']}")
-        details = [f"USB mode: {entry.mode}" if entry.pid else "",
-                   f"Product ID: {entry.pid}" if entry.pid else "",
+        details = [f"USB mode: {entry.mode}" if entry.mode else "",
+                   f"Product ID: {entry.pid}",
                    f"USB {record['location']}" if record.get("location") else "",
                    f"Reports itself as: {record['name']}" if record.get("name") else ""]
         self.stock_details.set("\n".join(d for d in details if d))
@@ -1489,8 +1489,10 @@ class App:
             text = entry.note
         elif entry.usage_page:
             text = "Enter flash loader restarts it into its ROM loader (UBOOT1.00), where it can be backed up or flashed. Reconnect USB to leave the loader."
-        else:
+        elif command_mode(entry.pid):
             text = f"This USB mode has no command for its loader: switch it to {command_mode(entry.pid)} mode, and it will reappear here."
+        else:
+            text = "It has no command for its loader; enter it by hand. The ROM loader then appears here."
         by_hand = PRODUCTS[entry.pid].by_hand if entry.pid in PRODUCTS else ""
         if by_hand and entry.pid:
             text += f"\n\nBy hand: {by_hand}"
@@ -1610,10 +1612,12 @@ class App:
         self.run("Entering flash loader…", enter, lambda path: self.scan(automatic=True, select_path=path))
 
     def loader_blob(self):
-        blob = Path(self.loader.get()).read_bytes()
-        if not blob:
-            raise ValueError("Select a nonempty BR23 loader blob.")
-        return blob
+        """Where the chips' RAM loaders are: the SDK or a folder of them
+        (padflash.loader_blob picks the chip's)."""
+        source = Path(self.loader.get())
+        if not source.exists():
+            raise ValueError("Select the SDK, or a folder holding br23loader.bin / bd19loader.bin.")
+        return source
 
     def flash_report(self, message):
         self.events.put(("log", message))
@@ -1630,7 +1634,7 @@ class App:
         if not file:
             return
         if Path(file).resolve() == Path(self.loader.get()).resolve():
-            messagebox.showerror("Backup destination", "Choose a file different from the BR23 loader.")
+            messagebox.showerror("Backup destination", "Choose a file different from the RAM loader.")
             return
         record = self.record()
         def backup():

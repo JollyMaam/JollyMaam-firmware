@@ -1,4 +1,4 @@
-"""BR23 RAM-loader protocol and raw image flashing, shared by GUI and CLI.
+"""Jieli ROM/RAM-loader protocol (BR23, BD19) and raw image flashing, shared by GUI and CLI.
 
 Ported from our jlnewfw implementation. No external flashing executable is
 needed. Images are converted in memory to the connected chip's key.
@@ -11,12 +11,32 @@ import struct
 import time
 
 import padhid
-from padknown import PRODUCTS, product_name, stock_devices
+from padknown import CHIPS, PRODUCTS, product_name, stock_devices
 from padtransport import device_paths, scsi, usb_location
 
-PACKAGED_LOADER = Path(__file__).resolve().parent / "br23loader.bin"
-SDK_LOADER = Path(os.environ.get("JIELI_SDK", "/shared/github.com-Jieli-Tech/fw-AC63_BT_SDK")) / "cpu/br23/tools/br23loader.bin"
-DEFAULT_LOADER = PACKAGED_LOADER if PACKAGED_LOADER.is_file() else SDK_LOADER
+# RAM loaders: a folder of <chip>loader.bin beside padtool, else the SDK.
+PACKAGED_LOADERS = Path(__file__).resolve().parent
+SDK = Path(os.environ.get("JIELI_SDK", "/shared/github.com-Jieli-Tech/fw-AC63_BT_SDK"))
+DEFAULT_LOADER = (PACKAGED_LOADERS if any((PACKAGED_LOADERS / c.blob).is_file() for c in CHIPS.values())
+                  else SDK)
+
+
+def loader_blob(source, chip):
+    """The RAM loader for chip: source is the bytes, the SDK (its
+    cpu/<chip>/tools/), a folder of <chip>loader.bin, or one of the SDK's
+    loader files (the others are found beside it)."""
+    if isinstance(source, (bytes, bytearray)):
+        return bytes(source)
+    spec = CHIPS[chip]
+    source = Path(source)
+    if source.name == spec.blob and source.is_file():
+        return source.read_bytes()
+    folder = source if source.is_dir() else source.parent
+    for path in (folder / "cpu" / spec.sdk_dir / "tools" / spec.blob, folder / spec.blob,
+                 folder.parent.parent / spec.sdk_dir / "tools" / spec.blob):
+        if path.is_file():
+            return path.read_bytes()
+    raise ValueError(f"No {spec.blob} for the {chip} under {source}; select the SDK or a folder of loaders")
 
 
 def crc16(data, seed=0):
@@ -221,8 +241,9 @@ def decode_chip_key(data):
 
 
 class Loader:
-    def __init__(self, path, report=print, progress=None):
+    def __init__(self, path, report=print, progress=None, chip="BR23"):
         self.path = path
+        self.chip = chip                 # CHIPS key: the ROM loader's INQUIRY vendor
         self.location = usb_location(path)
         self.report = report
         self.progress = progress or (lambda stage, done=0, total=None: None)
@@ -251,13 +272,14 @@ class Loader:
 
     def start(self, blob):
         if not blob:
-            raise ValueError("Empty BR23 loader")
+            raise ValueError(f"Empty {self.chip} loader")
+        address = CHIPS[self.chip].address
         self.progress("Loading flash helper", 0, len(blob))
-        self.report(f"{self.path}: uploading BR23 loader to RAM")
+        self.report(f"{self.path}: uploading {self.chip} loader to RAM")
         for offset in range(0, len(blob), 512):
-            self.write(0xfb06, 0x12000 + offset, blob[offset:offset + 512])
+            self.write(0xfb06, address + offset, blob[offset:offset + 512])
             self.progress("Loading flash helper", min(offset + 512, len(blob)), len(blob))
-        self.execute(0xfb08, struct.pack(">IH", 0x12000, 1))
+        self.execute(0xfb08, struct.pack(">IH", address, 1))
         for attempt in range(20):
             try:
                 info = self.execute(0xfc0a)
@@ -350,17 +372,18 @@ class Loader:
             pass  # The successful reboot normally disconnects before replying.
 
 
-def inspect_loader(path, blob, report=print, progress=None, expected_location=None):
+def inspect_loader(path, source, report=print, progress=None, expected_location=None):
     """Read the selected ROM loader's actual on-flash PID; never enter another device."""
     if expected_location and usb_location(path) != expected_location:
         raise OSError("Selected ROM loader moved or its device path was reused; refresh before continuing")
     inquiry = scsi(path, [0x12, 0, 0, 0, 36], 36, 1000)
-    if len(inquiry) != 36 or inquiry[8:12] != b"BR23" or inquiry[16:21] != b"UBOOT":
+    chip = inquiry[8:12].decode(errors="replace") if len(inquiry) == 36 else ""
+    if chip not in CHIPS or inquiry[16:21] != b"UBOOT":
         raise OSError("Selected device is no longer a ROM loader; refresh before continuing")
-    loader = Loader(path, report, progress)
+    loader = Loader(path, report, progress, chip)
     if expected_location:
         loader.location = expected_location
-    loader.start(blob)
+    loader.start(loader_blob(source, chip))
     try:
         loader.product_id = loader.pid()
     except ValueError:
@@ -369,12 +392,12 @@ def inspect_loader(path, blob, report=print, progress=None, expected_location=No
     return loader
 
 
-def select_loader(pid, blob, wait=30, report=print, device_path=None, progress=None, expected_location=None):
+def select_loader(pid, source, wait=30, report=print, device_path=None, progress=None, expected_location=None):
     """Enter loader mode and match PID, or restrict to an already-selected ROM path.
     Running firmware for pid is asked to restart: ours (IDENTIFY names its PID),
     other Jieli firmware, and stock pads in a USB mode with a loader command."""
-    if pid not in PRODUCTS or not blob:
-        raise ValueError("Select a known product and a nonempty BR23 loader")
+    if pid not in PRODUCTS or not source:
+        raise ValueError("Select a known product and the RAM loaders (the SDK or a folder)")
     deadline = time.monotonic() + wait
     seen, asked = {}, set()
     report(f"Looking for a {product_name(pid)}; {PRODUCTS[pid].by_hand}")
@@ -390,7 +413,8 @@ def select_loader(pid, blob, wait=30, report=print, device_path=None, progress=N
                 inquiry = scsi(path, [0x12, 0, 0, 0, 36], 36, 1000)
             except OSError:
                 continue
-            if len(inquiry) != 36 or inquiry[8:12] != b"BR23":
+            chip = inquiry[8:12].decode(errors="replace") if len(inquiry) == 36 else ""
+            if chip not in CHIPS:
                 continue
             if inquiry[16:21] != b"UBOOT":
                 if device_path is not None:
@@ -404,10 +428,10 @@ def select_loader(pid, blob, wait=30, report=print, device_path=None, progress=N
                 except OSError:
                     pass  # A reboot can disconnect without a reply.
                 continue
-            loader = Loader(path, report, progress)
+            loader = Loader(path, report, progress, chip)
             if expected_location:
                 loader.location = expected_location
-            loader.start(blob)
+            loader.start(loader_blob(source, chip))
             try:
                 held = loader.pid()
             except ValueError:
@@ -451,7 +475,7 @@ def main():
             p.error("image does not match the selected PID")
     elif args.file.resolve() == args.loader.resolve():
         p.error("backup must not overwrite the loader")
-    loader = select_loader(args.pid, args.loader.read_bytes())
+    loader = select_loader(args.pid, args.loader)
     if args.command == "backup":
         loader.backup(args.file)
         print("Reconnect USB to leave the loader")

@@ -96,6 +96,7 @@ import argparse, collections, glob, json, os, struct, sys, threading, time
 from padtransport import scsi, device_paths
 import padcurves
 import padremap
+from padknown import CHIPS
 if sys.platform == "linux":
     import fcntl
 
@@ -115,11 +116,11 @@ def discover_devices(include_loaders=False, paths=None):
     """Yield path, name, IDENTIFY; opted-in ROM loaders have no IDENTIFY."""
     for path in device_paths() if paths is None else paths:
         name = inquiry(path)
-        if name and name.startswith("BR23") and "UBOOT" in name:
+        if name and name[:4] in CHIPS and "UBOOT" in name:
             if include_loaders:
                 yield path, name, None
             continue
-        if name and name.startswith("BR23"):
+        if name and name[:4] in CHIPS:
             try:
                 identity = scsi(path, [OP, 0x00], 64, 1000)
                 if len(identity) >= 56 and identity[:4] == b"C2PD" and identity[6] in BOARD_IDS.values():

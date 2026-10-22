@@ -279,6 +279,34 @@ class FlashTests(unittest.TestCase):
                 flash.select_loader('GS_C2_ADC_DEVICE', b'loader', wait=0, report=lambda _: None)
             self.assertNotIn(0xfc, [call.args[1][0] for call in sent.call_args_list])
 
+    def test_loader_blob_per_chip_from_sdk_folder_or_beside_a_file(self):
+        root = Path(self.temp.name) / 'sdk'
+        for chip in ('br23', 'bd19'):
+            (root / 'cpu' / chip / 'tools').mkdir(parents=True)
+            (root / 'cpu' / chip / 'tools' / f'{chip}loader.bin').write_bytes(chip.encode())
+        flat = Path(self.temp.name) / 'flat'
+        flat.mkdir()
+        (flat / 'bd19loader.bin').write_bytes(b'flat')
+        self.assertEqual(flash.loader_blob(root, 'BD19'), b'bd19')
+        self.assertEqual(flash.loader_blob(root / 'cpu/br23/tools/br23loader.bin', 'BD19'), b'bd19')
+        self.assertEqual(flash.loader_blob(flat, 'BD19'), b'flat')
+        self.assertEqual(flash.loader_blob(b'raw', 'BD19'), b'raw')
+        with self.assertRaisesRegex(ValueError, 'No br23loader.bin'):
+            flash.loader_blob(flat, 'BR23')
+
+    def test_bd19_loader_runs_at_its_address(self):
+        writes, runs = [], []
+        loader = flash.Loader('x', report=lambda _: None, chip='BD19')
+        loader.location = None
+        with patch.object(flash.Loader, 'write', lambda obj, cmd, at, data: writes.append(at)), \
+             patch.object(flash.Loader, 'execute', side_effect=lambda cmd, args=b'': runs.append((cmd, args)) or
+                          {0xfc0a: bytes([0, 0, 0x13, 0x71, 0xcd]) + bytes(9), 0xfc14: bytes(14),
+                           0xfc09: bytes(14)}.get(cmd, bytes(14))):
+            loader.start(b'\0' * 1024)
+        self.assertEqual(writes, [0x2000, 0x2200])
+        self.assertEqual(runs[0], (0xfb08, struct.pack('>IH', 0x2000, 1)))
+        self.assertEqual(loader.flash_size, 512 * 1024)
+
     def test_explicit_loader_path_refuses_running_firmware(self):
         inquiry = b'\0' * 8 + b'BR23    ' + b'UDISK'.ljust(16, b' ') + b'\0' * 4
         with patch.object(flash, 'device_paths', return_value=['one']), \

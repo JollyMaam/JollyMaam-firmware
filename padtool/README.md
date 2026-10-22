@@ -189,11 +189,14 @@ settings table; its pairing and target address controls are on its main page.
 
 ## Firmware
 
-Full flash backup and image flashing run entirely in Python. The BR23 RAM
-loader is read from `JIELI_SDK/cpu/br23/tools/br23loader.bin` during development
-(or this workspace’s SDK location). It is not tracked in version control.
-A future distribution can include `padtool/br23loader.bin` beside the Python
-scripts; that untracked packaged copy takes precedence.
+Full flash backup and image flashing run entirely in Python. Each chip's
+ROM loader names the chip in its INQUIRY: `BR23` (the pads) or `BD19` (the
+Nova 2 Lite dongle, an AC632N). Its RAM loader comes from the setting **RAM
+loaders (SDK or folder)**: the SDK (`cpu/<chip>/tools/<chip>loader.bin`), a
+folder of `br23loader.bin` / `bd19loader.bin`, or one of those files with the
+others beside it. The default is `JIELI_SDK` (or this workspace's SDK). The
+loaders are not tracked in version control; a future distribution can put
+them beside the Python scripts, which then take precedence.
 No external flashing executable is needed.
 The loader is uploaded to RAM through UBOOT1.00; it provides SPI flash access.
 It is separate from the `uboot.boot` contained inside firmware images.
@@ -267,10 +270,11 @@ python padtool/padflash.py flash build/gamesir-cyclone-2-pad/firmware.img --pid 
 
 Omit `--backup` to flash without creating a backup.
 
-`--pid` names the product (`GS_C2_Dongle` for the dongle, `AC695X_TRANS` for
-the Nova 2 Lite); running firmware for it, and a stock pad in a mode with a
-command, is asked into its loader. `--loader FILE` overrides the SDK or packaged
-loader. A standalone backup leaves the board in its loader; reconnect USB
+`--pid` names the product (`GS_C2_Dongle` for the Cyclone 2 dongle,
+`AC695X_TRANS` for the Nova 2 Lite, `AC632N_TRANS` for its dongle); running
+firmware for it, and a stock pad in a mode with a command, is asked into its
+loader. `--loader` overrides the SDK or packaged loaders, as the setting
+above. A standalone backup leaves the board in its loader; reconnect USB
 afterwards. Stock firmware restoration is outside the GUI's scope. The C
 `jlnewfw` tool retains its own flashing, backup and Windows support.
 
