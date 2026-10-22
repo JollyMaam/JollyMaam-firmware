@@ -292,6 +292,38 @@ static u32 string(u8 index, u8 *out)
     return out[0];
 }
 
+/* The tool device is the SDK's mass storage, its strings but these two:
+ * the project as manufacturer and the board as product, so a host or a tool
+ * can tell this firmware's tool device from the SDK's (or stock firmware's)
+ * by name.  The SDK keeps the serial (the flash UID).  Replaces the SDK's
+ * setup hook, which in this mode only notes the host type for USB audio. */
+static u32 tool_hook(struct usb_device_t *dev, struct usb_ctrlrequest *req)
+{
+    u8 *buf = usb_get_setup_buffer(dev);
+    const char *s;
+    u32 n = 0;
+
+    if ((req->bRequestType & USB_TYPE_MASK) != USB_TYPE_STANDARD ||
+        req->bRequest != USB_REQ_GET_DESCRIPTOR || HIBYTE(req->wValue) != USB_DT_STRING)
+        return 0;
+    s = LOBYTE(req->wValue) == 1 ? TOOL_MANUFACTURER : LOBYTE(req->wValue) == 2 ? board_name : NULL;
+    if (!s) return 0;
+    while (s[n] && n < 62) {
+        buf[2 + 2 * n] = (u8)s[n];
+        buf[3 + 2 * n] = 0;
+        n++;
+    }
+    buf[0] = (u8)(2 + 2 * n);
+    buf[1] = USB_DT_STRING;
+    reply(dev, req, buf, buf[0]);
+    return 1;
+}
+
+void plat_usb_tool_strings(void)
+{
+    usb_set_setup_hook(usb_id2device(0), tool_hook);
+}
+
 /* ---- the IN pipes: whatever is next, when the endpoint is free ----------- */
 
 static void pump(struct pipe *q)

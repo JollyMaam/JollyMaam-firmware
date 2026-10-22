@@ -14,7 +14,7 @@ def read_device(path, name, identity):
     table = pad.fields(path) if board == "pad" else []
     values = {t: pad.read_target(path, table, t) for t in pad.targets(table)} if table else {}
     defaults = {t: pad.read_target(path, table, t, defaults=True) for t in pad.targets(table)} if table else {}
-    return {"path": path, "name": name, "board": board, "identity": identity[:40], "fields": table,
+    return {"path": path, "name": name, "board": board, "identity": identity[:56], "fields": table,
             "values": values, "defaults": defaults, "status": pad.status(path), "location": usb_location(path)}
 
 
@@ -56,7 +56,7 @@ class DeviceMonitor:
             generation = self.generation
             paths = sorted(set(pad.device_paths()) | self.manual_paths)
             found = list(pad.discover_devices(include_loaders=True, paths=paths))
-            present = {path: identity[:40] if identity is not None else None for path, name, identity in found}
+            present = {path: identity[:56] if identity is not None else None for path, name, identity in found}
             records, errors = [], []
             for path, name, identity in found:
                 if self.busy.is_set() or generation != self.generation:

@@ -182,7 +182,8 @@ JIELI_SDK_USED := \
 
 # $(call jieli_board,NAME): build NAME on the BR23, into $(O)/NAME/.  Set first:
 #   NAME_FLASH_SIZE  the flash device's size
-#   NAME_PID         the image's PID: the flasher writes only over the same PID
+#   NAME_PID         the image's PID: the flasher writes only over the same PID;
+#                    the firmware names itself by it (BOARD_PID)
 #   NAME_SOURCES     the app's sources; our controller (btctrler/) and BTstack come with it
 #   NAME_DEFINES     -D flags for this board (EXTRA_DEFINES adds to them)
 #   NAME_BOARD_DIR   the board's headers (btstack_config.h)
@@ -196,7 +197,7 @@ $(1)_CODE_LIMIT := $(call jieli_code_limit,$($(1)_FLASH_SIZE))
 $(1)_OBJECTS := $(patsubst %.c,$(O)/$(1)/%.o,$($(1)_SOURCES) $(wildcard src/platform/jieli/btctrler/*.c)) \
 	$(JIELI_SDK_USED:%.c=$(O)/$(1)/sdk/%.o) $(BTSTACK_USED:%.c=$(O)/$(1)/btstack/%.o)
 $(1)_FLAGS := $(JIELI_CFLAGS) $(JIELI_DEFINES) -DCONFIG_FLASH_SIZE=$($(1)_FLASH_SIZE) \
-	$($(1)_DEFINES) $(EXTRA_DEFINES) -DBUILD_ID=\"$(BUILD_ID)\"
+	-DBOARD_PID=\"$($(1)_PID)\" $($(1)_DEFINES) $(EXTRA_DEFINES) -DBUILD_ID=\"$(BUILD_ID)\"
 $(1)_INCLUDES := $(SRC_INCLUDES) -iquote $($(1)_BOARD_DIR) -iquote src/platform/jieli/sdkconfig $(BTSTACK_INCLUDES) $(JIELI_INCLUDES)
 
 .PHONY: $(1) $(1)-flash $(1)-loader

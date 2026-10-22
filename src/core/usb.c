@@ -11,9 +11,10 @@
  * the SDK does, so its tools find the loader behind a running pad.
  *
  * Sub-commands (data is in the data phase; "in" is pad to host, "out" host to pad):
- *   `0x00` IDENTIFY       in (40): magic `C2PD`, u16 protocol, board (6: 0 pad,
- *                         1 dongle), build ID (16 chars at 8), flash UID (16 at
- *                         24)
+ *   `0x00` IDENTIFY       in (56): magic `C2PD`, u16 protocol, board (6: 0
+ *                         pad, 1 dongle), build ID (16 chars at 8), flash UID
+ *                         (16 at 24), the image's PID (16 chars at 40,
+ *                         NUL-padded)
  *   `0x01` STATUS         in (16): state, slot, USB powered, low battery, u16
  *                         battery mV, u32 uptime ms, ephemeral (12), settings
  *                         items collected (13)
@@ -91,7 +92,7 @@
  * padtool/padtool.py and padtool/padgui.pyw (Linux/Windows SCSI) are the clients. */
 
 #define OP          0xf5
-#define PROTOCOL    1
+#define PROTOCOL    2
 
 #define STATS_VERSION 1
 
@@ -131,14 +132,15 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
     case CMD_IDENTIFY: {
         const u8 *uid = plat_unique_id();
 
-        if (max < 40) return 0;
+        if (max < 56) return 0;
         memcpy(data, "C2PD", 4);
         util_put16(data + 4, PROTOCOL);
         data[6] = BOARD_KIND;
         data[7] = 0;
         strncpy((char *)data + 8, BUILD_ID, 16);
         if (uid) memcpy(data + 24, uid, 16);
-        n = 40;
+        strncpy((char *)data + 40, BOARD_PID, 16);
+        n = 56;
         break;
     }
     case CMD_STATUS:
@@ -362,8 +364,10 @@ int main(void)
     static struct usb_status st = { CTL_IDLE, SLOT_NONE, 1, 0, 3900, 1234 };
     struct ctl_request r;
 
-    CHECK(usb_command(cdb, data, sizeof(data), 0) == 40);
+    CHECK(usb_command(cdb, data, 40, 0) == 0);
+    CHECK(usb_command(cdb, data, sizeof(data), 0) == 56);
     CHECK(!memcmp(data, "C2PD", 4) && data[4] == PROTOCOL && data[25] == 2);
+    CHECK(!strncmp((char *)data + 40, BOARD_PID, 16));
     CHECK(data[6] == BOARD_KIND && data[7] == 0);
 #ifdef BOARD_DONGLE
     cdb[1] = CMD_TARGET;

@@ -1250,7 +1250,7 @@ class App:
         def apply():
             # Check every identity before the first commit: USB paths can be reused.
             for path, record, items, keys in jobs:
-                if pad.cmd(path, 0, length=64)[:40] != record["identity"]:
+                if pad.cmd(path, 0, length=64)[:56] != record["identity"]:
                     raise ValueError(f"{path}: device changed since loading; refresh again")
             for path, record, items, keys in jobs:
                 pad.send(path, items)
@@ -1330,7 +1330,7 @@ class App:
             return
         command = {"connect": 0x13, "pair": 0x17, "calibrate": 0x18}[action]
         def perform():
-            if pad.cmd(path, 0, length=64)[:40] != record["identity"]:
+            if pad.cmd(path, 0, length=64)[:56] != record["identity"]:
                 raise ValueError("Device changed; wait for device detection before sending an action")
             pad.cmd(path, command, target if action != "calibrate" else 0)
         def finished(_):
@@ -1513,7 +1513,7 @@ class App:
         location = record.get("location") or usb_location(path)
         old_loaders = {r["path"] for r in self.cache.values() if r["board"] == "loader"}
         def enter():
-            if pad.cmd(path, 0, length=64)[:40] != identity:
+            if pad.cmd(path, 0, length=64)[:56] != identity:
                 raise ValueError("Device changed; wait for device detection before entering flash loader")
             self.flash_progress("Entering flash loader")
             try:
@@ -1619,7 +1619,7 @@ class App:
             if record and record["board"] == "loader":
                 return
             def perform():
-                if record and pad.cmd(path, 0, length=64)[:40] != record["identity"]:
+                if record and pad.cmd(path, 0, length=64)[:56] != record["identity"]:
                     raise ValueError("Device changed; wait for device detection before sending an action")
                 return fn(path)
             self.run(label + "…", perform)

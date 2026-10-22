@@ -24,6 +24,7 @@ extern const u8 board_keep_count;
 extern const struct wakeup_param *const board_wakeups;   /* NULL: none */
 extern const u8 board_audio;             /* a DAC and headphone amplifier */
 extern const u32 board_amp_enable;       /* the amplifier, on while high */
+extern const char board_name[];          /* the tool device's USB product string */
 
 void board_latch(void);          /* first in board_init: what is held; may enter the loader */
 void board_start(void);          /* on the control thread, before the tick starts */
@@ -44,6 +45,11 @@ void plat_mdelay(u32 ms);                /* busy wait, interrupts may be off */
 void plat_flush_dcache(const void *address, u32 size);
 void plat_enter_loader(void);            /* now, without detaching USB first */
 void plat_pull_up_input(u32 gpio);
+
+/* ---- the tool device, between the platform's files ---------------------- */
+
+#define TOOL_MANUFACTURER "cyclone2-firmware"   /* its USB manufacturer string */
+void plat_usb_tool_strings(void);        /* platform_jieli_usb.c: after the SDK's mass storage starts */
 
 /* ---- audio, between the platform's files (platform_jieli_audio.c) --------- */
 

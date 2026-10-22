@@ -604,11 +604,28 @@ static void usb_wakeup(struct usb_device_t *usb_device)
     plat_raise(EV_USB);
 }
 
+/* The SDK's INQUIRY answer ("BR23", "UDISK", "1.00"), but the product is
+ * the image's PID: a tool tells this firmware, and which board it is for,
+ * from one INQUIRY, as it tells the ROM loader ("UBOOT1.00"). */
+static u32 inquiry(const struct usb_device_t *usb_device, u32 len)
+{
+    u8 d[36] = { 0x00, 0x80, 0x02, 0x02, 0x20, 0, 0, 0, 'B', 'R', '2', '3', ' ', ' ', ' ', ' ' };
+    u32 i;
+
+    for (i = 0; i < 16; i++) d[16 + i] = i < sizeof(BOARD_PID) - 1 ? (u8)BOARD_PID[i] : ' ';
+    memcpy(d + 32, "1.00", 4);
+    memcpy(usb_buf, d, sizeof(d));
+    if (len > sizeof(d)) len = sizeof(d);
+    if (len) msd_mcu2usb(usb_device, usb_buf, len);
+    return 1;
+}
+
 u32 private_scsi_cmd(const struct usb_device_t *usb_device, struct usb_scsi_cbw *cbw)
 {
     const u8 *cdb = &cbw->operationCode;
     u32 len = cbw->dCBWDataTransferLength;
 
+    if (cdb[0] == 0x12 && !(cdb[1] & 1)) return inquiry(usb_device, len);   /* standard INQUIRY */
     if (cdb[0] != USB_VENDOR_OP && cdb[0] != 0xfb && cdb[0] != 0xfc && cdb[0] != 0xfd)
         return 0;
     if (len > sizeof(usb_buf)) len = sizeof(usb_buf);
@@ -845,6 +862,7 @@ void plat_usb_hold_present(u32 ms)
 void plat_usb_tool_mode(void)
 {
     usb_device_mode(0, MASSSTORAGE_CLASS);
+    plat_usb_tool_strings();
     msd_set_wakeup_handle(usb_wakeup);
     msd_set_reset_wakeup_handle(msd_reset);
 }

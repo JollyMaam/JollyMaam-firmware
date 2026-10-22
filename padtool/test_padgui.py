@@ -23,7 +23,7 @@ def record(path="fake", board="pad", protocol=padgui.pad.PROTOCOL):
                "names": ["switch", "hid"], "help": "Profile", "dev": False},
               {"kind": 0, "id": 2, "name": "rumble", "type": padgui.pad.T_NUMBER,
                "size": 1, "help": "Strength", "dev": False}]
-    identity = b"C2PD" + protocol.to_bytes(2, "little") + bytes([padgui.pad.BOARD_IDS[board], 0]) + b"build".ljust(16, b"\0") + path.encode().ljust(16, b"\0")[:16]
+    identity = b"C2PD" + protocol.to_bytes(2, "little") + bytes([padgui.pad.BOARD_IDS[board], 0]) + b"build".ljust(16, b"\0") + path.encode().ljust(16, b"\0")[:16] + b"GS_C2_ADC_DEVICE"
     values = {t: {"type": (b"\0", False), "rumble": (b"\x64", False)} if t < 8 else {}
               for t in range(10)} if board == "pad" else {}
     return {"path": path, "board": board, "identity": identity, "fields": fields if board == "pad" else [],

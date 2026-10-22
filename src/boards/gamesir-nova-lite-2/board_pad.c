@@ -15,6 +15,7 @@ const u8 board_line_count = 0;
 const u32 board_keep_pins[] = { 0 };
 const u8 board_keep_count = 0;
 const struct wakeup_param *const board_wakeups = NULL;
+const char board_name[] = "GameSir Nova 2 Lite pad";
 const u8 board_audio = 0;
 const u32 board_amp_enable = 0;
 

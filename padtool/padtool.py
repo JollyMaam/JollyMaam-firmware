@@ -122,7 +122,7 @@ def discover_devices(include_loaders=False, paths=None):
         if name and name.startswith("BR23"):
             try:
                 identity = scsi(path, [OP, 0x00], 64, 1000)
-                if len(identity) >= 40 and identity[:4] == b"C2PD" and identity[6] in BOARD_IDS.values():
+                if len(identity) >= 56 and identity[:4] == b"C2PD" and identity[6] in BOARD_IDS.values():
                     yield path, name, identity
             except OSError:
                 pass
@@ -164,7 +164,7 @@ def answers(path):
         identity = scsi(path, [OP, 0x00], 64, 1000)
     except OSError:
         return None
-    return identity[24:40].hex() if len(identity) >= 40 and identity[:4] == b"C2PD" else None
+    return identity[24:40].hex() if len(identity) >= 56 and identity[:4] == b"C2PD" else None
 
 
 def find_device():
@@ -215,7 +215,8 @@ def identify(path):
     d = cmd(path, 0x00, length=64)
     proto, = struct.unpack_from("<H", d, 4)
     build = d[8:24].split(b"\0")[0].decode()
-    return f"protocol {proto} build {build} flash-id {d[24:40].hex()}"
+    pid = d[40:56].split(b"\0")[0].decode()
+    return f"protocol {proto} pid {pid} build {build} flash-id {d[24:40].hex()}"
 
 
 def status(path):
@@ -555,7 +556,7 @@ REMAP_NAMES = ["remap-" + n.lower() for n in SLOT_NAMES]
 TARGETS = SLOT_TARGETS + ["palette", "calibration"] + REMAP_NAMES + ["remap-base"]
 REMAP_TARGET = 10
 BASE_TARGET = 18            # the base remap: what the remap slots inherit
-PROTOCOL = 1                # the vendor commands this padtool speaks (IDENTIFY)
+PROTOCOL = 2                # the vendor commands this padtool speaks (IDENTIFY)
 KINDS = ["slot", "palette", "calibration", "remap"]
 T_ENUM, T_NUMBER, T_RGB, T_BYTES, T_TEXT, T_ENTRY, T_LIST = range(7)
 # T_LIST: size numbers of a byte each, each at most max, shown and written "15,15,15,15,15"
@@ -1064,7 +1065,7 @@ def unpair(path, slot):
     if not 0 <= slot < 8:
         raise ValueError("Unpair requires a pad slot")
     identity = cmd(path, 0, length=64)
-    if len(identity) < 40 or identity[:4] != b"C2PD" or identity[6] != BOARD_IDS["pad"]:
+    if len(identity) < 56 or identity[:4] != b"C2PD" or identity[6] != BOARD_IDS["pad"]:
         raise ValueError("Unpair requires a pad")
     send(path, [(slot, UNPAIR_ID, b"")])
 

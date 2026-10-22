@@ -9,7 +9,7 @@ import paddevices
 class MonitorTests(unittest.TestCase):
     def setUp(self):
         self.monitor = paddevices.DeviceMonitor(queue.Queue())
-        self.identity = b'C2PD\x03\0\0\0' + b'build'.ljust(16, b'\0') + b'unique-id'.ljust(16, b'\0')
+        self.identity = b'C2PD\x03\0\0\0' + b'build'.ljust(16, b'\0') + b'unique-id'.ljust(16, b'\0') + b'GS_C2_ADC_DEVICE'
 
     def test_only_new_or_changed_devices_load_settings(self):
         device = ('path', 'BR23 UDISK', self.identity)
