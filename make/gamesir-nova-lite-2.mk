@@ -1,7 +1,8 @@
 # GameSir Nova 2 Lite: the pad, a Jieli BR23 (stock PID AC695X_TRANS).
 #   gamesir-nova-lite-2-pad          firmware.img in $(O)/<target>/
-#   gamesir-nova-lite-2-pad-flash    stock firmware enters its loader by the
-#                                    HID command in docs/gamesir-nova-lite-2/
+#   gamesir-nova-lite-2-pad-flash    from stock firmware too: jlnewfw sends
+#                                    it the HID command in docs/gamesir-nova-lite-2/
+#   gamesir-nova-lite-2-pad-loader   into the ROM loader
 #   gamesir-nova-lite-2-pad-test, gamesir-nova-lite-2-all
 # Until the shared parts move out of src/boards/gamesir-cyclone-2/, this
 # board uses the Cyclone 2's bt_pad.c and btstack_config.h.

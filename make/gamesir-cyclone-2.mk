@@ -1,6 +1,7 @@
 # GameSir Cyclone 2: the pad and GameSir's dongle, both on the Jieli BR23.
 #   gamesir-cyclone-2-pad, -dongle       firmware.img in $(O)/<target>/
 #   gamesir-cyclone-2-pad-flash, -dongle-flash
+#   gamesir-cyclone-2-pad-loader, -dongle-loader   into the ROM loader
 #   gamesir-cyclone-2-pad-test, -dongle-test, gamesir-cyclone-2-test
 #   gamesir-cyclone-2-all                both boards and their tests' builds
 
@@ -10,6 +11,7 @@ CYCLONE2_PAD := gamesir-cyclone-2-pad
 $(CYCLONE2_PAD)_FLASH_SIZE := 0x100000
 $(CYCLONE2_PAD)_PID := GS_C2_ADC_DEVICE
 $(CYCLONE2_PAD)_DEFINES :=
+$(CYCLONE2_PAD)_LOADER_HINT := Stock firmware: hold Home+Start while plugging in USB.
 $(CYCLONE2_PAD)_BOARD_DIR := src/boards/gamesir-cyclone-2
 $(CYCLONE2_PAD)_SOURCES := src/boards/gamesir-cyclone-2/board_pad.c \
 	src/boards/gamesir-cyclone-2/bt_pad.c src/platform/jieli/btstack_hci_jieli.c src/platform/jieli/btstack_qos_jieli.c \
@@ -24,6 +26,7 @@ CYCLONE2_DONGLE := gamesir-cyclone-2-dongle
 $(CYCLONE2_DONGLE)_FLASH_SIZE := 0x80000
 $(CYCLONE2_DONGLE)_PID := GS_C2_Dongle
 $(CYCLONE2_DONGLE)_DEFINES := -DBOARD_DONGLE
+$(CYCLONE2_DONGLE)_LOADER_HINT := This firmware by hand: hold the button while plugging in USB.
 $(CYCLONE2_DONGLE)_BOARD_DIR := src/boards/gamesir-cyclone-2
 $(CYCLONE2_DONGLE)_SOURCES := src/boards/gamesir-cyclone-2/board_dongle.c \
 	src/platform/jieli/platform_jieli.c src/platform/jieli/platform_jieli_sdk.c \

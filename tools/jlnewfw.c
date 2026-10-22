@@ -1089,6 +1089,13 @@ static void cmd_pack(int argc, char **argv) {
 #include <windows.h>
 #include <winioctl.h>
 #include <ntddscsi.h>
+#include <setupapi.h>
+#include <hidsdi.h>
+#include <hidpi.h>
+#ifdef _MSC_VER
+#pragma comment(lib, "setupapi.lib")
+#pragma comment(lib, "hid.lib")
+#endif
 #include <time.h>
 #define SG_DXFER_NONE 0
 #define SG_DXFER_TO_DEV 1
@@ -1140,27 +1147,33 @@ static size_t device_paths(char paths[256][300]) {
   return n;
 }
 
-/* The USB port a SCSI node's device is on ("5-2.1", from sysfs).  A device
- * restarting into its ROM loader comes back on the same port, but often on
- * another sg node: the number is the kernel's next free one. */
-static bool usb_port(const char *path, char port[64]) {
+/* The sysfs directory of the USB device behind an sg or hidraw node: the
+ * path above its interface ("5-2.1:1.0").  A device restarting into its ROM
+ * loader comes back on the same port, but often on another sg node: the
+ * number is the kernel's next free one. */
+static bool usb_dir(const char *path, char dir[400]) {
 #ifdef _WIN32
-  (void)path, (void)port;
+  (void)path, (void)dir;
   return false;
 #else
   const char *name = strrchr(path, '/');
-  char link[400], *real, *host, *iface, *colon;
+  name = name ? name + 1 : path;
+  char link[400], *real, *c;
   bool ok = false;
-  snprintf(link, sizeof link, "/sys/class/scsi_generic/%s/device", name ? name + 1 : path);
+  snprintf(link, sizeof link, "/sys/class/%s/%s/device",
+           strncmp(name, "hidraw", 6) ? "scsi_generic" : "hidraw", name);
   real = realpath(link, NULL);
-  /* .../usb5/5-2/5-2.1/5-2.1:1.0/host7/target7:0:0/7:0:0:0 */
-  if (real && strstr(real, "/usb") && (host = strstr(real, "/host"))) {
-    *host = 0;
-    iface = strrchr(real, '/');
-    if (iface && (colon = strchr(++iface, ':'))) {
-      *colon = 0;
-      snprintf(port, 64, "%s", iface);
+  /* .../usb5/5-2/5-2.1/5-2.1:1.0/host7/target7:0:0/7:0:0:0
+   * .../usb5/5-2/5-2.1/5-2.1:1.2/0003:3537:100F.0042 */
+  for (c = real && strstr(real, "/usb") ? strchr(real, '/') : NULL; c; c = strchr(c + 1, '/')) {
+    char *end = strchr(c + 1, '/');
+    size_t len = end ? (size_t)(end - c - 1) : strlen(c + 1);
+    char *colon = memchr(c + 1, ':', len), *dash = memchr(c + 1, '-', len);
+    if (c[1] >= '0' && c[1] <= '9' && colon && dash && dash < colon) {
+      *c = 0;
+      snprintf(dir, 400, "%s", real);
       ok = true;
+      break;
     }
   }
   free(real);
@@ -1168,26 +1181,29 @@ static bool usb_port(const char *path, char port[64]) {
 #endif
 }
 
-/* The USB device behind a node: its port and its device number, which the
- * host gives anew on every enumeration ("" without sysfs). */
+/* Its port ("5-2.1"). */
+static bool usb_port(const char *path, char port[64]) {
+  char dir[400];
+  if (!usb_dir(path, dir))
+    return false;
+  snprintf(port, 64, "%s", strrchr(dir, '/') + 1);
+  return true;
+}
+
+/* Its port and its device number, which the host gives anew on every
+ * enumeration ("" without sysfs). */
 static void usb_device(const char *path, char id[96]) {
+  char dir[400], link[420];
   id[0] = 0;
-#ifndef _WIN32
-  char port[64], link[400];
-  if (!usb_port(path, port))
+  if (!usb_dir(path, dir))
     return;
-  const char *name = strrchr(path, '/');
-  snprintf(link, sizeof link, "/sys/class/scsi_generic/%s/device/../../../../devnum",
-           name ? name + 1 : path);
+  snprintf(link, sizeof link, "%s/devnum", dir);
   FILE *f = fopen(link, "r");
   int num;
   if (f && fscanf(f, "%d", &num) == 1)
-    snprintf(id, 96, "%s#%d", port, num);
+    snprintf(id, 96, "%s#%d", strrchr(dir, '/') + 1, num);
   if (f)
     fclose(f);
-#else
-  (void)path;
-#endif
 }
 
 /* Devices asked to restart into their loader.  Until one leaves the bus it
@@ -1356,6 +1372,118 @@ static void crc_cipher(uint8_t *p, size_t n, uint32_t key) {
  * limits restart requests to that path. */
 /* IDENTIFY byte 6 distinguishes our pad and dongle builds. Keep firmware for
  * the other board running; stock firmware is selected by PID in the loader. */
+/* Stock firmware that shows itself only as HID enters its ROM loader on an
+ * output report.  A pad running ours shows itself as a disk instead. */
+static const struct {
+  const char *pid;              /* the stock image's */
+  uint16_t vid, product, usage_page;
+  uint8_t report[5];            /* report ID 0, then the command */
+} stock_hid[] = {
+  /* GameSir Nova 2 Lite, wired: its vendor interface (docs/gamesir-nova-lite-2/) */
+  {"AC695X_TRANS", 0x3537, 0x100f, 0xff7a, {0x00, 0xf2, 0x00, 0x04, 0xf6}},
+};
+
+/* The stock_hid entry a HID interface is, for `want` (any, if NULL). */
+static int stock_hid_match(const char *want, unsigned vid, unsigned product,
+                           unsigned usage_page) {
+  for (size_t i = 0; i < sizeof stock_hid / sizeof stock_hid[0]; i++)
+    if ((!want || !strcmp(want, stock_hid[i].pid)) && vid == stock_hid[i].vid &&
+        product == stock_hid[i].product && usage_page == stock_hid[i].usage_page)
+      return (int)i;
+  return -1;
+}
+
+/* Writes the entry's report, zero-padded to the 64-byte output report. */
+static size_t enter_stock_hid(const char *want, char selected[256][300], size_t count) {
+#ifdef _WIN32
+  GUID guid;
+  HidD_GetHidGuid(&guid);
+  HDEVINFO set = SetupDiGetClassDevsA(&guid, NULL, NULL, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+  SP_DEVICE_INTERFACE_DATA it = {.cbSize = sizeof it};
+  for (DWORD k = 0; set != INVALID_HANDLE_VALUE && count < 256 &&
+                    SetupDiEnumDeviceInterfaces(set, NULL, &guid, k, &it); k++) {
+    union {
+      SP_DEVICE_INTERFACE_DETAIL_DATA_A d;
+      char raw[sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_A) + 300];
+    } detail;
+    detail.d.cbSize = sizeof detail.d;
+    if (!SetupDiGetDeviceInterfaceDetailA(set, &it, &detail.d, sizeof detail, NULL, NULL))
+      continue;
+    HANDLE h = CreateFileA(detail.d.DevicePath, GENERIC_READ | GENERIC_WRITE,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+    if (h == INVALID_HANDLE_VALUE)
+      continue;
+    HIDD_ATTRIBUTES a = {.Size = sizeof a};
+    PHIDP_PREPARSED_DATA pp;
+    HIDP_CAPS caps = {0};
+    if (HidD_GetAttributes(h, &a) && HidD_GetPreparsedData(h, &pp)) {
+      HidP_GetCaps(pp, &caps);
+      HidD_FreePreparsedData(pp);
+    }
+    int e = stock_hid_match(want, a.VendorID, a.ProductID, caps.UsagePage);
+    uint8_t out[65] = {0};
+    DWORD done;
+    if (e >= 0 && caps.OutputReportByteLength <= sizeof out) {
+      memcpy(out, stock_hid[e].report, sizeof stock_hid[e].report);
+      printf("%s: stock firmware, asking it to restart into its ROM loader\n",
+             detail.d.DevicePath);
+      if (WriteFile(h, out, caps.OutputReportByteLength, &done, NULL))
+        snprintf(selected[count++], 300, "%s", detail.d.DevicePath);
+    }
+    CloseHandle(h);
+  }
+  if (set != INVALID_HANDLE_VALUE)
+    SetupDiDestroyDeviceInfoList(set);
+#else
+  static const char *const dirs[] = {"/dev", "/dev/bwrap"};
+  for (size_t i = 0; i < 2; i++) {
+    DIR *dir = opendir(dirs[i]);
+    struct dirent *e;
+    while (dir && (e = readdir(dir)) && count < 256) {
+      char path[300], sys[400], line[128];
+      unsigned bus, vid = 0, product = 0;
+      uint8_t rd[3] = {0};
+      if (strncmp(e->d_name, "hidraw", 6))
+        continue;
+      snprintf(path, sizeof path, "%s/%s", dirs[i], e->d_name);
+      if (restarting(path)) /* also seen under the other directory */
+        continue;
+      snprintf(sys, sizeof sys, "/sys/class/hidraw/%s/device/uevent", e->d_name);
+      FILE *f = fopen(sys, "r");
+      while (f && fgets(line, sizeof line, f))
+        if (sscanf(line, "HID_ID=%x:%x:%x", &bus, &vid, &product) == 3)
+          break;
+      if (f)
+        fclose(f);
+      snprintf(sys, sizeof sys, "/sys/class/hidraw/%s/device/report_descriptor", e->d_name);
+      f = fopen(sys, "rb");
+      if (f && fread(rd, 1, 3, f) != 3)
+        rd[0] = 0;
+      if (f)
+        fclose(f);
+      /* The descriptor opens with its usage page (06 lo hi). */
+      int m = rd[0] == 0x06 ? stock_hid_match(want, vid, product, rd[1] | rd[2] << 8) : -1;
+      if (m < 0)
+        continue;
+      uint8_t out[65] = {0};
+      memcpy(out, stock_hid[m].report, sizeof stock_hid[m].report);
+      int fd = open(path, O_RDWR);
+      printf("%s: stock firmware, asking it to restart into its ROM loader\n", path);
+      if (fd >= 0 && write(fd, out, sizeof out) == (ssize_t)sizeof out) {
+        if (n_asked < 16)
+          usb_device(path, asked[n_asked++]);
+        snprintf(selected[count++], 300, "%s", path);
+      }
+      if (fd >= 0)
+        close(fd);
+    }
+    if (dir)
+      closedir(dir);
+  }
+#endif
+  return count;
+}
+
 static size_t enter_loaders(const char *device, const char *want, char selected[256][300]) {
   char paths[256][300];
   size_t n = device_paths(paths), count = 0;
@@ -1395,6 +1523,8 @@ static size_t enter_loaders(const char *device, const char *want, char selected[
     }
     dev_close(fd);
   }
+  if (!device && selected)
+    count = enter_stock_hid(want, selected, count);
   return count;
 }
 
@@ -1797,6 +1927,22 @@ static void cmd_backup(int argc, char **argv) {
   dev_close(d.fd);
 }
 
+/* Running firmware for PID restarts into its ROM loader, which stays until
+ * USB is reconnected. */
+static void cmd_loader(int argc, char **argv) {
+  struct flash_opts o = {.wait = 30};
+  for (int i = 0; i < argc; i++)
+    if (!flash_arg(&o, argc, argv, &i))
+      die("usage: jlnewfw loader --pid PID [--device PATH] [--wait SECONDS] [--loader BLOB]");
+  if (!o.pid)
+    die("usage: jlnewfw loader --pid PID [--device PATH] [--wait SECONDS] [--loader BLOB]");
+  o.enter_loader = true;
+  struct dev d = {0};
+  select_dev(&d, &o, o.pid);
+  printf("%s: in its ROM loader, holding %s; reconnect USB to leave it\n", d.path, o.pid);
+  dev_close(d.fd);
+}
+
 static void cmd_flash(int argc, char **argv) {
   struct flash_opts o = {0};
   const char *image = NULL;
@@ -1857,6 +2003,7 @@ static void cmd_flash(int argc, char **argv) {
 }
 static void cmd_flashpack(int argc, char **argv) { cmd_flash(argc, argv); }
 static void cmd_backup(int argc, char **argv) { cmd_flash(argc, argv); }
+static void cmd_loader(int argc, char **argv) { cmd_flash(argc, argv); }
 #endif
 
 static void usage(void) {
@@ -1871,6 +2018,7 @@ static void usage(void) {
       "[--code-limit ADDR]\n"
       "               [--at ADDR] [--mark VALUE] [--copy FROM:TO:LEN]...\n"
       "  jlnewfw backup --pid PID [FLASH OPTIONS] OUTPUT\n"
+      "  jlnewfw loader --pid PID [--device PATH] [--wait SECONDS] [--loader BLOB]\n"
       "  jlnewfw flash [FLASH OPTIONS] IMAGE\n"
       "  jlnewfw flashpack [PACK OPTIONS] [FLASH OPTIONS] [app.bin ...]\n"
       "FLASH OPTIONS: [--pid PID] [--device PATH] [--loader SDK/cpu/br23/tools/br23loader.bin] "
@@ -1893,7 +2041,9 @@ static void usage(void) {
       "Without --device the device is the one in its ROM loader whose flash\n"
       "holds the image's PID (any, with --force-pid); more than one is\n"
       "refused.  --enter-loader asks running JieLi firmware that shows\n"
-      "itself as a disk to restart into its ROM loader throughout --wait.\n"
+      "itself as a disk, and stock firmware known to take a HID command, to\n"
+      "restart into its ROM loader throughout --wait.  loader does only that,\n"
+      "and waits for the loader holding PID.\n"
       "--keep writes back ranges of what the device held; --dry-run checks\n"
       "only.  flashpack packs for the chip's key and flashes; -o also saves\n"
       "what it wrote.");
@@ -1912,6 +2062,10 @@ int main(int argc, char **argv) {
   setvbuf(stdout, NULL, _IOLBF, 0);
   if (!strcmp(argv[1], "backup")) {
     cmd_backup(argc - 2, argv + 2);
+    return 0;
+  }
+  if (!strcmp(argv[1], "loader")) {
+    cmd_loader(argc - 2, argv + 2);
     return 0;
   }
   if (!strcmp(argv[1], "flash")) {

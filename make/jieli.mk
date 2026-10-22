@@ -186,9 +186,11 @@ JIELI_SDK_USED := \
 #   NAME_SOURCES     the app's sources; our controller (btctrler/) and BTstack come with it
 #   NAME_DEFINES     -D flags for this board (EXTRA_DEFINES adds to them)
 #   NAME_BOARD_DIR   the board's headers (btstack_config.h)
-# Targets: NAME (firmware.img), NAME-flash (through the ROM loader; DEVICE=
-# picks one of several).  Inside the template, $(1) is NAME, $(...) is
-# expanded once when it is called, and $$(...) when the rule runs.
+#   NAME_LOADER_HINT how to enter the ROM loader by hand, where software cannot
+# Targets: NAME (firmware.img), NAME-flash (through the ROM loader),
+# NAME-loader (into the ROM loader and wait there); DEVICE= picks one of
+# several.  Inside the template, $(1) is NAME, $(...) is expanded once when
+# it is called, and $$(...) when the rule runs.
 define jieli_board
 $(1)_CODE_LIMIT := $(call jieli_code_limit,$($(1)_FLASH_SIZE))
 $(1)_OBJECTS := $(patsubst %.c,$(O)/$(1)/%.o,$($(1)_SOURCES) $(wildcard src/platform/jieli/btctrler/*.c)) \
@@ -197,7 +199,7 @@ $(1)_FLAGS := $(JIELI_CFLAGS) $(JIELI_DEFINES) -DCONFIG_FLASH_SIZE=$($(1)_FLASH_
 	$($(1)_DEFINES) $(EXTRA_DEFINES) -DBUILD_ID=\"$(BUILD_ID)\"
 $(1)_INCLUDES := $(SRC_INCLUDES) -iquote $($(1)_BOARD_DIR) -iquote src/platform/jieli/sdkconfig $(BTSTACK_INCLUDES) $(JIELI_INCLUDES)
 
-.PHONY: $(1) $(1)-flash
+.PHONY: $(1) $(1)-flash $(1)-loader
 $(1): $(O)/$(1)/firmware.img
 
 $(O)/$(1)/src/%.o: src/%.c $(O)/$(1)/defines
@@ -238,12 +240,19 @@ $(O)/$(1)/firmware.img: $(O)/$(1)/app.bin $(O)/$(1)/isd_config.ini $(O)/host/jln
 	$$(Q)$(O)/host/jlnewfw pack --flash-size $($(1)_FLASH_SIZE) --code-limit $$($(1)_CODE_LIMIT) \
 		-c $(O)/$(1)/isd_config.ini -u $(JIELI_UBOOT) -o $$@ $(O)/$(1)/app.bin $(JIELI_CONFIG_TOOL)
 
-# Ask running firmware to enter the ROM loader (stock firmware: enter it by
-# hand), then write the image, encrypted for the connected chip's key.
+# Ask running firmware to enter the ROM loader (stock firmware without a
+# command for it: by hand), then write the image, encrypted for the
+# connected chip's key.
 $(1)-flash: $(O)/$(1)/app.bin $(O)/$(1)/isd_config.ini $(O)/host/jlnewfw
 	$$(Q)$(O)/host/jlnewfw flashpack --enter-loader --wait 30 --loader $(JIELI_LOADER) $$(if $$(DEVICE),--device $$(DEVICE)) \
 		--flash-size $($(1)_FLASH_SIZE) --code-limit $$($(1)_CODE_LIMIT) \
 		-c $(O)/$(1)/isd_config.ini -u $(JIELI_UBOOT) $(O)/$(1)/app.bin $(JIELI_CONFIG_TOOL)
+
+# Running firmware into the ROM loader, then wait for it there: the loader
+# whose flash holds this board's PID.
+$(1)-loader: $(O)/host/jlnewfw
+	$$(if $$($(1)_LOADER_HINT),@echo "$$($(1)_LOADER_HINT)")
+	$$(Q)$(O)/host/jlnewfw loader --pid $($(1)_PID) --wait 30 --loader $(JIELI_LOADER) $$(if $$(DEVICE),--device $$(DEVICE))
 
 # The SDK's linker script, with the heap ending below the retained RAM and the
 # controller's RAM kept clear of the MaskROM boot token.
