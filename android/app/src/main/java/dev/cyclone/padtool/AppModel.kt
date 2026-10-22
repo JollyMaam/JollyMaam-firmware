@@ -12,6 +12,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ConcurrentHashMap
 
 class PadSession(val identity: Identity, val fields: List<Field>) {
+    var device: UsbDevice? = null
     var values: Map<Int, Map<Int, Value>> = emptyMap()
     var defaults: Map<Int, Map<Int, Value>> = emptyMap()
     val drafts = Drafts()
@@ -36,6 +37,7 @@ class AppModel(context: Context) {
     val hasDevice get() = selected != null || simulation != null
     var session: PadSession? = null
     val sessions: MutableMap<String, PadSession> = ConcurrentHashMap()
+    val pendingSessions get() = sessions.values.filter { it.drafts.edits.isNotEmpty() }.sortedBy { it.identity.flashId }
     var loaderMode = false
     var page = -2
     val scrollPositions = mutableMapOf<String, Int>()
@@ -93,11 +95,17 @@ class AppModel(context: Context) {
         return UsbTransport.open(usb, device).use(block)
     }
     fun <T> withPad(block: (Protocol, PadSession) -> T): T {
-        val simulated = simulation
-        return if (simulated != null) checkedPad(simulated, block) else transport { checkedPad(it, block) }
+        return withSession(session ?: error("Read the device first"), block)
     }
-    private fun <T> checkedPad(tr: Scsi, block: (Protocol, PadSession) -> T): T {
-        val pad = Protocol(tr); val s = session ?: error("Read the device first")
+    private fun <T> withSession(s: PadSession, block: (Protocol, PadSession) -> T): T {
+        val simulated = simulation
+        if (simulated != null && simulated.identity == s.identity) return checkedPad(simulated, s, block)
+        val device = s.device ?: error("Reconnect and select device ${s.identity.flashId.take(12)} before applying")
+        require(usb.deviceList[device.deviceName]?.deviceId == device.deviceId) { "Device ${s.identity.flashId.take(12)} disconnected; reconnect and select it again" }
+        return UsbTransport.open(usb, device).use { checkedPad(it, s, block) }
+    }
+    private fun <T> checkedPad(tr: Scsi, s: PadSession, block: (Protocol, PadSession) -> T): T {
+        val pad = Protocol(tr)
         require(pad.identity() == s.identity) { "Device identity changed; select it again" }
         return block(pad, s)
     }
@@ -117,6 +125,7 @@ class AppModel(context: Context) {
                 val existing = sessions[id.flashId]
                 val s = if (existing?.identity == id) existing else PadSession(id, if (id.board == 0) pad.fields() else emptyList())
                 read(pad, s)
+                s.device = device
                 if (existing == null) loadDrafts(s)
                 session = s; sessions[id.flashId] = s
             }
@@ -176,20 +185,44 @@ class AppModel(context: Context) {
     }
     fun apply(target: Int?) {
         val s = session ?: return
-        if (s.needsRefresh) { message = "Rescan and reopen the device before another Apply"; changed?.invoke(); return }
+        if (s.needsRefresh) { message = "Refresh and reopen the device before another Apply"; changed?.invoke(); return }
         val items = s.drafts.items(s.fields, target)
         run("Applying settings") {
-            withPad { pad, current ->
-                try {
-                    pad.send(current.identity, items) {
-                        current.drafts.discard(target); saveDrafts(current)
-                    }
-                } catch (e: Exception) { current.needsRefresh = true; throw e }
-                // A lost read after a successful COMMIT must not re-stage Unpair.
-                current.needsRefresh = true
-                read(pad, current)
+            withSession(s) { pad, _ -> commit(pad, s, target, items) }
+        }
+    }
+    private fun commit(pad: Protocol, s: PadSession, target: Int?, items: List<Edit>) {
+        try {
+            pad.send(s.identity, items) { s.drafts.discard(target); saveDrafts(s) }
+        } catch (e: Exception) { s.needsRefresh = true; throw e }
+        // A lost read after a successful COMMIT must not re-stage Unpair.
+        s.needsRefresh = true
+        read(pad, s)
+    }
+    fun applyAll() = applySessions(pendingSessions) { s, action -> withSession(s) { pad, _ -> action(pad) } }
+    internal fun applySessions(pending: List<PadSession>, using: (PadSession, (Protocol) -> Unit) -> Unit) {
+        if (pending.isEmpty()) return
+        run("Applying all ${pending.size} devices") {
+            val plans = pending.map { s -> s to s.drafts.items(s.fields) }
+            // Check every connection, identity and staging budget before writing any device.
+            for ((s, items) in plans) {
+                require(!s.needsRefresh) { "Refresh and reopen ${s.identity.flashId.take(12)} before applying" }
+                require(items.sumOf { it.bytes.size + 3 } <= 1024) { "Too many changes on ${s.identity.flashId.take(12)}; apply one page at a time" }
+                using(s) { pad -> require(pad.identity() == s.identity) { "Device identity changed; reopen ${s.identity.flashId.take(12)}" } }
+            }
+            for ((s, items) in plans) {
+                try { using(s) { pad -> commit(pad, s, null, items) } }
+                catch (e: Exception) {
+                    val committed = pending.count { it.drafts.edits.isEmpty() }
+                    throw IllegalStateException("$committed of ${pending.size} devices committed; ${s.identity.flashId.take(12)}: ${e.message}", e)
+                }
             }
         }
+    }
+    fun discardAll() {
+        if (busy) return
+        for (s in pendingSessions) { s.drafts.discard(); saveDrafts(s) }
+        message = "All pending edits discarded"; changed?.invoke()
     }
     fun stage(s: PadSession, edits: List<Edit>) {
         for (edit in edits) {

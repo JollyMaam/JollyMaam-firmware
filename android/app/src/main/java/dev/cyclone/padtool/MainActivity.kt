@@ -113,20 +113,24 @@ class MainActivity : Activity() {
         else -> "Pad"
     }
     private fun scope() = model.page.takeIf { it >= 0 }
+    private fun globalScope() = model.page == -2 || !model.hasDevice
     private fun statusLine(): String = buildList {
         add(pageName())
-        if (model.simulation != null && model.page != -1) add("Simulation")
-        model.session?.let { s ->
+        if (model.simulation != null && !globalScope() && model.page != -1) add("Simulation")
+        if (globalScope()) {
+            val pending = model.pendingSessions
+            add("${pending.sumOf { it.drafts.edits.size }} pending · ${pending.size} devices")
+        } else model.session?.let { s ->
             if (s.fields.isNotEmpty()) add("${s.drafts.edits.count { scope() == null || it.key.first == scope() }} pending")
             if (s.needsRefresh) add("Reopen device")
         }
         add((if (model.busy) "… " else "") + model.message)
-        if (model.loaderMode) {
+        if (model.loaderMode && !globalScope()) {
             add("Product ${model.loaderPid ?: "unread"}")
             add(if (model.loaderFile.isFile) "RAM helper ready" else "Select RAM helper")
-        } else if (model.hasDevice) model.session?.status?.takeIf { it.isNotBlank() }?.let(::add)
+        } else if (model.hasDevice && !globalScope()) model.session?.status?.takeIf { it.isNotBlank() }?.let(::add)
     }.joinToString(" · ").replace(Regex("\\s+"), " ")
-    private fun statusDetails() = statusLine() + (model.session?.identity?.let { "\nBuild ${it.build} · protocol ${it.protocol}\n${it.flashId}" } ?: "")
+    private fun statusDetails() = statusLine() + (model.session?.identity?.takeIf { !globalScope() }?.let { "\nBuild ${it.build} · protocol ${it.protocol}\n${it.flashId}" } ?: "")
     private fun back() {
         model.live = null
         model.page = if (model.page != -1 && model.page != -2 && model.hasDevice) -1 else -2
@@ -140,10 +144,11 @@ class MainActivity : Activity() {
             v.setPadding(dp(12), top, dp(12), bottom); insets
         }
         setContentView(root)
-        val toolbar = row(root)
-        toolbar.tag = "toolbar"
+        val toolbar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; tag = "toolbar" }
+        root.addView(toolbar, LinearLayout.LayoutParams(-1, -2))
+        button(toolbar, "Refresh") { model.rescan() }
         applyBar(toolbar, model.session, scope())
-        button(toolbar, "Rescan") { model.rescan() }
+        toolbar.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
         if (model.page != -2 && model.hasDevice) button(toolbar, "Back") { back() }
         for (i in 0 until toolbar.childCount) (toolbar.getChildAt(i) as? Button)?.apply {
             minWidth = 0; minimumWidth = 0; minHeight = dp(40); minimumHeight = dp(40)
@@ -199,20 +204,31 @@ class MainActivity : Activity() {
     }
     private fun devicePage(parent: LinearLayout) {
         if (BuildConfig.DEBUG) button(parent, "Simulated pad (no USB)") { model.loadSimulation() }
-        parent.addView(label("USB tool mode is required. On the pad, end the active gamepad session first. Bluetooth configuration is not available."))
         for (device in model.devices) button(parent, "${device.productName ?: "USB device"} · %04x:%04x\n${device.deviceName}".format(device.vendorId, device.productId)) { choose(device) }
-        if (model.devices.isEmpty()) parent.addView(label("No tool devices found. Use a USB data cable and a phone with USB host support."))
-        for (s in model.sessions.values.filter { it.drafts.edits.isNotEmpty() && (!model.hasDevice || it !== model.session) }) {
+        if (model.devices.isEmpty()) parent.addView(label("No tool devices found."))
+        for (s in model.pendingSessions) {
             parent.addView(label("Retained edits: ${s.identity.flashId.take(12)} · ${s.drafts.edits.size} pending"))
             button(parent, "Discard those edits") { s.drafts.discard(); model.saveDrafts(s); render() }
         }
     }
     private fun applyBar(bar: LinearLayout, s: PadSession?, target: Int?) {
+        if (globalScope()) {
+            val pending = model.pendingSessions
+            val count = pending.sumOf { it.drafts.edits.size }
+            button(bar, "Apply", count > 0) {
+                confirm("Apply all devices", "Apply $count pending changes across ${pending.size} devices? Every device must be connected. Each device is saved separately.") { model.applyAll() }
+            }
+            button(bar, "Discard", count > 0) {
+                confirm("Discard all devices", "Discard $count pending changes across ${pending.size} devices? These edits will be lost.") { model.discardAll() }
+            }
+            return
+        }
         val count = s?.drafts?.edits?.count { target == null || it.key.first == target } ?: 0
         button(bar, "Apply", count > 0 && s?.needsRefresh == false && model.hasDevice && !model.loaderMode) { model.apply(target) }
         button(bar, "Discard", count > 0) { s!!.drafts.discard(target); model.saveDrafts(s); render() }
-        button(bar, "Defaults", s?.fields?.isNotEmpty() == true && !model.loaderMode) {
-            if (s == null) return@button
+    }
+    private fun defaultsButton(parent: LinearLayout, s: PadSession, target: Int?) {
+        button(parent, "Reset to defaults", s.fields.isNotEmpty()) {
             val targets = if (target == null) Protocol.targets(s.fields) else listOf(target)
             for (t in targets) s.drafts.edits.remove(t to 0xfe)
             val edits = targets.flatMap { t -> s.fields.filter { it.kind == Protocol.kind(t) }.map { Edit(t, it.id, ByteArray(0)) } }
@@ -223,6 +239,11 @@ class MainActivity : Activity() {
         val id = s.identity
         if (id.board == 0) {
             for (t in Protocol.targets(s.fields)) button(parent, targetLabel(t) + if (s.drafts.edits.any { it.key.first == t }) " *" else "") { model.page = t; render() }
+            parent.addView(View(this).apply {
+                tag = "actions-divider"; setBackgroundColor(Color.GRAY)
+                layoutParams = LinearLayout.LayoutParams(-1, dp(1)).apply { setMargins(0, dp(10), 0, dp(10)) }
+            })
+            defaultsButton(parent, s, null)
             button(parent, "Back up saved settings…") { document("backup-settings", true, "cyclone-settings.json", "application/json") }
             button(parent, "Restore settings…", s.drafts.edits.isEmpty()) { document("restore-settings", false, mime = "application/json") }
             button(parent, "Live input") { model.page = -4; model.console = ""; model.live = "input"; render() }
@@ -255,7 +276,7 @@ class MainActivity : Activity() {
             button(parent, "Disconnect simulated pad") { model.disconnectSimulation() }
         }
         button(parent, "Enter flash loader", s.drafts.edits.isEmpty() && model.simulation == null) {
-            confirm("Enter flash loader", "The device will reconnect as UBOOT. Select it from Devices and grant USB access again.") { action("Entering flash loader", 0x11) }
+            confirm("Enter flash loader", "The device will reconnect as UBOOT. Use Refresh, select it and grant USB access again.") { action("Entering flash loader", 0x11) }
         }
     }
     private fun settingsPage(parent: LinearLayout, s: PadSession, target: Int) {
@@ -351,6 +372,7 @@ class MainActivity : Activity() {
             })
             parent.addView(advanced)
         }
+        defaultsButton(parent, s, target)
     }
     private fun editField(s: PadSession, target: Int, field: Field, raw: ByteArray) {
         val title = field.name.replace('_', ' ')

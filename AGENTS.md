@@ -145,8 +145,11 @@ formats aligned with padtool. Native app work does not require a firmware build.
 and launches the debug simulated pad; run it on the host with KVM access.
 It stays in the foreground: r + Enter rebuilds/reinstalls, Ctrl-C or q + Enter
 stops owned build/emulator/adb processes and deletes run-temporary files.
-The app opens the device list; Rescan returns there. Apply/Discard/Defaults
-stay at the top with one status line. Long press settings for help.
+The app opens the device list; Refresh returns there. Refresh/Apply/Discard
+stay at the top, with Back on the right and one status line. On the device
+list, Apply/Discard affect all devices with pending edits and ask for confirmation;
+on a pad page they affect that pad, and on a detailed page only that target.
+Reset to defaults lives in the page body. Long press settings for help/defaults.
 `python3 android/tools/test_launcher.py` checks signal/lock/process cleanup.
 `python3 android/tools/generate_simulation.py` exports the simulator's real
 field table/defaults from the firmware's host code without hardware access.

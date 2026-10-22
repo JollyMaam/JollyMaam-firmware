@@ -164,14 +164,23 @@ location or Bluetooth permissions.
 1. End the controller's USB gamepad session, then connect it to the phone.
 2. Select its device entry and allow Android's USB access prompt.
 3. Open a slot, palette, calibration or remap page. Tap a value to edit it.
-4. Stage changes, then Apply. Discard uses the cached originals. Defaults stages
+4. Stage changes, then Apply. Discard uses the cached originals. Reset to defaults stages
    the firmware defaults, including pairing fields within the selected scope.
 
-Apply, Discard, Defaults and Rescan stay in the fixed toolbar at the very top.
-On the pad's main page the setting actions affect that pad; on a detailed page
-they affect only that target. Rescan enumerates USB devices and returns to the
+Refresh, Apply and Discard stay in the fixed toolbar at the very top, with Back
+aligned to the right. On the pad's page Apply/Discard affect that pad; on a
+detailed page they affect only that target. On the main device list they affect
+all devices with pending changes, after a confirmation showing the number of
+changes and devices. Global Apply checks all connections, identities and staging
+budgets before writing; devices then commit separately. If one fails, confirmed
+commits stay saved and the remaining edits are retained. Disconnected devices
+must be reconnected and selected before global Apply can succeed.
+
+Refresh enumerates USB devices and returns to the
 device list; selecting a device reads its settings. Back returns from a
-settings page to the pad, and from the pad to the device list.
+settings page to the pad, and from the pad to the device list. A divider on the
+pad page separates settings from actions such as backup, restore and Reset to
+defaults. Detailed pages also have a Reset to defaults button in their body.
 
 The single status line below the toolbar includes the page, simulation marker,
 pending changes, operation/progress and device state. Long press it for full
@@ -193,10 +202,10 @@ them immediately underneath it without rebuilding the page. Pages without
 developer fields have no checkbox. Unpair is staged and
 only takes effect on Apply.
 
-The firmware's staging area holds 1024 bytes. An Apply larger than that is
-rejected before WRITE; use page-level Apply for large imports. Each Apply
-checks the device identity, drops stale firmware staging, checks every WRITE
-result, and sends one COMMIT. A failed/ambiguous commit requires Rescan and
+Each device's staging area holds 1024 bytes. A device's Apply payload larger
+than that is rejected before WRITE; use page-level Apply for large imports.
+For each device, Apply checks its identity, drops stale firmware staging,
+checks every WRITE result, and sends one COMMIT. A failed/ambiguous commit requires Refresh and
 reopening the device before another Apply. Check the loaded values and discard any already-saved edits
 before retrying an action such as Unpair. Successfully acknowledged commits
 clear drafts before the subsequent settings read, so a failed refresh cannot
@@ -232,7 +241,7 @@ Pair, target-address and tool-only controls.
 ## Firmware backup and flashing
 
 On a running device, Enter flash loader requests the reboot. Select the
-returning UBOOT device after Rescan and grant USB access again. Alternatively,
+returning UBOOT device after Refresh and grant USB access again. Alternatively,
 connect the pad while holding Home + Start, or the dongle while holding its
 button.
 
@@ -275,6 +284,8 @@ for recovery.
   active flings, wheel direction changes/limits, and subsequent touch flinging.
 - in-place developer expansion, compact labels/default help, combined remap
   mapping/rule editing, per-key discard, presets, rule limits and deletion.
+- per-pad/global toolbar scope, global confirmation, multiple-device commits,
+  disconnected/oversized preflight refusal and partial completion after a lost reply.
 
 Regenerate interoperability fixtures after changing Python formats:
 
