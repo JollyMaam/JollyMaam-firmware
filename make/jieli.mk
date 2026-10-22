@@ -12,7 +12,8 @@ JIELI_OBJCOPY := $(JIELI_TOOLS)/objcopy
 
 JIELI_UBOOT := $(JIELI_SDK)/cpu/br23/tools/uboot.boot
 JIELI_CONFIG_TOOL := $(JIELI_SDK)/cpu/br23/tools/cfg_tool.bin
-JIELI_LOADER := $(JIELI_SDK)/cpu/br23/tools/br23loader.bin
+# jlnewfw finds each chip's RAM loader under the SDK's cpu/<chip>/tools/.
+JIELI_LOADER := $(JIELI_SDK)
 
 # VM (settings and bonds) is the VM_KB below BTIF (4 KiB) and key_mac (4 KiB)
 # at the end of flash; code may use everything below it (the code limit).

@@ -1359,13 +1359,32 @@ static bool restarting(const char *path) {
   return false;
 }
 
-#define LOADER_ADDRESS 0x12000 /* BR23 */
 #define LOADER_BLOCK 512
 #define LOADER_ARG 1 /* target: SPI NOR */
+
+/* The chips whose ROM loader we drive, by the INQUIRY vendor it answers, with
+ * the SDK's RAM loader for each and where it runs (the BD19 from kagaimiq's
+ * jl-uboot-tool data; docs/gamesir-nova-lite-2/). */
+static const struct {
+  const char *chip, *blob, *sdk_dir; /* sdk_dir: under the SDK's cpu/ */
+  uint32_t address;
+} chips[] = {
+    {"BR23", "br23loader.bin", "br23", 0x12000},
+    {"BD19", "bd19loader.bin", "bd19", 0x2000},
+};
+#define CHIP_COUNT (sizeof chips / sizeof chips[0])
+
+static int chip_of(const uint8_t vendor[4]) {
+  for (size_t i = 0; i < CHIP_COUNT; i++)
+    if (!memcmp(vendor, chips[i].chip, 4))
+      return (int)i;
+  return -1;
+}
 
 struct dev {
   device_fd fd;
   const char *path;
+  int chip;            /* chips[] */
   uint32_t io;         /* largest flash transfer */
   uint16_t key;        /* chip key */
   uint32_t flash_size; /* from the flash ID */
@@ -1425,12 +1444,14 @@ static bool sg(device_fd fd, const uint8_t *cdb, int len, int dir, uint8_t *data
 #endif
 }
 
-static bool inquiry(device_fd fd, char product[17]) {
+/* Product, and the chip (chips[]; -1 for another vendor). */
+static bool inquiry(device_fd fd, char product[17], int *chip) {
   uint8_t cdb[6] = {0x12, 0, 0, 0, 36, 0}, d[36];
   if (!sg(fd, cdb, 6, SG_DXFER_FROM_DEV, d, 36, 2000))
     return false;
   memcpy(product, d + 16, 16);
   product[16] = 0;
+  *chip = chip_of(d + 8);
   return true;
 }
 static void jl_cdb(uint8_t cdb[16], uint16_t cmd, const uint8_t *args,
@@ -1519,11 +1540,12 @@ static void crc_cipher(uint8_t *p, size_t n, uint32_t key) {
 
 enum disk_class { DISK_OTHER, DISK_LOADER, DISK_OURS, DISK_JIELI };
 
-static enum disk_class classify_disk(device_fd fd, char pid[17]) {
+static enum disk_class classify_disk(device_fd fd, char pid[17], int *chip) {
   uint8_t cdb[6] = {0x12, 0, 0, 0, 36, 0}, q[36];
   uint8_t id[16] = {0xf5, 0x00}, ident[56] = {0};
   pid[0] = 0;
-  if (!sg(fd, cdb, 6, SG_DXFER_FROM_DEV, q, 36, 2000) || memcmp(q + 8, "BR23", 4))
+  *chip = -1;
+  if (!sg(fd, cdb, 6, SG_DXFER_FROM_DEV, q, 36, 2000) || (*chip = chip_of(q + 8)) < 0)
     return DISK_OTHER;
   if (!memcmp(q + 16, "UBOOT", 5))
     return DISK_LOADER;
@@ -1544,6 +1566,7 @@ static const struct {
   uint16_t usage_page;          /* the interface taking the command; 0: no command */
   uint8_t len;                  /* written: the report ID byte (0: none) and the report */
   uint8_t report[5];            /* that byte, then the command; zero-padded to len */
+  const char *by_hand;          /* where no mode has a command */
 } stock_hid[] = {
   /* docs/gamesir-cyclone2/stock-pad-dongle.md (3.52) */
   {"GS_C2_ADC_DEVICE", "GameSir Cyclone 2", "Xbox 360 (green)", 0x3537, 0x1053, 0x0352,
@@ -1559,6 +1582,8 @@ static const struct {
    "Zikway", "Pro Controller", 0, 0, {0}},
   {"AC695X_TRANS", "GameSir Nova 2 Lite", "DS4 (blue)", 0x054c, 0x09cc, 0x0100,
    "Sony Computer Entertainment", "Wireless Controller", 0, 0, {0}},
+  {"AC632N_TRANS", "GameSir Nova 2 Lite dongle", "", 0x3537, 0x2106, 0x0100, "Zikway", "HID zk", 0,
+   0, {0}, "hold its pairing button while connecting USB"},
 };
 #define STOCK_HID_COUNT (sizeof stock_hid / sizeof stock_hid[0])
 
@@ -1779,31 +1804,57 @@ static bool open_dev(struct dev *d, const char *path) {
   d->path = path;
   if (d->fd < 0)
     return false;
-  if (inquiry(d->fd, product) && !strncmp(product, "UBOOT", 5))
+  if (inquiry(d->fd, product, &d->chip) && d->chip >= 0 && !strncmp(product, "UBOOT", 5))
     return true;
   dev_close(d->fd);
   return false;
 }
 /* Load and start the flash loader, then ask what the chip is. */
-static void start_loader(struct dev *d, const char *loader) {
+/* The RAM loader for a chip: --loader (or JLNEWFW_LOADER) names the SDK
+ * (its cpu/<chip>/tools/), a folder holding <chip>loader.bin, or one of the
+ * SDK's loader files (the others are found beside it). */
+static const char *loader_path(const char *loader, int chip) {
+  static char p[1100], dir[1024];
   if (!loader)
     loader = getenv("JLNEWFW_LOADER");
   if (!loader)
-    die("give the BR23 loader blob with --loader or JLNEWFW_LOADER "
-        "(the SDK's cpu/br23/tools/br23loader.bin)");
+    die("give the SDK (or a folder of <chip>loader.bin) with --loader or JLNEWFW_LOADER");
+  if (!strcmp(base_name(loader), chips[chip].blob))
+    return loader;
+  snprintf(dir, sizeof dir, "%s", loader);
+  struct stat st;
+  char *slash = strrchr(dir, '/');
+  if (!stat(loader, &st) && !S_ISDIR(st.st_mode) && slash)
+    *slash = 0; /* a file: from its folder */
+  const char *tries[] = {"%s/cpu/%s/tools/%s", "%s/%.0s%s", "%s/../../%s/tools/%s"};
+  for (size_t i = 0; i < 3; i++) {
+    snprintf(p, sizeof p, tries[i], dir, chips[chip].sdk_dir, chips[chip].blob);
+    FILE *f = fopen(p, "rb");
+    if (f) {
+      fclose(f);
+      return p;
+    }
+  }
+  fprintf(stderr, "jlnewfw: no %s for the %s under %s\n", chips[chip].blob, chips[chip].chip, loader);
+  die("give the SDK or a folder of loaders with --loader");
+  return NULL;
+}
+
+static void start_loader(struct dev *d, const char *loader) {
   size_t n;
-  uint8_t *blob = read_file(loader, &n);
+  uint8_t *blob = read_file(loader_path(loader, d->chip), &n);
+  const uint32_t address = chips[d->chip].address;
   for (size_t off = 0; off < n; off += LOADER_BLOCK) {
     uint32_t m = (uint32_t)(n - off < LOADER_BLOCK ? n - off : LOADER_BLOCK);
-    if (!jl_write(d, 0xfb06, LOADER_ADDRESS + (uint32_t)off, blob + off, m))
+    if (!jl_write(d, 0xfb06, address + (uint32_t)off, blob + off, m))
       die("could not write the loader into RAM");
   }
   if (getenv("JLNEWFW_DEBUG")) { /* what landed, as the ROM reads it back */
     uint8_t ra[6], got[32];
-    be32(ra, LOADER_ADDRESS);
+    be32(ra, address);
     ra[4] = 0, ra[5] = 32;
     if (jl_data(d, 0xfd07, ra, 6, SG_DXFER_FROM_DEV, got, 32)) {
-      fprintf(stderr, "RAM at 0x%x:", LOADER_ADDRESS);
+      fprintf(stderr, "RAM at 0x%x:", address);
       for (int i = 0; i < 32; i++)
         fprintf(stderr, " %02x", got[i]);
       fprintf(stderr, "\n");
@@ -1811,7 +1862,7 @@ static void start_loader(struct dev *d, const char *loader) {
   }
   free(blob);
   uint8_t a[6];
-  be32(a, LOADER_ADDRESS);
+  be32(a, address);
   a[4] = 0, a[5] = LOADER_ARG;
   if (!jl_exec(d, 0xfb08, a, 6, NULL))
     die("could not start the loader");
@@ -1983,7 +2034,8 @@ static const char *cand_what(const struct cand *c, char buf[160]) {
   case CAND_OURS: return "our firmware";
   case CAND_JIELI: return "Jieli firmware, PID not known";
   case CAND_STOCK:
-    snprintf(buf, 160, "stock %s, %s mode", stock_hid[c->entry].board, stock_hid[c->entry].mode);
+    snprintf(buf, 160, stock_hid[c->entry].mode[0] ? "stock %s, %s mode" : "stock %s%s",
+             stock_hid[c->entry].board, stock_hid[c->entry].mode);
     return buf;
   }
   return "";
@@ -2004,7 +2056,8 @@ static size_t survey(const struct flash_opts *o, const char *want, struct cand *
     device_fd fd = dev_open(paths[i]);
     if (fd < 0)
       continue;
-    enum disk_class k = classify_disk(fd, pid);
+    int chip;
+    enum disk_class k = classify_disk(fd, pid, &chip);
     dev_close(fd);
     struct cand *x = &c[n];
     memset(x, 0, sizeof *x);
@@ -2096,13 +2149,18 @@ static void select_dev(struct dev *out, const struct flash_opts *o, const char *
           printf("%s: %s%s%s; not in its ROM loader (--enter-loader)\n", x->path,
                  cand_what(x, buf), x->pid[0] ? ", " : "", x->pid);
       } else if (x->kind == CAND_STOCK && !stock_hid[x->entry].usage_page) {
-        if (!told_before(x->path))
-          for (size_t k = 0; k < STOCK_HID_COUNT; k++)
-            if (!strcmp(stock_hid[k].pid, x->pid) && stock_hid[k].usage_page) {
-              printf("%s: %s, which has no command for its loader: switch it to %s\n",
-                     x->path, cand_what(x, buf), stock_hid[k].mode);
-              break;
-            }
+        if (!told_before(x->path)) {
+          const char *mode = NULL;
+          for (size_t k = 0; k < STOCK_HID_COUNT && !mode; k++)
+            if (!strcmp(stock_hid[k].pid, x->pid) && stock_hid[k].usage_page)
+              mode = stock_hid[k].mode;
+          if (mode)
+            printf("%s: %s, which has no command for its loader: switch it to %s\n",
+                   x->path, cand_what(x, buf), mode);
+          else
+            printf("%s: %s, which has no command for its loader: %s\n", x->path,
+                   cand_what(x, buf), stock_hid[x->entry].by_hand);
+        }
       } else {
         bool sent = true;
         printf("%s: %s, asking it to restart into its ROM loader\n", x->path, cand_what(x, buf));
@@ -2145,13 +2203,15 @@ static void cmd_scan(void) {
     device_fd fd = dev_open(paths[i]);
     if (fd < 0)
       continue;
-    enum disk_class k = classify_disk(fd, pid);
+    int chip;
+    enum disk_class k = classify_disk(fd, pid, &chip);
     dev_close(fd);
     if (k == DISK_OTHER)
       continue;
     if (!usb_port(paths[i], port))
       snprintf(port, sizeof port, "-");
-    printf("%-24s %s%s%s  (%s)\n", port, names[k], pid[0] ? ", " : "", pid, paths[i]);
+    printf("%-24s %s (%s)%s%s  (%s)\n", port, names[k], chips[chip].chip, pid[0] ? ", " : "", pid,
+           paths[i]);
   }
   size_t nh = hid_devices(h, 64);
   for (int pass = 0; pass < 2; pass++) /* the interface taking a command first */
@@ -2168,9 +2228,10 @@ static void cmd_scan(void) {
         continue;
       if (ns < 64)
         snprintf(seen[ns++], sizeof seen[0], "%s", port);
-      printf("%-24s stock %s, %s mode, %s%s  (%s)\n", port, stock_hid[e].board,
-             stock_hid[e].mode, stock_hid[e].pid,
-             stock_hid[e].usage_page ? "" : "; no loader command in this mode", h[i].path);
+      printf("%-24s stock %s%s%s, %s%s%s  (%s)\n", port, stock_hid[e].board,
+             stock_hid[e].mode[0] ? ", " : "", stock_hid[e].mode, stock_hid[e].pid,
+             stock_hid[e].usage_page ? "" : stock_hid[e].by_hand ? "; by hand: " : "; no loader command in this mode",
+             stock_hid[e].by_hand && !stock_hid[e].usage_page ? stock_hid[e].by_hand : "", h[i].path);
     }
 }
 

@@ -57,8 +57,8 @@ STOCK = [
               manufacturer="Sony Computer Entertainment", product_name="Wireless Controller"),
     StockMode("", "GameSir Nova 2 Lite dongle", "Zikway", 0x3537, 0x2106, 0x0100,
               manufacturer="Zikway", product_name="HID zk",
-              note="A Jieli AC632N (BD19). Hold its pairing button while connecting USB and for about "
-                   "15 s after: it restarts into its ROM loader (BR34UBOOT1.00), which padtool and "
+              note="A Jieli AC632N (BD19). Hold its pairing button while connecting USB, and on after: "
+                   "it restarts into its ROM loader (BR34UBOOT1.00), which padtool and "
                    "jlnewfw cannot use yet."),
 ]
 

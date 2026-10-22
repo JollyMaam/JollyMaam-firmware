@@ -19,7 +19,7 @@ Options used by the build:
 
 - `--flash-size` and `--code-limit`: fix the layout so reserved regions do not
   move when code size changes.
-- `--loader`: the SDK's `br23loader.bin`.
+- `--loader`: the SDK folder (each chip's RAM loader is `cpu/<chip>/tools/<chip>loader.bin`), a folder of `<chip>loader.bin` files, or one such file. The chip is the ROM loader's INQUIRY vendor: `BR23` (loader at `0x12000`) or `BD19` (at `0x2000`).
 - `-c`: `isd_config.ini`. `-u`: `uboot.boot`.
 - `--enter-loader --wait 30`: ask running firmware to enter the ROM loader,
   then wait for it (classes below).

@@ -65,8 +65,8 @@ sum) are answered `a5 05 ff c0 69` with no pad linked.
 
 ### Loader entry
 
-Held while USB is connected and for about 15 s after, the pairing button
-restarts the dongle into the MaskROM loader: `4c4a:3442`, strings
+Held while USB is connected, and on after, the pairing button restarts the
+dongle into the MaskROM loader: `4c4a:3442`, strings
 `BR34UBOOT1.00`, INQUIRY vendor `BD19`, product `UBOOT1.00`, one
 mass-storage interface (`08/06/50`). The SDK's `cpu/bd19/tools/bd19loader.bin`,
 written to RAM at `0x2000` with the loader commands of
@@ -76,4 +76,5 @@ flash.
 ## Not established
 
 Pins of every input, sticks and triggers, motors, LEDs, USB presence, the
-charger; whether a button combination enters the pad's loader.
+charger; whether a button combination enters the pad's loader (Home + Menu,
+GameSir's instruction for its updater, did not).
