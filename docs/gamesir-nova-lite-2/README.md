@@ -2,7 +2,7 @@
 
 Board facts for the GameSir Nova 2 Lite pad (GameSir's code T4N2), a Jieli
 BR23 ([../jieli/](../jieli/README.md)), and what its stock firmware shows.
-The pins are not established.
+The inputs' pins are established; the outputs' are not.
 
 ## Chip and flash
 
@@ -74,8 +74,64 @@ written to RAM at `0x2000` with the loader commands of
 erases and writes the flash with the BR23 loader's commands; the run command
 afterwards starts the written firmware.
 
+## Inputs
+
+Found with a probe firmware (`src/boards/gamesir-nova-lite-2/pinprobe.c`)
+while each control was pressed. The stock image's ADC scan table (file
+offset `0x53bd4`, address `0x01e53cf4`: `0x0050000f` (VBAT), then
+`gpio, 0, channel` triples) lists the same six analog pins.
+
+### Buttons
+
+Fifteen buttons are a matrix of three column pins, `PC0`..`PC2`, and five row
+pins. A pressed key connects its row and column. `PA4` and `PA5` are
+connected to each other with no key pressed, so they act as one row.
+
+| Row | `PC0` | `PC1` | `PC2` |
+|---|---|---|---|
+| `PA3` | D-pad up | View | Y |
+| `PA4` / `PA5` | D-pad right | Circle (under Home) | X |
+| `PA6` | D-pad left | Menu | A |
+| `PA7` | D-pad down | right paddle | B |
+| `PA8` | R3 | left paddle | L3 |
+
+Four buttons connect a pin to ground; pulled up, the pin reads low while
+pressed:
+
+| Pin | Button |
+|---|---|
+| `PB1` | Home |
+| `PB2` | M (bottom) |
+| `PB5` | RB |
+| `PB7` | LB |
+
+### Sticks and triggers
+
+Analog, one SAR channel each. Raw 10-bit values (`adc_get_value`) at rest
+are near the middle, between 520 and 600.
+
+| Pin | Channel | Control | Full travel |
+|---|---|---|---|
+| `PA1` | `AD_CH_PA1` | left stick X | right: higher (788 seen) |
+| `PB8` | `AD_CH_PB8` | left stick Y | up: lower (264) |
+| `PC4` | `AD_CH_PC4` | right stick X | right: lower (254) |
+| `PC5` | `AD_CH_PC5` | right stick Y | up: higher (937) |
+| `PA10` | `AD_CH_PA10` | LT | pulled: lower (96) |
+| `PB3` | `AD_CH_PB3` | RT | pulled: lower (175) |
+
+`PA1` at rest steps between about 540, 575 and 637 every few seconds.
+
+### Other pins
+
+With every free pin of ports A..C pulled down, then up (port D and the flash
+pins `PA13`, `PA14` left alone; the flash is on SPI0 port B, 2-bit):
+
+- `PA2` reads high either way.
+- `PB12`..`PB15` and `PC8`..`PC15` read low either way.
+- `PA0` follows `PC7` when `PC7` is driven, and the other way round.
+
 ## Not established
 
-Pins of every input, sticks and triggers, motors, LEDs, USB presence, the
-charger; whether a button combination enters the pad's loader (Home + Menu,
-GameSir's instruction for its updater, did not).
+Pins of the LEDs, the motors, USB presence and the charger; what drives
+`PA2` and links `PA0` with `PC7`; whether a button combination enters the
+pad's loader (Home + Menu, GameSir's instruction for its updater, did not).

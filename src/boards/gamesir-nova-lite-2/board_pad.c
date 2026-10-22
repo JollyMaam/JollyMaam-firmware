@@ -29,6 +29,11 @@ const u32 board_amp_enable = 0;
 #define BOOT_FAILS_MAX  2
 #define BOOT_HEALTHY_MS 10000
 
+/* pinprobe.c: logs what the pins do, until they are known */
+void probe_start(void);
+void probe_tick(void);
+void probe_report(void);
+
 static struct { u32 magic, fails; } guard RETAINED;
 static struct plat_boot boot;
 
@@ -55,6 +60,7 @@ void plat_boot_info(struct plat_boot *out)
 
 void board_start(void)
 {
+    probe_start();
 }
 
 HOT void board_tick(void)
@@ -63,6 +69,7 @@ HOT void board_tick(void)
         guard.fails = 0;
         plat_flush_dcache(&guard, sizeof(guard));
     }
+    probe_tick();
 }
 
 void board_to_loader(void)
@@ -87,6 +94,7 @@ void plat_input(struct in_raw *raw)
     memset(raw, 0, sizeof(*raw));
     plat_lines(&changed_us);
     raw->changed_us = changed_us;
+    probe_report();
 }
 
 void plat_leds(const struct led_frame *f)

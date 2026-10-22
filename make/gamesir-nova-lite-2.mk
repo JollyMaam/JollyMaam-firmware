@@ -21,6 +21,7 @@ $(NOVA2LITE_PAD)_BOARD_DIR := src/boards/gamesir-cyclone-2
 
 $(NOVA2LITE_PAD)_SOURCES :=
 $(NOVA2LITE_PAD)_SOURCES += src/boards/gamesir-nova-lite-2/board_pad.c
+$(NOVA2LITE_PAD)_SOURCES += src/boards/gamesir-nova-lite-2/pinprobe.c
 $(NOVA2LITE_PAD)_SOURCES += src/boards/gamesir-cyclone-2/bt_pad.c
 $(NOVA2LITE_PAD)_SOURCES += src/platform/jieli/btstack_hci_jieli.c
 $(NOVA2LITE_PAD)_SOURCES += src/platform/jieli/btstack_qos_jieli.c
