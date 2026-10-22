@@ -26,6 +26,7 @@ enum { S_OFF, S_RESET, S_RESET_WAIT, S_SETUP, S_RUN, S_READ, S_SLEEP, S_FAILED }
 
 static struct {
     u8 state, mode, step, busy;
+    u8 failing;                  /* the last transfer failed: retries are not logged */
     u32 at_ms, next_us;
     u8 data[12];
     struct imu_sample ring[HISTORY];
@@ -67,11 +68,16 @@ u32 imu_poll(u32 now, u8 mode)
     if (imu.busy) {
         imu.busy = 0;
         if (done < 0) {
-            util_log("imu: bus error in state %u", imu.state);
+            if (!imu.failing) util_log("imu: bus error in state %u (retried every %u ms, unlogged)",
+                                       imu.state, (u32)RETRY_MS);
+            imu.failing = 1;
             enter(S_FAILED, now);
-        } else if (imu.state == S_READ) {
-            store();             /* and on to the next read's time below */
-            imu.state = S_RUN;
+        } else {
+            imu.failing = 0;
+            if (imu.state == S_READ) {
+                store();         /* and on to the next read's time below */
+                imu.state = S_RUN;
+            }
         }
     }
     if (mode != imu.mode && imu.state != S_FAILED) {
