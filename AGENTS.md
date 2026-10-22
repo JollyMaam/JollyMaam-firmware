@@ -1,6 +1,6 @@
 # Working on this repository
 
-GameSir Cyclone 2 firmware: the Jieli BR23 SDK runtime, an owned C Bluetooth
+GameSir Cyclone 2 firmware (and the start of a GameSir Nova 2 Lite board): the Jieli BR23 SDK runtime, an owned C Bluetooth
 controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`).
 
 - Reference: [docs/](docs/README.md). `docs/jieli/` is the BR23 chip and SDK,
@@ -72,6 +72,7 @@ controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`)
     make -j32 gamesir-cyclone-2-dongle     # build/gamesir-cyclone-2-dongle/
     make gamesir-cyclone-2-dongle-flash    # packed for the connected dongle's key
     make -j32 gamesir-cyclone-2-all        # both boards
+    make -j32 gamesir-nova-lite-2-pad      # the Nova 2 Lite (no pins yet)
     make gamesir-cyclone-2-pad-test        # one board's unit tests
 
 The build is in `make/`: `common.mk` and `host.mk` are shared, `jieli.mk`

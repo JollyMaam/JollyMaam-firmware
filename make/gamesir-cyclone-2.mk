@@ -4,9 +4,6 @@
 #   gamesir-cyclone-2-pad-test, -dongle-test, gamesir-cyclone-2-test
 #   gamesir-cyclone-2-all                both boards and their tests' builds
 
-include make/btstack.mk
-include make/jieli.mk
-
 BTSTACK_USERS += src/boards/gamesir-cyclone-2/bt_pad.c src/boards/gamesir-cyclone-2/bt_dongle.c
 
 CYCLONE2_PAD := gamesir-cyclone-2-pad

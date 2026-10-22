@@ -1,0 +1,47 @@
+# GameSir Nova 2 Lite
+
+Board facts for the GameSir Nova 2 Lite pad (GameSir's code T4N2), a Jieli
+BR23 ([../jieli/](../jieli/README.md)), and what its stock firmware shows.
+The pins are not established.
+
+## Chip and flash
+
+- Stock image PID `AC695X_TRANS`, VID field `N2LT`.
+- Flash ID `0x856014`: 1 MiB SPI NOR. Chip key `0x3496`.
+- The stock image declares 512 KiB (`FLASH_SIZE 0x80000`, code limit
+  `0x63000`, image at `EOFFSET` 1). Its other entries, as flash offsets:
+
+| Range | Entry |
+|---|---|
+| `0x64000..0x78000` | VM (magic `55 aa aa 55`, records appended at boot) |
+| `0x79000..0x7a000` | BTIF |
+| `0x7a000..0x7b000` | EXIF |
+| `0x7b000..0x7f000` | USERIF |
+| `0x7f000..0x80000` | key_mac |
+| `0x80000..0x100000` | erased |
+
+- The stock `isd_config` sets the loader's UART TX to `PA5` at 1000000 baud
+  and the reset input to `PB11` (`PB11_01_0`). The Cyclone 2's stock sets
+  `PB04` and `PB01_00_0`.
+
+## USB, stock firmware
+
+Wired, `3537:100f`, product "XBOX 360 For Windows", manufacturer "2.4G":
+
+| Interface | Function |
+|---|---|
+| 0 | XInput |
+| 1 | HID keyboard (report 1) and consumer control (report 3) |
+| 2 | vendor HID, usage page `0xff7a`, 64-byte input and output, no report IDs |
+
+### Loader entry
+
+The output report `f2 00 04 f6` on interface 2 restarts the pad into the
+MaskROM loader: `4c4a:2342` `BR23UBOOT1.00`, one mass-storage interface
+(`08/06/50`, full speed), as in [../jieli/power.md](../jieli/power.md). GameSir
+Connect for Windows sends this, then writes a `.ufw` through that loader.
+
+## Not established
+
+Pins of every input, sticks and triggers, motors, LEDs, USB presence, the
+charger; whether a button combination enters the loader; the dongle.
