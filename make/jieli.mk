@@ -189,8 +189,9 @@ JIELI_SDK_USED := \
 #   NAME_BOARD_DIR   the board's headers (btstack_config.h)
 #   NAME_LOADER_HINT how to enter the ROM loader by hand, where software cannot
 # Targets: NAME (firmware.img), NAME-flash (through the ROM loader),
-# NAME-loader (into the ROM loader and wait there); DEVICE= picks one of
-# several.  Inside the template, $(1) is NAME, $(...) is expanded once when
+# NAME-loader (into the ROM loader and wait there); with more than one
+# device for the board, DEVICE= picks one: its USB port, as jlnewfw scan
+# lists it.  Inside the template, $(1) is NAME, $(...) is expanded once when
 # it is called, and $$(...) when the rule runs.
 define jieli_board
 $(1)_CODE_LIMIT := $(call jieli_code_limit,$($(1)_FLASH_SIZE))

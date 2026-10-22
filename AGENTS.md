@@ -70,7 +70,8 @@ controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`)
     make -j32 gamesir-cyclone-2-pad        # build/gamesir-cyclone-2-pad/
     make gamesir-cyclone-2-pad-flash       # over USB, through the ROM loader
     make gamesir-nova-lite-2-pad-loader    # into the ROM loader and wait there (every board has -loader)
-    build/host/jlnewfw scan                # loaders, our firmware, stock pads (and their mode)
+    build/host/jlnewfw scan                # loaders, our firmware, stock pads (and their mode), by USB port
+    make gamesir-nova-lite-2-pad-flash DEVICE=5-2.1   # one of several of the same board
     make -j32 gamesir-cyclone-2-dongle     # build/gamesir-cyclone-2-dongle/
     make gamesir-cyclone-2-dongle-flash    # packed for the connected dongle's key
     make -j32 gamesir-cyclone-2-all        # both boards

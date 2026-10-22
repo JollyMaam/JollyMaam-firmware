@@ -13,7 +13,7 @@ for each board. Commands:
 | `flashpack` | `pack`, then `flash`, using the connected chip's key |
 | `backup` | read the whole flash through the ROM loader |
 | `loader` | ask running firmware to enter the ROM loader, then wait for the loader holding `--pid` |
-| `scan` | list what is connected, classified as below; nothing is restarted |
+| `scan` | list what is connected by USB port, classified as below; nothing is restarted |
 
 Options used by the build:
 
@@ -47,11 +47,16 @@ The stock pads' entries are the Cyclone 2's and the Nova 2 Lite's modes from
 and [../gamesir-nova-lite-2/](../gamesir-nova-lite-2/README.md). A pad in a
 mode without a command is named, with the mode that has one.
 
-A device restarting into its loader is followed by its USB port: Linux's
-sysfs port name, Windows' location information ("Port_#0002.Hub_#0003").
-The loader has no serial number. Of the loaders found, `flash` and
-`loader` take the one whose flash holds the wanted PID, and refuse more
-than one.
+`flash`, `loader` and `backup` first survey everything connected. A
+candidate is a device for the wanted PID: a ROM loader holding it (read
+through the RAM loader), our firmware built for it, or a stock pad of it in
+any USB mode; Jieli firmware of unknown PID only when nothing else is.
+`--force-pid` takes any PID. More than one candidate is refused before any
+device is restarted, listing them; `--device` (make: `DEVICE=`) keeps the
+one on that USB port or at that node. The one left is restarted, and its ROM
+loader is found again on the same USB port: Linux's sysfs port name
+("5-2.1"), Windows' location information ("Port_#0002.Hub_#0003"). The
+loader has no serial number.
 
 ## The tool device
 

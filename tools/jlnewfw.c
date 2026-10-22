@@ -1695,126 +1695,27 @@ static bool told_before(const char *path) {
   return false;
 }
 
-/* Sends the loader command to each stock HID pad for `want` (any, if NULL)
- * that takes one; a pad in a mode without one is named once, with the mode
- * that has it. */
-static size_t enter_stock_hid(const char *want, char selected[256][300], size_t count) {
-  static struct hid_dev h[64];
-  size_t n = hid_devices(h, 64);
-  for (size_t i = 0; i < n && count < 256; i++) {
-    int e = stock_hid_entry(&h[i]);
-    if (e < 0 || (want && strcmp(want, stock_hid[e].pid)) || restarting(h[i].path))
-      continue;
-    if (!stock_hid[e].usage_page) {
-      if (told_before(h[i].path))
-        continue;
-      for (size_t k = 0; k < STOCK_HID_COUNT; k++)
-        if (!strcmp(stock_hid[k].pid, stock_hid[e].pid) && stock_hid[k].usage_page) {
-          printf("%s: stock %s in its %s mode, which has no command for its loader: "
-                 "switch it to %s\n", h[i].path, stock_hid[e].board, stock_hid[e].mode,
-                 stock_hid[k].mode);
-          break;
-        }
-      continue;
-    }
-    uint8_t out[65] = {0};
-    memcpy(out, stock_hid[e].report, sizeof stock_hid[e].report);
-    printf("%s: stock %s, asking it to restart into its ROM loader\n", h[i].path,
-           stock_hid[e].board);
-    bool ok = false;
+/* Writes entry e's loader command to h. */
+static bool send_stock_hid(const struct hid_dev *h, int e) {
+  uint8_t out[65] = {0};
+  bool ok = false;
+  memcpy(out, stock_hid[e].report, sizeof stock_hid[e].report);
 #ifdef _WIN32
-    HANDLE fh = CreateFileA(h[i].path, GENERIC_READ | GENERIC_WRITE,
-                            FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
-    DWORD done;
-    if (fh != INVALID_HANDLE_VALUE) {
-      ok = WriteFile(fh, out, stock_hid[e].len, &done, NULL);
-      CloseHandle(fh);
-    }
+  HANDLE fh = CreateFileA(h->path, GENERIC_READ | GENERIC_WRITE,
+                          FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+  DWORD done;
+  if (fh != INVALID_HANDLE_VALUE) {
+    ok = WriteFile(fh, out, stock_hid[e].len, &done, NULL);
+    CloseHandle(fh);
+  }
 #else
-    int fd = open(h[i].path, O_RDWR);
-    if (fd >= 0) {
-      ok = write(fd, out, stock_hid[e].len) == (ssize_t)stock_hid[e].len;
-      close(fd);
-    }
+  int fd = open(h->path, O_RDWR);
+  if (fd >= 0) {
+    ok = write(fd, out, stock_hid[e].len) == (ssize_t)stock_hid[e].len;
+    close(fd);
+  }
 #endif
-    if (ok) {
-      if (n_asked < 16)
-        usb_device(h[i].path, asked[n_asked++]);
-      snprintf(selected[count++], 300, "%.299s", h[i].path);
-    }
-  }
-  return count;
-}
-
-/* Every device that shows itself as a disk: our firmware for `want` (any,
- * if NULL) and other Jieli SDK firmware get the loader's own command, which
- * both answer by restarting into the ROM loader; ours for another PID is
- * left running.  Then the stock HID pads.  Repeat while waiting so firmware
- * connected after the command starts is also restarted; --device limits
- * restart requests to that path (a disk). */
-static size_t enter_loaders(const char *device, const char *want, char selected[256][300]) {
-  char paths[256][300];
-  size_t n = device_paths(paths), count = 0;
-  for (size_t i = 0; i < n; i++) {
-    const char *path = paths[i];
-    char pid[17];
-    uint8_t r[16];
-    if ((device && strcmp(device, path)) || restarting(path))
-      continue;
-    device_fd fd = dev_open(path);
-    if (fd < 0)
-      continue;
-    enum disk_class c = classify_disk(fd, pid);
-    if (c == DISK_OURS && want && strcmp(pid, want)) {
-      if (!told_before(path))
-        printf("%s: our firmware for %s, left running\n", path, pid);
-      c = DISK_OTHER;
-    }
-    if (c == DISK_OURS || c == DISK_JIELI) {
-      uint8_t cmd[16];
-      memset(cmd, 0xff, 16);
-      cmd[0] = 0xfc, cmd[1] = 0x0a; /* running firmware: any loader command */
-      printf("%s: %s, asking it to restart into its ROM loader\n", path,
-             c == DISK_OURS ? "our firmware" : "Jieli firmware");
-      sg(fd, cmd, 16, SG_DXFER_FROM_DEV, r, 16, 2000);
-      if (n_asked < 16)
-        usb_device(path, asked[n_asked++]);
-    }
-    if (c != DISK_OTHER) {
-      if (selected)
-        strcpy(selected[count], path);
-      count++;
-    }
-    dev_close(fd);
-  }
-  if (!device && selected)
-    count = enter_stock_hid(want, selected, count);
-  return count;
-}
-
-/* What is connected, as classified above; nothing is restarted. */
-static void cmd_scan(void) {
-  char paths[256][300], pid[17];
-  size_t n = device_paths(paths);
-  static const char *const names[] = {"", "ROM loader", "our firmware", "Jieli firmware"};
-  for (size_t i = 0; i < n; i++) {
-    device_fd fd = dev_open(paths[i]);
-    if (fd < 0)
-      continue;
-    enum disk_class c = classify_disk(fd, pid);
-    if (c != DISK_OTHER)
-      printf("%s: %s%s%s\n", paths[i], names[c], pid[0] ? ", " : "", pid);
-    dev_close(fd);
-  }
-  static struct hid_dev h[64];
-  n = hid_devices(h, 64);
-  for (size_t i = 0; i < n; i++) {
-    int e = stock_hid_entry(&h[i]);
-    if (e >= 0)
-      printf("%s: stock %s, %s mode, %s%s\n", h[i].path, stock_hid[e].board,
-             stock_hid[e].mode, stock_hid[e].pid,
-             stock_hid[e].usage_page ? "" : " (no loader command in this mode)");
-  }
+  return ok;
 }
 
 static bool open_dev(struct dev *d, const char *path) {
@@ -1830,42 +1731,6 @@ static bool open_dev(struct dev *d, const char *path) {
   dev_close(d->fd);
   return false;
 }
-/* The ROM loaders (UBOOT1.00) among paths. */
-static size_t scan_dev(struct dev *d, char found[8][300], const char paths[256][300], size_t n) {
-  size_t nf = 0;
-  for (size_t i = 0; i < n && nf < 8; i++) {
-    strcpy(found[nf], paths[i]);
-    if (open_dev(d, found[nf]))
-      dev_close(d->fd), nf++;
-  }
-  return nf;
-}
-
-/* The nodes to look at while candidates restart: those on a candidate's USB
- * port, whatever their sg number now, and candidates whose port is not known
- * by name.  Unrelated devices are left alone: probing one that fails can
- * block in kernel storage recovery for 30 seconds.  Without any ports (no
- * sysfs), every node. */
-static size_t follow(const char ports[256][64], const char selected[256][300], size_t count,
-                     char out[256][300]) {
-  char paths[256][300], port[64];
-  size_t n = device_paths(paths), m = 0;
-  bool any = false;
-  for (size_t i = 0; i < count; i++)
-    any |= ports[i][0] != 0;
-  for (size_t i = 0; i < n; i++) {
-    bool take = !any;
-    if (any && usb_port(paths[i], port))
-      for (size_t j = 0; j < count; j++)
-        take |= !strcmp(ports[j], port);
-    for (size_t j = 0; j < count && !take; j++)
-      take = !ports[j][0] && !strcmp(selected[j], paths[i]);
-    if (take)
-      strcpy(out[m++], paths[i]);
-  }
-  return m;
-}
-
 /* Load and start the flash loader, then ask what the chip is. */
 static void start_loader(struct dev *d, const char *loader) {
   if (!loader)
@@ -2011,96 +1876,249 @@ static void device_pid(struct dev *d, char pid[17]) {
   free(head);
 }
 
-/* --device; or, of the devices in their ROM loader, the one whose flash
- * holds `want` (any one with --force-pid).  New devices are looked for up
- * to --wait seconds (a device restarting into its loader); more than one
- * that fits is refused. */
-static void select_dev(struct dev *out, const struct flash_opts *o,
-                       const char *want) {
-  if (o->device) {
-    /* Its loader may come back under another node: follow its USB port. */
-    static char sel[256][300], port[256][64], look[256][300];
-    snprintf(sel[0], sizeof sel[0], "%s", o->device);
-    if (!usb_port(o->device, port[0]))
-      port[0][0] = 0;
-    for (unsigned t = 0;; t++) {
-      size_t nl = follow(port, sel, 1, look);
-      for (size_t i = 0; i < nl; i++) {
-        if (o->enter_loader)
-          enter_loaders(look[i], o->force_pid ? NULL : want, NULL);
-        if (open_dev(out, strdup(look[i]))) {
-          start_loader(out, o->loader);
-          return;
-        }
-      }
-      if (t >= o->wait * 2)
-        die("the device is not a JieLi ROM loader (UBOOT1.00)");
-      dev_sleep(500);
+/* ---- choosing the device ------------------------------------------------------
+ * Everything connected is surveyed first, with no side effect but the RAM
+ * loader started in ROM loaders (to read their PID).  A candidate is a
+ * device for the wanted PID (any, with --force-pid): a ROM loader holding
+ * it, our firmware built for it, a stock pad of it, in any USB mode; Jieli
+ * firmware of unknown PID only when nothing else is.  --device keeps those
+ * on that USB port (or at that node).  More than one is refused before any
+ * restarts.  The one left is restarted into its ROM loader, which comes back
+ * on the same port as a new device: the next survey finds it. */
+
+enum cand_kind { CAND_LOADER, CAND_OURS, CAND_JIELI, CAND_STOCK };
+struct cand {
+  enum cand_kind kind;
+  char path[300], port[64], pid[17];
+  int entry;                    /* CAND_STOCK: stock_hid[] */
+  struct hid_dev *hid;          /* CAND_STOCK */
+  struct dev *dev;              /* CAND_LOADER: open, its RAM loader running */
+};
+
+/* ROM loaders whose RAM loader runs, by node and enumeration. */
+static struct {
+  char path[300], id[USB_ID_MAX], pid[17];
+  struct dev d;
+} loaders[8];
+static size_t n_loaders;
+
+static struct dev *loader_at(const char *path, const char *blob, char pid[17]) {
+  char id[USB_ID_MAX];
+  usb_device(path, id);
+  for (size_t i = 0; i < n_loaders; i++)
+    if (!strcmp(loaders[i].path, path) && !strcmp(loaders[i].id, id)) {
+      strcpy(pid, loaders[i].pid);
+      return &loaders[i].d;
     }
+  if (n_loaders == 8)
+    die("too many ROM loaders");
+  struct dev *d = &loaders[n_loaders].d;
+  if (!open_dev(d, strdup(path)))
+    return NULL;
+  start_loader(d, blob);
+  device_pid(d, pid);
+  snprintf(loaders[n_loaders].path, 300, "%.299s", path);
+  snprintf(loaders[n_loaders].id, USB_ID_MAX, "%s", id);
+  strcpy(loaders[n_loaders].pid, pid);
+  n_loaders++;
+  return d;
+}
+
+static const char *cand_what(const struct cand *c, char buf[160]) {
+  switch (c->kind) {
+  case CAND_LOADER: return "ROM loader";
+  case CAND_OURS: return "our firmware";
+  case CAND_JIELI: return "Jieli firmware, PID not known";
+  case CAND_STOCK:
+    snprintf(buf, 160, "stock %s, %s mode", stock_hid[c->entry].board, stock_hid[c->entry].mode);
+    return buf;
   }
-  struct {
-    char path[300], pid[17];
-    struct dev d;
-  } seen[8];
-  size_t ns = 0;
-  char selected[256][300], ports[256][64], look[256][300];
-  size_t count = 0, nl;
-  for (unsigned t = 0;; t++) {
-    /* Once candidates are known, follow their restart (follow()). */
-    if (!count) {
-      if (o->enter_loader)
-        count = enter_loaders(NULL, o->force_pid ? NULL : want, selected);
-      for (size_t i = 0; i < count; i++)
-        if (!usb_port(selected[i], ports[i]))
-          ports[i][0] = 0;
-    } else if (o->enter_loader) {
-      nl = follow(ports, selected, count, look);
-      for (size_t i = 0; i < nl; i++)
-        enter_loaders(look[i], o->force_pid ? NULL : want, NULL);
-    }
-    nl = count ? follow(ports, selected, count, look) : device_paths(look);
-    char found[8][300];
-    struct dev probe;
-    size_t nf = scan_dev(&probe, found, look, nl);
-    for (size_t i = 0; i < nf && ns < 8; i++) {
-      bool known = false;
-      for (size_t j = 0; j < ns; j++)
-        known |= !strcmp(seen[j].path, found[i]);
-      if (known || !open_dev(&seen[ns].d, strdup(found[i])))
+  return "";
+}
+
+/* On --device: its port or node. */
+static bool cand_chosen(const struct cand *c, const char *device) {
+  return !device || !strcmp(device, c->path) || (c->port[0] && !strcmp(device, c->port));
+}
+
+static size_t survey(const struct flash_opts *o, const char *want, struct cand *c, size_t max) {
+  static struct hid_dev h[64];
+  char paths[256][300], pid[17];
+  size_t n = 0, np = device_paths(paths);
+  for (size_t i = 0; i < np && n < max; i++) {
+    if (restarting(paths[i]))
+      continue;
+    device_fd fd = dev_open(paths[i]);
+    if (fd < 0)
+      continue;
+    enum disk_class k = classify_disk(fd, pid);
+    dev_close(fd);
+    struct cand *x = &c[n];
+    memset(x, 0, sizeof *x);
+    snprintf(x->path, sizeof x->path, "%.299s", paths[i]);
+    if (!usb_port(x->path, x->port))
+      x->port[0] = 0;
+    if (!cand_chosen(x, o->device))
+      continue;
+    if (k == DISK_LOADER) {
+      if (!(x->dev = loader_at(paths[i], o->loader, pid)))
         continue;
-      memcpy(seen[ns].path, found[i], sizeof seen[ns].path);
-      start_loader(&seen[ns].d, o->loader);
-      device_pid(&seen[ns].d, seen[ns].pid);
-      printf("%s holds %s\n", seen[ns].path,
-             seen[ns].pid[0] ? seen[ns].pid : "no firmware header");
-      ns++;
+      x->kind = CAND_LOADER;
+    } else if (k == DISK_OURS) {
+      x->kind = CAND_OURS;
+    } else if (k == DISK_JIELI) {
+      x->kind = CAND_JIELI;
+    } else
+      continue;
+    strcpy(x->pid, pid);
+    if (want && k != DISK_JIELI && strcmp(pid, want)) {
+      if (k == DISK_OURS && !told_before(x->path))
+        printf("%s: our firmware for %s, left running\n", x->path, pid);
+      continue;
     }
-    size_t fit = 0, pick = 0;
-    for (size_t j = 0; j < ns; j++)
-      if (o->force_pid || !strcmp(seen[j].pid, want))
-        fit++, pick = j;
-    if (fit > 1)
-      die(o->force_pid ? "more than one ROM loader: pick one with --device"
-                       : "more than one ROM loader holds that PID: pick one "
-                         "with --device");
-    if (fit == 1) {
-      *out = seen[pick].d;
-      for (size_t j = 0; j < ns; j++)
-        if (j != pick)
-          dev_close(seen[j].d.fd);
-      return;
+    n++;
+  }
+  size_t nh = hid_devices(h, 64);
+  for (size_t i = 0; i < nh && n < max; i++) {
+    int e = stock_hid_entry(&h[i]);
+    if (e < 0 || (want && strcmp(want, stock_hid[e].pid)) || restarting(h[i].path))
+      continue;
+    struct cand *x = &c[n];
+    memset(x, 0, sizeof *x);
+    x->kind = CAND_STOCK, x->entry = e, x->hid = &h[i];
+    snprintf(x->path, sizeof x->path, "%.299s", h[i].path);
+    snprintf(x->pid, sizeof x->pid, "%s", stock_hid[e].pid);
+    if (!usb_port(x->path, x->port))
+      x->port[0] = 0;
+    if (cand_chosen(x, o->device))
+      n++;
+  }
+  /* A stock pad shows itself as several HID interfaces: one candidate per
+   * pad, the one taking the command first. */
+  for (size_t i = 0; i < n; i++)
+    for (size_t j = i + 1; j < n; j++)
+      if (c[i].kind == CAND_STOCK && c[j].kind == CAND_STOCK && c[i].port[0] &&
+          !strcmp(c[i].port, c[j].port)) {
+        if (!stock_hid[c[i].entry].usage_page && stock_hid[c[j].entry].usage_page)
+          c[i] = c[j];
+        c[j--] = c[--n];
+      }
+  /* Jieli firmware of unknown PID only when nothing else fits. */
+  size_t known = 0;
+  for (size_t i = 0; i < n; i++)
+    known += c[i].kind != CAND_JIELI;
+  if (known && known < n)
+    for (size_t i = 0; i < n; i++)
+      if (c[i].kind == CAND_JIELI)
+        c[i--] = c[--n];
+  return n;
+}
+
+static void select_dev(struct dev *out, const struct flash_opts *o, const char *want) {
+  struct cand c[16];
+  char buf[160];
+  if (want && !want[0])
+    want = NULL;
+  if (o->force_pid)
+    want = NULL;
+  for (unsigned t = 0;; t++) {
+    size_t n = survey(o, want, c, 16);
+    if (n > 1) {
+      fprintf(stderr, "jlnewfw: more than one device %s%s:\n", want ? "for " : "",
+              want ? want : "connected");
+      for (size_t i = 0; i < n; i++)
+        fprintf(stderr, "  %-24s %s%s%s  (%s)\n", c[i].port[0] ? c[i].port : c[i].path,
+                cand_what(&c[i], buf), c[i].pid[0] ? ", " : "", c[i].pid, c[i].path);
+      die("pick one with --device PORT (make: DEVICE=PORT); jlnewfw scan lists them");
+    }
+    if (n == 1) {
+      struct cand *x = &c[0];
+      if (x->kind == CAND_LOADER) {
+        printf("%s: ROM loader holding %s\n", x->path, x->pid[0] ? x->pid : "no firmware header");
+        *out = *x->dev;
+        return;
+      }
+      if (!o->enter_loader) {
+        if (!told_before(x->path))
+          printf("%s: %s%s%s; not in its ROM loader (--enter-loader)\n", x->path,
+                 cand_what(x, buf), x->pid[0] ? ", " : "", x->pid);
+      } else if (x->kind == CAND_STOCK && !stock_hid[x->entry].usage_page) {
+        if (!told_before(x->path))
+          for (size_t k = 0; k < STOCK_HID_COUNT; k++)
+            if (!strcmp(stock_hid[k].pid, x->pid) && stock_hid[k].usage_page) {
+              printf("%s: %s, which has no command for its loader: switch it to %s\n",
+                     x->path, cand_what(x, buf), stock_hid[k].mode);
+              break;
+            }
+      } else {
+        bool sent = true;
+        printf("%s: %s, asking it to restart into its ROM loader\n", x->path, cand_what(x, buf));
+        if (x->kind == CAND_STOCK) {
+          sent = send_stock_hid(x->hid, x->entry);
+        } else {
+          uint8_t cmd[16], r[16];
+          device_fd fd = dev_open(x->path);
+          memset(cmd, 0xff, 16);
+          cmd[0] = 0xfc, cmd[1] = 0x0a; /* running firmware: any loader command */
+          if (fd >= 0) {
+            sg(fd, cmd, 16, SG_DXFER_FROM_DEV, r, 16, 2000);
+            dev_close(fd);
+          }
+        }
+        if (sent && n_asked < 16)
+          usb_device(x->path, asked[n_asked++]);
+      }
     }
     if (t >= o->wait * 2) {
-      fprintf(stderr, "jlnewfw: no ROM loader holds %s%s\n", want,
-              ns ? "" : " (none found)");
-      die(ns ? "no device for this image (--device and --force-pid to write "
-               "one anyway)"
-             : "no ROM loader (UBOOT1.00) found");
+      fprintf(stderr, "jlnewfw: no ROM loader %s%s\n", want ? "holding " : "found",
+              want ? want : "");
+      die(n ? "the device did not come up in its ROM loader"
+            : "no device for it found (jlnewfw scan lists what is connected)");
     }
-    if (!t && o->wait)
-      printf("waiting up to %u s for a ROM loader holding %s\n", o->wait, want);
+    if (!t && o->wait && !n)
+      printf("waiting up to %u s for a device %s%s\n", o->wait, want ? "for " : "", want ? want : "");
     dev_sleep(500);
   }
+}
+
+/* What is connected, by USB port (what --device and DEVICE= take); nothing
+ * is restarted, and a ROM loader's PID is not read. */
+static void cmd_scan(void) {
+  static struct hid_dev h[64];
+  char paths[256][300], pid[17], port[64], seen[64][64];
+  size_t np = device_paths(paths), ns = 0;
+  static const char *const names[] = {"", "ROM loader", "our firmware", "Jieli firmware"};
+  for (size_t i = 0; i < np; i++) {
+    device_fd fd = dev_open(paths[i]);
+    if (fd < 0)
+      continue;
+    enum disk_class k = classify_disk(fd, pid);
+    dev_close(fd);
+    if (k == DISK_OTHER)
+      continue;
+    if (!usb_port(paths[i], port))
+      snprintf(port, sizeof port, "-");
+    printf("%-24s %s%s%s  (%s)\n", port, names[k], pid[0] ? ", " : "", pid, paths[i]);
+  }
+  size_t nh = hid_devices(h, 64);
+  for (int pass = 0; pass < 2; pass++) /* the interface taking a command first */
+    for (size_t i = 0; i < nh; i++) {
+      int e = stock_hid_entry(&h[i]);
+      if (e < 0 || (stock_hid[e].usage_page == 0) != pass)
+        continue;
+      bool dup = false;
+      if (!usb_port(h[i].path, port))
+        snprintf(port, sizeof port, "-");
+      for (size_t k = 0; k < ns && !dup; k++)
+        dup = port[0] != '-' && !strcmp(seen[k], port);
+      if (dup)
+        continue;
+      if (ns < 64)
+        snprintf(seen[ns++], sizeof seen[0], "%s", port);
+      printf("%-24s stock %s, %s mode, %s%s  (%s)\n", port, stock_hid[e].board,
+             stock_hid[e].mode, stock_hid[e].pid,
+             stock_hid[e].usage_page ? "" : "; no loader command in this mode", h[i].path);
+    }
 }
 
 static void erase(struct dev *d, uint32_t from, uint32_t to) {
@@ -2199,8 +2217,6 @@ static void cmd_backup(int argc, char **argv) {
   const char *pid = o.pid;
   if (!output || (!pid && !o.device))
     die("usage: jlnewfw backup --pid PID [FLASH OPTIONS] OUTPUT");
-  if (pid && strcmp(pid, "GS_C2_ADC_DEVICE") && strcmp(pid, "GS_C2_Dongle"))
-    die("backup: unsupported board PID");
   struct dev d;
   select_dev(&d, &o, pid ? pid : "");
   if (pid) {
