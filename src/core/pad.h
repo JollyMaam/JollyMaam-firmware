@@ -86,7 +86,7 @@ struct pad {
     u8 imu_count;                /* samples new since the last report, oldest first */
     struct imu_sample imu[IMU_PER_REPORT];
     u8 jack;                     /* a plug in the headphone jack */
-    /* The gyro's zero-rate offset as learned so far (input_imu.c, or the pad
+    /* The gyro's zero-rate offset as learned so far (motion.c, or the pad
      * through the link), 1/16 LSB; known 0: none yet. */
     s32 gyro_bias[3];
     u8 gyro_bias_known;
@@ -104,7 +104,9 @@ static inline u32 in_dpad(u32 b)
 void in_map(const struct in_raw *raw, struct pad *pad);
 int in_moved(const struct pad *now, const struct pad *ref);
 
-/* ---- input_imu.c -------------------------------------------------------- */
+/* ---- motion.c, and the board's sensor -------------------------------------
+ * Samples are in the Cyclone 2's sensor units: gyro 16 LSB per degree per
+ * second, accelerometer 8192 per g. */
 
 enum { IMU_OFF, IMU_MOTION, IMU_GYRO };
 
@@ -114,7 +116,10 @@ struct imu_pointer {
     u8 have;
 };
 
-u32 imu_poll(u32 now, u8 mode);   /* advances the sensor; returns its next deadline */
+/* The board's: advances its motion sensor (a board without one returns 0);
+ * returns its next deadline, 0 none. */
+u32 imu_poll(u32 now, u8 mode);
+void imu_store(const s16 accel[3], const s16 gyro[3]);   /* a sample from the sensor */
 int imu_take(u32 *seq, struct imu_sample *out, int max);
 int imu_gyro_bias(s32 out[3]);   /* the learned zero-rate offset, 1/16 LSB; 0: none yet */
 /* The gyro samples in a report as pointer counts, with the pad's gyro_bias;
@@ -790,9 +795,6 @@ u32 plat_us(void);                          /* wraps */
 void plat_prof_start(u16 hz, u32 zoom, u8 zoom_shift);   /* zoom: flash window start, 0 none */
 u32 plat_prof_read(u32 offset, u8 *out, u32 max);
 u32 plat_peek(u32 addr, u8 *out, u32 max);  /* 32-bit words from addr, for registers */
-void plat_i2c_read(u8 dev, u8 reg, u8 *buf, u8 len);   /* starts; EV_IMU when done */
-void plat_i2c_write(u8 dev, u8 reg, u8 value);
-int plat_i2c_done(void);                    /* 1 done, 0 busy, -1 failed */
 u32 plat_wait(u32 deadline_ms, u32 at_us);   /* either 0: none; at_us to 250 µs */
 void plat_wake(u32 events);                 /* from another thread or an interrupt */
 void plat_delay_ms(u32 ms);                 /* blocking; set-up only */

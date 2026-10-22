@@ -325,21 +325,11 @@ void plat_power_off(void)
     plat_reboot();
 }
 
-/* No IMU: input_imu.c links for the profiles' motion maths, and its I2C
- * reads fail. */
-void plat_i2c_read(u8 dev, u8 reg, u8 *buf, u8 len)
+/* No motion sensor. */
+u32 imu_poll(u32 now, u8 mode)
 {
-    (void)dev; (void)reg; (void)buf; (void)len;
-}
-
-void plat_i2c_write(u8 dev, u8 reg, u8 value)
-{
-    (void)dev; (void)reg; (void)value;
-}
-
-int plat_i2c_done(void)
-{
-    return -1;
+    (void)now; (void)mode;
+    return 0;
 }
 
 const char board_name[] = "GameSir Nova 2 Lite pad";

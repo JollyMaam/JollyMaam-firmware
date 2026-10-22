@@ -8,6 +8,7 @@
 #include <asm/mcpwm.h>
 #include "app_config.h"
 #include "board.h"
+#include "i2c.h"
 
 /* The Cyclone 2: buttons and d-pad, sticks from the stick MCU, analog
  * triggers with stop switches, the IMU on I2C, 8 LEDs on SPI, two motors. */
