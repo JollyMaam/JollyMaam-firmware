@@ -176,7 +176,7 @@ install_app() {
     adb -s "$serial" shell wm dismiss-keyguard || return
     adb -s "$serial" install -r "$apk" || return
     adb -s "$serial" shell am force-stop dev.cyclone.padtool || return
-    adb -s "$serial" shell am start -W -n dev.cyclone.padtool/.MainActivity --ez simulate true
+    adb -s "$serial" shell am start -W -n dev.cyclone.padtool/.MainActivity
 }
 install_app
 echo "Simulated pad launched on $serial (private adb port $adb_port)."

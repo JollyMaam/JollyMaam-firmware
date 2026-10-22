@@ -29,7 +29,7 @@ class AppModel(context: Context) {
     var changed: (() -> Unit)? = null
     var progressChanged: (() -> Unit)? = null
     var busy = false; private set
-    @Volatile var message = "Connect the pad with a USB data cable. End its gamepad session to use tool mode."
+    @Volatile var message = "Select a tool device"
     var devices = emptyList<UsbDevice>()
     var selected: UsbDevice? = null
     var simulation: SimulatedPad? = null; private set
@@ -37,7 +37,8 @@ class AppModel(context: Context) {
     var session: PadSession? = null
     val sessions: MutableMap<String, PadSession> = ConcurrentHashMap()
     var loaderMode = false
-    var page = -1
+    var page = -2
+    val scrollPositions = mutableMapOf<String, Int>()
     var developer = false
     var console = ""
     var live: String? = null
@@ -57,6 +58,13 @@ class AppModel(context: Context) {
             selected = null; live = null; loaderMode = false; loaderPid = null
             message = "USB device disconnected. Pending edits are retained."
         }
+        changed?.invoke()
+    }
+    fun rescan() {
+        page = -2; live = null
+        message = "Scanning USB devices"
+        refreshDevices()
+        message = if (devices.isEmpty()) "No USB tool devices" else "${devices.size} USB tool devices"
         changed?.invoke()
     }
     fun run(label: String, block: () -> Unit) {
@@ -168,7 +176,7 @@ class AppModel(context: Context) {
     }
     fun apply(target: Int?) {
         val s = session ?: return
-        if (s.needsRefresh) { message = "Refresh settings before another Apply"; changed?.invoke(); return }
+        if (s.needsRefresh) { message = "Rescan and reopen the device before another Apply"; changed?.invoke(); return }
         val items = s.drafts.items(s.fields, target)
         run("Applying settings") {
             withPad { pad, current ->

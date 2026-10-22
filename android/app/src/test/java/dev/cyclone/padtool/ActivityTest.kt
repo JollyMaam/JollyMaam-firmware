@@ -5,6 +5,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.hardware.usb.UsbDevice
 import android.widget.Button
+import android.widget.ScrollView
+import android.widget.LinearLayout
 import org.robolectric.shadows.ShadowAlertDialog
 import org.robolectric.Shadows.shadowOf
 import android.os.Looper
@@ -24,7 +26,8 @@ class ActivityTest {
     @Test fun launchesWithoutUsbAndSurvivesRecreation() {
         val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
         val activity = controller.get()
-        assertTrue(texts(activity.window.decorView).any { it == "Cyclone padtool" })
+        assertEquals(-2, model(activity).page)
+        assertTrue(descendants(activity.window.decorView).filterIsInstance<Button>().any { it.text == "Rescan" })
         assertTrue(texts(activity.window.decorView).any { it.contains("No tool devices") })
         controller.recreate()
         assertTrue(texts(controller.get().window.decorView).any { it.contains("No tool devices") })
@@ -44,17 +47,32 @@ class ActivityTest {
         shadowOf(Looper.getMainLooper()).idle()
         assertFalse("Worker timed out: ${model.message}", model.busy)
     }
-    @Test @Config(sdk = [35]) fun simulatedLaunchRendersEveryPageAndAppliesWithoutUsb() {
+    private fun layout(activity: MainActivity) {
+        activity.window.decorView.apply {
+            measure(View.MeasureSpec.makeMeasureSpec(480, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY))
+            layout(0, 0, 480, 800)
+        }
+        shadowOf(Looper.getMainLooper()).idle()
+    }
+    private fun chooseSimulation(activity: MainActivity) {
+        descendants(activity.window.decorView).filterIsInstance<Button>().first { it.text == "Simulated pad (no USB)" }.performClick()
+        waitForWorker(model(activity))
+        layout(activity)
+    }
+    @Test @Config(sdk = [35]) fun firstStartShowsDevicesThenSimulationRendersEveryPageAndAppliesWithoutUsb() {
         val controller = Robolectric.buildActivity(MainActivity::class.java, Intent().putExtra("simulate", true)).setup()
         val activity = controller.get(); val m = model(activity)
-        waitForWorker(m)
+        assertEquals(-2, m.page)
+        assertNull(m.simulation)
+        chooseSimulation(activity)
         assertNotNull("Simulation failed: ${m.message}", m.simulation)
         assertNull(m.selected)
-        assertTrue(texts(activity.window.decorView).contains("SIMULATION · No USB device is accessed"))
+        assertTrue(activity.window.decorView.findViewWithTag<TextView>("status").text.contains("Simulated pad"))
         val s = m.session!!
         for (t in Protocol.targets(s.fields)) {
             m.page = t; m.changed!!.invoke()
-            assertTrue(texts(activity.window.decorView).contains(Protocol.targetNames[t].replace('-', ' ')))
+            val title = Protocol.targetNames[t].split('-').joinToString(" ") { it.replaceFirstChar(Char::uppercaseChar) }
+            assertTrue(activity.window.decorView.findViewWithTag<TextView>("status").text.contains(title))
         }
         m.page = 0; m.changed!!.invoke()
         descendants(activity.window.decorView).filterIsInstance<Button>().first { it.text.toString().startsWith("type\n") }.performClick()
@@ -71,6 +89,53 @@ class ActivityTest {
         assertThrows(IllegalArgumentException::class.java) { m.transport { error("USB must never open") } }
         controller.recreate()
         assertSame(m.simulation, model(controller.get()).simulation)
+        controller.pause().stop().destroy()
+    }
+    @Test fun compactToolbarRescanBackAndCapitalizedTargets() {
+        val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+        val activity = controller.get(); val m = model(activity)
+        chooseSimulation(activity)
+        val buttons = descendants(activity.window.decorView).filterIsInstance<Button>()
+        assertEquals(listOf("Apply", "Discard", "Defaults", "Rescan", "Back"), buttons.take(5).map { it.text.toString() })
+        assertTrue(buttons.any { it.text == "Slot A" })
+        assertTrue(buttons.any { it.text == "Remap Base" })
+        assertFalse(buttons.any { it.text in listOf("Overview", "Devices", "Refresh", "?") })
+        val status = activity.window.decorView.findViewWithTag<TextView>("status")
+        assertEquals(1, status.maxLines)
+        val height = status.height
+        m.progress("A very long operation status that used to wrap across several lines", 50, 100)
+        shadowOf(Looper.getMainLooper()).idle(); layout(activity)
+        assertEquals(height, status.height)
+        buttons.first { it.text == "Slot A" }.performClick()
+        descendants(activity.window.decorView).filterIsInstance<Button>().first { it.text == "Back" }.performClick()
+        assertEquals(-1, m.page)
+        descendants(activity.window.decorView).filterIsInstance<Button>().first { it.text == "Rescan" }.performClick()
+        assertEquals(-2, m.page)
+        assertNull(m.live)
+        assertTrue(descendants(activity.window.decorView).filterIsInstance<Button>().any { it.text == "Simulated pad (no USB)" })
+        controller.pause().stop().destroy()
+    }
+    @Test fun fieldLongPressShowsHelpWithoutStagingAndRendersKeepScrollPosition() {
+        val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+        val activity = controller.get(); val m = model(activity)
+        chooseSimulation(activity)
+        m.page = 11; m.changed!!.invoke(); layout(activity)
+        val name = m.session!!.fields.first { it.kind == 3 && it.name == "name" }
+        val editor = descendants(activity.window.decorView).filterIsInstance<Button>().first { it.text.toString().startsWith("name\n") }
+        val count = m.session!!.drafts.edits.size
+        assertTrue(editor.performLongClick())
+        val dialog = ShadowAlertDialog.getLatestAlertDialog()
+        assertEquals(name.help, dialog.findViewById<TextView>(android.R.id.message).text.toString())
+        assertEquals(count, m.session!!.drafts.edits.size)
+        dialog.dismiss()
+        val scroll = activity.window.decorView.findViewWithTag<PageScrollView>("page")
+        scroll.scrollTo(0, 600)
+        assertEquals(600, scroll.scrollY)
+        m.stage(m.session!!, listOf(Edit(11, name.id, name.parse("Edited game"))))
+        layout(activity)
+        assertEquals(600, activity.window.decorView.findViewWithTag<PageScrollView>("page").scrollY)
+        controller.recreate(); layout(controller.get())
+        assertEquals(600, controller.get().window.decorView.findViewWithTag<PageScrollView>("page").scrollY)
         controller.pause().stop().destroy()
     }
     @Test fun stagesMappingAndRetainsDraftThroughRecreation() {

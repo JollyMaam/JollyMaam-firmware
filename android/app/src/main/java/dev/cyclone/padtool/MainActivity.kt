@@ -17,6 +17,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.InputType
+import android.text.TextUtils
 import android.view.View
 import android.view.WindowManager
 import android.widget.*
@@ -28,6 +29,9 @@ class MainActivity : Activity() {
     private lateinit var root: LinearLayout
     private lateinit var status: TextView
     private var liveText: TextView? = null
+    private var pageScroll: PageScrollView? = null
+    private var scrollKey = ""
+    private var scrollReady = false
     private val handler = Handler(Looper.getMainLooper())
     private val permissionAction get() = "$packageName.USB_PERMISSION"
     private val polling = object : Runnable {
@@ -60,13 +64,11 @@ class MainActivity : Activity() {
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED) else registerReceiver(receiver, filter)
         model.changed = ::render; model.progressChanged = ::updateProgress
         render(); model.refreshDevices()
-        if (lastNonConfigurationInstance == null && BuildConfig.DEBUG && intent.getBooleanExtra("simulate", false)) model.loadSimulation()
     }
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent); setIntent(intent)
         if (!model.busy) {
-            if (BuildConfig.DEBUG && intent.getBooleanExtra("simulate", false)) model.loadSimulation()
-            else model.refreshDevices()
+            model.rescan()
         }
     }
     override fun onResume() {
@@ -94,33 +96,89 @@ class MainActivity : Activity() {
         parent.addView(HorizontalScrollView(this).apply { addView(line) })
         return line
     }
-    private fun title(parent: LinearLayout, text: String) { parent.addView(label(text, 22f)) }
     private fun updateProgress() {
         if (!::status.isInitialized) return
-        status.text = model.message; liveText?.text = model.console
+        status.text = statusLine(); status.contentDescription = statusDetails()
+        liveText?.text = model.console
+    }
+    private fun targetLabel(target: Int) = Protocol.targetNames[target].split('-').joinToString(" ") { it.replaceFirstChar(Char::uppercaseChar) }
+    private fun pageName(): String = when {
+        model.page == -2 || !model.hasDevice -> "Devices"
+        model.loaderMode -> "ROM loader"
+        model.page >= 0 -> targetLabel(model.page)
+        model.page == -3 -> "Firmware console"
+        model.page == -4 -> "Live input"
+        model.simulation != null -> "Simulated pad"
+        model.session?.identity?.board == 1 -> "Dongle"
+        else -> "Pad"
+    }
+    private fun scope() = model.page.takeIf { it >= 0 }
+    private fun statusLine(): String = buildList {
+        add(pageName())
+        if (model.simulation != null && model.page != -1) add("Simulation")
+        model.session?.let { s ->
+            if (s.fields.isNotEmpty()) add("${s.drafts.edits.count { scope() == null || it.key.first == scope() }} pending")
+            if (s.needsRefresh) add("Reopen device")
+        }
+        add((if (model.busy) "… " else "") + model.message)
+        if (model.loaderMode) {
+            add("Product ${model.loaderPid ?: "unread"}")
+            add(if (model.loaderFile.isFile) "RAM helper ready" else "Select RAM helper")
+        } else if (model.hasDevice) model.session?.status?.takeIf { it.isNotBlank() }?.let(::add)
+    }.joinToString(" · ").replace(Regex("\\s+"), " ")
+    private fun statusDetails() = statusLine() + (model.session?.identity?.let { "\nBuild ${it.build} · protocol ${it.protocol}\n${it.flashId}" } ?: "")
+    private fun back() {
+        model.live = null
+        model.page = if (model.page != -1 && model.page != -2 && model.hasDevice) -1 else -2
+        render()
     }
     private fun render() {
+        if (scrollReady) pageScroll?.let { model.scrollPositions[scrollKey] = it.scrollY }
         root = column().apply { setPadding(dp(12), 0, dp(12), 0) }
         root.setOnApplyWindowInsetsListener { v, insets ->
             val top = insets.systemWindowInsetTop; val bottom = insets.systemWindowInsetBottom
             v.setPadding(dp(12), top, dp(12), bottom); insets
         }
         setContentView(root)
-        title(root, "Cyclone padtool")
-        if (model.simulation != null) root.addView(label("SIMULATION · No USB device is accessed", 14f))
-        status = label(model.message, 14f).apply { setTextIsSelectable(true); maxLines = 6 }
-        root.addView(status)
-        if (model.busy) root.addView(ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { isIndeterminate = true })
-        if (model.busy) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        val nav = row(root)
-        button(nav, "Devices") { model.page = -2; model.live = null; render() }
-        button(nav, "Refresh") {
-            if (model.hasDevice && !model.loaderMode && model.session != null) model.run("Refreshing settings") { model.withPad { pad, s -> model.read(pad, s) } }
-            else model.refreshDevices()
+        val toolbar = row(root)
+        toolbar.tag = "toolbar"
+        applyBar(toolbar, model.session, scope())
+        button(toolbar, "Rescan") { model.rescan() }
+        if (model.page != -2 && model.hasDevice) button(toolbar, "Back") { back() }
+        for (i in 0 until toolbar.childCount) (toolbar.getChildAt(i) as? Button)?.apply {
+            minWidth = 0; minimumWidth = 0; minHeight = dp(40); minimumHeight = dp(40)
+            setPadding(dp(8), 0, dp(8), 0); textSize = 14f
         }
-        if (model.hasDevice) button(nav, "Overview") { model.page = -1; model.live = null; render() }
+        status = label(statusLine(), 13f).apply {
+            tag = "status"; setSingleLine(true); ellipsize = TextUtils.TruncateAt.END
+            contentDescription = statusDetails()
+            setOnLongClickListener {
+                AlertDialog.Builder(this@MainActivity).setTitle(pageName()).setMessage(statusDetails()).setPositiveButton("OK", null).show()
+                true
+            }
+        }
+        root.addView(status)
+        if (model.busy) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val content = column()
-        root.addView(ScrollView(this).apply { isFillViewport = true; addView(content) }, LinearLayout.LayoutParams(-1, 0, 1f))
+        val key = if (model.page == -2 || !model.hasDevice) "devices" else "${model.session?.identity?.flashId ?: model.selected?.deviceName}:${model.page}"
+        var restoring = true
+        val scroll = PageScrollView(this).apply {
+            tag = "page"; addView(content)
+            setOnScrollChangeListener { _, _, y, _, _ -> if (!restoring) model.scrollPositions[key] = y }
+        }
+        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        pageScroll = scroll; scrollKey = key; scrollReady = false
+        scroll.requestFocus()
+        scroll.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
+            override fun onLayoutChange(view: View, left: Int, top: Int, right: Int, bottom: Int, oldLeft: Int, oldTop: Int, oldRight: Int, oldBottom: Int) {
+                if (right <= left || bottom <= top) return
+                scroll.removeOnLayoutChangeListener(this)
+                if (pageScroll === scroll) {
+                    scroll.scrollTo(0, model.scrollPositions[key] ?: 0)
+                    restoring = false; scrollReady = true
+                }
+            }
+        })
         liveText = null
         when {
             model.page == -2 || !model.hasDevice -> devicePage(content)
@@ -140,7 +198,6 @@ class MainActivity : Activity() {
         }
     }
     private fun devicePage(parent: LinearLayout) {
-        title(parent, "USB devices")
         if (BuildConfig.DEBUG) button(parent, "Simulated pad (no USB)") { model.loadSimulation() }
         parent.addView(label("USB tool mode is required. On the pad, end the active gamepad session first. Bluetooth configuration is not available."))
         for (device in model.devices) button(parent, "${device.productName ?: "USB device"} · %04x:%04x\n${device.deviceName}".format(device.vendorId, device.productId)) { choose(device) }
@@ -150,13 +207,12 @@ class MainActivity : Activity() {
             button(parent, "Discard those edits") { s.drafts.discard(); model.saveDrafts(s); render() }
         }
     }
-    private fun applyBar(parent: LinearLayout, s: PadSession, target: Int?) {
-        val count = s.drafts.edits.count { target == null || it.key.first == target }
-        parent.addView(label("$count pending change${if (count == 1) "" else "s"}" + if (s.needsRefresh) " · refresh required" else "", 14f))
-        val bar = row(parent)
-        button(bar, "Apply", count > 0 && !s.needsRefresh && model.hasDevice) { model.apply(target) }
-        button(bar, "Discard", count > 0) { s.drafts.discard(target); model.saveDrafts(s); render() }
-        button(bar, "Defaults", s.fields.isNotEmpty()) {
+    private fun applyBar(bar: LinearLayout, s: PadSession?, target: Int?) {
+        val count = s?.drafts?.edits?.count { target == null || it.key.first == target } ?: 0
+        button(bar, "Apply", count > 0 && s?.needsRefresh == false && model.hasDevice && !model.loaderMode) { model.apply(target) }
+        button(bar, "Discard", count > 0) { s!!.drafts.discard(target); model.saveDrafts(s); render() }
+        button(bar, "Defaults", s?.fields?.isNotEmpty() == true && !model.loaderMode) {
+            if (s == null) return@button
             val targets = if (target == null) Protocol.targets(s.fields) else listOf(target)
             for (t in targets) s.drafts.edits.remove(t to 0xfe)
             val edits = targets.flatMap { t -> s.fields.filter { it.kind == Protocol.kind(t) }.map { Edit(t, it.id, ByteArray(0)) } }
@@ -165,12 +221,8 @@ class MainActivity : Activity() {
     }
     private fun overview(parent: LinearLayout, s: PadSession) {
         val id = s.identity
-        title(parent, if (model.simulation != null) "Simulated pad" else if (id.board == 0) "Pad" else "Dongle")
-        parent.addView(label("${id.build} · protocol ${id.protocol}\n${id.flashId}\n${s.status}", 14f).apply { setTextIsSelectable(true) })
         if (id.board == 0) {
-            // Kept outside the scrolling settings list on detailed pages.
-            applyBar(parent, s, null)
-            for (t in Protocol.targets(s.fields)) button(parent, Protocol.targetNames[t].replace('-', ' ') + if (s.drafts.edits.any { it.key.first == t }) " *" else "") { model.page = t; render() }
+            for (t in Protocol.targets(s.fields)) button(parent, targetLabel(t) + if (s.drafts.edits.any { it.key.first == t }) " *" else "") { model.page = t; render() }
             button(parent, "Back up saved settings…") { document("backup-settings", true, "cyclone-settings.json", "application/json") }
             button(parent, "Restore settings…", s.drafts.edits.isEmpty()) { document("restore-settings", false, mime = "application/json") }
             button(parent, "Live input") { model.page = -4; model.console = ""; model.live = "input"; render() }
@@ -207,9 +259,6 @@ class MainActivity : Activity() {
         }
     }
     private fun settingsPage(parent: LinearLayout, s: PadSession, target: Int) {
-        // Move title/actions into the fixed root above the scrolling form.
-        val header = column(); title(header, Protocol.targetNames[target].replace('-', ' ')); applyBar(header, s, target)
-        root.addView(header, root.childCount - 1)
         if (target < 8) {
             val actions = row(parent)
             button(actions, "Connect", s.drafts.edits.none { it.key.first == target }) { action("Connecting slot", 0x13, target) }
@@ -240,11 +289,17 @@ class MainActivity : Activity() {
             val draft = s.drafts.edits[target to field.id]
             val raw = if (draft == null) value.bytes else if (draft.isEmpty()) s.defaults.getValue(target).getValue(field.id).bytes else draft
             val line = column().apply { setPadding(0, dp(5), 0, dp(8)) }
+            val help = View.OnLongClickListener {
+                AlertDialog.Builder(this).setTitle(field.name.replace('_', ' ')).setMessage(field.help).setPositiveButton("OK", null).show()
+                true
+            }
+            line.setOnLongClickListener(help)
             val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             line.addView(top)
             Button(this).apply {
                 text = if (draft != null) "*" else if (value.explicit) "✓" else "—"
                 contentDescription = if (draft != null) "Discard ${field.name} edit" else "Default ${field.name}"
+                setOnLongClickListener(help)
                 isEnabled = !model.busy && (draft != null || value.explicit)
                 layoutParams = LinearLayout.LayoutParams(dp(56), dp(48))
                 setOnClickListener {
@@ -260,11 +315,11 @@ class MainActivity : Activity() {
             Button(this).apply {
                 this.text = text; isAllCaps = false; gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
                 isEnabled = !model.busy; layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
+                setOnLongClickListener(help)
                 setOnClickListener { editField(s, target, field, raw) }; top.addView(this)
             }
             val default = s.defaults[target]?.get(field.id)?.bytes?.let { runCatching { field.show(it) }.getOrDefault(it.hex()) }
-            line.addView(label((if (field.type == 1 || field.type == 5) "0–${field.max} · " else "") + "Default: ${default ?: "unavailable"}", 12f))
-            button(line, "?", true) { AlertDialog.Builder(this).setTitle(field.name.replace('_', ' ')).setMessage(field.help).setPositiveButton("OK", null).show() }.apply { minHeight = 0; minimumHeight = dp(36) }
+            line.addView(label((if (field.type == 1 || field.type == 5) "0–${field.max} · " else "") + "Default: ${default ?: "unavailable"}", 12f).apply { setOnLongClickListener(help) })
             parent.addView(line)
         }
     }
@@ -341,7 +396,6 @@ class MainActivity : Activity() {
         model.run(label) { model.withPad { pad, s -> pad.command(command, arg.toLong(), length); if (command !in listOf(0x10, 0x11)) s.status = AppModel.status(pad.command(1, length = 16)) } }
     }
     private fun livePage(parent: LinearLayout) {
-        title(parent, if (model.page == -3) "Firmware console" else "Live input")
         button(parent, if (model.live == null) "Start" else "Pause") { model.live = if (model.live == null) (if (model.page == -3) "console" else "input") else null; render() }
         button(parent, "Clear") { model.console = ""; render() }
         liveText = label(model.console, 14f).apply { typeface = android.graphics.Typeface.MONOSPACE; setTextIsSelectable(true) }
@@ -362,8 +416,6 @@ class MainActivity : Activity() {
         }.setNegativeButton("Cancel", null).show()
     }
     private fun loaderPage(parent: LinearLayout) {
-        title(parent, "BR23 ROM loader")
-        parent.addView(label("${model.selected?.deviceName}\nProduct: ${model.loaderPid ?: "not read yet"}\nRAM helper: ${if (model.loaderFile.isFile) "available" else "select br23loader.bin"}"))
         button(parent, "Select RAM helper…") { document("loader", false) }
         button(parent, "Read product ID", model.loaderFile.isFile) { model.run("Inspecting loader") { loader { model.loaderPid = runCatching { it.pid() }.getOrDefault("unavailable") } } }
         button(parent, "Back up full flash…", model.loaderFile.isFile) { document("backup-flash", true, "cyclone-flash.bin") }
@@ -460,7 +512,7 @@ class MainActivity : Activity() {
     }
     override fun onBackPressed() {
         if (model.busy) { model.message = "Wait for the USB operation to finish"; updateProgress(); return }
-        if (model.page != -1 && model.hasDevice) { model.page = -1; model.live = null; render(); return }
+        if (model.page != -2 && model.hasDevice) { back(); return }
         if (model.session?.drafts?.edits?.isNotEmpty() == true) confirm("Leave padtool?", "Pending edits are kept on this phone and restored when this firmware is read again.") { finish() }
         else super.onBackPressed()
     }

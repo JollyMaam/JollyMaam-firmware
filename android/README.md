@@ -22,8 +22,9 @@ invocation downloads the emulator/image; subsequent invocations reuse them.
 An x86_64 Linux host with read/write access to `/dev/kvm` is expected.
 
 The script builds the debug APK, creates a compact phone AVD if needed, boots
-it, waits for Android, installs the APK and launches directly into **Simulated
-pad**. Keep the script running. Press **r + Enter** to rebuild/reinstall after
+it, waits for Android, installs the APK and opens the **device list**. Select
+**Simulated pad (no USB)** to explore the app. Keep the script running. Press
+**r + Enter** to rebuild/reinstall after
 editing, keeping Android booted. Press **q + Enter** or **Ctrl-C** to stop the
 session. Closing the emulator window also ends the session. A failed reload
 leaves the emulator available so you can fix the error and press r again.
@@ -82,8 +83,8 @@ pgrep -af '[G]radleDaemon|[K]otlinCompileDaemon'
 No `pgrep` output means neither named daemon is running. Entries marked
 STOPPED in Gradle's registry are historical, not live processes.
 
-In a debug APK, **Devices → Simulated pad (no USB)** also opens the simulator
-manually. The `simulate=true` launch extra is used by the script. The simulator
+The app always starts on the device list, including when launched by the
+emulator script. In a debug APK, select **Simulated pad (no USB)**. The simulator
 uses the normal field decoder, settings reads, WRITE/RESULT/COMMIT flow, draft
 handling, editors and JSON files. It includes all firmware fields/defaults,
 some saved sample remap settings, a synthetic bond for Unpair, moving input,
@@ -94,7 +95,7 @@ emulation of controller timing, radios or sensors; flashing is disabled.
 
 Simulation is explicitly labelled and cannot open the USB transport. Its
 fixture is packaged only in debug builds; release builds expose neither the
-simulation button nor the launch-extra path. Real device operation still uses
+simulation button nor its fixture. Real device operation still uses
 the Android USB transport and needs separate phone/hardware validation.
 
 Regenerate the checked-in simulation fixture when the firmware field table or
@@ -159,8 +160,21 @@ location or Bluetooth permissions.
 4. Stage changes, then Apply. Discard uses the cached originals. Defaults stages
    the firmware defaults, including pairing fields within the selected scope.
 
-Device-overview Apply/Discard/Defaults affect the whole selected pad. A detailed
-page's fixed header affects only that target. Drafts survive navigation,
+Apply, Discard, Defaults and Rescan stay in the fixed toolbar at the very top.
+On the pad's main page the setting actions affect that pad; on a detailed page
+they affect only that target. Rescan enumerates USB devices and returns to the
+device list; selecting a device reads its settings. Back returns from a
+settings page to the pad, and from the pad to the device list.
+
+The single status line below the toolbar includes the page, simulation marker,
+pending changes, operation/progress and device state. Long press it for full
+details, including build/protocol/flash UID and any truncated message. Long
+press a setting's value or default label for its help; there are no separate
+help buttons. Pages retain their scroll position through edits and recreation.
+Mouse-wheel scrolling takes precedence over an earlier button's focus reveal,
+so later layouts do not pull the list back to that button.
+
+Drafts survive navigation,
 activity recreation and app restarts, and are keyed to the firmware build and
 flash UID. Reading a reconnected device reloads its saved values and restores
 compatible drafts. A `*` button discards the field's pending edit; a `✓` stages
@@ -170,8 +184,8 @@ only takes effect on Apply.
 The firmware's staging area holds 1024 bytes. An Apply larger than that is
 rejected before WRITE; use page-level Apply for large imports. Each Apply
 checks the device identity, drops stale firmware staging, checks every WRITE
-result, and sends one COMMIT. A failed/ambiguous commit requires Refresh before
-another Apply. Check the loaded values and discard any already-saved edits
+result, and sends one COMMIT. A failed/ambiguous commit requires Rescan and
+reopening the device before another Apply. Check the loaded values and discard any already-saved edits
 before retrying an action such as Unpair. Successfully acknowledged commits
 clear drafts before the subsequent settings read, so a failed refresh cannot
 re-stage a completed action.
@@ -197,7 +211,7 @@ Pair, target-address and tool-only controls.
 ## Firmware backup and flashing
 
 On a running device, Enter flash loader requests the reboot. Select the
-returning UBOOT device under Devices and grant USB access again. Alternatively,
+returning UBOOT device after Rescan and grant USB access again. Alternatively,
 connect the pad while holding Home + Start, or the dongle while holding its
 button.
 
@@ -235,6 +249,8 @@ for recovery.
   to restart on verification failure;
 - backup/preset compatibility and native activity launch/recreation on Android
   9 and 15, plus staging a mapping and retaining its draft.
+- device-list startup, toolbar/navigation, long-press help, single-line status,
+  scroll retention through edits/recreation and wheel versus deferred focus.
 
 Regenerate interoperability fixtures after changing Python formats:
 
