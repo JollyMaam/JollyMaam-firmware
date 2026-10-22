@@ -5,40 +5,45 @@ set -euo pipefail
 
 usage() {
     cat <<'USAGE'
-Usage: run-emulator [--no-build] [--headless] [--cold-boot] [--software]
+Usage: run-emulator [--no-build] [--scrcpy | --headless] [--cold-boot] [--software]
 
-Build padtool, boot Android 15 without its Qt window, and open it in scrcpy.
+Build padtool and boot Android 15 in the normal emulator window.
 Keep this command running. Ctrl-C stops this run's build, scrcpy, emulator and
 private adb server, and removes its temporary files. The AVD and saved
-simulated settings are kept. Closing scrcpy also stops the session.
+simulated settings are kept. Closing the display window also stops the session.
 In the terminal, r + Enter rebuilds/reinstalls; q + Enter stops the session.
 
   --no-build   Install the existing app/build/outputs/apk/debug/app-debug.apk
-  --headless   Skip scrcpy as well (for automation)
+  --scrcpy     Use -no-window and show Android through scrcpy instead
+  --headless   Start without either display window (for automation)
   --cold-boot  Start without loading a snapshot
   --software  Disable KVM; much slower (allows ten minutes to boot)
   --help       Show this help
 
 PADTOOL_EMULATOR_PORT: even emulator port, default 5580 (adb device port 5581).
 PADTOOL_ADB_PORT: private adb server port, default emulator port + 1000.
+QT_QPA_PLATFORM is respected; defaults to xcb when DISPLAY is available.
 State/logs: $XDG_STATE_HOME/cyclone-padtool/emulator, or ~/.local/state/...
 USAGE
 }
 fail() { echo "padtool emulator: $*" >&2; exit 1; }
 build=true
 headless=false
+mirror=false
 cold=false
 software=false
 for arg in "$@"; do
     case "$arg" in
         --no-build) build=false ;;
         --headless) headless=true ;;
+        --scrcpy) mirror=true ;;
         --cold-boot) cold=true ;;
         --software) software=true ;;
         --help|-h) usage; exit 0 ;;
         *) usage >&2; fail "unknown option: $arg" ;;
     esac
 done
+if $headless && $mirror; then fail '--headless and --scrcpy cannot be used together'; fi
 [[ $(uname -sm) == 'Linux x86_64' ]] || fail 'this launcher uses an x86_64 Linux system image'
 android_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 cd "$android_dir"
@@ -154,11 +159,16 @@ showDeviceFrame=no
 disk.dataPartition.size=2G
 CONFIG
 fi
-options=(-avd "$avd_name" -port "$port" -no-window -no-boot-anim -no-audio -camera-back none -camera-front none -gpu swiftshader)
+options=(-avd "$avd_name" -port "$port" -no-boot-anim -no-audio -camera-back none -camera-front none -gpu swiftshader)
 # Without a wheel-capable device Qt synthesizes an animated touchscreen swipe
 # per wheel tick. Expose an absolute mouse with a real wheel instead. Disable
 # the alternative mouse devices so pointer capture is not required.
 options+=(-feature VirtioTablet -feature -VirtioMouse -feature -VirtioDualModeMouse)
+if $headless || $mirror; then
+    options+=(-no-window)
+elif [[ -z ${QT_QPA_PLATFORM:-} && -n ${DISPLAY:-} ]]; then
+    export QT_QPA_PLATFORM=xcb
+fi
 if $cold; then options+=(-no-snapshot-load); fi
 if $software; then options+=(-accel off); fi
 echo "Starting $serial; log: $log_file"
@@ -183,7 +193,7 @@ install_app() {
     adb -s "$serial" shell am start -W -n dev.cyclone.padtool/.MainActivity
 }
 install_app
-if ! $headless; then
+if $mirror; then
     echo "Opening scrcpy; log: $state_dir/scrcpy.log"
     TMPDIR="$run_dir" ADB="$(command -v adb)" setsid scrcpy --serial "$serial" --no-audio --mouse=sdk --window-title 'Cyclone padtool' >"$state_dir/scrcpy.log" 2>&1 </dev/null &
     scrcpy_pid=$!
@@ -192,7 +202,7 @@ echo "Padtool launched on $serial (private adb port $adb_port)."
 echo 'Ctrl-C stops this session. Saved AVD/settings are kept.'
 if [[ -t 0 ]]; then
     echo 'r + Enter: rebuild/reinstall; q + Enter: stop.'
-    while kill -0 "$emulator_pid" 2>/dev/null && { $headless || kill -0 "$scrcpy_pid" 2>/dev/null; }; do
+    while kill -0 "$emulator_pid" 2>/dev/null && { ! $mirror || kill -0 "$scrcpy_pid" 2>/dev/null; }; do
         if IFS= read -r -t 1 action; then
             case "$action" in
                 r) if build_app && install_app; then echo 'Reloaded.'; else echo 'Reload failed; fix the error and press r + Enter to retry.' >&2; fi ;;
@@ -201,7 +211,7 @@ if [[ -t 0 ]]; then
         fi
     done
 fi
-if $headless || ! kill -0 "$emulator_pid" 2>/dev/null; then
+if ! $mirror || ! kill -0 "$emulator_pid" 2>/dev/null; then
     wait "$emulator_pid"
 elif ! kill -0 "$scrcpy_pid" 2>/dev/null; then
     wait "$scrcpy_pid"

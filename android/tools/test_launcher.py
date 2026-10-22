@@ -101,7 +101,7 @@ class LauncherTests(unittest.TestCase):
         self.processes = []
         self.addCleanup(self.stop_remaining)
 
-    def start(self, build=False, fail=False, terminal=False, headless=False):
+    def start(self, build=False, fail=False, terminal=False, headless=False, scrcpy=False):
         for name in ('ready','emulator.pid','close-window'):
             (self.root/name).unlink(missing_ok=True)
         output=(self.root/f'output-{len(self.processes)}').open('w+')
@@ -111,7 +111,7 @@ class LauncherTests(unittest.TestCase):
             self.terminal_input, stdin=pty.openpty()
             self.addCleanup(os.close, self.terminal_input)
             self.addCleanup(os.close, stdin)
-        p=subprocess.Popen(['bash',str(self.android/'run-emulator'),'--software']+([] if build else ['--no-build'])+(['--headless'] if headless else []),
+        p=subprocess.Popen(['bash',str(self.android/'run-emulator'),'--software']+([] if build else ['--no-build'])+(['--headless'] if headless else [])+(['--scrcpy'] if scrcpy else []),
                            env=dict(self.env, **({'PADTOOL_TEST_FAIL':'1'} if fail else {})),
                            stdin=stdin,stdout=output,stderr=subprocess.STDOUT,start_new_session=True)
         self.processes.append(p)
@@ -149,7 +149,7 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(0,result.returncode,'Launcher lock leaked')
 
     def test_ctrl_c_stops_emulator_adb_and_descendants_and_releases_lock(self):
-        p,_=self.start()
+        p,_=self.start(scrcpy=True)
         self.wait_for(lambda:(self.root/'ready').exists())
         self.assertIsNone(p.poll(),'Launcher must remain in foreground')
         emulator=next(r for r in self.records() if r['name']=='emulator')
@@ -193,7 +193,7 @@ class LauncherTests(unittest.TestCase):
 
     def test_terminal_reload_keeps_emulator_and_quit_cleans_up(self):
         self.env['PADTOOL_TEST_BUILD_OK']='1'
-        p,_=self.start(terminal=True)
+        p,_=self.start(terminal=True, scrcpy=True)
         self.wait_for(lambda:(self.root/'ready').exists())
         os.write(self.terminal_input,b'r\n')
         self.wait_for(lambda:sum(r.get('event')=='launch' for r in self.records())==2)
@@ -207,7 +207,7 @@ class LauncherTests(unittest.TestCase):
     def test_closing_scrcpy_stops_session_and_descendants(self):
         for terminal in (False, True):
             with self.subTest(terminal=terminal):
-                p,_=self.start(terminal=terminal)
+                p,_=self.start(terminal=terminal, scrcpy=True)
                 self.wait_for(lambda:any(r['name']=='scrcpy' and alive(r['pid']) for r in self.records()))
                 (self.root/'close-window').touch()
                 self.assertEqual(0,p.wait(timeout=10))
@@ -215,7 +215,7 @@ class LauncherTests(unittest.TestCase):
 
     def test_failed_scrcpy_stops_emulator_and_adb(self):
         self.env['PADTOOL_TEST_SCRCPY_FAIL']='1'
-        p,_=self.start()
+        p,_=self.start(scrcpy=True)
         self.assertEqual(23,p.wait(timeout=10))
         log=self.root/'state/cyclone-padtool/emulator/scrcpy.log'
         self.assertIn('Test scrcpy startup failure',log.read_text())
@@ -228,6 +228,26 @@ class LauncherTests(unittest.TestCase):
         self.assertIn('-no-window',next(r for r in self.records() if r['name']=='emulator')['args'])
         os.killpg(p.pid,signal.SIGINT); p.wait(timeout=10)
         self.assert_clean()
+
+    def test_default_uses_emulator_window_and_xcb_without_scrcpy(self):
+        self.env.pop('QT_QPA_PLATFORM')
+        self.env['DISPLAY']=':test'
+        p,_=self.start(terminal=True)
+        self.wait_for(lambda:(self.root/'ready').exists())
+        emulator=next(r for r in self.records() if r['name']=='emulator')
+        self.assertNotIn('-no-window', emulator['args'])
+        self.assertEqual('xcb', emulator['qt'])
+        self.assertFalse(any(r['name']=='scrcpy' for r in self.records()))
+        os.write(self.terminal_input,b'q\n')
+        self.assertEqual(0,p.wait(timeout=10))
+        self.assert_clean()
+
+    def test_headless_and_scrcpy_are_mutually_exclusive(self):
+        p,output=self.start(headless=True, scrcpy=True)
+        self.assertNotEqual(0,p.wait(timeout=10))
+        output.seek(0)
+        self.assertIn('--headless and --scrcpy cannot be used together',output.read())
+        self.assertEqual([],self.records())
 
 
 if __name__ == '__main__': unittest.main(verbosity=2)

@@ -22,12 +22,13 @@ invocation downloads the emulator/image; subsequent invocations reuse them.
 An x86_64 Linux host with read/write access to `/dev/kvm` is expected.
 
 The script builds the debug APK, creates a compact phone AVD if needed, boots
-it with `-no-window`, waits for Android, installs the APK and opens the
-**device list** in a scrcpy window. Select
+the normal emulator window, waits for Android, installs the APK and opens the
+**device list**. Use `--scrcpy` to run the emulator with `-no-window` and show
+Android through scrcpy instead. Select
 **Simulated pad (no USB)** to explore the app. Keep the script running. Press
 **r + Enter** to rebuild/reinstall after
 editing, keeping Android booted. Press **q + Enter** or **Ctrl-C** to stop the
-session. Closing the scrcpy window also ends the session. A failed reload
+session. Closing the emulator window (or scrcpy when selected) also ends the session. A failed reload
 leaves the emulator available so you can fix the error and press r again.
 
 Cleanup stops the build, scrcpy and their descendants, emulator and private adb server,
@@ -40,8 +41,9 @@ Useful options:
 
 ```sh
 ./android/run-emulator --no-build   # install the existing debug APK
+./android/run-emulator --scrcpy     # use scrcpy instead of the emulator window
 ./android/run-emulator --cold-boot  # skip snapshot restore when starting
-./android/run-emulator --headless   # also skip scrcpy (for automation)
+./android/run-emulator --headless   # no display window (for automation)
 ./android/run-emulator --software   # opt into slow CPU emulation without KVM
 ```
 
@@ -59,11 +61,21 @@ back to `~/.local/state/cyclone-padtool/emulator`. GPU rendering uses
 SwiftShader, while KVM accelerates the CPU by default. `--software` also
 disables CPU acceleration and gives first boot a longer timeout.
 
-scrcpy uses SDK mouse input to forward pointer and wheel events without mouse
-capture. The emulator's Qt window is disabled, so its wheel-to-swipe conversion
-is not used. The existing `VirtioTablet` input configuration is retained.
-No `QT_QPA_PLATFORM` override is needed for the display. Stop and restart the
-launcher to pick up this change; **r + Enter** reloads only the APK.
+The normal emulator window uses `VirtioTablet` for native wheel events without
+pointer capture. `QT_QPA_PLATFORM` is respected and defaults to `xcb` when
+`DISPLAY` is available. With `--scrcpy`, the emulator's Qt window is disabled
+and scrcpy forwards SDK pointer/wheel events. scrcpy stays in the Nix
+dependencies whichever display mode is selected. `--headless` and `--scrcpy`
+are mutually exclusive. Stop and restart the launcher to change display modes;
+**r + Enter** reloads only the APK.
+
+To keep the emulator floating in Sway, add to `~/.config/sway/config`:
+
+```sway
+for_window [title="^Android Emulator"] floating enable
+```
+
+Reload with `swaymsg reload`, then open the emulator.
 
 If a launcher is still active, the lock error includes the lock path and
 `fuser` process information. Stop the earlier launcher before retrying. Older
