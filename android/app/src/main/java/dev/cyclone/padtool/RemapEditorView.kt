@@ -100,7 +100,7 @@ class RemapEditorView(context: Context, private val map: ByteArray, rulesRaw: By
                 choose("${keyLabel(key)} maps to", choices.map { if (it == "Nothing") it else keyLabel(it) }, choices.indexOf(to)) { i ->
                     val updated = map.copyOf(); setMapping(updated, key, choices[i]); stage(updated, Remap.encodeRules(rules))
                 }
-            }.apply { layoutParams = LayoutParams(valueWidth, -2) }
+            }.apply { layoutParams = LayoutParams(valueWidth, -2, 1f) }
             val help = "While held, ${keyLabel(key)} sends this mapping. Rules add to it.\n\nDefault: " +
                 mapping(defaultMap, key).let { if (it == "Nothing") it else keyLabel(it) } +
                 defaults.filter { it.input == key }.joinToString("\n", prefix = "\n") { summary(it) }
