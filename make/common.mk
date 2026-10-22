@@ -32,4 +32,6 @@ $(O)/$(1)/defines: FORCE
 	@echo '$($(1)_DEFINES) $(EXTRA_DEFINES)' | cmp -s - $$@ 2>/dev/null || echo '$($(1)_DEFINES) $(EXTRA_DEFINES)' > $$@
 endef
 
-.PHONY: FORCE
+.PHONY: FORCE clean
+clean:
+	rm -rf $(O)

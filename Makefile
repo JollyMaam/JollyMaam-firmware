@@ -12,8 +12,6 @@ include make/jieli.mk
 include make/gamesir-cyclone-2.mk
 include make/gamesir-nova-lite-2.mk
 
-.PHONY: all test clean
+.PHONY: all test
 all: gamesir-cyclone-2-all gamesir-nova-lite-2-all
 test: gamesir-cyclone-2-test gamesir-nova-lite-2-test
-clean:
-	rm -rf $(O)
