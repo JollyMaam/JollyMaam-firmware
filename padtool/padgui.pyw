@@ -86,9 +86,9 @@ class App:
         top = ttk.Frame(root, padding=10)
         top.pack(fill="x")
         self.apply_all_button = ttk.Button(top, text="Apply", command=self.apply_settings, state="disabled")
+        self.discard_all_button = ttk.Button(top, text="Discard", command=self.discard_changes, state="disabled")
         toolbar_buttons = [ttk.Button(top, text="Refresh", command=self.refresh_devices),
-                           self.apply_all_button,
-                           ttk.Button(top, text="Discard", command=self.discard_changes)]
+                           self.apply_all_button, self.discard_all_button]
         toolbar_status = ttk.Label(top, textvariable=self.summary)
         def resize_toolbar(event):
             columns = 4 if event.width >= 400 else 3 if event.width >= 300 else 2 if event.width >= 200 else 1
@@ -648,7 +648,9 @@ class App:
     def update_apply_state(self, count=None):
         if count is None:
             count = self.dirty_count()
-        self.apply_all_button.configure(state="normal" if not self.busy and count else "disabled")
+        state = "normal" if not self.busy and count else "disabled"
+        self.apply_all_button.configure(state=state)
+        self.discard_all_button.configure(state=state)
 
     def mark_dirty(self, force_previews=False):
         if self.batch_edits:

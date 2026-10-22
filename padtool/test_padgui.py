@@ -1210,6 +1210,20 @@ class GuiTests(GuiCase):
         self.assertIs(self.app.active_page, self.app.loader_page)
 
 
+class ToolbarTests(GuiCase):
+    def test_discard_is_greyed_out_without_changes(self):
+        r = record()
+        self.load([r])
+        self.app.update_apply_state()
+        self.assertEqual(str(self.app.discard_all_button.cget("state")), "disabled")
+        r["draft"][0, "rumble"]["var"].set("80")
+        self.app.mark_dirty()
+        self.assertEqual(str(self.app.discard_all_button.cget("state")), "normal")
+        self.app.discard_changes()
+        self.app.update_apply_state()
+        self.assertEqual(str(self.app.discard_all_button.cget("state")), "disabled")
+
+
 class StockGuiTests(GuiCase):
     def page_text(self):
         return [self.app.stock_title.get(), self.app.stock_details.get(), self.app.stock_help.get()]
