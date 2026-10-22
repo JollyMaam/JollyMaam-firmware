@@ -280,47 +280,76 @@ class MainActivity : Activity() {
             button(files, "Export preset…") { document("export-preset", true, "${Protocol.targetNames[target]}.json", "application/json") }
             button(files, "Import preset…") { document("import-preset", false, mime = "application/json") }
         }
-        parent.addView(Switch(this).apply {
-            text = "Developer fields"; isChecked = model.developer; isEnabled = !model.busy
-            setOnCheckedChangeListener { _, checked -> model.developer = checked; render() }
-        })
-        for (field in s.fields.filter { it.kind == Protocol.kind(target) && (!it.developer || model.developer) }) {
+        val fields = s.fields.filter { it.kind == Protocol.kind(target) }
+        val advanced = column().apply { tag = "developer-fields"; visibility = if (model.developer) View.VISIBLE else View.GONE }
+        val mapField = fields.firstOrNull { it.name == "map" && it.kind == 3 }
+        val rulesField = fields.firstOrNull { it.name == "rules" && it.kind == 3 }
+        fun raw(field: Field) = s.drafts.edits[target to field.id]?.let {
+            if (it.isEmpty()) s.defaults.getValue(target).getValue(field.id).bytes else it
+        } ?: s.values.getValue(target).getValue(field.id).bytes
+        for (field in fields) {
+            if (field == rulesField && mapField != null) continue
+            if (field == mapField && rulesField != null) {
+                parent.addView(RemapEditorView(this, raw(field), raw(rulesField),
+                    s.values.getValue(target).getValue(field.id).bytes, s.values.getValue(target).getValue(rulesField.id).bytes,
+                    s.defaults.getValue(target).getValue(field.id).bytes, s.defaults.getValue(target).getValue(rulesField.id).bytes,
+                    !model.busy) { map, rules ->
+                    val edits = listOf(field to map, rulesField to rules).map { (f, bytes) ->
+                        val saved = s.values.getValue(target).getValue(f.id)
+                        Edit(target, f.id, if (!saved.explicit && bytes.contentEquals(saved.bytes)) ByteArray(0) else bytes)
+                    }
+                    model.stage(s, edits)
+                })
+                continue
+            }
             val value = s.values[target]?.get(field.id) ?: continue
             val draft = s.drafts.edits[target to field.id]
             val raw = if (draft == null) value.bytes else if (draft.isEmpty()) s.defaults.getValue(target).getValue(field.id).bytes else draft
-            val line = column().apply { setPadding(0, dp(5), 0, dp(8)) }
+            val line = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
+            val default = s.defaults[target]?.get(field.id)?.bytes?.let { runCatching { field.show(it) }.getOrDefault(it.hex()) }
+            val helpText = field.help + "\n\nDefault: ${default ?: "unavailable"}" + if (field.type == 1 || field.type == 5) "\nRange: 0–${field.max}" else ""
             val help = View.OnLongClickListener {
-                AlertDialog.Builder(this).setTitle(field.name.replace('_', ' ')).setMessage(field.help).setPositiveButton("OK", null).show()
+                AlertDialog.Builder(this).setTitle(field.name.replace('_', ' ')).setMessage(helpText).setPositiveButton("OK", null).show()
                 true
             }
             line.setOnLongClickListener(help)
-            val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            line.addView(top)
             Button(this).apply {
                 text = if (draft != null) "*" else if (value.explicit) "✓" else "—"
                 contentDescription = if (draft != null) "Discard ${field.name} edit" else "Default ${field.name}"
                 setOnLongClickListener(help)
                 isEnabled = !model.busy && (draft != null || value.explicit)
-                layoutParams = LinearLayout.LayoutParams(dp(56), dp(48))
+                layoutParams = LinearLayout.LayoutParams(dp(40), dp(48)); minWidth = 0; minimumWidth = 0; setPadding(0, 0, 0, 0)
                 setOnClickListener {
                     if (draft != null) s.drafts.edits.remove(target to field.id) else s.drafts.edits[target to field.id] = ByteArray(0)
                     model.saveDrafts(s); render()
-                }; top.addView(this)
+                }; line.addView(this)
             }
-            val text = field.name.replace('_', ' ') + "\n" + runCatching { field.show(raw) }.getOrDefault(raw.hex())
-            if (field.type == 2 && raw.size == 3) top.addView(View(this).apply {
+            line.addView(label(field.name.replace('_', ' ') + ":", 14f).apply {
+                tag = "label-${field.name}"; setOnLongClickListener(help)
+            }, LinearLayout.LayoutParams(dp(120), -2))
+            val text = runCatching { field.show(raw) }.getOrDefault(raw.hex())
+            if (field.type == 2 && raw.size == 3) line.addView(View(this).apply {
                 setBackgroundColor(Color.rgb(raw.u8(0), raw.u8(1), raw.u8(2)))
                 layoutParams = LinearLayout.LayoutParams(dp(24), dp(36)).apply { setMargins(0, dp(8), dp(4), 0) }
             })
             Button(this).apply {
-                this.text = text; isAllCaps = false; gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
+                this.text = text; tag = "field-${field.name}"; contentDescription = "${field.name.replace('_', ' ')}: $text"
+                isAllCaps = false; gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
                 isEnabled = !model.busy; layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
                 setOnLongClickListener(help)
-                setOnClickListener { editField(s, target, field, raw) }; top.addView(this)
+                setOnClickListener { editField(s, target, field, raw) }; line.addView(this)
             }
-            val default = s.defaults[target]?.get(field.id)?.bytes?.let { runCatching { field.show(it) }.getOrDefault(it.hex()) }
-            line.addView(label((if (field.type == 1 || field.type == 5) "0–${field.max} · " else "") + "Default: ${default ?: "unavailable"}", 12f).apply { setOnLongClickListener(help) })
-            parent.addView(line)
+            (if (field.developer) advanced else parent).addView(line)
+        }
+        val developerCount = advanced.childCount
+        if (developerCount > 0) {
+            parent.addView(CheckBox(this).apply {
+                tag = "developer-toggle"; text = "Developer fields ($developerCount)"; isChecked = model.developer; isEnabled = !model.busy
+                setOnCheckedChangeListener { _, checked ->
+                    model.developer = checked; advanced.visibility = if (checked) View.VISIBLE else View.GONE
+                }
+            })
+            parent.addView(advanced)
         }
     }
     private fun editField(s: PadSession, target: Int, field: Field, raw: ByteArray) {

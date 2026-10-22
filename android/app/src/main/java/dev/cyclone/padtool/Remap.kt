@@ -4,6 +4,21 @@ import kotlin.math.round
 
 /** Text and wire formats shared with padtool/padremap.py. */
 object Remap {
+    data class Rule(val input: String, val trigger: String = "held", val effect: String = "hold",
+        val outputs: List<String> = emptyList(), val ms: Int = 300, val rate: Int = 15)
+    fun effectsFor(trigger: String) = if (trigger in listOf("held", "held_for"))
+        listOf("hold", "turbo", "turbo_modifier", "nothing") else listOf("tap", "toggle_hold", "toggle_turbo", "toggle_turbo_modifier")
+    fun decodeRules(raw: ByteArray): List<Rule> = (0 until raw.size / 10).mapNotNull { n ->
+        val at = n * 10; val t = raw.u8(at); val k = raw.u8(at + 1); val e = raw.u8(at + 3)
+        if (t !in 1..6 || k !in keys.indices || keys[k].isEmpty() || e !in effects.indices) null else
+            Rule(keys[k], triggers[t], effects[e], keys.indices.filter { keys[it].isNotEmpty() && raw.u32(at + 4) and (1L shl it) != 0L }.map { keys[it] },
+                if (triggers[t] in timed) raw.u8(at + 2) * 10 else 300, if (effects[e] in turbo) raw.u8(at + 8) else 15)
+    }
+    fun encodeRules(rules: List<Rule>): ByteArray = parseRules(rules.joinToString("; ") { r ->
+        "${r.input} ${r.trigger}" + (if (r.trigger in timed) ":${r.ms}" else "") + " ${r.effect}" +
+            (if (r.effect != "nothing") " " + r.outputs.joinToString("+").ifEmpty { "-" } else "") +
+            (if (r.effect in turbo) "@${if (r.rate == 0) "max" else r.rate}" else "")
+    })
     val keys = listOf("a", "b", "capture", "x", "y", "m", "l1", "r1", "l4", "r4", "minus", "plus", "home", "l3", "r3", "", "up", "right", "down", "left")
     val triggers = listOf("", "held", "held_for", "pressed", "released", "tapped", "double_tapped")
     val effects = listOf("hold", "turbo", "nothing", "tap", "toggle_hold", "toggle_turbo", "turbo_modifier", "toggle_turbo_modifier")

@@ -16,6 +16,7 @@ class ProtocolTest {
                 val raw = if (kind == "maps") Remap.parseMap(row.getString("input")) else Remap.parseRules(row.getString("input"))
                 assertEquals(row.getString("hex"), raw.hex())
                 assertEquals(row.getString("text"), if (kind == "maps") Remap.showMap(raw) else Remap.showRules(raw))
+                if (kind == "rules") assertArrayEquals(raw, Remap.encodeRules(Remap.decodeRules(raw)))
             }
         }
         val curves = data.getJSONArray("curves")

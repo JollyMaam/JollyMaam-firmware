@@ -7,6 +7,7 @@ import android.hardware.usb.UsbDevice
 import android.widget.Button
 import android.widget.ScrollView
 import android.widget.LinearLayout
+import android.widget.CheckBox
 import org.robolectric.shadows.ShadowAlertDialog
 import org.robolectric.Shadows.shadowOf
 import android.os.Looper
@@ -75,7 +76,7 @@ class ActivityTest {
             assertTrue(activity.window.decorView.findViewWithTag<TextView>("status").text.contains(title))
         }
         m.page = 0; m.changed!!.invoke()
-        descendants(activity.window.decorView).filterIsInstance<Button>().first { it.text.toString().startsWith("type\n") }.performClick()
+        activity.window.decorView.findViewWithTag<Button>("field-type").performClick()
         val dialog = ShadowAlertDialog.getLatestAlertDialog()
         dialog.listView.performItemClick(null, 0, 0)
         shadowOf(Looper.getMainLooper()).idle()
@@ -121,11 +122,11 @@ class ActivityTest {
         chooseSimulation(activity)
         m.page = 11; m.changed!!.invoke(); layout(activity)
         val name = m.session!!.fields.first { it.kind == 3 && it.name == "name" }
-        val editor = descendants(activity.window.decorView).filterIsInstance<Button>().first { it.text.toString().startsWith("name\n") }
+        val editor = activity.window.decorView.findViewWithTag<Button>("field-name")
         val count = m.session!!.drafts.edits.size
         assertTrue(editor.performLongClick())
         val dialog = ShadowAlertDialog.getLatestAlertDialog()
-        assertEquals(name.help, dialog.findViewById<TextView>(android.R.id.message).text.toString())
+        assertEquals(name.help + "\n\nDefault: " + name.show(m.session!!.defaults.getValue(11).getValue(name.id).bytes), dialog.findViewById<TextView>(android.R.id.message).text.toString())
         assertEquals(count, m.session!!.drafts.edits.size)
         dialog.dismiss()
         val scroll = activity.window.decorView.findViewWithTag<PageScrollView>("page")
@@ -136,6 +137,115 @@ class ActivityTest {
         assertEquals(600, activity.window.decorView.findViewWithTag<PageScrollView>("page").scrollY)
         controller.recreate(); layout(controller.get())
         assertEquals(600, controller.get().window.decorView.findViewWithTag<PageScrollView>("page").scrollY)
+        controller.pause().stop().destroy()
+    }
+    @Test @Config(sdk = [28, 35]) fun developerToggleExpandsInPlaceAndLabelsArePlainWithDefaultsOnlyOnLongPress() {
+        val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+        val activity = controller.get(); val m = model(activity)
+        chooseSimulation(activity)
+        m.page = 0; m.changed!!.invoke(); layout(activity)
+        val page = activity.window.decorView.findViewWithTag<PageScrollView>("page")
+        val advanced = activity.window.decorView.findViewWithTag<LinearLayout>("developer-fields")
+        val toggle = activity.window.decorView.findViewWithTag<CheckBox>("developer-toggle")
+        assertEquals(View.GONE, advanced.visibility)
+        assertTrue(advanced.childCount > 0)
+        toggle.performClick(); layout(activity)
+        assertTrue(m.developer); assertTrue(toggle.isChecked)
+        assertSame(page, activity.window.decorView.findViewWithTag<PageScrollView>("page"))
+        assertEquals(View.VISIBLE, advanced.visibility)
+        assertTrue(activity.window.decorView.findViewWithTag<Button>("field-report_hz").isShown)
+        val name = activity.window.decorView.findViewWithTag<TextView>("label-type")
+        assertEquals("type:", name.text.toString()); assertFalse(name.isClickable)
+        val value = activity.window.decorView.findViewWithTag<Button>("field-type")
+        val f = m.session!!.fields.first { it.kind == 0 && it.name == "type" }
+        assertEquals(f.show(m.session!!.values.getValue(0).getValue(f.id).bytes), value.text.toString())
+        assertFalse(texts(activity.window.decorView).any { it.startsWith("Default:") })
+        name.performLongClick()
+        val help = ShadowAlertDialog.getLatestAlertDialog()
+        assertTrue(help.findViewById<TextView>(android.R.id.message).text.contains("Default: " + f.show(m.session!!.defaults.getValue(0).getValue(f.id).bytes)))
+        help.dismiss()
+        controller.recreate(); layout(controller.get())
+        assertTrue(controller.get().window.decorView.findViewWithTag<CheckBox>("developer-toggle").isChecked)
+        controller.get().window.decorView.findViewWithTag<CheckBox>("developer-toggle").performClick()
+        assertEquals(View.GONE, controller.get().window.decorView.findViewWithTag<LinearLayout>("developer-fields").visibility)
+        controller.pause().stop().destroy()
+    }
+    private fun pick(label: String) {
+        val dialog = ShadowAlertDialog.getLatestAlertDialog()
+        val adapter = dialog.listView.adapter
+        val index = (0 until adapter.count).first { adapter.getItem(it).toString() == label }
+        dialog.listView.performItemClick(null, index, index.toLong())
+        shadowOf(Looper.getMainLooper()).idle()
+    }
+    @Test @Config(sdk = [28, 35]) fun combinedRemapEditsMappingsAndStructuredRulesAndDiscardsPerKey() {
+        val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+        val activity = controller.get(); val m = model(activity)
+        chooseSimulation(activity)
+        m.page = 18; m.changed!!.invoke(); layout(activity)
+        val s = m.session!!
+        val map = s.fields.first { it.kind == 3 && it.name == "map" }
+        val rules = s.fields.first { it.kind == 3 && it.name == "rules" }
+        fun button(tag: String) = activity.window.decorView.findViewWithTag<Button>(tag)
+        assertNull(activity.window.decorView.findViewWithTag<Button>("field-map"))
+        assertNull(activity.window.decorView.findViewWithTag<Button>("field-rules"))
+        button("remap-map-a").performClick(); pick("B")
+        assertEquals(2, s.drafts.edits.getValue(18 to map.id).u8(0))
+        assertFalse(s.drafts.edits.containsKey(18 to rules.id))
+        button("remap-status-a").performClick()
+        assertTrue(s.drafts.edits.isEmpty())
+        button("remap-map-a").performClick(); pick("B")
+        button("remap-add-r4").performClick()
+        val rule = ShadowAlertDialog.getLatestAlertDialog()
+        rule.window!!.decorView.findViewWithTag<Button>("rule-trigger").performClick(); pick("is tapped under")
+        assertEquals("tap", rule.window!!.decorView.findViewWithTag<Button>("rule-effect").text.toString())
+        rule.window!!.decorView.findViewWithTag<Button>("rule-trigger").performClick(); pick("is held")
+        rule.window!!.decorView.findViewWithTag<Button>("rule-effect").performClick(); pick("turbo modifier")
+        rule.window!!.decorView.findViewWithTag<Button>("rule-outputs").performClick()
+        val outputs = ShadowAlertDialog.getLatestAlertDialog()
+        outputs.listView.performItemClick(null, 0, 0); outputs.listView.performItemClick(null, 1, 1)
+        outputs.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick()
+        rule.window!!.decorView.findViewWithTag<Button>("rule-rate").performClick(); pick("10 Hz")
+        rule.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick()
+        assertEquals("r4 held turbo_modifier a+b@10", Remap.showRules(s.drafts.edits.getValue(18 to rules.id)))
+        assertEquals(2, s.drafts.edits.getValue(18 to map.id).u8(0))
+        button("remap-status-r4").performClick()
+        assertFalse(s.drafts.edits.containsKey(18 to rules.id))
+        assertTrue(s.drafts.edits.containsKey(18 to map.id))
+        controller.recreate(); layout(controller.get())
+        assertEquals("B", controller.get().window.decorView.findViewWithTag<Button>("remap-map-a").text.toString())
+        controller.get().window.decorView.findViewWithTag<Button>("remap-status-a").performClick()
+        assertTrue(s.drafts.edits.isEmpty())
+        controller.pause().stop().destroy()
+    }
+    @Test @Config(sdk = [35]) fun remapPresetKeepsOtherMappingsAndRuleLimitAndDeletionWork() {
+        val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+        val activity = controller.get(); val m = model(activity)
+        chooseSimulation(activity)
+        m.page = 18; m.changed!!.invoke(); layout(activity)
+        val s = m.session!!
+        val map = s.fields.first { it.kind == 3 && it.name == "map" }
+        val rules = s.fields.first { it.kind == 3 && it.name == "rules" }
+        m.stage(s, listOf(Edit(18, map.id, Remap.parseMap("l4=l1"))))
+        activity.window.decorView.findViewWithTag<Button>("remap-preset").performClick(); pick("Swap A/B")
+        assertEquals("a=b b=a l4=l1", Remap.showMap(s.drafts.edits.getValue(18 to map.id)))
+        val before = s.drafts.edits.mapValues { it.value.hex() }
+        activity.window.decorView.findViewWithTag<Button>("remap-add-r4").performClick()
+        ShadowAlertDialog.getLatestAlertDialog().getButton(android.app.AlertDialog.BUTTON_NEGATIVE).performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(before, s.drafts.edits.mapValues { it.value.hex() })
+        m.stage(s, listOf(Edit(18, rules.id, Remap.encodeRules(List(16) { Remap.Rule("r4", outputs = listOf("a")) }))))
+        assertEquals("Rule entries: 16 of 16 used", activity.window.decorView.findViewWithTag<TextView>("rule-count").text.toString())
+        assertFalse(activity.window.decorView.findViewWithTag<Button>("remap-add-a").isEnabled)
+        activity.window.decorView.findViewWithTag<Button>("remap-delete-0").performClick()
+        assertEquals(15, Remap.decodeRules(s.drafts.edits.getValue(18 to rules.id)).size)
+        assertTrue(activity.window.decorView.findViewWithTag<Button>("remap-add-a").isEnabled)
+        // Restoring one key must respect the limit when other keys use all entries.
+        s.values = s.values + (18 to (s.values.getValue(18) + (rules.id to Value(Remap.encodeRules(listOf(Remap.Rule("a", outputs = listOf("b")))), true))))
+        m.stage(s, listOf(Edit(18, rules.id, Remap.encodeRules(List(16) { Remap.Rule("r4", outputs = listOf("a")) }))))
+        activity.window.decorView.findViewWithTag<Button>("remap-status-a").performClick()
+        assertTrue(ShadowAlertDialog.getLatestAlertDialog().findViewById<TextView>(android.R.id.message).text.contains("exceed 16 rules"))
+        assertEquals(16, Remap.decodeRules(s.drafts.edits.getValue(18 to rules.id)).size)
+        ShadowAlertDialog.getLatestAlertDialog().dismiss()
         controller.pause().stop().destroy()
     }
     @Test fun stagesMappingAndRetainsDraftThroughRecreation() {
@@ -155,7 +265,7 @@ class ActivityTest {
         s.defaults = s.values
         model.session = s; model.sessions[s.identity.flashId] = s; model.page = 10
         model.changed!!.invoke()
-        val edit = descendants(activity.window.decorView).filterIsInstance<Button>().first { it.text.toString().startsWith("map\n") }
+        val edit = activity.window.decorView.findViewWithTag<Button>("field-map")
         edit.performClick()
         val dialog = ShadowAlertDialog.getLatestAlertDialog()
         assertTrue(texts(dialog.window!!.decorView).contains("A"))

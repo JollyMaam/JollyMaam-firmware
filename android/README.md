@@ -176,8 +176,9 @@ settings page to the pad, and from the pad to the device list.
 The single status line below the toolbar includes the page, simulation marker,
 pending changes, operation/progress and device state. Long press it for full
 details, including build/protocol/flash UID and any truncated message. Long
-press a setting's value or default label for its help; there are no separate
-help buttons. Pages retain their scroll position through edits and recreation.
+press a setting's value or plain name label for help, its default and numeric
+range. Names sit beside value buttons; defaults do not occupy a second row.
+Pages retain their scroll position through edits and recreation.
 Mouse-wheel scrolling takes precedence over an earlier button's focus reveal,
 so later layouts do not pull the list back to that button. Vertical wheel input
 scrolls directly and cancels earlier scrolling animations; touch dragging and
@@ -187,7 +188,9 @@ Drafts survive navigation,
 activity recreation and app restarts, and are keyed to the firmware build and
 flash UID. Reading a reconnected device reloads its saved values and restores
 compatible drafts. A `*` button discards the field's pending edit; a `✓` stages
-its default. Developer fields are collapsed by default. Unpair is staged and
+its default. Developer fields are collapsed by default; their checkbox expands
+them immediately underneath it without rebuilding the page. Pages without
+developer fields have no checkbox. Unpair is staged and
 only takes effect on Apply.
 
 The firmware's staging area holds 1024 bytes. An Apply larger than that is
@@ -199,8 +202,17 @@ before retrying an action such as Unpair. Successfully acknowledged commits
 clear drafts before the subsequent settings read, so a failed refresh cannot
 re-stage a completed action.
 
-Key mappings use a selector per key. Rules accept the desktop CLI's text, with
-syntax/examples in the editor. Stick curves have draggable points, a value
+Remaps use one per-key table, like padgui: each key's **maps to** selector is
+followed by its rules. The mapping sends a key while held; rules add actions.
+**+ Rule** opens a form with trigger/effect pickers, output checkboxes, timing
+and turbo rate (including every report). Only effects valid for the trigger
+are offered. Tap a rule to edit it or **×** to delete it. The rule count shows
+the shared 16-entry limit. Each key's **\*** discards that key's mapping and
+rules; **✓** stages their defaults. Long press the mapping for its default.
+Mapping presets preserve unrelated mappings and rules. Import/export uses
+the existing preset buttons. All edits remain pending until Apply.
+
+Stick curves have draggable points, a value
 editor and the same Linear, Concave and S-curve presets as Python padtool.
 Choosing Linear disables the curve; other edits enable it. The enable field
 can also be edited independently.
@@ -261,6 +273,8 @@ for recovery.
 - device-list startup, toolbar/navigation, long-press help, single-line status,
   scroll retention through edits/recreation, wheel versus deferred focus and
   active flings, wheel direction changes/limits, and subsequent touch flinging.
+- in-place developer expansion, compact labels/default help, combined remap
+  mapping/rule editing, per-key discard, presets, rule limits and deletion.
 
 Regenerate interoperability fixtures after changing Python formats:
 
