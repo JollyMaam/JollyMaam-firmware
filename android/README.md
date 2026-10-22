@@ -62,8 +62,8 @@ SwiftShader, while KVM accelerates the CPU by default. `--software` also
 disables CPU acceleration and gives first boot a longer timeout.
 
 The normal emulator window uses `VirtioTablet` for native wheel events without
-pointer capture. `QT_QPA_PLATFORM` is respected and defaults to `xcb` when
-`DISPLAY` is available. With `--scrcpy`, the emulator's Qt window is disabled
+pointer capture. The script sets `QT_QPA_PLATFORM=xcb` for the bundled Qt,
+overriding any inherited Wayland selection. With `--scrcpy`, the emulator's Qt window is disabled
 and scrcpy forwards SDK pointer/wheel events. scrcpy stays in the Nix
 dependencies whichever display mode is selected. `--headless` and `--scrcpy`
 are mutually exclusive. Stop and restart the launcher to change display modes;
@@ -175,7 +175,8 @@ location or Bluetooth permissions.
    the firmware defaults, including pairing fields within the selected scope.
 
 Refresh, Apply and Discard stay in the fixed toolbar at the very top, with Back
-aligned to the right. On the pad's page Apply/Discard affect that pad; on a
+aligned to the right. Back stays visible and disabled on the main device list.
+On the pad's page Apply/Discard affect that pad; on a
 detailed page they affect only that target. On the main device list they affect
 all devices with pending changes, after a confirmation showing the number of
 changes and devices. Global Apply checks all connections, identities and staging

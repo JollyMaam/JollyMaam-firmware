@@ -147,8 +147,9 @@ Run it on the host with KVM access.
 It stays in the foreground: r + Enter rebuilds/reinstalls, Ctrl-C or q + Enter
 stops owned build/scrcpy/emulator/adb processes and deletes run-temporary files.
 Closing the chosen display also stops the session; `--headless` skips both windows.
+The launcher sets `QT_QPA_PLATFORM=xcb` for the emulator's bundled Qt.
 The app opens the device list; Refresh returns there. Refresh/Apply/Discard
-stay at the top, with Back on the right and one status line. On the device
+stay at the top, with Back on the right (disabled at top level) and one status line. On the device
 list, Apply/Discard affect all devices with pending edits and ask for confirmation;
 on a pad page they affect that pad, and on a detailed page only that target.
 Reset to defaults lives in the page body. Long press settings for help/defaults.

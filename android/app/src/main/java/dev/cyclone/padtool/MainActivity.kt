@@ -149,7 +149,7 @@ class MainActivity : Activity() {
         button(toolbar, "Refresh") { model.rescan() }
         applyBar(toolbar, model.session, scope())
         toolbar.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
-        if (model.page != -2 && model.hasDevice) button(toolbar, "Back") { back() }
+        button(toolbar, "Back", !globalScope()) { back() }
         for (i in 0 until toolbar.childCount) (toolbar.getChildAt(i) as? Button)?.apply {
             minWidth = 0; minimumWidth = 0; minHeight = dp(40); minimumHeight = dp(40)
             setPadding(dp(8), 0, dp(8), 0); textSize = 14f

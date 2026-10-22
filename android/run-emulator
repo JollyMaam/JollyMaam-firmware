@@ -22,7 +22,7 @@ In the terminal, r + Enter rebuilds/reinstalls; q + Enter stops the session.
 
 PADTOOL_EMULATOR_PORT: even emulator port, default 5580 (adb device port 5581).
 PADTOOL_ADB_PORT: private adb server port, default emulator port + 1000.
-QT_QPA_PLATFORM is respected; defaults to xcb when DISPLAY is available.
+QT_QPA_PLATFORM is set to xcb for the emulator's bundled Qt.
 State/logs: $XDG_STATE_HOME/cyclone-padtool/emulator, or ~/.local/state/...
 USAGE
 }
@@ -166,9 +166,8 @@ options=(-avd "$avd_name" -port "$port" -no-boot-anim -no-audio -camera-back non
 options+=(-feature VirtioTablet -feature -VirtioMouse -feature -VirtioDualModeMouse)
 if $headless || $mirror; then
     options+=(-no-window)
-elif [[ -z ${QT_QPA_PLATFORM:-} && -n ${DISPLAY:-} ]]; then
-    export QT_QPA_PLATFORM=xcb
 fi
+export QT_QPA_PLATFORM=xcb
 if $cold; then options+=(-no-snapshot-load); fi
 if $software; then options+=(-accel off); fi
 echo "Starting $serial; log: $log_file"

@@ -229,9 +229,9 @@ class LauncherTests(unittest.TestCase):
         os.killpg(p.pid,signal.SIGINT); p.wait(timeout=10)
         self.assert_clean()
 
-    def test_default_uses_emulator_window_and_xcb_without_scrcpy(self):
-        self.env.pop('QT_QPA_PLATFORM')
-        self.env['DISPLAY']=':test'
+    def test_default_uses_emulator_window_and_forces_xcb_without_scrcpy(self):
+        self.env['QT_QPA_PLATFORM']='wayland'
+        self.env.pop('DISPLAY', None)
         p,_=self.start(terminal=True)
         self.wait_for(lambda:(self.root/'ready').exists())
         emulator=next(r for r in self.records() if r['name']=='emulator')
