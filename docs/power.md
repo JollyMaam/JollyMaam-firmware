@@ -160,3 +160,29 @@ A watchdog reset can transfer control to the loader.
 
 The Bluetooth controller must be stopped before loader entry. Stopping
 advertising alone is not enough.
+
+#### Crystal measurement before enumeration
+
+The loader does not know the crystal frequency. Before it answers on USB, it
+attaches with the D+ GPIO pull-up (`USB_IO_CON0` `0xe4c`: `IO_MODE`,
+`DMDIE`, `DPDIE`, `DPPU`, `DPIE`, `DMIE`) and does not respond to the host.
+Timer 3 (`CON` `0x1a`: rising-edge capture, the osc input, prescale 4)
+captures D+ through input channel 2 (`IOMAP_CON2` bits 16–21 = `0x3d`, D+).
+Its interrupt (MaskROM `0x112368`) takes the 16-bit difference between
+captures and accepts the measurement after four differences in a row, each
+within 260 counts of the one before. With a 24 MHz crystal a full-speed frame
+is 6000 counts. The loader then programs the PLL, removes the pull-up and
+attaches as `UBOOT1.00`. Each attempt waits up to about 1 s, then the pull-up
+is removed for about 200 ms before the next attempt.
+
+Host requests during the measurement fail (STALL on the first descriptor
+read, no response to SET_ADDRESS). The loader configures the capture input
+itself, so no state left before the reset changes the measurement.
+
+Any other packet on the port is also a rising edge on D+. A hub with a single
+transaction translator repeats all full-speed traffic to every enabled
+full-speed port. Behind such a hub, other full-speed devices polled every
+1 ms put extra edges in every frame, and the measurement never completes;
+enumeration traffic can also complete it on a period other than the frame.
+The stock firmware's Home+Start loader entry behaves the same way, because the
+measurement is in the MaskROM.

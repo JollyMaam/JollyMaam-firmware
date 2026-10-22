@@ -98,7 +98,7 @@
 enum { CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02, CMD_STATS = 0x03, CMD_INPUT = 0x04,
        CMD_REBOOT = 0x10, CMD_REBOOT_LOADER = 0x11, CMD_RELINK = 0x12, CMD_CONNECT = 0x13, CMD_PROFILE = 0x14, CMD_PEEK = 0x15, CMD_TRACE = 0x16, CMD_PAIR = 0x17, CMD_CALIBRATE = 0x18, CMD_LED_DEMO = 0x19, CMD_RUMBLE = 0x1a,
        CMD_FIELD = 0x20, CMD_READ = 0x21, CMD_WRITE = 0x22, CMD_COMMIT = 0x23, CMD_DROP = 0x24,
-       CMD_EPHEMERAL = 0x25, CMD_RESULT = 0x26, CMD_DEFAULTS = 0x27, CMD_TARGET = 0x30, CMD_TOOL_ONLY = 0x31 };
+       CMD_EPHEMERAL = 0x25, CMD_RESULT = 0x26, CMD_DEFAULTS = 0x27, CMD_TARGET = 0x30, CMD_TOOL_ONLY = 0x31, CMD_USB_PROBE = 0x3f };
 
 #ifdef BOARD_DONGLE
 #include "dongle.h"
@@ -289,6 +289,11 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         break;
     case CMD_TOOL_ONLY:
         dongle_tool_only();
+        break;
+#endif
+#ifdef USB_PROBE
+    case CMD_USB_PROBE:          /* test builds: platform_jieli.c usb_probe() */
+        plat_usb_probe_request(util_get32(cdb + 2));   /* argument: USB_IO_CON0 bits to add */
         break;
 #endif
     }

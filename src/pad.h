@@ -811,6 +811,7 @@ void plat_motors(u8 left, u8 right);
 int plat_usb_present(void);
 int plat_usb_suspended(void);               /* the host suspended the bus (3 ms quiet) */
 void plat_usb_service(void);
+void plat_usb_probe_request(u32 extra);   /* USB_PROBE test builds: tools/usbprobe.py */
 /* USB as a game controller.  plat_usb_mode(NULL) is the tool device (mass
  * storage, the vendor commands); a personality re-enumerates as that device.
  * read answers the host's GET_REPORT in the USB interrupt (constant data, as

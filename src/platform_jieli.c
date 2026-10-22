@@ -24,6 +24,7 @@
 #define USB_CON0        (*(volatile u32 *)0x001e1800)
 #define USB_CON1        (*(volatile u32 *)0x001e1804)
 #define USB_IO_CON0     (*(volatile u32 *)0x001e5100)
+#define USB_IO_CON1     (*(volatile u32 *)0x001e5104)
 #define MASKROM_TOKEN   ((volatile u8 *)0x00010800)
 #define USB_VENDOR_OP   0xf5
 #define USB_SOF_STALE_MS 250
@@ -629,6 +630,158 @@ u32 private_scsi_cmd(const struct usb_device_t *usb_device, struct usb_scsi_cbw 
     return 1;
 }
 
+#ifdef USB_PROBE
+/* Test: what a device attached by the ROM loader's GPIO pull-up, answering
+ * nothing, sees on the bus (the ROM learns its crystal from it).  Phases:
+ * off 300 ms, then twice on 1000 ms / off 200 ms, as the ROM's attempts.
+ * Each run of non-idle line states is an event of two words at PROBE_AT:
+ * its start in timer 1 counts (lsb), and its length << 2 | the first state
+ * (USB_IO_CON1 bits 1:0); a phase change is (count, 0xfffffff0 | phase).
+ * The argument's bit 0 records instead what the ROM's own measurement
+ * captures (timer 3 on D+, osc / 4): (count, 0x80000000 | captured value).
+ * Its bits 0x7100 are added to USB_IO_CON0.  PROBE_AT[-4..-1]: event count,
+ * idle state, events lost | the added bits << 16, done marker.
+ * tools/usbprobe.py runs it and reads the events back. */
+#define PROBE_AT        ((u32 *)0x22210)
+#define IOMAP_CON1      (*(volatile u32 *)0x001e511c)
+#define IOMAP_CON2      (*(volatile u32 *)0x001e5120)
+#define PROBE_MAX       4800
+#define PROBE_TICKS_MS  24000
+#define PROBE_SPIN_MAX  100000000u     /* a backstop: some 10 s */
+
+static u8 probe_requested;
+static u32 probe_n, probe_lost, probe_ms, probe_spins;
+
+/* Timer 1 wraps every millisecond; the wraps are counted here. */
+static u32 probe_now(void)
+{
+    u32 c;
+
+    if (JL_TIMER1->CON & BIT(15)) {
+        JL_TIMER1->CON |= BIT(14);
+        probe_ms++;
+    }
+    c = JL_TIMER1->CNT;
+    if ((JL_TIMER1->CON & BIT(15)) && c < PROBE_TICKS_MS / 2) {
+        JL_TIMER1->CON |= BIT(14);
+        probe_ms++;
+    }
+    if (!(++probe_spins & 0xfff)) wdt_clear();    /* interrupts are off */
+    return probe_ms * PROBE_TICKS_MS + c;
+}
+#define T1              probe_now()
+
+static void probe_event(u32 a, u32 b)
+{
+    if (probe_n < PROBE_MAX) {
+        PROBE_AT[2 * probe_n] = a;
+        PROBE_AT[2 * probe_n + 1] = b;
+        probe_n++;
+    } else {
+        probe_lost++;
+    }
+}
+
+static u8 probe_capture;
+
+static void probe_phase(u32 io, u32 phase, u32 ms, u32 idle)
+{
+    u32 until;
+
+    USB_IO_CON0 = io;
+    probe_event(T1, 0xfffffff0 | phase);
+    until = T1 + ms * PROBE_TICKS_MS;
+    if (probe_capture) {
+        /* As the ROM: timer 3 captures D+ rising edges, counting osc / 4. */
+        while ((s32)(T1 - until) < 0 && probe_spins < PROBE_SPIN_MAX) {
+            if (JL_TIMER3->CON & BIT(15)) {
+                u32 v = JL_TIMER3->PRD;
+
+                JL_TIMER3->CON |= BIT(14);
+                probe_event(T1, 0x80000000 | (v & 0x7fffffff));
+            }
+        }
+        return;
+    }
+    while ((s32)(T1 - until) < 0 && probe_spins < PROBE_SPIN_MAX) {
+        u32 l = USB_IO_CON1 & 3, start, last, first;
+
+        if (l == idle) continue;
+        start = last = T1;
+        first = l;
+        for (;;) {
+            u32 now = T1;
+
+            if ((USB_IO_CON1 & 3) != idle) last = now;
+            else if (now - last > 24) break;
+            if ((s32)(now - until) > 0 || probe_spins >= PROBE_SPIN_MAX) break;
+        }
+        probe_event(start, (last - start) << 2 | first);
+    }
+}
+
+static u32 probe_extra;
+
+void plat_usb_probe_request(u32 extra)
+{
+    probe_extra = extra & 0x7100;    /* IO_PU_MODE, SR, DPDIEH, DMDIEH */
+    probe_capture = extra & 1;       /* the ROM's own measurement instead */
+    probe_requested = 1;
+}
+
+static void usb_probe(void)
+{
+    const u32 attached = BIT(IO_MODE) | BIT(DMDIE) | BIT(DPDIE) | BIT(DPPU) | BIT(DPIE) | BIT(DMIE) | probe_extra;
+    const u32 off = BIT(IO_MODE) | BIT(DMDIE) | BIT(DPDIE) | BIT(DPIE) | BIT(DMIE) | probe_extra;
+    u32 io = USB_IO_CON0, i, count[4] = { 0 }, idle, iomap1, iomap2;
+
+    plat_mdelay(50);             /* the command's status reaches the host */
+    plat_watch_stop();
+    local_irq_disable();
+    JL_TIMER1->CON = BIT(14);
+    JL_TIMER1->CNT = 0;
+    JL_TIMER1->PRD = PROBE_TICKS_MS;
+    JL_TIMER1->CON = BIT(0);
+    probe_n = probe_lost = probe_ms = probe_spins = 0;
+    PROBE_AT[-1] = 0;
+    iomap1 = IOMAP_CON1;
+    iomap2 = IOMAP_CON2;
+    if (probe_capture) {
+        IOMAP_CON2 = (IOMAP_CON2 & ~(0x3fu << 16)) | 0x3du << 16;   /* input channel 2: D+ */
+        IOMAP_CON1 |= BIT(31);
+        JL_TIMER3->CON = BIT(14);
+        JL_TIMER3->CNT = 0;
+        JL_TIMER3->PRD = 0;
+        JL_TIMER3->CON = 0x1a;
+    }
+    probe_phase(off, 0, 300, 0);
+    USB_IO_CON0 = attached;
+    for (i = 0; i < 2000; i++) count[USB_IO_CON1 & 3]++;
+    idle = count[1] >= count[2] ? 1 : 2;
+    probe_phase(attached, 1, 1000, idle);
+    probe_phase(off, 2, 200, idle);
+    probe_phase(attached, 3, 1000, idle);
+    probe_phase(off, 4, 300, idle);
+    probe_event(T1, 0xfffffff5);
+    PROBE_AT[-4] = probe_n;
+    PROBE_AT[-3] = idle;
+    PROBE_AT[-2] = probe_lost | probe_extra << 16;
+    PROBE_AT[-1] = 0x50524f42;
+    JL_TIMER1->CON = BIT(14);
+    if (probe_capture) {
+        JL_TIMER3->CON = BIT(14);
+        JL_TIMER3->CNT = 0;
+        JL_TIMER3->PRD = 24 * TICK_US;
+        JL_TIMER3->CON = BIT(0);
+    }
+    IOMAP_CON1 = iomap1;
+    IOMAP_CON2 = iomap2;
+    USB_IO_CON0 = io;
+    local_irq_enable();
+    plat_prof_start(0, 0, 0);
+}
+#endif
+
 void plat_usb_service(void)
 {
     const struct usb_device_t *dev = usb_pending;
@@ -637,6 +790,12 @@ void plat_usb_service(void)
     if (!dev) return;
     usb_pending = NULL;
     USB_MassStorage(dev);
+#ifdef USB_PROBE
+    if (probe_requested) {
+        probe_requested = 0;
+        usb_probe();
+    }
+#endif
 }
 
 static u32 sof_seen_ms;
@@ -714,23 +873,26 @@ void plat_enter_loader(void)
     }
 }
 
-/* Off the bus for a second first, so the host sees the loader as a new
- * device.  The lines stay let go (GPIO inputs, no pulls, as the ROM has
- * them at boot) until the ROM loader attaches by itself: putting the USB
- * function back before the reset let a hub see us half a second before
- * the loader could answer, and that enumeration failed. */
+/* Still attached through the reset, as the SDK enters it.  Before it
+ * answers, the ROM loader times the host's frames on the lines to learn its
+ * crystal (attached by a GPIO pull-up, not answering), then detaches and
+ * attaches as itself.  A port the host already has enabled and leaves alone
+ * gives it those frames at once; detached first, the loader is a new device
+ * the host resets and asks for descriptors throughout, and behind hub
+ * 05e3:0608 it never learned the crystal.  The pins go to the ROM's own
+ * attach state (USB_IO_CON0 0xe4c) before the USB function stops, so the
+ * D+ pull-up stays. */
 void plat_reboot_loader(void)
 {
     plat_watch_stop();
     plat_audio_off();
     board_to_loader();
     plat_mdelay(100);
+    while (!board_usb_sense()) plat_mdelay(100);
     local_irq_disable();
+    USB_IO_CON0 = BIT(IO_MODE) | BIT(DMDIE) | BIT(DPDIE) | BIT(DPPU) | BIT(DPIE) | BIT(DMIE);
     USB_CON0 = 0;
     USB_CON1 = 0;
-    USB_IO_CON0 = BIT(IO_MODE) | BIT(IO_PU_MODE) | BIT(DPIE) | BIT(DMIE);
-    plat_mdelay(1000);
-    while (!board_usb_sense()) plat_mdelay(100);
     plat_enter_loader();
 }
 
@@ -835,8 +997,11 @@ REGISTER_LP_TARGET(pad_lp_target) = {
     .is_idle = never_idle,
 };
 
+static u32 boot_usb_io;          /* USB_IO_CON0 as the boot found it */
+
 void board_init(void)
 {
+    boot_usb_io = USB_IO_CON0;
     board_latch();
     retained_read();             /* before power_init(), which might touch the RTC domain */
     power_init(&power_param);
@@ -872,7 +1037,7 @@ static void ctl_thread(void *arg)
          * yet: compare a power-on, a reboot and a watchdog). */
         extern u8 power_reset_src;
 
-        util_log("boot: reset source %02x", power_reset_src);
+        util_log("boot: reset source %02x, usb io %x", power_reset_src, boot_usb_io);
     }
     hci_jieli_init();
     ctl_main();

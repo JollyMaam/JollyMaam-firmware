@@ -1168,6 +1168,44 @@ static bool usb_port(const char *path, char port[64]) {
 #endif
 }
 
+/* The USB device behind a node: its port and its device number, which the
+ * host gives anew on every enumeration ("" without sysfs). */
+static void usb_device(const char *path, char id[96]) {
+  id[0] = 0;
+#ifndef _WIN32
+  char port[64], link[400];
+  if (!usb_port(path, port))
+    return;
+  const char *name = strrchr(path, '/');
+  snprintf(link, sizeof link, "/sys/class/scsi_generic/%s/device/../../../../devnum",
+           name ? name + 1 : path);
+  FILE *f = fopen(link, "r");
+  int num;
+  if (f && fscanf(f, "%d", &num) == 1)
+    snprintf(id, 96, "%s#%d", port, num);
+  if (f)
+    fclose(f);
+#else
+  (void)path;
+#endif
+}
+
+/* Devices asked to restart into their loader.  Until one leaves the bus it
+ * gets nothing more: its loader is still learning the crystal from the
+ * host's frames, attached but not answering, and a command to it makes the
+ * host reset the port over and over (behind hub 05e3:0608 the loader then
+ * never comes up). */
+static char asked[16][96];
+static size_t n_asked;
+static bool restarting(const char *path) {
+  char id[96];
+  usb_device(path, id);
+  for (size_t i = 0; id[0] && i < n_asked; i++)
+    if (!strcmp(asked[i], id))
+      return true;
+  return false;
+}
+
 #define LOADER_ADDRESS 0x12000 /* BR23 */
 #define LOADER_BLOCK 512
 #define LOADER_ARG 1 /* target: SPI NOR */
@@ -1325,7 +1363,7 @@ static size_t enter_loaders(const char *device, const char *want, char selected[
     const char *path = paths[i];
     char product[17];
     uint8_t cdb[6] = {0x12, 0, 0, 0, 36, 0}, q[36], r[16];
-    if (device && strcmp(device, path))
+    if ((device && strcmp(device, path)) || restarting(path))
       continue;
     device_fd fd = dev_open(path);
     if (fd < 0)
@@ -1348,6 +1386,8 @@ static size_t enter_loaders(const char *device, const char *want, char selected[
         c[0] = 0xfc, c[1] = 0x0a; /* online device: any loader command */
         printf("%s: asking it to restart into its ROM loader\n", path);
         sg(fd, c, 16, SG_DXFER_FROM_DEV, r, 16, 2000);
+        if (n_asked < 16)
+          usb_device(path, asked[n_asked++]);
       }
       if (selected)
         strcpy(selected[count], path);
@@ -1360,6 +1400,8 @@ static size_t enter_loaders(const char *device, const char *want, char selected[
 
 static bool open_dev(struct dev *d, const char *path) {
   char product[17];
+  if (restarting(path))
+    return false;
   d->fd = dev_open(path);
   d->path = path;
   if (d->fd < 0)
