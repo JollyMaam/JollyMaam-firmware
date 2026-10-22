@@ -1,17 +1,15 @@
 #include <system/includes.h>
 #include <asm/power_interface.h>
-#include <asm/power/p33.h>
-#include <asm/charge.h>
-#include <asm/efuse.h>
 #include <asm/adc_api.h>
 #include <asm/mcpwm.h>
 #include "app_config.h"
 #include "board.h"
 
 /* GameSir Nova 2 Lite (PID AC695X_TRANS): a BR23 pad with Hall sticks and
- * triggers on the ADC, a key matrix, two motors, no IMU, the chip's own
- * charger.  Pins from docs/gamesir-nova-lite-2/.  Not known yet: the LEDs,
- * a power latch; so no lights, and power-off restarts. */
+ * triggers on the ADC, a key matrix, two motors, no IMU.  Pins from
+ * docs/gamesir-nova-lite-2/.  Not known yet: the LEDs, USB presence, the
+ * charger, a power latch; so no lights, USB taken as present, and power-off
+ * restarts. */
 
 #define PIN_HOME        IO_PORTB_01
 #define PIN_M           IO_PORTB_02
@@ -125,8 +123,6 @@ static HOT void matrix_tick(void)
     }
 }
 
-static void charger_poll(void);
-
 /* ---- sticks and triggers: Hall sensors on the ADC ------------------------ */
 
 static const u32 adc_pin[6] = { IO_PORTA_01, IO_PORTB_08, IO_PORTC_04, IO_PORTC_05,
@@ -173,7 +169,6 @@ void plat_input(struct in_raw *raw)
     raw->trigger[0] = (u16)adc_get_value(adc_ch[4]);
     raw->trigger[1] = (u16)adc_get_value(adc_ch[5]);
     raw->trigger_stop[0] = raw->trigger_stop[1] = 0;
-    charger_poll();
 }
 
 /* ---- motors: PWM at 25 kHz ------------------------------------------------
@@ -236,97 +231,6 @@ void plat_motors(u8 left, u8 right)
     motor_set(1, right);
 }
 
-/* ---- charging: the chip's charger, polled -----------------------------------
- * Stock logs "[BOARD]charge...select LDO15" and the SDK's charger events, so
- * the battery hangs on the BR23's own charger (docs/jieli/power.md).  The
- * SDK's driver needs the SDK's event loop; this follows its steps instead,
- * about once a second from the control thread: LDOIN above the battery
- * starts it (20 mA below 3.0 V, CHARGE_MA above), the full flag with the
- * battery near 4.2 V stops it until the battery drops to RECHARGE_MV.
- * The current is a guess: stock's setting is not established (600 mAh). */
-
-#define CHARGE_MA       CHARGE_mA_200
-#define CHARGE_POLL_MS  1000
-#define PRECHARGE_MV    3000
-#define FULL_MV         4100
-#define RECHARGE_MV     4000
-#define FULL_POLLS      5
-
-static struct { u8 on, full, full_polls, fast; u32 next; } chg;
-
-static void charger_init(void)
-{
-    u8 v = (u8)get_vbat_trim();         /* the 4.2 V step after trim; 0xf: untrimmed */
-
-    LDO5V_EN(1);
-    LVCMP_EN(1);
-    LVCMP_CMP_SEL(1);                    /* LDOIN against VBAT */
-    CHARGE_FULL_V_SEL(v == 0xf ? CHARGE_FULL_V_4202 : v);
-    CHARGE_FULL_mA_SEL(CHARGE_FULL_mA_20);
-    CHARGE_mA_SEL(CHARGE_mA_20);
-}
-
-static int charger_full_flag(void)
-{
-    u8 src;
-
-    local_irq_disable();
-    CHARGE_LEVEL_DETECT_EN(1);
-    src = p33_rx_1byte(P3_WKUP_SRC);
-    CHARGE_LEVEL_DETECT_EN(0);
-    if (src & BIT(6)) CHARGE_WKUP_PND_CLR();
-    local_irq_enable();
-    return !!(src & BIT(6));
-}
-
-static void charger_switch(int on, u32 mv, const char *why)
-{
-    chg.on = (u8)on;
-    chg.full_polls = 0;
-    CHGBG_EN(on);
-    CHARGE_EN(on);
-    util_log("charge: %s, battery %u mV", why, mv);
-}
-
-static void charger_poll(void)
-{
-    u32 mv;
-    int power;
-
-    if ((s32)(plat_now_ms - chg.next) < 0) return;
-    chg.next = plat_now_ms + CHARGE_POLL_MS;
-    mv = plat_battery_mv();
-    power = LVCMP_DET_GET();
-    if (!power) {
-        chg.full = 0;
-        if (chg.on) charger_switch(0, mv, "no power");
-        return;
-    }
-    if (chg.full) {
-        if (mv >= RECHARGE_MV) return;
-        chg.full = 0;
-    }
-    if (!chg.on) {
-        chg.fast = mv >= PRECHARGE_MV;
-        CHARGE_mA_SEL(chg.fast ? CHARGE_MA : CHARGE_mA_20);
-        charger_switch(1, mv, chg.fast ? "on" : "on, precharge");
-        return;
-    }
-    if (!chg.fast && mv >= PRECHARGE_MV) {
-        chg.fast = 1;
-        CHARGE_mA_SEL(CHARGE_MA);
-        util_log("charge: full current, battery %u mV", mv);
-    }
-    if (charger_full_flag() && mv >= FULL_MV) {
-        if (++chg.full_polls >= FULL_POLLS) {
-            chg.full = 1;
-            charger_switch(0, mv, "full");
-        }
-    } else {
-        chg.full_polls = 0;
-    }
-}
-
 /* ---- boot: what was held, the way back from a bad build -------------------
  * Home + Menu with USB at the very start goes to the ROM loader before any
  * of this firmware can hang.  Without it, two boots in a row that do not run
@@ -380,14 +284,12 @@ void board_start(void)
 {
     analog_init();
     motors_init();
-    charger_init();
     column_drive(matrix_col);
 }
 
 HOT void board_tick(void)
 {
     matrix_tick();
-    if ((s32)(plat_now_ms - chg.next) >= 0) plat_raise(EV_BUTTONS);   /* charger_poll() */
     if (guard.fails && plat_now_ms >= BOOT_HEALTHY_MS) {
         guard.fails = 0;
         plat_flush_dcache(&guard, sizeof(guard));
