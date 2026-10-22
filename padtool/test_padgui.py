@@ -1259,7 +1259,7 @@ class StockGuiTests(GuiCase):
         r.update(product_id="", stock=entry, identity=b"stock::dongle")
         self.load([r])
         self.assertIn(entry.name, self.app.tree.item(self.app.tree.get_children()[0], "text"))
-        self.assertIn("no way into a loader is known", self.app.stock_help.get())
+        self.assertIn("pairing button", self.app.stock_help.get())
         self.assertEqual(str(self.app.stock_enter_button.cget("state")), "disabled")
 
     def test_our_firmware_and_loader_are_named_by_product(self):

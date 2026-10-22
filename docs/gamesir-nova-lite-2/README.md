@@ -51,7 +51,29 @@ mass-storage interface (`08/06/50`, full speed), as in
 [../jieli/power.md](../jieli/power.md). GameSir Connect for Windows sends
 this, then writes a `.ufw` through that loader.
 
+## Dongle
+
+A Jieli AC632N (BD19). Stock image PID `AC632N_TRANS`, VID field `N2DG`,
+chip key `0x3496` (the pad's), flash ID `0xcd7113`: 512 KiB, of which the
+image declares 256 KiB (`0x3f000`, key_mac at `0x3f000`).
+
+Running, it is `3537:2106`, manufacturer "Zikway", product "HID zk",
+`bcdDevice` `0x0100`, 400 mA: one HID interface, usage page `0xff7a`, 64-byte
+input and output reports, no report IDs. Frames of GameSir's configuration
+protocol (`a5`, length, `c0`, command, data, checksum: the low byte of the
+sum) are answered `a5 05 ff c0 69` with no pad linked.
+
+### Loader entry
+
+Held while USB is connected and for about 15 s after, the pairing button
+restarts the dongle into the MaskROM loader: `4c4a:3442`, strings
+`BR34UBOOT1.00`, INQUIRY vendor `BD19`, product `UBOOT1.00`, one
+mass-storage interface (`08/06/50`). The SDK's `cpu/bd19/tools/bd19loader.bin`,
+written to RAM at `0x2000` with the loader commands of
+[../jieli/power.md](../jieli/power.md) and run with argument 1, reads the
+flash.
+
 ## Not established
 
 Pins of every input, sticks and triggers, motors, LEDs, USB presence, the
-charger; whether a button combination enters the loader; the dongle.
+charger; whether a button combination enters the pad's loader.
