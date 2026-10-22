@@ -1,29 +1,14 @@
-# Cyclone 2 hardware reference
+# Documentation
 
-Hardware facts for the GameSir Cyclone 2 pad and the GameSir dongle: the SoC,
-memory, flash, pins, peripherals, the Bluetooth radio, the stock pad and dongle
-protocol, and how software runs on the chip.
-
-| Page | Covers |
+| Folder | Covers |
 |---|---|
-| [soc.md](soc.md) | chip, CPU core, clocks, power domains, boot chain, peripheral register blocks |
-| [sdk-toolchain.md](sdk-toolchain.md) | SDK, compiler, linker, libraries, image build, toolchain pitfalls |
-| [memory-map.md](memory-map.md) | CPU address space, internal RAM, retained SRAM |
-| [flash-map.md](flash-map.md) | SPI NOR layout and reserved regions |
-| [board.md](board.md) | GPIO assignments for the pad and the dongle |
-| [peripherals.md](peripherals.md) | stick UART, IMU and I2C, EEPROM, LEDs, rumble motors |
-| [audio.md](audio.md) | DAC, microphone ADC, jack detect, amplifier enable, USB audio descriptors |
-| [power.md](power.md) | charger registers, sleep and wake inputs, reset sources, USB pin control and loader entry |
-| [radio.md](radio.md) | Bluetooth controller capabilities, TX power, baseband frame registers |
-| [stock-pad-dongle.md](stock-pad-dongle.md) | how a stock pad connects to a host, and the stock dongle's HID and keepalive traffic |
+| [jieli/](jieli/README.md) | the Jieli BR23 SoC and SDK: chip, memory, flash and VM format, image format, radio, reset and loader. True of any BR23 board |
+| [gamesir-cyclone2/](gamesir-cyclone2/README.md) | the GameSir Cyclone 2 pad and the GameSir dongle: pins, peripherals, audio wiring, flash map, the stock firmware and its protocol |
+| [firmware/](firmware/README.md) | this firmware: build, image tool, what it keeps in RAM and flash, power policy, console wake |
 
-Reverse-engineering notes on the stock images and the chip's radio:
-
-| Page | Covers |
-|---|---|
-| [re-stock-firmware.md](re-stock-firmware.md) | recovered stock behaviour: audio routines, jack detect, power, USB descriptors, method |
-| [re-application-image.md](re-application-image.md) | the application image: container format, JLFS, scrambling, configuration records, stock placement, the image tool |
-| [re-radio-wake.md](re-radio-wake.md) | the Switch 1 wake transmission's construction; raw transmit constraints |
+A fact about the chip or SDK goes in `jieli/`; a fact about one board goes in
+that board's folder; a choice this firmware makes goes in `firmware/`. Board
+and firmware pages link to `jieli/`; `jieli/` does not depend on a board.
 
 ## Conventions
 

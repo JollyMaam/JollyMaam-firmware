@@ -2,7 +2,7 @@
 #include <asm/dac.h>
 #include "board.h"
 
-/* The DAC and the headphone amplifier (docs/audio.md), fed with the host's
+/* The DAC and the headphone amplifier (docs/gamesir-cyclone2/audio.md), fed with the host's
  * 48 kHz stereo PCM from the USB audio endpoint.
  *
  * The DAC runs, playing silence, while a USB personality with audio is up:

@@ -1,8 +1,8 @@
 # Raw radio transmission: console wake
 
-Reverse-engineered construction of the Switch 1 wake transmission, and the
-constraints of the controller's raw transmit path. The controller's
-capabilities are in [radio.md](radio.md).
+Reverse-engineered construction of the Switch 1 wake transmission as this
+firmware sends it. The BR23 raw transmit path and its constraints are in
+[../jieli/radio.md](../jieli/radio.md).
 
 ## Raw console wake transmission
 

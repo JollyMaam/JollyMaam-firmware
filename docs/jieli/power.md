@@ -1,4 +1,4 @@
-# Power, charging, reset and loader entry
+# Power, reset and loader entry
 
 ## Internal charger
 
@@ -10,45 +10,8 @@ The BR23 PMU has an internal charger. Its control register is `P3_CHG_CON0`
 | 0 | `CHARGE_EN` | charger enable |
 | 1 | `CHGBG_EN` | charger background enable |
 
-This firmware clears both bits and does not initialize the SDK charge driver.
-Under this firmware the internal charger is therefore off.
-
-Not established: the external charger IC, its wiring, the charge termination
-method, and the battery capacity.
-
 The SDK's VBAT reading (`AD_CH_VBAT`) is scaled by 4 in the driver. A calibrated
 state-of-charge reading is not established.
-
-## Sleep and wake inputs
-
-| Pin | Function | Configuration |
-|---|---|---|
-| PB11 (Home) | wake | filtered falling-edge, pull-up |
-| PC3 | wake | filtered rising-edge; kept as an input during soft power-off |
-
-Whether USB insertion drives PC3 and wakes the pad is not established.
-
-The low-power configuration is in [soc.md](soc.md). Sleep current has not been
-measured.
-
-### USB presence signals
-
-PC3 reads low while USB is attached during normal app operation. The OTG
-state is `IDLE_MODE` and the PMU 5 V detector reads low in the same condition.
-None of these signals distinguishes an attached cable from none. Software can
-detect an active host from USB start-of-frame (SOF) activity instead.
-
-A power-only USB source cannot currently be told apart from a disconnected
-cable.
-
-### Sleep policy
-
-The timeouts are the app's, not hardware's:
-
-- No host frames for 250 ms means no host.
-- While idle, or after a Bluetooth disconnect, the pad sleeps after 15 seconds
-  without host frames. It confirms the absence over four checks before power-off.
-- After USB goes away, it sleeps after 5 seconds.
 
 ## Reset
 
@@ -75,23 +38,18 @@ The register does not identify the cause alone. A reset from the loader, a
 deliberate `p33_soft_reset()` and an unexpected fault all read `P33 = 0x40`.
 A pin reset read `P33 = 0x01`.
 
-### Reset pin
-
-PB1 is the configured reset input, active low. `CONFIG_RESET_TIME` is 8. This
-is the configuration value. The resulting duration is not established.
-
 ### Retained memory
 
-SRAM at `0x20000` and `0x20010` survives software resets and loader resets while
-power is on. See [memory-map.md](memory-map.md). Ordinary `.bss` is cleared at
+Retained SRAM (`NOLOAD` sections) survives software resets and loader resets
+while power is on. See [memory-map.md](memory-map.md). Ordinary `.bss` is cleared at
 every application boot.
 
 Soft power-off (`power_set_soft_poweroff()`) clears retained SRAM. Across a
-soft power-off and Home wake:
+soft power-off and wake:
 
 | Storage | Result |
 |---|---|
-| Retained SRAM (`.retained`) | not kept |
+| Retained SRAM | not kept |
 | P33 `0x20`, `0x21`, `0x2f` (reserved range) | read `0x00` |
 | `R3_RTC_DAT0`, `R3_RTC_DAT4` | written values kept |
 
@@ -103,14 +61,8 @@ was written. Whether they survive a loss of battery supply is not established.
 Pins not on the keep list are parked as inputs with digital input disabled
 during soft power-off. At the next boot, until `power_init()`, those lines
 read low (pressed) even with their pull-ups enabled; a 1 ms wait does not
-change this. After `power_init()` they read correctly. Lines on the keep list,
-Home among them, read correctly before `power_init()`.
-
-### Boot counter and restarts
-
-The app keeps a boot counter in retained SRAM. A restart is established when
-the counter increases and uptime restarts together. USB re-enumeration or loss
-of console output alone does not prove a restart.
+change this. After `power_init()` they read correctly. Lines on the keep list
+read correctly before `power_init()`.
 
 ## USB pin control and loader entry
 
@@ -184,5 +136,6 @@ transaction translator repeats all full-speed traffic to every enabled
 full-speed port. Behind such a hub, other full-speed devices polled every
 1 ms put extra edges in every frame, and the measurement never completes;
 enumeration traffic can also complete it on a period other than the frame.
-The stock firmware's Home+Start loader entry behaves the same way, because the
+A loader entry from button combinations in a firmware (the stock Cyclone 2's
+Home+Start) behaves the same way, because the
 measurement is in the MaskROM.

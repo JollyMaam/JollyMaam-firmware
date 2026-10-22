@@ -14,7 +14,7 @@
 #define PERIOD_US   4460         /* 224.2 Hz, the rate set below */
 #define HISTORY     8
 
-/* Recovered from the stock firmware (docs/peripherals.md), with both rates
+/* Recovered from the stock firmware (docs/gamesir-cyclone2/peripherals.md), with both rates
  * at 224.2 Hz instead of 448.4: CTRL2 0x15, CTRL3 0x75. */
 static const u8 setup[][2] = {
     { 0x02, 0x60 }, { 0x03, 0x15 }, { 0x04, 0x75 }, { 0x06, 0x55 },

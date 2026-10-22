@@ -3,8 +3,10 @@
 GameSir Cyclone 2 firmware: the Jieli BR23 SDK runtime, an owned C Bluetooth
 controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`).
 
-- Hardware and SoC reference: [docs/](docs/README.md). Reverse-engineering
-  notes are `docs/re-*.md`.
+- Reference: [docs/](docs/README.md). `docs/jieli/` is the BR23 chip and SDK,
+  `docs/gamesir-cyclone2/` the pad and dongle boards and stock firmware,
+  `docs/firmware/` this firmware's own software. Reverse-engineering notes are
+  `re-*.md`.
 - Module contracts: the section comments in `src/pad.h`.
 
 ## Working rules
@@ -13,7 +15,7 @@ controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`)
   ours. Say plainly when a physical action is needed.
 - Commit at a logical checkpoint.
 - Say "the app" or "the SDK" when distinguishing code ownership.
-- `docs/` holds proven hardware facts only: no test results, dates or plans.
+- `docs/` holds proven facts only: no test results, dates or plans.
   Mark anything unproven as "not established".
 - Source may refer to `docs/`. `docs/` does not refer to source.
 - Keep the `src/pad.h` section comments in step with interface changes.
@@ -107,7 +109,8 @@ tools/withdev.sh build/host/sdlpad 5`.
 Recovering a pad that does not enumerate: hold Home and Start while plugging in
 USB (ROM loader, `UBOOT1.00`), then `make pad-flash`. For the dongle, hold its
 button while plugging it in, then `make dongle-flash`. Image layout and the
-`jlnewfw` tool are in [docs/re-application-image.md](docs/re-application-image.md).
+`jlnewfw` tool are in [docs/jieli/re-application-image.md](docs/jieli/re-application-image.md)
+and [docs/firmware/image-tool.md](docs/firmware/image-tool.md).
 
 Tunable by hand: Home gestures, timeouts and LED scenes in `src/settings_ux.c`;
 setting defaults and palette in `src/settings.c`. At run time: `padtool set`.

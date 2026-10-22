@@ -521,7 +521,7 @@ void hci_jieli_prepare(u16 slots, u16 attempt, int edr3)
     set_bt_data_rate_acl_3mbs_mode(edr3 ? 1 : 0);
 }
 
-/* Transmit power for the next session (docs/radio.md): the controller uses
+/* Transmit power for the next session (docs/jieli/radio.md): the controller uses
  * the smallest of the step, its normal-mode cap 4 and any fixed level, from
  * the normal table or, after bt_production_test(1), the pro one.  That call
  * also sets the radio supply VDC13 (P3_ANA_CON6 bits 0-2): step 7 going in,

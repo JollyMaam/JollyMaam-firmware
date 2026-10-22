@@ -323,7 +323,7 @@ static const struct bt_device ble_device = {
     .interval_min = 6, .interval_max = 9,
 };
 
-/* The stock pad's wired Xbox 360 identity (docs/audio.md), not Microsoft's:
+/* The stock pad's wired Xbox 360 identity (docs/gamesir-cyclone2/audio.md), not Microsoft's:
  * with 045e:028e Linux never asks for the audio interfaces. */
 static const struct usb_identity x360_usb = {
     .vendor_id = 0x3537, .product_id = 0x1053, .bcd_device = 0x0352,

@@ -5,15 +5,14 @@
 - Jieli BR23-family Bluetooth SoC. The packed image names the chip `AC635N`
   (`CONFIG_CHIP_NAME`). The package marking is not recorded.
 - Bluetooth BR/EDR (Classic) and BLE, with the controller library in the SDK.
-  This firmware runs its own controller policy on the SDK's radio ([radio.md](radio.md)).
-- USB 2.0 full-speed device controller (USB0). The app exposes a mass-storage
-  interface for vendor SCSI commands and a CDC serial interface.
+  The radio is described in [radio.md](radio.md).
+- USB 2.0 full-speed device controller (USB0).
 - 192 KiB internal RAM (`0x00000`–`0x30000`).
-- Serial NOR flash through the serial flash controller (SFC). 1 MiB on the pad,
-  512 KiB on the dongle ([flash-map.md](flash-map.md)).
-- The SDK declares a 2 MiB PSRAM window at `0x00800000`. Whether a PSRAM chip
-  is populated on the pad is not established.
-- 24 MHz oscillator (board configuration).
+- Serial NOR flash through the serial flash controller (SFC); the size is the
+  board's ([flash.md](flash.md)).
+- The SDK declares a 2 MiB PSRAM window at `0x00800000`. A PSRAM chip is a
+  board option.
+- Oscillator frequency is board configuration (24 MHz on the boards seen).
 
 ## CPU
 
@@ -25,19 +24,19 @@
   per-millisecond paths.
 - MMU enabled (`CONFIG_MMU_ENABLE`). The application's code window is mapped
   from flash ([memory-map.md](memory-map.md)).
-- The application has a data cache. The LED driver flushes it before handing a
-  buffer to DMA.
+- The application has a data cache. A buffer must be flushed from it before
+  DMA reads the buffer.
 
 ## Clocks
 
 - System clock: from the PLL with the Bluetooth oscillator as input
   (`SYS_CLOCK_INPUT_PLL_BT_OSC`). Clock mode is adaptive
-  (`CLOCK_MODE_ADAPTIVE`). The board configuration starts it at 24 MHz; the
-  application raises it to 48 MHz at start-up, and `clk_get("sys")` reads
-  48 MHz while running.
+  (`CLOCK_MODE_ADAPTIVE`). With a 24 MHz board configuration it starts at
+  24 MHz; an application can raise it (48 MHz is used, and `clk_get("sys")`
+  then reads 48 MHz).
 - Peripheral clock: the "lsb" clock, 24 MHz in this configuration. Peripheral
-  dividers are computed from it (the I2C baud formula in
-  [peripherals.md](peripherals.md) uses it).
+  dividers are computed from it. The SDK's I2C rate is
+  `lsb / (2 × (BAUD + 1))`.
 - Runtime clock values can differ from the configured ones. The SDK sets the
   clock at boot.
 
@@ -58,8 +57,8 @@
 2. **Second-stage loader** `uboot.boot`, stored in the flash BANKCB area
    ([re-application-image.md](re-application-image.md)). Linked to run at SRAM
    `0x4000`.
-3. **Application**, stored in the JLFS application area (flash `0x3000`; the
-   code image at `0x3120`). Entered at code-window address `0x01e00120`. The
+3. **Application**, stored in the JLFS application area (flash `0x3000` and
+   the code image at `0x3120` with a 4 KiB boot area). Entered at code-window address `0x01e00120`. The
    `.text` section runs from flash through the MMU. `.data` is copied into RAM
    by startup code.
 
@@ -84,9 +83,9 @@ in the SDK's register definitions (`map_adr(group, index)`).
 | SD0 | `0x1e1400` | SD controller |
 | USB | `0x1e1800` | USB0 controller (`USB_CON0` at `0x1e1800`) |
 | ANA | `0x1e1900` | analog block |
-| SPI0 / SPI1 / SPI2 | `0x1e1c00` / `0x1d00` / `0x1e00` | SPI1 drives the LED chain |
-| UART0 / UART1 / UART2 | `0x1e2000` / `0x2100` / `0x2200` | UART2 receives the stick |
-| IIC | `0x1e2400` | I2C, route group C (PB4/PB6) |
+| SPI0 / SPI1 / SPI2 | `0x1e1c00` / `0x1d00` / `0x1e00` | |
+| UART0 / UART1 / UART2 | `0x1e2000` / `0x2100` / `0x2200` | |
+| IIC | `0x1e2400` | I2C; pins by route group (`JL_IOMAP->CON1[19:18]`) |
 | PAP | `0x1e2800` | |
 | SS | `0x1e2b00` | |
 | RDEC0 | `0x1e2c00` | rotary decoder |
@@ -94,7 +93,7 @@ in the SDK's register definitions (`map_adr(group, index)`).
 | ALNK0 | `0x1e2e00` | |
 | AUDIO | `0x1e2f00` | DAC and ADC ([audio.md](audio.md)) |
 | MCPWM | `0x1e3000` | motor PWM |
-| ADC | `0x1e3100` | SAR ADC: triggers, VBAT, jack detect |
+| ADC | `0x1e3100` | SAR ADC, VBAT channel |
 | IR | `0x1e3200` | |
 | CRC | `0x1e3500` | |
 | LRCT | `0x1e3600` | |
@@ -102,7 +101,7 @@ in the SDK's register definitions (`map_adr(group, index)`).
 | RAND | `0x1e3b00` | |
 | CTM | `0x1e3c00` | capacitive touch |
 | P33 | `0x1e3e00` | power and reset ([power.md](power.md)) |
-| DMA | `0x1e3f00` | UART2 receive ring |
+| DMA | `0x1e3f00` | |
 | PERIENC | `0x1e4100` | |
 | SBC | `0x1e4200` | SBC codec hardware |
 | AES | `0x1e4300` | |

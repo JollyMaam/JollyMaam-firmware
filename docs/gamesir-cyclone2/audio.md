@@ -1,8 +1,7 @@
 # Audio hardware
 
-The BR23 has an on-chip stereo DAC and an on-chip microphone ADC. The SDK build
-enables the on-chip audio path (`CONFIG_AUDIO_ONCHIP`) and the SBC and mSBC
-codec hardware (`CONFIG_SBC_CODEC_HW`, `CONFIG_MSBC_CODEC_HW`).
+The pad uses the BR23's on-chip DAC and microphone ADC
+([../jieli/audio.md](../jieli/audio.md)).
 
 The pins and settings below are what the stock pad firmware (3.52) drives.
 They are from the stock firmware's code, not from schematics or from
@@ -29,8 +28,8 @@ time base is not established.
 
 The microphone uses the on-chip ADC. The stock configuration bytes for the
 microphone path are `00 02 00 10 02 00 00 00`. Byte 4 selects microphone LDO
-voltage code 2 and leaves the internal bias off. The SDK's `adc_platform_data`
-layout is the reference for these fields. The external bias network is not
+voltage code 2 and leaves the internal bias off. The field layout is in
+[../jieli/audio.md](../jieli/audio.md). The external bias network is not
 established.
 
 PC7 is L1 on the pad ([board.md](board.md)). The SDK's optional internal

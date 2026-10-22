@@ -20,24 +20,17 @@ The MMU TLB occupies `0x2c000..0x2d200`. The second heap runs from `0x2d200` to
 `0x2ff80`.
 
 The code window is a CPU address, not a flash offset. The application image
-`app.bin` starts at flash offset `0x3120` ([flash-map.md](flash-map.md)).
+`app.bin` starts at flash offset `0x3120` ([flash-map.md](flash.md)).
 
 `.data`, `.bss`, overlays, `NVRAM_DATA` and the main heap move with the build.
-The linker map from the build lists current values. The main heap is capped below
-`0x20000`.
+The linker map from the build lists current values.
 
 ## Retained SRAM
 
-These sections are `NOLOAD`: startup code does not clear them.
-
-| Address | Size | Use |
-|---|---|---|
-| `0x20000` | 16 bytes | reset mailbox (`.reset_mailbox`); no current producer |
-| `0x20010` | `0x2100` bytes maximum | bring-up log and boot counter (`.retained`) |
-
-Retained SRAM survives software resets and loader-mediated reflashing while
-power stays on. Loss of supply and soft power-off clear it. Ordinary `.bss` is reinitialized at
-every application boot, even when the SRAM bits were retained.
+Sections linked `NOLOAD` are not cleared by startup code. Retained SRAM
+survives software resets and loader-mediated reflashing while power stays on.
+Loss of supply and soft power-off clear it. Ordinary `.bss` is reinitialized
+at every application boot, even when the SRAM bits were retained.
 
 ## Low SRAM used by MaskROM
 
@@ -46,8 +39,7 @@ every application boot, even when the SRAM bits were retained.
 | `0x10800..0x10810` | 16 bytes | MaskROM boot-state token, written with `nvram_set_boot_state()` and a cache flush |
 
 These are SRAM addresses, not flash offsets. The Bluetooth controller's RAM must
-not cover this token; the linker asserts that. Application bonds are stored in
-flash, not here.
+not cover this token.
 
 The bootloader's use of low SRAM and MaskROM's high workspace were found by
 reverse engineering. Their bounds are: second-stage loader linked at `0x4000`

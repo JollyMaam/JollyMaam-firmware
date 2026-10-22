@@ -2,6 +2,8 @@
 
 ## Pad (Cyclone 2)
 
+The pad's SoC is the Jieli BR23 ([../jieli/soc.md](../jieli/soc.md)).
+
 Digital buttons and D-pad inputs are active low with internal pull-ups.
 
 ### Buttons and D-pad
@@ -63,6 +65,10 @@ Digital buttons and D-pad inputs are active low with internal pull-ups.
   [audio.md](audio.md).
 - Home (PB11) is a wake input. PB1 is the reset input. See [power.md](power.md).
 
+### Not established
+
+- Whether a PSRAM chip is populated.
+
 ### Face button labels
 
 The face buttons use the Xbox layout: A south, B east, X west, Y north. The
@@ -75,4 +81,4 @@ pins were identified by pressing each printed label.
 | button | PA0 | active low, pull-up |
 | LED | PD3 or PA13 | depends on board revision; not driven by the current firmware |
 
-Flash is 512 KiB ([flash-map.md](flash-map.md)).
+Flash is 512 KiB ([flash-map.md](flash-map.md)). The dongle is also a BR23.

@@ -4,7 +4,7 @@
  * This intentionally has no dependencies beyond libc.  The pack command is
  * aimed at the BR23 SDK layout emitted by isd_download: uboot.boot, the
  * encoded SYS_CFG_PARAM stream, app files, and PRCT/VM/BTIF/key_mac reserved
- * regions.  See docs/re-application-image.md for the on-flash layout.
+ * regions.  See docs/jieli/re-application-image.md for the on-flash layout.
  */
 #define _XOPEN_SOURCE 700
 #include <ctype.h>

@@ -359,7 +359,7 @@ static void inputs_init(void)
 }
 
 /* PA12 reads near the top of the ADC with a plug in and 0 without
- * (docs/audio.md); stock takes the upper side as inserted too. */
+ * (docs/gamesir-cyclone2/audio.md); stock takes the upper side as inserted too. */
 int board_jack(void)
 {
     return adc_get_value(ADC_JACK) > 512;

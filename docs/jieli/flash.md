@@ -1,30 +1,19 @@
-# Flash map
+# Flash layout and VM
 
-Offsets are flash offsets on the SPI NOR device, not CPU addresses.
+Offsets are flash offsets on the SPI NOR device, not CPU addresses. A board's
+actual offsets are in its own pages.
 
-## Devices
+## Regions
 
-| Board | Flash | Declared flash length | Code limit |
-|---|---|---|---|
-| Pad | 1 MiB (`0x100000`) SPI NOR | `0xff000` + 4 KiB key_mac sector | `0xfa000` |
-| Dongle | 512 KiB (`0x80000`) SPI NOR | per its image | `0x7a000` |
+From the start of flash:
 
-The chip's manufacturer and part number are not established.
-
-## Pad regions
-
-| Offset / range | Use |
+| Region | Use |
 |---|---|
-| `0x000000..0x003000` | boot image: flash header, loader and configuration ([re-application-image.md](re-application-image.md)) |
-| `0x003000..0x0fa000` | application image, then unused space in the code region |
-| `0x0fa000..0x0fe000` | VM (settings store), 16 KiB |
-| `0x0fe000..0x0ff000` | BTIF: MAC address and RF trim |
-| `0x0ff000..0x100000` | key_mac sector |
-
-The code limit is the start of VM, and VM ends at BTIF. The `Makefile`
-derives it from the flash size and `VM_KB`. Changing either moves VM, so the
-settings are read from a different place. The dongle has the same layout,
-with VM at `0x7a000..0x7e000`.
+| boot image | flash header, loader and configuration ([re-application-image.md](re-application-image.md)) |
+| application | application image, then unused space up to the code limit |
+| VM | settings store, from the code limit (format below) |
+| BTIF | MAC address and RF trim |
+| key_mac | last 4 KiB sector of the declared flash length |
 
 The image declares `0..CODE_LIMIT` as its protected region (PRCT). At boot
 the SDK (`read_flash_id`) sets the flash chip's block-protect bits to the
@@ -33,11 +22,12 @@ information. The SDK's software write check (`sdfile_check_write_protect`)
 allows every address.
 
 The BTIF and key_mac region are placed relative to the declared flash length,
-not to the physical size. Declaring the pad as 512 KiB moves them to `0x7e000`
-and `0x7f000`, where the factory identity and the controller do not look for
-them. A smaller application does not reduce the flash device size.
+not to the physical size. Declaring a 1 MiB part as 512 KiB moves them to
+`0x7e000` and `0x7f000`, where the factory identity and the controller do not
+look for them. A smaller application does not reduce the flash device size.
 
-## Storage regions
+Moving the code limit or the VM length moves VM, so the settings are then read
+from a different place.
 
 | Region | Contents | Normal image write |
 |---|---|---|
@@ -46,15 +36,7 @@ them. A smaller application does not reduce the flash device size.
 | key_mac | key_mac sector (contents not described here) | not overwritten |
 
 Whether a region survives depends on the write and erase range the flashing
-tool actually uses. A full-device backup must cover `0x100000` on the pad, not
-512 KiB.
-
-## Image placement
-
-The image format, its JLFS entries, the scrambling and the stock placement of
-the pad and dongle images are in [re-application-image.md](re-application-image.md).
-The pad's stock image boots when written raw at offset 0. The dongle's stock
-image does not.
+tool actually uses. A full-device backup must cover the physical flash size.
 
 ## VM format
 
@@ -134,11 +116,10 @@ write fails.
   each ID. The write position is the end of the last good item.
 - If the used part is over 80% of the area, a move runs.
 
-### Items in this firmware
+### SDK items
 
 | ID | Length | Owner |
 |---|---|---|
-| 1-28 | up to 224 | settings records (`src/settings.c`) |
 | 92 | 8 | DAC trim (`CFG_DAC_TRIM_INFO`) |
 | 93 | 29 | Bluetooth RF trim (`CFG_BT_TRIM_INFO`) |
 | 110 | 6 | Bluetooth oscillator offset (`CFG_BT_FRE_OFFSET`) |

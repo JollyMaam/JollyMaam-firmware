@@ -3,8 +3,8 @@
 Routine addresses, evidence and method from disassembly of the stock images. The
 facts these support are in the other pages: audio in [audio.md](audio.md), power
 in [power.md](power.md), the image format in
-[re-application-image.md](re-application-image.md). The images are listed there
-too.
+[../jieli/re-application-image.md](../jieli/re-application-image.md), the
+stock images and their placement in [flash-map.md](flash-map.md).
 
 ## Method
 

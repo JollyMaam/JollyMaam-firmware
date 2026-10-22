@@ -108,7 +108,7 @@ does not use it.
 ### Stock contents
 
 The stock pad keeps its controller settings and calibration here. Its
-Bluetooth address and bonds are in flash VM ([flash-map.md](flash-map.md#vm-format)).
+Bluetooth address and bonds are in flash VM ([flash-map.md](../jieli/flash.md#vm-format)).
 The layout below comes from the stock firmware's EEPROM addresses and
 lengths, and from a dump of one pad:
 
