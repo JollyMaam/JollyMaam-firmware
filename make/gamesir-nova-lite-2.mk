@@ -18,14 +18,32 @@ $(NOVA2LITE_PAD)_PID := AC695X_TRANS
 $(NOVA2LITE_PAD)_DEFINES :=
 $(NOVA2LITE_PAD)_LOADER_HINT := Stock firmware: Xbox 360 mode (green).
 $(NOVA2LITE_PAD)_BOARD_DIR := src/boards/gamesir-cyclone-2
-$(NOVA2LITE_PAD)_SOURCES := src/boards/gamesir-nova-lite-2/board_pad.c \
-	src/boards/gamesir-cyclone-2/bt_pad.c src/platform/jieli/btstack_hci_jieli.c src/platform/jieli/btstack_qos_jieli.c \
-	src/core/controller.c src/core/input.c src/core/input_calibration.c src/core/input_imu.c src/core/leds.c \
-	src/platform/jieli/platform_jieli_audio.c src/platform/jieli/platform_jieli.c \
-	src/platform/jieli/platform_jieli_sdk.c src/platform/jieli/platform_jieli_usb.c \
-	src/profiles/profile_hid.c src/profiles/profile_link.c src/profiles/profile_playstation.c \
-	src/profiles/profile_switch.c src/profiles/profile_switch_wake.c src/profiles/profile_xbox.c \
-	src/core/remap.c src/core/settings.c src/core/settings_ux.c src/core/usb.c src/core/utils.c
+
+$(NOVA2LITE_PAD)_SOURCES :=
+$(NOVA2LITE_PAD)_SOURCES += src/boards/gamesir-nova-lite-2/board_pad.c
+$(NOVA2LITE_PAD)_SOURCES += src/boards/gamesir-cyclone-2/bt_pad.c
+$(NOVA2LITE_PAD)_SOURCES += src/platform/jieli/btstack_hci_jieli.c
+$(NOVA2LITE_PAD)_SOURCES += src/platform/jieli/btstack_qos_jieli.c
+$(NOVA2LITE_PAD)_SOURCES += src/core/controller.c
+$(NOVA2LITE_PAD)_SOURCES += src/core/input.c
+$(NOVA2LITE_PAD)_SOURCES += src/core/input_calibration.c
+$(NOVA2LITE_PAD)_SOURCES += src/core/input_imu.c
+$(NOVA2LITE_PAD)_SOURCES += src/core/leds.c
+$(NOVA2LITE_PAD)_SOURCES += src/platform/jieli/platform_jieli_audio.c
+$(NOVA2LITE_PAD)_SOURCES += src/platform/jieli/platform_jieli.c
+$(NOVA2LITE_PAD)_SOURCES += src/platform/jieli/platform_jieli_sdk.c
+$(NOVA2LITE_PAD)_SOURCES += src/platform/jieli/platform_jieli_usb.c
+$(NOVA2LITE_PAD)_SOURCES += src/profiles/profile_hid.c
+$(NOVA2LITE_PAD)_SOURCES += src/profiles/profile_link.c
+$(NOVA2LITE_PAD)_SOURCES += src/profiles/profile_playstation.c
+$(NOVA2LITE_PAD)_SOURCES += src/profiles/profile_switch.c
+$(NOVA2LITE_PAD)_SOURCES += src/profiles/profile_switch_wake.c
+$(NOVA2LITE_PAD)_SOURCES += src/profiles/profile_xbox.c
+$(NOVA2LITE_PAD)_SOURCES += src/core/remap.c
+$(NOVA2LITE_PAD)_SOURCES += src/core/settings.c
+$(NOVA2LITE_PAD)_SOURCES += src/core/settings_ux.c
+$(NOVA2LITE_PAD)_SOURCES += src/core/usb.c
+$(NOVA2LITE_PAD)_SOURCES += src/core/utils.c
 
 $(eval $(call jieli_board,$(NOVA2LITE_PAD)))$(eval $(call host_tests,$(NOVA2LITE_PAD)))
 

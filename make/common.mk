@@ -3,13 +3,26 @@
 comma := ,
 O := build
 HOST_CC := gcc
-HOST_CFLAGS := -O2 -g -std=c11 -Wall -Wextra -Wno-unused-function -Wno-missing-field-initializers
+
+HOST_CFLAGS :=
+HOST_CFLAGS += -O2
+HOST_CFLAGS += -g
+HOST_CFLAGS += -std=c11
+HOST_CFLAGS += -Wall
+HOST_CFLAGS += -Wextra
+HOST_CFLAGS += -Wno-unused-function
+HOST_CFLAGS += -Wno-missing-field-initializers
+
 # Added to every board's -D flags, e.g. a test build:
 # make gamesir-cyclone-2-pad EXTRA_DEFINES=-DUSB_SESSION_TEST_MS=12000
 EXTRA_DEFINES :=
+
 # Where the app's own headers are ("..." includes), for firmware and tests.
-SRC_INCLUDES := -iquote src/core -iquote src/profiles \
-	-iquote src/platform/jieli
+SRC_INCLUDES :=
+SRC_INCLUDES += -iquote src/core
+SRC_INCLUDES += -iquote src/profiles
+SRC_INCLUDES += -iquote src/platform/jieli
+
 # What changes the build: every object depends on these.
 MAKE_FILES := Makefile $(wildcard make/*.mk)
 
