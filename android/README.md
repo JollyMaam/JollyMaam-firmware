@@ -172,7 +172,9 @@ details, including build/protocol/flash UID and any truncated message. Long
 press a setting's value or default label for its help; there are no separate
 help buttons. Pages retain their scroll position through edits and recreation.
 Mouse-wheel scrolling takes precedence over an earlier button's focus reveal,
-so later layouts do not pull the list back to that button.
+so later layouts do not pull the list back to that button. Vertical wheel input
+scrolls directly and cancels earlier scrolling animations; touch dragging and
+flinging keep their native behaviour.
 
 Drafts survive navigation,
 activity recreation and app restarts, and are keyed to the firmware build and
@@ -250,7 +252,8 @@ for recovery.
 - backup/preset compatibility and native activity launch/recreation on Android
   9 and 15, plus staging a mapping and retaining its draft.
 - device-list startup, toolbar/navigation, long-press help, single-line status,
-  scroll retention through edits/recreation and wheel versus deferred focus.
+  scroll retention through edits/recreation, wheel versus deferred focus and
+  active flings, wheel direction changes/limits, and subsequent touch flinging.
 
 Regenerate interoperability fixtures after changing Python formats:
 
