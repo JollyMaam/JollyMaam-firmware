@@ -70,8 +70,9 @@ dongle into the MaskROM loader: `4c4a:3442`, strings
 `BR34UBOOT1.00`, INQUIRY vendor `BD19`, product `UBOOT1.00`, one
 mass-storage interface (`08/06/50`). The SDK's `cpu/bd19/tools/bd19loader.bin`,
 written to RAM at `0x2000` with the loader commands of
-[../jieli/power.md](../jieli/power.md) and run with argument 1, reads the
-flash.
+[../jieli/power.md](../jieli/power.md) and run with argument 1, reads,
+erases and writes the flash with the BR23 loader's commands; the run command
+afterwards starts the written firmware.
 
 ## Not established
 
