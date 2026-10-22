@@ -11,17 +11,27 @@ CYCLONE2_PAD := gamesir-cyclone-2-pad
 $(CYCLONE2_PAD)_FLASH_SIZE := 0x100000
 $(CYCLONE2_PAD)_PID := GS_C2_ADC_DEVICE
 $(CYCLONE2_PAD)_DEFINES :=
-$(CYCLONE2_PAD)_SOURCES := src/board_pad.c $(filter-out src/board_%.c src/dongle%.c,$(wildcard src/*.c))
+$(CYCLONE2_PAD)_SOURCES := src/boards/gamesir-cyclone-2/board_pad.c \
+	src/bt/btstack/bt.c src/platform/jieli/btstack_hci_jieli.c src/platform/jieli/btstack_qos_jieli.c \
+	src/core/controller.c src/core/input.c src/core/input_calibration.c src/core/input_imu.c src/core/leds.c \
+	src/platform/jieli/platform_jieli_audio.c src/platform/jieli/platform_jieli.c \
+	src/platform/jieli/platform_jieli_sdk.c src/platform/jieli/platform_jieli_usb.c \
+	src/profiles/profile_hid.c src/profiles/profile_link.c src/profiles/profile_playstation.c \
+	src/profiles/profile_switch.c src/profiles/profile_switch_wake.c src/profiles/profile_xbox.c \
+	src/core/remap.c src/core/settings.c src/core/settings_ux.c src/core/usb.c src/core/utils.c
 
 CYCLONE2_DONGLE := gamesir-cyclone-2-dongle
 $(CYCLONE2_DONGLE)_FLASH_SIZE := 0x80000
 $(CYCLONE2_DONGLE)_PID := GS_C2_Dongle
 $(CYCLONE2_DONGLE)_DEFINES := -DBOARD_DONGLE
-$(CYCLONE2_DONGLE)_SOURCES := src/board_dongle.c \
-	src/platform_jieli.c src/platform_jieli_sdk.c src/platform_jieli_usb.c src/platform_jieli_audio.c \
-	src/dongle.c src/dongle_bt.c src/dongle_protocol.c src/btstack_hci_jieli.c src/btstack_qos_jieli.c \
-	src/usb.c src/utils.c src/input_imu.c \
-	src/profile_link.c src/profile_switch.c src/profile_xbox.c src/profile_playstation.c src/profile_hid.c
+$(CYCLONE2_DONGLE)_SOURCES := src/boards/gamesir-cyclone-2/board_dongle.c \
+	src/platform/jieli/platform_jieli.c src/platform/jieli/platform_jieli_sdk.c \
+	src/platform/jieli/platform_jieli_usb.c src/platform/jieli/platform_jieli_audio.c \
+	src/dongle/dongle.c src/dongle/dongle_bt.c src/dongle/dongle_protocol.c \
+	src/platform/jieli/btstack_hci_jieli.c src/platform/jieli/btstack_qos_jieli.c \
+	src/core/usb.c src/core/utils.c src/core/input_imu.c \
+	src/profiles/profile_link.c src/profiles/profile_switch.c src/profiles/profile_xbox.c \
+	src/profiles/profile_playstation.c src/profiles/profile_hid.c
 
 $(foreach b,$(CYCLONE2_PAD) $(CYCLONE2_DONGLE),$(eval $(call jieli_board,$(b)))$(eval $(call host_tests,$(b))))
 

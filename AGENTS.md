@@ -7,7 +7,13 @@ controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`)
   `docs/gamesir-cyclone2/` the pad and dongle boards and stock firmware,
   `docs/firmware/` this firmware's own software. Reverse-engineering notes are
   `re-*.md`.
-- Module contracts: the section comments in `src/pad.h`.
+- Module contracts: the section comments in `src/core/pad.h`.
+- Sources: `src/core/` (the controller loop, input, settings, Home gestures,
+  LEDs, remap, the tools' protocol; no SDK or BTstack), `src/profiles/`,
+  `src/bt/btstack/` (`bt.c` on BTstack), `src/dongle/` (the dongle's loop),
+  `src/platform/jieli/` (the BR23: platform, `board.h`, HCI glue, `sdkconfig/`,
+  our controller in `btctrler/`), `src/boards/<product>/` (pins and board
+  hooks, for one platform).
 
 ## Working rules
 
@@ -18,7 +24,7 @@ controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`)
 - `docs/` holds proven facts only: no test results, dates or plans.
   Mark anything unproven as "not established".
 - Source may refer to `docs/`. `docs/` does not refer to source.
-- Keep the `src/pad.h` section comments in step with interface changes.
+- Keep the `src/core/pad.h` section comments in step with interface changes.
 - No root here. Use the devices in `/dev/bwrap`; do not try to leave the container.
 
 ## Design
@@ -100,7 +106,7 @@ uses 15-point curves plus enable flags; presets and migration are shared in
 `padtool/padcurves.py`. Protocol 6 adds the staged slot Unpair action (WRITE
 id 0xfe, length 0): firmware clears the bond and renews the address at COMMIT.
 GUI Unpair and `padtool unpair SLOT` share this action. Protocol 7 adds LED
-demos (`padtool led-demo`, the table in `src/settings_ux.c`). Address renewal hashes
+demos (`padtool led-demo`, the table in `src/core/settings_ux.c`). Address renewal hashes
 the full previous address and tick, with no fixed prefix or generation counter.
 Type changes renew identities (except through the dongle). Setup and host
 tests: `padtool/README.md`.
@@ -116,9 +122,9 @@ button while plugging it in, then `make gamesir-cyclone-2-dongle-flash`. Image l
 `jlnewfw` tool are in [docs/jieli/re-application-image.md](docs/jieli/re-application-image.md)
 and [docs/firmware/image-tool.md](docs/firmware/image-tool.md).
 
-Tunable by hand: Home gestures, timeouts and LED scenes in `src/settings_ux.c`;
-setting defaults and palette in `src/settings.c`. At run time: `padtool set`.
+Tunable by hand: Home gestures, timeouts and LED scenes in `src/core/settings_ux.c`;
+setting defaults and palette in `src/core/settings.c`. At run time: `padtool set`.
 
-The controller in `src/btctrler/` links directly; no controller archive is
+The controller in `src/platform/jieli/btctrler/` links directly; no controller archive is
 built. Recovery tooling is archived on the `btctrler-decompiled` branch. The
 SDK is unmodified.

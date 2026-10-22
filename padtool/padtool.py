@@ -90,7 +90,7 @@ outer deadzones and left_/right_curve (as a slot had).  Keys: a b x y up down le
 l4 r4 l3 r3 minus plus home m capture (or screenshot).
 
 The pad is a mass-storage device with no medium; commands are vendor SCSI
-CDBs (see the comment at the top of src/usb.c).  Flashing is tools/jlnewfw.c's (make flash).
+CDBs (see the comment at the top of src/core/usb.c).  Flashing is tools/jlnewfw.c's (make gamesir-cyclone-2-pad-flash).
 """
 import argparse, collections, glob, json, os, struct, sys, threading, time
 from padtransport import scsi, device_paths
@@ -662,7 +662,7 @@ STICK_FULL = 32767         # CAL_STICK_MAX: a stick's full deflection, and the d
 
 
 def describe_calibration(raw):
-    """struct set_cal (src/pad.h) in words: sensor readings and the measured
+    """struct set_cal (src/core/pad.h) in words: sensor readings and the measured
     outer edge of each stick, each trigger's travel.  Lines of text."""
     raw = bytes(raw)
     if len(raw) < 112:
@@ -1259,7 +1259,7 @@ def keep(path):
 
 
 def tool(paths):
-    """Feature report 0xf5 "tool": a USB personality (src/pad.h) ends and the
+    """Feature report 0xf5 "tool": a USB personality (src/core/pad.h) ends and the
     tool device comes back.  Only our firmware knows it; others refuse it."""
     if sys.platform != "linux":
         raise OSError("Tool-mode switching via HID is currently Linux-only; end the USB session on the pad first")

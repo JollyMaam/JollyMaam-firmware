@@ -1,4 +1,4 @@
-"""Remap text <-> the firmware's bytes (struct remap_rule in src/pad.h)."""
+"""Remap text <-> the firmware's bytes (struct remap_rule in src/core/pad.h)."""
 import re
 import unittest
 from pathlib import Path

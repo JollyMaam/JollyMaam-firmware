@@ -10,7 +10,7 @@ Rules: ';'-separated, each "INPUT TRIGGER[:MS] EFFECT [OUT+OUT...][@HZ|@max]",
 e.g. "r4 held hold l1+r1; a held turbo a@max; r4 tapped:300 tap a".  A turbo
 modifier's keys are the keys pressed: "r4 held turbo_modifier a+b@10" pulses
 whatever A and B send while R4 is held.
-"none" when there are none.  The layout matches struct remap_rule (src/pad.h).
+"none" when there are none.  The layout matches struct remap_rule (src/core/pad.h).
 """
 
 # PAD_* bit numbers; bit 15 is no key.

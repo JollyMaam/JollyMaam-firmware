@@ -19,7 +19,7 @@ Bonds are stored in flash VM, not in retained SRAM.
 
 | ID | Length | Owner |
 |---|---|---|
-| 1-28 | up to 224 | settings records (`src/settings.c`) |
+| 1-28 | up to 224 | settings records (`src/core/settings.c`) |
 
 The SDK's own items (DAC trim, RF trim, oscillator offset) are listed in
 [../jieli/flash.md](../jieli/flash.md#sdk-items).

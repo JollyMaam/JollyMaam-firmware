@@ -1,9 +1,9 @@
 # Remapping — design notes
 
-Remapping works on pad buttons, after the Home gestures (`src/settings_ux.c`),
+Remapping works on pad buttons, after the Home gestures (`src/core/settings_ux.c`),
 so every shortcut still uses the physical keys and the same remap works for
-every slot type. The engine is `src/remap.c`; the data is `struct set_remap`
-in `src/pad.h`; the tools' text form is `padtool/padremap.py`.
+every slot type. The engine is `src/core/remap.c`; the data is `struct set_remap`
+in `src/core/pad.h`; the tools' text form is `padtool/padremap.py`.
 
 ## Choosing a remap
 
@@ -41,7 +41,7 @@ defaults sends every key as itself and the sticks as calibrated.
   sticks exactly as calibrated: no curve, no deadzone.
   Calibration holds only the sensor measurements.
 
-Remap A defaults to "Swap A/B X/Y" (`remap_a_default` in `src/settings.c`).
+Remap A defaults to "Swap A/B X/Y" (`remap_a_default` in `src/core/settings.c`).
 
 A key nothing mentions sends itself. A key with a map entry or rules sends
 only what they make, all of it together; there is no precedence. The map is

@@ -183,18 +183,18 @@ JIELI_SDK_USED := \
 # $(call jieli_board,NAME): build NAME on the BR23, into $(O)/NAME/.  Set first:
 #   NAME_FLASH_SIZE  the flash device's size
 #   NAME_PID         the image's PID: the flasher writes only over the same PID
-#   NAME_SOURCES     the app's sources; src/btctrler/ and BTstack come with it
+#   NAME_SOURCES     the app's sources; our controller (btctrler/) and BTstack come with it
 #   NAME_DEFINES     -D flags for this board (EXTRA_DEFINES adds to them)
 # Targets: NAME (firmware.img), NAME-flash (through the ROM loader; DEVICE=
 # picks one of several).  Inside the template, $(1) is NAME, $(...) is
 # expanded once when it is called, and $$(...) when the rule runs.
 define jieli_board
 $(1)_CODE_LIMIT := $(call jieli_code_limit,$($(1)_FLASH_SIZE))
-$(1)_OBJECTS := $(patsubst %.c,$(O)/$(1)/%.o,$($(1)_SOURCES) $(wildcard src/btctrler/*.c)) \
+$(1)_OBJECTS := $(patsubst %.c,$(O)/$(1)/%.o,$($(1)_SOURCES) $(wildcard src/platform/jieli/btctrler/*.c)) \
 	$(JIELI_SDK_USED:%.c=$(O)/$(1)/sdk/%.o) $(BTSTACK_USED:%.c=$(O)/$(1)/btstack/%.o)
 $(1)_FLAGS := $(JIELI_CFLAGS) $(JIELI_DEFINES) -DCONFIG_FLASH_SIZE=$($(1)_FLASH_SIZE) \
 	$($(1)_DEFINES) $(EXTRA_DEFINES) -DBUILD_ID=\"$(BUILD_ID)\"
-$(1)_INCLUDES := -iquote src -iquote src/sdkconfig $(BTSTACK_INCLUDES) $(JIELI_INCLUDES)
+$(1)_INCLUDES := $(SRC_INCLUDES) -iquote src/platform/jieli/sdkconfig $(BTSTACK_INCLUDES) $(JIELI_INCLUDES)
 
 .PHONY: $(1) $(1)-flash
 $(1): $(O)/$(1)/firmware.img
@@ -216,10 +216,10 @@ $(O)/$(1)/btstack/%.o: $(BTSTACK)/%.c $(O)/$(1)/defines
 
 # Our controller must not call undeclared functions, -w or not; our files
 # that use BTstack see its renamed symbols.
-$(O)/$(1)/src/btctrler/%.o: OBJECT_FLAGS := -Werror=implicit-function-declaration
+$(O)/$(1)/src/platform/jieli/btctrler/%.o: OBJECT_FLAGS := -Werror=implicit-function-declaration
 $(addprefix $(O)/$(1)/,$(BTSTACK_USERS:.c=.o)): OBJECT_FLAGS := $(BTSTACK_RENAMES)
 # The build ID: rebuilt when git moves.
-$(O)/$(1)/src/usb.o: $(wildcard $(BUILD_METADATA))
+$(O)/$(1)/src/core/usb.o: $(wildcard $(BUILD_METADATA))
 
 $(O)/$(1)/app.elf: $(O)/$(1)/sdk.ld $$($(1)_OBJECTS) $(JIELI_ARCHIVES)
 	@echo [LD $(1)] $$@
@@ -246,7 +246,7 @@ $(1)-flash: $(O)/$(1)/app.bin $(O)/$(1)/isd_config.ini $(O)/host/jlnewfw
 
 # The SDK's linker script, with the heap ending below the retained RAM and the
 # controller's RAM kept clear of the MaskROM boot token.
-$(O)/$(1)/sdk_ld.c: $(JIELI_SDK)/cpu/br23/sdk_ld.c $(MAKE_FILES) $(wildcard src/sdkconfig/*.h)
+$(O)/$(1)/sdk_ld.c: $(JIELI_SDK)/cpu/br23/sdk_ld.c $(MAKE_FILES) $(wildcard src/platform/jieli/sdkconfig/*.h)
 	@mkdir -p $$(@D)
 	$$(Q)sed \
 	  -e 's/^_HEAP_END = RAM_END;/_HEAP_END = RESET_MAILBOX_BEGIN;/' \
@@ -258,12 +258,12 @@ $(O)/$(1)/sdk_ld.c: $(JIELI_SDK)/cpu/br23/sdk_ld.c $(MAKE_FILES) $(wildcard src/
 $(O)/$(1)/sdk.ld: $(O)/$(1)/sdk_ld.c
 	$$(Q)$(JIELI_CC) $$($(1)_FLAGS) $$($(1)_INCLUDES) -D__LD__ -E -P $$< -o $$@
 
-$(O)/$(1)/isd_config.ini: $(JIELI_SDK)/cpu/br23/tools/isd_config_rule.c $(wildcard src/sdkconfig/*.h) $(MAKE_FILES)
+$(O)/$(1)/isd_config.ini: $(JIELI_SDK)/cpu/br23/tools/isd_config_rule.c $(wildcard src/platform/jieli/sdkconfig/*.h) $(MAKE_FILES)
 	@mkdir -p $$(@D)
 	$$(Q)$(JIELI_CC) $$($(1)_FLAGS) $$($(1)_INCLUDES) -D__LD__ -DCONFIG_VM_LEAST_SIZE=$(JIELI_VM_KB)K -E -P $$< -o $$@
 	$$(Q)sed -i -e /^$$$$/d -e 's/^PID = .*;/PID = $($(1)_PID);/' $$@
 
-$$($(1)_OBJECTS) $(O)/$(1)/sdk.ld: $(MAKE_FILES) $(wildcard src/sdkconfig/*)
+$$($(1)_OBJECTS) $(O)/$(1)/sdk.ld: $(MAKE_FILES) $(wildcard src/platform/jieli/sdkconfig/*)
 $(call board_defines,$(1))
 -include $$($(1)_OBJECTS:.o=.d)
 endef
