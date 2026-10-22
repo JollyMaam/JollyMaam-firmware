@@ -12,13 +12,14 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import padtool as pad
 import padflash
+import padhid
+from padknown import PRODUCTS, command_mode, product_name, stock_name
 from padtransport import usb_location
-from paddevices import DeviceMonitor, read_device
+from paddevices import DeviceMonitor, read_device, stock_records
 from padconsole import LiveConsole
 from padwidgets import PaletteEditor, CurveEditor, RemapEditor, Tooltip
 
-PIDS = padflash.PIDS
-
+OURS = ("pad", "dongle")                 # boards running this firmware
 
 class CalibrationView(ttk.Label):
     """The calibration blob in words; read-only, refreshed with the editors."""
@@ -40,7 +41,7 @@ class App:
     def __init__(self, root, auto_scan=True, auto_identify=True):
         self.root = root
         self.auto_identify = auto_identify
-        root.title("Cyclone 2 · padtool")
+        root.title("padtool")
         root.geometry("1250x850")
         self.events = queue.Queue()
         self.monitor = DeviceMonitor(self.events)
@@ -69,6 +70,10 @@ class App:
         self.loader_title = tk.StringVar()
         self.dongle_title = tk.StringVar()
         self.dongle_status = tk.StringVar()
+        self.dongle_product = tk.StringVar()
+        self.stock_title = tk.StringVar()
+        self.stock_details = tk.StringVar()
+        self.stock_help = tk.StringVar()
         self.device = tk.StringVar()
         self.target = tk.StringVar(value=pad.TARGETS[0])
         self.expanded_details = set()
@@ -131,11 +136,13 @@ class App:
         self.settings = ttk.Frame(content, padding=10)
         self.loader_page = ttk.Frame(content, padding=10)
         self.dongle_page = ttk.Frame(content, padding=10)
-        for page in (self.overview, self.settings, self.loader_page, self.dongle_page):
+        self.stock_page = ttk.Frame(content, padding=10)
+        for page in (self.overview, self.settings, self.loader_page, self.dongle_page, self.stock_page):
             page.grid(row=0, column=0, sticky="nsew")
         self.build_settings()
         self.build_loader_page()
         self.build_dongle_page()
+        self.build_stock_page()
         self.render_overview()
         self.show_page(self.overview)
         self.render_tree()
@@ -160,7 +167,7 @@ class App:
 
     def show_console(self):
         record = self.record()
-        if not record or record["board"] not in PIDS:
+        if not record or record["board"] not in OURS:
             return
         identity = record["identity"]
         if identity in self.consoles:
@@ -173,7 +180,7 @@ class App:
 
     def console_path(self, identity):
         matches = [r["path"] for r in self.cache.values()
-                   if r.get("online", True) and r["identity"] == identity and r["board"] in PIDS]
+                   if r.get("online", True) and r["identity"] == identity and r["board"] in OURS]
         return matches[0] if len(matches) == 1 else None
 
     def console_output(self, parent):
@@ -236,8 +243,13 @@ class App:
                     record = self.cache.get(path)
                     if record and record["board"] == "loader":
                         record["product_id"] = pid
+                        for node, (node_path, target) in self.nodes.items():
+                            if node_path == path and target is None and self.tree.exists(node):
+                                self.tree.item(node, text=self.tree.item(node, "text").replace(
+                                    "ROM loader (UBOOT1.00)", self.device_label(record)))
                         if self.device.get() == path:
                             self.product_id.set(pid or "Unavailable")
+                            self.loader_title.set(f"{self.device_label(record)} · {path}")
                     continue
                 if kind == "flash_progress":
                     stage, done, total = data
@@ -674,6 +686,10 @@ class App:
                     records.append(read_device(path, name, identity))
                 except (Exception, SystemExit) as error:
                     errors.append(f"{path}: {error}")
+            try:
+                records += stock_records()
+            except (Exception, SystemExit) as error:
+                errors.append(f"HID devices: {error}")
             return records, errors
         def display(result):
             records, errors = result
@@ -798,7 +814,7 @@ class App:
             device_node = f"device{i}"
             port = record.get("location") or usb_location(path)
             location = f"USB {port} · " if port else ""
-            label = "ROM loader (UBOOT1.00)" if record["board"] == "loader" else record["board"].title()
+            label = self.device_label(record)
             if not record.get("online", True):
                 label += " (disconnected)"
             self.tree.insert("", "end", iid=device_node, text=f"{location}{label} · {record.get('original_path', path)}", open=True)
@@ -824,6 +840,18 @@ class App:
         self.mark_dirty()
 
     @staticmethod
+    def device_label(record):
+        """What a device is: the product, and whose firmware or the loader."""
+        pid = record.get("product_id")
+        if record["board"] == "loader":
+            return f"ROM loader · {product_name(pid)}" if pid else "ROM loader (UBOOT1.00)"
+        if record["board"] == "stock":
+            entry = record["stock"]
+            return f"{stock_name(entry)} · stock, {entry.mode}" if entry.pid else stock_name(entry)
+        default = "GameSir Cyclone 2 dongle" if record["board"] == "dongle" else record["board"].title()
+        return f"{product_name(pid) if pid else default} · this firmware"
+
+    @staticmethod
     def target_label(record, t):
         if t < 8:
             return f"Slot {pad.SLOT_NAMES[t]}"
@@ -845,13 +873,13 @@ class App:
         path, target = self.nodes[self.tree.selection()[0]]
         record = self.cache[path]
         self.device.set(path)
-        self.board.set(record["board"] if record["board"] in PIDS else "")
+        self.board.set(record["board"] if record["board"] in OURS else "")
         if isinstance(target, int):
             self.target.set(pad.TARGETS[target])
         self.render_overview()
         self.render_details()
         self.update_loader_actions()
-        main = self.loader_page if record["board"] == "loader" else self.dongle_page if record["board"] == "dongle" else self.overview
+        main = {"loader": self.loader_page, "dongle": self.dongle_page, "stock": self.stock_page}.get(record["board"], self.overview)
         self.show_page(main if target is None else self.settings)
         if record["board"] == "loader" and self.auto_identify and not record.get("id_checked"):
             record["id_checked"] = True
@@ -1002,16 +1030,20 @@ class App:
                       "Connect a pad, dongle or ROM loader, then press Refresh, or use Open device path.", wraplength=800).pack(anchor="w", pady=12)
             return
         if record["board"] == "loader":
-            self.loader_title.set(f"ROM loader (UBOOT1.00) · {record['path']}")
+            self.loader_title.set(f"{self.device_label(record)} · {record['path']}")
             self.product_id.set(record.get("product_id") or ("Unavailable" if record.get("id_checked") else "Not read"))
             return
         if record["board"] == "dongle":
-            self.dongle_title.set(f"Dongle · {record['path']}")
+            self.dongle_title.set(f"{self.device_label(record)} · {record['path']}")
+            self.dongle_product.set(f"Product ID: {record.get('product_id') or 'unknown'}")
             self.dongle_status.set(record["status"])
+            return
+        if record["board"] == "stock":
+            self.render_stock(record)
             return
         header = ttk.Frame(f)
         header.pack(fill="x", pady=(0, 4))
-        ttk.Label(header, text=f"{record['board'].title()} · {record.get('original_path', record['path'])}",
+        ttk.Label(header, text=f"{self.device_label(record)} · {record.get('original_path', record['path'])}",
                   font=("TkDefaultFont", 13, "bold")).pack(side="left")
         ttk.Label(header, text=record["status"] if record.get("online", True) else "Disconnected · pending edits retained").pack(side="left", padx=(16, 0))
         actions = ttk.Frame(f)
@@ -1414,7 +1446,7 @@ class App:
     def build_dongle_page(self):
         f = self.scroll_form(self.dongle_page)
         ttk.Label(f, textvariable=self.dongle_title, font=("TkDefaultFont", 13, "bold")).pack(anchor="w", pady=(0, 4))
-        ttk.Label(f, text=f"Product ID: {PIDS['dongle']}").pack(anchor="w")
+        ttk.Label(f, textvariable=self.dongle_product).pack(anchor="w")
         ttk.Label(f, textvariable=self.dongle_status, wraplength=850).pack(anchor="w", pady=8)
         actions = ttk.Frame(f)
         actions.pack(fill="x", pady=8)
@@ -1429,6 +1461,38 @@ class App:
         ttk.Label(target, text="Target address").pack(side="left", padx=(0, 8))
         ttk.Entry(target, textvariable=self.address, width=24).pack(side="left", padx=(0, 8))
         ttk.Button(target, text="Set target", command=self.set_dongle_target).pack(side="left")
+
+    def build_stock_page(self):
+        f = self.scroll_form(self.stock_page)
+        ttk.Label(f, textvariable=self.stock_title, font=("TkDefaultFont", 13, "bold")).pack(anchor="w", pady=(0, 4))
+        ttk.Label(f, textvariable=self.stock_details, wraplength=850, justify="left").pack(anchor="w")
+        actions = ttk.Frame(f)
+        actions.pack(fill="x", pady=8)
+        self.stock_enter_button = ttk.Button(actions, text="Enter flash loader", command=self.enter_flash_loader)
+        self.stock_enter_button.pack(side="left")
+        ttk.Label(f, textvariable=self.stock_help, wraplength=850, justify="left").pack(anchor="w", pady=8)
+
+    def render_stock(self, record):
+        """A stock pad or dongle: what it is, and how it gets to its loader."""
+        entry = record["stock"]
+        self.stock_title.set(f"{self.device_label(record)} · {record['path']}")
+        details = [f"USB mode: {entry.mode}" if entry.pid else "",
+                   f"Product ID: {entry.pid}" if entry.pid else "",
+                   f"USB {record['location']}" if record.get("location") else "",
+                   f"Reports itself as: {record['name']}" if record.get("name") else ""]
+        self.stock_details.set("\n".join(d for d in details if d))
+        ready = bool(entry.usage_page) and record.get("online", True)
+        self.stock_enter_button.configure(state="normal" if ready else "disabled")
+        if entry.note:
+            text = entry.note
+        elif entry.usage_page:
+            text = "Enter flash loader restarts it into its ROM loader (UBOOT1.00), where it can be backed up or flashed. Reconnect USB to leave the loader."
+        else:
+            text = f"This USB mode has no command for its loader: switch it to {command_mode(entry.pid)} mode, and it will reappear here."
+        by_hand = PRODUCTS[entry.pid].by_hand if entry.pid in PRODUCTS else ""
+        if by_hand and entry.pid:
+            text += f"\n\nBy hand: {by_hand}"
+        self.stock_help.set(text)
 
     def open_loader(self, record, blob):
         loader = padflash.inspect_loader(record["path"], blob, report=self.flash_report,
@@ -1469,9 +1533,8 @@ class App:
     def select_firmware_image(self, file):
         try:
             pid, _ = padflash.image_identity(padflash.load_image(file))
-            board = next((name for name, value in PIDS.items() if value == pid), None)
-            if board is None:
-                raise ValueError("This firmware image is not for a supported pad or dongle.")
+            if pid not in PRODUCTS:
+                raise ValueError(f"This firmware image ({pid}) is not for a known pad or dongle.")
             record = self.record()
             if record and record.get("product_id") and record["product_id"] != pid:
                 raise ValueError(f"Image product ID {pid} does not match this device ({record['product_id']}).")
@@ -1479,14 +1542,15 @@ class App:
             messagebox.showerror("Firmware", str(error))
             return False
         self.image.set(file)
-        self.board.set(board)
+        self.board.set(PRODUCTS[pid].kind)
         return True
 
     def require_loader(self):
         record = self.record()
         if record and record["board"] == "loader":
             return True
-        messagebox.showinfo("Enter flash loader first", "Select a UBOOT1.00 device. Use Enter flash loader on running firmware, or connect the pad holding Home + Plus; it will appear automatically.")
+        hints = "\n".join(f"{p.name}: {p.by_hand}" for p in PRODUCTS.values() if p.by_hand)
+        messagebox.showinfo("Enter flash loader first", "Select a UBOOT1.00 device. Use Enter flash loader on a pad or dongle in the tree; it will appear automatically.\n\n" + hints)
         return False
 
     def start_flash_progress(self, stage):
@@ -1504,22 +1568,30 @@ class App:
 
     def enter_flash_loader(self):
         record = self.record()
-        if self.busy or not record or not record.get("online", True) or record["board"] not in PIDS:
+        if self.busy or not record or not record.get("online", True) or record["board"] not in OURS + ("stock",):
             return
         if any(self.changed(entry) for entry in record.get("draft", {}).values()):
             messagebox.showinfo("Pending edits", "Apply or discard this device’s pending edits before entering flash loader.")
             return
-        path, identity = record["path"], record["identity"]
+        stock = record.get("stock")
+        if stock is not None and not stock.usage_page:
+            return
+        path, identity, pid = record["path"], record["identity"], record.get("product_id")
         location = record.get("location") or usb_location(path)
         old_loaders = {r["path"] for r in self.cache.values() if r["board"] == "loader"}
+        product = PRODUCTS.get(pid)
+        by_hand = f" By hand: {product.by_hand}" if product and product.by_hand else ""
         def enter():
-            if pad.cmd(path, 0, length=64)[:56] != identity:
-                raise ValueError("Device changed; wait for device detection before entering flash loader")
             self.flash_progress("Entering flash loader")
-            try:
-                pad.cmd(path, 0x11)
-            except OSError:
-                pass  # The reboot can disconnect before acknowledging.
+            if stock is not None:
+                padhid.write(path, stock.report.ljust(stock.length, b"\0"))
+            else:
+                if pad.cmd(path, 0, length=64)[:56] != identity:
+                    raise ValueError("Device changed; wait for device detection before entering flash loader")
+                try:
+                    pad.cmd(path, 0x11)
+                except OSError:
+                    pass  # The reboot can disconnect before acknowledging.
             self.flash_progress("Waiting for UBOOT1.00")
             deadline = time.monotonic() + 30
             while True:
@@ -1530,7 +1602,7 @@ class App:
                 if len(matches) > 1:
                     raise ValueError("Multiple ROM loaders appeared. Select the intended device from the tree.")
                 if time.monotonic() >= deadline:
-                    raise OSError("UBOOT1.00 did not appear. Reconnect USB holding Home + Plus, then wait for device detection.")
+                    raise OSError("UBOOT1.00 did not appear; wait for device detection." + by_hand)
                 time.sleep(0.25)
         self.start_flash_progress("Entering flash loader")
         self.run("Entering flash loader…", enter, lambda path: self.scan(automatic=True, select_path=path))
@@ -1575,8 +1647,7 @@ class App:
             image = Path(self.image.get())
             data = padflash.load_image(image)
             pid, key = padflash.image_identity(data)
-            board = next((b for b, value in PIDS.items() if value == pid), None)
-            if board is None or (record.get("product_id") and record["product_id"] != pid):
+            if pid not in PRODUCTS or (record.get("product_id") and record["product_id"] != pid):
                 raise ValueError("Image product ID does not match this device.")
         except (ValueError, OSError) as error:
             messagebox.showerror("Firmware", str(error))
@@ -1586,7 +1657,7 @@ class App:
             return
         backup = None
         if make_backup:
-            backup = filedialog.asksaveasfilename(title="Save pre-flash backup", defaultextension=".bin", initialfile=f"{board}-before-flash.bin")
+            backup = filedialog.asksaveasfilename(title="Save pre-flash backup", defaultextension=".bin", initialfile=f"{pid}-before-flash.bin")
             if not backup:
                 return
             if Path(backup).resolve() in (image.resolve(), Path(self.loader.get()).resolve()):
@@ -1594,7 +1665,7 @@ class App:
                 return
         def write():
             loader = self.open_loader(record, blob)
-            loader.flash(data, board, backup)
+            loader.flash(data, backup)
         self.start_flash_progress("Preparing firmware")
         self.run("Backing up and flashing… keep USB connected" if backup else "Flashing… keep USB connected", write, lambda _: self.clear_settings())
 

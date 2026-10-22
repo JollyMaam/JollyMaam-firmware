@@ -8,6 +8,10 @@ from unittest.mock import patch
 
 import padflash as flash
 
+# No test may reach a real HID device.
+flash.padhid.devices = lambda: []
+flash.padhid.write = lambda path, data: None
+
 
 def image(pid='GS_C2_ADC_DEVICE', key=0xffff, eoffset=None, resource=b''):
     data = bytearray(b'\xff' * 8192)
@@ -131,7 +135,7 @@ class FlashTests(unittest.TestCase):
         before = bytes(self.device.flash)
         data = bytearray(image())
         data[-4:] = b'next'
-        self.loader.flash(bytes(data), 'pad', self.backup)
+        self.loader.flash(bytes(data), self.backup)
         self.assertEqual(self.backup.read_bytes(), before)
         self.assertEqual(self.device.flash[:len(data)], data)
         self.assertEqual(self.device.flash[len(data):], before[len(data):])
@@ -141,7 +145,7 @@ class FlashTests(unittest.TestCase):
     def test_flash_without_backup_still_verifies_and_reboots(self):
         data = image()
         with patch.object(self.loader, 'backup') as backup:
-            self.loader.flash(data, 'pad')
+            self.loader.flash(data)
             backup.assert_not_called()
         self.assertEqual(self.device.flash[:len(data)], data)
         self.assertEqual(self.device.commands[-1], 0xfc0c)
@@ -150,7 +154,7 @@ class FlashTests(unittest.TestCase):
 
     def test_block_and_sector_erase_boundaries(self):
         data = image() + b'\xff' * (0x11000 - 8192)
-        self.loader.flash(data, 'pad', self.backup)
+        self.loader.flash(data, self.backup)
         self.assertEqual(self.device.commands.count(0xfb00), 1)
         self.assertEqual(self.device.commands.count(0xfb01), 1)
         self.assertEqual(self.device.flash[:len(data)], data)
@@ -160,7 +164,7 @@ class FlashTests(unittest.TestCase):
         corrupt[0x1120] ^= 1
         for data in (image('GS_C2_Dongle'), corrupt):
             with self.assertRaises(ValueError):
-                self.loader.flash(data, 'pad', self.backup)
+                self.loader.flash(data, self.backup)
             self.assert_no_flash_mutations()
         self.assertFalse(self.backup.exists())
 
@@ -172,7 +176,7 @@ class FlashTests(unittest.TestCase):
         before = bytes(self.device.flash[:0x80000])
         reports = []
         self.loader.report = reports.append
-        self.loader.flash(source, 'dongle', self.backup)
+        self.loader.flash(source, self.backup)
         self.assertEqual(self.backup.read_bytes(), before)
         self.assertEqual(self.device.flash[:len(source)], image('GS_C2_Dongle', key=0x4317))
         self.assertEqual(source, image('GS_C2_Dongle'))
@@ -182,7 +186,7 @@ class FlashTests(unittest.TestCase):
     def test_progress_reports_each_stage_and_byte_totals(self):
         updates = []
         self.loader.progress = lambda stage, done=0, total=None: updates.append((stage, done, total))
-        self.loader.flash(image(), 'pad', self.backup)
+        self.loader.flash(image(), self.backup)
         for stage, size in [('Backing up flash', self.loader.flash_size), ('Erasing flash', 8192),
                             ('Writing firmware', 8192), ('Verifying firmware', 8192)]:
             values = [(done, total) for name, done, total in updates if name == stage]
@@ -203,21 +207,21 @@ class FlashTests(unittest.TestCase):
         inquiry = b'\0' * 8 + b'BR23    ' + b'UBOOT1.00'.ljust(16, b' ') + b'\0' * 4
         with patch.object(flash, 'scsi', return_value=inquiry), \
              patch.object(flash.Loader, 'start'), \
-             patch.object(flash.Loader, 'pid', return_value=flash.PIDS['pad']):
+             patch.object(flash.Loader, 'pid', return_value='GS_C2_ADC_DEVICE'):
             detected = flash.inspect_loader('selected', b'loader', report=lambda _: None)
             self.assertEqual(detected.path, 'selected')
-            self.assertEqual(detected.product_id, flash.PIDS['pad'])
+            self.assertEqual(detected.product_id, 'GS_C2_ADC_DEVICE')
         self.assert_no_flash_mutations()
 
     def test_failed_backup_prevents_erase(self):
         with self.assertRaises(OSError):
-            self.loader.flash(image(), 'pad', Path(self.temp.name) / 'absent/backup.bin')
+            self.loader.flash(image(), Path(self.temp.name) / 'absent/backup.bin')
         self.assert_no_flash_mutations()
 
     def test_failed_verification_does_not_reboot(self):
         self.device.corrupt_readback = True
         with self.assertRaisesRegex(OSError, 'readback differs'):
-            self.loader.flash(image(), 'pad', self.backup)
+            self.loader.flash(image(), self.backup)
         self.assertTrue(self.backup.exists())
         self.assertNotIn(0xfc0c, self.device.commands)
 
@@ -236,7 +240,7 @@ class FlashTests(unittest.TestCase):
              patch.object(flash, 'scsi', side_effect=scsi), \
              patch.object(flash.Loader, 'start', lambda obj, blob: (setattr(obj, 'flash_size', 0x100000), setattr(obj, 'key', 0xffff))):
             with self.assertRaisesRegex(ValueError, 'Multiple matching'):
-                flash.select_loader('pad', b'loader', wait=0, report=lambda _: None)
+                flash.select_loader('GS_C2_ADC_DEVICE', b'loader', wait=0, report=lambda _: None)
         self.assert_no_flash_mutations()
 
     def test_explicit_loader_path_ignores_other_devices(self):
@@ -244,18 +248,43 @@ class FlashTests(unittest.TestCase):
         with patch.object(flash, 'device_paths', return_value=['one', 'two']), \
              patch.object(flash, 'scsi', return_value=inquiry) as scsi, \
              patch.object(flash.Loader, 'start', lambda obj, blob: (setattr(obj, 'flash_size', 0x100000), setattr(obj, 'key', 0xffff))), \
-             patch.object(flash.Loader, 'pid', return_value=flash.PIDS['pad']):
-            loader = flash.select_loader('pad', b'loader', wait=0, report=lambda _: None, device_path='two')
+             patch.object(flash.Loader, 'pid', return_value='GS_C2_ADC_DEVICE'):
+            loader = flash.select_loader('GS_C2_ADC_DEVICE', b'loader', wait=0, report=lambda _: None, device_path='two')
             self.assertEqual(loader.path, 'two')
             self.assertEqual([call.args[0] for call in scsi.call_args_list], ['two'])
         self.assert_no_flash_mutations()
+
+    def test_stock_pad_is_sent_its_command_only_for_its_pid(self):
+        green = {"path": "hid", "vid": 0x3537, "product": 0x1053, "bcd": 0x0352, "manufacturer": "",
+                 "product_name": "", "location": "5-2.3", "descriptor": bytes.fromhex("06f0ff0940a101")}
+        writes = []
+        with patch.object(flash, 'device_paths', return_value=[]), \
+             patch.object(flash.padhid, 'devices', return_value=[green]), \
+             patch.object(flash.padhid, 'write', side_effect=lambda p, d: writes.append((p, d))):
+            with self.assertRaisesRegex(OSError, 'No ROM loader holding AC695X_TRANS'):
+                flash.select_loader('AC695X_TRANS', b'loader', wait=0, report=lambda _: None)
+            self.assertEqual(writes, [])
+            with self.assertRaisesRegex(OSError, 'No ROM loader holding GS_C2_ADC_DEVICE'):
+                flash.select_loader('GS_C2_ADC_DEVICE', b'loader', wait=0, report=lambda _: None)
+            self.assertEqual(writes, [('hid', bytes([0x0f, 0x17, 0x55, 0x88]).ljust(64, b'\0'))])
+
+    def test_our_firmware_for_another_pid_is_left_running(self):
+        inquiry = b'\0' * 8 + b'BR23    ' + b'AC695X_TRANS'.ljust(16, b' ') + b'\0' * 4
+        ident = b'C2PD\x02\0\0\0' + bytes(32) + b'AC695X_TRANS'.ljust(16, b'\0')
+        def scsi(path, cdb, length, timeout_ms=3000, out=None, raw_length=False):
+            return inquiry if cdb[0] == 0x12 else ident if cdb[0] == 0xf5 else b''
+        with patch.object(flash, 'device_paths', return_value=['ours']), \
+             patch.object(flash, 'scsi', side_effect=scsi) as sent:
+            with self.assertRaises(OSError):
+                flash.select_loader('GS_C2_ADC_DEVICE', b'loader', wait=0, report=lambda _: None)
+            self.assertNotIn(0xfc, [call.args[1][0] for call in sent.call_args_list])
 
     def test_explicit_loader_path_refuses_running_firmware(self):
         inquiry = b'\0' * 8 + b'BR23    ' + b'UDISK'.ljust(16, b' ') + b'\0' * 4
         with patch.object(flash, 'device_paths', return_value=['one']), \
              patch.object(flash, 'scsi', return_value=inquiry) as scsi:
             with self.assertRaisesRegex(OSError, 'changed mode'):
-                flash.select_loader('pad', b'loader', wait=0, device_path='one', report=lambda _: None)
+                flash.select_loader('GS_C2_ADC_DEVICE', b'loader', wait=0, device_path='one', report=lambda _: None)
             self.assertEqual(scsi.call_count, 1)
             self.assertEqual(scsi.call_args.args[1][0], 0x12)
         self.assert_no_flash_mutations()

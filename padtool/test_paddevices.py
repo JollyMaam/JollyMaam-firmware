@@ -5,6 +5,12 @@ from unittest.mock import patch
 
 import paddevices
 
+import padhid
+
+# No test may reach a real HID device.
+padhid.devices = lambda: []
+padhid.write = lambda path, data: None
+
 
 class MonitorTests(unittest.TestCase):
     def setUp(self):

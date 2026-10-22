@@ -17,6 +17,13 @@ _gui_spec.loader.exec_module(padgui)
 import padtransport
 import padwidgets
 
+import padhid
+import padknown
+
+# No test may reach a real HID device.
+padhid.devices = lambda: []
+padhid.write = lambda path, data: None
+
 
 def record(path="fake", board="pad", protocol=padgui.pad.PROTOCOL):
     fields = [{"kind": 0, "id": 1, "name": "type", "type": padgui.pad.T_ENUM,
@@ -62,6 +69,13 @@ def remap_record(path="fake"):
         r["values"][t].update({name: (b"\0", False) for name, _ in sticks})
     r["defaults"] = {t: dict(r["values"][t]) for t in range(10, 18)}
     return r
+
+
+def stock_record(mode, pid="GS_C2_ADC_DEVICE", path="hid", location="5-2.3"):
+    entry = next(e for e in padknown.STOCK if e.pid == pid and e.mode == mode)
+    return {"path": path, "board": "stock", "identity": f"stock:{pid}:{mode}".encode(), "fields": [],
+            "values": {}, "defaults": {}, "status": mode, "location": location, "product_id": pid,
+            "stock": entry, "name": "Xbox 360 Controller for Windows"}
 
 
 def loader_record(path="rom"):
@@ -548,7 +562,7 @@ class GuiTests(GuiCase):
         self.load([loader_record()])
         with patch.object(padgui.filedialog, "askopenfilename", return_value="firmware.img") as picker, \
              patch.object(padgui.padflash, "load_image", return_value=b"image"), \
-             patch.object(padgui.padflash, "image_identity", return_value=(padgui.PIDS["pad"], 0xffff)), \
+             patch.object(padgui.padflash, "image_identity", return_value=("GS_C2_ADC_DEVICE", 0xffff)), \
              patch.object(self.app, "flash") as flash:
             self.app.choose_firmware()
             picker.assert_called_once()
@@ -596,13 +610,13 @@ class GuiTests(GuiCase):
         from unittest.mock import Mock
         self.load([loader_record()])
         self.app.board.set("dongle")
-        loader = Mock(product_id=padgui.PIDS["pad"])
+        loader = Mock(product_id="GS_C2_ADC_DEVICE")
         with patch.object(padgui.padflash, "inspect_loader", return_value=loader) as inspect:
             self.app.detect_loader_product_id()
             self.finish()
             self.assertEqual(inspect.call_args.args[0], "rom")
-            self.assertEqual(self.app.product_id.get(), padgui.PIDS["pad"])
-            self.assertEqual(self.app.record()["product_id"], padgui.PIDS["pad"])
+            self.assertEqual(self.app.product_id.get(), "GS_C2_ADC_DEVICE")
+            self.assertEqual(self.app.record()["product_id"], "GS_C2_ADC_DEVICE")
             loader.flash.assert_not_called()
 
     def test_automatic_disconnect_and_reconnect_preserves_drafts(self):
@@ -1088,7 +1102,7 @@ class GuiTests(GuiCase):
                 confirm.assert_not_called()      # only the backup question
                 run.call_args.args[1]()
                 destination.assert_not_called()
-                loader.flash.assert_called_once_with(make_image(), "pad", None)
+                loader.flash.assert_called_once_with(make_image(), None)
             with patch.object(self.app, "loader_blob", return_value=b"loader"), \
                  patch.object(padgui.messagebox, "askyesnocancel", return_value=None), \
                  patch.object(self.app, "run") as run:
@@ -1194,6 +1208,55 @@ class GuiTests(GuiCase):
         self.assertIn("Writing firmware", self.app.flash_status.get())
         self.assertTrue(self.app.flash_progress_frame.winfo_manager())
         self.assertIs(self.app.active_page, self.app.loader_page)
+
+
+class StockGuiTests(GuiCase):
+    def page_text(self):
+        return [self.app.stock_title.get(), self.app.stock_details.get(), self.app.stock_help.get()]
+
+    def test_stock_pad_in_command_mode_enters_its_loader(self):
+        self.load([stock_record("Xbox 360 (green)")])
+        label = self.app.tree.item(self.app.tree.get_children()[0], "text")
+        self.assertIn("GameSir Cyclone 2 · stock, Xbox 360 (green)", label)
+        self.assertEqual(self.app.active_page, self.app.stock_page)
+        self.assertEqual(str(self.app.stock_enter_button.cget("state")), "normal")
+        with patch.object(padgui, "usb_location", side_effect=lambda p: "5-2.3" if p == "rom" else None), \
+             patch.object(padgui.padhid, "write") as write, \
+             patch.object(padgui.pad, "discover_devices", return_value=[("rom", "BR23 UBOOT1.00", None)]), \
+             patch.object(self.app, "scan") as scan:
+            self.app.enter_flash_loader()
+            self.finish()
+            write.assert_called_once_with("hid", bytes([0x0f, 0x17, 0x55, 0x88]).ljust(64, b"\0"))
+            self.assertEqual(scan.call_args.kwargs["select_path"], "rom")
+
+    def test_stock_pad_in_other_mode_says_which_mode_has_the_command(self):
+        self.load([stock_record("Switch (red)", pid="AC695X_TRANS")])
+        self.assertEqual(str(self.app.stock_enter_button.cget("state")), "disabled")
+        text = "\n".join(self.page_text())
+        self.assertIn("GameSir Nova 2 Lite · stock, Switch (red)", text)
+        self.assertIn("switch it to Xbox 360 (green) mode", text)
+        with patch.object(padgui.padhid, "write") as write:
+            self.app.enter_flash_loader()
+            write.assert_not_called()
+
+    def test_device_without_a_loader_is_named_with_its_note(self):
+        entry = next(e for e in padknown.STOCK if not e.pid)
+        r = stock_record("Switch (red)")
+        r.update(product_id="", stock=entry, identity=b"stock::dongle")
+        self.load([r])
+        self.assertIn(entry.name, self.app.tree.item(self.app.tree.get_children()[0], "text"))
+        self.assertIn("no way into a loader is known", self.app.stock_help.get())
+        self.assertEqual(str(self.app.stock_enter_button.cget("state")), "disabled")
+
+    def test_our_firmware_and_loader_are_named_by_product(self):
+        ours = record()
+        ours["product_id"] = "AC695X_TRANS"
+        rom = loader_record()
+        rom["product_id"] = "GS_C2_ADC_DEVICE"
+        self.load([ours, rom])
+        labels = [self.app.tree.item(n, "text") for n in self.app.tree.get_children()]
+        self.assertTrue(any("GameSir Nova 2 Lite · this firmware" in l for l in labels))
+        self.assertTrue(any("ROM loader · GameSir Cyclone 2" in l for l in labels))
 
 
 class TransportTests(unittest.TestCase):

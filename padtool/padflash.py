@@ -10,10 +10,10 @@ from pathlib import Path
 import struct
 import time
 
+import padhid
+from padknown import PRODUCTS, product_name, stock_devices
 from padtransport import device_paths, scsi, usb_location
 
-PIDS = {"pad": "GS_C2_ADC_DEVICE", "dongle": "GS_C2_Dongle"}
-FLASH_SIZES = {"pad": 0x100000, "dongle": 0x80000}
 PACKAGED_LOADER = Path(__file__).resolve().parent / "br23loader.bin"
 SDK_LOADER = Path(os.environ.get("JIELI_SDK", "/shared/github.com-Jieli-Tech/fw-AC63_BT_SDK")) / "cpu/br23/tools/br23loader.bin"
 DEFAULT_LOADER = PACKAGED_LOADER if PACKAGED_LOADER.is_file() else SDK_LOADER
@@ -308,12 +308,14 @@ class Loader:
             os.fsync(stream.fileno())
         self.report(f"Saved full flash backup: {file} ({len(data)} bytes)")
 
-    def flash(self, data, board, backup=None):
+    def flash(self, data, backup=None):
         pid, key = image_identity(data)
-        if pid != PIDS[board] or self.pid() != pid:
-            raise ValueError("Firmware PID does not match the selected board and device")
-        if self.flash_size != FLASH_SIZES[board] or not data or len(data) > self.flash_size:
-            raise ValueError("Image or device flash size does not match the selected board")
+        if pid not in PRODUCTS:
+            raise ValueError(f"Firmware PID {pid} is not a known pad or dongle")
+        if self.pid() != pid:
+            raise ValueError(f"Firmware PID {pid} does not match the device's flash")
+        if self.flash_size != PRODUCTS[pid].flash_size or not data or len(data) > self.flash_size:
+            raise ValueError(f"Image or device flash size does not match the {product_name(pid)}")
         if key != self.key:
             self.progress("Converting firmware chip key")
             self.report(f"Converting image key 0x{key:04x} to device key 0x{self.key:04x}")
@@ -367,13 +369,15 @@ def inspect_loader(path, blob, report=print, progress=None, expected_location=No
     return loader
 
 
-def select_loader(board, blob, wait=30, report=print, device_path=None, progress=None, expected_location=None):
-    """Enter loader mode and match PID, or restrict to an already-selected ROM path."""
-    if board not in PIDS or not blob:
-        raise ValueError("Select a supported board and a nonempty BR23 loader")
+def select_loader(pid, blob, wait=30, report=print, device_path=None, progress=None, expected_location=None):
+    """Enter loader mode and match PID, or restrict to an already-selected ROM path.
+    Running firmware for pid is asked to restart: ours (IDENTIFY names its PID),
+    other Jieli firmware, and stock pads in a USB mode with a loader command."""
+    if pid not in PRODUCTS or not blob:
+        raise ValueError("Select a known product and a nonempty BR23 loader")
     deadline = time.monotonic() + wait
-    seen = {}
-    report(f"Looking for {board}; if needed, connect it while holding its loader buttons")
+    seen, asked = {}, set()
+    report(f"Looking for a {product_name(pid)}; {PRODUCTS[pid].by_hand}")
     while True:
         for path in device_paths():
             if device_path is not None and path != device_path:
@@ -393,7 +397,7 @@ def select_loader(board, blob, wait=30, report=print, device_path=None, progress
                     raise OSError("Selected ROM loader changed mode; refresh devices before flashing")
                 try:
                     ident = scsi(path, [0xf5, 0], 64, 1000)
-                    if ident[:4] == b"C2PD" and len(ident) >= 7 and ident[6] != (board == "dongle"):
+                    if ident[:4] == b"C2PD" and ident[40:56].split(b"\0")[0].decode(errors="replace") != pid:
                         continue
                     report(f"{path}: requesting ROM loader")
                     scsi(path, [0xfc, 0x0a] + [255] * 14, 16, 1000)
@@ -405,20 +409,29 @@ def select_loader(board, blob, wait=30, report=print, device_path=None, progress
                 loader.location = expected_location
             loader.start(blob)
             try:
-                pid = loader.pid()
+                held = loader.pid()
             except ValueError:
-                pid = None
-            report(f"{path}: holds {pid or 'no recognized firmware header'}")
-            seen[path] = (loader, pid)
-        matching = [loader for loader, pid in seen.values() if pid == PIDS[board]]
+                held = None
+            report(f"{path}: holds {held or 'no recognized firmware header'}")
+            seen[path] = (loader, held)
+        if device_path is None:
+            for hid, entry in stock_devices(padhid.devices()):
+                if entry.pid == pid and entry.usage_page and hid["path"] not in asked:
+                    asked.add(hid["path"])
+                    report(f"{hid['path']}: stock {product_name(pid)}, requesting ROM loader")
+                    try:
+                        padhid.write(hid["path"], entry.report.ljust(entry.length, b"\0"))
+                    except OSError:
+                        pass
+        matching = [loader for loader, held in seen.values() if held == pid]
         if len(matching) > 1:
-            raise ValueError("Multiple matching ROM loaders; connect only the intended board")
+            raise ValueError("Multiple matching ROM loaders; connect only the intended device")
         if matching:
-            if matching[0].flash_size != FLASH_SIZES[board]:
-                raise ValueError("Device flash capacity does not match selected board")
+            if matching[0].flash_size != PRODUCTS[pid].flash_size:
+                raise ValueError(f"Device flash capacity does not match the {product_name(pid)}")
             return matching[0]
         if time.monotonic() >= deadline:
-            raise OSError(f"No ROM loader with {board} firmware PID found")
+            raise OSError(f"No ROM loader holding {pid} found")
         time.sleep(0.5)
 
 
@@ -426,7 +439,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("command", choices=["flash", "backup"])
     p.add_argument("file", type=Path)
-    p.add_argument("--board", choices=PIDS, default="pad")
+    p.add_argument("--pid", choices=PRODUCTS, default="GS_C2_ADC_DEVICE")
     p.add_argument("--loader", type=Path, default=DEFAULT_LOADER)
     p.add_argument("--backup", type=Path, help="optional full flash backup before flashing")
     args = p.parse_args()
@@ -434,16 +447,16 @@ def main():
         if args.backup and args.backup.resolve() in (args.file.resolve(), args.loader.resolve()):
             p.error("--backup must be a different file from the image and loader")
         data = load_image(args.file)
-        if image_identity(data)[0] != PIDS[args.board]:
-            p.error("image does not match selected board")
+        if image_identity(data)[0] != args.pid:
+            p.error("image does not match the selected PID")
     elif args.file.resolve() == args.loader.resolve():
         p.error("backup must not overwrite the loader")
-    loader = select_loader(args.board, args.loader.read_bytes())
+    loader = select_loader(args.pid, args.loader.read_bytes())
     if args.command == "backup":
         loader.backup(args.file)
         print("Reconnect USB to leave the loader")
     else:
-        loader.flash(data, args.board, args.backup)
+        loader.flash(data, args.backup)
 
 
 if __name__ == "__main__":

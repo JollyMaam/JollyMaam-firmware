@@ -214,22 +214,34 @@ any erase. The original image file stays unchanged. Conversion supports our
 generated builds; stock images with secondary application directories or check
 records are rejected rather than converted with incomplete format support.
 
-Discovery (startup and Refresh) detects `UBOOT1.00` ROM loaders. Selecting one uploads the
+Discovery (startup and Refresh) names each device by product, from
+`padknown.py`: this firmware by the PID it reports ("GameSir Nova 2 Lite ·
+this firmware"), ROM loaders by the PID in their flash once read, and stock
+pads and dongles that show themselves only as HID by their USB identity, in
+each USB mode ("GameSir Cyclone 2 · stock, Switch (red)"). A stock device's
+page shows its mode, product ID and USB port, and how it enters its loader:
+**Enter flash loader** in the mode that has a command for it (both stock
+pads: Xbox 360, green), otherwise which mode to switch to, and the way by
+hand where one is known. The Nova 2 Lite's dongle is named, with no way into
+a loader known.
+
+Discovery detects `UBOOT1.00` ROM loaders. Selecting one uploads the
 RAM helper and reads the product ID stored in flash; the page displays the actual
 ID rather than a board selector. Invalid or blank headers show an unavailable ID.
 Discovery itself only probes device identity and does not upload code.
-A running pad or dongle offers **Enter flash loader**, which checks its identity,
-requests the reboot, waits for the ROM loader, then selects it automatically.
+A running pad or dongle, or a stock pad in a mode with a command, offers
+**Enter flash loader**, which checks its identity (this firmware), requests
+the reboot, waits for the ROM loader, then selects it automatically.
 Other devices’ pending edits are retained; apply or discard edits on the
 rebooting device first. On Linux, the USB port chain identifies the returning
 loader even if its `sg` number changes. Where port information is unavailable,
 only a single newly appearing loader is selected; ambiguous results require
-manual selection. For a stock pad, connect USB while holding Home + Plus.
+manual selection.
 
 Only a detected ROM loader offers flashing or a full flash backup in the GUI.
 Its main page places **Back up full flash…** before **Flash Firmware…**. Flash
 Firmware opens the sole image picker and immediately checks its product ID.
-The image selects pad versus dongle, with PID, capacity and chip-key conversion checks
+The image's PID must be a known product and the one in the device's flash, with capacity and chip-key conversion checks
 before erasing. The selected loader path stays fixed during the operation; on
 Linux its USB port is also checked to reject a reused device path. Settings
 and the live firmware console are unavailable while the device is in loader mode.
@@ -249,19 +261,22 @@ backup to restore them after installation. The GUI exposes no PID/key override.
 The Python backend can also run from a terminal:
 
 ```sh
-python padtool/padflash.py backup pad-backup.bin --board pad
-python padtool/padflash.py flash build/gamesir-cyclone-2-pad/firmware.img --board pad --backup before-flash.bin
+python padtool/padflash.py backup pad-backup.bin --pid GS_C2_ADC_DEVICE
+python padtool/padflash.py flash build/gamesir-cyclone-2-pad/firmware.img --pid GS_C2_ADC_DEVICE --backup before-flash.bin
 ```
 
 Omit `--backup` to flash without creating a backup.
 
-Use `--board dongle` for the dongle and `--loader FILE` to override the SDK or packaged
+`--pid` names the product (`GS_C2_Dongle` for the dongle, `AC695X_TRANS` for
+the Nova 2 Lite); running firmware for it, and a stock pad in a mode with a
+command, is asked into its loader. `--loader FILE` overrides the SDK or packaged
 loader. A standalone backup leaves the board in its loader; reconnect USB
 afterwards. Stock firmware restoration is outside the GUI's scope. The C
 `jlnewfw` tool retains its own flashing, backup and Windows support.
 
-If automatic loader entry fails, unplug USB and hold Home + Start on the pad,
-or the dongle's button, while plugging USB back in. Wait for each operation to
+If automatic loader entry fails, use the way by hand on the device's page
+(Cyclone 2: hold Home + Start while connecting USB; this firmware's dongle:
+hold its button). Wait for each operation to
 finish before closing the GUI. A failed write or verification leaves the device
 in its loader for recovery.
 
@@ -274,6 +289,9 @@ in its loader for recovery.
 `padwidgets.py` supplies the palette and stick curve editors.
 `padcurves.py` shares preset definitions and validation with
 the CLI; `python -m unittest discover -s padtool -p test_padcurves.py -v` tests it.
+`padknown.py` is the table of known products and stock USB identities (it
+mirrors `jlnewfw`'s); `padhid.py` lists HID interfaces and writes output
+reports (Linux hidraw, Windows hid.dll); `test_padknown.py` tests the matching.
 `padtool.py` supplies the firmware protocol and CLI. `padtransport.py` supplies
 Linux SG_IO and Windows buffered SCSI pass-through. `padflash.py` supplies the
 BR23 RAM-loader protocol, image identity checks, backup, erase/write and readback

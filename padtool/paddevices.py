@@ -2,6 +2,8 @@
 import threading
 import time
 
+import padhid
+import padknown
 import padtool as pad
 from padtransport import usb_location
 
@@ -15,7 +17,21 @@ def read_device(path, name, identity):
     values = {t: pad.read_target(path, table, t) for t in pad.targets(table)} if table else {}
     defaults = {t: pad.read_target(path, table, t, defaults=True) for t in pad.targets(table)} if table else {}
     return {"path": path, "name": name, "board": board, "identity": identity[:56], "fields": table,
-            "values": values, "defaults": defaults, "status": pad.status(path), "location": usb_location(path)}
+            "values": values, "defaults": defaults, "status": pad.status(path), "location": usb_location(path),
+            "product_id": identity[40:56].split(b"\0")[0].decode(errors="replace")}
+
+
+def stock_records():
+    """Stock pads and dongles known by their USB identity (padknown.STOCK),
+    one per USB device.  Their identity names the product and the mode, so a
+    mode change is a new device."""
+    records = []
+    for hid, entry in padknown.stock_devices(padhid.devices()):
+        records.append({"path": hid["path"], "name": f"{hid['manufacturer']} {hid['product_name']}".strip(),
+                        "board": "stock", "identity": f"stock:{entry.pid}:{entry.name}:{entry.mode}".encode(),
+                        "fields": [], "values": {}, "defaults": {}, "status": entry.mode,
+                        "location": hid["location"], "product_id": entry.pid, "stock": entry})
+    return records
 
 
 class DeviceMonitor:
@@ -71,6 +87,15 @@ class DeviceMonitor:
                 except (Exception, SystemExit) as error:
                     errors.append(f"{path}: {error}")
                     self.retry_after[key] = time.monotonic() + 5
+            try:
+                stock = stock_records()
+            except (Exception, SystemExit) as error:
+                stock = []
+                errors.append(f"HID devices: {error}")
+            for record in stock:
+                present[record["path"]] = record["identity"]
+                if self.known.get(record["path"]) != record["identity"]:
+                    records.append(record)
             if present == self.last_reported and not records and not errors:
                 return None
             self.last_reported = present
