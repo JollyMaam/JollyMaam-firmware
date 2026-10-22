@@ -17,19 +17,20 @@ Run this on the Linux host, outside the development container:
 
 The executable has a Nix shell shebang and works from any directory with Nix
 2.24 or newer. It supplies the SDK, emulator, AOSP Android 15 x86_64 system
-image, JDK and adb. No Android Studio or Google account is needed. The first
+image, JDK, adb and scrcpy. No Android Studio or Google account is needed. The first
 invocation downloads the emulator/image; subsequent invocations reuse them.
 An x86_64 Linux host with read/write access to `/dev/kvm` is expected.
 
 The script builds the debug APK, creates a compact phone AVD if needed, boots
-it, waits for Android, installs the APK and opens the **device list**. Select
+it with `-no-window`, waits for Android, installs the APK and opens the
+**device list** in a scrcpy window. Select
 **Simulated pad (no USB)** to explore the app. Keep the script running. Press
 **r + Enter** to rebuild/reinstall after
 editing, keeping Android booted. Press **q + Enter** or **Ctrl-C** to stop the
-session. Closing the emulator window also ends the session. A failed reload
+session. Closing the scrcpy window also ends the session. A failed reload
 leaves the emulator available so you can fix the error and press r again.
 
-Cleanup stops the build and its descendants, emulator and private adb server,
+Cleanup stops the build, scrcpy and their descendants, emulator and private adb server,
 removes this run's temporary directory, then releases the launcher lock. The
 supervisor waits for cleanup before returning. Saved AVD data, simulated
 settings, APK build outputs and diagnostic logs are persistent and remain for
@@ -40,7 +41,7 @@ Useful options:
 ```sh
 ./android/run-emulator --no-build   # install the existing debug APK
 ./android/run-emulator --cold-boot  # skip snapshot restore when starting
-./android/run-emulator --headless   # start without a window
+./android/run-emulator --headless   # also skip scrcpy (for automation)
 ./android/run-emulator --software   # opt into slow CPU emulation without KVM
 ```
 
@@ -48,27 +49,21 @@ The dedicated emulator uses console port 5580, device port 5581 and serial
 `emulator-5580`; set `PADTOOL_EMULATOR_PORT` to another even port from 5554 to
 5584 if occupied. The private adb server uses emulator port + 1000 (6580 by
 default), overridable with `PADTOOL_ADB_PORT`. The script stops only its own
-server; an existing system adb server is untouched. All adb install/launch
+server; an existing system adb server is untouched. scrcpy uses that same
+server and the explicit emulator serial, with audio forwarding disabled.
+All adb install/launch
 commands target the emulator serial explicitly. An emulator already running
 at the requested serial is rejected rather than adopted. State, AVD files,
-`adb.log` and `emulator.log` live under `$XDG_STATE_HOME/cyclone-padtool/emulator`, falling
+`adb.log`, `emulator.log` and `scrcpy.log` live under `$XDG_STATE_HOME/cyclone-padtool/emulator`, falling
 back to `~/.local/state/cyclone-padtool/emulator`. GPU rendering uses
 SwiftShader, while KVM accelerates the CPU by default. `--software` also
 disables CPU acceleration and gives first boot a longer timeout.
 
-The launcher enables `VirtioTablet` and disables the alternative mouse devices
-to expose native wheel input without pointer capture. Otherwise the emulator
-can translate wheel ticks into animated touchscreen swipes, which also trigger
-Android's touch flinging. After updating an older launcher, stop it and run
-`./android/run-emulator --cold-boot` once so the new input hardware is used.
-Reloading the APK with **r + Enter** does not change emulator hardware options.
-
-`QT_QPA_PLATFORM` is passed through. The launcher defaults to `xcb` when
-`DISPLAY` is available. To explicitly use X11/XWayland:
-
-```sh
-QT_QPA_PLATFORM=xcb ./android/run-emulator --no-build
-```
+scrcpy uses SDK mouse input to forward pointer and wheel events without mouse
+capture. The emulator's Qt window is disabled, so its wheel-to-swipe conversion
+is not used. The existing `VirtioTablet` input configuration is retained.
+No `QT_QPA_PLATFORM` override is needed for the display. Stop and restart the
+launcher to pick up this change; **r + Enter** reloads only the APK.
 
 If a launcher is still active, the lock error includes the lock path and
 `fuser` process information. Stop the earlier launcher before retrying. Older

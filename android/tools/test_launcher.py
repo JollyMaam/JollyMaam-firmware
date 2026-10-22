@@ -24,8 +24,11 @@ def record(**values):
         f.write(json.dumps(dict(name=name, pid=os.getpid(), **values))+'\n')
 def sleep_with_child():
     child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])
-    record(child=child.pid, qt=os.environ.get('QT_QPA_PLATFORM'), tmp=os.environ.get('TMPDIR'), args=args)
-    while True: time.sleep(1)
+    record(child=child.pid, qt=os.environ.get('QT_QPA_PLATFORM'), tmp=os.environ.get('TMPDIR'), args=args,
+           adb=os.environ.get('ADB'), socket=os.environ.get('ADB_SERVER_SOCKET'))
+    while True:
+        if name == 'scrcpy' and (root/'close-window').exists(): sys.exit(0)
+        time.sleep(.05)
 if name == 'gradlew':
     if os.environ.get('PADTOOL_TEST_BUILD_OK'):
         record(event='build'); sys.exit(0)
@@ -40,6 +43,12 @@ elif name == 'emulator':
         print('Test Qt platform startup failure', flush=True)
         sys.exit(23)
     (root/'emulator.pid').write_text(str(os.getpid()))
+    sleep_with_child()
+elif name == 'scrcpy':
+    if os.environ.get('PADTOOL_TEST_SCRCPY_FAIL'):
+        record(event='failed')
+        print('Test scrcpy startup failure', flush=True)
+        sys.exit(23)
     sleep_with_child()
 elif name == 'adb':
     if args[-2:] == ['server', 'nodaemon']:
@@ -81,7 +90,7 @@ class LauncherTests(unittest.TestCase):
         shutil.copyfile(source.parent/'tools/launcher_lock.py', self.android/'tools/launcher_lock.py')
         apk = self.android/'app/build/outputs/apk/debug/app-debug.apk'
         apk.parent.mkdir(parents=True); apk.write_bytes(b'test')
-        for name in ('adb','emulator','avdmanager','gradlew'):
+        for name in ('adb','emulator','scrcpy','avdmanager','gradlew'):
             file = (self.android if name == 'gradlew' else self.bin)/name
             file.write_text(f'#!{sys.executable}\n'+MOCK); file.chmod(0o755)
         with socket.socket() as s:
@@ -92,8 +101,8 @@ class LauncherTests(unittest.TestCase):
         self.processes = []
         self.addCleanup(self.stop_remaining)
 
-    def start(self, build=False, fail=False, terminal=False):
-        for name in ('ready','emulator.pid'):
+    def start(self, build=False, fail=False, terminal=False, headless=False):
+        for name in ('ready','emulator.pid','close-window'):
             (self.root/name).unlink(missing_ok=True)
         output=(self.root/f'output-{len(self.processes)}').open('w+')
         self.addCleanup(output.close)
@@ -102,7 +111,7 @@ class LauncherTests(unittest.TestCase):
             self.terminal_input, stdin=pty.openpty()
             self.addCleanup(os.close, self.terminal_input)
             self.addCleanup(os.close, stdin)
-        p=subprocess.Popen(['bash',str(self.android/'run-emulator'),'--software']+([] if build else ['--no-build']),
+        p=subprocess.Popen(['bash',str(self.android/'run-emulator'),'--software']+([] if build else ['--no-build'])+(['--headless'] if headless else []),
                            env=dict(self.env, **({'PADTOOL_TEST_FAIL':'1'} if fail else {})),
                            stdin=stdin,stdout=output,stderr=subprocess.STDOUT,start_new_session=True)
         self.processes.append(p)
@@ -146,9 +155,16 @@ class LauncherTests(unittest.TestCase):
         emulator=next(r for r in self.records() if r['name']=='emulator')
         self.assertEqual('xcb',emulator['qt'])
         args=emulator['args']
+        self.assertIn('-no-window', args)
         features=[args[i+1] for i, arg in enumerate(args) if arg == '-feature']
         self.assertEqual(['VirtioTablet', '-VirtioMouse', '-VirtioDualModeMouse'], features)
         self.assertTrue(Path(emulator['tmp']).is_dir())
+        self.wait_for(lambda:any(r['name']=='scrcpy' for r in self.records()))
+        viewer=next(r for r in self.records() if r['name']=='scrcpy')
+        self.assertEqual(['--serial','emulator-5580','--no-audio','--mouse=sdk','--window-title','Cyclone padtool'],viewer['args'])
+        self.assertEqual(str(self.bin/'adb'),viewer['adb'])
+        self.assertEqual('tcp:127.0.0.1:'+self.env['PADTOOL_ADB_PORT'],viewer['socket'])
+        self.assertEqual(emulator['tmp'],viewer['tmp'])
         os.killpg(p.pid,signal.SIGINT)
         p.wait(timeout=10)
         self.assertFalse(list((self.root/'state/cyclone-padtool/emulator').glob('run.*')), 'Launcher returned before cleanup')
@@ -182,9 +198,35 @@ class LauncherTests(unittest.TestCase):
         os.write(self.terminal_input,b'r\n')
         self.wait_for(lambda:sum(r.get('event')=='launch' for r in self.records())==2)
         self.assertEqual(1,sum(r['name']=='emulator' for r in self.records()))
+        self.assertEqual(1,sum(r['name']=='scrcpy' for r in self.records()))
         os.write(self.terminal_input,b'q\n')
         self.assertEqual(0,p.wait(timeout=10))
         self.assertFalse(list((self.root/'state/cyclone-padtool/emulator').glob('run.*')))
+        self.assert_clean()
+
+    def test_closing_scrcpy_stops_session_and_descendants(self):
+        for terminal in (False, True):
+            with self.subTest(terminal=terminal):
+                p,_=self.start(terminal=terminal)
+                self.wait_for(lambda:any(r['name']=='scrcpy' and alive(r['pid']) for r in self.records()))
+                (self.root/'close-window').touch()
+                self.assertEqual(0,p.wait(timeout=10))
+                self.assert_clean()
+
+    def test_failed_scrcpy_stops_emulator_and_adb(self):
+        self.env['PADTOOL_TEST_SCRCPY_FAIL']='1'
+        p,_=self.start()
+        self.assertEqual(23,p.wait(timeout=10))
+        log=self.root/'state/cyclone-padtool/emulator/scrcpy.log'
+        self.assertIn('Test scrcpy startup failure',log.read_text())
+        self.assert_clean()
+
+    def test_headless_skips_scrcpy_and_still_uses_no_window(self):
+        p,_=self.start(headless=True)
+        self.wait_for(lambda:(self.root/'ready').exists())
+        self.assertFalse(any(r['name']=='scrcpy' for r in self.records()))
+        self.assertIn('-no-window',next(r for r in self.records() if r['name']=='emulator')['args'])
+        os.killpg(p.pid,signal.SIGINT); p.wait(timeout=10)
         self.assert_clean()
 
 
