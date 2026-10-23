@@ -2,7 +2,7 @@
 
 Board facts for the GameSir Nova 2 Lite pad (GameSir's code T4N2), a Jieli
 BR23 ([../jieli/](../jieli/README.md)), and what its stock firmware shows.
-The inputs' and motors' pins are established; the LEDs' are not.
+The inputs', motors' and Home light's pins are established.
 
 ## Chip and flash
 
@@ -147,10 +147,38 @@ duty units). `PB9` is MCPWM channel 3's H pin and `PB10` its L pin
 (`pwm_hw_h_pin`, `pwm_hw_l_pin` in the SDK's `mcpwm.c`); `PC3` and `PA12` are
 no channel's own pin.
 
+## LEDs
+
 None of these 15 pins, driven high for 2 s and low for 2 s, lit an LED:
 `PA0`, `PA2`, `PA9`, `PA11`, `PA12`, `PA15`, `PB0`, `PB4`, `PB6`, `PB9`,
-`PB10`, `PB11`, `PC3`, `PC6`, `PC7`. The stock image has the string
-`app_rgb_init` and no code that references it.
+`PB10`, `PB11`, `PC3`, `PC6`, `PC7`.
+
+The stock image drives a serial chain (WS2812 type) from `PB0`, from code it
+runs in RAM (RAM address `0x0a64`; the image's RAM code starts at file offset
+`0x59408`, listing address `0x01e59528`). That function:
+
+- turns interrupts off, saves timer 3's `CON`, `CNT` and `PRD`, and runs the
+  timer for the bit timing;
+- sends 18 bytes, most significant bit first: per bit it waits out the bit
+  period, sets bit 0 of `JL_PORTB->OUT` (output in `DIR`), waits one of two
+  times (the longer one for a 1), and clears it;
+- restores timer 3 and turns interrupts back on.
+
+The 18 bytes are six lights of three bytes each, kept at RAM `0x7ccc`
+(`0x7650 + 1660`). The light code stores a colour `0xXXYYZZ` as the bytes
+`XX`, `YY`, `ZZ` (code at `0x01e3448a`) and scales each by a per-light
+brightness (`0x01e34584`, `0x01e3fa1e`). A frame goes out only when the 18
+bytes differ from the last one sent (`0x01e42744`). The string
+`app_rgb_init` is printed in the start-up code at `0x01e40bce`.
+
+On the pad, driven from `PB0` with 1.7 us bits (high some 0.3 us for a 0,
+some 1 us for a 1):
+
+- Position 0 is the Home light, its bytes red, green, blue.
+- Positions 1 to 5, each lit alone, lit nothing.
+- The light keeps its colour while the pad has power, across resets and
+  flashing: the stock image's white stayed on until the chain was sent a
+  frame.
 
 ## Power
 
@@ -162,6 +190,6 @@ read 4064 mV, then 4152 mV about an hour later, USB connected throughout.
 
 ## Not established
 
-Pins of the LEDs, USB presence and the charger IC; why each motor has two pins; what drives
+Whether the pad has lights other than Home, USB presence and the charger IC; why each motor has two pins; what drives
 `PA2` and links `PA0` with `PC7`; whether a button combination enters the
 pad's loader (Home + Menu, GameSir's instruction for its updater, did not).

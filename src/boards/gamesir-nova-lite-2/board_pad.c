@@ -6,9 +6,8 @@
 
 /* GameSir Nova 2 Lite (PID AC695X_TRANS): a BR23 pad with Hall sticks and
  * triggers on the ADC, a key matrix, two motors, no IMU.  Pins from
- * docs/gamesir-nova-lite-2/.  Not known yet: the LEDs, USB presence, the
- * charger, a power latch; so no lights, USB taken as present, and power-off
- * restarts. */
+ * docs/gamesir-nova-lite-2/.  Not known yet: USB presence, the charger, a
+ * power latch; so USB is taken as present, and power-off restarts. */
 
 #define PIN_HOME        IO_PORTB_01
 #define PIN_M           IO_PORTB_02
@@ -151,6 +150,8 @@ static void analog_init(void)
     util_log("board: first ADC samples after %u ms", i);
 }
 
+static void leds_first(void);
+
 /* The sticks' 10-bit readings, times 32, land where the Cyclone 2's stick
  * MCU puts its own (center near 0x4000, input_calibration.c's defaults),
  * and each axis already turns the way the Cyclone's does: the core needs
@@ -161,6 +162,7 @@ void plat_input(struct in_raw *raw)
     u32 lines = plat_lines(&changed_us);
 
     raw->buttons = buttons_of(lines) | matrix_state;
+    leds_first();
     if ((s32)(matrix_changed_us - changed_us) > 0) changed_us = matrix_changed_us;
     raw->changed_us = changed_us;
     for (i = 0; i < 4; i++) raw->stick[i] = (u16)(adc_get_value(adc_ch[i]) << 5);
@@ -229,6 +231,89 @@ void plat_motors(u8 left, u8 right)
 {
     motor_on_ticks[0] = (u8)(((u32)left * MOTOR_STEPS + 254) / 255);
     motor_on_ticks[1] = (u8)(((u32)right * MOTOR_STEPS + 254) / 255);
+}
+
+/* ---- LEDs: a chain on PB0, the Home light first -----------------------------
+ * The stock image clocks 18 bytes, MSB first, out of PB0 from RAM code with
+ * interrupts off, each bit timed by timer 3: a WS2812-type chain of six.
+ * Here the writes themselves time the bits: a write of JL_PORTB->OUT takes
+ * some 0.15-0.2 us and the CPU waits for it, while a timer read (0.26 us)
+ * or a read-modify-write of OUT (0.28 us) is too coarse to time edges with.
+ * A bit is twelve writes, near stock's 1.7 us: a 0 two high and ten low, a
+ * 1 seven high and five low.  Four high for a 1 lit nothing; six high in a
+ * bit of eight lit the wrong lights.  The other port B outputs (the motors,
+ * switched from the tick) hold still with interrupts off, so OUT is written
+ * whole.  About 250 us with interrupts off, so a frame goes out only when it
+ * changed.  (Taking over timer 2 the way stock takes timer 3 hung the pad,
+ * cause not established.)  A light's bytes go out R, G, B. */
+
+#define PIN_LED         IO_PORTB_00
+#define LED_CHAIN       6
+
+static u8 led_sent[LED_CHAIN * 3];
+static u8 led_ready;
+
+static HOT void ws_send(const u8 *p, u32 n)
+{
+    volatile u32 *out = &JL_PORTB->OUT;
+    const u8 *end = p + n;
+    u32 hi, lo, v, mask;
+
+    local_irq_disable();
+    lo = *out & ~BIT(0);
+    hi = lo | BIT(0);
+    for (; p < end; p++) {
+        v = *p;
+        for (mask = 0x80; mask; mask >>= 1) {
+            if (v & mask) {
+                *out = hi; *out = hi; *out = hi; *out = hi; *out = hi; *out = hi; *out = hi;
+                *out = lo; *out = lo; *out = lo; *out = lo; *out = lo;
+            } else {
+                *out = hi; *out = hi;
+                *out = lo; *out = lo; *out = lo; *out = lo; *out = lo;
+                *out = lo; *out = lo; *out = lo; *out = lo; *out = lo;
+            }
+        }
+    }
+    local_irq_enable();
+}
+
+static void leds_put(const u8 *bytes)
+{
+    if (!led_ready) {
+        pin_low(PIN_LED);
+        led_ready = 1;
+    } else if (!memcmp(bytes, led_sent, sizeof(led_sent))) {
+        return;
+    }
+    memcpy(led_sent, bytes, sizeof(led_sent));
+    ws_send(led_sent, sizeof(led_sent));
+}
+
+/* The core sends a frame only when it changes, and none while it stays dark
+ * from the start; the chain keeps its colours while it has power, across
+ * resets.  So the first input poll sends a dark frame. */
+static void leds_first(void)
+{
+    u8 dark[LED_CHAIN * 3] = { 0 };
+
+    if (!led_ready) leds_put(dark);
+}
+
+/* Position 0 is the Home light; positions 1-5, each lit alone, showed
+ * nothing.  The rest of the core's lights go there anyway, as stock sends
+ * six. */
+void plat_leds(const struct led_frame *f)
+{
+    u8 bytes[LED_CHAIN * 3];
+    u32 i;
+
+    for (i = 0; i < LED_CHAIN; i++) {
+        bytes[i * 3] = f->light[i].r;
+        bytes[i * 3 + 1] = f->light[i].g;
+        bytes[i * 3 + 2] = f->light[i].b;
+    }
+    leds_put(bytes);
 }
 
 /* ---- boot: what was held, the way back from a bad build -------------------
@@ -310,11 +395,6 @@ int board_usb_sense(void)
 int board_jack(void)
 {
     return 0;
-}
-
-void plat_leds(const struct led_frame *f)
-{
-    (void)f;
 }
 
 /* No wake-up source is set up yet, so soft power-off could not be left.
