@@ -1,6 +1,7 @@
 #include <system/includes.h>
 #include <asm/power_interface.h>
 #include <asm/adc_api.h>
+#include <asm/mcpwm.h>
 #include "app_config.h"
 #include "board.h"
 
@@ -172,28 +173,30 @@ void plat_input(struct in_raw *raw)
     raw->trigger_stop[0] = raw->trigger_stop[1] = 0;
 }
 
-/* ---- motors: software PWM from the tick ------------------------------------
- * Each motor runs while either of two pins is high.  The stock image's motor
- * table names PC3 (left) and PB10 (right); those are driven, PB9 and PA12
- * held low.  Neither is an MCPWM channel's own pin, and through the SDK's
- * output channels (mcpwm_init with h_pin_output_ch_num) the motors did not
- * run.  So the tick switches them: a 5 ms period of 20 ticks, 200 Hz. */
+/* ---- motors: MCPWM ------------------------------------------------------
+ * Each motor runs while either of two pins is high.  Stock drives PC3 (left)
+ * from MCPWM channel 2 through an output channel and PB10 (right) from
+ * channel 3 on its own L pin (mcpwm_init inlined near 0x01e26254 in the
+ * stock image).  PB9 and PA12 are held low.  An output channel picks its pin
+ * by the pin's own PU, PD, DIE and OUT bits (gpio_output_channle), so PC3
+ * must not be reconfigured while it runs.
+ *
+ * Both run at 24 kHz, above hearing; at 6.5 kHz (stock's) they whine.  Stock
+ * sets the left one's strength by frequency (0x01e418a4: 22 kHz with duty
+ * held high for low levels, down to 130 Hz near full), which hums.
+ *
+ * At 24 kHz either motor keeps turning down to 65% duty; the left one
+ * starts from stopped only from about 80%. */
 
-#define MOTOR_STEPS     20
+#define MOTOR_HZ        24000
 
-static const u32 motor_pin[2] = { IO_PORTC_03, IO_PORTB_10 };
+static const struct {
+    u32 pin; pwm_ch_num_type ch; pwm_timer_num_type timer; u8 low_pin;
+} motor[2] = {
+    { IO_PORTC_03, pwm_ch2, pwm_timer2, 0 }, { IO_PORTB_10, pwm_ch3, pwm_timer3, 1 },
+};
 static const u32 motor_other[2] = { IO_PORTB_09, IO_PORTA_12 };
-static JL_PORT_FLASH_TypeDef *motor_port[2];
-static u32 motor_bit[2];
-static volatile u8 motor_on_ticks[2];    /* of MOTOR_STEPS */
-static u8 motor_phase;
-
-static JL_PORT_FLASH_TypeDef *port_of(u32 gpio)
-{
-    static JL_PORT_FLASH_TypeDef *const ports[] = { JL_PORTA, JL_PORTB, JL_PORTC, JL_PORTD };
-
-    return ports[gpio / 16];
-}
+static u8 motor_level[2] = { 1, 1 };
 
 static void pin_low(u32 pin)
 {
@@ -203,34 +206,42 @@ static void pin_low(u32 pin)
     gpio_direction_output(pin, 0);
 }
 
-static void motors_init(void)
+static void motor_set(u32 i, u8 level)
 {
-    u32 i;
+    struct pwm_platform_data cfg;
 
-    for (i = 0; i < 2; i++) {
-        pin_low(motor_other[i]);
-        pin_low(motor_pin[i]);
-        motor_port[i] = port_of(motor_pin[i]);
-        motor_bit[i] = BIT(motor_pin[i] % 16);
+    if (level == motor_level[i]) return;
+    motor_level[i] = level;
+    if (!level) {
+        mcpwm_ch_open_or_close(motor[i].ch, 0);
+        JL_MCPWM->MCPWM_CON0 &= ~BIT((u32)motor[i].timer + 8);
+        pin_low(motor[i].pin);
+        return;
     }
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.frequency = MOTOR_HZ;
+    cfg.pwm_ch_num = motor[i].ch;
+    cfg.pwm_timer_num = motor[i].timer;
+    cfg.duty = (u32)level * 10000 / 255;
+    cfg.pwm_aligned_mode = pwm_edge_aligned;
+    cfg.h_pin = motor[i].low_pin ? (u8)-1 : (u8)motor[i].pin;
+    cfg.l_pin = motor[i].low_pin ? (u8)motor[i].pin : (u8)-1;
+    cfg.h_pin_output_ch_num = 0;
+    mcpwm_init(&cfg);
 }
 
-static HOT void motors_tick(void)
+static void motors_init(void)
 {
-    u32 i;
-
-    for (i = 0; i < 2; i++) {
-        if (!motor_port[i]) continue;
-        if (motor_phase < motor_on_ticks[i]) motor_port[i]->OUT |= motor_bit[i];
-        else motor_port[i]->OUT &= ~motor_bit[i];
-    }
-    if (++motor_phase == MOTOR_STEPS) motor_phase = 0;
+    pin_low(motor_other[0]);
+    pin_low(motor_other[1]);
+    motor_set(0, 0);
+    motor_set(1, 0);
 }
 
 void plat_motors(u8 left, u8 right)
 {
-    motor_on_ticks[0] = (u8)(((u32)left * MOTOR_STEPS + 254) / 255);
-    motor_on_ticks[1] = (u8)(((u32)right * MOTOR_STEPS + 254) / 255);
+    motor_set(0, left);
+    motor_set(1, right);
 }
 
 /* ---- LEDs: a chain on PB0, the Home light first -----------------------------
@@ -241,9 +252,8 @@ void plat_motors(u8 left, u8 right)
  * or a read-modify-write of OUT (0.28 us) is too coarse to time edges with.
  * A bit is twelve writes, near stock's 1.7 us: a 0 two high and ten low, a
  * 1 seven high and five low.  Four high for a 1 lit nothing; six high in a
- * bit of eight lit the wrong lights.  The other port B outputs (the motors,
- * switched from the tick) hold still with interrupts off, so OUT is written
- * whole.  About 250 us with interrupts off, so a frame goes out only when it
+ * bit of eight lit the wrong lights.  The other port B outputs hold still with
+ * interrupts off, so OUT is written whole.  About 250 us with interrupts off, so a frame goes out only when it
  * changed.  (Taking over timer 2 the way stock takes timer 3 hung the pad,
  * cause not established.)  A light's bytes go out R, G, B. */
 
@@ -375,7 +385,6 @@ void board_start(void)
 HOT void board_tick(void)
 {
     matrix_tick();
-    motors_tick();
     if (guard.fails && plat_now_ms >= BOOT_HEALTHY_MS) {
         guard.fails = 0;
         plat_flush_dcache(&guard, sizeof(guard));
