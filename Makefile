@@ -11,6 +11,7 @@ include make/btstack.mk
 include make/jieli.mk
 include make/gamesir-cyclone-2.mk
 include make/gamesir-nova-lite-2.mk
+include make/android.mk
 
 .PHONY: all test
 all: gamesir-cyclone-2-all gamesir-nova-lite-2-all
