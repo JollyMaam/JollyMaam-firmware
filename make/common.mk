@@ -2,6 +2,7 @@
 
 comma := ,
 O := build
+OF := $(abspath $O)
 HOST_CC := gcc
 
 HOST_CFLAGS :=
