@@ -24,6 +24,7 @@ extern const u8 board_keep_count;
 extern const struct wakeup_param *const board_wakeups;   /* NULL: none */
 extern const u8 board_audio;             /* a DAC and headphone amplifier */
 extern const u32 board_amp_enable;       /* the amplifier, on while high */
+extern const char board_name[];          /* USB product name, including the board role */
 
 void board_latch(void);          /* first in board_init: what is held; may enter the loader */
 void board_start(void);          /* on the control thread, before the tick starts */

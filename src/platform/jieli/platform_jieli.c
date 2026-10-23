@@ -604,15 +604,19 @@ static void usb_wakeup(struct usb_device_t *usb_device)
     plat_raise(EV_USB);
 }
 
-/* The SDK's INQUIRY answer ("BR23", "UDISK", "1.00"), but the product is
- * the image's PID: a tool tells this firmware, and which board it is for,
- * from one INQUIRY, as it tells the ROM loader ("UBOOT1.00"). */
+/* Identify the tool device as GameSir and use the board's existing product
+ * name, without its repeated manufacturer prefix. SCSI INQUIRY provides
+ * eight bytes for the vendor and sixteen for the product. */
 static u32 inquiry(const struct usb_device_t *usb_device, u32 len)
 {
-    u8 d[36] = { 0x00, 0x80, 0x02, 0x02, 0x20, 0, 0, 0, 'B', 'R', '2', '3', ' ', ' ', ' ', ' ' };
+    u8 d[36] = { 0x00, 0x80, 0x02, 0x02, 0x20, 0, 0, 0,
+                 'G', 'a', 'm', 'e', 'S', 'i', 'r', ' ' };
+    const char *product = board_name;
     u32 i;
 
-    for (i = 0; i < 16; i++) d[16 + i] = i < sizeof(BOARD_PID) - 1 ? (u8)BOARD_PID[i] : ' ';
+    if (!memcmp(product, "GameSir ", 8)) product += 8;
+    memset(d + 16, ' ', 16);
+    for (i = 0; i < 16 && product[i]; i++) d[16 + i] = (u8)product[i];
     memcpy(d + 32, "1.00", 4);
     memcpy(usb_buf, d, sizeof(d));
     if (len > sizeof(d)) len = sizeof(d);
