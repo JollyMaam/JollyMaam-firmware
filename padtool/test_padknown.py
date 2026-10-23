@@ -55,7 +55,7 @@ class StockTests(unittest.TestCase):
                                          location="5-2.4", path="dongle")])
         self.assertEqual(sorted(h["path"] for h, e in found), ["dongle", "vendor"])
         dongle = next(e for h, e in found if h["path"] == "dongle")
-        self.assertEqual((dongle.pid, known.stock_name(dongle)), ("AC632N_TRANS", "GameSir Nova 2 Lite dongle"))
+        self.assertEqual((dongle.pid, known.stock_name(dongle)), ("AC632N_TRANS", "Nova 2 Lite Dongle"))
 
     def test_every_stock_device_has_a_product_and_a_way_into_its_loader(self):
         for entry in known.STOCK:

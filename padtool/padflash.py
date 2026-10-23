@@ -410,18 +410,21 @@ def select_loader(pid, source, wait=30, report=print, device_path=None, progress
             if path in seen:
                 continue
             try:
-                inquiry = scsi(path, [0x12, 0, 0, 0, 36], 36, 1000)
+                inquiry = scsi(path, [0x12, 0, 0, 0, 40], 40, 1000)
             except OSError:
                 continue
-            chip = inquiry[8:12].decode(errors="replace") if len(inquiry) == 36 else ""
-            if chip not in CHIPS:
+            chip = inquiry[8:12].decode(errors="replace") if len(inquiry) >= 36 else ""
+            if chip not in CHIPS and inquiry[36:40] != b"C2PD" and inquiry[8:16] != b"GameSir ":
                 continue
-            if inquiry[16:21] != b"UBOOT":
+            if chip not in CHIPS or inquiry[16:21] != b"UBOOT":
                 if device_path is not None:
                     raise OSError("Selected ROM loader changed mode; refresh devices before flashing")
                 try:
                     ident = scsi(path, [0xf5, 0], 64, 1000)
-                    if ident[:4] == b"C2PD" and ident[40:56].split(b"\0")[0].decode(errors="replace") != pid:
+                    if len(ident) >= 56 and ident[:4] == b"C2PD":
+                        if ident[40:56].split(b"\0")[0].decode(errors="replace") != pid:
+                            continue
+                    elif chip not in CHIPS:
                         continue
                     report(f"{path}: requesting ROM loader")
                     scsi(path, [0xfc, 0x0a] + [255] * 14, 16, 1000)

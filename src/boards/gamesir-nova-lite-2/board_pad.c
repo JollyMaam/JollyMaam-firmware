@@ -412,7 +412,7 @@ u32 imu_poll(u32 now, u8 mode)
     return 0;
 }
 
-const char board_name[] = "GameSir Nova 2 Lite pad";
+const char board_name[] = "Nova 2 Lite";
 const u8 board_audio = 0;
 const u32 board_amp_enable = 0;
 const u32 board_keep_pins[] = { PIN_HOME };

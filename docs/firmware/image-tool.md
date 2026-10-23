@@ -71,9 +71,15 @@ loader has no serial number.
 
 This firmware's tool device is the SDK's mass storage (`4c4a:4155`) with:
 
-- manufacturer string `cyclone2-firmware` and the board's name as product
-  string (e.g. "GameSir Nova 2 Lite pad"); the serial is the SDK's, from the
-  flash UID;
-- INQUIRY vendor `BR23`, product the image's PID, revision `1.00`;
+- no USB manufacturer string; the model as product (e.g. "Nova 2 Lite");
+  the serial is the SDK's, from the flash UID;
+- INQUIRY vendor blank, product the model, revision `1.00`, with the four-byte
+  `C2PD` marker in vendor-specific bytes 36–39 (40-byte response);
 - IDENTIFY (vendor command `0xf5 0x00`, 56 bytes) with the image's PID at
   byte 40.
+
+Tools select candidates by the vendor-specific INQUIRY marker and confirm
+running firmware by the `C2PD` signature in IDENTIFY, rather than its display
+names. Older firmware is also probed when it has a Jieli chip vendor or the
+previous `GameSir` SCSI vendor. ROM loaders retain their chip
+vendor and `UBOOT1.00` inquiry product.

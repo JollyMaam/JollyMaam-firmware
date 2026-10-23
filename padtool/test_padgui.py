@@ -1231,7 +1231,7 @@ class StockGuiTests(GuiCase):
     def test_stock_pad_in_command_mode_enters_its_loader(self):
         self.load([stock_record("Xbox 360 (green)")])
         label = self.app.tree.item(self.app.tree.get_children()[0], "text")
-        self.assertIn("GameSir Cyclone 2 · stock, Xbox 360 (green)", label)
+        self.assertIn("Cyclone 2 · stock, Xbox 360 (green)", label)
         self.assertEqual(self.app.active_page, self.app.stock_page)
         self.assertEqual(str(self.app.stock_enter_button.cget("state")), "normal")
         with patch.object(padgui, "usb_location", side_effect=lambda p: "5-2.3" if p == "rom" else None), \
@@ -1247,7 +1247,7 @@ class StockGuiTests(GuiCase):
         self.load([stock_record("Switch (red)", pid="AC695X_TRANS")])
         self.assertEqual(str(self.app.stock_enter_button.cget("state")), "disabled")
         text = "\n".join(self.page_text())
-        self.assertIn("GameSir Nova 2 Lite · stock, Switch (red)", text)
+        self.assertIn("Nova 2 Lite · stock, Switch (red)", text)
         self.assertIn("switch it to Xbox 360 (green) mode", text)
         with patch.object(padgui.padhid, "write") as write:
             self.app.enter_flash_loader()
@@ -1258,7 +1258,7 @@ class StockGuiTests(GuiCase):
         r = stock_record("Switch (red)")
         r.update(product_id=entry.pid, stock=entry, identity=b"stock:AC632N_TRANS::")
         self.load([r])
-        self.assertIn("GameSir Nova 2 Lite dongle · stock", self.app.tree.item(self.app.tree.get_children()[0], "text"))
+        self.assertIn("Nova 2 Lite Dongle · stock", self.app.tree.item(self.app.tree.get_children()[0], "text"))
         self.assertIn("pairing button", self.app.stock_help.get())
         self.assertIn("enter it by hand", self.app.stock_help.get())
         self.assertEqual(str(self.app.stock_enter_button.cget("state")), "disabled")
@@ -1270,8 +1270,8 @@ class StockGuiTests(GuiCase):
         rom["product_id"] = "GS_C2_ADC_DEVICE"
         self.load([ours, rom])
         labels = [self.app.tree.item(n, "text") for n in self.app.tree.get_children()]
-        self.assertTrue(any("GameSir Nova 2 Lite · this firmware" in l for l in labels))
-        self.assertTrue(any("ROM loader · GameSir Cyclone 2" in l for l in labels))
+        self.assertTrue(any("Nova 2 Lite · this firmware" in l for l in labels))
+        self.assertTrue(any("ROM loader · Cyclone 2" in l for l in labels))
 
 
 class TransportTests(unittest.TestCase):
@@ -1284,6 +1284,24 @@ class TransportTests(unittest.TestCase):
             self.assertEqual(scsi.call_count, 2)
             self.assertTrue(all(call.args[1][0] == 0x12 for call in scsi.call_args_list))
 
+    def test_discovery_uses_hidden_marker_and_identify(self):
+        identity = b"C2PD\x02\0\0\0" + bytes(80)
+        # Display names are arbitrary; only the hidden marker selects IDENTIFY.
+        for vendor, product, marker in [(b"        ", b"Any model", b"C2PD"),
+                                         (b"GameSir ", b"Old model", b""),
+                                         (b"BR23    ", b"AC695X_TRANS", b"")]:
+            inquiry = bytes(8) + vendor + product.ljust(16, b" ") + b"1.00" + marker
+            with self.subTest(vendor=vendor), \
+                 patch.object(padgui.pad, "device_paths", return_value=["ours"]), \
+                 patch.object(padgui.pad, "scsi", side_effect=[inquiry, identity]):
+                found = list(padgui.pad.discover_devices())
+                self.assertEqual(len(found), 1)
+                self.assertEqual(found[0][2], identity)
+        inquiry = bytes(8) + b"        " + b"Other disk".ljust(16, b" ") + b"1.00C2PD"
+        with patch.object(padgui.pad, "device_paths", return_value=["other"]), \
+             patch.object(padgui.pad, "scsi", side_effect=[inquiry, bytes(88)]):
+            self.assertEqual(list(padgui.pad.discover_devices()), [])
+
     def test_windows_packet_layout(self):
         h = padtransport.ScsiPassThrough
         if ctypes.sizeof(ctypes.c_void_p) == 8:
@@ -1293,7 +1311,7 @@ class TransportTests(unittest.TestCase):
 
     def test_discovery_does_not_send_vendor_commands_to_other_disks(self):
         with patch.object(padgui.pad, "device_paths", return_value=["disk"]), \
-             patch.object(padgui.pad, "inquiry", return_value="ATA System Disk"), \
+             patch.object(padgui.pad, "inquiry", return_value=b"\0" * 8 + b"ATA     System Disk     "), \
              patch.object(padgui.pad, "scsi") as scsi:
             self.assertEqual(padgui.pad.devices(), [])
             scsi.assert_not_called()

@@ -834,8 +834,8 @@ int plat_usb_take(struct bt_write *w);      /* the host's next write, 0: none */
 u16 plat_battery_mv(void);
 void plat_stats(struct plat_stats *out);
 const u8 *plat_unique_id(void);
-extern const char board_name[];   /* the board's product, e.g. "GameSir Cyclone 2 pad": the
-                                    * tool device's USB product string, IDENTIFY */
+extern const char board_name[];   /* model, e.g. "Cyclone 2" or "Cyclone 2 Dongle":
+                                    * tool USB/SCSI product, IDENTIFY, plain HID names */
 int plat_store_read(u16 key, void *buf, u16 len);
 int plat_store_write(u16 key, const void *buf, u16 len);
 u8 plat_retained_slot(void);

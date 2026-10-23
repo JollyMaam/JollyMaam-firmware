@@ -117,8 +117,9 @@ class AppModel(context: Context) {
         run("Reading device") {
             transport { tr ->
                 val inquiry = tr.transfer(byteArrayOf(0x12, 0, 0, 0, 36), 36)
-                require(inquiry.size >= 32 && inquiry.copyOfRange(8, 12).cString() == "BR23") { "This is not a BR23 tool device" }
-                loaderMode = inquiry.copyOfRange(16, 32).cString().startsWith("UBOOT")
+                require(inquiry.size >= 32) { "Incomplete device inquiry" }
+                loaderMode = inquiry.copyOfRange(8, 12).cString() == "BR23" &&
+                    inquiry.copyOfRange(16, 32).cString().startsWith("UBOOT")
                 if (loaderMode) { session = null; return@transport }
                 val pad = Protocol(tr); val id = pad.identity()
                 require(id.protocol == 1) { "Unsupported firmware protocol ${id.protocol}" }

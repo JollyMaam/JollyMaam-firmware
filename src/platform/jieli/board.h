@@ -3,7 +3,7 @@
 
 /* Between platform_jieli.c (the chip, the SDK, USB, the tick) and the board
  * file linked with it: board_pad.c (the Cyclone 2) or board_dongle.c (the
- * GameSir dongle).  Not seen by the rest of the firmware. */
+ * Cyclone 2 dongle).  Not seen by the rest of the firmware. */
 
 #include "pad.h"
 
@@ -24,7 +24,6 @@ extern const u8 board_keep_count;
 extern const struct wakeup_param *const board_wakeups;   /* NULL: none */
 extern const u8 board_audio;             /* a DAC and headphone amplifier */
 extern const u32 board_amp_enable;       /* the amplifier, on while high */
-extern const char board_name[];          /* USB product name, including the board role */
 
 void board_latch(void);          /* first in board_init: what is held; may enter the loader */
 void board_start(void);          /* on the control thread, before the tick starts */
@@ -48,7 +47,6 @@ void plat_pull_up_input(u32 gpio);
 
 /* ---- the tool device, between the platform's files ---------------------- */
 
-#define TOOL_MANUFACTURER "cyclone2-firmware"   /* its USB manufacturer string */
 void plat_usb_tool_strings(void);        /* platform_jieli_usb.c: after the SDK's mass storage starts */
 
 /* ---- audio, between the platform's files (platform_jieli_audio.c) --------- */

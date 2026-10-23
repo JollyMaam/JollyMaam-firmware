@@ -269,15 +269,28 @@ class FlashTests(unittest.TestCase):
             self.assertEqual(writes, [('hid', bytes([0x0f, 0x17, 0x55, 0x88]).ljust(64, b'\0'))])
 
     def test_our_firmware_for_another_pid_is_left_running(self):
-        inquiry = b'\0' * 8 + b'BR23    ' + b'AC695X_TRANS'.ljust(16, b' ') + b'\0' * 4
         ident = b'C2PD\x02\0\0\0' + bytes(32) + b'AC695X_TRANS'.ljust(16, b'\0')
-        def scsi(path, cdb, length, timeout_ms=3000, out=None, raw_length=False):
-            return inquiry if cdb[0] == 0x12 else ident if cdb[0] == 0xf5 else b''
-        with patch.object(flash, 'device_paths', return_value=['ours']), \
-             patch.object(flash, 'scsi', side_effect=scsi) as sent:
+        for vendor, product, marker in [(b'BR23    ', b'AC695X_TRANS', b''),
+                                        (b'GameSir ', b'Nova 2 Lite pad', b''),
+                                        (b'        ', b'Nova 2 Lite', b'C2PD')]:
+            inquiry = bytes(8) + vendor + product.ljust(16, b' ') + b'1.00' + marker
+            def scsi(path, cdb, length, timeout_ms=3000, out=None, raw_length=False):
+                return inquiry if cdb[0] == 0x12 else ident if cdb[0] == 0xf5 else b''
+            with self.subTest(vendor=vendor), \
+                 patch.object(flash, 'device_paths', return_value=['ours']), \
+                 patch.object(flash, 'scsi', side_effect=scsi) as sent:
+                with self.assertRaises(OSError):
+                    flash.select_loader('GS_C2_ADC_DEVICE', b'loader', wait=0, report=lambda _: None)
+                self.assertIn(0xf5, [call.args[1][0] for call in sent.call_args_list])
+                self.assertNotIn(0xfc, [call.args[1][0] for call in sent.call_args_list])
+
+    def test_other_disks_are_not_sent_vendor_commands(self):
+        inquiry = bytes(8) + b'ATA     ' + b'System Disk'.ljust(16, b' ') + b'1.00'
+        with patch.object(flash, 'device_paths', return_value=['disk']), \
+             patch.object(flash, 'scsi', return_value=inquiry) as sent:
             with self.assertRaises(OSError):
                 flash.select_loader('GS_C2_ADC_DEVICE', b'loader', wait=0, report=lambda _: None)
-            self.assertNotIn(0xfc, [call.args[1][0] for call in sent.call_args_list])
+            self.assertTrue(all(call.args[1][0] == 0x12 for call in sent.call_args_list))
 
     def test_loader_blob_per_chip_from_sdk_folder_or_beside_a_file(self):
         root = Path(self.temp.name) / 'sdk'

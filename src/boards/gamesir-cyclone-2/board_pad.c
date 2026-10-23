@@ -550,7 +550,7 @@ void plat_power_off(void)
     power_set_soft_poweroff();
 }
 
-const char board_name[] = "GameSir Cyclone 2 pad";
+const char board_name[] = "Cyclone 2";
 const u8 board_audio = 1;
 const u32 board_amp_enable = PIN_AMP_ENABLE;
 

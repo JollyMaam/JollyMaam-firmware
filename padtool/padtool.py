@@ -106,21 +106,25 @@ STATES = ["boot", "idle", "connecting", "pairing", "connected", "stopping", "sle
 
 def inquiry(path):
     try:
-        data = scsi(path, [0x12, 0, 0, 0, 36], 36, 1000)
+        data = scsi(path, [0x12, 0, 0, 0, 40], 40, 1000)
     except OSError:
         return None
-    return data[8:32].decode("ascii", "replace").strip()
+    return data
 
 
 def discover_devices(include_loaders=False, paths=None):
     """Yield path, name, IDENTIFY; opted-in ROM loaders have no IDENTIFY."""
     for path in device_paths() if paths is None else paths:
-        name = inquiry(path)
-        if name and name[:4] in CHIPS and "UBOOT" in name:
+        data = inquiry(path)
+        if not data or len(data) < 32:
+            continue
+        vendor = data[8:16].decode("ascii", "replace").strip()
+        name = data[8:32].decode("ascii", "replace").strip()
+        if vendor in CHIPS and data[16:21] == b"UBOOT":
             if include_loaders:
                 yield path, name, None
             continue
-        if name and name[:4] in CHIPS:
+        if vendor in CHIPS or vendor == "GameSir" or data[36:40] == b"C2PD":
             try:
                 identity = scsi(path, [OP, 0x00], 88, 1000)
                 if len(identity) >= 56 and identity[:4] == b"C2PD" and identity[6] in BOARD_IDS.values():
@@ -145,7 +149,7 @@ def devices(first=False, identities=False):
 
 
 def board_name(identity):
-    """The board IDENTIFY names, e.g. "GameSir Nova 2 Lite pad" (older firmware: its image's PID)."""
+    """The board IDENTIFY names, e.g. "Nova 2 Lite" (older firmware: its image's PID)."""
     field = identity[56:88] if len(identity) >= 88 else identity[40:56]
     return field.split(b"\0")[0].decode(errors="replace")
 

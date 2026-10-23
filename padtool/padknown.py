@@ -31,13 +31,13 @@ CHIPS = {
 
 # By the image PID: what the flash holds, what our firmware reports.
 PRODUCTS = {
-    "GS_C2_ADC_DEVICE": Product("GameSir Cyclone 2", "pad", 0x100000,
+    "GS_C2_ADC_DEVICE": Product("Cyclone 2", "pad", 0x100000,
                                 "Hold Home + Start while connecting USB."),
-    "GS_C2_Dongle": Product("GameSir Cyclone 2 dongle", "dongle", 0x80000,
+    "GS_C2_Dongle": Product("Cyclone 2 Dongle", "dongle", 0x80000,
                             "This firmware: hold the dongle's button while connecting USB."),
-    "AC695X_TRANS": Product("GameSir Nova 2 Lite", "pad", 0x100000,
+    "AC695X_TRANS": Product("Nova 2 Lite", "pad", 0x100000,
                             "Stock firmware: switch it to Xbox 360 mode (green) and use Enter flash loader."),
-    "AC632N_TRANS": Product("GameSir Nova 2 Lite dongle", "dongle", 0x80000,
+    "AC632N_TRANS": Product("Nova 2 Lite Dongle", "dongle", 0x80000,
                             "Hold its pairing button while connecting USB, and on after."),
 }
 

@@ -604,20 +604,17 @@ static void usb_wakeup(struct usb_device_t *usb_device)
     plat_raise(EV_USB);
 }
 
-/* Identify the tool device as GameSir and use the board's existing product
- * name, without its repeated manufacturer prefix. SCSI INQUIRY provides
- * eight bytes for the vendor and sixteen for the product. */
+/* The model is the product; the vendor field is blank. Tools recognize the
+ * firmware through IDENTIFY rather than a display name. */
 static u32 inquiry(const struct usb_device_t *usb_device, u32 len)
 {
-    u8 d[36] = { 0x00, 0x80, 0x02, 0x02, 0x20, 0, 0, 0,
-                 'G', 'a', 'm', 'e', 'S', 'i', 'r', ' ' };
-    const char *product = board_name;
+    u8 d[40] = { 0x00, 0x80, 0x02, 0x02, 35, 0, 0, 0 };
     u32 i;
 
-    if (!memcmp(product, "GameSir ", 8)) product += 8;
-    memset(d + 16, ' ', 16);
-    for (i = 0; i < 16 && product[i]; i++) d[16 + i] = (u8)product[i];
+    memset(d + 8, ' ', 24);
+    for (i = 0; i < 16 && board_name[i]; i++) d[16 + i] = (u8)board_name[i];
     memcpy(d + 32, "1.00", 4);
+    memcpy(d + 36, "C2PD", 4);    /* vendor-specific data, not a display string */
     memcpy(usb_buf, d, sizeof(d));
     if (len > sizeof(d)) len = sizeof(d);
     if (len) msd_mcu2usb(usb_device, usb_buf, len);

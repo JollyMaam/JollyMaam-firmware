@@ -1531,7 +1531,7 @@ static void crc_cipher(uint8_t *p, size_t n, uint32_t key) {
 /* IDENTIFY byte 6 distinguishes our pad and dongle builds. Keep firmware for
  * the other board running; stock firmware is selected by PID in the loader. */
 /* ---- what is connected -------------------------------------------------------
- * A disk is classified by INQUIRY: vendor "BR23" is a Jieli chip; product
+ * INQUIRY identifies Jieli ROM loaders and SDK firmware; product
  * "UBOOT1.00" its ROM loader.  Our firmware answers IDENTIFY ("C2PD", the
  * image's PID at 40); other Jieli SDK firmware answers neither (its PID is
  * known only once its loader reads the flash).  A stock pad that shows
@@ -1541,21 +1541,27 @@ static void crc_cipher(uint8_t *p, size_t n, uint32_t key) {
 enum disk_class { DISK_OTHER, DISK_LOADER, DISK_OURS, DISK_JIELI };
 
 static enum disk_class classify_disk(device_fd fd, char pid[17], int *chip) {
-  uint8_t cdb[6] = {0x12, 0, 0, 0, 36, 0}, q[36];
+  uint8_t cdb[6] = {0x12, 0, 0, 0, 40, 0}, q[40] = {0};
   uint8_t id[16] = {0xf5, 0x00}, ident[56] = {0};
   pid[0] = 0;
   *chip = -1;
-  if (!sg(fd, cdb, 6, SG_DXFER_FROM_DEV, q, 36, 2000) || (*chip = chip_of(q + 8)) < 0)
+  if (!sg(fd, cdb, 6, SG_DXFER_FROM_DEV, q, sizeof q, 2000))
     return DISK_OTHER;
-  if (!memcmp(q + 16, "UBOOT", 5))
+  *chip = chip_of(q + 8);
+  if (*chip >= 0 && !memcmp(q + 16, "UBOOT", 5))
     return DISK_LOADER;
+  /* C2PD is vendor-specific INQUIRY data. Accept older chip/GameSir vendor
+   * names too, but never probe unrelated disks with a vendor command. */
+  if (*chip < 0 && memcmp(q + 36, "C2PD", 4) && memcmp(q + 8, "GameSir ", 8))
+    return DISK_OTHER;
   if (sg(fd, id, 16, SG_DXFER_FROM_DEV, ident, sizeof ident, 2000) &&
       !memcmp(ident, "C2PD", 4)) {
+    *chip = chip_of((const uint8_t *)"BR23"); /* this protocol runs on BR23 */
     memcpy(pid, ident + 40, 16);
     pid[16] = 0;
     return DISK_OURS;
   }
-  return DISK_JIELI;
+  return *chip >= 0 ? DISK_JIELI : DISK_OTHER;
 }
 
 static const struct {
@@ -1569,20 +1575,20 @@ static const struct {
   const char *by_hand;          /* where no mode has a command */
 } stock_hid[] = {
   /* docs/gamesir-cyclone2/stock-pad-dongle.md (3.52) */
-  {"GS_C2_ADC_DEVICE", "GameSir Cyclone 2", "Xbox 360 (green)", 0x3537, 0x1053, 0x0352,
+  {"GS_C2_ADC_DEVICE", "Cyclone 2", "Xbox 360 (green)", 0x3537, 0x1053, 0x0352,
    NULL, NULL, 0xfff0, 64, {0x0f, 0x17, 0x55, 0x88, 0x00}},
-  {"GS_C2_ADC_DEVICE", "GameSir Cyclone 2", "Switch (red)", 0x057e, 0x2009, 0x0352,
+  {"GS_C2_ADC_DEVICE", "Cyclone 2", "Switch (red)", 0x057e, 0x2009, 0x0352,
    NULL, "Gamepad", 0, 0, {0}},
-  {"GS_C2_ADC_DEVICE", "GameSir Cyclone 2", "DS4 (blue)", 0x054c, 0x09cc, 0x0352,
+  {"GS_C2_ADC_DEVICE", "Cyclone 2", "DS4 (blue)", 0x054c, 0x09cc, 0x0352,
    "Guangzhou Chicken Run Network Technology Co., Ltd.", NULL, 0, 0, {0}},
   /* docs/gamesir-nova-lite-2/ */
-  {"AC695X_TRANS", "GameSir Nova 2 Lite", "Xbox 360 (green)", 0x3537, 0x100f, 0x0100,
+  {"AC695X_TRANS", "Nova 2 Lite", "Xbox 360 (green)", 0x3537, 0x100f, 0x0100,
    NULL, NULL, 0xff7a, 65, {0x00, 0xf2, 0x00, 0x04, 0xf6}},
-  {"AC695X_TRANS", "GameSir Nova 2 Lite", "Switch (red)", 0x057e, 0x2009, 0x0200,
+  {"AC695X_TRANS", "Nova 2 Lite", "Switch (red)", 0x057e, 0x2009, 0x0200,
    "Zikway", "Pro Controller", 0, 0, {0}},
-  {"AC695X_TRANS", "GameSir Nova 2 Lite", "DS4 (blue)", 0x054c, 0x09cc, 0x0100,
+  {"AC695X_TRANS", "Nova 2 Lite", "DS4 (blue)", 0x054c, 0x09cc, 0x0100,
    "Sony Computer Entertainment", "Wireless Controller", 0, 0, {0}},
-  {"AC632N_TRANS", "GameSir Nova 2 Lite dongle", "", 0x3537, 0x2106, 0x0100, "Zikway", "HID zk", 0,
+  {"AC632N_TRANS", "Nova 2 Lite Dongle", "", 0x3537, 0x2106, 0x0100, "Zikway", "HID zk", 0,
    0, {0}, "hold its pairing button while connecting USB"},
 };
 #define STOCK_HID_COUNT (sizeof stock_hid / sizeof stock_hid[0])
