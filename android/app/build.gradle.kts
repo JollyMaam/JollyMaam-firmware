@@ -1,5 +1,5 @@
 plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
-providers.gradleProperty("cycloneOutputDir").orNull?.let { outputDir ->
+providers.gradleProperty("outputDir").orNull?.let { outputDir ->
     layout.buildDirectory.set(rootProject.file(outputDir).resolve("app"))
 }
 android {
