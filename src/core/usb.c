@@ -14,7 +14,8 @@
  *   `0x00` IDENTIFY       in (56): magic `C2PD`, u16 protocol, board (6: 0
  *                         pad, 1 dongle), build ID (16 chars at 8), flash UID
  *                         (16 at 24), the image's PID (16 chars at 40,
- *                         NUL-padded)
+ *                         NUL-padded); asked for 88 or more:
+ *                         board_name (32 chars at 56, NUL-padded)
  *   `0x01` STATUS         in (16): state, slot, USB powered, low battery, u16
  *                         battery mV, u32 uptime ms, ephemeral (12), settings
  *                         items collected (13)
@@ -141,6 +142,10 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         if (uid) memcpy(data + 24, uid, 16);
         strncpy((char *)data + 40, BOARD_PID, 16);
         n = 56;
+        if (max >= 88) {
+            strncpy((char *)data + 56, board_name, 32);
+            n = 88;
+        }
         break;
     }
     case CMD_STATUS:
@@ -322,6 +327,7 @@ static int tool_only_seen;
 void dongle_tool_only(void) { tool_only_seen++; }
 #endif
 static const u8 uid[16] = { 1, 2, 3 };
+const char board_name[] = "Test pad";
 #ifndef BOARD_DONGLE
 const struct ux_led_demo ux_led_demos[] = { { "one" }, { "two" } };
 const u8 ux_led_demo_count = 2;
@@ -365,9 +371,10 @@ int main(void)
     struct ctl_request r;
 
     CHECK(usb_command(cdb, data, 40, 0) == 0);
-    CHECK(usb_command(cdb, data, sizeof(data), 0) == 56);
+    CHECK(usb_command(cdb, data, 87, 0) == 56);
     CHECK(!memcmp(data, "C2PD", 4) && data[4] == PROTOCOL && data[25] == 2);
     CHECK(!strncmp((char *)data + 40, BOARD_PID, 16));
+    CHECK(usb_command(cdb, data, sizeof(data), 0) == 88 && !strcmp((char *)data + 56, board_name));
     CHECK(data[6] == BOARD_KIND && data[7] == 0);
 #ifdef BOARD_DONGLE
     cdb[1] = CMD_TARGET;

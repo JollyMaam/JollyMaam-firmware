@@ -93,7 +93,7 @@ The pad is a mass-storage device with no medium; commands are vendor SCSI
 CDBs (see the comment at the top of src/core/usb.c).  Flashing is tools/jlnewfw.c's (make gamesir-cyclone-2-pad-flash).
 """
 import argparse, collections, glob, json, os, struct, sys, threading, time
-from padtransport import scsi, device_paths
+from padtransport import scsi, device_paths, usb_location
 import padcurves
 import padremap
 from padknown import CHIPS
@@ -122,7 +122,7 @@ def discover_devices(include_loaders=False, paths=None):
             continue
         if name and name[:4] in CHIPS:
             try:
-                identity = scsi(path, [OP, 0x00], 64, 1000)
+                identity = scsi(path, [OP, 0x00], 88, 1000)
                 if len(identity) >= 56 and identity[:4] == b"C2PD" and identity[6] in BOARD_IDS.values():
                     yield path, name, identity
             except OSError:
@@ -144,13 +144,22 @@ def devices(first=False, identities=False):
     return found
 
 
+def board_name(identity):
+    """The board IDENTIFY names, e.g. "GameSir Nova 2 Lite pad" (older firmware: its image's PID)."""
+    field = identity[56:88] if len(identity) >= 88 else identity[40:56]
+    return field.split(b"\0")[0].decode(errors="replace")
+
+
 def matching():
-    """(path, flash ID) of the devices --device (or the earlier choice) picks."""
-    found = [(path, identity[24:40].hex()) for path, _, identity in devices(identities=True)]
+    """(path, flash ID, identity) of the devices --device (or the earlier
+    choice) picks: by path, USB port, part of the flash ID or board name."""
+    found = [(path, identity[24:40].hex(), identity) for path, _, identity in devices(identities=True)]
     if DEVICE_ID:
         return [d for d in found if d[1] == DEVICE_ID]
     if DEVICE:
-        return [d for d in found if d[0] == DEVICE or DEVICE.lower() in d[1]]
+        key = DEVICE.lower()
+        return [d for d in found if d[0] == DEVICE or usb_location(d[0]) == DEVICE
+                or key in d[1] or key in board_name(d[2]).lower()]
     return found
 
 
@@ -191,9 +200,10 @@ def need_device():
         sys.exit(f"padtool: no {BOARD} {'matching ' + DEVICE + ' ' if DEVICE else ''}found "
                  f"(is it plugged in and running this firmware?)")
     if len(found) > 1:
-        lines = "\n".join(f"  {path}  flash-id {fid}" for path, fid in found)
-        sys.exit(f"padtool: {len(found)} {BOARD}s found; pick one with --device PATH or part of its flash ID "
-                 f"(padtool find):\n{lines}")
+        lines = "\n".join(f"  {path}  usb {usb_location(path) or '?'}  {board_name(ident)}  flash-id {fid}"
+                           for path, fid, ident in found)
+        sys.exit(f"padtool: {len(found)} {BOARD}s found; pick one with --device and its path, USB port, "
+                 f"part of its board name or flash ID (padtool find):\n{lines}")
     DEVICE_ID = found[0][1]
     return found[0][0]
 
@@ -213,11 +223,12 @@ def cmd(path, sub, arg=0, length=0, out=None):
 
 
 def identify(path):
-    d = cmd(path, 0x00, length=64)
+    d = cmd(path, 0x00, length=88)
     proto, = struct.unpack_from("<H", d, 4)
     build = d[8:24].split(b"\0")[0].decode()
     pid = d[40:56].split(b"\0")[0].decode()
-    return f"protocol {proto} pid {pid} build {build} flash-id {d[24:40].hex()}"
+    board = f"{board_name(d)}, " if len(d) >= 88 else ""
+    return f"{board}usb {usb_location(path) or '?'} protocol {proto} pid {pid} build {build} flash-id {d[24:40].hex()}"
 
 
 def status(path):
@@ -1293,7 +1304,7 @@ def main():
     p.add_argument("--seconds", type=float, help="led-demo: show each this long, then the next; rumble: how long (1);"
                    " rumble-test: play them all, this long apart")
     p.add_argument("-d", "--device", help="which pad or dongle, when several are connected: its path, "
-                   "or part of its flash ID (padtool find)")
+                   "USB port (5-2.1), or part of its board name (nova) or flash ID (padtool find)")
     def percent_range(text):
         try:
             low, high = (int(v) for v in text.split("-"))
