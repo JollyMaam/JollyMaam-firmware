@@ -630,6 +630,15 @@ struct ux_timeouts {
 
 struct ux_colours { u8 idle, battery; u16 idle_brightness, battery_brightness; };
 
+/* The board's defaults for the remap settings rumble_*, steps 1-RUMBLE_STEPS:
+ * [left, right] percent duty for the lightest and the full rumble, and full
+ * power this long when a motor starts.  Its motors set them. */
+struct board_rumble {
+    u8 min[2][RUMBLE_STEPS], max[2][RUMBLE_STEPS];
+    u8 kick_ms[RUMBLE_STEPS];
+};
+extern const struct board_rumble board_rumble;
+
 extern const struct ux_timeouts ux_timeouts;
 extern const u8 ux_usb_autoconnect;
 extern const struct ux_colours ux_colours;
@@ -809,7 +818,7 @@ void plat_unlock(void);
 void plat_boot_info(struct plat_boot *out);
 void plat_input(struct in_raw *raw);
 void plat_leds(const struct led_frame *f);
-void plat_motors(u8 left, u8 right);
+void plat_motors(u8 left, u8 right);       /* duty of 255 */
 int plat_usb_present(void);
 int plat_usb_suspended(void);               /* the host suspended the bus (3 ms quiet) */
 void plat_usb_service(void);

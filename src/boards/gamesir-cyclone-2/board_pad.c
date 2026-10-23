@@ -516,6 +516,13 @@ void plat_motors(u8 left, u8 right)
     motor_set(1, right);
 }
 
+/* From testing (54a377a). */
+const struct board_rumble board_rumble = {
+    .min = { { 15, 20, 25, 25, 25 }, { 15, 15, 15, 15, 15 } },
+    .max = { { 35, 55, 75, 80, 90 }, { 50, 60, 70, 80, 90 } },
+    .kick_ms = { 0, 0, 0, 25, 30 },
+};
+
 
 /* ---- the rest of the board interface --------------------------------------- */
 

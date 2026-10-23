@@ -32,7 +32,6 @@ struct set_field {
 
 #define RGB24(r, g, b)       ((r) | (g) << 8 | (u32)(b) << 16)
 #define PER_SLOT(...)        .slot_def = (const u32[SLOTS]){ __VA_ARGS__ }
-#define PER_STEP(...)        .list_def = (const u8[RUMBLE_STEPS]){ __VA_ARGS__ }
 #define FIELD(f)             .offset = offsetof(struct set_slot, f), \
                              .size = sizeof(((struct set_slot *)0)->f)
 
@@ -227,16 +226,16 @@ static const struct set_field remap_fields[] = {
       .def = 3, .help = "how strong the motors are: each step has its own motor ranges and kick "
                         "(developer settings); Home+M then L1/R1 changes it until a disconnect" },
     { .id = 19, .flags = F_DEV, .name = "rumble_left_min", .type = T_LIST, .max = 100, REMAP(rumble_min[0]),
-      PER_STEP(15, 20, 25, 25, 25), .help = "left motor, steps 1-5: percent power for the lightest rumble; "
+      .list_def = board_rumble.min[0], .help = "left motor, steps 1-5: percent power for the lightest rumble; "
                                             "rumble between this and the max spreads evenly" },
     { .id = 20, .flags = F_DEV, .name = "rumble_left_max", .type = T_LIST, .max = 100, REMAP(rumble_max[0]),
-      PER_STEP(35, 55, 75, 80, 90), .help = "left motor, steps 1-5: percent power for full rumble" },
+      .list_def = board_rumble.max[0], .help = "left motor, steps 1-5: percent power for full rumble" },
     { .id = 21, .flags = F_DEV, .name = "rumble_right_min", .type = T_LIST, .max = 100, REMAP(rumble_min[1]),
-      PER_STEP(15, 15, 15, 15, 15), .help = "right motor, steps 1-5: percent power for the lightest rumble" },
+      .list_def = board_rumble.min[1], .help = "right motor, steps 1-5: percent power for the lightest rumble" },
     { .id = 22, .flags = F_DEV, .name = "rumble_right_max", .type = T_LIST, .max = 100, REMAP(rumble_max[1]),
-      PER_STEP(50, 60, 70, 80, 90), .help = "right motor, steps 1-5: percent power for full rumble" },
+      .list_def = board_rumble.max[1], .help = "right motor, steps 1-5: percent power for full rumble" },
     { .id = 23, .flags = F_DEV, .name = "rumble_kick_ms", .type = T_LIST, .max = 255, REMAP(rumble_kick_ms),
-      PER_STEP(0, 0, 0, 25, 30), .help = "steps 1-5: a motor starting from stopped runs at full power "
+      .list_def = board_rumble.kick_ms, .help = "steps 1-5: a motor starting from stopped runs at full power "
                                          "this long first, so a low minimum still starts it; 0: no kick" },
     { .id = 24, .flags = F_DEV, .name = "mouse_layout", .type = T_ENUM, .names = layouts, REMAP(mouse_layout),
       .def = 0, .help = "mouse: what each control does; from the next connect" },
@@ -939,6 +938,11 @@ int plat_store_write(u16 key, const void *buf, u16 len)
 }
 u32 plat_ms(void) { return ms; }
 const u8 *plat_unique_id(void) { return uid; }
+const struct board_rumble board_rumble = {
+    .min = { { 15, 20, 25, 25, 25 }, { 15, 15, 15, 15, 15 } },
+    .max = { { 35, 55, 75, 80, 90 }, { 50, 60, 70, 80, 90 } },
+    .kick_ms = { 0, 0, 0, 25, 30 },
+};
 void util_log(const char *fmt, ...) { (void)fmt; }
 void util_put16(u8 *p, u16 v) { p[0] = (u8)v; p[1] = (u8)(v >> 8); }
 

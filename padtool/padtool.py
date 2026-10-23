@@ -27,7 +27,8 @@
     padtool rumble-sticks [--step N] [--left MIN-MAX] [--right MIN-MAX] [--kick MS] [--full]
                                   left stick up/down sets one strength, spread
                                   over each motor's range as the firmware does
-                                  (its defaults for step N, 3 unless given;
+                                  (the pad's base remap settings for step N, 3
+                                  unless given;
                                   --full: 0-100, no kick), right stick
                                   left/right the balance;
                                   each stays where it is left (L1: strength 0,
@@ -984,11 +985,16 @@ def nudge(value, push, dt, low, high, rate=0.4):
     return max(low, min(high, value + push * rate * (high - low) * dt))
 
 
-# The firmware's defaults per rumble step 1-5: (left range, right range, kick ms),
-# from rumble_{left,right}_{min,max} and rumble_kick_ms.
-RUMBLE_STEP_DEFAULTS = (((15, 35), (15, 50), 0), ((20, 55), (15, 60), 0), ((25, 75), (15, 70), 0),
-                        ((25, 80), (15, 80), 25), ((25, 90), (15, 90), 30))
-RUMBLE_STEP_DEFAULT = 3
+RUMBLE_STEP_DEFAULT = 3         # the rumble setting's default step
+
+
+def rumble_step_settings(path, step):
+    """The base remap's ((left min, max), (right min, max), kick ms) for a rumble
+    step, as the pad has them: each board has its own defaults."""
+    values = read_target(path, fields(path), BASE_TARGET)
+    at = lambda name: values[name][0][step - 1]
+    return ((at("rumble_left_min"), at("rumble_left_max")),
+            (at("rumble_right_min"), at("rumble_right_max")), at("rumble_kick_ms"))
 
 
 def motor_percent(strength, low, high):
@@ -996,8 +1002,7 @@ def motor_percent(strength, low, high):
     return 0.0 if strength <= 0 else low + (high - low) * strength / 100
 
 
-def rumble_sticks(path, ranges=RUMBLE_STEP_DEFAULTS[RUMBLE_STEP_DEFAULT - 1][:2],
-                  kick_ms=RUMBLE_STEP_DEFAULTS[RUMBLE_STEP_DEFAULT - 1][2]):
+def rumble_sticks(path, ranges, kick_ms):
     """Left stick up/down: one strength, spread over each motor's range as the
     firmware does, a kick when a motor starts; right stick left/right: the
     balance.  Each stays where it is left; L1 zeroes the strength, R1 evens
@@ -1318,7 +1323,7 @@ def main():
             raise argparse.ArgumentTypeError("MIN-MAX with 0 <= MIN <= MAX <= 100")
         return low, high
     p.add_argument("--step", type=int, choices=range(1, 6), default=RUMBLE_STEP_DEFAULT,
-                   help="rumble-sticks: the firmware's default ranges and kick for this rumble step")
+                   help="rumble-sticks: the pad's ranges and kick for this rumble step")
     p.add_argument("--left", type=percent_range, metavar="MIN-MAX",
                    help="rumble-sticks: left motor percent range")
     p.add_argument("--right", type=percent_range, metavar="MIN-MAX",
@@ -1438,9 +1443,10 @@ def main():
         elif a.args:
             p.error("rumble-sticks takes no arguments, only options")
         else:
-            left, right, kick = RUMBLE_STEP_DEFAULTS[a.step - 1]
             if a.full:
                 left, right, kick = (0, 100), (0, 100), 0
+            else:
+                left, right, kick = rumble_step_settings(path, a.step)
             rumble_sticks(path, (a.left or left, a.right or right), kick if a.kick is None else a.kick)
     elif a.command in ("rumble", "rumble-test"):
         path = need_device()

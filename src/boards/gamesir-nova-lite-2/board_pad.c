@@ -185,8 +185,8 @@ void plat_input(struct in_raw *raw)
  * sets the left one's strength by frequency (0x01e418a4: 22 kHz with duty
  * held high for low levels, down to 130 Hz near full), which hums.
  *
- * At 24 kHz either motor keeps turning down to 65% duty; the left one
- * starts from stopped only from about 80%. */
+ * At 24 kHz either motor keeps turning down to 65% duty: the rumble
+ * defaults start there.  No kick. */
 
 #define MOTOR_HZ        24000
 
@@ -243,6 +243,12 @@ void plat_motors(u8 left, u8 right)
     motor_set(0, left);
     motor_set(1, right);
 }
+
+const struct board_rumble board_rumble = {
+    .min = { { 65, 65, 65, 70, 75 }, { 65, 65, 65, 70, 75 } },
+    .max = { { 75, 85, 100, 100, 100 }, { 75, 85, 100, 100, 100 } },
+    .kick_ms = { 0, 0, 0, 0, 0 },
+};
 
 /* ---- LEDs: a chain on PB0, the Home light first -----------------------------
  * The stock image clocks 18 bytes, MSB first, out of PB0 from RAM code with
