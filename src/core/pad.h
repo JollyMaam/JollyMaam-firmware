@@ -625,8 +625,14 @@ struct ux_timeouts {
     u16 led_frame_ms;
     u16 usb_plug_ms;
     u32 config_ms;           /* remap config mode with no key pressed */
-    u16 rumble_feedback_ms;  /* config mode L1/R1: the new step at full strength */
+    u16 rumble_pulse_ms;     /* config mode L1/R1: one pulse per rumble step */
+    u16 rumble_gap_ms;       /* silence between feedback pulses */
 };
+
+/* Config rumble feedback at elapsed ms: whether the motors are on, and the
+ * next edge in elapsed ms (0: finished). Restart by passing elapsed 0 with
+ * the new level; level 0 ends immediately. */
+int ux_rumble_feedback(u8 level, u32 elapsed, u32 *next);
 
 struct ux_colours { u8 idle, battery; };
 

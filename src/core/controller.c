@@ -77,7 +77,8 @@ static struct {
      * there (remap_chosen) and until the tools next change a setting. */
     u8 rumble_step, rumble_step_set;
     u32 rumble_step_edits;
-    u8 rumble_raw;               /* the test duties are padtool's: no kick */
+    u8 rumble_feedback_level;    /* config indicator: this many pulses, no kick */
+    u32 rumble_feedback_since, rumble_feedback_next;
     u8 motor_on[2], kicking[2];  /* a motor started: full power until kick_until */
     u32 kick_until[2];
     struct led_state led;
@@ -378,7 +379,7 @@ static void handle(struct ctl_request r, u32 now)
     case REQ_RUMBLE:
         c.rumble_test[0] = r.motor[0];
         c.rumble_test[1] = r.motor[1];
-        c.rumble_raw = 1;
+        c.rumble_feedback_level = 0;
         c.rumble_testing = r.ms != 0;
         c.rumble_test_until = now + (r.ms < RUMBLE_TEST_MAX_MS ? r.ms : RUMBLE_TEST_MAX_MS);
         break;
@@ -391,11 +392,9 @@ static void handle(struct ctl_request r, u32 now)
         c.rumble_step_set = 1;
         c.rumble_step_edits = set_edits();
         util_log("rumble step %u", step);
-        c.rumble_test[0] = motor_duty(255, 0);
-        c.rumble_test[1] = motor_duty(255, 1);
-        c.rumble_raw = 0;
-        c.rumble_testing = step != 0;
-        c.rumble_test_until = now + ux_timeouts.rumble_feedback_ms;
+        c.rumble_testing = 0;
+        c.rumble_feedback_level = step;
+        c.rumble_feedback_since = now;
         break;
     }
     case REQ_REMAP:
@@ -813,7 +812,7 @@ static void kick(u8 motor[2], u32 now, int allowed)
             c.kicking[i] = 1;
             c.kick_until[i] = now + ms;
         }
-        if (!motor[i] || (s32)(now - c.kick_until[i]) >= 0) c.kicking[i] = 0;
+        if (!allowed || !motor[i] || (s32)(now - c.kick_until[i]) >= 0) c.kicking[i] = 0;
         c.motor_on[i] = motor[i] != 0;
         if (c.kicking[i]) motor[i] = 255;
     }
@@ -847,7 +846,18 @@ static void outputs(u32 now)
         motor[0] = c.rumble_test[0];
         motor[1] = c.rumble_test[1];
     }
-    kick(motor, now, !(c.rumble_testing && c.rumble_raw));
+    if (c.rumble_feedback_level) {
+        u32 next;
+        int on = ux_rumble_feedback(c.rumble_feedback_level, now - c.rumble_feedback_since, &next);
+
+        if (next) {
+            const struct set_remap *m = remap_settings();
+            motor[0] = on ? 255u * m->rumble_min[0][RUMBLE_STEPS - 1] / 100 : 0;
+            motor[1] = on ? 255u * m->rumble_min[1][RUMBLE_STEPS - 1] / 100 : 0;
+            c.rumble_feedback_next = c.rumble_feedback_since + next;
+        } else c.rumble_feedback_level = 0;
+    }
+    kick(motor, now, !c.rumble_testing && !c.rumble_feedback_level);
     plat_motors(motor[0], motor[1]);
     if ((s32)(now - c.led_next) < 0) {
         if (c.dithering && (s32)(now - c.dither_next) >= 0) show(now);
@@ -1151,6 +1161,7 @@ void ctl_main(void)
         deadline = earliest(deadline, remap_deadline());
         if (c.dithering) deadline = earliest(deadline, c.dither_next);
         if (c.rumble_testing) deadline = earliest(deadline, c.rumble_test_until);
+        if (c.rumble_feedback_level) deadline = earliest(deadline, c.rumble_feedback_next);
         if (c.kicking[0]) deadline = earliest(deadline, c.kick_until[0]);
         if (c.kicking[1]) deadline = earliest(deadline, c.kick_until[1]);
         if (c.calibrating) deadline = earliest(deadline, now + CAL_SAMPLE_MS);

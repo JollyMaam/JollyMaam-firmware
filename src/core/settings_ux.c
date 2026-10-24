@@ -17,9 +17,23 @@ const struct ux_timeouts ux_timeouts = {
     .led_frame_ms = 20,
     .usb_plug_ms = 1000,
     .config_ms = 30000,          /* remap config mode, from its last key press */
-    .rumble_feedback_ms = 1000,
+    .rumble_pulse_ms = 80,
+    .rumble_gap_ms = 80,
 };
 
+
+/* Derive the phase from elapsed time so a late wake skips missed edges. */
+int ux_rumble_feedback(u8 level, u32 elapsed, u32 *next)
+{
+    u32 pulse = ux_timeouts.rumble_pulse_ms;
+    u32 period = pulse + ux_timeouts.rumble_gap_ms;
+    u32 index = elapsed / period, phase = elapsed % period;
+
+    *next = 0;
+    if (!level || index >= level || (index == level - 1u && phase >= pulse)) return 0;
+    *next = index * period + (phase < pulse ? pulse : period);
+    return phase < pulse;
+}
 
 /* Idle, a USB host appearing (a plug-in, or the host waking) connects the
  * last slot if it is usb or bluetooth+usb.  Off: the tool device stays, for
@@ -549,6 +563,29 @@ int main(void)
     run(ux_timeouts.config_ms - 1000); pad.buttons = PAD_R1; run(1); pad.buttons = 0;
     run(ux_timeouts.config_ms - 1); CHECK(ux_config(NULL));
     run(1); CHECK(!ux_config(NULL) && last.kind == REQ_NONE);
+    /* Every level has exactly that many pulses, ending without a trailing
+     * gap. A new level starts on immediately, even during an old gap. */
+    {
+        u32 edge, period = ux_timeouts.rumble_pulse_ms + ux_timeouts.rumble_gap_ms;
+        for (u8 level = 1; level <= RUMBLE_STEPS; level++) {
+            u32 end = (level - 1u) * period + ux_timeouts.rumble_pulse_ms;
+            u32 count = 0;
+            int previous = 0;
+            for (u32 elapsed = 0; elapsed <= end; elapsed++) {
+                int on = ux_rumble_feedback(level, elapsed, &edge);
+                if (on && !previous) count++;
+                if (elapsed < end) CHECK(edge > elapsed && edge <= end);
+                else CHECK(!on && !edge);
+                previous = on;
+            }
+            CHECK(count == level);
+        }
+        CHECK(!ux_rumble_feedback(5, ux_timeouts.rumble_pulse_ms, &edge) && edge == period);
+        CHECK(ux_rumble_feedback(2, 0, &edge) && edge == ux_timeouts.rumble_pulse_ms);
+        CHECK(!ux_rumble_feedback(0, 0, &edge) && !edge);
+        CHECK(!ux_rumble_feedback(0, 30, &edge) && !edge);
+        CHECK(!ux_rumble_feedback(3, 10000, &edge) && !edge);
+    }
     /* L1 and R1 step the rumble level and stay in it. */
     config();
     pad.buttons = PAD_L1; run(10); pad.buttons = 0; run(1);
