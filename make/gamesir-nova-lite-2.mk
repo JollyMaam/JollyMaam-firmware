@@ -15,7 +15,7 @@ BTSTACK_USERS += src/boards/gamesir-cyclone-2/bt_pad.c
 NOVA2LITE_PAD := gamesir-nova-lite-2-pad
 $(NOVA2LITE_PAD)_FLASH_SIZE := 0x100000
 $(NOVA2LITE_PAD)_PID := AC695X_TRANS
-$(NOVA2LITE_PAD)_DEFINES :=
+$(NOVA2LITE_PAD)_DEFINES := -DLED_DEFAULT_BRIGHTNESS_SCALE=4
 $(NOVA2LITE_PAD)_LOADER_HINT := Stock firmware: Xbox 360 mode (green).
 $(NOVA2LITE_PAD)_BOARD_DIR := src/boards/gamesir-cyclone-2
 

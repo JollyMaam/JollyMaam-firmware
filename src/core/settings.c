@@ -165,13 +165,13 @@ static const struct set_field palette_fields[] = {
     ENTRY(14, 255, 0, 255), /* magenta */
     ENTRY(15, 255, 0, 128), /* pink */
     { .id = 17, .name = "steady_brightness", .type = T_NUMBER, .max = 2550, BRIGHTNESS(steady),
-      .def = 10, .help = "Home and the player lights while connected, and steady grips: tenths of "
+      .def = 10 * LED_DEFAULT_BRIGHTNESS_SCALE, .help = "Home and the player lights while connected, and steady grips: tenths of "
                          "the LEDs' smallest step (10 is 1 of 255); in-between values need dithering" },
     { .id = 18, .name = "animation_brightness", .type = T_NUMBER, .max = 2550, BRIGHTNESS(animation),
-      .def = 400, .help = "animated grips and player lights (fade, rumble, input, rainbow, heartbeat), "
+      .def = 400 * LED_DEFAULT_BRIGHTNESS_SCALE, .help = "animated grips and player lights (fade, rumble, input, rainbow, heartbeat), "
                           "in tenths of the LEDs' smallest step" },
     { .id = 19, .name = "connect_brightness", .type = T_NUMBER, .max = 2550, BRIGHTNESS(connect),
-      .def = 50, .help = "the lights while connecting and pairing, in tenths of the LEDs' smallest step" },
+      .def = 50 * LED_DEFAULT_BRIGHTNESS_SCALE, .help = "the lights while connecting and pairing, in tenths of the LEDs' smallest step" },
     { .id = 20, .flags = F_DEV, .name = "dither_ms", .type = T_NUMBER, .max = 20, BRIGHTNESS(dither_ms),
       .def = 2, .help = "experiment: refresh dim lights this often (ms), alternating the steps on either "
                         "side, for brightness between them and smooth dim fades; 0 off" },
@@ -1081,8 +1081,10 @@ int main(void)
         CHECK(c.r == 0 && c.g == 255 && c.b == 0);
         c = set_colour(set_slot(6)->connect_colour);               /* left: orange */
         CHECK(c.r == 255 && c.g == 102 && c.b == 0);
-        CHECK(set_brightness()->steady == 10 && set_brightness()->animation == 400 &&
-              set_brightness()->connect == 50 && set_brightness()->dither_ms == 2);
+        CHECK(set_brightness()->steady == 10 * LED_DEFAULT_BRIGHTNESS_SCALE &&
+              set_brightness()->animation == 400 * LED_DEFAULT_BRIGHTNESS_SCALE &&
+              set_brightness()->connect == 50 * LED_DEFAULT_BRIGHTNESS_SCALE &&
+              set_brightness()->dither_ms == 2);
     }
 
     store_writes = 0;

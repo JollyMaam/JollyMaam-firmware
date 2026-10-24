@@ -43,8 +43,8 @@ u32 ux_idle_deadline(u32 idle_since, u32 activity_ms, u32 usb_seen_ms,
 /* Palette roles: white idle, orange battery (settings.c); brightness here,
  * in tenths of the LEDs' smallest step.  The rest is the palette's. */
 const struct ux_colours ux_colours = {
-    .idle = 0, .idle_brightness = 50,
-    .battery = 3, .battery_brightness = 50,
+    .idle = 0, .idle_brightness = 50 * LED_DEFAULT_BRIGHTNESS_SCALE,
+    .battery = 3, .battery_brightness = 50 * LED_DEFAULT_BRIGHTNESS_SCALE,
 };
 
 /* padtool led-demo shows these in turn. */

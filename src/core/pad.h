@@ -388,6 +388,12 @@ enum { PLAYERS_OFF, PLAYERS_HOST, PLAYERS_FADE, PLAYERS_PRIMARY, PLAYERS_SECONDA
 
 #define PALETTE 16
 
+/* Board multiplier for default LED levels, including idle and battery.
+ * Saved palette brightness values stay in absolute LED steps. */
+#ifndef LED_DEFAULT_BRIGHTNESS_SCALE
+#define LED_DEFAULT_BRIGHTNESS_SCALE 1
+#endif
+
 /* How bright each kind of light is, for the whole pad (the palette's
  * settings): tenths of the LEDs' smallest step (10: 1 of 255). */
 struct set_brightness {
