@@ -8,13 +8,14 @@
 
 /* GameSir Nova 2 Lite (PID AC695X_TRANS): a BR23 pad with Hall sticks and
  * triggers on the ADC, a key matrix, two motors, no IMU.  Pins from
- * docs/gamesir-nova-2-lite/.  Not known yet: a USB sense pin, the charger,
- * a power latch.  Soft power-off wakes on Home. */
+ * docs/gamesir-nova-2-lite/.  Soft power-off wakes on Home or USB insertion.
+ * Not known yet: the charger and a power latch. */
 
 #define PIN_HOME        IO_PORTB_01
 #define PIN_M           IO_PORTB_02
 #define PIN_R1          IO_PORTB_05
 #define PIN_L1          IO_PORTB_07
+#define PIN_USB_SENSE   IO_PORTA_00
 
 /* ---- buttons on their own pin: debounced by the platform's tick ----------- */
 
@@ -367,6 +368,10 @@ void board_latch(void)
     boot_wakeup_source = P33_CON_GET(P3_WKUP_SRC);
     boot_wakeup_pending = P33_CON_GET(P3_WKUP_PND);
     for (i = 0; i < board_line_count; i++) plat_pull_up_input(board_lines[i].gpio);
+    gpio_set_pull_up(PIN_USB_SENSE, 0);
+    gpio_set_pull_down(PIN_USB_SENSE, 0);
+    gpio_direction_input(PIN_USB_SENSE);
+    gpio_set_die(PIN_USB_SENSE, 1);
     matrix_init();
     boot.buttons_held = held_now();
     if ((boot.buttons_held & (PAD_HOME | PAD_START)) == (PAD_HOME | PAD_START))
@@ -384,7 +389,7 @@ void board_latch(void)
     plat_flush_dcache(&guard, sizeof(guard));
     boot.cause = (boot.buttons_held & PAD_HOME) ||
                  ((boot_wakeup_source & BIT(1)) && (boot_wakeup_pending & BIT(1)))
-                 ? BOOT_HOME : BOOT_POWER_ON;
+                 ? BOOT_HOME : gpio_read(PIN_USB_SENSE) ? BOOT_USB : BOOT_POWER_ON;
 }
 
 void plat_boot_info(struct plat_boot *out)
@@ -416,11 +421,11 @@ void board_to_loader(void)
 {
 }
 
-/* No sense pin known: let loader entry proceed. Runtime USB detection uses
- * bus frames in the platform. */
+/* Active-high on PA0 (also connected to PC7), with no pull-up/down.
+ * Runtime USB detection still uses bus frames in the platform. */
 int board_usb_sense(void)
 {
-    return 1;
+    return gpio_read(PIN_USB_SENSE);
 }
 
 int board_jack(void)
@@ -452,15 +457,22 @@ const u32 board_amp_enable = 0;
 /* Home and Menu's matrix row/column must read correctly in board_latch(),
  * before power_init() restores the pins parked during soft power-off.
  * Otherwise a Home wake could appear to hold the Home+Menu loader chord. */
-const u32 board_keep_pins[] = { PIN_HOME, IO_PORTA_06, IO_PORTC_02 };
+const u32 board_keep_pins[] = { PIN_HOME, IO_PORTA_06, IO_PORTC_02, PIN_USB_SENSE };
 const u8 board_keep_count = sizeof(board_keep_pins) / sizeof(board_keep_pins[0]);
 
 static struct port_wakeup home_wakeup = {
     .pullup_down_enable = ENABLE, .edge = FALLING_EDGE,
     .attribute = BLUETOOTH_RESUME, .iomap = PIN_HOME, .filter_enable = ENABLE,
 };
+static struct port_wakeup usb_wakeup_port = {
+    .pullup_down_enable = DISABLE, .edge = RISING_EDGE,
+    .attribute = BLUETOOTH_RESUME, .iomap = PIN_USB_SENSE, .filter_enable = ENABLE,
+};
+/* The chip's internal charger has no input; USB wakes through PA0. */
+static const struct charge_wakeup charge_wkup = { .attribute = 0 };
 static const struct sub_wakeup sub_wkup = { .attribute = BLUETOOTH_RESUME };
 static const struct wakeup_param wakeups = {
-    .port[1] = &home_wakeup, .sub = &sub_wkup,
+    .port[1] = &home_wakeup, .port[2] = &usb_wakeup_port,
+    .sub = &sub_wkup, .charge = &charge_wkup,
 };
 const struct wakeup_param *const board_wakeups = &wakeups;

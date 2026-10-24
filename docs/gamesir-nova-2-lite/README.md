@@ -182,6 +182,15 @@ some 1 us for a 1):
 
 ## Power
 
+`PA0` is an active-high USB sense input: high with USB connected, low with
+it disconnected, with both internal pulls disabled. It is electrically
+connected to `PC7`.
+
+The BR23 can enter soft power-off and wake on either Home (`PB1`, falling
+edge with a pull-up) or USB insertion (`PA0`, rising edge without pulls).
+A brief Home tap can be released before the app starts; the GPIO wake
+flags remain available to identify it.
+
 With USB connected, the BR23's LDOIN detectors read 0: `LDO5V_DET` (bit 5
 of `P3_LDO5V_CON`) and `LVCMP_DET` (bit 5 of `P3_LVCMP_CON`, LDOIN against
 VBAT), after `LDO5V_EN(1)`, `LVCMP_EN(1)`, `LVCMP_CMP_SEL(1)`. The chip's
@@ -190,6 +199,7 @@ read 4064 mV, then 4152 mV about an hour later, USB connected throughout.
 
 ## Not established
 
-Whether the pad has lights other than Home, USB presence and the charger IC; why each motor has two pins; what drives
-`PA2` and links `PA0` with `PC7`; whether a button combination enters the
-pad's loader (Home + Menu, GameSir's instruction for its updater, did not).
+Whether the pad has lights other than Home, the charger IC and USB sense
+circuit; why each motor has two pins; what drives `PA2`; whether a button
+combination enters the stock pad's loader (Home + Menu, GameSir's
+instruction for its updater, did not).
