@@ -7,8 +7,8 @@
 
 /* GameSir Nova 2 Lite (PID AC695X_TRANS): a BR23 pad with Hall sticks and
  * triggers on the ADC, a key matrix, two motors, no IMU.  Pins from
- * docs/gamesir-nova-2-lite/.  Not known yet: USB presence, the charger, a
- * power latch; so USB is taken as present, and power-off restarts. */
+ * docs/gamesir-nova-2-lite/.  Not known yet: a USB sense pin, the charger,
+ * a power latch.  Soft power-off wakes on Home. */
 
 #define PIN_HOME        IO_PORTB_01
 #define PIN_M           IO_PORTB_02
@@ -406,7 +406,8 @@ void board_to_loader(void)
 {
 }
 
-/* No sense pin known: USB is taken as there. */
+/* No sense pin known: let loader entry proceed. Runtime USB detection uses
+ * bus frames in the platform. */
 int board_usb_sense(void)
 {
     return 1;
@@ -417,12 +418,15 @@ int board_jack(void)
     return 0;
 }
 
-/* No wake-up source is set up yet, so soft power-off could not be left.
- * With USB taken as present the controller does not get here; restart if
- * it does. */
 void plat_power_off(void)
 {
-    plat_reboot();
+    struct led_frame dark = { 0 };
+
+    plat_watch_stop();
+    plat_motors(0, 0);
+    plat_leds(&dark);
+    plat_mdelay(1);              /* the LED chain latches after its data stays low */
+    power_set_soft_poweroff();
 }
 
 /* No motion sensor. */
@@ -435,6 +439,18 @@ u32 imu_poll(u32 now, u8 mode)
 const char board_name[] = "Nova 2 Lite";
 const u8 board_audio = 0;
 const u32 board_amp_enable = 0;
-const u32 board_keep_pins[] = { PIN_HOME };
+/* Home and Menu's matrix row/column must read correctly in board_latch(),
+ * before power_init() restores the pins parked during soft power-off.
+ * Otherwise a Home wake could appear to hold the Home+Menu loader chord. */
+const u32 board_keep_pins[] = { PIN_HOME, IO_PORTA_06, IO_PORTC_02 };
 const u8 board_keep_count = sizeof(board_keep_pins) / sizeof(board_keep_pins[0]);
-const struct wakeup_param *const board_wakeups = NULL;
+
+static struct port_wakeup home_wakeup = {
+    .pullup_down_enable = ENABLE, .edge = FALLING_EDGE,
+    .attribute = BLUETOOTH_RESUME, .iomap = PIN_HOME, .filter_enable = ENABLE,
+};
+static const struct sub_wakeup sub_wkup = { .attribute = BLUETOOTH_RESUME };
+static const struct wakeup_param wakeups = {
+    .port[1] = &home_wakeup, .sub = &sub_wkup,
+};
+const struct wakeup_param *const board_wakeups = &wakeups;
