@@ -517,7 +517,7 @@ void plat_motors(u8 left, u8 right)
 }
 
 /* From testing (54a377a). */
-const struct board_led board_led = {
+const struct board_led_brightness board_led_brightness = {
     .steady = 10, .animation = 400, .connect = 50,
     .idle = 50, .battery = 50,
 };

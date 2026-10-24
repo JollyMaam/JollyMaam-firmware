@@ -886,8 +886,8 @@ static void outputs(u32 now)
     in.connect_colour = shade(shown->connect_colour, b->connect);
     in.primary_colour = shade(shown->primary_colour, demo && demo->steady ? demo->steady : b->steady);
     in.secondary_colour = shade(shown->secondary_colour, demo && demo->steady ? demo->steady : b->steady);
-    in.idle_colour = shade(ux_colours.idle, board_led.idle);
-    in.battery_colour = shade(ux_colours.battery, board_led.battery);
+    in.idle_colour = shade(ux_colours.idle, board_led_brightness.idle);
+    in.battery_colour = shade(ux_colours.battery, board_led_brightness.battery);
     in.animation = demo && demo->animation ? demo->animation : b->animation;
     in.grips = demo ? demo->grips : slot->grips;
     in.player_lights = demo ? demo->players : slot->players;

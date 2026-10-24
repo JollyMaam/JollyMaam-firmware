@@ -166,13 +166,13 @@ static const struct set_field palette_fields[] = {
     ENTRY(14, 255, 0, 255), /* magenta */
     ENTRY(15, 255, 0, 128), /* pink */
     { .id = 17, .name = "steady_brightness", .type = T_NUMBER, .max = 2550, BRIGHTNESS(steady),
-      .number_def = &board_led.steady, .help = "Home and the player lights while connected, and steady grips: tenths of "
+      .number_def = &board_led_brightness.steady, .help = "Home and the player lights while connected, and steady grips: tenths of "
                          "the LEDs' smallest step (10 is 1 of 255); in-between values need dithering" },
     { .id = 18, .name = "animation_brightness", .type = T_NUMBER, .max = 2550, BRIGHTNESS(animation),
-      .number_def = &board_led.animation, .help = "animated grips and player lights (fade, rumble, input, rainbow, heartbeat), "
+      .number_def = &board_led_brightness.animation, .help = "animated grips and player lights (fade, rumble, input, rainbow, heartbeat), "
                           "in tenths of the LEDs' smallest step" },
     { .id = 19, .name = "connect_brightness", .type = T_NUMBER, .max = 2550, BRIGHTNESS(connect),
-      .number_def = &board_led.connect, .help = "the lights while connecting and pairing, in tenths of the LEDs' smallest step" },
+      .number_def = &board_led_brightness.connect, .help = "the lights while connecting and pairing, in tenths of the LEDs' smallest step" },
     { .id = 20, .flags = F_DEV, .name = "dither_ms", .type = T_NUMBER, .max = 20, BRIGHTNESS(dither_ms),
       .def = 2, .help = "experiment: refresh dim lights this often (ms), alternating the steps on either "
                         "side, for brightness between them and smooth dim fades; 0 off" },
@@ -940,7 +940,7 @@ int plat_store_write(u16 key, const void *buf, u16 len)
 }
 u32 plat_ms(void) { return ms; }
 const u8 *plat_unique_id(void) { return uid; }
-const struct board_led board_led = {
+const struct board_led_brightness board_led_brightness = {
     .steady = 40, .animation = 1600, .connect = 200,
     .idle = 200, .battery = 200,
 };
@@ -1087,9 +1087,9 @@ int main(void)
         CHECK(c.r == 0 && c.g == 255 && c.b == 0);
         c = set_colour(set_slot(6)->connect_colour);               /* left: orange */
         CHECK(c.r == 255 && c.g == 102 && c.b == 0);
-        CHECK(set_brightness()->steady == board_led.steady &&
-              set_brightness()->animation == board_led.animation &&
-              set_brightness()->connect == board_led.connect &&
+        CHECK(set_brightness()->steady == board_led_brightness.steady &&
+              set_brightness()->animation == board_led_brightness.animation &&
+              set_brightness()->connect == board_led_brightness.connect &&
               set_brightness()->dither_ms == 2);
     }
 
@@ -1353,13 +1353,13 @@ int main(void)
         for (u32 at = 3; at + 3 <= n; at += 3u + defaults[at + 2]) {
             if (defaults[at] != 17) continue;
             CHECK(!defaults[at + 1] && defaults[at + 2] == 2);
-            CHECK((defaults[at + 3] | (u16)defaults[at + 4] << 8) == board_led.steady);
+            CHECK((defaults[at + 3] | (u16)defaults[at + 4] << 8) == board_led_brightness.steady);
             found = 1;
         }
         CHECK(found && set_brightness()->steady == 15);
         CHECK(write1(TARGET_PALETTE, 17, 0, NULL) == SET_OK);
         set_apply();
-        CHECK(set_brightness()->steady == board_led.steady);
+        CHECK(set_brightness()->steady == board_led_brightness.steady);
     }
 
     /* Ephemeral: applied, never stored, pairing included. */

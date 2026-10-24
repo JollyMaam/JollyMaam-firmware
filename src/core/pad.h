@@ -633,11 +633,11 @@ struct ux_colours { u8 idle, battery; };
 /* The board's LED defaults, in tenths of the LEDs' smallest step.
  * Palette settings override steady, animation and connect; idle and battery
  * use the board levels directly. */
-struct board_led {
+struct board_led_brightness {
     u16 steady, animation, connect;
     u16 idle, battery;
 };
-extern const struct board_led board_led;
+extern const struct board_led_brightness board_led_brightness;
 
 /* The board's defaults for the remap settings rumble_*, steps 1-RUMBLE_STEPS:
  * [left, right] percent duty for the lightest and the full rumble, and full

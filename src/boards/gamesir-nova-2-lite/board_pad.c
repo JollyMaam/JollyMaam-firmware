@@ -244,7 +244,7 @@ void plat_motors(u8 left, u8 right)
     motor_set(1, right);
 }
 
-const struct board_led board_led = {
+const struct board_led_brightness board_led_brightness = {
     .steady = 40, .animation = 1600, .connect = 200,
     .idle = 200, .battery = 200,
 };
