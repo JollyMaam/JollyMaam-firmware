@@ -851,9 +851,7 @@ static void outputs(u32 now)
         int on = ux_rumble_feedback(c.rumble_feedback_level, now - c.rumble_feedback_since, &next);
 
         if (next) {
-            const struct set_remap *m = remap_settings();
-            motor[0] = on ? 255u * m->rumble_min[0][RUMBLE_STEPS - 1] / 100 : 0;
-            motor[1] = on ? 255u * m->rumble_min[1][RUMBLE_STEPS - 1] / 100 : 0;
+            motor[0] = motor[1] = on ? 255 : 0;
             c.rumble_feedback_next = c.rumble_feedback_since + next;
         } else c.rumble_feedback_level = 0;
     }
