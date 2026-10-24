@@ -827,7 +827,7 @@ static void outputs(u32 now)
     struct led_inputs in;
     u32 plugged = now - c.usb_plugged_ms;
     u8 scene = c.kind, armed = ux_armed();
-    int rumble = c.kind == CTL_CONNECTED && !c.calibrating;
+    int rumble = c.kind == CTL_CONNECTED && !c.calibrating && !ux_config(NULL);
     u8 motor[2];
 
     if (c.prof && c.prof->host) c.prof->host(now, &c.host);
