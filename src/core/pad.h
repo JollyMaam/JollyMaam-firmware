@@ -388,12 +388,6 @@ enum { PLAYERS_OFF, PLAYERS_HOST, PLAYERS_FADE, PLAYERS_PRIMARY, PLAYERS_SECONDA
 
 #define PALETTE 16
 
-/* Board multiplier for default LED levels, including idle and battery.
- * Saved palette brightness values stay in absolute LED steps. */
-#ifndef LED_DEFAULT_BRIGHTNESS_SCALE
-#define LED_DEFAULT_BRIGHTNESS_SCALE 1
-#endif
-
 /* How bright each kind of light is, for the whole pad (the palette's
  * settings): tenths of the LEDs' smallest step (10: 1 of 255). */
 struct set_brightness {
@@ -634,7 +628,16 @@ struct ux_timeouts {
     u16 rumble_feedback_ms;  /* config mode L1/R1: the new step at full strength */
 };
 
-struct ux_colours { u8 idle, battery; u16 idle_brightness, battery_brightness; };
+struct ux_colours { u8 idle, battery; };
+
+/* The board's LED defaults, in tenths of the LEDs' smallest step.
+ * Palette settings override steady, animation and connect; idle and battery
+ * use the board levels directly. */
+struct board_led {
+    u16 steady, animation, connect;
+    u16 idle, battery;
+};
+extern const struct board_led board_led;
 
 /* The board's defaults for the remap settings rumble_*, steps 1-RUMBLE_STEPS:
  * [left, right] percent duty for the lightest and the full rumble, and full

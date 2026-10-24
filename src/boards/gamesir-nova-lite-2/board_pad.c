@@ -244,6 +244,11 @@ void plat_motors(u8 left, u8 right)
     motor_set(1, right);
 }
 
+const struct board_led board_led = {
+    .steady = 40, .animation = 1600, .connect = 200,
+    .idle = 200, .battery = 200,
+};
+
 const struct board_rumble board_rumble = {
     .min = { { 65, 65, 65, 70, 75 }, { 65, 65, 65, 70, 75 } },
     .max = { { 75, 85, 100, 100, 100 }, { 75, 85, 100, 100, 100 } },

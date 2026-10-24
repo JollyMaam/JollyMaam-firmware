@@ -24,6 +24,7 @@ struct set_field {
     const char *const *names;   /* T_ENUM, NULL-terminated */
     u32 def;                 /* little-endian bytes of the default */
     const u32 *slot_def;     /* slot fields: a default per slot instead; NULL: def */
+    const u16 *number_def;   /* T_NUMBER: the board's default instead of def */
     const u8 *list_def;      /* T_LIST: its default numbers */
     const char *help;
     u8 flags;                /* F_DEV: a developer setting (padtool --dev) */
@@ -165,13 +166,13 @@ static const struct set_field palette_fields[] = {
     ENTRY(14, 255, 0, 255), /* magenta */
     ENTRY(15, 255, 0, 128), /* pink */
     { .id = 17, .name = "steady_brightness", .type = T_NUMBER, .max = 2550, BRIGHTNESS(steady),
-      .def = 10 * LED_DEFAULT_BRIGHTNESS_SCALE, .help = "Home and the player lights while connected, and steady grips: tenths of "
+      .number_def = &board_led.steady, .help = "Home and the player lights while connected, and steady grips: tenths of "
                          "the LEDs' smallest step (10 is 1 of 255); in-between values need dithering" },
     { .id = 18, .name = "animation_brightness", .type = T_NUMBER, .max = 2550, BRIGHTNESS(animation),
-      .def = 400 * LED_DEFAULT_BRIGHTNESS_SCALE, .help = "animated grips and player lights (fade, rumble, input, rainbow, heartbeat), "
+      .number_def = &board_led.animation, .help = "animated grips and player lights (fade, rumble, input, rainbow, heartbeat), "
                           "in tenths of the LEDs' smallest step" },
     { .id = 19, .name = "connect_brightness", .type = T_NUMBER, .max = 2550, BRIGHTNESS(connect),
-      .def = 50 * LED_DEFAULT_BRIGHTNESS_SCALE, .help = "the lights while connecting and pairing, in tenths of the LEDs' smallest step" },
+      .number_def = &board_led.connect, .help = "the lights while connecting and pairing, in tenths of the LEDs' smallest step" },
     { .id = 20, .flags = F_DEV, .name = "dither_ms", .type = T_NUMBER, .max = 20, BRIGHTNESS(dither_ms),
       .def = 2, .help = "experiment: refresh dim lights this often (ms), alternating the steps on either "
                         "side, for brightness between them and smooth dim fades; 0 off" },
@@ -350,6 +351,7 @@ static const struct set_field *find(u8 t, u8 id, u32 *bit)
 /* A field's default in target t (a slot's own, if it has one). */
 static u32 field_def(const struct set_field *f, u8 t)
 {
+    if (f->number_def) return *f->number_def;
     return f->slot_def && t < SLOTS ? f->slot_def[t] : f->def;
 }
 
@@ -938,6 +940,10 @@ int plat_store_write(u16 key, const void *buf, u16 len)
 }
 u32 plat_ms(void) { return ms; }
 const u8 *plat_unique_id(void) { return uid; }
+const struct board_led board_led = {
+    .steady = 40, .animation = 1600, .connect = 200,
+    .idle = 200, .battery = 200,
+};
 const struct board_rumble board_rumble = {
     .min = { { 15, 20, 25, 25, 25 }, { 15, 15, 15, 15, 15 } },
     .max = { { 35, 55, 75, 80, 90 }, { 50, 60, 70, 80, 90 } },
@@ -1081,9 +1087,9 @@ int main(void)
         CHECK(c.r == 0 && c.g == 255 && c.b == 0);
         c = set_colour(set_slot(6)->connect_colour);               /* left: orange */
         CHECK(c.r == 255 && c.g == 102 && c.b == 0);
-        CHECK(set_brightness()->steady == 10 * LED_DEFAULT_BRIGHTNESS_SCALE &&
-              set_brightness()->animation == 400 * LED_DEFAULT_BRIGHTNESS_SCALE &&
-              set_brightness()->connect == 50 * LED_DEFAULT_BRIGHTNESS_SCALE &&
+        CHECK(set_brightness()->steady == board_led.steady &&
+              set_brightness()->animation == board_led.animation &&
+              set_brightness()->connect == board_led.connect &&
               set_brightness()->dither_ms == 2);
     }
 
@@ -1339,6 +1345,22 @@ int main(void)
     set_apply();
     CHECK(pal.entry[4].r == 0x10 && set_slot(0)->connect_colour == 4 && set_slot(0)->primary_colour == 6);
     CHECK(set_brightness()->steady == 15);
+    {
+        u8 defaults[256];
+        u32 n = set_read_defaults(TARGET_PALETTE, defaults, sizeof(defaults));
+        int found = 0;
+
+        for (u32 at = 3; at + 3 <= n; at += 3u + defaults[at + 2]) {
+            if (defaults[at] != 17) continue;
+            CHECK(!defaults[at + 1] && defaults[at + 2] == 2);
+            CHECK((defaults[at + 3] | (u16)defaults[at + 4] << 8) == board_led.steady);
+            found = 1;
+        }
+        CHECK(found && set_brightness()->steady == 15);
+        CHECK(write1(TARGET_PALETTE, 17, 0, NULL) == SET_OK);
+        set_apply();
+        CHECK(set_brightness()->steady == board_led.steady);
+    }
 
     /* Ephemeral: applied, never stored, pairing included. */
     set_poll(ms, 1);

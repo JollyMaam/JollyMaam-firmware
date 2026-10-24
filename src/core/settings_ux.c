@@ -40,11 +40,10 @@ u32 ux_idle_deadline(u32 idle_since, u32 activity_ms, u32 usb_seen_ms,
     return (s32)(offline - unplug) > 0 ? offline : unplug;
 }
 
-/* Palette roles: white idle, orange battery (settings.c); brightness here,
- * in tenths of the LEDs' smallest step.  The rest is the palette's. */
+/* Palette roles: white idle, orange battery (settings.c); board LED levels. */
 const struct ux_colours ux_colours = {
-    .idle = 0, .idle_brightness = 50 * LED_DEFAULT_BRIGHTNESS_SCALE,
-    .battery = 3, .battery_brightness = 50 * LED_DEFAULT_BRIGHTNESS_SCALE,
+    .idle = 0,
+    .battery = 3,
 };
 
 /* padtool led-demo shows these in turn. */
