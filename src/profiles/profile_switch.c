@@ -581,21 +581,14 @@ static void s2_flash_read(u32 a, u8 *out, u16 n)
 
     /* Factory serial: 16 bytes at 0x13002 (ndeadly's memory_layout.md).
      * Render 14 hex digits and two NULs directly into overlapping reads.
-     * Hash all 16 UID bytes; no serial buffer or pairing-dependent state. */
+     * Use the first seven UID bytes; no serial buffer or hashing. */
     if (a < 0x13012 && a + n > 0x13002) {
         const u8 *uid = plat_unique_id();
-        u32 h = 2166136261u, g = 2166136261u ^ 0x5a5a5a5au;
-
-        for (i = 0; i < 16; i++) {
-            u8 byte = uid ? uid[i] : 0;
-            h = (h ^ byte) * 16777619u;
-            g = (g ^ byte) * 16777619u;
-        }
         for (k = 0; k < n; k++) {
             u32 pos = a + k - 0x13002;
             if (pos >= 16) continue;
-            out[k] = pos < 8 ? "0123456789ABCDEF"[(h >> (28 - 4 * pos)) & 15] :
-                     pos < 14 ? "0123456789ABCDEF"[(g >> (20 - 4 * (pos - 8))) & 15] : 0;
+            out[k] = pos < 14 ? "0123456789ABCDEF"[((uid ? uid[pos / 2] : 0) >>
+                                                 (pos & 1 ? 0 : 4)) & 15] : 0;
         }
     }
 }
@@ -1187,7 +1180,7 @@ int main(void)
         CHECK(!memcmp(full + 18, "\x7e\x05\x69\x20", 4));
         for (u32 i = 2; i < 16; i++)
             CHECK((full[i] >= '0' && full[i] <= '9') || (full[i] >= 'A' && full[i] <= 'F'));
-        CHECK(!full[16] && !full[17]);
+        CHECK(!memcmp(full + 2, "01020304050607\0", 16));
         for (u32 offset = 0; offset < sizeof(full); offset++) {
             s2_flash_read(0x13000 + offset, partial, sizeof(full) - offset);
             CHECK(!memcmp(partial, full + offset, sizeof(full) - offset));
@@ -1199,7 +1192,7 @@ int main(void)
         for (u32 i = 0; i < sizeof(test_uid); i++) {
             test_uid[i] ^= 1;
             s2_flash_read(0x13002, serial, sizeof(serial));
-            CHECK(memcmp(serial, full + 2, sizeof(serial)));
+            CHECK((memcmp(serial, full + 2, sizeof(serial)) != 0) == (i < 7));
             test_uid[i] ^= 1;
         }
         s2_flash_read(0x13002, serial, sizeof(serial));
@@ -1207,7 +1200,8 @@ int main(void)
         test_no_uid = 1;
         s2_flash_read(0x13002, serial, sizeof(serial));
         s2_flash_read(0x13002, partial, sizeof(serial));
-        CHECK(!memcmp(serial, partial, sizeof(serial)) && !serial[14] && !serial[15]);
+        CHECK(!memcmp(serial, partial, sizeof(serial)));
+        CHECK(!memcmp(serial, "00000000000000\0", sizeof(serial)));
         test_no_uid = 0;
     }
 
