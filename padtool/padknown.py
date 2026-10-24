@@ -22,7 +22,7 @@ class Chip:
 
 
 # By a ROM loader's INQUIRY vendor (the BD19's from kagaimiq's jl-uboot-tool
-# data; docs/gamesir-nova-lite-2/).
+# data; docs/gamesir-nova-2-lite/).
 CHIPS = {
     "BR23": Chip(0x12000, "br23loader.bin", "br23"),
     "BD19": Chip(0x2000, "bd19loader.bin", "bd19"),
@@ -59,7 +59,7 @@ class StockMode:
 
 
 # Stock firmware that shows itself only as HID (docs/gamesir-cyclone2/
-# stock-pad-dongle.md, docs/gamesir-nova-lite-2/README.md).
+# stock-pad-dongle.md, docs/gamesir-nova-2-lite/README.md).
 STOCK = [
     StockMode("GS_C2_ADC_DEVICE", "", "Xbox 360 (green)", 0x3537, 0x1053, 0x0352,
               usage_page=0xfff0, report=bytes([0x0f, 0x17, 0x55, 0x88]), length=64),

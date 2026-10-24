@@ -53,7 +53,7 @@ stamps (see the Cyclone 2's flash map); `flash --keep` carries them over.
 
 The stock pads' entries are the Cyclone 2's and the Nova 2 Lite's modes from
 [../gamesir-cyclone2/stock-pad-dongle.md](../gamesir-cyclone2/stock-pad-dongle.md)
-and [../gamesir-nova-lite-2/](../gamesir-nova-lite-2/README.md). A pad in a
+and [../gamesir-nova-2-lite/](../gamesir-nova-2-lite/README.md). A pad in a
 mode without a command is named, with the mode that has one.
 
 `flash`, `loader` and `backup` first survey everything connected. A

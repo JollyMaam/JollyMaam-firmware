@@ -10,9 +10,9 @@ include make/host.mk
 include make/btstack.mk
 include make/jieli.mk
 include make/gamesir-cyclone-2.mk
-include make/gamesir-nova-lite-2.mk
+include make/gamesir-nova-2-lite.mk
 include make/android.mk
 
 .PHONY: all test
-all: gamesir-cyclone-2-all gamesir-nova-lite-2-all
-test: gamesir-cyclone-2-test gamesir-nova-lite-2-test
+all: gamesir-cyclone-2-all gamesir-nova-2-lite-all
+test: gamesir-cyclone-2-test gamesir-nova-2-lite-test

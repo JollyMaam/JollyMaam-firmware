@@ -4,7 +4,7 @@
 |---|---|
 | [jieli/](jieli/README.md) | the Jieli BR23 SoC and SDK: chip, memory, flash and VM format, image format, radio, reset and loader. True of any BR23 board |
 | [gamesir-cyclone2/](gamesir-cyclone2/README.md) | the GameSir Cyclone 2 pad and the GameSir dongle: pins, peripherals, audio wiring, flash map, the stock firmware and its protocol |
-| [gamesir-nova-lite-2/](gamesir-nova-lite-2/README.md) | the GameSir Nova 2 Lite pad: chip, flash layout, stock USB interfaces, loader entry |
+| [gamesir-nova-2-lite/](gamesir-nova-2-lite/README.md) | the GameSir Nova 2 Lite pad: chip, flash layout, stock USB interfaces, loader entry |
 | [firmware/](firmware/README.md) | this firmware: build, image tool, what it keeps in RAM and flash, power policy, console wake |
 
 A fact about the chip or SDK goes in `jieli/`; a fact about one board goes in

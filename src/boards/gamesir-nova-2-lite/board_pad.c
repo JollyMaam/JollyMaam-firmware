@@ -7,7 +7,7 @@
 
 /* GameSir Nova 2 Lite (PID AC695X_TRANS): a BR23 pad with Hall sticks and
  * triggers on the ADC, a key matrix, two motors, no IMU.  Pins from
- * docs/gamesir-nova-lite-2/.  Not known yet: USB presence, the charger, a
+ * docs/gamesir-nova-2-lite/.  Not known yet: USB presence, the charger, a
  * power latch; so USB is taken as present, and power-off restarts. */
 
 #define PIN_HOME        IO_PORTB_01

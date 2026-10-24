@@ -69,13 +69,13 @@ controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`)
     make test                              # every product's unit tests
     make -j32 gamesir-cyclone-2-pad        # build/gamesir-cyclone-2-pad/
     make gamesir-cyclone-2-pad-flash       # over USB, through the ROM loader
-    make gamesir-nova-lite-2-pad-loader    # into the ROM loader and wait there (every board has -loader)
+    make gamesir-nova-2-lite-pad-loader    # into the ROM loader and wait there (every board has -loader)
     build/host/jlnewfw scan                # loaders, our firmware, stock pads (and their mode), by USB port
-    make gamesir-nova-lite-2-pad-flash DEVICE=5-2.1   # one of several of the same board
+    make gamesir-nova-2-lite-pad-flash DEVICE=5-2.1   # one of several of the same board
     make -j32 gamesir-cyclone-2-dongle     # build/gamesir-cyclone-2-dongle/
     make gamesir-cyclone-2-dongle-flash    # packed for the connected dongle's key
     make -j32 gamesir-cyclone-2-all        # both boards
-    make -j32 gamesir-nova-lite-2-pad      # the Nova 2 Lite (no pins yet)
+    make -j32 gamesir-nova-2-lite-pad      # the Nova 2 Lite (no pins yet)
     make gamesir-cyclone-2-pad-test        # one board's unit tests
 
 The build is in `make/`: `common.mk` and `host.mk` are shared, `jieli.mk`

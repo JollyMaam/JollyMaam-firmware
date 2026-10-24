@@ -1364,7 +1364,7 @@ static bool restarting(const char *path) {
 
 /* The chips whose ROM loader we drive, by the INQUIRY vendor it answers, with
  * the SDK's RAM loader for each and where it runs (the BD19 from kagaimiq's
- * jl-uboot-tool data; docs/gamesir-nova-lite-2/). */
+ * jl-uboot-tool data; docs/gamesir-nova-2-lite/). */
 static const struct {
   const char *chip, *blob, *sdk_dir; /* sdk_dir: under the SDK's cpu/ */
   uint32_t address;
@@ -1581,7 +1581,7 @@ static const struct {
    NULL, "Gamepad", 0, 0, {0}},
   {"GS_C2_ADC_DEVICE", "Cyclone 2", "DS4 (blue)", 0x054c, 0x09cc, 0x0352,
    "Guangzhou Chicken Run Network Technology Co., Ltd.", NULL, 0, 0, {0}},
-  /* docs/gamesir-nova-lite-2/ */
+  /* docs/gamesir-nova-2-lite/ */
   {"AC695X_TRANS", "Nova 2 Lite", "Xbox 360 (green)", 0x3537, 0x100f, 0x0100,
    NULL, NULL, 0xff7a, 65, {0x00, 0xf2, 0x00, 0x04, 0xf6}},
   {"AC695X_TRANS", "Nova 2 Lite", "Switch (red)", 0x057e, 0x2009, 0x0200,
