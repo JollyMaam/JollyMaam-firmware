@@ -526,7 +526,8 @@ static const u8 s2_stick_calibration[9] = {
 
 /* The console reads this "flash": device info, IMU and stick calibration. */
 static const struct { u32 address; u8 len; const u8 *data; } s2_flash[] = {
-    { 0x13000, 37, (const u8 *)"\x01\x00" "CYCLONE2-SW2\x00\x00\x00\x00\x7e\x05\x69\x20\x01\x06\x01"
+    { 0x13000, 37, (const u8 *)"\x01\x00" "\x00\x00\x00\x00\x00\x00\x00\x00"
+                               "\x00\x00\x00\x00\x00\x00\x00\x00\x7e\x05\x69\x20\x01\x06\x01"
                                "\x23\x23\x23\xa0\xa0\xa0\xe6\xe6\xe6\x32\x32\x32" },
     { 0x13040, 16, (const u8 *)"\x3b\xe0\xd3\x41\xc6\x60\x6a\xbc\x4d\xd7\xa2\xbb\x71\x1e\xdd\x37" },
     { 0x13080, 40, (const u8 *)"\x01\xad\xd9\x9a\x55\x56\x65\xa0\x00\x0a\xa0\x00\x0a\xe2\x20\x0e"
@@ -577,6 +578,26 @@ static void s2_flash_read(u32 a, u8 *out, u16 n)
         for (k = 0; k < n; k++)
             if (a + k >= s2_flash[i].address && a + k < s2_flash[i].address + s2_flash[i].len)
                 out[k] = s2_flash[i].data[a + k - s2_flash[i].address];
+
+    /* Factory serial: 16 bytes at 0x13002 (ndeadly's memory_layout.md).
+     * Render 14 hex digits and two NULs directly into overlapping reads.
+     * Hash all 16 UID bytes; no serial buffer or pairing-dependent state. */
+    if (a < 0x13012 && a + n > 0x13002) {
+        const u8 *uid = plat_unique_id();
+        u32 h = 2166136261u, g = 2166136261u ^ 0x5a5a5a5au;
+
+        for (i = 0; i < 16; i++) {
+            u8 byte = uid ? uid[i] : 0;
+            h = (h ^ byte) * 16777619u;
+            g = (g ^ byte) * 16777619u;
+        }
+        for (k = 0; k < n; k++) {
+            u32 pos = a + k - 0x13002;
+            if (pos >= 16) continue;
+            out[k] = pos < 8 ? "0123456789ABCDEF"[(h >> (28 - 4 * pos)) & 15] :
+                     pos < 14 ? "0123456789ABCDEF"[(g >> (20 - 4 * (pos - 8))) & 15] : 0;
+        }
+    }
 }
 
 static u16 s2_cal_axis(s16 v)
@@ -1135,6 +1156,9 @@ const struct profile profile_switch2 = {
 #ifdef UNITTEST
 static u8 sent[160];
 static u16 sent_len;
+static u8 test_uid[16] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
+static int test_no_uid;
+const u8 *plat_unique_id(void) { return test_no_uid ? NULL : test_uid; }
 int host_send(u16 id, const u8 *data, u16 len)
 {
     sent[0] = (u8)id;
@@ -1154,6 +1178,38 @@ int main(void)
     struct bt_write w;
     struct profile_host h;
     u8 out[64], id;
+
+    {   /* Full, partial and USB reads agree on the stable factory serial. */
+        u8 full[37], partial[40], serial[16];
+
+        s2_flash_read(0x13000, full, sizeof(full));
+        CHECK(full[0] == 1 && !full[1]);
+        CHECK(!memcmp(full + 18, "\x7e\x05\x69\x20", 4));
+        for (u32 i = 2; i < 16; i++)
+            CHECK((full[i] >= '0' && full[i] <= '9') || (full[i] >= 'A' && full[i] <= 'F'));
+        CHECK(!full[16] && !full[17]);
+        for (u32 offset = 0; offset < sizeof(full); offset++) {
+            s2_flash_read(0x13000 + offset, partial, sizeof(full) - offset);
+            CHECK(!memcmp(partial, full + offset, sizeof(full) - offset));
+        }
+        s2_flash_read(0x12fff, partial, sizeof(partial));
+        CHECK(partial[0] == 0xff && !memcmp(partial + 1, full, sizeof(full)));
+        CHECK(s2_read(BT_WRITE_VENDOR, 3, 0, out, sizeof(out)) == sizeof(out));
+        CHECK(!memcmp(out, full, sizeof(full)));
+        for (u32 i = 0; i < sizeof(test_uid); i++) {
+            test_uid[i] ^= 1;
+            s2_flash_read(0x13002, serial, sizeof(serial));
+            CHECK(memcmp(serial, full + 2, sizeof(serial)));
+            test_uid[i] ^= 1;
+        }
+        s2_flash_read(0x13002, serial, sizeof(serial));
+        CHECK(!memcmp(serial, full + 2, sizeof(serial)));
+        test_no_uid = 1;
+        s2_flash_read(0x13002, serial, sizeof(serial));
+        s2_flash_read(0x13002, partial, sizeof(serial));
+        CHECK(!memcmp(serial, partial, sizeof(serial)) && !serial[14] && !serial[15]);
+        test_no_uid = 0;
+    }
 
     CHECK(begin(&s) == IMU_OFF);
     memset(&p, 0, sizeof(p));
