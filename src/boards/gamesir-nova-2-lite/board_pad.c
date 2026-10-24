@@ -1,5 +1,6 @@
 #include <system/includes.h>
 #include <asm/power_interface.h>
+#include <asm/power/p33.h>
 #include <asm/adc_api.h>
 #include <asm/mcpwm.h>
 #include "app_config.h"
@@ -349,6 +350,7 @@ void plat_leds(const struct led_frame *f)
 
 static struct { u32 magic, fails; } guard RETAINED;
 static struct plat_boot boot;
+static u8 boot_wakeup_source, boot_wakeup_pending;
 
 static u32 held_now(void)
 {
@@ -359,6 +361,11 @@ void board_latch(void)
 {
     u32 i;
 
+    /* Home can already be released by the time the app starts. P33 keeps
+     * the GPIO wake source (bit 1) and the pending wake-port mask; Home
+     * uses port index 1. Read them before power_init() reconfigures wake. */
+    boot_wakeup_source = P33_CON_GET(P3_WKUP_SRC);
+    boot_wakeup_pending = P33_CON_GET(P3_WKUP_PND);
     for (i = 0; i < board_line_count; i++) plat_pull_up_input(board_lines[i].gpio);
     matrix_init();
     boot.buttons_held = held_now();
@@ -375,12 +382,15 @@ void board_latch(void)
     }
     guard.fails++;
     plat_flush_dcache(&guard, sizeof(guard));
-    boot.cause = boot.buttons_held & PAD_HOME ? BOOT_HOME : BOOT_USB;
+    boot.cause = (boot.buttons_held & PAD_HOME) ||
+                 ((boot_wakeup_source & BIT(1)) && (boot_wakeup_pending & BIT(1)))
+                 ? BOOT_HOME : BOOT_POWER_ON;
 }
 
 void plat_boot_info(struct plat_boot *out)
 {
     boot.buttons_held = held_now();
+    util_log("board: wake source %02x pending %02x", boot_wakeup_source, boot_wakeup_pending);
     *out = boot;
 }
 
