@@ -99,8 +99,6 @@ static int slot_ready(u8 slot)
 
 static void start_session(u8 slot, int pairing, int renew)
 {
-    static const u8 zero[16];
-
     if (!slot_ready(slot)) {
         c.idle = 1;
         c.since_ms = plat_ms();
@@ -117,10 +115,10 @@ static void start_session(u8 slot, int pairing, int renew)
     c.session.settings = set_slot(slot);
     c.session.bond = set_bond(slot);
     set_slot_address(slot, c.session.address);
-    c.session.pairing = !memcmp(c.session.bond->ltk, zero, sizeof(zero));
+    c.session.pairing = util_is_zero(c.session.bond->ltk, sizeof(c.session.bond->ltk));
     if (pairing >= 0) c.session.pairing = (u8)pairing;
     if (c.session.pairing && renew) set_pairing_address(slot, 1, c.session.address);
-    c.session.address[5] |= 0xc0;       /* LE static random */
+    if (c.session.settings->type != PROFILE_SWITCH2) c.session.address[5] |= 0xc0;
     set_flush();                     /* previous session is stopped */
     if (!set_is_ephemeral()) plat_retain_slot(slot);
     profile = c.session.settings->type == PROFILE_SWITCH2 ? &profile_switch2 : &profile_generic_ble;

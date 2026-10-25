@@ -660,14 +660,13 @@ void set_bond_store(u8 slot, const struct bt_bond *bond)
     struct set_slot *s;
     u32 bit;
     const struct set_field *f = find(slot % SLOTS, ID_BOND, &bit);
-    static const u8 zero[6];
     u8 a[6];
 
     if (!stored(slot % SLOTS)) return;
     s = &slots[slot % SLOTS];
     if (!memcmp(&s->bond, bond, sizeof(*bond))) return;
     put(slot % SLOTS, f, bit, (const u8 *)bond, sizeof(*bond));
-    if (!memcmp(s->address, zero, 6)) {
+    if (util_is_zero(s->address, 6)) {
         set_slot_address(slot, a);
         f = find(slot % SLOTS, ID_ADDRESS, &bit);
         put(slot % SLOTS, f, bit, a, 6);
@@ -677,7 +676,7 @@ void set_bond_store(u8 slot, const struct bt_bond *bond)
 
 static u32 fnv1a(u32 h, const u8 *d, u32 n)
 {
-    while (n--) h = (h ^ *d++) * 16777619u;
+    while (n--) h = (h ^ (d ? *d++ : 0)) * 16777619u;
     return h;
 }
 
@@ -685,25 +684,23 @@ static u32 fnv1a(u32 h, const u8 *d, u32 n)
  * the slot and its type, locally administered.  Least significant byte first. */
 void set_slot_address(u8 slot, u8 out[6])
 {
-    static const u8 zero[16];
     const u8 *seed = plat_unique_id();
     /* Through the dongle the type can change under the same host. */
     u8 salt[3] = { (u8)(slot % SLOTS), set_via_dongle(set_slot(slot)->transport) ? 0xff :
                                        set_slot(slot)->type, 0 };
     u32 a, b;
 
-    if (memcmp(set_slot(slot)->address, zero, 6)) {
+    if (!util_is_zero(set_slot(slot)->address, 6)) {
         memcpy(out, set_slot(slot)->address, 6);
-        if (board_slots.static_random) out[5] |= 0xc0;
+        if (board_slots.static_random && set_slot(slot)->type != PROFILE_SWITCH2) out[5] |= 0xc0;
         return;
     }
-    if (!seed) seed = zero;
     a = fnv1a(fnv1a(2166136261u, seed, 16), salt, 3);
     b = fnv1a(fnv1a(0x811c9dc5u ^ 0x5a5a5a5au, salt, 3), seed, 16);
     memcpy(out, &a, 4);
     memcpy(out + 4, &b, 2);
     out[5] = (u8)((out[5] | 0x02) & 0xfe);
-    if (board_slots.static_random) out[5] |= 0xc0;
+    if (board_slots.static_random && set_slot(slot)->type != PROFILE_SWITCH2) out[5] |= 0xc0;
 }
 
 /* Roll all address bytes from the complete previous identity and current tick,
@@ -719,15 +716,13 @@ static void set_slot_new_address(u8 slot, u8 out[6])
     memcpy(out, &a, 4);
     memcpy(out + 4, &b, 2);
     out[5] = (u8)((out[5] | 0x02) & 0xfe);
-    if (board_slots.static_random) out[5] |= 0xc0;
+    if (board_slots.static_random && set_slot(slot)->type != PROFILE_SWITCH2) out[5] |= 0xc0;
 }
 
 /* First pairing uses the inspectable identity; replacing a bond may renew it. */
 void set_pairing_address(u8 slot, int renew, u8 out[6])
 {
-    static const struct bt_bond empty;
-
-    if (renew && memcmp(set_bond(slot), &empty, sizeof(empty))) set_slot_new_address(slot, out);
+    if (renew && !util_is_zero(set_bond(slot), sizeof(struct bt_bond))) set_slot_new_address(slot, out);
     else set_slot_address(slot, out);
 }
 
@@ -1010,6 +1005,8 @@ static int full_storage(void)
     u8 col[2] = { 4, 5 };
     u32 t, worst = 4;
 
+    { static const u8 zeros[16];
+      CHECK(fnv1a(2166136261u, NULL, 16) == fnv1a(2166136261u, zeros, 16)); }
     /* Every record fits with every field set. */
     for (t = 0; t < 5; t++) {
         u8 target = t == 0 ? 0 : t == 1 ? TARGET_PALETTE : t == 2 ? TARGET_CAL : TARGET_REMAP;
@@ -1528,10 +1525,16 @@ static int reduced_storage(void)
     for (t = 0; t < SLOTS_STORED; t++) {
         u32 j;
         set_slot_address(t, addresses[t]);
-        CHECK((addresses[t][5] & 0xc0) == 0xc0);
+        if (set_slot(t)->type != PROFILE_SWITCH2) CHECK((addresses[t][5] & 0xc0) == 0xc0);
         for (j = 0; j < t; j++) CHECK(memcmp(addresses[t], addresses[j], 6));
         set_pairing_address(t, 0, pair);
         CHECK(!memcmp(pair, addresses[t], 6));
+    }
+    if (SLOTS_STORED > 3 && set_slot(3)->type == PROFILE_SWITCH2) {
+        static const u8 public_address[6] = { 1, 2, 3, 4, 5, 0x12 };
+        CHECK(write1(3, ID_ADDRESS, 6, public_address) == SET_OK);
+        set_apply(); set_slot_address(3, pair);
+        CHECK(!memcmp(pair, public_address, 6));
     }
     for (t = 0; t < SLOTS; t++)
         CHECK(set_slot(t)->type == (t < SLOTS_STORED ? board_slots.type[t] : PROFILE_NONE));

@@ -16,6 +16,12 @@ $(U2CW_PAD)_STAMP := 6a0000005d02
 $(U2CW_PAD)_LOADER_HINT := Stock firmware or no answer: USB unplugged, hold L1+R1, tap Home, plug in USB.
 $(U2CW_PAD)_BOARD_DIR := src/boards/8bitdo-ultimate2c-wireless
 $(U2CW_PAD)_LDFLAGS := --wrap=otp_read --wrap=bls_smp_param_saveBondingInfo --wrap=l2cap_att_handler
+# Root the replacement explicitly: --defsym alone does not retain it with
+# this linker's --gc-sections (the alias would otherwise resolve to zero).
+$(U2CW_PAD)_LDFLAGS += --wrap=blt_connect --undefined=plat_ll_connect_request
+$(U2CW_PAD)_LDFLAGS += --defsym=blc_ll_procConnectReq=plat_ll_connect_request
+$(U2CW_PAD)_LDFLAGS += --wrap=blc_ll_get_connEffectiveMaxTxOctets
+$(U2CW_PAD)_LDFLAGS += --undefined=plat_ll_push_tx_fifo --defsym=bls_ll_pushTxFifo=plat_ll_push_tx_fifo
 
 # 16 KiB of SRAM: the settings keep slots A-Y and the base remap only, with a
 # small staging buffer; small log and trace rings.
@@ -25,6 +31,7 @@ $(U2CW_PAD)_DEFINES += -DREMAPS_STORED=0
 $(U2CW_PAD)_DEFINES += -DUX_REMAP_CONFIG=0
 $(U2CW_PAD)_DEFINES += -DSTAGE_MAX=256
 $(U2CW_PAD)_DEFINES += -DLOG_LINES=2
+$(U2CW_PAD)_DEFINES += -DLOG_TEXT=48
 $(U2CW_PAD)_DEFINES += -DTRACE=1
 $(U2CW_PAD)_DEFINES += -DUSB_RESULTS=64
 
@@ -36,6 +43,9 @@ $(U2CW_PAD)_SOURCES += src/platform/telink/libc_telink.c
 $(U2CW_PAD)_SOURCES += src/platform/telink/store_telink.c
 $(U2CW_PAD)_SOURCES += src/platform/telink/bt_telink.c
 $(U2CW_PAD)_SOURCES += src/platform/telink/att_telink.c
+$(U2CW_PAD)_SOURCES += src/platform/telink/connect_telink.c
+$(U2CW_PAD)_SOURCES += src/platform/telink/tx_telink.c
+$(U2CW_PAD)_SOURCES += src/platform/telink/rx_telink.c
 $(U2CW_PAD)_SOURCES += src/core/controller_lite.c
 $(U2CW_PAD)_SOURCES += src/profiles/profile_hid.c
 $(U2CW_PAD)_SOURCES += src/profiles/profile_switch.c

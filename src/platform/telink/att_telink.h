@@ -3,11 +3,12 @@
 
 /* The flash ATT server, independent of SDK types. Notifications and ATT
  * responses have separate bounded buffers; responses go first. */
-#define TELINK_ATT_MTU 185
-int plat_att_start(const struct profile *profile);
+#define TELINK_ATT_BUFFER 160
+int plat_att_start(const struct profile *profile, u16 max_mtu);
 void plat_att_connected(u16 handle);
 void plat_att_encrypted(int encrypted);
 void plat_att_receive(u8 *pdu, u16 len);
+void plat_att_reject_large(u8 opcode, u16 handle);
 void plat_att_poll(void);
 int plat_att_notifying(u16 handle);
 int plat_att_send(u16 handle, const u8 *data, u16 len);

@@ -7,7 +7,9 @@
 #ifndef LOG_LINES
 #define LOG_LINES 64
 #endif
+#ifndef LOG_TEXT
 #define LOG_TEXT  120          /* a line is 128 bytes with seq and ms */
+#endif
 #define LOG_MAGIC 0x474f4c44   /* changes with the layout below */
 
 static struct {

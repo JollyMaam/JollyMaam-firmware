@@ -674,7 +674,7 @@ extern const struct board_rumble board_rumble;
  * TRANSPORT_*): what its radio and USB can be. */
 struct board_slots {
     u32 type[SLOTS], transport[SLOTS];
-    u8 static_random;           /* all slot identities are LE static random addresses */
+    u8 static_random;           /* use LE static random identities, except Switch 2 (public) */
 };
 extern const struct board_slots board_slots;
 
@@ -812,6 +812,12 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 len, int from_host);   /* the pl
 void util_log_init(void);
 void util_log(const char *fmt, ...);
 u32 util_log_read(u32 *seq, char *out, u32 max);
+static inline int util_is_zero(const void *data, u32 len)
+{
+    const u8 *p = data;
+    while (len--) if (*p++) return 0;
+    return 1;
+}
 void util_put16(u8 *p, u16 v);
 void util_put32(u8 *p, u32 v);
 u32 util_get32(const u8 *p);

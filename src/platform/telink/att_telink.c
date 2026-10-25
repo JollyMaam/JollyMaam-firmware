@@ -12,9 +12,9 @@ static struct {
     att_connection_t connection;
     u16 ccc_handle[CCC_MAX];
     u8 ccc_value[CCC_MAX], ccc_count;
-    u8 response[TELINK_ATT_MTU];
+    u8 response[TELINK_ATT_BUFFER];
     u8 message[MESSAGE_MAX + 3];
-    u16 response_len, message_len;
+    u16 response_len, message_len, max_mtu;
     u8 command;
 } a;
 
@@ -65,12 +65,13 @@ static int write_value(u16 connection, u16 handle, u16 mode, u16 offset, u8 *dat
     return plat_att_write(handle, data, len) ? 0 : ATT_ERROR_INSUFFICIENT_RESOURCES;
 }
 
-int plat_att_start(const struct profile *profile)
+int plat_att_start(const struct profile *profile, u16 max_mtu)
 {
     const u8 *entry = profile->device->att_db + 1;
 
     memset(&a, 0, sizeof(a));
     a.profile = profile;
+    a.max_mtu = max_mtu;
     for (; get16(entry); entry += get16(entry)) {
         if (get16(entry) < 8) return 0;
         if (!(get16(entry + 2) & ATT_PROPERTY_UUID128) && get16(entry + 6) == 0x2902) {
@@ -89,7 +90,7 @@ void plat_att_connected(u16 handle)
     memset(&a.connection, 0, sizeof(a.connection));
     a.connection.con_handle = handle;
     a.connection.mtu = 23;
-    a.connection.max_mtu = TELINK_ATT_MTU;
+    a.connection.max_mtu = a.max_mtu;
     memset(a.ccc_value, 0, sizeof(a.ccc_value));
     a.response_len = a.message_len = 0;
 }
@@ -101,8 +102,23 @@ void plat_att_encrypted(int encrypted)
 
 void plat_att_receive(u8 *pdu, u16 len)
 {
+    u16 agreed = a.connection.mtu;
     if (!len || len > a.connection.mtu || a.response_len) return;
+    if (pdu[0] != ATT_EXCHANGE_MTU_REQUEST && a.connection.mtu > sizeof(a.response))
+        a.connection.mtu = sizeof(a.response);
     a.response_len = att_handle_request(&a.connection, pdu, len, a.response);
+    if (pdu[0] != ATT_EXCHANGE_MTU_REQUEST) a.connection.mtu = agreed;
+}
+
+void plat_att_reject_large(u8 opcode, u16 handle)
+{
+    if ((opcode & 0x41) || opcode == 0x1e || a.response_len) return;
+    a.response[0] = ATT_ERROR_RESPONSE;
+    a.response[1] = opcode;
+    a.response[2] = (u8)handle;
+    a.response[3] = (u8)(handle >> 8);
+    a.response[4] = opcode == 0x12 ? ATT_ERROR_INVALID_ATTRIBUTE_VALUE_LENGTH : ATT_ERROR_REQUEST_NOT_SUPPORTED;
+    a.response_len = 5;
 }
 
 void plat_att_poll(void)
@@ -137,7 +153,7 @@ u16 plat_att_mtu(void) { return a.connection.mtu; }
 
 #ifdef UNITTEST
 /* The real upstream interpreter is linked by the dedicated host test. */
-static u8 transmitted[2][TELINK_ATT_MTU];
+static u8 transmitted[2][TELINK_ATT_BUFFER];
 static u16 transmitted_len[2];
 static u8 sent, can_send = 1, write_ready = 1;
 static u16 written_handle, written_len;
@@ -174,7 +190,7 @@ static const struct profile profile = { .device = &device, .read = test_read };
 
 static void receive(const u8 *data, u16 len)
 {
-    u8 pdu[TELINK_ATT_MTU];
+    u8 pdu[TELINK_ATT_BUFFER];
     memcpy(pdu, data, len); sent = 0;
     plat_att_receive(pdu, len); plat_att_poll();
 }
@@ -183,8 +199,8 @@ int main(void)
     static const u8 mtu[] = {2, 0xff, 1}, read_static[] = {10,3,0}, read_dynamic[] = {10,7,0};
     static const u8 blob[] = {12,7,0,3,0}, subscribe[] = {18,8,0,1,0}, command[] = {18,7,0,4,5,6};
     static const u8 bad[] = {18,8,0,1}, queued[] = {9,8,7};
-    CHECK(plat_att_start(&profile)); plat_att_connected(64);
-    receive(mtu, sizeof(mtu)); CHECK(sent == 1 && transmitted[0][0] == 3 && plat_att_mtu() == 185);
+    CHECK(plat_att_start(&profile, TELINK_ATT_BUFFER)); plat_att_connected(64);
+    receive(mtu, sizeof(mtu)); CHECK(sent == 1 && transmitted[0][0] == 3 && plat_att_mtu() == TELINK_ATT_BUFFER);
     receive(read_static, sizeof(read_static)); CHECK(sent == 1 && transmitted_len[0] == 4 && !memcmp(transmitted[0]+1,"pad",3));
     receive(read_dynamic, sizeof(read_dynamic)); CHECK(sent == 1 && transmitted_len[0] == 8 && !memcmp(transmitted[0]+1,"dynamic",7));
     receive(blob, sizeof(blob)); CHECK(sent == 1 && transmitted_len[0] == 5 && !memcmp(transmitted[0]+1,"amic",4));
@@ -208,6 +224,30 @@ int main(void)
     CHECK(sent == 2 && transmitted[0][0] == 1 && transmitted[0][4] == ATT_ERROR_INSUFFICIENT_RESOURCES);
     CHECK(transmitted_len[1] == 8 && !memcmp(transmitted[1] + 3, "reply", 5));
     plat_att_connected(64); CHECK(!plat_att_notifying(7) && plat_att_mtu() == 23);
+    /* A 512 MTU must not let discovery overwrite the bounded response. */
+    {
+        static u8 large_db[1 + 40 * 16 + 2];
+        const struct bt_device large_device = { .att_db = large_db };
+        const struct profile large_profile = { .device = &large_device };
+        static const u8 mtu512[] = { 2,0,2 }, all[] = { 8,1,0,255,255,0,0x2a };
+        u32 i, at = 1;
+        large_db[0] = 1;
+        for (i = 1; i <= 40; i++, at += 16) {
+            large_db[at] = 16; large_db[at + 2] = 2;
+            large_db[at + 4] = (u8)i; large_db[at + 7] = 0x2a;
+            memset(large_db + at + 8, 0x07, 8);
+        }
+        CHECK(plat_att_start(&large_profile, 512)); plat_att_connected(64);
+        receive(mtu512, sizeof(mtu512)); CHECK(plat_att_mtu() == 512);
+        memset(a.message, 0xa5, sizeof(a.message));
+        receive(all, sizeof(all));
+        CHECK(transmitted[0][0] == 9 && transmitted_len[0] <= TELINK_ATT_BUFFER && transmitted_len[0] > 100);
+        CHECK(plat_att_mtu() == 512);
+        for (i = 0; i < sizeof(a.message); i++) CHECK(a.message[i] == 0xa5);
+        sent = 0; plat_att_reject_large(0x52, 0x14); plat_att_poll(); CHECK(!sent);
+        plat_att_reject_large(0x12, 0x14); plat_att_poll();
+        CHECK(sent == 1 && transmitted[0][0] == 1 && transmitted[0][4] == ATT_ERROR_INVALID_ATTRIBUTE_VALUE_LENGTH);
+    }
     return TEST_DONE("Telink flash ATT");
 }
 #endif

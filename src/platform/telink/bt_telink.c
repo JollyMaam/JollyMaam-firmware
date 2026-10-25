@@ -7,7 +7,7 @@
  * att_telink.c keeps the per-connection CCCs and bounded outgoing PDUs.
  * Host writes are delivered to the control loop through bt_poll().
  *
- * Pairing is LE legacy Just Works.  The stack keeps up to 4 bonds of its own
+ * Generic BLE pairing is LE legacy Just Works.  The stack keeps up to 4 bonds of its own
  * in flash at BOND_STORE (two sectors); the slot's bond (struct bt_bond, in
  * the settings) is what counts: a pairing's record is caught on its way to
  * the stack's storage (--wrap=bls_smp_param_saveBondingInfo, a function the
@@ -18,19 +18,19 @@
  * for bt_poll(). */
 
 #define BOND_STORE    0x71000    /* below the app's end, clear of stock data */
-#define INPUT_MAX     64
-#define TX_OCTETS     80
+#define INPUT_MAX     63
+#define TX_OCTETS     70
+#define RX_OCTETS     251
 #define IN_FLIGHT     2          /* input notifications in the stack at once */
-/* The SDK accepts a notification only when queued + its packet count is
- * strictly below TX_FIFO - 2. Four entries allow only one pending input
- * packet, which waits through acknowledgement and halves the report rate.
- * Eight entries leave room for IN_FLIGHT inputs plus the SDK's reserve. */
-#define TX_FIFO       8          /* LL packets queued to send (2^n) */
-_Static_assert(TX_FIFO >= IN_FLIGHT + 3, "TX FIFO must fit inputs and the SDK reserve");
+/* Two one-packet inputs leave two slots for LL control. The app owns
+ * input admission; raw ATT sends use the SDK's priority path rather than
+ * its conservative notification reserve (only one input with four slots). */
+#define TX_FIFO       4
+_Static_assert(TX_FIFO >= IN_FLIGHT + 2, "TX FIFO must reserve two control packets");
 
-static u8 acl_rx[CAL_LL_ACL_RX_FIFO_SIZE(27) * 4] __attribute__((aligned(16)));
+static u8 acl_rx[CAL_LL_ACL_RX_FIFO_SIZE(RX_OCTETS) * 4] __attribute__((aligned(16)));
 static u8 acl_tx[CAL_LL_ACL_TX_FIFO_SIZE(TX_OCTETS) * TX_FIFO] __attribute__((aligned(4)));
-static u8 l2cap_rx[CAL_L2CAP_BUFF_SIZE(TELINK_ATT_MTU)] __attribute__((aligned(4)));
+static u8 l2cap_rx[CAL_L2CAP_BUFF_SIZE(TELINK_ATT_BUFFER)] __attribute__((aligned(4)));
 /* The SDK's initialization checks still want a table. ATT requests go to
  * the flash server instead of this empty constant table. */
 static const attribute_t sdk_attrs[1];
@@ -47,6 +47,11 @@ int bls_smp_getLtkReq(u16 handle, u8 *random, u16 ediv);
 void blc_ll_registerLtkReqEvtCb(int (*callback)(u16, u8 *, u16));
 ble_sts_t blc_hci_ltkRequestReply(u16 handle, u8 *key);
 ble_sts_t blc_hci_ltkRequestNegativeReply(u16 handle);
+
+void plat_l2cap_reset(void);
+int plat_l2cap_receive(u16 handle, u8 *packet);
+void plat_ll_allow_short_interval(int allow);
+int plat_ll_requested_interval(u16 *interval);
 
 static struct {
     u8 started, advertising, connected, encrypted;
@@ -69,13 +74,14 @@ u8 *__wrap_l2cap_att_handler(u16 handle, u8 *packet)
 {
     plat_att_receive(packet + 6, get16(packet + 2));
     blc_att_setEffectiveMtuSize(handle, plat_att_mtu());
+    if (packet[6] == 2) util_log("bt: ATT MTU %u", plat_att_mtu());
     return NULL;
 }
 
 int plat_att_transmit(const u8 *pdu, u16 len, int response)
 {
-    if (!b.connected || !len) return 0;
-    return blc_l2cap_pushData_2_controller((u16)(BLS_CONN_HANDLE | (response ? 0x8000 : 0)),
+    if (!b.connected || !len || (!response && blc_ll_getTxFifoNumber() >= IN_FLIGHT)) return 0;
+    return blc_l2cap_pushData_2_controller((u16)(BLS_CONN_HANDLE | 0x8000),
                4, (u8 *)pdu, 1, (u8 *)pdu + 1, len - 1) == BLE_SUCCESS;
 }
 
@@ -99,6 +105,7 @@ static void on_connect(u8 e, u8 *p, int n)
     b.encrypted = 0;
     b.advertising = 0;
     plat_att_connected(BLS_CONN_HANDLE);
+    plat_l2cap_reset();
     if (b.stopping || !b.device) {
         b.stopping = 1;
         b.stopped_pending = 0;
@@ -109,7 +116,8 @@ static void on_connect(u8 e, u8 *p, int n)
         bls_l2cap_requestConnParamUpdate(b.device->interval_min, b.device->interval_max, 0, 400);
     if (!b.device->sm_er) {
         b.linked_pending = 1;   /* proprietary pairing uses unencrypted ATT */
-        blc_ll_exchangeDataLength(0x14, TX_OCTETS);
+        blc_ll_setPhy(BLS_CONN_HANDLE, PHY_TRX_PREFER, PHY_PREFER_2M, PHY_PREFER_2M);
+        blc_ll_exchangeDataLength(0x14, 251);
     }
     util_log("bt: connected");
 }
@@ -120,6 +128,7 @@ static void on_terminate(u8 e, u8 *p, int n)
     (void)n;
     b.connected = b.encrypted = 0;
     plat_att_connected(BLS_CONN_HANDLE);
+    plat_l2cap_reset();
     b.reason = *p;
     b.unlinked_pending = 1;
     if (b.stopping) {
@@ -127,6 +136,18 @@ static void on_terminate(u8 e, u8 *p, int n)
         b.stopped_pending = 1;
     }
     util_log("bt: disconnected, reason %02x", *p);
+}
+
+static void on_phy(u8 e, u8 *p, int n)
+{
+    (void)e;
+    if (n >= 2) util_log("bt: PHY %u/%u", p[0], p[1]);
+}
+
+static void on_length(u8 e, u8 *p, int n)
+{
+    (void)e;
+    if (n >= 4) util_log("bt: DLE rx %u tx %u", get16(p), get16(p + 2));
 }
 
 static int on_host(u32 h, u8 *p, int n)
@@ -226,14 +247,15 @@ void plat_bt_init(void)
     blc_ll_initStandby_module(address);
     blc_ll_initAdvertising_module();
     blc_ll_initSlaveRole_module();
+    blc_ll_init2MPhy_feature();
     blc_ll_setRandomAddr(address);
-    blc_ll_setAclConnMaxOctetsNumber(27, TX_OCTETS);
+    blc_ll_setAclConnMaxOctetsNumber(RX_OCTETS, TX_OCTETS);
     blc_ll_initAclConnTxFifo(acl_tx, CAL_LL_ACL_TX_FIFO_SIZE(TX_OCTETS), TX_FIFO);
-    blc_ll_initAclConnRxFifo(acl_rx, CAL_LL_ACL_RX_FIFO_SIZE(27), 4);
+    blc_ll_initAclConnRxFifo(acl_rx, CAL_LL_ACL_RX_FIFO_SIZE(RX_OCTETS), 4);
     blc_gap_peripheral_init();
     bls_att_setAttributeTable((u8 *)sdk_attrs);
-    blc_att_setRxMtuSize(TELINK_ATT_MTU);
-    blc_l2cap_register_handler(blc_l2cap_packet_receive);
+    blc_att_setRxMtuSize(TELINK_ATT_BUFFER);
+    blc_l2cap_register_handler(plat_l2cap_receive);
     blc_l2cap_initRxDataBuffer(l2cap_rx, sizeof(l2cap_rx));
     bls_smp_configPairingSecurityInfoStorageAddr(BOND_STORE);
     blc_smp_param_setBondingDeviceMaxNumber(4);
@@ -245,8 +267,14 @@ void plat_bt_init(void)
                          GAP_EVT_MASK_SMP_CONN_ENCRYPTION_DONE);
     bls_app_registerEventCallback(BLT_EV_FLAG_CONNECT, on_connect);
     bls_app_registerEventCallback(BLT_EV_FLAG_TERMINATE, on_terminate);
+    bls_app_registerEventCallback(BLT_EV_FLAG_PHY_UPDATE, on_phy);
+    bls_app_registerEventCallback(BLT_EV_FLAG_DATA_LENGTH_EXCHANGE, on_length);
     if (blc_contr_checkControllerInitialization() || blc_host_checkHostInitialization())
         util_log("bt: stack set-up failed");
+    /* FIFO bounds were validated at our actual fragment size. The LL can
+     * negotiate 251; the app caps its generated PDUs and guards SDK writes. */
+    blc_ll_setAclConnMaxOctetsNumber(RX_OCTETS, 251);
+    blc_ll_initAclConnTxFifo(acl_tx, CAL_LL_ACL_TX_FIFO_SIZE(TX_OCTETS), TX_FIFO);
     rf_set_power_level_index(RF_POWER_P2p87dBm);
     b.started = 1;
 }
@@ -259,13 +287,18 @@ void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond
     u8 adv[31], n;
 
     (void)link;
-    if (p->device->transport != BT_LE || !plat_att_start(p)) {
+    if (p->device->transport != BT_LE || !plat_att_start(p, p->device->sm_er ? TELINK_ATT_BUFFER : 512)) {
         util_log("bt: %s does not fit", p->name);
         return;
     }
     if (!b.started) return;
     if (b.advertising) bls_ll_setAdvEnable(BLC_ADV_DISABLE);
     b.device = p->device;
+    plat_ll_allow_short_interval(!b.device->sm_er);
+    /* The shared Switch 2 transport uses a public identity. Keep the SDK's
+     * public address in step with the slot as well as its random address;
+     * sessions are fully stopped before this initialization runs. */
+    blc_ll_initStandby_module((u8 *)address);
     blc_ll_setRandomAddr((u8 *)address);
     b.paired = *bond;
     b.write_pending = 0;
@@ -275,7 +308,7 @@ void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond
     if (b.device->sm_er) restore(bond);
     n = p->device->advertising(bond, pairing, 0, adv);
     bls_ll_setAdvParam(ADV_INTERVAL_30MS, ADV_INTERVAL_35MS, ADV_TYPE_CONNECTABLE_UNDIRECTED,
-                       OWN_ADDRESS_RANDOM, 0, NULL, BLT_ENABLE_ADV_ALL, ADV_FP_NONE);
+                       b.device->sm_er ? OWN_ADDRESS_RANDOM : OWN_ADDRESS_PUBLIC, 0, NULL, BLT_ENABLE_ADV_ALL, ADV_FP_NONE);
     bls_ll_setAdvData(adv, n);
     bls_ll_setScanRspData((u8 *)p->device->scan_response, p->device->scan_response_len);
     bls_ll_setAdvEnable(BLC_ADV_ENABLE);
@@ -372,8 +405,10 @@ int bt_poll(struct bt_ev *ev)
  * a disconnect the stack stops advertising; it starts again here. */
 u32 plat_bt_poll(void)
 {
+    u16 interval;
     if (!b.started) return 0;
     blc_sdk_main_loop();
+    if (plat_ll_requested_interval(&interval)) util_log("bt: connect request interval %u", interval);
     if (b.connected) plat_att_poll();
     if (!b.connected && !b.advertising && b.device) {
         bls_ll_setAdvEnable(BLC_ADV_ENABLE);
