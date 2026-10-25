@@ -25,21 +25,23 @@ void util_log_init(void)
     ring.magic = LOG_MAGIC;
 }
 
+/* The line is claimed under the lock and formatted in place, unlocked:
+ * no copy of it on the stack. An interrupt's line takes the next slot;
+ * the line stays terminated if formatting never finishes. */
 void util_log(const char *fmt, ...)
 {
-    char text[LOG_TEXT];
     va_list ap;
     u32 i;
 
-    va_start(ap, fmt);
-    vsnprintf(text, sizeof(text), fmt, ap);
-    va_end(ap);
     plat_lock();
     i = ring.head++ % LOG_LINES;
     ring.line[i].seq = ring.head;
     ring.line[i].ms = plat_ms();
-    memcpy(ring.line[i].text, text, sizeof(text));
+    ring.line[i].text[0] = ring.line[i].text[LOG_TEXT - 1] = 0;
     plat_unlock();
+    va_start(ap, fmt);
+    vsnprintf(ring.line[i].text, LOG_TEXT, fmt, ap);
+    va_end(ap);
 }
 
 /* Lines from sequence number *seq on, "seconds.ms text\n" each (time since

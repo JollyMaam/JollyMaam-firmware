@@ -29,7 +29,6 @@ static struct {
     u8 lit;                      /* the Home light as last set */
     u32 rumble_until;            /* plat_ms; 0: motors off */
     u8 calibrating;
-    struct set_cal cal;          /* what the routine has measured */
     u8 activity_ref[offsetof(struct pad, imu_count)]; /* no unused IMU data */
     u32 activity_ms, sleep_ms, since_ms, usb_seen_ms;
     u8 sleeping, idle, stopping, pending, renew, pair_down;
@@ -47,7 +46,26 @@ static u8 state(void)
            c.linked ? CTL_CONNECTED : c.session.pairing ? CTL_PAIRING : CTL_CONNECTING;
 }
 
-static void read_input(u32 now)
+/* The routine finishes on top of the calibration in use, keeping what did
+ * not calibrate; built here, it needs no RAM between steps. */
+static __attribute__((noinline)) void calibrate(u32 now)
+{
+    struct set_cal cal = *set_cal();
+
+    switch (cal_step(&c.raw, now, &cal)) {
+    case CAL_SAVE:
+        set_cal_store(&cal);
+        break;
+    case CAL_IDLE:
+        c.calibrating = 0;
+        ux_ignore_held();
+        break;
+    }
+}
+
+/* The loop's steps stay out of line (noinline): their locals are then not
+ * on the stack under bluetooth(), the deepest path (a Switch 2 command). */
+static __attribute__((noinline)) void read_input(u32 now)
 {
     struct ctl_request r;
     u8 pair;
@@ -76,15 +94,7 @@ static void read_input(u32 now)
         request(&r);
         return;
     }
-    switch (cal_step(&c.raw, now, &c.cal)) {
-    case CAL_SAVE:
-        set_cal_store(&c.cal);
-        break;
-    case CAL_IDLE:
-        c.calibrating = 0;
-        ux_ignore_held();
-        break;
-    }
+    calibrate(now);
     c.pad.buttons = 0;
 }
 
@@ -181,9 +191,12 @@ static void stopped(u32 now)
     }
 }
 
-static __attribute__((noinline)) void bluetooth(void)
+/* Returns whether the session has stopped; the caller acts on that once
+ * the event is off the stack. */
+static __attribute__((noinline)) int bt_events(void)
 {
     struct bt_ev ev;
+    int stopped_seen = 0;
 
     while (bt_poll(&ev)) {
         if (ev.kind == BT_EV_LINKED) {
@@ -217,9 +230,15 @@ static __attribute__((noinline)) void bluetooth(void)
                 bt_update_bond(&ev.bond);
             }
         } else if (ev.kind == BT_EV_STOPPED) {
-            stopped(plat_ms());
+            stopped_seen = 1;
         }
     }
+    return stopped_seen;
+}
+
+static void bluetooth(void)
+{
+    if (bt_events()) stopped(plat_ms());
 }
 
 int host_send(u16 id, const u8 *data, u16 len)
@@ -227,7 +246,7 @@ int host_send(u16 id, const u8 *data, u16 len)
     return !c.stopping && !c.sleeping && c.linked && bt_send_message(id, data, len);
 }
 
-static void host(u32 now)
+static __attribute__((noinline)) void host(u32 now)
 {
     struct profile_host h;
     if (!profile->host || !c.linked || c.stopping || c.sleeping || c.rumble_until) return;
@@ -249,7 +268,7 @@ static __attribute__((noinline)) void report(u32 now)
 }
 
 /* Returns the next change, plat_ms. */
-static u32 lights(u32 now)
+static __attribute__((noinline)) u32 lights(u32 now)
 {
     struct led_frame f;
     struct rgb cal;
@@ -307,7 +326,6 @@ static void request(const struct ctl_request *r)
     case REQ_CALIBRATE:
         ux_ignore_held();
         c.calibrating = 1;
-        c.cal = *set_cal();
         cal_start(plat_ms());
         break;
     case REQ_RUMBLE:
@@ -324,7 +342,7 @@ static void request(const struct ctl_request *r)
 /* Battery inactivity ends the radio session before cutting the supply. USB
  * power and calibration keep the pad awake.  A cable arriving during the
  * disconnect leaves the radio off once that disconnect has finished. */
-static u32 power_step(u32 now)
+static __attribute__((noinline)) u32 power_step(u32 now)
 {
     int powered = plat_usb_present();
     u32 deadline;

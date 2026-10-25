@@ -276,7 +276,9 @@ static const struct set_field cal_fields[] = {
 
 #define MAGIC      0x4332
 #define VERSION    1
-#define RECORD_MAX 224
+#ifndef RECORD_MAX
+#define RECORD_MAX 224             /* the largest record of a target kept */
+#endif
 #define SETTLE_MS  100
 /* The tools always see SLOTS slots and SLOTS remap slots (the targets); a
  * board short of RAM keeps fewer of them (make/<product>.mk).  One it does
@@ -288,6 +290,12 @@ static const struct set_field cal_fields[] = {
 #ifndef REMAPS_STORED
 #define REMAPS_STORED SLOTS
 #endif
+/* A board without remaps keeps no base either; its remap targets read as
+ * their defaults, and set_remap() is not there to call. */
+#ifndef REMAP_BASE_STORED
+#define REMAP_BASE_STORED 1
+#endif
+_Static_assert(REMAP_BASE_STORED || !REMAPS_STORED, "remap slots inherit from a kept base");
 #ifndef STAGE_MAX
 #define STAGE_MAX     1024
 #endif
@@ -304,7 +312,9 @@ static struct set_slot slots[SLOTS_STORED];
 static const struct set_slot none_slot = { .type = PROFILE_NONE };
 static struct set_palette pal;
 static struct set_cal cal;
+#if REMAP_BASE_STORED
 static struct set_remap remaps[REMAPS_STORED + 1];   /* the slots, then the base */
+#endif
 static u32 set_bits[TARGETS];
 static u32 dirty;            /* a bit per target */
 static u32 edits;
@@ -317,6 +327,7 @@ static int stored(u8 t)
 {
     if (t < SLOTS) return t < SLOTS_STORED;
     if (t >= TARGET_REMAP && t < TARGET_BASE) return t - TARGET_REMAP < REMAPS_STORED;
+    if (t == TARGET_BASE) return REMAP_BASE_STORED;
     return t < TARGETS;
 }
 
@@ -329,10 +340,20 @@ static const struct set_field *fields_of(u8 t, u32 *count)
     return cal_fields;
 }
 
+static u8 *remap_values(u8 t)
+{
+#if REMAP_BASE_STORED
+    return (u8 *)&remaps[t == TARGET_BASE ? BASE_INDEX : t - TARGET_REMAP];
+#else
+    (void)t;
+    return NULL;                 /* none kept: no writes, read as defaults */
+#endif
+}
+
 static u8 *values_of(u8 t)
 {
     return t < SLOTS ? (u8 *)&slots[t] : t == TARGET_PALETTE ? (u8 *)&pal :
-           t == TARGET_CAL ? (u8 *)&cal : (u8 *)&remaps[t == TARGET_BASE ? BASE_INDEX : t - TARGET_REMAP];
+           t == TARGET_CAL ? (u8 *)&cal : remap_values(t);
 }
 
 /* A target is one record, a remap slot two: its rules, then its sticks. */
@@ -465,8 +486,8 @@ static void default_value(u8 t, const struct set_field *f, u8 *out)
     /* A remap slot: the base's value, but its own name; A's swap as its map. */
     if (t == TARGET_REMAP && f < &remap_fields[REMAP_STICKS])
         memcpy(out, (const u8 *)&remap_a_default + f->offset, f->size);
-    else if (t >= TARGET_REMAP && t < TARGET_BASE && f != NAME_FIELD)
-        memcpy(out, (const u8 *)&remaps[BASE_INDEX] + f->offset, f->size);
+    else if (t >= TARGET_REMAP && t < TARGET_BASE && f != NAME_FIELD && stored(TARGET_BASE))
+        memcpy(out, remap_values(TARGET_BASE) + f->offset, f->size);
 }
 
 /* The remap slots' unset fields follow the base. */
@@ -744,10 +765,12 @@ const struct set_cal *set_cal(void)
     return &cal;
 }
 
+#if REMAP_BASE_STORED
 const struct set_remap *set_remap(u8 remap)
 {
     return &remaps[(u32)remap + 1 <= REMAPS_STORED ? remap : BASE_INDEX];
 }
+#endif
 
 u32 set_edits(void)
 {
@@ -995,6 +1018,25 @@ static u32 write1(u8 t, u8 id, u8 len, const void *v)
     return r;
 }
 
+/* Every record of a kept target fits with every field set. */
+static void records_fit(void)
+{
+    u32 t, worst = 4;
+
+    for (t = 0; t < 5; t++) {
+        u8 target = t == 0 ? 0 : t == 1 ? TARGET_PALETTE : t == 2 ? TARGET_CAL : TARGET_BASE;
+        u32 n, i, used = 4;
+        const struct set_field *f = fields_of(target, &n);
+
+        if (!stored(target)) continue;
+        for (i = 0; i < n; i++) if (part_of(target, i) == (t == 4)) used += 2u + f[i].size;
+        if (used > worst) worst = used;
+    }
+    CHECK(worst <= RECORD_MAX && worst <= 255);
+    CHECK(COUNT(slot_fields) <= 32 && sizeof(struct set_slot) <= 256);
+}
+
+#if SLOTS_STORED == SLOTS && REMAPS_STORED == SLOTS
 /* Every slot and remap slot stored (the Cyclone 2's). */
 static int full_storage(void)
 {
@@ -1003,21 +1045,11 @@ static int full_storage(void)
     u8 x;
     u16 speed = 3000, huge = 60000;
     u8 col[2] = { 4, 5 };
-    u32 t, worst = 4;
+    u32 t;
 
     { static const u8 zeros[16];
       CHECK(fnv1a(2166136261u, NULL, 16) == fnv1a(2166136261u, zeros, 16)); }
-    /* Every record fits with every field set. */
-    for (t = 0; t < 5; t++) {
-        u8 target = t == 0 ? 0 : t == 1 ? TARGET_PALETTE : t == 2 ? TARGET_CAL : TARGET_REMAP;
-        u32 n, i, used = 4;
-        const struct set_field *f = fields_of(target, &n);
-
-        for (i = 0; i < n; i++) if (part_of(target, i) == (t == 4)) used += 2u + f[i].size;
-        if (used > worst) worst = used;
-    }
-    CHECK(worst <= RECORD_MAX && worst <= 255);
-    CHECK(COUNT(slot_fields) <= 32 && sizeof(struct set_slot) <= 256);
+    records_fit();
 
     set_init();
     CHECK(set_slot(0)->type == PROFILE_GENERIC_BLE && set_slot(1)->type == PROFILE_DUALSENSE);
@@ -1431,7 +1463,7 @@ static int full_storage(void)
 
     /* Remap slots: checked, stored under their own keys, read back. */
     {
-        u8 map[REMAP_INPUTS] = { 0 }, rules[sizeof(remaps[0].rule)] = { 0 };
+        u8 map[REMAP_INPUTS] = { 0 }, rules[sizeof(((struct set_remap *)0)->rule)] = { 0 };
         struct remap_rule *r = (struct remap_rule *)rules;
         u32 used;
 
@@ -1511,6 +1543,7 @@ static int full_storage(void)
     CHECK(write1(6, ID_BOND, sizeof(bond) - 1, &bond) == SET_BAD_LENGTH);
     return TEST_DONE("settings");
 }
+#else
 
 /* A board that keeps fewer slots and remap slots: the others read as their
  * defaults, take no writes, and a slot not kept is of type none. */
@@ -1521,6 +1554,7 @@ static int reduced_storage(void)
     u32 t;
     u8 addresses[SLOTS][6], pair[6];
 
+    records_fit();
     set_init();
     for (t = 0; t < SLOTS_STORED; t++) {
         u32 j;
@@ -1546,20 +1580,46 @@ static int reduced_storage(void)
     memset(&bond, 0x11, sizeof(bond));
     set_bond_store(SLOTS_STORED, &bond);
     CHECK(!set_bond(SLOTS_STORED)->peer[0]);
+#if REMAP_BASE_STORED
     CHECK(set_remap(REMAPS_STORED) == set_remap(REMAP_BASE));
+#else
+    /* No base either: it reads as its defaults, as the remap slots do. */
+    CHECK(write1(TARGET_BASE, 18, 1, &rumble) == SET_UNKNOWN);
+    {
+        u8 d[512];
+        u32 n = set_read(TARGET_BASE, buf, sizeof(buf));
+
+        CHECK(n > 3 && n == set_read_defaults(TARGET_BASE, d, sizeof(d)) && !memcmp(buf, d, n));
+        CHECK(set_read(TARGET_REMAP + 1, d, sizeof(d)) == n);
+        CHECK(!memcmp(buf + 3, d + 3, n - 3));    /* a slot's: the base's */
+    }
+#endif
     /* Kept: as on every board, and back after a restart. */
     CHECK(write1(0, ID_TYPE, 1, &type) == SET_OK);
+#if REMAP_BASE_STORED
     CHECK(write1(TARGET_BASE, 18, 1, &rumble) == SET_OK);
+#endif
     set_apply();
     set_poll(ms, 1);
-    CHECK(set_slot(0)->type == PROFILE_XBOX_BLE && set_remap(REMAPS_STORED)->rumble == 4);
+    CHECK(set_slot(0)->type == PROFILE_XBOX_BLE);
+#if REMAP_BASE_STORED
+    CHECK(set_remap(REMAPS_STORED)->rumble == 4);
+#endif
     set_init();
-    CHECK(set_slot(0)->type == PROFILE_XBOX_BLE && set_remap(REMAP_BASE)->rumble == 4);
+    CHECK(set_slot(0)->type == PROFILE_XBOX_BLE);
+#if REMAP_BASE_STORED
+    CHECK(set_remap(REMAP_BASE)->rumble == 4);
+#endif
     return TEST_DONE("settings");
 }
+#endif
 
 int main(void)
 {
-    return SLOTS_STORED == SLOTS && REMAPS_STORED == SLOTS ? full_storage() : reduced_storage();
+#if SLOTS_STORED == SLOTS && REMAPS_STORED == SLOTS
+    return full_storage();
+#else
+    return reduced_storage();
+#endif
 }
 #endif

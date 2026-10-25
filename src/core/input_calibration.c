@@ -16,8 +16,7 @@ struct cal_stick_capture {
     uint32_t sum[2];
     uint16_t count;
     uint16_t rest_low[2], rest_high[2], center[2], low[2], high[2];
-    int32_t far_x[CAL_GATE_KNOTS], far_y[CAL_GATE_KNOTS];
-    uint32_t far_r2[CAL_GATE_KNOTS];
+    int16_t far_x[CAL_GATE_KNOTS], far_y[CAL_GATE_KNOTS];   /* within CAL_STICK_MAX */
 };
 
 struct cal_trigger_capture {
@@ -264,6 +263,13 @@ static enum cal_result cal_stick_rest_end(struct cal_stick_capture *capture)
     return CAL_OK;
 }
 
+static uint32_t far_r2(const struct cal_stick_capture *capture, uint32_t knot)
+{
+    int32_t x = capture->far_x[knot], y = capture->far_y[knot];
+
+    return (uint32_t)(x * x) + (uint32_t)(y * y);
+}
+
 static void cal_stick_sweep_sample(struct cal_stick_capture *capture, uint16_t x,
                             uint16_t y)
 {
@@ -278,10 +284,9 @@ static void cal_stick_sweep_sample(struct cal_stick_capture *capture, uint16_t x
     if (y > capture->high[1]) capture->high[1] = y;
 
     knot = nearest_knot(cal_pseudo_angle(dx, dy));
-    if (r2 > capture->far_r2[knot]) {
-        capture->far_r2[knot] = r2;
-        capture->far_x[knot] = dx;
-        capture->far_y[knot] = dy;
+    if (r2 > far_r2(capture, knot)) {
+        capture->far_x[knot] = (int16_t)dx;
+        capture->far_y[knot] = (int16_t)dy;
     }
 }
 
@@ -326,7 +331,7 @@ static enum cal_result cal_stick_finish(const struct cal_stick_capture *capture,
             return CAL_SHORT_RANGE;
     }
     for (knot = 0; knot < CAL_GATE_KNOTS; knot++) {
-        if (capture->far_r2[knot] <
+        if (far_r2(capture, knot) <
             STICK_EDGE_MIN_RADIUS * STICK_EDGE_MIN_RADIUS)
             return CAL_NOT_CIRCLED;
     }

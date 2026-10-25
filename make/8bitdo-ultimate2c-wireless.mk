@@ -23,11 +23,14 @@ $(U2CW_PAD)_LDFLAGS += --defsym=blc_ll_procConnectReq=plat_ll_connect_request
 $(U2CW_PAD)_LDFLAGS += --wrap=blc_ll_get_connEffectiveMaxTxOctets
 $(U2CW_PAD)_LDFLAGS += --undefined=plat_ll_push_tx_fifo --defsym=bls_ll_pushTxFifo=plat_ll_push_tx_fifo
 
-# 16 KiB of SRAM: the settings keep slots A-Y and the base remap only, with a
-# small staging buffer; small log and trace rings.
+# 16 KiB of SRAM: the settings keep slots A-Y only (no remaps, no base remap),
+# with records sized for them and a small staging buffer; small log and trace
+# rings.
 $(U2CW_PAD)_DEFINES :=
 $(U2CW_PAD)_DEFINES += -DSLOTS_STORED=4
 $(U2CW_PAD)_DEFINES += -DREMAPS_STORED=0
+$(U2CW_PAD)_DEFINES += -DREMAP_BASE_STORED=0
+$(U2CW_PAD)_DEFINES += -DRECORD_MAX=152
 $(U2CW_PAD)_DEFINES += -DUX_REMAP_CONFIG=0
 $(U2CW_PAD)_DEFINES += -DSTAGE_MAX=256
 $(U2CW_PAD)_DEFINES += -DLOG_LINES=2
