@@ -18,7 +18,8 @@
  * for bt_poll(). */
 
 #define BOND_STORE    0x71000    /* below the app's end, clear of stock data */
-#define INPUT_MAX     20         /* a notification in a 27-byte LL packet */
+#define INPUT_MAX     64
+#define TX_OCTETS     80
 #define IN_FLIGHT     2          /* input notifications in the stack at once */
 /* The SDK accepts a notification only when queued + its packet count is
  * strictly below TX_FIFO - 2. Four entries allow only one pending input
@@ -28,7 +29,7 @@
 _Static_assert(TX_FIFO >= IN_FLIGHT + 3, "TX FIFO must fit inputs and the SDK reserve");
 
 static u8 acl_rx[CAL_LL_ACL_RX_FIFO_SIZE(27) * 4] __attribute__((aligned(16)));
-static u8 acl_tx[CAL_LL_ACL_TX_FIFO_SIZE(27) * TX_FIFO] __attribute__((aligned(4)));
+static u8 acl_tx[CAL_LL_ACL_TX_FIFO_SIZE(TX_OCTETS) * TX_FIFO] __attribute__((aligned(4)));
 static u8 l2cap_rx[CAL_L2CAP_BUFF_SIZE(TELINK_ATT_MTU)] __attribute__((aligned(4)));
 /* The SDK's initialization checks still want a table. ATT requests go to
  * the flash server instead of this empty constant table. */
@@ -42,6 +43,10 @@ ble_sts_t blc_l2cap_pushData_2_controller(u16 handle, u16 cid, u8 *header,
 /* The stack's own, from smp_storage.o: a bond record into its storage. */
 #define BOND_JUST_WORKS 0x9a     /* the record's flag after an unauthenticated pairing */
 u32 __real_bls_smp_param_saveBondingInfo(smp_param_save_t *p);
+int bls_smp_getLtkReq(u16 handle, u8 *random, u16 ediv);
+void blc_ll_registerLtkReqEvtCb(int (*callback)(u16, u8 *, u16));
+ble_sts_t blc_hci_ltkRequestReply(u16 handle, u8 *key);
+ble_sts_t blc_hci_ltkRequestNegativeReply(u16 handle);
 
 static struct {
     u8 started, advertising, connected, encrypted;
@@ -88,8 +93,8 @@ int plat_att_write(u16 handle, const u8 *data, u16 len)
 static void on_connect(u8 e, u8 *p, int n)
 {
     (void)e;
-    (void)p;
     (void)n;
+    if (b.device && !b.device->sm_er) memcpy(b.paired.le_peer, p, 6);
     b.connected = 1;
     b.encrypted = 0;
     b.advertising = 0;
@@ -100,7 +105,12 @@ static void on_connect(u8 e, u8 *p, int n)
         bls_ll_terminateConnection(HCI_ERR_REMOTE_USER_TERM_CONN);
         return;
     }
-    bls_l2cap_requestConnParamUpdate(b.device->interval_min, b.device->interval_max, 0, 400);
+    if (b.device->interval_min)
+        bls_l2cap_requestConnParamUpdate(b.device->interval_min, b.device->interval_max, 0, 400);
+    if (!b.device->sm_er) {
+        b.linked_pending = 1;   /* proprietary pairing uses unencrypted ATT */
+        blc_ll_exchangeDataLength(0x14, TX_OCTETS);
+    }
     util_log("bt: connected");
 }
 
@@ -133,7 +143,7 @@ static int on_host(u32 h, u8 *p, int n)
     case GAP_EVT_SMP_CONN_ENCRYPTION_DONE:
         b.encrypted = 1;
         plat_att_encrypted(1);
-        if (!b.stopping) b.linked_pending = 1;
+        if (!b.stopping && b.device && b.device->sm_er) b.linked_pending = 1;
         util_log("bt: encrypted");
         break;
     }
@@ -143,6 +153,19 @@ static int on_host(u32 h, u8 *p, int n)
 static int is_zero(const u8 *p, u32 n)
 {
     while (n--) if (*p++) return 0;
+    return 1;
+}
+
+/* Switch 2 distributes its key over ATT, outside SMP. Its profile stores
+ * the AES key most significant byte first; the SDK controller takes LE. */
+static int on_ltk(u16 handle, u8 *random, u16 ediv)
+{
+    u8 key[16];
+    u32 i;
+    if (!b.device || b.device->sm_er) return bls_smp_getLtkReq(handle, random, ediv);
+    if (is_zero(b.paired.ltk, 16)) { blc_hci_ltkRequestNegativeReply(handle); return 0; }
+    for (i = 0; i < 16; i++) key[i] = b.paired.ltk[15 - i];
+    blc_hci_ltkRequestReply(handle, key);
     return 1;
 }
 
@@ -204,8 +227,8 @@ void plat_bt_init(void)
     blc_ll_initAdvertising_module();
     blc_ll_initSlaveRole_module();
     blc_ll_setRandomAddr(address);
-    blc_ll_setAclConnMaxOctetsNumber(27, 27);
-    blc_ll_initAclConnTxFifo(acl_tx, CAL_LL_ACL_TX_FIFO_SIZE(27), TX_FIFO);
+    blc_ll_setAclConnMaxOctetsNumber(27, TX_OCTETS);
+    blc_ll_initAclConnTxFifo(acl_tx, CAL_LL_ACL_TX_FIFO_SIZE(TX_OCTETS), TX_FIFO);
     blc_ll_initAclConnRxFifo(acl_rx, CAL_LL_ACL_RX_FIFO_SIZE(27), 4);
     blc_gap_peripheral_init();
     bls_att_setAttributeTable((u8 *)sdk_attrs);
@@ -215,6 +238,7 @@ void plat_bt_init(void)
     bls_smp_configPairingSecurityInfoStorageAddr(BOND_STORE);
     blc_smp_param_setBondingDeviceMaxNumber(4);
     blc_smp_peripheral_init();
+    blc_ll_registerLtkReqEvtCb(on_ltk);
     blc_smp_setSecurityLevel(Unauthenticated_Pairing_with_Encryption);
     blc_gap_registerHostEventHandler(on_host);
     blc_gap_setEventMask(GAP_EVT_MASK_SMP_PAIRING_SUCCESS | GAP_EVT_MASK_SMP_PAIRING_FAIL |
@@ -243,7 +267,12 @@ void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond
     if (b.advertising) bls_ll_setAdvEnable(BLC_ADV_DISABLE);
     b.device = p->device;
     blc_ll_setRandomAddr((u8 *)address);
-    restore(bond);
+    b.paired = *bond;
+    b.write_pending = 0;
+    blc_smp_setSecurityLevel(b.device->sm_er ? Unauthenticated_Pairing_with_Encryption : No_Security);
+    blc_smp_configSecurityRequestSending(b.device->sm_er ? SecReq_IMM_SEND : SecReq_NOT_SEND,
+                                        b.device->sm_er ? SecReq_IMM_SEND : SecReq_NOT_SEND, 0);
+    if (b.device->sm_er) restore(bond);
     n = p->device->advertising(bond, pairing, 0, adv);
     bls_ll_setAdvParam(ADV_INTERVAL_30MS, ADV_INTERVAL_35MS, ADV_TYPE_CONNECTABLE_UNDIRECTED,
                        OWN_ADDRESS_RANDOM, 0, NULL, BLT_ENABLE_ADV_ALL, ADV_FP_NONE);
@@ -273,6 +302,7 @@ void bt_update_bond(const struct bt_bond *bond)
     u8 adv[31], n;
 
     if (!b.device || b.stopping) return;
+    b.paired = *bond;
     n = b.device->advertising(bond, 0, 0, adv);
     bls_ll_setAdvData(adv, n);
 }
@@ -280,12 +310,12 @@ void bt_update_bond(const struct bt_bond *bond)
 /* No pairing or link set-up under way: a flash write is safe. */
 int bt_radio_quiet(void)
 {
-    return !b.connected || b.encrypted;
+    return !b.connected || b.encrypted || (b.device && !b.device->sm_er);
 }
 
 int bt_input_wanted(void)
 {
-    return b.connected && b.encrypted && plat_att_notifying(b.device->input_handle) && !plat_att_busy() &&
+    return b.connected && b.device && (b.encrypted || !b.device->sm_er) && plat_att_notifying(b.device->input_handle) && !plat_att_busy() &&
            blc_ll_getTxFifoNumber() < IN_FLIGHT;
 }
 
@@ -297,12 +327,18 @@ int bt_send_input(u8 id, const u8 *data, u16 len)
     return plat_att_send(b.device->input_handle, data, len);
 }
 
+int bt_send_message(u16 handle, const u8 *data, u16 len)
+{
+    return b.connected && b.device && plat_att_message(handle, data, len);
+}
+
 int bt_poll(struct bt_ev *ev)
 {
     memset(ev, 0, sizeof(*ev));
     if (b.linked_pending) {
         b.linked_pending = 0;
         ev->kind = BT_EV_LINKED;
+        memcpy(ev->bond.le_peer, b.paired.le_peer, 6);
         return 1;
     }
     if (b.paired_pending) {

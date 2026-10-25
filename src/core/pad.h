@@ -263,7 +263,7 @@ struct bt_ev {
     u8 kind;
     u8 lost;                     /* BT_EV_UNLINKED: the signal went, not the host */
     u8 reason;                   /* HCI disconnect reason */
-    struct bt_bond bond;         /* BT_EV_PEER, BT_EV_BONDED, BT_EV_PAIRED */
+    struct bt_bond bond;         /* PEER, BONDED, PAIRED; LINKED may supply le_peer */
     struct bt_write write;       /* BT_EV_WRITE */
 };
 

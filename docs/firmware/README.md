@@ -10,3 +10,4 @@ and the board folders.
 | [image-tool.md](image-tool.md) | `jlnewfw`: list, unpack, pack, flash, loader, scan; how it tells devices apart; the tool device's identity |
 | [runtime.md](runtime.md) | retained SRAM sections, VM items, charger, sleep policy, boot counter |
 | [console-wake.md](console-wake.md) | the Switch 1 wake transmission and the Switch 2 wake flag |
+| [telink-ble.md](telink-ble.md) | flash ATT databases, packet buffers, per-slot LE sessions and pairing on the Ultimate 2C |

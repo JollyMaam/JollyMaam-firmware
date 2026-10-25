@@ -15,6 +15,7 @@ static struct {
     u8 response[TELINK_ATT_MTU];
     u8 message[MESSAGE_MAX + 3];
     u16 response_len, message_len;
+    u8 command;
 } a;
 
 static u16 get16(const u8 *p) { return (u16)(p[0] | p[1] << 8); }
@@ -59,6 +60,7 @@ static int write_value(u16 connection, u16 handle, u16 mode, u16 offset, u8 *dat
         a.ccc_value[index] = data[0];
         return 0;
     }
+    if (a.message_len && a.command) return ATT_ERROR_INSUFFICIENT_RESOURCES;
     if (len > BT_WRITE_MAX) return ATT_ERROR_INVALID_ATTRIBUTE_VALUE_LENGTH;
     return plat_att_write(handle, data, len) ? 0 : ATT_ERROR_INSUFFICIENT_RESOURCES;
 }
@@ -106,7 +108,7 @@ void plat_att_receive(u8 *pdu, u16 len)
 void plat_att_poll(void)
 {
     if (a.response_len && plat_att_transmit(a.response, a.response_len, 1)) a.response_len = 0;
-    if (!a.response_len && a.message_len && plat_att_transmit(a.message, a.message_len, 0)) a.message_len = 0;
+    if (!a.response_len && a.message_len && plat_att_transmit(a.message, a.message_len, a.command)) a.message_len = 0;
 }
 
 int plat_att_notifying(u16 handle)
@@ -115,16 +117,20 @@ int plat_att_notifying(u16 handle)
     return index >= 0 && (a.ccc_value[index] & 1);
 }
 
-int plat_att_send(u16 handle, const u8 *data, u16 len)
+static int send(u16 handle, const u8 *data, u16 len, int command)
 {
-    if (a.message_len || !plat_att_notifying(handle) || len > MESSAGE_MAX || len + 3 > a.connection.mtu) return 0;
+    if ((a.message_len && (!command || a.command)) || !plat_att_notifying(handle) || len > MESSAGE_MAX || len + 3 > a.connection.mtu) return 0;
     a.message[0] = ATT_HANDLE_VALUE_NOTIFICATION;
     a.message[1] = (u8)handle;
     a.message[2] = (u8)(handle >> 8);
     memcpy(a.message + 3, data, len);
     a.message_len = (u16)(len + 3);
+    a.command = (u8)command;
     return 1;
 }
+
+int plat_att_send(u16 handle, const u8 *data, u16 len) { return send(handle, data, len, 0); }
+int plat_att_message(u16 handle, const u8 *data, u16 len) { return send(handle, data, len, 1); }
 
 int plat_att_busy(void) { return a.response_len || a.message_len; }
 u16 plat_att_mtu(void) { return a.connection.mtu; }
@@ -190,6 +196,17 @@ int main(void)
     CHECK(sent == 2 && transmitted[0][0] == 11 && transmitted[1][0] == 27);
     receive(command,sizeof(command)); CHECK(written_handle == 7 && written_len == 3 && written[0] == 4);
     write_ready = 0; receive(command,sizeof(command)); CHECK(transmitted[0][0] == 1);
+    /* A command reply replaces queued input, survives a busy FIFO, and
+     * prevents another host write from overwriting its single buffer. */
+    sent = 0; can_send = 0;
+    CHECK(plat_att_send(7, queued, sizeof(queued)));
+    CHECK(plat_att_message(7, (const u8 *)"reply", 5));
+    CHECK(!plat_att_send(7, queued, sizeof(queued)));
+    CHECK(!plat_att_message(7, queued, sizeof(queued)));
+    receive(command, sizeof(command)); CHECK(!sent);
+    can_send = 1; plat_att_poll();
+    CHECK(sent == 2 && transmitted[0][0] == 1 && transmitted[0][4] == ATT_ERROR_INSUFFICIENT_RESOURCES);
+    CHECK(transmitted_len[1] == 8 && !memcmp(transmitted[1] + 3, "reply", 5));
     plat_att_connected(64); CHECK(!plat_att_notifying(7) && plat_att_mtu() == 23);
     return TEST_DONE("Telink flash ATT");
 }

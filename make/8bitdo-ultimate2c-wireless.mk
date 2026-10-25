@@ -38,6 +38,7 @@ $(U2CW_PAD)_SOURCES += src/platform/telink/bt_telink.c
 $(U2CW_PAD)_SOURCES += src/platform/telink/att_telink.c
 $(U2CW_PAD)_SOURCES += src/core/controller_lite.c
 $(U2CW_PAD)_SOURCES += src/profiles/profile_hid.c
+$(U2CW_PAD)_SOURCES += src/profiles/profile_switch.c
 $(U2CW_PAD)_SOURCES += src/core/input.c
 $(U2CW_PAD)_SOURCES += src/core/input_calibration.c
 $(U2CW_PAD)_SOURCES += src/core/settings.c

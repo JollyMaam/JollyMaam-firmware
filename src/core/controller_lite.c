@@ -2,15 +2,9 @@
 #include "pad.h"
 
 /* The control loop for a pad whose RAM controller.c and settings.c do not
- * fit (the Telink B80's 16 KiB): ctl_main() as controller.c has it, built
- * from the same modules, with what the board can afford.  So far: one
- * session of one LE profile (genericble), started at boot, whose host
- * gets a report whenever the input changes; the settings (what the board
- * keeps of them), the sensor calibration and its routine; the Home light
- * (blinking while no host is linked, lit when one is); the tools'
- * commands, the motor test among them. Four slots share one profile and
- * radio session at a time, with separate identities and bonds. Shared
- * Home gestures choose a slot; Sync pairs the current one. */
+ * fit (the Telink B80's 16 KiB). Four slots select Generic BLE or Switch 2,
+ * sharing the input, calibration, settings, Home gestures and one radio
+ * session at a time. Host commands run here, outside the SDK callbacks. */
 
 #define POLL_US 4000             /* connected: the input is looked at this often */
 #define CAL_SAMPLE_MS 2          /* calibrating: the input is read this often */
@@ -23,7 +17,7 @@ static const struct {
     u16 on_ms, off_ms;
 } home_light = { 24, 250, 250 };
 
-static const struct profile *const profile = &profile_generic_ble;
+static const struct profile *profile = &profile_generic_ble;
 
 static struct {
     struct in_raw raw;
@@ -40,6 +34,8 @@ static struct {
     u32 activity_ms, sleep_ms, since_ms, usb_seen_ms;
     u8 sleeping, idle, stopping, pending, renew, pair_down;
     u8 slot, last_slot, pending_slot;
+    u8 peer[6];
+    u8 players;                  /* first player light: bit 0 steady, bit 1 flashing */
 } c;
 
 static void start(void);
@@ -98,7 +94,7 @@ static int slot_ready(u8 slot)
 
     if (slot >= LITE_SLOTS) return 0;
     s = set_slot(slot);
-    return s->type == PROFILE_GENERIC_BLE && s->transport == TRANSPORT_BT;
+    return (s->type == PROFILE_GENERIC_BLE || s->type == PROFILE_SWITCH2) && s->transport == TRANSPORT_BT;
 }
 
 static void start_session(u8 slot, int pairing, int renew)
@@ -111,6 +107,7 @@ static void start_session(u8 slot, int pairing, int renew)
         util_log("ctl: slot %u type/transport unavailable", slot);
         return;
     }
+    c.players = 0;
     c.sleeping = 0;
     c.idle = 0;
     c.slot = c.last_slot = slot;
@@ -126,6 +123,7 @@ static void start_session(u8 slot, int pairing, int renew)
     c.session.address[5] |= 0xc0;       /* LE static random */
     set_flush();                     /* previous session is stopped */
     if (!set_is_ephemeral()) plat_retain_slot(slot);
+    profile = c.session.settings->type == PROFILE_SWITCH2 ? &profile_switch2 : &profile_generic_ble;
     profile->begin(&c.session);
     bt_start(profile, c.session.address, c.session.bond, c.session.pairing, NULL);
     util_log("ctl: %s slot %c", c.session.pairing ? "pairing" : "connecting", slot_names[slot]);
@@ -191,20 +189,47 @@ static __attribute__((noinline)) void bluetooth(void)
         if (ev.kind == BT_EV_LINKED) {
             if (c.stopping || c.sleeping) continue;
             c.linked = 1;
+            memcpy(c.peer, ev.bond.le_peer, 6);
             c.activity_ms = plat_ms();
             profile->begin(&c.session);          /* the first report goes out whatever it is */
         } else if (ev.kind == BT_EV_UNLINKED) {
             c.linked = 0;
+            c.players = 0;
+            c.rumble_until = 0;
+            plat_motors(0, 0);
             c.since_ms = plat_ms();
         } else if (ev.kind == BT_EV_PAIRED) {
             set_pairing_store(c.slot, c.session.address, &ev.bond);
             c.session.pairing = 0;
             bt_update_bond(&ev.bond);
             util_log("ctl: slot %c bond saved", slot_names[c.slot]);
+        } else if (ev.kind == BT_EV_WRITE && !c.stopping && !c.sleeping) {
+            if (profile->write && profile->write(&ev.write, plat_ms(), &ev.bond)) {
+                memcpy(ev.bond.le_peer, c.peer, 6);
+                set_pairing_store(c.slot, c.session.address, &ev.bond);
+                c.session.pairing = 0;
+                bt_update_bond(&ev.bond);
+            }
         } else if (ev.kind == BT_EV_STOPPED) {
             stopped(plat_ms());
         }
     }
+}
+
+int host_send(u16 id, const u8 *data, u16 len)
+{
+    return !c.stopping && !c.sleeping && c.linked && bt_send_message(id, data, len);
+}
+
+static void host(u32 now)
+{
+    struct profile_host h;
+    if (!profile->host || !c.linked || c.stopping || c.sleeping || c.rumble_until) return;
+    memset(&h, 0, sizeof(h));
+    profile->host(now, &h);
+    plat_motors(h.rumble[0], h.rumble[1]);
+    c.players = h.has_players ? (h.players & 1) | ((h.players_flash & 1) << 1) : 0;
+    if (h.ended) transition(REQ_NONE, SLOT_NONE, 0);
 }
 
 static __attribute__((noinline)) void report(u32 now)
@@ -224,6 +249,7 @@ static u32 lights(u32 now)
     struct rgb cal;
     u32 period = home_light.on_ms + home_light.off_ms, at = now % period;
     u8 lit = !c.idle && (c.linked || at < home_light.on_ms);
+    if (c.linked && ((c.players & 1) || ((c.players & 2) && now % 500 < 250))) lit |= 2;
 
     memset(&f, 0, sizeof(f));
     if (cal_led(now, &cal)) {    /* the calibration routine's own light */
@@ -233,10 +259,12 @@ static u32 lights(u32 now)
         return now + 20;
     }
     if (lit != c.lit) {
-        f.light[LIGHT_HOME].r = f.light[LIGHT_HOME].g = f.light[LIGHT_HOME].b = lit ? home_light.level : 0;
+        f.light[LIGHT_HOME].r = f.light[LIGHT_HOME].g = f.light[LIGHT_HOME].b = (lit & 1) ? home_light.level : 0;
+        f.light[LIGHT_P0].r = f.light[LIGHT_P0].g = f.light[LIGHT_P0].b = (lit & 2) ? 255 : 0;
         plat_leds(&f);
         c.lit = lit;
     }
+    if (c.linked && (c.players & 2)) return now + 250 - now % 250;
     if (c.linked || c.idle) return 0;
     return now - at + (at < home_light.on_ms ? home_light.on_ms : period);
 }
@@ -368,6 +396,7 @@ void ctl_main(void)
         }
         bluetooth();
         read_input(plat_ms());
+        host(plat_ms());
         report(plat_ms());
         c.status.state = state();
         c.status.slot = c.idle || c.sleeping ? SLOT_NONE : c.slot;
@@ -427,6 +456,13 @@ void plat_motors(u8 left, u8 right) { CHECK(!left && !right); motors++; }
 void util_log(const char *fmt, ...) { (void)fmt; }
 static u8 test_begin(const struct profile_session *s) { (void)s; return 0; }
 const struct profile profile_generic_ble = { .begin = test_begin };
+static int test_write(const struct bt_write *w, u32 now, struct bt_bond *bond)
+{
+    (void)now; CHECK(w->kind == BT_WRITE_ATT && w->id == 0x14);
+    memset(bond, 0, sizeof(*bond)); bond->ltk[0] = w->data[0]; return 1;
+}
+const struct profile profile_switch2 = { .begin = test_begin, .write = test_write };
+int bt_send_message(u16 id, const u8 *data, u16 len) { (void)id; (void)data; (void)len; return 1; }
 const struct ux_timeouts ux_timeouts = {
     .idle_sleep_ms = 300000, .stop_max_ms = 12000, .connect_ms = 30000, .pair_ms = 180000,
 };
@@ -436,6 +472,7 @@ static void test_reset(void)
     u8 i;
 
     memset(&c, 0, sizeof(c));
+    profile = &profile_generic_ble;
     test_ms = 100;
     test_usb = stops = flushes = offs = starts = motors = renewals = reboots = 0;
     memset(test_bonds, 0, sizeof(test_bonds));
@@ -561,6 +598,23 @@ int main(void)
         select_session(REQ_PAIR, SLOT_LAST, 1); stopped(test_ms);
         CHECK(c.slot == 3 && c.session.pairing && renewals == 1);
     }
+    /* Switch 2 writes save their proprietary key with the connected peer,
+     * without changing another slot's bond. */
+    test_reset(); test_slots[2].type = PROFILE_SWITCH2;
+    test_bonds[0].ltk[0] = 0x17;
+    start_session(2, 1, 0); CHECK(profile == &profile_switch2 && c.slot == 2);
+    test_events[0].kind = BT_EV_LINKED;
+    memset(test_events[0].bond.le_peer, 0x23, 6);
+    test_events[1].kind = BT_EV_WRITE;
+    test_events[1].write.kind = BT_WRITE_ATT; test_events[1].write.id = 0x14;
+    test_events[1].write.data[0] = 0x42;
+    event_count = 2; bluetooth();
+    CHECK(test_bonds[2].ltk[0] == 0x42 && test_bonds[2].le_peer[0] == 0x23);
+    CHECK(!c.session.pairing && test_bonds[0].ltk[0] == 0x17);
+    test_events[0].kind = BT_EV_UNLINKED; event_at = 0; event_count = 1;
+    c.players = 3; c.rumble_until = 1000; bluetooth();
+    CHECK(!c.linked && !c.players && !c.rumble_until);
+
     /* Disabled/unsupported slots cannot tear down the running session. */
     test_reset();
     test_slots[1].type = PROFILE_NONE;

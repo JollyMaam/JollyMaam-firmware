@@ -11,6 +11,7 @@ void plat_att_receive(u8 *pdu, u16 len);
 void plat_att_poll(void);
 int plat_att_notifying(u16 handle);
 int plat_att_send(u16 handle, const u8 *data, u16 len);
+int plat_att_message(u16 handle, const u8 *data, u16 len);
 int plat_att_busy(void);
 u16 plat_att_mtu(void);
 
