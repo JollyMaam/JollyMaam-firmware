@@ -277,9 +277,42 @@ static u8 started;                   /* board_init() ran: the OTP as it is */
 void board_init(void)
 {
     started = 1;                     /* the OTP as it is from here (below) */
+    /* Stock holds PD7 high.  Home powers the board only while held unless
+     * this output keeps the battery supply on.  Set the latch before
+     * enabling the output so start-up never drives it low. */
+    gpio_write(GPIO_PD7, 1);
+    gpio_set_func(GPIO_PD7, AS_GPIO);
+    gpio_set_input_en(GPIO_PD7, 0);
+    gpio_set_output_en(GPIO_PD7, 1);
+    /* Stock's power-off path tests PD0 and keeps the supply on while high. */
+    gpio_set_func(GPIO_PD0, AS_GPIO);
+    gpio_set_output_en(GPIO_PD0, 0);
+    gpio_set_input_en(GPIO_PD0, 1);
+    gpio_setup_up_down_resistor(GPIO_PD0, PM_PIN_UP_DOWN_FLOAT);
     outputs_init();
     matrix_init();
     adc_start();
+}
+
+int board_usb_present(void)
+{
+    return gpio_read(GPIO_PD0) != 0;
+}
+
+void board_power_off(void)
+{
+    u32 i;
+
+    for (i = 0; i < OUTPUTS; i++) output_set(&outputs[i], 0);
+    dfifo_disable_dfifo2();
+    adc_power_on_sar_adc(0);
+    usb_dp_pullup_en(0);
+    irq_disable();
+    wd_stop();
+    gpio_write(GPIO_PD7, 0);
+    /* Home can still supply power while held. A cable arriving before
+     * Home is released must boot normally, rather than strand the CPU. */
+    for (;;) if (board_usb_present()) start_reboot();
 }
 
 u32 board_poll(void)

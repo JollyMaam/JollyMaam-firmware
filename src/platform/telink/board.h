@@ -13,6 +13,8 @@ void board_init(void);           /* pins and the input scanner, before USB */
  * set of sticks and triggers was read. */
 u32 board_poll(void);
 void board_input(struct in_raw *raw);
+int board_usb_present(void);    /* physical USB power, independent of enumeration */
+void board_power_off(void);     /* outputs off, then release the battery power hold */
 
 /* ---- the platform, for the board and between its files ------------------ */
 

@@ -154,7 +154,7 @@ u16 plat_battery_mv(void)
 
 int plat_usb_present(void)
 {
-    return plat_usb_configured();
+    return board_usb_present();
 }
 
 /* 32-bit words from addr: SRAM 0x840000-0x843fff, registers from 0x800000;
@@ -197,6 +197,12 @@ u32 plat_prof_read(u32 offset, u8 *out, u32 max)
 }
 
 /* ---- resets -------------------------------------------------------------- */
+
+void plat_power_off(void)
+{
+    if (board_usb_present()) return;      /* a cable arrived during shutdown */
+    board_power_off();
+}
 
 void plat_reboot(void)
 {

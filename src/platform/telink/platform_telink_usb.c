@@ -304,6 +304,12 @@ static struct {
     u8 small[2];
 } u;
 
+static struct {
+    u8 present, raw;
+    u32 changed;
+} power;
+#define USB_POWER_DEBOUNCE_MS 20
+
 static void bulk_reset(int bus)
 {
     u.in_flight = 0;
@@ -474,6 +480,9 @@ static void ep0_status(void)
 
 void plat_usb_init(void)
 {
+    memset(&u, 0, sizeof(u));
+    power.present = power.raw = (u8)board_usb_present();
+    power.changed = plat_ms();
     usb_dp_pullup_en(0);
     reg_clk_en0 |= FLD_CLK0_USB_EN;
     reg_rst0 |= FLD_RST0_USB;
@@ -489,6 +498,7 @@ void plat_usb_init(void)
     irq_disable_type(FLD_IRQ_USB_RST_EN | FLD_IRQ_USB_PWDN_EN | FLD_IRQ_EP0_SETUP_EN |
                      FLD_IRQ_EP0_DAT_EN | FLD_IRQ_EP0_STA_EN | FLD_IRQ_EP_DATA_EN);
     usb_set_pin(1);              /* attaches: the D+ pull-up */
+    if (!power.present) usb_dp_pullup_en(0);
 }
 
 int plat_usb_configured(void)
@@ -573,9 +583,28 @@ static void bulk(void)
 
 u32 plat_usb_poll(void)
 {
+    u8 raw = (u8)board_usb_present();
+    u32 event = 0;
+
+    if (raw != power.raw) {
+        power.raw = raw;
+        power.changed = plat_ms();
+    }
+    if (raw != power.present && plat_ms() - power.changed >= USB_POWER_DEBOUNCE_MS) {
+        if (raw) plat_usb_init();
+        else {
+            power.present = 0;
+            usb_dp_pullup_en(0);
+            memset(&u, 0, sizeof(u));
+            bulk_reset(1);
+        }
+        util_log("usb: power %s", raw ? "present" : "gone");
+        event = EV_USB;
+    }
+    if (!power.present) return event;
     control();
     if (u.configuration && !u.resume_bulk) bulk();
-    return m.state == MSC_COMMAND ? EV_USB : 0;
+    return event | (m.state == MSC_COMMAND ? EV_USB : 0);
 }
 
 /* A vendor command waiting: usb.c answers it here, on the control loop. */

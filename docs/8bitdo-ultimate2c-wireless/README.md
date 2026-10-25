@@ -2,7 +2,7 @@
 
 Board facts for the 8BitDo Ultimate 2C Wireless pad, a Telink TLSR8208
 (B80): its pins, flash, boot loader and what its stock firmware shows.
-LEDs, motors and the battery are not established.
+Battery sensing and charging control are not established.
 
 ## Chip and flash
 
@@ -103,9 +103,19 @@ Outputs (each found by driving the pin as a GPIO output):
 | PF1 | the light under Home | output, low |
 | PD5 | the red light beside the USB port | output, low |
 
-PD4 and PD7 drive nothing visible; stock holds PD7 high, as an output.
-Their roles are not established. Which level lights the lights is not
-established.
+PD4 drives nothing visible; its role is not established. Which level lights
+the lights is not established.
+
+## Power
+
+- PD7 is the battery power hold, active high. Home supplies power while
+  held; driving PD7 high keeps the pad running after Home is released and
+  when USB is unplugged. Stock startup sets PD7 high.
+- PD0 indicates USB power, high while plugged in and low while unplugged.
+  This is separate from USB enumeration and configuration. Stock refuses
+  to release the power hold while PD0 is high.
+- The board's current consumption with the power hold released, and its
+  charging behavior, are not established.
 
 Analog (ADC channel = PB pin number + 1; 14-bit differential against ground,
 1.2 V reference, input prescaler 1 as stock, analog `0xfa` = `0x3d`):
