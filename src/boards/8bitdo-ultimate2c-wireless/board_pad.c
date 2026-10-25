@@ -179,8 +179,11 @@ static void adc_poll(void)
 
 /* ---- the board's interface to the platform ------------------------------- */
 
+static u8 started;                   /* board_init() ran: the OTP as it is */
+
 void board_init(void)
 {
+    started = 1;                     /* the OTP as it is from here (below) */
     matrix_init();
     adc_start();
 }
@@ -218,13 +221,14 @@ void board_input(struct in_raw *raw)
 /* ---- this pad's OTP --------------------------------------------------------
  * Its OTP word at 0x3fb4 reads 0x10000000, which the stock boot loader runs
  * flash firmware with, but the SDK's cpu_wakeup_init() wants 0xffffffff
- * there and resets the chip otherwise.  Linked with --wrap=otp_read: only
- * that word, with that value, reads as the SDK wants. */
+ * there and resets the chip otherwise.  Linked with --wrap=otp_read: until
+ * board_init() (start-up), only that word, with that value, reads as the
+ * SDK wants; after it, every read is the OTP as it is. */
 
 void __real_otp_read(unsigned int address, unsigned int words, unsigned int *buffer);
 
 void __wrap_otp_read(unsigned int address, unsigned int words, unsigned int *buffer)
 {
     __real_otp_read(address, words, buffer);
-    if (address == 0x3fb4 && words == 1 && buffer[0] == 0x10000000) buffer[0] = 0xffffffff;
+    if (!started && address == 0x3fb4 && words == 1 && buffer[0] == 0x10000000) buffer[0] = 0xffffffff;
 }

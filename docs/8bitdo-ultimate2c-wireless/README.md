@@ -21,9 +21,22 @@ LEDs, motors and the battery are not established.
 
 - The stock status register protects the low 256 KiB (SR1 `0x2c`); the boot
   loader's own writes work regardless.
-- OTP word `0x3fb4` reads `0x10000000`. The B80 SDK's `cpu_wakeup_init()`
-  wants `0xffffffff` there and resets the chip (`0x6f` <- `0x20`) otherwise;
-  the stock boot loader starts flash firmware with it as it is.
+- The OTP (16 KiB, `0x0000..0x4000`, read with the SDK's `otp_read`) is
+  blank (`0xffffffff`) but for seven words near its end; their meaning is
+  not established:
+
+| OTP address | Word |
+|---|---|
+| `0x3fb4` | `10000000` |
+| `0x3fc4` | `feffaf9f` |
+| `0x3fd0`-`0x3fdc` | `33b62ab6 37712e15 5a5c4c82 573433d6` |
+| `0x3fe0` | `00553031` |
+
+- The BLE SDK's `cpu_wakeup_init()` (in `liblt_8208.a`, through
+  `cpu_wakeup_no_deepretn_back_init()`) reads OTP word `0x3fb4` and resets
+  the chip (`0x6f` <- `0x20`) unless it is `0xffffffff`. The stock boot
+  loader and firmware run with it as it is. The B80 platform SDK's driver
+  library has no such read.
 
 ## App image
 

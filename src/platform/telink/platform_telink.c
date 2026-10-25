@@ -126,12 +126,25 @@ int plat_usb_present(void)
     return plat_usb_configured();
 }
 
-/* 32-bit words from addr: SRAM 0x840000-0x843fff, registers from 0x800000. */
+/* 32-bit words from addr: SRAM 0x840000-0x843fff, registers from 0x800000;
+ * PEEK_OTP + n: the OTP at n (0-0x3ffc), which is not on the bus. */
+#define PEEK_OTP 0xf0000000u
+
 u32 plat_peek(u32 addr, u8 *out, u32 max)
 {
-    u32 n = 0;
+    u32 n = 0, w;
 
     if (addr & 3) return 0;
+    if (addr >= PEEK_OTP) {
+        addr -= PEEK_OTP;
+        otp_set_active_mode();
+        for (; n + 4 <= max && n < 256 && addr + n <= 0x3ffc; n += 4) {
+            otp_read(addr + n, 1, &w);
+            util_put32(out + n, w);
+        }
+        otp_set_deep_standby_mode();
+        return n;
+    }
     for (; n + 4 <= max && n < 256; n += 4) util_put32(out + n, *(volatile u32 *)(addr + n));
     return n;
 }
