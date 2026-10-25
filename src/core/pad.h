@@ -211,9 +211,11 @@ struct bt_bond {
     u8 key_type;
     u8 le_peer[6];
     u8 ltk[16];
-    /* LE Secure Connections: the host's identity from the pairing, which
-     * with ltk restores the bond to the security manager.  Zero after a
-     * legacy pairing, whose key the security manager derives again. */
+    /* The host's identity from pairing; with ltk restores a Secure
+     * Connections bond to BTstack.  BTstack leaves these zero for legacy
+     * pairing, whose key it derives again.  Telink also keeps them for
+     * legacy pairing; without identity distribution le_id/le_id_type keep
+     * the connection address and type so it can restore a public host. */
     u8 le_irk[16];
     u8 le_id[6];                 /* least significant byte first */
     u8 le_id_type;

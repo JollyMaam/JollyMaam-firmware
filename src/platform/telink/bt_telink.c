@@ -172,6 +172,12 @@ static int on_host(u32 h, u8 *p, int n)
     return 0;
 }
 
+static int is_zero(const u8 *p, u32 n)
+{
+    while (n--) if (*p++) return 0;
+    return 1;
+}
+
 /* A pairing's record on its way into the stack's storage: the slot's bond. */
 u32 __wrap_bls_smp_param_saveBondingInfo(smp_param_save_t *p)
 {
@@ -183,14 +189,15 @@ u32 __wrap_bls_smp_param_saveBondingInfo(smp_param_save_t *p)
     memcpy(k->le_irk, p->peer_irk, 16);
     memcpy(k->le_id, p->peer_id_addr, 6);
     k->le_id_type = p->peer_id_adrType;
+    /* Without identity-key distribution the SDK leaves the identity empty.
+     * Keep the connection address and its type so a public host is not
+     * restored as a random one.  No IRK means there is no RPA to resolve. */
+    if (is_zero(k->le_id, 6) || k->le_id_type > 1) {
+        memcpy(k->le_id, p->peer_addr, 6);
+        k->le_id_type = p->peer_addr_type;
+    }
     b.paired_pending = 1;
     return __real_bls_smp_param_saveBondingInfo(p);
-}
-
-static int is_zero(const u8 *p, u32 n)
-{
-    while (n--) if (*p++) return 0;
-    return 1;
 }
 
 /* The slot's bond into the stack's storage, unless it has it already.  The

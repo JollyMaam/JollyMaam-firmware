@@ -8,7 +8,8 @@
  * gets a report whenever the input changes; the settings (what the board
  * keeps of them), the sensor calibration and its routine; the Home light
  * (blinking while no host is linked, lit when one is); the tools'
- * commands, the motor test among them.  No slots, remap or Home gestures
+ * commands, the motor test among them.  The single session keeps its bond
+ * in slot A.  No slot selection, remap or Home gestures
  * yet; the requests for them are logged and dropped. */
 
 #define POLL_US 4000             /* connected: the input is looked at this often */
@@ -65,8 +66,9 @@ static void start(void)
     memset(&c.session, 0, sizeof(c.session));
     c.session.pairing = 1;
     address(c.session.address);
+    c.session.bond = set_bond(0);
     profile->begin(&c.session);
-    bt_start(profile, c.session.address, NULL, 1, NULL);
+    bt_start(profile, c.session.address, c.session.bond, 1, NULL);
 }
 
 static __attribute__((noinline)) void bluetooth(void)
@@ -79,6 +81,9 @@ static __attribute__((noinline)) void bluetooth(void)
             profile->begin(&c.session);          /* the first report goes out whatever it is */
         } else if (ev.kind == BT_EV_UNLINKED) {
             c.linked = 0;
+        } else if (ev.kind == BT_EV_PAIRED) {
+            set_pairing_store(0, c.session.address, &ev.bond);
+            util_log("ctl: slot A bond saved");
         }
     }
 }
