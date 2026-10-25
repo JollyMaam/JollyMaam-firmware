@@ -47,5 +47,7 @@ order. Encryption preserves the running profile state.
 Explicit connect requests for a bonded Switch 2 slot can set the advertising
 wake byte to `0x81`. Automatic startup and reconnection leave it clear. The app
 clears the flag on the first connection so a later disconnect cannot repeat the
-wake request. This wakes the paired Switch 2 console. The exact sleep command
-sent over Bluetooth is not established.
+wake request. This wakes the paired Switch 2 console. When the console
+terminates the BLE connection with HCI reason `0x13` (remote user termination),
+the app stops reconnect advertising and returns to idle. No separate Bluetooth
+sleep command was observed.
