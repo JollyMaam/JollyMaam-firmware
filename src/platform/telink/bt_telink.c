@@ -24,7 +24,12 @@
 #define DYNAMIC_RAM   96         /* bytes for DYNAMIC values */
 #define INPUT_MAX     20         /* a notification in a 27-byte LL packet */
 #define IN_FLIGHT     2          /* input notifications in the stack at once */
-#define TX_FIFO       4          /* LL packets queued to send (2^n) */
+/* The SDK accepts a notification only when queued + its packet count is
+ * strictly below TX_FIFO - 2. Four entries allow only one pending input
+ * packet, which waits through acknowledgement and halves the report rate.
+ * Eight entries leave room for IN_FLIGHT inputs plus the SDK's reserve. */
+#define TX_FIFO       8          /* LL packets queued to send (2^n) */
+_Static_assert(TX_FIFO >= IN_FLIGHT + 3, "TX FIFO must fit inputs and the SDK reserve");
 
 /* BTstack's attribute flags (att_db.h, bluetooth.h). */
 #define BTS_READ         0x0002
