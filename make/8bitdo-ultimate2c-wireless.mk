@@ -18,13 +18,11 @@ $(U2CW_PAD)_BOARD_DIR := src/boards/8bitdo-ultimate2c-wireless
 $(U2CW_PAD)_LDFLAGS := --wrap=otp_read
 
 # 16 KiB of SRAM: no settings store yet (controller_lite.c), small log and
-# trace rings.  The tool device's serial number starts with this, as the
-# V-USB ID 16c0:27df requires (platform_telink_usb.c).
+# trace rings.
 $(U2CW_PAD)_DEFINES :=
 $(U2CW_PAD)_DEFINES += -DNO_SETTINGS
 $(U2CW_PAD)_DEFINES += -DLOG_LINES=4
 $(U2CW_PAD)_DEFINES += -DTRACE=16
-$(U2CW_PAD)_DEFINES += '-DTOOL_SERIAL_PREFIX="$(TOOL_SERIAL_PREFIX)"'
 
 $(U2CW_PAD)_SOURCES :=
 $(U2CW_PAD)_SOURCES += src/boards/8bitdo-ultimate2c-wireless/board_pad.c

@@ -17,12 +17,11 @@
  * really stalled bulk IN endpoint is known to fail on this controller
  * (EPROTO on the host), so nothing here relies on it.
  *
- * The device: 16c0:27df, the V-USB shared ID for mass storage, told apart
- * by its serial number, which starts with TOOL_SERIAL_PREFIX and a colon. */
-
-#ifndef TOOL_SERIAL_PREFIX
-#error "TOOL_SERIAL_PREFIX: the domain or email the 16c0:27df serial must start with"
-#endif
+ * The device: 16c0:27df, the V-USB shared ID for mass storage.  The tools
+ * tell it apart by INQUIRY's C2PD and IDENTIFY, not by the ID.  Its serial
+ * number is the flash UID in hex (what IDENTIFY calls the flash ID), with
+ * no prefix: V-USB's rules want one starting the serial on this ID; we
+ * chose a bare UID. */
 
 #define VENDOR_OP 0xf5
 #define EP_IN     4              /* bulk IN 0x84 */
@@ -298,20 +297,20 @@ static void bulk_reset(int bus)
     reg_usb_irq = BIT(EP_IN) | BIT(EP_OUT);
 }
 
-/* A string descriptor from ASCII: product (board_name) or serial. */
+/* A string descriptor: product (board_name) or serial (the flash UID in hex). */
 static const u8 *string(u8 index, u16 *len)
 {
     static const char hex[] = "0123456789abcdef";
-    u32 n = 0, i;
-    const char *s = index == 2 ? board_name : TOOL_SERIAL_PREFIX ":";
+    u32 n = 0;
 
-    for (; s[n] && n < 48; n++) u.string[2 + 2 * n] = (u8)s[n], u.string[3 + 2 * n] = 0;
-    if (index == 3)
-        for (i = 0; i < 8 && n + 2 <= 48; i++, n += 2) {
-            u.string[2 + 2 * n] = (u8)hex[plat_unique_id()[i] >> 4];
+    if (index == 2)
+        for (; board_name[n] && n < 48; n++) u.string[2 + 2 * n] = (u8)board_name[n], u.string[3 + 2 * n] = 0;
+    else
+        for (; n < 32; n++) {
+            u8 b = plat_unique_id()[n / 2];
+
+            u.string[2 + 2 * n] = (u8)hex[n & 1 ? b & 15 : b >> 4];
             u.string[3 + 2 * n] = 0;
-            u.string[4 + 2 * n] = (u8)hex[plat_unique_id()[i] & 15];
-            u.string[5 + 2 * n] = 0;
         }
     u.string[0] = (u8)(2 + 2 * n);
     u.string[1] = 3;
