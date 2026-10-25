@@ -84,6 +84,9 @@
  *   `0x25` EPHEMERAL      – : app settings/bond changes stay in RAM until the
  *                         next boot; SDK radio trim writes are unaffected
  *
+ * A board built without the settings store (NO_SETTINGS) answers FIELD to
+ * EPHEMERAL, DEFAULTS and LED_DEMO with no data and changes nothing.
+ *
  * The other SCSI commands answer as a device with no medium: INQUIRY answers,
  * TEST UNIT READY says "no medium", READ CAPACITY fails.  Nothing is mounted.
  *
@@ -118,13 +121,18 @@ enum { CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02, CMD_STATS = 0x03,
 
 static struct ctl_request pending;
 static const struct usb_status *status;
+#ifndef NO_SETTINGS
 static u8 result[256];           /* the last WRITE: a code per item */
 static u32 result_len;
+#endif
 
 u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
 {
     u32 n = 0;
 
+#ifdef NO_SETTINGS
+    (void)from_host;             /* only WRITE takes data from the host */
+#endif
     if (cdb[0] != OP) {
         pending.kind = REQ_REBOOT_LOADER;
         return 0;
@@ -236,7 +244,7 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
 #endif
         break;
     case CMD_LED_DEMO:
-#ifndef BOARD_DONGLE
+#if !defined(BOARD_DONGLE) && !defined(NO_SETTINGS)
         if (cdb[2] < ux_led_demo_count && max) {
             n = (u32)strlen(ux_led_demos[cdb[2]].name) + 1;
             if (n > max) n = max;
@@ -261,6 +269,7 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         pending.kind = REQ_CONNECT;
         pending.slot = cdb[2];
         break;
+#ifndef NO_SETTINGS
     case CMD_FIELD:              /* argument: field number */
         n = set_describe(util_get32(cdb + 2), data, max);
         break;
@@ -290,6 +299,7 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
     case CMD_EPHEMERAL:
         set_ephemeral();
         break;
+#endif
 #ifdef BOARD_DONGLE
     case CMD_TARGET:             /* CDB bytes 2-7: the device to page, as written */
         dongle_bt_target(cdb + 2);
@@ -421,7 +431,7 @@ int main(void)
     }
     cdb[1] = CMD_DEFAULTS;
     cdb[2] = 2;
-#ifdef BOARD_DONGLE
+#if defined(BOARD_DONGLE) || defined(NO_SETTINGS)
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 0);
 #else
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 3 && data[1] == 2);
@@ -434,7 +444,13 @@ int main(void)
 #else
     CHECK(r.kind == REQ_CALIBRATE && r.slot == SLOT_NONE);
 #endif
-#ifndef BOARD_DONGLE
+#if !defined(BOARD_DONGLE) && defined(NO_SETTINGS)
+    cdb[1] = CMD_LED_DEMO;
+    cdb[2] = 1;
+    cdb[3] = 1;
+    CHECK(usb_command(cdb, data, sizeof(data), 0) == 0 && usb_poll(&st).kind == REQ_NONE);
+    memset(cdb + 2, 0, 4);
+#elif !defined(BOARD_DONGLE)
     cdb[1] = CMD_LED_DEMO;
     cdb[2] = 1;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 4 && !strcmp((char *)data, "two"));
@@ -457,6 +473,17 @@ int main(void)
     CHECK(r.kind == REQ_RUMBLE && r.motor[0] == 64 && r.motor[1] == 255 && r.ms == 1000);
     memset(cdb + 2, 0, 4);
 #endif
+#ifdef NO_SETTINGS
+    cdb[1] = CMD_FIELD;
+    cdb[2] = 1;
+    data[0] = 0x55;
+    CHECK(usb_command(cdb, data, sizeof(data), 0) == 0 && data[0] == 0x55);
+    cdb[1] = CMD_WRITE;
+    CHECK(usb_command(cdb, data, 9, 1) == 0);
+    cdb[1] = CMD_COMMIT;
+    usb_command(cdb, data, sizeof(data), 0);
+    CHECK(applied == 0);
+#else
     cdb[1] = CMD_FIELD;
     cdb[2] = 1;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 8 && data[0] == 1);
@@ -468,6 +495,7 @@ int main(void)
     cdb[1] = CMD_COMMIT;
     usb_command(cdb, data, sizeof(data), 0);
     CHECK(applied == 1);
+#endif
     cdb[2] = 0;
     cdb[1] = CMD_REBOOT_LOADER;
     usb_command(cdb, data, sizeof(data), 0);

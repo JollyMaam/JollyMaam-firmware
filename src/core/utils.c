@@ -3,7 +3,10 @@
 #include <string.h>
 #include "pad.h"
 
+/* A board short of RAM sets smaller rings (make/<product>.mk). */
+#ifndef LOG_LINES
 #define LOG_LINES 64
+#endif
 #define LOG_TEXT  120          /* a line is 128 bytes with seq and ms */
 #define LOG_MAGIC 0x474f4c44   /* changes with the layout below */
 
@@ -77,7 +80,9 @@ void util_put32(u8 *p, u32 v)
     util_put16(p + 2, (u16)(v >> 16));
 }
 
+#ifndef TRACE
 #define TRACE 1024
+#endif
 static struct { u32 us; u16 arg; u8 marker, pad; } trace[TRACE];
 static u32 trace_n;
 static volatile u8 trace_on;
@@ -229,7 +234,12 @@ int main(void)
     seq = 1;
     n = util_log_read(&seq, buf, sizeof(buf));
     CHECK(seq == 102 - LOG_LINES + 1);
-    CHECK(!memcmp(buf, "    0.000 line 36\n", 18));
+    {
+        char first[32];
+
+        snprintf(first, sizeof(first), "    0.000 line %u\n", 100 - LOG_LINES);
+        CHECK(!memcmp(buf, first, strlen(first)));
+    }
     seq = 1;
     n = util_log_read(&seq, buf, 40);
     CHECK(n == 36);

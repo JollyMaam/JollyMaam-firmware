@@ -18,6 +18,12 @@ HOST_CFLAGS += -Wno-missing-field-initializers
 # make gamesir-cyclone-2-pad EXTRA_DEFINES=-DUSB_SESSION_TEST_MS=12000
 EXTRA_DEFINES :=
 
+# Our pads' tool device is the V-USB shared ID for mass storage, 16c0:27df,
+# which requires its serial number to start with a domain or email address
+# that we own, then a colon (usbdrv/USB-IDs-for-free.txt).  Placeholder
+# until one is chosen.
+TOOL_SERIAL_PREFIX := cyclone2-firmware
+
 # Where the app's own headers are ("..." includes), for firmware and tests.
 SRC_INCLUDES :=
 SRC_INCLUDES += -iquote src/core

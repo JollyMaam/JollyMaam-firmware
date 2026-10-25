@@ -6,7 +6,10 @@
 #endif
 
 /* The SDK's own definitions, spelled out so that files using BTstack (which
- * has its own bool) need no SDK header.  Identical typedefs may repeat. */
+ * has its own bool) need no SDK header.  Identical typedefs may repeat.  A
+ * platform file that has its SDK's own (the Telink one, whose size_t differs
+ * from <stddef.h>'s) defines PAD_SDK_TYPES first. */
+#ifndef PAD_SDK_TYPES
 typedef unsigned char u8;
 typedef char s8;
 typedef unsigned short u16;
@@ -17,11 +20,21 @@ typedef long long s64;
 typedef unsigned long long u64;
 
 #include <stddef.h>
+#endif
 
+/* GCC before 4.6 (the Telink toolchain) has no _Static_assert. */
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ * 100 + __GNUC_MINOR__ < 406
+#define _Static_assert(e, m) extern char pad_static_assert[(e) ? 1 : -1]
+#endif
+
+/* Kept across a reset where the platform can: the log.  A platform without
+ * such RAM defines it empty. */
+#ifndef RETAINED
 #ifdef UNITTEST
 #define RETAINED
 #else
 #define RETAINED __attribute__((section(".retained"), used, aligned(4)))
+#endif
 #endif
 
 #define RGB(r,g,b) { r, g, b }

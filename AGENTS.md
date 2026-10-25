@@ -1,7 +1,9 @@
 # Working on this repository
 
 GameSir Cyclone 2 firmware (and the start of a GameSir Nova 2 Lite board): the Jieli BR23 SDK runtime, an owned C Bluetooth
-controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`).
+controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`).  The 8BitDo
+Ultimate 2C Wireless (Telink TLSR8208, 16 KiB SRAM) builds on the unmodified Telink B80 SDK
+with the shared modules it can afford and `src/core/controller_lite.c`.
 
 - Reference: [docs/](docs/README.md). `docs/jieli/` is the BR23 chip and SDK,
   `docs/gamesir-cyclone2/` the pad and dongle boards and stock firmware,
@@ -14,7 +16,10 @@ controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`)
   our controller in `btctrler/`), `src/boards/<product>/` (pins, board
   hooks, the `bt_` module on BTstack (`bt_pad.c`, `bt_dongle.c`), the
   dongle's loop (`dongle*.c`) and `btstack_config.h`: what only that product
-  uses).
+  uses).  `src/platform/telink/`: the B80 (start-up and wait loop, the USB
+  tool device, the libc it lacks, `sdk.h` for the SDK's headers, packed).
+  The Telink toolchain is GCC 4.5: shared code stays C99 (`pad.h` has its
+  `_Static_assert`).
 
 ## Working rules
 
@@ -77,9 +82,12 @@ controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`)
     make -j32 gamesir-cyclone-2-all        # both boards
     make -j32 gamesir-nova-2-lite-pad      # the Nova 2 Lite (no pins yet)
     make gamesir-cyclone-2-pad-test        # one board's unit tests
+    make 8bitdo-ultimate2c-wireless-pad-flash   # Telink pad: tools/bitdoboot.py, 8BitDo boot loader
+    python3 tools/bitdoboot.py scan        # 8BitDo boot loaders and our Telink firmware
 
 The build is in `make/`: `common.mk` and `host.mk` are shared, `jieli.mk`
 holds the BR23 toolchain, SDK and the board template (`jieli_board`),
+`telink.mk` the same for the B80 (`telink_board`),
 `btstack.mk` BTstack, and each product's `make/<product>.mk` its boards
 (flash size, PID, sources, defines) and targets.
 
