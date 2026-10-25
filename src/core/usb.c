@@ -122,7 +122,11 @@ enum { CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02, CMD_STATS = 0x03,
 static struct ctl_request pending;
 static const struct usb_status *status;
 #ifndef NO_SETTINGS
-static u8 result[256];           /* the last WRITE: a code per item */
+/* The last WRITE: a code per item; a board short of RAM keeps fewer. */
+#ifndef USB_RESULTS
+#define USB_RESULTS 256
+#endif
+static u8 result[USB_RESULTS];
 static u32 result_len;
 #endif
 

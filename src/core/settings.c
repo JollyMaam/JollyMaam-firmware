@@ -65,12 +65,10 @@ static const char *const tx_powers[] = { "1", "2", "3", "4", "5", "6", NULL };
  * bright they are is the palette's. */
 static const struct set_field slot_fields[] = {
     { .id = ID_TYPE, .name = "type", .type = T_ENUM, .names = types, FIELD(type),
-      PER_SLOT(PROFILE_GENERIC_BLE, PROFILE_DUALSENSE, PROFILE_XBOX, PROFILE_SWITCH2,
-               [4 ... 7] = PROFILE_NONE),
+      .slot_def = board_slots.type,
       .help = "what the slot connects as; changing it renews address and clears bond" },
     { .id = ID_TRANSPORT, .name = "transport", .type = T_ENUM, .names = transports, FIELD(transport),
-      PER_SLOT(TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_DONGLE, TRANSPORT_BT_USB,
-               [4 ... 7] = TRANSPORT_BT_USB),
+      .slot_def = board_slots.transport,
       .help = "how: bluetooth; usb, a wired controller; bluetooth+usb, usb while a usb host "
               "is there, else bluetooth (never back to it mid-session); dongle, through our dongle, which is the type on its usb port; "
               "dongle+usb, usb while a usb host is there, else the dongle" },
@@ -280,7 +278,20 @@ static const struct set_field cal_fields[] = {
 #define VERSION    1
 #define RECORD_MAX 224
 #define SETTLE_MS  100
-#define STAGE_MAX  1024
+/* The tools always see SLOTS slots and SLOTS remap slots (the targets); a
+ * board short of RAM keeps fewer of them (make/<product>.mk).  One it does
+ * not keep reads as its defaults, takes no writes, and as a slot is of type
+ * none. */
+#ifndef SLOTS_STORED
+#define SLOTS_STORED  SLOTS
+#endif
+#ifndef REMAPS_STORED
+#define REMAPS_STORED SLOTS
+#endif
+#ifndef STAGE_MAX
+#define STAGE_MAX     1024
+#endif
+#define BASE_INDEX    REMAPS_STORED   /* the base remap in remaps[] */
 /* syscfg items: slots 1-8, palette 9, calibration 10, remap slots 11-18,
  * their sticks 19-26; the base remap 27 and its sticks 28. */
 #define KEY_REMAP        11
@@ -289,10 +300,11 @@ static const struct set_field cal_fields[] = {
 #define KEY_BASE_STICKS  (KEY_BASE + 1)
 #define KEYS             (KEY_BASE_STICKS + 1)
 
-static struct set_slot slots[SLOTS];
+static struct set_slot slots[SLOTS_STORED];
+static const struct set_slot none_slot = { .type = PROFILE_NONE };
 static struct set_palette pal;
 static struct set_cal cal;
-static struct set_remap remaps[SLOTS + 1];   /* the slots, then the base */
+static struct set_remap remaps[REMAPS_STORED + 1];   /* the slots, then the base */
 static u32 set_bits[TARGETS];
 static u32 dirty;            /* a bit per target */
 static u32 edits;
@@ -300,6 +312,13 @@ static u32 changed_ms;
 static u8 commit_now, ephemeral;
 static u8 stage[STAGE_MAX];
 static u16 staged, staged_items;
+
+static int stored(u8 t)
+{
+    if (t < SLOTS) return t < SLOTS_STORED;
+    if (t >= TARGET_REMAP && t < TARGET_BASE) return t - TARGET_REMAP < REMAPS_STORED;
+    return t < TARGETS;
+}
 
 static const struct set_field *fields_of(u8 t, u32 *count)
 {
@@ -313,7 +332,7 @@ static const struct set_field *fields_of(u8 t, u32 *count)
 static u8 *values_of(u8 t)
 {
     return t < SLOTS ? (u8 *)&slots[t] : t == TARGET_PALETTE ? (u8 *)&pal :
-           t == TARGET_CAL ? (u8 *)&cal : (u8 *)&remaps[t - TARGET_REMAP];
+           t == TARGET_CAL ? (u8 *)&cal : (u8 *)&remaps[t == TARGET_BASE ? BASE_INDEX : t - TARGET_REMAP];
 }
 
 /* A target is one record, a remap slot two: its rules, then its sticks. */
@@ -447,7 +466,7 @@ static void default_value(u8 t, const struct set_field *f, u8 *out)
     if (t == TARGET_REMAP && f < &remap_fields[REMAP_STICKS])
         memcpy(out, (const u8 *)&remap_a_default + f->offset, f->size);
     else if (t >= TARGET_REMAP && t < TARGET_BASE && f != NAME_FIELD)
-        memcpy(out, (const u8 *)&remaps[REMAP_BASE] + f->offset, f->size);
+        memcpy(out, (const u8 *)&remaps[BASE_INDEX] + f->offset, f->size);
 }
 
 /* The remap slots' unset fields follow the base. */
@@ -456,7 +475,7 @@ static void inherit(void)
     u32 i;
     u8 t;
 
-    for (t = TARGET_REMAP; t < TARGET_BASE; t++)
+    for (t = TARGET_REMAP; t < TARGET_BASE && stored(t); t++)
         for (i = 0; i < COUNT(remap_fields); i++)
             if (!(set_bits[t] & (1u << i)))
                 default_value(t, &remap_fields[i], values_of(t) + remap_fields[i].offset);
@@ -511,13 +530,14 @@ static void reset_keeping_pairing(u8 t)
 {
     u32 n, i;
     const struct set_field *f = fields_of(t, &n);
-    u8 type = slots[t % SLOTS].type;
-    u8 transport = slots[t % SLOTS].transport;
+    u8 type, transport;
 
     if (t >= SLOTS) {
         reset(t);
         return;
     }
+    type = slots[t].type;
+    transport = slots[t].transport;
     for (i = 0; i < n; i++)
         if (f[i].id != ID_ADDRESS && f[i].id != ID_BOND) put(t, &f[i], i, NULL, 0);
     if ((slots[t].type != type && !set_via_dongle(transport)) ||
@@ -571,6 +591,7 @@ void set_init(void)
     int n;
 
     for (t = 0; t < TARGETS; t++) {
+        if (!stored(t)) continue;
         reset(t);
         for (part = 0; part < parts_of(t); part++) {
             memset(buf, 0, sizeof(buf));
@@ -615,7 +636,8 @@ void set_flush(void)
 
 const struct set_slot *set_slot(u8 slot)
 {
-    return &slots[slot % SLOTS];
+    slot %= SLOTS;
+    return slot < SLOTS_STORED ? &slots[slot] : &none_slot;
 }
 
 struct rgb set_colour(u8 entry)
@@ -630,17 +652,19 @@ const struct set_brightness *set_brightness(void)
 
 const struct bt_bond *set_bond(u8 slot)
 {
-    return &slots[slot % SLOTS].bond;
+    return &set_slot(slot)->bond;
 }
 
 void set_bond_store(u8 slot, const struct bt_bond *bond)
 {
-    struct set_slot *s = &slots[slot % SLOTS];
+    struct set_slot *s;
     u32 bit;
     const struct set_field *f = find(slot % SLOTS, ID_BOND, &bit);
     static const u8 zero[6];
     u8 a[6];
 
+    if (!stored(slot % SLOTS)) return;
+    s = &slots[slot % SLOTS];
     if (!memcmp(&s->bond, bond, sizeof(*bond))) return;
     put(slot % SLOTS, f, bit, (const u8 *)bond, sizeof(*bond));
     if (!memcmp(s->address, zero, 6)) {
@@ -668,8 +692,8 @@ void set_slot_address(u8 slot, u8 out[6])
                                        set_slot(slot)->type, 0 };
     u32 a, b;
 
-    if (memcmp(slots[slot % SLOTS].address, zero, 6)) {
-        memcpy(out, slots[slot % SLOTS].address, 6);
+    if (memcmp(set_slot(slot)->address, zero, 6)) {
+        memcpy(out, set_slot(slot)->address, 6);
         return;
     }
     if (!seed) seed = zero;
@@ -711,6 +735,7 @@ void set_pairing_store(u8 slot, const u8 address[6], const struct bt_bond *bond)
     u32 bit;
     const struct set_field *f = find(slot % SLOTS, ID_ADDRESS, &bit);
 
+    if (!stored(slot % SLOTS)) return;
     put(slot % SLOTS, f, bit, address, 6);
     touch(slot % SLOTS);
     set_bond_store(slot, bond);
@@ -723,7 +748,7 @@ const struct set_cal *set_cal(void)
 
 const struct set_remap *set_remap(u8 remap)
 {
-    return &remaps[remap < SLOTS ? remap : REMAP_BASE];
+    return &remaps[(u32)remap + 1 <= REMAPS_STORED ? remap : BASE_INDEX];
 }
 
 u32 set_edits(void)
@@ -754,7 +779,7 @@ u32 set_write(const u8 *in, u32 len, u8 *results, u32 max)
         u8 r;
 
         if (o + 3u + l > len) { results[n++] = SET_BAD_LENGTH; break; }
-        if (t >= TARGETS || (id == SET_UNPAIR && t >= SLOTS)) r = SET_UNKNOWN;
+        if (t >= TARGETS || !stored(t) || (id == SET_UNPAIR && t >= SLOTS)) r = SET_UNKNOWN;
         else if (id == 0 || id == SET_UNPAIR) r = l ? SET_BAD_LENGTH : SET_OK;
         else r = check(f, in + o + 3, l);
         if (r == SET_OK && staged + 3u + l > STAGE_MAX) r = SET_FULL;
@@ -888,6 +913,7 @@ static u32 read_values(u8 t, u8 *out, u32 max, int defaults)
     const struct set_field *f;
 
     if (t >= TARGETS || max < 3) return 0;
+    if (!stored(t)) defaults = 1;
     f = fields_of(t, &n);
     for (i = 0; i < n; i++) {
         if (o + 3u + f[i].size > max) return 0;
@@ -944,6 +970,12 @@ const struct board_led_brightness board_led_brightness = {
     .steady = 40, .animation = 1600, .connect = 200,
     .idle = 200, .battery = 200,
 };
+const struct board_slots board_slots = {
+    .type = { PROFILE_GENERIC_BLE, PROFILE_DUALSENSE, PROFILE_XBOX, PROFILE_SWITCH2,
+              PROFILE_NONE, PROFILE_NONE, PROFILE_NONE, PROFILE_NONE },
+    .transport = { TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_DONGLE, TRANSPORT_BT_USB,
+                   TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_BT_USB },
+};
 const struct board_rumble board_rumble = {
     .min = { { 15, 20, 25, 25, 25 }, { 15, 15, 15, 15, 15 } },
     .max = { { 35, 55, 75, 80, 90 }, { 50, 60, 70, 80, 90 } },
@@ -964,7 +996,8 @@ static u32 write1(u8 t, u8 id, u8 len, const void *v)
     return r;
 }
 
-int main(void)
+/* Every slot and remap slot stored (the Cyclone 2's). */
+static int full_storage(void)
 {
     u8 buf[512], a[6], b[6], n[6];
     struct bt_bond bond;
@@ -1476,5 +1509,41 @@ int main(void)
     memset(&bond, 0x22, sizeof(bond));
     CHECK(write1(6, ID_BOND, sizeof(bond) - 1, &bond) == SET_BAD_LENGTH);
     return TEST_DONE("settings");
+}
+
+/* A board that keeps fewer slots and remap slots: the others read as their
+ * defaults, take no writes, and a slot not kept is of type none. */
+static int reduced_storage(void)
+{
+    u8 buf[512], type = PROFILE_XBOX_BLE, rumble = 4;
+    struct bt_bond bond;
+    u32 t;
+
+    set_init();
+    for (t = 0; t < SLOTS; t++)
+        CHECK(set_slot(t)->type == (t < SLOTS_STORED ? board_slots.type[t] : PROFILE_NONE));
+    /* Not kept: defaults to read, writes refused, nothing stored. */
+    CHECK(set_read(SLOTS_STORED, buf, sizeof(buf)) > 3 && buf[1] == SLOTS_STORED);
+    CHECK(buf[3] == ID_TYPE && !buf[4] && buf[6] == board_slots.type[SLOTS_STORED]);
+    CHECK(write1(SLOTS_STORED, ID_TYPE, 1, &type) == SET_UNKNOWN);
+    CHECK(write1(TARGET_REMAP + REMAPS_STORED, 18, 1, &rumble) == SET_UNKNOWN);
+    memset(&bond, 0x11, sizeof(bond));
+    set_bond_store(SLOTS_STORED, &bond);
+    CHECK(!set_bond(SLOTS_STORED)->peer[0]);
+    CHECK(set_remap(REMAPS_STORED) == set_remap(REMAP_BASE));
+    /* Kept: as on every board, and back after a restart. */
+    CHECK(write1(0, ID_TYPE, 1, &type) == SET_OK);
+    CHECK(write1(TARGET_BASE, 18, 1, &rumble) == SET_OK);
+    set_apply();
+    set_poll(ms, 1);
+    CHECK(set_slot(0)->type == PROFILE_XBOX_BLE && set_remap(REMAPS_STORED)->rumble == 4);
+    set_init();
+    CHECK(set_slot(0)->type == PROFILE_XBOX_BLE && set_remap(REMAP_BASE)->rumble == 4);
+    return TEST_DONE("settings");
+}
+
+int main(void)
+{
+    return SLOTS_STORED == SLOTS && REMAPS_STORED == SLOTS ? full_storage() : reduced_storage();
 }
 #endif

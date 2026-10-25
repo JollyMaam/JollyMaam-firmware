@@ -12,6 +12,8 @@
  *     STATUS flags seen in that same poll must not advance it again.
  *   - A short control read of a multiple of 8 bytes ends with a zero-length
  *     packet (the SDK's reg_usb_sups_cyc_cali workaround).
+ * A vendor command may bring data (WRITE): it is collected first, up to
+ * DATA_MAX, then handed to usb.c with the command.
  * Bulk IN never stalls for a short answer: it is filled with zeros up to the
  * host's length, and the CSW residue counts the fill.  A CLEAR_FEATURE on a
  * really stalled bulk IN endpoint is known to fail on this controller
@@ -26,7 +28,7 @@
 #define VENDOR_OP 0xf5
 #define EP_IN     4              /* bulk IN 0x84 */
 #define EP_OUT    5              /* bulk OUT 0x05 */
-#define DATA_MAX  256            /* the largest answer: IDENTIFY, LOG, a WRITE's result */
+#define DATA_MAX  336            /* the largest answer: FIELD's longest (328), LOG, IDENTIFY */
 
 static const u8 device_descriptor[] = {
     18, 1, 0x10, 0x01, 0, 0, 0, 8,
@@ -46,7 +48,7 @@ static const u8 language[] = { 4, 3, 0x09, 0x04 };
 
 /* ---- SCSI and bulk-only transport ---------------------------------------- */
 
-enum { MSC_CBW, MSC_COMMAND, MSC_DATA_IN, MSC_CSW, MSC_CSW_ACK, MSC_LOCKED };
+enum { MSC_CBW, MSC_COMMAND, MSC_DATA_IN, MSC_DATA_OUT, MSC_CSW, MSC_CSW_ACK, MSC_LOCKED };
 
 static struct {
     u8 state;
@@ -59,6 +61,8 @@ static struct {
     u32 host;                    /* the host's length */
     u32 relevant;                /* what the answer has; the rest of host is fill */
     u32 sent;
+    u32 got;                     /* host to pad: bytes received */
+    u8 from_host;                /* the vendor command's data came from the host */
     u8 key, asc, ascq;
     u8 data[DATA_MAX];
 } m;
@@ -208,8 +212,16 @@ static void bot_receive(const u8 *p, u8 len)
     m.status = 0;
     memset(m.cdb, 0, sizeof(m.cdb));
     memcpy(m.cdb, p + 15, p[14]);
+    m.from_host = 0;
+    if (m.host && !(p[12] & 0x80) && m.cdb[0] == VENDOR_OP && m.host <= DATA_MAX) {
+        m.got = 0;                       /* a vendor command's data first (WRITE) */
+        m.from_host = 1;
+        memset(m.data, 0, sizeof(m.data));
+        m.state = MSC_DATA_OUT;
+        return;
+    }
     if (m.host && !(p[12] & 0x80)) {
-        /* Host to pad: no command here takes data.  Stall it. */
+        /* Host to pad: only vendor commands take data.  Stall it. */
         sense(5, 0x24, 0);
         m.status = 2;
         m.halt_out = 1;
@@ -222,6 +234,18 @@ static void bot_receive(const u8 *p, u8 len)
         return;
     }
     bot_answer(n);
+}
+
+/* A packet of a vendor command's data from the host. */
+static void bot_data_out(const u8 *p, u8 len)
+{
+    if (m.got + len > m.host) {
+        bot_invalid();
+        return;
+    }
+    memcpy(m.data + m.got, p, len);
+    m.got += len;
+    if (m.got == m.host || len < 64) m.state = MSC_COMMAND;
 }
 
 /* The next bulk IN packet, when the endpoint is idle; 0: none. */
@@ -274,9 +298,10 @@ static struct {
     u8 no_data_out;
     u8 resume_bulk;              /* bulk IN restarts after CLEAR_FEATURE's status stage */
     const u8 *response;
+    u8 string;                   /* instead of response: string descriptor 2 or 3 */
+    u16 at;                      /* its next byte */
     u16 remaining, total, host_length;
     u8 small[2];
-    u8 string[2 + 2 * 48];
 } u;
 
 static void bulk_reset(int bus)
@@ -297,25 +322,25 @@ static void bulk_reset(int bus)
     reg_usb_irq = BIT(EP_IN) | BIT(EP_OUT);
 }
 
-/* A string descriptor: product (board_name) or serial (the flash UID in hex). */
-static const u8 *string(u8 index, u16 *len)
+/* String descriptors, a byte at a time as they go out: product (board_name)
+ * or serial (the flash UID in hex). */
+static u16 string_chars(u8 index)
+{
+    return index == 2 ? (u16)strlen(board_name) : 32;
+}
+
+static u8 string_byte(u8 index, u16 k)
 {
     static const char hex[] = "0123456789abcdef";
-    u32 n = 0;
+    u16 c = (u16)((k - 2) / 2);
+    u8 b;
 
-    if (index == 2)
-        for (; board_name[n] && n < 48; n++) u.string[2 + 2 * n] = (u8)board_name[n], u.string[3 + 2 * n] = 0;
-    else
-        for (; n < 32; n++) {
-            u8 b = plat_unique_id()[n / 2];
-
-            u.string[2 + 2 * n] = (u8)hex[n & 1 ? b & 15 : b >> 4];
-            u.string[3 + 2 * n] = 0;
-        }
-    u.string[0] = (u8)(2 + 2 * n);
-    u.string[1] = 3;
-    *len = u.string[0];
-    return u.string;
+    if (k == 0) return (u8)(2 + 2 * string_chars(index));
+    if (k == 1) return 3;
+    if (k & 1) return 0;
+    if (index == 2) return (u8)board_name[c];
+    b = plat_unique_id()[c / 2];
+    return (u8)hex[c & 1 ? b & 15 : b >> 4];
 }
 
 static void ep0_packet(void)
@@ -323,7 +348,7 @@ static void ep0_packet(void)
     u16 n = u.remaining < 8 ? u.remaining : 8, i;
 
     usbhw_reset_ctrl_ep_ptr();
-    for (i = 0; i < n; i++) usbhw_write_ctrl_ep_data(*u.response++);
+    for (i = 0; i < n; i++) usbhw_write_ctrl_ep_data(u.string ? string_byte(u.string, u.at++) : *u.response++);
     u.remaining -= n;
     reg_usb_sups_cyc_cali = !n && !(u.total & 7) && u.total < u.host_length ? 0x18 : 0x38;
 }
@@ -342,6 +367,8 @@ static void ep0_setup(void)
     length = usbhw_read_ctrl_ep_u16();
     u.stall = 0;
     u.response = 0;
+    u.string = 0;
+    u.at = 0;
     u.remaining = 0;
     if (type == 0x80 && request == 6) {          /* GET_DESCRIPTOR */
         switch (value >> 8) {
@@ -358,7 +385,8 @@ static void ep0_setup(void)
                 u.response = language;
                 u.remaining = sizeof(language);
             } else if (((value & 255) == 2 || (value & 255) == 3) && index == 0x409) {
-                u.response = string((u8)value, &u.remaining);
+                u.string = (u8)value;
+                u.remaining = (u16)(2 + 2 * string_chars(u.string));
             } else {
                 u.stall = 1;
             }
@@ -516,7 +544,8 @@ static void bulk(void)
         usbhw_reset_ep_ptr(EP_OUT);
         if (len <= 64) {
             for (i = 0; i < len; i++) packet[i] = usbhw_read_ep_data(EP_OUT);
-            bot_receive(packet, len);
+            if (m.state == MSC_DATA_OUT) bot_data_out(packet, len);
+            else bot_receive(packet, len);
         } else {
             bot_invalid();
         }
@@ -533,7 +562,7 @@ static void bulk(void)
         usbhw_data_ep_stall(EP_IN);
     if (m.halt_out) {
         if (!(reg_usb_ep_ctrl(EP_OUT) & FLD_USB_EP_STALL)) usbhw_data_ep_stall(EP_OUT);
-    } else if (m.state == MSC_CBW && !m.recovery && !u.out_armed) {
+    } else if ((m.state == MSC_CBW || m.state == MSC_DATA_OUT) && !m.recovery && !u.out_armed) {
         /* Track our own arming, not BUSY: a packet arriving after the IRQ
          * sample clears BUSY, and re-arming would drop it. */
         u.out_armed = 1;
@@ -555,6 +584,12 @@ void plat_usb_service(void)
     u32 max;
 
     if (m.state != MSC_COMMAND) return;
+    if (m.from_host) {                   /* its data in: done with it, then the status */
+        usb_command(m.cdb, m.data, m.got, 1);
+        m.relevant = m.got;
+        m.state = MSC_CSW;
+        return;
+    }
     max = m.host < DATA_MAX ? m.host : DATA_MAX;
     memset(m.data, 0, sizeof(m.data));
     bot_answer(usb_command(m.cdb, m.data, max, 0));

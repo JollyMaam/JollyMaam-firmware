@@ -667,6 +667,13 @@ struct board_rumble {
 };
 extern const struct board_rumble board_rumble;
 
+/* The board's default type and transport for each slot (PROFILE_*,
+ * TRANSPORT_*): what its radio and USB can be. */
+struct board_slots {
+    u32 type[SLOTS], transport[SLOTS];
+};
+extern const struct board_slots board_slots;
+
 extern const struct ux_timeouts ux_timeouts;
 extern const u8 ux_usb_autoconnect;
 extern const struct ux_colours ux_colours;

@@ -5,13 +5,14 @@
  * fit (the Telink B80's 16 KiB): ctl_main() as controller.c has it, built
  * from the same modules, with what the board can afford.  So far: one
  * session of one LE profile (genericble), started at boot, whose host
- * gets a report whenever the input changes; the input read and calibrated
- * as the Cyclone 2's (by default, nothing stored); the Home light (blinking
- * while no host is linked, lit when one is); the tools' commands, the motor
- * test among them.  No settings store, slots, remap or Home gestures yet;
- * the requests for them are logged and dropped. */
+ * gets a report whenever the input changes; the settings (what the board
+ * keeps of them), the sensor calibration and its routine; the Home light
+ * (blinking while no host is linked, lit when one is); the tools'
+ * commands, the motor test among them.  No slots, remap or Home gestures
+ * yet; the requests for them are logged and dropped. */
 
 #define POLL_US 4000             /* connected: the input is looked at this often */
+#define CAL_SAMPLE_MS 2          /* calibrating: the input is read this often */
 
 /* The Home light: how bright (of 255) and, unlinked, its blink. */
 static const struct {
@@ -24,20 +25,32 @@ static const struct profile *const profile = &profile_generic_ble;
 static struct {
     struct in_raw raw;
     struct pad pad;
+    struct pad input;            /* calibrated, as padtool input shows it */
     struct usb_status status;
     struct profile_session session;
     u8 linked;
     u8 lit;                      /* the Home light as last set */
     u32 rumble_until;            /* plat_ms; 0: motors off */
+    u8 calibrating;
+    struct set_cal cal;          /* what the routine has measured */
 } c;
 
-static const struct set_cal no_calibration;     /* zero: input_calibration.c's defaults */
-
-static void read_input(void)
+static void read_input(u32 now)
 {
     plat_input(&c.raw);
     in_map(&c.raw, &c.pad);
-    cal_apply(&no_calibration, NULL, &c.raw, &c.pad);
+    cal_apply(set_cal(), NULL, &c.raw, &c.pad);
+    c.input = c.pad;
+    if (!c.calibrating) return;
+    switch (cal_step(&c.raw, now, &c.cal)) {
+    case CAL_SAVE:
+        set_cal_store(&c.cal);
+        break;
+    case CAL_IDLE:
+        c.calibrating = 0;
+        break;
+    }
+    c.pad.buttons = 0;
 }
 
 /* A static random address from the chip's unique ID. */
@@ -56,7 +69,7 @@ static void start(void)
     bt_start(profile, c.session.address, NULL, 1, NULL);
 }
 
-static void bluetooth(void)
+static __attribute__((noinline)) void bluetooth(void)
 {
     struct bt_ev ev;
 
@@ -70,7 +83,7 @@ static void bluetooth(void)
     }
 }
 
-static void report(u32 now)
+static __attribute__((noinline)) void report(u32 now)
 {
     u8 out[64], id = 0;
     int n;
@@ -84,11 +97,18 @@ static void report(u32 now)
 static u32 lights(u32 now)
 {
     struct led_frame f;
+    struct rgb cal;
     u32 period = home_light.on_ms + home_light.off_ms, at = now % period;
     u8 lit = c.linked || at < home_light.on_ms;
 
+    memset(&f, 0, sizeof(f));
+    if (cal_led(now, &cal)) {    /* the calibration routine's own light */
+        f.light[LIGHT_HOME] = cal;
+        plat_leds(&f);
+        c.lit = 0xff;
+        return now + 20;
+    }
     if (lit != c.lit) {
-        memset(&f, 0, sizeof(f));
         f.light[LIGHT_HOME].r = f.light[LIGHT_HOME].g = f.light[LIGHT_HOME].b = lit ? home_light.level : 0;
         plat_leds(&f);
         c.lit = lit;
@@ -104,11 +124,18 @@ static void request(const struct ctl_request *r)
         break;
     case REQ_REBOOT:
         util_log("ctl: reboot");
+        set_flush();
         plat_reboot();
         break;
     case REQ_REBOOT_LOADER:
         util_log("ctl: to the boot loader");
+        set_flush();
         plat_reboot_loader();
+        break;
+    case REQ_CALIBRATE:
+        c.calibrating = 1;
+        c.cal = *set_cal();
+        cal_start(plat_ms());
         break;
     case REQ_RUMBLE:
         plat_motors(r->motor[0], r->motor[1]);
@@ -126,27 +153,32 @@ void ctl_main(void)
     struct ctl_request r;
     u32 next;
 
-    c.status.input = &c.pad;
+    c.status.input = &c.input;
     c.status.raw = &c.raw;
     c.lit = 0xff;
+    set_init();
     start();
     for (;;) {
         next = lights(plat_ms());
         if (c.rumble_until && (!next || (s32)(c.rumble_until - next) < 0)) next = c.rumble_until;
+        if (c.calibrating) next = plat_ms() + CAL_SAMPLE_MS;
         plat_wait(next, c.linked ? plat_us() + POLL_US : 0);
         if (c.rumble_until && (s32)(plat_ms() - c.rumble_until) >= 0) {
             plat_motors(0, 0);
             c.rumble_until = 0;
         }
         bluetooth();
-        read_input();
+        read_input(plat_ms());
         report(plat_ms());
         c.status.state = c.linked ? CTL_CONNECTED : CTL_PAIRING;
         c.status.slot = c.linked ? 0 : SLOT_NONE;
         c.status.usb_powered = (u8)plat_usb_present();
         c.status.battery_mv = plat_battery_mv();
         c.status.uptime_ms = plat_ms();
+        c.status.ephemeral = (u8)set_is_ephemeral();
+        c.status.staged = (u8)(set_staged() < 255 ? set_staged() : 255);
         r = usb_poll(&c.status);
         request(&r);
+        set_poll(plat_ms(), bt_radio_quiet());
     }
 }

@@ -29,7 +29,7 @@ TELINK_ABI += -fcommon
 # addresses from it, so the switch jumps anywhere.  Our char is signed
 # (pad.h's s8); the SDK's stays unsigned, as it builds.
 TELINK_SDK_CFLAGS := $(TELINK_ABI) -O2 -fpack-struct -finline-small-functions
-TELINK_CFLAGS := $(TELINK_ABI) -O2 -fsigned-char -g -Wall -Wno-unused-function -Wno-missing-field-initializers \
+TELINK_CFLAGS := $(TELINK_ABI) -O2 -fsigned-char -mstructure-size-boundary=8 -g -Wall -Wno-unused-function -Wno-missing-field-initializers \
 	-Wframe-larger-than=256
 
 TELINK_DEFINES :=

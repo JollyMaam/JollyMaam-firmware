@@ -15,10 +15,11 @@
  * bt_poll(). */
 
 #define BOND_STORE    0x71000    /* below the app's end, clear of stock data */
-#define ATTRS         40
+#define ATTRS         32         /* the largest profile database's last handle + 1 */
 #define DYNAMIC_RAM   96         /* bytes for DYNAMIC values */
 #define INPUT_MAX     20         /* a notification in a 27-byte LL packet */
 #define IN_FLIGHT     2          /* input notifications in the stack at once */
+#define TX_FIFO       4          /* LL packets queued to send (2^n) */
 
 /* BTstack's attribute flags (att_db.h, bluetooth.h). */
 #define BTS_READ         0x0002
@@ -30,7 +31,7 @@
 #define BTS_WRITE_SEC    0x0011
 
 static u8 acl_rx[CAL_LL_ACL_RX_FIFO_SIZE(27) * 4] __attribute__((aligned(16)));
-static u8 acl_tx[CAL_LL_ACL_TX_FIFO_SIZE(27) * 8] __attribute__((aligned(4)));
+static u8 acl_tx[CAL_LL_ACL_TX_FIFO_SIZE(27) * TX_FIFO] __attribute__((aligned(4)));
 static u8 l2cap_rx[CAL_L2CAP_BUFF_SIZE(23)] __attribute__((aligned(4)));
 
 static attribute_t attrs[ATTRS];
@@ -176,7 +177,7 @@ void plat_bt_init(void)
     blc_ll_initSlaveRole_module();
     blc_ll_setRandomAddr(address);
     blc_ll_setAclConnMaxOctetsNumber(27, 27);
-    blc_ll_initAclConnTxFifo(acl_tx, CAL_LL_ACL_TX_FIFO_SIZE(27), 8);
+    blc_ll_initAclConnTxFifo(acl_tx, CAL_LL_ACL_TX_FIFO_SIZE(27), TX_FIFO);
     blc_ll_initAclConnRxFifo(acl_rx, CAL_LL_ACL_RX_FIFO_SIZE(27), 4);
     blc_gap_peripheral_init();
     bls_att_setAttributeTable((u8 *)attrs);
@@ -231,6 +232,12 @@ void bt_stop(void)
     if (b.connected) bls_ll_terminateConnection(HCI_ERR_REMOTE_USER_TERM_CONN);
     bls_ll_setAdvEnable(BLC_ADV_DISABLE);
     b.advertising = 0;
+}
+
+/* No pairing or link set-up under way: a flash write is safe. */
+int bt_radio_quiet(void)
+{
+    return !b.connected || b.encrypted;
 }
 
 int bt_input_wanted(void)

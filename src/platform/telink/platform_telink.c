@@ -61,6 +61,36 @@ void plat_unlock(void)
     if (lock_depth && !--lock_depth) irq_restore(lock_saved);
 }
 
+/* ---- the stack ------------------------------------------------------------
+ * The RAM between the end of .bss and the stack is painted at start-up; what
+ * stays painted was never used.  The log says so when it shrinks. */
+
+#define PAINT 0x5a5a5a5au
+
+extern u32 _end_bss_[];
+static u32 stack_low;            /* the least unused seen, bytes */
+
+static void stack_paint(void)
+{
+    volatile u32 *p = (u32 *)(((u32)_end_bss_ + 3) & ~3u);
+    volatile u32 *sp = (u32 *)__builtin_frame_address(0);
+
+    while (p < sp - 32) *p++ = PAINT;
+    stack_low = 0xffffffffu;
+}
+
+static void stack_check(void)
+{
+    const u32 *p = (const u32 *)(((u32)_end_bss_ + 3) & ~3u);
+    u32 n = 0;
+
+    while (p[n] == PAINT) n++;
+    if (4 * n < stack_low) {
+        stack_low = 4 * n;
+        util_log("stack: %u bytes never used", stack_low);
+    }
+}
+
 /* ---- the wait loop ------------------------------------------------------ */
 
 static volatile u32 pending;
@@ -95,6 +125,7 @@ u32 plat_wait(u32 deadline_ms, u32 at_us)
     for (;;) {
         wd_clear();
         plat_wake(plat_usb_poll() | board_poll() | plat_bt_poll());
+        if ((now_ms & 0x3ff) == 0) stack_check();
         e = take();
         if (e) return e;
         if (deadline_ms && (s32)(plat_ms() - deadline_ms) >= 0) return EV_DEADLINE;
@@ -204,6 +235,7 @@ int main(void)
     rf_drv_ble_init();
     clock_init(SYS_CLK_TYPE);
     usb_set_pin(1);
+    stack_paint();
     last_tick = clock_time();
     flash_read_mid();
     flash_read_uid(0x4b, uid);           /* every flash the SDK supports on the B80 */

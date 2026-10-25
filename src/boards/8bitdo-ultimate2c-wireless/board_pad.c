@@ -8,6 +8,28 @@
 
 const char board_name[] = "Ultimate 2C Wireless";
 
+/* Lights in tenths of their smallest step: the Home ring is plain on this
+ * pad, 24 of 255 looks right lit steadily. */
+const struct board_led_brightness board_led_brightness = {
+    .steady = 240, .animation = 400, .connect = 240,
+    .idle = 240, .battery = 240,
+};
+
+/* Not tuned for these motors yet: the Cyclone 2's. */
+const struct board_rumble board_rumble = {
+    .min = { { 15, 20, 25, 25, 25 }, { 15, 15, 15, 15, 15 } },
+    .max = { { 35, 55, 75, 80, 90 }, { 50, 60, 70, 80, 90 } },
+    .kick_ms = { 0, 0, 0, 25, 30 },
+};
+
+/* LE only, on the radio: plain HID, Xbox, Switch 2; slots past Y are not kept. */
+const struct board_slots board_slots = {
+    .type = { PROFILE_GENERIC_BLE, PROFILE_XBOX_BLE, PROFILE_SWITCH2, PROFILE_NONE,
+              PROFILE_NONE, PROFILE_NONE, PROFILE_NONE, PROFILE_NONE },
+    .transport = { TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT,
+                   TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT },
+};
+
 /* ---- the button matrix: a row driven low, the columns pulled up ---------- */
 
 #define ROWS 4

@@ -17,23 +17,29 @@ $(U2CW_PAD)_LOADER_HINT := Stock firmware or no answer: USB unplugged, hold L1+R
 $(U2CW_PAD)_BOARD_DIR := src/boards/8bitdo-ultimate2c-wireless
 $(U2CW_PAD)_LDFLAGS := --wrap=otp_read
 
-# 16 KiB of SRAM: no settings store yet (controller_lite.c), small log and
-# trace rings.
+# 16 KiB of SRAM: the settings keep slots A-Y and the base remap only, with a
+# small staging buffer; small log and trace rings.
 $(U2CW_PAD)_DEFINES :=
-$(U2CW_PAD)_DEFINES += -DNO_SETTINGS
-$(U2CW_PAD)_DEFINES += -DLOG_LINES=4
-$(U2CW_PAD)_DEFINES += -DTRACE=16
+$(U2CW_PAD)_DEFINES += -DSLOTS_STORED=4
+$(U2CW_PAD)_DEFINES += -DREMAPS_STORED=0
+$(U2CW_PAD)_DEFINES += -DSTAGE_MAX=256
+$(U2CW_PAD)_DEFINES += -DLOG_LINES=2
+$(U2CW_PAD)_DEFINES += -DTRACE=1
+$(U2CW_PAD)_DEFINES += -DUSB_RESULTS=64
 
 $(U2CW_PAD)_SOURCES :=
 $(U2CW_PAD)_SOURCES += src/boards/8bitdo-ultimate2c-wireless/board_pad.c
 $(U2CW_PAD)_SOURCES += src/platform/telink/platform_telink.c
 $(U2CW_PAD)_SOURCES += src/platform/telink/platform_telink_usb.c
 $(U2CW_PAD)_SOURCES += src/platform/telink/libc_telink.c
+$(U2CW_PAD)_SOURCES += src/platform/telink/store_telink.c
 $(U2CW_PAD)_SOURCES += src/platform/telink/bt_telink.c
 $(U2CW_PAD)_SOURCES += src/core/controller_lite.c
 $(U2CW_PAD)_SOURCES += src/profiles/profile_hid.c
 $(U2CW_PAD)_SOURCES += src/core/input.c
 $(U2CW_PAD)_SOURCES += src/core/input_calibration.c
+$(U2CW_PAD)_SOURCES += src/core/settings.c
+$(U2CW_PAD)_SOURCES += src/core/settings_ux.c
 $(U2CW_PAD)_SOURCES += src/core/usb.c
 $(U2CW_PAD)_SOURCES += src/core/utils.c
 
