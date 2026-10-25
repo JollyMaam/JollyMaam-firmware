@@ -674,6 +674,7 @@ extern const struct board_rumble board_rumble;
  * TRANSPORT_*): what its radio and USB can be. */
 struct board_slots {
     u32 type[SLOTS], transport[SLOTS];
+    u8 static_random;           /* all slot identities are LE static random addresses */
 };
 extern const struct board_slots board_slots;
 
@@ -886,8 +887,8 @@ extern const char board_name[];   /* model, e.g. "Cyclone 2" or "Cyclone 2 Dongl
                                     * tool USB/SCSI product, IDENTIFY, plain HID names */
 int plat_store_read(u16 key, void *buf, u16 len);
 int plat_store_write(u16 key, const void *buf, u16 len);
-u8 plat_retained_slot(void);
-void plat_retain_slot(u8 slot);
+u8 plat_retained_slot(void);               /* last selected slot, or SLOT_NONE if unavailable */
+void plat_retain_slot(u8 slot);            /* call before starting the radio; may write flash */
 void plat_power_off(void);
 void plat_reboot(void);
 void plat_reboot_loader(void);

@@ -157,6 +157,35 @@ int plat_usb_present(void)
     return board_usb_present();
 }
 
+/* The hold releases the supply completely, so no retention register keeps
+ * the selected slot through battery sleep. Settings use keys 1..28; key 63
+ * is the platform's last-slot record in the same compacting flash log. */
+#define LAST_SLOT_KEY 63
+static u8 retained_slot = SLOT_NONE, retained_loaded;
+
+u8 plat_retained_slot(void)
+{
+    u8 record[4];
+
+    if (!retained_loaded) {
+        retained_loaded = 1;
+        if (plat_store_read(LAST_SLOT_KEY, record, sizeof(record)) == sizeof(record) &&
+            record[0] == 'S' && record[1] == 1 && record[2] < SLOTS &&
+            record[3] == (u8)~record[2]) retained_slot = record[2];
+    }
+    return retained_slot;
+}
+
+void plat_retain_slot(u8 slot)
+{
+    u8 record[4] = { 'S', 1, slot, (u8)~slot };
+
+    if (slot >= SLOTS || slot == plat_retained_slot()) return;
+    if (plat_store_write(LAST_SLOT_KEY, record, sizeof(record)) == sizeof(record))
+        retained_slot = slot;
+    else util_log("slot: could not save last selection");
+}
+
 /* 32-bit words from addr: SRAM 0x840000-0x843fff, registers from 0x800000;
  * PEEK_OTP + n: the OTP at n (0-0x3ffc), which is not on the bus. */
 #define PEEK_OTP 0xf0000000u

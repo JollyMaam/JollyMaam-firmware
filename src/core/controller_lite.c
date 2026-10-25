@@ -8,12 +8,14 @@
  * gets a report whenever the input changes; the settings (what the board
  * keeps of them), the sensor calibration and its routine; the Home light
  * (blinking while no host is linked, lit when one is); the tools'
- * commands, the motor test among them.  The single session keeps its bond
- * in slot A. Shared Home gestures and Sync control that session; other
- * slots and remap configuration are not supported yet. */
+ * commands, the motor test among them. Four slots share one profile and
+ * radio session at a time, with separate identities and bonds. Shared
+ * Home gestures choose a slot; Sync pairs the current one. */
 
 #define POLL_US 4000             /* connected: the input is looked at this often */
 #define CAL_SAMPLE_MS 2          /* calibrating: the input is read this often */
+#define LITE_SLOTS 4
+static const char slot_names[] = "ABXY";
 
 /* The Home light: how bright (of 255) and, unlinked, its blink. */
 static const struct {
@@ -37,6 +39,7 @@ static struct {
     u8 activity_ref[offsetof(struct pad, imu_count)]; /* no unused IMU data */
     u32 activity_ms, sleep_ms, since_ms, usb_seen_ms;
     u8 sleeping, idle, stopping, pending, renew, pair_down;
+    u8 slot, last_slot, pending_slot;
 } c;
 
 static void start(void);
@@ -70,7 +73,7 @@ static void read_input(u32 now)
         r = ux_step(&c.pad, now, state());
         if (pair && !c.sleeping) {
             r.kind = REQ_PAIR;
-            r.slot = 0;
+            r.slot = c.last_slot;
             r.generate_new_address = 1;
             ux_ignore_held();
         }
@@ -89,40 +92,59 @@ static void read_input(u32 now)
     c.pad.buttons = 0;
 }
 
-/* A static random address from the chip's unique ID. */
-static void address(u8 out[6])
+static int slot_ready(u8 slot)
 {
-    memcpy(out, plat_unique_id(), 6);
-    out[5] |= 0xc0;
+    const struct set_slot *s;
+
+    if (slot >= LITE_SLOTS) return 0;
+    s = set_slot(slot);
+    return s->type == PROFILE_GENERIC_BLE && s->transport == TRANSPORT_BT;
 }
 
-static void start_session(int pairing, int renew)
+static void start_session(u8 slot, int pairing, int renew)
 {
     static const u8 zero[16];
 
+    if (!slot_ready(slot)) {
+        c.idle = 1;
+        c.since_ms = plat_ms();
+        util_log("ctl: slot %u type/transport unavailable", slot);
+        return;
+    }
     c.sleeping = 0;
     c.idle = 0;
+    c.slot = c.last_slot = slot;
     c.activity_ms = c.since_ms = plat_ms();
     memset(&c.session, 0, sizeof(c.session));
-    address(c.session.address);
-    c.session.bond = set_bond(0);
+    c.session.slot = slot;
+    c.session.settings = set_slot(slot);
+    c.session.bond = set_bond(slot);
+    set_slot_address(slot, c.session.address);
     c.session.pairing = !memcmp(c.session.bond->ltk, zero, sizeof(zero));
-    if (!c.session.pairing) set_slot_address(0, c.session.address);
     if (pairing >= 0) c.session.pairing = (u8)pairing;
-    if (c.session.pairing && renew) set_pairing_address(0, 1, c.session.address);
+    if (c.session.pairing && renew) set_pairing_address(slot, 1, c.session.address);
     c.session.address[5] |= 0xc0;       /* LE static random */
+    set_flush();                     /* previous session is stopped */
+    if (!set_is_ephemeral()) plat_retain_slot(slot);
     profile->begin(&c.session);
     bt_start(profile, c.session.address, c.session.bond, c.session.pairing, NULL);
-    util_log("ctl: %s slot A", c.session.pairing ? "pairing" : "connecting");
+    util_log("ctl: %s slot %c", c.session.pairing ? "pairing" : "connecting", slot_names[slot]);
 }
 
-static void start(void) { start_session(-1, 0); }
+static void start(void)
+{
+    u8 slot = plat_retained_slot();
+
+    if (!slot_ready(slot)) for (slot = 0; slot < LITE_SLOTS && !slot_ready(slot); slot++) {}
+    start_session(slot, -1, 0);
+}
 
 /* Restart only after BT_EV_STOPPED, including a link still doing SMP when
  * it has not emitted LINKED yet. The latest request replaces the pending one. */
-static void transition(u8 kind, u8 renew)
+static void transition(u8 kind, u8 slot, u8 renew)
 {
     c.pending = kind;
+    c.pending_slot = slot;
     c.renew = renew;
     c.idle = 0;
     c.rumble_until = 0;
@@ -133,15 +155,27 @@ static void transition(u8 kind, u8 renew)
     bt_stop();
 }
 
+static void select_session(u8 kind, u8 slot, u8 renew)
+{
+    if (slot == SLOT_LAST) slot = c.last_slot;
+    if (!slot_ready(slot)) {
+        util_log("ctl: slot %u type/transport unavailable", slot);
+        return;
+    }
+    if (kind == REQ_CONNECT && c.linked && !c.stopping && slot == c.slot) return;
+    transition(kind, slot, renew);
+}
+
 static void stopped(u32 now)
 {
-    u8 pending = c.pending;
+    u8 pending = c.pending, slot = c.pending_slot;
 
     c.stopping = c.linked = 0;
     c.pending = REQ_NONE;
+    c.pending_slot = SLOT_NONE;
     if (c.sleeping) return;
     if (pending == REQ_PAIR || pending == REQ_CONNECT) {
-        start_session(pending == REQ_PAIR ? 1 : -1, c.renew);
+        start_session(slot, pending == REQ_PAIR ? 1 : -1, c.renew);
     } else {
         c.idle = 1;
         c.since_ms = now;
@@ -163,10 +197,10 @@ static __attribute__((noinline)) void bluetooth(void)
             c.linked = 0;
             c.since_ms = plat_ms();
         } else if (ev.kind == BT_EV_PAIRED) {
-            set_pairing_store(0, c.session.address, &ev.bond);
+            set_pairing_store(c.slot, c.session.address, &ev.bond);
             c.session.pairing = 0;
             bt_update_bond(&ev.bond);
-            util_log("ctl: slot A bond saved");
+            util_log("ctl: slot %c bond saved", slot_names[c.slot]);
         } else if (ev.kind == BT_EV_STOPPED) {
             stopped(plat_ms());
         }
@@ -214,22 +248,17 @@ static void request(const struct ctl_request *r)
         break;
     case REQ_CONNECT:
     case REQ_PAIR:
-        if (c.sleeping || (r->kind == REQ_CONNECT && c.linked && !c.stopping)) break;
-        if (r->slot != 0 && r->slot != SLOT_LAST) {
-            util_log("ctl: only slot A is supported");
-            break;
-        }
-        transition(r->kind, r->generate_new_address);
+        if (!c.sleeping) select_session(r->kind, r->slot, r->generate_new_address);
         break;
     case REQ_DISCONNECT:
-        if (!c.sleeping) transition(REQ_NONE, 0);
+        if (!c.sleeping) transition(REQ_NONE, SLOT_NONE, 0);
         break;
     case REQ_SLEEP:
         if (!plat_usb_present()) {
             c.sleeping = 1;
             c.sleep_ms = plat_ms();
         }
-        transition(REQ_NONE, 0);
+        transition(REQ_NONE, SLOT_NONE, 0);
         break;
     case REQ_REBOOT:
         util_log("ctl: reboot");
@@ -295,7 +324,7 @@ static u32 power_step(u32 now)
     if (!c.linked && !c.idle) {
         deadline = c.since_ms + (c.session.pairing ? ux_timeouts.pair_ms : ux_timeouts.connect_ms);
         if ((s32)(now - deadline) < 0) return deadline;
-        transition(REQ_NONE, 0);
+        transition(REQ_NONE, SLOT_NONE, 0);
         return now + ux_timeouts.stop_max_ms;
     }
     if (powered || c.calibrating) return 0;
@@ -306,7 +335,7 @@ static u32 power_step(u32 now)
         util_log("ctl: sleeping");
         c.sleeping = 1;
         c.sleep_ms = now;
-        transition(REQ_NONE, 0);
+        transition(REQ_NONE, SLOT_NONE, 0);
         return now + 50;
     }
     return deadline;
@@ -341,7 +370,7 @@ void ctl_main(void)
         read_input(plat_ms());
         report(plat_ms());
         c.status.state = state();
-        c.status.slot = c.idle || c.sleeping ? SLOT_NONE : 0;
+        c.status.slot = c.idle || c.sleeping ? SLOT_NONE : c.slot;
         c.status.usb_powered = (u8)plat_usb_present();
         c.status.battery_mv = plat_battery_mv();
         c.status.uptime_ms = plat_ms();
@@ -357,21 +386,35 @@ void ctl_main(void)
  * The platform's physical power hold and USB enumeration need pad tests. */
 static u32 test_ms;
 static int test_usb, stops, flushes, offs, starts, motors, renewals, reboots;
-static struct bt_bond test_bond;
+static struct bt_bond test_bonds[LITE_SLOTS];
+#define test_bond test_bonds[0]
+static struct set_slot test_slots[LITE_SLOTS];
+static u8 test_addresses[LITE_SLOTS][6], retained;
+static int ephemeral, retained_writes;
+static struct bt_ev test_events[2];
+static u8 event_at, event_count;
 
 u32 plat_ms(void) { return test_ms; }
 int plat_usb_present(void) { return test_usb; }
 const u8 *plat_unique_id(void) { static const u8 id[16]; return id; }
-const struct bt_bond *set_bond(u8 slot) { (void)slot; return &test_bond; }
-void set_slot_address(u8 slot, u8 out[6]) { (void)slot; memset(out, 0x11, 6); }
+const struct bt_bond *set_bond(u8 slot) { return &test_bonds[slot]; }
+const struct set_slot *set_slot(u8 slot) { return &test_slots[slot]; }
+void set_slot_address(u8 slot, u8 out[6]) { memcpy(out, test_addresses[slot], 6); }
 void set_pairing_address(u8 slot, int renew, u8 out[6])
 { (void)slot; renewals += renew; memset(out, 0x22, 6); }
+u8 plat_retained_slot(void) { return retained; }
+void plat_retain_slot(u8 slot) { retained = slot; retained_writes++; }
+int bt_poll(struct bt_ev *ev)
+{ if (event_at == event_count) return 0; *ev = test_events[event_at++]; return 1; }
+void set_pairing_store(u8 slot, const u8 address[6], const struct bt_bond *bond)
+{ test_bonds[slot] = *bond; memcpy(test_addresses[slot], address, 6); }
+void bt_update_bond(const struct bt_bond *bond) { (void)bond; }
 void bt_start(const struct profile *p, const u8 a[6], const struct bt_bond *k,
               int pairing, const struct bt_link *link)
 { (void)p; (void)a; (void)k; (void)pairing; (void)link; starts++; }
 void bt_stop(void) { stops++; }
 void set_flush(void) { flushes++; }
-int set_is_ephemeral(void) { return 0; }
+int set_is_ephemeral(void) { return ephemeral; }
 u32 ux_idle_deadline(u32 since, u32 activity, u32 usb_seen, int powered, int ephemeral)
 {
     u32 offline = since + 15000, unplug = usb_seen + 5000;
@@ -390,10 +433,21 @@ const struct ux_timeouts ux_timeouts = {
 
 static void test_reset(void)
 {
+    u8 i;
+
     memset(&c, 0, sizeof(c));
     test_ms = 100;
     test_usb = stops = flushes = offs = starts = motors = renewals = reboots = 0;
-    memset(&test_bond, 0, sizeof(test_bond));
+    memset(test_bonds, 0, sizeof(test_bonds));
+    memset(test_slots, 0, sizeof(test_slots));
+    for (i = 0; i < LITE_SLOTS; i++) {
+        test_slots[i].type = PROFILE_GENERIC_BLE;
+        test_slots[i].transport = TRANSPORT_BT;
+        memset(test_addresses[i], 0x11 + i, 6);
+        test_addresses[i][5] |= 0xc0;
+    }
+    retained = SLOT_NONE;
+    ephemeral = retained_writes = event_at = event_count = 0;
     c.activity_ms = test_ms;
     c.linked = 1;
 }
@@ -464,20 +518,20 @@ int main(void)
 
     /* Even before LINKED, pairing/reconnect waits for the SDK stop ack. */
     test_reset(); c.linked = 0;
-    transition(REQ_PAIR, 1);
+    transition(REQ_PAIR, 0, 1);
     CHECK(!starts && c.stopping && stops == 1);
     stopped(test_ms);
     CHECK(starts == 1 && c.session.pairing && renewals == 1 && !c.stopping);
     CHECK(c.session.address[0] == 0x22 && (c.session.address[5] & 0xc0) == 0xc0);
     /* Newest request wins while the previous session is stopping. */
     test_reset(); test_bond.ltk[0] = 1;
-    transition(REQ_PAIR, 1); transition(REQ_CONNECT, 0);
+    transition(REQ_PAIR, 0, 1); transition(REQ_CONNECT, 0, 0);
     CHECK(stops == 1 && !starts);
     stopped(test_ms);
     CHECK(starts == 1 && !c.session.pairing && !renewals);
     /* Disconnect retains the bond and leaves advertising off in idle. */
     test_reset(); test_bond.ltk[0] = 7;
-    transition(REQ_NONE, 0); stopped(test_ms);
+    transition(REQ_NONE, SLOT_NONE, 0); stopped(test_ms);
     CHECK(c.idle && !starts && test_bond.ltk[0] == 7);
 
     /* An unresponsive radio cannot prevent battery shutdown indefinitely. */
@@ -489,6 +543,50 @@ int main(void)
     due = c.activity_ms + ux_timeouts.idle_sleep_ms;
     CHECK(power_step(due - 1) == due && !stops);
     power_step(due); CHECK(stops == 1 && !offs);
+
+    /* All four slots use their own identity, bond and profile session. */
+    test_reset(); c.linked = 0;
+    {
+        u8 i;
+        for (i = 0; i < LITE_SLOTS; i++) {
+            test_bonds[i].ltk[0] = 0x30 + i;
+            select_session(REQ_CONNECT, i, 0);
+            stopped(test_ms);
+            CHECK(c.slot == i && c.last_slot == i && retained == i);
+            CHECK(c.session.slot == i && c.session.bond == &test_bonds[i]);
+            CHECK(c.session.settings == &test_slots[i] && !c.session.pairing);
+            CHECK(!memcmp(c.session.address, test_addresses[i], 6));
+        }
+        CHECK(starts == 4);
+        select_session(REQ_PAIR, SLOT_LAST, 1); stopped(test_ms);
+        CHECK(c.slot == 3 && c.session.pairing && renewals == 1);
+    }
+    /* Disabled/unsupported slots cannot tear down the running session. */
+    test_reset();
+    test_slots[1].type = PROFILE_NONE;
+    test_slots[2].type = PROFILE_XBOX_BLE;
+    test_slots[3].transport = TRANSPORT_USB;
+    select_session(REQ_CONNECT, 0, 0); CHECK(!stops);
+    select_session(REQ_CONNECT, 1, 0); select_session(REQ_PAIR, 2, 1);
+    select_session(REQ_CONNECT, 3, 0); select_session(REQ_CONNECT, 4, 0);
+    CHECK(!stops && !starts);
+    /* A different slot can replace a connected session; latest slot wins. */
+    test_reset();
+    select_session(REQ_PAIR, 1, 1); select_session(REQ_CONNECT, 2, 0);
+    CHECK(stops == 1 && !starts && c.slot == 0);
+    stopped(test_ms); CHECK(c.slot == 2 && !renewals);
+    /* Pairing completed during stop still belongs to the OLD slot. */
+    test_reset(); select_session(REQ_CONNECT, 1, 0);
+    memset(test_events, 0, sizeof(test_events));
+    test_events[0].kind = BT_EV_PAIRED; test_events[0].bond.ltk[0] = 0x5a;
+    test_events[1].kind = BT_EV_STOPPED; event_count = 2;
+    bluetooth();
+    CHECK(test_bonds[0].ltk[0] == 0x5a && !test_bonds[1].ltk[0] && c.slot == 1);
+    /* Boot resumes the retained slot, falling back if it is disabled. */
+    test_reset(); retained = 3; start(); CHECK(c.slot == 3);
+    test_reset(); retained = 3; test_slots[3].type = PROFILE_NONE;
+    start(); CHECK(c.slot == 0);
+    test_reset(); ephemeral = 1; start(); CHECK(!retained_writes);
     return TEST_DONE("controller_lite power");
 }
 #endif

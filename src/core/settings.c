@@ -694,6 +694,7 @@ void set_slot_address(u8 slot, u8 out[6])
 
     if (memcmp(set_slot(slot)->address, zero, 6)) {
         memcpy(out, set_slot(slot)->address, 6);
+        if (board_slots.static_random) out[5] |= 0xc0;
         return;
     }
     if (!seed) seed = zero;
@@ -702,6 +703,7 @@ void set_slot_address(u8 slot, u8 out[6])
     memcpy(out, &a, 4);
     memcpy(out + 4, &b, 2);
     out[5] = (u8)((out[5] | 0x02) & 0xfe);
+    if (board_slots.static_random) out[5] |= 0xc0;
 }
 
 /* Roll all address bytes from the complete previous identity and current tick,
@@ -717,6 +719,7 @@ static void set_slot_new_address(u8 slot, u8 out[6])
     memcpy(out, &a, 4);
     memcpy(out + 4, &b, 2);
     out[5] = (u8)((out[5] | 0x02) & 0xfe);
+    if (board_slots.static_random) out[5] |= 0xc0;
 }
 
 /* First pairing uses the inspectable identity; replacing a bond may renew it. */
@@ -975,6 +978,7 @@ const struct board_slots board_slots = {
               PROFILE_NONE, PROFILE_NONE, PROFILE_NONE, PROFILE_NONE },
     .transport = { TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_DONGLE, TRANSPORT_BT_USB,
                    TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_BT_USB },
+    .static_random = SLOTS_STORED < SLOTS,
 };
 const struct board_rumble board_rumble = {
     .min = { { 15, 20, 25, 25, 25 }, { 15, 15, 15, 15, 15 } },
@@ -1518,8 +1522,17 @@ static int reduced_storage(void)
     u8 buf[512], type = PROFILE_XBOX_BLE, rumble = 4;
     struct bt_bond bond;
     u32 t;
+    u8 addresses[SLOTS][6], pair[6];
 
     set_init();
+    for (t = 0; t < SLOTS_STORED; t++) {
+        u32 j;
+        set_slot_address(t, addresses[t]);
+        CHECK((addresses[t][5] & 0xc0) == 0xc0);
+        for (j = 0; j < t; j++) CHECK(memcmp(addresses[t], addresses[j], 6));
+        set_pairing_address(t, 0, pair);
+        CHECK(!memcmp(pair, addresses[t], 6));
+    }
     for (t = 0; t < SLOTS; t++)
         CHECK(set_slot(t)->type == (t < SLOTS_STORED ? board_slots.type[t] : PROFILE_NONE));
     /* Not kept: defaults to read, writes refused, nothing stored. */

@@ -172,13 +172,19 @@ Connect and Pair use saved settings, so apply a slot's pending edits first.
 `padtool connect` starts it again. While USB is powered, disconnect leaves
 the tool device available. On battery the normal idle sleep policy applies.
 
-The Ultimate 2C currently uses one Generic BLE session in slot A. Home from
-idle reconnects; Home+View disconnects on release. While offline, Home+A
-connects, holding Home+A for five seconds pairs with a renewed identity,
-and Home+L3 or Home+R3 starts calibration. Sync also starts pairing with a
-renewed identity. The old pairing stays saved until a new pairing succeeds.
+The Ultimate 2C has four slots, A/B/X/Y, defaulting to Generic BLE, with
+separate identities and pairings. One slot runs at a time. Home from idle
+reconnects the last selected slot; Home+View disconnects on release. While
+offline, Home+A/B/X/Y selects that slot on release; holding the chord for
+five seconds pairs it with a renewed identity. Sync pairs the current slot.
+The old pairing stays saved until a new pairing succeeds. The last selected
+slot survives reboot and battery sleep. The CLI can select a slot directly,
+including while connected: `padtool connect B` or `padtool pair Y`.
+Unsupported types or transports and disabled slots are refused; the other
+Bluetooth profiles still need the Telink ATT memory work.
+Home+L3 or Home+R3 while offline starts calibration.
 Home alone while connected reaches the host, including a quick tap.
-Home+M remap configuration and the other slots are not enabled on this pad.
+Home+M remap configuration and the d-pad slots are not enabled on this pad.
 
 Sensor calibration is global, with one **Calibrate sensors** action in the
 **Calibration** tree page. Leave sticks and triggers untouched

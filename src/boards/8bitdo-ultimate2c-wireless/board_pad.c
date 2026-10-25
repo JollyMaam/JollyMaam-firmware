@@ -22,12 +22,13 @@ const struct board_rumble board_rumble = {
     .kick_ms = { 0, 0, 0, 25, 30 },
 };
 
-/* LE only, on the radio: plain HID, Xbox, Switch 2; slots past Y are not kept. */
+/* Four LE slots share Generic BLE until the other profile tables fit. */
 const struct board_slots board_slots = {
-    .type = { PROFILE_GENERIC_BLE, PROFILE_XBOX_BLE, PROFILE_SWITCH2, PROFILE_NONE,
+    .type = { PROFILE_GENERIC_BLE, PROFILE_GENERIC_BLE, PROFILE_GENERIC_BLE, PROFILE_GENERIC_BLE,
               PROFILE_NONE, PROFILE_NONE, PROFILE_NONE, PROFILE_NONE },
     .transport = { TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT,
                    TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT },
+    .static_random = 1,
 };
 
 /* ---- the button matrix: a row driven low, the columns pulled up ---------- */
