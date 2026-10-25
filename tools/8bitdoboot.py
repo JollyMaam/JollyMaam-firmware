@@ -4,11 +4,11 @@
   pack   app.bin from objcopy -> the image the boot loader starts: the stamp
          in header bytes 2..7, the size at 0x18, padded to 16 bytes with
          0xff, then the CRC (CRC-32 without its final inversion) of it all
-  flash  into the boot loader (our firmware: its REBOOT_LOADER command),
+  flash  into the boot loader (stock or our firmware),
          erase and program the image's sectors (the header's last), read
          them back, start the app
   loader into the boot loader and wait there
-  scan   boot loaders and our firmware
+  scan   boot loaders, stock devices and our firmware (read-only identify)
 
 The loader's protocol: 64-byte output reports (Linux: an unnumbered report,
 so a 0 first), 05 then <u16 command, u16 0, u16 length, u16 CRC-16/MODBUS of
@@ -18,6 +18,7 @@ echoes the header with a status in place of the 0.  Commands: 3 program,
 1b 30).  Its erase skips sectors below 0x6000 (the loader's own).
 """
 import argparse
+import errno
 import os
 from pathlib import Path
 import select
@@ -30,6 +31,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "padtool"))
 from padtransport import scsi, device_paths, usb_location  # noqa: E402
 
 LOADER = (0x2dc8, 0x3208)
+MODELS = {"U2C_WIRELESS": 0x301b, "U2C_RECEIVER": 0x301c}
+STOCK_PIDS = {0x310a, 0x301b, 0x301c, 0x301d}
 SECTOR = 4096
 CHUNK = 46
 OP = 0xF5
@@ -50,7 +53,7 @@ def pack(app, stamp, limit):
 
 def check(image):
     """The checks the boot loader makes of a packed image, as far as known."""
-    if image[8:12] != b"KNLT" or struct.unpack_from("<I", image, 0x18)[0] != len(image):
+    if len(image) < 32 or image[8:12] != b"KNLT" or struct.unpack_from("<I", image, 0x18)[0] != len(image):
         raise ValueError("bad image header")
     if struct.unpack_from("<I", image, len(image) - 4)[0] != zlib.crc32(image[:-4]) ^ 0xFFFFFFFF:
         raise ValueError("bad image CRC")
@@ -115,7 +118,7 @@ class Loader:
     def close(self):
         os.close(self.fd)
 
-    def request(self, command, address, data=b"", length=None):
+    def request(self, command, address, data=b"", length=None, timeout=10):
         report = bytearray(64)
         report[0] = 5
         count = len(data) if length is None else length
@@ -128,7 +131,7 @@ class Loader:
             raise OSError("short HID write")
         if command == 7:
             return b""
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + timeout
         while True:
             left = deadline - time.monotonic()
             if left <= 0 or not select.select([self.fd], [], [], left)[0]:
@@ -141,10 +144,12 @@ class Loader:
                 raise OSError(f"command {command} at {address:#x}: reply {reply[:18].hex()}")
             if command == 5 and at != address:
                 continue                 # a late reply to an earlier read
+            if n > CHUNK or len(reply) < 18 + n:
+                raise OSError("truncated or oversized boot loader reply")
             return reply[18:18 + n]
 
     def identify(self):
-        return self.request(8, 0, length=4)
+        return self.request(8, 0, length=4, timeout=1)
 
     def read(self, address, count):
         out = bytearray()
@@ -169,10 +174,107 @@ class Loader:
         self.request(7, 0)
 
 
-def wait_loader(port, seconds):
+class Stock(Loader):
+    """Stock HID vendor interface: numbered 0x81 output, 0x02 input."""
+
+    def identify(self):
+        report = bytearray(64)
+        report[:2] = b"\x81\x05"
+        struct.pack_into("<H", report, 2, 8)
+        while select.select([self.fd], [], [], 0)[0]:
+            os.read(self.fd, 256)
+        if os.write(self.fd, report) != len(report):
+            raise OSError("short stock HID identify write")
+        deadline = time.monotonic() + 0.5
+        while True:
+            left = deadline - time.monotonic()
+            if left <= 0 or not select.select([self.fd], [], [], left)[0]:
+                raise TimeoutError("stock model query did not answer")
+            reply = os.read(self.fd, 256)
+            if len(reply) < 20 or reply[:2] != b"\x02\x05":
+                continue
+            status, command, count = struct.unpack_from("<HHH", reply, 2)
+            if status == 0 and command == 8 and count == 2:
+                return reply[18:20]
+
+    def reboot_loader(self):
+        # The 0x81 is the report ID, not an unnumbered-report payload byte.
+        report = bytes.fromhex("81 05 00 51 00").ljust(64, b"\0")
+        try:
+            written = os.write(self.fd, report)
+        except OSError as error:
+            if error.errno in (errno.ENODEV, errno.EPIPE, errno.ECONNRESET, errno.ESHUTDOWN):
+                return                  # reset may win the USB completion race
+            raise
+        if written != len(report):
+            raise OSError("short stock HID boot-entry write")
+
+
+def has_stock_output(descriptor):
+    """Whether this interface has an Output item for report ID 0x81."""
+    offset, report_id = 0, 0
+    while offset < len(descriptor):
+        prefix = descriptor[offset]
+        if prefix == 0xfe:
+            if offset + 2 >= len(descriptor):
+                return False
+            offset += 3 + descriptor[offset + 1]
+            continue
+        size = (0, 1, 2, 4)[prefix & 3]
+        if offset + 1 + size > len(descriptor):
+            return False
+        value = int.from_bytes(descriptor[offset + 1:offset + 1 + size], "little")
+        if prefix & 0xfc == 0x84:
+            report_id = value
+        elif prefix & 0xfc == 0x90 and report_id == 0x81:
+            return True
+        offset += 1 + size
+    return False
+
+
+def stock(pid=None, port=None):
+    """Identify before selecting: the stock pad and receiver can share USB PID 310a."""
+    found = []
+    for path, vid, product, loc in hidraw_nodes():
+        if vid != 0x2dc8 or product not in STOCK_PIDS or (port is not None and port != loc):
+            continue
+        descriptor = Path("/sys/class/hidraw") / Path(path).name / "device/report_descriptor"
+        try:
+            if not has_stock_output(descriptor.read_bytes()):
+                continue
+            device = Stock(path)
+            try:
+                model = device.identify()
+            finally:
+                device.close()
+        except OSError:
+            continue
+        product_pid = next((p for p, m in MODELS.items() if model == struct.pack("<H", m)), None)
+        if product_pid and (pid is None or product_pid == pid):
+            found.append((path, loc, product_pid))
+    return found
+
+
+def matching_loaders(pid, port=None):
+    found = []
+    for path, loc in loaders(port):
+        try:
+            device = Loader(path)
+            try:
+                model = device.identify()
+            finally:
+                device.close()
+        except OSError:
+            continue
+        if model == struct.pack("<H", MODELS[pid]):
+            found.append((path, loc))
+    return found
+
+
+def wait_loader(port, seconds, pid):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
-        found = loaders(port)
+        found = matching_loaders(pid, port)
         if found:
             time.sleep(0.2)
             return found[0][0]
@@ -180,28 +282,53 @@ def wait_loader(port, seconds):
     return None
 
 
+def wait_entered_loader(port, seconds, pid):
+    path = wait_loader(port, seconds, pid)
+    if path is None:
+        sys.exit(f"8bitdoboot: requested boot entry on {port}, but no 2dc8:3208 loader "
+                 f"with model {MODELS[pid]:04x} appeared within {seconds:g}s" +
+                 ("; the receiver bootloader USB identity is not yet established"
+                  if pid == "U2C_RECEIVER" else ""))
+    return path
+
+
 def enter_loader(pid, device, seconds):
-    """The boot loader's hidraw node: one already there, or our firmware sent to it."""
-    found = loaders(device)
+    """Select by model and port, then enter through stock HID or our tool device."""
+    found = matching_loaders(pid, device)
     if len(found) > 1:
         sys.exit("8bitdoboot: more than one boot loader; pick one with --device PORT")
     if found:
         return found[0][0]
     running = ours(pid, device)
-    if len(running) > 1:
-        sys.exit("8bitdoboot: more than one pad; pick one with --device PORT")
-    if not running:
+    original = stock(pid, device)
+    ports = {loc for _, loc, _ in running + original}
+    if len(ports) > 1:
+        sys.exit("8bitdoboot: more than one matching device; pick one with --device PORT")
+    if not running and not original:
         return None
+    if not running:
+        path, port, _ = original[0]
+        target = Stock(path)
+        try:
+            if target.identify() != struct.pack("<H", MODELS[pid]):
+                raise OSError("stock device model changed before boot entry")
+            print(f"8bitdoboot: {port}: stock {pid} into the boot loader")
+            target.reboot_loader()
+        finally:
+            target.close()
+        return wait_entered_loader(port, seconds, pid)
     path, port, _ = running[0]
     print(f"8bitdoboot: {port}: firmware into the boot loader")
     try:
         scsi(path, [OP, 0x11], 0, 2000)
     except OSError:
         pass                             # it may leave before the status gets back
-    return wait_loader(port, seconds)
+    return wait_entered_loader(port, seconds, pid)
 
 
 def flash(args):
+    if args.pid != "U2C_WIRELESS":
+        sys.exit("8bitdoboot: receiver flashing is not established; loader entry only")
     image = Path(args.image).read_bytes()
     check(image)
     end = args.start + len(image) + (-len(image) % SECTOR)
@@ -209,11 +336,13 @@ def flash(args):
         sys.exit(f"8bitdoboot: image ends at {end:#x}, past {args.end:#x}")
     path = enter_loader(args.pid, args.device, args.wait)
     if not path:
-        sys.exit("8bitdoboot: no boot loader and no pad running this firmware" +
+        sys.exit("8bitdoboot: no matching boot loader, stock HID device, or our tool device" +
                  (f"\n{args.hint}" if args.hint else ""))
     loader = Loader(path)
     try:
         model = loader.identify()
+        if model != struct.pack("<H", MODELS[args.pid]):
+            raise OSError("boot loader model changed before flashing")
         print(f"8bitdoboot: boot loader {path}, model {model.hex()}")
         padded = image + b"\xff" * (end - args.start - len(image))
         sectors = list(range(args.start + SECTOR, end, SECTOR)) + [args.start]
@@ -237,7 +366,7 @@ def main():
     p.add_argument("app")
     for name in ("flash", "loader"):
         p = sub.add_parser(name)
-        p.add_argument("--pid", required=True, help="the image PID our firmware answers with")
+        p.add_argument("--pid", required=True, choices=MODELS, help="the product to select by model")
         p.add_argument("--device", help="the USB port (as scan lists it)")
         p.add_argument("--wait", type=float, default=15)
         p.add_argument("--hint", help="how to enter the boot loader by hand")
@@ -257,12 +386,19 @@ def main():
     elif args.cmd == "loader":
         path = enter_loader(args.pid, args.device, args.wait)
         if not path:
-            sys.exit("8bitdoboot: no boot loader and no pad running this firmware" +
+            sys.exit("8bitdoboot: no matching boot loader, stock HID device, or our tool device" +
                      (f"\n{args.hint}" if args.hint else ""))
         print(f"8bitdoboot: boot loader at {path}")
     else:
         for path, loc in loaders():
-            print(f"{loc}\tboot loader\t{path}")
+            loader = Loader(path)
+            try:
+                model = loader.identify()
+                print(f"{loc}\tboot loader, model {model.hex()}\t{path}")
+            finally:
+                loader.close()
+        for path, loc, pid in stock():
+            print(f"{loc}\tstock {pid}\t{path}")
         for path, loc, identity in ours():
             name = identity[56:88].split(b"\0")[0].decode(errors="replace")
             pid = identity[40:56].split(b"\0")[0].decode(errors="replace")

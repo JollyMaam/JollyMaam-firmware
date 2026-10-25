@@ -13,7 +13,7 @@ $(U2CW_PAD)_APP_START := 0x6000
 $(U2CW_PAD)_APP_END := 0x73000
 $(U2CW_PAD)_PID := U2C_WIRELESS
 $(U2CW_PAD)_STAMP := 6a0000005d02
-$(U2CW_PAD)_LOADER_HINT := Stock firmware or no answer: USB unplugged, hold L1+R1, tap Home, plug in USB.
+$(U2CW_PAD)_LOADER_HINT := If USB boot entry fails: USB unplugged, hold L1+R1, tap Home, plug in USB.
 $(U2CW_PAD)_BOARD_DIR := src/boards/8bitdo-ultimate2c-wireless
 $(U2CW_PAD)_LDFLAGS := --wrap=otp_read --wrap=bls_smp_param_saveBondingInfo --wrap=l2cap_att_handler
 # Root the replacement explicitly: --defsym alone does not retain it with
@@ -64,6 +64,16 @@ $(eval $(call telink_board,$(U2CW_PAD)))$(eval $(call host_tests,$(U2CW_PAD)))
 .PHONY: 8bitdo-ultimate2c-wireless-all 8bitdo-ultimate2c-wireless-test
 8bitdo-ultimate2c-wireless-all: $(U2CW_PAD)
 8bitdo-ultimate2c-wireless-test: $(U2CW_PAD)-test
+
+# Stock receiver entry only: no receiver firmware target or flashing path yet.
+.PHONY: 8bitdo-ultimate2c-wireless-dongle-loader 8bitdoboot-test
+8bitdo-ultimate2c-wireless-dongle-loader:
+	$(Q)python3 -I $(TELINK_IMAGE_TOOL) loader --pid U2C_RECEIVER $(if $(DEVICE),--device $(DEVICE))
+
+8bitdoboot-test:
+	$(Q)python3 -I tools/test_8bitdoboot.py
+
+$(U2CW_PAD)-test: | 8bitdoboot-test
 
 .PHONY: telink-att-test
 $(U2CW_PAD)-test: $(O)/host/test-telink-att

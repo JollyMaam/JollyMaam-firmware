@@ -85,6 +85,18 @@ with the shared modules it can afford and `src/core/controller_lite.c`.
     make 8bitdo-ultimate2c-wireless-pad-flash   # Telink pad: tools/8bitdoboot.py, 8BitDo boot loader
     python3 tools/8bitdoboot.py scan        # 8BitDo boot loaders and our Telink firmware
 
+`tools/8bitdoboot.py` also identifies stock Ultimate 2C Wireless pads and
+receivers through their HID vendor interface. Stock boot entry uses report
+`81 05 00 51 00` padded to 64 bytes. `make 8bitdo-ultimate2c-wireless-pad-loader`
+accepts stock or our firmware; `make 8bitdo-ultimate2c-wireless-dongle-loader`
+requests stock receiver entry. Both accept `DEVICE=<USB port>`.
+Stock USB PID `310a` is shared: the tool checks model `301b` (pad) or `301c`
+(receiver), and checks the loader model again before flashing. Receiver entry
+is derived from its stock application; its bootloader USB identity and recovery
+remain unverified on hardware. Receiver flashing is not enabled. Reference:
+`docs/8bitdo-ultimate2c-wireless/re-bootloader.md`. Host checks:
+`make 8bitdoboot-test`.
+
 The build is in `make/`: `common.mk` and `host.mk` are shared, `jieli.mk`
 holds the BR23 toolchain, SDK and the board template (`jieli_board`),
 `telink.mk` the same for the B80 (`telink_board`),

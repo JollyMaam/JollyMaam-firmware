@@ -4,6 +4,9 @@ Board facts for the 8BitDo Ultimate 2C Wireless pad, a Telink TLSR8208
 (B80): its pins, flash, boot loader and what its stock firmware shows.
 Battery sensing and charging control are not established.
 
+[Stock USB boot entry](re-bootloader.md) describes the pad and receiver command,
+their model query, shared USB PID and the receiver's unestablished recovery path.
+
 ## Chip and flash
 
 - Chip ID `0x5591` (TLSR8208, B80 family) over SWS. 16 KiB SRAM at
