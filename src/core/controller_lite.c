@@ -212,8 +212,9 @@ static __attribute__((noinline)) int bt_events(void)
             plat_motors(0, 0);
             c.since_ms = plat_ms();
             /* Match controller.c: a deliberate disconnect ends this session;
-             * only a lost link stays in reconnect mode. */
-            if (!ev.lost) {
+             * only a lost link stays in reconnect mode. Our own stop's
+             * disconnect keeps the request it is stopping for. */
+            if (!ev.lost && !c.stopping) {
                 util_log("ctl: host ended the session");
                 transition(REQ_NONE, SLOT_NONE, 0);
             }
@@ -643,6 +644,7 @@ int main(void)
     /* Console wake is explicit and bonded, never an automatic boot or pairing. */
     test_reset(); test_slots[2].type = PROFILE_SWITCH2; test_bonds[2].ltk[0] = 1;
     retained = 2; start(); CHECK(!wakes);
+    c.linked = 0;                /* offline: connecting the same slot again */
     select_session(REQ_CONNECT, 2, 0); stopped(test_ms); CHECK(wakes == 1);
     select_session(REQ_PAIR, 2, 0); stopped(test_ms); CHECK(wakes == 1);
     test_reset(); test_slots[2].type = PROFILE_SWITCH2;
@@ -669,6 +671,22 @@ int main(void)
     test_events[1].kind = BT_EV_STOPPED; event_count = 2;
     bluetooth();
     CHECK(test_bonds[0].ltk[0] == 0x5a && !test_bonds[1].ltk[0] && c.slot == 1);
+    /* The disconnect of our own stop keeps the pending slot change. */
+    test_reset(); c.linked = 1; select_session(REQ_CONNECT, 1, 0);
+    memset(test_events, 0, sizeof(test_events));
+    test_events[0].kind = BT_EV_UNLINKED;
+    test_events[1].kind = BT_EV_STOPPED; event_at = 0; event_count = 2;
+    bluetooth();
+    CHECK(starts == 1 && c.slot == 1 && !c.idle);
+    /* The host's own disconnect still ends the session. */
+    test_reset(); c.linked = 1;
+    memset(test_events, 0, sizeof(test_events));
+    test_events[0].kind = BT_EV_UNLINKED; event_at = 0; event_count = 1;
+    bluetooth();
+    CHECK(c.stopping && stops == 1);
+    test_events[0].kind = BT_EV_STOPPED; event_at = 0; event_count = 1;
+    bluetooth();
+    CHECK(c.idle && !starts);
     /* Boot resumes the retained slot, falling back if it is disabled. */
     test_reset(); retained = 3; start(); CHECK(c.slot == 3);
     test_reset(); retained = 3; test_slots[3].type = PROFILE_NONE;

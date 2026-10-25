@@ -4,8 +4,8 @@ $(O)/host/jlnewfw: tools/jlnewfw.c
 	@mkdir -p $(@D)
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) $< -o $@
 
-# Every source with a UNITTEST block.
-TESTS := $(shell grep -rl --include='*.c' 'ifdef UNITTEST' src)
+# Every source with a UNITTEST block (#ifdef or #ifndef) and its own main.
+TESTS := $(shell grep -rlE --include='*.c' 'if(n)?def UNITTEST' src | xargs grep -l '^int main')
 TESTS := $(filter-out src/platform/telink/att_telink.c,$(TESTS))
 
 # $(call host_tests,NAME): NAME-test builds the unit tests with NAME's -D flags
