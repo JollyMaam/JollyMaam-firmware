@@ -20,5 +20,7 @@ void plat_usb_init(void);                /* platform_telink_usb.c */
 u32 plat_usb_poll(void);                 /* from the wait loop: EV_USB when a command waits */
 void plat_usb_settle(u32 ms);            /* answer the host for ms, nothing else: before a reset */
 int plat_usb_configured(void);
+void plat_bt_init(void);                 /* bt_telink.c: the stack, before board_init() */
+u32 plat_bt_poll(void);                  /* runs the stack; EV_BT for bt_poll() */
 
 #endif

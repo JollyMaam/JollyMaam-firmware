@@ -94,7 +94,7 @@ u32 plat_wait(u32 deadline_ms, u32 at_us)
 
     for (;;) {
         wd_clear();
-        plat_wake(plat_usb_poll() | board_poll());
+        plat_wake(plat_usb_poll() | board_poll() | plat_bt_poll());
         e = take();
         if (e) return e;
         if (deadline_ms && (s32)(plat_ms() - deadline_ms) >= 0) return EV_DEADLINE;
@@ -209,6 +209,7 @@ int main(void)
     flash_read_uid(0x4b, uid);           /* every flash the SDK supports on the B80 */
     util_log_init();
     util_log("boot: %s %s", board_name, BUILD_ID);
+    plat_bt_init();
     board_init();
     wd_set_interval_ms(HANG_MS, CLOCK_SYS_CLOCK_1MS);
     wd_start();
