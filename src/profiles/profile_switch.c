@@ -722,8 +722,8 @@ static int s2_report(const struct pad *p, u32 now, u8 *out, u8 *id)
     /* By position: the pad's A (south) is the Switch's B. */
     if (p->buttons & PAD_A) b |= 0x0001;
     if (p->buttons & PAD_B) b |= 0x0002;
-    if (p->buttons & PAD_X) b |= 0x0008;
-    if (p->buttons & PAD_Y) b |= 0x0004;
+    if (p->buttons & PAD_X) b |= 0x0004;
+    if (p->buttons & PAD_Y) b |= 0x0008;
     if (p->buttons & PAD_R1) b |= 0x0010;
     if (p->r2 > TRIGGER_BUTTON) b |= 0x0020;
     if (p->buttons & PAD_START) b |= 0x0040;
