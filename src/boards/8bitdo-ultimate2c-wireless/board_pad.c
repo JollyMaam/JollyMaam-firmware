@@ -177,6 +177,77 @@ static void adc_poll(void)
     ad.tick = clock_time();
 }
 
+
+/* ---- motors and lights ---------------------------------------------------
+ * PWM at 24 kHz (silent for the motors), duty 0-1000; PF1 cannot take a
+ * PWM channel and is on or off.  Each light is one colour: lit at the
+ * strongest of its frame colour's components. */
+
+#define PWM_CYCLE 1000               /* 24 MHz PWM clock: 24 kHz */
+
+enum { OUT_MOTOR_LEFT, OUT_MOTOR_RIGHT, OUT_LIGHT };
+static const struct output {
+    GPIO_PinTypeDef pin;
+    gpio_func_e func;                /* its PWM channel; AS_GPIO: on or off */
+    pwm_id id;
+    u8 kind, light;                  /* OUT_*; LIGHT_*: the frame's light it shows */
+} outputs[] = {
+    { GPIO_PD3, PWM0, PWM0_ID, OUT_MOTOR_LEFT, 0 },
+    { GPIO_PD2, PWM1, PWM1_ID, OUT_MOTOR_RIGHT, 0 },
+    { GPIO_PB7, PWM2, PWM2_ID, OUT_LIGHT, LIGHT_HOME },      /* the Home ring */
+    { GPIO_PF1, AS_GPIO, PWM0_ID, OUT_LIGHT, LIGHT_P0 },     /* under Home; the boot loader blinks it */
+    { GPIO_PD5, PWM3, PWM3_ID, OUT_LIGHT, LIGHT_P1 },        /* red, beside the USB port */
+};
+#define OUTPUTS (sizeof(outputs) / sizeof(outputs[0]))
+
+static void output_set(const struct output *o, u32 level)        /* 0-255 */
+{
+    if (o->func == AS_GPIO) gpio_write(o->pin, level != 0);
+    else pwm_set_cycle_and_duty(o->id, PWM_CYCLE, (u16)(level * PWM_CYCLE / 255));
+}
+
+static void outputs_init(void)
+{
+    u32 i;
+
+    reg_clk_en0 |= FLD_CLK0_PWM_EN;
+    pwm_set_clk(CLOCK_SYS_CLOCK_HZ, CLOCK_SYS_CLOCK_HZ);
+    for (i = 0; i < OUTPUTS; i++) {
+        const struct output *o = &outputs[i];
+
+        gpio_write(o->pin, 0);
+        gpio_set_input_en(o->pin, 0);
+        gpio_set_output_en(o->pin, 1);
+        gpio_set_func(o->pin, o->func);
+        if (o->func == AS_GPIO) continue;
+        pwm_set_mode(o->id, PWM_NORMAL_MODE);
+        output_set(o, 0);
+        pwm_start(o->id);
+    }
+}
+
+void plat_leds(const struct led_frame *f)
+{
+    u32 i;
+
+    for (i = 0; i < OUTPUTS; i++) {
+        const struct rgb *c = &f->light[outputs[i].light];
+        u32 v = c->r > c->g ? c->r : c->g;
+
+        if (outputs[i].kind != OUT_LIGHT) continue;
+        output_set(&outputs[i], v > c->b ? v : c->b);
+    }
+}
+
+void plat_motors(u8 left, u8 right)
+{
+    u32 i;
+
+    for (i = 0; i < OUTPUTS; i++)
+        if (outputs[i].kind != OUT_LIGHT)
+            output_set(&outputs[i], outputs[i].kind == OUT_MOTOR_LEFT ? left : right);
+}
+
 /* ---- the board's interface to the platform ------------------------------- */
 
 static u8 started;                   /* board_init() ran: the OTP as it is */
@@ -184,6 +255,7 @@ static u8 started;                   /* board_init() ran: the OTP as it is */
 void board_init(void)
 {
     started = 1;                     /* the OTP as it is from here (below) */
+    outputs_init();
     matrix_init();
     adc_start();
 }

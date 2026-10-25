@@ -74,11 +74,10 @@ Entry:
 - Analog register `0x3c` = `0x5a`, then a reset (`0x6f` <- `0x20`): the loader
   stays in USB mode. The register keeps its value across the reset.
 - By hand: with USB unplugged, hold L1 and R1 and tap Home; plug in USB.
-  Squeezing R2 makes no difference.
-- The loader's start (`0x3208`-`0x3266` in its code) drives PA0 (the row of
-  L1 and R1) low and stays in the loader when PA7 (L1 on that row) and PB3
-  read low together. PB3 is R2's analog pin; why it reads low with R2 at
-  rest is not established.
+- The loader's start (`0x3208`-`0x3266` in its code) drives row PA0 low and
+  stays in the loader when PA7 and PC3 read low together: L1 and R1.
+- In the loader, PF1 (the light under Home) blinks: the loader toggles
+  `0x80052b` bit 1 (`reg_gpio_pf_out`) in its service loop.
 
 ## Pins
 
@@ -93,6 +92,20 @@ low.
 | PA3 | Right | A | Capture | Sync | mode switch (low: Bluetooth, high: 2.4G) |
 
 Home: PA4, active low, on its own.
+
+Outputs (each found by driving the pin as a GPIO output):
+
+| Pin | Drives | Stock |
+|---|---|---|
+| PD3 | left motor (the deep one) | non-GPIO function |
+| PD2 | right motor (the high one) | non-GPIO function |
+| PB7 | the Home ring | output, high |
+| PF1 | the light under Home | output, low |
+| PD5 | the red light beside the USB port | output, low |
+
+PD4 and PD7 drive nothing visible; stock holds PD7 high, as an output.
+Their roles are not established. Which level lights the lights is not
+established.
 
 Analog (ADC channel = PB pin number + 1; 14-bit differential against ground,
 1.2 V reference, input prescaler 1 as stock, analog `0xfa` = `0x3d`):
