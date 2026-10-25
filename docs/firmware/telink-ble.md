@@ -47,4 +47,5 @@ order. Encryption preserves the running profile state.
 Explicit connect requests for a bonded Switch 2 slot can set the advertising
 wake byte to `0x81`. Automatic startup and reconnection leave it clear. The app
 clears the flag on the first connection so a later disconnect cannot repeat the
-wake request. Console wake from sleep on the Telink board is not established.
+wake request. This wakes the paired Switch 2 console. The exact sleep command
+sent over Bluetooth is not established.
