@@ -43,3 +43,8 @@ unencrypted ATT pairing exchange, with SMP Security Requests disabled. Its AES
 key and connected host address are saved in the slot. On an LTK request, the app
 reverses the stored AES key to the controller's least-significant-byte-first
 order. Encryption preserves the running profile state.
+
+Explicit connect requests for a bonded Switch 2 slot can set the advertising
+wake byte to `0x81`. Automatic startup and reconnection leave it clear. The app
+clears the flag on the first connection so a later disconnect cannot repeat the
+wake request. Console wake from sleep on the Telink board is not established.

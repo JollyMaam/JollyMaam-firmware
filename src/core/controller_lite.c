@@ -172,6 +172,8 @@ static void stopped(u32 now)
     if (c.sleeping) return;
     if (pending == REQ_PAIR || pending == REQ_CONNECT) {
         start_session(slot, pending == REQ_PAIR ? 1 : -1, c.renew);
+        if (pending == REQ_CONNECT && profile == &profile_switch2 && !c.session.pairing)
+            bt_connect();
     } else {
         c.idle = 1;
         c.since_ms = now;
@@ -412,7 +414,7 @@ void ctl_main(void)
 /* Supply loss must never skip the radio stop or pending settings write.
  * The platform's physical power hold and USB enumeration need pad tests. */
 static u32 test_ms;
-static int test_usb, stops, flushes, offs, starts, motors, renewals, reboots;
+static int test_usb, stops, flushes, offs, starts, motors, renewals, reboots, wakes;
 static struct bt_bond test_bonds[LITE_SLOTS];
 #define test_bond test_bonds[0]
 static struct set_slot test_slots[LITE_SLOTS];
@@ -440,6 +442,7 @@ void bt_start(const struct profile *p, const u8 a[6], const struct bt_bond *k,
               int pairing, const struct bt_link *link)
 { (void)p; (void)a; (void)k; (void)pairing; (void)link; starts++; }
 void bt_stop(void) { stops++; }
+void bt_connect(void) { wakes++; }
 void set_flush(void) { flushes++; }
 int set_is_ephemeral(void) { return ephemeral; }
 u32 ux_idle_deadline(u32 since, u32 activity, u32 usb_seen, int powered, int ephemeral)
@@ -472,7 +475,7 @@ static void test_reset(void)
     memset(&c, 0, sizeof(c));
     profile = &profile_generic_ble;
     test_ms = 100;
-    test_usb = stops = flushes = offs = starts = motors = renewals = reboots = 0;
+    test_usb = stops = flushes = offs = starts = motors = renewals = reboots = wakes = 0;
     memset(test_bonds, 0, sizeof(test_bonds));
     memset(test_slots, 0, sizeof(test_slots));
     for (i = 0; i < LITE_SLOTS; i++) {
@@ -612,6 +615,14 @@ int main(void)
     test_events[0].kind = BT_EV_UNLINKED; event_at = 0; event_count = 1;
     c.players = 3; c.rumble_until = 1000; bluetooth();
     CHECK(!c.linked && !c.players && !c.rumble_until);
+
+    /* Console wake is explicit and bonded, never an automatic boot or pairing. */
+    test_reset(); test_slots[2].type = PROFILE_SWITCH2; test_bonds[2].ltk[0] = 1;
+    retained = 2; start(); CHECK(!wakes);
+    select_session(REQ_CONNECT, 2, 0); stopped(test_ms); CHECK(wakes == 1);
+    select_session(REQ_PAIR, 2, 0); stopped(test_ms); CHECK(wakes == 1);
+    test_reset(); test_slots[2].type = PROFILE_SWITCH2;
+    select_session(REQ_CONNECT, 2, 0); stopped(test_ms); CHECK(!wakes);
 
     /* Disabled/unsupported slots cannot tear down the running session. */
     test_reset();

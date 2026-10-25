@@ -286,7 +286,7 @@ void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond
               int pairing, const struct bt_link *link);
 void bt_stop(void);                       /* asynchronous; BT_EV_STOPPED when the session is down */
 void bt_abort(void);
-void bt_connect(void);
+void bt_connect(void);                    /* explicit connection attempt; may wake the paired host */
 int bt_send_input(u8 id, const u8 *data, u16 len);
 int bt_send_message(u16 id, const u8 *data, u16 len);
 int bt_poll(struct bt_ev *ev);

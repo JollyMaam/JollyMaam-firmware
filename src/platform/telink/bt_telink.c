@@ -58,7 +58,7 @@ static struct {
     u8 linked_pending, unlinked_pending, paired_pending, reason;
     u8 stopping, stopped_pending;
     struct bt_bond paired;       /* the last pairing's, for BT_EV_PAIRED */
-    u8 write_pending;
+    u8 write_pending, wake;
     struct bt_write write;
     const struct bt_device *device;
 } b;
@@ -118,6 +118,10 @@ static void on_connect(u8 e, u8 *p, int n)
         b.linked_pending = 1;   /* proprietary pairing uses unencrypted ATT */
         blc_ll_setPhy(BLS_CONN_HANDLE, PHY_TRX_PREFER, PHY_PREFER_2M, PHY_PREFER_2M);
         blc_ll_exchangeDataLength(0x14, 251);
+    }
+    if (b.wake) {
+        b.wake = 0;
+        bt_update_bond(&b.paired);
     }
     util_log("bt: connected");
 }
@@ -301,7 +305,7 @@ void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond
     blc_ll_initStandby_module((u8 *)address);
     blc_ll_setRandomAddr((u8 *)address);
     b.paired = *bond;
-    b.write_pending = 0;
+    b.write_pending = b.wake = 0;
     blc_smp_setSecurityLevel(b.device->sm_er ? Unauthenticated_Pairing_with_Encryption : No_Security);
     blc_smp_configSecurityRequestSending(b.device->sm_er ? SecReq_IMM_SEND : SecReq_NOT_SEND,
                                         b.device->sm_er ? SecReq_IMM_SEND : SecReq_NOT_SEND, 0);
@@ -316,9 +320,23 @@ void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond
     util_log("bt: advertising %s, %u bonds", p->name, blc_smp_param_getCurrentBondingDeviceNumber());
 }
 
+/* Wake is opt-in: only an explicit connect for an already bonded slot.
+ * Clear the advertisement on the first connection, before automatic retries. */
+void bt_connect(void)
+{
+    u8 adv[31], n;
+    if (!b.device || b.device->sm_er || b.connected || b.stopping ||
+        is_zero(b.paired.ltk, 16) || is_zero(b.paired.le_peer, 6)) return;
+    b.wake = 1;
+    n = b.device->advertising(&b.paired, 0, 1, adv);
+    bls_ll_setAdvData(adv, n);
+    util_log("bt: advertising to wake");
+}
+
 void bt_stop(void)
 {
     if (!b.started) return;
+    b.wake = 0;
     b.stopping = b.connected;
     b.linked_pending = 0;
     if (b.connected) bls_ll_terminateConnection(HCI_ERR_REMOTE_USER_TERM_CONN);
