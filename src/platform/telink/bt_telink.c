@@ -9,10 +9,15 @@
  * only constant data; CCCs and the input report are kept here.  Writes other
  * than to a CCC are not passed to the profile yet.
  *
- * Pairing is LE legacy Just Works; the stack keeps up to 4 bonds in flash
- * at BOND_STORE (two sectors).  One thread: the platform's wait loop runs the
- * stack (plat_bt_poll), whose callbacks only note what happened for
- * bt_poll(). */
+ * Pairing is LE legacy Just Works.  The stack keeps up to 4 bonds of its own
+ * in flash at BOND_STORE (two sectors); the slot's bond (struct bt_bond, in
+ * the settings) is what counts: a pairing's record is caught on its way to
+ * the stack's storage (--wrap=bls_smp_param_saveBondingInfo, a function the
+ * SDK's headers leave out) and goes up as BT_EV_PAIRED, and bt_start() puts
+ * the slot's back into the stack's storage when the stack has lost it.
+ * Discoverable only while pairing.  One thread: the platform's wait loop
+ * runs the stack (plat_bt_poll), whose callbacks only note what happened
+ * for bt_poll(). */
 
 #define BOND_STORE    0x71000    /* below the app's end, clear of stock data */
 #define ATTRS         32         /* the largest profile database's last handle + 1 */
@@ -38,9 +43,14 @@ static attribute_t attrs[ATTRS];
 static u8 dynamic[DYNAMIC_RAM] __attribute__((aligned(4)));
 static const u8 filler_uuid[2] = { 0xff, 0xff };    /* a handle the database leaves out */
 
+/* The stack's own, from smp_storage.o: a bond record into its storage. */
+#define BOND_JUST_WORKS 0x9a     /* the record's flag after an unauthenticated pairing */
+u32 __real_bls_smp_param_saveBondingInfo(smp_param_save_t *p);
+
 static struct {
     u8 started, advertising, connected, encrypted;
-    u8 linked_pending, unlinked_pending, reason;
+    u8 linked_pending, unlinked_pending, paired_pending, reason;
+    struct bt_bond paired;       /* the last pairing's, for BT_EV_PAIRED */
     u8 *input, *input_ccc;
     u16 input_handle;
     const struct bt_device *device;
@@ -162,6 +172,49 @@ static int on_host(u32 h, u8 *p, int n)
     return 0;
 }
 
+/* A pairing's record on its way into the stack's storage: the slot's bond. */
+u32 __wrap_bls_smp_param_saveBondingInfo(smp_param_save_t *p)
+{
+    struct bt_bond *k = &b.paired;
+
+    memset(k, 0, sizeof(*k));
+    memcpy(k->le_peer, p->peer_addr, 6);
+    memcpy(k->ltk, p->own_ltk, 16);
+    memcpy(k->le_irk, p->peer_irk, 16);
+    memcpy(k->le_id, p->peer_id_addr, 6);
+    k->le_id_type = p->peer_id_adrType;
+    b.paired_pending = 1;
+    return __real_bls_smp_param_saveBondingInfo(p);
+}
+
+static int is_zero(const u8 *p, u32 n)
+{
+    while (n--) if (*p++) return 0;
+    return 1;
+}
+
+/* The slot's bond into the stack's storage, unless it has it already.  The
+ * host's own address type is not kept: random unless it is its identity. */
+static void restore(const struct bt_bond *k)
+{
+    smp_param_save_t r;
+    u8 type;
+
+    if (!k || is_zero(k->ltk, 16) || is_zero(k->le_peer, 6)) return;
+    type = !is_zero(k->le_id, 6) && !memcmp(k->le_id, k->le_peer, 6) ? k->le_id_type : 1;
+    if (bls_smp_param_loadByAddr(type, (u8 *)k->le_peer, &r) && !memcmp(r.own_ltk, k->ltk, 16)) return;
+    memset(&r, 0, sizeof(r));
+    r.flag = BOND_JUST_WORKS;
+    r.peer_addr_type = type;
+    memcpy(r.peer_addr, k->le_peer, 6);
+    r.peer_id_adrType = k->le_id_type;
+    memcpy(r.peer_id_addr, k->le_id, 6);
+    memcpy(r.own_ltk, k->ltk, 16);
+    memcpy(r.peer_irk, k->le_irk, 16);
+    __real_bls_smp_param_saveBondingInfo(&r);
+    util_log("bt: bond back into the stack");
+}
+
 /* At start-up, before the board's pins and ADC: the stack's set-up undoes
  * an ADC set up before it (its DMA never completes). */
 void plat_bt_init(void)
@@ -199,15 +252,14 @@ void plat_bt_init(void)
     b.started = 1;
 }
 
-/* The bond, pairing and link arguments are not used yet: the stack keeps its
- * own bonds, and the pad is always discoverable. */
+/* Advertises as the profile asks: discoverable while pairing.  link is not
+ * used yet. */
 void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond *bond,
               int pairing, const struct bt_link *link)
 {
     u8 adv[31], n;
 
     (void)link;
-    (void)pairing;
     if (p->device->transport != BT_LE || !build(p)) {
         util_log("bt: %s does not fit", p->name);
         return;
@@ -216,7 +268,8 @@ void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond
     if (b.advertising) bls_ll_setAdvEnable(BLC_ADV_DISABLE);
     b.device = p->device;
     blc_ll_setRandomAddr((u8 *)address);
-    n = p->device->advertising(bond, 1, 0, adv);   /* always discoverable, for now */
+    restore(bond);
+    n = p->device->advertising(bond, pairing, 0, adv);
     bls_ll_setAdvParam(ADV_INTERVAL_30MS, ADV_INTERVAL_35MS, ADV_TYPE_CONNECTABLE_UNDIRECTED,
                        OWN_ADDRESS_RANDOM, 0, NULL, BLT_ENABLE_ADV_ALL, ADV_FP_NONE);
     bls_ll_setAdvData(adv, n);
@@ -232,6 +285,7 @@ void bt_stop(void)
     if (b.connected) bls_ll_terminateConnection(HCI_ERR_REMOTE_USER_TERM_CONN);
     bls_ll_setAdvEnable(BLC_ADV_DISABLE);
     b.advertising = 0;
+    b.device = NULL;             /* no session: nothing advertises again */
 }
 
 /* No pairing or link set-up under way: a flash write is safe. */
@@ -264,6 +318,12 @@ int bt_poll(struct bt_ev *ev)
         ev->kind = BT_EV_LINKED;
         return 1;
     }
+    if (b.paired_pending) {
+        b.paired_pending = 0;
+        ev->kind = BT_EV_PAIRED;
+        ev->bond = b.paired;
+        return 1;
+    }
     if (b.unlinked_pending) {
         b.unlinked_pending = 0;
         ev->kind = BT_EV_UNLINKED;
@@ -284,5 +344,5 @@ u32 plat_bt_poll(void)
         bls_ll_setAdvEnable(BLC_ADV_ENABLE);
         b.advertising = 1;
     }
-    return b.linked_pending || b.unlinked_pending ? EV_BT : 0;
+    return b.linked_pending || b.unlinked_pending || b.paired_pending ? EV_BT : 0;
 }

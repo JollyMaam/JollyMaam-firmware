@@ -15,7 +15,7 @@ $(U2CW_PAD)_PID := U2C_WIRELESS
 $(U2CW_PAD)_STAMP := 6a0000005d02
 $(U2CW_PAD)_LOADER_HINT := Stock firmware or no answer: USB unplugged, hold L1+R1, tap Home, plug in USB.
 $(U2CW_PAD)_BOARD_DIR := src/boards/8bitdo-ultimate2c-wireless
-$(U2CW_PAD)_LDFLAGS := --wrap=otp_read
+$(U2CW_PAD)_LDFLAGS := --wrap=otp_read --wrap=bls_smp_param_saveBondingInfo
 
 # 16 KiB of SRAM: the settings keep slots A-Y and the base remap only, with a
 # small staging buffer; small log and trace rings.
