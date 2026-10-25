@@ -15,7 +15,7 @@ $(U2CW_PAD)_PID := U2C_WIRELESS
 $(U2CW_PAD)_STAMP := 6a0000005d02
 $(U2CW_PAD)_LOADER_HINT := Stock firmware or no answer: USB unplugged, hold L1+R1, tap Home, plug in USB.
 $(U2CW_PAD)_BOARD_DIR := src/boards/8bitdo-ultimate2c-wireless
-$(U2CW_PAD)_LDFLAGS := --wrap=otp_read --wrap=bls_smp_param_saveBondingInfo
+$(U2CW_PAD)_LDFLAGS := --wrap=otp_read --wrap=bls_smp_param_saveBondingInfo --wrap=l2cap_att_handler
 
 # 16 KiB of SRAM: the settings keep slots A-Y and the base remap only, with a
 # small staging buffer; small log and trace rings.
@@ -35,6 +35,7 @@ $(U2CW_PAD)_SOURCES += src/platform/telink/platform_telink_usb.c
 $(U2CW_PAD)_SOURCES += src/platform/telink/libc_telink.c
 $(U2CW_PAD)_SOURCES += src/platform/telink/store_telink.c
 $(U2CW_PAD)_SOURCES += src/platform/telink/bt_telink.c
+$(U2CW_PAD)_SOURCES += src/platform/telink/att_telink.c
 $(U2CW_PAD)_SOURCES += src/core/controller_lite.c
 $(U2CW_PAD)_SOURCES += src/profiles/profile_hid.c
 $(U2CW_PAD)_SOURCES += src/core/input.c
@@ -49,3 +50,14 @@ $(eval $(call telink_board,$(U2CW_PAD)))$(eval $(call host_tests,$(U2CW_PAD)))
 .PHONY: 8bitdo-ultimate2c-wireless-all 8bitdo-ultimate2c-wireless-test
 8bitdo-ultimate2c-wireless-all: $(U2CW_PAD)
 8bitdo-ultimate2c-wireless-test: $(U2CW_PAD)-test
+
+.PHONY: telink-att-test
+$(U2CW_PAD)-test: $(O)/host/test-telink-att
+telink-att-test: $(O)/host/test-telink-att
+	$(Q)$<
+
+$(O)/host/test-telink-att: src/platform/telink/att_telink.c src/platform/telink/att_telink.h \
+    src/platform/telink/btstack_config.h src/core/pad.h $(BTSTACK)/src/ble/att_db.c $(BTSTACK)/src/btstack_util.c
+	@mkdir -p $(@D)
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) -DUNITTEST -I src/core -I src/platform/telink $(BTSTACK_INCLUDES) \
+	  src/platform/telink/att_telink.c $(BTSTACK)/src/ble/att_db.c $(BTSTACK)/src/btstack_util.c -o $@

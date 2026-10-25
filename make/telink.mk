@@ -101,10 +101,11 @@ TELINK_SDK_USED += vendor/common/flash_prot.c
 # the rule runs.
 define telink_board
 $(1)_OBJECTS := $(patsubst %.c,$(O)/$(1)/%.o,$($(1)_SOURCES)) \
-	$(patsubst %,$(O)/$(1)/sdk/%.o,$(basename $(TELINK_SDK_USED)))
+	$(patsubst %,$(O)/$(1)/sdk/%.o,$(basename $(TELINK_SDK_USED))) \
+	$(O)/$(1)/btstack/src/ble/att_db.o $(O)/$(1)/btstack/src/btstack_util.o
 $(1)_FLAGS := $(TELINK_DEFINES) -DBOARD_PID=\"$($(1)_PID)\" -DAPP_START=$($(1)_APP_START) \
 	$($(1)_DEFINES) $(EXTRA_DEFINES) -DBUILD_ID=\"$(BUILD_ID)\" -include $(TELINK_APP_CONFIG)
-$(1)_INCLUDES := $(SRC_INCLUDES) -iquote src/platform/telink -iquote $($(1)_BOARD_DIR) $(TELINK_INCLUDES)
+$(1)_INCLUDES := $(SRC_INCLUDES) -iquote src/platform/telink -iquote $($(1)_BOARD_DIR) $(TELINK_INCLUDES) $(BTSTACK_INCLUDES)
 
 .PHONY: $(1) $(1)-flash $(1)-loader
 $(1): $(O)/$(1)/firmware.bin
@@ -123,6 +124,12 @@ $(O)/$(1)/sdk/%.o: $(TELINK_SDK)/%.S $(O)/$(1)/defines
 	@mkdir -p $$(@D)
 	@echo [AS $(1)] $$<
 	$$(Q)$(TELINK_CC) $(TELINK_SDK_CFLAGS) $$($(1)_FLAGS) $(TELINK_INCLUDES) -MMD -MP -c $$< -o $$@
+
+$(O)/$(1)/btstack/%.o: $(BTSTACK)/%.c $(O)/$(1)/defines
+	@mkdir -p $$(@D)
+	@echo [CC $(1)] $$<
+	$$(Q)$(TELINK_CC) $(TELINK_CFLAGS) $$($(1)_FLAGS) $(BTSTACK_RENAMES) \
+	  -I src/platform/telink $(BTSTACK_INCLUDES) -MMD -MP -c $$< -o $$@
 
 # The build ID: rebuilt when git moves.
 $(O)/$(1)/src/core/usb.o: $(wildcard $(BUILD_METADATA))

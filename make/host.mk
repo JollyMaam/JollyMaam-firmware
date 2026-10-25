@@ -6,6 +6,7 @@ $(O)/host/jlnewfw: tools/jlnewfw.c
 
 # Every source with a UNITTEST block.
 TESTS := $(shell grep -rl --include='*.c' 'ifdef UNITTEST' src)
+TESTS := $(filter-out src/platform/telink/att_telink.c,$(TESTS))
 
 # $(call host_tests,NAME): NAME-test builds the unit tests with NAME's -D flags
 # into $(O)/host/test-NAME/ and runs them.

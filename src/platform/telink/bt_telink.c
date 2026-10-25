@@ -1,13 +1,11 @@
 #include "sdk.h"
 #include "board.h"
+#include "att_telink.h"
 
-/* Bluetooth LE on the B80: pad.h's bt_ module on Telink's BLE stack, for the
- * LE profiles.  A profile's GATT database is BTstack's (compile_gatt.py), so
- * the same profile runs on either stack: bt_start() turns it into the
- * stack's attribute table.  Its constant values stay where they are (flash);
- * DYNAMIC ones get RAM, filled once from the profile's read(), which returns
- * only constant data; CCCs and the input report are kept here.  Writes other
- * than to a CCC are not passed to the profile yet.
+/* Bluetooth LE on the B80: Telink owns the controller, L2CAP and SMP.
+ * Unmodified BTstack att_db.c serves each profile's database from flash;
+ * att_telink.c keeps the per-connection CCCs and bounded outgoing PDUs.
+ * Host writes are delivered to the control loop through bt_poll().
  *
  * Pairing is LE legacy Just Works.  The stack keeps up to 4 bonds of its own
  * in flash at BOND_STORE (two sectors); the slot's bond (struct bt_bond, in
@@ -20,8 +18,6 @@
  * for bt_poll(). */
 
 #define BOND_STORE    0x71000    /* below the app's end, clear of stock data */
-#define ATTRS         32         /* the largest profile database's last handle + 1 */
-#define DYNAMIC_RAM   96         /* bytes for DYNAMIC values */
 #define INPUT_MAX     20         /* a notification in a 27-byte LL packet */
 #define IN_FLIGHT     2          /* input notifications in the stack at once */
 /* The SDK accepts a notification only when queued + its packet count is
@@ -31,22 +27,17 @@
 #define TX_FIFO       8          /* LL packets queued to send (2^n) */
 _Static_assert(TX_FIFO >= IN_FLIGHT + 3, "TX FIFO must fit inputs and the SDK reserve");
 
-/* BTstack's attribute flags (att_db.h, bluetooth.h). */
-#define BTS_READ         0x0002
-#define BTS_WRITE_NR     0x0004
-#define BTS_WRITE        0x0008
-#define BTS_DYNAMIC      0x0100
-#define BTS_UUID128      0x0200
-#define BTS_READ_SEC     0x0c00
-#define BTS_WRITE_SEC    0x0011
-
 static u8 acl_rx[CAL_LL_ACL_RX_FIFO_SIZE(27) * 4] __attribute__((aligned(16)));
 static u8 acl_tx[CAL_LL_ACL_TX_FIFO_SIZE(27) * TX_FIFO] __attribute__((aligned(4)));
-static u8 l2cap_rx[CAL_L2CAP_BUFF_SIZE(23)] __attribute__((aligned(4)));
+static u8 l2cap_rx[CAL_L2CAP_BUFF_SIZE(TELINK_ATT_MTU)] __attribute__((aligned(4)));
+/* The SDK's initialization checks still want a table. ATT requests go to
+ * the flash server instead of this empty constant table. */
+static const attribute_t sdk_attrs[1];
 
-static attribute_t attrs[ATTRS];
-static u8 dynamic[DYNAMIC_RAM] __attribute__((aligned(4)));
-static const u8 filler_uuid[2] = { 0xff, 0xff };    /* a handle the database leaves out */
+/* Exported by the SDK archive, absent from its headers. The SDK's own ATT
+ * dispatcher uses this exact header-plus-payload call to send responses. */
+ble_sts_t blc_l2cap_pushData_2_controller(u16 handle, u16 cid, u8 *header,
+                                        int header_len, u8 *payload, int len);
 
 /* The stack's own, from smp_storage.o: a bond record into its storage. */
 #define BOND_JUST_WORKS 0x9a     /* the record's flag after an unauthenticated pairing */
@@ -57,8 +48,8 @@ static struct {
     u8 linked_pending, unlinked_pending, paired_pending, reason;
     u8 stopping, stopped_pending;
     struct bt_bond paired;       /* the last pairing's, for BT_EV_PAIRED */
-    u8 *input, *input_ccc;
-    u16 input_handle;
+    u8 write_pending;
+    struct bt_write write;
     const struct bt_device *device;
 } b;
 
@@ -67,71 +58,31 @@ static u16 get16(const u8 *p)
     return (u16)(p[0] | p[1] << 8);
 }
 
-/* The profile's database as the stack's table; 0: it does not fit. */
-static int build(const struct profile *p)
+/* L2CAP has already reassembled the PDU here. Keep the SDK's SMP and
+ * signalling paths intact and replace only ATT (--wrap=l2cap_att_handler). */
+u8 *__wrap_l2cap_att_handler(u16 handle, u8 *packet)
 {
-    const u8 *e = p->device->att_db + 1;     /* after the version byte */
-    u32 used = 0, last = 0, i, n;
+    plat_att_receive(packet + 6, get16(packet + 2));
+    blc_att_setEffectiveMtuSize(handle, plat_att_mtu());
+    return NULL;
+}
 
-    memset(attrs, 0, sizeof(attrs));
-    memset(dynamic, 0, sizeof(dynamic));
-    b.input = b.input_ccc = NULL;
-    for (; get16(e); e += get16(e)) {
-        u16 size = get16(e), flags = get16(e + 2), handle = get16(e + 4);
-        u8 uuid_len = flags & BTS_UUID128 ? 16 : 2;
-        const u8 *value = e + 6 + uuid_len;
-        u32 value_len = size - 6 - uuid_len;
-        attribute_t *a;
+int plat_att_transmit(const u8 *pdu, u16 len, int response)
+{
+    if (!b.connected || !len) return 0;
+    return blc_l2cap_pushData_2_controller((u16)(BLS_CONN_HANDLE | (response ? 0x8000 : 0)),
+               4, (u8 *)pdu, 1, (u8 *)pdu + 1, len - 1) == BLE_SUCCESS;
+}
 
-        if (handle >= ATTRS || handle <= last) return 0;
-        for (last++; last < handle; last++) {
-            attrs[last].perm = ATT_PERMISSIONS_READ;
-            attrs[last].uuidLen = 2;
-            attrs[last].uuid = (u8 *)filler_uuid;
-        }
-        a = &attrs[handle];
-        a->uuidLen = uuid_len;
-        a->uuid = (u8 *)e + 6;
-        a->perm = (flags & BTS_READ ? ATT_PERMISSIONS_READ : 0) |
-                  (flags & (BTS_WRITE | BTS_WRITE_NR) ? ATT_PERMISSIONS_WRITE : 0) |
-                  (flags & (BTS_READ_SEC | BTS_WRITE_SEC) ? ATT_PERMISSIONS_ENCRYPT : 0);
-        if (!(flags & BTS_DYNAMIC)) {
-            a->pAttrValue = (u8 *)value;
-            a->attrLen = value_len;
-            continue;
-        }
-        /* RAM: the CCC, the input report, or what read() answers (else 4 zero bytes). */
-        n = uuid_len == 2 && get16(a->uuid) == GATT_UUID_CLIENT_CHAR_CFG ? 2 :
-            handle == p->device->input_handle ? INPUT_MAX : 4;
-        if (used + n > sizeof(dynamic)) return 0;
-        a->pAttrValue = dynamic + used;
-        a->attrLen = n;
-        if (handle == p->device->input_handle) {
-            b.input = a->pAttrValue;
-            a->attrLen = 0;
-        } else if (n == 4 && p->read) {
-            int got = p->read(BT_WRITE_ATT, handle, 0, dynamic + used,
-                              (u16)(sizeof(dynamic) - used));
-
-            if (got >= 0) a->attrLen = n = (u32)got;
-        }
-        if (handle == p->device->input_handle + 1) b.input_ccc = a->pAttrValue;
-        used += (n + 3) & ~3u;
-    }
-    attrs[0].attNum = (u16)last;
-    /* A service declaration holds how many attributes the service has. */
-    for (i = 1; i <= last; i++) {
-        if (attrs[i].uuidLen != 2 || (get16(attrs[i].uuid) != GATT_UUID_PRIMARY_SERVICE &&
-                                      get16(attrs[i].uuid) != GATT_UUID_SECONDARY_SERVICE))
-            continue;
-        for (n = i + 1; n <= last; n++)
-            if (attrs[n].uuidLen == 2 && (get16(attrs[n].uuid) == GATT_UUID_PRIMARY_SERVICE ||
-                                          get16(attrs[n].uuid) == GATT_UUID_SECONDARY_SERVICE))
-                break;
-        attrs[i].attNum = (u16)(n - i);
-    }
-    b.input_handle = p->device->input_handle;
-    return b.input && b.input_ccc;
+int plat_att_write(u16 handle, const u8 *data, u16 len)
+{
+    if (b.write_pending || len > sizeof(b.write.data)) return 0;
+    b.write.kind = BT_WRITE_ATT;
+    b.write.id = handle;
+    b.write.len = len;
+    memcpy(b.write.data, data, len);
+    b.write_pending = 1;
+    return 1;
 }
 
 static void on_connect(u8 e, u8 *p, int n)
@@ -142,7 +93,7 @@ static void on_connect(u8 e, u8 *p, int n)
     b.connected = 1;
     b.encrypted = 0;
     b.advertising = 0;
-    if (b.input_ccc) b.input_ccc[0] = b.input_ccc[1] = 0;
+    plat_att_connected(BLS_CONN_HANDLE);
     if (b.stopping || !b.device) {
         b.stopping = 1;
         b.stopped_pending = 0;
@@ -158,7 +109,7 @@ static void on_terminate(u8 e, u8 *p, int n)
     (void)e;
     (void)n;
     b.connected = b.encrypted = 0;
-    if (b.input_ccc) b.input_ccc[0] = b.input_ccc[1] = 0;
+    plat_att_connected(BLS_CONN_HANDLE);
     b.reason = *p;
     b.unlinked_pending = 1;
     if (b.stopping) {
@@ -181,6 +132,7 @@ static int on_host(u32 h, u8 *p, int n)
         break;
     case GAP_EVT_SMP_CONN_ENCRYPTION_DONE:
         b.encrypted = 1;
+        plat_att_encrypted(1);
         if (!b.stopping) b.linked_pending = 1;
         util_log("bt: encrypted");
         break;
@@ -256,8 +208,8 @@ void plat_bt_init(void)
     blc_ll_initAclConnTxFifo(acl_tx, CAL_LL_ACL_TX_FIFO_SIZE(27), TX_FIFO);
     blc_ll_initAclConnRxFifo(acl_rx, CAL_LL_ACL_RX_FIFO_SIZE(27), 4);
     blc_gap_peripheral_init();
-    bls_att_setAttributeTable((u8 *)attrs);
-    blc_att_setRxMtuSize(23);
+    bls_att_setAttributeTable((u8 *)sdk_attrs);
+    blc_att_setRxMtuSize(TELINK_ATT_MTU);
     blc_l2cap_register_handler(blc_l2cap_packet_receive);
     blc_l2cap_initRxDataBuffer(l2cap_rx, sizeof(l2cap_rx));
     bls_smp_configPairingSecurityInfoStorageAddr(BOND_STORE);
@@ -283,7 +235,7 @@ void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond
     u8 adv[31], n;
 
     (void)link;
-    if (p->device->transport != BT_LE || !build(p)) {
+    if (p->device->transport != BT_LE || !plat_att_start(p)) {
         util_log("bt: %s does not fit", p->name);
         return;
     }
@@ -333,7 +285,7 @@ int bt_radio_quiet(void)
 
 int bt_input_wanted(void)
 {
-    return b.connected && b.encrypted && b.input_ccc && (b.input_ccc[0] & 1) &&
+    return b.connected && b.encrypted && plat_att_notifying(b.device->input_handle) && !plat_att_busy() &&
            blc_ll_getTxFifoNumber() < IN_FLIGHT;
 }
 
@@ -342,9 +294,7 @@ int bt_send_input(u8 id, const u8 *data, u16 len)
 {
     (void)id;
     if (!bt_input_wanted() || len > INPUT_MAX) return 0;
-    memcpy(b.input, data, len);
-    attrs[b.input_handle].attrLen = len;
-    return blc_gatt_pushHandleValueNotify(BLS_CONN_HANDLE, b.input_handle, (u8 *)data, len) == BLE_SUCCESS;
+    return plat_att_send(b.device->input_handle, data, len);
 }
 
 int bt_poll(struct bt_ev *ev)
@@ -359,6 +309,12 @@ int bt_poll(struct bt_ev *ev)
         b.paired_pending = 0;
         ev->kind = BT_EV_PAIRED;
         ev->bond = b.paired;
+        return 1;
+    }
+    if (b.write_pending) {
+        b.write_pending = 0;
+        ev->kind = BT_EV_WRITE;
+        ev->write = b.write;
         return 1;
     }
     if (b.unlinked_pending) {
@@ -382,9 +338,10 @@ u32 plat_bt_poll(void)
 {
     if (!b.started) return 0;
     blc_sdk_main_loop();
+    if (b.connected) plat_att_poll();
     if (!b.connected && !b.advertising && b.device) {
         bls_ll_setAdvEnable(BLC_ADV_ENABLE);
         b.advertising = 1;
     }
-    return b.linked_pending || b.unlinked_pending || b.paired_pending || b.stopped_pending ? EV_BT : 0;
+    return b.linked_pending || b.unlinked_pending || b.paired_pending || b.stopped_pending || b.write_pending ? EV_BT : 0;
 }
