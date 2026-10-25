@@ -3,6 +3,11 @@
 
 /* Home gestures, timeouts and LED scenes. */
 
+/* A controller without the remap engine leaves Home+M to the host. */
+#ifndef UX_REMAP_CONFIG
+#define UX_REMAP_CONFIG 1
+#endif
+
 const struct ux_timeouts ux_timeouts = {
     .home_grace_ms = 250,       /* wait for a Home chord before sending Home alone */
     .tap_ms = 60,               /* minimum synthesized down after its first report handoff */
@@ -125,7 +130,9 @@ static const struct gesture { u32 keys; u16 hold_ms; u8 request, slot, flags; } 
     {PAD_DOWN, 5000, REQ_PAIR, 5, OFFLINE},
     {PAD_LEFT, 5000, REQ_PAIR, 6, OFFLINE},
     {PAD_RIGHT, 5000, REQ_PAIR, 7, OFFLINE},
+#if UX_REMAP_CONFIG
     {PAD_M, 0, REQ_CONFIG, SLOT_NONE, CONNECTED | RELEASE},
+#endif
 };
 #define GESTURES (sizeof(gestures) / sizeof(gestures[0]))
 
@@ -203,7 +210,7 @@ struct ctl_request ux_step(struct pad *p, u32 now, u8 state)
     int offline = state == CTL_BOOT || state == CTL_IDLE || state == CTL_CONNECTING ||
                   state == CTL_PAIRING || state == CTL_STOPPING;
 
-    if (ux.config) {
+    if (UX_REMAP_CONFIG && ux.config) {
         if (state == CTL_CONNECTED) return config_step(p, now);
         ux.config = 0;
     }
@@ -277,7 +284,7 @@ struct ctl_request ux_step(struct pad *p, u32 now, u8 state)
             if (!ux.live) output &= ~ux.captured;
         }
     }
-    if (r.kind == REQ_CONFIG) {
+    if (UX_REMAP_CONFIG && r.kind == REQ_CONFIG) {
         r = request(REQ_NONE, SLOT_NONE);
         if (state == CTL_CONNECTED) {
             ux.config = 1;
@@ -307,7 +314,7 @@ void ux_reported(u32 now)
 u32 ux_deadline(void)
 {
     u32 next = 0, i;
-    if (ux.config) return ux.config_at + ux_timeouts.config_ms;
+    if (UX_REMAP_CONFIG && ux.config) return ux.config_at + ux_timeouts.config_ms;
     if (ux.tap) next = ux.tap_release_at;
     if (!ux.active) return next;
     if (!ux.live && !ux.chorded && !ux.fired)
@@ -339,6 +346,7 @@ void ux_ignore_held(void)
 
 int ux_config(u32 *since)
 {
+    if (!UX_REMAP_CONFIG) return 0;
     if (ux.config && since) *since = ux.config_since;
     return ux.config;
 }
@@ -526,6 +534,7 @@ int main(void)
     pad.buttons |= PAD_A; run(2000); CHECK(last.kind == REQ_NONE && seen.buttons == pad.buttons);
     reset(CTL_IDLE); pad.buttons = PAD_M | PAD_A; run(100); CHECK(last.kind == REQ_NONE);
 
+#if UX_REMAP_CONFIG
     /* Remap config mode: Home+M on release, whichever goes first. */
     reset(CTL_CONNECTED); pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_M; run(3000);
     CHECK(!ux_config(NULL) && !seen.buttons);
@@ -603,6 +612,12 @@ int main(void)
     CHECK(seen.buttons == (PAD_HOME | PAD_M));
     pad.buttons = 0; run(1); CHECK(!ux_config(NULL) && last.kind == REQ_NONE);
 
+#else
+    reset(CTL_CONNECTED); pad.buttons = PAD_HOME; run(1);
+    pad.buttons |= PAD_M; run(ux_timeouts.home_grace_ms + 1);
+    CHECK(!ux_config(NULL) && seen.buttons == (PAD_HOME | PAD_M));
+    pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE);
+#endif
     /* Drained after ux_ignore_held. */
     reset(CTL_BOOT); ux_ignore_held(); pad.buttons = PAD_HOME | PAD_B; run(6000);
     CHECK(last.kind == REQ_NONE && !seen.buttons);

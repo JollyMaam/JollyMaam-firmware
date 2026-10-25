@@ -59,6 +59,7 @@ static struct {
     u32 stable;                      /* debounced */
     u32 changed_us;
     u8 same[32];                     /* scans a bit has differed from stable */
+    u8 pair_reading, pair_stable, pair_same;
 } mx;
 
 static void matrix_init(void)
@@ -94,8 +95,11 @@ static u32 matrix_poll(void)
         return 0;
     }
     if (!clock_time_exceed(mx.tick, ROW_SETTLE_US)) return 0;
-    for (i = 0; i < COLUMNS; i++)
-        if (!gpio_read(columns[i])) mx.reading |= keys[mx.row][i];
+    for (i = 0; i < COLUMNS; i++) {
+        if (gpio_read(columns[i])) continue;
+        mx.reading |= keys[mx.row][i];
+        if (mx.row == 3 && i == 3) mx.pair_reading = 1;
+    }
     gpio_write(rows[mx.row], 1);
     mx.driving = 0;
     if (++mx.row < ROWS) return 0;
@@ -113,6 +117,13 @@ static u32 matrix_poll(void)
         }
     }
     mx.reading = 0;
+    if (mx.pair_reading == mx.pair_stable) mx.pair_same = 0;
+    else if (++mx.pair_same >= DEBOUNCE_SCANS) {
+        mx.pair_stable = mx.pair_reading;
+        mx.pair_same = 0;
+        changed = 1;
+    }
+    mx.pair_reading = 0;
     if (changed) mx.changed_us = plat_us();
     return changed ? EV_BUTTONS : 0;
 }
@@ -334,6 +345,7 @@ static u16 clamp10(s32 v)
 void board_input(struct in_raw *raw)
 {
     raw->buttons = mx.stable;
+    raw->pair_button = mx.pair_stable;
     raw->changed_us = mx.changed_us;
     raw->sticks_valid = (ad.valid & 0x0f) == 0x0f;
     raw->stick[0] = (u16)(ad.code[0] << 2);

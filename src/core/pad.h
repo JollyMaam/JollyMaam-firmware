@@ -82,6 +82,7 @@ struct in_raw {
     u16 trigger[2];
     u8 trigger_stop[2];
     u32 changed_us;              /* when a button or the d-pad last changed (plat_us) */
+    u8 pair_button;             /* dedicated Sync/Pair button, separate from host buttons */
 };
 
 struct imu_sample {
@@ -283,7 +284,7 @@ struct bt_link {
 struct profile;
 void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond *bond,
               int pairing, const struct bt_link *link);
-void bt_stop(void);
+void bt_stop(void);                       /* asynchronous; BT_EV_STOPPED when the session is down */
 void bt_abort(void);
 void bt_connect(void);
 int bt_send_input(u8 id, const u8 *data, u16 len);
@@ -700,7 +701,8 @@ extern const struct led_scene ux_scenes[CTL_KIND_COUNT];
 extern const struct led_scene ux_config_scene, ux_loader_scene;   /* remap config mode, to the loader */
 
 /* Home gestures, table in settings_ux.c.  ux_reported: the controller saw a
- * held-back Home tap's down report leave. */
+ * held-back Home tap's down report leave. UX_REMAP_CONFIG=0 excludes the
+ * Home+M configuration gesture for a controller without the remap engine. */
 struct ctl_request ux_step(struct pad *pad, u32 now, u8 state);
 void ux_reported(u32 now);
 /* Earliest permitted idle power-off: 0 while USB powered, otherwise the

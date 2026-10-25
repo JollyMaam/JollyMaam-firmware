@@ -38,6 +38,7 @@
     padtool reboot | loader       restart; restart into the ROM loader (for
                                   jlnewfw flash)
     padtool connect [SLOT]        connect a slot (default: the last), as Home does
+    padtool disconnect            end the session, keeping its pairing
     padtool pair SLOT             make the slot pairable; its host is replaced once one pairs
                                   (same address)
     padtool unpair SLOT           forget the host and save a new Bluetooth address
@@ -1301,7 +1302,7 @@ def tool(paths):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["target", "tool-only", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "reboot", "loader", "relink", "connect", "pair", "unpair", "profile", "peek", "trace",
+    p.add_argument("command", choices=["target", "tool-only", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "reboot", "loader", "relink", "connect", "disconnect", "pair", "unpair", "profile", "peek", "trace",
                                        "fields", "get", "set", "reset", "backup-settings",
                                        "restore-settings", "factory-reset", "ephemeral", "keep", "tool"])
     p.add_argument("args", nargs="*")
@@ -1362,7 +1363,7 @@ def main():
         except ValueError:
             p.error("invalid address; expected AA:BB:CC:DD:EE:FF")
     if BOARD == "dongle" and a.command in {
-        "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "relink", "connect", "fields", "get", "set", "reset",
+        "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "relink", "connect", "disconnect", "fields", "get", "set", "reset",
         "backup-settings", "restore-settings", "factory-reset", "keep",
     }:
         p.error(f"{a.command} is not supported by dongle firmware")
@@ -1421,6 +1422,10 @@ def main():
         if slot is None:
             p.error("connect: a slot: slot-a ... slot-right (or A B X Y up down left right)")
         cmd(need_device(), 0x13, slot)
+    elif a.command == "disconnect":
+        if a.args:
+            p.error("disconnect takes no arguments")
+        cmd(need_device(), 0x1b)
     elif a.command == "relink":
         cmd(need_device(), 0x12)
     elif a.command == "led-demo":

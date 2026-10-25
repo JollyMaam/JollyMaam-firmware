@@ -168,6 +168,18 @@ firmware; those values are not carried over, so set them again on a remap
 page.
 
 Connect and Pair use saved settings, so apply a slot's pending edits first.
+`padtool disconnect` ends the current session and keeps its pairing;
+`padtool connect` starts it again. While USB is powered, disconnect leaves
+the tool device available. On battery the normal idle sleep policy applies.
+
+The Ultimate 2C currently uses one Generic BLE session in slot A. Home from
+idle reconnects; Home+View disconnects on release. While offline, Home+A
+connects, holding Home+A for five seconds pairs with a renewed identity,
+and Home+L3 or Home+R3 starts calibration. Sync also starts pairing with a
+renewed identity. The old pairing stays saved until a new pairing succeeds.
+Home alone while connected reaches the host, including a quick tap.
+Home+M remap configuration and the other slots are not enabled on this pad.
+
 Sensor calibration is global, with one **Calibrate sensors** action in the
 **Calibration** tree page. Leave sticks and triggers untouched
 for 2.5 seconds after starting, then circle both sticks around their edges and

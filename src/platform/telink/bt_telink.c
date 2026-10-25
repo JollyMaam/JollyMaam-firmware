@@ -55,6 +55,7 @@ u32 __real_bls_smp_param_saveBondingInfo(smp_param_save_t *p);
 static struct {
     u8 started, advertising, connected, encrypted;
     u8 linked_pending, unlinked_pending, paired_pending, reason;
+    u8 stopping, stopped_pending;
     struct bt_bond paired;       /* the last pairing's, for BT_EV_PAIRED */
     u8 *input, *input_ccc;
     u16 input_handle;
@@ -142,6 +143,12 @@ static void on_connect(u8 e, u8 *p, int n)
     b.encrypted = 0;
     b.advertising = 0;
     if (b.input_ccc) b.input_ccc[0] = b.input_ccc[1] = 0;
+    if (b.stopping || !b.device) {
+        b.stopping = 1;
+        b.stopped_pending = 0;
+        bls_ll_terminateConnection(HCI_ERR_REMOTE_USER_TERM_CONN);
+        return;
+    }
     bls_l2cap_requestConnParamUpdate(b.device->interval_min, b.device->interval_max, 0, 400);
     util_log("bt: connected");
 }
@@ -154,6 +161,10 @@ static void on_terminate(u8 e, u8 *p, int n)
     if (b.input_ccc) b.input_ccc[0] = b.input_ccc[1] = 0;
     b.reason = *p;
     b.unlinked_pending = 1;
+    if (b.stopping) {
+        b.stopping = 0;
+        b.stopped_pending = 1;
+    }
     util_log("bt: disconnected, reason %02x", *p);
 }
 
@@ -170,7 +181,7 @@ static int on_host(u32 h, u8 *p, int n)
         break;
     case GAP_EVT_SMP_CONN_ENCRYPTION_DONE:
         b.encrypted = 1;
-        b.linked_pending = 1;
+        if (!b.stopping) b.linked_pending = 1;
         util_log("bt: encrypted");
         break;
     }
@@ -294,10 +305,24 @@ void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond
 void bt_stop(void)
 {
     if (!b.started) return;
+    b.stopping = b.connected;
+    b.linked_pending = 0;
     if (b.connected) bls_ll_terminateConnection(HCI_ERR_REMOTE_USER_TERM_CONN);
+    else b.stopped_pending = 1;
     bls_ll_setAdvEnable(BLC_ADV_DISABLE);
     b.advertising = 0;
     b.device = NULL;             /* no session: nothing advertises again */
+}
+
+/* After pairing, a lost link advertises the same session without the
+ * discoverable flag. Advertising data may be updated while connected. */
+void bt_update_bond(const struct bt_bond *bond)
+{
+    u8 adv[31], n;
+
+    if (!b.device || b.stopping) return;
+    n = b.device->advertising(bond, 0, 0, adv);
+    bls_ll_setAdvData(adv, n);
 }
 
 /* No pairing or link set-up under way: a flash write is safe. */
@@ -343,6 +368,11 @@ int bt_poll(struct bt_ev *ev)
         ev->lost = b.reason == HCI_ERR_CONN_TIMEOUT;
         return 1;
     }
+    if (b.stopped_pending) {
+        b.stopped_pending = 0;
+        ev->kind = BT_EV_STOPPED;
+        return 1;
+    }
     return 0;
 }
 
@@ -356,5 +386,5 @@ u32 plat_bt_poll(void)
         bls_ll_setAdvEnable(BLC_ADV_ENABLE);
         b.advertising = 1;
     }
-    return b.linked_pending || b.unlinked_pending || b.paired_pending ? EV_BT : 0;
+    return b.linked_pending || b.unlinked_pending || b.paired_pending || b.stopped_pending ? EV_BT : 0;
 }
