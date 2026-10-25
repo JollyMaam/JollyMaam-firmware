@@ -198,11 +198,10 @@ static __attribute__((noinline)) void bluetooth(void)
             c.rumble_until = 0;
             plat_motors(0, 0);
             c.since_ms = plat_ms();
-            /* Switch 2 ends the BLE link when it sleeps. Treat its explicit
-             * remote-user termination like Switch 1's sleep command instead
-             * of advertising for the ordinary reconnect window. */
-            if (profile == &profile_switch2 && ev.reason == 0x13) {
-                util_log("ctl: Switch 2 ended the session");
+            /* Match controller.c: a deliberate disconnect ends this session;
+             * only a lost link stays in reconnect mode. */
+            if (!ev.lost) {
+                util_log("ctl: host ended the session");
                 transition(REQ_NONE, SLOT_NONE, 0);
             }
         } else if (ev.kind == BT_EV_PAIRED) {
