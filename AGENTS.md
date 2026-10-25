@@ -82,8 +82,8 @@ with the shared modules it can afford and `src/core/controller_lite.c`.
     make -j32 gamesir-cyclone-2-all        # both boards
     make -j32 gamesir-nova-2-lite-pad      # the Nova 2 Lite (no pins yet)
     make gamesir-cyclone-2-pad-test        # one board's unit tests
-    make 8bitdo-ultimate2c-wireless-pad-flash   # Telink pad: tools/bitdoboot.py, 8BitDo boot loader
-    python3 tools/bitdoboot.py scan        # 8BitDo boot loaders and our Telink firmware
+    make 8bitdo-ultimate2c-wireless-pad-flash   # Telink pad: tools/8bitdoboot.py, 8BitDo boot loader
+    python3 tools/8bitdoboot.py scan        # 8BitDo boot loaders and our Telink firmware
 
 The build is in `make/`: `common.mk` and `host.mk` are shared, `jieli.mk`
 holds the BR23 toolchain, SDK and the board template (`jieli_board`),

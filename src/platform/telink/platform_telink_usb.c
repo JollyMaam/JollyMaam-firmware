@@ -568,7 +568,7 @@ void plat_usb_settle(u32 ms)
     u32 start = plat_ms();
 
     while (u.configuration && m.state != MSC_CBW && m.state != MSC_LOCKED && plat_ms() - start < 250)
-        plat_usb_poll();
+        wd_clear(), plat_usb_poll();
     start = plat_ms();
-    while (plat_ms() - start < ms) plat_usb_poll();
+    while (plat_ms() - start < ms) wd_clear(), plat_usb_poll();
 }

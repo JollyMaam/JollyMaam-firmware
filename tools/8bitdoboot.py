@@ -184,16 +184,16 @@ def enter_loader(pid, device, seconds):
     """The boot loader's hidraw node: one already there, or our firmware sent to it."""
     found = loaders(device)
     if len(found) > 1:
-        sys.exit("bitdoboot: more than one boot loader; pick one with --device PORT")
+        sys.exit("8bitdoboot: more than one boot loader; pick one with --device PORT")
     if found:
         return found[0][0]
     running = ours(pid, device)
     if len(running) > 1:
-        sys.exit("bitdoboot: more than one pad; pick one with --device PORT")
+        sys.exit("8bitdoboot: more than one pad; pick one with --device PORT")
     if not running:
         return None
     path, port, _ = running[0]
-    print(f"bitdoboot: {port}: firmware into the boot loader")
+    print(f"8bitdoboot: {port}: firmware into the boot loader")
     try:
         scsi(path, [OP, 0x11], 0, 2000)
     except OSError:
@@ -206,22 +206,22 @@ def flash(args):
     check(image)
     end = args.start + len(image) + (-len(image) % SECTOR)
     if end > args.end:
-        sys.exit(f"bitdoboot: image ends at {end:#x}, past {args.end:#x}")
+        sys.exit(f"8bitdoboot: image ends at {end:#x}, past {args.end:#x}")
     path = enter_loader(args.pid, args.device, args.wait)
     if not path:
-        sys.exit("bitdoboot: no boot loader and no pad running this firmware" +
+        sys.exit("8bitdoboot: no boot loader and no pad running this firmware" +
                  (f"\n{args.hint}" if args.hint else ""))
     loader = Loader(path)
     try:
         model = loader.identify()
-        print(f"bitdoboot: boot loader {path}, model {model.hex()}")
+        print(f"8bitdoboot: boot loader {path}, model {model.hex()}")
         padded = image + b"\xff" * (end - args.start - len(image))
         sectors = list(range(args.start + SECTOR, end, SECTOR)) + [args.start]
         for i, address in enumerate(sectors, 1):
             offset = address - args.start
-            print(f"\rbitdoboot: sector {i}/{len(sectors)} at {address:#x}", end="", flush=True)
+            print(f"\r8bitdoboot: sector {i}/{len(sectors)} at {address:#x}", end="", flush=True)
             loader.write_sector(address, padded[offset:offset + SECTOR])
-        print("\nbitdoboot: written and read back; starting it")
+        print("\n8bitdoboot: written and read back; starting it")
         loader.start_app()
     finally:
         loader.close()
@@ -250,16 +250,16 @@ def main():
     if args.cmd == "pack":
         stamp = bytes.fromhex(args.stamp)
         if len(stamp) != 6:
-            sys.exit("bitdoboot: the stamp is 6 bytes")
+            sys.exit("8bitdoboot: the stamp is 6 bytes")
         Path(args.output).write_bytes(pack(Path(args.app).read_bytes(), stamp, args.max))
     elif args.cmd == "flash":
         flash(args)
     elif args.cmd == "loader":
         path = enter_loader(args.pid, args.device, args.wait)
         if not path:
-            sys.exit("bitdoboot: no boot loader and no pad running this firmware" +
+            sys.exit("8bitdoboot: no boot loader and no pad running this firmware" +
                      (f"\n{args.hint}" if args.hint else ""))
-        print(f"bitdoboot: boot loader at {path}")
+        print(f"8bitdoboot: boot loader at {path}")
     else:
         for path, loc in loaders():
             print(f"{loc}\tboot loader\t{path}")

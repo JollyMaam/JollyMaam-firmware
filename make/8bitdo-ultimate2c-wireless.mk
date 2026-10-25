@@ -13,7 +13,7 @@ $(U2CW_PAD)_APP_START := 0x6000
 $(U2CW_PAD)_APP_END := 0x73000
 $(U2CW_PAD)_PID := U2C_WIRELESS
 $(U2CW_PAD)_STAMP := 6a0000005d02
-$(U2CW_PAD)_LOADER_HINT := Stock firmware or no answer: hold L1+R1 while the pad starts (plug in USB).
+$(U2CW_PAD)_LOADER_HINT := Stock firmware or no answer: USB unplugged, hold L1+R1, tap Home, plug in USB.
 $(U2CW_PAD)_BOARD_DIR := src/boards/8bitdo-ultimate2c-wireless
 $(U2CW_PAD)_LDFLAGS := --wrap=otp_read
 

@@ -10,7 +10,7 @@ TELINK_CC := $(TELINK_TOOLS)/tc32-elf-gcc
 TELINK_LD := $(TELINK_TOOLS)/tc32-elf-ld
 TELINK_OBJCOPY := $(TELINK_TOOLS)/tc32-elf-objcopy
 TELINK_LIBGCC := $(shell $(TELINK_CC) -print-libgcc-file-name 2>/dev/null)
-TELINK_IMAGE_TOOL := tools/bitdoboot.py
+TELINK_IMAGE_TOOL := tools/8bitdoboot.py
 
 # The SDK's sources build with -fpack-struct; ours do not, and see the SDK's
 # headers only through src/platform/telink/sdk.h, which packs them the same
@@ -24,8 +24,12 @@ TELINK_ABI += -ffunction-sections
 TELINK_ABI += -fdata-sections
 TELINK_ABI += -fcommon
 
+# -O2, as the SDK builds, never -Os: at -Os this GCC (4.5 tc32) writes a dense
+# switch's jump table as 16-bit offsets after the jump but loads 32-bit
+# addresses from it, so the switch jumps anywhere.  Our char is signed
+# (pad.h's s8); the SDK's stays unsigned, as it builds.
 TELINK_SDK_CFLAGS := $(TELINK_ABI) -O2 -fpack-struct -finline-small-functions
-TELINK_CFLAGS := $(TELINK_ABI) -Os -g -Wall -Wno-unused-function -Wno-missing-field-initializers \
+TELINK_CFLAGS := $(TELINK_ABI) -O2 -fsigned-char -g -Wall -Wno-unused-function -Wno-missing-field-initializers \
 	-Wframe-larger-than=256
 
 TELINK_DEFINES :=
@@ -44,6 +48,10 @@ TELINK_INCLUDES += -I$(TELINK_SDK)/vendor/common
 # Our SDK configuration (what vendor/*/app_config.h is to the SDK's samples),
 # read before anything else by every SDK and app file.
 TELINK_APP_CONFIG := src/platform/telink/sdkconfig/app_config.h
+
+# The SDK's strncpy (common/string.c) copies n bytes whatever the string's
+# length; libc_telink.c has the standard one.
+TELINK_LDFLAGS := --wrap=strncpy
 
 TELINK_ARCHIVES :=
 TELINK_ARCHIVES += $(TELINK_SDK)/proj_lib/liblt_8208.a
@@ -72,6 +80,8 @@ TELINK_SDK_USED += drivers/flash/flash_mid1360c8.c
 TELINK_SDK_USED += drivers/gpio.c
 TELINK_SDK_USED += drivers/timer.c
 TELINK_SDK_USED += drivers/usbhw.c
+TELINK_SDK_USED += vendor/common/ble_flash.c
+TELINK_SDK_USED += vendor/common/flash_prot.c
 
 # $(call telink_board,NAME): build NAME on the B80, into $(O)/NAME/.  Set first:
 #   NAME_FLASH_SIZE  the flash device's size
@@ -119,7 +129,7 @@ $(O)/$(1)/src/core/usb.o: $(wildcard $(BUILD_METADATA))
 
 $(O)/$(1)/app.elf: $(O)/$(1)/boot.link $$($(1)_OBJECTS) $(TELINK_ARCHIVES)
 	@echo [LD $(1)] $$@
-	$$(Q)$(TELINK_LD) --gc-sections $($(1)_LDFLAGS) -T $(O)/$(1)/boot.link -Map $(O)/$(1)/app.map -o $$@ \
+	$$(Q)$(TELINK_LD) --gc-sections $(TELINK_LDFLAGS) $($(1)_LDFLAGS) -T $(O)/$(1)/boot.link -Map $(O)/$(1)/app.map -o $$@ \
 		$$($(1)_OBJECTS) $(TELINK_ARCHIVES) $(TELINK_LIBGCC)
 
 # The image header: the stock stamp in its reserved bytes, the size and the

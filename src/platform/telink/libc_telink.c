@@ -5,7 +5,8 @@
  * (the SDK's common/string.c has the string functions): vsnprintf and
  * snprintf for the log, with the conversions the app uses: d i u x X c s p
  * and %%, flags 0 and -, a width, a precision for s, and l (ignored: long
- * is 32 bits). */
+ * is 32 bits); and strncpy, in place of the SDK's (--wrap=strncpy), which
+ * copies n bytes from the source whatever the string's length. */
 
 struct out { char *p; size_t left; int n; };
 
@@ -131,4 +132,13 @@ int snprintf(char *buf, size_t size, const char *fmt, ...)
     n = vsnprintf(buf, size, fmt, ap);
     va_end(ap);
     return n;
+}
+
+char *__wrap_strncpy(char *dst, const char *src, unsigned int n)
+{
+    char *d = dst;
+
+    for (; n && *src; n--) *d++ = *src++;
+    for (; n; n--) *d++ = 0;
+    return dst;
 }

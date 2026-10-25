@@ -60,10 +60,12 @@ Entry:
 
 - Analog register `0x3c` = `0x5a`, then a reset (`0x6f` <- `0x20`): the loader
   stays in USB mode. The register keeps its value across the reset.
-- By hand: the loader's start reads two buttons (`0x3208`-`0x3250` in its
-  code) and stays when they are held. Holding L1+R1 while the pad starts,
-  after holding Home for some 8 s, entered it; the exact sequence is not
-  established.
+- By hand: with USB unplugged, hold L1 and R1 and tap Home; plug in USB.
+  Squeezing R2 makes no difference.
+- The loader's start (`0x3208`-`0x3266` in its code) drives PA0 (the row of
+  L1 and R1) low and stays in the loader when PA7 (L1 on that row) and PB3
+  read low together. PB3 is R2's analog pin; why it reads low with R2 at
+  rest is not established.
 
 ## Pins
 

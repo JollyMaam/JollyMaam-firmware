@@ -44,7 +44,7 @@ void plat_delay_ms(u32 ms)
 {
     u32 start = plat_ms();
 
-    while (plat_ms() - start < ms) {}
+    while (plat_ms() - start < ms) wd_clear();
 }
 
 static u8 lock_saved, lock_depth;
@@ -83,12 +83,17 @@ static u32 take(void)
     return e;
 }
 
-/* Polls until an event, deadline_ms (plat_ms) or at_us (plat_us); 0: none. */
+/* Polls until an event, deadline_ms (plat_ms) or at_us (plat_us); 0: none.
+ * The hang watch: the watchdog resets the chip when no pass of this loop
+ * (or of a wait in plat_delay_ms, plat_usb_settle) comes for HANG_MS. */
+#define HANG_MS 3000
+
 u32 plat_wait(u32 deadline_ms, u32 at_us)
 {
     u32 e;
 
     for (;;) {
+        wd_clear();
         plat_wake(plat_usb_poll() | board_poll());
         e = take();
         if (e) return e;
@@ -192,6 +197,8 @@ int main(void)
     util_log_init();
     util_log("boot: %s %s", board_name, BUILD_ID);
     board_init();
+    wd_set_interval_ms(HANG_MS, CLOCK_SYS_CLOCK_1MS);
+    wd_start();
     plat_usb_init();
     irq_enable();
     ctl_main();
