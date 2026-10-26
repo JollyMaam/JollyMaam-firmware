@@ -47,7 +47,11 @@ const int config_btctler_le_slave_multilink = 0;
 const int config_btctler_le_master_multilink = 0;
 const uint64_t config_btctler_le_features = (1ULL << ( 0)) | (1ULL << ( 5)) | (1ULL << ( 8));
 const int config_btctler_le_acl_packet_length = 251;
-const int config_btctler_le_roles = (1UL << (2)) | (1UL << (1));
+#ifdef BOARD_DONGLE
+const int config_btctler_le_roles = (1UL << (4)) | (1UL << (3)) | (1UL << (0));   /* init, scan, master */
+#else
+const int config_btctler_le_roles = (1UL << (2)) | (1UL << (1));                  /* adv, slave */
+#endif
 const int config_btctler_le_hw_nums = (1) + (0);
 const int config_btctler_le_rx_nums = (((1) + (0)) * 3) + 2;
 const int config_btctler_le_acl_total_nums = (((1) + (0)) * 3) + 1;

@@ -104,7 +104,7 @@
 enum { CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02, CMD_STATS = 0x03, CMD_INPUT = 0x04, CMD_CLOCK = 0x05,
        CMD_REBOOT = 0x10, CMD_REBOOT_LOADER = 0x11, CMD_RELINK = 0x12, CMD_CONNECT = 0x13, CMD_PROFILE = 0x14, CMD_PEEK = 0x15, CMD_TRACE = 0x16, CMD_PAIR = 0x17, CMD_CALIBRATE = 0x18, CMD_LED_DEMO = 0x19, CMD_RUMBLE = 0x1a,
        CMD_DISCONNECT = 0x1b, CMD_PROBE = 0x1c, CMD_FIELD = 0x20, CMD_READ = 0x21, CMD_WRITE = 0x22, CMD_COMMIT = 0x23, CMD_DROP = 0x24,
-       CMD_EPHEMERAL = 0x25, CMD_RESULT = 0x26, CMD_DEFAULTS = 0x27, CMD_TARGET = 0x30, CMD_TOOL_ONLY = 0x31, CMD_USB_PROBE = 0x3f };
+       CMD_EPHEMERAL = 0x25, CMD_RESULT = 0x26, CMD_DEFAULTS = 0x27, CMD_TOOL_ONLY = 0x31, CMD_USB_PROBE = 0x3f };
 
 #ifdef BOARD_DONGLE
 #include "dongle.h"
@@ -343,9 +343,6 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         break;
 #endif
 #ifdef BOARD_DONGLE
-    case CMD_TARGET:             /* CDB bytes 2-7: the device to page, as written */
-        dongle_bt_target(cdb + 2);
-        break;
     case CMD_TOOL_ONLY:
         dongle_tool_only();
         break;
@@ -373,8 +370,6 @@ struct ctl_request usb_poll(const struct usb_status *s)
 
 #ifdef UNITTEST
 #ifdef BOARD_DONGLE
-static u8 target_seen[6];
-void dongle_bt_target(const u8 addr[6]) { memcpy(target_seen, addr, 6); }
 static int tool_only_seen;
 void dongle_tool_only(void) { tool_only_seen++; }
 #endif
@@ -439,10 +434,6 @@ int main(void)
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 88 && !strcmp((char *)data + 56, board_name));
     CHECK(data[6] == BOARD_KIND && data[7] == 0);
 #ifdef BOARD_DONGLE
-    cdb[1] = CMD_TARGET;
-    memcpy(cdb + 2, "ABCDEF", 6);
-    CHECK(usb_command(cdb, data, sizeof(data), 0) == 0);
-    CHECK(!memcmp(target_seen, "ABCDEF", 6));
     cdb[1] = CMD_TOOL_ONLY;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 0 && tool_only_seen == 1);
     memset(cdb + 2, 0, 6);

@@ -4,7 +4,6 @@
     padtool [--board pad|dongle] find    devices running this firmware
     padtool -d DEVICE ...         with several connected: the one at that path,
                                   or whose flash ID contains DEVICE (from find)
-    padtool --board dongle target ADDR  dongle: page this device (e.g. our pad in pairing)
     padtool --board dongle tool-only  dongle: stay this tool device until power loss, also
                                   while a pad is linked, for its log (the pad's type is not
                                   put on USB; padtool tool brings the tool device back first)
@@ -1529,7 +1528,7 @@ def tool(paths):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["target", "tool-only", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "reboot", "loader", "relink", "connect", "disconnect", "pair", "unpair", "profile", "peek", "trace",
+    p.add_argument("command", choices=["tool-only", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "reboot", "loader", "relink", "connect", "disconnect", "pair", "unpair", "profile", "peek", "trace",
                                        "fields", "get", "set", "reset", "backup-settings",
                                        "restore-settings", "factory-reset", "ephemeral", "keep", "tool", "latency"])
     p.add_argument("args", nargs="*")
@@ -1584,18 +1583,6 @@ def main():
     BOARD = a.board
     if a.elf is None:
         a.elf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build", "gamesir-cyclone-2-" + BOARD, "app.elf")
-    if a.command == "target":
-        if BOARD != "dongle":
-            p.error("target requires --board dongle")
-        if len(a.args) != 1:
-            p.error("target requires an address: AA:BB:CC:DD:EE:FF")
-        parts = a.args[0].split(":")
-        try:
-            if len(parts) != 6 or any(len(part) != 2 for part in parts):
-                raise ValueError
-            address = bytes(int(part, 16) for part in parts)
-        except ValueError:
-            p.error("invalid address; expected AA:BB:CC:DD:EE:FF")
     if BOARD == "dongle" and a.command in {
         "stats", "latency", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "relink", "connect", "disconnect", "fields", "get", "set", "reset",
         "backup-settings", "restore-settings", "factory-reset", "keep",
@@ -1606,9 +1593,7 @@ def main():
         return
     if a.command == "tool-only" and BOARD != "dongle":
         p.error("tool-only requires --board dongle")
-    if a.command == "target":    # dongle: the device to page, AA:BB:CC:DD:EE:FF
-        scsi(need_device(), bytes([OP, 0x30]) + address, 0)
-    elif a.command == "tool-only":
+    if a.command == "tool-only":
         cmd(need_device(), 0x31)
         print("dongle: tool device until power loss")
     elif a.command == "find":

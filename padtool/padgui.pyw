@@ -66,7 +66,6 @@ class App:
         self.loader = tk.StringVar(value=str(padflash.DEFAULT_LOADER))
         self.image = tk.StringVar()
         self.product_id = tk.StringVar(value="Not read")
-        self.address = tk.StringVar()
         self.loader_title = tk.StringVar()
         self.dongle_title = tk.StringVar()
         self.dongle_status = tk.StringVar()
@@ -1458,11 +1457,6 @@ class App:
                               ("Show console", self.show_console)):
             ttk.Button(actions, text=text, command=command).pack(side="left")
         self.wrap_row(actions, actions.winfo_children(), self.dongle_page)
-        target = ttk.Frame(f)
-        target.pack(fill="x", pady=8)
-        ttk.Label(target, text="Target address").pack(side="left", padx=(0, 8))
-        ttk.Entry(target, textvariable=self.address, width=24).pack(side="left", padx=(0, 8))
-        ttk.Button(target, text="Set target", command=self.set_dongle_target).pack(side="left")
 
     def build_stock_page(self):
         f = self.scroll_form(self.stock_page)
@@ -1674,20 +1668,6 @@ class App:
             loader.flash(data, backup)
         self.start_flash_progress("Preparing firmware")
         self.run("Backing up and flashing… keep USB connected" if backup else "Flashing… keep USB connected", write, lambda _: self.clear_settings())
-
-    def set_dongle_target(self):
-        if self.board.get() != "dongle":
-            messagebox.showinfo("Dongle only", "Select a dongle to set its target address.")
-            return
-        try:
-            parts = self.address.get().split(":")
-            if len(parts) != 6 or any(len(p) != 2 for p in parts):
-                raise ValueError
-            address = bytes(int(p, 16) for p in parts)
-        except ValueError:
-            messagebox.showerror("Address", "Use AA:BB:CC:DD:EE:FF.")
-            return
-        self.device_action("Set dongle target", lambda p: pad.scsi(p, bytes([pad.OP, 0x30]) + address, 0))
 
     def device_action(self, label, fn):
         path = self.path()

@@ -3,42 +3,60 @@
 
 #include "pad.h"
 
-/* The pad to dongle link (transport dongle).  Classic HID: the pad is the HID
- * device (profile_link.c), the dongle its host and master (bt_dongle.c).  The
- * pad sends its state, the dongle turns it into the slot's type on USB with
- * the same profile code the pad uses on its own USB port.  Little-endian,
- * byte by byte (no struct layout).
+/* The pad to dongle link (transport dongle).  LE: the pad is the peripheral
+ * with a GATT server of fixed handles (profile_link.c), the dongle the
+ * central (bt_dongle.c), which talks ATT on them without discovery.  The pad
+ * sends its state, the dongle turns it into the slot's type on USB with the
+ * same profile code the pad uses on its own USB port.  Little-endian, byte by
+ * byte (no struct layout).
  *
- * Input (0x20, interrupt, newest wins), LINK_INPUT_SIZE bytes:
+ * Input (notifications on LINK_INPUT_HANDLE, newest wins), LINK_INPUT_SIZE bytes:
  *   0 sequence, 1 flags (bits 0-1 motion samples, 2 low battery, 3 on USB
  *   power), 2 buttons (PAD_*, u32), 6 lx ly rx ry (s16), 14 l2 r2,
  *   18 the newest sample's time (plat_us), 22 µs between the two samples,
  *   24 samples oldest first: accel[3] gyro[3] (s16)
- * Config (0x22, a message, first and then every second), LINK_CONFIG_SIZE:
+ * Config (notifications on LINK_CONFIG_HANDLE, first and then every second),
+ * LINK_CONFIG_SIZE:
  *   0 version, 1 type (PROFILE_*), 2 mouse layout, 3 flags (bit 0: gyro bias
  *   known), 4 stick_speed, 6 gyro_speed, 8 gyro_accel, 10 the slot's address,
  *   16 the gyro's zero-rate offset (s16 x3, 1/16 LSB)
- * Output (0x21, dongle to pad, on change and every LINK_OUTPUT_MS), LINK_OUTPUT_SIZE:
+ * Output (write without response to LINK_OUTPUT_HANDLE, on change and every
+ * LINK_OUTPUT_MS), LINK_OUTPUT_SIZE:
  *   0 rumble left, right, 2 flags (0 players, 1 lightbar, 2 the USB host
  *   took the personality), 3 players, 4 players flashing, 5 lightbar rgb,
- *   8 motion wanted (IMU_*) */
+ *   8 motion wanted (IMU_*)
+ *
+ * Pairing: a pairing pad advertises LINK_ADV with LINK_ADV_PAIRING set; a
+ * pairing dongle connects to the first it hears and writes a new 16-byte
+ * key to LINK_KEY_HANDLE (write request).  Both keep it as the bond; from
+ * then on the dongle connects to the pad's address and encrypts with it as
+ * the LTK (EDIV and Rand 0), as the pad's bt_pad.c answers any LE profile
+ * without SMP.  The dongle subscribes to the input after encryption. */
 
-#define LINK_INPUT_ID     0x20
-#define LINK_OUTPUT_ID    0x21
-#define LINK_CONFIG_ID    0x22
+#define LINK_INPUT_HANDLE   0x0003   /* its CCC: + 1 */
+#define LINK_CONFIG_HANDLE  0x0006
+#define LINK_OUTPUT_HANDLE  0x0009
+#define LINK_KEY_HANDLE     0x000b
 #define LINK_VERSION      1
 #define LINK_INPUT_SIZE   48
 #define LINK_CONFIG_SIZE  22
 #define LINK_OUTPUT_SIZE  10
+#define LINK_KEY_SIZE     16
 #define LINK_IMU_MAX      2
 #define LINK_OUTPUT_MS    100
 #define LINK_NAME         "Cyclone 2 Link"
-/* Pairing: neither side can search (the controller does not inquire), so a
- * pairing pad answers at this address and a pairing dongle pages it.  The
- * dongle files the bond under the slot's own address from the config, which
- * the pad uses from then on; the link key does not depend on the address.
- * C2:32:4C:49:4E:4B, least significant byte first. */
-static const u8 link_pair_address[6] = { 0x4b, 0x4e, 0x49, 0x4c, 0x32, 0xc2 };
+/* Advertising: flags, then manufacturer data (company 0xffff, reserved for
+ * tests): "C2LK", LINK_VERSION, LINK_ADV_* flags. */
+#define LINK_ADV_SIZE     13
+#define LINK_ADV_FLAGS    12         /* the flags byte's offset */
+enum { LINK_ADV_PAIRING = 1 };
+static const u8 link_adv[LINK_ADV_FLAGS] = {
+    0x02, 0x01, 0x06, 0x09, 0xff, 0xff, 0xff, 'C', '2', 'L', 'K', LINK_VERSION,
+};
+/* Connection interval the dongle asks for, 1.25 ms units. */
+#ifndef LINK_INTERVAL
+#define LINK_INTERVAL     3
+#endif
 
 enum { LINK_LOW_BATTERY = 4, LINK_USB_POWER = 8 };
 enum { LINK_HAS_PLAYERS = 1, LINK_HAS_LIGHTBAR = 2, LINK_USB_READY = 4 };

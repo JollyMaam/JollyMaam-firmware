@@ -273,13 +273,6 @@ class MainActivity : Activity() {
         } else {
             button(parent, "Pair dongle") { action("Starting dongle pairing", 0x17) }
             button(parent, "Stay in tool mode until power loss") { action("Enabling tool mode", 0x31) }
-            button(parent, "Connect to address…") { textDialog("Target address", "AA:BB:CC:DD:EE:FF", "", { text ->
-                val raw = unhex(text.replace(":", "")); require(raw.size == 6) { "Expected six address bytes" }
-                model.run("Connecting dongle") { model.transport { tr ->
-                    require(Protocol(tr).identity() == s.identity) { "Device changed" }
-                    tr.transfer(byteArrayOf(0xf5.toByte(), 0x30) + raw)
-                } }
-            }) }
         }
         button(parent, "Firmware console") { model.page = -3; model.live = "console"; render() }
         button(parent, "Restart device", s.drafts.edits.isEmpty()) { action("Restarting", 0x10) }

@@ -20,7 +20,11 @@
  * btstack_hci_jieli.c answers on a thread of its own (the controller's are
  * stubs). */
 #define ENABLE_LE_SECURE_CONNECTIONS
+#ifdef BOARD_DONGLE
+#define ENABLE_LE_CENTRAL        /* the link to our pad (link.h) */
+#else
 #define ENABLE_LE_PERIPHERAL
+#endif
 /* Ask for 251-byte LE PDUs on every connection: at the default 27 bytes a
  * Switch 2 input report (70 bytes with headers) took three connection events. */
 #define ENABLE_LE_DATA_LENGTH_EXTENSION
@@ -48,12 +52,7 @@
 #define RX_QUEUE_DEPTH                  16
 #endif
 
-#ifdef BOARD_DONGLE
-/* The pad may page us while our own page to it is still running. */
-#define MAX_NR_HCI_CONNECTIONS          2
-#else
 #define MAX_NR_HCI_CONNECTIONS          1
-#endif
 #define MAX_NR_L2CAP_CHANNELS           8
 
 #define MAX_NR_L2CAP_SERVICES           4

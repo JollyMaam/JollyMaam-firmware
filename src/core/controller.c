@@ -1,6 +1,5 @@
 #include <string.h>
 #include "pad.h"
-#include "link.h"
 
 #define LOW_BATTERY_MV   3500
 #define BATTERY_OK_MV    3600
@@ -43,6 +42,7 @@ static struct {
     struct profile_session sess;
     struct set_slot sess_set;    /* sess.settings: the slot's, with its remap's mouse settings */
     u8 pair_pending;             /* pairing: the slot keeps its old address and bond until the host pairs */
+    u32 pair_since;              /* when the pairing began */
     struct bt_bond pair_bond;    /* what the pairing has so far */
     u8 radio_pending;            /* the session's radio waits for the last one's BT_EV_STOPPED */
     u8 to_loader;
@@ -144,9 +144,8 @@ static void radio_on(void)
         plat_usb_mode(c.prof->usb, c.prof->read);
         return;
     }
-    /* A dongle slot pairs at the rendezvous address (link.h). */
-    bt_start(c.prof, c.prof == &profile_link && c.sess.pairing ? link_pair_address : c.sess.address,
-             c.sess.pairing ? NULL : c.sess.bond, c.sess.pairing, &c.sess.settings->link);
+    bt_start(c.prof, c.sess.address, c.sess.pairing ? NULL : c.sess.bond, c.sess.pairing,
+             &c.sess.settings->link);
     c.radio = 1;
 }
 
@@ -290,6 +289,7 @@ static void start_session(struct ctl_request r, u32 now)
     else set_slot_address(r.slot, s.address);
     memset(&c.pair_bond, 0, sizeof(c.pair_bond));
     c.pair_pending = (u8)pairing;
+    c.pair_since = now;
     s.bond = pairing ? &c.pair_bond : set_bond(r.slot);
     s.usb = (u8)usb;
     c.usb = (u8)usb;
@@ -472,6 +472,12 @@ static void bt_event(const struct bt_ev *e, u32 now)
         if (lost) {
             become(CTL_CONNECTING, now);
             bt_connect();
+        } else if (c.pair_pending && c.prof == &profile_link) {
+            /* Our dongle left before it gave us a key (one still bonded to
+             * this address that tried its old one): wait for the next, in
+             * the same pairing time. */
+            become(CTL_PAIRING, now);
+            c.since = c.pair_since;
         } else {
             stop(now);
         }

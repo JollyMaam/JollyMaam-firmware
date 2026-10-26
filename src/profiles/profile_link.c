@@ -2,7 +2,7 @@
 #include "pad.h"
 #include "link.h"
 
-/* The pad's side of the link to our dongle (link.h): a Classic HID device
+/* The pad's side of the link to our dongle (link.h): an LE peripheral
  * that sends the pad's state and the slot's type, and takes rumble and
  * lights back.  The packing is shared with the dongle, and so is the table
  * of profiles by type. */
@@ -162,13 +162,32 @@ int link_unpack_output(const u8 *in, u16 len, struct profile_host *h, u8 *usb_re
 
 /* ---- the pad's profile ---------------------------------------------------------- */
 
-/* Vendor reports only: no host but the dongle reads them. */
-static const u8 descriptor[] = {
-    0x06, 0x00, 0xff, 0x09, 0x01, 0xa1, 0x01, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08,
-    0x85, LINK_INPUT_ID, 0x09, 0x20, 0x95, LINK_INPUT_SIZE, 0x81, 0x02,
-    0x85, LINK_CONFIG_ID, 0x09, 0x22, 0x95, LINK_CONFIG_SIZE, 0x81, 0x02,
-    0x85, LINK_OUTPUT_ID, 0x09, 0x21, 0x95, LINK_OUTPUT_SIZE, 0x91, 0x02,
-    0xc0,
+/* The GATT server: one service, its characteristics at link.h's fixed
+ * handles.  BTstack's database format: per entry its size, flags, handle,
+ * UUID (128-bit with flag 0x0200) and value; flags 0x0100: answered by
+ * bt_pad.c. */
+#define LE16(v)  (u8)(v), (u8)((v) >> 8)
+#define UUID(n)  0x4b, 0x4e, 0x49, 0x4c, 0x32, 0xc2, 0x8a, 0x5d, 0x91, 0x4e, 0x3a, 0x7f, n, 0x00, 0x6c, 0xc2
+#define SERVICE(h)            LE16(24), LE16(0x0002), LE16(h), LE16(0x2800), UUID(0)
+#define CHARACTERISTIC(h, props, n)  LE16(27), LE16(0x0002), LE16(h), LE16(0x2803), props, LE16((h) + 1), UUID(n)
+#define VALUE(h, flags, n)    LE16(22), LE16(0x0300 | (flags)), LE16(h), UUID(n)
+#define CCC(h)                LE16(8), LE16(0x010e), LE16(h), LE16(0x2902)
+enum { READ = 0x02, WRITE_COMMAND = 0x04, WRITE = 0x08, NOTIFY = 0x10 };
+
+static const u8 att_db[] = {
+    1,
+    SERVICE(0x0001),
+    CHARACTERISTIC(LINK_INPUT_HANDLE - 1, READ | NOTIFY, 1),
+    VALUE(LINK_INPUT_HANDLE, READ, 1),
+    CCC(LINK_INPUT_HANDLE + 1),
+    CHARACTERISTIC(LINK_CONFIG_HANDLE - 1, NOTIFY, 2),
+    VALUE(LINK_CONFIG_HANDLE, 0, 2),
+    CCC(LINK_CONFIG_HANDLE + 1),
+    CHARACTERISTIC(LINK_OUTPUT_HANDLE - 1, WRITE_COMMAND, 3),
+    VALUE(LINK_OUTPUT_HANDLE, WRITE_COMMAND, 3),
+    CHARACTERISTIC(LINK_KEY_HANDLE - 1, WRITE, 4),
+    VALUE(LINK_KEY_HANDLE, WRITE, 4),
+    0, 0,
 };
 
 /* The config goes first and then once a second: the session outlives a lost
@@ -217,23 +236,26 @@ static int report(const struct pad *p, u32 now, u8 *out, u8 *id)
         for (k = 0; k < 3; k++) lk.config.gyro_bias[k] = clamp16(p->gyro_bias[k]);
         lk.config.gyro_bias_known = p->gyro_bias_known;
         link_pack_config(&lk.config, config);
-        if (host_send(LINK_CONFIG_ID, config, LINK_CONFIG_SIZE)) {
+        if (host_send(LINK_CONFIG_HANDLE, config, LINK_CONFIG_SIZE)) {
             lk.config_sent = 1;
             lk.config_ms = now;
         }
     }
     link_pack_input(p, lk.seq++, 0, out);
-    *id = LINK_INPUT_ID;
+    *id = 0;
     return LINK_INPUT_SIZE;
 }
 
+/* The dongle's output; or, pairing, the key it chose: the bond's LTK. */
 static int write(const struct bt_write *w, u32 now, struct bt_bond *bond)
 {
     (void)now;
-    (void)bond;
-    if (w->kind == BT_WRITE_OUTPUT && w->id == LINK_OUTPUT_ID)
-        link_unpack_output(w->data, w->len, &lk.host, &lk.usb_ready);
-    return 0;
+    if (w->kind != BT_WRITE_ATT) return 0;
+    if (w->id == LINK_OUTPUT_HANDLE) link_unpack_output(w->data, w->len, &lk.host, &lk.usb_ready);
+    if (w->id != LINK_KEY_HANDLE || w->len != LINK_KEY_SIZE) return 0;
+    memset(bond, 0, sizeof(*bond));
+    memcpy(bond->ltk, w->data, LINK_KEY_SIZE);
+    return 1;
 }
 
 static void host(u32 now, struct profile_host *out)
@@ -242,13 +264,23 @@ static void host(u32 now, struct profile_host *out)
     *out = lk.host;
 }
 
+static u8 advertising(const struct bt_bond *bond, int pairing, int wake, u8 out[31])
+{
+    (void)bond;
+    (void)wake;
+    memcpy(out, link_adv, LINK_ADV_FLAGS);
+    out[LINK_ADV_FLAGS] = pairing ? LINK_ADV_PAIRING : 0;
+    return LINK_ADV_SIZE;
+}
+
+/* No SMP (the key comes in link.h's pairing) and no interval of its own:
+ * the dongle sets it as it connects. */
 static const struct bt_device device = {
-    .transport = BT_CLASSIC,
+    .transport = BT_LE,
     .name = LINK_NAME,
-    .class_of_device = 0x002508,
-    .vendor_id = 0x3537, .product_id = 0x1001, .version = 0x0100,
-    .hid_descriptor = descriptor, .hid_descriptor_len = sizeof(descriptor),
-    /* No sniff: the dongle, as master, polls an active link. */
+    .att_db = att_db,
+    .input_handle = LINK_INPUT_HANDLE,
+    .advertising = advertising,
 };
 
 const struct profile profile_link = {
@@ -270,6 +302,7 @@ int main(void)
     struct link_config c;
     struct bt_write w;
     struct profile_host h, g;
+    struct bt_bond bond;
     u8 out[64], id, seq, flags, ready;
 
     memset(&set, 0, sizeof(set));
@@ -285,8 +318,8 @@ int main(void)
     p.imu[0].gyro[0] = 1; p.imu[1].gyro[0] = 2; p.imu[2].gyro[0] = 3;
     p.imu[1].us = 1000; p.imu[2].us = 5460; p.imu[2].accel[2] = -4096;
     p.gyro_bias_known = 1; p.gyro_bias[0] = -300; p.gyro_bias[2] = 40000;
-    CHECK(report(&p, 0, out, &id) == LINK_INPUT_SIZE && id == LINK_INPUT_ID);
-    CHECK(sent_id == LINK_CONFIG_ID && link_unpack_config(sent, LINK_CONFIG_SIZE, &c));
+    CHECK(report(&p, 0, out, &id) == LINK_INPUT_SIZE);
+    CHECK(sent_id == LINK_CONFIG_HANDLE && link_unpack_config(sent, LINK_CONFIG_SIZE, &c));
     CHECK(c.type == PROFILE_DUALSENSE && c.gyro_speed == 40 && c.address[5] == 6);
     CHECK(c.gyro_bias_known && c.gyro_bias[0] == -300 && !c.gyro_bias[1] && c.gyro_bias[2] == 32767);
     CHECK(link_unpack_input(out, LINK_INPUT_SIZE, &q, &seq, &flags) && seq == 0);
@@ -298,7 +331,7 @@ int main(void)
     report(&p, 999, out, &id);
     CHECK(!sent_id && out[0] == 1);                 /* the config goes first */
     report(&p, 1000, out, &id);
-    CHECK(sent_id == LINK_CONFIG_ID);               /* and again a second later */
+    CHECK(sent_id == LINK_CONFIG_HANDLE);           /* and again a second later */
     CHECK(!link_unpack_input(out, LINK_INPUT_SIZE - 1, &q, &seq, &flags));
 
     memset(&g, 0, sizeof(g));
@@ -306,13 +339,24 @@ int main(void)
     g.has_players = 1; g.players = 0x3; g.players_flash = 0x4;
     g.has_lightbar = 1; g.lightbar[2] = 77;
     memset(&w, 0, sizeof(w));
-    w.kind = BT_WRITE_OUTPUT; w.id = LINK_OUTPUT_ID; w.len = LINK_OUTPUT_SIZE;
+    w.kind = BT_WRITE_ATT; w.id = LINK_OUTPUT_HANDLE; w.len = LINK_OUTPUT_SIZE;
     link_pack_output(&g, IMU_MOTION, 1, w.data);
-    write(&w, 0, NULL);
+    CHECK(!write(&w, 0, &bond));
     host(0, &h);
     CHECK(h.rumble[0] == 200 && h.rumble[1] == 9 && h.has_players && h.players == 3);
     CHECK(h.players_flash == 4 && h.has_lightbar && h.lightbar[2] == 77 && h.imu == IMU_MOTION);
     CHECK(link_unpack_output(w.data, w.len, &h, &ready) && ready);
+    w.id = LINK_KEY_HANDLE; w.len = LINK_KEY_SIZE;
+    memset(w.data, 0x5a, LINK_KEY_SIZE); w.data[0] = 1;
+    CHECK(write(&w, 0, &bond) && bond.ltk[0] == 1 && bond.ltk[15] == 0x5a);
+    w.len = 15;
+    CHECK(!write(&w, 0, &bond));
+    CHECK(advertising(&bond, 1, 0, out) == LINK_ADV_SIZE && out[LINK_ADV_FLAGS] == LINK_ADV_PAIRING);
+    CHECK(advertising(&bond, 0, 1, out) == LINK_ADV_SIZE && !out[LINK_ADV_FLAGS] && out[10] == 'K');
+    CHECK(test_att_uuid(att_db, LINK_INPUT_HANDLE) == 0x10000 && test_att_uuid(att_db, LINK_INPUT_HANDLE + 1) == 0x2902);
+    CHECK(test_att_uuid(att_db, LINK_CONFIG_HANDLE) == 0x10000 && test_att_uuid(att_db, LINK_CONFIG_HANDLE + 1) == 0x2902);
+    CHECK(test_att_uuid(att_db, LINK_OUTPUT_HANDLE) == 0x10000 && test_att_uuid(att_db, LINK_KEY_HANDLE) == 0x10000);
+    CHECK(test_att_uuid(att_db, LINK_KEY_HANDLE - 1) == 0x2803 && !test_att_uuid(att_db, LINK_KEY_HANDLE + 1));
     CHECK(profile_for(PROFILE_NONE) == NULL);
     CHECK(profile_for(PROFILE_COUNT) == NULL && profile_for(PROFILE_XBOX) == &profile_xbox);
     return TEST_DONE("profile_link");

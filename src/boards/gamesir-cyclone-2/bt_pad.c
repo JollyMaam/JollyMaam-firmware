@@ -1027,14 +1027,7 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
                 hci_send_cmd(&hci_delete_stored_link_key, a, 1);
             }
             if (pairing || zero(bond.peer, 6)) scan(1);
-            else {
-                /* L2CAP turned page scan on when HID registered, and the
-                 * scan took turns with our page: about 1 page to the dongle
-                 * in 5 then went unheard for its whole length.  Without it
-                 * none did in 30.  The dongle never pages a bonded pad. */
-                if (prof == &profile_link) gap_connectable_control(0);
-                page();
-            }
+            else page();
         } else if (btstack_event_state_get_state(packet) == HCI_STATE_OFF && !working) {
             btstack_run_loop_trigger_exit();
         }
@@ -1264,10 +1257,6 @@ static void setup_classic(void)
     gap_set_default_link_policy_settings(LM_LINK_POLICY_ENABLE_ROLE_SWITCH |
                                          LM_LINK_POLICY_ENABLE_SNIFF_MODE);
     gap_set_allow_role_switch(true);
-    /* The dongle: a page that has not connected in 5 s is given up and
-     * tried again (now and then the role switch as the dongle accepts fails
-     * and the link only times out). */
-    if (prof == &profile_link) gap_set_page_timeout(0x2000);
     gap_set_security_level(LEVEL_0);
     gap_ssp_set_enable(1);
     gap_ssp_set_io_capability(SSP_IO_CAPABILITY_NO_INPUT_NO_OUTPUT);
