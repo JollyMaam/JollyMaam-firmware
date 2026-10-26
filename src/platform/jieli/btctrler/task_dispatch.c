@@ -6,6 +6,11 @@ int os_taskq_pend(const char *name, int *msg, int count);
 int os_taskq_post_type(const char *name, int type, int argc, int *argv);
 extern BTCTRLER_CONFIG int config_btctler_le_roles;
 __attribute__((section(".hci_controller_data"))) void (*bt_testbox_update_msg_handle)(int);
+/* Our change: hci_controller_init() spends about 250 ms busy in the radio's
+ * calibration (bt_rf_init); the platform runs it below the app's own tasks
+ * and puts this task back after. */
+void btctrlermod_init_begin(void);
+void btctrlermod_init_end(void);
 
 void btctrler_testbox_update_msg_handle_register(void (*handle)(int))
 { bt_testbox_update_msg_handle = handle; }
@@ -13,7 +18,9 @@ void btctrler_testbox_update_msg_handle_register(void (*handle)(int))
 void btctrler_task(void)
 {
     int msg[14];
+    btctrlermod_init_begin();
     hci_controller_init();
+    btctrlermod_init_end();
     const int classic = config_btctler_modules & 1;
     const int le = (config_btctler_modules & 2) && (config_btctler_le_roles & 255);
     for (;;) {
@@ -84,6 +91,8 @@ __attribute__((weak)) int btctrl_msg_qfull_hook(u8 qfull_cnt)
 #include <setjmp.h>
 #include <string.h>
 int config_btctler_modules, config_btctler_le_roles;
+void btctrlermod_init_begin(void) {}
+void btctrlermod_init_end(void) {}
 static jmp_buf stop;
 struct message { int result, type, initialized; };
 static struct message script[64];

@@ -333,6 +333,26 @@ static void bt_thread(void *arg)
     bt_body();
 }
 
+/* The controller task's start-up (btctrler/task_dispatch.c): the radio's
+ * calibration busy-waits about 250 ms; at the task's own priority, above
+ * the main loop, the pad stood still that long at every session start.
+ * Below it the main loop runs on; the bluetooth thread waits for the
+ * controller anyway (btctrler_task_ready). */
+#ifndef CONFIG_CPU_BD19
+static UBaseType_t controller_priority;
+
+void btctrlermod_init_begin(void)
+{
+    controller_priority = uxTaskPriorityGet(NULL);
+    vTaskPrioritySet(NULL, 1);           /* p256's: below "ctl" (task table) */
+}
+
+void btctrlermod_init_end(void)
+{
+    vTaskPrioritySet(NULL, controller_priority);
+}
+#endif
+
 void plat_bt_thread(void (*body)(void))
 {
     bt_body = body;
