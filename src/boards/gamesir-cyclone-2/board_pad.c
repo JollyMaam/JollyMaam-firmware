@@ -111,7 +111,13 @@ static HOT void i2c_step(void)
 {
     u32 con = JL_IIC->CON0;
 
-    if (i2c.phase == I2C_IDLE) return;
+    if (i2c.phase == I2C_IDLE) {
+        /* A byte or stop that ends after the tick gave up on it: cleared,
+         * or its interrupt comes back at once, for ever. */
+        if (con & (IIC_PENDING | IIC_STOP_PENDING))
+            JL_IIC->CON0 |= IIC_PENDING_CLEAR | IIC_STOP_CLEAR;
+        return;
+    }
     if (i2c.phase == I2C_STOP) {
         if (!(con & IIC_STOP_PENDING)) return;
         JL_IIC->CON0 |= IIC_STOP_CLEAR;
@@ -192,7 +198,7 @@ static void i2c_init(void)
     JL_IIC->BAUD = 29;                      /* lsb / (2 * (29 + 1)) = 400 kHz */
     JL_IIC->CON1 |= IIC_PENDING_CLEAR;
     JL_IIC->CON0 = IIC_PENDING_CLEAR | IIC_STOP_CLEAR | IIC_ENABLE;
-    request_irq(IRQ_IIC_IDX, 1, i2c_isr, 0);   /* the tick's priority: they never nest */
+    request_irq(IRQ_IIC_IDX, 5, i2c_isr, 0);   /* the tick's priority: they never nest */
     JL_IIC->CON0 |= IIC_IE;
 }
 
