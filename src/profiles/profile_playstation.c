@@ -23,7 +23,6 @@
 #define EXTENDED_SIZE    77
 #define TOUCH_TAP_MS     200
 #define TOUCH_CLICK_MS   60
-#define TRIGGER_BUTTON   0x20
 #define USB_STATE        0x01
 #define SIMPLE           0x01    /* Bluetooth until the host asks for more */
 #define SIMPLE_SIZE      9
@@ -176,8 +175,8 @@ static void buttons(const struct pad *p, u8 *out)
     out[1] = 0;
     if (b & PAD_L1) out[1] |= 0x01;
     if (b & PAD_R1) out[1] |= 0x02;
-    if ((p->l2 >> 8) > TRIGGER_BUTTON) out[1] |= 0x04;
-    if ((p->r2 >> 8) > TRIGGER_BUTTON) out[1] |= 0x08;
+    if (b & PAD_L2) out[1] |= 0x04;
+    if (b & PAD_R2) out[1] |= 0x08;
     if (b & PAD_SELECT) out[1] |= 0x10;
     if (b & PAD_START) out[1] |= 0x20;
     if (b & PAD_L3) out[1] |= 0x40;
@@ -569,7 +568,7 @@ int main(void)
 
     CHECK(begin_ds(&s) == IMU_MOTION);
     memset(&p, 0, sizeof(p));
-    p.buttons = PAD_A | PAD_HOME;
+    p.buttons = PAD_A | PAD_HOME | PAD_L2;
     p.lx = STICK_MAX;
     p.l2 = 0xff00;
     p.imu_count = 1;

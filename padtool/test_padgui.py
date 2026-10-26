@@ -59,6 +59,11 @@ def remap_record(path="fake"):
                          "names": ["disabled", "enabled"], "size": 1, "help": "Curve", "dev": False},
                         {"kind": 3, "id": 6 + i, "name": f"{side}_curve_points", "type": padgui.pad.T_BYTES,
                          "size": 15, "help": "Points", "dev": False}]
+    for i, side in enumerate(("l2", "r2")):
+        r["fields"] += [{"kind": 3, "id": 28 + 2 * i, "name": f"{side}_press", "type": padgui.pad.T_NUMBER,
+                         "size": 1, "max": 100, "help": "Press", "dev": False},
+                        {"kind": 3, "id": 29 + 2 * i, "name": f"{side}_mode", "type": padgui.pad.T_ENUM,
+                         "names": ["analog", "hair", "rapid"], "size": 1, "help": "Mode", "dev": False}]
     linear = padgui.pad.padcurves.preset("linear")
     for t in range(10, 19):          # the remap slots and the base
         r["values"][t] = {"name": (bytes(24), False), "map": (bytes(20), False), "rules": (bytes(160), False),
@@ -67,6 +72,8 @@ def remap_record(path="fake"):
                           "left_inner_deadzone": (b"\0", False), "left_outer_deadzone": (b"\0", False),
                           "right_inner_deadzone": (b"\0", False), "right_outer_deadzone": (b"\0", False)}
         r["values"][t].update({name: (b"\0", False) for name, _ in sticks})
+        r["values"][t].update({"l2_press": (b"\x0c", False), "r2_press": (b"\x0c", False),
+                               "l2_mode": (b"\0", False), "r2_mode": (b"\0", False)})
     r["defaults"] = {t: dict(r["values"][t]) for t in range(10, 18)}
     return r
 
@@ -1484,6 +1491,25 @@ class RemapGuiTests(GuiCase):
         self.assertFalse(check.instate(["selected"]))
         r["draft"][11, "left_maps_to"]["var"].set("nothing")
         self.assertEqual(combo.get(), "Nothing")
+        self.assertFalse(self.errors)
+
+    def test_each_trigger_has_its_press_point_and_mode_in_one_box(self):
+        r = remap_record()
+        self.open_remap(r)
+        self.root.update()
+        for side in ("l2", "r2"):
+            box = self.app.stick_boxes[side]
+            labels = [l.cget("text") for f in box.winfo_children() if type(f) is padgui.ttk.Frame
+                      for l in f.winfo_children() if type(l) is padgui.ttk.Label]
+            self.assertEqual(labels, [f"{side.upper()} trigger", "pressed at", "Mode"])
+        r2, mode = self.app.stick_boxes["r2"], r["draft"][11, "r2_mode"]
+        combo = next(w for w in r2.winfo_children() if isinstance(w, padgui.ttk.Combobox))
+        self.assertEqual((combo.get(), list(combo.cget("values"))), ("Analog", ["Analog", "Hair", "Rapid"]))
+        combo.set("Hair")
+        self.assertEqual((mode["var"].get(), self.app.value_bytes(mode)), ("hair", b"\1"))
+        self.assertTrue(self.app.changed(mode))
+        r["draft"][11, "r2_press"]["var"].set("5")
+        self.assertEqual(self.app.value_bytes(r["draft"][11, "r2_press"]), b"\5")
         self.assertFalse(self.errors)
 
     def test_columns_do_not_move_as_rules_come_and_go(self):

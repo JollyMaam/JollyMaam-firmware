@@ -50,6 +50,7 @@ static struct {
     u8 turbo_up;                 /* the last report left turbo_max up */
     u32 remap_edits;
     u32 turbo_max;               /* keys flipped every report, down first */
+    struct in_trigger triggers[2];
 } c;
 
 static void start(void);
@@ -139,6 +140,7 @@ static __attribute__((noinline)) void read_input(u32 now)
     }
     remap(now);
     in_response(sticks(), &c.pad);
+    in_triggers(sticks(), c.triggers, &c.pad);
 }
 
 static int slot_ready(u8 slot)

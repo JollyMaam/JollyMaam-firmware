@@ -55,10 +55,11 @@ enum {
     PAD_L4 = 1 << 8, PAD_R4 = 1 << 9, PAD_SELECT = 1 << 10, PAD_START = 1 << 11,
     PAD_HOME = 1 << 12, PAD_L3 = 1 << 13, PAD_R3 = 1 << 14,
     PAD_UP = 1 << 16, PAD_RIGHT = 1 << 17, PAD_DOWN = 1 << 18, PAD_LEFT = 1 << 19,
+    PAD_L2 = 1 << 20, PAD_R2 = 1 << 21,    /* the triggers pressed: set by in_triggers() */
 };
 #define PAD_FACE (PAD_A | PAD_B | PAD_X | PAD_Y)
 #define PAD_DPAD (PAD_UP | PAD_RIGHT | PAD_DOWN | PAD_LEFT)
-#define PAD_DIGITAL (0x7fffu | PAD_DPAD)  /* every button and direction */
+#define PAD_DIGITAL (0x7fffu | PAD_DPAD)  /* every button and direction; not the triggers */
 
 /* The d-pad as a host hat value, for formats that carry one. */
 enum { HAT_UP, HAT_UP_RIGHT, HAT_RIGHT, HAT_DOWN_RIGHT, HAT_DOWN, HAT_DOWN_LEFT,
@@ -117,6 +118,21 @@ static inline u32 in_dpad(u32 b)
 
 void in_map(const struct in_raw *raw, struct pad *pad);
 int in_moved(const struct pad *now, const struct pad *ref);
+
+/* Each trigger's press (PAD_L2, PAD_R2), the one place a host's digital
+ * trigger is decided.  analog: pressed from the remap slot's press point,
+ * the analog value as calibrated; hair: the same, the analog value full
+ * while pressed and 0 otherwise; rapid: as hair, but once pressed it lets go
+ * as soon as the trigger rises a little and presses again as soon as it goes
+ * down a little, wherever it is.  The caller keeps the state, zeroed. */
+enum { TRIGGER_ANALOG, TRIGGER_HAIR, TRIGGER_RAPID };
+struct in_trigger {
+    u8 down;
+    u16 turn;                    /* rapid: the furthest point since the last change */
+};
+struct set_remap;
+/* m NULL: not pressed, as calibrated. */
+void in_triggers(const struct set_remap *m, struct in_trigger t[2], struct pad *pad);
 
 /* ---- motion.c, and the board's sensor -------------------------------------
  * Samples are in the Cyclone 2's sensor units: gyro 16 LSB per degree per
@@ -497,6 +513,9 @@ struct set_remap {
     u16 stick_speed;         /* mouse: pointer counts per second, stick all the way */
     u16 gyro_speed;          /* mouse, touchpad: counts per degree turned; 0 off */
     u16 gyro_accel;          /* percent of gyro_speed for fast turns */
+    /* The triggers, L2 then R2 (in_triggers). */
+    u8 trigger_press[2];     /* percent of travel where it counts as pressed; 0 as 1 */
+    u8 trigger_mode[2];      /* TRIGGER_* */
 };
 
 /* The remap slot's sticks: curves, inversion, which host stick each drives;

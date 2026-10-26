@@ -285,10 +285,6 @@ enum {
 };
 enum { M_LEFT = 1, M_RIGHT = 2, M_MIDDLE = 4, M_BACK = 8, M_FORWARD = 16 };
 
-/* Controls: the pad's buttons, then the triggers. */
-#define C_L2    (1ul << 20)
-#define C_R2    (1ul << 21)
-
 enum { STICK_NONE, STICK_POINTER, STICK_SCROLL, STICK_WASD };
 #define HOLD_SCROLL   1          /* the pointer stick scrolls */
 #define HOLD_GYRO_OFF 2          /* the gyro lets go, to put the pad back */
@@ -300,7 +296,7 @@ struct layout { u8 left, right; const struct binding *b; u8 n; };
 static const struct binding game[] = {
     { PAD_A, KB_SPACE }, { PAD_B, KB_CTRL }, { PAD_X, KB_R }, { PAD_Y, KB_E },
     { PAD_L1, KB_Q }, { PAD_R1, KB_F }, { PAD_L3, KB_SHIFT }, { PAD_R3, 0, M_MIDDLE },
-    { C_L2, 0, M_RIGHT }, { C_R2, 0, M_LEFT }, { PAD_SELECT, KB_TAB }, { PAD_START, KB_ESCAPE },
+    { PAD_L2, 0, M_RIGHT }, { PAD_R2, 0, M_LEFT }, { PAD_SELECT, KB_TAB }, { PAD_START, KB_ESCAPE },
     { PAD_SCREENSHOT, KB_PRINT }, { PAD_L4, 0, M_BACK }, { PAD_R4, 0, M_FORWARD },
     { PAD_M, 0, 0, HOLD_SCROLL | HOLD_GYRO_OFF },
     { PAD_UP, KB_UP }, { PAD_RIGHT, KB_RIGHT }, { PAD_DOWN, KB_DOWN }, { PAD_LEFT, KB_LEFT },
@@ -310,7 +306,7 @@ static const struct binding game[] = {
 static const struct binding desktop[] = {
     { PAD_A, 0, M_LEFT }, { PAD_B, 0, M_RIGHT }, { PAD_X, 0, M_MIDDLE }, { PAD_Y, KB_ENTER },
     { PAD_L1, 0, M_BACK }, { PAD_R1, 0, M_FORWARD }, { PAD_L3, KB_GUI }, { PAD_R3, KB_SHIFT },
-    { C_L2, 0, M_RIGHT }, { C_R2, 0, M_LEFT }, { PAD_SELECT, KB_TAB }, { PAD_START, KB_ESCAPE },
+    { PAD_L2, 0, M_RIGHT }, { PAD_R2, 0, M_LEFT }, { PAD_SELECT, KB_TAB }, { PAD_START, KB_ESCAPE },
     { PAD_SCREENSHOT, KB_PRINT }, { PAD_L4, KB_ALT }, { PAD_R4, KB_CTRL },
     { PAD_M, 0, 0, HOLD_SLOW | HOLD_GYRO_OFF },
     { PAD_UP, KB_UP }, { PAD_RIGHT, KB_RIGHT }, { PAD_DOWN, KB_DOWN }, { PAD_LEFT, KB_LEFT },
@@ -321,7 +317,6 @@ static const struct layout layouts[2] = {
     { STICK_POINTER, STICK_SCROLL, desktop, sizeof(desktop) / sizeof(desktop[0]) },
 };
 
-#define TRIGGER_PRESS   (TRIGGER_MAX / 4)
 #define MOVE_PRESS      (STICK_MAX / 2)
 #define MOVE_RELEASE    (STICK_MAX * 2 / 5)
 #define SCROLL_DEADZONE (STICK_MAX * 35 / 100)
@@ -479,8 +474,6 @@ static int mouse_report(const struct pad *p, u32 now, u8 *out, u8 *id)
     u8 kb[KEYBOARD_SIZE], buttons = 0, hold = 0;
     s32 gx, gy, x, y;
 
-    if (p->l2 >= TRIGGER_PRESS) controls |= C_L2;
-    if (p->r2 >= TRIGGER_PRESS) controls |= C_R2;
     if (m.have_last) dt = now - m.last_ms;
     if (dt > MAX_DT_MS) dt = MAX_DT_MS;
     m.last_ms = now;
@@ -569,6 +562,7 @@ int main(void)
     p.buttons = PAD_A;
     p.ly = -STICK_MAX;              /* left stick up: W */
     p.r2 = TRIGGER_MAX;
+    p.buttons |= PAD_R2;
     p.rx = STICK_MAX;
     CHECK(mouse_report(&p, 0, out, &id) == MOUSE_SIZE && id == MOUSE_ID);
     CHECK(kb_sent[2] == KB_SPACE && kb_sent[3] == KB_W && out[0] == M_LEFT);
@@ -597,6 +591,7 @@ int main(void)
     p.lx = -32768;
     p.ry = STICK_MAX;
     p.l2 = TRIGGER_MAX;
+    p.buttons |= PAD_L2;
     CHECK(gble_report(&p, 0, out, &id) == GBLE_SIZE && id == 1);
     CHECK(out[0] == (0x01 | 0x10 | 0x20 | 0x80) && out[1] == (0x01 | 0x08 | 0x10 | 0x40));
     CHECK(out[2] == (8 | 0x10));

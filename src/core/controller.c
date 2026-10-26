@@ -62,6 +62,7 @@ static struct {
     u32 ux_buttons;              /* as ux_step left them, before the remap */
     u32 turbo_max;               /* keys flipped every report, down first */
     u8 turbo_up;
+    struct in_trigger triggers[2];
     struct imu_sample rest;      /* the newest motion sent outside config mode */
     struct set_cal cal;
     struct in_raw raw;
@@ -1004,6 +1005,7 @@ static void read_input(u32 now)
     handle(r, now);
     remap(now);
     in_response(sticks(), &c.pad);
+    in_triggers(sticks(), c.triggers, &c.pad);
 }
 
 /* Remap config mode: the host sees the pad lying still where it last was,

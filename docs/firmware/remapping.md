@@ -39,6 +39,15 @@ defaults sends every key as itself and the sticks as calibrated.
   Order: deadzone, curve, inversion, then the routing; two sticks on one host
   stick, the one pushed further wins. The base at its defaults gives the
   sticks exactly as calibrated: no curve, no deadzone.
+- **triggers** (in the sticks record): per trigger a press point in
+  percent of travel (default 12) and a mode. The press point alone decides
+  the host's digital trigger (`PAD_L2`, `PAD_R2`, set after the remap; every
+  profile with a trigger button reads them), letting go 3% short of it.
+  Analog leaves the value as calibrated; hair sends full while pressed and 0
+  otherwise; rapid is hair that lets go once the trigger rises 5% from its
+  deepest point and presses again once it goes 5% down from its highest,
+  back to the press point only after it falls to the release point. Outside
+  a connection nothing is pressed.
   Calibration holds only the sensor measurements.
 
 Remap A defaults to "Swap A/B X/Y" (`remap_a_default` in `src/core/settings.c`).
@@ -82,9 +91,11 @@ keys on every report handed over, starting down.
 
 The rule shape fits analog as long as inputs and outputs stay typed:
 
-- **Analog as a digital input**: "LS up past N%", "R2 past N%" as extra input
-  numbers with a threshold (with hysteresis) in the time byte. Every trigger
-  and effect then works unchanged, e.g. R2 pressed → tap A.
+- **Analog as a digital input**: "LS up past N%" as extra input numbers with
+  a threshold (with hysteresis) in the time byte. Every trigger and effect
+  then works unchanged. The triggers' presses (`PAD_L2`, `PAD_R2`, bits 20
+  and 21) are decided after the remap today; as remap inputs ("R2 pressed →
+  tap A") they would move before it, with `REMAP_INPUTS` 22.
 - **Digital to analog output**: "LS up full", "R2 full" as extra output bits;
   OR becomes "the largest wins" per axis, opposite directions cancel.
 - **Axis to axis** ("left stick Y drives R2"; whole-stick routing and inversion are built, above): a

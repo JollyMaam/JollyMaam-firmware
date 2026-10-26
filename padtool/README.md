@@ -149,6 +149,15 @@ map the left stick to the right and the right to the left to swap them. If both 
 further wins. L3 and R3 stay where they are; map them too if you want them
 swapped.
 
+Each trigger has a box too: "**L2 trigger** pressed at [12] %" and its
+**Mode**. The press point is where the trigger counts as pressed: the ZL/ZR
+of the Switch profiles, the L2/R2 buttons of PlayStation, the mouse's clicks;
+it lets go 3% short of it. Modes: **Analog** sends the trigger as it is;
+**Hair** sends it full from the press point and not at all below (also on
+analog profiles such as Xbox); **Rapid** is Hair that lets go as soon as the
+trigger rises 5% and presses again as soon as it goes 5% down, wherever it is
+in its travel, for fast repeated presses.
+
 The CLI sets the same fields in the same text (`padremap.py`):
 
 ```sh
@@ -157,6 +166,7 @@ python padtool/padtool.py set remap-b rules "r4 tapped:300 tap a; r4 held_for:30
 python padtool/padtool.py set remap-b left_curve concave left_inner_deadzone 5
 python padtool/padtool.py set remap-b rules "r4 held turbo_modifier a+b+x@15" map r4=none
 python padtool/padtool.py set remap-b left_maps_to "right stick" right_maps_to "left stick" right_y_axis inverted
+python padtool/padtool.py set remap-b l2_press 5 r2_press 5 r2_mode hair
 python padtool/padtool.py set slot-a remap b
 ```
 

@@ -20,6 +20,8 @@ class RemapTextTests(unittest.TestCase):
         self.assertEqual(len(c_enum("RT_NONE")), len(remap.TRIGGERS))
         self.assertEqual([e.removeprefix("RE_").lower() for e in c_enum("RE_HOLD")], list(remap.EFFECTS))
         for name, bit in re.findall(r"PAD_(\w+) = 1 << (\d+)", PAD_H):
+            if int(bit) >= remap.INPUTS:
+                continue                 # the triggers' presses: not remap keys
             name = {"select": "minus", "start": "plus", "screenshot": "capture"}.get(name.lower(), name.lower())
             self.assertEqual(remap.key_bit(name), int(bit))
         for define, value in (("REMAP_INPUTS", remap.INPUTS), ("REMAP_RULES", remap.RULES),

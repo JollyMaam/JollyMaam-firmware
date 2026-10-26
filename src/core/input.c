@@ -109,7 +109,158 @@ void in_response(const struct set_remap *m, struct pad *pad)
     stick_route(m, xy);
 }
 
+/* Percent of travel: how far below the press point a pressed trigger lets go
+ * (so it does not chatter there), and how far a rapid one moves to change. */
+#define TRIGGER_HYSTERESIS 3
+#define TRIGGER_RAPID      5
+#define TRIGGER_STEP(pct)  ((u32)(pct) * TRIGGER_MAX / 100)
+
+static int trigger_step(struct in_trigger *t, u8 press, u8 mode, u32 v)
+{
+    u32 at = TRIGGER_STEP(press ? press : 1), rapid = TRIGGER_STEP(TRIGGER_RAPID);
+    u32 rest = press > TRIGGER_HYSTERESIS ? TRIGGER_STEP(press - TRIGGER_HYSTERESIS) : 0;
+    u8 was = t->down;
+
+    if (mode != TRIGGER_RAPID) {
+        t->down = (u8)(t->down ? v > rest : v >= at);
+        t->turn = (u16)v;
+        return t->down;
+    }
+    if (t->down) {
+        if (v > t->turn) t->turn = (u16)v;
+        t->down = (u8)(v > rest && v + rapid > t->turn);
+    } else {
+        if (v < t->turn) t->turn = (u16)v;
+        t->down = (u8)(t->turn > rest ? v >= t->turn + rapid : v >= at);
+    }
+    if (t->down != was) t->turn = (u16)v;
+    return t->down;
+}
+
+void in_triggers(const struct set_remap *m, struct in_trigger t[2], struct pad *pad)
+{
+    u16 *v[2] = { &pad->l2, &pad->r2 };
+    u32 i;
+
+    pad->buttons &= ~(u32)(PAD_L2 | PAD_R2);
+    for (i = 0; i < 2; i++) {
+        if (!m) {
+            t[i].down = 0;
+            t[i].turn = 0;
+            continue;
+        }
+        if (trigger_step(&t[i], m->trigger_press[i], m->trigger_mode[i], *v[i]))
+            pad->buttons |= i ? PAD_R2 : PAD_L2;
+        if (m->trigger_mode[i] != TRIGGER_ANALOG) *v[i] = t[i].down ? TRIGGER_MAX : 0;
+    }
+}
+
 #ifdef UNITTEST
+static u16 pct(u32 p) { return (u16)TRIGGER_STEP(p); }
+
+static void triggers_test(void)
+{
+    struct set_remap slot = { 0 };
+    struct in_trigger t[2] = { { 0 } };
+    struct pad pad = { 0 };
+    u32 i;
+
+    /* Analog: pressed from the press point, let go 3% below; values as they are. */
+    slot.trigger_press[0] = 20; slot.trigger_press[1] = 50;
+    pad.l2 = pct(19); pad.r2 = pct(60);
+    in_triggers(&slot, t, &pad);
+    CHECK(pad.buttons == PAD_R2 && pad.l2 == pct(19) && pad.r2 == pct(60));
+    pad.l2 = pct(20); pad.r2 = pct(48);
+    in_triggers(&slot, t, &pad);
+    CHECK(pad.buttons == (PAD_L2 | PAD_R2));
+    pad.l2 = pct(17) + 1; pad.r2 = pct(47);
+    in_triggers(&slot, t, &pad);
+    CHECK(pad.buttons == PAD_L2);
+    pad.l2 = pct(17);
+    in_triggers(&slot, t, &pad);
+    CHECK(pad.buttons == 0);
+    /* Press 0 counts as 1%: a trigger at rest is never pressed. */
+    slot.trigger_press[0] = 0;
+    pad.l2 = 0; pad.r2 = 0;
+    in_triggers(&slot, t, &pad);
+    CHECK(!pad.buttons);
+    pad.l2 = pct(1);
+    in_triggers(&slot, t, &pad);
+    CHECK(pad.buttons == PAD_L2);
+    pad.l2 = 1;
+    in_triggers(&slot, t, &pad);
+    CHECK(pad.buttons == PAD_L2);
+    pad.l2 = 0;
+    in_triggers(&slot, t, &pad);
+    CHECK(!pad.buttons);
+
+    /* Hair: full or nothing, at the same points. */
+    slot.trigger_press[0] = 10; slot.trigger_mode[0] = TRIGGER_HAIR;
+    pad.l2 = pct(9);
+    in_triggers(&slot, t, &pad);
+    CHECK(!pad.buttons && pad.l2 == 0);
+    pad.l2 = pct(10);
+    in_triggers(&slot, t, &pad);
+    CHECK(pad.buttons == PAD_L2 && pad.l2 == TRIGGER_MAX);
+    pad.l2 = pct(8);
+    in_triggers(&slot, t, &pad);
+    CHECK(pad.buttons == PAD_L2 && pad.l2 == TRIGGER_MAX);
+    pad.l2 = pct(7);
+    in_triggers(&slot, t, &pad);
+    CHECK(!pad.buttons && pad.l2 == 0);
+
+    /* Rapid: lets go 5% up from the deepest point, presses 5% down from the
+     * highest, anywhere past the release point. */
+    slot.trigger_mode[0] = TRIGGER_RAPID;
+    pad.l2 = pct(80);
+    in_triggers(&slot, t, &pad);
+    CHECK(pad.buttons == PAD_L2 && pad.l2 == TRIGGER_MAX);
+    pad.l2 = pct(76);
+    in_triggers(&slot, t, &pad);
+    CHECK(pad.buttons == PAD_L2);
+    pad.l2 = pct(75);
+    in_triggers(&slot, t, &pad);
+    CHECK(!pad.buttons && pad.l2 == 0);
+    pad.l2 = pct(60);
+    in_triggers(&slot, t, &pad);
+    CHECK(!pad.buttons);
+    pad.l2 = pct(64);
+    in_triggers(&slot, t, &pad);
+    CHECK(!pad.buttons);
+    pad.l2 = pct(65);
+    in_triggers(&slot, t, &pad);
+    CHECK(pad.buttons == PAD_L2);
+    for (i = 66; i <= 100; i++) {                  /* deeper: stays pressed */
+        pad.l2 = pct(i);
+        in_triggers(&slot, t, &pad);
+        CHECK(pad.buttons == PAD_L2);
+    }
+    pad.l2 = pct(95);
+    in_triggers(&slot, t, &pad);
+    CHECK(!pad.buttons);
+    pad.l2 = pct(6);                               /* to rest: the press point again */
+    in_triggers(&slot, t, &pad);
+    CHECK(!pad.buttons);
+    pad.l2 = pct(9) + 100;
+    in_triggers(&slot, t, &pad);
+    CHECK(!pad.buttons);
+    pad.l2 = pct(10);
+    in_triggers(&slot, t, &pad);
+    CHECK(pad.buttons == PAD_L2);
+    pad.l2 = pct(2);                               /* below the release point: let go */
+    in_triggers(&slot, t, &pad);
+    CHECK(!pad.buttons);
+
+    /* No remap: nothing pressed, values untouched, state cleared. */
+    pad.l2 = pct(90); pad.r2 = pct(90);
+    in_triggers(&slot, t, &pad);
+    CHECK(t[0].down);
+    pad.buttons = PAD_A | PAD_L2;
+    pad.l2 = pct(90);
+    in_triggers(NULL, t, &pad);
+    CHECK(pad.buttons == PAD_A && pad.l2 == pct(90) && !t[0].down && !t[1].down);
+}
+
 int main(void)
 {
     struct set_remap slot = { 0 };
@@ -183,6 +334,7 @@ int main(void)
     in_response(&slot, &pad);
     CHECK(pad.lx == 12000 && pad.ly == 16000 && pad.rx == 0);
     CHECK(pad.buttons == PAD_A && pad.l2 == 1234);
+    triggers_test();
     return TEST_DONE("input response");
 }
 #endif

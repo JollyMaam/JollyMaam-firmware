@@ -1101,7 +1101,7 @@ class App:
         self.details_actions = self.scope_actions(self.details_header, record, target)
         self.details_actions.pack(side="left", padx=(12, 0))
         rows = {self.form: 0, advanced: 0}
-        sticks = {}                      # a remap page: each stick's settings in its own box
+        sticks = {}                      # a remap page: each stick's and trigger's settings in its own box
         self.stick_boxes = sticks
         for var, trace in getattr(self, "page_traces", ()):
             try:
@@ -1149,7 +1149,8 @@ class App:
             if f["kind"] == 3 and name == "rules" and (t, "map") in record["draft"]:
                 continue                     # one table with the map
             parent = advanced if f["dev"] else self.form
-            side = name.split("_")[0] if target >= pad.REMAP_TARGET and name.startswith(("left_", "right_")) else None
+            side = (name.split("_")[0] if target >= pad.REMAP_TARGET and
+                    name.startswith(("left_", "right_", "l2_", "r2_")) else None)
             if side and not f["dev"]:
                 parent = stick_box(side)
             row = rows[parent]
@@ -1171,6 +1172,9 @@ class App:
                 ttk.Label(label, text="maps to").pack(side="left", padx=(4, 0))
             elif in_box and shown in ("x_axis", "y_axis"):
                 ttk.Label(label, text=f"Invert {shown[0].upper()} axis").pack(side="left")
+            elif in_box and shown == "press":     # L2 trigger pressed at [12] %
+                ttk.Label(label, text=f"{side.upper()} trigger", font=("TkDefaultFont", 10, "bold")).pack(side="left")
+                ttk.Label(label, text="pressed at").pack(side="left", padx=(4, 0))
             else:
                 ttk.Label(label, text=shown.replace("_", " ").capitalize()).pack(side="left")
             if in_box and shown == "maps_to":
@@ -1186,6 +1190,13 @@ class App:
                 mirror(entry, view, lambda v, names=names: v == names[1],
                        lambda on, names=names: names[1] if on else names[0])
                 editor = ttk.Checkbutton(parent, variable=view)
+            elif in_box and shown == "mode":
+                names = f["names"]
+                view = tk.StringVar()
+                mirror(entry, view, lambda v: v.capitalize(),
+                       lambda v, names=names: next((n for n in names if n.capitalize() == v), names[0]))
+                editor = ttk.Combobox(parent, textvariable=view, values=[n.capitalize() for n in names],
+                                      state="readonly", width=14)
             elif f["type"] == pad.T_ENTRY:
                 editor = PaletteEditor(parent, self, record, entry)
                 self.special_editors.append(editor)
@@ -1204,7 +1215,8 @@ class App:
             extra = None
             if f["type"] == pad.T_NUMBER:
                 maximum = f.get("max", (1 << (8 * f["size"])) - 1)
-                extra = ttk.Label(parent, text=f"0–{maximum}", foreground="#666666")
+                extra = ttk.Label(parent, text=f"0–{maximum}" + (" %" if in_box and shown == "press" else ""),
+                                  foreground="#666666")
                 extra.grid(row=row, column=2, sticky="w", padx=6)
             if f["type"] == pad.T_LIST:
                 extra = ttk.Label(parent, text=f"{f['size']} × 0–{f['max']}", foreground="#666666")

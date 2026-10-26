@@ -17,7 +17,6 @@
 #define FULL_SIZE     48
 #define SIMPLE_SIZE   11
 #define KEEPALIVE_MS  100
-#define TRIGGER_BUTTON (TRIGGER_MAX / 8)
 
 /* The stock pad's descriptor, byte for byte a real Pro Controller's. */
 static const u8 descriptor[170] = {
@@ -162,8 +161,8 @@ static void state(u8 *s)
     if (p->buttons & PAD_B) b |= JC_A;
     if (p->buttons & PAD_L1) b |= JC_L;
     if (p->buttons & PAD_R1) b |= JC_R;
-    if (p->l2 > TRIGGER_BUTTON) b |= JC_ZL;
-    if (p->r2 > TRIGGER_BUTTON) b |= JC_ZR;
+    if (p->buttons & PAD_L2) b |= JC_ZL;
+    if (p->buttons & PAD_R2) b |= JC_ZR;
     if (p->buttons & PAD_SELECT) b |= JC_MINUS;
     if (p->buttons & PAD_START) b |= JC_PLUS;
     if (p->buttons & PAD_L3) b |= JC_LSTICK;
@@ -192,8 +191,8 @@ static void simple(u8 *r)
     if (p->buttons & PAD_Y) r[0] |= 0x08;
     if (p->buttons & PAD_L1) r[0] |= 0x10;
     if (p->buttons & PAD_R1) r[0] |= 0x20;
-    if (p->l2 > TRIGGER_BUTTON) r[0] |= 0x40;
-    if (p->r2 > TRIGGER_BUTTON) r[0] |= 0x80;
+    if (p->buttons & PAD_L2) r[0] |= 0x40;
+    if (p->buttons & PAD_R2) r[0] |= 0x80;
     if (p->buttons & PAD_SELECT) r[1] |= 0x01;
     if (p->buttons & PAD_START) r[1] |= 0x02;
     if (p->buttons & PAD_R3) r[1] |= 0x04;
@@ -725,11 +724,11 @@ static int s2_report(const struct pad *p, u32 now, u8 *out, u8 *id)
     if (p->buttons & PAD_X) b |= 0x0004;
     if (p->buttons & PAD_Y) b |= 0x0008;
     if (p->buttons & PAD_R1) b |= 0x0010;
-    if (p->r2 > TRIGGER_BUTTON) b |= 0x0020;
+    if (p->buttons & PAD_R2) b |= 0x0020;
     if (p->buttons & PAD_START) b |= 0x0040;
     if (p->buttons & PAD_R3) b |= 0x0080;
     if (p->buttons & PAD_L1) b |= 0x1000;
-    if (p->l2 > TRIGGER_BUTTON) b |= 0x2000;
+    if (p->buttons & PAD_L2) b |= 0x2000;
     if (p->buttons & PAD_SELECT) b |= 0x4000;
     if (p->buttons & PAD_L3) b |= 0x8000;
     if (p->buttons & PAD_HOME) b |= 0x010000;
@@ -1061,13 +1060,13 @@ static int s2_usb_report(const struct pad *p, u32 now, u8 *out, u8 *id)
     out[0] = ++s2.counter;
     /* By position: the pad's A (south) is the Switch's B. */
     out[4] = (u8)((b & PAD_X ? 0x01 : 0) | (b & PAD_Y ? 0x02 : 0) | (b & PAD_A ? 0x04 : 0) |
-                  (b & PAD_B ? 0x08 : 0) | (b & PAD_R1 ? 0x40 : 0) | (p->r2 > TRIGGER_BUTTON ? 0x80 : 0));
+                  (b & PAD_B ? 0x08 : 0) | (b & PAD_R1 ? 0x40 : 0) | (b & PAD_R2 ? 0x80 : 0));
     out[5] = (u8)((b & PAD_SELECT ? 0x01 : 0) | (b & PAD_START ? 0x02 : 0) | (b & PAD_R3 ? 0x04 : 0) |
                   (b & PAD_L3 ? 0x08 : 0) | (b & PAD_HOME ? 0x10 : 0) |
                   (b & PAD_SCREENSHOT ? 0x20 : 0) | (b & PAD_M ? 0x40 : 0));
     out[6] = (u8)((b & PAD_DOWN ? 0x01 : 0) | (b & PAD_UP ? 0x02 : 0) | (b & PAD_RIGHT ? 0x04 : 0) |
                   (b & PAD_LEFT ? 0x08 : 0) | (b & PAD_L1 ? 0x40 : 0) |
-                  (p->l2 > TRIGGER_BUTTON ? 0x80 : 0));
+                  (b & PAD_L2 ? 0x80 : 0));
     out[7] = (u8)((b & PAD_R4 ? 0x01 : 0) | (b & PAD_L4 ? 0x02 : 0) | (p->jack ? 0x10 : 0));
     s2_cal_stick(out + 10, p->lx, (s16)-p->ly);
     s2_cal_stick(out + 13, p->rx, (s16)-p->ry);

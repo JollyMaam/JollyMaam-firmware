@@ -56,6 +56,7 @@ static const char *const remap_names[] = { "base", "a", "b", "x", "y", "up", "do
 static const u8 linear_points[STICK_CURVE_POINTS] = { 16, 32, 48, 64, 80, 96, 112, 128, 143, 159, 175, 191, 207, 223, 239 };
 
 static const char *const layouts[] = { "games", "desktop", NULL };
+static const char *const trigger_modes[] = { "analog", "hair", "rapid", NULL };
 static const char *const rumble_steps[] = { "off", "1", "2", "3", "4", "5", NULL };   /* RUMBLE_STEPS */
 static const char *const phys[] = { "1m", "2m", NULL };
 static const char *const onoff[] = { "on", "off", NULL };
@@ -195,7 +196,7 @@ static const struct set_field remap_fields[] = {
               "hold, turbo, tap or toggle other keys, nothing, or make chosen keys turbo while it is on "
               "(turbo modifier)" },
     /* From here on the second record (REMAP_STICKS): a stick at a time, then
-     * rumble and the mouse. */
+     * rumble, the mouse and the triggers. */
     { .id = 4, .name = "left_maps_to", .type = T_ENUM, .names = left_to, REMAP(maps_to[0]),
       .help = "the host stick the physical left stick drives; if both drive one, the one pushed further wins" },
     { .id = 5, .name = "left_x_axis", .type = T_ENUM, .names = axis_way, REMAP(invert[0][0]),
@@ -247,6 +248,18 @@ static const struct set_field remap_fields[] = {
       .def = 32, .help = "mouse, touchpad: counts per degree turned; 0 off; from the next connect" },
     { .id = 27, .flags = F_DEV, .name = "gyro_accel", .type = T_NUMBER, .max = 1000, REMAP(gyro_accel),
       .def = 250, .help = "mouse, touchpad: percent of gyro_speed for fast turns; from the next connect" },
+    { .id = 28, .name = "l2_press", .type = T_NUMBER, .max = 100, REMAP(trigger_press[0]),
+      .def = 12, .help = "L2: percent of travel where it counts as pressed (a host's digital trigger, "
+                         "hair and rapid); it lets go 3% short of it" },
+    { .id = 29, .name = "l2_mode", .type = T_ENUM, .names = trigger_modes, REMAP(trigger_mode[0]),
+      .help = "L2: analog as it is; hair: full from the press point, else nothing; rapid: as hair, "
+              "but it lets go as soon as the trigger rises 5% and presses again 5% down, anywhere" },
+    { .id = 30, .name = "r2_press", .type = T_NUMBER, .max = 100, REMAP(trigger_press[1]),
+      .def = 12, .help = "R2: percent of travel where it counts as pressed (a host's digital trigger, "
+                         "hair and rapid); it lets go 3% short of it" },
+    { .id = 31, .name = "r2_mode", .type = T_ENUM, .names = trigger_modes, REMAP(trigger_mode[1]),
+      .help = "R2: analog as it is; hair: full from the press point, else nothing; rapid: as hair, "
+              "but it lets go as soon as the trigger rises 5% and presses again 5% down, anywhere" },
 };
 #define REMAP_STICKS 3                    /* remap fields from this index: the second record */
 #define LEFT_POINTS  (&remap_fields[9])
@@ -254,7 +267,8 @@ static const struct set_field remap_fields[] = {
 #define NAME_FIELD  (&remap_fields[0])
 #define MAP_FIELD   (&remap_fields[1])
 #define RULES_FIELD (&remap_fields[2])
-_Static_assert(sizeof(remap_fields) / sizeof(remap_fields[0]) == 27, "LEFT_POINTS, RIGHT_POINTS");
+_Static_assert(sizeof(remap_fields) / sizeof(remap_fields[0]) == 31, "LEFT_POINTS, RIGHT_POINTS");
+_Static_assert(sizeof(remap_fields) / sizeof(remap_fields[0]) <= 32, "a bit per field in set_bits");
 
 /* What remap slot A is until it is changed; the others start empty.  Map:
  * the key with bit n - 1. */
