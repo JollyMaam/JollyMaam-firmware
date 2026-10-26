@@ -913,6 +913,41 @@ void LL_CODE ll_send_control_data_callback_extend(struct le_link *link,
                                   link->send_buf, out_len);
 }
 
+/* Our change: the per-packet fragment record comes from a pool, not the
+ * heap (a heap round trip for every report sent); the heap when the pool
+ * runs out. */
+#define FRAGMENT_POOL 16
+static struct acl_fragment_packet fragment_pool[FRAGMENT_POOL] __attribute__((section(".ble_ll_bss")));
+static u32 fragment_used __attribute__((section(".ble_ll_bss")));
+
+static struct acl_fragment_packet *LL_CODE fragment_alloc(void)
+{
+    u32 i;
+
+    local_irq_disable();
+    for (i = 0; i < FRAGMENT_POOL; i++)
+        if (!(fragment_used & (1u << i))) {
+            fragment_used |= 1u << i;
+            local_irq_enable();
+            return &fragment_pool[i];
+        }
+    local_irq_enable();
+    return __bt_malloc(sizeof(struct acl_fragment_packet));
+}
+
+static void LL_CODE fragment_free(void *p)
+{
+    struct acl_fragment_packet *f = p;
+
+    if (f >= fragment_pool && f < fragment_pool + FRAGMENT_POOL) {
+        local_irq_disable();
+        fragment_used &= ~(1u << (f - fragment_pool));
+        local_irq_enable();
+    } else {
+        __bt_free(p);
+    }
+}
+
 void LL_CODE ll_send_acl_packet(int handle, const u8 *packet,
                                 int acl_fragmentation_total_size)
 {
@@ -927,7 +962,7 @@ void LL_CODE ll_send_acl_packet(int handle, const u8 *packet,
 
     u8 flags = packet[1];
     const u8 *data = packet + 4;
-    struct acl_fragment_packet *acl_packet = __bt_malloc(sizeof(*acl_packet));
+    struct acl_fragment_packet *acl_packet = fragment_alloc();
     if (!acl_packet)
         ll_assert_or_reset("acl_packet != NULL", 0);
     acl_packet->num_acl_packets_sent = 0;
@@ -1556,7 +1591,7 @@ void LL_CODE ll_close_conn_link(struct le_link *link)
     for (node = head->next; node != head;) {
         struct list_head *next = node->next;
         list_del(node);
-        __bt_free(node);
+        fragment_free(node);
         node = next;
     }
     if (link->hw)
@@ -2092,7 +2127,7 @@ static void LL_CODE ll_thread_process(struct thread *th)
                     int freed = fragment->num_acl_packets_sent == 0;
                     if (freed) {
                         list_del(&fragment->entry);
-                        __bt_free(fragment);
+                        fragment_free(fragment);
                     }
                     sent_acl += freed;
                 }

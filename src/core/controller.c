@@ -106,6 +106,9 @@ static struct {
     u32 sent_buttons, sent_ux;   /* the last report handed over: its buttons, and before the remap */
     u8 house;                    /* something happened: housekeeping on this pass, not at house_at */
     u32 house_at;                /* connected: housekeeping's next deadline */
+#ifdef PATH_STATS
+    u32 pass_us;                 /* this pass's wake */
+#endif
 } c;
 
 static void stats_reset(u32 now)
@@ -1050,12 +1053,20 @@ static void send_report(u32 now)
     n = c.prof->report(&c.pad, now, buf, &id);
     c.pad.buttons = buttons;     /* a profile may change them while building */
     util_trace(TR_BUILT, (u16)n);
+#ifdef PATH_STATS                /* a test build: report interval = the hand-over, age = wake to handed */
+    u32 handing = plat_us();
+#endif
     if (n > 0 && (c.usb ? plat_usb_send_input(id, buf, (u16)n) : bt_send_input(id, buf, (u16)n))) {
         u32 us = plat_us();
 
+#ifdef PATH_STATS
+        util_stat_add(&c.stats.interval, us - handing);
+        util_stat_add(&c.stats.age, us - c.pass_us);
+#else
         if (c.stats.reports) util_stat_add(&c.stats.interval, us - c.last_report_us);
         if (buttons != c.sent_buttons)
             util_stat_add(&c.stats.age, us - c.raw.changed_us);
+#endif
         c.last_report_us = us;
         util_probe_sent(us);
         c.sent_buttons = buttons;
@@ -1119,6 +1130,9 @@ void ctl_main(void)
                          STEP(STEP_REPORT); } } while (0)
     for (;;) {
         start = t = plat_us();
+#ifdef PATH_STATS
+        c.pass_us = start;
+#endif
         now = plat_ms();
         read_input(now);
         STEP(STEP_INPUT);
