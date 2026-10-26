@@ -466,7 +466,7 @@ static void body(void)
     hci_set_link_key_db(&key_db);
     l2cap_init();
     sdp_init();
-    gap_set_local_name("Cyclone 2 dongle");
+    gap_set_local_name(board_name);
     gap_set_class_of_device(0x000104);   /* computer, desktop: a host */
     gap_set_default_link_policy_settings(LM_LINK_POLICY_ENABLE_ROLE_SWITCH |
                                          LM_LINK_POLICY_ENABLE_SNIFF_MODE);
