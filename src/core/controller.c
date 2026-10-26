@@ -104,6 +104,8 @@ static struct {
     struct plat_stats plat_base;
     u32 last_report_us;
     u32 sent_buttons, sent_ux;   /* the last report handed over: its buttons, and before the remap */
+    u8 house;                    /* something happened: housekeeping on this pass, not at house_at */
+    u32 house_at;                /* connected: housekeeping's next deadline */
 } c;
 
 static void stats_reset(u32 now)
@@ -131,6 +133,7 @@ static void become(u8 kind, u32 now)
     if (kind == c.kind) return;
     util_log("state %s -> %s slot %u", names[c.kind], names[kind], c.slot);
     c.kind = kind;
+    c.house = 1;
     c.since = now;
 }
 
@@ -358,6 +361,7 @@ static void shut_down(u8 kind, u32 now)
 static void handle(struct ctl_request r, u32 now)
 {
     if (r.kind == REQ_NONE || c.kind == CTL_SLEEPING || c.kind == CTL_REBOOTING) return;
+    c.house = 1;
     if (r.slot == SLOT_LAST) r.slot = c.last_slot;
     switch (r.kind) {
     case REQ_CONNECT:
@@ -552,6 +556,7 @@ static void usb_session(u32 now)
         }
         wrote = 1;
     }
+    if (wrote) c.house = 1;      /* outputs: the host's rumble and lights */
     if (wrote && c.prof->host) {
         c.prof->host(now, &c.host);
         if (c.host.ended) {
@@ -838,7 +843,6 @@ static void outputs(u32 now)
         c.rumble_logged[1] = c.host.rumble[1];
     }
     c.imu_mode = !session() ? IMU_OFF : c.prof && c.prof->host && c.host.imu ? c.host.imu : c.begin_imu;
-    c.imu_next = imu_poll(now, c.imu_mode);
     slot = set_slot(c.slot < SLOTS ? c.slot : 0);
     motor[0] = rumble ? motor_duty(c.host.rumble[0], 0) : 0;
     motor[1] = rumble ? motor_duty(c.host.rumble[1], 1) : 0;
@@ -1096,7 +1100,7 @@ void ctl_main(void)
 {
     struct usb_status st;
     struct bt_ev e;
-    u32 now = plat_ms(), deadline, start, t;
+    u32 now = plat_ms(), deadline, start, t, ev = 0;
 
     boot(now);
     stats_reset(now);
@@ -1112,64 +1116,80 @@ void ctl_main(void)
         now = plat_ms();
         read_input(now);
         STEP(STEP_INPUT);
-        while (bt_poll(&e)) bt_event(&e, now);
+        while (bt_poll(&e)) {
+            bt_event(&e, now);
+            c.house = 1;
+        }
         STEP(STEP_BT);
         /* Straight after the input: bt_pad.c is waiting for this report. */
         if (c.kind == CTL_CONNECTED) send_report(now);
         STEP(STEP_REPORT);
-        /* The counters are cumulative: bring the copy up to date only while
-         * the tool device, which reads it, can be there. */
-        if (c.usb_powered && !c.usb) {
-            struct bt_stats b;
-            struct plat_stats p;
-
-            bt_stats(&b);
-            plat_stats(&p);
-            counters_since(&c.stats.bt.sent, &b.sent, &c.bt_base.sent, sizeof(b) / 4);
-            bt_timing(&c.stats.bt_timing, 0);
-            counters_since(&c.stats.plat.button_changes, &p.button_changes,
-                           &c.plat_base.button_changes, sizeof(p) / 4);
-        }
-        c.stats.now_ms = now;
-        st.state = c.kind;
-        st.slot = c.slot;
-        st.usb_powered = c.usb_powered;
-        st.low_battery = c.low_battery;
-        st.battery_mv = c.battery_mv;
-        st.uptime_ms = now;
-        st.ephemeral = (u8)set_is_ephemeral();
-        st.staged = (u8)(set_staged() < 255 ? set_staged() : 255);
-        st.stats = &c.stats;
-        st.input = &c.input;
-        st.raw = &c.raw;
-        handle(usb_poll(&st), now);
+        c.imu_next = imu_poll(now, c.imu_mode);
         usb_session(now);
-        STEP(STEP_USB);
-        PULL();
-        sample_power(now);
-        follow_usb(now);
-        STEP(STEP_POWER);
-        timeouts(now);
-        STEP(STEP_TIMEOUTS);
-        PULL();
-        outputs(now);
-        STEP(STEP_OUTPUTS);
-        PULL();
-        set_poll(now, bt_radio_quiet() && !c.waking && c.kind != CTL_STOPPING && now - c.since >= QUIET_MS);
-        STEP(STEP_SETTINGS);
-        PULL();
-        deadline = earliest(c.led_next, earliest(state_deadline(), earliest(ux_deadline(), c.imu_next)));
+        STEP(STEP_INPUT);
+        /* Housekeeping.  Connected, a pass is mostly a report: the rest runs
+         * at its deadlines (the LED frame, dithering, kicks, rumble tests), for
+         * the tools' commands, or when something happened (c.house: an event,
+         * a request, a host's write, a new state).  Otherwise on every pass. */
+        if (c.house || c.kind != CTL_CONNECTED || c.calibrating || ((ev & EV_USB) && !c.usb) ||
+            (s32)(now - c.house_at) >= 0) {
+            /* The counters are cumulative: bring the copy up to date only while
+             * the tool device, which reads it, can be there. */
+            if (c.usb_powered && !c.usb) {
+                struct bt_stats b;
+                struct plat_stats p;
+
+                bt_stats(&b);
+                plat_stats(&p);
+                counters_since(&c.stats.bt.sent, &b.sent, &c.bt_base.sent, sizeof(b) / 4);
+                bt_timing(&c.stats.bt_timing, 0);
+                counters_since(&c.stats.plat.button_changes, &p.button_changes,
+                               &c.plat_base.button_changes, sizeof(p) / 4);
+            }
+            c.stats.now_ms = now;
+            st.state = c.kind;
+            st.slot = c.slot;
+            st.usb_powered = c.usb_powered;
+            st.low_battery = c.low_battery;
+            st.battery_mv = c.battery_mv;
+            st.uptime_ms = now;
+            st.ephemeral = (u8)set_is_ephemeral();
+            st.staged = (u8)(set_staged() < 255 ? set_staged() : 255);
+            st.stats = &c.stats;
+            st.input = &c.input;
+            st.raw = &c.raw;
+            handle(usb_poll(&st), now);
+            STEP(STEP_USB);
+            PULL();
+            sample_power(now);
+            follow_usb(now);
+            STEP(STEP_POWER);
+            timeouts(now);
+            STEP(STEP_TIMEOUTS);
+            PULL();
+            outputs(now);
+            STEP(STEP_OUTPUTS);
+            PULL();
+            set_poll(now, bt_radio_quiet() && !c.waking && c.kind != CTL_STOPPING && now - c.since >= QUIET_MS);
+            STEP(STEP_SETTINGS);
+            PULL();
+            c.house = 0;
+        }
+        /* The LED frame paces the rest: power, timeouts, settings, the host's
+         * state (its writes wake us sooner). */
+        c.house_at = c.led_next;
+        if (c.dithering) c.house_at = earliest(c.house_at, c.dither_next);
+        if (c.rumble_testing) c.house_at = earliest(c.house_at, c.rumble_test_until);
+        if (c.rumble_feedback_level) c.house_at = earliest(c.house_at, c.rumble_feedback_next);
+        if (c.kicking[0]) c.house_at = earliest(c.house_at, c.kick_until[0]);
+        if (c.kicking[1]) c.house_at = earliest(c.house_at, c.kick_until[1]);
+        deadline = earliest(c.house_at, earliest(state_deadline(), earliest(ux_deadline(), c.imu_next)));
         deadline = earliest(deadline, remap_deadline());
-        if (c.dithering) deadline = earliest(deadline, c.dither_next);
-        if (c.rumble_testing) deadline = earliest(deadline, c.rumble_test_until);
-        if (c.rumble_feedback_level) deadline = earliest(deadline, c.rumble_feedback_next);
-        if (c.kicking[0]) deadline = earliest(deadline, c.kick_until[0]);
-        if (c.kicking[1]) deadline = earliest(deadline, c.kick_until[1]);
         if (c.calibrating) deadline = earliest(deadline, now + CAL_SAMPLE_MS);
         c.stats.passes++;
         util_stat_add(&c.stats.pass, plat_us() - start);
         util_trace(TR_CTL_SLEEP, 0);
-        util_trace(TR_CTL_WAKE, (u16)plat_wait(deadline,
-                   earliest(c.kind == CTL_CONNECTED && input_wanted() ? c.pull_at_us : 0, c.probe_at_us)));
+        ev = plat_wait(deadline, earliest(c.kind == CTL_CONNECTED && input_wanted() ? c.pull_at_us : 0, c.probe_at_us));
+        util_trace(TR_CTL_WAKE, (u16)ev);
     }
 }

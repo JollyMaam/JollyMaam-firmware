@@ -91,8 +91,8 @@
  * The other SCSI commands answer as a device with no medium: INQUIRY answers,
  * TEST UNIT READY says "no medium", READ CAPACITY fails.  Nothing is mounted.
  *
- * usb_poll() runs on every pass of the loop and lets the platform service a
- * parked command; usb_command() runs on the control thread.  The platform's
+ * usb_poll() runs on EV_USB and with the loop's housekeeping, and lets the
+ * platform service a parked command; usb_command() runs on the control thread.  The platform's
  * private_scsi_cmd() hook parks each vendor command and raises EV_USB.
  * padtool/padtool.py and padtool/padgui.pyw (Linux/Windows SCSI) are the clients. */
 
