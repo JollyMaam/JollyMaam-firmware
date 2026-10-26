@@ -250,7 +250,10 @@ static void tick_start(void)
     JL_TIMER3->CON = BIT(14);
     JL_TIMER3->CNT = 0;
     JL_TIMER3->PRD = 24 * TICK_US;
-    request_irq(IRQ_TIME3_IDX, 1, tick_isr, 0);
+    /* Above the controller's interrupts (2) and the stick UART (3): time is
+     * counted in ticks, and at 1, with a link up, ticks held off past the
+     * next one were lost, 2-6 % (plat_ms ran that much slow). */
+    request_irq(IRQ_TIME3_IDX, 5, tick_isr, 0);
     /* The lsb clock (24 MHz: sys 48 MHz / 2).  On the "osc" input (BIT(3)),
      * as timer 2 still is, timer 3 counted about 1 MHz, unsteadily, on some
      * boots (one in 15 to 35): the slow tick. */
@@ -408,7 +411,7 @@ u32 plat_us(void)
 
 /* ---- sampling profiler ------------------------------------------------------
  * Timer 2 at priority 6, above the controller's BLE interrupts (2), the stick
- * UART (3) and the tick (1): each interrupt reads RETI, the address it
+ * UART (3) and the tick (5): each interrupt reads RETI, the address it
  * interrupted, and counts it in a 64-byte (or larger) bucket.  The period is
  * jittered so samples do not lock to the 5 ms connection events.  Code that
  * runs with interrupts off is counted at the instruction that turns them on. */
