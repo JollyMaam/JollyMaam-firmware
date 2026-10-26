@@ -2,7 +2,7 @@
 #include "pad.h"
 
 /* The control loop for a pad whose RAM controller.c and settings.c do not
- * fit (the Telink B80's 16 KiB). Four slots select Generic BLE or Switch 2,
+ * fit (the Telink B80's 16 KiB). Four slots select Generic BLE, Xbox (LE) or Switch 2,
  * sharing the input, calibration, settings, Home gestures and one radio
  * session at a time. Host commands run here, outside the SDK callbacks. */
 
@@ -20,6 +20,13 @@ static const struct {
 } lite_lights = { 24, 32, 250, 120 };
 
 static const struct profile *profile = &profile_generic_ble;
+
+/* The LE profiles a slot can run here; NULL for the others. */
+static const struct profile *slot_profile(u8 type)
+{
+    return type == PROFILE_GENERIC_BLE ? &profile_generic_ble : type == PROFILE_XBOX_BLE ? &profile_xbox_ble :
+           type == PROFILE_SWITCH2 ? &profile_switch2 : NULL;
+}
 
 static struct {
     struct in_raw raw;
@@ -140,7 +147,7 @@ static int slot_ready(u8 slot)
 
     if (slot >= LITE_SLOTS) return 0;
     s = set_slot(slot);
-    return (s->type == PROFILE_GENERIC_BLE || s->type == PROFILE_SWITCH2) && s->transport == TRANSPORT_BT;
+    return slot_profile(s->type) && s->transport == TRANSPORT_BT;
 }
 
 static void start_session(u8 slot, int pairing, int renew)
@@ -167,7 +174,7 @@ static void start_session(u8 slot, int pairing, int renew)
     if (c.session.settings->type != PROFILE_SWITCH2) c.session.address[5] |= 0xc0;
     set_flush();                     /* previous session is stopped */
     if (!set_is_ephemeral()) plat_retain_slot(slot);
-    profile = c.session.settings->type == PROFILE_SWITCH2 ? &profile_switch2 : &profile_generic_ble;
+    profile = slot_profile(c.session.settings->type);
     profile->begin(&c.session);
     bt_start(profile, c.session.address, c.session.bond, c.session.pairing, NULL);
     util_log("ctl: %s slot %c", c.session.pairing ? "pairing" : "connecting", slot_names[slot]);
@@ -564,6 +571,7 @@ static int test_write(const struct bt_write *w, u32 now, struct bt_bond *bond)
     memset(bond, 0, sizeof(*bond)); bond->ltk[0] = w->data[0]; return 1;
 }
 const struct profile profile_switch2 = { .begin = test_begin, .write = test_write };
+const struct profile profile_xbox_ble = { .begin = test_begin };
 int bt_send_message(u16 id, const u8 *data, u16 len) { (void)id; (void)data; (void)len; return 1; }
 static struct set_remap test_remaps[REMAP_BASE + 1];
 static u32 test_edits, remap_resets, remap_steps;
@@ -708,6 +716,9 @@ int main(void)
         select_session(REQ_PAIR, SLOT_LAST, 1); stopped(test_ms);
         CHECK(c.slot == 3 && c.session.pairing && renewals == 1);
     }
+    /* Xbox runs its own profile on a static random address. */
+    test_reset(); test_slots[1].type = PROFILE_XBOX_BLE;
+    start_session(1, 1, 0); CHECK(profile == &profile_xbox_ble && (c.session.address[5] & 0xc0) == 0xc0);
     /* Switch 2 writes save their proprietary key with the connected peer,
      * without changing another slot's bond. */
     test_reset(); test_slots[2].type = PROFILE_SWITCH2;
@@ -737,7 +748,7 @@ int main(void)
     /* Disabled/unsupported slots cannot tear down the running session. */
     test_reset();
     test_slots[1].type = PROFILE_NONE;
-    test_slots[2].type = PROFILE_XBOX_BLE;
+    test_slots[2].type = PROFILE_XBOX;
     test_slots[3].transport = TRANSPORT_USB;
     select_session(REQ_CONNECT, 0, 0); CHECK(!stops);
     select_session(REQ_CONNECT, 1, 0); select_session(REQ_PAIR, 2, 1);

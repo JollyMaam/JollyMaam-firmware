@@ -54,6 +54,7 @@ $(U2CW_PAD)_SOURCES += src/platform/telink/rx_telink.c
 $(U2CW_PAD)_SOURCES += src/core/controller_lite.c
 $(U2CW_PAD)_SOURCES += src/profiles/profile_hid.c
 $(U2CW_PAD)_SOURCES += src/profiles/profile_switch.c
+$(U2CW_PAD)_SOURCES += src/profiles/profile_xbox.c
 $(U2CW_PAD)_SOURCES += src/core/input.c
 $(U2CW_PAD)_SOURCES += src/core/input_calibration.c
 $(U2CW_PAD)_SOURCES += src/core/remap.c
