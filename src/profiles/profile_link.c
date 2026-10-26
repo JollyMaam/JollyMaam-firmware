@@ -15,6 +15,7 @@ const struct profile *profile_for(u8 type)
         [PROFILE_DUALSENSE] = &profile_dualsense, [PROFILE_DUALSHOCK4] = &profile_dualshock4,
         [PROFILE_GENERIC] = &profile_generic, [PROFILE_MOUSE] = &profile_mouse,
         [PROFILE_GENERIC_BLE] = &profile_generic_ble, [PROFILE_NONE] = NULL,
+        [PROFILE_DUALSENSE_BLE] = &profile_dualsense_ble,
     };
 
     return type < PROFILE_COUNT ? profiles[type] : NULL;
@@ -292,7 +293,8 @@ const struct profile profile_link = {
 static u8 sent_id, sent[LINK_CONFIG_SIZE];
 int host_send(u16 id, const u8 *data, u16 len) { sent_id = (u8)id; memcpy(sent, data, len); return 1; }
 const struct profile profile_switch, profile_switch2, profile_xbox, profile_xbox_ble,
-    profile_dualsense, profile_dualshock4, profile_generic, profile_mouse, profile_generic_ble;
+    profile_dualsense, profile_dualshock4, profile_generic, profile_mouse, profile_generic_ble,
+    profile_dualsense_ble;
 
 int main(void)
 {

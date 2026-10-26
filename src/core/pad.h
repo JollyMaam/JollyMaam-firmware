@@ -388,7 +388,7 @@ struct profile_wake {
 
 extern const struct profile profile_switch, profile_switch2, profile_xbox, profile_xbox_ble;
 extern const struct profile profile_dualsense, profile_dualshock4, profile_generic, profile_mouse,
-    profile_generic_ble, profile_link;
+    profile_generic_ble, profile_link, profile_dualsense_ble;
 extern const struct profile_wake profile_switch_wake;
 /* The profile for a slot type (PROFILE_*, settings.c); NULL for none.  In
  * profile_link.c, which both boards build. */
@@ -397,7 +397,8 @@ const struct profile *profile_for(u8 type);
 /* ---- settings.c --------------------------------------------------------- */
 
 enum { PROFILE_SWITCH, PROFILE_SWITCH2, PROFILE_XBOX, PROFILE_XBOX_BLE, PROFILE_DUALSENSE,
-       PROFILE_DUALSHOCK4, PROFILE_GENERIC, PROFILE_MOUSE, PROFILE_GENERIC_BLE, PROFILE_NONE, PROFILE_COUNT };
+       PROFILE_DUALSHOCK4, PROFILE_GENERIC, PROFILE_MOUSE, PROFILE_GENERIC_BLE, PROFILE_NONE,
+       PROFILE_DUALSENSE_BLE, PROFILE_COUNT };    /* stored by number: new ones at the end */
 /* How a slot reaches its host: Bluetooth; USB (a wired controller); USB while
  * a USB host is there, else Bluetooth (a USB session that ends does not move
  * back); through our dongle, which is the slot's type on its own USB port; or
