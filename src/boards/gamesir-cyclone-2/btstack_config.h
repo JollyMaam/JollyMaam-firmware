@@ -40,7 +40,10 @@
 #define HCI_INCOMING_PACKET_BUFFER_SIZE (HCI_ACL_PAYLOAD_SIZE + 8)
 
 #ifdef CONFIG_CPU_BD19
-#define RX_QUEUE_DEPTH                  2
+/* A full queue drops the controller's packet, events too; the slot being
+ * handled counts.  At 3, the events after a connection came in a burst and
+ * Read Remote Features Complete was lost. */
+#define RX_QUEUE_DEPTH                  6
 #else
 #define RX_QUEUE_DEPTH                  16
 #endif

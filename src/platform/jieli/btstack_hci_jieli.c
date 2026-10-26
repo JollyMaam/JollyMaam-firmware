@@ -49,7 +49,12 @@ int hci_packet_handler(u8 type, u8 *packet, u16 size)
         lmp_hci_write_local_address(address);
     if (!rx_active || size > HCI_INCOMING_PACKET_BUFFER_SIZE) return 0;
     next = (u8)((rx_write + 1) % RX_QUEUE_DEPTH);
-    if (next == rx_read) return 0;
+    if (next == rx_read) {
+#ifdef HCI_LOG
+        util_log("hci: dropped type %u %02x", type, packet[0]);
+#endif
+        return 0;
+    }
     rx[rx_write].type = type;
     rx[rx_write].size = size;
     memcpy(rx[rx_write].data, packet, size);
@@ -280,6 +285,18 @@ static void rx_process(btstack_data_source_t *ds, btstack_data_source_callback_t
     (void)ds;
     (void)t;
     while (rx_read != rx_write) {
+#ifdef HCI_LOG
+        if (rx[rx_read].type == HCI_EVENT_PACKET) {
+            const u8 *e = rx[rx_read].data;
+            if (e[0] == 0x0e && little_endian_read_16(e, 3) == 0x1005)
+                util_log("< cc 1005 acl %u x%u", little_endian_read_16(e, 6), little_endian_read_16(e, 9));
+            else if (e[0] == 0x0e) util_log("< cc %04x %02x", little_endian_read_16(e, 3), e[5]);
+            else if (e[0] == 0x0f) util_log("< cs %04x %02x", little_endian_read_16(e, 4), e[2]);
+            else util_log("< ev %02x %02x %02x %02x", e[0], e[2], e[3], e[4]);
+        } else if (rx[rx_read].type == HCI_ACL_DATA_PACKET) {
+            util_log("< acl len %u", rx[rx_read].size);
+        }
+#endif
         host_handler(rx[rx_read].type, rx[rx_read].data, rx[rx_read].size);
         rx_read = (u8)((rx_read + 1) % RX_QUEUE_DEPTH);
     }
@@ -366,6 +383,10 @@ static void transport_register(void (*handler)(u8 type, u8 *packet, u16 size))
 
 static int transport_send(u8 type, u8 *packet, int size)
 {
+#ifdef HCI_LOG
+    if (type == HCI_COMMAND_DATA_PACKET) util_log("> %04x", little_endian_read_16(packet, 0));
+    if (type == HCI_ACL_DATA_PACKET) util_log("> acl %04x len %u", little_endian_read_16(packet, 0), size);
+#endif
     if (type == HCI_SCO_DATA_PACKET) return -1;
     if (type == HCI_COMMAND_DATA_PACKET && size >= 3 &&
         little_endian_read_16(packet, 0) == HCI_OPCODE_HCI_QOS_SETUP &&
