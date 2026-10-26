@@ -30,13 +30,119 @@ static u8 address[6];            /* controller order: least significant byte fir
 static u8 controller_up;
 static volatile u8 exit_requested;
 
+/* ---- LE input past BTstack -------------------------------------------------
+ * bt_pad.c hands an LE link's input notifications to the controller from the
+ * control thread (hci_jieli_fast_send), past BTstack and the bluetooth
+ * thread, whose two passes a report cost about a millisecond.  The
+ * controller's Number Of Completed Packets does not say whose packets went:
+ * in the order they were handed over, a queue of who sent each outstanding
+ * one (a bit each, set: ours) splits the count.  BTstack hears only of its
+ * own; ours go to the done callback, in the controller's context.  Handed
+ * over by two threads at once the order can be off by one; the counts still
+ * add up. */
+static volatile u16 fast_handle = 0xffff;
+static void (*fast_done)(u32 n);
+static u32 fast_bits;            /* outstanding, oldest in bit 0 */
+static u8 fast_count;
+static volatile u8 fast_busy;    /* the control thread is in the controller */
+
+static void fast_queue(u32 ours)
+{
+    plat_lock();
+    if (fast_count < 32) fast_bits |= ours << fast_count++;
+    plat_unlock();
+}
+
+/* Of n completed: how many were ours. */
+static u32 fast_split(u32 n)
+{
+    u32 ours = 0;
+
+    plat_lock();
+    while (n-- && fast_count) {
+        ours += fast_bits & 1;
+        fast_bits >>= 1;
+        fast_count--;
+    }
+    plat_unlock();
+    return ours;
+}
+
+void hci_jieli_fast_open(u16 handle, void (*done)(u32 n))
+{
+    plat_lock();
+    fast_bits = fast_count = 0;
+    fast_done = done;
+    fast_handle = handle;
+    plat_unlock();
+}
+
+/* No more fast sends; one under way finishes first (it holds the controller's
+ * link lock, below this thread). */
+void hci_jieli_fast_close(void)
+{
+    fast_handle = 0xffff;
+    while (fast_busy) plat_delay_ms(1);
+    plat_lock();
+    fast_bits = fast_count = 0;
+    plat_unlock();
+}
+
+/* Outstanding on the fast link, BTstack's packets included. */
+u32 hci_jieli_fast_in_flight(void)
+{
+    return fast_count;
+}
+
+/* An L2CAP PDU (its header first) as one ACL packet; 0 when the link is gone. */
+int hci_jieli_fast_send(const u8 *pdu, u16 len)
+{
+    static u8 acl[4 + HCI_ACL_PAYLOAD_SIZE];
+    u16 h = fast_handle;
+
+    if (h == 0xffff || len > HCI_ACL_PAYLOAD_SIZE) return 0;
+    fast_busy = 1;
+    if (fast_handle != h) {      /* closed meanwhile */
+        fast_busy = 0;
+        return 0;
+    }
+    little_endian_store_16(acl, 0, (u16)(h | 0x2000));   /* first packet, not flushable */
+    little_endian_store_16(acl, 2, len);
+    memcpy(acl + 4, pdu, len);
+    fast_queue(1);
+    if (__h4_send_packet) __h4_send_packet(HCI_ACL_DATA_PACKET, acl, len + 4);
+    else h4_hci_push_data(HCI_ACL_DATA_PACKET, acl, len + 4);
+    fast_busy = 0;
+    return 1;
+}
+
+/* Number Of Completed Packets: ours out of it; 1 when nothing is left for
+ * BTstack. */
+static int fast_completed(u8 *e, u16 size)
+{
+    u32 i, n, ours, left = 0;
+
+    if (fast_handle == 0xffff || size < 3) return 0;
+    for (i = 0; i < e[2] && 3 + 4 * i + 4 <= size; i++) {
+        n = little_endian_read_16(e, 3 + 4 * i + 2);
+        if ((little_endian_read_16(e, 3 + 4 * i) & 0x0fff) == fast_handle) {
+            ours = fast_split(n);
+            n -= ours;
+            little_endian_store_16(e, 3 + 4 * i + 2, (u16)n);
+            if (ours && fast_done) fast_done(ours);
+        }
+        left += n;
+    }
+    return left == 0;
+}
+
 /* ---- controller --------------------------------------------------------- */
 
 /* Called by the controller for every event and ACL packet; the packet is only
  * valid during the call. */
 int hci_packet_handler(u8 type, u8 *packet, u16 size)
 {
-    u8 next;
+    u8 next, nocp[3 + 4 * 4];
 
 #ifndef CONFIG_CPU_BD19
     if (type == HCI_EVENT_PACKET) btctrlermod_qos_link_event(packet, size);
@@ -48,6 +154,18 @@ int hci_packet_handler(u8 type, u8 *packet, u16 size)
         packet[4] == 0x0c && packet[5] == 0)
         lmp_hci_write_local_address(address);
     if (!rx_active || size > HCI_INCOMING_PACKET_BUFFER_SIZE) return 0;
+    if (type == HCI_EVENT_PACKET && packet[0] == HCI_EVENT_NUMBER_OF_COMPLETED_PACKETS &&
+        size <= sizeof(nocp)) {
+        memcpy(nocp, packet, size);
+        if (fast_completed(nocp, size)) return 0;
+        packet = nocp;
+    }
+    if (type == HCI_EVENT_PACKET && packet[0] == HCI_EVENT_DISCONNECTION_COMPLETE && size >= 5 &&
+        (little_endian_read_16(packet, 3) & 0x0fff) == fast_handle) {
+        plat_lock();
+        fast_bits = fast_count = 0;  /* the controller dropped what was outstanding */
+        plat_unlock();
+    }
     next = (u8)((rx_write + 1) % RX_QUEUE_DEPTH);
     if (next == rx_read) {
 #ifdef HCI_LOG
@@ -270,6 +388,7 @@ void hci_jieli_set_address(const u8 a[6])
 void hci_jieli_drop_link(void)
 {
     if (!rx_active) return;
+    hci_jieli_fast_close();
     rx_active = 0;
     btctrler_task_exit();
 #ifndef CONFIG_CPU_BD19
@@ -366,6 +485,7 @@ static int transport_open(void)
 
 static int transport_close(void)
 {
+    hci_jieli_fast_close();
     rx_active = 0;
     session++;                   /* a DHKey still being made is not this session's */
     p256.key_wanted = 0;
@@ -388,6 +508,8 @@ static int transport_send(u8 type, u8 *packet, int size)
     if (type == HCI_ACL_DATA_PACKET) util_log("> acl %04x len %u", little_endian_read_16(packet, 0), size);
 #endif
     if (type == HCI_SCO_DATA_PACKET) return -1;
+    if (type == HCI_ACL_DATA_PACKET && size >= 2 && (little_endian_read_16(packet, 0) & 0x0fff) == fast_handle)
+        fast_queue(0);
     if (type == HCI_COMMAND_DATA_PACKET && size >= 3 &&
         little_endian_read_16(packet, 0) == HCI_OPCODE_HCI_QOS_SETUP &&
         (packet[2] != 20 || size != 23)) {

@@ -37,6 +37,10 @@ void hci_jieli_link_policy(void);
 u32 hci_jieli_anchor(u32 *at);
 int hci_jieli_anchor_at(u32 n, u32 *at);
 void hci_jieli_anchor_period(u32 us);
+void hci_jieli_fast_open(u16 handle, void (*done)(u32 n));
+void hci_jieli_fast_close(void);
+u32 hci_jieli_fast_in_flight(void);
+int hci_jieli_fast_send(const u8 *pdu, u16 len);
 
 #define MAX_INPUT      80
 #define MAX_MESSAGE    160
@@ -114,6 +118,7 @@ static struct { u32 sent_us, slot_us, anchor; } flight[IN_FLIGHT_MAX];
 static u8 flight_n;
 static u32 last_ack_us;
 static u32 want_us;                      /* when bt_input_wanted() last became true */
+static volatile u16 le_mtu;              /* the link's ATT MTU */
 static u32 lead_us = LEAD_START_US;      /* adaptive just-in-time lead */
 static u8 lead_hits;
 
@@ -134,6 +139,8 @@ static void request(u8 r)
 }
 
 static void body(void);
+static void le_flush(void);
+static void update_want(void);
 
 void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond *b, int pair,
               const struct bt_link *l)
@@ -192,7 +199,8 @@ int bt_send_input(u8 id, const u8 *data, u16 len)
     input_pending = 1;
     want = 0;
     plat_unlock();
-    plat_bt_wake();
+    if (le) le_flush();
+    else plat_bt_wake();
     return 1;
 }
 
@@ -337,6 +345,7 @@ int bt_send_message(u16 id, const u8 *data, u16 len)
 
 int bt_poll(struct bt_ev *ev)
 {
+    if (le && input_pending) le_flush();      /* room came while it waited */
     if (ev_read == ev_write) return 0;
     *ev = events[ev_read];
     ev_read = (u8)((ev_read + 1) % EVENTS);
@@ -651,7 +660,8 @@ static int att_write(hci_con_handle_t h, u16 handle, u16 mode, u16 offset, u8 *b
                 want = 0;
             }
             plat_unlock();
-            plat_bt_wake();
+            plat_wake(EV_BT);    /* the control thread sends it (le_flush) */
+            update_want();
         }
         util_log("bt: host %s notifications on 0x%04x", size && buf[0] ? "enables" : "disables", handle - 1);
         return 0;
@@ -700,17 +710,20 @@ static void on_sm(u8 type, u16 channel, u8 *packet, u16 size)
 
 /* ---- sending -------------------------------------------------------------------- */
 
+/* LE: from any thread (the fast path's count); Classic: the bluetooth thread. */
 static int room(void)
 {
-    hci_connection_t *c = hci_connection_for_handle(con_handle);
+    hci_connection_t *c;
+
+    if (le) return hci_jieli_fast_in_flight() < link.in_flight;
+    c = hci_connection_for_handle(con_handle);
     return !c || c->num_packets_sent < link.in_flight;
 }
 
-static void update_want(void);
-
+/* For this thread to send: LE input goes from the control thread. */
 static int have_data(void)
 {
-    return input_pending || msg_read != msg_write;
+    return (!le && input_pending) || msg_read != msg_write;
 }
 
 static void send_now(void)
@@ -723,7 +736,7 @@ static void send_now(void)
     if (msg_read != msg_write) {
         m = messages[msg_read];
         msg_read = (u8)((msg_read + 1) % MESSAGES);
-    } else if (input_pending && room()) {
+    } else if (!le && input_pending && room()) {
         m.handle = dev->input_handle;
         m.len = input_len;
         memcpy(m.data, input, input_len);
@@ -746,8 +759,9 @@ static void send_now(void)
         else if (m.handle != dev->input_handle || notifying(m.handle))
             att_server_notify(con_handle, m.handle, m.data, m.len);
         util_trace(TR_HANDED, 0);
-        /* Messages ride along unmarked (slot 0): only reports are timed. */
-        if (flight_n < IN_FLIGHT_MAX) {
+        /* Messages ride along unmarked (slot 0): only reports are timed.
+         * LE: flight[] is the fast path's alone. */
+        if (!le && flight_n < IN_FLIGHT_MAX) {
             flight[flight_n].sent_us = sent;
             flight[flight_n].slot_us = slot;
             flight[flight_n].anchor = anchor;
@@ -827,7 +841,7 @@ static void tx_poll(btstack_data_source_t *ds, btstack_data_source_callback_type
  * linked, nothing waiting in the slot, room in the controller. */
 static void update_want(void)
 {
-    u8 r = linked && !send_pending && room(), wake = 0;
+    u8 r = linked && (le ? notifying(dev->input_handle) : !send_pending) && room(), wake = 0;
 
     plat_lock();
     if (r && !input_pending && !want) {
@@ -870,6 +884,7 @@ static void unlinked(u8 reason)
     btstack_run_loop_remove_timer(&bonded_open);
 
     linked = 0;
+    if (le) hci_jieli_fast_close();
     hid_cid = 0;
     send_pending = 0;
     acl_up = 0;
@@ -891,11 +906,11 @@ static void unlinked(u8 reason)
 
 static void link_up(u8 transport)
 {
-    flight_n = 0;
     lead_us = LEAD_START_US;
     lead_hits = 0;
     hci_jieli_anchor_period(0);
     plat_lock();
+    flight_n = 0;
     memset(&timing.link, 0, sizeof(timing.link));
     timing.link.transport = transport;
     timing.link.phy_tx = timing.link.phy_rx = transport == 2 ? 1 : 0;
@@ -914,13 +929,38 @@ static void le_params(u16 interval, u16 latency, u16 timeout)
     hci_jieli_anchor_period(period_us());
 }
 
-/* Number Of Completed Packets: the controller says reports went.  BTstack's
- * own packets (ATT responses, L2CAP) are acked here too and are not in
- * flight[]; whatever the connection has outstanding beyond ours is theirs. */
+/* A report the controller says went (flight[n], under plat_lock): its
+ * timing, and the adaptive lead. */
+static void flight_done(u8 n, u32 now, u32 anchor)
+{
+    u32 air;
+
+    util_stat_add(&timing.ack_wait, now - flight[n].sent_us);
+    /* It went at the first anchor after the hand-off, and the central
+     * acknowledged it at the next one; acknowledged later, it went at
+     * the anchor before the acknowledging one (or was sent again). */
+    if (flight[n].slot_us && anchor > flight[n].anchor) {
+        u32 late = anchor - flight[n].anchor > 2 ? anchor - flight[n].anchor - 2 : 0;
+        u32 went = late ? anchor - 1 : flight[n].anchor + 1;
+
+        /* Without a fixed grid (active mode) a poll may come at any
+         * time: no anchor is the one a report was meant for. */
+        if (period_us()) {
+            if (late) stats.late++;
+            lead_learn(late);
+        }
+        if (hci_jieli_anchor_at(went, &air) && (s32)(air - flight[n].slot_us) > 0)
+            util_stat_add(&timing.slot_air, air - flight[n].slot_us);
+    }
+}
+
+/* Classic: Number Of Completed Packets, the controller says reports went.
+ * BTstack's own packets (L2CAP) are acked here too and are not in flight[];
+ * whatever the connection has outstanding beyond ours is theirs. */
 static void acked(void)
 {
     hci_connection_t *c = hci_connection_for_handle(con_handle);
-    u32 now = plat_us(), at, anchor = hci_jieli_anchor(&at), air;
+    u32 now = plat_us(), at, anchor = hci_jieli_anchor(&at);
     int left = c ? c->num_packets_sent : 0;
     u8 i, n = 0;
 
@@ -928,26 +968,7 @@ static void acked(void)
     if (last_ack_us) util_stat_add(&timing.ack_gap, now - last_ack_us);
     util_trace(TR_ACK, (u16)(flight_n - left));
     last_ack_us = now;
-    while (flight_n - n > left && n < flight_n) {
-        util_stat_add(&timing.ack_wait, now - flight[n].sent_us);
-        /* It went at the first anchor after the hand-off, and the central
-         * acknowledged it at the next one; acknowledged later, it went at
-         * the anchor before the acknowledging one (or was sent again). */
-        if (flight[n].slot_us && anchor > flight[n].anchor) {
-            u32 late = anchor - flight[n].anchor > 2 ? anchor - flight[n].anchor - 2 : 0;
-            u32 went = late ? anchor - 1 : flight[n].anchor + 1;
-
-            /* Without a fixed grid (active mode) a poll may come at any
-             * time: no anchor is the one a report was meant for. */
-            if (period_us()) {
-                if (late) stats.late++;
-                lead_learn(late);
-            }
-            if (hci_jieli_anchor_at(went, &air) && (s32)(air - flight[n].slot_us) > 0)
-                util_stat_add(&timing.slot_air, air - flight[n].slot_us);
-        }
-        n++;
-    }
+    while (flight_n - n > left && n < flight_n) flight_done(n++, now, anchor);
     plat_unlock();
     for (i = n; i < flight_n; i++) flight[i - n] = flight[i];
     flight_n = (u8)(flight_n - n);
@@ -955,6 +976,67 @@ static void acked(void)
      * (BTstack polls the data source added last first): ask now. */
     update_want();
     if (have_data()) plat_bt_wake();
+}
+
+/* LE: n of our reports went (the fast path's, in the controller's context).
+ * Room for the next: ask the control thread for it, or wake it to send the
+ * one waiting. */
+static void fast_done(u32 n)
+{
+    u32 now = plat_us(), at, anchor = hci_jieli_anchor(&at);
+    u8 i, k = 0;
+
+    plat_lock();
+    stats.acked += n;
+    if (last_ack_us) util_stat_add(&timing.ack_gap, now - last_ack_us);
+    util_trace(TR_ACK, (u16)n);
+    last_ack_us = now;
+    while (k < n && k < flight_n) flight_done(k++, now, anchor);
+    for (i = k; i < flight_n; i++) flight[i - k] = flight[i];
+    flight_n = (u8)(flight_n - k);
+    plat_unlock();
+    update_want();
+    if (input_pending) plat_wake(EV_BT);
+}
+
+/* LE, on the control thread only (one sender keeps the newest last): the
+ * waiting report as a notification, straight to the controller. */
+static void le_flush(void)
+{
+    u8 pdu[4 + 3 + MAX_INPUT];
+    u16 n;
+    u32 at;
+
+    if (!linked || !input_pending || !notifying(dev->input_handle) || !room()) return;
+    plat_lock();
+    n = input_len;
+    if (n + 3 > le_mtu) {        /* as att_server_notify: too long for the link */
+        input_pending = 0;
+        plat_unlock();
+        return;
+    }
+    little_endian_store_16(pdu, 0, (u16)(n + 3));
+    little_endian_store_16(pdu, 2, L2CAP_CID_ATTRIBUTE_PROTOCOL);
+    pdu[4] = ATT_HANDLE_VALUE_NOTIFICATION;
+    little_endian_store_16(pdu, 5, dev->input_handle);
+    memcpy(pdu + 7, input, n);
+    input_pending = 0;
+    stats.sent++;
+    if (want_us) {
+        util_stat_add(&timing.want_send, plat_us() - want_us);
+        want_us = 0;
+    }
+    if (flight_n < IN_FLIGHT_MAX) {
+        flight[flight_n].sent_us = plat_us();
+        flight[flight_n].slot_us = slot_us;
+        flight[flight_n].anchor = hci_jieli_anchor(&at);
+        flight_n++;
+    }
+    plat_unlock();
+    util_trace(TR_SENT, 0);
+    hci_jieli_fast_send(pdu, (u16)(n + 7));
+    util_trace(TR_HANDED, 0);
+    update_want();
 }
 
 static void le_connected(u8 *packet)
@@ -976,6 +1058,8 @@ static void le_connected(u8 *packet)
               hci_subevent_le_connection_complete_get_supervision_timeout(packet));
     reverse(a, bond.le_peer, 6);
     memset(ccc_value, 0, sizeof(ccc_value));
+    le_mtu = ATT_DEFAULT_MTU;
+    hci_jieli_fast_open(con_handle, fast_done);
     data_length_pending = 1;
     phy_pending = link.le_phy;
     c = hci_connection_for_handle(con_handle);
@@ -1005,7 +1089,7 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
         for (i = 0; i < packet[2]; i++)
             if (little_endian_read_16(packet, 3 + 4 * i) == con_handle) {
                 stats.acked += little_endian_read_16(packet, 5 + 4 * i);
-                if (acl_up) acked();
+                if (acl_up && !le) acked();      /* LE: BTstack's own (fast_done has ours) */
             }
         break;
     }
@@ -1241,8 +1325,10 @@ static int on_get_report(u16 cid, hid_report_type_t type, u16 id, int *len, u8 *
  * (deprecated forwarding), which on_event already has from HCI. */
 static void on_att(u8 type, u16 channel, u8 *packet, u16 size)
 {
-    if (type == HCI_EVENT_PACKET && hci_event_packet_get_type(packet) == ATT_EVENT_CAN_SEND_NOW)
-        on_event(type, channel, packet, size);
+    if (type != HCI_EVENT_PACKET) return;
+    if (hci_event_packet_get_type(packet) == ATT_EVENT_CAN_SEND_NOW) on_event(type, channel, packet, size);
+    if (hci_event_packet_get_type(packet) == ATT_EVENT_MTU_EXCHANGE_COMPLETE)
+        le_mtu = att_event_mtu_exchange_complete_get_MTU(packet);
 }
 
 /* ---- sessions ----------------------------------------------------------------------- */
