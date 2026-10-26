@@ -51,6 +51,7 @@ static struct {
     u32 report_next;             /* the earliest the next report may be built */
     u16 report_hz;               /* the session's cap: the slot's setting or REPORT_HZ */
     u32 pull_at_us;              /* a pulled report waits until then (jit_us, pull_delay_us) */
+    u32 probe_at_us;             /* the latency probe's next edge (util_probe_apply), 0: none */
     u8 imu_mode, begin_imu;
     u32 imu_seq, imu_next;
     u8 calibrating;
@@ -965,6 +966,7 @@ static void read_input(u32 now)
         (c.usb ? plat_usb_input_wanted() : !bt_input_pending()))
         ux_reported(now);
     plat_input(&c.raw);
+    c.probe_at_us = util_probe_apply(&c.raw.buttons);
     in_map(&c.raw, &c.pad);
     cal_apply(set_cal(), sticks() ? sticks()->deadzone : NULL, &c.raw, &c.pad);
     c.input = c.pad;
@@ -1045,6 +1047,7 @@ static void send_report(u32 now)
         if (buttons != c.sent_buttons)
             util_stat_add(&c.stats.age, us - c.raw.changed_us);
         c.last_report_us = us;
+        util_probe_sent(us);
         c.sent_buttons = buttons;
         c.sent_ux = c.ux_buttons;
         c.turbo_up = c.turbo_max && !c.turbo_up;
@@ -1167,6 +1170,6 @@ void ctl_main(void)
         util_stat_add(&c.stats.pass, plat_us() - start);
         util_trace(TR_CTL_SLEEP, 0);
         util_trace(TR_CTL_WAKE, (u16)plat_wait(deadline,
-                   c.kind == CTL_CONNECTED && input_wanted() ? c.pull_at_us : 0));
+                   earliest(c.kind == CTL_CONNECTED && input_wanted() ? c.pull_at_us : 0, c.probe_at_us)));
     }
 }

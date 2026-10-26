@@ -52,6 +52,15 @@
                                   print the last N and the pull round trips
     padtool relink                connected: drop the link and connect again
                                   (new link settings apply; wakes nothing)
+    padtool latency [--seconds S] [--period MS] [--event PATH]
+                                  end to end: the pad makes A edges at random
+                                  times (one per MS, 20), the PC times them on
+                                  the evdev node of whatever carries the slot
+                                  (a dongle, its own USB, the PC's Bluetooth):
+                                  pad, air and total latency, the rate the PC
+                                  sees and edges lost.  Leave A alone; the pad
+                                  stays on USB for its clock.  --period 2 or
+                                  less loads the link fully (rates only)
     padtool tool [HIDRAW]         a pad or dongle that is a game controller on
                                   USB (a HID one): back to the tool device, via
                                   feature report 0xf5 on each hidraw (or HIDRAW)
@@ -1282,6 +1291,177 @@ def keep(path):
     print(f"kept {len(batches)} changes")
 
 
+EVENT = struct.Struct("@llHHi")
+EV_SYN, EV_KEY = 0, 1
+EVIOCSCLOCKID = 0x400445A0
+CLOCK_MONOTONIC = 1
+
+
+def gamepad_events():
+    """(path, name) of the evdev nodes with gamepad or joystick buttons."""
+    found = []
+    for path in sorted(glob.glob("/dev/bwrap/event*") + glob.glob("/dev/input/event*")):
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+        except OSError:
+            continue
+        try:
+            keys = bytearray(96)
+            fcntl.ioctl(fd, 0x80604521, keys)              # EVIOCGBIT(EV_KEY, 96)
+            name = bytearray(64)
+            fcntl.ioctl(fd, 0x80404506, name)              # EVIOCGNAME(64)
+            if any(keys[code // 8] >> (code % 8) & 1 for code in (0x120, 0x130)):
+                found.append((path, name.split(b"\0")[0].decode(errors="replace")))
+        except OSError:
+            pass
+        finally:
+            os.close(fd)
+    return found
+
+
+def pad_clock(path):
+    """(host monotonic ns at the middle of the round trip, pad us, round trip ns)."""
+    t0 = time.monotonic_ns()
+    us, = struct.unpack("<I", cmd(path, 0x05, length=4)[:4])
+    t1 = time.monotonic_ns()
+    return (t0 + t1) // 2, us, t1 - t0
+
+
+def percentiles(values):
+    v = sorted(values)
+    pick = lambda q: v[min(len(v) - 1, int(q * len(v)))]
+    return f"p50 {pick(.5):6.2f}  p90 {pick(.9):6.2f}  p99 {pick(.99):6.2f}  max {v[-1]:6.2f} ms"
+
+
+def latency(path, seconds, period_ms, event, csv_path=None):
+    if not event:
+        nodes = gamepad_events()
+        if len(nodes) != 1:
+            listed = "".join(f"\n  {p}  {n}" for p, n in nodes) or " none"
+            sys.exit(f"padtool: give the host's gamepad node with --event; found:{listed}")
+        event = nodes[0][0]
+    fd = os.open(event, os.O_RDONLY | os.O_NONBLOCK)
+    fcntl.ioctl(fd, EVIOCSCLOCKID, struct.pack("i", CLOCK_MONOTONIC))
+    edges = max(2, int(seconds * 1000 / period_ms))
+    print(f"{edges} A edges, one per {period_ms} ms at random times; host events from {event}")
+
+    syncs, records, events = [], [], []
+    def sync(n=8):                     # the tightest of n round trips
+        syncs.append(min((pad_clock(path) for _ in range(n)), key=lambda s: s[2]))
+    def drain():
+        try:
+            while True:
+                data = os.read(fd, EVENT.size * 64)
+                for i in range(0, len(data) - EVENT.size + 1, EVENT.size):
+                    sec, usec, kind, code, value = EVENT.unpack_from(data, i)
+                    events.append((sec * 10**9 + usec * 1000, kind, code, value))
+        except BlockingIOError:
+            pass
+    def take():
+        while True:
+            d = scsi(path, bytes([OP, 0x1C, 0]), 12 + 12 * 16)
+            count, lost, active = struct.unpack_from("<IIB", d)
+            for i in range(count):
+                records.append(struct.unpack_from("<IIB", d, 12 + 12 * i))
+            if count < 16:
+                return lost, active
+
+    sync()
+    drain()
+    events.clear()
+    scsi(path, bytes([OP, 0x1C, 1]) + struct.pack("<IH", edges, period_ms), 0)
+    started = time.monotonic_ns()
+    next_sync = time.monotonic() + 1
+    try:
+        while True:
+            time.sleep(0.05)
+            drain()
+            lost, active = take()
+            if time.monotonic() >= next_sync:
+                sync()
+                next_sync += 1
+            if not active:
+                break
+    except KeyboardInterrupt:
+        scsi(path, bytes([OP, 0x1C, 2]), 0)
+        lost, _ = take()
+    time.sleep(0.3)                    # the last edges reach the host
+    drain()
+    sync()
+    ended = time.monotonic_ns()
+    os.close(fd)
+
+    # pad us -> host ns: the 32-bit clock unwrapped, a straight line through the syncs
+    def unwrap(us, ref):
+        return ref + ((us - ref) & 0xFFFFFFFF) - (1 << 32 if (us - ref) & 0x80000000 else 0)
+    ref = syncs[0][1]
+    xs = [unwrap(s[1], ref) for s in syncs]
+    ys = [s[0] for s in syncs]
+    mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
+    sxx = sum((x - mx) ** 2 for x in xs)
+    slope = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sxx if sxx else 1000.0
+    to_host = lambda us: my + slope * (unwrap(us, ref) - mx)
+    residual = max(abs(y - to_host(s[1])) for y, s in zip(ys, syncs)) / 1e6
+    rtt = min(s[2] for s in syncs) / 1e6
+
+    keys = collections.Counter(code for _, kind, code, _ in events if kind == EV_KEY)
+    if not keys:
+        sys.exit("padtool: no key events reached the host (is the slot connected through this node?)")
+    code = keys.most_common(1)[0][0]
+    presses = [(t, v) for t, kind, c, v in events if kind == EV_KEY and c == code and v in (0, 1)]
+    reports = sum(1 for t, kind, c, _ in events if kind == EV_SYN and c == 0 and started <= t <= ended)
+
+    pad_ms, air_ms, total_ms, rows = [], [], [], []
+    alone = [r for r in records if r[1]]
+    # The host sees an edge only when it changes what the host last got: after
+    # an edge undone in the pad, the next one is no change to it.
+    expected, host_level = [], 0
+    for r in alone:
+        if r[2] != host_level:
+            expected.append(r)
+            host_level = r[2]
+    j = 0
+    for edge_us, sent_us, level in expected:
+        t_edge = to_host(edge_us)
+        while j < len(presses) and presses[j][0] < t_edge - 2e6:
+            j += 1
+        k = j
+        while k < len(presses) and presses[k][0] < t_edge + 100e6 and presses[k][1] != level:
+            k += 1
+        if k < len(presses) and presses[k][0] < t_edge + 100e6:
+            total = (presses[k][0] - t_edge) / 1e6
+            pad = ((sent_us - edge_us) & 0xFFFFFFFF) / 1000
+            pad_ms.append(pad)
+            total_ms.append(total)
+            air_ms.append(total - pad)
+            rows.append(((t_edge - started) / 1e6, level, pad, total))
+            j = k + 1
+    if csv_path:
+        with open(csv_path, "w") as f:
+            f.write("edge_ms,level,pad_ms,total_ms\n")
+            f.writelines(f"{e:.3f},{l},{p:.3f},{t:.3f}\n" for e, l, p, t in rows)
+            f.write("# probe records: edge_ms,sent_ms,level\n")
+            f.writelines(f"# {(to_host(e) - started) / 1e6:.3f},"
+                         f"{(to_host(t) - started) / 1e6 if t else 0:.3f},{l}\n" for e, t, l in records)
+            f.write("# host events: t_ms,code,value\n")
+            f.writelines(f"# {(t - started) / 1e6:.3f},{c:#x},{v}\n" for t, k, c, v in events if k == EV_KEY)
+    span = (ended - started) / 1e9
+    print(f"clock: round trip {rtt:.2f} ms, fit within {residual:.2f} ms, pad clock {slope / 1000:.6f}x")
+    print(f"edges: {len(records)} made, {len(alone)} sent in a report of their own "
+          f"({len(records) - len(alone)} undone first), {len(total_ms)} of the {len(expected)} "
+          f"changes it should see seen by the host"
+          f"{f', {lost} records overwritten' if lost else ''}")
+    print(f"pad: {len(alone) / span:.0f} reports/s sent with a new edge; "
+          f"host: {reports / span:.0f} reports/s with a change, key {code:#x}")
+    if period_ms < 10:
+        print("latency: not matched at a period this short (edges closer than the latency); "
+              "use --period 10 or more")
+    elif total_ms:
+        print(f"pad    edge -> report sent    {percentiles(pad_ms)}")
+        print(f"air    report -> host event   {percentiles(air_ms)}")
+        print(f"total  edge -> host event     {percentiles(total_ms)}")
+
+
 def tool(paths):
     """Feature report 0xf5 "tool": a USB personality (src/core/pad.h) ends and the
     tool device comes back.  Only our firmware knows it; others refuse it."""
@@ -1305,7 +1485,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("command", choices=["target", "tool-only", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "reboot", "loader", "relink", "connect", "disconnect", "pair", "unpair", "profile", "peek", "trace",
                                        "fields", "get", "set", "reset", "backup-settings",
-                                       "restore-settings", "factory-reset", "ephemeral", "keep", "tool"])
+                                       "restore-settings", "factory-reset", "ephemeral", "keep", "tool", "latency"])
     p.add_argument("args", nargs="*")
     p.add_argument("--calibration", action="store_true", help="restore-settings: calibration too")
     p.add_argument("-f", "--follow", action="store_true")
@@ -1344,6 +1524,9 @@ def main():
     p.add_argument("--by", choices=["file", "group", "line"],
                    help="profile: add up per source file, per part, or per source line (zoom first)")
     p.add_argument("--elf", help="profile: the running build's ELF (default: selected board's build)")
+    p.add_argument("--period", type=int, default=20, help="latency: one A edge per this many ms")
+    p.add_argument("--csv", help="latency: write each edge's times (and the host's key events) here")
+    p.add_argument("--event", help="latency: the host's evdev node for the slot (default: the only gamepad)")
     a = p.parse_args()
     global DEV, BOARD, DEVICE
     DEV = a.dev
@@ -1364,7 +1547,7 @@ def main():
         except ValueError:
             p.error("invalid address; expected AA:BB:CC:DD:EE:FF")
     if BOARD == "dongle" and a.command in {
-        "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "relink", "connect", "disconnect", "fields", "get", "set", "reset",
+        "stats", "latency", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "relink", "connect", "disconnect", "fields", "get", "set", "reset",
         "backup-settings", "restore-settings", "factory-reset", "keep",
     }:
         p.error(f"{a.command} is not supported by dongle firmware")
@@ -1392,6 +1575,8 @@ def main():
             stats(need_device(), a.watch, a.reset)
         except KeyboardInterrupt:
             pass
+    elif a.command == "latency":
+        latency(need_device(), a.seconds or 10, a.period, a.event, a.csv)
     elif a.command == "trace":
         trace(need_device(), a.watch or 0.5, a.top)
     elif a.command == "peek":

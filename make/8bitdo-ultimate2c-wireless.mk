@@ -28,6 +28,7 @@ $(U2CW_PAD)_LDFLAGS += --undefined=plat_ll_push_tx_fifo --defsym=bls_ll_pushTxFi
 # small log and trace rings.
 $(U2CW_PAD)_DEFINES :=
 $(U2CW_PAD)_DEFINES += -DSLOTS_STORED=4
+$(U2CW_PAD)_DEFINES += -DPROBE_EDGES=0  # controller_lite has no latency probe
 $(U2CW_PAD)_DEFINES += -DREMAPS_STORED=4
 $(U2CW_PAD)_DEFINES += -DREMAP_RULES=8
 $(U2CW_PAD)_DEFINES += -DRECORD_MAX=152

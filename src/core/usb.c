@@ -101,9 +101,9 @@
 
 #define STATS_VERSION 1
 
-enum { CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02, CMD_STATS = 0x03, CMD_INPUT = 0x04,
+enum { CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02, CMD_STATS = 0x03, CMD_INPUT = 0x04, CMD_CLOCK = 0x05,
        CMD_REBOOT = 0x10, CMD_REBOOT_LOADER = 0x11, CMD_RELINK = 0x12, CMD_CONNECT = 0x13, CMD_PROFILE = 0x14, CMD_PEEK = 0x15, CMD_TRACE = 0x16, CMD_PAIR = 0x17, CMD_CALIBRATE = 0x18, CMD_LED_DEMO = 0x19, CMD_RUMBLE = 0x1a,
-       CMD_DISCONNECT = 0x1b, CMD_FIELD = 0x20, CMD_READ = 0x21, CMD_WRITE = 0x22, CMD_COMMIT = 0x23, CMD_DROP = 0x24,
+       CMD_DISCONNECT = 0x1b, CMD_PROBE = 0x1c, CMD_FIELD = 0x20, CMD_READ = 0x21, CMD_WRITE = 0x22, CMD_COMMIT = 0x23, CMD_DROP = 0x24,
        CMD_EPHEMERAL = 0x25, CMD_RESULT = 0x26, CMD_DEFAULTS = 0x27, CMD_TARGET = 0x30, CMD_TOOL_ONLY = 0x31, CMD_USB_PROBE = 0x3f };
 
 #ifdef BOARD_DONGLE
@@ -211,6 +211,37 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         util_put16(data + 30, raw->trigger[1]);
         util_put32(data + 32, status->uptime_ms);
         n = 36;
+        break;
+    }
+    case CMD_CLOCK:              /* the microsecond clock, for mapping it onto the PC's */
+        if (max < 4) return 0;
+        util_put32(data, plat_us());
+        n = 4;
+        break;
+    case CMD_PROBE: {            /* byte 2: 1 start, edges in bytes 3-6, period ms in 7-8;
+                                    2 stop; 0 take: u32 count, u32 lost, u8 active, 3 spare,
+                                    then count records of edge us, sent us, level, 3 spare */
+        struct util_probe_edge e[16];
+        u32 lost, k, i;
+        u8 active;
+
+        if (cdb[2] == 1) util_probe_start(util_get32(cdb + 3), (u32)(cdb[7] | cdb[8] << 8));
+        else if (cdb[2] == 2) util_probe_stop();
+        else {
+            if (max < 12) return 0;
+            k = util_probe_take(e, (max - 12) / 12 < 16 ? (max - 12) / 12 : 16, &lost, &active);
+            util_put32(data, k);
+            util_put32(data + 4, lost);
+            data[8] = active;
+            data[9] = data[10] = data[11] = 0;
+            for (i = 0; i < k; i++) {
+                util_put32(data + 12 + 12 * i, e[i].edge_us);
+                util_put32(data + 16 + 12 * i, e[i].sent_us);
+                data[20 + 12 * i] = e[i].level;
+                data[21 + 12 * i] = data[22 + 12 * i] = data[23 + 12 * i] = 0;
+            }
+            n = 12 + 12 * k;
+        }
         break;
     }
     case CMD_REBOOT:
@@ -360,6 +391,16 @@ u32 plat_prof_read(u32 offset, u8 *out, u32 max) { (void)offset; (void)out; (voi
 u32 plat_peek(u32 addr, u8 *out, u32 max) { (void)addr; (void)out; (void)max; return 0; }
 void util_trace_enable(int on) { (void)on; }
 u32 util_trace_read(u32 offset, u8 *out, u32 max) { (void)offset; (void)out; (void)max; return 0; }
+u32 plat_us(void) { return 0; }
+void util_probe_start(u32 edges, u32 period_ms) { (void)edges; (void)period_ms; }
+void util_probe_stop(void) {}
+u32 util_probe_take(struct util_probe_edge *out, u32 max, u32 *lost, u8 *active)
+{
+    (void)out; (void)max;
+    *lost = 0;
+    *active = 0;
+    return 0;
+}
 u32 util_log_read(u32 *seq, char *out, u32 max)
 {
     (void)max;

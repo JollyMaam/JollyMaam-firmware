@@ -838,6 +838,12 @@ enum { TR_WANT = 1, TR_BT_WAKE, TR_BT_SLEEP, TR_CTL_WAKE, TR_BUILT, TR_SENT, TR_
 void util_trace(u8 marker, u16 arg);
 u32 util_trace_read(u32 offset, u8 *out, u32 max);
 void util_trace_enable(int on);
+struct util_probe_edge { u32 edge_us, sent_us; u8 level, pad[3]; };   /* sent 0: never alone in a report */
+void util_probe_start(u32 edges, u32 period_ms);
+u32 util_probe_apply(u32 *buttons);
+void util_probe_sent(u32 us);
+void util_probe_stop(void);
+u32 util_probe_take(struct util_probe_edge *out, u32 max, u32 *lost, u8 *active);
 
 /* ---- platform_jieli.c --------------------------------------------------- */
 

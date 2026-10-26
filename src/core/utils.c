@@ -138,6 +138,128 @@ u32 util_trace_read(u32 offset, u8 *out, u32 max)
     return n;
 }
 
+/* ---- the latency probe ------------------------------------------------------
+ * A presses and releases made inside the pad, each at a random time within
+ * its period, applied where the real buttons come in (util_probe_apply) and
+ * stamped twice: when it happened and when the first report carrying it was
+ * sent (util_probe_sent).  An edge undone before any report carried it is
+ * stamped sent 0.  The tool device reads the records (util_probe_take) and
+ * the PC matches them with its own input events.  Nothing is saved. */
+#ifndef PROBE_EDGES
+#ifdef BOARD_DONGLE
+#define PROBE_EDGES 0            /* no buttons of its own to probe */
+#else
+#define PROBE_EDGES 64
+#endif
+#endif
+#if PROBE_EDGES
+static struct {
+    u32 left;                    /* edges still to make; the last one releases */
+    u32 period_us, slot_us, next_us;
+    u32 rng;
+    u8 level;                    /* A as the probe holds it */
+    u32 head, unsent, tail, lost;   /* records [tail, head); [unsent, head) not sent yet */
+    struct util_probe_edge ring[PROBE_EDGES];
+} probe;
+
+static u32 probe_random(void)
+{
+    probe.rng ^= probe.rng << 13;
+    probe.rng ^= probe.rng >> 17;
+    probe.rng ^= probe.rng << 5;
+    return probe.rng;
+}
+
+void util_probe_start(u32 edges, u32 period_ms)
+{
+    plat_lock();
+    probe.left = (edges + 1) & ~1u;      /* even: it ends released */
+    probe.period_us = (period_ms ? period_ms : 1) * 1000;
+    probe.slot_us = plat_us();
+    probe.rng = probe.slot_us | 1;
+    probe.next_us = probe.slot_us + probe_random() % probe.period_us;
+    probe.level = 0;
+    probe.head = probe.unsent = probe.tail = probe.lost = 0;
+    plat_unlock();
+}
+
+/* Makes the edges that are due and puts A as the probe holds it into the
+ * buttons.  Returns when the next edge is due (plat_us), 0 when stopped. */
+u32 util_probe_apply(u32 *buttons)
+{
+    u32 now = plat_us();
+
+    if (!probe.left && !probe.level) return 0;
+    plat_lock();
+    while (probe.left && (s32)(now - probe.next_us) >= 0) {
+        struct util_probe_edge *e;
+
+        if (probe.head - probe.tail == PROBE_EDGES) {
+            probe.tail++;
+            probe.lost++;
+            if ((s32)(probe.unsent - probe.tail) < 0) probe.unsent = probe.tail;
+        }
+        e = &probe.ring[probe.head++ % PROBE_EDGES];
+        probe.level ^= 1;
+        e->edge_us = probe.next_us;
+        e->sent_us = 0;
+        e->level = probe.level;
+        probe.left--;
+        probe.slot_us += probe.period_us;
+        probe.next_us = probe.slot_us + probe_random() % probe.period_us;
+    }
+    plat_unlock();
+    if (probe.level) *buttons |= PAD_A;
+    else *buttons &= ~(u32)PAD_A;
+    return probe.left ? probe.next_us : 0;
+}
+
+/* A report built from the newest input went out at us: the newest edge is in
+ * it, the ones before it never were. */
+void util_probe_sent(u32 us)
+{
+    if (probe.unsent == probe.head) return;
+    plat_lock();
+    probe.ring[(probe.head - 1) % PROBE_EDGES].sent_us = us ? us : 1;
+    probe.unsent = probe.head;
+    plat_unlock();
+}
+
+void util_probe_stop(void)
+{
+    plat_lock();
+    probe.left = 0;
+    probe.level = 0;
+    plat_unlock();
+}
+
+/* Up to max sent-or-superseded records, oldest first; *lost counts the
+ * records overwritten before they were taken, *active whether edges remain. */
+u32 util_probe_take(struct util_probe_edge *out, u32 max, u32 *lost, u8 *active)
+{
+    u32 n = 0;
+
+    plat_lock();
+    while (n < max && probe.tail != probe.unsent) out[n++] = probe.ring[probe.tail++ % PROBE_EDGES];
+    *lost = probe.lost;
+    *active = (u8)(probe.left || probe.level);
+    plat_unlock();
+    return n;
+}
+#else
+void util_probe_start(u32 edges, u32 period_ms) { (void)edges; (void)period_ms; }
+u32 util_probe_apply(u32 *buttons) { (void)buttons; return 0; }
+void util_probe_sent(u32 us) { (void)us; }
+void util_probe_stop(void) {}
+u32 util_probe_take(struct util_probe_edge *out, u32 max, u32 *lost, u8 *active)
+{
+    (void)out; (void)max;
+    *lost = 0;
+    *active = 0;
+    return 0;
+}
+#endif
+
 /* Into a power-of-two histogram: bucket i holds values below 32 << i µs. */
 void util_stat_add(struct stat_hist *h, u32 us)
 {
@@ -259,6 +381,36 @@ int main(void)
         util_aes128(key, in, out);
         CHECK(!memcmp(out, want, 16));
     }
+#if PROBE_EDGES
+    {   /* the probe: edges one per period, A follows, a report stamps the newest */
+        struct util_probe_edge e[8];
+        u32 b = PAD_B, at, lost;
+        u8 active;
+
+        fake_ms = 100;
+        util_probe_start(3, 10);                 /* rounded up to 4: ends released */
+        at = util_probe_apply(&b);
+        CHECK(at >= 100000 && at < 110000 && b == PAD_B);
+        fake_ms = 110;                           /* past the first edge */
+        at = util_probe_apply(&b);
+        CHECK(b == (PAD_B | PAD_A) && at >= 110000 && at < 120000);
+        CHECK(util_probe_take(e, 8, &lost, &active) == 0 && active);   /* not sent yet */
+        util_probe_sent(111000);
+        CHECK(util_probe_take(e, 8, &lost, &active) == 1 && e[0].level == 1 &&
+              e[0].edge_us >= 100000 && e[0].edge_us < 110000 && e[0].sent_us == 111000);
+        fake_ms = 130;                           /* two edges before a report */
+        util_probe_apply(&b);
+        CHECK(b == (PAD_B | PAD_A));             /* released and pressed again */
+        util_probe_sent(131000);
+        CHECK(util_probe_take(e, 8, &lost, &active) == 2 && e[0].sent_us == 0 && e[1].sent_us == 131000);
+        fake_ms = 140;
+        CHECK(util_probe_apply(&b) == 0 && b == PAD_B);   /* the last edge releases */
+        util_probe_sent(141000);
+        CHECK(util_probe_take(e, 8, &lost, &active) == 1 && e[0].level == 0 && !active && lost == 0);
+        b = PAD_A;
+        CHECK(util_probe_apply(&b) == 0 && b == PAD_A);   /* stopped: the real A again */
+    }
+#endif
     return TEST_DONE("utils");
 }
 #endif
