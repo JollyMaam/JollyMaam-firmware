@@ -13,6 +13,7 @@ for each board. Commands:
 | `flashpack` | `pack`, then `flash`, using the connected chip's key |
 | `backup` | read the whole flash through the ROM loader |
 | `loader` | ask running firmware to enter the ROM loader, then wait for the loader holding `--pid` |
+| `run` | a device in its ROM loader starts the firmware in its flash (the run command that ends a flash) |
 | `scan` | list what is connected by USB port, classified as below; nothing is restarted |
 
 Options used by the build:

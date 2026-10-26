@@ -1556,9 +1556,10 @@ static enum disk_class classify_disk(device_fd fd, char pid[17], int *chip) {
     return DISK_OTHER;
   if (sg(fd, id, 16, SG_DXFER_FROM_DEV, ident, sizeof ident, 2000) &&
       !memcmp(ident, "C2PD", 4)) {
-    *chip = chip_of((const uint8_t *)"BR23"); /* this protocol runs on BR23 */
     memcpy(pid, ident + 40, 16);
     pid[16] = 0;
+    /* Our firmware runs on the BR23 pads and the BD19 (AC632N) dongle. */
+    *chip = chip_of((const uint8_t *)(strncmp(pid, "AC632N", 6) ? "BR23" : "BD19"));
     return DISK_OURS;
   }
   return *chip >= 0 ? DISK_JIELI : DISK_OTHER;
@@ -2347,7 +2348,7 @@ static void cmd_backup(int argc, char **argv) {
   uint8_t *all = malloc(d.flash_size);
   if (!all || !flash_read(&d, 0, all, d.flash_size)) die("backup: flash read failed");
   write_file(output, all, d.flash_size);
-  printf("backup: %s (%u bytes); reconnect USB to leave the loader\n", output, d.flash_size);
+  printf("backup: %s (%u bytes); jlnewfw run or a USB reconnect leaves the loader\n", output, d.flash_size);
   free(all);
   dev_close(d.fd);
 }
@@ -2364,7 +2365,23 @@ static void cmd_loader(int argc, char **argv) {
   o.enter_loader = true;
   struct dev d = {0};
   select_dev(&d, &o, o.pid);
-  printf("%s: in its ROM loader, holding %s; reconnect USB to leave it\n", d.path, o.pid);
+  printf("%s: in its ROM loader, holding %s; jlnewfw run or a USB reconnect leaves it\n", d.path, o.pid);
+  dev_close(d.fd);
+}
+
+/* A device in its ROM loader starts the firmware in its flash, as after a
+ * flash, without a reconnect. */
+static void cmd_run(int argc, char **argv) {
+  struct flash_opts o = {0};
+  for (int i = 0; i < argc; i++)
+    if (!flash_arg(&o, argc, argv, &i))
+      die("usage: jlnewfw run [--pid PID] [--device PATH] [--loader BLOB]");
+  struct dev d = {0};
+  select_dev(&d, &o, o.pid ? o.pid : "");
+  uint8_t a[4];
+  be32(a, 1);
+  jl_exec(&d, 0xfc0c, a, 4, NULL); /* run: no answer expected */
+  printf("%s: running its firmware\n", d.path);
   dev_close(d.fd);
 }
 
@@ -2429,6 +2446,7 @@ static void cmd_flash(int argc, char **argv) {
 static void cmd_flashpack(int argc, char **argv) { cmd_flash(argc, argv); }
 static void cmd_backup(int argc, char **argv) { cmd_flash(argc, argv); }
 static void cmd_loader(int argc, char **argv) { cmd_flash(argc, argv); }
+static void cmd_run(int argc, char **argv) { cmd_flash(argc, argv); }
 static void cmd_scan(void) { cmd_flash(0, NULL); }
 #endif
 
@@ -2445,6 +2463,7 @@ static void usage(void) {
       "               [--at ADDR] [--mark VALUE] [--copy FROM:TO:LEN]...\n"
       "  jlnewfw backup --pid PID [FLASH OPTIONS] OUTPUT\n"
       "  jlnewfw loader --pid PID [--device PATH] [--wait SECONDS] [--loader BLOB]\n"
+      "  jlnewfw run [--pid PID] [--device PATH] [--loader BLOB]\n"
       "  jlnewfw scan\n"
       "  jlnewfw flash [FLASH OPTIONS] IMAGE\n"
       "  jlnewfw flashpack [PACK OPTIONS] [FLASH OPTIONS] [app.bin ...]\n"
@@ -2499,6 +2518,10 @@ int main(int argc, char **argv) {
   }
   if (!strcmp(argv[1], "loader")) {
     cmd_loader(argc - 2, argv + 2);
+    return 0;
+  }
+  if (!strcmp(argv[1], "run")) {
+    cmd_run(argc - 2, argv + 2);
     return 0;
   }
   if (!strcmp(argv[1], "flash")) {
