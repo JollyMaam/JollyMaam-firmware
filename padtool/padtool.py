@@ -1438,14 +1438,19 @@ def latency(path, seconds, period_ms, event, csv_path=None, throughput=False):
             expected.append(r)
             host_level = r[2]
     j = 0
-    for edge_us, sent_us, level in expected:
+    for i, (edge_us, sent_us, level) in enumerate(expected):
         t_edge = to_host(edge_us)
+        # The next edge of this level takes the events after its own time: an
+        # edge whose event never came must not take that one.
+        until = t_edge + 100e6
+        if i + 2 < len(expected):
+            until = min(until, to_host(expected[i + 2][0]))
         while j < len(presses) and presses[j][0] < t_edge - 2e6:
             j += 1
         k = j
-        while k < len(presses) and presses[k][0] < t_edge + 100e6 and presses[k][1] != level:
+        while k < len(presses) and presses[k][0] < until and presses[k][1] != level:
             k += 1
-        if k < len(presses) and presses[k][0] < t_edge + 100e6:
+        if k < len(presses) and presses[k][0] < until:
             total = (presses[k][0] - t_edge) / 1e6
             pad = ((sent_us - edge_us) & 0xFFFFFFFF) / 1000
             pad_ms.append(pad)

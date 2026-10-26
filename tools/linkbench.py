@@ -18,7 +18,9 @@ The pad's slot (default up) is changed only in RAM; the dongle's bond too.
 import argparse
 import json
 import os
+import re
 import subprocess
+import threading
 import sys
 import time
 
@@ -61,6 +63,25 @@ def wait_connected(seconds=30):
     return False
 
 
+def pad_load(seconds):
+    """The pad's own view over the middle of a run: CPU busy, radio-has-room to report handed over."""
+    time.sleep(2)
+    padtool("stats", "--reset", check=False)
+    time.sleep(max(1, seconds - 4))
+    out = padtool("stats", check=False)
+    load = {}
+    m = re.search(r"busy ([0-9.]+) %", out)
+    if m:
+        load["busy_pct"] = float(m.group(1))
+    m = re.search(r"^want to send\s+\d+\s+(\d+)\s+(\d+)", out, re.M)
+    if m:
+        load["want_to_send_us"] = {"avg": int(m.group(1)), "max": int(m.group(2))}
+    m = re.search(r"^sent to ack\s+\d+\s+(\d+)\s+(\d+)", out, re.M)
+    if m:
+        load["sent_to_ack_us"] = {"avg": int(m.group(1)), "max": int(m.group(2))}
+    return load
+
+
 def summary(path, since=None):
     rows = []
     with open(path) as f:
@@ -81,7 +102,9 @@ def summary(path, since=None):
             g = r["host_gap_ms"] or {}
             print(f"{r['time']:19}  {pad:12} {dongle:18} throughput {r['host_rate']:5.0f}/{r['pad_rate']:<5.0f}"
                   f"  {g.get('p50', 0):6.2f} {g.get('p90', 0):6.2f} {g.get('p99', 0):6.2f} {g.get('max', 0):6.2f}"
-                  f"  {r['lost']}  (gaps) {extra}")
+                  f"  {r['lost']}  (gaps) {extra}"
+                  + (f" busy {r['pad_load'].get('busy_pct', 0):.0f}% want>send "
+                     f"{r['pad_load'].get('want_to_send_us', {}).get('avg', 0)}us" if r.get("pad_load") else ""))
         else:
             t = r["total_ms"] or {}
             print(f"{r['time']:19}  {pad:12} {dongle:18} latency    {'':11}  {t.get('p50', 0):6.2f} {t.get('p90', 0):6.2f}"
@@ -130,14 +153,24 @@ def main():
                 tmp = a.out + ".run"
                 if os.path.exists(tmp):
                     os.remove(tmp)
+                load = {}
+                if extra:                # the pad's CPU while it sends all it can
+                    t = threading.Thread(target=lambda: load.update(pad_load(a.seconds)))
+                    t.start()
                 out = padtool("latency", "--seconds", str(a.seconds), "--json", tmp, "--label", a.label,
                               *extra, timeout=a.seconds * 4 + 60)
+                if extra:
+                    t.join()
                 print("  " + out.replace("\n", "\n  "))
                 with open(tmp) as f:
                     r = json.loads(f.read())
                 os.remove(tmp)
                 r["dongle"] = dongle_id
                 r["settings"] = dict(settings)
+                if load:
+                    r["pad_load"] = load
+                    print(f"  pad: busy {load.get('busy_pct', 0):.1f} %, room -> report handed "
+                          f"{load.get('want_to_send_us', {}).get('avg', 0)} us avg")
                 with open(a.out, "a") as f:
                     f.write(json.dumps(r) + "\n")
     finally:

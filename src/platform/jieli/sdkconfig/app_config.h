@@ -20,6 +20,8 @@
 /* The CPU clock (clk_set("sys") at boot).  48 MHz, not the SDK's 24: at 24 the
  * old firmware's control loop starved the idle task that feeds the watchdog
  * (commit 5575ae7).  The peripheral clock stays 24 MHz either way. */
+#ifndef BT_NORMAL_HZ              /* a test build: make ... EXTRA_DEFINES=-DBT_NORMAL_HZ=... */
 #define BT_NORMAL_HZ (48 * 1000000L)
+#endif
 
 #endif

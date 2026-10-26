@@ -126,6 +126,7 @@ volatile u32 plat_now_ms;
 /* Keep the ISR divider in its own word: byte globals may share a
  * compiler-merged word with task-written flags on this toolchain. */
 static volatile u32 quarter;
+static u32 tick_mhz = 24;                /* timer 3's clock, lsb: sys / 2 at 48 MHz, / 3 at 96 */
 static u32 line_state;
 static u8 line_lock[LINES_MAX];
 static volatile u32 events;
@@ -249,12 +250,13 @@ static void tick_start(void)
     os_sem_create(&wake_sem, 0);
     JL_TIMER3->CON = BIT(14);
     JL_TIMER3->CNT = 0;
-    JL_TIMER3->PRD = 24 * TICK_US;
+    tick_mhz = clk_get("lsb") / 1000000;
+    JL_TIMER3->PRD = tick_mhz * TICK_US;
     /* Above the controller's interrupts (2) and the stick UART (3): time is
      * counted in ticks, and at 1, with a link up, ticks held off past the
      * next one were lost, 2-6 % (plat_ms ran that much slow). */
     request_irq(IRQ_TIME3_IDX, 5, tick_isr, 0);
-    /* The lsb clock (24 MHz: sys 48 MHz / 2).  On the "osc" input (BIT(3)),
+    /* The lsb clock (24 MHz at sys 48 MHz).  On the "osc" input (BIT(3)),
      * as timer 2 still is, timer 3 counted about 1 MHz, unsteadily, on some
      * boots (one in 15 to 35): the slow tick. */
     JL_TIMER3->CON = BIT(0);
@@ -405,8 +407,8 @@ u32 plat_us(void)
         cnt = JL_TIMER3->CNT;
         pending = JL_TIMER3->CON & BIT(15);
     } while (ms != ms_now || q != quarter);
-    if (pending && cnt < 24 * TICK_US / 2) cnt += 24 * TICK_US;
-    return ms * 1000 + q * TICK_US + cnt / 24;
+    if (pending && cnt < tick_mhz * TICK_US / 2) cnt += tick_mhz * TICK_US;
+    return ms * 1000 + q * TICK_US + cnt / tick_mhz;
 }
 
 /* ---- sampling profiler ------------------------------------------------------
@@ -838,7 +840,7 @@ static void usb_probe(void)
     if (probe_capture) {
         JL_TIMER3->CON = BIT(14);
         JL_TIMER3->CNT = 0;
-        JL_TIMER3->PRD = 24 * TICK_US;
+        JL_TIMER3->PRD = tick_mhz * TICK_US;
         JL_TIMER3->CON = BIT(0);
     }
     IOMAP_CON1 = iomap1;
