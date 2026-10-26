@@ -511,7 +511,7 @@ void in_response(const struct set_remap *m, struct pad *pad);
 #define TARGETS        (TARGET_BASE + 1)
 
 enum { SET_OK, SET_UNKNOWN, SET_BAD_LENGTH, SET_RANGE, SET_FULL,
-       SET_NOT_HELD };            /* ephemeral, a board holding fewer remaps: not the one held */
+       SET_NOT_HELD };            /* ephemeral: a remap other than the one held (in use) */
 enum { SET_UNPAIR = 0xfe };       /* WRITE action: slot only, zero-length; applied on COMMIT */
 
 void set_init(void);

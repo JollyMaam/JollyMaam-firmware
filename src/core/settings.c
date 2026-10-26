@@ -299,13 +299,6 @@ static const struct set_field cal_fields[] = {
 #define REMAP_BASE_STORED 1
 #endif
 _Static_assert(REMAP_BASE_STORED || !REMAPS_STORED, "remap slots inherit from a kept base");
-/* The remaps kept that are held in RAM at once: the rest stay in flash, and
- * one is read in when it is wanted, in place of the one used longest ago
- * (what changed there written first; ephemeral changes there are lost). */
-#ifndef REMAP_RAM
-#define REMAP_RAM     (REMAPS_STORED + 1)
-#endif
-_Static_assert(REMAP_RAM >= 1 && REMAP_RAM <= REMAPS_STORED + 1, "remaps held");
 #ifndef STAGE_MAX
 #define STAGE_MAX     1024
 #endif
@@ -322,9 +315,8 @@ static const struct set_slot none_slot = { .type = PROFILE_NONE };
 static struct set_palette pal;
 static struct set_cal cal;
 #if REMAP_BASE_STORED
-static struct set_remap remaps[REMAP_RAM];
-static u8 remap_held[REMAP_RAM];   /* the target in remaps[i]; 0: none */
-static u8 remap_age[REMAP_RAM];    /* 0: used last */
+static struct set_remap remap;   /* the one remap held: the rest stay in flash */
+static u8 remap_held;            /* its target; 0: none */
 #endif
 static u32 set_bits[TARGETS];
 static u32 dirty;            /* a bit per target */
@@ -523,14 +515,14 @@ static void default_value(u8 t, const struct set_field *f, u8 *out)
 
 static int in_ram(u8 t);
 
-/* Ephemeral changes live only in RAM: with fewer remaps held than kept, only
- * the one held (the one in use, connected) takes them. */
+/* Ephemeral changes live only in RAM: only the remap held (the one in use)
+ * takes them. */
 static int ephemeral_refuses(u8 t)
 {
-    return ephemeral && REMAP_RAM < REMAPS_STORED + 1 && t >= TARGET_REMAP && !in_ram(t);
+    return ephemeral && !in_ram(t);
 }
 
-/* The remap slots' unset fields follow the base (those held). */
+/* The remap slot held follows the base in its unset fields. */
 static void inherit(void)
 {
     u32 i;
@@ -670,22 +662,13 @@ static void write_target(u8 t)
         plat_store_write(key_of(t, part), buf, (u16)encode(t, part, buf));
 }
 
-/* ---- the remaps held -------------------------------------------------------
- * remaps[] holds REMAP_RAM of them; the others are read from flash. */
+/* ---- the remap held -------------------------------------------------------
+ * One remap is in RAM at a time; the others are read from flash. */
 
 #if REMAP_BASE_STORED
-static int held(u8 t)
-{
-    u32 i;
-
-    for (i = 0; i < REMAP_RAM; i++)
-        if (remap_held[i] == t) return (int)i;
-    return -1;
-}
-
 static int in_ram(u8 t)
 {
-    return t < TARGET_REMAP || held(t) >= 0;
+    return t < TARGET_REMAP || remap_held == t;
 }
 
 /* Field bit of remap target t as flash has it, into out: 0 if not set there. */
@@ -704,40 +687,34 @@ static __attribute__((noinline)) int stored_field(u8 t, const struct set_field *
 
 static void base_value(const struct set_field *f, u8 *out)
 {
-    int i = held(TARGET_BASE);
-
-    if (i >= 0) memcpy(out, (const u8 *)&remaps[i] + f->offset, f->size);
+    if (remap_held == TARGET_BASE) memcpy(out, (const u8 *)&remap + f->offset, f->size);
     else if (!stored_field(TARGET_BASE, f, (u32)(f - remap_fields), out)) own_default(TARGET_BASE, f, out);
 }
 
-/* remaps[i] freed: its changes written; ephemeral ones are lost. */
-static __attribute__((noinline)) void release(u32 i)
+/* The remap held put out: its changes written; ephemeral ones are lost. */
+static __attribute__((noinline)) void release(void)
 {
-    u8 t = remap_held[i];
+    u8 t = remap_held;
 
     if (!t) return;
     if (dirty >> t & 1) write_target(t);
     if (tried >> t & 1) util_log("settings: ephemeral changes to remap %u lost", t - TARGET_REMAP);
     dirty &= ~(1u << t);
     tried &= ~(1u << t);
-    remap_held[i] = 0;
+    remap_held = 0;
 }
 
-/* Remap target t from flash into remaps[i]: its defaults, what it takes
- * from the base, then its own records. */
-static __attribute__((noinline)) void load(u32 i, u8 t)
+/* Remap target t from flash into remap: its defaults, what it takes from
+ * the base, then its own records. */
+static __attribute__((noinline)) void load(u8 t)
 {
-    u8 buf[RECORD_MAX], *v = (u8 *)&remaps[i];
+    u8 buf[RECORD_MAX], *v = (u8 *)&remap;
     u32 mask = inherited(t), part, k;
-    int base = held(TARGET_BASE), n;
+    int n;
 
     for (k = 0; k < COUNT(remap_fields); k++)
-        if (base >= 0 && (mask >> k & 1))
-            memcpy(v + remap_fields[k].offset, (const u8 *)&remaps[base] + remap_fields[k].offset,
-                   remap_fields[k].size);
-        else
-            own_default(t, &remap_fields[k], v + remap_fields[k].offset);
-    for (part = 0; base < 0 && mask && part < parts_of(t); part++) {
+        own_default(t, &remap_fields[k], v + remap_fields[k].offset);
+    for (part = 0; mask && part < parts_of(t); part++) {
         n = plat_store_read(key_of(TARGET_BASE, part), buf, sizeof(buf));
         if (n > 0) unpack(TARGET_BASE, buf, (u32)n, v, mask);
     }
@@ -746,30 +723,17 @@ static __attribute__((noinline)) void load(u32 i, u8 t)
         n = plat_store_read(key_of(t, part), buf, sizeof(buf));
         if (n > 0) set_bits[t] |= unpack(t, buf, (u32)n, v, ~0u);
     }
-    remap_held[i] = t;
+    remap_held = t;
 }
 
-/* Remap target t in RAM, read in if it is not, in place of the one used
- * longest ago. */
+/* Remap target t in RAM, read in in place of the one held if it is not. */
 static u8 *hold(u8 t)
 {
-    int i = held(t);
-    u32 k;
-
-    if (i < 0) {
-        i = 0;
-        for (k = 1; k < REMAP_RAM; k++)
-            if (remap_held[i] && (!remap_held[k] || remap_age[k] > remap_age[i])) i = (int)k;
-        release((u32)i);
-        load((u32)i, t);
-        remap_age[i] = 255;      /* aged below, to 0: used last */
+    if (remap_held != t) {
+        release();
+        load(t);
     }
-    if (remap_age[i]) {
-        for (k = 0; k < REMAP_RAM; k++)
-            if (remap_age[k] < 255) remap_age[k]++;
-        remap_age[i] = 0;
-    }
-    return (u8 *)&remaps[i];
+    return (u8 *)&remap;
 }
 #else
 static int in_ram(u8 t)
@@ -791,7 +755,7 @@ void set_init(void)
     int n;
 
 #if REMAP_BASE_STORED
-    memset(remap_held, 0, sizeof(remap_held));   /* read in when wanted */
+    remap_held = 0;              /* read in when wanted */
 #endif
     tried = 0;
     for (t = 0; t < TARGET_REMAP; t++) {
@@ -1247,17 +1211,17 @@ static void held_remaps(void)
     CHECK(set_remap(0)->rumble_kick_ms[2] == 3);              /* from the base */
     set_ephemeral();
     rumble = 2;
-    CHECK(write1(TARGET_REMAP + 1, 18, 1, &rumble) == (REMAP_RAM == 1 ? SET_NOT_HELD : SET_OK));
+    CHECK(write1(TARGET_REMAP + 1, 18, 1, &rumble) == SET_NOT_HELD);
     (void)set_remap(1);
     CHECK(write1(TARGET_REMAP + 1, 18, 1, &rumble) == SET_OK);
     (void)set_remap(0);                                          /* put out before commit */
     set_apply();
-    CHECK(set_remap(1)->rumble == (REMAP_RAM == 1 ? 4 : 2));    /* held again */
+    CHECK(set_remap(1)->rumble == 4);                           /* held again */
     CHECK(write1(TARGET_REMAP + 1, 18, 1, &rumble) == SET_OK);
     set_apply();
     CHECK(set_remap(1)->rumble == 2);
     (void)set_remap(0);                                          /* changes lost */
-    CHECK(set_remap(1)->rumble == (REMAP_RAM == 1 ? 4 : 2));
+    CHECK(set_remap(1)->rumble == 4);
     ephemeral = 0;
     CHECK(write1(TARGET_BASE, 0, 0, NULL) == SET_OK && write1(TARGET_REMAP + 1, 0, 0, NULL) == SET_OK);
     set_apply();
@@ -1364,7 +1328,7 @@ static int full_storage(void)
         /* Stored under its own keys, and followed again after a restart. */
         set_flush();
         CHECK(store[KEY_BASE][2] == VERSION && store[KEY_BASE_STICKS][2] == VERSION);
-        memset(remaps, 0, sizeof(remaps));
+        memset(&remap, 0, sizeof(remap));
         set_init();
         CHECK(set_remap(3)->rumble == 2 && set_remap(3)->map[3] == REMAP_OFF && set_remap(0)->map[3] == 4 + 1);
         CHECK(!strcmp(set_remap(REMAP_BASE)->name, "Base"));
