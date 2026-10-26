@@ -59,8 +59,10 @@
                                   (a dongle, its own USB, the PC's Bluetooth):
                                   pad, air and total latency, the rate the PC
                                   sees and edges lost.  Leave A alone; the pad
-                                  stays on USB for its clock.  --period 2 or
-                                  less loads the link fully (rates only)
+                                  stays on USB for its clock.  --throughput:
+                                  A flips in every report the pad sends, for
+                                  the most reports/s the link carries and the
+                                  reports lost or merged on the way
     padtool tool [HIDRAW]         a pad or dongle that is a game controller on
                                   USB (a HID one): back to the tool device, via
                                   feature report 0xf5 on each hidraw (or HIDRAW)
@@ -1333,7 +1335,7 @@ def percentiles(values):
     return f"p50 {pick(.5):6.2f}  p90 {pick(.9):6.2f}  p99 {pick(.99):6.2f}  max {v[-1]:6.2f} ms"
 
 
-def latency(path, seconds, period_ms, event, csv_path=None):
+def latency(path, seconds, period_ms, event, csv_path=None, throughput=False):
     if not event:
         nodes = gamepad_events()
         if len(nodes) != 1:
@@ -1342,8 +1344,12 @@ def latency(path, seconds, period_ms, event, csv_path=None):
         event = nodes[0][0]
     fd = os.open(event, os.O_RDONLY | os.O_NONBLOCK)
     fcntl.ioctl(fd, EVIOCSCLOCKID, struct.pack("i", CLOCK_MONOTONIC))
-    edges = max(2, int(seconds * 1000 / period_ms))
-    print(f"{edges} A edges, one per {period_ms} ms at random times; host events from {event}")
+    if throughput:
+        period_ms, edges = 0, int(seconds * 2000)     # more than the link can take: stopped by time
+        print(f"A flips in every report the pad sends, for {seconds:g} s; host events from {event}")
+    else:
+        edges = max(2, int(seconds * 1000 / period_ms))
+        print(f"{edges} A edges, one per {period_ms} ms at random times; host events from {event}")
 
     syncs, records, events = [], [], []
     def sync(n=8):                     # the tightest of n round trips
@@ -1381,6 +1387,11 @@ def latency(path, seconds, period_ms, event, csv_path=None):
                 sync()
                 next_sync += 1
             if not active:
+                break
+            if throughput and time.monotonic_ns() - started >= seconds * 1e9:
+                scsi(path, bytes([OP, 0x1C, 2]), 0)
+                time.sleep(0.05)
+                lost, active = take()
                 break
     except KeyboardInterrupt:
         scsi(path, bytes([OP, 0x1C, 2]), 0)
@@ -1451,6 +1462,17 @@ def latency(path, seconds, period_ms, event, csv_path=None):
           f"({len(records) - len(alone)} undone first), {len(total_ms)} of the {len(expected)} "
           f"changes it should see seen by the host"
           f"{f', {lost} records overwritten' if lost else ''}")
+    if throughput:
+        sent = sorted(to_host(r[1]) for r in alone)
+        seen = [t for t, v in presses if started <= t <= ended]
+        window = (sent[-1] - sent[0]) / 1e9 if len(sent) > 1 else span
+        gaps = [(b - a) / 1e6 for a, b in zip(seen, seen[1:])]
+        print(f"pad: {len(sent)} reports sent, {len(sent) / window:.0f}/s; "
+              f"host: {len(seen)} A changes seen, {len(seen) / window:.0f}/s "
+              f"({max(0, len(sent) - len(seen))} lost or merged)")
+        if gaps:
+            print(f"host gaps between reports            {percentiles(gaps)}")
+        return
     print(f"pad: {len(alone) / span:.0f} reports/s sent with a new edge; "
           f"host: {reports / span:.0f} reports/s with a change, key {code:#x}")
     if period_ms < 10:
@@ -1525,6 +1547,8 @@ def main():
                    help="profile: add up per source file, per part, or per source line (zoom first)")
     p.add_argument("--elf", help="profile: the running build's ELF (default: selected board's build)")
     p.add_argument("--period", type=int, default=20, help="latency: one A edge per this many ms")
+    p.add_argument("--throughput", action="store_true",
+                   help="latency: A flips in every report the pad sends: the most reports per second")
     p.add_argument("--csv", help="latency: write each edge's times (and the host's key events) here")
     p.add_argument("--event", help="latency: the host's evdev node for the slot (default: the only gamepad)")
     a = p.parse_args()
@@ -1576,7 +1600,7 @@ def main():
         except KeyboardInterrupt:
             pass
     elif a.command == "latency":
-        latency(need_device(), a.seconds or 10, a.period, a.event, a.csv)
+        latency(need_device(), a.seconds or 10, a.period, a.event, a.csv, a.throughput)
     elif a.command == "trace":
         trace(need_device(), a.watch or 0.5, a.top)
     elif a.command == "peek":

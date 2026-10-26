@@ -144,7 +144,9 @@ u32 util_trace_read(u32 offset, u8 *out, u32 max)
  * stamped twice: when it happened and when the first report carrying it was
  * sent (util_probe_sent).  An edge undone before any report carried it is
  * stamped sent 0.  The tool device reads the records (util_probe_take) and
- * the PC matches them with its own input events.  Nothing is saved. */
+ * the PC matches them with its own input events.  Period 0: A flips in
+ * every report instead, as soon as the last one went out (the most reports
+ * the link carries).  Nothing is saved. */
 #ifndef PROBE_EDGES
 #ifdef BOARD_DONGLE
 #define PROBE_EDGES 0            /* no buttons of its own to probe */
@@ -158,6 +160,8 @@ static struct {
     u32 period_us, slot_us, next_us;
     u32 rng;
     u8 level;                    /* A as the probe holds it */
+    u8 every_report;             /* period 0: flip after each report sent */
+    u8 flip;                     /* every_report: a report went out, flip at the next input */
     u32 head, unsent, tail, lost;   /* records [tail, head); [unsent, head) not sent yet */
     struct util_probe_edge ring[PROBE_EDGES];
 } probe;
@@ -174,6 +178,8 @@ void util_probe_start(u32 edges, u32 period_ms)
 {
     plat_lock();
     probe.left = (edges + 1) & ~1u;      /* even: it ends released */
+    probe.every_report = !period_ms;
+    probe.flip = 1;
     probe.period_us = (period_ms ? period_ms : 1) * 1000;
     probe.slot_us = plat_us();
     probe.rng = probe.slot_us | 1;
@@ -191,6 +197,7 @@ u32 util_probe_apply(u32 *buttons)
 
     if (!probe.left && !probe.level) return 0;
     plat_lock();
+    if (probe.every_report) probe.next_us = probe.flip ? now : now + 1;
     while (probe.left && (s32)(now - probe.next_us) >= 0) {
         struct util_probe_edge *e;
 
@@ -205,13 +212,15 @@ u32 util_probe_apply(u32 *buttons)
         e->sent_us = 0;
         e->level = probe.level;
         probe.left--;
+        probe.flip = 0;
+        if (probe.every_report) break;
         probe.slot_us += probe.period_us;
         probe.next_us = probe.slot_us + probe_random() % probe.period_us;
     }
     plat_unlock();
     if (probe.level) *buttons |= PAD_A;
     else *buttons &= ~(u32)PAD_A;
-    return probe.left ? probe.next_us : 0;
+    return probe.left && !probe.every_report ? probe.next_us : 0;
 }
 
 /* A report built from the newest input went out at us: the newest edge is in
@@ -222,6 +231,7 @@ void util_probe_sent(u32 us)
     plat_lock();
     probe.ring[(probe.head - 1) % PROBE_EDGES].sent_us = us ? us : 1;
     probe.unsent = probe.head;
+    probe.flip = 1;
     plat_unlock();
 }
 
@@ -409,6 +419,17 @@ int main(void)
         CHECK(util_probe_take(e, 8, &lost, &active) == 1 && e[0].level == 0 && !active && lost == 0);
         b = PAD_A;
         CHECK(util_probe_apply(&b) == 0 && b == PAD_A);   /* stopped: the real A again */
+
+        util_probe_start(4, 0);                  /* every report */
+        b = 0;
+        CHECK(util_probe_apply(&b) == 0 && b == PAD_A);   /* flipped at once, no deadline */
+        CHECK(util_probe_apply(&b) == 0 && b == PAD_A);   /* not again before a report */
+        util_probe_sent(150000);
+        util_probe_apply(&b);
+        CHECK(b == 0);
+        util_probe_sent(151000);
+        CHECK(util_probe_take(e, 8, &lost, &active) == 2 && e[0].sent_us == 150000 &&
+              e[1].level == 0 && e[1].sent_us == 151000);
     }
 #endif
     return TEST_DONE("utils");
