@@ -50,3 +50,19 @@ $(eval $(call jieli_board,$(NOVA2LITE_PAD)))$(eval $(call host_tests,$(NOVA2LITE
 .PHONY: gamesir-nova-2-lite-all gamesir-nova-2-lite-test
 gamesir-nova-2-lite-all: $(NOVA2LITE_PAD)
 gamesir-nova-2-lite-test: $(NOVA2LITE_PAD)-test
+
+# Nova dongle: BD19/AC632N (q32s), reusing the app's dongle link and USB profiles.
+NOVA2LITE_DONGLE := gamesir-nova-2-lite-dongle
+$(NOVA2LITE_DONGLE)_CHIP := bd19
+$(NOVA2LITE_DONGLE)_FLASH_SIZE := 0x80000
+$(NOVA2LITE_DONGLE)_PID := AC632N_TRANS
+$(NOVA2LITE_DONGLE)_DEFINES := -DBOARD_DONGLE -DLOG_LINES=16 -DTRACE=16 -DUSB_DMA_BUF_MAX_SIZE=512
+# Stock's long-press reset: off (time 00).
+$(NOVA2LITE_DONGLE)_DEFINES += -DCONFIG_RESET_PIN=PB02 -DCONFIG_RESET_TIME=00 -DCONFIG_RESET_LEVEL=0
+$(NOVA2LITE_DONGLE)_BOARD_DIR := src/boards/gamesir-cyclone-2
+$(NOVA2LITE_DONGLE)_LOADER_HINT := Hold the pairing button while connecting USB.
+$(NOVA2LITE_DONGLE)_SOURCES := $(filter-out src/boards/gamesir-cyclone-2/board_dongle.c src/platform/jieli/platform_jieli_audio.c src/platform/jieli/btstack_qos_jieli.c,$($(CYCLONE2_DONGLE)_SOURCES))
+$(NOVA2LITE_DONGLE)_SOURCES += src/boards/gamesir-nova-2-lite/board_dongle.c src/platform/jieli/platform_jieli_noaudio.c
+$(eval $(call jieli_board,$(NOVA2LITE_DONGLE)))$(eval $(call host_tests,$(NOVA2LITE_DONGLE)))
+gamesir-nova-2-lite-all: $(NOVA2LITE_DONGLE)
+gamesir-nova-2-lite-test: $(NOVA2LITE_DONGLE)-test

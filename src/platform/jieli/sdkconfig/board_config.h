@@ -5,12 +5,18 @@
  * CONFIG_FLASH_SIZE comes from the Makefile (the board's flash). */
 #define CONFIG_UPDATE_JUMP_TO_MASK 0
 #define CONFIG_ONLY_GRENERATE_ALIGN_4K_CODE 1
+#ifdef CONFIG_CPU_BD19
+#define CONFIG_CHIP_NAME           AC632N
+#else
 #define CONFIG_CHIP_NAME           AC635N
+#endif
 #define CONFIG_PID                 AC635N
 #define CONFIG_VID                 0.01
+#ifndef CONFIG_RESET_PIN           /* a board's own: make/<product>.mk */
 #define CONFIG_RESET_PIN           PB01
 #define CONFIG_RESET_TIME          8
 #define CONFIG_RESET_LEVEL         0
+#endif
 
 #define ENABLE           1   /* usb_device.c, platform_jieli.c */
 #define DISABLE          0
@@ -21,7 +27,9 @@
 #define TCFG_PC_ENABLE   MODULE_ENABLED
 #include "usb_std_class_def.h"
 #define USB_DEVICE_CLASS_CONFIG     MASSSTORAGE_CLASS
+#ifndef USB_DMA_BUF_MAX_SIZE
 #define USB_DMA_BUF_MAX_SIZE        1024    /* our endpoints, audio included */
+#endif
 
 /* Clock and power set-up at boot: setup.c and platform_jieli.c. */
 #define TCFG_CLOCK_SYS_SRC  SYS_CLOCK_INPUT_PLL_BT_OSC

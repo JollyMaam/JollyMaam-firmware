@@ -74,6 +74,20 @@ written to RAM at `0x2000` with the loader commands of
 erases and writes the flash with the BR23 loader's commands; the run command
 afterwards starts the written firmware.
 
+The pairing button is on `PA8`: with the pin pulled up, it reads low while
+pressed (found with a probe of `PA0`..`PA9` and `PB0`..`PB9`). With our
+firmware flashed, the ROM loader is also entered by the `USB_KEY` pattern of
+`cyclone2-esp32/jl-forced-usb` sent on D+/D- at power-up.
+
+### BD19 differences that matter to our firmware
+
+- GPIO groups are A, B, D and P (`gpio / 16` = 2 is port D); there is no
+  port C, and reading `JL_PORTC` raises an exception.
+- The heap is the RAM between the end of `.bss`/overlays and the retained
+  area, about 18 KiB in our build; when `malloc` finds nothing it resets the
+  chip (source `0x20`) instead of returning NULL.  `xPortGetFreeHeapSize()`
+  reports about 66 KiB regardless.
+
 ## Inputs
 
 Found with a probe firmware (`pinprobe.c`, removed after commit 7607b19)

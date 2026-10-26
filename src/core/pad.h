@@ -814,6 +814,11 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 len, int from_host);   /* the pl
 
 void util_log_init(void);
 void util_log(const char *fmt, ...);
+#ifdef DEBUG_UART_DP
+void plat_debug_line(const char *text);  /* a bring-up build's UART on USB D+ */
+#else
+#define plat_debug_line(text) ((void)0)
+#endif
 u32 util_log_read(u32 *seq, char *out, u32 max);
 static inline int util_is_zero(const void *data, u32 len)
 {

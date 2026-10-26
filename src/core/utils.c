@@ -42,6 +42,7 @@ void util_log(const char *fmt, ...)
     va_start(ap, fmt);
     vsnprintf(ring.line[i].text, LOG_TEXT, fmt, ap);
     va_end(ap);
+    plat_debug_line(ring.line[i].text);
 }
 
 /* Lines from sequence number *seq on, "seconds.ms text\n" each (time since

@@ -62,7 +62,11 @@ const int sniff_support_reset_anchor_point = 0;
 const int sniff_long_interval = (500 / 0.625);
 const int clock_sys_src_use_lrc_hw = 0;
 const int config_printf_time = 1;
+#ifdef DEBUG_UART_DP
+const int config_asser = 1;            /* a bring-up build prints the failure */
+#else
 const int config_asser = BTCFG_ASSER;
+#endif
 const int config_system_info = 0;
 const int CONFIG_CPU_UNMASK_IRQ_ENABLE = 2;
 const int config_update_mode = (1UL << (0)) | (1UL << (4)) | (1UL << (3)) | (1UL << (2));
@@ -90,6 +94,9 @@ TAG(i_LL_TWS_SCAN) TAG(i_LL_WL) TAG(i_LMP) TAG(i_LP_TIMER) TAG(i_LRC) TAG(i_PMU)
 TAG(i_P_MEM) TAG(i_RF) TAG(i_SYSCFG) TAG(i_SYS_TMR) TAG(i_TMR) TAG(i_TWS)
 TAG(i_TWS_LE) TAG(i_TWS_LMP) TAG(i_Thread) TAG(i_USB) TAG(i_VM) TAG(i_V_MEM)
 TAG(i_WKUP) TAG(v_LMP) TAG(w_LL_AFH)
+#ifdef DEBUG_UART_DP
+const char log_tag_const_e_DEBUG AT(.LOG_TAG_CONST) = 1;  /* exception_analyze */
+#endif
 
 const int vm_max_size_config = VM_MAX_SIZE_CONFIG;
 
@@ -105,4 +112,35 @@ u16 update_result_get(void) { return 0; }
 void debug_uart_init(const struct uart_platform_data *data) { (void)data; }
 int eSystemConfirmStopStatus(void) { return 1; }
 __attribute__((used)) int *__errno(void) { static int err; return &err; }
+#ifdef DEBUG_UART_DP
+/* A bring-up build shows the libraries' own lines (exceptions among them). */
+#include <stdarg.h>
+#include "pad.h"
+int vsnprintf(char *, unsigned long, const char *, va_list);
+int printf_lite(const char *format, ...)
+{
+    char line[128];
+    va_list ap;
+
+    va_start(ap, format);
+    vsnprintf(line, sizeof(line), format, ap);
+    va_end(ap);
+    plat_debug_line(line);
+    return 0;
+}
+#else
 int printf_lite(const char *format, ...) { (void)format; return 0; }
+#endif
+
+#ifdef CONFIG_CPU_BD19
+/* BD19 SDK HID defaults. */
+const u8 lp_bt_sniff_use_btosc = 0;
+const int set_to_close_timer0_delay = 0;
+const int CONFIG_BLE_SYNC_WORD_BIT = 30;
+const int CONFIG_PAGE_POWER = 4;
+const int CONFIG_PAGE_SCAN_POWER = 7;
+const int CONFIG_INQUIRY_SCAN_POWER = 7;
+const int CONFIG_BTCTLER_QOS_ENABLE = 1;
+TAG(e_PMU) TAG(i_DEBUG)
+int filter_out_sbc_data_en(void) { return 0; }
+#endif

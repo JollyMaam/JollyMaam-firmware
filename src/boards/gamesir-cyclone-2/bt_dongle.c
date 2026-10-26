@@ -46,7 +46,11 @@ static void rendezvous(bd_addr_t a)
 #define LISTEN_MS      15000     /* before paging the pad ourselves (no bond only) */
 #define STORE_BOND     1         /* syscfg user item: peer, key, type */
 #define PAGE_EVERY_MS  2000      /* after the last page ended */
+#if HCI_ACL_PAYLOAD_SIZE - 4 < 512
+#define MTU            (HCI_ACL_PAYLOAD_SIZE - 4)    /* one ACL packet, reassembled */
+#else
 #define MTU            512
+#endif
 #define OUTPUT_MS      100       /* working stock-format keepalive interval */
 
 static btstack_packet_callback_registration_t hci_reg, l2cap_reg;

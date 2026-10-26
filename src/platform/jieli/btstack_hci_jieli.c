@@ -38,7 +38,9 @@ int hci_packet_handler(u8 type, u8 *packet, u16 size)
 {
     u8 next;
 
+#ifndef CONFIG_CPU_BD19
     if (type == HCI_EVENT_PACKET) btctrlermod_qos_link_event(packet, size);
+#endif
 
     /* HCI Reset puts the factory address back: reapply ours before BTstack
      * reads it. */
@@ -265,7 +267,9 @@ void hci_jieli_drop_link(void)
     if (!rx_active) return;
     rx_active = 0;
     btctrler_task_exit();
+#ifndef CONFIG_CPU_BD19
     btctrlermod_qos_reset();
+#endif
     controller_up = 0;
 }
 
@@ -324,12 +328,16 @@ void hci_jieli_close(void)
 {
     if (controller_up) btctrler_task_exit();
     controller_up = 0;
+#ifndef CONFIG_CPU_BD19
     btctrlermod_qos_reset();
+#endif
 }
 
 void hci_jieli_init(void)
 {
+#ifndef CONFIG_CPU_BD19
     plat_p256_thread(p256_body);
+#endif
 }
 
 static int transport_open(void)
@@ -436,7 +444,9 @@ static void execute(void)
     s32 next;
 
     while (!exit_requested) {
+#ifndef CONFIG_CPU_BD19
         btctrlermod_qos_tick();
+#endif
         btstack_run_loop_base_poll_data_sources();
         btstack_run_loop_base_execute_callbacks();
         btstack_run_loop_base_process_timers(now_ms());
@@ -530,9 +540,12 @@ void hci_jieli_prepare(u16 slots, u16 attempt, int edr3)
 
 void hci_jieli_tx_power(u8 step, u8 pro)
 {
+#ifndef CONFIG_CPU_BD19
     static u8 was_pro;
+#endif
 
     bt_max_pwr_set(step, 5, 8, step);
+#ifndef CONFIG_CPU_BD19
     if (pro || was_pro) {
         u8 vdc13 = p33_rx_1byte(P3_ANA_CON6) & 0x07;
 
@@ -540,6 +553,9 @@ void hci_jieli_tx_power(u8 step, u8 pro)
         P33_CON_SET(P3_ANA_CON6, 0, 3, vdc13);
     }
     was_pro = pro;
+#else
+    (void)pro;
+#endif
 }
 
 /* What sniff_negotiation_hook answers with while our own request is out. */

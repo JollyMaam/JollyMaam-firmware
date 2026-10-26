@@ -1,7 +1,9 @@
 #include <system/includes.h>
 #include <asm/power_interface.h>
 #include <asm/power/p33.h>
+#ifndef CONFIG_CPU_BD19
 #include <asm/power/power_port.h>
+#endif
 #include <asm/charge.h>
 #include <asm/clock.h>
 #include <asm/rtc.h>
@@ -21,11 +23,18 @@
 #define DEBOUNCE_TICKS  8
 #define LINES_MAX       32
 
+#ifdef CONFIG_CPU_BD19
+#define USB_CON0        JL_USB->CON0
+#define USB_CON1        JL_USB->CON1
+#define USB_IO_CON0     JL_USB_IO->CON0
+#define MASKROM_TOKEN   ((volatile u8 *)0xfc00)
+#else
 #define USB_CON0        (*(volatile u32 *)0x001e1800)
 #define USB_CON1        (*(volatile u32 *)0x001e1804)
 #define USB_IO_CON0     (*(volatile u32 *)0x001e5100)
 #define USB_IO_CON1     (*(volatile u32 *)0x001e5104)
 #define MASKROM_TOKEN   ((volatile u8 *)0x00010800)
+#endif
 #define USB_VENDOR_OP   0xf5
 #define USB_SOF_STALE_MS 250
 
@@ -39,6 +48,22 @@ extern u32 msd_usb2mcu(const struct usb_device_t *usb_device, u8 *buffer, u32 le
 extern u8 *get_norflash_uuid(void) __attribute__((weak));
 extern void hci_jieli_init(void);
 
+#ifdef CONFIG_CPU_BD19
+/* The BD19's heap is about 18 KB, and running out of it resets the chip:
+ * the SDK's BD19 HID sizes (in words), ours smaller than on the BR23.
+ * Stack use not measured yet. */
+const struct task_info task_info_table[] = {
+    {"app_core",  1, 0, 640,  128 },
+    {"ctl",       2, 0, 512,  0   },
+    {"sys_event", 7, 0, 256,  0   },
+    {"btctrler",  4, 0, 512,  256 },
+    {"btencry",   1, 0, 512,  128 },
+    {"btstack",   3, 0, 1024, 256 },
+    {"systimer",  7, 0, 128,  0   },
+    {"update",    1, 0, 512,  0   },
+    {0, 0},
+};
+#else
 const struct task_info task_info_table[] = {
     {"app_core",  1, 0, 1024, 128 },
     {"ctl",       2, 0, 1024, 0   },
@@ -51,13 +76,19 @@ const struct task_info task_info_table[] = {
     {"update",    1, 0, 512,  0   },
     {0, 0},
 };
+#endif
 
 /* ---- MaskROM calls: out of range of a direct CALL from flash ------------- */
 
 void plat_mdelay(u32 ms)
 {
+#ifdef CONFIG_CPU_BD19
+    void (* volatile f)(u32) = (void (*)(u32))0x001051fa;
+    f(ms);
+#else
     void (* volatile f)(u32) = (void (*)(u32))0x00111524;
     f(ms);
+#endif
 }
 
 void plat_flush_dcache(const void *address, u32 size)
@@ -107,7 +138,15 @@ static OS_SEM wake_sem;
 static volatile u32 changed_us;
 struct plat_stats plat_counters;
 
-static u16 port_mask[4];                 /* the button pins on ports A-D */
+/* The four GPIO groups, as gpio / 16 numbers them: A-D on the BR23; A, B,
+ * D and P on the BD19, which has no port C (reading it faults). */
+#ifdef CONFIG_CPU_BD19
+#define PORT_GROUPS(in) { JL_PORTA->in, JL_PORTB->in, JL_PORTD->in, JL_PORTP->in }
+#else
+#define PORT_GROUPS(in) { JL_PORTA->in, JL_PORTB->in, JL_PORTC->in, JL_PORTD->in }
+#endif
+
+static u16 port_mask[4];                 /* the button pins, by group */
 static u16 port_last[4];
 static u8 locks;                         /* lines still in their debounce lockout */
 
@@ -123,7 +162,7 @@ static HOT u32 lines_from(const u32 port[4])
 
 HOT u32 plat_read_lines(void)
 {
-    u32 port[4] = { JL_PORTA->IN, JL_PORTB->IN, JL_PORTC->IN, JL_PORTD->IN };
+    u32 port[4] = PORT_GROUPS(IN);
 
     return lines_from(port);
 }
@@ -151,7 +190,7 @@ static HOT void tick_isr(void)
     }
     {
         /* Most ticks: no pin moved and nothing in its lockout - done. */
-        u32 port[4] = { JL_PORTA->IN, JL_PORTB->IN, JL_PORTC->IN, JL_PORTD->IN };
+        u32 port[4] = PORT_GROUPS(IN);
         u32 same = 1;
 
         for (i = 0; i < 4; i++) {
@@ -202,10 +241,11 @@ static void tick_start(void)
 
     for (i = 0; i < board_line_count; i++) port_mask[board_lines[i].gpio / 16] |= (u16)BIT(board_lines[i].gpio % 16);
     line_state = plat_read_lines();
-    port_last[0] = (u16)(JL_PORTA->IN & port_mask[0]);
-    port_last[1] = (u16)(JL_PORTB->IN & port_mask[1]);
-    port_last[2] = (u16)(JL_PORTC->IN & port_mask[2]);
-    port_last[3] = (u16)(JL_PORTD->IN & port_mask[3]);
+    {
+        u32 port[4] = PORT_GROUPS(IN);
+
+        for (i = 0; i < 4; i++) port_last[i] = (u16)(port[i] & port_mask[i]);
+    }
     os_sem_create(&wake_sem, 0);
     JL_TIMER3->CON = BIT(14);
     JL_TIMER3->CNT = 0;
@@ -375,9 +415,15 @@ u32 plat_us(void)
 
 extern char text_code_begin[], text_code_end[], _data_code_begin[], _data_code_end[];
 
+#ifdef CONFIG_CPU_BD19
+#define PROF_FLASH_BUCKETS 256
+#define PROF_RAM_BUCKETS   32
+#define PROF_ROM_BUCKETS   32
+#else
 #define PROF_FLASH_BUCKETS 4096
 #define PROF_RAM_BUCKETS   512
 #define PROF_ROM_BUCKETS   512
+#endif
 #define PROF_ROM_BEGIN     0x110000u
 #define PROF_ROM_SIZE      0x8000u
 #define PROF_VERSION       1
@@ -879,7 +925,9 @@ static void arm_loader_token(void)
 {
     nvram_set_boot_state(2);
     __asm__ volatile("csync");
+#ifndef CONFIG_CPU_BD19
     flushinv_dcache((const void *)MASKROM_TOKEN, 16);
+#endif
 }
 
 void plat_enter_loader(void)
@@ -927,6 +975,7 @@ void plat_reboot(void)
  * (wake-up and sense pins, as board_latch() set them). */
 static void soft_poweroff_pins(void)
 {
+#ifndef CONFIG_CPU_BD19
     u16 group[4] = { 0xffff, 0xffff, 0xffff, 0xffff };
     u32 i;
 
@@ -983,6 +1032,7 @@ static void soft_poweroff_pins(void)
     gpio_set_direction(IO_PORT_DM, 1);
     gpio_set_die(IO_PORT_DM, 0);
     gpio_set_dieh(IO_PORT_DM, 0);
+#endif
 }
 
 static void sleep_enter(u8 step)
@@ -999,7 +1049,10 @@ static const struct low_power_param power_param = {
     .config = TCFG_LOWPOWER_LOWPOWER_SEL, .btosc_hz = TCFG_CLOCK_OSC_HZ,
     .delay_us = TCFG_CLOCK_SYS_HZ / 1000000L, .btosc_disable = TCFG_LOWPOWER_BTOSC_DISABLE,
     .vddiom_lev = TCFG_LOWPOWER_VDDIOM_LEVEL, .vddiow_lev = TCFG_LOWPOWER_VDDIOW_LEVEL,
-    .osc_type = OSC_TYPE_LRC, .dcdc_port = TCFG_DCDC_PORT_SEL,
+    .osc_type = OSC_TYPE_LRC,
+#ifndef CONFIG_CPU_BD19
+    .dcdc_port = TCFG_DCDC_PORT_SEL,
+#endif
 };
 
 /* ---- start-up --------------------------------------------------------------- */
@@ -1018,9 +1071,87 @@ REGISTER_LP_TARGET(pad_lp_target) = {
 
 static u32 boot_usb_io;          /* USB_IO_CON0 as the boot found it */
 
+#ifdef DEBUG_UART_DP
+/* Bring-up only (make EXTRA_DEFINES=-DDEBUG_UART_DP, with -DDEBUG_NO_USB to
+ * keep it past usb_init()): UART0 TX on USB D+ at 1 Mbaud, which
+ * jl-forced-usb's `u` mode reads: log lines, the libraries' printf_lite,
+ * exceptions.  Started again after the clock change. */
+#include <asm/uart.h>
+extern void putbyte(char c);
+
+static u8 debug_uart_up;
+
+static void debug_uart_start(void)
+{
+    static const struct uart_platform_data uart = {
+        .irq = IRQ_UART0_IDX, .tx_pin = IO_PORT_DP, .rx_pin = (u8)NO_CONFIG_PORT,
+        .flags = UART_DEBUG, .baudrate = 1000000,
+    };
+
+    uart_init(&uart);
+    debug_uart_up = 1;
+}
+
+void plat_debug_line(const char *text)
+{
+    if (!debug_uart_up) return;
+    while (*text) putbyte(*text++);
+    putbyte('\r');
+    putbyte('\n');
+}
+
+static void debug_hex(const char *what, u32 v)
+{
+    static const char hex[] = "0123456789abcdef";
+    char t[40];
+    u32 n = 0, i;
+
+    while (*what && n < 28) t[n++] = *what++;
+    t[n++] = ' ';
+    for (i = 0; i < 8; i++) t[n++] = hex[(v >> (28 - 4 * i)) & 15];
+    t[n] = 0;
+    plat_debug_line(t);
+}
+
+/* Where the CPU faulted, then wait for the watchdog. */
+___interrupt
+static void debug_exception(void)
+{
+    u32 rete, reti, retx, rets, sp;
+
+    __asm__ volatile("%0 = rete" : "=r"(rete));
+    __asm__ volatile("%0 = reti" : "=r"(reti));
+    __asm__ volatile("%0 = retx" : "=r"(retx));
+    __asm__ volatile("%0 = rets" : "=r"(rets));
+    __asm__ volatile("%0 = sp" : "=r"(sp));
+    plat_debug_line("EXCEPTION");
+    debug_hex("rete", rete);
+    debug_hex("reti", reti);
+    debug_hex("retx", retx);
+    debug_hex("rets", rets);
+    debug_hex("sp", sp);
+    debug_hex("cpu emu_msg", j32CPU(0)->EMU_MSG);
+    debug_hex("cemu msg0", JL_CEMU->MSG0);
+    debug_hex("cemu msg1", JL_CEMU->MSG1);
+    debug_hex("cemu msg2", JL_CEMU->MSG2);
+    debug_hex("cemu msg3", JL_CEMU->MSG3);
+    debug_hex("dcu emu_msg", JL_DCU->EMU_MSG);
+    for (;;) {
+    }
+}
+#else
+#define debug_uart_start() ((void)0)
+#endif
+
 void board_init(void)
 {
     boot_usb_io = USB_IO_CON0;
+    debug_uart_start();
+    plat_debug_line("board_init");
+#if defined(DEBUG_UART_DP) && defined(CONFIG_CPU_BD19)
+    request_irq(1, 7, debug_exception, 0);
+    debug_hex("reset source", P3_RST_SRC);
+#endif
     board_latch();
     retained_read();             /* before power_init(), which might touch the RTC domain */
     power_init(&power_param);
@@ -1034,7 +1165,9 @@ void board_init(void)
     adc_init();
     devices_init();
     CHARGE_EN(0);
+#ifndef CONFIG_CPU_BD19
     CHGBG_EN(0);
+#endif
     power_set_mode(PWR_LDO15);
 }
 
@@ -1043,18 +1176,27 @@ static void ctl_thread(void *arg)
 {
     (void)arg;
     clk_set("sys", BT_NORMAL_HZ);
+    debug_uart_start();
     bt_pll_para(TCFG_CLOCK_OSC_HZ, clk_get("sys"), 0, 0);
     /* Without this the radio stays at its lowest step, 20 dB below stock. */
     bt_max_pwr_set(10, 5, 8, 6);
     util_log_init();
     board_start();
+#ifdef DEBUG_NO_USB
+    plat_debug_line("usb_init skipped");   /* the D+ log goes on */
+#else
     usb_init();
+#endif
     tick_start();
     plat_prof_start(0, 0, 0);    /* the hang watch */
     {
         /* The SDK's setup.c reads why the chip started (bits not decoded
          * yet: compare a power-on, a reboot and a watchdog). */
+#ifdef CONFIG_CPU_BD19
+        u8 power_reset_src = P3_RST_SRC;
+#else
         extern u8 power_reset_src;
+#endif
 
         util_log("boot: reset source %02x, usb io %x", power_reset_src, boot_usb_io);
     }

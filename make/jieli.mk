@@ -181,6 +181,20 @@ JIELI_SDK_USED += cpu/br23/led_spi.c
 JIELI_SDK_USED += cpu/br23/mcpwm.c
 JIELI_SDK_USED += cpu/br23/setup.c
 
+# BD19 uses q32s and the SDK controller; BR23 keeps the app's controller.
+JIELI_BD19_TOOLS := external/toolchains/jieli-linux-toolchains-20250324.1/q32s/bin
+JIELI_BD19_CFLAGS := $(filter-out -target pi32v2 -mcpu=r3,$(JIELI_CFLAGS)) -target q32s -fno-builtin
+JIELI_BD19_DEFINES := $(filter-out -D__GCC_PI32V2__ -DCONFIG_CPU_BR23 -DCONFIG_MEDIA_DEVELOP_ENABLE -DCONFIG_SBC_CODEC_HW -DCONFIG_MSBC_CODEC_HW -DCONFIG_DNS_ENABLE,$(JIELI_DEFINES)) \
+    -DCONFIG_CPU_BD19 -DCONFIG_NEW_BREDR_ENABLE -DCONFIG_MEDIA_NEW_ENABLE -D__GCC_Q32S__ -DCONFIG_CRYPTO_TOOLBOX_OSIZE_IN_MASKROM
+JIELI_BD19_INCLUDES := $(subst media_develop,media_new,$(subst br23,bd19,$(JIELI_INCLUDES))) -I$(JIELI_BD19_TOOLS)/../include
+JIELI_BD19_SDK_USED := $(subst br23,bd19,$(filter-out cpu/br23/clock_manager.c cpu/br23/led_spi.c,$(JIELI_SDK_USED)))
+JIELI_BD19_ARCHIVES := $(addprefix $(JIELI_SDK)/cpu/bd19/liba/,cpu.a system.a update.a media.a btctrler.a)
+JIELI_BD19_LFLAGS := --plugin-opt=-inline-threshold=5 --plugin-opt=-inline-normal-into-special-section=true \
+    --plugin-opt=-dont-used-symbol-list=malloc,free,sprintf,printf,puts,putchar --plugin-opt=-warn-stack-size=256 \
+    --sort-common --dont-complain-call-overflow --gc-sections
+jieli_chip = $(or $($(1)_CHIP),br23)
+jieli_tools = $(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_TOOLS),$(JIELI_TOOLS))
+
 # $(call jieli_board,NAME): build NAME on the BR23, into $(O)/NAME/.  Set first:
 #   NAME_FLASH_SIZE  the flash device's size
 #   NAME_PID         the image's PID: the flasher writes only over the same PID;
@@ -195,12 +209,20 @@ JIELI_SDK_USED += cpu/br23/setup.c
 # lists it.  Inside the template, $(1) is NAME, $(...) is expanded once when
 # it is called, and $$(...) when the rule runs.
 define jieli_board
+$(1)_CC := $(call jieli_tools,$(1))/clang
+$(1)_LD := $(call jieli_tools,$(1))/lto-wrapper
+$(1)_OBJCOPY := $(call jieli_tools,$(1))/objcopy
+$(1)_ARCHIVES := $(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_ARCHIVES),$(JIELI_ARCHIVES))
+$(1)_LFLAGS := $(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_LFLAGS),$(JIELI_LFLAGS))
+$(1)_RUNTIME := $(if $(filter bd19,$(call jieli_chip,$(1))),$(addprefix $(JIELI_BD19_TOOLS)/../lib/,libm.a libc.a libcompiler-rt.a),$(JIELI_RUNTIME_LIBS))
+$(1)_UBOOT := $(JIELI_SDK)/cpu/$(call jieli_chip,$(1))/tools/uboot.boot
+$(1)_CONFIG_TOOL := $(JIELI_SDK)/cpu/$(call jieli_chip,$(1))/tools/cfg_tool.bin
 $(1)_CODE_LIMIT := $(call jieli_code_limit,$($(1)_FLASH_SIZE))
-$(1)_OBJECTS := $(patsubst %.c,$(O)/$(1)/%.o,$($(1)_SOURCES) $(wildcard src/platform/jieli/btctrler/*.c)) \
-	$(JIELI_SDK_USED:%.c=$(O)/$(1)/sdk/%.o) $(BTSTACK_USED:%.c=$(O)/$(1)/btstack/%.o)
-$(1)_FLAGS := $(JIELI_CFLAGS) $(JIELI_DEFINES) -DCONFIG_FLASH_SIZE=$($(1)_FLASH_SIZE) \
+$(1)_OBJECTS := $(patsubst %.c,$(O)/$(1)/%.o,$($(1)_SOURCES) $(if $(filter bd19,$(call jieli_chip,$(1))),,$(wildcard src/platform/jieli/btctrler/*.c))) \
+	$(patsubst %.c,$(O)/$(1)/sdk/%.o,$(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_SDK_USED),$(JIELI_SDK_USED))) $(BTSTACK_USED:%.c=$(O)/$(1)/btstack/%.o)
+$(1)_FLAGS := $(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_CFLAGS) $(JIELI_BD19_DEFINES),$(JIELI_CFLAGS) $(JIELI_DEFINES)) -DCONFIG_FLASH_SIZE=$($(1)_FLASH_SIZE) \
 	-DBOARD_PID=\"$($(1)_PID)\" $($(1)_DEFINES) $(EXTRA_DEFINES) -DBUILD_ID=\"$(BUILD_ID)\"
-$(1)_INCLUDES := $(SRC_INCLUDES) -iquote $($(1)_BOARD_DIR) -iquote src/platform/jieli/sdkconfig $(BTSTACK_INCLUDES) $(JIELI_INCLUDES)
+$(1)_INCLUDES := $(SRC_INCLUDES) -iquote $($(1)_BOARD_DIR) -iquote src/platform/jieli/sdkconfig $(BTSTACK_INCLUDES) $(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_INCLUDES),$(JIELI_INCLUDES))
 
 .PHONY: $(1) $(1)-flash $(1)-loader
 $(1): $(O)/$(1)/firmware.img
@@ -208,17 +230,17 @@ $(1): $(O)/$(1)/firmware.img
 $(O)/$(1)/src/%.o: src/%.c $(O)/$(1)/defines
 	@mkdir -p $$(@D)
 	@echo [CC $(1)] $$<
-	$$(Q)$(JIELI_CC) $$($(1)_FLAGS) $$(OBJECT_FLAGS) $$($(1)_INCLUDES) -MMD -MP -c $$< -o $$@
+	$$(Q)$$($(1)_CC) $$($(1)_FLAGS) $$(OBJECT_FLAGS) $$($(1)_INCLUDES) -MMD -MP -c $$< -o $$@
 
 $(O)/$(1)/sdk/%.o: $(JIELI_SDK)/%.c $(O)/$(1)/defines
 	@mkdir -p $$(@D)
 	@echo [CC $(1)] $$<
-	$$(Q)$(JIELI_CC) $$($(1)_FLAGS) $$($(1)_INCLUDES) -MMD -MP -c $$< -o $$@
+	$$(Q)$$($(1)_CC) $$($(1)_FLAGS) $$($(1)_INCLUDES) -MMD -MP -c $$< -o $$@
 
 $(O)/$(1)/btstack/%.o: $(BTSTACK)/%.c $(O)/$(1)/defines
 	@mkdir -p $$(@D)
 	@echo [CC $(1)] $$<
-	$$(Q)$(JIELI_CC) $$($(1)_FLAGS) $(BTSTACK_RENAMES) $$($(1)_INCLUDES) -MMD -MP -c $$< -o $$@
+	$$(Q)$$($(1)_CC) $$($(1)_FLAGS) $(BTSTACK_RENAMES) $$($(1)_INCLUDES) -MMD -MP -c $$< -o $$@
 
 # Our controller must not call undeclared functions, -w or not; our files
 # that use BTstack see its renamed symbols.
@@ -227,21 +249,22 @@ $(addprefix $(O)/$(1)/,$(BTSTACK_USERS:.c=.o)): OBJECT_FLAGS := $(BTSTACK_RENAME
 # The build ID: rebuilt when git moves.
 $(O)/$(1)/src/core/usb.o: $(wildcard $(BUILD_METADATA))
 
-$(O)/$(1)/app.elf: $(O)/$(1)/sdk.ld $$($(1)_OBJECTS) $(JIELI_ARCHIVES)
+$(O)/$(1)/app.elf: $(O)/$(1)/sdk.ld $$($(1)_OBJECTS) $$($(1)_ARCHIVES)
 	@echo [LD $(1)] $$@
-	$$(Q)$(JIELI_LD) -o $$@ $$($(1)_OBJECTS) -T$(O)/$(1)/sdk.ld -M=$(O)/$(1)/app.map $(JIELI_LFLAGS) \
-		--start-group $(JIELI_ARCHIVES) --end-group $(JIELI_RUNTIME_LIBS)
+	$$(Q)$$($(1)_LD) -o $$@ $$($(1)_OBJECTS) -T$(O)/$(1)/sdk.ld -M=$(O)/$(1)/app.map $$($(1)_LFLAGS) \
+		--start-group $$($(1)_ARCHIVES) --end-group $$($(1)_RUNTIME)
 
 $(O)/$(1)/app.bin: $(O)/$(1)/app.elf
 	@echo [BIN] $$@
-	$$(Q)$(JIELI_OBJCOPY) -O binary -j .text $$< $(O)/$(1)/text.bin
-	$$(Q)$(JIELI_OBJCOPY) -O binary -j .data $$< $(O)/$(1)/data.bin
-	$$(Q)cat $(O)/$(1)/text.bin $(O)/$(1)/data.bin > $$@
+	$$(Q)$$($(1)_OBJCOPY) -O binary -j .text $$< $(O)/$(1)/text.bin
+	$$(Q)$$($(1)_OBJCOPY) -O binary -j .data $$< $(O)/$(1)/data.bin
+	$$(if $$(filter bd19,$$(call jieli_chip,$(1))),$$(Q)$$($(1)_OBJCOPY) -O binary -j .data_code $$< $(O)/$(1)/data_code.bin)
+	$$(Q)cat $(O)/$(1)/text.bin $(O)/$(1)/data.bin $$(if $$(filter bd19,$$(call jieli_chip,$(1))),$(O)/$(1)/data_code.bin) > $$@
 
 $(O)/$(1)/firmware.img: $(O)/$(1)/app.bin $(O)/$(1)/isd_config.ini $(O)/host/jlnewfw
 	@echo [FW] $$@
 	$$(Q)$(O)/host/jlnewfw pack --flash-size $($(1)_FLASH_SIZE) --code-limit $$($(1)_CODE_LIMIT) \
-		-c $(O)/$(1)/isd_config.ini -u $(JIELI_UBOOT) -o $$@ $(O)/$(1)/app.bin $(JIELI_CONFIG_TOOL)
+		-c $(O)/$(1)/isd_config.ini -u $$($(1)_UBOOT) -o $$@ $(O)/$(1)/app.bin $$($(1)_CONFIG_TOOL)
 
 # Ask running firmware to enter the ROM loader (stock firmware without a
 # command for it: by hand), then write the image, encrypted for the
@@ -249,7 +272,7 @@ $(O)/$(1)/firmware.img: $(O)/$(1)/app.bin $(O)/$(1)/isd_config.ini $(O)/host/jln
 $(1)-flash: $(O)/$(1)/app.bin $(O)/$(1)/isd_config.ini $(O)/host/jlnewfw
 	$$(Q)$(O)/host/jlnewfw flashpack --enter-loader --wait 30 --loader $(JIELI_LOADER) $$(if $$(DEVICE),--device $$(DEVICE)) \
 		--flash-size $($(1)_FLASH_SIZE) --code-limit $$($(1)_CODE_LIMIT) \
-		-c $(O)/$(1)/isd_config.ini -u $(JIELI_UBOOT) $(O)/$(1)/app.bin $(JIELI_CONFIG_TOOL)
+		-c $(O)/$(1)/isd_config.ini -u $$($(1)_UBOOT) $(O)/$(1)/app.bin $$($(1)_CONFIG_TOOL)
 
 # Running firmware into the ROM loader, then wait for it there: the loader
 # whose flash holds this board's PID.
@@ -259,22 +282,27 @@ $(1)-loader: $(O)/host/jlnewfw
 
 # The SDK's linker script, with the heap ending below the retained RAM and the
 # controller's RAM kept clear of the MaskROM boot token.
-$(O)/$(1)/sdk_ld.c: $(JIELI_SDK)/cpu/br23/sdk_ld.c $(MAKE_FILES) $(wildcard src/platform/jieli/sdkconfig/*.h)
+$(O)/$(1)/sdk_ld.c: $(JIELI_SDK)/cpu/$(call jieli_chip,$(1))/sdk_ld.c $(MAKE_FILES) $(wildcard src/platform/jieli/sdkconfig/*.h)
 	@mkdir -p $$(@D)
 	$$(Q)sed \
+  -e 's/^_HEAP_END = RAM0_END;/_HEAP_END = BD19_RETAINED_BEGIN;/' \
+  -e 's/^\([[:space:]]*\)_HEAP_END = RAM0_END;/\1_HEAP_END = BD19_RETAINED_BEGIN;/' \
 	  -e 's/^_HEAP_END = RAM_END;/_HEAP_END = RESET_MAILBOX_BEGIN;/' \
 	  -e 's/^PROVIDE(HEAP_END = RAM_END);/PROVIDE(HEAP_END = RESET_MAILBOX_BEGIN);/' \
 	  -e '/^    \.bss ALIGN(32) :$$$$/,/^        \*(\.bss)$$$$/s/^        \*(\.bss)$$$$/        btctrlermod_bss_base = ABSOLUTE(.);\n&/' \
 	  -e 's|^\([[:space:]]*\)#include "btctrler/btctler_lib_bss.ld"|\1. = MAX(., 0x10810 - btctrlermod_bss_base);\n&|' \
 		$$< > $$@
 
-$(O)/$(1)/sdk.ld: $(O)/$(1)/sdk_ld.c
-	$$(Q)$(JIELI_CC) $$($(1)_FLAGS) $$($(1)_INCLUDES) -D__LD__ -E -P $$< -o $$@
+	$$(if $$(filter bd19,$$(call jieli_chip,$(1))),$$(Q)printf '\n#include "bd19_app.ld"\n' >> $$@)
 
-$(O)/$(1)/isd_config.ini: $(JIELI_SDK)/cpu/br23/tools/isd_config_rule.c $(wildcard src/platform/jieli/sdkconfig/*.h) $(MAKE_FILES)
+$(O)/$(1)/sdk.ld: $(O)/$(1)/sdk_ld.c
+	$$(Q)$$($(1)_CC) $$($(1)_FLAGS) $$($(1)_INCLUDES) -D__LD__ -E -P $$< -o $$@
+
+$(O)/$(1)/isd_config.ini: $(JIELI_SDK)/cpu/$(call jieli_chip,$(1))/tools/isd_config_rule.c $(wildcard src/platform/jieli/sdkconfig/*.h) $(MAKE_FILES)
 	@mkdir -p $$(@D)
-	$$(Q)$(JIELI_CC) $$($(1)_FLAGS) $$($(1)_INCLUDES) -D__LD__ -DCONFIG_VM_LEAST_SIZE=$(JIELI_VM_KB)K -E -P $$< -o $$@
+	$$(Q)$$($(1)_CC) $$($(1)_FLAGS) $$($(1)_INCLUDES) -D__LD__ -DCONFIG_VM_LEAST_SIZE=$(JIELI_VM_KB)K -E -P $$< -o $$@
 	$$(Q)sed -i -e /^$$$$/d -e 's/^PID = .*;/PID = $($(1)_PID);/' $$@
+	$$(if $$(filter bd19,$$(call jieli_chip,$(1))),$$(Q)printf '\n[JLNEWFW]\nUBOOT_FLAGS = 0x40;\nHEADER_FS = 11;\nRES = $(abspath $(JIELI_SDK))/cpu/bd19/tools/p11_code.bin:82;\n' >> $$@)
 
 $$($(1)_OBJECTS) $(O)/$(1)/sdk.ld: $(MAKE_FILES) $(wildcard src/platform/jieli/sdkconfig/*)
 $(call board_defines,$(1))

@@ -31,11 +31,19 @@
 #define MAX_ATT_DB_SIZE                 512
 #define ENABLE_LOG_ERROR
 
+#ifdef CONFIG_CPU_BD19
+#define HCI_ACL_PAYLOAD_SIZE            256     /* 13 KB of heap: link packets are small */
+#else
 #define HCI_ACL_PAYLOAD_SIZE            516
+#endif
 /* RX queue entry size in the transport; must hold header + ACL payload. */
 #define HCI_INCOMING_PACKET_BUFFER_SIZE (HCI_ACL_PAYLOAD_SIZE + 8)
 
+#ifdef CONFIG_CPU_BD19
+#define RX_QUEUE_DEPTH                  2
+#else
 #define RX_QUEUE_DEPTH                  16
+#endif
 
 #ifdef BOARD_DONGLE
 /* The pad may page us while our own page to it is still running. */
