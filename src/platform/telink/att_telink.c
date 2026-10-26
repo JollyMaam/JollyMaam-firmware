@@ -197,13 +197,14 @@ static void receive(const u8 *data, u16 len)
 int main(void)
 {
     static const u8 mtu[] = {2, 0xff, 1}, read_static[] = {10,3,0}, read_dynamic[] = {10,7,0};
-    static const u8 blob[] = {12,7,0,3,0}, subscribe[] = {18,8,0,1,0}, command[] = {18,7,0,4,5,6};
+    static const u8 blob[] = {12,7,0,3,0}, static_blob[] = {12,3,0,1,0}, subscribe[] = {18,8,0,1,0}, command[] = {18,7,0,4,5,6};
     static const u8 bad[] = {18,8,0,1}, queued[] = {9,8,7};
     CHECK(plat_att_start(&profile, TELINK_ATT_BUFFER)); plat_att_connected(64);
     receive(mtu, sizeof(mtu)); CHECK(sent == 1 && transmitted[0][0] == 3 && plat_att_mtu() == TELINK_ATT_BUFFER);
     receive(read_static, sizeof(read_static)); CHECK(sent == 1 && transmitted_len[0] == 4 && !memcmp(transmitted[0]+1,"pad",3));
     receive(read_dynamic, sizeof(read_dynamic)); CHECK(sent == 1 && transmitted_len[0] == 8 && !memcmp(transmitted[0]+1,"dynamic",7));
     receive(blob, sizeof(blob)); CHECK(sent == 1 && transmitted_len[0] == 5 && !memcmp(transmitted[0]+1,"amic",4));
+    receive(static_blob, sizeof(static_blob)); CHECK(sent == 1 && transmitted_len[0] == 3 && !memcmp(transmitted[0]+1,"ad",2));
     receive(bad, sizeof(bad)); CHECK(sent == 1 && transmitted[0][0] == 1 && !plat_att_notifying(7));
     receive(subscribe, sizeof(subscribe)); CHECK(plat_att_notifying(7));
     can_send = 0; CHECK(plat_att_send(7,queued,sizeof(queued)));
