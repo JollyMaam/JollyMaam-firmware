@@ -1329,10 +1329,16 @@ def pad_clock(path):
     return (t0 + t1) // 2, us, t1 - t0
 
 
-def percentiles(values):
+def quantiles(values):
     v = sorted(values)
     pick = lambda q: v[min(len(v) - 1, int(q * len(v)))]
-    return f"p50 {pick(.5):6.2f}  p90 {pick(.9):6.2f}  p99 {pick(.99):6.2f}  max {v[-1]:6.2f} ms"
+    return {"p50": round(pick(.5), 3), "p90": round(pick(.9), 3), "p99": round(pick(.99), 3),
+            "max": round(v[-1], 3)}
+
+
+def percentiles(values):
+    q = quantiles(values)
+    return f"p50 {q['p50']:6.2f}  p90 {q['p90']:6.2f}  p99 {q['p99']:6.2f}  max {q['max']:6.2f} ms"
 
 
 def latency(path, seconds, period_ms, event, csv_path=None, throughput=False):
@@ -1472,7 +1478,11 @@ def latency(path, seconds, period_ms, event, csv_path=None, throughput=False):
               f"({max(0, len(sent) - len(seen))} lost or merged)")
         if gaps:
             print(f"host gaps between reports            {percentiles(gaps)}")
-        return
+        return {"mode": "throughput", "seconds": seconds, "event": event,
+                "clock_rtt_ms": round(rtt, 3), "clock_fit_ms": round(residual, 3),
+                "pad_reports": len(sent), "pad_rate": round(len(sent) / window, 1),
+                "host_reports": len(seen), "host_rate": round(len(seen) / window, 1),
+                "lost": max(0, len(sent) - len(seen)), "host_gap_ms": quantiles(gaps) if gaps else None}
     print(f"pad: {len(alone) / span:.0f} reports/s sent with a new edge; "
           f"host: {reports / span:.0f} reports/s with a change, key {code:#x}")
     if period_ms < 10:
@@ -1482,6 +1492,15 @@ def latency(path, seconds, period_ms, event, csv_path=None, throughput=False):
         print(f"pad    edge -> report sent    {percentiles(pad_ms)}")
         print(f"air    report -> host event   {percentiles(air_ms)}")
         print(f"total  edge -> host event     {percentiles(total_ms)}")
+    matched = period_ms >= 10 and total_ms
+    return {"mode": "latency", "seconds": seconds, "period_ms": period_ms, "event": event,
+            "clock_rtt_ms": round(rtt, 3), "clock_fit_ms": round(residual, 3),
+            "edges": len(records), "alone": len(alone), "expected": len(expected),
+            "seen": len(total_ms), "pad_rate": round(len(alone) / span, 1),
+            "host_rate": round(reports / span, 1),
+            "pad_ms": quantiles(pad_ms) if matched else None,
+            "air_ms": quantiles(air_ms) if matched else None,
+            "total_ms": quantiles(total_ms) if matched else None}
 
 
 def tool(paths):
@@ -1549,6 +1568,8 @@ def main():
     p.add_argument("--period", type=int, default=20, help="latency: one A edge per this many ms")
     p.add_argument("--throughput", action="store_true",
                    help="latency: A flips in every report the pad sends: the most reports per second")
+    p.add_argument("--json", help="latency: append the results, as one JSON line, to this file")
+    p.add_argument("--label", help="latency --json: a note stored with the results (e.g. the dongle)")
     p.add_argument("--csv", help="latency: write each edge's times (and the host's key events) here")
     p.add_argument("--event", help="latency: the host's evdev node for the slot (default: the only gamepad)")
     a = p.parse_args()
@@ -1600,7 +1621,13 @@ def main():
         except KeyboardInterrupt:
             pass
     elif a.command == "latency":
-        latency(need_device(), a.seconds or 10, a.period, a.event, a.csv, a.throughput)
+        path = need_device()
+        result = latency(path, a.seconds or 10, a.period, a.event, a.csv, a.throughput)
+        if a.json and result:
+            result.update(time=time.strftime("%Y-%m-%dT%H:%M:%S"), pad=identify(path),
+                          label=a.label or "")
+            with open(a.json, "a") as f:
+                f.write(json.dumps(result) + "\n")
     elif a.command == "trace":
         trace(need_device(), a.watch or 0.5, a.top)
     elif a.command == "peek":
