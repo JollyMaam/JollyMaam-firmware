@@ -11,11 +11,13 @@
 #define LITE_SLOTS 4
 static const char slot_names[] = "ABXY";
 
-/* The Home light: how bright (of 255) and, unlinked, its blink. */
+/* The lights (of 255): the Home ring blinks while connecting, faster while
+ * pairing, with the red one by the USB port; the one under Home (on/off
+ * only) shows a cable arriving. A single light shows no player number. */
 static const struct {
-    u8 level;
-    u16 on_ms, off_ms;
-} home_light = { 24, 250, 250 };
+    u8 home, red;
+    u16 connect_ms, pair_ms;     /* on, then off as long */
+} lite_lights = { 24, 32, 250, 120 };
 
 static const struct profile *profile = &profile_generic_ble;
 
@@ -34,7 +36,8 @@ static struct {
     u8 sleeping, idle, stopping, pending, renew, pair_down;
     u8 slot, last_slot, pending_slot;
     u8 peer[6];
-    u8 players;                  /* first player light: bit 0 steady, bit 1 flashing */
+    u8 usb_was, plug_lit;        /* plug_lit: the light under Home for a new cable */
+    u32 plugged_ms;
 } c;
 
 static void start(void);
@@ -115,7 +118,6 @@ static void start_session(u8 slot, int pairing, int renew)
         util_log("ctl: slot %u type/transport unavailable", slot);
         return;
     }
-    c.players = 0;
     c.sleeping = 0;
     c.idle = 0;
     c.slot = c.last_slot = slot;
@@ -207,7 +209,6 @@ static __attribute__((noinline)) int bt_events(void)
             profile->begin(&c.session);          /* the first report goes out whatever it is */
         } else if (ev.kind == BT_EV_UNLINKED) {
             c.linked = 0;
-            c.players = 0;
             c.rumble_until = 0;
             plat_motors(0, 0);
             c.since_ms = plat_ms();
@@ -254,7 +255,6 @@ static __attribute__((noinline)) void host(u32 now)
     memset(&h, 0, sizeof(h));
     profile->host(now, &h);
     plat_motors(h.rumble[0], h.rumble[1]);
-    c.players = h.has_players ? (h.players & 1) | ((h.players_flash & 1) << 1) : 0;
     if (h.ended) transition(REQ_NONE, SLOT_NONE, 0);
 }
 
@@ -268,14 +268,23 @@ static __attribute__((noinline)) void report(u32 now)
     if (n > 0 && bt_send_input(id, out, (u16)n) && (c.pad.buttons & PAD_HOME)) ux_reported(now);
 }
 
+static u32 earliest(u32 a, u32 b)
+{
+    return !a || (b && (s32)(b - a) < 0) ? b : a;
+}
+
 /* Returns the next change, plat_ms. */
 static __attribute__((noinline)) u32 lights(u32 now)
 {
     struct led_frame f;
     struct rgb cal;
-    u32 period = home_light.on_ms + home_light.off_ms, at = now % period;
-    u8 lit = !c.idle && (c.linked || at < home_light.on_ms);
-    if (c.linked && ((c.players & 1) || ((c.players & 2) && now % 500 < 250))) lit |= 2;
+    int pairing = state() == CTL_PAIRING, blinking = !c.linked && !c.idle;
+    u32 on = pairing ? lite_lights.pair_ms : lite_lights.connect_ms, at = now % (2 * on);
+    u32 next = 0;
+    u8 lit;
+
+    if (c.plug_lit && now - c.plugged_ms >= ux_timeouts.usb_plug_ms) c.plug_lit = 0;
+    lit = (u8)((!c.idle && (c.linked || at < on)) | c.plug_lit << 1 | (pairing && at < on) << 2);
 
     memset(&f, 0, sizeof(f));
     if (cal_led(now, &cal)) {    /* the calibration routine's own light */
@@ -285,14 +294,15 @@ static __attribute__((noinline)) u32 lights(u32 now)
         return now + 20;
     }
     if (lit != c.lit) {
-        f.light[LIGHT_HOME].r = f.light[LIGHT_HOME].g = f.light[LIGHT_HOME].b = (lit & 1) ? home_light.level : 0;
+        f.light[LIGHT_HOME].r = f.light[LIGHT_HOME].g = f.light[LIGHT_HOME].b = (lit & 1) ? lite_lights.home : 0;
         f.light[LIGHT_P0].r = f.light[LIGHT_P0].g = f.light[LIGHT_P0].b = (lit & 2) ? 255 : 0;
+        f.light[LIGHT_P1].r = f.light[LIGHT_P1].g = f.light[LIGHT_P1].b = (lit & 4) ? lite_lights.red : 0;
         plat_leds(&f);
         c.lit = lit;
     }
-    if (c.linked && (c.players & 2)) return now + 250 - now % 250;
-    if (c.linked || c.idle) return 0;
-    return now - at + (at < home_light.on_ms ? home_light.on_ms : period);
+    if (c.plug_lit) next = c.plugged_ms + ux_timeouts.usb_plug_ms;
+    if (blinking) next = earliest(next, now - at + (at < on ? on : 2 * on));
+    return next;
 }
 
 static void request(const struct ctl_request *r)
@@ -349,6 +359,11 @@ static __attribute__((noinline)) u32 power_step(u32 now)
     u32 deadline;
 
     if (powered) c.usb_seen_ms = now;
+    if (powered && !c.usb_was) {     /* a cable, or one there at power-up */
+        c.plugged_ms = now;
+        c.plug_lit = 1;
+    }
+    c.usb_was = (u8)powered;
     if (powered || c.calibrating) c.activity_ms = now;
     if (c.sleeping) {
         if (powered) {
@@ -479,6 +494,10 @@ u32 ux_idle_deadline(u32 since, u32 activity, u32 usb_seen, int powered, int eph
 void plat_power_off(void) { CHECK(flushes > offs); offs++; }
 void plat_reboot(void) { reboots++; }
 void plat_motors(u8 left, u8 right) { CHECK(!left && !right); motors++; }
+static struct led_frame test_frame;
+void plat_leds(const struct led_frame *f) { test_frame = *f; }
+int cal_led(u32 now, struct rgb *out) { (void)now; (void)out; return 0; }
+#define LIT(l) (test_frame.light[l].r)
 void util_log(const char *fmt, ...) { (void)fmt; }
 static u8 test_begin(const struct profile_session *s) { (void)s; return 0; }
 const struct profile profile_generic_ble = { .begin = test_begin };
@@ -491,6 +510,7 @@ const struct profile profile_switch2 = { .begin = test_begin, .write = test_writ
 int bt_send_message(u16 id, const u8 *data, u16 len) { (void)id; (void)data; (void)len; return 1; }
 const struct ux_timeouts ux_timeouts = {
     .idle_sleep_ms = 300000, .stop_max_ms = 12000, .connect_ms = 30000, .pair_ms = 180000,
+    .usb_plug_ms = 1000,
 };
 
 static void test_reset(void)
@@ -638,8 +658,8 @@ int main(void)
     CHECK(test_bonds[2].ltk[0] == 0x42 && test_bonds[2].le_peer[0] == 0x23);
     CHECK(!c.session.pairing && test_bonds[0].ltk[0] == 0x17);
     test_events[0].kind = BT_EV_UNLINKED; event_at = 0; event_count = 1;
-    c.players = 3; c.rumble_until = 1000; bluetooth();
-    CHECK(!c.linked && !c.players && !c.rumble_until);
+    c.rumble_until = 1000; bluetooth();
+    CHECK(!c.linked && !c.rumble_until);
 
     /* Console wake is explicit and bonded, never an automatic boot or pairing. */
     test_reset(); test_slots[2].type = PROFILE_SWITCH2; test_bonds[2].ltk[0] = 1;
@@ -692,6 +712,24 @@ int main(void)
     test_reset(); retained = 3; test_slots[3].type = PROFILE_NONE;
     start(); CHECK(c.slot == 0);
     test_reset(); ephemeral = 1; start(); CHECK(!retained_writes);
+
+    /* Lights: no player light; red and a faster Home blink while pairing;
+     * the light under Home for a second when a cable arrives. */
+    test_reset(); c.lit = 0xff; c.linked = 0; c.session.pairing = 1;
+    CHECK(lights(960) == 1080 && LIT(LIGHT_HOME) == lite_lights.home && LIT(LIGHT_P1) == lite_lights.red);
+    CHECK(lights(1080) == 1200 && !LIT(LIGHT_HOME) && !LIT(LIGHT_P1) && !LIT(LIGHT_P0));
+    c.session.pairing = 0;
+    CHECK(lights(1000) == 1250 && LIT(LIGHT_HOME) && !LIT(LIGHT_P1));
+    c.linked = 1;
+    CHECK(!lights(1000) && LIT(LIGHT_HOME) && !LIT(LIGHT_P0) && !LIT(LIGHT_P1));
+    test_usb = 1; power_step(5000);
+    CHECK(lights(5000) == 5000u + ux_timeouts.usb_plug_ms && LIT(LIGHT_P0) == 255);
+    power_step(5500);            /* still plugged: no new light */
+    CHECK(!lights(5000 + ux_timeouts.usb_plug_ms) && !LIT(LIGHT_P0));
+    test_usb = 0; power_step(7000); test_usb = 1; power_step(7100);
+    CHECK(lights(7100) == 7100u + ux_timeouts.usb_plug_ms && LIT(LIGHT_P0));
+    c.idle = 1; c.linked = 0; test_usb = 0; power_step(9000);
+    CHECK(!lights(9000) && !LIT(LIGHT_HOME) && !LIT(LIGHT_P0));
     return TEST_DONE("controller_lite power");
 }
 #endif
