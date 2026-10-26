@@ -4,8 +4,8 @@
 # Makefile.  A product file sets a board's variables, then calls
 # $(call jieli_board,NAME) (at the end of this file).
 
-JIELI_SDK := /shared/github.com-Jieli-Tech/fw-AC63_BT_SDK
-JIELI_TOOLS := /shared/jieli-linux-toolchains-20250324.1/pi32v2/bin
+JIELI_SDK := external/jieli-fw-AC63_BT_SDK
+JIELI_TOOLS := external/toolchains/jieli-linux-toolchains-20250324.1/pi32v2/bin
 JIELI_CC := $(JIELI_TOOLS)/clang
 JIELI_LD := $(JIELI_TOOLS)/lto-wrapper
 JIELI_OBJCOPY := $(JIELI_TOOLS)/objcopy

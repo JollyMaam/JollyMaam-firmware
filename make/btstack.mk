@@ -1,7 +1,7 @@
 # Upstream BTstack, unmodified, built from source.  Some symbols are renamed
 # at build time to avoid clashing with the Jieli SDK's controller.
 
-BTSTACK := /shared/github.com-bluekitchen-btstack
+BTSTACK := external/bluekitchen-btstack
 BTSTACK_USED :=
 BTSTACK_USED += src/btstack_hid_parser.c
 BTSTACK_USED += src/btstack_linked_list.c

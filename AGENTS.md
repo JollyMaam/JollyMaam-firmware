@@ -1,7 +1,7 @@
 # Working on this repository
 
 GameSir Cyclone 2 firmware (and the start of a GameSir Nova 2 Lite board): the Jieli BR23 SDK runtime, an owned C Bluetooth
-controller, and upstream BTstack (`/work/cyclone2-btstack`, unmodified `master`).  The 8BitDo
+controller, and upstream BTstack (`master` plus one fix, from our fork).  The 8BitDo
 Ultimate 2C Wireless (Telink TLSR8208, 16 KiB SRAM) builds on the unmodified Telink B80 SDK
 with the shared modules it can afford and `src/core/controller_lite.c`.
 
@@ -70,6 +70,11 @@ with the shared modules it can afford and `src/core/controller_lite.c`.
 
 ## Build and test
 
+Dependencies live in `external/`: the SDKs and BTstack as submodules (pinned
+commits), the compilers fetched by a script (pinned archives, sha256 checked).
+
+    git submodule update --init            # Jieli SDK, Telink SDK, BTstack
+    external/fetch-toolchains.sh           # into external/toolchains/
     make -j32                              # every product
     make test                              # every product's unit tests
     make -j32 gamesir-cyclone-2-pad        # build/gamesir-cyclone-2-pad/

@@ -11,3 +11,5 @@
 __pycache__/
 
 /padtool/br23loader.bin
+
+/external/toolchains/

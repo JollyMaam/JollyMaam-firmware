@@ -4,8 +4,8 @@
 # product file sets a board's variables, then calls $(call telink_board,NAME)
 # (at the end of this file).
 
-TELINK_SDK := /shared/github.com-telink-semi/tc_ble_simple_sdk/b80_ble_sdk
-TELINK_TOOLS := /shared/tc32_130_Linux/bin
+TELINK_SDK := external/telink-tc_ble_simple_sdk/b80_ble_sdk
+TELINK_TOOLS := external/toolchains/tc32_gcc_v2.0/bin
 TELINK_CC := $(TELINK_TOOLS)/tc32-elf-gcc
 TELINK_LD := $(TELINK_TOOLS)/tc32-elf-ld
 TELINK_OBJCOPY := $(TELINK_TOOLS)/tc32-elf-objcopy

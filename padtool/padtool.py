@@ -400,9 +400,9 @@ def unit_group(unit):
     """Which part of the firmware a compilation unit belongs to."""
     u = unit.replace("\\", "/")
     for key, name in (("/btctrler/", "controller"), ("port/br23/baseband", "controller"),
-                      ("cyclone2-btstack", "btstack"), ("/usb/", "usb (sdk)"),
+                      ("external/bluekitchen-btstack/", "btstack"), ("/usb/", "usb (sdk)"),
                       ("crypto_toolbox", "crypto (sdk)"), ("/FreeRTOS", "os"), ("/lib/system/", "os"),
-                      ("/lib/driver/", "drivers (sdk)"), ("fw-AC63_BT_SDK", "sdk app code")):
+                      ("/lib/driver/", "drivers (sdk)"), ("external/jieli-fw-AC63_BT_SDK/", "sdk app code")):
         if key in u:
             return name
     return "app " + u.rsplit("/", 1)[-1]
