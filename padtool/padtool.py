@@ -578,7 +578,8 @@ PROTOCOL = 2                # the vendor commands this padtool speaks (IDENTIFY)
 KINDS = ["slot", "palette", "calibration", "remap"]
 T_ENUM, T_NUMBER, T_RGB, T_BYTES, T_TEXT, T_ENTRY, T_LIST = range(7)
 # T_LIST: size numbers of a byte each, each at most max, shown and written "15,15,15,15,15"
-RESULTS = ["ok", "unknown field", "bad length", "out of range", "too many changes at once"]
+RESULTS = ["ok", "unknown field", "bad length", "out of range", "too many changes at once",
+           "ephemeral mode: only the remap in use can change"]
 JOURNAL = os.path.expanduser("~/.cache/padtool/ephemeral.json")
 PAIRING = ("address", "bond")   # kept by a whole-slot reset
 
@@ -719,7 +720,7 @@ def parse_value(f, text):
         if remap_field(f, "map"):
             return padremap.parse_map(text)
         if remap_field(f, "rules"):
-            return padremap.parse_rules(text)
+            return padremap.parse_rules(text, f["size"] // padremap.RULE_SIZE)
         if t == T_ENUM:
             if text in f["names"]:
                 return bytes([f["names"].index(text)])

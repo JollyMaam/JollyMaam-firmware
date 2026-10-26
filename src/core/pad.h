@@ -445,7 +445,9 @@ struct set_slot {
  * Inputs and outputs are PAD_* bit numbers (0-19, not 15). */
 #define REMAP_NAME   24
 #define REMAP_INPUTS 20
-#define REMAP_RULES  16
+#ifndef REMAP_RULES
+#define REMAP_RULES  16          /* a board short of RAM keeps fewer (make/<product>.mk) */
+#endif
 #define REMAP_OFF    0xff        /* map: the key sends nothing */
 #define REMAP_MAX_HZ 30          /* turbo rate 0: flips every report */
 
@@ -508,7 +510,8 @@ void in_response(const struct set_remap *m, struct pad *pad);
 #define TARGET_BASE    (TARGET_REMAP + SLOTS)   /* the base remap: what remap slots inherit */
 #define TARGETS        (TARGET_BASE + 1)
 
-enum { SET_OK, SET_UNKNOWN, SET_BAD_LENGTH, SET_RANGE, SET_FULL };
+enum { SET_OK, SET_UNKNOWN, SET_BAD_LENGTH, SET_RANGE, SET_FULL,
+       SET_NOT_HELD };            /* ephemeral, a board holding fewer remaps: not the one held */
 enum { SET_UNPAIR = 0xfe };       /* WRITE action: slot only, zero-length; applied on COMMIT */
 
 void set_init(void);

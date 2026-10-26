@@ -38,6 +38,11 @@ static struct {
     u8 peer[6];
     u8 usb_was, plug_lit;        /* plug_lit: the light under Home for a new cable */
     u32 plugged_ms;
+    u8 remap;                    /* the session's remap slot, REMAP_BASE the base */
+    u8 remap_live;               /* remap.c state belongs to remap_live - 1 at remap_edits */
+    u8 turbo_up;                 /* the last report left turbo_max up */
+    u32 remap_edits;
+    u32 turbo_max;               /* keys flipped every report, down first */
 } c;
 
 static void start(void);
@@ -66,6 +71,32 @@ static __attribute__((noinline)) void calibrate(u32 now)
     }
 }
 
+/* The session's remap: its sticks connected only (NULL: as calibrated). */
+static const struct set_remap *sticks(void)
+{
+    return c.linked && !c.stopping ? set_remap(c.remap) : NULL;
+}
+
+/* Connected, outside calibration: the remap slot in use.  Its state starts
+ * over with another remap slot or new settings. */
+static void remap(u32 now)
+{
+    u32 edits = set_edits();
+
+    c.turbo_max = 0;
+    if (!c.linked || c.stopping || c.calibrating) {
+        if (c.remap_live) remap_reset();
+        c.remap_live = 0;
+        return;
+    }
+    if (c.remap_live != c.remap + 1 || c.remap_edits != edits) {
+        remap_reset();
+        c.remap_live = (u8)(c.remap + 1);
+        c.remap_edits = edits;
+    }
+    c.pad.buttons = remap_step(set_remap(c.remap), c.pad.buttons, now, &c.turbo_max);
+}
+
 /* The loop's steps stay out of line (noinline): their locals are then not
  * on the stack under bluetooth(), the deepest path (a Switch 2 command). */
 static __attribute__((noinline)) void read_input(u32 now)
@@ -77,7 +108,7 @@ static __attribute__((noinline)) void read_input(u32 now)
     pair = c.raw.pair_button && !c.pair_down;
     c.pair_down = c.raw.pair_button;
     in_map(&c.raw, &c.pad);
-    cal_apply(set_cal(), NULL, &c.raw, &c.pad);
+    cal_apply(set_cal(), sticks() ? sticks()->deadzone : NULL, &c.raw, &c.pad);
     /* USB reads this snapshot only later on this same thread. Reuse it
      * for the reference before publishing the new calibrated input. */
     memcpy(&c.input, c.activity_ref, sizeof(c.activity_ref));
@@ -95,10 +126,12 @@ static __attribute__((noinline)) void read_input(u32 now)
             ux_ignore_held();
         }
         request(&r);
-        return;
+    } else {
+        calibrate(now);
+        c.pad.buttons = 0;
     }
-    calibrate(now);
-    c.pad.buttons = 0;
+    remap(now);
+    in_response(sticks(), &c.pad);
 }
 
 static int slot_ready(u8 slot)
@@ -128,6 +161,7 @@ static void start_session(u8 slot, int pairing, int renew)
     c.session.bond = set_bond(slot);
     set_slot_address(slot, c.session.address);
     c.session.pairing = util_is_zero(c.session.bond->ltk, sizeof(c.session.bond->ltk));
+    c.remap = c.session.settings->remap ? (u8)(c.session.settings->remap - 1) : REMAP_BASE;
     if (pairing >= 0) c.session.pairing = (u8)pairing;
     if (c.session.pairing && renew) set_pairing_address(slot, 1, c.session.address);
     if (c.session.settings->type != PROFILE_SWITCH2) c.session.address[5] |= 0xc0;
@@ -248,24 +282,46 @@ int host_send(u16 id, const u8 *data, u16 len)
     return !c.stopping && !c.sleeping && c.linked && bt_send_message(id, data, len);
 }
 
+/* Host rumble spreads over the motor's range for the remap's step: 1 is
+ * its rumble_min, 255 its rumble_max. */
+static u8 motor_duty(const struct set_remap *m, u8 host, int right)
+{
+    u32 step = m->rumble, lo, hi;
+
+    if (!host || !step) return 0;
+    lo = 255u * m->rumble_min[right][step - 1] / 100;
+    hi = 255u * m->rumble_max[right][step - 1] / 100;
+    if (hi < lo) hi = lo;
+    return (u8)(lo + (hi - lo) * (host - 1u) / 254);
+}
+
 static __attribute__((noinline)) void host(u32 now)
 {
     struct profile_host h;
+    const struct set_remap *m;
+
     if (!profile->host || !c.linked || c.stopping || c.sleeping || c.rumble_until) return;
     memset(&h, 0, sizeof(h));
     profile->host(now, &h);
-    plat_motors(h.rumble[0], h.rumble[1]);
+    m = set_remap(c.remap);
+    plat_motors(motor_duty(m, h.rumble[0], 0), motor_duty(m, h.rumble[1], 1));
     if (h.ended) transition(REQ_NONE, SLOT_NONE, 0);
 }
 
 static __attribute__((noinline)) void report(u32 now)
 {
     u8 out[64], id = 0;
+    u32 buttons = c.pad.buttons;
     int n;
 
     if (c.sleeping || c.stopping || !c.linked || !bt_input_wanted()) return;
+    if (!c.turbo_up) c.pad.buttons |= c.turbo_max;
     n = profile->report(&c.pad, now, out, &id);
-    if (n > 0 && bt_send_input(id, out, (u16)n) && (c.pad.buttons & PAD_HOME)) ux_reported(now);
+    c.pad.buttons = buttons;     /* a profile may change them while building */
+    if (n > 0 && bt_send_input(id, out, (u16)n)) {
+        c.turbo_up = c.turbo_max && !c.turbo_up;
+        if (buttons & PAD_HOME) ux_reported(now);
+    }
 }
 
 static u32 earliest(u32 a, u32 b)
@@ -428,6 +484,7 @@ void ctl_main(void)
         if (gesture && (!next || (s32)(gesture - next) < 0)) next = gesture;
         if (power && (!next || (s32)(power - next) < 0)) next = power;
         if (c.rumble_until && (!next || (s32)(c.rumble_until - next) < 0)) next = c.rumble_until;
+        next = earliest(next, remap_deadline());
         if (c.calibrating) next = plat_ms() + CAL_SAMPLE_MS;
         plat_wait(next, c.linked ? plat_us() + POLL_US : 0);
         if (c.rumble_until && (s32)(plat_ms() - c.rumble_until) >= 0) {
@@ -508,6 +565,13 @@ static int test_write(const struct bt_write *w, u32 now, struct bt_bond *bond)
 }
 const struct profile profile_switch2 = { .begin = test_begin, .write = test_write };
 int bt_send_message(u16 id, const u8 *data, u16 len) { (void)id; (void)data; (void)len; return 1; }
+static struct set_remap test_remaps[REMAP_BASE + 1];
+static u32 test_edits, remap_resets, remap_steps;
+const struct set_remap *set_remap(u8 remap) { return &test_remaps[remap]; }
+u32 set_edits(void) { return test_edits; }
+void remap_reset(void) { remap_resets++; }
+u32 remap_step(const struct set_remap *m, u32 in, u32 now, u32 *every_report)
+{ (void)now; remap_steps++; *every_report = PAD_X; return in | m->map[0]; }
 const struct ux_timeouts ux_timeouts = {
     .idle_sleep_ms = 300000, .stop_max_ms = 12000, .connect_ms = 30000, .pair_ms = 180000,
     .usb_plug_ms = 1000,
@@ -730,6 +794,29 @@ int main(void)
     CHECK(lights(7100) == 7100u + ux_timeouts.usb_plug_ms && LIT(LIGHT_P0));
     c.idle = 1; c.linked = 0; test_usb = 0; power_step(9000);
     CHECK(!lights(9000) && !LIT(LIGHT_HOME) && !LIT(LIGHT_P0));
+    /* The remap: connected only, outside calibration; its state starts
+     * over with another remap slot or new settings. */
+    test_reset();
+    test_remaps[2].map[0] = 1; test_remaps[REMAP_BASE].map[0] = 2;
+    c.remap = 2; c.pad.buttons = PAD_A;
+    remap(1000);
+    CHECK(c.pad.buttons == (PAD_A | 1) && c.turbo_max == PAD_X && remap_resets == 1 && c.remap_live == 3);
+    remap(1004); CHECK(remap_resets == 1 && remap_steps == 2);
+    test_edits++; remap(1008); CHECK(remap_resets == 2);
+    c.remap = REMAP_BASE; c.pad.buttons = 0; remap(1012);
+    CHECK(remap_resets == 3 && c.pad.buttons == 2);
+    c.calibrating = 1; remap(1016);
+    CHECK(remap_resets == 4 && !c.remap_live && !c.turbo_max && remap_steps == 4);
+    c.calibrating = 0; c.linked = 0; remap(1020); CHECK(remap_resets == 4 && remap_steps == 4);
+    CHECK(sticks() == NULL);
+    c.linked = 1; CHECK(sticks() == &test_remaps[REMAP_BASE]);
+    /* Rumble over the step's range; step 0 off. */
+    test_remaps[0].rumble = 2;
+    test_remaps[0].rumble_min[0][1] = 20; test_remaps[0].rumble_max[0][1] = 60;
+    CHECK(motor_duty(&test_remaps[0], 0, 0) == 0 && motor_duty(&test_remaps[0], 1, 0) == 51);
+    CHECK(motor_duty(&test_remaps[0], 255, 0) == 153);
+    test_remaps[0].rumble = 0;
+    CHECK(motor_duty(&test_remaps[0], 255, 0) == 0);
     return TEST_DONE("controller_lite power");
 }
 #endif

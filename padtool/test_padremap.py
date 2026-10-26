@@ -62,6 +62,14 @@ class RemapTextTests(unittest.TestCase):
         self.assertEqual(remap.parse_rules("none"), bytes(160))
         self.assertEqual(remap.parse_rule("select held hold start")["outputs"], ["plus"])
 
+    def test_rules_sized_for_the_pad(self):
+        text = "; ".join(["a held hold b"] * 8)
+        self.assertEqual(len(remap.parse_rules(text, 8)), 8 * remap.RULE_SIZE)
+        self.assertEqual(remap.show_rules(remap.parse_rules(text, 8)), text)
+        with self.assertRaises(remap.RemapError):
+            remap.parse_rules(text + "; b held hold a", 8)
+        self.assertEqual(len(remap.parse_rules("none")), remap.RULES * remap.RULE_SIZE)
+
     def test_rules_the_firmware_would_refuse(self):
         for bad in ("a held tap b", "a pressed hold b", "a tapped:0 tap b", "a held turbo b@31",
                     "a sometimes hold b", "a held hold q", "a held", "a tapped:3000 tap b"):

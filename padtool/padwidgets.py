@@ -426,6 +426,10 @@ class RemapEditor(ttk.Frame):
     def texts(self):
         return tuple(e['var'].get() for e in self.entries)
 
+    def capacity(self):
+        """The rules this pad keeps."""
+        return self.entries[1]['field']['size'] // padremap.RULE_SIZE
+
     def sync(self):
         if self.saving or self.texts() == self.shown:
             return
@@ -481,7 +485,7 @@ class RemapEditor(ttk.Frame):
 
     def save(self, redraw=True):
         texts = (padremap.show_map(padremap.encode_map(self.base)),
-                 padremap.show_rules(padremap.encode_rules(self.rules)))
+                 padremap.show_rules(padremap.encode_rules(self.rules, self.capacity())))
         self.saving = True
         try:
             for entry, text in zip(self.entries, texts):
@@ -503,7 +507,7 @@ class RemapEditor(ttk.Frame):
 
     def count(self):
         if self.slots.winfo_exists():
-            self.slots.configure(text=f'Rule entries: {len(self.rules)} of {padremap.RULES} used')
+            self.slots.configure(text=f'Rule entries: {len(self.rules)} of {self.capacity()} used')
 
     def draw(self):
         for widget in self.winfo_children():
@@ -532,7 +536,7 @@ class RemapEditor(ttk.Frame):
         probe.update_idletasks()
         indent = probe.winfo_reqwidth() + 6 + 8
         probe.destroy()
-        full = len(self.rules) >= padremap.RULES
+        full = len(self.rules) >= self.capacity()
         for key in KEY_ORDER:
             base = ttk.Frame(body)
             base.pack(anchor='w', pady=(6, 1))
@@ -568,7 +572,7 @@ class RemapEditor(ttk.Frame):
         add = ttk.Button(row, text='Add rule', state='disabled' if full else 'normal',
                          command=lambda: self.change(lambda: self.rules.append(padremap.rule(key, 'held', 'hold', []))))
         add.pack(side='left', padx=(12, 0))
-        Tooltip(add, lambda: f'Add a rule for {KEY_LABELS[key]}' if not full else f'All {padremap.RULES} rule entries are used')
+        Tooltip(add, lambda: f'Add a rule for {KEY_LABELS[key]}' if not full else f'All {self.capacity()} rule entries are used')
         self.adds.append(add)
 
     # A key's rules, a small table of their own under its base row: 0 delete
@@ -660,7 +664,7 @@ class RemapEditor(ttk.Frame):
             return
         try:
             with open(path, encoding='utf-8') as file:
-                name, map_raw, rules_raw = padremap.import_preset(json.load(file))
+                name, map_raw, rules_raw = padremap.import_preset(json.load(file), self.capacity())
             if self.name_entry:
                 padremap.parse_name(name, self.name_entry['field']['size'])
         except (OSError, ValueError) as error:

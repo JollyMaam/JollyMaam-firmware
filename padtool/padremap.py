@@ -127,10 +127,11 @@ def decode_rules(raw):
     return out
 
 
-def encode_rules(rules):
-    if len(rules) > RULES:
-        raise RemapError(f"at most {RULES} rules")
-    raw = bytearray(RULES * RULE_SIZE)
+def encode_rules(rules, count=RULES):
+    """count: the rules the pad keeps, its field's size / RULE_SIZE."""
+    if len(rules) > count:
+        raise RemapError(f"at most {count} rules")
+    raw = bytearray(count * RULE_SIZE)
     for n, r in enumerate(rules):
         check_rule(r)
         mask = 0
@@ -179,10 +180,10 @@ def parse_rule(text):
     return r
 
 
-def parse_rules(text):
+def parse_rules(text, count=RULES):
     if text.strip() in ("", "none"):
-        return encode_rules([])
-    return encode_rules([parse_rule(part) for part in text.split(";") if part.strip()])
+        return encode_rules([], count)
+    return encode_rules([parse_rule(part) for part in text.split(";") if part.strip()], count)
 
 
 # ---- presets ------------------------------------------------------------------
@@ -212,12 +213,12 @@ def export_preset(name, map_raw, rules_raw):
     return {"format": FILE_FORMAT, "name": name, "map": show_map(map_raw), "rules": show_rules(rules_raw)}
 
 
-def import_preset(data):
+def import_preset(data, count=RULES):
     """(name, map bytes, rules bytes) from export_preset's dict; RemapError if it is not one."""
     if not isinstance(data, dict) or data.get("format") != FILE_FORMAT:
         raise RemapError("not a remap preset file (format 1)")
     try:
-        return str(data.get("name", "")), parse_map(str(data.get("map", ""))), parse_rules(str(data.get("rules", "")))
+        return str(data.get("name", "")), parse_map(str(data.get("map", ""))), parse_rules(str(data.get("rules", "")), count)
     except RemapError as error:
         raise RemapError(f"preset file: {error}")
 

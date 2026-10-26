@@ -23,13 +23,15 @@ $(U2CW_PAD)_LDFLAGS += --defsym=blc_ll_procConnectReq=plat_ll_connect_request
 $(U2CW_PAD)_LDFLAGS += --wrap=blc_ll_get_connEffectiveMaxTxOctets
 $(U2CW_PAD)_LDFLAGS += --undefined=plat_ll_push_tx_fifo --defsym=bls_ll_pushTxFifo=plat_ll_push_tx_fifo
 
-# 16 KiB of SRAM: the settings keep slots A-Y only (no remaps, no base remap),
-# with records sized for them and a small staging buffer; small log and trace
-# rings.
+# 16 KiB of SRAM: the settings keep slots A-Y and remap slots A-Y with the
+# base, 8 rules each, holding only the remap in use in RAM (the others are
+# read from flash); records sized for them and a small staging buffer; small
+# log and trace rings.
 $(U2CW_PAD)_DEFINES :=
 $(U2CW_PAD)_DEFINES += -DSLOTS_STORED=4
-$(U2CW_PAD)_DEFINES += -DREMAPS_STORED=0
-$(U2CW_PAD)_DEFINES += -DREMAP_BASE_STORED=0
+$(U2CW_PAD)_DEFINES += -DREMAPS_STORED=4
+$(U2CW_PAD)_DEFINES += -DREMAP_RAM=1
+$(U2CW_PAD)_DEFINES += -DREMAP_RULES=8
 $(U2CW_PAD)_DEFINES += -DRECORD_MAX=152
 $(U2CW_PAD)_DEFINES += -DUX_REMAP_CONFIG=0
 $(U2CW_PAD)_DEFINES += -DSTAGE_MAX=256
@@ -54,6 +56,7 @@ $(U2CW_PAD)_SOURCES += src/profiles/profile_hid.c
 $(U2CW_PAD)_SOURCES += src/profiles/profile_switch.c
 $(U2CW_PAD)_SOURCES += src/core/input.c
 $(U2CW_PAD)_SOURCES += src/core/input_calibration.c
+$(U2CW_PAD)_SOURCES += src/core/remap.c
 $(U2CW_PAD)_SOURCES += src/core/settings.c
 $(U2CW_PAD)_SOURCES += src/core/settings_ux.c
 $(U2CW_PAD)_SOURCES += src/core/usb.c
@@ -85,3 +88,15 @@ $(O)/host/test-telink-att: src/platform/telink/att_telink.c src/platform/telink/
 	@mkdir -p $(@D)
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) -DUNITTEST -I src/core -I src/platform/telink $(BTSTACK_INCLUDES) \
 	  src/platform/telink/att_telink.c $(BTSTACK)/src/ble/att_db.c $(BTSTACK)/src/btstack_util.c -o $@
+
+# The whole settings suite (every slot kept) holding one remap in RAM, as
+# this pad does.
+.PHONY: settings-one-remap-test
+$(U2CW_PAD)-test: | settings-one-remap-test
+settings-one-remap-test: $(O)/host/test-settings-one-remap
+	$(Q)$<
+
+$(O)/host/test-settings-one-remap: src/core/settings.c $(wildcard src/core/*.h) $(O)/$(U2CW_PAD)/defines
+	@mkdir -p $(@D)
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) -DBOARD_PID=\"$($(U2CW_PAD)_PID)\" -DREMAP_RAM=1 -DUNITTEST $(SRC_INCLUDES) \
+	  -iquote $($(U2CW_PAD)_BOARD_DIR) $< -o $@

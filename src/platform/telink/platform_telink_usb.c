@@ -28,7 +28,7 @@
 #define VENDOR_OP 0xf5
 #define EP_IN     4              /* bulk IN 0x84 */
 #define EP_OUT    5              /* bulk OUT 0x05 */
-#define DATA_MAX  336            /* the largest answer: FIELD's longest (328), LOG, IDENTIFY */
+#define DATA_MAX  336            /* the largest answer: FIELD (328); a remap slot READ is 283 with 8 rules */
 
 static const u8 device_descriptor[] = {
     18, 1, 0x10, 0x01, 0, 0, 0, 8,
