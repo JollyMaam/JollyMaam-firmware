@@ -63,7 +63,7 @@ def remap_record(path="fake"):
         r["fields"] += [{"kind": 3, "id": 28 + 2 * i, "name": f"{side}_press", "type": padgui.pad.T_NUMBER,
                          "size": 1, "max": 100, "help": "Press", "dev": False},
                         {"kind": 3, "id": 29 + 2 * i, "name": f"{side}_mode", "type": padgui.pad.T_ENUM,
-                         "names": ["analog", "hair", "rapid"], "size": 1, "help": "Mode", "dev": False}]
+                         "names": ["default", "hair", "rapid"], "size": 1, "help": "Mode", "dev": False}]
     linear = padgui.pad.padcurves.preset("linear")
     for t in range(10, 19):          # the remap slots and the base
         r["values"][t] = {"name": (bytes(24), False), "map": (bytes(20), False), "rules": (bytes(160), False),
@@ -72,7 +72,7 @@ def remap_record(path="fake"):
                           "left_inner_deadzone": (b"\0", False), "left_outer_deadzone": (b"\0", False),
                           "right_inner_deadzone": (b"\0", False), "right_outer_deadzone": (b"\0", False)}
         r["values"][t].update({name: (b"\0", False) for name, _ in sticks})
-        r["values"][t].update({"l2_press": (b"\x0c", False), "r2_press": (b"\x0c", False),
+        r["values"][t].update({"l2_press": (b"\x05", False), "r2_press": (b"\x05", False),
                                "l2_mode": (b"\0", False), "r2_mode": (b"\0", False)})
     r["defaults"] = {t: dict(r["values"][t]) for t in range(10, 18)}
     return r
@@ -1501,10 +1501,10 @@ class RemapGuiTests(GuiCase):
             box = self.app.stick_boxes[side]
             labels = [l.cget("text") for f in box.winfo_children() if type(f) is padgui.ttk.Frame
                       for l in f.winfo_children() if type(l) is padgui.ttk.Label]
-            self.assertEqual(labels, [f"{side.upper()} trigger", "pressed at", "Mode"])
+            self.assertEqual(labels, [side.upper(), "trigger digital at", "Analog mode"])
         r2, mode = self.app.stick_boxes["r2"], r["draft"][11, "r2_mode"]
         combo = next(w for w in r2.winfo_children() if isinstance(w, padgui.ttk.Combobox))
-        self.assertEqual((combo.get(), list(combo.cget("values"))), ("Analog", ["Analog", "Hair", "Rapid"]))
+        self.assertEqual((combo.get(), list(combo.cget("values"))), ("Default", ["Default", "Hair", "Rapid"]))
         combo.set("Hair")
         self.assertEqual((mode["var"].get(), self.app.value_bytes(mode)), ("hair", b"\1"))
         self.assertTrue(self.app.changed(mode))

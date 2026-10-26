@@ -120,11 +120,12 @@ void in_map(const struct in_raw *raw, struct pad *pad);
 int in_moved(const struct pad *now, const struct pad *ref);
 
 /* Each trigger's press (PAD_L2, PAD_R2), the one place a host's digital
- * trigger is decided.  analog: pressed from the remap slot's press point,
- * the analog value as calibrated; hair: the same, the analog value full
- * while pressed and 0 otherwise; rapid: as hair, but once pressed it lets go
- * as soon as the trigger rises a little and presses again as soon as it goes
- * down a little, wherever it is.  The caller keeps the state, zeroed. */
+ * trigger is decided.  default (TRIGGER_ANALOG): pressed from the remap
+ * slot's press point, the analog value as calibrated; hair: the same, the
+ * analog value full while pressed and 0 otherwise; rapid: as hair, but once
+ * pressed it lets go as soon as the trigger rises a little and presses again
+ * as soon as it goes down a little, wherever it is.  The caller keeps the
+ * state, zeroed. */
 enum { TRIGGER_ANALOG, TRIGGER_HAIR, TRIGGER_RAPID };
 struct in_trigger {
     u8 down;

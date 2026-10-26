@@ -40,10 +40,10 @@ defaults sends every key as itself and the sticks as calibrated.
   stick, the one pushed further wins. The base at its defaults gives the
   sticks exactly as calibrated: no curve, no deadzone.
 - **triggers** (in the sticks record): per trigger a press point in
-  percent of travel (default 12) and a mode. The press point alone decides
+  percent of travel (default 5) and an analog mode. The press point alone decides
   the host's digital trigger (`PAD_L2`, `PAD_R2`, set after the remap; every
   profile with a trigger button reads them), letting go 3% short of it.
-  Analog leaves the value as calibrated; hair sends full while pressed and 0
+  Default leaves the value as calibrated; hair sends full while pressed and 0
   otherwise; rapid is hair that lets go once the trigger rises 5% from its
   deepest point and presses again once it goes 5% down from its highest,
   back to the press point only after it falls to the release point. Outside

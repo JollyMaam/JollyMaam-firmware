@@ -56,7 +56,7 @@ static const char *const remap_names[] = { "base", "a", "b", "x", "y", "up", "do
 static const u8 linear_points[STICK_CURVE_POINTS] = { 16, 32, 48, 64, 80, 96, 112, 128, 143, 159, 175, 191, 207, 223, 239 };
 
 static const char *const layouts[] = { "games", "desktop", NULL };
-static const char *const trigger_modes[] = { "analog", "hair", "rapid", NULL };
+static const char *const trigger_modes[] = { "default", "hair", "rapid", NULL };
 static const char *const rumble_steps[] = { "off", "1", "2", "3", "4", "5", NULL };   /* RUMBLE_STEPS */
 static const char *const phys[] = { "1m", "2m", NULL };
 static const char *const onoff[] = { "on", "off", NULL };
@@ -249,16 +249,16 @@ static const struct set_field remap_fields[] = {
     { .id = 27, .flags = F_DEV, .name = "gyro_accel", .type = T_NUMBER, .max = 1000, REMAP(gyro_accel),
       .def = 250, .help = "mouse, touchpad: percent of gyro_speed for fast turns; from the next connect" },
     { .id = 28, .name = "l2_press", .type = T_NUMBER, .max = 100, REMAP(trigger_press[0]),
-      .def = 12, .help = "L2: percent of travel where it counts as pressed (a host's digital trigger, "
+      .def = 5, .help = "L2: percent of travel where it counts as pressed (a host's digital trigger, "
                          "hair and rapid); it lets go 3% short of it" },
     { .id = 29, .name = "l2_mode", .type = T_ENUM, .names = trigger_modes, REMAP(trigger_mode[0]),
-      .help = "L2: analog as it is; hair: full from the press point, else nothing; rapid: as hair, "
+      .help = "L2: default: the analog value as it is; hair: full from the press point, else nothing; rapid: as hair, "
               "but it lets go as soon as the trigger rises 5% and presses again 5% down, anywhere" },
     { .id = 30, .name = "r2_press", .type = T_NUMBER, .max = 100, REMAP(trigger_press[1]),
-      .def = 12, .help = "R2: percent of travel where it counts as pressed (a host's digital trigger, "
+      .def = 5, .help = "R2: percent of travel where it counts as pressed (a host's digital trigger, "
                          "hair and rapid); it lets go 3% short of it" },
     { .id = 31, .name = "r2_mode", .type = T_ENUM, .names = trigger_modes, REMAP(trigger_mode[1]),
-      .help = "R2: analog as it is; hair: full from the press point, else nothing; rapid: as hair, "
+      .help = "R2: default: the analog value as it is; hair: full from the press point, else nothing; rapid: as hair, "
               "but it lets go as soon as the trigger rises 5% and presses again 5% down, anywhere" },
 };
 #define REMAP_STICKS 3                    /* remap fields from this index: the second record */

@@ -149,10 +149,10 @@ map the left stick to the right and the right to the left to swap them. If both 
 further wins. L3 and R3 stay where they are; map them too if you want them
 swapped.
 
-Each trigger has a box too: "**L2 trigger** pressed at [12] %" and its
-**Mode**. The press point is where the trigger counts as pressed: the ZL/ZR
+Each trigger has a box too: "**L2** trigger digital at [5] %" and its
+**Analog mode**. The press point is where the trigger counts as pressed: the ZL/ZR
 of the Switch profiles, the L2/R2 buttons of PlayStation, the mouse's clicks;
-it lets go 3% short of it. Modes: **Analog** sends the trigger as it is;
+it lets go 3% short of it. Analog modes: **Default** sends the trigger as it is;
 **Hair** sends it full from the press point and not at all below (also on
 analog profiles such as Xbox); **Rapid** is Hair that lets go as soon as the
 trigger rises 5% and presses again as soon as it goes 5% down, wherever it is

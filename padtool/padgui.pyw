@@ -1172,9 +1172,11 @@ class App:
                 ttk.Label(label, text="maps to").pack(side="left", padx=(4, 0))
             elif in_box and shown in ("x_axis", "y_axis"):
                 ttk.Label(label, text=f"Invert {shown[0].upper()} axis").pack(side="left")
-            elif in_box and shown == "press":     # L2 trigger pressed at [12] %
-                ttk.Label(label, text=f"{side.upper()} trigger", font=("TkDefaultFont", 10, "bold")).pack(side="left")
-                ttk.Label(label, text="pressed at").pack(side="left", padx=(4, 0))
+            elif in_box and shown == "press":     # L2 trigger digital at [5] %
+                ttk.Label(label, text=side.upper(), font=("TkDefaultFont", 10, "bold")).pack(side="left")
+                ttk.Label(label, text="trigger digital at").pack(side="left", padx=(4, 0))
+            elif in_box and shown == "mode":
+                ttk.Label(label, text="Analog mode").pack(side="left")
             else:
                 ttk.Label(label, text=shown.replace("_", " ").capitalize()).pack(side="left")
             if in_box and shown == "maps_to":
