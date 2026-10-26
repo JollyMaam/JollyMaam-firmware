@@ -10,6 +10,7 @@ reboots both, so neither keeps anything from the test.
 
     tools/linkbench.py                       # 3 runs of 10 s each way
     tools/linkbench.py --runs 5 --seconds 20 --label "desk, 1 m"
+    tools/linkbench.py --set in_flight=1 --set poll_us=1250   # slot settings, RAM only
     tools/linkbench.py --summary             # the results in OUT so far
 
 The pad's slot (default up) is changed only in RAM; the dongle's bond too.
@@ -75,15 +76,16 @@ def summary(path, since=None):
     for r in rows:
         pad = r["pad"].split(",")[0]
         dongle = r.get("dongle", "").split(",")[0]
+        extra = " ".join(f"{k}={v}" for k, v in r.get("settings", {}).items())
         if r["mode"] == "throughput":
             g = r["host_gap_ms"] or {}
             print(f"{r['time']:19}  {pad:12} {dongle:18} throughput {r['host_rate']:5.0f}/{r['pad_rate']:<5.0f}"
                   f"  {g.get('p50', 0):6.2f} {g.get('p90', 0):6.2f} {g.get('p99', 0):6.2f} {g.get('max', 0):6.2f}"
-                  f"  {r['lost']}  (gaps)")
+                  f"  {r['lost']}  (gaps) {extra}")
         else:
             t = r["total_ms"] or {}
             print(f"{r['time']:19}  {pad:12} {dongle:18} latency    {'':11}  {t.get('p50', 0):6.2f} {t.get('p90', 0):6.2f}"
-                  f" {t.get('p99', 0):6.2f} {t.get('max', 0):6.2f}  {r['expected'] - r['seen']}")
+                  f" {t.get('p99', 0):6.2f} {t.get('max', 0):6.2f}  {r['expected'] - r['seen']}  {extra}")
 
 
 def main():
@@ -93,6 +95,8 @@ def main():
     p.add_argument("--slot", default="up", help="the pad slot to use, in RAM only (default up)")
     p.add_argument("--type", default="generic", help="what the dongle is on USB (a HID type: generic, "
                    "dualsense, dualshock4, switch, switch2; xbox has no evdev node here)")
+    p.add_argument("--set", action="append", default=[], metavar="NAME=VALUE",
+                   help="a setting of the pad's slot for the test (developer ones too), RAM only")
     p.add_argument("--label", default="", help="a note stored with each result")
     p.add_argument("--out", default=OUT)
     p.add_argument("--summary", action="store_true", help="print the results in --out and stop")
@@ -112,7 +116,8 @@ def main():
     try:
         padtool("ephemeral")
         padtool("--dongle", "ephemeral")
-        padtool("set", a.slot, "type", a.type, "transport", "dongle")
+        settings = [kv.split("=", 1) for kv in a.set]
+        padtool("--dev", "set", a.slot, "type", a.type, "transport", "dongle", *[x for kv in settings for x in kv])
         padtool("pair", a.slot)
         time.sleep(1)
         padtool("--dongle", "pair")
@@ -132,6 +137,7 @@ def main():
                     r = json.loads(f.read())
                 os.remove(tmp)
                 r["dongle"] = dongle_id
+                r["settings"] = dict(settings)
                 with open(a.out, "a") as f:
                     f.write(json.dumps(r) + "\n")
     finally:
