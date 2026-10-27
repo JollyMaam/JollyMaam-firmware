@@ -209,6 +209,7 @@ jieli_tools = $(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_TOOLS),$(
 #                    far above it (MAIN_AT); its entry goes before the SDK's start-up
 #   NAME_MAIN_AT     optional: the app goes this far above the app area's start,
 #   NAME_FRONT       and the app area holds board NAME_FRONT, its updater
+#   NAME_KEEP        optional ADDR:LEN ranges NAME-flash writes back as the device held them
 # Targets: NAME (firmware.img), NAME-flash (through the ROM loader),
 # NAME-loader (into the ROM loader and wait there); with more than one
 # device for the board, DEVICE= picks one: its USB port, as jlnewfw scan
@@ -283,7 +284,8 @@ $(O)/$(1)/firmware.img: $(O)/$(1)/app.bin $$($(1)_FRONT_BIN) $(O)/$(1)/isd_confi
 $(1)-flash: $(O)/$(1)/app.bin $$($(1)_FRONT_BIN) $(O)/$(1)/isd_config.ini $(O)/host/jlnewfw
 	$$(Q)$(O)/host/jlnewfw flashpack --enter-loader --wait 30 --loader $(JIELI_LOADER) $$(if $$(DEVICE),--device $$(DEVICE)) \
 		--flash-size $($(1)_FLASH_SIZE) --code-limit $$($(1)_CODE_LIMIT) \
-		-c $(O)/$(1)/isd_config.ini -u $$($(1)_UBOOT) $$($(1)_PACKED) $$($(1)_CONFIG_TOOL)
+		-c $(O)/$(1)/isd_config.ini -u $$($(1)_UBOOT) $$($(1)_PACKED) $$($(1)_CONFIG_TOOL) \
+		$(foreach k,$($(1)_KEEP),--keep $(k))
 
 # Running firmware into the ROM loader, then wait for it there: the loader
 # whose flash holds this board's PID.

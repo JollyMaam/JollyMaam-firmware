@@ -4,6 +4,7 @@
 #                                    it the HID command in docs/gamesir-nova-2-lite/
 #   gamesir-nova-2-lite-pad-loader   into the ROM loader
 #   gamesir-nova-2-lite-pad-test, gamesir-nova-2-lite-all
+#   gamesir-nova-2-lite-pad-split(-flash)  the pad behind its updater
 # Until the shared parts move out of src/boards/gamesir-cyclone-2/, this
 # board uses the Cyclone 2's bt_pad.c and btstack_config.h.
 # The flash is 1 MiB; stock declares 512 KiB and keeps its VM, BTIF (MAC),
@@ -45,7 +46,28 @@ $(NOVA2LITE_PAD)_SOURCES += src/core/settings_ux.c
 $(NOVA2LITE_PAD)_SOURCES += src/core/usb.c
 $(NOVA2LITE_PAD)_SOURCES += src/core/utils.c
 
+# The pad behind its updater (src/updater/, docs/firmware/updater.md): the
+# updater in the app area, below stock's data at 0x64000; the app's region
+# at flash 0x80000 (0x7d000 above the app area), clear of it too.
+NOVA2LITE_UPDATER := gamesir-nova-2-lite-pad-updater
+$(NOVA2LITE_UPDATER)_FLASH_SIZE := $($(NOVA2LITE_PAD)_FLASH_SIZE)
+$(NOVA2LITE_UPDATER)_PID := $($(NOVA2LITE_PAD)_PID)
+$(NOVA2LITE_UPDATER)_BOARD_DIR := src/updater
+$(NOVA2LITE_UPDATER)_UPDATER := 0x7d000
+$(NOVA2LITE_UPDATER)_DEFINES := -DBT_LE_ONLY -DUSB_TOOL_ONLY
+$(NOVA2LITE_UPDATER)_BTSTACK := $($(CYCLONE2_UPDATER)_BTSTACK)
+$(NOVA2LITE_UPDATER)_SOURCES := $(subst src/boards/gamesir-cyclone-2/board_pad.c,src/boards/gamesir-nova-2-lite/board_pad.c,$($(CYCLONE2_UPDATER)_SOURCES))
+
+NOVA2LITE_SPLIT := gamesir-nova-2-lite-pad-split
+$(foreach v,FLASH_SIZE PID DEFINES LOADER_HINT BOARD_DIR SOURCES,$(eval $(NOVA2LITE_SPLIT)_$(v) := $$($(NOVA2LITE_PAD)_$(v))))
+$(NOVA2LITE_SPLIT)_MAIN_AT := $($(NOVA2LITE_UPDATER)_UPDATER)
+$(NOVA2LITE_SPLIT)_FRONT := $(NOVA2LITE_UPDATER)
+$(NOVA2LITE_SPLIT)_DEFINES += -DUX_UPDATER=1   # offline Home+M: the updater
+$(NOVA2LITE_SPLIT)_KEEP := 0x64000:0x1c000       # stock's data: the image spans it
+
 $(eval $(call jieli_board,$(NOVA2LITE_PAD)))$(eval $(call host_tests,$(NOVA2LITE_PAD)))
+$(foreach b,$(NOVA2LITE_UPDATER) $(NOVA2LITE_SPLIT),$(eval $(call jieli_board,$(b))))
+$(eval $(call host_tests,$(NOVA2LITE_SPLIT)))
 
 .PHONY: gamesir-nova-2-lite-all gamesir-nova-2-lite-test
 gamesir-nova-2-lite-all: $(NOVA2LITE_PAD)

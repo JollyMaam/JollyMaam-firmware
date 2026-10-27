@@ -171,3 +171,10 @@ UPDATE_INFO reports it. Replies are notifications of at most 144 bytes and
 need the reply characteristic's notifications on.
 
 By hand: Home+Turbo (the board's M) while not connected.
+
+## The Nova 2 Lite (BR23)
+
+`gamesir-nova-2-lite-pad-split`: as the Cyclone 2, with the app's region at
+flash `0x80000` (`MAIN_AT` `0x7d000`), so that stock's data at
+`0x64000..0x80000` stays; `NAME_KEEP` makes `NAME-flash` write that range
+back as the device held it.
