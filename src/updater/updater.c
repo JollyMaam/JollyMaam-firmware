@@ -15,6 +15,9 @@
  * The header's magic word is programmed last, after the app's CRC checked
  * out through the code window: until then a reset comes back here.
  *
+ * Home pressed and released goes back to the app, when it is valid; 60 s
+ * without a USB host powers off.
+ *
  * Tool-device commands (the main app's are in core/usb.c):
  *   `0x00` IDENTIFY, `0x01` STATUS, `0x02` LOG, `0x10` REBOOT, `0x11`
  *   REBOOT_LOADER as there; IDENTIFY's byte 7 is 1, the updater
@@ -324,6 +327,22 @@ static void lights(u8 r, u8 g, u8 b)
     plat_leds(&f);
 }
 
+/* Home pressed and released here goes back to a valid app: offline
+ * Home+M in the app (UX_UPDATER) is how a pad gets here by hand. */
+static int home_back(void)
+{
+    static u8 down;
+    struct in_raw raw;
+
+    plat_input(&raw);
+    if (raw.buttons & PAD_HOME) down = 1;
+    else if (down) {
+        down = 0;
+        return app_valid() && state != WRITING;
+    }
+    return 0;
+}
+
 void ctl_main(void)
 {
     u32 host_seen = plat_ms(), reboot_at = 0;
@@ -337,6 +356,10 @@ void ctl_main(void)
         plat_usb_service();
         now = plat_ms();
         if (state == COMMITTED) lights(0, 2, 0);
+        if (home_back()) {
+            util_log("updater: Home, back to the app");
+            reboot = 1;
+        }
         if (reboot && !reboot_at) reboot_at = now + 100;   /* the command's status goes first */
         if (reboot_at && (s32)(now - reboot_at) >= 0) {
             if (to_rom) plat_reboot_loader();

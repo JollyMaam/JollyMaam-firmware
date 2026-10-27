@@ -90,9 +90,11 @@ CYCLONE2_SPLIT := gamesir-cyclone-2-pad-split
 $(foreach v,FLASH_SIZE PID DEFINES LOADER_HINT BOARD_DIR SOURCES,$(eval $(CYCLONE2_SPLIT)_$(v) := $$($(CYCLONE2_PAD)_$(v))))
 $(CYCLONE2_SPLIT)_MAIN_AT := $($(CYCLONE2_UPDATER)_UPDATER)
 $(CYCLONE2_SPLIT)_FRONT := $(CYCLONE2_UPDATER)
+$(CYCLONE2_SPLIT)_DEFINES += -DUX_UPDATER=1   # offline Home+M: the updater
 
 $(foreach b,$(CYCLONE2_PAD) $(CYCLONE2_DONGLE),$(eval $(call jieli_board,$(b)))$(eval $(call host_tests,$(b))))
 $(foreach b,$(CYCLONE2_UPDATER) $(CYCLONE2_SPLIT),$(eval $(call jieli_board,$(b))))
+$(eval $(call host_tests,$(CYCLONE2_SPLIT)))
 
 .PHONY: gamesir-cyclone-2-all gamesir-cyclone-2-test
 gamesir-cyclone-2-all: $(CYCLONE2_PAD) $(CYCLONE2_DONGLE)

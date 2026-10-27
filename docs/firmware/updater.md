@@ -57,6 +57,11 @@ off after 60 s without a USB host.
 The app's `UPDATER` command (`0x40`) sets the request and reboots. In a build
 without an updater the request is ignored and the app starts again.
 
+By hand: in a split build (`UX_UPDATER`), Home+M while not connected
+restarts into the updater on release. In the updater, Home pressed and
+released goes back to the app when it is valid. While connected, Home+M is
+still remap config mode.
+
 ## Update commands
 
 On the tool device (vendor SCSI `0xf5`), answered by the updater:
