@@ -3,6 +3,7 @@
 #   8bitdo-ultimate2c-wireless-pad-flash    through the 8BitDo boot loader
 #   8bitdo-ultimate2c-wireless-pad-loader   into the boot loader
 #   8bitdo-ultimate2c-wireless-pad-test, 8bitdo-ultimate2c-wireless-all
+#   8bitdo-ultimate2c-wireless-pad-split(-flash)  the pad behind its updater
 # The boot loader is 0x0000-0x5fff and starts the app at 0x6000; stock
 # keeps data in sectors from 0x73000 (docs/8bitdo-ultimate2c-wireless/),
 # which nothing here writes.
@@ -62,7 +63,46 @@ $(U2CW_PAD)_SOURCES += src/core/settings_ux.c
 $(U2CW_PAD)_SOURCES += src/core/usb.c
 $(U2CW_PAD)_SOURCES += src/core/utils.c
 
+# The pad behind its updater (src/updater/, docs/firmware/updater.md): the
+# updater where the boot loader starts an app, 128 KiB for it, the app's
+# header at 0x26000 and the app after it; settings and bonds stay at 0x6f000.
+U2CW_UPDATER := 8bitdo-ultimate2c-wireless-pad-updater
+$(U2CW_UPDATER)_FLASH_SIZE := $($(U2CW_PAD)_FLASH_SIZE)
+$(U2CW_UPDATER)_APP_START := $($(U2CW_PAD)_APP_START)
+$(U2CW_UPDATER)_APP_END := 0x26000
+$(U2CW_UPDATER)_UPDATER := 0x20000
+$(U2CW_UPDATER)_CODE_LIMIT := 0x6f000
+$(U2CW_UPDATER)_PID := $($(U2CW_PAD)_PID)
+$(U2CW_UPDATER)_STAMP := $($(U2CW_PAD)_STAMP)
+$(U2CW_UPDATER)_LOADER_HINT := $($(U2CW_PAD)_LOADER_HINT)
+$(U2CW_UPDATER)_BOARD_DIR := $($(U2CW_PAD)_BOARD_DIR)
+$(U2CW_UPDATER)_LDFLAGS := $($(U2CW_PAD)_LDFLAGS)
+$(U2CW_UPDATER)_DEFINES := -DLOG_LINES=16 -DLOG_TEXT=48
+$(U2CW_UPDATER)_SOURCES :=
+$(U2CW_UPDATER)_SOURCES += src/updater/updater.c
+$(U2CW_UPDATER)_SOURCES += src/updater/updater_telink.c
+$(U2CW_UPDATER)_SOURCES += src/updater/updater_ble_telink.c
+$(U2CW_UPDATER)_SOURCES += src/boards/8bitdo-ultimate2c-wireless/board_pad.c
+$(U2CW_UPDATER)_SOURCES += src/platform/telink/platform_telink.c
+$(U2CW_UPDATER)_SOURCES += src/platform/telink/platform_telink_usb.c
+$(U2CW_UPDATER)_SOURCES += src/platform/telink/libc_telink.c
+$(U2CW_UPDATER)_SOURCES += src/platform/telink/bt_telink.c
+$(U2CW_UPDATER)_SOURCES += src/platform/telink/att_telink.c
+$(U2CW_UPDATER)_SOURCES += src/platform/telink/connect_telink.c
+$(U2CW_UPDATER)_SOURCES += src/platform/telink/tx_telink.c
+$(U2CW_UPDATER)_SOURCES += src/platform/telink/rx_telink.c
+$(U2CW_UPDATER)_SOURCES += src/core/utils.c
+
+U2CW_SPLIT := 8bitdo-ultimate2c-wireless-pad-split
+$(foreach v,FLASH_SIZE PID STAMP LOADER_HINT BOARD_DIR LDFLAGS DEFINES SOURCES,$(eval $(U2CW_SPLIT)_$(v) := $$($(U2CW_PAD)_$(v))))
+$(U2CW_SPLIT)_APP_START := 0x26120
+$(U2CW_SPLIT)_APP_END := 0x6f000
+$(U2CW_SPLIT)_FRONT := $(U2CW_UPDATER)
+$(U2CW_SPLIT)_DEFINES += -DUX_UPDATER=1   # offline Home+Turbo (M): the updater
+
 $(eval $(call telink_board,$(U2CW_PAD)))$(eval $(call host_tests,$(U2CW_PAD)))
+$(foreach b,$(U2CW_UPDATER) $(U2CW_SPLIT),$(eval $(call telink_board,$(b))))
+$(eval $(call host_tests,$(U2CW_SPLIT)))
 
 .PHONY: 8bitdo-ultimate2c-wireless-all 8bitdo-ultimate2c-wireless-test
 8bitdo-ultimate2c-wireless-all: $(U2CW_PAD)

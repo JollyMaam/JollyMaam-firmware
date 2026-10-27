@@ -46,6 +46,8 @@ u32 upd_entry(void) { return MAIN_ENTRY; }
 u32 upd_read32(u32 offset) { return *(const volatile u32 *)(CODE_WINDOW + MAIN_AT + offset); }
 void upd_read(u32 offset, u8 *out, u32 n) { memcpy(out, (const void *)(CODE_WINDOW + MAIN_AT + offset), n); }
 u32 upd_data_max(void) { return 512; }
+void upd_started(void) {}
+void upd_committed(void) {}
 
 /* The app area's cipher (jlnewfw's jl_sfc): a 32-byte block n bytes from
  * the area's start is XORed with the ENC stream keyed chip_key ^ (n >> 2).

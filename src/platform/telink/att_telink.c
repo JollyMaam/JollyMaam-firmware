@@ -5,7 +5,6 @@
 #include "att_telink.h"
 
 #define CCC_MAX 8
-#define MESSAGE_MAX 144         /* Switch 2's largest command response */
 
 static struct {
     const struct profile *profile;
@@ -13,7 +12,7 @@ static struct {
     u16 ccc_handle[CCC_MAX];
     u8 ccc_value[CCC_MAX], ccc_count;
     u8 response[TELINK_ATT_BUFFER];
-    u8 message[MESSAGE_MAX + 3];
+    u8 message[TELINK_ATT_MESSAGE_MAX + 3];
     u16 response_len, message_len, max_mtu;
     u8 command;
 } a;
@@ -60,6 +59,7 @@ static int write_value(u16 connection, u16 handle, u16 mode, u16 offset, u8 *dat
         a.ccc_value[index] = data[0];
         return 0;
     }
+    if (a.profile->device->write_now) return a.profile->device->write_now(handle, data, len);
     if (a.message_len && a.command) return ATT_ERROR_INSUFFICIENT_RESOURCES;
     if (len > BT_WRITE_MAX) return ATT_ERROR_INVALID_ATTRIBUTE_VALUE_LENGTH;
     return plat_att_write(handle, data, len) ? 0 : ATT_ERROR_INSUFFICIENT_RESOURCES;
@@ -135,7 +135,7 @@ int plat_att_notifying(u16 handle)
 
 static int send(u16 handle, const u8 *data, u16 len, int command)
 {
-    if ((a.message_len && (!command || a.command)) || !plat_att_notifying(handle) || len > MESSAGE_MAX || len + 3 > a.connection.mtu) return 0;
+    if ((a.message_len && (!command || a.command)) || !plat_att_notifying(handle) || len > TELINK_ATT_MESSAGE_MAX || len + 3 > a.connection.mtu) return 0;
     a.message[0] = ATT_HANDLE_VALUE_NOTIFICATION;
     a.message[1] = (u8)handle;
     a.message[2] = (u8)(handle >> 8);

@@ -256,6 +256,10 @@ struct bt_device {
     const u8 *scan_response;
     u8 scan_response_len;
     const u8 *sm_er, *sm_ir;     /* security manager keys: NULL, no SMP */
+    /* B80 only (att_telink.c): an ATT write handled at once, in the stack's
+     * callback, its response sent after; an ATT error code or 0.  NULL: the
+     * write goes to the control loop (BT_EV_WRITE). */
+    int (*write_now)(u16 handle, const u8 *data, u16 len);
     u16 interval_min, interval_max;
 };
 
@@ -901,6 +905,8 @@ void plat_boot_info(struct plat_boot *out);
 void plat_input(struct in_raw *raw);
 void plat_leds(const struct led_frame *f);
 void plat_motors(u8 left, u8 right);       /* duty of 255 */
+/* USB there: the BR23, a host's frames within 250 ms; the B80, power on the
+ * connector, debounced (its USB attaches on it). */
 int plat_usb_present(void);
 int plat_usb_suspended(void);               /* the host suspended the bus (3 ms quiet) */
 void plat_usb_service(void);

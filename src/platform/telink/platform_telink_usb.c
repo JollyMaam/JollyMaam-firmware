@@ -501,6 +501,14 @@ void plat_usb_init(void)
     if (!power.present) usb_dp_pullup_en(0);
 }
 
+/* USB power on the connector, debounced: what attaches and detaches the
+ * tool device, and what the controller sees.  The raw pin is only for the
+ * power-off path's last look (board_usb_present). */
+int plat_usb_present(void)
+{
+    return power.present;
+}
+
 int plat_usb_configured(void)
 {
     return u.configuration != 0;

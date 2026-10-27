@@ -159,6 +159,7 @@ static u8 commit(void)
         return ERR_CRC;
     }
     if (!upd_program(0, held, 4, 0)) return ERR_VERIFY;
+    upd_committed();
     state = COMMITTED;
     util_log("updater: committed %u bytes, crc %04x", size, crc);
     return ERR_NONE;
@@ -298,6 +299,7 @@ void ctl_main(void)
     u32 host_seen = plat_ms(), reboot_at = 0;
 
     util_log("updater: app at %x, %s", upd_region(), app_valid() ? "valid" : "none");
+    upd_started();
     updater_ble_start();
     lights(0, 0, 2);
     for (;;) {

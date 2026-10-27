@@ -152,11 +152,6 @@ u16 plat_battery_mv(void)
     return 0;                            /* not read yet */
 }
 
-int plat_usb_present(void)
-{
-    return board_usb_present();
-}
-
 /* The hold releases the supply completely, so no retention register keeps
  * the selected slot through battery sleep. Settings use keys 1..28; key 63
  * is the platform's last-slot record in the same compacting flash log. */
@@ -240,6 +235,13 @@ void plat_reboot(void)
     start_reboot();
 }
 
+/* Into the updater, where the app has one (board.h); without, a reboot. */
+void plat_reboot_updater(void)
+{
+    analog_write(UPDATER_STAY_REG, UPDATER_STAY);
+    plat_reboot();
+}
+
 /* The 8BitDo boot loader stays in its USB loader after a reset when analog
  * register 0x3c holds 0x5a (it survives the reset). */
 void plat_reboot_loader(void)
@@ -264,6 +266,9 @@ _attribute_ram_code_ void irq_handler(void)
 
 int main(void)
 {
+#ifdef UPDATER
+    updater_boot();
+#endif
     /* Keep the debug wire on D+ (cstartup_flash.S, DP_THROUGH_SWIRE_DIS). */
     usb_set_pin(1);
     cpu_wakeup_init(INTERNAL_CAP_XTAL24M);

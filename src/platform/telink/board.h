@@ -23,6 +23,13 @@ u32 plat_usb_poll(void);                 /* from the wait loop: EV_USB when a co
 void plat_usb_settle(u32 ms);            /* answer the host for ms, nothing else: before a reset */
 int plat_usb_configured(void);
 void plat_bt_init(void);                 /* bt_telink.c: the stack, before board_init() */
+
+/* The updater (src/updater/updater_telink.c): analog register 0x3c (kept
+ * through a reset) = UPDATER_STAY asks it to stay rather than start the
+ * app.  The 8BitDo boot loader acts on 0x5a and 0x5b there, not on this. */
+#define UPDATER_STAY_REG 0x3c
+#define UPDATER_STAY     0x55
+void updater_boot(void);                 /* first in main(): may start the app instead */
 u32 plat_bt_poll(void);                  /* runs the stack; EV_BT for bt_poll() */
 
 #endif

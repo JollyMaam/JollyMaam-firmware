@@ -1,7 +1,7 @@
 # Updater: the app rewritten in place
 
-A board built as `NAME-split` (the Cyclone 2 pad: `gamesir-cyclone-2-pad-split`)
-has two programs in its code region. The updater (`src/updater/updater.c`,
+A board built as `NAME-split` (`gamesir-cyclone-2-pad-split`,
+`8bitdo-ultimate2c-wireless-pad-split`) has two programs in its code region. The updater (`src/updater/updater.c`,
 board `gamesir-cyclone-2-pad-updater`) is the image `uboot.boot` starts. The
 app is linked `MAIN_AT` (`0x20000`) above it in the same code window. The
 updater rewrites the app over the tool device and is never rewritten itself.
@@ -132,3 +132,42 @@ lookup or re-encryption is still running. The updater links no SM: its
 
 `padtool update FILE --ble [NAME|ADDRESS]` (needs `bleak`) sends the same
 image to a pad in its updater.
+
+## The Ultimate 2C Wireless (B80)
+
+`8bitdo-ultimate2c-wireless-pad-split`: the updater
+(`8bitdo-ultimate2c-wireless-pad-updater`, about 52 KB) is the image the 8BitDo
+boot loader starts; the protocol is `updater.c`'s, the chip's side
+`updater_telink.c`.
+
+| Flash offset | Contents |
+|---|---|
+| `0x00000..0x06000` | the 8BitDo boot loader |
+| `0x06000..0x26000` | the updater (a `KNLT` image) |
+| `0x26000` | the app's header (`MAIN_AT` `0x20000`) |
+| `0x26120..0x6f000` | the app (a `KNLT` image linked to run there) |
+| `0x6f000..` | settings and bonds, as before |
+
+`tools/8bitdoboot.py main` writes the header and the packed app
+(`update.bin`); `NAME-flash` writes the updater and, with `--also`, the region.
+
+Boot: `updater_boot()` runs first in `main()`. Unless analog register `0x3c`
+holds `0x55` (the app's request, which it then clears), and if the region's
+header has the commit word, the entry, format 1 and the app's `KNLT`, it
+starts the app the way the boot loader starts its image (see
+[../8bitdo-ultimate2c-wireless/README.md](../8bitdo-ultimate2c-wireless/README.md)):
+the app's first bytes into SRAM, then the CPU restarts there.
+
+The flash is not enciphered. The updater reads back through the SPI
+(`flash_read_page`), not the cache. The flash's protection (`0x002c`, the
+low 256 KiB, the region among it) is lifted at UPDATE_BEGIN and set back
+after the commit.
+
+LE: the service as a profile on `bt_telink.c`. Its writes are handled in the
+stack's callback (`write_now` in `struct bt_device`), and the write response
+goes after, so one write is in flight. An UPDATE_DATA write carries 152
+bytes (a 160-byte ATT write, the most the LE side takes in fragments);
+UPDATE_INFO reports it. Replies are notifications of at most 144 bytes and
+need the reply characteristic's notifications on.
+
+By hand: Home+Turbo (the board's M) while not connected.

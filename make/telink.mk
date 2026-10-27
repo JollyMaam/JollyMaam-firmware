@@ -95,6 +95,11 @@ TELINK_SDK_USED += vendor/common/flash_prot.c
 #   NAME_BOARD_DIR   the board's headers
 #   NAME_LDFLAGS     extra linker flags (--wrap=...)
 #   NAME_LOADER_HINT how to enter the boot loader by hand
+#   NAME_UPDATER     optional: this is an updater (src/updater/) for an app this
+#                    far above its start (MAIN_AT); NAME_CODE_LIMIT ends the app's room
+#   NAME_FRONT       optional: this app sits above board NAME_FRONT, its updater
+#                    (NAME_APP_START then is its start + MAIN_AT + 0x120): update.bin,
+#                    and NAME-flash writes both
 # Targets: NAME (firmware.bin), NAME-flash (through the 8BitDo boot loader),
 # NAME-loader (into the boot loader and wait there).  Inside the template,
 # $(1) is NAME, $(...) is expanded once when it is called, and $$(...) when
@@ -104,8 +109,9 @@ $(1)_OBJECTS := $(patsubst %.c,$(O)/$(1)/%.o,$($(1)_SOURCES)) \
 	$(patsubst %,$(O)/$(1)/sdk/%.o,$(basename $(TELINK_SDK_USED))) \
 	$(O)/$(1)/btstack/src/ble/att_db.o $(O)/$(1)/btstack/src/btstack_util.o
 $(1)_FLAGS := $(TELINK_DEFINES) -DBOARD_PID=\"$($(1)_PID)\" -DAPP_START=$($(1)_APP_START) \
-	$($(1)_DEFINES) $(EXTRA_DEFINES) -DBUILD_ID=\"$(BUILD_ID)\" -include $(TELINK_APP_CONFIG)
-$(1)_INCLUDES := $(SRC_INCLUDES) -iquote src/platform/telink -iquote $($(1)_BOARD_DIR) $(TELINK_INCLUDES) $(BTSTACK_INCLUDES)
+	$($(1)_DEFINES) $(EXTRA_DEFINES) -DBUILD_ID=\"$(BUILD_ID)\" -include $(TELINK_APP_CONFIG) \
+	$(if $($(1)_UPDATER),-DUPDATER -DMAIN_AT=$($(1)_UPDATER) -DCODE_LIMIT=$($(1)_CODE_LIMIT))
+$(1)_INCLUDES := $(subst -iquote src/platform/jieli,,$(SRC_INCLUDES)) -iquote src/platform/telink -iquote $($(1)_BOARD_DIR) $(TELINK_INCLUDES) $(BTSTACK_INCLUDES)
 
 .PHONY: $(1) $(1)-flash $(1)-loader
 $(1): $(O)/$(1)/firmware.bin
@@ -147,9 +153,23 @@ $(O)/$(1)/firmware.bin: $(O)/$(1)/app.elf $(TELINK_IMAGE_TOOL)
 	$$(Q)python3 -I $(TELINK_IMAGE_TOOL) pack --stamp $($(1)_STAMP) \
 		--max $$$$(( $($(1)_APP_END) - $($(1)_APP_START) )) -o $$@ $(O)/$(1)/app.bin
 
+ifeq ($($(1)_FRONT),)
 $(1)-flash: $(O)/$(1)/firmware.bin
 	$$(Q)python3 -I $(TELINK_IMAGE_TOOL) flash --pid $($(1)_PID) --start $($(1)_APP_START) \
 		--end $($(1)_APP_END) --hint "$($(1)_LOADER_HINT)" $$(if $$(DEVICE),--device $$(DEVICE)) $$<
+else
+# Behind its updater: the app's header and the app (update.bin, for
+# padtool update too); flashed, the updater and then that above it.
+$(1): $(O)/$(1)/update.bin
+$(O)/$(1)/update.bin: $(O)/$(1)/firmware.bin $(TELINK_IMAGE_TOOL)
+	$$(Q)python3 -I $(TELINK_IMAGE_TOOL) main --pid $($(1)_PID) --at $($($(1)_FRONT)_UPDATER) \
+		--entry $($(1)_APP_START) -o $$@ $$<
+
+$(1)-flash: $(O)/$($(1)_FRONT)/firmware.bin $(O)/$(1)/update.bin
+	$$(Q)python3 -I $(TELINK_IMAGE_TOOL) flash --pid $($(1)_PID) --start $($($(1)_FRONT)_APP_START) \
+		--end $($($(1)_FRONT)_APP_END) --hint "$($(1)_LOADER_HINT)" $$(if $$(DEVICE),--device $$(DEVICE)) \
+		--also $$$$(( $($($(1)_FRONT)_APP_START) + $($($(1)_FRONT)_UPDATER) )):$(O)/$(1)/update.bin $(O)/$($(1)_FRONT)/firmware.bin
+endif
 
 $(1)-loader:
 	$$(if $$($(1)_LOADER_HINT),@echo "$$($(1)_LOADER_HINT)")

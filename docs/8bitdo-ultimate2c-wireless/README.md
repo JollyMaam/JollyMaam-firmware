@@ -56,6 +56,19 @@ the rest of the app runs from flash at its physical address. Header:
 | `0x18` | the image's size, CRC included |
 | end - 4 | CRC-32 of everything before it, without the final inversion, after padding to 16 bytes with `0xff` |
 
+### Starting the app
+
+The boot loader's launch (its code at `0x3000`, called from `0x302c`) reads
+the low half of header word `0x0c`, multiplied by 16, as a byte count (at
+most `0x3200`), clears register `0x800643`, copies that many bytes as words
+from the image's start (flash at its address) to SRAM at `0x840000`, then
+writes `0x88` to register `0x800602`, which restarts the CPU from SRAM. Code
+doing the same from flash with interrupts off starts an image at another
+offset.
+
+Analog register `0x3c` set to `0x55` before a reset reads back `0x55` in the
+image the boot loader then starts.
+
 ## Boot loader
 
 USB `2dc8:3208`, product "8BitDo Boot", one HID interface with 64-byte

@@ -4,9 +4,12 @@
   pack   app.bin from objcopy -> the image the boot loader starts: the stamp
          in header bytes 2..7, the size at 0x18, padded to 16 bytes with
          0xff, then the CRC (CRC-32 without its final inversion) of it all
+  main   a packed app above the updater (src/updater/): the updater's header
+         ("MAIN", size, CRC16 of the app, entry, format 1, its offset, the
+         PID, CRC16 of those fields; 0x120 bytes) and the app: update.bin
   flash  into the boot loader (stock or our firmware),
          erase and program the image's sectors (the header's last), read
-         them back, start the app
+         them back, start the app; --also ADDR:FILE first puts FILE there
   loader into the boot loader and wait there
   scan   boot loaders, stock devices and our firmware (read-only identify)
 
@@ -49,6 +52,27 @@ def pack(app, stamp, limit):
     if len(image) > limit:
         raise ValueError(f"image is {len(image)} bytes, more than the {limit} it may take")
     return bytes(image)
+
+
+MAIN_HEAD_SIZE = 0x120
+
+
+def crc16_ccitt(data):
+    """Non-reflected CRC-CCITT from 0, as the updater and jlnewfw use."""
+    crc = 0
+    for byte in data:
+        crc ^= byte << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021 if crc & 0x8000 else crc << 1) & 0xFFFF
+    return crc
+
+
+def main_image(app, pid, at, entry):
+    head = bytearray(b"\xff" * MAIN_HEAD_SIZE)
+    struct.pack_into("<4sIIIII16s", head, 0, b"MAIN", len(app), crc16_ccitt(app), entry, 1, at,
+                     pid.encode().ljust(16, b"\0"))
+    struct.pack_into("<I", head, 40, crc16_ccitt(head[4:40]))
+    return bytes(head) + app
 
 
 def check(image):
@@ -334,6 +358,14 @@ def flash(args):
     end = args.start + len(image) + (-len(image) % SECTOR)
     if end > args.end:
         sys.exit(f"8bitdoboot: image ends at {end:#x}, past {args.end:#x}")
+    also = []
+    for spec in getattr(args, "also", []):
+        address, _, name = spec.partition(":")
+        data = Path(name).read_bytes()
+        address = int(address, 0)
+        if address % SECTOR or address < end:
+            sys.exit(f"8bitdoboot: --also {spec}: a sector boundary past the image")
+        also.append((address, data + b"\xff" * (-len(data) % SECTOR)))
     path = enter_loader(args.pid, args.device, args.wait)
     if not path:
         sys.exit("8bitdoboot: no matching boot loader, stock HID device, or our tool device" +
@@ -344,6 +376,10 @@ def flash(args):
         if model != struct.pack("<H", MODELS[args.pid]):
             raise OSError("boot loader model changed before flashing")
         print(f"8bitdoboot: boot loader {path}, model {model.hex()}")
+        for address, data in also:
+            for offset in range(0, len(data), SECTOR):
+                print(f"\r8bitdoboot: {address + offset:#x}", end="", flush=True)
+                loader.write_sector(address + offset, data[offset:offset + SECTOR])
         padded = image + b"\xff" * (end - args.start - len(image))
         sectors = list(range(args.start + SECTOR, end, SECTOR)) + [args.start]
         for i, address in enumerate(sectors, 1):
@@ -364,6 +400,12 @@ def main():
     p.add_argument("--max", type=lambda s: int(s, 0), required=True, help="the most bytes it may take")
     p.add_argument("-o", "--output", required=True)
     p.add_argument("app")
+    p = sub.add_parser("main")
+    p.add_argument("--pid", required=True, help="the image's PID")
+    p.add_argument("--at", type=lambda s: int(s, 0), required=True, help="its offset above the updater")
+    p.add_argument("--entry", type=lambda s: int(s, 0), required=True, help="the app's start (its APP_START)")
+    p.add_argument("-o", "--output", required=True)
+    p.add_argument("app", help="the packed app (firmware.bin)")
     for name in ("flash", "loader"):
         p = sub.add_parser(name)
         p.add_argument("--pid", required=True, choices=MODELS, help="the product to select by model")
@@ -373,6 +415,8 @@ def main():
         if name == "flash":
             p.add_argument("--start", type=lambda s: int(s, 0), required=True)
             p.add_argument("--end", type=lambda s: int(s, 0), required=True)
+            p.add_argument("--also", action="append", default=[], metavar="ADDR:FILE",
+                           help="also write FILE at ADDR (before the image)")
             p.add_argument("image")
     sub.add_parser("scan")
     args = ap.parse_args()
@@ -381,6 +425,10 @@ def main():
         if len(stamp) != 6:
             sys.exit("8bitdoboot: the stamp is 6 bytes")
         Path(args.output).write_bytes(pack(Path(args.app).read_bytes(), stamp, args.max))
+    elif args.cmd == "main":
+        app = Path(args.app).read_bytes()
+        check(app)
+        Path(args.output).write_bytes(main_image(app, args.pid, args.at, args.entry))
     elif args.cmd == "flash":
         flash(args)
     elif args.cmd == "loader":

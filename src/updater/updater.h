@@ -29,6 +29,8 @@ u8 upd_erased(void);
 void upd_erase(u32 offset);      /* the sector at offset */
 /* Programs n bytes at offset, all but the first skip, and reads them back. */
 int upd_program(u32 offset, const u8 *data, u32 n, u32 skip);
+void upd_committed(void);        /* after the commit word */
+void upd_started(void);          /* the loop starts: the chip's own log lines */
 u32 upd_extra(void);             /* UPDATE_INFO's word at 20: the chip key on the BR23 */
 u32 upd_data_max(void);          /* the most UPDATE_DATA bytes a transport takes */
 

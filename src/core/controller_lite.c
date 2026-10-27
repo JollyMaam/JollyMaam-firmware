@@ -399,6 +399,11 @@ static void request(const struct ctl_request *r)
         set_flush();
         plat_reboot_loader();
         break;
+    case REQ_REBOOT_UPDATER:
+        util_log("ctl: to the updater");
+        set_flush();
+        plat_reboot_updater();
+        break;
     case REQ_CALIBRATE:
         ux_ignore_held();
         c.calibrating = 1;

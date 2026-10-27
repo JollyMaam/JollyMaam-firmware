@@ -13,6 +13,17 @@ spec.loader.exec_module(boot)
 
 
 class BootTests(unittest.TestCase):
+    def test_main_image_header(self):
+        app = boot.pack(b"\x00" * 8 + b"KNLT" + b"\x00" * 0x30, bytes(6), 0x1000)
+        image = boot.main_image(app, "U2C_WIRELESS", 0x20000, 0x26120)
+        magic, size, crc, entry, version, at = struct.unpack_from("<4sIIIII", image)
+        self.assertEqual((magic, size, entry, version, at), (b"MAIN", len(app), 0x26120, 1, 0x20000))
+        self.assertEqual(crc, boot.crc16_ccitt(app))
+        self.assertEqual(image[24:40], b"U2C_WIRELESS".ljust(16, b"\0"))
+        self.assertEqual(struct.unpack_from("<I", image, 40)[0], boot.crc16_ccitt(image[4:40]))
+        self.assertEqual(image[0x120:], app)
+        self.assertEqual(boot.crc16_ccitt(b"123456789"), 0x31C3)   # CRC-16/XMODEM check value
+
     def test_stock_reports_and_model_response(self):
         device = boot.Stock.__new__(boot.Stock)
         device.fd = 7
