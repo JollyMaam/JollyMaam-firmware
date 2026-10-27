@@ -30,7 +30,11 @@
 #define ENABLE_LE_DATA_LENGTH_EXTENSION
 #define MAX_NR_LE_DEVICE_DB_ENTRIES     4
 #define MAX_NR_SM_LOOKUP_ENTRIES        3
+#ifdef BOARD_DONGLE
+#define MAX_NR_WHITELIST_ENTRIES        2       /* HUB_SLOTS bonded pads */
+#else
 #define MAX_NR_WHITELIST_ENTRIES        1
+#endif
 #define MAX_NR_GATT_CLIENTS             0
 #define MAX_ATT_DB_SIZE                 512
 #define ENABLE_LOG_ERROR
@@ -52,7 +56,11 @@
 #define RX_QUEUE_DEPTH                  16
 #endif
 
+#ifdef BOARD_DONGLE
+#define MAX_NR_HCI_CONNECTIONS          2       /* HUB_SLOTS pads */
+#else
 #define MAX_NR_HCI_CONNECTIONS          1
+#endif
 #define MAX_NR_L2CAP_CHANNELS           8
 
 #define MAX_NR_L2CAP_SERVICES           4

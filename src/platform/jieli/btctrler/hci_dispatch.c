@@ -86,12 +86,15 @@ void h4_hci_push_data(int type, const u8 *packet, int size)
 }
 
 #ifndef UNITTEST
+void util_log(const char *fmt, ...);   /* core/utils.c: its ring outlives a soft reset */
+
 void btctrler_assert_failed(const char *what, int value)
 {
     if (config_asser) {
         printf("ASSERT-FAILD: %s 0x%x\n", what, value);
         cpu_assert_debug();
     } else {
+        util_log("controller assert: %s 0x%x", what ? what : "?", value);
         p33_soft_reset();
     }
 }

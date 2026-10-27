@@ -915,6 +915,7 @@ void plat_usb_mode(const struct usb_identity *id,
 int plat_usb_ready(void);                   /* the host configured the personality */
 int plat_usb_jack_in(void);                 /* a plug in the headphone jack, debounced */
 int plat_usb_input_wanted(void);            /* nothing waits to go to the host */
+int plat_usb_input_staged(void);            /* an input waits; the endpoint takes it as it frees */
 int plat_usb_send_input(u8 id, const u8 *data, u16 len);
 int plat_usb_send_message(u16 id, const u8 *data, u16 len);   /* HOST_BULK: bulk IN */
 int plat_usb_take(struct bt_write *w);      /* the host's next write, 0: none */

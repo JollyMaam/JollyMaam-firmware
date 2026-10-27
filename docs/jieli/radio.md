@@ -47,6 +47,21 @@ marked.
   then moves the link to the 2M PHY. It does not request a data length update, so
   the pad must send LE Set Data Length itself.
 
+## Several LE central links
+
+- With `config_btctler_le_master_multilink` set, the controller runs several
+  central links. Two links at a 3.75 ms interval run side by side.
+- Scanning and initiating get radio time only between a central link's
+  connection events, and only when at least 8 slots (5 ms) remain before
+  the link's next anchor: the scheduler reserves 3 slots and wants more than
+  4. With a central link at 6.25 ms or shorter the controller never scanned;
+  at 7.5 ms it scans and connects. Initiating goes through the same
+  scheduler; that it fails the same way at 6.25 ms is not established.
+- `config_btctler_le_hw_nums` counts the scanner and the initiator as well as
+  the links. Scanning with every instance in use reset the chip.
+- A central link updated from 7.5 ms to 3.75 ms keeps working beside another
+  at 3.75 ms.
+
 ## Transmit power
 
 Transmit power is set by a table of TXSET and TXPWR values, one entry per step:

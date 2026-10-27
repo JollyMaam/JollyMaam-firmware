@@ -5,15 +5,19 @@
 #include "link.h"
 
 void dongle_bt_start(void);
-void dongle_tool_only(void);              /* USB stays the tool device until the next boot */
-void dongle_bt_forget(void);
+int dongle_tool_only(int on);             /* 0 off, 1 on (until power loss), else read; returns the mode */
+int dongle_hub(int on);                     /* 0 off, 1 on (RAM), else read; returns the mode */
+/* Per slot (below HUB_SLOTS); slot 0 is the dongle's own pad. */
+void dongle_bt_forget(u8 slot);             /* and pair that slot */
+void dongle_bt_slots(u8 n);                 /* slots that link: 1, or HUB_SLOTS in hub mode */
 u8 dongle_bt_state(void);
-int dongle_bt_linked(void);                 /* our pad, encrypted and subscribed */
-int dongle_bt_take_input(struct pad *p);    /* the newest state, once */
-int dongle_bt_take_config(struct link_config *c);
-void dongle_bt_output(const u8 out[LINK_OUTPUT_SIZE]);
+int dongle_bt_linked(u8 slot);              /* our pad, encrypted and subscribed */
+int dongle_bt_take_input(u8 slot, struct pad *p);    /* the newest state, once */
+int dongle_bt_take_raw_input(u8 slot, u8 out[LINK_INPUT_SIZE]);   /* hub mode: the newest, as sent; takes the parsed one too */
+int dongle_bt_take_config(u8 slot, struct link_config *c);
+void dongle_bt_output(u8 slot, const u8 out[LINK_OUTPUT_SIZE]);
 struct link_stats { u32 inputs, replaced, lost; };   /* counted on the Bluetooth thread */
-void dongle_bt_stats(struct link_stats *out);
+void dongle_bt_stats(u8 slot, struct link_stats *out);
 int dongle_store_write(u16 key, const void *buf, u16 len);
 
 int dongle_address_valid(const u8 addr[6]);

@@ -862,6 +862,11 @@ int plat_usb_input_wanted(void)
     return plat_usb_ready() && !intr.busy && !intr.input_len && !intr.count;
 }
 
+int plat_usb_input_staged(void)
+{
+    return intr.input_len != 0;
+}
+
 int plat_usb_send_input(u8 id, const u8 *data, u16 len)
 {
     u8 at = ident && ident->report_ids ? 1 : 0;

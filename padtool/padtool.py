@@ -4,12 +4,19 @@
     padtool [--board pad|dongle] find    devices running this firmware
     padtool -d DEVICE ...         with several connected: the one at that path,
                                   or whose flash ID contains DEVICE (from find)
-    padtool --board dongle tool-only  dongle: stay this tool device until power loss, also
-                                  while a pad is linked, for its log (the pad's type is not
-                                  put on USB; padtool tool brings the tool device back first)
-    padtool --board dongle pair   dongle: forget its bond and pair with a pad
-                                  whose dongle slot is pairing (30 s), as a
-                                  press of its button does
+    padtool --board dongle tool-only [on | off]  dongle: stay this tool device until power
+                                  loss (on), also while a pad is linked, for its log (the
+                                  pad's type, or the hub, is not put on USB; padtool tool
+                                  brings the tool device back first); no argument: show it
+    padtool --board dongle hub [on | off]   dongle: hub mode until the next boot (padhub
+                                  sets it itself): a linked pad is not its type on
+                                  USB but its link packets, for build/host/padhub on
+                                  a Linux PC (src/core/link.h); no argument: show it
+    padtool --board dongle pair [SLOT]   dongle: forget the bond of SLOT (0, the
+                                  dongle's own pad; 1 for a hub's second) and pair
+                                  it with a pad whose dongle slot is pairing (30 s),
+                                  as a press of its button does for 0; to a dongle
+                                  that is the hub on USB, through its hidraw
     padtool identify | status     what the pad reports
     padtool log [-f]              the pad's log (-f: follow)
     padtool stats [-w SECONDS] [--reset]   loop timing and counters (-w: every N s)
@@ -1526,9 +1533,32 @@ def tool(paths):
             print(f"{path}: {'sent' if e.errno == 71 else e.strerror}")
 
 
+def hub_pair(slot):
+    """Pair a dongle slot: SCSI to the tool device, else feature report 0xf5
+    "pair" SLOT to a dongle that is the hub (link.h, hub mode)."""
+    if DEVICE and is_path(DEVICE) or matching():
+        cmd(need_device(), 0x17, slot)
+        return
+    report = b"\xf5pair" + bytes([slot])
+    hidiocsfeature = 0xC0004806 | (len(report) << 16)
+    for path in sorted(glob.glob("/dev/bwrap/hidraw*") + glob.glob("/dev/hidraw*")):
+        uevent = f"/sys/class/hidraw/{os.path.basename(path)}/device/uevent"
+        try:
+            with open(uevent) as f:
+                if "HID_ID=0003:00001209:00000001" not in f.read():
+                    continue
+            with open(path, "rb+", buffering=0) as f:
+                fcntl.ioctl(f, hidiocsfeature, bytearray(report))
+        except OSError:
+            continue
+        print(f"dongle hub {path}: slot {slot} pairing")
+        return
+    sys.exit("padtool: no dongle found, as the tool device or the hub")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["tool-only", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "reboot", "loader", "relink", "connect", "disconnect", "pair", "unpair", "profile", "peek", "trace",
+    p.add_argument("command", choices=["tool-only", "hub", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "reboot", "loader", "relink", "connect", "disconnect", "pair", "unpair", "profile", "peek", "trace",
                                        "fields", "get", "set", "reset", "backup-settings",
                                        "restore-settings", "factory-reset", "ephemeral", "keep", "tool", "latency"])
     p.add_argument("args", nargs="*")
@@ -1591,11 +1621,16 @@ def main():
     if a.command == "tool":
         tool(a.args)
         return
-    if a.command == "tool-only" and BOARD != "dongle":
-        p.error("tool-only requires --board dongle")
+    if a.command == "tool-only" and (BOARD != "dongle" or len(a.args) > 1 or a.args and a.args[0] not in ("on", "off")):
+        p.error("tool-only requires --board dongle and on, off or nothing")
+    if a.command == "hub" and (BOARD != "dongle" or len(a.args) > 1 or a.args and a.args[0] not in ("on", "off")):
+        p.error("hub requires --board dongle and on, off or nothing")
     if a.command == "tool-only":
-        cmd(need_device(), 0x31)
-        print("dongle: tool device until power loss")
+        mode = cmd(need_device(), 0x31, {"on": 1, "off": 0}.get(a.args[0] if a.args else "", 0xff), length=1)
+        print(f"dongle: tool only {'on (until power loss)' if mode and mode[0] else 'off'}")
+    elif a.command == "hub":
+        mode = cmd(need_device(), 0x32, {"on": 1, "off": 0}.get(a.args[0] if a.args else "", 0xff), length=1)
+        print(f"dongle: hub mode {'on' if mode and mode[0] else 'off'}")
     elif a.command == "find":
         for path, _ in devices():
             print(f"{BOARD} {path}  {identify(path)}  {status(path)}")
@@ -1636,13 +1671,15 @@ def main():
         except ValueError as error:
             p.error(str(error))
     elif a.command == "pair":
-        if BOARD == "dongle" and not a.args:
-            slot = 0                         # forget the dongle's single bond
-        elif len(a.args) == 1 and slot_number(a.args[0]) is not None:
+        if BOARD == "dongle":
+            if len(a.args) > 1 or a.args and not a.args[0].isdigit():
+                p.error("pair: a dongle slot number (0: its own pad)")
+            hub_pair(int(a.args[0]) if a.args else 0)
+            return
+        if len(a.args) == 1 and slot_number(a.args[0]) is not None:
             slot = slot_number(a.args[0])
         else:
-            p.error("pair requires a slot: slot-a ... slot-right (or A B X Y up down left right; "
-                    "optional for dongle)")
+            p.error("pair requires a slot: slot-a ... slot-right (or A B X Y up down left right)")
         cmd(need_device(), 0x17, slot)
     elif a.command == "connect":
         slot = slot_number(a.args[0]) if a.args else 0xfe

@@ -20,3 +20,14 @@ $(O)/host/test-$(1)/%: src/%.c $(wildcard src/*/*.h src/*/*/*.h src/*/*/*/*.h) $
 	$$(Q)$(HOST_CC) $(HOST_CFLAGS) -DBOARD_PID=\"$($(1)_PID)\" $($(1)_DEFINES) $(EXTRA_DEFINES) -DUNITTEST $(SRC_INCLUDES) -iquote $($(1)_BOARD_DIR) $$< -o $$@ \
 	  $$(if $$(findstring /btctrler/,$$@),-no-pie -Wl$$(comma)--unresolved-symbols=ignore-all)
 endef
+
+# The hub daemon (tools/padhub.c): the dongle's profiles, built for this PC.
+PADHUB_SOURCES := tools/padhub.c src/profiles/profile_link.c src/profiles/profile_switch.c \
+	src/profiles/profile_xbox.c src/profiles/profile_playstation.c src/profiles/profile_hid.c \
+	src/core/motion.c src/core/utils.c
+
+.PHONY: padhub
+padhub: $(O)/host/padhub
+$(O)/host/padhub: $(PADHUB_SOURCES) $(wildcard src/*/*.h src/boards/gamesir-cyclone-2/*.h)
+	@mkdir -p $(@D)
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) -DBOARD_DONGLE $(SRC_INCLUDES) -iquote src/boards/gamesir-cyclone-2 $(PADHUB_SOURCES) -o $@

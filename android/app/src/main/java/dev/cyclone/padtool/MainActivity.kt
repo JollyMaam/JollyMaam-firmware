@@ -272,7 +272,7 @@ class MainActivity : Activity() {
             button(parent, "Test rumble") { rumbleDialog() }
         } else {
             button(parent, "Pair dongle") { action("Starting dongle pairing", 0x17) }
-            button(parent, "Stay in tool mode until power loss") { action("Enabling tool mode", 0x31) }
+            button(parent, "Stay in tool mode until power loss") { action("Enabling tool mode", 0x31, 1, 1) }
         }
         button(parent, "Firmware console") { model.page = -3; model.live = "console"; render() }
         button(parent, "Restart device", s.drafts.edits.isEmpty()) { action("Restarting", 0x10) }

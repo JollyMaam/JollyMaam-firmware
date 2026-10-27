@@ -58,6 +58,40 @@ static const u8 link_adv[LINK_ADV_FLAGS] = {
 #define LINK_INTERVAL     3
 #endif
 
+/* Hub mode (tools/padhub.c turns it on, until the next boot): for a Linux PC, the dongle's
+ * USB is one vendor HID device that carries the link's packets as they are,
+ * tagged with the dongle slot they belong to; tools/padhub.c makes each
+ * slot a controller of its type with uhid.  Report HUB_REPORT_IN, 63 bytes:
+ *   0 slot, 1 HUB_* kind, 2 the payload: HUB_INPUT a LINK_INPUT_SIZE input
+ *   (newest wins), HUB_CONFIG a LINK_CONFIG_SIZE config (when it arrives
+ *   and every second), HUB_DOWN nothing (the slot's pad is gone),
+ *   HUB_STATS (every second, a linked slot) five 32-bit counts, least
+ *   significant byte first, since the dongle started: inputs from the pad,
+ *   inputs a newer one replaced before the dongle's loop took them, inputs
+ *   the pad sent that never came (its sequence), inputs a newer one replaced
+ *   before USB took them, inputs sent
+ * Report HUB_REPORT_OUT (interrupt OUT), 63 bytes: 0 slot, 1 HUB_OUTPUT,
+ *   2 a LINK_OUTPUT_SIZE output; its LINK_USB_READY: the controller is up
+ *   on the PC.  Repeat it (LINK_OUTPUT_MS); the dongle passes it on.
+ * Feature report USB_TOOL_REPORT "tool" ends hub mode: the tool device
+ * until slot 0's link next goes down; "pair" and a slot byte: forget that
+ * slot's bond and pair it (padtool pair, as the tool device is not there).
+ * In hub mode every slot links; outside it only slot 0, the dongle's own pad. */
+#define HUB_VENDOR_ID   0x1209   /* pid.codes' test VID/PID: a private device */
+#define HUB_PRODUCT_ID  0x0001
+#define HUB_REPORT_IN   1
+#define HUB_REPORT_OUT  2
+#define HUB_REPORT_SIZE 63
+#define HUB_SLOTS       2        /* the controller's central links */
+/* Hub mode: the links' interval while the dongle scans or connects (a slot
+ * bonded but not linked, or pairing); LINK_INTERVAL again once every bonded
+ * slot is linked.  The controller scans and connects between a central
+ * link's events only from 6 (7.5 ms); at 5 and below it never does. */
+#ifndef HUB_INTERVAL
+#define HUB_INTERVAL    6
+#endif
+enum { HUB_INPUT = 1, HUB_CONFIG = 2, HUB_DOWN = 3, HUB_OUTPUT = 4, HUB_STATS = 5 };
+
 enum { LINK_LOW_BATTERY = 4, LINK_USB_POWER = 8 };
 enum { LINK_HAS_PLAYERS = 1, LINK_HAS_LIGHTBAR = 2, LINK_USB_READY = 4 };
 

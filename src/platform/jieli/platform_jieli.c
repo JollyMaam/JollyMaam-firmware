@@ -1166,6 +1166,21 @@ static void debug_exception(void)
 }
 #else
 #define debug_uart_start() ((void)0)
+
+/* Where the CPU faulted, in the log (its ring outlives the soft reset). */
+___interrupt
+static void log_exception(void)
+{
+    u32 rete, reti, retx, rets, sp;
+
+    __asm__ volatile("%0 = rete" : "=r"(rete));
+    __asm__ volatile("%0 = reti" : "=r"(reti));
+    __asm__ volatile("%0 = retx" : "=r"(retx));
+    __asm__ volatile("%0 = rets" : "=r"(rets));
+    __asm__ volatile("%0 = sp" : "=r"(sp));
+    util_log("exception: rete %08x reti %08x retx %08x rets %08x sp %08x", rete, reti, retx, rets, sp);
+    p33_soft_reset();
+}
 #endif
 
 void board_init(void)
@@ -1176,6 +1191,8 @@ void board_init(void)
 #if defined(DEBUG_UART_DP) && defined(CONFIG_CPU_BD19)
     request_irq(1, 7, debug_exception, 0);
     debug_hex("reset source", P3_RST_SRC);
+#elif !defined(DEBUG_UART_DP)
+    request_irq(1, 7, log_exception, 0);
 #endif
     board_latch();
     retained_read();             /* before power_init(), which might touch the RTC domain */

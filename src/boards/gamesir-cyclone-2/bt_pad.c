@@ -876,12 +876,32 @@ static void gave_way_timeout(btstack_timer_source_t *t)
     unlinked(PAGE_GAVE_WAY);
 }
 
+/* Our dongle encrypts as it connects (bt_dongle.c).  Sometimes the link
+ * then takes none of its control PDUs (the encryption, its PHY and data
+ * length requests, its disconnect; not established why), while ours still
+ * go through: we end such a link ourselves and connect again. */
+#define LINK_ENCRYPT_MS 2000
+static btstack_timer_source_t link_watch;
+static u8 le_encrypted, link_redo;
+
+static void link_watch_timeout(btstack_timer_source_t *t)
+{
+    (void)t;
+    if (!acl_up || !le || le_encrypted) return;
+    util_log("bt: not encrypted after %u ms: connecting again", LINK_ENCRYPT_MS);
+    link_redo = 1;
+    gap_disconnect(con_handle);
+}
+
 static void unlinked(u8 reason)
 {
     int was = linked;
 
     btstack_run_loop_remove_timer(&gave_way);
     btstack_run_loop_remove_timer(&bonded_open);
+    btstack_run_loop_remove_timer(&link_watch);
+    if (link_redo) reason = ERROR_CODE_LMP_RESPONSE_TIMEOUT_LL_RESPONSE_TIMEOUT;   /* lost: again */
+    link_redo = 0;
 
     linked = 0;
     if (le) hci_jieli_fast_close();
@@ -1070,6 +1090,12 @@ static void le_connected(u8 *packet)
         c->sm_connection.sm_le_db_index = -1;
     }
     if (sm_on) sm_request_pairing(con_handle);
+    le_encrypted = 0;
+    if (dev == profile_link.device) {
+        btstack_run_loop_set_timer_handler(&link_watch, link_watch_timeout);
+        btstack_run_loop_set_timer(&link_watch, LINK_ENCRYPT_MS);
+        btstack_run_loop_add_timer(&link_watch);
+    }
     emit(BT_EV_PEER, 0);
     emit(BT_EV_LINKED, 0);
 }
@@ -1184,6 +1210,7 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
         break;
     case HCI_EVENT_ENCRYPTION_CHANGE:
         if (!le || !hci_event_encryption_change_get_encryption_enabled(packet)) break;
+        le_encrypted = 1;
         if (sm_on) {
             int i = ccc((u16)(dev->input_handle + 1), 1);
             if (i >= 0) ccc_value[i] = 1;

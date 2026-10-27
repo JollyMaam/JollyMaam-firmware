@@ -144,6 +144,12 @@ pins `PA13`, `PA14` left alone; the flash is on SPI0 port B, 2-bit):
 - `PB12`..`PB15` and `PC8`..`PC15` read low either way.
 - `PA0` follows `PC7` when `PC7` is driven, and the other way round.
 
+The trigger stop switches are not wired to the chip. Flipping them changes
+none of `PR0`..`PR3`, `PA2`, `PA5`, `PA9`, `PA11`, `PA15`, `PB4`, `PB6`,
+`PB11`, `PC6`, `PD5`..`PD7` (each pulled up), and no pair of these pins or
+the matrix rows (each of the pins driven low in turn). Pulled up, `PR1`,
+`PD6` and `PD7` read low.
+
 ## Motors
 
 Two motors. Each runs while either of two pins is driven high (one pin at a

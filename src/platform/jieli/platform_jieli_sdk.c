@@ -44,7 +44,16 @@ const int config_bt_security_vulnerability = 0;
 const int config_dut_protocol_mode = 0;
 const int config_btctler_le_afh_en = 0;
 const int config_btctler_le_slave_multilink = 0;
+#ifdef BOARD_DONGLE
+/* A central link per hub slot (link.h HUB_SLOTS), as the SDK's dongle with
+ * two clients, and one more for scanning or connecting while they run (a
+ * scan with no room left reset the chip). */
+#define LE_LINKS (2 + 1)
+const int config_btctler_le_master_multilink = 1;
+#else
+#define LE_LINKS 1
 const int config_btctler_le_master_multilink = 0;
+#endif
 const uint64_t config_btctler_le_features = (1ULL << ( 0)) | (1ULL << ( 5)) | (1ULL << ( 8));
 const int config_btctler_le_acl_packet_length = 251;
 #ifdef BOARD_DONGLE
@@ -52,9 +61,9 @@ const int config_btctler_le_roles = (1UL << (4)) | (1UL << (3)) | (1UL << (0)); 
 #else
 const int config_btctler_le_roles = (1UL << (2)) | (1UL << (1));                  /* adv, slave */
 #endif
-const int config_btctler_le_hw_nums = (1) + (0);
-const int config_btctler_le_rx_nums = (((1) + (0)) * 3) + 2;
-const int config_btctler_le_acl_total_nums = (((1) + (0)) * 3) + 1;
+const int config_btctler_le_hw_nums = LE_LINKS;
+const int config_btctler_le_rx_nums = (LE_LINKS * 3) + 2;
+const int config_btctler_le_acl_total_nums = (LE_LINKS * 3) + 1;
 const int config_btctler_le_slave_conn_update_winden = 500;
 const int config_btctler_single_carrier_en = 1;
 /* 0: a sniffing slave wakes at every anchor point.  With 1 the controller

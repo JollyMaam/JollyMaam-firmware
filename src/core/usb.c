@@ -45,8 +45,14 @@
  *   `0x1b` DISCONNECT     pad only: end the current session, keeping its bond
  *   `0x30` TARGET         dongle only: CDB bytes 2–7: Bluetooth address in
  *                         written order (AA:BB:CC:DD:EE:FF); page that device
- *   `0x31` TOOL_ONLY      dongle only: stay the tool device until the next boot,
- *                         also while a pad is linked (its type is not put on USB)
+ *   `0x31` TOOL_ONLY      dongle only: CDB byte 2: 0 off, 1 on (until power
+ *                         loss), else unchanged; in (1): the mode.  On, it stays
+ *                         the tool device while a pad is linked (its type, or
+ *                         the hub, is not put on USB)
+ *   `0x32` HUB            dongle only: CDB byte 2: 0 off, 1 on (until the next
+ *                         boot), else unchanged; in (1): the mode.  On, a
+ *                         linked pad is the hub device of link.h, not its type
+ *                         (padhub turns it on; its feature report "tool" off)
  *   `0x13` CONNECT        CDB byte 2: slot (`0xfe` the last): start its
  *                         session, as a Home connect does
  *   `0x14` PROFILE        CDB byte 2: 1 start at the rate in bytes 3-4
@@ -104,7 +110,7 @@
 enum { CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02, CMD_STATS = 0x03, CMD_INPUT = 0x04, CMD_CLOCK = 0x05,
        CMD_REBOOT = 0x10, CMD_REBOOT_LOADER = 0x11, CMD_RELINK = 0x12, CMD_CONNECT = 0x13, CMD_PROFILE = 0x14, CMD_PEEK = 0x15, CMD_TRACE = 0x16, CMD_PAIR = 0x17, CMD_CALIBRATE = 0x18, CMD_LED_DEMO = 0x19, CMD_RUMBLE = 0x1a,
        CMD_DISCONNECT = 0x1b, CMD_PROBE = 0x1c, CMD_FIELD = 0x20, CMD_READ = 0x21, CMD_WRITE = 0x22, CMD_COMMIT = 0x23, CMD_DROP = 0x24,
-       CMD_EPHEMERAL = 0x25, CMD_RESULT = 0x26, CMD_DEFAULTS = 0x27, CMD_TOOL_ONLY = 0x31, CMD_USB_PROBE = 0x3f };
+       CMD_EPHEMERAL = 0x25, CMD_RESULT = 0x26, CMD_DEFAULTS = 0x27, CMD_TOOL_ONLY = 0x31, CMD_HUB = 0x32, CMD_USB_PROBE = 0x3f };
 
 #ifdef BOARD_DONGLE
 #include "dongle.h"
@@ -344,7 +350,14 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
 #endif
 #ifdef BOARD_DONGLE
     case CMD_TOOL_ONLY:
-        dongle_tool_only();
+        if (max < 1) break;
+        data[0] = (u8)dongle_tool_only(cdb[2]);
+        n = 1;
+        break;
+    case CMD_HUB:
+        if (max < 1) break;
+        data[0] = (u8)dongle_hub(cdb[2]);
+        n = 1;
         break;
 #endif
 #ifdef USB_PROBE
@@ -371,7 +384,9 @@ struct ctl_request usb_poll(const struct usb_status *s)
 #ifdef UNITTEST
 #ifdef BOARD_DONGLE
 static int tool_only_seen;
-void dongle_tool_only(void) { tool_only_seen++; }
+int dongle_tool_only(int on) { if (on == 1) tool_only_seen++; return tool_only_seen != 0; }
+static int hub_mode;
+int dongle_hub(int on) { if (on == 0 || on == 1) hub_mode = on; return hub_mode; }
 #endif
 static const u8 uid[16] = { 1, 2, 3 };
 const char board_name[] = "Test pad";
@@ -435,7 +450,15 @@ int main(void)
     CHECK(data[6] == BOARD_KIND && data[7] == 0);
 #ifdef BOARD_DONGLE
     cdb[1] = CMD_TOOL_ONLY;
-    CHECK(usb_command(cdb, data, sizeof(data), 0) == 0 && tool_only_seen == 1);
+    cdb[2] = 1;
+    CHECK(usb_command(cdb, data, sizeof(data), 0) == 1 && data[0] == 1 && tool_only_seen == 1);
+    cdb[1] = CMD_HUB;
+    cdb[2] = 1;
+    CHECK(usb_command(cdb, data, sizeof(data), 0) == 1 && data[0] == 1 && hub_mode == 1);
+    cdb[2] = 0xff;
+    CHECK(usb_command(cdb, data, sizeof(data), 0) == 1 && data[0] == 1);
+    cdb[2] = 0;
+    CHECK(usb_command(cdb, data, sizeof(data), 0) == 1 && data[0] == 0);
     memset(cdb + 2, 0, 6);
 #endif
     status = &st;
