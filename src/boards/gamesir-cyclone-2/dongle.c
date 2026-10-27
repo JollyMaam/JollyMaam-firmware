@@ -55,6 +55,7 @@ static void drop_personality(const char *why)
  * linked.  Its input still arrives (and shows in the link rate); it goes
  * nowhere.  Kept through soft reboots (padtool reboot), not a power loss. */
 static void hub_off_usb(const char *why);
+static void hub_stop_output(void);
 #define TOOL_ONLY_KEPT 0x746f6f6cu
 static u32 tool_only_kept RETAINED;
 
@@ -70,6 +71,7 @@ int dongle_tool_only(int on)
     util_log("dongle: tool only until power loss (a linked pad's type is not put on USB)");
     drop_personality("tool only");
     hub_off_usb("tool only");
+    hub_stop_output();
     return 1;
 }
 
@@ -153,6 +155,7 @@ static void personality(u32 now)
         if (w.kind == BT_WRITE_FEATURE && w.id == USB_TOOL_REPORT && w.len >= 4 &&
             !memcmp(w.data, "tool", 4)) {
             drop_personality("the host asked");
+            d.tool_held = (u8)linked;
             return;
         }
         if (d.prof->write) d.prof->write(&w, now, &bond);
@@ -211,6 +214,15 @@ static struct {
     } s[HUB_SLOTS];
 } hub;
 
+/* No host owns these outputs through a mode change. */
+static void hub_stop_output(void)
+{
+    u8 out[LINK_OUTPUT_SIZE] = { 0 };
+    u32 i;
+
+    for (i = 0; i < HUB_SLOTS; i++) dongle_bt_output((u8)i, out);
+}
+
 /* padhub turns it on (RAM only: a replugged dongle is itself again). */
 int dongle_hub(int on)
 {
@@ -218,6 +230,7 @@ int dongle_hub(int on)
     if (on == hub.on) return hub.on;
     if (on) drop_personality("hub mode");
     else hub_off_usb("hub mode off");
+    hub_stop_output();
     hub.on = (u8)on;
     memset(hub.s, 0, sizeof(hub.s));
     d.linked = d.tool_held = 0;
@@ -242,7 +255,7 @@ static int hub_send(u8 slot, u8 kind, const u8 *payload, u32 len)
     memset(r, 0, sizeof(r));
     r[0] = slot;
     r[1] = kind;
-    memcpy(r + 2, payload, len);
+    if (len) memcpy(r + 2, payload, len);
     if (kind == HUB_INPUT) return plat_usb_send_input(HUB_REPORT_IN, r, sizeof(r));
     return plat_usb_send_message(HUB_REPORT_IN, r, sizeof(r));
 }

@@ -2,6 +2,7 @@
 #include "system/includes.h"
 #include "system/user_cfg.h"
 #include "btctrler/config.h"
+#include "link_limits.h"
 
 /* Constants the Jieli libraries read at link time.  Only those the linked
  * archives reference; the values are the SDK defaults this pad was
@@ -45,10 +46,9 @@ const int config_dut_protocol_mode = 0;
 const int config_btctler_le_afh_en = 0;
 const int config_btctler_le_slave_multilink = 0;
 #ifdef BOARD_DONGLE
-/* A central link per hub slot (link.h HUB_SLOTS), as the SDK's dongle with
- * two clients, and one more for scanning or connecting while they run (a
- * scan with no room left reset the chip). */
-#define LE_LINKS (2 + 1)
+/* A central link per hub slot, and one more for scanning or connecting
+ * while they run (a scan with no room left reset the chip). */
+#define LE_LINKS (HUB_SLOTS + 1)
 const int config_btctler_le_master_multilink = 1;
 #else
 #define LE_LINKS 1

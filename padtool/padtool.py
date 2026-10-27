@@ -13,7 +13,7 @@
                                   USB but its link packets, for build/host/padhub on
                                   a Linux PC (src/core/link.h); no argument: show it
     padtool --board dongle pair [SLOT]   dongle: forget the bond of SLOT (0, the
-                                  dongle's own pad; 1 for a hub's second) and pair
+                                  dongle's own pad; 0-5 for a hub) and pair
                                   it with a pad whose dongle slot is pairing (30 s),
                                   as a press of its button does for 0; to a dongle
                                   that is the hub on USB, through its hidraw
@@ -1536,6 +1536,8 @@ def tool(paths):
 def hub_pair(slot):
     """Pair a dongle slot: SCSI to the tool device, else feature report 0xf5
     "pair" SLOT to a dongle that is the hub (link.h, hub mode)."""
+    if not 0 <= slot < 6:
+        sys.exit("padtool: dongle slot must be 0-5")
     if DEVICE and is_path(DEVICE) or matching():
         cmd(need_device(), 0x17, slot)
         return

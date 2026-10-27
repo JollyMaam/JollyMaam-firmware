@@ -20,6 +20,7 @@ struct link_stats { u32 inputs, replaced, lost; };   /* counted on the Bluetooth
 void dongle_bt_stats(u8 slot, struct link_stats *out);
 int dongle_store_write(u16 key, const void *buf, u16 len);
 
+u16 dongle_interval(u8 linked, int waiting, int hub); /* connection interval, 1.25 ms units */
 int dongle_address_valid(const u8 addr[6]);
 void dongle_identity(u8 own[6]);            /* controller order */
 

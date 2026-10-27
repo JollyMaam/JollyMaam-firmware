@@ -60,7 +60,13 @@ static u32 now_us(void)
 }
 
 u32 plat_us(void) { return now_us(); }
-u32 plat_ms(void) { return now_us() / 1000u; }
+u32 plat_ms(void)
+{
+    struct timespec t;
+
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (u32)((u64)t.tv_sec * 1000u + (u64)t.tv_nsec / 1000000u);
+}
 void plat_lock(void) {}
 void plat_unlock(void) {}
 const u8 *plat_unique_id(void) { return uid; }
@@ -151,18 +157,22 @@ static void create(const struct link_config *k)
 
     for (i = 0; i < 3; i++) c.gyro_bias[i] = k->gyro_bias[i];
     c.gyro_bias_known = k->gyro_bias_known;
-    if (c.prof && c.type == k->type && c.variant == k->variant) return;
+    if (c.prof && c.type == k->type && c.variant == k->variant &&
+        c.set.stick_speed == k->stick_speed && c.set.gyro_speed == k->gyro_speed &&
+        c.set.gyro_accel == k->gyro_accel && !memcmp(c.sess.address, k->address, 6)) return;
     destroy();
     if (!p || !p->usb) {
         fprintf(stderr, "padhub: slot %u: type %u has no USB device\n", slot, k->type);
         return;
     }
-    if (p->usb->kind != USB_HID) {
+    if (p->usb->kind != USB_HID || p->usb->hid_descriptor_len > HID_MAX_DESCRIPTOR_SIZE) {
         /* XInput is a vendor interface xpad wants on USB; Switch 2's handshake is bulk. */
         fprintf(stderr, "padhub: slot %u: %s is not HID only, uhid cannot be it\n", slot, p->name);
         return;
     }
-    uhid = open("/dev/uhid", O_RDWR | O_CLOEXEC);
+    uhid = open("/dev/uhid", O_RDWR | O_CLOEXEC | O_NONBLOCK);
+    if (uhid < 0 && errno == ENOENT)
+        uhid = open("/dev/bwrap/uhid", O_RDWR | O_CLOEXEC | O_NONBLOCK);
     if (uhid < 0) {
         fprintf(stderr, "padhub: /dev/uhid: %s\n", strerror(errno));
         return;
@@ -206,6 +216,7 @@ static void create(const struct link_config *k)
         fprintf(stderr, "padhub: slot %u: UHID_CREATE2: %s\n", slot, strerror(errno));
         close(uhid);
         uhid = -1;
+        if (c.prof->end) c.prof->end();
         c.prof = NULL;
         return;
     }
@@ -266,6 +277,44 @@ static void output(u32 now)
         fprintf(stderr, "padhub: slot %u: hidraw write: %s\n", slot, strerror(errno));
 }
 
+/* GET_REPORT carries no requested length. Derive the payload length from
+ * our descriptor: profiles fill exactly the size their caller supplies. */
+static u16 feature_size(u8 report_id)
+{
+    struct globals { u32 size, count, id; } g = { 0 }, stack[8];
+    u32 at = 0, bits = 0, depth = 0;
+
+    while (at < usb->hid_descriptor_len) {
+        u8 item = usb->hid_descriptor[at++];
+        u32 n = item & 3, v = 0, i;
+
+        if (item == 0xfe) return 0; /* none of our descriptors uses long items */
+        if (n == 3) n = 4;
+        if (n > usb->hid_descriptor_len - at) return 0;
+        for (i = 0; i < n; i++) v |= (u32)usb->hid_descriptor[at++] << (8 * i);
+        switch (item & 0xfc) {
+        case 0x74: g.size = v; break;
+        case 0x94: g.count = v; break;
+        case 0x84: g.id = v; break;
+        case 0xa4:
+            if (depth == 8) return 0;
+            stack[depth++] = g;
+            break;
+        case 0xb4:
+            if (!depth) return 0;
+            g = stack[--depth];
+            break;
+        case 0xb0:
+            if (g.id != report_id) break;
+            if (g.size > 32 || g.count > UHID_DATA_MAX ||
+                bits + g.size * g.count > 8 * (UHID_DATA_MAX - 1)) return 0;
+            bits += g.size * g.count;
+            break;
+        }
+    }
+    return (u16)((bits + 7) / 8);
+}
+
 static void from_kernel(u32 now)
 {
     struct uhid_event ev, re;
@@ -274,6 +323,7 @@ static void from_kernel(u32 now)
     const u8 *d;
     u32 n;
 
+    memset(&ev, 0, sizeof(ev));
     if (read(uhid, &ev, sizeof(ev)) <= 0) return;
     memset(&w, 0, sizeof(w));
     switch (ev.type) {
@@ -312,13 +362,14 @@ static void from_kernel(u32 now)
         break;
     case UHID_GET_REPORT: {
         int got = -1;
+        u16 size = feature_size(ev.u.get_report.rnum);
 
         memset(&re, 0, sizeof(re));
         re.type = UHID_GET_REPORT_REPLY;
         re.u.get_report_reply.id = ev.u.get_report.id;
-        if (c.prof->read && ev.u.get_report.rtype == UHID_FEATURE_REPORT)
+        if (size && c.prof->read && ev.u.get_report.rtype == UHID_FEATURE_REPORT)
             got = c.prof->read(BT_WRITE_FEATURE, ev.u.get_report.rnum, 0, re.u.get_report_reply.data + at,
-                               (u16)(UHID_DATA_MAX - at));
+                               size);
         if (got > 0) {
             if (at) re.u.get_report_reply.data[0] = ev.u.get_report.rnum;
             re.u.get_report_reply.size = (u16)(got + at);
@@ -339,6 +390,7 @@ static void slot_main(int sock)
     struct link_config k;
 
     signal(SIGINT, SIG_IGN);     /* the parent closes our socket instead */
+    signal(SIGTERM, SIG_DFL);
     for (;;) {
         struct pollfd f[2] = { { sock, POLLIN, 0 }, { uhid, POLLIN, 0 } };
         u32 now = plat_ms(), wait = LINK_OUTPUT_MS;
@@ -347,41 +399,57 @@ static void slot_main(int sock)
         if (c.prof && c.started) wait = REPORT_IDLE_MS;
         if (poll(f, uhid >= 0 ? 2 : 1, (int)wait) < 0 && errno != EINTR) break;
         now = plat_ms();
+        if (f[0].revents & (POLLERR | POLLNVAL)) break;
         if (f[0].revents & (POLLIN | POLLHUP)) {
-            n = read(sock, p, sizeof(p));
-            if (n <= 0) break;
-            if (n >= 2 && p[1] == HUB_CONFIG && link_unpack_config(p + 2, (u16)(n - 2), &k)) {
-                c.down = 0;
-                create(&k);
-            } else if (n >= 2 && p[1] == HUB_INPUT && c.prof) {
-                c.down = 0;
-                take_input(p + 2, (u16)(n - 2));
-            } else if (n >= 2 && p[1] == HUB_DOWN && !c.down) {
-                c.down = 1;
-                c.down_ms = now;
-                memset(&c.pad, 0, sizeof(c.pad));     /* at rest until it is back or gone */
-                c.fresh = 1;
-                fprintf(stderr, "padhub: slot %u: the pad is away\n", slot);
+            unsigned drained;
+
+            /* Fold queued state into one report, including its motion samples.
+             * Bound the batch so kernel requests and output still get serviced. */
+            for (drained = 0; drained < 64; drained++) {
+                n = recv(sock, p, sizeof(p), MSG_DONTWAIT);
+                if (n < 0 && (errno == EAGAIN || errno == EINTR)) break;
+                if (n <= 0) goto done;
+                if (n >= 2 && p[1] == HUB_CONFIG && link_unpack_config(p + 2, (u16)(n - 2), &k)) {
+                    c.down = 0;
+                    create(&k);
+                } else if (n >= 2 && p[1] == HUB_INPUT && c.prof) {
+                    c.down = 0;
+                    take_input(p + 2, (u16)(n - 2));
+                } else if (n >= 2 && p[1] == HUB_DOWN && !c.down) {
+                    c.down = 1;
+                    c.down_ms = now;
+                    memset(&c.pad, 0, sizeof(c.pad));     /* at rest until it is back or gone */
+                    c.fresh = 1;
+                    fprintf(stderr, "padhub: slot %u: the pad is away\n", slot);
+                }
             }
         }
-        if (uhid >= 0 && (f[1].revents & POLLIN)) from_kernel(now);
-        if (c.down && now - c.down_ms >= GRACE_MS) break;
+        /* Nonblocking read also handles a config replacing the uhid device
+         * between poll and here, including reuse of the same fd number. */
+        if (uhid >= 0 && uhid == f[1].fd && (f[1].revents & POLLIN)) from_kernel(now);
+        if (c.down && now - c.down_ms >= GRACE_MS) {
+            destroy();
+            c.down = 0;          /* keep this worker ready for a reconnect */
+        }
         report(now);
         output(now);
     }
+done:
     destroy();
+    close(sock);
+    close(hidraw);
     exit(0);
 }
 
 /* ---- the dongle (the parent) -------------------------------------------- */
 
-static struct { pid_t pid; int sock; } child[256];
+static struct { pid_t pid; int sock; } child[HUB_SLOTS];
 
 static void stop_children(void)
 {
     u32 i;
 
-    for (i = 0; i < 256; i++)
+    for (i = 0; i < HUB_SLOTS; i++)
         if (child[i].pid > 0) {
             close(child[i].sock);
             child[i].pid = 0;
@@ -394,7 +462,7 @@ static void reap(void)
     u32 i;
 
     while ((pid = waitpid(-1, NULL, WNOHANG)) > 0)
-        for (i = 0; i < 256; i++)
+        for (i = 0; i < HUB_SLOTS; i++)
             if (child[i].pid == pid) {
                 close(child[i].sock);
                 child[i].pid = 0;
@@ -416,7 +484,7 @@ static int spawn(u8 s)
     if (!pid) {
         u32 i;
 
-        for (i = 0; i < 256; i++)
+        for (i = 0; i < HUB_SLOTS; i++)
             if (child[i].pid > 0) close(child[i].sock);
         close(sv[0]);
         slot = s;
@@ -560,14 +628,22 @@ int main(int argc, char **argv)
         waiting = 0;
         fprintf(stderr, "padhub: hub at %s\n", path);
         while (!quit) {
-            ssize_t n = read(hidraw, p, sizeof(p));
+            struct pollfd f = { hidraw, POLLIN, 0 };
+            ssize_t n;
             u8 s;
+            int ready;
 
             reap();
+            ready = poll(&f, 1, FIND_MS);
+            if (ready < 0 && errno == EINTR) continue;
+            if (ready < 0 || (f.revents & (POLLERR | POLLHUP | POLLNVAL))) break;
+            if (!ready) continue;
+            n = read(hidraw, p, sizeof(p));
             if (n < 0 && errno == EINTR) continue;
             if (n <= 0) break;
             if (n < 3 || p[0] != HUB_REPORT_IN) continue;
             s = p[1];
+            if (s >= HUB_SLOTS) continue;
             if (!child[s].pid && p[2] == HUB_CONFIG && !spawn(s)) continue;
             if (child[s].pid && send(child[s].sock, p + 1, (size_t)n - 1, MSG_DONTWAIT) < 0 && errno != EAGAIN)
                 fprintf(stderr, "padhub: slot %u: %s\n", s, strerror(errno));

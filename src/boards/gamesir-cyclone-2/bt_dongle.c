@@ -100,18 +100,20 @@ static struct link *link_of(hci_con_handle_t h)
     return NULL;
 }
 
-/* The links' interval.  In hub mode LINK_INTERVAL only while every bonded
- * slot is linked and none pairs; else HUB_INTERVAL, which leaves the
- * controller room to scan and connect between the links' events. */
+/* Two links retain the measured fast interval. More links get two radio
+ * slots each; scanning/initiating reserves another link's share and never
+ * goes below the controller's 7.5 ms scanning threshold. */
 static u16 interval(void)
 {
-    u32 s;
+    u32 s, linked = 0;
+    int waiting = pairing();
 
     if (active <= 1) return LINK_INTERVAL;
-    if (pairing()) return HUB_INTERVAL;
-    for (s = 0; s < active; s++)
-        if (bonds[s].valid && links[s].step != STEP_UP) return HUB_INTERVAL;
-    return LINK_INTERVAL;
+    for (s = 0; s < active; s++) {
+        if (links[s].handle != HCI_CON_HANDLE_INVALID) linked++;
+        if (bonds[s].valid && links[s].step != STEP_UP) waiting = 1;
+    }
+    return dongle_interval((u8)linked, waiting, active > 1);
 }
 
 /* Linked slots follow interval(), one connection update at a time each. */

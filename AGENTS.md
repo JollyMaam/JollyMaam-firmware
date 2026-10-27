@@ -142,6 +142,11 @@ the full previous address and tick, with no fixed prefix or generation counter.
 Type changes renew identities (except through the dongle). Setup and host
 tests: `padtool/README.md`.
 
+`make padhub` builds the Linux UHID bridge for the dongle's six-slot hub.
+Usage, pairing, mode/bond persistence and profile limits: `tools/padhub.md`.
+`make padhub-test` checks host protocol and worker lifecycle without devices;
+these checks also run in `make test`.
+
 `tools/sdlpad.c` shows what SDL makes of the gamepads it sees (build line at
 its top).  In this container SDL needs the nodes from `/dev/bwrap` under
 `/dev/input` and `/dev`: `SDL_JOYSTICK_DISABLE_UDEV=1 unshare -rm

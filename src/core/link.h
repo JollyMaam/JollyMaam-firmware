@@ -2,6 +2,7 @@
 #define LINK_H
 
 #include "pad.h"
+#include "link_limits.h"
 
 /* The pad to dongle link (transport dongle).  LE: the pad is the peripheral
  * with a GATT server of fixed handles (profile_link.c), the dongle the
@@ -76,17 +77,17 @@ static const u8 link_adv[LINK_ADV_FLAGS] = {
  * Feature report USB_TOOL_REPORT "tool" ends hub mode: the tool device
  * until slot 0's link next goes down; "pair" and a slot byte: forget that
  * slot's bond and pair it (padtool pair, as the tool device is not there).
- * In hub mode every slot links; outside it only slot 0, the dongle's own pad. */
+ * One shared flash bond table: hub mode enables all slots; outside it only
+ * slot 0, the dongle's own pad. Mode changes keep the bonds. */
 #define HUB_VENDOR_ID   0x1209   /* pid.codes' test VID/PID: a private device */
 #define HUB_PRODUCT_ID  0x0001
 #define HUB_REPORT_IN   1
 #define HUB_REPORT_OUT  2
 #define HUB_REPORT_SIZE 63
-#define HUB_SLOTS       2        /* the controller's central links */
-/* Hub mode: the links' interval while the dongle scans or connects (a slot
- * bonded but not linked, or pairing); LINK_INTERVAL again once every bonded
- * slot is linked.  The controller scans and connects between a central
- * link's events only from 6 (7.5 ms); at 5 and below it never does. */
+/* Minimum interval while the dongle scans or connects (a slot bonded but
+ * not linked, or pairing). The controller scans between central events only
+ * from 6 (7.5 ms); at 5 and below it never does. With more than two connected
+ * pads the interval grows to reserve radio time for each link. */
 #ifndef HUB_INTERVAL
 #define HUB_INTERVAL    6
 #endif

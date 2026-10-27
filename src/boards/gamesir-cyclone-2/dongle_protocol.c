@@ -19,6 +19,20 @@ void dongle_identity(u8 own[6])
     }
 }
 
+/* Reserve radio time as the hub fills. Two links retain their fast interval;
+ * scanning needs at least HUB_INTERVAL and one unused connection's share. */
+u16 dongle_interval(u8 linked, int waiting, int hub)
+{
+    u16 want, scan;
+
+    if (!hub) return LINK_INTERVAL;
+    want = linked <= 2 ? LINK_INTERVAL : (u16)(2 * linked);
+    scan = (u16)(2 * (linked + 1));
+    if (scan < HUB_INTERVAL) scan = HUB_INTERVAL;
+    if (waiting && want < scan) want = scan;
+    return want;
+}
+
 #ifdef UNITTEST
 static const u8 uid[16] = { 1, 2, 3, 4, 5, 0xff };
 static const u8 stock_own[6] = { 0xa0, 0xfc, 0x2b, 0x81, 0x56, 0xd0 };
@@ -36,6 +50,13 @@ int main(void)
 {
     u8 own[6];
 
+    CHECK(dongle_interval(1, 0, 0) == LINK_INTERVAL);
+    CHECK(dongle_interval(1, 0, 1) == LINK_INTERVAL);
+    CHECK(dongle_interval(2, 0, 1) == LINK_INTERVAL);
+    CHECK(dongle_interval(1, 1, 1) >= HUB_INTERVAL);
+    CHECK(dongle_interval(2, 1, 1) >= HUB_INTERVAL);
+    CHECK(dongle_interval(5, 1, 1) >= 12);
+    CHECK(dongle_interval(6, 0, 1) >= 12);
     dongle_identity(own);
     CHECK(!memcmp(own, stock_own, 6));
     for (stored = 0; stored <= 2; stored += 2) {

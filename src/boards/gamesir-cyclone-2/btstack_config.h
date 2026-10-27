@@ -1,6 +1,8 @@
 #ifndef BTSTACK_CONFIG_H
 #define BTSTACK_CONFIG_H
 
+#include "link_limits.h"
+
 /* Port features.  The Jieli libc provides memcpy/strlen/..., but BTstack's
  * allocators must not rely on malloc: a pool configuration is required so
  * that every registered service/channel has its own storage. */
@@ -31,7 +33,7 @@
 #define MAX_NR_LE_DEVICE_DB_ENTRIES     4
 #define MAX_NR_SM_LOOKUP_ENTRIES        3
 #ifdef BOARD_DONGLE
-#define MAX_NR_WHITELIST_ENTRIES        2       /* HUB_SLOTS bonded pads */
+#define MAX_NR_WHITELIST_ENTRIES        HUB_SLOTS       /* HUB_SLOTS bonded pads */
 #else
 #define MAX_NR_WHITELIST_ENTRIES        1
 #endif
@@ -57,7 +59,7 @@
 #endif
 
 #ifdef BOARD_DONGLE
-#define MAX_NR_HCI_CONNECTIONS          2       /* HUB_SLOTS pads */
+#define MAX_NR_HCI_CONNECTIONS          HUB_SLOTS       /* HUB_SLOTS pads */
 #else
 #define MAX_NR_HCI_CONNECTIONS          1
 #endif
