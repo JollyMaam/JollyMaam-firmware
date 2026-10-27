@@ -65,6 +65,12 @@ Scrambling is reversible. It is not protection.
   is readable through the loader. Each chip's application area is encrypted
   with its own key. Two chips with different keys hold different bytes for the
   same image.
+- The flash controller's `JL_SFCENC->KEY` reads 0 on a chip whose key is
+  `0xffff`. An erased block (`0xff`) read through the code window gives its
+  keystream XOR `0xff`.
+- The code window maps the flash linearly from the app area's start, beyond
+  the application file: code linked higher in the window and placed that far
+  into the area, encrypted as a continuation of it, runs.
 
 CRC16 is non-reflected CRC-CCITT: polynomial `0x1021`, initial value zero.
 

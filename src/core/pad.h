@@ -204,6 +204,7 @@ enum req_kind {
     REQ_LED_DEMO,                /* the lights show LED demo .slot (ux_led_demos), SLOT_NONE: stop */
     REQ_RUMBLE,              /* the motors run at .motor (0-255 duty) for .ms, over the host's; 0 ms: stop */
     REQ_RUMBLE_STEP,         /* config mode L1/R1: .slot 0 lower, 1 raise the rumble step (RAM only) */
+    REQ_REBOOT_UPDATER,      /* reboot into the updater (src/updater/) */
 };
 
 struct ctl_request {
@@ -934,6 +935,7 @@ void plat_retain_slot(u8 slot);            /* call before starting the radio; ma
 void plat_power_off(void);
 void plat_reboot(void);
 void plat_reboot_loader(void);
+void plat_reboot_updater(void);  /* into the updater, where the app has one */
 void plat_watch_stop(void);                 /* the hang watch, before a long wait on purpose */
 
 #endif

@@ -25,6 +25,9 @@ Options used by the build:
 - `--enter-loader --wait 30`: ask running firmware to enter the ROM loader,
   then wait for it (classes below).
 - `-k`: re-encrypt for the target chip's key. `flashpack` does this by default.
+- `--main OFFSET:FILE`, `--main-out FILE`: a split build's app above the app
+  area, behind its header; `--main-out` also writes header and app in the
+  clear ([updater.md](updater.md)).
 - `--force-pid`: allow a write to a device whose PID differs (a blank device or a
   deliberate change).
 

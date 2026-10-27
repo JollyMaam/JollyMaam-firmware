@@ -793,6 +793,7 @@ struct pack_opts {
   struct copy copies[16];
   size_t nc;
   const char *main_file; /* --main: a second app above the first */
+  const char *main_out;  /* --main-out: it with its header, in the clear */
   uint32_t main_at;
 };
 
@@ -841,7 +842,9 @@ static bool pack_arg(struct pack_opts *o, int argc, char **argv, int *i) {
     *colon = 0;
     o->main_at = number(argv[*i]);
     o->main_file = colon + 1;
-  } else
+  } else if (!strcmp(a, "--main-out"))
+    o->main_out = argv[++*i];
+  else
     return false;
   return true;
 }
@@ -994,8 +997,8 @@ static struct blob build(struct pack_opts *o, uint16_t *key_out) {
   for (size_t i = o->nf; i < nall; i++)
     res_size += 32 + (uint32_t)files[i].size;
   /* --main: the main app, linked at the code window's start + OFFSET +
-   * 0x120, behind a header the stub loader checks; the area's cipher runs on
-   * over it.  The app area itself holds the stub loader. */
+   * 0x120, behind a header the updater checks; the area's cipher runs on
+   * over it.  The app area itself holds the updater. */
   size_t main_n = 0;
   uint8_t *main_bin = o->main_file ? read_file(o->main_file, &main_n) : NULL;
   uint32_t area_n = outer_size + res_size;
@@ -1100,6 +1103,8 @@ static struct blob build(struct pack_opts *o, uint16_t *key_out) {
     wr32(h + 12, (entry & ~0xfffffu) + o->main_at + MAIN_HEAD_SIZE);
     memcpy(h + MAIN_HEAD_SIZE, main_bin, main_n);
     free(main_bin);
+    if (o->main_out)
+      write_file(o->main_out, h, MAIN_HEAD_SIZE + main_n);
   }
   scramble_bankcb(image.p + uboot_off, uboot_n);
   jl_sfc(image.p, appbase, area_n, appbase, o->key);
@@ -2493,7 +2498,7 @@ static void usage(void) {
       "               [-r RESOURCE]... [-k KEY] [--flash-size SIZE] "
       "[--code-limit ADDR]\n"
       "               [--at ADDR] [--mark VALUE] [--copy FROM:TO:LEN]...\n"
-      "               [--main OFFSET:FILE]\n"
+      "               [--main OFFSET:FILE [--main-out FILE]]\n"
       "  jlnewfw backup --pid PID [FLASH OPTIONS] OUTPUT\n"
       "  jlnewfw loader --pid PID [--device PATH] [--wait SECONDS] [--loader BLOB]\n"
       "  jlnewfw run [--pid PID] [--device PATH] [--loader BLOB]\n"
@@ -2515,7 +2520,9 @@ static void usage(void) {
       "  --copy    also put image bytes FROM (offset in the image) at TO\n"
       "  --mark    the app directory's data-CRC field (unused by the format)\n"
       "  --main    a main app OFFSET above the app area's start, behind a\n"
-      "            header; the app area's app.bin is then the stub loader\n"
+      "            header; the app area's app.bin is then its updater.\n"
+      "            --main-out writes that header and app in the clear, for\n"
+      "            the updater (padtool update)\n"
       "flash writes OUT through the ROM loader: erased and written from 0,\n"
       "read back, then the chip runs.  The image's PID must be the one on\n"
       "the device and its chip key the chip's (--force-pid, --force-key).\n"

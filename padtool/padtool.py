@@ -43,6 +43,9 @@
                                   as read (-f: live)
     padtool reboot | loader       restart; restart into the ROM loader (for
                                   jlnewfw flash)
+    padtool update FILE           rewrite the app in place through the pad's
+                                  updater (a -split build's update.bin); a pad
+                                  running the app restarts into the updater first
     padtool connect [SLOT]        connect a slot (default: the last), as Home does
     padtool disconnect            end the session, keeping its pairing
     padtool pair SLOT             make the slot pairable; its host is replaced once one pairs
@@ -555,6 +558,69 @@ def read_log(path, seq):
     if size > len(data) - 8:
         raise ValueError("Short firmware log data")
     return first, data[8:8 + size].decode("utf-8", "replace")
+
+
+UPDATE_ERRORS = ["", "bad size", "out of order", "not begun", "verify failed (read back differs)",
+                 "incomplete", "bad header", "CRC mismatch", "no chip key fits"]
+
+
+def is_updater(path):
+    return cmd(path, 0x00, length=88)[7] == 1
+
+
+def update_info(path):
+    d = cmd(path, 0x41, length=32)
+    version, state, error, valid, at, room, written, begun, key = struct.unpack_from("<BBBBIIIII", d)
+    return dict(state=state, error=error, valid=valid, at=at, room=room, written=written, begun=begun, key=key)
+
+
+def update_step(path, what):
+    i = update_info(path)
+    if i["error"]:
+        sys.exit(f"padtool: update {what}: {UPDATE_ERRORS[i['error']] if i['error'] < len(UPDATE_ERRORS) else i['error']}"
+                 f" ({i['written']} of {i['begun']} bytes written; the pad stays in its updater)")
+    return i
+
+
+def update(path, image):
+    """Header and app as jlnewfw --main-out writes them, through the updater
+    (src/updater/updater.c): begin, data in order, commit, reboot."""
+    if image[:4] != b"MAIN":
+        sys.exit("padtool: not an update image (update.bin from a -split build)")
+    if not is_updater(path):
+        print("restarting into the updater")
+        cmd(path, 0x40)
+        time.sleep(1)
+        path = wait_for_device(15)
+        if not path or not is_updater(path):
+            sys.exit("padtool: the pad did not come back in its updater (an app without one reboots)")
+    i = update_info(path)
+    print(f"updater: app at flash {i['at']:#x}, room {i['room']} bytes, "
+          f"{'an app is there' if i['valid'] else 'no app'}")
+    if len(image) > i["room"]:
+        sys.exit(f"padtool: the image ({len(image)} bytes) does not fit ({i['room']})")
+    start = time.monotonic()
+    cmd(path, 0x42, len(image))
+    print(f"chip key {update_step(path, 'begin')['key']:#06x}")
+    chunk = 512
+    for offset in range(0, len(image), chunk):
+        cmd(path, 0x43, offset, out=image[offset:offset + chunk])
+        if offset // chunk % 64 == 63:
+            update_step(path, f"at {offset:#x}")
+            print(f"\r{offset + chunk} of {len(image)} bytes", end="", flush=True)
+    i = update_step(path, "data")
+    print(f"\r{i['written']} of {len(image)} bytes in {time.monotonic() - start:.1f} s")
+    scsi(path, [OP, 0x44, 0, 0, 0, 0], 0, 10000)
+    i = update_step(path, "commit")
+    if i["state"] != 2:
+        sys.exit("padtool: the updater did not commit")
+    print("committed; restarting into the app")
+    cmd(path, 0x10)
+    time.sleep(1)
+    path = wait_for_device(15)
+    if not path:
+        sys.exit("padtool: the pad did not come back")
+    print(identify(path))
 
 
 def log(path, follow):
@@ -1560,7 +1626,7 @@ def hub_pair(slot):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["tool-only", "hub", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "reboot", "loader", "relink", "connect", "disconnect", "pair", "unpair", "profile", "peek", "trace",
+    p.add_argument("command", choices=["tool-only", "hub", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "reboot", "loader", "update", "relink", "connect", "disconnect", "pair", "unpair", "profile", "peek", "trace",
                                        "fields", "get", "set", "reset", "backup-settings",
                                        "restore-settings", "factory-reset", "ephemeral", "keep", "tool", "latency"])
     p.add_argument("args", nargs="*")
@@ -1747,6 +1813,11 @@ def main():
         print("Leave sticks and triggers untouched for 2.5 seconds; then circle both sticks and press both triggers fully. A or B saves; Home cancels.")
     elif a.command in ("reboot", "loader"):
         cmd(need_device(), 0x10 if a.command == "reboot" else 0x11)
+    elif a.command == "update":
+        if len(a.args) != 1:
+            sys.exit("padtool update FILE")
+        with open(a.args[0], "rb") as f:
+            update(need_device(), f.read())
     elif a.command == "fields":
         show_fields(need_device(), a.dev)
     elif a.command == "get":

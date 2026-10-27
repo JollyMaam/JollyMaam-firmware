@@ -4,7 +4,7 @@
 #   gamesir-cyclone-2-pad-loader, -dongle-loader   into the ROM loader
 #   gamesir-cyclone-2-pad-test, -dongle-test, gamesir-cyclone-2-test
 #   gamesir-cyclone-2-all                both boards and their tests' builds
-#   gamesir-cyclone-2-pad-split(-flash)  the pad behind the stub loader
+#   gamesir-cyclone-2-pad-split(-flash)  the pad behind its updater
 
 BTSTACK_USERS += src/boards/gamesir-cyclone-2/bt_pad.c
 BTSTACK_USERS += src/boards/gamesir-cyclone-2/bt_dongle.c
@@ -69,14 +69,30 @@ $(CYCLONE2_DONGLE)_SOURCES += src/profiles/profile_xbox.c
 $(CYCLONE2_DONGLE)_SOURCES += src/profiles/profile_playstation.c
 $(CYCLONE2_DONGLE)_SOURCES += src/profiles/profile_hid.c
 
-# The pad behind the stub loader (OTA milestone 1, /work/ota-loader-plan.md):
-# the same app, 96 KiB above the app area's start.
+# The pad behind its updater (OTA, /work/ota-loader-plan.md): the updater in
+# the app area, the same app 96 KiB above it.
+CYCLONE2_UPDATER := gamesir-cyclone-2-pad-updater
+$(CYCLONE2_UPDATER)_FLASH_SIZE := $($(CYCLONE2_PAD)_FLASH_SIZE)
+$(CYCLONE2_UPDATER)_PID := $($(CYCLONE2_PAD)_PID)
+$(CYCLONE2_UPDATER)_BOARD_DIR := src/boards/gamesir-cyclone-2
+$(CYCLONE2_UPDATER)_NO_BT := 1
+$(CYCLONE2_UPDATER)_UPDATER := 0x18000
+$(CYCLONE2_UPDATER)_SOURCES :=
+$(CYCLONE2_UPDATER)_SOURCES += src/updater/updater.c
+$(CYCLONE2_UPDATER)_SOURCES += src/boards/gamesir-cyclone-2/board_pad.c
+$(CYCLONE2_UPDATER)_SOURCES += src/platform/jieli/platform_jieli.c
+$(CYCLONE2_UPDATER)_SOURCES += src/platform/jieli/platform_jieli_sdk.c
+$(CYCLONE2_UPDATER)_SOURCES += src/platform/jieli/platform_jieli_usb.c
+$(CYCLONE2_UPDATER)_SOURCES += src/platform/jieli/platform_jieli_noaudio.c
+$(CYCLONE2_UPDATER)_SOURCES += src/core/utils.c
+
 CYCLONE2_SPLIT := gamesir-cyclone-2-pad-split
 $(foreach v,FLASH_SIZE PID DEFINES LOADER_HINT BOARD_DIR SOURCES,$(eval $(CYCLONE2_SPLIT)_$(v) := $$($(CYCLONE2_PAD)_$(v))))
-$(CYCLONE2_SPLIT)_MAIN_AT := 0x18000
+$(CYCLONE2_SPLIT)_MAIN_AT := $($(CYCLONE2_UPDATER)_UPDATER)
+$(CYCLONE2_SPLIT)_FRONT := $(CYCLONE2_UPDATER)
 
 $(foreach b,$(CYCLONE2_PAD) $(CYCLONE2_DONGLE),$(eval $(call jieli_board,$(b)))$(eval $(call host_tests,$(b))))
-$(eval $(call jieli_board,$(CYCLONE2_SPLIT)))
+$(foreach b,$(CYCLONE2_UPDATER) $(CYCLONE2_SPLIT),$(eval $(call jieli_board,$(b))))
 
 .PHONY: gamesir-cyclone-2-all gamesir-cyclone-2-test
 gamesir-cyclone-2-all: $(CYCLONE2_PAD) $(CYCLONE2_DONGLE)

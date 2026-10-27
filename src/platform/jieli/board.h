@@ -45,6 +45,11 @@ void plat_flush_dcache(const void *address, u32 size);
 void plat_enter_loader(void);            /* now, without detaching USB first */
 void plat_pull_up_input(u32 gpio);
 
+/* The reset mailbox (sdkconfig/app.ld): UPDATER_STAY, ~UPDATER_STAY asks the
+ * updater to stay rather than start the app at the next boot. */
+#define UPDATER_STAY    0x54445055u     /* "UPDT" */
+extern u32 plat_updater_mailbox[2];
+
 /* ---- the tool device, between the platform's files ---------------------- */
 
 void plat_usb_tool_strings(void);        /* platform_jieli_usb.c: after the SDK's mass storage starts */

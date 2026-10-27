@@ -8,7 +8,7 @@ and [../jieli/flash.md](../jieli/flash.md).
 
 | Address | Size | Use |
 |---|---|---|
-| `0x20000` | 16 bytes | reset mailbox (`.reset_mailbox`); no current producer |
+| `0x20000` | 16 bytes | reset mailbox (`.reset_mailbox`): the app's request to the updater ([updater.md](updater.md)) |
 | `0x20010` | `0x2100` bytes maximum | bring-up log and boot counter (`.retained`) |
 
 The main heap is capped below `0x20000`. The linker asserts that the

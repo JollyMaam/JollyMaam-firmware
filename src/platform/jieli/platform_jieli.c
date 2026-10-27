@@ -988,6 +988,18 @@ void plat_reboot_loader(void)
     plat_enter_loader();
 }
 
+/* The updater (src/updater/) stays at the next boot instead of starting
+ * the app; without an updater this is a reboot. */
+u32 plat_updater_mailbox[2] __attribute__((section(".reset_mailbox")));
+
+void plat_reboot_updater(void)
+{
+    plat_updater_mailbox[0] = UPDATER_STAY;
+    plat_updater_mailbox[1] = ~UPDATER_STAY;
+    plat_flush_dcache(plat_updater_mailbox, sizeof(plat_updater_mailbox));
+    plat_reboot();
+}
+
 void plat_reboot(void)
 {
     plat_watch_stop();
@@ -1219,9 +1231,11 @@ static void ctl_thread(void *arg)
     (void)arg;
     clk_set("sys", BT_NORMAL_HZ);
     debug_uart_start();
+#ifndef NO_BT
     bt_pll_para(TCFG_CLOCK_OSC_HZ, clk_get("sys"), 0, 0);
     /* Without this the radio stays at its lowest step, 20 dB below stock. */
     bt_max_pwr_set(10, 5, 8, 6);
+#endif
     util_log_init();
     board_start();
 #ifdef DEBUG_NO_USB
@@ -1242,7 +1256,9 @@ static void ctl_thread(void *arg)
 
         util_log("boot: reset source %02x, usb io %x", power_reset_src, boot_usb_io);
     }
+#ifndef NO_BT
     hci_jieli_init();
+#endif
     ctl_main();
 }
 

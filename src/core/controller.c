@@ -46,6 +46,7 @@ static struct {
     struct bt_bond pair_bond;    /* what the pairing has so far */
     u8 radio_pending;            /* the session's radio waits for the last one's BT_EV_STOPPED */
     u8 to_loader;
+    u8 to_updater;
     u8 uboot_chord;
     u32 retry_at;
     u32 report_next;             /* the earliest the next report may be built */
@@ -436,7 +437,9 @@ static void handle(struct ctl_request r, u32 now)
         break;
     case REQ_REBOOT:
     case REQ_REBOOT_LOADER:
+    case REQ_REBOOT_UPDATER:
         c.to_loader = r.kind == REQ_REBOOT_LOADER;
+        c.to_updater = r.kind == REQ_REBOOT_UPDATER;
         set_flush();
         shut_down(CTL_REBOOTING, now);
         break;
@@ -723,6 +726,7 @@ static void timeouts(u32 now)
     case CTL_REBOOTING:          /* to the loader: after its LED launch, whose last frame stays */
         if ((!c.radio && t >= (c.to_loader ? LED_LOADER_MS : 100)) || t >= ux_timeouts.stop_max_ms) {
             if (c.to_loader) plat_reboot_loader();
+            if (c.to_updater) plat_reboot_updater();
             plat_reboot();
         }
         break;

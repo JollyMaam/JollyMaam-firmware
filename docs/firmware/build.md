@@ -36,6 +36,8 @@ The SDK linker script is patched at build time:
 - The heap end moves from `RAM_END` to `RESET_MAILBOX_BEGIN` (`0x20000`).
 - The Bluetooth controller's `.bss` is placed so that it does not overlap the
   MaskROM boot-state token at `0x10800`.
+- A split build's app: `code0` starts `MAIN_AT` higher. The updater: its entry
+  goes ahead of `.startup.text` ([updater.md](updater.md)).
 
 The application script places:
 
