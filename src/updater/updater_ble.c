@@ -9,7 +9,6 @@
 #include "ble/att_db.h"
 #include "ble/att_server.h"
 #include "ble/le_device_db.h"
-#include "ble/sm.h"
 #include "pad.h"
 
 /* The updater over Bluetooth LE: the tool device's commands (updater.c's
@@ -154,12 +153,7 @@ static void body(void)
     hci_init(hci_jieli_transport(), NULL);
     l2cap_init();
     le_device_db_init();
-    /* att_server waits for SM's address lookup on an unencrypted link: SM
-     * runs (no bonding, Just Works) so that it ends, with no devices known. */
-    sm_init();
-    sm_set_io_capabilities(IO_CAPABILITY_NO_INPUT_NO_OUTPUT);
-    sm_set_authentication_requirements(0);
-    att_server_init(att_db, NULL, att_write);
+    att_server_init(att_db, NULL, att_write);   /* no SM: sm_none.c */
     hci_registration.callback = on_event;
     hci_add_event_handler(&hci_registration);
     att_server_register_packet_handler(on_event);

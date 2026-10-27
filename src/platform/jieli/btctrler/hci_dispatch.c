@@ -19,31 +19,35 @@ void hci_command_process(u8 *packet, int size)
     int length = packet[2], result = 0;
     _Bool bad_group = 0;
     /* Preserve common-handler-first routing and call the Classic handler
-     * only for an exactly zero result. Negative results are not re-routed. */
+     * only for an exactly zero result. Negative results are not re-routed.
+     * An LE-only controller (config_btctler_modules without Classic, the
+     * updater's) has no Classic handlers: their commands are unknown, and
+     * the page, inquiry and scan code behind them is not linked. */
+#define CLASSIC (config_btctler_modules & 1)
     switch (opcode >> 10) {
     case 1:
         result = hci_link_control_cmd_handler(opcode, parameters, length);
-        if (!result) result = hci_lmp_link_control_cmd_handler(opcode, parameters, length);
+        if (!result && CLASSIC) result = hci_lmp_link_control_cmd_handler(opcode, parameters, length);
         break;
     case 2:
         result = hci_link_policy_cmd_handler(opcode, parameters, length);
-        if (!result) result = hci_lmp_link_policy_cmd_handler(opcode, parameters, length);
+        if (!result && CLASSIC) result = hci_lmp_link_policy_cmd_handler(opcode, parameters, length);
         break;
     case 3:
         result = hci_controller_baseband_cmd_handler(opcode, parameters, length);
-        if (!result) result = hci_lmp_controller_baseband_cmd_handler(opcode, parameters, length);
+        if (!result && CLASSIC) result = hci_lmp_controller_baseband_cmd_handler(opcode, parameters, length);
         break;
     case 4:
         result = hci_informational_parameters_cmd_handler(opcode, parameters, length);
-        if (!result) result = hci_lmp_informational_parameters_cmd_handler(opcode, parameters, length);
+        if (!result && CLASSIC) result = hci_lmp_informational_parameters_cmd_handler(opcode, parameters, length);
         break;
     case 5:
         result = hci_status_parameters_cmd_handler(opcode, parameters, length);
-        if (!result) result = hci_lmp_status_parameters_cmd_handler(opcode, parameters, length);
+        if (!result && CLASSIC) result = hci_lmp_status_parameters_cmd_handler(opcode, parameters, length);
         break;
     case 6:
         result = hci_testing_cmd_handler(opcode, parameters, length);
-        if (!result) result = hci_lmp_testing_cmd_handler(opcode, parameters, length);
+        if (!result && CLASSIC) result = hci_lmp_testing_cmd_handler(opcode, parameters, length);
         break;
     case 8:
         if (config_btctler_modules & 2)
@@ -51,7 +55,7 @@ void hci_command_process(u8 *packet, int size)
         break;
     case 63:
         result = hci_vendor_cmd_handler(opcode, parameters, length);
-        if (!result) result = hci_lmp_vendor_cmd_handler(opcode, parameters, length);
+        if (!result && CLASSIC) result = hci_lmp_vendor_cmd_handler(opcode, parameters, length);
         break;
     case 62:
         /* The SDK does not gate its vendor LE group on module enable. */

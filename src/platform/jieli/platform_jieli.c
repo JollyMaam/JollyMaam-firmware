@@ -875,7 +875,9 @@ void plat_usb_service(void)
 {
     const struct usb_device_t *dev = usb_pending;
 
+#ifndef USB_TOOL_ONLY            /* only ever the tool device: no personalities */
     plat_usb_jack();
+#endif
     if (!dev) return;
     usb_pending = NULL;
     USB_MassStorage(dev);

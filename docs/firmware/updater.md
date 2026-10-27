@@ -57,7 +57,10 @@ link address.
 
 The updater is the SDK and this firmware's platform layer, the tool device,
 the hang watch, the board's lights, and Bluetooth LE: our controller built
-LE-only (`BT_LE_ONLY`) and BTstack without Classic. It powers off after 60 s
+LE-only (`BT_LE_ONLY`: no Classic HCI command handlers either), BTstack
+without Classic or SM, no P-256 thread, and the USB tool device without
+the app's personalities (`USB_TOOL_ONLY`). The SDK linker script's forced
+symbols are cut to `sdfile_vfs_ops`. It powers off after 60 s
 without a host (USB or LE) and outside a write.
 
 The app's `UPDATER` command (`0x40`) sets the request and reboots. In a build
@@ -123,8 +126,9 @@ does not fit. A write arrived with its first fragment and the next write's
 second, which BTstack accepted as one packet. The updater's read-back then
 matched what it had received; the commit's CRC caught it.
 
-BTstack's ATT server waits for SM's address lookup on an unencrypted link,
-so the updater starts SM (no bonding, Just Works) though it never pairs.
+BTstack's ATT server asks SM before every request whether an address
+lookup or re-encryption is still running. The updater links no SM: its
+`sm_none.c` answers the few SM calls BTstack makes, and says no.
 
 `padtool update FILE --ble [NAME|ADDRESS]` (needs `bleak`) sends the same
 image to a pad in its updater.

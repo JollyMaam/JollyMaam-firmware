@@ -302,6 +302,7 @@ $(O)/$(1)/sdk_ld.c: $(JIELI_SDK)/cpu/$(call jieli_chip,$(1))/sdk_ld.c $(MAKE_FIL
 	  -e 's/^PROVIDE(HEAP_END = RAM_END);/PROVIDE(HEAP_END = RESET_MAILBOX_BEGIN);/' \
 	  $(if $($(1)_MAIN_AT),-e 's/^\(\s*code0(rx)\s*:\s*ORIGIN = *0x1E00120\)$(comma)/\1 + $($(1)_MAIN_AT)$(comma)/') \
 	  $(if $($(1)_UPDATER),-e 's/^\(\s*\)\*(\.startup\.text)/\1KEEP(*(.updater_entry))\n&/') \
+	  $(if $($(1)_UPDATER),-e 's/^#include "sdk_used_list.c"$$$$/sdfile_vfs_ops/') \
 	  -e '/^    \.bss ALIGN(32) :$$$$/,/^        \*(\.bss)$$$$/s/^        \*(\.bss)$$$$/        btctrlermod_bss_base = ABSOLUTE(.);\n&/' \
 	  -e 's|^\([[:space:]]*\)#include "btctrler/btctler_lib_bss.ld"|\1. = MAX(., 0x10810 - btctrlermod_bss_base);\n&|' \
 		$$< > $$@

@@ -469,9 +469,10 @@ void hci_jieli_close(void)
 #endif
 }
 
+/* The P-256 thread, for LE Secure Connections (btstack_config.h). */
 void hci_jieli_init(void)
 {
-#ifndef CONFIG_CPU_BD19
+#if !defined(CONFIG_CPU_BD19) && defined(ENABLE_LE_SECURE_CONNECTIONS)
     plat_p256_thread(p256_body);
 #endif
 }

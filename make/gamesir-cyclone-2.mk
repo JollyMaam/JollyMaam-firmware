@@ -9,6 +9,7 @@
 BTSTACK_USERS += src/boards/gamesir-cyclone-2/bt_pad.c
 BTSTACK_USERS += src/boards/gamesir-cyclone-2/bt_dongle.c
 BTSTACK_USERS += src/updater/updater_ble.c
+BTSTACK_USERS += src/updater/sm_none.c
 
 CYCLONE2_PAD := gamesir-cyclone-2-pad
 $(CYCLONE2_PAD)_FLASH_SIZE := 0x100000
@@ -77,11 +78,12 @@ $(CYCLONE2_UPDATER)_FLASH_SIZE := $($(CYCLONE2_PAD)_FLASH_SIZE)
 $(CYCLONE2_UPDATER)_PID := $($(CYCLONE2_PAD)_PID)
 $(CYCLONE2_UPDATER)_BOARD_DIR := src/updater
 $(CYCLONE2_UPDATER)_UPDATER := 0x30000
-$(CYCLONE2_UPDATER)_DEFINES := -DBT_LE_ONLY
-$(CYCLONE2_UPDATER)_BTSTACK := $(filter-out src/classic/% src/btstack_hid_parser.c,$(BTSTACK_USED))
+$(CYCLONE2_UPDATER)_DEFINES := -DBT_LE_ONLY -DUSB_TOOL_ONLY
+$(CYCLONE2_UPDATER)_BTSTACK := $(filter-out src/classic/% src/btstack_hid_parser.c src/ble/sm.c src/btstack_crypto.c,$(BTSTACK_USED))
 $(CYCLONE2_UPDATER)_SOURCES :=
 $(CYCLONE2_UPDATER)_SOURCES += src/updater/updater.c
 $(CYCLONE2_UPDATER)_SOURCES += src/updater/updater_ble.c
+$(CYCLONE2_UPDATER)_SOURCES += src/updater/sm_none.c
 $(CYCLONE2_UPDATER)_SOURCES += src/boards/gamesir-cyclone-2/board_pad.c
 $(CYCLONE2_UPDATER)_SOURCES += src/platform/jieli/platform_jieli.c
 $(CYCLONE2_UPDATER)_SOURCES += src/platform/jieli/platform_jieli_sdk.c
