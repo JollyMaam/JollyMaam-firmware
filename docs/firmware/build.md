@@ -69,3 +69,5 @@ encrypts the image for that chip's key.
   Classic reports at 100 per second.
 - **The control loop must run above BTstack's priority.** BTstack takes about
   1 ms of CPU per packet.
+- **The HCI receive queue drops packets when full.** BTstack can then join the
+  fragments left of two ACL packets into one ([updater.md](updater.md)).

@@ -204,6 +204,7 @@ jieli_tools = $(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_TOOLS),$(
 #   NAME_BOARD_DIR   the board's headers (btstack_config.h)
 #   NAME_LOADER_HINT how to enter the ROM loader by hand, where software cannot
 #   NAME_NO_BT       optional: without our controller and BTstack
+#   NAME_BTSTACK     optional: the BTstack sources, instead of BTSTACK_USED
 #   NAME_UPDATER     optional: this is an updater (src/updater/) for an app this
 #                    far above it (MAIN_AT); its entry goes before the SDK's start-up
 #   NAME_MAIN_AT     optional: the app goes this far above the app area's start,
@@ -227,7 +228,7 @@ $(1)_CODE_LIMIT := $(call jieli_code_limit,$($(1)_FLASH_SIZE))
 $(1)_FRONT_BIN := $(if $($(1)_MAIN_AT),$(O)/$($(1)_FRONT)/app.bin)
 $(1)_PACKED := $(if $($(1)_MAIN_AT),$$($(1)_FRONT_BIN) --main $($(1)_MAIN_AT):$(O)/$(1)/app.bin,$(O)/$(1)/app.bin)
 $(1)_OBJECTS := $(patsubst %.c,$(O)/$(1)/%.o,$($(1)_SOURCES) $(if $(filter bd19,$(call jieli_chip,$(1)))$($(1)_NO_BT),,$(wildcard src/platform/jieli/btctrler/*.c))) \
-	$(patsubst %.c,$(O)/$(1)/sdk/%.o,$(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_SDK_USED),$(JIELI_SDK_USED))) $(if $($(1)_NO_BT),,$(BTSTACK_USED:%.c=$(O)/$(1)/btstack/%.o))
+	$(patsubst %.c,$(O)/$(1)/sdk/%.o,$(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_SDK_USED),$(JIELI_SDK_USED))) $(if $($(1)_NO_BT),,$(patsubst %.c,$(O)/$(1)/btstack/%.o,$(or $($(1)_BTSTACK),$(BTSTACK_USED))))
 $(1)_FLAGS := $(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_CFLAGS) $(JIELI_BD19_DEFINES),$(JIELI_CFLAGS) $(JIELI_DEFINES)) -DCONFIG_FLASH_SIZE=$($(1)_FLASH_SIZE) \
 	-DBOARD_PID=\"$($(1)_PID)\" $($(1)_DEFINES) $(EXTRA_DEFINES) -DBUILD_ID=\"$(BUILD_ID)\" \
 	$(if $($(1)_NO_BT),-DNO_BT) $(if $($(1)_UPDATER),-DMAIN_AT=$($(1)_UPDATER) -DCODE_LIMIT=$$($(1)_CODE_LIMIT))

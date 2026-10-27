@@ -8,7 +8,11 @@
  * archives reference; the values are the SDK defaults this pad was
  * measured with.  Every log tag is 0: the libraries print nothing. */
 
+#ifdef BT_LE_ONLY
+const int config_btctler_modules = 2;  /* LE */
+#else
 const int config_btctler_modules = 3;  /* classic and LE */
+#endif
 const int config_btctler_le_tws = 0;
 const int CONFIG_BTCTLER_TWS_ENABLE = BTCFG_TWS;
 const int CONFIG_TWS_AFH_ENABLE = 0;

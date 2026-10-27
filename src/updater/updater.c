@@ -16,7 +16,8 @@
  * out through the code window: until then a reset comes back here.
  *
  * Home pressed and released goes back to the app, when it is valid; 60 s
- * without a USB host powers off.
+ * without a host (USB or LE) and outside a write powers off.  The same commands go over Bluetooth LE
+ * (updater_ble.c).
  *
  * Tool-device commands (the main app's are in core/usb.c):
  *   `0x00` IDENTIFY, `0x01` STATUS, `0x02` LOG, `0x10` REBOOT, `0x11`
@@ -30,10 +31,12 @@
  *                        writes them): erases the header's sector (the app
  *                        is gone from here on)
  *   `0x43` UPDATE_DATA   CDB bytes 2-5: offset, the bytes written so far;
- *                        out: up to 512 bytes of the image in the clear
+ *                        out: up to 512 bytes of the image in the clear; at
+ *                        another offset it is ignored (the host resends from
+ *                        UPDATE_INFO's count)
  *   `0x44` UPDATE_COMMIT – : checks the header and the app's CRC through the
  *                        code window, then programs the magic word
- * Errors: 1 bad size, 2 out of order, 3 not begun, 4 verify (the code window
+ * Errors: 1 bad size, 2 past the end, 3 not begun, 4 verify (the code window
  * does not read back what was written), 5 incomplete, 6 bad header, 7 CRC,
  * 8 no chip key fits the erased header sector.  An error stays until the
  * next BEGIN. */
@@ -44,7 +47,7 @@
 #define MAIN_MAGIC      0x4e49414du     /* "MAIN" */
 #define MAIN_HEAD_SIZE  0x120u
 #define SECTOR          0x1000u
-#define IDLE_OFF_MS     60000           /* without a USB host */
+#define IDLE_OFF_MS     60000           /* without a host */
 
 enum { OP = 0xf5, CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02, CMD_REBOOT = 0x10,
        CMD_REBOOT_LOADER = 0x11, CMD_INFO = 0x41, CMD_BEGIN = 0x42, CMD_DATA = 0x43,
@@ -128,12 +131,16 @@ static int find_key(u32 area_offset)
 static void encrypt(u8 *p, u32 n, u32 area_offset)
 {
     u16 key = 0;
-    u32 i;
+    u32 i, k;
 
     for (i = 0; i < n; i++) {
         u32 at = area_offset + i;
 
-        if (!i || !(at & 31)) key = chip_key ^ (u16)((at & ~31u) >> 2);
+        if (!(at & 31)) key = chip_key ^ (u16)(at >> 2);
+        else if (!i) {           /* into a block: its stream up to here */
+            key = chip_key ^ (u16)((at & ~31u) >> 2);
+            for (k = 0; k < (at & 31); k++) key = enc_next(key);
+        }
         p[i] ^= (u8)key;
         key = enc_next(key);
     }
@@ -185,7 +192,10 @@ static u8 data(u32 offset, const u8 *d, u32 n)
     u32 skip = 0;
 
     if (state != WRITING) return ERR_NOT_BEGUN;
-    if (offset != written || !n || n > begun - written) return ERR_ORDER;
+    /* Not the next bytes: dropped, a write lost or repeated on the way (LE
+     * writes without response); the host resends from UPDATE_INFO's count. */
+    if (offset != written) return ERR_NONE;
+    if (!n || n > begun - written) return ERR_ORDER;
     if (offset / SECTOR != (offset + n - 1) / SECTOR || (offset && !(offset % SECTOR)))
         erase((offset + n - 1) & ~(SECTOR - 1));
     if (!offset) {
@@ -343,11 +353,15 @@ static int home_back(void)
     return 0;
 }
 
+void updater_ble_start(void);   /* updater_ble.c */
+int updater_ble_connected(void);
+
 void ctl_main(void)
 {
     u32 host_seen = plat_ms(), reboot_at = 0;
 
     util_log("updater: app at %x, %s", app_flash(), app_valid() ? "valid" : "none");
+    updater_ble_start();
     lights(0, 0, 2);
     for (;;) {
         u32 now;
@@ -365,7 +379,7 @@ void ctl_main(void)
             if (to_rom) plat_reboot_loader();
             plat_reboot();
         }
-        if (plat_usb_present()) host_seen = now;
+        if (plat_usb_present() || updater_ble_connected() || state == WRITING) host_seen = now;
         else if (now - host_seen > IDLE_OFF_MS) plat_power_off();
     }
 }

@@ -43,9 +43,11 @@
                                   as read (-f: live)
     padtool reboot | loader       restart; restart into the ROM loader (for
                                   jlnewfw flash)
-    padtool update FILE           rewrite the app in place through the pad's
-                                  updater (a -split build's update.bin); a pad
-                                  running the app restarts into the updater first
+    padtool update FILE [--ble [NAME|ADDRESS]]   rewrite the app in place through
+                                  the pad's updater (a -split build's update.bin); on
+                                  USB a pad running the app restarts into it first;
+                                  --ble: to a pad in its updater (Home+M while not
+                                  connected), over Bluetooth LE (needs bleak)
     padtool connect [SLOT]        connect a slot (default: the last), as Home does
     padtool disconnect            end the session, keeping its pairing
     padtool pair SLOT             make the slot pairable; its host is replaced once one pairs
@@ -560,67 +562,95 @@ def read_log(path, seq):
     return first, data[8:8 + size].decode("utf-8", "replace")
 
 
-UPDATE_ERRORS = ["", "bad size", "out of order", "not begun", "verify failed (read back differs)",
+UPDATE_ERRORS = ["", "bad size", "past the end", "not begun", "verify failed (read back differs)",
                  "incomplete", "bad header", "CRC mismatch", "no chip key fits"]
 
 
-def is_updater(path):
-    return cmd(path, 0x00, length=88)[7] == 1
+class UsbLink:
+    """The updater's commands on the tool device (SCSI)."""
+    chunk = 512
+
+    def __init__(self, path):
+        self.path = path
+
+    def cmd(self, sub, arg=0, length=0, out=None, timeout_ms=3000):
+        return scsi(self.path, [OP, sub] + list(struct.pack("<I", arg)), length, timeout_ms, out=out)
+
+    def reopen(self, seconds):
+        """After a reboot: the same pad again (by flash ID)."""
+        self.path = wait_for_device(seconds)
+        return self.path is not None
+
+    def close(self):
+        pass
 
 
-def update_info(path):
-    d = cmd(path, 0x41, length=32)
+def is_updater(link):
+    return link.cmd(0x00, length=88)[7] == 1
+
+
+def update_info(link):
+    d = link.cmd(0x41, length=32)
     version, state, error, valid, at, room, written, begun, key = struct.unpack_from("<BBBBIIIII", d)
     return dict(state=state, error=error, valid=valid, at=at, room=room, written=written, begun=begun, key=key)
 
 
-def update_step(path, what):
-    i = update_info(path)
+def update_step(link, what):
+    i = update_info(link)
     if i["error"]:
         sys.exit(f"padtool: update {what}: {UPDATE_ERRORS[i['error']] if i['error'] < len(UPDATE_ERRORS) else i['error']}"
                  f" ({i['written']} of {i['begun']} bytes written; the pad stays in its updater)")
     return i
 
 
-def update(path, image):
+def update(link, image):
     """Header and app as jlnewfw --main-out writes them, through the updater
-    (src/updater/updater.c): begin, data in order, commit, reboot."""
+    (src/updater/updater.c) on USB or LE: begin, data in order, commit,
+    reboot."""
     if image[:4] != b"MAIN":
         sys.exit("padtool: not an update image (update.bin from a -split build)")
-    if not is_updater(path):
+    if not is_updater(link):
         print("restarting into the updater")
-        cmd(path, 0x40)
+        link.cmd(0x40)
         time.sleep(1)
-        path = wait_for_device(15)
-        if not path or not is_updater(path):
+        if not link.reopen(15) or not is_updater(link):
             sys.exit("padtool: the pad did not come back in its updater (an app without one reboots)")
-    i = update_info(path)
+    i = update_info(link)
     print(f"updater: app at flash {i['at']:#x}, room {i['room']} bytes, "
           f"{'an app is there' if i['valid'] else 'no app'}")
     if len(image) > i["room"]:
         sys.exit(f"padtool: the image ({len(image)} bytes) does not fit ({i['room']})")
     start = time.monotonic()
-    cmd(path, 0x42, len(image))
-    print(f"chip key {update_step(path, 'begin')['key']:#06x}")
-    chunk = 512
-    for offset in range(0, len(image), chunk):
-        cmd(path, 0x43, offset, out=image[offset:offset + chunk])
-        if offset // chunk % 64 == 63:
-            update_step(path, f"at {offset:#x}")
-            print(f"\r{offset + chunk} of {len(image)} bytes", end="", flush=True)
-    i = update_step(path, "data")
-    print(f"\r{i['written']} of {len(image)} bytes in {time.monotonic() - start:.1f} s")
-    scsi(path, [OP, 0x44, 0, 0, 0, 0], 0, 10000)
-    i = update_step(path, "commit")
+    link.cmd(0x42, len(image))
+    print(f"chip key {update_step(link, 'begin')['key']:#06x}")
+    # The pad takes only the next bytes and counts them; behind its count
+    # (a write lost on the way), start again from there.
+    every = max(1, 32768 // link.chunk)
+    offset = resent = 0
+    while True:
+        for _ in range(every):
+            if offset >= len(image):
+                break
+            link.cmd(0x43, offset, out=image[offset:offset + link.chunk])
+            offset += len(image[offset:offset + link.chunk])
+        i = update_step(link, f"at {offset:#x}")
+        if i["written"] != offset:
+            resent += 1
+            if resent > 50:
+                sys.exit("padtool: update: writes keep getting lost (the pad stays in its updater)")
+            offset = i["written"]
+        print(f"\r{i['written']} of {len(image)} bytes", end="", flush=True)
+        if i["written"] == len(image):
+            break
+    print(f"\r{i['written']} of {len(image)} bytes in {time.monotonic() - start:.1f} s"
+          f"{f', {resent} resends' if resent else ''}")
+    link.cmd(0x44, timeout_ms=10000)
+    i = update_step(link, "commit")
     if i["state"] != 2:
         sys.exit("padtool: the updater did not commit")
     print("committed; restarting into the app")
-    cmd(path, 0x10)
-    time.sleep(1)
-    path = wait_for_device(15)
-    if not path:
-        sys.exit("padtool: the pad did not come back")
-    print(identify(path))
+    link.cmd(0x10)
+    link.close()
 
 
 def log(path, follow):
@@ -1637,6 +1667,9 @@ def main():
     p.add_argument("--hz", type=int, default=2000, help="profile: samples per second")
     p.add_argument("--seconds", type=float, help="led-demo: show each this long, then the next; rumble: how long (1);"
                    " rumble-test: play them all, this long apart")
+    p.add_argument("--ble", nargs="?", const="", metavar="NAME|ADDRESS",
+                   help="update: over Bluetooth LE to an updater (Home+M on a pad not connected), "
+                   "the first advertising one, or that name or address; needs bleak")
     p.add_argument("-d", "--device", help="which pad or dongle, when several are connected: its path, "
                    "USB port (5-2.1), or part of its board name (nova) or flash ID (padtool find)")
     def percent_range(text):
@@ -1817,7 +1850,17 @@ def main():
         if len(a.args) != 1:
             sys.exit("padtool update FILE")
         with open(a.args[0], "rb") as f:
-            update(need_device(), f.read())
+            image = f.read()
+        if a.ble is not None:
+            import padble
+            update(padble.BleLink(a.ble), image)
+        else:
+            link = UsbLink(need_device())
+            update(link, image)
+            time.sleep(1)
+            if not link.reopen(15):
+                sys.exit("padtool: the pad did not come back")
+            print(identify(link.path))
     elif a.command == "fields":
         show_fields(need_device(), a.dev)
     elif a.command == "get":

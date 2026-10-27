@@ -8,6 +8,7 @@
 
 BTSTACK_USERS += src/boards/gamesir-cyclone-2/bt_pad.c
 BTSTACK_USERS += src/boards/gamesir-cyclone-2/bt_dongle.c
+BTSTACK_USERS += src/updater/updater_ble.c
 
 CYCLONE2_PAD := gamesir-cyclone-2-pad
 $(CYCLONE2_PAD)_FLASH_SIZE := 0x100000
@@ -70,20 +71,24 @@ $(CYCLONE2_DONGLE)_SOURCES += src/profiles/profile_playstation.c
 $(CYCLONE2_DONGLE)_SOURCES += src/profiles/profile_hid.c
 
 # The pad behind its updater (OTA, /work/ota-loader-plan.md): the updater in
-# the app area, the same app 96 KiB above it.
+# the app area, the same app 192 KiB above it.
 CYCLONE2_UPDATER := gamesir-cyclone-2-pad-updater
 $(CYCLONE2_UPDATER)_FLASH_SIZE := $($(CYCLONE2_PAD)_FLASH_SIZE)
 $(CYCLONE2_UPDATER)_PID := $($(CYCLONE2_PAD)_PID)
-$(CYCLONE2_UPDATER)_BOARD_DIR := src/boards/gamesir-cyclone-2
-$(CYCLONE2_UPDATER)_NO_BT := 1
-$(CYCLONE2_UPDATER)_UPDATER := 0x18000
+$(CYCLONE2_UPDATER)_BOARD_DIR := src/updater
+$(CYCLONE2_UPDATER)_UPDATER := 0x30000
+$(CYCLONE2_UPDATER)_DEFINES := -DBT_LE_ONLY
+$(CYCLONE2_UPDATER)_BTSTACK := $(filter-out src/classic/% src/btstack_hid_parser.c,$(BTSTACK_USED))
 $(CYCLONE2_UPDATER)_SOURCES :=
 $(CYCLONE2_UPDATER)_SOURCES += src/updater/updater.c
+$(CYCLONE2_UPDATER)_SOURCES += src/updater/updater_ble.c
 $(CYCLONE2_UPDATER)_SOURCES += src/boards/gamesir-cyclone-2/board_pad.c
 $(CYCLONE2_UPDATER)_SOURCES += src/platform/jieli/platform_jieli.c
 $(CYCLONE2_UPDATER)_SOURCES += src/platform/jieli/platform_jieli_sdk.c
 $(CYCLONE2_UPDATER)_SOURCES += src/platform/jieli/platform_jieli_usb.c
 $(CYCLONE2_UPDATER)_SOURCES += src/platform/jieli/platform_jieli_noaudio.c
+$(CYCLONE2_UPDATER)_SOURCES += src/platform/jieli/btstack_hci_jieli.c
+$(CYCLONE2_UPDATER)_SOURCES += src/platform/jieli/btstack_qos_jieli.c
 $(CYCLONE2_UPDATER)_SOURCES += src/core/utils.c
 
 CYCLONE2_SPLIT := gamesir-cyclone-2-pad-split
