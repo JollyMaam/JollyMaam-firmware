@@ -21,6 +21,9 @@
 #define JLFS_HEADER_SIZE 32u
 #define MAX_FILES 32u
 #define MAX_CFG 128u
+/* --main's header (src/loader/stub_jieli.c): "MAIN", size, CRC16, entry. */
+#define MAIN_MAGIC 0x4e49414du
+#define MAIN_HEAD_SIZE 0x120u
 
 struct blob {
   uint8_t *p;
@@ -789,6 +792,8 @@ struct pack_opts {
   uint32_t at, flash_size, code_limit;
   struct copy copies[16];
   size_t nc;
+  const char *main_file; /* --main: a second app above the first */
+  uint32_t main_at;
 };
 
 static void parse_copy(const char *s, struct copy *c) {
@@ -829,7 +834,14 @@ static bool pack_arg(struct pack_opts *o, int argc, char **argv, int *i) {
     o->mark = (uint16_t)number(argv[++*i]), o->have_mark = true;
   else if (!strcmp(a, "--copy") && o->nc < 16)
     parse_copy(argv[++*i], &o->copies[o->nc++]);
-  else
+  else if (!strcmp(a, "--main")) {
+    char *colon = strchr(argv[++*i], ':');
+    if (!colon)
+      die("--main is OFFSET:FILE");
+    *colon = 0;
+    o->main_at = number(argv[*i]);
+    o->main_file = colon + 1;
+  } else
     return false;
   return true;
 }
@@ -981,7 +993,18 @@ static struct blob build(struct pack_opts *o, uint16_t *key_out) {
   uint32_t res_size = 0;        /* resources follow, each behind its header */
   for (size_t i = o->nf; i < nall; i++)
     res_size += 32 + (uint32_t)files[i].size;
-  uint32_t image_end = align_up(appbase + outer_size + res_size, 0x1000);
+  /* --main: the main app, linked at the code window's start + OFFSET +
+   * 0x120, behind a header the stub loader checks; the area's cipher runs on
+   * over it.  The app area itself holds the stub loader. */
+  size_t main_n = 0;
+  uint8_t *main_bin = o->main_file ? read_file(o->main_file, &main_n) : NULL;
+  uint32_t area_n = outer_size + res_size;
+  if (main_bin) {
+    if ((o->main_at & 0xfff) || o->main_at < area_n)
+      die("--main's offset must be 4-KiB aligned and above the app area");
+    area_n = o->main_at + MAIN_HEAD_SIZE + (uint32_t)main_n;
+  }
+  uint32_t image_end = align_up(appbase + area_n, 0x1000);
   uint32_t code_end = o->code_limit ? o->code_limit : image_end;
   if ((code_end & 0xfff) || code_end < image_end)
     die("code limit must be 4-KiB aligned and contain the application");
@@ -1069,8 +1092,17 @@ static struct blob build(struct pack_opts *o, uint16_t *key_out) {
     memcpy(image.p + pos + 32, files[i].data, files[i].size);
     pos += 32 + (uint32_t)files[i].size;
   }
+  if (main_bin) {
+    uint8_t *h = image.p + appbase + o->main_at;
+    wr32(h, MAIN_MAGIC);
+    wr32(h + 4, (uint32_t)main_n);
+    wr32(h + 8, crc16(main_bin, main_n));
+    wr32(h + 12, (entry & ~0xfffffu) + o->main_at + MAIN_HEAD_SIZE);
+    memcpy(h + MAIN_HEAD_SIZE, main_bin, main_n);
+    free(main_bin);
+  }
   scramble_bankcb(image.p + uboot_off, uboot_n);
-  jl_sfc(image.p, appbase, outer_size + res_size, appbase, o->key);
+  jl_sfc(image.p, appbase, area_n, appbase, o->key);
   for (unsigned i = 0; i < 4; i++)
     jl_enc(image.p + 32 + i * 32, 32, 0xffff);
 
@@ -2461,6 +2493,7 @@ static void usage(void) {
       "               [-r RESOURCE]... [-k KEY] [--flash-size SIZE] "
       "[--code-limit ADDR]\n"
       "               [--at ADDR] [--mark VALUE] [--copy FROM:TO:LEN]...\n"
+      "               [--main OFFSET:FILE]\n"
       "  jlnewfw backup --pid PID [FLASH OPTIONS] OUTPUT\n"
       "  jlnewfw loader --pid PID [--device PATH] [--wait SECONDS] [--loader BLOB]\n"
       "  jlnewfw run [--pid PID] [--device PATH] [--loader BLOB]\n"
@@ -2481,6 +2514,8 @@ static void usage(void) {
       "            PRCT and VM follow it.  OUT starts at flash address 0.\n"
       "  --copy    also put image bytes FROM (offset in the image) at TO\n"
       "  --mark    the app directory's data-CRC field (unused by the format)\n"
+      "  --main    a main app OFFSET above the app area's start, behind a\n"
+      "            header; the app area's app.bin is then the stub loader\n"
       "flash writes OUT through the ROM loader: erased and written from 0,\n"
       "read back, then the chip runs.  The image's PID must be the one on\n"
       "the device and its chip key the chip's (--force-pid, --force-key).\n"

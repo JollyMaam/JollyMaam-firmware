@@ -203,6 +203,8 @@ jieli_tools = $(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_TOOLS),$(
 #   NAME_DEFINES     -D flags for this board (EXTRA_DEFINES adds to them)
 #   NAME_BOARD_DIR   the board's headers (btstack_config.h)
 #   NAME_LOADER_HINT how to enter the ROM loader by hand, where software cannot
+#   NAME_MAIN_AT     optional: the app goes this far above the app area's
+#                    start, and the stub loader (src/loader/) is what boots
 # Targets: NAME (firmware.img), NAME-flash (through the ROM loader),
 # NAME-loader (into the ROM loader and wait there); with more than one
 # device for the board, DEVICE= picks one: its USB port, as jlnewfw scan
@@ -218,6 +220,8 @@ $(1)_RUNTIME := $(if $(filter bd19,$(call jieli_chip,$(1))),$(addprefix $(JIELI_
 $(1)_UBOOT := $(JIELI_SDK)/cpu/$(call jieli_chip,$(1))/tools/uboot.boot
 $(1)_CONFIG_TOOL := $(JIELI_SDK)/cpu/$(call jieli_chip,$(1))/tools/cfg_tool.bin
 $(1)_CODE_LIMIT := $(call jieli_code_limit,$($(1)_FLASH_SIZE))
+# With NAME_MAIN_AT the app area holds the stub loader and the app sits above.
+$(1)_PACKED := $(if $($(1)_MAIN_AT),$(O)/$(1)/stub/app.bin --main $($(1)_MAIN_AT):$(O)/$(1)/app.bin,$(O)/$(1)/app.bin)
 $(1)_OBJECTS := $(patsubst %.c,$(O)/$(1)/%.o,$($(1)_SOURCES) $(if $(filter bd19,$(call jieli_chip,$(1))),,$(wildcard src/platform/jieli/btctrler/*.c))) \
 	$(patsubst %.c,$(O)/$(1)/sdk/%.o,$(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_SDK_USED),$(JIELI_SDK_USED))) $(BTSTACK_USED:%.c=$(O)/$(1)/btstack/%.o)
 $(1)_FLAGS := $(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_CFLAGS) $(JIELI_BD19_DEFINES),$(JIELI_CFLAGS) $(JIELI_DEFINES)) -DCONFIG_FLASH_SIZE=$($(1)_FLASH_SIZE) \
@@ -261,18 +265,27 @@ $(O)/$(1)/app.bin: $(O)/$(1)/app.elf
 	$$(if $$(filter bd19,$$(call jieli_chip,$(1))),$$(Q)$$($(1)_OBJCOPY) -O binary -j .data_code $$< $(O)/$(1)/data_code.bin)
 	$$(Q)cat $(O)/$(1)/text.bin $(O)/$(1)/data.bin $$(if $$(filter bd19,$$(call jieli_chip,$(1))),$(O)/$(1)/data_code.bin) > $$@
 
-$(O)/$(1)/firmware.img: $(O)/$(1)/app.bin $(O)/$(1)/isd_config.ini $(O)/host/jlnewfw
+# The stub loader: no SDK, code only.
+$(O)/$(1)/stub/app.bin: src/loader/stub_jieli.c src/loader/stub_jieli.ld $(MAKE_FILES)
+	@mkdir -p $$(@D)
+	@echo [STUB $(1)] $$@
+	$$(Q)$$($(1)_CC) -target pi32v2 -mcpu=r3 -integrated-as -Oz -ffreestanding -fno-builtin -Wall -Wextra -Werror \
+		-DMAIN_AT=$($(1)_MAIN_AT) -c $$< -o $(O)/$(1)/stub/stub.o
+	$$(Q)$(JIELI_TOOLS)/ld -T src/loader/stub_jieli.ld $(O)/$(1)/stub/stub.o -o $(O)/$(1)/stub/stub.elf
+	$$(Q)$$($(1)_OBJCOPY) -O binary -j .text $(O)/$(1)/stub/stub.elf $$@
+
+$(O)/$(1)/firmware.img: $(O)/$(1)/app.bin $(if $($(1)_MAIN_AT),$(O)/$(1)/stub/app.bin) $(O)/$(1)/isd_config.ini $(O)/host/jlnewfw
 	@echo [FW] $$@
 	$$(Q)$(O)/host/jlnewfw pack --flash-size $($(1)_FLASH_SIZE) --code-limit $$($(1)_CODE_LIMIT) \
-		-c $(O)/$(1)/isd_config.ini -u $$($(1)_UBOOT) -o $$@ $(O)/$(1)/app.bin $$($(1)_CONFIG_TOOL)
+		-c $(O)/$(1)/isd_config.ini -u $$($(1)_UBOOT) -o $$@ $$($(1)_PACKED) $$($(1)_CONFIG_TOOL)
 
 # Ask running firmware to enter the ROM loader (stock firmware without a
 # command for it: by hand), then write the image, encrypted for the
 # connected chip's key.
-$(1)-flash: $(O)/$(1)/app.bin $(O)/$(1)/isd_config.ini $(O)/host/jlnewfw
+$(1)-flash: $(O)/$(1)/app.bin $(if $($(1)_MAIN_AT),$(O)/$(1)/stub/app.bin) $(O)/$(1)/isd_config.ini $(O)/host/jlnewfw
 	$$(Q)$(O)/host/jlnewfw flashpack --enter-loader --wait 30 --loader $(JIELI_LOADER) $$(if $$(DEVICE),--device $$(DEVICE)) \
 		--flash-size $($(1)_FLASH_SIZE) --code-limit $$($(1)_CODE_LIMIT) \
-		-c $(O)/$(1)/isd_config.ini -u $$($(1)_UBOOT) $(O)/$(1)/app.bin $$($(1)_CONFIG_TOOL)
+		-c $(O)/$(1)/isd_config.ini -u $$($(1)_UBOOT) $$($(1)_PACKED) $$($(1)_CONFIG_TOOL)
 
 # Running firmware into the ROM loader, then wait for it there: the loader
 # whose flash holds this board's PID.
@@ -289,6 +302,7 @@ $(O)/$(1)/sdk_ld.c: $(JIELI_SDK)/cpu/$(call jieli_chip,$(1))/sdk_ld.c $(MAKE_FIL
   -e 's/^\([[:space:]]*\)_HEAP_END = RAM0_END;/\1_HEAP_END = BD19_RETAINED_BEGIN;/' \
 	  -e 's/^_HEAP_END = RAM_END;/_HEAP_END = RESET_MAILBOX_BEGIN;/' \
 	  -e 's/^PROVIDE(HEAP_END = RAM_END);/PROVIDE(HEAP_END = RESET_MAILBOX_BEGIN);/' \
+	  $(if $($(1)_MAIN_AT),-e 's/^\(\s*code0(rx)\s*:\s*ORIGIN = *0x1E00120\)$(comma)/\1 + $($(1)_MAIN_AT)$(comma)/') \
 	  -e '/^    \.bss ALIGN(32) :$$$$/,/^        \*(\.bss)$$$$/s/^        \*(\.bss)$$$$/        btctrlermod_bss_base = ABSOLUTE(.);\n&/' \
 	  -e 's|^\([[:space:]]*\)#include "btctrler/btctler_lib_bss.ld"|\1. = MAX(., 0x10810 - btctrlermod_bss_base);\n&|' \
 		$$< > $$@
