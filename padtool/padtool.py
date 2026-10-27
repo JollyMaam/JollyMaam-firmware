@@ -592,8 +592,9 @@ def is_updater(link):
 
 def update_info(link):
     d = link.cmd(0x41, length=32)
-    version, state, error, valid, at, room, written, begun, key = struct.unpack_from("<BBBBIIIII", d)
-    return dict(state=state, error=error, valid=valid, at=at, room=room, written=written, begun=begun, key=key)
+    version, state, error, valid, at, room, written, begun, key, data_max = struct.unpack_from("<BBBBIIIIII", d)
+    return dict(state=state, error=error, valid=valid, at=at, room=room, written=written, begun=begun, key=key,
+                data_max=data_max)
 
 
 def update_step(link, what):
@@ -631,14 +632,15 @@ def update(link, image):
     print(f"image for {pid}; chip key {update_step(link, 'begin')['key']:#06x}")
     # The pad takes only the next bytes and counts them; behind its count
     # (a write lost on the way), start again from there.
-    every = max(1, 32768 // link.chunk)
+    chunk = min(link.chunk, i["data_max"] or link.chunk)
+    every = max(1, 32768 // chunk)
     offset = resent = 0
     while True:
         for _ in range(every):
             if offset >= len(image):
                 break
-            link.cmd(0x43, offset, out=image[offset:offset + link.chunk])
-            offset += len(image[offset:offset + link.chunk])
+            link.cmd(0x43, offset, out=image[offset:offset + chunk])
+            offset += len(image[offset:offset + chunk])
         i = update_step(link, f"at {offset:#x}")
         if i["written"] != offset:
             resent += 1

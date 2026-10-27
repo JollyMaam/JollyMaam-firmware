@@ -3,7 +3,7 @@
 A board built as `NAME-split` (the Cyclone 2 pad: `gamesir-cyclone-2-pad-split`)
 has two programs in its code region. The updater (`src/updater/updater.c`,
 board `gamesir-cyclone-2-pad-updater`) is the image `uboot.boot` starts. The
-app is linked `MAIN_AT` (`0x30000`) above it in the same code window. The
+app is linked `MAIN_AT` (`0x20000`) above it in the same code window. The
 updater rewrites the app over the tool device and is never rewritten itself.
 There is no second copy of the app.
 
@@ -13,7 +13,7 @@ There is no second copy of the app.
 |---|---|
 | `0x000000..0x003000` | flash header, `uboot.boot`, `isd_config` |
 | `0x003000..` | app area: its directory, the updater (`app.bin`), `cfg_tool.bin` |
-| `0x033000` | the app's header (`0x120` bytes), then the app |
+| `0x023000` | the app's header (`0x120` bytes), then the app |
 | `0x0fa000..` | VM, BTIF, key_mac, as before |
 
 The app's header is written by `jlnewfw pack --main`:
