@@ -42,6 +42,7 @@ const struct board_slots board_slots = {
 static const GPIO_PinTypeDef rows[ROWS] = { GPIO_PD6, GPIO_PA0, GPIO_PC0, GPIO_PA3 };
 static const GPIO_PinTypeDef columns[COLUMNS] = { GPIO_PA5, GPIO_PC1, GPIO_PA6, GPIO_PC3, GPIO_PA7 };
 #define HOME GPIO_PA4                /* on its own, active low */
+static u8 boot_home;                 /* Home down as the board started */
 
 /* Each position's PAD_* bit, row by row; 0: not a button (Sync and the
  * rear mode switch, which are the board's own). */
@@ -303,7 +304,17 @@ void board_init(void)
     gpio_setup_up_down_resistor(GPIO_PD0, PM_PIN_UP_DOWN_FLOAT);
     outputs_init();
     matrix_init();
+    sleep_us(20);                    /* the pull-up */
+    boot_home = !gpio_read(HOME);
     adc_start();
+}
+
+/* Home supplies power while held: a boot with it down is Home's.  Otherwise
+ * a cable powered the pad up, or it restarted (not told apart). */
+void plat_boot_info(struct plat_boot *out)
+{
+    out->cause = boot_home ? BOOT_HOME : board_usb_present() ? BOOT_USB : BOOT_POWER_ON;
+    out->buttons_held = boot_home ? PAD_HOME : 0;
 }
 
 int board_usb_present(void)

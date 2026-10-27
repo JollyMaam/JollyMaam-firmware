@@ -182,12 +182,23 @@ static void start_session(u8 slot, int pairing, int renew)
     util_log("ctl: %s slot %c", c.session.pairing ? "pairing" : "connecting", slot_names[slot]);
 }
 
+/* Only Home connects at boot: a cable that powers the pad up, a reboot or
+ * the way back from the updater leave it idle, the slot ready for Home. */
 static void start(void)
 {
+    struct plat_boot b;
     u8 slot = plat_retained_slot();
 
+    plat_boot_info(&b);
     if (!slot_ready(slot)) for (slot = 0; slot < LITE_SLOTS && !slot_ready(slot); slot++) {}
-    start_session(slot, -1, 0);
+    util_log("ctl: boot cause %u, slot %u", b.cause, slot);
+    if (b.cause == BOOT_HOME) {
+        start_session(slot, -1, 0);
+        return;
+    }
+    c.last_slot = slot < LITE_SLOTS ? slot : 0;
+    c.idle = 1;
+    c.since_ms = plat_ms();
 }
 
 /* Restart only after BT_EV_STOPPED, including a link still doing SMP when
@@ -544,6 +555,8 @@ void set_pairing_address(u8 slot, int renew, u8 out[6])
 { (void)slot; renewals += renew; memset(out, 0x22, 6); }
 u8 plat_retained_slot(void) { return retained; }
 void plat_retain_slot(u8 slot) { retained = slot; retained_writes++; }
+static u8 boot_cause = BOOT_HOME;
+void plat_boot_info(struct plat_boot *out) { out->cause = boot_cause; out->buttons_held = 0; }
 int bt_poll(struct bt_ev *ev)
 { if (event_at == event_count) return 0; *ev = test_events[event_at++]; return 1; }
 void set_pairing_store(u8 slot, const u8 address[6], const struct bt_bond *bond)
@@ -794,6 +807,13 @@ int main(void)
     test_reset(); retained = 3; test_slots[3].type = PROFILE_NONE;
     start(); CHECK(c.slot == 0);
     test_reset(); ephemeral = 1; start(); CHECK(!retained_writes);
+    /* Only a Home boot connects; a cable's leaves the slot for Home. */
+    test_reset(); retained = 2; boot_cause = BOOT_USB; start();
+    CHECK(c.idle && !starts && c.last_slot == 2);
+    select_session(REQ_CONNECT, SLOT_LAST, 0); stopped(test_ms);
+    CHECK(starts == 1 && c.slot == 2 && !c.idle);
+    test_reset(); boot_cause = BOOT_RESET; start(); CHECK(c.idle && !starts);
+    boot_cause = BOOT_HOME;
 
     /* Lights: no player light; red and a faster Home blink while pairing;
      * the light under Home for a second when a cable arrives. */
