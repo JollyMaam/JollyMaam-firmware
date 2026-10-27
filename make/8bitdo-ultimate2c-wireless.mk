@@ -64,13 +64,13 @@ $(U2CW_PAD)_SOURCES += src/core/usb.c
 $(U2CW_PAD)_SOURCES += src/core/utils.c
 
 # The pad behind its updater (src/updater/, docs/firmware/updater.md): the
-# updater where the boot loader starts an app, 128 KiB for it, the app's
-# header at 0x26000 and the app after it; settings and bonds stay at 0x6f000.
+# updater where the boot loader starts an app, 64 KiB for it, the app's
+# header at 0x16000 and the app after it; settings and bonds stay at 0x6f000.
 U2CW_UPDATER := 8bitdo-ultimate2c-wireless-pad-updater
 $(U2CW_UPDATER)_FLASH_SIZE := $($(U2CW_PAD)_FLASH_SIZE)
 $(U2CW_UPDATER)_APP_START := $($(U2CW_PAD)_APP_START)
-$(U2CW_UPDATER)_APP_END := 0x26000
-$(U2CW_UPDATER)_UPDATER := 0x20000
+$(U2CW_UPDATER)_APP_END := 0x16000
+$(U2CW_UPDATER)_UPDATER := 0x10000
 $(U2CW_UPDATER)_CODE_LIMIT := 0x6f000
 $(U2CW_UPDATER)_PID := $($(U2CW_PAD)_PID)
 $(U2CW_UPDATER)_STAMP := $($(U2CW_PAD)_STAMP)
@@ -95,7 +95,7 @@ $(U2CW_UPDATER)_SOURCES += src/core/utils.c
 
 U2CW_SPLIT := 8bitdo-ultimate2c-wireless-pad-split
 $(foreach v,FLASH_SIZE PID STAMP LOADER_HINT BOARD_DIR LDFLAGS DEFINES SOURCES,$(eval $(U2CW_SPLIT)_$(v) := $$($(U2CW_PAD)_$(v))))
-$(U2CW_SPLIT)_APP_START := 0x26120
+$(U2CW_SPLIT)_APP_START := 0x16120
 $(U2CW_SPLIT)_APP_END := 0x6f000
 $(U2CW_SPLIT)_FRONT := $(U2CW_UPDATER)
 $(U2CW_SPLIT)_DEFINES += -DUX_UPDATER=1   # offline Home+Turbo (M): the updater

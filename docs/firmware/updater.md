@@ -143,9 +143,9 @@ boot loader starts; the protocol is `updater.c`'s, the chip's side
 | Flash offset | Contents |
 |---|---|
 | `0x00000..0x06000` | the 8BitDo boot loader |
-| `0x06000..0x26000` | the updater (a `KNLT` image) |
-| `0x26000` | the app's header (`MAIN_AT` `0x20000`) |
-| `0x26120..0x6f000` | the app (a `KNLT` image linked to run there) |
+| `0x06000..0x16000` | the updater (a `KNLT` image) |
+| `0x16000` | the app's header (`MAIN_AT` `0x10000`) |
+| `0x16120..0x6f000` | the app (a `KNLT` image linked to run there) |
 | `0x6f000..` | settings and bonds, as before |
 
 `tools/8bitdoboot.py main` writes the header and the packed app
