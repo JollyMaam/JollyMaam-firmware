@@ -563,7 +563,8 @@ def read_log(path, seq):
 
 
 UPDATE_ERRORS = ["", "bad size", "past the end", "not begun", "verify failed (read back differs)",
-                 "incomplete", "bad header", "CRC mismatch", "no chip key fits"]
+                 "incomplete", "bad header", "CRC mismatch", "no chip key fits",
+                 "the image is for another board", "the image is for another updater layout"]
 
 
 class UsbLink:
@@ -620,9 +621,14 @@ def update(link, image):
           f"{'an app is there' if i['valid'] else 'no app'}")
     if len(image) > i["room"]:
         sys.exit(f"padtool: the image ({len(image)} bytes) does not fit ({i['room']})")
+    pid = image[24:40].split(b"\0")[0].decode(errors="replace")
     start = time.monotonic()
-    link.cmd(0x42, len(image))
-    print(f"chip key {update_step(link, 'begin')['key']:#06x}")
+    link.cmd(0x42, len(image), out=image[:0x2c])
+    i = update_info(link)
+    if i["error"] and i["state"] == 0 and i["error"] != 8:
+        sys.exit(f"padtool: refused, nothing changed: {UPDATE_ERRORS[i['error']] if i['error'] < len(UPDATE_ERRORS) else i['error']}"
+                 f" (image for {pid})")
+    print(f"image for {pid}; chip key {update_step(link, 'begin')['key']:#06x}")
     # The pad takes only the next bytes and counts them; behind its count
     # (a write lost on the way), start again from there.
     every = max(1, 32768 // link.chunk)

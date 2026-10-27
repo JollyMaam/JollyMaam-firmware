@@ -21,9 +21,12 @@
 #define JLFS_HEADER_SIZE 32u
 #define MAX_FILES 32u
 #define MAX_CFG 128u
-/* --main's header (src/loader/stub_jieli.c): "MAIN", size, CRC16, entry. */
+/* --main's header (src/updater/updater.c): "MAIN", the app's size, CRC16
+ * and entry, the format version, the offset it is linked for, the image's
+ * PID, and a CRC16 of the fields from size to PID. */
 #define MAIN_MAGIC 0x4e49414du
 #define MAIN_HEAD_SIZE 0x120u
+#define MAIN_HEAD_VERSION 1u
 
 struct blob {
   uint8_t *p;
@@ -1101,6 +1104,11 @@ static struct blob build(struct pack_opts *o, uint16_t *key_out) {
     wr32(h + 4, (uint32_t)main_n);
     wr32(h + 8, crc16(main_bin, main_n));
     wr32(h + 12, (entry & ~0xfffffu) + o->main_at + MAIN_HEAD_SIZE);
+    wr32(h + 16, MAIN_HEAD_VERSION);
+    wr32(h + 20, o->main_at);
+    memset(h + 24, 0, 16);
+    strncpy((char *)h + 24, cfg(&c, "EXTRA_CFG_PARAM", "PID", ""), 16);
+    wr32(h + 40, crc16(h + 4, 36));
     memcpy(h + MAIN_HEAD_SIZE, main_bin, main_n);
     free(main_bin);
     if (o->main_out)

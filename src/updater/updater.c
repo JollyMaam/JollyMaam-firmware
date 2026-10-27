@@ -5,7 +5,8 @@
 
 /* The updater (OTA milestone 2, /work/ota-loader-plan.md): the image
  * uboot.boot starts.  The app is linked MAIN_AT above it in the same code
- * window, behind jlnewfw's header ("MAIN", size, CRC16 of the app, entry).
+ * window, behind jlnewfw's header ("MAIN", size, CRC16 of the app, entry,
+ * format version, its offset, the image's PID, CRC16 of those fields).
  * At reset, before the SDK's start-up, updater_entry() starts the app as
  * uboot.boot would have (its boot information in r0, no hardware touched),
  * unless the app asked for the updater (the reset mailbox) or its header
@@ -28,8 +29,10 @@
  *                        and app), u32 bytes written, u32 size begun, u32
  *                        chip key (found at BEGIN; ~0 before), u32 –, u32 –
  *   `0x42` UPDATE_BEGIN  CDB bytes 2-5: size (header and app, as jlnewfw
- *                        writes them): erases the header's sector (the app
- *                        is gone from here on)
+ *                        writes them); out: the header's first 0x2c bytes.
+ *                        Checked first (this board's PID, this updater's
+ *                        format and offset, the header's CRC); then erases
+ *                        the header's sector (the app is gone from here on)
  *   `0x43` UPDATE_DATA   CDB bytes 2-5: offset, the bytes written so far;
  *                        out: up to 512 bytes of the image in the clear; at
  *                        another offset it is ignored (the host resends from
@@ -38,14 +41,17 @@
  *                        code window, then programs the magic word
  * Errors: 1 bad size, 2 past the end, 3 not begun, 4 verify (the code window
  * does not read back what was written), 5 incomplete, 6 bad header, 7 CRC,
- * 8 no chip key fits the erased header sector.  An error stays until the
- * next BEGIN. */
+ * 8 no chip key fits the erased header sector, 9 the image is for another
+ * board, 10 for another updater layout.  An error from BEGIN's check comes
+ * before anything is erased.  An error stays until the next BEGIN. */
 
 #define CODE_WINDOW     0x1e00000u      /* the app area's start, as the CPU sees it */
 #define MAIN_HEAD       ((const volatile u32 *)(CODE_WINDOW + MAIN_AT))
 #define MAIN_ENTRY      (CODE_WINDOW + MAIN_AT + MAIN_HEAD_SIZE)
 #define MAIN_MAGIC      0x4e49414du     /* "MAIN" */
 #define MAIN_HEAD_SIZE  0x120u
+#define MAIN_VERSION    1
+#define HEAD_CHECKED    0x2c            /* BEGIN's copy: up to the header's CRC */
 #define SECTOR          0x1000u
 #define IDLE_OFF_MS     60000           /* without a host */
 
@@ -54,7 +60,7 @@ enum { OP = 0xf5, CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02, CMD_RE
        CMD_COMMIT = 0x44 };
 enum { IDLE, WRITING, COMMITTED };
 enum { ERR_NONE, ERR_SIZE, ERR_ORDER, ERR_NOT_BEGUN, ERR_VERIFY, ERR_INCOMPLETE, ERR_HEADER,
-       ERR_CRC, ERR_KEY };
+       ERR_CRC, ERR_KEY, ERR_BOARD, ERR_LAYOUT };
 
 extern void _start(void *boot_info);    /* the SDK's start-up */
 extern u32 sfc_write(const u8 *buf, u32 addr, u32 len);
@@ -65,13 +71,13 @@ extern int update_norflash_write_protect(u32 sr2_apart, u32 volatile_enable, u32
 
 static int app_valid(void)
 {
-    return MAIN_HEAD[0] == MAIN_MAGIC && MAIN_HEAD[3] == MAIN_ENTRY &&
+    return MAIN_HEAD[0] == MAIN_MAGIC && MAIN_HEAD[3] == MAIN_ENTRY && MAIN_HEAD[4] == MAIN_VERSION &&
            MAIN_HEAD[1] <= CODE_LIMIT - (boot_info.sfc.sfc_base_addr + MAIN_AT + MAIN_HEAD_SIZE);
 }
 
 /* Before the SDK's start-up: no .data, no .bss, uboot's stack.  The size
- * check above reads boot_info, which is still .bss here: only the magic
- * and the entry are checked before the app starts. */
+ * check above reads boot_info, which is still .bss here: only the magic,
+ * the entry and the format are checked before the app starts. */
 __attribute__((section(".updater_entry"), noreturn, used))
 void updater_entry(void *info)
 {
@@ -79,7 +85,8 @@ void updater_entry(void *info)
 
     if (mailbox[0] == UPDATER_STAY && mailbox[1] == ~UPDATER_STAY) {
         mailbox[0] = 0;
-    } else if (MAIN_HEAD[0] == MAIN_MAGIC && MAIN_HEAD[3] == MAIN_ENTRY) {
+    } else if (MAIN_HEAD[0] == MAIN_MAGIC && MAIN_HEAD[3] == MAIN_ENTRY &&
+               MAIN_HEAD[4] == MAIN_VERSION) {
         ((void (*)(void *))MAIN_ENTRY)(info);
     }
     _start(info);
@@ -173,10 +180,40 @@ static void erase(u32 offset)
     sfc_erase(2, app_flash() + offset);
 }
 
-static u8 begin(u32 size)
+static u16 crc16(const u8 *p, u32 n);
+static u8 head[HEAD_CHECKED];    /* BEGIN's: the first data must match it */
+
+static u32 get32(const u8 *p) { return p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (u32)p[3] << 24; }
+
+/* The image's header, before anything is erased: for this board, this
+ * updater's layout, and whole. */
+static u8 check_head(const u8 *h, u32 n, u32 size)
 {
+    char pid[17] = { 0 };
+
+    if (n < HEAD_CHECKED || memcmp(h, "MAIN", 4) || get32(h + 40) != crc16(h + 4, 36))
+        return ERR_HEADER;
+    memcpy(pid, h + 24, 16);
+    if (strcmp(pid, BOARD_PID)) {
+        util_log("updater: image for %.16s, not %s", pid, BOARD_PID);
+        return ERR_BOARD;
+    }
+    if (get32(h + 16) != MAIN_VERSION || get32(h + 20) != MAIN_AT || get32(h + 12) != MAIN_ENTRY) {
+        util_log("updater: image format %u at %x", get32(h + 16), get32(h + 20));
+        return ERR_LAYOUT;
+    }
+    if (get32(h + 4) != size - MAIN_HEAD_SIZE) return ERR_SIZE;
+    return ERR_NONE;
+}
+
+static u8 begin(u32 size, const u8 *h, u32 n)
+{
+    u8 e;
+
     state = IDLE;
     if (size <= MAIN_HEAD_SIZE || size > room()) return ERR_SIZE;
+    if ((e = check_head(h, n, size))) return e;
+    memcpy(head, h, HEAD_CHECKED);
     unprotect();
     erase(0);
     if (!key_found && !find_key(MAIN_AT)) return ERR_KEY;
@@ -199,6 +236,7 @@ static u8 data(u32 offset, const u8 *d, u32 n)
     if (offset / SECTOR != (offset + n - 1) / SECTOR || (offset && !(offset % SECTOR)))
         erase((offset + n - 1) & ~(SECTOR - 1));
     if (!offset) {
+        if (n < HEAD_CHECKED || memcmp(d, head, HEAD_CHECKED)) return ERR_HEADER;
         memcpy(held, d, 4);
         skip = 4;
     }
@@ -314,7 +352,7 @@ u32 usb_command(const u8 cdb[16], u8 *d, u32 max, int from_host)
         n = 32;
         break;
     case CMD_BEGIN:
-        error = begin(arg);
+        error = begin(arg, d, from_host ? max : 0);
         break;
     case CMD_DATA:
         if (from_host && !error) error = data(arg, d, max);

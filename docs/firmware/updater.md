@@ -24,6 +24,10 @@ The app's header is written by `jlnewfw pack --main`:
 | `0x04` | the app's size |
 | `0x08` | CRC16 of the app (non-reflected CCITT, initial value 0) |
 | `0x0c` | the app's entry, `0x1e00000 + MAIN_AT + 0x120` |
+| `0x10` | format version, 1 |
+| `0x14` | `MAIN_AT`, the offset the app is linked for |
+| `0x18` | the image's PID, 16 bytes, NUL-padded (`isd_config.ini`'s, as `jlnewfw flash` checks) |
+| `0x28` | CRC16 of `0x04..0x28` |
 
 The app area's cipher runs on over the header and the app: a 32-byte block
 `n` bytes from the app area's start uses key `chip_key ^ (n >> 2)`, as in the
@@ -47,6 +51,7 @@ link address.
    SDK's start-up.
 2. Otherwise, if the app's header has the commit word and the expected entry,
    it calls the app's entry with `uboot.boot`'s boot information (`r0`)
+   (format version 1 too)
    unchanged. No hardware has been touched.
 3. Otherwise it continues into the SDK's start-up: the updater runs.
 
@@ -70,11 +75,12 @@ On the tool device (vendor SCSI `0xf5`), answered by the updater:
 | Sub-command | Does |
 |---|---|
 | `0x41` UPDATE_INFO | state, last error, whether the app is valid, its flash offset, room, bytes written, size begun, chip key |
-| `0x42` UPDATE_BEGIN | argument: the image's size (header and app); clears block protection, erases the header's sector |
+| `0x42` UPDATE_BEGIN | argument: the image's size (header and app); data: the header's first `0x2c` bytes. Refuses, with nothing changed, a header that is not whole, for another PID, or for another format, offset or size; then clears block protection and erases the header's sector |
 | `0x43` UPDATE_DATA | argument: offset (the bytes written so far); up to 512 bytes of the image in the clear; at any other offset it is ignored, and the host resends from UPDATE_INFO's count |
 | `0x44` UPDATE_COMMIT | checks the header and the app's CRC through the code window, then programs the commit word |
 
-The updater erases each 4 KiB sector as data reaches it, encrypts the data
+The first data must carry the header BEGIN checked. The updater erases each
+4 KiB sector as data reaches it, encrypts the data
 for the chip, programs it, and reads it back through the code window. The
 commit word is held back from the first block and programmed last, without
 an erase. From BEGIN until COMMIT the app has no commit word, so a reset or
