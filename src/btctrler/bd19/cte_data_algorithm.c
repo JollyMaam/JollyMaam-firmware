@@ -1,9 +1,8 @@
 /* BD19 CTE direction finding SDK member occurrence 1. */
 #include "btctrler/glue.h"
-extern void *malloc(unsigned int);
-extern void free(void *);
-extern int printf(const char *, ...);
-extern int puts(const char *);
+#include <stdlib.h>
+#include <stdio.h>
+extern void log_print(int, const char *, const char *, ...);
 
 const s16 arctan_table[257] = {0, 1, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14, 15, 17, 18, 19, 20, 22, 23, 24, 25, 27, 28, 29, 30, 32, 33, 34, 36, 37, 38, 39, 41, 42, 43, 44, 46, 47, 48, 49, 51, 52, 53, 54, 55, 57, 58, 59, 60, 62, 63, 64, 65, 67, 68, 69, 70, 71, 73, 74, 75, 76, 77, 79, 80, 81, 82, 83, 85, 86, 87, 88, 89, 91, 92, 93, 94, 95, 96, 98, 99, 100, 101, 102, 103, 104, 106, 107, 108, 109, 110, 111, 112, 114, 115, 116, 117, 118, 119, 120, 121, 122, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 188, 189, 190, 191, 192, 193, 194, 195, 195, 196, 197, 198, 199, 200, 201, 201, 202, 203, 204, 205, 206, 206, 207, 208, 209, 210, 211, 211, 212, 213, 214, 215, 215, 216, 217, 218, 219, 219, 220, 221, 222, 222, 223, 224, 225, 225, 226, 227, 228, 228, 229, 230, 231, 231, 232, 233, 234, 234, 235, 236, 236, 237, 238, 239, 239, 240, 241, 241, 242, 243, 243, 244, 245, 245, 246, 247, 248, 248, 249, 250, 250, 251, 251, 252, 253, 253, 254, 255, 255, 256};
 const s16 sin_table[128] = {0, 6, 13, 19, 25, 31, 38, 44, 50, 56, 63, 69, 75, 81, 88, 94, 100, 106, 112, 118, 124, 130, 137, 143, 149, 155, 161, 167, 172, 178, 184, 190, 196, 202, 207, 213, 219, 225, 230, 236, 241, 247, 252, 258, 263, 269, 274, 279, 284, 290, 295, 300, 305, 310, 315, 320, 325, 330, 334, 339, 344, 348, 353, 358, 362, 366, 371, 375, 379, 384, 388, 392, 396, 400, 404, 407, 411, 415, 419, 422, 426, 429, 433, 436, 439, 442, 445, 449, 452, 454, 457, 460, 463, 465, 468, 471, 473, 475, 478, 480, 482, 484, 486, 488, 490, 492, 493, 495, 497, 498, 500, 501, 502, 503, 504, 505, 506, 507, 508, 509, 510, 510, 511, 511, 511, 512, 512, 512};
@@ -39,6 +38,267 @@ static void data_pre_processing(const u8 *input, primarydata_stu *ctx);
 static void mac_data_load(primarydata_stu *ctx, u8 *i_data, u8 *q_data, u8 *rssi, u8 *agc);
 float cfo_est_fun(u8, u8, u8, primarydata_stu *);
 s32 frequency_offset(u8, float, s16, u8, primarydata_stu *);
+__attribute__((weak)) void put_float(double value) { (void)value; }
+
+s32 atan_fun(s32 x, s32 y)
+{
+    if (x == 0 || y == 0) {
+        if ((x | y) == 0) return 0;
+        if (x == 0 && y > 0) return 512;
+        return x == 0 && y < 0 ? -512 : 0;
+    }
+    int rneg = x < 0, ineg = y < 0;
+    s32 r = rneg ? -x : x, i = ineg ? -y : y;
+    s32 base = 0, numerator = i, denominator = r;
+    if (i > r) { base = 256; numerator = i - r; denominator = i + r; }
+    u16 index = (u16)((double)numerator * 256.0 / (double)denominator + 0.5);
+    s32 angle = arctan_table[index < 257 ? index : 257] + base;
+    int quadrant = (x > 0 && ineg) || (rneg && y > 0);
+    s32 result = quadrant ? -angle : angle;
+    if (rneg && y > 0) return result + 1024;
+    return (y & x) < 0 ? result - 1024 : result;
+}
+
+s16 sin_func(s16 *phase)
+{
+    int x = *phase % 512;
+    if (x > 255) x -= 512;
+    else if (x < -255) x += 512;
+    int magnitude = x < 0 ? -x : x;
+    int index = magnitude & 255;
+    if (index > 127) {
+        int folded = 256 - index;
+        index = (folded & 255) == 128 ? 127 : folded;
+    }
+    *phase = x;
+    return x > 0 ? sin_table[index & 255] : -sin_table[index & 255];
+}
+
+void complex_multi(s32 ar, s32 ai, s32 br, s32 bi, s32 *real, s32 *imag)
+{
+    s32 r = br * ar - bi * ai;
+    s32 i = bi * ar + br * ai;
+    *real = r;
+    *imag = i;
+}
+
+s32 frequency_offset(u8 len, float step, s16 initial, u8 reference, primarydata_stu *ctx)
+{
+    s16 phase = initial, cosine_phase = initial + 128;
+    float phasef = (float)initial;
+    int maximum = 0;
+    /* Reference mode always processes eight entries, even when len is zero. */
+    int count = reference == 1 ? 8 : len;
+    for (int n = 0; n < count; ++n) {
+        int sine = sin_func(&phase), cosine = sin_func(&cosine_phase);
+        int r = reference == 1 ? ctx->reference_data_r[n] : ctx->sam_slot_data_r[n];
+        int i = reference == 1 ? ctx->reference_data_i[n] : ctx->sam_slot_data_i[n];
+        int nr = (s32)((u32)(r * cosine) + 256u - (u32)(i * sine)) / 512;
+        int ni = (s32)((u32)(r * sine) + 256u + (u32)(i * cosine)) / 512;
+        if (reference == 1) {
+            ctx->reference_data_r[n] = nr;
+            ctx->reference_data_i[n] = ni;
+        } else {
+            ctx->sam_slot_data_r[n] = nr;
+            ctx->sam_slot_data_i[n] = ni;
+        }
+        int ar = (s16)nr, ai = (s16)ni;
+        if (ar < 0) ar = -ar;
+        if (ai < 0) ai = -ai;
+        if ((u32)maximum < (u32)ar) maximum = ar;
+        if ((u32)maximum < (u32)ai) maximum = ai;
+        phasef += step;
+        if (phasef > 512.0f) phasef -= 512.0f;
+        else if (phasef < -512.0f) phasef += 512.0f;
+        phase = (s16)phasef;
+        cosine_phase = phase + 128;
+    }
+    return maximum;
+}
+
+float cfo_est_fun(u8 len, u8 gap, u8 reference, primarydata_stu *ctx)
+{
+    int real = 0, imag = 0;
+    if (reference == 1) {
+        for (int n = 1; n < 8; ++n) {
+            int r = ctx->reference_data_r[n], i = ctx->reference_data_i[n];
+            int pr = ctx->reference_data_r[n - 1], pi = ctx->reference_data_i[n - 1];
+            real += (s32)((u32)(pr * r) + 64u + (u32)(pi * i)) / 128;
+            imag += (s32)((u32)(pr * i) + 64u - (u32)(pi * r)) / 128;
+        }
+    } else {
+        if (len <= gap) return 0.0f;
+        for (int n = gap; n < len; ++n) {
+            int r = ctx->sam_slot_data_r[n], i = ctx->sam_slot_data_i[n];
+            int pr = ctx->sam_slot_data_r[n - gap], pi = ctx->sam_slot_data_i[n - gap];
+            real += (s32)((u32)(pr * r) + 64u + (u32)(pi * i)) / 128;
+            imag += (s32)((u32)(pr * i) + 64u - (u32)(pi * r)) / 128;
+        }
+    }
+    return ((float)atan_fun(real, imag) * 0.25f) / (float)gap;
+}
+
+int cte_data_algorithm_module_init(void)
+{
+    primarydata_instance = malloc(sizeof(*primarydata_instance));
+    return primarydata_instance == NULL;
+}
+
+void cte_data_algorithm_module_close(void)
+{
+    /* SDK deliberately leaves the pointer unchanged after free. */
+    if (primarydata_instance) free(primarydata_instance);
+}
+
+float distance_est(primarydata_stu *ctx, float reference_power, float sensitivity)
+{
+    s8 ref = (s8)(0u - (u8)(ctx->RSSI + ctx->AGC_index));
+    double scaled = (ctx->sampleslot_data_abs_sum / ctx->reference_data_abs_sum) * 2000.0;
+    s8 row;
+    /* Unordered comparisons enter the scan, whose strict intervals skip equality. */
+    if (!(scaled <= 20.0)) {
+        if (!(scaled >= 200000.0)) {
+            row = 79;
+            for (int j = 0; j < 79; ++j) {
+                if (scaled > (double)log_table[j] && scaled < (double)log_table[j + 1]) {
+                    row = j;
+                    break;
+                }
+            }
+        } else row = 80;
+    } else row = 0;
+    float correction = (float)((double)((int)row - 40) * 0.5);
+    float power = (float)ref + correction;
+    printf("ref_power:%d avg_pwr_final:", (int)ref);
+    put_float((double)power);
+    float exponentf = (reference_power - power) / (sensitivity * 10.0f);
+    s8 exponent = (s8)exponentf;
+    float fraction = exponentf - (float)exponent;
+    if (fraction > 0.5f) {
+        exponent = (s8)(exponent + 1);
+        fraction = exponentf - (float)exponent;
+    } else if (fraction < -0.5f) {
+        exponent = (s8)(exponent - 1);
+        fraction = exponentf - (float)exponent;
+    }
+    float mantissa = (float)((double)(fraction * 10.0f) * 2.0 + 0.5);
+    s8 index = (s8)(mantissa + 10.0f);
+    int clamped = index < 0 ? 0 : index < 20 ? index : 20;
+    float result = m_table[clamped];
+    while (exponent != 0) {
+        if (exponent > 0) { result *= 10.0f; exponent = (s8)(exponent - 1); }
+        else { result /= 10.0f; exponent = (s8)(exponent + 1); }
+    }
+    return result;
+}
+
+static void data_pre_processing(const u8 *data, primarydata_stu *ctx)
+{
+    ctx->antenna_max_amp = 0;
+    __builtin_memset(&ctx->reference_data_abs_sum, 0, 16);
+    for (int n = 0, off = 8; off < 40; off += 4, ++n) {
+        int r = data[off + 2] | ((u32)data[off + 3] << 8);
+        int i = data[off] | ((u32)data[off + 1] << 8);
+        if (r > 32768) r |= -65536;
+        if (i > 32768) i |= -65536;
+        ctx->reference_data_r[n] = r;
+        ctx->reference_data_i[n] = i;
+        double sum = ctx->reference_data_abs_sum + (double)(r * r);
+        ctx->reference_data_abs_sum = (double)(i * i) + sum;
+    }
+    ctx->reference_data_abs_sum *= 0.125;
+    int off = 40, n = 1;
+    for (;;) {
+        /* The terminal record is read even when data_len is small. */
+        int r = data[off + 2] | ((u32)data[off + 3] << 8);
+        int i = data[off] | ((u32)data[off + 1] << 8);
+        if (r > 32768) r |= -65536;
+        if (i > 32768) i |= -65536;
+        int rr = r / 8, ii = i / 8;
+        if (off < (int)ctx->data_len - 16) {
+            ctx->sam_slot_data_i[n] = i;
+            ctx->sam_slot_data_r[n] = r;
+            double sum = (double)(rr * rr) + ctx->sampleslot_data_abs_sum;
+            ctx->sampleslot_data_abs_sum = (double)(ii * ii) + sum;
+            off = (s16)(off + 4);
+            n = (s16)(n + 1);
+        } else {
+            ctx->sam_slot_data_r[0] = r;
+            ctx->sam_slot_data_i[0] = i;
+            double sum = (double)(rr * rr) + ctx->sampleslot_data_abs_sum;
+            sum = (double)(ii * ii) + sum;
+            ctx->sampleslot_data_abs_sum = (sum * 64.0) / (double)n;
+            ctx->freq_offset = data[off - 2] | ((u16)data[off - 1] << 8);
+            ctx->RSSI = data[off - 4];
+            ctx->AGC_index = data[off - 3];
+            break;
+        }
+    }
+}
+
+static void mac_data_load(primarydata_stu *ctx, u8 *real, u8 *imag, u8 *rssi, u8 *agc)
+{
+    float reference_cfo = -0.0f - cfo_est_fun(8, 1, 1, ctx);
+    (void)frequency_offset(8, reference_cfo, 0, 1, ctx);
+    u8 count = ctx->sam_slot_num;
+    float sample_cfo = -0.0f - cfo_est_fun(count, ctx->antenna_num, 0, ctx);
+    int sample_max = frequency_offset(count, sample_cfo, 0, 0, ctx);
+    int r = ctx->reference_data_r[7], i = ctx->reference_data_i[7];
+    int sr = ctx->sam_slot_data_r[0], si = ctx->sam_slot_data_i[0];
+    int pr = (s32)((u32)(sr * r) + (u32)(si * i));
+    int pi = (s32)((u32)(si * r) - (u32)(sr * i));
+    int phase = atan_fun(pr, pi);
+    int ref_max = frequency_offset(8, 0.0f, (s16)((phase + 2) / 4), 1, ctx);
+    u8 slots = ctx->sam_slot_num;
+    ctx->antenna_max_amp = (u32)ref_max > (u32)sample_max ? ref_max : sample_max;
+    for (int n = 0; n < 8; ++n) {
+        real[n] = (ctx->reference_data_r[n] * 127 + 8001) / ctx->antenna_max_amp;
+        imag[n] = (ctx->reference_data_i[n] * 127 + 8001) / ctx->antenna_max_amp;
+    }
+    int end = (u8)(slots + 7);
+    for (int n = 8; n < end; ++n) {
+        real[n] = (ctx->sam_slot_data_r[n - 7] * 127 + 8001) / ctx->antenna_max_amp;
+        imag[n] = (ctx->sam_slot_data_i[n - 7] * 127 + 8001) / ctx->antenna_max_amp;
+    }
+    *rssi = ctx->RSSI;
+    *agc = ctx->AGC_index;
+}
+
+int cte_data_conversion(void *data, u8 samples, u8 antennas, s8 *real, s8 *imag)
+{
+    u8 rssi, agc;
+    struct primarydata *ctx = primarydata_instance;
+    ctx->antenna_num = antennas;
+    ctx->data_len = ((u16)samples << 2) + 26;
+    ctx->sam_slot_num = samples - 7;
+    data_pre_processing(data, ctx);
+    mac_data_load(ctx, (u8 *)real, (u8 *)imag, &rssi, &agc);
+    return 0;
+}
+
+int cte_data_angle_calc(void *data, u8 samples, u8 antennas, s8 *real, s8 *imag)
+{
+    u8 rssi, agc;
+    struct primarydata *ctx = primarydata_instance;
+    ctx->wave_len = 12.5f;
+    ctx->antenna_dista = 4.35f;
+    ctx->antenna_num = antennas;
+    ctx->antenna_num_row = 4;
+    ctx->antenna_num_col = 4;
+    ctx->data_len = ((u16)samples << 2) + 26;
+    ctx->sam_slot_num = samples - 7;
+    data_pre_processing(data, ctx);
+    mac_data_load(ctx, (u8 *)real, (u8 *)imag, &rssi, &agc);
+    float angle = angle_est_fun(ctx);
+    puts("angle:");
+    put_float((double)angle);
+    (void)IQ_data_assessment(primarydata_instance);
+    float distance = distance_est(primarydata_instance, -50.0f, 2.5f);
+    puts("distance:");
+    put_float((double)distance);
+    return (int)angle;
+}
+
 int IQ_data_assessment(primarydata_stu *ctx)
 {
     s32 antennas=ctx->antenna_num, slots=ctx->sam_slot_num;
@@ -51,12 +311,17 @@ int IQ_data_assessment(primarydata_stu *ctx)
                 for (s32 k=0;k<stop;++k) {
                     u8 a=(u8)(((count-antennas+k)&255));
                     u8 b=(u8)((k+count)&255);
-                    s32 ar=ctx->sam_slot_data_r[a], ai=ctx->sam_slot_data_i[a];
-                    s32 br=ctx->sam_slot_data_r[b], bi=ctx->sam_slot_data_i[b];
-                    s32 phase=atan_fun(bi*ai+br*ar, bi*ar-br*ai);
+                    /* SDK GEPs can reach neighboring fields in the final group. */
+                    s16 ar16, ai16, br16, bi16;
+                    __builtin_memcpy(&ar16, __builtin_assume_aligned((u8 *)ctx+offsetof(primarydata_stu, sam_slot_data_r)+2u*a, 2), 2);
+                    __builtin_memcpy(&ai16, __builtin_assume_aligned((u8 *)ctx+offsetof(primarydata_stu, sam_slot_data_i)+2u*a, 2), 2);
+                    __builtin_memcpy(&br16, __builtin_assume_aligned((u8 *)ctx+offsetof(primarydata_stu, sam_slot_data_r)+2u*b, 2), 2);
+                    __builtin_memcpy(&bi16, __builtin_assume_aligned((u8 *)ctx+offsetof(primarydata_stu, sam_slot_data_i)+2u*b, 2), 2);
+                    s32 ar=ar16, ai=ai16, br=br16, bi=bi16;
+                    s32 phase=atan_fun((s32)((u32)(bi*ai)+(u32)(br*ar)), (s32)((u32)(bi*ar)-(u32)(br*ai)));
                     angle_sum += (float)(phase>0 ? phase : -phase);
-                    amp += (ctx->sam_slot_data_r[b]>0 ? br : -br) +
-                           (ctx->sam_slot_data_i[b]>0 ? bi : -bi);
+                    amp += (br>0 ? br : -br) +
+                           (bi>0 ? bi : -bi);
                 }
             }
             count += antennas;
@@ -72,13 +337,14 @@ int IQ_data_assessment(primarydata_stu *ctx)
 void cte_data_test_case(void *priv)
 {
     (void)priv;
-    primarydata_instance=malloc(sizeof(*primarydata_instance));
+    primarydata_stu *ctx=malloc(sizeof(*ctx));
+    primarydata_instance=ctx;
     u8 *buffers=malloc(164);
-    primarydata_stu *ctx=primarydata_instance;
     ctx->wave_len=12.5f; ctx->antenna_dista=4.35f;
     ctx->antenna_num=16; ctx->antenna_num_row=4; ctx->antenna_num_col=4;
     ctx->data_len=354; ctx->sam_slot_num=74;
-    printf("[Info]: [CTE_AGRTHM]ant_cnt:%d slot_num:%d data_len:%d\n\r\n", ctx->antenna_num, ctx->sam_slot_num, ctx->data_len);
+    log_print(2, NULL, "[Info]: [CTE_AGRTHM]ant_cnt:%d slot_num:%d data_len:%d\n\r\n", ctx->antenna_num, 74, 354);
+    ctx=primarydata_instance;
     data_pre_processing(cte_data,ctx);
     u8 test_rssi, test_agc;
     mac_data_load(ctx,buffers,buffers+82,&test_rssi,&test_agc);
@@ -173,20 +439,67 @@ static float angle_est_fun(const struct primarydata *ctx)
     return (angle > 0.0f ? 180.0f : -180.0f) - angle;
 }
 
+/* Host regression fixtures. */
 #ifdef UNITTEST
-#include <assert.h>
+#include "test.h"
+#include <string.h>
+#include <math.h>
+void log_print(int level, const char *tag, const char *format, ...)
+{ (void)level; (void)tag; (void)format; }
+
 int main(void)
 {
-    assert(atan_fun(0, 0) == 0);
-    assert(atan_fun(0, 1) == 512);
-    assert(atan_fun(0, -1) == -512);
-    assert(atan_fun(1, 1) == 256);
-    assert(atan_fun(1, -1) == -256);
-    s16 phase = 128; assert(sin_func(&phase) == 512 && phase == 128);
-    phase = -128; assert(sin_func(&phase) == -512 && phase == -128);
-    phase = 512; assert(sin_func(&phase) == 0 && phase == 0);
-    s32 r, i; complex_multi(3, 4, 5, 6, &r, &i);
-    assert(r == -9 && i == 38);
-    return 0;
+    CHECK(atan_fun(0, 0) == 0 && atan_fun(0, 1) == 512);
+    CHECK(atan_fun(0, -1) == -512 && atan_fun(1, 1) == 256);
+    CHECK(atan_fun(1, -1) == -256 && atan_fun(-1, 1) == 768);
+    s16 phase = 128;
+    CHECK(sin_func(&phase) == 512 && phase == 128);
+    phase = -128; CHECK(sin_func(&phase) == -512 && phase == -128);
+    phase = 512; CHECK(sin_func(&phase) == 0 && phase == 0);
+    s32 real, imag;
+    complex_multi(3, 4, 5, 6, &real, &imag);
+    CHECK(real == -9 && imag == 38);
+    /* Aliased outputs retain the original real-then-imag store order. */
+    complex_multi(3, 4, 5, 6, &real, &real); CHECK(real == 38);
+
+    /* Raw IR uses strict >32768 conversion for power, but truncates storage. */
+    u8 raw[60] = { 0 };
+    for (int off = 8; off < 48; off += 4) raw[off + 3] = 128;
+    struct primarydata context = { .data_len = 60 };
+    data_pre_processing(raw, &context);
+    CHECK(context.reference_data_r[0] == -32768 && context.reference_data_i[0] == 0);
+    CHECK(context.reference_data_abs_sum == 1073741824.0);
+    CHECK(context.sampleslot_data_abs_sum == 1073741824.0);
+    CHECK(context.sam_slot_data_r[0] == -32768 && context.sam_slot_data_r[1] == -32768);
+    CHECK(context.freq_offset == -32768 && context.RSSI == 0 && context.AGC_index == 0);
+    CHECK(frequency_offset(0, 0.0f, 0, 0, &context) == 0);
+    CHECK(cfo_est_fun(1, 1, 0, &context) == 0.0f);
+
+    /* Exact log endpoints and NaN fall through all 79 strict intervals. */
+    context.RSSI = -50; context.reference_data_abs_sum = 2000;
+    context.sampleslot_data_abs_sum = 22;
+    CHECK(distance_est(&context, 69.5f, 2.5f) == 1.0f);
+    context.sampleslot_data_abs_sum = NAN;
+    CHECK(distance_est(&context, 69.5f, 2.5f) == 1.0f);
+    context.sampleslot_data_abs_sum = 20;
+    CHECK(distance_est(&context, 30.0f, 2.5f) == 1.0f);
+
+    CHECK(cte_data_algorithm_module_init() == 0);
+    s8 r[82] = { 0 }, i[82] = { 0 };
+    /* Original SDK LLVM sample: sums9633/11085, angle49; final byte untouched. */
+    CHECK(cte_data_conversion((void *)cte_data, 81, 16, r, i) == 0);
+    unsigned rs = 0, is = 0;
+    for (int j = 0; j < 82; ++j) { rs += (u8)r[j]; is += (u8)i[j]; }
+    CHECK(rs == 9633 && is == 11085 && r[81] == 0 && i[81] == 0);
+    CHECK(cte_data_angle_calc((void *)cte_data, 81, 16, r, i) == 49);
+    struct primarydata *stale = primarydata_instance;
+    cte_data_algorithm_module_close();
+    CHECK(primarydata_instance == stale);
+    primarydata_instance = NULL;
+    cte_data_algorithm_module_close();
+    /* Exercise the SDK's self-contained diagnostic vector and lifecycle. */
+    cte_data_test_case(NULL);
+    primarydata_instance = NULL;
+    return TEST_DONE("btctrler_bd19_cte_data_algorithm");
 }
 #endif
