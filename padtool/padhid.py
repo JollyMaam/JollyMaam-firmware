@@ -218,14 +218,17 @@ class Features:
         else:
             self.fd = os.open(path, os.O_RDWR)
 
-    def set(self, data):
-        buf = ctypes.create_string_buffer(b"\0" + bytes(data).ljust(self.size, b"\0"), self.size + 1)
+    def set(self, data, full=True):
+        """full=False (Linux): only data's bytes, for a device that goes by
+        the request's length."""
+        data = bytes(data) if not full and sys.platform == "linux" else bytes(data).ljust(self.size, b"\0")
+        buf = ctypes.create_string_buffer(b"\0" + data, len(data) + 1)
         if sys.platform == "win32":
             if not self.hid.HidD_SetFeature(self.handle, buf, self.size + 1):
                 raise ctypes.WinError(ctypes.get_last_error())
         else:
             import fcntl
-            fcntl.ioctl(self.fd, 0xc0004806 | (self.size + 1) << 16, buf)   # HIDIOCSFEATURE
+            fcntl.ioctl(self.fd, 0xc0004806 | len(buf) << 16, buf)   # HIDIOCSFEATURE
 
     def read(self, timeout):
         """One input report (Linux), or None after timeout seconds."""

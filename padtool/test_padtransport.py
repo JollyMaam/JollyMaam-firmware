@@ -17,7 +17,7 @@ class FakeDevice:
     def __init__(self, answer):
         self.answer, self.sets, self.queue = answer, [], []
 
-    def set(self, data):
+    def set(self, data, full=True):
         self.sets.append(bytes(data))
         _, flags, tag, client = struct.unpack_from("<HBBI", data, 16)
         self.queue += self.answer(len(self.sets), client, tag)

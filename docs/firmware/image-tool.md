@@ -83,7 +83,8 @@ This firmware's tool device, on every board, is a vendor HID interface:
 - a command is a set of the feature report: the 16-byte CDB
   (`src/core/usb.c`), u16 length, flags (bit 0: data to the device; bit 1:
   the answer on input reports), a tag, with bit 1 a u32 client, then the data
-  (at most the report less 20 bytes, 24 with bit 1);
+  (at most the report less 20 bytes, 24 with bit 1); the device goes by the
+  request's length, so a set may stop after the data;
 - with bit 1, the answer comes in input reports: the client, the tag, a state
   (2 a piece and more, 3 the last, 4 refused: another command is running,
   send it again), u16 offset, then 56 bytes of the answer.  Every program

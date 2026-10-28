@@ -9,7 +9,8 @@
  * When the sector is full, the newest record of every key moves to the
  * other one, whose header is written last.  Records go through a small
  * buffer, a piece at a time (the stack is short); no RAM is kept but where
- * the log ends. */
+ * the log ends.  The CRCs are checked once, finding the end: a read walks
+ * only the headers of the records before it. */
 
 #define STORE_A   0x6f000        /* two sectors below the bonds (bt_telink.c) */
 #define STORE_B   0x70000
@@ -22,6 +23,7 @@
 #define PIECE     32
 
 static u32 sector, end;          /* the sector in use, where its log ends; 0: not read yet */
+static u32 valid;                /* the end of its whole records (end, unless one is torn) */
 
 static u32 read32(u32 at)
 {
@@ -48,8 +50,8 @@ static u32 padded(u32 len)
 }
 
 /* The record at: its key and length; returns its size in flash, 0: none
- * (it ends the log). */
-static u32 record(u32 at, u16 *key, u32 *len)
+ * (it ends the log).  check: its CRC too. */
+static u32 record(u32 at, u16 *key, u32 *len, int check)
 {
     u8 b[PIECE];
     u32 n, o, k;
@@ -60,6 +62,8 @@ static u32 record(u32 at, u16 *key, u32 *len)
     *key = (u16)(b[0] | b[1] << 8);
     n = (u32)(b[2] | b[3] << 8);
     if (*key == EMPTY || n > DATA_MAX || at + padded(n) > sector + SECTOR) return 0;
+    *len = n;
+    if (!check) return padded(n);
     crc = store_crc(0xffff, b, 4);
     for (o = 0; o < n; o += k) {
         k = n - o < PIECE ? n - o : PIECE;
@@ -68,7 +72,6 @@ static u32 record(u32 at, u16 *key, u32 *len)
     }
     flash_read_page(at + 4 + n, 2, b);
     if (crc != (u16)(b[0] | b[1] << 8)) return 0;
-    *len = n;
     return padded(n);
 }
 
@@ -88,7 +91,8 @@ static void find_log(void)
         a = 1;
     }
     sector = a >= b ? STORE_A : STORE_B;
-    for (end = sector + HEADER; (n = record(end, &key, &len)); end += n) {}
+    for (end = sector + HEADER; (n = record(end, &key, &len, 1)); end += n) {}
+    valid = end;
     /* A torn record: nothing may be written over it, so the next write
      * compacts first. */
     if (end + 4 <= sector + SECTOR && read32(end) != 0xffffffffu) end = sector + SECTOR;
@@ -100,7 +104,7 @@ static u32 newest(u16 key, u32 *len)
     u32 at, n, found = 0, l;
     u16 k;
 
-    for (at = sector + HEADER; (n = record(at, &k, &l)); at += n)
+    for (at = sector + HEADER; at < valid && (n = record(at, &k, &l, 0)); at += n)
         if (k == key) {
             found = at;
             *len = l;
@@ -149,7 +153,7 @@ static void compact(void)
     }
     flash_write_page(to, sizeof(head), (u8 *)head);
     sector = to;
-    end = at;
+    end = valid = at;
 }
 
 int plat_store_read(u16 key, void *buf, u16 len)
@@ -190,5 +194,6 @@ int plat_store_write(u16 key, const void *buf, u16 len)
     if (end + padded(len) > sector + SECTOR) return 0;
     append(end, key, len, 0, buf);
     end += padded(len);
+    valid = end;
     return len;
 }

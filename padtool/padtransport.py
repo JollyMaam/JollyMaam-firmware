@@ -240,7 +240,7 @@ def _tool_input(path, f, cdb, length, timeout_ms, out, data, rebooting):
             tag = next(_tags) & 0xff
             f.drain()
             f.set(cdb + struct.pack("<HBBI", len(data) if out is not None else length,
-                                    TOOL_INPUT | (out is not None), tag, _client) + data)
+                                    TOOL_INPUT | (out is not None), tag, _client) + data, full=False)
             answer = b""
             while True:
                 r = f.read(end - time.monotonic())
