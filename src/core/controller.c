@@ -1042,7 +1042,7 @@ static void at_rest(struct pad *p)
  * the IMU samples it takes are never dropped. */
 static void send_report(u32 now)
 {
-    u8 buf[80], id = 0;
+    u8 buf[PROFILE_REPORT_MAX], id = 0;
     u32 period = 1000 / c.report_hz, buttons = c.pad.buttons;
     int n;
 

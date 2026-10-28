@@ -334,7 +334,7 @@ static __attribute__((noinline)) void host(u32 now)
 
 static __attribute__((noinline)) void report(u32 now)
 {
-    u8 out[64], id = 0;
+    u8 out[PROFILE_REPORT_MAX], id = 0;
     u32 buttons = c.pad.buttons;
     int n;
 

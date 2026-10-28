@@ -55,7 +55,8 @@ void util_log(const char *fmt, ...)
 u32 util_log_read(u32 *seq, char *out, u32 max)
 {
     u32 oldest = ring.head > LOG_LINES ? ring.head - LOG_LINES + 1 : 1;
-    u32 s = *seq < oldest ? oldest : *seq;
+    /* Past the next line: the reader's ring is from before a restart. */
+    u32 s = *seq < oldest || *seq > ring.head + 1 ? oldest : *seq;
     u32 used = 0;
 
     *seq = s;
@@ -385,6 +386,11 @@ int main(void)
     util_log_init();
     seq = 102;
     CHECK(util_log_read(&seq, buf, sizeof(buf)) == 18);
+    seq = 103;                    /* the next line: none yet */
+    CHECK(util_log_read(&seq, buf, sizeof(buf)) == 0 && seq == 103);
+    seq = 500;                    /* from before a restart: from the oldest */
+    n = util_log_read(&seq, buf, sizeof(buf));
+    CHECK(seq == 102 - LOG_LINES + 1 && n > 0);
     /* Another image's ring, 4 bytes off: our head is its magic. */
     ring.head = LOG_MAGIC;
     util_log_init();

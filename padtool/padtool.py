@@ -683,6 +683,8 @@ def log(path, follow):
             continue
         if first > seq and seq > 1:
             print(f"... {first - seq} lines lost")
+        elif first < seq:
+            print(f"-- {BOARD} log started over --")
         lines = text.splitlines()
         for line in lines:
             print(line, flush=True)

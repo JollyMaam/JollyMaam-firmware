@@ -380,13 +380,15 @@ struct usb_identity {
     u16 hid_descriptor_len;
 };
 
+#define PROFILE_REPORT_MAX 80        /* the largest report a profile builds */
+
 struct profile {
     const char *name;
     const struct bt_device *device;
     const struct usb_identity *usb;    /* NULL: Bluetooth only */
     u8 (*begin)(const struct profile_session *s);
     void (*end)(void);
-    int (*report)(const struct pad *pad, u32 now, u8 *out, u8 *id);
+    int (*report)(const struct pad *pad, u32 now, u8 *out, u8 *id);   /* out: PROFILE_REPORT_MAX */
     int (*write)(const struct bt_write *w, u32 now, struct bt_bond *bond);
     void (*host)(u32 now, struct profile_host *out);
     int (*read)(u8 kind, u16 id, u16 offset, u8 *out, u16 max);

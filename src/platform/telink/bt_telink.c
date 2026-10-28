@@ -18,11 +18,13 @@
  * for bt_poll(). */
 
 #define BOND_STORE    0x71000    /* below the app's end, clear of stock data */
-#define INPUT_MAX     63
+#define INPUT_MAX     77         /* DualSense's extended report */
 #define TX_OCTETS     70
 #define RX_OCTETS     251
 #define IN_FLIGHT     2          /* input notifications in the stack at once */
-/* Two one-packet inputs leave two slots for LL control. The app owns
+/* Inputs take at most IN_FLIGHT slots, so two stay for LL control: two
+ * one-packet inputs, or one in two fragments (TX_OCTETS each, as
+ * tx_telink.c fragments).  The app owns
  * input admission; raw ATT sends use the SDK's priority path rather than
  * its conservative notification reserve (only one input with four slots). */
 #define TX_FIFO       4
@@ -373,8 +375,10 @@ int bt_input_wanted(void)
 /* The report without its id: on LE the report reference names it. */
 int bt_send_input(u8 id, const u8 *data, u16 len)
 {
+    u32 fragments = (len + 7u + TX_OCTETS - 1) / TX_OCTETS;   /* with L2CAP and ATT headers */
+
     (void)id;
-    if (!bt_input_wanted() || len > INPUT_MAX) return 0;
+    if (!bt_input_wanted() || len > INPUT_MAX || blc_ll_getTxFifoNumber() + fragments > IN_FLIGHT) return 0;
     return plat_att_send(b.device->input_handle, data, len);
 }
 

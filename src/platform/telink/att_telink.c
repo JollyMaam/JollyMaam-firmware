@@ -26,9 +26,11 @@ static int ccc(u16 handle)
     return -1;
 }
 
+/* value: the largest a profile answers (DualSense's firmware info, 63
+ * bytes); static, as the stack is the scarcer. */
 static u16 read_value(u16 connection, u16 handle, u16 offset, u8 *out, u16 max)
 {
-    u8 value[32];
+    static u8 value[64];
     int index = ccc(handle), n;
 
     (void)connection;

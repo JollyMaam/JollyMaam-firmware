@@ -21,6 +21,7 @@
 #define DS_EXTENDED      0x31
 #define DS4_EXTENDED     0x11
 #define EXTENDED_SIZE    77
+_Static_assert(EXTENDED_SIZE <= PROFILE_REPORT_MAX, "the extended report fits");
 #define TOUCH_TAP_MS     200
 #define TOUCH_CLICK_MS   60
 #define USB_STATE        0x01
@@ -163,10 +164,8 @@ static u8 stick8(s16 v)
 
 /* Hat and faces (by position: the bottom one is cross), shoulders and
  * sticks, then PS, the touchpad click, and the DualSense's mute and paddles. */
-static void buttons(const struct pad *p, u8 *out)
+static void buttons(u32 b, u8 *out)
 {
-    u32 b = p->buttons;
-
     out[0] = in_hat(b);
     if (b & PAD_X) out[0] |= 0x10;
     if (b & PAD_A) out[0] |= 0x20;
@@ -204,18 +203,18 @@ static void motion(u8 *out)
     util_put16(out + 10, (u16)(s16)-s->accel[0]);
 }
 
-static void touch_update(struct pad *p, u32 now)
+/* The buttons for the host: M is the touchpad's. */
+static u32 touch_update(const struct pad *p, u32 now)
 {
     int held = (p->buttons & PAD_M) != 0;
+    u32 b = p->buttons & ~(u32)PAD_M;
     s32 x, y;
 
-    p->buttons &= ~(u32)PAD_M;
     /* Taken every report, so turns made without the finger are dropped. */
     imu_pointer(&ps.pointer, p, ps.gyro_speed, ps.gyro_accel, &x, &y);
     if (ps.touch.clicking) {
         if (now - ps.touch.click < TOUCH_CLICK_MS && !held) {
-            p->buttons |= PAD_M;
-            return;
+            return b | PAD_M;
         }
         ps.touch.clicking = ps.touch.down = 0;
     }
@@ -236,11 +235,12 @@ static void touch_update(struct pad *p, u32 now)
         if (now - ps.touch.start < TOUCH_TAP_MS) {
             ps.touch.clicking = 1;
             ps.touch.click = now;
-            p->buttons |= PAD_M;
+            b |= PAD_M;
         } else {
             ps.touch.down = 0;
         }
     }
+    return b;
 }
 
 /* One touch point: bit 7 of the first byte is "no finger". */
@@ -285,23 +285,23 @@ static u8 begin_ds4(const struct profile_session *s)
 
 static int report(const struct pad *in, u32 now, u8 *r, u8 *id)
 {
-    struct pad p = *in;
+    u32 b;
     u8 *st;
 
-    if (p.imu_count) ps.motion = p.imu[p.imu_count - 1];
-    touch_update(&p, now);
+    if (in->imu_count) ps.motion = in->imu[in->imu_count - 1];
+    b = touch_update(in, now);
     memset(r, 0, EXTENDED_SIZE);
     if (!ps.usb && !ps.extended) {
         /* Both pads' simple report: sticks, hat and 14 buttons, a counter,
          * triggers. */
-        r[0] = stick8(p.lx);
-        r[1] = stick8(p.ly);
-        r[2] = stick8(p.rx);
-        r[3] = stick8(p.ry);
-        buttons(&p, r + 4);
+        r[0] = stick8(in->lx);
+        r[1] = stick8(in->ly);
+        r[2] = stick8(in->rx);
+        r[3] = stick8(in->ry);
+        buttons(b, r + 4);
         r[6] = (u8)((r[6] & 0x03) | (u8)(ps.counter << 2));
-        r[7] = (u8)(p.l2 >> 8);
-        r[8] = (u8)(p.r2 >> 8);
+        r[7] = (u8)(in->l2 >> 8);
+        r[8] = (u8)(in->r2 >> 8);
         *id = SIMPLE;
         ps.counter++;
         return SIMPLE_SIZE;
@@ -311,14 +311,14 @@ static int report(const struct pad *in, u32 now, u8 *r, u8 *id)
          * 32-byte state USB also sends, touch frames, the CRC. */
         st = r + 2;
         r[0] = 0xc0;
-        st[0] = stick8(p.lx);
-        st[1] = stick8(p.ly);
-        st[2] = stick8(p.rx);
-        st[3] = stick8(p.ry);
-        buttons(&p, st + 4);
+        st[0] = stick8(in->lx);
+        st[1] = stick8(in->ly);
+        st[2] = stick8(in->rx);
+        st[3] = stick8(in->ry);
+        buttons(b, st + 4);
         st[6] = (u8)((st[6] & 0x03) | (u8)(ps.counter << 2));
-        st[7] = (u8)(p.l2 >> 8);
-        st[8] = (u8)(p.r2 >> 8);
+        st[7] = (u8)(in->l2 >> 8);
+        st[8] = (u8)(in->r2 >> 8);
         motion(st + 12);
         /* A DualShock 4 reports pitch with the opposite sign to the
          * DualSense, whose layout motion() follows. */
@@ -341,14 +341,14 @@ static int report(const struct pad *in, u32 now, u8 *r, u8 *id)
     } else {
         st = r + 1;
         r[0] = (u8)(ps.counter << 4);
-        st[0] = stick8(p.lx);
-        st[1] = stick8(p.ly);
-        st[2] = stick8(p.rx);
-        st[3] = stick8(p.ry);
-        st[4] = (u8)(p.l2 >> 8);
-        st[5] = (u8)(p.r2 >> 8);
+        st[0] = stick8(in->lx);
+        st[1] = stick8(in->ly);
+        st[2] = stick8(in->rx);
+        st[3] = stick8(in->ry);
+        st[4] = (u8)(in->l2 >> 8);
+        st[5] = (u8)(in->r2 >> 8);
         st[6] = ps.counter;
-        buttons(&p, st + 7);
+        buttons(b, st + 7);
         util_put32(st + 11, ps.sequence++);
         motion(st + 15);
         util_put32(st + 27, ps.motion.us * 3);                    /* 1/3 us units */
