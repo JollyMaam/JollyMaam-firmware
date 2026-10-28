@@ -51,7 +51,7 @@ stamps (see the Cyclone 2's flash map); `flash --keep` carries them over.
 | Class | Known by | PID from | Into the loader |
 |---|---|---|---|
 | ROM loader | INQUIRY vendor `BR23`, product `UBOOT1.00` | the flash, once the RAM loader runs | — |
-| this firmware's tool device | INQUIRY `BR23`, IDENTIFY answers `C2PD` | IDENTIFY | a loader command; only for the wanted PID |
+| this firmware's tool device | HID usage page `0xffc2`, IDENTIFY answers `C2PD` | IDENTIFY | a loader command; only for the wanted PID |
 | other Jieli SDK firmware | INQUIRY `BR23`, no IDENTIFY | the flash, once in the loader | a loader command |
 | stock pad, HID only | VID, PID, `bcdDevice`, strings, and the usage page of the interface taking the command | `jlnewfw`'s table | the table's output report, in the modes that have one |
 
@@ -73,17 +73,20 @@ loader has no serial number.
 
 ## The tool device
 
-This firmware's tool device is the SDK's mass storage (`4c4a:4155`) with:
+This firmware's tool device, on every board, is a vendor HID interface:
 
-- no USB manufacturer string; the model as product (e.g. "Nova 2 Lite");
-  the serial is the SDK's, from the flash UID;
-- INQUIRY vendor blank, product the model, revision `1.00`, with the four-byte
-  `C2PD` marker in vendor-specific bytes 36–39 (40-byte response);
-- IDENTIFY (vendor command `0xf5 0x00`, 56 bytes) with the image's PID at
-  byte 40.
+- V-USB's shared ID for generic HID, `16c0:05df`; manufacturer `JollyMaam`,
+  the model as product (e.g. "Nova 2 Lite"), the flash UID in hex as serial;
+- one top-level collection, usage page `0xffc2`, with one feature report and
+  no report IDs: 512 bytes on the Jieli chips, 356 on the B80;
+- a command is a set of that report: the 16-byte CDB (`src/core/usb.c`),
+  u16 length, flags (bit 0: data to the device), a tag, then the data (at
+  most the report less 20 bytes); each get of it answers the tag, a state
+  (0 idle, 1 busy, 2 a piece and more, 3 the last), u16 length and that much
+  of the answer;
+- IDENTIFY (`0xf5 0x00`, 56 bytes) has the image's PID at byte 40.
 
-Tools select candidates by the vendor-specific INQUIRY marker and confirm
-running firmware by the `C2PD` signature in IDENTIFY, rather than its display
-names. Older firmware is also probed when it has a Jieli chip vendor or the
-previous `GameSir` SCSI vendor. ROM loaders retain their chip
-vendor and `UBOOT1.00` inquiry product.
+Tools select candidates by the usage page and confirm running firmware by the
+`C2PD` signature in IDENTIFY, rather than its display names. A command whose
+first byte is not `0xf5` restarts a Jieli pad into its ROM loader. ROM loaders
+are mass storage, with their chip vendor and `UBOOT1.00` inquiry product.

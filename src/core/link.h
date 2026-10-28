@@ -79,8 +79,9 @@ static const u8 link_adv[LINK_ADV_FLAGS] = {
  * slot's bond and pair it (padtool pair, as the tool device is not there).
  * One shared flash bond table: hub mode enables all slots; outside it only
  * slot 0, the dongle's own pad. Mode changes keep the bonds. */
-#define HUB_VENDOR_ID   0x1209   /* pid.codes' test VID/PID: a private device */
-#define HUB_PRODUCT_ID  0x0001
+#define HUB_VENDOR_ID   0x16c0   /* V-USB's generic HID ID (pad.h), as the tool device */
+#define HUB_PRODUCT_ID  0x05df
+#define HUB_USAGE_PAGE  0xff00   /* the tool device's is 0xffc2 */
 #define HUB_REPORT_IN   1
 #define HUB_REPORT_OUT  2
 #define HUB_REPORT_SIZE 63

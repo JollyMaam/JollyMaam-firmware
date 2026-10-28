@@ -12,7 +12,7 @@ import time
 
 import padhid
 from padknown import CHIPS, PRODUCTS, product_name, stock_devices
-from padtransport import device_paths, scsi, usb_location
+from padtransport import device_paths, scsi, usb_location, is_tool
 
 # RAM loaders: a folder of <chip>loader.bin beside padtool, else the SDK.
 PACKAGED_LOADERS = Path(__file__).resolve().parent
@@ -409,23 +409,30 @@ def select_loader(pid, source, wait=30, report=print, device_path=None, progress
                 raise OSError("Selected ROM loader moved or its device path was reused; refresh before continuing")
             if path in seen:
                 continue
+            if is_tool(path):        # our firmware: its IDENTIFY names its PID
+                if device_path is not None:
+                    raise OSError("Selected ROM loader changed mode; refresh devices before flashing")
+                try:
+                    ident = scsi(path, [0xf5, 0], 64, 1000)
+                    if len(ident) < 56 or ident[:4] != b"C2PD" or \
+                            ident[40:56].split(b"\0")[0].decode(errors="replace") != pid:
+                        continue
+                    report(f"{path}: requesting ROM loader")
+                    scsi(path, [0xfc, 0x0a] + [255] * 14, 16, 1000)
+                except OSError:
+                    pass  # A reboot can disconnect without a reply.
+                continue
             try:
                 inquiry = scsi(path, [0x12, 0, 0, 0, 40], 40, 1000)
             except OSError:
                 continue
             chip = inquiry[8:12].decode(errors="replace") if len(inquiry) >= 36 else ""
-            if chip not in CHIPS and inquiry[36:40] != b"C2PD" and inquiry[8:16] != b"GameSir ":
+            if chip not in CHIPS:
                 continue
-            if chip not in CHIPS or inquiry[16:21] != b"UBOOT":
+            if inquiry[16:21] != b"UBOOT":   # other Jieli SDK firmware: any loader opcode
                 if device_path is not None:
                     raise OSError("Selected ROM loader changed mode; refresh devices before flashing")
                 try:
-                    ident = scsi(path, [0xf5, 0], 64, 1000)
-                    if len(ident) >= 56 and ident[:4] == b"C2PD":
-                        if ident[40:56].split(b"\0")[0].decode(errors="replace") != pid:
-                            continue
-                    elif chip not in CHIPS:
-                        continue
                     report(f"{path}: requesting ROM loader")
                     scsi(path, [0xfc, 0x0a] + [255] * 14, 16, 1000)
                 except OSError:

@@ -351,6 +351,14 @@ enum { USB_HID, USB_XINPUT, USB_HID_BULK };
  * Switch 2 Pro Controller's headphones and microphone, always there, each
  * function behind an interface association. */
 enum { USB_AUDIO_NONE, USB_AUDIO_SPEAKER, USB_AUDIO_HEADSET };
+/* Our own devices (the tool device, the dongle's hub): V-USB's shared ID
+ * for generic HID (usbdrv/USB-IDs-for-free.txt), told apart by the
+ * manufacturer string and the usage page.  Its rules want a domain or an
+ * e-mail address in the string: not there yet. */
+#define USB_MANUFACTURER "JollyMaam"
+#define USB_OWN_VID      0x16c0
+#define USB_OWN_HID_PID  0x05df
+
 struct usb_identity {
     u16 vendor_id, product_id, bcd_device;
     const char *manufacturer, *product, *serial;   /* ASCII; NULL: none */
@@ -834,7 +842,7 @@ struct usb_status {
 };
 
 struct ctl_request usb_poll(const struct usb_status *status);
-u32 usb_command(const u8 cdb[16], u8 *data, u32 len, int from_host);   /* the platform's SCSI hook */
+u32 usb_command(const u8 cdb[16], u8 *data, u32 len, int from_host);   /* the platform's tool device */
 
 /* ---- utils.c ------------------------------------------------------------ */
 

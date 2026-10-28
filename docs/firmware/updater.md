@@ -73,7 +73,7 @@ still remap config mode.
 
 ## Update commands
 
-On the tool device (vendor SCSI `0xf5`), answered by the updater:
+On the tool device (command `0xf5`), answered by the updater:
 
 | Sub-command | Does |
 |---|---|

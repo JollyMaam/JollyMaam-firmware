@@ -11,8 +11,6 @@
 #include <asm/adc_api.h>
 #include <asm/mcpwm.h>
 #include <usb/otg.h>
-#include <usb/scsi.h>
-#include <usb/device/msd.h>
 #include <usb/device/usb_stack.h>
 #include "app_config.h"
 #include "board.h"
@@ -35,7 +33,6 @@
 #define USB_IO_CON1     (*(volatile u32 *)0x001e5104)
 #define MASKROM_TOKEN   ((volatile u8 *)0x00010800)
 #endif
-#define USB_VENDOR_OP   0xf5
 #define USB_SOF_STALE_MS 250
 
 extern void bt_pll_para(u32 osc, u32 sys, u8 low_power, u8 xosc);
@@ -43,8 +40,6 @@ extern void bt_max_pwr_set(u8 pwr, u8 pg_pwr, u8 iq_pwr, u8 ble_pwr);
 extern void nvram_set_boot_state(u32 state);
 extern void flush_dcache(const void *address, u32 size);
 extern void flushinv_dcache(const void *address, u32 size);
-extern u32 msd_mcu2usb(const struct usb_device_t *usb_device, const u8 *buffer, u32 len);
-extern u32 msd_usb2mcu(const struct usb_device_t *usb_device, u8 *buffer, u32 len);
 extern u8 *get_norflash_uuid(void) __attribute__((weak));
 extern void hci_jieli_init(void);
 
@@ -664,60 +659,7 @@ int plat_store_write(u16 key, const void *buf, u16 len)
     return syscfg_write(key, (void *)buf, len);
 }
 
-/* ---- USB: mass storage with no medium; vendor commands to usb.c ----------- */
-
-static const struct usb_device_t *volatile usb_pending;
-static u8 usb_buf[512] __attribute__((aligned(4)));
-
-static void usb_wakeup(struct usb_device_t *usb_device)
-{
-    usb_pending = usb_device;
-    plat_raise(EV_USB);
-}
-
-/* The model is the product; the vendor field is blank. Tools recognize the
- * firmware through IDENTIFY rather than a display name. */
-static u32 inquiry(const struct usb_device_t *usb_device, u32 len)
-{
-    u8 d[40] = { 0x00, 0x80, 0x02, 0x02, 35, 0, 0, 0 };
-    u32 i;
-
-    memset(d + 8, ' ', 24);
-    for (i = 0; i < 16 && board_name[i]; i++) d[16 + i] = (u8)board_name[i];
-    memcpy(d + 32, "1.00", 4);
-    memcpy(d + 36, "C2PD", 4);    /* vendor-specific data, not a display string */
-    memcpy(usb_buf, d, sizeof(d));
-    if (len > sizeof(d)) len = sizeof(d);
-    if (len) msd_mcu2usb(usb_device, usb_buf, len);
-    return 1;
-}
-
-u32 private_scsi_cmd(const struct usb_device_t *usb_device, struct usb_scsi_cbw *cbw)
-{
-    const u8 *cdb = &cbw->operationCode;
-    u32 len = cbw->dCBWDataTransferLength;
-
-    if (cdb[0] == 0x12 && !(cdb[1] & 1)) return inquiry(usb_device, len);   /* standard INQUIRY */
-    if (cdb[0] != USB_VENDOR_OP && cdb[0] != 0xfb && cdb[0] != 0xfc && cdb[0] != 0xfd)
-        return 0;
-    if (len > sizeof(usb_buf)) len = sizeof(usb_buf);
-    memset(usb_buf, 0, sizeof(usb_buf));
-    if (!(cbw->bmCBWFlags & 0x80)) {
-        /* Host to pad: the data comes first, a packet at a time. */
-        u32 got = 0, n;
-
-        while (got < len) {
-            n = msd_usb2mcu(usb_device, usb_buf + got, len - got < 64 ? len - got : 64);
-            if (!n) break;
-            got += n;
-        }
-        usb_command(cdb, usb_buf, got, 1);
-        return 1;
-    }
-    usb_command(cdb, usb_buf, len, 0);
-    if (len) msd_mcu2usb(usb_device, usb_buf, len);
-    return 1;
-}
+/* ---- USB ------------------------------------------------------------------ */
 
 #ifdef USB_PROBE
 /* Test: what a device attached by the ROM loader's GPIO pull-up, answering
@@ -873,14 +815,10 @@ static void usb_probe(void)
 
 void plat_usb_service(void)
 {
-    const struct usb_device_t *dev = usb_pending;
-
 #ifndef USB_TOOL_ONLY            /* only ever the tool device: no personalities */
     plat_usb_jack();
 #endif
-    if (!dev) return;
-    usb_pending = NULL;
-    USB_MassStorage(dev);
+    plat_usb_tool_service();
 #ifdef USB_PROBE
     if (probe_requested) {
         probe_requested = 0;
@@ -932,18 +870,6 @@ void plat_usb_frames_rebase(void)
 void plat_usb_hold_present(u32 ms)
 {
     if (plat_usb_present()) sof_seen_ms = ms_now + ms;
-}
-
-/* The SDK sets up the bulk endpoints only on GET_MAX_LUN, which a host
- * sends when it first probes us, not after a port reset of a device it
- * already has (Linux after a reboot it did not see, or on resume).  msd_reset
- * sets them up again on every bus reset. */
-void plat_usb_tool_mode(void)
-{
-    usb_device_mode(0, MASSSTORAGE_CLASS);
-    plat_usb_tool_strings();
-    msd_set_wakeup_handle(usb_wakeup);
-    msd_set_reset_wakeup_handle(msd_reset);
 }
 
 static void usb_init(void)

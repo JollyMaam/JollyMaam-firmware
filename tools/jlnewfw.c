@@ -1178,6 +1178,7 @@ static void cmd_pack(int argc, char **argv) {
 #ifdef __linux__
 #include <dirent.h>
 #include <fcntl.h>
+#include <linux/hidraw.h>
 #include <scsi/sg.h>
 #include <sys/ioctl.h>
 #include <time.h>
@@ -1569,7 +1570,7 @@ static void crc_cipher(uint8_t *p, size_t n, uint32_t key) {
 
 /* A running JieLi SDK firmware that shows itself as a disk (vendor: the
  * chip name) reboots into its ROM loader on any of the loader's commands, as
- * the SDK's mass-storage code does (and ours).  Sent to every such device;
+ * the SDK's mass-storage code does (and ours, on its HID tool device).  Sent to every such device;
  * which one is written is then decided by PID.  Repeat while waiting so
  * firmware connected after the command starts is also restarted; --device
  * limits restart requests to that path. */
@@ -1577,17 +1578,16 @@ static void crc_cipher(uint8_t *p, size_t n, uint32_t key) {
  * the other board running; stock firmware is selected by PID in the loader. */
 /* ---- what is connected -------------------------------------------------------
  * INQUIRY identifies Jieli ROM loaders and SDK firmware; product
- * "UBOOT1.00" its ROM loader.  Our firmware answers IDENTIFY ("C2PD", the
- * image's PID at 40); other Jieli SDK firmware answers neither (its PID is
- * known only once its loader reads the flash).  A stock pad that shows
+ * "UBOOT1.00" its ROM loader.  Other Jieli SDK firmware's PID is known only
+ * once its loader reads the flash.  Our firmware is a HID tool device and
+ * answers IDENTIFY ("C2PD", the image's PID at 40).  A stock pad that shows
  * itself only as HID is known by the table below, in each of its USB modes;
  * in some of them it takes a command into its loader. */
 
-enum disk_class { DISK_OTHER, DISK_LOADER, DISK_OURS, DISK_JIELI };
+enum disk_class { DISK_OTHER, DISK_LOADER, DISK_JIELI };
 
 static enum disk_class classify_disk(device_fd fd, char pid[17], int *chip) {
   uint8_t cdb[6] = {0x12, 0, 0, 0, 40, 0}, q[40] = {0};
-  uint8_t id[16] = {0xf5, 0x00}, ident[56] = {0};
   pid[0] = 0;
   *chip = -1;
   if (!sg(fd, cdb, 6, SG_DXFER_FROM_DEV, q, sizeof q, 2000))
@@ -1595,18 +1595,6 @@ static enum disk_class classify_disk(device_fd fd, char pid[17], int *chip) {
   *chip = chip_of(q + 8);
   if (*chip >= 0 && !memcmp(q + 16, "UBOOT", 5))
     return DISK_LOADER;
-  /* C2PD is vendor-specific INQUIRY data. Accept older chip/GameSir vendor
-   * names too, but never probe unrelated disks with a vendor command. */
-  if (*chip < 0 && memcmp(q + 36, "C2PD", 4) && memcmp(q + 8, "GameSir ", 8))
-    return DISK_OTHER;
-  if (sg(fd, id, 16, SG_DXFER_FROM_DEV, ident, sizeof ident, 2000) &&
-      !memcmp(ident, "C2PD", 4)) {
-    memcpy(pid, ident + 40, 16);
-    pid[16] = 0;
-    /* Our firmware runs on the BR23 pads and the BD19 (AC632N) dongle. */
-    *chip = chip_of((const uint8_t *)(strncmp(pid, "AC632N", 6) ? "BR23" : "BD19"));
-    return DISK_OURS;
-  }
   return *chip >= 0 ? DISK_JIELI : DISK_OTHER;
 }
 
@@ -1645,6 +1633,7 @@ struct hid_dev {
   char path[300];
   unsigned vid, product, bcd;
   char manufacturer[64], product_name[64];
+  unsigned feature_len;         /* its feature report, without the ID byte */
 #ifdef _WIN32
   unsigned usage_page;          /* the collection's */
   unsigned out_len;             /* its output report, with the ID byte */
@@ -1653,6 +1642,27 @@ struct hid_dev {
   size_t desc_n;
 #endif
 };
+
+#ifndef _WIN32
+/* A report descriptor's feature reports, in bytes: report size times count
+ * for each feature item (short items). */
+static unsigned feature_bytes(const uint8_t *d, size_t n) {
+  unsigned size = 0, count = 0, bits = 0;
+  for (size_t i = 0; i < n;) {
+    size_t k = (size_t[]){0, 1, 2, 4}[d[i] & 3];
+    unsigned v = 0;
+    for (size_t j = 0; j < k && i + 1 + j < n; j++)
+      v |= (unsigned)d[i + 1 + j] << 8 * j;
+    switch (d[i] & 0xfc) {
+    case 0x74: size = v; break;
+    case 0x94: count = v; break;
+    case 0xb0: bits += size * count; break;
+    }
+    i += 1 + k;
+  }
+  return bits / 8;
+}
+#endif
 
 /* Whether a report descriptor has a usage page item for page. */
 static bool has_usage_page(const uint8_t *d, size_t n, unsigned page) {
@@ -1744,6 +1754,7 @@ static size_t hid_devices(struct hid_dev *out, size_t max) {
         HidD_FreePreparsedData(pp);
       }
       d->usage_page = caps.UsagePage, d->out_len = caps.OutputReportByteLength;
+      d->feature_len = caps.FeatureReportByteLength ? caps.FeatureReportByteLength - 1u : 0;
       if (HidD_GetManufacturerString(h, w, sizeof w))
         WideCharToMultiByte(CP_UTF8, 0, w, -1, d->manufacturer, sizeof d->manufacturer, NULL, NULL);
       if (HidD_GetProductString(h, w, sizeof w))
@@ -1788,6 +1799,7 @@ static size_t hid_devices(struct hid_dev *out, size_t max) {
       f = fopen(sys, "rb");
       if (f) {
         d->desc_n = fread(d->desc, 1, sizeof d->desc, f);
+        d->feature_len = feature_bytes(d->desc, d->desc_n);
         fclose(f);
       }
       if (usb_dir(d->path, usb)) {
@@ -1846,6 +1858,97 @@ static bool send_stock_hid(const struct hid_dev *h, int e) {
   }
 #endif
   return ok;
+}
+
+/* Our firmware's tool device: a HID interface, usage page 0xffc2 (usb.c and
+ * the platform's tool device).  A command is a feature report (the CDB, u16
+ * length, flags, tag), 512 bytes on the Jieli chips; each read of it then
+ * gives the tag, a state (1 busy, 2 a piece and more, 3 the last), u16
+ * length and that much answer. */
+#define TOOL_PAGE   0xffc2
+#define TOOL_REPORT 512
+
+static bool is_tool(const struct hid_dev *h) {
+#ifdef _WIN32
+  return h->usage_page == TOOL_PAGE;
+#else
+  return h->desc_n >= 3 && h->desc[0] == 0x06 && rd16(h->desc + 1) == TOOL_PAGE;
+#endif
+}
+
+/* One command; with ans, up to n bytes of its answer.  Without, nothing is
+ * read back (the loader opcodes: the device restarts). */
+static bool tool_cmd(const struct hid_dev *h, const uint8_t cdb[16], uint8_t *ans, size_t n) {
+  static uint8_t tag;
+  uint8_t buf[TOOL_REPORT + 1];
+  size_t size = h->feature_len >= 20 && h->feature_len < TOOL_REPORT ? h->feature_len + 1 : sizeof buf;
+  const char *path = h->path;
+  size_t got = 0;
+  bool ok = false;
+  memset(buf, 0, sizeof buf);
+  memcpy(buf + 1, cdb, 16);
+  wr16(buf + 17, (uint16_t)n);
+  buf[20] = ++tag;
+#ifdef _WIN32
+  HANDLE fh = CreateFileA(path, GENERIC_READ | GENERIC_WRITE,
+                          FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+  if (fh == INVALID_HANDLE_VALUE)
+    return false;
+#define SET_FEATURE() HidD_SetFeature(fh, buf, (ULONG)size)
+#define GET_FEATURE() HidD_GetFeature(fh, buf, (ULONG)size)
+#else
+  int fd = open(path, O_RDWR);
+  if (fd < 0)
+    return false;
+#define SET_FEATURE() (ioctl(fd, HIDIOCSFEATURE(size), buf) >= 0)
+#define GET_FEATURE() (ioctl(fd, HIDIOCGFEATURE(size), buf) >= 0)
+#endif
+  if (!SET_FEATURE())
+    goto done;
+  if (!ans) {
+    ok = true;
+    goto done;
+  }
+  for (unsigned busy = 0; busy < 2000;) {
+    buf[0] = 0;
+    if (!GET_FEATURE() || buf[1] != tag)
+      break;
+    if (buf[2] == 1) {
+      busy++;
+      dev_sleep(1);
+      continue;
+    }
+    if (buf[2] != 2 && buf[2] != 3)
+      break;
+    size_t k = rd16(buf + 3);
+    if (k > n - got)
+      k = n - got;
+    memcpy(ans + got, buf + 5, k);
+    got += k;
+    if (buf[2] == 3) {
+      ok = true;
+      break;
+    }
+  }
+done:
+#undef SET_FEATURE
+#undef GET_FEATURE
+#ifdef _WIN32
+  CloseHandle(fh);
+#else
+  close(fd);
+#endif
+  return ok;
+}
+
+/* Our firmware behind a tool device: its image's PID. */
+static bool tool_pid(const struct hid_dev *h, char pid[17]) {
+  uint8_t cdb[16] = {0xf5, 0x00}, ident[56] = {0};
+  if (!tool_cmd(h, cdb, ident, sizeof ident) || memcmp(ident, "C2PD", 4))
+    return false;
+  memcpy(pid, ident + 40, 16);
+  pid[16] = 0;
+  return true;
 }
 
 static bool open_dev(struct dev *d, const char *path) {
@@ -2122,21 +2225,35 @@ static size_t survey(const struct flash_opts *o, const char *want, struct cand *
       if (!(x->dev = loader_at(paths[i], o->loader, pid)))
         continue;
       x->kind = CAND_LOADER;
-    } else if (k == DISK_OURS) {
-      x->kind = CAND_OURS;
     } else if (k == DISK_JIELI) {
       x->kind = CAND_JIELI;
     } else
       continue;
     strcpy(x->pid, pid);
-    if (want && k != DISK_JIELI && strcmp(pid, want)) {
-      if (k == DISK_OURS && !told_before(x->path))
+    if (want && k != DISK_JIELI && strcmp(pid, want))
+      continue;
+    n++;
+  }
+  size_t nh = hid_devices(h, 64);
+  for (size_t i = 0; i < nh && n < max; i++) {
+    struct cand *x = &c[n];
+    if (!is_tool(&h[i]) || restarting(h[i].path) || !tool_pid(&h[i], pid))
+      continue;
+    memset(x, 0, sizeof *x);
+    x->kind = CAND_OURS, x->hid = &h[i];
+    snprintf(x->path, sizeof x->path, "%.299s", h[i].path);
+    snprintf(x->pid, sizeof x->pid, "%s", pid);
+    if (!usb_port(x->path, x->port))
+      x->port[0] = 0;
+    if (!cand_chosen(x, o->device))
+      continue;
+    if (want && strcmp(pid, want)) {
+      if (!told_before(x->path))
         printf("%s: our firmware for %s, left running\n", x->path, pid);
       continue;
     }
     n++;
   }
-  size_t nh = hid_devices(h, 64);
   for (size_t i = 0; i < nh && n < max; i++) {
     int e = stock_hid_entry(&h[i]);
     if (e < 0 || (want && strcmp(want, stock_hid[e].pid)) || restarting(h[i].path))
@@ -2218,6 +2335,11 @@ static void select_dev(struct dev *out, const struct flash_opts *o, const char *
         printf("%s: %s, asking it to restart into its ROM loader\n", x->path, cand_what(x, buf));
         if (x->kind == CAND_STOCK) {
           sent = send_stock_hid(x->hid, x->entry);
+        } else if (x->hid) {
+          uint8_t cmd[16];
+          memset(cmd, 0xff, 16);
+          cmd[0] = 0xfc, cmd[1] = 0x0a; /* running firmware: any loader command */
+          sent = tool_cmd(x->hid, cmd, NULL, 0);
         } else {
           uint8_t cmd[16], r[16];
           device_fd fd = dev_open(x->path);
@@ -2250,7 +2372,7 @@ static void cmd_scan(void) {
   static struct hid_dev h[64];
   char paths[256][300], pid[17], port[64], seen[64][64];
   size_t np = device_paths(paths), ns = 0;
-  static const char *const names[] = {"", "ROM loader", "our firmware", "Jieli firmware"};
+  static const char *const names[] = {"", "ROM loader", "Jieli firmware"};
   for (size_t i = 0; i < np; i++) {
     device_fd fd = dev_open(paths[i]);
     if (fd < 0)
@@ -2266,6 +2388,13 @@ static void cmd_scan(void) {
            paths[i]);
   }
   size_t nh = hid_devices(h, 64);
+  for (size_t i = 0; i < nh; i++) {
+    if (!is_tool(&h[i]) || !tool_pid(&h[i], pid))
+      continue;
+    if (!usb_port(h[i].path, port))
+      snprintf(port, sizeof port, "-");
+    printf("%-24s our firmware, %s  (%s)\n", port, pid, h[i].path);
+  }
   for (int pass = 0; pass < 2; pass++) /* the interface taking a command first */
     for (size_t i = 0; i < nh; i++) {
       int e = stock_hid_entry(&h[i]);
@@ -2287,15 +2416,33 @@ static void cmd_scan(void) {
     }
 }
 
+/* A step's progress, in place on a terminal: "writing  42%". */
+static void progress(const char *what, uint32_t done, uint32_t total) {
+  static int last = -1;
+#ifdef _WIN32
+  if (!_isatty(_fileno(stderr)))
+#else
+  if (!isatty(STDERR_FILENO))
+#endif
+    return;
+  int pct = total ? (int)((uint64_t)done * 100 / total) : 100;
+  if (pct == last && done < total)
+    return;
+  last = done < total ? pct : -1;
+  fprintf(stderr, "\r%-9s %3d%%%s", what, pct, done < total ? "" : "\n");
+}
+
 static void erase(struct dev *d, uint32_t from, uint32_t to) {
   uint8_t a[4];
   for (uint32_t at = from; at < to;) {
     bool block = !(at & 0xffff) && to - at >= 0x10000;
+    progress("erasing", at - from, to - from);
     be32(a, at);
     if (!jl_exec(d, block ? 0xfb00 : 0xfb01, a, 4, NULL))
       die("erase failed");
     at += block ? 0x10000 : 0x1000;
   }
+  progress("erasing", to - from, to - from);
 }
 
 static void flash_image(struct dev *d, const struct flash_opts *o,
@@ -2356,12 +2503,23 @@ static void flash_image(struct dev *d, const struct flash_opts *o,
     bool blank = true;
     for (uint32_t i = 0; i < m && blank; i++)
       blank = w[at + i] == 0xff;
+    progress("writing", at, (uint32_t)end);
     if (!blank && !jl_write(d, 0xfb04, at, w + at, m))
       die("write failed");
     at += m;
   }
+  progress("writing", (uint32_t)end, (uint32_t)end);
   uint8_t *back = malloc(end);
-  if (!back || !flash_read(d, 0, back, (uint32_t)end) || memcmp(back, w, end))
+  if (!back)
+    die("out of memory");
+  for (uint32_t at = 0; at < end; at += 0x4000) {
+    uint32_t m = (uint32_t)(end - at < 0x4000 ? end - at : 0x4000);
+    progress("verifying", at, (uint32_t)end);
+    if (!flash_read(d, at, back + at, m))
+      die("readback failed: the device is left in its loader");
+  }
+  progress("verifying", (uint32_t)end, (uint32_t)end);
+  if (memcmp(back, w, end))
     die("readback differs: the device is left in its loader");
   printf("written and verified\n");
   uint8_t a[4];

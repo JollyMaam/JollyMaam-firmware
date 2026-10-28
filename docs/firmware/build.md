@@ -25,7 +25,7 @@ SDK board configuration values used by the build:
 - Reset: `PB01`, active low (`CONFIG_RESET_LEVEL 0`), `CONFIG_RESET_TIME 8`
 - Oscillator and system clock: both 24,000,000 Hz
 - Low power: `PWR_LDO15`, sleep enabled
-- USB: mass-storage class in the SDK default
+- USB: none of the SDK's classes (`USB_DEVICE_CLASS_CONFIG 0`); the firmware sets up its own
 
 `CONFIG_FLASH_SIZE` is set per board: 1 MiB for the pad, 512 KiB for the dongle.
 

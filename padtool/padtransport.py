@@ -1,32 +1,82 @@
-"""USB mass-storage vendor commands, independent of pad protocol and GUI.
+"""The firmware's vendor commands, independent of pad protocol and GUI.
 
-Linux uses SG_IO; Windows uses the built-in storage driver and SCSI pass-through.
-Only inquiry/identify probes are sent during discovery.
+Our firmware's tool device is a HID interface (usage page 0xffc2): each
+command is a feature report, its answer read back in more (usb.c, the
+platform's tool device).  The Jieli ROM loaders (UBOOT1.00) and stock Jieli
+firmware are USB mass storage: Linux uses SG_IO; Windows uses the built-in
+storage driver and SCSI pass-through.  Only INQUIRY (disks) and IDENTIFY
+(tool devices) are sent during discovery.
 """
 import ctypes
 import glob
+import itertools
 import os
 from pathlib import Path
 import re
+import struct
 import sys
+import time
+
+import padhid
 
 if sys.platform == "linux":
     import fcntl
 
 
+TOOL_USAGE_PAGE = 0xffc2
+TOOL_REPORT = 512                           # the Jieli chips'; a device's own is in its descriptor
+TOOL_HEAD = 20
+TOOL_BUSY, TOOL_MORE, TOOL_LAST = 1, 2, 3
+_tools = {}                                 # path: (product name, report size), from the last scan
+_open = {}                                  # path: its Features, kept: an open costs ~50 ms
+_tags = itertools.count(1)
+
+
+def tool_paths():
+    """Our firmware's tool devices (HID)."""
+    _tools.clear()
+    for d in padhid.devices():
+        if d.get("usage_page") == TOOL_USAGE_PAGE or d.get("descriptor", b"")[:3] == b"\x06\xc2\xff":
+            _tools[d["path"]] = (d["product_name"], d.get("feature_len") or TOOL_REPORT)
+    return sorted(_tools)
+
+
+def _report(path):
+    if path not in _tools:
+        tool_paths()
+    return _tools.get(path, ("", TOOL_REPORT))[1]
+
+
+def tool_name(path):
+    """A tool device's product string: the board."""
+    if path not in _tools:
+        tool_paths()
+    return _tools.get(path, ("",))[0]
+
+
+def data_max(path):
+    """The most a command may carry to the device: its report less the header."""
+    return _report(path) - TOOL_HEAD
+
+
+def is_tool(path):
+    return "hidraw" in path or "hid#" in path.lower()
+
+
 def device_paths():
     if sys.platform == "win32":
-        return [rf"\\.\PhysicalDrive{i}" for i in range(64)]
+        return tool_paths() + [rf"\\.\PhysicalDrive{i}" for i in range(64)]
     if sys.platform == "linux":
-        return sorted(set(glob.glob("/dev/sg*") + glob.glob("/dev/bwrap/sg*")))
+        return tool_paths() + sorted(set(glob.glob("/dev/sg*") + glob.glob("/dev/bwrap/sg*")))
     raise OSError("Device access supports Linux and Windows")
 
 
 def usb_location(path):
-    """Linux USB port chain, stable across SCSI device renumbering; None if unknown."""
+    """Linux USB port chain, stable across device renumbering; None if unknown."""
     if sys.platform != "linux":
         return None
-    topology = Path("/sys/class/scsi_generic", Path(path).name, "device").resolve()
+    kind = "hidraw" if is_tool(path) else "scsi_generic"
+    topology = Path("/sys/class", kind, Path(path).name, "device").resolve()
     ports = [part for part in topology.parts if re.fullmatch(r"[0-9]+-[0-9]+(?:\.[0-9]+)*", part)]
     return ports[-1] if ports else None
 
@@ -119,12 +169,66 @@ def _windows_scsi(path, cdb, length, timeout_ms=3000, out=None, raw_length=False
         k.CloseHandle(handle)
 
 
+def _tool(path, cdb, length, timeout_ms, out):
+    """A command on the tool device: its report, then the answer's pieces.
+    A reboot's answer may never come: the device has gone."""
+    cdb = bytes(cdb).ljust(16, b"\0")
+    if cdb[0] == 0x12:           # the firmware would take it for a loader opcode
+        raise OSError(f"{path}: a tool device has no INQUIRY")
+    data = bytes(out) if out is not None else b""
+    if len(data) > data_max(path):
+        raise ValueError(f"tool device: at most {data_max(path)} bytes to the device")
+    tag = next(_tags) & 0xff
+    rebooting = cdb[0] != 0xf5 or cdb[1] in (0x10, 0x11, 0x40)
+    answer = b""
+    f = _open.get(path)
+    if f is None:
+        f = _open[path] = padhid.Features(path, _report(path))
+    try:
+        f.set(cdb + struct.pack("<HBB", len(data) if out is not None else length, out is not None, tag) + data)
+        end = time.monotonic() + timeout_ms / 1000
+        while True:
+            try:
+                r = f.get()
+            except OSError:
+                if rebooting:
+                    _drop(path)
+                    return b""
+                raise
+            n = r[2] | r[3] << 8
+            if r[0] == tag and r[1] in (TOOL_MORE, TOOL_LAST):
+                answer += r[4:4 + n]
+                if r[1] == TOOL_LAST:
+                    break
+                continue
+            if r[0] != tag or r[1] != TOOL_BUSY:
+                raise OSError(f"{path}: the tool device lost the command")
+            if time.monotonic() > end:
+                raise OSError(f"{path}: no answer in {timeout_ms} ms")
+            time.sleep(0.0005)
+    except BaseException:
+        _drop(path)              # gone or confused: the next command opens it anew
+        raise
+    if rebooting:
+        _drop(path)
+    return answer.ljust(length, b"\0") if out is None else b""
+
+
+def _drop(path):
+    f = _open.pop(path, None)
+    if f is not None:
+        f.close()
+
+
 def scsi(path, cdb, length, timeout_ms=3000, out=None, raw_length=False):
     """raw_length is for BR23 loader transfers only: its CSW reports full
     residue even after delivering data. Return the requested buffer, as the
-    C flasher does; callers validate command echoes and flash readback."""
+    C flasher does; callers validate command echoes and flash readback.
+    On a tool device (HID), the same command as a feature report."""
     if not 1 <= len(cdb) <= 16:
         raise ValueError("SCSI CDB must be 1–16 bytes")
+    if is_tool(path):
+        return _tool(path, cdb, length, timeout_ms, out)
     if sys.platform == "win32":
         return _windows_scsi(path, bytes(cdb).ljust(16, b"\0"), length, timeout_ms, out, raw_length)
     if sys.platform == "linux":

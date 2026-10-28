@@ -190,7 +190,7 @@ static const u8 hub_descriptor[] = {
 
 static const struct usb_identity hub_usb = {
     .vendor_id = HUB_VENDOR_ID, .product_id = HUB_PRODUCT_ID, .bcd_device = 0x0100,
-    .product = "Cyclone 2 Hub",
+    .manufacturer = USB_MANUFACTURER, .product = "Cyclone 2 Hub",
     .kind = USB_HID, .report_ids = 1, .interval = 1, .in_size = 64, .out_size = 64, .max_power = 50,
     .hid_descriptor = hub_descriptor, .hid_descriptor_len = sizeof(hub_descriptor),
 };

@@ -229,11 +229,16 @@ No external flashing executable is needed.
 The loader is uploaded to RAM through UBOOT1.00; it provides SPI flash access.
 It is separate from the `uboot.boot` contained inside firmware images.
 
-Windows device access uses SCSI pass-through through the standard storage driver,
-which needs admin: `padgui.pyw` asks for it with the UAC prompt and starts again
-elevated (`--no-elevate` skips that). Run the CLI from an Administrator terminal. Linux needs read/write access to the
-matching `/dev/sg*` node. Inside our development container `/dev/bwrap/sg*` works.
-Windows discovery currently probes PhysicalDrive0 through PhysicalDrive63.
+Pads and dongles running this firmware are HID devices (`16c0:05df`,
+manufacturer `JollyMaam`); Linux needs read/write access to their
+`/dev/hidraw*` node, e.g. a udev rule matching `ATTRS{manufacturer}=="JollyMaam*"`.
+The ROM loaders are mass storage: Windows
+reaches them through SCSI pass-through on the standard storage driver, which
+needs admin: `padgui.pyw` asks for it with the UAC prompt and starts again
+elevated (`--no-elevate` skips that). Run the CLI from an Administrator terminal.
+Linux needs read/write access to the matching `/dev/sg*` node. Inside our
+development container `/dev/bwrap/hidraw*` and `/dev/bwrap/sg*` work. Windows
+discovery currently probes PhysicalDrive0 through PhysicalDrive63.
 
 **Flash Firmware…** accepts a packed `firmware.img`, or extracts the
 flash.bin entry of a CRC-checked UFW. Prepare images with the firmware build
@@ -325,7 +330,8 @@ the CLI; `python -m unittest discover -s padtool -p test_padcurves.py -v` tests 
 mirrors `jlnewfw`'s); `padhid.py` lists HID interfaces and writes output
 reports (Linux hidraw, Windows hid.dll); `test_padknown.py` tests the matching.
 `padtool.py` supplies the firmware protocol and CLI. `padtransport.py` supplies
-Linux SG_IO and Windows buffered SCSI pass-through. `padflash.py` supplies the
+the tool device's feature reports (through `padhid.py`), and Linux SG_IO and
+Windows buffered SCSI pass-through for the ROM loaders. `padflash.py` supplies the
 BR23 RAM-loader protocol, image identity checks, backup, erase/write and readback
 verification. It is ported from our `jlnewfw.c`; build packing remains in C.
 An Android client will need its own USB host transport and UI, and can reuse

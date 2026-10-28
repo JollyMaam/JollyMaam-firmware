@@ -270,19 +270,19 @@ class FlashTests(unittest.TestCase):
 
     def test_our_firmware_for_another_pid_is_left_running(self):
         ident = b'C2PD\x02\0\0\0' + bytes(32) + b'AC695X_TRANS'.ljust(16, b'\0')
-        for vendor, product, marker in [(b'BR23    ', b'AC695X_TRANS', b''),
-                                        (b'GameSir ', b'Nova 2 Lite pad', b''),
-                                        (b'        ', b'Nova 2 Lite', b'C2PD')]:
-            inquiry = bytes(8) + vendor + product.ljust(16, b' ') + b'1.00' + marker
-            def scsi(path, cdb, length, timeout_ms=3000, out=None, raw_length=False):
-                return inquiry if cdb[0] == 0x12 else ident if cdb[0] == 0xf5 else b''
-            with self.subTest(vendor=vendor), \
-                 patch.object(flash, 'device_paths', return_value=['ours']), \
-                 patch.object(flash, 'scsi', side_effect=scsi) as sent:
-                with self.assertRaises(OSError):
-                    flash.select_loader('GS_C2_ADC_DEVICE', b'loader', wait=0, report=lambda _: None)
-                self.assertIn(0xf5, [call.args[1][0] for call in sent.call_args_list])
-                self.assertNotIn(0xfc, [call.args[1][0] for call in sent.call_args_list])
+        with patch.object(flash, 'device_paths', return_value=['/dev/hidraw3']), \
+             patch.object(flash, 'scsi', return_value=ident) as sent:
+            with self.assertRaises(OSError):
+                flash.select_loader('GS_C2_ADC_DEVICE', b'loader', wait=0, report=lambda _: None)
+            self.assertEqual([call.args[1][0] for call in sent.call_args_list], [0xf5])
+
+    def test_our_firmware_for_the_pid_is_asked_into_its_loader(self):
+        ident = b'C2PD\x02\0\0\0' + bytes(32) + b'GS_C2_ADC_DEVICE'
+        with patch.object(flash, 'device_paths', return_value=['/dev/hidraw3']), \
+             patch.object(flash, 'scsi', return_value=ident) as sent:
+            with self.assertRaises(OSError):
+                flash.select_loader('GS_C2_ADC_DEVICE', b'loader', wait=0, report=lambda _: None)
+            self.assertEqual([call.args[1][0] for call in sent.call_args_list], [0xf5, 0xfc])
 
     def test_other_disks_are_not_sent_vendor_commands(self):
         inquiry = bytes(8) + b'ATA     ' + b'System Disk'.ljust(16, b' ') + b'1.00'

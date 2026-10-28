@@ -113,11 +113,11 @@ stick", nothing), left_/right_x_/y_axis (normal, inverted), the inner and
 outer deadzones and left_/right_curve (as a slot had).  Keys: a b x y up down left right l1 r1
 l4 r4 l3 r3 minus plus home m capture (or screenshot).
 
-The pad is a mass-storage device with no medium; commands are vendor SCSI
-CDBs (see the comment at the top of src/core/usb.c).  Flashing is tools/jlnewfw.c's (make gamesir-cyclone-2-pad-flash).
+The pad's tool device is HID; commands are usb.c's CDBs in feature reports
+(see the comment at the top of src/core/usb.c).  Flashing is tools/jlnewfw.c's (make gamesir-cyclone-2-flash).
 """
 import argparse, collections, glob, json, os, struct, sys, threading, time
-from padtransport import scsi, device_paths, usb_location
+from padtransport import scsi, device_paths, usb_location, data_max, is_tool, tool_name
 import padcurves
 import padremap
 from padknown import CHIPS
@@ -137,24 +137,21 @@ def inquiry(path):
 
 
 def discover_devices(include_loaders=False, paths=None):
-    """Yield path, name, IDENTIFY; opted-in ROM loaders have no IDENTIFY."""
+    """Yield path, name, IDENTIFY: our tool devices, and opted-in ROM
+    loaders (disks), which have no IDENTIFY."""
     for path in device_paths() if paths is None else paths:
-        data = inquiry(path)
-        if not data or len(data) < 32:
-            continue
-        vendor = data[8:16].decode("ascii", "replace").strip()
-        name = data[8:32].decode("ascii", "replace").strip()
-        if vendor in CHIPS and data[16:21] == b"UBOOT":
-            if include_loaders:
-                yield path, name, None
-            continue
-        if vendor in CHIPS or vendor == "GameSir" or data[36:40] == b"C2PD":
+        if is_tool(path):
             try:
                 identity = scsi(path, [OP, 0x00], 88, 1000)
-                if len(identity) >= 56 and identity[:4] == b"C2PD" and identity[6] in BOARD_IDS.values():
-                    yield path, name, identity
             except OSError:
-                pass
+                continue
+            if len(identity) >= 56 and identity[:4] == b"C2PD" and identity[6] in BOARD_IDS.values():
+                yield path, tool_name(path), identity
+            continue
+        data = inquiry(path) if include_loaders else None
+        if data and len(data) >= 32 and data[8:16].decode("ascii", "replace").strip() in CHIPS \
+                and data[16:21] == b"UBOOT":
+            yield path, data[8:32].decode("ascii", "replace").strip(), None
 
 
 DEVICE = None        # --device: a path or part of a flash ID
@@ -568,11 +565,11 @@ UPDATE_ERRORS = ["", "bad size", "past the end", "not begun", "verify failed (re
 
 
 class UsbLink:
-    """The updater's commands on the tool device (SCSI)."""
-    chunk = 512
+    """The updater's commands on the tool device."""
 
     def __init__(self, path):
         self.path = path
+        self.chunk = data_max(path)
 
     def cmd(self, sub, arg=0, length=0, out=None, timeout_ms=3000):
         return scsi(self.path, [OP, sub] + list(struct.pack("<I", arg)), length, timeout_ms, out=out)
@@ -1221,7 +1218,7 @@ def send(path, items, journal=True):
     chunk, chunks = b"", []
     for t, fid, v in items:
         item = bytes([t, fid, len(v)]) + v
-        if len(chunk) + len(item) > 512:
+        if len(chunk) + len(item) > data_max(path):
             chunks.append(chunk)
             chunk = b""
         chunk += item
@@ -1648,10 +1645,13 @@ def hub_pair(slot):
     report = b"\xf5pair" + bytes([slot])
     hidiocsfeature = 0xC0004806 | (len(report) << 16)
     for path in sorted(glob.glob("/dev/bwrap/hidraw*") + glob.glob("/dev/hidraw*")):
-        uevent = f"/sys/class/hidraw/{os.path.basename(path)}/device/uevent"
+        sys_dev = f"/sys/class/hidraw/{os.path.basename(path)}/device"
         try:
-            with open(uevent) as f:
-                if "HID_ID=0003:00001209:00000001" not in f.read():
+            with open(f"{sys_dev}/uevent") as f:   # link.h: the hub's ID and usage page
+                if "HID_ID=0003:000016C0:000005DF" not in f.read():
+                    continue
+            with open(f"{sys_dev}/report_descriptor", "rb") as f:
+                if f.read(3) != b"\x06\x00\xff":
                     continue
             with open(path, "rb+", buffering=0) as f:
                 fcntl.ioctl(f, hidiocsfeature, bytearray(report))

@@ -22,11 +22,12 @@
 #define DISABLE          0
 #define NO_CONFIG_PORT   (-1)
 
-/* USB: mass storage only (usb_common_def.h, usb_std_class_def.h). */
+/* USB: none of the SDK's classes; ours set up the core (platform_jieli_usb.c;
+ * usb_common_def.h, usb_std_class_def.h). */
 #define MODULE_ENABLED   1
 #define TCFG_PC_ENABLE   MODULE_ENABLED
 #include "usb_std_class_def.h"
-#define USB_DEVICE_CLASS_CONFIG     MASSSTORAGE_CLASS
+#define USB_DEVICE_CLASS_CONFIG     0
 #ifndef USB_DMA_BUF_MAX_SIZE
 #define USB_DMA_BUF_MAX_SIZE        1024    /* our endpoints, audio included */
 #endif

@@ -3,7 +3,7 @@
  *   make padhub
  *   build/host/padhub
  *
- * It finds the dongle (our firmware's tool device, a SCSI one) and turns on
+ * It finds the dongle (our firmware's tool device, HID) and turns on
  * its hub mode; whenever a pad is linked the dongle is then a vendor HID
  * device that carries its pads' link packets as they are.  Closed (Ctrl-C,
  * SIGTERM), padhub turns hub mode off again: the dongle is the tool device
@@ -15,15 +15,14 @@
  * profile; rumble and lights go to the pad.  A child per slot: the profiles
  * keep their state in statics, one controller each.
  *
- * Needs /dev/uhid, the dongle's hidraw node and /dev/sg* writable (root or
- * udev rules).  With several dongles: the first it finds. */
+ * Needs /dev/uhid and the dongle's hidraw nodes writable (root or udev
+ * rules).  With several dongles: the first it finds. */
 #define _GNU_SOURCE
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/hidraw.h>
 #include <linux/uhid.h>
-#include <scsi/sg.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdio.h>
@@ -496,39 +495,70 @@ static int spawn(u8 s)
     return 1;
 }
 
-/* ---- the tool device: usb.c's vendor SCSI commands ------------------------ */
+/* ---- the tool device: usb.c's commands as HID feature reports ------------ */
 
-static int scsi_in(const char *path, const u8 *cdb, u8 cdb_len, u8 *data, u32 len)
+#define TOOL_REPORT 512          /* the Jieli tool device's (platform_jieli_usb.c) */
+
+/* A command and up to len bytes of its answer: the report (CDB, u16
+ * length, flags, tag), then reads of it until the last piece.  -1: none. */
+static int tool_in(const char *path, const u8 cdb[16], u8 *data, u32 len)
 {
-    struct sg_io_hdr h;
-    u8 sense[32];
-    int fd = open(path, O_RDWR | O_NONBLOCK | O_CLOEXEC), ok;
+    static u8 tag;
+    u8 buf[TOOL_REPORT + 1];
+    u32 got = 0, busy = 0, n;
+    int fd = open(path, O_RDWR | O_CLOEXEC), ok = 0;
 
     if (fd < 0) return -1;
-    memset(&h, 0, sizeof(h));
-    h.interface_id = 'S';
-    h.dxfer_direction = SG_DXFER_FROM_DEV;
-    h.cmd_len = cdb_len;
-    h.cmdp = (u8 *)cdb;
-    h.dxferp = data;
-    h.dxfer_len = len;
-    h.sbp = sense;
-    h.mx_sb_len = sizeof(sense);
-    h.timeout = 1000;
-    ok = ioctl(fd, SG_IO, &h) == 0 && !h.status && !h.host_status && !(h.driver_status & ~0x8);
+    memset(buf, 0, sizeof(buf));
+    memcpy(buf + 1, cdb, 16);
+    buf[17] = (u8)len;
+    buf[18] = (u8)(len >> 8);
+    buf[20] = ++tag;
+    if (ioctl(fd, HIDIOCSFEATURE(sizeof(buf)), buf) < 0) goto done;
+    while (busy < 1000) {
+        buf[0] = 0;
+        if (ioctl(fd, HIDIOCGFEATURE(sizeof(buf)), buf) < 0 || buf[1] != tag) break;
+        if (buf[2] == 1) {               /* busy */
+            busy++;
+            usleep(1000);
+            continue;
+        }
+        if (buf[2] != 2 && buf[2] != 3) break;
+        n = (u32)(buf[3] | buf[4] << 8);
+        if (n > len - got) n = len - got;
+        memcpy(data + got, buf + 5, n);
+        got += n;
+        if (buf[2] == 3) {
+            ok = 1;
+            break;
+        }
+    }
+done:
     close(fd);
-    return ok ? (int)(len - (u32)h.resid) : -1;
+    return ok ? (int)got : -1;
 }
 
-/* A dongle running this firmware at path: INQUIRY first (any SCSI device
- * answers it), our IDENTIFY only to one that says C2PD. */
+/* Whether hidraw node name is a tool device: its usage page. */
+static int is_tool(const char *name)
+{
+    char sys[300];
+    u8 d[3];
+    FILE *f;
+    int ok;
+
+    snprintf(sys, sizeof(sys), "/sys/class/hidraw/%s/device/report_descriptor", name);
+    if (!(f = fopen(sys, "rb"))) return 0;
+    ok = fread(d, 1, 3, f) == 3 && d[0] == 0x06 && d[1] == 0xc2 && d[2] == 0xff;
+    fclose(f);
+    return ok;
+}
+
+/* A dongle running this firmware at path: our IDENTIFY says so. */
 static int is_dongle(const char *path)
 {
-    static const u8 inquiry[6] = { 0x12, 0, 0, 0, 40, 0 };
     u8 cdb[16] = { 0xf5, 0x00 }, d[88];
 
-    if (scsi_in(path, inquiry, sizeof(inquiry), d, 40) < 40 || memcmp(d + 36, "C2PD", 4)) return 0;
-    return scsi_in(path, cdb, sizeof(cdb), d, sizeof(d)) >= 56 && !memcmp(d, "C2PD", 4) && d[6] == 1;
+    return tool_in(path, cdb, d, sizeof(d)) >= 56 && !memcmp(d, "C2PD", 4) && d[6] == 1;
 }
 
 /* Hub mode on (1) or off (0) on the first dongle that is the tool device:
@@ -546,13 +576,14 @@ static int tool_hub(u8 on)
 
         if (!dir) continue;
         while ((e = readdir(dir))) {
-            if (strncmp(e->d_name, "sg", 2)) continue;
+            if (strncmp(e->d_name, "hidraw", 6) || !is_tool(e->d_name)) continue;
             snprintf(path, sizeof(path), "%s/%s", dirs[i], e->d_name);
-            if (!is_dongle(path) || scsi_in(path, cdb, sizeof(cdb), &mode, 1) != 1) continue;
+            if (access(path, R_OK | W_OK)) continue;
+            if (!is_dongle(path) || tool_in(path, cdb, &mode, 1) != 1) continue;
             closedir(dir);
             if (mode == on) return 1;        /* as it was: quiet */
             cdb[2] = on;
-            if (scsi_in(path, cdb, sizeof(cdb), &mode, 1) != 1) return 0;
+            if (tool_in(path, cdb, &mode, 1) != 1) return 0;
             fprintf(stderr, "padhub: dongle at %s: hub mode %s\n", path, mode ? "on" : "off");
             return 1;
         }
@@ -561,7 +592,8 @@ static int tool_hub(u8 on)
     return 0;
 }
 
-/* The hidraw node whose device is the hub's VID:PID, else NULL. */
+/* The hidraw node whose device is the hub's VID:PID with the hub's usage
+ * page (the tool device shares the ID), else NULL. */
 static const char *find(void)
 {
     static char path[300];
@@ -580,6 +612,12 @@ static const char *find(void)
         if (!(f = fopen(name, "r"))) continue;
         while (fgets(line, sizeof(line), f))
             if (!strncmp(line, want, strlen(want))) match = 1;
+        fclose(f);
+        if (!match) continue;
+        snprintf(name, sizeof(name), "/sys/class/hidraw/%s/device/report_descriptor", e->d_name);
+        if (!(f = fopen(name, "rb"))) continue;
+        match = fread(line, 1, 3, f) == 3 && (u8)line[0] == 0x06 &&
+                ((u8)line[1] | (u8)line[2] << 8) == HUB_USAGE_PAGE;
         fclose(f);
         if (!match) continue;
         snprintf(path, sizeof(path), "/dev/%s", e->d_name);

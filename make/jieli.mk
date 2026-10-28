@@ -170,7 +170,6 @@ JIELI_ARCHIVES += $(JIELI_SDK)/cpu/br23/liba/media.a
 JIELI_SDK_USED :=
 JIELI_SDK_USED += apps/common/debug/debug.c
 JIELI_SDK_USED += apps/common/device/usb/device/descriptor.c
-JIELI_SDK_USED += apps/common/device/usb/device/msd.c
 JIELI_SDK_USED += apps/common/device/usb/device/usb_device.c
 JIELI_SDK_USED += apps/common/device/usb/device/user_setup.c
 JIELI_SDK_USED += apps/common/device/usb/usb_config.c

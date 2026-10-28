@@ -1,6 +1,5 @@
 #include <system/includes.h>
 #include <usb/device/usb_stack.h>
-#include <usb/device/msd.h>
 #include <usb/device/descriptor.h>
 #include "usb_config.h"
 #include "board.h"
@@ -19,8 +18,8 @@
  * every function behind an interface association, headphones on 0x03 and a
  * 48 kHz stereo microphone on 0x83, which sends silence for now.
  *
- * plat_usb_mode(NULL) is the tool device: the SDK's mass storage, whose
- * vendor SCSI commands platform_jieli.c hands to usb.c. */
+ * plat_usb_mode(NULL) is the tool device: a vendor HID interface whose
+ * feature reports carry usb.c's commands (below). */
 
 #define EP_IN        1           /* 0x81: reports */
 #define EP_OUT       1           /* 0x01: the host's reports (XInput: 0x02) */
@@ -63,7 +62,6 @@
 
 extern u32 usb_read_txcsr(const usb_dev usb_id, const u32 ep);
 extern void usb_memory_init(void);
-void plat_usb_tool_mode(void);           /* platform_jieli.c: back to mass storage */
 void plat_usb_frames_rebase(void);       /* platform_jieli.c: after a core re-init */
 void plat_usb_hold_present(u32 ms);
 
@@ -291,42 +289,6 @@ static u32 string(u8 index, u8 *out)
     out[0] = (u8)(2 + 2 * n);
     out[1] = USB_DT_STRING;
     return out[0];
-}
-
-/* The tool device uses the model as product and omits the manufacturer.
- * The SDK keeps the serial (the flash UID). */
-static u32 tool_hook(struct usb_device_t *dev, struct usb_ctrlrequest *req)
-{
-    u8 *buf = usb_get_setup_buffer(dev);
-    const char *s;
-    u32 n = 0;
-
-    if ((req->bRequestType & USB_TYPE_MASK) != USB_TYPE_STANDARD ||
-        req->bRequest != USB_REQ_GET_DESCRIPTOR)
-        return 0;
-    if (HIBYTE(req->wValue) == USB_DT_DEVICE) {
-        get_device_descriptor(buf);
-        buf[14] = 0;             /* no manufacturer string */
-        reply(dev, req, buf, USB_DT_DEVICE_SIZE);
-        return 1;
-    }
-    if (HIBYTE(req->wValue) != USB_DT_STRING) return 0;
-    s = LOBYTE(req->wValue) == 2 ? board_name : NULL;
-    if (!s) return 0;
-    while (s[n] && n < 62) {
-        buf[2 + 2 * n] = (u8)s[n];
-        buf[3 + 2 * n] = 0;
-        n++;
-    }
-    buf[0] = (u8)(2 + 2 * n);
-    buf[1] = USB_DT_STRING;
-    reply(dev, req, buf, buf[0]);
-    return 1;
-}
-
-void plat_usb_tool_strings(void)
-{
-    usb_set_setup_hook(usb_id2device(0), tool_hook);
 }
 
 /* ---- the IN pipes: whatever is next, when the endpoint is free ----------- */
@@ -916,4 +878,232 @@ int plat_usb_take(struct bt_write *w)
     }
     local_irq_enable();
     return got;
+}
+
+/* ---- the tool device ---------------------------------------------------------
+ *
+ * One HID interface, usage page 0xffc2, with one 512-byte feature report and
+ * no report ids; its interrupt IN endpoint is there because HID asks for
+ * one, and never sends.  A command is a SET_REPORT: the CDB (16 bytes: 0xf5,
+ * the sub-command, its arguments, or a loader opcode), u16 length, u8 flags
+ * (bit 0: data to the pad), u8 tag, then that many bytes of data to the pad;
+ * without bit 0, length is the answer's size, as a SCSI command's transfer
+ * length (zero-padded).  The control thread runs it (usb_command()); each
+ * GET_REPORT then answers: the tag, a state, u16 length, that many bytes of
+ * the answer.  BUSY: not run yet, ask again; MORE: a piece, the rest follows
+ * in the next GET_REPORTs; LAST: the last piece (or none). */
+
+#define TOOL_REPORT     512
+#define TOOL_HEAD       20
+#define TOOL_REPLY_HEAD 4
+#define TOOL_SERIAL     33
+enum { TOOL_IDLE, TOOL_BUSY, TOOL_MORE, TOOL_LAST };
+
+static const u8 tool_report_desc[] = {
+    0x06, 0xc2, 0xff,            /* usage page 0xffc2 */
+    0x09, 0x01,                  /* usage 1 */
+    0xa1, 0x01,                  /* application collection */
+    0x15, 0x00, 0x26, 0xff, 0x00,
+    0x75, 0x08, 0x96, (u8)TOOL_REPORT, (u8)(TOOL_REPORT >> 8),
+    0x09, 0x01, 0xb1, 0x02,      /* feature: data, variable */
+    0xc0,
+};
+static u8 tool_req[TOOL_REPORT] __attribute__((aligned(4)));
+static u8 tool_answer[TOOL_REPORT] __attribute__((aligned(4)));
+static volatile u8 tool_pending, tool_state, tool_tag;
+static u16 tool_len, tool_off, tool_rx;
+static char tool_serial[TOOL_SERIAL];
+
+static u32 tool_string(u8 index, u8 *out)
+{
+    const char *s = index == 1 ? USB_MANUFACTURER : index == 2 ? board_name : index == 3 ? tool_serial : NULL;
+    u32 n = 0;
+
+    if (!index) {
+        out[0] = 4; out[1] = USB_DT_STRING; out[2] = 0x09; out[3] = 0x04;
+        return 4;
+    }
+    if (!s) return 0;
+    while (s[n] && n < 62) {
+        out[2 + 2 * n] = (u8)s[n];
+        out[3 + 2 * n] = 0;
+        n++;
+    }
+    out[0] = (u8)(2 + 2 * n);
+    out[1] = USB_DT_STRING;
+    return out[0];
+}
+
+/* The core hands over the data stage a packet at a time: STAGE_OUT asks
+ * for the next one. */
+static u32 tool_set_data(struct usb_device_t *dev, struct usb_ctrlrequest *req)
+{
+    u32 want = req->wLength < TOOL_REPORT ? req->wLength : TOOL_REPORT;
+    u32 n = usb_read_count0(0);
+
+    (void)dev;
+    if (n > want - tool_rx) n = want - tool_rx;
+    usb_read_ep0(0, tool_req + tool_rx, n);
+    tool_rx = (u16)(tool_rx + n);
+    if (n == PACKET && tool_rx < want) return USB_EP0_STAGE_OUT;
+    if (tool_rx >= TOOL_HEAD) {
+        tool_tag = tool_req[19];
+        tool_state = TOOL_BUSY;
+        tool_pending = 1;
+        plat_raise(EV_USB);
+    }
+    return USB_EP0_STAGE_SETUP;
+}
+
+static void tool_get(struct usb_device_t *dev, struct usb_ctrlrequest *req)
+{
+    u8 *buf = usb_get_setup_buffer(dev);
+    u16 n = 0;
+
+    memset(buf, 0, TOOL_REPORT);
+    if (tool_state == TOOL_MORE || tool_state == TOOL_LAST) {
+        n = tool_len - tool_off;
+        if (n > TOOL_REPORT - TOOL_REPLY_HEAD) n = TOOL_REPORT - TOOL_REPLY_HEAD;
+        memcpy(buf + TOOL_REPLY_HEAD, tool_answer + tool_off, n);
+        tool_off = (u16)(tool_off + n);
+        tool_state = tool_off < tool_len ? TOOL_MORE : TOOL_LAST;
+    }
+    buf[0] = tool_tag;
+    buf[1] = tool_state;
+    buf[2] = (u8)n;
+    buf[3] = (u8)(n >> 8);
+    reply(dev, req, buf, req->wLength < TOOL_REPORT ? req->wLength : TOOL_REPORT);
+}
+
+static void tool_reset(struct usb_device_t *dev, u32 itf)
+{
+    (void)dev;
+    (void)itf;
+    usb_g_ep_config(0, EP_IN | USB_DIR_IN, USB_ENDPOINT_XFER_INT, 0, dma_in, PACKET);
+    usb_enable_ep(0, EP_IN);
+}
+
+static u32 tool_hook(struct usb_device_t *dev, struct usb_ctrlrequest *req)
+{
+    u8 *buf = usb_get_setup_buffer(dev);
+    u32 type = req->bRequestType & USB_TYPE_MASK;
+    u32 n;
+
+    if (type == USB_TYPE_STANDARD) {
+        if (req->bRequest == USB_REQ_SET_CONFIGURATION) {
+            tool_reset(dev, 0);
+            return 0;            /* the core answers it */
+        }
+        if (req->bRequest != USB_REQ_GET_DESCRIPTOR) return 0;
+        switch (HIBYTE(req->wValue)) {
+        case USB_DT_DEVICE: reply(dev, req, device_desc, sizeof(device_desc)); return 1;
+        case USB_DT_CONFIG: reply(dev, req, config_desc, config_len); return 1;
+        case USB_DT_STRING:
+            n = tool_string(LOBYTE(req->wValue), buf);
+            if (n) reply(dev, req, buf, n);
+            else stall(dev);
+            return 1;
+        case DT_HID: reply(dev, req, config_desc + hid_at, 9); return 1;
+        case DT_REPORT: reply(dev, req, tool_report_desc, sizeof(tool_report_desc)); return 1;
+        }
+        stall(dev);
+        return 1;
+    }
+    if (type == USB_TYPE_CLASS && (req->bRequestType & USB_RECIP_MASK) == USB_RECIP_INTERFACE) {
+        switch (req->bRequest) {
+        case REQ_GET_REPORT:
+            if (HIBYTE(req->wValue) != 3) break;
+            tool_get(dev, req);
+            return 1;
+        case REQ_SET_REPORT:
+            if (HIBYTE(req->wValue) != 3) break;
+            tool_rx = 0;
+            usb_set_setup_recv(dev, tool_set_data);
+            return 1;
+        case REQ_GET_IDLE:
+            buf[0] = 0;
+            reply(dev, req, buf, 1);
+            return 1;
+        case REQ_SET_IDLE:
+        case REQ_SET_PROTOCOL:
+            ok(dev);
+            return 1;
+        }
+    }
+    stall(dev);
+    return 1;
+}
+
+/* The descriptors: V-USB's generic HID ID (pad.h), our manufacturer, the
+ * board as product, the flash UID as serial; the HID interface as a
+ * personality's, with its IN endpoint. */
+void plat_usb_tool_mode(void)
+{
+    const u8 *uid = plat_unique_id();
+    u8 hid[9] = { 9, DT_HID, 0x11, 0x01, 0, 1, DT_REPORT, sizeof(tool_report_desc), 0 };
+    u8 *p = config_desc + 9;
+    u32 i;
+
+    for (i = 0; i < 16; i++) {
+        static const char hex[] = "0123456789ABCDEF";
+
+        tool_serial[2 * i] = uid ? hex[uid[i] >> 4] : '0';
+        tool_serial[2 * i + 1] = uid ? hex[uid[i] & 15] : '0';
+    }
+    get_device_descriptor(device_desc);
+    device_desc[4] = device_desc[5] = device_desc[6] = 0;   /* the class is the interface's */
+    device_desc[8] = (u8)USB_OWN_VID;
+    device_desc[9] = (u8)(USB_OWN_VID >> 8);
+    device_desc[10] = (u8)USB_OWN_HID_PID;
+    device_desc[11] = (u8)(USB_OWN_HID_PID >> 8);
+    device_desc[14] = 1;
+    device_desc[15] = 2;
+    device_desc[16] = 3;
+    p = interface(p, 0, 1, USB_CLASS_HID, 0, 0);
+    hid_at = (u8)(p - config_desc);
+    p = put(p, hid, sizeof(hid));
+    p = endpoint(p, 0x80 | EP_IN, USB_ENDPOINT_XFER_INT, PACKET, 10);
+    config_len = (u16)(p - config_desc);
+    {
+        u8 head[9] = { 9, USB_DT_CONFIG, (u8)config_len, (u8)(config_len >> 8), 1, 1, 0, 0x80, 50 };
+
+        memcpy(config_desc, head, 9);
+    }
+    tool_pending = 0;
+    tool_state = TOOL_IDLE;
+    usb_device_mode(0, 0x80000000);      /* no SDK class: the core and its EP0 only */
+    dma_in = usb_alloc_ep_dmabuffer(0, EP_IN | USB_DIR_IN, PACKET);
+    usb_set_reset_hander(0, 0, tool_reset);
+    usb_set_setup_hook(usb_id2device(0), tool_hook);
+}
+
+void plat_usb_tool_service(void)
+{
+    u8 cdb[16];
+    u16 len;
+    u8 out;
+
+    if (!tool_pending) return;
+    local_irq_disable();
+    memcpy(cdb, tool_req, 16);
+    len = (u16)(tool_req[16] | tool_req[17] << 8);
+    out = tool_req[18] & 1;
+    if (len > (out ? TOOL_REPORT - TOOL_HEAD : TOOL_REPORT)) len = out ? TOOL_REPORT - TOOL_HEAD : TOOL_REPORT;
+    if (out) memcpy(tool_answer, tool_req + TOOL_HEAD, len);
+    tool_pending = 0;
+    local_irq_enable();
+    if (out) {
+        usb_command(cdb, tool_answer, len, 1);
+        len = 0;
+    } else {
+        memset(tool_answer, 0, len);
+        usb_command(cdb, tool_answer, len, 0);
+    }
+    local_irq_disable();
+    if (!tool_pending) {         /* else a newer command came meanwhile */
+        tool_len = len;
+        tool_off = 0;
+        tool_state = TOOL_LAST;
+    }
+    local_irq_enable();
 }

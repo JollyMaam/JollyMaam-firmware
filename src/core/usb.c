@@ -1,11 +1,16 @@
 #include <string.h>
 #include "pad.h"
 
-/* Vendor SCSI commands on the mass-storage interface.
+/* The tool device's vendor commands.
  *
- * CDB: [0] 0xF5, [1] sub-command, [2..5] argument (little-endian).  The data
- * phase carries what the host sent for a host-to-pad command (WRITE), or the
- * answer for the others.  Status is the CSW.  Everything is little-endian.
+ * CDB: [0] 0xF5, [1] sub-command, [2..5] argument (little-endian), as SCSI
+ * vendor commands on the mass storage this once was.  The data carries what
+ * the host sent for a host-to-pad command (WRITE), or the answer for the
+ * others, of the size the host asked for.  The platform carries them in HID
+ * feature reports: on the Jieli chips 512 bytes (platform_jieli_usb.c: at
+ * most 492 to the pad), on the B80 356 (platform_telink_usb.c: at most 336
+ * either way).
+ * Everything is little-endian.
  *
  * The Jieli loader's own opcodes (0xFB 0xFC 0xFD) reboot into the loader, as
  * the SDK does, so its tools find the loader behind a running pad.
@@ -96,13 +101,10 @@
  * A board built without the settings store (NO_SETTINGS) answers FIELD to
  * EPHEMERAL, DEFAULTS and LED_DEMO with no data and changes nothing.
  *
- * The other SCSI commands answer as a device with no medium: INQUIRY answers,
- * TEST UNIT READY says "no medium", READ CAPACITY fails.  Nothing is mounted.
- *
  * usb_poll() runs on EV_USB and with the loop's housekeeping, and lets the
- * platform service a parked command; usb_command() runs on the control thread.  The platform's
- * private_scsi_cmd() hook parks each vendor command and raises EV_USB.
- * padtool/padtool.py and padtool/padgui.pyw (Linux/Windows SCSI) are the clients. */
+ * platform service a parked command; usb_command() runs on the control thread.  The platform
+ * parks each command it receives and raises EV_USB.  padtool/padtool.py and
+ * padtool/padgui.pyw (Linux/Windows) and tools/jlnewfw.c are the clients. */
 
 #define OP          0xf5
 #define PROTOCOL    2

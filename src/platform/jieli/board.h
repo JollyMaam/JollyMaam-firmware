@@ -52,7 +52,8 @@ extern u32 plat_updater_mailbox[2];
 
 /* ---- the tool device, between the platform's files ---------------------- */
 
-void plat_usb_tool_strings(void);        /* platform_jieli_usb.c: after the SDK's mass storage starts */
+void plat_usb_tool_mode(void);           /* platform_jieli_usb.c: on the bus as the tool device */
+void plat_usb_tool_service(void);        /* control thread: runs the command the host sent */
 
 /* ---- audio, between the platform's files (platform_jieli_audio.c) --------- */
 

@@ -1288,25 +1288,18 @@ class TransportTests(unittest.TestCase):
              patch.object(padgui.pad, "scsi", return_value=inquiry) as scsi:
             self.assertEqual(list(padgui.pad.discover_devices()), [])
             self.assertEqual(list(padgui.pad.discover_devices(include_loaders=True)), [("rom", "BR23    UBOOT1.00", None)])
-            self.assertEqual(scsi.call_count, 2)
+            self.assertEqual(scsi.call_count, 1)    # disks only when loaders are wanted
             self.assertTrue(all(call.args[1][0] == 0x12 for call in scsi.call_args_list))
 
-    def test_discovery_uses_hidden_marker_and_identify(self):
+    def test_discovery_asks_tool_devices_only(self):
         identity = b"C2PD\x02\0\0\0" + bytes(80)
-        # Display names are arbitrary; only the hidden marker selects IDENTIFY.
-        for vendor, product, marker in [(b"        ", b"Any model", b"C2PD"),
-                                         (b"GameSir ", b"Old model", b""),
-                                         (b"BR23    ", b"AC695X_TRANS", b"")]:
-            inquiry = bytes(8) + vendor + product.ljust(16, b" ") + b"1.00" + marker
-            with self.subTest(vendor=vendor), \
-                 patch.object(padgui.pad, "device_paths", return_value=["ours"]), \
-                 patch.object(padgui.pad, "scsi", side_effect=[inquiry, identity]):
-                found = list(padgui.pad.discover_devices())
-                self.assertEqual(len(found), 1)
-                self.assertEqual(found[0][2], identity)
-        inquiry = bytes(8) + b"        " + b"Other disk".ljust(16, b" ") + b"1.00C2PD"
-        with patch.object(padgui.pad, "device_paths", return_value=["other"]), \
-             patch.object(padgui.pad, "scsi", side_effect=[inquiry, bytes(88)]):
+        with patch.object(padgui.pad, "device_paths", return_value=["/dev/hidraw3", "/dev/sg1"]), \
+             patch.object(padgui.pad, "tool_name", return_value="Nova 2 Lite"), \
+             patch.object(padgui.pad, "scsi", return_value=identity) as scsi:
+            self.assertEqual(list(padgui.pad.discover_devices()), [("/dev/hidraw3", "Nova 2 Lite", identity)])
+            self.assertEqual([call.args[0] for call in scsi.call_args_list], ["/dev/hidraw3"])
+        with patch.object(padgui.pad, "device_paths", return_value=["/dev/hidraw3"]), \
+             patch.object(padgui.pad, "scsi", return_value=bytes(88)):
             self.assertEqual(list(padgui.pad.discover_devices()), [])
 
     def test_windows_packet_layout(self):

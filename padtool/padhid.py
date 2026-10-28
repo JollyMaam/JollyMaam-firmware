@@ -12,8 +12,9 @@ import sys
 
 def devices():
     """Each HID interface: path, vid, product, bcd, manufacturer,
-    product_name, location (USB port; None if unknown) and descriptor (Linux)
-    or usage_page and out_len (Windows)."""
+    product_name, location (USB port; None if unknown), feature_len (its
+    feature report's bytes, without the ID) and descriptor (Linux) or
+    usage_page and out_len (Windows)."""
     if sys.platform == "linux":
         return _linux_devices()
     if sys.platform == "win32":
@@ -41,6 +42,25 @@ def _read(path, binary=False):
         return b"" if binary else ""
 
 
+def feature_bytes(descriptor):
+    """The feature reports' bytes in a report descriptor, short items only:
+    report size times count for each feature item."""
+    size = count = bits = i = 0
+    while i < len(descriptor):
+        prefix = descriptor[i]
+        n = (0, 1, 2, 4)[prefix & 3]
+        value = int.from_bytes(descriptor[i + 1:i + 1 + n], "little")
+        tag = prefix & 0xfc
+        if tag == 0x74:
+            size = value
+        elif tag == 0x94:
+            count = value
+        elif tag == 0xb0:
+            bits += size * count
+        i += 1 + n
+    return bits // 8
+
+
 def _linux_devices():
     found = []
     for sys_node in sorted(Path("/sys/class/hidraw").glob("hidraw*")):
@@ -52,6 +72,7 @@ def _linux_devices():
             continue
         hid = {"path": path, "vid": 0, "product": 0, "bcd": 0, "manufacturer": "", "product_name": "",
                "location": None, "descriptor": _read(sys_node / "device/report_descriptor", True)}
+        hid["feature_len"] = feature_bytes(hid["descriptor"])
         for line in _read(sys_node / "device/uevent").splitlines():
             if line.startswith("HID_ID="):
                 _, vid, product = line[7:].split(":")
@@ -158,7 +179,8 @@ def _windows_devices():
                 found.append({"path": path, "vid": attributes.VendorID, "product": attributes.ProductID,
                               "bcd": attributes.VersionNumber, "manufacturer": strings[0],
                               "product_name": strings[1], "location": None,
-                              "usage_page": caps.UsagePage, "out_len": caps.OutputReportByteLength})
+                              "usage_page": caps.UsagePage, "out_len": caps.OutputReportByteLength,
+                              "feature_len": max(caps.FeatureReportByteLength - 1, 0)})
             finally:
                 k.CloseHandle(handle)
     finally:
@@ -177,3 +199,50 @@ def _windows_write(path, data):
             raise ctypes.WinError(ctypes.get_last_error())
     finally:
         k.CloseHandle(handle)
+
+
+class Features:
+    """An open HID interface's feature reports, without report IDs: set()
+    sends the report, get() reads one of size bytes."""
+
+    def __init__(self, path, size):
+        self.path, self.size = path, size
+        if sys.platform == "win32":
+            from ctypes import wintypes as w
+            self.k, self.handle = _windows_open(path, 0xc0000000)
+            self.hid = ctypes.WinDLL("hid")
+            for name in ("HidD_SetFeature", "HidD_GetFeature"):
+                getattr(self.hid, name).argtypes = [w.HANDLE, ctypes.c_void_p, w.ULONG]
+        else:
+            self.fd = os.open(path, os.O_RDWR)
+
+    def set(self, data):
+        buf = ctypes.create_string_buffer(b"\0" + bytes(data).ljust(self.size, b"\0"), self.size + 1)
+        if sys.platform == "win32":
+            if not self.hid.HidD_SetFeature(self.handle, buf, self.size + 1):
+                raise ctypes.WinError(ctypes.get_last_error())
+        else:
+            import fcntl
+            fcntl.ioctl(self.fd, 0xc0004806 | (self.size + 1) << 16, buf)   # HIDIOCSFEATURE
+
+    def get(self):
+        buf = ctypes.create_string_buffer(self.size + 1)
+        if sys.platform == "win32":
+            if not self.hid.HidD_GetFeature(self.handle, buf, self.size + 1):
+                raise ctypes.WinError(ctypes.get_last_error())
+        else:
+            import fcntl
+            fcntl.ioctl(self.fd, 0xc0004807 | (self.size + 1) << 16, buf)   # HIDIOCGFEATURE
+        return buf.raw[1:]
+
+    def close(self):
+        if sys.platform == "win32":
+            self.k.CloseHandle(self.handle)
+        else:
+            os.close(self.fd)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()

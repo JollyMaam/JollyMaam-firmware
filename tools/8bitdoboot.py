@@ -31,7 +31,7 @@ import time
 import zlib
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "padtool"))
-from padtransport import scsi, device_paths, usb_location  # noqa: E402
+from padtransport import scsi, tool_paths, usb_location  # noqa: E402
 
 LOADER = (0x2dc8, 0x3208)
 MODELS = {"U2C_WIRELESS": 0x301b, "U2C_RECEIVER": 0x301c}
@@ -116,13 +116,10 @@ def loaders(port=None):
 
 
 def ours(pid=None, port=None):
-    """(sg node, USB port, identity) of our firmware, for one image PID."""
+    """(tool device, USB port, identity) of our firmware, for one image PID."""
     found = []
-    for path in device_paths():
+    for path in tool_paths():
         try:
-            inquiry = scsi(path, [0x12, 0, 0, 0, 40], 40, 1000)
-            if len(inquiry) < 40 or inquiry[36:40] != b"C2PD":
-                continue
             identity = scsi(path, [OP, 0x00], 88, 1000)
         except OSError:
             continue
