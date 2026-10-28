@@ -353,11 +353,13 @@ enum { USB_HID, USB_XINPUT, USB_HID_BULK };
 enum { USB_AUDIO_NONE, USB_AUDIO_SPEAKER, USB_AUDIO_HEADSET };
 /* Our own devices (the tool device, the dongle's hub): V-USB's shared ID
  * for generic HID (usbdrv/USB-IDs-for-free.txt), told apart by the
- * manufacturer string and the usage page.  Its rules want a domain or an
- * e-mail address in the string: not there yet. */
+ * manufacturer string and the usage page; the generic gamepad: its shared
+ * joystick ID.  Its rules want a domain or an e-mail address in the
+ * string: not there yet. */
 #define USB_MANUFACTURER "JollyMaam"
 #define USB_OWN_VID      0x16c0
 #define USB_OWN_HID_PID  0x05df
+#define USB_OWN_JOYSTICK_PID 0x27dc
 
 struct usb_identity {
     u16 vendor_id, product_id, bcd_device;

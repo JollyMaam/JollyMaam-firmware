@@ -58,15 +58,16 @@ static int generic_report(const struct pad *p, u32 now, u8 *out, u8 *id)
 
 static const struct bt_device generic_device = {
     .transport = BT_CLASSIC, .name = board_name, .class_of_device = 0x002508,
-    .vendor_id = 0x3537, .product_id = 0x0575, .version = 0x0100,
+    .vendor_id = USB_OWN_VID, .product_id = USB_OWN_JOYSTICK_PID, .version = 0x0100,
     .hid_descriptor = generic_descriptor, .hid_descriptor_len = sizeof(generic_descriptor),
     .sniff_slots = 24, .sniff_attempt = 1,
 };
 
-/* Wired, both generic gamepads are this one. */
+/* Wired, both generic gamepads are this one: V-USB's shared joystick ID
+ * (pad.h), ours by the manufacturer string. */
 static const struct usb_identity generic_usb = {
-    .vendor_id = 0x3537, .product_id = 0x0575, .bcd_device = 0x0100,
-    .product = board_name,
+    .vendor_id = USB_OWN_VID, .product_id = USB_OWN_JOYSTICK_PID, .bcd_device = 0x0100,
+    .manufacturer = USB_MANUFACTURER, .product = board_name,
     .kind = USB_HID, .report_ids = 1, .interval = 1, .in_size = 16, .max_power = 250,
     .audio = USB_AUDIO_SPEAKER, .hid_descriptor = generic_descriptor, .hid_descriptor_len = sizeof(generic_descriptor),
 };
