@@ -24,7 +24,7 @@ const struct board_rumble board_rumble = {
 
 /* Four LE slots share Generic BLE until the other profile tables fit. */
 const struct board_slots board_slots = {
-    .type = { PROFILE_GENERIC_BLE, PROFILE_GENERIC_BLE, PROFILE_GENERIC_BLE, PROFILE_GENERIC_BLE,
+    .type = { PROFILE_GENERIC_BLE, PROFILE_DUALSENSE_BLE, PROFILE_XBOX_BLE, PROFILE_SWITCH2,   /* A B X Y */
               PROFILE_NONE, PROFILE_NONE, PROFILE_NONE, PROFILE_NONE },
     .transport = { TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT,
                    TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT },
