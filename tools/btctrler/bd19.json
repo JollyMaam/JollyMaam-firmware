@@ -35,6 +35,14 @@
       ]
     },
     {
+      "member": "au_law_codec.c.o",
+      "occurrence": 1,
+      "sha256": "9f9eaff73b762b21bd15003966b4375368405f2738e38416d4a2c442666926d5",
+      "sources": [
+        "src/btctrler/bd19/au_law_codec.c"
+      ]
+    },
+    {
       "member": "audio_codec.c.o",
       "occurrence": 1,
       "sha256": "602b140db1a0d100fbbf9e40fb4a262f145db89325f7b74f5e0615a783082d09",
@@ -146,6 +154,14 @@
       "sha256": "b19e444be48e4039ad287191e54c3a7a128f181222f727c85c292b896c72777b",
       "sources": [
         "src/btctrler/bd19/shared/device_manager.c"
+      ]
+    },
+    {
+      "member": "esco_codec.c.o",
+      "occurrence": 1,
+      "sha256": "b6365601be9603886ce9cd9ab6c11d6c384277c5d00418c217404972c84824a8",
+      "sources": [
+        "src/btctrler/bd19/esco_codec.c"
       ]
     },
     {

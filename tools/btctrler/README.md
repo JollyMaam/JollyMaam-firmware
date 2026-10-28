@@ -31,6 +31,7 @@ PATH=/work/bin:$PATH make -j32 controller-objects controller-test
 PATH=/work/bin:$PATH make controller-audit
 PATH=/work/bin:$PATH make test
 python3 tools/btctrler/check_uecc.py  # BD19 curve specialization vs Python integers
+python3 tools/btctrler/check_law_codecs.py  # Exhaustive fixed-width codec arithmetic
 ```
 
 Original IR and inventories: `build/controller-ir/{br23,bd19}/`.

@@ -69,6 +69,8 @@ against the eventual Nova 2 configuration and linked image.
 
 | C20 | `bd19/lmp_hci_cmd_parser.c` / `lmp_hci_baseband.c`, SDK member occurrence 1 `97b7f09b…127af`, worker `55e2b12`: several original SDK handlers match BR23, but baseline C in `link_control`, `link_policy`, `classic_baseband`, `hci_misc` already adds bounds, initialized message words, QoS hooks and reply corrections. | Share only after choosing the guard/formatter/unsupported-command contracts explicitly. Keep original BR23 recovery behavior unchanged during BD19 ownership; pure information/vendor/testing wrappers are the simplest later sharing candidates. |
 
+| C21 | `bd19/au_law_codec.c` / `esco_codec.c`, worker `cc9237e`: BR23/BD19 selector and callback/table ABI agree; conversion bodies differ by loop shaping and equivalent integer operations. There was no previous BR23 C owner. | Candidate common implementation after explicit BR23 member ownership review. Preserve signed16 sample/count ABI and A-law full-scale behavior; do not infer codec activation from arithmetic tests. |
+
 ## Confirmed BD19 behavior to revisit
 
 Each row describes SDK behavior deliberately retained in accepted C. Fixes need
@@ -128,6 +130,8 @@ unestablished unless specifically stated.
 | B39 | `bd19/lmp_hci_baseband.c`, same occurrence: EIR analysis wraps both index and total at eight bits, can cycle on malformed fields, checks total <=240 only after walking, and continues after returning assertions. It clears only four unaligned bytes before copying the reported length, preserving old tail data. Name read copies unbounded `strlen` into 248 allocated bytes; failed allocations assert then continue. | Define validated host/EIR/name bounds and failure policy separately. Host fixtures use larger backing or an assertion hook that supplies backing to observe SDK continuation; real buffers are not made safe by those fixtures. Check the consumer's use of preserved EIR tail bytes. |
 | B40 | Same baseband occurrence: Read Connection Accept Timeout reads incoming bytes and overwrites the timeout; Read Current IAC LAP supplies its pointer to numeric format `113`; Read Page Scan Type uses format `1` with an extra value; Read Link Supervision Timeout supplies a double 32000.0 to format `1H2`. Voice-setting logs retain cached gating while reloading mutable settings between callbacks. | Port baseline BR23 reply corrections only as explicit behavior changes with protocol/caller tests. Do not let host variadic stubs reinterpret pointer/double arguments as integer values or silently normalize the SDK ABI. |
 | B41 | `bd19/lmp_hci_cmd_parser.c`, same occurrence: commands ignore incoming length, several message paths initialize only opcode (including passkey routes), QoS is an unsupported placeholder emitting event 1 with `1H114444`; multiple flow-control/status commands are consumed without a reply. QoS handle is captured before status, payload fields reloaded afterward. | Audit downstream message consumers before initializing unused words or adding missing replies; define host support/validation policy (B06). Decide whether this placeholder should be exposed or replaced. Preserve saved-handle and callback reload boundaries until a separate fix. |
+
+| B42 | `bd19/au_law_codec.c`, occurrence 1 `9f9eaff7…26d5`: A-law negates a negative sample at i16 width before sign extension; -32768 stays negative, selects segment 0 and encodes as `0x55` (decoding to -8), while +32767 encodes `0xaa`. Both codecs process only positive signed16 counts and always return 0. | Confirm intended full-scale treatment and count/status contract before any normalization. The independent integer model checks all signed16 inputs and all 256 codewords; this confirms SDK arithmetic, not audio-path reachability. The reviewed μ-law sign reversal was a corrected translation error, not an SDK finding. |
 
 ## Inherited BR23 follow-ups: BD19 confirmation queue
 
@@ -273,6 +277,8 @@ not absence of defects. See the earlier sections for cross-member issues.
 | `bredr_low_power.c.o` / 1 | `cb82461` | C11; B16; power policy BR23 #14 |
 | `bredr_slot_timer.c.o` / 1 | `a1021a5` | C11; B16 |
 | `bredr_utils.c.o` / 1 | `f57a6ce` | B16 / BR23 #4 |
+| `au_law_codec.c.o` / 1 | `cc9237e` + coordinator review | C21; B42; two const callback tables |
+| `esco_codec.c.o` / 1 | `cc9237e` + coordinator review | C21; exact four-entry selector |
 | `audio_codec.c.o` / 1 | `e9f8aa7` | C16; B30/B31; stubs and lifecycle behavior |
 | `authentication.c.o` / 1 | `3dfd4bd` | B25/B26; common Classic source plus BD19 ROM curve ABI |
 | `btagc.c.o` / 1 | `a3a5af8` | C11; BR23 #18 is absent from accepted BD19 analog BLE (no RSSI table lookup) |

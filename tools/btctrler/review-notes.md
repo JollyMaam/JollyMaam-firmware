@@ -1337,3 +1337,31 @@ index entries. All 123 original BR23 source files remain byte-identical to
 ancestry and read-only dependency-status checks. No pending worker or hardware
 validation. The migration IR reader's joined header path was corrected in
 `aec5c00`, with both target CLI smoke checks; this changes no controller code.
+
+## Clean-branch BD19 A-law/μ-law codec acceptance
+
+Worker `cc9237e` supplies occurrence 1 `au_law_codec.c.o`
+(`9f9eaff73b762b21bd15003966b4375368405f2738e38416d4a2c442666926d5`)
+and `esco_codec.c.o`
+(`b6365601be9603886ce9cd9ab6c11d6c384277c5d00418c217404972c84824a8`).
+Dedicated BD19 sources export two const callback tables and the selector;
+eight codec callbacks remain private. Both four-pointer table initializers,
+16 segment-table bytes, widths, alignment and default sections match SDK IR.
+Review corrected the worker's μ-law decode sign and replaced the ineffective
+combined selector fixture with a standalone stub fixture plus an independent
+check linked against both actual codec tables. The sign mistake is a resolved
+translation error, not an SDK defect.
+
+`check_law_codecs.py` independently models the original fixed-width IR and
+checks all 131072 encode cases (65536 samples per codec), all 512 decode cases,
+maximum positive signed16 count, negative/zero no-access paths, init width,
+selectors and guard sentinels. Focused ASan/UBSan fixtures pass. Four private
+need/init bodies match normalized IR exactly; other differences are loop/CFG
+shaping, equivalent masked shifts/truncation, selector return merging and
+private-table linkage. C21/B42 retain sharing and SDK full-scale follow-ups.
+
+Worker controller suite passes: 197 `: ok` reports, 12 legacy reports,
+31 tooling tests, both target layouts and 76 ownership/retention audits.
+Totals: 77 accepted members, 916 public functions, 69 globals; 34 retained
+members / 1152 verified index entries. Original BR23 C is unchanged. No
+application-image or audio hardware validation is claimed.

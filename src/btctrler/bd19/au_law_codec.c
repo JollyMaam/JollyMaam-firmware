@@ -13,6 +13,7 @@ static u32 btalaw_encode(void *ptr, s16 *in, u8 *out, s16 len)
     for (s32 i = 0; i < (s32)len; ++i) {
         s16 sample = in[i];
         u8 mask = sample >= 0 ? 213 : 85;
+        /* SDK negates at i16 width: -32768 deliberately remains negative. */
         if (sample < 0) sample = (s16)(0 - sample);
         s32 seg = 0;
         while (seg < 8 && G711_seg_end[seg] < sample) ++seg;
@@ -63,7 +64,8 @@ static u32 btulaw_decode(void *ptr, u8 *in, s16 *out, s16 len)
     for (s32 i = 0; i < (s32)len; ++i) {
         u8 code = in[i], u = code ^ 255;
         s32 t = (((u << 3) & 120) | 132) << ((u >> 4) & 7);
-        out[i] = (s16)(code >= 128 ? 132 - t : t - 132);
+        /* The sign test uses the original byte, not its complement. */
+        out[i] = (s16)(code < 128 ? 132 - t : t - 132);
     }
     return 0;
 }
@@ -76,6 +78,8 @@ const struct esco_codec_ops esco_ulaw_codec = {
 };
 
 #ifdef UNITTEST
+#ifndef BTCTRLER_CODEC_LIBRARY_TEST
+#include "test.h"
 #include <assert.h>
 #include <string.h>
 int main(void)
@@ -96,6 +100,8 @@ int main(void)
     assert(decoded[0] == 8 && decoded[1] == -8);
     assert(esco_ulaw_codec.decode(NULL, (u8[]){0xff, 0x7f}, decoded, 2) == 0);
     assert(decoded[0] == 0 && decoded[1] == 0);
+    esco_ulaw_codec.decode(NULL, (u8[]){0x00, 0x80, 0x7e, 0xfe}, decoded, 4);
+    CHECK(decoded[0] == -32124 && decoded[1] == 32124 && decoded[2] == -8 && decoded[3] == 8);
     for (int i = 0; i < 256; ++i) {
         u8 c = (u8)i; s16 pair[3] = {0x1234, 0, 0x2345};
         esco_alaw_codec.decode(NULL, &c, pair + 1, 1);
@@ -109,6 +115,7 @@ int main(void)
     assert(codes[0] == 0x6b && codes[4] == 0x6b);
     esco_ulaw_codec.encode(NULL, samples, codes, -1);
     assert(codes[0] == 0x6b && codes[4] == 0x6b);
-    return 0;
+    return TEST_DONE("bd19_au_law_codec");
 }
+#endif
 #endif
