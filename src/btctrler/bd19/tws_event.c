@@ -104,7 +104,7 @@ static void tws_key_event_timeout(void *priv)
                 evt.u.key.event = record[1];
                 evt.u.key.value = record[2];
                 sys_event_notify(&evt);
-                offset = (u8)(offset + 3);
+                offset += 3;
                 record += 3;
                 /* SDK reloads length after each notification. */
                 length = event_len[index];
@@ -172,7 +172,6 @@ static void tws_event_sync_rx_events(struct lmp_connection *conn, u8 *data,
 
     u8 *record = data;
     for (int i = 1; i < len; i += 3, record += 3) {
-        evt.u.key.init = 0;
         evt.u.key.type = record[1];
         evt.u.key.event = record[2];
         evt.u.key.value = record[3];
@@ -221,7 +220,7 @@ static void tws_event_sync_tx_events_suss(void)
             evt.u.key.event = record[1];
             evt.u.key.value = record[2];
             sys_event_notify(&evt);
-            offset = (u8)(offset + 3);
+            offset += 3;
             record += 3;
             /* Notification may mutate the queue length. */
             length = event_len[index];
@@ -253,6 +252,7 @@ const struct tws_sync_channel tws_event_sync
     };
 
 #ifdef UNITTEST
+#include "test.h"
 #include <assert.h>
 #include <string.h>
 
@@ -269,15 +269,17 @@ static int timeout_delay;
 static u16 timeout_id = 37;
 static void (*timeout_callback)(void *);
 static int notify_mode;
+static int enable_clear, sniff_value, sniff_calls;
 
 void local_irq_disable(void) { }
-void local_irq_enable(void) { }
+void local_irq_enable(void)
+{ if (enable_clear) { event_len[tx_index & 1]=0; enable_clear=0; } }
 struct lmp_connection *lmp_conn_for_address(u8 *addr)
 {
     (void)addr;
     return test_lmp_conn;
 }
-int tws_in_sniff_state(void) { return 0; }
+int tws_in_sniff_state(void) { sniff_calls++; return sniff_value; }
 void tws_tx_unsniff_req(void) { unsniff_count++; }
 void log_print(int level, const char *tag, const char *format, ...)
 {
@@ -316,6 +318,9 @@ void sys_event_notify(struct sys_event *event)
         key_events[1][0] = 0x71;
         key_events[1][1] = 0x72;
         key_events[1][2] = 0x73;
+    } else if (notify_mode == 3) {
+        if (notify_count == 1) event->u.key.init = 0x81;
+        else assert(event->u.key.init == 0x81);
     } else if (notify_mode == 2) {
         assert(event_lock == 1); /* ACK holds its lock during callbacks. */
     }
@@ -397,6 +402,40 @@ int main(void)
     key_event_sync_event_hander(0, 22, 0);
     assert(rx_seqn == 0 && tx_seqn == 1 && rx_index == 0 && tx_index == 0 &&
            event_len[0] == 0 && event_len[1] == 0 && hi_timer == timeout_id);
-    return 0;
+    /* One initialization per invocation: notification mutations survive. */
+    notify_mode=3; notify_count=0; incoming[0]=9;
+    tws_event_sync_rx_events(NULL,incoming,7);
+    assert(notify_count==2 && last_notified.u.key.init==0x81);
+    notify_mode=0;
+    incoming[0]=10; notify_count=0;
+    tws_event_sync_rx_events(NULL,incoming,-1);
+    assert(rx_seqn==10 && notify_count==0);
+    incoming[0]=11; tws_event_sync_rx_events(NULL,incoming,0);
+    assert(rx_seqn==11 && notify_count==0);
+    assert(tws_event_sync_rx_events_and_tx_events(NULL,NULL,0,NULL)==0);
+
+    key_event_sync_event_hander(NULL,22,NULL); hi_timer=0;
+    evt.arg=NULL; evt.type=1;
+    for (unsigned i=0;i<21;i++) assert(sys_event_recode(&evt)==1);
+    assert(event_len[0]==63 && sys_event_recode(&evt)==0 && event_len[0]==63);
+    enable_clear=1;
+    assert(tws_event_sync_tx_events(NULL,tx,0)==0); /* reload after IRQ enable */
+    assert(tx[0]==1 && tx[1]==evt.u.key.type);
+
+    key_event_sync_event_hander(NULL,22,NULL); hi_timer=0;
+    conn.core.operation_mode=2; int before=sniff_calls;
+    assert(sys_event_recode(&evt)==1 && timeout_delay==1000 && sniff_calls==before);
+    conn.core.operation_mode=0; sniff_value=1;
+    assert(sys_event_recode(&evt)==1 && timeout_delay==1000 && timeout_modify_count>0);
+    sniff_value=0; timeout_id=0; hi_timer=0;
+    assert(sys_event_recode(&evt)==1 && hi_timer==0);
+    before=timeout_add_count;
+    assert(sys_event_recode(&evt)==1 && timeout_add_count==before+1);
+    event_lock=1; assert(sys_event_recode(&evt)==0); event_lock=0;
+    tws_link.link=NULL; assert(sys_event_recode(&evt)==0); tws_link.link=&link;
+    before=timeout_delete_count; tws_key_event_timeout(NULL);
+    assert(timeout_delete_count==before);
+    event_len[0]=3; tws_event_sync_init(); assert(event_len[0]==3);
+    return TEST_DONE("btctrler_bd19_tws_event");
 }
 #endif

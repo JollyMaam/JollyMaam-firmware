@@ -1530,3 +1530,36 @@ layouts and all 80 ownership groups. Totals: 81 accepted / 30 retained members,
 929 functions, 74 globals and 1134 retained index entries. Clean worker/dependency
 status and merged ancestry checked; completed worktree and branch removed.
 Optional WiFi imports remain unsupported as recorded in B49. No hardware tests.
+
+## Clean-branch BD19 TWS event acceptance
+
+Reviewed worker `f628a13`, `tws_event.c.o` occurrence 1, SHA-256
+`73dd3fbcd0a7f28525c2014c208463e8c0aff5efa19ceebd87b97e5937211b53`.
+Dedicated `bd19/tws_event.c` supplies two public functions, six private helpers
+and const tws_event_sync. Channel 8/attribute 15 table, callback relocations,
+28-byte target size, section/alignment and all eight persistent private globals
+match SDK IR; key_events additionally gains only unnamed_addr. The exact
+45-byte diagnostic string agrees. 41 mapped type shapes have no mismatch.
+All eight functions were checked against original occurrence IR and BR23 IR/C.
+Remaining differences are equivalent pointer versus integer sentinel comparison
+on the 32-bit target, loop rotation, pure load/arithmetic scheduling, prototypes,
+call flags and removal of an impossible null comparison for static queue storage.
+
+Coordinator removed an extra key.init reset inside the receive loop: SDK clears
+the event only once, so callback changes to that field must survive subsequent
+notifications. Loop offsets now use int as in SDK. Focused checks cover that
+mutation, direct zero/negative RX with valid backing bytes, wrapper zero-length
+skip, 21-record/63-byte capacity and overflow rejection, fresh length after IRQ
+enable, both 1000ms delay paths and sniff-call short circuit, zero timer result
+and retry, lock/link gates, timeout without timer deletion and no-op init. Existing
+worker fixtures cover three-byte truncation, duplicate sequence, acknowledgment,
+notification-driven length/index changes and reset preserving timer. Original
+SDK behaviors remain unchanged; C26/B50–B51 record protocol, framing, callback
+and timer follow-ups. BR23's record-stride limitation does not apply to BD19.
+
+Worker combined controller checks and census pass: 202 `: ok` reports, 12 legacy
+reports, 31 tooling tests, both target layouts and 81 ownership groups. Totals:
+82 accepted members / 931 public functions / 75 globals; 29 retained members /
+1131 verified index entries. Both target compilers build the source; standalone
+ASan/UBSan with complete mocks passes. All 123 original BR23 C files remain
+byte-identical to 44d0073. No application-image or hardware validation claimed.

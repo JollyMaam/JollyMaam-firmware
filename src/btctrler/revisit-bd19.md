@@ -79,6 +79,8 @@ against the eventual Nova 2 configuration and linked image.
 
 | C25 | `bd19/tws_afh.c`, worker `90772cc`, occurrence 1 `bdb79b35…0ec0`: BR23 counterparts in `tws_pair.c.o` lack the WiFi detector/counter/classifier. BD19 uses table attribute 5 (BR23 2), fixed eSCO-dependent +200/+400, and returns zero during pending updates instead of retransmitting. | Keep separate implementations until a deliberate common protocol/policy exists. BR23 channel masking/run-slot delay are baseline behavior, not evidence of a BD19 bug. |
 
+| C26 | `bd19/tws_event.c`, worker `f628a13`, occurrence 1 `73dd3fbc…1b53`: two 64-byte queues, three-byte records, timeout/ACK local delivery, int event callback and attribute 15 differ from BR23's two 16-byte queues, four-byte records, void callback/static handler and attribute 1. | Keep target wire formats and registration boundaries explicit. Empty init and combined RX/TX wrapper match SDK bodies, but sharing isolated functions is not useful until the surrounding ownership boundary is deliberately refactored. BR23's inherited record-stride issue does not describe BD19's stride-three loop. |
+
 ## Confirmed BD19 behavior to revisit
 
 Each row describes SDK behavior deliberately retained in accepted C. Fixes need
@@ -151,6 +153,9 @@ unestablished unless specifically stated.
 
 | B48 | `bd19/tws_afh.c`, occurrence 1 `bdb79b35…0ec0`: WiFi detection requires config exactly 1, lazily stores unchecked 16-bit timer result, ignores map-helper status, and requires unsigned counter >=6 and >1 changed bits. Counter wraps. RX accepts any nonzero length as timestamp+map; duplicate instant exits before WiFi response. TX completion is a no-op. | Audit timer teardown/retry, malformed framing, duplicate-response suppression and classification policy before application fixes. Preserve callback reloads, including eSCO state after clock and link/map after AFH setup. |
 | B49 | Same member imports `numbits_table` and three `wifi_det_*_channel_map` functions. No providers found in the pinned BD19 `cpu/bd19/liba/*.a` archive indexes or current C. Original SDK member has the same unresolved imports; `src/platform_jieli_sdk.c` sets `CONFIG_WIFI_DETECT_ENABLE=0`. | Optional WiFi path remains unsupported until real providers and integration tests exist. Do not add production stubs or infer support from host mocks, ownership audits, or controller-only builds. Validate optional-feature linkability when enabling it. |
+
+| B50 | `bd19/tws_event.c`, occurrence 1 `73dd3fbc…1b53`: record append truncates event/value to bytes, queues at most 63 bytes, logs and unsniffs before checking capacity, and arms/modifies a 500/1000 timeout under IRQ disable. Timeout and ACK deliver local events under IRQ disable and event_lock; event22 resets queues/sequences but leaves timer active. Timeout clears timer ID without deletion; ACK conditionally deletes after notification. | Audit truncation, notification reentrancy/latency and timer lifetime, including allocation returning zero. Preserve dynamic queue-length/index reloads and ACK unlock-before-clear ordering until an explicit application policy changes them. These fixtures model callbacks, not actual concurrency. |
+| B51 | Same occurrence: direct RX always reads data[0], even for zero/negative len; wrapper calls RX for any nonzero len. Triples are decoded whenever i<len, with no check that the final triple fits. RX uses sequence-only deduplication; TX returns queue length reloaded after IRQ enable, which may differ from bytes just written. Event initialization occurs once per invocation, so notify changes to other fields survive later records. | Establish trusted framing, callback ownership and caller buffer contracts before validation fixes. Investigate short/truncated frames and sequence wrap; tests use real backing storage and do not execute invalid reads. |
 
 ## Inherited BR23 follow-ups: BD19 confirmation queue
 
@@ -370,3 +375,5 @@ not absence of defects. See the earlier sections for cross-member issues.
 | `tws_lmp_sync.c.o` / 1 | `eaf2359` + coordinator review | C24; B46–B47 |
 
 | `tws_afh.c.o` / 1 | `90772cc` + coordinator review | C25; B48–B49 |
+
+| `tws_event.c.o` / 1 | `f628a13` + coordinator review | C26; B50–B51 |

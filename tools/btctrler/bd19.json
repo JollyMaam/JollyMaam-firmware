@@ -618,6 +618,14 @@
       ]
     },
     {
+      "member": "tws_event.c.o",
+      "occurrence": 1,
+      "sha256": "73dd3fbcd0a7f28525c2014c208463e8c0aff5efa19ceebd87b97e5937211b53",
+      "sources": [
+        "src/btctrler/bd19/tws_event.c"
+      ]
+    },
+    {
       "member": "tws_le_acc.c.o",
       "occurrence": 1,
       "sha256": "10a34d02086e881e5502e6b2d92497c227d40125c089689d1f08cba061a0ca2b",
