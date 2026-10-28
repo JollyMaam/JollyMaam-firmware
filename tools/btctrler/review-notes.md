@@ -1693,10 +1693,18 @@ B56 keeps product identity/string policy for later interface/application review.
 This literal-data recovery does not establish USB enumeration or Nova2 support.
 
 Worker combined controller checks/census pass: 204 `: ok` reports, 12 legacy
-reports, 31 tooling tests, both layouts and84 ownership groups. Totals:
-85 accepted members /940 public functions /81 globals;26 retained members /
-1116 verified index entries. All123 original BR23 C files remain byte-identical
-to44d0073; the new common source adds five SDK-equivalent BR23 definitions.
+reports, 31 tooling tests, both layouts and 84 ownership groups. Totals:
+85 accepted members / 940 public functions / 81 globals; 26 retained members /
+1116 verified index entries. All 123 original BR23 C files remain byte-identical
+to 44d0073; the new common source adds five SDK-equivalent BR23 definitions.
 No host tests mirroring literals or sanitizer run were needed: compiled-IR
 initializer equality provides direct verification. No application images,
 USB enumeration or hardware validation claimed.
+
+USB descriptor combined checkpoint: acceptance `9e52e7e` passes canonical
+controller checks/census with 204 `: ok` reports, 12 legacy reports, 31 tooling
+tests, both layouts and 84 ownership groups. Totals: 85 accepted / 26 retained
+members, 940 functions, 81 globals and 1116 retained index entries. Clean
+worker/dependency status and merged ancestry checked; completed worktree and
+branch deleted. The new common source is SDK-identical for both targets;
+original BR23 sources are unchanged. No pending worker or hardware validation.
