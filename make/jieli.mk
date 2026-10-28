@@ -209,6 +209,7 @@ jieli_tools = $(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_TOOLS),$(
 #   NAME_MAIN_AT     optional: the app goes this far above the app area's start,
 #   NAME_FRONT       and the app area holds board NAME_FRONT, its updater
 #   NAME_KEEP        optional ADDR:LEN ranges NAME-flash writes back as the device held them
+#   NAME_NO_FLASH    optional: no NAME-flash (a part of what another board flashes)
 # Targets: NAME (firmware.img), NAME-flash (through the ROM loader),
 # NAME-loader (into the ROM loader and wait there); with more than one
 # device for the board, DEVICE= picks one: its USB port, as jlnewfw scan
@@ -234,7 +235,7 @@ $(1)_FLAGS := $(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_CFLAGS) $
 	$(if $($(1)_NO_BT),-DNO_BT) $(if $($(1)_UPDATER),-DMAIN_AT=$($(1)_UPDATER) -DCODE_LIMIT=$$($(1)_CODE_LIMIT))
 $(1)_INCLUDES := $(SRC_INCLUDES) -iquote $($(1)_BOARD_DIR) -iquote src/platform/jieli/sdkconfig $(BTSTACK_INCLUDES) $(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_INCLUDES),$(JIELI_INCLUDES))
 
-.PHONY: $(1) $(1)-flash $(1)-loader
+.PHONY: $(1) $(if $($(1)_NO_FLASH),,$(1)-flash) $(1)-loader
 $(1): $(O)/$(1)/firmware.img
 
 $(O)/$(1)/src/%.o: src/%.c $(O)/$(1)/defines
@@ -280,11 +281,13 @@ $(O)/$(1)/firmware.img: $(O)/$(1)/app.bin $$($(1)_FRONT_BIN) $(O)/$(1)/isd_confi
 # Ask running firmware to enter the ROM loader (stock firmware without a
 # command for it: by hand), then write the image, encrypted for the
 # connected chip's key.
+ifeq ($($(1)_NO_FLASH),)
 $(1)-flash: $(O)/$(1)/app.bin $$($(1)_FRONT_BIN) $(O)/$(1)/isd_config.ini $(O)/host/jlnewfw
 	$$(Q)$(O)/host/jlnewfw flashpack --enter-loader --wait 30 --loader $(JIELI_LOADER) $$(if $$(DEVICE),--device $$(DEVICE)) \
 		--flash-size $($(1)_FLASH_SIZE) --code-limit $$($(1)_CODE_LIMIT) \
 		-c $(O)/$(1)/isd_config.ini -u $$($(1)_UBOOT) $$($(1)_PACKED) $$($(1)_CONFIG_TOOL) \
 		$(foreach k,$($(1)_KEEP),--keep $(k))
+endif
 
 # Running firmware into the ROM loader, then wait for it there: the loader
 # whose flash holds this board's PID.

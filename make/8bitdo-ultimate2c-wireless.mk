@@ -1,9 +1,11 @@
 # 8BitDo Ultimate 2C Wireless: the pad, a Telink TLSR8208 (B80).
-#   8bitdo-ultimate2c-wireless-pad          firmware.bin in $(O)/<target>/
-#   8bitdo-ultimate2c-wireless-pad-flash    through the 8BitDo boot loader
+#   8bitdo-ultimate2c-wireless-flash        the pad: its updater and the app
+#                                           above it, through the 8BitDo boot loader
+#   8bitdo-ultimate2c-wireless-pad-split    update.bin in $(O)/<target>/
+#   8bitdo-ultimate2c-wireless-pad, -pad-updater  the app alone and its
+#                                           updater: parts of -pad-split, not flashed alone
 #   8bitdo-ultimate2c-wireless-pad-loader   into the boot loader
 #   8bitdo-ultimate2c-wireless-pad-test, 8bitdo-ultimate2c-wireless-all
-#   8bitdo-ultimate2c-wireless-pad-split(-flash)  the pad behind its updater
 # The boot loader is 0x0000-0x5fff and starts the app at 0x6000; stock
 # keeps data in sectors from 0x73000 (docs/8bitdo-ultimate2c-wireless/),
 # which nothing here writes.
@@ -13,6 +15,7 @@ $(U2CW_PAD)_FLASH_SIZE := 0x80000
 $(U2CW_PAD)_APP_START := 0x6000
 $(U2CW_PAD)_APP_END := 0x73000
 $(U2CW_PAD)_PID := U2C_WIRELESS
+$(U2CW_PAD)_NO_FLASH := 1
 $(U2CW_PAD)_STAMP := 6a0000005d02
 $(U2CW_PAD)_LOADER_HINT := If USB boot entry fails: USB unplugged, hold L1+R1, tap Home, plug in USB.
 $(U2CW_PAD)_BOARD_DIR := src/boards/8bitdo-ultimate2c-wireless
@@ -71,6 +74,7 @@ $(U2CW_UPDATER)_FLASH_SIZE := $($(U2CW_PAD)_FLASH_SIZE)
 $(U2CW_UPDATER)_APP_START := $($(U2CW_PAD)_APP_START)
 $(U2CW_UPDATER)_APP_END := 0x16000
 $(U2CW_UPDATER)_UPDATER := 0x10000
+$(U2CW_UPDATER)_NO_FLASH := 1
 $(U2CW_UPDATER)_CODE_LIMIT := 0x6f000
 $(U2CW_UPDATER)_PID := $($(U2CW_PAD)_PID)
 $(U2CW_UPDATER)_STAMP := $($(U2CW_PAD)_STAMP)
@@ -104,8 +108,9 @@ $(eval $(call telink_board,$(U2CW_PAD)))$(eval $(call host_tests,$(U2CW_PAD)))
 $(foreach b,$(U2CW_UPDATER) $(U2CW_SPLIT),$(eval $(call telink_board,$(b))))
 $(eval $(call host_tests,$(U2CW_SPLIT)))
 
-.PHONY: 8bitdo-ultimate2c-wireless-all 8bitdo-ultimate2c-wireless-test
-8bitdo-ultimate2c-wireless-all: $(U2CW_PAD)
+.PHONY: 8bitdo-ultimate2c-wireless-all 8bitdo-ultimate2c-wireless-test 8bitdo-ultimate2c-wireless-flash
+8bitdo-ultimate2c-wireless-all: $(U2CW_PAD) $(U2CW_SPLIT)
+8bitdo-ultimate2c-wireless-flash: $(U2CW_SPLIT)-flash
 8bitdo-ultimate2c-wireless-test: $(U2CW_PAD)-test
 
 # Stock receiver entry only: no receiver firmware target or flashing path yet.

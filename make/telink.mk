@@ -100,6 +100,7 @@ TELINK_SDK_USED += vendor/common/flash_prot.c
 #   NAME_FRONT       optional: this app sits above board NAME_FRONT, its updater
 #                    (NAME_APP_START then is its start + MAIN_AT + 0x120): update.bin,
 #                    and NAME-flash writes both
+#   NAME_NO_FLASH    optional: no NAME-flash (a part of what another board flashes)
 # Targets: NAME (firmware.bin), NAME-flash (through the 8BitDo boot loader),
 # NAME-loader (into the boot loader and wait there).  Inside the template,
 # $(1) is NAME, $(...) is expanded once when it is called, and $$(...) when
@@ -113,7 +114,7 @@ $(1)_FLAGS := $(TELINK_DEFINES) -DBOARD_PID=\"$($(1)_PID)\" -DAPP_START=$($(1)_A
 	$(if $($(1)_UPDATER),-DUPDATER -DMAIN_AT=$($(1)_UPDATER) -DCODE_LIMIT=$($(1)_CODE_LIMIT))
 $(1)_INCLUDES := $(subst -iquote src/platform/jieli,,$(SRC_INCLUDES)) -iquote src/platform/telink -iquote $($(1)_BOARD_DIR) $(TELINK_INCLUDES) $(BTSTACK_INCLUDES)
 
-.PHONY: $(1) $(1)-flash $(1)-loader
+.PHONY: $(1) $(if $($(1)_NO_FLASH),,$(1)-flash) $(1)-loader
 $(1): $(O)/$(1)/firmware.bin
 
 $(O)/$(1)/src/%.o: src/%.c $(O)/$(1)/defines
@@ -154,9 +155,11 @@ $(O)/$(1)/firmware.bin: $(O)/$(1)/app.elf $(TELINK_IMAGE_TOOL)
 		--max $$$$(( $($(1)_APP_END) - $($(1)_APP_START) )) -o $$@ $(O)/$(1)/app.bin
 
 ifeq ($($(1)_FRONT),)
+ifeq ($($(1)_NO_FLASH),)
 $(1)-flash: $(O)/$(1)/firmware.bin
 	$$(Q)python3 -I $(TELINK_IMAGE_TOOL) flash --pid $($(1)_PID) --start $($(1)_APP_START) \
 		--end $($(1)_APP_END) --hint "$($(1)_LOADER_HINT)" $$(if $$(DEVICE),--device $$(DEVICE)) $$<
+endif
 else
 # Behind its updater: the app's header and the app (update.bin, for
 # padtool update too); flashed, the updater and then that above it.

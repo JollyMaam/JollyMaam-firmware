@@ -1,10 +1,12 @@
 # GameSir Nova 2 Lite: the pad, a Jieli BR23 (stock PID AC695X_TRANS).
-#   gamesir-nova-2-lite-pad          firmware.img in $(O)/<target>/
-#   gamesir-nova-2-lite-pad-flash    from stock firmware too: jlnewfw sends
+#   gamesir-nova-2-lite-flash        the pad: its updater and the app above
+#                                    it; from stock firmware too: jlnewfw sends
 #                                    it the HID command in docs/gamesir-nova-2-lite/
+#   gamesir-nova-2-lite-pad-split    firmware.img in $(O)/<target>/
+#   gamesir-nova-2-lite-pad, -pad-updater  the app alone and its updater:
+#                                    parts of -pad-split, not flashed alone
 #   gamesir-nova-2-lite-pad-loader   into the ROM loader
 #   gamesir-nova-2-lite-pad-test, gamesir-nova-2-lite-all
-#   gamesir-nova-2-lite-pad-split(-flash)  the pad behind its updater
 # Until the shared parts move out of src/boards/gamesir-cyclone-2/, this
 # board uses the Cyclone 2's bt_pad.c and btstack_config.h.
 # The flash is 1 MiB; stock declares 512 KiB and keeps its VM, BTIF (MAC),
@@ -16,6 +18,7 @@ BTSTACK_USERS += src/boards/gamesir-cyclone-2/bt_pad.c
 NOVA2LITE_PAD := gamesir-nova-2-lite-pad
 $(NOVA2LITE_PAD)_FLASH_SIZE := 0x100000
 $(NOVA2LITE_PAD)_PID := AC695X_TRANS
+$(NOVA2LITE_PAD)_NO_FLASH := 1
 $(NOVA2LITE_PAD)_DEFINES :=
 $(NOVA2LITE_PAD)_LOADER_HINT := Stock firmware: Xbox 360 mode (green).
 $(NOVA2LITE_PAD)_BOARD_DIR := src/boards/gamesir-cyclone-2
@@ -54,6 +57,7 @@ $(NOVA2LITE_UPDATER)_FLASH_SIZE := $($(NOVA2LITE_PAD)_FLASH_SIZE)
 $(NOVA2LITE_UPDATER)_PID := $($(NOVA2LITE_PAD)_PID)
 $(NOVA2LITE_UPDATER)_BOARD_DIR := src/updater
 $(NOVA2LITE_UPDATER)_UPDATER := 0x7d000
+$(NOVA2LITE_UPDATER)_NO_FLASH := 1
 $(NOVA2LITE_UPDATER)_DEFINES := -DBT_LE_ONLY -DUSB_TOOL_ONLY
 $(NOVA2LITE_UPDATER)_BTSTACK := $($(CYCLONE2_UPDATER)_BTSTACK)
 $(NOVA2LITE_UPDATER)_SOURCES := $(subst src/boards/gamesir-cyclone-2/board_pad.c,src/boards/gamesir-nova-2-lite/board_pad.c,$($(CYCLONE2_UPDATER)_SOURCES))
@@ -69,8 +73,9 @@ $(eval $(call jieli_board,$(NOVA2LITE_PAD)))$(eval $(call host_tests,$(NOVA2LITE
 $(foreach b,$(NOVA2LITE_UPDATER) $(NOVA2LITE_SPLIT),$(eval $(call jieli_board,$(b))))
 $(eval $(call host_tests,$(NOVA2LITE_SPLIT)))
 
-.PHONY: gamesir-nova-2-lite-all gamesir-nova-2-lite-test
-gamesir-nova-2-lite-all: $(NOVA2LITE_PAD)
+.PHONY: gamesir-nova-2-lite-all gamesir-nova-2-lite-test gamesir-nova-2-lite-flash
+gamesir-nova-2-lite-all: $(NOVA2LITE_PAD) $(NOVA2LITE_SPLIT)
+gamesir-nova-2-lite-flash: $(NOVA2LITE_SPLIT)-flash
 gamesir-nova-2-lite-test: $(NOVA2LITE_PAD)-test
 
 # Nova dongle: BD19/AC632N (q32s), reusing the app's dongle link and USB profiles.

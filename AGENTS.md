@@ -77,17 +77,18 @@ commits), the compilers fetched by a script (pinned archives, sha256 checked).
     external/fetch-toolchains.sh           # into external/toolchains/
     make -j32                              # every product
     make test                              # every product's unit tests
-    make -j32 gamesir-cyclone-2-pad        # build/gamesir-cyclone-2-pad/
-    make gamesir-cyclone-2-pad-flash       # over USB, through the ROM loader
+    make -j32 gamesir-cyclone-2-pad-split  # build/gamesir-cyclone-2-pad-split/: the pad behind its updater
+    make gamesir-cyclone-2-flash           # the pad (updater + app), over USB, through the ROM loader
     make gamesir-nova-2-lite-pad-loader    # into the ROM loader and wait there (every board has -loader)
     build/host/jlnewfw scan                # loaders, our firmware, stock pads (and their mode), by USB port
-    make gamesir-nova-2-lite-pad-flash DEVICE=5-2.1   # one of several of the same board
+    make gamesir-nova-2-lite-flash DEVICE=5-2.1   # one of several of the same board
     make -j32 gamesir-cyclone-2-dongle     # build/gamesir-cyclone-2-dongle/
     make gamesir-cyclone-2-dongle-flash    # packed for the connected dongle's key
     make -j32 gamesir-cyclone-2-all        # both boards
     make -j32 gamesir-nova-2-lite-pad      # the Nova 2 Lite (no pins yet)
     make gamesir-cyclone-2-pad-test        # one board's unit tests
-    make 8bitdo-ultimate2c-wireless-pad-flash   # Telink pad: tools/8bitdoboot.py, 8BitDo boot loader
+    make 8bitdo-ultimate2c-wireless-flash   # Telink pad: tools/8bitdoboot.py, 8BitDo boot loader
+    tools/upgrade.py                        # every connected pad and dongle, one at a time (--pads, --dongles)
     python3 tools/8bitdoboot.py scan        # 8BitDo boot loaders and our Telink firmware
 
 `tools/8bitdoboot.py` also identifies stock Ultimate 2C Wireless pads and
@@ -153,7 +154,7 @@ its top).  In this container SDL needs the nodes from `/dev/bwrap` under
 tools/withdev.sh build/host/sdlpad 5`.
 
 Recovering a pad that does not enumerate: hold Home and Start while plugging in
-USB (ROM loader, `UBOOT1.00`), then `make gamesir-cyclone-2-pad-flash`. For the dongle, hold its
+USB (ROM loader, `UBOOT1.00`), then `make gamesir-cyclone-2-flash`. For the dongle, hold its
 button while plugging it in, then `make gamesir-cyclone-2-dongle-flash`. Image layout and the
 `jlnewfw` tool are in [docs/jieli/re-application-image.md](docs/jieli/re-application-image.md)
 and [docs/firmware/image-tool.md](docs/firmware/image-tool.md).
