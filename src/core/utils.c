@@ -18,9 +18,11 @@ static struct {
     struct { u32 seq, ms; char text[LOG_TEXT]; } line[LOG_LINES];
 } ring RETAINED;
 
+/* Kept over a reset when it is whole: another image (a dongle's, after a
+ * wrong flash) may have its ring a few bytes off, under the same magic. */
 void util_log_init(void)
 {
-    if (ring.magic == LOG_MAGIC) return;
+    if (ring.magic == LOG_MAGIC && (!ring.head || ring.line[(ring.head - 1) % LOG_LINES].seq == ring.head)) return;
     memset(&ring, 0, sizeof(ring));
     ring.magic = LOG_MAGIC;
 }
@@ -383,6 +385,11 @@ int main(void)
     util_log_init();
     seq = 102;
     CHECK(util_log_read(&seq, buf, sizeof(buf)) == 18);
+    /* Another image's ring, 4 bytes off: our head is its magic. */
+    ring.head = LOG_MAGIC;
+    util_log_init();
+    seq = 1;
+    CHECK(ring.head == 0 && util_log_read(&seq, buf, sizeof(buf)) == 0);
     {
         static const u8 key[16] = { 0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c };
         static const u8 in[16] = { 0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d, 0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34 };

@@ -10,7 +10,7 @@ import padconsole
 from paddevices import DeviceMonitor
 
 
-IDENTITY = b"C2PD\x06\0\0\0" + bytes(32)
+IDENTITY = b"C2PD\x06\0\0\0" + bytes(48)
 
 
 class ConsoleReadTests(unittest.TestCase):

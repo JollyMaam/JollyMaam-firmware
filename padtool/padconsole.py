@@ -10,7 +10,7 @@ import padtool as pad
 
 def read_console(path, identity, seq, previous_uptime):
     found = next(pad.discover_devices(paths=[path]), None)
-    if found is None or found[2][:40] != identity:
+    if found is None or found[2][:56] != identity:
         raise OSError("Device disconnected or its path now belongs to another device")
     status = pad.cmd(path, 0x01, length=16)
     if len(status) < 12:
