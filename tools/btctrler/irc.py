@@ -530,7 +530,7 @@ def load_enums(ir_path):
         bd19 = any(line.startswith('target triple = "q32s"') for line in source)
     header = 'sdk_bd19.h' if bd19 else 'sdk_br23.h'
     h = os.path.join(os.path.dirname(__file__), '..', '..', 'src',
-                     'platform', 'jieli', 'btctrler', header)
+                     'btctrler', header)
     for line in open(h):
         m = re.match(r'enum \w+ \{ (LMP_STAGE_CONN = 0.*?|LMP_TX_NULL = 0.*?) \};', line)
         if m:
