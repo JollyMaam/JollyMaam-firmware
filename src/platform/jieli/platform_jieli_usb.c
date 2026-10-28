@@ -882,22 +882,37 @@ int plat_usb_take(struct bt_write *w)
 
 /* ---- the tool device ---------------------------------------------------------
  *
- * One HID interface, usage page 0xffc2, with one 512-byte feature report and
- * no report ids; its interrupt IN endpoint is there because HID asks for
- * one, and never sends.  A command is a SET_REPORT: the CDB (16 bytes: 0xf5,
- * the sub-command, its arguments, or a loader opcode), u16 length, u8 flags
- * (bit 0: data to the pad), u8 tag, then that many bytes of data to the pad;
- * without bit 0, length is the answer's size, as a SCSI command's transfer
- * length (zero-padded).  The control thread runs it (usb_command()); each
- * GET_REPORT then answers: the tag, a state, u16 length, that many bytes of
- * the answer.  BUSY: not run yet, ask again; MORE: a piece, the rest follows
- * in the next GET_REPORTs; LAST: the last piece (or none). */
+ * One HID interface, usage page 0xffc2, with one 512-byte feature report, a
+ * 64-byte input report and no report ids.  A command is a SET_REPORT: the
+ * CDB (16 bytes: 0xf5, the sub-command, its arguments, or a loader opcode),
+ * u16 length, u8 flags (bit 0: data to the pad; bit 1: the answer on input
+ * reports, to the u32 client that follows), u8 tag, then that many bytes of
+ * data to the pad; without bit 0, length is the answer's size, as a SCSI
+ * command's transfer length (zero-padded).  The control thread runs it
+ * (usb_command()).
+ *
+ * With bit 1 the answer goes out on interrupt IN, which every program that
+ * has the device open receives: the client, the tag, a state, u16 offset,
+ * then 56 bytes of the answer.  MORE: a piece, more follow; LAST: the last
+ * piece (or none); REFUSED: another command is running, send it again.  So
+ * several programs share the device, each taking only its own answers.
+ *
+ * Without bit 1 each GET_REPORT answers: the tag, a state, u16 length, that
+ * many bytes of the answer.  BUSY: not run yet, ask again; MORE: a piece,
+ * the rest follows in the next GET_REPORTs; LAST: the last piece (or none).
+ * Whoever reads first takes a piece: one program at a time. */
 
 #define TOOL_REPORT     512
 #define TOOL_HEAD       20
+#define TOOL_HEAD_IN    24       /* with the client */
 #define TOOL_REPLY_HEAD 4
+#define TOOL_IN_HEAD    8
+#define TOOL_IN_DATA    (PACKET - TOOL_IN_HEAD)
+#define TOOL_IN_WAIT_MS 1000     /* a piece no one takes: the answer is dropped */
+#define TOOL_REFUSALS   4
 #define TOOL_SERIAL     33
-enum { TOOL_IDLE, TOOL_BUSY, TOOL_MORE, TOOL_LAST };
+enum { TOOL_IDLE, TOOL_BUSY, TOOL_MORE, TOOL_LAST, TOOL_REFUSED };
+enum { TOOL_OUT = 1, TOOL_INPUT = 2 };
 
 static const u8 tool_report_desc[] = {
     0x06, 0xc2, 0xff,            /* usage page 0xffc2 */
@@ -906,11 +921,19 @@ static const u8 tool_report_desc[] = {
     0x15, 0x00, 0x26, 0xff, 0x00,
     0x75, 0x08, 0x96, (u8)TOOL_REPORT, (u8)(TOOL_REPORT >> 8),
     0x09, 0x01, 0xb1, 0x02,      /* feature: data, variable */
+    0x95, PACKET,
+    0x09, 0x01, 0x81, 0x02,      /* input: data, variable */
     0xc0,
 };
 static u8 tool_req[TOOL_REPORT] __attribute__((aligned(4)));
 static u8 tool_answer[TOOL_REPORT] __attribute__((aligned(4)));
+static u8 tool_in[PACKET] __attribute__((aligned(4)));
 static volatile u8 tool_pending, tool_state, tool_tag;
+static volatile u8 tool_busy;    /* a command accepted, its answer not all out */
+static volatile u8 tool_sending, tool_in_busy, tool_drop;
+static u32 tool_client, tool_in_at;
+static struct { u32 client; u8 tag; } tool_refusal[TOOL_REFUSALS];
+static volatile u8 tool_refusals;
 static u16 tool_len, tool_off, tool_rx;
 static char tool_serial[TOOL_SERIAL];
 
@@ -936,19 +959,77 @@ static u32 tool_string(u8 index, u8 *out)
 
 /* The core hands over the data stage a packet at a time: STAGE_OUT asks
  * for the next one. */
+static u32 get32(const u8 *p) { return p[0] | p[1] << 8 | p[2] << 16 | (u32)p[3] << 24; }
+
+/* On interrupt IN, whatever is next: a refusal, else the answer's next
+ * piece.  From the USB interrupt, or with it off. */
+static void tool_pump(void)
+{
+    u8 *p = tool_in;
+
+    if (tool_in_busy) return;
+    memset(p, 0, PACKET);
+    if (tool_refusals) {
+        tool_refusals--;
+        util_put32(p, tool_refusal[tool_refusals].client);
+        p[4] = tool_refusal[tool_refusals].tag;
+        p[5] = TOOL_REFUSED;
+    } else if (tool_sending) {
+        u16 n = tool_len - tool_off;
+
+        if (n > TOOL_IN_DATA) n = TOOL_IN_DATA;
+        util_put32(p, tool_client);
+        p[4] = tool_tag;
+        p[5] = tool_off + n < tool_len ? TOOL_MORE : TOOL_LAST;
+        util_put16(p + 6, tool_off);
+        memcpy(p + TOOL_IN_HEAD, tool_answer + tool_off, n);
+        tool_off = (u16)(tool_off + n);
+        if (p[5] == TOOL_LAST) tool_sending = tool_busy = 0;
+    } else {
+        return;
+    }
+    tool_in_busy = 1;
+    tool_in_at = plat_ms();
+    usb_g_intr_write(0, EP_IN, p, PACKET);
+}
+
+static void tool_in_done(struct usb_device_t *dev, u32 ep)
+{
+    (void)dev;
+    (void)ep;
+    tool_in_busy = 0;
+    tool_pump();
+}
+
+/* The first packet decides: while a command runs, a new one is drained
+ * and dropped, and its client told so when it gave one. */
 static u32 tool_set_data(struct usb_device_t *dev, struct usb_ctrlrequest *req)
 {
     u32 want = req->wLength < TOOL_REPORT ? req->wLength : TOOL_REPORT;
     u32 n = usb_read_count0(0);
+    u8 head[PACKET];
 
     (void)dev;
     if (n > want - tool_rx) n = want - tool_rx;
-    usb_read_ep0(0, tool_req + tool_rx, n);
+    if (!tool_rx) {
+        usb_read_ep0(0, head, n);
+        tool_drop = tool_busy;
+        if (!tool_drop) memcpy(tool_req, head, n);
+        else if (n >= TOOL_HEAD_IN && (head[18] & TOOL_INPUT) && tool_refusals < TOOL_REFUSALS) {
+            tool_refusal[tool_refusals].client = get32(head + 20);
+            tool_refusal[tool_refusals].tag = head[19];
+            tool_refusals++;
+            tool_pump();
+        }
+    } else {
+        usb_read_ep0(0, tool_drop ? head : tool_req + tool_rx, n);
+    }
     tool_rx = (u16)(tool_rx + n);
     if (n == PACKET && tool_rx < want) return USB_EP0_STAGE_OUT;
-    if (tool_rx >= TOOL_HEAD) {
+    if (!tool_drop && tool_rx >= ((tool_req[18] & TOOL_INPUT) ? TOOL_HEAD_IN : TOOL_HEAD)) {
         tool_tag = tool_req[19];
         tool_state = TOOL_BUSY;
+        tool_busy = 1;
         tool_pending = 1;
         plat_raise(EV_USB);
     }
@@ -979,7 +1060,9 @@ static void tool_reset(struct usb_device_t *dev, u32 itf)
 {
     (void)dev;
     (void)itf;
-    usb_g_ep_config(0, EP_IN | USB_DIR_IN, USB_ENDPOINT_XFER_INT, 0, dma_in, PACKET);
+    tool_in_busy = tool_sending = tool_busy = tool_refusals = 0;
+    usb_g_ep_config(0, EP_IN | USB_DIR_IN, USB_ENDPOINT_XFER_INT, 1, dma_in, PACKET);
+    usb_g_set_intr_hander(0, EP_IN | USB_DIR_IN, tool_in_done);
     usb_enable_ep(0, EP_IN);
 }
 
@@ -1062,14 +1145,14 @@ void plat_usb_tool_mode(void)
     p = interface(p, 0, 1, USB_CLASS_HID, 0, 0);
     hid_at = (u8)(p - config_desc);
     p = put(p, hid, sizeof(hid));
-    p = endpoint(p, 0x80 | EP_IN, USB_ENDPOINT_XFER_INT, PACKET, 10);
+    p = endpoint(p, 0x80 | EP_IN, USB_ENDPOINT_XFER_INT, PACKET, 1);
     config_len = (u16)(p - config_desc);
     {
         u8 head[9] = { 9, USB_DT_CONFIG, (u8)config_len, (u8)(config_len >> 8), 1, 1, 0, 0x80, 50 };
 
         memcpy(config_desc, head, 9);
     }
-    tool_pending = 0;
+    tool_pending = tool_busy = tool_sending = tool_in_busy = tool_refusals = 0;
     tool_state = TOOL_IDLE;
     usb_device_mode(0, 0x80000000);      /* no SDK class: the core and its EP0 only */
     dma_in = usb_alloc_ep_dmabuffer(0, EP_IN | USB_DIR_IN, PACKET);
@@ -1080,16 +1163,26 @@ void plat_usb_tool_mode(void)
 void plat_usb_tool_service(void)
 {
     u8 cdb[16];
-    u16 len;
-    u8 out;
+    u16 len, head;
+    u8 out, input;
+    u32 client;
 
-    if (!tool_pending) return;
+    if (!tool_pending) {
+        local_irq_disable();     /* a piece no one takes: no one is reading */
+        if (tool_sending && tool_in_busy && plat_ms() - tool_in_at > TOOL_IN_WAIT_MS)
+            tool_sending = tool_busy = 0;
+        local_irq_enable();
+        return;
+    }
     local_irq_disable();
     memcpy(cdb, tool_req, 16);
     len = (u16)(tool_req[16] | tool_req[17] << 8);
-    out = tool_req[18] & 1;
-    if (len > (out ? TOOL_REPORT - TOOL_HEAD : TOOL_REPORT)) len = out ? TOOL_REPORT - TOOL_HEAD : TOOL_REPORT;
-    if (out) memcpy(tool_answer, tool_req + TOOL_HEAD, len);
+    out = tool_req[18] & TOOL_OUT;
+    input = tool_req[18] & TOOL_INPUT;
+    client = get32(tool_req + 20);
+    head = input ? TOOL_HEAD_IN : TOOL_HEAD;
+    if (len > (out ? TOOL_REPORT - head : TOOL_REPORT)) len = out ? TOOL_REPORT - head : TOOL_REPORT;
+    if (out) memcpy(tool_answer, tool_req + head, len);
     tool_pending = 0;
     local_irq_enable();
     if (out) {
@@ -1100,10 +1193,16 @@ void plat_usb_tool_service(void)
         usb_command(cdb, tool_answer, len, 0);
     }
     local_irq_disable();
-    if (!tool_pending) {         /* else a newer command came meanwhile */
-        tool_len = len;
-        tool_off = 0;
-        tool_state = TOOL_LAST;
+    tool_len = len;
+    tool_off = 0;
+    tool_state = input ? TOOL_IDLE : TOOL_LAST;     /* GET_REPORT takes no pieces of it */
+    if (input) {
+        tool_client = client;
+        tool_sending = 1;
+        tool_in_at = plat_ms();
+        tool_pump();
+    } else {
+        tool_busy = 0;
     }
     local_irq_enable();
 }

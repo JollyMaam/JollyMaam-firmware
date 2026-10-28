@@ -1,0 +1,82 @@
+"""The tool device's answers on input reports: only this process's, refusals
+sent again, lost pieces caught."""
+import struct
+import unittest
+from unittest.mock import patch
+
+import padtransport as t
+
+
+def piece(client, tag, state, offset, data=b""):
+    return struct.pack("<IBBH", client, tag, state, offset) + data.ljust(56, b"\0")
+
+
+class FakeDevice:
+    """Features on a device: each set() makes the reports answer() returns."""
+
+    def __init__(self, answer):
+        self.answer, self.sets, self.queue = answer, [], []
+
+    def set(self, data):
+        self.sets.append(bytes(data))
+        _, flags, tag, client = struct.unpack_from("<HBBI", data, 16)
+        self.queue += self.answer(len(self.sets), client, tag)
+
+    def read(self, timeout):
+        return self.queue.pop(0) if self.queue else None
+
+    def drain(self):
+        self.queue.clear()
+
+    def close(self):
+        pass
+
+
+class InputAnswerTests(unittest.TestCase):
+    def command(self, device, length=88, out=None, timeout_ms=500):
+        with patch.dict(t._open, {"dev": device}), patch.object(t, "_input", return_value=True):
+            return t._tool("dev", [0xf5, 0], length, timeout_ms, out)
+
+    def test_others_answers_are_passed_by(self):
+        body = bytes(range(88))
+
+        def answer(n, client, tag):
+            return [piece(client ^ 1, tag, t.TOOL_LAST, 0, b"other"),
+                    piece(client, tag ^ 1, t.TOOL_LAST, 0, b"stale"),
+                    piece(client, tag, t.TOOL_MORE, 0, body[:56]),
+                    piece(client ^ 1, tag, t.TOOL_MORE, 56, b"other"),
+                    piece(client, tag, t.TOOL_LAST, 56, body[56:])]
+        device = FakeDevice(answer)
+        self.assertEqual(self.command(device), body)
+        self.assertEqual(device.sets[0][16:24], struct.pack("<HBBI", 88, t.TOOL_INPUT, device.sets[0][19], t._client))
+
+    def test_refused_command_is_sent_again(self):
+        def answer(n, client, tag):
+            return [piece(client, tag, t.TOOL_REFUSED, 0)] if n < 3 else [piece(client, tag, t.TOOL_LAST, 0, b"ok")]
+        device = FakeDevice(answer)
+        self.assertEqual(self.command(device, length=2), b"ok")
+        self.assertEqual(len(device.sets), 3)
+
+    def test_lost_piece_is_an_error(self):
+        device = FakeDevice(lambda n, client, tag: [piece(client, tag, t.TOOL_LAST, 56, b"late")])
+        with self.assertRaisesRegex(OSError, "lost a piece"):
+            self.command(device)
+
+    def test_write_carries_its_data_after_the_client(self):
+        device = FakeDevice(lambda n, client, tag: [piece(client, tag, t.TOOL_LAST, 0)])
+        self.assertEqual(self.command(device, out=b"data"), b"")
+        self.assertEqual(device.sets[0][18] & 3, t.TOOL_INPUT | t.TOOL_OUT)
+        self.assertEqual(device.sets[0][t.TOOL_HEAD_IN:], b"data")
+
+    def test_no_answer_times_out(self):
+        with self.assertRaisesRegex(OSError, "no answer"):
+            self.command(FakeDevice(lambda n, client, tag: []), timeout_ms=50)
+
+    def test_stale_reports_are_drained_before_sending(self):
+        device = FakeDevice(lambda n, client, tag: [piece(client, tag, t.TOOL_LAST, 0, b"ok")])
+        device.queue = [piece(t._client, 0, t.TOOL_LAST, 0, b"old")] * 64
+        self.assertEqual(self.command(device, length=2), b"ok")
+
+
+if __name__ == "__main__":
+    unittest.main()

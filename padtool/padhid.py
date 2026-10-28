@@ -12,9 +12,9 @@ import sys
 
 def devices():
     """Each HID interface: path, vid, product, bcd, manufacturer,
-    product_name, location (USB port; None if unknown), feature_len (its
-    feature report's bytes, without the ID) and descriptor (Linux) or
-    usage_page and out_len (Windows)."""
+    product_name, location (USB port; None if unknown), feature_len and
+    input_len (its feature and input report's bytes, without the ID) and
+    descriptor (Linux) or usage_page and out_len (Windows)."""
     if sys.platform == "linux":
         return _linux_devices()
     if sys.platform == "win32":
@@ -42,9 +42,9 @@ def _read(path, binary=False):
         return b"" if binary else ""
 
 
-def feature_bytes(descriptor):
+def feature_bytes(descriptor, item=0xb0):
     """The feature reports' bytes in a report descriptor, short items only:
-    report size times count for each feature item."""
+    report size times count for each feature item (item 0x80: input)."""
     size = count = bits = i = 0
     while i < len(descriptor):
         prefix = descriptor[i]
@@ -55,7 +55,7 @@ def feature_bytes(descriptor):
             size = value
         elif tag == 0x94:
             count = value
-        elif tag == 0xb0:
+        elif tag == item:
             bits += size * count
         i += 1 + n
     return bits // 8
@@ -73,6 +73,7 @@ def _linux_devices():
         hid = {"path": path, "vid": 0, "product": 0, "bcd": 0, "manufacturer": "", "product_name": "",
                "location": None, "descriptor": _read(sys_node / "device/report_descriptor", True)}
         hid["feature_len"] = feature_bytes(hid["descriptor"])
+        hid["input_len"] = feature_bytes(hid["descriptor"], 0x80)
         for line in _read(sys_node / "device/uevent").splitlines():
             if line.startswith("HID_ID="):
                 _, vid, product = line[7:].split(":")
@@ -180,7 +181,8 @@ def _windows_devices():
                               "bcd": attributes.VersionNumber, "manufacturer": strings[0],
                               "product_name": strings[1], "location": None,
                               "usage_page": caps.UsagePage, "out_len": caps.OutputReportByteLength,
-                              "feature_len": max(caps.FeatureReportByteLength - 1, 0)})
+                              "feature_len": max(caps.FeatureReportByteLength - 1, 0),
+                              "input_len": max(caps.InputReportByteLength - 1, 0)})
             finally:
                 k.CloseHandle(handle)
     finally:
@@ -224,6 +226,19 @@ class Features:
         else:
             import fcntl
             fcntl.ioctl(self.fd, 0xc0004806 | (self.size + 1) << 16, buf)   # HIDIOCSFEATURE
+
+    def read(self, timeout):
+        """One input report (Linux), or None after timeout seconds."""
+        import select
+        if not select.select([self.fd], [], [], max(timeout, 0))[0]:
+            return None
+        return os.read(self.fd, 4096)
+
+    def drain(self):
+        """Drop the input reports waiting (Linux): hidraw keeps at most 64
+        a reader, and then drops new ones."""
+        while self.read(0) is not None:
+            pass
 
     def get(self):
         buf = ctypes.create_string_buffer(self.size + 1)

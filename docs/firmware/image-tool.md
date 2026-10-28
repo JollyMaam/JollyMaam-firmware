@@ -77,13 +77,22 @@ This firmware's tool device, on every board, is a vendor HID interface:
 
 - V-USB's shared ID for generic HID, `16c0:05df`; manufacturer `JollyMaam`,
   the model as product (e.g. "Nova 2 Lite"), the flash UID in hex as serial;
-- one top-level collection, usage page `0xffc2`, with one feature report and
-  no report IDs: 512 bytes on the Jieli chips, 356 on the B80;
-- a command is a set of that report: the 16-byte CDB (`src/core/usb.c`),
-  u16 length, flags (bit 0: data to the device), a tag, then the data (at
-  most the report less 20 bytes); each get of it answers the tag, a state
+- one top-level collection, usage page `0xffc2`, with one feature report
+  (512 bytes on the Jieli chips, 356 on the B80), one 64-byte input report
+  on an interrupt IN endpoint polled every 1 ms, and no report IDs;
+- a command is a set of the feature report: the 16-byte CDB
+  (`src/core/usb.c`), u16 length, flags (bit 0: data to the device; bit 1:
+  the answer on input reports), a tag, with bit 1 a u32 client, then the data
+  (at most the report less 20 bytes, 24 with bit 1);
+- with bit 1, the answer comes in input reports: the client, the tag, a state
+  (2 a piece and more, 3 the last, 4 refused: another command is running,
+  send it again), u16 offset, then 56 bytes of the answer.  Every program
+  with the device open receives every input report, so several programs
+  share one device, each taking the reports with its own client;
+- without bit 1, each get of the feature report answers the tag, a state
   (0 idle, 1 busy, 2 a piece and more, 3 the last), u16 length and that much
-  of the answer;
+  of the answer.  Whichever program gets it first takes the piece, so only
+  one program at a time may use a device this way;
 - IDENTIFY (`0xf5 0x00`, 56 bytes) has the image's PID at byte 40.
 
 Tools select candidates by the usage page and confirm running firmware by the

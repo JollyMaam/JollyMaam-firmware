@@ -1,8 +1,10 @@
 """The firmware's vendor commands, independent of pad protocol and GUI.
 
 Our firmware's tool device is a HID interface (usage page 0xffc2): each
-command is a feature report, its answer read back in more (usb.c, the
-platform's tool device).  The Jieli ROM loaders (UBOOT1.00) and stock Jieli
+command is a feature report.  Where the device has an input report (and on
+Linux), the answer comes on input reports addressed to this process, so
+several programs can use one device at once; else it is read back in more
+feature reports (usb.c, the platform's tool device).  The Jieli ROM loaders (UBOOT1.00) and stock Jieli
 firmware are USB mass storage: Linux uses SG_IO; Windows uses the built-in
 storage driver and SCSI pass-through.  Only INQUIRY (disks) and IDENTIFY
 (tool devices) are sent during discovery.
@@ -26,10 +28,14 @@ if sys.platform == "linux":
 TOOL_USAGE_PAGE = 0xffc2
 TOOL_REPORT = 512                           # the Jieli chips'; a device's own is in its descriptor
 TOOL_HEAD = 20
-TOOL_BUSY, TOOL_MORE, TOOL_LAST = 1, 2, 3
-_tools = {}                                 # path: (product name, report size), from the last scan
+TOOL_HEAD_IN = 24                           # with the client
+TOOL_IN_HEAD = 8
+TOOL_BUSY, TOOL_MORE, TOOL_LAST, TOOL_REFUSED = 1, 2, 3, 4
+TOOL_OUT, TOOL_INPUT = 1, 2
+_tools = {}                                 # path: (product name, report size, input report size), from the last scan
 _open = {}                                  # path: its Features, kept: an open costs ~50 ms
 _tags = itertools.count(1)
+_client = int.from_bytes(os.urandom(4), "little")   # this process, in the answers it takes
 
 
 def tool_paths():
@@ -37,7 +43,7 @@ def tool_paths():
     _tools.clear()
     for d in padhid.devices():
         if d.get("usage_page") == TOOL_USAGE_PAGE or d.get("descriptor", b"")[:3] == b"\x06\xc2\xff":
-            _tools[d["path"]] = (d["product_name"], d.get("feature_len") or TOOL_REPORT)
+            _tools[d["path"]] = (d["product_name"], d.get("feature_len") or TOOL_REPORT, d.get("input_len") or 0)
     return sorted(_tools)
 
 
@@ -45,6 +51,13 @@ def _report(path):
     if path not in _tools:
         tool_paths()
     return _tools.get(path, ("", TOOL_REPORT))[1]
+
+
+def _input(path):
+    """Answers on input reports: the device has one, and hidraw reads it."""
+    if path not in _tools:
+        tool_paths()
+    return sys.platform == "linux" and _tools.get(path, ("", 0, 0))[2] >= 64
 
 
 def tool_name(path):
@@ -56,7 +69,7 @@ def tool_name(path):
 
 def data_max(path):
     """The most a command may carry to the device: its report less the header."""
-    return _report(path) - TOOL_HEAD
+    return _report(path) - (TOOL_HEAD_IN if _input(path) else TOOL_HEAD)
 
 
 def is_tool(path):
@@ -184,6 +197,8 @@ def _tool(path, cdb, length, timeout_ms, out):
     f = _open.get(path)
     if f is None:
         f = _open[path] = padhid.Features(path, _report(path))
+    if _input(path):
+        return _tool_input(path, f, cdb, length, timeout_ms, out, data, rebooting)
     try:
         f.set(cdb + struct.pack("<HBB", len(data) if out is not None else length, out is not None, tag) + data)
         end = time.monotonic() + timeout_ms / 1000
@@ -212,6 +227,54 @@ def _tool(path, cdb, length, timeout_ms, out):
     if rebooting:
         _drop(path)
     return answer.ljust(length, b"\0") if out is None else b""
+
+
+def _tool_input(path, f, cdb, length, timeout_ms, out, data, rebooting):
+    """The command, its answer on input reports with this process's client
+    and the command's tag; others' answers pass by.  Refused while another
+    program's command runs: sent again."""
+    want = 0 if out is not None else min(length, TOOL_REPORT)
+    end = time.monotonic() + timeout_ms / 1000
+    try:
+        while True:
+            tag = next(_tags) & 0xff
+            f.drain()
+            f.set(cdb + struct.pack("<HBBI", len(data) if out is not None else length,
+                                    TOOL_INPUT | (out is not None), tag, _client) + data)
+            answer = b""
+            while True:
+                r = f.read(end - time.monotonic())
+                if r is None:
+                    if rebooting:
+                        _drop(path)
+                        return b""
+                    raise OSError(f"{path}: no answer in {timeout_ms} ms")
+                if len(r) < TOOL_IN_HEAD:
+                    continue
+                client, rtag, state, offset = struct.unpack_from("<IBBH", r)
+                if client != _client or rtag != tag:
+                    continue
+                if state == TOOL_REFUSED:
+                    break
+                if state not in (TOOL_MORE, TOOL_LAST) or offset != len(answer):
+                    raise OSError(f"{path}: the tool device lost a piece of the answer")
+                answer += r[TOOL_IN_HEAD:TOOL_IN_HEAD + max(min(len(r) - TOOL_IN_HEAD, want - offset), 0)]
+                if state == TOOL_LAST:
+                    if rebooting:
+                        _drop(path)
+                    return answer.ljust(length, b"\0") if out is None else b""
+            if time.monotonic() > end:
+                raise OSError(f"{path}: busy for {timeout_ms} ms (another program's commands)")
+            time.sleep(0.001 + int.from_bytes(os.urandom(1), "little") / 100000)
+    except OSError:
+        if rebooting:
+            _drop(path)
+            return b""
+        _drop(path)
+        raise
+    except BaseException:
+        _drop(path)
+        raise
 
 
 def _drop(path):

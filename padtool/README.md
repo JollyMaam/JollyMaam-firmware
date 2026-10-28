@@ -330,7 +330,11 @@ the CLI; `python -m unittest discover -s padtool -p test_padcurves.py -v` tests 
 mirrors `jlnewfw`'s); `padhid.py` lists HID interfaces and writes output
 reports (Linux hidraw, Windows hid.dll); `test_padknown.py` tests the matching.
 `padtool.py` supplies the firmware protocol and CLI. `padtransport.py` supplies
-the tool device's feature reports (through `padhid.py`), and Linux SG_IO and
+the tool device's reports (through `padhid.py`): on Linux, with firmware that
+has the input report, each process's answers come addressed to it, so several
+programs can use one device at once (`test_padtransport.py` tests this);
+elsewhere answers are read back in feature reports, one program at a time. It
+also supplies Linux SG_IO and
 Windows buffered SCSI pass-through for the ROM loaders. `padflash.py` supplies the
 BR23 RAM-loader protocol, image identity checks, backup, erase/write and readback
 verification. It is ported from our `jlnewfw.c`; build packing remains in C.

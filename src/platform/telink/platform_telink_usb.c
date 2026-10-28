@@ -17,10 +17,15 @@
  * with no buffer of its own; a command's data lands in data[].
  *
  * The report: 16 bytes of command (usb.c's CDB), u16 length, u8 flags (bit
- * 0: the data goes to the pad), u8 tag, then the data.  Its answer: the
- * tag, the state (TOOL_*), u16 length, the data.  The report is 20 +
- * DATA_MAX bytes: the tools take a device's limit from its report size.  The
- * interrupt IN endpoint is there because HID wants one; it never sends.
+ * 0: the data goes to the pad; bit 1: the answer on input reports, to the
+ * u32 client that follows), u8 tag, then the data.  The report is 20 +
+ * DATA_MAX bytes: the tools take a device's limit from its report size.
+ * With bit 1, the answer goes out on interrupt IN in 64-byte input reports,
+ * which every program that has the device open receives: the client, the
+ * tag, the state (TOOL_*), u16 offset, 56 bytes of the answer.  REFUSED:
+ * a command came while another's answer was waiting or going out.  Without
+ * bit 1, the answer is a feature report: the tag, the state, u16 length,
+ * the data (as platform_jieli_usb.c's tool device).
  *
  * The device: 16c0:05df, the V-USB shared ID for generic HID, with our
  * manufacturer (pad.h).  The tools tell it apart by the usage page and
@@ -30,9 +35,14 @@
 #define EP_IN     4              /* interrupt IN 0x84 */
 #define DATA_MAX  336            /* the largest answer: FIELD (328); a remap slot READ is 283 with 8 rules */
 #define HEAD      20
+#define HEAD_IN   24             /* with the client */
 #define REPORT    (HEAD + DATA_MAX)
+#define IN_HEAD   8
+#define IN_DATA   (64 - IN_HEAD)
+#define IN_WAIT_MS 1000          /* a piece no one takes: the answer is dropped */
 
-enum { TOOL_IDLE, TOOL_BUSY, TOOL_MORE, TOOL_LAST };
+enum { TOOL_IDLE, TOOL_BUSY, TOOL_MORE, TOOL_LAST, TOOL_REFUSED };
+enum { TOOL_OUT = 1, TOOL_INPUT = 2 };
 
 static const u8 device_descriptor[] = {
     18, 1, 0x10, 0x01, 0, 0, 0, 8,
@@ -48,6 +58,8 @@ static const u8 report_descriptor[] = {
     0x15, 0x00, 0x26, 0xff, 0x00,
     0x75, 0x08, 0x96, (u8)REPORT, REPORT >> 8,
     0x09, 0x01, 0xb1, 0x02,              /* feature: data, variable */
+    0x95, 64,
+    0x09, 0x01, 0x81, 0x02,              /* input: data, variable */
     0xc0,
 };
 
@@ -55,7 +67,7 @@ static const u8 configuration_descriptor[] = {
     9, 2, 34, 0, 1, 1, 0, 0x80, 50,
     9, 4, 0, 0, 1, 3, 0, 0, 0,           /* HID, no boot protocol */
     9, 0x21, 0x11, 0x01, 0, 1, 0x22, sizeof(report_descriptor), 0,
-    7, 5, 0x80 | EP_IN, 3, 64, 0, 10,
+    7, 5, 0x80 | EP_IN, 3, 64, 0, 1,
 };
 #define HID_AT 18                        /* the HID descriptor in it */
 
@@ -67,22 +79,80 @@ static struct {
     u8 cdb[16];
     u16 length;                  /* the host's: of its data, or of the answer it wants */
     u8 flags, tag;
+    u32 client;
     u8 state;
     u8 pending;                  /* for usb.c, on the control loop */
     u8 taken;                    /* the host read the answer */
+    u8 busy;                     /* a command taken, its answer not all out */
+    u8 sending;                  /* on input reports, from off */
+    u8 drop;                     /* the SET_REPORT coming in is refused */
     u16 answer;                  /* its length */
+    u16 off;
+    u32 sent_at;
     u8 data[DATA_MAX];
 } t;
 
-/* A byte of a SET_REPORT, the k-th. */
+/* A refused command's sender (one: a second waits for its timeout). */
+static struct {
+    u8 flags, tag, waiting;
+    u32 client;
+} refused;
+
+#define T_HEAD ((t.flags & TOOL_INPUT) ? HEAD_IN : HEAD)
+
+/* A byte of a SET_REPORT, the k-th; while a command is taken, only its
+ * sender is kept. */
 static void tool_put(u16 k, u8 b)
 {
+    if (k == 0) t.drop = t.busy;
+    if (t.drop) {
+        if (k == 18) refused.flags = b;
+        else if (k == 19) refused.tag = b;
+        else if (k >= 20 && k < 24) refused.client = (refused.client & ~(0xffu << 8 * (k - 20))) | (u32)b << 8 * (k - 20);
+        return;
+    }
     if (k < 16) t.cdb[k] = b;
     else if (k == 16) t.length = b;
     else if (k == 17) t.length |= (u16)(b << 8);
     else if (k == 18) t.flags = b;
     else if (k == 19) t.tag = b;
-    else if (k - HEAD < DATA_MAX) t.data[k - HEAD] = b;
+    else if (k < T_HEAD) t.client = (t.client & ~(0xffu << 8 * (k - 20))) | (u32)b << 8 * (k - 20);
+    else if (k - T_HEAD < DATA_MAX) t.data[k - T_HEAD] = b;
+}
+
+/* On interrupt IN, when it is free: a refusal, else the answer's next piece. */
+static void tool_pump(void)
+{
+    u8 head[IN_HEAD];
+    u16 n = 0, i;
+
+    if (usbhw_is_ep_busy(EP_IN)) return;
+    if (t.sending && t.off >= t.answer && t.off) {
+        t.sending = t.busy = 0;  /* the last piece is out */
+        t.taken = 1;
+    }
+    if (refused.waiting) {
+        refused.waiting = 0;
+        util_put32(head, refused.client);
+        head[4] = refused.tag;
+        head[5] = TOOL_REFUSED;
+        head[6] = head[7] = 0;
+    } else if (t.sending && (t.off < t.answer || !t.off)) {
+        n = t.answer - t.off < IN_DATA ? t.answer - t.off : IN_DATA;
+        util_put32(head, t.client);
+        head[4] = t.tag;
+        head[5] = t.off + n < t.answer ? TOOL_MORE : TOOL_LAST;
+        util_put16(head + 6, t.off);
+        if (!t.answer) t.off = 1;        /* nothing to send but LAST */
+    } else {
+        return;
+    }
+    usbhw_reset_ep_ptr(EP_IN);
+    for (i = 0; i < IN_HEAD; i++) usbhw_write_ep_data(EP_IN, head[i]);
+    for (i = 0; i < IN_DATA; i++) usbhw_write_ep_data(EP_IN, i < n ? t.data[t.off + i] : 0);
+    if (head[5] != TOOL_REFUSED && t.answer) t.off = (u16)(t.off + n);
+    if (head[5] != TOOL_REFUSED) t.sent_at = plat_ms();
+    usbhw_data_ep_ack(EP_IN);
 }
 
 /* The k-th byte of the answer the host gets. */
@@ -163,12 +233,14 @@ static void ep0_receive(void)
     usbhw_reset_ctrl_ep_ptr();
     for (i = 0; i < n; i++) tool_put(u.at++, usbhw_read_ctrl_ep_data());
     u.remaining -= n;
-    if (u.at >= HEAD && (t.flags & 1) && t.length > DATA_MAX) u.stall = 1;
+    if (!t.drop && u.at >= T_HEAD && (t.flags & TOOL_OUT) && t.length > DATA_MAX) u.stall = 1;
     if (!u.remaining && !u.stall) {
         u.receiving = 0;
-        if (u.at >= HEAD) {
+        if (t.drop) {
+            if (u.at >= HEAD_IN && (refused.flags & TOOL_INPUT)) refused.waiting = 1;
+        } else if (u.at >= T_HEAD) {
             t.state = TOOL_BUSY;
-            t.pending = 1;
+            t.busy = t.pending = 1;
         }
     }
 }
@@ -322,6 +394,7 @@ static void control(void)
         irq_clr_sel_src(FLD_IRQ_USB_RST_EN);
         memset(&u, 0, sizeof(u));
         reg_usb_ep_ctrl(EP_IN) = 0;
+        t.sending = t.busy = t.pending = refused.waiting = 0;
     }
     irq = usbhw_get_ctrl_ep_irq();
     if (irq & FLD_CTRL_EP_IRQ_SETUP) {
@@ -366,6 +439,9 @@ u32 plat_usb_poll(void)
     }
     if (!power.present) return event;
     control();
+    if (u.configuration) tool_pump();
+    if (t.sending && usbhw_is_ep_busy(EP_IN) && plat_ms() - t.sent_at > IN_WAIT_MS)
+        t.sending = t.busy = 0;  /* a piece no one takes: no one is reading */
     return event | (t.pending ? EV_USB : 0);
 }
 
@@ -378,7 +454,7 @@ void plat_usb_service(void)
     if (!t.pending) return;
     t.pending = 0;
     t.taken = 0;
-    if (t.flags & 1) {
+    if (t.flags & TOOL_OUT) {
         usb_command(t.cdb, t.data, t.length, 1);
         t.answer = 0;
     } else {
@@ -387,7 +463,15 @@ void plat_usb_service(void)
         usb_command(t.cdb, t.data, max, 0);
         t.answer = max;
     }
-    t.state = TOOL_LAST;
+    if (t.flags & TOOL_INPUT) {
+        t.state = TOOL_IDLE;     /* GET_REPORT shows none of it */
+        t.off = 0;
+        t.sending = 1;
+        t.sent_at = plat_ms();
+    } else {
+        t.state = TOOL_LAST;
+        t.busy = 0;
+    }
 }
 
 /* The answer to the last command out (read by the host, 250 ms at most),
@@ -396,7 +480,7 @@ void plat_usb_settle(u32 ms)
 {
     u32 start = plat_ms();
 
-    while (u.configuration && t.state == TOOL_LAST && !t.taken && plat_ms() - start < 250)
+    while (u.configuration && ((t.state == TOOL_LAST && !t.taken) || t.sending) && plat_ms() - start < 250)
         wd_clear(), plat_usb_poll();
     start = plat_ms();
     while (plat_ms() - start < ms) wd_clear(), plat_usb_poll();

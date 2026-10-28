@@ -6,10 +6,12 @@
  * CDB: [0] 0xF5, [1] sub-command, [2..5] argument (little-endian), as SCSI
  * vendor commands on the mass storage this once was.  The data carries what
  * the host sent for a host-to-pad command (WRITE), or the answer for the
- * others, of the size the host asked for.  The platform carries them in HID
- * feature reports: on the Jieli chips 512 bytes (platform_jieli_usb.c: at
- * most 492 to the pad), on the B80 356 (platform_telink_usb.c: at most 336
- * either way).
+ * others, of the size the host asked for.  The platform carries a command in
+ * a HID feature report: on the Jieli chips 512 bytes (platform_jieli_usb.c:
+ * at most 492 to the pad, 488 with a client), on the B80 356
+ * (platform_telink_usb.c: at most 336 either way).  The answer comes back in
+ * 64-byte input reports addressed to the command's client, or in more
+ * feature reports.
  * Everything is little-endian.
  *
  * The Jieli loader's own opcodes (0xFB 0xFC 0xFD) reboot into the loader, as
