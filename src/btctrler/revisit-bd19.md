@@ -71,6 +71,8 @@ against the eventual Nova 2 configuration and linked image.
 
 | C21 | `bd19/au_law_codec.c` / `esco_codec.c`, worker `cc9237e`: BR23/BD19 selector and callback/table ABI agree; conversion bodies differ by loop shaping and equivalent integer operations. There was no previous BR23 C owner. | Candidate common implementation after explicit BR23 member ownership review. Preserve signed16 sample/count ABI and A-law full-scale behavior; do not infer codec activation from arithmetic tests. |
 
+| C22 | `bd19/tws_power_balance.c`, occurrence 1 `eeb6614a…cb11`: common poll/role-count logic is close to BR23, but BD19 has table attribute 1 (BR23 3), a slave-only configuration gate, a weak role-decision hook and IRQ TX sections. Its hook returns zeroext i8 despite the generated bool declaration. | Candidate common core after preserving target table/gate/sections and hook behavior. Consolidate the byte-return alias with C03 only after auditing declarations and callers. Keep BR23 baseline bytes unchanged during this ownership stage. |
+
 ## Confirmed BD19 behavior to revisit
 
 Each row describes SDK behavior deliberately retained in accepted C. Fixes need
@@ -132,6 +134,8 @@ unestablished unless specifically stated.
 | B41 | `bd19/lmp_hci_cmd_parser.c`, same occurrence: commands ignore incoming length, several message paths initialize only opcode (including passkey routes), QoS is an unsupported placeholder emitting event 1 with `1H114444`; multiple flow-control/status commands are consumed without a reply. QoS handle is captured before status, payload fields reloaded afterward. | Audit downstream message consumers before initializing unused words or adding missing replies; define host support/validation policy (B06). Decide whether this placeholder should be exposed or replaced. Preserve saved-handle and callback reload boundaries until a separate fix. |
 
 | B42 | `bd19/au_law_codec.c`, occurrence 1 `9f9eaff7…26d5`: A-law negates a negative sample at i16 width before sign extension; -32768 stays negative, selects segment 0 and encodes as `0x55` (decoding to -8), while +32767 encodes `0xaa`. Both codecs process only positive signed16 counts and always return 0. | Confirm intended full-scale treatment and count/status contract before any normalization. The independent integer model checks all signed16 inputs and all 256 codewords; this confirms SDK arithmetic, not audio-path reachability. |
+
+| B43 | Same occurrence, `tws_power_balance_master_rx`: len is ignored and two bytes are always read before weak hooks; only slave TX has the enable gate. Init sets the poll counter to 800 without clearing the role counter/flag; true reports 1–4 preserve the old flag, while the fifth sets it. The default voltage hook returns 0; widened local+10 equality counts as a positive decision (H25 confirmed on BD19). | Establish framing, enabled-state, lifecycle reset and battery/hysteresis contracts before adding guards or normalizing state. Preserve post-hook counter reloads and byte/halfword wrap. Weak-hook reentry tests establish ordering, not real battery calibration or TWS hardware behavior. |
 
 ## Inherited BR23 follow-ups: BD19 confirmation queue
 
@@ -342,6 +346,7 @@ not absence of defects. See the earlier sections for cross-member issues.
 | `sys_timer.c.o` / 1 | `aed66ee` | H26 runtime timer API |
 | `thread.c.o` / 1 | `cd41996` | C08; B01 |
 | `tws_ble_link.c.o` / 1 | `a3a5af8` | B18 optional monitor imports |
+| `tws_power_balance.c.o` / 1 | coordinator review of `fccd25a` | C22; B43; H25; byte-return weak hook |
 | `tws_le_acc.c.o` / 1 | `cb82461` | BR23 #30 |
 | `vendor_manager.c.o` / 1 | `cee80c1` | B06; BR23 #11 |
 | `vsprintf.c.o` / 1 | `a3a5af8` | H15 |

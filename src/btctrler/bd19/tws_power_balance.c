@@ -20,12 +20,18 @@ static u8 test_mutated_counter;
 static u16 test_predicate_m_voltage, test_predicate_s_voltage;
 static u8 *test_remote_packet;
 static u8 test_mutate_remote_on_voltage;
+static int test_voltage_calls, test_predicate_calls;
+static u8 test_mutate_poll_on_voltage;
+static u16 test_seen_poll;
 #endif
 
 u16 tws_host_get_battery_voltage(void) __attribute__((weak)) CLASSIC_TWS_CODE;
 u16 tws_host_get_battery_voltage(void)
 {
 #ifdef UNITTEST
+    test_voltage_calls++;
+    test_seen_poll = power_update;
+    if (test_mutate_poll_on_voltage) power_update = 321;
     if (test_mutate_remote_on_voltage && test_remote_packet != NULL) {
         test_remote_packet[0] = 0;
         test_remote_packet[1] = 0;
@@ -45,6 +51,7 @@ u8 role_switch_predicate(u16 m_voltage, u16 s_voltage)
 u8 role_switch_predicate(u16 m_voltage, u16 s_voltage)
 {
 #ifdef UNITTEST
+    test_predicate_calls++;
     test_predicate_m_voltage = m_voltage;
     test_predicate_s_voltage = s_voltage;
     if (test_mutate_counter)
@@ -156,8 +163,10 @@ int main(void)
     /* Disabled gate must not count, reset, call voltage, or touch tx. */
     power_update = 123;
     CONFIG_TWS_POWER_BALANCE_ENABLE = 0;
+    int calls_before = test_voltage_calls;
     CHECK(tws_power_balance.rx_sync_req_and_res(NULL, NULL, 0, packet) == 0);
     CHECK(power_update == 123 && packet[0] == 0xa5 && packet[1] == 0x5a);
+    CHECK(test_voltage_calls == calls_before);
     CONFIG_TWS_POWER_BALANCE_ENABLE = 1;
 
     test_battery_voltage = 0x1234;
@@ -179,11 +188,19 @@ int main(void)
     CHECK(tws_power_balance.rx_sync_req_and_res(NULL, NULL, 0, packet) == 0);
     CHECK(power_update == 0);
     switch_role_cnt = 3;
+    tws_conn.role_switch_by_power = 0x5a;
     tws_power_banance_init();
-    CHECK(power_update == 800 && switch_role_cnt == 3);
+    CHECK(power_update == 800 && switch_role_cnt == 3 && tws_conn.role_switch_by_power == 0x5a);
     for (int i = 0; i < 199; ++i)
         CHECK(tws_power_balance.rx_sync_req_and_res(NULL, NULL, 0, packet) == 0);
     CHECK(tws_power_balance.rx_sync_req_and_res(NULL, NULL, 0, packet) == 2);
+
+    test_mutate_poll_on_voltage = 1;
+    CONFIG_TWS_POWER_BALANCE_ENABLE = -1;
+    CHECK(tws_power_balance.rx_sync_req_and_res(NULL, NULL, -1, packet) == 2);
+    CHECK(test_seen_poll == 0 && power_update == 321);
+    test_mutate_poll_on_voltage = 0;
+    CONFIG_TWS_POWER_BALANCE_ENABLE = 1;
 
     memset(&tws_conn, 0, sizeof(tws_conn));
     switch_role_cnt = 0;
@@ -198,9 +215,18 @@ int main(void)
     for (int i = 0; i < 4; ++i) {
         tws_power_balance.rx_sync_res(NULL, remote, 2);
         CHECK(switch_role_cnt == i + 1 && tws_conn.role_switch_by_power == 0);
+        CHECK(tws_power_balance.tx_sync_req(NULL, NULL, -1) == 1);
     }
     tws_power_balance.rx_sync_res(NULL, remote, 2);
     CHECK(switch_role_cnt == 0 && tws_conn.role_switch_by_power == 1);
+    CHECK(tws_power_balance.tx_sync_req(NULL, NULL, 0) == 0);
+
+    /* Only slave TX is gated; master RX still invokes both hooks. */
+    CONFIG_TWS_POWER_BALANCE_ENABLE = 0;
+    calls_before = test_predicate_calls;
+    tws_power_balance.rx_sync_res(NULL, remote, -1);
+    CHECK(test_predicate_calls == calls_before + 1 && switch_role_cnt == 1);
+    CONFIG_TWS_POWER_BALANCE_ENABLE = 1;
 
     /* Weak predicate sees captured packet bytes; its counter mutation is
      * observed because the SDK loads switch_role_cnt after calling the hook. */
@@ -215,6 +241,13 @@ int main(void)
     CHECK(switch_role_cnt == 0 && tws_conn.role_switch_by_power == 1);
     CHECK(test_predicate_s_voltage == 263);
     CHECK(remote[0] == 0 && remote[1] == 0);
+    test_mutated_counter = 255;
+    tws_conn.role_switch_by_power = 0x5a;
+    tws_power_balance.rx_sync_res(NULL, remote, 2);
+    CHECK(switch_role_cnt == 0 && tws_conn.role_switch_by_power == 0x5a);
+    test_mutated_counter = 3;
+    tws_power_balance.rx_sync_res(NULL, remote, 2);
+    CHECK(switch_role_cnt == 4 && tws_conn.role_switch_by_power == 0x5a);
     test_mutate_counter = 0;
     test_mutate_remote_on_voltage = 0;
     test_remote_packet = NULL;

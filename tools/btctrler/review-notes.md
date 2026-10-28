@@ -1375,3 +1375,31 @@ selector checks. Totals: 77 accepted members / 916 functions / 69 globals;
 remain byte-identical to `44d0073`. Clean worker/dependency status and merged
 ancestry were checked before deleting the completed worktree and branch.
 No pending workers or audio hardware validation.
+
+## Clean-branch BD19 TWS power balance acceptance
+
+Occurrence 1 `tws_power_balance.c.o`, SHA-256
+`eeb6614a795aba99e8479bbcf893c96db057ba470612aed895e14570625acb11`,
+is supplied by dedicated `bd19/tws_power_balance.c`: two weak hooks, init and
+one const callback table. Initial worker `2365fae` accidentally changed the
+root BR23 file; coordinator amended it to `fccd25a`, moving the recovery to
+the assigned BD19 path and restoring the root file before integration.
+The full original checkpoint patch/report is archived under the review's
+analysis directory. No BR23 source change remains in the reviewed branch.
+
+Five normalized bodies match SDK IR after ignoring the compiler's nobuiltin
+call attribute; slave TX differs only in the order of pure comparisons.
+All three global initializers, sections and alignments match exactly. The
+weak role predicate retains zeroext i8 through an asm alias despite the bool
+header declaration. BD19 table attribute 1, IRQ TX sections, slave-only gate,
+pre-hook remote capture and post-predicate counter reload are retained.
+
+Focused ASan/UBSan fixtures and a separate TU with actual strong hook overrides
+pass, including byte result 0x80, callback reentry, reset-before-hook ordering,
+width wraps, disabled gate, pending flag retention and unchanged init state.
+C22/B43 retain sharing, ABI and framing/lifecycle follow-ups; H25 is confirmed.
+Worker suite passes: 198 `: ok` reports, 12 legacy reports, 31 tooling tests,
+both layouts and 77 ownership/retention audits. Totals: 78 accepted members /
+919 public functions / 70 globals; 33 retained members / 1148 index entries.
+All original 123 BR23 C source files remain byte-identical to `44d0073`.
+No application-image, battery calibration or TWS hardware validation claimed.
