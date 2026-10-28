@@ -682,6 +682,14 @@
       ]
     },
     {
+      "member": "tws_sync_call.c.o",
+      "occurrence": 1,
+      "sha256": "dbb5d6d9c680f99d0dced6a526672df01e2848eefef02bcddb1ee62ff988fef4",
+      "sources": [
+        "src/btctrler/bd19/tws_sync_call.c"
+      ]
+    },
+    {
       "member": "tws_tx_sync.c.o",
       "occurrence": 1,
       "sha256": "6d7850f03e1b0c8ff8942410e4493e9568a240c9817ca7a0e6863ccfdbc8779a",

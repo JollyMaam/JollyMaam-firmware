@@ -87,8 +87,8 @@ static void list_add_tail(struct list_head *entry)
 
 static void __list_del_entry(struct list_head *entry)
 {
-    struct list_head *next = entry->next;
     struct list_head *prev = entry->prev;
+    struct list_head *next = entry->next;
     next->prev = prev;
     prev->next = next;
 }
@@ -114,8 +114,9 @@ static void tws_cmd_sync_call(struct tws_sync_call_data *sc)
 
     if (sc->tx != 0) {
         const struct tws_sync_call *call;
+        int uuid = sc->uuid;
         for (call = tws_sync_call_begin; call < tws_sync_call_end; call++) {
-            if (call->uuid == sc->uuid) {
+            if (call->uuid == uuid) {
                 if (call->func != NULL)
                     call->func(sc->priv, -1);
                 break;
@@ -427,6 +428,9 @@ static int taskq_calls, taskq_type, taskq_argc;
 static int taskq_args[4];
 static int mock_sniff, mock_lmp_sniff, mock_cpu_irq, mock_irq_disabled;
 static int key_enable_calls, key_disable_calls, time_dly_calls;
+static int sniff_probes, lmp_probes, unsniff_calls, phone_unsniff_calls;
+static int clear_on_unsniff, mutate_deleted_uuid, mutate_clock_slot;
+static int null_phone;
 
 static void callback(int priv, int event)
 {
@@ -497,9 +501,19 @@ static void reset_fixture(void)
     memset(taskq_args, 0, sizeof(taskq_args));
     mock_sniff = mock_lmp_sniff = mock_cpu_irq = mock_irq_disabled = 0;
     key_enable_calls = key_disable_calls = time_dly_calls = 0;
+    sniff_probes = lmp_probes = unsniff_calls = phone_unsniff_calls = 0;
+    clear_on_unsniff = mutate_deleted_uuid = mutate_clock_slot = null_phone = 0;
 }
 
-u32 tws_link_read_slot_clk(void) { return mock_clock; }
+u32 tws_link_read_slot_clk(void)
+{
+    if (mutate_clock_slot) {
+        sc_slot.uuid = 0x2345;
+        sc_slot.priv = 0x789;
+        tws_link.link = NULL;
+    }
+    return mock_clock;
+}
 int tws_conn_send_cmd(u8 type, const char *format, ...)
 {
     va_list args;
@@ -534,7 +548,12 @@ u16 usr_timeout_add(void *priv, void (*callback_fn)(void *), u32 msec, u8 reload
     slot_callback_priv = priv;
     return 19;
 }
-void usr_timer_del(u16 timer) { CHECK(timer == 19); timer_del_calls++; }
+void usr_timer_del(u16 timer)
+{
+    CHECK(timer == 19); timer_del_calls++;
+    if (mutate_deleted_uuid)
+        ((struct tws_sync_call_data *)sync_call_head.next)->uuid = 0x2345;
+}
 int os_taskq_post_type(const char *task, int type, int argc, int *argv)
 {
     CHECK(strcmp(task, (char *)registered_task) == 0);
@@ -547,15 +566,22 @@ int os_taskq_post_type(const char *task, int type, int argc, int *argv)
 void tws_core_tws_wait_tx(void) { wait_tx_calls++; }
 int bredr_offset2clkn(int clock, int offset) { return clock + offset; }
 int bredr_clkn2offset(int clock, int instant) { return instant - clock; }
-int tws_in_sniff_state(void) { return mock_sniff; }
-void lmp_tx_unsniff_req(struct lmp_connection *conn) { (void)conn; }
-void tws_tx_unsniff_req(void) { }
+int tws_in_sniff_state(void) { sniff_probes++; return mock_sniff; }
+void lmp_tx_unsniff_req(struct lmp_connection *conn)
+{ CHECK(conn == tws_conn.lmp_conn); unsniff_calls++; if (clear_on_unsniff) mock_sniff = 0; }
+void tws_tx_unsniff_req(void)
+{ unsniff_calls++; if (clear_on_unsniff) mock_sniff = 0; }
 struct lmp_connection *lmp_conn_for_address(u8 *address)
-{ CHECK(address == NULL); return &mock_lmp; }
+{ CHECK(address == NULL); return null_phone ? NULL : &mock_lmp; }
 int lmp_in_sniff_mode(struct lmp_connection *conn)
-{ CHECK(conn == &mock_lmp); return mock_lmp_sniff; }
+{ CHECK(conn == &mock_lmp); lmp_probes++; return mock_lmp_sniff; }
 int lmp_hci_cmd_to_conn(void *req, int count, ...)
-{ CHECK(req == &mock_lmp.rejust_esco_req && count == 1); return 0; }
+{
+    CHECK(req == &mock_lmp.rejust_esco_req && count == 1);
+    va_list args; va_start(args, count); CHECK(va_arg(args, int) == 2052); va_end(args);
+    phone_unsniff_calls++; if (clear_on_unsniff) mock_lmp_sniff = 0;
+    return 0;
+}
 void sys_key_event_filter_enable(void) { key_enable_calls++; }
 void sys_key_event_filter_disable(void) { key_disable_calls++; }
 void os_time_dly(int ticks) { CHECK(ticks == 10); time_dly_calls++; }
@@ -702,6 +728,71 @@ int main(void)
     fail_malloc = 1;
     CHECK(tws_api_sync_call_by_uuid(0x1234, 1, 1) == -12);
     CHECK(wait_tx_calls == 0 && malloc_calls == 1);
+    /* Original do-while probes after each delay, including delay fifteen. */
+    for (int phone = 0; phone != 2; ++phone) {
+        for (int clear = 0; clear != 2; ++clear) {
+            reset_fixture(); tws_link.link = &mock_link;
+            mock_sniff = !phone; mock_lmp_sniff = phone;
+            clear_on_unsniff = clear;
+            CHECK(tws_api_sync_call_by_uuid(0x1234, 2, 1) == 0);
+            CHECK(time_dly_calls == (clear ? 1 : 15));
+            CHECK((phone ? lmp_probes : sniff_probes) == 1 + time_dly_calls);
+            CHECK(unsniff_calls + phone_unsniff_calls == 1);
+        }
+    }
+    /* IRQ contexts request unsniff but never enter the blocking wait. */
+    for (int phone = 0; phone != 2; ++phone) {
+        for (int irq = 0; irq != 2; ++irq) {
+            reset_fixture(); tws_link.link = &mock_link;
+            mock_sniff = !phone; mock_lmp_sniff = phone;
+            mock_cpu_irq = !irq; mock_irq_disabled = irq;
+            CHECK(tws_api_sync_call_by_uuid(0x1234, 2, 1) == 0);
+            CHECK(time_dly_calls == 0 && key_enable_calls == 0);
+        }
+    }
+    reset_fixture(); tws_link.link = &mock_link; mock_lmp_sniff = 1;
+    mock_link.role = 1;
+    CHECK(tws_api_sync_call_by_uuid(0x1234, 2, 1) == 0);
+    CHECK(phone_unsniff_calls == 0 && time_dly_calls == 0);
+
+    /* Timer deletion may change the UUID: lookup occurs after deletion/unlink. */
+    reset_fixture(); tws_link.link = &mock_link;
+    CHECK(tws_api_sync_call_by_uuid(0x1234, 9, 1) == 0);
+    mutate_deleted_uuid = 1;
+    CHECK(key_sync_call_event_hander(NULL, 46, NULL) == 0);
+    CHECK(taskq_calls == 1 && callback_count == 0 && taskq_args[2] == 9);
+
+    /* Clock call mutations affect command fields but not the captured link. */
+    reset_fixture(); tws_link.link = &mock_link; mutate_clock_slot = 1;
+    CHECK(tws_api_sync_call_by_link(0x1234, 8, -10) == 1);
+    CHECK(send_cmd_uuid == 0x2345 && send_cmd_priv == 0x789 &&
+          slot_callback_priv == &mock_link && slot_delay == -16);
+
+    /* Mixed queue only sends unsent local entries, and TX-success is a no-op. */
+    reset_fixture(); tws_link.link = &mock_link;
+    CHECK(tws_api_sync_call_by_uuid(0x1234, 11, 1) == 0);
+    CHECK(tws_api_sync_call_by_uuid(0x2345, 12, 1) == 0);
+    tws_sync_call_rx_events(NULL, (u8 *)padded, 12);
+    u32 multiple[6];
+    CHECK(tws_sync_call_tx_events(NULL, (u8 *)multiple, 0) == 24);
+    CHECK(multiple[0] == 0x1234 && multiple[1] == 11 &&
+          multiple[3] == 0x2345 && multiple[4] == 12);
+    tws_sync_call_tx_events_suss(); tws_sync_call_init();
+    CHECK(tws_sync_call_tx_events(NULL, (u8 *)multiple, 0) == 0);
+    CHECK(key_sync_call_event_hander(NULL, 45, NULL) == 0 && free_calls == 0);
+    CHECK(key_sync_call_event_hander(NULL, 46, NULL) == 0 && free_calls == 3);
+    CHECK(taskq_args[3] == -1 && callback_event == -2);
+
+    /* No-link sender only notifies already-transmitted entries. */
+    reset_fixture();
+    struct tws_sync_call_data *orphan = sync_test_malloc(sizeof(*orphan));
+    orphan->tx = 1; orphan->uuid = 0x1234; orphan->priv = 88; orphan->instant = 100;
+    tws_cmd_sync_call(orphan);
+    CHECK(callback_count == 1 && callback_priv == 88 && callback_event == -1);
+    CHECK(timeout_calls == 0 && free_calls == 1);
+    CHECK(tws_api_sync_call_by_link(1, 2, 3) == 0);
+    tws_sync_call_rx_events_by_link(NULL);
+    CHECK(slot_timer_set_calls == 0);
     return TEST_DONE("btctrler_bd19_tws_sync_call");
 }
 #endif

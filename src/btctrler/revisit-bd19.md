@@ -91,6 +91,8 @@ against the eventual Nova 2 configuration and linked image.
 
 | C31 | `bd19/tws_pair_api.c`, worker `6758a78`, `tws_pair.c.o` occurrence2 `65c6a1e9…76f1`: this pairing API is distinct from retained occurrence1's TWS core. No unique BR23 exported counterparts; page/scan prototypes differ. | Keep occurrence-aware ownership and target-specific API. Do not conflate duplicate archive filenames or replace the core's callback/hash providers. Sharing requires independently recovered BR23 API evidence. |
 
+| C32 | `bd19/tws_sync_call.c`, worker `07f43a9`, SDK occurrence1 `dbb5d6d9…ef4`: allocated timer/list queue, direct-link slot and attribute15 differ from BR23 ring/attribute1; UUID API moves from BR23 task member. | Keep separate implementations; share only proven protocol-independent helpers. Revisit whole-member ownership when recovering `tws_task`, without importing its BR23 UUID wrapper. |
+
 ## Confirmed BD19 behavior to revisit
 
 Each row describes SDK behavior deliberately retained in accepted C. Fixes need
@@ -182,6 +184,9 @@ unestablished unless specifically stated.
 | B60 | `bd19/tws_pair_api.c`, occurrence2 `65c6a1e9…76f1`: create and wait-pair both poll ten times with four-tick delays, but exhausted create fails -14 while wait-pair can still provision without a TWS link. Existing-link wait-pair requires no exhausted retry, role!=1 and monitor==0. Second wait-pair argument is only a null/non-null flag. Wait-connection ignores its timeout argument; eSCO cancellation is a no-op. | Establish intended API preconditions and cancellation semantics before behavior changes. Preserve distinct rollback/duplicate scan-disable sequences and callback reloads. Corrected retry/gate/initializer/ABI drafts are translation defects, not SDK bugs. |
 | B61 | Same occurrence: two private byte handles start at zero, but init changes timer to255. Timer allocation255 skips arming yet returns success and records active operation. Timeout scaling is signed timeout*1000/625, retaining negative results and SDK nsw overflow domain. Search timeout leaves operation2; create timeout cancels first then emits post-cancel state. Init overwrites handles without releasing an active timer and leaves the mutable pairing address intact. | Audit supported timeout range, missing-timer success, init/retry/cancel lifetime and late callbacks against radio usage. Original address tail and byte-width busy flag are preserved; mocks verify callback ordering without establishing actual IRQ safety. |
 
+| B62 | Same sync-call occurrence: RX uses len>3 and i+=3 words while i<len/4, reading full aligned triples even for len4/8; TX has no capacity bound. Link RX reads nine bytes, widens only one priv byte, leaves sc_slot.instant unchanged and takes no IRQ lock. | Verify transport padding, alignment, capacities and framing before adding separate bounded application behavior. Fixtures use real padded storage, not evidence of caller safety. |
+| B63 | `__call_func_timeout` calls a matched NULL function unchecked; disconnect46 guards it. Timer/taskq failures are ignored; timeout callback runs before unlink outside IRQ masking, disconnect callback after unlink under masking, with captured next pointer. Direct-link timer255 is still armed; callback reloads timer after user code and writes255 after put. Init and TX-success are no-ops; deadline multiplication wraps before signed division. | Audit registration invariants, reentrancy, late callbacks, timer ownership/failure handling, supported delay range and queue/resource limits. Preserve +1/+2 versus -1/-2 callback statuses until caller contracts establish intent. |
+
 ## Inherited BR23 follow-ups: BD19 confirmation queue
 
 The linked [BR23 list](revisit.md) contains the original details and evidence.
@@ -263,7 +268,7 @@ Reproduce against the pinned BD19 occurrence before classifying as confirmed.
 | H18 | `tws_ll_adv.c`, `1441708`: Scan-response length copied into 31-byte field; failed-open registration retained; separate bitfield RMW equivalence was assumed by worker. | Confirm BD19 byte offsets and access order, then validate length and failure policy. |
 | H19 | `tws_le_link.c`, `241014a`: Scan type left uninitialized; eSCO advertising writes wrong parameter block; unchecked leftover advertising pointers; optional monitor imports. | B18 is not proof of these details: confirm every path against BD19, including dormant exports. |
 | H20 | `tws_task.c`, `33f184a`: Nested IRQ wrappers can enable early; detach leaves dangling semaphore; wait-pair wrappers ignore timeout. | Verify BD19 semaphore size/lifetime and lock nesting before enabling TWS. |
-| H21 | `tws_sync_call.c`, `cfb334f`: get_bt_slot_time has three-argument caller versus four-argument prototype. | Resolve actual BD19 caller/callee ABI; do not paper over with an unchecked cast. |
+| H21 | BR23 `tws_sync_call.c`, `cfb334f`: get_bt_slot_time has three-argument caller versus four-argument prototype. | Reclassified during sync-call review: this is inherited BR23 evidence; BD19 occurrence1 `dbb5d6d9…ef4` has no such call. Resolve BR23 ABI separately; no corresponding BD19 cast is required. |
 | H22 | `ll_bis.c`, `f902896`: Allocation/free list invariants and codec-start failure leave disabled path after stop; close uses wrong list casts. | B07 covers confirmed close behavior; check the other historical allocator/data-path findings independently. |
 | H23 | `ll_slave.c`, `797a1dd`: Control-PDU handlers read fixed fields without checking rx length; automatic connection-update divisor may be zero on fresh link. | Validate RX storage and peer-controlled fields; do not assume fixed radio slot capacity makes stale reads harmless. |
 | H24 | `analog.c`, `04748c7`: Register names and trim meanings inferred, hardware searches/cutoffs preserved; calibration/CCM/AES host doubles establish ordering rather than RF efficacy. | When recovering remaining analog/RF, retain masks/widths/order and measure independently before naming behavior as proven hardware facts. |
@@ -412,3 +417,5 @@ not absence of defects. See the earlier sections for cross-member issues.
 | `tws_data_forwarding.c.o` / 1 | `78c5461` + coordinator completion/review | C30; B57–B59 |
 
 | `tws_pair.c.o` / 2 | `6758a78` + coordinator review | C31; B60–B61 |
+
+| `tws_sync_call.c.o` / 1 | `07f43a9` + coordinator review | C32; B62–B63; H21 scope corrected to BR23 |

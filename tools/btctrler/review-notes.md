@@ -1821,3 +1821,41 @@ branch deleted. Original pairing occurrence1 and BR23 source bytes unchanged.
 Correction to the acceptance commit report: the link/role/monitor/exhaustion
 matrix contains 36 combinations (2*3*3*2), not 72; all 36 pass. No pending
 worker or hardware validation.
+
+
+## Clean-branch BD19 timed sync-call acceptance
+
+Reviewed worker `07f43a9`, `tws_sync_call.c.o` occurrence1, SHA-256
+`dbb5d6d9c680f99d0dced6a526672df01e2848eefef02bcddb1ee62ff988fef4`.
+Dedicated `bd19/tws_sync_call.c` supplies five public functions, two public
+globals and all 15 SDK function identities including private helpers. All 40
+mapped type shapes agree; all four public/private initializers, sections and
+alignments match exactly. sc_slot is mutable24/align4/timer255, channel9 is
+const28/align4/attribute15, head is self-linked, format is 441-NUL/align1.
+Only TX and combined RX/TX use .tws_irq_code; other routines use
+.classic_tws_code except the three unsectioned helpers. No duplicate UUID API:
+BR23 task source is outside BD19 ownership; retained BD19 task has no such export.
+
+Coordinator guided correction of delay-before-probe sniff waits, wrapped timer
+multiplication, callback/UUID snapshots, actual role-bit field and deletion
+ordering, then expanded durable fixtures. Full raw-IR function review plus
+normalized compiled review found remaining loop rotation, equivalent branches,
+byte-load ordering without intervening side effects, GEP/cast representation,
+nonobservable local lifetime changes, and compiler annotations. These are not
+a formal equivalence proof. All 123 baseline BR23 C files match 44d0073.
+Compiling this extra BD19-only source under BR23 fails because its ring record
+lacks list/timer fields; the actual BR23 source set passes validation.
+
+Fixtures cover short padded RX records, queue selection/no retransmission,
+timeout/disconnect/taskq status and cleanup order, deletion-time UUID mutation,
+callback-time timer mutation, timer255, no-link paths, allocation failure,
+clock-time field mutation and captured link, signed negative delay, wrapping
+multiply/cutoff, sniff wait probe counts/first and fifteenth delays, IRQ skip,
+role suppression, and no-op init/TX-success. Complete-mock ASan/UBSan passes.
+C32/B62–B63 record separate-protocol rationale, framing, lifetime and ignored
+failure questions. H21 is inherited BR23 evidence, not this BD19 member's ABI.
+
+Worker full controller checks and census pass: 207 : ok reports, 12 legacy
+reports, 31 tooling tests, both layouts and 87 ownership groups. Totals: 88
+accepted members / 964 functions / 84 globals; 23 retained members / 1089
+verified archive index entries. No application images or hardware tested.
