@@ -140,7 +140,9 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   Never run two flashers at once.
 - Device nodes: the tools look in `/dev` (`/dev/input` for evdev), or, when
   `DEV_ROOT` is set, for every node in that one directory (a container that
-  exports its nodes there).
+  exports its nodes there).  Programs that only look in the standard places
+  (SDL) run under `tools/withdev.sh`, which rebuilds `/dev` from `DEV_ROOT`
+  once at start: nodes that appear later are not in it.
 - Several devices of one kind are told apart by USB port:
   `padtool --device 5-2.1`, `jlnewfw scan`.  Use `padtool --dongle` for
   dongles.
