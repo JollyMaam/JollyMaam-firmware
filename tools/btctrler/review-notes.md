@@ -1793,7 +1793,7 @@ organization, private names, fixed-void versus old-style declarations and
 compiler call annotations. Signed timeout multiply/divide and repeated quick
 address calls remain unchanged.
 
-Expanded fixtures cover all 72 combinations of link presence, role0/1/2,
+Expanded fixtures cover all 36 combinations of link presence, role0/1/2,
 monitor0/1/2 and retry exhaustion, exactly ten lookup/delay calls with no extra
 lookup, state mutation on the final delay, distinct inquiry/page-scan/page
 failures, duplicate cancellation disables, no-op eSCO cancellation, two quick
@@ -1811,3 +1811,13 @@ is the original occurrence1 hash 7b63d337…fee6; its core/callback/hash provide
 remain untouched. All 123 original BR23 C files remain byte-identical to 44d0073.
 The intended BD19 target and actual BR23 source set build. No application-image,
 pairing-radio or hardware validation claimed.
+
+Pairing API combined checkpoint: acceptance `fe73848` passes canonical
+controller checks/census with 206 `: ok` reports, 12 legacy reports, 31 tooling
+tests, both layouts and 86 ownership groups. Totals: 87 accepted / 24 retained
+members, 959 functions, 82 globals and 1096 retained index entries. Clean
+worker/dependency status and merged ancestry checked; completed worktree and
+branch deleted. Original pairing occurrence1 and BR23 source bytes unchanged.
+Correction to the acceptance commit report: the link/role/monitor/exhaustion
+matrix contains 36 combinations (2*3*3*2), not 72; all 36 pass. No pending
+worker or hardware validation.
