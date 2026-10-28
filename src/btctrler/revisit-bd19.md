@@ -222,7 +222,7 @@ Reproduce against the pinned BD19 occurrence before classifying as confirmed.
 | H22 | `ll_bis.c`, `f902896`: Allocation/free list invariants and codec-start failure leave disabled path after stop; close uses wrong list casts. | B07 covers confirmed close behavior; check the other historical allocator/data-path findings independently. |
 | H23 | `ll_slave.c`, `797a1dd`: Control-PDU handlers read fixed fields without checking rx length; automatic connection-update divisor may be zero on fresh link. | Validate RX storage and peer-controlled fields; do not assume fixed radio slot capacity makes stale reads harmless. |
 | H24 | `analog.c`, `04748c7`: Register names and trim meanings inferred, hardware searches/cutoffs preserved; calibration/CCM/AES host doubles establish ordering rather than RF efficacy. | When recovering remaining analog/RF, retain masks/widths/order and measure independently before naming behavior as proven hardware facts. |
-| H25 | `tws_power_balance.c`, `1b22394`: Battery balancing counts equality with local voltage + 10 as higher remote voltage (strict comparison). | Confirm units/hysteresis intent and BD19 implementation before changing threshold. |
+| H25 | `tws_power_balance.c`, `1b22394`: Battery balancing counts equality with local voltage + 10 as higher remote voltage (strict comparison). | BD19 widened equality confirmed in `1fd79e4` (B43). Confirm units/hysteresis intent before changing threshold. |
 | H26 | `sys_timer.c`, `c238dc1`: Removal calls sys_timeout_del rather than sys_timer_del; handles truncate to u16 and modify results are ignored. | Check runtime API compatibility and timer lifetime on BD19; host adapters prove forwarding only. |
 
 ## Resolved recovery issues and process follow-ups
@@ -346,7 +346,7 @@ not absence of defects. See the earlier sections for cross-member issues.
 | `sys_timer.c.o` / 1 | `aed66ee` | H26 runtime timer API |
 | `thread.c.o` / 1 | `cd41996` | C08; B01 |
 | `tws_ble_link.c.o` / 1 | `a3a5af8` | B18 optional monitor imports |
-| `tws_power_balance.c.o` / 1 | coordinator review of `fccd25a` | C22; B43; H25; byte-return weak hook |
+| `tws_power_balance.c.o` / 1 | `1fd79e4` | C22; B43; H25; byte-return weak hook |
 | `tws_le_acc.c.o` / 1 | `cb82461` | BR23 #30 |
 | `vendor_manager.c.o` / 1 | `cee80c1` | B06; BR23 #11 |
 | `vsprintf.c.o` / 1 | `a3a5af8` | H15 |

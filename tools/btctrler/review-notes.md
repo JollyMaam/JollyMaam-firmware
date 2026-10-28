@@ -1403,3 +1403,11 @@ both layouts and 77 ownership/retention audits. Totals: 78 accepted members /
 919 public functions / 70 globals; 33 retained members / 1148 index entries.
 All original 123 BR23 C source files remain byte-identical to `44d0073`.
 No application-image, battery calibration or TWS hardware validation claimed.
+
+Power-balance combined checkpoint: acceptance `1fd79e4` passes canonical
+controller validation with 198 `: ok` reports, 12 legacy reports, 31 tooling
+tests, both layouts and all 77 ownership/retention audits. Totals: 78 accepted
+members / 919 functions / 70 globals; 33 retained members / 1148 verified index
+entries. Original BR23 source bytes remain unchanged. Corrected worker ancestry
+and clean root/dependency status were checked before removing the completed
+worktree and branch. No pending workers or TWS hardware validation.
