@@ -594,6 +594,14 @@
       ]
     },
     {
+      "member": "tws_afh.c.o",
+      "occurrence": 1,
+      "sha256": "bdb79b3563294c879c6542c24c6f63b1b413fcc3e57122d4815ee265d1a20ec0",
+      "sources": [
+        "src/btctrler/bd19/tws_afh.c"
+      ]
+    },
+    {
       "member": "tws_ble_link.c.o",
       "occurrence": 1,
       "sha256": "d73ab18d08102ac84c8056147810e740fa4e0eb1e1aea77e8b4bdc5c4e8a7f7c",

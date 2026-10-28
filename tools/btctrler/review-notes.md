@@ -1478,3 +1478,48 @@ controller validation and census with 200 `: ok` reports, 12 legacy reports,
 dependency status plus merged ancestry were checked before deleting the worker
 worktree and branch. Totals remain 80 accepted / 31 retained members, 926
 functions, 73 globals and 1138 retained index entries. No hardware validation.
+
+## Clean-branch BD19 TWS AFH acceptance
+
+Reviewed worker `90772cc`, `tws_afh.c.o` occurrence 1, SHA-256
+`bdb79b3563294c879c6542c24c6f63b1b413fcc3e57122d4815ee265d1a20ec0`.
+`bd19/tws_afh.c` provides three public functions, four private callbacks/helpers
+and const tws_afh_sync. Channel 3/attribute 5 table, all callback relocations,
+28-byte target size, section and alignment match SDK IR. Private ten-byte
+zero map and four-u32 classification table values/alignment also agree;
+private versus internal linkage and private global names are immaterial here.
+38 mapped type shapes match. All seven functions were reviewed against raw
+SDK IR and original BR23 tws_pair.c.o counterparts, not merely symbol coverage.
+
+Coordinator removed an incorrect IRQ section from master RX, restored per-pair
+classification stores/reloads and widened its lookup table to original u32.
+Remaining normalized differences are loop rotation/branch order, local lifetime
+markers, equivalent scalar arithmetic, declaration prototypes and call flags.
+The helper now preserves overlapping-buffer source reloads and output stores;
+actual production caller uses disjoint stack arrays. Master TX retains exact
+pending-update zero result, lazy timer, strict change threshold, callback reloads,
+aligned timestamp store, and refreshed link-map copy. No BR23 source or
+application policy was imported. C25/B48–B49 track sharing, timing/framing and
+unsupported optional WiFi imports. Worker wording about BR23 app masking is
+qualified: this is already present at clean 44d0073, not a newly imported fix.
+
+Focused tests now exercise every byte classification and popcount threshold,
+last-byte override, unsigned counter wrap, config/NULL/sniff gates, negative RX
+length, duplicate early exit, unchanged-map response suppression, lazy 0xffff
+timer result, counter reset before classification callback, clock-hook eSCO
+mutation, wrapping +400, refreshed-link map after set_afh, no retransmit while
+pending, expiry clearing, phone-map and all-ones fallbacks, and no-op completion.
+Fixtures use complete mocks; standalone ASan/UBSan links without unresolved-symbol
+suppression and passes. Both target compiler builds pass.
+
+Worker combined controller validation/census pass: 201 `: ok` reports, 12 legacy
+reports, 31 tooling tests, both layouts and 80 ownership groups. Totals:
+81 accepted members / 929 public functions / 74 globals; 30 retained members /
+1134 verified index entries. Original 123 BR23 C files are byte-identical to
+44d0073. No firmware-image or radio/hardware validation is claimed.
+
+Dependency limitation: numbits_table and three wifi_det_*_channel_map helpers
+have no providers in the pinned cpu/bd19/liba archive indexes/current C, just
+as in the original member. Application CONFIG_WIFI_DETECT_ENABLE is zero.
+Do not enable this optional path without providers and actual linking tests;
+controller ownership audits do not establish whole-application linkability.

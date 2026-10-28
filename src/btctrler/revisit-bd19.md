@@ -77,6 +77,8 @@ against the eventual Nova 2 configuration and linked image.
 
 | C24 | `bd19/tws_lmp_sync.c`, worker `eaf2359`, occurrence 1 `e87bad0e…5ded`: counterparts live inside BR23 `tws_pair.c.o`. BD19 adds detach byte 5, timer-id tracking, a null-connection RX guard, channel attributes 12/13 and a strict +/-4 clock window (BR23 +/-12). | Share only after retaining these protocol, timing, table and member-boundary differences. BD19 timer callback remains external in retained `tws_pair.c.o` occurrence 1; do not expose BR23's private callback to satisfy it. |
 
+| C25 | `bd19/tws_afh.c`, worker `90772cc`, occurrence 1 `bdb79b35…0ec0`: BR23 counterparts in `tws_pair.c.o` lack the WiFi detector/counter/classifier. BD19 uses table attribute 5 (BR23 2), fixed eSCO-dependent +200/+400, and returns zero during pending updates instead of retransmitting. | Keep separate implementations until a deliberate common protocol/policy exists. BR23 channel masking/run-slot delay are baseline behavior, not evidence of a BD19 bug. |
+
 ## Confirmed BD19 behavior to revisit
 
 Each row describes SDK behavior deliberately retained in accepted C. Fixes need
@@ -146,6 +148,9 @@ unestablished unless specifically stated.
 
 | B46 | `bd19/tws_lmp_sync.c`, occurrence 1 `e87bad0e…5ded`: timer allocation 255 is stored/passed unchecked; disable releases the timer before storing 255 and leaves detach instant unchanged. RX reloads the instant after the clock hook; TX reloads global instant after timer setup. | Audit allocation failure, cancellation and callback lifetime before changing scheduling. Preserve signed minimum-two delay and wrapping clock+300 arithmetic. |
 | B47 | Same member: slot RX reports 24 while writing six bytes, leaving the tail untouched. Master RX ignores length, requires aligned input, clears pending state before dispatch and uses independent unsigned strict +/-4 comparisons. Core RX copies 44 bytes for every non-five length. Core-sync enable and slot-master TX are no-ops. | Trace caller framing and tail initialization before declaring a leak or fixing lengths; audit wrap-edge suppression and malformed packets. Determine whether no-op features are intentionally disabled. These are SDK behaviors, not translation defects. |
+
+| B48 | `bd19/tws_afh.c`, occurrence 1 `bdb79b35…0ec0`: WiFi detection requires config exactly 1, lazily stores unchecked 16-bit timer result, ignores map-helper status, and requires unsigned counter >=6 and >1 changed bits. Counter wraps. RX accepts any nonzero length as timestamp+map; duplicate instant exits before WiFi response. TX completion is a no-op. | Audit timer teardown/retry, malformed framing, duplicate-response suppression and classification policy before application fixes. Preserve callback reloads, including eSCO state after clock and link/map after AFH setup. |
+| B49 | Same member imports `numbits_table` and three `wifi_det_*_channel_map` functions. No providers found in the pinned BD19 `cpu/bd19/liba/*.a` archive indexes or current C. Original SDK member has the same unresolved imports; `src/platform_jieli_sdk.c` sets `CONFIG_WIFI_DETECT_ENABLE=0`. | Optional WiFi path remains unsupported until real providers and integration tests exist. Do not add production stubs or infer support from host mocks, ownership audits, or controller-only builds. Validate optional-feature linkability when enabling it. |
 
 ## Inherited BR23 follow-ups: BD19 confirmation queue
 
@@ -363,3 +368,5 @@ not absence of defects. See the earlier sections for cross-member issues.
 | `vsprintf.c.o` / 1 | `a3a5af8` | H15 |
 
 | `tws_lmp_sync.c.o` / 1 | `eaf2359` + coordinator review | C24; B46–B47 |
+
+| `tws_afh.c.o` / 1 | `90772cc` + coordinator review | C25; B48–B49 |
