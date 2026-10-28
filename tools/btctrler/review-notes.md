@@ -1708,3 +1708,55 @@ members, 940 functions, 81 globals and 1116 retained index entries. Clean
 worker/dependency status and merged ancestry checked; completed worktree and
 branch deleted. The new common source is SDK-identical for both targets;
 original BR23 sources are unchanged. No pending worker or hardware validation.
+
+## Clean-branch BD19 TWS data-forwarding acceptance
+
+Completed and reviewed partial worker checkpoint `78c5461` for
+`tws_data_forwarding.c.o` occurrence 1, SHA-256
+`dee9f3c5e2eaa9dae33a72b4a6491973b773f25a1beb69328bc07874cef6faed`.
+The worker explicitly left RX-list callback undefined and was never admitted
+in that state. Coordinator completed that callback, supplied all remaining
+public hooks, and reviewed the production bodies against the entire raw member.
+`bd19/tws_data_forwarding.c` now defines exactly the original 18 function
+identities: nine public functions and nine private functions. Public const
+`tws_acl_data_sync` matches channel6/attribute0, callback relocations, target
+size28, section and align4. Private sync initializer/type/align4 matches the
+40-byte target state. All 21 diagnostic constants match original bytes,
+including SDK file provenance/line502 and assertion text. All 42 mapped type
+shapes agree. No additional compiled private functions/globals were introduced.
+
+Source review corrected initial worker abandonment gating, public event-handler
+linkage, omitted exported hooks, callback-triggered count reloads and list next
+pointer capture before wire writes. Coordinator RX classification preserves
+full32-bit versus zero-extended16-bit hash matching, four-byte padded IDs,
+ready/lost/send snapshots, abandonment limits, deferred last-two IDs, prefix
+reuse, original head-offset reload after memset, reference increments, and
+end-marker sequencing. Public RX preserves signed count consumption below
+zero, prior-hash reload after logging, embedded packet metadata, cached LMP
+versus fresh link fields, history-hook hash reload and signed byte sequence
+comparisons. Original assertion/reset branches continue to the notification
+hook if the platform helper returns; no application assertion policy was
+substituted. Remaining normalized differences are equivalent typed/container
+GEPs, control-flow/loop organization, pure scalar scheduling, prototypes and
+compiler call/analysis annotations; this is not a formal equivalence proof.
+
+Durable complete-mock fixtures cover channel/no-op/reset state, cleanup hash
+width and count consumption, request wire layout/padding, callback reply length,
+empty and later-ID matching, abandonment packets, prefix-backed in-place TX,
+reference increments, end markers, both failed-allocation branches, receive
+prefix release, history callback mutation, completion sequence cutoff, signed
+single-bad timing/countdown, event27 lengths and logging-driven state reloads.
+Safe backing storage is used for tested SDK span quirks. Standalone ASan/UBSan
+passes without unresolved-symbol suppression. These fixtures do not cover every
+queue interleaving, malformed span, DMA or runtime lifetime. C30/B57–B59 record
+sharing, hash/framing, storage, reset and recovery follow-ups.
+
+Completed BD19 target build passes. Normal BR23 portability compile is
+unsupported (its event handler returns void, and its packet/state layouts
+are different); the actual unchanged BR23 source set builds in full validation.
+No BR23 source or later app fixes were imported. All 123 original BR23 C files
+remain byte-identical to 44d0073. Worker full controller checks/census pass:
+205 `: ok` reports, 12 legacy reports, 31 tooling tests, both layouts and 85
+ownership groups. Totals: 86 accepted members / 949 public functions / 82 globals;
+25 retained members / 1106 verified index entries. No application-image,
+controller-radio or hardware validation claimed.

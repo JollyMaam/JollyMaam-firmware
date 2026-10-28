@@ -626,6 +626,14 @@
       ]
     },
     {
+      "member": "tws_data_forwarding.c.o",
+      "occurrence": 1,
+      "sha256": "dee9f3c5e2eaa9dae33a72b4a6491973b773f25a1beb69328bc07874cef6faed",
+      "sources": [
+        "src/btctrler/bd19/tws_data_forwarding.c"
+      ]
+    },
+    {
       "member": "tws_event.c.o",
       "occurrence": 1,
       "sha256": "73dd3fbcd0a7f28525c2014c208463e8c0aff5efa19ceebd87b97e5937211b53",
