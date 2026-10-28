@@ -1859,3 +1859,12 @@ Worker full controller checks and census pass: 207 : ok reports, 12 legacy
 reports, 31 tooling tests, both layouts and 87 ownership groups. Totals: 88
 accepted members / 964 functions / 84 globals; 23 retained members / 1089
 verified archive index entries. No application images or hardware tested.
+
+
+Timed sync-call combined checkpoint: acceptance `c8f149b` passes canonical
+controller checks/census: 207 : ok reports, 12 legacy reports, 31 tooling
+tests, both layouts, 87 ownership groups. Totals: 88 accepted / 23 retained
+members, 964 functions, 84 globals, 1089 retained index entries. All 123 original
+BR23 sources remain byte-identical to 44d0073. Clean worker and all three nested
+dependency statuses and merged ancestry checked; completed worker worktree and
+branch deleted. No pending worker, application-image or hardware validation.
