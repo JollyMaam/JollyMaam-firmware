@@ -49,7 +49,7 @@ int tws_conn_sync_rx_core_data(struct lmp_connection *conn, u8 *rxbuffer,
                            (void *)(uintptr_t)timer, offset > 2 ? offset : 2);
         }
     } else {
-        memcpy(&conn->core.stage, rxbuffer, 44);
+        __builtin_memcpy(&conn->core.stage, rxbuffer, 44);
         if (esco_state != 0)
             conn->core.esco_state = esco_state;
     }
@@ -74,13 +74,13 @@ static int tws_conn_sync_tx_core_data(struct lmp_connection *conn,
             }
             instant = tws_conn.phone_link_detach_instant;
         }
-        memcpy(txbuffer, &instant, 4);
+        *(u32 *)(void *)txbuffer = instant;
         txbuffer[4] = conn->err_code;
         return 5;
     }
     if (tws_conn.lmp_core_data_sync == 0)
         return 0;
-    memcpy(txbuffer, &conn->core.stage, 44);
+    __builtin_memcpy(txbuffer, &conn->core.stage, 44);
     return 44;
 }
 
@@ -104,8 +104,8 @@ int tws_lmp_slot_sync_rx(struct lmp_connection *conn, u8 *rx, int len,
     if (working == 0 || slot_clk == 0)
         return 0;
     cmd = tws_link.esco_rx_lmp_cmd;
-    memcpy(tx, &slot_clk, 4);
-    memcpy(tx + 4, &cmd, 2);
+    __builtin_memcpy(tx, &slot_clk, 4);
+    __builtin_memcpy(tx + 4, &cmd, 2);
     tws_link.esco_rx_lmp_slot_clk = 0;
     return 24;
 }
@@ -205,7 +205,7 @@ int main(void)
 {
     struct lmp_connection conn = {0};
     _Alignas(4) u8 rx[48] = {0};
-    u8 out[48];
+    _Alignas(4) u8 out[48];
     u32 instant = 1000;
     u16 cmd = 62;
 
@@ -293,11 +293,23 @@ int main(void)
 
     /* Core receive preserves the eSCO byte across the SDK's 44-byte copy. */
     memset(&conn, 0, sizeof(conn));
-    conn.core.esco_state = 9;
+    conn.core.esco_state = 0x80;
     memset(rx, 0x31, sizeof(rx));
     CHECK(tws_conn_sync_rx_core_data(&conn, rx, 44, NULL) == 0);
-    CHECK(conn.core.esco_state == 9 && ((u8 *)&conn.core.stage)[0] == 0x31 &&
+    CHECK(conn.core.esco_state == 0x80 && ((u8 *)&conn.core.stage)[0] == 0x31 &&
           ((u8 *)&conn.core.stage)[43] == 0x31);
+
+    conn.core.esco_state = 0;
+    CHECK(tws_conn_sync_rx_core_data(&conn, rx, -1, NULL) == 0);
+    CHECK(conn.core.esco_state == 0x31);
+    CHECK(tws_conn_sync_rx_core_data(NULL, NULL, 5, NULL) == 0);
+    tws_conn.phone_link_detach = 2;
+    tws_conn.lmp_core_data_sync = 0;
+    CHECK(tws_conn_sync.tx_sync_req(NULL, NULL, 0) == 0);
+    CHECK(tws_lmp_slot_sync.tx_sync_req(NULL, NULL, 0) == 0);
+    tws_conn.lmp_core_data_sync = 7;
+    tws_lmp_core_sync_enable();
+    CHECK(tws_conn.lmp_core_data_sync == 7);
 
     /* Each action command runs outside the strict +/-4 suppression window. */
     instant = 1000; memcpy(rx, &instant, 4);

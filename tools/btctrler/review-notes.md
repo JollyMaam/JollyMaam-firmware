@@ -1445,3 +1445,29 @@ with 199 `: ok` reports, 12 legacy reports, 31 tooling tests, both layouts and
 32 retained members / 1145 verified index entries. BR23 baseline C is unchanged.
 Clean worker/dependency status and merged ancestry were checked before deleting
 the completed worktree and branch. No pending workers or hardware validation.
+
+## Clean-branch BD19 TWS LMP-sync acceptance
+
+Reviewed worker `eaf2359`: `tws_lmp_sync.c.o` occurrence 1, SHA-256
+`e87bad0ec260b7c9a29c64b823ce0ac36710e60ca3e6680fb75f8dc6c0fe5ded`.
+Five public functions, three private callbacks and two 28-byte channel tables
+are recovered. Both table initializers, relocations, sections and alignment
+match the SDK exactly; 38 mapped type shapes agree. All eight function bodies
+were compared with original IR. Remaining differences are equivalent boolean
+branches, pure arithmetic scheduling, switch ordering, compiler call annotations
+and an alignment assumption matching the SDK input domain.
+
+Coordinator corrected external memcpy calls to SDK memory intrinsics and
+restored the aligned u32 detach timestamp store. The host TX buffer is now
+explicitly aligned. Additional checks cover full-byte eSCO preservation, negative
+non-detach length, null connection, bit-zero selection and both no-op callbacks.
+Retained SDK tws_pair.c.o occurrence 1 still supplies do_phone_link_detach;
+BR23's private callback was not exposed. C24/B46–B47 record consolidation,
+timer allocation/lifetime and unusual wire framing follow-ups.
+
+Worker full controller suite and census pass: 200 `: ok` reports, 12 legacy
+reports, 31 tooling tests, both layouts and all 79 ownership groups. ASan/UBSan
+fixture passes. Totals: 80 accepted members, 926 functions, 73 globals;
+31 retained members and 1138 verified index entries. All 123 original BR23 C
+files remain byte-identical to 44d0073. Controller-only validation; no firmware
+image or hardware validation claimed.

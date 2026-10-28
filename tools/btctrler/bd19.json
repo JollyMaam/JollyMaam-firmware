@@ -618,6 +618,14 @@
       ]
     },
     {
+      "member": "tws_lmp_sync.c.o",
+      "occurrence": 1,
+      "sha256": "e87bad0ec260b7c9a29c64b823ce0ac36710e60ca3e6680fb75f8dc6c0fe5ded",
+      "sources": [
+        "src/btctrler/bd19/tws_lmp_sync.c"
+      ]
+    },
+    {
       "member": "tws_power_balance.c.o",
       "occurrence": 1,
       "sha256": "eeb6614a795aba99e8479bbcf893c96db057ba470612aed895e14570625acb11",

@@ -75,6 +75,8 @@ against the eventual Nova 2 configuration and linked image.
 
 | C23 | `bd19/tws_ci_data.c`, worker `d5c3730`, occurrence 1 `c19a5053…c30c`: original BR23/BD19 core operations match; combined RX/TX differs by inlining. BD19 adds `.classic_tws_code` and an int-return event callback where BR23 returns void. No previous BR23 C owner exists. | Candidate common source after deliberate BR23 ownership and callback return/section handling. Preserve volatile flag accesses and copy/post/IRQ ordering; do not treat a matching copy loop as proof of common semaphore/lifetime policy. |
 
+| C24 | `bd19/tws_lmp_sync.c`, worker `eaf2359`, occurrence 1 `e87bad0e…5ded`: counterparts live inside BR23 `tws_pair.c.o`. BD19 adds detach byte 5, timer-id tracking, a null-connection RX guard, channel attributes 12/13 and a strict +/-4 clock window (BR23 +/-12). | Share only after retaining these protocol, timing, table and member-boundary differences. BD19 timer callback remains external in retained `tws_pair.c.o` occurrence 1; do not expose BR23's private callback to satisfy it. |
+
 ## Confirmed BD19 behavior to revisit
 
 Each row describes SDK behavior deliberately retained in accepted C. Fixes need
@@ -141,6 +143,9 @@ unestablished unless specifically stated.
 
 | B44 | Same occurrence, open/sync: open ignores semaphore-create failure and leaves pending data/length/flag intact. Sync ignores set failure, publishes/replaces a borrowed pointer without a busy check, and a failed pend returns 0 without canceling it. Times 1–9 become pend timeout 0. Completion and supervision-timeout/detach handlers post the same semaphore; sync checks only pend status. | Define buffer lifetime, cancellation, minimum wait and delivery-status contracts before adding fixes. A modeled successful wake during event 45 returns the original length despite no TX; this is control-flow evidence, not proof of a particular OS/hardware outcome. |
 | B45 | Same occurrence: outbound copies use unchecked stored signed length and reload it after memcpy; RX callbacks differ for zero length between plain and combined paths. Public sync accepts an external context, while transport callbacks always use the singleton. TX completion clears volatile pending before post; events 45/46 post before clearing under IRQ disable. | Validate spans/framing and clarify supported handle use. Preserve aliasing and callback-state observations until explicit serialization/cancellation policy is chosen. Safe fixtures exercise len aliasing, callback TX replacement and reentrant semaphore writes; they do not establish concurrency safety. |
+
+| B46 | `bd19/tws_lmp_sync.c`, occurrence 1 `e87bad0e…5ded`: timer allocation 255 is stored/passed unchecked; disable releases the timer before storing 255 and leaves detach instant unchanged. RX reloads the instant after the clock hook; TX reloads global instant after timer setup. | Audit allocation failure, cancellation and callback lifetime before changing scheduling. Preserve signed minimum-two delay and wrapping clock+300 arithmetic. |
+| B47 | Same member: slot RX reports 24 while writing six bytes, leaving the tail untouched. Master RX ignores length, requires aligned input, clears pending state before dispatch and uses independent unsigned strict +/-4 comparisons. Core RX copies 44 bytes for every non-five length. Core-sync enable and slot-master TX are no-ops. | Trace caller framing and tail initialization before declaring a leak or fixing lengths; audit wrap-edge suppression and malformed packets. Determine whether no-op features are intentionally disabled. These are SDK behaviors, not translation defects. |
 
 ## Inherited BR23 follow-ups: BD19 confirmation queue
 
@@ -356,3 +361,5 @@ not absence of defects. See the earlier sections for cross-member issues.
 | `tws_le_acc.c.o` / 1 | `cb82461` | BR23 #30 |
 | `vendor_manager.c.o` / 1 | `cee80c1` | B06; BR23 #11 |
 | `vsprintf.c.o` / 1 | `a3a5af8` | H15 |
+
+| `tws_lmp_sync.c.o` / 1 | `eaf2359` + coordinator review | C24; B46–B47 |
