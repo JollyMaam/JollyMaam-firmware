@@ -15,7 +15,7 @@ import padflash
 import padhid
 from padknown import PRODUCTS, command_mode, product_name, stock_name
 from padtransport import usb_location
-from paddevices import DeviceMonitor, read_device, stock_records
+from paddevices import DeviceMonitor, load_targets, read_device, stock_records
 from padconsole import LiveConsole
 from padwidgets import PaletteEditor, CurveEditor, RemapEditor, Tooltip
 
@@ -154,6 +154,8 @@ class App:
         root.protocol("WM_DELETE_WINDOW", self.close)
         self.poll = root.after(80, self.drain)
         self.startup_scan = root.after_idle(self.scan) if auto_scan else None
+        if auto_scan:
+            self.monitor.start()
 
     def log(self, text):
         output = self.loader_output
@@ -261,8 +263,13 @@ class App:
                     else:
                         self.flash_bar.start()
                     continue
+                if kind == "reloaded":
+                    self.reloaded(*data)
+                    continue
                 if kind == "applied":
-                    path, values, applied_keys = data
+                    path, values, applied_keys, *counter = data
+                    if counter and path in self.cache:
+                        self.cache[path]["changes"] = counter[0]
                     if values is None:
                         record = self.cache[path]
                         for key in applied_keys:
@@ -275,16 +282,7 @@ class App:
                             entry["reset"].set(False)
                         record["error"] = "Setting(s) saved, but reload failed. Other edits remain pending. Reconnect or use Open device path to reload; other pending edits are retained."
                     else:
-                        record = self.cache[path]
-                        pending = {key: (entry["var"].get(), entry["reset"].get(), entry.get("unpair", False))
-                                   for key, entry in record["draft"].items()
-                                   if key not in applied_keys and self.changed(entry)}
-                        self.install_values(record, values)
-                        for key, (text, reset, unpair) in pending.items():
-                            if key in record["draft"]:
-                                record["draft"][key]["var"].set(text)
-                                record["draft"][key]["reset"].set(reset)
-                                record["draft"][key]["unpair"] = unpair
+                        self.reinstall(self.cache[path], values, applied_keys)
                     self.mark_dirty()
                     continue
                 completed_flash = self.flash_active
@@ -357,7 +355,8 @@ class App:
         return path
 
     def install_values(self, record, values):
-        draft = {}
+        """The draft entries of values' targets, anew; other targets' stay."""
+        draft = {key: entry for key, entry in record.get("draft", {}).items() if key[0] not in values}
         for t, target_values in values.items():
             for f in record["fields"]:
                 if f["kind"] != pad.kind_of(t) or f["name"] not in target_values:
@@ -389,7 +388,95 @@ class App:
                 if f["kind"] == 3 and f["name"] == "name":
                     var.trace_add("write", lambda *_, r=record, t=t: self.rename_node(r, t))
         record["draft"] = draft
-        record["values"] = values
+        record["values"] = {**record.get("values", {}), **values}
+
+    def reinstall(self, record, values, skip=()):
+        """values installed, the pending edits of their targets (but skip's) kept."""
+        pending = {key: (entry["var"].get(), entry["reset"].get(), entry.get("unpair", False), entry.get("custom_curve"))
+                   for key, entry in record.get("draft", {}).items()
+                   if key[0] in values and key not in skip and self.changed(entry)}
+        self.install_values(record, values)
+        for key, (text, reset, unpair, custom) in pending.items():
+            if key in record["draft"]:
+                entry = record["draft"][key]
+                entry["var"].set(text)
+                entry["reset"].set(reset)
+                entry["unpair"] = unpair
+                if custom is not None:
+                    entry["custom_curve"] = custom
+
+    @staticmethod
+    def missing(record, target=None):
+        """The targets a pad's page needs that are not loaded yet: the slots
+        for the device, and the target itself.  A record without "loaded" has
+        everything."""
+        if record["board"] != "pad" or "loaded" not in record or record.get("error") or not record.get("online", True):
+            return []
+        want = set(range(8)) | ({target} if isinstance(target, int) else set())
+        return sorted(want - record["loaded"])
+
+    def load_record(self, record, targets, then=None):
+        """targets (and the field table, the first time) read in, then shown."""
+        path, identity, table = record["path"], record["identity"], record["fields"]
+        def work():
+            if pad.cmd(path, 0, length=64)[:56] != identity:
+                raise ValueError(f"{path}: device changed; wait for device detection")
+            return load_targets(path, table, targets)
+        def done(result):
+            table, values, defaults = result
+            if self.cache.get(path) is not record:
+                return
+            first = record["fields"] is None
+            record["fields"] = table
+            record.setdefault("defaults", {}).update(defaults)
+            self.install_values(record, values)
+            record["loaded"] |= set(targets)
+            if first:
+                self.render_tree()
+            else:
+                for t in values:
+                    self.rename_node(record, t)
+                self.rerender_in_place()
+            self.mark_dirty()
+            if then:
+                then()
+        self.run("Loading settings…", work, done)
+
+    def reload_quietly(self, record):
+        """The settings changed on the device: its loaded targets read again in
+        the background, pending edits kept."""
+        if record.get("reloading") or not record.get("loaded") or record["fields"] is None:
+            return
+        record["reloading"] = True
+        path, identity, table, targets = record["path"], record["identity"], record["fields"], sorted(record["loaded"])
+        events, monitor = self.events, self.monitor
+        def work():
+            result = None
+            try:
+                with monitor.lock:
+                    if not monitor.busy.is_set():
+                        result = load_targets(path, table, targets)
+            except (Exception, SystemExit) as error:
+                events.put(("log", f"{path}: reloading settings: {error}"))
+            events.put(("reloaded", (path, identity, result)))
+        threading.Thread(target=work, daemon=True).start()
+
+    def reloaded(self, path, identity, result):
+        record = self.cache.get(path)
+        if not record or record["identity"] != identity:
+            return
+        record["reloading"] = False
+        if result is None or self.busy:
+            record["changes"] = None     # the next look tries again
+            return
+        _, values, defaults = result
+        record.setdefault("defaults", {}).update(defaults)
+        self.reinstall(record, values)
+        for t in values:
+            self.rename_node(record, t)
+        self.rerender_in_place()
+        self.mark_dirty()
+        self.log(f"{path}: settings changed on the device; reloaded")
 
     def value_bytes(self, entry):
         if entry.get("unpair"):
@@ -744,6 +831,17 @@ class App:
             if len(matches) == 1:
                 old = matches[0]
                 self.cache.pop(old["path"])
+        if old and old["identity"] == record["identity"] and "loaded" in record and old.get("fields") is not None:
+            # The same device: what is loaded stays, edits too; reloaded if
+            # its settings changed meanwhile.
+            for key in ("fields", "values", "defaults", "draft"):
+                if key in old:
+                    record[key] = old[key]
+            record["loaded"] = set(old["loaded"]) if "loaded" in old else set(pad.targets(old["fields"]))
+            self.cache[path] = record
+            if old.get("changes") is not None and old.get("changes") != record.get("changes"):
+                self.reload_quietly(record)
+            return
         pending = {key: (entry["var"].get(), entry["reset"].get(), entry.get("custom_curve"), entry.get("unpair", False))
                    for key, entry in old.get("draft", {}).items() if self.changed(entry)} if old and old["identity"] == record["identity"] else {}
         self.install_values(record, record["values"])
@@ -757,7 +855,12 @@ class App:
                 entry["unpair"] = unpair
 
     def update_devices(self, snapshot):
-        generation, present, records, errors = snapshot
+        generation, present, records, errors, *rest = snapshot
+        for path, (status, counter) in (rest[0] if rest else {}).items():
+            record = self.cache.get(path)
+            if record and record.get("online", True) and record.get("changes") != counter:
+                record["changes"], record["status"] = counter, status
+                self.reload_quietly(record)
         changed = False
         for path, record in list(self.cache.items()):
             if path not in present or record["identity"] != present[path]:
@@ -820,7 +923,7 @@ class App:
                 label += " (disconnected)"
             self.tree.insert("", "end", iid=device_node, text=f"{location}{label} · {record.get('original_path', path)}", open=True)
             self.nodes[device_node] = (path, None)
-            targets = pad.targets(record["fields"]) if record["board"] == "pad" else []
+            targets = pad.targets(record["fields"]) if record["board"] == "pad" and record["fields"] is not None else []
             for t in targets:
                 node = f"{device_node}/{t}"
                 self.tree.insert(device_node, "end", iid=node, text=self.target_label(record, t))
@@ -877,6 +980,9 @@ class App:
         self.board.set(record["board"] if record["board"] in OURS else "")
         if isinstance(target, int):
             self.target.set(pad.TARGETS[target])
+        missing = self.missing(record, target)
+        if missing:
+            self.load_record(record, missing)
         self.render_overview()
         self.render_details()
         self.update_loader_actions()
@@ -1028,7 +1134,8 @@ class App:
         record = self.record()
         if not record:
             ttk.Label(f, text="Looking for devices…" if self.looking else
-                      "Connect a pad, dongle or ROM loader, then press Refresh, or use Open device path.", wraplength=800).pack(anchor="w", pady=12)
+                      "Connect a pad or dongle: it appears here by itself. For a ROM loader on Windows, press Refresh; "
+                      "or use Open device path.", wraplength=800).pack(anchor="w", pady=12)
             return
         if record["board"] == "loader":
             self.loader_title.set(f"{self.device_label(record)} · {record['path']}")
@@ -1061,6 +1168,9 @@ class App:
         self.scope_actions(f, record).pack(anchor="w", pady=(0, 10))
         if record.get("error"):
             ttk.Label(f, text=record["error"]).pack(anchor="w", pady=8)
+            return
+        if self.missing(record):
+            ttk.Label(f, text="Loading settings…").pack(anchor="w", pady=8)
             return
         ttk.Label(f, text="Choose each slot's type here. Select a slot in the tree for transport, colours, response and other options.", wraplength=850).pack(anchor="w", pady=(0, 6))
         for target in range(8):
@@ -1097,6 +1207,9 @@ class App:
             return
         target = pad.target_index(self.target.get())
         self.details_title.set(f"{record['path']} · " + self.target_label(record, target).split(" · ")[0])
+        if self.missing(record, target):
+            ttk.Label(self.form, text="Loading settings…").pack(anchor="w", pady=8)
+            return
         advanced = ttk.Frame(self.form)
         self.details_actions = self.scope_actions(self.details_header, record, target)
         self.details_actions.pack(side="left", padx=(12, 0))
@@ -1301,12 +1414,15 @@ class App:
                     raise ValueError(f"{path}: device changed since loading; refresh again")
             for path, record, items, keys in jobs:
                 pad.send(path, items)
+                loaded = record.get("loaded")
                 try:
-                    values = {t: pad.read_target(path, record["fields"], t) for t in pad.targets(record["fields"])}
+                    values = {t: pad.read_target(path, record["fields"], t)
+                              for t in pad.targets(record["fields"]) if loaded is None or t in loaded}
+                    counter = pad.status_info(path)[1] if loaded is not None else None
                 except (Exception, SystemExit) as error:
                     self.events.put(("applied", (path, None, keys)))
                     raise RuntimeError(f"{path}: settings saved, but reload failed: {error}")
-                self.events.put(("applied", (path, values, keys)))
+                self.events.put(("applied", (path, values, keys) + ((counter,) if loaded is not None else ())))
                 self.flash_report(f"{path}: applied {len(items)} setting(s)")
         def finished(_):
             self.rerender_in_place()
@@ -1391,6 +1507,11 @@ class App:
     def reset_scope_defaults(self, path, target=None):
         record = self.cache.get(path)
         if self.busy or not record or record["board"] != "pad":
+            return
+        unloaded = [t for t in pad.targets(record["fields"] or [])
+                    if "loaded" in record and t not in record["loaded"] and (target is None or t == target)]
+        if unloaded:
+            self.load_record(record, unloaded, lambda: self.reset_scope_defaults(path, target))
             return
         entries = tuple(e for (t, name), e in record["draft"].items() if target is None or t == target)
         if record.get("error") or any(entry["default_text"] is None for entry in entries):

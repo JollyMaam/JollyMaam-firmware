@@ -783,18 +783,48 @@ class GuiTests(GuiCase):
         self.app.render_tree()
         self.assertEqual(self.app.tree_status.cget("text"), "")
 
-    def test_scan_loads_both_boards_and_all_pad_targets(self):
+    def test_scan_identifies_and_settings_load_when_wanted(self):
         one, two = record(), record("dongle", "dongle")
         with patch.object(padgui.pad, "discover_devices", return_value=[(r["path"], r["name"], r["identity"]) for r in (one, two)]), \
-             patch.object(padgui.pad, "fields", return_value=one["fields"]), \
+             patch.object(padgui.pad, "cmd", return_value=one["identity"]), \
+             patch.object(padgui.pad, "fields", return_value=one["fields"]) as fields, \
              patch.object(padgui.pad, "read_target", side_effect=lambda p, table, t, defaults=False: one["values"][t]) as read, \
-             patch.object(padgui.pad, "status", return_value="idle"):
+             patch.object(padgui.pad, "status_info", return_value=("idle", 0)):
             self.app.scan()
             self.finish()
-            self.assertEqual(read.call_count, 20)      # values and defaults
+            # The pad is selected first: its field table and slots, values and defaults.
+            self.assertEqual(fields.call_count, 1)
+            self.assertEqual(read.call_count, 16)
+            self.assertEqual(len(self.app.tree.get_children("device0")), padgui.pad.REMAP_TARGET)
+            self.app.tree.selection_set("device0/8")
+            self.app.select_node()
+            self.finish()
+            self.assertEqual(read.call_count, 18)      # the palette, when its page opens
+            self.app.tree.selection_set("device0/1")
+            self.app.select_node()
+            self.assertFalse(self.app.busy)            # slots are in already
         self.assertEqual(len(self.app.cache), 2)
-        self.assertEqual(len(self.app.tree.get_children("device0")), padgui.pad.REMAP_TARGET)
         self.assertEqual(len(self.app.tree.get_children("device1")), 0)
+
+    def test_settings_changed_on_the_device_reload_keeping_edits(self):
+        one = record()
+        one["loaded"], one["changes"] = set(range(10)), 3
+        self.load([one])
+        one["draft"][1, "rumble"]["var"].set("80")
+        changed = {t: dict(v) for t, v in one["values"].items()}
+        changed[0] = {"type": (b"\1", True), "rumble": (b"\x64", False)}
+        changed[1] = {"type": (b"\1", True), "rumble": (b"\x64", False)}
+        with patch.object(padgui.pad, "read_target", side_effect=lambda p, table, t, defaults=False: changed[t]):
+            self.app.update_devices((0, {one["path"]: one["identity"]}, [], [], {one["path"]: ("idle", 4)}))
+            deadline = time.monotonic() + 3
+            while one.get("reloading") and time.monotonic() < deadline:
+                self.root.update()
+                time.sleep(0.01)
+            self.root.update()
+        self.assertEqual(one["changes"], 4)
+        self.assertEqual(one["draft"][0, "type"]["var"].get(), "hid")     # reloaded
+        self.assertEqual(one["draft"][1, "type"]["var"].get(), "hid")
+        self.assertEqual(one["draft"][1, "rumble"]["var"].get(), "80")    # the edit kept
 
     def test_actions_target_slot_and_calibration_is_global(self):
         r = record()
@@ -1164,7 +1194,7 @@ class GuiTests(GuiCase):
              patch.object(padgui.pad, "discover_devices", return_value=[("new", "BR23 UBOOT1.00", None), ("other", other["name"], other["identity"])]), \
              patch.object(padgui.pad, "fields", return_value=other["fields"]), \
              patch.object(padgui.pad, "read_target", side_effect=lambda p, table, t: other["values"][t]), \
-             patch.object(padgui.pad, "status", return_value="idle"), \
+             patch.object(padgui.pad, "status_info", return_value=("idle", 0)), \
              patch.object(padgui.messagebox, "askyesno") as discard:
             self.app.enter_flash_loader()
             self.finish()

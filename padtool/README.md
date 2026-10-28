@@ -21,10 +21,15 @@ Advanced diagnostics and CPU profiling are available through the command-line
 padtool. CLI profiling needs `pyelftools` and the ELF matching the running
 firmware; add `ps.pyelftools` to the Nix package list if needed.
 
-Startup reads every pad slot, palette and global calibration setting. After
-that, **Refresh** in the toolbar looks for devices that were plugged in, changed
-or removed; nothing polls in the background. Unchanged devices keep their
-cached settings and pending edits. **Open device path…** at the bottom of the
+Devices appear by themselves: every second padtool looks at our tool devices
+(an IDENTIFY each) and, on Linux, at disks it has not seen before, so ROM
+loaders appear too. **Refresh** in the toolbar looks at everything again; on
+Windows it is how ROM loaders are found (asking every drive is slow there). A
+pad's settings load when it is selected (its slots) and when a page needs them
+(palette, calibration, a remap slot). Each second padtool also reads a pad's
+settings change counter (STATUS), and when another program or the pad itself
+changed a setting, the loaded settings are read again; pending edits stay.
+Unchanged devices keep their cached settings and pending edits. **Open device path…** at the bottom of the
 device tree lets you enter a path manually, including reloading that device.
 Linux labels show USB topology when available. Configuration and Show console use the selected device. A USB gamepad session must end before vendor commands
 become available. The Linux HID tool-mode button can request this for HID
@@ -250,7 +255,7 @@ any erase. The original image file stays unchanged. Conversion supports our
 generated builds; stock images with secondary application directories or check
 records are rejected rather than converted with incomplete format support.
 
-Discovery (startup and Refresh) names each device by product, from
+Discovery names each device by product, from
 `padknown.py`: this firmware by the PID it reports ("GameSir Nova 2 Lite ·
 this firmware"), ROM loaders by the PID in their flash once read, and stock
 pads and dongles that show themselves only as HID by their USB identity, in
@@ -320,7 +325,7 @@ in its loader for recovery.
 ## Code and validation
 
 `padgui.pyw` owns the UI and serializes operations on a worker thread.
-`paddevices.py` finds new, changed and removed devices on Refresh, and waits for other USB operations.
+`paddevices.py` finds new, changed and removed devices (every second, and everything on Refresh), and waits for other USB operations.
 `padconsole.py` owns the live console windows and shares the USB operation lock.
 `tools/bootloop.py` is a development stress-test helper, separate from padtool.
 `padwidgets.py` supplies the palette and stick curve editors.

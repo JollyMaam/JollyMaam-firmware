@@ -50,5 +50,41 @@ class MonitorTests(unittest.TestCase):
             read.assert_not_called()
 
 
+    def test_light_poll_asks_each_disk_once_and_keeps_loaders(self):
+        tool, disk, loader = '/dev/hidraw1', '/dev/sg1', '/dev/sg2'
+        seen = []
+
+        def discover(include_loaders, paths):
+            seen.append(paths)
+            return [(loader, 'BR23 UBOOT1.00', None)] if loader in paths else []
+        with patch.object(paddevices.sys, 'platform', 'linux'), \
+             patch.object(paddevices.os.path, 'exists', return_value=True), \
+             patch.object(paddevices, 'tool_paths', return_value=[tool]), \
+             patch.object(paddevices.pad, 'device_paths', return_value=[tool, disk, loader]), \
+             patch.object(paddevices.pad, 'discover_devices', side_effect=discover), \
+             patch.object(paddevices, 'read_device', return_value={'identity': None}), \
+             patch.object(paddevices, 'stock_records', return_value=[]):
+            first = self.monitor.poll_once(full=False)
+            self.monitor.known = first[1]
+            self.assertIsNone(self.monitor.poll_once(full=False))
+            self.assertEqual(seen, [[tool, disk, loader], [tool]])
+            self.assertEqual(first[1], {loader: None})
+            self.monitor.poll_once(full=True)
+            self.assertEqual(seen[-1], [tool, disk, loader])
+
+    def test_settings_change_counter_is_reported_when_it_moves(self):
+        device = ('path', 'Cyclone 2', self.identity)
+        self.monitor.known = {'path': self.identity}
+        counters = iter([('idle', 5), ('idle', 5), ('idle', 6)])
+        with patch.object(paddevices, 'tool_paths', return_value=['path']), \
+             patch.object(paddevices.pad, 'device_paths', return_value=['path']), \
+             patch.object(paddevices.pad, 'discover_devices', return_value=[device]), \
+             patch.object(paddevices.pad, 'status_info', side_effect=lambda path: next(counters)), \
+             patch.object(paddevices, 'stock_records', return_value=[]):
+            self.assertEqual(self.monitor.poll_once(full=False)[4], {'path': ('idle', 5)})
+            self.assertIsNone(self.monitor.poll_once(full=False))
+            self.assertEqual(self.monitor.poll_once(full=False)[4], {'path': ('idle', 6)})
+
+
 if __name__ == '__main__':
     unittest.main()

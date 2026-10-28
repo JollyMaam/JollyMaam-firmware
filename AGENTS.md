@@ -120,8 +120,10 @@ USB sessions by itself: `make gamesir-cyclone-2-pad EXTRA_DEFINES=-DUSB_SESSION_
 `padtool/padgui.pyw` is the Tkinter GUI (`python padtool/padgui.pyw`), sharing the
 padtool protocol and Linux/Windows SCSI transport. `padtool/padflash.py` backs up
 and flashes prepared images in Python using the SDK BR23 RAM loader (or a packaged
-copy beside the scripts). Device discovery runs once per second; only new or
-changed devices reload settings. Edits stay pending across navigation until Apply.
+copy beside the scripts). Device discovery runs once per second (tool devices,
+new Linux disks; Refresh: everything); a pad's settings load when selected or a
+page needs them, and reload when its STATUS settings change counter moves.
+Edits stay pending across navigation until Apply.
 Apply/Discard scope is all devices in the global toolbar, one pad on its main
 page, and one target on slot/palette/calibration pages. Individual fields keep
 a status button: blank is default, checkmark is saved custom, * is a staged

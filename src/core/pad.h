@@ -567,6 +567,7 @@ const struct set_cal *set_cal(void);
 #define REMAP_BASE SLOTS
 const struct set_remap *set_remap(u8 remap);
 u32 set_edits(void);                     /* counts commits from the tools */
+u32 set_changes(void);                   /* counts every change of a value, the pad's own too */
 void set_cal_store(const struct set_cal *cal);
 /* Over USB: */
 u32 set_describe(u32 n, u8 *out, u32 max);

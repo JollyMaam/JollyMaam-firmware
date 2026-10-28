@@ -257,12 +257,18 @@ def identify(path):
 
 
 def status(path):
+    return status_info(path)[0]
+
+
+def status_info(path):
+    """The status line, and the settings change counter: it moves whenever a
+    value changes, from any program or the pad itself (0 from older firmware)."""
     d = cmd(path, 0x01, length=16)
-    state, slot, usb, low, mv, up, eph, staged = struct.unpack_from("<BBBBHxxIBB", d)
+    state, slot, usb, low, mv, up, eph, staged, changes = struct.unpack_from("<BBBBHxxIBBH", d)
     slot = "-" if slot == 0xFF else "ABXY^v<>"[slot] if slot < 8 else str(slot)
     return (f"state {STATES[state] if state < len(STATES) else state} slot {slot} "
             f"usb {usb} battery {mv} mV{' low' if low else ''} uptime {up / 1000:.1f} s"
-            f"{' EPHEMERAL' if eph else ''}{f' ({staged} uncommitted)' if staged else ''}")
+            f"{' EPHEMERAL' if eph else ''}{f' ({staged} uncommitted)' if staged else ''}"), changes
 
 
 STEPS = ["input", "bt", "usb", "power", "timeouts", "report", "outputs", "settings"]

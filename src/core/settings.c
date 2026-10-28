@@ -336,6 +336,7 @@ static u32 set_bits[TARGETS];
 static u32 dirty;            /* a bit per target */
 static u32 tried;            /* a bit per remap target changed in ephemeral mode */
 static u32 edits;
+static u32 changes;               /* every change of a value, for the tools */
 static u32 changed_ms;
 static u8 commit_now, ephemeral;
 static u8 stage[STAGE_MAX];
@@ -487,6 +488,7 @@ static u8 check(const struct set_field *f, const u8 *v, u32 len)
 
 static void touch(u8 t)
 {
+    changes++;
     if (ephemeral) {
         if (t >= TARGET_REMAP) tried |= 1u << t;
         return;
@@ -929,6 +931,11 @@ const struct set_remap *set_remap(u8 remap)
 u32 set_edits(void)
 {
     return edits;
+}
+
+u32 set_changes(void)
+{
+    return changes;
 }
 
 void set_cal_store(const struct set_cal *c)

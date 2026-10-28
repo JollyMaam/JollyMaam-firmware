@@ -25,7 +25,9 @@
  *                         board_name (32 chars at 56, NUL-padded)
  *   `0x01` STATUS         in (16): state, slot, USB powered, low battery, u16
  *                         battery mV, u32 uptime ms, ephemeral (12), settings
- *                         items collected (13)
+ *                         items collected (13), u16 settings changes (14: goes
+ *                         up whenever a value changes, from the tools or the
+ *                         pad; the tools reload when it moves)
  *   `0x02` LOG            CDB bytes 2–5: from sequence number; in: u32 first
  *                         sequence returned, u32 length, text
  *   `0x27` DEFAULTS       pad only: same arguments and format as READ, no state changes
@@ -184,6 +186,9 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         util_put32(data + 8, status->uptime_ms);
         data[12] = status->ephemeral;
         data[13] = status->staged;
+#if !defined(NO_SETTINGS) && !defined(BOARD_DONGLE)
+        util_put16(data + 14, (u16)set_changes());
+#endif
         n = 16;
         break;
     case CMD_LOG: {
@@ -433,6 +438,7 @@ static u32 applied;
 u32 set_describe(u32 n, u8 *out, u32 max) { (void)max; out[0] = (u8)n; return n < 3 ? 8 : 0; }
 u32 set_read(u8 t, u8 *out, u32 max) { (void)max; out[1] = t; return 3; }
 u32 set_read_defaults(u8 t, u8 *out, u32 max) { return set_read(t, out, max); }
+u32 set_changes(void) { return 0x1234; }
 u32 set_write(const u8 *items, u32 len, u8 *results, u32 max)
 {
     (void)max;
@@ -475,6 +481,9 @@ int main(void)
     cdb[1] = CMD_STATUS;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 16);
     CHECK(data[0] == CTL_IDLE && data[4] == (3900 & 0xff) && data[8] == (1234 & 0xff));
+#if !defined(NO_SETTINGS) && !defined(BOARD_DONGLE)
+    CHECK(data[14] == 0x34 && data[15] == 0x12);     /* the settings change counter */
+#endif
     cdb[1] = CMD_INPUT;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 0);    /* none */
     {
