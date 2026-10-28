@@ -1471,3 +1471,10 @@ fixture passes. Totals: 80 accepted members, 926 functions, 73 globals;
 31 retained members and 1138 verified index entries. All 123 original BR23 C
 files remain byte-identical to 44d0073. Controller-only validation; no firmware
 image or hardware validation claimed.
+
+TWS LMP-sync combined checkpoint: acceptance `5d37541` passes canonical
+controller validation and census with 200 `: ok` reports, 12 legacy reports,
+31 tooling tests, both layouts and all 79 ownership groups. Clean worker and
+dependency status plus merged ancestry were checked before deleting the worker
+worktree and branch. Totals remain 80 accepted / 31 retained members, 926
+functions, 73 globals and 1138 retained index entries. No hardware validation.
