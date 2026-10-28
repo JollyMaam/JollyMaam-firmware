@@ -1112,6 +1112,7 @@ static void boot(u32 now)
     c.since = now;
     c.slot = SLOT_NONE;
     c.last_slot = plat_retained_slot();
+    if (c.last_slot >= SLOTS) c.last_slot = ux_first_slot;
     c.led.scene = CTL_BOOT;
     c.led.slot = SLOT_NONE;
     c.led_demo = SLOT_NONE;

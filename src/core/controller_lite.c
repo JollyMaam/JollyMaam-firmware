@@ -194,6 +194,7 @@ static void start(void)
     u8 slot = plat_retained_slot();
 
     plat_boot_info(&b);
+    if (slot >= LITE_SLOTS) slot = ux_first_slot;
     if (!slot_ready(slot)) for (slot = 0; slot < LITE_SLOTS && !slot_ready(slot); slot++) {}
     util_log("ctl: boot cause %u, slot %u", b.cause, slot);
     if (b.cause == BOOT_HOME) {
@@ -605,6 +606,7 @@ u32 set_edits(void) { return test_edits; }
 void remap_reset(void) { remap_resets++; }
 u32 remap_step(const struct set_remap *m, u32 in, u32 now, u32 *every_report)
 { (void)now; remap_steps++; *every_report = PAD_X; return in | m->map[0]; }
+const u8 ux_first_slot = 3;
 const struct ux_timeouts ux_timeouts = {
     .idle_sleep_ms = 300000, .stop_max_ms = 12000, .connect_ms = 30000, .pair_ms = 180000,
     .usb_plug_ms = 1000,
@@ -814,6 +816,9 @@ int main(void)
     test_reset(); retained = 3; test_slots[3].type = PROFILE_NONE;
     start(); CHECK(c.slot == 0);
     test_reset(); ephemeral = 1; start(); CHECK(!retained_writes);
+    /* None retained: Home's slot is ux_first_slot. */
+    test_reset(); boot_cause = BOOT_USB; start(); CHECK(c.idle && c.last_slot == ux_first_slot);
+    boot_cause = BOOT_HOME;
     /* Only a Home boot connects; a cable's leaves the slot for Home. */
     test_reset(); retained = 2; boot_cause = BOOT_USB; start();
     CHECK(c.idle && !starts && c.last_slot == 2);

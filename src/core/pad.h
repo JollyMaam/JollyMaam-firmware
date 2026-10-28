@@ -732,6 +732,7 @@ extern const struct board_slots board_slots;
 
 extern const struct ux_timeouts ux_timeouts;
 extern const u8 ux_usb_autoconnect;
+extern const u8 ux_first_slot;           /* Home's slot before any has connected */
 extern const struct ux_colours ux_colours;
 
 /* LED demos (padtool led-demo): a scene in slot A's colours, with these instead

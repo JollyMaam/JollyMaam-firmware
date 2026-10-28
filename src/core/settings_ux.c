@@ -62,6 +62,9 @@ int ux_updater_chord(u32 buttons)
  * flashing. */
 const u8 ux_usb_autoconnect = 0;
 
+/* Home's slot while none has connected yet: Y. */
+const u8 ux_first_slot = 3;
+
 /* Idle may sleep only after both the offline and unplug waits. Scheduling
  * either earlier deadline after it has expired would spin the control loop
  * while the other condition still prevents sleep, starving the SDK idle task. */
