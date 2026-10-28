@@ -1327,3 +1327,13 @@ reports, 12 legacy reports, 31 tooling tests, both layouts, 74 ownership groups.
 Totals: 75 accepted members, 915 public functions, 67 globals; 36 retained
 members / 1155 verified index entries. This is the clean controller branch;
 no newer four-product image or hardware validation is claimed.
+
+Classic HCI parser combined checkpoint: acceptance `35f0689` passes the
+canonical controller suite with 195 `: ok` reports, 12 legacy reports,
+31 tooling tests, both layouts and 74 ownership/retention audits. Totals:
+75 members / 915 functions / 67 globals; 36 retained members / 1155 verified
+index entries. All 123 original BR23 source files remain byte-identical to
+`44d0073`. The clean worker checkout and merged branch were removed after
+ancestry and read-only dependency-status checks. No pending worker or hardware
+validation. The migration IR reader's joined header path was corrected in
+`aec5c00`, with both target CLI smoke checks; this changes no controller code.

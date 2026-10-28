@@ -325,7 +325,7 @@ not absence of defects. See the earlier sections for cross-member issues.
 | `ll_vendor.c.o` / 1 | `cee80c1` | No additional finding; shared body/data boundary reviewed in acceptance history. |
 | `ll_white_list.c.o` / 1 | `cee80c1` | BR23 #10 lifetime/count |
 | `ll_wifi_detect.c.o` / 1 | `7c790da` | H05 |
-| `lmp_hci_cmd_parser.c.o` / 1 | `55e2b12` + coordinator baseband/review | C20; B39–B41; original unguarded HCI ABI |
+| `lmp_hci_cmd_parser.c.o` / 1 | `35f0689` | C20; B39–B41; original unguarded HCI ABI |
 | `lmp_hci.c.o` / 1 | `1f4d062` | C07–C09; B02 |
 | `lmp_rxtx.c.o` / 1 | `bc6847b` | C06/C07; B04; R02 |
 | `lmp_utils.c.o` / 1 | `aed66ee` | C03; B16 clock/CRC boundaries |
