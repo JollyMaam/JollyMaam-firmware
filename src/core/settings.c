@@ -41,6 +41,10 @@ static const char *const types[] = {
     "switch", "switch2", "xbox", "xboxble", "dualsense", "dualshock4", "generic", "mouse",
     "genericble", "none", "dualsenseble", NULL,
 };
+#ifndef SLOT_USB_AUDIO
+#define SLOT_USB_AUDIO 1         /* the usb_audio setting: 0 on a board without USB sound */
+#endif
+static const char *const usb_sounds[] = { "jack", "on", "off", NULL };
 static const char *const transports[] = { "bluetooth", "usb", "bluetooth+usb", "dongle", "dongle+usb", NULL };
 static const char *const grips[] = {
     "off", "host", "fade", "rumble", "input", "rumble+input", "primary", "secondary", "rainbow",
@@ -132,6 +136,11 @@ static const struct set_field slot_fields[] = {
       .def = 0, .help = "the remap each connect starts with: base, or a remap slot (which takes what it "
                              "has not set from base); Home+M then a slot key picks another until a "
                              "disconnect, another slot or sleep" },
+#if SLOT_USB_AUDIO
+    { .id = 23, .flags = F_DEV, .name = "usb_audio", .type = T_ENUM, .names = usb_sounds, FIELD(usb_audio),
+      .def = USB_SOUND_JACK, .help = "on USB, the personality's sound card (a board with one): jack, while "
+                                     "something is in the jack, USB coming back as that changes; on; off" },
+#endif
 };
 
 /* The palette target: the colours, and how bright each kind of light is. */

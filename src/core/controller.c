@@ -148,6 +148,7 @@ static void become(u8 kind, u32 now)
 static void radio_on(void)
 {
     if (c.usb) {
+        plat_usb_audio(c.sess.settings->usb_audio);
         plat_usb_mode(c.prof->usb, c.prof->read);
         return;
     }

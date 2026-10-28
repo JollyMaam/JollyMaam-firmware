@@ -12,11 +12,12 @@
  * With audio, a USB speaker follows: the stock pad's 48 kHz stereo 16-bit on
  * isochronous OUT 0x03, a feature unit with mute and volume in dB (-60 to 0
  * in steps of 0.5, so hosts get a real dB scale), its packets straight to
- * the DAC (platform_jieli_audio.c).  As on the stock pad the speaker is there
- * only while a plug is in the jack: a plug going in or out re-enumerates.
- * As a Switch 2 Pro Controller, the real one's headset instead, always there:
- * every function behind an interface association, headphones on 0x03 and a
- * 48 kHz stereo microphone on 0x83, which sends silence for now.
+ * the DAC (platform_jieli_audio.c).  As a Switch 2 Pro Controller, the real
+ * one's headset instead: every function behind an interface association,
+ * headphones on 0x03 and a 48 kHz stereo microphone on 0x83, which sends
+ * silence for now.  Either is there as the slot's usb_audio says
+ * (plat_usb_audio): by default, as on the stock pad, only while a plug is in
+ * the jack, a plug going in or out re-enumerating.
  *
  * plat_usb_mode(NULL) is the tool device: a vendor HID interface whose
  * feature reports carry usb.c's commands (below). */
@@ -92,6 +93,7 @@ static volatile u8 w_head, w_count;
 static u8 set_report_kind, set_report_id;
 static u8 rx[PACKET] __attribute__((aligned(4)));
 static u8 jack;                  /* debounced: a plug in the jack */
+static u8 sound;                 /* USB_SOUND_*: the slot's usb_audio */
 static u8 audio_if;              /* the audio control interface; streaming is the next; 0: none */
 static u8 headset;               /* audio_if is a headset: the microphone's streaming follows */
 static u8 *dma_audio, *dma_mic;
@@ -185,9 +187,9 @@ static u8 *speaker(u8 *p, u8 first)
 
 static void build(const struct usb_identity *id)
 {
-    /* Audio: the speaker with a plug in the jack, the headset always. */
-    const u8 audio = board_audio && (id->audio == USB_AUDIO_HEADSET ||
-                                     (id->audio == USB_AUDIO_SPEAKER && jack));
+    /* Audio: by the slot's usb_audio, with jack: while a plug is in it. */
+    const u8 audio = board_audio && id->audio != USB_AUDIO_NONE &&
+                     (sound == USB_SOUND_ON || (sound == USB_SOUND_JACK && jack));
     const u8 iad = audio && id->audio == USB_AUDIO_HEADSET;
     /* The Xbox 360 controller's vendor device class, but not beside a
      * speaker: Linux matches no class driver to the interfaces of a vendor
@@ -765,6 +767,11 @@ static void start(const struct usb_identity *id,
     plat_usb_frames_rebase();
 }
 
+void plat_usb_audio(u8 s)
+{
+    sound = s;
+}
+
 void plat_usb_mode(const struct usb_identity *id,
                    int (*read)(u8 kind, u16 id, u16 offset, u8 *out, u16 max))
 {
@@ -806,7 +813,7 @@ void plat_usb_jack(void)
     if (plat_now_ms - since < JACK_SETTLE_MS) return;
     jack = now;
     util_log("usb: jack %s", jack ? "in" : "out");
-    if (ident && ident->audio == USB_AUDIO_SPEAKER) {
+    if (ident && ident->audio != USB_AUDIO_NONE && sound == USB_SOUND_JACK) {
         start(ident, host_read);
         again = AGAIN_MAX;
         again_ms = plat_now_ms;

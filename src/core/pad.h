@@ -352,6 +352,9 @@ enum { USB_HID, USB_XINPUT, USB_HID_BULK };
  * Switch 2 Pro Controller's headphones and microphone, always there, each
  * function behind an interface association. */
 enum { USB_AUDIO_NONE, USB_AUDIO_SPEAKER, USB_AUDIO_HEADSET };
+/* A slot's usb_audio: the sound card while a plug is in the jack (USB comes
+ * back with or without it as that changes), always, or never. */
+enum { USB_SOUND_JACK, USB_SOUND_ON, USB_SOUND_OFF };
 /* Our own devices (the tool device, the dongle's hub): V-USB's shared ID
  * for generic HID (usbdrv/USB-IDs-for-free.txt), told apart by the
  * manufacturer string and the usage page; the generic gamepad: its shared
@@ -478,6 +481,7 @@ struct set_slot {
     u16 pull_delay_us;       /* build a pulled report this long after bt_pad.c asks */
     struct bt_link link;
     u8 remap;                /* the remap slot each connect starts with: 0 none, 1-8 slots A-right */
+    u8 usb_audio;            /* USB_SOUND_*: the personality's sound card on USB */
 };
 
 
@@ -945,6 +949,7 @@ void plat_usb_probe_request(u32 extra);   /* USB_PROBE test builds: tools/usbpro
  * a report or wrote one. */
 void plat_usb_mode(const struct usb_identity *id,
                    int (*read)(u8 kind, u16 id, u16 offset, u8 *out, u16 max));
+void plat_usb_audio(u8 sound);              /* USB_SOUND_*: for the next plat_usb_mode */
 int plat_usb_ready(void);                   /* the host configured the personality */
 int plat_usb_jack_in(void);                 /* a plug in the headphone jack, debounced */
 int plat_usb_input_wanted(void);            /* nothing waits to go to the host */
