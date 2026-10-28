@@ -1563,3 +1563,10 @@ reports, 31 tooling tests, both target layouts and 81 ownership groups. Totals:
 1131 verified index entries. Both target compilers build the source; standalone
 ASan/UBSan with complete mocks passes. All 123 original BR23 C files remain
 byte-identical to 44d0073. No application-image or hardware validation claimed.
+
+TWS event combined checkpoint: acceptance `3bdfa91` passes canonical controller
+checks/census with 202 `: ok` reports, 12 legacy reports, 31 tooling tests,
+both layouts and 81 ownership groups. Totals: 82 accepted / 29 retained members,
+931 functions, 75 globals and 1131 retained index entries. Clean worker/dependency
+status and merged ancestry checked; completed worktree and branch deleted.
+No hardware validation or pending worker.
