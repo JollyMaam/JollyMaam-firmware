@@ -1,9 +1,9 @@
 # GameSir Cyclone 2: the pad and GameSir's dongle, both on the Jieli BR23.
 #   gamesir-cyclone-2-flash              the pad: its updater and the app above it
-#   gamesir-cyclone-2-dongle-flash       the dongle
-#   gamesir-cyclone-2-pad, -dongle       firmware.img in $(O)/<target>/; the
-#                                        pad's: its updater with the app above
-#   gamesir-cyclone-2-pad-updater        the pad's updater: part of -pad
+#   gamesir-cyclone-2-dongle-flash       the dongle: its updater and the app above it
+#   gamesir-cyclone-2-pad, -dongle       firmware.img in $(O)/<target>/: the
+#                                        updater with the app above
+#   gamesir-cyclone-2-pad-updater, -dongle-updater   the updaters: part of -pad, -dongle
 #   gamesir-cyclone-2-pad-loader, -dongle-loader   into the ROM loader
 #   gamesir-cyclone-2-pad-test, -dongle-test, gamesir-cyclone-2-test
 #   gamesir-cyclone-2-all                every board here and their tests' builds
@@ -100,8 +100,32 @@ $(CYCLONE2_UPDATER)_SOURCES += src/core/utils.c
 $(CYCLONE2_PAD)_MAIN_AT := $($(CYCLONE2_UPDATER)_UPDATER)
 $(CYCLONE2_PAD)_FRONT := $(CYCLONE2_UPDATER)
 
+# The dongle's updater: USB only, in the app area (64 KiB), the dongle's app
+# above it.
+CYCLONE2_DONGLE_UPDATER := gamesir-cyclone-2-dongle-updater
+$(CYCLONE2_DONGLE_UPDATER)_FLASH_SIZE := $($(CYCLONE2_DONGLE)_FLASH_SIZE)
+$(CYCLONE2_DONGLE_UPDATER)_PID := $($(CYCLONE2_DONGLE)_PID)
+$(CYCLONE2_DONGLE_UPDATER)_BOARD_DIR := src/updater
+$(CYCLONE2_DONGLE_UPDATER)_UPDATER := 0x10000
+$(CYCLONE2_DONGLE_UPDATER)_NO_FLASH := 1
+$(CYCLONE2_DONGLE_UPDATER)_NO_BT := 1
+$(CYCLONE2_DONGLE_UPDATER)_DEFINES := -DBOARD_DONGLE -DUSB_TOOL_ONLY
+$(CYCLONE2_DONGLE_UPDATER)_SOURCES :=
+$(CYCLONE2_DONGLE_UPDATER)_SOURCES += src/updater/updater.c
+$(CYCLONE2_DONGLE_UPDATER)_SOURCES += src/updater/updater_jieli.c
+$(CYCLONE2_DONGLE_UPDATER)_SOURCES += src/boards/gamesir-cyclone-2/board_dongle.c
+$(CYCLONE2_DONGLE_UPDATER)_SOURCES += src/platform/jieli/platform_jieli.c
+$(CYCLONE2_DONGLE_UPDATER)_SOURCES += src/platform/jieli/platform_jieli_sdk.c
+$(CYCLONE2_DONGLE_UPDATER)_SOURCES += src/platform/jieli/platform_jieli_usb.c
+$(CYCLONE2_DONGLE_UPDATER)_SOURCES += src/platform/jieli/platform_jieli_noaudio.c
+$(CYCLONE2_DONGLE_UPDATER)_SOURCES += src/core/utils.c
+
+$(CYCLONE2_DONGLE)_MAIN_AT := $($(CYCLONE2_DONGLE_UPDATER)_UPDATER)
+$(CYCLONE2_DONGLE)_FRONT := $(CYCLONE2_DONGLE_UPDATER)
+
 $(foreach b,$(CYCLONE2_PAD) $(CYCLONE2_DONGLE),$(eval $(call jieli_board,$(b)))$(eval $(call host_tests,$(b))))
 $(eval $(call jieli_board,$(CYCLONE2_UPDATER)))
+$(eval $(call jieli_board,$(CYCLONE2_DONGLE_UPDATER)))
 
 .PHONY: gamesir-cyclone-2-all gamesir-cyclone-2-test gamesir-cyclone-2-flash
 gamesir-cyclone-2-all: $(CYCLONE2_PAD) $(CYCLONE2_DONGLE)

@@ -46,9 +46,14 @@ void plat_enter_loader(void);            /* now, without detaching USB first */
 void plat_pull_up_input(u32 gpio);
 
 /* The reset mailbox (sdkconfig/app.ld): UPDATER_STAY, ~UPDATER_STAY asks the
- * updater to stay rather than start the app at the next boot. */
+ * updater to stay rather than start the app at the next boot.  Word 2
+ * counts the updater's starts of the app (UPDATER_TRIES and the count in
+ * the low byte); the app clears it once its control thread runs, and after
+ * UPDATER_TRIES_MAX starts without that the updater stays. */
 #define UPDATER_STAY    0x54445055u     /* "UPDT" */
-extern u32 plat_updater_mailbox[2];
+#define UPDATER_TRIES   0x54525900u     /* "\0YRT" */
+#define UPDATER_TRIES_MAX 3
+extern u32 plat_updater_mailbox[3];
 
 /* ---- the tool device, between the platform's files ---------------------- */
 

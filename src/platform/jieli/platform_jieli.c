@@ -88,8 +88,13 @@ void plat_mdelay(u32 ms)
 
 void plat_flush_dcache(const void *address, u32 size)
 {
+#ifdef CONFIG_CPU_BD19           /* its RAM is not behind a data cache (no flush_dcache) */
+    (void)size;
+    asm volatile("csync" :: "r"(address) : "memory");   /* the address: the stores stay */
+#else
     void (* volatile f)(const void *, u32) = flush_dcache;
     f(address, size);
+#endif
 }
 
 /* ---- the last slot: two RTC data registers, kept through a soft power-off -- */
@@ -923,7 +928,7 @@ void plat_reboot_loader(void)
 
 /* The updater (src/updater/) stays at the next boot instead of starting
  * the app; without an updater this is a reboot. */
-u32 plat_updater_mailbox[2] __attribute__((section(".reset_mailbox")));
+u32 plat_updater_mailbox[3] __attribute__((section(".reset_mailbox")));
 
 void plat_reboot_updater(void)
 {
@@ -1191,6 +1196,10 @@ static void ctl_thread(void *arg)
     }
 #ifndef NO_BT
     hci_jieli_init();
+#endif
+#ifndef MAIN_AT                  /* the app: up, the updater's count of its starts ends */
+    plat_updater_mailbox[2] = 0;
+    plat_flush_dcache(plat_updater_mailbox, sizeof(plat_updater_mailbox));
 #endif
     ctl_main();
 }

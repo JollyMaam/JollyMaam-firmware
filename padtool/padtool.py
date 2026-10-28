@@ -44,8 +44,8 @@
     padtool reboot | loader       restart; restart into the ROM loader (for
                                   jlnewfw flash)
     padtool update FILE [--ble [NAME|ADDRESS]]   rewrite the app in place through
-                                  the pad's updater (a pad build's update.bin); on
-                                  USB a pad running the app restarts into it first;
+                                  the updater (a pad or dongle build's update.bin);
+                                  on USB the app restarts into it first;
                                   --ble: to a pad in its updater (Home+M while not
                                   connected), over Bluetooth LE (needs bleak)
     padtool connect [SLOT]        connect a slot (default: the last), as Home does
@@ -613,13 +613,13 @@ def update(link, image):
     (src/updater/updater.c) on USB or LE: begin, data in order, commit,
     reboot."""
     if image[:4] != b"MAIN":
-        sys.exit("padtool: not an update image (update.bin from a pad build)")
+        sys.exit("padtool: not an update image (update.bin from a pad or dongle build)")
     if not is_updater(link):
         print("restarting into the updater")
         link.cmd(0x40)
         time.sleep(1)
         if not link.reopen(15) or not is_updater(link):
-            sys.exit("padtool: the pad did not come back in its updater (an app without one reboots)")
+            sys.exit("padtool: the device did not come back in its updater (an app without one reboots)")
     i = update_info(link)
     print(f"updater: app at flash {i['at']:#x}, room {i['room']} bytes, "
           f"{'an app is there' if i['valid'] else 'no app'}")

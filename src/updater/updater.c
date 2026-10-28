@@ -14,7 +14,8 @@
  * out as written: until then a reset comes back here.
  *
  * Home pressed and released goes back to the app, when it is valid; 60 s
- * without a host (USB or LE) and outside a write powers off.
+ * without a host (USB or LE) and outside a write powers off.  A dongle's
+ * updater is USB only: its button goes back, and it stays on.
  *
  * Tool-device commands (the app's are in core/usb.c); over LE the same
  * (updater_frame()):
@@ -185,7 +186,11 @@ u32 usb_command(const u8 cdb[16], u8 *d, u32 max, int from_host)
         if (max < 56) return 0;
         memcpy(d, "C2PD", 4);
         util_put16(d + 4, 2);
+#ifdef BOARD_DONGLE
+        d[6] = 1;                /* the dongle */
+#else
         d[6] = 0;                /* the pad */
+#endif
         d[7] = 1;                /* its updater */
         strncpy((char *)d + 8, BUILD_ID, 16);
         if (uid) memcpy(d + 24, uid, 16);
@@ -269,24 +274,40 @@ u32 updater_frame(const u8 *frame, u32 len, u8 *reply, u32 max)
 
 /* ---- the loop ------------------------------------------------------------- */
 
+#ifdef NO_BT                     /* a dongle's: USB only */
+void updater_ble_start(void) {}
+int updater_ble_connected(void) { return 0; }
+#endif
+
 static void lights(u8 r, u8 g, u8 b)
 {
+#ifdef BOARD_DONGLE              /* its LED not driven */
+    (void)r; (void)g; (void)b;
+#else
     struct led_frame f;
     u32 i;
 
     for (i = 0; i < LIGHT_COUNT; i++) f.light[i] = (struct rgb){ r, g, b };
     plat_leds(&f);
+#endif
 }
 
 /* Home pressed and released here goes back to a valid app: offline
- * Home+M in the app is how a pad gets here by hand. */
+ * Home+M in the app is how a pad gets here by hand.  On a dongle, its
+ * button. */
 static int home_back(void)
 {
     static u8 down;
+#ifdef BOARD_DONGLE
+    u32 changed_us;
+
+    if (plat_lines(&changed_us) & 1) down = 1;
+#else
     struct in_raw raw;
 
     plat_input(&raw);
     if (raw.buttons & PAD_HOME) down = 1;
+#endif
     else if (down) {
         down = 0;
         return app_valid() && state != WRITING;
@@ -296,7 +317,10 @@ static int home_back(void)
 
 void ctl_main(void)
 {
-    u32 host_seen = plat_ms(), reboot_at = 0;
+#ifndef BOARD_DONGLE
+    u32 host_seen = plat_ms();
+#endif
+    u32 reboot_at = 0;
 
     util_log("updater: app at %x, %s", upd_region(), app_valid() ? "valid" : "none");
     upd_started();
@@ -318,7 +342,9 @@ void ctl_main(void)
             if (to_rom) plat_reboot_loader();
             plat_reboot();
         }
+#ifndef BOARD_DONGLE             /* a dongle is off with its USB */
         if (plat_usb_present() || updater_ble_connected() || state == WRITING) host_seen = now;
         else if (now - host_seen > IDLE_OFF_MS) plat_power_off();
+#endif
     }
 }

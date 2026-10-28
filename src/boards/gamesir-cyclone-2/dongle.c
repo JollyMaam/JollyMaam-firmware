@@ -403,7 +403,7 @@ void ctl_main(void)
     struct ctl_request r;
     u8 was_down = 0;
     u32 reboot_at = 0, stats_ms = 0;
-    int to_loader = 0;
+    int to_loader = 0, to_updater = 0;
 
     memset(&st, 0, sizeof(st));
     st.state = CTL_IDLE;
@@ -438,13 +438,16 @@ void ctl_main(void)
         st.ephemeral = (u8)set_is_ephemeral();
         r = usb_poll(&st);
         if (r.kind == REQ_PAIR) dongle_bt_forget(r.slot < HUB_SLOTS ? r.slot : 0);   /* padtool pair [SLOT] */
-        if ((r.kind == REQ_REBOOT || r.kind == REQ_REBOOT_LOADER) && !reboot_at) {
+        if ((r.kind == REQ_REBOOT || r.kind == REQ_REBOOT_LOADER || r.kind == REQ_REBOOT_UPDATER) &&
+            !reboot_at) {
             to_loader = r.kind == REQ_REBOOT_LOADER;
-            util_log(to_loader ? "reboot to the loader" : "reboot");
+            to_updater = r.kind == REQ_REBOOT_UPDATER;
+            util_log(to_loader ? "reboot to the loader" : to_updater ? "reboot to the updater" : "reboot");
             reboot_at = now + REBOOT_DELAY_MS;
         }
         if (reboot_at && (s32)(plat_ms() - reboot_at) >= 0) {
             if (to_loader) plat_reboot_loader();
+            if (to_updater) plat_reboot_updater();
             plat_reboot();
         }
         {

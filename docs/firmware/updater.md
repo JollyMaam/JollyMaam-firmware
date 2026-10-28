@@ -178,3 +178,16 @@ By hand: Home+Turbo (the board's M) while not connected.
 flash `0x80000` (`MAIN_AT` `0x7d000`), so that stock's data at
 `0x64000..0x80000` stays; `NAME_KEEP` makes `NAME-flash` write that range
 back as the device held it.
+
+## The dongles
+
+`gamesir-cyclone-2-dongle` (BR23) and `gamesir-nova-2-lite-dongle` (BD19)
+have an updater too (`-dongle-updater`): USB only (`NO_BT`), in the app area
+with the dongle's app `MAIN_AT` `0x10000` above it. Its IDENTIFY has byte 6
+set to 1, as the dongle's. The dongle's button, pressed and released, goes
+back to a valid app; the updater does not power off. `padtool --dongle
+update FILE` sends a dongle build's `update.bin`.
+
+On the BD19 the start-up is the BR23's in shape (the boot information in
+`r0`, `CODE_BEG` the code window's origin), and the reset mailbox is at
+`0xf330`, below the retained log (`sdkconfig/bd19_app.ld`).

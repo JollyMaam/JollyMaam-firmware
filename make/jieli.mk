@@ -300,11 +300,12 @@ $(1)-loader: $(O)/host/jlnewfw
 $(O)/$(1)/sdk_ld.c: $(JIELI_SDK)/cpu/$(call jieli_chip,$(1))/sdk_ld.c $(MAKE_FILES) $(wildcard src/platform/jieli/sdkconfig/*.h)
 	@mkdir -p $$(@D)
 	$$(Q)sed \
-  -e 's/^_HEAP_END = RAM0_END;/_HEAP_END = BD19_RETAINED_BEGIN;/' \
-  -e 's/^\([[:space:]]*\)_HEAP_END = RAM0_END;/\1_HEAP_END = BD19_RETAINED_BEGIN;/' \
+  -e 's/^_HEAP_END = RAM0_END;/_HEAP_END = RESET_MAILBOX_BEGIN;/' \
+  -e 's/^\([[:space:]]*\)_HEAP_END = RAM0_END;/\1_HEAP_END = RESET_MAILBOX_BEGIN;/' \
 	  -e 's/^_HEAP_END = RAM_END;/_HEAP_END = RESET_MAILBOX_BEGIN;/' \
 	  -e 's/^PROVIDE(HEAP_END = RAM_END);/PROVIDE(HEAP_END = RESET_MAILBOX_BEGIN);/' \
 	  $(if $($(1)_MAIN_AT),-e 's/^\(\s*code0(rx)\s*:\s*ORIGIN = *0x1E00120\)$(comma)/\1 + $($(1)_MAIN_AT)$(comma)/') \
+	  $(if $($(1)_MAIN_AT),-e 's/^CODE_BEG = 0x1E00120;/CODE_BEG = 0x1E00120 + $($(1)_MAIN_AT);/') \
 	  $(if $($(1)_UPDATER),-e 's/^\(\s*\)\*(\.startup\.text)/\1KEEP(*(.updater_entry))\n&/') \
 	  $(if $($(1)_UPDATER),-e 's/^#include "sdk_used_list.c"$$$$/sdfile_vfs_ops/') \
 	  -e '/^    \.bss ALIGN(32) :$$$$/,/^        \*(\.bss)$$$$/s/^        \*(\.bss)$$$$/        btctrlermod_bss_base = ABSOLUTE(.);\n&/' \
