@@ -19,6 +19,7 @@ import struct
 import sys
 import time
 
+import padble
 import padhid
 
 if sys.platform == "linux":
@@ -69,6 +70,8 @@ def tool_name(path):
 
 def data_max(path):
     """The most a command may carry to the device: its report less the header."""
+    if padble.is_ble(path):
+        return padble.link(path).chunk
     return _report(path) - (TOOL_HEAD_IN if _input(path) else TOOL_HEAD)
 
 
@@ -86,7 +89,7 @@ def device_paths():
 
 def usb_location(path):
     """Linux USB port chain, stable across device renumbering; None if unknown."""
-    if sys.platform != "linux":
+    if sys.platform != "linux" or padble.is_ble(path):
         return None
     kind = "hidraw" if is_tool(path) else "scsi_generic"
     topology = Path("/sys/class", kind, Path(path).name, "device").resolve()
@@ -290,6 +293,8 @@ def scsi(path, cdb, length, timeout_ms=3000, out=None, raw_length=False):
     On a tool device (HID), the same command as a feature report."""
     if not 1 <= len(cdb) <= 16:
         raise ValueError("SCSI CDB must be 1–16 bytes")
+    if padble.is_ble(path):
+        return padble.scsi(path, cdb, length, timeout_ms, out)
     if is_tool(path):
         return _tool(path, cdb, length, timeout_ms, out)
     if sys.platform == "win32":

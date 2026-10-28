@@ -4,6 +4,10 @@
     padtool [--board pad|dongle] find    devices running this firmware
     padtool -d DEVICE ...         with several connected: the one at that path,
                                   or whose flash ID contains DEVICE (from find)
+    padtool COMMAND ... --ble [NAME|ADDRESS]   to a pad in config mode (Home+M held
+                                  3 s, or padtool config) over Bluetooth LE: the first
+                                  one advertising, or that one; not find, tool, tool-only,
+                                  hub, latency, peek or keep (needs bleak)
     padtool --board dongle tool-only [on | off]  dongle: stay this tool device until power
                                   loss (on), also while a pad is linked, for its log (the
                                   pad's type, or the hub, is not put on USB; padtool tool
@@ -120,6 +124,7 @@ The pad's tool device is HID; commands are usb.c's CDBs in feature reports
 """
 import argparse, collections, glob, json, os, struct, sys, threading, time
 from padtransport import scsi, device_paths, usb_location, data_max, is_tool, tool_name
+import padble
 import padcurves
 import padremap
 from padknown import CHIPS
@@ -206,6 +211,8 @@ def answers(path):
 
 
 def find_device():
+    if DEVICE and padble.is_ble(DEVICE):
+        return DEVICE
     if DEVICE and is_path(DEVICE):
         here = answers(DEVICE)
         if here and (not DEVICE_ID or here == DEVICE_ID):
@@ -218,6 +225,8 @@ def find_device():
 
 def need_device():
     global DEVICE_ID
+    if DEVICE and padble.is_ble(DEVICE):
+        return DEVICE
     if DEVICE and is_path(DEVICE):    # used as given, found or not
         if not DEVICE.startswith("\\\\.\\") and not os.path.exists(DEVICE):
             sys.exit(f"padtool: {DEVICE} does not exist")
@@ -257,7 +266,8 @@ def identify(path):
     pid = d[40:56].split(b"\0")[0].decode()
     board = f"{board_name(d)}, " if len(d) >= 88 else ""
     updater = " UPDATER" if d[7] == 1 else ""
-    return (f"{board}usb {usb_location(path) or '?'} protocol {proto} pid {pid} build {build} "
+    where = f"ble {padble.link(path).address}" if padble.is_ble(path) else f"usb {usb_location(path) or '?'}"
+    return (f"{board}{where} protocol {proto} pid {pid} build {build} "
             f"flash-id {d[24:40].hex()}{updater}")
 
 
@@ -1680,6 +1690,10 @@ def hub_pair(slot):
     sys.exit("padtool: no dongle found, as the tool device or the hub")
 
 
+# Over Bluetooth LE: the commands that need USB, or the pad back after a reboot.
+BLE_NOT = {"find", "tool", "tool-only", "hub", "latency", "peek", "keep"}
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("command", choices=["tool-only", "hub", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "reboot", "loader", "update", "relink", "connect", "disconnect", "config", "pair", "unpair", "profile", "peek", "trace",
@@ -1694,8 +1708,9 @@ def main():
     p.add_argument("--seconds", type=float, help="led-demo: show each this long, then the next; rumble: how long (1);"
                    " rumble-test: play them all, this long apart")
     p.add_argument("--ble", nargs="?", const="", metavar="NAME|ADDRESS",
-                   help="update: over Bluetooth LE to an updater (Home+M on a pad not connected), "
-                   "the first advertising one, or that name or address; needs bleak")
+                   help="over Bluetooth LE, to the first pad advertising, or that name or address; "
+                   "update: to an updater (Home+M on a pad not connected), else to a pad in config "
+                   "mode (Home+M held); needs bleak")
     p.add_argument("-d", "--device", help="which pad or dongle, when several are connected: its path, "
                    "USB port (5-2.1), or part of its board name (nova) or flash ID (padtool find)")
     def percent_range(text):
@@ -1738,6 +1753,10 @@ def main():
     DEV = a.dev
     DEVICE = a.device
     BOARD = a.board
+    if a.ble is not None and a.command != "update":
+        if BOARD != "pad" or a.command in BLE_NOT:
+            p.error(f"{a.command} does not work over Bluetooth{' (a dongle has no config mode)' if BOARD != 'pad' else ''}")
+        DEVICE = "ble:" + a.ble
     if a.elf is None:
         a.elf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build", "gamesir-cyclone-2-" + BOARD, "app.elf")
     if BOARD == "dongle" and a.command in {

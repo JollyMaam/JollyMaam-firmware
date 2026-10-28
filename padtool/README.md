@@ -21,6 +21,13 @@ Advanced diagnostics and CPU profiling are available through the command-line
 padtool. CLI profiling needs `pyelftools` and the ELF matching the running
 firmware; add `ps.pyelftools` to the Nix package list if needed.
 
+The command-line padtool also reaches a pad in config mode (Home+M held for
+3 s, or `padtool config`) over Bluetooth LE: put `--ble` after the command,
+alone for the first pad advertising or with its name or address
+(`padtool get slot-a --ble`). It needs `bleak` (`ps.bleak`). Settings, the
+log, status and the other commands work as on USB; `find`, `tool`,
+`tool-only`, `hub`, `latency`, `peek` and `keep` need USB.
+
 Devices appear by themselves: every second padtool looks at our tool devices
 (an IDENTIFY each) and, on Linux, at disks it has not seen before, so ROM
 loaders appear too. **Refresh** in the toolbar looks at everything again; on

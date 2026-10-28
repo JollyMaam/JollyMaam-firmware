@@ -1,28 +1,39 @@
-"""The updater's commands over Bluetooth LE (src/updater/updater_ble.c), for
-padtool update --ble.  Needs bleak (pip install bleak, or nix-shell -p
+"""The tool's commands over Bluetooth LE: to the updater
+(src/updater/updater_ble.c), for padtool update --ble, and to config mode
+(src/profiles/profile_config.c, Home+M held), for padtool --ble with any
+other command.  Needs bleak (pip install bleak, or nix-shell -p
 python3Packages.bleak).
 
 A command is a write to REQUEST: u8 sub-command, u32 argument, then data; a
-command with an answer gets it in a REPLY notification: u8 sub-command, the
-answer.  Every write waits for its response, which the pad sends once it has
+command with an answer gets it in REPLY notifications: u8 sub-command, then
+a piece of the answer.  Config mode takes a frame of at most BT_WRITE_MAX
+bytes, so more data goes in several, each but the last with bit 7 of the
+sub-command set, and it sends an answer in pieces marked the same way; the
+updater's frames and answers are one piece.  Every write waits for its response, which the pad sends once it has
 run the command: one write in flight.  Writes without response flooded the
 pad's HCI receive queue while it erased, and packets it dropped there were
 pieced together wrongly."""
-import asyncio, struct, sys
+import asyncio, atexit, struct, sys
 
 SERVICE = "c2550000-3e2d-66b1-8a4f-d5037c2b419e"
 REQUEST = "c2550001-3e2d-66b1-8a4f-d5037c2b419e"
 REPLY = "c2550002-3e2d-66b1-8a4f-d5037c2b419e"
+MORE = 0x80
+CONFIG_FRAME_DATA = 96 - 5       # BT_WRITE_MAX less the frame's header
+CONFIG_DATA_MAX = 488            # profile_config.c's, as the tool device's
+REBOOTING = (0x10, 0x11, 0x40)   # their answer may never come: the pad has gone
+NOT_OVER_BLE = {0x15: "peek reads as many words as fit, registers too"}
 
 
 class BleLink:
-    def __init__(self, target, scan_s=10):
+    def __init__(self, target, scan_s=10, updater=True):
         try:
             from bleak import BleakClient, BleakScanner
         except ImportError:
             sys.exit("padtool: --ble needs bleak (pip install bleak, or nix-shell -p python3Packages.bleak)")
         self.loop = asyncio.new_event_loop()
         self.replies = asyncio.Queue()
+        what = "updater" if updater else "pad in config mode"
 
         async def connect():
             def wanted(d, adv):
@@ -31,29 +42,51 @@ class BleLink:
                 return not target or target.lower() in (d.address.lower(), (d.name or "").lower())
             device = await BleakScanner.find_device_by_filter(wanted, timeout=scan_s)
             if not device:
-                sys.exit(f"padtool: no updater advertising{' as ' + target if target else ''} "
-                         f"(Home+M on a pad that is not connected)")
-            print(f"updater {device.name or '?'} {device.address}")
+                sys.exit(f"padtool: no {what} advertising{' as ' + target if target else ''} " +
+                         ("(Home+M on a pad that is not connected)" if updater else
+                          "(hold Home+M for 3 s, or padtool config on USB)"))
+            print(f"{what} {device.name or '?'} {device.address}", file=sys.stderr)
+            self.address = device.address
             client = BleakClient(device)
             await client.connect()
             await client.start_notify(REPLY, lambda _, d: self.replies.put_nowait(bytes(d)))
+            acquire = getattr(client._backend, "_acquire_mtu", None)    # BlueZ: else 23 is assumed
+            if acquire:
+                try:
+                    await acquire()
+                except Exception:
+                    pass
             return client
 
         self.client = self.loop.run_until_complete(connect())
-        # The MTU less the ATT write header (3) and the frame's (5).
-        self.chunk = min(512, self.client.mtu_size - 8)
+        # A frame: the MTU less the ATT write header (3) and the frame's (5);
+        # config mode takes at most BT_WRITE_MAX, and collects several.
+        self.chunk = self.frame_data = min(512, self.client.mtu_size - 8)
+        if not self.cmd(0x00, length=88)[7]:
+            self.frame_data = min(self.frame_data, CONFIG_FRAME_DATA)
+            self.chunk = CONFIG_DATA_MAX
 
     def cmd(self, sub, arg=0, length=0, out=None, timeout_ms=3000):
-        frame = bytes([sub]) + struct.pack("<I", arg) + (out or b"")
+        data = out or b""
+        pieces = [data[i:i + self.frame_data] for i in range(0, len(data), self.frame_data)] or [b""]
+        head = struct.pack("<I", arg)
 
         async def run():
-            await self.client.write_gatt_char(REQUEST, frame, response=True)
+            while not self.replies.empty():
+                self.replies.get_nowait()
+            for i, piece in enumerate(pieces):
+                more = MORE if i < len(pieces) - 1 else 0
+                await self.client.write_gatt_char(REQUEST, bytes([sub | more]) + head + piece, response=True)
             if not length:
                 return b""
+            answer = b""
             while True:
                 reply = await asyncio.wait_for(self.replies.get(), timeout_ms / 1000)
-                if reply[0] == sub:
-                    return reply[1:]
+                if reply[0] & ~MORE != sub:
+                    continue
+                answer += reply[1:]
+                if not reply[0] & MORE:
+                    return answer
         return self.loop.run_until_complete(run())
 
     def reopen(self, seconds):
@@ -64,3 +97,45 @@ class BleLink:
             self.loop.run_until_complete(self.client.disconnect())
         except Exception:
             pass
+
+
+_links = {}
+
+
+@atexit.register
+def _close():
+    for l in _links.values():
+        l.close()
+
+
+def is_ble(path):
+    return path.startswith("ble:")
+
+
+def link(path):
+    """The config mode link of a ble:[NAME|ADDRESS] path, connected once."""
+    if path not in _links:
+        _links[path] = BleLink(path[4:], updater=False)
+    return _links[path]
+
+
+def scsi(path, cdb, length, timeout_ms=3000, out=None):
+    """padtransport.scsi() for a ble: path: a tool command as a frame."""
+    cdb = bytes(cdb).ljust(16, b"\0")
+    if cdb[0] != 0xF5 or any(cdb[6:]):
+        raise OSError(f"{path}: this command needs USB")
+    if cdb[1] in NOT_OVER_BLE:
+        raise OSError(f"{path}: not over Bluetooth ({NOT_OVER_BLE[cdb[1]]})")
+    l = link(path)
+    arg, = struct.unpack_from("<I", cdb, 2)
+    if out is not None and len(out) > l.chunk:
+        raise ValueError(f"config mode: at most {l.chunk} bytes to the pad")
+    try:
+        answer = l.cmd(cdb[1], arg, 0 if out is not None else length, out, timeout_ms)
+    except Exception:
+        if cdb[1] not in REBOOTING:
+            raise
+        answer = b""
+    if cdb[1] in REBOOTING:
+        _links.pop(path, None)
+    return answer[:length].ljust(length, b"\0") if out is None else b""
