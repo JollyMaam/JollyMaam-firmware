@@ -131,16 +131,16 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
 ## Hardware and testing
 
 - The user handles the physical devices: plugging, buttons, consoles, jigs.
-  Building, flashing and running the tools are ours.  When a physical action
-  is needed, ask plainly, as numbered steps.
-- Flashing a connected device to test a change is fine without asking.  Bulk
-  flashing (`tools/upgrade.py`) is for the user to run; never run two
-  flashers at once.
+  Building and running the tools are ours.  When a physical action is
+  needed, ask plainly, as numbered steps.
+- **Ask before flashing any device, and before changing anything it keeps
+  over a reboot** (settings, pairing, calibration, a factory reset).  Say
+  which device and what will change.  Reading (status, log, settings) and
+  ephemeral changes need no permission.  `padtool update` is flashing too.
+  Never run two flashers at once.
 - Device nodes: the tools look in `/dev` (`/dev/input` for evdev), or, when
   `DEV_ROOT` is set, for every node in that one directory (a container that
-  exports its nodes there).  Programs that only look in the standard places
-  (SDL) run under `tools/withdev.sh`, which rebuilds `/dev` from `DEV_ROOT`
-  once at start: nodes that appear later are not in it.
+  exports its nodes there).
 - Several devices of one kind are told apart by USB port:
   `padtool --device 5-2.1`, `jlnewfw scan`.  Use `padtool --dongle` for
   dongles.
