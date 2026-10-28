@@ -1,9 +1,9 @@
 # GameSir Cyclone 2: the pad and GameSir's dongle, both on the Jieli BR23.
 #   gamesir-cyclone-2-flash              the pad: its updater and the app above it
 #   gamesir-cyclone-2-dongle-flash       the dongle
-#   gamesir-cyclone-2-pad-split, -dongle firmware.img in $(O)/<target>/
-#   gamesir-cyclone-2-pad, -pad-updater  the pad's app alone and its updater:
-#                                        parts of -pad-split, not flashed alone
+#   gamesir-cyclone-2-pad, -dongle       firmware.img in $(O)/<target>/; the
+#                                        pad's: its updater with the app above
+#   gamesir-cyclone-2-pad-updater        the pad's updater: part of -pad
 #   gamesir-cyclone-2-pad-loader, -dongle-loader   into the ROM loader
 #   gamesir-cyclone-2-pad-test, -dongle-test, gamesir-cyclone-2-test
 #   gamesir-cyclone-2-all                every board here and their tests' builds
@@ -18,7 +18,6 @@ $(CYCLONE2_PAD)_FLASH_SIZE := 0x100000
 $(CYCLONE2_PAD)_PID := GS_C2_ADC_DEVICE
 $(CYCLONE2_PAD)_DEFINES :=
 $(CYCLONE2_PAD)_LOADER_HINT := Stock firmware: Xbox 360 mode (green), or hold Home+Start while plugging in USB.
-$(CYCLONE2_PAD)_NO_FLASH := 1
 $(CYCLONE2_PAD)_BOARD_DIR := src/boards/gamesir-cyclone-2
 
 $(CYCLONE2_PAD)_SOURCES :=
@@ -74,8 +73,8 @@ $(CYCLONE2_DONGLE)_SOURCES += src/profiles/profile_xbox.c
 $(CYCLONE2_DONGLE)_SOURCES += src/profiles/profile_playstation.c
 $(CYCLONE2_DONGLE)_SOURCES += src/profiles/profile_hid.c
 
-# The pad behind its updater (OTA, /work/ota-loader-plan.md): the updater in
-# the app area (128 KiB), the same app above it.
+# The pad's updater (src/updater/, docs/firmware/updater.md): in the app
+# area (128 KiB), the pad's app above it.
 CYCLONE2_UPDATER := gamesir-cyclone-2-pad-updater
 $(CYCLONE2_UPDATER)_FLASH_SIZE := $($(CYCLONE2_PAD)_FLASH_SIZE)
 $(CYCLONE2_UPDATER)_PID := $($(CYCLONE2_PAD)_PID)
@@ -98,17 +97,13 @@ $(CYCLONE2_UPDATER)_SOURCES += src/platform/jieli/btstack_hci_jieli.c
 $(CYCLONE2_UPDATER)_SOURCES += src/platform/jieli/btstack_qos_jieli.c
 $(CYCLONE2_UPDATER)_SOURCES += src/core/utils.c
 
-CYCLONE2_SPLIT := gamesir-cyclone-2-pad-split
-$(foreach v,FLASH_SIZE PID DEFINES LOADER_HINT BOARD_DIR SOURCES,$(eval $(CYCLONE2_SPLIT)_$(v) := $$($(CYCLONE2_PAD)_$(v))))
-$(CYCLONE2_SPLIT)_MAIN_AT := $($(CYCLONE2_UPDATER)_UPDATER)
-$(CYCLONE2_SPLIT)_FRONT := $(CYCLONE2_UPDATER)
-$(CYCLONE2_SPLIT)_DEFINES += -DUX_UPDATER=1   # offline Home+M: the updater
+$(CYCLONE2_PAD)_MAIN_AT := $($(CYCLONE2_UPDATER)_UPDATER)
+$(CYCLONE2_PAD)_FRONT := $(CYCLONE2_UPDATER)
 
 $(foreach b,$(CYCLONE2_PAD) $(CYCLONE2_DONGLE),$(eval $(call jieli_board,$(b)))$(eval $(call host_tests,$(b))))
-$(foreach b,$(CYCLONE2_UPDATER) $(CYCLONE2_SPLIT),$(eval $(call jieli_board,$(b))))
-$(eval $(call host_tests,$(CYCLONE2_SPLIT)))
+$(eval $(call jieli_board,$(CYCLONE2_UPDATER)))
 
 .PHONY: gamesir-cyclone-2-all gamesir-cyclone-2-test gamesir-cyclone-2-flash
-gamesir-cyclone-2-all: $(CYCLONE2_PAD) $(CYCLONE2_SPLIT) $(CYCLONE2_DONGLE)
-gamesir-cyclone-2-flash: $(CYCLONE2_SPLIT)-flash
+gamesir-cyclone-2-all: $(CYCLONE2_PAD) $(CYCLONE2_DONGLE)
+gamesir-cyclone-2-flash: $(CYCLONE2_PAD)-flash
 gamesir-cyclone-2-test: $(CYCLONE2_PAD)-test $(CYCLONE2_DONGLE)-test

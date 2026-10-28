@@ -77,7 +77,7 @@ commits), the compilers fetched by a script (pinned archives, sha256 checked).
     external/fetch-toolchains.sh           # into external/toolchains/
     make -j32                              # every product
     make test                              # every product's unit tests
-    make -j32 gamesir-cyclone-2-pad-split  # build/gamesir-cyclone-2-pad-split/: the pad behind its updater
+    make -j32 gamesir-cyclone-2-pad        # build/gamesir-cyclone-2-pad/: the pad's updater with the app above it
     make gamesir-cyclone-2-flash           # the pad (updater + app), over USB, through the ROM loader
     make gamesir-nova-2-lite-pad-loader    # into the ROM loader and wait there (every board has -loader)
     build/host/jlnewfw scan                # loaders, our firmware, stock pads (and their mode), by USB port
@@ -85,7 +85,7 @@ commits), the compilers fetched by a script (pinned archives, sha256 checked).
     make -j32 gamesir-cyclone-2-dongle     # build/gamesir-cyclone-2-dongle/
     make gamesir-cyclone-2-dongle-flash    # packed for the connected dongle's key
     make -j32 gamesir-cyclone-2-all        # both boards
-    make -j32 gamesir-nova-2-lite-pad      # the Nova 2 Lite (no pins yet)
+    make -j32 gamesir-nova-2-lite-pad      # the Nova 2 Lite
     make gamesir-cyclone-2-pad-test        # one board's unit tests
     make 8bitdo-ultimate2c-wireless-flash   # Telink pad: tools/8bitdoboot.py, 8BitDo boot loader
     tools/upgrade.py                        # every connected pad and dongle, one at a time (--pads, --dongles)

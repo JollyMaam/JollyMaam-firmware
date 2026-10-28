@@ -7,10 +7,6 @@
 #ifndef UX_REMAP_CONFIG
 #define UX_REMAP_CONFIG 1
 #endif
-/* A build with an updater (src/updater/): offline, Home+M restarts into it. */
-#ifndef UX_UPDATER
-#define UX_UPDATER 0
-#endif
 
 const struct ux_timeouts ux_timeouts = {
     .home_grace_ms = 250,       /* wait for a Home chord before sending Home alone */
@@ -137,9 +133,7 @@ static const struct gesture { u32 keys; u16 hold_ms; u8 request, slot, flags; } 
 #if UX_REMAP_CONFIG
     {PAD_M, 0, REQ_CONFIG, SLOT_NONE, CONNECTED | RELEASE},
 #endif
-#if UX_UPDATER
-    {PAD_M, 0, REQ_REBOOT_UPDATER, SLOT_NONE, OFFLINE | RELEASE},
-#endif
+    {PAD_M, 0, REQ_REBOOT_UPDATER, SLOT_NONE, OFFLINE | RELEASE},   /* src/updater/ */
 };
 #define GESTURES (sizeof(gestures) / sizeof(gestures[0]))
 
@@ -612,10 +606,9 @@ int main(void)
     /* The session going ends it. */
     config();
     state = CTL_CONNECTING; run(1); CHECK(!ux_config(NULL) && last.kind == REQ_NONE);
-    /* Offline, or M down before Home: no config mode; offline, the updater
-     * where there is one. */
+    /* Offline, or M down before Home: no config mode; offline, the updater. */
     reset(CTL_IDLE); pad.buttons = PAD_HOME | PAD_M; run(100); pad.buttons = 0; run(1);
-    CHECK(!ux_config(NULL) && last.kind == (UX_UPDATER ? REQ_REBOOT_UPDATER : REQ_NONE));
+    CHECK(!ux_config(NULL) && last.kind == REQ_REBOOT_UPDATER);
     reset(CTL_CONNECTED); pad.buttons = PAD_M; run(100); pad.buttons |= PAD_HOME; run(1000);
     CHECK(seen.buttons == (PAD_HOME | PAD_M));
     pad.buttons = 0; run(1); CHECK(!ux_config(NULL) && last.kind == REQ_NONE);

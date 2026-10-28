@@ -44,7 +44,7 @@
     padtool reboot | loader       restart; restart into the ROM loader (for
                                   jlnewfw flash)
     padtool update FILE [--ble [NAME|ADDRESS]]   rewrite the app in place through
-                                  the pad's updater (a -split build's update.bin); on
+                                  the pad's updater (a pad build's update.bin); on
                                   USB a pad running the app restarts into it first;
                                   --ble: to a pad in its updater (Home+M while not
                                   connected), over Bluetooth LE (needs bleak)
@@ -607,7 +607,7 @@ def update(link, image):
     (src/updater/updater.c) on USB or LE: begin, data in order, commit,
     reboot."""
     if image[:4] != b"MAIN":
-        sys.exit("padtool: not an update image (update.bin from a -split build)")
+        sys.exit("padtool: not an update image (update.bin from a pad build)")
     if not is_updater(link):
         print("restarting into the updater")
         link.cmd(0x40)

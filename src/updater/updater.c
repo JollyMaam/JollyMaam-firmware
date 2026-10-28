@@ -279,7 +279,7 @@ static void lights(u8 r, u8 g, u8 b)
 }
 
 /* Home pressed and released here goes back to a valid app: offline
- * Home+M in the app (UX_UPDATER) is how a pad gets here by hand. */
+ * Home+M in the app is how a pad gets here by hand. */
 static int home_back(void)
 {
     static u8 down;

@@ -1,7 +1,7 @@
 # Updater: the app rewritten in place
 
-A board built as `NAME-split` (`gamesir-cyclone-2-pad-split`,
-`8bitdo-ultimate2c-wireless-pad-split`) has two programs in its code region. The updater (`src/updater/updater.c`,
+Every pad build (`gamesir-cyclone-2-pad`, `gamesir-nova-2-lite-pad`,
+`8bitdo-ultimate2c-wireless-pad`) has two programs in its code region. The updater (`src/updater/updater.c`,
 board `gamesir-cyclone-2-pad-updater`) is the image `uboot.boot` starts. The
 app is linked `MAIN_AT` (`0x20000`) above it in the same code window. The
 updater rewrites the app over the tool device and is never rewritten itself.
@@ -66,7 +66,7 @@ without a host (USB or LE) and outside a write.
 The app's `UPDATER` command (`0x40`) sets the request and reboots. In a build
 without an updater the request is ignored and the app starts again.
 
-By hand: in a split build (`UX_UPDATER`), Home+M while not connected
+By hand: in the app, Home+M while not connected
 restarts into the updater on release. In the updater, Home pressed and
 released goes back to the app when it is valid. While connected, Home+M is
 still remap config mode.
@@ -94,7 +94,7 @@ The chip key does not read back from the flash controller (see
 updater finds it from the header sector it has just erased: the one key whose
 keystream the erased block shows through the code window.
 
-`padtool update FILE` sends a split build's `update.bin` (the header and app
+`padtool update FILE` sends a pad build's `update.bin` (the header and app
 in the clear, from `jlnewfw pack --main-out`). It sends `UPDATER` first if the
 app is running, and reboots into the new app after the commit. The updater's
 IDENTIFY has byte 7 set to 1.
@@ -135,7 +135,7 @@ image to a pad in its updater.
 
 ## The Ultimate 2C Wireless (B80)
 
-`8bitdo-ultimate2c-wireless-pad-split`: the updater
+`8bitdo-ultimate2c-wireless-pad`: the updater
 (`8bitdo-ultimate2c-wireless-pad-updater`, about 52 KB) is the image the 8BitDo
 boot loader starts; the protocol is `updater.c`'s, the chip's side
 `updater_telink.c`.
@@ -174,7 +174,7 @@ By hand: Home+Turbo (the board's M) while not connected.
 
 ## The Nova 2 Lite (BR23)
 
-`gamesir-nova-2-lite-pad-split`: as the Cyclone 2, with the app's region at
+`gamesir-nova-2-lite-pad`: as the Cyclone 2, with the app's region at
 flash `0x80000` (`MAIN_AT` `0x7d000`), so that stock's data at
 `0x64000..0x80000` stays; `NAME_KEEP` makes `NAME-flash` write that range
 back as the device held it.

@@ -23,10 +23,10 @@ from padtransport import scsi, tool_paths, usb_location  # noqa: E402
 
 OP = 0xF5
 TARGETS = {                       # the image's PID: its make target
-    "GS_C2_ADC_DEVICE": "gamesir-cyclone-2-pad-split",
-    "AC695X_TRANS": "gamesir-nova-2-lite-pad-split",
+    "GS_C2_ADC_DEVICE": "gamesir-cyclone-2-pad",
+    "AC695X_TRANS": "gamesir-nova-2-lite-pad",
     "GS_C2_Dongle": "gamesir-cyclone-2-dongle",
-    "U2C_WIRELESS": "8bitdo-ultimate2c-wireless-pad-split",
+    "U2C_WIRELESS": "8bitdo-ultimate2c-wireless-pad",
 }
 
 
