@@ -61,12 +61,33 @@ static int att_write(hci_con_handle_t h, u16 handle, u16 mode, u16 offset, u8 *b
     return 0;
 }
 
+static u8 address[6];
+
+static void advertise(void)
+{
+    static u8 scan[31];
+    bd_addr_t none = { 0 };
+    u8 n = updater_scan_response(scan);
+
+    gap_advertisements_set_params(0x0030, 0x0030, 0, 0, none, 0x07, 0);
+    gap_advertisements_set_data(sizeof(updater_adv), (u8 *)updater_adv);
+    gap_scan_response_set_data(n, scan);
+    gap_advertisements_enable(1);
+}
+
 static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
 {
     (void)channel;
     (void)size;
     if (type != HCI_EVENT_PACKET) return;
     switch (hci_event_packet_get_type(packet)) {
+    case BTSTACK_EVENT_STATE:
+        if (btstack_event_state_get_state(packet) != HCI_STATE_WORKING) break;
+        /* Set before power-on, the LE address does not take: set it again,
+         * then advertise, as bt_pad.c does. */
+        hci_jieli_set_address(address);
+        advertise();
+        break;
     case HCI_EVENT_META_GAP:
         if (hci_event_gap_meta_get_subevent_code(packet) != GAP_SUBEVENT_LE_CONNECTION_COMPLETE) break;
         con = gap_subevent_le_connection_complete_get_connection_handle(packet);
@@ -89,24 +110,10 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
     }
 }
 
-static void advertise(void)
-{
-    static u8 scan[31];
-    bd_addr_t none = { 0 };
-    u8 n = updater_scan_response(scan);
-
-    gap_advertisements_set_params(0x0030, 0x0030, 0, 0, none, 0x07, 0);
-    gap_advertisements_set_data(sizeof(updater_adv), (u8 *)updater_adv);
-    gap_scan_response_set_data(n, scan);
-    gap_advertisements_enable(1);
-}
-
 static void body(void)
 {
-    u8 a[6];
-
-    updater_address(a);
-    hci_jieli_set_address(a);
+    updater_address(address);
+    hci_jieli_set_address(address);
     btstack_memory_init();
     btstack_run_loop_init(hci_jieli_run_loop());
     hci_init(hci_jieli_transport(), NULL);
@@ -116,7 +123,6 @@ static void body(void)
     hci_registration.callback = on_event;
     hci_add_event_handler(&hci_registration);
     att_server_register_packet_handler(on_event);
-    advertise();
     hci_power_control(HCI_POWER_ON);
     btstack_run_loop_execute();
 }
