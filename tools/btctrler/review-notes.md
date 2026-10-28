@@ -1760,3 +1760,11 @@ remain byte-identical to 44d0073. Worker full controller checks/census pass:
 ownership groups. Totals: 86 accepted members / 949 public functions / 82 globals;
 25 retained members / 1106 verified index entries. No application-image,
 controller-radio or hardware validation claimed.
+
+Data-forwarding combined checkpoint: acceptance `b2ad19c` passes canonical
+controller checks/census with 205 `: ok` reports, 12 legacy reports, 31 tooling
+tests, both layouts and 85 ownership groups. Totals: 86 accepted / 25 retained
+members, 949 functions, 82 globals and 1106 retained index entries. Clean
+worker/dependency status and merged ancestry checked; completed worktree and
+branch deleted. Original BR23 sources unchanged. No pending worker or hardware
+validation.
