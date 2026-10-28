@@ -1,8 +1,8 @@
 O := build
 comma := ,
 .DEFAULT_GOAL := all
-SDK := /shared/github.com-Jieli-Tech/fw-AC63_BT_SDK
-TOOL_DIR := /shared/jieli-linux-toolchains-20250324.1/pi32v2/bin
+SDK := $(CURDIR)/external/jieli-fw-AC63_BT_SDK
+TOOL_DIR := $(CURDIR)/external/toolchains/jieli-linux-toolchains-20250324.1/pi32v2/bin
 # Must match CONFIG_FLASH_SIZE in src/sdkconfig/board_config.h.
 FLASH_SIZE := 0x100000
 # Fixes the VM boundary; moving it moves the settings store.
@@ -36,7 +36,7 @@ ARCHIVES := $(SDK_ARCHIVES_MINIMAL)
 
 # Upstream BTstack (master), unmodified. The owned controller exports a few
 # of the same names; BTstack's copies are renamed.
-BTSTACK := /work/cyclone2-btstack
+BTSTACK := $(CURDIR)/external/bluekitchen-btstack
 BTSTACK_USED := \
 	src/btstack_hid_parser.c src/btstack_linked_list.c src/btstack_memory.c \
 	src/btstack_memory_pool.c src/btstack_run_loop.c src/btstack_run_loop_base.c \
@@ -147,3 +147,5 @@ $O/test/%: src/%.c src/pad.h src/test.h $(wildcard src/btctrler/*.h)
 $O/src/usb.o: $(wildcard .git/HEAD .git/index)
 
 -include $(OBJECTS:.o=.d)
+
+include tools/btctrler/vanilla.mk

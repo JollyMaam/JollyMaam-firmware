@@ -1,1 +1,1 @@
-"""Build and inspect the firmware's retained BR23 controller implementation."""
+"""Inspection and incremental ownership of the Jieli controller archives."""

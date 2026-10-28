@@ -1,0 +1,566 @@
+{
+  "schema": 1,
+  "br23_baseline": "44d0073",
+  "bd19_origin": "7cae22b",
+  "br23_sources_unchanged": 123,
+  "br23_canonical_functions_equal": 2109,
+  "bd19_sources": 79,
+  "bd19_canonical_functions_equal": 1198,
+  "bd19_globals_and_types_equal": true,
+  "notice": "Normalized IR comparison verifies migration preservation, not fresh equivalence proof against SDK. Original recovery reports remain on btctrler/bd19-support.",
+  "sources": [
+    {
+      "source": "src/btctrler/bd19/RF.c",
+      "origin_source": "src/platform/jieli/btctrler/bd19/RF.c",
+      "origin_sha256": "0e0375b027771e4282e0236c2706d0ec9ae7bdcfd1addf835683c9ef2caf2f42",
+      "sha256": "0e0375b027771e4282e0236c2706d0ec9ae7bdcfd1addf835683c9ef2caf2f42",
+      "origin_commit": "a3a5af8f978637a32626b2a082f832a908069767"
+    },
+    {
+      "source": "src/btctrler/bd19/analog_ble.c",
+      "origin_source": "src/platform/jieli/btctrler/bd19/analog_ble.c",
+      "origin_sha256": "849e9ace8e70519bca629135274eb790d534319ef1f7fb702d131d765632df69",
+      "sha256": "849e9ace8e70519bca629135274eb790d534319ef1f7fb702d131d765632df69",
+      "origin_commit": "c7712eda12195377c0c65e36a1fa0e3b5a9c31e3"
+    },
+    {
+      "source": "src/btctrler/bd19/audio_codec.c",
+      "origin_source": "src/platform/jieli/btctrler/bd19/audio_codec.c",
+      "origin_sha256": "d145bf784170589704440dc7f48d69e0f5269aae07e0bf9ca4722173d04b0e90",
+      "sha256": "d145bf784170589704440dc7f48d69e0f5269aae07e0bf9ca4722173d04b0e90",
+      "origin_commit": "e9f8aa7a95602a0af328016f9aa6145df323033b"
+    },
+    {
+      "source": "src/btctrler/bd19/bredr_dut.c",
+      "origin_source": "src/platform/jieli/btctrler/bd19/bredr_dut.c",
+      "origin_sha256": "2f320947559207a348c2988e3ce7be5a1be74408a4f3984e031da0cb6d1f3e3e",
+      "sha256": "2f320947559207a348c2988e3ce7be5a1be74408a4f3984e031da0cb6d1f3e3e",
+      "origin_commit": "9140e3ead243d8fd2acca7e6fcc5d623d1aaec4d"
+    },
+    {
+      "source": "src/btctrler/bd19/bredr_fcc.c",
+      "origin_source": "src/platform/jieli/btctrler/bd19/bredr_fcc.c",
+      "origin_sha256": "ae6158d9c4d67f698621d564466ddb6313e4ba252288fd592ca7b3626f675b40",
+      "sha256": "ae6158d9c4d67f698621d564466ddb6313e4ba252288fd592ca7b3626f675b40",
+      "origin_commit": "99413ce0883712984fd44dab4afa7accfa97287a"
+    },
+    {
+      "source": "src/btctrler/bd19/bredr_low_power.c",
+      "origin_source": "src/platform/jieli/btctrler/bd19/bredr_low_power.c",
+      "origin_sha256": "8df92c057909b0905ff9b068530640d5a36e30f3055025a44071a06a6d9d5687",
+      "sha256": "8df92c057909b0905ff9b068530640d5a36e30f3055025a44071a06a6d9d5687",
+      "origin_commit": "69dd896bd079a98e7a081f390c306ee60162de39"
+    },
+    {
+      "source": "src/btctrler/bd19/bredr_slot_timer.c",
+      "origin_source": "src/platform/jieli/btctrler/bd19/bredr_slot_timer.c",
+      "origin_sha256": "b1b6da7c41eb0c3c63f050d797d7ff08162ec2193eb90e0142db6a2a04be7855",
+      "sha256": "b1b6da7c41eb0c3c63f050d797d7ff08162ec2193eb90e0142db6a2a04be7855",
+      "origin_commit": "f9aa10c3623cbe9606f4c0b9c74333485a0feadd"
+    },
+    {
+      "source": "src/btctrler/bd19/h4_controller_interface.c",
+      "origin_source": "src/platform/jieli/btctrler/bd19/h4_controller_interface.c",
+      "origin_sha256": "fea1b399c27ef154d4401765d4a052ecbb454aed4513105b7f7f5debecd6c933",
+      "sha256": "fea1b399c27ef154d4401765d4a052ecbb454aed4513105b7f7f5debecd6c933",
+      "origin_commit": "0af2992f506fb6339e03de88bd713fe1adbc112a"
+    },
+    {
+      "source": "src/btctrler/bd19/h4_uart_hw.c",
+      "origin_source": "src/platform/jieli/btctrler/bd19/h4_uart_hw.c",
+      "origin_sha256": "eab2deac68f66a365145256b48c9063ed574fa0a19db199d0dfdc9436e02b0d7",
+      "sha256": "eab2deac68f66a365145256b48c9063ed574fa0a19db199d0dfdc9436e02b0d7",
+      "origin_commit": "6e03c7aa7f5c5201abc0caa14ef695a0f21e029a"
+    },
+    {
+      "source": "src/btctrler/bd19/h4_uart_interface_loop.c",
+      "origin_source": "src/platform/jieli/btctrler/bd19/h4_uart_interface_loop.c",
+      "origin_sha256": "6324d5ba0d00846dbd79aaa8cbc96bda0407f2febf40204cf22b9d62904609c7",
+      "sha256": "6324d5ba0d00846dbd79aaa8cbc96bda0407f2febf40204cf22b9d62904609c7",
+      "origin_commit": "2d8a690363cd5be0b77c45e86c75e817d8da6a9a"
+    },
+    {
+      "source": "src/btctrler/bd19/hci_controller.c",
+      "origin_source": "src/platform/jieli/btctrler/bd19/hci_controller.c",
+      "origin_sha256": "d1ba80768c54cc9d1df60e7f61ecd9a8e40f16c227b9d5eeb69740d1f5d62151",
+      "sha256": "5efb1309d59c3bc2836a58382c32630563f571d3daa7106cff215db8af29c4d9",
+      "origin_commit": "843223abb0b1aa166ac4bb45247656878d6ad0f1"
+    },
+    {
+      "source": "src/btctrler/bd19/interrupt.c",
+      "origin_source": "src/platform/jieli/btctrler/bd19/interrupt.c",
+      "origin_sha256": "299a8f282a579566a052b8e33681ba32e601a78ce4350cf28a3d72ade6d2bdb1",
+      "sha256": "299a8f282a579566a052b8e33681ba32e601a78ce4350cf28a3d72ade6d2bdb1",
+      "origin_commit": "c36289d3fd904c8dc5c8e74a417c884de02d7f7b"
+    },
+    {
+      "source": "src/btctrler/bd19/ll_bis_slave.c",
+      "origin_source": "src/platform/jieli/btctrler/bd19/ll_bis_slave.c",
+      "origin_sha256": "8f3763291c15429cdfe9850a72f29782f163f1e9abfedc363f612457d1136420",
+      "sha256": "eef7ed28263f8d8b2db7bc85a6da1ac3fd4c3854e86337cdb07e5b94ae7723d0",
+      "origin_commit": "397c1a464cedd3b9da086c9b54de0ceaa8627c45"
+    },
+    {
+      "source": "src/btctrler/bd19/ll_cis_master.c",
+      "origin_source": "src/platform/jieli/btctrler/bd19/ll_cis_master.c",
+      "origin_sha256": "8475b3e31b0e1d6e97d50d92aa5bbed3e31ddcedb5caa8b6632932c9b553d52d",
+      "sha256": "8475b3e31b0e1d6e97d50d92aa5bbed3e31ddcedb5caa8b6632932c9b553d52d",
+      "origin_commit": "2d79b41088c19065fb2a01f12c148f7b22009731"
+    },
+    {
+      "source": "src/btctrler/bd19/ll_cis_slave.c",
+      "origin_source": "src/platform/jieli/btctrler/bd19/ll_cis_slave.c",
+      "origin_sha256": "010ba91864aed176da0a0d621144e5bbd9d5b36d52b76fdd1158ce2e42131d2f",
+      "sha256": "010ba91864aed176da0a0d621144e5bbd9d5b36d52b76fdd1158ce2e42131d2f",
+      "origin_commit": "2d79b41088c19065fb2a01f12c148f7b22009731"
+    },
+    {
+      "source": "src/btctrler/bd19/ll_msg.c",
+      "origin_source": "src/platform/jieli/btctrler/bd19/ll_msg.c",
+      "origin_sha256": "fc14e1b37b36c2bc2d8cdb7245e328aedc5e6c289dd037bbdcf4ac1a1efa2ce9",
+      "sha256": "fc14e1b37b36c2bc2d8cdb7245e328aedc5e6c289dd037bbdcf4ac1a1efa2ce9",
+      "origin_commit": "1b57983b8e2c9b3bacaa3ceaa4bc114482a8665e"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/aes128.c",
+      "origin_source": "src/platform/jieli/btctrler/aes128.c",
+      "origin_sha256": "2d26fae00ae03f308d5d142fb1acaba74564de70eb8b106f23f99f42e4fc84f7",
+      "sha256": "2d26fae00ae03f308d5d142fb1acaba74564de70eb8b106f23f99f42e4fc84f7",
+      "origin_commit": "a154c8264b66d242e2bfdd605a2076949bf46999"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/aes_hw.c",
+      "origin_source": "src/platform/jieli/btctrler/aes_hw.c",
+      "origin_sha256": "91024f9475946de3065db86a9c57bab98b51ada162d16f92815e77e7a1928cc1",
+      "sha256": "91024f9475946de3065db86a9c57bab98b51ada162d16f92815e77e7a1928cc1",
+      "origin_commit": "19c307e44a101ff5106c357e82a9aa03e08de916"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/authentication.c",
+      "origin_source": "src/platform/jieli/btctrler/authentication.c",
+      "origin_sha256": "79b1b63c87828201bcc0ddbfdeae40aeb3940dd66465f287266a9db751bcf8c0",
+      "sha256": "79b1b63c87828201bcc0ddbfdeae40aeb3940dd66465f287266a9db751bcf8c0",
+      "origin_commit": "3ffbb43542b98cae3f2be1d5494a3bec477c946d"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/bredr_utils.c",
+      "origin_source": "src/platform/jieli/btctrler/bredr_utils.c",
+      "origin_sha256": "f5ea7c9ba1433c9cfaa43cd2813eef4c1799356b24bc52aed59d6c1cf7156326",
+      "sha256": "f5ea7c9ba1433c9cfaa43cd2813eef4c1799356b24bc52aed59d6c1cf7156326",
+      "origin_commit": "f57a6ceb0f9b218e198f199d789c590cf6e149cc"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/btagc.c",
+      "origin_source": "src/platform/jieli/btctrler/btagc.c",
+      "origin_sha256": "9084e13d9fec9f113a7f90ed61fc0b39dabdd518841c71eeafe6edf42d38ee6b",
+      "sha256": "9084e13d9fec9f113a7f90ed61fc0b39dabdd518841c71eeafe6edf42d38ee6b",
+      "origin_commit": "6f8b1991635f3643560e498384aba10e5696aaf2"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/btcontroller_heap.c",
+      "origin_source": "src/platform/jieli/btctrler/btcontroller_heap.c",
+      "origin_sha256": "1727aa12191b99e55bb314c88f046979b0c4109ee56702b57a2f65344c01beca",
+      "sha256": "1727aa12191b99e55bb314c88f046979b0c4109ee56702b57a2f65344c01beca",
+      "origin_commit": "2ce85408f3799ca767c4fc00a75fcd55f2a7b7c7"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/btcontroller_linked_list.c",
+      "origin_source": "src/platform/jieli/btctrler/btcontroller_linked_list.c",
+      "origin_sha256": "3c32db5d3d2ce8fe070d07edf546559676bc9b127f5ec464e484bef2cb2dc8ba",
+      "sha256": "3c32db5d3d2ce8fe070d07edf546559676bc9b127f5ec464e484bef2cb2dc8ba",
+      "origin_commit": "cc4014752a59faa31a6e0fef68adbd893ac27eba"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/btcontroller_util.c",
+      "origin_source": "src/platform/jieli/btctrler/btcontroller_util.c",
+      "origin_sha256": "b1f2fdae2dce3e9d76e84428803f5674080ad804522bdca1448ad74cd0ba24d5",
+      "sha256": "b1f2fdae2dce3e9d76e84428803f5674080ad804522bdca1448ad74cd0ba24d5",
+      "origin_commit": "93368e2f04bd9dde206fa3d66df5554ca6952227"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/btencry_task.c",
+      "origin_source": "src/platform/jieli/btctrler/btencry_task.c",
+      "origin_sha256": "5ceb3a22616989ed20fae4073510aa783f8537b65e76eb87626caf94f6914cb7",
+      "sha256": "5ceb3a22616989ed20fae4073510aa783f8537b65e76eb87626caf94f6914cb7",
+      "origin_commit": "d826179791550ee9c5605f197695d0d2e7f8b712"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/device_manager.c",
+      "origin_source": "src/platform/jieli/btctrler/device_manager.c",
+      "origin_sha256": "4a8864bfe877f910c9cdb06146f01c224e86d048229ff79fd857ad283315528e",
+      "sha256": "4a8864bfe877f910c9cdb06146f01c224e86d048229ff79fd857ad283315528e",
+      "origin_commit": "54434257d5a2346eb5d11a5e55fb45f606c7688d"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/hci_device_manager.c",
+      "origin_source": "src/platform/jieli/btctrler/hci_device_manager.c",
+      "origin_sha256": "230cba3bb6b1d6c9d9292ca794a7bf3a5009f535f8197d50b68db140f1883755",
+      "sha256": "230cba3bb6b1d6c9d9292ca794a7bf3a5009f535f8197d50b68db140f1883755",
+      "origin_commit": "cc4014752a59faa31a6e0fef68adbd893ac27eba"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/hci_ll.c",
+      "origin_source": "src/platform/jieli/btctrler/hci_ll.c",
+      "origin_sha256": "7dfa742be8db4c75888c81c418931a4ef7d14e64cba597afaf47940bcefa2748",
+      "sha256": "7dfa742be8db4c75888c81c418931a4ef7d14e64cba597afaf47940bcefa2748",
+      "origin_commit": "c1796d90e89e1ee266af00e21d880839f2369201"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/hci_ll_5_cmds.c",
+      "origin_source": "src/platform/jieli/btctrler/hci_ll_5_cmds.c",
+      "origin_sha256": "c1d87a25c6d6335586dc3d25d5e73f5e857c2524fc9fa7888d8c241cb81eea0c",
+      "sha256": "c1d87a25c6d6335586dc3d25d5e73f5e857c2524fc9fa7888d8c241cb81eea0c",
+      "origin_commit": "1156937dec9026db39c636db02d95bd381923450"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/hci_ll_cmds.c",
+      "origin_source": "src/platform/jieli/btctrler/hci_ll_cmds.c",
+      "origin_sha256": "f80d077e2d05ef60adb4827868e99a8df4f192f05a4fd0243f89a352683b204d",
+      "sha256": "f80d077e2d05ef60adb4827868e99a8df4f192f05a4fd0243f89a352683b204d",
+      "origin_commit": "07fc0dc30ef15bec2c8a3d563508df7c0e13c815"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/hw_dma.c",
+      "origin_source": "src/platform/jieli/btctrler/hw_dma.c",
+      "origin_sha256": "bbf399a49f97601e85642d8c297ad78253ea2864f4301a7d48f9f738ed4f6b13",
+      "sha256": "bbf399a49f97601e85642d8c297ad78253ea2864f4301a7d48f9f738ed4f6b13",
+      "origin_commit": "971c549dbecf42fd89ddda67a3d512ce0bbaaeec"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/lbuf.c",
+      "origin_source": "src/platform/jieli/btctrler/lbuf.c",
+      "origin_sha256": "8749a0129521b8df756ac6873c3ba3780a28311eae1e4c316bdd85b5f59dcb9f",
+      "sha256": "8749a0129521b8df756ac6873c3ba3780a28311eae1e4c316bdd85b5f59dcb9f",
+      "origin_commit": "df571482e8742859bb0a555aa9ef3afceb6b6e37"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/le_low_power.c",
+      "origin_source": "src/platform/jieli/btctrler/le_low_power.c",
+      "origin_sha256": "4b7fa06b5b2a9dc20ea81bcb02a8b3113cef1d1491ccc871484b842e3cd0f541",
+      "sha256": "4b7fa06b5b2a9dc20ea81bcb02a8b3113cef1d1491ccc871484b842e3cd0f541",
+      "origin_commit": "0b5449adefa04da7dc819a9ed5603f193a3340dc"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/link_bulk.c",
+      "origin_source": "src/platform/jieli/btctrler/link_bulk.c",
+      "origin_sha256": "de1f9c099ab1a8026e596e816d512dcfc31575535baa645888a2800d870e3e80",
+      "sha256": "de1f9c099ab1a8026e596e816d512dcfc31575535baa645888a2800d870e3e80",
+      "origin_commit": "a1021a5114a6e463c7542df338ba839fb839021f"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/link_layer.c",
+      "origin_source": "src/platform/jieli/btctrler/link_layer.c",
+      "origin_sha256": "c8a1260afb12193c690c160a4d6486939ebca322ad00740b1497b08e646ad6fc",
+      "sha256": "e623b75cb325abed68b0d0fc1b1b6301b2d0ecc3aab60637191750d4f19b8d55",
+      "origin_commit": "3dcf90683ba8b476926fb87a4bf5e08f287b923e"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/link_task.c",
+      "origin_source": "src/platform/jieli/btctrler/link_task.c",
+      "origin_sha256": "771b10ea3c8ac75fb234f56879bdec8b1d2384b8402ded5e9358fedea13f47a4",
+      "sha256": "771b10ea3c8ac75fb234f56879bdec8b1d2384b8402ded5e9358fedea13f47a4",
+      "origin_commit": "cb8246154264df514aba474b3bd5e9a37f29e245"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/ll_adv.c",
+      "origin_source": "src/platform/jieli/btctrler/ll_adv.c",
+      "origin_sha256": "26afea331a39f4582337817b93ef72a95978ec4e2ec995385eb3e46c49bf7933",
+      "sha256": "26afea331a39f4582337817b93ef72a95978ec4e2ec995385eb3e46c49bf7933",
+      "origin_commit": "4ba0a39c82a58a6d67f6b5623039be58af490c58"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/ll_bis.c",
+      "origin_source": "src/platform/jieli/btctrler/ll_bis.c",
+      "origin_sha256": "48831b4181ff51c90ba779b9962cfae9dde5f44da8e5c3939a3a6acd462e0881",
+      "sha256": "48831b4181ff51c90ba779b9962cfae9dde5f44da8e5c3939a3a6acd462e0881",
+      "origin_commit": "aa66852795a112db83c7a5f4fef1af8c4b17bb29"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/ll_cis.c",
+      "origin_source": "src/platform/jieli/btctrler/ll_cis.c",
+      "origin_sha256": "05c191273da13bf07729fdaade616c03041d7dea4ee3de9f387075bab04e6db9",
+      "sha256": "05c191273da13bf07729fdaade616c03041d7dea4ee3de9f387075bab04e6db9",
+      "origin_commit": "fb6d1ac0ce9ad5017d09db8c196bf81b0fb5925e"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/ll_common_iso.c",
+      "origin_source": "src/platform/jieli/btctrler/ll_common_iso.c",
+      "origin_sha256": "fa7e3ab5c9172e11a80100b55df516b2b496824e930a4bcd558bad94726da508",
+      "sha256": "fa7e3ab5c9172e11a80100b55df516b2b496824e930a4bcd558bad94726da508",
+      "origin_commit": "d596804be36d34458ce80b47d0c4bfad97d4eca2"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/ll_ext_adv.c",
+      "origin_source": "src/platform/jieli/btctrler/ll_ext_adv.c",
+      "origin_sha256": "28903d0f7ab5402397c95722c2d41e1de9bd36ca8c8632e2bff64bb8f260c3b0",
+      "sha256": "28903d0f7ab5402397c95722c2d41e1de9bd36ca8c8632e2bff64bb8f260c3b0",
+      "origin_commit": "4c462fe75b6f8a947b075e6584bd24b73a7403db"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/ll_ext_scan.c",
+      "origin_source": "src/platform/jieli/btctrler/ll_ext_scan.c",
+      "origin_sha256": "d0f9b68eaf5f1f9843114640a5447e7b80f1ab1129e448e78cd02f2834f17051",
+      "sha256": "d0f9b68eaf5f1f9843114640a5447e7b80f1ab1129e448e78cd02f2834f17051",
+      "origin_commit": "fe5a38b78a52a2481123c9116bcca55afe6f30f4"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/ll_init.c",
+      "origin_source": "src/platform/jieli/btctrler/ll_init.c",
+      "origin_sha256": "9d21970951b0fcf65f7c9ea6cbbdda934b197a6a0f51c5acc0ade21b89c7f90f",
+      "sha256": "9d21970951b0fcf65f7c9ea6cbbdda934b197a6a0f51c5acc0ade21b89c7f90f",
+      "origin_commit": "b13a4ba3da39b834e96f8f0d17181486cb62b3ab"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/ll_multiple_phys.c",
+      "origin_source": "src/platform/jieli/btctrler/ll_multiple_phys.c",
+      "origin_sha256": "b6144e9136cf91782aa04fd150a517f7f1ec787df515c37fcc92e972d9a837c2",
+      "sha256": "b6144e9136cf91782aa04fd150a517f7f1ec787df515c37fcc92e972d9a837c2",
+      "origin_commit": "84e67e1935785159aa89f173eee72e0ddbc91a14"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/ll_periodic_advertising.c",
+      "origin_source": "src/platform/jieli/btctrler/ll_periodic_advertising.c",
+      "origin_sha256": "a974dc0cf847e7b50963385600cfd1646a5bf68fd7fefdf8e610eade08d81bbc",
+      "sha256": "a974dc0cf847e7b50963385600cfd1646a5bf68fd7fefdf8e610eade08d81bbc",
+      "origin_commit": "0a6545e24190af15e82235613ae597da75ba67a9"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/ll_resolve_list.c",
+      "origin_source": "src/platform/jieli/btctrler/ll_resolve_list.c",
+      "origin_sha256": "ad5f9b0aedd37a78e5ae76939aa3ee683bdedd0f788942d9f2068bcf9d9ffd80",
+      "sha256": "ad5f9b0aedd37a78e5ae76939aa3ee683bdedd0f788942d9f2068bcf9d9ffd80",
+      "origin_commit": "6367efbe097bc9f86a6a39f8dc08a8496af8f2e9"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/ll_slave.c",
+      "origin_source": "src/platform/jieli/btctrler/ll_slave.c",
+      "origin_sha256": "fa9a562d21a91e189f9c9fa62cf710bcdce2392db492fee03faf38ece4b58a18",
+      "sha256": "3fb1554847d9bf9207db88ec1537cdf300dae749bbed1828158fb1551c1086d7",
+      "origin_commit": "b8167a3a78c1b9cd803e468d0581d4771d0ac2c8"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/lmp_acl_tx.c",
+      "origin_source": "src/platform/jieli/btctrler/lmp_acl_tx.c",
+      "origin_sha256": "a24c3907d8218e3c38cfa84e24035c9eb2114b9010542e4d2350f3de605b7daf",
+      "sha256": "a24c3907d8218e3c38cfa84e24035c9eb2114b9010542e4d2350f3de605b7daf",
+      "origin_commit": "357d20bccb4d93a61c4c4f6eaa521dbffbe8249d"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/lmp_control_tx.c",
+      "origin_source": "src/platform/jieli/btctrler/lmp_control_tx.c",
+      "origin_sha256": "0a9521390aed6a4993a46b1f45166f33c52b3394ad8aedbfff020099bac3a686",
+      "sha256": "0a9521390aed6a4993a46b1f45166f33c52b3394ad8aedbfff020099bac3a686",
+      "origin_commit": "d82dc2440f8defcc74e73ab1f27c73984d60104a"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/lmp_hci_control.c",
+      "origin_source": "src/platform/jieli/btctrler/lmp_hci_control.c",
+      "origin_sha256": "0b1382417f839d76c0ba1e9c25c2e3210836a108da59e7ae79413b249427f06b",
+      "sha256": "0b1382417f839d76c0ba1e9c25c2e3210836a108da59e7ae79413b249427f06b",
+      "origin_commit": "0fc29e3657f9ed845f51533d3cec3ca4aeecf6d8"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/lmp_hci_pairing.c",
+      "origin_source": "src/platform/jieli/btctrler/lmp_hci_pairing.c",
+      "origin_sha256": "aa5de41beb5245cdfb12efbdadced94556497e8f460ebb215a051322d80fab69",
+      "sha256": "5ff1180b5ffcf89eb7776e915d3cc1930cb43981537cab6cdbd3f6be9ba5623e",
+      "origin_commit": "0fc29e3657f9ed845f51533d3cec3ca4aeecf6d8"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/lmp_hci_procedures.c",
+      "origin_source": "src/platform/jieli/btctrler/lmp_hci_procedures.c",
+      "origin_sha256": "930f86ada8e74cfed812edeafc7d8de8d3bc3629d7435687c7139630afac8eed",
+      "sha256": "930f86ada8e74cfed812edeafc7d8de8d3bc3629d7435687c7139630afac8eed",
+      "origin_commit": "5d7f0d97b82319e01ef9307064e4ab35b42a2216"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/lmp_hci_settings.c",
+      "origin_source": "src/platform/jieli/btctrler/lmp_hci_settings.c",
+      "origin_sha256": "88f6c9fad0cfacc2f2fedbfdde49a97e3c32de32d03dbc25663142e4dc88dce1",
+      "sha256": "88f6c9fad0cfacc2f2fedbfdde49a97e3c32de32d03dbc25663142e4dc88dce1",
+      "origin_commit": "0fc29e3657f9ed845f51533d3cec3ca4aeecf6d8"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/lmp_utils.c",
+      "origin_source": "src/platform/jieli/btctrler/lmp_utils.c",
+      "origin_sha256": "7032fc5d20b4146725a1f68fed54abca81f01d9cec63c20a9b4579c8e1176d1b",
+      "sha256": "7032fc5d20b4146725a1f68fed54abca81f01d9cec63c20a9b4579c8e1176d1b",
+      "origin_commit": "08680c9333dcb7c400c9c249a2f02611b1bb963b"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/misc_hw.c",
+      "origin_source": "src/platform/jieli/btctrler/misc_hw.c",
+      "origin_sha256": "935aad002ceeec278862bf0783d495b304796b8b9d4472b66727f07535571a04",
+      "sha256": "935aad002ceeec278862bf0783d495b304796b8b9d4472b66727f07535571a04",
+      "origin_commit": "cee80c1b1e9afc5d5e62715c733fd3e044125ee3"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/multilink_schedule.c",
+      "origin_source": "src/platform/jieli/btctrler/multilink_schedule.c",
+      "origin_sha256": "15a75c957243136ef9c7a7510c358b5883b0912e78e2c24a27970d74ef5211df",
+      "sha256": "15a75c957243136ef9c7a7510c358b5883b0912e78e2c24a27970d74ef5211df",
+      "origin_commit": "431d5c0304b9229f052987ca06f049677de52212"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/nv_memory.c",
+      "origin_source": "src/platform/jieli/btctrler/nv_memory.c",
+      "origin_sha256": "001765570507b45b670047d792fffc28d17265b389f829ef7bdf83feaba7b56e",
+      "sha256": "001765570507b45b670047d792fffc28d17265b389f829ef7bdf83feaba7b56e",
+      "origin_commit": "f95462bc1b5433739db03d8d318407d3b835bbfa"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/sys_timer.c",
+      "origin_source": "src/platform/jieli/btctrler/sys_timer.c",
+      "origin_sha256": "5034242ec7eeae42725712240c3f43e10cfcd6b7c38990fe5e86e7223949f8ba",
+      "sha256": "5034242ec7eeae42725712240c3f43e10cfcd6b7c38990fe5e86e7223949f8ba",
+      "origin_commit": "2ce85408f3799ca767c4fc00a75fcd55f2a7b7c7"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/task_dispatch.c",
+      "origin_source": "src/platform/jieli/btctrler/task_dispatch.c",
+      "origin_sha256": "4dc3128e187988be7a6d23739aa37e772f225aa97a2c3a4f8778ea802fca02f2",
+      "sha256": "4dc3128e187988be7a6d23739aa37e772f225aa97a2c3a4f8778ea802fca02f2",
+      "origin_commit": "a59c62beafa77148d8225e2741287a2b975f6282"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/task_lifecycle.c",
+      "origin_source": "src/platform/jieli/btctrler/task_lifecycle.c",
+      "origin_sha256": "292451cd1fb80f0899bd488da26217728f17d6fd3c83d1fa69396c5da728aaa6",
+      "sha256": "292451cd1fb80f0899bd488da26217728f17d6fd3c83d1fa69396c5da728aaa6",
+      "origin_commit": "0fc29e3657f9ed845f51533d3cec3ca4aeecf6d8"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/task_queue.c",
+      "origin_source": "src/platform/jieli/btctrler/task_queue.c",
+      "origin_sha256": "8c4672d8f2a8dd9c7cda3c66c71f1f309d9ce8168b10053cccfe30ee61032488",
+      "sha256": "8c4672d8f2a8dd9c7cda3c66c71f1f309d9ce8168b10053cccfe30ee61032488",
+      "origin_commit": "0fc29e3657f9ed845f51533d3cec3ca4aeecf6d8"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/thread.c",
+      "origin_source": "src/platform/jieli/btctrler/thread.c",
+      "origin_sha256": "f824386886e9aac96d9ca768164e51c1cb5018b3d8ebf5051881e680be9fb10b",
+      "sha256": "898c3c167036c15dec700de9a581bf2bd648fc08fa7c4da462946f1eed9604b5",
+      "origin_commit": "54434257d5a2346eb5d11a5e55fb45f606c7688d"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/tws_ble_link.c",
+      "origin_source": "src/platform/jieli/btctrler/tws_ble_link.c",
+      "origin_sha256": "a366b31f032ce1adf8ad4343504d61f6ea17d0da5fc0b834621c649fa663adeb",
+      "sha256": "a366b31f032ce1adf8ad4343504d61f6ea17d0da5fc0b834621c649fa663adeb",
+      "origin_commit": "272ab0eeae6a4bc7ab0ccd3fbd7f510806fd8043"
+    },
+    {
+      "source": "src/btctrler/bd19/shared/vendor_manager.c",
+      "origin_source": "src/platform/jieli/btctrler/vendor_manager.c",
+      "origin_sha256": "33bfcd23246a880427af221dfaff1b547f5f5b8e48a1f2e4e2aec0bf1c58be9e",
+      "sha256": "33bfcd23246a880427af221dfaff1b547f5f5b8e48a1f2e4e2aec0bf1c58be9e",
+      "origin_commit": "cee80c1b1e9afc5d5e62715c733fd3e044125ee3"
+    },
+    {
+      "source": "src/btctrler/ll_afh.c",
+      "origin_source": "src/platform/jieli/btctrler/ll_afh.c",
+      "origin_sha256": "614e3a689234bd9ad0648ad9de2617f16630e3fee86b38931c87551eb0238ccb",
+      "sha256": "614e3a689234bd9ad0648ad9de2617f16630e3fee86b38931c87551eb0238ccb",
+      "origin_commit": "c5070a9142ace8eb76eeb0b2b2443fec82ea5f3e"
+    },
+    {
+      "source": "src/btctrler/ll_bis_master.c",
+      "origin_source": "src/platform/jieli/btctrler/ll_bis_master.c",
+      "origin_sha256": "558a81b7e42eb1e57a9faf5eb2bbccacc834fcbfae2b9df9e77f6104a4b3dcf0",
+      "sha256": "558a81b7e42eb1e57a9faf5eb2bbccacc834fcbfae2b9df9e77f6104a4b3dcf0",
+      "origin_commit": "c5070a9142ace8eb76eeb0b2b2443fec82ea5f3e"
+    },
+    {
+      "source": "src/btctrler/ll_data_extension.c",
+      "origin_source": "src/platform/jieli/btctrler/ll_data_extension.c",
+      "origin_sha256": "eedb1c807edf21c3bc945d394d98640e1fc81572ae30dffd71c7b22e790b6b45",
+      "sha256": "eedb1c807edf21c3bc945d394d98640e1fc81572ae30dffd71c7b22e790b6b45",
+      "origin_commit": "c5070a9142ace8eb76eeb0b2b2443fec82ea5f3e"
+    },
+    {
+      "source": "src/btctrler/ll_events.c",
+      "origin_source": "src/platform/jieli/btctrler/ll_events.c",
+      "origin_sha256": "0971bae05355ff49729042ede66ed315ac798413df509cb26e7f16d39befb4b8",
+      "sha256": "0971bae05355ff49729042ede66ed315ac798413df509cb26e7f16d39befb4b8",
+      "origin_commit": "c5070a9142ace8eb76eeb0b2b2443fec82ea5f3e"
+    },
+    {
+      "source": "src/btctrler/ll_ext_init.c",
+      "origin_source": "src/platform/jieli/btctrler/ll_ext_init.c",
+      "origin_sha256": "ff66d65069a341f849bd48dcac834879eab6e8e5a495385d58e1740ec5a4650a",
+      "sha256": "ff66d65069a341f849bd48dcac834879eab6e8e5a495385d58e1740ec5a4650a",
+      "origin_commit": "c5070a9142ace8eb76eeb0b2b2443fec82ea5f3e"
+    },
+    {
+      "source": "src/btctrler/ll_extended_advertising.c",
+      "origin_source": "src/platform/jieli/btctrler/ll_extended_advertising.c",
+      "origin_sha256": "6ff1240bad7adb48836cfd7e6481a8204f971ce4e95eacbd5b94a3c1cd2c0f5a",
+      "sha256": "6ff1240bad7adb48836cfd7e6481a8204f971ce4e95eacbd5b94a3c1cd2c0f5a",
+      "origin_commit": "c5070a9142ace8eb76eeb0b2b2443fec82ea5f3e"
+    },
+    {
+      "source": "src/btctrler/ll_keys.c",
+      "origin_source": "src/platform/jieli/btctrler/ll_keys.c",
+      "origin_sha256": "0b8800c0025faeb0455c72659fc28fb2d1476318ef4526ea4c63c9fbdfb4da32",
+      "sha256": "0b8800c0025faeb0455c72659fc28fb2d1476318ef4526ea4c63c9fbdfb4da32",
+      "origin_commit": "c5070a9142ace8eb76eeb0b2b2443fec82ea5f3e"
+    },
+    {
+      "source": "src/btctrler/ll_master.c",
+      "origin_source": "src/platform/jieli/btctrler/ll_master.c",
+      "origin_sha256": "5430a39b2cc39343bac5bb87860381e3663168c48ab6c48853f7ad4e7b9eac60",
+      "sha256": "5430a39b2cc39343bac5bb87860381e3663168c48ab6c48853f7ad4e7b9eac60",
+      "origin_commit": "c5070a9142ace8eb76eeb0b2b2443fec82ea5f3e"
+    },
+    {
+      "source": "src/btctrler/ll_pc.c",
+      "origin_source": "src/platform/jieli/btctrler/ll_pc.c",
+      "origin_sha256": "2a2de4f483748d9e8ce2f32095f29f6c6301773b8690f25b8110aa559060f7d6",
+      "sha256": "2a2de4f483748d9e8ce2f32095f29f6c6301773b8690f25b8110aa559060f7d6",
+      "origin_commit": "c5070a9142ace8eb76eeb0b2b2443fec82ea5f3e"
+    },
+    {
+      "source": "src/btctrler/ll_scan.c",
+      "origin_source": "src/platform/jieli/btctrler/ll_scan.c",
+      "origin_sha256": "aaa5d741304e688e1da00a59d12b835aa15f31a9e53a413f1dcbeeab04dc3238",
+      "sha256": "aaa5d741304e688e1da00a59d12b835aa15f31a9e53a413f1dcbeeab04dc3238",
+      "origin_commit": "c5070a9142ace8eb76eeb0b2b2443fec82ea5f3e"
+    },
+    {
+      "source": "src/btctrler/ll_vendor.c",
+      "origin_source": "src/platform/jieli/btctrler/ll_vendor.c",
+      "origin_sha256": "4ebb494e154a92df4212187f0990690b465f1ce5ebd30afb8b0a8a0fdcc6a60a",
+      "sha256": "4ebb494e154a92df4212187f0990690b465f1ce5ebd30afb8b0a8a0fdcc6a60a",
+      "origin_commit": "c5070a9142ace8eb76eeb0b2b2443fec82ea5f3e"
+    },
+    {
+      "source": "src/btctrler/ll_white_list.c",
+      "origin_source": "src/platform/jieli/btctrler/ll_white_list.c",
+      "origin_sha256": "cfa11e30eefff4ac796c70a2ac0e91d256a17695e95b0244c053ba7f6e476b70",
+      "sha256": "cfa11e30eefff4ac796c70a2ac0e91d256a17695e95b0244c053ba7f6e476b70",
+      "origin_commit": "c5070a9142ace8eb76eeb0b2b2443fec82ea5f3e"
+    },
+    {
+      "source": "src/btctrler/ll_wifi_detect.c",
+      "origin_source": "src/platform/jieli/btctrler/ll_wifi_detect.c",
+      "origin_sha256": "06600b3da939254990533750560d058e34a05ca35d1e0fd324c292391d6787eb",
+      "sha256": "06600b3da939254990533750560d058e34a05ca35d1e0fd324c292391d6787eb",
+      "origin_commit": "c5070a9142ace8eb76eeb0b2b2443fec82ea5f3e"
+    },
+    {
+      "source": "src/btctrler/tws_le_acc.c",
+      "origin_source": "src/platform/jieli/btctrler/tws_le_acc.c",
+      "origin_sha256": "78c6b182f896d33f7c61d39d31e03f0217a108d3293aed5cd0c50c2fd9b5e6a2",
+      "sha256": "78c6b182f896d33f7c61d39d31e03f0217a108d3293aed5cd0c50c2fd9b5e6a2",
+      "origin_commit": "c5070a9142ace8eb76eeb0b2b2443fec82ea5f3e"
+    },
+    {
+      "source": "src/btctrler/vsprintf.c",
+      "origin_source": "src/platform/jieli/btctrler/vsprintf.c",
+      "origin_sha256": "f58aff9f0b2960142d1ad2ed4ac49d13667895de53c02ab6fc063467d6445c1e",
+      "sha256": "f58aff9f0b2960142d1ad2ed4ac49d13667895de53c02ab6fc063467d6445c1e",
+      "origin_commit": "c5070a9142ace8eb76eeb0b2b2443fec82ea5f3e"
+    }
+  ]
+}

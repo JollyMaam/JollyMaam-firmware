@@ -2,7 +2,7 @@
 """Inspect retained BR23 LLVM code and emit a function/ownership inventory."""
 import argparse
 from pathlib import Path
-from btctrler.archive import inspect
+from btctrler.legacy_archive import inspect
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)

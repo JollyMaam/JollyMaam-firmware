@@ -1,0 +1,1302 @@
+# Imported BD19 recovery history
+
+The historical notes below originate from `btctrler/bd19-support` through
+`7cae22b`. Their application-image validation and old source paths describe
+that branch. This branch starts at `44d0073`; current migration evidence and
+commands are in [vanilla-migration.md](vanilla-migration.md). Original per-object
+commit bodies remain reachable through the preserved origin branch.
+
+# Initial BD19 ownership batch
+
+Integration base: main 2b5050f. Work is isolated on btctrler/bd19-support;
+the primary checkout and hardware were not changed. Two gpt-6-luna workers
+at medium effort supplied object-specific checkpoints; the integration review
+checked them against both pinned SDK archives.
+
+## Accepted boundaries
+
+The exact member occurrences, hashes and source assignments are in bd19.json.
+This batch accepts seven complete LLVM members:
+
+| Member | External functions | External globals |
+| --- | ---: | ---: |
+| bredr_utils.c.o | 4 | 0 |
+| btcontroller_heap.c.o | 11 | 3 |
+| nv_memory.c.o | 4 | 0 |
+| sys_timer.c.o | 8 | 0 |
+| lmp_utils.c.o | 10 | 0 |
+| hci_ll_cmds.c.o | 7 | 1 |
+| hci_ll_5_cmds.c.o | 1 | 1 |
+
+All 45 exported functions and 5 globals match compiled ownership inventories.
+The retained archive has 104 of the original 111 members; both distinct
+tws_pair.c.o occurrences remain intact. The original symbol index has 2140
+entries and the retained index has 2090. Every remaining symbol resolves to
+the same member payload as before.
+
+BR23 keeps its current implementation and placement. BD19 clock/parity helpers
+use their original Classic code sections. Complete BD19 heap and LMP utility
+exports include entry points that the BR23 recovery omitted as unused.
+
+## Review findings
+
+- The initial heap translation reread config_asser after allocation callbacks.
+  The SDK retains its entry-time value. The accepted code snapshots it, and
+  a host test changes the policy inside the allocation stub to exercise this.
+- BD19 heap pool initialization/release order, mode-bit handling, alignment,
+  null-free guards, diagnostic/reset paths and type-0 allocation's infinite
+  failure loop are preserved. The nonreturning loop is reviewed in IR rather
+  than executed by the host checks.
+- BD19 enhanced DTM helpers have recovered struct-pointer declarations while
+  the HCI command member calls them with raw command bytes. Source-local
+  assembly aliases preserve the actual caller ABI. A focused check verifies
+  the original pointer and length reach both handlers.
+- Existing weak key hooks have inconsistent caller/callee signatures in the
+  SDK: the HCI member calls the P-256 hook without its declared argument and
+  passes command size as the DH hook's second argument. Existing raw-ABI
+  aliases retain the SDK call shapes. The weak hooks are currently no-ops;
+  implementing those hooks later requires reviewing these boundaries.
+- Both SDKs' HCI command initializer and registration match. Compiling the
+  original and owned BD19 member to native objects produced identical
+  208-byte .ble_hci_data contents. The registration initializer also matches
+  textually, including callback targets. SDK undef padding becomes zeroed
+  explicit padding in recovered C. ext_le_param's initializer/section/alignment
+  match the original IR exactly.
+- The BLE 5 handler has different optimized loop shapes between SDK targets.
+  Review checked zero-count advertising enable/disable, duplicate/unknown
+  handle validation, operation ordering and status carry, scan allocation
+  and size copies, create-connection PHY counting, and partial default-PHY
+  mutations. The common C preserves these semantics. Changed CFG shape is
+  not itself evidence of a behavioral difference.
+- Unchecked HCI size copies, the vendor debug-copy overflow, shared string
+  buffers, wrapped 16-bit byte-store positions, overlap-sensitive flips and
+  SDK clock arithmetic quirks remain as the SDK implements them.
+
+## Validation
+
+Reproducible commands are in README.md. For this batch:
+
+- Both target compiler layout checks and seven tooling regression tests pass.
+- `make -j32 all` builds every product, including all four Jieli targets.
+  `make -j32 test` exits successfully
+  with 551 successful test-program reports across the product variants.
+- Every accepted source was compiled and its focused host checks run with
+  both BR23 and BD19 headers. The BD19 board test target now selects only
+  accepted controller tests and defines CONFIG_CPU_BD19 explicitly.
+- At fixed BUILD_ID=2b5050f, all three BR23 app.bin images are byte-identical
+  to the integration starting point. The BD19 app.bin is 197048 bytes versus
+  197228 before migration, reflecting recompilation of live SDK code. Size
+  reduction is not a performance or runtime-correctness claim.
+- No flashing, Bluetooth connection, console wake or runtime hardware test.
+
+## Remaining work
+
+This is an incremental controller migration, not complete BD19 ownership.
+The other 104 archive members, including native version metadata and the
+chip-specific RF/baseband implementation, remain SDK code. Prioritize next
+assignments using the actual dongle map/dependency closure. Complex Classic,
+radio, low-power and TWS code needs target-specific layout/MMIO/timing review.
+
+Existing BR23 app fixes remain authoritative on BR23. Audit each member's
+source history before sharing it and record any deliberate application of
+an app fix to BD19 separately from faithful SDK translation. Consolidate the
+temporary BD19 assertion boundary when the HCI controller member is accepted.
+
+## Reuse-first census and second batch
+
+The whole-archive census matches 942 definitions after cosmetic naming and
+target code-generation differences are removed, with matching checked
+signature/type/data/declaration boundaries. Of these, 487 public functions
+are already supplied by compiled BR23 C. Another 329 definitions have matching
+instructions with boundaries requiring review. The remaining groups are 1000
+different instruction bodies and 356 unmatched/ambiguous definitions; neither
+group implies that a fresh decompilation is needed. Different optimization,
+field indices, or member organization can account for differences.
+
+The census is triage rather than equivalence proof. It does not compare callee
+implementations recursively or accept code automatically. It groups repeated
+type/data/interface differences so a boundary review can be reused for many
+callers. Worker/reviewer skills now prioritize existing C and changed regions.
+
+The enhanced DTM caller's production chip conditional is removed: both targets
+use the same raw-byte assembly alias. The generated headers retain their SDK
+callee declarations. Both selected-header HCI tests and all four Jieli builds
+pass; the three BR23 images remain byte-identical at fixed BUILD_ID=2b5050f.
+
+Five complete matching members were then accepted with NO C source changes:
+ll_keys.c.o, ll_pc.c.o, ll_bis_master.c.o, ll_data_extension.c.o and
+ll_wifi_detect.c.o. Their source histories have no later app changes. Both
+targets' existing focused checks pass; compiled external definitions match
+each member. Private data-length/Wi-Fi tables and state initializers were
+compared programmatically with SDK IR, including sections and alignment.
+These add 19 public functions and no public globals. The manifest now accepts
+12 members (64 external functions and 5 globals), leaving 99 SDK members.
+The retained symbol index has 2071 entries, with its original member mappings
+verified. Thirteen tooling regression tests pass. No hardware validation.
+
+## Shared LE, crypto and radio batch: 37 accepted members
+
+The manifest now replaces 37 original members with 303 unique public functions
+and 33 globals, leaving 74 SDK members and 1801 retained symbol-index entries.
+The two misc hardware members share one C implementation: their duplicate
+exports have matching normalized bodies and checked dependencies/declarations.
+Ownership groups compile shared sources once and audit their combined exports.
+
+Most LE members reuse existing C against the selected chip header. Named fields
+account for changed ble_ext_rx and controller layouts. Periodic advertising
+needs BD19's 16-bit timeout multiplication, including wrap (6554 becomes 4 ms),
+and its original assertion/callout ordering. BR23 behavior remains unchanged.
+The existing BR23 LL_VERSION_IND application fix remains BR23-only; BD19 uses
+the original SDK no-procedure-active gate. Focused tests cover both gates.
+
+AES, lbuf and LL slave missing public APIs are now supplied, including dormant
+diagnostics. AES diagnostic vector orientation on hardware is not established;
+SDK constants, comparison quirks and terminal loops are preserved. TWS BLE's
+original unresolved monitor imports remain unresolved in dormant discarded
+paths; this does not establish support for the optional monitor feature.
+
+AGC selects BD19 tables in shared C. RF has a separate BD19 implementation
+because its register operations, save buffers and layout differ substantially.
+Review preserved cached assertion policy and pointer reload boundaries. The
+q32s compiler's RF bitfield bytes were checked against SDK masks. The deep-sleep
+registration retains its SDK llvm.used requirement. The compiled-symbol audit
+now also rejects weakened linker/compiler retention roots.
+
+Validation: all product builds completed at BUILD_ID=2b5050f; all three BR23
+app.bin images remain byte-identical to the frozen starting baseline. The BD19
+image is 196908 bytes (starting SDK image 197228). The complete host suite
+produced 580 successful program reports with no reported failures. Both target
+layout checks, all 16 tooling regression tests and all 37 member/group audits
+pass. No hardware validation was performed.
+
+## BD19 interrupt status helper
+
+interrupt.c.o is now owned (38 accepted members, 73 retained). Its only public
+function irq_get_status reads one volatile 32-bit word at
+0x1be100 + 4 * (index >> 3), tests bit ((index << 2) & 28), and returns 0/1
+as an unsigned byte. The recovered header says bool, so the implementation
+uses an assembly-name alias to preserve the SDK i8 return ABI. BR23's SDK
+uses the same selection at 0x10f100; the BR23 source set is unchanged.
+The q32s compiled IR was checked for the exact address, shifts, mask, volatile
+load and zero-extended i8 result; the dongle build and all 38 ownership audits
+pass. No hardware validation.
+
+## DMA pool/queue member
+
+hw_dma.c.o supplies 20 public functions and no public globals. Twelve missing
+BD19 entry points now cover debug/remain/reallocation/peek and LE RX wrappers.
+The existing eight functions reuse common C; the three different SDK bodies
+are assertion lowering and queue CFG/loop differences. Pool/queue types and
+imported declaration boundaries match. No app changes exist in this source's
+post-recovery history. The private pool state starts zero, as in the SDK.
+
+BD19 allocation reloads its selected pool after a returning assertion/reset
+hook, matching SDK IR; the existing BR23 path is preserved. Peek masks IRQs
+even when empty and does not unlink. LE allocation zeroes exactly the requested
+16-bit size only on success; it bypasses the general DMA assertion path.
+Focused checks cover those distinctions, including a returning failure hook
+that replaces the pool. Both target builds and focused tests pass; the BR23
+pad image remains identical to baseline. All 39 ownership audits pass.
+No hardware validation.
+
+## BIS and remaining service boundaries
+
+ll_bis.c.o now supplies all 17 public functions. Existing bookkeeping/data
+path functions are shared; six previously omitted lifecycle/test/address
+helpers are restored. Review corrected the access-address helper's bit-23
+contribution and preserved the SDK close routine's surprising traversal of
+the BIG list with BIS casts. Tests cover both bit contributions and the
+original close side effects. RX test payload selection is one byte at the
+test-union offset, as in the IR. Original code sections are preserved.
+The all-product build and full 582-report host suite pass at this stage,
+and all three BR23 app images remain identical to baseline.
+
+The next H4 migration must group its source with hci_controller.c.o or split
+the translation unit: hci_transport.c supplies exports from both originals,
+and currently omits dormant SDK send APIs. Device-manager command sources
+also overlap lmp_hci_cmd_parser.c.o and contain app framing checks and a
+remote-version diagnostic no-op. Those members remain SDK-owned on BD19;
+matching original cross-chip IR alone does not establish equivalence to
+current app-modified C. ll_common_iso is partial, and the BIS/CIS slave and
+codec members need additional source recovery before whole-member acceptance.
+
+## Checkpoint: 42 accepted BD19 members
+
+The linked-list and standalone event-mask members add 13 public functions
+without changing BR23 production code. List duplicate/iterator/removal cases
+are covered by durable tests. The event-mask copy uses an alias-safe unaligned
+64-bit load before a two-byte-aligned 64-bit store, matching SDK IR even when
+the input overlaps hci_param. Focused tests cover overlap and byte boundaries.
+
+The manifest now accepts 42 members, supplying 354 unique public functions
+and 33 globals; 69 original SDK members remain. The retained symbol index has
+1750 entries, checked against exact original member occurrences. All 42
+member/group export and retention audits pass. Both target layout checks and
+16 tooling regressions pass. Every product builds; the complete host suite
+reports 584 successful test programs. At fixed BUILD_ID=2b5050f all three BR23
+app.bin files remain byte-identical to baseline. The BD19 image is 196840
+bytes; neither image size nor host checks establish radio/runtime correctness.
+No hardware validation was performed.
+
+## Extended scan ownership
+
+ll_ext_scan.c.o reuses the existing complete source (seven public functions,
+one callback-table global). The changed ble_ext_rx fields compile through
+named accesses against the BD19 header; no second parser/report implementation
+is needed. The handler initializer, .ble_ll_const section and alignment match
+the original IR. Used packet/report layouts pass target compiler assertions.
+
+BD19 now preserves the helper's original i8 return ABI through a symbol alias
+instead of the recovered bool/i1 definition. It also retains the pre-call RX
+status bit across radio header callbacks, as the original IR does. New cases
+mutate that status in both directions during a callback. BR23 production
+behavior is unchanged and the pad image remains identical to baseline.
+
+The existing host capture array had room for eight radio resolutions although
+the periodic-sync cases perform more; enlarging it and checking bounds removes
+a latent test-harness overflow. Focused tests pass with both chip headers and
+under AddressSanitizer (leak checking disabled for the existing allocation-based
+harness). Both target builds and all 43 member ownership audits pass.
+No hardware validation.
+
+## LE message pools, utilities and HCI wrappers: 46 accepted members
+
+ll_msg.c.o has thirteen public functions and no owned globals or special
+sections. New BD19 C covers both 512-byte queue pools, allocation, dispatch,
+and ISO adapters. It preserves returning assertion/reset hooks, fresh queue
+loads after those hooks and callbacks, one cached debug flag per drain, fresh
+state reads after logging, u16 message-ID truncation to u8, and the unchecked
+state dispatch except for special value 255. Allocation widens u16 before
+adding the four-byte prefix (65535 becomes 65539). ISO send reads rets even
+when logging is disabled, then logs/pushes/resumes in SDK order. Peer review,
+focused tests and AddressSanitizer checks pass. BR23 does not compile this file.
+
+btcontroller_util.c.o now supplies 44 public functions plus the public UUID
+base. Existing helpers are shared, with BD19-scoped additions for omitted
+endian/UUID/parser/CRC32 APIs and SDK diagnostic no-ops. Both string buffers,
+CRC8/CRC32 tables and UUID bytes/alignments match compiled SDK IR exactly.
+Parsing commits its temporary address only on success and permits the SDK's
+three separators. Review caught an inherited store16 recovery mismatch: the
+SDK increments the position as u16, while existing BR23 C uses promoted int.
+BD19 now wraps position 65535 to zero, with a boundary test; BR23 retains its
+existing behavior. New copies use the original memory intrinsics.
+
+hci_ll.c.o reuses the existing three functions and registration, adding the
+48 omitted wrappers, g_le_name and private state for BD19. All 51 functions
+use .ble_hci_code; registration retention and data sections/alignments match.
+Every initializer was compared programmatically, allowing only the generated
+name change for the identical one-byte configuration type. Review corrected
+advertising-data packing to byte offset 1, made event-mask copying alias-safe
+with align1 load/align4 store (including overlapping input), and restored the
+address-type reload after MAC callbacks. Packed six-byte connection reads
+compile to i48 loads without over-reading; odd-offset stores retain their
+SDK alignments. Tests cover raw expected words/bytes and callback mutation.
+SDK unsafe length copies, shared buffers and uninitialized short scan-response
+bytes remain SDK behavior; no new input validation was applied in this port.
+
+At this checkpoint 46 members supply 469 unique public functions and 37 globals;
+65 SDK members remain, with 1631 retained index entries verified against exact
+original members. All compiled export/retention audits, both target layout
+checks and 16 tooling regression tests pass. All products build and the full
+host suite reports 588 successful test programs. Focused AddressSanitizer
+checks pass for extended scan, message queues, utilities and HCI wrappers.
+At BUILD_ID=2b5050f all three BR23 app.bin images remain byte-identical to
+baseline. The BD19 image is 196868 bytes. No hardware validation was performed.
+
+## Classic power, link timing and extended advertising: 50 members
+
+BD19 bredr_low_power.c.o has a separate implementation because the register
+handshake, half-slot counter restoration and callback table differ from BR23.
+The table is six pointers (24 bytes), .classic_rf_const, align4; its complete
+initializer matches SDK IR. All public functions and five callbacks use
+.classic_rf_code. The model checks the exact volatile 32-bit read/write order,
+strict control/busy/ready poll conditions, saved phase before the fine-counter
+call, low/high clock reads before phase classification, wrapping addition,
+and division/remainder by 1250. It preserves returning assertion/reset paths,
+the final control-register read and the SDK wake-up character after timer IRQ
+processing. Release clears the handle after the callback. Peer review caught
+the initially omitted public hold-bit operations; corrected i8 RMWs and a
+0xa4 -> 0xa5 -> 0xa4 test verify sleep requests are blocked then allowed.
+
+link_task.c.o reuses all 31 functions with BD19 idle timing: idle_reset's
+strict threshold is four, its lead is four and callback period is four; idle
+resume uses left-4 or period-10 with period four. BR23 retains its eight-slot
+lead and period-14 path. The strict left>12 gate and left+32 run budget stay
+shared. A BD19 alias preserves the SDK idle-detection i8 return rather than
+the recovered bool/i1 definition; BR23 keeps its existing ABI. The callback
+pair in idle_task_ops, its alignment and private initializers match SDK data
+(the compiled callback-pair type is structurally identical to the SDK named
+type). Added boundary cases exhausted the old eight-entry fake timer capture;
+the harness now has checked capacity for its monotonically issued IDs.
+
+ll_ext_adv.c.o now supplies all 16 functions and its handler global. The two
+omitted exports are the always-zero periodic-enabled stub and ACAD message
+registration at dispatch slot 8, whose handler only logs the three SDK cases.
+BD19 caches primary HW across the first two radio callbacks and reloads it
+before start. Both original SDKs cache it, but current BR23 C reloads; that
+existing BR23 path is preserved. Mutation tests check both paths. BD19 uses
+the SDK memory intrinsics. Handler initializer/section/alignment match, and
+channel/CRC constants have identical bytes and alignment; their private vs
+internal LLVM linkage is module-local in both representations.
+
+tws_le_acc.c.o is accepted with no C changes. The three functions preserve
+32-bit LFSR arithmetic, all scoring masks/transition windows, the unusual
+unnormalized byte comparisons, four separate address loads and mandatory
+first generator step. Existing vector tests pass with both chip headers.
+No globals or special sections are introduced.
+
+All 50 member export/retention audits pass, supplying 525 unique public
+functions and 39 globals. The retained archive has 61 original members and
+1573 verified symbol-index entries. Both target layouts and all 16 tool tests
+pass. All products build, and the full host suite has 592 successful reports.
+Focused AddressSanitizer checks pass for Classic low power, link tasks and
+extended advertising (leak checks disabled for the existing advertising
+allocation harness). With BUILD_ID=2b5050f the three BR23 app.bin images remain
+byte-identical to baseline; BD19 is 196900 bytes. No hardware validation.
+
+Future FCC acceptance needs a separate parameter-table review: BD19's
+packet_table has six entries, whereas existing BR23 C has nine. It remains
+SDK-owned on BD19.
+
+## Linked-code priority: link layer, buffer pools and slot timer
+
+A name-based inspection of the Nova 2 linked image was used to prioritize this
+batch. Ambiguous names shared by multiple original members (cpu_reset,
+list_empty, and similar helpers) were excluded. This identifies remaining
+linked code, not exact byte ownership or runtime execution. Large LMP, radio,
+analog and baseband members remain; small-member counts alone overstate
+progress. The original cross-chip census still supports reuse of matching
+logic, with layout/callee/app boundaries reviewed separately.
+
+link_layer.c.o reuses the existing 69 functions and five globals. BD19 omits
+the BR23 application-only ll_version_exchange_pending helper, keeping the
+SDK ll_current_no_step response policy. Init/destroy power-off callbacks
+present in original BR23 IR are absent in original BD19 IR and are selected
+accordingly. The btctrlermod_air_rx anchor timestamp hook stays BR23-only;
+BD19 anchor scheduling needs a separate deliberate app integration. BD19
+memory operations use the original compiler intrinsics. All five public
+initializers, sections and alignments match SDK IR exactly.
+
+link_bulk.c.o reuses pool/queue logic and restores eight omitted APIs. BD19
+RX headers are 24 bytes, TX headers 28; named offsets now distinguish them
+through allocation, reserve prefixes, zeroing and free/accounting paths.
+Common linkage/null initialization of all six public pool globals matches
+SDK IR. Private link records have BD19's explicit align4, while BR23 retains
+its unannotated declaration (its target compiler naturally chooses align4).
+Heap receive pools, remaining-pool allocation, references, suspend waiting
+and diagnostic failures retain the SDK paths. Used-size truncation, signed
+share comparisons and wrapping BD19 size arithmetic were reviewed. BR23
+keeps its prior invalid-ID guards and signed remaining-size expression.
+A BD19-only builtin memset selection resolves the final peer-review finding.
+
+bredr_slot_timer.c.o needs a separate BD19 hardware implementation: sixteen
+half-slot timers, separate pending/enable/clear registers and per-timer fine
+compares replace BR23's eight-timer combined control register. The sixteen
+public functions, no public globals, sections and IRQ interrupt attribute
+match original IR. Register ordering, direct untagged callbacks, exact
+130-byte state clear, nested get/put IRQ handling, unconditional rets reads,
+signed division/remainder, single slot wrap and u16 fine storage are checked
+by the target compiler and a host register model. The SDK remain(16) and
+65535-wrap quirks are preserved. Independent review found no blockers.
+
+Validation: all products build; the complete host suite has 595 successful
+reports. Both target layout checks, sixteen tool regressions, and all 53
+export/retention audits pass. Focused AddressSanitizer checks pass for the
+new timer, link layer and buffer management (leak checking disabled for the
+existing allocation-based harnesses). At BUILD_ID=2b5050f the three BR23
+app.bin images remain byte-identical to baseline. BD19 app.bin is 196560
+bytes. The manifest supplies 648 unique public functions and 50 globals,
+leaving 58 SDK members with 1439 verified symbol-index entries. No hardware
+validation was performed.
+
+## BD19 host ACL and LMP transmit: 54 accepted members
+
+`lmp_rxtx.c.o` occurrence 1 (`81c88e4e...37c9922`) is supplied by
+`lmp_acl_tx.c` and `lmp_control_tx.c`. The compiled pair defines exactly the
+member's ten public functions and no public globals. Both sources remain clean
+two-chip files: BR23 keeps its existing application null/error guards and
+sign-extended capacity comparison, while the BD19 branch reproduces the SDK.
+
+BD19's receive bulk has `payload_head` at 20 and `data` at 24; both chips place
+the transmit `payload_head` at 24 and `data` at 28. The private receive
+operations retain their IRQ-disabled 16-bit bitfield read/modify/write order.
+The private transmit capacity check zero-extends the 16-bit length. BD19's
+standard ACL path has no allocation-null guard and uses the SDK memory
+intrinsic. LMP request/response allocate before `va_start`, preserve the
+module gate and response/role flag ordering, and leave argument validity to
+the SDK. These are faithful SDK choices, not application-fix ports.
+
+Focused host checks add the 40000-byte private transmit boundary that
+distinguishes zero- from sign-extension. Allocation-failure checks remain on
+BR23, where the application safely returns; the BD19 failure path is reviewed
+from IR instead of executed because the SDK continues into the failed
+allocation. Both target compilers build both sources.
+
+Both target layout checks, all 16 tooling regressions, all four product builds,
+and all 54 member/group ownership audits pass. The complete host suite exits
+successfully with 596 `: ok` program reports plus the legacy `tests passed`
+reports. The BD19 app image is 196560 bytes. The retained archive has 57
+original members and 1429 verified symbol-index entries. The manifest supplies
+658 unique public functions and 50 globals.
+
+The initial forced rebuilds of `2b5050f` and `a1021a5` produced matching
+BR23 images that differed from the frozen artifacts (`d98408e7...`,
+`1a87f4b0...`, `b1572c92...`). A subsequent ordinary fixed-ID build during
+parent review reproduced all three original frozen images exactly
+(`12a01fd2...`, `aaf7656d...`, `6aabf009...`). Both changed BR23 modules also
+have identical canonical production IR and globals to the fresh a1021a5
+reference for all three boards. The earlier forced-rebuild discrepancy's
+cause is not isolated; the frozen artifacts were retained unchanged. No
+hardware validation was performed.
+
+Parent review corrected BD19 varargs cleanup order: allocation precedes
+va_start, formatting precedes va_end, and transaction-bit updates and queue
+handoff occur after va_end, as in the SDK. Compiled q32s IR verifies that
+sequence through the private allocation/handoff helpers. The four Jieli
+builds, focused tests with both headers, full host suite and all 54 ownership
+and retention audits pass after the correction. The change stays within the
+BD19 branch; the BR23 production paths remain unchanged.
+
+## BD19 Classic HCI ownership: 55 accepted members
+
+`lmp_hci.c.o` occurrence 1 (`e677dc6d...c52d9f3`) is supplied by
+`lmp_hci_control.c`, `lmp_hci_pairing.c`, `lmp_hci_procedures.c` and
+`lmp_hci_settings.c`. The combined object defines exactly its 60 public
+functions and `gbredr_local_dev`, with no extra external symbols. Every public
+function is in `.classic_lmp_code`; the global is in `.classic_lmp_data`,
+align 4, with byte-for-byte identical initializer data to the SDK.
+
+Existing reviewed C supplies the matching bodies. BD19 selects its SDK
+behaviors rather than the BR23 application fixes:
+
+- The private-version CRC writes both bytes of the 16-bit CRC. BR23 retains
+  its existing low-byte behavior.
+- Local names use the SDK `strlen`-then-assert copy, and supported-feature
+  indexes are unchecked. BR23 retains its bounded name and feature handling.
+- PIN replies read four unaligned 32-bit words even for short PINs. User
+  passkey replies preserve the SDK's unusual variadic counts.
+- Switch Role sets `core.role_switch` directly. The BR23 queued
+  controller-task dispatch remains unchanged.
+- Remote-version and encryption-refresh requests call their LMP senders with
+  the SDK's unchecked connection pointer.
+
+The BD_ADDR and AFH final-word reads, local-device defaults and all remaining
+control/setting ABIs match the IR. Focused tests exercise the CRC byte,
+unaligned key/PIN reads, keypress call shapes, role flag, null-sender calls
+and bounded BR23 paths with both headers.
+
+## BD19 controller task ownership: 56 accepted members
+
+`btctrler_task.c.o` occurrence 1 (`52f6d471...97a4247`) is supplied by
+`task_dispatch.c`, `task_lifecycle.c` and `task_queue.c`. The combined object
+defines exactly its 17 public functions and `bt_task_thread`, `h4_config`
+and `h4_transport`; all initializers, sections and alignments match. Public
+functions use `.hci_controller_code`; the callback table uses
+`.hci_controller_data`; transport/config pointers use `.hci_controller_bss`.
+
+The SDK marks the task entry, task callbacks, queue-full counter and testbox
+callback state internal. Because the owned member is split across source
+files, BD19 keeps the production task entry with `task_create` in
+`task_lifecycle.c` so it remains internal without exporting an extra symbol.
+BR23 retains its pre-existing source split and linkage.
+
+BD19 also retains the SDK's failure quirks: task-ready ignores the semaphore
+creation result, task-exit ignores creation and post results, always waits,
+frees and kills the task, and message builders continue after the SDK count
+assertions. `bredr_link_event` has no four-word bound, negative counts are
+passed through, and target-specific `cpu_irq_disabled` remains a declaration
+boundary. BR23 keeps its safe count validation and failure returns.
+
+Focused tests cover queue-full retry/hook ordering, IRQ and masked-IRQ stops,
+self-thread link-event policy, callback tables, suspend/resume draining,
+SDK-only count continuation, ignored lifecycle results and both target
+headers. All target compilers and the full BR23 controller test target pass.
+
+At this checkpoint 56 members supply 735 unique public functions and 54
+globals. The retained archive has 55 original members and 1348 verified
+symbol-index entries. All four products build, all 56 export/retention audits,
+both target layouts and all 16 tooling regressions pass. The complete host
+suite exits successfully with 600 `: ok` reports and 36 legacy `tests passed`
+reports. BD19 `app.bin` is 196600 bytes.
+
+The frozen BR23 artifact comparison remains unreproduced in this environment:
+both forced clean and repeated ordinary fixed-ID builds of the clean baseline
+commits produce `d98408e7...`, `1a87f4b0...` and `b1572c92...`, while the
+stored files remain `12a01fd2...`, `aaf7656d...` and `6aabf009...`.
+No hardware validation was performed.
+
+## BD19 LE low-power and multilink scheduling: 58 accepted members
+
+`le_low_power.c.o` (`c8b3ba26...`) supplies 11 public functions and
+`ble_power_ops`. BD19 now has the six-field operation table, a no-op
+`ble_power_on`, the private resume fine-count state, and the missing
+`ble_enter_deepsleep`/`ble_exit_deepsleep` register save/restore paths.
+All functions use `.ble_rf_code`; the operation table retains
+`.ble_rf_const`, align 4. BR23 keeps its nine-field table and powered callback.
+Tests cover the saved 92-byte SFR prefix, anchor capture/restore ordering,
+deep-sleep fine-count restoration, and the six-field table.
+
+`multilink_schedule.c.o` (`948409c2...`) reuses the existing scheduler
+implementation: 19 public functions and `ble_slave_multlp_target`. The only
+target change is BD19's three-field `lp_target` initializer with a null level
+handler and the same idle callback; BR23 keeps its two-field initializer.
+Existing tests cover signed/unsigned slot wrap, repeated hardware reads,
+anchor/fine ordering, callback mutation, timer arithmetic and the SDK's
+sentinel overread.
+
+The combined manifest now accepts 58 members, supplies 765 unique public
+functions and 56 globals, and leaves 53 retained members with 1316 verified
+index entries. All four products build, both layouts and all 16 tool tests
+pass, all 58 ownership audits pass, and the host suite exits successfully
+with 602 `: ok` reports plus 36 legacy `tests passed` reports. BD19 `app.bin`
+is 196620 bytes. No hardware validation was performed.
+
+## BD19 device manager and cooperative threads: 60 accepted members
+
+`device_manager.c.o` (`b19e444b...`) supplies 14 handlers and `hci_param`.
+BR23's equivalent four command handlers remain owned by `hci_misc.c`; the
+device-manager copies are compiled only for BD19, avoiding duplicate symbols.
+The BD19 handlers preserve LINK_CONTROL disconnect/remote-version dispatch,
+empty link-policy/status handlers, and testing-command acknowledgement rules.
+All public functions are in `.hci_controller_code`.
+
+`thread.c.o` (`66446ead...`) supplies 11 functions. Added the five dormant
+message API stubs, retained controller-code sections, and preserved BR23's
+minimum-timeout scheduler fix. BD19 keeps the SDK's undefined empty-list
+timeout accumulator and leaves timed scheduling checks to non-empty cases.
+
+The manifest supplies 790 unique public functions and 57 globals, with 51
+retained members and 1290 verified index entries. All products, 60 ownership
+audits, layouts and 16 tool tests pass. The host suite exits successfully with
+604 `: ok` reports and 36 legacy `tests passed` reports. BD19 `app.bin` is
+196676 bytes. No hardware validation was performed.
+## Follow-up review of HCI and controller task ownership
+
+Reviewed the two accepted members at `3d1281f` against their original BD19
+IR in an isolated worktree. Corrected these BD19 details:
+
+- Role-switch support accepts an `i8 zeroext` byte through an assembly-name
+  alias; the shared SDK header's C `bool` would narrow the public definition.
+- The HCI task argument-count assertion uses an unsigned comparison, including
+  negative counts; it still continues if the assertion hook returns.
+- Ready/exit reload the escaped semaphore message word after queue and pend
+  callbacks. Exit snapshots module selection before allocation and callbacks.
+- Connection-message construction ends its local variadic-list copy before
+  posting, preserving the SDK's cleanup order.
+- The private-version and local-name setters retain their conditional SDK
+  logs. Under-aligned CRC and key/PIN accesses use alias-safe types.
+
+Focused host cases cover nonzero role-switch bytes through 255, negative
+message counts, callback mutation of the semaphore word at both boundaries,
+module-selection mutation and both restored logging paths. Emitted BD19 IR
+confirms the byte ABI, unsigned guard, module snapshot and pointer reloads.
+The local-device initializer and types, transport/config zero initializers,
+and callback table initializer, sections and alignments match the SDK.
+
+All four Jieli products build at `BUILD_ID=2b5050f`; all 56 ownership audits,
+both layouts and 16 controller tooling regressions pass. The complete host
+suite passes with 600 `: ok` and 36 legacy `tests passed` reports. All edited
+BR23 production modules have identical canonical functions and globals to
+the review baseline. In this review run, all three BR23 `app.bin` files also
+match the original frozen baselines byte for byte. This successful run does
+not establish the cause of the earlier artifact discrepancy.
+
+BD19 `app.bin` is 196604 bytes (previous accepted checkpoint: 196600), SHA-256
+`db72507d8c22cae31c946524f7485aaadda279120dc95738b832c09427069d92`.
+Ownership counts remain 56 members, 735 functions and 54 globals, with 55
+retained SDK members and 1348 verified index entries. No hardware testing.
+Validation logs are `/work/analysis/btctrler-bd19/review56-{builds,checks,tests}.log`.
+
+
+## Follow-up review of LE low-power and multilink ownership
+
+Reviewed the two accepted members at `c58c76e` against their occurrence-1
+BD19 IR and the existing BR23 implementation. Multilink requires no further
+source changes: its three-field retained low-power target, manager and lead-ID
+initializers, sections and alignments match. Reviewed shared scheduler
+arithmetic, callback reloads, hardware reads and the changed BLE field layouts.
+The recovered atomic type has a different C name but the same checked shape.
+
+Corrected four BD19 low-power behaviors:
+
+- Deep-sleep exit restores the fourteen ordinary anchors first, then writes
+  the coupled anchor 2/9 pair once per hardware instance. The earlier port
+  wrote the pair twice inside the loop. Preserve the ordinary hardware-ID
+  mask and the pair helper's byte-width hardware ID.
+- Suspend probe sets bit 1 of `0x1cfc70` before updating deep-sleep control.
+- Resume sleep/event bookkeeping uses `bt_get_fine_cnt(usec)` plus the saved
+  power-off fine count, including unsigned wrap, rather than the input usec.
+- Resume calls `bt_run_clk_sel(1)` after the final control write when
+  `lp_bt_sniff_use_btosc` is enabled.
+
+Host tests now trace every anchor data/control access and synchronization
+point for two hardware instances, with distinct stored anchor values. They
+also check compensation, wrap, event-count advancement with an input time
+that differs from the compensated count, the wake bit and conditional clock
+selection. Original and emitted BD19 IR were compared for both operation
+tables, private-state initializers, relevant type shapes and register order.
+
+This review branch also includes the preceding HCI/task review corrections
+(original commit `8888353`, reapplied as `784c4de`), which had not yet reached
+the integration branch. Combined validation builds all four Jieli products
+with `BUILD_ID=2b5050f`. All 58 accepted members pass the 57 ownership-group
+audits; both layouts and all 16 tooling tests pass. The complete host suite
+passes with 602 `: ok` and 36 legacy `tests passed` reports. The two reviewed
+BR23 modules retain identical canonical production functions and globals;
+all three BR23 firmware images match the original frozen baselines exactly.
+
+Combined BD19 `app.bin` is 196620 bytes, SHA-256
+`cb51629f6cd71490c67805879527a351797e6e5306cdd1eb76efe3bfea126df5`.
+The manifest remains at 58 members, 765 public functions and 56 globals,
+with 53 retained SDK members and 1316 verified symbol-index entries.
+Logs: `/work/analysis/btctrler-bd19/review58-builds.log` and
+`/work/analysis/btctrler-bd19/review58-final-checks.log`. No hardware testing.
+
+
+## Follow-up review of device manager and cooperative thread ownership
+
+Reviewed both occurrence-1 members at `cd41996` against the original BD19 IR,
+BR23 IR/history and emitted target code. The original `hci_param` initializer
+matches exactly, including its section and alignment.
+
+Corrected the BD19 device-manager behavior that still inherited BR23 changes:
+
+- Baseband and information handlers ignore input lengths; extended-feature
+  pages use the SDK pointer calculation and success status without rejection.
+  BR23 retains its length/null checks and bounded page handling.
+- The event-mask copy uses the original unaligned 64-bit load and aligned-2
+  store, with alias-safe types. Reset snapshots module configuration before
+  the Classic reset callback.
+- Read Remote Version starts with status zero, uses only the ACL connection
+  lookup, and returns the low byte of its sender result. Disconnect starts
+  with status two, falls back to eSCO, and maps nonzero low-byte results to two.
+- Restored conditional SDK diagnostic paths, including manufacturer/version
+  reporting, address formatting, event-mask dumps and test-command logs.
+  Page input is reloaded after the logging callback, as in the IR.
+
+Thread definitions now use the original default text sections rather than
+`.hci_controller_code`. The five empty message functions remain public. The
+SDK's signed, undefined timeout accumulator affects nonempty timed lists as
+well as empty lists; it is not a valid minimum calculation. BD19 host tests
+exercise runnable scheduling, mutation/deletion, IRQ behavior and the message
+stubs, and avoid executing that undefined timeout path. BR23's defined minimum
+and empty-list behavior remain unchanged and tested. No BD19 timeout fix was
+introduced; that would be a separate application change.
+
+Focused device tests cover ignored lengths with valid storage, all byte page
+values without dereferencing invalid pages, module snapshots, LE/ACL/eSCO
+routing combinations, full-width sender-result truncation, consumed testing
+commands and logging callback mutation. Both target compilers build the
+sources. All four firmware products build at `BUILD_ID=2b5050f`. The full host
+suite passes with 604 `: ok` and 36 legacy `tests passed` reports. All 60 members
+pass the 59 ownership-group audits; both layouts and all 16 tooling tests pass.
+Reviewed BR23 production functions/globals are canonically unchanged, and
+all three BR23 `app.bin` files match the original frozen baselines byte for byte.
+
+This isolated branch carries the prior HCI/task and LE low-power review fixes
+as `0fc29e3` and `0b5449a`, respectively, in addition to this review. The
+integration branch had not yet incorporated those changes. Combined BD19
+`app.bin` is 196664 bytes, SHA-256
+`fd80defde8aeccb48187b2ef916072844f11bf00b327cb52361685f9ef4c6654`.
+Manifest totals remain 60 members, 790 public functions and 57 globals,
+with 51 retained SDK members and 1290 verified symbol-index entries.
+Logs: `/work/analysis/btctrler-bd19/review60-builds.log` and
+`/work/analysis/btctrler-bd19/review60-final-checks.log`. No hardware testing.
+
+## FCC/DUT target recovery decision
+
+The next FCC/DUT assignments require BD19 hardware recovery, not merely
+compiling the BR23 bodies against a different header. Original authority:
+`build/controller-ir/bd19/01--bredr_fcc.c.o.ll` and
+`build/controller-ir/bd19/01--bredr_dut.c.o.ll`. The reported missing BR23
+interfaces are not permission blockers; use the following checked BD19
+boundaries and recover their surrounding control flow from that IR.
+
+- `radio_set_eninv` is not called by either BD19 member. Do not add a fake
+  declaration or no-op shim. FCC analog setup instead has its own volatile
+  register sequence, including low-byte clears at `0x1c001c`/`0x1c0108`, frame
+  disable and power setup. Recover the complete sequence and its ordering.
+- `bredr_freq_table_init(u8 *, u8)` is the correct existing BD19 declaration.
+  FCC passes the address of `frame->freq_table[0][0]` (frame offset 252),
+  followed by mode 0/1. Preserve this ABI and deliberate qualifier conversion;
+  do not change the shared declaration to the BR23 one-argument signature.
+- BD19 has no `ctrl_frame.rxfreq`/`txfreq`. Both members program fixed
+  frequencies through volatile 32-bit MMIO at `0x1c011c`: clear, OR one
+  encoded frequency, then separately read/OR the other encoding shifted left
+  seven. Recover the field order separately for each member; FCC uses
+  `tx_fre` in the low bits and `rx_fre` shifted seven. Preserve surrounding
+  format-bit changes and reads.
+  Do not invent frame fields or reuse BR23 register addresses/masks.
+- The BD19 DUT member has no `rf` import or `production_test` branch. Recover
+  its loopback copy/checker dispatch from `dut_rx_handler`'s inlined helper;
+  do not add a field, hardcode a fictitious flag, or retain the BR23 branch.
+- Encryption and packet-type paths call the already-declared
+  `link_conn_set_encrypt(lc, rx, tx)` and `link_conn_set_ptt(lc, ptt)`.
+  Recover these BD19 calls at their actual call sites instead of importing
+  `lc_write_encry` or `lc_write_ptt` into the BD19 boundary.
+- The receive clock-adjustment path calls `rxoffset_cal(frame, 1)` under its
+  BD19 conditions. Recover that branch from IR rather than declaring
+  `__rx_adjust_clkoffset` or treating it as a mechanical name alias.
+
+Implementation decision: preserve BR23 behavior and use target-specific C
+for the hardware-different bodies. The worker may add
+`src/platform/jieli/btctrler/bd19/bredr_fcc.c` and
+`src/platform/jieli/btctrler/bd19/bredr_dut.c` if that makes the boundary clearer;
+reuse verified pure helpers/tables where useful. Proposed BD19 manifest
+entries can select those target sources after whole-member review. No
+coordinator header additions are currently required by the listed blockers.
+This does not pre-accept either member; the worker must still recover every
+export/global, audit all dependencies, compile with the BD19 target compiler,
+and provide meaningful tests based on IR. Report genuinely new missing
+interfaces with the exact BD19 declaration/call evidence. No hardware testing.
+
+## BD19 FCC and DUT initial acceptance (withdrawn by follow-up review)
+
+`bredr_dut.c.o` (`7a56461f...`) and `bredr_fcc.c.o` (`d8beb506...`) now use
+separate BD19 sources under `bd19/`, preserving their two PRBS9 globals and
+complete six-function and two-function public boundaries. BD19 uses the
+existing two-argument frequency-table initializer, volatile frequency control
+at `0x1c011c`, raw FCC low-byte/frame register sequencing, and the approved
+`link_conn_set_encrypt`, `link_conn_set_ptt`, and `rxoffset_cal` call paths.
+The obsolete BR23 `production_test` branch and frame frequency fields are not
+used. The recovered `dut_frame_get_empty_txbuf_index` samples transmit state
+under IRQ masking and selects two slots.
+
+The manifest accepts 62 members, supplying 798 unique public functions and 59
+globals, leaving 49 retained members with 1280 verified index entries. All
+four products, layouts, 16 tool tests, 62 ownership audits and the host suite
+pass; the suite reports 606 `: ok` plus 36 legacy `tests passed` reports.
+BD19 `app.bin` is 196664 bytes. No hardware validation was performed.
+
+
+## FCC/DUT semantic review: acceptance withdrawn
+
+Review baseline: `0974935`, source recovery `2384602` (worker reported
+`ae778ab`). The two members fail comparison with their original BD19 IR.
+Removed ONLY `bredr_fcc.c.o` occurrence 1 and `bredr_dut.c.o` occurrence 1
+from `bd19.json`, restoring both original SDK archive members. The draft
+`bd19/bredr_fcc.c` and `bd19/bredr_dut.c` remain in the repository for rework;
+they are not accepted BD19 production implementations. Prior successful
+build/export checks and the preceding acceptance report do not establish
+semantic equivalence.
+
+Blocking findings, with line numbers in the rejected sources:
+
+1. FCC analog setup, lines 104-157, retains BR23 control registers, masks and
+   sequencing. SDK IR `set_fcc_default_info` reads/writes volatile **i32** at
+   `0x1c001c` and `0x1c0108`, preserving their upper 24 bits. Draft lines
+   112-113 instead issue **i8** zero stores. The SDK then disables the frame,
+   sets power before carrier/frequency setup, and updates `frame->optcntl`.
+   The draft retains `BB_REG_C`/`BB_REG_A` operations from BR23 and omits
+   `bredr_bd_frame_disable`, `wind_align_set` and `windset` calls entirely.
+2. FCC's SDK packet table has SIX bytes (`04 0b 0f 24 2a 2e`), not the nine
+   bytes in draft line 49. Its `miscntl` accesses are i16; the draft narrows
+   through `u8` at line 104 and destroys upper bits. Original init also uses
+   `bredr_frame_set_irq_handler` and `link_conn_set_rx_bulk_in_irq`; neither
+   call exists in the compiled draft. Recover the whole public init path.
+3. DUT analog setup, lines 197-254, uses BR23 `0x1c00d0` bit 0 and
+   `0x1c0000` bits 19/16. SDK `dut_cfg_analog` instead starts with a volatile
+   i32 read/clear-bit-3/write at `0x1c0100`, uses that register's bits 3/2
+   for carrier mode, and changes `frame->optcntl` bit 0 for scenarios.
+   Fixed-frequency selection uses `frame->format` bit 7, not the draft's
+   BR23 register bit 16. The SDK performs i16 `miscntl` accesses; draft line
+   246 narrows to u8. Recover all scenario branches and teardown ordering.
+4. DUT receive dispatch, line 538 onward, is a BR23 slot loop. The SDK calls
+   `bredr_frame_get_rx_payload_head(frame, heads)` once, iterates its two
+   decoded records until index 0xff, and uses the returned metadata.
+   The draft omits that API and directly samples frame registers, calls
+   `__write_reg_rxint`, and carries the BR23 rx_full loop. Original
+   `soft_agc`, `bredr_link_set_afh` and frame IRQ-handler transitions are
+   also absent from the compiled draft. This requires actual BD19 receive
+   recovery, not a compatibility shim.
+5. The SDK transmit path calls `dut_frame_get_empty_txbuf_index`; the draft
+   defines that export but never uses it in `dut_tx_handler` (line 473).
+   The helper itself combines two volatile RMWs into one and samples frame
+   status AFTER its retry loop. SDK samples txtog/txbuf/link control fields
+   INSIDE each attempt, before testing the latch. Both the helper's sequence
+   and the internal caller must be recovered from BD19 IR.
+6. The comprehensive BR23 fixtures are disabled by `#if 0`. Active BD19
+   tests check four channel encodings (FCC) and packet/table samples (DUT).
+   They exercise none of the differing hardware, receive or transmit paths.
+   Passing those tests cannot validate either whole-member replacement.
+
+The two PRBS9 global initializers, sections and alignments DO match the
+original SDK byte for byte; the compiled public symbol boundaries also match.
+These are reusable pieces, not justification for accepting the hardware code.
+Decoded rejected objects and imported-call differences are preserved under
+`/work/analysis/btctrler-bd19/review62/`. Missing direct SDK calls were checked
+against raw IR; a call-list comparison alone was not used as equivalence proof.
+
+Rework boundary: recover FCC first as its own checkpoint; validate complete
+register/callback traces from raw BD19 IR, all six packet table entries and
+16-bit field preservation. DUT can then reuse the verified tables and pure
+helpers, but must recover its own analog, decoded receive and synchronized
+transmit paths. Use meaningful BD19 fixtures; preserve the original BR23
+sources. Do not re-add manifest entries until semantic review passes.
+
+Fallback validation: all four Jieli products build at `BUILD_ID=2b5050f`.
+Both layouts, all 16 tooling regressions, all 60 accepted members (59 audit
+groups) and the full host suite pass (604 `: ok`, 36 legacy reports). The
+retained archive now includes both rejected members again. Totals return to
+60 members, 790 public functions, 57 globals, 51 retained members and 1290
+verified index entries. All three BR23 frozen images match byte for byte.
+BD19 `app.bin` is 196664 bytes and matches the previously reviewed 60-member
+image, SHA-256 `fd80defde8aeccb48187b2ef916072844f11bf00b327cb52361685f9ef4c6654`.
+Logs are `/work/analysis/btctrler-bd19/review62-sdk-fallback-{builds,checks}.log`.
+No hardware testing.
+
+
+## FCC recovery completed after withdrawal: 61 accepted members
+
+Completed the worker's uncommitted FCC-only rework from
+`/work/cyclone2-fw-bd19-fcc-dut` in a separate worktree, based on `97744d8`.
+Re-reviewed both public functions and all private data against original BD19
+`bredr_fcc.c.o` occurrence 1, SHA-256
+`d8beb5063d8182f868aa4eff54ae42c9d163f5015239a5e154afee129754d1e8`.
+The accepted source is `src/platform/jieli/btctrler/bd19/bredr_fcc.c`.
+DUT remains withdrawn and supplied by its original SDK archive member.
+
+The recovery preserves the six-byte packet table, two address/BCH constants,
+all `.classic_rf_code`/`.classic_rf_const` sections and alignments, and exactly
+two external function definitions with no public globals. Programmatic
+initializer comparisons match all three private constants exactly.
+
+Final review corrections beyond the worker's handoff:
+
+- `miscntl` bit 3 depends on packet-table indices 3..5, not packet group >=3.
+  All valid EDR entries have group 2. The i16 upper bits remain preserved.
+- The final timing-register RMW is at `0x1c0008`, not `0x1c0048`.
+- FCC fixed-frequency control uses `tx_fre` in the low bits and `rx_fre`
+  shifted left seven. Both are read after window callbacks and separately
+  ORed through volatile i32 MMIO. Unequal callback-updated fields are tested.
+- Link setup reloads `bredr_link_v.fcc_lc` after TX allocation, before each
+  RX-slot callback and before IRQ-handler registration. Allocation results
+  remain unchecked where the SDK ignores them.
+- Removed inherited BR23 logs: this SDK member has no log-tag dependency.
+  Assertion file provenance and line numbers now match the BD19 object.
+  Assertion/reset hooks retain fall-through rather than adding app guards.
+- The fill uses the SDK's memory intrinsic. The compiled configuration has
+  the original MMIO types, addresses, alignment and ordering across branches.
+
+Replaced the obsolete BR23 fixture with actual BD19 tests. Literal traces
+check every MMIO read/write and callback order for modulated/continuous data,
+hopping/fixed channels and init mode 16. Tests cover both transmit/receive
+format branches, all six packet indices, all 256 byte-valued channels,
+upper-bit preservation, signed power arguments, callback-updated fields,
+allocation/IRQ global-pointer mutation, ignored return values and assertion
+fall-through. Frame-allocation fault tests stop in the hook before the SDK's
+invalid dereference. AddressSanitizer and UndefinedBehaviorSanitizer pass
+with recovery disabled; test payload checks address the backing allocation
+rather than indexing the SDK's GNU zero-length array.
+
+The compiled `bredr_fcc_set_param` canonical IR matches the SDK after ignoring
+the build's `nobuiltin` call attribute. Remaining configuration IR differences
+are pure calculation ordering and widened channel arithmetic (exhaustively
+checked for the byte domain); init has equivalent assertion block ordering
+and loop rotation. All state loads around external callbacks, volatile
+accesses and public/imported ABIs were reviewed explicitly.
+
+Validation at `BUILD_ID=2b5050f`: all four Jieli products build; both layouts,
+16 tooling regressions and all 61 accepted members (60 ownership groups)
+pass. The full host suite passes with 605 `: ok` and 36 legacy reports.
+The manifest supplies 792 public functions and 57 globals; the retained
+archive contains 50 original members and 1288 verified symbol-index entries.
+All three BR23 frozen firmware baselines match byte for byte. BD19 remains
+196664 bytes, SHA-256
+`fd80defde8aeccb48187b2ef916072844f11bf00b327cb52361685f9ef4c6654`.
+Artifacts/logs: `/work/analysis/btctrler-bd19/fcc-finish/` and
+`/work/analysis/btctrler-bd19/fcc-finish-{builds,checks}.log`.
+No flashing or hardware testing.
+## BD19 `ll_cis.c.o` occurrence 1
+
+At base `1854656`, reused `src/platform/jieli/btctrler/ll_cis.c`, the existing
+BR23 implementation. Added the missing public CIG/CIS lifecycle, channel/test
+mode, counter, and init/close routines from BD19 IR. Internal reset, message,
+and established-event helpers remain local to the source. No globals move.
+Proposed coordinator manifest entry:
+
+```json
+{
+  "member": "ll_cis.c.o",
+  "occurrence": 1,
+  "sha256": "ea9b6e2b1d646522d717ea50d07e6509c1d6757b93eedb721738bc54d7e39e75",
+  "sources": ["src/platform/jieli/btctrler/ll_cis.c"]
+}
+```
+
+The source supplies all 28 BD19 external functions and no globals, matching
+the member inventory. The added routines use the existing shared CIG/CIS
+layouts; no BD19-only layout or hardware access was needed. Existing BR23
+bookkeeping and duration code was left unchanged. Preserved SDK quirks include
+the empty-group early return in `ll_cig_free`, the shared-list CIS-ID lookup,
+handle exhaustion returning 102 after asserting, and unchecked lookup in
+interleaved duration calculation. Channel setup remains the SDK's empty
+function. The established-event helper follows the BD19 IR field order and
+format string.
+
+Validation:
+
+- `PATH=/work/bin:$PATH make build/gamesir-cyclone-2-pad/src/platform/jieli/btctrler/ll_cis.o` — passed.
+- `PATH=/work/bin:$PATH make build/gamesir-nova-2-lite-dongle/src/platform/jieli/btctrler/ll_cis.o` — passed with Q32S.
+- `PATH=/work/bin:$PATH make build/host/test-gamesir-cyclone-2-pad/platform/jieli/btctrler/ll_cis && build/host/test-gamesir-cyclone-2-pad/platform/jieli/btctrler/ll_cis` — `btctrler_ll_cis: ok`; expected values follow BD19 IR for the recovered list/test-mode routines.
+- `PATH=/work/bin:$PATH python3 tools/controller.py audit --manifest /tmp/bd19-ll-cis-manifest.json --board gamesir-nova-2-lite-dongle` — all external definitions match. The temporary manifest contained only the proposed entry above and was not committed.
+- `PATH=/work/bin:$PATH make controller-compare` inspected 108 BR23 and 111 BD19 members, then stopped before the reuse census because the BTstack submodule is absent (`bluetooth_gatt.h` missing). Full firmware comparison/build was not established. No hardware testing.
+
+
+## ll_cis review and acceptance: 62 accepted members
+
+Reviewed worker commit `71ac297` against original BD19 `ll_cis.c.o`
+occurrence 1 (`ea9b6e2b1d646522d717ea50d07e6509c1d6757b93eedb721738bc54d7e39e75`),
+the BR23 member, the reuse census and emitted Q32S IR. Most SDK bodies are
+shared; cross-chip differences are helper inlining/loop rotation rather than
+hardware changes. Reused the existing C and reviewed the added lifecycle,
+message and test-mode paths. The member supplies exactly 28 public functions
+and no globals, all in `.ble_ll_code`; private message/event helpers retain
+internal linkage. All CIG/CIS/ISO concrete layouts match recursively across
+21 type pairs after resolving recovered typedef names. The SDK's opaque
+`lbuff_head` pointee remains an external boundary, not a claimed layout proof.
+
+Corrected two worker discrepancies:
+
+- `ll_cis_init` preserves the existing allocation bitmap; the SDK does not
+  clear it. List heads, limits/counts, master/slave callbacks and dispatch
+  slot 12 initialization retain their original order.
+- Failure-message handling reloads the handle after logging and the status
+  after lookup. The previous worker code captured both before callbacks.
+  Message fields now use an alias-safe two-byte-aligned packet type matching
+  the IR accesses, and tests mutate the message at both callback boundaries.
+
+The event-emitter call uses a BD19 assembly-name alias with the SDK's byte
+return ABI; the generic header declares bool. Returned values are ignored.
+BD19 zero-fill operations retain the memory intrinsic. BR23 keeps its prior
+fill-call behavior. The new lifecycle functions are also equivalent to their
+BR23 SDK counterparts; no BR23 application behavior changes were introduced.
+
+Extended host tests exercise dispatch registration and untouched table slots,
+bitmap preservation, master/slave callback order, all 16 established-event
+arguments (including the SDK's repeated fields), logged message mutation,
+failure destruction, success establishment with an ignored missing ACL link,
+byte counter wrap after callback mutation, MIC/unknown messages and close
+with both empty and populated groups. Existing list, allocation, lookup,
+handle-exhaustion, test-mode/counter and duration tests remain in place. The
+SDK's empty-CIG free quirk and unchecked event/lookup pointers are preserved.
+
+All four Jieli products build at `BUILD_ID=2b5050f`; the full host suite passes
+with 606 `: ok` and 36 legacy reports. Both layouts, 16 tooling regressions
+and all 62 accepted members (61 ownership groups) pass. Totals are 820 public
+functions, 57 globals, 49 retained SDK members and 1260 verified index entries.
+DUT remains supplied by its original SDK member. All three BR23 frozen
+firmware baselines match byte for byte. BD19 `app.bin` is 196684 bytes,
+SHA-256 `18ddaba77059f67ed46e4640c659a9cf73671c84c311d0b61920fa283268268c`.
+This is 20 bytes larger than the prior FCC checkpoint after replacing the CIS
+member with the reviewed C. No hardware testing. Logs/artifacts are under
+`/work/analysis/btctrler-bd19/ll-cis-review/` and
+`/work/analysis/btctrler-bd19/ll-cis-review-{builds,checks}.log`.
+
+
+## ll_common_iso review and acceptance: 63 accepted members
+
+Reviewed worker `2df53ab` (cherry-picked as `354a765`) against BD19
+`ll_common_iso.c.o`, occurrence 1, SHA-256
+`b0d323c6a83a3966a733d5f1dc4a176ecd604678e5d4b9c780541e7ade8c0d6d`,
+BR23 IR and current C. Accepted all 14 public functions and four public
+globals. Lifecycle, command dispatch, ISOAL receive paths and the exported
+SDK self-test were reviewed beyond the existing shared data/codec routines.
+All exports retain `.ble_ll_code`; the private segment packer also retains
+that section. The four zero initializers, sections and alignments match
+programmatically, as does the private unsigned all-ones watermark. Recursive
+type matching resolves 52 named type pairs. `le_parameter` differs only in
+four explicit one-byte padding arrays replacing SDK byte padding fields;
+field sizes, positions and the accessed event-mask/buffer fields agree.
+The external opaque queue pointee remains an external boundary.
+
+Corrected worker discrepancies before acceptance:
+
+- Initialization writes the 16-bit `maxIsoPduLen` field, not `max_cis_number`.
+  The wide event-mask stores use alias-safe types with the SDK alignments.
+- Elapsed-time watermark comparison is unsigned, including timer wrap. Its
+  initial UINT32_MAX value consequently remains unchanged in ordinary use.
+- HCI commands dispatch on the low ten opcode bits and reply with the full
+  opcode. Setup diagnostics snapshot decoded fields before log callbacks;
+  unknown BIS directions return success as in the SDK. Reading test counters
+  ignores helper return values. Ending a CIS test reads counters when RX is
+  enabled, then clears RX and TX in the SDK order.
+- Framed receive iteration subtracts from the current remaining byte count,
+  allowing multiple segments in one PDU. Time-offset decoding deliberately
+  continues to use the initial PDU payload, including later segments.
+- Header packing reloads fields across log callbacks and overlapping output
+  stores; segment packing reloads its header after logging. Aligned header
+  word accesses and unaligned self-test packet stores use alias-safe types.
+
+Focused tests now cover the corrected initialization, unsigned watermark and
+wrap, full HCI opcodes, ignored counter-helper results, RX-only/TX-only test
+end, invalid BIS directions, two completed framed segments in a single PDU,
+header mutation at logging boundaries and output overlapping its header.
+Existing lifecycle, queue dispatch, command, codec, fragmentation and receive
+fixtures pass with both target headers. SDK undefined subheaders/counters,
+unchecked framed sizes, null-PDU fragmentation and retained/leaked buffers
+remain SDK quirks; no application fixes were applied to BD19.
+
+All four products build at BUILD_ID=2b5050f. Full host tests exit zero with
+607 `: ok` reports and 36 legacy reports; both layouts, the 16 tooling tests
+and all 62 ownership groups pass. Totals: 63 accepted members, 834 unique
+public functions, 61 globals, 48 retained SDK members and 1242 verified archive
+index entries. All three frozen BR23 firmware baselines match byte for byte.
+BD19 app.bin is 196664 bytes, SHA-256
+`7437e8e2d703d467e4ec3d9e5284ebfafebb38f95fd4b963567181aeba33fc40`,
+20 bytes smaller than the CIS checkpoint after replacing the ISO member and
+relinking with LTO; this is semantic ownership, not a byte-identical BD19
+rebuild claim. DUT remains supplied by the SDK. No hardware testing.
+Review IR/diffs are in `/work/analysis/btctrler-bd19/ll-common-iso-review/`;
+validation log: `/work/analysis/btctrler-bd19/iso-review-final-checks.log`.
+
+## BIS slave acceptance: 64 accepted members
+
+Reviewed `daf9867` against BD19 `ll_bis_slave.c.o` occurrence 1
+(`fe8dd6566f0b857d7f7548280245b1b3933bcb79e7d0a4edf2fe3f939f4b86f1`).
+The accepted implementation is `bd19/ll_bis_slave.c`, providing exactly four
+public functions and no globals. The full recovery/review report is in the
+acceptance commit body (`git log -- bd19/ll_bis_slave.c`, relative to the
+controller directory). Follow-ups are in `revisit-bd19.md` (C13, B13–B15, R07).
+
+All four builds at BUILD_ID=2b5050f, full host suite (608 `: ok`, 36 legacy
+reports), both layouts, 16 tooling tests and all 63 ownership groups pass.
+Focused ASan/UBSan checks pass. Totals: 64 members, 838 functions, 61 globals;
+47 retained SDK members, 1238 verified index entries. All three BR23 frozen
+images and the prior BD19 image match exactly (BD19 196664 bytes, SHA-256
+`7437e8e2d703d467e4ec3d9e5284ebfafebb38f95fd4b963567181aeba33fc40`).
+No hardware testing. Logs/IR: `/work/analysis/btctrler-bd19/bis-slave-review/`.
+
+## CIS master/slave acceptance: 66 accepted members
+
+Reviewed worker checkpoints `41b2680` and `671de02` against occurrence-1 BD19
+IR and BR23 counterparts. Both target-specific sources now supply their exact
+whole-member boundaries: master three public functions plus the 32-byte zero
+pending global; slave four public functions with no globals. The complete
+correction/evidence/validation report is in this acceptance commit's body;
+follow-ups are tracked in `revisit-bd19.md`.
+
+All four products at BUILD_ID=2b5050f, the full host suite (610 `: ok`, 36 legacy
+reports), both layouts, 16 tooling tests and all 65 ownership groups pass.
+Focused ASan/UBSan checks pass with halt-on-error enabled. Totals: 66 members,
+845 functions and 62 globals; 45 retained SDK members, 1230 verified index
+entries. All frozen BR23 images and the prior BD19 image match exactly:
+BD19 196664 bytes, SHA-256
+`7437e8e2d703d467e4ec3d9e5284ebfafebb38f95fd4b963567181aeba33fc40`.
+No hardware testing. Artifacts: `/work/analysis/btctrler-bd19/cis-pair-review/`.
+
+## BD19 analog BLE acceptance (worker 7d4a9e2)
+
+Occurrence 1 `analog_ble.c.o`, SHA-256
+`fe535e9a3d3c0ff4d2c19e929c04f0fdc5046f34d75d2feb1d06051051a16f51`,
+is supplied by `bd19/analog_ble.c`: six public functions, no globals, all
+in `.ble_rf_code`. Review corrected the callback-visible power-byte reload
+and the BLE5 zero-extension (BLE4 sign-extends). Regression tests derive
+these differences from the SDK load/store IR and mutate the byte in the
+max-level callback. BR23 retains its separate source unchanged.
+No-op AGC setters and byte-wrap/clamp behavior are faithful SDK recovery.
+See the acceptance commit body for validation and remaining limitations.
+
+## BD19 authentication acceptance (worker 3ffbb43)
+
+Occurrence 1 `authentication.c.o`, SHA-256
+`af15cd3efcc12f0e368c97ad4c323e328363865d79df60b62bf11fbaf787be2d`,
+is supplied by shared `authentication.c` and its BD19-only curve include.
+The exact boundary is four Classic E functions and five uECC selectors,
+with no public globals. All five 176-byte curve descriptor initializers,
+callback relocations, Classic tables, sections and alignment match SDK IR.
+Seven curve helper bodies match normalized IR; remaining helpers differ
+by equivalent loop placement or memset versus four zero stores.
+`python3 tools/btctrler/check_uecc.py` checks all five reducers, curve
+polynomials, Jacobian doubling and infinity handling against independent
+Python integers (740 checks). This exercises the specialization callbacks
+with a model backend, not device ROM. Existing Classic vectors pass on both
+headers, including preserved key-reduction defects and allocator behavior.
+BR23's source path is unchanged; common allocation diagnostics continue to
+use the existing owned assertion policy. See the acceptance commit body.
+
+Combined acceptance checkpoint: analog BLE `c7712ed`, authentication `3dfd4bd`.
+At `BUILD_ID=2b5050f`, all four Jieli products, full host suite (612 `: ok`
+reports plus 36 legacy reports), both layout checks, 16 tooling tests and
+67 ownership-group audits pass. Manifest: 68 accepted members, 860 unique
+public functions, 62 globals; 43 retained SDK members / 1215 verified index
+entries. All three BR23 images exactly match their frozen baselines.
+BD19 app is 196512 bytes, SHA-256
+`c7faccac51474bdcf46251e863c97759cd99c50cf18bafa92017a4dade9fece8`.
+The independent curve harness passes 740 checks. Both completed worktrees
+and branches were removed after checking clean nested repositories and
+ancestry. Only canonical integration and the untouched primary checkout remain.
+No hardware validation performed.
+
+## BD19 DUT acceptance (Luna worker 9140e3e)
+
+Fresh occurrence-1 recovery of `bredr_dut.c.o`, SHA-256
+`7a56461f6d412c1d53d42dbf41c6a1f5719bcf59235e4c180b46bd9a1d4a87ad`,
+supplies six public functions and both PRBS9 arrays from `bd19/bredr_dut.c`.
+The six packet/PRBS table initializers, sections and alignments match SDK IR;
+the private ten-byte fill table also matches. All public code retains
+`.classic_rf_code`, PRBS data `.classic_rf_const`.
+
+Independent review corrected scenario optcntl writes, snapshot-before-poll
+timing, clock-adjust predicate, unsniff/tws bitfield mappings, post-allocation
+scenario reload, frequency/MMIO ordering and memory intrinsic boundaries.
+Focused tests cover these and callback-driven slot/handle changes, null RX
+enqueue, all packet rows and independently generated PRBS crossing a 511-byte
+period. Expanded fixture passes ASan/UBSan. BR23 source is unchanged.
+B27/B28 track confirmed SDK defects and ABI/hardware follow-ups; R04/H13
+now distinguish accepted recovery from the withdrawn draft.
+Full provenance, semantic review and validation are in commit bodies.
+
+DUT combined checkpoint: acceptance `5f51b69`; canonical fixed-ID build/test,
+both layouts, 16 tooling tests and all 68 ownership groups pass. Full host
+suite: 613 `: ok` reports plus 36 legacy reports. Totals: 69 accepted members,
+866 functions, 64 globals; 42 retained SDK members / 1207 verified index entries.
+All four images are unchanged from `773ff09`, including BD19 at 196512 bytes
+(`c7faccac51474bdcf46251e863c97759cd99c50cf18bafa92017a4dade9fece8`).
+The worker and superseded draft worktrees/branches were removed after ancestry
+and nested-repository checks. The authorized duplicate draft is preserved at
+`/work/analysis/btctrler-bd19/dut-luna-review/superseded-draft/`.
+No hardware validation.
+
+## BD19 H4 UART hardware acceptance (worker 6e03c7a)
+
+Occurrence 1 `h4_uart_hw.c.o`, SHA-256
+`834544fb1d0a96ee6e02e3e4b292dee21807540d8390349a7b960bf0a762e859`,
+is supplied by `bd19/h4_uart_hw.c`: four public functions, no public globals.
+Weak pin override, init, private interrupt callback and close match normalized
+SDK IR exactly; transmit differs only in loop rotation. Buffer/clock-string
+initializers, sections and alignment match. Independent regular target compile
+and ASan/UBSan fixture pass. BR23 sources are unchanged.
+The draft's wrong register base was corrected before commitment; final MMIO
+is literal 1974528 (`0x1e2100`) plus SDK offsets. Worker report prose inverted
+the TX-ready condition: source/SDK wait while bit 15 is clear, until it is set.
+C15/B29 record later consolidation and baud/poll/count-contract follow-ups.
+Acceptance commit body carries the detailed review and validation report.
+
+UART combined checkpoint: acceptance `23b5f74` passes canonical fixed-ID
+four-product/full-host/layout/tooling/archive validation: 614 `: ok` reports,
+36 legacy reports, 16 tooling tests and 69 ownership groups. Totals: 70
+accepted members, 870 functions, 64 globals; 41 retained members / 1203
+verified index entries. All four binaries match `d91cba0`. The clean worker
+worktree and merged branch were removed after checking nested dependencies.
+No hardware validation.
+
+## BD19 audio codec acceptance (worker b4d0de8)
+
+Occurrence 1 `audio_codec.c.o`, SHA-256
+`602b140db1a0d100fbbf9e40fb4a262f145db89325f7b74f5e0615a783082d09`,
+is supplied by `bd19/audio_codec.c`: nine functions and common
+`palCodecScratch[400]` (1600 bytes, align 4), plus private two-stream storage.
+Independent review replaced duplicated typedefs with existing SDK header
+types, restored the SDK memset intrinsic, and corrected an extra diagnostic
+comma. All nine globals/string initializers now match SDK IR exactly,
+including common linkage and alignment. Five function bodies match canonical
+IR; StreamIn/Out differ only in printf nounwind attributes; remaining lookup,
+start and delay code differs in equivalent loop/branch shape.
+Expanded ASan/UBSan fixture covers wrap, full capacity, stale reuse state,
+exact mute slot writes and diagnostic reentry/reloads with a nonnull unused
+ready callback. C16/B30/B31 record consolidation and deliberately retained
+codec stubs/lifecycle quirks. BR23 production sources are unchanged.
+The acceptance commit carries complete evidence and validation.
+
+Audio combined checkpoint: acceptance `e9f8aa7` passes canonical fixed-ID
+four-product/full-host/layout/tooling/archive validation: 615 `: ok` reports,
+36 legacy reports, 16 tooling tests and 70 ownership groups. Totals: 71
+accepted members, 879 functions, 65 globals; 40 retained members / 1193
+verified index entries. All four binaries match `bc7d3c6`. The clean worker
+worktree and merged branch were removed after nested-dependency checks.
+No hardware validation.
+
+## BD19 H4 UART interface-loop acceptance (worker e0df9fa)
+
+Occurrence 1 `h4_uart_interface_loop.c.o`, SHA-256
+`7445dd667db9f8183967f7772454bc5982318e1ef5205a438dc574867a6357c9`,
+is supplied by `bd19/h4_uart_interface_loop.c`: ten functions, no public
+globals. Byte-return `__data_empty` uses a local asm alias to avoid the
+generated header's C-bool ABI. All five private state/table initializers,
+callback relocations, sections and alignments match original IR; reachable
+diagnostic literals match. The second-switch unknown-type diagnostic is
+unreachable after initial validation and is removed by the current compiler.
+Review restored logs, copy/length/callback reloads, config constness and
+exact prefix clears. Ten functions match normalized IR exactly; the rest
+differ in SSA/CFG, no-argument IRQ prototype casts, lifetime metadata or
+constant-size memset length type. Focused sanitizer tests cover ring wraps,
+IRQ/callback mutation, type 1/2/5 parsing, two-wire stale-count timeout refill,
+thread lifecycle and both send modes. C17/B32–B34 retain follow-ups.
+The acceptance commit body carries full evidence and validation.
+
+UART-loop combined checkpoint: acceptance `2d8a690` passes canonical fixed-ID
+four-product/full-host/layout/tooling/archive validation: 616 `: ok` reports,
+36 legacy reports, 16 tooling tests and 71 ownership groups. Totals: 72
+accepted members, 889 functions, 65 globals; 39 retained members / 1183
+verified index entries. All three BR23 binaries are unchanged. BD19 is
+196520 bytes (+8), SHA-256
+`767aa68e4e4c8ee42b7865a995ac73b54736a60000b41562c6987dabefbfcce8`.
+Disassembly shows `thread_delete` outlined (38 bytes), with `ll_destroy`
+shrinking 94 to 70 bytes; UART transport remains absent from linked symbols.
+The clean worker worktree and merged branch were removed after checking
+nested dependencies and ancestry. No hardware validation.
+
+## BD19 in-chip H4 acceptance (worker cab02d3)
+
+Occurrence 1 `h4_controller_interface.c.o`, SHA-256
+`3821c59f332d4bce78a7eea8ec27da14018c375e27099d5d003f216bb389d45a`,
+is supplied by `bd19/h4_controller_interface.c`: public instance function
+and const readiness-function pointer `__h4_can_send_packet_now`. All seven
+function bodies match normalized SDK IR exactly. Both pointer/table
+initializers, callback relocations, sections, alignment and all four private
+strings match. Tests cover both log states, callbacks, narrowing, pointer
+forwarding/mutation and ignored downstream return; sanitizer run passes.
+BR23 combined `hci_transport.c` is unchanged. C18/B35 record future source
+consolidation and explicit transport-contract decisions. Full report in the
+acceptance commit includes integration validation.
+
+In-chip H4 combined checkpoint: acceptance `0af2992` passes canonical fixed-ID
+four-product/full-host/layout/tooling/archive validation: 617 `: ok` reports,
+36 legacy reports, 16 tooling tests and 72 ownership groups. Totals: 73
+accepted members, 890 functions, 66 globals; 38 retained members / 1181
+verified index entries. All three BR23 binaries are unchanged. BD19 is
+196552 bytes (+32), SHA-256
+`c2247bdd50eeee979cfccbdbab525d5de5d0168354bb7dbd197d90e65ee13866`.
+Disassembly shows the existing HCI packet handler inlined into the active
+transport wrapper; all seven recovered function bodies match SDK IR.
+The clean worker worktree and branch were removed after nested-dependency
+and ancestry checks. No hardware validation.
+
+## BD19 HCI controller acceptance (worker 843223a)
+
+Occurrence 1 `hci_controller.c.o`, SHA-256
+`c077ec3c2f015655f1fdf1ea2388828aebe6609d2ee32a004d6304037b73c0e8`,
+is supplied by `bd19/hci_controller.c`: exactly 18 public functions and
+mutable callback global `__h4_send_packet`. Private 48-byte state, 2560-byte
+buffer, sections, alignments and packed 515-byte event layout were checked
+against raw IR. Review corrected wrapping event wire lengths and the queued
+allocation addition, retaining callback ordering, routing distinctions,
+assertion continuation and SDK unchecked copies. Existing BR23 sources remain
+unchanged. Shared assertion support deliberately retains the existing app
+policy instead of SDK diagnostic text. C19/B36–B38 record consolidation and
+robustness follow-ups; the worker and acceptance commit bodies carry details.
+
+Worker fixed-ID validation passes four products, full host suite (618 `: ok`
+reports plus 36 legacy reports), 16 tooling tests, both layouts and all 73
+ownership groups. Totals: 74 accepted members, 908 functions, 67 globals;
+37 retained members / 1162 verified index entries. Focused ASan/UBSan passes.
+All three BR23 images are unchanged. BD19 is 196464 bytes (-88), SHA-256
+`fa9e1f00eafe8ef4c52d4ef043032ffe6f623f4ed773a2c31b2c53e056660b10`.
+Symbol comparison shows common HCI handlers now inlined into private
+`bd19_hci_command_process` (590 bytes); old separate dispatcher/common
+handler bodies total 670 bytes. Lifecycle/run-loop/owner calls also change
+inlining. Production fixed const configuration permits mode caching; mutable
+host fixtures additionally check the SDK callback reload boundaries.
+No hardware validation.
+
+HCI controller combined checkpoint: acceptance `68e3542` passes canonical
+fixed-ID validation with the same four product hashes as worker validation:
+618 `: ok` reports, 36 legacy reports, 16 tooling tests, both layouts and
+73 ownership groups. Totals remain 74 accepted members / 908 functions /
+67 globals; 37 retained members / 1162 index entries. BR23 images unchanged;
+BD19 196464 bytes, SHA-256
+`fa9e1f00eafe8ef4c52d4ef043032ffe6f623f4ed773a2c31b2c53e056660b10`.
+After checking clean root/nested dependency status and merged ancestry, the
+completed worker worktree and branch were removed. No pending workers or
+hardware validation.

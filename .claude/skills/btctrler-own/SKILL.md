@@ -1,170 +1,104 @@
 ---
 name: btctrler-own
-description: Translate one member of the SDK's btctrler.a (LLVM bitcode) into owned C under src/btctrler/ and drop it from the archive, ready for batch review. Use when assigned a btctrler member ("own bredr_slot_timer.c", "take btcontroller_heap").
+description: Port an assigned btctrler archive member to shared BR23/BD19 owned C, auditing both SDK IRs and preserving current app fixes. Use for object-sized controller ownership assignments.
 ---
 
-# Own one btctrler member
+An assignment names the integration commit, original member and occurrence,
+and source files you own. `/work/cyclone2-fw-btctrler-vanilla` is reserved for the
+coordinator on `btctrler/br23-bd19-vanilla`. Never use it as a worker checkout,
+switch its branch, or run builds/tests there. The primary checkout is also
+shared with unrelated work; do not edit it or run your checks there.
 
-You turn one SDK archive member (e.g. `bredr_utils.c.o`) into owned C that
-does exactly what the SDK did, prove it with host tests, and commit it on
-your own branch.  A reviewer checks every commit against the SDK IR and
-tests it on hardware, in batches.  Faithful beats clever: an "improvement"
-that changes behaviour is a defect here.
+Inspect `git worktree list` and use a distinct worker path/branch based on the
+assigned commit. If one was not supplied, create it with `git worktree add -b
+btctrler/bd19-MEMBER-own /work/cyclone2-fw-btctrler-vanilla-MEMBER COMMIT` (substitute
+actual names). Check the worktree root and current branch before editing.
+Prepare dependencies and run all builds/tests in that worker worktree; missing
+submodules do not justify switching to the coordinator or primary checkout.
+Never edit another worker's files or the coordinator-owned manifest, headers,
+glue and build rules. One member can span several C files. Do not merge,
+push, flash or access hardware. Use `PATH=/work/bin:$PATH`.
 
-## Hard rules
+Read `tools/btctrler/README.md` for the current commands and ownership schema.
+The original IR is the authority; `tools/btctrler/irc.py` is a reading aid.
+Your task is to adapt existing C, not repeat the BR23 decompilation. Compare
+the assigned BD19 member, its BR23 counterpart, and the current C. Preserve
+existing BR23 behavior and recorded app fixes. BD19 should first reproduce
+its SDK behavior; identify app fixes that need a separate decision.
 
-- **No hardware.**  Do not run `make flash`, `tools/padtool.py`,
-  `/work/cyclone2-esp32/hostbt/*`, or touch `/dev/bwrap`.  A person uses the
-  pad.  Host builds and host tests only.
-- **Your own worktree and branch.**  Never edit the main checkout.  Start with:
-  ```
-  cd /work/cyclone2-firmware
-  git worktree add ../cyclone2-fw-<member> -b btctrler/<member> main
-  cd ../cyclone2-fw-<member>
-  ```
-  (`<member>` without `.c.o`, e.g. `bredr_utils`.)  If your harness already
-  gave you an isolated worktree, use it and name the branch the same way.
-- One member per branch.  Do not touch other members' code, upstream
-  BTstack, `docs/` or `architecture/`.
-- Keep SDK behaviour, including bugs and odd constants.  If you think the SDK
-  is wrong, keep it and say so in a comment and in the commit's review notes.
-- Use `PATH=/work/bin:$PATH` for `make`.  You run in a bwrap container; do not
-  try to break out.
+Start with `build/controller-ir/reuse.json` from `make controller-compare`.
+For `reuse_candidate` functions already supplied by C, reuse that code: check
+its current app changes, target compilation and ownership boundary rather
+than translating or repeating a line-by-line IR audit. For matching instructions
+with changed boundaries, focus on the reported types, globals and declarations.
+Different instructions can be loop rotation/inlining or changed field indices;
+establish the actual difference before writing a second implementation. The
+census is conservative triage, not automatic whole-member acceptance. Check
+local helpers and target-specific callees when accepting the source file.
+Use `git log --follow -- SOURCE` and consult the archived object history when
+needed; the platform-directory split hides older history from a plain path
+log. Matching original SDK bodies do not establish that app-modified C still
+matches either SDK.
 
-## How the pipeline works (read before starting)
+For a whole-member replacement account for EVERY external function and global,
+including currently unlinked definitions. Preserve sections, alignment,
+initializers, volatility, aliases, calling conventions, MMIO addresses, IRQ
+attributes, wide unaligned copies, integer widths and side-effect order.
+Types with equal sizes can have different fields. Map GEPs by actual IR byte
+layout, not debug field ordinal. Do not infer a value from the wrong local
+enum; recovered colliding names are qualified. Retain SDK quirks.
 
-- `tools/build_btctrler.py` builds `build/sdk-libs/btctrler.a` from the
-  pristine SDK archive.  `PIPELINE` maps a member to transforms in
-  `tools/btctrler/recover.py`; `DROPPED` members are left out of the archive.
-- A transform calls `own_all(text, TABLE)` (`tools/btctrler/ir.py`): `TABLE`
-  maps each function you replace to the SHA-256 of its SDK body text.  The
-  build fails if a body differs, which is how we know the C replaces the code
-  that was reviewed.  The definition becomes a declaration, so the linker
-  uses your C.
-- Then `leftovers(text, 'member.c', {...})` asserts exactly which SDK
-  definitions remain: only functions with no caller anywhere (often
-  `cpu_reset`, a local assert helper).  Anything with a caller gets
-  translated.
-- `tools/btctrler/archive.py` collects every `*_OWNED` table into `OWNED`;
-  add yours.
-- **Model to copy:** `src/btctrler/lmp_utils.c`, `LMP_UTILS_OWNED` and the
-  `lmp_utils` transform in `recover.py`, its `PIPELINE`/`DROPPED` entries.
-  Smaller recent examples: `bredr_utils.c`, `authentication.c`.
+BD19 has two `tws_pair.c.o` occurrences. Use the occurrence-specific inventory
+and hash; never flatten archive extraction by filename. Check external
+references, address-taken callbacks, assembly aliases and inlined copies when
+assessing ownership. Do not delete a function merely because the current
+firmware's LTO drops it.
 
-## Steps
+Prefer common C for verified common semantics, a small compile-time selection
+for small differences, and separate target implementations for substantial
+hardware changes. Add focused host checks when a new behavioral difference
+needs one; derive expected values from IR, not the implementation. Run the
+existing member tests and compile the changed source with both target compilers.
+If the assignment needs a coordinator-owned change, report the exact dependency;
+do not work around it by using a BR23 layout/address on BD19.
 
-1. `make -j32 && make controller-ir` in your worktree.  This writes the SDK
-   IR to `build/controller-ir/sdk/<member>.c.o.ll` (what you translate) and
-   the retained archive's IR to `build/controller-ir/retained/` (the callers).
-   Inspection caches decoded members and ownership-independent metadata in
-   the shared Git directory. Worktrees reuse that cache automatically;
-   changed members and decoder/scanner changes invalidate the relevant
-   entries. Run the target again after changing the retained archive; the
-   unchanged SDK and members are reused. Do not copy potentially stale
-   inventories between worktrees or overlap runs in one output directory.
-2. List the member's definitions and globals:
-   `grep -E '^(define|@)' build/controller-ir/sdk/<member>.c.o.ll`.
-   For each function, find its callers: `grep -l '@name(' build/controller-ir/retained/*.ll`
-   and `grep -rn 'name(' src/`.  No caller anywhere means it may stay as a leftover.
-3. Read each body.  `python3 tools/btctrler/irc.py FILE.ll func1 func2` prints
-   pseudo-C; the `.ll` text is the authority when they disagree.
-4. Write `src/btctrler/<member>.c`:
-   - Include `"btctrler/glue.h"`.  Use SDK names and the types in
-     `src/btctrler/sdk.h` (generated from debug info).  Prototypes must match
-     sdk.h exactly; owned C builds with `-Werror=implicit-function-declaration`.
-   - Move the member's globals too (the member is dropped).  Keep each
-     global's `section "..."` with `__attribute__((section("...")))`, its
-     `const`-ness and its initial value.  Check every global's section; do
-     not assume.
-   - Start the file with a short comment: what the code is for and which
-     SDK quirks are kept.  Match the comment density of sibling files.
-   - Asserts: the SDK's `ASSERT` pattern (`config_asser` → printf +
-     `cpu_assert_debug`, else reset) is `btctrler_assert_failed(what, value)`.
-5. Fingerprints: `python3 -c "import sys; sys.path.insert(0,'tools'); from btctrler.ir import fingerprints; fingerprints('build/controller-ir/sdk/<member>.c.o.ll', ['f1','f2'])"`
-   prints table lines.  Add `<MEMBER>_OWNED`, the transform with
-   `leftovers`, the `PIPELINE` and `DROPPED` entries, and the `archive.py`
-   import.
-6. Host test: an `#ifdef UNITTEST` block at the end of the file (`make test`
-   builds every `src/btctrler/*.c` that has one; see siblings for `test.h`,
-   `CHECK`, `TEST_DONE`).  Expected values must come from the IR's
-   semantics worked out by hand, or from a published source (e.g. Bluetooth
-   Core spec sample data).  Never adjust code to make a test pass; never
-   invent expected values.  Cover edge cases (wrap-around, boundaries, empty,
-   full).
-7. `make -j32` (the firmware must link) and `make test` (must exit 0).
-8. `python3 tools/btctrler/crosscheck.py f1 f2 ...` compares calls and struct
-   fields between your C and the SDK bodies (needs `make controller-ir`).
-   Explain every difference in your review notes.  It cannot see arithmetic
-   or raw byte offsets; that is what the tests are for.
-9. Commit on your branch (format below).  Do not merge, rebase or push.
+Commit a reviewable checkpoint on your branch. Put the complete recovery
+report in the commit message body, not only in the agent chat or an ephemeral
+log. A subject-only commit is insufficient. Include:
 
-## Pitfalls that have caused real bugs
+- SDK member occurrence/hash and proposed manifest entry.
+- Every external definition provided and globals/sections moved.
+- BR23 behavior preserved; BD19 differences and SDK quirks.
+- Tests and their expected-value provenance; exact commands/results.
+- Uncertainties, unsupported dependencies, and findings worth revisiting.
 
-- **Callers through assembly-name aliases:** a source identifier can differ
-  from the linked symbol (`ll_generate_dh_key_ir` uses
-  `__asm__("ll_generate_dh_key")`). Before dropping unused code, search the
-  symbol text and inspect compiled owned-object IR as well as SDK references;
-  a source search for `name(` alone misses these callers.
-- **Lookup tables:** compare every initializer byte with raw SDK IR. Tests
-  copied from the same incorrect C table can pass (AGC dBm index 30 was
-  transcribed as 0x33 instead of 0x32). Use bounded byte-pointer/memcpy reads
-  when splitting a u64 table into words; avoid aliasing casts and walking
-  a pointer before the start of the array.
+Findings worth revisiting include candidate BR23/BD19 consolidation,
+BR23-only application fixes that BD19 may need, SDK defects/undefined behavior,
+no-op features and unresolved ABI or hardware questions. For each finding name
+the function, evidence (SDK occurrence/IR operation or prior commit), target
+scope and a concrete follow-up. Distinguish verified behavior from a hypothesis;
+explain why a conditional is needed now and what would justify removing it.
+Consult `src/btctrler/revisit-bd19.md` to avoid rediscovery.
+Unless assigned that shared file, include proposed additions in your commit
+body so the coordinator can update it without worker edit conflicts.
 
-- **Struct field order:** LLVM merges bitfields, so a GEP field index in the
-  IR is not the member's position in the debug-info struct.  Map by the IR
-  type layout and byte offsets; add `_Static_assert(offsetof(...) == N)` for
-  any field you rely on.  (A PDU once got written 4 bytes early because of this.)
-- **Wide copies through byte pointers:** the SDK often copies 2/4/8 bytes
-  with one under-aligned load/store (`load i64 ... align 1`).  irc.py prints
-  these as `*(u64 *)(&rx->data[11])`; translate them as `memcpy` of that size,
-  never as a one-byte assignment.  (Three such one-byte copies broke LE
-  encryption, the peer feature set and PHY updates.)
-- **Callbacks that free what you hold:** after a call that can run a
-  callback (`upload_data`, radio ops), do not re-read pointers through
-  objects the callback may have freed; reuse the value the SDK kept in a
-  local, exactly as the IR does.
-- **Hardware addresses disguised as globals:** debug metadata may name an
-  MMIO address after a variable. Translate the actual `inttoptr` access,
-  including volatility, rather than assigning the similarly named sdk.h
-  global (`bb_hdl`/`g_ble_fp` in direct-test initialization).
-- **Interrupt attributes and volatile accesses:** inspect the SDK function
-  attributes, not just its body. IRQ callbacks need the target's
-  `interrupt("")` attribute (guard it out for UNITTEST). Preserve volatile
-  globals such as IRQ counters; do not add volatility to regular accesses.
-- **Cached values versus rereads:** follow the SDK's SSA values across
-  event emitters, logging, assertions and callbacks. A fresh load after a
-  call must remain fresh, while a retained value must remain retained.
-  Crosscheck's call sets cannot detect missing repeated calls or loads.
-- **Argument order and meaning:** confirm at the call sites, not from names.
-- **Signed vs unsigned** compares (`icmp slt` vs `ult`), integer widths,
-  wrap masks, `nsw` arithmetic.  Translate exactly.
-- **Static helpers with private calling conventions** (`fastcc`): translate
-  them as `static` functions; `own_all` rewrites the calls.
-- **Inlined copies** of your functions in other members stay SDK; that is fine.
-- Code in interrupts or radio timing paths: do not add logging, loops or
-  allocation that the SDK did not have.
+Do not claim hardware validation. After committing, the agent chat should only
+identify the branch/commit, completion or blockers, and any immediate coordinator
+action. The durable report belongs in git. Stop at the assigned boundary so the
+coordinator can review against IR and integrate the batch. Keep your clean
+worker checkout available until that review finishes. The coordinator removes
+the worktree and branch after integration; do not create permanent review
+branches or delete another worker's checkout.
 
-## Commit format
+This branch descends from `btctrler-decompiled` at `44d0073`. Previous BD19
+reports originate on `btctrler/bd19-support` through `7cae22b`; consult their
+commit bodies, but do not merge that app branch. Migration provenance is in
+`tools/btctrler/vanilla-migration.md`. No hardware actions in this workflow.
 
-```
-btctrler: own <member>; drop the SDK member
-
-<What the code does, two or three lines.>
-
-Review notes:
-- Translated: f1, f2, ... ; leftovers: cpu_reset (no caller) ...
-- Globals moved: name (section, const?) ...
-- SDK quirks kept: ...
-- Unsure: <every place where you were not certain what the IR means>
-- Findings: <SDK bugs, odd behaviour or security-relevant code worth a
-  later look, each with where and how you know; "none" if none>
-- Tests: <what is covered, where expected values come from>
-- crosscheck: <differences and why>
-- make test: <last line>; make -j32: <last line>
-
-Co-Authored-By: <your model> <noreply@anthropic.com or your vendor's>
-```
-
-The reviewer reads the "Unsure" list first; an honest list there saves a
-hardware debugging session.  Then stop and report the branch name.
+For this controller-only migration validate with `make -j32 controller-objects
+controller-test test controller-layouts controller-tools-test controller-audit`
+and `make controller-compare`. Four-product app targets are on the preserved
+application branch, not this branch. Existing baseline C is byte-identical to
+44d0073; `bd19/shared/` holds imported recoveries pending proven sharing.
+Do not promise strict SDK equivalence: the BR23 baseline includes earlier
+recovery choices/guards recorded in revisit.md. Audit those separately.

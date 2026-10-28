@@ -523,10 +523,14 @@ def wide(ty, align):
     return None
 
 
-def load_enums():
+def load_enums(ir_path):
     """Stage/step names from the recovered header, for readability."""
     import os
-    h = os.path.join(os.path.dirname(__file__), '..', '..', 'src', 'btctrler', 'sdk.h')
+    with open(ir_path) as source:
+        bd19 = any(line.startswith('target triple = "q32s"') for line in source)
+    header = 'sdk_bd19.h' if bd19 else 'sdk_br23.h'
+    h = os.path.join(os.path.dirname(__file__), '..', '..', 'src',
+                     'platform', 'jieli', 'btctrler', header)
     for line in open(h):
         m = re.match(r'enum \w+ \{ (LMP_STAGE_CONN = 0.*?|LMP_TX_NULL = 0.*?) \};', line)
         if m:
@@ -548,7 +552,7 @@ def named(text):
 
 
 def main():
-    load_enums()
+    load_enums(sys.argv[1])
     mod = Module(sys.argv[1])
     for name in sys.argv[2:]:
         Func(mod, name).print()

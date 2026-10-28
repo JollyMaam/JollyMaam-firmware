@@ -44,12 +44,17 @@ static inline int cpu_in_irq(void)
     __asm__ volatile("%0 = icfg" : "=r"(flag));
     return flag & 0xff;
 }
+#ifdef CONFIG_CPU_BD19
+/* The BD19 SDK supplies this in its runtime, with its own IRQ mask level. */
+int cpu_irq_disabled(void);
+#else
 static inline int cpu_irq_disabled(void)
 {
     int flag;
     __asm__ volatile("%0 = icfg" : "=r"(flag));
     return (flag & 0x300) != 0x300 || *(volatile u32 *)0x10f1a8 == 6;
 }
+#endif
 #else
 int cpu_in_irq(void);
 int cpu_irq_disabled(void);

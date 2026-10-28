@@ -11,6 +11,7 @@ of per-field accessors.  Rerun after an SDK update and diff.
 """
 import re
 import sys
+from pathlib import Path
 from collections import defaultdict
 
 NODE = re.compile(r'^!(\d+) = (?:distinct )?(!DI\w+\((.*)\)|!\{(.*)\})$')
@@ -37,7 +38,7 @@ class Node(dict):
 
 def parse(path):
     nodes = {}
-    for line in open(path):
+    for line in Path(path).read_text().splitlines():
         m = NODE.match(line.rstrip())
         if not m:
             continue
@@ -244,7 +245,7 @@ class Types:
 
 def reparse_lists(module, path):
     """Keep null entries in metadata lists (function types use them)."""
-    for line in open(path):
+    for line in Path(path).read_text().splitlines():
         m = re.match(r'^!(\d+) = (?:distinct )?!\{(.*)\}$', line.rstrip())
         if m and int(m.group(1)) in module.nodes:
             module.nodes[int(m.group(1))]['literal'] = re.findall(r'null|!\d+', m.group(2))
@@ -297,19 +298,20 @@ def main():
     p.add_argument('out')
     p.add_argument('ir', nargs='+')
     p.add_argument('--cc', required=True)
+    p.add_argument('--target', choices=('pi32v2', 'q32s'), default='pi32v2')
     a = p.parse_args()
     # Try each struct naturally laid out, then packed, then packed with
     # explicit padding; advance only structs whose member structs pass.
     mode = {}
     for _ in range(12):
-        types = generate(a.out, a.ir, mode)
-        r = subprocess.run([a.cc, '-target', 'pi32v2', '-std=gnu11', '-fsyntax-only', '-ferror-limit=0',
+        types = generate(a.out, a.ir, mode, a.target)
+        r = subprocess.run([a.cc, '-target', a.target, '-std=gnu11', '-fsyntax-only', '-ferror-limit=0',
                             '-x', 'c', a.out], capture_output=True, text=True)
         if r.returncode == 0:
             print(f'layout: {sum(v == 1 for v in mode.values())} packed, '
                   f'{sum(v == 2 for v in mode.values())} padded', file=sys.stderr)
             return
-        lines = open(a.out).read().splitlines()
+        lines = Path(a.out).read_text().splitlines()
         failed = set()
         for n in re.findall(r'[\w./-]*\.h:(\d+):\d+: error: static_assert', r.stderr):
             m = re.search(r'(?:struct|union) (\w+)', lines[int(n) - 1])
@@ -327,7 +329,7 @@ def main():
     sys.exit('layout did not converge')
 
 
-def generate(out_path, paths, mode):
+def generate(out_path, paths, mode, target="pi32v2"):
     types = Types()
     for path in paths:
         mod = Module(path)
@@ -407,10 +409,10 @@ def generate(out_path, paths, mode):
     for k in keep:
         place(k)
 
-    out = ['/* Recovered BR23 controller (btctrler.a) types, from the archive\'s debug',
+    out = [f'/* Recovered {target} controller (btctrler.a) types, from the archive\'s debug',
            ' * metadata by tools/btctrler/sdktypes.py.  Names, layout and source files',
            ' * are the SDK\'s; the assertions check the layout this compiler gives. */',
-           '#ifndef BTCTRLER_SDK_H', '#define BTCTRLER_SDK_H', '',
+           f'#ifndef BTCTRLER_SDK_{target.upper()}_H', f'#define BTCTRLER_SDK_{target.upper()}_H', '',
            '#include <stdarg.h>', '#include <stdbool.h>', '#include <stddef.h>',
            '#include <stdint.h>', '']
     words = {'DW_TAG_structure_type': 'struct', 'DW_TAG_union_type': 'union',
@@ -431,17 +433,19 @@ def generate(out_path, paths, mode):
         elif k[0] == 'DW_TAG_enumeration_type':
             if not r['enumerators']:
                 continue
-            fresh = [(n, v) for n, v in r['enumerators'] if n not in enumerators]
+            # C enum constants share one namespace, unlike file-local SDK
+            # enums. Keep the first spelling and qualify colliding declarations
+            # by source/type so no value is silently borrowed from another enum.
+            emitted = []
             for n, v in r['enumerators']:
-                if n in enumerators and enumerators[n] != v:
-                    print(f'warning: enumerator {n} differs: {v} {enumerators[n]}', file=sys.stderr)
-                enumerators.setdefault(n, v)
-            if not fresh:
-                continue
-            if len(fresh) != len(r['enumerators']):
-                out.append(f'/* enum at line {r["line"]} repeats earlier enumerators */')
-                continue
-            body = ', '.join(f'{n} = {v}' for n, v in r['enumerators'])
+                if n in enumerators:
+                    qualified = types.tag_name(k) + '_' + n
+                    if qualified in enumerators:
+                        raise ValueError(f'duplicate recovered enumerator {qualified}')
+                    n = qualified
+                enumerators[n] = v
+                emitted.append((n, v))
+            body = ', '.join(f'{n} = {v}' for n, v in emitted)
             out.append(f'enum {types.tag_name(k)} {{ {body} }};  /* line {r["line"]} */')
         elif not r.get('declaration'):
             out.append(f'{words[k[0]]} {types.tag_name(k)} {{  /* line {r["line"]} */')
@@ -479,7 +483,7 @@ def generate(out_path, paths, mode):
             '#ifndef UNITTEST'] + checks + ['#endif', '', '#endif', '']
     text = '\n'.join(out)
     text = re.sub(r'@@(\d+)@@', lambda m: types.tag_name(types.keys[int(m.group(1))]), text)
-    open(out_path, 'w').write(text)
+    Path(out_path).write_text(text)
     return types
 
 

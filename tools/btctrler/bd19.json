@@ -1,0 +1,604 @@
+{
+  "schema": 1,
+  "chip": "bd19",
+  "members": [
+    {
+      "member": "RF.c.o",
+      "occurrence": 1,
+      "sha256": "3c989aed7da69bef2fd2faeea3a194f3fc1864a8698989490da59a8c75f51e18",
+      "sources": [
+        "src/btctrler/bd19/RF.c"
+      ]
+    },
+    {
+      "member": "aes128.c.o",
+      "occurrence": 1,
+      "sha256": "4dcb52c264256064278ca622584d20e08e294ce61d94ae63c054dd251a77bcac",
+      "sources": [
+        "src/btctrler/bd19/shared/aes128.c"
+      ]
+    },
+    {
+      "member": "aes_hw.c.o",
+      "occurrence": 1,
+      "sha256": "127ccf37cd73d660c72565fb87f000981cd8c0715c0492fe836a5c9c1f6318c0",
+      "sources": [
+        "src/btctrler/bd19/shared/aes_hw.c"
+      ]
+    },
+    {
+      "member": "analog_ble.c.o",
+      "occurrence": 1,
+      "sha256": "fe535e9a3d3c0ff4d2c19e929c04f0fdc5046f34d75d2feb1d06051051a16f51",
+      "sources": [
+        "src/btctrler/bd19/analog_ble.c"
+      ]
+    },
+    {
+      "member": "audio_codec.c.o",
+      "occurrence": 1,
+      "sha256": "602b140db1a0d100fbbf9e40fb4a262f145db89325f7b74f5e0615a783082d09",
+      "sources": [
+        "src/btctrler/bd19/audio_codec.c"
+      ]
+    },
+    {
+      "member": "authentication.c.o",
+      "occurrence": 1,
+      "sha256": "af15cd3efcc12f0e368c97ad4c323e328363865d79df60b62bf11fbaf787be2d",
+      "sources": [
+        "src/btctrler/bd19/shared/authentication.c"
+      ]
+    },
+    {
+      "member": "bredr_dut.c.o",
+      "occurrence": 1,
+      "sha256": "7a56461f6d412c1d53d42dbf41c6a1f5719bcf59235e4c180b46bd9a1d4a87ad",
+      "sources": [
+        "src/btctrler/bd19/bredr_dut.c"
+      ]
+    },
+    {
+      "member": "bredr_fcc.c.o",
+      "occurrence": 1,
+      "sha256": "d8beb5063d8182f868aa4eff54ae42c9d163f5015239a5e154afee129754d1e8",
+      "sources": [
+        "src/btctrler/bd19/bredr_fcc.c"
+      ]
+    },
+    {
+      "member": "bredr_low_power.c.o",
+      "occurrence": 1,
+      "sha256": "30b9096fdfa313c9b421e9fe828107a5d54474f4571cabaebbdbcb1e25129792",
+      "sources": [
+        "src/btctrler/bd19/bredr_low_power.c"
+      ]
+    },
+    {
+      "member": "bredr_slot_timer.c.o",
+      "occurrence": 1,
+      "sha256": "2ee2567b51a6bb37fe64057300e6e75f53cf32397cf31fbb1594b8fa462c8ea6",
+      "sources": [
+        "src/btctrler/bd19/bredr_slot_timer.c"
+      ]
+    },
+    {
+      "member": "bredr_utils.c.o",
+      "occurrence": 1,
+      "sha256": "f4e2bb7c7e54e9d118abe9825b5126a3870cc4d391da27e90eeb4d8c14711ea4",
+      "sources": [
+        "src/btctrler/bd19/shared/bredr_utils.c"
+      ]
+    },
+    {
+      "member": "btagc.c.o",
+      "occurrence": 1,
+      "sha256": "90aca3525b353b3738396bcdb321282f6be4e2fa9ac34173c76108aaf14dd3f1",
+      "sources": [
+        "src/btctrler/bd19/shared/btagc.c"
+      ]
+    },
+    {
+      "member": "btcontroller_heap.c.o",
+      "occurrence": 1,
+      "sha256": "cfcbc5a15a16666115d301eb1bbb1880f63d214e9cf7fbd3599617d01525ea25",
+      "sources": [
+        "src/btctrler/bd19/shared/btcontroller_heap.c"
+      ]
+    },
+    {
+      "member": "btcontroller_linked_list.c.o",
+      "occurrence": 1,
+      "sha256": "6e8c7d9f91b6aec3a72bda4c6c7acd2e01fece058b039d163791f9dccbb19220",
+      "sources": [
+        "src/btctrler/bd19/shared/btcontroller_linked_list.c"
+      ]
+    },
+    {
+      "member": "btcontroller_util.c.o",
+      "occurrence": 1,
+      "sha256": "19896117f8b9c1740a4402c1940d4137d92aac6a43a8c5efffd83627df4f423f",
+      "sources": [
+        "src/btctrler/bd19/shared/btcontroller_util.c"
+      ]
+    },
+    {
+      "member": "btctrler_task.c.o",
+      "occurrence": 1,
+      "sha256": "52f6d471a1972c02fd9c015e0be5bb597280944d4015af80fae51f7ea97a4247",
+      "sources": [
+        "src/btctrler/bd19/shared/task_dispatch.c",
+        "src/btctrler/bd19/shared/task_lifecycle.c",
+        "src/btctrler/bd19/shared/task_queue.c"
+      ]
+    },
+    {
+      "member": "btencry_task.c.o",
+      "occurrence": 1,
+      "sha256": "c3ae424fc4a40da177aff0aa14b8f9dac0beb9d6180068a1cb130346b843785d",
+      "sources": [
+        "src/btctrler/bd19/shared/btencry_task.c"
+      ]
+    },
+    {
+      "member": "device_manager.c.o",
+      "occurrence": 1,
+      "sha256": "b19e444be48e4039ad287191e54c3a7a128f181222f727c85c292b896c72777b",
+      "sources": [
+        "src/btctrler/bd19/shared/device_manager.c"
+      ]
+    },
+    {
+      "member": "h4_controller_interface.c.o",
+      "occurrence": 1,
+      "sha256": "3821c59f332d4bce78a7eea8ec27da14018c375e27099d5d003f216bb389d45a",
+      "sources": [
+        "src/btctrler/bd19/h4_controller_interface.c"
+      ]
+    },
+    {
+      "member": "h4_uart_hw.c.o",
+      "occurrence": 1,
+      "sha256": "834544fb1d0a96ee6e02e3e4b292dee21807540d8390349a7b960bf0a762e859",
+      "sources": [
+        "src/btctrler/bd19/h4_uart_hw.c"
+      ]
+    },
+    {
+      "member": "h4_uart_interface_loop.c.o",
+      "occurrence": 1,
+      "sha256": "7445dd667db9f8183967f7772454bc5982318e1ef5205a438dc574867a6357c9",
+      "sources": [
+        "src/btctrler/bd19/h4_uart_interface_loop.c"
+      ]
+    },
+    {
+      "member": "hci_controller.c.o",
+      "occurrence": 1,
+      "sha256": "c077ec3c2f015655f1fdf1ea2388828aebe6609d2ee32a004d6304037b73c0e8",
+      "sources": [
+        "src/btctrler/bd19/hci_controller.c"
+      ]
+    },
+    {
+      "member": "hci_device_manager.c.o",
+      "occurrence": 1,
+      "sha256": "fe94b4b06630701be813332981669001b1f376b3c92b75821259b4695f9e9776",
+      "sources": [
+        "src/btctrler/bd19/shared/hci_device_manager.c"
+      ]
+    },
+    {
+      "member": "hci_ll.c.o",
+      "occurrence": 1,
+      "sha256": "93f39c43362b1ee7dd3415404b5bd013d7452242b0b0bc33a7d8fec87cceaa16",
+      "sources": [
+        "src/btctrler/bd19/shared/hci_ll.c"
+      ]
+    },
+    {
+      "member": "hci_ll_5_cmds.c.o",
+      "occurrence": 1,
+      "sha256": "e51e43a8fe3761ae6c04911116a8ce3e20f9a144fb554bde71219eb0b15ec060",
+      "sources": [
+        "src/btctrler/bd19/shared/hci_ll_5_cmds.c"
+      ]
+    },
+    {
+      "member": "hci_ll_cmds.c.o",
+      "occurrence": 1,
+      "sha256": "6bc8d6a42a839254c09611e7d9225d8d611fe3e14627e21c45b872f6e36dff6c",
+      "sources": [
+        "src/btctrler/bd19/shared/hci_ll_cmds.c"
+      ]
+    },
+    {
+      "member": "hw_dma.c.o",
+      "occurrence": 1,
+      "sha256": "1cee4df605f6a54ca6e16d11c937afb72e3c851e4bae4ecb91c3097be9762150",
+      "sources": [
+        "src/btctrler/bd19/shared/hw_dma.c"
+      ]
+    },
+    {
+      "member": "interrupt.c.o",
+      "occurrence": 1,
+      "sha256": "ced986000b356f70e3a18855d71e9c1c00823770b3a8a48a86af258ed5693f1f",
+      "sources": [
+        "src/btctrler/bd19/interrupt.c"
+      ]
+    },
+    {
+      "member": "lbuf.c.o",
+      "occurrence": 1,
+      "sha256": "0bb9da0743028c8a9cbbd32250cd90f5b3d21c36a92c2f249948058adc6b5fbc",
+      "sources": [
+        "src/btctrler/bd19/shared/lbuf.c"
+      ]
+    },
+    {
+      "member": "le_low_power.c.o",
+      "occurrence": 1,
+      "sha256": "c8b3ba26aaa6e187bba88e8b4ba682fd272c9becaf04278b951c47b92bdfb6e8",
+      "sources": [
+        "src/btctrler/bd19/shared/le_low_power.c"
+      ]
+    },
+    {
+      "member": "link_bulk.c.o",
+      "occurrence": 1,
+      "sha256": "2130506ed0e0c69dcddf11dbd664f800782179363bb431cc8f66465d01223df6",
+      "sources": [
+        "src/btctrler/bd19/shared/link_bulk.c"
+      ]
+    },
+    {
+      "member": "link_layer.c.o",
+      "occurrence": 1,
+      "sha256": "a2aa87245739df1d94469ec8ccd0f27e1bbff54b18a208a4f1f168a07a864816",
+      "sources": [
+        "src/btctrler/bd19/shared/link_layer.c"
+      ]
+    },
+    {
+      "member": "link_task.c.o",
+      "occurrence": 1,
+      "sha256": "9484bb325a68dca4b83acefd3e09264d26bcb622191f73e98b3c5ec4be4afbda",
+      "sources": [
+        "src/btctrler/bd19/shared/link_task.c"
+      ]
+    },
+    {
+      "member": "ll_adv.c.o",
+      "occurrence": 1,
+      "sha256": "360476e31e9317c3542f0ba0e56d2f67f60601ae9ae5e1fc422e358b96ff8e09",
+      "sources": [
+        "src/btctrler/bd19/shared/ll_adv.c"
+      ]
+    },
+    {
+      "member": "ll_afh.c.o",
+      "occurrence": 1,
+      "sha256": "da5085e9f4ff2e312a4af15d1d1424c88d6dac164c8f18190fb146b3c8a9879c",
+      "sources": [
+        "src/btctrler/ll_afh.c"
+      ]
+    },
+    {
+      "member": "ll_bis.c.o",
+      "occurrence": 1,
+      "sha256": "10c19e7edd9650cc91178006477ac1115b2fcf6f93f64584e231b75d4976bf75",
+      "sources": [
+        "src/btctrler/bd19/shared/ll_bis.c"
+      ]
+    },
+    {
+      "member": "ll_bis_master.c.o",
+      "occurrence": 1,
+      "sha256": "fe5d5b1b9c19feeebdac4ca03b5ec91d5d5369d8b968663cc91e587e2c7cd403",
+      "sources": [
+        "src/btctrler/ll_bis_master.c"
+      ]
+    },
+    {
+      "member": "ll_bis_slave.c.o",
+      "occurrence": 1,
+      "sha256": "fe8dd6566f0b857d7f7548280245b1b3933bcb79e7d0a4edf2fe3f939f4b86f1",
+      "sources": [
+        "src/btctrler/bd19/ll_bis_slave.c"
+      ]
+    },
+    {
+      "member": "ll_cis.c.o",
+      "occurrence": 1,
+      "sha256": "ea9b6e2b1d646522d717ea50d07e6509c1d6757b93eedb721738bc54d7e39e75",
+      "sources": [
+        "src/btctrler/bd19/shared/ll_cis.c"
+      ]
+    },
+    {
+      "member": "ll_cis_master.c.o",
+      "occurrence": 1,
+      "sha256": "0be7157a69a09ce8133e7532c6bedd5503c5e80645097f3d7ae37938e5d88fb3",
+      "sources": [
+        "src/btctrler/bd19/ll_cis_master.c"
+      ]
+    },
+    {
+      "member": "ll_cis_slave.c.o",
+      "occurrence": 1,
+      "sha256": "2d1decccb8f3b733b77aeaf97bce99ed5a5d8a743f64f3454316c6136aae04d9",
+      "sources": [
+        "src/btctrler/bd19/ll_cis_slave.c"
+      ]
+    },
+    {
+      "member": "ll_common_iso.c.o",
+      "occurrence": 1,
+      "sha256": "b0d323c6a83a3966a733d5f1dc4a176ecd604678e5d4b9c780541e7ade8c0d6d",
+      "sources": [
+        "src/btctrler/bd19/shared/ll_common_iso.c"
+      ]
+    },
+    {
+      "member": "ll_data_extension.c.o",
+      "occurrence": 1,
+      "sha256": "2b80636e18cdbe2d6482c3eec9493607222f1713e36a31e5a28052fc3e059c49",
+      "sources": [
+        "src/btctrler/ll_data_extension.c"
+      ]
+    },
+    {
+      "member": "ll_events.c.o",
+      "occurrence": 1,
+      "sha256": "1510bc5b7bba4f45f9b4edd3d01c04fa644f4c0614e30717b5adc6d3c7017857",
+      "sources": [
+        "src/btctrler/ll_events.c"
+      ]
+    },
+    {
+      "member": "ll_ext_adv.c.o",
+      "occurrence": 1,
+      "sha256": "7590287441d924a94f0d53508d25dbf7f9e2ef50437c33246174a90c69355ad7",
+      "sources": [
+        "src/btctrler/bd19/shared/ll_ext_adv.c"
+      ]
+    },
+    {
+      "member": "ll_ext_init.c.o",
+      "occurrence": 1,
+      "sha256": "34f3cb2899106546935a23047ef589b6477c59e2ce4bde3ca5b6cb7884be84be",
+      "sources": [
+        "src/btctrler/ll_ext_init.c"
+      ]
+    },
+    {
+      "member": "ll_ext_scan.c.o",
+      "occurrence": 1,
+      "sha256": "336c56f84599b5e1c93b8af385dc46dd952dc643d2b439c89bc3fb734bfbfe01",
+      "sources": [
+        "src/btctrler/bd19/shared/ll_ext_scan.c"
+      ]
+    },
+    {
+      "member": "ll_extended_advertising.c.o",
+      "occurrence": 1,
+      "sha256": "59a255a54f43b43c9515531b95c3e13e96cd4ff942f8cf4c9c190b21b3b339c4",
+      "sources": [
+        "src/btctrler/ll_extended_advertising.c"
+      ]
+    },
+    {
+      "member": "ll_init.c.o",
+      "occurrence": 1,
+      "sha256": "9975683480dd29b349d7e994b410b701a69a45e07d986a1fd552385b24b60c8f",
+      "sources": [
+        "src/btctrler/bd19/shared/ll_init.c"
+      ]
+    },
+    {
+      "member": "ll_keys.c.o",
+      "occurrence": 1,
+      "sha256": "7ade72ec2c77f752183e584c2ded52142aa565fa4d2c7ec6fb40bb549cbb1711",
+      "sources": [
+        "src/btctrler/ll_keys.c"
+      ]
+    },
+    {
+      "member": "ll_master.c.o",
+      "occurrence": 1,
+      "sha256": "113252ae1be75dc3f7e1f0e4bfbf811e0590c313ca008a057a14f91b4fba33a3",
+      "sources": [
+        "src/btctrler/ll_master.c"
+      ]
+    },
+    {
+      "member": "ll_msg.c.o",
+      "occurrence": 1,
+      "sha256": "f7996e9223fbfd76173088bef87a3e02fca8f1b9cc01d2c16684ca1226a972a4",
+      "sources": [
+        "src/btctrler/bd19/ll_msg.c"
+      ]
+    },
+    {
+      "member": "ll_multiple_phys.c.o",
+      "occurrence": 1,
+      "sha256": "b7da64e4b2bba26f33b0a47ddf3e08fe999fcf0b028d5e10b18f7a7c5a46e615",
+      "sources": [
+        "src/btctrler/bd19/shared/ll_multiple_phys.c"
+      ]
+    },
+    {
+      "member": "ll_pc.c.o",
+      "occurrence": 1,
+      "sha256": "490a78a109b9376ba4e2c81dd25e08c8f38768243af0a73bebc15ca2ff1107b3",
+      "sources": [
+        "src/btctrler/ll_pc.c"
+      ]
+    },
+    {
+      "member": "ll_periodic_advertising.c.o",
+      "occurrence": 1,
+      "sha256": "62cbbb950c6c5bff867a28c2888d266df36b664356d43c6199209f2d128d40fe",
+      "sources": [
+        "src/btctrler/bd19/shared/ll_periodic_advertising.c"
+      ]
+    },
+    {
+      "member": "ll_resolve_list.c.o",
+      "occurrence": 1,
+      "sha256": "ac4ba7cc1a344e56f31e1315c9da179ec46feaa243008bc5fcac47efde3acba7",
+      "sources": [
+        "src/btctrler/bd19/shared/ll_resolve_list.c"
+      ]
+    },
+    {
+      "member": "ll_scan.c.o",
+      "occurrence": 1,
+      "sha256": "b7a2f8fdddb9ed31203d2462774eef57daf65b8d64e899cd320386ffcc2b7e6b",
+      "sources": [
+        "src/btctrler/ll_scan.c"
+      ]
+    },
+    {
+      "member": "ll_slave.c.o",
+      "occurrence": 1,
+      "sha256": "4cd8d4bf487dc8c4cb06b5755f5dbe2c47e43c8ba1b85a467bcc261e7ce17ffb",
+      "sources": [
+        "src/btctrler/bd19/shared/ll_slave.c"
+      ]
+    },
+    {
+      "member": "ll_vendor.c.o",
+      "occurrence": 1,
+      "sha256": "3e579d8d9986b7cf373ac7ad89a395e21237f0ab96ba4b69f5e23e242167f7b2",
+      "sources": [
+        "src/btctrler/ll_vendor.c"
+      ]
+    },
+    {
+      "member": "ll_white_list.c.o",
+      "occurrence": 1,
+      "sha256": "e4584e5bdca15900350bad7cf0e997464d3be40bd53948fcf5e50040eb2ed36e",
+      "sources": [
+        "src/btctrler/ll_white_list.c"
+      ]
+    },
+    {
+      "member": "ll_wifi_detect.c.o",
+      "occurrence": 1,
+      "sha256": "7f248023a0ddf39d4e02f68a4661b044d82b5b5945a9a27fb73cdc1df02fc2a5",
+      "sources": [
+        "src/btctrler/ll_wifi_detect.c"
+      ]
+    },
+    {
+      "member": "lmp_hci.c.o",
+      "occurrence": 1,
+      "sha256": "e677dc6d0fb5d35035dd33833115fc7f76bd3de59fd029c4c3440c7a2c52d9f3",
+      "sources": [
+        "src/btctrler/bd19/shared/lmp_hci_control.c",
+        "src/btctrler/bd19/shared/lmp_hci_pairing.c",
+        "src/btctrler/bd19/shared/lmp_hci_procedures.c",
+        "src/btctrler/bd19/shared/lmp_hci_settings.c"
+      ]
+    },
+    {
+      "member": "lmp_rxtx.c.o",
+      "occurrence": 1,
+      "sha256": "81c88e4e683456d98a18fe5ead57275ee0a5ac955876ff4ad5f5f7f3d37c9922",
+      "sources": [
+        "src/btctrler/bd19/shared/lmp_acl_tx.c",
+        "src/btctrler/bd19/shared/lmp_control_tx.c"
+      ]
+    },
+    {
+      "member": "lmp_utils.c.o",
+      "occurrence": 1,
+      "sha256": "61033f035675d33124978a78ef91763a4e5612fae4c7e2ef06c038a73c983978",
+      "sources": [
+        "src/btctrler/bd19/shared/lmp_utils.c"
+      ]
+    },
+    {
+      "member": "misc_hw.c.o",
+      "occurrence": 1,
+      "sha256": "2b926dd4aeacf0ec031c99c73fa4d5a243c0e21c71ff367dd50bf9195f12fd93",
+      "sources": [
+        "src/btctrler/bd19/shared/misc_hw.c"
+      ]
+    },
+    {
+      "member": "misc_hw_common.c.o",
+      "occurrence": 1,
+      "sha256": "940c0ea02b3af26bcf7461cb230c03bcfec9cd50c5bdb8a142264df1a3b9b8c8",
+      "sources": [
+        "src/btctrler/bd19/shared/misc_hw.c"
+      ]
+    },
+    {
+      "member": "multilink_schedule.c.o",
+      "occurrence": 1,
+      "sha256": "948409c2e0ca97f393b25500db155bd0324354773a9847adcd6746d45df85d71",
+      "sources": [
+        "src/btctrler/bd19/shared/multilink_schedule.c"
+      ]
+    },
+    {
+      "member": "nv_memory.c.o",
+      "occurrence": 1,
+      "sha256": "011cd70f9ee35b9b96b6804844cf625ce43739e79b6e907c9ec8f5e8306176c9",
+      "sources": [
+        "src/btctrler/bd19/shared/nv_memory.c"
+      ]
+    },
+    {
+      "member": "sys_timer.c.o",
+      "occurrence": 1,
+      "sha256": "85e31f95cd03b354a76843ab2a5498239c3ed9d099002669726ddb22618249c3",
+      "sources": [
+        "src/btctrler/bd19/shared/sys_timer.c"
+      ]
+    },
+    {
+      "member": "thread.c.o",
+      "occurrence": 1,
+      "sha256": "66446ead91eb8681485f2f7f22950d956f50ce6403b7f3dfbda14fd9c8cbd3dd",
+      "sources": [
+        "src/btctrler/bd19/shared/thread.c"
+      ]
+    },
+    {
+      "member": "tws_ble_link.c.o",
+      "occurrence": 1,
+      "sha256": "d73ab18d08102ac84c8056147810e740fa4e0eb1e1aea77e8b4bdc5c4e8a7f7c",
+      "sources": [
+        "src/btctrler/bd19/shared/tws_ble_link.c"
+      ]
+    },
+    {
+      "member": "tws_le_acc.c.o",
+      "occurrence": 1,
+      "sha256": "10a34d02086e881e5502e6b2d92497c227d40125c089689d1f08cba061a0ca2b",
+      "sources": [
+        "src/btctrler/tws_le_acc.c"
+      ]
+    },
+    {
+      "member": "vendor_manager.c.o",
+      "occurrence": 1,
+      "sha256": "b5628c966b1b8fd2c0afe81c646dcac73ea42d597cc4dfac47d0d0996c2a477d",
+      "sources": [
+        "src/btctrler/bd19/shared/vendor_manager.c"
+      ]
+    },
+    {
+      "member": "vsprintf.c.o",
+      "occurrence": 1,
+      "sha256": "7d3b5f41bc29cc8d66c823e62260a922c4d08f2f5e399fb6aa7f13add44ef471",
+      "sources": [
+        "src/btctrler/vsprintf.c"
+      ]
+    }
+  ]
+}

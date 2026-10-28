@@ -1,121 +1,89 @@
 ---
 name: btctrler-review
-description: Batch-review btctrler/<member> branches produced by other agents with the btctrler-own skill — check each against the SDK IR, fix or reject, merge onto main, flash and test on hardware. Use when asked to review, merge or test agents' btctrler work.
+description: Review and integrate BR23/BD19 controller ownership commits against original SDK IR, target layouts, and compiled symbol boundaries.
 ---
 
-# Batch review of btctrler branches
+The canonical integration worktree is `/work/cyclone2-fw-btctrler-vanilla`, always on
+`btctrler/br23-bd19-vanilla`. Do not move that branch into a review checkout or
+switch the canonical checkout onto a worker branch. Confirm roots, branches
+and status with `git worktree list` before changing anything.
 
-Workers follow `.claude/skills/btctrler-own/SKILL.md` and leave one commit
-per member on branches `btctrler/<member>`.  You are the gate: nothing
-reaches `main` or the pad without passing this.
+Review a finished worker's commits in its existing isolated worktree; reuse
+that branch for corrections once the worker has stopped, instead of creating
+a branch/worktree for every review. Read the full commit body and uncertainties
+first (use session logs only to recover older missing reports), then compare
+every changed function/global with occurrence-specific BD19 IR, BR23 IR and
+current BR23 behavior. Follow the sibling `btctrler-own/SKILL.md`; passing
+host tests or a call-set match is not semantic/ABI proof. Keep coordinator
+manifest/header/glue changes in the reviewed batch, not in an active worker's
+files. Use a temporary review worktree only when isolation actually requires
+one, and remove it after integration too.
 
-## 1. Collect
+Use the cross-chip census to avoid repeating the BR23 recovery. Matching
+instructions and checked boundaries justify reusing the already-reviewed C;
+review current app changes and compilation/ownership rather than decompiling
+it again. Concentrate detailed IR review on boundary differences and changed
+instructions. Equal C field names can compile to different target offsets;
+raw byte offsets, allocation sizes and bit operations need explicit checks.
 
-```
-cd /work/cyclone2-firmware
-git branch --list 'btctrler/*' 'worktree-agent-*'
-git worktree list
-```
-For each branch: `git log --format='%h %s' main..BRANCH` (expect one
-commit) and `git show --stat BRANCH`.  A branch touching files outside
-`src/btctrler/<member>.c`, `tools/btctrler/{recover,archive}.py` and
-`tools/build_btctrler.py` needs a reason.
+Check every initializer byte programmatically, plus sections and alignment.
+Check widths, signedness, wrap behavior, under-aligned multi-byte copies,
+callback lifetime, repeated loads/calls, reset/IRQ behavior and assembly-name
+aliases. Preserve BR23 behavior at the clean 44d0073 baseline, including its recorded recovery limitations; do not import later app fixes. Record any BD19 application
+of those fixes separately from faithful SDK ownership.
 
-Make sure `build/controller-ir/sdk/` exists in the main checkout
-(`make controller-ir`), since every check below compares against it.
+Use `tools/btctrler/README.md` for integration commands. Add manifest entries
+only after code review. Whole-member replacement requires all external
+definitions; `make controller-audit` checks compiled ownership against the
+original member. Verify retained archive member bytes and order, both target
+layouts, affected firmware builds, and relevant tests. Explain firmware image
+differences where BR23 behavior should remain unchanged.
 
-## 2. Review each branch (in its worktree)
+Commit reviewable checkpoints on the worker/review branch with the full report.
+Merge the reviewed batch into `btctrler/br23-bd19-vanilla` from the canonical
+integration worktree. Prefer merging the actual worker branch (including
+review corrections) to cherry-picking, so ancestry proves it is integrated.
+Validate the combined result there. Leave the primary checkout and active
+workers untouched. Hardware tests require a separate
+authorized stage and user-operated physical actions where needed; this skill
+does not itself authorize flashing, host/console connections, or rumble.
 
-Read the commit's **Review notes**, "Unsure" first.  Then:
+Write the review report in the review/acceptance commit message body: input
+commits, SDK member occurrences/hashes, exact exports/globals/sections,
+corrections and evidence, preserved BR23 behavior, BD19 SDK quirks, validation
+commands/results, image comparison, remaining uncertainty and revisits. Use a
+body file for multiline git messages. A chat report does not replace this.
+Update `src/btctrler/revisit-bd19.md` with new consolidation
+candidates, deferred app fixes, likely SDK bugs and unresolved behavior. Link
+each entry to source/functions and durable commit/IR evidence; label inherited
+BR23 observations that have not been confirmed on BD19. Do not leave corrected
+translation errors listed as active SDK bugs. Mark resolved entries with the
+resolution commit instead of silently deleting their history. Acceptance is
+not complete until the reviewed changes are merged into the integration branch,
+combined validation passes, and cleanup is finished.
 
-- **Functions:** read every owned function against
-  `build/controller-ir/sdk/<member>.c.o.ll` (`tools/btctrler/irc.py` for
-  pseudo-C, `.ll` as authority).  Check signedness, widths, wrap
-  constants, argument order at the call sites, early returns, and the order of side
-  effects.
-- **Hardware and IRQ attributes:** check every `inttoptr` load/store against
-  the same MMIO address and volatility in the owned object. Check function
-  attributes too, especially `interrupt` on IRQ callbacks. Compare call
-  counts and volatile access order; a call-set match alone misses rereads.
-- **Globals and tables:** compare bytes programmatically, not by eye.  Parse
-  each `@name = ... c"..."` initializer from the IR and the C array, and
-  compare them.  Check every global's `section "..."` and `const` against the C
-  (a worker once claimed "plain const as in the SDK" when the SDK had a
-  section).
-- **Wide copies:** for each owned function, compare the under-aligned
-  i16/i32/i64 loads and stores in the SDK body against the owned object
-  (a script over `build/controller-ir/sdk` and `build/src/btctrler/*.o`);
-  every one must be a memcpy, a helper read or a typed field in the C.
-- **Struct accesses:** any GEP on an SDK struct maps to the right member by
-  byte offset (bitfield merging); `_Static_assert(offsetof)` present where
-  it matters.
-- **Leftovers:** every function left in the member really has no caller
-  (`grep -l '@name(' build/controller-ir/retained/*.ll`, `grep -rn src/`).
-  Search symbol text for assembly-name aliases and inspect references in
-  compiled owned-object IR too; `name(` source searches miss aliased callers.
-- **Asserts and allocation:** the paths match the SDK (malloc vs lmp_malloc, free
-  pairing, assert → `btctrler_assert_failed`).
-- **Tests:** the expected values come from the IR semantics or a published
-  source, not from running the new code.  Edge cases covered.
-- **Tools:** run `make controller-ir` then
-  `python3 tools/btctrler/crosscheck.py <functions>`; workers often skip
-  this.
-- **Behaviour changes:** any intentional deviation from the SDK is rejected
-  unless the user decides otherwise.
+After integration, remove the completed worker and temporary review worktrees
+with `git worktree remove PATH`, invoked from the canonical checkout, then
+remove their branches with `git branch -d BRANCH`. Check for tracked/untracked
+changes and confirm each tip is an ancestor of integration first. Inspect
+nested dependency repositories too. A clean submodule-only refusal can require
+`--force`; it is not permission to erase changes. If a cherry-pick or later
+correction obscures ancestry, establish the replacement mapping and preserve
+unique commits before deleting refs. Keep pending/unreviewed worktrees and
+record their status; do not discard them to make a cleanup look complete.
+Recheck that the canonical worktree is clean on `btctrler/br23-bd19-vanilla`, and
+that the primary checkout is untouched. The final chat names the integration
+commit and any remaining pending work; keep it concise.
 
-Verdict per branch: **merge**, **merge with fixes** (you fix it and note
-it in the commit), or **send back** (a SendMessage to the worker if it is still
-reachable, or a note to the user).
+This branch descends from `btctrler-decompiled` at `44d0073`. Previous BD19
+reports originate on `btctrler/bd19-support` through `7cae22b`; consult their
+commit bodies, but do not merge that app branch. Migration provenance is in
+`tools/btctrler/vanilla-migration.md`. No hardware actions in this workflow.
 
-## 3. Merge
-
-On `main` in the main checkout, cherry-pick the approved commits.
-Conflicts are almost always the `PIPELINE`, `DROPPED`, `archive.py` import
-lines and adjacent `recover.py` tables: keep both sides.  Renumber
-the titles in sequence (`btctrler #N: ...`; see `git log`).  Amend messages to
-record reviewer fixes, and keep both Co-Authored-By lines (worker and yours).
-Then `make -j32` and `make test` (exit 0) on the merged tree.
-For each merged commit also run
-`python3 tools/btctrler/review/imagecmp.py <commit>^ <commit>` (builds in
-its own worktree, /work/cyclone2-imagecmp).  Where LTO discards the member's code, the image
-must be identical apart from BUILD_ID; any difference must be explained
-(live code legitimately recompiled, global placement) before merging.
-
-## 4. Hardware test (the user has allowed PC tests; no rumble)
-
-Flash and check the pad's clock (some boots run slow):
-```
-export PATH=/work/bin:$PATH
-make flash
-# then compare padtool status uptime over 4 s: it must advance ~4 s
-```
-Pick tests that run the new code; at minimum, on the PC (hostbt server,
-see /work/cyclone2-bluetooth-benchmarks.md §5):
-- `padtool connect B`, then `hostrx.py -t 30`: rate in line with the notes,
-  no stuck buttons (decode the report's button bytes from the hostbt log).
-- Encrypted reconnect (Link Key Request → Encryption Enabled in the hostbt log).
-- For pairing/security members: a fresh pairing on slot X under
-  `padtool ephemeral`, reconnect, then `bluetoothctl remove` on the PC
-  and `padtool reboot` to drop it.
-- Switch 2 (slot A) only if the user is there: connecting wakes the console.
-Never wake the console or test rumble without the user.  Restore any setting
-you change (prefer `padtool ephemeral` + reboot).
-
-If something fails: bisect by building and flashing commits from the main
-checkout (`git checkout <hash> && make flash`; builds take seconds and are
-reproducible there, not in other worktrees, where path strings shift the
-layout), then revert or fix only the first bad commit.
-
-## 5. Findings
-
-Verify each item in the commits' "Findings" notes (and anything you found
-yourself) against the IR, then add it to `src/btctrler/revisit.md` in order
-of interest, marked proven or untested.  Workers do not edit that file.
-
-## 6. Clean up and report
-
-Remove merged worktrees and branches (`git worktree remove`, `git branch -D`).
-Report to the user, leading with the verdicts: per member, what was owned,
-what the review found (SDK bugs worth knowing, worker mistakes), the
-hardware results, and anything untested.  Update the memory status line in
-`btctrler-assimilation-goal.md`.
+For this controller-only migration validate with `make -j32 controller-objects
+controller-test test controller-layouts controller-tools-test controller-audit`
+and `make controller-compare`. Four-product app targets are on the preserved
+application branch, not this branch. Existing baseline C is byte-identical to
+44d0073; `bd19/shared/` holds imported recoveries pending proven sharing.
+Do not promise strict SDK equivalence: the BR23 baseline includes earlier
+recovery choices/guards recorded in revisit.md. Audit those separately.

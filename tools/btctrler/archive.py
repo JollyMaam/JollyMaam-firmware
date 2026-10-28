@@ -1,38 +1,108 @@
-#!/usr/bin/env python3
-"""Inspect pristine BR23 LLVM code and record controller ownership.
-
-IR is optimized SDK implementation, not reconstructed original C. Output is a
-build artifact; never edits the shared SDK or copies its code into source git.
-"""
+"""Read GNU ar archives without losing repeated member names."""
+from collections import Counter
+from dataclasses import dataclass
 import hashlib
-import re
-
-# Functions owned C defines in place of the SDK's; retain the recovery
-# fingerprints for comparisons with the pristine SDK implementation.
-from .recover import LL_PERIODIC_ADVERTISING_OWNED, LL_KEYS_OWNED, HCI_LL_5_CMDS_OWNED, LL_WHITE_LIST_OWNED, BTENCRY_TASK_OWNED, THREAD_OWNED, BTCONTROLLER_HEAP_OWNED, SYS_TIMER_OWNED, COMMAND_DISPATCH_OWNED, LBUF_OWNED, LINK_BULK_OWNED, HCI_CONTROLLER_OWNED, H4_CONTROLLER_OWNED, HCI_LL_CMDS_OWNED, LMP_UTILS_OWNED, BREDR_UTILS_OWNED, RF_OWNED, BREDR_SLOT_TIMER_OWNED, BREDR_LOW_POWER_OWNED, LE_LOW_POWER_OWNED, LINK_TASK_OWNED, BREDR_FRAME_OWNED, MISC_HW_OWNED, AUTHENTICATION_OWNED, LMP_OWNED, DEVICE_MISC_OWNED, CLASSIC_MISC_OWNED, HCI_PROCEDURES_OWNED, TASK_QUEUE_OWNED, TASK_LIFECYCLE_OWNED, TASK_DISPATCH_OWNED, CONTROL_TX_OWNED, TWS_MEDIA_SYNC_OWNED, LOCAL_MEDIA_SYNC_OWNED, TWS_LL_ADV_OWNED, TWS_DATA_FORWARDING_OWNED, LL_EXT_INIT_OWNED, LL_EXTENDED_ADVERTISING_OWNED, LL_MASTER_OWNED, LL_DATA_EXTENSION_OWNED, LL_COMMON_ISO_OWNED, LL_BIS_OWNED, LL_CIS_OWNED, VSPRINTF_OWNED, VENDOR_MANAGER_OWNED, AES128_OWNED, AES_HW_OWNED, BREDR_DUT_OWNED, BREDR_FCC_OWNED, BTCONTROLLER_UTIL_OWNED, HCI_LL_OWNED, HW_DMA_OWNED, LL_SLAVE_OWNED, LL_MULTIPLE_PHYS_OWNED, LL_ADV_OWNED, LL_EVENTS_OWNED, DIRECT_TEST_DUT_OWNED, BREDR_LINK_OWNED, BTAGC_OWNED, ANALOG_BLE_OWNED, TWS_TX_SYNC_OWNED, LL_PC_OWNED, LL_BIS_MASTER_OWNED, NV_MEMORY_OWNED, LL_VENDOR_OWNED, LL_AFH_OWNED, LL_INIT_OWNED, LL_SCAN_OWNED, LL_WIFI_DETECT_OWNED, LL_RESOLVE_LIST_OWNED, LL_EXT_SCAN_OWNED, LL_EXT_ADV_OWNED, TWS_TASK_OWNED, TWS_SYNC_CALL_OWNED, TWS_BLE_LINK_OWNED, TWS_LE_LINK_OWNED, TWS_SNIFF_OWNED, TWS_LINK_OWNED, TWS_PAIR_OWNED, TWS_POWER_BALANCE_OWNED, TWS_EVENT_OWNED, TWS_LL_SCAN_OWNED, TWS_LE_ACC_OWNED, MULTILINK_SCHEDULE_OWNED, ANALOG_OWNED, LL_LINK_LAYER_OWNED
-OWNED = tuple(LL_PERIODIC_ADVERTISING_OWNED) + tuple(LL_KEYS_OWNED) + tuple(HCI_LL_5_CMDS_OWNED) + tuple(LL_WHITE_LIST_OWNED) + tuple(BTENCRY_TASK_OWNED) + tuple(THREAD_OWNED) + tuple(BTCONTROLLER_HEAP_OWNED) + tuple(SYS_TIMER_OWNED) + tuple(COMMAND_DISPATCH_OWNED) + tuple(LBUF_OWNED) + tuple(LINK_BULK_OWNED) + tuple(HCI_CONTROLLER_OWNED) + tuple(H4_CONTROLLER_OWNED) + tuple(HCI_LL_CMDS_OWNED) + tuple(LMP_UTILS_OWNED) + tuple(BREDR_UTILS_OWNED) + tuple(RF_OWNED) + tuple(BREDR_SLOT_TIMER_OWNED) + tuple(BREDR_LOW_POWER_OWNED) + tuple(LE_LOW_POWER_OWNED) + tuple(LINK_TASK_OWNED) + tuple(BREDR_FRAME_OWNED) + tuple(MISC_HW_OWNED) + tuple(AUTHENTICATION_OWNED) + tuple(LMP_OWNED) + tuple(DEVICE_MISC_OWNED) + tuple(CLASSIC_MISC_OWNED) + tuple(HCI_PROCEDURES_OWNED) + tuple(TASK_QUEUE_OWNED) + tuple(TASK_LIFECYCLE_OWNED) + tuple(TASK_DISPATCH_OWNED) + tuple(CONTROL_TX_OWNED) + tuple(TWS_MEDIA_SYNC_OWNED) + tuple(LOCAL_MEDIA_SYNC_OWNED) + tuple(TWS_LL_ADV_OWNED) + tuple(TWS_DATA_FORWARDING_OWNED) + tuple(LL_EXT_INIT_OWNED) + tuple(LL_EXTENDED_ADVERTISING_OWNED) + tuple(LL_MASTER_OWNED) + tuple(LL_DATA_EXTENSION_OWNED) + tuple(LL_COMMON_ISO_OWNED) + tuple(LL_BIS_OWNED) + tuple(LL_CIS_OWNED) + tuple(VSPRINTF_OWNED) + tuple(VENDOR_MANAGER_OWNED) + tuple(AES128_OWNED) + tuple(AES_HW_OWNED) + tuple(BREDR_DUT_OWNED) + tuple(BREDR_FCC_OWNED) + tuple(BTCONTROLLER_UTIL_OWNED) + tuple(HCI_LL_OWNED) + tuple(HW_DMA_OWNED) + tuple(LL_SLAVE_OWNED) + tuple(LL_MULTIPLE_PHYS_OWNED) + tuple(LL_ADV_OWNED) + tuple(LL_EVENTS_OWNED) + tuple(DIRECT_TEST_DUT_OWNED) + tuple(BREDR_LINK_OWNED) + tuple(BTAGC_OWNED) + tuple(ANALOG_BLE_OWNED) + tuple(TWS_TX_SYNC_OWNED) + tuple(LL_PC_OWNED) + tuple(LL_BIS_MASTER_OWNED) + tuple(NV_MEMORY_OWNED) + tuple(LL_VENDOR_OWNED) + tuple(LL_AFH_OWNED) + tuple(LL_INIT_OWNED) + tuple(LL_SCAN_OWNED) + tuple(LL_WIFI_DETECT_OWNED) + tuple(LL_RESOLVE_LIST_OWNED) + tuple(LL_EXT_SCAN_OWNED) + tuple(LL_EXT_ADV_OWNED) + tuple(TWS_TASK_OWNED) + tuple(TWS_SYNC_CALL_OWNED) + tuple(TWS_BLE_LINK_OWNED) + tuple(TWS_LE_LINK_OWNED) + tuple(TWS_SNIFF_OWNED) + tuple(TWS_LINK_OWNED) + tuple(TWS_PAIR_OWNED) + tuple(TWS_POWER_BALANCE_OWNED) + tuple(TWS_EVENT_OWNED) + tuple(TWS_LL_SCAN_OWNED) + tuple(TWS_LE_ACC_OWNED) + tuple(LL_LINK_LAYER_OWNED) + (
-    'hci_lmp_controller_baseband_cmd_handler', 'hci_controller_baseband_cmd_handler',
-    'hci_informational_parameters_cmd_handler',
-    'hci_lmp_link_control_cmd_handler', 'hci_lmp_link_policy_cmd_handler') + tuple(MULTILINK_SCHEDULE_OWNED) + tuple(ANALOG_OWNED)
-from .recover import RF_BLE5_OWNED
-OWNED += tuple(RF_BLE5_OWNED)
-from .recover import RF_BLE_OWNED
-OWNED += tuple(RF_BLE_OWNED)
-# This archive was inspected for pre-existing inline copies and call attributes.
-# Changing it requires repeating that audit, not just matching one definition.
-AUDITED_SDK_SHA256 = 'f63db0097b5d41096b3228ca038898f317694d6d293d1ba48beddfab85778869'
-
-def require_audited_sdk(source):
-    if digest(source) != AUDITED_SDK_SHA256:
-        raise RuntimeError('controller: SDK archive changed; audit owned boundaries with controller-ir before updating the fingerprint')
-
-def digest(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-def definitions(text):
-    return re.findall(r'^define [^\n]*@([^ (]+)\(', text, re.M)
+from pathlib import Path
 
 
-def inspect(source, output, clang, ar):
-    from .inspection import inspect as inspect_cached
-    inspect_cached(source, output, clang, ar, OWNED)
+def sha256(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+@dataclass(frozen=True)
+class Member:
+    name: str
+    occurrence: int
+    header: bytes
+    data: bytes
+    offset: int = 0
+
+    @property
+    def key(self):
+        return f'{self.occurrence:02d}--{self.name}'
+
+    @property
+    def digest(self):
+        return sha256(self.data)
+
+
+def read_archive(path):
+    data = Path(path).read_bytes()
+    if not data.startswith(b'!<arch>\n'):
+        raise ValueError(f'{path}: expected a GNU ar archive')
+    offset, names, counts, members, table = 8, b'', Counter(), [], b''
+    while offset < len(data):
+        member_offset = offset
+        header = data[offset:offset + 60]
+        if len(header) != 60 or header[58:] != b'`\n':
+            raise ValueError(f'{path}: invalid member header at {offset}')
+        size = int(header[48:58])
+        payload = data[offset + 60:offset + 60 + size]
+        if len(payload) != size:
+            raise ValueError(f'{path}: truncated member at {offset}')
+        offset += 60 + size + size % 2
+        name = header[:16].decode('ascii').strip()
+        if name == '//':
+            names = payload
+            table = header + payload + (b'\n' if size % 2 else b'')
+            continue
+        if name in ('/', '/SYM64/'):
+            continue
+        if name.startswith('/') and name[1:].isdigit():
+            index = int(name[1:])
+            if index >= len(names) or b'/\n' not in names[index:]:
+                raise ValueError(f'{path}: invalid long member name')
+            name = names[index:].split(b'/\n', 1)[0].decode('utf-8')
+        elif name.startswith('#1/'):
+            raise ValueError('BSD extended names are not supported')
+        else:
+            name = name.removesuffix('/')
+        if not name or '/' in name or name in ('.', '..'):
+            raise ValueError(f'{path}: unsafe member name {name!r}')
+        counts[name] += 1
+        members.append(Member(name, counts[name], header, payload, member_offset))
+    if offset != len(data):
+        raise ValueError(f'{path}: missing archive padding')
+    return members, table
+
+
+def index_entries(path):
+    """Resolve GNU ar symbol offsets to exact member occurrences."""
+    members, _ = read_archive(path)
+    by_offset = {m.offset: m for m in members}
+    data = Path(path).read_bytes()
+    offset = 8
+    while offset < len(data):
+        header = data[offset:offset + 60]
+        size = int(header[48:58])
+        name = header[:16].strip()
+        payload = data[offset + 60:offset + 60 + size]
+        offset += 60 + size + size % 2
+        if name not in (b'/', b'/SYM64/'):
+            continue
+        width = 4 if name == b'/' else 8
+        count = int.from_bytes(payload[:width], 'big')
+        end = width * (count + 1)
+        if len(payload) < width or end > len(payload):
+            raise ValueError(f'{path}: truncated symbol index')
+        strings = payload[end:].split(b'\0')
+        if len(strings) < count + 1:
+            raise ValueError(f'{path}: truncated symbol names')
+        result = []
+        for i in range(count):
+            member_offset = int.from_bytes(payload[width * (i + 1):width * (i + 2)], 'big')
+            if member_offset not in by_offset:
+                raise ValueError(f'{path}: symbol points outside archive members')
+            result.append((strings[i].decode(), by_offset[member_offset]))
+        return result
+    raise ValueError(f'{path}: missing symbol index')
+
+
+def write_archive(path, members, name_table):
+    """Preserve names, order, headers and payloads; caller rebuilds the index."""
+    with Path(path).open('wb') as out:
+        out.write(b'!<arch>\n' + name_table)
+        for member in members:
+            out.write(member.header + member.data)
+            if len(member.data) % 2:
+                out.write(b'\n')

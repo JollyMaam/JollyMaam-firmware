@@ -10,3 +10,5 @@
 *.swp
 *~
 __pycache__/
+
+/external/
