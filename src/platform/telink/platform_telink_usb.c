@@ -193,7 +193,8 @@ static struct {
  * product (board_name) or serial (the flash UID in hex). */
 static u16 string_chars(u8 index)
 {
-    return index == 1 ? (u16)strlen(USB_MANUFACTURER) : index == 2 ? (u16)strlen(board_name) : 32;
+    return index == 1 ? (u16)strlen(USB_MANUFACTURER)
+         : index == 2 ? (u16)(strlen(board_name) + sizeof(USB_PRODUCT_TAIL) - 1) : 32;
 }
 
 static u8 string_byte(u8 index, u16 k)
@@ -206,7 +207,7 @@ static u8 string_byte(u8 index, u16 k)
     if (k == 1) return 3;
     if (k & 1) return 0;
     if (index == 1) return (u8)USB_MANUFACTURER[c];
-    if (index == 2) return (u8)board_name[c];
+    if (index == 2) return (u8)(c < strlen(board_name) ? board_name[c] : USB_PRODUCT_TAIL[c - strlen(board_name)]);
     b = plat_unique_id()[c / 2];
     return (u8)hex[c & 1 ? b & 15 : b >> 4];
 }

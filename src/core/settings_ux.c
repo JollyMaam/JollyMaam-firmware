@@ -4,8 +4,8 @@
 /* Home gestures, timeouts and LED scenes. */
 
 /* A controller without the remap engine leaves Home+M to the host. */
-#ifndef UX_REMAP_CONFIG
-#define UX_REMAP_CONFIG 1
+#ifndef UX_QUICK_SETTINGS
+#define UX_QUICK_SETTINGS 1
 #endif
 
 const struct ux_timeouts ux_timeouts = {
@@ -18,10 +18,10 @@ const struct ux_timeouts ux_timeouts = {
     .unplug_sleep_ms = 5000,     /* after USB goes away */
     .stop_max_ms = 12000,
     .boot_scene_ms = 500,
-    .uboot_window_ms = 3000,     /* Home+Start at boot: USB may arrive this late */
+    .updater_window_ms = 3000,   /* an updater chord at boot: USB may arrive this late */
     .led_frame_ms = 20,
     .usb_plug_ms = 1000,
-    .config_ms = 30000,          /* remap config mode, from its last key press */
+    .quick_ms = 30000,           /* quick settings, from its last key press */
     .rumble_pulse_ms = 80,
     .rumble_gap_ms = 80,
 };
@@ -38,6 +38,23 @@ int ux_rumble_feedback(u8 level, u32 elapsed, u32 *next)
     if (!level || index >= level || (index == level - 1u && phase >= pulse)) return 0;
     *next = index * period + (phase < pulse ? pulse : period);
     return phase < pulse;
+}
+
+/* Held as the pad boots with USB, or as USB arrives while not connected:
+ * the updater (src/updater/).  Home+Start as on the stock pads, L1+R1 as the
+ * 8BitDo's boot loader. */
+static const u32 updater_chords[] = {
+    PAD_HOME | PAD_START,
+    PAD_HOME | PAD_M,
+    PAD_L1 | PAD_R1,
+};
+
+int ux_updater_chord(u32 buttons)
+{
+    u32 i;
+    for (i = 0; i < sizeof(updater_chords) / sizeof(updater_chords[0]); i++)
+        if ((buttons & updater_chords[i]) == updater_chords[i]) return 1;
+    return 0;
 }
 
 /* Idle, a USB host appearing (a plug-in, or the host waking) connects the
@@ -79,12 +96,12 @@ const struct ux_led_demo ux_led_demos[] = {
     { "steady 0.5, dithered", CTL_CONNECTED, LED_DEMO_SCENE, GRIPS_PRIMARY, PLAYERS_PRIMARY, 5, 0, LED_DEMO_DITHER_ON },
     { "dim fade up to 3, dithered", CTL_CONNECTED, LED_DEMO_SCENE, GRIPS_FADE, PLAYERS_FADE, 0, 30, LED_DEMO_DITHER_ON },
     { "dim fade up to 3, not dithered", CTL_CONNECTED, LED_DEMO_SCENE, GRIPS_FADE, PLAYERS_FADE, 0, 30, LED_DEMO_DITHER_OFF },
-    { "remap config mode (Home+M): colours flowing down the pad", CTL_CONNECTED, LED_DEMO_CONFIG },
+    { "quick settings (Home+M): colours flowing down the pad", CTL_CONNECTED, LED_DEMO_QUICK },
     { "restarting into the flash loader: a green launch, then held", CTL_REBOOTING, LED_DEMO_LOADER },
 };
 const u8 ux_led_demo_count = sizeof(ux_led_demos) / sizeof(ux_led_demos[0]);
 
-const struct led_scene ux_config_scene = { .effect = EFFECT_CONFIG };
+const struct led_scene ux_quick_scene = { .effect = EFFECT_QUICK };
 const struct led_scene ux_loader_scene = { .effect = EFFECT_LOADER };
 
 const struct led_scene ux_scenes[CTL_KIND_COUNT] = {
@@ -98,18 +115,23 @@ const struct led_scene ux_scenes[CTL_KIND_COUNT] = {
     [CTL_REBOOTING] =  { COLOUR_IDLE,    LED_OFF,             BAR_ALL,    LED_OFF,             GRIPS_WAVE, LED_OFF },
 };
 
-/* Home+M: remap config mode, which ux_step runs itself.  Every input is held
+/* Home+M: quick settings, which ux_step runs itself.  Every input is held
  * back from the host; releasing a slot key picks that remap slot, releasing
- * Home or M picks the base remap, ux_timeouts.config_ms without a press leaves it as it
- * was.  Releasing L1 or R1 lowers or raises the rumble step and stays. */
-#define REQ_CONFIG 0xff
+ * M or a lone Home picks the base remap, ux_timeouts.quick_ms without a press
+ * leaves it as it was.  Releasing L1 or R1 lowers or raises the rumble step
+ * and stays.  Home's chords work as when connected: Home+Minus disconnects,
+ * which ends quick settings with the session. */
+#define REQ_QUICK 0xff
+
+/* A held chord: pairing. */
+#define HOLD_MS 3000
 
 /* Where a gesture works (offline: any state but connected), and whether it
  * fires on release rather than at hold_ms. */
 enum { OFFLINE = 1, CONNECTED = 2, RELEASE = 4 };
 
 /* keys held with Home, hold, request, slot, flags.
- * The REQ_CONNECT rows also name the slot keys of config mode. */
+ * The REQ_CONNECT rows also name the slot keys of quick settings. */
 static const struct gesture { u32 keys; u16 hold_ms; u8 request, slot, flags; } gestures[] = {
     {PAD_SELECT, 0, REQ_DISCONNECT, SLOT_NONE, OFFLINE | CONNECTED | RELEASE},
     {PAD_A, 0, REQ_CONNECT, 0, OFFLINE | RELEASE},
@@ -122,16 +144,16 @@ static const struct gesture { u32 keys; u16 hold_ms; u8 request, slot, flags; } 
     {PAD_RIGHT, 0, REQ_CONNECT, 7, OFFLINE | RELEASE},
     {PAD_L3, 0, REQ_CALIBRATE, SLOT_NONE, OFFLINE},
     {PAD_R3, 0, REQ_CALIBRATE, SLOT_NONE, OFFLINE},
-    {PAD_A, 5000, REQ_PAIR, 0, OFFLINE},
-    {PAD_B, 5000, REQ_PAIR, 1, OFFLINE},
-    {PAD_X, 5000, REQ_PAIR, 2, OFFLINE},
-    {PAD_Y, 5000, REQ_PAIR, 3, OFFLINE},
-    {PAD_UP, 5000, REQ_PAIR, 4, OFFLINE},
-    {PAD_DOWN, 5000, REQ_PAIR, 5, OFFLINE},
-    {PAD_LEFT, 5000, REQ_PAIR, 6, OFFLINE},
-    {PAD_RIGHT, 5000, REQ_PAIR, 7, OFFLINE},
-#if UX_REMAP_CONFIG
-    {PAD_M, 0, REQ_CONFIG, SLOT_NONE, CONNECTED | RELEASE},
+    {PAD_A, HOLD_MS, REQ_PAIR, 0, OFFLINE},
+    {PAD_B, HOLD_MS, REQ_PAIR, 1, OFFLINE},
+    {PAD_X, HOLD_MS, REQ_PAIR, 2, OFFLINE},
+    {PAD_Y, HOLD_MS, REQ_PAIR, 3, OFFLINE},
+    {PAD_UP, HOLD_MS, REQ_PAIR, 4, OFFLINE},
+    {PAD_DOWN, HOLD_MS, REQ_PAIR, 5, OFFLINE},
+    {PAD_LEFT, HOLD_MS, REQ_PAIR, 6, OFFLINE},
+    {PAD_RIGHT, HOLD_MS, REQ_PAIR, 7, OFFLINE},
+#if UX_QUICK_SETTINGS
+    {PAD_M, 0, REQ_QUICK, SLOT_NONE, CONNECTED | RELEASE},
 #endif
     {PAD_M, 0, REQ_REBOOT_UPDATER, SLOT_NONE, OFFLINE | RELEASE},   /* src/updater/ */
 };
@@ -141,8 +163,8 @@ static const struct gesture { u32 keys; u16 hold_ms; u8 request, slot, flags; } 
 static struct {
     u32 started, chord_at, keys, captured, before, tap, tap_release_at, done;
     u8 active, live, chorded, offline, fired, mixed, draining, tap_reported;
-    u8 config;
-    u32 config_since, config_at, config_held, config_down; /* config_at: its last press */
+    u8 quick;
+    u32 quick_since, quick_at, quick_held, quick_down; /* quick_at: its last press */
 } ux;
 
 static struct ctl_request request(u8 kind, u8 slot)
@@ -175,19 +197,19 @@ static struct ctl_request released(u32 chord)
     return request(REQ_NONE, SLOT_NONE);
 }
 
-/* Config mode: keys count on release, and only ones pressed in it. */
-static struct ctl_request config_step(struct pad *p, u32 now)
+/* Quick settings with Home up: keys count on release, and only ones pressed
+ * in it.  A Home press goes to ux_step's chords. */
+static struct ctl_request quick_step(struct pad *p)
 {
     struct ctl_request r = request(REQ_NONE, SLOT_NONE);
     u32 keys = p->buttons & PAD_DIGITAL, up, i;
     int done = 0;
 
-    if (keys & ~ux.config_held) ux.config_at = now;
-    ux.config_down |= keys & ~ux.config_held;
-    up = ux.config_down & ~keys;
-    ux.config_held = keys;
-    ux.config_down &= keys;
-    if (up & (PAD_HOME | PAD_M)) {
+    ux.quick_down |= keys & ~ux.quick_held;
+    up = ux.quick_down & ~keys;
+    ux.quick_held = keys;
+    ux.quick_down &= keys;
+    if (up & PAD_M) {
         r = request(REQ_REMAP, SLOT_NONE);
         done = 1;
     } else if (up & (PAD_L1 | PAD_R1)) {
@@ -198,8 +220,7 @@ static struct ctl_request config_step(struct pad *p, u32 now)
         done = 1;
         break;
     }
-    if (!done && now - ux.config_at >= ux_timeouts.config_ms) done = 1;
-    if (done) ux.config = 0;
+    if (done) ux.quick = 0;
     memset(p, 0, PAD_CONTROLS_SIZE);
     return r;
 }
@@ -211,9 +232,11 @@ struct ctl_request ux_step(struct pad *p, u32 now, u8 state)
     int offline = state == CTL_BOOT || state == CTL_IDLE || state == CTL_CONNECTING ||
                   state == CTL_PAIRING || state == CTL_STOPPING;
 
-    if (UX_REMAP_CONFIG && ux.config) {
-        if (state == CTL_CONNECTED) return config_step(p, now);
-        ux.config = 0;
+    if (UX_QUICK_SETTINGS && ux.quick) {
+        if ((keys & PAD_DIGITAL) & ~ux.quick_held) ux.quick_at = now;
+        if (state != CTL_CONNECTED || now - ux.quick_at >= ux_timeouts.quick_ms) ux.quick = 0;
+        else if (!ux.active && !(keys & PAD_HOME & ~ux.quick_held)) return quick_step(p);
+        else ux.draining = 0;              /* a Home press: quick_held keeps older keys out */
     }
     if (state != CTL_CONNECTED) ux.tap = 0;
     if (ux.tap && ux.tap_reported && (s32)(now - ux.tap_release_at) >= 0) ux.tap = 0;
@@ -235,7 +258,10 @@ struct ctl_request ux_step(struct pad *p, u32 now, u8 state)
             if (chord) ux.mixed = 1;
             if (!(keys & PAD_HOME)) {
                 int lone = !ux.chorded && !ux.fired;
-                if (lone && state == CTL_CONNECTED && !ux.live) {
+                if (lone && ux.quick) {
+                    r = request(REQ_REMAP, SLOT_NONE);
+                    ux.quick = 0;
+                } else if (lone && state == CTL_CONNECTED && !ux.live) {
                     ux.tap |= PAD_HOME;
                     ux.tap_reported = 0;
                 } else if (lone && !ux.mixed && (state == CTL_IDLE || state == CTL_BOOT)) {
@@ -285,18 +311,24 @@ struct ctl_request ux_step(struct pad *p, u32 now, u8 state)
             if (!ux.live) output &= ~ux.captured;
         }
     }
-    if (UX_REMAP_CONFIG && r.kind == REQ_CONFIG) {
+    if (UX_QUICK_SETTINGS && r.kind == REQ_QUICK) {
         r = request(REQ_NONE, SLOT_NONE);
         if (state == CTL_CONNECTED) {
-            ux.config = 1;
-            ux.config_since = ux.config_at = now;
-            ux.config_held = keys & PAD_DIGITAL;   /* Home, maybe M: not presses in it */
-            ux.config_down = 0;
-            ux.draining = 0;                       /* config_held keeps them out instead */
+            ux.quick = 1;
+            ux.quick_since = ux.quick_at = now;
+            ux.quick_held = keys & PAD_DIGITAL;    /* Home, maybe M: not presses in it */
+            ux.quick_down = 0;
+            ux.draining = 0;                        /* quick_held keeps them out instead */
             ux.tap = 0;
             memset(p, 0, PAD_CONTROLS_SIZE);
             return r;
         }
+    }
+    if (UX_QUICK_SETTINGS && ux.quick) {   /* Home and its chords: none of it for the host */
+        ux.quick_held = keys & PAD_DIGITAL;
+        ux.quick_down = 0;
+        memset(p, 0, PAD_CONTROLS_SIZE);
+        return r;
     }
     p->buttons = output | ux.tap;
     /* Until the down report leaves, keep the release deadline armed so the loop still runs. */
@@ -315,8 +347,10 @@ void ux_reported(u32 now)
 u32 ux_deadline(void)
 {
     u32 next = 0, i;
-    if (UX_REMAP_CONFIG && ux.config) return ux.config_at + ux_timeouts.config_ms;
-    if (ux.tap) next = ux.tap_release_at;
+    if (UX_QUICK_SETTINGS && ux.quick) {
+        next = ux.quick_at + ux_timeouts.quick_ms;
+        if (!ux.active) return next;
+    } else if (ux.tap) next = ux.tap_release_at;
     if (!ux.active) return next;
     if (!ux.live && !ux.chorded && !ux.fired)
         next = earlier(next, ux.started + ux_timeouts.home_grace_ms);
@@ -345,11 +379,11 @@ void ux_ignore_held(void)
     ux.tap = 0;
 }
 
-int ux_config(u32 *since)
+int ux_quick(u32 *since)
 {
-    if (!UX_REMAP_CONFIG) return 0;
-    if (ux.config && since) *since = ux.config_since;
-    return ux.config;
+    if (!UX_QUICK_SETTINGS) return 0;
+    if (ux.quick && since) *since = ux.quick_since;
+    return ux.quick;
 }
 
 /* home_wake with Home already up: the wake was a tap. */
@@ -378,7 +412,7 @@ static void reset(u8 next_state)
     now = 100;
     run(1);
 }
-static void config(void)
+static void quick(void)
 {
     reset(CTL_CONNECTED);
     pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_M; run(10); pad.buttons = 0; run(10);
@@ -395,6 +429,9 @@ int main(void)
     CHECK(ux_idle_deadline(1000, 20000, 100000, 1, 1) == 0);
     CHECK(ux_idle_deadline(0xfffffff0u, 0, 0xfffffff0u, 0, 0) == 14984);
     CHECK(ux_idle_deadline(0xffff0000u, 0, 0xfffffff0u, 0, 0) == 4984);
+    CHECK(ux_updater_chord(PAD_HOME | PAD_START) && ux_updater_chord(PAD_HOME | PAD_M | PAD_A));
+    CHECK(ux_updater_chord(PAD_L1 | PAD_R1) && !ux_updater_chord(PAD_HOME | PAD_L1));
+    CHECK(!ux_updater_chord(PAD_START | PAD_M) && !ux_updater_chord(0));
     /* Connected: Home after its grace. */
     reset(CTL_CONNECTED); pad.buttons = PAD_HOME; run(ux_timeouts.home_grace_ms);
     CHECK(!seen.buttons); run(1); CHECK(seen.buttons == PAD_HOME);
@@ -452,17 +489,17 @@ int main(void)
     reset(CTL_PAIRING); pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_SELECT; run(10);
     pad.buttons = PAD_HOME; run(1); CHECK(last.kind == REQ_DISCONNECT);
 
-    /* Offline: connect on release, or pair at 5 s. */
+    /* Offline: connect on release, or pair at HOLD_MS. */
     for (i = CTL_BOOT; i <= CTL_STOPPING; i++) {
         if (i == CTL_CONNECTED) continue;
         reset((u8)i); run(5000);
         pad.buttons = PAD_HOME; run(ux_timeouts.home_grace_ms + 100);
-        pad.buttons |= PAD_B; run(5000);
+        pad.buttons |= PAD_B; run(HOLD_MS);
         CHECK(last.kind == REQ_NONE && !seen.buttons && ux_deadline() == now + 1);
         run(1); CHECK(last.kind == REQ_PAIR && last.slot == 1 && last.generate_new_address);
         pad.buttons = PAD_HOME; run(1); CHECK(last.kind == REQ_NONE);
         pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE && !seen.buttons && !ux.tap);
-        reset((u8)i); pad.buttons = PAD_HOME | PAD_B; run(5000); CHECK(last.kind == REQ_NONE);
+        reset((u8)i); pad.buttons = PAD_HOME | PAD_B; run(HOLD_MS); CHECK(last.kind == REQ_NONE);
         pad.buttons = PAD_HOME; run(1); CHECK(last.kind == REQ_CONNECT && last.slot == 1 && !last.generate_new_address);
         run(10); pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE && !ux.tap);
         reset((u8)i); pad.buttons = PAD_HOME | PAD_B; run(100);
@@ -473,7 +510,7 @@ int main(void)
     reset(CTL_IDLE); CHECK(ux_armed() == SLOT_NONE);
     pad.buttons = PAD_HOME; run(1); CHECK(ux_armed() == SLOT_NONE);
     pad.buttons |= PAD_Y; run(1); CHECK(ux_armed() == 3);
-    run(5000); CHECK(ux_armed() == SLOT_NONE); /* now pairing */
+    run(HOLD_MS); CHECK(ux_armed() == SLOT_NONE); /* now pairing */
     reset(CTL_IDLE); pad.buttons = PAD_HOME | PAD_L1; run(1); CHECK(ux_armed() == SLOT_NONE);
     reset(CTL_CONNECTING); pad.buttons = PAD_HOME; run(1); CHECK(ux_armed() == SLOT_NONE);
     pad.buttons |= PAD_A; run(1); CHECK(ux_armed() == 0);
@@ -481,7 +518,7 @@ int main(void)
     pad.buttons |= PAD_A; run(1); CHECK(ux_armed() == SLOT_NONE);
     /* A slot started offline keeps going once connected. */
     reset(CTL_IDLE); pad.buttons = PAD_HOME | PAD_B; run(100); state = CTL_CONNECTED;
-    run(4901); CHECK(last.kind == REQ_PAIR && last.slot == 1);
+    run(HOLD_MS - 99); CHECK(last.kind == REQ_PAIR && last.slot == 1);
     reset(CTL_IDLE); pad.buttons = PAD_L3; run(100); pad.buttons |= PAD_HOME; run(1);
     CHECK(last.kind == REQ_CALIBRATE);
     reset(CTL_IDLE); pad.buttons = PAD_HOME | PAD_RIGHT; run(1);
@@ -507,7 +544,7 @@ int main(void)
         last = ux_boot(pad.buttons, 1, now);
         CHECK(last.kind == REQ_NONE);
         state = CTL_IDLE; run(1); CHECK(last.kind == REQ_NONE && !seen.buttons);
-        run(4999); CHECK(last.kind == REQ_PAIR && last.slot == i);
+        run(HOLD_MS - 1); CHECK(last.kind == REQ_PAIR && last.slot == i);
         reset(CTL_BOOT); pad.buttons = PAD_HOME | gestures[i + 1].keys; ux_boot(pad.buttons, 1, now);
         state = CTL_IDLE; run(300); pad.buttons = 0; run(1);
         CHECK(last.kind == REQ_CONNECT && last.slot == i);
@@ -535,44 +572,44 @@ int main(void)
     pad.buttons |= PAD_A; run(2000); CHECK(last.kind == REQ_NONE && seen.buttons == pad.buttons);
     reset(CTL_IDLE); pad.buttons = PAD_M | PAD_A; run(100); CHECK(last.kind == REQ_NONE);
 
-#if UX_REMAP_CONFIG
-    /* Remap config mode: Home+M on release, whichever goes first. */
+#if UX_QUICK_SETTINGS
+    /* Quick settings: Home+M on release, whichever goes first. */
     reset(CTL_CONNECTED); pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_M; run(3000);
-    CHECK(!ux_config(NULL) && !seen.buttons);
-    pad.buttons = PAD_HOME; run(1); CHECK(ux_config(NULL) && last.kind == REQ_NONE && !seen.buttons);
-    pad.buttons = 0; run(100); CHECK(ux_config(NULL) && last.kind == REQ_NONE); /* Home from the chord */
+    CHECK(!ux_quick(NULL) && !seen.buttons);
+    pad.buttons = PAD_HOME; run(1); CHECK(ux_quick(NULL) && last.kind == REQ_NONE && !seen.buttons);
+    pad.buttons = 0; run(100); CHECK(ux_quick(NULL) && last.kind == REQ_NONE); /* Home from the chord */
     pad.buttons = PAD_L4; pad.lx = 9000; pad.r2 = 30000; run(100);
-    CHECK(ux_config(NULL) && !seen.buttons && !seen.lx && !seen.r2); /* nothing for the host */
-    pad.buttons = 0; run(1); CHECK(ux_config(NULL) && last.kind == REQ_NONE);
+    CHECK(ux_quick(NULL) && !seen.buttons && !seen.lx && !seen.r2); /* nothing for the host */
+    pad.buttons = 0; run(1); CHECK(ux_quick(NULL) && last.kind == REQ_NONE);
     pad.buttons = PAD_X; run(100); CHECK(last.kind == REQ_NONE && !seen.buttons);
-    pad.buttons = 0; run(1); CHECK(last.kind == REQ_REMAP && last.slot == 2 && !ux_config(NULL));
+    pad.buttons = 0; run(1); CHECK(last.kind == REQ_REMAP && last.slot == 2 && !ux_quick(NULL));
     run(1); CHECK(seen.lx == 9000 && seen.r2 == 30000);
     pad.buttons = PAD_A; run(1); CHECK(seen.buttons == PAD_A && last.kind == REQ_NONE);
     reset(CTL_CONNECTED); pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_M; run(100);
-    pad.buttons = PAD_M; run(1); CHECK(ux_config(NULL) && !seen.buttons);
-    pad.buttons = 0; run(1); CHECK(ux_config(NULL) && last.kind == REQ_NONE); /* M from the chord */
+    pad.buttons = PAD_M; run(1); CHECK(ux_quick(NULL) && !seen.buttons);
+    pad.buttons = 0; run(1); CHECK(ux_quick(NULL) && last.kind == REQ_NONE); /* M from the chord */
     pad.buttons = PAD_LEFT; run(10); pad.buttons = 0; run(1);
     CHECK(last.kind == REQ_REMAP && last.slot == 6);
-    /* Home or M picks the base; Home does not reach the host. */
+    /* M or a lone Home picks the base; Home does not reach the host. */
     for (i = 0; i < 2; i++) {
-        config();
-        pad.buttons = i ? PAD_M : PAD_HOME; run(1000); CHECK(ux_config(NULL) && !seen.buttons);
+        quick();
+        pad.buttons = i ? PAD_M : PAD_HOME; run(1000); CHECK(ux_quick(NULL) && !seen.buttons);
         pad.buttons = 0; run(1); CHECK(last.kind == REQ_REMAP && last.slot == SLOT_NONE);
-        run(1000); CHECK(!seen.buttons && !ux.tap && !ux_config(NULL));
+        run(1000); CHECK(!seen.buttons && !ux.tap && !ux_quick(NULL));
     }
     /* After it, held keys are the host's as usual. */
-    config();
+    quick();
     pad.buttons = PAD_L1; run(10); pad.buttons |= PAD_B; run(10); pad.buttons = PAD_L1; run(1);
     CHECK(last.kind == REQ_REMAP && last.slot == 1);
     run(1); CHECK(seen.buttons == PAD_L1);
-    config(); pad.buttons = PAD_HOME; run(ux_timeouts.config_ms + 1); CHECK(!ux_config(NULL)); run(10);
+    quick(); pad.buttons = PAD_HOME; run(ux_timeouts.quick_ms + 1); CHECK(!ux_quick(NULL)); run(10);
     pad.buttons |= PAD_SELECT; run(10); pad.buttons = 0; run(1); CHECK(last.kind == REQ_DISCONNECT);
     /* The timeout runs from the last press and changes nothing. */
-    config();
-    CHECK(ux_config(NULL) && ux_deadline() == now + ux_timeouts.config_ms - 9);
-    run(ux_timeouts.config_ms - 1000); pad.buttons = PAD_R1; run(1); pad.buttons = 0;
-    run(ux_timeouts.config_ms - 1); CHECK(ux_config(NULL));
-    run(1); CHECK(!ux_config(NULL) && last.kind == REQ_NONE);
+    quick();
+    CHECK(ux_quick(NULL) && ux_deadline() == now + ux_timeouts.quick_ms - 9);
+    run(ux_timeouts.quick_ms - 1000); pad.buttons = PAD_R1; run(1); pad.buttons = 0;
+    run(ux_timeouts.quick_ms - 1); CHECK(ux_quick(NULL));
+    run(1); CHECK(!ux_quick(NULL) && last.kind == REQ_NONE);
     /* Every level has exactly that many pulses, ending without a trailing
      * gap. A new level starts on immediately, even during an old gap. */
     {
@@ -597,26 +634,47 @@ int main(void)
         CHECK(!ux_rumble_feedback(3, 10000, &edge) && !edge);
     }
     /* L1 and R1 step the rumble level and stay in it. */
-    config();
+    quick();
     pad.buttons = PAD_L1; run(10); pad.buttons = 0; run(1);
-    CHECK(last.kind == REQ_RUMBLE_STEP && last.slot == 0 && ux_config(NULL) && !seen.buttons);
+    CHECK(last.kind == REQ_RUMBLE_STEP && last.slot == 0 && ux_quick(NULL) && !seen.buttons);
     pad.buttons = PAD_R1; run(10); pad.buttons = 0; run(1);
-    CHECK(last.kind == REQ_RUMBLE_STEP && last.slot == 1 && ux_config(NULL));
+    CHECK(last.kind == REQ_RUMBLE_STEP && last.slot == 1 && ux_quick(NULL));
     run(1); CHECK(last.kind == REQ_NONE);
     /* The session going ends it. */
-    config();
-    state = CTL_CONNECTING; run(1); CHECK(!ux_config(NULL) && last.kind == REQ_NONE);
-    /* Offline, or M down before Home: no config mode; offline, the updater. */
+    quick();
+    state = CTL_CONNECTING; run(1); CHECK(!ux_quick(NULL) && last.kind == REQ_NONE);
+    /* Home's chords work in it: Home+Minus disconnects, and that ends it. */
+    quick();
+    pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_SELECT; run(10);
+    CHECK(ux_quick(NULL) && !seen.buttons);
+    pad.buttons = PAD_SELECT; run(1); CHECK(last.kind == REQ_DISCONNECT && !seen.buttons);
+    state = CTL_STOPPING; run(10); CHECK(!ux_quick(NULL) && !seen.buttons);   /* Minus still held back */
+    pad.buttons = 0; run(1); CHECK(!seen.buttons && last.kind == REQ_NONE);
+    /* Home with a key that makes no chord: still a lone Home, the base. */
+    quick();
+    pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_X; run(10); pad.buttons = PAD_HOME; run(10);
+    CHECK(ux_quick(NULL) && last.kind == REQ_NONE && !seen.buttons);
+    pad.buttons = 0; run(1); CHECK(last.kind == REQ_REMAP && last.slot == SLOT_NONE && !ux_quick(NULL));
+    run(10); CHECK(!seen.buttons && !ux.tap);
+    /* Home+M again: it stays, nothing picked; Home held long is no tap. */
+    quick();
+    pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_M; run(10); pad.buttons = 0; run(1);
+    CHECK(ux_quick(NULL) && last.kind == REQ_NONE);
+    pad.buttons = PAD_B; run(10); pad.buttons = 0; run(1); CHECK(last.kind == REQ_REMAP && last.slot == 1);
+    quick(); pad.buttons = PAD_HOME; run(1000); CHECK(ux_quick(NULL) && !seen.buttons);
+    pad.buttons = 0; run(1); CHECK(last.kind == REQ_REMAP && last.slot == SLOT_NONE);
+    run(100); CHECK(!seen.buttons && !ux.tap);
+    /* Offline, or M down before Home: no quick settings; offline, the updater. */
     reset(CTL_IDLE); pad.buttons = PAD_HOME | PAD_M; run(100); pad.buttons = 0; run(1);
-    CHECK(!ux_config(NULL) && last.kind == REQ_REBOOT_UPDATER);
+    CHECK(!ux_quick(NULL) && last.kind == REQ_REBOOT_UPDATER);
     reset(CTL_CONNECTED); pad.buttons = PAD_M; run(100); pad.buttons |= PAD_HOME; run(1000);
     CHECK(seen.buttons == (PAD_HOME | PAD_M));
-    pad.buttons = 0; run(1); CHECK(!ux_config(NULL) && last.kind == REQ_NONE);
+    pad.buttons = 0; run(1); CHECK(!ux_quick(NULL) && last.kind == REQ_NONE);
 
 #else
     reset(CTL_CONNECTED); pad.buttons = PAD_HOME; run(1);
     pad.buttons |= PAD_M; run(ux_timeouts.home_grace_ms + 1);
-    CHECK(!ux_config(NULL) && seen.buttons == (PAD_HOME | PAD_M));
+    CHECK(!ux_quick(NULL) && seen.buttons == (PAD_HOME | PAD_M));
     pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE);
 #endif
     /* Drained after ux_ignore_held. */

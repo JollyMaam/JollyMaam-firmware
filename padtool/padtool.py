@@ -254,7 +254,9 @@ def identify(path):
     build = d[8:24].split(b"\0")[0].decode()
     pid = d[40:56].split(b"\0")[0].decode()
     board = f"{board_name(d)}, " if len(d) >= 88 else ""
-    return f"{board}usb {usb_location(path) or '?'} protocol {proto} pid {pid} build {build} flash-id {d[24:40].hex()}"
+    updater = " UPDATER" if d[7] == 1 else ""
+    return (f"{board}usb {usb_location(path) or '?'} protocol {proto} pid {pid} build {build} "
+            f"flash-id {d[24:40].hex()}{updater}")
 
 
 def status(path):

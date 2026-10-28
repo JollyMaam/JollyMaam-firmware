@@ -283,6 +283,17 @@ int main(void)
     util_log("boot: %s %s", board_name, BUILD_ID);
     plat_bt_init();
     board_init();
+#ifndef UPDATER
+    {   /* an updater chord held with USB at start-up: there before USB comes up */
+        struct plat_boot b;
+
+        plat_boot_info(&b);
+        if (board_usb_present() && ux_updater_chord(b.buttons_held)) {
+            analog_write(UPDATER_STAY_REG, UPDATER_STAY);
+            start_reboot();
+        }
+    }
+#endif
     wd_set_interval_ms(HANG_MS, CLOCK_SYS_CLOCK_1MS);
     wd_start();
     plat_usb_init();

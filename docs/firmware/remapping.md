@@ -9,10 +9,11 @@ in `src/core/pad.h`; the tools' text form is `padtool/padremap.py`.
 
 Eight remap slots, A–right, and the base remap. Each connection slot's
 `remap` setting names the one each connect starts with (default base).
-Connected, Home+M (on release) enters config mode: the grips flash the slot's
-connect colour and the host sees a neutral pad, motion at rest. Releasing a
-slot key picks that remap; releasing Home or M picks the base; 30 s without a
-press leaves it as it was. A
+Connected, Home+M (on release) enters quick settings: colours flow down the pad's
+LEDs and the host sees a neutral pad, motion at rest. Releasing a
+slot key picks that remap; releasing M or Home alone picks the base; 30 s
+without a press leaves it as it was. Home's chords work there as anywhere
+while connected: Home+Minus disconnects, which ends quick settings. A
 picked remap lasts across that slot's own reconnects and ends with Home+Minus,
 another slot or sleep. Its state (toggles, turbo phase) starts over whenever
 the remap or any setting changes.

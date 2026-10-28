@@ -67,9 +67,11 @@ The app's `UPDATER` command (`0x40`) sets the request and reboots. In a build
 without an updater the request is ignored and the app starts again.
 
 By hand: in the app, Home+M while not connected
-restarts into the updater on release. In the updater, Home pressed and
-released goes back to the app when it is valid. While connected, Home+M is
-still remap config mode.
+restarts into the updater on release. Home+Start, Home+M or L1+R1 held as
+the pad boots with USB, or as USB arrives while not connected, restarts
+into it too; a chord held at boot without USB waits 3 s for it. In the
+updater, Home pressed and released goes back to the app when it is valid.
+While connected, Home+M is quick settings.
 
 ## Update commands
 

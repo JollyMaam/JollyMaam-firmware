@@ -191,7 +191,7 @@ The Ultimate 2C has four slots, A/B/X/Y, defaulting to Generic BLE, with
 separate identities and pairings. One slot runs at a time. Home from idle
 reconnects the last selected slot; Home+View disconnects on release. While
 offline, Home+A/B/X/Y selects that slot on release; holding the chord for
-five seconds pairs it with a renewed identity. Sync pairs the current slot.
+three seconds pairs it with a renewed identity. Sync pairs the current slot.
 The old pairing stays saved until a new pairing succeeds. The last selected
 slot survives reboot and battery sleep. The CLI can select a slot directly,
 including while connected: `padtool connect B` or `padtool pair Y`.
@@ -318,7 +318,8 @@ afterwards. Stock firmware restoration is outside the GUI's scope. The C
 `jlnewfw` tool retains its own flashing, backup and Windows support.
 
 If automatic loader entry fails, use the way by hand on the device's page
-(Cyclone 2: hold Home + Start while connecting USB; this firmware's dongle:
+(Cyclone 2: hold Home + Start while connecting USB, which on this firmware
+starts its updater; this firmware's dongle:
 hold its button). Wait for each operation to
 finish before closing the GUI. A failed write or verification leaves the device
 in its loader for recovery.

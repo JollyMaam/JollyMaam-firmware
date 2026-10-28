@@ -13,7 +13,7 @@
 static const struct led_wave low_battery = LED_BLINK(150, 2850);
 static const struct led_wave player_flash = LED_BLINK(250, 250);
 static const struct led_wave fade = LED_BREATHE(4000);
-static const struct led_wave config_breathe = LED_BREATHE(1600);
+static const struct led_wave quick_breathe = LED_BREATHE(1600);
 
 /* Ephemeral mode: Home goes dark twice, briefly, every few seconds. */
 #define WINK_PERIOD_MS 4000
@@ -299,7 +299,7 @@ static void grips(const struct led_scene *sc, u32 t, const struct led_inputs *in
 static const u8 depth[LIGHT_COUNT] = { 0, 1, 2, 3, 4, 5, 5, 0 };
 #define DEPTHS 6
 
-#define CONFIG_HUE_STEP 200      /* colour between one light and the next down */
+#define QUICK_HUE_STEP 200      /* colour between one light and the next down */
 #define LOADER_FILL_MS  500      /* the light runs down the pad */
 #define LOADER_FLASH_MS 300      /* everything bright, then down to what is held */
 #define LOADER_HOLD     (K_ONE * 35 / 100)
@@ -328,11 +328,11 @@ static u32 loader(u32 t, u32 d)
 
 static void whole_pad(const struct led_scene *sc, u32 t, const struct led_inputs *in, struct led_fine *out)
 {
-    u32 i, k = K_ONE / 3 + (u32)((u64)wave(&config_breathe, t, 0, 1) * 2 / 3);
+    u32 i, k = K_ONE / 3 + (u32)((u64)wave(&quick_breathe, t, 0, 1) * 2 / 3);
 
     for (i = 0; i < LIGHT_UNUSED; i++) {
-        if (sc->effect == EFFECT_CONFIG)          /* the colours flow down the pad, breathing */
-            put(out->light[i], scale(lit(hue(rainbow(2 * t) + 6 * 1536 - depth[i] * CONFIG_HUE_STEP, in->animation)), k));
+        if (sc->effect == EFFECT_QUICK)          /* the colours flow down the pad, breathing */
+            put(out->light[i], scale(lit(hue(rainbow(2 * t) + 6 * 1536 - depth[i] * QUICK_HUE_STEP, in->animation)), k));
         else if (sc->effect == EFFECT_LOADER)
             put(out->light[i], scale(lit((struct shade){ loader_green, in->animation }), loader(t, depth[i])));
     }
@@ -643,9 +643,9 @@ int main(void)
     CHECK(same(f.light[LIGHT_HOME], white));
 
     /* The whole pad: to the loader, a light runs down and fills it, a flash,
-     * then the dim green the LEDs hold; config mode, colours down the pad. */
+     * then the dim green the LEDs hold; quick settings, colours down the pad. */
     {
-        static const struct led_scene to_loader = { .effect = EFFECT_LOADER }, config = { .effect = EFFECT_CONFIG };
+        static const struct led_scene to_loader = { .effect = EFFECT_LOADER }, quick = { .effect = EFFECT_QUICK };
         u32 i, held = 400 * 35 / 100 / 10;
 
         s.scene = CTL_REBOOTING;
@@ -663,10 +663,10 @@ int main(void)
         frame(&to_loader, &s, LED_LOADER_MS, &in, &f);
         for (i = 0; i < LIGHT_UNUSED; i++) CHECK(same(f.light[i], ((struct rgb){ 0, (u8)held, 0 })));
         CHECK(LOADER_FILL_MS + LOADER_FLASH_MS <= LED_LOADER_MS - 2 * 20);   /* held for the last frames */
-        frame(&config, &s, 1000, &in, &f);
+        frame(&quick, &s, 1000, &in, &f);
         CHECK(!same(f.light[LIGHT_HOME], f.light[LIGHT_P1]) && !same(f.light[LIGHT_P1], f.light[LIGHT_P3]));
         CHECK(same(f.light[LIGHT_GRIP_L], f.light[LIGHT_GRIP_R]) && bright_as(f.light[LIGHT_HOME]) > 0);
-        frame(&config, &s, 1500, &in, &g);
+        frame(&quick, &s, 1500, &in, &g);
         CHECK(!same(f.light[LIGHT_HOME], g.light[LIGHT_HOME]));   /* flowing */
     }
 

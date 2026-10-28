@@ -203,7 +203,7 @@ enum req_kind {
     REQ_REMAP,               /* connected: remap slot .slot, SLOT_NONE the base; kept until a disconnect, another slot or sleep */
     REQ_LED_DEMO,                /* the lights show LED demo .slot (ux_led_demos), SLOT_NONE: stop */
     REQ_RUMBLE,              /* the motors run at .motor (0-255 duty) for .ms, over the host's; 0 ms: stop */
-    REQ_RUMBLE_STEP,         /* config mode L1/R1: .slot 0 lower, 1 raise the rumble step (RAM only) */
+    REQ_RUMBLE_STEP,         /* quick settings L1/R1: .slot 0 lower, 1 raise the rumble step (RAM only) */
     REQ_REBOOT_UPDATER,      /* reboot into the updater (src/updater/) */
 };
 
@@ -357,6 +357,12 @@ enum { USB_AUDIO_NONE, USB_AUDIO_SPEAKER, USB_AUDIO_HEADSET };
  * joystick ID.  Its rules want a domain or an e-mail address in the
  * string: not there yet. */
 #define USB_MANUFACTURER "JollyMaam"
+/* The tool device's product string is board_name, then this in the updater. */
+#ifdef MAIN_AT
+#define USB_PRODUCT_TAIL " Update"
+#else
+#define USB_PRODUCT_TAIL ""
+#endif
 #define USB_OWN_VID      0x16c0
 #define USB_OWN_HID_PID  0x05df
 #define USB_OWN_JOYSTICK_PID 0x27dc
@@ -608,11 +614,11 @@ struct led_wave { u8 kind; u16 a, b; };    /* blink: on, off; breathe: period; s
 enum { BAR_ALL, BAR_SLOT, BAR_PLAYER };       /* BAR_PLAYER: the slot's players setting */
 enum { GRIPS_WAVE, GRIPS_SLOT_SETTING };
 enum { COLOUR_IDLE, COLOUR_CONNECT, COLOUR_PRIMARY };
-/* The whole pad as one, instead of Home, the bar and the grips: remap config
- * mode (colours flowing down the pad); restarting into the ROM loader (a
+/* The whole pad as one, instead of Home, the bar and the grips: quick
+ * settings (colours flowing down the pad); restarting into the ROM loader (a
  * green light runs down and fills the pad, a flash, then dim green, which
  * the LEDs hold while the loader runs; LED_LOADER_MS in all). */
-enum { EFFECT_NONE, EFFECT_CONFIG, EFFECT_LOADER };
+enum { EFFECT_NONE, EFFECT_QUICK, EFFECT_LOADER };
 #define LED_LOADER_MS 900
 
 struct led_scene {
@@ -677,15 +683,15 @@ struct ux_timeouts {
     u16 unplug_sleep_ms;
     u16 stop_max_ms;
     u16 boot_scene_ms;
-    u16 uboot_window_ms;
+    u16 updater_window_ms;
     u16 led_frame_ms;
     u16 usb_plug_ms;
-    u32 config_ms;           /* remap config mode with no key pressed */
-    u16 rumble_pulse_ms;     /* config mode L1/R1: one pulse per rumble step */
+    u32 quick_ms;            /* quick settings with no key pressed */
+    u16 rumble_pulse_ms;     /* quick settings L1/R1: one pulse per rumble step */
     u16 rumble_gap_ms;       /* silence between feedback pulses */
 };
 
-/* Config rumble feedback at elapsed ms: whether the motors are on, and the
+/* Quick settings rumble feedback at elapsed ms: whether the motors are on, and the
  * next edge in elapsed ms (0: finished). Restart by passing elapsed 0 with
  * the new level; level 0 ends immediately. */
 int ux_rumble_feedback(u8 level, u32 elapsed, u32 *next);
@@ -727,7 +733,7 @@ extern const struct ux_colours ux_colours;
  * UX_LED_DEMO_MS after the last request for it. */
 #define UX_LED_DEMO_MS 30000
 enum { LED_DEMO_DITHER_PALETTE, LED_DEMO_DITHER_OFF, LED_DEMO_DITHER_ON };
-enum { LED_DEMO_SCENE, LED_DEMO_CONFIG, LED_DEMO_LOADER };   /* the scene, or one of the others */
+enum { LED_DEMO_SCENE, LED_DEMO_QUICK, LED_DEMO_LOADER };   /* the scene, or one of the others */
 struct ux_led_demo {
     const char *name;
     u8 scene;                /* enum ctl_kind: its LED scene */
@@ -739,11 +745,11 @@ struct ux_led_demo {
 extern const struct ux_led_demo ux_led_demos[];
 extern const u8 ux_led_demo_count;
 extern const struct led_scene ux_scenes[CTL_KIND_COUNT];
-extern const struct led_scene ux_config_scene, ux_loader_scene;   /* remap config mode, to the loader */
+extern const struct led_scene ux_quick_scene, ux_loader_scene;   /* quick settings, to the loader */
 
 /* Home gestures, table in settings_ux.c.  ux_reported: the controller saw a
- * held-back Home tap's down report leave. UX_REMAP_CONFIG=0 excludes the
- * Home+M configuration gesture for a controller without the remap engine. */
+ * held-back Home tap's down report leave. UX_QUICK_SETTINGS=0 excludes the
+ * Home+M quick settings for a controller without the remap engine. */
 struct ctl_request ux_step(struct pad *pad, u32 now, u8 state);
 void ux_reported(u32 now);
 /* Earliest permitted idle power-off: 0 while USB powered, otherwise the
@@ -754,8 +760,9 @@ u32 ux_idle_deadline(u32 idle_since, u32 activity_ms, u32 usb_seen_ms,
 u32 ux_deadline(void);                      /* when ux_step may next fire a hold, 0: none */
 u8 ux_armed(void);                          /* slot a release would connect, or SLOT_NONE */
 void ux_ignore_held(void);
-int ux_config(u32 *since);                  /* in remap config mode; since: when it began */
+int ux_quick(u32 *since);                   /* in quick settings; since: when it began */
 struct ctl_request ux_boot(u32 buttons, int home_wake, u32 now);
+int ux_updater_chord(u32 buttons);          /* buttons hold a chord for the updater */
 
 /* ---- usb.c -------------------------------------------------------------- */
 

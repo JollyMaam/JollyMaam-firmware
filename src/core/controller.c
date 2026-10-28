@@ -47,7 +47,7 @@ static struct {
     u8 radio_pending;            /* the session's radio waits for the last one's BT_EV_STOPPED */
     u8 to_loader;
     u8 to_updater;
-    u8 uboot_chord;
+    u8 updater_chord;            /* held at boot (ux_updater_chord): the updater once USB is there */
     u32 retry_at;
     u32 report_next;             /* the earliest the next report may be built */
     u16 report_hz;               /* the session's cap: the slot's setting or REPORT_HZ */
@@ -57,14 +57,14 @@ static struct {
     u32 imu_seq, imu_next;
     u8 calibrating;
     u8 remap, remap_slot;        /* the remap in use (REMAP_BASE: the base), and whose it is */
-    u8 remap_chosen;             /* picked in config mode: kept when remap_slot reconnects */
+    u8 remap_chosen;             /* picked in quick settings: kept when remap_slot reconnects */
     u8 remap_live;               /* remap.c state belongs to remap_live - 1 at remap_edits */
     u32 remap_edits;
     u32 ux_buttons;              /* as ux_step left them, before the remap */
     u32 turbo_max;               /* keys flipped every report, down first */
     u8 turbo_up;
     struct in_trigger triggers[2];
-    struct imu_sample rest;      /* the newest motion sent outside config mode */
+    struct imu_sample rest;      /* the newest motion sent outside quick settings */
     struct set_cal cal;
     struct in_raw raw;
     struct pad pad;              /* as the host sees it */
@@ -76,11 +76,11 @@ static struct {
     u8 rumble_test[2];           /* padtool rumble: these duties until rumble_test_until */
     u8 rumble_testing;
     u32 rumble_test_until;
-    /* Config mode L1/R1: over the remap's rumble, as long as a remap picked
+    /* Quick settings L1/R1: over the remap's rumble, as long as a remap picked
      * there (remap_chosen) and until the tools next change a setting. */
     u8 rumble_step, rumble_step_set;
     u32 rumble_step_edits;
-    u8 rumble_feedback_level;    /* config indicator: this many pulses, no kick */
+    u8 rumble_feedback_level;    /* quick settings feedback: this many pulses, no kick */
     u32 rumble_feedback_since, rumble_feedback_next;
     u8 motor_on[2], kicking[2];  /* a motor started: full power until kick_until */
     u32 kick_until[2];
@@ -304,7 +304,7 @@ static void start_session(struct ctl_request r, u32 now)
     c.sent_buttons = c.sent_ux = 0;  /* no report from this session has been handed over yet */
     c.slot = r.slot;
     c.last_slot = r.slot;
-    /* A remap picked in config mode lasts across this slot's reconnects (a
+    /* A remap picked in quick settings lasts across this slot's reconnects (a
      * lost link, a cable, relink) until a disconnect or sleep. */
     if (c.remap_slot != r.slot) c.rumble_step_set = 0;
     if (!c.remap_chosen || c.remap_slot != r.slot) {
@@ -665,14 +665,14 @@ static u32 idle_deadline(void)
 
 static void timeouts(u32 now)
 {
-    struct ctl_request loader = { REQ_REBOOT_LOADER, SLOT_NONE, 0 };
+    struct ctl_request updater = { REQ_REBOOT_UPDATER, SLOT_NONE, 0 };
     u32 t = now - c.since;
     int battery = !c.usb_powered && !c.usb_5v;
 
     switch (c.kind) {
     case CTL_BOOT:
-        if (c.uboot_chord && c.usb_powered) handle(loader, now);
-        else if (t >= (c.uboot_chord ? ux_timeouts.uboot_window_ms : ux_timeouts.boot_scene_ms))
+        if (c.updater_chord && c.usb_powered) handle(updater, now);
+        else if (t >= (c.updater_chord ? ux_timeouts.updater_window_ms : ux_timeouts.boot_scene_ms))
             become(CTL_IDLE, now);
         break;
     case CTL_IDLE: {
@@ -738,7 +738,7 @@ static void timeouts(u32 now)
 static u32 state_deadline(void)
 {
     switch (c.kind) {
-    case CTL_BOOT: return c.since + (c.uboot_chord ? ux_timeouts.uboot_window_ms : ux_timeouts.boot_scene_ms);
+    case CTL_BOOT: return c.since + (c.updater_chord ? ux_timeouts.updater_window_ms : ux_timeouts.boot_scene_ms);
     case CTL_IDLE: return idle_deadline();
     case CTL_CONNECTING: if (c.radio_pending) return c.since + ux_timeouts.stop_max_ms;
         if (c.waking) return c.wake_next;
@@ -754,7 +754,7 @@ static u32 state_deadline(void)
 
 static void sample_power(u32 now)
 {
-    struct ctl_request loader = { REQ_REBOOT_LOADER, SLOT_NONE, 0 };
+    struct ctl_request updater = { REQ_REBOOT_UPDATER, SLOT_NONE, 0 };
     u8 raw = (u8)plat_usb_present();
 
     if (raw != c.usb_raw) {
@@ -767,7 +767,7 @@ static void sample_power(u32 now)
         if (raw) {
             c.usb_plugged_ms = now;
             c.usb_arrived = 1;
-            if ((c.raw.buttons & (PAD_HOME | PAD_START)) == (PAD_HOME | PAD_START)) handle(loader, now);
+            if (c.kind != CTL_CONNECTED && ux_updater_chord(c.raw.buttons)) handle(updater, now);
         } else {
             c.usb_arrived = 0;
         }
@@ -855,7 +855,7 @@ static void outputs(u32 now)
     struct led_inputs in;
     u32 plugged = now - c.usb_plugged_ms;
     u8 scene = c.kind, armed = ux_armed();
-    int rumble = c.kind == CTL_CONNECTED && !c.calibrating && !ux_config(NULL);
+    int rumble = c.kind == CTL_CONNECTED && !c.calibrating && !ux_quick(NULL);
     u8 motor[2];
 
     if (c.prof && c.prof->host) c.prof->host(now, &c.host);
@@ -902,10 +902,10 @@ static void outputs(u32 now)
         scene = demo->scene;
         armed = 0;
     }
-    sc = demo && demo->kind == LED_DEMO_CONFIG ? &ux_config_scene :
+    sc = demo && demo->kind == LED_DEMO_QUICK ? &ux_quick_scene :
          demo && demo->kind == LED_DEMO_LOADER ? &ux_loader_scene :
          demo ? &ux_scenes[scene] :
-         c.kind == CTL_CONNECTED && ux_config(NULL) ? &ux_config_scene :
+         c.kind == CTL_CONNECTED && ux_quick(NULL) ? &ux_quick_scene :
          c.kind == CTL_REBOOTING && c.to_loader ? &ux_loader_scene : &ux_scenes[scene];
     if (scene != c.led.scene || sc != c.led_scene ||
         (demo && demo->kind == LED_DEMO_LOADER && now - c.led.since_ms >= LED_LOADER_MS + 1500)) {
@@ -959,7 +959,7 @@ static const struct set_remap *sticks(void)
     return c.kind == CTL_CONNECTED ? set_remap(c.remap) : NULL;
 }
 
-/* Connected, outside config mode and calibration: the remap slot in use.
+/* Connected, outside quick settings and calibration: the remap slot in use.
  * Its state starts over with another remap slot or new settings. */
 static void remap(u32 now)
 {
@@ -967,7 +967,7 @@ static void remap(u32 now)
 
     c.ux_buttons = c.pad.buttons;
     c.turbo_max = 0;
-    if (c.kind != CTL_CONNECTED || c.calibrating || ux_config(NULL)) {
+    if (c.kind != CTL_CONNECTED || c.calibrating || ux_quick(NULL)) {
         if (c.remap_live) remap_reset();
         c.remap_live = 0;
         return;
@@ -1020,7 +1020,7 @@ static void read_input(u32 now)
     in_triggers(sticks(), c.triggers, &c.pad);
 }
 
-/* Remap config mode: the host sees the pad lying still where it last was,
+/* Quick settings: the host sees the pad lying still where it last was,
  * the gyro at its zero-rate offset (profiles repeat their last sample when a
  * report has none, so leaving samples out would keep a turn going). */
 static void at_rest(struct pad *p)
@@ -1060,7 +1060,7 @@ static void send_report(u32 now)
     c.report_next = now + period;
     c.pad.imu_count = (u8)imu_take(&c.imu_seq, c.pad.imu, IMU_PER_REPORT);
     c.pad.gyro_bias_known = (u8)imu_gyro_bias(c.pad.gyro_bias);
-    if (ux_config(NULL)) at_rest(&c.pad);
+    if (ux_quick(NULL)) at_rest(&c.pad);
     else if (c.pad.imu_count) c.rest = c.pad.imu[c.pad.imu_count - 1];
     c.pad.jack = (u8)plat_usb_jack_in();
     if (!c.turbo_up) c.pad.buttons = in_dpad(buttons | c.turbo_max);
@@ -1120,12 +1120,12 @@ static void boot(u32 now)
     c.power_seen_ms = now;
     c.battery_ms = now - BATTERY_CHECK_MS;
     util_log("boot cause %u held %05x last slot %u", b.cause, b.buttons_held, c.last_slot);
-    c.uboot_chord = (b.buttons_held & (PAD_HOME | PAD_START)) == (PAD_HOME | PAD_START);
+    c.updater_chord = (u8)ux_updater_chord(b.buttons_held);
     plat_input(&c.raw);
     /* Show the boot scene before a profile or the radio starts: an
      * immediate session must not skip it by replacing CTL_BOOT. */
     outputs(now);
-    if (c.uboot_chord) ux_ignore_held();
+    if (c.updater_chord) ux_ignore_held();
     else handle(ux_boot(b.buttons_held, b.cause == BOOT_HOME, now), now);
 }
 

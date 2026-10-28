@@ -944,6 +944,7 @@ static char tool_serial[TOOL_SERIAL];
 static u32 tool_string(u8 index, u8 *out)
 {
     const char *s = index == 1 ? USB_MANUFACTURER : index == 2 ? board_name : index == 3 ? tool_serial : NULL;
+    const char *tail = index == 2 ? USB_PRODUCT_TAIL : "";
     u32 n = 0;
 
     if (!index) {
@@ -951,8 +952,8 @@ static u32 tool_string(u8 index, u8 *out)
         return 4;
     }
     if (!s) return 0;
-    while (s[n] && n < 62) {
-        out[2 + 2 * n] = (u8)s[n];
+    while ((*s || *tail) && n < 62) {
+        out[2 + 2 * n] = (u8)(*s ? *s++ : *tail++);
         out[3 + 2 * n] = 0;
         n++;
     }

@@ -382,8 +382,6 @@ void board_latch(void)
     gpio_set_die(PIN_USB_SENSE, 1);
     matrix_init();
     boot.buttons_held = held_now();
-    if ((boot.buttons_held & (PAD_HOME | PAD_START)) == (PAD_HOME | PAD_START))
-        plat_enter_loader();
     if (guard.magic != BOOT_MAGIC) {
         guard.magic = BOOT_MAGIC;
         guard.fails = 0;

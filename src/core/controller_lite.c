@@ -125,6 +125,10 @@ static __attribute__((noinline)) void read_input(u32 now)
         c.activity_ms = now;
     }
     c.input = c.pad;
+    if (c.plug_lit && !c.linked && ux_updater_chord(c.raw.buttons)) {
+        r = (struct ctl_request){ REQ_REBOOT_UPDATER, SLOT_NONE, 0 };   /* held as USB arrived */
+        request(&r);
+    }
     if (!c.calibrating) {
         r = ux_step(&c.pad, now, state());
         if (pair && !c.sleeping) {

@@ -404,8 +404,8 @@ void plat_input(struct in_raw *raw)
 
 static struct plat_boot boot;
 
-/* Home+Start with USB at the very start goes to the ROM loader before any
- * of this firmware can hang: the way back from a bad build. */
+/* What woke the pad.  The updater chords (ux_updater_chord) are the
+ * controller's, from plat_boot_info's later read. */
 void board_latch(void)
 {
     u32 i;
@@ -416,17 +416,13 @@ void board_latch(void)
     gpio_set_pull_down(PIN_USB_SENSE, 0);
     gpio_set_die(PIN_USB_SENSE, 1);
     gpio_direction_input(PIN_USB_SENSE);
-    if ((boot.buttons_held & (PAD_HOME | PAD_START)) == (PAD_HOME | PAD_START) &&
-        gpio_read(PIN_USB_SENSE)) {
-        plat_enter_loader();
-    }
     if (boot.buttons_held & PAD_HOME) boot.cause = BOOT_HOME;
     else if (gpio_read(PIN_USB_SENSE)) boot.cause = BOOT_USB;
     else boot.cause = BOOT_POWER_ON;
 }
 
 /* Until power_init(), the lines parked at soft power-off read low: only the
- * loader check uses the early read. */
+ * boot cause uses the early read. */
 void plat_boot_info(struct plat_boot *out)
 {
     boot.buttons_held = buttons_of(plat_read_lines());

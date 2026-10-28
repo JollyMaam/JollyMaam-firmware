@@ -1164,6 +1164,22 @@ void board_init(void)
 }
 
 
+#if !defined(MAIN_AT) && !defined(BOARD_DONGLE)
+/* An updater chord (ux_updater_chord) held with USB at start-up goes to
+ * the updater before the app's USB comes up.  One without USB is the
+ * controller's: it waits a while for USB. */
+static void updater_at_start(void)
+{
+    struct plat_boot b;
+
+    plat_boot_info(&b);
+    if (board_usb_sense() && ux_updater_chord(b.buttons_held)) {
+        util_log("boot: updater chord %05x", b.buttons_held);
+        plat_reboot_updater();
+    }
+}
+#endif
+
 static void ctl_thread(void *arg)
 {
     (void)arg;
@@ -1176,6 +1192,9 @@ static void ctl_thread(void *arg)
 #endif
     util_log_init();
     board_start();
+#if !defined(MAIN_AT) && !defined(BOARD_DONGLE)
+    updater_at_start();
+#endif
 #ifdef DEBUG_NO_USB
     plat_debug_line("usb_init skipped");   /* the D+ log goes on */
 #else

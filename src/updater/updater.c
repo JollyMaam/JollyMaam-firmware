@@ -294,25 +294,30 @@ static void lights(u8 r, u8 g, u8 b)
 
 /* Home pressed and released here goes back to a valid app: offline
  * Home+M in the app is how a pad gets here by hand.  On a dongle, its
- * button. */
+ * button.  A press counts only after Home was seen up here, so letting go
+ * of a chord that brought the pad here does not go back. */
 static int home_back(void)
 {
-    static u8 down;
+    static u8 down, armed;
+    int held;
 #ifdef BOARD_DONGLE
     u32 changed_us;
 
-    if (plat_lines(&changed_us) & 1) down = 1;
+    held = plat_lines(&changed_us) & 1;
 #else
     struct in_raw raw;
 
     plat_input(&raw);
-    if (raw.buttons & PAD_HOME) down = 1;
+    held = (raw.buttons & PAD_HOME) != 0;
 #endif
-    else if (down) {
-        down = 0;
-        return app_valid() && state != WRITING;
+    if (held) {
+        down = armed;
+        return 0;
     }
-    return 0;
+    armed = 1;
+    if (!down) return 0;
+    down = 0;
+    return app_valid() && state != WRITING;
 }
 
 void ctl_main(void)

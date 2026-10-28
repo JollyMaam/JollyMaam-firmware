@@ -309,12 +309,28 @@ void board_init(void)
     adc_start();
 }
 
+/* The keys down now, the matrix read in one go (matrix_poll spreads it
+ * over the loop). */
+static u32 held_now(void)
+{
+    u32 r, i, b = gpio_read(HOME) ? 0 : PAD_HOME;
+
+    for (r = 0; r < ROWS; r++) {
+        gpio_write(rows[r], 0);
+        sleep_us(ROW_SETTLE_US);
+        for (i = 0; i < COLUMNS; i++)
+            if (!gpio_read(columns[i])) b |= keys[r][i];
+        gpio_write(rows[r], 1);
+    }
+    return b;
+}
+
 /* Home supplies power while held: a boot with it down is Home's.  Otherwise
  * a cable powered the pad up, or it restarted (not told apart). */
 void plat_boot_info(struct plat_boot *out)
 {
     out->cause = boot_home ? BOOT_HOME : board_usb_present() ? BOOT_USB : BOOT_POWER_ON;
-    out->buttons_held = boot_home ? PAD_HOME : 0;
+    out->buttons_held = held_now() | (boot_home ? PAD_HOME : 0);
 }
 
 int board_usb_present(void)
