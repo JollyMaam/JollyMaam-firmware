@@ -37,6 +37,7 @@ $(CYCLONE2_PAD)_SOURCES += src/platform/jieli/platform_jieli_sdk.c
 $(CYCLONE2_PAD)_SOURCES += src/platform/jieli/platform_jieli_usb.c
 $(CYCLONE2_PAD)_SOURCES += src/profiles/profile_hid.c
 $(CYCLONE2_PAD)_SOURCES += src/profiles/profile_link.c
+$(CYCLONE2_PAD)_SOURCES += src/profiles/profile_config.c
 $(CYCLONE2_PAD)_SOURCES += src/profiles/profile_playstation.c
 $(CYCLONE2_PAD)_SOURCES += src/profiles/profile_switch.c
 $(CYCLONE2_PAD)_SOURCES += src/profiles/profile_switch_wake.c

@@ -47,6 +47,7 @@ static struct {
     u8 radio_pending;            /* the session's radio waits for the last one's BT_EV_STOPPED */
     u8 to_loader;
     u8 to_updater;
+    u8 config;                   /* the session is config mode (profile_config), no slot's */
     u8 updater_chord;            /* held at boot (ux_updater_chord): the updater once USB is there */
     u32 retry_at;
     u32 report_next;             /* the earliest the next report may be built */
@@ -159,6 +160,7 @@ static void radio_on(void)
 
 static void end_session(void)
 {
+    c.config = 0;
     if (c.prof && c.prof->end) c.prof->end();
     if (c.waking) c.prof->wake->stop();
     c.waking = 0;
@@ -347,6 +349,40 @@ static void start_session(struct ctl_request r, u32 now)
     c.since = now;
 }
 
+/* Config mode: the tool's commands over LE (profile_config.c) to any host,
+ * pairing and bonding nothing, until ux_timeouts.config_ms without one, a
+ * lone Home, Home+Minus or the tools.  Instead of any session. */
+static void start_config(u32 now)
+{
+    struct profile_session s;
+
+    if (session()) end_session();
+    memset(&s, 0, sizeof(s));
+    memset(&c.pair_bond, 0, sizeof(c.pair_bond));
+    s.slot = SLOT_NONE;
+    s.pairing = 1;               /* advertised to anyone; no SM, so no bond */
+    s.bond = &c.pair_bond;
+    profile_config_address(s.address);
+    c.sess_set = *set_slot(0);   /* its link settings */
+    s.settings = &c.sess_set;
+    c.pair_pending = 0;
+    c.usb = 0;
+    c.prof = &profile_config;
+    c.slot = SLOT_NONE;
+    memset(&c.host, 0, sizeof(c.host));
+    c.report_hz = REPORT_HZ;
+    c.begin_imu = c.prof->begin(&s);
+    c.sess = s;
+    c.retry_at = 0;
+    c.config = 1;
+    if (c.radio) c.radio_pending = 1;
+    else radio_on();
+    util_log("config mode as %02x:%02x:%02x:%02x:%02x:%02x", s.address[5], s.address[4], s.address[3],
+             s.address[2], s.address[1], s.address[0]);
+    become(CTL_PAIRING, now);
+    c.since = now;
+}
+
 /* Take the session down, to idle. */
 static void stop(u32 now)
 {
@@ -370,6 +406,10 @@ static void handle(struct ctl_request r, u32 now)
 {
     if (r.kind == REQ_NONE || c.kind == CTL_SLEEPING || c.kind == CTL_REBOOTING) return;
     c.house = 1;
+    if (c.config && r.kind == REQ_CONNECT && r.slot == SLOT_LAST) {
+        stop(now);               /* a lone Home leaves config mode */
+        return;
+    }
     if (r.slot == SLOT_LAST) r.slot = c.last_slot;
     switch (r.kind) {
     case REQ_CONNECT:
@@ -439,7 +479,8 @@ static void handle(struct ctl_request r, u32 now)
         }
         break;
     case REQ_CONFIG:
-        util_log("ctl: config mode");
+        if (c.config) c.since = now;     /* again: the window starts over */
+        else start_config(now);
         break;
     case REQ_REBOOT:
     case REQ_REBOOT_LOADER:
@@ -482,7 +523,9 @@ static void bt_event(const struct bt_ev *e, u32 now)
         util_log("link down, reason 0x%02x (%s)", e->reason, lost ? "lost" : "ended");
         if (c.kind != CTL_CONNECTED) break;
         memset(&c.host, 0, sizeof(c.host));
-        if (lost) {
+        if (c.config) {
+            become(CTL_PAIRING, now);    /* advertising again, a new window */
+        } else if (lost) {
             become(CTL_CONNECTING, now);
             bt_connect();
         } else if (c.pair_pending && c.prof == &profile_link) {
@@ -713,7 +756,7 @@ static void timeouts(u32 now)
     case CTL_PAIRING:
         if (c.radio_pending) {
             if (t >= ux_timeouts.stop_max_ms) bt_abort();
-        } else if (t >= ux_timeouts.pair_ms) stop(now);
+        } else if (t >= (c.config ? ux_timeouts.config_ms : ux_timeouts.pair_ms)) stop(now);
         break;
     case CTL_CONNECTED:
         if (battery && !c.calibrating && now - c.activity_ms >= ux_timeouts.idle_sleep_ms) shut_down(CTL_SLEEPING, now);
@@ -910,6 +953,7 @@ static void outputs(u32 now)
          demo && demo->kind == LED_DEMO_LOADER ? &ux_loader_scene :
          demo ? &ux_scenes[scene] :
          c.kind == CTL_CONNECTED && ux_quick(NULL) ? &ux_quick_scene :
+         c.config ? &ux_quick_scene :    /* config mode's own scene: not designed yet */
          c.kind == CTL_REBOOTING && c.to_loader ? &ux_loader_scene : &ux_scenes[scene];
     if (scene != c.led.scene || sc != c.led_scene ||
         (demo && demo->kind == LED_DEMO_LOADER && now - c.led.since_ms >= LED_LOADER_MS + 1500)) {
@@ -1016,7 +1060,7 @@ static void read_input(u32 now)
         }
         c.pad.buttons = 0;
     } else {
-        r = ux_step(&c.pad, now, c.kind);
+        r = ux_step(&c.pad, now, c.config ? CTL_IDLE : c.kind);   /* config: Home as when idle */
     }
     handle(r, now);
     remap(now);

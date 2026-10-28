@@ -40,6 +40,7 @@ $(NOVA2LITE_PAD)_SOURCES += src/platform/jieli/platform_jieli_sdk.c
 $(NOVA2LITE_PAD)_SOURCES += src/platform/jieli/platform_jieli_usb.c
 $(NOVA2LITE_PAD)_SOURCES += src/profiles/profile_hid.c
 $(NOVA2LITE_PAD)_SOURCES += src/profiles/profile_link.c
+$(NOVA2LITE_PAD)_SOURCES += src/profiles/profile_config.c
 $(NOVA2LITE_PAD)_SOURCES += src/profiles/profile_playstation.c
 $(NOVA2LITE_PAD)_SOURCES += src/profiles/profile_switch.c
 $(NOVA2LITE_PAD)_SOURCES += src/profiles/profile_switch_wake.c

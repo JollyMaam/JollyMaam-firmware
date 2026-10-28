@@ -54,6 +54,7 @@
  *                         bytes 4-5: for how many ms (at most RUMBLE_TEST_MAX_MS;
  *                         0 stops), over whatever the host asks for
  *   `0x1b` DISCONNECT     pad only: end the current session, keeping its bond
+ *   `0x1d` CONFIG         pad only: config mode, as Home+M held does (profile_config.c)
  *   `0x30` TARGET         dongle only: CDB bytes 2–7: Bluetooth address in
  *                         written order (AA:BB:CC:DD:EE:FF); page that device
  *   `0x31` TOOL_ONLY      dongle only: CDB byte 2: 0 off, 1 on (until power
@@ -117,7 +118,7 @@
 
 enum { CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02, CMD_STATS = 0x03, CMD_INPUT = 0x04, CMD_CLOCK = 0x05,
        CMD_REBOOT = 0x10, CMD_REBOOT_LOADER = 0x11, CMD_RELINK = 0x12, CMD_CONNECT = 0x13, CMD_PROFILE = 0x14, CMD_PEEK = 0x15, CMD_TRACE = 0x16, CMD_PAIR = 0x17, CMD_CALIBRATE = 0x18, CMD_LED_DEMO = 0x19, CMD_RUMBLE = 0x1a,
-       CMD_DISCONNECT = 0x1b, CMD_PROBE = 0x1c, CMD_FIELD = 0x20, CMD_READ = 0x21, CMD_WRITE = 0x22, CMD_COMMIT = 0x23, CMD_DROP = 0x24,
+       CMD_DISCONNECT = 0x1b, CMD_PROBE = 0x1c, CMD_CONFIG = 0x1d, CMD_FIELD = 0x20, CMD_READ = 0x21, CMD_WRITE = 0x22, CMD_COMMIT = 0x23, CMD_DROP = 0x24,
        CMD_EPHEMERAL = 0x25, CMD_RESULT = 0x26, CMD_DEFAULTS = 0x27, CMD_TOOL_ONLY = 0x31, CMD_HUB = 0x32, CMD_USB_PROBE = 0x3f,
        CMD_UPDATER = 0x40 };
 
@@ -329,6 +330,12 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
     case CMD_DISCONNECT:
 #ifndef BOARD_DONGLE
         pending.kind = REQ_DISCONNECT;
+        pending.slot = SLOT_NONE;
+#endif
+        break;
+    case CMD_CONFIG:
+#ifndef BOARD_DONGLE
+        pending.kind = REQ_CONFIG;
         pending.slot = SLOT_NONE;
 #endif
         break;

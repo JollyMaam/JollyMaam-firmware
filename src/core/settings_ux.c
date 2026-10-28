@@ -22,6 +22,7 @@ const struct ux_timeouts ux_timeouts = {
     .led_frame_ms = 20,
     .usb_plug_ms = 1000,
     .quick_ms = 30000,           /* quick settings, from its last key press */
+    .config_ms = 60000,          /* config mode, waiting for a host */
     .rumble_pulse_ms = 80,
     .rumble_gap_ms = 80,
 };

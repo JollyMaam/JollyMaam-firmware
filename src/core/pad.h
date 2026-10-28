@@ -415,7 +415,9 @@ struct profile_wake {
 
 extern const struct profile profile_switch, profile_switch2, profile_xbox, profile_xbox_ble;
 extern const struct profile profile_dualsense, profile_dualshock4, profile_generic, profile_mouse,
-    profile_generic_ble, profile_link, profile_dualsense_ble;
+    profile_generic_ble, profile_link, profile_dualsense_ble,
+    profile_config;              /* config mode: no slot's (profile_config.c) */
+void profile_config_address(u8 out[6]);     /* config mode's LE address: the updater's */
 extern const struct profile_wake profile_switch_wake;
 /* The profile for a slot type (PROFILE_*, settings.c); NULL for none.  In
  * profile_link.c, which both boards build. */
@@ -694,6 +696,7 @@ struct ux_timeouts {
     u16 led_frame_ms;
     u16 usb_plug_ms;
     u32 quick_ms;            /* quick settings with no key pressed */
+    u32 config_ms;           /* config mode without a host */
     u16 rumble_pulse_ms;     /* quick settings L1/R1: one pulse per rumble step */
     u16 rumble_gap_ms;       /* silence between feedback pulses */
 };

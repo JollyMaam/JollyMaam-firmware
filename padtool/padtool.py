@@ -50,6 +50,8 @@
                                   connected), over Bluetooth LE (needs bleak)
     padtool connect [SLOT]        connect a slot (default: the last), as Home does
     padtool disconnect            end the session, keeping its pairing
+    padtool config                config mode, as Home+M held does: the tool's
+                                  commands over Bluetooth LE ("<board> Config")
     padtool pair SLOT             make the slot pairable; its host is replaced once one pairs
                                   (same address)
     padtool unpair SLOT           forget the host and save a new Bluetooth address
@@ -1680,7 +1682,7 @@ def hub_pair(slot):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["tool-only", "hub", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "reboot", "loader", "update", "relink", "connect", "disconnect", "pair", "unpair", "profile", "peek", "trace",
+    p.add_argument("command", choices=["tool-only", "hub", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "reboot", "loader", "update", "relink", "connect", "disconnect", "config", "pair", "unpair", "profile", "peek", "trace",
                                        "fields", "get", "set", "reset", "backup-settings",
                                        "restore-settings", "factory-reset", "ephemeral", "keep", "tool", "latency"])
     p.add_argument("args", nargs="*")
@@ -1739,7 +1741,7 @@ def main():
     if a.elf is None:
         a.elf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build", "gamesir-cyclone-2-" + BOARD, "app.elf")
     if BOARD == "dongle" and a.command in {
-        "stats", "latency", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "relink", "connect", "disconnect", "fields", "get", "set", "reset",
+        "stats", "latency", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "relink", "connect", "disconnect", "config", "fields", "get", "set", "reset",
         "backup-settings", "restore-settings", "factory-reset", "keep",
     }:
         p.error(f"{a.command} is not supported by dongle firmware")
@@ -1815,6 +1817,10 @@ def main():
         if a.args:
             p.error("disconnect takes no arguments")
         cmd(need_device(), 0x1b)
+    elif a.command == "config":
+        if a.args:
+            p.error("config takes no arguments")
+        cmd(need_device(), 0x1d)
     elif a.command == "relink":
         cmd(need_device(), 0x12)
     elif a.command == "led-demo":
