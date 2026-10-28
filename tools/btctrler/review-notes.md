@@ -1411,3 +1411,30 @@ members / 919 functions / 70 globals; 33 retained members / 1148 verified index
 entries. Original BR23 source bytes remain unchanged. Corrected worker ancestry
 and clean root/dependency status were checked before removing the completed
 worktree and branch. No pending workers or TWS hardware validation.
+
+## Clean-branch BD19 TWS CI-data acceptance
+
+Worker `d5c3730` recovers occurrence 1 `tws_ci_data.c.o`, SHA-256
+`c19a5053261a1aa0be1a52034022d2a0d08b66622b4c7a7cdc001fd95415c30c`.
+Dedicated `bd19/tws_ci_data.c` supplies two public functions, five private
+callbacks and one const channel table. The 100-byte private context and
+28-byte table initializers, alignment, sections, callback relocations and
+volatile byte accesses match SDK IR. The review maps 38 type shapes without
+mismatch. Remaining body differences are equivalent context selection, phi
+incoming order, no-argument IRQ prototypes and compiler call annotations.
+No production semantic correction was required.
+
+Coordinator extended focused tests for repeated open, ignored set/post errors,
+NULL and external contexts, unsigned timeout 1, successful return despite IRQ
+context mutation, both post/copy alias paths and reentrant flag updates.
+A modeled timeout-event wake still returns the original requested length;
+this confirms control flow, not actual OS delivery outcome. C23/B44–B45 retain
+sharing, callback ABI, borrowed-pointer lifetime and framing follow-ups.
+BR23's event callback returns void; BD19 returns int zero, so source sharing
+requires a deliberate ABI choice rather than simply moving this file.
+
+Worker full suite and ASan/UBSan pass: 199 `: ok` reports, 12 legacy reports,
+31 tooling tests, both layouts and 78 ownership/retention audits. Totals:
+79 accepted members / 921 functions / 71 globals; 32 retained members /
+1145 verified index entries. Original 123 BR23 C files remain byte-identical
+to `44d0073`. No application-image or TWS hardware validation claimed.

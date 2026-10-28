@@ -73,6 +73,8 @@ against the eventual Nova 2 configuration and linked image.
 
 | C22 | `bd19/tws_power_balance.c`, occurrence 1 `eeb6614a…cb11`: common poll/role-count logic is close to BR23, but BD19 has table attribute 1 (BR23 3), a slave-only configuration gate, a weak role-decision hook and IRQ TX sections. Its hook returns zeroext i8 despite the generated bool declaration. | Candidate common core after preserving target table/gate/sections and hook behavior. Consolidate the byte-return alias with C03 only after auditing declarations and callers. Keep BR23 baseline bytes unchanged during this ownership stage. |
 
+| C23 | `bd19/tws_ci_data.c`, worker `d5c3730`, occurrence 1 `c19a5053…c30c`: original BR23/BD19 core operations match; combined RX/TX differs by inlining. BD19 adds `.classic_tws_code` and an int-return event callback where BR23 returns void. No previous BR23 C owner exists. | Candidate common source after deliberate BR23 ownership and callback return/section handling. Preserve volatile flag accesses and copy/post/IRQ ordering; do not treat a matching copy loop as proof of common semaphore/lifetime policy. |
+
 ## Confirmed BD19 behavior to revisit
 
 Each row describes SDK behavior deliberately retained in accepted C. Fixes need
@@ -136,6 +138,9 @@ unestablished unless specifically stated.
 | B42 | `bd19/au_law_codec.c`, occurrence 1 `9f9eaff7…26d5`: A-law negates a negative sample at i16 width before sign extension; -32768 stays negative, selects segment 0 and encodes as `0x55` (decoding to -8), while +32767 encodes `0xaa`. Both codecs process only positive signed16 counts and always return 0. | Confirm intended full-scale treatment and count/status contract before any normalization. The independent integer model checks all signed16 inputs and all 256 codewords; this confirms SDK arithmetic, not audio-path reachability. |
 
 | B43 | Same occurrence, `tws_power_balance_master_rx`: len is ignored and two bytes are always read before weak hooks; only slave TX has the enable gate. Init sets the poll counter to 800 without clearing the role counter/flag; true reports 1–4 preserve the old flag, while the fifth sets it. The default voltage hook returns 0; widened local+10 equality counts as a positive decision (H25 confirmed on BD19). | Establish framing, enabled-state, lifecycle reset and battery/hysteresis contracts before adding guards or normalizing state. Preserve post-hook counter reloads and byte/halfword wrap. Weak-hook reentry tests establish ordering, not real battery calibration or TWS hardware behavior. |
+
+| B44 | Same occurrence, open/sync: open ignores semaphore-create failure and leaves pending data/length/flag intact. Sync ignores set failure, publishes/replaces a borrowed pointer without a busy check, and a failed pend returns 0 without canceling it. Times 1–9 become pend timeout 0. Completion and supervision-timeout/detach handlers post the same semaphore; sync checks only pend status. | Define buffer lifetime, cancellation, minimum wait and delivery-status contracts before adding fixes. A modeled successful wake during event 45 returns the original length despite no TX; this is control-flow evidence, not proof of a particular OS/hardware outcome. |
+| B45 | Same occurrence: outbound copies use unchecked stored signed length and reload it after memcpy; RX callbacks differ for zero length between plain and combined paths. Public sync accepts an external context, while transport callbacks always use the singleton. TX completion clears volatile pending before post; events 45/46 post before clearing under IRQ disable. | Validate spans/framing and clarify supported handle use. Preserve aliasing and callback-state observations until explicit serialization/cancellation policy is chosen. Safe fixtures exercise len aliasing, callback TX replacement and reentrant semaphore writes; they do not establish concurrency safety. |
 
 ## Inherited BR23 follow-ups: BD19 confirmation queue
 
@@ -347,6 +352,7 @@ not absence of defects. See the earlier sections for cross-member issues.
 | `thread.c.o` / 1 | `cd41996` | C08; B01 |
 | `tws_ble_link.c.o` / 1 | `a3a5af8` | B18 optional monitor imports |
 | `tws_power_balance.c.o` / 1 | `1fd79e4` | C22; B43; H25; byte-return weak hook |
+| `tws_ci_data.c.o` / 1 | `d5c3730` + coordinator review | C23; B44–B45; volatile/semaphore ordering |
 | `tws_le_acc.c.o` / 1 | `cb82461` | BR23 #30 |
 | `vendor_manager.c.o` / 1 | `cee80c1` | B06; BR23 #11 |
 | `vsprintf.c.o` / 1 | `a3a5af8` | H15 |

@@ -602,6 +602,14 @@
       ]
     },
     {
+      "member": "tws_ci_data.c.o",
+      "occurrence": 1,
+      "sha256": "c19a5053261a1aa0be1a52034022d2a0d08b66622b4c7a7cdc001fd95415c30c",
+      "sources": [
+        "src/btctrler/bd19/tws_ci_data.c"
+      ]
+    },
+    {
       "member": "tws_le_acc.c.o",
       "occurrence": 1,
       "sha256": "10a34d02086e881e5502e6b2d92497c227d40125c089689d1f08cba061a0ca2b",

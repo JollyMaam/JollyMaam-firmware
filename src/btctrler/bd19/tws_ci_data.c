@@ -133,21 +133,46 @@ static void *rx_priv_seen;
 static int rx_len_seen, rx_calls, mutate_len_in_rx;
 static int clear_tx_in_rx;
 static int event_post_saw_enabled;
+static OS_SEM *last_sem;
+static int last_post_flag, last_post_depth, mutate_post_flag, mutate_enable_len;
+static int replace_data_in_rx, pend_event;
+static struct tws_config_interface *enable_context;
+static u8 rx_reply[3] = {0x91, 0x82, 0x73};
+static char hook_trace[256];
+static unsigned int hook_trace_len;
+static void mark(char c)
+{
+    CHECK(hook_trace_len < sizeof(hook_trace) - 1);
+    if (hook_trace_len < sizeof(hook_trace) - 1) hook_trace[hook_trace_len++] = c;
+    hook_trace[hook_trace_len] = 0;
+}
+static void clear_trace(void) { hook_trace_len = 0; hook_trace[0] = 0; }
 
 int os_sem_create(OS_SEM *sem, int initial)
-{ (void)sem; CHECK(initial == 0); sem_creates++; return sem_create_result; }
+{ last_sem = sem; mark('C'); CHECK(initial == 0); sem_creates++; return sem_create_result; }
 int os_sem_set(OS_SEM *sem, u16 value)
-{ (void)sem; CHECK(value == 0); sem_sets++; return sem_set_result; }
+{ last_sem = sem; mark('S'); CHECK(value == 0); sem_sets++; return sem_set_result; }
 int os_sem_pend(OS_SEM *sem, u32 ticks)
-{ (void)sem; sem_pends++; pend_ticks = (int)ticks; return sem_pend_result; }
+{
+    last_sem = sem; mark('W'); CHECK(irq_depth == 0); sem_pends++; pend_ticks = (int)ticks;
+    if (pend_event) tws_ci_data.event_handler(NULL, pend_event, NULL);
+    return sem_pend_result;
+}
 int os_sem_post(OS_SEM *sem)
 {
-    (void)sem; sem_posts++;
+    last_sem = sem; mark('P'); sem_posts++;
+    last_post_flag = tws_ci_handle.tx_enable;
+    last_post_depth = irq_depth;
+    if (mutate_post_flag) tws_ci_handle.tx_enable = 1;
     if (sem_posts == 2) event_post_saw_enabled = tws_ci_handle.tx_enable;
     return sem_post_result;
 }
-void local_irq_disable(void) { irq_depth++; }
-void local_irq_enable(void) { irq_depth--; }
+void local_irq_disable(void) { mark('D'); irq_depth++; }
+void local_irq_enable(void)
+{
+    mark('E'); CHECK(irq_depth == 1); irq_depth--;
+    if (mutate_enable_len) enable_context->len = 99;
+}
 
 static void rx_test(void *priv, void *data, int len)
 {
@@ -155,6 +180,11 @@ static void rx_test(void *priv, void *data, int len)
     rx_calls++; rx_priv_seen = priv; rx_len_seen = len;
     if (mutate_len_in_rx) tws_ci_handle.len = 2;
     if (clear_tx_in_rx) tws_ci_handle.tx_enable = 0;
+    if (replace_data_in_rx) {
+        tws_ci_handle.data = rx_reply;
+        tws_ci_handle.len = sizeof(rx_reply);
+        tws_ci_handle.tx_enable = 1;
+    }
 }
 
 static void test_reset(void)
@@ -166,6 +196,9 @@ static void test_reset(void)
     sem_creates = sem_sets = sem_pends = sem_posts = irq_depth = pend_ticks = 0;
     rx_priv_seen = NULL; rx_len_seen = rx_calls = mutate_len_in_rx = clear_tx_in_rx = 0;
     event_post_saw_enabled = -1;
+    last_sem = NULL; last_post_flag = last_post_depth = 0;
+    mutate_post_flag = mutate_enable_len = replace_data_in_rx = pend_event = 0;
+    enable_context = NULL; clear_trace();
 }
 
 int main(void)
@@ -238,6 +271,68 @@ int main(void)
     tws_ci_handle.tx_enable = 1;
     CHECK(tws_ci_data.event_handler(NULL, 46, NULL) == 0 && sem_posts == 3);
     CHECK(tws_ci_data.event_handler(NULL, -1, NULL) == 0 && sem_posts == 3);
+
+    test_reset(); tws_link.link = &peer;
+    CONFIG_BTCTLER_TWS_ENABLE = -1;
+    sem_set_result = -7;
+    CHECK(tws_ci_data_sync(NULL, src, 3, 0) == 3);
+    CHECK(last_sem == &tws_ci_handle.sem && tws_ci_handle.data == src && tws_ci_handle.len == 3);
+    CHECK(tws_ci_handle.tx_enable == 1 && !strcmp(hook_trace, "SDE"));
+    sem_set_result = 0; clear_trace();
+    CHECK(tws_ci_data_sync(NULL, src, 3, 1) == 3 && pend_ticks == 0);
+    CHECK(!strcmp(hook_trace, "SDEW"));
+    tws_ci_handle.data = src; tws_ci_handle.len = 3; tws_ci_handle.tx_enable = 1;
+    sem_create_result = -1;
+    CHECK(tws_ci_sync_open((void *)0x5678, rx_test) == &tws_ci_handle);
+    CHECK(tws_ci_handle.data == src && tws_ci_handle.len == 3 && tws_ci_handle.tx_enable == 1);
+    CHECK(tws_ci_handle.priv == (void *)0x5678 && tws_ci_handle.rx_handler == rx_test);
+
+    clear_trace(); mutate_enable_len = 1; enable_context = &external;
+    CHECK(tws_ci_data_sync(&external, src, 7, 0) == 7);
+    CHECK(external.len == 99 && external.data == src && external.tx_enable == 1);
+    CHECK(last_sem == &external.sem && tws_ci_handle.len == 3);
+    CHECK(!strcmp(hook_trace, "SDE")); mutate_enable_len = 0;
+    /* A custom publication does not redirect the transport's singleton. */
+    CHECK(tws_ci_data.tx_sync_req(NULL, out + 1, 0) == 3);
+    CHECK(!memcmp(out + 1, src, 3));
+    CHECK(tws_ci_data_sync(NULL, NULL, -1, 0) == -1);
+    CHECK(tws_ci_handle.data == NULL && tws_ci_handle.len == -1 && tws_ci_handle.tx_enable);
+    tws_ci_handle.tx_enable = 0; /* Do not execute the SDK's huge unsafe copy. */
+
+    clear_trace(); pend_event = 45;
+    CHECK(tws_ci_data_sync(NULL, src, 4, 10) == 4 && tws_ci_handle.tx_enable == 0);
+    CHECK(!strcmp(hook_trace, "SDEWDPE") && last_post_flag == 1);
+    pend_event = 0;
+
+    int replacement_len = 2;
+    tws_ci_handle.data = &replacement_len; tws_ci_handle.len = sizeof(replacement_len);
+    tws_ci_handle.tx_enable = 1;
+    CHECK(tws_ci_data.rx_sync_req_and_res(NULL, NULL, 0, (u8 *)&tws_ci_handle.len) == 2);
+    CHECK(tws_ci_handle.len == 2);
+    tws_ci_handle.rx_handler = rx_test; replace_data_in_rx = 1;
+    tws_ci_handle.data = NULL; tws_ci_handle.len = 0; tws_ci_handle.tx_enable = 0;
+    memset(out, 0xa5, sizeof(out));
+    CHECK(tws_ci_data.rx_sync_req_and_res(NULL, out, -1, out + 1) == 3);
+    CHECK(rx_len_seen == -1 && !memcmp(out + 1, rx_reply, sizeof(rx_reply)));
+    CHECK(out[0] == 0xa5 && out[4] == 0xa5); replace_data_in_rx = 0;
+
+    /* Reentrant post writes survive completion but are overwritten by disconnect. */
+    mutate_post_flag = 1; sem_post_result = -9;
+    tws_ci_handle.tx_enable = 1; clear_trace();
+    tws_ci_data.tx_sync_res_suss();
+    CHECK(last_post_flag == 0 && last_post_depth == 0 && tws_ci_handle.tx_enable == 1);
+    CHECK(!strcmp(hook_trace, "P"));
+    clear_trace(); CHECK(tws_ci_data.event_handler(NULL, 45, NULL) == 0);
+    CHECK(last_post_flag == 1 && last_post_depth == 1 && tws_ci_handle.tx_enable == 0);
+    CHECK(!strcmp(hook_trace, "DPE") && irq_depth == 0);
+    clear_trace(); int old_posts = sem_posts;
+    CHECK(tws_ci_data.event_handler(NULL, 46, NULL) == 0);
+    CHECK(sem_posts == old_posts && !strcmp(hook_trace, "DE"));
+    clear_trace();
+    const int other_events[] = {44, 47, -2147483647 - 1, 2147483647};
+    for (unsigned int i = 0; i < sizeof(other_events) / sizeof(*other_events); i++)
+        CHECK(tws_ci_data.event_handler(NULL, other_events[i], NULL) == 0);
+    CHECK(!hook_trace[0] && sem_posts == old_posts);
     return TEST_DONE("bd19_tws_ci_data");
 }
 #endif
