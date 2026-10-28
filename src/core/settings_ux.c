@@ -123,7 +123,7 @@ const struct led_scene ux_scenes[CTL_KIND_COUNT] = {
  * which ends quick settings with the session. */
 #define REQ_QUICK 0xff
 
-/* A held chord: pairing. */
+/* A held chord: pairing, config mode. */
 #define HOLD_MS 3000
 
 /* Where a gesture works (offline: any state but connected), and whether it
@@ -155,7 +155,8 @@ static const struct gesture { u32 keys; u16 hold_ms; u8 request, slot, flags; } 
 #if UX_QUICK_SETTINGS
     {PAD_M, 0, REQ_QUICK, SLOT_NONE, CONNECTED | RELEASE},
 #endif
-    {PAD_M, 0, REQ_REBOOT_UPDATER, SLOT_NONE, OFFLINE | RELEASE},   /* src/updater/ */
+    {PAD_M, 0, REQ_REBOOT_UPDATER, SLOT_NONE, OFFLINE | RELEASE},   /* src/updater/, until config mode */
+    {PAD_M, HOLD_MS, REQ_CONFIG, SLOT_NONE, OFFLINE | CONNECTED},
 };
 #define GESTURES (sizeof(gestures) / sizeof(gestures[0]))
 
@@ -574,7 +575,7 @@ int main(void)
 
 #if UX_QUICK_SETTINGS
     /* Quick settings: Home+M on release, whichever goes first. */
-    reset(CTL_CONNECTED); pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_M; run(3000);
+    reset(CTL_CONNECTED); pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_M; run(1000);
     CHECK(!ux_quick(NULL) && !seen.buttons);
     pad.buttons = PAD_HOME; run(1); CHECK(ux_quick(NULL) && last.kind == REQ_NONE && !seen.buttons);
     pad.buttons = 0; run(100); CHECK(ux_quick(NULL) && last.kind == REQ_NONE); /* Home from the chord */
@@ -664,6 +665,17 @@ int main(void)
     quick(); pad.buttons = PAD_HOME; run(1000); CHECK(ux_quick(NULL) && !seen.buttons);
     pad.buttons = 0; run(1); CHECK(last.kind == REQ_REMAP && last.slot == SLOT_NONE);
     run(100); CHECK(!seen.buttons && !ux.tap);
+    /* Home+M held: config mode, connected, offline or in quick settings; no tap after it. */
+    for (i = 0; i < 3; i++) {
+        if (i == 2) quick(); else reset(i ? CTL_IDLE : CTL_CONNECTED);
+        pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_M; run(HOLD_MS);
+        CHECK(last.kind == REQ_NONE && !seen.buttons);
+        run(1); CHECK(last.kind == REQ_CONFIG && !seen.buttons);
+        run(1000); pad.buttons = 0; run(1);
+        CHECK(last.kind == REQ_NONE && !seen.buttons && ux_quick(NULL) == (i == 2));
+        run(100); pad.buttons = PAD_HOME; run(10); pad.buttons = 0; run(1);   /* Home works again */
+        CHECK(i == 1 ? last.kind == REQ_CONNECT : (i == 2 || ux.tap));
+    }
     /* Offline, or M down before Home: no quick settings; offline, the updater. */
     reset(CTL_IDLE); pad.buttons = PAD_HOME | PAD_M; run(100); pad.buttons = 0; run(1);
     CHECK(!ux_quick(NULL) && last.kind == REQ_REBOOT_UPDATER);
@@ -672,10 +684,13 @@ int main(void)
     pad.buttons = 0; run(1); CHECK(!ux_quick(NULL) && last.kind == REQ_NONE);
 
 #else
+    /* No quick settings: Home+M waits for the config hold, a short one is nothing. */
     reset(CTL_CONNECTED); pad.buttons = PAD_HOME; run(1);
     pad.buttons |= PAD_M; run(ux_timeouts.home_grace_ms + 1);
-    CHECK(!ux_quick(NULL) && seen.buttons == (PAD_HOME | PAD_M));
-    pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE);
+    CHECK(!ux_quick(NULL) && !seen.buttons);
+    pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE && !seen.buttons);
+    reset(CTL_CONNECTED); pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_M; run(HOLD_MS + 1);
+    CHECK(last.kind == REQ_CONFIG);
 #endif
     /* Drained after ux_ignore_held. */
     reset(CTL_BOOT); ux_ignore_held(); pad.buttons = PAD_HOME | PAD_B; run(6000);

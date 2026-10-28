@@ -205,6 +205,7 @@ enum req_kind {
     REQ_RUMBLE,              /* the motors run at .motor (0-255 duty) for .ms, over the host's; 0 ms: stop */
     REQ_RUMBLE_STEP,         /* quick settings L1/R1: .slot 0 lower, 1 raise the rumble step (RAM only) */
     REQ_REBOOT_UPDATER,      /* reboot into the updater (src/updater/) */
+    REQ_CONFIG,              /* Home+M held: config mode, the settings over Bluetooth (not built: logged) */
 };
 
 struct ctl_request {

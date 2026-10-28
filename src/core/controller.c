@@ -437,6 +437,9 @@ static void handle(struct ctl_request r, u32 now)
             start_session(again, now);
         }
         break;
+    case REQ_CONFIG:
+        util_log("ctl: config mode");
+        break;
     case REQ_REBOOT:
     case REQ_REBOOT_LOADER:
     case REQ_REBOOT_UPDATER:
