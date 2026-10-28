@@ -1923,3 +1923,45 @@ calls. Totals89 accepted /22 retained members,977 functions,90 globals,1070
 verified index entries. All123 original BR23 C files match44d0073. Clean worker
 and three dependency repositories and merged ancestry verified; completed
 worktree and branch removed. No pending worker or hardware validation.
+
+
+## Clean-branch BD19 media-sync acceptance
+
+The one Luna worker stopped after inventory with no code/commit. Coordinator
+completed the recovery in its prepared isolated branch from972cd09. Member
+tws_media_sync.c.o occurrence1 SHA-256
+`f69f075bc3e851ffc74e2db6a28116a991bc65c1fd8ee23d185c697adc78aa80`.
+Dedicated source supplies14 public functions, two globals and all24 definitions.
+Public aud_sync_head is self-linked/align4; const channel7/attribute7 is
+.tws_sync_channel.7/align4. Private i1 nettime flag startsfalse/align4; volatile
+peer-play byte starts0/align1. All four initializers match SDK exactly. All
+functions retain .tws_media_sync_code except three unsectioned list helpers;
+weak master-clock function remains weak.38 SDK type shapes agree; generated
+layout checks cover52-byte messages and124-byte handle offsets4/108/116/120.
+
+Every raw function and normalized target body reviewed. Preserved MMIO32 at
+0x1c0000, frame volatile16 masks2048/4096/6144, nested IRQ wrappers, peer reloads
+between clock calls, unsigned625 remainder/threshold4, no-op get_bt_slot_time/
+bt_audio_tws_lat_time/sbc_sync_packet_len, mutable callback loads, post-callback
+list advancement, two-slot indices, masks and memory intrinsics. Parent draft
+list-delete reset was corrected to SDK self-linking, not NULL poisoning.
+Remaining differences are loop/control organization, container-of GEPs proven
+by layouts, equivalent boolean guards, private helper call versus inlining,
+local lifetimes and compiler/prototype annotations. No formal equivalence claim.
+
+Complete host fixtures plus ASan/UBSan pass. Expected values from SDK IR cover
+allocation failure/config-off open/close, play-message bootstrap, full48-byte
+queue/busy/wrap/ACK behavior, empty-list offline frame, multi-handle overwrite
+and mark-all, callback-only pool clearing, output/index aliasing, unchecked RX
+framing and negative forwarded length, callback replacement during IRQ/role
+hooks, post-callback list traversal, offline notifications, selection fallback,
+role/hardware masks, nested wrappers, zero timing hooks and remote peer reload.
+Unwritten notification word is not read in fixtures. C34/B67–B69 track timing
+and sharing boundaries, payload/multi-handle behavior and callback/IRQ lifetime.
+
+BD19 target builds; extra-source BR23 compile fails because its frame lacks
+miscntl_of_audsync. Actual BR23 set passes;123 original C files still match
+44d0073 byte-for-byte. Full worker controller checks/census pass:209 : ok
+reports,12 legacy reports,31 tooling tests,both layouts,89 ownership groups.
+Totals90 accepted members/991 public functions/92 globals;21 retained members
+and1054 verified index entries. No app-image, audio-peer or hardware validation.
