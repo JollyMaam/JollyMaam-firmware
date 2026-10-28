@@ -9,8 +9,8 @@ are in [../jieli/sdk-toolchain.md](../jieli/sdk-toolchain.md).
 |---|---|
 | Jieli SDK | unmodified; the linker script is patched at build time (below) |
 | Host tools | `gcc -std=c11`, for host unit tests and the image tool only |
-| BTstack | upstream master, unmodified, built from source. Some symbols are renamed at build time to avoid clashing with the SDK's controller. |
-| Controller | the project's own C controller policy. No SDK controller archive is linked. |
+| BTstack | upstream master plus bug fixes only, from the project's fork, built from source. Some symbols are renamed at build time to avoid clashing with the SDK's controller. |
+| Controller | BR23: the project's own C controller; no SDK controller archive is linked. BD19: the SDK's controller archive. |
 
 The SDK tree is outside this repository. Its path is fixed by the build.
 

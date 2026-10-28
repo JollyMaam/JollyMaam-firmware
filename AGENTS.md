@@ -1,191 +1,188 @@
 # Working on this repository
 
-GameSir Cyclone 2 firmware (and the start of a GameSir Nova 2 Lite board): the Jieli BR23 SDK runtime, an owned C Bluetooth
-controller, and upstream BTstack (`master` plus one fix, from our fork).  The 8BitDo
-Ultimate 2C Wireless (Telink TLSR8208, 16 KiB SRAM) builds on the unmodified Telink B80 SDK
-with the shared modules it can afford and `src/core/controller_lite.c`.
+Open-source firmware for three game controllers and their dongles, sharing
+one core:
 
-- Reference: [docs/](docs/README.md). `docs/jieli/` is the BR23 chip and SDK,
-  `docs/gamesir-cyclone2/` the pad and dongle boards and stock firmware,
-  `docs/firmware/` this firmware's own software. Reverse-engineering notes are
-  `re-*.md`.
-- Module contracts: the section comments in `src/core/pad.h`.
-- Sources: `src/core/` (the controller loop, input, settings, Home gestures,
-  LEDs, remap, the tools' protocol; no SDK or BTstack), `src/profiles/`,
-  `src/platform/jieli/` (the BR23: platform, `board.h`, HCI glue, `sdkconfig/`,
-  our controller in `btctrler/`), `src/boards/<product>/` (pins, board
-  hooks, the `bt_` module on BTstack (`bt_pad.c`, `bt_dongle.c`), the
-  dongle's loop (`dongle*.c`) and `btstack_config.h`: what only that product
-  uses).  `src/platform/telink/`: the B80 (start-up and wait loop, the USB
-  tool device, the libc it lacks, `sdk.h` for the SDK's headers, packed).
-  The Telink toolchain is GCC 4.5: shared code stays C99 (`pad.h` has its
-  `_Static_assert`).
+| Product | Chip | Notes |
+|---|---|---|
+| GameSir Cyclone 2 pad and dongle | Jieli BR23 | the main target; IMU, audio |
+| GameSir Nova 2 Lite pad | Jieli BR23 | no IMU, no audio |
+| GameSir Nova 2 Lite dongle | Jieli BD19 (AC632N) | 64 KiB RAM, very tight |
+| 8BitDo Ultimate 2C Wireless | Telink TLSR8208 (B80) | 16 KiB SRAM; `controller_lite.c` |
 
-## Working rules
+The Jieli boards run the unmodified Jieli SDK runtime, our own C Bluetooth
+controller (`src/platform/jieli/btctrler/`; the BD19 links the SDK's
+controller library instead) and upstream BTstack.  The 8BitDo runs on the
+unmodified Telink B80 SDK and its link layer, with our own LE host on top
+(BTstack's ATT database code only).
 
-- The user operates the physical pad and console. Building and flashing are
-  ours. Say plainly when a physical action is needed.
-- Commit at a logical checkpoint.
-- Say "the app" or "the SDK" when distinguishing code ownership.
-- `docs/` holds proven facts only: no test results, dates or plans.
-  Mark anything unproven as "not established".
-- Source may refer to `docs/`. `docs/` does not refer to source.
-- Keep the `src/core/pad.h` section comments in step with interface changes.
-- No root here. Use the devices in `/dev/bwrap`; do not try to leave the container.
+## Where things are
 
-## Design
+- `src/core/`: the controller loop (`controller.c`; `controller_lite.c` on
+  the 8BitDo), input, calibration, motion, settings, Home gestures and LED
+  scenes (`settings_ux.c`), remap, LEDs, the tools' USB protocol (`usb.c`).
+  No SDK or BTstack here.  `pad.h` is the contract between modules: its
+  section comments describe every interface.  `link.h` is the pad–dongle
+  link protocol.
+- `src/profiles/`: what the pad pretends to be (Switch, Switch 2, PlayStation,
+  Xbox, generic HID, the dongle link).  One `struct profile` each.
+- `src/platform/jieli/`, `src/platform/telink/`: the chip layer (`plat_*`),
+  USB device, HCI glue, linker-script additions (`sdkconfig/`).
+- `src/boards/<product>/`: pins and board hooks, the BTstack-facing `bt_*.c`,
+  the dongle's own loop (`dongle*.c`), `btstack_config.h`.  The Nova reuses
+  the Cyclone's `bt_pad.c`, `dongle*.c` and `btstack_config.h`.
+- `src/updater/`: the updater every Jieli and Telink build boots through
+  (rewrites the app in place over USB, or LE on the pads).
+- `make/`: one `make/<product>.mk` per product.  Its header comment lists the
+  targets; `jieli.mk` and `telink.mk` document the per-board variables of
+  their board templates.  The top `Makefile` lists the global targets.
+  `EXTRA_DEFINES=...` adds `-D` flags to a build (test and debug builds).
+  `O=dir` builds somewhere else; per-board variables can be overridden on the
+  command line (e.g. an empty `NAME_MAIN_AT` for a build without updater).
+- `padtool/`: `padtool.py` (CLI; `--help` lists every command), `padgui.pyw`
+  (Tk GUI), the transports.  `padtool/README.md` for setup.
+- `tools/`: `jlnewfw.c` (Jieli image packer and flasher, built into
+  `build/host/`), `8bitdoboot.py` (the 8BitDo boot loader), `upgrade.py`
+  (every connected device), `padhub.c` (Linux UHID bridge for the dongle's
+  hub, `tools/padhub.md`), `sdlpad.c` (what SDL sees), `linkbench.py`,
+  `buildcommits.sh` (build a range of commits, for bisecting).
+- `external/`: the SDKs and BTstack as submodules, `fetch-toolchains.sh` for
+  the compilers.  BTstack is our fork of upstream plus bug fixes only.
+- `docs/`: hardware and firmware reference, see `docs/README.md`.
+  `docs/firmware/` is this firmware's own design (build, image tool, updater,
+  runtime RAM and flash, remapping).  Reverse-engineering notes are `re-*.md`.
 
-- **Event-driven loop.** `ctl_main()` sleeps until an event or a deadline, then
-  does the work for what happened. It does not run on a period. The controller
-  owns every decision and the pad's state.
-- **Mostly stateless modules.** Modules do not call each other, except that a
-  profile may send to the host (`host_send`, over the session's transport),
-  `bt_pad.c` or the platform's USB asks the running profile to answer a host read,
-  and `usb.c` (the tools' commands) reads and writes settings itself.  What a
-  profile needs from other modules (the gyro bias included) comes in
-  `struct pad`, so the dongle can run the same profiles.
-- **Transports.** A slot's `transport` is Bluetooth, USB (the profile's
-  `struct usb_identity`, built by `platform_jieli_usb.c`), USB while a USB host
-  is there (else Bluetooth), our dongle, or USB while a USB host is there (else
-  the dongle).  A profile builds the USB formats when
-  `profile_session.usb` is set.  The dongle runs the same profiles on its USB
-  port from the pad's state (`link.h`, `profile_link.c`, `dongle*.c`).
-- **Two threads.** Control runs `ctl_main` and every module except `bt_pad.c`.
-  Bluetooth runs BTstack, `bt_pad.c` and the profiles' `read()`. Control to
-  Bluetooth: the input slot and the message queue. Bluetooth to control: the
-  event queue (`bt_poll`). Host reads are answered on the Bluetooth thread, so
-  `read()` returns only constant data.
-- **Newest wins.** Input is never queued, buttons included. A lost report beats
-  a late one.
-- **Naming.** Public names carry the module prefix (`bt_`, `ux_`, `set_`, `in_`,
-  `led_`, `util_`, `plat_`, `usb_`). Only `plat_` and `platform_jieli_sdk.c` use
-  Jieli names; our additions to the BR23 controller and its HCI glue carry
-  `btctrlermod_`. Words: slot, profile, session, link, host, report, write, read.
-- **Configuration as data.** Tunable behaviour is a `const` table: Home gestures,
-  timeouts and LED scenes (`settings_ux.c`), profile descriptors (`profile_*.c`),
-  setting defaults (`settings.c`), pins (`board_pad.c`, `board_dongle.c`).
-- **Tests.** A module with logic has an `#ifdef UNITTEST` block at its end.
-  `make test` runs them on the host. Not covered: `controller.c`, `bt_pad.c`,
-  `btstack_hci_jieli.c`, `platform_jieli*.c`.
+## Architecture
 
-## Build and test
+- **Event-driven loop.**  `ctl_main()` sleeps until an event or a deadline,
+  handles what happened, and sleeps again.  It does not poll on a period.
+  The controller owns every decision and the pad's state.
+- **Two threads on the Jieli pads.**  Control runs `ctl_main` and every module
+  except `bt_pad.c`.  Bluetooth runs BTstack, `bt_pad.c` and the profiles'
+  `read()`.  Control to Bluetooth: the input slot and the message queue.
+  Bluetooth to control: the event queue (`bt_poll`).  Host reads are answered
+  on the Bluetooth thread, so `read()` returns only constant data.
+- **Modules do not call each other.**  Exceptions: a profile sends to the
+  host (`host_send`), the transport asks the running profile to answer a host
+  read, and `usb.c` reads and writes settings.  Everything a profile needs
+  arrives in `struct pad`, so the dongle can run the same profiles on its USB
+  port from the pad's state.
+- **Slots and transports.**  A slot is a saved connection: a profile type,
+  a transport (Bluetooth, USB, our dongle, or USB-else-wireless), a bond and
+  an address.  Remap slots are separate and apply on top of any connection.
+- **Newest wins.**  Input is never queued, buttons included.  A dropped report
+  beats a late one.  Do not add queues for reports or button changes.
+- **Configuration as data.**  Tunable behaviour lives in readable `const`
+  tables in C: Home gestures (`gestures[]`, `struct gesture` in
+  `src/core/settings_ux.c`), timeouts and LED scenes (same file), setting
+  defaults and the palette (`settings.c`), profile descriptors
+  (`profile_*.c`), pins (`board_*.c`).  No code generation; a generator, if
+  ever needed, is host-compiled C.  Settings changes apply on the next
+  connect.
+- **Console wake only from Home.**  A pad wakes a console only from a Home
+  gesture (or `padtool connect`), never from another button or power-on.
+- **Tool device.**  Outside a game-controller session every board is a HID
+  "tool device" (V-USB's shared ID 16c0:05df, manufacturer "JollyMaam"),
+  which `padtool` and `jlnewfw` talk to.  The protocol is documented at the
+  top of `src/core/usb.c`.  Our own IDs are in `pad.h`
+  (`USB_OWN_*`); the generic gamepad is 16c0:27dc, the Xbox 360 personality
+  Microsoft's 045e:028e.
+- **Updater.**  Every pad and dongle build is the updater with the app above
+  it (`docs/firmware/updater.md`).  The updater starts the app unless the app
+  asked for it (reset mailbox) or the app's header is missing.  On the Jieli
+  chips it also stays after three app starts that never reached the control
+  thread.
 
-Dependencies live in `external/`: the SDKs and BTstack as submodules (pinned
-commits), the compilers fetched by a script (pinned archives, sha256 checked).
+## Code style
 
-    git submodule update --init            # Jieli SDK, Telink SDK, BTstack
-    external/fetch-toolchains.sh           # into external/toolchains/
-    make -j32                              # every product
-    make test                              # every product's unit tests
-    make -j32 gamesir-cyclone-2-pad        # build/gamesir-cyclone-2-pad/: the pad's updater with the app above it
-    make gamesir-cyclone-2-flash           # the pad (updater + app), over USB, through the ROM loader
-    make gamesir-nova-2-lite-pad-loader    # into the ROM loader and wait there (every board has -loader)
-    build/host/jlnewfw scan                # loaders, our firmware, stock pads (and their mode), by USB port
-    make gamesir-nova-2-lite-flash DEVICE=5-2.1   # one of several of the same board
-    make -j32 gamesir-cyclone-2-dongle     # build/gamesir-cyclone-2-dongle/
-    make gamesir-cyclone-2-dongle-flash    # packed for the connected dongle's key
-    make -j32 gamesir-cyclone-2-all        # both boards
-    make -j32 gamesir-nova-2-lite-pad      # the Nova 2 Lite
-    make gamesir-cyclone-2-pad-test        # one board's unit tests
-    make 8bitdo-ultimate2c-wireless-flash   # Telink pad: tools/8bitdoboot.py, 8BitDo boot loader
-    tools/upgrade.py                        # every connected pad and dongle, one at a time (--pads, --dongles)
-    python3 tools/8bitdoboot.py scan        # 8BitDo boot loaders and our Telink firmware
+- C99 for everything shared: the Telink compiler is GCC 4.5.  `pad.h`
+  provides `_Static_assert`.
+- Public names carry the module prefix: `bt_`, `ux_`, `set_`, `in_`, `led_`,
+  `util_`, `plat_`, `usb_`, `upd_`.  Only `plat_*` and `platform_jieli_sdk.c`
+  use Jieli SDK names.  Our additions inside the controller carry
+  `btctrlermod_`.  Words used consistently: slot, profile, session, link,
+  host, report, write, read.
+- Comments are short plain sentences saying what a thing is or why, at about
+  the density of the surrounding code.  Match the neighbouring code's naming
+  and idiom rather than introducing a new style.
+- Tests: a module with logic has an `#ifdef UNITTEST` block at its end, run
+  on the host by the `-test` targets.  Not covered: `controller.c`,
+  `bt_pad.c`, `btstack_hci_jieli.c`, `platform_jieli*.c`.  Python tools have
+  `test_*.py` beside them (the GUI tests need Tk: use a Nix shell with
+  `tkinter`, and `xvfb-run` for a display).
+- The SDKs stay unmodified (their linker scripts are patched at build time
+  in `jieli.mk`).  BTstack stays upstream: bug-fix patches only, carried on
+  the fork.
+- Keep `pad.h`'s section comments in step with interface changes.
+- Commit messages: `Area: what changed` as the subject, then prose on why
+  and what was tested on which hardware.
 
-`tools/8bitdoboot.py` also identifies stock Ultimate 2C Wireless pads and
-receivers through their HID vendor interface. Stock boot entry uses report
-`81 05 00 51 00` padded to 64 bytes. `make 8bitdo-ultimate2c-wireless-pad-loader`
-accepts stock or our firmware; `make 8bitdo-ultimate2c-wireless-dongle-loader`
-requests stock receiver entry. Both accept `DEVICE=<USB port>`.
-Stock USB PID `310a` is shared: the tool checks model `301b` (pad) or `301c`
-(receiver), and checks the loader model again before flashing. Receiver entry
-is derived from its stock application; its bootloader USB identity and recovery
-remain unverified on hardware. Receiver flashing is not enabled. Reference:
-`docs/8bitdo-ultimate2c-wireless/re-bootloader.md`. Host checks:
-`make 8bitdoboot-test`.
+## Docs
 
-The build is in `make/`: `common.mk` and `host.mk` are shared, `jieli.mk`
-holds the BR23 toolchain, SDK and the board template (`jieli_board`),
-`telink.mk` the same for the B80 (`telink_board`),
-`btstack.mk` BTstack, and each product's `make/<product>.mk` its boards
-(flash size, PID, sources, defines) and targets.
+- What an agent writes in `docs/` is proven fact only: no test results,
+  dates or plans.  Mark an unproven point "not established".  Humans may
+  keep other files there (plans, discussion); leave those to them.
+- Source may refer to `docs/`; `docs/` does not refer to source.
+- A chip or SDK fact goes in `docs/jieli/`, a board fact in that board's
+  folder, a choice this firmware makes in `docs/firmware/`.
+- How to put a stock pad into its loader and install this firmware belongs in
+  the per-board docs, written by a human.  Do not write it.
 
-`padtool/padtool.py` talks to the running firmware over USB vendor commands
-(`padtool --help`). `padtool --dongle` does the same for the dongle.  While a
-pad or dongle is a game controller on USB, the vendor commands are gone:
-`padtool tool` (feature report 0xf5 through hidraw, HID personalities only)
-or ending the session brings the tool device back.  A test build that ends
-USB sessions by itself: `make gamesir-cyclone-2-pad EXTRA_DEFINES=-DUSB_SESSION_TEST_MS=12000`
-(a change of a board's defines rebuilds that board).
+## Hardware and testing
 
-`padtool/padgui.pyw` is the Tkinter GUI (`python padtool/padgui.pyw`), sharing the
-padtool protocol and Linux/Windows SCSI transport. `padtool/padflash.py` backs up
-and flashes prepared images in Python using the SDK BR23 RAM loader (or a packaged
-copy beside the scripts). Device discovery runs once per second (tool devices,
-new Linux disks; Refresh: everything); a pad's settings load when selected or a
-page needs them, and reload when its STATUS settings change counter moves.
-Edits stay pending across navigation until Apply.
-Apply/Discard scope is all devices in the global toolbar, one pad on its main
-page, and one target on slot/palette/calibration pages. Individual fields keep
-a status button: blank is default, checkmark is saved custom, * is a staged
-edit. Clicking a saved checkmark stages Default; clicking * or ! discards that
-setting’s edits. The device overview uses the same buttons for slot types.
-Reset all to defaults sits beside Apply/Discard and stages defaults within the
-selected device or target scope. Hover explains the status/action.
-Show console opens a per-device live log window (`padtool/padconsole.py`);
-advanced diagnostics use the CLI. Slot Apply/Discard stay in the title header
-while settings scroll. Dongle and ROM-loader actions live on their main pages. `tools/bootloop.py` is a development stress-test helper; `tools/buildcommits.sh [-q] [-o DIR] [-m MAKEARGS] [-c CMD] COMMIT|A..B...` builds each commit in a temporary worktree (output in `DIR/<date>-<hash>` with `-o`; `CMD` runs in the worktree with `$O` and `$COMMIT`). Sensor
-calibration is global; the USB trigger requires protocol 3+. Protocol 4 adds
-a read-only defaults query for Reset and default-value indicators. Protocol 5
-uses 15-point curves plus enable flags; presets and migration are shared in
-`padtool/padcurves.py`. Protocol 6 adds the staged slot Unpair action (WRITE
-id 0xfe, length 0): firmware clears the bond and renews the address at COMMIT.
-GUI Unpair and `padtool unpair SLOT` share this action. Protocol 7 adds LED
-demos (`padtool led-demo`, the table in `src/core/settings_ux.c`). Address renewal hashes
-the full previous address and tick, with no fixed prefix or generation counter.
-Type changes renew identities (except through the dongle). Setup and host
-tests: `padtool/README.md`.
+- The user handles the physical devices: plugging, buttons, consoles, jigs.
+  Building, flashing and running the tools are ours.  When a physical action
+  is needed, ask plainly, as numbered steps.
+- Flashing a connected device to test a change is fine without asking.  Bulk
+  flashing (`tools/upgrade.py`) is for the user to run; never run two
+  flashers at once.
+- Device nodes: the tools look in `/dev` (`/dev/input` for evdev), or, when
+  `DEV_ROOT` is set, for every node in that one directory (a container that
+  exports its nodes there).  Programs that only look in the standard places
+  (SDL) run under `tools/withdev.sh`, which rebuilds `/dev` from `DEV_ROOT`
+  once at start: nodes that appear later are not in it.
+- Several devices of one kind are told apart by USB port:
+  `padtool --device 5-2.1`, `jlnewfw scan`.  Use `padtool --dongle` for
+  dongles.
+- **Ephemeral mode for tests.**  Before changing settings or pairing just to
+  test something, put every device involved in `padtool ephemeral` (and
+  `padtool --dongle ephemeral`; check that each command succeeded): nothing
+  is saved until the next boot.  **When the test is done, reboot every
+  device you made ephemeral** (`padtool reboot`) before reporting, so they
+  are back on their saved settings.  Only save changes the user wants kept.
+- While a pad or dongle is a game controller on USB, its tool device is
+  gone.  A HID personality comes back with `padtool tool HIDRAW_PATH` (it
+  takes paths, not `--device`; without one it tries every hidraw).  The Xbox
+  360 personality is not HID: end the session on the pad (the disconnect
+  gesture in `gestures[]`) or replug.  A dongle with a pad linked shows that
+  pad's personality.
+- Logs: `padtool log` reads the firmware's log ring, which survives a soft
+  reset (and the updater shows the app's lines).  A hang watch soft-resets
+  after about 3 s and logs where it was.  `padtool stats` gives loop, report
+  and link timing.
+- Debug switches (via `EXTRA_DEFINES`): `DEBUG_UART_DP` (and `DEBUG_NO_USB`)
+  puts a UART on USB D+ for the BD19 bring-up jig; `HCI_LOG`, `BT_SMP_LOG`,
+  `PATH_STATS`, `LOG_LINES`/`LOG_TEXT` (log size), `USB_SESSION_TEST_MS`,
+  `STAY_ON_TEST`, `JACK_FLIP_TEST`.  Grep for each to see what it does.
+- A device that does not come up after flashing: the ROM loader is the way
+  back (per-board docs).  Before asking the user for a loader cycle, prepare
+  the next experiment so one cycle answers the question.
 
-`make padhub` builds the Linux UHID bridge for the dongle's six-slot hub.
-Usage, pairing, mode/bond persistence and profile limits: `tools/padhub.md`.
-`make padhub-test` checks host protocol and worker lifecycle without devices;
-these checks also run in `make test`.
+## Pitfalls found the hard way
 
-`tools/sdlpad.c` shows what SDL makes of the gamepads it sees (build line at
-its top).  In this container SDL needs the nodes from `/dev/bwrap` under
-`/dev/input` and `/dev`: `SDL_JOYSTICK_DISABLE_UDEV=1 unshare -rm
-tools/withdev.sh build/host/sdlpad 5`.
+When something costs real effort to find out (a chip quirk, a tool trap, a
+wrong assumption), add it here in a line or two.
 
-Recovering a pad that does not enumerate: hold Home and Start while plugging in
-USB (ROM loader, `UBOOT1.00`), then `make gamesir-cyclone-2-flash`. For the dongle, hold its
-button while plugging it in, then `make gamesir-cyclone-2-dongle-flash`. Image layout and the
-`jlnewfw` tool are in [docs/jieli/re-application-image.md](docs/jieli/re-application-image.md)
-and [docs/firmware/image-tool.md](docs/firmware/image-tool.md).
-
-Tunable by hand: Home gestures, timeouts and LED scenes in `src/core/settings_ux.c`;
-setting defaults and palette in `src/core/settings.c`. At run time: `padtool set`.
-
-The controller in `src/platform/jieli/btctrler/` links directly; no controller archive is
-built. Recovery tooling is archived on the `btctrler-decompiled` branch. The
-SDK is unmodified.
-
-The native Android USB host client is in `android/` (Kotlin, platform widgets).
-Build/check from there: `nix-shell --run './gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug'`.
-Its README describes the USB setup, SDK RAM-helper selection and remaining
-physical Android validation. Python compatibility fixtures are generated by
-`python3 android/tools/generate_vectors.py`; keep the protocol, remap and image
-formats aligned with padtool. Native app work does not require a firmware build.
-`android/run-emulator` (Nix shell shebang) builds/boots an Android 15 AVD
-in its normal window by default; `--scrcpy` selects `-no-window` plus scrcpy.
-Run it on the host with KVM access.
-It stays in the foreground: r + Enter rebuilds/reinstalls, Ctrl-C or q + Enter
-stops owned build/scrcpy/emulator/adb processes and deletes run-temporary files.
-Closing the chosen display also stops the session; `--headless` skips both windows.
-The launcher sets `QT_QPA_PLATFORM=xcb` for the emulator's bundled Qt.
-The app opens the device list; Refresh returns there. Refresh/Apply/Discard
-stay at the top, with Back on the right (disabled at top level) and one status line. On the device
-list, Apply/Discard affect all devices with pending edits and ask for confirmation;
-on a pad page they affect that pad, and on a detailed page only that target.
-Reset to defaults lives in the page body. Long press settings for help/defaults.
-`python3 android/tools/test_launcher.py` checks signal/lock/process cleanup.
-`python3 android/tools/generate_simulation.py` exports the simulator's real
-field table/defaults from the firmware's host code without hardware access.
+- RAM is the limit on the BD19 dongle: the linker's "NVRAM space overflow"
+  is static RAM, and a heap too small for the controller makes the app hang
+  at start-up without ever enumerating.  Check `_HEAP_BEGIN`/`_HEAP_END` in
+  `app.map` after adding static data there.  `HUB_SLOTS` is per board for
+  this reason.
+- LTO deletes stores to a global nothing reads (a reset mailbox, say) unless
+  its address escapes into a call or an asm input.
+- Never build the Telink board with `-Os`: the compiler miscompiles switch
+  tables.
+- Shell scripts: initialise every option variable empty up front; the
+  environment can leak names like `out` into a script.
+- Never search the whole filesystem (`/`, `/proc`, `/sys`, `/dev`): it has
+  disturbed the host.
