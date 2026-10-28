@@ -4,6 +4,9 @@
 /* The flash ATT server, independent of SDK types. Notifications and ATT
  * responses have separate bounded buffers; responses go first. */
 #define TELINK_ATT_BUFFER 160
+/* The largest LL packet sent (tx_telink.c): DualSense's 77-byte input with
+ * its ATT and L2CAP headers in one. */
+#define TELINK_TX_OCTETS 84
 #define TELINK_ATT_MESSAGE_MAX 144   /* a notification's value: Switch 2's largest command response */
 int plat_att_start(const struct profile *profile, u16 max_mtu);
 void plat_att_connected(u16 handle);

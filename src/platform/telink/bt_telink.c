@@ -19,12 +19,12 @@
 
 #define BOND_STORE    0x71000    /* below the app's end, clear of stock data */
 #define INPUT_MAX     77         /* DualSense's extended report */
-#define TX_OCTETS     70
+#define TX_OCTETS     TELINK_TX_OCTETS
 #define RX_OCTETS     251
 #define IN_FLIGHT     2          /* input notifications in the stack at once */
 /* Inputs take at most IN_FLIGHT slots, so two stay for LL control: two
- * one-packet inputs, or one in two fragments (TX_OCTETS each, as
- * tx_telink.c fragments).  The app owns
+ * one-packet inputs (every input fits TX_OCTETS), or one in two fragments
+ * if one ever does not.  The app owns
  * input admission; raw ATT sends use the SDK's priority path rather than
  * its conservative notification reserve (only one input with four slots). */
 #define TX_FIFO       4

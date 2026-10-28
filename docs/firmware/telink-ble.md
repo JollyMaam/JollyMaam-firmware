@@ -16,7 +16,7 @@ link-layer limits prevent this console's initial MTU request; a reply of 185
 stops setup before the proprietary pairing commands.
 
 The receive FIFO has four full-size entries. Outgoing L2CAP PDUs are fragmented
-to at most 70 bytes, independently of the negotiated maximum. Four small TX
+to at most 84 bytes (a 77-byte input report with its headers), independently of the negotiated maximum. Four small TX
 entries hold these fragments. Every SDK FIFO insertion is checked before the
 copy. Two pending single-packet input reports leave two entries for LL control;
 the app enforces this budget while using the SDK's priority transmit path.
