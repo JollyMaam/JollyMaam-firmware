@@ -323,10 +323,11 @@ static const struct bt_device ble_device = {
     .interval_min = 6, .interval_max = 9,
 };
 
-/* The stock pad's wired Xbox 360 identity (docs/gamesir-cyclone2/audio.md), not Microsoft's:
- * with 045e:028e Linux never asks for the audio interfaces. */
+/* A wired Xbox 360 pad, Microsoft's ID: every board, not one vendor's (GameSir's
+ * 3537 is the stock pads').  Device class 0 beside audio (platform_jieli_usb.c)
+ * lets Linux bind snd-usb-audio. */
 static const struct usb_identity x360_usb = {
-    .vendor_id = 0x3537, .product_id = 0x1053, .bcd_device = 0x0352,
+    .vendor_id = 0x045e, .product_id = 0x028e, .bcd_device = 0x0114,
     .product = "Xbox 360 Controller for Windows", .serial = "08FEC93",
     .kind = USB_XINPUT, .interval = 1, .in_size = 32, .out_size = 32, .max_power = 250,
     .audio = USB_AUDIO_SPEAKER,

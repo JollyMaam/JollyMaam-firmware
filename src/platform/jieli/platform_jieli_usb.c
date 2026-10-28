@@ -753,11 +753,15 @@ static void start(const struct usb_identity *id,
     if (audio_if) {
         dma_audio = usb_alloc_ep_dmabuffer(0, EP_AUDIO, AUDIO_PACKET + 4);
         if (headset) dma_mic = usb_alloc_ep_dmabuffer(0, EP_AUDIO | USB_DIR_IN, AUDIO_PACKET);
-        plat_audio_on();
-        plat_audio_volume(volume[0], volume[1], mute);
     }
     usb_set_reset_hander(0, 0, on_reset);
     usb_set_setup_hook(usb_id2device(0), hook);
+    /* After the hook: the host asks for descriptors while the DAC powers up,
+     * and without it the SDK's own answered (4c4a:4155, no interfaces). */
+    if (audio_if) {
+        plat_audio_on();
+        plat_audio_volume(volume[0], volume[1], mute);
+    }
     plat_usb_frames_rebase();
 }
 
