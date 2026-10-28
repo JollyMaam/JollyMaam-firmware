@@ -93,6 +93,8 @@ against the eventual Nova 2 configuration and linked image.
 
 | C32 | `bd19/tws_sync_call.c`, worker `07f43a9`, SDK occurrence1 `dbb5d6d9…ef4`: allocated timer/list queue, direct-link slot and attribute15 differ from BR23 ring/attribute1; UUID API moves from BR23 task member. | Keep separate implementations; share only proven protocol-independent helpers. Revisit whole-member ownership when recovering `tws_task`, without importing its BR23 UUID wrapper. |
 
+| C33 | `bd19/cte_data_algorithm.c`, SDK occurrence1 `37f5c7b5…108`: six public tables (2046 bytes) match BR23, and census finds eight identical original function bodies, but this member had no owned BR23 source. Full BD19 recovery compiles with both headers. | Consider shared tables/helpers when recovering BR23 CTE; first audit changed estimator/preprocessing bodies and target FP behavior. Do not add the new BD19 source to BR23 automatically. `check_cte_algorithm.py` provides repeatable host LLVM comparisons, not RF calibration evidence. |
+
 ## Confirmed BD19 behavior to revisit
 
 Each row describes SDK behavior deliberately retained in accepted C. Fixes need
@@ -186,6 +188,10 @@ unestablished unless specifically stated.
 
 | B62 | Same sync-call occurrence: RX uses len>3 and i+=3 words while i<len/4, reading full aligned triples even for len4/8; TX has no capacity bound. Link RX reads nine bytes, widens only one priv byte, leaves sc_slot.instant unchanged and takes no IRQ lock. | Verify transport padding, alignment, capacities and framing before adding separate bounded application behavior. Fixtures use real padded storage, not evidence of caller safety. |
 | B63 | `__call_func_timeout` calls a matched NULL function unchecked; disconnect46 guards it. Timer/taskq failures are ignored; timeout callback runs before unlink outside IRQ masking, disconnect callback after unlink under masking, with captured next pointer. Direct-link timer255 is still armed; callback reloads timer after user code and writes255 after put. Init and TX-success are no-ops; deadline multiplication wraps before signed division. | Audit registration invariants, reentrancy, late callbacks, timer ownership/failure handling, supported delay range and queue/resource limits. Preserve +1/+2 versus -1/-2 callback statuses until caller contracts establish intent. |
+
+| B64 | CTE `IQ_data_assessment` advances groups by antenna count but reads antenna_count-1 samples from the final group without a slot/array bound. The 81-sample/16-antenna SDK vector reaches indices76–78: real reads cross into imaginary storage and imaginary reads reach count/frequency/RSSI/AGC fields. Recovery expresses exact two-byte loads via aligned memory intrinsics to avoid introducing C subarray UB. Preprocessing always reads reference bytes8–39 and at least one full terminal record. | Verify frame lengths and complete-group contracts; bound diagnostic sample reads as a separate app change after caller review. Byte-offset recovery preserves SDK reads; it does not make arbitrary dimensions or short input storage safe. |
+| B65 | CTE `distance_est` scans strict log intervals0..78: exact interior endpoints and NaN fall through to row79, while <=20 selects0 and >=200000 selects80. atan/angle/frequency routines mix signed integer truncation with explicit float/double rounding; byte exponent and RSSI arithmetic wrap. `atan_fun` has INT_MIN/sum-overflow domains; angle row/column <=1 can leave undef values; zero power/divisor/sensitivity can produce invalid casts/divisions. | Establish supported sample, matrix, signal and sensitivity ranges before choosing guards or replacing approximate lookup math. Preserve precision and NaN branches; rerun differential checks on any consolidation. RF accuracy remains unmeasured. |
+| B66 | CTE init overwrites its pointer and only reports malloc failure; public conversion/test paths dereference unchecked context/buffers. Close frees without clearing, permitting repeated free; test-case allocates164 bytes unchecked. `mac_data_load` ignores the first reference maximum, uses only final reference/sample maximum and bias8001, and divides by zero on all-zero signals. Weak put_float is a no-op. | Audit allocation/reinit/close failure policy, late callers, zero-signal handling and weak diagnostic override; retain separate faithful ownership until an explicit application fix. Sample tests validate arithmetic and sanitizer-safe storage, not lifecycle safety for arbitrary callers. |
 
 ## Inherited BR23 follow-ups: BD19 confirmation queue
 
@@ -419,3 +425,5 @@ not absence of defects. See the earlier sections for cross-member issues.
 | `tws_pair.c.o` / 2 | `6758a78` + coordinator review | C31; B60–B61 |
 
 | `tws_sync_call.c.o` / 1 | `07f43a9` + coordinator review | C32; B62–B63; H21 scope corrected to BR23 |
+
+| `cte_data_algorithm.c.o` / 1 | partial worker `74ed2d6` + coordinator completion/review | C33; B64–B66 |

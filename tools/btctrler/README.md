@@ -32,6 +32,7 @@ PATH=/work/bin:$PATH make controller-audit
 PATH=/work/bin:$PATH make test
 python3 tools/btctrler/check_uecc.py  # BD19 curve specialization vs Python integers
 python3 tools/btctrler/check_law_codecs.py  # Exhaustive fixed-width codec arithmetic
+python3 tools/btctrler/check_cte_algorithm.py --clang /path/to/host/clang  # SDK LLVM differential math checks
 ```
 
 Original IR and inventories: `build/controller-ir/{br23,bd19}/`.

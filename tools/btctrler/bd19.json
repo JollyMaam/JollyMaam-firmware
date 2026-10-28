@@ -149,6 +149,14 @@
       ]
     },
     {
+      "member": "cte_data_algorithm.c.o",
+      "occurrence": 1,
+      "sha256": "37f5c7b5972b53d764f03f1a91760f9f21afc6d098f2050f96f725b3f374f108",
+      "sources": [
+        "src/btctrler/bd19/cte_data_algorithm.c"
+      ]
+    },
+    {
       "member": "device_manager.c.o",
       "occurrence": 1,
       "sha256": "b19e444be48e4039ad287191e54c3a7a128f181222f727c85c292b896c72777b",

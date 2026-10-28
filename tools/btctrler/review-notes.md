@@ -1868,3 +1868,49 @@ members, 964 functions, 84 globals, 1089 retained index entries. All 123 origina
 BR23 sources remain byte-identical to 44d0073. Clean worker and all three nested
 dependency statuses and merged ancestry checked; completed worker worktree and
 branch deleted. No pending worker, application-image or hardware validation.
+
+
+## Clean-branch BD19 CTE math acceptance
+
+Worker `74ed2d6` preserved a partial draft after accidental truncation; the
+coordinator reconstructed missing functions from raw SDK IR and completed the
+review. Member `cte_data_algorithm.c.o` occurrence1 SHA-256
+`37f5c7b5972b53d764f03f1a91760f9f21afc6d098f2050f96f725b3f374f108`.
+Dedicated source supplies all 16 function definitions (13 public, three private)
+and six public tables. Weak put_float remains weak/no-op; all functions and data
+retain the absence of sections. Public tables total2046 bytes: arctan257/sin128/
+acos257 shorts align2, log81 words/m21 floats align4, cte_data354 bytes align1.
+Private context pointer startsNULL/align4. Every initializer bit and all seven
+string literals/alignments match compiled SDK IR. Primary context size388 and
+field layout agree. Both target compilers build this source; actual BR23 files
+are untouched (123 originals byte-identical to44d0073).
+
+Raw function review and normalized compiled IR reviewed for endian conversion,
+float/double operation order, signed divisions/truncations, explicit wrapping
+pair sums, allocation lifecycle, and repeated global/context loads around calls.
+Coordinator corrected draft endian/power/sign/interval errors, restored missing
+functions and original log_print, cached allocation before the second malloc,
+and reloaded global context after diagnostic logging. Corrected draft defects
+are not SDK findings. IQ diagnostic SDK loads cross its declared76-element
+arrays into adjacent context fields; two-byte aligned builtin copies preserve
+the raw loads without introducing C subarray indexing UB. B64–B66 document
+this behavior, strict lookup/NaN fallback, invalid-input math domains, unchecked
+allocation/reinitialization/double-close and zero-signal division. C33 records
+verified shared-table/helper candidates without changing BR23 ownership.
+
+New tools/btctrler/check_cte_algorithm.py adapts original LLVM to x86_64 solely
+for host comparison (debug/target attrs removed, definitions renamed and private
+helpers exposed). It compares128611 calls exactly: all65536 sine inputs,
+50000 randomized atan inputs plus axes, randomized CFO/frequency/angle/distance/
+IQ, context and output bytes, diagnostic float values, short scalar boundaries,
+NaN/infinite log ratios, and five full public conversion/angle pipelines.
+It requires a host clang; used clang21.1.8 and gcc -O2 -ffp-contract=off.
+This is additional evidence, not a formal or target FP/RF equivalence proof.
+
+Durable host fixtures test byte decoding/0x8000 powers, terminal record rotation,
+strict log endpoint and NaN row79, aliased complex outputs, zero-length paths,
+SDK sample angle49/output sums9633/11085, stale close pointer and self-test.
+Complete-mock ASan/UBSan passes. Full worker controller checks/census pass:
+208 : ok reports,12 legacy reports,31 tooling tests,both layouts,88 groups.
+Totals89 accepted / 22 retained members,977 public functions,90 globals and1070
+verified retained index entries. No application-image or hardware validation.
