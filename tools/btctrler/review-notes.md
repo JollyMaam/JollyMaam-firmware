@@ -1523,3 +1523,10 @@ have no providers in the pinned cpu/bd19/liba archive indexes/current C, just
 as in the original member. Application CONFIG_WIFI_DETECT_ENABLE is zero.
 Do not enable this optional path without providers and actual linking tests;
 controller ownership audits do not establish whole-application linkability.
+
+TWS AFH combined checkpoint: `91f3781` passes canonical controller checks
+and census: 201 `: ok` reports, 12 legacy reports, 31 tooling tests, both
+layouts and all 80 ownership groups. Totals: 81 accepted / 30 retained members,
+929 functions, 74 globals and 1134 retained index entries. Clean worker/dependency
+status and merged ancestry checked; completed worktree and branch removed.
+Optional WiFi imports remain unsupported as recorded in B49. No hardware tests.
