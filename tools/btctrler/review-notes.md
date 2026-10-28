@@ -1365,3 +1365,13 @@ Worker controller suite passes: 197 `: ok` reports, 12 legacy reports,
 Totals: 77 accepted members, 916 public functions, 69 globals; 34 retained
 members / 1152 verified index entries. Original BR23 C is unchanged. No
 application-image or audio hardware validation is claimed.
+
+Law-codec combined checkpoint: acceptance `a3fce20` passes the canonical
+controller suite: 197 `: ok` reports, 12 legacy reports, 31 tooling tests,
+both layouts and 76 ownership/retention audits. Independent exhaustive
+validation again passes all 131072 encode / 512 decode values plus ABI and
+selector checks. Totals: 77 accepted members / 916 functions / 69 globals;
+34 retained members / 1152 verified index entries. Original 123 BR23 C files
+remain byte-identical to `44d0073`. Clean worker/dependency status and merged
+ancestry were checked before deleting the completed worktree and branch.
+No pending workers or audio hardware validation.
