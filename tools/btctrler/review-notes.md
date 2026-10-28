@@ -1300,3 +1300,30 @@ BD19 196464 bytes, SHA-256
 After checking clean root/nested dependency status and merged ancestry, the
 completed worker worktree and branch were removed. No pending workers or
 hardware validation.
+
+## Clean-branch BD19 Classic HCI parser acceptance
+
+Worker `55e2b12` and coordinator baseband recovery supply occurrence 1
+`lmp_hci_cmd_parser.c.o`, SHA-256
+`97b7f09ba18f75bb9494e17d3ac4ecd0bf84c7ab005fc91e184e8c9900e127af`.
+Two dedicated BD19 sources provide exactly seven public functions, no globals,
+and `.classic_lmp_code` placement. BR23 baseline sources remain unchanged.
+Review restored the original memory intrinsic, helper pointer/offset boundary,
+QoS/clock saved handles, diagnostic gating/prototypes and explicit reader
+order. All HCI diagnostic string bytes match the SDK. Three normalized bodies
+match exactly; status differs only by phi incoming order. Control/policy CFG
+and baseband assertions/voice/EIR loops were checked against raw IR.
+
+Both focused sanitizer fixtures pass and exercise all opcode paths with both
+logging states, partially initialized messages, callback mutation, EIR wrapping,
+unaligned prefix clear and pointer/double varargs. Mock backing/recovery hooks
+make returning-assert fixtures safe; production unsafe paths are preserved.
+C20/B39–B41 record consolidation, malformed input, reply ABI and placeholder
+behavior follow-ups. Acceptance commit body carries the full durable report.
+
+Worker validation: `make -j32 controller-objects controller-test test
+controller-layouts controller-tools-test controller-audit` passes: 195 `: ok`
+reports, 12 legacy reports, 31 tooling tests, both layouts, 74 ownership groups.
+Totals: 75 accepted members, 915 public functions, 67 globals; 36 retained
+members / 1155 verified index entries. This is the clean controller branch;
+no newer four-product image or hardware validation is claimed.

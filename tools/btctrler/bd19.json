@@ -504,6 +504,15 @@
       ]
     },
     {
+      "member": "lmp_hci_cmd_parser.c.o",
+      "occurrence": 1,
+      "sha256": "97b7f09ba18f75bb9494e17d3ac4ecd0bf84c7ab005fc91e184e8c9900e127af",
+      "sources": [
+        "src/btctrler/bd19/lmp_hci_cmd_parser.c",
+        "src/btctrler/bd19/lmp_hci_baseband.c"
+      ]
+    },
+    {
       "member": "lmp_rxtx.c.o",
       "occurrence": 1,
       "sha256": "81c88e4e683456d98a18fe5ead57275ee0a5ac955876ff4ad5f5f7f3d37c9922",
