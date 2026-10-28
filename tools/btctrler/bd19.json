@@ -189,6 +189,14 @@
       ]
     },
     {
+      "member": "h4_usb_descriptor.c.o",
+      "occurrence": 1,
+      "sha256": "a53b109f48a09d1cc990398d8bf14fde9806069163c88c3a69e504803604fc96",
+      "sources": [
+        "src/btctrler/h4_usb_descriptor.c"
+      ]
+    },
+    {
       "member": "hci_controller.c.o",
       "occurrence": 1,
       "sha256": "c077ec3c2f015655f1fdf1ea2388828aebe6609d2ee32a004d6304037b73c0e8",

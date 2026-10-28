@@ -85,6 +85,8 @@ against the eventual Nova 2 configuration and linked image.
 
 | C28 | `bd19/tws_schedule.c`, worker `7ad3d84`, occurrence 1 `7dd81f66…98d0`: no BR23 member or unique function counterpart. BD19 schedules phone/peer handover using queue counts, SBC time, error counts and slot timers; two public hooks are no-ops. | Keep BD19-only scheduling separate. BR23 support would need independent SDK/application evidence, not a header/layout substitution. Empty hooks are confirmed SDK behavior, not missing recovery. |
 
+| C29 | Shared `h4_usb_descriptor.c`, worker `8ebb4b0`, BD19 occurrence 1 `a53b109f…fc96`: all five arrays, every byte, size, section and alignment are identical in both SDKs. No C owner previously existed. | Sharing is implemented immediately in the common root source and checked against both compiled target objects. Original 123 BR23 C sources remain untouched; BR23 gains the new SDK-equivalent descriptor definitions. Preserve common data unless a deliberate product-specific descriptor policy requires divergence. |
+
 ## Confirmed BD19 behavior to revisit
 
 Each row describes SDK behavior deliberately retained in accepted C. Fixes need
@@ -166,6 +168,8 @@ unestablished unless specifically stated.
 
 | B54 | `bd19/tws_schedule.c`, occurrence 1 `7dd81f66…98d0`: timer byte initially zero; allocation result (including 255) is stored unchecked; put/disable do not clear it. Private switch returns int but is bitcast to void-return timer callback. Connection start and monitor-init hooks are empty. | Audit timer allocation, repeat-connect/disconnect and callback lifetime. Resolve callback ABI deliberately across timer caller/callee recovery; do not add a wrapper during faithful ownership. Host tests compare the cast callback and invoke the correctly typed private function separately. |
 | B55 | Same member: queue thresholds are 2/3/5 for modes 0/1/2; empty RX queue exits before SBC time. Remaining time compares signed <11 or count>1/<41. Five qualifying receive errors trigger a switch; error count wraps as u8. Handler assumes lmp_conn exists after its initial gates, and monitor index >=32 gives an invalid shift. Some paths retain entry link snapshots while others reload after clock/SBC/timer/task hooks. | Establish queue, payload-index and connection-lifecycle contracts; assess scheduling thresholds on hardware before policy changes. Preserve callback snapshots/reloads, enable-bit-only sniff gate and check127/255 mode2 selection. Draft gating/dispatch/empty-queue corrections are translation fixes, not SDK bugs. |
+
+| B56 | Shared `h4_usb_descriptor.c`, same original member in both targets: five arrays total 227 bytes, VID/PID bytes decode to 0x0a12/0x0001 and device release to 0x2520; product string is `JL AC69 A10`. string1 repeats string0's four bytes; device manufacturer index is zero. These are literal SDK data, not Nova2 product policy. | Review identity, string selection and descriptor use together with the H4 USB interface and actual application before enabling it for a product. Do not silently replace SDK bytes during decompilation or claim enumeration/hardware validation from initializer equality. |
 
 ## Inherited BR23 follow-ups: BD19 confirmation queue
 
@@ -391,3 +395,5 @@ not absence of defects. See the earlier sections for cross-member issues.
 | `tws_tx_sync.c.o` / 1 | `e024e56` + coordinator review | C27; B52–B53 |
 
 | `tws_schedule.c.o` / 1 | `7ad3d84` + coordinator review | C28; B54–B55 |
+
+| `h4_usb_descriptor.c.o` / 1 | `8ebb4b0` + coordinator review | C29; B56; common source |

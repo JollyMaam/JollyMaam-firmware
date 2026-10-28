@@ -1,4 +1,4 @@
-/* BD19 SDK USB descriptors recovered from h4_usb_descriptor.c.o. */
+/* Shared BR23/BD19 SDK USB descriptors from h4_usb_descriptor.c.o. */
 __attribute__((section(".hci_interface_const"), aligned(1)))
 const unsigned char device_descriptor[18] = {
     0x12, 0x01, 0x00, 0x02, 0xe0, 0x01, 0x01, 0x40, 0x12, 0x0a, 0x01, 0x00,

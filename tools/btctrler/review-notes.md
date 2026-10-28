@@ -1670,3 +1670,33 @@ tests, both layouts and 83 ownership groups. Totals: 84 accepted / 27 retained
 members, 940 functions, 76 globals and 1121 retained index entries. Clean
 worker/dependency status and merged ancestry checked; completed worktree and
 branch deleted. No pending worker or hardware/timing validation.
+
+## Shared BR23/BD19 H4 USB descriptor acceptance
+
+Reviewed worker `8ebb4b0`, BD19 `h4_usb_descriptor.c.o` occurrence 1,
+SHA-256 `a53b109f48a09d1cc990398d8bf14fde9806069163c88c3a69e504803604fc96`.
+The five SDK globals are identical between chips and had no previous C owner.
+Coordinator authorized a common new root source `src/btctrler/h4_usb_descriptor.c`
+instead of a BD19 duplicate. Both normal target compile commands succeed.
+Coordinator decoded both actual build objects and compared every initializer:
+device_descriptor18, configuration_descriptor177, string0_descriptor4,
+string1_descriptor4 and string2_descriptor24. All 227 bytes, array types,
+external const linkage, .hci_interface_const sections and align1 match each
+original SDK exactly. No functions, private data or imports are introduced.
+No translation correction was needed; source comment now names both targets.
+
+Descriptor data are preserved without changing product identity. Clarification
+of worker report: bytes20/25 at offsets12/13 are device release0x2520, not
+idProduct. VID bytes12/0a at offsets8/9 give0x0a12; PID bytes01/00 at10/11
+give0x0001. Product text is JL AC69 A10. C29 records sharing already completed;
+B56 keeps product identity/string policy for later interface/application review.
+This literal-data recovery does not establish USB enumeration or Nova2 support.
+
+Worker combined controller checks/census pass: 204 `: ok` reports, 12 legacy
+reports, 31 tooling tests, both layouts and84 ownership groups. Totals:
+85 accepted members /940 public functions /81 globals;26 retained members /
+1116 verified index entries. All123 original BR23 C files remain byte-identical
+to44d0073; the new common source adds five SDK-equivalent BR23 definitions.
+No host tests mirroring literals or sanitizer run were needed: compiled-IR
+initializer equality provides direct verification. No application images,
+USB enumeration or hardware validation claimed.
