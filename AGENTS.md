@@ -190,5 +190,9 @@ wrong assumption), add it here in a line or two.
 - The 8BitDo app keeps 2 log lines (`LOG_LINES`); a debug build can take
   `EXTRA_DEFINES=-DLOG_LINES=5`, 12 overflows RAM.  Its updater's launch of
   the app clears the watchdog, so arming it in the updater does nothing.
+- BlueZ (Linux) waits 2 s before it disconnects an LE link on request.
+  When the pad ended an LE link instead, the kernel sometimes held the next
+  scan or connection for 20 s (cause not found).  padble therefore leaves
+  config mode's link up between runs.
 - Never search the whole filesystem (`/`, `/proc`, `/sys`, `/dev`): it has
   disturbed the host.

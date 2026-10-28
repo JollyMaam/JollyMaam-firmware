@@ -43,7 +43,7 @@ static const struct bt_device config_device = {
     .att_db = updater_att_db,
     .advertising = advertising,
     .scan_response = scan_response, .scan_response_len = sizeof(scan_response),   /* zeros after the name */
-    .interval_min = 6, .interval_max = 12,
+    .interval_min = 6, .interval_max = 6, .unencrypted = 1,   /* 7.5 ms: two per command */
 };
 
 void profile_config_address(u8 out[6])

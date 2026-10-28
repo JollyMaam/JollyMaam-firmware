@@ -68,7 +68,7 @@ int hci_jieli_fast_send(const u8 *pdu, u16 len);
 #define LEAD_HITS        50
 #define LEAD_ROOM_US     1000
 
-enum { RQ_START = 1, RQ_CONNECT = 2, RQ_STOP = 4, RQ_ABORT = 8 };
+enum { RQ_START = 1, RQ_CONNECT = 2, RQ_STOP = 4, RQ_ABORT = 8, RQ_DROP = 16 };
 
 struct message { u16 handle; u16 len; u8 data[MAX_MESSAGE]; };
 
@@ -108,7 +108,7 @@ static btstack_data_source_t tx_source;
 static btstack_packet_callback_registration_t hci_registration, sm_registration;
 static u8 sdp_hid[720];
 static u8 sdp_id[100];
-static u8 sm_on, wake_adv, data_length_pending, phy_pending;
+static u8 sm_on, wake_adv, data_length_pending, phy_pending, interval_asked;
 static u16 ccc_handle[CCCS];
 static u8 ccc_value[CCCS];
 static btstack_packet_callback_registration_t l2cap_registration;
@@ -171,6 +171,7 @@ void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond
 void bt_stop(void) { request(RQ_STOP); }
 void bt_abort(void) { request(RQ_ABORT); }
 void bt_connect(void) { request(RQ_CONNECT); }
+void bt_drop(void) { request(RQ_DROP); }
 
 /* A bond learned by the profile (Switch 2 pairs in its own protocol): the
  * host asks for the key right after. */
@@ -664,6 +665,15 @@ static int att_write(hci_con_handle_t h, u16 handle, u16 mode, u16 offset, u8 *b
             update_want();
         }
         util_log("bt: host %s notifications on 0x%04x", size && buf[0] ? "enables" : "disables", handle - 1);
+        /* Never encrypted: ask for its interval now, past the link's first
+         * procedures (data length, PHY).  Asked at connection, the host's
+         * update came ~40 ms in and the pad reset, twice (a clash with
+         * those procedures is suspected, not shown).  Its own interval:
+         * the link settings are slot A's. */
+        if (dev->unencrypted && dev->interval_min && size && (buf[0] & 1) && !interval_asked) {
+            interval_asked = 1;  /* once: each padtool run subscribes again */
+            gap_request_connection_parameter_update(con_handle, dev->interval_min, dev->interval_max, 0, 400);
+        }
         return 0;
     }
     emit_write(BT_WRITE_ATT, handle, buf, size);
@@ -799,6 +809,7 @@ static void tx_poll(btstack_data_source_t *ds, btstack_data_source_callback_type
         hci_power_control(HCI_POWER_OFF);
         return;
     }
+    if ((r & RQ_DROP) && acl_up) gap_disconnect(con_handle);
     if ((r & RQ_CONNECT) && working && !le) {
         if (acl_up && !hid_cid) gap_disconnect(con_handle);
         else page();
@@ -1059,6 +1070,17 @@ static void le_flush(void)
     update_want();
 }
 
+/* The slot's interval, else the device's. */
+static void request_interval(void)
+{
+    if (link.le_interval_min)
+        gap_request_connection_parameter_update(con_handle, link.le_interval_min,
+            link.le_interval_max ? link.le_interval_max : link.le_interval_min, 0, 400);
+    else if (dev->interval_min)
+        gap_request_connection_parameter_update(con_handle, dev->interval_min,
+                                                dev->interval_max, 0, 400);
+}
+
 static void le_connected(u8 *packet)
 {
     bd_addr_t a;
@@ -1091,6 +1113,7 @@ static void le_connected(u8 *packet)
     }
     if (sm_on) sm_request_pairing(con_handle);
     le_encrypted = 0;
+    interval_asked = 0;
     if (dev == profile_link.device) {
         btstack_run_loop_set_timer_handler(&link_watch, link_watch_timeout);
         btstack_run_loop_set_timer(&link_watch, LINK_ENCRYPT_MS);
@@ -1215,12 +1238,7 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
             int i = ccc((u16)(dev->input_handle + 1), 1);
             if (i >= 0) ccc_value[i] = 1;
         }
-        if (link.le_interval_min)
-            gap_request_connection_parameter_update(con_handle, link.le_interval_min,
-                link.le_interval_max ? link.le_interval_max : link.le_interval_min, 0, 400);
-        else if (dev->interval_min)
-            gap_request_connection_parameter_update(con_handle, dev->interval_min,
-                                                    dev->interval_max, 0, 400);
+        request_interval();
         break;
     case L2CAP_EVENT_CONNECTION_PARAMETER_UPDATE_RESPONSE:
         util_log("bt: le parameter request %s",

@@ -261,7 +261,8 @@ struct bt_device {
      * callback, its response sent after; an ATT error code or 0.  NULL: the
      * write goes to the control loop (BT_EV_WRITE). */
     int (*write_now)(u16 handle, const u8 *data, u16 len);
-    u16 interval_min, interval_max;
+    u16 interval_min, interval_max;   /* asked for once encrypted (else the slot's), or */
+    u8 unencrypted;                   /* when notifications start if never (config mode) */
 };
 
 /* A host write, from Bluetooth or USB: an output or feature report (id: its
@@ -310,6 +311,7 @@ void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond
 void bt_stop(void);                       /* asynchronous; BT_EV_STOPPED when the session is down */
 void bt_abort(void);
 void bt_connect(void);                    /* explicit connection attempt; may wake the paired host */
+void bt_drop(void);                       /* end the link, keep the session: it advertises again */
 int bt_send_input(u8 id, const u8 *data, u16 len);
 int bt_send_message(u16 id, const u8 *data, u16 len);
 int bt_poll(struct bt_ev *ev);

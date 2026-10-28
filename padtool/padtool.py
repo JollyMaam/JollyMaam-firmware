@@ -767,31 +767,44 @@ def remap_field(f, name):
 
 def fields(path):
     """The field table, as the firmware describes it."""
-    out, n = FieldTable(), 0
+    out = FieldTable()
     out.protocol = int.from_bytes(cmd(path, 0, length=64)[4:6], "little")
     if out.protocol != PROTOCOL:
         sys.exit(f"padtool: the firmware speaks protocol {out.protocol}, this padtool {PROTOCOL}; "
                  "use the padtool from the same build")
-    while True:
-        d = cmd(path, 0x20, n, 512)
+    while True:              # FIELDS: as many as fit in each answer
+        d = cmd(path, 0x28, len(out), 512)
+        if not d[0]:
+            break
+        o = 1
+        for _ in range(d[0]):
+            size, = struct.unpack_from("<H", d, o)
+            out.append(field_entry(d[o + 2:o + 2 + size]))
+            o += 2 + size
+    while True:              # the rest one at a time: a firmware without FIELDS
+        d = cmd(path, 0x20, len(out), 512)
         if len(d) < 8 or not any(d):
             return out
-        _, kind, fid, typ, size, flags, mx = struct.unpack_from("<BBBBBBH", d)
-        o = 8
+        out.append(field_entry(d))
 
-        def string():
-            nonlocal o
-            end = d.index(b"\0", o)
-            v, o = d[o:end].decode(), end + 1
-            return v
 
-        name, help_ = string(), string()
-        names = [string() for _ in range(mx + 1)] if typ == T_ENUM else []   # "": not on this board
-        nd = 8 if kind == 0 else 1
-        defs = [d[o + i * size:o + (i + 1) * size] for i in range(nd)] if size <= 4 else []
-        out.append({"kind": kind, "id": fid, "type": typ, "size": size, "max": mx, "dev": flags & 1,
-                    "name": name, "help": help_, "names": names, "defaults": defs})
-        n += 1
+def field_entry(d):
+    """One FIELD answer."""
+    _, kind, fid, typ, size, flags, mx = struct.unpack_from("<BBBBBBH", d)
+    o = 8
+
+    def string():
+        nonlocal o
+        end = d.index(b"\0", o)
+        v, o = d[o:end].decode(), end + 1
+        return v
+
+    name, help_ = string(), string()
+    names = [string() for _ in range(mx + 1)] if typ == T_ENUM else []   # "": not on this board
+    nd = 8 if kind == 0 else 1
+    defs = [d[o + i * size:o + (i + 1) * size] for i in range(nd)] if size <= 4 else []
+    return {"kind": kind, "id": fid, "type": typ, "size": size, "max": mx, "dev": flags & 1,
+            "name": name, "help": help_, "names": names, "defaults": defs}
 
 
 def choices(f):
@@ -1243,6 +1256,13 @@ def send(path, items, journal=True):
     """items: [(target, id, value bytes)], value b"" for a default; id 0 resets
     the target; UNPAIR_ID unpairs a slot and renews its address. Written in
     chunks, then committed; nothing applies if any is refused."""
+    refused = try_send(path, items, journal)
+    if refused is not None:
+        sys.exit(f"padtool: the pad refused the change ({refused}); nothing changed")
+
+
+def try_send(path, items, journal=True):
+    """send(), but a refusal is returned, what was refused (None: done)."""
     chunk, chunks = b"", []
     for t, fid, v in items:
         item = bytes([t, fid, len(v)]) + v
@@ -1258,8 +1278,8 @@ def send(path, items, journal=True):
         bad = [i for i, code in enumerate(r[1:1 + r[0]]) if code]
         if r[0] == 0 or bad:
             cmd(path, 0x24)
-            what = ", ".join(RESULTS[r[1 + i]] if r[1 + i] < len(RESULTS) else str(r[1 + i]) for i in bad)
-            sys.exit(f"padtool: the pad refused the change ({what or 'nothing accepted'}); nothing changed")
+            what = ", ".join(sorted({RESULTS[r[1 + i]] if r[1 + i] < len(RESULTS) else str(r[1 + i]) for i in bad}))
+            return what or "nothing accepted"
     cmd(path, 0x23)
     if journal and ephemeral_now(path):
         os.makedirs(os.path.dirname(JOURNAL), exist_ok=True)
@@ -1386,7 +1406,10 @@ def backup(path, file):
 
 
 def restore(path, file, calibration):
+    """Target by target, each committed alone: one the pad refuses is left
+    as it was, the others still go, and the refused ones are listed."""
     table, data = fields(path), json.load(open(file))
+    refused = []
     for name, values in data["targets"].items():
         t = target_index(name)
         if name == "calibration" and not calibration:
@@ -1403,8 +1426,13 @@ def restore(path, file, calibration):
                 items.append((t, f["id"], parse_value(f, v["value"])))
             elif f["name"] in PAIRING:
                 items.append((t, f["id"], b""))   # a reset keeps these
-        send(path, items)
-    print("restored" + ("" if calibration else " (calibration left as it was)"))
+        why = try_send(path, items)
+        if why is not None:
+            refused.append(f"{name} ({why})")
+    note = "" if calibration else " (calibration left as it was)"
+    if refused:
+        sys.exit(f"padtool: restored all but {len(refused)}, left as they were{note}:\n  " + "\n  ".join(refused))
+    print("restored" + note)
 
 
 def keep(path):

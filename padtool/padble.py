@@ -10,7 +10,14 @@ a piece of the answer.  Config mode takes a frame of at most BT_WRITE_MAX
 bytes, so more data goes in several, each but the last with bit 7 of the
 sub-command set, and it sends an answer in pieces marked the same way; the
 updater's frames and answers are one piece.  Every write waits for its response, which the pad sends once it has
-run the command: one write in flight.  Writes without response flooded the
+run the command: one write in flight.
+
+padtool leaves a config mode link up when it is done, and the next run
+takes the link BlueZ still holds (no scan, no connection: about 0.1 s);
+the pad ends config mode after a minute without a command.  Ending the link
+each time cost 2 s (BlueZ waits before it disconnects), or, when the pad
+ended it, sometimes 20 s of the kernel holding the next scan or connection
+(seen with BlueZ on Linux; cause not found).  Writes without response flooded the
 pad's HCI receive queue while it erased, and packets it dropped there were
 pieced together wrongly."""
 import asyncio, atexit, struct, sys
@@ -40,7 +47,9 @@ class BleLink:
                 if SERVICE not in [u.lower() for u in adv.service_uuids]:
                     return False
                 return not target or target.lower() in (d.address.lower(), (d.name or "").lower())
-            device = await BleakScanner.find_device_by_filter(wanted, timeout=scan_s)
+            device = None if updater else await connected(target)
+            if not device:
+                device = await BleakScanner.find_device_by_filter(wanted, timeout=scan_s)
             if not device:
                 sys.exit(f"padtool: no {what} advertising{' as ' + target if target else ''} " +
                          ("(Home+M on a pad that is not connected)" if updater else
@@ -62,7 +71,8 @@ class BleLink:
         # A frame: the MTU less the ATT write header (3) and the frame's (5);
         # config mode takes at most BT_WRITE_MAX, and collects several.
         self.chunk = self.frame_data = min(512, self.client.mtu_size - 8)
-        if not self.cmd(0x00, length=88)[7]:
+        self.config = not self.cmd(0x00, length=88)[7]
+        if self.config:
             self.frame_data = min(self.frame_data, CONFIG_FRAME_DATA)
             self.chunk = CONFIG_DATA_MAX
 
@@ -93,10 +103,41 @@ class BleLink:
         return False             # the app has no updater service
 
     def close(self):
+        """Config mode's link stays up for the next run; the updater's
+        ends."""
+        if self.config:
+            return
         try:
             self.loop.run_until_complete(self.client.disconnect())
         except Exception:
             pass
+
+
+async def connected(target):
+    """A pad BlueZ is still connected to that offers the service (one an
+    earlier run left up), as a bleak device; None elsewhere or without."""
+    if sys.platform != "linux":
+        return None
+    try:
+        from bleak.backends.device import BLEDevice
+        from dbus_fast import BusType
+        from dbus_fast.aio import MessageBus
+        bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+        try:
+            root = bus.get_proxy_object("org.bluez", "/", await bus.introspect("org.bluez", "/"))
+            objects = await root.get_interface("org.freedesktop.DBus.ObjectManager").call_get_managed_objects()
+        finally:
+            bus.disconnect()
+    except Exception:
+        return None
+    for path, interfaces in sorted(objects.items()):
+        d = interfaces.get("org.bluez.Device1")
+        if not d or "Connected" not in d or not d["Connected"].value or SERVICE not in d["UUIDs"].value:
+            continue
+        address, name = d["Address"].value, d["Name"].value if "Name" in d else None
+        if not target or target.lower() in (address.lower(), (name or "").lower()):
+            return BLEDevice(address, name, {"path": path, "props": {}})
+    return None
 
 
 _links = {}

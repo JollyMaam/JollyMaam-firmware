@@ -26,7 +26,10 @@ The command-line padtool also reaches a pad in config mode (Home+M held for
 alone for the first pad advertising or with its name or address
 (`padtool get slot-a --ble`). It needs `bleak` (`ps.bleak`). Settings, the
 log, status and the other commands work as on USB; `find`, `tool`,
-`tool-only`, `hub`, `latency`, `peek` and `keep` need USB.
+`tool-only`, `hub`, `latency`, `peek` and `keep` need USB. padtool leaves
+the Bluetooth link up when it is done, and the next run uses it, so a
+command takes a fraction of a second; the pad leaves config mode a minute
+after the last command (or on Home, or `padtool disconnect --ble`).
 
 Devices appear by themselves: every second padtool looks at our tool devices
 (an IDENTIFY each) and, on Linux, at disks it has not seen before, so ROM

@@ -81,12 +81,16 @@
  *                         (registers, RAM)
  *   `0x12` RELINK         – : while connected, take the session down and
  *                         connect the same slot again (the host is awake;
- *                         nothing is woken)
+ *                         nothing is woken); in config mode, end the link
+ *                         and advertise again
  *   `0x20` FIELD          argument: field number; in: u8 version, target kind
  *                         (0 slot, 1 palette, 2 calibration, 3 remap slot), id,
  *                         type, size, flags, u16 max, then name, help, enum names (NUL-
  *                         terminated), defaults (one per slot for slot fields,
  *                         fields up to 4 bytes); all zero past the last
+ *   `0x28` FIELDS         argument: first field number; in: u8 count, then per
+ *                         field u16 length and its FIELD answer, as many whole
+ *                         ones as fit; count 0 past the last
  *   `0x21` READ           CDB byte 2: target (0-7 slot, 8 palette, 9
  *                         calibration, 10-17 remap slot, 18 the base
  *                         remap); in: u8 version, target, count, then per
@@ -119,7 +123,7 @@
 enum { CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02, CMD_STATS = 0x03, CMD_INPUT = 0x04, CMD_CLOCK = 0x05,
        CMD_REBOOT = 0x10, CMD_REBOOT_LOADER = 0x11, CMD_RELINK = 0x12, CMD_CONNECT = 0x13, CMD_PROFILE = 0x14, CMD_PEEK = 0x15, CMD_TRACE = 0x16, CMD_PAIR = 0x17, CMD_CALIBRATE = 0x18, CMD_LED_DEMO = 0x19, CMD_RUMBLE = 0x1a,
        CMD_DISCONNECT = 0x1b, CMD_PROBE = 0x1c, CMD_CONFIG = 0x1d, CMD_FIELD = 0x20, CMD_READ = 0x21, CMD_WRITE = 0x22, CMD_COMMIT = 0x23, CMD_DROP = 0x24,
-       CMD_EPHEMERAL = 0x25, CMD_RESULT = 0x26, CMD_DEFAULTS = 0x27, CMD_TOOL_ONLY = 0x31, CMD_HUB = 0x32, CMD_USB_PROBE = 0x3f,
+       CMD_EPHEMERAL = 0x25, CMD_RESULT = 0x26, CMD_DEFAULTS = 0x27, CMD_FIELDS = 0x28, CMD_TOOL_ONLY = 0x31, CMD_HUB = 0x32, CMD_USB_PROBE = 0x3f,
        CMD_UPDATER = 0x40 };
 
 #ifdef BOARD_DONGLE
@@ -343,6 +347,18 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
     case CMD_FIELD:              /* argument: field number */
         n = set_describe(util_get32(cdb + 2), data, max);
         break;
+    case CMD_FIELDS: {           /* argument: the first field number */
+        u32 k, first = util_get32(cdb + 2), len;
+
+        if (!max) break;
+        for (n = 1, k = 0; n + 2 < max && (len = set_describe(first + k, data + n + 2, max - n - 2)); k++) {
+            util_put16(data + n, (u16)len);
+            n += 2 + len;
+        }
+        data[0] = (u8)k;
+        if (!k) n = 0;           /* none: past the last (as NO_SETTINGS answers) */
+        break;
+    }
     case CMD_DEFAULTS:           /* same packet as READ, all default values */
 #ifndef BOARD_DONGLE
         n = set_read_defaults(cdb[2], data, max);
@@ -587,6 +603,12 @@ int main(void)
     cdb[1] = CMD_FIELD;
     cdb[2] = 1;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 8 && data[0] == 1);
+    cdb[1] = CMD_FIELDS;         /* fields 1 and 2 (the stub has 3) */
+    CHECK(usb_command(cdb, data, sizeof(data), 0) == 21 && data[0] == 2 && data[1] == 8 && data[3] == 1 &&
+          data[11] == 8 && data[13] == 2);
+    CHECK(usb_command(cdb, data, 12, 0) == 11 && data[0] == 1);   /* only one fits */
+    cdb[2] = 3;
+    CHECK(usb_command(cdb, data, sizeof(data), 0) == 0);
     cdb[1] = CMD_WRITE;
     data[0] = 0x42;
     CHECK(usb_command(cdb, data, 9, 1) == 0);

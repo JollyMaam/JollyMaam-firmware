@@ -335,6 +335,11 @@ void bt_connect(void)
     util_log("bt: advertising to wake");
 }
 
+void bt_drop(void)
+{
+    if (b.connected && !b.stopping) bls_ll_terminateConnection(HCI_ERR_REMOTE_USER_TERM_CONN);
+}
+
 void bt_stop(void)
 {
     if (!b.started) return;

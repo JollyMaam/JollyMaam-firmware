@@ -350,8 +350,9 @@ static void start_session(struct ctl_request r, u32 now)
 }
 
 /* Config mode: the tool's commands over LE (profile_config.c) to any host,
- * pairing and bonding nothing, until ux_timeouts.config_ms without one, a
- * lone Home, Home+Minus or the tools.  Instead of any session. */
+ * pairing and bonding nothing, until ux_timeouts.config_ms without a host
+ * or, connected, without a command (padble leaves the link up between
+ * runs), a lone Home, Home+Minus or the tools.  Instead of any session. */
 static void start_config(u32 now)
 {
     struct profile_session s;
@@ -470,8 +471,12 @@ static void handle(struct ctl_request r, u32 now)
         break;
     case REQ_RELINK:
         /* Only while connected: the host is awake, so reconnecting wakes
-         * nothing.  The new session reads the slot's settings again. */
-        if (c.kind == CTL_CONNECTED) {
+         * nothing.  The new session reads the slot's settings again.  In
+         * config mode: the host is done, the pad advertises again (padble
+         * ends a link so; BlueZ's own disconnect waits 2 s). */
+        if (c.kind == CTL_CONNECTED && c.config) {
+            bt_drop();
+        } else if (c.kind == CTL_CONNECTED) {
             struct ctl_request again = { REQ_CONNECT, c.slot, 0, 1 };
 
             util_log("relink slot %u", c.slot);
@@ -557,6 +562,7 @@ static void bt_event(const struct bt_ev *e, u32 now)
         bond_update(&e->bond, e->kind == BT_EV_PAIRED);
         break;
     case BT_EV_WRITE:
+        if (c.config) c.since = now;     /* a command: config mode stays */
         /* A pairing the profile ran itself (Switch 2): the key joins the
          * slot's bond, and the stack needs it at once. */
         if (c.prof && c.prof->write && c.prof->write(&e->write, now, &bond) && c.slot < SLOTS) {
@@ -759,7 +765,8 @@ static void timeouts(u32 now)
         } else if (t >= (c.config ? ux_timeouts.config_ms : ux_timeouts.pair_ms)) stop(now);
         break;
     case CTL_CONNECTED:
-        if (battery && !c.calibrating && now - c.activity_ms >= ux_timeouts.idle_sleep_ms) shut_down(CTL_SLEEPING, now);
+        if (c.config && t >= ux_timeouts.config_ms) stop(now);
+        else if (battery && !c.calibrating && now - c.activity_ms >= ux_timeouts.idle_sleep_ms) shut_down(CTL_SLEEPING, now);
         break;
     case CTL_STOPPING:
         if (t >= ux_timeouts.stop_max_ms) bt_abort();
