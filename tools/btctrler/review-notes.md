@@ -1612,3 +1612,10 @@ entries. Retained bredr_link.c.o supplies post/available helpers and retained
 tws_pair.c.o occurrence 1 supplies JBHash/is_tws_esco_working. All 123 original
 BR23 C files remain byte-identical to 44d0073. No application-image or hardware
 validation claimed.
+
+TWS TX-sync combined checkpoint: acceptance `01f483b` passes canonical
+controller checks/census with 203 `: ok` reports, 12 legacy reports, 31 tooling
+tests, both layouts and 82 ownership groups. Totals: 83 accepted / 28 retained
+members, 934 functions, 76 globals and 1127 retained index entries. Clean
+worker/dependency status and merged ancestry checked before removing the
+completed worktree and branch. No pending worker or hardware validation.
