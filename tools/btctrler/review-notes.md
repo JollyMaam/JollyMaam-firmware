@@ -1619,3 +1619,47 @@ tests, both layouts and 82 ownership groups. Totals: 83 accepted / 28 retained
 members, 934 functions, 76 globals and 1127 retained index entries. Clean
 worker/dependency status and merged ancestry checked before removing the
 completed worktree and branch. No pending worker or hardware validation.
+
+## Clean-branch BD19 TWS scheduler acceptance
+
+Reviewed worker `7ad3d84`, `tws_schedule.c.o` occurrence 1, SHA-256
+`7dd81f66381eb12585d2af283f24e346d5056c987260ef42f587f5d8af8298d0`.
+Dedicated `bd19/tws_schedule.c` supplies six public functions, three private
+helpers and two zero-initialized private byte globals. All functions except
+list_empty use .tws_irq_code exactly as in the original IR; no public globals.
+39 mapped type shapes agree, public boundaries and private initializers match.
+Every function was checked against occurrence-specific raw IR. BR23 has no
+corresponding member or unique functions; no common source is justified.
+
+Coordinator corrected sniff gating to enable alone, nonmonitor check127/255
+dispatch to mode2 and all other checks to mode1, and the empty RX-list early
+exit before SBC evaluation. Queue counting uses signed int; unsigned one-bit
+shift preserves LLVM behavior at index31 (indices >=32 remain invalid).
+Remaining normalized differences are loop/branch reorganization, equivalent
+comparisons, pure load/arithmetic scheduling, prototypes and call annotations.
+Cached versus reloaded link pointers remain path-specific, including role
+reload after timer disable, entry snapshot on fifth-error scheduling, and
+fresh links after clock/SBC hooks. The int-to-void timer callback bitcast is
+preserved rather than hidden behind a behavior-changing wrapper.
+
+Worker temporary fixture is superseded by committed complete-mock tests.
+They cover modes0–3, queue counts0–6, SBC open/closed, signed remaining times
+-1/10/11/40/41, empty-queue early exit, clear-A2DP boundary31/32, phone threshold
+180/181, clock snapshot and link reload, SBC callback link mutation, wait-TX
+clearing, ACL priority, sniff enable versus unrelated bits, mode dispatch,
+error threshold4/5, pending-mask gate, role reload after disable, timer reload
+after task hook, timer0/255 lifecycle and both no-op public hooks. No mismatched
+int-return callback invocation is performed in host tests. C28/B54–B55 record
+feature ownership, timer ABI/lifetime and scheduling assumptions. Corrected
+translation defects are not recorded as SDK bugs.
+
+BD19 target compile and standalone ASan/UBSan pass. Normal BR23 portability
+compile of this extra file is unsupported because BR23 lacks the BD19 payload
+header type; no BR23 declarations or layouts were invented. The unchanged
+actual BR23 source set builds in combined validation. Worker full controller
+checks/census pass: 204 `: ok` reports, 12 legacy reports, 31 tooling tests,
+both layouts and 83 ownership groups. Totals: 84 accepted members / 940 public
+functions / 76 globals; 27 retained members / 1121 verified index entries.
+Retained lmp.c.o provides SBC time, bredr_frame.c.o the clock, and tws_link.c.o
+slave-monitor enable. Original 123 BR23 C files remain byte-identical to
+44d0073. No application-image or hardware/timing validation claimed.

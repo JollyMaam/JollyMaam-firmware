@@ -83,6 +83,8 @@ against the eventual Nova 2 configuration and linked image.
 
 | C27 | `bd19/tws_tx_sync.c`, worker `e024e56`, occurrence 1 `6d7850f0…779a`: BR23 member only has empty init; BD19 adds phone-packet hooks, channel 4/attribute 1, deadline and hash-based prefix release, and an eight-entry record ring. | No common implementation beyond empty init is justified by the SDKs. Any BR23 activation needs an explicit protocol/application decision. Named packet fields preserve BD19 entry/data/length offsets 16/28/10 without imposing those offsets on host fixtures. |
 
+| C28 | `bd19/tws_schedule.c`, worker `7ad3d84`, occurrence 1 `7dd81f66…98d0`: no BR23 member or unique function counterpart. BD19 schedules phone/peer handover using queue counts, SBC time, error counts and slot timers; two public hooks are no-ops. | Keep BD19-only scheduling separate. BR23 support would need independent SDK/application evidence, not a header/layout substitution. Empty hooks are confirmed SDK behavior, not missing recovery. |
+
 ## Confirmed BD19 behavior to revisit
 
 Each row describes SDK behavior deliberately retained in accepted C. Fixes need
@@ -161,6 +163,9 @@ unestablished unless specifically stated.
 
 | B52 | `bd19/tws_tx_sync.c`, occurrence 1 `6d7850f0…779a`: eight-entry ring has unchecked byte count, overwrite on wrap and no output capacity argument. Full eight-byte record copies include padding. ACK truncates sum to u8 then subtracts eight once, rather than general modulo. RX walks every positive length in steps of eight without a final-span check; response/master RX require aligned u32. | Establish producer backpressure, maximum outstanding records, buffer capacity and framing guarantees. Investigate padding initialization and malformed frames before changing protocol. Exhaustive sequence fixtures and boundary ACK fixtures preserve SDK behavior, not prove safety. |
 | B53 | Same member: sequence acceptance is old<new or old-new>=8 after zero extension; hash-only acknowledgment uses zero as absent and ignores length. Matching packets release an entire prefix. TX deadline scan stops at first future packet; RX expiry flushes all pending packets. Event22 resets counters but leaves pending list, records and slave hash; no-op init does not initialize the list. | Audit loss/reordering, sequence wrap, hash collisions/zero, ordered deadlines, ownership and reset lifecycle. Preserve redundant hash/eSCO calls, saved-next timing, and callback reloads until serialization/lifetime contracts are clear. Corrected draft branches/byte store were translation defects, not SDK bugs. |
+
+| B54 | `bd19/tws_schedule.c`, occurrence 1 `7dd81f66…98d0`: timer byte initially zero; allocation result (including 255) is stored unchecked; put/disable do not clear it. Private switch returns int but is bitcast to void-return timer callback. Connection start and monitor-init hooks are empty. | Audit timer allocation, repeat-connect/disconnect and callback lifetime. Resolve callback ABI deliberately across timer caller/callee recovery; do not add a wrapper during faithful ownership. Host tests compare the cast callback and invoke the correctly typed private function separately. |
+| B55 | Same member: queue thresholds are 2/3/5 for modes 0/1/2; empty RX queue exits before SBC time. Remaining time compares signed <11 or count>1/<41. Five qualifying receive errors trigger a switch; error count wraps as u8. Handler assumes lmp_conn exists after its initial gates, and monitor index >=32 gives an invalid shift. Some paths retain entry link snapshots while others reload after clock/SBC/timer/task hooks. | Establish queue, payload-index and connection-lifecycle contracts; assess scheduling thresholds on hardware before policy changes. Preserve callback snapshots/reloads, enable-bit-only sniff gate and check127/255 mode2 selection. Draft gating/dispatch/empty-queue corrections are translation fixes, not SDK bugs. |
 
 ## Inherited BR23 follow-ups: BD19 confirmation queue
 
@@ -384,3 +389,5 @@ not absence of defects. See the earlier sections for cross-member issues.
 | `tws_event.c.o` / 1 | `f628a13` + coordinator review | C26; B50–B51 |
 
 | `tws_tx_sync.c.o` / 1 | `e024e56` + coordinator review | C27; B52–B53 |
+
+| `tws_schedule.c.o` / 1 | `7ad3d84` + coordinator review | C28; B54–B55 |

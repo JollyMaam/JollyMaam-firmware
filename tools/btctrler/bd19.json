@@ -650,6 +650,14 @@
       ]
     },
     {
+      "member": "tws_schedule.c.o",
+      "occurrence": 1,
+      "sha256": "7dd81f66381eb12585d2af283f24e346d5056c987260ef42f587f5d8af8298d0",
+      "sources": [
+        "src/btctrler/bd19/tws_schedule.c"
+      ]
+    },
+    {
       "member": "tws_tx_sync.c.o",
       "occurrence": 1,
       "sha256": "6d7850f03e1b0c8ff8942410e4493e9568a240c9817ca7a0e6863ccfdbc8779a",
