@@ -908,6 +908,7 @@ void plat_motors(u8 left, u8 right);       /* duty of 255 */
 /* USB there: the BR23, a host's frames within 250 ms; the B80, power on the
  * connector, debounced (its USB attaches on it). */
 int plat_usb_present(void);
+int plat_usb_power(void);                   /* 5 V on the connector, whether or not a host talks */
 int plat_usb_suspended(void);               /* the host suspended the bus (3 ms quiet) */
 void plat_usb_service(void);
 void plat_usb_probe_request(u32 extra);   /* USB_PROBE test builds: tools/usbprobe.py */

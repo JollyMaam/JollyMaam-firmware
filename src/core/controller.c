@@ -97,7 +97,9 @@ static struct {
     u32 led_next;
     u8 usb_raw, usb_powered;
     u8 usb_suspended;            /* as last logged */
+    u8 usb_5v;                   /* 5 V on the connector: no power-off of our own */
     u32 usb_changed_ms, usb_plugged_ms, usb_absent_ms;
+    u32 power_seen_ms;           /* last with frames or 5 V */
     u16 battery_mv;
     u8 low_battery;
     u32 battery_ms;
@@ -657,15 +659,15 @@ static u32 idle_deadline(void)
 #ifdef STAY_ON_TEST              /* a test build: the log in RAM outlives a console test */
     return 0;
 #endif
-    return ux_idle_deadline(c.since, c.activity_ms, c.usb_absent_ms,
-                            c.usb_powered, set_is_ephemeral());
+    return ux_idle_deadline(c.since, c.activity_ms, c.power_seen_ms,
+                            c.usb_powered || c.usb_5v, set_is_ephemeral());
 }
 
 static void timeouts(u32 now)
 {
     struct ctl_request loader = { REQ_REBOOT_LOADER, SLOT_NONE, 0 };
     u32 t = now - c.since;
-    int battery = !c.usb_powered;
+    int battery = !c.usb_powered && !c.usb_5v;
 
     switch (c.kind) {
     case CTL_BOOT:
@@ -771,6 +773,12 @@ static void sample_power(u32 now)
         }
     }
     if (c.usb_powered) c.usb_absent_ms = now;
+    /* A host asleep sends no frames but may keep the 5 V: stay up for it. */
+    if ((u8)plat_usb_power() != c.usb_5v) {
+        c.usb_5v = !c.usb_5v;
+        util_log("usb: 5 V %s", c.usb_5v ? "on" : "off");
+    }
+    if (c.usb_powered || c.usb_5v) c.power_seen_ms = now;
     if ((u8)plat_usb_suspended() != c.usb_suspended) {
         c.usb_suspended = !c.usb_suspended;
         util_log("usb: bus %s", c.usb_suspended ? "suspended" : "awake");
@@ -1108,6 +1116,8 @@ static void boot(u32 now)
     c.usb_raw = c.usb_powered = (u8)plat_usb_present();
     c.usb_plugged_ms = c.usb_powered ? now : now - ux_timeouts.usb_plug_ms;
     c.usb_arrived = c.usb_powered;  /* plugged in at power-up (or the plug-in woke us) */
+    c.usb_5v = (u8)plat_usb_power();
+    c.power_seen_ms = now;
     c.battery_ms = now - BATTERY_CHECK_MS;
     util_log("boot cause %u held %05x last slot %u", b.cause, b.buttons_held, c.last_slot);
     c.uboot_chord = (b.buttons_held & (PAD_HOME | PAD_START)) == (PAD_HOME | PAD_START);

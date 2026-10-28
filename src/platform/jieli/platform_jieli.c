@@ -908,6 +908,11 @@ int plat_usb_present(void)
     return (s32)(ms_now - sof_seen_ms) < USB_SOF_STALE_MS;
 }
 
+int plat_usb_power(void)
+{
+    return board_usb_sense();
+}
+
 /* The core's POWER register, bit 1 (SuspendMode): set while the bus is
  * suspended, cleared by resume or reset. */
 int plat_usb_suspended(void)
