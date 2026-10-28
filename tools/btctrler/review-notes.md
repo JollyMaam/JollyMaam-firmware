@@ -2022,3 +2022,12 @@ original C files match44d0073. Full worker controller checks/census pass:
 Totals91 accepted/1005 public functions/93 globals;20 retained members/1039
 verified archive index entries. No application-image, peer-radio or hardware
 validation; host and symbol/layout checks are not formal equivalence proof.
+
+
+Data-transfer combined checkpoint: acceptance `ae99222` passes canonical
+controller checks/census:210 : ok reports,12 legacy reports,31 tooling tests,
+both layouts,90 groups. Totals91 accepted/20 retained members,1005 public
+functions,93 globals,1039 verified index entries. All123 original BR23 C files
+match44d0073. Clean worker and three dependency statuses and merged ancestry
+verified; completed worktree/branch deleted. No pending worker, app-image or
+hardware validation.
