@@ -1914,3 +1914,12 @@ Complete-mock ASan/UBSan passes. Full worker controller checks/census pass:
 208 : ok reports,12 legacy reports,31 tooling tests,both layouts,88 groups.
 Totals89 accepted / 22 retained members,977 public functions,90 globals and1070
 verified retained index entries. No application-image or hardware validation.
+
+
+CTE combined checkpoint: acceptance `44758f3` passes canonical controller
+checks/census:208 : ok reports,12 legacy reports,31 tooling tests,both layouts,
+88 ownership groups. Canonical host differential check also passes128611 exact
+calls. Totals89 accepted /22 retained members,977 functions,90 globals,1070
+verified index entries. All123 original BR23 C files match44d0073. Clean worker
+and three dependency repositories and merged ancestry verified; completed
+worktree and branch removed. No pending worker or hardware validation.
