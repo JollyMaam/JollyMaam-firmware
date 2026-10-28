@@ -42,6 +42,15 @@
 
 static int hidraw = -1;
 
+/* Where device nodes are: $DEV_ROOT when set (every node in one directory,
+ * as a container exports them), else /dev. */
+static const char *dev_root(void)
+{
+    const char *r = getenv("DEV_ROOT");
+
+    return r && *r ? r : "/dev";
+}
+
 /* ---- what the profiles need from a platform ------------------------------ */
 
 const char board_name[] = "Cyclone 2";
@@ -169,12 +178,15 @@ static void create(const struct link_config *k)
         fprintf(stderr, "padhub: slot %u: %s is not HID only, uhid cannot be it\n", slot, p->name);
         return;
     }
-    uhid = open("/dev/uhid", O_RDWR | O_CLOEXEC | O_NONBLOCK);
-    if (uhid < 0 && errno == ENOENT)
-        uhid = open("/dev/bwrap/uhid", O_RDWR | O_CLOEXEC | O_NONBLOCK);
-    if (uhid < 0) {
-        fprintf(stderr, "padhub: /dev/uhid: %s\n", strerror(errno));
-        return;
+    {
+        char node[300];
+
+        snprintf(node, sizeof(node), "%s/uhid", dev_root());
+        uhid = open(node, O_RDWR | O_CLOEXEC | O_NONBLOCK);
+        if (uhid < 0) {
+            fprintf(stderr, "padhub: %s: %s\n", node, strerror(errno));
+            return;
+        }
     }
     usb = p->usb;
     memset(uid, 0, sizeof(uid));
@@ -565,30 +577,25 @@ static int is_dongle(const char *path)
  * 1 done, 0 none there. */
 static int tool_hub(u8 on)
 {
-    static const char *const dirs[] = { "/dev", "/dev/bwrap" };
     char path[300];
     u8 cdb[16] = { 0xf5, 0x32, 0xff }, mode;
-    u32 i;
+    DIR *dir = opendir(dev_root());
+    struct dirent *e;
 
-    for (i = 0; i < 2; i++) {
-        DIR *dir = opendir(dirs[i]);
-        struct dirent *e;
-
-        if (!dir) continue;
-        while ((e = readdir(dir))) {
-            if (strncmp(e->d_name, "hidraw", 6) || !is_tool(e->d_name)) continue;
-            snprintf(path, sizeof(path), "%s/%s", dirs[i], e->d_name);
-            if (access(path, R_OK | W_OK)) continue;
-            if (!is_dongle(path) || tool_in(path, cdb, &mode, 1) != 1) continue;
-            closedir(dir);
-            if (mode == on) return 1;        /* as it was: quiet */
-            cdb[2] = on;
-            if (tool_in(path, cdb, &mode, 1) != 1) return 0;
-            fprintf(stderr, "padhub: dongle at %s: hub mode %s\n", path, mode ? "on" : "off");
-            return 1;
-        }
+    if (!dir) return 0;
+    while ((e = readdir(dir))) {
+        if (strncmp(e->d_name, "hidraw", 6) || !is_tool(e->d_name)) continue;
+        snprintf(path, sizeof(path), "%s/%s", dev_root(), e->d_name);
+        if (access(path, R_OK | W_OK)) continue;
+        if (!is_dongle(path) || tool_in(path, cdb, &mode, 1) != 1) continue;
         closedir(dir);
+        if (mode == on) return 1;            /* as it was: quiet */
+        cdb[2] = on;
+        if (tool_in(path, cdb, &mode, 1) != 1) return 0;
+        fprintf(stderr, "padhub: dongle at %s: hub mode %s\n", path, mode ? "on" : "off");
+        return 1;
     }
+    closedir(dir);
     return 0;
 }
 
@@ -620,8 +627,7 @@ static const char *find(void)
                 ((u8)line[1] | (u8)line[2] << 8) == HUB_USAGE_PAGE;
         fclose(f);
         if (!match) continue;
-        snprintf(path, sizeof(path), "/dev/%s", e->d_name);
-        if (access(path, F_OK)) snprintf(path, sizeof(path), "/dev/bwrap/%s", e->d_name);
+        snprintf(path, sizeof(path), "%s/%s", dev_root(), e->d_name);
         closedir(dir);
         return path;
     }

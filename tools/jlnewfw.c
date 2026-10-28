@@ -1184,6 +1184,13 @@ static void cmd_pack(int argc, char **argv) {
 #include <time.h>
 #include <unistd.h>
 
+/* Where device nodes are: $DEV_ROOT when set (every node in one directory,
+ * as a container exports them), else /dev. */
+static const char *dev_root(void) {
+  const char *r = getenv("DEV_ROOT");
+  return r && *r ? r : "/dev";
+}
+
 #else
 #include <windows.h>
 #include <winioctl.h>
@@ -1235,15 +1242,12 @@ static size_t device_paths(char paths[256][300]) {
   for (unsigned i = 0; i < 64; i++)
     snprintf(paths[n++], 300, "\\\\.\\PhysicalDrive%u", i);
 #else
-  static const char *const dirs[] = {"/dev", "/dev/bwrap"};
-  for (size_t i = 0; i < 2; i++) {
-    DIR *dir = opendir(dirs[i]);
-    struct dirent *e;
-    while (dir && (e = readdir(dir)) && n < 256)
-      if (!strncmp(e->d_name, "sg", 2))
-        snprintf(paths[n++], 300, "%s/%s", dirs[i], e->d_name);
-    if (dir) closedir(dir);
-  }
+  DIR *dir = opendir(dev_root());
+  struct dirent *e;
+  while (dir && (e = readdir(dir)) && n < 256)
+    if (!strncmp(e->d_name, "sg", 2))
+      snprintf(paths[n++], 300, "%s/%s", dev_root(), e->d_name);
+  if (dir) closedir(dir);
 #endif
   return n;
 }
@@ -1766,56 +1770,45 @@ static size_t hid_devices(struct hid_dev *out, size_t max) {
   if (set != INVALID_HANDLE_VALUE)
     SetupDiDestroyDeviceInfoList(set);
 #else
-  static const char *const dirs[] = {"/dev", "/dev/bwrap"};
-  char seen[256][256];
-  size_t ns = 0;
-  for (size_t i = 0; i < 2; i++) {
-    DIR *dir = opendir(dirs[i]);
-    struct dirent *e;
-    while (dir && (e = readdir(dir)) && n < max) {
-      char sys[512], line[128], usb[400];
-      unsigned bus;
-      if (strncmp(e->d_name, "hidraw", 6))
-        continue;
-      struct hid_dev *d = &out[n];
-      memset(d, 0, sizeof *d);
-      snprintf(d->path, sizeof d->path, "%s/%s", dirs[i], e->d_name);
-      /* The same node under both directories: once. */
-      bool dup = false;
-      for (size_t k = 0; k < ns && !dup; k++)
-        dup = !strcmp(seen[k], e->d_name);
-      if (dup || access(d->path, R_OK | W_OK)) /* the node we may use */
-        continue;
-      if (ns < 256)
-        snprintf(seen[ns++], sizeof seen[0], "%s", e->d_name);
-      snprintf(sys, sizeof sys, "/sys/class/hidraw/%s/device/uevent", e->d_name);
-      FILE *f = fopen(sys, "r");
-      while (f && fgets(line, sizeof line, f))
-        if (sscanf(line, "HID_ID=%x:%x:%x", &bus, &d->vid, &d->product) == 3)
-          break;
-      if (f)
-        fclose(f);
-      snprintf(sys, sizeof sys, "/sys/class/hidraw/%s/device/report_descriptor", e->d_name);
-      f = fopen(sys, "rb");
-      if (f) {
-        d->desc_n = fread(d->desc, 1, sizeof d->desc, f);
-        d->feature_len = feature_bytes(d->desc, d->desc_n);
-        fclose(f);
-      }
-      if (usb_dir(d->path, usb)) {
-        snprintf(sys, sizeof sys, "%s/bcdDevice", usb);
-        read_line(sys, line, sizeof line);
-        d->bcd = (unsigned)strtoul(line, NULL, 16);
-        snprintf(sys, sizeof sys, "%s/manufacturer", usb);
-        read_line(sys, d->manufacturer, sizeof d->manufacturer);
-        snprintf(sys, sizeof sys, "%s/product", usb);
-        read_line(sys, d->product_name, sizeof d->product_name);
-      }
-      n++;
+  DIR *dir = opendir(dev_root());
+  struct dirent *e;
+  while (dir && (e = readdir(dir)) && n < max) {
+    char sys[512], line[128], usb[400];
+    unsigned bus;
+    if (strncmp(e->d_name, "hidraw", 6))
+      continue;
+    struct hid_dev *d = &out[n];
+    memset(d, 0, sizeof *d);
+    snprintf(d->path, sizeof d->path, "%s/%s", dev_root(), e->d_name);
+    if (access(d->path, R_OK | W_OK)) /* the node we may use */
+      continue;
+    snprintf(sys, sizeof sys, "/sys/class/hidraw/%s/device/uevent", e->d_name);
+    FILE *f = fopen(sys, "r");
+    while (f && fgets(line, sizeof line, f))
+      if (sscanf(line, "HID_ID=%x:%x:%x", &bus, &d->vid, &d->product) == 3)
+        break;
+    if (f)
+      fclose(f);
+    snprintf(sys, sizeof sys, "/sys/class/hidraw/%s/device/report_descriptor", e->d_name);
+    f = fopen(sys, "rb");
+    if (f) {
+      d->desc_n = fread(d->desc, 1, sizeof d->desc, f);
+      d->feature_len = feature_bytes(d->desc, d->desc_n);
+      fclose(f);
     }
-    if (dir)
-      closedir(dir);
+    if (usb_dir(d->path, usb)) {
+      snprintf(sys, sizeof sys, "%s/bcdDevice", usb);
+      read_line(sys, line, sizeof line);
+      d->bcd = (unsigned)strtoul(line, NULL, 16);
+      snprintf(sys, sizeof sys, "%s/manufacturer", usb);
+      read_line(sys, d->manufacturer, sizeof d->manufacturer);
+      snprintf(sys, sizeof sys, "%s/product", usb);
+      read_line(sys, d->product_name, sizeof d->product_name);
+    }
+    n++;
   }
+  if (dir)
+    closedir(dir);
 #endif
   return n;
 }

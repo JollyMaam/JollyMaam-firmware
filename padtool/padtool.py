@@ -121,6 +121,7 @@ from padtransport import scsi, device_paths, usb_location, data_max, is_tool, to
 import padcurves
 import padremap
 from padknown import CHIPS
+import padhid
 if sys.platform == "linux":
     import fcntl
 
@@ -1415,7 +1416,7 @@ CLOCK_MONOTONIC = 1
 def gamepad_events():
     """(path, name) of the evdev nodes with gamepad or joystick buttons."""
     found = []
-    for path in sorted(glob.glob("/dev/bwrap/event*") + glob.glob("/dev/input/event*")):
+    for path in sorted(glob.glob(padhid.dev_path("event*"))):
         try:
             fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
         except OSError:
@@ -1629,7 +1630,7 @@ def tool(paths):
     report = b"\xf5tool"
     hidiocsfeature = 0xC0004806 | (len(report) << 16)
     if not paths:
-        paths = sorted(glob.glob("/dev/bwrap/hidraw*") + glob.glob("/dev/hidraw*"))
+        paths = sorted(glob.glob(padhid.dev_path("hidraw*")))
     for path in paths:
         try:
             with open(path, "rb+", buffering=0) as f:
@@ -1650,7 +1651,7 @@ def hub_pair(slot):
         return
     report = b"\xf5pair" + bytes([slot])
     hidiocsfeature = 0xC0004806 | (len(report) << 16)
-    for path in sorted(glob.glob("/dev/bwrap/hidraw*") + glob.glob("/dev/hidraw*")):
+    for path in sorted(glob.glob(padhid.dev_path("hidraw*"))):
         sys_dev = f"/sys/class/hidraw/{os.path.basename(path)}/device"
         try:
             with open(f"{sys_dev}/uevent") as f:   # link.h: the hub's ID and usage page

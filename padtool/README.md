@@ -241,8 +241,9 @@ The ROM loaders are mass storage: Windows
 reaches them through SCSI pass-through on the standard storage driver, which
 needs admin: `padgui.pyw` asks for it with the UAC prompt and starts again
 elevated (`--no-elevate` skips that). Run the CLI from an Administrator terminal.
-Linux needs read/write access to the matching `/dev/sg*` node. Inside our
-development container `/dev/bwrap/hidraw*` and `/dev/bwrap/sg*` work. Windows
+Linux needs read/write access to the matching `/dev/sg*` node. Where the
+nodes are somewhere else (a container exporting them into one directory),
+set `DEV_ROOT` to that directory. Windows
 discovery currently probes PhysicalDrive0 through PhysicalDrive63.
 
 **Flash Firmware…** accepts a packed `firmware.img`, or extracts the

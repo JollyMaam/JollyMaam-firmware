@@ -10,6 +10,16 @@ from pathlib import Path
 import sys
 
 
+def dev_path(name):
+    """A device node by name (hidraw3, sg1, event5, uhid): in $DEV_ROOT when
+    set, where every node is in one directory (a container's exported
+    nodes), else where Linux puts it."""
+    root = os.environ.get("DEV_ROOT")
+    if root:
+        return os.path.join(root, name)
+    return f"/dev/input/{name}" if name.startswith(("event", "js")) else f"/dev/{name}"
+
+
 def devices():
     """Each HID interface: path, vid, product, bcd, manufacturer,
     product_name, location (USB port; None if unknown), feature_len and
@@ -65,10 +75,8 @@ def _linux_devices():
     found = []
     for sys_node in sorted(Path("/sys/class/hidraw").glob("hidraw*")):
         name = sys_node.name
-        # The node this process may use: the container's first.
-        path = next((p for p in (f"/dev/bwrap/{name}", f"/dev/{name}")
-                     if os.access(p, os.R_OK | os.W_OK)), None)
-        if path is None:
+        path = dev_path(name)
+        if not os.access(path, os.R_OK | os.W_OK):
             continue
         hid = {"path": path, "vid": 0, "product": 0, "bcd": 0, "manufacturer": "", "product_name": "",
                "location": None, "descriptor": _read(sys_node / "device/report_descriptor", True)}

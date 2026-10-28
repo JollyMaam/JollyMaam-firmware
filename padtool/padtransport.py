@@ -80,7 +80,7 @@ def device_paths():
     if sys.platform == "win32":
         return tool_paths() + [rf"\\.\PhysicalDrive{i}" for i in range(64)]
     if sys.platform == "linux":
-        return tool_paths() + sorted(set(glob.glob("/dev/sg*") + glob.glob("/dev/bwrap/sg*")))
+        return tool_paths() + sorted(glob.glob(padhid.dev_path("sg*")))
     raise OSError("Device access supports Linux and Windows")
 
 

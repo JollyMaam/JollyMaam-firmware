@@ -31,6 +31,7 @@ import time
 import zlib
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "padtool"))
+from padhid import dev_path  # noqa: E402
 from padtransport import scsi, tool_paths, usb_location  # noqa: E402
 
 LOADER = (0x2dc8, 0x3208)
@@ -96,9 +97,8 @@ def hidraw_nodes():
     """(node, vid, pid, USB port) of each hidraw interface."""
     found = []
     for sys_node in sorted(Path("/sys/class/hidraw").glob("hidraw*")):
-        path = next((p for p in (f"/dev/bwrap/{sys_node.name}", f"/dev/{sys_node.name}")
-                     if os.access(p, os.R_OK | os.W_OK)), None)
-        if not path:
+        path = dev_path(sys_node.name)
+        if not os.access(path, os.R_OK | os.W_OK):
             continue
         usb = (sys_node / "device").resolve().parent.parent
         try:
