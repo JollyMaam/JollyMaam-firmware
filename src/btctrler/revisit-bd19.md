@@ -352,7 +352,7 @@ not absence of defects. See the earlier sections for cross-member issues.
 | `thread.c.o` / 1 | `cd41996` | C08; B01 |
 | `tws_ble_link.c.o` / 1 | `a3a5af8` | B18 optional monitor imports |
 | `tws_power_balance.c.o` / 1 | `1fd79e4` | C22; B43; H25; byte-return weak hook |
-| `tws_ci_data.c.o` / 1 | `d5c3730` + coordinator review | C23; B44–B45; volatile/semaphore ordering |
+| `tws_ci_data.c.o` / 1 | `8e8c024` | C23; B44–B45; volatile/semaphore ordering |
 | `tws_le_acc.c.o` / 1 | `cb82461` | BR23 #30 |
 | `vendor_manager.c.o` / 1 | `cee80c1` | B06; BR23 #11 |
 | `vsprintf.c.o` / 1 | `a3a5af8` | H15 |

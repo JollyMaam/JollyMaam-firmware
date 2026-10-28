@@ -1438,3 +1438,10 @@ Worker full suite and ASan/UBSan pass: 199 `: ok` reports, 12 legacy reports,
 79 accepted members / 921 functions / 71 globals; 32 retained members /
 1145 verified index entries. Original 123 BR23 C files remain byte-identical
 to `44d0073`. No application-image or TWS hardware validation claimed.
+
+CI-data combined checkpoint: acceptance `8e8c024` passes canonical validation
+with 199 `: ok` reports, 12 legacy reports, 31 tooling tests, both layouts and
+78 ownership/retention audits. Totals: 79 members / 921 functions / 71 globals;
+32 retained members / 1145 verified index entries. BR23 baseline C is unchanged.
+Clean worker/dependency status and merged ancestry were checked before deleting
+the completed worktree and branch. No pending workers or hardware validation.
