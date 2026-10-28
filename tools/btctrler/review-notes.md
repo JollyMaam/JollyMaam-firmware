@@ -1965,3 +1965,12 @@ miscntl_of_audsync. Actual BR23 set passes;123 original C files still match
 reports,12 legacy reports,31 tooling tests,both layouts,89 ownership groups.
 Totals90 accepted members/991 public functions/92 globals;21 retained members
 and1054 verified index entries. No app-image, audio-peer or hardware validation.
+
+
+Media-sync combined checkpoint: acceptance `e3f9bc5` passes canonical controller
+checks/census:209 : ok reports,12 legacy reports,31 tooling tests,both layouts,
+89 ownership groups. Totals90 accepted/21 retained members,991 functions,
+92 globals,1054 verified index entries. All123 original BR23 C files match
+44d0073. Clean worker and three nested dependency repositories and merged
+ancestry verified; completed worktree and branch deleted. No pending worker,
+application-image or hardware validation.
