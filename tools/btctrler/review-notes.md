@@ -1974,3 +1974,51 @@ checks/census:209 : ok reports,12 legacy reports,31 tooling tests,both layouts,
 44d0073. Clean worker and three nested dependency repositories and merged
 ancestry verified; completed worktree and branch deleted. No pending worker,
 application-image or hardware validation.
+
+
+## Clean-branch BD19 data-transfer acceptance
+
+Reviewed substantive worker checkpoint8bb8858, completed corrections and host
+fixtures on its isolated branch. The worker commit's hash prose mistakenly
+labels an incomplete hash as SHA1; authoritative member identity is
+`tws_data_trans.c.o` occurrence1 SHA-256
+`1fb4fb840fcfd13df5cbc712097bb660dece4c1a4fcdcb734a3e34ab8866bbcb`.
+Dedicated source supplies all21 function identities,14 public functions and
+one public global. Channel14/attribute2 is const/.tws_sync_channel.14/align4;
+private command1413764179 stub is const/.tws_func_stub/align4 with exact
+llvm.used retention. Private channel byte starts0/align1 and head self-links/
+align4. All five initializer/section/alignment/retention records and eight
+format/diagnostic strings match target SDK exactly.44 mapped type shapes agree.
+The local stub type preserves this occurrence's u8 callback flag, rather than
+the common header's bool typedef. No shared header changes were needed.
+
+Coordinator corrections cover draft role/state and drop/hold inversions,
+retry/return semantics, TX field offsets and hold bit, byte callback ABI,
+allocator prototypes/volatile ticks, memory intrinsics/alignments, frame/list
+prefix frees, unknown-channel outputs, signed/byte command arithmetic, cached
+next around queue callbacks, post-unlock fetch length, and original diagnostics.
+Corrected draft errors are not SDK defects. Every original raw function and
+normalized target body reviewed; remaining differences are inlined lookup/loop
+organization, layout-proven container GEPs, equivalent guards/width operations,
+unused local array initialization, and compiler/prototype annotations. All
+functions retain absence of sections. Target handle108,frame16,TX44,prefix28
+and pool/entry/header offsets agree with generated layout assertions.
+
+Focused fixtures with complete mocks and ASan/UBSan pass. They check ignored
+semaphore errors, ID wrap/collision, open/start/stop/close failures, role1 close,
+u8 command RX flags and zero-length wrap, TX field metadata/hold, nested IRQ,
+INIT blocking, STOP/missing-peer paths, cached next across TX mutation,
+completion/deferred free, RX retry/reclaim/protection/signed deadlines,
+fetch-vs-pop unlock order, aliased check outputs, last-length versus sum,
+post-event detach state overwrite and returning reset/assert hooks. Host RX
+records are padded for wider intrusive links; target IR independently checks
+exact wire copy lengths and alignment. C35/B70–B73 track ABI/sharing, command
+and semaphore contracts, pool pressure, frame lifetimes and IRQ/callback issues.
+
+BD19 target builds. Extra-source BR23 compile is unsupported: that header lacks
+the transfer API/complete data structures. Actual BR23 set passes; all123
+original C files match44d0073. Full worker controller checks/census pass:
+210 : ok reports,12 legacy reports,31 tooling tests,both layouts,90 groups.
+Totals91 accepted/1005 public functions/93 globals;20 retained members/1039
+verified archive index entries. No application-image, peer-radio or hardware
+validation; host and symbol/layout checks are not formal equivalence proof.

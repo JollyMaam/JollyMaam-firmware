@@ -642,6 +642,14 @@
       ]
     },
     {
+      "member": "tws_data_trans.c.o",
+      "occurrence": 1,
+      "sha256": "1fb4fb840fcfd13df5cbc712097bb660dece4c1a4fcdcb734a3e34ab8866bbcb",
+      "sources": [
+        "src/btctrler/bd19/tws_data_trans.c"
+      ]
+    },
+    {
       "member": "tws_event.c.o",
       "occurrence": 1,
       "sha256": "73dd3fbcd0a7f28525c2014c208463e8c0aff5efa19ceebd87b97e5937211b53",
