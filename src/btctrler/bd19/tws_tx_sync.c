@@ -59,13 +59,15 @@ void TWS_CODE tws_conn_phone_link_tx_suss(struct link_connection *conn, struct b
 static int TWS_CODE tws_tx_sync_tx_events(struct lmp_connection *lmp, u8 *out, int len)
 {
     (void)len;
-    u8 index = tx_index, count;
+    int index = tx_index;
+    u8 count;
     struct tx_sync_record *record = (void *)out;
     if (tws_conn.role_switch < 3) {
         if (slave_last_hash != 0) {
             struct list_head *node = tws_conn.tx_pending.next;
             while (node != &tws_conn.tx_pending) {
                 struct bredr_tx_bulk *bulk = BULK_FROM_ENTRY(node);
+                struct list_head *next = node->next;
                 u16 size = bulk->len;
                 int hash = (int)JBHash(bulk->data, size);
                 if (hash == slave_last_hash) {
@@ -81,7 +83,7 @@ static int TWS_CODE tws_tx_sync_tx_events(struct lmp_connection *lmp, u8 *out, i
                     }
                     break;
                 }
-                node = node->next;
+                node = next;
             }
             slave_last_hash = 0;
         }
@@ -100,13 +102,13 @@ static int TWS_CODE tws_tx_sync_tx_events(struct lmp_connection *lmp, u8 *out, i
     }
     count = tx_sync_num;
     if (count == 0) return 0;
-    tx_num = count;
-    for (u8 i = 0; i < count; ++i) {
+    for (int i = 0; i < count; ++i) {
         *(sync_word *)(void *)record = *(const sync_word *)(const void *)&tx_sync_list[index];
-        u8 next = index + 1;
+        int next = index + 1;
         index = next == 8 ? 0 : next;
         ++record;
     }
+    tx_num = count;
     return count << 3;
 }
 
@@ -198,12 +200,17 @@ const struct tws_sync_channel tws_tx_sync __attribute__((section(".tws_sync_chan
 };
 
 #ifdef UNITTEST
+#include "test.h"
 struct tws_link_connection tws_link;
 struct tws_connection tws_conn;
 static struct link_connection test_link;
 static struct lmp_connection test_lmp;
 static int test_hash_calls, test_clock_calls, test_offset, test_post_calls, test_available_calls;
 static int test_esco_result, test_before_mode, test_mutate_role, test_mutate_rx_index;
+static struct bredr_tx_bulk *hash_resize;
+static struct list_head *hash_relink;
+static struct bredr_tx_bulk *posted[8];
+static int posted_count;
 int is_tws_esco_working(void) { return test_esco_result; }
 u32 tws_link_read_slot_clk(void)
 {
@@ -215,11 +222,13 @@ int bredr_offset2clkn(int clock, int offset) { test_offset = offset; return cloc
 u32 JBHash(u8 *data, int len)
 {
     (void)data; ++test_hash_calls;
+    if (hash_relink) { hash_relink->next=&tws_conn.tx_pending; hash_relink=NULL; }
+    if (hash_resize) { hash_resize->len=4; hash_resize=NULL; }
     if (test_mutate_rx_index) { rx_index = 2; test_mutate_rx_index = 0; }
     return 0x12345678u + (u32)len;
 }
 void link_conn_tx_post_handler(struct link_connection *lc, struct bredr_tx_bulk *tx)
-{ (void)lc; (void)tx; ++test_post_calls; }
+{ (void)lc; ++test_post_calls; if (posted_count<8) posted[posted_count++]=tx; }
 void link_conn_tx_bulk_avaiable(struct link_connection *lc, struct bredr_tx_bulk *tx)
 { (void)lc; (void)tx; ++test_available_calls; }
 int bredr_clkn_before(int a, int b)
@@ -274,6 +283,63 @@ int main(void)
     if (tws_tx_sync.rx_sync_req_and_res(&test_lmp, 0, 0, (u8 *)&response) != 4 ||
         response != 0x1234567bu) return 7;
     if (tws_tx_sync.rx_sync_req_and_res(&test_lmp, 0, 0, 0) != 0) return 8;
-    return 0;
+    /* Every sequence pair, with no pending packets: unsigned nonmodular rule. */
+    tws_conn.tx_pending.next=tws_conn.tx_pending.prev=&tws_conn.tx_pending;
+    for (unsigned old=0;old<256;old++) for (unsigned incoming=0;incoming<256;incoming++) {
+        rx_seqn=old; record.seqn=incoming;
+        tws_tx_sync.rx_sync_req_and_res(&test_lmp,(u8 *)&record,8,NULL);
+        CHECK(rx_seqn==((old<incoming || (int)old-(int)incoming>=8) ? incoming : old));
+    }
+    /* Wire serialization copies the record padding and wraps at eight. */
+    tws_conn.role_switch=3; tx_index=7; tx_sync_num=2;
+    for (unsigned i=0;i<sizeof(tx_sync_list);i++) ((u8 *)tx_sync_list)[i]=(u8)i;
+    _Alignas(4) u8 wire[16];
+    CHECK(tws_tx_sync.tx_sync_req(NULL,wire,0)==16);
+    for (unsigned i=0;i<8;i++) { CHECK(wire[i]==56+i); CHECK(wire[8+i]==i); }
+    CHECK(tx_num==2); tws_tx_sync.tx_sync_req_suss();
+    CHECK(tx_index==1 && tx_sync_num==0 && tx_num==0);
+    /* ACK truncates the sum before exactly one subtraction, not modulo eight. */
+    tx_index=250; tx_num=10; tx_sync_num=1;
+    tws_tx_sync.tx_sync_req_suss(); CHECK(tx_index==4 && tx_sync_num==247);
+    tx_index=7; tx_num=10; tx_sync_num=12;
+    tws_tx_sync.tx_sync_req_suss(); CHECK(tx_index==9 && tx_sync_num==2);
+
+    /* A matching second record posts the entire prefix and hashes it again. */
+    tws_tx_sync.event_handler(NULL,22,NULL);
+    tws_conn.tx_pending.next=tws_conn.tx_pending.prev=&tws_conn.tx_pending;
+    bulk->len=2; second->len=3;
+    list_add_tail(&bulk->entry,&tws_conn.tx_pending); list_add_tail(&second->entry,&tws_conn.tx_pending);
+    record.seqn=1; record.len=3; record.hash=0x1234567b;
+    posted_count=0; int hashes_before=test_hash_calls;
+    CHECK(tws_tx_sync.rx_sync_req_and_res(&test_lmp,(u8 *)&record,8,NULL)==0);
+    CHECK(posted_count==2 && posted[0]==bulk && posted[1]==second);
+    CHECK(test_hash_calls-hashes_before==4 && tws_conn.tx_pending.next==&tws_conn.tx_pending);
+    /* Hash callback changes length: matching uses the reloaded length. */
+    bulk->len=3; list_add_tail(&bulk->entry,&tws_conn.tx_pending);
+    hash_resize=bulk; record.seqn=2; record.len=4; record.hash=0x1234567b;
+    posted_count=0; tws_tx_sync.rx_sync_req_and_res(&test_lmp,(u8 *)&record,8,NULL);
+    CHECK(posted_count==1 && posted[0]==bulk);
+    /* Hash-only response releases matched prefix onto the ACL list. */
+    bulk->len=2; second->len=3;
+    list_add_tail(&bulk->entry,&tws_conn.tx_pending); list_add_tail(&second->entry,&tws_conn.tx_pending);
+    test_link.tx_acl_u.next=test_link.tx_acl_u.prev=&test_link.tx_acl_u;
+    slave_last_hash=0x1234567b; tws_conn.role_switch=2; tx_sync_num=0;
+    tws_tx_sync.tx_sync_req(&test_lmp,NULL,0);
+    CHECK(slave_last_hash==0 && tws_conn.tx_pending.next==&tws_conn.tx_pending);
+    CHECK(test_link.tx_acl_u.next==&bulk->entry && test_link.tx_acl_u.prev==&second->entry);
+    /* Search follows the next pointer captured before a hash callback. */
+    __list_del_entry(&bulk->entry); __list_del_entry(&second->entry);
+    list_add_tail(&bulk->entry,&tws_conn.tx_pending); list_add_tail(&second->entry,&tws_conn.tx_pending);
+    slave_last_hash=1; hash_relink=&bulk->entry; hashes_before=test_hash_calls;
+    tws_tx_sync.tx_sync_req(&test_lmp,NULL,0);
+    CHECK(test_hash_calls-hashes_before==2);
+    bulk->entry.next=&second->entry;
+    __list_del_entry(&bulk->entry); __list_del_entry(&second->entry);
+    list_add_tail(&bulk->entry,&test_link.tx_acl_u);
+        slave_last_hash=123; tx_sync_list[0].hash=456;
+    tws_tx_sync.event_handler(NULL,22,NULL);
+    CHECK(slave_last_hash==123 && tx_sync_list[0].hash==456 && test_link.tx_acl_u.next==&bulk->entry);
+    tws_tx_sync_init(); CHECK(slave_last_hash==123);
+    return TEST_DONE("btctrler_bd19_tws_tx_sync");
 }
 #endif

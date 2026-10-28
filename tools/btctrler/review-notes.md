@@ -1570,3 +1570,45 @@ both layouts and 81 ownership groups. Totals: 82 accepted / 29 retained members,
 931 functions, 75 globals and 1131 retained index entries. Clean worker/dependency
 status and merged ancestry checked; completed worktree and branch deleted.
 No hardware validation or pending worker.
+
+## Clean-branch BD19 TWS TX-sync acceptance
+
+Reviewed worker `e024e56`, `tws_tx_sync.c.o` occurrence 1, SHA-256
+`6d7850f03e1b0c8ff8942410e4493e9568a240c9817ca7a0e6863ccfdbc8779a`.
+Dedicated `bd19/tws_tx_sync.c` supplies three public functions, seven private
+helpers/callbacks and const tws_tx_sync. Channel 4/attribute 1 table matches
+SDK initializer, relocations, 28-byte size, section/alignment. All eight private
+zero state objects, including eight 8-byte records, match. 39 mapped type
+shapes have no mismatch. Every body was independently checked against raw IR.
+BR23 member supplies only empty init; no other unique counterparts exist.
+No original BR23 source was changed or application behavior imported.
+
+During worker recovery coordinator identified/corrected direct-post return,
+role snapshot before clock, deadline zero/nonzero branch and stop behavior,
+length reload after hash, output-pointer reply guard and aligned u32 response.
+The committed worker includes these corrections plus host-safe named fields and
+separate hash-call/result-store statements. Subsequent coordinator review
+restored TX search next-pointer capture before JBHash and tx_num store after
+record copies; loop index width matches SDK. Copies preserve all 8 bytes,
+including padding, using aligned may-alias u64 accesses. Remaining differences
+are equivalent container-derived addresses at checked target offsets, loop
+rotation/branch fusion, prototypes, pure arithmetic scheduling and call flags.
+
+Fixtures cover add/post paths, role snapshot and hash-index mutation, deadline
+stop/release and zero-input-length full hash reply. Coordinator added all 65,536
+sequence pairs, padding-preserving serialization across ring wrap, single-subtract
+ACK behavior with byte truncation, length+hash matched-prefix posting with
+redundant rehash calls, length mutation during hash, hash-only ACL prefix release,
+next-pointer mutation after capture, and reset/init preserving records/list/hash.
+These are safe modeled callbacks, not concurrency or radio validation. C27 and
+B52–B53 retain queue capacity, framing, padding, sequence, hash and lifecycle
+questions separately from corrected translation defects.
+
+Both target compilers and standalone ASan/UBSan with complete mocks pass.
+Worker combined controller checks/census: 203 `: ok` reports, 12 legacy reports,
+31 tooling tests, both layouts and 82 ownership groups. Totals: 83 accepted
+members / 934 functions / 76 globals; 28 retained members / 1127 verified index
+entries. Retained bredr_link.c.o supplies post/available helpers and retained
+tws_pair.c.o occurrence 1 supplies JBHash/is_tws_esco_working. All 123 original
+BR23 C files remain byte-identical to 44d0073. No application-image or hardware
+validation claimed.

@@ -81,6 +81,8 @@ against the eventual Nova 2 configuration and linked image.
 
 | C26 | `bd19/tws_event.c`, worker `f628a13`, occurrence 1 `73dd3fbc…1b53`: two 64-byte queues, three-byte records, timeout/ACK local delivery, int event callback and attribute 15 differ from BR23's two 16-byte queues, four-byte records, void callback/static handler and attribute 1. | Keep target wire formats and registration boundaries explicit. Empty init and combined RX/TX wrapper match SDK bodies, but sharing isolated functions is not useful until the surrounding ownership boundary is deliberately refactored. BR23's inherited record-stride issue does not describe BD19's stride-three loop. |
 
+| C27 | `bd19/tws_tx_sync.c`, worker `e024e56`, occurrence 1 `6d7850f0…779a`: BR23 member only has empty init; BD19 adds phone-packet hooks, channel 4/attribute 1, deadline and hash-based prefix release, and an eight-entry record ring. | No common implementation beyond empty init is justified by the SDKs. Any BR23 activation needs an explicit protocol/application decision. Named packet fields preserve BD19 entry/data/length offsets 16/28/10 without imposing those offsets on host fixtures. |
+
 ## Confirmed BD19 behavior to revisit
 
 Each row describes SDK behavior deliberately retained in accepted C. Fixes need
@@ -156,6 +158,9 @@ unestablished unless specifically stated.
 
 | B50 | `bd19/tws_event.c`, occurrence 1 `73dd3fbc…1b53`: record append truncates event/value to bytes, queues at most 63 bytes, logs and unsniffs before checking capacity, and arms/modifies a 500/1000 timeout under IRQ disable. Timeout and ACK deliver local events under IRQ disable and event_lock; event22 resets queues/sequences but leaves timer active. Timeout clears timer ID without deletion; ACK conditionally deletes after notification. | Audit truncation, notification reentrancy/latency and timer lifetime, including allocation returning zero. Preserve dynamic queue-length/index reloads and ACK unlock-before-clear ordering until an explicit application policy changes them. These fixtures model callbacks, not actual concurrency. |
 | B51 | Same occurrence: direct RX always reads data[0], even for zero/negative len; wrapper calls RX for any nonzero len. Triples are decoded whenever i<len, with no check that the final triple fits. RX uses sequence-only deduplication; TX returns queue length reloaded after IRQ enable, which may differ from bytes just written. Event initialization occurs once per invocation, so notify changes to other fields survive later records. | Establish trusted framing, callback ownership and caller buffer contracts before validation fixes. Investigate short/truncated frames and sequence wrap; tests use real backing storage and do not execute invalid reads. |
+
+| B52 | `bd19/tws_tx_sync.c`, occurrence 1 `6d7850f0…779a`: eight-entry ring has unchecked byte count, overwrite on wrap and no output capacity argument. Full eight-byte record copies include padding. ACK truncates sum to u8 then subtracts eight once, rather than general modulo. RX walks every positive length in steps of eight without a final-span check; response/master RX require aligned u32. | Establish producer backpressure, maximum outstanding records, buffer capacity and framing guarantees. Investigate padding initialization and malformed frames before changing protocol. Exhaustive sequence fixtures and boundary ACK fixtures preserve SDK behavior, not prove safety. |
+| B53 | Same member: sequence acceptance is old<new or old-new>=8 after zero extension; hash-only acknowledgment uses zero as absent and ignores length. Matching packets release an entire prefix. TX deadline scan stops at first future packet; RX expiry flushes all pending packets. Event22 resets counters but leaves pending list, records and slave hash; no-op init does not initialize the list. | Audit loss/reordering, sequence wrap, hash collisions/zero, ordered deadlines, ownership and reset lifecycle. Preserve redundant hash/eSCO calls, saved-next timing, and callback reloads until serialization/lifetime contracts are clear. Corrected draft branches/byte store were translation defects, not SDK bugs. |
 
 ## Inherited BR23 follow-ups: BD19 confirmation queue
 
@@ -377,3 +382,5 @@ not absence of defects. See the earlier sections for cross-member issues.
 | `tws_afh.c.o` / 1 | `90772cc` + coordinator review | C25; B48–B49 |
 
 | `tws_event.c.o` / 1 | `f628a13` + coordinator review | C26; B50–B51 |
+
+| `tws_tx_sync.c.o` / 1 | `e024e56` + coordinator review | C27; B52–B53 |

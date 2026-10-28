@@ -650,6 +650,14 @@
       ]
     },
     {
+      "member": "tws_tx_sync.c.o",
+      "occurrence": 1,
+      "sha256": "6d7850f03e1b0c8ff8942410e4493e9568a240c9817ca7a0e6863ccfdbc8779a",
+      "sources": [
+        "src/btctrler/bd19/tws_tx_sync.c"
+      ]
+    },
+    {
       "member": "vendor_manager.c.o",
       "occurrence": 1,
       "sha256": "b5628c966b1b8fd2c0afe81c646dcac73ea42d597cc4dfac47d0d0996c2a477d",
