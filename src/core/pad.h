@@ -722,6 +722,9 @@ extern const struct board_rumble board_rumble;
  * TRANSPORT_*): what its radio and USB can be. */
 struct board_slots {
     u32 type[SLOTS], transport[SLOTS];
+    /* The types and transports this board runs, 1 << PROFILE_* and
+     * 1 << TRANSPORT_*; 0: all.  The tools see only these. */
+    u32 types, transports;
     u8 static_random;           /* use LE static random identities, except Switch 2 (public) */
 };
 extern const struct board_slots board_slots;

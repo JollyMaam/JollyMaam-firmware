@@ -1183,7 +1183,7 @@ class App:
                 self.default_marker(types, entry, record, target, "type").pack(side="left", padx=(0, 4))
             ttk.Label(types, text=f"Slot {pad.SLOT_NAMES[target]}", width=12).pack(side="left")
             if entry:
-                ttk.Combobox(types, textvariable=entry["var"], values=entry["field"]["names"], state="readonly", width=20).pack(side="left")
+                ttk.Combobox(types, textvariable=entry["var"], values=pad.choices(entry["field"]), state="readonly", width=20).pack(side="left")
             bond = record["draft"].get((target, "bond"))
             button = ttk.Button(links, text="Unpair", state="disabled", command=lambda t=target: self.unpair_slot(t))
             button.pack(side="left", padx=(0, 8))
@@ -1322,7 +1322,7 @@ class App:
                 editor = CalibrationView(parent, self, entry)
                 self.special_editors.append(editor)
             elif f["type"] == pad.T_ENUM:
-                editor = ttk.Combobox(parent, textvariable=entry["var"], values=f["names"], state="readonly", width=23)
+                editor = ttk.Combobox(parent, textvariable=entry["var"], values=pad.choices(f), state="readonly", width=23)
             else:
                 editor = ttk.Entry(parent, textvariable=entry["var"], width=25)
             editor.grid(row=row, column=1, columnspan=2 if isinstance(editor, (PaletteEditor, CurveEditor, CalibrationView)) else 1,

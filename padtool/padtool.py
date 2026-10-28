@@ -774,12 +774,17 @@ def fields(path):
             return v
 
         name, help_ = string(), string()
-        names = [string() for _ in range(mx + 1)] if typ == T_ENUM else []
+        names = [string() for _ in range(mx + 1)] if typ == T_ENUM else []   # "": not on this board
         nd = 8 if kind == 0 else 1
         defs = [d[o + i * size:o + (i + 1) * size] for i in range(nd)] if size <= 4 else []
         out.append({"kind": kind, "id": fid, "type": typ, "size": size, "max": mx, "dev": flags & 1,
                     "name": name, "help": help_, "names": names, "defaults": defs})
         n += 1
+
+
+def choices(f):
+    """An enum's names this board takes."""
+    return [n for n in f["names"] if n]
 
 
 def show_value(f, raw):
@@ -851,9 +856,9 @@ def parse_value(f, text):
         if remap_field(f, "rules"):
             return padremap.parse_rules(text, f["size"] // padremap.RULE_SIZE)
         if t == T_ENUM:
-            if text in f["names"]:
+            if text in choices(f):
                 return bytes([f["names"].index(text)])
-            sys.exit(f"padtool: {f['name']}: one of {' '.join(f['names'])}")
+            sys.exit(f"padtool: {f['name']}: one of {' '.join(choices(f))}")
         if t == T_NUMBER:
             return int(text, 0).to_bytes(f["size"], "little")
         if t == T_ENTRY:
@@ -1288,7 +1293,7 @@ def show_fields(path, dev=False):
         if f["dev"] and not shown_dev:
             print("\ndeveloper settings: not for normal use")
             shown_dev = True
-        values = (" | ".join(f["names"]) if f["type"] == T_ENUM else
+        values = (" | ".join(choices(f)) if f["type"] == T_ENUM else
                   f"0-{f['max']}" if f["type"] == T_NUMBER else
                   f"{f['size']} numbers 0-{f['max']}, N,N,..." if f["type"] == T_LIST else
                   "palette ENTRY 0-15" if f["type"] == T_ENTRY else

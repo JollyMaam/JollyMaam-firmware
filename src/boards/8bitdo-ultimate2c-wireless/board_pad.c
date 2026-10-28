@@ -28,6 +28,9 @@ const struct board_slots board_slots = {
               PROFILE_NONE, PROFILE_NONE, PROFILE_NONE, PROFILE_NONE },
     .transport = { TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT,
                    TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT },
+    .types = 1u << PROFILE_GENERIC_BLE | 1u << PROFILE_DUALSENSE_BLE | 1u << PROFILE_XBOX_BLE |
+             1u << PROFILE_SWITCH2 | 1u << PROFILE_NONE,      /* controller_lite.c */
+    .transports = 1u << TRANSPORT_BT,
     .static_random = 1,
 };
 

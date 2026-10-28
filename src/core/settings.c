@@ -22,6 +22,7 @@ struct set_field {
     u16 max;                 /* T_NUMBER: largest value; T_ENUM: from names */
     const char *name;
     const char *const *names;   /* T_ENUM, NULL-terminated */
+    const u32 *allowed;      /* T_ENUM: the values the board takes, 1 << value; 0 or NULL: all */
     u32 def;                 /* little-endian bytes of the default */
     const u32 *slot_def;     /* slot fields: a default per slot instead; NULL: def */
     const u16 *number_def;   /* T_NUMBER: the board's default instead of def */
@@ -66,10 +67,10 @@ static const char *const tx_powers[] = { "1", "2", "3", "4", "5", "6", NULL };
  * bright they are is the palette's. */
 static const struct set_field slot_fields[] = {
     { .id = ID_TYPE, .name = "type", .type = T_ENUM, .names = types, FIELD(type),
-      .slot_def = board_slots.type,
+      .slot_def = board_slots.type, .allowed = &board_slots.types,
       .help = "what the slot connects as; changing it renews address and clears bond" },
     { .id = ID_TRANSPORT, .name = "transport", .type = T_ENUM, .names = transports, FIELD(transport),
-      .slot_def = board_slots.transport,
+      .slot_def = board_slots.transport, .allowed = &board_slots.transports,
       .help = "how: bluetooth; usb, a wired controller; bluetooth+usb, usb while a usb host "
               "is there, else bluetooth (never back to it mid-session); dongle, through our dongle, which is the type on its usb port; "
               "dongle+usb, usb while a usb host is there, else the dongle" },
@@ -424,6 +425,11 @@ static u32 enum_count(const struct set_field *f)
     return n;
 }
 
+static int enum_allowed(const struct set_field *f, u32 x)
+{
+    return !f->allowed || !*f->allowed || (x < 32 && (*f->allowed >> x & 1));
+}
+
 static u32 field_max(const struct set_field *f)
 {
     return f->type == T_ENUM ? enum_count(f) - 1 : f->type == T_ENTRY ? PALETTE - 1 : f->max;
@@ -475,7 +481,7 @@ static u8 check(const struct set_field *f, const u8 *v, u32 len)
     case T_ENUM:
     case T_NUMBER:
         x = f->size == 1 ? v[0] : v[0] | (u32)v[1] << 8;
-        return x <= field_max(f) ? SET_OK : SET_RANGE;
+        return x <= field_max(f) && (f->type != T_ENUM || enum_allowed(f, x)) ? SET_OK : SET_RANGE;
     case T_ENTRY:
         return v[0] < PALETTE ? SET_OK : SET_RANGE;
     case T_LIST:
@@ -1080,7 +1086,8 @@ u32 set_describe(u32 n, u8 *out, u32 max)
     util_put16(out + 6, (u16)field_max(f));
     o = put_string(out, 8, max, f->name);
     o = put_string(out, o, max, f->help);
-    for (i = 0; f->type == T_ENUM && f->names[i]; i++) o = put_string(out, o, max, f->names[i]);
+    for (i = 0; f->type == T_ENUM && f->names[i]; i++)   /* one the board does not take: empty */
+        o = put_string(out, o, max, enum_allowed(f, i) ? f->names[i] : "");
     defs = kind == 0 ? SLOTS : 1;
     for (i = 0; i < defs && o <= max; i++) {
         u32 size = f->size < 4 ? f->size : 0, def = field_def(f, (u8)i);
@@ -1168,6 +1175,7 @@ const struct board_slots board_slots = {
               PROFILE_NONE, PROFILE_NONE, PROFILE_NONE, PROFILE_NONE },
     .transport = { TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_DONGLE, TRANSPORT_BT_USB,
                    TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_BT_USB },
+    .types = ~(1u << PROFILE_MOUSE),            /* one the board does not take */
     .static_random = SLOTS_STORED < SLOTS,
 };
 const struct board_rumble board_rumble = {
@@ -1661,6 +1669,18 @@ static int full_storage(void)
 
     /* Describe and read. */
     CHECK(set_describe(0, buf, sizeof(buf)) > 8 && buf[2] == 1 && !strcmp((char *)buf + 8, "type"));
+    {   /* the type's names: mouse, which the board does not take, empty */
+        const char *s = (const char *)buf + 8;
+        u32 k;
+
+        for (k = 0; k < 2 + PROFILE_MOUSE; k++) s += strlen(s) + 1;
+        CHECK(!*s && !strcmp(s + 1, "genericble"));
+        x = PROFILE_MOUSE;
+        CHECK(write1(0, ID_TYPE, 1, &x) == SET_RANGE);
+        x = PROFILE_GENERIC;
+        CHECK(write1(0, ID_TYPE, 1, &x) == SET_OK);
+        set_drop();
+    }
     CHECK(set_describe(COUNT(slot_fields), buf, sizeof(buf)) && buf[1] == 1);
     CHECK(set_describe(COUNT(slot_fields) + COUNT(palette_fields), buf, sizeof(buf)) && buf[1] == 2);
     t = COUNT(slot_fields) + COUNT(palette_fields) + COUNT(cal_fields);
