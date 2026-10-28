@@ -658,6 +658,14 @@
       ]
     },
     {
+      "member": "tws_pair.c.o",
+      "occurrence": 2,
+      "sha256": "65c6a1e91c93144bf28cebd5dd16c7c07909316150deb2a7efd95552527f76f1",
+      "sources": [
+        "src/btctrler/bd19/tws_pair_api.c"
+      ]
+    },
+    {
       "member": "tws_power_balance.c.o",
       "occurrence": 1,
       "sha256": "eeb6614a795aba99e8479bbcf893c96db057ba470612aed895e14570625acb11",

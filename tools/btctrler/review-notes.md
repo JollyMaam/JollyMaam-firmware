@@ -1768,3 +1768,46 @@ members, 949 functions, 82 globals and 1106 retained index entries. Clean
 worker/dependency status and merged ancestry checked; completed worktree and
 branch deleted. Original BR23 sources unchanged. No pending worker or hardware
 validation.
+
+## Clean-branch BD19 pairing API occurrence-2 acceptance
+
+Reviewed worker `6758a78`, `tws_pair.c.o` occurrence2, SHA-256
+`65c6a1e91c93144bf28cebd5dd16c7c07909316150deb2a7efd95552527f76f1`.
+Dedicated `bd19/tws_pair_api.c` supplies exactly ten public functions and three
+private callbacks/helpers, no public globals. All 13 functions retain the SDK's
+absence of code sections. Mutable six-byte wait_pair_addr, two initially-zero
+byte handles aligned 4 and private 111 string align 1 match the original data.
+39 mapped type shapes agree. The timer helper is always inlined and adds no
+compiled definition. Every function was compared against occurrence-specific
+raw IR. No unique BR23 public counterparts exist; incompatible page API
+prototypes prevent compiling this extra source under the BR23 header.
+
+During recovery coordinator corrected the private address interpretation
+(14 30 e3 11 08 3a), code sections, handle alignment, byte-return busy-flag ABI,
+failed-timer arming and retry termination. Subsequent review corrected the
+existing-link wait-pair gate and removed a post-delay state reread: exhausted
+wait-pair retains its captured retry decision even if the final delay changes
+connection state. Remaining normalized differences are equivalent boolean
+algebra, bounded-loop comparisons, scalar flag representation, rollback block
+organization, private names, fixed-void versus old-style declarations and
+compiler call annotations. Signed timeout multiply/divide and repeated quick
+address calls remain unchanged.
+
+Expanded fixtures cover all 72 combinations of link presence, role0/1/2,
+monitor0/1/2 and retry exhaustion, exactly ten lookup/delay calls with no extra
+lookup, state mutation on the final delay, distinct inquiry/page-scan/page
+failures, duplicate cancellation disables, no-op eSCO cancellation, two quick
+address values, negative timeout conversion, timer255 success without arming,
+state before timer deletion, post-put timer overwrite, timeout callback event
+arguments and search-timeout state retention. Complete-mock ASan/UBSan passes.
+C31/B60–B61 record occurrence boundaries and API/timer lifecycle follow-ups;
+corrected draft defects are not SDK quirks or application fixes.
+
+Worker full controller checks/census pass: 206 `: ok` reports, 12 legacy reports,
+31 tooling tests, both layouts and 86 ownership groups. Totals: 87 accepted
+members / 959 public functions / 82 globals; 24 retained members / 1096 verified
+index entries. Retained archive has exactly one tws_pair.c.o whose SHA-256
+is the original occurrence1 hash 7b63d337…fee6; its core/callback/hash providers
+remain untouched. All 123 original BR23 C files remain byte-identical to 44d0073.
+The intended BD19 target and actual BR23 source set build. No application-image,
+pairing-radio or hardware validation claimed.
