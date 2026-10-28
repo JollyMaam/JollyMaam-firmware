@@ -1663,3 +1663,10 @@ functions / 76 globals; 27 retained members / 1121 verified index entries.
 Retained lmp.c.o provides SBC time, bredr_frame.c.o the clock, and tws_link.c.o
 slave-monitor enable. Original 123 BR23 C files remain byte-identical to
 44d0073. No application-image or hardware/timing validation claimed.
+
+TWS scheduler combined checkpoint: acceptance `f2007fa` passes canonical
+controller checks/census with 204 `: ok` reports, 12 legacy reports, 31 tooling
+tests, both layouts and 83 ownership groups. Totals: 84 accepted / 27 retained
+members, 940 functions, 76 globals and 1121 retained index entries. Clean
+worker/dependency status and merged ancestry checked; completed worktree and
+branch deleted. No pending worker or hardware/timing validation.
