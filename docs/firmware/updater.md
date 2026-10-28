@@ -153,12 +153,18 @@ boot loader starts; the protocol is `updater.c`'s, the chip's side
 `tools/8bitdoboot.py main` writes the header and the packed app
 (`update.bin`); `NAME-flash` writes the updater and, with `--also`, the region.
 
-Boot: `updater_boot()` runs first in `main()`. Unless analog register `0x3c`
-holds `0x55` (the app's request, which it then clears), and if the region's
-header has the commit word, the entry, format 1 and the app's `KNLT`, it
-starts the app the way the boot loader starts its image (see
+Boot: `updater_boot()` runs first in `main()`. Analog register `0x3c`
+(cleared only by a power cycle) holds `0xa0` for the app's request to stay,
+`0xa1`..`0xa3` for one to three starts of the app that never reached its
+loop, and `0x0f` (its power-on value) once the app's loop runs. Unless it
+holds `0xa0` or `0xa3`, and if the region's header has the commit word, the
+entry, format 1 and the app's `KNLT`, the updater writes the next count
+and starts the app the way the boot loader starts its image (see
 [../8bitdo-ultimate2c-wireless/README.md](../8bitdo-ultimate2c-wireless/README.md)):
-the app's first bytes into SRAM, then the CPU restarts there.
+the app's first bytes into SRAM, then the CPU restarts there. That restart
+leaves the watchdog and timer 2 stopped, so the app starts the watchdog on
+the first line of `main()`: a hang anywhere in its start-up resets the pad
+and counts.
 
 The flash is not enciphered. The updater reads back through the SPI
 (`flash_read_page`), not the cache. The flash's protection (`0x002c`, the

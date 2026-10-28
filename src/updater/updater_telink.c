@@ -9,10 +9,12 @@
  * would (its vectors and RAM code into SRAM, then the CPU restarts from
  * SRAM), unless the app asked for the updater or its header is not there.
  *
- * The app's request is analog register 0x3c = 0x55: it survives a reset
- * (the SDK's DEEP_ANA_REG2, cleared only by a power cycle), and the 8BitDo
- * boot loader acts on 0x5a (stay in it) and 0x5b, not on this.  Flash is
- * not enciphered and reads at its address. */
+ * The app's request and the count of its starts are analog register 0x3c
+ * (board.h): it survives a reset (the SDK's DEEP_ANA_REG2, cleared only by
+ * a power cycle), and the 8BitDo boot loader acts on 0x5a (stay in it) and
+ * 0x5b, not on ours.  The launch stops the watchdog, so the app starts it
+ * first thing (platform_telink.c).  Flash is not enciphered and reads at
+ * its address. */
 
 #define REGION          (APP_START + MAIN_AT)
 #define SRAM            0x840000
@@ -46,21 +48,26 @@ void updater_boot(void)
     const volatile u32 *head = (const volatile u32 *)REGION;
     u32 entry = REGION + MAIN_HEAD_SIZE, bytes;
 
+    u32 tries;
+
     boot_flag = analog_read(UPDATER_STAY_REG);
-    if (boot_flag == UPDATER_STAY) {
-        analog_write(UPDATER_STAY_REG, 0x0f);    /* its power-on value */
-        return;
-    }
+    tries = (boot_flag & 0xf0) == UPDATER_STAY ? boot_flag & 0x0f : 0;
+    analog_write(UPDATER_STAY_REG, UPDATER_UP);
+    if (boot_flag == UPDATER_STAY || tries >= UPDATER_TRIES_MAX) return;
     if (head[0] != MAIN_MAGIC || head[3] != entry || head[4] != MAIN_VERSION) return;
     if (*(const volatile u32 *)(entry + 8) != 0x544c4e4b) return;      /* "KNLT" */
     bytes = (*(const volatile u32 *)(entry + 0x0c) & 0xffff) << 4;
     if (!bytes || bytes > RAM_COPY_MAX) return;
+    analog_write(UPDATER_STAY_REG, (u8)(UPDATER_STAY + tries + 1));
     start_app(entry, bytes);
 }
 
 void upd_started(void)
 {
-    util_log("updater: boot flag %02x", boot_flag);
+    if (boot_flag == UPDATER_STAY + UPDATER_TRIES_MAX)
+        util_log("updater: the app started %u times without coming up", UPDATER_TRIES_MAX);
+    else
+        util_log("updater: boot flag %02x", boot_flag);
 }
 
 u32 upd_region(void) { return REGION; }

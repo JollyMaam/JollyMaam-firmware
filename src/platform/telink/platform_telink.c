@@ -268,6 +268,9 @@ int main(void)
 {
 #ifdef UPDATER
     updater_boot();
+#else                                    /* a hang before the hang watch resets too, and counts */
+    wd_set_interval_ms(HANG_MS, CLOCK_SYS_CLOCK_1MS);   /* the clock not set up yet: roughly */
+    wd_start();
 #endif
     /* Keep the debug wire on D+ (cstartup_flash.S, DP_THROUGH_SWIRE_DIS). */
     usb_set_pin(1);
@@ -283,6 +286,15 @@ int main(void)
     util_log("boot: %s %s", board_name, BUILD_ID);
     plat_bt_init();
     board_init();
+#ifdef BOOT_HANG_TEST                    /* 1: 10 s before the hang watch, under main's watchdog */
+    if (BOOT_HANG_TEST == 1) {
+        u32 at = clock_time();
+
+        while (!clock_time_exceed(at, 10000000)) {
+        }
+        util_log("boot: no reset in 10 s");
+    }
+#endif
 #ifndef UPDATER
     {   /* an updater chord held with USB at start-up: there before USB comes up */
         struct plat_boot b;
@@ -298,6 +310,13 @@ int main(void)
     wd_start();
     plat_usb_init();
     irq_enable();
+#ifdef BOOT_HANG_TEST                    /* 2: a hang under the hang watch */
+    if (BOOT_HANG_TEST == 2) for (;;) {
+    }
+#endif
+#ifndef UPDATER                          /* the app: up, the updater's count of its starts ends */
+    analog_write(UPDATER_STAY_REG, UPDATER_UP);
+#endif
     ctl_main();
     return 0;
 }

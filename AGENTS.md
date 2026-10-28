@@ -165,7 +165,8 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
 - Debug switches (via `EXTRA_DEFINES`): `DEBUG_UART_DP` (and `DEBUG_NO_USB`)
   puts a UART on USB D+ for the BD19 bring-up jig; `HCI_LOG`, `BT_SMP_LOG`,
   `PATH_STATS`, `LOG_LINES`/`LOG_TEXT` (log size), `USB_SESSION_TEST_MS`,
-  `STAY_ON_TEST`, `JACK_FLIP_TEST`.  Grep for each to see what it does.
+  `STAY_ON_TEST`, `JACK_FLIP_TEST`, `BOOT_HANG_TEST` (8BitDo: a start-up
+  hang for the updater's start count).  Grep for each to see what it does.
 - A device that does not come up after flashing: the ROM loader is the way
   back (per-board docs).  Before asking the user for a loader cycle, prepare
   the next experiment so one cycle answers the question.
@@ -186,5 +187,8 @@ wrong assumption), add it here in a line or two.
   tables.
 - Shell scripts: initialise every option variable empty up front; the
   environment can leak names like `out` into a script.
+- The 8BitDo app keeps 2 log lines (`LOG_LINES`); a debug build can take
+  `EXTRA_DEFINES=-DLOG_LINES=5`, 12 overflows RAM.  Its updater's launch of
+  the app clears the watchdog, so arming it in the updater does nothing.
 - Never search the whole filesystem (`/`, `/proc`, `/sys`, `/dev`): it has
   disturbed the host.
