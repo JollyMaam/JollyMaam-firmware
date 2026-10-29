@@ -15,11 +15,13 @@ const struct board_led_brightness board_led_brightness = {
     .idle = 240, .battery = 240,
 };
 
-/* Not tuned for these motors yet: the Cyclone 2's. */
+/* Both motors start at 40% and grow stronger up to 100%: step 3 (the
+ * default) spans that, lower steps cap it, higher ones raise the floor.
+ * controller_lite has no kick. */
 const struct board_rumble board_rumble = {
-    .min = { { 15, 20, 25, 25, 25 }, { 15, 15, 15, 15, 15 } },
-    .max = { { 35, 55, 75, 80, 90 }, { 50, 60, 70, 80, 90 } },
-    .kick_ms = { 0, 0, 0, 25, 30 },
+    .min = { { 32, 32, 32, 45, 55 }, { 32, 32, 32, 45, 55 } },
+    .max = { { 65, 85, 100, 100, 100 }, { 65, 85, 100, 100, 100 } },
+    .kick_ms = { 0, 0, 0, 0, 0 },
 };
 
 /* Four LE slots share Generic BLE until the other profile tables fit. */

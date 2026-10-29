@@ -51,6 +51,9 @@ static struct {
     u8 remap_chosen, remap_slot; /* picked in quick settings: kept when remap_slot reconnects */
     u8 remap_live;               /* remap.c state belongs to remap_live - 1 at remap_edits */
     u8 turbo_up;                 /* the last report left turbo_max up */
+    u8 rumble_step;              /* picked in quick settings, step + 1; 0: the remap's */
+    u8 feedback;                 /* a step picked: this many pulses from feedback_ms */
+    u16 feedback_ms;             /* plat_ms, low bits: the pulses take under a second */
     u32 remap_edits;
     u32 turbo_max;               /* keys flipped every report, down first */
     struct in_trigger triggers[2];
@@ -177,8 +180,10 @@ static void start_session(u8 slot, int pairing, int renew)
     c.session.bond = set_bond(slot);
     set_slot_address(slot, c.session.address);
     c.session.pairing = util_is_zero(c.session.bond->ltk, sizeof(c.session.bond->ltk));
-    /* A remap picked in quick settings lasts across this slot's reconnects
-     * (a lost link, relink) until a disconnect, sleep or another slot. */
+    /* A remap and a rumble step picked in quick settings last across this
+     * slot's reconnects (a lost link, relink) until a disconnect, sleep or
+     * another slot. */
+    if (c.remap_slot != slot) c.rumble_step = 0;
     if (!c.remap_chosen || c.remap_slot != slot) {
         c.remap = c.session.settings->remap ? (u8)(c.session.settings->remap - 1) : REMAP_BASE;
         c.remap_slot = slot;
@@ -224,6 +229,7 @@ static void transition(u8 kind, u8 slot, u8 renew)
     c.renew = renew;
     c.idle = 0;
     c.rumble_until = 0;
+    c.feedback = 0;
     plat_motors(0, 0);
     if (c.stopping) return;
     c.stopping = 1;
@@ -278,6 +284,7 @@ static __attribute__((noinline)) int bt_events(void)
         } else if (ev.kind == BT_EV_UNLINKED) {
             c.linked = 0;
             c.rumble_until = 0;
+            c.feedback = 0;
             plat_motors(0, 0);
             c.since_ms = plat_ms();
             /* Match controller.c: a deliberate disconnect ends this session;
@@ -316,11 +323,16 @@ int host_send(u16 id, const u8 *data, u16 len)
     return !c.stopping && !c.sleeping && c.linked && bt_send_message(id, data, len);
 }
 
-/* Host rumble spreads over the motor's range for the remap's step: 1 is
- * its rumble_min, 255 its rumble_max. */
+static u8 rumble_step(const struct set_remap *m)
+{
+    return c.rumble_step ? (u8)(c.rumble_step - 1) : m->rumble;
+}
+
+/* Host rumble spreads over the motor's range for the step: 1 is its
+ * rumble_min, 255 its rumble_max. */
 static u8 motor_duty(const struct set_remap *m, u8 host, int right)
 {
-    u32 step = m->rumble, lo, hi;
+    u32 step = rumble_step(m), lo, hi;
 
     if (!host || !step) return 0;
     lo = 255u * m->rumble_min[right][step - 1] / 100;
@@ -338,7 +350,13 @@ static __attribute__((noinline)) void host(u32 now)
     memset(&h, 0, sizeof(h));
     profile->host(now, &h);
     m = set_remap(c.remap);
-    if (ux_quick(NULL)) plat_motors(0, 0);          /* quick settings: still */
+    if (c.feedback) {                               /* a step picked: its pulses */
+        u32 next;
+        u8 on = ux_rumble_feedback(c.feedback, (u16)(now - c.feedback_ms), &next) ? 255 : 0;
+
+        if (!next) c.feedback = 0;
+        plat_motors(on, on);
+    } else if (ux_quick(NULL)) plat_motors(0, 0);  /* quick settings: still */
     else plat_motors(motor_duty(m, h.rumble[0], 0), motor_duty(m, h.rumble[1], 1));
     if (h.ended) transition(REQ_NONE, SLOT_NONE, 0);
 }
@@ -409,7 +427,7 @@ static void request(const struct ctl_request *r)
         if (!c.sleeping) select_session(r->kind, r->slot, r->generate_new_address);
         break;
     case REQ_DISCONNECT:
-        c.remap_chosen = 0;
+        c.remap_chosen = c.rumble_step = 0;
         if (!c.sleeping) transition(REQ_NONE, SLOT_NONE, 0);
         break;
     case REQ_REMAP:
@@ -419,6 +437,20 @@ static void request(const struct ctl_request *r)
         c.remap_slot = c.slot;
         util_log("slot %c remap %c", slot_names[c.slot], c.remap < LITE_SLOTS ? slot_names[c.remap] : '-');
         break;
+    case REQ_RUMBLE_STEP: {      /* slot 1 up, 0 down */
+        u8 step;
+
+        if (!c.linked || c.stopping) break;
+        step = rumble_step(set_remap(c.remap));
+        if (r->slot && step < RUMBLE_STEPS) step++;
+        if (!r->slot && step) step--;
+        c.rumble_step = (u8)(step + 1);
+        c.rumble_until = 0;
+        c.feedback = step;
+        c.feedback_ms = (u16)plat_ms();
+        util_log("rumble step %u", step);
+        break;
+    }
     case REQ_SLEEP:
         if (!plat_usb_present()) {
             c.sleeping = 1;
@@ -447,6 +479,7 @@ static void request(const struct ctl_request *r)
         cal_start(plat_ms());
         break;
     case REQ_RUMBLE:
+        c.feedback = 0;
         plat_motors(r->motor[0], r->motor[1]);
         c.rumble_until = r->ms ? plat_ms() + (r->ms < RUMBLE_TEST_MAX_MS ? r->ms : RUMBLE_TEST_MAX_MS) : 0;
         if (!c.rumble_until) plat_motors(0, 0);
@@ -508,7 +541,7 @@ static __attribute__((noinline)) u32 power_step(u32 now)
                         c.activity_ms + ux_timeouts.idle_sleep_ms;
     if ((s32)(now - deadline) >= 0) {
         util_log("ctl: sleeping");
-        c.remap_chosen = 0;
+        c.remap_chosen = c.rumble_step = 0;
         c.sleeping = 1;
         c.sleep_ms = now;
         transition(REQ_NONE, SLOT_NONE, 0);
@@ -604,8 +637,18 @@ u32 ux_idle_deadline(u32 since, u32 activity, u32 usb_seen, int powered, int eph
 }
 static int test_quick;
 int ux_quick(u32 *since) { (void)since; return test_quick; }
+/* One pulse per level, 10 ms each. */
+int ux_rumble_feedback(u8 level, u32 elapsed, u32 *next)
+{
+    *next = level && elapsed < 10u * level ? elapsed + 1 : 0;
+    return *next != 0;
+}
 void plat_power_off(void) { CHECK(flushes > offs); offs++; }
 void plat_reboot(void) { reboots++; }
+void plat_reboot_loader(void) { reboots++; }
+void plat_reboot_updater(void) { reboots++; }
+void ux_ignore_held(void) {}
+void cal_start(u32 now) { (void)now; }
 void plat_motors(u8 left, u8 right) { CHECK(!left && !right); motors++; }
 static struct led_frame test_frame;
 void plat_leds(const struct led_frame *f) { test_frame = *f; }
@@ -916,6 +959,29 @@ int main(void)
     test_reset(); c.linked = 0;
     { struct ctl_request r = { REQ_REMAP, 1, 0 }; request(&r); }
     CHECK(!c.remap_chosen && c.remap == 0);
+    /* A rumble step picked there: connected only, from the remap's, within
+     * off..RUMBLE_STEPS; it pulses, and lasts as the remap picked there. */
+    test_reset(); c.slot = c.remap_slot = 1; c.remap = 0; test_remaps[0].rumble = 3;
+    { struct ctl_request r = { REQ_RUMBLE_STEP, 1, 0 }; request(&r); }
+    CHECK(c.rumble_step == 5 && rumble_step(&test_remaps[0]) == 4 && c.feedback == 4);
+    { struct ctl_request r = { REQ_RUMBLE_STEP, 1, 0 }; request(&r); }
+    { struct ctl_request r = { REQ_RUMBLE_STEP, 1, 0 }; request(&r); }
+    CHECK(rumble_step(&test_remaps[0]) == RUMBLE_STEPS);
+    test_remaps[0].rumble_min[0][4] = 20; test_remaps[0].rumble_max[0][4] = 60;
+    CHECK(motor_duty(&test_remaps[0], 1, 0) == 51);
+    for (u8 i = 0; i < 7; i++) { struct ctl_request r = { REQ_RUMBLE_STEP, 0, 0 }; request(&r); }
+    CHECK(c.rumble_step == 1 && !rumble_step(&test_remaps[0]) && !c.feedback);
+    CHECK(motor_duty(&test_remaps[0], 255, 0) == 0);
+    start_session(1, -1, 0); CHECK(c.rumble_step == 1);
+    start_session(2, -1, 0); CHECK(!c.rumble_step && rumble_step(&test_remaps[0]) == 3);
+    c.linked = 1; c.slot = 2; test_remaps[REMAP_BASE].rumble = 3;
+    { struct ctl_request r = { REQ_RUMBLE_STEP, 0, 0 }; request(&r); }
+    CHECK(c.rumble_step == 3);
+    { struct ctl_request r = { REQ_DISCONNECT, SLOT_NONE, 0 }; request(&r); }
+    CHECK(!c.rumble_step && !c.feedback);
+    test_reset(); c.linked = 0;
+    { struct ctl_request r = { REQ_RUMBLE_STEP, 1, 0 }; request(&r); }
+    CHECK(!c.rumble_step && !c.feedback);
     return TEST_DONE("controller_lite power");
 }
 #endif
