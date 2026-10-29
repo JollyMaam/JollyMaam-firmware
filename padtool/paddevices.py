@@ -72,7 +72,11 @@ class DeviceMonitor:
             last_error = None
             while not self.stop.wait(interval):
                 try:
+                    started = time.monotonic()
                     snapshot = self.poll_once(full=False)
+                    took = time.monotonic() - started
+                    if took > 0.3:       # what is slow, in the log
+                        self.events.put(("log", f"timing: device check {took:.1f} s (with any wait for a Refresh or an action)"))
                     last_error = None
                     if snapshot is not None:
                         self.events.put(("devices", snapshot))

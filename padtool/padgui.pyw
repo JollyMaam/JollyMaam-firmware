@@ -218,8 +218,14 @@ class App:
             stream = io.StringIO()
             try:
                 pad.BOARD = board
+                asked = time.monotonic()
                 with self.monitor.lock, contextlib.redirect_stdout(stream):
+                    got = time.monotonic()
                     result = work()
+                took = time.monotonic() - asked
+                if took > 0.5:           # what is slow, in the log
+                    self.events.put(("log", f"timing: {label or 'loading'} {took:.1f} s "
+                                            f"(waited {got - asked:.1f} s for the device check)"))
                 self.events.put(("done", (result, done, stream.getvalue())))
             except (Exception, SystemExit) as error:
                 self.events.put(("error", (str(error), stream.getvalue())))

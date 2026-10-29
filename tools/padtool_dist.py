@@ -41,17 +41,23 @@ BOARDS = {
 # file association (pyw is not always on the path).
 PADTOOL_CMD = ('@echo off\r\nwhere py >nul 2>nul\r\n'
                'if not errorlevel 1 (py -3 "%~dp0padtool\\padtool.py" %*) else (python "%~dp0padtool\\padtool.py" %*)\r\n')
-PADGUI_CMD = '@start "" "%~dp0padtool\\padgui.pyw" %*\r\n'
-PADGUI_NOADMIN_CMD = '@start "" "%~dp0padtool\\padgui.pyw" --no-elevate\r\n'
+# The GUI: .pyw launchers beside the folder (a .cmd flashes a console).
+PADGUI_PYW = """# padgui: double-click (pythonw, no console window).
+import os, runpy, sys
+gui = os.path.join(os.path.dirname(os.path.abspath(__file__)), "padtool", "padgui.pyw")
+sys.path.insert(0, os.path.dirname(gui))
+sys.argv[0] = gui{extra}
+runpy.run_path(gui, run_name="__main__")
+"""
 README = """padtool {version} for Windows
 
 Needs 64-bit Python 3.11 to 3.14 from python.org (with "tcl/tk" and the
 "py launcher", both on by default).  Nothing to install: bleak, for
 Bluetooth, is in padtool\\lib.
 
-  padgui.cmd               the GUI (or double-click padtool\\padgui.pyw); it
-                           asks for admin, for the ROM loader's disk
-  padgui (no admin).cmd    the GUI without asking: USB tool devices and
+  padgui.pyw               the GUI (double-click); it asks for admin, for
+                           the ROM loader's disk
+  padgui (no admin).pyw    the GUI without asking: USB tool devices and
                            Bluetooth; whether the ROM loader works so is
                            not established
   padtool.cmd --help       the command line, from a Command Prompt here
@@ -138,8 +144,8 @@ def main():
             shutil.copy2(f, stage / "firmware" / board / name)
 
     (stage / "padtool.cmd").write_text(PADTOOL_CMD, newline="")
-    (stage / "padgui.cmd").write_text(PADGUI_CMD, newline="")
-    (stage / "padgui (no admin).cmd").write_text(PADGUI_NOADMIN_CMD, newline="")
+    (stage / "padgui.pyw").write_text(PADGUI_PYW.format(extra=""))
+    (stage / "padgui (no admin).pyw").write_text(PADGUI_PYW.format(extra='\nsys.argv.append("--no-elevate")'))
     (stage / "README.txt").write_text(README.format(version=a.version).replace("\n", "\r\n"), newline="")
 
     out.parent.mkdir(parents=True, exist_ok=True)
