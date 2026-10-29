@@ -21,12 +21,22 @@
 #define MODULE_WATCHDOG_ENABLE        0
 #define FIRMWARES_SIGNATURE_ENABLE    0
 
-/* The CPU on the 24 MHz crystal.  The system timer (clock_time()) runs at
- * 16 MHz whatever the CPU clock (drivers/timer.h). */
+/* The CPU from the 24 MHz crystal: 24 MHz, or 48 (CLOCK_SYS_CLOCK_HZ).  The
+ * system timer (clock_time()) runs at 16 MHz whatever the CPU clock
+ * (drivers/timer.h). */
+#ifndef CLOCK_SYS_CLOCK_HZ
 #define CLOCK_SYS_CLOCK_HZ 24000000
+#endif
+#if CLOCK_SYS_CLOCK_HZ == 48000000
+#define SYS_CLK_TYPE       SYS_CLK_48M_Crystal
+#elif CLOCK_SYS_CLOCK_HZ == 24000000
 #define SYS_CLK_TYPE       SYS_CLK_24M_Crystal
+#else
+#error "CLOCK_SYS_CLOCK_HZ: 24000000 or 48000000"
+#endif
 #ifndef __ASSEMBLER__
-enum { CLOCK_SYS_CLOCK_1S = 24000000, CLOCK_SYS_CLOCK_1MS = 24000, CLOCK_SYS_CLOCK_1US = 24 };
+enum { CLOCK_SYS_CLOCK_1S = CLOCK_SYS_CLOCK_HZ, CLOCK_SYS_CLOCK_1MS = CLOCK_SYS_CLOCK_HZ / 1000,
+       CLOCK_SYS_CLOCK_1US = CLOCK_SYS_CLOCK_HZ / 1000000 };
 #endif
 
 #endif

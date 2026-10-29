@@ -34,6 +34,11 @@ $(U2CW_PAD)_LDFLAGS += --undefined=plat_ll_push_tx_fifo --defsym=bls_ll_pushTxFi
 # small log and trace rings.
 $(U2CW_PAD)_DEFINES :=
 $(U2CW_PAD)_DEFINES += -DSLOTS_STORED=4
+# The CPU at 48 MHz: code runs from flash through a 2 KiB cache, and a pass
+# of the control loop's input steps took ~1.8 ms at 24 MHz, which the just
+# in time reports must wait out (U2CW_CPU_HZ=24000000 for the old clock).
+U2CW_CPU_HZ ?= 48000000
+$(U2CW_PAD)_DEFINES += -DCLOCK_SYS_CLOCK_HZ=$(U2CW_CPU_HZ)
 # The latency probe (padtool latency) is off: its ring fits only in the
 # spare RAM in .data, for test builds (make ... U2CW_PROBE_EDGES=6).
 U2CW_PROBE_EDGES ?= 0

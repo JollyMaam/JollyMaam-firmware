@@ -233,6 +233,7 @@ void board_sweep(u32 max_age_us)
  * PWM channel and is on or off.  Each light is one colour: lit at the
  * strongest of its frame colour's components. */
 
+#define PWM_CLOCK_HZ 24000000        /* whatever the CPU clock */
 #define PWM_CYCLE 1000               /* 24 MHz PWM clock: 24 kHz */
 
 enum { OUT_MOTOR_LEFT, OUT_MOTOR_RIGHT, OUT_LIGHT };
@@ -261,7 +262,7 @@ static void outputs_init(void)
     u32 i;
 
     reg_clk_en0 |= FLD_CLK0_PWM_EN;
-    pwm_set_clk(CLOCK_SYS_CLOCK_HZ, CLOCK_SYS_CLOCK_HZ);
+    pwm_set_clk(CLOCK_SYS_CLOCK_HZ, PWM_CLOCK_HZ);
     for (i = 0; i < OUTPUTS; i++) {
         const struct output *o = &outputs[i];
 
