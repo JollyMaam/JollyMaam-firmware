@@ -178,7 +178,9 @@ $(1)-loader:
 	$$(Q)python3 -I $(TELINK_IMAGE_TOOL) loader --pid $($(1)_PID) $$(if $$(DEVICE),--device $$(DEVICE))
 
 # The SDK's linker script, for a boot loader that copies the vectors and RAM
-# code to SRAM but leaves the flash mapped at its physical addresses: flash
+# code to SRAM but leaves the flash mapped at its physical addresses.  The
+# generic FSK driver's RAM code (1 KiB, genfsk_ll.o) goes to flash: we call
+# it from the control loop only, never in an interrupt.  Flash
 # code and constants link at the app's offset, their image offsets stay
 # relative to its start. Keep an alias to the SDK connection validator
 # before its symbol is redirected to the app's Switch 2 interval shim.
@@ -186,7 +188,8 @@ $(O)/$(1)/boot.link: $(TELINK_SDK)/project/tlsr_tc32/B80/boot.link $(MAKE_FILES)
 	@mkdir -p $$(@D)
 	$$(Q)sed \
 	  -e 's/\. = _start_text_;/. = _start_text_ + $($(1)_APP_START);/' \
-	  -e 's/\*(.text)/sdk_ll_procConnectReq = .; KEEP(*(.text.blc_ll_procConnectReq)) sdk_ll_push_tx_fifo = .; KEEP(*(.text.bls_ll_pushTxFifo)) *(.text)/' \
+	  -e 's/\*(.text)/sdk_ll_procConnectReq = .; KEEP(*(.text.blc_ll_procConnectReq)) sdk_ll_push_tx_fifo = .; KEEP(*(.text.bls_ll_pushTxFifo)) *(.text) *liblt_8208*.a:genfsk_ll.o(.ram_code)/' \
+	  -e 's/^\( *\)\*(\.ram_code)$$$$/\1*(EXCLUDE_FILE(*liblt_8208*.a:genfsk_ll.o) .ram_code)/' \
 	  -e 's/PROVIDE(_code_size_ = \.);/PROVIDE(_code_size_ = . - $($(1)_APP_START));/' \
 	  -e 's/AT ( _rstored_ )/AT ( _rstored_ - $($(1)_APP_START) )/' \
 	  -e 's/AT ( _sstored_ )/AT ( _sstored_ - $($(1)_APP_START) )/' \

@@ -23,9 +23,15 @@ static const struct {
 
 static const struct profile *profile = &profile_generic_ble;
 
-/* The LE profiles a slot can run here; NULL for the others. */
-static const struct profile *slot_profile(u8 type)
+/* The profile a slot runs here: an LE type over Bluetooth, or Xbox through
+ * the dongle, which on this pad is the stock 8BitDo receiver; NULL for the
+ * others. */
+static const struct profile *slot_profile(const struct set_slot *s)
 {
+    u8 type = s->type;
+
+    if (s->transport == TRANSPORT_DONGLE) return type == PROFILE_XBOX ? &profile_8bitdo : NULL;
+    if (s->transport != TRANSPORT_BT) return NULL;
     return type == PROFILE_GENERIC_BLE ? &profile_generic_ble : type == PROFILE_XBOX_BLE ? &profile_xbox_ble :
            type == PROFILE_SWITCH2 ? &profile_switch2 : type == PROFILE_DUALSENSE_BLE ? &profile_dualsense_ble : NULL;
 }
@@ -165,7 +171,7 @@ static int slot_ready(u8 slot)
 
     if (slot >= LITE_SLOTS) return 0;
     s = set_slot(slot);
-    return slot_profile(s->type) && s->transport == TRANSPORT_BT;
+    return slot_profile(s) != NULL;
 }
 
 static void start_session(u8 slot, int pairing, int renew)
@@ -185,7 +191,10 @@ static void start_session(u8 slot, int pairing, int renew)
     c.session.settings = set_slot(slot);
     c.session.bond = set_bond(slot);
     set_slot_address(slot, c.session.address);
-    c.session.pairing = util_is_zero(c.session.bond->ltk, sizeof(c.session.bond->ltk));
+    /* paired: a key, or the receiver's address */
+    c.session.pairing = c.session.settings->transport == TRANSPORT_DONGLE ?
+                        util_is_zero(c.session.bond->peer, sizeof(c.session.bond->peer)) :
+                        util_is_zero(c.session.bond->ltk, sizeof(c.session.bond->ltk));
     /* A remap and a rumble step picked in quick settings last across this
      * slot's reconnects (a lost link, relink) until a disconnect, sleep or
      * another slot. */
@@ -200,7 +209,7 @@ static void start_session(u8 slot, int pairing, int renew)
     if (c.session.settings->type != PROFILE_SWITCH2) c.session.address[5] |= 0xc0;
     set_flush();                     /* previous session is stopped */
     if (!set_is_ephemeral()) plat_retain_slot(slot);
-    profile = slot_profile(c.session.settings->type);
+    profile = slot_profile(c.session.settings);
     profile->begin(&c.session);
     bt_start(profile, c.session.address, c.session.bond, c.session.pairing, NULL);
     util_log("ctl: %s slot %c", c.session.pairing ? "pairing" : "connecting", slot_names[slot]);
@@ -680,6 +689,7 @@ static int test_write(const struct bt_write *w, u32 now, struct bt_bond *bond)
 const struct profile profile_switch2 = { .begin = test_begin, .write = test_write };
 const struct profile profile_xbox_ble = { .begin = test_begin };
 const struct profile profile_dualsense_ble = { .begin = test_begin };
+const struct profile profile_8bitdo = { .begin = test_begin };
 int bt_send_message(u16 id, const u8 *data, u16 len) { (void)id; (void)data; (void)len; return 1; }
 static struct set_remap test_remaps[REMAP_BASE + 1];
 static u32 test_edits, remap_resets, remap_steps;

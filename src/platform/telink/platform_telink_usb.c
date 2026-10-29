@@ -225,6 +225,8 @@ static void ep0_packet(void)
     reg_usb_sups_cyc_cali = !n && !(u.total & 7) && u.total < u.host_length ? 0x18 : 0x38;
 }
 
+static void answer_clock(void);
+
 /* A packet of a SET_REPORT's data; past the header, a command too long for
  * data[] is refused. */
 static void ep0_receive(void)
@@ -242,6 +244,9 @@ static void ep0_receive(void)
         } else if (u.at >= T_HEAD) {
             t.state = TOOL_BUSY;
             t.busy = t.pending = 1;
+            /* the clock at once: padtool maps the pad's clock onto its own
+             * by round trips, which a wait for the control loop skews */
+            if (t.cdb[0] == 0xf5 && t.cdb[1] == 0x05 && !(t.flags & TOOL_OUT)) answer_clock();
         }
     }
 }
@@ -446,6 +451,8 @@ u32 plat_usb_poll(void)
     return event | (t.pending ? EV_USB : 0);
 }
 
+static void answered(void);
+
 /* A command waiting: usb.c answers it here, on the control loop.  An
  * answer is what the host asked for (at most DATA_MAX), zero-filled. */
 void plat_usb_service(void)
@@ -464,6 +471,22 @@ void plat_usb_service(void)
         usb_command(t.cdb, t.data, max, 0);
         t.answer = max;
     }
+    answered();
+}
+
+/* CLOCK (usb.c) without the control loop: the microsecond clock. */
+static void answer_clock(void)
+{
+    t.pending = 0;
+    t.taken = 0;
+    t.answer = t.length < DATA_MAX ? t.length : DATA_MAX;
+    memset(t.data, 0, sizeof(t.data));
+    if (t.answer >= 4) util_put32(t.data, plat_us());
+    answered();
+}
+
+static void answered(void)
+{
     if (t.flags & TOOL_INPUT) {
         t.state = TOOL_IDLE;     /* GET_REPORT shows none of it */
         t.off = 0;

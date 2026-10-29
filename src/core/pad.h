@@ -223,7 +223,9 @@ void ctl_main(void);
 
 /* ---- bt_pad.c (the board's Bluetooth on BTstack) ------------------------ */
 
-enum { BT_CLASSIC, BT_LE };
+/* BT_8BITDO: not Bluetooth; the stock 8BitDo receiver's 2.4 GHz link
+ * (the 8BitDo board's platform, profile_8bitdo.c). */
+enum { BT_CLASSIC, BT_LE, BT_8BITDO };
 
 struct bt_bond {
     u8 peer[6];                  /* least significant byte first; all zero: none */
@@ -416,6 +418,7 @@ struct profile_wake {
 };
 
 extern const struct profile profile_switch, profile_switch2, profile_xbox, profile_xbox_ble;
+extern const struct profile profile_8bitdo;    /* the stock 8BitDo receiver (BT_8BITDO) */
 extern const struct profile profile_dualsense, profile_dualshock4, profile_generic, profile_mouse,
     profile_generic_ble, profile_link, profile_dualsense_ble,
     profile_config;              /* config mode: no slot's (profile_config.c) */

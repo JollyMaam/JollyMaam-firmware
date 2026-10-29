@@ -33,8 +33,9 @@ const struct board_slots board_slots = {
     .transport = { TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT,
                    TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT },
     .types = 1u << PROFILE_GENERIC_BLE | 1u << PROFILE_DUALSENSE_BLE | 1u << PROFILE_XBOX_BLE |
-             1u << PROFILE_SWITCH2 | 1u << PROFILE_NONE,      /* controller_lite.c */
-    .transports = 1u << TRANSPORT_BT,
+             1u << PROFILE_SWITCH2 | 1u << PROFILE_XBOX | 1u << PROFILE_NONE,   /* controller_lite.c */
+    /* dongle: the stock 8BitDo receiver, as type xbox (rf8_telink.c) */
+    .transports = 1u << TRANSPORT_BT | 1u << TRANSPORT_DONGLE,
     .static_random = 1,
 };
 

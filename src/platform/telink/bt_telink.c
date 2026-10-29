@@ -67,6 +67,15 @@ static struct {
     const struct bt_device *device;
 } b;
 
+/* A BT_8BITDO session runs: rf8_telink.c has the radio and every bt_*(). */
+static u8 rf8_on;
+
+/* The BLE TX FIFO's memory, free while no BLE session runs. */
+void *plat_bt_idle_memory(u32 size)
+{
+    return size <= sizeof(acl_tx) ? acl_tx : NULL;
+}
+
 static u16 get16(const u8 *p)
 {
     return (u16)(p[0] | p[1] << 8);
@@ -298,6 +307,13 @@ void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond
     u8 adv[31], n;
 
     (void)link;
+    if (p->device->transport == BT_8BITDO) {
+        if (b.advertising) bls_ll_setAdvEnable(BLC_ADV_DISABLE);
+        b.advertising = 0;
+        rf8_on = 1;
+        rf8_start(bond, pairing);
+        return;
+    }
     if (p->device->transport != BT_LE || !plat_att_start(p, p->device->sm_er ? TELINK_ATT_BUFFER : 512)) {
         util_log("bt: %s does not fit", p->name);
         return;
@@ -332,7 +348,7 @@ void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond
 void bt_connect(void)
 {
     u8 adv[31], n;
-    if (!b.device || b.device->sm_er || b.connected || b.stopping ||
+    if (rf8_on || !b.device || b.device->sm_er || b.connected || b.stopping ||
         is_zero(b.paired.ltk, 16) || is_zero(b.paired.le_peer, 6)) return;
     b.wake = 1;
     n = b.device->advertising(&b.paired, 0, 1, adv);
@@ -342,11 +358,15 @@ void bt_connect(void)
 
 void bt_drop(void)
 {
-    if (b.connected && !b.stopping) bls_ll_terminateConnection(HCI_ERR_REMOTE_USER_TERM_CONN);
+    if (!rf8_on && b.connected && !b.stopping) bls_ll_terminateConnection(HCI_ERR_REMOTE_USER_TERM_CONN);
 }
 
 void bt_stop(void)
 {
+    if (rf8_on) {
+        rf8_stop();
+        return;
+    }
     if (!b.started) return;
     b.wake = 0;
     b.stopping = b.connected;
@@ -364,6 +384,10 @@ void bt_update_bond(const struct bt_bond *bond)
 {
     u8 adv[31], n;
 
+    if (rf8_on) {
+        rf8_update_bond(bond);
+        return;
+    }
     if (!b.device || b.stopping) return;
     b.paired = *bond;
     n = b.device->advertising(bond, 0, 0, adv);
@@ -373,7 +397,7 @@ void bt_update_bond(const struct bt_bond *bond)
 /* No pairing or link set-up under way: a flash write is safe. */
 int bt_radio_quiet(void)
 {
-    return !b.connected || b.encrypted || (b.device && !b.device->sm_er);
+    return rf8_on || !b.connected || b.encrypted || (b.device && !b.device->sm_er);
 }
 
 /* ---- just in time ---------------------------------------------------------
@@ -469,6 +493,7 @@ int bt_input_wanted(void)
 {
     s32 to = jit_to();
 
+    if (rf8_on) return rf8_input_wanted();
     if (!plat_bt_jit()) return room();
     if (jit.window != jit.next) {            /* the last window is over */
         if (jit.window && !jit.looked && jit.window != jit.sent_for) {
@@ -491,6 +516,7 @@ u32 bt_input_due_us(void)
 {
     s32 to = jit_to();
 
+    if (rf8_on) return 0;            /* input changes wake the loop; the link repeats frames */
     if (!room()) return 0;
     if (!plat_bt_jit()) return plat_us();
     if (to <= 0) return plat_us() + 250;
@@ -505,6 +531,7 @@ int bt_send_input(u8 id, const u8 *data, u16 len)
     u32 fragments = (len + 7u + TX_OCTETS - 1) / TX_OCTETS;   /* with L2CAP and ATT headers */
 
     (void)id;
+    if (rf8_on) return rf8_send_input(data, len);
     if (fragments > 1) jit.off = 1;
     if (!bt_input_wanted() || len > INPUT_MAX || blc_ll_getTxFifoNumber() + fragments > IN_FLIGHT) return 0;
     if (!plat_att_send(b.device->input_handle, data, len)) return 0;
@@ -522,11 +549,16 @@ int bt_send_input(u8 id, const u8 *data, u16 len)
 
 int bt_send_message(u16 handle, const u8 *data, u16 len)
 {
-    return b.connected && b.device && plat_att_message(handle, data, len);
+    return !rf8_on && b.connected && b.device && plat_att_message(handle, data, len);
 }
 
 int bt_poll(struct bt_ev *ev)
 {
+    if (rf8_on) {
+        if (!rf8_poll(ev)) return 0;
+        if (ev->kind == BT_EV_STOPPED) rf8_on = 0;
+        return 1;
+    }
     memset(ev, 0, sizeof(*ev));
     if (b.linked_pending) {
         b.linked_pending = 0;
@@ -567,6 +599,7 @@ u32 plat_bt_poll(void)
 {
     u16 interval;
     if (!b.started) return 0;
+    if (rf8_on) return rf8_run();
     blc_sdk_main_loop();
     if (plat_ll_requested_interval(&interval)) util_log("bt: connect request interval %u", interval);
     if (b.connected) plat_att_poll();

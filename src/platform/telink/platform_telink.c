@@ -379,9 +379,7 @@ int main(void)
     /* Keep the debug wire on D+ (cstartup_flash.S, DP_THROUGH_SWIRE_DIS). */
     usb_set_pin(1);
     cpu_wakeup_init(INTERNAL_CAP_XTAL24M);
-#ifndef RF8_TEST                         /* the radio for BLE; the receiver test sets up its own */
     rf_drv_ble_init();
-#endif
     clock_init(SYS_CLK_TYPE);
     usb_set_pin(1);
     stack_paint();
@@ -390,9 +388,7 @@ int main(void)
     flash_read_uid(0x4b, uid);           /* every flash the SDK supports on the B80 */
     util_log_init();
     util_log("boot: %s %s", board_name, BUILD_ID);
-#ifndef RF8_TEST
     plat_bt_init();
-#endif
     board_init();
 #ifdef BOOT_HANG_TEST                    /* 1: 10 s before the hang watch, under main's watchdog */
     if (BOOT_HANG_TEST == 1) {
@@ -424,10 +420,6 @@ int main(void)
 #endif
 #ifndef UPDATER                          /* the app: up, the updater's count of its starts ends */
     analog_write(UPDATER_STAY_REG, UPDATER_UP);
-#endif
-#ifdef RF8_TEST
-    set_init();
-    rf8_test();
 #endif
     ctl_main();
     return 0;

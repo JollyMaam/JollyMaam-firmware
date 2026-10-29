@@ -48,6 +48,16 @@ void plat_bt_systimer(u32 fired);
 #define UPDATER_UP        0x0f
 void updater_boot(void);                 /* first in main(): may start the app instead */
 u32 plat_bt_poll(void);                  /* runs the stack; EV_BT for bt_poll() */
-void rf8_test(void);                     /* rf8_telink.c: the stock 8BitDo receiver test (RF8_TEST) */
+/* rf8_telink.c: the stock 8BitDo receiver's link, behind bt_*() while a
+ * BT_8BITDO session runs (bt_telink.c hands over).  rf8_run() from the wait
+ * loop; its memory is the BLE TX FIFO's (plat_bt_idle_memory). */
+void rf8_start(const struct bt_bond *bond, int pairing);
+void rf8_stop(void);                     /* the radio back to BLE; then BT_EV_STOPPED */
+void rf8_update_bond(const struct bt_bond *bond);
+u32 rf8_run(void);
+int rf8_poll(struct bt_ev *ev);
+int rf8_input_wanted(void);
+int rf8_send_input(const u8 *data, u16 len);
+void *plat_bt_idle_memory(u32 size);     /* bt_telink.c: free while no BLE session runs */
 
 #endif

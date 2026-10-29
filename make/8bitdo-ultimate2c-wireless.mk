@@ -56,11 +56,6 @@ $(error U2CW_PROFILE and U2CW_PROBE_EDGES share the spare RAM: one at a time)
 endif
 $(U2CW_PAD)_DEFINES += -DPROF_RING=$(U2CW_PROFILE_RING)
 endif
-# The stock 8BitDo receiver test (rf8_telink.c): its address, as the
-# receiver's USB query gives it (make ... U2CW_RF8=0xd0,0xe8,0x76,0x02,0xcc).
-ifneq ($(U2CW_RF8),)
-$(U2CW_PAD)_DEFINES += -DRF8_TEST=$(U2CW_RF8)
-endif
 $(U2CW_PAD)_DEFINES += -DREMAPS_STORED=4
 $(U2CW_PAD)_DEFINES += -DREMAP_RULES=8
 $(U2CW_PAD)_DEFINES += -DRECORD_MAX=152
@@ -87,6 +82,7 @@ $(U2CW_PAD)_SOURCES += src/core/controller_lite.c
 $(U2CW_PAD)_SOURCES += src/profiles/profile_hid.c
 $(U2CW_PAD)_SOURCES += src/profiles/profile_switch.c
 $(U2CW_PAD)_SOURCES += src/profiles/profile_xbox.c
+$(U2CW_PAD)_SOURCES += src/profiles/profile_8bitdo.c
 $(U2CW_PAD)_SOURCES += src/profiles/profile_playstation.c
 $(U2CW_PAD)_SOURCES += src/core/motion.c
 $(U2CW_PAD)_SOURCES += src/core/input.c
@@ -120,6 +116,7 @@ $(U2CW_UPDATER)_SOURCES += src/platform/telink/platform_telink.c
 $(U2CW_UPDATER)_SOURCES += src/platform/telink/platform_telink_usb.c
 $(U2CW_UPDATER)_SOURCES += src/platform/telink/libc_telink.c
 $(U2CW_UPDATER)_SOURCES += src/platform/telink/bt_telink.c
+$(U2CW_UPDATER)_SOURCES += src/platform/telink/rf8_telink.c
 $(U2CW_UPDATER)_SOURCES += src/platform/telink/att_telink.c
 $(U2CW_UPDATER)_SOURCES += src/platform/telink/connect_telink.c
 $(U2CW_UPDATER)_SOURCES += src/platform/telink/tx_telink.c

@@ -196,6 +196,14 @@ wrong assumption), add it here in a line or two.
   the locals of all its branches, so a big array in one `case` costs every
   case (a 192-byte one in `usb_command` overflowed into .bss).  Keep it in a
   `noinline` helper; `make 8bitdo-ultimate2c-wireless-pad-stack` checks.
+- 8BitDo, 2.4 GHz (rf8_telink.c): the SDK's BLE radio set-up leaves
+  0x800401 bit 3 set, and generic FSK then never hears a reply.  The FSK
+  set-up in turn changes registers BLE's never writes again (the RF
+  interrupt mask, packet format, state machine, the radio's RX DMA): save
+  and restore them, or BLE advertises but no host can connect.
+- padtool latency's clock mapping assumes symmetric USB round trips: a
+  command answered only at the end of a control-loop pass skews it by up to
+  half the round trip (the 8BitDo answers CLOCK at once since).
 - Shell scripts: initialise every option variable empty up front; the
   environment can leak names like `out` into a script.
 - The 8BitDo app keeps 2 log lines (`LOG_LINES`); a debug build can take
