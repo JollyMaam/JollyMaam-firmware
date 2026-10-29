@@ -2566,3 +2566,110 @@ SDK/btstack nested repositories clean,toolchain directory has no own .git.
 Removed only the worker external symlink (target preserved),then deleted the
 completed worktree and branch. No pending worker at this checkpoint.
 No application-image, flashing or hardware validation.
+
+## Clean-branch BD19 BLE5 radio acceptance
+
+Review input: Luna worker checkpoint 7eb8aef, based on integration 6bbdd96.
+SDK RF_ble5.c.o occurrence1, SHA256
+5d861cc0756d0c9d2522ac27e1d497f9d583dda9382eb138cafd0977388aad59.
+Manifest source: src/btctrler/bd19/RF_ble5.c. Whole-member boundary accepted
+only after coordinator corrections; the initial checkpoint was not accepted.
+
+Public definitions (21): __ble5_hw_anchor_cnt_timeout, __ble5_hw_event_process, __ble5_hw_rx_process, __hw5_free_slots, __master_reset_transmitWindowDelay, __reset_connection_winsize, __set_ble_hw_timeout_irq_init, __set_ext_aux_event_hold, __set_ext_mode_enable, __set_extended_conn_dead_times, __set_extended_empty_tx_data, __set_extended_tx_data, __slave_reset_widen, assign_aux_data_channel, ble5_master_primary_event_end_handle, ble_ext_primary_scan_preprocess, get_if_exist_ble5, record_rx_chsel_algorithm, repair_algorithm2_hop, set_hw_channel_selection_algorithm, set_tx_pdu_channel_selection_algorithm.
+Sole public global: __ble5_ops, .ble_rf_data align4, points to ble5_ops.
+Private globals: aux_filter zero-initialized42 bytes .ble_rf_bss align2;
+aux_data_channel byte255 .ble_rf_data align1; ten-entry ble5_ops operation
+callback table .ble_rf_const align4; ext_header_table12 bytes .ble_rf_const
+align1. All five records match SDK initializer/linkage/section/alignment after
+checked type mapping. All77 literal byte arrays match. Sixty transitive named
+type shapes map without mismatch. All80 SDK bodies are accounted for:79
+compiled definitions and __ext_hw_enable inlined into its two variable-enable
+advertising calls. No extra private compiled definitions, no llvm.used or
+llvm.compiler.used roots. Hardware code .ble_rf_code; generic list helpers
+and cpu_reset use ordinary text (explicit .text and default text equivalent).
+The compiled public function/global boundary is exact.
+
+Reuse census:10 reuse candidates,26 same-instruction boundary checks,44
+changed instruction bodies. Root BR23 C was the starting implementation;
+checked BD19 field layouts and original raw IR govern the target recovery.
+All123 original BR23 C files remain byte-identical to44d0073. No later app
+fixes were imported. BR23-only all-event-hold and instant-validity exports
+are omitted rather than leaking into BD19 ownership. Dedicated source keeps
+BD1916-byte extended RX records/data16/status15/RSSI12 and32-bit ana_index15
+initialization separate from BR23 size20 and its gain register initialization.
+
+Coordinator corrections and raw-IR evidence:
+- RX process now samples ble_analog_get_rssi after header/status stores, using
+  an assembly alias for the SDK consumer's int-returning BLE5-frame ABI and
+  retaining the low byte. Correlated hardware follows both loads through
+  hw->ble5_ext->correlated_hw; the baseline C temporary was one level short.
+- Event soft-state15 (not16) tests EXT_AUXCTL1 bit4096, conditionally sets
+  anchor10 bit1024, then reloads the hardware frame before scan-state access.
+  A review checkpoint described this as state16/AUXCTL0; raw GEP field34 is
+  authoritative and those descriptions were corrected here. AuxPtr selection
+  snapshots the packet pointer before random callbacks and retains packed
+  i24 read/modify/write. Secondary reset preserves cached/reloaded hardware
+  pointers around BLE_TO_PHY/primary-switch/PHY_TO_BLE callbacks and the gap
+  read before conversion. Ring cursors/base are reloaded across byte copies.
+- repair_algorithm2_hop reverses bits within each byte in three permutation
+  rounds; the copied baseline reversed all16 bits and changed channel repair.
+  Corrected byte-position arithmetic and preserved wrapping multiply/add,
+  map/load order and conditional channel-bit removal. Aux-hop shift truncates
+  to8 bits before packing, as SDK. Coded-S and dead-time helpers read volatile
+  words before dependent RAM values, matching raw operation order.
+- SyncInfo builder snapshots interval/AA/CRC/channel map before destination
+  writes; packet diagnostics reload the built length after list insertion.
+  Chain builder reloads hardware after each callback-bearing PDU construction.
+  TX node traversal and halfwords preserve align1 loads via may_alias types.
+- Original memory intrinsics use __builtin_memcpy/memset under -fno-builtin,
+  retaining under-aligned copies. le_ext_hw_open reproduces config_asser,
+  original file/line257 diagnostics, cpu_assert_debug versus reset, and normal
+  continuation; no generic assertion-policy replacement remains here.
+  All other BD19 path/line diagnostics match. ioctrl11 calls hw_dma_empty
+  before fetching its output-pointer vararg. Extra C va_end is target no-op.
+- Removed inherited forced linker-retention annotations on private list
+  helpers; no SDK retention roots existed. Extra factoring helpers inline to
+  make review of target operations direct; original __ext_hw_enable's branch
+  remains semantically accounted for in its callers.
+
+Behavior and follow-ups:
+C44 records sharing boundaries and the untouched BR23 baseline's possible
+recovery omissions. B98 confirms rejected ring-write zeroing, total_len load
+before null check, equal DMA cursor full-wrap accounting and unvalidated RX
+length/availability. B99 records unchecked allocation/PHY selection and queued
+probe-callback lifetime contracts. B100 records conditional channel deletion,
+state15 register behavior and exported no-op anchor timeout. These remain
+SDK behavior; translation mistakes corrected above are not SDK defects.
+Inherited observation37 is BR23-only: the function is absent from BD19.
+Observation38 is confirmed on BD19. No hardware/IRQ/DMA concurrency proof.
+
+Validation on this worker:
+PATH=/work/bin:$PATH make -j32 controller-objects controller-test test
+controller-layouts controller-tools-test controller-audit controller-compare
+exits0:218 ': ok' reports,12 legacy reports,31 tooling tests,both layouts,
+99 ownership groups, retained member bytes/order/index checked. Totals100
+accepted members,1250 unique public functions,122 public globals;11 retained
+members and765 verified archive index entries. Both real target source sets
+build. Extra BD19 source under BR23 rejects ana_index as expected; the actual
+BR23 source remains unchanged and builds.
+
+Strict focused fixture uses gcc -O2 -DUNITTEST -DCONFIG_CPU_BD19 -iquote src
+-ffunction-sections -fdata-sections -Wl,--gc-sections -no-pie source -lm,
+without unresolved-symbol suppression: pass. Complete typed host mocks are
+included only under UNITTEST; unsupported hardware calls abort. Tests include
+ring wrap/rejected writes, PHY/header/table arithmetic, callback-sensitive
+channel map writes, state15 AUXCTL1-versus-AUXCTL0 and hardware replacement,
+and a real ring packet routing to correlated hardware with RSSI -42. Expected
+values/order come from original SDK IR. Clang21 wrapper -O1 with address and
+undefined sanitizers and ASAN_OPTIONS=detect_leaks=1: pass.
+
+python3 tools/btctrler/check_ble5_hop.py --clang HOST_CLANG passes296608
+cases: every16-bit event count under three addresses plus100000 seeded random
+frame/channel-map vectors. It extracts original SDK LLVM arithmetic, rebases
+nine frame/shadow field paths to nine halfwords, and compares every output
+halfword with the extracted production C. Features/algorithm-enabled guard
+inputs are fixed; this is arithmetic evidence, not RF/timing equivalence.
+Global/literal/type/section/compiled-boundary inspection passes. Artifacts:
+/work/analysis/btctrler-bd19/rf-ble5-review (ephemeral); this message and the
+checked-in fixture/checker/revisit notes are the durable report. No app image,
+flashing or hardware validation. Canonical merge/check/cleanup still required.

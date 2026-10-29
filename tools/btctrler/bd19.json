@@ -800,6 +800,14 @@
       "sources": [
         "src/btctrler/vsprintf.c"
       ]
+    },
+    {
+      "member": "RF_ble5.c.o",
+      "occurrence": 1,
+      "sha256": "5d861cc0756d0c9d2522ac27e1d497f9d583dda9382eb138cafd0977388aad59",
+      "sources": [
+        "src/btctrler/bd19/RF_ble5.c"
+      ]
     }
   ]
 }

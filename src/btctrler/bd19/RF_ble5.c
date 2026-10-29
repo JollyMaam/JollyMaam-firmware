@@ -5,6 +5,15 @@
 #include <stdio.h>
 #include <stdarg.h>
 
+#define memcpy __builtin_memcpy
+#define memset __builtin_memset
+
+/* This SDK consumer declares an int-returning, BLE5-frame entry point. */
+extern int ble5_read_rssi(struct ble5_param *) __asm__("ble_analog_get_rssi");
+
+typedef u16 ble5_unaligned_u16 __attribute__((aligned(1), may_alias));
+typedef struct list_head *ble5_unaligned_link __attribute__((aligned(1), may_alias));
+
 #ifdef UNITTEST
 #define BLE5_CODE
 #else
@@ -140,7 +149,7 @@ BLE5_CODE u32 __hw5_free_slots(struct ble_hw *hw) {
     return nearest < 4 ? 0 : nearest - 4;
 }
 
-BLE5_CODE static u8 get_if_aux_enable(struct ble_hw *hw) {
+BLE5_CODE static inline __attribute__((always_inline)) u8 get_if_aux_enable(struct ble_hw *hw) {
     return (u16)__get_ble_anchor_con(hw, 11) >> 15;
 }
 
@@ -171,7 +180,8 @@ BLE5_CODE void __set_extended_tx_data(struct ble_hw *hw, u8 chsel, int index) {
     if (features & (1ULL << 11)) {
         struct ble4_hw *hw4 = hw->ble4_hw;
         volatile u16 *txdhdr = index == 0 ? &hw4->ble_fp.TXDHDR0 : &hw4->ble_fp.TXDHDR1;
-        *txdhdr = (hw->phy.coded_s << 4 & 16) | (*txdhdr & ~16U);
+        u16 header = *txdhdr;
+        *txdhdr = (hw->phy.coded_s << 4 & 16) | (header & ~16U);
     }
     if (features & (1ULL << 14)) {
         struct ble4_hw *hw4 = hw->ble4_hw;
@@ -199,8 +209,9 @@ BLE5_CODE void __set_extended_conn_dead_times(struct ble_hw *hw, u8 tx_phy) {
     } else if (tx_phy == 2 && (features & (1ULL << 11))) {
         int uncoded = hw->phy.coded_s == 0;
         volatile u16 *anchor = &hw->ble4_hw->ble_fp.ANCHOR;
+        u16 saved = *anchor;
         *anchor = (u16)(((hw->ble4_hw->tx_octets << (uncoded ? 6 : 4)) +
-                         (uncoded ? 1516 : 1354)) / 625) | (*anchor & 0x8000);
+                         (uncoded ? 1516 : 1354)) / 625) | (saved & 0x8000);
     }
 }
 
@@ -265,7 +276,7 @@ BLE5_CODE void __set_ext_mode_enable(struct ble_hw *hw, u8 ext_mode_en) {
     __set_ble_anchor_con(hw, 10, (value & ~1U) | (ext_mode_en & 1));
 }
 
-BLE5_CODE static void free_ble5_ext(struct ble_hw *hw) {
+BLE5_CODE static inline __attribute__((always_inline)) void free_ble5_ext(struct ble_hw *hw) {
     btctler_nv_memory_free(hw->ble5_ext);
     hw->ble5_ext = NULL;
 }
@@ -297,7 +308,7 @@ BLE5_CODE static void __set_anchor_cnt_disable_with_default(struct ble_hw *hw) {
     __set_ble_anchor_con(hw, 14, 4095);
 }
 
-BLE5_CODE static void __set_ext_adv_aa_crcinit(const struct ble_hw *hw) {
+BLE5_CODE static inline __attribute__((always_inline)) void __set_ext_adv_aa_crcinit(const struct ble_hw *hw) {
     struct ble5_hw *ble5 = hw->ble5_hw;
     ble5->ble5_fp.EXT_BDADDR0 = (u16)-16682;
     ble5->ble5_fp.EXT_BDADDR1 = (u16)-29047;
@@ -305,13 +316,13 @@ BLE5_CODE static void __set_ext_adv_aa_crcinit(const struct ble_hw *hw) {
     ble5->ble5_fp.EXT_CRCWORD1 = 85;
 }
 
-BLE5_CODE static void __set_data_tx_phy(const struct ble_hw *hw, u8 phy) {
+BLE5_CODE static inline __attribute__((always_inline)) void __set_data_tx_phy(const struct ble_hw *hw, u8 phy) {
     struct ble4_hw *ble4 = hw->ble4_hw;
     if (ble4)
         ble4->ble_fp.INTFRAME = (ble4->ble_fp.INTFRAME & ~1792U) | ((phy & 7) << 8);
 }
 
-BLE5_CODE static void __set_data_rx_phy(const struct ble_hw *hw, u8 phy) {
+BLE5_CODE static inline __attribute__((always_inline)) void __set_data_rx_phy(const struct ble_hw *hw, u8 phy) {
     struct ble4_hw *ble4 = hw->ble4_hw;
     if (ble4)
         ble4->ble_fp.INTFRAME = (ble4->ble_fp.INTFRAME & ~14336U) | ((phy & 7) << 11);
@@ -321,8 +332,9 @@ BLE5_CODE static void __set_data_tx_phy_coded_s(const struct ble_hw *hw) {
     struct ble4_hw *ble4 = hw->ble4_hw;
     if (!ble4)
         return;
+    u16 intframe = ble4->ble_fp.INTFRAME;
     u8 coded_s = hw->phy.coded_s;
-    ble4->ble_fp.INTFRAME = (coded_s << 14) | (ble4->ble_fp.INTFRAME & 16383U);
+    ble4->ble_fp.INTFRAME = (coded_s << 14) | (intframe & 16383U);
     ble4->ble_fp.TXDHDR0 = ((coded_s << 4) & 16) | (ble4->ble_fp.TXDHDR0 & ~16U);
     ble4->ble_fp.TXDHDR1 = ((coded_s << 4) & 16) | (ble4->ble_fp.TXDHDR1 & ~16U);
 }
@@ -343,7 +355,7 @@ BLE5_CODE static void __set_ble4_ifs_phy_compens(const struct ble_hw *hw) {
     }
 }
 
-BLE5_CODE static u8 exchange_AirPhyParam_2_HardwarePhyParam(u8 air_phy_param) {
+BLE5_CODE static inline __attribute__((always_inline)) u8 exchange_AirPhyParam_2_HardwarePhyParam(u8 air_phy_param) {
     switch (air_phy_param) {
     case 1: return 0;
     case 2: return 1;
@@ -389,7 +401,7 @@ BLE5_CODE static void __le_ext_filter_init(const struct ble_hw *hw, u8 local_fil
     ble5->ble5_fp.EXT_WLISTU = 0;
 }
 
-BLE5_CODE static void __set_ext_adv_other_hw(const struct ble_hw *hw) {
+BLE5_CODE static inline __attribute__((always_inline)) void __set_ext_adv_other_hw(const struct ble_hw *hw) {
     struct ble5_hw *ble5 = hw->ble5_hw;
     ble5->ble5_fp.EXT_ANCHOR = 0;
     ble5->ble5_fp.EXT_BITOFF = 0;
@@ -412,7 +424,7 @@ BLE5_CODE static void __set_ext_primary_or_period_adv_phy(struct ble_hw *hw, u8 
     __set_ble_anchor_con(hw, 13, (value & ~7U) | (phy & 7));
 }
 
-BLE5_CODE static void __set_ble5_aux_tx_phy_compens(const struct ble_hw *hw,
+BLE5_CODE static inline __attribute__((always_inline)) void __set_ble5_aux_tx_phy_compens(const struct ble_hw *hw,
                                           u8 source, u8 target) {
     if (source == 0 || source == 1)
         hw->ble5_hw->ble5_fp.EXT_PKTDRIFT = target == 2 ? (u16)-10 : 0;
@@ -508,7 +520,7 @@ BLE5_CODE static u32 loop_cbuf_write(struct __loop_cbuf *cbuffer, const u8 *buf,
     if (free_len < len) {
         if (free_len > to_end) {
             memset(write_ptr, 0, to_end);
-            memset(begin, 0, free_len - to_end);
+            memset(cbuffer->begin, 0, free_len - to_end);
         } else {
             memset(write_ptr, 0, free_len);
         }
@@ -519,11 +531,11 @@ BLE5_CODE static u32 loop_cbuf_write(struct __loop_cbuf *cbuffer, const u8 *buf,
         second = len - to_end;
         if (buf) {
             memcpy(write_ptr, buf, to_end);
-            memcpy(begin, buf + to_end, second);
+            memcpy(cbuffer->begin, buf + to_end, second);
         }
     } else if (buf) { memcpy(write_ptr, buf, len);
     }
-    cbuffer->write_ptr = to_end <= len ? begin + second : write_ptr + len;
+    cbuffer->write_ptr = to_end <= len ? cbuffer->begin + second : cbuffer->write_ptr + len;
     cbuffer->can_read_len += len;
     return len;
 }
@@ -541,16 +553,16 @@ BLE5_CODE static void loop_cbuf_read(struct __loop_cbuf *cbuffer, u8 *buf, u32 l
         second = len - to_end;
         if (buf) {
             memcpy(buf, read_ptr, to_end);
-            memcpy(buf + to_end, begin, second);
+            memcpy(buf + to_end, cbuffer->begin, second);
         }
     } else if (buf) {
         memcpy(buf, read_ptr, len);
     }
-    cbuffer->read_ptr = to_end <= len ? begin + second : read_ptr + len;
+    cbuffer->read_ptr = to_end <= len ? cbuffer->begin + second : cbuffer->read_ptr + len;
     cbuffer->can_read_len -= len;
 }
 
-BLE5_CODE static void loop_cbuf_init(struct __loop_cbuf *cbuffer, u8 *buf, u32 size) {
+BLE5_CODE static inline __attribute__((always_inline)) void loop_cbuf_init(struct __loop_cbuf *cbuffer, u8 *buf, u32 size) {
     cbuffer->can_read_len = 0;
     cbuffer->begin = buf;
     cbuffer->read_ptr = buf;
@@ -587,8 +599,8 @@ BLE5_CODE static void ble_ext_primary_scan_report_produce(struct ble_hw *hw,
     ext_rx->rxadd = rx->rxadd;
     ext_rx->type = rx->type;
     ext_rx->len = rx->len;
-    ext_rx->rssi = rx->rssi;
     ext_rx->data_status = data_status;
+    ext_rx->rssi = rx->rssi;
     memcpy(ext_rx->data, rx->data, rx->len);
     ext_rx_probe_handler(hw, ext_rx);
 }
@@ -647,7 +659,7 @@ BLE5_CODE static void __set_ext_hw_rx(const struct ble_hw *hw, u16 rx_size) {
     }
 }
 
-BLE5_CODE static u8 __get_ext_secondary_phy(struct ble_hw *hw) {
+BLE5_CODE static inline __attribute__((always_inline)) u8 __get_ext_secondary_phy(struct ble_hw *hw) {
     return __get_ble_anchor_con(hw, 13) & 7;
 }
 
@@ -663,15 +675,15 @@ BLE5_CODE static void __set_ext_adv_channel_hop(struct ble_hw *hw, u8 ext_auxidx
     hw->ble5_hw->ble5_fp.EXT_AUXCTL0 |= 64;
     u32 value = __get_ble_anchor_con(hw, 10);
     __set_ble_anchor_con(hw, 10,
-        ((ext_auxhop_en << 7) | ((ext_auxidx_en << 5) & 32)) | (value & ~160U));
+        ((u8)(ext_auxhop_en << 7) | ((ext_auxidx_en << 5) & 32)) | (value & ~160U));
     __set_channel_selection_algorithm(hw, ext_alog2idx_en);
 }
 
-BLE5_CODE static void __clear_ext_filter_mode(const struct ble_hw *hw) {
+BLE5_CODE static inline __attribute__((always_inline)) void __clear_ext_filter_mode(const struct ble_hw *hw) {
     hw->ble5_hw->ble5_fp.EXT_AUXCTL1 &= ~7U;
 }
 
-BLE5_CODE static void close_ble5(struct ble_hw *hw) {
+BLE5_CODE static inline __attribute__((always_inline)) void close_ble5(struct ble_hw *hw) {
     ble_hw_inst_set(HW_ID(hw), hw->ble4_hw);
     __set_ext_mode_enable(hw, 0);
     hw->ble5_ext->correlated_hw = NULL;
@@ -679,7 +691,7 @@ BLE5_CODE static void close_ble5(struct ble_hw *hw) {
 }
 
 static void __list_del_entry(const struct list_head *entry)
-    __attribute__((used, noinline, section(".text")));
+    __attribute__((noinline));
 static void __list_del_entry(const struct list_head *entry)
 {
     struct list_head *prev = entry->prev;
@@ -711,7 +723,7 @@ static void list_del(struct list_head *entry)
 }
 
 static void INIT_LIST_HEAD(struct list_head *list)
-    __attribute__((used, noinline, section(".text")));
+    __attribute__((noinline));
 static void INIT_LIST_HEAD(struct list_head *list)
 {
     list->next = list;
@@ -741,10 +753,10 @@ BLE5_CODE static void __ext_adv_tx_loop_buffer_alloc_total(struct ble5_hw *hw) {
     struct ble_ext_tx_list *node;
     u16 total = 0;
     for (;;) {
-        node = (struct ble_ext_tx_list *)*p;
+        node = (struct ble_ext_tx_list *)*(ble5_unaligned_link *)p;
         if (&node->entry == &hw->ext_tx_head[index])
             break;
-        total += node->tx.txbuf_packet_length & (u16)~3072U;
+        total += *(ble5_unaligned_u16 *)&node->tx.txbuf_packet_length & (u16)~3072U;
         p = &node->entry.next;
     }
     if (!total)
@@ -767,8 +779,8 @@ BLE5_CODE static void __ext_adv_tx_loop_buffer_alloc_total(struct ble5_hw *hw) {
     u8 *write = hw->loop_buf_head;
     while (entry != &hw->ext_tx_head[index]) {
         node = (struct ble_ext_tx_list *)entry;
-        struct list_head *next = entry->next;
-        u16 len = node->tx.txbuf_packet_length & (u16)~3072U;
+        struct list_head *next = *(ble5_unaligned_link *)&entry->next;
+        u16 len = *(ble5_unaligned_u16 *)&node->tx.txbuf_packet_length & (u16)~3072U;
         memcpy(write, &node->tx, len);
         write += len;
         list_del(entry);
@@ -779,7 +791,7 @@ BLE5_CODE static void __ext_adv_tx_loop_buffer_alloc_total(struct ble5_hw *hw) {
     loop_cbuf_init(&hw->loop_cbuf_tx, hw->loop_buf_head, hw->loop_buf_tx_len);
 }
 
-BLE5_CODE static void __ext_adv_tx_loop_buffer_data_build(struct ble5_hw *hw) {
+BLE5_CODE static inline __attribute__((always_inline)) void __ext_adv_tx_loop_buffer_data_build(struct ble5_hw *hw) {
     __ext_adv_tx_loop_buffer_alloc_total(hw) ;
 }
 
@@ -793,8 +805,9 @@ BLE5_CODE static void loop_buffer_tx_handle(struct ble5_hw *hw) {
     u8 index = hw->cur_ext_tx_head_index;
     struct list_head *entry = hw->ext_tx_head[index].next;
     while (entry != &hw->ext_tx_head[index]) {
-        struct ble_ext_tx_list *node = (struct ble_ext_tx_list *)entry; struct list_head *next = entry->next;
-        u32 len = node->tx.txbuf_packet_length & (u16)~3072U;
+        struct ble_ext_tx_list *node = (struct ble_ext_tx_list *)entry;
+        struct list_head *next = *(ble5_unaligned_link *)&entry->next;
+        u32 len = *(ble5_unaligned_u16 *)&node->tx.txbuf_packet_length & (u16)~3072U;
         if (!loop_cbuf_write(&hw->loop_cbuf_tx, (const u8 *)&node->tx, len))
             return;
         __list_del_entry(entry);
@@ -804,7 +817,7 @@ BLE5_CODE static void loop_buffer_tx_handle(struct ble5_hw *hw) {
     }
 }
 
-BLE5_CODE static void __ext_adv_hw_tx_ptr_reset(struct ble5_hw *hw) {
+BLE5_CODE static inline __attribute__((always_inline)) void __ext_adv_hw_tx_ptr_reset(struct ble5_hw *hw) {
     hw->ble5_fp.EXT_TXPTR = PHY_TO_BLE(hw->loop_aux_ptr);
 }
 
@@ -815,12 +828,12 @@ BLE5_CODE static void __ext_tx_loop_buffer_hw_build(struct ble5_hw *hw) {
     hw->ble5_fp.EXT_TXMAXBUF = PHY_TO_BLE(hw->loop_buf_head + hw->loop_buf_tx_len);
 }
 
-BLE5_CODE static void __ext_kickstart_next_hw(struct ble5_hw *hw, u8 next_hw_id, u8 enable) {
+BLE5_CODE static inline __attribute__((always_inline)) void __ext_kickstart_next_hw(struct ble5_hw *hw, u8 next_hw_id, u8 enable) {
     hw->ble5_fp.EXT_AUXCTL0 = (hw->ble5_fp.EXT_AUXCTL0 & ~15U) | (next_hw_id & 15);
     hw->ble5_fp.EXT_AUXCTL0 = (hw->ble5_fp.EXT_AUXCTL0 & ~16U) | ((enable << 4) & 16);
 }
 
-BLE5_CODE static void le_hw_ext_advertising_switch(struct ble_hw *hw, u8 enable, u32 slot) {
+BLE5_CODE static inline __attribute__((always_inline)) void le_hw_ext_advertising_switch(struct ble_hw *hw, u8 enable, u32 slot) {
     __ext_adv_hw_tx_ptr_reset(hw->ble5_hw);
     __ext_hw_enable(hw, enable, slot);
 }
@@ -837,15 +850,24 @@ BLE5_CODE static void le_hw_ext_primary_adv_switch(struct ble_hw *hw, u8 enable)
     le_hw_ext_advertising_switch(hw, enable, 10);
 }
 
-BLE5_CODE static void ext_aux_adv_process_reset(struct ble_hw *hw, u8 reset_ptr) {
+BLE5_CODE static inline __attribute__((always_inline)) void ext_aux_adv_process_reset(struct ble_hw *hw, u8 reset_ptr) {
     if (!hw)
         return;
-    if (reset_ptr)
-        hw->ble5_hw->loop_aux_ptr = (u8 *)BLE_TO_PHY(hw->ble5_hw->ble5_fp.EXT_TXPTR);
+    struct ble5_hw *ble5 = hw->ble5_hw;
+    if (reset_ptr) {
+        u32 ptr = BLE_TO_PHY(ble5->ble5_fp.EXT_TXPTR);
+        ble5 = hw->ble5_hw;
+        ble5->loop_aux_ptr = (u8 *)ptr;
+    }
     struct ble_hw *correlated = hw->ble5_ext->correlated_hw;
     if (correlated)
         le_hw_ext_primary_adv_switch(correlated, 1);
-    le_hw_ext_secondary_adv_switch(hw, 1);
+    if (correlated)
+        ble5 = hw->ble5_hw;
+    u32 gap = ble5->secondary_event.anchor_point_gap_slot;
+    u16 ptr = PHY_TO_BLE(ble5->loop_aux_ptr);
+    ble5->ble5_fp.EXT_TXPTR = ptr;
+    __set_anchor_cnt(hw, gap);
 }
 
 BLE5_CODE static void check_if_need_update_ext_adv_data(struct ble_hw *hw) {
@@ -858,7 +880,7 @@ BLE5_CODE static void check_if_need_update_ext_adv_data(struct ble_hw *hw) {
     ble5->chain_adv_total_nums = ble5->chain_adv_cnt;
     u8 ext_tx_head_index = ble5->ext_tx_head_index;
     ble5->cur_ext_tx_head_index = ext_tx_head_index;
-    __ext_hw_enable(hw, 0, 0);
+    __set_anchor_cnt_disable(hw);
     free_ext_tx_loop_buffer_list(correlated_ble5,
         &correlated_ble5->ext_tx_head[correlated_ble5->ext_tx_head_index == 0]);
     free_ext_tx_loop_buffer_list(ble5,
@@ -928,7 +950,6 @@ BLE5_CODE void __ble5_hw_rx_process(struct ble_hw *hw) {
     loop_cbuf_write(cbuf, NULL, rx_len);
     struct __common_header header;
     u32 roles = config_btctler_le_roles;
-    u8 *ble5_ext_ptr = (u8 *)&hw->ble5_ext;
     int sync_enabled = (features & (1ULL << 13)) != 0;
     int error_log_disabled = log_tag_const_e_LE5_BB == 0;
 
@@ -970,6 +991,7 @@ rx_alloc_failed:
         rx->txadd = (header_bits >> 6) & 1;
         rx->rxadd = (header_bits >> 7) & 1;
         rx->data_status = 0;
+        rx->rssi = (u8)ble5_read_rssi(&hw->ble5_hw->ble5_fp);
 
         if (roles & 2) {
             struct ble5_hw *slave_ble5 = hw->ble5_hw;
@@ -993,8 +1015,8 @@ rx_alloc_failed:
                 case 5:
                     if ((data[0] & 0xc0) == 0x40) {
                         __set_ext_aux_event_hold_ir(hw, 1);
-                        struct ble_hw *correlated = *(struct ble_hw **)ble5_ext_ptr;
-                        __ext_hw_enable(correlated, 0, 0);
+                        struct ble_hw *correlated = hw->ble5_ext->correlated_hw;
+                        __set_anchor_cnt_disable(correlated);
                         u8 phy = __get_ext_secondary_phy(hw);
                         hw->phy.tx_phy = phy;
                         hw->phy.rx_phy = phy;
@@ -1003,7 +1025,7 @@ rx_alloc_failed:
                     break;
                 case 7: {
                     int aux = rx->type == 7 && ((data[1] & 8) != 0);
-                    struct ble_hw *correlated = *(struct ble_hw **)ble5_ext_ptr;
+                    struct ble_hw *correlated = hw->ble5_ext->correlated_hw;
                     if (!correlated->ble5_ext ||
                         !(correlated->ble5_ext->adi_update.update_adi & aux)) {
                         rx->len = 0;
@@ -1049,7 +1071,7 @@ rx_alloc_failed:
                 /* fall through */
             case 10:
             case 7: {
-                master_ble5->scan_rx_state = 1; struct ble_hw *correlated = *(struct ble_hw **)ble5_ext_ptr;
+                master_ble5->scan_rx_state = 1; struct ble_hw *correlated = hw->ble5_ext->correlated_hw;
                 if (correlated->ble5_ext->adi_update.update_adi && get_if_last_packet(rx)) {
                     __clear_ext_filter_mode(hw);
                     rx->data_status |= 1;
@@ -1154,7 +1176,7 @@ BLE5_CODE void __ble5_hw_event_process(struct ble_hw *hw) {
             __set_ext_aux_event_hold_ir(hw, 1);
             break;
         case 12:
-            __ext_hw_enable(hw, 0, 0);
+            __set_anchor_cnt_disable(hw);
             ble5 = hw->ble5_hw;
             if (ble5->handler && ble5->handler->ext_event_probe_handler)
                 ble5->handler->ext_event_probe_handler(hw->ble5_ext->ext_priv, 12);
@@ -1165,6 +1187,11 @@ BLE5_CODE void __ble5_hw_event_process(struct ble_hw *hw) {
             break;
         case 15:
             if (features & (1ULL << 13)) {
+                if (!(ble5->ble5_fp.EXT_AUXCTL1 & 4096)) {
+                    u32 anchor = __get_ble_anchor_con(hw, 10);
+                    __set_ble_anchor_con(hw, 10, anchor | 1024);
+                    ble5 = hw->ble5_hw;
+                }
                 if (ble5->scan_rx_state == 2) {
                     ble5->scan_rx_state = 0;
                     break;
@@ -1191,6 +1218,8 @@ BLE5_CODE void __ble5_hw_event_process(struct ble_hw *hw) {
                     le_hw_ext_primary_adv_switch(hw, 0);
                     ble5->primary_event.event_cnt = 0;
                     ble5 = hw->ble5_hw;
+                    struct __AuxPtr_field *pdu = (void *)(ble5->loop_buf_head +
+                        ble5->ExtAdvPdu_AuxChIndex_offset);
                     u8 channel = aux_data_channel;
                     u8 index;
                     if ((s8)channel == -1) {
@@ -1200,8 +1229,7 @@ BLE5_CODE void __ble5_hw_event_process(struct ble_hw *hw) {
                     } else {
                         index = channel > 36 ? 23 : (channel & 63);
                     }
-                    u8 *pdu = ble5->loop_buf_head + ble5->ExtAdvPdu_AuxChIndex_offset;
-                    *pdu = (*pdu & 0xc0) | index;
+                    pdu->channel_index = index;
                 }
             }
             break;
@@ -1233,7 +1261,7 @@ BLE5_CODE void __ble5_hw_event_process(struct ble_hw *hw) {
         if (ble5->remain_chain_nums) {
             --ble5->remain_chain_nums;
             ble5->soft_state = 4;
-            __ext_hw_enable(hw, 0, 0);
+            __set_anchor_cnt_disable(hw);
             return;
         }
         if (!hw->ble5_ext->correlated_period_hw) {
@@ -1277,7 +1305,7 @@ BLE5_CODE void __ble5_hw_event_process(struct ble_hw *hw) {
     }
 }
 
-BLE5_CODE static u8 get_if_last_packet(const struct ble_ext_rx *rx) {
+BLE5_CODE static inline __attribute__((always_inline)) u8 get_if_last_packet(const struct ble_ext_rx *rx) {
     if (!(rx->data[0] & 63))
         return 1;
     struct __AuxPtr_field auxptr = {0};
@@ -1338,6 +1366,7 @@ BLE5_CODE u8 ble_ext_primary_scan_preprocess_ir(struct ble_hw *hw, struct ble_rx
     struct ble5_extended *live_ext = hw->ble5_ext;
     if (i == count) {
         live_ext->adi_update.update_adi = 1;
+        received_adi = adi.did | ((u16)adi.sid << 12);
         live_ext->adi_update.adi = received_adi;
         memcpy(live_ext->adi_update.adva, adva, 6);
         struct ble5_hw *correlated_ble5 = correlated->ble5_hw;
@@ -1374,7 +1403,7 @@ BLE5_CODE void repair_algorithm2_hop(struct ble_hw *ble_hw) {
     for (u8 i = 0; i < 3; ++i) {
         u16 reverse = 0;
         for (u8 bit = 0; bit < 16; ++bit)
-            reverse |= (u16)((value >> bit) & 1) << (15 - bit);
+            reverse |= (u16)((value >> bit) & 1) << ((bit & 8) + 7 - (bit & 7));
         value = (u16)((u32)reverse * 17 + xor1);
     }
     u16 channel = (value ^ xor1) % 37;
@@ -1448,8 +1477,15 @@ BLE5_CODE static void *le_ext_hw_open(void) {
         ++bb_hdl->number;
         void *ext = btctler_nv_memory_malloc(32);
         hw->ble5_ext = ext;
-        if (!ext)
-            btctrler_assert_failed("__ext(hw) != NULL nv alloc __ext(hw) err", (uintptr_t) ext);
+        if (!ext) {
+            if (config_asser) {
+                printf("file:%s, line:%d", "/jks/workspace/data_trans_sdk_export_gitlab/data_trans_sdk/lib/btctrler/port/bd19/baseband/ble/RF_ble5.c", 257);
+                printf("ASSERT-FAILD: __ext(hw) != NULL nv alloc __ext(hw) err");
+                cpu_assert_debug();
+            } else {
+                cpu_reset();
+            }
+        }
     }
     if (log_tag_const_i_LE5_BB)
         log_print(2, NULL, "[Info]: [LE5_BB]ext HW open id : %d \r\n", HW_ID(hw));
@@ -1505,7 +1541,7 @@ BLE5_CODE static u32 le_get_ext_adv_packet_len_us(u32 pdu_len, u8 phy, u8 coded_
     }
 }
 
-BLE5_CODE static u8 if_need_sync_info(struct ble_hw *hw) {
+BLE5_CODE static inline __attribute__((always_inline)) u8 if_need_sync_info(struct ble_hw *hw) {
     return hw->ble5_ext->correlated_period_hw != NULL;
 }
 
@@ -1558,6 +1594,8 @@ BLE5_CODE static void __aux_chain_pdu(struct ble_hw *hw, struct ble_ext_adv *adv
         u8 flag = if_need_aux_ptr(adv, aux_flag) ? aux_flag :
                   ((superior_flag & 8) | (u8)-128);
         (void)__common_ext_adv_pdu_build(hw, adv, 4, 0, flag);
+        if (adv->adv_data_len)
+            ble5 = hw->ble5_hw;
     }
 }
 
@@ -1646,12 +1684,17 @@ BLE5_CODE static u8 __common_ext_adv_pdu_build(struct ble_hw *hw, struct ble_ext
             break;
         }
         case 32: {
+            u16 interval = adv->sync_info.interval;
+            u32 aa = adv->sync_info.aa;
+            u8 crc[3], chm[5];
+            memcpy(crc, adv->sync_info.crcinit, 3);
+            memcpy(chm, adv->sync_info.chm, 5);
             u16 zero = 0;
             memcpy(ptr, &zero, 2);
-            memcpy(ptr + 2, &adv->sync_info.interval, 2);
-            memcpy(ptr + 4, adv->sync_info.chm, 5);
-            memcpy(ptr + 9, &adv->sync_info.aa, 4);
-            memcpy(ptr + 13, adv->sync_info.crcinit, 3);
+            memcpy(ptr + 2, &interval, 2);
+            memcpy(ptr + 4, chm, 5);
+            memcpy(ptr + 9, &aa, 4);
+            memcpy(ptr + 13, crc, 3);
             memcpy(ptr + 16, &zero, 2);
             ptr += 18;
             break;
@@ -1681,7 +1724,7 @@ BLE5_CODE static u8 __common_ext_adv_pdu_build(struct ble_hw *hw, struct ble_ext
     list_add_tail((struct list_head *)allocation,
                   &ble5->ext_tx_head[ble5->ext_tx_head_index]);
     if (log_tag_const_i_LE5_BB)
-        printf_buf(tx, tx_packet_length & (u16)-3073);
+        printf_buf(tx, *(ble5_unaligned_u16 *)tx & (u16)-3073);
     return length;
 }
 
@@ -1818,7 +1861,7 @@ BLE5_CODE static void __ext_master_pdu_data_build(struct ble5_hw *hw,
         printf_buf(buffer, size);
 }
 
-BLE5_CODE static void __le_ext_legacy_scan_build_hw(struct ble_hw *hw) {
+BLE5_CODE static inline __attribute__((always_inline)) void __le_ext_legacy_scan_build_hw(struct ble_hw *hw) {
     struct ble4_hw *hw4 = hw->ble4_hw;
     hw4->ble_fp.EXTCTL0 = 0;
     hw4->ble_fp.EXTCTL1 = 1;
@@ -1833,8 +1876,8 @@ BLE5_CODE static void __le_ext_legacy_scan_build_hw(struct ble_hw *hw) {
 
 static void le_ext_primary_init_build(struct ble_hw *hw,
                                       const struct ble_ext_init *init)
-    __attribute__((noinline));
-BLE5_CODE static void le_ext_primary_init_build(struct ble_hw *hw,
+    __attribute__((always_inline));
+BLE5_CODE static inline __attribute__((always_inline)) void le_ext_primary_init_build(struct ble_hw *hw,
                                       const struct ble_ext_init *init) {
     struct ble_conn conn;
     u8 phy_index = 0;
@@ -1880,8 +1923,8 @@ BLE5_CODE static void le_ext_primary_init_build(struct ble_hw *hw,
 }
 
 static void __aux_connect_req(struct ble_hw *hw, const struct ble_ext_init *init)
-    __attribute__((noinline));
-BLE5_CODE static void __aux_connect_req(struct ble_hw *hw, const struct ble_ext_init *init) {
+    __attribute__((always_inline));
+BLE5_CODE static inline __attribute__((always_inline)) void __aux_connect_req(struct ble_hw *hw, const struct ble_ext_init *init) {
     struct __common_header header = {0};
     struct __connect_req_payload payload;
     bool log_info = log_tag_const_i_LE5_BB != 0;
@@ -2203,8 +2246,9 @@ BLE5_CODE static void le_hw_ext_ioctrl(struct ble_hw *hw, int ctrl, ...) {
         break;
     }
     case 11: {
+        int result = hw_dma_empty(&hw->ble5_ext->ext_rx_head);
         int *empty = va_arg(ap, int *);
-        *empty = hw_dma_empty(&hw->ble5_ext->ext_rx_head);
+        *empty = result;
         break;
     }
     case 12: {
@@ -2344,6 +2388,7 @@ BLE5_CODE static void le_hw_ext_ioctrl(struct ble_hw *hw, int ctrl, ...) {
 
 #ifdef UNITTEST
 #include "test.h"
+#include "../../../tools/btctrler/rf_ble5_test_mocks.c"
 
 const u8 log_tag_const_e_LE5_BB = 0;
 const u8 log_tag_const_i_LE5_BB = 0;
@@ -2353,6 +2398,9 @@ int config_btctler_le_roles;
 static u32 anchor_value, anchor_written;
 static u8 anchor_index;
 static unsigned queued_rx, freed_rx;
+static struct ble_ext_rx *last_queued_rx;
+static struct ble_hw *anchor_replace_hw;
+static struct ble5_hw *anchor_replacement;
 static struct ble_hw *map_hw;
 static struct ble5_hw *map_replacement[2];
 u32 __get_ble_anchor_con(struct ble_hw *hw, u8 index)
@@ -2362,10 +2410,12 @@ u32 __get_ble_anchor_con(struct ble_hw *hw, u8 index)
 void __set_ble_anchor_con(struct ble_hw *hw, u8 index, u32 value)
 {
     (void)hw; anchor_index = index; anchor_written = value;
+    if (anchor_replace_hw)
+        anchor_replace_hw->ble5_hw = anchor_replacement;
 }
 void hw_dma_push(struct _dma_head *head, struct _dma *dma)
 {
-    (void)head; (void)dma; ++queued_rx;
+    (void)head; last_queued_rx = (void *)dma; ++queued_rx;
 }
 void hw_dma_free(void *dma) { (void)dma; ++freed_rx; }
 u16 btctler_little_endian_read_16(const u8 *data, int pos)
@@ -2497,6 +2547,56 @@ int main(void)
     CHECK(replacement.ble5_fp.EXT_CHMAP1 == 0x0403);
     CHECK(replacement.ble5_fp.EXT_CHMAP2 == (5 | (7 << 5)));
     map_hw = NULL;
+
+    /* SDK event soft-state15 reads AUXCTL1 (not AUXCTL0), sets anchor bit10
+     * only when bit12 is clear, then reloads the hardware pointer. */
+    test_hw.ble5_hw = &hw5;
+    config_btctler_le_features = (1ULL << 12) | (1ULL << 13);
+    config_btctler_le_roles = 1;
+    hw5.soft_state = 15;
+    hw5.scan_rx_state = 1;
+    hw5.ble5_fp.EXT_AUXCTL0 = 4096;
+    hw5.ble5_fp.EXT_AUXCTL1 = 0;
+    replacement.scan_rx_state = 2;
+    anchor_value = 0x5a;
+    anchor_replace_hw = &test_hw;
+    anchor_replacement = &replacement;
+    __ble5_hw_event_process(&test_hw);
+    CHECK(anchor_written == 0x45a && anchor_index == 10);
+    CHECK(replacement.scan_rx_state == 0 && hw5.scan_rx_state == 1);
+    anchor_replace_hw = NULL;
+    test_hw.ble5_hw = &hw5;
+    hw5.scan_rx_state = 2;
+    hw5.ble5_fp.EXT_AUXCTL1 = 4096;
+    anchor_written = 0x12345678;
+    __ble5_hw_event_process(&test_hw);
+    CHECK(hw5.scan_rx_state == 0 && anchor_written == 0x12345678);
+
+    /* Raw RX snapshots the two-byte header, reads its extra status byte,
+     * samples RSSI, then follows ext->correlated_hw when disabling an anchor.
+     * Static DMA storage stays representable by the SDK's 32-bit addresses. */
+    static u8 dma_ring[8] = {7, 1, 0x40, 0};
+    struct ble_hw correlated = {0};
+    test_hw.ble5_hw = &hw5;
+    ext.correlated_hw = &correlated;
+    hw5.hw_state = 5;
+    hw5.soft_state = 0;
+    hw5.loop_buf_rx_len = sizeof(dma_ring);
+    loop_cbuf_init(&hw5.loop_cbuf_rx, dma_ring, sizeof(dma_ring));
+    rf_ble5_mock_ble_to_phy_result = (u32)(uintptr_t)(dma_ring + 4);
+    rf_ble5_mock_rssi_value = -42;
+    rf_ble5_mock_rssi_calls = 0;
+    rf_ble5_mock_anchor_disable_calls = 0;
+    anchor_value = 1;
+    unsigned before_rx = queued_rx;
+    __ble5_hw_rx_process(&test_hw);
+    CHECK(queued_rx == before_rx + 1 && hw5.loop_cbuf_rx.can_read_len == 0);
+    CHECK(rf_ble5_mock_rssi_calls == 1 && rf_ble5_mock_rssi_frame == &hw5.ble5_fp);
+    CHECK((s8)last_queued_rx->rssi == -42 && last_queued_rx->data[0] == 0x40);
+    CHECK(rf_ble5_mock_anchor_disable_calls == 1 &&
+          rf_ble5_mock_anchor_disable_hw == &correlated);
+    CHECK(test_hw.phy.tx_phy == 1 && test_hw.phy.rx_phy == 1 && hw5.soft_state == 12);
+    free(last_queued_rx);
 
     assign_aux_data_channel(6);
     CHECK(aux_data_channel == 6);
