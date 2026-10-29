@@ -26,7 +26,7 @@ static u8 rx[40] __attribute__((aligned(4)));
 /* Read with padtool peek: what went out and what came back. */
 struct {
     u32 sent, tx_done, replies, crc_bad, timeouts;
-    u8 channel, busy, reply_len, spare;
+    u8 channel, busy, reply_len, sweep_bit;
     u8 reply[12];
 } rf8;
 
@@ -46,34 +46,46 @@ static u32 buttons_of(u32 b)
     return out;
 }
 
-/* A stick code (13 bits << 2, about 16000 at rest) as the frame's raw axis:
- * the receiver reports 0x7fff - raw. */
-static u16 axis_of(u16 code, int invert)
+/* An XInput axis as the frame carries it: the receiver reports 0x7fff - raw. */
+static u16 axis_of(s32 v)
 {
-    s32 v = ((s32)code - 16384) * 2;
-
-    if (invert) v = -v;
-    if (v > 32767) v = 32767;
-    if (v < -32768) v = -32768;
     return (u16)(0x7fff - v);
 }
 
+static s32 up(s16 v)                     /* XInput's Y grows upward, ours downward */
+{
+    return v == -32768 ? 32767 : -v;
+}
+
+/* The calibrated input; RF8_SWEEP adds each unassigned button bit in turn
+ * (rf8.sweep_bit), half a second each, to find what the receiver does with it. */
 static void frame(const struct in_raw *in, u8 *p)
 {
-    u32 b = buttons_of(in->buttons), i, sum = 0;
-    u16 ax[4];
+    struct pad pad;
+    u32 b, i, sum = 0;
 
-    ax[0] = axis_of(in->stick[0], 0);
-    ax[1] = axis_of(in->stick[1], 0);
-    ax[2] = axis_of(in->stick[2], 0);
-    ax[3] = axis_of(in->stick[3], 0);
+    memset(&pad, 0, sizeof(pad));
+    cal_apply(set_cal(), NULL, in, &pad);
+    b = buttons_of(in->buttons);
+#ifdef RF8_SWEEP
+    {
+        static const u8 bits[] = { 14, 15, 16, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 };
+        u32 k = plat_ms() / 500;
+
+        rf8.sweep_bit = k & 1 ? bits[(k / 2) % sizeof(bits)] : 0;
+        if (rf8.sweep_bit) b |= 1u << rf8.sweep_bit;
+    }
+#endif
     p[0] = 0x90;
     p[1] = rf8.channel;
     p[2] = RF8_SECOND_CH;
     util_put32(p + 3, b);
-    for (i = 0; i < 4; i++) util_put16(p + 7 + 2 * i, ax[i]);
-    p[15] = (u8)(in->trigger[0] >> 2);
-    p[16] = (u8)(in->trigger[1] >> 2);
+    util_put16(p + 7, axis_of(pad.lx));
+    util_put16(p + 9, axis_of(up(pad.ly)));
+    util_put16(p + 11, axis_of(pad.rx));
+    util_put16(p + 13, axis_of(up(pad.ry)));
+    p[15] = (u8)(pad.l2 >> 8);
+    p[16] = (u8)(pad.r2 >> 8);
     for (i = 0; i < 17; i++) sum += p[i];
     p[17] = (u8)sum;
 }
