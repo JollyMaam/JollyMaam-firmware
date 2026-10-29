@@ -1,7 +1,7 @@
 """Device polling tests: no display or hardware needed."""
 import queue
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import paddevices
 
@@ -34,6 +34,10 @@ class BluetoothTests(unittest.TestCase):
 class MonitorTests(unittest.TestCase):
     def setUp(self):
         self.monitor = paddevices.DeviceMonitor(queue.Queue())
+        self.hids = []                   # what padhid.devices() finds
+        hids = patch.object(paddevices.padhid, 'devices', side_effect=lambda: self.hids)
+        hids.start()
+        self.addCleanup(hids.stop)
         self.identity = b'C2PD\x03\0\0\0' + b'build'.ljust(16, b'\0') + b'unique-id'.ljust(16, b'\0') + b'GS_C2_ADC_DEVICE'
 
     def test_only_new_or_changed_devices_load_settings(self):
@@ -103,6 +107,23 @@ class MonitorTests(unittest.TestCase):
             self.assertEqual(self.monitor.poll_once(full=False)[4], {'path': ('idle', 5)})
             self.assertIsNone(self.monitor.poll_once(full=False))
             self.assertEqual(self.monitor.poll_once(full=False)[4], {'path': ('idle', 6)})
+
+    def test_8bitdo_boot_loader_is_asked_its_model_once(self):
+        self.hids = [{'path': '/dev/hidraw7', 'vid': 0x2dc8, 'product': 0x3208, 'location': '5-2.4'}]
+        loader = MagicMock()
+        loader.__enter__.return_value.identify.return_value = b'\x1b\x30'
+        with patch.object(paddevices.pad, 'device_paths', return_value=[]), \
+             patch.object(paddevices.pad, 'discover_devices', return_value=[]), \
+             patch.object(paddevices, 'stock_records', return_value=[]), \
+             patch.object(paddevices.pad8bitdo, 'Loader', return_value=loader) as opened:
+            first = self.monitor.poll_once()
+            record, = first[2]
+            self.assertEqual((record['board'], record['product_id'], record['location']), ('boot', 'U2C_WIRELESS', '5-2.4'))
+            self.monitor.known = first[1]
+            self.assertIsNone(self.monitor.poll_once())
+            opened.assert_called_once_with('/dev/hidraw7')
+            self.hids = []
+            self.assertEqual(self.monitor.poll_once()[1], {})
 
 
 if __name__ == '__main__':

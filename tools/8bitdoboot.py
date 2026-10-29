@@ -7,18 +7,16 @@
   main   a packed app above the updater (src/updater/): the updater's header
          ("MAIN", size, CRC16 of the app, entry, format 1, its offset, the
          PID, CRC16 of those fields; 0x120 bytes) and the app: update.bin
+  full   the updater's firmware.bin and the app's update.bin as one image
+         from the updater's start, update.bin at --at: flash.bin
   flash  into the boot loader (stock or our firmware),
          erase and program the image's sectors (the header's last), read
          them back, start the app; --also ADDR:FILE first puts FILE there
   loader into the boot loader and wait there
+  start  leave the boot loader without flashing: it starts the app there
   scan   boot loaders, stock devices and our firmware (read-only identify)
 
-The loader's protocol: 64-byte output reports (Linux: an unnumbered report,
-so a 0 first), 05 then <u16 command, u16 0, u16 length, u16 CRC-16/MODBUS of
-the data, u32 total, u32 address> and up to 46 data bytes; each reply
-echoes the header with a status in place of the 0.  Commands: 3 program,
-4 erase a 4 KiB sector, 5 read, 7 start the app, 8 identify (Ultimate 2C:
-1b 30).  Its erase skips sectors below 0x6000 (the loader's own).
+The loader's protocol is in padtool/pad8bitdo.py.
 """
 import argparse
 import errno
@@ -33,12 +31,9 @@ import zlib
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "padtool"))
 from padhid import dev_path  # noqa: E402
 from padtransport import scsi, tool_paths, usb_location  # noqa: E402
+from pad8bitdo import LOADER, MODELS, SECTOR, Loader, check  # noqa: E402
 
-LOADER = (0x2dc8, 0x3208)
-MODELS = {"U2C_WIRELESS": 0x301b, "U2C_RECEIVER": 0x301c}
 STOCK_PIDS = {0x310a, 0x301b, 0x301c, 0x301d}
-SECTOR = 4096
-CHUNK = 46
 OP = 0xF5
 
 
@@ -76,21 +71,12 @@ def main_image(app, pid, at, entry):
     return bytes(head) + app
 
 
-def check(image):
-    """The checks the boot loader makes of a packed image, as far as known."""
-    if len(image) < 32 or image[8:12] != b"KNLT" or struct.unpack_from("<I", image, 0x18)[0] != len(image):
-        raise ValueError("bad image header")
-    if struct.unpack_from("<I", image, len(image) - 4)[0] != zlib.crc32(image[:-4]) ^ 0xFFFFFFFF:
-        raise ValueError("bad image CRC")
-
-
-def crc16(data):
-    crc = 0xFFFF
-    for byte in data:
-        crc ^= byte
-        for _ in range(8):
-            crc = (crc >> 1) ^ (0xA001 if crc & 1 else 0)
-    return crc
+def full_image(updater, update, at):
+    """The updater, padded with 0xff to at, then update.bin."""
+    check(updater)
+    if len(updater) > at or at % SECTOR or update[:4] != b"MAIN":
+        raise ValueError("the updater must end before --at, a sector boundary, and update.bin start with MAIN")
+    return updater + b"\xff" * (at - len(updater)) + update
 
 
 def hidraw_nodes():
@@ -132,71 +118,14 @@ def ours(pid=None, port=None):
     return found
 
 
-class Loader:
+class Stock:
+    """Stock HID vendor interface: numbered 0x81 output, 0x02 input."""
+
     def __init__(self, path):
         self.fd = os.open(path, os.O_RDWR | os.O_NONBLOCK)
 
     def close(self):
         os.close(self.fd)
-
-    def request(self, command, address, data=b"", length=None, timeout=10):
-        report = bytearray(64)
-        report[0] = 5
-        count = len(data) if length is None else length
-        total = SECTOR if command in (3, 4) else count
-        struct.pack_into("<HHHHII", report, 1, command, 0, count, crc16(data) if data else 0, total, address)
-        report[17:17 + len(data)] = data
-        while select.select([self.fd], [], [], 0)[0]:
-            os.read(self.fd, 256)
-        if os.write(self.fd, b"\0" + report) != 65:
-            raise OSError("short HID write")
-        if command == 7:
-            return b""
-        deadline = time.monotonic() + timeout
-        while True:
-            left = deadline - time.monotonic()
-            if left <= 0 or not select.select([self.fd], [], [], left)[0]:
-                raise TimeoutError(f"no answer to command {command} at {address:#x}")
-            reply = os.read(self.fd, 256)
-            if len(reply) < 18 or reply[:2] != b"\0\x05":
-                raise OSError(f"bad reply {reply.hex()}")
-            status, echoed, n, _, _, at = struct.unpack_from("<HHHHII", reply, 2)
-            if status or echoed != command:
-                raise OSError(f"command {command} at {address:#x}: reply {reply[:18].hex()}")
-            if command == 5 and at != address:
-                continue                 # a late reply to an earlier read
-            if n > CHUNK or len(reply) < 18 + n:
-                raise OSError("truncated or oversized boot loader reply")
-            return reply[18:18 + n]
-
-    def identify(self):
-        return self.request(8, 0, length=4, timeout=1)
-
-    def read(self, address, count):
-        out = bytearray()
-        while len(out) < count:
-            n = min(CHUNK, count - len(out))
-            part = self.request(5, address + len(out), length=n)
-            if len(part) != n:
-                raise OSError(f"short read at {address + len(out):#x}")
-            out += part
-        return bytes(out)
-
-    def write_sector(self, address, data):
-        self.request(4, address)
-        if self.read(address, SECTOR) != b"\xff" * SECTOR:
-            raise OSError(f"sector {address:#x} did not erase")
-        for offset in range(0, SECTOR, CHUNK):
-            self.request(3, address + offset, data[offset:offset + CHUNK])
-        if self.read(address, SECTOR) != data:
-            raise OSError(f"sector {address:#x} does not read back as written")
-
-    def start_app(self):
-        self.request(7, 0)
-
-
-class Stock(Loader):
-    """Stock HID vendor interface: numbered 0x81 output, 0x02 input."""
 
     def identify(self):
         report = bytearray(64)
@@ -377,12 +306,8 @@ def flash(args):
             for offset in range(0, len(data), SECTOR):
                 print(f"\r8bitdoboot: {address + offset:#x}", end="", flush=True)
                 loader.write_sector(address + offset, data[offset:offset + SECTOR])
-        padded = image + b"\xff" * (end - args.start - len(image))
-        sectors = list(range(args.start + SECTOR, end, SECTOR)) + [args.start]
-        for i, address in enumerate(sectors, 1):
-            offset = address - args.start
-            print(f"\r8bitdoboot: sector {i}/{len(sectors)} at {address:#x}", end="", flush=True)
-            loader.write_sector(address, padded[offset:offset + SECTOR])
+        loader.write_image(image, args.start, args.end,
+                           lambda i, n: print(f"\r8bitdoboot: sector {i}/{n}", end="", flush=True))
         print("\n8bitdoboot: written and read back; starting it")
         loader.start_app()
     finally:
@@ -403,7 +328,12 @@ def main():
     p.add_argument("--entry", type=lambda s: int(s, 0), required=True, help="the app's start (its APP_START)")
     p.add_argument("-o", "--output", required=True)
     p.add_argument("app", help="the packed app (firmware.bin)")
-    for name in ("flash", "loader"):
+    p = sub.add_parser("full")
+    p.add_argument("--at", type=lambda s: int(s, 0), required=True, help="update.bin's offset from the updater's start")
+    p.add_argument("-o", "--output", required=True)
+    p.add_argument("updater", help="the updater's firmware.bin")
+    p.add_argument("update", help="the app's update.bin")
+    for name in ("flash", "loader", "start"):
         p = sub.add_parser(name)
         p.add_argument("--pid", required=True, choices=MODELS, help="the product to select by model")
         p.add_argument("--device", help="the USB port (as scan lists it)")
@@ -426,8 +356,18 @@ def main():
         app = Path(args.app).read_bytes()
         check(app)
         Path(args.output).write_bytes(main_image(app, args.pid, args.at, args.entry))
+    elif args.cmd == "full":
+        Path(args.output).write_bytes(full_image(Path(args.updater).read_bytes(), Path(args.update).read_bytes(), args.at))
     elif args.cmd == "flash":
         flash(args)
+    elif args.cmd == "start":
+        found = matching_loaders(args.pid, args.device)
+        if len(found) != 1:
+            sys.exit("8bitdoboot: " + ("no" if not found else "more than one") + " matching boot loader" +
+                     ("" if not found else "; pick one with --device PORT"))
+        with Loader(found[0][0]) as loader:
+            loader.start_app()
+        print(f"8bitdoboot: {found[0][1]}: started the app")
     elif args.cmd == "loader":
         path = enter_loader(args.pid, args.device, args.wait)
         if not path:

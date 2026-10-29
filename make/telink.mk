@@ -99,7 +99,7 @@ TELINK_SDK_USED += vendor/common/flash_prot.c
 #                    far above its start (MAIN_AT); NAME_CODE_LIMIT ends the app's room
 #   NAME_FRONT       optional: this app sits above board NAME_FRONT, its updater
 #                    (NAME_APP_START then is its start + MAIN_AT + 0x120): update.bin,
-#                    and NAME-flash writes both
+#                    and flash.bin (the updater and update.bin), which NAME-flash writes
 # Targets: NAME (firmware.bin), NAME-flash (with NAME_FRONT: through the 8BitDo
 # boot loader), NAME-loader (into the boot loader and wait there).  Inside the template,
 # $(1) is NAME, $(...) is expanded once when it is called, and $$(...) when
@@ -155,16 +155,21 @@ $(O)/$(1)/firmware.bin: $(O)/$(1)/app.elf $(TELINK_IMAGE_TOOL)
 
 ifneq ($($(1)_FRONT),)
 # Behind its updater: the app's header and the app (update.bin, for
-# padtool update too); flashed, the updater and then that above it.
-$(1): $(O)/$(1)/update.bin
+# padtool update too); flash.bin, the updater and that above it, for the
+# boot loader (NAME-flash, padtool boot flash, padgui).
+$(1): $(O)/$(1)/update.bin $(O)/$(1)/flash.bin
 $(O)/$(1)/update.bin: $(O)/$(1)/firmware.bin $(TELINK_IMAGE_TOOL)
 	$$(Q)python3 -I $(TELINK_IMAGE_TOOL) main --pid $($(1)_PID) --at $($($(1)_FRONT)_UPDATER) \
 		--entry $($(1)_APP_START) -o $$@ $$<
 
-$(1)-flash: $(O)/$($(1)_FRONT)/firmware.bin $(O)/$(1)/update.bin
+$(O)/$(1)/flash.bin: $(O)/$($(1)_FRONT)/firmware.bin $(O)/$(1)/update.bin $(TELINK_IMAGE_TOOL)
+	@echo [FW] $$@
+	$$(Q)python3 -I $(TELINK_IMAGE_TOOL) full --at $($($(1)_FRONT)_UPDATER) -o $$@ \
+		$(O)/$($(1)_FRONT)/firmware.bin $(O)/$(1)/update.bin
+
+$(1)-flash: $(O)/$(1)/flash.bin
 	$$(Q)python3 -I $(TELINK_IMAGE_TOOL) flash --pid $($(1)_PID) --start $($($(1)_FRONT)_APP_START) \
-		--end $($($(1)_FRONT)_APP_END) --hint "$($(1)_LOADER_HINT)" $$(if $$(DEVICE),--device $$(DEVICE)) \
-		--also $$$$(( $($($(1)_FRONT)_APP_START) + $($($(1)_FRONT)_UPDATER) )):$(O)/$(1)/update.bin $(O)/$($(1)_FRONT)/firmware.bin
+		--end $($(1)_APP_END) --hint "$($(1)_LOADER_HINT)" $$(if $$(DEVICE),--device $$(DEVICE)) $$<
 endif
 
 $(1)-loader:

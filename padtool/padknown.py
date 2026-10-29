@@ -77,9 +77,14 @@ STOCK = [
 ]
 
 
+# Products with no ROM loader of this kind, by name only (the 8BitDo's boot
+# loader: pad8bitdo).
+NAMES = {"U2C_WIRELESS": "Ultimate 2C Wireless", "U2C_RECEIVER": "Ultimate 2C receiver"}
+
+
 def product_name(pid):
     product = PRODUCTS.get(pid)
-    return product.name if product else pid or "Unknown"
+    return product.name if product else NAMES.get(pid) or pid or "Unknown"
 
 
 def stock_name(entry):

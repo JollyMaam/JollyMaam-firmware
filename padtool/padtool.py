@@ -46,7 +46,11 @@
     padtool input [-f]            buttons, sticks and triggers, calibrated and
                                   as read (-f: live)
     padtool reboot | loader       restart; restart into the ROM loader (for
-                                  jlnewfw flash)
+                                  jlnewfw flash; the 8BitDo: its boot loader)
+    padtool boot [start | flash FILE]   the 8BitDo boot loader (2dc8:3208):
+                                  list them; start: leave it, starting the
+                                  firmware there; flash: write a build's
+                                  flash.bin (the updater and the app), then start it
     padtool update FILE [--ble [NAME|ADDRESS]]   rewrite the app in place through
                                   the updater (a pad or dongle build's update.bin);
                                   on USB the app restarts into it first;
@@ -1760,13 +1764,39 @@ def hub_pair(slot):
     sys.exit("padtool: no dongle found, as the tool device or the hub")
 
 
+def boot(args):
+    """padtool boot [start | flash FILE]: the 8BitDo boot loaders."""
+    import pad8bitdo
+    found = [f for f in pad8bitdo.find() if not DEVICE or DEVICE in (f[0], f[1])]
+    if not args:
+        for path, port, pid in found:
+            print(f"{port or '-'}\t8BitDo boot loader, {pid or 'unknown model'}\t{path}")
+        if not found:
+            sys.exit("padtool: no 8BitDo boot loader (padtool loader on a pad with this firmware; by hand: "
+                     "USB unplugged, hold L1+R1, tap Home, plug in USB)")
+        return
+    if args[0] not in ("start", "flash") or len(args) != (2 if args[0] == "flash" else 1):
+        sys.exit("padtool boot [start | flash FILE]")
+    if len(found) != 1:
+        sys.exit("padtool: " + ("no 8BitDo boot loader" if not found else "more than one boot loader; pick one with -d PORT"))
+    path = found[0][0]
+    if args[0] == "start":
+        pad8bitdo.leave(path)
+        print("started the firmware")
+        return
+    with open(args[1], "rb") as f:
+        image = f.read()
+    pad8bitdo.flash(path, image, lambda done, total: print(f"\rsector {done}/{total}", end="", file=sys.stderr, flush=True))
+    print("\nwritten and read back; started it", file=sys.stderr)
+
+
 # Over Bluetooth LE: the commands that need USB, or the pad back after a reboot.
-BLE_NOT = {"find", "tool", "tool-only", "hub", "latency", "peek", "keep"}
+BLE_NOT = {"find", "tool", "tool-only", "hub", "latency", "peek", "keep", "boot"}
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["tool-only", "hub", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "reboot", "loader", "update", "relink", "connect", "disconnect", "config", "pair", "unpair", "profile", "peek", "trace",
+    p.add_argument("command", choices=["tool-only", "hub", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "reboot", "loader", "boot", "update", "relink", "connect", "disconnect", "config", "pair", "unpair", "profile", "peek", "trace",
                                        "fields", "get", "set", "reset", "backup-settings",
                                        "restore-settings", "factory-reset", "ephemeral", "keep", "tool", "latency"])
     p.add_argument("args", nargs="*")
@@ -1965,6 +1995,8 @@ def main():
         print("Leave sticks and triggers untouched for 2.5 seconds; then circle both sticks and press both triggers fully. A or B saves; Home cancels.")
     elif a.command in ("reboot", "loader"):
         cmd(need_device(), 0x10 if a.command == "reboot" else 0x11)
+    elif a.command == "boot":
+        boot(a.args)
     elif a.command == "update":
         if len(a.args) != 1:
             sys.exit("padtool update FILE")

@@ -30,14 +30,15 @@ PLATFORMS = {"win": "x86_64-pc-windows-msvc", "linux": "x86_64-unknown-linux-gnu
 COMPILED = (".pyd", ".so")
 SDK = ROOT / "external" / "jieli-fw-AC63_BT_SDK"
 LOADERS = [SDK / "cpu" / "br23" / "tools" / "br23loader.bin", SDK / "cpu" / "bd19" / "tools" / "bd19loader.bin"]
-# Board build directory: the files a user flashes (firmware.img/.bin through
-# a ROM or boot loader, update.bin through the updater: padtool update).
+# Board build directory: the files a user flashes (firmware.img through the
+# ROM loader, the 8BitDo's flash.bin through its boot loader, update.bin
+# through the updater: padtool update).
 BOARDS = {
     "gamesir-cyclone-2-pad": ["firmware.img", "update.bin"],
     "gamesir-cyclone-2-dongle": ["firmware.img", "update.bin"],
     "gamesir-nova-2-lite-pad": ["firmware.img", "update.bin"],
     "gamesir-nova-2-lite-dongle": ["firmware.img", "update.bin"],
-    "8bitdo-ultimate2c-wireless-pad": ["firmware.bin", "update.bin"],
+    "8bitdo-ultimate2c-wireless-pad": ["flash.bin", "update.bin"],
 }
 
 # py (the launcher) if there is one, else python; the GUI through .pyw's
@@ -77,7 +78,9 @@ firmware\\<board>\\ holds this build's firmware:
   update.bin     padtool.cmd update firmware\\<board>\\update.bin
                  (a pad or dongle already running this firmware, on USB)
   firmware.img   the whole flash, for the GUI's flasher (UBOOT1.00 loader)
-  firmware.bin   the 8BitDo's whole image, for its boot loader
+  flash.bin      the 8BitDo's updater and app, for its boot loader (the GUI,
+                 or padtool.cmd boot flash); Leave boot loader in the GUI
+                 (padtool.cmd boot start) starts it without flashing
 
 padtool\\README.md has the rest.
 """

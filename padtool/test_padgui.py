@@ -1,6 +1,7 @@
 """GUI/device boundary tests. Use an X display (Xvfb is sufficient). No USB I/O."""
 import ctypes
 import gc
+import tempfile
 import threading
 import time
 import tkinter as tk
@@ -1259,6 +1260,64 @@ class GuiTests(GuiCase):
         self.assertIn("Writing firmware", self.app.flash_status.get())
         self.assertTrue(self.app.flash_progress_frame.winfo_manager())
         self.assertIs(self.app.active_page, self.app.loader_page)
+
+
+def boot_record(path="/dev/hidraw9", pid="U2C_WIRELESS"):
+    return {"path": path, "name": "8BitDo Boot", "board": "boot", "identity": b"8bitdo-boot:5-2.1",
+            "fields": [], "values": {}, "defaults": {}, "status": "8BitDo boot loader",
+            "location": "5-2.1", "product_id": pid}
+
+
+class BootLoaderTests(GuiCase):
+    def flash_bin(self):
+        import test_pad8bitdo
+        file = Path(self.enterContext(tempfile.TemporaryDirectory())) / "flash.bin"
+        file.write_bytes(test_pad8bitdo.packed(0x5000))
+        return file
+
+    def test_u2c_loader_entry_waits_for_its_boot_loader(self):
+        pad = record("tool")
+        pad["product_id"], pad["location"] = "U2C_WIRELESS", "5-2.1"
+        self.load([pad])
+        with patch.object(padgui.pad, "cmd", return_value=pad["identity"]) as cmd, \
+             patch.object(padgui.pad8bitdo, "find", return_value=[("/dev/hidraw3", "5-2.4", "U2C_WIRELESS"),
+                                                                  ("/dev/hidraw9", "5-2.1", "U2C_WIRELESS")]), \
+             patch.object(padgui.pad, "discover_devices") as discover, \
+             patch.object(self.app, "scan") as scan:
+            self.app.enter_flash_loader()
+            self.finish()
+            self.assertEqual(cmd.call_args_list[-1].args, ("tool", 0x11))
+            discover.assert_not_called()
+            scan.assert_called_once_with(automatic=True, select_path="/dev/hidraw9")
+
+    def test_boot_page_flashes_flash_bin_and_leaves(self):
+        self.load([boot_record()])
+        self.assertIs(self.app.active_page, self.app.boot_page)
+        self.assertIn("8BitDo boot loader · Ultimate 2C Wireless", self.app.boot_title.get())
+        file = self.flash_bin()
+        with patch.object(padgui.filedialog, "askopenfilename", return_value=str(file)), \
+             patch.object(padgui.messagebox, "askyesno", return_value=True), \
+             patch.object(padgui.pad8bitdo, "flash") as flash:
+            self.app.flash_boot()
+            self.finish()
+        flash.assert_called_once()
+        self.assertEqual(flash.call_args.args[:2], ("/dev/hidraw9", file.read_bytes()))
+        self.assertIn("Complete", self.app.flash_status.get())
+        with patch.object(padgui.pad8bitdo, "leave") as leave:
+            self.app.leave_boot()
+            self.finish()
+        leave.assert_called_once_with("/dev/hidraw9")
+
+    def test_image_for_another_pad_is_refused(self):
+        self.load([boot_record(pid="U2C_RECEIVER")])
+        file = self.flash_bin()
+        with patch.object(padgui.filedialog, "askopenfilename", return_value=str(file)), \
+             patch.object(padgui.messagebox, "showerror") as error, \
+             patch.object(padgui.pad8bitdo, "flash") as flash:
+            self.app.flash_boot()
+            self.finish()
+        error.assert_called_once()
+        flash.assert_not_called()
 
 
 class ToolbarTests(GuiCase):

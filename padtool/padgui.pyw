@@ -11,12 +11,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import padtool as pad
+import pad8bitdo
 import padflash
 import padble
 import padhid
 from padknown import PRODUCTS, command_mode, product_name, stock_name
 from padtransport import usb_location
-from paddevices import DeviceMonitor, load_targets, read_device, stock_records
+from paddevices import DeviceMonitor, boot_record, load_targets, read_device, stock_records
 from padconsole import LiveConsole
 from padwidgets import PaletteEditor, CurveEditor, RemapEditor, Tooltip
 
@@ -77,6 +78,7 @@ class App:
         self.stock_title = tk.StringVar()
         self.stock_details = tk.StringVar()
         self.stock_help = tk.StringVar()
+        self.boot_title = tk.StringVar()
         self.device = tk.StringVar()
         self.target = tk.StringVar(value=pad.TARGETS[0])
         self.expanded_details = set()
@@ -140,10 +142,12 @@ class App:
         self.loader_page = ttk.Frame(content, padding=10)
         self.dongle_page = ttk.Frame(content, padding=10)
         self.stock_page = ttk.Frame(content, padding=10)
-        for page in (self.overview, self.settings, self.loader_page, self.dongle_page, self.stock_page):
+        self.boot_page = ttk.Frame(content, padding=10)
+        for page in (self.overview, self.settings, self.loader_page, self.dongle_page, self.stock_page, self.boot_page):
             page.grid(row=0, column=0, sticky="nsew")
         self.build_settings()
         self.build_loader_page()
+        self.build_boot_page()
         self.build_dongle_page()
         self.build_stock_page()
         self.render_overview()
@@ -282,12 +286,13 @@ class App:
                     stage, done, total = data
                     self.flash_status.set(stage + (f" · {done / total:.0%}" if total else "…"))
                     self.notice.set(self.flash_status.get())
-                    self.flash_bar.stop()
-                    self.flash_bar.configure(mode="determinate" if total else "indeterminate")
-                    if total:
-                        self.flash_bar["value"] = done / total * 100
-                    else:
-                        self.flash_bar.start()
+                    for bar in self.flash_bars:
+                        bar.stop()
+                        bar.configure(mode="determinate" if total else "indeterminate")
+                        if total:
+                            bar["value"] = done / total * 100
+                        else:
+                            bar.start()
                     continue
                 if kind == "reloaded":
                     self.reloaded(*data)
@@ -315,8 +320,9 @@ class App:
                 self.queued -= 1
                 completed_flash = self.flash_active and exclusive
                 if completed_flash:
-                    self.flash_bar.stop()
-                    self.flash_bar.configure(mode="determinate", value=100 if kind == "done" else 0)
+                    for bar in self.flash_bars:
+                        bar.stop()
+                        bar.configure(mode="determinate", value=100 if kind == "done" else 0)
                     self.flash_status.set("Complete" if kind == "done" else "Operation failed · see console")
                     self.flash_active = False
                 if exclusive:
@@ -362,7 +368,8 @@ class App:
             self.monitor.stop.set()
             for console in list(self.consoles.values()):
                 console.close()
-            self.flash_bar.stop()
+            for bar in self.flash_bars:
+                bar.stop()
             self.root.destroy()
 
     def record(self):
@@ -813,9 +820,17 @@ class App:
                 except (Exception, SystemExit) as error:
                     errors.append(f"{path}: {error}")
             try:
-                records += stock_records()
+                hids = padhid.devices()
+                records += stock_records(hids)
             except (Exception, SystemExit) as error:
+                hids = []
                 errors.append(f"HID devices: {error}")
+            for hid in hids:
+                if (hid["vid"], hid["product"]) == pad8bitdo.LOADER:
+                    try:
+                        records.append(boot_record(hid))
+                    except (Exception, SystemExit) as error:
+                        errors.append(f"8BitDo boot loader {hid['path']}: {error}")
             return records, errors
         def display(result):
             records, errors = result
@@ -987,6 +1002,8 @@ class App:
         pid = record.get("product_id")
         if record["board"] == "loader":
             return f"ROM loader · {product_name(pid)}" if pid else "ROM loader (UBOOT1.00)"
+        if record["board"] == "boot":
+            return f"8BitDo boot loader · {product_name(pid)}" if pid else "8BitDo boot loader"
         if record["board"] == "stock":
             entry = record["stock"]
             return f"{stock_name(entry)} · stock" + (f", {entry.mode}" if entry.mode else "")
@@ -1025,7 +1042,8 @@ class App:
         self.render_overview()
         self.render_details()
         self.update_loader_actions()
-        main = {"loader": self.loader_page, "dongle": self.dongle_page, "stock": self.stock_page}.get(record["board"], self.overview)
+        main = {"loader": self.loader_page, "dongle": self.dongle_page, "stock": self.stock_page,
+                "boot": self.boot_page}.get(record["board"], self.overview)
         self.show_page(main if target is None else self.settings)
         if record["board"] == "loader" and self.auto_identify and not record.get("id_checked"):
             record["id_checked"] = True
@@ -1187,6 +1205,9 @@ class App:
             return
         if record["board"] == "stock":
             self.render_stock(record)
+            return
+        if record["board"] == "boot":
+            self.boot_title.set(f"{self.device_label(record)} · {record['path']}")
             return
         header = ttk.Frame(f)
         header.pack(fill="x", pady=(0, 4))
@@ -1618,8 +1639,66 @@ class App:
         ttk.Label(self.flash_progress_frame, textvariable=self.flash_status).pack(anchor="w")
         self.flash_bar = ttk.Progressbar(self.flash_progress_frame, maximum=100)
         self.flash_bar.pack(fill="x", pady=(4, 0))
+        self.flash_bars = [self.flash_bar]
         ttk.Label(f, text="Choose a firmware image to flash this device. Chip-key conversion is automatic.\nBackup is optional; every written byte is verified. Reconnect USB to leave loader mode after a standalone backup.", wraplength=850).pack(anchor="w", pady=8)
         self.loader_output = self.console_output(f)
+
+    def build_boot_page(self):
+        f = self.scroll_form(self.boot_page)
+        ttk.Label(f, textvariable=self.boot_title, font=("TkDefaultFont", 13, "bold")).pack(anchor="w", pady=(0, 8))
+        ttk.Label(f, text="The pad's boot loader (the light under Home blinks). Flash firmware writes a build's "
+                  "flash.bin, the updater and the app, reads it back and starts it; settings and pairings stay. "
+                  "Leave boot loader starts the firmware already there, without flashing.",
+                  wraplength=850, justify="left").pack(anchor="w")
+        actions = ttk.Frame(f)
+        actions.pack(fill="x", pady=8)
+        ttk.Button(actions, text="Flash firmware…", command=self.flash_boot).pack(side="left", padx=(0, 8))
+        ttk.Button(actions, text="Leave boot loader", command=self.leave_boot).pack(side="left")
+        self.wrap_row(actions, actions.winfo_children(), self.boot_page)
+        self.boot_progress_frame = ttk.Frame(f)
+        ttk.Label(self.boot_progress_frame, textvariable=self.flash_status).pack(anchor="w")
+        bar = ttk.Progressbar(self.boot_progress_frame, maximum=100)
+        bar.pack(fill="x", pady=(4, 0))
+        self.flash_bars.append(bar)
+
+    def boot_record(self):
+        record = self.record()
+        return record if record and record["board"] == "boot" and record.get("online", True) and not self.busy else None
+
+    def flash_boot(self):
+        """flash.bin through the 8BitDo boot loader (pad8bitdo.flash)."""
+        record = self.boot_record()
+        if not record:
+            return
+        file = filedialog.askopenfilename(title="Select flash.bin", initialdir=firmware_dir(record.get("product_id")),
+                                          filetypes=[("Boot loader image", "flash.bin"), ("All files", "*")])
+        if not file:
+            return
+        image = Path(file).read_bytes()
+        try:
+            pid = pad8bitdo.image_pid(image)
+            if record.get("product_id") and pid != record["product_id"]:
+                raise ValueError(f"This image is for {product_name(pid)}, the boot loader's pad is {product_name(record['product_id'])}.")
+        except ValueError as error:
+            messagebox.showerror("Firmware", str(error))
+            return
+        if not messagebox.askyesno("Flash firmware", f"Flash {product_name(pid)} with\n{file}?\n\nSettings and pairings stay."):
+            return
+        path = record["path"]
+        def work():
+            pad8bitdo.flash(path, image, lambda done, total: self.flash_progress("Flashing", done, total))
+        def done(_):
+            self.notice.set("Flashed and started; the pad comes back by itself")
+        self.start_flash_progress("Flashing")
+        self.run("Flashing… keep USB connected", work, done, exclusive=True)
+
+    def leave_boot(self):
+        record = self.boot_record()
+        if not record:
+            return
+        path = record["path"]
+        self.run("Leaving the boot loader…", lambda: pad8bitdo.leave(path),
+                 lambda _: self.notice.set("Started the firmware; the pad comes back by itself"))
 
     def build_dongle_page(self):
         f = self.scroll_form(self.dongle_page)
@@ -1736,11 +1815,14 @@ class App:
         self.flash_active = True
         self.flash_status.set(stage)
         self.flash_progress_frame.pack(fill="x", pady=8, before=self.loader_output.master)
-        self.flash_bar.configure(mode="indeterminate", value=0)
-        self.flash_bar.start()
-        if self.record() and self.record()["board"] == "loader":
-            self.show_page(self.loader_page)
-            self.scroll_canvases[self.loader_page].yview_moveto(0)
+        self.boot_progress_frame.pack(fill="x", pady=8)
+        for bar in self.flash_bars:
+            bar.configure(mode="indeterminate", value=0)
+            bar.start()
+        page = {"loader": self.loader_page, "boot": self.boot_page}.get(self.record()["board"] if self.record() else None)
+        if page:
+            self.show_page(page)
+            self.scroll_canvases[page].yview_moveto(0)
 
     def flash_progress(self, stage, done=0, total=None):
         self.events.put(("flash_progress", (stage, done, total)))
@@ -1795,6 +1877,8 @@ class App:
         old_loaders = {r["path"] for r in self.cache.values() if r["board"] == "loader"}
         product = PRODUCTS.get(pid)
         by_hand = f" By hand: {product.by_hand}" if product and product.by_hand else ""
+        boot = pid in pad8bitdo.MODELS          # the 8BitDo: its boot loader, not UBOOT1.00
+        old_boot = {r["path"] for r in self.cache.values() if r["board"] == "boot"}
         def enter():
             self.flash_progress("Entering flash loader")
             if stock is not None:
@@ -1806,17 +1890,22 @@ class App:
                     pad.cmd(path, 0x11)
                 except OSError:
                     pass  # The reboot can disconnect before acknowledging.
-            self.flash_progress("Waiting for UBOOT1.00")
+            self.flash_progress("Waiting for the boot loader" if boot else "Waiting for UBOOT1.00")
             deadline = time.monotonic() + 30
             while True:
-                loaders = [p for p, name, ident in pad.discover_devices(include_loaders=True) if ident is None]
-                matches = [p for p in loaders if usb_location(p) == location] if location else [p for p in loaders if p not in old_loaders]
+                if boot:
+                    found = [(p, port) for p, port, model in pad8bitdo.find() if model == pid]
+                    matches = [p for p, port in found if port == location] if location else [p for p, port in found if p not in old_boot]
+                else:
+                    loaders = [p for p, name, ident in pad.discover_devices(include_loaders=True) if ident is None]
+                    matches = [p for p in loaders if usb_location(p) == location] if location else [p for p in loaders if p not in old_loaders]
                 if len(matches) == 1:
                     return matches[0]
                 if len(matches) > 1:
                     raise ValueError("Multiple ROM loaders appeared. Select the intended device from the tree.")
                 if time.monotonic() >= deadline:
-                    raise OSError("UBOOT1.00 did not appear; wait for device detection." + by_hand)
+                    raise OSError(("The boot loader did not appear; by hand: USB unplugged, hold L1+R1, tap Home, plug in USB."
+                                   if boot else "UBOOT1.00 did not appear; wait for device detection." + by_hand))
                 time.sleep(0.25)
         self.start_flash_progress("Entering flash loader")
         self.run("Entering flash loader…", enter, lambda path: self.scan(automatic=True, select_path=path), exclusive=True)

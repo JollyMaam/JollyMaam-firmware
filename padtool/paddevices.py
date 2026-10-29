@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 
+import pad8bitdo
 import padble
 import padhid
 import padknown
@@ -39,17 +40,30 @@ def load_targets(path, table, targets):
             {t: pad.read_target(path, table, t, defaults=True) for t in targets})
 
 
-def stock_records():
+def stock_records(hids=None):
     """Stock pads and dongles known by their USB identity (padknown.STOCK),
     one per USB device.  Their identity names the product and the mode, so a
     mode change is a new device."""
     records = []
-    for hid, entry in padknown.stock_devices(padhid.devices()):
+    for hid, entry in padknown.stock_devices(padhid.devices() if hids is None else hids):
         records.append({"path": hid["path"], "name": f"{hid['manufacturer']} {hid['product_name']}".strip(),
                         "board": "stock", "identity": f"stock:{entry.pid}:{entry.name}:{entry.mode}".encode(),
                         "fields": [], "values": {}, "defaults": {}, "status": entry.mode,
                         "location": hid["location"], "product_id": entry.pid, "stock": entry})
     return records
+
+
+def boot_identity(hid):
+    return f"8bitdo-boot:{hid['location'] or hid['path']}".encode()
+
+
+def boot_record(hid):
+    """An 8BitDo boot loader, asked its model (the product)."""
+    with pad8bitdo.Loader(hid["path"]) as loader:
+        pid = pad8bitdo.model_pid(loader.identify())
+    return {"path": hid["path"], "name": "8BitDo Boot", "board": "boot", "identity": boot_identity(hid),
+            "fields": [], "values": {}, "defaults": {}, "status": "8BitDo boot loader",
+            "location": hid["location"], "product_id": pid}
 
 
 class DeviceMonitor:
@@ -192,14 +206,29 @@ class DeviceMonitor:
                     errors.append(f"{path}: {error}")
                     self.retry_after[key] = time.monotonic() + 5
             try:
-                stock = stock_records()
+                hids = padhid.devices()
+                stock = stock_records(hids)
             except (Exception, SystemExit) as error:
-                stock = []
+                hids, stock = [], []
                 errors.append(f"HID devices: {error}")
             for record in stock:
                 present[record["path"]] = record["identity"]
                 if self.known.get(record["path"]) != record["identity"]:
                     records.append(record)
+            for hid in hids:             # 8BitDo boot loaders: asked only when new
+                if (hid["vid"], hid["product"]) != pad8bitdo.LOADER:
+                    continue
+                identity = boot_identity(hid)
+                key = (hid["path"], identity)
+                if self.known.get(hid["path"]) == identity or self.retry_after.get(key, 0) > time.monotonic():
+                    present[hid["path"]] = identity
+                    continue
+                try:
+                    records.append(boot_record(hid))
+                    present[hid["path"]] = identity
+                except (Exception, SystemExit) as error:
+                    errors.append(f"8BitDo boot loader {hid['path']}: {error}")
+                    self.retry_after[key] = time.monotonic() + 5
             if present == self.last_reported and not records and not errors and not changes:
                 return None
             self.last_reported = present

@@ -1,4 +1,5 @@
-"""HID interfaces by their USB identity, and output reports to them.
+"""HID interfaces by their USB identity, output reports to them, and an
+open interface's input and output reports (Device).
 
 Linux: hidraw nodes and sysfs.  Windows: SetupAPI and hid.dll; there each
 top-level collection is its own device, with its usage page.  Nothing is
@@ -120,12 +121,12 @@ class _Caps(ctypes.Structure):
                 ("Counts", ctypes.c_ushort * 10)]
 
 
-def _windows_open(path, access):
+def _windows_open(path, access, flags=0):
     from ctypes import wintypes as w
     k = ctypes.WinDLL("kernel32", use_last_error=True)
     k.CreateFileW.argtypes = [w.LPCWSTR, w.DWORD, w.DWORD, ctypes.c_void_p, w.DWORD, w.DWORD, w.HANDLE]
     k.CreateFileW.restype = w.HANDLE
-    handle = k.CreateFileW(path, access, 3, None, 3, 0, None)
+    handle = k.CreateFileW(path, access, 3, None, 3, flags, None)
     if handle == ctypes.c_void_p(-1).value:
         raise ctypes.WinError(ctypes.get_last_error())
     return k, handle
@@ -263,6 +264,106 @@ class Features:
 
     def close(self):
         if sys.platform == "win32":
+            self.k.CloseHandle(self.handle)
+        else:
+            os.close(self.fd)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+
+
+class _Overlapped(ctypes.Structure):
+    _fields_ = [("Internal", ctypes.c_void_p), ("InternalHigh", ctypes.c_void_p),
+                ("Offset", ctypes.c_uint32), ("OffsetHigh", ctypes.c_uint32), ("hEvent", ctypes.c_void_p)]
+
+
+class Device:
+    """An open HID interface's input and output reports.  write() takes the
+    report ID byte (0: none), then the report; read() gives one input
+    report as hidraw does: its ID byte only when it is numbered."""
+
+    def __init__(self, path):
+        self.path = path
+        if sys.platform != "win32":
+            self.fd = os.open(path, os.O_RDWR | os.O_NONBLOCK)
+            return
+        from ctypes import wintypes as w
+        self.k, self.handle = _windows_open(path, 0xc0000000, 0x40000000)   # FILE_FLAG_OVERLAPPED
+        k = self.k
+        k.CreateEventW.argtypes = [ctypes.c_void_p, w.BOOL, w.BOOL, w.LPCWSTR]
+        k.CreateEventW.restype = w.HANDLE
+        for name in ("ReadFile", "WriteFile"):
+            getattr(k, name).argtypes = [w.HANDLE, ctypes.c_void_p, w.DWORD, ctypes.POINTER(w.DWORD),
+                                         ctypes.POINTER(_Overlapped)]
+        k.GetOverlappedResult.argtypes = [w.HANDLE, ctypes.POINTER(_Overlapped), ctypes.POINTER(w.DWORD), w.BOOL]
+        k.WaitForSingleObject.argtypes = [w.HANDLE, w.DWORD]
+        k.WaitForSingleObject.restype = w.DWORD
+        k.CancelIo.argtypes = [w.HANDLE]
+        k.CloseHandle.argtypes = [w.HANDLE]
+        hid = ctypes.WinDLL("hid")
+        hid.HidD_GetPreparsedData.argtypes = [w.HANDLE, ctypes.POINTER(ctypes.c_void_p)]
+        hid.HidD_FreePreparsedData.argtypes = [ctypes.c_void_p]
+        hid.HidP_GetCaps.argtypes = [ctypes.c_void_p, ctypes.POINTER(_Caps)]
+        caps, parsed = _Caps(), ctypes.c_void_p()
+        if hid.HidD_GetPreparsedData(self.handle, ctypes.byref(parsed)):
+            hid.HidP_GetCaps(parsed, ctypes.byref(caps))
+            hid.HidD_FreePreparsedData(parsed)
+        self.in_len, self.out_len = caps.InputReportByteLength, caps.OutputReportByteLength
+        self.event = k.CreateEventW(None, True, False, None)
+
+    def _io(self, name, buf, size, timeout):
+        """One overlapped ReadFile or WriteFile: the bytes moved, or None
+        when it was not done after timeout seconds (then cancelled)."""
+        from ctypes import wintypes as w
+        k = self.k
+        ov = _Overlapped(hEvent=self.event)
+        done = w.DWORD()
+        if not getattr(k, name)(self.handle, buf, size, None, ctypes.byref(ov)):
+            error = ctypes.get_last_error()
+            if error != 997:                                          # ERROR_IO_PENDING
+                raise ctypes.WinError(error)
+            if k.WaitForSingleObject(self.event, max(int(timeout * 1000), 0)) != 0:
+                k.CancelIo(self.handle)
+                k.GetOverlappedResult(self.handle, ctypes.byref(ov), ctypes.byref(done), True)
+                return None
+        if not k.GetOverlappedResult(self.handle, ctypes.byref(ov), ctypes.byref(done), True):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return done.value
+
+    def write(self, data, timeout=2):
+        data = bytes(data)
+        if sys.platform != "win32":
+            if os.write(self.fd, data) != len(data):
+                raise OSError(f"{self.path}: short HID write")
+            return
+        size = max(self.out_len, len(data))                          # Windows takes the whole report
+        if self._io("WriteFile", ctypes.create_string_buffer(data.ljust(size, b"\0"), size), size, timeout) != size:
+            raise OSError(f"{self.path}: HID write not taken")
+
+    def read(self, timeout):
+        """One input report, or None after timeout seconds."""
+        if sys.platform != "win32":
+            import select
+            if not select.select([self.fd], [], [], max(timeout, 0))[0]:
+                return None
+            return os.read(self.fd, 4096)
+        buf = ctypes.create_string_buffer(max(self.in_len, 1))
+        n = self._io("ReadFile", buf, len(buf), timeout)
+        if n is None:
+            return None
+        data = buf.raw[:n]
+        return data[1:] if data[:1] == b"\0" else data           # Windows: the ID byte, 0 when unnumbered
+
+    def drain(self):
+        while self.read(0) is not None:
+            pass
+
+    def close(self):
+        if sys.platform == "win32":
+            self.k.CloseHandle(self.event)
             self.k.CloseHandle(self.handle)
         else:
             os.close(self.fd)
