@@ -46,7 +46,10 @@ class App:
         root.geometry("1250x850")
         self.events = queue.Queue()
         self.monitor = DeviceMonitor(self.events)
-        self.busy = False
+        self.busy = False                    # an exclusive operation: the UI waits for it
+        self.jobs = queue.Queue()            # device operations, one at a time on the worker
+        self.queued = 0                      # operations queued or running
+        threading.Thread(target=self.worker, daemon=True).start()
         self.flash_active = False
         self.batch_edits = False
         self.scroll_canvases = {}
@@ -201,35 +204,51 @@ class App:
                 yield child
             yield from self.controls(child)
 
-    def run(self, label, work, done=None):
+    def run(self, label, work, done=None, exclusive=False, failed=None):
+        """work() on the device worker, after what is queued; done(result)
+        back here.  The UI stays live, a click queuing its own work, except
+        for an exclusive operation (a scan, flashing, a restore), which
+        greys it out until it is done.  failed() here if work raises."""
         if self.busy:
             return
-        self.busy = True
-        self.monitor.busy.set()
-        self.monitor.invalidate()
-        self.tree.state(["disabled"])
-        self.notice.set(label)
-        self.saved_states = [(w, str(w.cget("state"))) for w in self.controls(self.root)]
-        for w, _ in self.saved_states:
-            w.configure(state="disabled")
-        board = self.board.get()
+        if exclusive:
+            self.busy = True
+            self.monitor.busy.set()
+            self.tree.state(["disabled"])
+            self.saved_states = [(w, str(w.cget("state"))) for w in self.controls(self.root)]
+            for w, _ in self.saved_states:
+                w.configure(state="disabled")
+        self.queued += 1
+        self.show_queue(label)
+        self.jobs.put((label, work, done, exclusive, self.board.get(), failed))
 
-        def worker():
+    def show_queue(self, label=None):
+        more = self.queued - 1
+        if label:
+            self.notice.set(label + (f" ({more} more queued)" if more > 0 else ""))
+        elif self.queued:
+            self.notice.set(f"Working… ({self.queued} queued)" if self.queued > 1 else "Working…")
+
+    def worker(self):
+        """The device worker: each operation in turn, holding the device
+        lock (the device check waits for it, and it for the check)."""
+        while True:
+            label, work, done, exclusive, board, failed = self.jobs.get()
             stream = io.StringIO()
             try:
                 pad.BOARD = board
                 asked = time.monotonic()
                 with self.monitor.lock, contextlib.redirect_stdout(stream):
                     got = time.monotonic()
+                    self.monitor.invalidate()    # a device check from before is stale
                     result = work()
                 took = time.monotonic() - asked
                 if took > 0.5:           # what is slow, in the log
                     self.events.put(("log", f"timing: {label or 'loading'} {took:.1f} s "
                                             f"(waited {got - asked:.1f} s for the device check)"))
-                self.events.put(("done", (result, done, stream.getvalue())))
+                self.events.put(("done", (result, done, stream.getvalue(), exclusive)))
             except (Exception, SystemExit) as error:
-                self.events.put(("error", (str(error), stream.getvalue())))
-        threading.Thread(target=worker, daemon=True).start()
+                self.events.put(("error", (str(error), stream.getvalue(), failed, exclusive)))
 
     def drain(self):
         try:
@@ -292,33 +311,39 @@ class App:
                         self.reinstall(self.cache[path], values, applied_keys)
                     self.mark_dirty()
                     continue
-                completed_flash = self.flash_active
-                if self.flash_active:
+                exclusive = data[-1]
+                self.queued -= 1
+                completed_flash = self.flash_active and exclusive
+                if completed_flash:
                     self.flash_bar.stop()
                     self.flash_bar.configure(mode="determinate", value=100 if kind == "done" else 0)
                     self.flash_status.set("Complete" if kind == "done" else "Operation failed · see console")
                     self.flash_active = False
-                self.busy = False
-                self.monitor.busy.clear()
-                self.tree.state(["!disabled"])
-                for w, state in self.saved_states:
-                    if w.winfo_exists():
-                        w.configure(state=state)
+                if exclusive:
+                    self.busy = False
+                    self.monitor.busy.clear()
+                    self.tree.state(["!disabled"])
+                    for w, state in self.saved_states:
+                        if w.winfo_exists():
+                            w.configure(state=state)
                 if kind == "error":
                     self.looking = False
                     self.update_tree_status()
-                    error, output = data
+                    error, output, failed, _ = data
+                    if failed:
+                        failed()
                     self.log(output + "\n" + error)
                     self.notice.set("Operation failed.")
                     self.rerender_in_place()
                     messagebox.showerror("padtool", error)
                 else:
-                    result, done, output = data
+                    result, done, output, _ = data
                     if output:
                         self.log(output)
                     self.notice.set("Operation complete." if completed_flash else "")
                     if done:
                         done(result)
+                    self.show_queue()
                 self.update_apply_state()
                 self.update_previews()
         except queue.Empty:
@@ -326,7 +351,7 @@ class App:
         self.poll = self.root.after(80, self.drain)
 
     def close(self):
-        if self.busy:
+        if self.busy or self.queued:
             messagebox.showinfo("Operation in progress", "Wait for the current operation to finish before closing.")
         else:
             if self.dirty_count() and not messagebox.askyesno("Unsaved edits", "Discard pending edits and close?"):
@@ -422,16 +447,20 @@ class App:
         if record["fields"] == []:   # its updater: no settings
             return []
         want = set(range(8)) | ({target} if isinstance(target, int) else set())
-        return sorted(want - record["loaded"])
+        return sorted(want - record["loaded"] - record.get("loading", set()))
 
     def load_record(self, record, targets, then=None):
         """targets (and the field table, the first time) read in, then shown."""
         path, identity, table = record["path"], record["identity"], record["fields"]
+        record.setdefault("loading", set()).update(targets)    # queued: not asked again
+        def forget():
+            record["loading"] -= set(targets)
         def work():
             if pad.cmd(path, 0, length=64)[:56] != identity:
                 raise ValueError(f"{path}: device changed; wait for device detection")
             return load_targets(path, table, targets)
         def done(result):
+            forget()
             table, values, defaults = result
             if self.cache.get(path) is not record:
                 return
@@ -449,7 +478,7 @@ class App:
             self.mark_dirty()
             if then:
                 then()
-        self.run("Loading settings…", work, done)
+        self.run("Loading settings…", work, done, failed=forget)
 
     def reload_quietly(self, record):
         """The settings changed on the device: its loaded targets read again in
@@ -812,7 +841,7 @@ class App:
                 messagebox.showerror("Some devices could not be loaded", "\n".join(errors))
         self.looking = True
         self.update_tree_status()
-        self.run("", load, display)
+        self.run("", load, display, exclusive=True)
 
     def sync_devices(self):
         self.monitor.known = {path: record["identity"] for path, record in self.cache.items() if record.get("online", True)}
@@ -1553,7 +1582,7 @@ class App:
             return
         file = filedialog.askopenfilename(filetypes=[("Settings", "*.json")])
         if file and messagebox.askyesno("Restore pad settings", "Restore this pad’s slots, palette, pairing data and calibration from this file?"):
-            self.run("Restoring settings…", lambda: pad.restore(path, file, True), lambda _: self.clear_settings())
+            self.run("Restoring settings…", lambda: pad.restore(path, file, True), lambda _: self.clear_settings(), exclusive=True)
 
     def file_row(self, parent, row, label, var, directory=False):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=5)
@@ -1660,7 +1689,7 @@ class App:
             return
         self.product_id.set("Reading…")
         self.start_flash_progress("Reading product ID")
-        self.run("Reading product ID…", lambda: self.open_loader(record, blob))
+        self.run("Reading product ID…", lambda: self.open_loader(record, blob), exclusive=True)
 
     def update_loader_actions(self):
         record = self.record()
@@ -1746,7 +1775,7 @@ class App:
         def done(_):
             self.notice.set("Firmware updated; the device restarted")
             self.refresh_devices()
-        self.run("Updating firmware…", work, done)
+        self.run("Updating firmware…", work, done, exclusive=True)
 
     def enter_flash_loader(self):
         record = self.record()
@@ -1790,7 +1819,7 @@ class App:
                     raise OSError("UBOOT1.00 did not appear; wait for device detection." + by_hand)
                 time.sleep(0.25)
         self.start_flash_progress("Entering flash loader")
-        self.run("Entering flash loader…", enter, lambda path: self.scan(automatic=True, select_path=path))
+        self.run("Entering flash loader…", enter, lambda path: self.scan(automatic=True, select_path=path), exclusive=True)
 
     def loader_blob(self):
         """Where the chips' RAM loaders are: the SDK or a folder of them
@@ -1823,7 +1852,7 @@ class App:
             loader.backup(file)
             self.flash_report("Backup complete. Reconnect USB to leave the loader.")
         self.start_flash_progress("Backing up flash")
-        self.run("Backing up flash…", backup)
+        self.run("Backing up flash…", backup, exclusive=True)
 
     def flash(self):
         if self.busy or not self.require_loader():
@@ -1854,7 +1883,7 @@ class App:
             loader = self.open_loader(record, blob)
             loader.flash(data, backup)
         self.start_flash_progress("Preparing firmware")
-        self.run("Backing up and flashing… keep USB connected" if backup else "Flashing… keep USB connected", write, lambda _: self.clear_settings())
+        self.run("Backing up and flashing… keep USB connected" if backup else "Flashing… keep USB connected", write, lambda _: self.clear_settings(), exclusive=True)
 
     def device_action(self, label, fn):
         path = self.path()

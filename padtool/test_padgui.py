@@ -1,6 +1,7 @@
 """GUI/device boundary tests. Use an X display (Xvfb is sufficient). No USB I/O."""
 import ctypes
 import gc
+import threading
 import time
 import tkinter as tk
 import unittest
@@ -138,16 +139,17 @@ class GuiCase(unittest.TestCase):
         self.addCleanup(dialog.stop)
 
     def tearDown(self):
+        self.finish()
         with patch.object(padgui.messagebox, "askyesno", return_value=True):
             self.app.close()
         self.assertEqual(self.errors, [])
 
     def finish(self):
         deadline = time.monotonic() + 3
-        while self.app.busy and time.monotonic() < deadline:
+        while (self.app.busy or self.app.queued) and time.monotonic() < deadline:
             self.root.update()
             time.sleep(0.01)
-        self.assertFalse(self.app.busy)
+        self.assertFalse(self.app.busy or self.app.queued)
 
     def load(self, records):
         for r in records:
@@ -683,12 +685,24 @@ class GuiTests(GuiCase):
             self.assertIn("manual", self.app.monitor.manual_paths)
             self.assertEqual(self.app.monitor.known["manual"], one["identity"])
 
+    def test_operations_queue_and_leave_the_ui_live(self):
+        self.load([record()])
+        order, gate = [], threading.Event()
+        self.app.run("First", lambda: (gate.wait(2), "one")[1], order.append)
+        self.app.run("Second", lambda: "two", order.append)       # queued, not dropped
+        self.root.update()
+        self.assertEqual(str(self.app.enter_loader_button.cget("state")), "normal")
+        self.assertIn("1 more queued", self.app.notice.get())
+        gate.set()
+        self.finish()
+        self.assertEqual(order, ["one", "two"])
+
     def test_worker_failure_restores_controls(self):
         self.load([record()])
         def refused():
             raise SystemExit("device refused change")
         with patch.object(padgui.messagebox, "showerror") as error:
-            self.app.run("Apply", refused)
+            self.app.run("Apply", refused, exclusive=True)
             self.assertEqual(str(self.app.enter_loader_button.cget("state")), "disabled")
             self.finish()
             error.assert_called_once()
@@ -802,7 +816,7 @@ class GuiTests(GuiCase):
             self.assertEqual(read.call_count, 18)      # the palette, when its page opens
             self.app.tree.selection_set("device0/1")
             self.app.select_node()
-            self.assertFalse(self.app.busy)            # slots are in already
+            self.assertFalse(self.app.queued)          # slots are in already
         self.assertEqual(len(self.app.cache), 2)
         self.assertEqual(len(self.app.tree.get_children("device1")), 0)
 
