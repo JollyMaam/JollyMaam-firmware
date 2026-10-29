@@ -26,10 +26,14 @@ pad's HCI receive queue while it erased, and packets it dropped there were
 pieced together wrongly."""
 import asyncio, atexit, os, struct, sys
 
-# The Windows zip (make padtool_dist) carries bleak and its WinRT backend.
+# The zip (make padtool_dist) carries bleak for Windows and Linux; on Linux
+# the system's own comes first.
 _LIB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if sys.platform == "win32" and os.path.isdir(_LIB) and _LIB not in sys.path:
-    sys.path.insert(0, _LIB)
+if os.path.isdir(_LIB) and _LIB not in sys.path:
+    if sys.platform == "win32":
+        sys.path.insert(0, _LIB)
+    else:
+        sys.path.append(_LIB)
 
 SERVICE = "c2550000-3e2d-66b1-8a4f-d5037c2b419e"
 REQUEST = "c2550001-3e2d-66b1-8a4f-d5037c2b419e"

@@ -46,7 +46,7 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   (every connected device), `padhub.c` (Linux UHID bridge for the dongle's
   hub, `tools/padhub.md`), `sdlpad.c` (what SDL sees), `linkbench.py`,
   `buildcommits.sh` (build a range of commits, for bisecting),
-  `padtool_dist.py` (`make padtool_dist`: the Windows zip of padtool, bleak,
+  `padtool_dist.py` (`make padtool_dist`: the Windows and Linux zip of padtool, bleak,
   the RAM loaders and every board's firmware).
 - `external/`: the SDKs and BTstack as submodules, `fetch-toolchains.sh` for
   the compilers.  BTstack is our fork of upstream plus bug fixes only.

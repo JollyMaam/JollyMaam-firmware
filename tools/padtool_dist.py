@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""Package padtool for Windows: make padtool_dist.
+"""Package padtool for Windows and Linux: make padtool_dist.
 
     tools/padtool_dist.py --build build --version ID --out build/padtool-ID.zip
 
 The zip holds padtool (CLI and GUI, without its tests), the Jieli RAM
 loaders the GUI's flasher needs (br23loader.bin, bd19loader.bin, beside
-padflash.py, where it looks first), bleak and its WinRT backend for 64-bit
-Windows Python 3.11-3.14 (padtool/lib, which padble puts on the path on
-Windows), and every board's firmware from the build.  bleak comes from PyPI
+padflash.py, where it looks first), bleak with its WinRT backend for 64-bit
+Windows and its BlueZ one (dbus_fast) for x86-64 Linux, Python 3.11-3.14
+(padtool/lib, which padble puts on the path: on Linux after the system's
+own), and every board's firmware from the build.  bleak comes from PyPI
 through uv (cross-platform resolution; pip judges the markers by this
 machine), cached in the build directory.
 
-Python itself is not included: python.org's 64-bit installer, with Tk."""
+Python itself is not included: on Windows python.org's 64-bit installer,
+with Tk."""
 import argparse
 import filecmp
 import os
@@ -24,7 +26,8 @@ import zipfile
 ROOT = Path(__file__).resolve().parent.parent
 BLEAK = "bleak==2.1.1"            # the version padble was tested with (BlueZ)
 PYTHONS = ["3.11", "3.12", "3.13", "3.14"]   # 3.10 gets an older winrt, other files
-PLATFORM = "x86_64-pc-windows-msvc"
+PLATFORMS = {"win": "x86_64-pc-windows-msvc", "linux": "x86_64-unknown-linux-gnu"}
+COMPILED = (".pyd", ".so")
 SDK = ROOT / "external" / "jieli-fw-AC63_BT_SDK"
 LOADERS = [SDK / "cpu" / "br23" / "tools" / "br23loader.bin", SDK / "cpu" / "bd19" / "tools" / "bd19loader.bin"]
 # Board build directory: the files a user flashes (firmware.img/.bin through
@@ -49,7 +52,7 @@ sys.path.insert(0, os.path.dirname(gui))
 sys.argv[0] = gui{extra}
 runpy.run_path(gui, run_name="__main__")
 """
-README = """padtool {version} for Windows
+README = """padtool {version} for Windows and Linux
 
 Needs 64-bit Python 3.11 to 3.14 from python.org (with "tcl/tk" and the
 "py launcher", both on by default).  Nothing to install: bleak, for
@@ -65,6 +68,11 @@ Bluetooth, is in padtool\\lib.
 Bluetooth: hold Home+M on the pad for 3 seconds (config mode), then
 Refresh in the GUI, or put --ble after a command:  padtool.cmd get --ble
 
+Linux (x86-64, Python 3.11 to 3.14; the GUI needs tkinter): the same files,
+  python3 padgui.pyw  and  python3 padtool/padtool.py --help
+padtool\\lib's bleak is used when the system has none.  BlueZ and
+permission for the tool devices (padtool/README.md) as for a checkout.
+
 firmware\\<board>\\ holds this build's firmware:
   update.bin     padtool.cmd update firmware\\<board>\\update.bin
                  (a pad or dongle already running this firmware, on USB)
@@ -75,31 +83,37 @@ padtool\\README.md has the rest.
 """
 
 
-def bleak_for(version, cache):
-    """bleak and its WinRT backend for one Windows Python, installed into
+def bleak_for(platform, version, cache):
+    """bleak and its backend for one Python on one platform, installed into
     the cache once."""
-    target = cache / f"cp{version.replace('.', '')}"
+    target = cache / platform / f"cp{version.replace('.', '')}"
     if not (target / "bleak").is_dir():
         uv = shutil.which("uv")
         if not uv:
-            sys.exit("padtool_dist: needs uv to fetch bleak for Windows (nix-shell -p uv, or pip install uv)")
+            sys.exit("padtool_dist: needs uv to fetch bleak (nix-shell -p uv, or pip install uv)")
         shutil.rmtree(target, ignore_errors=True)
-        subprocess.run([uv, "pip", "install", "--quiet", "--python-platform", PLATFORM, "--python-version", version,
+        subprocess.run([uv, "pip", "install", "--quiet", "--python-platform", PLATFORMS[platform], "--python-version", version,
                         "--only-binary", ":all:", "--target", str(target), BLEAK], check=True)
     return target
 
 
-def compiled(folder):
-    return {p.relative_to(folder) for p in folder.rglob("*.pyd")}
-
-
-def same_but_compiled(a, b):
-    """The two trees are the same but for their .pyd files (and the wheels'
-    records, which name them)."""
-    files = lambda f: {p.relative_to(f) for p in f.rglob("*") if p.is_file() and p.suffix != ".pyd"
-                       and "__pycache__" not in p.parts and not p.parts[len(f.parts)].endswith(".dist-info")}
-    fa, fb = files(a), files(b)
-    return fa == fb and all(filecmp.cmp(a / p, b / p, shallow=False) for p in fa)
+def merge(trees, lib):
+    """The trees in one: each Python's compiled modules side by side (their
+    names carry the version and platform), every other file once, the same
+    in every tree that has it.  The wheels' records are left out (they name
+    one tree's compiled modules)."""
+    for t in trees:
+        for f in sorted(t.rglob("*")):
+            rel = f.relative_to(t)
+            if not f.is_file() or "__pycache__" in rel.parts or rel.parts[0].endswith(".dist-info"):
+                continue
+            dest = lib / rel
+            if dest.exists():
+                if f.suffix not in COMPILED and not filecmp.cmp(f, dest, shallow=False):
+                    sys.exit(f"padtool_dist: {rel} differs between {trees[0]} and {t}")
+                continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(f, dest)
 
 
 def main():
@@ -122,18 +136,8 @@ def main():
             sys.exit(f"padtool_dist: no {f} (git submodule update --init external/jieli-fw-AC63_BT_SDK)")
         shutil.copy2(f, tool / f.name)
 
-    # One tree of bleak and winrt, and each Python's own compiled module.
     cache = a.build / "padtool-dist" / "wheels"
-    trees = [bleak_for(v, cache) for v in PYTHONS]
-    for t in trees[1:]:
-        if not same_but_compiled(trees[0], t):
-            sys.exit(f"padtool_dist: {t.name} differs from {trees[0].name} beyond its .pyd files")
-    lib = tool / "lib"
-    shutil.copytree(trees[0], lib, ignore=shutil.ignore_patterns("__pycache__", "*.pyd"))
-    for t in trees:
-        for rel in compiled(t):
-            (lib / rel).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(t / rel, lib / rel)
+    merge([bleak_for(p, v, cache) for p in PLATFORMS for v in PYTHONS], tool / "lib")
 
     for board, names in BOARDS.items():
         for name in names:
