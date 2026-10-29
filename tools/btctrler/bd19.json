@@ -205,6 +205,14 @@
       ]
     },
     {
+      "member": "h4_usb_interface.c.o",
+      "occurrence": 1,
+      "sha256": "2af2757bc3d18de29f734545e3f36646419139eab2cad5c012a13634a8579b62",
+      "sources": [
+        "src/btctrler/bd19/h4_usb_interface.c"
+      ]
+    },
+    {
       "member": "hci_controller.c.o",
       "occurrence": 1,
       "sha256": "c077ec3c2f015655f1fdf1ea2388828aebe6609d2ee32a004d6304037b73c0e8",

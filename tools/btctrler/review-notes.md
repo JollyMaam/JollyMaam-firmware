@@ -2205,3 +2205,57 @@ functions,96 globals,951 verified archive index entries. All123 original BR23
 C files match44d0073. Worker and three dependency statuses were clean; merged
 ancestry verified. Completed worktree/branch deleted. No pending worker at
 this checkpoint; no application-image or hardware validation.
+
+## Clean-branch BD19 HCI USB transport acceptance
+
+Reviewed worker `2c7d5f9` on base `9b0f6d4`, completed corrections and host
+fixtures in its isolated worktree. Pinned `h4_usb_interface.c.o` occurrence1,
+SHA-256 `2af2757bc3d18de29f734545e3f36646419139eab2cad5c012a13634a8579b62`.
+Dedicated source recovers all28 function identities; sole public function
+hci_transport_usb_instance returns the private H2_MUSB transport. Public arrays
+hci_encryption_change(3 bytes08/04/00) and smp_encryption_information(9 bytes)
+retain .hci_interface_const/align1. All six globals, including private transport,
+8244-byte zero handle/.hci_interface_bss/align4, packet-handler callback/
+.hci_interface_data/align4 and six-byte ISO table/.hci_interface_const/align1,
+match exact initializers/sections/linkage/alignment. All47 byte strings match.
+Eleven mapped type shapes agree. All functions .hci_interface_code except
+cpu_reset; USB IRQ retains interrupt attribute. Endpoint init is explicitly
+noinline so all original helper/diagnostic boundaries remain reviewable.
+
+Coordinator corrections include runtime IRQ declaration byte ABI, polling
+until bit15 set, TX CSR17/18 and RX20/21, direction bit128, count base0x1e1808
+and32-bit stride with original mixed volatile/nonvolatile stores; byte-aligned
+setup/ACL halfwords; volatile32 atomic reads and csync ordering; single saved
+volatile EP0 state,8-bit SCO delivered length, full multi-chunk blocking send
+with per-chunk deadline, idle/error/timeout returns and clear-before-log order;
+class/vendor dispatch and null callbacks, setup ACK/descriptor/feature edge
+cases, SET_INTERFACE value reload after ACK and cached logging gate, cached
+packet lengths and post-hook ring/handler reloads, and complete SDK logs.
+Corrected draft errors are not SDK bugs. Every original body and normalized
+compiled target body reviewed. Remaining IR differences are CFG/stack lifetime
+organization, equivalent arithmetic/GEPs, independent ordinary-load ordering,
+immutable const-log gate hoisting, noinline annotation, and compiler/legacy
+prototype annotations. No formal whole-program equivalence claim.
+
+Host fixture uses complete mocks, fake MMIO/count banks and a scripted indirect
+register layer; the actual target handshake, volatile accesses, register order,
+csync and interrupt attribute were checked against raw compiled IR separately.
+Checks cover table/open/DMA pointers/close, readiness stub, single and exact-full
+packet termination, multi-chunk draining/deadlines, timeout state, SCO ring wrap,
+idle/unknown types, deferred CMD2->1->0 and ACL/SCO delivery/backpressure,
+USB reset/descriptor/address/class/vendor/ISO setup, first-slot SCO TX indexing,
+callback/diagnostic mutation with cached lengths/log gates, SET_INTERFACE input
+reload after ACK,8-bit SCO length wrap and low-byte pending suspension test.
+ASan/UBSan with leak detection passes without unresolved-symbol suppression.
+These fixtures do not emulate USB electrical timing, DMA, or real interrupts.
+
+Census15 matching helpers/13 differing bodies informs C39; no previous owned
+C existed. Both BD19 and BR23 extra-source compiler builds pass, but the source
+still selects BD19 addresses and is admitted only for BD19. Existing123 BR23
+C files match44d0073; no shared header change or app fixes. C39/B82–B84 track
+sharing, readiness/send/handshake/timeout contracts, setup/receive bounds/ring
+policy, and likely first-slot TX SCO indexing defect. No app-image, physical
+USB or hardware validation. Full worker checks/census pass:214 : ok reports,
+12 legacy reports,31 tooling tests,both layouts,94 groups. Totals95 accepted,
+1091 unique public functions,98 globals;16 retained members/948 verified
+archive index entries.

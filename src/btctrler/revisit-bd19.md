@@ -105,6 +105,8 @@ against the eventual Nova 2 configuration and linked image.
 
 | C38 | `bd19/tws_task.c`, worker `a4826d1`, SDK occurrence1 `e6645497…ee46`: census12 reusable,2 matching bodies with boundary differences,23 changed,4 unique. BD19 moves UUID API to sync_call and adds quick-address/low-latency/power-saving APIs, different pair callees and task startup. | Keep whole-member ownership separate for now. Address/accessor and queue helpers are consolidation candidates after checked callee/IRQ/config boundaries. Local asm alias preserves low-latency i8 zeroext against generated bool declaration; do not narrow byte2 to false. |
 
+| C39 | `bd19/h4_usb_interface.c`, worker `2c7d5f9` plus coordinator completion/review, SDK occurrence1 `2af2757b…9b62`:15 SDK helper bodies match BR23;13 differ, including hardware/reset/endpoint/thread/IRQ paths. No prior C owner existed. Both compilers accept this dedicated source; it still uses BD19 hardware addresses. | Candidate common transport helpers after complete BR23 recovery and hardware selection review. Do not admit it to BR23 merely because compilation passes. Preserve private table ABI, interrupt attribute, six exact globals and separate shared descriptor owner. |
+
 ## Confirmed BD19 behavior to revisit
 
 Each row describes SDK behavior deliberately retained in accepted C. Fixes need
@@ -222,6 +224,10 @@ unestablished unless specifically stated.
 
 | B80 | `bd19/tws_task.c`, occurrence1 `e6645497…ee46`: generic API allocates84(result+80), ORs count0x300 and retries full queue indefinitely. Sem create/pend errors ignored; failed pend can return unwritten result. Detach frees its published semaphore on post error or40 full-queue retries without clearing sem_tws_detach, leaving dangling pointer; successful post clears it even after failed pend. | Audit allocation/reset/task-dispatch completion contracts and fix published-pointer lifetime in a separate application change. Confirm all callback owners before changing retry or synchronization policy. |
 | B81 | Same occurrence, pairing/send/lifecycle: both pair-by-BLE/code wrappers drop timeout and call same pair-by-code function. send_data_to_slave nests IRQ disable/enable and truncates int length to16bits; sibling total/header lengths wrap16bits while allocator gets full len+8. Task startup unconditionally clears196/80 target bytes; exit ignores pend error and kills after successful post, internal exit delays10000 after posting semaphore. | Establish caller bounds, IRQ nesting semantics and active-task lifetime; avoid importing BR23 application policy into faithful BD19 ownership. This confirms related inherited H20 observations; retain no-hardware limitation. |
+
+| B82 | `bd19/h4_usb_interface.c`, occurrence1 `2af2757b…9b62`: usb_can_send_packet_now always0; close only changes hardware registers. Blocking bulk/event send polls per chunk with unsigned start+2000 comparison, clearing working state on timeout; public send returns0 even if its blocking helper timed out. Indirect register handshake has no timeout and runs with IRQs disabled until bit15 sets. | Establish transport readiness/failure, reset/close/thread lifetime and wrap-safe timeout policy before application fixes. Host fixture bypasses indirect handshake; physical USB/IRQ timing remains untested. |
+| B83 | Same occurrence, setup and receive paths: unchecked alternate-setting index; unsupported string index uses undefined pointer/length; endpoint lookup can returnNULL and subsequent code dereferences it. GET_STATUS(endpoint) sends on that endpoint; SET_FEATURE only logs; zero-length reply paths preserve existing state. Unbounded RX copies subtract the hardware count with16-bit wrap; SCO rings overwrite without fullness checks. Thread SCO length wraps8bits after frame_size*3. | Audit host input, endpoint ownership, descriptor/feature contracts, lengths and queue backpressure. Keep undefined domains out of equivalence tests; add bounds/USB correctness changes separately. |
+| B84 | Same occurrence, usbd_irq_handler TX SCO path advances fifos_r_index but sends synchronous_fifos + frame_size*frame_offset, without including ring index*147. Raw GEP and fixture confirm first-slot addressing regardless of nonzero ring read index. | Likely SDK ring-addressing defect; verify intended ISO sequencing with USB traces/hardware before changing offset formula. This is distinct from fixed draft register-index/sign/polling mistakes, which are not active SDK defects. |
 
 ## Inherited BR23 follow-ups: BD19 confirmation queue
 
@@ -467,3 +473,5 @@ not absence of defects. See the earlier sections for cross-member issues.
 | `tws_sniff.c.o` / 1 | coordinator recovery after Luna stopped without usable code | C37; B77–B79; inherited BR23 #27 scope updated |
 
 | `tws_task.c.o` / 1 | worker `a4826d1` + coordinator review/fixtures | C38; B80–B81 |
+
+| `h4_usb_interface.c.o` / 1 | worker `2c7d5f9` + coordinator completion/review | C39; B82–B84 |
