@@ -730,6 +730,14 @@
       ]
     },
     {
+      "member": "tws_task.c.o",
+      "occurrence": 1,
+      "sha256": "e6645497c9bf55f0ce6e4d2ddafd0af97e067f033489d4d897c1245d6400ee46",
+      "sources": [
+        "src/btctrler/bd19/tws_task.c"
+      ]
+    },
+    {
       "member": "tws_tx_sync.c.o",
       "occurrence": 1,
       "sha256": "6d7850f03e1b0c8ff8942410e4493e9568a240c9817ca7a0e6863ccfdbc8779a",

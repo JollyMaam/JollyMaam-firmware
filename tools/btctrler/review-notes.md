@@ -2155,3 +2155,44 @@ functions,96 globals,987 verified archive index entries. All123 original BR23
 C files match44d0073. Worker and three dependency statuses were clean; merged
 ancestry verified. Completed worktree/branch deleted. No pending worker,
 application-image or hardware validation.
+
+## Clean-branch BD19 TWS task acceptance
+
+Reviewed worker `a4826d1` on base `b15970f`. Pinned `tws_task.c.o` occurrence1,
+SHA-256 `e6645497c9bf55f0ce6e4d2ddafd0af97e067f033489d4d897c1245d6400ee46`.
+Dedicated source supplies all41 identities,36 public functions and no public
+globals. All functions .classic_tws_code except unsectioned cpu_reset and
+cpu_in_irq; local-address hook remains weak. Sole private global quick-address
+six bytes35:27:2a:ae:85:9c/align1 and all seven strings match exactly.
+46 mapped type shapes agree. Low-latency export has exact i8 zeroext via local
+assembly alias despite generated bool header. UUID remains owned by sync_call.
+
+Coordinator corrected get_tws_state peer-link snapshot to follow connection
+lookup, packet header halfword alignment4, and host-safe sizeof state clears
+(target still196/80). Complete host fixture checks successful/error/full queue
+posts, original count flags/result+80/pointer words, unbounded API retries,
+40x5-tick detach/exit failure, dangling published semaphore, ignored semaphore
+errors, dropped pair timeouts/callee identities, IRQ/internal role semantics,
+LMP core state versus link state and lookup callback mutation, framing/channel18,
+int-to-u16 length truncation/nested IRQ, noncanonical byte2 low-latency enable,
+weak/address/channel/config APIs, exact startup order and queue13 dispatch,
+internal cancel order/semaphore/delay10000 and key event value. Finite task
+execution uses test-only longjmp; serialized32-bit pointer words are checked
+as values and not reconstructed as native host pointers. Semaphores are opaque
+mocks. ASan/UBSan and leak detection pass without unresolved-symbol suppression.
+
+Every changed/raw body and normalized target body reviewed; reusable bodies
+checked against existing baseline C and target boundary. Remaining differences
+are loop/guard organization, equivalent16-bit arithmetic, layout-proven GEPs,
+ordinary independent operation reordering, stack lifetimes, compiler annotations
+and legacy unspecified-argument declarations. CPU ICFG assembly/mask255 matches.
+No shared header or original BR23 source changed. Extra-source BR23 build is
+unsupported due target API/layout differences; actual BR23 source set builds,
+and all123 original C files remain byte-identical to44d0073. C38/B80–B81 track
+sharing/byte ABI, semaphore lifetime and ignored errors, retry/timeout/payload
+bounds and lifecycle/IRQ contracts. No app-image or hardware validation, and
+host/layout/symbol checks are not formal whole-program equivalence proof.
+
+Full worker checks/census pass:213 : ok reports,12 legacy reports,31 tooling
+tests,both layouts,93 groups. Totals94 accepted/1090 public functions/96 globals;
+17 retained members/951 verified index entries. Focused sanitizer exit0.
