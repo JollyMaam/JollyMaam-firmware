@@ -171,6 +171,9 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   `PATH_STATS`, `LOG_LINES`/`LOG_TEXT` (log size), `USB_SESSION_TEST_MS`,
   `STAY_ON_TEST`, `JACK_FLIP_TEST`, `BOOT_HANG_TEST` (8BitDo: a start-up
   hang for the updater's start count).  Grep for each to see what it does.
+  The 8BitDo's test builds take make variables instead: `U2CW_PROFILE=1`
+  (`padtool profile`) or `U2CW_PROBE_EDGES=8` (`padtool latency`), one at a
+  time.
 - A device that does not come up after flashing: the ROM loader is the way
   back (per-board docs).  Before asking the user for a loader cycle, prepare
   the next experiment so one cycle answers the question.

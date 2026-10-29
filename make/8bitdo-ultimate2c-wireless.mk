@@ -41,6 +41,16 @@ $(U2CW_PAD)_DEFINES += -DPROBE_EDGES=$(U2CW_PROBE_EDGES)
 ifneq ($(U2CW_PROBE_EDGES),0)
 $(U2CW_PAD)_DEFINES += -DPROBE_IN_DATA
 endif
+# The sampling profiler (padtool profile) is off too: its ring takes the
+# same spare RAM, for test builds (make ... U2CW_PROFILE=1).
+U2CW_PROFILE ?= 0
+U2CW_PROFILE_RING ?= 44
+ifneq ($(U2CW_PROFILE),0)
+ifneq ($(U2CW_PROBE_EDGES),0)
+$(error U2CW_PROFILE and U2CW_PROBE_EDGES share the spare RAM: one at a time)
+endif
+$(U2CW_PAD)_DEFINES += -DPROF_RING=$(U2CW_PROFILE_RING)
+endif
 $(U2CW_PAD)_DEFINES += -DREMAPS_STORED=4
 $(U2CW_PAD)_DEFINES += -DREMAP_RULES=8
 $(U2CW_PAD)_DEFINES += -DRECORD_MAX=152

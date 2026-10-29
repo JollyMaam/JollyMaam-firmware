@@ -67,7 +67,8 @@
                                   sample where the CPU runs for SECONDS (10) at
                                   N per second (2000); per function, from the ELF's
                                   DWARF (needs pyelftools); ZOOM: only flash from
-                                  that hex address, in 1 << SHIFT (2) byte buckets
+                                  that hex address, in 1 << SHIFT (2) byte buckets;
+                                  the 8BitDo: a U2CW_PROFILE=1 build, no ZOOM
     padtool peek ADDR [WORDS]     32-bit words from a (hex) address: registers
     padtool trace [-w SECONDS] [--top N]   record the timing markers (0.5 s),
                                   print the last N and the pull round trips
@@ -131,7 +132,7 @@ from padtransport import scsi, device_paths, usb_location, data_max, is_tool, to
 import padble
 import padcurves
 import padremap
-from padknown import CHIPS
+from padknown import BUILDS, CHIPS
 import padhid
 if sys.platform == "linux":
     import fcntl
@@ -419,8 +420,26 @@ def functions(elf):
                     continue
                 lo, hi = at["DW_AT_low_pc"].value, at["DW_AT_high_pc"]
                 hi = hi.value if hi.form == "DW_FORM_addr" else lo + hi.value
-                name = at["DW_AT_name"].value.decode() if "DW_AT_name" in at else "?"
+                named = die
+                for link in ("DW_AT_abstract_origin", "DW_AT_specification"):
+                    if "DW_AT_name" not in named.attributes and link in named.attributes:
+                        named = named.get_DIE_from_attribute(link)
+                name = named.attributes["DW_AT_name"].value.decode() if "DW_AT_name" in named.attributes else "?"
                 out.append((lo, hi, name, unit))
+        # library code without debug information (the Telink SDK's): its
+        # symbols, each up to the next
+        syms = sorted((sym["st_value"] & ~1, sym["st_size"], sym.name)
+                      for sym in (ELFFile(f).get_section_by_name(".symtab") or []).iter_symbols()
+                      if sym["st_info"]["type"] == "STT_FUNC")
+    out.sort()
+    lows = [o[0] for o in out]
+    import bisect
+    for i, (lo, size, name) in enumerate(syms):
+        k = bisect.bisect_right(lows, lo) - 1
+        if k >= 0 and out[k][0] <= lo < out[k][1]:
+            continue
+        nxt = syms[i + 1][0] if i + 1 < len(syms) else lo + max(size, 2)
+        out.append((lo, lo + size if size else nxt, name, "(no debug information)"))
     out.sort()
     return out
 
@@ -454,19 +473,60 @@ def unit_group(unit):
     for key, name in (("/btctrler/", "controller"), ("port/br23/baseband", "controller"),
                       ("external/bluekitchen-btstack/", "btstack"), ("/usb/", "usb (sdk)"),
                       ("crypto_toolbox", "crypto (sdk)"), ("/FreeRTOS", "os"), ("/lib/system/", "os"),
-                      ("/lib/driver/", "drivers (sdk)"), ("external/jieli-fw-AC63_BT_SDK/", "sdk app code")):
+                      ("/lib/driver/", "drivers (sdk)"), ("external/jieli-fw-AC63_BT_SDK/", "sdk app code"),
+                      ("external/telink-tc_ble_simple_sdk/", "sdk"), ("(no debug information)", "sdk library")):
         if key in u:
             return name
     return "app " + u.rsplit("/", 1)[-1]
 
 
+def profile_stream(path, seconds, first):
+    """A board that streams (version 2, the 8BitDo): its ring of addresses is
+    read as it fills, for seconds.  Address counts, samples, lost."""
+    seen = collections.Counter()
+    last = (0, 0)
+
+    def take(d):
+        nonlocal last
+        _, _, made, lost, n = struct.unpack_from("<HHIII", d)
+        for v in struct.unpack_from(f"<{n}H", d, 16):
+            seen[None if v == 0xFFFF else v << 2] += 1
+        last = (made, lost)
+        return n
+
+    take(first)
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        take(cmd(path, 0x14, 0, 512))
+    cmd(path, 0x14, 2)
+    while take(cmd(path, 0x14, 0, 512)):
+        pass
+    return seen, last[0], last[1]
+
+
 def profile(path, seconds, hz, top, elf, zoom=None, by=None):
     import bisect
+    if elf is None:                          # the device's own build
+        pid = cmd(path, 0x00, length=56)[40:56].split(b"\0")[0].decode()
+        elf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build",
+                           BUILDS.get(pid, "gamesir-cyclone-2-" + BOARD), "app.elf")
     zoom_base, zoom_shift = zoom or (0, 0)
     scsi(path, [OP, 0x14, 1, hz & 0xff, hz >> 8] + list(struct.pack("<I", zoom_base)) + [zoom_shift], 0)
-    time.sleep(seconds)
-    cmd(path, 0x14, 2)
-    h = read_profile(path)
+    first = cmd(path, 0x14, 0, 512)
+    spans = []                               # (address, bytes, samples)
+    if len(first) >= 16 and struct.unpack_from("<H", first)[0] == 2:
+        seen, made, lost = profile_stream(path, seconds, first)
+        h = {"samples": sum(seen.values()), "other": seen.pop(None, 0), "saturated": 0, "other_pc": []}
+        spans = [(a, 4, n) for a, n in seen.items()]
+        print(f"{made + lost} taken, {lost} lost: the ring filled before it was read")
+    else:
+        time.sleep(seconds)
+        cmd(path, 0x14, 2)
+        h = read_profile(path)
+        for name in ("flash", "ram", "rom"):
+            base, shift = h[name + "_begin"], h[name + "_shift"]
+            spans += [(base + (i << shift), 1 << shift, n) for i, n in enumerate(h[name]) if n and name != "rom"]
+            spans += [(i << shift, -1, n) for i, n in enumerate(h[name]) if n and name == "rom"]   # ROM: offsets
     funcs = functions(elf)
     lows = [f[0] for f in funcs]
     per = collections.Counter()
@@ -474,38 +534,38 @@ def profile(path, seconds, hz, top, elf, zoom=None, by=None):
     if by == "line":
         rows = line_table(elf)
         raddr = [r[0] for r in rows]
-    for name in ("flash", "ram", "rom"):
-        base, shift = h[name + "_begin"], h[name + "_shift"]
-        for i, n in enumerate(h[name]):
-            if not n:
+    for a, size, n in spans:
+        if size < 0:
+            per[f"rom+{a:#06x}"] += n
+            continue
+        if by == "line":
+            # the sample address is where the interrupt returns: the line
+            # of the instruction before it; code without lines by its function
+            at = a + size // 2 - 1
+            f = bisect.bisect_right(lows, at) - 1
+            if f >= 0 and funcs[f][0] <= at < funcs[f][1] and funcs[f][3] == "(no debug information)":
+                per[funcs[f][2]] += n
                 continue
-            a = base + (i << shift)
-            if name == "rom":
-                per[f"rom+{a - base:#06x}"] += n
-                continue
-            if by == "line":
-                # the sample address is where the interrupt returns: the line
-                # of the instruction before it
-                k = bisect.bisect_right(raddr, a + (1 << shift) // 2 - 1) - 1
-                per[rows[k][1] if k >= 0 else f"{a:#x}"] += n
-                continue
-            # a bucket's samples go to the functions it overlaps, by overlap
-            end = a + (1 << shift)
-            parts = []
-            k = bisect.bisect_right(lows, a) - 1
-            k = max(k, 0)
-            while k < len(funcs) and funcs[k][0] < end:
-                lo, hi = funcs[k][0], funcs[k][1]
-                o = min(hi, end) - max(lo, a)
-                if o > 0:
-                    parts.append((o, key(funcs[k])))
-                k += 1
-            if not parts:
-                per[f"{a:#x}"] += n
-                continue
-            span = sum(o for o, _ in parts)
-            for o, fn in parts:
-                per[fn] += n * o / span
+            k = bisect.bisect_right(raddr, at) - 1
+            per[rows[k][1] if k >= 0 else f"{a:#x}"] += n
+            continue
+        # a bucket's samples go to the functions it overlaps, by overlap
+        end = a + size
+        parts = []
+        k = bisect.bisect_right(lows, a) - 1
+        k = max(k, 0)
+        while k < len(funcs) and funcs[k][0] < end:
+            lo, hi = funcs[k][0], funcs[k][1]
+            o = min(hi, end) - max(lo, a)
+            if o > 0:
+                parts.append((o, key(funcs[k])))
+            k += 1
+        if not parts:
+            per[f"{a:#x}"] += n
+            continue
+        span = sum(o for o, _ in parts)
+        for o, fn in parts:
+            per[fn] += n * o / span
     if zoom:
         print(f"flash window {zoom_base:#x} + {4096 << zoom_shift:#x} bytes in {1 << zoom_shift}-byte buckets")
     total = max(h["samples"], 1)
@@ -513,7 +573,7 @@ def profile(path, seconds, hz, top, elf, zoom=None, by=None):
           f"{h['other']} outside the known code, {h['saturated']} lost to full buckets")
     for name, n in per.most_common(top):
         print(f"{100 * n / total:6.2f} %  {n:7.0f}  {name}")
-    if h["other"]:
+    if any(h["other_pc"]):
         print("outside: " + " ".join(f"{a:#x}" for a in h["other_pc"] if a))
 
 
@@ -1840,7 +1900,7 @@ def main():
     p.add_argument("--top", type=int, default=40, help="profile: functions to show")
     p.add_argument("--by", choices=["file", "group", "line"],
                    help="profile: add up per source file, per part, or per source line (zoom first)")
-    p.add_argument("--elf", help="profile: the running build's ELF (default: selected board's build)")
+    p.add_argument("--elf", help="profile: the running build's ELF (default: the device's build in build/)")
     p.add_argument("--period", type=int, default=20, help="latency: one A edge per this many ms")
     p.add_argument("--throughput", action="store_true",
                    help="latency: A flips in every report the pad sends: the most reports per second")
@@ -1857,8 +1917,6 @@ def main():
         if BOARD != "pad" or a.command in BLE_NOT:
             p.error(f"{a.command} does not work over Bluetooth{' (a dongle has no config mode)' if BOARD != 'pad' else ''}")
         DEVICE = "ble:" + a.ble
-    if a.elf is None:
-        a.elf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build", "gamesir-cyclone-2-" + BOARD, "app.elf")
     if BOARD == "dongle" and a.command in {
         "stats", "latency", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "relink", "connect", "disconnect", "config", "fields", "get", "set", "reset",
         "backup-settings", "restore-settings", "factory-reset", "keep",

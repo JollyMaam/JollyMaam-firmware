@@ -3,7 +3,8 @@
 
     stackdepth.py [--tools DIR] [--show NAME]... ELF [RULE]...
 
-Each function's frame is what its prologue pushes plus its "tsub sp"; its
+Each function's frame is what it pushes before its first branch plus its
+"tsub sp"; its
 callees are its tjl calls and its tail jumps into other functions.  The main
 thread starts at main and has the RAM from the end of .bss to the top of
 SRAM; interrupts start at __irq and have the SDK's irq_stk.  Prints the
@@ -50,7 +51,7 @@ for line in tool('tc32-elf-objdump', '-d', args.elf).splitlines():
     if not m or cur is None:
         continue
     op, arg = m.groups()
-    if op not in ('tpush', 'tmov', 'tmrss'):
+    if op.startswith('tj'):
         cur['prologue'] = False
     if op == 'tpush' and cur['prologue']:
         cur['frame'] += 4 * len(re.findall(r'r\d+|lr', arg))

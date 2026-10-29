@@ -204,7 +204,92 @@ u32 plat_peek(u32 addr, u8 *out, u32 max)
     return n;
 }
 
-/* No sampling profiler on this chip. */
+/* ---- sampling profiler ---------------------------------------------------
+ * Test builds only (PROF_RING): no RAM for counts, so timer 1 drops each
+ * interrupted address into a ring in the spare .data below the cache tags,
+ * and padtool profile drains it over USB as it fills (read: version 2, then
+ * the addresses).  The period is jittered against the connection events;
+ * code that runs with interrupts off is counted where it turns them on.
+ * Only the check for the timer is RAM code: the flash's own operations run
+ * with interrupts off, so the rest can stay in flash. */
+
+#ifdef PROF_RING
+#define PROF_VERSION 2
+
+static struct {
+    u32 head, tail, lost, period;        /* addresses [tail, head) not read yet */
+    u16 hz, rng;
+    u16 pc[PROF_RING];                   /* address >> 2: all code is below 0x40000 */
+} prof __attribute__((section(".data")));
+
+/* __irq (cstartup_flash.S) pushes the address it returns to first, then 56
+ * bytes more, and calls here: that address is the code interrupted. */
+__asm__(".section .ram_code,\"ax\",%progbits\n"
+        "\t.align 2\n\t.global irq_handler\n\t.code 16\n\t.tc32_func\n"
+        "\t.type irq_handler, %function\n"
+        "irq_handler:\n"
+        "\ttmov r0, sp\n"
+        "\ttloadr r0, [r0, #56]\n"
+        "\ttpush {lr}\n"
+        "\ttjl prof_irq\n"
+        "\ttpop {pc}\n"
+        "\t.size irq_handler, .-irq_handler\n"
+        "\t.text\n");
+
+static __attribute__((noinline)) void prof_sample(u32 pc)
+{
+    reg_tmr_sta = FLD_TMR_STA_TMR1;
+    prof.rng = (u16)((prof.rng >> 1) ^ (-(prof.rng & 1u) & 0xb400u));
+    reg_tmr1_capt = prof.period + (prof.rng & 0x3ff);
+    if (prof.head - prof.tail < PROF_RING)
+        prof.pc[prof.head++ % PROF_RING] = (u16)(pc < 0x40000 ? pc >> 2 : 0xffff);
+    else
+        prof.lost++;
+}
+
+_attribute_ram_code_ void prof_irq(u32 pc)
+{
+    if (reg_tmr_sta & FLD_TMR_STA_TMR1) prof_sample(pc);
+    blc_sdk_irq_handler();
+}
+
+void plat_prof_start(u16 hz, u32 zoom, u8 zoom_shift)
+{
+    (void)zoom;
+    (void)zoom_shift;
+    timer_stop(TIMER1);
+    reg_irq_mask &= ~FLD_IRQ_TMR1_EN;
+    if (!hz) return;
+    if (hz < 400) hz = 400;
+    prof.head = prof.tail = prof.lost = 0;
+    prof.rng = 0xace1u;
+    prof.hz = hz;
+    prof.period = CLOCK_SYS_CLOCK_HZ / hz - 512;
+    timer1_set_mode(TIMER_MODE_SYSCLK, 0, prof.period);
+    timer_start(TIMER1);
+}
+
+/* u16 version, u16 hz, u32 addresses so far, u32 lost, u32 count, then count
+ * u16 addresses >> 2 (0xffff: elsewhere), the oldest unread first; reading
+ * them frees their room. */
+u32 plat_prof_read(u32 offset, u8 *out, u32 max)
+{
+    u32 head = prof.head, tail = prof.tail, n = 0;
+
+    (void)offset;
+    if (max < 16) return 0;
+    for (; tail != head && 16 + 2 * (n + 1) <= max; n++, tail++)
+        util_put16(out + 16 + 2 * n, prof.pc[tail % PROF_RING]);
+    prof.tail = tail;
+    util_put16(out, PROF_VERSION);
+    util_put16(out + 2, prof.hz);
+    util_put32(out + 4, head);
+    util_put32(out + 8, prof.lost);
+    util_put32(out + 12, n);
+    return 16 + 2 * n;
+}
+#else
+/* No profiler in this build (PROF_RING). */
 void plat_prof_start(u16 hz, u32 zoom, u8 zoom_shift)
 {
     (void)hz;
@@ -219,6 +304,7 @@ u32 plat_prof_read(u32 offset, u8 *out, u32 max)
     (void)max;
     return 0;
 }
+#endif
 
 /* ---- resets -------------------------------------------------------------- */
 
@@ -263,10 +349,12 @@ void plat_reboot_loader(void)
 
 /* ---- start-up ------------------------------------------------------------ */
 
+#ifndef PROF_RING
 _attribute_ram_code_ void irq_handler(void)
 {
     blc_sdk_irq_handler();
 }
+#endif
 
 int main(void)
 {
