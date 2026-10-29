@@ -156,33 +156,35 @@ u16 plat_battery_mv(void)
     return 0;                            /* not read yet */
 }
 
-/* The hold releases the supply completely, so no retention register keeps
- * the selected slot through battery sleep. Settings use keys 1..28; key 63
- * is the platform's last-slot record in the same compacting flash log. */
-#define LAST_SLOT_KEY 63
-static u8 retained_slot = SLOT_NONE, retained_loaded;
+/* The SDK's 32k-RC sleep entry stops the 32k watchdog through this (from
+ * its drivers/watchdog.c, whose RAM-code copies we do not link: RAM is
+ * full and the code runs from flash). */
+__attribute__((section(".text.wd_32k_stop"))) void wd_32k_stop(void)
+{
+    analog_write(0x70, analog_read(0x70) & 0xfe);
+}
+
+/* ---- the last slot: two analog registers, kept through deep sleep --------
+ * Sleep is deep sleep with the battery hold kept (board_power_off); these
+ * registers survive it but not a power loss (DEEP_ANA_REG9/10, pm.h), so a
+ * flat battery forgets the slot.  Their power-on values (0x00, 0xff) must
+ * not read as slot A: the check is the complement xor 0x5a. */
+#define SLOT_REG       0x38
+#define SLOT_CHECK_REG 0x39
+#define SLOT_CHECK(s)  ((u8)(~(s) ^ 0x5a))
 
 u8 plat_retained_slot(void)
 {
-    u8 record[4];
+    u8 slot = analog_read(SLOT_REG);
 
-    if (!retained_loaded) {
-        retained_loaded = 1;
-        if (plat_store_read(LAST_SLOT_KEY, record, sizeof(record)) == sizeof(record) &&
-            record[0] == 'S' && record[1] == 1 && record[2] < SLOTS &&
-            record[3] == (u8)~record[2]) retained_slot = record[2];
-    }
-    return retained_slot;
+    return slot < SLOTS && analog_read(SLOT_CHECK_REG) == SLOT_CHECK(slot) ? slot : SLOT_NONE;
 }
 
 void plat_retain_slot(u8 slot)
 {
-    u8 record[4] = { 'S', 1, slot, (u8)~slot };
-
-    if (slot >= SLOTS || slot == plat_retained_slot()) return;
-    if (plat_store_write(LAST_SLOT_KEY, record, sizeof(record)) == sizeof(record))
-        retained_slot = slot;
-    else util_log("slot: could not save last selection");
+    if (slot >= SLOTS) return;
+    analog_write(SLOT_REG, slot);
+    analog_write(SLOT_CHECK_REG, SLOT_CHECK(slot));
 }
 
 /* 32-bit words from addr: SRAM 0x840000-0x843fff, registers from 0x800000;

@@ -40,11 +40,13 @@ $(U2CW_PAD)_DEFINES += -DSLOTS_STORED=4
 U2CW_CPU_HZ ?= 48000000
 $(U2CW_PAD)_DEFINES += -DCLOCK_SYS_CLOCK_HZ=$(U2CW_CPU_HZ)
 # The latency probe (padtool latency) is off: its ring fits only in the
-# spare RAM in .data, for test builds (make ... U2CW_PROBE_EDGES=6).
+# spare RAM in .data, for test builds (make ... U2CW_PROBE_EDGES=6), which
+# power off instead of deep sleep to make the room (the last slot is then
+# lost in sleep).
 U2CW_PROBE_EDGES ?= 0
 $(U2CW_PAD)_DEFINES += -DPROBE_EDGES=$(U2CW_PROBE_EDGES)
 ifneq ($(U2CW_PROBE_EDGES),0)
-$(U2CW_PAD)_DEFINES += -DPROBE_IN_DATA
+$(U2CW_PAD)_DEFINES += -DPROBE_IN_DATA -DNO_DEEP_SLEEP
 endif
 # The sampling profiler (padtool profile) is off too: its ring takes the
 # same spare RAM, for test builds (make ... U2CW_PROFILE=1).
@@ -54,7 +56,7 @@ ifneq ($(U2CW_PROFILE),0)
 ifneq ($(U2CW_PROBE_EDGES),0)
 $(error U2CW_PROFILE and U2CW_PROBE_EDGES share the spare RAM: one at a time)
 endif
-$(U2CW_PAD)_DEFINES += -DPROF_RING=$(U2CW_PROFILE_RING)
+$(U2CW_PAD)_DEFINES += -DPROF_RING=$(U2CW_PROFILE_RING) -DNO_DEEP_SLEEP
 endif
 $(U2CW_PAD)_DEFINES += -DREMAPS_STORED=4
 $(U2CW_PAD)_DEFINES += -DREMAP_RULES=8
