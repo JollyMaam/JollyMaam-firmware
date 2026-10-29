@@ -3,8 +3,8 @@
 
 /* 8BitDo Ultimate 2C Wireless: a Telink TLSR8208 (B80).  Pins are in
  * docs/8bitdo-ultimate2c-wireless/README.md.  The scanners run from the
- * platform's wait loop, each in one go when due: the matrix in about 100 us,
- * the six ADC channels in about 0.6 ms.  A step per pass of the loop made a
+ * platform's wait loop, each in one go when due: the matrix in about 20 us,
+ * the six ADC channels in about 0.3 ms.  A step per pass of the loop made a
  * matrix scan take up to 64 ms with a busy link (the debounce dropped quick
  * taps), and the sticks were older still. */
 
@@ -42,7 +42,9 @@ const struct board_slots board_slots = {
 
 #define ROWS 4
 #define COLUMNS 5
-#define ROW_SETTLE_US 20
+/* A held key's column reads the same with 1 us as with 20 us, and its
+ * neighbour in the next row never ghosted: 2 us. */
+#define ROW_SETTLE_US 2
 #define SCAN_GAP_US 1000             /* from one full scan to the next */
 #define DEBOUNCE_SCANS 2             /* a release: up this many scans in a row */
 
@@ -134,7 +136,9 @@ static u32 matrix_poll(void)
 /* ---- sticks and triggers: six ADC channels in turn ----------------------- */
 
 #define AXES 6
-#define MUX_SETTLE_US 50
+/* With no settling at all, R2 read 2 codes low next to a fully pulled L2
+ * (1650 codes away), at rest within the noise: 5 us. */
+#define MUX_SETTLE_US 5
 #define SAMPLE_TIMEOUT_US 1000       /* the four samples take about 42 us */
 #define SWEEP_GAP_US 1000            /* from one sweep to the next */
 #define MOVED 16                     /* codes an axis moves to wake the loop; rest noise is ~2 */
