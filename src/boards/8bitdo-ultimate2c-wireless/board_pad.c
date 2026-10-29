@@ -2,9 +2,11 @@
 #include "board.h"
 
 /* 8BitDo Ultimate 2C Wireless: a Telink TLSR8208 (B80).  Pins are in
- * docs/8bitdo-ultimate2c-wireless/README.md.  The scanner runs a step at a
- * time from the platform's wait loop and never waits: a matrix row settles
- * while other work runs, as does each ADC channel after the mux moves. */
+ * docs/8bitdo-ultimate2c-wireless/README.md.  The scanner runs from the
+ * platform's wait loop: the ADC a step at a time, never waiting (a channel
+ * settles while other work runs after the mux moves); the matrix in one go
+ * when a scan is due, about 100 us.  A step per pass made a scan take up to
+ * 64 ms with a busy loop, and the debounce dropped quick taps. */
 
 const char board_name[] = "Ultimate 2C Wireless";
 
@@ -59,8 +61,6 @@ static const u32 keys[ROWS][COLUMNS] = {
 };
 
 static struct {
-    u8 row, driving;
-    u32 tick;                        /* clock_time(): the row went low */
     u32 scanned;                     /* clock_time(): the last full scan ended */
     u32 reading;                     /* PAD_* this scan */
     u32 stable;                      /* debounced */
@@ -92,25 +92,19 @@ static void matrix_init(void)
 
 static u32 matrix_poll(void)
 {
-    u32 i, b, changed = 0;
+    u32 i, r, b, changed = 0;
 
-    if (!mx.driving) {
-        if (!mx.row && !clock_time_exceed(mx.scanned, SCAN_GAP_US)) return 0;
-        gpio_write(rows[mx.row], 0);
-        mx.tick = clock_time();
-        mx.driving = 1;
-        return 0;
+    if (!clock_time_exceed(mx.scanned, SCAN_GAP_US)) return 0;
+    for (r = 0; r < ROWS; r++) {
+        gpio_write(rows[r], 0);
+        sleep_us(ROW_SETTLE_US);
+        for (i = 0; i < COLUMNS; i++) {
+            if (gpio_read(columns[i])) continue;
+            mx.reading |= keys[r][i];
+            if (r == 3 && i == 3) mx.pair_reading = 1;
+        }
+        gpio_write(rows[r], 1);
     }
-    if (!clock_time_exceed(mx.tick, ROW_SETTLE_US)) return 0;
-    for (i = 0; i < COLUMNS; i++) {
-        if (gpio_read(columns[i])) continue;
-        mx.reading |= keys[mx.row][i];
-        if (mx.row == 3 && i == 3) mx.pair_reading = 1;
-    }
-    gpio_write(rows[mx.row], 1);
-    mx.driving = 0;
-    if (++mx.row < ROWS) return 0;
-    mx.row = 0;
     mx.scanned = clock_time();
     if (!gpio_read(HOME)) mx.reading |= PAD_HOME;
     for (i = 0; i < 32; i++) {
@@ -216,7 +210,6 @@ static void adc_poll(void)
     ad.phase = 0;
     ad.tick = clock_time();
 }
-
 
 /* ---- motors and lights ---------------------------------------------------
  * PWM at 24 kHz (silent for the motors), duty 0-1000; PF1 cannot take a

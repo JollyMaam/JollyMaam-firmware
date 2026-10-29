@@ -669,7 +669,7 @@ static s32 s2_abs(s32 v)
     return v < 0 ? -v : v;
 }
 
-static void s2_motion(u8 *out, const struct pad *p)
+static void s2_motion(u8 *out, const struct pad *p, u32 now)
 {
     u32 c[3];
     u16 sample, delta;
@@ -677,7 +677,9 @@ static void s2_motion(u8 *out, const struct pad *p)
     u8 *b = out + 1;             /* out[0]: block length */
 
     for (i = 0; i < p->imu_count; i++) s2_integrate(&p->imu[i], p->gyro_bias);
-    sample = (u16)((s2.last_us / 1250) & 0xfff);
+    /* A pad without motion samples still moves the timestamp on, so no two
+     * reports look like the same sample (now: plat_ms). */
+    sample = (u16)((s2.have_last ? s2.last_us / 1250 : now * 4 / 5) & 0xfff);
     delta = (u16)((sample - s2.sample_prev) & 0xfff);
     s2.sample_prev = sample;
     for (k = 1; k < 4; k++)
@@ -713,7 +715,6 @@ static int s2_report(const struct pad *p, u32 now, u8 *out, u8 *id)
 {
     u32 b = 0;
 
-    (void)now;
     if (!s2.ready) return 0;
     memset(out, 0, S2_REPORT_SIZE);
     out[0] = ++s2.counter;
@@ -749,7 +750,7 @@ static int s2_report(const struct pad *p, u32 now, u8 *out, u8 *id)
     /* Headset audio state: 0x05 headphones, 0x07 a headset (ndeadly; bit 3,
      * which a real one flips, not known).  USB only: LE audio is not ours. */
     if (s2.usb && p->jack) out[13] = 0x05;
-    if (s2.features & S2_FEATURE_MOTION) s2_motion(out + 14, p);
+    if (s2.features & S2_FEATURE_MOTION) s2_motion(out + 14, p, now);
     *id = 0;
     return S2_REPORT_SIZE;
 }
