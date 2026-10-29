@@ -2146,3 +2146,12 @@ Full worker controller checks/census pass:212 : ok reports,12 legacy reports,
 31 tooling tests,both layouts,92 ownership groups. Totals93 accepted members,
 1054 unique public functions,96 globals;18 retained members,987 verified
 archive index entries. Focused sanitizer exit0; baseline comparison123/123.
+
+
+TWS-sniff combined checkpoint: acceptance `a03f305` passes canonical controller
+checks/census:212 : ok reports,12 legacy reports,31 tooling tests,both layouts,
+92 ownership groups. Totals93 accepted/18 retained members,1054 unique public
+functions,96 globals,987 verified archive index entries. All123 original BR23
+C files match44d0073. Worker and three dependency statuses were clean; merged
+ancestry verified. Completed worktree/branch deleted. No pending worker,
+application-image or hardware validation.
