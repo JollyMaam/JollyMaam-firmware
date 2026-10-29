@@ -2815,3 +2815,19 @@ claim. No app image,flashing or hardware validation.
 Durable evidence is this commit,worker31fcbca,checked-in fixture/checker and
 revisit/review notes. Ephemeral normalized diffs,raw reading aids and logs are
 /work/analysis/btctrler-bd19/rf-ble-review. Canonical merge/check/cleanup follows.
+
+RF_ble combined checkpoint: reviewed acceptance `5936658` (worker input
+`31fcbca`) is merged by fast-forward and passes canonical controller checks:
+219 : ok reports,12 legacy reports,31 tooling tests,both layouts,100 ownership
+groups. Totals101 accepted/10 retained members,1312 unique public functions,
+127 public globals,698 verified retained index entries. Canonical widening
+comparison passes110800 main cases and140288 bit-offset/enable cases; global,
+literal,type,section and compiled-boundary checks pass. All123 original BR23
+sources remain byte-identical to44d0073. The strict/sanitized fixture passed
+on the identical reviewed source in the worker before merge.
+Worker tracked/untracked state and tip ancestry checked. SDK nested repo and
+canonical btstack input clean; worker has no btstack dependency. Toolchain has
+no own .git. Inspected then unlinked only the two worker SDK/toolchain symlinks,
+preserving their shared targets, removed the empty external directory, and
+deleted the completed worktree and branch. No pending worker at this checkpoint.
+No app-image,flashing or hardware validation.
