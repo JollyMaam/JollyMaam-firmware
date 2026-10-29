@@ -562,6 +562,14 @@
       ]
     },
     {
+      "member": "local_media_sync.c.o",
+      "occurrence": 1,
+      "sha256": "db81f8037bcf4ed8c839cd224ea6732ec23cf7902578968adacbb23997377917",
+      "sources": [
+        "src/btctrler/bd19/local_media_sync.c"
+      ]
+    },
+    {
       "member": "misc_hw.c.o",
       "occurrence": 1,
       "sha256": "2b926dd4aeacf0ec031c99c73fa4d5a243c0e21c71ff367dd50bf9195f12fd93",

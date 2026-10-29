@@ -2031,3 +2031,54 @@ functions,93 globals,1039 verified index entries. All123 original BR23 C files
 match44d0073. Clean worker and three dependency statuses and merged ancestry
 verified; completed worktree/branch deleted. No pending worker, app-image or
 hardware validation.
+
+## Clean-branch BD19 local-media acceptance
+
+Reviewed worker checkpoint `aa5571e`; completed corrections and focused host
+fixtures on its isolated branch. Authority: `local_media_sync.c.o` occurrence1,
+SHA-256 `db81f8037bcf4ed8c839cd224ea6732ec23cf7902578968adacbb23997377917`.
+Dedicated `bd19/local_media_sync.c` supplies all35 function identities,25 public
+functions (including weak void(void) notification) and one public channel table.
+Channel12/attribute3 is const/.tws_sync_channel.12/align4. The private command
+1280136259 stub uses exact void(u8*,u16,u8), const/.tws_func_stub/align4 and
+llvm.used. All eleven global initializer/section/alignment/retention records
+and seven strings match target SDK exactly;43 mapped type shapes agree.
+All functions retain .tws_media_sync_code except four unsectioned helpers.
+Target assertions pin frame44,head28,entry32,payload42; named offsets allow
+host pointer widening without imposing host layout on the target wire format.
+
+Coordinator corrections preserve volatile jiffies, deadline load order, input
+length/pool reloads after allocator/free callbacks, list insertion/init order,
+memset28/align4 and RX memcpy(len+4)/align2, byte-aligned sequence/timestamp
+stores, wrapping allocation/length/total arithmetic, u16 diagnostic counters,
+stop state-store order and uninitialized unused command bytes. Raw IR confirms
+START len0 passes signed-1 (not65535), and diagnostic arguments are state2,
+state1,other. These are not SDK bugs introduced by corrected draft translations.
+Every raw function and normalized target body reviewed; remaining differences
+are loop organization/container GEPs, equivalent guards, compiler annotations,
+legacy unspecified-argument import declarations, stack lifetime placement and
+explicit alignment assumptions matching the SDK's access alignments.
+
+C36/B74–B76 record sharing/ABI boundaries, ignored semaphore/send failures,
+unchecked command/copy assumptions and returning reset/assert continuation,
+pressure/deadline/head blocking, frame lifetime and IRQ/callback ordering.
+The worker's claimed matching weak hook is incorrect: BR23 has an incompatible
+int(u8*,int,u8) boundary. No shared headers or BR23 sources changed. Extra-source
+BR23 compilation is unsupported because its frame and API differ; the actual
+BR23 source set builds, and all123 original C files match44d0073 byte-for-byte.
+No application-image, peer-radio or hardware validation; ownership/layout and
+host checks are not formal equivalence proof.
+
+Focused fixture with complete mocks passes ASan/UBSan including leak detection.
+Checks cover allocation sentinel/prefix and TX fields, ignored send failures,
+head-only blocking versus ready totals/unfiltered next-fetch, deleted cleanup,
+fetch/pop length timing across IRQ enable, cached next across queue mutation,
+in-flight clear/completion, RX retries and signed deadlines, input length reload
+after free, post-task/event state mutation order, zero-length START argument,
+byte-aligned sequence/timestamp stores, length wrapping and returning reset/
+assert hooks. Host RX/list records use padding for widened pointers; target IR
+independently pins exact wire copies and alignments. Normal fixture compilation
+has no unresolved-symbol suppression. Full worker checks/census pass:211 : ok
+reports,12 legacy reports,31 tooling tests,both layouts,91 ownership groups.
+Totals92 accepted/1030 unique public functions/94 globals;19 retained members/
+1013 verified archive index entries.
