@@ -199,5 +199,9 @@ wrong assumption), add it here in a line or two.
   config mode's link up between runs, on Linux only: bleak's WinRT backend
   keeps a connection (maintain_connection), and Windows then connects to
   anything that comes up on that address, so it never appears in a scan.
+- 8BitDo: work polled from the wait loop advances once per pass, and with
+  a busy link (Switch 2, 5 ms interval) passes come up to ~15 ms apart.  A
+  key-matrix scan done one row step per pass took 64 ms and the debounce
+  dropped quick taps; anything with several steps should finish in one go.
 - Never search the whole filesystem (`/`, `/proc`, `/sys`, `/dev`): it has
   disturbed the host.
