@@ -12,12 +12,16 @@ sub-command set, and it sends an answer in pieces marked the same way; the
 updater's frames and answers are one piece.  Every write waits for its response, which the pad sends once it has
 run the command: one write in flight.
 
-padtool leaves a config mode link up when it is done, and the next run
-takes the link BlueZ still holds (no scan, no connection: about 0.1 s);
+On Linux padtool leaves a config mode link up when it is done, and the next
+run takes the link BlueZ still holds (no scan, no connection: about 0.1 s);
 the pad ends config mode after a minute without a command.  Ending the link
 each time cost 2 s (BlueZ waits before it disconnects), or, when the pad
 ended it, sometimes 20 s of the kernel holding the next scan or connection
-(seen with BlueZ on Linux; cause not found).  Writes without response flooded the
+(seen with BlueZ on Linux; cause not found).  Elsewhere every link ends:
+bleak's WinRT backend holds a connection with maintain_connection, and
+Windows then connects to whatever comes up on that address (the pad
+restarted into its updater, or in config mode again), so it never shows
+advertising to a scan.  Writes without response flooded the
 pad's HCI receive queue while it erased, and packets it dropped there were
 pieced together wrongly."""
 import asyncio, atexit, os, struct, sys
@@ -98,7 +102,10 @@ class BleLink:
                 return b""
             answer = b""
             while True:
-                reply = await asyncio.wait_for(self.replies.get(), timeout_ms / 1000)
+                try:
+                    reply = await asyncio.wait_for(self.replies.get(), timeout_ms / 1000)
+                except asyncio.TimeoutError:
+                    raise OSError(f"no answer to command {sub:#04x} in {timeout_ms} ms") from None
                 if reply[0] & ~MORE != sub:
                     continue
                 answer += reply[1:]
@@ -109,10 +116,12 @@ class BleLink:
     def reopen(self, seconds):
         return False             # the app has no updater service
 
-    def close(self):
-        """Config mode's link stays up for the next run; the updater's
-        ends."""
-        if self.config:
+    def close(self, keep=None):
+        """End the link: on Linux a config mode link stays up for the next
+        run (keep None), unless keep is False."""
+        if keep is None:
+            keep = self.config and sys.platform == "linux"
+        if keep:
             return
         try:
             self.loop.run_until_complete(self.client.disconnect())
@@ -149,8 +158,8 @@ async def connected(target=""):
 
 
 def scan(seconds=3):
-    """The pads in config mode: connected (from an earlier run), or
-    advertising for that long; not updaters.  For padgui's Bluetooth scan."""
+    """The pads in config mode or their updater: connected (from an earlier
+    run), or advertising for that long.  For padgui's Bluetooth scan."""
     try:
         from bleak import BleakScanner
     except ImportError:
@@ -162,8 +171,32 @@ def scan(seconds=3):
         for d, adv in seen.values():
             if SERVICE in [u.lower() for u in adv.service_uuids]:
                 found.setdefault(d.address, d)
-        return [d for d in found.values() if not (d.name or "").endswith(" Update")]
+        return list(found.values())
     return asyncio.new_event_loop().run_until_complete(look())
+
+
+def find_updater(flash_id, address, seconds=30):
+    """After UPDATER: the updater of the pad with that flash ID (16 bytes,
+    IDENTIFY's 24-40), on address or, failing that, any updater that
+    answers with it."""
+    try:
+        link = BleLink(address, scan_s=seconds)
+        if link.cmd(0x00, length=88)[24:40] == flash_id:
+            return link
+        link.close(keep=False)
+    except SystemExit:
+        pass
+    for device in scan(5):
+        if not (device.name or "").endswith(" Update"):
+            continue
+        try:
+            link = BleLink(device.address, scan_s=5, device=device)
+        except (Exception, SystemExit):
+            continue
+        if link.cmd(0x00, length=88)[24:40] == flash_id:
+            return link
+        link.close(keep=False)
+    sys.exit(f"padtool: the pad's updater did not appear (looked {seconds} s at {address}, then every updater)")
 
 
 _links = {}
@@ -196,6 +229,7 @@ def alive(path):
     l.loop.run_until_complete(asyncio.sleep(0.01))    # take in BlueZ's news
     if not l.client.is_connected:
         _links.pop(path, None)
+        l.close(keep=False)      # Windows: or it connects again whenever the pad advertises
         return False
     return True
 
@@ -222,8 +256,10 @@ def scsi(path, cdb, length, timeout_ms=3000, out=None):
         if cdb[1] not in REBOOTING:
             if not l.client.is_connected:
                 _links.pop(path, None)       # gone: the next command connects anew
+                l.close(keep=False)
             raise OSError(f"{path}: {error or type(error).__name__}") from error
         answer = b""
-    if cdb[1] in REBOOTING:
+    if cdb[1] in REBOOTING:       # its link has gone: let the system go of it too
         _links.pop(path, None)
+        l.close(keep=False)
     return answer[:length].ljust(length, b"\0") if out is None else b""

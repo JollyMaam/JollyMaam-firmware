@@ -28,8 +28,8 @@ The command-line padtool also reaches a pad in config mode (Home+M held for
 alone for the first pad advertising or with its name or address
 (`padtool get slot-a --ble`). It needs `bleak` (`ps.bleak`). Settings, the
 log, status and the other commands work as on USB; `find`, `tool`,
-`tool-only`, `hub`, `latency`, `peek` and `keep` need USB. padtool leaves
-the Bluetooth link up when it is done, and the next run uses it, so a
+`tool-only`, `hub`, `latency`, `peek` and `keep` need USB. On Linux padtool
+leaves the Bluetooth link up when it is done, and the next run uses it, so a
 command takes a fraction of a second; the pad leaves config mode a minute
 after the last command (or on Home, or `padtool disconnect --ble`).
 
@@ -39,7 +39,7 @@ loaders appear too. **Refresh** in the toolbar looks at everything again; on
 Windows it is how ROM loaders are found (asking every drive is slow there).
 With `bleak` installed (`ps.bleak`), Refresh also looks for pads in config
 mode over Bluetooth LE (Home+M held for 3 s) for 3 seconds; one found shows
-as "Bluetooth" in the tree and stays while its link is up (the GUI's
+as "Bluetooth" in the tree (a pad in its updater too) and stays while its link is up (the GUI's
 status reads keep config mode open). The flash loader needs USB. A
 pad's settings load when it is selected (its slots) and when a page needs them
 (palette, calibration, a remap slot). Each second padtool also reads a pad's

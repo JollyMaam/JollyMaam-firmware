@@ -696,14 +696,18 @@ def update_device(path, image, progress=None):
     address."""
     global DEVICE_ID
     if padble.is_ble(path):
-        address = padble.link(path).address
-        scsi(path, [OP, 0x40], 0)          # UPDATER: the link goes as the pad restarts
-        time.sleep(1.5)
-        link = padble.BleLink(address, scan_s=30)
+        here = padble.link(path)
+        if here.config:
+            identity = scsi(path, [OP, 0x00], 88)
+            scsi(path, [OP, 0x40], 0)      # UPDATER: the link goes as the pad restarts
+            time.sleep(1.5)
+            link = padble.find_updater(identity[24:40], here.address)
+        else:
+            link = padble._links.pop(path)  # already its updater
         try:
             update(link, image, progress)
         finally:
-            link.close()
+            link.close(keep=False)
         return
     before = DEVICE_ID
     DEVICE_ID = answers(path)

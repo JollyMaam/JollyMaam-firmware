@@ -21,9 +21,10 @@ def read_device(path, name, identity):
                 "values": {}, "defaults": {}, "status": "UBOOT1.00 ROM loader", "location": usb_location(path)}
     board = next(board for board, number in pad.BOARD_IDS.items() if number == identity[6])
     status, changes = pad.status_info(path)
-    # A pad's field table and targets: later, load_targets() (loaded: which are in).
+    # A pad's field table and targets: later, load_targets() (loaded: which
+    # are in).  An updater has no settings.
     return {"path": path, "name": name, "board": board, "identity": identity[:56],
-            "fields": None if board == "pad" else [], "values": {}, "defaults": {}, "loaded": set(),
+            "fields": None if board == "pad" and identity[7] != 1 else [], "values": {}, "defaults": {}, "loaded": set(),
             "status": status, "changes": changes, "location": usb_location(path),
             "product_id": identity[40:56].split(b"\0")[0].decode(errors="replace")}
 

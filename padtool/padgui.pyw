@@ -413,6 +413,8 @@ class App:
         everything."""
         if record["board"] != "pad" or "loaded" not in record or record.get("error") or not record.get("online", True):
             return []
+        if record["fields"] == []:   # its updater: no settings
+            return []
         want = set(range(8)) | ({target} if isinstance(target, int) else set())
         return sorted(want - record["loaded"])
 
