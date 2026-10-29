@@ -5,6 +5,8 @@
 #                                           app's header and the app, above its updater
 #   8bitdo-ultimate2c-wireless-pad-updater  the pad's updater: flashed with -pad
 #   8bitdo-ultimate2c-wireless-pad-loader   into the boot loader
+#   8bitdo-ultimate2c-wireless-pad-stack    the deepest stack use against the room
+#                                           for it (part of -pad-test)
 #   8bitdo-ultimate2c-wireless-pad-test, 8bitdo-ultimate2c-wireless-all
 # The boot loader is 0x0000-0x5fff and starts the updater at 0x6000; stock
 # keeps data in sectors from 0x73000 (docs/8bitdo-ultimate2c-wireless/),
@@ -122,6 +124,31 @@ $(eval $(call telink_board,$(U2CW_UPDATER)))
 	$(Q)python3 -I tools/test_8bitdoboot.py
 
 $(U2CW_PAD)-test: | 8bitdoboot-test
+
+# The deepest stack use against the room above .bss, and the interrupts'
+# against irq_stk (tools/stackdepth.py).  The pointer calls: the profiles'
+# ops (struct profile words 3 begin, 5 report, 6 write, 7 host, 8 read), ATT's
+# callbacks, the SDK's event, L2CAP and host callbacks.  The settings paths
+# that read in or put out a remap are taken only for remap targets, never
+# from the slot, calibration and boot ones; a held remap is the only dirty
+# one, so writing it reads nothing in.  The store finds its log once, at boot.
+U2CW_OPS = $(foreach p,generic_ble xbox_ble switch2,$(1)=@profile_$(p):$(2))
+U2CW_STACK_RULES := $(call U2CW_OPS,bt_events,3) $(call U2CW_OPS,bt_events,6)
+U2CW_STACK_RULES += $(call U2CW_OPS,start_session,3) $(call U2CW_OPS,report,5)
+U2CW_STACK_RULES += $(call U2CW_OPS,host,7) $(call U2CW_OPS,read_value,8)
+U2CW_STACK_RULES += att_handle_request=read_value,write_value
+U2CW_STACK_RULES += blt_event_callback_func=on_connect,on_terminate,on_phy,on_length
+U2CW_STACK_RULES += $(foreach f,blt_connect bls_procPendingEvent blt_send_adv bls_ll_security_proc,$(f)=blt_event_callback_func)
+U2CW_STACK_RULES += blt_ll_packet_proc=blt_event_callback_func,plat_l2cap_receive
+U2CW_STACK_RULES += blc_gap_send_event=on_host
+U2CW_STACK_RULES += $(foreach f,set_bond_store set_pairing_store set_cal_store renew_identity set_init write_target,\
+	$(f)>>release $(f)>>load $(f)>>stored_field.clone.2)
+U2CW_STACK_RULES += find_log<<set_init
+
+.PHONY: $(U2CW_PAD)-stack
+$(U2CW_PAD)-test: | $(U2CW_PAD)-stack
+$(U2CW_PAD)-stack: $(O)/$(U2CW_PAD)/app.elf
+	$(Q)python3 -I tools/stackdepth.py --tools $(TELINK_TOOLS) $< $(foreach r,$(U2CW_STACK_RULES),'$(r)')
 
 .PHONY: telink-att-test
 $(U2CW_PAD)-test: $(O)/host/test-telink-att

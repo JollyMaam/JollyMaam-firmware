@@ -151,6 +151,27 @@ static u8 result[USB_RESULTS];
 static u32 result_len;
 #endif
 
+/* Out of line: its edges then stay off the stack of the other commands. */
+static __attribute__((noinline)) u32 probe_take(u8 *data, u32 max)
+{
+    struct util_probe_edge e[16];
+    u32 lost, k, i;
+    u8 active;
+
+    k = util_probe_take(e, (max - 12) / 12 < 16 ? (max - 12) / 12 : 16, &lost, &active);
+    util_put32(data, k);
+    util_put32(data + 4, lost);
+    data[8] = active;
+    data[9] = data[10] = data[11] = 0;
+    for (i = 0; i < k; i++) {
+        util_put32(data + 12 + 12 * i, e[i].edge_us);
+        util_put32(data + 16 + 12 * i, e[i].sent_us);
+        data[20 + 12 * i] = e[i].level;
+        data[21 + 12 * i] = data[22 + 12 * i] = data[23 + 12 * i] = 0;
+    }
+    return 12 + 12 * k;
+}
+
 u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
 {
     u32 n = 0;
@@ -241,32 +262,14 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         util_put32(data, plat_us());
         n = 4;
         break;
-    case CMD_PROBE: {            /* byte 2: 1 start, edges in bytes 3-6, period ms in 7-8;
+    case CMD_PROBE:              /* byte 2: 1 start, edges in bytes 3-6, period ms in 7-8;
                                     2 stop; 0 take: u32 count, u32 lost, u8 active, 3 spare,
                                     then count records of edge us, sent us, level, 3 spare */
-        struct util_probe_edge e[16];
-        u32 lost, k, i;
-        u8 active;
-
         if (cdb[2] == 1) util_probe_start(util_get32(cdb + 3), (u32)(cdb[7] | cdb[8] << 8));
         else if (cdb[2] == 2) util_probe_stop();
-        else {
-            if (max < 12) return 0;
-            k = util_probe_take(e, (max - 12) / 12 < 16 ? (max - 12) / 12 : 16, &lost, &active);
-            util_put32(data, k);
-            util_put32(data + 4, lost);
-            data[8] = active;
-            data[9] = data[10] = data[11] = 0;
-            for (i = 0; i < k; i++) {
-                util_put32(data + 12 + 12 * i, e[i].edge_us);
-                util_put32(data + 16 + 12 * i, e[i].sent_us);
-                data[20 + 12 * i] = e[i].level;
-                data[21 + 12 * i] = data[22 + 12 * i] = data[23 + 12 * i] = 0;
-            }
-            n = 12 + 12 * k;
-        }
+        else if (max < 12) return 0;
+        else n = probe_take(data, max);
         break;
-    }
     case CMD_REBOOT:
         pending.kind = REQ_REBOOT;
         break;

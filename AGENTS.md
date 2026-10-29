@@ -46,6 +46,7 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   (every connected device), `padhub.c` (Linux UHID bridge for the dongle's
   hub, `tools/padhub.md`), `sdlpad.c` (what SDL sees), `linkbench.py`,
   `buildcommits.sh` (build a range of commits, for bisecting),
+  `stackdepth.py` (the 8BitDo's deepest stack use, from its disassembly),
   `padtool_dist.py` (`make padtool-dist`, make/padtool.mk: the Windows and Linux zip of padtool, bleak,
   the RAM loaders and every board's firmware; `padtool/padinstall.py` is its
   first-install flasher).
@@ -188,6 +189,10 @@ wrong assumption), add it here in a line or two.
   its address escapes into a call or an asm input.
 - Never build the Telink board with `-Os`: the compiler miscompiles switch
   tables.
+- The 8BitDo's stack has under 100 bytes to spare.  A function's frame holds
+  the locals of all its branches, so a big array in one `case` costs every
+  case (a 192-byte one in `usb_command` overflowed into .bss).  Keep it in a
+  `noinline` helper; `make 8bitdo-ultimate2c-wireless-pad-stack` checks.
 - Shell scripts: initialise every option variable empty up front; the
   environment can leak names like `out` into a script.
 - The 8BitDo app keeps 2 log lines (`LOG_LINES`); a debug build can take
