@@ -2673,3 +2673,16 @@ Global/literal/type/section/compiled-boundary inspection passes. Artifacts:
 /work/analysis/btctrler-bd19/rf-ble5-review (ephemeral); this message and the
 checked-in fixture/checker/revisit notes are the durable report. No app image,
 flashing or hardware validation. Canonical merge/check/cleanup still required.
+
+RF_ble5 combined checkpoint: acceptance `0218857` (worker checkpoint
+`7eb8aef`) is merged by fast-forward and passes canonical controller checks:
+218 : ok reports,12 legacy reports,31 tooling tests,both layouts,99 ownership
+groups. Totals100 accepted members/11 retained,1250 unique public functions,
+122 public globals,765 verified retained index entries. Canonical SDK LLVM
+channel repair comparison passes296608 cases; all77 literal arrays,five
+global records,60 type mappings,sections and public boundary pass inspection.
+All123 original BR23 sources remain byte-identical to44d0073.
+Worker tip ancestry and clean tracked state checked; SDK/btstack nested repos
+clean; toolchain has no own .git. Removed only the external symlink, preserving
+its dependency target, then deleted the completed worktree and branch.
+No pending worker, app-image, flashing or hardware validation.
