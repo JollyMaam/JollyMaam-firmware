@@ -127,7 +127,7 @@ l4 r4 l3 r3 minus plus home m capture (or screenshot).
 The pad's tool device is HID; commands are usb.c's CDBs in feature reports
 (see the comment at the top of src/core/usb.c).  Flashing is tools/jlnewfw.c's (make gamesir-cyclone-2-flash).
 """
-import argparse, collections, glob, json, os, struct, sys, threading, time
+import argparse, collections, glob, json, os, select, struct, sys, threading, time
 from padtransport import scsi, device_paths, usb_location, data_max, is_tool, tool_name
 import padble
 import padcurves
@@ -1630,7 +1630,11 @@ def latency(path, seconds, period_ms, event, csv_path=None, throughput=False):
     syncs, records, events = [], [], []
     def sync(n=8):                     # the tightest of n round trips
         syncs.append(min((pad_clock(path) for _ in range(n)), key=lambda s: s[2]))
-    def drain():
+    # A thread reads the node all the time: a link that reports at 1 kHz
+    # fills the kernel's buffer for this reader in tens of milliseconds, and
+    # the events it then drops include the edges.
+    reading = threading.Event()
+    def drain_now():
         try:
             while True:
                 data = os.read(fd, EVENT.size * 64)
@@ -1639,6 +1643,13 @@ def latency(path, seconds, period_ms, event, csv_path=None, throughput=False):
                     events.append((sec * 10**9 + usec * 1000, kind, code, value))
         except BlockingIOError:
             pass
+    def reader():
+        while reading.is_set():
+            select.select([fd], [], [], 0.05)
+            drain_now()
+    def drain():
+        if not reading.is_set():
+            drain_now()
     def take():
         while True:
             d = scsi(path, bytes([OP, 0x1C, 0]), 12 + 12 * 16)
@@ -1651,6 +1662,8 @@ def latency(path, seconds, period_ms, event, csv_path=None, throughput=False):
     sync()
     drain()
     events.clear()
+    reading.set()
+    threading.Thread(target=reader, daemon=True).start()
     scsi(path, bytes([OP, 0x1C, 1]) + struct.pack("<IH", edges, period_ms), 0)
     started = time.monotonic_ns()
     next_sync = time.monotonic() + 1
@@ -1673,9 +1686,11 @@ def latency(path, seconds, period_ms, event, csv_path=None, throughput=False):
         scsi(path, bytes([OP, 0x1C, 2]), 0)
         lost, _ = take()
     time.sleep(0.3)                    # the last edges reach the host
-    drain()
     sync()
     ended = time.monotonic_ns()
+    reading.clear()
+    time.sleep(0.1)
+    drain()
     os.close(fd)
 
     # pad us -> host ns: the 32-bit clock unwrapped, a straight line through the syncs

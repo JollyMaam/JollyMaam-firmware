@@ -168,9 +168,15 @@ void rf8_test(void)
         plat_wait(0, plat_us() + 200);
         poll_radio();
         board_input(&in);
+#if PROBE_EDGES
+        util_probe_apply(&in.buttons);       /* padtool latency */
+#endif
         frame(&in, now);
         if (!rf8.busy && (memcmp(now, last, RF8_FRAME) || plat_ms() - at >= RF8_KEEP_MS)) {
             send(now);
+#if PROBE_EDGES
+            util_probe_sent(plat_us());
+#endif
             memcpy(last, now, sizeof(last));
             at = plat_ms();
         }
