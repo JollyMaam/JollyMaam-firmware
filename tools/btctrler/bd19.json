@@ -808,6 +808,14 @@
       "sources": [
         "src/btctrler/bd19/RF_ble5.c"
       ]
+    },
+    {
+      "member": "RF_ble.c.o",
+      "occurrence": 1,
+      "sha256": "6d862d8740f97d11ee12f61856acd00e8e774f9d4f402b3e32c32d69c2e18005",
+      "sources": [
+        "src/btctrler/bd19/RF_ble.c"
+      ]
     }
   ]
 }

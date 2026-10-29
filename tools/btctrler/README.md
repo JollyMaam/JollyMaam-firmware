@@ -37,6 +37,7 @@ python3 tools/btctrler/check_dut_prestart.py --clang /path/to/host/clang  # DUT 
 python3 tools/btctrler/check_tws_bitoff.py --clang /path/to/host/clang    # TWS halfword arithmetic vs SDK LLVM
 python3 tools/btctrler/check_analog.py --clang /path/to/host/clang        # modeled analog traces vs SDK LLVM
 python3 tools/btctrler/check_ble5_hop.py --clang /path/to/host/clang      # BLE5 channel repair vs SDK LLVM
+python3 tools/btctrler/check_ble_widen.py --clang /path/to/host/clang     # BLE widening and modeled writes vs SDK LLVM
 ```
 
 Original IR and inventories: `build/controller-ir/{br23,bd19}/`.

@@ -42,9 +42,9 @@ extern BTCTRLER_CONFIG int config_btctler_le_rx_nums, config_btctler_le_acl_pack
 static void RF_BLE_CODE __set_hw_irq(u8 id, u8 en);
 static void RF_BLE_CODE __set_hw_frame_init_4_2(struct ble_hw *hw);
 static void RF_BLE_CODE __set_channel_map(struct ble4_hw *hw, const u8 *channel);
-static void RF_BLE_CODE __set_scan_req_enable(struct ble_param *fp);
-static void RF_BLE_CODE __set_scan_req_disable(struct ble_param *fp);
-static void RF_BLE_CODE __set_init_end(struct ble_hw *hw);
+static inline __attribute__((always_inline)) void RF_BLE_CODE __set_scan_req_enable(struct ble_param *fp);
+static inline __attribute__((always_inline)) void RF_BLE_CODE __set_scan_req_disable(struct ble_param *fp);
+static inline __attribute__((always_inline)) void RF_BLE_CODE __set_init_end(struct ble_hw *hw);
 static void RF_BLE_CODE ble_slot_schedule(void);
 
 static u8 rf_adv_fixed_channel __attribute__((section(".ble_rf_data"))) = 0xff;
@@ -77,7 +77,7 @@ static void *RF_BLE_CODE le_hw_open(void);
 static void INIT_LIST_HEAD(struct list_head *list);
 static void RF_BLE_CODE __hw_tx_process(struct ble_hw *hw);
 static void RF_BLE_CODE ble_latency_manualhold(struct ble_hw *hw);
-static void RF_BLE_CODE ble_hw_decrypt(struct ble4_hw *hw, struct ble_rx *rx);
+static inline __attribute__((always_inline)) void RF_BLE_CODE ble_hw_decrypt(struct ble4_hw *hw, struct ble_rx *rx);
 static void cpu_reset(void) { p33_soft_reset(); }
 
 #ifndef UNITTEST
@@ -180,7 +180,7 @@ void RF_BLE_CODE __set_latency_disable(struct ble_hw *hw)
     __set_ble_anchor_con(hw, 2, value & 63487u);
 }
 
-static void RF_BLE_CODE __set_le_prio(struct ble4_hw *hw, u8 prio)
+static inline __attribute__((always_inline)) void RF_BLE_CODE __set_le_prio(struct ble4_hw *hw, u8 prio)
 {
     u16 *word = (u16 *)((u8 *)hw + offsetof(struct ble4_hw, widen) - 2);
     if (prio) *word = (*word & (u16)-7937) | ((u16)(prio & 31u) << 8);
@@ -534,7 +534,7 @@ u8 RF_BLE_CODE rf_set_24g_hackable_coded(u32 coded)
 void RF_BLE_CODE __set_scan_window(struct ble_hw *hw, int winsize, int interval)
 { __set_winsize(hw->ble4_hw, 50, winsize * 625); __set_interval(hw, interval * 625, 0); }
 
-static void RF_BLE_CODE rf_set_bdaddr(struct ble_param *fp, u32 coded)
+static inline __attribute__((always_inline)) void RF_BLE_CODE rf_set_bdaddr(struct ble_param *fp, u32 coded)
 {
     if (coded) {
         u32 value = coded < 65536 ? coded + 54789 : coded;
@@ -555,21 +555,21 @@ static void RF_BLE_CODE scan_window_adjust(struct ble4_hw *hw, u32 winsize, u32 
     hw->scan_interval = (u16)interval;
 }
 
-static void RF_BLE_CODE __set_scan_device_filter_param(struct ble4_hw *hw, u8 policy)
+static inline __attribute__((always_inline)) void RF_BLE_CODE __set_scan_device_filter_param(struct ble4_hw *hw, u8 policy)
 {
     u8 enable = (policy == 1 || policy == 3) ? 8 : 0;
     hw->ble_fp.FILTERCNTL = (hw->ble_fp.FILTERCNTL & 247u) | enable;
 }
 
-static void RF_BLE_CODE __set_scan_active(struct ble4_hw *hw, u8 active)
+static inline __attribute__((always_inline)) void RF_BLE_CODE __set_scan_active(struct ble4_hw *hw, u8 active)
 {
     if (active && !hw->privacy_enable) __set_scan_req_enable(&hw->ble_fp);
     else __set_scan_req_disable(&hw->ble_fp);
 }
 
-static void RF_BLE_CODE __set_fixed_channel_index(struct ble_hw *hw, u8 index)
+static inline __attribute__((always_inline)) void RF_BLE_CODE __set_fixed_channel_index(struct ble_hw *hw, u8 index)
 { __set_ble_anchor_con(hw, 6, index | 8192u); }
-static void RF_BLE_CODE __set_scan_channel_index(struct ble_hw *hw, u8 index)
+static inline __attribute__((always_inline)) void RF_BLE_CODE __set_scan_channel_index(struct ble_hw *hw, u8 index)
 { __set_ble_anchor_con(hw, 6, index | 8448u); }
 
 static struct ble_tx *RF_BLE_CODE hw_alloc_tx(u32 len)
@@ -579,7 +579,7 @@ static struct ble_tx *RF_BLE_CODE hw_alloc_tx(u32 len)
     return tx;
 }
 
-static void RF_BLE_CODE __scan_req_pdu(struct ble4_hw *hw, struct ble_tx *tx)
+static inline __attribute__((always_inline)) void RF_BLE_CODE __scan_req_pdu(struct ble4_hw *hw, struct ble_tx *tx)
 {
     u8 *bits = (u8 *)tx + offsetof(struct ble_tx, len) - 2;
     *bits = (*bits & (u8)-64) | 3;
@@ -674,7 +674,7 @@ int RF_BLE_CODE le_hw_scanning_common(struct ble_hw *hw, struct ble_scan *scan)
     return 0;
 }
 
-static void RF_BLE_CODE __set_local_addr_match_enable(struct ble_param *fp)
+static inline __attribute__((always_inline)) void RF_BLE_CODE __set_local_addr_match_enable(struct ble_param *fp)
 { fp->OPTCNTL &= (u16)-17; }
 
 static void RF_BLE_CODE __connect_req_pdu(struct ble4_hw *hw, struct ble_conn *conn, struct ble_tx *tx)
@@ -941,17 +941,17 @@ static void RF_BLE_CODE __set_channel_map(struct ble4_hw *hw, const u8 *channel)
     hw->CHMAP[2] = hw->ble_fp.CHMAP2;
 }
 
-static void RF_BLE_CODE __set_scan_req_enable(struct ble_param *fp) { fp->FORMAT &= (u16)-257; }
-static void RF_BLE_CODE __set_scan_req_disable(struct ble_param *fp) { fp->FORMAT |= 256; }
+static inline __attribute__((always_inline)) void RF_BLE_CODE __set_scan_req_enable(struct ble_param *fp) { fp->FORMAT &= (u16)-257; }
+static inline __attribute__((always_inline)) void RF_BLE_CODE __set_scan_req_disable(struct ble_param *fp) { fp->FORMAT |= 256; }
 
-static void RF_BLE_CODE __tws_scan_req_pdu(struct ble_tx *tx)
+static inline __attribute__((always_inline)) void RF_BLE_CODE __tws_scan_req_pdu(struct ble_tx *tx)
 {
     u8 *bits = (u8 *)tx + offsetof(struct ble_tx, len) - 2;
     *bits = (*bits & (u8)-64) | 3;
     tx->len = 0;
 }
 
-static void RF_BLE_CODE __set_init_end(struct ble_hw *hw) { __set_ble_anchor_con(hw, 9, 1); }
+static inline __attribute__((always_inline)) void RF_BLE_CODE __set_init_end(struct ble_hw *hw) { __set_ble_anchor_con(hw, 9, 1); }
 
 static void RF_BLE_CODE __set_adv_device_filter_param(struct ble_hw *hw, u8 policy)
 {
@@ -961,7 +961,7 @@ static void RF_BLE_CODE __set_adv_device_filter_param(struct ble_hw *hw, u8 poli
     hw->ble4_hw->ble_fp.FILTERCNTL = (hw->ble4_hw->ble_fp.FILTERCNTL & 239u) | conn;
 }
 
-static void RF_BLE_CODE __set_adv_random_slot(struct ble_hw *hw)
+static inline __attribute__((always_inline)) void RF_BLE_CODE __set_adv_random_slot(struct ble_hw *hw)
 { __set_ble_anchor_con(hw, 8, 49152); }
 
 static void RF_BLE_CODE __adv_pdu(struct ble4_hw *hw, struct ble_tx *tx, u8 adv_type, u8 adv_len, const u8 *adv_data)
@@ -1288,7 +1288,7 @@ static void RF_BLE_CODE le_hw_upload_data(struct ble_hw *ble_hw, void (*rx_handl
 static int RF_BLE_CODE le_hw_is_init_enter_conn(struct ble_hw *hw)
 { return hw->ble4_hw->is_init_enter_conn_pass; }
 
-static void RF_BLE_CODE __set_event_instant(struct ble_hw *hw, int instant, int type)
+static inline __attribute__((always_inline)) void RF_BLE_CODE __set_event_instant(struct ble_hw *hw, int instant, int type)
 {
     struct ble4_hw *frame = hw->ble4_hw;
     __set_ble_anchor_con(hw, 5, (u32)instant);
@@ -1296,7 +1296,7 @@ static void RF_BLE_CODE __set_event_instant(struct ble_hw *hw, int instant, int 
     frame->instant_valid = (u8)(type + 1);
 }
 
-static void RF_BLE_CODE __set_hw_tx_enable(struct ble_param *fp)
+static inline __attribute__((always_inline)) void RF_BLE_CODE __set_hw_tx_enable(struct ble_param *fp)
 { fp->INTFRAME &= (u16)~8u; }
 
 static void RF_BLE_CODE __set_local_addr(struct ble4_hw *hw, u8 type, const u8 *addr)
@@ -1318,13 +1318,13 @@ static void RF_BLE_CODE __set_peer_addr(struct ble4_hw *hw, u8 type, const u8 *a
     hw->ble_fp.TARGETADRU = (u16)(addr[5] << 8 | addr[4]);
 }
 
-static void RF_BLE_CODE __set_remote_addr_match_enable(struct ble_param *fp)
+static inline __attribute__((always_inline)) void RF_BLE_CODE __set_remote_addr_match_enable(struct ble_param *fp)
 { fp->OPTCNTL &= (u16)~8u; }
 
 static void RF_BLE_CODE __set_winoffset(struct ble_hw *hw, int offset)
 { __set_ble_anchor_con(hw, 4, offset ? (u32)offset | 0x8000u : 0); }
 
-static void RF_BLE_CODE __tx_data_pdu(struct ble_tx *tx, const u8 *data, u8 length)
+static inline __attribute__((always_inline)) void RF_BLE_CODE __tx_data_pdu(struct ble_tx *tx, const u8 *data, u8 length)
 {
     if (tx->type == 0 || tx->type == 2 || tx->type == 6) {
         tx->len = (u8)(length + 6);
@@ -1340,7 +1340,7 @@ static void atomic_set(atomic_t *v, int i)
     local_irq_enable();
 }
 
-static void RF_BLE_CODE backoff_pseudo(struct ble4_hw *hw)
+static inline __attribute__((always_inline)) void RF_BLE_CODE backoff_pseudo(struct ble4_hw *hw)
 {
     u16 random;
     pseudo_random_genrate((u8 *)&random, 2);
@@ -1414,6 +1414,7 @@ u8 RF_BLE_CODE __hw_set_widen_drift(struct ble_hw *hw, u32 widen, u32 window)
     RF_BLE_CSYNC();
     *(volatile u32 *)1867808 = (u32)(s32)(s16)bitoff;
     RF_BLE_CSYNC();
+    id = (s32)((u32)hw - (u32)bb_hdl->hw_base.hw) / 28;
     *(volatile u32 *)1867804 = (((u32)(id << 4) & 1008u) | 7173u);
     local_irq_enable();
     __set_widen_drift_enable_ir(hw, 1);
@@ -1430,7 +1431,7 @@ static void RF_BLE_CODE ble_latency_manualhold(struct ble_hw *hw)
     local_irq_enable();
 }
 
-static void RF_BLE_CODE __attribute__((noinline)) ble_hw_encrpty(struct ble4_hw *hw, struct ble_tx *tx)
+static inline __attribute__((always_inline)) void RF_BLE_CODE ble_hw_encrpty(struct ble4_hw *hw, struct ble_tx *tx)
 {
     u8 tag[16], nonce[13], pt[275], head;
     if ((*(const u64 *)&config_btctler_le_features & 1u) == 0) return;
@@ -1462,7 +1463,7 @@ static void RF_BLE_CODE __attribute__((noinline)) ble_hw_encrpty(struct ble4_hw 
     tx->len = (u8)(len + 4);
 }
 
-static void RF_BLE_CODE __attribute__((noinline)) ble_hw_decrypt(struct ble4_hw *hw, struct ble_rx *rx)
+static inline __attribute__((always_inline)) void RF_BLE_CODE ble_hw_decrypt(struct ble4_hw *hw, struct ble_rx *rx)
 {
     u8 tag[16], nonce[13], pt[275], head;
     if ((*(const u64 *)&config_btctler_le_features & 1u) == 0) return;
@@ -1547,7 +1548,7 @@ static void RF_BLE_CODE __hw_tx_buf_proess(struct ble_hw *ble_hw, u8 index, u8 i
 }
 
 /* The raw three-bit switch selects the second sample only for 1, 3, 7. */
-static u8 tx_soft_snapshot(u8 first, u8 second)
+static inline __attribute__((always_inline)) u8 tx_soft_snapshot(u8 first, u8 second)
 {
     u8 diff = first ^ second;
     return diff == 1 || diff == 3 || diff == 7 ? second : first;
@@ -1576,7 +1577,7 @@ static void RF_BLE_CODE __hw_tx_process(struct ble_hw *ble_hw)
     atomic_set(&hw->tx_lock, 0);
 }
 
-static void RF_BLE_CODE rx_mark_invalid(struct ble_rx *rx)
+static inline __attribute__((always_inline)) void RF_BLE_CODE rx_mark_invalid(struct ble_rx *rx)
 {
     rx->len = 0;
     rx->llid = 1;
@@ -2579,6 +2580,8 @@ int ble_disable_wait_enable;
 u32 config_vendor_le_bb;
 static unsigned queues, frees, empty_calls, tws_probes, rx_probes, schedules;
 static unsigned irq_disables, irq_enables, rx_updates;
+static int event_fixture_active;
+static unsigned event_power_offs;
 static u8 *rx_update_data;
 static u32 rx_update_len;
 static u32 scheduled_slots;
@@ -2641,6 +2644,23 @@ u8 ble_ext_primary_scan_preprocess_ir(struct ble_hw *hw, struct ble_rx *rx)
 { (void)hw; (void)rx; return 0; }
 void __set_extended_tx_data(struct ble_hw *hw, u8 chsel, int index)
 { (void)hw; (void)chsel; (void)index; }
+void __ble5_hw_event_process(struct ble_hw *hw)
+{ (void)hw; if (!event_fixture_active) abort(); }
+void repair_algorithm2_hop(struct ble_hw *hw)
+{ (void)hw; if (!event_fixture_active || (config_btctler_le_features & (1ULL << 14))) abort(); }
+u16 __get_conn_event_count(struct ble_hw *hw)
+{ (void)hw; if (!event_fixture_active) abort(); return 0; }
+void ble_power_off(struct ble_hw *hw)
+{ (void)hw; if (!event_fixture_active) abort(); ++event_power_offs; }
+void ble_power_on(struct ble_hw *hw) { (void)hw; abort(); }
+void ble5_master_primary_event_end_handle(struct ble_hw *hw) { (void)hw; abort(); }
+void __ble5_hw_anchor_cnt_timeout(struct ble_hw *hw) { (void)hw; abort(); }
+u8 rf_get_if_exist_ble5(struct ble_hw *hw)
+{ (void)hw; if (!event_fixture_active) abort(); return 0; }
+u8 rf_bt_bredr_is_sniff(void) { abort(); }
+u32 __get_clkn(struct ble_hw *hw) { (void)hw; abort(); }
+u8 mult_slave_or_master_get_con_num(void) { abort(); }
+void mult_slave_or_master_event_enter(u8 id) { (void)id; abort(); }
 static void test_rx_probe(void *priv, struct ble_rx *rx)
 { (void)priv; (void)rx; ++rx_probes; }
 static void test_rx_update(void *priv, u8 *data, u32 len)
@@ -2811,6 +2831,37 @@ int main(void)
     CHECK(*(volatile u32 *)1867808 == 0x41a5);
     __set_adv_channel_index(&instances[0], 0);
     CHECK(*(volatile u32 *)1867808 == 0x4040);
+    /* BD19 event IRQ has a small-window latency path before ordinary auto
+     * widening. A nonzero hold count disables latency and selects 16/32us
+     * according to the 8000us interval boundary. It skips init/flag clearing. */
+    event_fixture_active = 1;
+    config_btctler_le_roles = 1;
+    config_btctler_le_features = 0;
+    config_btctler_le_hw_nums = 1;
+    config_btctler_le_slave_multilink = 0;
+    config_btctler_le_master_multilink = 0;
+    baseband.number = 1;
+    for (unsigned interval = 7999; interval <= 8000; ++interval) {
+        frames[0] = (struct ble4_hw){0};
+        frames[0].state = 7;
+        frames[0].latency_en = 1;
+        frames[0].hold_cnt = 3;
+        frames[0].interval = interval;
+        frames[0].rx_packet_valid = 1;
+        *(volatile u32 *)1867816 = 1;
+        *(volatile u32 *)1867824 = 1;
+        *(volatile u32 *)1867852 = 0;
+        *(volatile u32 *)1867856 = 0;
+        *(volatile u32 *)1867832 = 0;
+        ble_event_irq_handler();
+        CHECK(frames[0].hold_cnt == 2 && frames[0].latency_substate == 1);
+        CHECK(frames[0].widen_small_flag == 1 && frames[0].init == 0);
+        CHECK(frames[0].ble_fp.WIDEN0 == 0);
+        CHECK(frames[0].ble_fp.WIDEN1 == (interval < 8000 ? 20496 : 20512));
+        CHECK(frames[0].rx_packet_valid == 1);
+    }
+    CHECK(event_power_offs == 2);
+    event_fixture_active = 0;
     munmap(regs, 4096);
     return TEST_DONE("btctrler_RF_ble");
 }

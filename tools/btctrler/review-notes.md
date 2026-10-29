@@ -2686,3 +2686,132 @@ Worker tip ancestry and clean tracked state checked; SDK/btstack nested repos
 clean; toolchain has no own .git. Removed only the external symlink, preserving
 its dependency target, then deleted the completed worktree and branch.
 No pending worker, app-image, flashing or hardware validation.
+
+## Clean-branch BD19 BLE radio acceptance
+
+Input: Luna checkpoint31fcbca on base8be81bb, followed by coordinator compiled
+review and corrections in the same isolated worker. SDK member RF_ble.c.o,
+occurrence1, SHA256
+6d862d8740f97d11ee12f61856acd00e8e774f9d4f402b3e32c32d69c2e18005.
+Manifest source: src/btctrler/bd19/RF_ble.c.
+
+Exact public function boundary (62): BLE_TO_PHY, HW_ID, PHY_TO_BLE, __debug_interval, __disable_adv_random, __get_ble_anchor_con, __hw_set_widen_drift, __set_adv_channel_index, __set_anchor_cnt, __set_anchor_cnt_disable, __set_bitoffset, __set_ble_anchor_con, __set_ble_hw_irq_init, __set_conn_dead_times, __set_interval, __set_latency_disable, __set_latency_enable, __set_latency_hold_cnt, __set_scan_window, __set_widen, __set_widen_drift_enable, __set_winsize, ble4_hw_only_alloc_dma_ram, ble_adv_rf_vendor_fixed_channel, ble_hw_alloc, ble_hw_disable, ble_hw_enable, ble_hw_inst_set, ble_hw_rx, ble_next_run_slot, ble_pll_comp_reset, ble_rf_reset_hw, ble_rf_vendor_fixed_channel, ble_rf_vendor_get_config, ble_rf_vendor_set_config, ble_rx_init, ble_rx_update_handle_register, ble_scan_rf_vendor_fixed_channel, ble_tx_init, ble_vendor_set_hold_prio, ble_vendor_set_scan_change_prio, bt_le_next_event_time, bt_le_prio_settings, check_event_pending, hw_alloc_rx, hw_entity_alloc, hw_entity_free, le_hw_all_event_hold_en, le_hw_check_all_instant_will_be_valid, le_hw_close, le_hw_debug, le_hw_initiating_common, le_hw_reset_power, le_hw_resume, le_hw_scanning_common, le_hw_standby, le_hw_suspend, rf_set_24g_hackable_coded, rf_set_adv_24g_hackable_coded, rf_set_scan_24g_hackable_coded, t_get_bitoffset, trace_le_prio.
+Five public globals: bb_hdl and g_hw in .ble_rf_bss align4; g_ble_fp,dut_tx,
+__ble_ops in .ble_rf_data align4. __ble_ops points to the17-entry ble_ops
+operation table in .ble_rf_const align4. Private data: rf_adv_fixed_channel,
+rf_adv_fixed_pktcnt,rf_scan_fixed_channel,scan_change_prio_cycle,
+scan_set_prio_max_enable,set_hold_prio_enable,rx_update_handle,
+rf_vendor_config,ble_slot_schedule.credits,ble_hw_dut,coded_set.0,coded_set.1;
+private BSS sche_lock. Byte data align1; pointers/words align4. Dotted labels
+are retained with assembler names. All19 non-array defined global records
+match SDK initializer/linkage/section/alignment after type mapping. All79
+literal byte arrays match, including MAC20:22:33:44:55:66 (.ble_rf_const,
+align1) and channel frequencies00:18:4e (default const,align1). The latter
+named constant has SDK private versus C internal local linkage, with no public
+or retention boundary change; do not describe that as identical linkage.
+
+All102 original public/private body names compile, with no extra definitions.
+Twenty-two C factoring helpers were forced inline for direct review, including
+crypto/header/priority helpers previously kept as independent baseline bodies.
+Both interrupt handlers retain the target interrupt attribute; code sections
+match .ble_rf_code or ordinary text as appropriate. Neither module has linker
+or compiler retention roots. Thirty-seven transitive type mappings have no
+shape mismatch. All62 public scalar argument/return widths and signext/zeroext
+attributes match; pointer pointee spelling was audited separately by layout.
+Operation-table callbacks match including void* le_hw_open return.
+
+Census:18 reusable instruction bodies,10 matching with boundary differences,
+72 changed,2 without unique BR23 counterpart. BR23 baseline C remains untouched:
+all123 original files are byte-identical44d0073; no app branch was merged.
+Dedicated BD19 code preserves hardware28-byte entries,pool628/frame624 and
+RX/TX20-byte headers against this target's generated offsets. Extra-source
+BR23 compile fails on osc_set and widen_small_flag, as expected; both real
+production controller source sets build.
+
+Recovery and coordinator review:
+- Two functions moved from BR23 RF_ble5 into BD19 RF_ble: all-event-hold and
+  instant-validity checking. BD19 tests bb_hdl before IRQ disable, reloads after
+  disable and enables on the nonnull path. Hold iteration snapshots the initial
+  base before MMIO and reloads it between eight slots. Correction to previous
+  acceptance0218857: absence in RF_ble5 was incorrectly generalized to absence
+  on BD19. Source ownership there was correct; revisit37 now records the moved,
+  null-before-IRQ BD19 implementation instead of calling it BR23-only.
+- Drift/bit-offset helpers use signed12-bit decoding, low-bit-only enable
+  packing, repeated base-pointer loads across IRQ enable boundaries and exact
+  selector/data sequencing. __hw_set_widen_drift keeps unsigned quotient and
+  remainder,mixed signed/unsigned phase comparisons,low16 quotient wrapping,
+  strict target>clock rejection with y diagnostic,window stores before selectors
+  and a distinct target==clock==0 path. It caches hw4 before clock sampling.
+- Coordinator expanded the worker's passing model with IRQ-enabled base
+  replacement. This exposed a still-cached ID in the main widening routine;
+  it now reloads the base for the second selector. The expanded check failed
+  before correction and passes after it. Worker model105400 cases is superseded
+  by110800 main cases plus140288 helper cases below.
+- Event IRQ includes BD19 latency/small-window handling before init/normal
+  auto-widen. Restore path clears the flag, uses signed widening division then
+  logical half shift and drift update; short path selects16/32us according to
+  interval8000 and skips normal init/receive-flag clearing. Event power-off
+  still runs. Existing scheduling/priority flow and repeated register accesses
+  remain in order. No IRQ nesting policy fix was imported.
+- RX delivers registered update callbacks after TWS probe for payload-bearing
+  packets, then frees and returns before ordinary queue/probe. Backoff count
+  uses16 bits, so257->256 is not treated as zero. RX IRQ snapshots both buffers,
+  preserves nonvolatile selected RXPTR writes and loads the second snapshot
+  before its refill callback. Its later null/state expression retains the SDK
+  unconditional state read; this questionable path is recorded, not guarded.
+- TX preserves unconditional post-probe slot reload/ack_callback access and
+  reloading the slot after ack before freeing. Event-count-zero clears TX state
+  and selects extended empty data. CCM counters,nonce/header copies,length
+  extension and failure continuation retain SDK order and widths.
+- BD19 radio initialization uses1867828=4865,end pointer1899712,and
+ 1867784=(old&-63489)|30720; PLL compensation uses osc_set and SDK diagnostic.
+  All target diagnostic path/line values were checked. log tags are production
+  const. SDK memory operations use builtins under -fno-builtin. Constant-length
+  LLVM i64 memset lengths16/20 become the target's i32 size_t intrinsic with
+  the same byte range; this is not a claim of instruction-identical IR.
+- Generic public anchor helpers versus SDK-inlined helpers can have different
+  constant-folded selector masks/call factoring; masks remove bits already set
+  by fixed selectors. Raw address,bit-width,ordering and callback-reload review
+  governs acceptance, not call-set equality or line counts.
+
+Follow-ups C45/B101-B104 record sharing boundaries,unchecked allocation and
+configuration/length contracts,post-probe slot hazards,callback queue/free
+ownership,RX null/state read and unbounded toggle polling,nested IRQ semantics,
+small-window/drift policy and oscillator shift-domain assumptions. Inherited39
+is confirmed on BD19. Inherited37 is a concrete chip difference corrected as
+above. Translation mistakes fixed here are not listed as SDK defects.
+
+Validation on the reviewed worker:
+PATH=/work/bin:$PATH make -j32 controller-objects controller-test test
+controller-layouts controller-tools-test controller-audit controller-compare
+exits0:219 ': ok' reports,12 legacy reports,31 tooling tests,both layouts,
+100 ownership groups and retained archive content/order/index verification.
+Totals101 accepted members,1312 unique public functions,127 public globals;
+10 retained members,698 verified retained index entries. Both actual target
+sets compile. Extra BR23 compile rejects the dedicated target fields only.
+
+Strict GCC fixture uses -O2 -DUNITTEST -DCONFIG_CPU_BD19 -iquote src
+-ffunction-sections -fdata-sections -fvisibility=hidden -no-pie
+-Wl,--gc-sections with no unresolved-symbol suppression: pass. Unexpected
+service mocks abort; small-window event mocks explicitly model inactive BLE5
+and the test clock/power boundaries. SDK-derived tests cover RX update bypass,
+16-bit backoff257->256,instant-null IRQ order,callback-sensitive RX handlers,
+TX headers,window/scan/channel arithmetic and real event IRQ7999/8000 interval
+boundary behavior including power-off and retained receive flags. Clang21
+wrapper -O1 -fsanitize=address,undefined with ASAN_OPTIONS=detect_leaks=1:
+strict link and fixture pass. This does not exercise all IRQ/service branches.
+
+python3 tools/btctrler/check_ble_widen.py --clang HOST_CLANG compares original
+SDK LLVM against the production q32s object:110800 main widening cases and
+140288 bit-offset/drift-enable cases pass. Only two window halfwords are
+rebased; MMIO/IRQ/csync become ordered model events; clock/offset samples and
+drift-enable are boundaries for the main test, then real helper bodies are
+checked separately. Includes every16-bit bit-offset word under two upper-word
+patterns,all256 enable bytes,boundary/random arithmetic,valid IDs0..7,frame
+replacement during clock sampling and base replacement across IRQ enable.
+No hardware timing,concurrency,RF accuracy or complete program equivalence
+claim. No app image,flashing or hardware validation.
+
+Durable evidence is this commit,worker31fcbca,checked-in fixture/checker and
+revisit/review notes. Ephemeral normalized diffs,raw reading aids and logs are
+/work/analysis/btctrler-bd19/rf-ble-review. Canonical merge/check/cleanup follows.
