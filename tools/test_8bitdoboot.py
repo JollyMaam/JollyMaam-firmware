@@ -1,6 +1,5 @@
 """Boot selection/framing regressions; all device I/O is simulated."""
 import importlib.util
-import errno
 from pathlib import Path
 from types import SimpleNamespace
 import struct
@@ -24,59 +23,10 @@ class BootTests(unittest.TestCase):
         self.assertEqual(image[0x120:], app)
         self.assertEqual(boot.crc16_ccitt(b"123456789"), 0x31C3)   # CRC-16/XMODEM check value
 
-    def test_stock_reports_and_model_response(self):
-        device = boot.Stock.__new__(boot.Stock)
-        device.fd = 7
-        response = bytearray(64)
-        response[:2] = b"\x02\x05"
-        struct.pack_into("<HHHHII", response, 2, 0, 8, 2, 0, 2, 0)
-        response[18:20] = b"\x1c\x30"
-        with patch.object(boot.select, "select", side_effect=[([], [], []), ([7], [], [])]), \
-             patch.object(boot.os, "read", return_value=response), \
-             patch.object(boot.os, "write", return_value=64) as write:
-            self.assertEqual(device.identify(), b"\x1c\x30")
-            self.assertEqual(write.call_args.args, (7, b"\x81\x05\x08" + bytes(61)))
-            device.reboot_loader()
-            self.assertEqual(write.call_args.args, (7, b"\x81\x05\0\x51\0" + bytes(59)))
-
-    def test_stock_ignores_unrelated_input(self):
-        device = boot.Stock.__new__(boot.Stock)
-        device.fd = 7
-        with patch.object(boot.select, "select", side_effect=[([], [], []), ([7], [], []), ([], [], [])]), \
-             patch.object(boot.os, "read", return_value=b"\x01" + bytes(63)), \
-             patch.object(boot.os, "write", return_value=64):
-            with self.assertRaises(TimeoutError):
-                device.identify()
-
-    def test_boot_write_disconnect_can_be_followed_by_enumeration(self):
-        device = boot.Stock.__new__(boot.Stock)
-        device.fd = 7
-        with patch.object(boot.os, "write", side_effect=OSError(errno.ENODEV, "gone")):
-            device.reboot_loader()
-        with patch.object(boot.os, "write", side_effect=PermissionError(errno.EACCES, "denied")):
-            with self.assertRaises(PermissionError):
-                device.reboot_loader()
-
     def test_missing_loader_does_not_claim_boot_entry_succeeded(self):
         with patch.object(boot, "wait_loader", return_value=None):
             with self.assertRaisesRegex(SystemExit, "receiver bootloader USB identity"):
                 boot.wait_entered_loader("1-2", 1, "U2C_RECEIVER")
-
-    def test_report_descriptor_requires_output_on_81(self):
-        self.assertTrue(boot.has_stock_output(bytes.fromhex("85 81 95 3f 91 02")))
-        for descriptor in ("85 81 81 02", "85 01 91 02", "85", "fe"):
-            self.assertFalse(boot.has_stock_output(bytes.fromhex(descriptor)))
-
-    def test_shared_usb_pid_is_resolved_by_model(self):
-        nodes = [("/dev/hidraw1", 0x2dc8, 0x310a, "1-1"),
-                 ("/dev/hidraw2", 0x2dc8, 0x310a, "1-2")]
-        devices = [Mock(identify=Mock(return_value=m)) for m in (b"\x1b\x30", b"\x1c\x30")]
-        with patch.object(boot, "hidraw_nodes", return_value=nodes), \
-             patch.object(boot.Path, "read_bytes", return_value=bytes.fromhex("85 81 91 02")), \
-             patch.object(boot, "Stock", side_effect=devices):
-            self.assertEqual(boot.stock("U2C_RECEIVER"), [("/dev/hidraw2", "1-2", "U2C_RECEIVER")])
-        for device in devices:
-            device.close.assert_called_once()
 
     def test_existing_receiver_loader_is_not_pad(self):
         device = Mock(identify=Mock(return_value=b"\x1c\x30"))

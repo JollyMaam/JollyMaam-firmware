@@ -341,6 +341,24 @@ hold its button). Wait for each operation to
 finish before closing the GUI. A failed write or verification leaves the device
 in its loader for recovery.
 
+### Installing: padinstall
+
+`padinstall.py` is the plain way to put this firmware on a device the first
+time: it waits for a pad or dongle on USB, says what it is (stock firmware
+and its mode, this firmware and its build, a ROM loader or the 8BitDo boot
+loader), asks, and writes the `firmware.img` for it from the zip's
+`firmware` folder or this tree's `build`. A stock mode with no command for
+its loader gets the way there instead (switch mode, or by hand). Jieli
+boards: the whole flash, after a backup of it into `backups/` if wanted
+(asked; yes by default from stock firmware). The 8BitDo: above the boot
+loader, settings kept. Then it waits for the device on this firmware and
+says its build; a device installed or declined is not asked again while it
+stays connected.
+
+```sh
+sudo python3 padtool/padinstall.py      # Linux; Windows: "Install firmware.cmd" in the zip (asks for admin)
+```
+
 ### The 8BitDo boot loader
 
 The Ultimate 2C Wireless has no UBOOT1.00; its flash loader is 8BitDo's boot

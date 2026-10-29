@@ -116,5 +116,74 @@ class BootTests(unittest.TestCase):
             self.assertEqual(boot.find(), [("a", "5-2", "U2C_WIRELESS")])
 
 
+class StockFake:
+    """padhid.Device for stock firmware's vendor interface."""
+    def __init__(self, replies=(), write_error=None):
+        self.replies, self.written, self.write_error = list(replies), [], write_error
+
+    def drain(self):
+        pass
+
+    def write(self, data):
+        if self.write_error:
+            raise self.write_error
+        self.written.append(bytes(data))
+
+    def read(self, timeout):
+        return self.replies.pop(0) if self.replies else None
+
+    def close(self):
+        pass
+
+
+def model_reply(model):
+    reply = bytearray(64)
+    reply[:2] = b"\x02\x05"
+    struct.pack_into("<HHHHII", reply, 2, 0, 8, 2, 0, 2, 0)
+    reply[18:20] = model
+    return bytes(reply)
+
+
+class StockTests(unittest.TestCase):
+    def test_model_query_and_boot_entry_reports(self):
+        fake = StockFake([b"\x01" + bytes(63), model_reply(b"\x1c\x30")])
+        with patch.object(boot.padhid, "Device", return_value=fake):
+            with boot.Stock("hid") as device:
+                self.assertEqual(device.identify(), b"\x1c\x30")
+                device.reboot_loader()
+        self.assertEqual(fake.written, [b"\x81\x05\x08" + bytes(61), b"\x81\x05\0\x51\0" + bytes(59)])
+
+    def test_unrelated_input_times_out(self):
+        with patch.object(boot.padhid, "Device", return_value=StockFake([b"\x01" + bytes(63)])):
+            with self.assertRaises(TimeoutError):
+                boot.Stock("hid").identify(timeout=0.05)
+
+    def test_boot_entry_write_may_lose_to_the_reset(self):
+        import errno
+        with patch.object(boot.padhid, "Device", return_value=StockFake(write_error=OSError(errno.ENODEV, "gone"))), \
+             patch.object(boot.sys, "platform", "linux"):
+            boot.Stock("hid").reboot_loader()
+        with patch.object(boot.padhid, "Device", return_value=StockFake(write_error=PermissionError(errno.EACCES, "denied"))), \
+             patch.object(boot.sys, "platform", "linux"):
+            with self.assertRaises(PermissionError):
+                boot.Stock("hid").reboot_loader()
+
+    def test_report_descriptor_requires_output_on_81(self):
+        self.assertTrue(boot.has_stock_output(bytes.fromhex("85 81 95 3f 91 02")))
+        for descriptor in ("85 81 81 02", "85 01 91 02", "85", "fe"):
+            self.assertFalse(boot.has_stock_output(bytes.fromhex(descriptor)))
+
+    def test_shared_usb_pid_is_resolved_by_model(self):
+        hids = [{"path": p, "vid": 0x2dc8, "product": 0x310a, "location": loc, "descriptor": bytes.fromhex("85 81 91 02")}
+                for p, loc in (("/dev/hidraw1", "1-1"), ("/dev/hidraw2", "1-2"))]
+        hids.append({"path": "/dev/hidraw3", "vid": 0x2dc8, "product": 0x310a, "location": "1-2",
+                     "descriptor": bytes.fromhex("85 01 81 02")})       # its gamepad interface: not asked
+        fakes = [StockFake([model_reply(m)]) for m in (b"\x1b\x30", b"\x1c\x30")]
+        with patch.object(boot.padhid, "Device", side_effect=fakes) as opened:
+            self.assertEqual(boot.find_stock(hids), [("/dev/hidraw1", "1-1", "U2C_WIRELESS"),
+                                                     ("/dev/hidraw2", "1-2", "U2C_RECEIVER")])
+        self.assertEqual(opened.call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

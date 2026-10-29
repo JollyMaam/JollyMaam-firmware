@@ -43,8 +43,8 @@ BOARDS = {
 
 # py (the launcher) if there is one, else python; the GUI through .pyw's
 # file association (pyw is not always on the path).
-PADTOOL_CMD = ('@echo off\r\nwhere py >nul 2>nul\r\n'
-               'if not errorlevel 1 (py -3 "%~dp0padtool\\padtool.py" %*) else (python "%~dp0padtool\\padtool.py" %*)\r\n')
+CMD = ('@echo off\r\nwhere py >nul 2>nul\r\n'
+       'if not errorlevel 1 (py -3 "%~dp0padtool\\{0}" %*) else (python "%~dp0padtool\\{0}" %*)\r\n')
 # The GUI: .pyw launchers beside the folder (a .cmd flashes a console).
 PADGUI_PYW = """# padgui: double-click (pythonw, no console window).
 import os, runpy, sys
@@ -59,6 +59,11 @@ Needs 64-bit Python 3.11 to 3.14 from python.org (with "tcl/tk" and the
 "py launcher", both on by default).  Nothing to install: bleak, for
 Bluetooth, is in padtool\\lib.
 
+  Install firmware.cmd     puts this firmware on a pad or dongle by USB,
+                           the first time from its stock firmware: it asks
+                           for admin, waits for one, says what it is and
+                           asks before it writes (Linux:
+                           sudo python3 padtool/padinstall.py)
   padgui.pyw               the GUI (double-click); it asks for admin, for
                            the ROM loader's disk
   padgui (no admin).pyw    the GUI without asking: USB tool devices and
@@ -150,7 +155,8 @@ def main():
             (stage / "firmware" / board).mkdir(parents=True, exist_ok=True)
             shutil.copy2(f, stage / "firmware" / board / name)
 
-    (stage / "padtool.cmd").write_text(PADTOOL_CMD, newline="")
+    (stage / "padtool.cmd").write_text(CMD.format("padtool.py"), newline="")
+    (stage / "Install firmware.cmd").write_text(CMD.format("padinstall.py"), newline="")
     (stage / "padgui.pyw").write_text(PADGUI_PYW.format(extra=""))
     (stage / "padgui (no admin).pyw").write_text(PADGUI_PYW.format(extra='\nsys.argv.append("--no-elevate")'))
     (stage / "README.txt").write_text(README.format(version=a.version).replace("\n", "\r\n"), newline="")

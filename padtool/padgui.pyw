@@ -15,7 +15,7 @@ import pad8bitdo
 import padflash
 import padble
 import padhid
-from padknown import PRODUCTS, command_mode, product_name, stock_name
+from padknown import PRODUCTS, command_mode, firmware_dir, product_name, stock_name
 from padtransport import usb_location
 from paddevices import DeviceMonitor, boot_record, load_targets, read_device, stock_records
 from padconsole import LiveConsole
@@ -1986,24 +1986,6 @@ class App:
                 return fn(path)
             self.run(label + "…", perform)
 
-
-
-# A product ID's build: its folder in the Windows zip's firmware and in build/.
-BUILDS = {"GS_C2_ADC_DEVICE": "gamesir-cyclone-2-pad", "GS_C2_Dongle": "gamesir-cyclone-2-dongle",
-          "AC695X_TRANS": "gamesir-nova-2-lite-pad", "AC632N_TRANS": "gamesir-nova-2-lite-dongle",
-          "U2C_WIRELESS": "8bitdo-ultimate2c-wireless-pad"}
-
-
-def firmware_dir(pid=None):
-    """Where firmware images are: the Windows zip's firmware folder, else
-    this tree's build; that product's own folder when known.  None: the
-    dialog's own choice."""
-    here = Path(__file__).resolve().parent.parent
-    for folder in (here / "firmware", here / "build"):
-        if folder.is_dir():
-            board = folder / BUILDS.get(pid or "", "")
-            return str(board if pid in BUILDS and board.is_dir() else folder)
-    return None
 
 
 def elevate():

@@ -19,10 +19,8 @@
 The loader's protocol is in padtool/pad8bitdo.py.
 """
 import argparse
-import errno
 import os
 from pathlib import Path
-import select
 import struct
 import sys
 import time
@@ -31,9 +29,8 @@ import zlib
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "padtool"))
 from padhid import dev_path  # noqa: E402
 from padtransport import scsi, tool_paths, usb_location  # noqa: E402
-from pad8bitdo import LOADER, MODELS, SECTOR, Loader, check  # noqa: E402
+from pad8bitdo import LOADER, MODELS, SECTOR, Loader, Stock, check, find_stock  # noqa: E402
 
-STOCK_PIDS = {0x310a, 0x301b, 0x301c, 0x301d}
 OP = 0xF5
 
 
@@ -118,91 +115,10 @@ def ours(pid=None, port=None):
     return found
 
 
-class Stock:
-    """Stock HID vendor interface: numbered 0x81 output, 0x02 input."""
-
-    def __init__(self, path):
-        self.fd = os.open(path, os.O_RDWR | os.O_NONBLOCK)
-
-    def close(self):
-        os.close(self.fd)
-
-    def identify(self):
-        report = bytearray(64)
-        report[:2] = b"\x81\x05"
-        struct.pack_into("<H", report, 2, 8)
-        while select.select([self.fd], [], [], 0)[0]:
-            os.read(self.fd, 256)
-        if os.write(self.fd, report) != len(report):
-            raise OSError("short stock HID identify write")
-        deadline = time.monotonic() + 0.5
-        while True:
-            left = deadline - time.monotonic()
-            if left <= 0 or not select.select([self.fd], [], [], left)[0]:
-                raise TimeoutError("stock model query did not answer")
-            reply = os.read(self.fd, 256)
-            if len(reply) < 20 or reply[:2] != b"\x02\x05":
-                continue
-            status, command, count = struct.unpack_from("<HHH", reply, 2)
-            if status == 0 and command == 8 and count == 2:
-                return reply[18:20]
-
-    def reboot_loader(self):
-        # The 0x81 is the report ID, not an unnumbered-report payload byte.
-        report = bytes.fromhex("81 05 00 51 00").ljust(64, b"\0")
-        try:
-            written = os.write(self.fd, report)
-        except OSError as error:
-            if error.errno in (errno.ENODEV, errno.EPIPE, errno.ECONNRESET, errno.ESHUTDOWN):
-                return                  # reset may win the USB completion race
-            raise
-        if written != len(report):
-            raise OSError("short stock HID boot-entry write")
-
-
-def has_stock_output(descriptor):
-    """Whether this interface has an Output item for report ID 0x81."""
-    offset, report_id = 0, 0
-    while offset < len(descriptor):
-        prefix = descriptor[offset]
-        if prefix == 0xfe:
-            if offset + 2 >= len(descriptor):
-                return False
-            offset += 3 + descriptor[offset + 1]
-            continue
-        size = (0, 1, 2, 4)[prefix & 3]
-        if offset + 1 + size > len(descriptor):
-            return False
-        value = int.from_bytes(descriptor[offset + 1:offset + 1 + size], "little")
-        if prefix & 0xfc == 0x84:
-            report_id = value
-        elif prefix & 0xfc == 0x90 and report_id == 0x81:
-            return True
-        offset += 1 + size
-    return False
-
-
 def stock(pid=None, port=None):
     """Identify before selecting: the stock pad and receiver can share USB PID 310a."""
-    found = []
-    for path, vid, product, loc in hidraw_nodes():
-        if vid != 0x2dc8 or product not in STOCK_PIDS or (port is not None and port != loc):
-            continue
-        descriptor = Path("/sys/class/hidraw") / Path(path).name / "device/report_descriptor"
-        try:
-            if not has_stock_output(descriptor.read_bytes()):
-                continue
-            device = Stock(path)
-            try:
-                model = device.identify()
-            finally:
-                device.close()
-        except OSError:
-            continue
-        product_pid = next((p for p, m in MODELS.items() if model == struct.pack("<H", m)), None)
-        if product_pid and (pid is None or product_pid == pid):
-            found.append((path, loc, product_pid))
-    return found
+    return [(path, loc, product) for path, loc, product in find_stock()
+            if product and (pid is None or product == pid) and (port is None or port == loc)]
 
 
 def matching_loaders(pid, port=None):

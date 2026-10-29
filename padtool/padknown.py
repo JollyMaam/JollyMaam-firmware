@@ -4,6 +4,7 @@ USB identity in each USB mode, with how each enters its ROM loader.
 Mirrors jlnewfw's table (tools/jlnewfw.c) and the board pages under docs/.
 """
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -143,3 +144,21 @@ def stock_devices(hids):
         if key not in found or (entry.usage_page and not found[key][1].usage_page):
             found[key] = (hid, entry)
     return list(found.values())
+
+
+# A product ID's build: its folder in the zip's firmware and in build/.
+BUILDS = {"GS_C2_ADC_DEVICE": "gamesir-cyclone-2-pad", "GS_C2_Dongle": "gamesir-cyclone-2-dongle",
+          "AC695X_TRANS": "gamesir-nova-2-lite-pad", "AC632N_TRANS": "gamesir-nova-2-lite-dongle",
+          "U2C_WIRELESS": "8bitdo-ultimate2c-wireless-pad"}
+
+
+def firmware_dir(pid=None):
+    """Where firmware images are: the zip's firmware folder, else
+    this tree's build; that product's own folder when known.  None: the
+    dialog's own choice."""
+    here = Path(__file__).resolve().parent.parent
+    for folder in (here / "firmware", here / "build"):
+        if folder.is_dir():
+            board = folder / BUILDS.get(pid or "", "")
+            return str(board if pid in BUILDS and board.is_dir() else folder)
+    return None

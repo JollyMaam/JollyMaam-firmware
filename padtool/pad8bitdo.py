@@ -1,5 +1,6 @@
 """The 8BitDo boot loader (USB 2dc8:3208, "8BitDo Boot", HID): find it,
-flash our firmware through it, leave it (docs/8bitdo-ultimate2c-wireless/).
+flash our firmware through it, leave it (docs/8bitdo-ultimate2c-wireless/);
+and stock 8BitDo firmware, which a command restarts into it.
 
 Its protocol: 64-byte reports without an ID, 05 then <u16 command, u16 0,
 u16 length, u16 CRC-16/MODBUS of the data, u32 total, u32 address> and up to
@@ -12,13 +13,16 @@ The image it takes from us is firmware.img: the updater (a packed Telink app,
 KNLT header, its size at 0x18 and its CRC at the end), then, a sector
 further on, update.bin ("MAIN" header naming the product, then the app), all
 from 0x6000."""
+import errno
 import struct
+import sys
 import time
 
 import padhid
 
 LOADER = (0x2dc8, 0x3208)
 MODELS = {"U2C_WIRELESS": 0x301b, "U2C_RECEIVER": 0x301c}
+STOCK_PIDS = {0x310a, 0x301b, 0x301c, 0x301d}   # stock firmware's USB products (the pad and receiver can share 310a)
 SECTOR = 4096
 CHUNK = 46
 START = 0x6000                   # where the boot loader starts an app
@@ -186,3 +190,89 @@ def leave(path):
     with Loader(path) as loader:
         loader.identify()
         loader.start_app()
+
+
+class Stock:
+    """Stock firmware's HID vendor interface: numbered 0x81 output, 0x02
+    input; it answers the boot loader's identify, and 0x51 restarts it into
+    the boot loader."""
+
+    def __init__(self, path):
+        self.dev = padhid.Device(path)
+
+    def close(self):
+        self.dev.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+
+    def identify(self, timeout=0.5):
+        report = bytearray(64)
+        report[:2] = b"\x81\x05"
+        struct.pack_into("<H", report, 2, 8)
+        self.dev.drain()
+        self.dev.write(report)
+        deadline = time.monotonic() + timeout
+        while True:
+            reply = self.dev.read(deadline - time.monotonic())
+            if reply is None:
+                raise TimeoutError("stock model query did not answer")
+            if len(reply) < 20 or reply[:2] != b"\x02\x05":
+                continue
+            status, command, count = struct.unpack_from("<HHH", reply, 2)
+            if status == 0 and command == 8 and count == 2:
+                return reply[18:20]
+
+    def reboot_loader(self):
+        # The 0x81 is the report ID, not an unnumbered-report payload byte.
+        try:
+            self.dev.write(bytes.fromhex("81 05 00 51 00").ljust(64, b"\0"))
+        except OSError as error:
+            if sys.platform == "win32" or error.errno in (errno.ENODEV, errno.EPIPE, errno.ECONNRESET, errno.ESHUTDOWN):
+                return                  # the reset may win the USB completion race
+            raise
+
+
+def has_stock_output(descriptor):
+    """Whether this interface has an Output item for report ID 0x81."""
+    offset, report_id = 0, 0
+    while offset < len(descriptor):
+        prefix = descriptor[offset]
+        if prefix == 0xfe:
+            if offset + 2 >= len(descriptor):
+                return False
+            offset += 3 + descriptor[offset + 1]
+            continue
+        size = (0, 1, 2, 4)[prefix & 3]
+        if offset + 1 + size > len(descriptor):
+            return False
+        value = int.from_bytes(descriptor[offset + 1:offset + 1 + size], "little")
+        if prefix & 0xfc == 0x84:
+            report_id = value
+        elif prefix & 0xfc == 0x90 and report_id == 0x81:
+            return True
+        offset += 1 + size
+    return False
+
+
+def find_stock(hids=None):
+    """Stock 8BitDo firmware on USB: (path, USB port or None, product or
+    None) for each vendor interface that answers the model query (Linux:
+    the one with output report 0x81; Windows: a collection with output
+    reports)."""
+    found = []
+    for hid in padhid.devices() if hids is None else hids:
+        if hid["vid"] != 0x2dc8 or hid["product"] not in STOCK_PIDS:
+            continue
+        if not (has_stock_output(hid["descriptor"]) if "descriptor" in hid else hid.get("out_len")):
+            continue
+        try:
+            with Stock(hid["path"]) as device:
+                model = device.identify()
+        except OSError:
+            continue
+        found.append((hid["path"], hid["location"], model_pid(model)))
+    return found
