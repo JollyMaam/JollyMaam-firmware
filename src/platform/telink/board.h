@@ -48,5 +48,6 @@ void plat_bt_systimer(u32 fired);
 #define UPDATER_UP        0x0f
 void updater_boot(void);                 /* first in main(): may start the app instead */
 u32 plat_bt_poll(void);                  /* runs the stack; EV_BT for bt_poll() */
+void rf8_test(void);                     /* rf8_telink.c: the stock 8BitDo receiver test (RF8_TEST) */
 
 #endif

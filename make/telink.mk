@@ -69,6 +69,7 @@ TELINK_SDK_USED += drivers/clock.c
 TELINK_SDK_USED += drivers/driver_ext/ext_calibration.c
 TELINK_SDK_USED += drivers/driver_ext/ext_misc.c
 TELINK_SDK_USED += drivers/driver_ext/rf_pa.c
+TELINK_SDK_USED += drivers/driver_ext/rf_private_pa.c
 TELINK_SDK_USED += drivers/flash.c
 TELINK_SDK_USED += drivers/flash/flash_common.c
 TELINK_SDK_USED += drivers/flash/flash_mid114485.c
