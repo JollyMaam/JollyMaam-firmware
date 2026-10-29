@@ -2404,3 +2404,66 @@ oracle101000 cases pass; focused sanitizer passed in worker. All123 original
 BR23 C files match44d0073. Worker and three dependency statuses clean, merged
 ancestry verified, completed worktree/branch deleted. No pending worker at this
 checkpoint. No application-image/hardware validation.
+
+## Clean-branch BD19 TWS link acceptance
+
+Base edc95f7; completed the Luna worker's uncommitted partial seed and four
+scratch callback recoveries. Pinned tws_link.c.o occurrence1, SHA-256
+ da807d9e86131c06657e4979814ee94ddf70673e456c92a3da142e124ff16f16.
+Dedicated bd19/tws_link.c supplies all55 bodies,42 public functions and five
+public globals. Original BR23 C remains unchanged. Census2 reuse/2 boundary-only/
+15 differing/36 without a unique BR23 counterpart; existing BR23 C is a subset
+with different monitor/frame/core/relay behavior, so it cannot replace this
+member by field renaming. No application-branch changes were imported.
+
+Public globals tws_link (common/80 bytes/alignment4), g_soft_agc_enable=1,
+slave_rx_switch_irq=0, tws_link_sync and tws_link_task_ops exactly match SDK
+initializers/linkage/alignment/sections after type mapping. Sync channel1,
+attribute12 and callback slots are preserved. Sync descriptor .tws_sync_channel.1,
+task ops .classic_tws_const; TX sync/RX packet/resume/suspend .tws_irq_code;
+remaining monitor APIs and callbacks .classic_tws_code, ordinary private helpers
+unsectioned. All55 compiled identities/sections, all23 literal byte arrays and
+41 mapped type shapes checked against original SDK IR. No extra private bodies.
+
+Coordinator corrected reversed monitor-disable role selection, forward-bitoff
+zero extension versus normalized signed16 arithmetic, full16-bit header.check,
+missing TX wait/retry return36, timeout count reload after clock callback,
+AFH-end reload after comparison callback and peer reload after offset callbacks.
+The may_alias32 wire type retains SDK staged stores between volatile16 frame
+reads. Retained explicit memory intrinsics under -fno-builtin, common state
+under -fno-common, exact assertions/provenance and all original unchecked paths.
+The full recovery includes36-byte sync,68-byte core serialization, monitor/eSCO
+setup, role switching, split clocks, packet assembly, timers and pending-list
+movement. Ordinary-load ordering, equivalent GEP/arithmetic, loop/CFG layout,
+stack lifetimes, compiler call attributes and calls versus inlined public
+helpers account for remaining normalized IR differences. Copies preserve SDK
+alignment contracts; some compiler-known alignment or conservative memcpy
+alignment differs without changing the source pointer contract. No target
+runtime helper replaces a required SDK body.
+
+Focused fixture links with complete mocks (no unresolved-symbol suppression).
+It covers signed/wrapped halfwords, disable-role mapping and enable no-op,
+monitor/eSCO constants and transitions, IRQ balance, sequence flag2 unshifted,
+monitor timer callbacks, hash/retry/5th-eSCO-request sync, full16/low8 timeout
+split, post-clock and post-comparison reloads,16-bit check rejection, cached
+packet header after scheduler mutation, complete/fragmented/probe-no-space/
+allocation-failure/oversized packet paths, task early return/resume/suspend,
+pending-list destination replacement and cached log gate, post-log bitoff
+reload,68-byte core data/untouched tail,premaxval windows,receive-switch clock
+copy and allocation/start/detach. ASan/UBSan with leak detection passes.
+
+New check_tws_bitoff.py isolates the original raw LLVM body, rebases only its
+two frame GEPs to input halfwords, and compares recovered C arithmetic on493216
+cases (all65536 first inputs with six boundary second values plus100000 seeded
+random pairs). All pass. This verifies arithmetic, not radio/IRQ scheduling.
+Extra-source BR23 compilation fails on BD19-only frame fields as expected;
+the actual BR23 source set builds. C42/B91–B93 track consolidation, unchecked
+wire/lifetime contracts, timeout widths, packet capacity/ownership and no-ops.
+
+Validation: make -j32 controller-objects controller-test test controller-layouts
+controller-tools-test controller-audit controller-compare; focused complete-mock
+sanitizer fixture; python3 tools/btctrler/check_tws_bitoff.py --clang HOST_CLANG.
+Worker checks pass:217 : ok reports,12 legacy reports,31 tooling tests,both
+layouts,97 ownership groups. Totals98 accepted members/1171 unique public
+functions/109 globals;13 retained members/857 verified archive index entries.
+No firmware-image, flashing or hardware validation.

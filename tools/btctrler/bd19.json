@@ -698,6 +698,14 @@
       ]
     },
     {
+      "member": "tws_link.c.o",
+      "occurrence": 1,
+      "sha256": "da807d9e86131c06657e4979814ee94ddf70673e456c92a3da142e124ff16f16",
+      "sources": [
+        "src/btctrler/bd19/tws_link.c"
+      ]
+    },
+    {
       "member": "tws_lmp_sync.c.o",
       "occurrence": 1,
       "sha256": "e87bad0ec260b7c9a29c64b823ce0ac36710e60ca3e6680fb75f8dc6c0fe5ded",
