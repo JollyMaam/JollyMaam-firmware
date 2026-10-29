@@ -954,7 +954,8 @@ class App:
             entry = record["stock"]
             return f"{stock_name(entry)} · stock" + (f", {entry.mode}" if entry.mode else "")
         default = "GameSir Cyclone 2 dongle" if record["board"] == "dongle" else record["board"].title()
-        return f"{product_name(pid) if pid else default} · this firmware"
+        updater = record.get("identity") and len(record["identity"]) > 7 and record["identity"][7] == 1
+        return f"{product_name(pid) if pid else default} · this firmware" + (" · updater" if updater else "")
 
     @staticmethod
     def target_label(record, t):
@@ -1162,6 +1163,8 @@ class App:
                                               state="normal" if usb else "disabled")
         self.enter_loader_button.pack(side="left", padx=(0, 8))
         ttk.Button(actions, text="Show console", command=self.show_console,
+                   state="normal" if record.get("online", True) else "disabled").pack(side="left", padx=(0, 8))
+        ttk.Button(actions, text="Update firmware…", command=self.update_firmware,
                    state="normal" if record.get("online", True) else "disabled").pack(side="left", padx=(0, 8))
         if record["board"] == "pad":
             ttk.Button(actions, text="Back up pad settings…", command=self.backup_settings, state="normal" if record.get("online", True) else "disabled").pack(side="left", padx=(0, 8))
@@ -1589,6 +1592,7 @@ class App:
         actions = ttk.Frame(f)
         actions.pack(fill="x", pady=8)
         for text, command in (("Enter flash loader", self.enter_flash_loader),
+                              ("Update firmware…", self.update_firmware),
                               ("Pair dongle…", lambda: self.slot_action("pair", 0)),
                               ("Reboot", lambda: self.device_action("Reboot", lambda p: pad.cmd(p, 0x10))),
                               ("Show console", self.show_console)):
@@ -1659,7 +1663,10 @@ class App:
     def choose_firmware(self):
         if self.busy or not self.require_loader():
             return
-        file = filedialog.askopenfilename(title="Select firmware to flash", filetypes=[("Firmware", "*.img *.ufw"), ("All files", "*")])
+        record = self.record()
+        file = filedialog.askopenfilename(title="Select firmware to flash",
+                                          initialdir=firmware_dir(record.get("product_id") if record else None),
+                                          filetypes=[("Firmware", "*.img *.ufw"), ("All files", "*")])
         if not file:
             return
         if self.select_firmware_image(file):
@@ -1700,6 +1707,38 @@ class App:
 
     def flash_progress(self, stage, done=0, total=None):
         self.events.put(("flash_progress", (stage, done, total)))
+
+    def update_firmware(self):
+        """An update.bin through the device's updater (padtool update): over
+        USB, or over Bluetooth from config mode, which restarts into the
+        updater on the same address.  Settings and pairings stay."""
+        record = self.record()
+        if self.busy or not record or not record.get("online", True) or record["board"] not in OURS:
+            return
+        if any(self.changed(entry) for entry in record.get("draft", {}).values()):
+            messagebox.showinfo("Pending edits", "Apply or discard this device’s pending edits before updating it.")
+            return
+        file = filedialog.askopenfilename(title="Select update.bin", initialdir=firmware_dir(record.get("product_id")),
+                                          filetypes=[("Update image", "update.bin"), ("All files", "*")])
+        if not file:
+            return
+        image = Path(file).read_bytes()
+        if image[:4] != b"MAIN":
+            messagebox.showerror("Firmware", "Not an update image: choose update.bin from a pad or dongle build.")
+            return
+        over = "Bluetooth" if padble.is_ble(record["path"]) else "USB"
+        if not messagebox.askyesno("Update firmware", f"Update {self.device_label(record)} over {over} with\n{file}?\n\n"
+                                   "It restarts into its updater, takes the image and restarts; settings stay."):
+            return
+        path = record["path"]
+        def work():
+            if pad.cmd(path, 0, length=64)[:56] != record["identity"]:
+                raise ValueError("Device changed; wait for device detection before updating")
+            pad.update_device(path, image, lambda done, total: self.flash_progress("Updating firmware", done, total))
+        def done(_):
+            self.notice.set("Firmware updated; the device restarted")
+            self.refresh_devices()
+        self.run("Updating firmware…", work, done)
 
     def enter_flash_loader(self):
         record = self.record()
@@ -1821,6 +1860,24 @@ class App:
                 return fn(path)
             self.run(label + "…", perform)
 
+
+
+# A product ID's build: its folder in the Windows zip's firmware and in build/.
+BUILDS = {"GS_C2_ADC_DEVICE": "gamesir-cyclone-2-pad", "GS_C2_Dongle": "gamesir-cyclone-2-dongle",
+          "AC695X_TRANS": "gamesir-nova-2-lite-pad", "AC632N_TRANS": "gamesir-nova-2-lite-dongle",
+          "U2C_WIRELESS": "8bitdo-ultimate2c-wireless-pad"}
+
+
+def firmware_dir(pid=None):
+    """Where firmware images are: the Windows zip's firmware folder, else
+    this tree's build; that product's own folder when known.  None: the
+    dialog's own choice."""
+    here = Path(__file__).resolve().parent.parent
+    for folder in (here / "firmware", here / "build"):
+        if folder.is_dir():
+            board = folder / BUILDS.get(pid or "", "")
+            return str(board if pid in BUILDS and board.is_dir() else folder)
+    return None
 
 
 def elevate():

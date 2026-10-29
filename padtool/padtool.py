@@ -631,10 +631,10 @@ def update_step(link, what):
     return i
 
 
-def update(link, image):
+def update(link, image, progress=None):
     """Header and app as jlnewfw --main-out writes them, through the updater
     (src/updater/updater.c) on USB or LE: begin, data in order, commit,
-    reboot."""
+    reboot.  progress(bytes written, size), if given, as it goes."""
     if image[:4] != b"MAIN":
         sys.exit("padtool: not an update image (update.bin from a pad or dongle build)")
     if not is_updater(link):
@@ -674,6 +674,8 @@ def update(link, image):
                 sys.exit("padtool: update: writes keep getting lost (the pad stays in its updater)")
             offset = i["written"]
         print(f"\r{i['written']} of {len(image)} bytes", end="", flush=True)
+        if progress:
+            progress(i["written"], len(image))
         if i["written"] == len(image):
             break
     print(f"\r{i['written']} of {len(image)} bytes in {time.monotonic() - start:.1f} s"
@@ -685,6 +687,34 @@ def update(link, image):
     print("committed; restarting into the app")
     link.cmd(0x10)
     link.close()
+
+
+def update_device(path, image, progress=None):
+    """update() to the device at path, as padgui does: on USB the same one
+    found again after each restart (by flash ID); a pad in config mode over
+    Bluetooth restarts into its updater, which advertises on the same
+    address."""
+    global DEVICE_ID
+    if padble.is_ble(path):
+        address = padble.link(path).address
+        scsi(path, [OP, 0x40], 0)          # UPDATER: the link goes as the pad restarts
+        time.sleep(1.5)
+        link = padble.BleLink(address, scan_s=30)
+        try:
+            update(link, image, progress)
+        finally:
+            link.close()
+        return
+    before = DEVICE_ID
+    DEVICE_ID = answers(path)
+    try:
+        link = UsbLink(path)
+        update(link, image, progress)
+        time.sleep(1)
+        if not link.reopen(15):
+            sys.exit("padtool: updated, but the device did not come back")
+    finally:
+        DEVICE_ID = before
 
 
 def log(path, follow):
