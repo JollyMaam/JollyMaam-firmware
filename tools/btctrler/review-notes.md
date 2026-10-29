@@ -2091,3 +2091,58 @@ functions,94 globals,1013 verified archive index entries. All123 original BR23
 C files match44d0073. Worker and three dependency statuses were clean; merged
 ancestry verified. Completed worktree/branch deleted. No pending worker,
 application-image or hardware validation.
+
+## Clean-branch BD19 TWS sniff acceptance
+
+Base `32174b1`. One Luna worker stopped without a usable recovery or commit;
+coordinator replaced its BR23 copy with the full BD19 implementation in the
+same isolated worktree. Authority: `tws_sniff.c.o` occurrence1 SHA-256
+`acba8584e987aa21cfc59c5f800a7078e124e3201532756b79e3ae319a55226a`.
+Dedicated source supplies all34 definitions,24 public functions and two globals:
+zero byte sniff_test_tone/align1 and common zero tws_sniff/align4,36 target bytes.
+Every body retains .classic_tws_code except unsectioned cpu_reset; the anchor
+hook is weak. Both initializer/linkage/section/alignment records and all43
+format/function-name strings match SDK exactly.38 mapped type shapes agree.
+
+BR23 source/IR/census comparison shows20 changed instruction bodies,10 without
+counterparts,3 boundary-only matches and one direct candidate (cpu_reset).
+BD19 implements no-phone negotiation, TX requests, D updates and monitor
+handoffs rather than BR23's stubs; headers have changed signatures/frame
+registers. No BR23 or shared header changes. The extra-source BR23 build is
+unsupported (19 errors including signatures and absent frame fields/helpers);
+the actual BR23 source set builds. Original123 BR23 C files match44d0073.
+
+Coordinator reviewed every raw body and target-normalized diff, preserving
+unsigned32 wrap and remainders, signed deltas, signed byte wake offsets,
+27-bit masking only at recurring stored wake, first-anchor repeat versus
+recurring single-period adjustment and zero-delta boundary. Timer gets the
+unmasked wake and snapshots its fine count before the clock helper. Role
+snapshot precedes the weak anchor hook, while timer/offset/state fields reload
+where SDK reloads them. Master logging gate is cached; slave frame pointers
+are cached before callbacks; handoff fields use volatile16-bit accesses with
+original ordering. Local byte-return alias preserves link_idle_task_enable_detect
+SDK i8 ABI despite the generated header bool declaration. Remaining target
+IR differences are equivalent guards/loop forms, reordering of ordinary loads
+without intervening side effects, integer widening of nonnegative values,
+stack lifetime/initializer lowering, legacy unspecified import prototypes,
+and identical12-byte aligned clearing lowered with i32 rather than i64 length.
+No strict whole-program equivalence or hardware correctness is claimed.
+
+Focused fixture with complete mocks passes ASan/UBSan and leak detection,
+without unresolved-symbol suppression. Covers zero/wrapped anchor deltas,
+fine-count snapshot across escaped-pointer mutation, nested IRQ/no-phone
+negotiation, phone gates, post-send pure-monitor reload, command fields,
+three-retry limit, peer/no-peer master packet, timer callback handoffs,
+volatile frame halfwords, changed T after preset hook, anchor retry/setup,
+returning reset/assert hooks, signed/unsigned clock correction, exact12-byte
+teardown, IRQ-state reload after idle hook, TX toggle/state gates. Host structs
+widen pointers; original target IR/layout checks pin hardware accesses.
+C37/B77–B79 record sharing, unchecked period/input/allocation, timer/LMP/frame
+lifetimes, ignored sends and retry/reset contracts; inherited BR23 #27 now
+has confirmed BD19 dereference evidence, with runtime reachability unresolved.
+No application-image, peer-radio or hardware validation.
+
+Full worker controller checks/census pass:212 : ok reports,12 legacy reports,
+31 tooling tests,both layouts,92 ownership groups. Totals93 accepted members,
+1054 unique public functions,96 globals;18 retained members,987 verified
+archive index entries. Focused sanitizer exit0; baseline comparison123/123.

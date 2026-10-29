@@ -714,6 +714,14 @@
       ]
     },
     {
+      "member": "tws_sniff.c.o",
+      "occurrence": 1,
+      "sha256": "acba8584e987aa21cfc59c5f800a7078e124e3201532756b79e3ae319a55226a",
+      "sources": [
+        "src/btctrler/bd19/tws_sniff.c"
+      ]
+    },
+    {
       "member": "tws_sync_call.c.o",
       "occurrence": 1,
       "sha256": "dbb5d6d9c680f99d0dced6a526672df01e2848eefef02bcddb1ee62ff988fef4",

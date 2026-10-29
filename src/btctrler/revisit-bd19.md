@@ -101,6 +101,8 @@ against the eventual Nova 2 configuration and linked image.
 
 | C36 | `bd19/local_media_sync.c`, worker `aa5571e` plus coordinator review; SDK occurrence1 `db81f803…7917`: BD19 combines TX/pool/decoder command APIs with channel12/attribute3; BR23 receive implementation and frame layout differ. Set-buffer and total-size helpers and some list operations are potential common code. Weak notify has BD19 void(void) versus BR23 int(u8*,int,u8), so it is not a reusable ABI match. | Share only independently checked helpers; preserve BD19 payload42/frame44/prefix28, local byte callback stub and linker retention. Audit both complete protocols before merging implementations. |
 
+| C37 | `bd19/tws_sniff.c`, SDK occurrence1 `acba8584…226a`, coordinator recovery after Luna stopped without code: BD19 has functional no-phone negotiation, monitor handoffs, phase updates and transmit requests; BR23 retains empty request/no-phone paths and different signatures/state layout. Census matches only cpu_reset directly, and weak hook/parser/enter bodies need boundary checks. | Keep target-specific implementation. Share basic helpers only after complete caller/callee ABI checks; common names or similar structs do not justify importing BR23 stubs. Byte-return `link_idle_task_enable_detect` uses a local assembly alias to retain i8 ABI against generated bool declaration. |
+
 ## Confirmed BD19 behavior to revisit
 
 Each row describes SDK behavior deliberately retained in accepted C. Fixes need
@@ -212,6 +214,10 @@ unestablished unless specifically stated.
 | B75 | Same occurrence, event25 and first_media: failed RX allocation with zero deadline immediately permits reclamation, then signed now<deadline returns-12 on later failure. jiffies_unit0 divides by zero. Input lengths/pool reload after hooks; head-only readiness can block later ready frames counted by ready_total. Unbounded input copy uses len+4 into allocation len+40 at offset28. | Audit pressure/timeout and malformed-input contracts, signed tick rollover and caller storage; do not silently add bounds or skip blocked heads during recovery. |
 | B76 | Same occurrence, clear/stop/fetch/send: clear marks live-peer state1 deleted; stop frees even in-flight queued frames, clears pool pointer without freeing pool, and preserves other state/deadline flags. Fetch follows next without deleted/readiness filtering and reads length after IRQ enable; pop unlinks and reads length before enable. Send caches next before queue hook, preserving high/deleted bits. | Establish ownership/callback lifetime and IRQ assumptions before app fixes; compare data-transfer/media-sync policies for safe helper consolidation. Test with peer completions and allocator/queue interleaving on hardware separately. |
 
+| B77 | `bd19/tws_sniff.c`, same occurrence, rx_sniff_info/cal_D/fap_set/ap_set: unchecked T_sniff can divide by zero or leave signed-delta loops unable to advance. First anchor loops until >=10; recurring ap_set adds a period once, and exact-zero delta remains zero. Stored recurring wake is masked27bits but timer receives unmasked sum; first wake is unmasked. rx_info wrap uses134217727-reference+now and threshold69120000. | Validate periods and clock ranges separately from recovery. Exercise wrap boundaries and scheduling margin on hardware before unifying timing helpers; do not silently normalize masks or zero-delta behavior. |
+| B78 | Same occurrence, with_phone/unsniff requests/slave and master monitor: peer/phone and LMP/sniff dereferences assume live state; allocation of lmp sniff is unchecked. Slave callback snapshots both frame pointers before external calls and later unconditionally dereferences current links; some null-frame paths consume unwritten outputs. fap_set retains the sniff pointer as timer private data. | BD19 now confirms the null-state assumptions behind inherited BR23 #27 (reachability remains unproven). Audit timer cancellation, detach and frame/LMP lifetime, then add explicit application guards with caller evidence. Do not manufacture zero outputs for SDK undefined paths. |
+| B79 | Same occurrence, command sync/retries/teardown: send results are ignored after state changes; unsniff retries3 then resets retry counter and runs task(NULL). Nested IRQ operations and logging/hooks can mutate state. with/without-phone teardown releases timer but leaves its ID and selected state/cnt fields; without-phone and with-phone resets differ. Assert/reset hooks can return into remaining hardware operations. rx_info logs four arguments against three format conversions. | Establish retry/failure, callback, reset and state-lifetime contracts; audit diagnostic intent separately. Preserve per-call snapshots/reloads and byte ABI until deliberate fixes are approved. |
+
 ## Inherited BR23 follow-ups: BD19 confirmation queue
 
 The linked [BR23 list](revisit.md) contains the original details and evidence.
@@ -248,7 +254,7 @@ from a BR23 pad do not establish Nova 2 behavior.
 | [24](revisit.md) | Initiator/scanner leftovers (worker-reported, unverified). | Legacy scan/init accepted; older worker report is still not a fresh BD19 failure-path proof. |
 | [25](revisit.md) | TWS eSCO relay leaves heap fields uninitialized. | TWS link retained; verify uninitialized relay fields and frees before enabling. |
 | [26](revisit.md) | TWS semaphore allocations are smaller than the declared type. | TWS pair occurrences retained: verify each occurrence and OS_SEM ABI separately. |
-| [27](revisit.md) | TWS sniff assumes both peer and phone state exist. | TWS sniff retained; confirm null-state reachability in BD19. |
+| [27](revisit.md) | TWS sniff assumes both peer and phone state exist. | BD19 dereference assumptions confirmed by tws_sniff recovery (B78); actual null-state reachability still needs caller/lifetime evidence. |
 | [28](revisit.md) | TWS timed-call queue accepts a ninth entry in an eight-entry ring. | TWS timed calls retained; confirm ring guard and queue counts. |
 | [29](revisit.md) | TWS key synchronization drops the second record. | TWS events retained; compare record stride and frame count. |
 | [30](revisit.md) | TWS access-address scorer compares bytes at different bit positions. | Shared scorer accepted; unnormalized comparison preserved (`cb82461`). |
@@ -452,3 +458,5 @@ not absence of defects. See the earlier sections for cross-member issues.
 | `tws_data_trans.c.o` / 1 | worker `8bb8858` + coordinator completion/review | C35; B70–B73 |
 
 | `local_media_sync.c.o` / 1 | worker `aa5571e` + coordinator corrections/review | C36; B74–B76 |
+
+| `tws_sniff.c.o` / 1 | coordinator recovery after Luna stopped without usable code | C37; B77–B79; inherited BR23 #27 scope updated |
