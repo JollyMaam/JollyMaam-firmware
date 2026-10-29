@@ -2196,3 +2196,12 @@ host/layout/symbol checks are not formal whole-program equivalence proof.
 Full worker checks/census pass:213 : ok reports,12 legacy reports,31 tooling
 tests,both layouts,93 groups. Totals94 accepted/1090 public functions/96 globals;
 17 retained members/951 verified index entries. Focused sanitizer exit0.
+
+
+TWS-task combined checkpoint: acceptance `d870d68` passes canonical controller
+checks/census:213 : ok reports,12 legacy reports,31 tooling tests,both layouts,
+93 ownership groups. Totals94 accepted/17 retained members,1090 unique public
+functions,96 globals,951 verified archive index entries. All123 original BR23
+C files match44d0073. Worker and three dependency statuses were clean; merged
+ancestry verified. Completed worktree/branch deleted. No pending worker at
+this checkpoint; no application-image or hardware validation.
