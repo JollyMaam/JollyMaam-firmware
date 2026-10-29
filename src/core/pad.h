@@ -978,6 +978,8 @@ void plat_power_off(void);
 void plat_reboot(void);
 void plat_reboot_loader(void);
 void plat_reboot_updater(void);  /* into the updater, where the app has one */
+void plat_reboot_config(void);   /* the updater: restart the app in config mode */
+int plat_config_asked(void);     /* the app at boot: the updater asked for config mode (once) */
 void plat_watch_stop(void);                 /* the hang watch, before a long wait on purpose */
 
 #endif

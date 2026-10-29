@@ -168,7 +168,7 @@ static u8 commit(void)
 
 /* ---- the tool device ------------------------------------------------------ */
 
-static u8 reboot, to_rom;
+static u8 reboot, to_rom, to_config;
 
 u32 usb_command(const u8 cdb[16], u8 *d, u32 max, int from_host)
 {
@@ -259,6 +259,9 @@ u32 updater_frame(const u8 *frame, u32 len, u8 *reply, u32 max)
     u32 n;
 
     if (len < 5 || max < 2) return 0;
+    /* The REBOOT after an update over LE: the app starts in config mode,
+     * where the host that updated it can find it again. */
+    if (frame[0] == CMD_REBOOT && state == COMMITTED) to_config = 1;
     cdb[1] = frame[0];
     memcpy(cdb + 2, frame + 1, 4);
     if (len > 5) {
@@ -345,6 +348,7 @@ void ctl_main(void)
         if (reboot && !reboot_at) reboot_at = now + 100;   /* the command's status goes first */
         if (reboot_at && (s32)(now - reboot_at) >= 0) {
             if (to_rom) plat_reboot_loader();
+            if (to_config) plat_reboot_config();
             plat_reboot();
         }
 #ifndef BOARD_DONGLE             /* a dongle is off with its USB */

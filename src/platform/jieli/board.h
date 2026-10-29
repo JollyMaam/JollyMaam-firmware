@@ -53,6 +53,9 @@ void plat_pull_up_input(u32 gpio);
 #define UPDATER_STAY    0x54445055u     /* "UPDT" */
 #define UPDATER_TRIES   0x54525900u     /* "\0YRT" */
 #define UPDATER_TRIES_MAX 3
+/* APP_CONFIG, ~APP_CONFIG in words 0-1: the app starts in config mode (the
+ * updater asks so after an update over LE); the updater starts the app. */
+#define APP_CONFIG      0x47464e43u     /* "CNFG" */
 extern u32 plat_updater_mailbox[3];
 
 /* ---- the tool device, between the platform's files ---------------------- */

@@ -1181,8 +1181,15 @@ static void boot(u32 now)
     /* Show the boot scene before a profile or the radio starts: an
      * immediate session must not skip it by replacing CTL_BOOT. */
     outputs(now);
-    if (c.updater_chord) ux_ignore_held();
+    /* Recovery chords held wait for USB, the updater's (ux_updater_chord),
+     * and do nothing else; Home+M is config mode's hold as well: without
+     * USB in the window it goes on to config mode. */
+    if (c.updater_chord && (b.buttons_held & (PAD_HOME | PAD_M)) != (PAD_HOME | PAD_M)) ux_ignore_held();
     else handle(ux_boot(b.buttons_held, b.cause == BOOT_HOME, now), now);
+    if (plat_config_asked()) {
+        util_log("config mode: the updater asks");
+        start_config(now);
+    }
 }
 
 void ctl_main(void)

@@ -938,6 +938,25 @@ void plat_reboot_updater(void)
     plat_reboot();
 }
 
+void plat_reboot_config(void)
+{
+    plat_updater_mailbox[0] = APP_CONFIG;
+    plat_updater_mailbox[1] = ~APP_CONFIG;
+    plat_flush_dcache(plat_updater_mailbox, sizeof(plat_updater_mailbox));
+    plat_reboot();
+}
+
+int plat_config_asked(void)
+{
+    int asked = plat_updater_mailbox[0] == APP_CONFIG && plat_updater_mailbox[1] == ~APP_CONFIG;
+
+    if (asked) {
+        plat_updater_mailbox[0] = plat_updater_mailbox[1] = 0;
+        plat_flush_dcache(plat_updater_mailbox, sizeof(plat_updater_mailbox));
+    }
+    return asked;
+}
+
 void plat_reboot(void)
 {
     plat_watch_stop();

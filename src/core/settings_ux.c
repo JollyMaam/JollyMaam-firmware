@@ -696,6 +696,11 @@ int main(void)
     reset(CTL_CONNECTED); pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_M; run(HOLD_MS + 1);
     CHECK(last.kind == REQ_CONFIG);
 #endif
+    /* Home+M held at power-on: config mode once held long enough. */
+    reset(CTL_BOOT); pad.buttons = PAD_HOME | PAD_M;
+    last = ux_boot(pad.buttons, 1, now); CHECK(last.kind == REQ_NONE);
+    for (i = 0; i < HOLD_MS + 50 && last.kind != REQ_CONFIG; i++) run(1);
+    CHECK(last.kind == REQ_CONFIG && i >= HOLD_MS - 10);
     /* Drained after ux_ignore_held. */
     reset(CTL_BOOT); ux_ignore_held(); pad.buttons = PAD_HOME | PAD_B; run(6000);
     CHECK(last.kind == REQ_NONE && !seen.buttons);

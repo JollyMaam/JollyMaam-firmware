@@ -242,6 +242,10 @@ void plat_reboot_updater(void)
     plat_reboot();
 }
 
+/* No config mode here to restart into. */
+void plat_reboot_config(void) { plat_reboot(); }
+int plat_config_asked(void) { return 0; }
+
 /* The 8BitDo boot loader stays in its USB loader after a reset when analog
  * register 0x3c holds 0x5a (it survives the reset). */
 void plat_reboot_loader(void)
