@@ -30,6 +30,11 @@
 #undef __set_interval
 #undef __set_winsize
 
+#define DUT_FILE "/jks/workspace/data_trans_sdk_export_gitlab/data_trans_sdk/lib/btctrler/port/bd19/baseband/ble/direct_test_dut.c"
+#define DUT_ASSERT_PRINT(message, line) do { printf("file:%s, line:%d", DUT_FILE, line); printf("ASSERT-FAILD: " message " "); cpu_assert_debug(); } while (0)
+#define DUT_ASSERT_PUTS(message, line) do { printf("file:%s, line:%d", DUT_FILE, line); puts("ASSERT-FAILD: " message); cpu_assert_debug(); } while (0)
+
+typedef u16 dut_slot_word __attribute__((aligned(4), may_alias));
 static struct dut_ble_baseband_layer_handle *dut_hdl;
 static volatile s32 rx_cnt;
 u8 rx_phy_s;
@@ -102,10 +107,10 @@ _Static_assert(offsetof(struct dut_ble_baseband_layer_handle, set_le_pwr_level) 
                "SDK DUT power field offset");
 #endif
 
-static u8 dut_get_dual_mode_flag(void) { return (u8)config_btctler_modules & 1; }
-static u8 dut_get_fcc_mode_flag(void) { return (u8)config_btctler_mode & 4; }
+static inline __attribute__((always_inline)) u8 dut_get_dual_mode_flag(void) { return (u8)config_btctler_modules & 1; }
+static inline __attribute__((always_inline)) u8 dut_get_fcc_mode_flag(void) { return (u8)config_btctler_mode & 4; }
 
-static void __ble_baseband_reset(void)
+static inline __attribute__((always_inline)) void __ble_baseband_reset(void)
 {
     DUT_REG32(1867776) |= 64;
 }
@@ -119,7 +124,7 @@ static void __set_anchor_cnt(void)
     DUT_REG32(1867808) = 32768; DUT_CSYNC(); DUT_REG32(1867804) = 14341;
 }
 
-static void __set_anchor_cnt_disable(void)
+static inline __attribute__((always_inline)) void __set_anchor_cnt_disable(void)
 {
     DUT_REG32(1867808) = 0;
     DUT_CSYNC();
@@ -138,7 +143,7 @@ static void __set_fixed_channel_index(u8 index)
     DUT_REG32(1867804) = 6149;
 }
 
-static void __set_hw_state(u32 state)
+static inline __attribute__((always_inline)) void __set_hw_state(u32 state)
 {
     dut_hdl->ble4_dut->ble4_hw->state = (u8)state;
     DUT_REG32(1867808) = state << 12;
@@ -146,7 +151,7 @@ static void __set_hw_state(u32 state)
     DUT_REG32(1867804) = 2053;
 }
 
-static void __set_interval(u32 interval)
+static inline __attribute__((always_inline)) void __set_interval(u32 interval)
 {
 #ifdef UNITTEST
     test_interval_written = interval;
@@ -196,7 +201,7 @@ static void __set_ble_anchor_con(u8 index, u32 value)
     DUT_REG32(1867804) = ((u32)index << 10) | 5;
 }
 
-static void __set_winsize(u32 winsize)
+static inline __attribute__((always_inline)) void __set_winsize(u32 winsize)
 {
     struct ble4_hw *hw = dut_hdl->ble4_dut->ble4_hw;
     hw->ble_fp.WINCNTL0 = (u16)winsize;
@@ -204,12 +209,12 @@ static void __set_winsize(u32 winsize)
     hw->ble_fp.WINCNTL2 = 150;
 }
 
-static void __dut_set_data_rx_phy(struct ble4_hw *hw, u8 phy)
+static inline __attribute__((always_inline)) void __dut_set_data_rx_phy(struct ble4_hw *hw, u8 phy)
 {
     if (hw) hw->ble_fp.INTFRAME = (hw->ble_fp.INTFRAME & (u16)-14337) | ((phy & 7) << 11);
 }
 
-static void __dut_set_data_tx_phy(struct ble_hw *hw, u8 phy)
+static inline __attribute__((always_inline)) void __dut_set_data_tx_phy(struct ble_hw *hw, u8 phy)
 {
     struct ble4_hw *hw4 = hw->ble4_hw;
     if (hw4) hw4->ble_fp.INTFRAME = (hw4->ble_fp.INTFRAME & (u16)-1793) | ((phy & 7) << 8);
@@ -218,8 +223,9 @@ static void __dut_set_data_tx_phy(struct ble_hw *hw, u8 phy)
 static void __dut_set_data_tx_phy_coded_s(struct ble_hw *hw)
 {
     struct ble4_hw *hw4 = hw->ble4_hw;
-    u16 coded_s = hw->phy.coded_s;
-    hw4->ble_fp.INTFRAME = (coded_s << 14) | (hw4->ble_fp.INTFRAME & 16383);
+    u16 intframe=hw4->ble_fp.INTFRAME;
+    u8 coded_s = hw->phy.coded_s;
+    hw4->ble_fp.INTFRAME = (u16)(coded_s << 14) | (intframe & 16383);
     hw4->ble_fp.TXDHDR0 = ((coded_s << 4) & 16) | (hw4->ble_fp.TXDHDR0 & (u16)-17);
     hw4->ble_fp.TXDHDR1 = ((coded_s << 4) & 16) | (hw4->ble_fp.TXDHDR1 & (u16)-17);
 }
@@ -253,7 +259,7 @@ static void __dut_set_channel_map(struct ble4_hw *hw, const u8 *channel, u8 mode
     hw->ble_fp.CHMAP2 = (channel[4] & 31) | (count << 5);
 }
 
-static void cpu_reset(void) { p33_soft_reset(); }
+
 
 static struct ble_hw *dut_ble4_hw_alloc(void)
 {
@@ -262,39 +268,39 @@ static struct ble_hw *dut_ble4_hw_alloc(void)
     for (s32 i = 0; i < count; ++i) {
         if (dut_hdl->hw_base.inst[i] == 0) {
             hw = dut_hdl->hw_base.hw + i;
-            memset(hw, 0, 28);
+            __builtin_memset(hw, 0, 28);
             break;
         }
     }
     if (!hw) {
-        if (config_asser) btctrler_assert_failed("hw != NULL BLE HW NUM limit!!!", 567);
-        else cpu_reset();
+        if (config_asser) DUT_ASSERT_PUTS("hw != NULL BLE HW NUM limit!!!", 592);
+        else p33_soft_reset();
     }
     struct _hw_entity *entity = NULL;
     for (s32 i = 0; i < count; ++i) {
         if (!dut_hdl->hw_base.hw_entity[i].used) {
             entity = &dut_hdl->hw_base.hw_entity[i];
-            memset(entity, 0, 628);
+            __builtin_memset(entity, 0, 628);
             entity->used = 1;
             break;
         }
     }
     if (!entity) {
-        if (config_asser) btctrler_assert_failed("hw != NULL hw_entiry_alloc error", 494);
-        else cpu_reset();
+        if (config_asser) DUT_ASSERT_PUTS("hw != NULL hw_entiry_alloc error", 519);
+        else p33_soft_reset();
     }
     hw->ble4_hw = entity ? &entity->u.ble4_hw : NULL;
     if (config_asser) {
-        if (!hw->ble4_hw) btctrler_assert_failed("hw->ble4_hw ", 601);
-    } else if (!hw->ble4_hw) cpu_reset();
+        if (!hw->ble4_hw) DUT_ASSERT_PRINT("hw->ble4_hw", 626);
+    } else if (!hw->ble4_hw) p33_soft_reset();
     struct ble4_hw *fp_addr = hw->ble4_hw;
     s32 slot_delta = (s32)((u32)(uintptr_t)hw -
                            (u32)(uintptr_t)dut_hdl->hw_base.hw);
     s32 slot_index = slot_delta / 28;
     u32 entity_offset = (u32)(uintptr_t)fp_addr - (u32)(uintptr_t)dut_hdl;
     if (config_asser) {
-        if (entity_offset >= 65535) btctrler_assert_failed("(u32)(fp_addr)-(u32)&__this->hw_base < 0xffff ", 551);
-    } else if (entity_offset >= 65535) cpu_reset();
+        if (entity_offset >= 65535) DUT_ASSERT_PRINT("(u32)(fp_addr)-(u32)&__this->hw_base < 0xffff", 576);
+    } else if (entity_offset >= 65535) p33_soft_reset();
     u32 inst_entity_offset = (u32)(uintptr_t)fp_addr - (u32)(uintptr_t)dut_hdl;
     dut_hdl->hw_base.inst[(u32)slot_index & 255] =
         (u16)((inst_entity_offset & 65535) | 0x8000);
@@ -312,22 +318,22 @@ static void dut_le_hw_init(void)
     DUT_REG32(1867776) = 1;
     DUT_REG32(1867828) = 2305;
     s32 hw_count = config_btctler_le_hw_nums;
-    s32 hw_bytes = hw_count * 28 + 308;
-    s32 entity_bytes = hw_bytes + hw_count * 628;
-    s32 rx_bytes = config_btctler_le_rx_nums * 294 + 31;
+    u32 hw_bytes = (u32)hw_count * 28 + 308;
+    u32 entity_bytes = hw_bytes + (u32)hw_count * 628;
+    u32 rx_bytes = (u32)config_btctler_le_rx_nums * 294 + 31;
     s32 dma_bytes = config_btctler_le_acl_packet_length;
-    s32 mps27 = (dma_bytes / 27) * 70 + 70;
-    s32 mps251 = (dma_bytes / 251) * 294 + 294;
+    u32 mps27 = (u32)(dma_bytes / 27) * 70 + 70;
+    u32 mps251 = (u32)(dma_bytes / 251) * 294 + 294;
     s32 per_packet = dma_bytes / (mps27 > mps251 ? 27 : 251) + 1;
-    s32 acl_bytes = config_btctler_le_acl_total_nums * per_packet * (mps27 > mps251 ? 70 : 294);
-    s32 total = rx_bytes + entity_bytes + 31 + acl_bytes;
+    u32 acl_bytes = (u32)config_btctler_le_acl_total_nums * (u32)per_packet * (mps27 > mps251 ? 70 : 294);
+    u32 total = rx_bytes + entity_bytes + 31 + acl_bytes;
     if (!dut_hdl) {
         dut_hdl = malloc((u32)total);
         if (!dut_hdl) {
-            if (config_asser) btctrler_assert_failed("__this", 1873);
-            else cpu_reset();
+            if (config_asser) DUT_ASSERT_PRINT("__this", 2007);
+            else p33_soft_reset();
         }
-        memset(dut_hdl, 0, (u32)total);
+        __builtin_memset(dut_hdl, 0, (u32)total);
         dut_hdl->set_le_pwr_level = 10;
         dut_hdl->hw_base.hw = (struct ble_hw *)((u8 *)dut_hdl + 308);
         dut_hdl->hw_base.hw_entity = (struct _hw_entity *)((u8 *)dut_hdl + hw_bytes);
@@ -335,7 +341,8 @@ static void dut_le_hw_init(void)
         dut_hdl->hw_base.tx_dma = (u8 *)dut_hdl + entity_bytes + rx_bytes;
         DUT_REG32(1899652) = (u32)(uintptr_t)dut_hdl;
         DUT_REG32(1899712) = (u32)(uintptr_t)((u8 *)dut_hdl + 32);
-        memset(dut_hdl, 0, 8);
+        typedef u64 inst_word __attribute__((aligned(4), may_alias));
+        *(inst_word *)(void *)dut_hdl = 0;
         dut_hdl->packet_cnt = 0;
         dut_hdl->pkt_err_cnt = 0;
         dut_hdl->le_test_enable = 0;
@@ -350,7 +357,7 @@ void dut_le_set_mac(u8 addr_type, const u8 *addr)
     log_print(2, NULL, "[Info]: [LE-DUT]\n--func=%s\n\r\n", "__dut_set_local_addr");
     hw->ble_fp.FORMAT |= 8;
     hw->local.addr_type = addr_type != 0;
-    memcpy(hw->local.addr, addr, 6);
+    __builtin_memcpy(hw->local.addr, addr, 6);
     hw->ble_fp.LOCALADRL = ((u16)addr[1] << 8) | addr[0];
     hw->ble_fp.LOCALADRM = ((u16)addr[3] << 8) | addr[2];
     hw->ble_fp.LOCALADRU = ((u16)addr[5] << 8) | addr[4];
@@ -397,8 +404,6 @@ static void le_test_frame_init(u8 tx_pwr)
     hw->ble_fp.TXDHDR0 &= (u16)-5;
     hw->ble_fp.TXDHDR0 &= (u16)-9;
     hw->ble_fp.TXDHDR0 &= 255;
-    hw->ble_fp.TXAHDR1 = 0;
-    hw->ble_fp.TXDHDR1 = 1;
     hw->ble_fp.TXDHDR1 |= 1;
     hw->ble_fp.TXDHDR1 &= (u16)-5;
     hw->ble_fp.TXDHDR1 &= (u16)-9;
@@ -410,7 +415,7 @@ static void le_test_frame_init(u8 tx_pwr)
     hw->ble_fp.TARGETADRL = 0;
     hw->ble_fp.TARGETADRM = 0;
     hw->ble_fp.TARGETADRU = 0;
-    memset(channel, 255, sizeof(channel));
+    __builtin_memset(channel, 255, sizeof(channel));
     __dut_set_channel_map(hw, channel, 0);
 }
 
@@ -419,22 +424,22 @@ static void le_receive_test(const struct dut_rx_param *packet)
     struct ble_hw *ble = dut_hdl->ble4_dut;
     struct ble4_hw *hw = ble->ble4_hw;
     DUT_REG32(1867776) = 1;
-    if (packet->coded_s == 255) memset(dut_hdl->hw_base.rx_dma, 0, 37);
-    else memset(dut_hdl->hw_base.rx_dma, 0, packet->length);
+    if (packet->coded_s == 255) __builtin_memset(dut_hdl->hw_base.rx_dma, 0, 37);
+    else __builtin_memset(dut_hdl->hw_base.rx_dma, 0, packet->length);
     le_test_frame_init(bt_get_pwr_max_level());
     hw->ble_fp.ANCHOR = (u16)-32768;
     __set_fixed_channel_index(packet->channel);
     u32 dma_offset = (u32)(uintptr_t)dut_hdl->hw_base.rx_dma - (u32)(uintptr_t)dut_hdl;
     if (config_asser) {
         if (dma_offset >= 65535)
-            btctrler_assert_failed("(u32)(&(dut_hdl)->hw_base.rx_dma[0])-(u32)&__this->hw_base < 0xffff ", 1101);
-    } else if (dma_offset >= 65535) cpu_reset();
+            DUT_ASSERT_PRINT("(u32)(&(dut_hdl)->hw_base.rx_dma[0])-(u32)&__this->hw_base < 0xffff", 1261);
+    } else if (dma_offset >= 65535) p33_soft_reset();
     dma_offset = (u32)(uintptr_t)dut_hdl->hw_base.rx_dma - (u32)(uintptr_t)dut_hdl;
     hw->ble_fp.RXPTR0 = (u16)dma_offset;
     if (config_asser) {
         if (dma_offset >= 65535)
-            btctrler_assert_failed("(u32)(&(dut_hdl)->hw_base.rx_dma[0])-(u32)&__this->hw_base < 0xffff ", 1102);
-    } else if (dma_offset >= 65535) cpu_reset();
+            DUT_ASSERT_PRINT("(u32)(&(dut_hdl)->hw_base.rx_dma[0])-(u32)&__this->hw_base < 0xffff", 1262);
+    } else if (dma_offset >= 65535) p33_soft_reset();
     dma_offset = (u32)(uintptr_t)dut_hdl->hw_base.rx_dma - (u32)(uintptr_t)dut_hdl;
     hw->ble_fp.RXPTR1 = (u16)dma_offset;
     hw->ble_fp.FORMAT |= 3072;
@@ -446,6 +451,7 @@ static void le_receive_test(const struct dut_rx_param *packet)
     case 1: __set_winsize(3000); interval = 625; break;
     case 2:
         log_print(2, NULL, "[Info]: [LE-DUT]coded phy test\n\r\n");
+        ble = dut_hdl->ble4_dut;
         if (packet->coded_s == 255) {
             ble->ble4_hw->ble_fp.WIDEN0 = 1;
             __set_winsize(13750);
@@ -493,24 +499,24 @@ static void le_transmitter_test(const struct dut_tx_param *packet)
     u8 pattern = packet->patten;
     if (pattern == 0xf0) {
         close_zeroif();
-        memset(channel, 255, sizeof(channel));
+        __builtin_memset(channel, 255, sizeof(channel));
         __dut_set_channel_map(dut_hdl->ble4_dut->ble4_hw, channel, 1);
         pattern = packet->patten;
     }
     u16 format = 19456;
     switch (pattern) {
     case 0: break;
-    case 1: memset(dut_hdl->le_buf, 15, packet->length); format = 3072; break;
-    case 2: memset(dut_hdl->le_buf, 85, packet->length); format = 3072; break;
+    case 1: __builtin_memset(dut_hdl->le_buf, 15, packet->length); format = 3072; break;
+    case 2: __builtin_memset(dut_hdl->le_buf, 85, packet->length); format = 3072; break;
     case 3: format = 52224; break;
-    case 4: memset(dut_hdl->le_buf, 255, packet->length); format = 3072; break;
-    case 5: memset(dut_hdl->le_buf, 0, packet->length); format = 3072; break;
-    case 6: memset(dut_hdl->le_buf, 0xf0, packet->length); format = 3072; break;
-    case 7: memset(dut_hdl->le_buf, 0xaa, packet->length); format = 3072; break;
+    case 4: __builtin_memset(dut_hdl->le_buf, 255, packet->length); format = 3072; break;
+    case 5: __builtin_memset(dut_hdl->le_buf, 0, packet->length); format = 3072; break;
+    case 6: __builtin_memset(dut_hdl->le_buf, 0xf0, packet->length); format = 3072; break;
+    case 7: __builtin_memset(dut_hdl->le_buf, 0xaa, packet->length); format = 3072; break;
     case 0xf0: format = 11264; break;
     default: return;
     }
-    memcpy(dut_hdl->hw_base.tx_dma, dut_hdl->le_buf, packet->length);
+    __builtin_memcpy(dut_hdl->hw_base.tx_dma, dut_hdl->le_buf, packet->length);
     hw->ble_fp.FORMAT |= format;
     log_print(2, NULL, "[Info]: [LE-DUT]TX_TEST:index:%x data_type = 0x%x len:%x\n\r\n",
               packet->channel, packet->patten, packet->length);
@@ -520,14 +526,14 @@ static void le_transmitter_test(const struct dut_tx_param *packet)
     u32 dma_offset = (u32)(uintptr_t)dut_hdl->hw_base.tx_dma - (u32)(uintptr_t)dut_hdl;
     if (config_asser) {
         if (dma_offset >= 65535)
-            btctrler_assert_failed("(u32)(&(dut_hdl)->hw_base.tx_dma[0])-(u32)&__this->hw_base < 0xffff ", 1222);
-    } else if (dma_offset >= 65535) cpu_reset();
+            DUT_ASSERT_PRINT("(u32)(&(dut_hdl)->hw_base.tx_dma[0])-(u32)&__this->hw_base < 0xffff", 1383);
+    } else if (dma_offset >= 65535) p33_soft_reset();
     dma_offset = (u32)(uintptr_t)dut_hdl->hw_base.tx_dma - (u32)(uintptr_t)dut_hdl;
     hw->ble_fp.TXPTR0 = (u16)dma_offset;
     if (config_asser) {
         if (dma_offset >= 65535)
-            btctrler_assert_failed("(u32)(&(dut_hdl)->hw_base.tx_dma[0])-(u32)&__this->hw_base < 0xffff ", 1224);
-    } else if (dma_offset >= 65535) cpu_reset();
+            DUT_ASSERT_PRINT("(u32)(&(dut_hdl)->hw_base.tx_dma[0])-(u32)&__this->hw_base < 0xffff", 1385);
+    } else if (dma_offset >= 65535) p33_soft_reset();
     dma_offset = (u32)(uintptr_t)dut_hdl->hw_base.tx_dma - (u32)(uintptr_t)dut_hdl;
     hw->ble_fp.TXPTR1 = (u16)dma_offset;
     __set_hw_state(6);
@@ -538,9 +544,11 @@ static void le_transmitter_test(const struct dut_tx_param *packet)
     __set_interval(interval);
     u8 header_pattern = packet->patten;
     hw->ble_fp.TXAHDR0 = header_pattern;
-    hw->ble_fp.TXDHDR0 = ((u16)packet->length << 8) | (hw->ble_fp.TXDHDR0 & 255);
+    u16 tx_header0=hw->ble_fp.TXDHDR0;
+    u16 tx_length=(u16)packet->length << 8;
+    hw->ble_fp.TXDHDR0 = tx_length | (tx_header0 & 255);
     hw->ble_fp.TXAHDR1 = header_pattern;
-    hw->ble_fp.TXDHDR1 = ((u16)packet->length << 8) | (hw->ble_fp.TXDHDR1 & 255);
+    hw->ble_fp.TXDHDR1 = tx_length | (hw->ble_fp.TXDHDR1 & 255);
     dut_hdl->le_test_enable = 1;
     DUT_REG32(1867820) |= 1;
     DUT_REG32(1867820) |= 256;
@@ -599,7 +607,9 @@ static void DUT_IRQ ble_rx_irq_handler(void)
         struct ble_hw *ble = dut_hdl->ble4_dut;
         struct ble4_hw *hw = ble->ble4_hw;
         u32 toggle = hw->ble_fp.RXTOG & 1;
-        u16 rx_status = toggle ? hw->ble_fp.RXSTAT0 : hw->ble_fp.RXSTAT1;
+        /* SDK snapshots status/header through nonvolatile halfword views. */
+        u16 *status_words=(u16 *)(void *)&hw->ble_fp.RXSTAT0;
+        u16 rx_status=status_words[toggle ^ 1];
 
         /* Preserve the SDK's odd baseband cast: rx_valid is updated through
          * a 16-bit access at ble_hw + 326, not through hw->ble4_hw. */
@@ -619,36 +629,43 @@ static void DUT_IRQ ble_rx_irq_handler(void)
         ++rx_cnt;
         if (rx_cnt != 1 && rx_cnt != 2) continue;
 
-        u16 hdr = toggle ? hw->ble_fp.RXDHDR1 : hw->ble_fp.RXDHDR0;
+        u16 *header0=(u16 *)(void *)&hw->ble_fp.RXDHDR0;
+        u16 *header1=(u16 *)(void *)&hw->ble_fp.RXDHDR1;
+        u16 hdr=*(toggle ? header0 : header1);
         u16 length = (u16)(hdr >> 8);
         u16 length_plus_two = (u16)(length + 2);
         u32 interval = 0;
-        u8 phy = dut_hdl->ble4_dut->phy.rx_phy;
+        struct ble_hw *current_ble=dut_hdl->ble4_dut;
+        u8 phy = current_ble->phy.rx_phy;
         if (phy == 0) {
             u16 clocks = (u16)((length_plus_two << 3) + 313);
             interval = ((u32)(clocks / 625) + ((clocks % 625) != 0)) * 625;
             if ((interval == 625 && rx_cnt == 1) ||
                 (interval > 625 && rx_cnt == 2)) {
-                hw->ble_fp.WINCNTL0 = 50;
-                hw->ble_fp.WINCNTL1 = 0;
-                hw->ble_fp.WINCNTL2 = 150;
+                struct ble4_hw *current_hw=current_ble->ble4_hw;
+                current_hw->ble_fp.WINCNTL0 = 50;
+                current_hw->ble_fp.WINCNTL1 = 0;
+                current_hw->ble_fp.WINCNTL2 = 150;
                 __set_widen(baseband_view, 20);
                 baseband_view->ble_fp.RXMAXBUF = length;
-                * (volatile u16 *)(void *)ble &= 32767;
+                * (volatile dut_slot_word *)(void *)ble &= 32767;
             }
         } else if (phy == 1) {
             u16 clocks = (u16)((length_plus_two << 2) + 285);
             interval = ((u32)(clocks / 625) + ((clocks % 625) != 0)) * 625;
-            if (rx_cnt == 2 && interval >= 625) {
-                hw->ble_fp.WINCNTL0 = 50;
-                hw->ble_fp.WINCNTL1 = 0;
-                hw->ble_fp.WINCNTL2 = 150;
+            if ((interval == 625 && rx_cnt == 2) ||
+                (interval > 625 && rx_cnt == 2)) {
+                struct ble4_hw *current_hw=current_ble->ble4_hw;
+                current_hw->ble_fp.WINCNTL0 = 50;
+                current_hw->ble_fp.WINCNTL1 = 0;
+                current_hw->ble_fp.WINCNTL2 = 150;
                 __set_widen(baseband_view, 10);
                 baseband_view->ble_fp.RXMAXBUF = length;
-                * (volatile u16 *)(void *)ble &= 32767;
+                * (volatile dut_slot_word *)(void *)ble &= 32767;
             }
         } else if (phy == 2) {
             u32 code = (rx_status & 16) ? 2 : 8;
+            log_print(2, NULL, "[Info]: [LE-DUT]code ind:%x\n\r\n", code);
             u32 clocks = ((u32)length_plus_two << 3) + 27;
             clocks = clocks * code + 625;
             interval = (clocks / 625 + ((clocks % 625) != 0)) * 625;
@@ -660,7 +677,7 @@ static void DUT_IRQ ble_rx_irq_handler(void)
                 current_hw->ble_fp.WINCNTL1 = 0;
                 current_hw->ble_fp.WINCNTL2 = 150;
                 baseband_view->ble_fp.RXMAXBUF = length;
-                *(volatile u16 *)(void *)ble &= 32767;
+                *(volatile dut_slot_word *)(void *)ble &= 32767;
             }
         }
         __set_interval(interval);
@@ -762,22 +779,26 @@ void le_enhanced_transmitter_test_handle(struct dut_tx_param *data, u32 len)
     (void)len;
     log_print(2, NULL, "[Info]: [LE-DUT]HCI_LE_ENHANCED_TRANSMITTER_TEST\r\n");
     tx_test_pre_set(data->patten);
-    struct ble_hw *ble = dut_hdl->ble4_dut;
+    struct ble_hw *ble;
     switch (data->coded_s) {
     case 1:
         log_print(2, NULL, "[Info]: [LE-DUT]HCI_LE_1M_UNCODED_PHY\n\r\n");
+        ble = dut_hdl->ble4_dut;
         __dut_set_data_tx_phy(ble, 0); break;
     case 2:
         log_print(2, NULL, "[Info]: [LE-DUT]HCI_LE_2M_UNCODED_PHY\n\r\n");
+        ble = dut_hdl->ble4_dut;
         __dut_set_data_tx_phy(ble, 1); break;
     case 3:
         log_print(2, NULL, "[Info]: [LE-DUT]HCI_LE_1M_CODED_PHY_S8\n\r\n");
+        ble = dut_hdl->ble4_dut;
         __dut_set_data_tx_phy(ble, 2);
         ble->phy.coded_s = 0;
         __dut_set_data_tx_phy_coded_s(ble);
         break;
     case 4:
         log_print(2, NULL, "[Info]: [LE-DUT]HCI_LE_1M_CODED_PHY_S2\n\r\n");
+        ble = dut_hdl->ble4_dut;
         __dut_set_data_tx_phy(ble, 2);
         ble->phy.coded_s = 1;
         __dut_set_data_tx_phy_coded_s(ble);
@@ -790,21 +811,24 @@ void le_enhanced_receiver_test_handle(struct dut_rx_param *data, int len)
 {
     (void)len;
     rx_test_pre_set();
-    struct ble_hw *ble = dut_hdl->ble4_dut;
+    struct ble_hw *ble;
     switch (data->phy) {
     case 1:
         log_print(2, NULL, "[Info]: [LE-DUT]HCI_LE_1M_UNCODED_PHY\n\r\n");
+        ble = dut_hdl->ble4_dut;
         __dut_set_data_rx_phy(ble->ble4_hw, 0);
         ble->phy.rx_phy = 0;
         break;
     case 2:
         log_print(2, NULL, "[Info]: [LE-DUT]HCI_LE_2M_UNCODED_PHY\n\r\n");
+        ble = dut_hdl->ble4_dut;
         __dut_set_data_rx_phy(ble->ble4_hw, 1);
         ble->phy.rx_phy = 1;
         bqb_2m_setting();
         break;
     case 3:
         log_print(2, NULL, "[Info]: [LE-DUT]HCI_LE_1M_CODED_PHY\n\r\n");
+        ble = dut_hdl->ble4_dut;
         __dut_set_data_rx_phy(ble->ble4_hw, 2);
         ble->phy.rx_phy = 2;
         break;
@@ -817,9 +841,10 @@ int ogf_vendor_le_controller(u16 opcode, const u8 *data, int len)
     (void)len;
     if ((opcode & 1023) != 133) return 0;
     log_print(2, NULL, "[Info]: [LE-DUT]power_set: %d\n\r\n", *data);
+    u8 power=*data;
     if (dut_hdl) {
-        dut_hdl->set_le_pwr_level = *data;
-        log_print(2, NULL, "[Info]: [LE-DUT]pwr level=%d\n\r\n", (s8)*data);
+        dut_hdl->set_le_pwr_level = power;
+        log_print(2, NULL, "[Info]: [LE-DUT]pwr level=%d\n\r\n", (s8)power);
     }
     if (config_btctler_mode & 2) dut_hci_emit_event_of_cmd_complete(opcode, "1", 0);
     else (void)hci_send_event_cmd_complete(opcode, "1", 0);
@@ -961,12 +986,13 @@ static void dut_two_wire_le_process(int packet_type, const u8 *packet, int size)
     u8 response[2] = { 0, 0 };
     u8 command = packet[0];
     u8 channel = command & 63;
-    u8 data_type = packet[1] & 3;
-    payload_length.length = (payload_length.length & 0xc0) | (packet[1] >> 2);
+    u8 parameter=packet[1];
+    u8 data_type = parameter & 3;
+    payload_length.length = (payload_length.length & 0xc0) | (parameter >> 2);
 
     switch (command >> 6) {
     case 0:
-        two_wire_setup_process(command & 15, packet[1]);
+        two_wire_setup_process(packet[0] & 15, parameter);
         response[1] = 30;
         (void)hci_transport->send_packet(0, response, 2);
         break;
@@ -988,6 +1014,7 @@ static void dut_two_wire_le_process(int packet_type, const u8 *packet, int size)
         break;
     case 3: {
         u16 packet_count = le_test_end_handle();
+        log_print(2, NULL, "[Info]: [LE-DUT]num_packet:%x\n\r\n", packet_count);
         response[1] = (u8)packet_count;
         response[0] = (u8)((packet_count >> 8) | 128);
         rx_phy_s = 0;
@@ -1032,21 +1059,28 @@ static void *ble_dut_mode_init(void)
     return dut_hdl;
 }
 
+#ifdef UNITTEST
+#define DUT_VA_PTR(type, args) va_arg(args, type *)
+#else
+#define DUT_VA_PTR(type, args) ((type *)(uintptr_t)va_arg(args, int))
+#endif
 static int ble_dut_mode_ioctrl(int ctrl, ...)
 {
     va_list args;
     va_start(args, ctrl);
     if (!dut_hdl || !dut_hdl->ble4_dut) {
         log_print(2, NULL, "[Info]: [LE-DUT]DUT MODE NOT INITED\n\r\n");
+#ifdef UNITTEST
         va_end(args);
+#endif
         return -1;
     }
     switch (ctrl) {
-    case 0: le_enhanced_receiver_test_handle(va_arg(args, struct dut_rx_param *), 0); break;
-    case 1: le_enhanced_transmitter_test_handle(va_arg(args, struct dut_tx_param *), 0); break;
+    case 0: le_enhanced_receiver_test_handle(DUT_VA_PTR(struct dut_rx_param, args), 0); break;
+    case 1: le_enhanced_transmitter_test_handle(DUT_VA_PTR(struct dut_tx_param, args), 0); break;
     case 2: {
-        u16 *packet_count = va_arg(args, u16 *);
-        u16 *error_count = va_arg(args, u16 *);
+        u16 *packet_count = DUT_VA_PTR(u16, args);
+        u16 *error_count = DUT_VA_PTR(u16, args);
         if (packet_count) *packet_count = dut_hdl->packet_cnt;
         if (error_count) *error_count = dut_hdl->pkt_err_cnt;
         le_test_end();
@@ -1058,7 +1092,9 @@ static int ble_dut_mode_ioctrl(int ctrl, ...)
         break;
     }
     }
+#ifdef UNITTEST
     va_end(args);
+#endif
     return 0;
 }
 
@@ -1097,6 +1133,8 @@ int config_dut_protocol_mode;
 struct common_rf_param rf;
 static int completed_opcode;
 static int completion_count;
+static unsigned int reset_calls;
+static struct ble_hw *replace_ble_on_log;
 static unsigned int malloc_count;
 static int malloc_size;
 static u8 test_regs[40];
@@ -1113,7 +1151,7 @@ static struct ble4_hw *widen_targets[4];
 static struct dut_ble_baseband_layer_handle *test_handle;
 static struct ble_hw *test_ble;
 static struct ble4_hw *test_ble4;
-static u8 test_rx_dma[512], test_tx_dma[512];
+static u8 *test_rx_dma, *test_tx_dma;
 static union {
     max_align_t align;
     u8 bytes[8192];
@@ -1122,6 +1160,7 @@ static union {
 void log_print(int level, const char *file, const char *format, ...)
 {
     (void)level; (void)file; (void)format;
+    if (replace_ble_on_log && strstr(format, "HCI_LE_1M_UNCODED_PHY")) { dut_hdl->ble4_dut=replace_ble_on_log;replace_ble_on_log=NULL; }
     if (strstr(format, "RxMaxBuf")) {
         ++frame_log_count;
         CHECK(test_ble4->ble_fp.RXMAXBUF == 255);
@@ -1177,7 +1216,7 @@ char ble_txpwr_normal_set(void *fp, char sel, char inc)
 u8 bt_get_pwr_max_level(void) { return 10; }
 s16 rf_osc_offset_initial_val_get(void) { return 0; }
 void bsb_normal_setting(void) { }
-void p33_soft_reset(void) { }
+void p33_soft_reset(void) { ++reset_calls; }
 void close_zeroif(void) { }
 void bt_reload_trim(void) { }
 void bt_set_single_carrier(void) { }
@@ -1195,13 +1234,29 @@ int hci_send_event_cmd_complete(int opcode, const char *format, ...)
     return 0;
 }
 
+static unsigned int assertion_calls, sent_count, sent_size, sent_type, transport_inits, transport_opens;
+static u8 sent_bytes[16];
+static void (*registered_handler)(int,const u8 *,int);
+void cpu_assert_debug(void) { ++assertion_calls; }
+void btctler_nv_memory_apply(void) { }
+int __vsprintf_len(const char *fmt, va_list ap)
+{ (void)ap;int size=0;for(;*fmt;fmt++){ CHECK(*fmt=='1' || *fmt=='2');size+=*fmt-'0'; }return size; }
+int __vsprintf(u8 *out,const char *fmt,va_list ap)
+{ int size=0;for(;*fmt;fmt++){ unsigned int n=va_arg(ap,int);for(int j=0;j<*fmt-'0';j++)out[size++]=n>>(j*8); }return size; }
+static void transport_init(const void *arg) { CHECK(arg==(void *)0x1234);++transport_inits; }
+static int transport_open(void) { ++transport_opens;return 0; }
+static void transport_register(void (*handler)(int,const u8 *,int)) { registered_handler=handler; }
+static int transport_send(int type,const u8 *data,int size)
+{ CHECK(size>=0 && size<=(int)sizeof(sent_bytes));memcpy(sent_bytes,data,size);sent_size=size;sent_type=type;++sent_count;return 0; }
+static const hci_transport_t fixture_transport={.init=transport_init,.open=transport_open,.register_packet_handler=transport_register,.send_packet=transport_send};
+
 static void reset_arena(void)
 {
     memset(test_arena.bytes, 0, sizeof(test_arena.bytes));
     memset((void *)dut_test_mmio, 0, sizeof(dut_test_mmio));
     memset(test_anchor_con, 0, sizeof(test_anchor_con));
-    memset(test_rx_dma, 0, sizeof(test_rx_dma));
-    memset(test_tx_dma, 0, sizeof(test_tx_dma));
+    test_rx_dma = test_arena.bytes + 4096;
+    test_tx_dma = test_arena.bytes + 6144;
     widen_calls = 0;
     test_handle = (struct dut_ble_baseband_layer_handle *)test_arena.bytes;
     test_ble = (struct ble_hw *)(test_arena.bytes + 1024);
@@ -1476,11 +1531,36 @@ static void test_exit(void)
     dut_hdl = owned;
     DUT_REG32(1867816) = 0x101;
     __ble_dut_ops->exit(NULL);
-    dut_hdl = NULL;
+    CHECK(dut_hdl == NULL);
     CHECK(DUT_REG32(1867804) == 14341);
     CHECK(DUT_REG32(1867832) == 0);
     CHECK(DUT_REG32(1867816) == 0);
     CHECK(DUT_REG32(1867776) == 0);
+}
+
+static void test_transport_commands(void)
+{
+    reset_arena();CHECK(__ble_dut_ops->init()==dut_hdl && test_handle->number==1 && !memcmp(test_ble4->local.addr,le_mac_addr,6));
+    reset_arena(); config_dut_protocol_mode=0;
+    dut_hci_controller_init(&fixture_transport,(void *)0x1234);
+    CHECK(transport_inits==1 && transport_opens==1 && registered_handler==dut_hci_le_process);
+    u8 packet[8]={3,12,0};sent_count=0;
+    registered_handler(2,packet,0);CHECK(!sent_count);
+    registered_handler(1,packet,0);CHECK(sent_count==1 && sent_type==4 && sent_size==6 && sent_bytes[0]==14 && sent_bytes[1]==4 && sent_bytes[2]==1 && sent_bytes[3]==3 && sent_bytes[4]==12 && !sent_bytes[5]);
+    packet[0]=31;packet[1]=32;test_handle->packet_cnt=0x1234;
+    registered_handler(1,packet,0);CHECK(sent_size==8 && sent_bytes[6]==0x34 && sent_bytes[7]==0x12 && tx_param.channel==255 && rx_param.coded_s==255);
+    packet[0]=0x85;packet[1]=0xf8;packet[3]=0xfe;config_btctler_mode=2;
+    registered_handler(1,packet,0);CHECK(test_handle->set_le_pwr_level==0xfe && sent_bytes[3]==0x85 && sent_bytes[4]==0xf8);
+    config_dut_protocol_mode=1;dut_hci_controller_init(&fixture_transport,(void *)0x1234);CHECK(registered_handler==dut_two_wire_le_process);
+    payload_length.length=0x80;u8 wire[2]={0x40,0x14};
+    registered_handler(77,wire,0);CHECK(payload_length.length==0x85 && rx_param.length==0x85 && sent_type==0 && sent_size==2 && sent_bytes[0]==0 && sent_bytes[1]==30);
+    wire[0]=0x80;wire[1]=0x0b;registered_handler(0,wire,0);CHECK(tx_param.length==0x82 && tx_param.patten==4 && sent_bytes[0]==0 && sent_bytes[1]==0);
+    test_handle->packet_cnt=0x1234;wire[0]=0xc0;registered_handler(0,wire,0);CHECK(sent_bytes[0]==0x92 && sent_bytes[1]==0x34 && !rx_phy_s && !payload_length.length);
+    struct ble_hw alternate={0};alternate.ble4_hw=test_ble4;test_ble->phy.rx_phy=2;
+    replace_ble_on_log=&alternate;struct dut_rx_param rx={0,1,8,0};le_enhanced_receiver_test_handle(&rx,0);
+    CHECK(alternate.phy.rx_phy==0 && test_ble->phy.rx_phy==2 && dut_hdl->ble4_dut==&alternate);
+    dut_hdl->ble4_dut=test_ble;
+    test_ble4->ble_fp.TXAHDR1=0x9876;test_ble4->ble_fp.TXDHDR1=0xabce;le_test_frame_init(10);CHECK(test_ble4->ble_fp.TXAHDR1==0x9876 && test_ble4->ble_fp.TXDHDR1==0xc3);
 }
 
 int main(void)
@@ -1492,6 +1572,7 @@ int main(void)
     test_two_wire_setup();
     test_prestart_and_callback();
     test_irq_dispatch();
+    test_transport_commands();
     test_exit();
     return TEST_DONE("btctrler_direct_test_dut");
 }

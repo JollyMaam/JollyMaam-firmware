@@ -2336,3 +2336,62 @@ C files match44d0073. Three dependency repositories were clean. Removed only
 the worker untracked read-only external symlink (target preserved), verified
 clean status/merged ancestry, then deleted completed worktree and branch.
 No pending worker at this checkpoint; no application-image/hardware validation.
+
+## Clean-branch BD19 LE direct-test DUT acceptance
+
+Reviewed worker a57ba98 on base8f6dec6. Pinned direct_test_dut.c.o occurrence1,
+SHA-256 3953f19207b93c50dd9c2e7dde1d4d24a067794de3d952eccff825a4c3d71f78.
+Dedicated bd19/direct_test_dut.c accounts for all36 SDK bodies and exact14 public
+functions/six public globals. Ten global records match initializer/linkage/
+alignment/sections programmatically: dut_hdl,rx_cnt,rx_phy_s,payload_length,
+hci_transport,le_mac_addr,ble_dut_ops,__ble_dut_ops,rx_param,tx_param. Three
+common globals remain common under -fno-common; transport/callback table and
+state stay private. MAC20:22:33:44:55:66. All57 literal byte arrays, including
+channel-map bytes00/18/4e and diagnostic strings, match; implicit align1 equals
+explicit align1 for the SDK puts strings. All36 mapped type shapes agree.
+prestart_cnt_adjust retains .volatile_ram_code; both IRQs retain interrupt
+attribute; remaining functions/globals are unsectioned as in SDK.
+
+Coordinator restored SDK printf/puts assertions with exact file/line/text,
+original memory intrinsics under -fno-builtin,64-bit inst clear/align4,
+wrapping unsigned allocation products/selection with signed divisions,
+removed BR23-only TXAHDR1/TXDHDR1 initialization writes, corrected RX header
+toggle and nonvolatile status/header snapshots, preserved volatile16/32 access
+widths and slot-base halfword alignment, added missing diagnostics, and checked
+post-log handle reloads/cached byte values. Adaptive RX raw slot-pointer casts,
+returning assertions, missing length guards, unbounded hardware poll and other
+SDK quirks remain. No application fixes or shared header changes.
+
+Inlined nine C organization helpers to expose original bodies for review.
+Read original bodies and reviewed normalized compiled IR, including initializer
+bytes, pointer offsets, signedness, memory/IRQ/MMIO ordering and callback ABI.
+Remaining differences are CFG/loop organization, equivalent arithmetic/GEPs,
+stack lifetime, independent ordinary-load placement, imported legacy prototype
+annotations and compiler specialization of unused/private constant arguments.
+Private varargs use target32-bit integer words as in SDK, with host-pointer/
+va_end adaptations only for UNITTEST. The SDK restarts/returns varargs without
+all va_end calls; target behavior is retained. Prestart optimizer removes an
+unreachable adjustment branch under masked-input bounds; standalone isolated
+raw SDK LLVM versus recovered C passes101000 edge/random arithmetic cases.
+This is additional arithmetic evidence, not whole-program or IRQ equivalence.
+
+Complete host mocks link without unresolved-symbol suppression. ASan/UBSan with
+leak detection passes. Fixtures derive expectations from raw IR and cover
+allocation offsets/IRQ addresses, channel maps, fixed-channel edges, PHY and
+coded exact-multiple timing, TX interval thresholds, -15 prestart/wrap, adaptive
+RX status/count/window behavior, slot-pointer view accesses, exit clear/free,
+callback mode init, HCI registration/reset/end/vendor event bytes, two-wire
+length bitfields/RX/TX/end replies, untouched TX header1 initialization and
+handle replacement during PHY diagnostics. Hardware timing/DMA are not emulated.
+C41/B88–B90 track sharing, lifetime/validation, raw pointer-view concerns and
+factory protocol. Existing123 BR23 sources unchanged from44d0073. Extra-source
+BR23 compile was attempted and fails on osc_set and typed handler differences;
+the actual BR23 source set still builds. No firmware-image or hardware test.
+
+Validation: make -j32 controller-objects controller-test test controller-layouts
+controller-tools-test controller-audit controller-compare; focused sanitizer
+fixture; python3 tools/btctrler/check_dut_prestart.py --clang HOST_CLANG.
+
+Full worker checks pass:216 : ok reports,12 legacy reports,31 tooling tests,
+both layouts,96 ownership groups. Totals97 accepted/1129 unique public
+functions/104 globals;14 retained members/904 verified archive index entries.

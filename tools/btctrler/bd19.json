@@ -165,6 +165,14 @@
       ]
     },
     {
+      "member": "direct_test_dut.c.o",
+      "occurrence": 1,
+      "sha256": "3953f19207b93c50dd9c2e7dde1d4d24a067794de3d952eccff825a4c3d71f78",
+      "sources": [
+        "src/btctrler/bd19/direct_test_dut.c"
+      ]
+    },
+    {
       "member": "esco_codec.c.o",
       "occurrence": 1,
       "sha256": "b6365601be9603886ce9cd9ab6c11d6c384277c5d00418c217404972c84824a8",
