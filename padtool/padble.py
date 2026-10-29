@@ -20,7 +20,12 @@ ended it, sometimes 20 s of the kernel holding the next scan or connection
 (seen with BlueZ on Linux; cause not found).  Writes without response flooded the
 pad's HCI receive queue while it erased, and packets it dropped there were
 pieced together wrongly."""
-import asyncio, atexit, struct, sys
+import asyncio, atexit, os, struct, sys
+
+# The Windows zip (make padtool_dist) carries bleak and its WinRT backend.
+_LIB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+if sys.platform == "win32" and os.path.isdir(_LIB) and _LIB not in sys.path:
+    sys.path.insert(0, _LIB)
 
 SERVICE = "c2550000-3e2d-66b1-8a4f-d5037c2b419e"
 REQUEST = "c2550001-3e2d-66b1-8a4f-d5037c2b419e"

@@ -8,7 +8,9 @@ python padtool/padgui.pyw
 
 On Linux, `./padtool/padgui.pyw` also works. On Windows, double-click
 `padgui.pyw` to launch without a console window using the Python file association.
-Windows Python's installer includes Tcl/Tk by default. On Linux install your
+Windows Python's installer includes Tcl/Tk by default. `make padtool_dist`
+builds a zip for Windows with padtool, bleak (64-bit Python 3.11 to 3.14),
+the RAM loaders and every board's firmware; its README.txt says how to use it. On Linux install your
 Python distribution's Tk package (often `python3-tk`). With Nixpkgs:
 
 ```sh
