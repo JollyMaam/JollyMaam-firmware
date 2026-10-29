@@ -2327,3 +2327,12 @@ controller-objects controller-test test controller-layouts controller-tools-test
 controller-audit controller-compare` passes:215 : ok reports,12 legacy reports,
 31 tooling tests,both layouts,95 ownership groups. Totals96 accepted members,
 1115 unique public functions,98 globals;15 retained/924 verified index entries.
+
+TWS eSCO combined checkpoint: acceptance `b789c51` passes canonical controller
+checks/census:215 : ok reports,12 legacy reports,31 tooling tests,both layouts,
+95 ownership groups. Totals96 accepted/15 retained members,1115 unique public
+functions,98 globals,924 verified archive index entries. All123 original BR23
+C files match44d0073. Three dependency repositories were clean. Removed only
+the worker untracked read-only external symlink (target preserved), verified
+clean status/merged ancestry, then deleted completed worktree and branch.
+No pending worker at this checkpoint; no application-image/hardware validation.
