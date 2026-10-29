@@ -41,8 +41,8 @@ pairing works through the hub's HID feature report while its SCSI interface
 is absent. The dongle button pairs slot 0.
 
 Each linked pad becomes a separate UHID device using its configured profile.
-Supported HID USB profiles are generic/genericble, mouse, Switch, DualShock 4,
-and DualSense/dualsenseble. Xbox/Xbox BLE use XInput on USB and Switch 2 needs a
+Supported HID USB profiles are generic/generic-ble, mouse, Switch, ds4, ds5,
+ds5edge and ds5edge-ble. xbox/xbox-ble use XInput on USB and Switch 2 needs a
 USB bulk handshake; padhub reports these as unsupported. Choose a supported
 profile for those pad slots. The firmware's profiles handle reports, feature
 reads, rumble, lights and motion; one worker process per slot isolates their

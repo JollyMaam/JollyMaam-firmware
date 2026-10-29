@@ -115,6 +115,7 @@ static const u8 ds4_descriptor[] = {
 
 static struct {
     u8 ds4;
+    u8 edge;
     u8 usb;
     u8 extended;                 /* Bluetooth: the host asked for the extended report */
     u8 address[6];
@@ -185,8 +186,8 @@ static void buttons(u32 b, u8 *out)
     if (b & PAD_M) out[2] |= 0x02;
     if (!ps.ds4) {
         if (b & PAD_SCREENSHOT) out[2] |= 0x04;
-        if (b & PAD_L4) out[2] |= 0x40;
-        if (b & PAD_R4) out[2] |= 0x80;
+        if (ps.edge && (b & PAD_L4)) out[2] |= 0x40;
+        if (ps.edge && (b & PAD_R4)) out[2] |= 0x80;
     }
 }
 
@@ -258,10 +259,11 @@ static void touch_point(u8 *pt)
 
 static u8 begin(const struct profile_session *s)
 {
-    u8 ds4 = ps.ds4;
+    u8 ds4 = ps.ds4, edge = ps.edge;
 
     memset(&ps, 0, sizeof(ps));
     ps.ds4 = ds4;
+    ps.edge = edge;
     ps.usb = s->usb;
     memcpy(ps.address, s->address, 6);
     ps.gyro_speed = s->settings ? s->settings->gyro_speed : 32;
@@ -274,6 +276,14 @@ static u8 begin(const struct profile_session *s)
 static u8 begin_ds(const struct profile_session *s)
 {
     ps.ds4 = 0;
+    ps.edge = 0;
+    return begin(s);
+}
+
+static u8 begin_dsedge(const struct profile_session *s)
+{
+    ps.ds4 = 0;
+    ps.edge = 1;
     return begin(s);
 }
 
@@ -506,10 +516,24 @@ static int read(u8 kind, u16 id, u16 offset, u8 *r, u16 size)
 }
 
 static const struct bt_device ds_device = {
-    .transport = BT_CLASSIC, .name = "DualSense Edge Controller", .class_of_device = 0x002508,
+    .transport = BT_CLASSIC, .name = "DualSense Wireless Controller", .class_of_device = 0x002508,
+    .vendor_id = 0x054c, .product_id = 0x0ce6, .version = 0x0100,
+    .hid_descriptor = ds_descriptor, .hid_descriptor_len = sizeof(ds_descriptor),
+    .sniff_slots = 24, .sniff_attempt = 1,
+};
+
+static const struct bt_device ds_edge_device = {
+    .transport = BT_CLASSIC, .name = "DualSense Edge Wireless Controller", .class_of_device = 0x002508,
     .vendor_id = 0x054c, .product_id = 0x0df2, .version = 0x0100,
     .hid_descriptor = ds_descriptor, .hid_descriptor_len = sizeof(ds_descriptor),
     .sniff_slots = 24, .sniff_attempt = 1,
+};
+
+static const struct usb_identity ds_edge_usb = {
+    .vendor_id = 0x054c, .product_id = 0x0df2, .bcd_device = 0x0100,
+    .manufacturer = "Sony Interactive Entertainment", .product = "DualSense Edge Wireless Controller",
+    .kind = USB_HID, .report_ids = 1, .interval = 1, .in_size = 64, .out_size = 64,
+    .max_power = 250, .hid_descriptor = ds_usb_descriptor, .hid_descriptor_len = sizeof(ds_usb_descriptor),
 };
 
 static const struct bt_device ds4_device = {
@@ -627,6 +651,7 @@ static u8 begin_ble(const struct profile_session *s)
     u8 block[16], imu;
 
     ps.ds4 = 0;
+    ps.edge = 1;
     imu = begin(s);
     ps.extended = 1;
     /* LE security keys for this slot, as profile_xbox.c makes them. */
@@ -694,18 +719,23 @@ static const struct bt_device ds_ble_device = {
 };
 
 /* 125 reports a second: at 250 the IMU starved (measured 2026-09-30). */
-const struct profile profile_dualsense = {
-    .name = "dualsense", .device = &ds_device, .usb = &ds_usb,
+const struct profile profile_ds5 = {
+    .name = "ds5", .device = &ds_device, .usb = &ds_usb,
     .begin = begin_ds, .report = report, .write = write, .host = host, .read = read,
 };
 
-const struct profile profile_dualsense_ble = {
-    .name = "dualsenseble", .device = &ds_ble_device, .usb = &ds_usb,
+const struct profile profile_ds5edge = {
+    .name = "ds5edge", .device = &ds_edge_device, .usb = &ds_edge_usb,
+    .begin = begin_dsedge, .report = report, .write = write, .host = host, .read = read,
+};
+
+const struct profile profile_ds5edge_ble = {
+    .name = "ds5edge-ble", .device = &ds_ble_device, .usb = &ds_edge_usb,
     .begin = begin_ble, .report = report, .write = write_ble, .host = host, .read = read_ble,
 };
 
-const struct profile profile_dualshock4 = {
-    .name = "dualshock4", .device = &ds4_device, .usb = &ds4_usb,
+const struct profile profile_ds4 = {
+    .name = "ds4", .device = &ds4_device, .usb = &ds4_usb,
     .begin = begin_ds4, .report = report, .write = write, .host = host, .read = read,
 };
 

@@ -38,8 +38,8 @@ struct set_field {
                              .size = sizeof(((struct set_slot *)0)->f)
 
 static const char *const types[] = {
-    "switch", "switch2", "xbox", "xboxble", "dualsense", "dualshock4", "generic", "mouse",
-    "genericble", "none", "dualsenseble", NULL,
+    "switch", "switch2", "xbox", "xbox-ble", "ds5", "ds5edge", "ds5edge-ble", "ds4", "generic",
+    "generic-ble", "mouse", "none", NULL,      /* the PROFILE_ order (pad.h) */
 };
 #ifndef SLOT_USB_AUDIO
 #define SLOT_USB_AUDIO 1         /* the usb_audio setting: 0 on a board without USB sound */
@@ -1180,7 +1180,7 @@ const struct board_led_brightness board_led_brightness = {
     .idle = 200, .battery = 200,
 };
 const struct board_slots board_slots = {
-    .type = { PROFILE_GENERIC_BLE, PROFILE_DUALSENSE, PROFILE_XBOX, PROFILE_SWITCH2,
+    .type = { PROFILE_GENERIC_BLE, PROFILE_DS5, PROFILE_XBOX, PROFILE_SWITCH2,
               PROFILE_NONE, PROFILE_NONE, PROFILE_NONE, PROFILE_NONE },
     .transport = { TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_DONGLE, TRANSPORT_BT_USB,
                    TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_BT_USB },
@@ -1286,7 +1286,7 @@ static int full_storage(void)
     records_fit();
 
     set_init();
-    CHECK(set_slot(0)->type == PROFILE_GENERIC_BLE && set_slot(1)->type == PROFILE_DUALSENSE);
+    CHECK(set_slot(0)->type == PROFILE_GENERIC_BLE && set_slot(1)->type == PROFILE_DS5);
     CHECK(set_slot(2)->type == PROFILE_XBOX && set_slot(3)->type == PROFILE_SWITCH2);
     CHECK(set_slot(0)->transport == TRANSPORT_BT_USB && set_slot(1)->transport == TRANSPORT_BT_USB);
     CHECK(set_slot(2)->transport == TRANSPORT_DONGLE && set_slot(3)->transport == TRANSPORT_BT_USB);
@@ -1574,7 +1574,7 @@ static int full_storage(void)
     set_apply();
     set_bond_store(1, &bond);
     set_slot_address(1, a);
-    x = PROFILE_DUALSENSE;
+    x = PROFILE_DS5;
     CHECK(write1(1, ID_TYPE, 1, &x) == SET_OK);
     set_apply();
     set_slot_address(1, b);
@@ -1683,7 +1683,7 @@ static int full_storage(void)
         u32 k;
 
         for (k = 0; k < 2 + PROFILE_MOUSE; k++) s += strlen(s) + 1;
-        CHECK(!*s && !strcmp(s + 1, "genericble"));
+        CHECK(!*s && !strcmp(s + 1, "none"));
         x = PROFILE_MOUSE;
         CHECK(write1(0, ID_TYPE, 1, &x) == SET_RANGE);
         x = PROFILE_GENERIC;

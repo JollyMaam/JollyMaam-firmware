@@ -44,7 +44,7 @@ static const struct profile *slot_profile(const struct set_slot *s)
 
     if (s->transport != TRANSPORT_BT) return NULL;
     return type == PROFILE_GENERIC_BLE ? &profile_generic_ble : type == PROFILE_XBOX_BLE ? &profile_xbox_ble :
-           type == PROFILE_SWITCH2 ? &profile_switch2 : type == PROFILE_DUALSENSE_BLE ? &profile_dualsense_ble : NULL;
+           type == PROFILE_SWITCH2 ? &profile_switch2 : type == PROFILE_DS5EDGE_BLE ? &profile_ds5edge_ble : NULL;
 }
 
 static struct {
@@ -774,7 +774,7 @@ static int test_write(const struct bt_write *w, u32 now, struct bt_bond *bond)
 }
 const struct profile profile_switch2 = { .begin = test_begin, .write = test_write };
 const struct profile profile_xbox_ble = { .begin = test_begin };
-const struct profile profile_dualsense_ble = { .begin = test_begin };
+const struct profile profile_ds5edge_ble = { .begin = test_begin };
 const struct profile profile_8bitdo = { .begin = test_begin };
 static int config_ends;
 static void test_config_end(void) { config_ends++; }
@@ -935,8 +935,8 @@ int main(void)
     /* Xbox runs its own profile on a static random address. */
     test_reset(); test_slots[1].type = PROFILE_XBOX_BLE;
     start_session(1, 1, 0); CHECK(profile == &profile_xbox_ble && (c.session.address[5] & 0xc0) == 0xc0);
-    test_reset(); test_slots[1].type = PROFILE_DUALSENSE_BLE;
-    start_session(1, 1, 0); CHECK(profile == &profile_dualsense_ble && c.slot == 1);
+    test_reset(); test_slots[1].type = PROFILE_DS5EDGE_BLE;
+    start_session(1, 1, 0); CHECK(profile == &profile_ds5edge_ble && c.slot == 1);
     /* Switch 2 writes save their proprietary key with the connected peer,
      * without changing another slot's bond. */
     test_reset(); test_slots[2].type = PROFILE_SWITCH2;

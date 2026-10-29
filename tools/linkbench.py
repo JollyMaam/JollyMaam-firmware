@@ -117,7 +117,7 @@ def main():
     p.add_argument("--seconds", type=float, default=10)
     p.add_argument("--slot", default="up", help="the pad slot to use, in RAM only (default up)")
     p.add_argument("--type", default="generic", help="what the dongle is on USB (a HID type: generic, "
-                   "dualsense, dualshock4, switch, switch2; xbox has no evdev node here)")
+                   "ds5, ds5edge, ds4, switch, switch2; xbox has no evdev node here)")
     p.add_argument("--set", action="append", default=[], metavar="NAME=VALUE",
                    help="a setting of the pad's slot for the test (developer ones too), RAM only")
     p.add_argument("--label", default="", help="a note stored with each result")

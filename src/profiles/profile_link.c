@@ -12,10 +12,11 @@ const struct profile *profile_for(u8 type)
     static const struct profile *const profiles[PROFILE_COUNT] = {
         [PROFILE_SWITCH] = &profile_switch, [PROFILE_SWITCH2] = &profile_switch2,
         [PROFILE_XBOX] = &profile_xbox, [PROFILE_XBOX_BLE] = &profile_xbox_ble,
-        [PROFILE_DUALSENSE] = &profile_dualsense, [PROFILE_DUALSHOCK4] = &profile_dualshock4,
+        [PROFILE_DS5] = &profile_ds5, [PROFILE_DS4] = &profile_ds4,
         [PROFILE_GENERIC] = &profile_generic, [PROFILE_MOUSE] = &profile_mouse,
         [PROFILE_GENERIC_BLE] = &profile_generic_ble, [PROFILE_NONE] = NULL,
-        [PROFILE_DUALSENSE_BLE] = &profile_dualsense_ble,
+        [PROFILE_DS5EDGE_BLE] = &profile_ds5edge_ble,
+        [PROFILE_DS5EDGE] = &profile_ds5edge,
     };
 
     return type < PROFILE_COUNT ? profiles[type] : NULL;
@@ -293,8 +294,8 @@ const struct profile profile_link = {
 static u8 sent_id, sent[LINK_CONFIG_SIZE];
 int host_send(u16 id, const u8 *data, u16 len) { sent_id = (u8)id; memcpy(sent, data, len); return 1; }
 const struct profile profile_switch, profile_switch2, profile_xbox, profile_xbox_ble,
-    profile_dualsense, profile_dualshock4, profile_generic, profile_mouse, profile_generic_ble,
-    profile_dualsense_ble;
+    profile_ds5, profile_ds5edge, profile_ds4, profile_generic, profile_mouse, profile_generic_ble,
+    profile_ds5edge_ble;
 
 int main(void)
 {
@@ -309,7 +310,7 @@ int main(void)
 
     memset(&set, 0, sizeof(set));
     memset(&c, 0, sizeof(c));
-    set.type = PROFILE_DUALSENSE;
+    set.type = PROFILE_DS5;
     set.gyro_speed = 40;
     CHECK(begin(&s) == IMU_OFF);
     memset(&p, 0, sizeof(p));
@@ -322,7 +323,7 @@ int main(void)
     p.gyro_bias_known = 1; p.gyro_bias[0] = -300; p.gyro_bias[2] = 40000;
     CHECK(report(&p, 0, out, &id) == LINK_INPUT_SIZE);
     CHECK(sent_id == LINK_CONFIG_HANDLE && link_unpack_config(sent, LINK_CONFIG_SIZE, &c));
-    CHECK(c.type == PROFILE_DUALSENSE && c.gyro_speed == 40 && c.address[5] == 6);
+    CHECK(c.type == PROFILE_DS5 && c.gyro_speed == 40 && c.address[5] == 6);
     CHECK(c.gyro_bias_known && c.gyro_bias[0] == -300 && !c.gyro_bias[1] && c.gyro_bias[2] == 32767);
     CHECK(link_unpack_input(out, LINK_INPUT_SIZE, &q, &seq, &flags) && seq == 0);
     CHECK(q.buttons == p.buttons && q.lx == -32768 && q.ly == 32767);

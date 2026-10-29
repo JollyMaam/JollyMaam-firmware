@@ -274,7 +274,7 @@ static struct bt_device gble_device = {
 };
 
 const struct profile profile_generic_ble = {
-    .name = "genericble", .device = &gble_device, .usb = &generic_usb,
+    .name = "generic-ble", .device = &gble_device, .usb = &generic_usb,
     .begin = gble_begin, .report = gble_report, .read = gble_read,
 };
 
@@ -586,7 +586,7 @@ int main(void)
     set.gyro_speed = 0;
     CHECK(mouse_begin(&s) == IMU_OFF && m.layout == &layouts[1]);
 
-    /* genericble: Linux button order, paddles at 21/23, Share as Record, C/M as Button 3. */
+    /* generic-ble: Linux button order, paddles at 21/23, Share as Record, C/M as Button 3. */
     memset(&p, 0, sizeof(p));
     CHECK(gble_begin(&s) == IMU_OFF && gb.er[6] == 4 && gb.er[15] == 'E');
     CHECK(gble_device.scan_response_len == strlen(board_name) + 2);

@@ -29,7 +29,7 @@ int main(void)
 
     assert(socketpair(AF_UNIX, SOCK_SEQPACKET, 0, sv) == 0);
     uhid = sv[0];
-    c.prof = &profile_dualsense;
+    c.prof = &profile_ds5edge;
     usb = c.prof->usb;
     session.usb = 1;
     session.address[0] = 42;

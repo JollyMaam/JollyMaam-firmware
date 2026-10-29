@@ -339,7 +339,7 @@ const struct profile profile_xbox = {
 };
 
 const struct profile profile_xbox_ble = {
-    .name = "xboxble", .device = &ble_device, .usb = &x360_usb,
+    .name = "xbox-ble", .device = &ble_device, .usb = &x360_usb,
     .begin = begin_ble, .report = report, .write = write, .host = host, .read = read,
 };
 

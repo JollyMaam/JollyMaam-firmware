@@ -205,7 +205,7 @@ Connect and Pair use saved settings, so apply a slot's pending edits first.
 the tool device available. On battery the normal idle sleep policy applies.
 
 The Ultimate 2C has four slots, A/B/X/Y, defaulting to Generic BLE,
-DualSense BLE, Xbox BLE and Switch 2 in that order, with separate identities and pairings. One slot runs at a time. Home from idle
+DualSense Edge BLE, Xbox BLE and Switch 2 in that order, with separate identities and pairings. One slot runs at a time. Home from idle
 reconnects the last selected slot; Home+View disconnects on release. While
 offline, Home+A/B/X/Y selects that slot on release; holding the chord for
 three seconds pairs it with a renewed identity. Sync pairs the current slot.
