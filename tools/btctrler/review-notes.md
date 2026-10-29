@@ -2259,3 +2259,12 @@ USB or hardware validation. Full worker checks/census pass:214 : ok reports,
 12 legacy reports,31 tooling tests,both layouts,94 groups. Totals95 accepted,
 1091 unique public functions,98 globals;16 retained members/948 verified
 archive index entries.
+
+
+HCI USB combined checkpoint: acceptance `6098c8f` passes canonical controller
+checks/census:214 : ok reports,12 legacy reports,31 tooling tests,both layouts,
+94 ownership groups. Totals95 accepted/16 retained members,1091 unique public
+functions,98 globals,948 verified archive index entries. All123 original BR23
+C files match44d0073. Worker and three dependency statuses were clean; merged
+ancestry verified. Completed worktree/branch deleted. No pending worker at
+this checkpoint; no application-image or hardware validation.
