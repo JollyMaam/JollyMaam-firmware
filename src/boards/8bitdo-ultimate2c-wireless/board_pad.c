@@ -268,6 +268,7 @@ static void outputs_init(void)
         const struct output *o = &outputs[i];
 
         gpio_write(o->pin, 0);
+        gpio_setup_up_down_resistor(o->pin, PM_PIN_UP_DOWN_FLOAT);   /* sleep's pull-down */
         gpio_set_input_en(o->pin, 0);
         gpio_set_output_en(o->pin, 1);
         gpio_set_func(o->pin, o->func);
@@ -357,7 +358,8 @@ int board_usb_present(void)
 
 /* Deep sleep with the battery hold kept: the last slot stays in analog
  * registers (platform_telink.c).  A GPIO output's level is not kept in deep
- * sleep (gpio.h), so PD7's pull-up holds the supply on.  Home (low) or USB
+ * sleep (gpio.h), so PD7's pull-up holds the supply on, and the motors' and
+ * lights' pull-downs keep them off.  Home (low) or USB
  * power (high) wakes the pad through a reset.  Home held now would wake it
  * at once: released first.  If it does not sleep, the hold is released as
  * before: Home can still supply power while held, and a cable arriving
@@ -366,7 +368,11 @@ void board_power_off(void)
 {
     u32 i;
 
-    for (i = 0; i < OUTPUTS; i++) output_set(&outputs[i], 0);
+    /* Off, and held off by pull-downs: deep sleep lets go of the outputs */
+    for (i = 0; i < OUTPUTS; i++) {
+        output_set(&outputs[i], 0);
+        gpio_setup_up_down_resistor(outputs[i].pin, PM_PIN_PULLDOWN_100K);
+    }
     dfifo_disable_dfifo2();
     adc_power_on_sar_adc(0);
     usb_dp_pullup_en(0);
