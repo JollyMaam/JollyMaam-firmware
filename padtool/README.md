@@ -347,7 +347,7 @@ The Ultimate 2C Wireless has no UBOOT1.00; its flash loader is 8BitDo's boot
 loader (USB `2dc8:3208`, HID; the light under Home blinks). It appears in the
 tree by itself, named by its model. **Enter flash loader** on the pad (this firmware) restarts it there; by hand: USB
 unplugged, hold L1+R1, tap Home, plug in USB. Its page has **Flash firmware…**
-(a build's `flash.bin`: the updater and the app from `0x6000`; its product
+(a build's `firmware.img`: the updater and the app from `0x6000`; its product
 must be the loader's; settings and pairings, above it, stay; sectors that
 already hold their part are not written again) and **Leave boot loader**,
 which starts the firmware there without flashing. From a terminal:
@@ -355,7 +355,7 @@ which starts the firmware there without flashing. From a terminal:
 ```sh
 python padtool/padtool.py boot                  # the boot loaders
 python padtool/padtool.py boot start            # leave it
-python padtool/padtool.py boot flash build/8bitdo-ultimate2c-wireless-pad/flash.bin
+python padtool/padtool.py boot flash build/8bitdo-ultimate2c-wireless-pad/firmware.img
 ```
 
 `pad8bitdo.py` has the boot loader's protocol, on `padhid.Device` (hidraw;

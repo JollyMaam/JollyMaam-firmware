@@ -151,7 +151,7 @@ boot loader starts; the protocol is `updater.c`'s, the chip's side
 | `0x6f000..` | settings and bonds, as before |
 
 `tools/8bitdoboot.py main` writes the header and the packed app
-(`update.bin`), `full` the updater with `update.bin` at `MAIN_AT` (`flash.bin`,
+(`update.bin`), `full` the updater with `update.bin` at `MAIN_AT` (`firmware.img`,
 from `0x6000`), which `NAME-flash` writes through the boot loader.
 
 Boot: `updater_boot()` runs first in `main()`. Analog register `0x3c`

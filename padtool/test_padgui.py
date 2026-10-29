@@ -1271,7 +1271,7 @@ def boot_record(path="/dev/hidraw9", pid="U2C_WIRELESS"):
 class BootLoaderTests(GuiCase):
     def flash_bin(self):
         import test_pad8bitdo
-        file = Path(self.enterContext(tempfile.TemporaryDirectory())) / "flash.bin"
+        file = Path(self.enterContext(tempfile.TemporaryDirectory())) / "firmware.img"
         file.write_bytes(test_pad8bitdo.packed(0x5000))
         return file
 

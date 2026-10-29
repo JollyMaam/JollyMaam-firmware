@@ -1647,7 +1647,7 @@ class App:
         f = self.scroll_form(self.boot_page)
         ttk.Label(f, textvariable=self.boot_title, font=("TkDefaultFont", 13, "bold")).pack(anchor="w", pady=(0, 8))
         ttk.Label(f, text="The pad's boot loader (the light under Home blinks). Flash firmware writes a build's "
-                  "flash.bin, the updater and the app, reads it back and starts it; settings and pairings stay. "
+                  "firmware.img, the updater and the app, reads it back and starts it; settings and pairings stay. "
                   "Leave boot loader starts the firmware already there, without flashing.",
                   wraplength=850, justify="left").pack(anchor="w")
         actions = ttk.Frame(f)
@@ -1666,12 +1666,12 @@ class App:
         return record if record and record["board"] == "boot" and record.get("online", True) and not self.busy else None
 
     def flash_boot(self):
-        """flash.bin through the 8BitDo boot loader (pad8bitdo.flash)."""
+        """firmware.img through the 8BitDo boot loader (pad8bitdo.flash)."""
         record = self.boot_record()
         if not record:
             return
-        file = filedialog.askopenfilename(title="Select flash.bin", initialdir=firmware_dir(record.get("product_id")),
-                                          filetypes=[("Boot loader image", "flash.bin"), ("All files", "*")])
+        file = filedialog.askopenfilename(title="Select firmware.img", initialdir=firmware_dir(record.get("product_id")),
+                                          filetypes=[("Boot loader image", "firmware.img"), ("All files", "*")])
         if not file:
             return
         image = Path(file).read_bytes()

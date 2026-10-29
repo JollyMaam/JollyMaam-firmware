@@ -1,4 +1,4 @@
-"""The 8BitDo boot loader, simulated: framing, flash.bin, flash order, leaving."""
+"""The 8BitDo boot loader, simulated: framing, firmware.img, flash order, leaving."""
 import struct
 import unittest
 from unittest.mock import patch
@@ -7,7 +7,7 @@ import pad8bitdo as boot
 
 
 def packed(size, pid=b"U2C_WIRELESS"):
-    """A flash.bin: a packed updater of size bytes, then update.bin a sector on."""
+    """A firmware.img: a packed updater of size bytes, then update.bin a sector on."""
     updater = bytearray(b"\x11" * (size - 4))
     updater[8:12] = b"KNLT"
     struct.pack_into("<I", updater, 0x18, size)
@@ -64,7 +64,7 @@ class BootTests(unittest.TestCase):
 
     def test_full_image_names_its_product(self):
         self.assertEqual(boot.image_pid(packed(0x5000)), "U2C_WIRELESS")
-        with self.assertRaisesRegex(ValueError, "flash.bin"):
+        with self.assertRaisesRegex(ValueError, "firmware.img"):
             boot.image_pid(packed(0x5000)[:0x5000])             # the updater alone
         bad = bytearray(packed(0x5000))
         bad[0x100] ^= 1

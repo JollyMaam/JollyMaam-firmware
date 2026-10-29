@@ -50,7 +50,7 @@
     padtool boot [start | flash FILE]   the 8BitDo boot loader (2dc8:3208):
                                   list them; start: leave it, starting the
                                   firmware there; flash: write a build's
-                                  flash.bin (the updater and the app), then start it
+                                  firmware.img (the updater and the app), then start it
     padtool update FILE [--ble [NAME|ADDRESS]]   rewrite the app in place through
                                   the updater (a pad or dongle build's update.bin);
                                   on USB the app restarts into it first;

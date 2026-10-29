@@ -8,7 +8,7 @@ Commands: 3 program, 4 erase a 4 KiB sector, 5 read, 7 start the app (what
 is at 0x6000; no reply), 8 identify (Ultimate 2C: 1b 30).  Its erase skips
 sectors below 0x6000 (the loader's own).
 
-The image it takes from us is flash.bin: the updater (a packed Telink app,
+The image it takes from us is firmware.img: the updater (a packed Telink app,
 KNLT header, its size at 0x18 and its CRC at the end), then, a sector
 further on, update.bin ("MAIN" header naming the product, then the app), all
 from 0x6000."""
@@ -53,14 +53,14 @@ def check(image):
 
 
 def image_pid(image):
-    """The product a flash.bin is for: check() the updater, then the PID in
+    """The product a firmware.img is for: check() the updater, then the PID in
     the MAIN header of the update.bin a sector boundary after it."""
     check(image)
     size = struct.unpack_from("<I", image, 0x18)[0]
     for at in range(-(-size // SECTOR) * SECTOR, len(image) - 40, SECTOR):
         if image[at:at + 4] == b"MAIN":
             return image[at + 24:at + 40].split(b"\0")[0].decode(errors="replace")
-    raise ValueError("not a full image (no update.bin after the updater): use flash.bin")
+    raise ValueError("not a full image (no update.bin after the updater): use firmware.img")
 
 
 def model_pid(model):
@@ -170,7 +170,7 @@ def find():
 
 
 def flash(path, image, progress=None):
-    """flash.bin into the loader at path, for the product it names; then
+    """firmware.img into the loader at path, for the product it names; then
     start it.  progress(done, total) per sector."""
     pid = image_pid(image)
     with Loader(path) as loader:

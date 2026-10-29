@@ -8,7 +8,7 @@
          ("MAIN", size, CRC16 of the app, entry, format 1, its offset, the
          PID, CRC16 of those fields; 0x120 bytes) and the app: update.bin
   full   the updater's firmware.bin and the app's update.bin as one image
-         from the updater's start, update.bin at --at: flash.bin
+         from the updater's start, update.bin at --at: firmware.img
   flash  into the boot loader (stock or our firmware),
          erase and program the image's sectors (the header's last), read
          them back, start the app; --also ADDR:FILE first puts FILE there
