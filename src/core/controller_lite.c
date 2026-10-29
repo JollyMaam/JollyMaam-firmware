@@ -13,11 +13,13 @@ static const char slot_names[] = "ABXY";
 
 /* The lights (of 255): the Home ring blinks while connecting, faster while
  * pairing, with the red one by the USB port; the one under Home (on/off
- * only) shows a cable arriving. A single light shows no player number. */
+ * only) shows a cable arriving; quick settings lights the ring and the one
+ * under Home in turn. A single light shows no player number. */
 static const struct {
     u8 home, red;
     u16 connect_ms, pair_ms;     /* on, then off as long */
-} lite_lights = { 24, 32, 250, 120 };
+    u16 quick_ms;                /* quick settings: the ring, then the light under Home */
+} lite_lights = { 24, 32, 250, 120, 300 };
 
 static const struct profile *profile = &profile_generic_ble;
 
@@ -46,6 +48,7 @@ static struct {
     u8 usb_was, plug_lit;        /* plug_lit: the light under Home for a new cable */
     u32 plugged_ms;
     u8 remap;                    /* the session's remap slot, REMAP_BASE the base */
+    u8 remap_chosen, remap_slot; /* picked in quick settings: kept when remap_slot reconnects */
     u8 remap_live;               /* remap.c state belongs to remap_live - 1 at remap_edits */
     u8 turbo_up;                 /* the last report left turbo_max up */
     u32 remap_edits;
@@ -85,14 +88,14 @@ static const struct set_remap *sticks(void)
     return c.linked && !c.stopping ? set_remap(c.remap) : NULL;
 }
 
-/* Connected, outside calibration: the remap slot in use.  Its state starts
- * over with another remap slot or new settings. */
+/* Connected, outside quick settings and calibration: the remap slot in
+ * use.  Its state starts over with another remap slot or new settings. */
 static void remap(u32 now)
 {
     u32 edits = set_edits();
 
     c.turbo_max = 0;
-    if (!c.linked || c.stopping || c.calibrating) {
+    if (!c.linked || c.stopping || c.calibrating || ux_quick(NULL)) {
         if (c.remap_live) remap_reset();
         c.remap_live = 0;
         return;
@@ -174,7 +177,13 @@ static void start_session(u8 slot, int pairing, int renew)
     c.session.bond = set_bond(slot);
     set_slot_address(slot, c.session.address);
     c.session.pairing = util_is_zero(c.session.bond->ltk, sizeof(c.session.bond->ltk));
-    c.remap = c.session.settings->remap ? (u8)(c.session.settings->remap - 1) : REMAP_BASE;
+    /* A remap picked in quick settings lasts across this slot's reconnects
+     * (a lost link, relink) until a disconnect, sleep or another slot. */
+    if (!c.remap_chosen || c.remap_slot != slot) {
+        c.remap = c.session.settings->remap ? (u8)(c.session.settings->remap - 1) : REMAP_BASE;
+        c.remap_slot = slot;
+        c.remap_chosen = 0;
+    }
     if (pairing >= 0) c.session.pairing = (u8)pairing;
     if (c.session.pairing && renew) set_pairing_address(slot, 1, c.session.address);
     if (c.session.settings->type != PROFILE_SWITCH2) c.session.address[5] |= 0xc0;
@@ -329,7 +338,8 @@ static __attribute__((noinline)) void host(u32 now)
     memset(&h, 0, sizeof(h));
     profile->host(now, &h);
     m = set_remap(c.remap);
-    plat_motors(motor_duty(m, h.rumble[0], 0), motor_duty(m, h.rumble[1], 1));
+    if (ux_quick(NULL)) plat_motors(0, 0);          /* quick settings: still */
+    else plat_motors(motor_duty(m, h.rumble[0], 0), motor_duty(m, h.rumble[1], 1));
     if (h.ended) transition(REQ_NONE, SLOT_NONE, 0);
 }
 
@@ -359,13 +369,16 @@ static __attribute__((noinline)) u32 lights(u32 now)
 {
     struct led_frame f;
     struct rgb cal;
-    int pairing = state() == CTL_PAIRING, blinking = !c.linked && !c.idle;
-    u32 on = pairing ? lite_lights.pair_ms : lite_lights.connect_ms, at = now % (2 * on);
+    int pairing = state() == CTL_PAIRING, quick = ux_quick(NULL), blinking = (!c.linked && !c.idle) || quick;
+    u32 on = quick ? lite_lights.quick_ms : pairing ? lite_lights.pair_ms : lite_lights.connect_ms, at = now % (2 * on);
     u32 next = 0;
     u8 lit;
 
     if (c.plug_lit && now - c.plugged_ms >= ux_timeouts.usb_plug_ms) c.plug_lit = 0;
-    lit = (u8)((!c.idle && (c.linked || at < on)) | c.plug_lit << 1 | (pairing && at < on) << 2);
+    if (quick)                   /* quick settings: the ring and the light under Home in turn */
+        lit = at < on ? 1 : 2;
+    else
+        lit = (u8)((!c.idle && (c.linked || at < on)) | c.plug_lit << 1 | (pairing && at < on) << 2);
 
     memset(&f, 0, sizeof(f));
     if (cal_led(now, &cal)) {    /* the calibration routine's own light */
@@ -396,7 +409,15 @@ static void request(const struct ctl_request *r)
         if (!c.sleeping) select_session(r->kind, r->slot, r->generate_new_address);
         break;
     case REQ_DISCONNECT:
+        c.remap_chosen = 0;
         if (!c.sleeping) transition(REQ_NONE, SLOT_NONE, 0);
+        break;
+    case REQ_REMAP:
+        if (!c.linked || c.stopping) break;
+        c.remap = r->slot < LITE_SLOTS ? r->slot : REMAP_BASE;
+        c.remap_chosen = 1;
+        c.remap_slot = c.slot;
+        util_log("slot %c remap %c", slot_names[c.slot], c.remap < LITE_SLOTS ? slot_names[c.remap] : '-');
         break;
     case REQ_SLEEP:
         if (!plat_usb_present()) {
@@ -487,6 +508,7 @@ static __attribute__((noinline)) u32 power_step(u32 now)
                         c.activity_ms + ux_timeouts.idle_sleep_ms;
     if ((s32)(now - deadline) >= 0) {
         util_log("ctl: sleeping");
+        c.remap_chosen = 0;
         c.sleeping = 1;
         c.sleep_ms = now;
         transition(REQ_NONE, SLOT_NONE, 0);
@@ -580,6 +602,8 @@ u32 ux_idle_deadline(u32 since, u32 activity, u32 usb_seen, int powered, int eph
     (void)activity; (void)powered; (void)ephemeral;
     return (s32)(offline - unplug) > 0 ? offline : unplug;
 }
+static int test_quick;
+int ux_quick(u32 *since) { (void)since; return test_quick; }
 void plat_power_off(void) { CHECK(flushes > offs); offs++; }
 void plat_reboot(void) { reboots++; }
 void plat_motors(u8 left, u8 right) { CHECK(!left && !right); motors++; }
@@ -619,7 +643,7 @@ static void test_reset(void)
     memset(&c, 0, sizeof(c));
     profile = &profile_generic_ble;
     test_ms = 100;
-    test_usb = stops = flushes = offs = starts = motors = renewals = reboots = wakes = 0;
+    test_usb = stops = flushes = offs = starts = motors = renewals = reboots = wakes = test_quick = 0;
     memset(test_bonds, 0, sizeof(test_bonds));
     memset(test_slots, 0, sizeof(test_slots));
     for (i = 0; i < LITE_SLOTS; i++) {
@@ -867,6 +891,31 @@ int main(void)
     CHECK(motor_duty(&test_remaps[0], 255, 0) == 153);
     test_remaps[0].rumble = 0;
     CHECK(motor_duty(&test_remaps[0], 255, 0) == 0);
+
+    /* Quick settings: no remap while it is open; the ring and the light
+     * under Home in turn. */
+    test_reset(); test_quick = 1; c.remap = 2; remap_steps = 0; remap(1000);
+    CHECK(!remap_steps && !c.remap_live);
+    c.lit = 0xff;
+    CHECK(lights(1200) == 1500 && LIT(LIGHT_HOME) && !LIT(LIGHT_P0));
+    CHECK(lights(1500) == 1800 && !LIT(LIGHT_HOME) && LIT(LIGHT_P0));
+    /* A remap picked there: connected only; it lasts across this slot's
+     * reconnects, not another slot's, a disconnect or sleep. */
+    test_reset(); c.slot = 1; test_slots[1].remap = 0;
+    { struct ctl_request r = { REQ_REMAP, 0, 0 }; request(&r); }
+    CHECK(c.remap == 0 && c.remap_chosen && c.remap_slot == 1);
+    start_session(1, -1, 0); CHECK(c.remap == 0);
+    start_session(2, -1, 0); CHECK(c.remap == REMAP_BASE && !c.remap_chosen);
+    { struct ctl_request r = { REQ_REMAP, 3, 0 }; c.linked = 1; request(&r); }
+    CHECK(c.remap == 3);
+    { struct ctl_request r = { REQ_REMAP, SLOT_NONE, 0 }; request(&r); }
+    CHECK(c.remap == REMAP_BASE && c.remap_chosen);
+    { struct ctl_request r = { REQ_REMAP, 1, 0 }; request(&r); }
+    { struct ctl_request r = { REQ_DISCONNECT, SLOT_NONE, 0 }; request(&r); }
+    CHECK(!c.remap_chosen);
+    test_reset(); c.linked = 0;
+    { struct ctl_request r = { REQ_REMAP, 1, 0 }; request(&r); }
+    CHECK(!c.remap_chosen && c.remap == 0);
     return TEST_DONE("controller_lite power");
 }
 #endif
