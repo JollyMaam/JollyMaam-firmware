@@ -22,7 +22,9 @@
  *                         pad, 1 dongle), build ID (16 chars at 8), flash UID
  *                         (16 at 24), the image's PID (16 chars at 40,
  *                         NUL-padded); asked for 88 or more:
- *                         board_name (32 chars at 56, NUL-padded)
+ *                         board_name (32 chars at 56, NUL-padded); in
+ *                         config mode also u16 at 88, the most data a
+ *                         command takes there (profile_config.c)
  *   `0x01` STATUS         in (16): state, slot, USB powered, low battery, u16
  *                         battery mV, u32 uptime ms, ephemeral (12), settings
  *                         items collected (13), u16 settings changes (14: goes

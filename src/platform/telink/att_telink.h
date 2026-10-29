@@ -24,5 +24,6 @@ u16 plat_att_mtu(void);
  * for the controller loop. No profile calls from a receive callback. */
 int plat_att_transmit(const u8 *pdu, u16 len, int response);
 int plat_att_write(u16 handle, const u8 *data, u16 len);
+int plat_att_write_waiting(void);        /* the loop has not taken it yet */
 
 #endif

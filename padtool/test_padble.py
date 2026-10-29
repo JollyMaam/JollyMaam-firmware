@@ -64,6 +64,10 @@ class Frames(unittest.TestCase):
     def test_an_empty_answer_ends(self):
         self.assertEqual(link(lambda sub: b"").cmd(0x20, 75, length=512), b"")
 
+    def test_identify_gives_the_data_limit(self):
+        self.assertEqual(padble.config_data_max(bytes(88)), padble.CONFIG_DATA_MAX)
+        self.assertEqual(padble.config_data_max(bytes(88) + struct.pack("<H", 335)), 335)
+
     def test_scsi_pads_the_answer_and_refuses_usb_only(self):
         padble._links["ble:t"] = link(lambda sub: b"C2PD")
         try:

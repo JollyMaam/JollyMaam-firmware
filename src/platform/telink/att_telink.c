@@ -15,6 +15,7 @@ static struct {
     u8 message[TELINK_ATT_MESSAGE_MAX + 3];
     u16 response_len, message_len, max_mtu;
     u8 command;
+    u8 paced;                    /* the response waits for the write's taking (write_paced) */
 } a;
 
 static u16 get16(const u8 *p) { return (u16)(p[0] | p[1] << 8); }
@@ -64,7 +65,9 @@ static int write_value(u16 connection, u16 handle, u16 mode, u16 offset, u8 *dat
     if (a.profile->device->write_now) return a.profile->device->write_now(handle, data, len);
     if (a.message_len && a.command) return ATT_ERROR_INSUFFICIENT_RESOURCES;
     if (len > BT_WRITE_MAX) return ATT_ERROR_INVALID_ATTRIBUTE_VALUE_LENGTH;
-    return plat_att_write(handle, data, len) ? 0 : ATT_ERROR_INSUFFICIENT_RESOURCES;
+    if (!plat_att_write(handle, data, len)) return ATT_ERROR_INSUFFICIENT_RESOURCES;
+    a.paced = a.profile->device->write_paced;
+    return 0;
 }
 
 int plat_att_start(const struct profile *profile, u16 max_mtu)
@@ -94,7 +97,7 @@ void plat_att_connected(u16 handle)
     a.connection.mtu = 23;
     a.connection.max_mtu = a.max_mtu;
     memset(a.ccc_value, 0, sizeof(a.ccc_value));
-    a.response_len = a.message_len = 0;
+    a.response_len = a.message_len = a.paced = 0;
 }
 
 void plat_att_encrypted(int encrypted)
@@ -125,7 +128,8 @@ void plat_att_reject_large(u8 opcode, u16 handle)
 
 void plat_att_poll(void)
 {
-    if (a.response_len && plat_att_transmit(a.response, a.response_len, 1)) a.response_len = 0;
+    if (a.paced && !plat_att_write_waiting()) a.paced = 0;
+    if (a.response_len && !a.paced && plat_att_transmit(a.response, a.response_len, 1)) a.response_len = 0;
     if (!a.response_len && a.message_len && plat_att_transmit(a.message, a.message_len, a.command)) a.message_len = 0;
 }
 
@@ -175,6 +179,8 @@ int plat_att_write(u16 handle, const u8 *data, u16 len)
     written_handle = handle; written_len = len; memcpy(written, data, len);
     return 1;
 }
+static u8 write_waiting;
+int plat_att_write_waiting(void) { return write_waiting; }
 
 /* Sparse handles, one static value, one dynamic value and one CCC. */
 static const u8 db[] = {
@@ -189,6 +195,8 @@ static int test_read(u8 kind, u16 id, u16 off, u8 *out, u16 max)
 { (void)kind; (void)off; (void)max; if (id != 7) return -1; memcpy(out, "dynamic", 7); return 7; }
 static const struct bt_device device = { .att_db = db, .input_handle = 7 };
 static const struct profile profile = { .device = &device, .read = test_read };
+static const struct bt_device paced_device = { .att_db = db, .input_handle = 7, .write_paced = 1 };
+static const struct profile paced_profile = { .device = &paced_device, .read = test_read };
 
 static void receive(const u8 *data, u16 len)
 {
@@ -251,6 +259,14 @@ int main(void)
         plat_att_reject_large(0x12, 0x14); plat_att_poll();
         CHECK(sent == 1 && transmitted[0][0] == 1 && transmitted[0][4] == ATT_ERROR_INVALID_ATTRIBUTE_VALUE_LENGTH);
     }
+    /* Paced writes: the response once the loop has taken the write. */
+    CHECK(plat_att_start(&paced_profile, TELINK_ATT_BUFFER)); plat_att_connected(64);
+    write_ready = 1; write_waiting = 1;
+    receive(command, sizeof(command)); CHECK(!sent && plat_att_busy());
+    plat_att_poll(); CHECK(!sent);
+    write_waiting = 0; plat_att_poll(); CHECK(sent == 1 && transmitted[0][0] == 0x13);
+    write_ready = 0; write_waiting = 1;
+    receive(command, sizeof(command)); CHECK(sent == 1 && transmitted[0][0] == 1);  /* refused: at once */
     return TEST_DONE("Telink flash ATT");
 }
 #endif

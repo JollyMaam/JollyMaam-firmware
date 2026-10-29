@@ -109,6 +109,11 @@ int plat_att_write(u16 handle, const u8 *data, u16 len)
     return 1;
 }
 
+int plat_att_write_waiting(void)
+{
+    return b.write_pending;
+}
+
 static void jit_connected(void);
 
 static void on_connect(u8 e, u8 *p, int n)

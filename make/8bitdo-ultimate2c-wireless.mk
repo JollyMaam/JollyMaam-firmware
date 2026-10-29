@@ -67,6 +67,9 @@ $(U2CW_PAD)_DEFINES += -DLOG_LINES=2
 $(U2CW_PAD)_DEFINES += -DLOG_TEXT=48
 $(U2CW_PAD)_DEFINES += -DTRACE=1
 $(U2CW_PAD)_DEFINES += -DUSB_RESULTS=64
+# Config mode borrows the tool device's command buffer (plat_tool_lend);
+# its answers go in pieces of an ATT message (att_telink.h).
+$(U2CW_PAD)_DEFINES += -DCONFIG_LENT_BUFFER -DCONFIG_REPLY_MAX=144
 
 $(U2CW_PAD)_SOURCES :=
 $(U2CW_PAD)_SOURCES += src/boards/8bitdo-ultimate2c-wireless/board_pad.c
@@ -86,6 +89,7 @@ $(U2CW_PAD)_SOURCES += src/profiles/profile_switch.c
 $(U2CW_PAD)_SOURCES += src/profiles/profile_xbox.c
 $(U2CW_PAD)_SOURCES += src/profiles/profile_8bitdo.c
 $(U2CW_PAD)_SOURCES += src/profiles/profile_playstation.c
+$(U2CW_PAD)_SOURCES += src/profiles/profile_config.c
 $(U2CW_PAD)_SOURCES += src/core/motion.c
 $(U2CW_PAD)_SOURCES += src/core/input.c
 $(U2CW_PAD)_SOURCES += src/core/input_calibration.c
@@ -147,7 +151,7 @@ $(U2CW_PAD)-test: | 8bitdoboot-test
 
 # The deepest stack use against the room above .bss, and the interrupts'
 # against irq_stk (tools/stackdepth.py).  The pointer calls: the profiles'
-# ops (struct profile words 3 begin, 5 report, 6 write, 7 host, 8 read), ATT's
+# ops (struct profile words 3 begin, 4 end, 5 report, 6 write, 7 host, 8 read), ATT's
 # callbacks, the SDK's event, L2CAP and host callbacks.  The settings paths
 # that read in or put out a remap are taken only for remap targets, never
 # from the slot, calibration and boot ones; a held remap is the only dirty
@@ -156,6 +160,8 @@ U2CW_OPS = $(foreach p,generic_ble xbox_ble switch2,$(1)=@profile_$(p):$(2))
 U2CW_STACK_RULES := $(call U2CW_OPS,bt_events,3) $(call U2CW_OPS,bt_events,6)
 U2CW_STACK_RULES += $(call U2CW_OPS,start_session,3) $(call U2CW_OPS,report,5)
 U2CW_STACK_RULES += $(call U2CW_OPS,host,7) $(call U2CW_OPS,read_value,8)
+U2CW_STACK_RULES += bt_events=@profile_config:3 bt_events=@profile_config:4 bt_events=@profile_config:6
+U2CW_STACK_RULES += start_config=@profile_config:3 report=@profile_config:5 ctl_main=@profile_config:4
 U2CW_STACK_RULES += att_handle_request=read_value,write_value
 U2CW_STACK_RULES += blt_event_callback_func=on_connect,on_terminate,on_phy,on_length
 U2CW_STACK_RULES += $(foreach f,blt_connect bls_procPendingEvent blt_send_adv bls_ll_security_proc,$(f)=blt_event_callback_func)

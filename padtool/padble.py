@@ -86,10 +86,11 @@ class BleLink:
         # A frame: the MTU less the ATT write header (3) and the frame's (5);
         # config mode takes at most BT_WRITE_MAX, and collects several.
         self.chunk = self.frame_data = min(512, self.client.mtu_size - 8)
-        self.config = not self.cmd(0x00, length=88)[7]
+        identify = self.cmd(0x00, length=90)
+        self.config = not identify[7]
         if self.config:
             self.frame_data = min(self.frame_data, CONFIG_FRAME_DATA)
-            self.chunk = CONFIG_DATA_MAX
+            self.chunk = config_data_max(identify)
 
     def cmd(self, sub, arg=0, length=0, out=None, timeout_ms=3000):
         data = out or b""
@@ -131,6 +132,14 @@ class BleLink:
             self.loop.run_until_complete(self.client.disconnect())
         except Exception:
             pass
+
+
+def config_data_max(identify):
+    """The most data a command takes in config mode: IDENTIFY's u16 at 88
+    (a pad with a smaller buffer), else CONFIG_DATA_MAX."""
+    if len(identify) >= 90:
+        return struct.unpack_from("<H", identify, 88)[0] or CONFIG_DATA_MAX
+    return CONFIG_DATA_MAX
 
 
 async def connected(target=""):

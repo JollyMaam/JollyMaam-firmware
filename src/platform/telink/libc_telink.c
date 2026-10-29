@@ -33,7 +33,7 @@ static void field(struct out *o, const char *s, int len, int width, int left, ch
 int vsnprintf(char *buf, size_t size, const char *fmt, va_list ap)
 {
     struct out o = { buf, size, 0 };
-    char digits[12];
+    char digits[12];             /* a number, from its end */
 
     for (; *fmt; fmt++) {
         int left = 0, width = 0, precision = -1, len = 0;
@@ -65,8 +65,7 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list ap)
                     put(&o, '-');
                     width--;
                 } else {
-                    digits[0] = '-';
-                    len = 1;
+                    len = 1;     /* the sign, before the digits */
                 }
                 v = (u32)-d;
             } else {
@@ -84,17 +83,16 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list ap)
         case 'u':
             v = va_arg(ap, u32);
         number: {
-            char rev[11];
-            int k = 0;
+            char *p = digits + sizeof(digits);
 
             do {
                 u32 r = v % base;
 
-                rev[k++] = (char)(r < 10 ? '0' + r : (*fmt == 'X' ? 'A' : 'a') + r - 10);
+                *--p = (char)(r < 10 ? '0' + r : (*fmt == 'X' ? 'A' : 'a') + r - 10);
                 v /= base;
             } while (v);
-            while (k) digits[len++] = rev[--k];
-            field(&o, digits, len, width, left, left ? ' ' : fill);
+            if (len) *--p = '-';
+            field(&o, p, (int)(digits + sizeof(digits) - p), width, left, left ? ' ' : fill);
             break;
         }
         case 'c':

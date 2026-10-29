@@ -572,6 +572,7 @@ static void bt_event(const struct bt_ev *e, u32 now)
             bond_update(&b, 1);
             bt_update_bond(&b);
         }
+        if (c.config) profile_config_service();   /* its answer fits the message queue */
         if (c.kind == CTL_CONNECTED && c.prof && c.prof->host) {
             c.prof->host(now, &c.host);
             if (c.host.ended) {

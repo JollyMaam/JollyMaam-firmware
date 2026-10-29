@@ -76,7 +76,10 @@ static const u8 language[] = { 4, 3, 0x09, 0x04 };
 /* ---- the command ----------------------------------------------------------- */
 
 static struct {
-    u8 cdb[16];
+    struct {
+        u8 cdb[16];
+        u8 data[DATA_MAX];
+    } c;                         /* one piece: what plat_tool_lend() lends */
     u16 length;                  /* the host's: of its data, or of the answer it wants */
     u8 flags, tag;
     u32 client;
@@ -86,10 +89,10 @@ static struct {
     u8 busy;                     /* a command taken, its answer not all out */
     u8 sending;                  /* on input reports, from off */
     u8 drop;                     /* the SET_REPORT coming in is refused */
+    u8 lent;                     /* data[] is config mode's (plat_tool_lend) */
     u16 answer;                  /* its length */
     u16 off;
     u32 sent_at;
-    u8 data[DATA_MAX];
 } t;
 
 /* A refused command's sender (one: a second waits for its timeout). */
@@ -104,20 +107,20 @@ static struct {
  * sender is kept. */
 static void tool_put(u16 k, u8 b)
 {
-    if (k == 0) t.drop = t.busy;
+    if (k == 0) t.drop = t.busy || t.lent;
     if (t.drop) {
         if (k == 18) refused.flags = b;
         else if (k == 19) refused.tag = b;
         else if (k >= 20 && k < 24) refused.client = (refused.client & ~(0xffu << 8 * (k - 20))) | (u32)b << 8 * (k - 20);
         return;
     }
-    if (k < 16) t.cdb[k] = b;
+    if (k < 16) t.c.cdb[k] = b;
     else if (k == 16) t.length = b;
     else if (k == 17) t.length |= (u16)(b << 8);
     else if (k == 18) t.flags = b;
     else if (k == 19) t.tag = b;
     else if (k < T_HEAD) t.client = (t.client & ~(0xffu << 8 * (k - 20))) | (u32)b << 8 * (k - 20);
-    else if (k - T_HEAD < DATA_MAX) t.data[k - T_HEAD] = b;
+    else if (k - T_HEAD < DATA_MAX) t.c.data[k - T_HEAD] = b;
 }
 
 /* On interrupt IN, when it is free: a refusal, else the answer's next piece. */
@@ -149,7 +152,7 @@ static void tool_pump(void)
     }
     usbhw_reset_ep_ptr(EP_IN);
     for (i = 0; i < IN_HEAD; i++) usbhw_write_ep_data(EP_IN, head[i]);
-    for (i = 0; i < IN_DATA; i++) usbhw_write_ep_data(EP_IN, i < n ? t.data[t.off + i] : 0);
+    for (i = 0; i < IN_DATA; i++) usbhw_write_ep_data(EP_IN, i < n ? t.c.data[t.off + i] : 0);
     if (head[5] != TOOL_REFUSED && t.answer) t.off = (u16)(t.off + n);
     if (head[5] != TOOL_REFUSED) t.sent_at = plat_ms();
     usbhw_data_ep_ack(EP_IN);
@@ -164,7 +167,7 @@ static u8 tool_byte(u16 k)
     if (k == 1) return t.state;
     if (k == 2) return (u8)n;
     if (k == 3) return (u8)(n >> 8);
-    return k - 4 < n ? t.data[k - 4] : 0;
+    return k - 4 < n ? t.c.data[k - 4] : 0;
 }
 
 /* ---- the controller -------------------------------------------------------- */
@@ -246,7 +249,7 @@ static void ep0_receive(void)
             t.busy = t.pending = 1;
             /* the clock at once: padtool maps the pad's clock onto its own
              * by round trips, which a wait for the control loop skews */
-            if (t.cdb[0] == 0xf5 && t.cdb[1] == 0x05 && !(t.flags & TOOL_OUT)) answer_clock();
+            if (t.c.cdb[0] == 0xf5 && t.c.cdb[1] == 0x05 && !(t.flags & TOOL_OUT)) answer_clock();
         }
     }
 }
@@ -463,15 +466,31 @@ void plat_usb_service(void)
     t.pending = 0;
     t.taken = 0;
     if (t.flags & TOOL_OUT) {
-        usb_command(t.cdb, t.data, t.length, 1);
+        usb_command(t.c.cdb, t.c.data, t.length, 1);
         t.answer = 0;
     } else {
         max = t.length < DATA_MAX ? t.length : DATA_MAX;
-        memset(t.data, 0, sizeof(t.data));
-        usb_command(t.cdb, t.data, max, 0);
+        memset(t.c.data, 0, sizeof(t.c.data));
+        usb_command(t.c.cdb, t.c.data, max, 0);
         t.answer = max;
     }
     answered();
+}
+
+/* The command's CDB and data for config mode's (profile_config.c), while
+ * no command of the host's is here; the host's are refused until it is back. */
+u8 *plat_tool_lend(u32 *size)
+{
+    if (t.lent || t.busy || t.pending || t.sending || (u.receiving && !t.drop)) return NULL;
+    t.lent = 1;
+    t.state = TOOL_IDLE;         /* GET_REPORT shows none of it */
+    *size = sizeof(t.c);
+    return t.c.cdb;
+}
+
+void plat_tool_return(void)
+{
+    t.lent = 0;
 }
 
 /* CLOCK (usb.c) without the control loop: the microsecond clock. */
@@ -480,8 +499,8 @@ static void answer_clock(void)
     t.pending = 0;
     t.taken = 0;
     t.answer = t.length < DATA_MAX ? t.length : DATA_MAX;
-    memset(t.data, 0, sizeof(t.data));
-    if (t.answer >= 4) util_put32(t.data, plat_us());
+    memset(t.c.data, 0, sizeof(t.c.data));
+    if (t.answer >= 4) util_put32(t.c.data, plat_us());
     answered();
 }
 

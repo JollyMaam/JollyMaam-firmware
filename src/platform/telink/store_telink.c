@@ -20,7 +20,7 @@
 #define KEY_MAX   64             /* keys are 1..KEY_MAX-1 */
 #define DATA_MAX  248            /* the most bytes a record holds */
 #define EMPTY     0xffff
-#define PIECE     32
+#define PIECE     16             /* on the stack: the settings write is the deepest path */
 
 static u32 sector, end;          /* the sector in use, where its log ends; 0: not read yet */
 static u32 valid;                /* the end of its whole records (end, unless one is torn) */

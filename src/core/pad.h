@@ -266,6 +266,11 @@ struct bt_device {
     int (*write_now)(u16 handle, const u8 *data, u16 len);
     u16 interval_min, interval_max;   /* asked for once encrypted (else the slot's), or */
     u8 unencrypted;                   /* when notifications start if never (config mode) */
+    /* B80 only: a write request's response waits until the control loop has
+     * taken the write, so the host's next write finds room (config mode,
+     * whose commands may take a while).  Not where writes without response
+     * come meanwhile: the server drops requests while a response waits. */
+    u8 write_paced;
 };
 
 /* A host write, from Bluetooth or USB: an output or feature report (id: its
@@ -424,6 +429,11 @@ extern const struct profile profile_dualsense, profile_dualshock4, profile_gener
     profile_generic_ble, profile_link, profile_dualsense_ble,
     profile_config;              /* config mode: no slot's (profile_config.c) */
 void profile_config_address(u8 out[6]);     /* config mode's LE address: the updater's */
+void profile_config_service(void);          /* config mode: on the control loop, after its writes */
+/* The board's name and a tail as an LE scan response, zeros after
+ * (profile_hid.c): one buffer for whichever profile runs.  Returns its length. */
+extern u8 profile_scan_response[31];
+u8 profile_scan_name(const char *tail);
 extern const struct profile_wake profile_switch_wake;
 /* The profile for a slot type (PROFILE_*, settings.c); NULL for none.  In
  * profile_link.c, which both boards build. */
@@ -950,6 +960,12 @@ int plat_usb_present(void);
 int plat_usb_power(void);                   /* 5 V on the connector, whether or not a host talks */
 int plat_usb_suspended(void);               /* the host suspended the bus (3 ms quiet) */
 void plat_usb_service(void);
+/* The tool device's command buffer, lent for a command from elsewhere
+ * (config mode, CONFIG_LENT_BUFFER): 16 bytes for the CDB, then the data
+ * or the answer.  NULL while it has a command of its own; its commands
+ * are refused until it is back. */
+u8 *plat_tool_lend(u32 *size);
+void plat_tool_return(void);
 void plat_usb_probe_request(u32 extra);   /* USB_PROBE test builds: tools/usbprobe.py */
 /* USB as a game controller.  plat_usb_mode(NULL) is the tool device (mass
  * storage, the vendor commands); a personality re-enumerates as that device.

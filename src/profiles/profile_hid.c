@@ -159,7 +159,23 @@ static struct {
     u8 er[16], ir[16];
 } gb;
 
-static u8 gble_scan_response[31];
+/* The board's name, then tail, as a scan response, zeros after: for the
+ * session's profile (Generic BLE's, config mode's), one at a time. */
+u8 profile_scan_response[31];
+
+u8 profile_scan_name(const char *tail)
+{
+    u32 n = strlen(board_name), k = strlen(tail);
+
+    if (n > sizeof(profile_scan_response) - 2 - k) n = sizeof(profile_scan_response) - 2 - k;
+    memset(profile_scan_response, 0, sizeof(profile_scan_response));
+    profile_scan_response[0] = (u8)(n + k + 1);
+    profile_scan_response[1] = 0x09;   /* complete local name */
+    memcpy(profile_scan_response + 2, board_name, n);
+    memcpy(profile_scan_response + 2 + n, tail, k);
+    return (u8)(n + k + 2);
+}
+
 static struct bt_device gble_device;
 
 static u8 gble_begin(const struct profile_session *s)
@@ -167,13 +183,8 @@ static u8 gble_begin(const struct profile_session *s)
     static const u8 firmware_key[16] = { 'C', 'Y', 'C', 'L', 'O', 'N', 'E', '2',
                                          '-', 'G', 'E', 'N', 'E', 'R', 'I', 'C' };
     u8 block[16];
-    u32 n = strlen(board_name);
 
-    if (n > sizeof(gble_scan_response) - 2) n = sizeof(gble_scan_response) - 2;
-    gble_scan_response[0] = (u8)(n + 1);
-    gble_scan_response[1] = 0x09;   /* complete local name */
-    memcpy(gble_scan_response + 2, board_name, n);
-    gble_device.scan_response_len = (u8)(n + 2);
+    gble_device.scan_response_len = profile_scan_name("");
     memset(&gb, 0, sizeof(gb));
     gb.usb = s->usb;
     generic_sent = 0;
@@ -257,7 +268,7 @@ static struct bt_device gble_device = {
     .att_db = gble_att_db,
     .input_handle = GBLE_INPUT,
     .advertising = gble_advertising,
-    .scan_response = gble_scan_response,
+    .scan_response = profile_scan_response,
     .sm_er = gb.er, .sm_ir = gb.ir,
     .interval_min = 6, .interval_max = 9,
 };
@@ -579,8 +590,10 @@ int main(void)
     memset(&p, 0, sizeof(p));
     CHECK(gble_begin(&s) == IMU_OFF && gb.er[6] == 4 && gb.er[15] == 'E');
     CHECK(gble_device.scan_response_len == strlen(board_name) + 2);
-    CHECK(gble_scan_response[0] == strlen(board_name) + 1 && gble_scan_response[1] == 9);
-    CHECK(!memcmp(gble_scan_response + 2, board_name, strlen(board_name)));
+    CHECK(profile_scan_response[0] == strlen(board_name) + 1 && profile_scan_response[1] == 9);
+    CHECK(!memcmp(profile_scan_response + 2, board_name, strlen(board_name)));
+    CHECK(profile_scan_name(" Config") == strlen(board_name) + 9 &&
+          !memcmp(profile_scan_response + 2 + strlen(board_name), " Config", 7));
     CHECK(gble_read(BT_WRITE_ATT, 3, 0, out, sizeof(out)) == strlen(board_name));
     CHECK(!memcmp(out, board_name, strlen(board_name)));
     CHECK(gble_report(&p, 0, out, &id) == GBLE_SIZE && id == 1);

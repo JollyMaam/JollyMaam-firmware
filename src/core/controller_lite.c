@@ -9,7 +9,10 @@
  * The board's 2.4G/Bluetooth switch (in_raw.radio_24g): on 2.4G the pad is
  * the stock 8BitDo receiver's (RECEIVER, profile_8bitdo), whatever slot is
  * asked for, and Sync pairs the receiver; on Bluetooth, the slots.  Moving
- * it ends the session: Home then connects the other kind. */
+ * it ends the session: Home then connects the other kind.
+ *
+ * Config mode (Home+M held, padtool config): the tool's commands over LE
+ * (profile_config.c) instead of a session, no slot's, as controller.c's. */
 
 #define POLL_US 4000             /* connected: the input is looked at this often */
 #define CAL_SAMPLE_MS 2          /* calibrating: the input is read this often */
@@ -59,6 +62,7 @@ static struct {
     u8 sleeping, idle, stopping, pending, renew, pair_down;
     u8 slot, last_slot, pending_slot;   /* last_slot: a Bluetooth one, never RECEIVER */
     u8 radio_24g;                /* the board's switch, as the session has it */
+    u8 config;                   /* the session is config mode */
     u8 peer[6];
     u8 usb_was, plug_lit;        /* plug_lit: the light under Home for a new cable */
     u32 plugged_ms;
@@ -169,7 +173,7 @@ static __attribute__((noinline)) void read_input(u32 now)
         request(&r);
     }
     if (!c.calibrating) {
-        r = ux_step(&c.pad, now, state());
+        r = ux_step(&c.pad, now, c.config ? CTL_IDLE : state());   /* config: Home as when idle */
         if (pair && !c.sleeping) {
             r.kind = REQ_PAIR;
             r.slot = c.last_slot;
@@ -245,6 +249,27 @@ static void start_session(u8 slot, int pairing, int renew)
     util_log("ctl: %s slot %c", c.session.pairing ? "pairing" : "connecting", slot_names[slot]);
 }
 
+/* Config mode until ux_timeouts.config_ms without a host or, connected,
+ * without a command; a lone Home, Home+Minus or the tools end it. */
+static __attribute__((noinline)) void start_config(void)
+{
+    c.sleeping = 0;
+    c.idle = 0;
+    c.config = 1;
+    c.slot = SLOT_NONE;
+    c.since_ms = plat_ms();
+    memset(&c.session, 0, sizeof(c.session));
+    c.session.slot = SLOT_NONE;
+    c.session.settings = set_slot(c.last_slot);
+    c.session.bond = set_bond(c.last_slot);   /* no SM: nothing reads it (a zero one costs RAM) */
+    c.session.pairing = 1;       /* advertised to anyone; no SM, so no bond */
+    profile_config_address(c.session.address);
+    profile = &profile_config;
+    profile->begin(&c.session);
+    bt_start(profile, c.session.address, c.session.bond, 1, NULL);
+    util_log("ctl: config mode");
+}
+
 /* Only Home connects at boot: a cable that powers the pad up, a reboot or
  * the way back from the updater leave it idle, the slot ready for Home. */
 static void start(void)
@@ -300,7 +325,8 @@ static void stopped(u32 now)
 {
     u8 pending = c.pending, slot = c.pending_slot;
 
-    c.stopping = c.linked = 0;
+    if (profile->end) profile->end();
+    c.stopping = c.linked = c.config = 0;
     c.pending = REQ_NONE;
     c.pending_slot = SLOT_NONE;
     if (c.sleeping) return;
@@ -308,6 +334,8 @@ static void stopped(u32 now)
         start_session(slot, pending == REQ_PAIR ? 1 : -1, c.renew);
         if (pending == REQ_CONNECT && profile == &profile_switch2 && !c.session.pairing)
             bt_connect();
+    } else if (pending == REQ_CONFIG) {
+        start_config();
     } else {
         c.idle = 1;
         c.since_ms = now;
@@ -327,7 +355,7 @@ static __attribute__((noinline)) int bt_events(void)
             if (c.stopping || c.sleeping) continue;
             c.linked = 1;
             memcpy(c.peer, ev.bond.le_peer, 6);
-            c.activity_ms = plat_ms();
+            c.activity_ms = c.since_ms = plat_ms();
             profile->begin(&c.session);          /* the first report goes out whatever it is */
         } else if (ev.kind == BT_EV_UNLINKED) {
             c.linked = 0;
@@ -335,10 +363,11 @@ static __attribute__((noinline)) int bt_events(void)
             c.feedback = 0;
             plat_motors(0, 0);
             c.since_ms = plat_ms();
+            if (profile->end) profile->end();   /* config: a new window, advertising again */
             /* Match controller.c: a deliberate disconnect ends this session;
              * only a lost link stays in reconnect mode. Our own stop's
              * disconnect keeps the request it is stopping for. */
-            if (!ev.lost && !c.stopping) {
+            if (!ev.lost && !c.stopping && !c.config) {
                 util_log("ctl: host ended the session");
                 transition(REQ_NONE, SLOT_NONE, 0);
             }
@@ -352,6 +381,7 @@ static __attribute__((noinline)) int bt_events(void)
             bt_update_bond(&ev.bond);
             util_log("ctl: slot %c bond saved", slot_names[c.slot]);
         } else if (ev.kind == BT_EV_WRITE && !c.stopping && !c.sleeping) {
+            if (c.config) c.since_ms = plat_ms();   /* a command: config mode stays */
             if (profile->write && profile->write(&ev.write, plat_ms(), &ev.bond)) {
                 memcpy(ev.bond.le_peer, c.peer, 6);
                 set_pairing_store(c.slot, c.session.address, &ev.bond);
@@ -442,7 +472,7 @@ static __attribute__((noinline)) u32 lights(u32 now)
 {
     struct led_frame f;
     struct rgb cal;
-    int pairing = state() == CTL_PAIRING, quick = ux_quick(NULL), blinking = (!c.linked && !c.idle) || quick;
+    int pairing = state() == CTL_PAIRING && !c.config, quick = ux_quick(NULL) || c.config, blinking = (!c.linked && !c.idle) || quick;
     u32 on = quick ? lite_lights.quick_ms : pairing ? lite_lights.pair_ms : lite_lights.connect_ms, at = now % (2 * on);
     u32 next = 0;
     u8 lit;
@@ -481,14 +511,27 @@ static void request(const struct ctl_request *r)
         break;
     case REQ_CONNECT:
     case REQ_PAIR:
+        if (c.config && r->kind == REQ_CONNECT && r->slot == SLOT_LAST) {
+            transition(REQ_NONE, SLOT_NONE, 0);     /* a lone Home leaves config mode */
+            break;
+        }
         if (!c.sleeping) select_session(r->kind, r->slot, r->generate_new_address);
+        break;
+    case REQ_CONFIG:
+        if (c.sleeping) break;
+        if (c.config) c.since_ms = plat_ms();   /* again: the window starts over */
+        else transition(REQ_CONFIG, SLOT_NONE, 0);
+        break;
+    case REQ_RELINK:             /* config mode: the host is done, the pad advertises again */
+        if (c.config && c.linked) bt_drop();
+        else util_log("ctl: relink is not on this board");
         break;
     case REQ_DISCONNECT:
         c.remap_chosen = c.rumble_step = 0;
         if (!c.sleeping) transition(REQ_NONE, SLOT_NONE, 0);
         break;
     case REQ_REMAP:
-        if (!c.linked || c.stopping) break;
+        if (!c.linked || c.stopping || c.config) break;
         c.remap = r->slot < LITE_SLOTS ? r->slot : REMAP_BASE;
         c.remap_chosen = 1;
         c.remap_slot = c.slot;
@@ -497,7 +540,7 @@ static void request(const struct ctl_request *r)
     case REQ_RUMBLE_STEP: {      /* slot 1 up, 0 down */
         u8 step;
 
-        if (!c.linked || c.stopping) break;
+        if (!c.linked || c.stopping || c.config) break;
         step = rumble_step(set_remap(c.remap));
         if (r->slot && step < RUMBLE_STEPS) step++;
         if (!r->slot && step) step--;
@@ -586,8 +629,9 @@ static __attribute__((noinline)) u32 power_step(u32 now)
         }
         return deadline;
     }
-    if (!c.linked && !c.idle) {
-        deadline = c.since_ms + (c.session.pairing ? ux_timeouts.pair_ms : ux_timeouts.connect_ms);
+    if (c.config || (!c.linked && !c.idle)) {
+        deadline = c.since_ms + (c.config ? ux_timeouts.config_ms : c.session.pairing ? ux_timeouts.pair_ms :
+                                 ux_timeouts.connect_ms);
         if ((s32)(now - deadline) < 0) return deadline;
         transition(REQ_NONE, SLOT_NONE, 0);
         return now + ux_timeouts.stop_max_ms;
@@ -640,11 +684,12 @@ void ctl_main(void)
             c.rumble_until = 0;
         }
         bluetooth();
+        if (c.config) profile_config_service();
         read_input(plat_ms());
         host(plat_ms());
         report(plat_ms());
         c.status.state = state();
-        c.status.slot = c.idle || c.sleeping || c.slot == RECEIVER ? SLOT_NONE : c.slot;
+        c.status.slot = c.idle || c.sleeping || c.config || c.slot == RECEIVER ? SLOT_NONE : c.slot;
         c.status.usb_powered = (u8)plat_usb_present();
         c.status.battery_mv = plat_battery_mv();
         c.status.uptime_ms = plat_ms();
@@ -689,6 +734,8 @@ void bt_start(const struct profile *p, const u8 a[6], const struct bt_bond *k,
               int pairing, const struct bt_link *link)
 { (void)p; (void)a; (void)k; (void)pairing; (void)link; starts++; }
 void bt_stop(void) { stops++; }
+static int drops;
+void bt_drop(void) { drops++; }
 void bt_connect(void) { wakes++; }
 void set_flush(void) { flushes++; }
 int set_is_ephemeral(void) { return ephemeral; }
@@ -729,6 +776,11 @@ const struct profile profile_switch2 = { .begin = test_begin, .write = test_writ
 const struct profile profile_xbox_ble = { .begin = test_begin };
 const struct profile profile_dualsense_ble = { .begin = test_begin };
 const struct profile profile_8bitdo = { .begin = test_begin };
+static int config_ends;
+static void test_config_end(void) { config_ends++; }
+const struct profile profile_config = { .begin = test_begin, .end = test_config_end };
+void profile_config_address(u8 out[6]) { memset(out, 0x33, 6); }
+void profile_config_service(void) {}
 static u8 test_24g, test_receiver_known, test_receiver_saves, test_receiver[5];
 void plat_input(struct in_raw *raw) { memset(raw, 0, sizeof(*raw)); raw->radio_24g = test_24g; }
 int plat_receiver_paired(void) { return test_receiver_known; }
@@ -745,7 +797,7 @@ u32 remap_step(const struct set_remap *m, u32 in, u32 now, u32 *every_report)
 const u8 ux_first_slot = 3;
 const struct ux_timeouts ux_timeouts = {
     .idle_sleep_ms = 300000, .stop_max_ms = 12000, .connect_ms = 30000, .pair_ms = 180000,
-    .usb_plug_ms = 1000,
+    .usb_plug_ms = 1000, .config_ms = 60000,
 };
 
 static void test_reset(void)
@@ -1082,6 +1134,36 @@ int main(void)
     test_reset(); c.idle = 1; c.raw.radio_24g = 1; radio_switch(); CHECK(!stops && c.radio_24g);
     /* Home at boot on 2.4G: the receiver */
     test_reset(); test_24g = 1; boot_cause = BOOT_HOME; start(); CHECK(c.slot == RECEIVER && starts == 1);
+
+    /* Config mode: instead of a session, no slot's.  Asked again, its
+     * window starts over; the host leaving keeps it, advertising; a lone
+     * Home ends it, as does the window without a host. */
+    {
+        struct ctl_request cfg = { REQ_CONFIG, SLOT_NONE, 0 }, home = { REQ_CONNECT, SLOT_LAST, 0 };
+        struct ctl_request relink = { REQ_RELINK, SLOT_NONE, 0 };
+
+        test_reset(); c.linked = 0; c.idle = 1; c.last_slot = 1; config_ends = drops = 0;
+        request(&cfg); CHECK(stops == 1 && !starts && c.pending == REQ_CONFIG);
+        stopped(test_ms);
+        CHECK(c.config && profile == &profile_config && starts == 1 && c.slot == SLOT_NONE);
+        CHECK(c.session.address[0] == 0x33 && c.session.address[5] == 0x33 && c.session.pairing);
+        CHECK(power_step(test_ms + 59999) == test_ms + 60000 && !c.stopping);
+        test_ms += 30000; request(&cfg); CHECK(c.since_ms == test_ms);
+        power_step(test_ms + 59999); CHECK(!c.stopping);
+        test_events[0].kind = BT_EV_LINKED; event_at = 0; event_count = 1; bluetooth();
+        CHECK(c.linked && c.since_ms == test_ms);
+        request(&relink); CHECK(drops == 1);
+        test_events[0].kind = BT_EV_UNLINKED; event_at = 0; event_count = 1; bluetooth();
+        CHECK(c.config && !c.stopping && !c.linked && config_ends == 1);
+        request(&home); CHECK(c.stopping && c.pending == REQ_NONE);
+        stopped(test_ms); CHECK(c.idle && !c.config && config_ends == 2 && profile == &profile_config);
+        /* the window over: idle, and the next session is a slot's again */
+        request(&cfg); stopped(test_ms); CHECK(c.config);
+        power_step(test_ms + 60000); CHECK(c.stopping);
+        stopped(test_ms); CHECK(c.idle && !c.config);
+        select_session(REQ_CONNECT, SLOT_LAST, 0); stopped(test_ms);
+        CHECK(c.slot == 1 && profile == &profile_generic_ble && !c.config);
+    }
     return TEST_DONE("controller_lite power");
 }
 #endif
