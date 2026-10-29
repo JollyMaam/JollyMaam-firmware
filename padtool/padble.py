@@ -26,7 +26,7 @@ pad's HCI receive queue while it erased, and packets it dropped there were
 pieced together wrongly."""
 import asyncio, atexit, os, struct, sys
 
-# The zip (make padtool_dist) carries bleak for Windows and Linux; on Linux
+# The zip (make padtool-dist) carries bleak for Windows and Linux; on Linux
 # the system's own comes first.
 _LIB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if os.path.isdir(_LIB) and _LIB not in sys.path:

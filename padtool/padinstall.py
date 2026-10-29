@@ -6,15 +6,15 @@ firmware; on this firmware already it reinstalls it.
 
     sudo python3 padtool/padinstall.py     Linux (root, or udev rules for
                                            every device it uses)
-    Install firmware.cmd                   Windows: asks for admin (the
-                                           ROM loader is a disk)
+    Install firmware.py                    Windows, in the zip: asks for
+                                           admin (the ROM loader is a disk)
 
 GameSir Cyclone 2, Nova 2 Lite and their dongles (Jieli): from stock
 firmware in a USB mode with a command for the ROM loader, from this
-firmware, or from the ROM loader (UBOOT1.00) entered by hand; the whole
-flash is written (settings too), after a backup of it if wanted.  8BitDo
-Ultimate 2C Wireless: from stock firmware, this firmware or its boot
-loader; firmware.img goes above the boot loader, and settings stay."""
+firmware, or from the ROM loader (UBOOT1.00) entered by hand, after a
+backup of the whole flash if wanted.  8BitDo Ultimate 2C Wireless: from
+stock firmware, this firmware or its boot loader.  Only the image's sectors
+are written: settings and pairings, past it, stay."""
 import argparse
 import os
 from pathlib import Path
@@ -279,7 +279,7 @@ def run():
             declined.add(device.key)
             continue
         jieli = device.kind in ("stock", "ours", "rom")
-        note = " (settings and pairings are erased)" if jieli else " (settings and pairings stay)"
+        note = " (settings and pairings stay)" if device.kind in ("ours", "ours8") else ""
         if not ask(f"Install {image.parent.name}/firmware.img on it?{note}"):
             declined.add(device.key)
             print()

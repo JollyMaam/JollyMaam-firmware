@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package padtool for Windows and Linux: make padtool_dist.
+"""Package padtool for Windows and Linux: make padtool-dist.
 
     tools/padtool_dist.py --build build --version ID --out build/padtool-ID.zip
 
@@ -41,17 +41,15 @@ BOARDS = {
     "8bitdo-ultimate2c-wireless-pad": ["firmware.img", "update.bin"],
 }
 
-# py (the launcher) if there is one, else python; the GUI through .pyw's
-# file association (pyw is not always on the path).
-CMD = ('@echo off\r\nwhere py >nul 2>nul\r\n'
-       'if not errorlevel 1 (py -3 "%~dp0padtool\\{0}" %*) else (python "%~dp0padtool\\{0}" %*)\r\n')
-# The GUI: .pyw launchers beside the folder (a .cmd flashes a console).
-PADGUI_PYW = """# padgui: double-click (pythonw, no console window).
+# Launchers beside the padtool folder, opened by double-click through the
+# .py (a console) or .pyw (none) file association; they run the tool from
+# the folder.
+LAUNCHER = """# {what}: double-click.
 import os, runpy, sys
-gui = os.path.join(os.path.dirname(os.path.abspath(__file__)), "padtool", "padgui.pyw")
-sys.path.insert(0, os.path.dirname(gui))
-sys.argv[0] = gui{extra}
-runpy.run_path(gui, run_name="__main__")
+tool = os.path.join(os.path.dirname(os.path.abspath(__file__)), "padtool", "{tool}")
+sys.path.insert(0, os.path.dirname(tool))
+sys.argv[0] = tool{extra}
+runpy.run_path(tool, run_name="__main__")
 """
 README = """padtool {version} for Windows and Linux
 
@@ -59,33 +57,34 @@ Needs 64-bit Python 3.11 to 3.14 from python.org (with "tcl/tk" and the
 "py launcher", both on by default).  Nothing to install: bleak, for
 Bluetooth, is in padtool\\lib.
 
-  Install firmware.cmd     puts this firmware on a pad or dongle by USB,
+  Install firmware.py      puts this firmware on a pad or dongle by USB,
                            the first time from its stock firmware: it asks
                            for admin, waits for one, says what it is and
-                           asks before it writes (Linux:
-                           sudo python3 padtool/padinstall.py)
+                           asks before it writes
   padgui.pyw               the GUI (double-click); it asks for admin, for
                            the ROM loader's disk
   padgui (no admin).pyw    the GUI without asking: USB tool devices and
                            Bluetooth; whether the ROM loader works so is
                            not established
-  padtool.cmd --help       the command line, from a Command Prompt here
+  py padtool\\padtool.py --help   the command line, from a Command Prompt here
 
 Bluetooth: hold Home+M on the pad for 3 seconds (config mode), then
-Refresh in the GUI, or put --ble after a command:  padtool.cmd get --ble
+Refresh in the GUI, or put --ble after a command:  py padtool\\padtool.py get --ble
 
 Linux (x86-64, Python 3.11 to 3.14; the GUI needs tkinter): the same files,
-  python3 padgui.pyw  and  python3 padtool/padtool.py --help
+  sudo python3 padtool/padinstall.py,  python3 padgui.pyw  and
+  python3 padtool/padtool.py --help
 padtool\\lib's bleak is used when the system has none.  BlueZ and
 permission for the tool devices (padtool/README.md) as for a checkout.
 
 firmware\\<board>\\ holds this build's firmware:
-  update.bin     padtool.cmd update firmware\\<board>\\update.bin
+  update.bin     padtool.py update firmware\\<board>\\update.bin
                  (a pad or dongle already running this firmware, on USB)
-  firmware.img   for the GUI's flasher: the whole flash (UBOOT1.00 ROM
-                 loader); the 8BitDo's updater and app (its boot loader, or
-                 padtool.cmd boot flash).  Leave boot loader in the GUI
-                 (padtool.cmd boot start) starts it without flashing
+  firmware.img   for Install firmware and the GUI's flasher: the ROM loader
+                 writes it from the flash's start, the 8BitDo's boot loader
+                 above itself; settings and pairings, past it, stay.  Leave
+                 boot loader in the GUI (padtool.py boot start) starts the
+                 8BitDo's firmware without flashing
 
 padtool\\README.md has the rest.
 """
@@ -155,10 +154,10 @@ def main():
             (stage / "firmware" / board).mkdir(parents=True, exist_ok=True)
             shutil.copy2(f, stage / "firmware" / board / name)
 
-    (stage / "padtool.cmd").write_text(CMD.format("padtool.py"), newline="")
-    (stage / "Install firmware.cmd").write_text(CMD.format("padinstall.py"), newline="")
-    (stage / "padgui.pyw").write_text(PADGUI_PYW.format(extra=""))
-    (stage / "padgui (no admin).pyw").write_text(PADGUI_PYW.format(extra='\nsys.argv.append("--no-elevate")'))
+    (stage / "Install firmware.py").write_text(LAUNCHER.format(what="padinstall", tool="padinstall.py", extra=""))
+    (stage / "padgui.pyw").write_text(LAUNCHER.format(what="padgui", tool="padgui.pyw", extra=""))
+    (stage / "padgui (no admin).pyw").write_text(LAUNCHER.format(what="padgui", tool="padgui.pyw",
+                                                                 extra='\nsys.argv.append("--no-elevate")'))
     (stage / "README.txt").write_text(README.format(version=a.version).replace("\n", "\r\n"), newline="")
 
     out.parent.mkdir(parents=True, exist_ok=True)

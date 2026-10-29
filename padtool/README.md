@@ -8,7 +8,7 @@ python padtool/padgui.pyw
 
 On Linux, `./padtool/padgui.pyw` also works. On Windows, double-click
 `padgui.pyw` to launch without a console window using the Python file association.
-Windows Python's installer includes Tcl/Tk by default. `make padtool_dist`
+Windows Python's installer includes Tcl/Tk by default. `make padtool-dist`
 builds a zip for Windows and Linux with padtool, bleak (64-bit Windows and
 x86-64 Linux, Python 3.11 to 3.14; on Linux a system bleak comes first),
 the RAM loaders and every board's firmware; its README.txt says how to use it. On Linux install your
@@ -349,14 +349,15 @@ and its mode, this firmware and its build, a ROM loader or the 8BitDo boot
 loader), asks, and writes the `firmware.img` for it from the zip's
 `firmware` folder or this tree's `build`. A stock mode with no command for
 its loader gets the way there instead (switch mode, or by hand). Jieli
-boards: the whole flash, after a backup of it into `backups/` if wanted
-(asked; yes by default from stock firmware). The 8BitDo: above the boot
-loader, settings kept. Then it waits for the device on this firmware and
+boards: from the flash's start, after a backup of the whole flash into
+`backups/` if wanted (asked; yes by default from stock firmware). The
+8BitDo: above the boot loader. Only the image's sectors are written, so
+settings and pairings, past it, stay. Then it waits for the device on this firmware and
 says its build; a device installed or declined is not asked again while it
 stays connected.
 
 ```sh
-sudo python3 padtool/padinstall.py      # Linux; Windows: "Install firmware.cmd" in the zip (asks for admin)
+sudo python3 padtool/padinstall.py      # Linux; Windows: "Install firmware.py" in the zip (asks for admin)
 ```
 
 ### The 8BitDo boot loader
