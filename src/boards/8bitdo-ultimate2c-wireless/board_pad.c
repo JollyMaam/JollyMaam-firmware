@@ -33,9 +33,9 @@ const struct board_slots board_slots = {
     .transport = { TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT,
                    TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT },
     .types = 1u << PROFILE_GENERIC_BLE | 1u << PROFILE_DUALSENSE_BLE | 1u << PROFILE_XBOX_BLE |
-             1u << PROFILE_SWITCH2 | 1u << PROFILE_XBOX | 1u << PROFILE_NONE,   /* controller_lite.c */
-    /* dongle: the stock 8BitDo receiver, as type xbox (rf8_telink.c) */
-    .transports = 1u << TRANSPORT_BT | 1u << TRANSPORT_DONGLE,
+             1u << PROFILE_SWITCH2 | 1u << PROFILE_NONE,      /* controller_lite.c */
+    /* the stock 8BitDo receiver is the rear switch's 2.4G, not a slot's */
+    .transports = 1u << TRANSPORT_BT,
     .static_random = 1,
 };
 
@@ -70,7 +70,24 @@ static struct {
     u32 changed_us;
     u8 same[32];                     /* scans a bit has differed from stable */
     u8 pair_reading, pair_stable, pair_same;
+    /* the rear switch closed: Bluetooth; open: 2.4G (README) */
+    u8 bt_reading, bt_stable, bt_same;
 } mx;
+
+/* A board switch debounced as a release is: DEBOUNCE_SCANS alike. */
+static u32 debounce(u8 *reading, u8 *stable, u8 *same)
+{
+    u32 changed = 0;
+
+    if (*reading == *stable) *same = 0;
+    else if (++*same >= DEBOUNCE_SCANS) {
+        *stable = *reading;
+        *same = 0;
+        changed = 1;
+    }
+    *reading = 0;
+    return changed;
+}
 
 static void matrix_init(void)
 {
@@ -105,6 +122,7 @@ static u32 matrix_poll(void)
             if (gpio_read(columns[i])) continue;
             mx.reading |= keys[r][i];
             if (r == 3 && i == 3) mx.pair_reading = 1;
+            if (r == 3 && i == 4) mx.bt_reading = 1;
         }
         gpio_write(rows[r], 1);
     }
@@ -123,13 +141,8 @@ static u32 matrix_poll(void)
         }
     }
     mx.reading = 0;
-    if (mx.pair_reading == mx.pair_stable) mx.pair_same = 0;
-    else if (++mx.pair_same >= DEBOUNCE_SCANS) {
-        mx.pair_stable = mx.pair_reading;
-        mx.pair_same = 0;
-        changed = 1;
-    }
-    mx.pair_reading = 0;
+    changed |= debounce(&mx.pair_reading, &mx.pair_stable, &mx.pair_same);
+    changed |= debounce(&mx.bt_reading, &mx.bt_stable, &mx.bt_same);
     if (changed) mx.changed_us = plat_us();
     return changed ? EV_BUTTONS : 0;
 }
@@ -324,6 +337,10 @@ void board_init(void)
     matrix_init();
     sleep_us(20);                    /* the pull-up */
     boot_home = !gpio_read(HOME);
+    gpio_write(rows[3], 0);          /* the rear switch as it is, before any scan */
+    sleep_us(ROW_SETTLE_US);
+    mx.bt_stable = !gpio_read(columns[4]);
+    gpio_write(rows[3], 1);
     adc_start();
 }
 
@@ -415,6 +432,7 @@ void board_input(struct in_raw *raw)
 {
     raw->buttons = mx.stable;
     raw->pair_button = mx.pair_stable;
+    raw->radio_24g = !mx.bt_stable;
     raw->changed_us = mx.changed_us;
     raw->sticks_valid = (ad.valid & 0x0f) == 0x0f;
     raw->stick[0] = (u16)(ad.code[0] << 2);

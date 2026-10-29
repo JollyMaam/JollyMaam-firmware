@@ -4,12 +4,22 @@
 /* The control loop for a pad whose RAM controller.c and settings.c do not
  * fit (the Telink B80's 16 KiB). Four slots select Generic BLE, Xbox (LE) or Switch 2,
  * sharing the input, calibration, settings, Home gestures and one radio
- * session at a time. Host commands run here, outside the SDK callbacks. */
+ * session at a time. Host commands run here, outside the SDK callbacks.
+ *
+ * The board's 2.4G/Bluetooth switch (in_raw.radio_24g): on 2.4G the pad is
+ * the stock 8BitDo receiver's (RECEIVER, profile_8bitdo), whatever slot is
+ * asked for, and Sync pairs the receiver; on Bluetooth, the slots.  Moving
+ * it ends the session: Home then connects the other kind. */
 
 #define POLL_US 4000             /* connected: the input is looked at this often */
 #define CAL_SAMPLE_MS 2          /* calibrating: the input is read this often */
 #define LITE_SLOTS 4
-static const char slot_names[] = "ABXY";
+#define RECEIVER   LITE_SLOTS    /* the receiver's session, after the slots */
+static const char slot_names[] = "ABXYR";
+
+/* The receiver's session runs as an Xbox pad through it, with the base
+ * remap; its pairing is the platform's (plat_receiver_pair). */
+static const struct set_slot receiver_settings = { .type = PROFILE_XBOX, .transport = TRANSPORT_DONGLE };
 
 /* The lights (of 255): the Home ring blinks while connecting, faster while
  * pairing, with the red one by the USB port; the one under Home (on/off
@@ -23,14 +33,12 @@ static const struct {
 
 static const struct profile *profile = &profile_generic_ble;
 
-/* The profile a slot runs here: an LE type over Bluetooth, or Xbox through
- * the dongle, which on this pad is the stock 8BitDo receiver; NULL for the
+/* The profile a slot runs here: an LE type over Bluetooth; NULL for the
  * others. */
 static const struct profile *slot_profile(const struct set_slot *s)
 {
     u8 type = s->type;
 
-    if (s->transport == TRANSPORT_DONGLE) return type == PROFILE_XBOX ? &profile_8bitdo : NULL;
     if (s->transport != TRANSPORT_BT) return NULL;
     return type == PROFILE_GENERIC_BLE ? &profile_generic_ble : type == PROFILE_XBOX_BLE ? &profile_xbox_ble :
            type == PROFILE_SWITCH2 ? &profile_switch2 : type == PROFILE_DUALSENSE_BLE ? &profile_dualsense_ble : NULL;
@@ -49,7 +57,8 @@ static struct {
     u8 activity_ref[offsetof(struct pad, imu_count)]; /* no unused IMU data */
     u32 activity_ms, sleep_ms, since_ms, usb_seen_ms;
     u8 sleeping, idle, stopping, pending, renew, pair_down;
-    u8 slot, last_slot, pending_slot;
+    u8 slot, last_slot, pending_slot;   /* last_slot: a Bluetooth one, never RECEIVER */
+    u8 radio_24g;                /* the board's switch, as the session has it */
     u8 peer[6];
     u8 usb_was, plug_lit;        /* plug_lit: the light under Home for a new cable */
     u32 plugged_ms;
@@ -70,6 +79,7 @@ static struct {
 
 static void start(void);
 static void request(const struct ctl_request *r);
+static void transition(u8 kind, u8 slot, u8 renew);
 
 static u8 state(void)
 {
@@ -120,6 +130,16 @@ static void remap(u32 now)
     c.pad.buttons = remap_step(set_remap(c.remap), c.pad.buttons, now, &c.turbo_max);
 }
 
+/* The switch moved: the session ends, and Home connects the other kind
+ * (a Home gesture, so a console may wake then, never at the switch). */
+static void radio_switch(void)
+{
+    if (c.raw.radio_24g == c.radio_24g) return;
+    c.radio_24g = c.raw.radio_24g;
+    util_log("ctl: switch on %s", c.radio_24g ? "2.4G" : "Bluetooth");
+    if (!c.idle && !c.sleeping) transition(REQ_NONE, SLOT_NONE, 0);
+}
+
 /* The loop's steps stay out of line (noinline): their locals are then not
  * on the stack under bluetooth(), the deepest path (a Switch 2 command). */
 static __attribute__((noinline)) void read_input(u32 now)
@@ -128,6 +148,7 @@ static __attribute__((noinline)) void read_input(u32 now)
     u8 pair;
 
     plat_input(&c.raw);
+    radio_switch();
 #if PROBE_EDGES
     c.probe_at_us = util_probe_apply(&c.raw.buttons);
 #endif
@@ -169,6 +190,7 @@ static int slot_ready(u8 slot)
 {
     const struct set_slot *s;
 
+    if (slot == RECEIVER) return c.radio_24g;   /* never asked for from outside */
     if (slot >= LITE_SLOTS) return 0;
     s = set_slot(slot);
     return slot_profile(s) != NULL;
@@ -184,17 +206,21 @@ static void start_session(u8 slot, int pairing, int renew)
     }
     c.sleeping = 0;
     c.idle = 0;
-    c.slot = c.last_slot = slot;
+    c.slot = slot;
     c.activity_ms = c.since_ms = plat_ms();
     memset(&c.session, 0, sizeof(c.session));
     c.session.slot = slot;
-    c.session.settings = set_slot(slot);
-    c.session.bond = set_bond(slot);
-    set_slot_address(slot, c.session.address);
-    /* paired: a key, or the receiver's address */
-    c.session.pairing = c.session.settings->transport == TRANSPORT_DONGLE ?
-                        util_is_zero(c.session.bond->peer, sizeof(c.session.bond->peer)) :
-                        util_is_zero(c.session.bond->ltk, sizeof(c.session.bond->ltk));
+    if (slot == RECEIVER) {
+        c.session.settings = &receiver_settings;
+        c.session.bond = NULL;           /* the link never reads one */
+        c.session.pairing = !plat_receiver_paired();
+    } else {
+        c.last_slot = slot;
+        c.session.settings = set_slot(slot);
+        c.session.bond = set_bond(slot);
+        set_slot_address(slot, c.session.address);
+        c.session.pairing = util_is_zero(c.session.bond->ltk, sizeof(c.session.bond->ltk));
+    }
     /* A remap and a rumble step picked in quick settings last across this
      * slot's reconnects (a lost link, relink) until a disconnect, sleep or
      * another slot. */
@@ -205,11 +231,15 @@ static void start_session(u8 slot, int pairing, int renew)
         c.remap_chosen = 0;
     }
     if (pairing >= 0) c.session.pairing = (u8)pairing;
-    if (c.session.pairing && renew) set_pairing_address(slot, 1, c.session.address);
-    if (c.session.settings->type != PROFILE_SWITCH2) c.session.address[5] |= 0xc0;
     set_flush();                     /* previous session is stopped */
-    if (!set_is_ephemeral()) plat_retain_slot(slot);
-    profile = slot_profile(c.session.settings);
+    if (slot == RECEIVER) {
+        profile = &profile_8bitdo;
+    } else {
+        if (c.session.pairing && renew) set_pairing_address(slot, 1, c.session.address);
+        if (c.session.settings->type != PROFILE_SWITCH2) c.session.address[5] |= 0xc0;
+        if (!set_is_ephemeral()) plat_retain_slot(slot);
+        profile = slot_profile(c.session.settings);
+    }
     profile->begin(&c.session);
     bt_start(profile, c.session.address, c.session.bond, c.session.pairing, NULL);
     util_log("ctl: %s slot %c", c.session.pairing ? "pairing" : "connecting", slot_names[slot]);
@@ -223,14 +253,16 @@ static void start(void)
     u8 slot = plat_retained_slot();
 
     plat_boot_info(&b);
+    plat_input(&c.raw);
+    c.radio_24g = c.raw.radio_24g;
     if (slot >= LITE_SLOTS) slot = ux_first_slot;
     if (!slot_ready(slot)) for (slot = 0; slot < LITE_SLOTS && !slot_ready(slot); slot++) {}
-    util_log("ctl: boot cause %u, slot %u", b.cause, slot);
+    c.last_slot = slot < LITE_SLOTS ? slot : 0;
+    util_log("ctl: boot cause %u, slot %u%s", b.cause, slot, c.radio_24g ? ", 2.4G" : "");
     if (b.cause == BOOT_HOME) {
-        start_session(slot, -1, 0);
+        start_session(c.radio_24g ? RECEIVER : slot, -1, 0);
         return;
     }
-    c.last_slot = slot < LITE_SLOTS ? slot : 0;
     c.idle = 1;
     c.since_ms = plat_ms();
 }
@@ -255,6 +287,7 @@ static void transition(u8 kind, u8 slot, u8 renew)
 static void select_session(u8 kind, u8 slot, u8 renew)
 {
     if (slot == SLOT_LAST) slot = c.last_slot;
+    if (c.radio_24g) slot = RECEIVER;    /* the switch on 2.4G: no slots */
     if (!slot_ready(slot)) {
         util_log("ctl: slot %u type/transport unavailable", slot);
         return;
@@ -309,6 +342,10 @@ static __attribute__((noinline)) int bt_events(void)
                 util_log("ctl: host ended the session");
                 transition(REQ_NONE, SLOT_NONE, 0);
             }
+        } else if (ev.kind == BT_EV_PAIRED && c.slot == RECEIVER) {
+            plat_receiver_pair(ev.bond.peer, !set_is_ephemeral());
+            c.session.pairing = 0;
+            util_log("ctl: receiver paired");
         } else if (ev.kind == BT_EV_PAIRED) {
             set_pairing_store(c.slot, c.session.address, &ev.bond);
             c.session.pairing = 0;
@@ -607,7 +644,7 @@ void ctl_main(void)
         host(plat_ms());
         report(plat_ms());
         c.status.state = state();
-        c.status.slot = c.idle || c.sleeping ? SLOT_NONE : c.slot;
+        c.status.slot = c.idle || c.sleeping || c.slot == RECEIVER ? SLOT_NONE : c.slot;
         c.status.usb_powered = (u8)plat_usb_present();
         c.status.battery_mv = plat_battery_mv();
         c.status.uptime_ms = plat_ms();
@@ -692,6 +729,11 @@ const struct profile profile_switch2 = { .begin = test_begin, .write = test_writ
 const struct profile profile_xbox_ble = { .begin = test_begin };
 const struct profile profile_dualsense_ble = { .begin = test_begin };
 const struct profile profile_8bitdo = { .begin = test_begin };
+static u8 test_24g, test_receiver_known, test_receiver_saves, test_receiver[5];
+void plat_input(struct in_raw *raw) { memset(raw, 0, sizeof(*raw)); raw->radio_24g = test_24g; }
+int plat_receiver_paired(void) { return test_receiver_known; }
+void plat_receiver_pair(const u8 a[5], int save)
+{ memcpy(test_receiver, a, 5); test_receiver_known = 1; test_receiver_saves += (u8)save; }
 int bt_send_message(u16 id, const u8 *data, u16 len) { (void)id; (void)data; (void)len; return 1; }
 static struct set_remap test_remaps[REMAP_BASE + 1];
 static u32 test_edits, remap_resets, remap_steps;
@@ -714,6 +756,7 @@ static void test_reset(void)
     profile = &profile_generic_ble;
     test_ms = 100;
     test_usb = stops = flushes = offs = starts = motors = renewals = reboots = wakes = test_quick = 0;
+    test_24g = test_receiver_known = test_receiver_saves = 0;
     memset(test_bonds, 0, sizeof(test_bonds));
     memset(test_slots, 0, sizeof(test_slots));
     for (i = 0; i < LITE_SLOTS; i++) {
@@ -1009,6 +1052,36 @@ int main(void)
     test_reset(); c.linked = 0;
     { struct ctl_request r = { REQ_RUMBLE_STEP, 1, 0 }; request(&r); }
     CHECK(!c.rumble_step && !c.feedback);
+    /* The 2.4G switch: whatever slot is asked for, the receiver's session;
+     * the Bluetooth slot stays for the way back, and nothing is retained.
+     * Its pairing is the platform's, saved unless ephemeral. */
+    test_reset(); c.radio_24g = 1; c.last_slot = 2;
+    select_session(REQ_CONNECT, 1, 0); stopped(test_ms);
+    CHECK(c.slot == RECEIVER && profile == &profile_8bitdo && c.last_slot == 2);
+    CHECK(c.session.pairing && retained == SLOT_NONE && c.status.slot != RECEIVER);
+    memset(test_events, 0, sizeof(test_events));
+    test_events[0].kind = BT_EV_PAIRED;
+    memcpy(test_events[0].bond.peer, "\x01\x02\x03\x04\x05", 5);
+    event_at = 0; event_count = 1;
+    bt_events();
+    CHECK(test_receiver_known && test_receiver_saves == 1 && test_receiver[4] == 5 && !c.session.pairing);
+    CHECK(!test_bonds[2].ltk[0] && !test_bonds[1].ltk[0]);
+    /* moved during the session: it ends, idle; Home then connects the
+     * other kind: the Bluetooth slot it had, a Switch 2 one with its wake */
+    c.raw.radio_24g = 0; stops = 0;
+    radio_switch(); CHECK(stops == 1 && c.pending == REQ_NONE);
+    stopped(test_ms); CHECK(c.idle && starts == 1 && !c.radio_24g);
+    test_slots[2].type = PROFILE_SWITCH2; test_bonds[2].ltk[0] = 1; wakes = 0;
+    select_session(REQ_CONNECT, SLOT_LAST, 0); stopped(test_ms);
+    CHECK(c.slot == 2 && profile == &profile_switch2 && wakes == 1);
+    c.linked = 1; c.raw.radio_24g = 1;
+    radio_switch(); stopped(test_ms); CHECK(c.idle && c.slot == 2);
+    select_session(REQ_CONNECT, SLOT_LAST, 0); stopped(test_ms);
+    CHECK(c.slot == RECEIVER && c.last_slot == 2);
+    /* idle: the switch is only noted */
+    test_reset(); c.idle = 1; c.raw.radio_24g = 1; radio_switch(); CHECK(!stops && c.radio_24g);
+    /* Home at boot on 2.4G: the receiver */
+    test_reset(); test_24g = 1; boot_cause = BOOT_HOME; start(); CHECK(c.slot == RECEIVER && starts == 1);
     return TEST_DONE("controller_lite power");
 }
 #endif

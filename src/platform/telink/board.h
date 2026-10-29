@@ -51,7 +51,7 @@ u32 plat_bt_poll(void);                  /* runs the stack; EV_BT for bt_poll() 
 /* rf8_telink.c: the stock 8BitDo receiver's link, behind bt_*() while a
  * BT_8BITDO session runs (bt_telink.c hands over).  rf8_run() from the wait
  * loop; its memory is the BLE TX FIFO's (plat_bt_idle_memory). */
-void rf8_start(const struct bt_bond *bond, int pairing);
+void rf8_start(int pairing);             /* the receiver plat_receiver_pair() has, or pairing */
 void rf8_stop(void);                     /* the radio back to BLE; then BT_EV_STOPPED */
 void rf8_update_bond(const struct bt_bond *bond);
 u32 rf8_run(void);

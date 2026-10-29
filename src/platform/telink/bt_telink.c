@@ -311,7 +311,7 @@ void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond
         if (b.advertising) bls_ll_setAdvEnable(BLC_ADV_DISABLE);
         b.advertising = 0;
         rf8_on = 1;
-        rf8_start(bond, pairing);
+        rf8_start(pairing);
         return;
     }
     if (p->device->transport != BT_LE || !plat_att_start(p, p->device->sm_er ? TELINK_ATT_BUFFER : 512)) {

@@ -84,6 +84,7 @@ struct in_raw {
     u8 trigger_stop[2];
     u32 changed_us;              /* when a button or the d-pad last changed (plat_us) */
     u8 pair_button;             /* dedicated Sync/Pair button, separate from host buttons */
+    u8 radio_24g;               /* a board's 2.4G/Bluetooth switch on 2.4G (the 8BitDo) */
 };
 
 struct imu_sample {
@@ -976,6 +977,10 @@ extern const char board_name[];   /* model, e.g. "Cyclone 2" or "Cyclone 2 Dongl
                                     * tool USB/SCSI product, IDENTIFY, plain HID names */
 int plat_store_read(u16 key, void *buf, u16 len);
 int plat_store_write(u16 key, const void *buf, u16 len);
+/* A board's own receiver (the 8BitDo's stock 2.4G receiver, BT_8BITDO): the
+ * pad pairs with it, not a slot; save 0 keeps a new pairing in RAM only. */
+int plat_receiver_paired(void);
+void plat_receiver_pair(const u8 address[5], int save);
 u8 plat_retained_slot(void);               /* last selected slot, or SLOT_NONE if unavailable */
 void plat_retain_slot(u8 slot);            /* call before starting the radio; may write flash */
 void plat_power_off(void);

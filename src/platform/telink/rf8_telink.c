@@ -3,8 +3,10 @@
 #include "stack/2_4g/genfsk_ll/genfsk_ll.h"
 
 #ifdef UPDATER                   /* the updater runs BLE only */
-void rf8_start(const struct bt_bond *bond, int pairing) { (void)bond; (void)pairing; }
+void rf8_start(int pairing) { (void)pairing; }
 void rf8_stop(void) {}
+int plat_receiver_paired(void) { return 0; }
+void plat_receiver_pair(const u8 address[5], int save) { (void)address; (void)save; }
 void rf8_update_bond(const struct bt_bond *bond) { (void)bond; }
 u32 rf8_run(void) { return 0; }
 int rf8_poll(struct bt_ev *ev) { (void)ev; return 0; }
@@ -26,8 +28,9 @@ int rf8_send_input(const u8 *data, u16 len) { (void)data; (void)len; return 0; }
  * receiver scans both channels, linked or not (and drops the pad after 1 s):
  * the last frame goes again every KEEP_MS.  Pairing: 92 and six zeros on
  * channel 50 with the fixed pairing sync, until the receiver (just plugged
- * in) answers 93, its address and a checksum.  The address is the slot's
- * bond (peer).
+ * in) answers 93, its address and a checksum.  The address is the pad's,
+ * not a slot's (plat_receiver_pair): a flash record, written by a new
+ * pairing only.
  *
  * The SDK's BLE radio set-up leaves 0x800401 bit 3 set (on the pad, every
  * frame then went unanswered; clearing it alone fixed it): cleared here.
@@ -123,7 +126,46 @@ static void run_on(const u8 address[5])
     radio(r->address, r->channel[0]);
 }
 
-void rf8_start(const struct bt_bond *bond, int pairing)
+/* ---- the receiver's address: a record in the settings' flash log -------- */
+
+#define RECEIVER_KEY 62          /* settings use 1..28 */
+
+static u8 receiver[5], receiver_known, receiver_loaded;
+
+static u8 receiver_check(const u8 *a)
+{
+    return (u8)(sum8(a, 5) ^ 0x5a);
+}
+
+int plat_receiver_paired(void)
+{
+    u8 record[8];
+
+    if (!receiver_loaded) {
+        receiver_loaded = 1;
+        if (plat_store_read(RECEIVER_KEY, record, sizeof(record)) == sizeof(record) &&
+            record[0] == 'R' && record[1] == 1 && record[7] == receiver_check(record + 2)) {
+            memcpy(receiver, record + 2, 5);
+            receiver_known = 1;
+        }
+    }
+    return receiver_known;
+}
+
+void plat_receiver_pair(const u8 address[5], int save)
+{
+    u8 record[8] = { 'R', 1 };
+
+    memcpy(receiver, address, 5);
+    receiver_known = receiver_loaded = 1;
+    if (!save) return;
+    memcpy(record + 2, address, 5);
+    record[7] = receiver_check(address);
+    if (plat_store_write(RECEIVER_KEY, record, sizeof(record)) != sizeof(record))
+        util_log("rf8: could not save the receiver");
+}
+
+void rf8_start(int pairing)
 {
     r = plat_bt_idle_memory(sizeof(*r));
     if (!r) {
@@ -134,12 +176,12 @@ void rf8_start(const struct bt_bond *bond, int pairing)
     r->irq_mask = reg_irq_mask & (FLD_IRQ_ZB_RT_EN | FLD_IRQ_SYSTEM_TIMER);
     reg_irq_mask &= ~(FLD_IRQ_ZB_RT_EN | FLD_IRQ_SYSTEM_TIMER);
     radio_registers(r->saved, 0);
-    if (pairing || util_is_zero(bond->peer, 5)) {
+    if (pairing || !plat_receiver_paired()) {
         r->mode = PAIR;
         radio(pairing_sync, SECOND_CH);
         util_log("rf8: pairing");
     } else {
-        run_on(bond->peer);
+        run_on(receiver);
         util_log("rf8: receiver %02x%02x%02x%02x%02x, ch %u", r->address[0], r->address[1],
                  r->address[2], r->address[3], r->address[4], r->channel[0]);
     }
@@ -163,7 +205,8 @@ void rf8_stop(void)
 
 void rf8_update_bond(const struct bt_bond *bond)
 {
-    if (r && r->mode == PAIR && !util_is_zero(bond->peer, 5)) run_on(bond->peer);
+    (void)bond;
+    if (r && r->mode == PAIR && receiver_known) run_on(receiver);
 }
 
 static void send(const u8 *payload, u8 len)
