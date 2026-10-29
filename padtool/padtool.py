@@ -518,7 +518,8 @@ def profile(path, seconds, hz, top, elf, zoom=None, by=None):
         seen, made, lost = profile_stream(path, seconds, first)
         h = {"samples": sum(seen.values()), "other": seen.pop(None, 0), "saturated": 0, "other_pc": []}
         spans = [(a, 4, n) for a, n in seen.items()]
-        print(f"{made + lost} taken, {lost} lost: the ring filled before it was read")
+        print(f"{made + lost} taken, {lost} lost: the ring filled before it was read"
+              + (" (losses hide long stretches between reads: try --hz 400)" if lost else ""))
     else:
         time.sleep(seconds)
         cmd(path, 0x14, 2)
