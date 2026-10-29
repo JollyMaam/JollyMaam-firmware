@@ -2467,3 +2467,16 @@ Worker checks pass:217 : ok reports,12 legacy reports,31 tooling tests,both
 layouts,97 ownership groups. Totals98 accepted members/1171 unique public
 functions/109 globals;13 retained members/857 verified archive index entries.
 No firmware-image, flashing or hardware validation.
+
+TWS link combined checkpoint: acceptance `af13547` passes canonical full
+controller checks/census:217 : ok reports,12 legacy reports,31 tooling tests,
+both layouts,97 ownership groups. Totals98 accepted/13 retained members,
+1171 unique public functions,109 globals,857 verified archive index entries.
+Canonical raw-LLVM bitoff oracle493216 cases pass; complete-mock sanitizer
+passed in worker. All123 original BR23 sources match44d0073. Worker clean and
+merged ancestry verified; completed checkout/branch deleted after unlinking
+only its external symlink (dependency targets preserved). SDK and btstack
+nested repositories are clean; toolchain is an ordinary read-only input
+directory inside the unrelated primary checkout, not a nested repository.
+Primary changes were left untouched. No pending worker at this checkpoint.
+No firmware-image or hardware validation.
