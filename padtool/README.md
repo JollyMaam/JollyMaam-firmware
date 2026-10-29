@@ -34,7 +34,11 @@ after the last command (or on Home, or `padtool disconnect --ble`).
 Devices appear by themselves: every second padtool looks at our tool devices
 (an IDENTIFY each) and, on Linux, at disks it has not seen before, so ROM
 loaders appear too. **Refresh** in the toolbar looks at everything again; on
-Windows it is how ROM loaders are found (asking every drive is slow there). A
+Windows it is how ROM loaders are found (asking every drive is slow there).
+With `bleak` installed (`ps.bleak`), Refresh also looks for pads in config
+mode over Bluetooth LE (Home+M held for 3 s) for 3 seconds; one found shows
+as "Bluetooth" in the tree and stays while its link is up (the GUI's
+status reads keep config mode open). The flash loader needs USB. A
 pad's settings load when it is selected (its slots) and when a page needs them
 (palette, calibration, a remap slot). Each second padtool also reads a pad's
 settings change counter (STATUS), and when another program or the pad itself

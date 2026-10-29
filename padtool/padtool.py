@@ -148,6 +148,14 @@ def discover_devices(include_loaders=False, paths=None):
     """Yield path, name, IDENTIFY: our tool devices, and opted-in ROM
     loaders (disks), which have no IDENTIFY."""
     for path in device_paths() if paths is None else paths:
+        if padble.is_ble(path):          # only while its link is up: no scan here
+            try:
+                identity = scsi(path, [OP, 0x00], 88, 1000) if padble.alive(path) else b""
+            except OSError:
+                continue
+            if len(identity) >= 56 and identity[:4] == b"C2PD" and identity[6] in BOARD_IDS.values():
+                yield path, padble.name(path), identity
+            continue
         if is_tool(path):
             try:
                 identity = scsi(path, [OP, 0x00], 88, 1000)

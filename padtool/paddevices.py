@@ -1,5 +1,6 @@
 """Device discovery: a light look every second (our tool devices, and on
-Linux new disks), everything on Refresh.  A device is read lightly when it
+Linux new disks), everything on Refresh, which also looks for pads in
+config mode over Bluetooth LE (when bleak is there).  A device is read lightly when it
 appears; its settings load when the GUI wants them, and again when its
 settings change counter moves."""
 import os
@@ -7,6 +8,7 @@ import sys
 import threading
 import time
 
+import padble
 import padhid
 import padknown
 import padtool as pad
@@ -88,6 +90,7 @@ class DeviceMonitor:
         def once():
             try:
                 self.retry_after.clear()
+                self.scan_bluetooth()
                 snapshot = self.poll_once(full=True)
                 if snapshot is not None:
                     self.events.put(("devices", snapshot))
@@ -95,6 +98,24 @@ class DeviceMonitor:
                 self.events.put(("log", f"Device detection: {error}"))
             self.events.put(("refreshed", None))
         threading.Thread(target=once, daemon=True).start()
+
+    def scan_bluetooth(self, seconds=3):
+        """Pads in config mode over Bluetooth LE: connected, and looked at
+        from then on while their link is up (the light look never scans).
+        Quiet without bleak, BlueZ or a pad."""
+        with self.lock:
+            try:
+                devices = padble.scan(seconds)
+            except (Exception, SystemExit):
+                return
+            for device in devices:
+                path = "ble:" + device.address
+                try:
+                    padble.link(path, device)
+                except (Exception, SystemExit) as error:
+                    self.events.put(("log", f"Bluetooth {device.name or device.address}: {error}"))
+                    continue
+                self.manual_paths = self.manual_paths | {path}
 
     def paths(self, full):
         """What to look at: everything (full), else our tool devices, and on

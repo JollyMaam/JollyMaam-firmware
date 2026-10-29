@@ -12,6 +12,25 @@ padhid.devices = lambda: []
 padhid.write = lambda path, data: None
 
 
+class BluetoothTests(unittest.TestCase):
+    def test_quiet_without_bleak(self):
+        monitor = paddevices.DeviceMonitor(queue.Queue())
+        with patch.object(paddevices.padble, "scan", side_effect=SystemExit("padtool: Bluetooth needs bleak")):
+            monitor.scan_bluetooth()
+        self.assertEqual(monitor.manual_paths, frozenset())
+        self.assertTrue(monitor.events.empty())
+
+    def test_a_pad_found_is_connected_and_looked_at(self):
+        class Device:
+            address, name = "AD:21:85:83:5A:C1", "Cyclone 2 Config"
+        monitor = paddevices.DeviceMonitor(queue.Queue())
+        with patch.object(paddevices.padble, "scan", return_value=[Device()]), \
+             patch.object(paddevices.padble, "link") as link:
+            monitor.scan_bluetooth()
+        link.assert_called_once()
+        self.assertEqual(monitor.manual_paths, {"ble:AD:21:85:83:5A:C1"})
+
+
 class MonitorTests(unittest.TestCase):
     def setUp(self):
         self.monitor = paddevices.DeviceMonitor(queue.Queue())

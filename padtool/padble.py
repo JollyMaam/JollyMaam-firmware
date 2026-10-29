@@ -33,7 +33,7 @@ NOT_OVER_BLE = {0x15: "peek reads as many words as fit, registers too"}
 
 
 class BleLink:
-    def __init__(self, target, scan_s=10, updater=True):
+    def __init__(self, target, scan_s=10, updater=True, device=None):
         try:
             from bleak import BleakClient, BleakScanner
         except ImportError:
@@ -47,7 +47,9 @@ class BleLink:
                 if SERVICE not in [u.lower() for u in adv.service_uuids]:
                     return False
                 return not target or target.lower() in (d.address.lower(), (d.name or "").lower())
-            device = None if updater else await connected(target)
+            nonlocal device
+            if not device and not updater:
+                device = next(iter(await connected(target)), None)
             if not device:
                 device = await BleakScanner.find_device_by_filter(wanted, timeout=scan_s)
             if not device:
@@ -55,7 +57,7 @@ class BleLink:
                          ("(Home+M on a pad that is not connected)" if updater else
                           "(hold Home+M for 3 s, or padtool config on USB)"))
             print(f"{what} {device.name or '?'} {device.address}", file=sys.stderr)
-            self.address = device.address
+            self.address, self.name = device.address, device.name
             client = BleakClient(device)
             await client.connect()
             await client.start_notify(REPLY, lambda _, d: self.replies.put_nowait(bytes(d)))
@@ -113,11 +115,11 @@ class BleLink:
             pass
 
 
-async def connected(target):
-    """A pad BlueZ is still connected to that offers the service (one an
-    earlier run left up), as a bleak device; None elsewhere or without."""
+async def connected(target=""):
+    """The pads BlueZ is still connected to that offer the service (one an
+    earlier run left up), as bleak devices; none off Linux."""
     if sys.platform != "linux":
-        return None
+        return []
     try:
         from bleak.backends.device import BLEDevice
         from dbus_fast import BusType
@@ -129,15 +131,34 @@ async def connected(target):
         finally:
             bus.disconnect()
     except Exception:
-        return None
+        return []
+    found = []
     for path, interfaces in sorted(objects.items()):
         d = interfaces.get("org.bluez.Device1")
         if not d or "Connected" not in d or not d["Connected"].value or SERVICE not in d["UUIDs"].value:
             continue
         address, name = d["Address"].value, d["Name"].value if "Name" in d else None
         if not target or target.lower() in (address.lower(), (name or "").lower()):
-            return BLEDevice(address, name, {"path": path, "props": {}})
-    return None
+            found.append(BLEDevice(address, name, {"path": path, "props": {}}))
+    return found
+
+
+def scan(seconds=3):
+    """The pads in config mode: connected (from an earlier run), or
+    advertising for that long; not updaters.  For padgui's Bluetooth scan."""
+    try:
+        from bleak import BleakScanner
+    except ImportError:
+        sys.exit("padtool: Bluetooth needs bleak (pip install bleak, or nix-shell -p python3Packages.bleak)")
+
+    async def look():
+        found = {d.address: d for d in await connected()}
+        seen = await BleakScanner.discover(timeout=seconds, return_adv=True)
+        for d, adv in seen.values():
+            if SERVICE in [u.lower() for u in adv.service_uuids]:
+                found.setdefault(d.address, d)
+        return [d for d in found.values() if not (d.name or "").endswith(" Update")]
+    return asyncio.new_event_loop().run_until_complete(look())
 
 
 _links = {}
@@ -153,11 +174,30 @@ def is_ble(path):
     return path.startswith("ble:")
 
 
-def link(path):
-    """The config mode link of a ble:[NAME|ADDRESS] path, connected once."""
+def link(path, device=None):
+    """The config mode link of a ble:[NAME|ADDRESS] path, connected once
+    (to device, when scan() found it)."""
     if path not in _links:
-        _links[path] = BleLink(path[4:], updater=False)
+        _links[path] = BleLink(path[4:], updater=False, device=device)
     return _links[path]
+
+
+def alive(path):
+    """A link to path is up: the device monitor looks at these only, and
+    never connects (a scan takes seconds)."""
+    l = _links.get(path)
+    if l is None:
+        return False
+    l.loop.run_until_complete(asyncio.sleep(0.01))    # take in BlueZ's news
+    if not l.client.is_connected:
+        _links.pop(path, None)
+        return False
+    return True
+
+
+def name(path):
+    l = _links.get(path)
+    return (l.name if l else None) or "Bluetooth pad"
 
 
 def scsi(path, cdb, length, timeout_ms=3000, out=None):
@@ -173,9 +213,11 @@ def scsi(path, cdb, length, timeout_ms=3000, out=None):
         raise ValueError(f"config mode: at most {l.chunk} bytes to the pad")
     try:
         answer = l.cmd(cdb[1], arg, 0 if out is not None else length, out, timeout_ms)
-    except Exception:
+    except Exception as error:
         if cdb[1] not in REBOOTING:
-            raise
+            if not l.client.is_connected:
+                _links.pop(path, None)       # gone: the next command connects anew
+            raise OSError(f"{path}: {error or type(error).__name__}") from error
         answer = b""
     if cdb[1] in REBOOTING:
         _links.pop(path, None)

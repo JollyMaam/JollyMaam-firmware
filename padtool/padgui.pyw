@@ -12,6 +12,7 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import padtool as pad
 import padflash
+import padble
 import padhid
 from padknown import PRODUCTS, command_mode, product_name, stock_name
 from padtransport import usb_location
@@ -917,7 +918,7 @@ class App:
         for i, (path, record) in enumerate(self.cache.items()):
             device_node = f"device{i}"
             port = record.get("location") or usb_location(path)
-            location = f"USB {port} · " if port else ""
+            location = f"USB {port} · " if port else "Bluetooth · " if padble.is_ble(path) else ""
             label = self.device_label(record)
             if not record.get("online", True):
                 label += " (disconnected)"
@@ -1156,8 +1157,9 @@ class App:
         ttk.Label(header, text=record["status"] if record.get("online", True) else "Disconnected · pending edits retained").pack(side="left", padx=(16, 0))
         actions = ttk.Frame(f)
         actions.pack(fill="x", pady=(4, 8))
+        usb = record.get("online", True) and not padble.is_ble(record["path"])   # the loader is on USB
         self.enter_loader_button = ttk.Button(actions, text="Enter flash loader", command=self.enter_flash_loader,
-                                              state="normal" if record.get("online", True) else "disabled")
+                                              state="normal" if usb else "disabled")
         self.enter_loader_button.pack(side="left", padx=(0, 8))
         ttk.Button(actions, text="Show console", command=self.show_console,
                    state="normal" if record.get("online", True) else "disabled").pack(side="left", padx=(0, 8))
@@ -1702,6 +1704,9 @@ class App:
     def enter_flash_loader(self):
         record = self.record()
         if self.busy or not record or not record.get("online", True) or record["board"] not in OURS + ("stock",):
+            return
+        if padble.is_ble(record["path"]):
+            messagebox.showinfo("Needs USB", "The flash loader is on USB: connect the pad with a cable.")
             return
         if any(self.changed(entry) for entry in record.get("draft", {}).values()):
             messagebox.showinfo("Pending edits", "Apply or discard this device’s pending edits before entering flash loader.")
