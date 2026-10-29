@@ -2268,3 +2268,62 @@ functions,98 globals,948 verified archive index entries. All123 original BR23
 C files match44d0073. Worker and three dependency statuses were clean; merged
 ancestry verified. Completed worktree/branch deleted. No pending worker at
 this checkpoint; no application-image or hardware validation.
+
+## Clean-branch BD19 TWS eSCO acceptance
+
+Input worker63cf3eb on basef6f63d2 supplied only3 of24 public bodies, explicitly
+incomplete. Coordinator completed the remaining21 public/six private bodies,
+corrected unconditional state-store ordering in TX requests, and added complete
+host mocks/fixtures. Source `bd19/tws_esco.c` owns occurrence1,
+SHA-256 e80d3a6ecf04b38a51d5d02d507b17844c687600a8550b55e97fc7dfd9cd934c.
+All30 SDK function identities present; exact24-public-function/zero-public-global
+boundary checked. Weak get_esco_packet_dump returns120; all public bodies and
+private get-data/time-offset callbacks retain .classic_tws_code.esco; four
+ordinary private helpers are unsectioned as in SDK. Private callback-local
+last-index initializer is byte255/align1, unsectioned. All38 string byte arrays
+and alignments and37 mapped type shapes programmatically checked.
+
+BD19 has116-byte relay allocation versus BR2380-byte relay; hw state includes
+reg/frame pointers, two timer IDs, deferred start callbacks, timing and CRC/
+transpond protocol. Source preserves partial initialization (including writes
+before allocation assertion), null-dereference preconditions, unchecked RX/TX
+allocations, exact14-byte PDU copy and original memory intrinsics. Byte slot/
+state arithmetic,16-bit pending counter, signed rem/unsigned clock modulo,
+IRQ disable/enable and32-bit MMIO at1c0020/1c001c/1c00bc, volatile16-bit frame
+fields and32-bit engine fields were checked against original/compiled IR.
+Offset callbacks must observe cached role decisions for both open/close; these
+were corrected and mutation-tested. The late _lc null diagnostic uses an empty
+register-identity asm to keep it from being removed after typed dereferences;
+it emits no instructions or memory clobber. No SDK guard/failure policy added.
+
+Read all original bodies and reviewed normalized compiled bodies. Remaining
+IR differences are equivalent CFG/list-loop organization, stack lifetime,
+ordinary independent load order, safe stronger inferred alignment on already
+aligned PDU fields, arithmetic flags under byte-range invariants, legacy
+prototype/call annotations and immutable assertion-config load placement;
+no formal whole-program equivalence claim. All volatile operation counts/
+widths agree; changed static call-site counts in queue/step functions are CFG
+merges with the same runtime paths. Census8 differing/22 without unique BR23
+counterpart; no already-owned common body was needlessly retranslated. BR23
+open/close stay byte-identical to baseline. Extra-source BR23 compile was tried
+and fails on absent BD19 relay fields/APIs; this dedicated source is admitted
+only for BD19, and the actual BR23 source set builds unchanged.
+
+Complete host fixture links without unresolved-symbol suppression and passes
+ASan/UBSan with leak detection. Expected values derive from SDK state constants,
+raw arithmetic/branches, register writes and callback ordering: repeated TX
+requests, strict RX>6 and byte wrap, ACL countdown/status truncation/engine gate,
+DSCO numeric example and cached log gate, monitor selection/bitoff publication,
+queue negative-byte return and flag-only clearing, bounded/all suspend frees,
+21/41 command marshaling and signed delay limits, fine timer/soft-bitoff rollover,
+engine activation/late skip and idle-frame suppression, strict timeout equality,
+uncleared heap open, exact hardware configuration and cleanup, saved role across
+mutating offset callback, relay selection/resend marker/copy/sem and step codes.
+This does not emulate DMA, real scheduling/IRQ interleavings or radio behavior.
+C40/B85–B87 record consolidation, initialization/lifetime, queue/marker and
+interval/timeout follow-ups. No shared header/build-rule change or app fixes.
+No application image or hardware validation. Full worker command `make -j32
+controller-objects controller-test test controller-layouts controller-tools-test
+controller-audit controller-compare` passes:215 : ok reports,12 legacy reports,
+31 tooling tests,both layouts,95 ownership groups. Totals96 accepted members,
+1115 unique public functions,98 globals;15 retained/924 verified index entries.
