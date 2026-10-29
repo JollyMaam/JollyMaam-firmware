@@ -2,11 +2,11 @@
 #include "board.h"
 
 /* 8BitDo Ultimate 2C Wireless: a Telink TLSR8208 (B80).  Pins are in
- * docs/8bitdo-ultimate2c-wireless/README.md.  The scanner runs from the
- * platform's wait loop: the ADC a step at a time, never waiting (a channel
- * settles while other work runs after the mux moves); the matrix in one go
- * when a scan is due, about 100 us.  A step per pass made a scan take up to
- * 64 ms with a busy loop, and the debounce dropped quick taps. */
+ * docs/8bitdo-ultimate2c-wireless/README.md.  The scanners run from the
+ * platform's wait loop, each in one go when due: the matrix in about 100 us,
+ * the six ADC channels in about 0.6 ms.  A step per pass of the loop made a
+ * matrix scan take up to 64 ms with a busy link (the debounce dropped quick
+ * taps), and the sticks were older still. */
 
 const char board_name[] = "Ultimate 2C Wireless";
 
@@ -44,7 +44,7 @@ const struct board_slots board_slots = {
 #define COLUMNS 5
 #define ROW_SETTLE_US 20
 #define SCAN_GAP_US 1000             /* from one full scan to the next */
-#define DEBOUNCE_SCANS 3             /* the same reading this many scans in a row */
+#define DEBOUNCE_SCANS 3             /* a release: up this many scans in a row */
 
 static const GPIO_PinTypeDef rows[ROWS] = { GPIO_PD6, GPIO_PA0, GPIO_PC0, GPIO_PA3 };
 static const GPIO_PinTypeDef columns[COLUMNS] = { GPIO_PA5, GPIO_PC1, GPIO_PA6, GPIO_PC3, GPIO_PA7 };
@@ -107,11 +107,13 @@ static u32 matrix_poll(void)
     }
     mx.scanned = clock_time();
     if (!gpio_read(HOME)) mx.reading |= PAD_HOME;
+    /* A press counts at once; a release after DEBOUNCE_SCANS, so a bounce
+     * while held cannot end the press. */
     for (i = 0; i < 32; i++) {
         b = 1u << i;
         if (!((mx.reading ^ mx.stable) & b)) {
             mx.same[i] = 0;
-        } else if (++mx.same[i] >= DEBOUNCE_SCANS) {
+        } else if ((mx.reading & b) || ++mx.same[i] >= DEBOUNCE_SCANS) {
             mx.stable ^= b;
             mx.same[i] = 0;
             changed = 1;
@@ -133,9 +135,8 @@ static u32 matrix_poll(void)
 
 #define AXES 6
 #define MUX_SETTLE_US 50
-#define SAMPLE_US 200                /* DMA fills the four samples */
-#define SAMPLE_TIMEOUT_US 1000
-#define AXIS_GAP_US 100
+#define SAMPLE_TIMEOUT_US 1000       /* the four samples take about 42 us */
+#define SWEEP_GAP_US 1000            /* from one sweep to the next */
 #define DMA_EMPTY 0xa5a5a5a5u
 
 /* LX LY RX RY L2 R2; channel = pin number + 1. */
@@ -147,8 +148,8 @@ static const u8 axis_channels[AXES] = { 1, 2, 5, 6, 3, 4 };
 static volatile u32 dma[4] __attribute__((aligned(16)));
 
 static struct {
-    u8 axis, phase, valid;
-    u32 tick;
+    u8 valid;
+    u32 tick;                        /* clock_time(): the last sweep ended */
     u16 code[AXES];                  /* 13-bit, the middle two of four samples */
 } ad;
 
@@ -167,47 +168,44 @@ static void adc_start(void)
     ad.tick = clock_time();
 }
 
-static void adc_poll(void)
+static void adc_read(u32 axis)
 {
     u16 sorted[4];
-    u32 i, j, complete = 1;
+    u32 i, j, start, complete;
 
-    if (ad.phase == 0) {
-        if (!clock_time_exceed(ad.tick, AXIS_GAP_US)) return;
-        adc_set_ain_chn_misc(axis_channels[ad.axis], GND);
-        ad.tick = clock_time();
-        ad.phase = 1;
-        return;
-    }
-    if (ad.phase == 1) {
-        if (!clock_time_exceed(ad.tick, MUX_SETTLE_US)) return;
-        adc_reset_adc_module();
-        for (i = 0; i < 4; i++) dma[i] = DMA_EMPTY;
-        adc_config_misc_channel_buf((u16 *)dma, sizeof(dma));
-        dfifo_enable_dfifo2();
-        ad.tick = clock_time();
-        ad.phase = 2;
-        return;
-    }
-    if (!clock_time_exceed(ad.tick, SAMPLE_US)) return;
-    for (i = 0; i < 4; i++)
-        if (dma[i] == DMA_EMPTY) complete = 0;
-    if (!complete && !clock_time_exceed(ad.tick, SAMPLE_TIMEOUT_US)) return;
+    adc_set_ain_chn_misc(axis_channels[axis], GND);
+    sleep_us(MUX_SETTLE_US);
+    adc_reset_adc_module();
+    for (i = 0; i < 4; i++) dma[i] = DMA_EMPTY;
+    adc_config_misc_channel_buf((u16 *)dma, sizeof(dma));
+    dfifo_enable_dfifo2();
+    start = clock_time();
+    do {
+        complete = 1;
+        for (i = 0; i < 4; i++)
+            if (dma[i] == DMA_EMPTY) complete = 0;
+    } while (!complete && !clock_time_exceed(start, SAMPLE_TIMEOUT_US));
     dfifo_disable_dfifo2();
-    if (complete) {
-        for (i = 0; i < 4; i++) {
-            u16 c = dma[i] & (1u << 13) ? 0 : (u16)(dma[i] & 0x1fff);   /* negative: 0 */
-
-            for (j = i; j > 0 && sorted[j - 1] > c; j--) sorted[j] = sorted[j - 1];
-            sorted[j] = c;
-        }
-        ad.code[ad.axis] = (u16)((sorted[1] + sorted[2]) / 2);
-        ad.valid |= (u8)(1u << ad.axis);
-    } else {
-        ad.valid &= (u8)~(1u << ad.axis);
+    if (!complete) {
+        ad.valid &= (u8)~(1u << axis);
+        return;
     }
-    if (++ad.axis == AXES) ad.axis = 0;
-    ad.phase = 0;
+    for (i = 0; i < 4; i++) {
+        u16 c = dma[i] & (1u << 13) ? 0 : (u16)(dma[i] & 0x1fff);   /* negative: 0 */
+
+        for (j = i; j > 0 && sorted[j - 1] > c; j--) sorted[j] = sorted[j - 1];
+        sorted[j] = c;
+    }
+    ad.code[axis] = (u16)((sorted[1] + sorted[2]) / 2);
+    ad.valid |= (u8)(1u << axis);
+}
+
+static void adc_poll(void)
+{
+    u32 axis;
+
+    if (!clock_time_exceed(ad.tick, SWEEP_GAP_US)) return;
+    for (axis = 0; axis < AXES; axis++) adc_read(axis);
     ad.tick = clock_time();
 }
 
