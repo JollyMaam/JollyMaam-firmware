@@ -100,11 +100,14 @@ int plat_att_write(u16 handle, const u8 *data, u16 len)
     return 1;
 }
 
+static void jit_connected(void);
+
 static void on_connect(u8 e, u8 *p, int n)
 {
     (void)e;
     (void)n;
     if (b.device && !b.device->sm_er) memcpy(b.paired.le_peer, p, 6);
+    jit_connected();
     b.connected = 1;
     b.encrypted = 0;
     b.advertising = 0;
@@ -373,20 +376,148 @@ int bt_radio_quiet(void)
     return !b.connected || b.encrypted || (b.device && !b.device->sm_er);
 }
 
-int bt_input_wanted(void)
+/* ---- just in time ---------------------------------------------------------
+ * A queued report only waits: the SDK encrypts it as it is queued, and the
+ * radio takes the queue when the next connection event starts (a system
+ * timer interrupt).  So the report for an event is built in a window that
+ * opens a lead before that start and closes JIT_CLOSE_US before it, with
+ * the sticks read for it; a change after the close waits for the next
+ * event's window, which it would go out in anyway.  Between events the
+ * system timer's compare holds that start: the interrupt that ends an event
+ * sets it, the one that starts the next fires at it (on the pad over a PC
+ * link, 910 of 910).
+ *
+ * The loop reaches report() a varying time after it asked to wake (a pass
+ * of the wait loop runs the stack and USB, then the input is read), so the
+ * lead adapts: a window report() never looked into while it was open moves
+ * the next one well forward, report() arriving with time to spare brings it
+ * back a little at a time.
+ *
+ * With no events lately (not connected, or the stack quiet) there is nothing
+ * to aim at, and a report goes as soon as there is room.  So does a report
+ * of more than one LL packet: the one before it is acknowledged only in the
+ * event it is meant for, and the two do not fit IN_FLIGHT together. */
+
+#define JIT_STALE_US 20000
+#define JIT_CLOSE_US 1700        /* queueing (the SDK encrypts) takes 1-1.5 ms */
+#define JIT_LEAD_MIN_US (JIT_CLOSE_US + 500)
+#define JIT_LEAD_MAX_US 6000
+#define JIT_LEAD_UP_US 250
+#define JIT_LEAD_DOWN_US 20
+#define JIT_SPARE_US 1000        /* report() this long before the close: earlier than needed */
+#define TICKS_PER_US 16
+
+static struct {
+    u32 next;                    /* clock_time() of the next event's start */
+    u32 window;                  /* the start whose window is being watched */
+    u32 sent_for;                /* the start the last report was queued for */
+    u32 lead;                    /* ticks before the start the window opens */
+    u32 sent, late, missed;      /* reports queued for a start; not before it; windows missed */
+    u8 looked;                   /* report() looked into the watched window while it was open */
+    u8 off;                      /* this link's reports do not fit: as soon as there is room */
+} jit;
+
+static void jit_connected(void)
+{
+    jit.off = 0;
+    jit.sent_for = jit.window = 0;
+    jit.lead = JIT_LEAD_US * TICKS_PER_US;
+}
+
+static void jit_lead(s32 change_us)
+{
+    s32 lead = (s32)jit.lead + change_us * TICKS_PER_US;
+
+    jit.lead = (u32)(lead < JIT_LEAD_MIN_US * TICKS_PER_US ? JIT_LEAD_MIN_US * TICKS_PER_US :
+                     lead > JIT_LEAD_MAX_US * TICKS_PER_US ? JIT_LEAD_MAX_US * TICKS_PER_US : lead);
+}
+
+/* From the interrupt handler, after the SDK's, for each system timer
+ * interrupt: fired is the compare it came at. */
+void plat_bt_systimer(u32 fired)
+{
+    if (fired != jit.next) jit.next = reg_system_tick_irq_level;
+}
+
+static s32 jit_to(void)          /* ticks to the next start */
+{
+    return (s32)(jit.next - clock_time());
+}
+
+u32 plat_bt_jit(void)
+{
+    return b.connected && !jit.off && jit.next && jit_to() > -JIT_STALE_US * TICKS_PER_US ? jit.lead / TICKS_PER_US : 0;
+}
+
+static int room(void)
 {
     return b.connected && b.device && (b.encrypted || !b.device->sm_er) && plat_att_notifying(b.device->input_handle) && !plat_att_busy() &&
            blc_ll_getTxFifoNumber() < IN_FLIGHT;
 }
 
-/* The report without its id: on LE the report reference names it. */
+static int jit_open(s32 to)
+{
+    return to > JIT_CLOSE_US * TICKS_PER_US && to <= (s32)jit.lead && jit.next != jit.sent_for;
+}
+
+int plat_bt_input_window(void)
+{
+    return room() && (!plat_bt_jit() || jit_open(jit_to()));
+}
+
+int bt_input_wanted(void)
+{
+    s32 to = jit_to();
+
+    if (!plat_bt_jit()) return room();
+    if (jit.window != jit.next) {            /* the last window is over */
+        if (jit.window && !jit.looked && jit.window != jit.sent_for) {
+            jit.missed++;
+            jit_lead(JIT_LEAD_UP_US);
+        }
+        jit.window = jit.next;
+        jit.looked = 0;
+    }
+    if (!jit_open(to)) return 0;
+    if (!jit.looked) {
+        jit.looked = 1;
+        if (to > (JIT_CLOSE_US + JIT_SPARE_US) * TICKS_PER_US) jit_lead(-JIT_LEAD_DOWN_US);
+    }
+    return room();
+}
+
+/* In an event the next start is not known until it ends: look again soon. */
+u32 bt_input_due_us(void)
+{
+    s32 to = jit_to();
+
+    if (!room()) return 0;
+    if (!plat_bt_jit()) return plat_us();
+    if (to <= 0) return plat_us() + 250;
+    if (jit.next == jit.sent_for || to <= JIT_CLOSE_US * TICKS_PER_US) return plat_us() + (u32)to / TICKS_PER_US;
+    return plat_us() + (to > (s32)jit.lead ? (u32)(to - (s32)jit.lead) / TICKS_PER_US : 0);
+}
+
+/* The report without its id: on LE the report reference names it.  Queued
+ * at once, so it is encrypted before the start it is for. */
 int bt_send_input(u8 id, const u8 *data, u16 len)
 {
     u32 fragments = (len + 7u + TX_OCTETS - 1) / TX_OCTETS;   /* with L2CAP and ATT headers */
 
     (void)id;
+    if (fragments > 1) jit.off = 1;
     if (!bt_input_wanted() || len > INPUT_MAX || blc_ll_getTxFifoNumber() + fragments > IN_FLIGHT) return 0;
-    return plat_att_send(b.device->input_handle, data, len);
+    if (!plat_att_send(b.device->input_handle, data, len)) return 0;
+    plat_att_poll();
+    if (plat_bt_jit()) {
+        jit.sent_for = jit.next;
+        jit.sent++;
+        if (jit_to() <= 0 || plat_att_busy()) {   /* queueing took longer than the close allows */
+            jit.late++;
+            jit_lead(JIT_LEAD_UP_US);
+        }
+    }
+    return 1;
 }
 
 int bt_send_message(u16 handle, const u8 *data, u16 len)

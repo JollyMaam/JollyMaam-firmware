@@ -124,7 +124,7 @@ u32 plat_wait(u32 deadline_ms, u32 at_us)
 
     for (;;) {
         wd_clear();
-        plat_wake(plat_usb_poll() | board_poll() | plat_bt_poll());
+        plat_wake(plat_usb_poll() | board_poll(plat_bt_jit() != 0) | plat_bt_poll());
         if ((now_ms & 0x3ff) == 0) stack_check();
         e = take();
         if (e) return e;
@@ -142,8 +142,12 @@ const u8 *plat_unique_id(void)
     return uid;
 }
 
+/* A report about to be built reads the sticks for itself. */
 void plat_input(struct in_raw *raw)
 {
+    u32 lead = plat_bt_jit();
+
+    if (lead && plat_bt_input_window()) board_sweep(lead);
     board_input(raw);
 }
 
@@ -249,8 +253,11 @@ static __attribute__((noinline)) void prof_sample(u32 pc)
 
 _attribute_ram_code_ void prof_irq(u32 pc)
 {
+    u32 timer = reg_irq_src & FLD_IRQ_SYSTEM_TIMER, fired = reg_system_tick_irq_level;
+
     if (reg_tmr_sta & FLD_TMR_STA_TMR1) prof_sample(pc);
     blc_sdk_irq_handler();
+    if (timer) plat_bt_systimer(fired);
 }
 
 void plat_prof_start(u16 hz, u32 zoom, u8 zoom_shift)
@@ -350,9 +357,14 @@ void plat_reboot_loader(void)
 /* ---- start-up ------------------------------------------------------------ */
 
 #ifndef PROF_RING
+/* The system timer runs the radio's connection events: what it fired at
+ * and set next tell bt_telink.c when the next one starts. */
 _attribute_ram_code_ void irq_handler(void)
 {
+    u32 timer = reg_irq_src & FLD_IRQ_SYSTEM_TIMER, fired = reg_system_tick_irq_level;
+
     blc_sdk_irq_handler();
+    if (timer) plat_bt_systimer(fired);
 }
 #endif
 

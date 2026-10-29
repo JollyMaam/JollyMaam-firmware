@@ -142,6 +142,7 @@ static u32 matrix_poll(void)
 #define SAMPLE_TIMEOUT_US 1000       /* the four samples take about 42 us */
 #define SWEEP_PERIOD_US 1600         /* from one sweep's start to the next: as fresh as
                                         with 50 us settles and a 1 ms gap after each */
+#define SWEEP_DEMAND_US 8000         /* the same while reports read them for themselves */
 #define MOVED 16                     /* codes an axis moves to wake the loop; rest noise is ~2 */
 #define DMA_EMPTY 0xa5a5a5a5u
 
@@ -209,11 +210,10 @@ static void adc_read(u32 axis)
 
 /* A sweep that moved an axis by MOVED wakes the control loop, as a button
  * does, so the movement need not wait for its next poll. */
-static u32 adc_poll(void)
+static u32 sweep(void)
 {
     u32 axis, moved = 0;
 
-    if (!clock_time_exceed(ad.tick, SWEEP_PERIOD_US)) return 0;
     ad.tick = clock_time();
     for (axis = 0; axis < AXES; axis++) {
         adc_read(axis);
@@ -221,6 +221,11 @@ static u32 adc_poll(void)
     }
     if (moved) memcpy(ad.woke, ad.code, sizeof(ad.woke));
     return moved ? EV_STICKS : 0;
+}
+
+void board_sweep(u32 max_age_us)
+{
+    if (clock_time_exceed(ad.tick, max_age_us)) sweep();
 }
 
 /* ---- motors and lights ---------------------------------------------------
@@ -364,9 +369,12 @@ void board_power_off(void)
     for (;;) if (board_usb_present()) start_reboot();
 }
 
-u32 board_poll(void)
+u32 board_poll(int sticks_on_demand)
 {
-    return adc_poll() | matrix_poll();
+    u32 e = matrix_poll();
+
+    if (clock_time_exceed(ad.tick, sticks_on_demand ? SWEEP_DEMAND_US : SWEEP_PERIOD_US)) e |= sweep();
+    return e;
 }
 
 static u16 clamp10(s32 v)

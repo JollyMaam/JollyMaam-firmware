@@ -563,7 +563,7 @@ static __attribute__((noinline)) u32 power_step(u32 now)
 void ctl_main(void)
 {
     struct ctl_request r;
-    u32 next, power, gesture;
+    u32 next, power, gesture, at;
 
     c.status.input = &c.input;
     c.status.raw = &c.raw;
@@ -580,11 +580,13 @@ void ctl_main(void)
         if (c.rumble_until && (!next || (s32)(c.rumble_until - next) < 0)) next = c.rumble_until;
         next = earliest(next, remap_deadline());
         if (c.calibrating) next = plat_ms() + CAL_SAMPLE_MS;
+        /* a report is built when the link wants it (bt_input_due_us: just
+         * before the connection event it is for) */
+        at = c.linked ? earliest(plat_us() + POLL_US, bt_input_due_us()) : 0;
 #if PROBE_EDGES
-        plat_wait(next, earliest(c.linked ? plat_us() + POLL_US : 0, c.probe_at_us));
-#else
-        plat_wait(next, c.linked ? plat_us() + POLL_US : 0);
+        at = earliest(at, c.probe_at_us);
 #endif
+        plat_wait(next, at);
         if (c.rumble_until && (s32)(plat_ms() - c.rumble_until) >= 0) {
             plat_motors(0, 0);
             c.rumble_until = 0;

@@ -35,7 +35,7 @@ $(U2CW_PAD)_LDFLAGS += --undefined=plat_ll_push_tx_fifo --defsym=bls_ll_pushTxFi
 $(U2CW_PAD)_DEFINES :=
 $(U2CW_PAD)_DEFINES += -DSLOTS_STORED=4
 # The latency probe (padtool latency) is off: its ring fits only in the
-# spare RAM in .data, for test builds (make ... U2CW_PROBE_EDGES=8).
+# spare RAM in .data, for test builds (make ... U2CW_PROBE_EDGES=6).
 U2CW_PROBE_EDGES ?= 0
 $(U2CW_PAD)_DEFINES += -DPROBE_EDGES=$(U2CW_PROBE_EDGES)
 ifneq ($(U2CW_PROBE_EDGES),0)
@@ -44,7 +44,7 @@ endif
 # The sampling profiler (padtool profile) is off too: its ring takes the
 # same spare RAM, for test builds (make ... U2CW_PROFILE=1).
 U2CW_PROFILE ?= 0
-U2CW_PROFILE_RING ?= 44
+U2CW_PROFILE_RING ?= 28
 ifneq ($(U2CW_PROFILE),0)
 ifneq ($(U2CW_PROBE_EDGES),0)
 $(error U2CW_PROFILE and U2CW_PROBE_EDGES share the spare RAM: one at a time)
