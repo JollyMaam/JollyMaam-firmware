@@ -195,6 +195,8 @@ wrong assumption), add it here in a line or two.
 - BlueZ (Linux) waits 2 s before it disconnects an LE link on request.
   When the pad ended an LE link instead, the kernel sometimes held the next
   scan or connection for 20 s (cause not found).  padble therefore leaves
-  config mode's link up between runs.
+  config mode's link up between runs, on Linux only: bleak's WinRT backend
+  keeps a connection (maintain_connection), and Windows then connects to
+  anything that comes up on that address, so it never appears in a scan.
 - Never search the whole filesystem (`/`, `/proc`, `/sys`, `/dev`): it has
   disturbed the host.
