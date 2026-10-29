@@ -2480,3 +2480,77 @@ nested repositories are clean; toolchain is an ordinary read-only input
 directory inside the unrelated primary checkout, not a nested repository.
 Primary changes were left untouched. No pending worker at this checkpoint.
 No firmware-image or hardware validation.
+
+## Clean-branch BD19 analog acceptance
+
+Base520bd48; completed the Luna worker's uncommitted BR23 scaffold and its
+three later private calibration helpers in the same isolated worker checkout.
+Pinned analog.c.o occurrence1, SHA-256
+949467efd69ef9689f9430f049c02b75439f627f751ee4474bb3dc4e0674205f.
+Dedicated bd19/analog.c supplies all65 bodies,58 public functions/12 public
+globals, with no extra private bodies. Census9 matching/37 differing/19 without
+unique BR23 counterpart. Reused matching oscillator/accessor, modem and RX
+counter bodies, retaining the clean BR23 source unchanged. Target-local recovery
+handles changed PLL/calibration/MMIO/ABI rather than importing application fixes.
+
+Exact21 non-string global records match initializer bytes/linkage/sections/
+alignment, including the two83-entry PLL arrays and11-entry normal/FCC versus
+7-entry BQB power arrays. All93 literal byte arrays (92 diagnostics plus the
+PLL integer array) and five mapped type shapes match. Public globals:
+TXPWR_table,TXPWR_table_bqb,TXPWR_table_fcc,TXSET_table,cap_freq_r,
+config_mesh_certification,trim_info,ldo_trim_res,lna_g,dm_g,bp_g,tsel.
+Packed trim_info/ldo_trim_res alignment1,cap_freq_r alignment2; data/const/bss
+sections and all65 function .bt_rf_code sections match. Private RX counters
+retain original dotted assembler names. Mutable single-carrier configuration
+retains the SDK global declaration; VBG trim returns16 bits.
+
+Coordinator completed direct FIFO PLL configuration/single-carrier adjustment,
+full modem/analog/RF setup, bank scans/status, temperature refresh, gain tables,
+ADC clock selection, LDO setters/scans/application and VCO energy measurement.
+Worker calibration is expressed with labels/width-checked PHIs to retain the
+full SDK loops,37-byte cache/version4098 and24+13-byte serialization. Corrected
+missing diagnostics, narrow signed extensions, hardware constants/table entry,
+private/public boundaries, missing receive-init tail, duplicate tail RMWs and
+sample reads moved across delays by the pseudo-C reading aid, and a signed
+negative left shift in the RX DC recurrence (now an explicit unsigned bitvector
+shift). Raw IR is the
+authority. Preserved self-RMWs, three separate status reads, packed record
+access, original memory intrinsics, byte/halfword wrap, logging gates, callbacks,
+cache length truncation, unchecked divisions/indexing and no-timeout waits.
+set_bt_trim_mode is noinline to retain its original independently reviewable
+private body; other compiled differences are CFG/loop organization, ordinary
+loads and pure expression order, equivalent widening/narrowing, stack lifetimes,
+call annotations and calls to verified public helpers instead of inlining them.
+
+The RX DC recurrence has an original LLVM undef incoming value; C concretizes
+it as0, an allowed choice, not a claim about an undocumented hardware value.
+C43/B94–B97 retain this uncertainty plus consolidation, persistent-record/ADC/
+IRQ contracts, bank/AGC bounds, no-op features and factory-mode observations.
+No BR23/application fixes or shared header/build changes were introduced.
+
+New tools/btctrler/check_analog.py and analog_trace.c compare original SDK LLVM
+with the recovered production q32s object after isolated native lowering.
+The adaptation removes target layout/attributes/debug metadata, exposes private
+entry points and replaces every volatile32 MMIO load/store (including SSA-
+selected RX trim pointers) with bounds-checked ordered software model calls.
+The model provides ADC/DMA completion, monotonic PLL response and bounded signed
+samples; it normalizes the DMA stack-buffer address and leaves the explicitly
+zeroed sample buffer as a zero-input model. No physical MMIO occurs. Fingerprints
+and event counts cover ordered loads/stores, delays, external callbacks, logs,
+ABI-width returns and final RF/trim/cap state. All730 executions pass:65 bodies
+under10 configuration/sample scenarios plus80 argument edges. Both processes
+must exit0; matching crashes/timeouts are failures. Earlier exploratory model
+results were discarded after correcting register extent/completion/pointer
+modeling. The successful strict run also caught/fixed receive-tail duplication
+and raw-load/delay ordering. This sampled model is not proof of all paths,
+undefined inputs, RF calibration, delay-loop duration, DMA timing or IRQ safety.
+
+Validation: make -j32 controller-objects controller-test test controller-layouts
+controller-tools-test controller-audit controller-compare; python3
+ tools/btctrler/check_analog.py --clang HOST_CLANG. All pass:217 : ok reports,
+12 legacy reports,31 tooling tests,both layouts,98 ownership groups.
+Totals99 accepted members/1229 unique public functions/121 globals;
+12 retained members/787 verified archive index entries. All123 original BR23
+root sources match44d0073 byte for byte. Extra-source BR23 compile fails on
+BD19 btagc ABI/table sizes and target fields, as expected; actual BR23 source
+set builds. No application-image, flashing or hardware validation.

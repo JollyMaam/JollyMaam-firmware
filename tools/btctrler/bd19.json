@@ -27,6 +27,14 @@
       ]
     },
     {
+      "member": "analog.c.o",
+      "occurrence": 1,
+      "sha256": "949467efd69ef9689f9430f049c02b75439f627f751ee4474bb3dc4e0674205f",
+      "sources": [
+        "src/btctrler/bd19/analog.c"
+      ]
+    },
+    {
       "member": "analog_ble.c.o",
       "occurrence": 1,
       "sha256": "fe535e9a3d3c0ff4d2c19e929c04f0fdc5046f34d75d2feb1d06051051a16f51",

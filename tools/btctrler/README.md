@@ -35,6 +35,7 @@ python3 tools/btctrler/check_law_codecs.py  # Exhaustive fixed-width codec arith
 python3 tools/btctrler/check_cte_algorithm.py --clang /path/to/host/clang  # SDK LLVM differential math checks
 python3 tools/btctrler/check_dut_prestart.py --clang /path/to/host/clang  # DUT timing arithmetic vs SDK LLVM
 python3 tools/btctrler/check_tws_bitoff.py --clang /path/to/host/clang    # TWS halfword arithmetic vs SDK LLVM
+python3 tools/btctrler/check_analog.py --clang /path/to/host/clang        # modeled analog traces vs SDK LLVM
 ```
 
 Original IR and inventories: `build/controller-ir/{br23,bd19}/`.
