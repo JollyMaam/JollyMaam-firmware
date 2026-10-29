@@ -415,6 +415,8 @@ static __attribute__((noinline)) u32 lights(u32 now)
         lit = at < on ? 1 : 2;
     else
         lit = (u8)((!c.idle && (c.linked || at < on)) | c.plug_lit << 1 | (pairing && at < on) << 2);
+    /* going to sleep: the stop on the way is no connect to blink for */
+    if (c.sleeping) lit = 0;
 
     memset(&f, 0, sizeof(f));
     if (cal_led(now, &cal)) {    /* the calibration routine's own light */
