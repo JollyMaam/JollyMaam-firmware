@@ -2554,3 +2554,15 @@ Totals99 accepted members/1229 unique public functions/121 globals;
 root sources match44d0073 byte for byte. Extra-source BR23 compile fails on
 BD19 btagc ABI/table sizes and target fields, as expected; actual BR23 source
 set builds. No application-image, flashing or hardware validation.
+
+Analog combined checkpoint: acceptance `d1b1b9e` passes canonical full
+controller checks/census:217 : ok reports,12 legacy reports,31 tooling tests,
+both layouts,98 ownership groups. Totals99 accepted/12 retained members,
+1229 unique public functions,121 globals,787 verified archive index entries.
+Canonical strict modeled comparison passes730 executions; initializer/literal/
+section/type/boundary checks pass again on the integration object. All123
+original BR23 root sources match44d0073. Worker clean and ancestor tip verified;
+SDK/btstack nested repositories clean,toolchain directory has no own .git.
+Removed only the worker external symlink (target preserved),then deleted the
+completed worktree and branch. No pending worker at this checkpoint.
+No application-image, flashing or hardware validation.
