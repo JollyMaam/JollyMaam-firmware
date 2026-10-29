@@ -44,7 +44,7 @@ const struct board_slots board_slots = {
 #define COLUMNS 5
 #define ROW_SETTLE_US 20
 #define SCAN_GAP_US 1000             /* from one full scan to the next */
-#define DEBOUNCE_SCANS 3             /* a release: up this many scans in a row */
+#define DEBOUNCE_SCANS 2             /* a release: up this many scans in a row */
 
 static const GPIO_PinTypeDef rows[ROWS] = { GPIO_PD6, GPIO_PA0, GPIO_PC0, GPIO_PA3 };
 static const GPIO_PinTypeDef columns[COLUMNS] = { GPIO_PA5, GPIO_PC1, GPIO_PA6, GPIO_PC3, GPIO_PA7 };
@@ -137,6 +137,7 @@ static u32 matrix_poll(void)
 #define MUX_SETTLE_US 50
 #define SAMPLE_TIMEOUT_US 1000       /* the four samples take about 42 us */
 #define SWEEP_GAP_US 1000            /* from one sweep to the next */
+#define MOVED 16                     /* codes an axis moves to wake the loop; rest noise is ~2 */
 #define DMA_EMPTY 0xa5a5a5a5u
 
 /* LX LY RX RY L2 R2; channel = pin number + 1. */
@@ -151,6 +152,7 @@ static struct {
     u8 valid;
     u32 tick;                        /* clock_time(): the last sweep ended */
     u16 code[AXES];                  /* 13-bit, the middle two of four samples */
+    u16 woke[AXES];                  /* the codes at the last EV_STICKS */
 } ad;
 
 static void adc_start(void)
@@ -200,13 +202,20 @@ static void adc_read(u32 axis)
     ad.valid |= (u8)(1u << axis);
 }
 
-static void adc_poll(void)
+/* A sweep that moved an axis by MOVED wakes the control loop, as a button
+ * does, so the movement need not wait for its next poll. */
+static u32 adc_poll(void)
 {
-    u32 axis;
+    u32 axis, moved = 0;
 
-    if (!clock_time_exceed(ad.tick, SWEEP_GAP_US)) return;
-    for (axis = 0; axis < AXES; axis++) adc_read(axis);
+    if (!clock_time_exceed(ad.tick, SWEEP_GAP_US)) return 0;
+    for (axis = 0; axis < AXES; axis++) {
+        adc_read(axis);
+        if (ad.code[axis] > ad.woke[axis] + MOVED || ad.code[axis] + MOVED < ad.woke[axis]) moved = 1;
+    }
     ad.tick = clock_time();
+    if (moved) memcpy(ad.woke, ad.code, sizeof(ad.woke));
+    return moved ? EV_STICKS : 0;
 }
 
 /* ---- motors and lights ---------------------------------------------------
@@ -352,8 +361,7 @@ void board_power_off(void)
 
 u32 board_poll(void)
 {
-    adc_poll();
-    return matrix_poll();
+    return adc_poll() | matrix_poll();
 }
 
 static u16 clamp10(s32 v)

@@ -907,7 +907,8 @@ u32 util_probe_take(struct util_probe_edge *out, u32 max, u32 *lost, u8 *active)
 
 /* ---- platform_jieli.c --------------------------------------------------- */
 
-enum { EV_BUTTONS = 1, EV_USB = 2, EV_BT = 4, EV_IMU = 8, EV_DEADLINE = 0x80 };
+/* EV_STICKS: a stick or trigger moved (boards that read them in the wait loop). */
+enum { EV_BUTTONS = 1, EV_USB = 2, EV_BT = 4, EV_IMU = 8, EV_STICKS = 0x10, EV_DEADLINE = 0x80 };
 
 enum { BOOT_POWER_ON, BOOT_HOME, BOOT_USB, BOOT_RESET };
 struct plat_boot {
