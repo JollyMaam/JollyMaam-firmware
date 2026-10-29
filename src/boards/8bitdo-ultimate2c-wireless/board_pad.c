@@ -140,7 +140,8 @@ static u32 matrix_poll(void)
  * (1650 codes away), at rest within the noise: 5 us. */
 #define MUX_SETTLE_US 5
 #define SAMPLE_TIMEOUT_US 1000       /* the four samples take about 42 us */
-#define SWEEP_GAP_US 1000            /* from one sweep to the next */
+#define SWEEP_PERIOD_US 1600         /* from one sweep's start to the next: as fresh as
+                                        with 50 us settles and a 1 ms gap after each */
 #define MOVED 16                     /* codes an axis moves to wake the loop; rest noise is ~2 */
 #define DMA_EMPTY 0xa5a5a5a5u
 
@@ -154,7 +155,7 @@ static volatile u32 dma[4] __attribute__((aligned(16)));
 
 static struct {
     u8 valid;
-    u32 tick;                        /* clock_time(): the last sweep ended */
+    u32 tick;                        /* clock_time(): the last sweep started */
     u16 code[AXES];                  /* 13-bit, the middle two of four samples */
     u16 woke[AXES];                  /* the codes at the last EV_STICKS */
 } ad;
@@ -212,12 +213,12 @@ static u32 adc_poll(void)
 {
     u32 axis, moved = 0;
 
-    if (!clock_time_exceed(ad.tick, SWEEP_GAP_US)) return 0;
+    if (!clock_time_exceed(ad.tick, SWEEP_PERIOD_US)) return 0;
+    ad.tick = clock_time();
     for (axis = 0; axis < AXES; axis++) {
         adc_read(axis);
         if (ad.code[axis] > ad.woke[axis] + MOVED || ad.code[axis] + MOVED < ad.woke[axis]) moved = 1;
     }
-    ad.tick = clock_time();
     if (moved) memcpy(ad.woke, ad.code, sizeof(ad.woke));
     return moved ? EV_STICKS : 0;
 }
