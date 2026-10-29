@@ -2395,3 +2395,12 @@ fixture; python3 tools/btctrler/check_dut_prestart.py --clang HOST_CLANG.
 Full worker checks pass:216 : ok reports,12 legacy reports,31 tooling tests,
 both layouts,96 ownership groups. Totals97 accepted/1129 unique public
 functions/104 globals;14 retained members/904 verified archive index entries.
+
+LE DUT combined checkpoint: acceptance `14c6ebd` passes canonical full controller
+checks/census:216 : ok reports,12 legacy reports,31 tooling tests,both layouts,
+96 ownership groups. Totals97 accepted/14 retained members,1129 unique public
+functions,104 globals,904 verified archive index entries. Canonical arithmetic
+oracle101000 cases pass; focused sanitizer passed in worker. All123 original
+BR23 C files match44d0073. Worker and three dependency statuses clean, merged
+ancestry verified, completed worktree/branch deleted. No pending worker at this
+checkpoint. No application-image/hardware validation.
