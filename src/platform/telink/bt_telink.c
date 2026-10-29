@@ -21,7 +21,9 @@
 #define INPUT_MAX     77         /* DualSense's extended report */
 #define TX_OCTETS     TELINK_TX_OCTETS
 #define RX_OCTETS     251
+#ifndef IN_FLIGHT
 #define IN_FLIGHT     2          /* input notifications in the stack at once */
+#endif
 /* Inputs take at most IN_FLIGHT slots, so two stay for LL control: two
  * one-packet inputs (every input fits TX_OCTETS), or one in two fragments
  * if one ever does not.  The app owns

@@ -32,7 +32,13 @@ $(U2CW_PAD)_LDFLAGS += --undefined=plat_ll_push_tx_fifo --defsym=bls_ll_pushTxFi
 # small log and trace rings.
 $(U2CW_PAD)_DEFINES :=
 $(U2CW_PAD)_DEFINES += -DSLOTS_STORED=4
-$(U2CW_PAD)_DEFINES += -DPROBE_EDGES=0  # controller_lite has no latency probe
+# The latency probe (padtool latency) is off: its ring fits only in the
+# spare RAM in .data, for test builds (make ... U2CW_PROBE_EDGES=8).
+U2CW_PROBE_EDGES ?= 0
+$(U2CW_PAD)_DEFINES += -DPROBE_EDGES=$(U2CW_PROBE_EDGES)
+ifneq ($(U2CW_PROBE_EDGES),0)
+$(U2CW_PAD)_DEFINES += -DPROBE_IN_DATA
+endif
 $(U2CW_PAD)_DEFINES += -DREMAPS_STORED=4
 $(U2CW_PAD)_DEFINES += -DREMAP_RULES=8
 $(U2CW_PAD)_DEFINES += -DRECORD_MAX=152

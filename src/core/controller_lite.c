@@ -56,6 +56,9 @@ static struct {
     u16 feedback_ms;             /* plat_ms, low bits: the pulses take under a second */
     u32 remap_edits;
     u32 turbo_max;               /* keys flipped every report, down first */
+#if PROBE_EDGES
+    u32 probe_at_us;             /* the latency probe's next edge, 0: none */
+#endif
     struct in_trigger triggers[2];
 } c;
 
@@ -119,6 +122,9 @@ static __attribute__((noinline)) void read_input(u32 now)
     u8 pair;
 
     plat_input(&c.raw);
+#if PROBE_EDGES
+    c.probe_at_us = util_probe_apply(&c.raw.buttons);
+#endif
     pair = c.raw.pair_button && !c.pair_down;
     c.pair_down = c.raw.pair_button;
     in_map(&c.raw, &c.pad);
@@ -374,6 +380,9 @@ static __attribute__((noinline)) void report(u32 now)
     if (n > 0 && bt_send_input(id, out, (u16)n)) {
         c.turbo_up = c.turbo_max && !c.turbo_up;
         if (buttons & PAD_HOME) ux_reported(now);
+#if PROBE_EDGES
+        util_probe_sent(plat_us());
+#endif
     }
 }
 
@@ -571,7 +580,11 @@ void ctl_main(void)
         if (c.rumble_until && (!next || (s32)(c.rumble_until - next) < 0)) next = c.rumble_until;
         next = earliest(next, remap_deadline());
         if (c.calibrating) next = plat_ms() + CAL_SAMPLE_MS;
+#if PROBE_EDGES
+        plat_wait(next, earliest(c.linked ? plat_us() + POLL_US : 0, c.probe_at_us));
+#else
         plat_wait(next, c.linked ? plat_us() + POLL_US : 0);
+#endif
         if (c.rumble_until && (s32)(plat_ms() - c.rumble_until) >= 0) {
             plat_motors(0, 0);
             c.rumble_until = 0;

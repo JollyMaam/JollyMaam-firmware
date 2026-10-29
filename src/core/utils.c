@@ -167,7 +167,11 @@ static struct {
     u8 flip;                     /* every_report: a report went out, flip at the next input */
     u32 head, unsent, tail, lost;   /* records [tail, head); [unsent, head) not sent yet */
     struct util_probe_edge ring[PROBE_EDGES];
-} probe;
+} probe
+#ifdef PROBE_IN_DATA             /* a board with spare RAM in .data only (the 8BitDo test builds) */
+__attribute__((section(".data")))
+#endif
+;
 
 static u32 probe_random(void)
 {
