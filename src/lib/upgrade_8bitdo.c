@@ -25,6 +25,8 @@ static void advance_sector(struct jm_8bitdo_upgrade *op) {
     op->phase = COMPARE;
   }
 }
+/* Validates full pad image and bounds before producing any device requests.
+ * Receiver images are rejected. No device changes occur until model checked. */
 int jm_8bitdo_upgrade_init(struct jm_8bitdo_upgrade *op,
                            const uint8_t *image, size_t size) {
   char product[17];
@@ -47,6 +49,11 @@ int jm_8bitdo_upgrade_init(struct jm_8bitdo_upgrade *op,
   op->phase = IDENTIFY;
   return 1;
 }
+/* Produce the next unnumbered 64-byte HID report. reply_required is false
+ * only for application start; complete that transfer with NULL,0 on success.
+ * Call complete exactly once per request, except STALE replies may be retried.
+ * Stop scheduling to cancel. After any erase the device may need recovery.
+ * completed counts sectors verified/skipped; sectors includes header sector. */
 enum jm_8bitdo_step jm_8bitdo_upgrade_next(struct jm_8bitdo_upgrade *op,
                                           uint8_t report[64], int *reply_required) {
   if (op->phase == FAILED || op->pending)
@@ -77,6 +84,9 @@ enum jm_8bitdo_step jm_8bitdo_upgrade_next(struct jm_8bitdo_upgrade *op,
   *reply_required = op->phase != START;
   return JM_8BITDO_TRANSFER;
 }
+/* transport_ok false ends the operation without retrying destructive commands.
+ * Returns STALE to keep waiting for the outstanding read, OK otherwise.
+ * Malformed/status replies end the operation. Inspect next for final status. */
 enum jm_8bitdo_result jm_8bitdo_upgrade_complete(struct jm_8bitdo_upgrade *op,
                                                 int transport_ok,
                                                 const uint8_t *reply, size_t size) {

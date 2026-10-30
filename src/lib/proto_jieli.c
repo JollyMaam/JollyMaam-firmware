@@ -5,6 +5,7 @@
 static void be32(uint8_t *p, uint32_t v) {
   p[0] = v >> 24; p[1] = v >> 16; p[2] = v >> 8; p[3] = v;
 }
+/* Pure UBOOT1.00 CDB helpers. No transport or process-global state. */
 int jm_jieli_cdb(uint8_t out[16], uint16_t command,
                   const uint8_t *arguments, size_t size) {
   if (size > 14 || (size && !arguments)) return 0;
@@ -13,6 +14,9 @@ int jm_jieli_cdb(uint8_t out[16], uint16_t command,
   if (size) memcpy(out + 2, arguments, size);
   return 1;
 }
+/* Prepare RAM/flash read or write commands. A write includes CRC16 over data.
+ * Transfers must be nonempty and fit the protocol's 16-bit length field.
+ * Outputs are untouched on failure. Address ranges must not wrap. */
 int jm_jieli_read_cdb(uint8_t out[16], uint16_t command,
                        uint32_t address, size_t size) {
   if (!size || size > 0xffff || size - 1 > UINT32_MAX - address) return 0;
@@ -29,6 +33,7 @@ int jm_jieli_write_cdb(uint8_t out[16], uint16_t command,
   args[7] = crc; args[8] = crc >> 8;
   return jm_jieli_cdb(out, command, args, sizeof args);
 }
+/* Validate an execution reply's big-endian echo and copy its 14-byte payload. */
 int jm_jieli_exec_reply(const uint8_t *reply, size_t size, uint16_t command,
                          uint8_t out[14]) {
   if (size != 16 || reply[0] != (uint8_t)(command >> 8) || reply[1] != (uint8_t)command)
@@ -36,6 +41,8 @@ int jm_jieli_exec_reply(const uint8_t *reply, size_t size, uint16_t command,
   if (out) memcpy(out, reply + 2, 14);
   return 1;
 }
+/* Symmetric CrcDecode used by the ROM loader and chip-key response.
+ * Each invocation restarts the stream; loader files use separate 512-byte blocks. */
 void jm_jieli_crc_cipher(uint8_t *data, size_t size, uint32_t key) {
   static const uint8_t magic[16] = {0xc3, 0xcf, 0xc0, 0xe8, 0xce, 0xd2,
     0xb0, 0xae, 0xc4, 0xe3, 0xa3, 0xac, 0xd3, 0xf1, 0xc1, 0xd6};

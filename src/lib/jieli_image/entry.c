@@ -9,6 +9,8 @@ static uint32_t rd32(const uint8_t *p) {
 static void wr16(uint8_t *p, uint16_t v) { p[0]=v; p[1]=v>>8; }
 static void wr32(uint8_t *p, uint32_t v) { p[0]=v; p[1]=v>>8; p[2]=v>>16; p[3]=v>>24; }
 
+/* Entries are clear 32-byte JLFS records. Decode checks the header CRC and
+ * leaves output untouched on failure. Names need not be NUL-terminated. */
 void jm_jieli_encode_entry(uint8_t out[32], const struct jm_jieli_entry *e) {
   memset(out, 0xff, 32);
   wr16(out + 2, e->data_crc);
@@ -41,6 +43,7 @@ void jm_jieli_name_string(char out[17], const uint8_t raw[16]) {
   out[i] = 0;
 }
 
+/* Decode an encrypted flash header at offset, checking bounds and CRC. */
 bool jm_jieli_header_at(const uint8_t *p, size_t n, uint32_t o, uint8_t clear[32]) {
   if ((uint64_t)o + 32 > n)
     return false;
@@ -49,6 +52,7 @@ bool jm_jieli_header_at(const uint8_t *p, size_t n, uint32_t o, uint8_t clear[32
   return rd16(clear) && jm_crc16(clear + 2, 30) == rd16(clear);
 }
 
+/* EOFFSET value in 4 KiB units, or zero when absent or invalid. */
 uint32_t jm_jieli_eoffset(const uint8_t *p, size_t n, uint32_t o) {
   for (uint64_t off = (uint64_t)o + 32; off + 32 <= n && off < (uint64_t)o + 0x400; off += 32) {
     uint8_t h[32];
@@ -72,6 +76,8 @@ uint32_t jm_jieli_eoffset(const uint8_t *p, size_t n, uint32_t o) {
   return 0;
 }
 
+/* Resolve the active flash base, including an EOFFSET redirect. On failure
+ * base is untouched; clear is scratch storage and may have changed. */
 bool jm_jieli_find_base(const uint8_t *p, size_t n, uint8_t clear[32], uint32_t *base) {
   static const uint32_t candidates[] = {0,       0x1000,   0x10000,
                                         0x80000, 0x100000, 0x180000};

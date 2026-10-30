@@ -1,5 +1,6 @@
 #include "crypto.h"
 
+/* CRC-CCITT, non-reflected. A zero seed is the image CRC convention. */
 uint16_t jm_crc16_seed(const uint8_t *p, size_t n, uint16_t crc) {
   while (n--) {
     crc ^= (uint16_t)*p++ << 8;
@@ -13,12 +14,16 @@ uint16_t jm_crc16(const uint8_t *p, size_t n) {
 }
 
 /* Symmetric JieLi ENC stream and the flash-controller block variant. */
+/* In-place symmetric ENC transform. Each call starts a new stream. */
 void jm_jieli_enc(uint8_t *p, size_t n, uint16_t key) {
   while (n--) {
     *p++ ^= key;
     key = (uint16_t)((key << 1) ^ ((key & 0x8000) ? 0x1021 : 0));
   }
 }
+/* In-place flash-controller transform. The caller supplies a buffer covering
+ * offset..offset+size. offset-base must be a multiple of 32 and offset >= base.
+ * A final short block is allowed. No allocation or device access occurs. */
 void jm_jieli_sfc(uint8_t *image, uint32_t off, uint32_t n, uint32_t base,
                    uint16_t key) {
   for (uint32_t i = 0; i < n; i += 32) {

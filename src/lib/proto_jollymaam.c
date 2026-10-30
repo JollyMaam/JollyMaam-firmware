@@ -7,6 +7,8 @@ static uint32_t rd32(const uint8_t *p) {
   return (uint32_t)p[0] | (uint32_t)p[1] << 8 |
          (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
 }
+/* Decode IDENTIFY, accepting the original 56-byte and extended 88-byte form.
+ * Strings are terminated. Output is untouched on failure. */
 int jm_identify_decode(const uint8_t *data, size_t size, struct jm_identity *out) {
   if (size < 56 || memcmp(data, "C2PD", 4)) return 0;
   struct jm_identity id;
@@ -18,10 +20,14 @@ int jm_identify_decode(const uint8_t *data, size_t size, struct jm_identity *out
   *out = id;
   return 1;
 }
+/* Logical SCSI-style command. HID/GATT framing belongs to the transport layer. */
 void jm_command(uint8_t cdb[16], uint8_t command, uint32_t argument) {
   memset(cdb, 0, 16); cdb[0] = 0xf5; cdb[1] = command;
   for (unsigned i = 0; i < 4; ++i) cdb[2 + i] = (uint8_t)(argument >> (i * 8));
 }
+/* Validate clear update.bin: MAIN commit/header CRC, format, exact size,
+ * application CRC and optional product match. No device I/O. expected_product
+ * may be NULL; it must otherwise be at most 16 bytes plus terminator. */
 int jm_update_image_check(const uint8_t *data, size_t size, const char *product) {
   if (size < 0x120 || memcmp(data, "MAIN", 4) || rd32(data + 16) != 1 ||
       rd32(data + 4) != size - 0x120 ||

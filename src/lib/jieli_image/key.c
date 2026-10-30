@@ -9,6 +9,7 @@ static uint8_t record_threshold(const uint8_t *d) {
     sum += d[j];
   return sum >= 0xe0 ? 0xaa : sum <= 0x10 ? 0x55 : sum;
 }
+/* Decode a complete 34-byte chip-key record. Output is unchanged on bad CRC. */
 bool jm_jieli_record_key(const uint8_t d[34], uint16_t *out) {
   if (jm_crc16(d, 32) != rd16(d + 32))
     return false;
@@ -22,6 +23,7 @@ bool jm_jieli_record_key(const uint8_t d[34], uint16_t *out) {
 }
 /* Only the bytes whose bit must change are changed, to some value on the
  * right side of the threshold. */
+/* Rewrite only the necessary key bits and update the record CRC. */
 void jm_jieli_set_record_key(uint8_t d[34], uint16_t key) {
   uint8_t t = record_threshold(d);
   for (unsigned j = 0; j < 16; j++) {

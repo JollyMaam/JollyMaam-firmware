@@ -2,6 +2,8 @@
 #include <hidapi.h>
 #include <string.h>
 
+/* Optional hidapi desktop backend. Enumeration does not open or modify devices.
+ * Path is borrowed for the duration of visit. Return nonzero to stop visiting. */
 int jm_hid_enumerate_8bitdo(jm_hid_visit visit, void *user) {
   if (!visit || hid_init())
     return -1;
@@ -15,6 +17,10 @@ int jm_hid_enumerate_8bitdo(jm_hid_visit visit, void *user) {
   hid_free_enumeration(list);
   return count;
 }
+/* Blocking desktop convenience driver. Path must be explicitly selected.
+ * Returns zero on success, negative on transport failure, positive on protocol
+ * failure. Image is validated before opening the device. Progress may be NULL.
+ * Caller must obtain user authorization before invoking this function. */
 int jm_hid_upgrade_8bitdo(const char *path, const uint8_t *image, size_t size,
                           void (*progress)(void *, unsigned, unsigned), void *user) {
   struct jm_8bitdo_upgrade op;

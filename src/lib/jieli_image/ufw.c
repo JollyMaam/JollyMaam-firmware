@@ -10,6 +10,10 @@ static uint32_t rd32(const uint8_t *p) {
          (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
 }
 
+/* Detect a UFW wrapper and return its first type-0 flash member as a borrowed
+ * view. RAW returns the original buffer. Errors leave both outputs untouched.
+ * Input must remain alive while the returned view is used. No allocation occurs.
+ * As in the original tool, a header without a valid UFW CRC is treated as raw. */
 enum jm_jieli_ufw_result jm_jieli_ufw_open(const uint8_t *data, size_t size,
                                          const uint8_t **flash, size_t *flash_size) {
   uint8_t header[0x40];

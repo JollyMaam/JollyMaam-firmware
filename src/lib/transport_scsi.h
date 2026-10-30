@@ -20,8 +20,6 @@ struct jm_scsi_transport {
                    enum jm_scsi_direction direction, uint8_t *data, size_t size,
                    unsigned timeout_ms, struct jm_scsi_result *result);
 };
-/* Linux SG_IO using a caller-owned, already-open descriptor. Does not close fd.
- * Returns zero for a completed ioctl, -1 with errno on transport/argument error. */
 int jm_scsi_linux_transfer(int fd, const uint8_t *cdb, size_t cdb_size,
                             enum jm_scsi_direction direction, uint8_t *data,
                             size_t size, unsigned timeout_ms,

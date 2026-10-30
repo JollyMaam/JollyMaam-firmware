@@ -4,6 +4,9 @@ static uint16_t rd16(const uint8_t *p) { return (uint16_t)(p[0] | p[1] << 8); }
 static uint32_t rd32(const uint8_t *p) {
   return (uint32_t)p[0] | (uint32_t)p[1]<<8 | (uint32_t)p[2]<<16 | (uint32_t)p[3]<<24;
 }
+/* Transform BANKCB in place, checking each bank header CRC and data bounds.
+ * False means invalid input; the buffer may already be partially transformed.
+ * The caller must discard it on failure. No allocations or device access. */
 bool jm_jieli_scramble_bankcb(uint8_t *p, size_t n) {
   if (n < 16)
     return false;
