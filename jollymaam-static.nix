@@ -18,6 +18,26 @@ static.stdenv.mkDerivation {
       -static -o build/static/jollymaam
     runHook postBuild
   '';
+  doCheck = true;
+  checkPhase = ''
+    for name in bankcb crypto entry key ufw; do
+      $CC -std=c99 -O2 -DUNITTEST src/lib/jieli_image/$name.c \
+        build/static/libjollymaam.a -static -o build/static/test-$name
+      build/static/test-$name
+    done
+    for name in proto_8bitdo proto_jieli proto_jollymaam; do
+      $CC -std=c99 -O2 -DUNITTEST src/lib/$name.c \
+        build/static/libjollymaam.a -static -o build/static/test-$name
+      build/static/test-$name
+    done
+    $CC -std=c99 -O2 tools/test_jollymaam_upgrade.c build/static/libjollymaam.a \
+      -static -o build/static/test-upgrade
+    build/static/test-upgrade
+    $READELF -l build/static/jollymaam > build/static/program-headers
+    $READELF -d build/static/jollymaam > build/static/dynamic-tags
+    if grep -q INTERP build/static/program-headers; then exit 1; fi
+    if grep -q NEEDED build/static/dynamic-tags; then exit 1; fi
+  '';
   installPhase = ''
     mkdir -p $out/bin $out/lib $out/include/jollymaam/jieli_image
     cp build/static/jollymaam $out/bin/
