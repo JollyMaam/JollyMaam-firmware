@@ -33,7 +33,8 @@ The regular Makefile also builds the portable `libjollymaam.a`; its CLI links th
 desktop adapter and dynamic hidapi separately.
 
 The CLI currently offers passive 8BitDo bootloader candidate enumeration (`scan`),
-offline image inspection (`inspect IMAGE`), and pad bootloader upgrades
+offline image inspection (`inspect IMAGE`), raw Jieli image rekeying
+(`rekey-jieli INPUT OUTPUT KEY`), and pad bootloader upgrades
 (`flash-8bitdo --yes HID_PATH IMAGE`). The last command writes hardware: select
 the intended path and obtain permission before invoking it. Enumeration does not
 upload loaders or reboot devices. There is no automatic stock-firmware boot entry
@@ -60,23 +61,41 @@ The Jieli CDB helpers are transport-independent. `transport_scsi.h` defines an
 optional synchronous callback contract and a Linux SG_IO function for an
 application-owned descriptor. That backend returns status, sense and actual
 length; a successful ioctl alone does not imply a successful protocol operation.
-The legacy jlnewfw still owns full image orchestration, packing, flash sequencing,
-RAM loader upload and device discovery. Those have not all moved into the library.
+`jm_jieli_image_open` validates a raw image into caller-owned workspace and
+`jm_jieli_image_visit` exposes decoded files without filesystem access. The
+configuration file is the binary stream, rather than a generated INI.
+`jm_jieli_image_pack` preserves the existing layout and can rekey it, leaving
+reserved data beyond the code region unchanged. Same-key repacking is byte-exact.
+This API does not support resizing files or rebuilding a new layout; the legacy
+jlnewfw still owns those operations, flash sequencing, RAM loader startup and
+device discovery.
 
-Custom-firmware support currently covers command construction, IDENTIFY decoding,
-and clear MAIN update-image validation. Its full update state machine and desktop
-framing are not implemented here yet. ZIP packaging, Windows SCSI access, the
+The custom updater is driven with `jm_update_init`, `jm_update_next`, and
+`jm_update_complete`. Connect to the updater first: entering it from the app and
+handling re-enumeration remain the caller's responsibility. Requests contain a
+logical CDB and borrowed input/output buffers for the caller to frame over USB or
+BLE. The operation checks the product, queries room and payload limits, sends
+BEGIN and DATA, reconciles dropped writes through UPDATE_INFO with bounded
+retries, checks COMMIT, and requests REBOOT. Errors stop the operation without
+blind destructive retries. The caller owns timeouts and transport completion.
+
+Desktop framing for the custom updater, ZIP packaging, Windows SCSI access, the
 libusb mass-storage backend, custom-device discovery, JNI integration and WASM
-builds also remain to implement.
+builds remain to implement.
 
 Module boundaries:
 
 - `proto_*.c` encodes and validates packets or their image format; no device I/O.
-- `upgrade_8bitdo.c` sequences requests, with no allocation or transport calls.
+- `upgrade_*.c` sequences requests, with no allocation or transport calls.
 - `jieli_image/` transforms and validates caller buffers. Header comments describe
-  whether a failed operation can leave a partially transformed buffer.
+  whether a failed operation can leave a partially transformed buffer. Function
+  documentation lives beside definitions in the C files.
 - `transport_*.c` adapts platform I/O. The CLI owns paths and presentation.
 
 Run reference image comparisons with `tools/test_jollymaam_images.py`, supplying
 separately built old and new jlnewfw binaries plus image paths. It compares list,
 verify, and unpacked file contents without device access.
+
+`make build/host/check-jollymaam-image` builds the existing-image regression
+runner. Pass a raw Jieli image path to check byte-exact repacking, rekeying back
+to the original key, file visits and preservation of full-dump reserved tails.
