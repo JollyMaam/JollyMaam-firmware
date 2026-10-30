@@ -18,9 +18,11 @@ class BulkScsi(private val pipe: BulkPipe) : Scsi {
         require(cdb.size in 1..16 && length >= 0 && timeout > 0)
         val size = out?.size ?: length
         val current = ++tag
+        // Our vendor commands use padded 16-byte CDBs; standard INQUIRY uses six.
+        val commandSize = if (cdb.u8(0) == 0x12) 6 else 16
         val cbw = ByteBuffer.allocate(31).order(ByteOrder.LITTLE_ENDIAN)
             .putInt(0x43425355).putInt(current).putInt(size)
-            .put(if (out == null && size > 0) 0x80.toByte() else 0.toByte()).put(0.toByte()).put(16.toByte()).put(cdb.copyOf(16)).array()
+            .put(if (out == null && size > 0) 0x80.toByte() else 0.toByte()).put(0.toByte()).put(commandSize.toByte()).put(cdb.copyOf(16)).array()
         try {
             if (pipe.write(cbw, timeout) != 31) throw IOException("Short USB command wrapper")
             var received = ByteArray(0)

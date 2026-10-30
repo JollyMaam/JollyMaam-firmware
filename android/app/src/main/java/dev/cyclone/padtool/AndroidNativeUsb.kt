@@ -106,10 +106,7 @@ class AndroidNativeUsb(
     }
     override fun scsi(cdb: ByteArray, direction: Int, data: ByteArray, timeout: Int): Int {
         checkActive()
-        val response = bulk?.transfer(cdb, if (direction == 1) data.size else 0, if (direction == 2) data else null, timeout)
-            ?: throw IOException("No mass-storage connection")
-        if (direction == 1) response.copyInto(data)
-        return if (direction == 2) data.size else response.size
+        return transferScsi(bulk ?: throw IOException("No mass-storage connection"), cdb, direction, data, timeout)
     }
     override fun reconnect(uid: ByteArray): Boolean {
         checkActive(); close()
@@ -126,6 +123,15 @@ class AndroidNativeUsb(
     }
     override fun onProgress(done: Long, total: Long) { progress(done, total) }
     companion object {
+        internal fun transferScsi(transport: Scsi, cdb: ByteArray, direction: Int, data: ByteArray, timeout: Int): Int {
+            // Jieli helpers report bogus BOT residue; still require every actual
+            // input/output byte. Standard INQUIRY retains normal residue handling.
+            val loader = cdb.isNotEmpty() && cdb.u8(0) in 0xfb..0xfd
+            val response = transport.transfer(cdb, if (direction == 1) data.size else 0,
+                if (direction == 2) data else null, timeout, rawLength = loader)
+            if (direction == 1) response.copyInto(data)
+            return if (direction == 2) data.size else response.size
+        }
         fun kind(device: UsbDevice): Int? = when {
             device.vendorId == 0x16c0 && device.productId == 0x05df -> 0
             device.vendorId == 0x2dc8 && device.productId == 0x3208 -> 1

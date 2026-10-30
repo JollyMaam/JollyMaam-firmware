@@ -22,6 +22,20 @@ class BulkScsiTest {
         assertEquals(31,cbw.size); assertEquals(0x43425355L,cbw.u32()); assertEquals(1L,cbw.u32(4)); assertEquals(4L,cbw.u32(8)); assertEquals(0x80,cbw.u8(12)); assertEquals(16,cbw.u8(14))
         assertFalse(pipe.reset)
     }
+    @Test fun nativeScsiAdapterKeepsLoaderResiduePolicyAndInquiryLength() {
+        val inquiry = Pipe(); inquiry.reads += ByteArray(36); inquiry.status()
+        val cdb = byteArrayOf(0x12, 0, 0, 0, 36, 0)
+        assertEquals(36, AndroidNativeUsb.transferScsi(BulkScsi(inquiry), cdb, 1, ByteArray(36), 2000))
+        assertEquals(6, inquiry.writes.single().u8(14))
+        val loader = Pipe(); loader.reads += ByteArray(16); loader.status(residue = 16)
+        val command = byteArrayOf(0xfc.toByte(), 0x0a).copyOf(16)
+        assertEquals(16, AndroidNativeUsb.transferScsi(BulkScsi(loader), command, 1, ByteArray(16), 20000))
+        assertEquals(16, loader.writes.single().u8(14))
+        val short = Pipe(); short.reads += ByteArray(8); short.status(residue = 16)
+        assertThrows(IOException::class.java) { AndroidNativeUsb.transferScsi(BulkScsi(short), command, 1, ByteArray(16), 20000) }
+        val write = Pipe(); write.status(residue = 4)
+        assertEquals(4, AndroidNativeUsb.transferScsi(BulkScsi(write), byteArrayOf(0xfb.toByte(), 4).copyOf(16), 2, ByteArray(4), 20000))
+    }
     @Test fun loaderIgnoresBogusResidueButNeverPadsShortReads() {
         val p = Pipe(); p.reads += byteArrayOf(1,2,3,4); p.status(residue = 4)
         assertEquals(4,BulkScsi(p).transfer(byteArrayOf(0xfc.toByte(),0x0a),4,rawLength=true).size)
