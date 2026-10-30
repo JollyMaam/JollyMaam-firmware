@@ -1,4 +1,5 @@
 #include "../src/lib/transport_hid.h"
+#include "../src/lib/package.h"
 #include "../src/lib/proto_jollymaam.h"
 #include "../src/lib/jieli_image/ufw.h"
 #include "../src/lib/jieli_image/entry.h"
@@ -96,7 +97,20 @@ int main(int argc, char **argv) {
       struct jm_jieli_image view;
       uint8_t *workspace = malloc(size ? size : 1);
       enum jm_jieli_ufw_result ufw = jm_jieli_ufw_open(data, size, &flash, &flash_size);
-      if (jm_update_image_check(data, size, NULL)) {
+      struct jm_package package;
+      if (size >= 4 && !memcmp(data, "PK\003\004", 4)) {
+        int error = jm_package_open(&package, data, size);
+        if (error) fprintf(stderr, "Invalid/unsupported ZIP container: %d\n", error);
+        else {
+          printf("Validated ZIP container: %u entries (manifest policy not checked)\n", package.count);
+          for (unsigned i = 0; i < package.count; ++i) {
+            struct jm_package_entry entry;
+            if (jm_package_entry(&package, i, &entry))
+              printf("%.*s: %zu bytes\n", (int)entry.name_size, entry.name, entry.size);
+          }
+          result = 0;
+        }
+      } else if (jm_update_image_check(data, size, NULL)) {
         printf("Validated MAIN update image: bytes=%zu\n", size); result = 0;
       } else if (jm_8bitdo_image_product(data, size, product)) {
         printf("Telink full image: product=%s bytes=%zu\n", product, size); result = 0;

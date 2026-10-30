@@ -1,5 +1,5 @@
 # Portable libjollymaam core. Backends will be linked separately.
-JOLLYMAAM_SOURCES := src/lib/flash_jieli.c src/lib/upgrade_jieli.c src/lib/upgrade_jollymaam.c src/lib/jieli_image/image.c src/lib/proto_jieli.c src/lib/proto_jollymaam.c src/lib/upgrade_8bitdo.c src/lib/proto_8bitdo.c src/lib/jieli_image/bankcb.c src/lib/jieli_image/ufw.c src/lib/jieli_image/key.c src/lib/jieli_image/crypto.c src/lib/jieli_image/entry.c
+JOLLYMAAM_SOURCES := src/lib/package.c src/lib/flash_jieli.c src/lib/upgrade_jieli.c src/lib/upgrade_jollymaam.c src/lib/jieli_image/image.c src/lib/proto_jieli.c src/lib/proto_jollymaam.c src/lib/upgrade_8bitdo.c src/lib/proto_8bitdo.c src/lib/jieli_image/bankcb.c src/lib/jieli_image/ufw.c src/lib/jieli_image/key.c src/lib/jieli_image/crypto.c src/lib/jieli_image/entry.c
 JOLLYMAAM_OBJECTS := $(JOLLYMAAM_SOURCES:src/lib/%.c=$(O)/host/libjollymaam/%.o)
 .PHONY: libjollymaam
 libjollymaam: $(O)/host/libjollymaam.a
@@ -72,3 +72,7 @@ $(O)/host/test-jollymaam-jieli-flash: tools/test_jollymaam_jieli.c $(O)/host/lib
 	@mkdir -p $(@D)
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) -std=c99 $< $(O)/host/libjollymaam.a -o $@
 libjollymaam-test: $(O)/host/test-jollymaam-jieli-flash
+
+.PHONY: firmware-package
+firmware-package:
+	$(Q)python3 tools/firmware_package.py --build-dir $(O) $(O)/firmware.zip

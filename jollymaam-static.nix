@@ -10,7 +10,7 @@ static.stdenv.mkDerivation {
   buildPhase = ''
     runHook preBuild
     mkdir -p build/static
-    for source in src/lib/jieli_image/*.c src/lib/proto_jieli.c src/lib/proto_8bitdo.c src/lib/proto_jollymaam.c src/lib/upgrade_8bitdo.c src/lib/upgrade_jollymaam.c src/lib/upgrade_jieli.c src/lib/flash_jieli.c; do
+    for source in src/lib/jieli_image/*.c src/lib/proto_jieli.c src/lib/proto_8bitdo.c src/lib/proto_jollymaam.c src/lib/upgrade_8bitdo.c src/lib/upgrade_jollymaam.c src/lib/upgrade_jieli.c src/lib/flash_jieli.c src/lib/package.c; do
       $CC -std=c99 -O2 -Wall -Wextra -c "$source" -o "build/static/$(basename "$source" .c).o"
     done
     $AR rcs build/static/libjollymaam.a build/static/*.o

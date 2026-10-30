@@ -2,6 +2,7 @@
 #define JOLLYMAAM_H
 /* Portable buffer/protocol API. Optional desktop adapters have separate headers. */
 #include "proto_jieli.h"
+#include "package.h"
 #include "proto_8bitdo.h"
 #include "proto_jollymaam.h"
 #include "upgrade_8bitdo.h"
