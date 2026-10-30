@@ -113,6 +113,8 @@ against the eventual Nova 2 configuration and linked image.
 | C44 | `bd19/RF_ble5.c`, SDK occurrence1 `5d861cc0…ad59`, worker `7eb8aef` plus coordinator recovery: census10 reusable/26 matching bodies with boundary changes/44 differing. BD19 RX records have16-byte headers/data offset16 and RSSI at12, versus BR23 size20; radio initialization uses32-bit ana_index15 without the BR23 gain store. | Share pure header/ring/PHY/channel helpers after both compiled boundaries are audited. Keep hardware and receive construction target-local until offsets and callback reload contracts are reconciled. Recheck the untouched BR23 baseline for the recovery omissions corrected here, especially bytewise permutation, RSSI and correlated-pointer indirection; these are translation findings, not SDK defects. |
 | C45 | `bd19/RF_ble.c`, SDK occurrence1 `6d862d87…8005`, worker `31fcbca` plus coordinator review:18 matching bodies,10 boundary checks,72 changed,2 unique. BD19 moves all-event-hold/instant checking from RF_ble5, adds drift control/bit-offset entry points, latency small-window handling, receive update routing and different radio initialization. | Share checked allocation/queue/address/PHY helpers after full callback/type audit; retain BD19 timing/register paths until both SDKs justify consolidation. All123 BR23 baseline sources remain unchanged. Instant-validity null-before-IRQ behavior is a concrete candidate BR23 fix, subject to a separate baseline/application decision. |
 
+| C46 | `bd19/bredr_frame.c`, SDK occurrence1 `d4960114…5366`, partial worker `1b2272e` plus coordinator completion:3 reuse candidates,63 changed,54 without a unique counterpart. BD19 uses584-byte heap frames and a348-byte pointer table; BR23 has180-byte frames and an embedded table. Register clocks, paging/role-switch state machines, AFH packing and update paths differ substantially. | Share independently verified address/mask/arithmetic helpers after checking layouts, callbacks and no-op policy. Keep hardware/state-machine ownership separate. All123 baseline BR23 sources remain unchanged; no later application fixes were imported. |
+
 ## Confirmed BD19 behavior to revisit
 
 Each row describes SDK behavior deliberately retained in accepted C. Fixes need
@@ -255,6 +257,13 @@ unestablished unless specifically stated.
 | B103 | Same occurrence, ble_rx_irq_handler: after BLE5 processing and with multilink enabled, raw reads ble4_hw->state before combining it with a null test. RX toggle loop has no retry bound. IRQ helpers and scheduler use unconditional disable/enable calls, including nested event paths. | Determine whether BLE5-only/null frames can reach the state read and whether runtime IRQ helpers preserve nesting. Validate hardware/DMA scheduling separately; strict host fixture and modeled trace comparison do not prove concurrency or real interrupt safety. |
 | B104 | Same occurrence: widening accepts target==clock, has a zero-target special path, wraps the quotient to16 bits, emits y on rejection and updates windows before drift selectors. IRQ-enable boundaries permit a changed base pointer; small-window latency paths bypass normal init/flag clearing. PLL compensation uses a signed20-bit shift and signed division, whose SDK nsw domain needs an oscillator-range contract. | Retain target timing/low-bit enable/sign-extension rules. Models cover110800 widening and140288 bit-offset/enable cases with base/frame replacement; they do not establish RF clock drift policy. Confirm oscillator calibration range and silicon timing before sharing BR23/BD19 arithmetic. |
 
+
+| B105 | `bd19/bredr_frame.c`, same occurrence, bredr_bd_get_frame: writes the allocated pointer's id and table slot before the null test; allocation occurs inside disabled IRQs. bredr_bd_put_frame nests disable/enable through frame-disable and frees after the outer enable. | Confirm allocator success and IRQ nesting contracts before adding failure handling or changing critical sections. The null-write defect is preserved, not exercised by the successful-allocation model. |
+| B106 | Same occurrence, sync_generation: compares `(value << 8) & 0xff00` directly with three unshifted byte masks. Its repeated-byte flag can therefore fire only for zero, rather than all equal bytes. | Investigate intended access-code rejection policy before changing this confirmed SDK behavior. Exhaustive16-bit TWS seeds plus random32-bit generation comparisons validate the recovery, not the Bluetooth validity policy. |
+| B107 | Same occurrence, update path: __bt_updata_bd_get_frame_rusume always asserts/resets then returns NULL; delay_2slot_rise is empty; check_update_param_len prints900 and returns1. Reset clears900 bytes, copies20 bytes at+32 and584 frame bytes at+56, reloads after diagnostic calls and jumps. | Establish whether Nova2 can use this update path and verify linker-provided storage/lifetime before enabling it. The two enable-byte arguments are unused by the SDK definition; source passes zero, and target optimization again emits undef arguments. Keep stub/unused-argument policy distinct from an implemented update feature. |
+| B108 | Same occurrence, clkn0_phase/preserve_bitoff_cal and forwarding/role offset helpers: signed16-bit additions/remainders and unsigned phase/old-bitoff comparisons are observable outside the normal0..1249 range. Frame PLL compensation uses the signed20-bit shift already noted in B97/B104. Several eSCO, AGC-set, RX-interrupt and fine-clock entry points are no-ops/zero returns. | Preserve exact widths and no-op policy until caller domains and silicon support are established. Confirm oscillator-range and phase contracts before sharing BR23 helpers or enabling unused APIs. The32-bit LLVM differential model tests full16-bit offset inputs; it does not prove hardware timing. |
+| B109 | Same occurrence, bredr_rx_irq_handler and receive snapshot helpers: IRQ dispatch assumes each enabled table slot has a nonnull live frame; callback absence is checked after dereferencing the frame. Stable-clock and RX-latch loops are unbounded. Completion callbacks can change state and ownership, so the SDK's entry snapshots, detach-before-callback and early returns matter. | Audit pending-interrupt masking, DMA progress and callback lifetime against real hardware. The native32-bit model covers ordered volatile accesses, callback mutation, feature-off/DUT/CRC cases and memory results, not asynchronous IRQ/DMA progress or interrupt nesting. |
+
 ## Inherited BR23 follow-ups: BD19 confirmation queue
 
 The linked [BR23 list](revisit.md) contains the original details and evidence.
@@ -379,6 +388,12 @@ Reproduce against the pinned BD19 occurrence before classifying as confirmed.
   diagnostic and callback order, first-stream CIG delays, resource status,
   full-width internal offsets and slave anchor fields/count width. The new
   fixtures exercise failure and mutation paths; SDK issues B19–B23 remain.
+
+- **R11 — resolved in the bredr_frame acceptance:** replaced the incomplete draft
+  and corrected field offsets, state transitions, callback ordering, narrow arithmetic,
+  frame-close polling and TX-slot selection against raw SDK LLVM. The native32-bit
+  differential harness supersedes simplified source-extraction fixtures. These
+  translation errors are not SDK bugs; B105–B109 are separate verified follow-ups.
 
 ## Accepted-member history coverage
 
@@ -513,3 +528,5 @@ not absence of defects. See the earlier sections for cross-member issues.
 | `RF_ble5.c.o` / 1 | worker `7eb8aef` plus coordinator correction/review | C44; B98–B100;21 exports and BLE5 operation-table boundary |
 
 | `RF_ble.c.o` / 1 | worker `31fcbca` plus coordinator review/correction | C45; B101–B104;62 public functions,5 globals,complete BLE radio/IRQ boundary |
+
+| `bredr_frame.c.o` / 1 | partial worker `1b2272e` plus coordinator completion/review | C46; B105–B109;111 public functions,3 globals,complete Classic frame/IRQ/paging boundary |

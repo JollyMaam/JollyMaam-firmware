@@ -816,6 +816,14 @@
       "sources": [
         "src/btctrler/bd19/RF_ble.c"
       ]
+    },
+    {
+      "member": "bredr_frame.c.o",
+      "occurrence": 1,
+      "sha256": "d4960114c4c3e7ec16d2dbb982b8134151bf271b83ada19a29b1dac776405366",
+      "sources": [
+        "src/btctrler/bd19/bredr_frame.c"
+      ]
     }
   ]
 }

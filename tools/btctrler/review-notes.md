@@ -2831,3 +2831,24 @@ no own .git. Inspected then unlinked only the two worker SDK/toolchain symlinks,
 preserving their shared targets, removed the empty external directory, and
 deleted the completed worktree and branch. No pending worker at this checkpoint.
 No app-image,flashing or hardware validation.
+
+
+BD19 Classic frame recovery: `bredr_frame.c.o` occurrence1,
+SHA-256 d4960114c4c3e7ec16d2dbb982b8134151bf271b83ada19a29b1dac776405366,
+supplied by bd19/bredr_frame.c. Partial worker1b2272e was completed and corrected
+by the coordinator; its partial report is superseded by the acceptance commit.
+All111 public functions/3 globals,120 body names and scalar ABIs,35 referenced
+type mappings,16 literal arrays, global records/sections/alignment, memory
+intrinsic lengths/minimum alignments, IRQ attribute and llvm.used root match.
+No BR23 source/application changes; all123 baseline C files match44d0073.
+Worker checks pass:219 : ok,12 legacy reports,31 tooling tests,both layouts,
+101 ownership groups. Totals102 accepted/9 retained members,1423 unique public
+functions,130 globals,584 verified retained index entries.
+New native32-bit SDK-vs-production-LLVM checker passes1734656 modeled
+comparisons, including callback mutation, feature-off/DUT/CRC, IRQ, allocation,
+AFH, update and offset paths. Supplementary arithmetic/AFH checker passes
+265550 math +100081 maps +720896 width comparisons. These models do not prove
+hardware timing, concurrent DMA, interrupt nesting or allocation-failure safety.
+Dedicated BD19 source intentionally fails an extra-source BR23 compile; both
+actual target source sets build. Revisit C46/B105–B109/R11 record follow-ups.
+No application image, flashing or hardware validation.
