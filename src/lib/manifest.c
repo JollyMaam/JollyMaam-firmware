@@ -133,7 +133,7 @@ int jm_manifest_open(struct jm_manifest *out, const struct jm_package *package) 
     } else {
       uint8_t header[32]; uint32_t base; char product[17];
       if ((strcmp(t->chip,"BR23") && strcmp(t->chip,"BD19")) ||
-          !artifact(&j,field(&j,object,"loader"),package,&t->loader) ||
+          !artifact(&j,field(&j,object,"loader"),package,&t->loader) || t->loader.size > 0x10000 ||
           !jm_jieli_find_base(t->install.data,t->install.size,header,&base)) return 0;
       jm_jieli_name_string(product,t->install.data+base+16);
       if (strcmp(product,t->product)) return 0;

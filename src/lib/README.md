@@ -101,7 +101,7 @@ BEGIN and DATA, reconciles dropped writes through UPDATE_INFO with bounded
 retries, checks COMMIT, and requests REBOOT. Errors stop the operation without
 blind destructive retries. The caller owns timeouts and transport completion.
 
-Desktop framing for the custom updater, package manifest policy, Windows SCSI access, the
+Desktop framing for the custom updater, Windows SCSI access, the
 libusb mass-storage backend, custom-device discovery, JNI integration and WASM
 builds remain to implement.
 
@@ -145,11 +145,25 @@ unsupported. Bounds are 128 entries and 32 MiB. Names cannot contain traversal
 segments, absolute paths, backslashes or drive separators; duplicates fail.
 The input buffer must remain unchanged while the package or entry views exist.
 
-`jollymaam inspect build/firmware.zip` validates and lists the container. The C
-reader does not yet parse manifest policy, verify manifest SHA-256 digests or
-select artifacts for automatic flashing. Those checks must be implemented before
-accepting a package as an upgrade plan. Container validity alone does not establish
-hardware compatibility. The current flash commands still accept individual images.
+`jm_manifest_open` parses format version 1, checks every referenced artifact's
+size and SHA-256, checks image products and restricts chip and preservation policy
+to supported targets. Parsing is bounded to 512 tokens, depth 16 and 32 KiB;
+strings are unescaped printable ASCII and numbers are unsigned 32-bit integers.
+Duplicate keys/products and unknown format versions fail. SHA-256 remains an
+integrity check, not authentication. The selected flash driver performs complete
+image/protocol validation before destructive commands.
+
+`jm_manifest_target` selects an exact product and returns borrowed install,
+update and loader views. Keep the archive buffer and manifest alive through the
+operation. No filesystem or OS dependencies enter the core library.
+
+`jollymaam inspect build/firmware.zip` now validates the manifest and hashes too.
+`jollymaam flash-package --yes DEVICE PRODUCT ZIP` verifies the package before
+opening a device, selects that product's installation image and matching loader,
+and drives the existing desktop adapter. The device protocol still checks actual
+identity before erasing. Jieli devices remain in their loader after verification;
+8BitDo starts the installed app. Custom-updater desktop transport is not yet wired
+into this command. Individual-image commands remain available.
 
 Run `nix-shell --run 'python3 -m unittest tools/test_firmware_package.py'` for the
 builder and malformed-container tests. They compile the C reader into a temporary

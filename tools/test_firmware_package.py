@@ -104,6 +104,25 @@ class PackageTests(unittest.TestCase):
         for mutate in mutations:
             self.assertEqual(self.manifest_valid(self.manifest_fixture(mutate)), 0)
 
+    def test_malformed_json(self):
+        valid = self.manifest_fixture()
+        with zipfile.ZipFile(io.BytesIO(valid)) as archive:
+            files = {name: archive.read(name) for name in archive.namelist()}
+        text = files['manifest.json'].decode()
+        bad = [text[:-1], text + ' garbage',
+               text.replace('"version": 1', '"version": 1, "version": 1'),
+               text.replace('"version": 1', '"version": 1.0'),
+               text.replace('"version": 1', '"version": -1'),
+               text.replace('"version": 1', '"version": 4294967296'),
+               '{"extra":' + '['*20 + '0' + ']'*20 + '}',
+               '{"extra":[' + ','.join('0' for _ in range(600)) + ']}']
+        for broken in bad:
+            stream = io.BytesIO()
+            with zipfile.ZipFile(stream, 'w') as archive:
+                for path, data in files.items():
+                    archive.writestr(path, broken if path == 'manifest.json' else data)
+            self.assertEqual(self.manifest_valid(stream.getvalue()), 0)
+
     def test_valid(self):
         self.assertEqual(self.check_zip(self.archive(('manifest.json', 'firmware/a.bin'))), (0, 2))
 
