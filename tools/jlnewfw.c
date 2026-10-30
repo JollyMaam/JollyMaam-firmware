@@ -11,6 +11,7 @@
 #include "../src/lib/jieli_image/entry.h"
 #include "../src/lib/jieli_image/key.h"
 #include "../src/lib/jieli_image/ufw.h"
+#include "../src/lib/jieli_image/bankcb.h"
 #include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -262,20 +263,8 @@ static void set_name(uint8_t name[16], const char *s) {
 
 
 static void scramble_bankcb(uint8_t *p, size_t n) {
-  if (n < 16)
-    die("uboot.boot is not BANKCB");
-  unsigned count = rd16(p);
-  if (!count || count > 256 || (size_t)count * 16 > n)
-    die("bad BANKCB count");
-  for (unsigned i = 0; i < count; i++) {
-    uint8_t *h = p + i * 16;
-    uint32_t off = rd32(h + 8);
-    uint16_t size = rd16(h + 2);
-    if ((uint64_t)off + size > n || jm_crc16(h, 14) != rd16(h + 14))
-      die("invalid BANKCB header");
-    jm_jieli_enc(p + off, size, 0xffff);
-    jm_jieli_enc(h, 16, 0xffff);
-  }
+  if (!jm_jieli_scramble_bankcb(p, n))
+    die("invalid BANKCB image");
 }
 static uint32_t next_pow2(uint32_t x) {
   uint32_t p = 1;
@@ -325,25 +314,8 @@ static uint32_t find_base(const uint8_t *p, size_t n, uint8_t clear[32]) {
   return base;
 }
 static void descramble_bankcb(uint8_t *p, size_t n) {
-  unsigned count = 1;
-  for (unsigned i = 0; i < count; i++) {
-    if ((size_t)(i + 1) * 16 > n)
-      die("truncated BANKCB header list");
-    uint8_t *h = p + i * 16;
-    jm_jieli_enc(h, 16, 0xffff);
-    if (jm_crc16(h, 14) != rd16(h + 14))
-      die("invalid BANKCB header");
-    if (!i) {
-      count = rd16(h);
-      if (!count || count > 256)
-        die("bad BANKCB count");
-    }
-    uint32_t off = rd32(h + 8);
-    uint16_t size = rd16(h + 2);
-    if ((uint64_t)off + size > n)
-      die("BANKCB data outside uboot.boot");
-    jm_jieli_enc(p + off, size, 0xffff);
-  }
+  if (!jm_jieli_descramble_bankcb(p, n))
+    die("invalid BANKCB image");
 }
 static void ensure_dir(const char *p) {
 #ifdef _WIN32
