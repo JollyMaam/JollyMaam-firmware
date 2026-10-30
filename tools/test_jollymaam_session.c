@@ -112,13 +112,13 @@ static uint8_t *fixture(size_t *size) {
   jm_jieli_sfc(image, 512, (uint32_t)*size - 512, 512, 0xffff);
   return image;
 }
-struct fakej { uint8_t flash[65536]; unsigned erases,writes,reads,starts,fail_read; };
+struct fakej { uint8_t flash[65536]; unsigned erases,writes,reads,starts,fail_read,mismatch,uploads; };
 static int scsi_fake(void *user,const uint8_t *cdb,size_t cdb_size,enum jm_scsi_direction direction,
                       uint8_t *data,size_t size,unsigned timeout,struct jm_scsi_result *result) {
   struct fakej *f=user;(void)timeout;memset(result,0,sizeof *result);result->transferred=size;
-  if(cdb_size==6) { assert(cdb[0]==0x12 && size==36);memset(data,0,size);volatile uint8_t *out=data;for(unsigned i=0;i<4;++i) out[8+i]=(uint8_t)"BR23"[i];for(unsigned i=0;i<9;++i) out[16+i]=(uint8_t)"UBOOT1.00"[i];return 0; }
+  if(cdb_size==6) { assert(cdb[0]==0x12 && size==36);memset(data,0,size);volatile uint8_t *out=data;for(unsigned i=0;i<4;++i) out[8+i]=(uint8_t)(f->mismatch?"BD19":"BR23")[i];for(unsigned i=0;i<9;++i) out[16+i]=(uint8_t)"UBOOT1.00"[i];return 0; }
   unsigned cmd=(unsigned)cdb[0]<<8|cdb[1];uint32_t at=rd32be(cdb+2);
-  if(cmd==0xfb06) return 0;
+  if(cmd==0xfb06) { ++f->uploads;return 0; }
   if(cmd==0xfd05) { ++f->reads;if(f->fail_read) { result->transferred=size-1;return 0; } assert(at+size<=sizeof f->flash);memcpy(data,f->flash+at,size);return 0; }
   if(cmd==0xfb04) { assert(direction==JM_SCSI_OUT && at+size<=sizeof f->flash);memcpy(f->flash+at,data,size);++f->writes;return 0; }
   assert(size==16);memset(data,0,size);data[0]=cdb[0];data[1]=cdb[1];
@@ -138,10 +138,13 @@ static int backup_sink(void *user,uint32_t at,const uint8_t *data,size_t size) {
 }
 static void testj(void) {
   size_t n;uint8_t *image=fixture(&n),loader[512]={0};struct fakej f;memset(&f,0x55,sizeof f);
-  f.erases=f.writes=f.reads=f.starts=f.fail_read=0;memcpy(f.flash,image,n);
+  f.erases=f.writes=f.reads=f.starts=f.fail_read=f.mismatch=f.uploads=0;memcpy(f.flash,image,n);
   struct jm_firmware_target target;memset(&target,0,sizeof target);strcpy(target.chip,"BR23");
   target.install.data=image;target.install.size=n;target.loader.data=loader;target.loader.size=sizeof loader;
   struct jm_session_io io={0};io.scsi=scsi_fake;io.wait_ms=wait_ms;
+  f.mismatch=1;
+  assert(jm_session_run(&target,JM_SESSION_JIELI,NULL,&io,&f,NULL,NULL)==-3);
+  assert(!f.uploads && !f.erases && !f.writes);f.mismatch=0;
   assert(!jm_session_run(&target,JM_SESSION_JIELI,NULL,&io,&f,NULL,NULL));
   assert(f.erases && f.writes && !memcmp(f.flash,image,n));
   for(size_t i=n;i<sizeof f.flash;++i) assert(f.flash[i]==0x55);

@@ -284,7 +284,15 @@ int jm_session_run(const struct jm_firmware_target *target, enum jm_session_kind
   if(kind==JM_SESSION_CUSTOM) return jm_session_custom(io,context,uid,target->update.data,target->update.size,progress,user);
   if(kind==JM_SESSION_8BITDO && !strcmp(target->chip,"TLSR8208"))
     return jm_session_8bitdo(io,context,target->install.data,target->install.size,progress,user);
-  if(kind==JM_SESSION_JIELI && ( !strcmp(target->chip,"BR23") || !strcmp(target->chip,"BD19")))
+  if(kind==JM_SESSION_JIELI && (!strcmp(target->chip,"BR23") || !strcmp(target->chip,"BD19"))) {
+    /* A verified package can contain both chips. Reject a mismatched selection
+     * before uploading its chip-specific helper, not after flash inspection. */
+    if(!io->scsi) return -1;
+    uint8_t cdb[6]={0x12,0,0,0,36,0},inquiry[36];struct jm_scsi_result result;
+    if(io->scsi(context,cdb,6,JM_SCSI_IN,inquiry,sizeof inquiry,2000,&result) ||
+       result.status || result.host_status || result.driver_status || result.transferred!=sizeof inquiry ||
+       memcmp(inquiry+8,target->chip,4) || memcmp(inquiry+16,"UBOOT1.00",9)) return -3;
     return jm_session_jieli(io,context,target->loader.data,target->loader.size,target->install.data,target->install.size);
+  }
   return -1;
 }
