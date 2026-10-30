@@ -67,3 +67,20 @@ out:
   hid_close(dev);
   return result;
 }
+
+/* Read-only bootloader model probe. Output is untouched on failure. */
+int jm_hid_8bitdo_model(const char *path, uint16_t *model) {
+  hid_device *dev=hid_open_path(path);
+  if (!dev) return 0;
+  uint8_t report[65]={0}, reply[128];
+  jm_8bitdo_request(report+1,8,0,NULL,4);
+  int ok=0;
+  if (hid_write(dev,report,sizeof report)==sizeof report) {
+    int n=hid_read_timeout(dev,reply,sizeof reply,1000);
+    const uint8_t *data; size_t size;
+    if (n>0 && jm_8bitdo_reply(reply,(size_t)n,8,0,&data,&size)==JM_8BITDO_OK && size==2) {
+      *model=(uint16_t)(data[0] | data[1]<<8); ok=1;
+    }
+  }
+  hid_close(dev); return ok;
+}
