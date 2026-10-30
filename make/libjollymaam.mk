@@ -1,5 +1,5 @@
 # Portable libjollymaam core. Backends will be linked separately.
-JOLLYMAAM_SOURCES := src/lib/proto_jieli.c src/lib/proto_jollymaam.c src/lib/upgrade_8bitdo.c src/lib/proto_8bitdo.c src/lib/jieli_image/bankcb.c src/lib/jieli_image/ufw.c src/lib/jieli_image/key.c src/lib/jieli_image/crypto.c src/lib/jieli_image/entry.c
+JOLLYMAAM_SOURCES := src/lib/jieli_image/image.c src/lib/proto_jieli.c src/lib/proto_jollymaam.c src/lib/upgrade_8bitdo.c src/lib/proto_8bitdo.c src/lib/jieli_image/bankcb.c src/lib/jieli_image/ufw.c src/lib/jieli_image/key.c src/lib/jieli_image/crypto.c src/lib/jieli_image/entry.c
 JOLLYMAAM_OBJECTS := $(JOLLYMAAM_SOURCES:src/lib/%.c=$(O)/host/libjollymaam/%.o)
 .PHONY: libjollymaam
 libjollymaam: $(O)/host/libjollymaam.a
@@ -10,7 +10,7 @@ $(O)/host/libjollymaam/%.o: src/lib/%.c $(wildcard src/lib/jieli_image/*.h src/l
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) -std=c99 -c $< -o $@
 
 .PHONY: libjollymaam-test
-JOLLYMAAM_TESTS := bankcb crypto entry key ufw
+JOLLYMAAM_TESTS := image bankcb crypto entry key ufw
 JOLLYMAAM_TEST_BINS := $(JOLLYMAAM_TESTS:%=$(O)/host/test-jollymaam-%)
 libjollymaam-test: $(JOLLYMAAM_TEST_BINS)
 	$(Q)for t in $^; do $$t || exit 1; done
@@ -53,3 +53,7 @@ $(O)/host/test-jollymaam-scsi-linux: src/lib/transport_linux.c src/lib/transport
 .PHONY: libjollymaam-linux-test
 libjollymaam-linux-test: $(O)/host/test-jollymaam-scsi-linux
 	$(Q)$<
+
+$(O)/host/check-jollymaam-image: tools/test_jollymaam_image.c $(O)/host/libjollymaam.a $(wildcard src/lib/jieli_image/*.h src/lib/*.h)
+	@mkdir -p $(@D)
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) -std=c99 $< $(O)/host/libjollymaam.a -o $@

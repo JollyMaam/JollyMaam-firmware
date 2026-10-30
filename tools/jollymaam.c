@@ -2,6 +2,8 @@
 #include "../src/lib/proto_jollymaam.h"
 #include "../src/lib/jieli_image/ufw.h"
 #include "../src/lib/jieli_image/entry.h"
+#include "../src/lib/jieli_image/image.h"
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -26,7 +28,37 @@ static void progress(void *user, unsigned done, unsigned total) {
   unsigned *last = user;
   if (done != *last) { fprintf(stderr, "Verified %u/%u sectors\n", done, total); *last = done; }
 }
+static int rekey(const char *input, const char *output, const char *text) {
+  char *end;
+  errno = 0;
+  unsigned long key = strtoul(text, &end, 0);
+  if (errno || !*text || *end || key > 0xffff) {
+    fprintf(stderr, "Key must be a 16-bit integer\n"); return 1;
+  }
+  size_t size;
+  uint8_t *data = read_image(input, &size);
+  if (!data) { fprintf(stderr, "Cannot read input image\n"); return 1; }
+  uint8_t *workspace = malloc(size ? size : 1), *packed = malloc(size ? size : 1);
+  struct jm_jieli_image view;
+  int result = 1;
+  if (!workspace || !packed) goto done;
+  int error = jm_jieli_image_open(&view, data, size, workspace, size);
+  if (!error) error = jm_jieli_image_pack(&view, (uint16_t)key, packed, size);
+  if (error) { fprintf(stderr, "Invalid Jieli image: %d\n", error); goto done; }
+  FILE *file = fopen(output, "wb");
+  if (!file) { perror(output); goto done; }
+  int written = fwrite(packed, 1, size, file) == size;
+  int closed = fclose(file) == 0;
+  if (!written || !closed) { fprintf(stderr, "Cannot write output image\n"); goto done; }
+  result = 0;
+done:
+  free(data); free(workspace); free(packed);
+  return result;
+}
 int main(int argc, char **argv) {
+  if (argc == 5 && !strcmp(argv[1], "rekey-jieli"))
+    return rekey(argv[2], argv[3], argv[4]);
+
   if (argc == 2 && !strcmp(argv[1], "scan")) {
     if (jm_hid_enumerate_8bitdo(visit, NULL) < 0) {
       fprintf(stderr, "HID enumeration failed\n"); return 1;
@@ -43,17 +75,19 @@ int main(int argc, char **argv) {
       char product[17];
       const uint8_t *flash;
       size_t flash_size;
-      uint8_t header[32]; uint32_t base;
+      struct jm_jieli_image view;
+      uint8_t *workspace = malloc(size ? size : 1);
       enum jm_jieli_ufw_result ufw = jm_jieli_ufw_open(data, size, &flash, &flash_size);
       if (jm_update_image_check(data, size, NULL)) {
         printf("Validated MAIN update image: bytes=%zu\n", size); result = 0;
       } else if (jm_8bitdo_image_product(data, size, product)) {
         printf("Telink full image: product=%s bytes=%zu\n", product, size); result = 0;
       } else if ((ufw == JM_JIELI_UFW_RAW || ufw == JM_JIELI_UFW_OK) &&
-                 jm_jieli_find_base(flash, flash_size, header, &base)) {
-        printf("Jieli image: base=0x%x bytes=%zu wrapper=%s (header validated)\n",
-               base, flash_size, ufw == JM_JIELI_UFW_OK ? "UFW" : "raw"); result = 0;
+                 workspace && jm_jieli_image_open(&view, flash, flash_size, workspace, size) == JM_JIELI_IMAGE_OK) {
+        printf("Jieli image: base=0x%x bytes=%zu wrapper=%s key=0x%04x (validated)\n",
+               view.base, flash_size, ufw == JM_JIELI_UFW_OK ? "UFW" : "raw", view.key); result = 0;
       } else fprintf(stderr, "Unrecognized or invalid image\n");
+      free(workspace);
     } else {
       unsigned last = (unsigned)-1;
       result = jm_hid_upgrade_8bitdo(argv[3], data, size, progress, &last);
@@ -63,6 +97,7 @@ int main(int argc, char **argv) {
   }
   fprintf(stderr, "usage: jollymaam scan\n"
                   "       jollymaam inspect IMAGE\n"
+                  "       jollymaam rekey-jieli INPUT OUTPUT KEY\n"
                   "       jollymaam flash-8bitdo --yes HID_PATH IMAGE\n");
   return 2;
 }
