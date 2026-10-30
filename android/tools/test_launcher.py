@@ -88,7 +88,7 @@ class LauncherTests(unittest.TestCase):
         shutil.copyfile(source, self.android/'run-emulator')
         (self.android/'tools').mkdir()
         shutil.copyfile(source.parent/'tools/launcher_lock.py', self.android/'tools/launcher_lock.py')
-        apk = self.android/'app/build/outputs/apk/debug/app-debug.apk'
+        apk = self.root/'build/android/app/outputs/apk/debug/app-debug.apk'
         apk.parent.mkdir(parents=True); apk.write_bytes(b'test')
         for name in ('adb','emulator','scrcpy','avdmanager','gradlew'):
             file = (self.android if name == 'gradlew' else self.bin)/name

@@ -250,7 +250,10 @@ The compatibility desktop upgrade functions delegate to this same session code.
 `jm_session_run` is a blocking convenience runner: callbacks execute on its
 caller's thread. For Android, implement this table in a JNI adapter and use a
 worker thread; Java/Kotlin owns USB permissions, transfers and device lifecycle.
-It does not need to link the desktop archive. No Android adapter exists yet.
+It does not need to link the desktop archive. The Android app implements this
+adapter in `AndroidNativeUsb.kt`, with `jollymaam_jni.c` bridging the callback
+table. Its package updater runs the same session as the desktop CLI; see
+`android/README.md` for builds and instrumentation checks.
 The existing per-protocol `next`/`complete` state machines remain available for
 asynchronous scheduling; a complete asynchronous session wrapper remains future
 work, particularly for browser event loops.

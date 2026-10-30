@@ -1,0 +1,2 @@
+-keep class dev.cyclone.padtool.NativeCore { *; }
+-keep class dev.cyclone.padtool.NativeUsb { *; }

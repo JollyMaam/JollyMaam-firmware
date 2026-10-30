@@ -203,6 +203,7 @@ class MainActivity : Activity() {
         }
     }
     private fun devicePage(parent: LinearLayout) {
+        button(parent, "Firmware updater") { startActivity(Intent(this, FirmwareUpdaterActivity::class.java)) }
         if (BuildConfig.DEBUG) button(parent, "Simulated pad (no USB)") { model.loadSimulation() }
         for (device in model.devices) button(parent, "${device.productName ?: "USB device"} · %04x:%04x\n${device.deviceName}".format(device.vendorId, device.productId)) { choose(device) }
         if (model.devices.isEmpty()) parent.addView(label("No tool devices found."))

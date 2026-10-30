@@ -11,7 +11,7 @@ private adb server, and removes its temporary files. The AVD and saved
 simulated settings are kept. Closing the display window also stops the session.
 In the terminal, r + Enter rebuilds/reinstalls; q + Enter stops the session.
 
-  --no-build   Install the existing app/build/outputs/apk/debug/app-debug.apk
+  --no-build   Install the existing ../build/android/app/outputs/apk/debug/app-debug.apk
   --scrcpy     Use -no-window and show Android through scrcpy instead
   --headless   Start without either display window (for automation)
   --cold-boot  Start without loading a snapshot
@@ -56,7 +56,7 @@ port=${PADTOOL_EMULATOR_PORT:-5580}
 if [[ ! $port =~ ^[0-9]{4}$ ]]; then fail 'port must be even and between 5554 and 5584'; fi
 if (( port < 5554 || port > 5584 || port % 2 != 0 )); then fail 'port must be even and between 5554 and 5584'; fi
 serial="emulator-$port"
-apk="$android_dir/app/build/outputs/apk/debug/app-debug.apk"
+apk="$android_dir/../build/android/app/outputs/apk/debug/app-debug.apk"
 log_file="$state_dir/emulator.log"
 
 # A supervisor holds a close-on-exec lock and forwards signals to the worker.
@@ -105,7 +105,7 @@ trap 'exit 129' HUP
 # The launcher remains in the foreground so signals always trigger cleanup.
 build_app() {
     local result=0
-    setsid ./gradlew --no-daemon :app:assembleDebug &
+    setsid ./gradlew --no-daemon --project-cache-dir "$android_dir/../build/android/.gradle" :app:assembleDebug &
     build_pid=$!
     wait "$build_pid" || result=$?
     stop_group "$build_pid"

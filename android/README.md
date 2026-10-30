@@ -12,7 +12,7 @@ The desktop CLI and Tkinter GUI are independent and remain available.
 Run this on the Linux host, outside the development container:
 
 ```sh
-/work/cyclone2-android/android/run-emulator
+./android/run-emulator
 ```
 
 The executable enters the top-level flake emulator shell and works from any directory with Nix
@@ -136,20 +136,21 @@ cleanup, terminal reload/quit and propagation of `QT_QPA_PLATFORM`.
 
 ## Build and install
 
-With JDK 17, Android SDK platform 35 and build-tools 34.0.0 installed:
+With JDK 17, Android SDK platform 35, build-tools 34.0.0, NDK 27.2.12479018
+and CMake 3.22.1 installed:
 
 ```sh
 cd android
 export ANDROID_HOME=/path/to/android-sdk
 ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r ../build/android/app/outputs/apk/debug/app-debug.apk
 ```
 
 Alternatively, from `android/` on Nix:
 
 ```sh
 nix develop ..#android --command bash -c './gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug'
-nix develop ..#android --command bash -c 'adb install -r app/build/outputs/apk/debug/app-debug.apk'
+nix develop ..#android --command bash -c 'adb install -r ../build/android/app/outputs/apk/debug/app-debug.apk'
 ```
 
 The shell uses the top-level flake.lock pin and accepts the SDK license for
@@ -165,6 +166,53 @@ memory settings; that process exits when the build finishes.
 are not included. There are no runtime dependencies beyond Kotlin's standard
 library and Android. The app requests USB device access, not storage, network,
 location or Bluetooth permissions.
+
+## Firmware package updater
+
+The main device list has a **Firmware updater** button, available without a
+connected pad. Choose the single `build/firmware.zip` produced by
+`make firmware-package`. The app verifies the manifest, artifact hashes and
+image formats before enabling device selection. Android's file picker reads the
+ZIP; no broad storage permission is needed. Keep the app in the foreground
+through an update.
+
+Supported interfaces are our HID tool firmware, the 8BitDo Ultimate 2C Wireless
+pad's stock HID bootloader, and Jieli BR23/BD19 UBOOT1.00 mass-storage
+bootloaders. Normal stock gamepad modes cannot be updated through this screen.
+Select a device, grant USB permission and confirm **Update**. Discovery reads
+identity only. Jieli asks for the intended board because INQUIRY identifies the
+chip; the C core checks the installed product before erasing. The matching RAM
+helper comes from the verified ZIP, so this screen needs no separate helper
+selection. Jieli updates leave the verified device in its loader. Custom and
+8BitDo sessions request a firmware restart after verification.
+
+The APK contains `libjollymaam-jni.so` for arm64-v8a and x86_64. CMake compiles
+`libjollymaam.a` for each ABI and links it into the JNI shared library. It does
+not link the desktop platform archive, hidapi, libusb, zlib or a C++ runtime.
+`NativeCore` exposes package inspection, read-only probing and an update session.
+`NativeUsb` supplies synchronous Kotlin callbacks for USB transfers, report size,
+waiting, reconnecting by UID and progress. `AndroidNativeUsb` implements them
+with Android USB host APIs; `FirmwareUpdaterActivity` owns permissions,
+confirmation and a single worker. Protocol sequencing, validation and reconnect
+policy remain in the portable C core. The older settings/individual-image
+screens retain their existing Kotlin implementation.
+
+`make android-check` builds the debug APK and instrumentation APK, runs JVM
+unit tests and lint. `nix flake check` also exercises the real JNI bridge on a
+host JVM with fake endpoint callbacks and `-Xcheck:jni`. Regenerate its synthetic instrumentation package with
+`python3 android/tools/generate_native_fixture.py`. Android instrumentation
+uses the same fake endpoints with the actual NDK library; it never accesses USB.
+To run it on an already-running test emulator:
+
+```sh
+nix develop .#android --command adb -s emulator-5580 install -r build/android/app/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+nix develop .#android --command adb -s emulator-5580 shell am instrument -w dev.cyclone.padtool.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+Set `ADB_SERVER_SOCKET=tcp:127.0.0.1:6580` for the launcher's default private adb
+server (adjust both ports when using a different emulator port). Install the main
+APK first; `android/run-emulator` does that automatically. Phone USB behavior and
+physical firmware writes still require hardware validation.
 
 ## Use
 

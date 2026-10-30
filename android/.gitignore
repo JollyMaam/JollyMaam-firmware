@@ -1,2 +1,8 @@
 local.properties
 *.jks
+
+.gradle/
+.kotlin/
+build/
+app/build/
+app/.cxx/
