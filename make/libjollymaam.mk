@@ -33,9 +33,9 @@ libjollymaam-test: $(O)/host/test-jollymaam-upgrade
 HIDAPI_PKG ?= hidapi-hidraw
 .PHONY: jollymaam
 jollymaam: $(O)/host/jollymaam
-$(O)/host/jollymaam: tools/jollymaam.c src/lib/transport_hid.c src/lib/transport_linux.c src/lib/transport_jieli.c $(O)/host/libjollymaam.a $(wildcard src/lib/*.h)
+$(O)/host/jollymaam: tools/jollymaam.c tools/jollymaam_update.h tools/jollymaam_update.c src/lib/transport_hid.c src/lib/transport_custom.c src/lib/transport_linux.c src/lib/transport_jieli.c $(O)/host/libjollymaam.a $(wildcard src/lib/*.h)
 	@mkdir -p $(@D)
-	$(Q)$(HOST_CC) $(HOST_CFLAGS) tools/jollymaam.c src/lib/transport_hid.c src/lib/transport_linux.c src/lib/transport_jieli.c $(O)/host/libjollymaam.a $$(pkg-config --cflags --libs $(HIDAPI_PKG)) $(JOLLYMAAM_LDFLAGS) -o $@
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) tools/jollymaam.c tools/jollymaam_update.c src/lib/transport_hid.c src/lib/transport_custom.c src/lib/transport_linux.c src/lib/transport_jieli.c $(O)/host/libjollymaam.a $$(pkg-config --cflags --libs $(HIDAPI_PKG)) $(JOLLYMAAM_LDFLAGS) -o $@
 
 $(O)/host/test-jollymaam-proto_jollymaam: src/lib/proto_jollymaam.c $(O)/host/libjollymaam.a src/lib/proto_jollymaam.h
 	@mkdir -p $(@D)

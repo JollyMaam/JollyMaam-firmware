@@ -6,6 +6,7 @@
 #include "../src/lib/jieli_image/entry.h"
 #include "../src/lib/jieli_image/image.h"
 #include "../src/lib/transport_jieli.h"
+#include "jollymaam_update.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -64,6 +65,7 @@ done:
   return result;
 }
 int main(int argc, char **argv) {
+  if (argc == 3 && !strcmp(argv[1], "update")) return jollymaam_update_app(argv[2]);
   if (argc == 6 && !strcmp(argv[1], "flash-package") && !strcmp(argv[2], "--yes")) {
     size_t size = 0; uint8_t *data = read_image(argv[5], &size);
     struct jm_package package; struct jm_manifest manifest;
@@ -150,7 +152,8 @@ int main(int argc, char **argv) {
     }
     free(data); return result ? 1 : 0;
   }
-  fprintf(stderr, "usage: jollymaam scan\n"
+  fprintf(stderr, "usage: jollymaam update FIRMWARE.zip\n"
+                  "       jollymaam scan\n"
                   "       jollymaam inspect IMAGE\n"
                   "       jollymaam rekey-jieli INPUT OUTPUT KEY\n"
                   "       jollymaam flash-8bitdo --yes HID_PATH IMAGE\n"

@@ -15,7 +15,7 @@ static.stdenv.mkDerivation {
     done
     $AR rcs build/static/libjollymaam.a build/static/*.o
     # OS adapters and dependencies belong to the application, not the core.
-    $CC -std=c99 -O2 -Wall -Wextra tools/jollymaam.c src/lib/transport_hid.c src/lib/transport_linux.c src/lib/transport_jieli.c \
+    $CC -std=c99 -O2 -Wall -Wextra tools/jollymaam.c tools/jollymaam_update.c src/lib/transport_hid.c src/lib/transport_custom.c src/lib/transport_linux.c src/lib/transport_jieli.c \
       build/static/libjollymaam.a \
       $(pkg-config --static --cflags --libs hidapi-${hidBackend} libusb-1.0 libudev) \
       -static -pthread -o build/static/jollymaam
