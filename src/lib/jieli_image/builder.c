@@ -604,7 +604,7 @@ int jm_jieli_build(const struct jm_jieli_build_options *options,jm_jieli_read_fi
   struct build_context *ctx=calloc(1,sizeof *ctx);
   if(!ctx) { if(error) snprintf(error,256,"out of memory");return 0; }
   ctx->read=read;ctx->log=log;ctx->user=user;
-  int ok=0;
+  volatile int ok=0;
   if(!setjmp(ctx->error_jump)) {
     struct jm_jieli_build_options copy=*options;uint16_t key;
     struct blob image=build(ctx,&copy,&key);
