@@ -2852,3 +2852,19 @@ hardware timing, concurrent DMA, interrupt nesting or allocation-failure safety.
 Dedicated BD19 source intentionally fails an extra-source BR23 compile; both
 actual target source sets build. Revisit C46/B105–B109/R11 record follow-ups.
 No application image, flashing or hardware validation.
+
+
+Classic frame combined checkpoint: acceptance `72bce2d` was fast-forward
+merged into btctrler/br23-bd19-vanilla. The canonical BD19 frame object was
+explicitly rebuilt, replacing the earlier worker-created build artifact.
+Canonical full checks exit0:219 : ok,12 legacy reports,31 tooling tests,
+both layouts and101 ownership groups. Canonical actual-target LLVM model
+passes1734656 comparisons. All123 BR23 baseline sources remain identical
+to44d0073. Totals102 accepted/9 retained members,1423 public functions,
+130 globals and584 verified retained index entries.
+Verified clean tracked state and worker tip ancestry, SDK and btstack Git
+inputs clean, and toolchain directory has no own .git. Inspected/unlinked
+only the worker's external and build/controller-ir symlinks; their shared
+targets were preserved. Removed the completed worker worktree and branch.
+Canonical tree is clean after this record; unrelated worktrees were untouched.
+No pending worker for this assignment. No app-image/hardware validation.

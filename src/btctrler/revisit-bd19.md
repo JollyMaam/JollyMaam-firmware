@@ -113,7 +113,7 @@ against the eventual Nova 2 configuration and linked image.
 | C44 | `bd19/RF_ble5.c`, SDK occurrence1 `5d861cc0…ad59`, worker `7eb8aef` plus coordinator recovery: census10 reusable/26 matching bodies with boundary changes/44 differing. BD19 RX records have16-byte headers/data offset16 and RSSI at12, versus BR23 size20; radio initialization uses32-bit ana_index15 without the BR23 gain store. | Share pure header/ring/PHY/channel helpers after both compiled boundaries are audited. Keep hardware and receive construction target-local until offsets and callback reload contracts are reconciled. Recheck the untouched BR23 baseline for the recovery omissions corrected here, especially bytewise permutation, RSSI and correlated-pointer indirection; these are translation findings, not SDK defects. |
 | C45 | `bd19/RF_ble.c`, SDK occurrence1 `6d862d87…8005`, worker `31fcbca` plus coordinator review:18 matching bodies,10 boundary checks,72 changed,2 unique. BD19 moves all-event-hold/instant checking from RF_ble5, adds drift control/bit-offset entry points, latency small-window handling, receive update routing and different radio initialization. | Share checked allocation/queue/address/PHY helpers after full callback/type audit; retain BD19 timing/register paths until both SDKs justify consolidation. All123 BR23 baseline sources remain unchanged. Instant-validity null-before-IRQ behavior is a concrete candidate BR23 fix, subject to a separate baseline/application decision. |
 
-| C46 | `bd19/bredr_frame.c`, SDK occurrence1 `d4960114…5366`, partial worker `1b2272e` plus coordinator completion:3 reuse candidates,63 changed,54 without a unique counterpart. BD19 uses584-byte heap frames and a348-byte pointer table; BR23 has180-byte frames and an embedded table. Register clocks, paging/role-switch state machines, AFH packing and update paths differ substantially. | Share independently verified address/mask/arithmetic helpers after checking layouts, callbacks and no-op policy. Keep hardware/state-machine ownership separate. All123 baseline BR23 sources remain unchanged; no later application fixes were imported. |
+| C46 | `bd19/bredr_frame.c`, SDK occurrence1 `d4960114…5366`, partial worker `1b2272e` plus coordinator acceptance `72bce2d`:3 reuse candidates,63 changed,54 without a unique counterpart. BD19 uses584-byte heap frames and a348-byte pointer table; BR23 has180-byte frames and an embedded table. Register clocks, paging/role-switch state machines, AFH packing and update paths differ substantially. | Share independently verified address/mask/arithmetic helpers after checking layouts, callbacks and no-op policy. Keep hardware/state-machine ownership separate. All123 baseline BR23 sources remain unchanged; no later application fixes were imported. |
 
 ## Confirmed BD19 behavior to revisit
 
@@ -389,7 +389,7 @@ Reproduce against the pinned BD19 occurrence before classifying as confirmed.
   full-width internal offsets and slave anchor fields/count width. The new
   fixtures exercise failure and mutation paths; SDK issues B19–B23 remain.
 
-- **R11 — resolved in the bredr_frame acceptance:** replaced the incomplete draft
+- **R11 — resolved, `72bce2d`:** replaced the incomplete draft
   and corrected field offsets, state transitions, callback ordering, narrow arithmetic,
   frame-close polling and TX-slot selection against raw SDK LLVM. The native32-bit
   differential harness supersedes simplified source-extraction fixtures. These
@@ -529,4 +529,4 @@ not absence of defects. See the earlier sections for cross-member issues.
 
 | `RF_ble.c.o` / 1 | worker `31fcbca` plus coordinator review/correction | C45; B101–B104;62 public functions,5 globals,complete BLE radio/IRQ boundary |
 
-| `bredr_frame.c.o` / 1 | partial worker `1b2272e` plus coordinator completion/review | C46; B105–B109;111 public functions,3 globals,complete Classic frame/IRQ/paging boundary |
+| `bredr_frame.c.o` / 1 | partial worker `1b2272e` plus coordinator acceptance `72bce2d` | C46; B105–B109;111 public functions,3 globals,complete Classic frame/IRQ/paging boundary |
