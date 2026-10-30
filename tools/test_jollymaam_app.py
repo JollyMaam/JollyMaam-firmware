@@ -19,14 +19,14 @@ int jm_hid_custom_devices(jm_custom_visitor visit,void *user) {
 }
 int jm_hid_enumerate_8bitdo(jm_hid_visit visit,void *user) { visit(user,"fake-boot",0x2dc8,0x3208); return 1; }
 int jm_hid_8bitdo_model(const char *p,uint16_t *m) { (void)p; *m=0x301b; return 1; }
-int jm_linux_jieli_candidates(jm_jieli_candidate_visitor v,void *u) { v(u,"fake-jieli",JM_JIELI_BR23);return 1; }
+int jm_jieli_candidates(jm_jieli_candidate_visitor v,void *u) { v(u,"fake-jieli",JM_JIELI_BR23);return 1; }
 int jm_hid_custom_update(const char *p,const uint8_t expected_uid[16],const uint8_t *d,size_t n,void (*cb)(void*,size_t,size_t),void *u) {
  (void)d; (void)expected_uid; cb(u,n,n); printf("MOCK-CUSTOM:%s\n",p); return getenv("FAIL_CUSTOM") ? -4 : 0;
 }
 int jm_hid_upgrade_8bitdo(const char *p,const uint8_t *d,size_t n,void (*cb)(void*,unsigned,unsigned),void *u) {
  (void)d;(void)n;cb(u,1,1);printf("MOCK-BOOT:%s\n",p);return 0;
 }
-int jm_linux_jieli_upgrade(const char *p,const uint8_t *l,size_t s,const uint8_t *d,size_t n) {
+int jm_jieli_upgrade(const char *p,const uint8_t *l,size_t s,const uint8_t *d,size_t n) {
  (void)p;(void)l;(void)s;(void)d;(void)n;puts("UNEXPECTED-JIELI");return -1;
 }
 int main(int argc,char **argv) { return argc==2 ? jollymaam_update_app(argv[1]) : 2; }

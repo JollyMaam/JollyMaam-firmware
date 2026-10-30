@@ -3,17 +3,40 @@
 #include "transport_hid.h"
 #include <hidapi.h>
 #include <string.h>
+#ifdef _WIN32
+#include <windows.h>
+#include <hidsdi.h>
+#else
 #include <time.h>
+#endif
 #include <errno.h>
 
 struct custom { hid_device *dev; size_t report; uint8_t tag; };
 static void pause_ms(unsigned ms) {
+  #ifdef _WIN32
+  Sleep(ms);
+  #else
   struct timespec t = {ms/1000, (long)(ms%1000)*1000000};
   while (nanosleep(&t, &t) && errno == EINTR) {}
+  #endif
 }
 static int open_custom(struct custom *c, const char *path) {
   memset(c, 0, sizeof *c); c->dev = hid_open_path(path);
   if (!c->dev) return 0;
+  #ifdef _WIN32
+  HANDLE handle=CreateFileA(path, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+  PHIDP_PREPARSED_DATA preparsed=NULL;
+  HIDP_CAPS caps;
+  int ok=handle!=INVALID_HANDLE_VALUE && HidD_GetPreparsedData(handle,&preparsed);
+  if (ok) {
+    ok=HidP_GetCaps(preparsed,&caps)==HIDP_STATUS_SUCCESS && caps.UsagePage==0xffc2 &&
+       (caps.FeatureReportByteLength==357 || caps.FeatureReportByteLength==513);
+    if (ok) c->report=caps.FeatureReportByteLength-1;
+    HidD_FreePreparsedData(preparsed);
+  }
+  if (handle!=INVALID_HANDLE_VALUE) CloseHandle(handle);
+  if (ok) return 1;
+  #else
   uint8_t descriptor[256];
   int n = hid_get_report_descriptor(c->dev, descriptor, sizeof descriptor);
   /* Accept only our known unnumbered byte-array feature descriptor. */
@@ -26,6 +49,7 @@ static int open_custom(struct custom *c, const char *path) {
       }
     }
   }
+  #endif
   hid_close(c->dev); c->dev = NULL; return 0;
 }
 static int command(struct custom *c, const struct jm_update_request *r, uint8_t *answer) {

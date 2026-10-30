@@ -67,7 +67,7 @@ int jollymaam_update_app(const char *package_path) {
     struct devices list; memset(&list,0,sizeof list);
     if(jm_hid_custom_devices(custom,&list)<0) puts("Custom HID discovery unavailable.");
     if(jm_hid_enumerate_8bitdo(boot8,&list)<0) puts("8BitDo discovery unavailable.");
-    if(jm_linux_jieli_candidates(jieli,&list)<0) puts("Jieli discovery unavailable.");
+    if(jm_jieli_candidates(jieli,&list)<0) puts("Jieli discovery unavailable.");
     for(unsigned i=0;i<list.count;++i) {
       struct device *d=&list.entries[i];
       const struct jm_firmware_target *target=jm_manifest_target(&manifest,d->id.product);
@@ -104,7 +104,7 @@ int jollymaam_update_app(const char *package_path) {
     unsigned last=(unsigned)-1; int result;
     if(d->kind==CUSTOM) result=jm_hid_custom_update(d->path,d->id.uid,target->update.data,target->update.size,progress,&last);
     else if(d->kind==BOOT8) result=jm_hid_upgrade_8bitdo(d->path,target->install.data,target->install.size,progress8,&last);
-    else result=jm_linux_jieli_upgrade(d->path,target->loader.data,target->loader.size,target->install.data,target->install.size);
+    else result=jm_jieli_upgrade(d->path,target->loader.data,target->loader.size,target->install.data,target->install.size);
     if(result) printf("\nUpdate failed (%d). Device may remain in its loader; rescan before retrying.\n",result);
     else puts(d->kind==JIELI?"\nWritten and verified. Device remains in its loader.":"\nWritten and verified. Firmware restart requested.");
   }

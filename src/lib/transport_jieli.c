@@ -1,6 +1,20 @@
 #define _POSIX_C_SOURCE 200809L
 #include "transport_jieli.h"
 #include "jieli_image/image.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#ifdef _WIN32
+#include <windows.h>
+typedef HANDLE device_handle;
+#define INVALID_DEVICE INVALID_HANDLE_VALUE
+#define close_device CloseHandle
+#define scsi_transfer jm_scsi_win32_transfer
+static device_handle open_device(const char *path) {
+  return CreateFileA(path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                      NULL, OPEN_EXISTING, 0, NULL);
+}
+#else
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -9,6 +23,12 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+typedef int device_handle;
+#define INVALID_DEVICE (-1)
+#define close_device close
+#define scsi_transfer jm_scsi_linux_transfer
+static device_handle open_device(const char *path) { return open(path, O_RDWR | O_CLOEXEC); }
+#endif
 
 static int chip_of(const uint8_t *vendor, enum jm_jieli_chip *chip) {
   if (!memcmp(vendor, "BR23", 4)) *chip = JM_JIELI_BR23;
@@ -16,6 +36,7 @@ static int chip_of(const uint8_t *vendor, enum jm_jieli_chip *chip) {
   else return 0;
   return 1;
 }
+#ifndef _WIN32
 static int read_text(const char *path, uint8_t *data, size_t size) {
   FILE *f = fopen(path, "r");
   if (!f) return 0;
@@ -25,7 +46,7 @@ static int read_text(const char *path, uint8_t *data, size_t size) {
  * No node is opened, RAM loader uploaded or device rebooted. Paths are borrowed
  * during the callback. Honor DEV_ROOT for container-exported device nodes.
  * A nonzero callback result stops enumeration. Return count, or -1 on error. */
-int jm_linux_jieli_candidates(jm_jieli_candidate_visitor visit, void *user) {
+int jm_jieli_candidates(jm_jieli_candidate_visitor visit, void *user) {
   if (!visit) return -1;
   DIR *dir = opendir("/sys/class/block");
   if (!dir) return -1;
@@ -44,17 +65,22 @@ int jm_linux_jieli_candidates(jm_jieli_candidate_visitor visit, void *user) {
   }
   closedir(dir); return count;
 }
-static int transfer(int fd, const struct jm_jieli_request *request, uint8_t *reply, size_t *size) {
+#endif
+static int transfer(device_handle fd, const struct jm_jieli_request *request, uint8_t *reply, size_t *size) {
+  #ifdef _WIN32
+  Sleep(request->delay_ms);
+  #else
   struct timespec delay = {request->delay_ms / 1000, (long)(request->delay_ms % 1000) * 1000000};
   while (nanosleep(&delay, &delay) && errno == EINTR) {}
+  #endif
   struct jm_scsi_result result;
   uint8_t *data = request->direction == JM_SCSI_OUT ? (uint8_t *)request->data : reply;
-  if (jm_scsi_linux_transfer(fd, request->cdb, 16, request->direction, data,
+  if (scsi_transfer(fd, request->cdb, 16, request->direction, data,
                               request->size, request->timeout_ms, &result) ||
       result.status || result.host_status || result.driver_status) return 0;
   *size = result.transferred; return 1;
 }
-static int flash_read(int fd, uint32_t address, uint8_t *data, size_t size, uint32_t io) {
+static int flash_read(device_handle fd, uint32_t address, uint8_t *data, size_t size, uint32_t io) {
   while (size) {
     struct jm_jieli_request request;
     memset(&request, 0, sizeof request);
@@ -67,7 +93,7 @@ static int flash_read(int fd, uint32_t address, uint8_t *data, size_t size, uint
   }
   return 1;
 }
-/* Blocking Linux convenience driver for an explicitly selected stock loader.
+/* Blocking desktop convenience driver for an explicitly selected stock loader.
  * Validate the image before opening the device, verify INQUIRY, upload the
  * supplied chip-specific RAM loader, read the installed product, rekey locally,
  * and drive the portable flash operation. Nova pad stock data is preserved.
@@ -76,18 +102,18 @@ static int flash_read(int fd, uint32_t address, uint8_t *data, size_t size, uint
  * identify preflight (-1), opening (-2), INQUIRY (-3), loader (-4), installed
  * product (-5), image preparation (-6), or flash/verification (-7) failure.
  * No automatic boot entry, device selection or reconnect occurs. */
-int jm_linux_jieli_upgrade(const char *path, const uint8_t *loader, size_t loader_size,
+int jm_jieli_upgrade(const char *path, const uint8_t *loader, size_t loader_size,
                              const uint8_t *image, size_t size) {
   if (!path || !loader || !loader_size || !size || size > 32 * 1024 * 1024) return -1;
   uint8_t *workspace = malloc(size), *packed = malloc(size), *head = NULL;
   struct jm_jieli_image view;
-  int result = -1, fd = -1;
+  int result = -1; device_handle fd = INVALID_DEVICE;
   if (!workspace || !packed || jm_jieli_image_open(&view, image, size, workspace, size)) goto done;
-  fd = open(path, O_RDWR | O_CLOEXEC);
-  if (fd < 0) { result = -2; goto done; }
+  fd = open_device(path);
+  if (fd == INVALID_DEVICE) { result = -2; goto done; }
   uint8_t inquiry[36], cdb[6] = {0x12, 0, 0, 0, 36, 0}; struct jm_scsi_result scsi;
   enum jm_jieli_chip chip;
-  if (jm_scsi_linux_transfer(fd, cdb, 6, JM_SCSI_IN, inquiry, sizeof inquiry, 2000, &scsi) ||
+  if (scsi_transfer(fd, cdb, 6, JM_SCSI_IN, inquiry, sizeof inquiry, 2000, &scsi) ||
       scsi.status || scsi.host_status || scsi.driver_status || scsi.transferred != sizeof inquiry ||
       memcmp(inquiry + 16, "UBOOT1.00", 9) || !chip_of(inquiry + 8, &chip)) { result = -3; goto done; }
   struct jm_jieli_loader startup;
@@ -124,6 +150,6 @@ int jm_linux_jieli_upgrade(const char *path, const uint8_t *loader, size_t loade
   }
   result = step == JM_JIELI_DONE ? 0 : -7;
 done:
-  if (fd >= 0) close(fd);
+  if (fd != INVALID_DEVICE) close_device(fd);
   free(workspace); free(packed); free(head); return result;
 }

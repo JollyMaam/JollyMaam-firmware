@@ -77,7 +77,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(target->chip, "TLSR8208")) {
       unsigned last = (unsigned)-1;
       result = jm_hid_upgrade_8bitdo(argv[3], target->install.data, target->install.size, progress, &last);
-    } else result = jm_linux_jieli_upgrade(argv[3], target->loader.data, target->loader.size,
+    } else result = jm_jieli_upgrade(argv[3], target->loader.data, target->loader.size,
                                            target->install.data, target->install.size);
     free(data);
     if (result) fprintf(stderr, "Package upgrade failed: %d\n", result);
@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
   if (argc == 6 && !strcmp(argv[1], "flash-jieli") && !strcmp(argv[2], "--yes")) {
     size_t loader_size = 0, image_size = 0;
     uint8_t *loader = read_image(argv[4], &loader_size), *image = read_image(argv[5], &image_size);
-    int result = loader && image ? jm_linux_jieli_upgrade(argv[3], loader, loader_size, image, image_size) : -1;
+    int result = loader && image ? jm_jieli_upgrade(argv[3], loader, loader_size, image, image_size) : -1;
     free(loader); free(image);
     if (result) fprintf(stderr, "Jieli upgrade failed: %d; recovery may be required\n", result);
     else puts("Written and verified; device remains in its loader");
@@ -100,7 +100,7 @@ int main(int argc, char **argv) {
     if (jm_hid_enumerate_8bitdo(visit, NULL) < 0) {
       fprintf(stderr, "HID enumeration failed\n"); return 1;
     }
-    if (jm_linux_jieli_candidates(jieli_visit, NULL) < 0) {
+    if (jm_jieli_candidates(jieli_visit, NULL) < 0) {
       fprintf(stderr, "Jieli enumeration failed\n"); return 1;
     }
     return 0;
