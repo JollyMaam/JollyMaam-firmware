@@ -245,3 +245,25 @@ work, particularly for browser event loops.
 Session tests use callback-only devices and link just the core archive. They
 exercise complete Jieli and 8BitDo sessions plus custom updater entry, framing,
 reconnection, mismatched identities, failed transfers and dropped writes.
+
+## Windows build and distribution
+
+`nix-build jollymaam-windows.nix` cross-compiles the x86-64 Windows executable,
+portable core archive and desktop platform archive. The executable statically
+links hidapi and the compiler runtime and imports only Windows system DLLs.
+The build also emits cross-compiled offline tests under share/jollymaam/tests;
+they can run under Wine without flashing hardware. Windows USB behavior still
+requires hardware validation. Raw Jieli access may require an Administrator
+terminal; discovery itself uses disk-interface metadata without opening disks.
+
+To package an existing executable with the single firmware ZIP:
+
+```
+python3 tools/jollymaam_windows_dist.py --exe build/host/jollymaam.exe \
+    --firmware build/firmware.zip build/jollymaam-windows.zip
+```
+
+Extract the distribution ZIP and open `Update firmware.cmd` to launch the terminal
+UI. The distribution contains the executable, firmware.zip, launcher and README;
+no additional runtime DLLs are bundled. Fixed archive timestamps and ordering
+make repeat builds with identical inputs reproducible.
