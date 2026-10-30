@@ -5,6 +5,7 @@
 #include "proto_8bitdo.h"
 #include "proto_jollymaam.h"
 #include "upgrade_8bitdo.h"
+#include "upgrade_jieli.h"
 #include "upgrade_jollymaam.h"
 #include "jieli_image/bankcb.h"
 #include "jieli_image/crypto.h"
