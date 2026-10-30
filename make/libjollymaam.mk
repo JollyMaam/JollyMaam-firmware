@@ -46,3 +46,10 @@ $(O)/host/test-jollymaam-proto_jieli: src/lib/proto_jieli.c $(O)/host/libjollyma
 	@mkdir -p $(@D)
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) -std=c99 -DUNITTEST $< $(O)/host/libjollymaam.a -o $@
 libjollymaam-test: $(O)/host/test-jollymaam-proto_jieli
+
+$(O)/host/test-jollymaam-scsi-linux: src/lib/transport_linux.c src/lib/transport_scsi.h
+	@mkdir -p $(@D)
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) -std=c99 -DUNITTEST $< -o $@
+.PHONY: libjollymaam-linux-test
+libjollymaam-linux-test: $(O)/host/test-jollymaam-scsi-linux
+	$(Q)$<
