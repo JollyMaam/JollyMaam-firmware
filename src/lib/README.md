@@ -12,7 +12,14 @@ build/host/jollymaam inspect build/gamesir-cyclone-2-pad/firmware.img
 ```
 
 `nix-build jollymaam-static.nix` builds a fully static musl executable and the
-portable archive. The regular Makefile CLI build uses dynamic hidapi. The static
+portable archive. Static libusb, both hidapi backends, zlib, and their required
+udev implementation are available through `nix-shell static-shell.nix`. That
+shell uses a matching musl compiler; do not mix its archives with the regular
+glibc development shell. Use `pkg-config --static` when linking. The static Nix
+build checks that all three dependencies can link and run without shared
+libraries, using version queries that do not access devices.
+
+The regular Makefile CLI build uses dynamic hidapi. The static
 archive does not include desktop adapters or depend on hidapi.
 
 The CLI currently offers passive 8BitDo bootloader candidate enumeration (`scan`),

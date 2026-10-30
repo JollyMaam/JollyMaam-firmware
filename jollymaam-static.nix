@@ -5,7 +5,7 @@ static.stdenv.mkDerivation {
   version = "0.1";
   src = pkgs.lib.cleanSource ./.;
   nativeBuildInputs = [ pkgs.pkg-config ];
-  buildInputs = [ static.hidapi static.libudev-zero ];
+  buildInputs = [ static.hidapi static.libusb1 static.zlib static.libudev-zero ];
   buildPhase = ''
     runHook preBuild
     mkdir -p build/static
@@ -33,6 +33,15 @@ static.stdenv.mkDerivation {
     $CC -std=c99 -O2 tools/test_jollymaam_upgrade.c build/static/libjollymaam.a \
       -static -o build/static/test-upgrade
     build/static/test-upgrade
+    # Exercise both hidapi backends, libusb and zlib without opening hardware.
+    for backend in hidapi-hidraw hidapi-libusb; do
+      $CC -std=c99 tools/test_static_dependencies.c \
+        $(pkg-config --static --cflags --libs $backend libusb-1.0 zlib libudev) \
+        -static -o build/static/test-$backend-deps
+      build/static/test-$backend-deps
+      $READELF -d build/static/test-$backend-deps > build/static/dependency-tags
+      if grep -q NEEDED build/static/dependency-tags; then exit 1; fi
+    done
     $READELF -l build/static/jollymaam > build/static/program-headers
     $READELF -d build/static/jollymaam > build/static/dynamic-tags
     if grep -q INTERP build/static/program-headers; then exit 1; fi
