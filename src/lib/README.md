@@ -101,7 +101,7 @@ BEGIN and DATA, reconciles dropped writes through UPDATE_INFO with bounded
 retries, checks COMMIT, and requests REBOOT. Errors stop the operation without
 blind destructive retries. The caller owns timeouts and transport completion.
 
-Desktop framing for the custom updater, ZIP packaging, Windows SCSI access, the
+Desktop framing for the custom updater, package manifest policy, Windows SCSI access, the
 libusb mass-storage backend, custom-device discovery, JNI integration and WASM
 builds remain to implement.
 
@@ -126,3 +126,31 @@ to the original key, file visits and preservation of full-dump reserved tails.
 `make build/host/test-jollymaam-jieli-flash` builds the flash-device simulation.
 It runs a synthetic image by default; an optional raw image path exercises the
 same scenarios on an existing firmware image, without device access.
+
+## Firmware ZIP containers
+
+`make firmware-package` packages existing builds into `build/firmware.zip` (or
+`O/firmware.zip`). It requires every supported target's firmware.img and
+update.bin plus the SDK BR23 and BD19 RAM loaders. It does not rebuild firmware.
+The ZIP uses stored entries, fixed timestamps and sorted names for reproducible
+output. manifest.json format version 1 describes products, chips, artifact roles,
+sizes, SHA-256 digests, loaders and preservation ranges. Digests are corruption
+checks, not signatures. Input artifacts are read before the output is opened.
+
+`jm_package_open` validates the ZIP container and CRCs, and `jm_package_entry`
+or `jm_package_find` returns borrowed name/data views. No allocation, filesystem
+access or zlib is required. This initial format accepts ZIP32 stored entries only;
+compressed/encrypted entries, data descriptors and multi-disk containers are
+unsupported. Bounds are 128 entries and 32 MiB. Names cannot contain traversal
+segments, absolute paths, backslashes or drive separators; duplicates fail.
+The input buffer must remain unchanged while the package or entry views exist.
+
+`jollymaam inspect build/firmware.zip` validates and lists the container. The C
+reader does not yet parse manifest policy, verify manifest SHA-256 digests or
+select artifacts for automatic flashing. Those checks must be implemented before
+accepting a package as an upgrade plan. Container validity alone does not establish
+hardware compatibility. The current flash commands still accept individual images.
+
+Run `nix-shell --run 'python3 -m unittest tools/test_firmware_package.py'` for the
+builder and malformed-container tests. They compile the C reader into a temporary
+shared library and compare its behavior with generated Python ZIP fixtures.
