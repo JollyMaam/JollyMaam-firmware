@@ -13,9 +13,10 @@ build/host/jollymaam inspect build/gamesir-cyclone-2-pad/firmware.img
 
 `libjollymaam.a` is the portable protocol and image library. It contains no
 OS adapters, hidapi, libusb, or zlib. Applications supply their own transport or
-compile the optional desktop adapters and link the platform libraries they need.
+link `libjollymaam-platform.a` for the optional desktop adapters. Applications
+link hidapi and system dependencies separately; neither archive embeds them.
 
-`nix-build jollymaam-static.nix` produces this core archive and a fully static
+`nix-build jollymaam-static.nix` produces both archives and a fully static
 musl CLI. The CLI links hidapi and its platform dependencies separately. The default
 HID backend is hidraw; select libusb with `--argstr hidBackend libusb`.
 `nix-shell static-shell.nix` provides a matching musl compiler and static libusb,
@@ -23,14 +24,14 @@ hidapi and zlib. The build smoke-tests those dependencies without device access.
 Use `--arg withZlib false` to omit the unused zlib build dependency and its smoke
 test. No zlib objects are merged into the core in either configuration.
 
-The core does not currently use compression. When ZIP support is implemented,
+The core accepts stored ZIP entries without compression. If deflate support is added,
 zlib can be a dependency of that module; whether to bundle its objects or let
 applications link their preferred zlib remains a separate decision.
 
 The static Nix artifacts target Linux musl; do not mix them with the regular
 glibc development shell or Android binaries. Android needs its own target build.
 The regular Makefile also builds the portable `libjollymaam.a`; its CLI links the
-desktop adapter and dynamic hidapi separately.
+desktop platform archive and dynamic hidapi separately.
 
 The CLI currently offers passive 8BitDo bootloader candidate enumeration (`scan`),
 offline image inspection (`inspect IMAGE`), raw Jieli image rekeying
@@ -87,8 +88,8 @@ Jieli flashing uses `jm_jieli_flash_init`, `jm_jieli_flash_next`, and
 image if needed. Supply workspace and explicit board-specific keep ranges.
 The operation reads those ranges before any erase, then erases, programs nonblank
 chunks and verifies the complete written span. It leaves the device in its RAM
-loader, with firmware start a separate explicit operation. The Linux blocking
-adapter composes these steps; Android/browser callers can drive the portable
+loader, with firmware start a separate explicit operation. The portable core session
+composes these steps; Android/browser callers can drive the portable
 state machines with their own transport. Keep ranges are trusted board policy
 and must not cover firmware headers or code.
 
@@ -101,19 +102,21 @@ BEGIN and DATA, reconciles dropped writes through UPDATE_INFO with bounded
 retries, checks COMMIT, and requests REBOOT. Errors stop the operation without
 blind destructive retries. The caller owns timeouts and transport completion.
 
-Windows SCSI access, the
-libusb mass-storage backend, custom-device discovery, JNI integration and WASM
-builds remain to implement.
+The libusb mass-storage backend, ordinary stock-gamepad discovery, JNI
+integration and WASM builds remain to implement. Windows SCSI and desktop HID
+adapters are implemented and cross-built, with hardware validation still pending.
 
 Module boundaries:
 
 - `proto_*.c` encodes and validates packets or their image format; no device I/O.
 - `upgrade_*.c` and `flash_jieli.c` sequence requests without allocation or
   transport calls.
-- `jieli_image/` transforms and validates caller buffers. Header comments describe
+- `jieli_image/` transforms and validates caller buffers. Comments beside C definitions describe
   whether a failed operation can leave a partially transformed buffer. Function
   documentation lives beside definitions in the C files.
-- `transport_*.c` adapts platform I/O. The CLI owns paths and presentation.
+- `session.c` owns complete update orchestration, HID framing and reconnect policy.
+- `platform.c` and `transport_*.c` implement desktop I/O and discovery.
+- The CLI owns approval, opening/closing the connection and presentation.
 
 Run reference image comparisons with `tools/test_jollymaam_images.py`, supplying
 separately built old and new jlnewfw binaries plus image paths. It compares list,
@@ -197,3 +200,48 @@ after verification; the 8BitDo starts its app. Real-device HID behavior is not y
 hardware-validated. Frontend tests use fake devices and exercise confirmation,
 cancellation, rescanning, mismatched targets and failure handling without USB I/O.
 Run `python3 -m unittest tools/test_jollymaam_app.py` in the development shell.
+
+## Core and platform connection boundary
+
+Both native and cross builds produce `libjollymaam.a` and
+`libjollymaam-platform.a`. The core contains no OS handles, paths, hidapi calls,
+sleeps or JNI dependencies. The desktop archive contains enumeration, handle
+ownership, OS transfer adapters and compatibility wrappers for older entry points.
+Link the desktop archive before the core archive, then hidapi/system libraries.
+An application-supplied adapter can link the core alone.
+
+The terminal application now follows this pattern after validating its package,
+selecting a target and obtaining user approval:
+
+```c
+struct jm_platform_connection *connection = jm_platform_open(path, kind);
+if (connection) {
+    result = jm_session_run(target, kind, expected_uid,
+                            jm_platform_io(), connection, progress, user);
+    jm_platform_close(connection);
+}
+```
+
+`session.h` defines typed SCSI, raw HID and feature-report callbacks. The caller
+supplies a context pointer; the core borrows it and never frees or closes it.
+Read/write callbacks report actual lengths; SCSI also reports sense and status.
+Callback details and buffer lifetimes are documented beside the C definitions.
+Only operations required by the selected protocol need implementations.
+
+The shared session performs product/UID checks, loader startup, image rekeying,
+preservation, updates, verification and custom-updater reconnect timing. A
+reconnect callback makes one discovery/open attempt for a requested UID. The core
+owns bounded retries and independently checks the returned UID, product and mode.
+The compatibility desktop upgrade functions delegate to this same session code.
+
+`jm_session_run` is a blocking convenience runner: callbacks execute on its
+caller's thread. For Android, implement this table in a JNI adapter and use a
+worker thread; Java/Kotlin owns USB permissions, transfers and device lifecycle.
+It does not need to link the desktop archive. No Android adapter exists yet.
+The existing per-protocol `next`/`complete` state machines remain available for
+asynchronous scheduling; a complete asynchronous session wrapper remains future
+work, particularly for browser event loops.
+
+Session tests use callback-only devices and link just the core archive. They
+exercise complete Jieli and 8BitDo sessions plus custom updater entry, framing,
+reconnection, mismatched identities, failed transfers and dropped writes.
