@@ -66,7 +66,7 @@ static void simulate(const uint8_t *image, size_t size, int mode) {
         assert(at == keep.offset); preserved = 1;
         if (mode == 1) { jm_jieli_flash_complete(&op, 0, NULL, 0); continue; }
       } else if (mode == 3) reply[0] ^= 1;
-      jm_jieli_flash_complete(&op, 1, reply, request.size);
+      jm_jieli_flash_complete(&op, 1, reply, mode == 7 ? request.size - 1 : request.size);
     } else if (command == 0xfb00 || command == 0xfb01) {
       assert(preserved && reads && !writes);
       unsigned n = command == 0xfb00 ? 65536 : 4096;
@@ -82,7 +82,7 @@ static void simulate(const uint8_t *image, size_t size, int mode) {
       assert(n == request.size && at + n <= capacity);
       assert(jm_crc16(request.data, n) == (unsigned)(request.cdb[9] | request.cdb[10] << 8));
       memcpy(old + at, request.data, n);
-      jm_jieli_flash_complete(&op, 1, NULL, n);
+      jm_jieli_flash_complete(&op, mode != 6, NULL, mode == 5 ? n - 1 : n);
     }
   }
   if (!mode) {
@@ -94,6 +94,8 @@ static void simulate(const uint8_t *image, size_t size, int mode) {
     if (mode == 1) assert(!erases && !writes);
     if (mode == 2) assert(erases == 1 && !writes);
     if (mode == 3) assert(op.error == -4);
+    if (mode == 5 || mode == 6) assert(writes == 1);
+    if (mode == 7) assert(!erases && !writes && op.error == -3);
   }
 done:
   free(workspace); free(old); free(scratch);
@@ -106,7 +108,7 @@ int main(int argc, char **argv) {
     size = (size_t)n; image = malloc(size); assert(image);
     assert(fread(image, 1, size, f) == size); fclose(f);
   } else image = fixture(&size);
-  for (int mode = 0; mode < 5; ++mode) simulate(image, size, mode);
+  for (int mode = 0; mode < 8; ++mode) simulate(image, size, mode);
   free(image); puts("Jieli flash simulation passed");
   return 0;
 }

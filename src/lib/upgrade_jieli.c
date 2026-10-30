@@ -125,7 +125,10 @@ static void simulate(int chip, int fail_upload, int never_ready) {
       reply[4] = 20; reply[5] = 0x40; reply[6] = 0xef;
       jm_jieli_loader_complete(&op, 1, reply, 16);
     } else if (cmd == 0xfc14) {
-      jm_jieli_loader_complete(&op, 0, NULL, 0);
+      if (chip == JM_JIELI_BD19) {
+        reply[4] = 8;
+        jm_jieli_loader_complete(&op, 1, reply, sizeof reply);
+      } else jm_jieli_loader_complete(&op, 0, NULL, 0);
     } else {
       if (cmd == 0xfc09) {
         uint8_t key[2] = {0x34, 0x12}; jm_jieli_crc_cipher(key, 2, 0xffffffff);
@@ -140,7 +143,7 @@ static void simulate(int chip, int fail_upload, int never_ready) {
     if (never_ready) assert(polls == 20);
   } else {
     assert(step == JM_JIELI_DONE && uploads == 3);
-    assert(op.device.flash_size == 0x100000 && op.device.io == 512 && op.device.key == 0x1234);
+    assert(op.device.flash_size == 0x100000 && op.device.io == (chip == JM_JIELI_BD19 ? 2048u : 512u) && op.device.key == 0x1234);
   }
 }
 int main(void) {
