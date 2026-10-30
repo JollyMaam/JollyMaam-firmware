@@ -11,28 +11,26 @@ nix-shell --run 'make libjollymaam libjollymaam-test libjollymaam-linux-test jol
 build/host/jollymaam inspect build/gamesir-cyclone-2-pad/firmware.img
 ```
 
-`nix-build jollymaam-static.nix` produces a fully static musl executable and two
-archives:
+`libjollymaam.a` is the portable protocol and image library. It contains no
+OS adapters, hidapi, libusb, or zlib. Applications supply their own transport or
+compile the optional desktop adapters and link the platform libraries they need.
 
-- `lib/libjollymaam.a` includes our core, HID and Linux SCSI adapters, static
-  hidapi (libusb backend by default), libusb, zlib, and the required udev objects.
-  Dependencies are merged as object members, not nested archives. Link consumers
-  with this single archive and the matching target C runtime (`-static -pthread`);
-  no separate `-lhidapi`, `-lusb-1.0`, `-lz` or `-ludev` is required.
-- `lib/libjollymaam-core.a` contains only the portable protocol and image code,
-  without desktop adapters or third-party dependencies.
+`nix-build jollymaam-static.nix` produces this core archive and a fully static
+musl CLI. The CLI links hidapi and its platform dependencies separately. Select
+the hidraw backend with `--argstr hidBackend hidraw`; the default is libusb.
+`nix-shell static-shell.nix` provides a matching musl compiler and static libusb,
+hidapi and zlib. The build smoke-tests those dependencies without device access.
+Use `--arg withZlib false` to omit the unused zlib build dependency and its smoke
+test. No zlib objects are merged into the core in either configuration.
 
-Select the hidraw backend with `--argstr hidBackend hidraw`. Exactly one hidapi
-backend is merged because their symbols overlap. Use `--arg withZlib false` to
-omit zlib when it is not needed. The build links a dependency smoke test against
-only the bundled archive and checks for shared-library dependencies; its version
-queries do not open devices.
+The core does not currently use compression. When ZIP support is implemented,
+zlib can be a dependency of that module; whether to bundle its objects or let
+applications link their preferred zlib remains a separate decision.
 
-`nix-shell static-shell.nix` provides the matching musl compiler and static
-libraries. These archives target Linux musl; do not mix them with the regular
+The static Nix artifacts target Linux musl; do not mix them with the regular
 glibc development shell or Android binaries. Android needs its own target build.
-The regular Makefile `libjollymaam.a` remains the portable core archive, and its
-CLI build links the desktop adapter and dynamic hidapi separately.
+The regular Makefile also builds the portable `libjollymaam.a`; its CLI links the
+desktop adapter and dynamic hidapi separately.
 
 The CLI currently offers passive 8BitDo bootloader candidate enumeration (`scan`),
 offline image inspection (`inspect IMAGE`), and pad bootloader upgrades

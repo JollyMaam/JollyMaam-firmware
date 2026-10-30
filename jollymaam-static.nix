@@ -13,30 +13,12 @@ static.stdenv.mkDerivation {
     for source in src/lib/jieli_image/*.c src/lib/proto_jieli.c src/lib/proto_8bitdo.c src/lib/proto_jollymaam.c src/lib/upgrade_8bitdo.c; do
       $CC -std=c99 -O2 -Wall -Wextra -c "$source" -o "build/static/$(basename "$source" .c).o"
     done
-    $AR rcs build/static/libjollymaam-core.a build/static/*.o
-    $CC -std=c99 -O2 -Wall -Wextra -c src/lib/transport_hid.c \
-      $(pkg-config --cflags hidapi-${hidBackend}) -o build/static/transport_hid.o
-    $CC -std=c99 -O2 -Wall -Wextra -c src/lib/transport_linux.c \
-      -o build/static/transport_linux.o
-    # MRI ADDLIB copies archive members, rather than nesting .a files.
-    # Select exactly one hidapi backend: both export the same public symbols.
-    cat > build/static/merge.mri <<MERGE
-    CREATE build/static/libjollymaam.a
-    ADDLIB build/static/libjollymaam-core.a
-    ADDMOD build/static/transport_hid.o
-    ADDMOD build/static/transport_linux.o
-    ADDLIB $(pkg-config --variable=libdir hidapi-${hidBackend})/libhidapi-${hidBackend}.a
-    ADDLIB $(pkg-config --variable=libdir libusb-1.0)/libusb-1.0.a
-    ADDLIB $(pkg-config --variable=libdir libudev)/libudev.a
-    ${pkgs.lib.optionalString withZlib "ADDLIB $(pkg-config --variable=libdir zlib)/libz.a"}
-    SAVE
-    END
-    MERGE
-    $AR -M < build/static/merge.mri
-    $RANLIB build/static/libjollymaam.a
-    # Consumers need only our archive and the target C runtime.
-    $CC -std=c99 -O2 -Wall -Wextra tools/jollymaam.c \
-      build/static/libjollymaam.a -static -pthread -o build/static/jollymaam
+    $AR rcs build/static/libjollymaam.a build/static/*.o
+    # OS adapters and dependencies belong to the application, not the core.
+    $CC -std=c99 -O2 -Wall -Wextra tools/jollymaam.c src/lib/transport_hid.c \
+      build/static/libjollymaam.a \
+      $(pkg-config --static --cflags --libs hidapi-${hidBackend} libusb-1.0 libudev) \
+      -static -pthread -o build/static/jollymaam
     runHook postBuild
   '';
   doCheck = true;
@@ -55,12 +37,12 @@ static.stdenv.mkDerivation {
       -static -o build/static/test-upgrade
     build/static/test-upgrade
     ${pkgs.lib.optionalString withZlib ''
-    # These APIs must resolve from the bundled archive, without -lusb/-lhidapi/-lz.
+    # Dependencies are linked by the application separately from the core.
     $CC -std=c99 tools/test_static_dependencies.c \
-      $(pkg-config --cflags hidapi-${hidBackend} libusb-1.0 zlib) \
-      build/static/libjollymaam.a -static -pthread -o build/static/test-bundled-deps
-    build/static/test-bundled-deps
-    $READELF -d build/static/test-bundled-deps > build/static/dependency-tags
+      $(pkg-config --static --cflags --libs hidapi-${hidBackend} libusb-1.0 zlib libudev) \
+      -static -pthread -o build/static/test-application-deps
+    build/static/test-application-deps
+    $READELF -d build/static/test-application-deps > build/static/dependency-tags
     if grep -q NEEDED build/static/dependency-tags; then exit 1; fi
     ''}
     $READELF -l build/static/jollymaam > build/static/program-headers
@@ -71,7 +53,7 @@ static.stdenv.mkDerivation {
   installPhase = ''
     mkdir -p $out/bin $out/lib $out/include/jollymaam/jieli_image
     cp build/static/jollymaam $out/bin/
-    cp build/static/libjollymaam.a build/static/libjollymaam-core.a $out/lib/
+    cp build/static/libjollymaam.a $out/lib/
     cp src/lib/*.h $out/include/jollymaam/
     cp src/lib/jieli_image/*.h $out/include/jollymaam/jieli_image/
   '';
