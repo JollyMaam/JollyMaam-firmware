@@ -4,6 +4,16 @@
 #include <stdlib.h>
 #include <string.h>
 
+static int visit(void *user, const struct jm_jieli_file *file) {
+  unsigned *count = user;
+  assert(file->name[0] && memchr(file->name, 0, sizeof file->name));
+  assert(file->data && file->size);
+  ++*count;
+  return 0;
+}
+static int stop(void *user, const struct jm_jieli_file *file) {
+  (void)user; (void)file; return 1;
+}
 int main(int argc, char **argv) {
   assert(argc == 2);
   FILE *f = fopen(argv[1], "rb"); assert(f);
@@ -16,6 +26,10 @@ int main(int argc, char **argv) {
   int r = jm_jieli_image_open(&view, data, n, plain, n);
   if (r) fprintf(stderr, "open failed: %d: %s\n", r, argv[1]);
   assert(r == JM_JIELI_IMAGE_OK);
+  unsigned files = 0;
+  assert(jm_jieli_image_visit(&view, visit, &files) == JM_JIELI_IMAGE_OK && files >= 3);
+  assert(jm_jieli_image_visit(&view, stop, NULL) == JM_JIELI_IMAGE_VISITOR);
+
   assert(jm_jieli_image_pack(&view, view.key, packed, n) == JM_JIELI_IMAGE_OK);
   assert(!memcmp(data, packed, n));
   uint16_t newkey = view.key ^ 0x1234;

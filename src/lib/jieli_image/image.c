@@ -78,6 +78,7 @@ enum jm_jieli_image_result jm_jieli_image_open(struct jm_jieli_image *out,
     if (e.index) { last = 1; break; }
   }
   if (!last) return JM_JIELI_IMAGE_HEADER;
+  uint64_t resource_end = outer.size;
   if (!outer.index) {
     uint64_t at = outer.size;
     for (;;) {
@@ -87,11 +88,12 @@ enum jm_jieli_image_result jm_jieli_image_open(struct jm_jieli_image *out,
         return JM_JIELI_IMAGE_HEADER;
       if (e.offset < 32 || e.size < e.offset || !range(n, at, e.size)) return JM_JIELI_IMAGE_BOUNDS;
       if (jm_crc16(plain + at + e.offset, e.size - e.offset) != e.data_crc) return JM_JIELI_IMAGE_CRC;
+      resource_end = at + e.size;
       if (e.index) break;
       at += e.size;
     }
   }
-  if (view.cipher_size < outer.size || (view.cipher_size < n && (view.cipher_size & 31)))
+  if (view.cipher_size < resource_end || (view.cipher_size < n && (view.cipher_size & 31)))
     return JM_JIELI_IMAGE_BOUNDS;
   if (view.cipher_size < n)
     jm_jieli_sfc(plain, view.cipher_size, (uint32_t)n - view.cipher_size, 0, view.key);
@@ -136,6 +138,70 @@ enum jm_jieli_image_result jm_jieli_image_pack(const struct jm_jieli_image *imag
   }
   if (!found_key && key != image->key) return JM_JIELI_IMAGE_HEADER;
   jm_jieli_sfc(out, image->appbase, image->cipher_size, image->appbase, key);
+  return JM_JIELI_IMAGE_OK;
+}
+
+static int emit_file(jm_jieli_file_visitor visit, void *user,
+                     const struct jm_jieli_entry *entry, const uint8_t *data,
+                     size_t size, enum jm_jieli_file_kind kind) {
+  struct jm_jieli_file file;
+  jm_jieli_name_string(file.name, entry->name);
+  file.data = data; file.size = size; file.kind = kind;
+  return visit(user, &file);
+}
+/* Visit decoded top-level files, application files and resources in a view
+ * returned by open. Reserved flash areas and directory records are omitted.
+ * File data borrows workspace; each descriptor lives only during the callback.
+ * Return zero from the callback to continue, nonzero to stop. isd_config.ini is
+ * the binary configuration stream, not the desktop tool's reconstructed INI.
+ * The callback must not modify the view or its workspace. No filesystem I/O. */
+enum jm_jieli_image_result jm_jieli_image_visit(const struct jm_jieli_image *image,
+                                                jm_jieli_file_visitor visit, void *user) {
+  if (!image || !visit || !image->data || image->top_count > 32 ||
+      !range(image->size, image->appbase, image->cipher_size) || image->cipher_size < 32)
+    return JM_JIELI_IMAGE_ARGUMENT;
+  for (size_t i = 0; i < image->top_count; ++i) {
+    uint64_t at = (uint64_t)image->base + 32 + i * 32;
+    struct jm_jieli_entry e;
+    if (!range(image->size, at, 32)) return JM_JIELI_IMAGE_BOUNDS;
+    if (!jm_jieli_decode_entry(image->data + at, &e)) return JM_JIELI_IMAGE_CRC;
+    if (!(e.flags & 0x10) && e.flags != 0x81) {
+      uint64_t off = (uint64_t)image->base + e.offset;
+      if (!range(image->size, off, e.size)) return JM_JIELI_IMAGE_BOUNDS;
+      if (emit_file(visit, user, &e, image->data + off, e.size, JM_JIELI_FILE_TOP))
+        return JM_JIELI_IMAGE_VISITOR;
+    }
+  }
+  const uint8_t *plain = image->data + image->appbase;
+  struct jm_jieli_entry outer;
+  if (!jm_jieli_decode_entry(plain, &outer)) return JM_JIELI_IMAGE_CRC;
+  if (outer.size < 64 || outer.size > image->cipher_size) return JM_JIELI_IMAGE_BOUNDS;
+  int last = 0;
+  for (uint64_t at = 32; at + 32 <= outer.size; at += 32) {
+    struct jm_jieli_entry e;
+    if (!jm_jieli_decode_entry(plain + at, &e)) return JM_JIELI_IMAGE_CRC;
+    if (e.flags == 0x82) {
+      if (!range(outer.size, e.offset, e.size)) return JM_JIELI_IMAGE_BOUNDS;
+      if (emit_file(visit, user, &e, plain + e.offset, e.size, JM_JIELI_FILE_APP))
+        return JM_JIELI_IMAGE_VISITOR;
+    }
+    if (e.index) { last = 1; break; }
+  }
+  if (!last) return JM_JIELI_IMAGE_HEADER;
+  if (!outer.index) {
+    uint64_t at = outer.size;
+    for (;;) {
+      struct jm_jieli_entry e;
+      if (!range(image->cipher_size, at, 32)) return JM_JIELI_IMAGE_BOUNDS;
+      if (!jm_jieli_decode_entry(plain + at, &e)) return JM_JIELI_IMAGE_CRC;
+      if (e.offset < 32 || e.size < e.offset || !range(image->cipher_size, at, e.size))
+        return JM_JIELI_IMAGE_BOUNDS;
+      if (emit_file(visit, user, &e, plain + at + e.offset, e.size - e.offset, JM_JIELI_FILE_RESOURCE))
+        return JM_JIELI_IMAGE_VISITOR;
+      if (e.index) break;
+      at += e.size;
+    }
+  }
   return JM_JIELI_IMAGE_OK;
 }
 
