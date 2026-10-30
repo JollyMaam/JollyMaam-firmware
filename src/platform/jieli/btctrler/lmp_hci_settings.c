@@ -35,7 +35,7 @@ void lmp_hci_write_local_name(const char *name)
 {
     unsigned size = sizeof(gbredr_local_dev.local_name), len = 0;
     /* Fix: avoid the SDK's 16-bit strlen truncation and copying after a
-     * failed assertion. A terminator must fit in the 32-byte name field. */
+     * failed assertion. A terminator must fit in the name field. */
     if (name) while (len < size && name[len]) len++;
     if (!name || len == size) {
         btctrler_assert_failed("local name length", len);
@@ -104,23 +104,24 @@ int main(void)
     }
     CHECK(lmp_hci_write_le_host_support(INT_MIN) == 0 && lmp_hci_write_le_host_support(INT_MAX) == 0);
     lmp_hci_host_num_of_completed_packets(0x123, 0xffff); CHECK(queued == 1);
-    for (unsigned len = 0; len < 32; len++) {
-        char name[32]; memset(name, 'A', len); name[len] = 0;
-        memset(gbredr_local_dev.local_name, 0xa5, 32);
+    enum { N = sizeof(gbredr_local_dev.local_name) };
+    for (unsigned len = 0; len < N; len++) {
+        char name[N]; memset(name, 'A', len); name[len] = 0;
+        memset(gbredr_local_dev.local_name, 0xa5, N);
         lmp_hci_write_local_name(name);
         CHECK(!asserts && !memcmp(gbredr_local_dev.local_name, name, len + 1));
-        for (unsigned i = len; i < 32; i++) CHECK(!gbredr_local_dev.local_name[i]);
+        for (unsigned i = len; i < N; i++) CHECK(!gbredr_local_dev.local_name[i]);
     }
     lmp_hci_write_local_name((const char *)gbredr_local_dev.local_name);
-    CHECK(gbredr_local_dev.local_name[0] == 'A' && gbredr_local_dev.local_name[30] == 'A' &&
-          !gbredr_local_dev.local_name[31]);
+    CHECK(gbredr_local_dev.local_name[0] == 'A' && gbredr_local_dev.local_name[N - 2] == 'A' &&
+          !gbredr_local_dev.local_name[N - 1]);
     /* Exact-length unterminated storage and null input must leave state intact. */
-    char unterminated[32]; memset(unterminated, 'B', 32);
-    u8 saved[32]; memcpy(saved, gbredr_local_dev.local_name, 32);
+    char unterminated[N]; memset(unterminated, 'B', N);
+    u8 saved[N]; memcpy(saved, gbredr_local_dev.local_name, N);
     lmp_hci_write_local_name(unterminated);
-    CHECK(asserts == 1 && assert_value == 32 && !memcmp(saved, gbredr_local_dev.local_name, 32));
+    CHECK(asserts == 1 && assert_value == N && !memcmp(saved, gbredr_local_dev.local_name, N));
     lmp_hci_write_local_name(0);
-    CHECK(asserts == 2 && !assert_value && !memcmp(saved, gbredr_local_dev.local_name, 32));
+    CHECK(asserts == 2 && !assert_value && !memcmp(saved, gbredr_local_dev.local_name, N));
     u8 addr[6] = {0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc}, read[6];
     hci_param.addr_sum = 0xf0;
     for (int pass = 0; pass < 2; pass++) {

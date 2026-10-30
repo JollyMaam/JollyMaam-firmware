@@ -422,7 +422,7 @@ RF_CODE void update_eir_data(u8 *eir_data)
 {
     u32 name_len = strlen((const char *)gbredr_local_dev.local_name);
     u32 len = (name_len + 1) & 0xffff;
-    if (!(len < 33)) btctrler_assert_failed("name_len <= sizeof(gbredr_local_dev.local_name)", 0);
+    if (!(len <= sizeof(gbredr_local_dev.local_name))) btctrler_assert_failed("name_len <= sizeof(gbredr_local_dev.local_name)", 0);
     if (!gbredr_local_dev.eir.enable) return;
     memset(&gbredr_local_dev.eir, 0, 8);         /* one 8-byte store in the SDK */
     gbredr_local_dev.eir.enable = 1;

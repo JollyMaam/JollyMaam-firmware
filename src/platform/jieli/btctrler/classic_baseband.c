@@ -51,7 +51,7 @@ static void read_name(u16 opcode)
     u8 *out = allocate(248);
     if (!out) { complete(opcode, 7); return; }
     u32 length = 0;
-    while (length < 32 && DEV.local_name[length]) length++;
+    while (length < sizeof(DEV.local_name) && DEV.local_name[length]) length++;
     memset(out, 0, 248); memcpy(out, DEV.local_name, length);
     hci_send_event_cmd_complete(opcode, "1C248", 0, out);
     free(out);
@@ -235,8 +235,9 @@ int main(void)
     DEV.page_scan_type = 1; run(0x0c46, 0, 0); CHECK(values[0] == 1 && !strcmp(format_seen, "11"));
     DEV.iac_lap[0] = 0x33; DEV.iac_lap[1] = 0x8b; DEV.iac_lap[2] = 0x9e; DEV.num_current_iac = 1;
     run(0x0c39, 0, 0); CHECK(values[0] == 1 && values[1] == 0x9e8b33);
-    memset(DEV.local_name, 'n', 32); run(0x0c14, 0, 0);
-    CHECK(!memcmp(DEV.local_name, response, 32)); for (int i = 32; i < 248; i++) CHECK(response[i] == 0);
+    memset(DEV.local_name, 'n', sizeof(DEV.local_name)); run(0x0c14, 0, 0);
+    CHECK(!memcmp(DEV.local_name, response, sizeof(DEV.local_name)));
+    for (int i = sizeof(DEV.local_name); i < 248; i++) CHECK(response[i] == 0);
     run(0x0c13, data, 248); CHECK(!memcmp(data, written_name, 248) && helper_at < event_at);
     data[0] = 2; run(0x0c11, data, 44); CHECK(error == 0x12);
     run(0x0c11, data, 45); CHECK(!error);

@@ -255,9 +255,9 @@ int main(void)
     CHECK(event_id == 0x0c && v[0] == 0 && v[1] == 0xabc && v[2] == 12 && v[3] == 0x05d6 && v[4] == 0x4321);
 
     /* Sweep every offset against empty, short and unterminated local names. */
-    const int lengths[] = {0, 7, 32};
-    for (unsigned k = 0; k < 3; k++) {
-        memset(gbredr_local_dev.local_name, 0, 32);
+    const int lengths[] = {0, 7, 34, sizeof(gbredr_local_dev.local_name)};
+    for (unsigned k = 0; k < 4; k++) {
+        memset(gbredr_local_dev.local_name, 0, sizeof(gbredr_local_dev.local_name));
         memset(gbredr_local_dev.local_name, 'x', lengths[k]);
         for (int offset = 0; offset < 256; offset++) {
             u8 p = offset; reset(); lmp_rx_name_req(&conn, &p);

@@ -188,6 +188,9 @@ wrong assumption), add it here in a line or two.
   at start-up without ever enumerating.  Check `_HEAP_BEGIN`/`_HEAP_END` in
   `app.map` after adding static data there.  `HUB_SLOTS` is per board for
   this reason.
+- The Classic local name (a profile's `.name`) fits 63 bytes in the BR23
+  controller (`local_name[64]`; the SDK had 32).  A longer name asserts
+  "local name length" when the session starts.
 - LTO deletes stores to a global nothing reads (a reset mailbox, say) unless
   its address escapes into a call or an asm input.
 - Never build the Telink board with `-Os`: the compiler miscompiles switch
