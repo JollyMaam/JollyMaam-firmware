@@ -10,7 +10,7 @@ static.stdenv.mkDerivation {
   buildPhase = ''
     runHook preBuild
     mkdir -p build/static
-    for source in src/lib/jieli_image/*.c src/lib/proto_jieli.c src/lib/proto_8bitdo.c src/lib/proto_jollymaam.c src/lib/upgrade_8bitdo.c; do
+    for source in src/lib/jieli_image/*.c src/lib/proto_jieli.c src/lib/proto_8bitdo.c src/lib/proto_jollymaam.c src/lib/upgrade_8bitdo.c src/lib/upgrade_jollymaam.c; do
       $CC -std=c99 -O2 -Wall -Wextra -c "$source" -o "build/static/$(basename "$source" .c).o"
     done
     $AR rcs build/static/libjollymaam.a build/static/*.o
@@ -28,7 +28,7 @@ static.stdenv.mkDerivation {
         build/static/libjollymaam.a -static -o build/static/test-$name
       build/static/test-$name
     done
-    for name in proto_8bitdo proto_jieli proto_jollymaam; do
+    for name in proto_8bitdo proto_jieli proto_jollymaam upgrade_jollymaam; do
       $CC -std=c99 -O2 -DUNITTEST src/lib/$name.c \
         build/static/libjollymaam.a -static -o build/static/test-$name
       build/static/test-$name
