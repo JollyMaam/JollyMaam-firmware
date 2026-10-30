@@ -63,7 +63,8 @@ int jm_hid_device_path(const char *path, char out[1024]) {
   const char *root=getenv("DEV_ROOT");
   if (root) {
     const char *base=strrchr(path,'/');
-    return snprintf(out,1024,"%s/%s",root,base?base+1:path)<1024;
+    size_t n=strlen(root);
+    return snprintf(out,1024,"%s%s%s",root,n && root[n-1]=='/'?"":"/",base?base+1:path)<1024;
   }
 #endif
   return snprintf(out,1024,"%s",path)<1024;

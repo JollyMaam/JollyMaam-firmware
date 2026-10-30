@@ -33,7 +33,8 @@ glibc development shell or Android binaries. Android needs its own target build.
 The regular Makefile also builds the portable `libjollymaam.a`; its CLI links the
 desktop platform archive and dynamic hidapi separately.
 
-The CLI currently offers passive 8BitDo bootloader candidate enumeration (`scan`),
+The CLI offers read-only discovery (`scan`) of our tool devices using IDENTIFY,
+8BitDo bootloader candidates and Jieli UBOOT candidates,
 offline image inspection (`inspect IMAGE`), raw Jieli image rekeying
 (`rekey-jieli INPUT OUTPUT KEY`), and pad bootloader upgrades
 (`flash-8bitdo --yes HID_PATH IMAGE`). Linux Jieli flashing uses

@@ -15,12 +15,13 @@ STUBS = r'''
 #include <stdlib.h>
 #include <string.h>
 int jm_hid_custom_devices(jm_custom_visitor visit,void *user) {
+ if(getenv("NO_DEVICES")) return 0;
  struct jm_identity id={0}; strcpy(id.product,"U2C_WIRELESS"); strcpy(id.build,"test-build");
  visit(user,"fake-custom",&id); return 1;
 }
-int jm_hid_enumerate_8bitdo(jm_hid_visit visit,void *user) { visit(user,"fake-boot",0x2dc8,0x3208); return 1; }
+int jm_hid_enumerate_8bitdo(jm_hid_visit visit,void *user) { if(getenv("NO_DEVICES")) return 0;visit(user,"fake-boot",0x2dc8,0x3208); return 1; }
 int jm_hid_8bitdo_model(const char *p,uint16_t *m) { (void)p; *m=0x301b; return 1; }
-int jm_jieli_candidates(jm_jieli_candidate_visitor v,void *u) { v(u,"fake-jieli",JM_JIELI_BR23);return 1; }
+int jm_jieli_candidates(jm_jieli_candidate_visitor v,void *u) { if(getenv("NO_DEVICES")) return 0;v(u,"fake-jieli",JM_JIELI_BR23);return 1; }
 int jm_hid_custom_update(const char *p,const uint8_t expected_uid[16],const uint8_t *d,size_t n,void (*cb)(void*,size_t,size_t),void *u) {
  (void)d; (void)expected_uid; cb(u,n,n); printf("MOCK-CUSTOM:%s\n",p); return getenv("FAIL_CUSTOM") ? -4 : 0;
 }
@@ -61,6 +62,13 @@ class AppTests(unittest.TestCase):
                    'src/lib/jieli_image/entry.c', 'src/lib/jieli_image/crypto.c']
         subprocess.run([os.environ.get('CC', 'gcc'), '-std=c99', '-Wall', '-Wextra', '-Werror',
                         '-I.', str(stub), *sources, '-o', str(cls.binary)], check=True)
+        scan_stub = cls.root / 'scan-stub.c'
+        scan_stub.write_text(STUBS[:STUBS.index('int main(int argc,char **argv)')])
+        cls.cli = cls.root / 'cli'
+        subprocess.run([os.environ.get('CC', 'gcc'), '-std=c99', '-Wall', '-Wextra', '-Werror',
+                        '-I.', str(scan_stub), 'tools/jollymaam.c', *sources,
+                        'src/lib/jieli_image/image.c', 'src/lib/jieli_image/bankcb.c',
+                        'src/lib/jieli_image/key.c', 'src/lib/jieli_image/ufw.c', '-o', str(cls.cli)], check=True)
         cls.package = cls.root / 'firmware.zip'
         cls.package.write_bytes(package_tests.PackageTests().manifest_fixture())
 
@@ -71,6 +79,19 @@ class AppTests(unittest.TestCase):
     def run_app(self, commands):
         return subprocess.run([str(self.binary), str(self.package)], input=commands,
                               capture_output=True, text=True, timeout=5)
+
+    def test_scan_includes_custom_devices(self):
+        result = subprocess.run([str(self.cli), 'scan'], capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn('U2C_WIRELESS our firmware build=test-build (fake-custom)', result.stdout)
+        self.assertIn('fake-boot', result.stdout)
+        self.assertIn('fake-jieli', result.stdout)
+
+    def test_scan_explains_empty_result(self):
+        result = subprocess.run([str(self.cli), 'scan'], capture_output=True, text=True, timeout=5,
+                                env={**os.environ, 'NO_DEVICES': '1'})
+        self.assertEqual(result.returncode, 0)
+        self.assertIn('No supported devices found', result.stdout)
 
     def test_cancel_eof_and_rescan(self):
         for commands in ('', 'q\n', '1\n\nq\n', '1\nno\nq\n', 'r\nq\n', '999\nq\n', '3\n1\nq\n', '1\n' + 'yes'*100 + '\nq\n'):

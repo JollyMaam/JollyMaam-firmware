@@ -1,4 +1,5 @@
 #include "../src/lib/transport_hid.h"
+#include "../src/lib/transport_custom.h"
 #include "../src/lib/package.h"
 #include "../src/lib/manifest.h"
 #include "../src/lib/proto_jollymaam.h"
@@ -15,6 +16,12 @@
 static int visit(void *user, const char *path, unsigned vid, unsigned pid) {
   (void)user;
   printf("%04x:%04x %s (bootloader candidate; model not probed)\n", vid, pid, path);
+  return 0;
+}
+static int custom_visit(void *user,const char *path,const struct jm_identity *identity) {
+  (void)user;
+  printf("%s %s build=%s (%s)\n",identity->product,
+         identity->updater?"our updater":"our firmware",identity->build,path);
   return 0;
 }
 static int jieli_visit(void *user, const char *path, enum jm_jieli_chip chip) {
@@ -97,12 +104,15 @@ int main(int argc, char **argv) {
     return rekey(argv[2], argv[3], argv[4]);
 
   if (argc == 2 && !strcmp(argv[1], "scan")) {
-    if (jm_hid_enumerate_8bitdo(visit, NULL) < 0) {
-      fprintf(stderr, "HID enumeration failed\n"); return 1;
+    int custom=jm_hid_custom_devices(custom_visit,NULL);
+    int boot=jm_hid_enumerate_8bitdo(visit,NULL);
+    int jieli=jm_jieli_candidates(jieli_visit,NULL);
+    if(custom<0 || boot<0 || jieli<0) {
+      fprintf(stderr,"Device discovery failed (custom=%d, 8BitDo=%d, Jieli=%d)\n",custom,boot,jieli);
+      return 1;
     }
-    if (jm_jieli_candidates(jieli_visit, NULL) < 0) {
-      fprintf(stderr, "Jieli enumeration failed\n"); return 1;
-    }
+    if(!custom && !boot && !jieli)
+      puts("No supported devices found. Scans our tool devices and stock bootloaders; ordinary stock gamepad modes are not supported yet.");
     return 0;
   }
   if ((argc == 3 && !strcmp(argv[1], "inspect")) ||
