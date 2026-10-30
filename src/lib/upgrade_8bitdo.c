@@ -1,4 +1,5 @@
 #include "upgrade_8bitdo.h"
+#include "proto_jollymaam.h"
 #include <string.h>
 
 enum { IDENTIFY, COMPARE, ERASE, CHECK_ERASE, PROGRAM, VERIFY, START, DONE, FAILED };
@@ -29,6 +30,14 @@ int jm_8bitdo_upgrade_init(struct jm_8bitdo_upgrade *op,
   char product[17];
   if (!size || size > 0x6f000 - 0x6000 ||
       !jm_8bitdo_image_product(image, size, product) || strcmp(product, "U2C_WIRELESS"))
+    return 0;
+  /* A product string alone is insufficient: validate the application's MAIN
+   * header and payload before scheduling any erases. */
+  size_t main_at;
+  for (main_at = 4096; main_at + 0x120 <= size; main_at += 4096)
+    if (!memcmp(image + main_at, "MAIN", 4)) break;
+  if (main_at + 0x120 > size ||
+      !jm_update_image_check(image + main_at, size - main_at, "U2C_WIRELESS"))
     return 0;
   memset(op, 0, sizeof *op);
   op->image = image;

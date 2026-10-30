@@ -1,0 +1,72 @@
+#include "proto_jollymaam.h"
+#include "jieli_image/crypto.h"
+#include <string.h>
+
+static uint16_t rd16(const uint8_t *p) { return (uint16_t)(p[0] | p[1] << 8); }
+static uint32_t rd32(const uint8_t *p) {
+  return (uint32_t)p[0] | (uint32_t)p[1] << 8 |
+         (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+}
+int jm_identify_decode(const uint8_t *data, size_t size, struct jm_identity *out) {
+  if (size < 56 || memcmp(data, "C2PD", 4)) return 0;
+  struct jm_identity id;
+  memset(&id, 0, sizeof id);
+  id.protocol = rd16(data + 4); id.board = data[6]; id.updater = data[7];
+  memcpy(id.build, data + 8, 16); memcpy(id.uid, data + 24, 16);
+  memcpy(id.product, data + 40, 16);
+  if (size >= 88) memcpy(id.board_name, data + 56, 32);
+  *out = id;
+  return 1;
+}
+void jm_command(uint8_t cdb[16], uint8_t command, uint32_t argument) {
+  memset(cdb, 0, 16); cdb[0] = 0xf5; cdb[1] = command;
+  for (unsigned i = 0; i < 4; ++i) cdb[2 + i] = (uint8_t)(argument >> (i * 8));
+}
+int jm_update_image_check(const uint8_t *data, size_t size, const char *product) {
+  if (size < 0x120 || memcmp(data, "MAIN", 4) || rd32(data + 16) != 1 ||
+      rd32(data + 4) != size - 0x120 ||
+      rd32(data + 40) != jm_crc16(data + 4, 36) ||
+      rd32(data + 8) != jm_crc16(data + 0x120, size - 0x120))
+    return 0;
+  if (product) {
+    size_t n = 0;
+    while (n < 17 && product[n]) ++n;
+    if (n > 16) return 0;
+    uint8_t expected[16] = {0};
+    memcpy(expected, product, n);
+    if (memcmp(expected, data + 24, 16)) return 0;
+  }
+  return 1;
+}
+#ifdef UNITTEST
+#include <assert.h>
+int main(void) {
+  uint8_t data[88] = {0}, cdb[16];
+  struct jm_identity id;
+  memset(&id, 0xa5, sizeof id);
+  assert(!jm_identify_decode(data, sizeof data, &id));
+  memcpy(data, "C2PD", 4); data[4] = 1; data[7] = 1;
+  memset(data + 40, 'X', 16);
+  assert(!jm_identify_decode(data, 55, &id));
+  assert(jm_identify_decode(data, 56, &id));
+  assert(id.protocol == 1 && id.updater == 1 && id.product[16] == 0);
+  assert(!id.board_name[0]);
+  jm_command(cdb, 0x43, 0x12345678);
+  assert(cdb[0] == 0xf5 && cdb[1] == 0x43 && cdb[2] == 0x78 && cdb[5] == 0x12);
+  assert(!jm_update_image_check(data, sizeof data, NULL));
+  uint8_t update[0x121] = {0};
+  memcpy(update, "MAIN", 4); update[4] = 1; update[16] = 1;
+  memcpy(update + 24, "test", 4);
+  uint16_t crc = jm_crc16(update + 0x120, 1);
+  update[8] = crc; update[9] = crc >> 8;
+  crc = jm_crc16(update + 4, 36);
+  update[40] = crc; update[41] = crc >> 8;
+  assert(jm_update_image_check(update, sizeof update, "test"));
+  assert(!jm_update_image_check(update, sizeof update, "wrong"));
+  assert(!jm_update_image_check(update, sizeof update - 1, NULL));
+  update[0x120] ^= 1;
+  assert(!jm_update_image_check(update, sizeof update, NULL));
+
+  return 0;
+}
+#endif

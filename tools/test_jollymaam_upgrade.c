@@ -1,4 +1,5 @@
 #include "../src/lib/upgrade_8bitdo.h"
+#include "../src/lib/jieli_image/crypto.h"
 #include <assert.h>
 #include <string.h>
 #include <stdio.h>
@@ -24,6 +25,11 @@ static void image_make(uint8_t image[8192]) {
   memcpy(image + 4096, "MAIN", 4);
   memset(image + 4120, 0, 16);
   memcpy(image + 4120, "U2C_WIRELESS", 12);
+  wr32(image + 4100, 4096 - 0x120);
+  wr32(image + 4104, jm_crc16(image + 4096 + 0x120, 4096 - 0x120));
+  wr32(image + 4112, 1);
+  wr32(image + 4136, jm_crc16(image + 4100, 36));
+
 }
 static void simulate(int wrong_model, int corrupt_verify, int identical) {
   uint8_t image[8192], flash[8192], request[64], reply[64];

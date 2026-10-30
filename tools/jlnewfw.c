@@ -12,6 +12,7 @@
 #include "../src/lib/jieli_image/key.h"
 #include "../src/lib/jieli_image/ufw.h"
 #include "../src/lib/jieli_image/bankcb.h"
+#include "../src/lib/proto_jieli.h"
 #include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -1341,12 +1342,8 @@ static bool inquiry(device_fd fd, char product[17], int *chip) {
   *chip = chip_of(d + 8);
   return true;
 }
-static void jl_cdb(uint8_t cdb[16], uint16_t cmd, const uint8_t *args,
-                   size_t n) {
-  memset(cdb, 0xff, 16);
-  cdb[0] = (uint8_t)(cmd >> 8);
-  cdb[1] = (uint8_t)cmd;
-  memcpy(cdb + 2, args, n);
+static void jl_cdb(uint8_t cdb[16], uint16_t cmd, const uint8_t *args, size_t n) {
+  if (!jm_jieli_cdb(cdb, cmd, args, n)) die("invalid Jieli command arguments");
 }
 /* A command without data; `resp` gets the 14 bytes after the echo. */
 static bool jl_exec(struct dev *d, uint16_t cmd, const uint8_t *args, size_t n,
@@ -1354,7 +1351,7 @@ static bool jl_exec(struct dev *d, uint16_t cmd, const uint8_t *args, size_t n,
   uint8_t cdb[16], r[16];
   jl_cdb(cdb, cmd, args, n);
   if (!sg(d->fd, cdb, 16, SG_DXFER_FROM_DEV, r, 16, 20000) ||
-      rd16be(r) != cmd)
+      !jm_jieli_exec_reply(r, sizeof r, cmd, NULL))
     return false;
   if (resp)
     memcpy(resp, r + 2, 14);
@@ -1396,18 +1393,7 @@ static bool flash_read(struct dev *d, uint32_t addr, uint8_t *out, uint32_t n) {
  * chip key comes back scrambled with it; the loader blob is stored scrambled
  * with it per 512-byte block, and BR23's ROM unscrambles RAM writes itself
  * (and scrambles reads), so the blob is sent as it is. */
-static void crc_cipher(uint8_t *p, size_t n, uint32_t key) {
-  static const uint8_t magic[16] = {0xc3, 0xcf, 0xc0, 0xe8, 0xce, 0xd2,
-                                    0xb0, 0xae, 0xc4, 0xe3, 0xa3, 0xac,
-                                    0xd3, 0xf1, 0xc1, 0xd6};
-  uint8_t k[2];
-  wr16(k, (uint16_t)(key >> 16));
-  uint16_t crc = jm_crc16_seed(k, 2, (uint16_t)key);
-  for (size_t i = 0; i < n; i++) {
-    crc = jm_crc16_seed(magic + i % 16, 1, crc);
-    p[i] ^= (uint8_t)crc;
-  }
-}
+
 
 /* A running JieLi SDK firmware that shows itself as a disk (vendor: the
  * chip name) reboots into its ROM loader on any of the loader's commands, as
@@ -1867,7 +1853,7 @@ static void start_loader(struct dev *d, const char *loader) {
   if (!jl_exec(d, 0xfc09, ka, 4, r))
     die("could not read the chip key");
   uint8_t k[2] = {r[5], r[4]};
-  crc_cipher(k, 2, 0xffffffffu);
+  jm_jieli_crc_cipher(k, 2, 0xffffffffu);
   d->key = rd16(k);
   printf("%s: flash ID 0x%06x (%u KiB), chip key 0x%04x\n", d->path,
          d->flash_id, d->flash_size / 1024, d->key);
