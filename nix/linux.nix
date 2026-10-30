@@ -1,10 +1,10 @@
-{ pkgs ? import <nixpkgs> {}, hidBackend ? "hidraw", withZlib ? true }:
+{ pkgs, hidBackend ? "hidraw", withZlib ? true }:
 assert builtins.elem hidBackend [ "libusb" "hidraw" ];
 let static = pkgs.pkgsStatic; in
 static.stdenv.mkDerivation {
   pname = "jollymaam";
   version = "0.1";
-  src = pkgs.lib.cleanSource ./.;
+  src = pkgs.lib.cleanSource ../.;
   nativeBuildInputs = [ pkgs.pkg-config ];
   buildInputs = [ static.hidapi static.libusb1 static.libudev-zero ] ++ pkgs.lib.optional withZlib static.zlib;
   buildPhase = ''

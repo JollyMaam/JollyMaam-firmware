@@ -97,7 +97,7 @@ def bleak_for(platform, version, cache):
     if not (target / "bleak").is_dir():
         uv = shutil.which("uv")
         if not uv:
-            sys.exit("padtool_dist: needs uv to fetch bleak (nix-shell -p uv, or pip install uv)")
+            sys.exit("padtool_dist: needs uv to fetch bleak (nix develop, or pip install uv)")
         shutil.rmtree(target, ignore_errors=True)
         subprocess.run([uv, "pip", "install", "--quiet", "--python-platform", PLATFORMS[platform], "--python-version", version,
                         "--only-binary", ":all:", "--target", str(target), BLEAK], check=True)

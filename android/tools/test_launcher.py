@@ -95,7 +95,7 @@ class LauncherTests(unittest.TestCase):
             file.write_text(f'#!{sys.executable}\n'+MOCK); file.chmod(0o755)
         with socket.socket() as s:
             s.bind(('127.0.0.1',0)); port=s.getsockname()[1]
-        self.env = dict(os.environ, PATH=str(self.bin)+':'+os.environ['PATH'],
+        self.env = dict(os.environ, JOLLYMAAM_EMULATOR_SHELL="1", PATH=str(self.bin)+':'+os.environ['PATH'],
                         XDG_STATE_HOME=str(self.root/'state'), QT_QPA_PLATFORM='xcb',
                         PADTOOL_TEST_ROOT=str(self.root), PADTOOL_ADB_PORT=str(port))
         self.processes = []

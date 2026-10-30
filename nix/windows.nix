@@ -1,4 +1,4 @@
-{ pkgs ? import <nixpkgs> {} }:
+{ pkgs }:
 let
   target = pkgs.pkgsCross.mingwW64;
   hidapi = target.hidapi.overrideAttrs (old: {
@@ -7,7 +7,7 @@ let
 in target.stdenv.mkDerivation {
   pname = "jollymaam-windows";
   version = "0.1";
-  src = pkgs.lib.cleanSource ./.;
+  src = pkgs.lib.cleanSource ../.;
   nativeBuildInputs = [ pkgs.pkg-config pkgs.python3 ];
   buildInputs = [ hidapi ];
   buildPhase = ''

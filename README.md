@@ -25,3 +25,20 @@ Main features that have been added:
   - Support multiple controllers connecting through a single dongle.
 
 Note: Not all the gamepads support all the same features. For example, the 8BitDo Ultimate 2C only has 16KiB of RAM so it only supports 4 connection and remap slots and 8 rules per remap slot. Neither the Nova 2 Lite or Ultimate 2C Wireless support motion controls.
+
+The top-level Nix flake pins the build environment in `flake.lock`:
+
+```
+nix develop                       # native C/Python tools
+nix build .#linux                  # standalone Linux updater, core/platform archives
+nix build .#windows                # Windows cross-build, core/platform archives
+nix develop .#android              # Android SDK, NDK, JDK and build tools
+nix develop .#emulator             # Android emulator and system image too
+nix flake check                    # core, host and launcher regression checks
+```
+
+`nix develop .#static` supplies the musl static toolchain, and
+`nix develop .#windows` supplies the Windows cross toolchain. Nix expressions
+under `nix/` are implementation modules of this flake, not independent channel-
+based environments. Current development environments target x86_64 Linux;
+Android native builds produce separate target-ABI libraries.

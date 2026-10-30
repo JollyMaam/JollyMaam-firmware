@@ -15,7 +15,7 @@ Run this on the Linux host, outside the development container:
 /work/cyclone2-android/android/run-emulator
 ```
 
-The executable has a Nix shell shebang and works from any directory with Nix
+The executable enters the top-level flake emulator shell and works from any directory with Nix
 2.24 or newer. It supplies the SDK, emulator, AOSP Android 15 x86_64 system
 image, JDK, adb and scrcpy. No Android Studio or Google account is needed. The first
 invocation downloads the emulator/image; subsequent invocations reuse them.
@@ -88,8 +88,8 @@ itself does not mean a lock is held.
 To stop/check Gradle on the host, from `android/`:
 
 ```sh
-nix-shell --run './gradlew --stop'
-nix-shell --run './gradlew --status'
+nix develop ..#android --command bash -c './gradlew --stop'
+nix develop ..#android --command bash -c './gradlew --status'
 pgrep -af '[G]radleDaemon|[K]otlinCompileDaemon'
 ```
 
@@ -148,11 +148,11 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 Alternatively, from `android/` on Nix:
 
 ```sh
-nix-shell --run './gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug'
-nix-shell --run 'adb install -r app/build/outputs/apk/debug/app-debug.apk'
+nix develop ..#android --command bash -c './gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug'
+nix develop ..#android --command bash -c 'adb install -r app/build/outputs/apk/debug/app-debug.apk'
 ```
 
-The shell uses the configured Nixpkgs channel and accepts the SDK license for
+The shell uses the top-level flake.lock pin and accepts the SDK license for
 the selected Android packages. Gradle 8.9 (including its download checksum),
 AGP 8.7.3, Kotlin 2.0.21 and the Android SDK/build-tools versions are pinned in
 the project. Android Studio can also open this directory directly.

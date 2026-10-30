@@ -15,7 +15,7 @@ the RAM loaders and every board's firmware; its README.txt says how to use it. O
 Python distribution's Tk package (often `python3-tk`). With Nixpkgs:
 
 ```sh
-nix-shell -p 'python3.withPackages (ps: [ ps.tkinter ])'
+nix develop
 python padtool/padgui.pyw
 ```
 

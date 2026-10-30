@@ -7,7 +7,7 @@ the portable interfaces; desktop adapters are opt-in and have separate headers.
 Build and test from the repository root:
 
 ```
-nix-shell --run 'make libjollymaam libjollymaam-test libjollymaam-linux-test jollymaam'
+nix develop --command bash -c 'make libjollymaam libjollymaam-test libjollymaam-linux-test jollymaam'
 build/host/jollymaam inspect build/gamesir-cyclone-2-pad/firmware.img
 ```
 
@@ -16,12 +16,12 @@ OS adapters, hidapi, libusb, or zlib. Applications supply their own transport or
 link `libjollymaam-platform.a` for the optional desktop adapters. Applications
 link hidapi and system dependencies separately; neither archive embeds them.
 
-`nix-build jollymaam-static.nix` produces both archives and a fully static
+`nix build .#linux` produces both archives and a fully static
 musl CLI. The CLI links hidapi and its platform dependencies separately. The default
-HID backend is hidraw; select libusb with `--argstr hidBackend libusb`.
-`nix-shell static-shell.nix` provides a matching musl compiler and static libusb,
+HID backend is hidraw; select libusb with `nix build .#linux-libusb`.
+`nix develop .#static` provides a matching musl compiler and static libusb,
 hidapi and zlib. The build smoke-tests those dependencies without device access.
-Use `--arg withZlib false` to omit the unused zlib build dependency and its smoke
+Use `nix build .#linux-minimal` to omit the unused zlib build dependency and its smoke
 test. No zlib objects are merged into the core in either configuration.
 
 The core accepts stored ZIP entries without compression. If deflate support is added,
@@ -169,7 +169,7 @@ identity before erasing. Jieli devices remain in their loader after verification
 8BitDo starts the installed app. Custom-updater desktop transport is not yet wired
 into this command. Individual-image commands remain available.
 
-Run `nix-shell --run 'python3 -m unittest tools/test_firmware_package.py'` for the
+Run `nix develop --command bash -c 'python3 -m unittest tools/test_firmware_package.py'` for the
 builder and malformed-container tests. They compile the C reader into a temporary
 shared library and compare its behavior with generated Python ZIP fixtures.
 
@@ -249,7 +249,7 @@ reconnection, mismatched identities, failed transfers and dropped writes.
 
 ## Windows build and distribution
 
-`nix-build jollymaam-windows.nix` cross-compiles the x86-64 Windows executable,
+`nix build .#windows` cross-compiles the x86-64 Windows executable,
 portable core archive and desktop platform archive. The executable statically
 links hidapi and the compiler runtime and imports only Windows system DLLs.
 The build also emits cross-compiled offline tests under share/jollymaam/tests;

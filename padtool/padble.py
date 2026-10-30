@@ -1,8 +1,7 @@
 """The tool's commands over Bluetooth LE: to the updater
 (src/updater/updater_ble.c), for padtool update --ble, and to config mode
 (src/profiles/profile_config.c, Home+M held), for padtool --ble with any
-other command.  Needs bleak (pip install bleak, or nix-shell -p
-python3Packages.bleak).
+other command.  Needs bleak (pip install bleak, or nix develop).
 
 A command is a write to REQUEST: u8 sub-command, u32 argument, then data; a
 command with an answer gets it in REPLY notifications: u8 sub-command, then
@@ -50,7 +49,7 @@ class BleLink:
         try:
             from bleak import BleakClient, BleakScanner
         except ImportError:
-            sys.exit("padtool: --ble needs bleak (pip install bleak, or nix-shell -p python3Packages.bleak)")
+            sys.exit("padtool: --ble needs bleak (pip install bleak, or nix develop)")
         self.loop = asyncio.new_event_loop()
         self.replies = asyncio.Queue()
         what = "updater" if updater else "pad in config mode"
@@ -176,7 +175,7 @@ def scan(seconds=3):
     try:
         from bleak import BleakScanner
     except ImportError:
-        sys.exit("padtool: Bluetooth needs bleak (pip install bleak, or nix-shell -p python3Packages.bleak)")
+        sys.exit("padtool: Bluetooth needs bleak (pip install bleak, or nix develop)")
 
     async def look():
         found = {d.address: d for d in await connected()}

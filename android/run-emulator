@@ -1,6 +1,4 @@
-#!/usr/bin/env nix-shell
-#!nix-shell --expr 'import ./emulator.nix' -i bash
-# Nix >= 2.24 resolves this import relative to the script. Run on the Linux host.
+#!/usr/bin/env bash
 set -euo pipefail
 
 usage() {
@@ -46,6 +44,9 @@ done
 if $headless && $mirror; then fail '--headless and --scrcpy cannot be used together'; fi
 [[ $(uname -sm) == 'Linux x86_64' ]] || fail 'this launcher uses an x86_64 Linux system image'
 android_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+if [[ ${JOLLYMAAM_EMULATOR_SHELL:-0} != 1 ]]; then
+    exec nix develop "$android_dir/..#emulator" --command bash "$android_dir/run-emulator" "$@"
+fi
 cd "$android_dir"
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/cyclone-padtool/emulator"
 mkdir -p "$state_dir/avd"
