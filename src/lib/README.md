@@ -11,16 +11,28 @@ nix-shell --run 'make libjollymaam libjollymaam-test libjollymaam-linux-test jol
 build/host/jollymaam inspect build/gamesir-cyclone-2-pad/firmware.img
 ```
 
-`nix-build jollymaam-static.nix` builds a fully static musl executable and the
-portable archive. Static libusb, both hidapi backends, zlib, and their required
-udev implementation are available through `nix-shell static-shell.nix`. That
-shell uses a matching musl compiler; do not mix its archives with the regular
-glibc development shell. Use `pkg-config --static` when linking. The static Nix
-build checks that all three dependencies can link and run without shared
-libraries, using version queries that do not access devices.
+`nix-build jollymaam-static.nix` produces a fully static musl executable and two
+archives:
 
-The regular Makefile CLI build uses dynamic hidapi. The static
-archive does not include desktop adapters or depend on hidapi.
+- `lib/libjollymaam.a` includes our core, HID and Linux SCSI adapters, static
+  hidapi (libusb backend by default), libusb, zlib, and the required udev objects.
+  Dependencies are merged as object members, not nested archives. Link consumers
+  with this single archive and the matching target C runtime (`-static -pthread`);
+  no separate `-lhidapi`, `-lusb-1.0`, `-lz` or `-ludev` is required.
+- `lib/libjollymaam-core.a` contains only the portable protocol and image code,
+  without desktop adapters or third-party dependencies.
+
+Select the hidraw backend with `--argstr hidBackend hidraw`. Exactly one hidapi
+backend is merged because their symbols overlap. Use `--arg withZlib false` to
+omit zlib when it is not needed. The build links a dependency smoke test against
+only the bundled archive and checks for shared-library dependencies; its version
+queries do not open devices.
+
+`nix-shell static-shell.nix` provides the matching musl compiler and static
+libraries. These archives target Linux musl; do not mix them with the regular
+glibc development shell or Android binaries. Android needs its own target build.
+The regular Makefile `libjollymaam.a` remains the portable core archive, and its
+CLI build links the desktop adapter and dynamic hidapi separately.
 
 The CLI currently offers passive 8BitDo bootloader candidate enumeration (`scan`),
 offline image inspection (`inspect IMAGE`), and pad bootloader upgrades
