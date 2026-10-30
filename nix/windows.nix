@@ -26,7 +26,7 @@ in target.stdenv.mkDerivation {
       build/windows/libjollymaam-platform.a build/windows/libjollymaam.a \
       $(pkg-config --static --cflags --libs hidapi) -static -static-libgcc -lsetupapi -lhid -o build/windows/jollymaam.exe
     mkdir -p build/windows/tests
-    for name in bankcb crypto entry image key ufw; do
+    for name in builder bankcb crypto entry image key ufw; do
       $CC -std=c99 -O2 -Wall -Wextra -Werror -DUNITTEST src/lib/jieli_image/$name.c \
         build/windows/libjollymaam.a -static -o build/windows/tests/$name.exe
     done

@@ -46,6 +46,66 @@ static int flash_read(const struct jm_session_io *io, void *context, uint32_t ad
   }
   return 1;
 }
+/* Verify UBOOT1.00 and start its matching RAM helper on a caller-selected
+ * connection. No flash is modified. device is untouched on failure. Return
+ * zero on success, -1 for arguments, -3 for INQUIRY, -4 for helper startup.
+ * Keep the same connection for subsequent reads, backup, flash or start. */
+int jm_session_jieli_open(const struct jm_session_io *io, void *context, const uint8_t *loader,
+                            size_t loader_size, struct jm_jieli_device *device) {
+  if(!io || !io->scsi || !io->wait_ms || !loader || !loader_size || !device) return -1;
+  uint8_t inquiry[36], cdb[6] = {0x12, 0, 0, 0, 36, 0}; struct jm_scsi_result scsi;
+  enum jm_jieli_chip chip;
+  if (io->scsi(context, cdb, 6, JM_SCSI_IN, inquiry, sizeof inquiry, 2000, &scsi) ||
+      scsi.status || scsi.host_status || scsi.driver_status || scsi.transferred != sizeof inquiry ||
+      memcmp(inquiry + 16, "UBOOT1.00", 9) || !chip_of(inquiry + 8, &chip)) return -3;
+  struct jm_jieli_loader startup;
+  if (!jm_jieli_loader_init(&startup, chip, loader, loader_size)) return -4;
+  struct jm_jieli_request request; uint8_t reply[32768]; enum jm_jieli_step step;
+  while ((step = jm_jieli_loader_next(&startup, &request)) == JM_JIELI_TRANSFER) {
+    size_t n = 0; int ok = transfer(io,context, &request, reply, &n);
+    jm_jieli_loader_complete(&startup, ok, reply, n);
+  }
+  if (step != JM_JIELI_DONE) return -4;
+  *device=startup.device;return 0;
+}
+/* Read a bounded flash range through an already-running RAM helper. Return one
+ * on success, zero on argument, transport or short-read failure. The buffer may
+ * contain a partial read on failure. Never retries an ambiguous command. */
+int jm_session_jieli_read(const struct jm_session_io *io, void *context,
+                            const struct jm_jieli_device *device, uint32_t address,uint8_t *data,size_t size) {
+  if(!io || !io->scsi || !io->wait_ms || !device || (!data && size) ||
+     device->io<64 || device->io>32768 || address>device->flash_size || size>device->flash_size-address) return 0;
+  return flash_read(io,context,address,data,size,device->io);
+}
+/* Stream a complete raw flash backup to a caller-owned sink. Data is borrowed
+ * only during each callback; return nonzero from sink after accepting a block.
+ * No flash writes or restart occur. Return zero on success, -1 for invalid
+ * arguments, -2 for read failure, -3 for rejected output. Progress counts bytes. */
+int jm_session_jieli_backup(const struct jm_session_io *io,void *context,
+                              const struct jm_jieli_device *device,jm_session_sink sink,void *user,
+                              jm_session_progress progress,void *progress_user) {
+  if(!io || !io->scsi || !io->wait_ms || !device || !device->flash_size ||
+     device->flash_size>64*1024*1024 || device->io<64 || device->io>32768 || !sink) return -1;
+  uint8_t data[32768];uint32_t at=0;
+  while(at<device->flash_size) {
+    size_t n=device->flash_size-at;if(n>sizeof data) n=sizeof data;
+    if(!jm_session_jieli_read(io,context,device,at,data,n)) return -2;
+    if(!sink(user,at,data,n)) return -3;
+    at+=(uint32_t)n;if(progress) progress(progress_user,at,device->flash_size);
+  }
+  return 0;
+}
+/* Request a flash boot from the RAM helper. The device may disconnect before
+ * replying, so send once and return the transport result without retrying.
+ * A successful transfer does not establish that the firmware subsequently boots. */
+int jm_session_jieli_start(const struct jm_session_io *io,void *context) {
+  if(!io || !io->scsi) return 0;
+  uint8_t args[4]={0,0,0,1},cdb[16],reply[16];struct jm_scsi_result result;
+  jm_jieli_cdb(cdb,0xfc0c,args,sizeof args);
+  return !io->scsi(context,cdb,sizeof cdb,JM_SCSI_IN,reply,sizeof reply,2000,&result) &&
+    !result.status && !result.host_status && !result.driver_status;
+}
+
 /* Portable blocking Jieli session for an explicitly selected stock loader.
  * Validate the image on a caller-opened connection, verify INQUIRY, upload the
  * supplied chip-specific RAM loader, read the installed product, rekey locally,
@@ -57,43 +117,34 @@ static int flash_read(const struct jm_session_io *io, void *context, uint32_t ad
  * No automatic boot entry, device selection or reconnect occurs. */
 int jm_session_jieli(const struct jm_session_io *io, void *context, const uint8_t *loader, size_t loader_size,
                              const uint8_t *image, size_t size) {
-  if (!io || !io->scsi || !io->wait_ms || !loader || !loader_size || !size || size > 32 * 1024 * 1024) return -1;
+  if (!io || !io->scsi || !io->wait_ms || !loader || !loader_size || !image || !size || size > 32 * 1024 * 1024) return -1;
   uint8_t *workspace = malloc(size), *packed = malloc(size), *head = NULL;
   struct jm_jieli_image view;
   int result = -1;
   if (!workspace || !packed || jm_jieli_image_open(&view, image, size, workspace, size)) goto done;
-  uint8_t inquiry[36], cdb[6] = {0x12, 0, 0, 0, 36, 0}; struct jm_scsi_result scsi;
-  enum jm_jieli_chip chip;
-  if (io->scsi(context, cdb, 6, JM_SCSI_IN, inquiry, sizeof inquiry, 2000, &scsi) ||
-      scsi.status || scsi.host_status || scsi.driver_status || scsi.transferred != sizeof inquiry ||
-      memcmp(inquiry + 16, "UBOOT1.00", 9) || !chip_of(inquiry + 8, &chip)) { result = -3; goto done; }
-  struct jm_jieli_loader startup;
-  if (!jm_jieli_loader_init(&startup, chip, loader, loader_size)) { result = -4; goto done; }
-  struct jm_jieli_request request; uint8_t reply[32768]; enum jm_jieli_step step;
-  while ((step = jm_jieli_loader_next(&startup, &request)) == JM_JIELI_TRANSFER) {
-    size_t n = 0; int ok = transfer(io,context, &request, reply, &n);
-    jm_jieli_loader_complete(&startup, ok, reply, n);
-  }
-  if (step != JM_JIELI_DONE) { result = -4; goto done; }
-  size_t head_size = startup.device.flash_size < 0x11000 ? startup.device.flash_size : 0x11000;
+  struct jm_jieli_device device;
+  result=jm_session_jieli_open(io,context,loader,loader_size,&device);
+  if(result) goto done;
+  struct jm_jieli_request request;uint8_t reply[32768];enum jm_jieli_step step;
+  size_t head_size = device.flash_size < 0x11000 ? device.flash_size : 0x11000;
   head = malloc(head_size); uint8_t header[32]; uint32_t base;
-  if (!head || !flash_read(io,context, 0, head, head_size, startup.device.io) ||
+  if (!head || !flash_read(io,context, 0, head, head_size, device.io) ||
       !jm_jieli_find_base(head, head_size, header, &base)) { result = -5; goto done; }
   char product[17], wanted[17];
   jm_jieli_name_string(product, head + base + 16);
   jm_jieli_name_string(wanted, image + view.base + 16);
   if (strcmp(product, wanted)) { result = -5; goto done; }
-  if (jm_jieli_image_pack(&view, startup.device.key, packed, size)) { result = -6; goto done; }
+  if (jm_jieli_image_pack(&view, device.key, packed, size)) { result = -6; goto done; }
   struct jm_jieli_keep keep = {0x64000, 0x1c000};
   size_t keep_count = !strcmp(product, "AC695X_TRANS") ? 1 : 0;
   size_t end = size;
   if (keep_count && end < 0x80000) end = 0x80000;
-  if (end > startup.device.flash_size) { result = -6; goto done; }
+  if (end > device.flash_size) { result = -6; goto done; }
   end = (end + 4095) & ~(size_t)4095;
   uint8_t *grown = realloc(workspace, end);
   if (!grown) { result = -6; goto done; } workspace = grown;
   struct jm_jieli_flash flash;
-  if (!jm_jieli_flash_init(&flash, &startup.device, product, packed, size, workspace, end,
+  if (!jm_jieli_flash_init(&flash, &device, product, packed, size, workspace, end,
                             &keep, keep_count)) { result = -6; goto done; }
   while ((step = jm_jieli_flash_next(&flash, &request)) == JM_JIELI_TRANSFER) {
     size_t n = 0; int ok = transfer(io,context, &request, reply, &n);

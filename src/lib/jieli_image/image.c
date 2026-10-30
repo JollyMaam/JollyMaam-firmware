@@ -2,6 +2,7 @@
 #include "crypto.h"
 #include "key.h"
 #include "bankcb.h"
+#include "../proto_jollymaam.h"
 #include <string.h>
 
 static int range(size_t size, uint64_t offset, uint64_t length) {
@@ -141,6 +142,24 @@ enum jm_jieli_image_result jm_jieli_image_pack(const struct jm_jieli_image *imag
   return JM_JIELI_IMAGE_OK;
 }
 
+/* Locate a valid sector-aligned MAIN app in the clear code region. Returned
+ * bytes are the raw app, without its MAIN header. Output is unchanged if absent. */
+int jm_jieli_image_main(const struct jm_jieli_image *image,struct jm_jieli_file *file,uint32_t *offset) {
+  if(!image || !file || !offset || image->appbase>image->size || image->cipher_size>image->size-image->appbase) return 0;
+  char product[17];if((uint64_t)image->base+32>image->size) return 0;
+  jm_jieli_name_string(product,image->data+image->base+16);
+  const uint8_t *plain=image->data+image->appbase;
+  for(uint64_t at=0x1000;at+0x120<=image->cipher_size;at+=0x1000) {
+    const uint8_t *h=plain+at;
+    if(memcmp(h,"MAIN",4)) continue;
+    uint32_t n=(uint32_t)h[4]|(uint32_t)h[5]<<8|(uint32_t)h[6]<<16|(uint32_t)h[7]<<24;
+    uint32_t declared=(uint32_t)h[20]|(uint32_t)h[21]<<8|(uint32_t)h[22]<<16|(uint32_t)h[23]<<24;
+    if(declared!=at || at+0x120+n>image->cipher_size || !jm_update_image_check(h,0x120+(size_t)n,product)) continue;
+    struct jm_jieli_file result;memset(&result,0,sizeof result);strcpy(result.name,"_main.bin");
+    result.data=h+0x120;result.size=n;result.kind=JM_JIELI_FILE_MAIN;*file=result;*offset=(uint32_t)at;return 1;
+  }
+  return 0;
+}
 static int emit_file(jm_jieli_file_visitor visit, void *user,
                      const struct jm_jieli_entry *entry, const uint8_t *data,
                      size_t size, enum jm_jieli_file_kind kind) {
@@ -202,6 +221,8 @@ enum jm_jieli_image_result jm_jieli_image_visit(const struct jm_jieli_image *ima
       at += e.size;
     }
   }
+  struct jm_jieli_file main;uint32_t main_at;
+  if(jm_jieli_image_main(image,&main,&main_at) && visit(user,&main)) return JM_JIELI_IMAGE_VISITOR;
   return JM_JIELI_IMAGE_OK;
 }
 

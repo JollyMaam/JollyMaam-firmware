@@ -75,14 +75,26 @@ length; a successful ioctl alone does not imply a successful protocol operation.
 configuration file is the binary stream, rather than a generated INI.
 `jm_jieli_image_pack` preserves the existing layout and can rekey it, leaving
 reserved data beyond the code region unchanged. Same-key repacking is byte-exact.
-This API does not support resizing files or rebuilding a new layout; the legacy
-jlnewfw still owns those layout-builder operations.
+`jm_jieli_image_config` reconstructs a packable INI; the visitor also exports
+MAIN application bytes as `_main.bin`. `jm_jieli_build` builds a new layout from
+SDK or reconstructed INI and caller-provided file callbacks. It returns the full
+image and optional MAIN update image in owned buffers, released using
+`jm_jieli_build_free`. Relative input names resolve beside the INI's virtual
+name. No filesystem access occurs, and errors are returned without process exit.
+The `jlnewfw` pack/list/verify/unpack commands use these core operations.
 
 Jieli loader startup uses `jm_jieli_loader_init`, `jm_jieli_loader_next`, and
 `jm_jieli_loader_complete`. The caller verifies the chip, supplies its SDK loader,
 and drives yielded SCSI requests, honoring requested delays. Completion exposes
 the flash ID, capacity, transfer limit and chip key. RAM writes and execute
 commands are not retried after ambiguous failures; readiness polls are bounded.
+
+The synchronous callback API also exposes `jm_session_jieli_open` for chip
+identification and RAM-helper startup, `jm_session_jieli_read` for bounded flash
+reads, `jm_session_jieli_backup` for streaming a full backup to an app-owned sink,
+and `jm_session_jieli_start` for an explicit boot request. These work with an
+external transport and do not require the platform archive. Backup leaves flash
+unchanged and keeps the RAM helper running. The app owns output-file completion.
 
 Jieli flashing uses `jm_jieli_flash_init`, `jm_jieli_flash_next`, and
 `jm_jieli_flash_complete`. Before init, read the installed product and rekey the
@@ -121,7 +133,7 @@ Module boundaries:
 
 Run reference image comparisons with `tools/test_jollymaam_images.py`, supplying
 separately built old and new jlnewfw binaries plus image paths. It compares list,
-verify, and unpacked file contents without device access.
+verify, unpacked file contents and a byte-exact full rebuild without device access.
 
 `make build/host/check-jollymaam-image` builds the existing-image regression
 runner. Pass a raw Jieli image path to check byte-exact repacking, rekeying back

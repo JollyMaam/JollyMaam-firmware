@@ -28,7 +28,7 @@ static.stdenv.mkDerivation {
   '';
   doCheck = true;
   checkPhase = ''
-    for name in bankcb crypto entry image key ufw; do
+    for name in builder bankcb crypto entry image key ufw; do
       $CC -std=c99 -O2 -DUNITTEST src/lib/jieli_image/$name.c \
         build/static/libjollymaam.a -static -o build/static/test-$name
       build/static/test-$name

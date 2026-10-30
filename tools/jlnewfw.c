@@ -13,6 +13,8 @@
 #include "../src/lib/jieli_image/ufw.h"
 #include "../src/lib/jieli_image/bankcb.h"
 #include "../src/lib/proto_jieli.h"
+#include "../src/lib/jieli_image/builder.h"
+#include "../src/lib/jieli_image/config.h"
 #include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -38,20 +40,7 @@ struct blob {
   uint8_t *p;
   size_t n, cap;
 };
-struct kv {
-  char *section, *key, *value;
-};
-struct config {
-  struct kv v[MAX_CFG];
-  size_t n;
-};
 
-struct app_file {
-  const char *path;
-  const char *name;
-  uint8_t *data;
-  size_t size;
-};
 
 static void die(const char *s) {
   fprintf(stderr, "jlnewfw: %s\n", s);
@@ -83,23 +72,6 @@ static void wr32(uint8_t *p, uint32_t x) {
 static uint32_t align_up(uint32_t x, uint32_t a) { return (x + a - 1) / a * a; }
 
 
-static void reserve(struct blob *b, size_t n) {
-  if (n <= b->cap)
-    return;
-  size_t cap = b->cap ? b->cap : 256;
-  while (cap < n)
-    cap *= 2;
-  b->p = realloc(b->p, cap);
-  if (!b->p)
-    die("out of memory");
-  b->cap = cap;
-}
-static void append(struct blob *b, const void *p, size_t n) {
-  reserve(b, b->n + n);
-  memcpy(b->p + b->n, p, n);
-  b->n += n;
-}
-static void append_u8(struct blob *b, uint8_t x) { append(b, &x, 1); }
 static uint8_t *read_file(const char *path, size_t *size) {
   FILE *f = fopen(path, "rb");
   if (!f)
@@ -137,59 +109,8 @@ static void upper(char *s) {
   for (; *s; s++)
     *s = (char)toupper((unsigned char)*s);
 }
-static void load_config(struct config *c, const char *path) {
-  FILE *f = fopen(path, "r");
-  if (!f)
-    die_errno(path);
-  char line[1024], section[80] = "";
-  while (fgets(line, sizeof line, f)) {
-    char *comment = strstr(line, "//");
-    if (comment)
-      *comment = 0;
-    char *s = trim(line);
-    if (!*s || *s == '#')
-      continue;
-    if (*s == '[') {
-      char *e = strchr(s, ']');
-      if (!e)
-        die("bad INI section");
-      *e = 0;
-      snprintf(section, sizeof section, "%s", s + 1);
-      upper(section);
-      continue;
-    }
-    char *eq = strchr(s, '=');
-    if (!eq)
-      continue;
-    *eq = 0;
-    char *key = trim(s), *value = trim(eq + 1);
-    char *semi = strrchr(value, ';');
-    if (semi)
-      *semi = 0;
-    value = trim(value);
-    if (c->n == MAX_CFG)
-      die("too many INI values");
-    upper(key);
-    c->v[c->n++] = (struct kv){strdup(section), strdup(key), strdup(value)};
-  }
-  fclose(f);
-}
-static const char *cfg(const struct config *c, const char *sec, const char *key,
-                       const char *def) {
-  for (size_t i = 0; i < c->n; i++)
-    if (!strcmp(c->v[i].section, sec) && !strcmp(c->v[i].key, key))
-      return c->v[i].value;
-  return def;
-}
-static void require_value(const struct config *c, const char *section,
-                          const char *key, const char *expected) {
-  const char *actual = cfg(c, section, key, expected);
-  if (strcasecmp(actual, expected)) {
-    fprintf(stderr, "jlnewfw: unsupported %s.%s=%s (expected %s)\n", section,
-            key, actual, expected);
-    exit(1);
-  }
-}
+
+
 static uint32_t number(const char *s) {
   char *end;
   unsigned long v = strtoul(s, &end, 0);
@@ -210,95 +131,15 @@ static uint32_t number(const char *s) {
     die("number too large");
   return (uint32_t)v;
 }
-static bool numeric(const char *s) {
-  char *e;
-  (void)strtoul(s, &e, 0);
-  while (isspace((unsigned char)*e))
-    e++;
-  return *s && !*e;
-}
+
 
 /* A chip-key record made from nothing (when the INI carries none). */
-static void make_chipkey(uint8_t x[34], uint16_t key) {
-  memset(x, 8, 16); /* sum=128 */
-  for (unsigned i = 0; i < 16; i++)
-    x[16 + i] = (uint8_t)(8 ^ ((key & (1u << i)) ? 0 : 0x80));
-  wr16(x + 32, jm_crc16(x, 32));
-}
-static struct blob encode_syscfg(const struct config *c,
-                                 const uint8_t record[34]) {
-  struct blob b = {0};
-  append(&b, record, 34);
-  for (size_t i = 0; i < c->n; i++)
-    if (!strcmp(c->v[i].section, "SYS_CFG_PARAM")) {
-      char key[256], val[512];
-      snprintf(key, sizeof key, "%s", c->v[i].key);
-      snprintf(val, sizeof val, "%s", c->v[i].value);
-      upper(val);
-      if (numeric(val)) {
-        append_u8(&b, 4);
-        append(&b, key, strlen(key) + 1);
-        uint8_t n[4];
-        wr32(n, number(val));
-        append(&b, n, 4);
-      } else {
-        size_t n = strlen(val);
-        if (n > 255)
-          die("SYS_CFG_PARAM string too long");
-        append_u8(&b, (uint8_t)n);
-        append(&b, key, strlen(key) + 1);
-        append(&b, val, n);
-      }
-    }
-  return b;
-}
-
-static void set_name(uint8_t name[16], const char *s) {
-  memset(name, 0xff, 16);
-  size_t n = strlen(s);
-  if (n > 15)
-    n = 15;
-  memcpy(name, s, n);
-  name[n] = 0;
-}
 
 
-static void scramble_bankcb(uint8_t *p, size_t n) {
-  if (!jm_jieli_scramble_bankcb(p, n))
-    die("invalid BANKCB image");
-}
-static uint32_t next_pow2(uint32_t x) {
-  uint32_t p = 1;
-  while (p < x && p < 0x80000000u)
-    p <<= 1;
-  return p;
-}
 static const char *base_name(const char *p) {
   const char *s = strrchr(p, '/');
   return s ? s + 1 : p;
 }
-
-static void flash_header(uint8_t out[32], const struct config *c,
-                         uint32_t flash_size) {
-  memset(out, 0xff, 32);
-  const char *vid = cfg(c, "EXTRA_CFG_PARAM", "VID", "0.01"),
-             *pid = cfg(c, "EXTRA_CFG_PARAM", "PID", "JL_DEVICE");
-  memcpy(out + 4, vid, strlen(vid) > 4 ? 4 : strlen(vid));
-  memcpy(out + 16, pid, strlen(pid) > 16 ? 16 : strlen(pid));
-  jm_jieli_enc(out, 32, 0xffff); /* enter the header's CRC domain */
-  wr16(out + 2, 544);
-  wr32(out + 8, flash_size);
-  out[12] = (uint8_t)number(cfg(c, "JLNEWFW", "HEADER_FS", "2")); /* BD19: 11 */
-  out[13] = 16;
-  uint32_t special = number(cfg(c, "EXTRA_CFG_PARAM", "SPECIAL_OPT", "0"));
-  out[15] = special ? (uint8_t)special : 0xff;
-  const char *raw = cfg(c, "JLNEWFW", "HEADER_SPECIAL", NULL);
-  if (raw)
-    out[15] = (uint8_t)number(raw);
-  wr16(out, jm_crc16(out + 2, 30));
-  jm_jieli_enc(out, 32, 0xffff);
-}
-
 
 
 /* EOFFSET from the isd_config.ini of the image at `o`, in 4 KiB units: where
@@ -308,16 +149,7 @@ static void flash_header(uint8_t out[32], const struct config *c,
  * that: an upgraded dongle keeps stale copies at 0 and 0x1000 and boots the
  * image at 0x10000 (EOFFSET 16). */
 
-static uint32_t find_base(const uint8_t *p, size_t n, uint8_t clear[32]) {
-  uint32_t base;
-  if (!jm_jieli_find_base(p, n, clear, &base))
-    die("no valid new-firmware flash header found");
-  return base;
-}
-static void descramble_bankcb(uint8_t *p, size_t n) {
-  if (!jm_jieli_descramble_bankcb(p, n))
-    die("invalid BANKCB image");
-}
+
 static void ensure_dir(const char *p) {
 #ifdef _WIN32
   if (mkdir(p) && errno != EEXIST)
@@ -368,246 +200,49 @@ static uint16_t record_key(const uint8_t *d) {
   return key;
 }
 
-static void inspect(const char *path, const char *outdir, bool extract) {
-  size_t n;
-  uint8_t *image = load_image(path, &n), fh[32];
-  uint32_t base = find_base(image, n, fh);
-  /* VID and PID are deliberately left clear in the otherwise ENC header. */
-  memcpy(fh + 4, image + base + 4, 4);
-  memcpy(fh + 16, image + base + 16, 16);
-  char vid[5] = {0}, pid[17] = {0};
-  memcpy(vid, fh + 4, 4);
-  memcpy(pid, fh + 16, 16);
-  for (char *q = pid; *q; q++)
-    if ((uint8_t)*q == 0xff)
-      *q = 0;
-  printf("base=0x%x burner=%u vid=%s flash_size=0x%x fs=%u align=%u "
-         "special=0x%02x pid=%s eoffset=%u\n",
-         base, rd16(fh + 2), vid, rd32(fh + 8), fh[12], fh[13], fh[15], pid,
-         jm_jieli_eoffset(image, n, base));
-  if (extract)
-    ensure_dir(outdir);
-  struct jm_jieli_entry top[MAX_FILES];
-  size_t nt = 0;
-  uint32_t appbase = 0, flash_end = 0;
-  uint16_t chipkey = 0xffff, mark = 0xffff;
-  const uint8_t *sys = NULL;
-  uint32_t sys_n = 0;
-  char uboot_name[17] = "";
-  uint8_t top_uboot_flags = 0;
-  for (uint32_t off = base + 32;; off += 32) {
-    if ((uint64_t)off + 32 > n || nt == MAX_FILES)
-      die("invalid top-level list");
-    uint8_t h[32];
-    memcpy(h, image + off, 32);
-    jm_jieli_enc(h, 32, 0xffff);
-    if (!jm_jieli_decode_entry(h, &top[nt]))
-      die("top-level header CRC mismatch");
-    char name[17];
-    jm_jieli_name_string(name, top[nt].name);
-    printf("top %-16s off=0x%08x size=0x%08x flags=%02x/%02x index=%u\n", name,
-           top[nt].offset, top[nt].size, top[nt].flags, top[nt].reserved,
-           top[nt].index);
-    if (!strcmp(name, "app_dir_head"))
-      appbase = base + top[nt].offset, mark = top[nt].data_crc;
-    if (!strcmp(name, "key_mac"))
-      flash_end = top[nt].offset + top[nt].size;
-    if (!strcmp(name, "isd_config.ini") && (uint64_t)base + top[nt].offset +
-                                                   top[nt].size <= n)
-      sys = image + base + top[nt].offset, sys_n = top[nt].size;
-    if (!strcmp(name, "uboot.boot"))
-      snprintf(uboot_name, sizeof uboot_name, "%s", name), top_uboot_flags = top[nt].flags;
-    if (!(top[nt].flags & 0x10) && top[nt].flags != 0x81) {
-      if ((uint64_t)base + top[nt].offset + top[nt].size > n)
-        die("top-level file is truncated");
-      uint8_t *d = malloc(top[nt].size ? top[nt].size : 1);
-      if (!d)
-        die("out of memory");
-      memcpy(d, image + base + top[nt].offset, top[nt].size);
-      if (!strcmp(name, "uboot.boot"))
-        descramble_bankcb(d, top[nt].size);
-      if (jm_crc16(d, top[nt].size) != top[nt].data_crc)
-        die("top-level file data CRC mismatch");
-      if (extract && strcmp(name, "isd_config.ini")) { /* that one as text */
-        char dst[1024];
-        path_join(dst, sizeof dst, outdir, name);
-        write_file(dst, d, top[nt].size);
-      }
-      free(d);
-    }
-    bool last = top[nt].index != 0;
-    nt++;
-    if (last)
-      break;
+struct extract_context { const char *directory; };
+static int extract_file(void *user,const struct jm_jieli_file *file) {
+  if(!strcmp(file->name,"isd_config.ini")) return 0;
+  if(!*file->name || !strcmp(file->name,".") || !strcmp(file->name,"..") ||
+      strpbrk(file->name,"/\\:")) return 1;
+  struct extract_context *context=user;char path[1024];
+  path_join(path,sizeof path,context->directory,file->name);write_file(path,file->data,file->size);return 0;
+}
+static void inspect(const char *path,const char *outdir,bool extract) {
+  size_t size;uint8_t *raw=load_image(path,&size),*workspace=malloc(size?size:1);struct jm_jieli_image image;
+  if(!workspace) die("out of memory");
+  int error=jm_jieli_image_open(&image,raw,size,workspace,size);
+  if(error) { fprintf(stderr,"jlnewfw: invalid image (%d)\n",error);exit(1); }
+  uint8_t fh[32];jm_jieli_header_at(raw,size,image.base,fh);
+  char vid[5]={0},pid[17];memcpy(vid,raw+image.base+4,4);jm_jieli_name_string(pid,raw+image.base+16);
+  printf("base=0x%x burner=%u vid=%s flash_size=0x%x fs=%u align=%u special=0x%02x pid=%s eoffset=%u\n",
+         image.base,rd16(fh+2),vid,rd32(fh+8),fh[12],fh[13],fh[15],pid,jm_jieli_eoffset(raw,size,image.base));
+  for(size_t i=0;i<image.top_count;++i) {
+    struct jm_jieli_entry e;jm_jieli_decode_entry(workspace+image.base+32+i*32,&e);char name[17];jm_jieli_name_string(name,e.name);
+    printf("top %-16s off=0x%08x size=0x%08x flags=%02x/%02x index=%u\n",name,e.offset,e.size,e.flags,e.reserved,e.index);
   }
-  if (!appbase || appbase + 32 > n)
-    die("app_dir_head points outside image");
-  /* Extract chip key from deterministic/normal chipkey blob. */
-  for (size_t i = 0; i < nt; i++) {
-    char name[17];
-    jm_jieli_name_string(name, top[i].name);
-    if (!strcmp(name, "isd_config.ini") && top[i].size >= 34)
-      chipkey = record_key(image + base + top[i].offset);
+  uint8_t *plain=workspace+image.appbase;struct jm_jieli_entry outer;jm_jieli_decode_entry(plain,&outer);
+  char name[17];jm_jieli_name_string(name,outer.name);
+  printf("app  %-16s entry=0x%08x size=0x%x key=0x%04x\n",name,outer.offset,outer.size,image.key);
+  for(uint32_t off=32;off+32<=outer.size;off+=32) {
+    struct jm_jieli_entry e;jm_jieli_decode_entry(plain+off,&e);jm_jieli_name_string(name,e.name);
+    printf("  %-16s off=0x%08x size=0x%08x flags=%02x/%02x index=%u\n",name,e.offset,e.size,e.flags,e.reserved,e.index);
+    if(e.index) break;
   }
-  uint8_t oh[32];
-  memcpy(oh, image + appbase, 32);
-  jm_jieli_sfc(oh, 0, 32, 0, chipkey);
-  struct jm_jieli_entry outer;
-  if (!jm_jieli_decode_entry(oh, &outer))
-    die("application-area header CRC mismatch");
-  char on[17];
-  jm_jieli_name_string(on, outer.name);
-  printf("app  %-16s entry=0x%08x size=0x%x key=0x%04x\n", on, outer.offset,
-         outer.size, chipkey);
-  if ((uint64_t)appbase + outer.size > n)
-    die("application area is truncated");
-  /* All that follows, as resources may come after the app area. */
-  uint32_t plain_n = (uint32_t)(n - appbase);
-  uint8_t *plain = malloc(plain_n);
-  if (!plain)
-    die("out of memory");
-  memcpy(plain, image + appbase, plain_n);
-  jm_jieli_sfc(plain, 0, plain_n, 0, chipkey);
-  if (jm_crc16(plain + 32, outer.size - 32) != outer.data_crc)
-    die("application-area data CRC mismatch");
-  char files[MAX_FILES][17], res[MAX_FILES][17];
-  size_t nfiles = 0, nres = 0;
-  struct jm_jieli_entry areas[MAX_FILES]; /* the reserved list, as it is */
-  size_t nareas = 0;
-  uint32_t code = 0, vm_len = 0, btif_len = 0, vm_at = 0;
-  for (uint32_t off = 32;; off += 32) {
-    struct jm_jieli_entry e;
-    if (off + 32 > outer.size || !jm_jieli_decode_entry(plain + off, &e))
-      die("nested header CRC mismatch");
-    char name[17];
-    jm_jieli_name_string(name, e.name);
-    printf("  %-16s off=0x%08x size=0x%08x flags=%02x/%02x index=%u\n", name,
-           e.offset, e.size, e.flags, e.reserved, e.index);
-    if (!strcmp(name, "PRCT"))
-      code = e.size;
-    if (!strcmp(name, "VM")) {
-      vm_len = rd32(e.name + 12);
-      vm_at = e.offset;
-    }
-    if (!strcmp(name, "BTIF"))
-      btif_len = e.size;
-    if (e.flags == 0x82 && nfiles < MAX_FILES)
-      memcpy(files[nfiles++], name, 17);
-    if (e.flags != 0x82 && nareas < MAX_FILES)
-      areas[nareas++] = e;
-    if (e.flags == 0x82) {
-      if ((uint64_t)e.offset + e.size > outer.size)
-        die("nested file outside app area");
-      if (jm_crc16(plain + e.offset, e.size) != e.data_crc)
-        die("nested file data CRC mismatch");
-      if (extract) {
-        char dst[1024];
-        path_join(dst, sizeof dst, outdir, name);
-        write_file(dst, plain + e.offset, e.size);
-      }
-    }
-    if (e.index)
-      break;
+  if(!outer.index) for(uint32_t off=outer.size;;) {
+    struct jm_jieli_entry e;jm_jieli_decode_entry(plain+off,&e);jm_jieli_name_string(name,e.name);
+    printf("res  %-16s off=0x%08x size=0x%08x flags=%02x/%02x index=%u\n",name,off,e.size,e.flags,e.reserved,e.index);
+    if(e.index) break;
+    off+=e.size;
   }
-  /* Resources: areas after the app area, each a header (contents from its
-   * offset field on, size including the header, CRC over the contents) and
-   * one file, until one says last.  Flags 0x83 (resources) or 0x82 (the
-   * BD19's p11_code.bin); "name:82" in RES keeps the latter. */
-  uint8_t res_flags[MAX_FILES];
-  for (uint32_t off = outer.size; !outer.index && off + 32 <= plain_n;) {
-    struct jm_jieli_entry e;
-    if (!jm_jieli_decode_entry(plain + off, &e) || (e.flags != 0x83 && e.flags != 0x82))
-      die("resource header CRC mismatch");
-    char name[17];
-    jm_jieli_name_string(name, e.name);
-    printf("res  %-16s off=0x%08x size=0x%08x flags=%02x/%02x index=%u\n", name,
-           off, e.size, e.flags, e.reserved, e.index);
-    if (e.offset < 32 || e.size < e.offset || (uint64_t)off + e.size > plain_n ||
-        jm_crc16(plain + off + e.offset, e.size - e.offset) != e.data_crc)
-      die("resource data CRC mismatch");
-    if (extract) {
-      char dst[1024];
-      path_join(dst, sizeof dst, outdir, name);
-      write_file(dst, plain + off + e.offset, e.size - e.offset);
-    }
-    if (nres < MAX_FILES) {
-      res_flags[nres] = e.flags;
-      memcpy(res[nres++], name, 17);
-    }
-    if (e.index)
-      break;
-    off += e.size;
+  if(extract) {
+    ensure_dir(outdir);struct extract_context context={outdir};
+    if(jm_jieli_image_visit(&image,extract_file,&context)!=JM_JIELI_IMAGE_OK) die("cannot extract image files safely");
+    char *config;size_t config_size;
+    if(!jm_jieli_image_config(&image,base_name(path),&config,&config_size)) die("cannot reconstruct INI");
+    char output[1024];path_join(output,sizeof output,outdir,"isd_config.ini");write_file(output,config,config_size);free(config);
   }
-  if (extract) {
-    char dst[1024];
-    path_join(dst, sizeof dst, outdir, "isd_config.ini");
-    FILE *f = fopen(dst, "w");
-    if (!f)
-      die_errno(dst);
-    fprintf(f, "// From %s by jlnewfw unpack: jlnewfw pack -c this_file -o OUT\n"
-               "// rebuilds it ([JLNEWFW] holds what the SDK INI cannot say).\n",
-            base_name(path));
-    fprintf(f, "[EXTRA_CFG_PARAM]\nNEW_FLASH_FS = YES;\nFORCE_4K_ALIGN = YES;\n"
-               "SPECIAL_OPT = 0;\nPID = %s;\nVID = %s;\nENTRY = 0x%x;\n"
-               "RESERVED_OPT = 0;\n[SYS_CFG_PARAM]\n",
-            pid, vid, outer.offset);
-    /* After the 34-byte chip-key record: a length (4 for a number), the
-     * name, the value.  A 4-character string and a number look the same;
-     * printable is taken for a string. */
-    for (uint32_t i = 34; sys && i < sys_n;) {
-      uint8_t len = sys[i++];
-      const char *key = (const char *)sys + i;
-      size_t kn = strnlen(key, sys_n - i);
-      i += (uint32_t)kn + 1;
-      if (i + len > sys_n)
-        die("isd_config.ini stream is truncated");
-      bool text = true;
-      for (unsigned j = 0; j < len; j++)
-        if (!isalnum(sys[i + j]) && sys[i + j] != '_')
-          text = false;
-      if (len == 4 && !text)
-        fprintf(f, "%.*s = %u;\n", (int)kn, key, rd32(sys + i));
-      else
-        fprintf(f, "%.*s = %.*s;\n", (int)kn, key, len, sys + i);
-      i += len;
-    }
-    fprintf(f, "[RESERVED_CONFIG]\nPRCT_ADR = 0;\nPRCT_LEN = CODE_LEN;\n"
-               "PRCT_OPT = 2;\nVM_ADR = 0;\nVM_LEN = 0x%x;\nVM_OPT = 1;\n"
-               "BTIF_ADR = AUTO;\nBTIF_LEN = 0x%x;\nBTIF_OPT = 1;\n[JLNEWFW]\n",
-            vm_len, btif_len);
-    fprintf(f, "UBOOT = %s;\nUBOOT_FLAGS = 0x%02x;\nHEADER_FS = %u;\nAREAS = ", uboot_name,
-            top_uboot_flags, fh[12]);
-    for (size_t i = 0; i < nareas; i++) {
-      fprintf(f, "%s0x%x:0x%x:0x%02x:0x%02x:0x%04x:", i ? ", " : "", areas[i].offset,
-              areas[i].size, areas[i].flags, areas[i].reserved, areas[i].data_crc);
-      for (unsigned k = 0; k < 16; k++)
-        fprintf(f, "%02x", areas[i].name[k]);
-    }
-    fprintf(f, ";\nFILES = ");
-    for (size_t i = 0; i < nfiles; i++)
-      fprintf(f, "%s%s", i ? ", " : "", files[i]);
-    fprintf(f, ";\n");
-    if (nres) {
-      fprintf(f, "RES = ");
-      for (size_t i = 0; i < nres; i++)
-        fprintf(f, "%s%s%s", i ? ", " : "", res[i], res_flags[i] == 0x82 ? ":82" : "");
-      fprintf(f, ";\n");
-    }
-    if (!code && vm_at > base) /* no PRCT entry (BD19): the code ends where VM starts */
-      code = vm_at - base;
-    fprintf(f, "FLASH_SIZE = 0x%x;\nCODE_LIMIT = 0x%x;\nHEADER_SPECIAL = 0x%02x;\n"
-               "CHIP_KEY = 0x%04x;\nCHIP_KEY_RECORD = ",
-            flash_end, code, fh[15], chipkey);
-    for (unsigned i = 0; sys && i < 34; i++)
-      fprintf(f, "%02x", sys[i]);
-    fprintf(f, ";\n");
-    if (mark != 0xffff)
-      fprintf(f, "MARK = 0x%04x;\n", mark);
-    if (fclose(f))
-      die_errno(dst);
-  }
-  free(plain);
-  free(image);
+  free(workspace);free(raw);
 }
 
 
@@ -690,298 +325,31 @@ static bool pack_arg(struct pack_opts *o, int argc, char **argv, int *i) {
   return true;
 }
 
-/* A path from the INI: relative to the INI's directory. */
-static const char *beside(const char *ini, const char *name) {
-  if (name[0] == '/')
-    return strdup(name);
-  const char *slash = strrchr(ini, '/');
-  if (!slash)
-    return strdup(name);
-  char *p = malloc((size_t)(slash - ini) + 2 + strlen(name));
-  if (!p)
-    die("out of memory");
-  sprintf(p, "%.*s/%s", (int)(slash - ini), ini, name);
-  return p;
+struct build_reader { uint8_t *current; };
+static int build_read(void *user,const char *name,const uint8_t **data,size_t *size) {
+  struct build_reader *reader=user;free(reader->current);reader->current=read_file(name,size);
+  *data=reader->current;return 1;
 }
-/* A comma-separated INI list into `out`. */
-static size_t ini_list(const char *ini, const char *v, const char **out) {
-  size_t n = 0;
-  char *copy = strdup(v), *save = NULL;
-  for (char *t = strtok_r(copy, ",", &save); t && n < MAX_FILES;
-       t = strtok_r(NULL, ",", &save))
-    if (*trim(t))
-      out[n++] = beside(ini, trim(t));
-  return n;
+static void build_log(void *user,const char *message) { (void)user;fputs(message,stdout); }
+static struct blob build_with_log(struct pack_opts *o,uint16_t *key_out,jm_jieli_build_log log) {
+  struct jm_jieli_build_options options={0};
+  options.ini=o->ini;options.uboot=o->uboot;options.nf=o->nf;options.nr=o->nr;
+  memcpy(options.files,o->files,sizeof options.files);memcpy(options.res,o->res,sizeof options.res);
+  options.have_key=o->have_key;options.have_at=o->have_at;options.have_mark=o->have_mark;
+  options.key=o->key;options.mark=o->mark;options.at=o->at;
+  options.flash_size=o->flash_size;options.code_limit=o->code_limit;options.nc=o->nc;
+  for(size_t i=0;i<o->nc;++i) options.copies[i]=(struct jm_jieli_copy){o->copies[i].from,o->copies[i].to,o->copies[i].len};
+  options.main_file=o->main_file;options.main_at=o->main_at;
+  struct build_reader reader={0};struct jm_jieli_build_result result;char error[256];
+  int ok=jm_jieli_build(&options,build_read,log,&reader,&result,error);free(reader.current);
+  if(!ok) die(error);
+  if(key_out) *key_out=result.key;
+  if(o->main_out && result.update) write_file(o->main_out,result.update,result.update_size);
+  free(result.update);return (struct blob){result.image,result.image_size,result.image_size};
 }
 
-static struct blob build(struct pack_opts *o, uint16_t *key_out) {
-  if (!o->ini)
-    die("pack needs -c isd_config.ini");
-  struct config c = {0};
-  load_config(&c, o->ini);
-  /* These are the layout modes understood below. Refuse rather than silently
-     producing a plausible-looking image for a different SDK configuration. */
-  require_value(&c, "EXTRA_CFG_PARAM", "NEW_FLASH_FS", "YES");
-  require_value(&c, "EXTRA_CFG_PARAM", "FORCE_4K_ALIGN", "YES");
-  require_value(&c, "EXTRA_CFG_PARAM", "RESERVED_OPT", "0");
-  require_value(&c, "RESERVED_CONFIG", "PRCT_ADR", "0");
-  require_value(&c, "RESERVED_CONFIG", "PRCT_LEN", "CODE_LEN");
-  require_value(&c, "RESERVED_CONFIG", "PRCT_OPT", "2");
-  require_value(&c, "RESERVED_CONFIG", "VM_ADR", "0");
-  require_value(&c, "RESERVED_CONFIG", "VM_OPT", "1");
-  require_value(&c, "RESERVED_CONFIG", "BTIF_ADR", "AUTO");
-  require_value(&c, "RESERVED_CONFIG", "BTIF_OPT", "1");
-  const char *v;
-  if (!o->uboot && (v = cfg(&c, "JLNEWFW", "UBOOT", NULL)))
-    o->uboot = beside(o->ini, v);
-  if (!o->nf && (v = cfg(&c, "JLNEWFW", "FILES", NULL)))
-    o->nf = ini_list(o->ini, v, o->files);
-  if (!o->nr && (v = cfg(&c, "JLNEWFW", "RES", NULL)))
-    o->nr = ini_list(o->ini, v, o->res);
-  if (!o->have_key && (v = cfg(&c, "JLNEWFW", "CHIP_KEY", NULL)))
-    o->key = (uint16_t)number(v), o->have_key = true;
-  if (!o->have_key)
-    o->key = 0xffff;
-  if (!o->flash_size && (v = cfg(&c, "JLNEWFW", "FLASH_SIZE", NULL)))
-    o->flash_size = number(v);
-  if (!o->code_limit && (v = cfg(&c, "JLNEWFW", "CODE_LIMIT", NULL)))
-    o->code_limit = number(v);
-  if (!o->have_mark && (v = cfg(&c, "JLNEWFW", "MARK", NULL)))
-    o->mark = (uint16_t)number(v), o->have_mark = true;
-  if (!o->nc && (v = cfg(&c, "JLNEWFW", "COPY", NULL))) {
-    char *copy = strdup(v), *save = NULL;
-    for (char *t = strtok_r(copy, ",", &save); t && o->nc < 16;
-         t = strtok_r(NULL, ",", &save))
-      parse_copy(t, &o->copies[o->nc++]);
-  }
-  if (!o->have_at)
-    o->at = number(cfg(&c, "SYS_CFG_PARAM", "EOFFSET", "0")) * 0x1000;
-  if (!o->uboot || !o->nf)
-    die("pack needs uboot.boot (-u) and app files");
-  if (strcmp(base_name(o->files[0]), "app.bin"))
-    die("the first application file must be named app.bin");
-  for (size_t i = 0; i < o->nf + o->nr; i++)
-    if (strlen(base_name(i < o->nf ? o->files[i] : o->res[i - o->nf])) > 15)
-      die("JLFS file names may be at most 15 bytes");
-
-  uint8_t record[34];
-  if ((v = cfg(&c, "JLNEWFW", "CHIP_KEY_RECORD", NULL))) {
-    if (strlen(v) != 68)
-      die("CHIP_KEY_RECORD is 34 bytes in hex");
-    for (unsigned i = 0; i < 34; i++) {
-      char h[3] = {v[2 * i], v[2 * i + 1], 0};
-      record[i] = (uint8_t)strtoul(h, NULL, 16);
-    }
-    if (jm_crc16(record, 32) != rd16(record + 32))
-      die("CHIP_KEY_RECORD CRC mismatch");
-    jm_jieli_set_record_key(record, o->key);
-  } else {
-    make_chipkey(record, o->key);
-  }
-  struct blob sys = encode_syscfg(&c, record);
-  size_t uboot_n;
-  uint8_t *uboot = read_file(o->uboot, &uboot_n);
-  struct app_file files[2 * MAX_FILES];
-  uint8_t area_flags[2 * MAX_FILES]; /* resources: 0x83, or 0x82 for "name:82" */
-  size_t nall = o->nf + o->nr;
-  for (size_t i = 0; i < nall; i++) {
-    char *path = strdup(i < o->nf ? o->files[i] : o->res[i - o->nf]);
-    size_t pn = strlen(path);
-    area_flags[i] = 0x83;
-    if (i >= o->nf && pn > 3 && !strcmp(path + pn - 3, ":82")) {
-      path[pn - 3] = 0;
-      area_flags[i] = 0x82;
-    }
-    files[i] = (struct app_file){path, base_name(path), NULL, 0};
-    files[i].data = read_file(path, &files[i].size);
-  }
-  uint32_t appbase =
-      align_up((uint32_t)(32 + 4 * 32 + uboot_n + sys.n), 0x1000);
-  uint32_t entry = number(cfg(&c, "EXTRA_CFG_PARAM", "ENTRY", "0x1e00120"));
-  uint32_t appoff = entry & 0xfffffu;
-  /* The reserved list as unpack found it (AREAS: offset:size:flags:reserved:
-   * CRC field:name field, 16 bytes in hex), or else VM, PRCT and BTIF from the
-   * layout. */
-  struct jm_jieli_entry areas[MAX_FILES];
-  size_t nareas = 0;
-  if ((v = cfg(&c, "JLNEWFW", "AREAS", NULL)) && *v) {
-    char *copy = strdup(v), *save = NULL;
-    for (char *t = strtok_r(copy, ",", &save); t && nareas < MAX_FILES;
-         t = strtok_r(NULL, ",", &save)) {
-      unsigned off, size, flags, res, crc;
-      char hex[33];
-      if (sscanf(trim(t), "%x:%x:%x:%x:%x:%32s", &off, &size, &flags, &res, &crc, hex) != 6 ||
-          strlen(hex) != 32)
-        die("AREAS entry is offset:size:flags:reserved:crc:name-hex");
-      struct jm_jieli_entry *a = &areas[nareas++];
-      *a = (struct jm_jieli_entry){(uint16_t)crc, off, size, (uint8_t)flags, (uint8_t)res, 0, {0}};
-      for (unsigned k = 0; k < 16; k++) {
-        unsigned b;
-        sscanf(hex + 2 * k, "%2x", &b);
-        a->name[k] = (uint8_t)b;
-      }
-    }
-    free(copy);
-    areas[nareas - 1].index = 1;
-  }
-  size_t nested_n = o->nf + (nareas ? nareas : 3);
-  if (appoff < 32 + (uint32_t)nested_n * 32)
-    die("ENTRY's flash offset overlaps the app-area headers");
-  uint32_t cursor = appoff;
-  for (size_t i = 0; i < o->nf; i++) {
-    if (files[i].size > UINT32_MAX - cursor)
-      die("app files too large");
-    cursor += (uint32_t)files[i].size;
-  }
-  uint32_t outer_size = cursor; /* relative to the outer header */
-  uint32_t res_size = 0;        /* resources follow, each behind its header */
-  for (size_t i = o->nf; i < nall; i++)
-    res_size += 32 + (uint32_t)files[i].size;
-  /* --main: the main app, linked at the code window's start + OFFSET +
-   * 0x120, behind a header the updater checks; the area's cipher runs on
-   * over it.  The app area itself holds the updater. */
-  size_t main_n = 0;
-  uint8_t *main_bin = o->main_file ? read_file(o->main_file, &main_n) : NULL;
-  uint32_t area_n = outer_size + res_size;
-  if (main_bin) {
-    if ((o->main_at & 0xfff) || o->main_at < area_n)
-      die("--main's offset must be 4-KiB aligned and above the app area");
-    area_n = o->main_at + MAIN_HEAD_SIZE + (uint32_t)main_n;
-  }
-  uint32_t image_end = align_up(appbase + area_n, 0x1000);
-  uint32_t code_end = o->code_limit ? o->code_limit : image_end;
-  if ((code_end & 0xfff) || code_end < image_end)
-    die("code limit must be 4-KiB aligned and contain the application");
-  uint32_t vm_len = number(cfg(&c, "RESERVED_CONFIG", "VM_LEN", "8K"));
-  uint32_t btif_len = number(cfg(&c, "RESERVED_CONFIG", "BTIF_LEN", "0x1000"));
-  /* With the flash size given, VM is what is left between the code and
-   * BTIF (GameSir's tool leaves a pad placed at 0x1000 28 of VM_LEN's 32
-   * KiB); otherwise the flash is made big enough for VM_LEN. */
-  uint32_t required = o->at + code_end + (o->flash_size ? 0 : vm_len) +
-                      btif_len + 0x1000;
-  uint32_t total = o->flash_size ? o->flash_size : next_pow2(required);
-  if (!o->flash_size && total < 0x20000)
-    total = 0x20000;
-  if (total < required)
-    die("flash size is too small for the image and reserved regions");
-  if (total & (total - 1))
-    die("flash size must be a power of two");
-  uint32_t keymac = total - 0x1000, btif = keymac - btif_len,
-           vm = o->at + code_end;
-  if (vm > btif)
-    die("application does not fit reserved layout");
-  if (btif - vm < vm_len)
-    printf("note: VM is 0x%x bytes, less than VM_LEN 0x%x\n", btif - vm, vm_len);
-
-  struct blob image = {0};
-  reserve(&image, image_end);
-  image.n = image_end;
-  memset(image.p, 0xff, image.n);
-  flash_header(image.p, &c, keymac);
-  uint32_t top_data = 32 + 4 * 32, uboot_off = top_data,
-           sys_off = uboot_off + (uint32_t)uboot_n;
-  struct jm_jieli_entry top[4] = {0};
-  top[0] = (struct jm_jieli_entry){jm_crc16(uboot, uboot_n), uboot_off, (uint32_t)uboot_n,
-                          (uint8_t)number(cfg(&c, "JLNEWFW", "UBOOT_FLAGS", "0")), 0, 0, {0}};
-  set_name(top[0].name, "uboot.boot");
-  top[1] = (struct jm_jieli_entry){
-      jm_crc16(sys.p, sys.n), sys_off, (uint32_t)sys.n, 0x02, 0xff, 0, {0}};
-  set_name(top[1].name, "isd_config.ini");
-  top[2] = (struct jm_jieli_entry){o->have_mark ? o->mark : 0xffff,
-                          appbase, 0xffffffff, 0x81, 0xff, 0, {0}};
-  set_name(top[2].name, "app_dir_head");
-  top[3] = (struct jm_jieli_entry){0xffff, keymac, 0x1000, 0x12, 0x01, 0xffff, {0}};
-  set_name(top[3].name, "key_mac");
-  for (unsigned i = 0; i < 4; i++)
-    jm_jieli_encode_entry(image.p + 32 + i * 32, &top[i]);
-  memcpy(image.p + uboot_off, uboot, uboot_n);
-  memcpy(image.p + sys_off, sys.p, sys.n);
-  struct jm_jieli_entry outer = {0};
-  outer.offset = entry;
-  outer.size = outer_size;
-  outer.flags = 0x83;
-  outer.reserved = 0xff;
-  outer.index = o->nr ? 0 : 1; /* 1: the last area */
-  set_name(outer.name, "app_area_head");
-  cursor = appoff;
-  for (size_t i = 0; i < o->nf; i++) {
-    struct jm_jieli_entry e = {jm_crc16(files[i].data, files[i].size),
-                      cursor, (uint32_t)files[i].size, 0x82, 0xff, 0, {0}};
-    set_name(e.name, files[i].name);
-    jm_jieli_encode_entry(image.p + appbase + 32 + (uint32_t)i * 32, &e);
-    memcpy(image.p + appbase + cursor, files[i].data, files[i].size);
-    cursor += (uint32_t)files[i].size;
-  }
-  struct jm_jieli_entry r[3] = {0};
-  r[0] = (struct jm_jieli_entry){0xffff, vm, btif - vm, 0x12, 0x81, 0, {0}};
-  set_name(r[0].name, "VM");
-  wr32(r[0].name + 12, vm_len);
-  r[1] = (struct jm_jieli_entry){0xffff, o->at, code_end, 0x92, 0x82, 0, {0}};
-  set_name(r[1].name, "PRCT");
-  memcpy(r[1].name + 12, "CODE", 4);
-  r[2] = (struct jm_jieli_entry){0xffff, btif, btif_len, 0x92, 0x81, 1, {0}};
-  set_name(r[2].name, "BTIF");
-  memcpy(r[2].name + 12, "AUTO", 4);
-  for (unsigned i = 0; i < (nareas ? nareas : 3); i++)
-    jm_jieli_encode_entry(image.p + appbase + 32 + (uint32_t)(o->nf + i) * 32, nareas ? &areas[i] : &r[i]);
-  outer.data_crc = jm_crc16(image.p + appbase + 32, outer_size - 32);
-  jm_jieli_encode_entry(image.p + appbase, &outer);
-  uint32_t pos = appbase + outer_size;
-  for (size_t i = o->nf; i < nall; i++) {
-    struct jm_jieli_entry e = {jm_crc16(files[i].data, files[i].size), 32,
-                      32 + (uint32_t)files[i].size, area_flags[i], 0xff,
-                      (uint16_t)(i + 1 == nall), {0}};
-    set_name(e.name, files[i].name);
-    jm_jieli_encode_entry(image.p + pos, &e);
-    memcpy(image.p + pos + 32, files[i].data, files[i].size);
-    pos += 32 + (uint32_t)files[i].size;
-  }
-  if (main_bin) {
-    uint8_t *h = image.p + appbase + o->main_at;
-    wr32(h, MAIN_MAGIC);
-    wr32(h + 4, (uint32_t)main_n);
-    wr32(h + 8, jm_crc16(main_bin, main_n));
-    wr32(h + 12, (entry & ~0xfffffu) + o->main_at + MAIN_HEAD_SIZE);
-    wr32(h + 16, MAIN_HEAD_VERSION);
-    wr32(h + 20, o->main_at);
-    memset(h + 24, 0, 16);
-    strncpy((char *)h + 24, cfg(&c, "EXTRA_CFG_PARAM", "PID", ""), 16);
-    wr32(h + 40, jm_crc16(h + 4, 36));
-    memcpy(h + MAIN_HEAD_SIZE, main_bin, main_n);
-    free(main_bin);
-    if (o->main_out)
-      write_file(o->main_out, h, MAIN_HEAD_SIZE + main_n);
-  }
-  scramble_bankcb(image.p + uboot_off, uboot_n);
-  jm_jieli_sfc(image.p, appbase, area_n, appbase, o->key);
-  for (unsigned i = 0; i < 4; i++)
-    jm_jieli_enc(image.p + 32 + i * 32, 32, 0xffff);
-
-  /* On flash: the image at `at`, then the copies. */
-  uint32_t end = o->at + image_end;
-  for (size_t i = 0; i < o->nc; i++) {
-    if ((uint64_t)o->copies[i].from + o->copies[i].len > image_end)
-      die("a copy reaches past the image");
-    if (o->copies[i].to + o->copies[i].len > end)
-      end = o->copies[i].to + o->copies[i].len;
-  }
-  if (end > total)
-    die("the image and copies do not fit the flash");
-  struct blob flash = {0};
-  reserve(&flash, end);
-  flash.n = end;
-  memset(flash.p, 0xff, end);
-  memcpy(flash.p + o->at, image.p, image_end);
-  for (size_t i = 0; i < o->nc; i++)
-    memcpy(flash.p + o->copies[i].to, image.p + o->copies[i].from,
-           o->copies[i].len);
-  printf("packed: %u bytes, image at 0x%x (app @0x%x, end 0x%x, code limit "
-         "0x%x), VM 0x%x-0x%x, flash 0x%x, chip key 0x%04x\n",
-         end, o->at, appbase, image_end, code_end, vm, btif, total, o->key);
-  if (key_out)
-    *key_out = o->key;
-  free(image.p);
-  return flash;
+static struct blob build(struct pack_opts *o,uint16_t *key_out) {
+  return build_with_log(o,key_out,build_log);
 }
 
 static void cmd_pack(int argc, char **argv) {
@@ -2442,10 +1810,10 @@ static void cmd_flashpack(int argc, char **argv) {
   }
   if (!p.ini)
     die("flashpack needs -c isd_config.ini");
-  struct config c = {0};
-  load_config(&c, p.ini);
-  char want[17];
-  snprintf(want, sizeof want, "%s", cfg(&c, "EXTRA_CFG_PARAM", "PID", ""));
+  struct pack_opts preflight=p;preflight.out=NULL;preflight.main_out=NULL;
+  struct blob checked=build_with_log(&preflight,NULL,NULL);uint8_t header[32];uint32_t base;
+  if(!jm_jieli_find_base(checked.p,checked.n,header,&base)) die("built image has no flash header");
+  char want[17];jm_jieli_name_string(want,checked.p+base+16);free(checked.p);
   if (o.pid && strcmp(o.pid, want))
     die("image PID does not match the selected board");
   struct dev d = {0};

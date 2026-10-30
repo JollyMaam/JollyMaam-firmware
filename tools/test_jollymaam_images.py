@@ -28,9 +28,21 @@ def compare(reference, candidate, image):
     with tempfile.TemporaryDirectory(prefix='jollymaam-images-') as temp:
         root = Path(temp)
         old, new = root / 'old', root / 'new'
-        assert run(reference, 'unpack', image, old) == run(candidate, 'unpack', image, new)
-        assert files(old) == files(new), f"unpacked files differ: {image}"
-    print(f"Matched list, verify and unpack: {image}")
+        run(reference, 'unpack', image, old)
+        run(candidate, 'unpack', image, new)
+        previous, current = files(old), files(new)
+        # MAIN is now exported too, so generated images can be rebuilt in full.
+        self_contained = current.pop(Path('_main.bin'), None)
+        ini = Path('isd_config.ini')
+        current[ini] = b'\n'.join(line for line in current[ini].split(b'\n')
+                                   if not line.startswith((b'MAIN_FILE =', b'MAIN_AT =')))
+        assert previous == current, f"unpacked files differ: {image}"
+        rebuilt = root / 'rebuilt.img'
+        run(candidate, 'pack', '-c', new / ini, '-o', rebuilt)
+        assert rebuilt.read_bytes() == image.read_bytes(), f"full rebuild differs: {image}"
+        if self_contained is not None:
+            assert self_contained, 'empty MAIN export'
+    print(f"Matched list, verify, unpack and full rebuild: {image}")
 
 
 def main():

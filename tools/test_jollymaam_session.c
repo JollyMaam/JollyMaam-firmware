@@ -112,32 +112,50 @@ static uint8_t *fixture(size_t *size) {
   jm_jieli_sfc(image, 512, (uint32_t)*size - 512, 512, 0xffff);
   return image;
 }
-struct fakej { uint8_t flash[65536]; unsigned erases,writes; };
+struct fakej { uint8_t flash[65536]; unsigned erases,writes,reads,starts,fail_read; };
 static int scsi_fake(void *user,const uint8_t *cdb,size_t cdb_size,enum jm_scsi_direction direction,
                       uint8_t *data,size_t size,unsigned timeout,struct jm_scsi_result *result) {
   struct fakej *f=user;(void)timeout;memset(result,0,sizeof *result);result->transferred=size;
   if(cdb_size==6) { assert(cdb[0]==0x12 && size==36);memset(data,0,size);volatile uint8_t *out=data;for(unsigned i=0;i<4;++i) out[8+i]=(uint8_t)"BR23"[i];for(unsigned i=0;i<9;++i) out[16+i]=(uint8_t)"UBOOT1.00"[i];return 0; }
   unsigned cmd=(unsigned)cdb[0]<<8|cdb[1];uint32_t at=rd32be(cdb+2);
   if(cmd==0xfb06) return 0;
-  if(cmd==0xfd05) { assert(at+size<=sizeof f->flash);memcpy(data,f->flash+at,size);return 0; }
+  if(cmd==0xfd05) { ++f->reads;if(f->fail_read) { result->transferred=size-1;return 0; } assert(at+size<=sizeof f->flash);memcpy(data,f->flash+at,size);return 0; }
   if(cmd==0xfb04) { assert(direction==JM_SCSI_OUT && at+size<=sizeof f->flash);memcpy(f->flash+at,data,size);++f->writes;return 0; }
   assert(size==16);memset(data,0,size);data[0]=cdb[0];data[1]=cdb[1];
   if(cmd==0xfc0a) { data[4]=16;data[5]=0x40;data[6]=0xef; }
   else if(cmd==0xfc14) data[4]=2;
   else if(cmd==0xfc09) { uint8_t key[2]={0xff,0xff};jm_jieli_crc_cipher(key,2,0xffffffff);data[7]=key[0];data[6]=key[1]; }
   else if(cmd==0xfb00 || cmd==0xfb01) { unsigned n=cmd==0xfb00?65536:4096;assert(at+n<=sizeof f->flash);memset(f->flash+at,0xff,n);++f->erases; }
+  else if(cmd==0xfc0c) { assert(at==1);++f->starts; }
   else assert(cmd==0xfb08);
   return 0;
 }
+struct backup { uint8_t data[65536];size_t size;int reject; };
+static int backup_sink(void *user,uint32_t at,const uint8_t *data,size_t size) {
+  struct backup *b=user;assert(at==b->size && size<=sizeof b->data-b->size);
+  if(b->reject) return 0;
+  memcpy(b->data+at,data,size);b->size+=size;return 1;
+}
 static void testj(void) {
   size_t n;uint8_t *image=fixture(&n),loader[512]={0};struct fakej f;memset(&f,0x55,sizeof f);
-  f.erases=f.writes=0;memcpy(f.flash,image,n);
+  f.erases=f.writes=f.reads=f.starts=f.fail_read=0;memcpy(f.flash,image,n);
   struct jm_firmware_target target;memset(&target,0,sizeof target);strcpy(target.chip,"BR23");
   target.install.data=image;target.install.size=n;target.loader.data=loader;target.loader.size=sizeof loader;
   struct jm_session_io io={0};io.scsi=scsi_fake;io.wait_ms=wait_ms;
   assert(!jm_session_run(&target,JM_SESSION_JIELI,NULL,&io,&f,NULL,NULL));
   assert(f.erases && f.writes && !memcmp(f.flash,image,n));
   for(size_t i=n;i<sizeof f.flash;++i) assert(f.flash[i]==0x55);
+  struct jm_jieli_device device;
+  assert(!jm_session_jieli_open(&io,&f,loader,sizeof loader,&device));
+  assert(device.flash_size==sizeof f.flash && device.io==512 && device.key==0xffff);
+  struct backup b={0};
+  assert(!jm_session_jieli_backup(&io,&f,&device,backup_sink,&b,NULL,NULL));
+  assert(b.size==sizeof f.flash && !memcmp(b.data,f.flash,sizeof f.flash));
+  unsigned reads=f.reads;
+  assert(!jm_session_jieli_read(&io,&f,&device,device.flash_size-1,b.data,2));assert(reads==f.reads);
+  b.size=0;b.reject=1;assert(jm_session_jieli_backup(&io,&f,&device,backup_sink,&b,NULL,NULL)==-3);
+  f.fail_read=1;assert(jm_session_jieli_backup(&io,&f,&device,backup_sink,&b,NULL,NULL)==-2);
+  assert(jm_session_jieli_start(&io,&f) && f.starts==1);
   free(image);
 }
 int main(void) {

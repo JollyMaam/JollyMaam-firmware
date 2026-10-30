@@ -15,5 +15,7 @@
 #include "jieli_image/entry.h"
 #include "jieli_image/key.h"
 #include "jieli_image/image.h"
+#include "jieli_image/builder.h"
+#include "jieli_image/config.h"
 #include "jieli_image/ufw.h"
 #endif

@@ -20,7 +20,7 @@ enum jm_jieli_image_result jm_jieli_image_open(struct jm_jieli_image *out,
 enum jm_jieli_image_result jm_jieli_image_pack(const struct jm_jieli_image *image,
                                                uint16_t key, uint8_t *out,
                                                size_t capacity);
-enum jm_jieli_file_kind { JM_JIELI_FILE_TOP, JM_JIELI_FILE_APP, JM_JIELI_FILE_RESOURCE };
+enum jm_jieli_file_kind { JM_JIELI_FILE_TOP, JM_JIELI_FILE_APP, JM_JIELI_FILE_RESOURCE, JM_JIELI_FILE_MAIN };
 struct jm_jieli_file {
   char name[17];
   const uint8_t *data;
@@ -30,4 +30,5 @@ struct jm_jieli_file {
 typedef int (*jm_jieli_file_visitor)(void *user, const struct jm_jieli_file *file);
 enum jm_jieli_image_result jm_jieli_image_visit(const struct jm_jieli_image *image,
                                                 jm_jieli_file_visitor visit, void *user);
+int jm_jieli_image_main(const struct jm_jieli_image *image,struct jm_jieli_file *file,uint32_t *offset);
 #endif
