@@ -1,3 +1,6 @@
+import binascii
+import struct
+import zlib
 import ctypes as c
 import hashlib
 import io
@@ -22,7 +25,9 @@ class PackageTests(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         lib = Path(cls.tmp.name) / 'package.so'
         subprocess.run([os.environ.get('CC', 'gcc'), '-std=c99', '-Wall', '-Wextra', '-Werror',
-                        '-shared', '-fPIC', 'src/lib/package.c', '-o', str(lib)], check=True)
+                        '-shared', '-fPIC', 'src/lib/package.c', 'src/lib/manifest.c',
+                        'src/lib/sha256.c', 'src/lib/proto_jollymaam.c', 'src/lib/proto_8bitdo.c',
+                        'src/lib/jieli_image/entry.c', 'src/lib/jieli_image/crypto.c', '-o', str(lib)], check=True)
         cls.lib = c.CDLL(str(lib))
         cls.lib.jm_package_open.argtypes = [c.POINTER(Package), c.c_void_p, c.c_size_t]
 
@@ -43,6 +48,61 @@ class PackageTests(unittest.TestCase):
                 for name in names:
                     archive.writestr(name, b'payload')
         return stream.getvalue()
+
+    def test_sha256(self):
+        self.lib.jm_sha256.argtypes = [c.c_void_p, c.c_size_t, c.c_void_p]
+        for size in (0, 1, 55, 56, 63, 64, 65, 127, 128, 129, 1000000):
+            data = bytes(i % 251 for i in range(size))
+            digest = c.create_string_buffer(32)
+            self.lib.jm_sha256(data, size, digest)
+            self.assertEqual(digest.raw, hashlib.sha256(data).digest())
+
+    def manifest_fixture(self, mutation=None):
+        app = b'x'
+        update = bytearray(0x120) + app
+        struct.pack_into('<4sIIIII16s', update, 0, b'MAIN', 1, binascii.crc_hqx(app, 0),
+                         0x16120, 1, 0x10000, b'U2C_WIRELESS')
+        struct.pack_into('<I', update, 40, binascii.crc_hqx(update[4:40], 0))
+        install = bytearray(32)
+        install[8:12] = b'KNLT'
+        struct.pack_into('<I', install, 24, 32)
+        struct.pack_into('<I', install, 28, zlib.crc32(install[:28]) ^ 0xffffffff)
+        install += bytes(4096 - 32) + update
+        files = {'install.bin': bytes(install), 'update.bin': bytes(update)}
+        target = dict(product='U2C_WIRELESS', board='test', chip='TLSR8208', model=0x301b,
+                      preserve=[], artifacts=[])
+        for role, path in [('install', 'install.bin'), ('update', 'update.bin')]:
+            target['artifacts'].append(dict(role=role, path=path, size=len(files[path]),
+                                            sha256=hashlib.sha256(files[path]).hexdigest()))
+        manifest = dict(format='jollymaam-firmware', version=1, targets=[target])
+        if mutation:
+            mutation(manifest)
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, 'w') as archive:
+            archive.writestr('manifest.json', json.dumps(manifest))
+            for path, data in files.items():
+                archive.writestr(path, data)
+        return stream.getvalue()
+
+    def manifest_valid(self, data):
+        buffer = c.create_string_buffer(data)
+        package = Package()
+        self.assertEqual(self.lib.jm_package_open(c.byref(package), buffer, len(data)), 0)
+        # Caller storage is deliberately oversized and aligned for the C result.
+        output = (c.c_uint64 * 1024)()
+        self.lib.jm_manifest_open.argtypes = [c.c_void_p, c.POINTER(Package)]
+        return self.lib.jm_manifest_open(output, c.byref(package))
+
+    def test_manifest(self):
+        self.assertEqual(self.manifest_valid(self.manifest_fixture()), 1)
+        mutations = [lambda m: m.update(version=2),
+                     lambda m: m['targets'][0]['artifacts'][0].update(sha256='0'*64),
+                     lambda m: m['targets'][0].update(product='WRONG'),
+                     lambda m: m['targets'][0].update(preserve=[dict(offset=0,size=4096)]),
+                     lambda m: m['targets'].append(m['targets'][0]),
+                     lambda m: m['targets'][0]['artifacts'].pop()]
+        for mutate in mutations:
+            self.assertEqual(self.manifest_valid(self.manifest_fixture(mutate)), 0)
 
     def test_valid(self):
         self.assertEqual(self.check_zip(self.archive(('manifest.json', 'firmware/a.bin'))), (0, 2))

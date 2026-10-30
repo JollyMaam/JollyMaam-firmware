@@ -1,5 +1,6 @@
 #include "../src/lib/transport_hid.h"
 #include "../src/lib/package.h"
+#include "../src/lib/manifest.h"
 #include "../src/lib/proto_jollymaam.h"
 #include "../src/lib/jieli_image/ufw.h"
 #include "../src/lib/jieli_image/entry.h"
@@ -63,6 +64,24 @@ done:
   return result;
 }
 int main(int argc, char **argv) {
+  if (argc == 6 && !strcmp(argv[1], "flash-package") && !strcmp(argv[2], "--yes")) {
+    size_t size = 0; uint8_t *data = read_image(argv[5], &size);
+    struct jm_package package; struct jm_manifest manifest;
+    const struct jm_firmware_target *target = NULL;
+    int result = -1;
+    if (data && jm_package_open(&package, data, size) == JM_PACKAGE_OK &&
+        jm_manifest_open(&manifest, &package)) target = jm_manifest_target(&manifest, argv[4]);
+    if (!target) fprintf(stderr, "Invalid package or unsupported product\n");
+    else if (!strcmp(target->chip, "TLSR8208")) {
+      unsigned last = (unsigned)-1;
+      result = jm_hid_upgrade_8bitdo(argv[3], target->install.data, target->install.size, progress, &last);
+    } else result = jm_linux_jieli_upgrade(argv[3], target->loader.data, target->loader.size,
+                                           target->install.data, target->install.size);
+    free(data);
+    if (result) fprintf(stderr, "Package upgrade failed: %d\n", result);
+    else puts("Written and verified (Jieli devices remain in their loader)");
+    return result ? 1 : 0;
+  }
   if (argc == 6 && !strcmp(argv[1], "flash-jieli") && !strcmp(argv[2], "--yes")) {
     size_t loader_size = 0, image_size = 0;
     uint8_t *loader = read_image(argv[4], &loader_size), *image = read_image(argv[5], &image_size);
@@ -102,13 +121,17 @@ int main(int argc, char **argv) {
         int error = jm_package_open(&package, data, size);
         if (error) fprintf(stderr, "Invalid/unsupported ZIP container: %d\n", error);
         else {
-          printf("Validated ZIP container: %u entries (manifest policy not checked)\n", package.count);
+          struct jm_manifest manifest;
+          int verified = jm_manifest_open(&manifest, &package);
+          if (!verified) fprintf(stderr, "Manifest validation failed\n");
+          else printf("Verified firmware manifest: %u targets\n", manifest.count);
+          printf("Validated ZIP container: %u entries\n", package.count);
           for (unsigned i = 0; i < package.count; ++i) {
             struct jm_package_entry entry;
             if (jm_package_entry(&package, i, &entry))
               printf("%.*s: %zu bytes\n", (int)entry.name_size, entry.name, entry.size);
           }
-          result = 0;
+          result = verified ? 0 : 1;
         }
       } else if (jm_update_image_check(data, size, NULL)) {
         printf("Validated MAIN update image: bytes=%zu\n", size); result = 0;
@@ -131,6 +154,7 @@ int main(int argc, char **argv) {
                   "       jollymaam inspect IMAGE\n"
                   "       jollymaam rekey-jieli INPUT OUTPUT KEY\n"
                   "       jollymaam flash-8bitdo --yes HID_PATH IMAGE\n"
-                  "       jollymaam flash-jieli --yes DEVICE LOADER IMAGE\n");
+                  "       jollymaam flash-jieli --yes DEVICE LOADER IMAGE\n"
+                  "       jollymaam flash-package --yes DEVICE PRODUCT ZIP\n");
   return 2;
 }
