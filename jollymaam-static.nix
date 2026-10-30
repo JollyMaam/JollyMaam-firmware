@@ -1,4 +1,4 @@
-{ pkgs ? import <nixpkgs> {}, hidBackend ? "libusb", withZlib ? true }:
+{ pkgs ? import <nixpkgs> {}, hidBackend ? "hidraw", withZlib ? true }:
 assert builtins.elem hidBackend [ "libusb" "hidraw" ];
 let static = pkgs.pkgsStatic; in
 static.stdenv.mkDerivation {

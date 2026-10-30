@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "transport_custom.h"
+#include "transport_hid.h"
 #include <hidapi.h>
 #include <string.h>
 #include <time.h>
@@ -35,8 +36,12 @@ static int command(struct custom *c, const struct jm_update_request *r, uint8_t 
   buffer[17]=(uint8_t)n; buffer[18]=(uint8_t)(n>>8);
   buffer[19]=r->out_size ? 1 : 0; buffer[20]=++c->tag;
   if (r->out_size) memcpy(buffer+21,r->data,r->out_size);
-  if (hid_send_feature_report(c->dev,buffer,c->report+1) != (int)c->report+1) return 0;
-  if (r->cdb[1]==0x40 || r->cdb[1]==0x10) return 1;
+  int sent=hid_send_feature_report(c->dev,buffer,c->report+1);
+  /* COMMIT has already been checked before REBOOT. A disconnect racing the
+   * reboot status does not invalidate the verified firmware; do not retry. */
+  if (r->cdb[1]==0x10) return 1;
+  if (sent != (int)c->report+1) return 0;
+  if (r->cdb[1]==0x40) return 1;
   size_t got=0;
   for (unsigned polls=0;polls<10000;++polls) {
     buffer[0]=0;
@@ -65,10 +70,10 @@ int jm_hid_custom_devices(jm_custom_visitor visit, void *user) {
   struct hid_device_info *list=hid_enumerate(0x16c0,0x05df);
   int count=0;
   for (struct hid_device_info *p=list;p;p=p->next) {
-    struct custom c; struct jm_identity id;
-    if (!open_custom(&c,p->path)) continue;
+    struct custom c; struct jm_identity id; char path[1024];
+    if (!jm_hid_device_path(p->path,path) || !open_custom(&c,path)) continue;
     int ok=identity(&c,&id); hid_close(c.dev);
-    if (ok) { ++count; if (visit(user,p->path,&id)) break; }
+    if (ok) { ++count; if (visit(user,path,&id)) break; }
   }
   hid_free_enumeration(list); return count;
 }
@@ -78,8 +83,8 @@ static int reopen_uid(struct custom *c, const uint8_t uid[16]) {
     struct hid_device_info *list=hid_enumerate(0x16c0,0x05df);
     int found=0;
     for (struct hid_device_info *p=list;p;p=p->next) {
-      struct jm_identity id;
-      if (!open_custom(c,p->path)) continue;
+      struct jm_identity id; char path[1024];
+      if (!jm_hid_device_path(p->path,path) || !open_custom(c,path)) continue;
       if (identity(c,&id) && !memcmp(uid,id.uid,16) && id.updater==1) { found=1; break; }
       hid_close(c->dev); c->dev=NULL;
     }

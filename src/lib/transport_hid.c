@@ -1,6 +1,8 @@
 #include "transport_hid.h"
 #include <hidapi.h>
 #include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 /* Optional hidapi desktop backend. Enumeration does not open or modify devices.
  * Path is borrowed for the duration of visit. Return nonzero to stop visiting. */
@@ -10,8 +12,10 @@ int jm_hid_enumerate_8bitdo(jm_hid_visit visit, void *user) {
   struct hid_device_info *list = hid_enumerate(0x2dc8, 0x3208);
   int count = 0;
   for (struct hid_device_info *p = list; p; p = p->next) {
+    char path[1024];
+    if (!jm_hid_device_path(p->path,path)) continue;
     ++count;
-    if (visit(user, p->path, p->vendor_id, p->product_id))
+    if (visit(user, path, p->vendor_id, p->product_id))
       break;
   }
   hid_free_enumeration(list);
@@ -83,4 +87,17 @@ int jm_hid_8bitdo_model(const char *path, uint16_t *model) {
     }
   }
   hid_close(dev); return ok;
+}
+
+/* Map hidapi's Linux device path into the application's exported node root.
+ * Windows and other platforms preserve the opaque path. Output is caller-owned. */
+int jm_hid_device_path(const char *path, char out[1024]) {
+#ifdef __linux__
+  const char *root=getenv("DEV_ROOT");
+  if (root) {
+    const char *base=strrchr(path,'/');
+    return snprintf(out,1024,"%s/%s",root,base?base+1:path)<1024;
+  }
+#endif
+  return snprintf(out,1024,"%s",path)<1024;
 }

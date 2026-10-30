@@ -16,8 +16,8 @@ OS adapters, hidapi, libusb, or zlib. Applications supply their own transport or
 compile the optional desktop adapters and link the platform libraries they need.
 
 `nix-build jollymaam-static.nix` produces this core archive and a fully static
-musl CLI. The CLI links hidapi and its platform dependencies separately. Select
-the hidraw backend with `--argstr hidBackend hidraw`; the default is libusb.
+musl CLI. The CLI links hidapi and its platform dependencies separately. The default
+HID backend is hidraw; select libusb with `--argstr hidBackend libusb`.
 `nix-shell static-shell.nix` provides a matching musl compiler and static libusb,
 hidapi and zlib. The build smoke-tests those dependencies without device access.
 Use `--arg withZlib false` to omit the unused zlib build dependency and its smoke
@@ -101,7 +101,7 @@ BEGIN and DATA, reconciles dropped writes through UPDATE_INFO with bounded
 retries, checks COMMIT, and requests REBOOT. Errors stop the operation without
 blind destructive retries. The caller owns timeouts and transport completion.
 
-Desktop framing for the custom updater, Windows SCSI access, the
+Windows SCSI access, the
 libusb mass-storage backend, custom-device discovery, JNI integration and WASM
 builds remain to implement.
 
@@ -168,3 +168,32 @@ into this command. Individual-image commands remain available.
 Run `nix-shell --run 'python3 -m unittest tools/test_firmware_package.py'` for the
 builder and malformed-container tests. They compile the C reader into a temporary
 shared library and compare its behavior with generated Python ZIP fixtures.
+
+## Interactive updater application
+
+Launch `build/host/jollymaam update build/firmware.zip` inside the development
+shell, or use the fully static binary from the Nix build outside it. This is a
+terminal UI: it verifies the package, lists devices, accepts a selection and asks
+for an explicit `yes` before every operation. Blank input, EOF and any other
+answer do not authorize updating. Use `r` to rescan after connecting a device or
+changing modes, and `q` to quit. No automatic version comparison is implemented.
+
+Discovery currently includes our HID tool devices (app and updater), the 8BitDo
+pad bootloader with a verified model response, and Jieli UBOOT block candidates.
+A running game-controller personality can hide our tool interface; ordinary stock
+gamepad modes are not yet discovered. Jieli candidates require selecting a target
+before confirmation, because product identification needs a RAM loader. The
+flasher checks the installed product before erasing. Unknown products are refused.
+
+For our firmware, the application uses update.bin, confirms the selected flash
+UID and product, enters the updater when needed, reconnects by UID and drives the
+portable update state machine over HID feature reports. It shows acknowledged
+progress and requests reboot only after COMMIT verification. The desktop HID
+adapter currently recognizes our 356- and 512-byte tool descriptors. On Linux,
+HID paths honor DEV_ROOT as well as the Jieli block-device adapter.
+
+For stock bootloaders it uses the installation image. Jieli remains in its loader
+after verification; the 8BitDo starts its app. Real-device HID behavior is not yet
+hardware-validated. Frontend tests use fake devices and exercise confirmation,
+cancellation, rescanning, mismatched targets and failure handling without USB I/O.
+Run `python3 -m unittest tools/test_jollymaam_app.py` in the development shell.
