@@ -1,3 +1,4 @@
+#include "platform_scsi.h"
 #include "transport_scsi.h"
 #include "transport_jieli.h"
 #include <windows.h>

@@ -10,6 +10,7 @@ STUBS = r'''
 #include "src/lib/transport_hid.h"
 #include "src/lib/transport_jieli.h"
 #include "tools/jollymaam_update.h"
+#include "src/lib/platform.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,6 +29,20 @@ int jm_hid_upgrade_8bitdo(const char *p,const uint8_t *d,size_t n,void (*cb)(voi
 }
 int jm_jieli_upgrade(const char *p,const uint8_t *l,size_t s,const uint8_t *d,size_t n) {
  (void)p;(void)l;(void)s;(void)d;(void)n;puts("UNEXPECTED-JIELI");return -1;
+}
+struct jm_platform_connection { const char *path; enum jm_session_kind kind; };
+static struct jm_platform_connection connection;
+struct jm_platform_connection *jm_platform_open(const char *path,enum jm_session_kind kind) {
+ connection.path=path;connection.kind=kind;return &connection;
+}
+void jm_platform_close(struct jm_platform_connection *p) { (void)p; }
+const struct jm_session_io *jm_platform_io(void) { static const struct jm_session_io io={0};return &io; }
+int jm_session_run(const struct jm_firmware_target *t,enum jm_session_kind kind,const uint8_t uid[16],
+                    const struct jm_session_io *io,void *context,jm_session_progress cb,void *u) {
+ (void)io;struct jm_platform_connection *p=context;
+ if(kind==JM_SESSION_CUSTOM) return jm_hid_custom_update(p->path,uid,t->update.data,t->update.size,cb,u);
+ if(kind==JM_SESSION_8BITDO) { printf("MOCK-BOOT:%s\\n",p->path);return 0; }
+ return jm_jieli_upgrade(p->path,t->loader.data,t->loader.size,t->install.data,t->install.size);
 }
 int main(int argc,char **argv) { return argc==2 ? jollymaam_update_app(argv[1]) : 2; }
 '''

@@ -1,3 +1,4 @@
+#include "platform_scsi.h"
 #include "transport_scsi.h"
 #include <errno.h>
 #include <limits.h>

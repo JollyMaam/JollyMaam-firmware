@@ -1,4 +1,5 @@
 #include "jollymaam_update.h"
+#include "../src/lib/platform.h"
 #include "../src/lib/manifest.h"
 #include "../src/lib/transport_custom.h"
 #include "../src/lib/transport_hid.h"
@@ -42,7 +43,6 @@ static void progress(void *user,size_t done,size_t total) {
   unsigned *last=user; unsigned percent=total?(unsigned)(done*100/total):0;
   if(percent!=*last) { fprintf(stderr,"\rUpdating: %u%%",percent); *last=percent; }
 }
-static void progress8(void *user,unsigned done,unsigned total) { progress(user,done,total); }
 /* Interactive terminal frontend. All discovery/probing is read-only. Jieli
  * candidates remain unidentified until the user chooses a target and confirms;
  * the driver uploads RAM code and verifies the installed product before erase.
@@ -102,9 +102,10 @@ int jollymaam_update_app(const char *package_path) {
     if(!line(input,sizeof input)) break;
     if(strcmp(input,"yes")) { puts("Cancelled; no update requested."); continue; }
     unsigned last=(unsigned)-1; int result;
-    if(d->kind==CUSTOM) result=jm_hid_custom_update(d->path,d->id.uid,target->update.data,target->update.size,progress,&last);
-    else if(d->kind==BOOT8) result=jm_hid_upgrade_8bitdo(d->path,target->install.data,target->install.size,progress8,&last);
-    else result=jm_jieli_upgrade(d->path,target->loader.data,target->loader.size,target->install.data,target->install.size);
+    struct jm_platform_connection *connection=jm_platform_open(d->path,(enum jm_session_kind)d->kind);
+    result=connection?jm_session_run(target,(enum jm_session_kind)d->kind,d->id.uid,
+                                      jm_platform_io(),connection,progress,&last):-2;
+    jm_platform_close(connection);
     if(result) printf("\nUpdate failed (%d). Device may remain in its loader; rescan before retrying.\n",result);
     else puts(d->kind==JIELI?"\nWritten and verified. Device remains in its loader.":"\nWritten and verified. Firmware restart requested.");
   }

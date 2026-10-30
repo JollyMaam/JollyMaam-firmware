@@ -1,4 +1,5 @@
 #include "transport_hid.h"
+#include "platform.h"
 #include <hidapi.h>
 #include <string.h>
 #include <stdio.h>
@@ -25,51 +26,17 @@ int jm_hid_enumerate_8bitdo(jm_hid_visit visit, void *user) {
  * Returns zero on success, negative on transport failure, positive on protocol
  * failure. Image is validated before opening the device. Progress may be NULL.
  * Caller must obtain user authorization before invoking this function. */
+struct progress_adapter { void (*callback)(void *,unsigned,unsigned); void *user; };
+static void progress_bridge(void *user,size_t done,size_t total) {
+  struct progress_adapter *p=user; if(p->callback) p->callback(p->user,(unsigned)done,(unsigned)total);
+}
 int jm_hid_upgrade_8bitdo(const char *path, const uint8_t *image, size_t size,
-                          void (*progress)(void *, unsigned, unsigned), void *user) {
-  struct jm_8bitdo_upgrade op;
-  if (!jm_8bitdo_upgrade_init(&op, image, size))
-    return JM_8BITDO_ARGUMENT;
-  hid_device *dev = hid_open_path(path);
-  if (!dev)
-    return -1;
-  int result = -1;
-  uint8_t report[65], reply[128];
-  int needs_reply;
-  enum jm_8bitdo_step step;
-  while ((step = jm_8bitdo_upgrade_next(&op, report + 1, &needs_reply)) == JM_8BITDO_TRANSFER) {
-    report[0] = 0;
-    /* Bounded drain: avoid sending while stale input remains queued. */
-    unsigned drained = 0;
-    int n;
-    while ((n = hid_read_timeout(dev, reply, sizeof reply, 0)) > 0 && drained < 64)
-      ++drained;
-    if (n < 0 || drained == 64 || hid_write(dev, report, sizeof report) != sizeof report)
-      goto out;
-    if (!needs_reply) {
-      jm_8bitdo_upgrade_complete(&op, 1, NULL, 0);
-      continue;
-    }
-    /* Bound stale replies as well as each read. No destructive command retries. */
-    unsigned stale = 0;
-    enum jm_8bitdo_result r;
-    do {
-      n = hid_read_timeout(dev, reply, sizeof reply, 10000);
-      if (n <= 0)
-        goto out;
-      r = jm_8bitdo_upgrade_complete(&op, 1, reply, (size_t)n);
-    } while (r == JM_8BITDO_STALE && ++stale < 8);
-    if (r != JM_8BITDO_OK) {
-      result = r;
-      goto out;
-    }
-    if (progress)
-      progress(user, op.completed, op.sectors);
-  }
-  result = step == JM_8BITDO_DONE ? 0 : op.error ? op.error : -1;
-out:
-  hid_close(dev);
-  return result;
+                          void (*progress)(void *,unsigned,unsigned), void *user) {
+  struct jm_platform_connection *c=jm_platform_open(path,JM_SESSION_8BITDO);
+  if(!c) return -1;
+  struct progress_adapter p={progress,user};
+  int result=jm_session_8bitdo(jm_platform_io(),c,image,size,progress_bridge,&p);
+  jm_platform_close(c); return result;
 }
 
 /* Read-only bootloader model probe. Output is untouched on failure. */

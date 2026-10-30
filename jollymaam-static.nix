@@ -10,15 +10,20 @@ static.stdenv.mkDerivation {
   buildPhase = ''
     runHook preBuild
     mkdir -p build/static
-    for source in src/lib/jieli_image/*.c src/lib/proto_jieli.c src/lib/proto_8bitdo.c src/lib/proto_jollymaam.c src/lib/upgrade_8bitdo.c src/lib/upgrade_jollymaam.c src/lib/upgrade_jieli.c src/lib/flash_jieli.c src/lib/package.c src/lib/sha256.c src/lib/manifest.c; do
+    for source in src/lib/jieli_image/*.c src/lib/proto_jieli.c src/lib/proto_8bitdo.c src/lib/proto_jollymaam.c src/lib/upgrade_8bitdo.c src/lib/upgrade_jollymaam.c src/lib/upgrade_jieli.c src/lib/flash_jieli.c src/lib/package.c src/lib/sha256.c src/lib/manifest.c src/lib/session.c; do
       $CC -std=c99 -O2 -Wall -Wextra -c "$source" -o "build/static/$(basename "$source" .c).o"
     done
     $AR rcs build/static/libjollymaam.a build/static/*.o
     # OS adapters and dependencies belong to the application, not the core.
-    $CC -std=c99 -O2 -Wall -Wextra tools/jollymaam.c tools/jollymaam_update.c src/lib/transport_hid.c src/lib/transport_custom.c src/lib/transport_linux.c src/lib/transport_jieli.c \
-      build/static/libjollymaam.a \
-      $(pkg-config --static --cflags --libs hidapi-${hidBackend} libusb-1.0 libudev) \
-      -static -pthread -o build/static/jollymaam
+    mkdir -p build/static/platform
+    for source in src/lib/platform.c src/lib/transport_hid.c src/lib/transport_custom.c src/lib/transport_jieli.c src/lib/transport_linux.c; do
+      $CC -std=c99 -O2 -Wall -Wextra -Werror $(pkg-config --cflags hidapi-${hidBackend} libusb-1.0 libudev) -c "$source" \
+        -o "build/static/platform/$(basename "$source" .c).o"
+    done
+    $AR rcs build/static/libjollymaam-platform.a build/static/platform/*.o
+    $CC -std=c99 -O2 -Wall -Wextra -Werror tools/jollymaam.c tools/jollymaam_update.c \
+      build/static/libjollymaam-platform.a build/static/libjollymaam.a \
+      $(pkg-config --static --cflags --libs hidapi-${hidBackend} libusb-1.0 libudev) -static -pthread -o build/static/jollymaam
     runHook postBuild
   '';
   doCheck = true;
@@ -33,6 +38,9 @@ static.stdenv.mkDerivation {
         build/static/libjollymaam.a -static -o build/static/test-$name
       build/static/test-$name
     done
+    $CC -std=c99 -O2 tools/test_jollymaam_session.c build/static/libjollymaam.a \
+      -static -o build/static/test-session
+    build/static/test-session
     $CC -std=c99 -O2 tools/test_jollymaam_jieli.c build/static/libjollymaam.a \
       -static -o build/static/test-jieli-flash
     build/static/test-jieli-flash
@@ -56,7 +64,7 @@ static.stdenv.mkDerivation {
   installPhase = ''
     mkdir -p $out/bin $out/lib $out/include/jollymaam/jieli_image
     cp build/static/jollymaam $out/bin/
-    cp build/static/libjollymaam.a $out/lib/
+    cp build/static/libjollymaam.a build/static/libjollymaam-platform.a $out/lib/
     cp src/lib/*.h $out/include/jollymaam/
     cp src/lib/jieli_image/*.h $out/include/jollymaam/jieli_image/
   '';

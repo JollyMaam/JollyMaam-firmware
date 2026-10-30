@@ -1,5 +1,5 @@
 # Portable libjollymaam core. Backends will be linked separately.
-JOLLYMAAM_SOURCES := src/lib/manifest.c src/lib/sha256.c src/lib/package.c src/lib/flash_jieli.c src/lib/upgrade_jieli.c src/lib/upgrade_jollymaam.c src/lib/jieli_image/image.c src/lib/proto_jieli.c src/lib/proto_jollymaam.c src/lib/upgrade_8bitdo.c src/lib/proto_8bitdo.c src/lib/jieli_image/bankcb.c src/lib/jieli_image/ufw.c src/lib/jieli_image/key.c src/lib/jieli_image/crypto.c src/lib/jieli_image/entry.c
+JOLLYMAAM_SOURCES := src/lib/session.c src/lib/manifest.c src/lib/sha256.c src/lib/package.c src/lib/flash_jieli.c src/lib/upgrade_jieli.c src/lib/upgrade_jollymaam.c src/lib/jieli_image/image.c src/lib/proto_jieli.c src/lib/proto_jollymaam.c src/lib/upgrade_8bitdo.c src/lib/proto_8bitdo.c src/lib/jieli_image/bankcb.c src/lib/jieli_image/ufw.c src/lib/jieli_image/key.c src/lib/jieli_image/crypto.c src/lib/jieli_image/entry.c
 JOLLYMAAM_OBJECTS := $(JOLLYMAAM_SOURCES:src/lib/%.c=$(O)/host/libjollymaam/%.o)
 .PHONY: libjollymaam
 libjollymaam: $(O)/host/libjollymaam.a
@@ -33,9 +33,18 @@ libjollymaam-test: $(O)/host/test-jollymaam-upgrade
 HIDAPI_PKG ?= hidapi-hidraw
 .PHONY: jollymaam
 jollymaam: $(O)/host/jollymaam
-$(O)/host/jollymaam: tools/jollymaam.c tools/jollymaam_update.h tools/jollymaam_update.c src/lib/transport_hid.c src/lib/transport_custom.c src/lib/transport_linux.c src/lib/transport_jieli.c $(O)/host/libjollymaam.a $(wildcard src/lib/*.h)
+JOLLYMAAM_PLATFORM_SOURCES := src/lib/platform.c src/lib/transport_hid.c src/lib/transport_custom.c src/lib/transport_linux.c src/lib/transport_jieli.c
+JOLLYMAAM_PLATFORM_OBJECTS := $(JOLLYMAAM_PLATFORM_SOURCES:src/lib/%.c=$(O)/host/platform/%.o)
+.PHONY: libjollymaam-platform
+libjollymaam-platform: $(O)/host/libjollymaam-platform.a
+$(O)/host/libjollymaam-platform.a: $(JOLLYMAAM_PLATFORM_OBJECTS)
+	$(Q)ar rcs $@ $^
+$(O)/host/platform/%.o: src/lib/%.c $(wildcard src/lib/*.h)
 	@mkdir -p $(@D)
-	$(Q)$(HOST_CC) $(HOST_CFLAGS) tools/jollymaam.c tools/jollymaam_update.c src/lib/transport_hid.c src/lib/transport_custom.c src/lib/transport_linux.c src/lib/transport_jieli.c $(O)/host/libjollymaam.a $$(pkg-config --cflags --libs $(HIDAPI_PKG)) $(JOLLYMAAM_LDFLAGS) -o $@
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) $$(pkg-config --cflags $(HIDAPI_PKG)) -c $< -o $@
+$(O)/host/jollymaam: tools/jollymaam.c tools/jollymaam_update.h tools/jollymaam_update.c $(O)/host/libjollymaam-platform.a $(O)/host/libjollymaam.a
+	@mkdir -p $(@D)
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) tools/jollymaam.c tools/jollymaam_update.c $(O)/host/libjollymaam-platform.a $(O)/host/libjollymaam.a $$(pkg-config --cflags --libs $(HIDAPI_PKG)) $(JOLLYMAAM_LDFLAGS) -o $@
 
 $(O)/host/test-jollymaam-proto_jollymaam: src/lib/proto_jollymaam.c $(O)/host/libjollymaam.a src/lib/proto_jollymaam.h
 	@mkdir -p $(@D)
@@ -81,3 +90,8 @@ $(O)/host/test-jollymaam-sha256: src/lib/sha256.c $(O)/host/libjollymaam.a src/l
 	@mkdir -p $(@D)
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) -std=c99 -DUNITTEST $< $(O)/host/libjollymaam.a -o $@
 libjollymaam-test: $(O)/host/test-jollymaam-sha256
+
+$(O)/host/test-jollymaam-session: tools/test_jollymaam_session.c $(O)/host/libjollymaam.a $(wildcard src/lib/*.h)
+	@mkdir -p $(@D)
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) -std=c99 $< $(O)/host/libjollymaam.a -o $@
+libjollymaam-test: $(O)/host/test-jollymaam-session
