@@ -3,7 +3,10 @@
 comma := ,
 O := build
 OF := $(abspath $O)
-HOST_CC := gcc
+HOST_CC ?= $(if $(filter default undefined,$(origin CC)),gcc,$(CC))
+HOST_AR ?= $(AR)
+HOST_READELF ?= $(if $(READELF),$(READELF),readelf)
+HOST_OBJDUMP ?= $(if $(OBJDUMP),$(OBJDUMP),objdump)
 
 HOST_CFLAGS :=
 HOST_CFLAGS += -O2
@@ -28,8 +31,8 @@ SRC_INCLUDES += -iquote src/platform/jieli
 MAKE_FILES := Makefile $(wildcard make/*.mk)
 
 BUILD_ID := $(shell git describe --always --dirty 2>/dev/null)
-BUILD_REF := $(shell git symbolic-ref -q HEAD)
-BUILD_METADATA := $(shell git rev-parse --git-path HEAD --git-path index $(if $(BUILD_REF),--git-path $(BUILD_REF)))
+BUILD_REF := $(shell git symbolic-ref -q HEAD 2>/dev/null)
+BUILD_METADATA := $(shell git rev-parse --git-path HEAD --git-path index $(if $(BUILD_REF),--git-path $(BUILD_REF)) 2>/dev/null)
 
 ifeq ($(V),1)
 Q :=

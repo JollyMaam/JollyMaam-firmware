@@ -19,10 +19,12 @@
         };
         static = (pkgs.mkShell.override { stdenv = pkgs.pkgsStatic.stdenv; }) {
           inputsFrom = [ linux ];
+          JOLLYMAAM_STATIC = "1";
           nativeBuildInputs = with pkgs; [ gnumake pkg-config binutils python3 ];
         };
         windows = (pkgs.mkShell.override { stdenv = pkgs.pkgsCross.mingwW64.stdenv; }) {
           inputsFrom = [ windows ];
+          JOLLYMAAM_STATIC = "1";
           nativeBuildInputs = with pkgs; [ gnumake pkg-config python3 ];
         };
         android = import ./nix/android.nix { inherit pkgs; };
@@ -36,11 +38,7 @@
           nativeBuildInputs = [ pkgs.python3 pkgs.util-linux pkgs.procps pkgs.pkg-config pkgs.jdk17 ];
           JAVA_HOME = pkgs.jdk17.home;
           buildInputs = [ pkgs.hidapi ];
-          buildPhase = ''
-            make jollymaam libjollymaam-test libjollymaam-linux-test
-            python3 -m unittest tools/test_firmware_package.py tools/test_jollymaam_app.py tools/test_jollymaam_jni.py tools/test_jollymaam_restore.py tools/test_jollymaam_jieli.py
-            python3 -m unittest discover -s android/tools -p 'test_*.py'
-          '';
+          buildFlags = [ "jollymaam-check" ];
           installPhase = "touch $out";
         };
       };
