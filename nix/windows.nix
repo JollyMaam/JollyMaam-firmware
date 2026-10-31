@@ -22,9 +22,9 @@ in target.stdenv.mkDerivation {
         -o "build/windows/platform/$(basename "$source" .c).o"
     done
     $AR rcs build/windows/libjollymaam-platform.a build/windows/platform/*.o
-    $CC -std=c99 -O2 -Wall -Wextra -Werror tools/jollymaam.c tools/jollymaam_update.c tools/jollymaam_restore.c \
+    $CC -std=c99 -O2 -Wall -Wextra -Werror tools/jollymaam.c tools/jollymaam_jieli.c tools/jollymaam_update.c tools/jollymaam_restore.c \
       build/windows/libjollymaam-platform.a build/windows/libjollymaam.a \
-      $(pkg-config --static --cflags --libs hidapi) -static -static-libgcc -lsetupapi -lhid -o build/windows/jollymaam.exe
+      $(pkg-config --static --cflags --libs hidapi) -static -static-libgcc -lsetupapi -lhid -lcfgmgr32 -o build/windows/jollymaam.exe
     mkdir -p build/windows/tests
     for name in builder bankcb crypto entry image key ufw; do
       $CC -std=c99 -O2 -Wall -Wextra -Werror -DUNITTEST src/lib/jieli_image/$name.c \
@@ -45,7 +45,7 @@ in target.stdenv.mkDerivation {
       build/windows/libjollymaam.a -static -o build/windows/tests/app-mock.exe
     $OBJDUMP -p build/windows/jollymaam.exe > build/windows/imports.txt
     for dll in $(awk '/DLL Name:/ {print tolower($3)}' build/windows/imports.txt); do
-      case "$dll" in hid.dll|kernel32.dll|msvcrt.dll|setupapi.dll) ;;
+      case "$dll" in hid.dll|kernel32.dll|msvcrt.dll|setupapi.dll|cfgmgr32.dll) ;;
         *) echo "Unexpected runtime DLL: $dll"; exit 1;;
       esac
     done

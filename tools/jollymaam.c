@@ -8,6 +8,7 @@
 #include "../src/lib/jieli_image/image.h"
 #include "../src/lib/transport_jieli.h"
 #include "jollymaam_update.h"
+#include "jollymaam_jieli.h"
 #include "jollymaam_restore.h"
 #include "../src/lib/platform.h"
 #include <errno.h>
@@ -74,6 +75,7 @@ done:
   return result;
 }
 int main(int argc, char **argv) {
+  if(argc>1 && jollymaam_jieli_command(argv[1])) return jollymaam_jieli_app(argc,argv);
   if(argc>1 && (!strcmp(argv[1],"restore-jieli") || !strcmp(argv[1],"restore-8bitdo") ||
                  !strcmp(argv[1],"check-stock-jieli") || !strcmp(argv[1],"check-stock-8bitdo"))) return jollymaam_restore_app(argc,argv);
   if (argc == 4 && !strcmp(argv[1], "stock-loader") && !strcmp(argv[2], "--yes")) {
@@ -180,6 +182,8 @@ int main(int argc, char **argv) {
   }
   fprintf(stderr, "usage: jollymaam update FIRMWARE.zip\n"
                   "       jollymaam scan\n"
+                  "       jollymaam scan-jieli (Jieli USB ports and stock modes)\n"
+                  "       jollymaam help-jieli (pack/list/verify/unpack/flash/flashpack/backup/loader/run)\n"
                   "       jollymaam check-stock-jieli PRODUCT IMAGE\n"
                   "       jollymaam check-stock-8bitdo 0x301b STOCK.bin\n"
                   "       jollymaam restore-jieli --yes DEVICE BR23|BD19 PRODUCT LOADER IMAGE NEW_BACKUP\n"

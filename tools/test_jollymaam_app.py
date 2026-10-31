@@ -51,6 +51,8 @@ int jm_session_identify(const struct jm_session_io *io,void *c,struct jm_identit
 int jm_session_stock_loader(const struct jm_session_io *io,void *c,const uint8_t uid[16]) {
  (void)io;(void)c;if(uid[0]!=42) return -2;puts("MOCK-STOCK-LOADER");return 0;
 }
+int jollymaam_jieli_command(const char *command) { (void)command;return 0; }
+int jollymaam_jieli_app(int argc,char **argv) { (void)argc;(void)argv;return 2; }
 int jollymaam_restore_app(int argc,char **argv) { (void)argc;(void)argv;return 2; }
 int main(int argc,char **argv) { return argc==2 ? jollymaam_update_app(argv[1]) : 2; }
 '''

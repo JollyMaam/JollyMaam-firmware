@@ -42,9 +42,9 @@ $(O)/host/libjollymaam-platform.a: $(JOLLYMAAM_PLATFORM_OBJECTS)
 $(O)/host/platform/%.o: src/lib/%.c $(wildcard src/lib/*.h)
 	@mkdir -p $(@D)
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) $$(pkg-config --cflags $(HIDAPI_PKG)) -c $< -o $@
-$(O)/host/jollymaam: tools/jollymaam.c tools/jollymaam_restore.c tools/jollymaam_restore.h tools/jollymaam_update.h tools/jollymaam_update.c $(O)/host/libjollymaam-platform.a $(O)/host/libjollymaam.a
+$(O)/host/jollymaam: tools/jollymaam.c tools/jollymaam_jieli.c tools/jollymaam_jieli.h tools/jollymaam_restore.c tools/jollymaam_restore.h tools/jollymaam_update.h tools/jollymaam_update.c $(O)/host/libjollymaam-platform.a $(O)/host/libjollymaam.a
 	@mkdir -p $(@D)
-	$(Q)$(HOST_CC) $(HOST_CFLAGS) tools/jollymaam.c tools/jollymaam_update.c tools/jollymaam_restore.c $(O)/host/libjollymaam-platform.a $(O)/host/libjollymaam.a $$(pkg-config --cflags --libs $(HIDAPI_PKG)) $(JOLLYMAAM_LDFLAGS) -o $@
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) tools/jollymaam.c tools/jollymaam_jieli.c tools/jollymaam_update.c tools/jollymaam_restore.c $(O)/host/libjollymaam-platform.a $(O)/host/libjollymaam.a $$(pkg-config --cflags --libs $(HIDAPI_PKG)) $(JOLLYMAAM_LDFLAGS) -o $@
 
 $(O)/host/test-jollymaam-proto_jollymaam: src/lib/proto_jollymaam.c $(O)/host/libjollymaam.a src/lib/proto_jollymaam.h
 	@mkdir -p $(@D)

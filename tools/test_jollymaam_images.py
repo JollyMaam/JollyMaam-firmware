@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare jlnewfw image behavior against a separately built reference.
+"""Compare jollymaam image commands against a separately built legacy reference.
 
 Pass --reference OLD_BINARY --candidate NEW_BINARY IMAGE [IMAGE ...].
 Only image commands run; no device access occurs. Temporary outputs are removed.
@@ -31,11 +31,16 @@ def compare(reference, candidate, image):
         run(reference, 'unpack', image, old)
         run(candidate, 'unpack', image, new)
         previous, current = files(old), files(new)
-        # MAIN is now exported too, so generated images can be rebuilt in full.
+        old_main = previous.pop(Path('_main.bin'), None)
         self_contained = current.pop(Path('_main.bin'), None)
+        if old_main is not None:
+            assert old_main == self_contained, f"MAIN export differs: {image}"
         ini = Path('isd_config.ini')
-        current[ini] = b'\n'.join(line for line in current[ini].split(b'\n')
-                                   if not line.startswith((b'MAIN_FILE =', b'MAIN_AT =')))
+        # Command provenance changed with the CLI name. Older references also
+        # predate MAIN export; the full candidate rebuild checks those bytes.
+        for content in (previous, current):
+            content[ini] = b'\n'.join(line for line in content[ini].split(b'\n')
+                                      if not line.startswith((b'// From ', b'MAIN_FILE =', b'MAIN_AT =')))
         assert previous == current, f"unpacked files differ: {image}"
         rebuilt = root / 'rebuilt.img'
         run(candidate, 'pack', '-c', new / ini, '-o', rebuilt)

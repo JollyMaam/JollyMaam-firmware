@@ -139,7 +139,8 @@ static uint32_t next_pow2(uint32_t x) {
 }
 
 static const char *base_name(const char *p) {
-  const char *s = strrchr(p, '/');
+  const char *s = strrchr(p, '/'), *back = strrchr(p, '\\');
+  if(back && (!s || back>s)) s=back;
   return s ? s + 1 : p;
 }
 
@@ -247,9 +248,11 @@ static void parse_copy(struct build_context *ctx, const char *s, struct jm_jieli
 }
 
 static const char *beside(struct build_context *ctx, const char *ini, const char *name) {
-  if (name[0] == '/')
+  if (name[0] == '/' || name[0] == '\\' ||
+      (isalpha((unsigned char)name[0]) && name[1]==':' && (name[2]=='/' || name[2]=='\\')))
     return bstrdup(ctx, name);
-  const char *slash = strrchr(ini, '/');
+  const char *slash = strrchr(ini, '/'), *back = strrchr(ini, '\\');
+  if(back && (!slash || back>slash)) slash=back;
   if (!slash)
     return bstrdup(ctx, name);
   char *p = bmalloc(ctx, (size_t)(slash - ini) + 2 + strlen(name));
@@ -628,6 +631,7 @@ void jm_jieli_build_free(struct jm_jieli_build_result *result) {
 struct fixture { const char *ini;uint8_t boot[20],app[32],main[64]; };
 static int fixture_read(void *user,const char *name,const uint8_t **data,size_t *size) {
   struct fixture *f=user;
+  if(!strncmp(name,"folder/",7) || !strncmp(name,"folder\\",7)) name+=7;
   if(!strcmp(name,"isd_config.ini")) { *data=(const uint8_t *)f->ini;*size=strlen(f->ini); }
   else if(!strcmp(name,"boot")) { *data=f->boot;*size=sizeof f->boot; }
   else if(!strcmp(name,"app.bin")) { *data=f->app;*size=sizeof f->app; }
@@ -675,6 +679,12 @@ int main(void) {
     if(main) assert(!memcmp(rebuilt.update,result.update,result.update_size));
     free(r.ini);jm_jieli_build_free(&rebuilt);
     free(scratch);jm_jieli_build_free(&result);assert(!result.image);
+  }
+  f.ini="[EXTRA_CFG_PARAM]\nPID=TEST;\nENTRY=0x1e00120;\n[JLNEWFW]\nUBOOT=boot;\nFILES=app.bin;\n";
+  for(unsigned windows=0;windows<2;++windows) {
+    struct jm_jieli_build_options paths={0};paths.ini=windows?"folder\\isd_config.ini":"folder/isd_config.ini";
+    struct jm_jieli_build_result result;char error[256];
+    assert(jm_jieli_build(&paths,fixture_read,NULL,&f,&result,error));jm_jieli_build_free(&result);
   }
   const char *invalid[]={"[SYS_CFG_PARAM]\nEOFFSET=4294967295;\n", "[JLNEWFW]\nAREAS=,,,;\n", "[JLNEWFW]\nFLASH_SIZE=0xffffffff;\n", "[EXTRA_CFG_PARAM]\nNEW_FLASH_FS=NO;\n"};
   for(unsigned i=0;i<sizeof invalid/sizeof *invalid;++i) {

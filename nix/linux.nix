@@ -21,7 +21,7 @@ static.stdenv.mkDerivation {
         -o "build/static/platform/$(basename "$source" .c).o"
     done
     $AR rcs build/static/libjollymaam-platform.a build/static/platform/*.o
-    $CC -std=c99 -O2 -Wall -Wextra -Werror tools/jollymaam.c tools/jollymaam_update.c tools/jollymaam_restore.c \
+    $CC -std=c99 -O2 -Wall -Wextra -Werror tools/jollymaam.c tools/jollymaam_jieli.c tools/jollymaam_update.c tools/jollymaam_restore.c \
       build/static/libjollymaam-platform.a build/static/libjollymaam.a \
       $(pkg-config --static --cflags --libs hidapi-${hidBackend} libusb-1.0 libudev) -static -pthread -o build/static/jollymaam
     runHook postBuild

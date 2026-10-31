@@ -38,7 +38,7 @@
           buildInputs = [ pkgs.hidapi ];
           buildPhase = ''
             make jollymaam libjollymaam-test libjollymaam-linux-test
-            python3 -m unittest tools/test_firmware_package.py tools/test_jollymaam_app.py tools/test_jollymaam_jni.py tools/test_jollymaam_restore.py
+            python3 -m unittest tools/test_firmware_package.py tools/test_jollymaam_app.py tools/test_jollymaam_jni.py tools/test_jollymaam_restore.py tools/test_jollymaam_jieli.py
             python3 -m unittest discover -s android/tools -p 'test_*.py'
           '';
           installPhase = "touch $out";
