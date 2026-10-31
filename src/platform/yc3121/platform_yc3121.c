@@ -65,16 +65,22 @@ void plat_unlock(void) {}
  * register to 2, then its reset handler, which starts the app again unless
  * the mailbox holds it.  RAM stays (but for the loader's own data), so the
  * log and a fault record carry over; a chip reset would clear them.  USB
- * drops first, so the host sees the device go. */
+ * drops first (off the bus, its clock gated as stock does), so the host
+ * sees the device go.  The Bluetooth core is halted, and the mailbox's
+ * second word (stock's 0x20210624) is not set: with it the loader takes the
+ * running core as its own instead of restarting it, and with ours running
+ * it never came up on USB. */
 void plat_restart(int loader)
 {
     *(volatile uint8_t *)0xf6000 = 0;   /* USB CONFIG: off the bus */
     plat_delay_ms(20);
     __asm__ volatile ("cpsid i");
     YC_SYST_CSR = 0;
+    *(volatile uint32_t *)0xf856c |= 1u << 6;   /* CLK_CLS: the USB clock off */
+    *(volatile uint8_t *)0xf853c = 0x94;        /* WAKEUP_BT: the core halted */
     if (loader) {
         YC_LOADER_MAILBOX = YC_LOADER_STAY;
-        YC_LOADER_MAILBOX2 = YC_LOADER_FROM_APP;
+        YC_LOADER_MAILBOX2 = 0;
     }
     YC_LOADER_MODE = 2;
     ((void (*)(void))0x01000201)();

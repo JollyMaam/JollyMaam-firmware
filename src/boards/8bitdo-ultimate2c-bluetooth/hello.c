@@ -3,12 +3,15 @@
 #include "yc3121.h"
 #include "usb_yc3121.h"
 #include "radio_yc3121.h"
+#include "sdp_yc3121.h"
 
 /* 8BitDo Ultimate 2C Bluetooth (YC3121) bring-up: own code on the pad, and
  * USB as the tool device (padtool identify, status, log, peek, reboot,
  * loader: the boot loader's mailbox keeps it there), and the Bluetooth core
- * by two bring-up commands (0x3a start, 0x3b send); what it sends back goes
- * to the log.
+ * by bring-up commands (0x3a start, 0x3b send, 0x3c up as a generic HID
+ * gamepad); what it sends back goes to the log.  While a host has HID
+ * connected, the raw key matrix goes out as that gamepad's buttons (key k
+ * button k + 1, keys 16 on in the Z axis byte); key changes are logged.
  *
  * Lights: with no button down and USB seen, they show its progress: light 1
  * a bus reset, 2 an address set, 3 configured, 4 toggling with each tool
@@ -41,8 +44,27 @@ static const struct pin keys[3] = { { 1, 10 }, { 2, 11 }, { 2, 12 } };   /* Home
 void plat_clock_init(void);
 void plat_log_fault(void);
 
-static u8 reboot_pending, radio_start_pending;
+static u8 reboot_pending, radio_start_pending, bt_up_pending, hid_connected;
+
+/* The core's bond table (event 0x0d, 5 records of 34 bytes), given back at
+ * start (command 0x26) as stock does; kept over a restart, not yet in flash. */
+static struct {
+    u32 magic;
+    u8 table[170];
+} bonds __attribute__((section(".noinit")));
+#define BONDS_MAGIC 0x53444e42
 static struct radio_packet packet;
+
+/* profile_hid.c's generic gamepad, report 1: 16 buttons, hat, 6 axes. */
+static const u8 generic_descriptor[] = {
+    0x05, 0x01, 0x09, 0x05, 0xa1, 0x01, 0x85, 0x01,
+    0x05, 0x09, 0x19, 0x01, 0x29, 0x10, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x10, 0x81, 0x02,
+    0x05, 0x01, 0x09, 0x39, 0x15, 0x00, 0x25, 0x07, 0x75, 0x04, 0x95, 0x01, 0x81, 0x42,
+    0x75, 0x04, 0x95, 0x01, 0x81, 0x01,
+    0x05, 0x01, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x06,
+    0x09, 0x30, 0x09, 0x31, 0x09, 0x33, 0x09, 0x34, 0x09, 0x32, 0x09, 0x35, 0x81, 0x02,
+    0xc0,
+};
 
 static void show(unsigned mask)
 {
@@ -50,24 +72,104 @@ static void show(unsigned mask)
         yc_pin(lights[i].group, lights[i].pin, mask >> i & 1 ? YC_PIN_HIGH : YC_PIN_LOW);
 }
 
-/* 0 none, 1 Home, 2 anything else. */
-static int scan(void)
+/* The keys down: bit 5 * row + column for the matrix, 20 and 21 for 2.11
+ * and 2.12, 22 Home. */
+static u32 scan(void)
 {
-    int down = 0;
+    u32 down = 0;
     for (int r = 0; r < 4; r++) {
         yc_pin(rows[r].group, rows[r].pin, YC_PIN_LOW);
         for (u32 t0 = plat_us(); plat_us() - t0 < 5;)
             ;
-        if (~YC_GPIO_IN(0) & COLUMNS_MASK)
-            down = 2;
+        down |= (u32)((~YC_GPIO_IN(0) & COLUMNS_MASK) >> 9) << 5 * r;
         yc_pin(rows[r].group, rows[r].pin, YC_PIN_HIGH);
     }
-    for (int k = 2; k > 0; k--)
+    for (int k = 0; k < 3; k++)
         if (!yc_pin_in(keys[k].group, keys[k].pin))
-            down = 2;
-    if (!down && !yc_pin_in(keys[0].group, keys[0].pin))
-        down = 1;
+            down |= 1u << (k ? 19 + k : 22);
     return down;
+}
+
+static void log_packet(const struct radio_packet *p)
+{
+    static const char digits[] = "0123456789abcdef";
+    char hex[3 * 24 + 1];
+    int k = p->len < 24 ? p->len : 24;
+
+    for (int i = 0; i < k; i++) {
+        hex[3 * i] = digits[p->data[i] >> 4];
+        hex[3 * i + 1] = digits[p->data[i] & 15];
+        hex[3 * i + 2] = ' ';
+    }
+    hex[3 * k] = 0;
+    util_log("bt: %02x %02x [%u] %s", p->type, p->id, p->len, hex);
+    if (p->id == 0x0d && p->len == sizeof(bonds.table)) {
+        memcpy(bonds.table, p->data, sizeof(bonds.table));
+        bonds.magic = BONDS_MAGIC;
+    }
+    if (p->id == 0xb0) hid_connected = 1;
+    if (p->id == 0xb6) hid_connected = 0;
+}
+
+/* A command, then its acknowledgement: event 0x06 {id, status} (0x29 for
+ * 0x77 and 0x78), within 500 ms; USB stays served meanwhile. */
+static int bt_command(u8 id, const u8 *data, u16 len, int wide)
+{
+    u8 ack = id == 0x77 || id == 0x78 ? 0x29 : 0x06;
+
+    if (!plat_radio_send(id, data, len, wide)) {
+        util_log("bt: %02x: no room", id);
+        return 0;
+    }
+    for (u32 t0 = plat_ms(); plat_ms() - t0 < 500;) {
+        plat_usb_poll();
+        if (!plat_radio_take(&packet)) continue;
+        log_packet(&packet);
+        if (packet.id == ack && (ack == 0x29 || packet.data[0] == id))
+            return ack == 0x29 || packet.data[1] == 0;
+    }
+    util_log("bt: %02x: no answer", id);
+    return 0;
+}
+
+/* Up as a generic gamepad, discoverable and connectable: stock v1.01's
+ * start-up commands (meanings in the analysis notes), our name and SDP. */
+static void bt_up(void)
+{
+    static const u8 address[6] = { 0x01, 0x02, 0x03, 0xd8, 0x17, 0xe4 };   /* bring-up only */
+    static const u8 cmd04[14] = { '8', '0', 'K', 'A' };
+    static const u8 cod[3] = { 0x08, 0x25, 0x00 };
+    static const u8 on = 1, visible = 3, x42 = 2, x39[2] = { 200, 0 }, x79[2] = { 0, 4 };
+    static const u8 service[17] = { 0x10, 0xfb, 0x34, 0x9b, 0x5f, 0x80, 0, 0, 0x80, 0, 0x10, 0, 0, 0x10, 0xff, 0, 0 };
+    static const u8 characteristic[20] = { 0x18, 0x10, 0xfb, 0x34, 0x9b, 0x5f, 0x80, 0, 0, 0x80, 0, 0x10, 0, 0, 0x13, 0xff, 0, 0, 1, 0 };
+    static u8 records[512];
+    const struct yc_sdp_hid hid = {
+        .name = board_name, .descriptor = generic_descriptor, .descriptor_len = sizeof(generic_descriptor),
+        .subclass = 0x08, .vendor = USB_OWN_VID, .product = USB_OWN_JOYSTICK_PID, .version = 0x0100,
+    };
+    u16 n = yc_sdp_records(records, sizeof(records), &hid);
+    int ok;
+
+    util_log("bt: up, SDP %u bytes", n);
+    ok = plat_radio_start() == 0;
+    while (ok && plat_radio_take(&packet)) log_packet(&packet);
+    ok = ok && bt_command(0x04, cmd04, sizeof(cmd04), 0);
+    ok = ok && bt_command(0x01, address, 6, 0);
+    ok = ok && bt_command(0x00, address, 6, 0);
+    ok = ok && bt_command(0x0c, &on, 1, 0);
+    ok = ok && bt_command(0x15, cod, 3, 0);
+    if (bonds.magic != BONDS_MAGIC) memset(bonds.table, 0, sizeof(bonds.table));
+    ok = ok && bt_command(0x26, bonds.table, sizeof(bonds.table), 0);
+    ok = ok && bt_command(0x76, NULL, 0, 0);
+    ok = ok && bt_command(0x77, service, sizeof(service), 0);
+    ok = ok && bt_command(0x78, characteristic, sizeof(characteristic), 0);
+    ok = ok && bt_command(0x42, &x42, 1, 0);
+    ok = ok && bt_command(0x39, x39, 2, 0);
+    ok = ok && bt_command(0x79, x79, 2, 0);
+    ok = ok && bt_command(0xa0, records, n, 1);
+    ok = ok && bt_command(0x03, (const u8 *)board_name, (u16)strlen(board_name), 0);
+    ok = ok && bt_command(0x02, &visible, 1, 0);
+    util_log("bt: up %s", ok ? "ok" : "failed");
 }
 
 static void put32(u8 *p, u32 v)
@@ -123,6 +225,9 @@ u32 usb_tool_command(const u8 *report, u8 *data, u32 n, u32 max)
         if (n < 2) return 0;
         data[0] = (u8)plat_radio_send(data[0], data + 2, (u16)(n - 2), data[1]);
         return 1;
+    case 0x3c:                           /* bring-up: Bluetooth up as a generic gamepad */
+        bt_up_pending = 1;
+        return 0;
     case 0x10:                           /* REBOOT */
         reboot_pending = 1;
         return 0;
@@ -152,13 +257,13 @@ int main(void)
     const struct usb_events *ev = plat_usb_events();
     u32 resets = 0, odd = 0, stalls = 0;
     u8 configured = 0;
-    u32 tick_ms = plat_ms(), held = 0, tick = 0, reboot_at = 0;
+    u32 tick_ms = plat_ms(), held = 0, tick = 0, reboot_at = 0, last_keys = 0, sent_keys = ~0u;
 
     for (;;) {
         plat_usb_poll();
         if (ev->resets != resets) util_log("usb: bus reset (%u)", (unsigned)(resets = ev->resets));
         if (ev->configured != configured) util_log("usb: configured %u", configured = ev->configured);
-        if (ev->odd_setups != odd) util_log("usb: SETUP not 8 bytes (%u)", (unsigned)(odd = ev->odd_setups));
+        if (ev->odd_setups != odd) util_log("usb: SETUP of %u bytes (%u)", ev->odd_length, (unsigned)(odd = ev->odd_setups));
         if (ev->stalls != stalls) {
             const u8 *q = ev->stalled;
             util_log("usb: stall %u: %02x %02x %02x%02x %02x%02x %02x%02x", (unsigned)(stalls = ev->stalls),
@@ -169,25 +274,27 @@ int main(void)
             util_log("bt: start");
             util_log("bt: started %d", plat_radio_start());
         }
-        while (plat_radio_take(&packet)) {
-            char hex[3 * 24 + 1];
-            int k = packet.len < 24 ? packet.len : 24;
-            for (int i = 0; i < k; i++) {
-                static const char digits[] = "0123456789abcdef";
-                hex[3 * i] = digits[packet.data[i] >> 4];
-                hex[3 * i + 1] = digits[packet.data[i] & 15];
-                hex[3 * i + 2] = ' ';
-            }
-            hex[3 * k] = 0;
-            util_log("bt: %02x %02x [%u] %s", packet.type, packet.id, packet.len, hex);
+        if (bt_up_pending) {
+            bt_up_pending = 0;
+            bt_up();
         }
+        while (plat_radio_take(&packet))
+            log_packet(&packet);
         if (reboot_pending && !reboot_at) reboot_at = plat_ms() + 50;   /* the answer goes out first */
         if (reboot_at && (int)(plat_ms() - reboot_at) >= 0) plat_restart(reboot_pending == 2);
         if (plat_ms() - tick_ms < 10)
             continue;
         tick_ms += 10;
         tick++;
-        int down = scan();
+        u32 keys_down = scan();
+        int down = !keys_down ? 0 : keys_down == 1u << 22 ? 1 : 2;
+        if (keys_down != last_keys) util_log("keys %06x", (unsigned)(last_keys = keys_down));
+        if (hid_connected && keys_down != sent_keys) {
+            u8 report[11] = { 0xa1, 0x01, (u8)keys_down, (u8)(keys_down >> 8), 8, 0x80, 0x80, 0x80, 0x80,
+                              (u8)(keys_down >> 16), 0 };
+            if (plat_radio_send(0xb0, report, sizeof(report), 1)) sent_keys = keys_down;
+        }
+        if (!hid_connected) sent_keys = ~0u;
         held = down ? held + 1 : 0;
         if (held >= 300)
             break;

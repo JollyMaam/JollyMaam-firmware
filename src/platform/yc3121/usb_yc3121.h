@@ -6,7 +6,7 @@
 /* What the controller has seen since start, for bring-up. */
 struct usb_events {
     u32 resets, setups, odd_setups, stalls, commands;
-    u8 addressed, configured;
+    u8 addressed, configured, odd_length;
     u8 stalled[8];               /* the last refused SETUP */
 };
 

@@ -297,7 +297,7 @@ void plat_usb_poll(void)
             USB_STATUS = 0x11;
             USB_STALL = 0;
             for (int i = 0; i < 8; i++) u.setup[i] = USB_FIFO(0);
-            if (n != 8) events.odd_setups++;
+            if (n != 8) events.odd_setups++, events.odd_length = n;
             setup();
             if (n > 8) ep0_out((u8)(n - 8), 0);         /* data with it */
         } else {

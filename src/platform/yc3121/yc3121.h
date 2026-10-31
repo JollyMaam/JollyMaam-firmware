@@ -47,7 +47,8 @@ static inline int yc_pin_in(int group, int pin)
 #define YC_LOADER_MAILBOX  (*(volatile uint32_t *)0x2fff0)
 #define YC_LOADER_STAY     0x5a5aa5a5
 #define YC_LOADER_MAILBOX2 (*(volatile uint32_t *)0x2fff4)
-#define YC_LOADER_FROM_APP 0x20210624   /* stock writes it with STAY */
+#define YC_LOADER_FROM_APP 0x20210624   /* stock writes it with STAY: the loader
+                                         * then skips its radio start (flag 0x200d9) */
 /* The loader's mode: with 2 the ROM's fault and interrupt vectors run the
  * loader's handlers (a fault: an endless loop), else the app's (app + 4 +
  * offset; IRQ n at app + 0x9c with r0 = 4n).  Its start of the app after

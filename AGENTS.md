@@ -238,7 +238,9 @@ wrong assumption), add it here in a line or two.
   (the app sets 1; the loader leaves 2 after flashing).  A fault that loops
   there needs a hard power-off (USB out, hold Home).  Into the boot loader
   without L1+R1: its mailbox and a jump, as `plat_restart` does; a chip
-  reset clears RAM, mailbox included.
+  reset clears RAM, mailbox included.  Not stock's second word 0x20210624
+  while our radio runs: the loader then skips its radio start, takes the
+  running core, and never came up on USB.
 - Never search the whole filesystem (`/`, `/proc`, `/sys`, `/dev`): it has
   disturbed the host.
 - BR23 VBAT: the SDK truncates its 16-sample average to an ADC code before

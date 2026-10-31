@@ -2,6 +2,7 @@
 #include "pad.h"
 #include "yc3121.h"
 #include "radio_yc3121.h"
+#include "usb_yc3121.h"
 
 /* The YC3121's Bluetooth core: a second processor behind a window at
  * 0xc0000..0xc8fff, started and fed as stock v1.01 does (its 0x01020d58,
@@ -41,6 +42,13 @@
 #define ROM_LPM_BT_READ ((uint32_t (*)(int))0x4d25)
 
 extern const uint8_t radio_blob[], radio_blob_end[];
+
+/* The start's waits keep USB served: a control transfer stalled in them. */
+static void wait_ms(u32 ms)
+{
+    for (u32 t0 = plat_ms(); plat_ms() - t0 < ms;)
+        plat_usb_poll();
+}
 
 /* DMA channel 6, as stock copies into the window (and into the code port,
  * with mode 8: the destination stays). */
@@ -104,10 +112,10 @@ int plat_radio_start(void)
 
     NVIC_ICER = 1u << 11;
     WAKEUP_BT = 0x94;
-    plat_delay_ms(10);
+    wait_ms(10);
     BT_RESET = 1;
-    plat_delay_ms(10);
-    for (t0 = plat_ms(); !(BT_IRQ & 0x80); )
+    wait_ms(10);
+    for (t0 = plat_ms(); !(BT_IRQ & 0x80); plat_usb_poll())
         if (plat_ms() - t0 > 500) return -1;
     BT_IRQ &= 0x7f;
     lpm_bt_write(1, ROM_LPM_BT_READ(1) | 0xd00000);
@@ -117,10 +125,11 @@ int plat_radio_start(void)
         yc_delay_us(1);
         WINDOW(0x4000 + i) = 0;
         yc_delay_us(1);
+        if (!(i & 255)) plat_usb_poll();
     }
     if (!load(radio_blob, radio_blob_end)) return -2;
     WAKEUP_BT = 0x9c;
-    plat_delay_ms(100);
+    wait_ms(100);
     return 0;
 }
 
