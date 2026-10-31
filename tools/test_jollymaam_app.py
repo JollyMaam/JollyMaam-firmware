@@ -53,7 +53,7 @@ int jm_session_stock_loader(const struct jm_session_io *io,void *c,const uint8_t
 }
 int jollymaam_jieli_command(const char *command) { (void)command;return 0; }
 int jollymaam_jieli_app(int argc,char **argv) { (void)argc;(void)argv;return 2; }
-int jollymaam_restore_app(int argc,char **argv) { (void)argc;(void)argv;return 2; }
+int jollymaam_restore_app(int argc,char **argv,int jieli) { (void)argc;(void)argv;(void)jieli;return 2; }
 int main(int argc,char **argv) { return argc==2 ? jollymaam_update_app(argv[1]) : 2; }
 '''
 
@@ -96,6 +96,13 @@ class AppTests(unittest.TestCase):
         result = subprocess.run([str(self.cli), 'stock-loader', 'fake-custom'], capture_output=True, text=True, timeout=5)
         self.assertEqual(result.returncode, 2)
         self.assertNotIn('MOCK-STOCK-LOADER', result.stdout)
+
+    def test_8bitdo_scan_is_scoped_to_its_bootloaders(self):
+        result = subprocess.run([str(self.cli), '8bitdo', 'scan'], capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn('fake-boot', result.stdout)
+        self.assertNotIn('fake-custom', result.stdout)
+        self.assertNotIn('fake-jieli', result.stdout)
 
     def test_scan_includes_custom_devices(self):
         result = subprocess.run([str(self.cli), 'scan'], capture_output=True, text=True, timeout=5)

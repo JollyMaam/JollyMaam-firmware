@@ -36,9 +36,9 @@ desktop platform archive and dynamic hidapi separately.
 The CLI offers read-only discovery (`scan`) of our tool devices using IDENTIFY,
 8BitDo bootloader candidates and Jieli UBOOT candidates,
 offline image inspection (`inspect IMAGE`), raw Jieli image rekeying
-(`rekey-jieli INPUT OUTPUT KEY`), and pad bootloader upgrades
-(`flash-8bitdo --yes HID_PATH IMAGE`). Linux Jieli flashing uses
-`flash-jieli --yes DEVICE LOADER IMAGE`, with the chip's matching SDK RAM-loader
+(`jieli rekey INPUT OUTPUT KEY`), and pad bootloader upgrades
+(`8bitdo flash --yes HID_PATH IMAGE`). Linux Jieli flashing uses
+`jieli install --yes DEVICE LOADER IMAGE`, with the chip's matching SDK RAM-loader
 blob. Both flash commands write hardware: select
 the intended path and obtain permission before invoking it. Enumeration does not
 upload loaders or reboot devices. There is no automatic stock-firmware boot entry
@@ -302,15 +302,15 @@ Restore uses the original bootloader endpoint after that mode change. Validate
 an external vendor image before opening a device:
 
 ```
-build/host/jollymaam check-stock-jieli PRODUCT STOCK_IMAGE_OR_UFW
-build/host/jollymaam check-stock-8bitdo 0x301b STOCK_BIN_OR_DAT
+build/host/jollymaam jieli check-stock PRODUCT STOCK_IMAGE_OR_UFW
+build/host/jollymaam 8bitdo check-stock 0x301b STOCK_BIN_OR_DAT
 ```
 
 Explicit restore commands are:
 
 ```
-build/host/jollymaam restore-jieli --yes BLOCK_PATH BR23 PRODUCT BR23_LOADER STOCK_IMAGE_OR_UFW NEW_BACKUP_FILE
-build/host/jollymaam restore-8bitdo --yes HID_PATH 0x301b STOCK_BIN_OR_DAT NEW_BACKUP_FILE
+build/host/jollymaam jieli restore --yes BLOCK_PATH BR23 PRODUCT BR23_LOADER STOCK_IMAGE_OR_UFW NEW_BACKUP_FILE
+build/host/jollymaam 8bitdo restore --yes HID_PATH 0x301b STOCK_BIN_OR_DAT NEW_BACKUP_FILE
 ```
 
 Use `BD19` and its matching helper for that chip. The CLI refuses existing
@@ -338,12 +338,12 @@ provenance. Live model checks still precede all writes. Factory flash dumps are
 not application images. Restoration writes from `0x6000` and leaves the stock
 loader and settings at/above `0x6f000` untouched. Its backup is the entire
 `[0x6000,0x6f000)` application region, with file offset zero corresponding to
-flash `0x6000`; a backup of our firmware can be reinstalled with `flash-8bitdo`.
+flash `0x6000`; a backup of our firmware can be reinstalled with `8bitdo flash`.
 
 The private vendor files under `/work/stock-firmware` are external inputs. They
 are not committed or added to the distributable firmware ZIP. Normal stock
 firmware discovery/loader entry for the cross-chip interactive updater remains
-separate. `scan-jieli` and `loader` expose the migrated Jieli stock-mode table
+separate. `jieli scan` and `loader` expose the migrated Jieli stock-mode table
 and USB-port selection. Android currently exposes stock-loader entry; stock
 restoration is available through the portable C API and desktop CLI.
 
@@ -354,20 +354,20 @@ executable. It provides the commands previously supplied by the separate image
 tool:
 
 ```
-build/host/jollymaam pack -c isd_config.ini -u uboot.boot -o firmware.img app.bin
-build/host/jollymaam list firmware.img
-build/host/jollymaam verify firmware.img
-build/host/jollymaam unpack firmware.img unpacked
-build/host/jollymaam help-jieli
+build/host/jollymaam jieli pack -c isd_config.ini -u uboot.boot -o firmware.img app.bin
+build/host/jollymaam jieli list firmware.img
+build/host/jollymaam jieli verify firmware.img
+build/host/jollymaam jieli unpack firmware.img unpacked
+build/host/jollymaam jieli help
 ```
 
-The same frontend supplies `flash`, `flashpack`, `backup`, `loader` and `run`,
+The `jieli` group supplies `flash`, `flashpack`, `backup`, `loader` and `run`,
 including their existing `--pid`, `--device`, `--loader`, `--enter-loader`,
 `--wait`, `--keep`, key and layout options. Board `make ...-flash` and
 `make ...-loader` targets use these commands. Their existing explicit device
-selection and force/dry-run behavior is retained. `scan-jieli` lists Jieli USB
+selection and force/dry-run behavior is retained. `jieli scan` lists Jieli USB
 ports, our tool devices and the known stock HID modes without rebooting devices
-or uploading helpers. The cross-chip `scan` and package `update` commands retain
+or uploading helpers. The cross-chip top-level `scan` and package `update` commands retain
 their existing behavior.
 
 CLI argument handling and Jieli port/device policy live in
@@ -378,3 +378,18 @@ library. Image inputs accept both Windows and POSIX path separators.
 frontend; the former tool's environment names remain accepted aliases. Existing
 `[JLNEWFW]` INI sections remain valid layout metadata for compatibility, and new
 unpacked INIs name the `jollymaam` commands.
+
+## Command groups and help
+
+Protocol-specific commands live under `jollymaam jieli` and `jollymaam 8bitdo`.
+Use `jollymaam help`, `jollymaam --help`, `jollymaam help jieli`,
+`jollymaam jieli help` or `jollymaam 8bitdo --help` for usage. A group without a
+subcommand also shows help. `--help` after a subcommand shows its group usage
+before opening files or devices. Unknown commands return status 2; help returns
+zero. The previous flat protocol command names are no longer accepted.
+
+The shared `scan`, `update`, `inspect`, `flash-package` and `stock-loader`
+commands remain at the top level. `jollymaam jieli flash` retains the
+option-based Jieli workflow; `jollymaam jieli install --yes DEVICE LOADER IMAGE`
+is the direct installation command. The 8BitDo group provides `scan`, `flash`,
+`check-stock` and `restore`.

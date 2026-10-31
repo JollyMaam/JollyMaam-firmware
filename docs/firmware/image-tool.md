@@ -1,4 +1,4 @@
-# Image tool (`jollymaam`)
+# Image commands (`jollymaam jieli`)
 
 The project's tool for the BR23 image format
 ([../jieli/re-application-image.md](../jieli/re-application-image.md)), built
@@ -14,7 +14,7 @@ for each board. Commands:
 | `backup` | read the whole flash through the ROM loader |
 | `loader` | ask running firmware to enter the ROM loader, then wait for the loader holding `--pid` |
 | `run` | a device in its ROM loader starts the firmware in its flash (the run command that ends a flash) |
-| `scan-jieli` | list what is connected by USB port, classified as below; nothing is restarted |
+| `scan` | list what is connected by USB port, classified as below; nothing is restarted |
 
 Options used by the build:
 

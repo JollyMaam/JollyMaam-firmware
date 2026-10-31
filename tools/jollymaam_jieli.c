@@ -1480,7 +1480,7 @@ static void select_dev(struct dev *out, const struct flash_opts *o, const char *
       for (size_t i = 0; i < n; i++)
         fprintf(stderr, "  %-24s %s%s%s  (%s)\n", c[i].port[0] ? c[i].port : c[i].path,
                 cand_what(&c[i], buf), c[i].pid[0] ? ", " : "", c[i].pid, c[i].path);
-      die("pick one with --device PORT (make: DEVICE=PORT); jollymaam scan-jieli lists them");
+      die("pick one with --device PORT (make: DEVICE=PORT); jollymaam jieli scan lists them");
     }
     if (n == 1) {
       struct cand *x = &c[0];
@@ -1534,7 +1534,7 @@ static void select_dev(struct dev *out, const struct flash_opts *o, const char *
       fprintf(stderr, "jollymaam: no ROM loader %s%s\n", want ? "holding " : "found",
               want ? want : "");
       die(n ? "the device did not come up in its ROM loader"
-            : "no device for it found (jollymaam scan-jieli lists what is connected)");
+            : "no device for it found (jollymaam jieli scan lists what is connected)");
     }
     if (!t && o->wait && !n)
       printf("waiting up to %u s for a device %s%s\n", o->wait, want ? "for " : "", want ? want : "");
@@ -1716,7 +1716,7 @@ static void cmd_backup(int argc, char **argv) {
   }
   const char *pid = o.pid;
   if (!output || (!pid && !o.device))
-    die("usage: jollymaam backup --pid PID [FLASH OPTIONS] OUTPUT");
+    die("usage: jollymaam jieli backup --pid PID [FLASH OPTIONS] OUTPUT");
   struct dev d;
   select_dev(&d, &o, pid ? pid : "");
   if (pid) {
@@ -1727,7 +1727,7 @@ static void cmd_backup(int argc, char **argv) {
   uint8_t *all = malloc(d.flash_size);
   if (!all || !flash_read(&d, 0, all, d.flash_size)) die("backup: flash read failed");
   write_file(output, all, d.flash_size);
-  printf("backup: %s (%u bytes); jollymaam run or a USB reconnect leaves the loader\n", output, d.flash_size);
+  printf("backup: %s (%u bytes); jollymaam jieli run or a USB reconnect leaves the loader\n", output, d.flash_size);
   free(all);
   dev_close(d.fd);
 }
@@ -1738,13 +1738,13 @@ static void cmd_loader(int argc, char **argv) {
   struct flash_opts o = {.wait = 30};
   for (int i = 0; i < argc; i++)
     if (!flash_arg(&o, argc, argv, &i))
-      die("usage: jollymaam loader --pid PID [--device PATH] [--wait SECONDS] [--loader BLOB]");
+      die("usage: jollymaam jieli loader --pid PID [--device PATH] [--wait SECONDS] [--loader BLOB]");
   if (!o.pid)
-    die("usage: jollymaam loader --pid PID [--device PATH] [--wait SECONDS] [--loader BLOB]");
+    die("usage: jollymaam jieli loader --pid PID [--device PATH] [--wait SECONDS] [--loader BLOB]");
   o.enter_loader = true;
   struct dev d = {0};
   select_dev(&d, &o, o.pid);
-  printf("%s: in its ROM loader, holding %s; jollymaam run or a USB reconnect leaves it\n", d.path, o.pid);
+  printf("%s: in its ROM loader, holding %s; jollymaam jieli run or a USB reconnect leaves it\n", d.path, o.pid);
   dev_close(d.fd);
 }
 
@@ -1754,7 +1754,7 @@ static void cmd_run(int argc, char **argv) {
   struct flash_opts o = {0};
   for (int i = 0; i < argc; i++)
     if (!flash_arg(&o, argc, argv, &i))
-      die("usage: jollymaam run [--pid PID] [--device PATH] [--loader BLOB]");
+      die("usage: jollymaam jieli run [--pid PID] [--device PATH] [--loader BLOB]");
   struct dev d = {0};
   select_dev(&d, &o, o.pid ? o.pid : "");
   uint8_t a[4];
@@ -1771,11 +1771,11 @@ static void cmd_flash(int argc, char **argv) {
     if (flash_arg(&o, argc, argv, &i))
       continue;
     if (argv[i][0] == '-' || image)
-      die("usage: jollymaam flash [options] IMAGE");
+      die("usage: jollymaam jieli flash [options] IMAGE");
     image = argv[i];
   }
   if (!image)
-    die("usage: jollymaam flash [options] IMAGE");
+    die("usage: jollymaam jieli flash [options] IMAGE");
   size_t n;
   uint8_t *data = load_image(image, &n);
   char want[17];
@@ -1831,22 +1831,27 @@ static void cmd_scan(void) { cmd_flash(0, NULL); }
 
 static void usage(void) {
   puts(
-      "usage:\n"
-      "  jollymaam list IMAGE\n"
-      "  jollymaam verify IMAGE\n"
-      "  jollymaam unpack IMAGE DIRECTORY\n"
-      "  jollymaam pack -c isd_config.ini [-u uboot.boot] -o OUT [app.bin "
+      "usage: jollymaam jieli <subcommand>\n"
+      "  jollymaam jieli help | --help\n"
+      "  jollymaam jieli rekey INPUT OUTPUT KEY\n"
+      "  jollymaam jieli install --yes DEVICE LOADER IMAGE\n"
+      "  jollymaam jieli check-stock PRODUCT IMAGE\n"
+      "  jollymaam jieli restore --yes DEVICE BR23|BD19 PRODUCT LOADER IMAGE NEW_BACKUP\n"
+      "  jollymaam jieli list IMAGE\n"
+      "  jollymaam jieli verify IMAGE\n"
+      "  jollymaam jieli unpack IMAGE DIRECTORY\n"
+      "  jollymaam jieli pack -c isd_config.ini [-u uboot.boot] -o OUT [app.bin "
       "[cfg_tool.bin ...]]\n"
       "               [-r RESOURCE]... [-k KEY] [--flash-size SIZE] "
       "[--code-limit ADDR]\n"
       "               [--at ADDR] [--mark VALUE] [--copy FROM:TO:LEN]...\n"
       "               [--main OFFSET:FILE [--main-out FILE]]\n"
-      "  jollymaam backup --pid PID [FLASH OPTIONS] OUTPUT\n"
-      "  jollymaam loader --pid PID [--device PATH] [--wait SECONDS] [--loader BLOB]\n"
-      "  jollymaam run [--pid PID] [--device PATH] [--loader BLOB]\n"
-      "  jollymaam scan-jieli\n"
-      "  jollymaam flash [FLASH OPTIONS] IMAGE\n"
-      "  jollymaam flashpack [PACK OPTIONS] [FLASH OPTIONS] [app.bin ...]\n"
+      "  jollymaam jieli backup --pid PID [FLASH OPTIONS] OUTPUT\n"
+      "  jollymaam jieli loader --pid PID [--device PATH] [--wait SECONDS] [--loader BLOB]\n"
+      "  jollymaam jieli run [--pid PID] [--device PATH] [--loader BLOB]\n"
+      "  jollymaam jieli scan\n"
+      "  jollymaam jieli flash [FLASH OPTIONS] IMAGE\n"
+      "  jollymaam jieli flashpack [PACK OPTIONS] [FLASH OPTIONS] [app.bin ...]\n"
       "FLASH OPTIONS: [--pid PID] [--device PATH] [--loader SDK/cpu/br23/tools/br23loader.bin] "
       "[--backup FILE]\n"
       "               [--keep ADDR:LEN]... [--force-pid] [--force-key] "
@@ -1884,7 +1889,7 @@ static void usage(void) {
 /* Command ownership is explicit: the main application retains its cross-chip
  * scan/update commands while this module provides Jieli image/device workflows. */
 int jollymaam_jieli_command(const char *command) {
-  static const char *const commands[]={"pack","list","verify","unpack","backup","loader","run","flash","flashpack","scan-jieli","help-jieli"};
+  static const char *const commands[]={"pack","list","verify","unpack","backup","loader","run","flash","flashpack","scan","help","--help"};
   if(!command) return 0;
   for(size_t i=0;i<sizeof commands/sizeof *commands;++i) if(!strcmp(command,commands[i])) return 1;
   return 0;
@@ -1893,7 +1898,7 @@ int jollymaam_jieli_command(const char *command) {
  * this process. Fatal CLI errors exit; the underlying library returns errors. */
 int jollymaam_jieli_app(int argc, char **argv) {
   setvbuf(stdout, NULL, _IOLBF, 0); /* progress before any error */
-  if(argc==2 && !strcmp(argv[1],"help-jieli")) { usage();return 0; }
+  if(argc==2 && (!strcmp(argv[1],"help") || !strcmp(argv[1],"--help"))) { usage();return 0; }
   if (argc < 2) {
     usage();
     return 2;
@@ -1907,7 +1912,7 @@ int jollymaam_jieli_app(int argc, char **argv) {
     cmd_backup(argc - 2, argv + 2);
     return 0;
   }
-  if (!strcmp(argv[1], "scan-jieli") && argc == 2) {
+  if (!strcmp(argv[1], "scan") && argc == 2) {
     cmd_scan();
     return 0;
   }

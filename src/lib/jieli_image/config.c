@@ -78,7 +78,7 @@ int jm_jieli_image_config(const struct jm_jieli_image *image,const char *source_
       off+=e.size;
     }
   }
-    emit(&text, "// From %s by jollymaam unpack: jollymaam pack -c this_file -o OUT\n"
+    emit(&text, "// From %s by jollymaam jieli unpack: jollymaam jieli pack -c this_file -o OUT\n"
                "// rebuilds it ([JLNEWFW] holds what the SDK INI cannot say).\n",
             source_name);
     emit(&text, "[EXTRA_CFG_PARAM]\nNEW_FLASH_FS = YES;\nFORCE_4K_ALIGN = YES;\n"

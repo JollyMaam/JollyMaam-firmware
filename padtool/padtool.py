@@ -46,7 +46,7 @@
     padtool input [-f]            buttons, sticks and triggers, calibrated and
                                   as read (-f: live)
     padtool reboot | loader       restart; restart into the ROM loader (for
-                                  jollymaam flash; the 8BitDo: its boot loader)
+                                  jollymaam jieli flash; the 8BitDo: its boot loader)
     padtool boot [start | flash FILE]   the 8BitDo boot loader (2dc8:3208):
                                   list them; start: leave it, starting the
                                   firmware there; flash: write a build's

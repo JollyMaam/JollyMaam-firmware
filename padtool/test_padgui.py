@@ -1441,7 +1441,7 @@ class FlasherTests(unittest.TestCase):
             (Path(tmp) / "uboot.boot").write_bytes(boot)
             (Path(tmp) / "app.bin").write_bytes(bytes(32))
             ini.write_text("[EXTRA_CFG_PARAM]\nPID=GS_C2_Dongle;\n[JLNEWFW]\nUBOOT=uboot.boot;\nFILES=app.bin;\n")
-            result = subprocess.run([str(exe), "flashpack", "--pid", "GS_C2_ADC_DEVICE",
+            result = subprocess.run([str(exe), "jieli", "flashpack", "--pid", "GS_C2_ADC_DEVICE",
                                      "-c", str(ini)], capture_output=True, text=True,
                                     env={**os.environ, "DEV_ROOT": tmp})
             self.assertNotEqual(result.returncode, 0)

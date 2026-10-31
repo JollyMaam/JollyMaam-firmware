@@ -24,12 +24,12 @@ def files(folder):
 
 def compare(reference, candidate, image):
     for command in ('list', 'verify'):
-        assert run(reference, command, image) == run(candidate, command, image), (image, command)
+        assert run(reference, command, image) == run(candidate, 'jieli', command, image), (image, command)
     with tempfile.TemporaryDirectory(prefix='jollymaam-images-') as temp:
         root = Path(temp)
         old, new = root / 'old', root / 'new'
         run(reference, 'unpack', image, old)
-        run(candidate, 'unpack', image, new)
+        run(candidate, 'jieli', 'unpack', image, new)
         previous, current = files(old), files(new)
         old_main = previous.pop(Path('_main.bin'), None)
         self_contained = current.pop(Path('_main.bin'), None)
@@ -43,7 +43,7 @@ def compare(reference, candidate, image):
                                       if not line.startswith((b'// From ', b'MAIN_FILE =', b'MAIN_AT =')))
         assert previous == current, f"unpacked files differ: {image}"
         rebuilt = root / 'rebuilt.img'
-        run(candidate, 'pack', '-c', new / ini, '-o', rebuilt)
+        run(candidate, 'jieli', 'pack', '-c', new / ini, '-o', rebuilt)
         assert rebuilt.read_bytes() == image.read_bytes(), f"full rebuild differs: {image}"
         if self_contained is not None:
             assert self_contained, 'empty MAIN export'

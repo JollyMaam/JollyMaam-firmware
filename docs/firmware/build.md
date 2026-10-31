@@ -54,7 +54,7 @@ Asserts enforce the sizes and the non-overlap. See [runtime.md](runtime.md).
 |---|---|
 | link | ELF image, linker map, linker script as built |
 | `objcopy` of `.text` and `.data`, concatenated | application binary (`.text` followed by `.data`) |
-| `jollymaam pack` with `uboot.boot`, `cfg_tool.bin` and `isd_config.ini` | firmware image for flashing |
+| `jollymaam jieli pack` with `uboot.boot`, `cfg_tool.bin` and `isd_config.ini` | firmware image for flashing |
 
 `isd_config.ini` is generated from the SDK's `isd_config_rule.c` and holds the
 PID. The loader used for flashing is the SDK's `br23loader.bin`. Flashing tools

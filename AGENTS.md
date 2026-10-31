@@ -148,7 +148,7 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   (SDL) run under `tools/withdev.sh`, which rebuilds `/dev` from `DEV_ROOT`
   once at start: nodes that appear later are not in it.
 - Several devices of one kind are told apart by USB port:
-  `padtool --device 5-2.1`, `jollymaam scan-jieli`.  Use `padtool --dongle` for
+  `padtool --device 5-2.1`, `jollymaam jieli scan`.  Use `padtool --dongle` for
   dongles.
 - **Ephemeral mode for tests.**  Before changing settings or pairing just to
   test something, put every device involved in `padtool ephemeral` (and

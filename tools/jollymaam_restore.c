@@ -65,14 +65,13 @@ static int check_jieli(const uint8_t *data,size_t size,const char *product) {
  * Backup creation is exclusive, so an input or previous backup cannot be
  * overwritten. Core calls finish (including fsync/close) before its first erase.
  * Vendor binaries remain external to the repository and firmware distribution. */
-int jollymaam_restore_app(int argc,char **argv) {
-  int jieli=!strcmp(argv[1],"restore-jieli") || !strcmp(argv[1],"check-stock-jieli");
-  int check=!strcmp(argv[1],"check-stock-jieli") || !strcmp(argv[1],"check-stock-8bitdo");
+int jollymaam_restore_app(int argc,char **argv,int jieli) {
+  int check=!strcmp(argv[1],"check-stock");
   if((check && argc!=4) || (!check && (argc!=(jieli?9:7) || strcmp(argv[2],"--yes")))) {
-    fprintf(stderr,"usage: jollymaam check-stock-jieli PRODUCT IMAGE\n"
-                   "       jollymaam check-stock-8bitdo 0x301b STOCK.bin|DAT\n"
-                   "       jollymaam restore-jieli --yes DEVICE BR23|BD19 PRODUCT LOADER IMAGE NEW_BACKUP\n"
-                   "       jollymaam restore-8bitdo --yes HID_PATH 0x301b STOCK.bin|DAT NEW_BACKUP\n");return 2;
+    fprintf(stderr,"usage: jollymaam jieli check-stock PRODUCT IMAGE\n"
+                   "       jollymaam 8bitdo check-stock 0x301b STOCK.bin|DAT\n"
+                   "       jollymaam jieli restore --yes DEVICE BR23|BD19 PRODUCT LOADER IMAGE NEW_BACKUP\n"
+                   "       jollymaam 8bitdo restore --yes HID_PATH 0x301b STOCK.bin|DAT NEW_BACKUP\n");return 2;
   }
   const char *image_path=argv[check?3:jieli?7:5],*product=jieli?argv[check?2:5]:NULL;
   size_t size=0;uint8_t *image=load(image_path,&size);int valid=0;
