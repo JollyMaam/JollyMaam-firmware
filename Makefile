@@ -3,6 +3,7 @@
 #   make            every product
 #   make test       every product's unit tests
 #   make padtool-dist   padtool for Windows/Linux, with bleak, loaders and firmware
+#   make dist       firmware, static desktop updater and SDK ZIPs
 #   make clean
 
 .DEFAULT_GOAL := all
@@ -16,6 +17,7 @@ include make/gamesir-nova-2-lite.mk
 include make/8bitdo-ultimate2c-wireless.mk
 include make/android.mk
 include make/padtool.mk
+include make/dist.mk
 
 .PHONY: all test
 all: gamesir-cyclone-2-all gamesir-nova-2-lite-all 8bitdo-ultimate2c-wireless-all

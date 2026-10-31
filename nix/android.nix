@@ -12,7 +12,7 @@ let sdk = (pkgs.androidenv.composeAndroidPackages {
   abiVersions = [ "x86_64" ];
 }).androidsdk;
 in pkgs.mkShell {
-  packages = [ pkgs.jdk17 pkgs.android-tools pkgs.cmake pkgs.ninja pkgs.gnumake pkgs.gcc pkgs.python3 ] ++ pkgs.lib.optionals withEmulator [ sdk pkgs.scrcpy pkgs.util-linux pkgs.psmisc pkgs.python3 ];
+  packages = [ pkgs.jdk17 pkgs.android-tools pkgs.cmake pkgs.ninja pkgs.gnumake pkgs.gcc pkgs.pkg-config pkgs.hidapi pkgs.python3 ] ++ pkgs.lib.optionals withEmulator [ sdk pkgs.scrcpy pkgs.util-linux pkgs.psmisc pkgs.python3 ];
   JOLLYMAAM_EMULATOR_SHELL = if withEmulator then "1" else "0";
   JAVA_HOME = pkgs.jdk17.home;
   ANDROID_NDK_HOME = "${sdk}/libexec/android-sdk/ndk/27.2.12479018";

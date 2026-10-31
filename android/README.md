@@ -202,8 +202,11 @@ confirmation and a single worker. Protocol sequencing, validation and reconnect
 policy remain in the portable C core. The older settings/individual-image
 screens retain their existing Kotlin implementation.
 
-`make android-check` builds the debug APK and instrumentation APK, runs JVM
-unit tests and lint. `nix flake check` also exercises the real JNI bridge on a
+`nix develop .#android --command make android-check` (from the repository root)
+builds the debug APK and instrumentation APK, runs JVM unit tests and lint. Make also works with an externally configured Java and Android
+SDK/NDK environment; the Android targets do not invoke Nix.
+`make dist-android` packages the firmware ZIP and debug APK in `build/dist/`.
+`nix flake check` also exercises the real JNI bridge on a
 host JVM with fake endpoint callbacks and `-Xcheck:jni`. Regenerate its synthetic instrumentation package with
 `python3 android/tools/generate_native_fixture.py`. Android instrumentation
 uses the same fake endpoints with the actual NDK library; it never accesses USB.

@@ -123,5 +123,5 @@ firmware-package:
 
 .PHONY: jollymaam-check
 jollymaam-check: jollymaam libjollymaam-test libjollymaam-linux-test
-	$(Q)python3 -m unittest tools/test_firmware_package.py tools/test_jollymaam_app.py tools/test_jollymaam_jni.py tools/test_jollymaam_restore.py tools/test_jollymaam_jieli.py
+	$(Q)python3 -m unittest tools/test_firmware_package.py tools/test_jollymaam_app.py tools/test_jollymaam_jni.py tools/test_jollymaam_restore.py tools/test_jollymaam_jieli.py tools/test_jollymaam_dist.py
 	$(Q)python3 -m unittest discover -s android/tools -p 'test_*.py'

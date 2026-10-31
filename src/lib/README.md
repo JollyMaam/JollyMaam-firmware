@@ -30,8 +30,29 @@ applications link their preferred zlib remains a separate decision.
 
 The static Nix artifacts target Linux musl; do not mix them with the regular
 glibc development shell or Android binaries. Android needs its own target build.
-The regular Makefile also builds the portable `libjollymaam.a`; its CLI links the
-desktop platform archive and dynamic hidapi separately.
+Make owns compilation, tests, installation and release packaging. Nix supplies
+compilers and dependencies and invokes those Make targets. Without Nix, install
+GNU Make, a C compiler, pkg-config, Python 3 and hidapi development files. Static
+Linux builds additionally need static libc, hidapi and libudev archives (and
+libusb when selecting that HID backend).
+
+```
+make jollymaam libjollymaam-test
+make JOLLYMAAM_STATIC=1 jollymaam jollymaam-link-check
+make HIDAPI_PKG=hidapi-libusb JOLLYMAAM_STATIC=1 jollymaam
+make PREFIX=/usr/local DESTDIR=/tmp/jollymaam-install install
+```
+
+`HOST_CC` defaults to the supplied `CC`, or gcc; `HOST_AR` defaults to `AR`.
+MinGW compilers select the Windows adapters and `.exe` extension automatically.
+`HOST_CFLAGS`, `JOLLYMAAM_LDFLAGS`, `HIDAPI_PKG` and `O` are overridable.
+Make rebuilds the host objects when switching compiler, platform or link mode
+in the same output directory. The regular shell defaults to dynamic hidapi;
+the static and Windows shells select static linking.
+
+`make jollymaam-check` runs the core, platform, CLI, packaging and Android
+host-side tests; the JNI tests require Java development tools. Windows test
+executables can be built with `make jollymaam-windows-test-build`.
 
 The CLI offers read-only discovery (`scan`) of our tool devices using IDENTIFY,
 8BitDo bootloader candidates and Jieli UBOOT candidates,
@@ -293,12 +314,34 @@ they can run under Wine without flashing hardware. Windows USB behavior still
 requires hardware validation. Raw Jieli access may require an Administrator
 terminal; discovery itself uses disk-interface metadata without opening disks.
 
-To package an existing executable with the single firmware ZIP:
+Release packaging uses Make:
 
 ```
-python3 tools/jollymaam_windows_dist.py --exe build/host/jollymaam.exe \
-    --firmware build/firmware.zip build/jollymaam-windows.zip
+nix develop .#static --command make -j32 dist
+nix develop .#windows --command make dist-windows
+nix develop .#android --command make dist-android
 ```
+
+`make dist` builds all five firmware targets and packages the current desktop
+platform. On Linux it produces `build/dist/firmware.zip`,
+`jollymaam-linux.zip` (static executable, firmware ZIP and README) and
+`jollymaam-linux-sdk.zip` (executable, archives and headers). The desktop ZIP
+preserves the Linux executable permission. Static linkage is checked before
+packaging.
+
+Cross-build Windows after building the firmware natively; `make dist-windows`
+reuses `build/firmware.zip` and produces the equivalent Windows updater and SDK
+ZIPs. It does not execute the cross-built app to pack firmware. Override
+`DIST_FIRMWARE` to use another native build's ZIP, `DIST_DIR` for release outputs,
+and `O` for the build directory. `make dist-firmware` builds and packages only
+the firmware. `make dist-desktop` packages only the current desktop build using
+an existing firmware ZIP.
+
+`make dist-android` builds firmware and a debug-signed APK, copying both into
+the distribution directory. `make android` and `make android-check` use Java and
+the SDK/NDK from the environment; they do not invoke Nix. The APK is a developer
+build, not a signed store release. All targets work without Nix when their
+compiler, SDK and development dependencies are supplied externally.
 
 Extract the distribution ZIP and open `Update firmware.cmd` to launch the terminal
 UI. The distribution contains the executable, firmware.zip, launcher and README;
