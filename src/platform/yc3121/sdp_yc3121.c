@@ -41,17 +41,34 @@ static void bytes(struct w *w, u8 type8, const u8 *p, u16 n)
     while (n--) put(w, *p++);
 }
 
-/* A sequence: open() leaves room for a u16 length, close() fills it in. */
+/* A sequence: open() leaves room for a u16 length, close() fills it in,
+ * and one under 256 bytes takes a u8 length, as stock's records have them
+ * (the record itself keeps the u16 one: top()). */
 static u16 open(struct w *w) { put(w, 0x36); be16(w, 0); return w->at; }
 
 static void close(struct w *w, u16 from)
 {
     u16 n = (u16)(w->at - from);
 
-    if (from >= 2 && from <= w->max) {
+    if (w->bad || from < 3) return;
+    if (n < 256) {
+        w->out[from - 3] = 0x35;
+        w->out[from - 2] = (u8)n;
+        memmove(w->out + from - 1, w->out + from, n);
+        w->at--;
+    } else {
         w->out[from - 2] = (u8)(n >> 8);
         w->out[from - 1] = (u8)n;
     }
+}
+
+static void top(struct w *w, u16 from)
+{
+    u16 n = (u16)(w->at - from);
+
+    if (w->bad || from < 2) return;
+    w->out[from - 2] = (u8)(n >> 8);
+    w->out[from - 1] = (u8)n;
 }
 
 static void header(struct w *w, const u16 *uuids, u8 count, u32 handle)
@@ -127,7 +144,7 @@ u16 yc_sdp_records(u8 *out, u16 max, const struct yc_sdp_hid *h)
     attr(&w, 0x020c), uint16(&w, 0x0c80);           /* HIDSupervisionTimeout */
     attr(&w, 0x020d), boolean(&w, 0);               /* HIDNormallyConnectable */
     attr(&w, 0x020e), boolean(&w, 0);               /* HIDBootDevice */
-    close(&w, rec);
+    top(&w, rec);
 
     header(&w, pnp_uuids, 4, 0x00010001);
     rec = open(&w);
@@ -144,6 +161,6 @@ u16 yc_sdp_records(u8 *out, u16 max, const struct yc_sdp_hid *h)
     attr(&w, 0x0203), uint16(&w, h->version);
     attr(&w, 0x0204), boolean(&w, 1);               /* PrimaryRecord */
     attr(&w, 0x0205), uint16(&w, 0x0002);           /* VendorIDSource: USB */
-    close(&w, rec);
+    top(&w, rec);
     return w.bad ? 0 : w.at;
 }

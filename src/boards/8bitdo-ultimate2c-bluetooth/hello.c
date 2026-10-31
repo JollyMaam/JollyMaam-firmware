@@ -25,7 +25,9 @@
  *   lights      1.11, 1.6, 0.15, 2.3, high = lit (its player-light chase)
  *   matrix      rows 1.5, 0.6, 0.1, 2.4 driven low in turn; columns
  *               0.9..0.13 with pull-ups, low = down
- *   Home        1.10 with pull-up, low = down; 2.11 and 2.12 likewise
+ *   Home        1.10 with pull-up, low = down; 2.11 (L2) and 2.12 (R2) likewise
+ *   keys        row 0: up, X, Plus, R4, L4; row 1: left, Y, Star, R1, L1;
+ *               row 2: down, A, Minus, R3, L3; row 3: right, B, Capture
  * The loader leaves the CPU at 48 MHz (HCLK_CON divider 2, seen on the
  * lights); a busy loop runs about five times slower than its cycle count
  * from flash, so time comes from SysTick (platform_yc3121.c). */
@@ -216,6 +218,13 @@ u32 usb_tool_command(const u8 *report, u8 *data, u32 n, u32 max)
 
         for (u32 i = 0; i < k; i += 4)
             put32(data + i, *(volatile u32 *)(arg + i));
+        return k;
+    }
+    case 0x3d: {                         /* bring-up: bytes from the address (the radio window) */
+        u32 k = want < max ? want : max;
+
+        for (u32 i = 0; i < k; i++)
+            data[i] = *(volatile u8 *)(arg + i);
         return k;
     }
     case 0x3a:                           /* bring-up: start the Bluetooth core */
