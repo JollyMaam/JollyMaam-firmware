@@ -14,6 +14,7 @@ struct jm_8bitdo_upgrade {
 enum jm_8bitdo_step { JM_8BITDO_FAILED = -1, JM_8BITDO_DONE = 0, JM_8BITDO_TRANSFER = 1 };
 int jm_8bitdo_upgrade_init(struct jm_8bitdo_upgrade *op,
                            const uint8_t *image, size_t size);
+int jm_8bitdo_restore_init(struct jm_8bitdo_upgrade *op, const uint8_t *image, size_t size, uint16_t model);
 enum jm_8bitdo_step jm_8bitdo_upgrade_next(struct jm_8bitdo_upgrade *op,
                                           uint8_t report[64], int *reply_required);
 enum jm_8bitdo_result jm_8bitdo_upgrade_complete(struct jm_8bitdo_upgrade *op,

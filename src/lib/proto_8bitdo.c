@@ -83,6 +83,27 @@ int jm_8bitdo_image_check(const uint8_t *image, size_t size) {
   }
   return crc == rd32(image + n - 4);
 }
+/* Validate an extracted stock app or a vendor DAT container. DAT has a
+ * 28-byte header: load address, payload length, model and two reserved words.
+ * Check model 301b, load address 6000, reserved zeros, exact payload bounds,
+ * zero padding and packed app CRC. The header check word's semantics are not
+ * established; it is not treated as authentication. Raw apps have no model
+ * tag, so model is the caller's independent assertion for those inputs.
+ * Returned bytes borrow input; outputs are unchanged on failure. */
+int jm_8bitdo_stock_image(const uint8_t *input,size_t size,uint16_t model,const uint8_t **image,size_t *image_size) {
+  if(!input || !image || !image_size || model!=0x301b) return 0;
+  const uint8_t *app=input;size_t available=size;int dat=0;
+  if(size>=60 && memcmp(input+8,"KNLT",4) && !memcmp(input+36,"KNLT",4)) {
+    if(rd32(input+4)!=0x6000 || rd32(input+8)!=size-28 || rd32(input+12)!=model ||
+       rd32(input+20) || rd32(input+24)) return 0;
+    app=input+28;available=size-28;dat=1;
+  }
+  if(!jm_8bitdo_image_check(app,available)) return 0;
+  size_t n=rd32(app+24);
+  if(n<32 || n>0x6f000-0x6000 || (!dat && n!=available)) return 0;
+  for(size_t i=n;i<available;++i) if(app[i]) return 0;
+  *image=app;*image_size=n;return 1;
+}
 /* Locate the product in the sector-aligned MAIN header after the updater.
  * Returns a NUL-terminated product string in out[17], untouched on failure. */
 int jm_8bitdo_image_product(const uint8_t *image, size_t size, char out[17]) {

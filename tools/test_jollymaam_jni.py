@@ -16,7 +16,7 @@ class JniTests(unittest.TestCase):
             root = Path(tmp)
             sources = list(Path('src/lib/jieli_image').glob('*.c'))
             sources += list(Path('src/lib').glob('proto_*.c')) + list(Path('src/lib').glob('upgrade_*.c'))
-            sources += [Path('src/lib') / name for name in ('flash_jieli.c', 'manifest.c', 'package.c', 'sha256.c', 'session.c')]
+            sources += [Path('src/lib') / name for name in ('restore.c', 'flash_jieli.c', 'manifest.c', 'package.c', 'sha256.c', 'session.c')]
             subprocess.run([os.environ.get('CC', 'gcc'), '-std=c99', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
                             '-fPIC', '-shared', '-Isrc/lib', f'-I{java_home}/include', f'-I{java_home}/include/linux',
                             'android/app/src/main/cpp/jollymaam_jni.c', *map(str, sources), '-o', str(root/'libjollymaam-jni.so')], check=True)

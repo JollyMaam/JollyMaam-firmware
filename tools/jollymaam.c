@@ -8,6 +8,8 @@
 #include "../src/lib/jieli_image/image.h"
 #include "../src/lib/transport_jieli.h"
 #include "jollymaam_update.h"
+#include "jollymaam_restore.h"
+#include "../src/lib/platform.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -72,6 +74,20 @@ done:
   return result;
 }
 int main(int argc, char **argv) {
+  if(argc>1 && (!strcmp(argv[1],"restore-jieli") || !strcmp(argv[1],"restore-8bitdo") ||
+                 !strcmp(argv[1],"check-stock-jieli") || !strcmp(argv[1],"check-stock-8bitdo"))) return jollymaam_restore_app(argc,argv);
+  if (argc == 4 && !strcmp(argv[1], "stock-loader") && !strcmp(argv[2], "--yes")) {
+    struct jm_platform_connection *connection=jm_platform_open(argv[3],JM_SESSION_CUSTOM);
+    struct jm_identity id;int result=-1;
+    if(connection && jm_session_identify(jm_platform_io(),connection,&id)) {
+      printf("Requesting stock bootloader for %s (%s)\n",id.product,id.updater?"our updater":"our firmware");
+      result=jm_session_stock_loader(jm_platform_io(),connection,id.uid);
+    }
+    jm_platform_close(connection);
+    if(result) fprintf(stderr,"Loader request unconfirmed (%d); rescan before retrying\n",result);
+    else puts("Stock bootloader requested. Rescan to find its new device path.");
+    return result?1:0;
+  }
   if (argc == 3 && !strcmp(argv[1], "update")) return jollymaam_update_app(argv[2]);
   if (argc == 6 && !strcmp(argv[1], "flash-package") && !strcmp(argv[2], "--yes")) {
     size_t size = 0; uint8_t *data = read_image(argv[5], &size);
@@ -164,6 +180,11 @@ int main(int argc, char **argv) {
   }
   fprintf(stderr, "usage: jollymaam update FIRMWARE.zip\n"
                   "       jollymaam scan\n"
+                  "       jollymaam check-stock-jieli PRODUCT IMAGE\n"
+                  "       jollymaam check-stock-8bitdo 0x301b STOCK.bin\n"
+                  "       jollymaam restore-jieli --yes DEVICE BR23|BD19 PRODUCT LOADER IMAGE NEW_BACKUP\n"
+                  "       jollymaam restore-8bitdo --yes HID_PATH 0x301b STOCK.bin NEW_BACKUP\n"
+                  "       jollymaam stock-loader --yes HID_PATH\n"
                   "       jollymaam inspect IMAGE\n"
                   "       jollymaam rekey-jieli INPUT OUTPUT KEY\n"
                   "       jollymaam flash-8bitdo --yes HID_PATH IMAGE\n"

@@ -283,3 +283,64 @@ Extract the distribution ZIP and open `Update firmware.cmd` to launch the termin
 UI. The distribution contains the executable, firmware.zip, launcher and README;
 no additional runtime DLLs are bundled. Fixed archive timestamps and ordering
 make repeat builds with identical inputs reproducible.
+
+## Stock-loader entry and stock restore
+
+Our running firmware and updater both implement `REBOOT_LOADER` (`0x11`).
+`jm_session_stock_loader` checks the selected UID, sends it once and returns
+without discovering the new endpoint. A failed USB completion can accompany a
+successful reboot; rescan before retrying. This operation writes no firmware and
+requires no replacement updater build. The CLI exposes it as:
+
+```
+build/host/jollymaam stock-loader --yes HID_PATH
+build/host/jollymaam scan
+```
+
+Restore uses the original bootloader endpoint after that mode change. Validate
+an external vendor image before opening a device:
+
+```
+build/host/jollymaam check-stock-jieli PRODUCT STOCK_IMAGE_OR_UFW
+build/host/jollymaam check-stock-8bitdo 0x301b STOCK_BIN_OR_DAT
+```
+
+Explicit restore commands are:
+
+```
+build/host/jollymaam restore-jieli --yes BLOCK_PATH BR23 PRODUCT BR23_LOADER STOCK_IMAGE_OR_UFW NEW_BACKUP_FILE
+build/host/jollymaam restore-8bitdo --yes HID_PATH 0x301b STOCK_BIN_OR_DAT NEW_BACKUP_FILE
+```
+
+Use `BD19` and its matching helper for that chip. The CLI refuses existing
+backup files, including aliases of the input. It saves, flushes, syncs and closes
+a backup before the first erase. A write/close failure prevents erasure. The
+`jm_restore_backup` callback structure makes that barrier explicit for external
+transports and application-owned output streams. Verification failure prevents
+the subsequent boot request. The CLI requests a restart after success; Jieli's
+core restore operation leaves starting firmware to its caller.
+
+Jieli accepts raw images and CRC-checked UFW wrappers. It checks the image,
+INQUIRY chip, installed product, capacity and exact chip key. Stock application
+check records are not rekeyed: choose the matching-key vendor image or a backup
+from the original unit. All supplied image bytes are restored, with no Nova
+preservation override. A full-flash backup includes settings; a partial vendor
+image leaves sectors beyond its rounded end untouched. A raw backup carries no
+unit identity, so product/key checks do not establish which individual unit it
+came from. The local factory-cut Cyclone dongle 1.16 image fails validation;
+validated vendor 1.19/1.21 images are available in the private collection.
+
+8BitDo restoration accepts a CRC-checked packed pad app or vendor DAT. DAT
+validation binds the model and load address and rejects receiver packages. An
+extracted raw app has no model tag: `0x301b` is the caller's assertion about its
+provenance. Live model checks still precede all writes. Factory flash dumps are
+not application images. Restoration writes from `0x6000` and leaves the stock
+loader and settings at/above `0x6f000` untouched. Its backup is the entire
+`[0x6000,0x6f000)` application region, with file offset zero corresponding to
+flash `0x6000`; a backup of our firmware can be reinstalled with `flash-8bitdo`.
+
+The private vendor files under `/work/stock-firmware` are external inputs. They
+are not committed or added to the distributable firmware ZIP. Normal stock
+firmware discovery and automatic stock-firmware-to-loader entry remain separate
+from these commands. Android currently exposes stock-loader entry; stock
+restoration is available through the portable C API and desktop CLI.

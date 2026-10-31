@@ -33,12 +33,12 @@
         host = pkgs.stdenv.mkDerivation {
           name = "jollymaam-host-tests";
           src = self;
-          nativeBuildInputs = [ pkgs.python3 pkgs.util-linux pkgs.procps pkgs.jdk17 ];
+          nativeBuildInputs = [ pkgs.python3 pkgs.util-linux pkgs.procps pkgs.pkg-config pkgs.jdk17 ];
           JAVA_HOME = pkgs.jdk17.home;
           buildInputs = [ pkgs.hidapi ];
           buildPhase = ''
-            make libjollymaam-test libjollymaam-linux-test
-            python3 -m unittest tools/test_firmware_package.py tools/test_jollymaam_app.py tools/test_jollymaam_jni.py
+            make jollymaam libjollymaam-test libjollymaam-linux-test
+            python3 -m unittest tools/test_firmware_package.py tools/test_jollymaam_app.py tools/test_jollymaam_jni.py tools/test_jollymaam_restore.py
             python3 -m unittest discover -s android/tools -p 'test_*.py'
           '';
           installPhase = "touch $out";

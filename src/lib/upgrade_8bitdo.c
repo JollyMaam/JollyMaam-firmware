@@ -49,6 +49,20 @@ int jm_8bitdo_upgrade_init(struct jm_8bitdo_upgrade *op,
   op->phase = IDENTIFY;
   return 1;
 }
+/* Initialize a stock packed Telink app at 0x6000. The caller explicitly
+ * supplies its independently established model: raw stock images contain no
+ * custom MAIN product tag. Only pad model 301b is supported; live IDENTIFY is
+ * still checked before erasing. Require exact declared length and CRC, refuse
+ * factory flash dumps; DAT containers are checked/unwrapped. Leave settings
+ * at 0x6f000 intact. */
+int jm_8bitdo_restore_init(struct jm_8bitdo_upgrade *op,const uint8_t *image,size_t size,uint16_t model) {
+  const uint8_t *app;size_t length;
+  if(!op || !jm_8bitdo_stock_image(image,size,model,&app,&length)) return 0;
+  image=app;size=length;
+  memset(op,0,sizeof *op);op->image=image;op->size=size;
+  op->sectors=(uint32_t)((size+4095)/4096);op->sector=op->sectors>1?1:0;op->phase=IDENTIFY;
+  return 1;
+}
 /* Produce the next unnumbered 64-byte HID report. reply_required is false
  * only for application start; complete that transfer with NULL,0 on success.
  * Call complete exactly once per request, except STALE replies may be retried.

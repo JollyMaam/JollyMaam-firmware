@@ -12,7 +12,7 @@ in target.stdenv.mkDerivation {
   buildInputs = [ hidapi ];
   buildPhase = ''
     mkdir -p build/windows
-    for source in src/lib/jieli_image/*.c src/lib/proto_*.c src/lib/upgrade_*.c src/lib/flash_jieli.c src/lib/package.c src/lib/sha256.c src/lib/manifest.c src/lib/session.c; do
+    for source in src/lib/jieli_image/*.c src/lib/proto_*.c src/lib/upgrade_*.c src/lib/restore.c src/lib/flash_jieli.c src/lib/package.c src/lib/sha256.c src/lib/manifest.c src/lib/session.c; do
       $CC -std=c99 -O2 -Wall -Wextra -Werror -c "$source" -o "build/windows/$(basename "$source" .c).o"
     done
     $AR rcs build/windows/libjollymaam.a build/windows/*.o
@@ -22,7 +22,7 @@ in target.stdenv.mkDerivation {
         -o "build/windows/platform/$(basename "$source" .c).o"
     done
     $AR rcs build/windows/libjollymaam-platform.a build/windows/platform/*.o
-    $CC -std=c99 -O2 -Wall -Wextra -Werror tools/jollymaam.c tools/jollymaam_update.c \
+    $CC -std=c99 -O2 -Wall -Wextra -Werror tools/jollymaam.c tools/jollymaam_update.c tools/jollymaam_restore.c \
       build/windows/libjollymaam-platform.a build/windows/libjollymaam.a \
       $(pkg-config --static --cflags --libs hidapi) -static -static-libgcc -lsetupapi -lhid -o build/windows/jollymaam.exe
     mkdir -p build/windows/tests
@@ -30,7 +30,7 @@ in target.stdenv.mkDerivation {
       $CC -std=c99 -O2 -Wall -Wextra -Werror -DUNITTEST src/lib/jieli_image/$name.c \
         build/windows/libjollymaam.a -static -o build/windows/tests/$name.exe
     done
-    for name in proto_8bitdo proto_jieli proto_jollymaam upgrade_jollymaam upgrade_jieli sha256; do
+    for name in restore proto_8bitdo proto_jieli proto_jollymaam upgrade_jollymaam upgrade_jieli sha256; do
       $CC -std=c99 -O2 -Wall -Wextra -Werror -DUNITTEST src/lib/$name.c \
         build/windows/libjollymaam.a -static -o build/windows/tests/$name.exe
     done

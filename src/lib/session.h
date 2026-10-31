@@ -20,6 +20,7 @@ int jm_session_run(const struct jm_firmware_target *target, enum jm_session_kind
                      const uint8_t expected_uid[16], const struct jm_session_io *io, void *context,
                      jm_session_progress progress, void *user);
 int jm_session_identify(const struct jm_session_io *io, void *context, struct jm_identity *identity);
+int jm_session_stock_loader(const struct jm_session_io *io, void *context, const uint8_t expected_uid[16]);
 int jm_session_jieli_open(const struct jm_session_io *io, void *context, const uint8_t *loader,
                             size_t loader_size, struct jm_jieli_device *device);
 int jm_session_jieli_read(const struct jm_session_io *io, void *context,
@@ -33,6 +34,8 @@ int jm_session_jieli(const struct jm_session_io *io, void *context, const uint8_
                        size_t loader_size, const uint8_t *image, size_t size);
 int jm_session_8bitdo(const struct jm_session_io *io, void *context, const uint8_t *image,
                         size_t size, jm_session_progress progress, void *user);
+int jm_session_8bitdo_stock(const struct jm_session_io *io, void *context, const uint8_t *image,
+                              size_t size, uint16_t model, jm_session_progress progress, void *user);
 int jm_session_custom(const struct jm_session_io *io, void *context, const uint8_t uid[16],
                         const uint8_t *image, size_t size, jm_session_progress progress, void *user);
 #endif

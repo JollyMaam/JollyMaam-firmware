@@ -45,6 +45,13 @@ int jm_session_run(const struct jm_firmware_target *t,enum jm_session_kind kind,
  if(kind==JM_SESSION_8BITDO) { printf("MOCK-BOOT:%s\\n",p->path);return 0; }
  return jm_jieli_upgrade(p->path,t->loader.data,t->loader.size,t->install.data,t->install.size);
 }
+int jm_session_identify(const struct jm_session_io *io,void *c,struct jm_identity *id) {
+ (void)io;(void)c;memset(id,0,sizeof *id);strcpy(id->product,"U2C_WIRELESS");id->uid[0]=42;return 1;
+}
+int jm_session_stock_loader(const struct jm_session_io *io,void *c,const uint8_t uid[16]) {
+ (void)io;(void)c;if(uid[0]!=42) return -2;puts("MOCK-STOCK-LOADER");return 0;
+}
+int jollymaam_restore_app(int argc,char **argv) { (void)argc;(void)argv;return 2; }
 int main(int argc,char **argv) { return argc==2 ? jollymaam_update_app(argv[1]) : 2; }
 '''
 
@@ -79,6 +86,14 @@ class AppTests(unittest.TestCase):
     def run_app(self, commands):
         return subprocess.run([str(self.binary), str(self.package)], input=commands,
                               capture_output=True, text=True, timeout=5)
+
+    def test_stock_loader_requires_explicit_confirmation(self):
+        result = subprocess.run([str(self.cli), 'stock-loader', '--yes', 'fake-custom'], capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn('MOCK-STOCK-LOADER', result.stdout)
+        result = subprocess.run([str(self.cli), 'stock-loader', 'fake-custom'], capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 2)
+        self.assertNotIn('MOCK-STOCK-LOADER', result.stdout)
 
     def test_scan_includes_custom_devices(self):
         result = subprocess.run([str(self.cli), 'scan'], capture_output=True, text=True, timeout=5)

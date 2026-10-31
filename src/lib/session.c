@@ -171,6 +171,7 @@ static int command(const struct jm_session_io *io, void *context, uint8_t *tag, 
   if (r->cdb[1]==0x10) return 1;
   if (sent != (int)report+1) return 0;
   if (r->cdb[1]==0x40) return 1;
+  if (r->cdb[1]==0x11) return 1;
   size_t got=0;
   for (unsigned polls=0;polls<10000;++polls) {
     buffer[0]=0;
@@ -192,6 +193,19 @@ int jm_session_identify(const struct jm_session_io *io, void *context, struct jm
   uint8_t reply[88], tag=0; struct jm_update_request r;
   memset(&r,0,sizeof r); jm_command(r.cdb,0,0); r.in_size=88;
   return command(io,context,&tag,&r,reply) && jm_identify_decode(reply,sizeof reply,id);
+}
+/* Request stock bootloader entry from our app or updater after checking the
+ * previously selected UID. No flash is written. Return zero when the complete
+ * feature request was sent, -1 for arguments, -2 for identity mismatch, -3 for
+ * an unconfirmed transfer. A disconnect can race USB completion: rescan after
+ * either result, never automatically resend. No bootloader discovery occurs. */
+int jm_session_stock_loader(const struct jm_session_io *io,void *context,const uint8_t uid[16]) {
+  if(!uid || !io || !io->feature_size || !io->feature_set || !io->feature_get || !io->wait_ms) return -1;
+  struct jm_identity id;
+  if(!jm_session_identify(io,context,&id) || memcmp(id.uid,uid,16)) return -2;
+  struct jm_update_request request;memset(&request,0,sizeof request);jm_command(request.cdb,0x11,0);
+  uint8_t tag=0;
+  return command(io,context,&tag,&request,NULL)?0:-3;
 }
 /* Run a custom update with shared identity, framing and reconnect policy.
  * Callbacks may block; none may retain supplied buffers after returning. */
@@ -227,13 +241,9 @@ int jm_session_custom(const struct jm_session_io *io, void *context, const uint8
 done:
   return result;
 }
-/* Drive the bootloader using raw HID packet callbacks, checking every sector.
- * Input storage is borrowed through completion; no HID library is required. */
-int jm_session_8bitdo(const struct jm_session_io *io, void *context, const uint8_t *image, size_t size,
-                          jm_session_progress progress, void *user) {
-  struct jm_8bitdo_upgrade op;
-  if (!jm_8bitdo_upgrade_init(&op, image, size))
-    return JM_8BITDO_ARGUMENT;
+static int run_8bitdo(const struct jm_session_io *io,void *context,struct jm_8bitdo_upgrade *operation,
+                       jm_session_progress progress,void *user) {
+  struct jm_8bitdo_upgrade op=*operation;
   if (!io || !io->hid_read || !io->hid_write) return -1;
   int result = -1;
   uint8_t report[65], reply[128];
@@ -273,6 +283,23 @@ out:
   return result;
 }
 
+/* Drive our full pad installation with raw HID callbacks, verifying sectors.
+ * Borrow image storage until return; no HID library or OS calls are required. */
+int jm_session_8bitdo(const struct jm_session_io *io,void *context,const uint8_t *image,size_t size,
+                        jm_session_progress progress,void *user) {
+  struct jm_8bitdo_upgrade op;
+  if(!jm_8bitdo_upgrade_init(&op,image,size)) return JM_8BITDO_ARGUMENT;
+  return run_8bitdo(io,context,&op,progress,user);
+}
+/* Run a validated stock pad application using the same compare/erase/program/
+ * verify sequence and header-last ordering as an ordinary installation. The
+ * raw image's model must be supplied explicitly; the live model is rechecked. */
+int jm_session_8bitdo_stock(const struct jm_session_io *io,void *context,const uint8_t *image,size_t size,
+                              uint16_t model,jm_session_progress progress,void *user) {
+  struct jm_8bitdo_upgrade op;
+  if(!jm_8bitdo_restore_init(&op,image,size,model)) return JM_8BITDO_ARGUMENT;
+  return run_8bitdo(io,context,&op,progress,user);
+}
 /* Execute a caller-approved target over an application-supplied connection.
  * This convenience runner blocks in callbacks; use the existing next/complete
  * protocol state machines for asynchronous scheduling. Artifact buffers remain

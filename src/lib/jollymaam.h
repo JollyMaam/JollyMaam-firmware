@@ -5,6 +5,7 @@
 #include "package.h"
 #include "manifest.h"
 #include "session.h"
+#include "restore.h"
 #include "proto_8bitdo.h"
 #include "proto_jollymaam.h"
 #include "upgrade_8bitdo.h"

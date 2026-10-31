@@ -4,7 +4,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-struct fake { unsigned mode,cmd,tag,updater,begun,written,committed,reconnects,starts,dropped; uint8_t flash[600]; };
+struct fake { unsigned mode,cmd,tag,updater,begun,written,committed,reconnects,starts,dropped,rom; uint8_t flash[600]; };
 static void wr32(uint8_t *p,uint32_t v) { p[0]=v;p[1]=v>>8;p[2]=v>>16;p[3]=v>>24; }
 static uint32_t rd32(const uint8_t *p) { return (uint32_t)p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24; }
 static size_t feature_size(void *user) { (void)user;return 356; }
@@ -17,6 +17,7 @@ static int set(void *user,const uint8_t *data,size_t size) {
   switch(f->cmd) {
   case 0:case 0x41:break;
   case 0x40:f->updater=1;break;
+  case 0x11:++f->rom;break;
   case 0x42:assert(arg==600 && n==44);++f->begun;break;
   case 0x43:
     assert(f->begun && arg==f->written);
@@ -171,6 +172,13 @@ int main(void) {
     int result=jm_session_run(&target,JM_SESSION_CUSTOM,uid,&io,&f,NULL,NULL);
     if(mode==0 || mode==4) { assert(!result && f.starts==1 && f.reconnects==1 && !memcmp(image,f.flash,600)); }
     else { assert(result && !f.starts && !f.committed);if(mode==1 || mode==2) assert(!f.begun); }
+  }
+  for(unsigned updater=0;updater<2;++updater) {
+    struct fake f;memset(&f,0,sizeof f);f.updater=updater;
+    uint8_t selected[16]={43};
+    assert(jm_session_stock_loader(&io,&f,selected)==-2 && !f.rom && !f.begun);
+    selected[0]=42;
+    assert(!jm_session_stock_loader(&io,&f,selected) && f.rom==1 && !f.begun);
   }
   test8();testj();
   puts("Callback-only complete update sessions passed");return 0;
