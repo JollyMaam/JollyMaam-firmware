@@ -1832,7 +1832,6 @@ static void cmd_scan(void) { cmd_flash(0, NULL); }
 static void usage(void) {
   puts(
       "usage: jollymaam jieli <subcommand>\n"
-      "  jollymaam jieli help | --help\n"
       "  jollymaam jieli rekey INPUT OUTPUT KEY\n"
       "  jollymaam jieli install --yes DEVICE LOADER IMAGE\n"
       "  jollymaam jieli check-stock PRODUCT IMAGE\n"

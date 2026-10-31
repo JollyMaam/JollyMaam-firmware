@@ -80,13 +80,15 @@ done:
 static int help_word(const char *word) { return !strcmp(word,"help") || !strcmp(word,"--help"); }
 static void usage(FILE *out) {
   fprintf(out,"usage: jollymaam <command>\n"
-              "  jieli <subcommand>       Jieli image and stock-loader commands\n"
-              "  8bitdo <subcommand>      8BitDo pad bootloader commands\n"
               "  scan                    Discover our devices and stock bootloaders\n"
-              "  update FIRMWARE.zip     Interactive package updater\n"
+              "  update [--device PATH] [--product PRODUCT] [--yes] FIRMWARE.zip\n"
               "  inspect IMAGE           Inspect a package or firmware image\n"
-              "  flash-package --yes DEVICE PRODUCT ZIP\n"
-              "  stock-loader --yes HID_PATH\n"
+              "  jieli <subcommand>       Jieli image and bootloader commands\n"
+              "    scan, pack, list, verify, unpack, rekey, install, flash, flashpack,\n"
+              "    backup, loader, run, check-stock, restore\n"
+              "  8bitdo <subcommand>      8BitDo pad bootloader commands\n"
+              "    scan, flash, check-stock, restore\n"
+              "  enter-loader --yes HID_PATH\n"
               "  help [jieli|8bitdo]      Show help (--help also works)\n");
 }
 static int group_help(int family) {
@@ -98,7 +100,6 @@ static int group_help(int family) {
        "  flash --yes HID_PATH IMAGE\n"
        "  check-stock 0x301b STOCK.bin|DAT\n"
        "  restore --yes HID_PATH 0x301b STOCK.bin|DAT NEW_BACKUP\n"
-       "  help | --help\n"
        "Only the Ultimate 2C Wireless pad bootloader is supported.");
   return 0;
 }
@@ -128,7 +129,7 @@ int main(int argc, char **argv) {
     if(!count) puts("No 8BitDo bootloaders found.");
     return 0;
   }
-  if (!family && argc == 4 && !strcmp(argv[1], "stock-loader") && !strcmp(argv[2], "--yes")) {
+  if (!family && argc == 4 && !strcmp(argv[1], "enter-loader") && !strcmp(argv[2], "--yes")) {
     struct jm_platform_connection *connection=jm_platform_open(argv[3],JM_SESSION_CUSTOM);
     struct jm_identity id;int result=-1;
     if(connection && jm_session_identify(jm_platform_io(),connection,&id)) {
@@ -140,25 +141,7 @@ int main(int argc, char **argv) {
     else puts("Stock bootloader requested. Rescan to find its new device path.");
     return result?1:0;
   }
-  if (!family && argc == 3 && !strcmp(argv[1], "update")) return jollymaam_update_app(argv[2]);
-  if (!family && argc == 6 && !strcmp(argv[1], "flash-package") && !strcmp(argv[2], "--yes")) {
-    size_t size = 0; uint8_t *data = read_image(argv[5], &size);
-    struct jm_package package; struct jm_manifest manifest;
-    const struct jm_firmware_target *target = NULL;
-    int result = -1;
-    if (data && jm_package_open(&package, data, size) == JM_PACKAGE_OK &&
-        jm_manifest_open(&manifest, &package)) target = jm_manifest_target(&manifest, argv[4]);
-    if (!target) fprintf(stderr, "Invalid package or unsupported product\n");
-    else if (!strcmp(target->chip, "TLSR8208")) {
-      unsigned last = (unsigned)-1;
-      result = jm_hid_upgrade_8bitdo(argv[3], target->install.data, target->install.size, progress, &last);
-    } else result = jm_jieli_upgrade(argv[3], target->loader.data, target->loader.size,
-                                           target->install.data, target->install.size);
-    free(data);
-    if (result) fprintf(stderr, "Package upgrade failed: %d\n", result);
-    else puts("Written and verified (Jieli devices remain in their loader)");
-    return result ? 1 : 0;
-  }
+  if (!family && !strcmp(argv[1], "update")) return jollymaam_update_command(argc-2,argv+2);
   if (family==1 && argc == 6 && !strcmp(argv[1], "install") && !strcmp(argv[2], "--yes")) {
     size_t loader_size = 0, image_size = 0;
     uint8_t *loader = read_image(argv[4], &loader_size), *image = read_image(argv[5], &image_size);

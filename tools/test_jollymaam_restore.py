@@ -51,5 +51,5 @@ class RestoreCliTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
             self.assertEqual(backup.read_bytes(), b'keep me');self.assertEqual(image.read_bytes(), self.packed())
             self.assertEqual(self.run_tool('8bitdo', 'restore').returncode, 2)
-            self.assertEqual(self.run_tool('stock-loader').returncode, 2)
+            self.assertEqual(self.run_tool('enter-loader').returncode, 2)
             self.assertEqual(self.run_tool('jieli', 'restore', '--yes').returncode, 2)

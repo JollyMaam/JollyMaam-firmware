@@ -175,25 +175,45 @@ update and loader views. Keep the archive buffer and manifest alive through the
 operation. No filesystem or OS dependencies enter the core library.
 
 `jollymaam inspect build/firmware.zip` now validates the manifest and hashes too.
-`jollymaam flash-package --yes DEVICE PRODUCT ZIP` verifies the package before
-opening a device, selects that product's installation image and matching loader,
-and drives the existing desktop adapter. The device protocol still checks actual
-identity before erasing. Jieli devices remain in their loader after verification;
-8BitDo starts the installed app. Custom-updater desktop transport is not yet wired
-into this command. Individual-image commands remain available.
+`jollymaam update --device DEVICE --product PRODUCT --yes ZIP` validates the
+package and runs one update on that endpoint using the shared session runner.
+Discovery or read-only probing identifies the protocol; the session checks live
+identity before erasing. Stock bootloaders use the installation image and
+matching RAM helper, while our app/updater uses the MAIN update image. Jieli
+devices remain in their loader after verification; 8BitDo and custom updater
+sessions request a firmware restart. Individual-image commands remain available.
 
 Run `nix develop --command bash -c 'python3 -m unittest tools/test_firmware_package.py'` for the
 builder and malformed-container tests. They compile the C reader into a temporary
 shared library and compare its behavior with generated Python ZIP fixtures.
 
-## Interactive updater application
+## Updater application
 
 Launch `build/host/jollymaam update build/firmware.zip` inside the development
 shell, or use the fully static binary from the Nix build outside it. This is a
 terminal UI: it verifies the package, lists devices, accepts a selection and asks
-for an explicit `yes` before every operation. Blank input, EOF and any other
+for an explicit `yes` before each interactive operation. Blank input, EOF and any other
 answer do not authorize updating. Use `r` to rescan after connecting a device or
 changing modes, and `q` to quit. No automatic version comparison is implemented.
+
+Selection options can appear before or after the ZIP filename:
+
+```
+build/host/jollymaam update --device DEVICE --product PRODUCT build/firmware.zip
+build/host/jollymaam update --device DEVICE --product PRODUCT --yes build/firmware.zip
+```
+
+`--device` selects one endpoint and returns after one attempt. `--product`
+selects a manifest product, filters incompatible devices and skips the Jieli
+product chooser. Either can be supplied alone; remaining selection/confirmation
+stays interactive. `--yes` skips confirmation and requires both options. A
+selected product must exist in the validated package. Explicit paths not listed
+by discovery can be probed when a product is supplied, including SCSI generic
+nodes. No helper upload or flash write occurs during these probes. Invalid
+options and unknown products return a nonzero status. Selected-device updates
+also return nonzero for unavailable/incompatible devices, cancellation or update
+failure. The separate package-flashing command has been consolidated into
+`update`.
 
 Discovery currently includes our HID tool devices (app and updater), the 8BitDo
 pad bootloader with a verified model response, and Jieli UBOOT block candidates.
@@ -294,7 +314,7 @@ successful reboot; rescan before retrying. This operation writes no firmware and
 requires no replacement updater build. The CLI exposes it as:
 
 ```
-build/host/jollymaam stock-loader --yes HID_PATH
+build/host/jollymaam enter-loader --yes HID_PATH
 build/host/jollymaam scan
 ```
 
@@ -388,8 +408,14 @@ subcommand also shows help. `--help` after a subcommand shows its group usage
 before opening files or devices. Unknown commands return status 2; help returns
 zero. The previous flat protocol command names are no longer accepted.
 
-The shared `scan`, `update`, `inspect`, `flash-package` and `stock-loader`
+The shared `scan`, `update`, `inspect` and `enter-loader`
 commands remain at the top level. `jollymaam jieli flash` retains the
 option-based Jieli workflow; `jollymaam jieli install --yes DEVICE LOADER IMAGE`
 is the direct installation command. The 8BitDo group provides `scan`, `flash`,
 `check-stock` and `restore`.
+
+Top-level help orders the entries as `scan`, `update`, `inspect`, `jieli` and
+`8bitdo`, followed by `enter-loader` and global help. Protocol entries include
+indented subcommand lists, without listing help as a protocol operation. Help
+remains available at every level. `enter-loader --yes HID_PATH` is the name for
+requesting stock-bootloader entry from our running app or updater.

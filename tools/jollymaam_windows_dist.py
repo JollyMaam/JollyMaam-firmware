@@ -9,6 +9,11 @@ README = '''JollyMaam firmware updater for 64-bit Windows
 Extract all files into one directory, then open Update firmware.cmd.
 The terminal app lists supported devices and asks for yes before updating.
 You can also run: jollymaam.exe update firmware.zip
+Select a specific endpoint/product with:
+  jollymaam.exe update --device PATH --product PRODUCT firmware.zip
+Add --yes to skip confirmation when both selections are supplied.
+Use jollymaam.exe enter-loader --yes HID_PATH to enter the original bootloader
+from our running firmware or updater.
 
 Supported discovery: our firmware's tool devices and supported stock bootloaders.
 Ordinary stock gamepad modes are not discovered yet. Use r to rescan.

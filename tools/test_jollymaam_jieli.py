@@ -51,7 +51,7 @@ class JieliCliTests(unittest.TestCase):
                     r = self.run_command(root, family, command, '--help')
                     self.assertEqual(r.returncode, 0, (family, command, r.stderr))
             for args in [('unknown',), ('help', 'unknown'), ('jieli', 'unknown'), ('8bitdo', 'unknown'),
-                         ('pack',), ('flash-8bitdo',), ('restore-jieli',), ('scan-jieli',)]:
+                         ('stock-loader',), ('flash-package',), ('pack',), ('flash-8bitdo',), ('restore-jieli',), ('scan-jieli',)]:
                 self.assertEqual(self.run_command(root, *args).returncode, 2, args)
 
     def test_pack_unpack_verify_and_main(self):
