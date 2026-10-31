@@ -1,7 +1,7 @@
 """The pads and dongles padtool knows: by image PID, and stock firmware by its
 USB identity in each USB mode, with how each enters its ROM loader.
 
-Mirrors jlnewfw's table (tools/jlnewfw.c) and the board pages under docs/.
+Mirrors jollymaam's table (tools/jollymaam_jieli.c) and the board pages under docs/.
 """
 from dataclasses import dataclass
 from pathlib import Path

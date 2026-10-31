@@ -1,6 +1,6 @@
 """Jieli ROM/RAM-loader protocol (BR23, BD19) and raw image flashing, shared by GUI and CLI.
 
-Ported from our jlnewfw implementation. No external flashing executable is
+Ported from our jollymaam implementation. No external flashing executable is
 needed. Images are converted in memory to the connected chip's key.
 """
 import argparse
@@ -77,7 +77,7 @@ def entries(data, base):
 
 
 def image_base(data):
-    """Same boot-image selection as jlnewfw, including EOFFSET stale copies."""
+    """Same boot-image selection as jollymaam, including EOFFSET stale copies."""
     base = next((o for o in (0, 0x1000, 0x10000) if valid_header(data, o)), None)
     if base is None:
         raise ValueError("No valid firmware flash header")
@@ -188,7 +188,7 @@ def rekey_image(data, key):
             break
 
     # Preserve the carrier's random bytes and change only bits that need a
-    # different classification, using the same threshold rule as jlnewfw.
+    # different classification, using the same threshold rule as jollymaam.
     threshold = sum(config_data[:16]) & 255
     threshold = 0xaa if threshold >= 0xe0 else 0x55 if threshold <= 0x10 else threshold
     for bit in range(16):

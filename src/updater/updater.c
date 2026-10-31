@@ -4,7 +4,7 @@
 /* The updater (/work/ota-loader-plan.md, docs/firmware/updater.md): the
  * image the chip's boot starts.  The app is linked above it, behind a header
  * ("MAIN", size, CRC16 of the app, entry, format version, its offset, the
- * image's PID, CRC16 of those fields; jlnewfw pack --main, 8bitdoboot.py
+ * image's PID, CRC16 of those fields; jollymaam pack --main, 8bitdoboot.py
  * main).  At reset, before anything else, the chip's side (updater_jieli.c,
  * updater_telink.c) starts the app unless the app asked for the updater or
  * its header is not there.  Otherwise this runs: the tool device and LE,

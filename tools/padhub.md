@@ -8,7 +8,7 @@ make gamesir-cyclone-2-dongle-flash DEVICE=5-2.4
 build/host/padhub
 ```
 
-Use your dongle's USB port for `DEVICE` (`build/host/jlnewfw scan`).
+Use your dongle's USB port for `DEVICE` (`build/host/jollymaam scan`).
 The bridge needs writable `/dev/uhid`, the dongle's `/dev/hidraw*`, and its
 SCSI tool node `/dev/sg*` (or those in `$DEV_ROOT` when it is set).
 Load the Linux `uhid` module on the host if its node is missing. Start with the

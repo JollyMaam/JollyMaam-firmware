@@ -156,7 +156,7 @@ Each 80-byte UFW entry holds the entry type, index, data CRC, file offset,
 actual and padded sizes, 44 bytes of type-specific data, and a 16-byte name. The
 main header and each entry are ENC-scrambled with key `0xffff`. The entry-list
 CRC covers the entries as stored (scrambled). Type zero is the raw `flash.bin`
-that `jlnewfw` consumes.
+that `jollymaam` consumes.
 
 ## Images and placement on devices
 

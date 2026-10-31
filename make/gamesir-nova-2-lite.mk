@@ -1,6 +1,6 @@
 # GameSir Nova 2 Lite: the pad, a Jieli BR23 (stock PID AC695X_TRANS).
 #   gamesir-nova-2-lite-flash        the pad: its updater and the app above
-#                                    it; from stock firmware too: jlnewfw sends
+#                                    it; from stock firmware too: jollymaam sends
 #                                    it the HID command in docs/gamesir-nova-2-lite/
 #   gamesir-nova-2-lite-pad          firmware.img in $(O)/<target>/: its
 #                                    updater with the app above

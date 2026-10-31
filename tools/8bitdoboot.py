@@ -51,7 +51,7 @@ MAIN_HEAD_SIZE = 0x120
 
 
 def crc16_ccitt(data):
-    """Non-reflected CRC-CCITT from 0, as the updater and jlnewfw use."""
+    """Non-reflected CRC-CCITT from 0, as the updater and jollymaam use."""
     crc = 0
     for byte in data:
         crc ^= byte << 8

@@ -1,7 +1,7 @@
 # libjollymaam
 
-This is an incremental extraction of host functionality from jlnewfw and the
-Python tools. Public interfaces use the `jm_` prefix and C99. `jollymaam.h` collects
+This library provides host protocol, image and update functionality shared with
+the firmware tools. Public interfaces use the `jm_` prefix and C99. `jollymaam.h` collects
 the portable interfaces; desktop adapters are opt-in and have separate headers.
 
 Build and test from the repository root:
@@ -81,7 +81,7 @@ SDK or reconstructed INI and caller-provided file callbacks. It returns the full
 image and optional MAIN update image in owned buffers, released using
 `jm_jieli_build_free`. Relative input names resolve beside the INI's virtual
 name. No filesystem access occurs, and errors are returned without process exit.
-The `jlnewfw` pack/list/verify/unpack commands use these core operations.
+The `jollymaam` pack/list/verify/unpack commands use these core operations.
 
 Jieli loader startup uses `jm_jieli_loader_init`, `jm_jieli_loader_next`, and
 `jm_jieli_loader_complete`. The caller verifies the chip, supplies its SDK loader,
@@ -115,8 +115,9 @@ BEGIN and DATA, reconciles dropped writes through UPDATE_INFO with bounded
 retries, checks COMMIT, and requests REBOOT. Errors stop the operation without
 blind destructive retries. The caller owns timeouts and transport completion.
 
-The libusb mass-storage backend, ordinary stock-gamepad discovery, JNI
-integration and WASM builds remain to implement. Windows SCSI and desktop HID
+The libusb mass-storage backend and WASM builds remain to implement. JNI is
+implemented in the Android app. Cross-chip interactive discovery of normal stock
+firmware remains separate from the Jieli-specific command frontend. Windows SCSI and desktop HID
 adapters are implemented and cross-built, with hardware validation still pending.
 
 Module boundaries:
@@ -132,7 +133,7 @@ Module boundaries:
 - The CLI owns approval, opening/closing the connection and presentation.
 
 Run reference image comparisons with `tools/test_jollymaam_images.py`, supplying
-separately built old and new jlnewfw binaries plus image paths. It compares list,
+a saved legacy image-tool binary and the current jollymaam binary plus image paths. It compares list,
 verify, unpacked file contents and a byte-exact full rebuild without device access.
 
 `make build/host/check-jollymaam-image` builds the existing-image regression
@@ -341,6 +342,39 @@ flash `0x6000`; a backup of our firmware can be reinstalled with `flash-8bitdo`.
 
 The private vendor files under `/work/stock-firmware` are external inputs. They
 are not committed or added to the distributable firmware ZIP. Normal stock
-firmware discovery and automatic stock-firmware-to-loader entry remain separate
-from these commands. Android currently exposes stock-loader entry; stock
+firmware discovery/loader entry for the cross-chip interactive updater remains
+separate. `scan-jieli` and `loader` expose the migrated Jieli stock-mode table
+and USB-port selection. Android currently exposes stock-loader entry; stock
 restoration is available through the portable C API and desktop CLI.
+
+## Jieli command frontend
+
+The firmware updater and Jieli image/device commands share the `jollymaam`
+executable. It provides the commands previously supplied by the separate image
+tool:
+
+```
+build/host/jollymaam pack -c isd_config.ini -u uboot.boot -o firmware.img app.bin
+build/host/jollymaam list firmware.img
+build/host/jollymaam verify firmware.img
+build/host/jollymaam unpack firmware.img unpacked
+build/host/jollymaam help-jieli
+```
+
+The same frontend supplies `flash`, `flashpack`, `backup`, `loader` and `run`,
+including their existing `--pid`, `--device`, `--loader`, `--enter-loader`,
+`--wait`, `--keep`, key and layout options. Board `make ...-flash` and
+`make ...-loader` targets use these commands. Their existing explicit device
+selection and force/dry-run behavior is retained. `scan-jieli` lists Jieli USB
+ports, our tool devices and the known stock HID modes without rebooting devices
+or uploading helpers. The cross-chip `scan` and package `update` commands retain
+their existing behavior.
+
+CLI argument handling and Jieli port/device policy live in
+`tools/jollymaam_jieli.c`; image formats and transformations live in the portable
+core. Windows links its device-configuration calls against the system cfgmgr32
+library. Image inputs accept both Windows and POSIX path separators.
+`JOLLYMAAM_LOADER` and `JOLLYMAAM_DEBUG` are the environment names for this
+frontend; the former tool's environment names remain accepted aliases. Existing
+`[JLNEWFW]` INI sections remain valid layout metadata for compatibility, and new
+unpacked INIs name the `jollymaam` commands.

@@ -332,7 +332,7 @@ firmware for it, and a stock pad in a mode with a command, is asked into its
 loader. `--loader` overrides the SDK or packaged loaders, as the setting
 above. A standalone backup leaves the board in its loader; reconnect USB
 afterwards. Stock firmware restoration is outside the GUI's scope. The C
-`jlnewfw` tool retains its own flashing, backup and Windows support.
+`jollymaam` tool retains its own flashing, backup and Windows support.
 
 If automatic loader entry fails, use the way by hand on the device's page
 (Cyclone 2: hold Home + Start while connecting USB, which on this firmware
@@ -392,7 +392,7 @@ loader. `tools/8bitdoboot.py` uses it for `make
 `padcurves.py` shares preset definitions and validation with
 the CLI; `python -m unittest discover -s padtool -p test_padcurves.py -v` tests it.
 `padknown.py` is the table of known products and stock USB identities (it
-mirrors `jlnewfw`'s); `padhid.py` lists HID interfaces and writes output
+mirrors `jollymaam`'s); `padhid.py` lists HID interfaces and writes output
 reports (Linux hidraw, Windows hid.dll); `test_padknown.py` tests the matching.
 `padtool.py` supplies the firmware protocol and CLI. `padtransport.py` supplies
 the tool device's reports (through `padhid.py`): on Linux, with firmware that
@@ -402,7 +402,7 @@ elsewhere answers are read back in feature reports, one program at a time. It
 also supplies Linux SG_IO and
 Windows buffered SCSI pass-through for the ROM loaders. `padflash.py` supplies the
 BR23 RAM-loader protocol, image identity checks, backup, erase/write and readback
-verification. It is ported from our `jlnewfw.c`; build packing remains in C.
+verification. It is ported from our `jollymaam.c`; build packing remains in C.
 An Android client will need its own USB host transport and UI, and can reuse
 these protocol definitions.
 

@@ -12,7 +12,7 @@ JIELI_OBJCOPY := $(JIELI_TOOLS)/objcopy
 
 JIELI_UBOOT := $(JIELI_SDK)/cpu/br23/tools/uboot.boot
 JIELI_CONFIG_TOOL := $(JIELI_SDK)/cpu/br23/tools/cfg_tool.bin
-# jlnewfw finds each chip's RAM loader under the SDK's cpu/<chip>/tools/.
+# jollymaam finds each chip's RAM loader under the SDK's cpu/<chip>/tools/.
 JIELI_LOADER := $(JIELI_SDK)
 
 # VM (settings and bonds) is the VM_KB below BTIF (4 KiB) and key_mac (4 KiB)
@@ -212,7 +212,7 @@ jieli_tools = $(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_TOOLS),$(
 #   NAME_NO_FLASH    optional: no NAME-flash (a part of what another board flashes)
 # Targets: NAME (firmware.img), NAME-flash (through the ROM loader),
 # NAME-loader (into the ROM loader and wait there); with more than one
-# device for the board, DEVICE= picks one: its USB port, as jlnewfw scan
+# device for the board, DEVICE= picks one: its USB port, as jollymaam scan-jieli
 # lists it.  Inside the template, $(1) is NAME, $(...) is expanded once when
 # it is called, and $$(...) when the rule runs.
 define jieli_board
@@ -272,9 +272,9 @@ $(O)/$(1)/app.bin: $(O)/$(1)/app.elf
 	$$(if $$(filter bd19,$$(call jieli_chip,$(1))),$$(Q)$$($(1)_OBJCOPY) -O binary -j .data_code $$< $(O)/$(1)/data_code.bin)
 	$$(Q)cat $(O)/$(1)/text.bin $(O)/$(1)/data.bin $$(if $$(filter bd19,$$(call jieli_chip,$(1))),$(O)/$(1)/data_code.bin) > $$@
 
-$(O)/$(1)/firmware.img: $(O)/$(1)/app.bin $$($(1)_FRONT_BIN) $(O)/$(1)/isd_config.ini $(O)/host/jlnewfw
+$(O)/$(1)/firmware.img: $(O)/$(1)/app.bin $$($(1)_FRONT_BIN) $(O)/$(1)/isd_config.ini $(O)/host/jollymaam
 	@echo [FW] $$@
-	$$(Q)$(O)/host/jlnewfw pack --flash-size $($(1)_FLASH_SIZE) --code-limit $$($(1)_CODE_LIMIT) \
+	$$(Q)$(O)/host/jollymaam pack --flash-size $($(1)_FLASH_SIZE) --code-limit $$($(1)_CODE_LIMIT) \
 		-c $(O)/$(1)/isd_config.ini -u $$($(1)_UBOOT) -o $$@ $$($(1)_PACKED) $$($(1)_CONFIG_TOOL) \
 		$(if $($(1)_MAIN_AT),--main-out $(O)/$(1)/update.bin)
 
@@ -282,8 +282,8 @@ $(O)/$(1)/firmware.img: $(O)/$(1)/app.bin $$($(1)_FRONT_BIN) $(O)/$(1)/isd_confi
 # command for it: by hand), then write the image, encrypted for the
 # connected chip's key.
 ifeq ($($(1)_NO_FLASH),)
-$(1)-flash: $(O)/$(1)/app.bin $$($(1)_FRONT_BIN) $(O)/$(1)/isd_config.ini $(O)/host/jlnewfw
-	$$(Q)$(O)/host/jlnewfw flashpack --enter-loader --wait 30 --loader $(JIELI_LOADER) $$(if $$(DEVICE),--device $$(DEVICE)) \
+$(1)-flash: $(O)/$(1)/app.bin $$($(1)_FRONT_BIN) $(O)/$(1)/isd_config.ini $(O)/host/jollymaam
+	$$(Q)$(O)/host/jollymaam flashpack --enter-loader --wait 30 --loader $(JIELI_LOADER) $$(if $$(DEVICE),--device $$(DEVICE)) \
 		--flash-size $($(1)_FLASH_SIZE) --code-limit $$($(1)_CODE_LIMIT) \
 		-c $(O)/$(1)/isd_config.ini -u $$($(1)_UBOOT) $$($(1)_PACKED) $$($(1)_CONFIG_TOOL) \
 		$(foreach k,$($(1)_KEEP),--keep $(k))
@@ -291,9 +291,9 @@ endif
 
 # Running firmware into the ROM loader, then wait for it there: the loader
 # whose flash holds this board's PID.
-$(1)-loader: $(O)/host/jlnewfw
+$(1)-loader: $(O)/host/jollymaam
 	$$(if $$($(1)_LOADER_HINT),@echo "$$($(1)_LOADER_HINT)")
-	$$(Q)$(O)/host/jlnewfw loader --pid $($(1)_PID) --wait 30 --loader $(JIELI_LOADER) $$(if $$(DEVICE),--device $$(DEVICE))
+	$$(Q)$(O)/host/jollymaam loader --pid $($(1)_PID) --wait 30 --loader $(JIELI_LOADER) $$(if $$(DEVICE),--device $$(DEVICE))
 
 # The SDK's linker script, with the heap ending below the retained RAM and the
 # controller's RAM kept clear of the MaskROM boot token.

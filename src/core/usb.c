@@ -115,7 +115,7 @@
  * usb_poll() runs on EV_USB and with the loop's housekeeping, and lets the
  * platform service a parked command; usb_command() runs on the control thread.  The platform
  * parks each command it receives and raises EV_USB.  padtool/padtool.py and
- * padtool/padgui.pyw (Linux/Windows) and tools/jlnewfw.c are the clients. */
+ * padtool/padgui.pyw (Linux/Windows) and tools/jollymaam_jieli.c are the clients. */
 
 #define OP          0xf5
 #define PROTOCOL    2

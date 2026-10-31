@@ -1,4 +1,4 @@
-# Image tool (`jlnewfw`)
+# Image tool (`jollymaam`)
 
 The project's tool for the BR23 image format
 ([../jieli/re-application-image.md](../jieli/re-application-image.md)), built
@@ -14,7 +14,7 @@ for each board. Commands:
 | `backup` | read the whole flash through the ROM loader |
 | `loader` | ask running firmware to enter the ROM loader, then wait for the loader holding `--pid` |
 | `run` | a device in its ROM loader starts the firmware in its flash (the run command that ends a flash) |
-| `scan` | list what is connected by USB port, classified as below; nothing is restarted |
+| `scan-jieli` | list what is connected by USB port, classified as below; nothing is restarted |
 
 Options used by the build:
 
@@ -53,7 +53,7 @@ stamps (see the Cyclone 2's flash map); `flash --keep` carries them over.
 | ROM loader | INQUIRY vendor `BR23`, product `UBOOT1.00` | the flash, once the RAM loader runs | — |
 | this firmware's tool device | HID usage page `0xffc2`, IDENTIFY answers `C2PD` | IDENTIFY | a loader command; only for the wanted PID |
 | other Jieli SDK firmware | INQUIRY `BR23`, no IDENTIFY | the flash, once in the loader | a loader command |
-| stock pad, HID only | VID, PID, `bcdDevice`, strings, and the usage page of the interface taking the command | `jlnewfw`'s table | the table's output report, in the modes that have one |
+| stock pad, HID only | VID, PID, `bcdDevice`, strings, and the usage page of the interface taking the command | `jollymaam`'s table | the table's output report, in the modes that have one |
 
 The stock pads' entries are the Cyclone 2's and the Nova 2 Lite's modes from
 [../gamesir-cyclone2/stock-pad-dongle.md](../gamesir-cyclone2/stock-pad-dongle.md)

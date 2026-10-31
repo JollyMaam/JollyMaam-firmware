@@ -1,9 +1,5 @@
 # Built for and run on this machine: the image tool and the unit tests.
 
-$(O)/host/jlnewfw: tools/jlnewfw.c $(O)/host/libjollymaam.a
-	@mkdir -p $(@D)
-	$(Q)$(HOST_CC) $(HOST_CFLAGS) $^ -o $@
-
 # Every source with a UNITTEST block (#ifdef or #ifndef) and its own main.
 TESTS := $(shell grep -rlE --include='*.c' 'if(n)?def UNITTEST' src | xargs grep -l '^int main')
 TESTS := $(filter-out src/platform/telink/att_telink.c src/lib/%,$(TESTS))

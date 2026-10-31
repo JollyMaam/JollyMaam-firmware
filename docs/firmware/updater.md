@@ -16,7 +16,7 @@ There is no second copy of the app.
 | `0x023000` | the app's header (`0x120` bytes), then the app |
 | `0x0fa000..` | VM, BTIF, key_mac, as before |
 
-The app's header is written by `jlnewfw pack --main`:
+The app's header is written by `jollymaam pack --main`:
 
 | Offset | Field |
 |---|---|
@@ -26,7 +26,7 @@ The app's header is written by `jlnewfw pack --main`:
 | `0x0c` | the app's entry, `0x1e00000 + MAIN_AT + 0x120` |
 | `0x10` | format version, 1 |
 | `0x14` | `MAIN_AT`, the offset the app is linked for |
-| `0x18` | the image's PID, 16 bytes, NUL-padded (`isd_config.ini`'s, as `jlnewfw flash` checks) |
+| `0x18` | the image's PID, 16 bytes, NUL-padded (`isd_config.ini`'s, as `jollymaam flash` checks) |
 | `0x28` | CRC16 of `0x04..0x28` |
 
 The app area's cipher runs on over the header and the app: a 32-byte block
@@ -97,12 +97,12 @@ updater finds it from the header sector it has just erased: the one key whose
 keystream the erased block shows through the code window.
 
 `padtool update FILE` sends a pad build's `update.bin` (the header and app
-in the clear, from `jlnewfw pack --main-out`). It sends `UPDATER` first if the
+in the clear, from `jollymaam pack --main-out`). It sends `UPDATER` first if the
 app is running, and reboots into the new app after the commit. The updater's
 IDENTIFY has byte 7 set to 1.
 
 The updater also answers IDENTIFY, STATUS, LOG, REBOOT and the ROM loader's
-opcodes, so `jlnewfw flash` and `padtool loader` reach the ROM loader from it.
+opcodes, so `jollymaam flash` and `padtool loader` reach the ROM loader from it.
 
 ## Over Bluetooth LE
 

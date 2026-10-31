@@ -41,7 +41,7 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   command line (e.g. an empty `NAME_MAIN_AT` for a build without updater).
 - `padtool/`: `padtool.py` (CLI; `--help` lists every command), `padgui.pyw`
   (Tk GUI), the transports.  `padtool/README.md` for setup.
-- `tools/`: `jlnewfw.c` (Jieli image packer and flasher, built into
+- `tools/`: `jollymaam.c` (host updater, Jieli image packer and flasher, built into
   `build/host/`), `8bitdoboot.py` (the 8BitDo boot loader), `upgrade.py`
   (every connected device), `padhub.c` (Linux UHID bridge for the dongle's
   hub, `tools/padhub.md`), `sdlpad.c` (what SDL sees), `linkbench.py`,
@@ -87,7 +87,7 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   gesture (or `padtool connect`), never from another button or power-on.
 - **Tool device.**  Outside a game-controller session every board is a HID
   "tool device" (V-USB's shared ID 16c0:05df, manufacturer "JollyMaam"),
-  which `padtool` and `jlnewfw` talk to.  The protocol is documented at the
+  which `padtool` and `jollymaam` talk to.  The protocol is documented at the
   top of `src/core/usb.c`.  Our own IDs are in `pad.h`
   (`USB_OWN_*`); the generic gamepad is 16c0:27dc, the Xbox 360 personality
   Microsoft's 045e:028e.
@@ -148,7 +148,7 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   (SDL) run under `tools/withdev.sh`, which rebuilds `/dev` from `DEV_ROOT`
   once at start: nodes that appear later are not in it.
 - Several devices of one kind are told apart by USB port:
-  `padtool --device 5-2.1`, `jlnewfw scan`.  Use `padtool --dongle` for
+  `padtool --device 5-2.1`, `jollymaam scan-jieli`.  Use `padtool --dongle` for
   dongles.
 - **Ephemeral mode for tests.**  Before changing settings or pairing just to
   test something, put every device involved in `padtool ephemeral` (and

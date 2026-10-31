@@ -61,7 +61,7 @@ void upd_started(void)
 }
 void upd_committed(void) {}
 
-/* The app area's cipher (jlnewfw's jl_sfc): a 32-byte block n bytes from
+/* The app area's cipher (jollymaam's jl_sfc): a 32-byte block n bytes from
  * the area's start is XORed with the ENC stream keyed chip_key ^ (n >> 2).
  * The chip key does not read back from JL_SFCENC (0 on a 0xffff chip). */
 static u16 chip_key;
