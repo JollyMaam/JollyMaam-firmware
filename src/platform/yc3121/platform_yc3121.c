@@ -50,6 +50,14 @@ void plat_delay_ms(u32 ms)
         ;
 }
 
+void yc_delay_us(uint32_t us)
+{
+    u32 start = plat_us();
+
+    while (plat_us() - start < us)
+        ;
+}
+
 void plat_lock(void) {}
 void plat_unlock(void) {}
 

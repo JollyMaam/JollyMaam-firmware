@@ -17,7 +17,9 @@ the image's length as total, then program from there in 46-byte pieces with
 that total, encrypted (pad8cryptdo).  Without that erase it acknowledges the
 writes but erases sectors that held data without programming them.  It
 programs only whole 512-byte blocks of the stream (a short last block is
-dropped), so the image goes in padded to whole sectors.
+dropped), and its erase below 0x01070000 takes 32 KiB blocks only for a
+length of 32 KiB or more (shorter ones go 32 bytes at a time: 16 KiB took
+over 30 s), so the image goes in padded to whole 32 KiB blocks.
 
 The image it takes from us is firmware.img: the updater (a packed Telink app,
 KNLT header, its size at 0x18 and its CRC at the end), then, a sector
@@ -40,6 +42,7 @@ START = 0x6000                   # where the boot loader starts an app
 END = 0x6f000                    # the U2C's settings from here (its APP_END)
 BT_START = 0x01018000            # Ultimate 2C Bluetooth: its app slot, then data pages
 BT_END = 0x0107c000
+BT_BLOCK = 0x8000                # its erase below 0x01070000: 32 KiB blocks from this length on
 
 
 def crc16(data):
@@ -153,9 +156,9 @@ class Loader:
     def write_bluetooth_app(self, image, progress=None):
         """The Ultimate 2C Bluetooth's app at BT_START as one stream, then
         read back; progress(done, total) in bytes, writing then reading."""
-        image += b"\xff" * (-len(image) % SECTOR)    # it programs whole 512-byte blocks only
+        image += b"\xff" * (-len(image) % BT_BLOCK)
         if not image or BT_START + len(image) > BT_END:
-            raise ValueError(f"the app takes 4 to {BT_END - BT_START} bytes, not {len(image)}")
+            raise ValueError(f"the app takes 1 to {(BT_END - BT_START) // BT_BLOCK * BT_BLOCK} bytes, not {len(image)}")
         cipher = pad8cryptdo.transform(image, encrypt=True)
         self.request(8, 0, length=2, timeout=1, total=2)
         self.request(4, BT_START, total=len(image), timeout=30)

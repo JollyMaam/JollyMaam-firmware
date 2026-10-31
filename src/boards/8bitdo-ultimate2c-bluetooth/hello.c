@@ -2,10 +2,13 @@
 #include "pad.h"
 #include "yc3121.h"
 #include "usb_yc3121.h"
+#include "radio_yc3121.h"
 
 /* 8BitDo Ultimate 2C Bluetooth (YC3121) bring-up: own code on the pad, and
  * USB as the tool device (padtool identify, status, log, peek, reboot,
- * loader: the boot loader's mailbox keeps it there).
+ * loader: the boot loader's mailbox keeps it there), and the Bluetooth core
+ * by two bring-up commands (0x3a start, 0x3b send); what it sends back goes
+ * to the log.
  *
  * Lights: with no button down and USB seen, they show its progress: light 1
  * a bus reset, 2 an address set, 3 configured, 4 toggling with each tool
@@ -38,7 +41,8 @@ static const struct pin keys[3] = { { 1, 10 }, { 2, 11 }, { 2, 12 } };   /* Home
 void plat_clock_init(void);
 void plat_log_fault(void);
 
-static u8 reboot_pending;
+static u8 reboot_pending, radio_start_pending;
+static struct radio_packet packet;
 
 static void show(unsigned mask)
 {
@@ -78,7 +82,6 @@ u32 usb_tool_command(const u8 *report, u8 *data, u32 n, u32 max)
     u32 arg = (u32)(cdb[2] | cdb[3] << 8 | cdb[4] << 16 | (u32)cdb[5] << 24);
     u32 want = (u32)(report[16] | report[17] << 8);
 
-    (void)n;
     if (cdb[0] != 0xf5) return 0;
     switch (cdb[1]) {
     case 0x00:                           /* IDENTIFY */
@@ -113,6 +116,13 @@ u32 usb_tool_command(const u8 *report, u8 *data, u32 n, u32 max)
             put32(data + i, *(volatile u32 *)(arg + i));
         return k;
     }
+    case 0x3a:                           /* bring-up: start the Bluetooth core */
+        radio_start_pending = 1;
+        return 0;
+    case 0x3b:                           /* bring-up: data {id, wide, payload} to the core */
+        if (n < 2) return 0;
+        data[0] = (u8)plat_radio_send(data[0], data + 2, (u16)(n - 2), data[1]);
+        return 1;
     case 0x10:                           /* REBOOT */
         reboot_pending = 1;
         return 0;
@@ -153,6 +163,23 @@ int main(void)
             const u8 *q = ev->stalled;
             util_log("usb: stall %u: %02x %02x %02x%02x %02x%02x %02x%02x", (unsigned)(stalls = ev->stalls),
                      q[0], q[1], q[3], q[2], q[5], q[4], q[7], q[6]);
+        }
+        if (radio_start_pending) {
+            radio_start_pending = 0;
+            util_log("bt: start");
+            util_log("bt: started %d", plat_radio_start());
+        }
+        while (plat_radio_take(&packet)) {
+            char hex[3 * 24 + 1];
+            int k = packet.len < 24 ? packet.len : 24;
+            for (int i = 0; i < k; i++) {
+                static const char digits[] = "0123456789abcdef";
+                hex[3 * i] = digits[packet.data[i] >> 4];
+                hex[3 * i + 1] = digits[packet.data[i] & 15];
+                hex[3 * i + 2] = ' ';
+            }
+            hex[3 * k] = 0;
+            util_log("bt: %02x %02x [%u] %s", packet.type, packet.id, packet.len, hex);
         }
         if (reboot_pending && !reboot_at) reboot_at = plat_ms() + 50;   /* the answer goes out first */
         if (reboot_at && (int)(plat_ms() - reboot_at) >= 0) plat_restart(reboot_pending == 2);

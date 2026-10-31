@@ -54,6 +54,9 @@ static inline int yc_pin_in(int group, int pin)
  * flashing leaves 2, so the app sets 1. */
 #define YC_LOADER_MODE     (*(volatile uint32_t *)0xf8564)
 
+/* Busy wait on SysTick (platform_yc3121.c); plat_delay_ms for longer. */
+void yc_delay_us(uint32_t us);
+
 /* The chip's reset (the SDK's soft_reset, stock's 0x010288d8): the boot
  * loader runs again (platform_yc3121.c). */
 __attribute__((noreturn)) void yc_reset(void);

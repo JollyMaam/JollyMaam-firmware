@@ -180,7 +180,7 @@ class BluetoothTests(unittest.TestCase):
     def test_app_is_erased_streamed_read_back_and_started(self):
         app = bytes(range(251)) * 400 + b"\x01\x02"           # not a multiple of 4 or 46
         boot.flash_bluetooth("hid", app)
-        padded = app + b"\xff" * (-len(app) % boot.SECTOR)
+        padded = app + b"\xff" * (-len(app) % boot.BT_BLOCK)
         self.assertEqual(bytes(self.device.flash[:len(padded)]), padded)
         writes = [c for c in self.device.commands if c[0] in (3, 4)]
         self.assertEqual(writes[0], (4, boot.BT_START, len(padded)))

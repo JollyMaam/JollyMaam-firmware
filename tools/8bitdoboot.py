@@ -32,7 +32,7 @@ import zlib
 sys.path.insert(0, str(Path(__file__).resolve().parent / "padtool"))
 from padhid import dev_path  # noqa: E402
 from padtransport import scsi, tool_paths, usb_location  # noqa: E402
-from pad8bitdo import BT_END, BT_START, LOADER, MODELS, SECTOR, Loader, Stock, check, find_stock  # noqa: E402
+from pad8bitdo import BT_BLOCK, BT_END, BT_START, LOADER, MODELS, SECTOR, Loader, Stock, check, find_stock  # noqa: E402
 
 OP = 0xF5
 
@@ -200,8 +200,9 @@ BT_HINT = "boot mode by hand: USB unplugged, hold L1+R1, tap Home, plug in"
 
 def flash_bluetooth(args):
     app = Path(args.image).read_bytes()
-    if not 0 < len(app) <= BT_END - BT_START:
-        sys.exit(f"8bitdoboot: the app takes 1 to {BT_END - BT_START} bytes, not {len(app)}")
+    room = (BT_END - BT_START) // BT_BLOCK * BT_BLOCK      # it goes in whole 32 KiB blocks
+    if not 0 < len(app) <= room:
+        sys.exit(f"8bitdoboot: the app takes 1 to {room} bytes, not {len(app)}")
     path = enter_loader(args.pid, args.device, args.wait)
     if not path:
         sys.exit("8bitdoboot: no Ultimate 2C Bluetooth boot loader (model 1a30); " + (args.hint or BT_HINT))

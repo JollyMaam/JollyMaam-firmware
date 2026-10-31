@@ -228,8 +228,10 @@ wrong assumption), add it here in a line or two.
   the image length as total, then the encrypted stream with that total).
   Writes without that erase are acknowledged but erase sectors that held
   data and program nothing; that lost the stock app once.  It programs only
-  whole 512-byte blocks (a short last block is silently dropped), so the
-  image is padded to whole sectors.
+  whole 512-byte blocks (a short last block is silently dropped), and an
+  erase shorter than 32 KiB goes 32 bytes at a time (16 KiB outlasted the
+  30 s timeout and kept the loader busy), so the image is padded to whole
+  32 KiB blocks.
 - Ultimate 2C Bluetooth (YC3121): the vectors are the ROM's.  HardFault
   goes through the ROM (which pushes r4, lr) and the loader's stub, which
   runs the loader's endless loop unless its mode register 0xf8564 is not 2
