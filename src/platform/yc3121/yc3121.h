@@ -1,0 +1,38 @@
+#ifndef YC3121_H
+#define YC3121_H
+
+#include <stdint.h>
+
+/* Yichip YC3121 registers, from Yichip's SDK (yc3121.h, yc_gpio.c, misc.c)
+ * as RT-Thread's bsp/yichip/yc3121-pos carries it. */
+
+/* A pin's byte: 0x3e output low, 0x3f output high, 0x00 input, 0x40 input
+ * with pull-up, 0x80 with pull-down; other values pick a peripheral.  Pin n
+ * of group g is byte 16 * g + n. */
+#define YC_GPIO_CONFIG(g, n) (*(volatile uint8_t *)(0xf8700 + 16 * (g) + (n)))
+#define YC_GPIO_IN(g)        (*(volatile uint16_t *)(0xf873c + 2 * (g)))
+
+#define YC_PIN_LOW     0x3e
+#define YC_PIN_HIGH    0x3f
+#define YC_PIN_PULLUP  0x40
+
+/* The CPU clock: 192 MHz / ((YC_HCLK_CON & 15) + 2). */
+#define YC_HCLK_CON    (*(volatile uint32_t *)0xf8560)
+#define YC_RST_EN      (*(volatile uint32_t *)0xf8574)
+#define YC_RESET       (*(volatile uint32_t *)0xf857c)
+
+static inline void yc_pin(int group, int pin, int config)
+{
+    YC_GPIO_CONFIG(group, pin) = config;
+}
+
+static inline int yc_pin_in(int group, int pin)
+{
+    return YC_GPIO_IN(group) >> pin & 1;
+}
+
+/* The chip's reset (the SDK's soft_reset, stock's 0x010288d8): the boot
+ * loader runs again. */
+__attribute__((noreturn)) void yc_reset(void);
+
+#endif

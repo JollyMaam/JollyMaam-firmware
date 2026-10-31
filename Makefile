@@ -15,6 +15,7 @@ include make/telink.mk
 include make/gamesir-cyclone-2.mk
 include make/gamesir-nova-2-lite.mk
 include make/8bitdo-ultimate2c-wireless.mk
+include make/8bitdo-ultimate2c-bluetooth.mk
 include make/android.mk
 include make/padtool.mk
 include make/dist.mk

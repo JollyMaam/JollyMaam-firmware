@@ -66,7 +66,7 @@
       apps.${system}.default = { type = "app"; meta.description = "JollyMaam firmware updater"; program = "${linux}/bin/jollymaam"; };
       devShells.${system} = {
         default = pkgs.mkShell {
-          packages = with pkgs; [ gcc gnumake binutils pkg-config hidapi libusb1 zlib python uv ];
+          packages = with pkgs; [ gcc gnumake binutils pkg-config hidapi libusb1 zlib python uv gcc-arm-embedded ];
         };
         static = (pkgs.mkShell.override { stdenv = pkgs.pkgsStatic.stdenv; }) {
           inputsFrom = [ linux ];
