@@ -6,16 +6,15 @@
  * power hold, then resets the chip (on USB power the pad stays on, and the
  * boot loader starts this again unless L1+R1 are held).
  *
- * Pins as stock v1.01 drives them (its GPIO calls, not yet proven here):
+ * Pins as stock v1.01 drives them, each proven here on 2026-10-31:
  *   power hold  0.7 high keeps the pad on (stock drops it to switch off)
  *   lights      1.11, 1.6, 0.15, 2.3, high = lit (its player-light chase)
  *   matrix      rows 1.5, 0.6, 0.1, 2.4 driven low in turn; columns
  *               0.9..0.13 with pull-ups, low = down
  *   Home        1.10 with pull-up, low = down; 2.11 and 2.12 likewise
- * Timing is a busy loop counted for 48 MHz; on the pad it ran about five
- * times slower.  For about 2 s after start the lights show the clock
- * divider the loader left (SYSCTRL_HCLK_CON & 15, light 1 = bit 0; the CPU
- * at 192 MHz / (divider + 2)), then the chase. */
+ * The loader leaves the CPU at 48 MHz (HCLK_CON divider 2, seen on the
+ * lights); a busy loop runs about five times slower than its cycle count
+ * from flash, so delays count SysTick, which runs on the CPU clock. */
 
 struct pin { uint8_t group, pin; };
 
@@ -28,8 +27,13 @@ static const struct pin keys[3] = { { 1, 10 }, { 2, 11 }, { 2, 12 } };   /* Home
 
 static void delay_us(uint32_t us)
 {
-    for (volatile uint32_t n = us * 12; n; n--)
-        ;
+    while (us) {
+        uint32_t step = us < 100000 ? us : 100000;      /* within SysTick's 24 bits */
+        uint32_t start = YC_SYST_CVR, cycles = step * YC_CPU_MHZ;
+        while (((start - YC_SYST_CVR) & 0xffffff) < cycles)
+            ;
+        us -= step;
+    }
 }
 
 void yc_reset(void)
@@ -67,6 +71,8 @@ static int scan(void)
 
 int main(void)
 {
+    YC_SYST_RVR = 0xffffff;
+    YC_SYST_CSR = 5;                    /* on, CPU clock, no interrupt */
     yc_pin(POWER_GROUP, POWER_PIN, YC_PIN_HIGH);
     show(0);
     for (int r = 0; r < 4; r++)
@@ -82,9 +88,7 @@ int main(void)
         held = down ? held + 1 : 0;
         if (held >= 300)
             break;
-        if (tick < 40)
-            show(YC_HCLK_CON & 15);
-        else if (down)
+        if (down)
             show(down == 1 ? 0x9 : 0xf);
         else
             show(1u << (tick / 25 % 4));

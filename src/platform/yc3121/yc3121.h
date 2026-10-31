@@ -18,6 +18,14 @@
 
 /* The CPU clock: 192 MHz / ((YC_HCLK_CON & 15) + 2). */
 #define YC_HCLK_CON    (*(volatile uint32_t *)0xf8560)
+/* What the boot loader leaves (divider 2, seen on the pad). */
+#define YC_CPU_MHZ     48
+
+/* The Cortex-M0's SysTick, counting down on the CPU clock (CSR bit 2). */
+#define YC_SYST_CSR    (*(volatile uint32_t *)0xe000e010)
+#define YC_SYST_RVR    (*(volatile uint32_t *)0xe000e014)
+#define YC_SYST_CVR    (*(volatile uint32_t *)0xe000e018)
+
 #define YC_RST_EN      (*(volatile uint32_t *)0xf8574)
 #define YC_RESET       (*(volatile uint32_t *)0xf857c)
 
