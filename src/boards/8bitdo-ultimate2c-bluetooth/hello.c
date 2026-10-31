@@ -1,10 +1,18 @@
+#include <string.h>
+#include "pad.h"
 #include "yc3121.h"
+#include "usb_yc3121.h"
 
-/* 8BitDo Ultimate 2C Bluetooth (YC3121) bring-up: the first own code on the
- * pad.  The four player lights run a chase; while a button is down they all
- * light (Home: the outer two).  Any button held about 3 s lets go of the
- * power hold, then resets the chip (on USB power the pad stays on, and the
- * boot loader starts this again unless L1+R1 are held).
+/* 8BitDo Ultimate 2C Bluetooth (YC3121) bring-up: own code on the pad, and
+ * USB as the tool device (padtool identify, status, log, peek, reboot,
+ * loader: the boot loader's mailbox keeps it there).
+ *
+ * Lights: with no button down and USB seen, they show its progress: light 1
+ * a bus reset, 2 an address set, 3 configured, 4 toggling with each tool
+ * command; with USB quiet, the chase.  While a button is down they all light
+ * (Home: the outer two).  Any button held 3 s lets go of the power hold,
+ * then resets the chip (on USB power the pad stays on: the boot loader
+ * starts this again, or stays when L1+R1 are held).
  *
  * Pins as stock v1.01 drives them, each proven here on 2026-10-31:
  *   power hold  0.7 high keeps the pad on (stock drops it to switch off)
@@ -14,7 +22,9 @@
  *   Home        1.10 with pull-up, low = down; 2.11 and 2.12 likewise
  * The loader leaves the CPU at 48 MHz (HCLK_CON divider 2, seen on the
  * lights); a busy loop runs about five times slower than its cycle count
- * from flash, so delays count SysTick, which runs on the CPU clock. */
+ * from flash, so time comes from SysTick (platform_yc3121.c). */
+
+const char board_name[] = "Ultimate 2C Bluetooth";
 
 struct pin { uint8_t group, pin; };
 
@@ -25,24 +35,10 @@ static const struct pin keys[3] = { { 1, 10 }, { 2, 11 }, { 2, 12 } };   /* Home
 #define POWER_GROUP 0
 #define POWER_PIN 7
 
-static void delay_us(uint32_t us)
-{
-    while (us) {
-        uint32_t step = us < 100000 ? us : 100000;      /* within SysTick's 24 bits */
-        uint32_t start = YC_SYST_CVR, cycles = step * YC_CPU_MHZ;
-        while (((start - YC_SYST_CVR) & 0xffffff) < cycles)
-            ;
-        us -= step;
-    }
-}
+void plat_clock_init(void);
+void plat_log_fault(void);
 
-void yc_reset(void)
-{
-    YC_RST_EN |= 1;
-    YC_RESET = 0x55;
-    for (;;)
-        ;
-}
+static u8 reboot_pending;
 
 static void show(unsigned mask)
 {
@@ -56,7 +52,8 @@ static int scan(void)
     int down = 0;
     for (int r = 0; r < 4; r++) {
         yc_pin(rows[r].group, rows[r].pin, YC_PIN_LOW);
-        delay_us(5);
+        for (u32 t0 = plat_us(); plat_us() - t0 < 5;)
+            ;
         if (~YC_GPIO_IN(0) & COLUMNS_MASK)
             down = 2;
         yc_pin(rows[r].group, rows[r].pin, YC_PIN_HIGH);
@@ -69,10 +66,66 @@ static int scan(void)
     return down;
 }
 
+static void put32(u8 *p, u32 v)
+{
+    p[0] = (u8)v, p[1] = (u8)(v >> 8), p[2] = (u8)(v >> 16), p[3] = (u8)(v >> 24);
+}
+
+/* usb.c's commands, the few this build has. */
+u32 usb_tool_command(const u8 *report, u8 *data, u32 n, u32 max)
+{
+    const u8 *cdb = report;
+    u32 arg = (u32)(cdb[2] | cdb[3] << 8 | cdb[4] << 16 | (u32)cdb[5] << 24);
+    u32 want = (u32)(report[16] | report[17] << 8);
+
+    (void)n;
+    if (cdb[0] != 0xf5) return 0;
+    switch (cdb[1]) {
+    case 0x00:                           /* IDENTIFY */
+        if (max < 88) return 0;
+        memset(data, 0, 88);
+        memcpy(data, "C2PD", 4);
+        data[4] = 2;                     /* protocol */
+        strncpy((char *)data + 8, BUILD_ID, 16);
+        strncpy((char *)data + 40, BOARD_PID, 16);
+        strncpy((char *)data + 56, board_name, 32);
+        return 88;
+    case 0x01:                           /* STATUS */
+        if (max < 16) return 0;
+        memset(data, 0, 16);
+        data[1] = 0xff;                  /* no slot */
+        data[2] = 1;                     /* on USB */
+        put32(data + 8, plat_ms());
+        return 16;
+    case 0x02: {                         /* LOG */
+        u32 seq = arg, k;
+
+        if (max < 8) return 0;
+        k = util_log_read(&seq, (char *)data + 8, max - 8);
+        put32(data, seq);
+        put32(data + 4, k);
+        return k + 8;
+    }
+    case 0x15: {                         /* PEEK: words from the address */
+        u32 k = (want < max ? want : max) & ~3u;
+
+        for (u32 i = 0; i < k; i += 4)
+            put32(data + i, *(volatile u32 *)(arg + i));
+        return k;
+    }
+    case 0x10:                           /* REBOOT */
+        reboot_pending = 1;
+        return 0;
+    case 0x11:                           /* REBOOT_LOADER */
+        reboot_pending = 2;
+        return 0;
+    }
+    return 0;
+}
+
 int main(void)
 {
-    YC_SYST_RVR = 0xffffff;
-    YC_SYST_CSR = 5;                    /* on, CPU clock, no interrupt */
+    plat_clock_init();
     yc_pin(POWER_GROUP, POWER_PIN, YC_PIN_HIGH);
     show(0);
     for (int r = 0; r < 4; r++)
@@ -81,21 +134,45 @@ int main(void)
         yc_pin(0, c, YC_PIN_PULLUP);
     for (int k = 0; k < 3; k++)
         yc_pin(keys[k].group, keys[k].pin, YC_PIN_PULLUP);
+    util_log_init();
+    util_log("bring-up %s, HCLK_CON %08x", BUILD_ID, (unsigned)YC_HCLK_CON);
+    plat_log_fault();
+    plat_usb_init();
 
-    unsigned tick = 0, held = 0;
-    for (;; tick++) {                   /* 10 ms a pass */
+    const struct usb_events *ev = plat_usb_events();
+    u32 resets = 0, odd = 0, stalls = 0;
+    u8 configured = 0;
+    u32 tick_ms = plat_ms(), held = 0, tick = 0, reboot_at = 0;
+
+    for (;;) {
+        plat_usb_poll();
+        if (ev->resets != resets) util_log("usb: bus reset (%u)", (unsigned)(resets = ev->resets));
+        if (ev->configured != configured) util_log("usb: configured %u", configured = ev->configured);
+        if (ev->odd_setups != odd) util_log("usb: SETUP not 8 bytes (%u)", (unsigned)(odd = ev->odd_setups));
+        if (ev->stalls != stalls) {
+            const u8 *q = ev->stalled;
+            util_log("usb: stall %u: %02x %02x %02x%02x %02x%02x %02x%02x", (unsigned)(stalls = ev->stalls),
+                     q[0], q[1], q[3], q[2], q[5], q[4], q[7], q[6]);
+        }
+        if (reboot_pending && !reboot_at) reboot_at = plat_ms() + 50;   /* the answer goes out first */
+        if (reboot_at && (int)(plat_ms() - reboot_at) >= 0) plat_restart(reboot_pending == 2);
+        if (plat_ms() - tick_ms < 10)
+            continue;
+        tick_ms += 10;
+        tick++;
         int down = scan();
         held = down ? held + 1 : 0;
         if (held >= 300)
             break;
         if (down)
             show(down == 1 ? 0x9 : 0xf);
+        else if (ev->resets)
+            show(1u | ev->addressed << 1 | ev->configured << 2 | (ev->commands & 1) << 3);
         else
             show(1u << (tick / 25 % 4));
-        delay_us(10000);
     }
     show(0);
     yc_pin(POWER_GROUP, POWER_PIN, YC_PIN_LOW);
-    delay_us(1000000);
+    plat_delay_ms(1000);
     yc_reset();
 }

@@ -39,8 +39,30 @@ static inline int yc_pin_in(int group, int pin)
     return YC_GPIO_IN(group) >> pin & 1;
 }
 
+/* The 8BitDo boot loader's mailbox, read at reset (its 0x01002af8): this
+ * word 0x5a5aa5a5 keeps it in boot mode (it clears the word); 0x2fff4 =
+ * 0x20210624 sets another flag of its, purpose not established.  Without
+ * the word it stays only on L1+R1 or a bad app or version page.  The words
+ * survive a jump to the loader, not a chip reset (plat_restart). */
+#define YC_LOADER_MAILBOX  (*(volatile uint32_t *)0x2fff0)
+#define YC_LOADER_STAY     0x5a5aa5a5
+#define YC_LOADER_MAILBOX2 (*(volatile uint32_t *)0x2fff4)
+#define YC_LOADER_FROM_APP 0x20210624   /* stock writes it with STAY */
+/* The loader's mode: with 2 the ROM's fault and interrupt vectors run the
+ * loader's handlers (a fault: an endless loop), else the app's (app + 4 +
+ * offset; IRQ n at app + 0x9c with r0 = 4n).  Its start of the app after
+ * flashing leaves 2, so the app sets 1. */
+#define YC_LOADER_MODE     (*(volatile uint32_t *)0xf8564)
+
 /* The chip's reset (the SDK's soft_reset, stock's 0x010288d8): the boot
- * loader runs again. */
+ * loader runs again (platform_yc3121.c). */
 __attribute__((noreturn)) void yc_reset(void);
+
+/* An exception's entry (start.S): records it and has the exception return
+ * into plat_restart(0). */
+void yc_fault(const uint32_t *frame, uint32_t ipsr);
+
+/* Restart through the boot loader; loader: stay there. */
+__attribute__((noreturn)) void plat_restart(int loader);
 
 #endif
