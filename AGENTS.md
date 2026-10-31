@@ -230,6 +230,13 @@ wrong assumption), add it here in a line or two.
   data and program nothing; that lost the stock app once.  It programs only
   whole 512-byte blocks (a short last block is silently dropped), so the
   image is padded to whole sectors.
+- Ultimate 2C Bluetooth (YC3121): the vectors are the ROM's.  HardFault
+  goes through the ROM (which pushes r4, lr) and the loader's stub, which
+  runs the loader's endless loop unless its mode register 0xf8564 is not 2
+  (the app sets 1; the loader leaves 2 after flashing).  A fault that loops
+  there needs a hard power-off (USB out, hold Home).  Into the boot loader
+  without L1+R1: its mailbox and a jump, as `plat_restart` does; a chip
+  reset clears RAM, mailbox included.
 - Never search the whole filesystem (`/`, `/proc`, `/sys`, `/dev`): it has
   disturbed the host.
 - BR23 VBAT: the SDK truncates its 16-sample average to an ADC code before
