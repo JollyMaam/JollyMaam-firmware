@@ -11,7 +11,10 @@
          from the updater's start, update.bin at --at: firmware.img
   flash  into the boot loader (stock or our firmware),
          erase and program the image's sectors (the header's last), read
-         them back, start the app; --also ADDR:FILE first puts FILE there
+         them back, start the app; --also ADDR:FILE first puts FILE there;
+         --pid U2C_BLUETOOTH: a raw app for 0x01018000 (no --start/--end),
+         written as one encrypted stream and read back (boot mode by hand:
+         USB unplugged, hold L1+R1, tap Home, plug in)
   loader into the boot loader and wait there
   start  leave the boot loader without flashing: it starts the app there
   scan   boot loaders, stock devices and our firmware (read-only identify)
@@ -29,7 +32,7 @@ import zlib
 sys.path.insert(0, str(Path(__file__).resolve().parent / "padtool"))
 from padhid import dev_path  # noqa: E402
 from padtransport import scsi, tool_paths, usb_location  # noqa: E402
-from pad8bitdo import LOADER, MODELS, SECTOR, Loader, Stock, check, find_stock  # noqa: E402
+from pad8bitdo import BT_END, BT_START, LOADER, MODELS, SECTOR, Loader, Stock, check, find_stock  # noqa: E402
 
 OP = 0xF5
 
@@ -132,7 +135,7 @@ def matching_loaders(pid, port=None):
                 device.close()
         except OSError:
             continue
-        if model == struct.pack("<H", MODELS[pid]):
+        if model[:2] == struct.pack("<H", MODELS[pid]):
             found.append((path, loc))
     return found
 
@@ -192,9 +195,34 @@ def enter_loader(pid, device, seconds):
     return wait_entered_loader(port, seconds, pid)
 
 
+BT_HINT = "boot mode by hand: USB unplugged, hold L1+R1, tap Home, plug in"
+
+
+def flash_bluetooth(args):
+    app = Path(args.image).read_bytes()
+    if not 0 < len(app) <= BT_END - BT_START:
+        sys.exit(f"8bitdoboot: the app takes 1 to {BT_END - BT_START} bytes, not {len(app)}")
+    path = enter_loader(args.pid, args.device, args.wait)
+    if not path:
+        sys.exit("8bitdoboot: no Ultimate 2C Bluetooth boot loader (model 1a30); " + (args.hint or BT_HINT))
+    with Loader(path) as loader:
+        model = loader.identify()
+        if model[:2] != struct.pack("<H", MODELS[args.pid]):
+            raise OSError("boot loader model changed before flashing")
+        print(f"8bitdoboot: boot loader {path}, model {model.hex()}; {len(app)} bytes at {BT_START:#x}")
+        loader.write_bluetooth_app(app, lambda i, n: print(
+            f"\r8bitdoboot: {'writing' if i < n // 2 else 'reading back'} {100 * i // n}%", end="", flush=True))
+        print("\n8bitdoboot: written and read back; starting it")
+        loader.start_app()
+
+
 def flash(args):
+    if args.pid == "U2C_BLUETOOTH":
+        return flash_bluetooth(args)
     if args.pid != "U2C_WIRELESS":
         sys.exit("8bitdoboot: receiver flashing is not established; loader entry only")
+    if args.start is None or args.end is None:
+        sys.exit("8bitdoboot: flash needs --start and --end for this pad")
     image = Path(args.image).read_bytes()
     check(image)
     end = args.start + len(image) + (-len(image) % SECTOR)
@@ -256,8 +284,8 @@ def main():
         p.add_argument("--wait", type=float, default=15)
         p.add_argument("--hint", help="how to enter the boot loader by hand")
         if name == "flash":
-            p.add_argument("--start", type=lambda s: int(s, 0), required=True)
-            p.add_argument("--end", type=lambda s: int(s, 0), required=True)
+            p.add_argument("--start", type=lambda s: int(s, 0))
+            p.add_argument("--end", type=lambda s: int(s, 0))
             p.add_argument("--also", action="append", default=[], metavar="ADDR:FILE",
                            help="also write FILE at ADDR (before the image)")
             p.add_argument("image")

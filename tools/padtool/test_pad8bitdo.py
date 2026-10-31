@@ -116,6 +116,98 @@ class BootTests(unittest.TestCase):
             self.assertEqual(boot.find(), [("a", "5-2", "U2C_WIRELESS")])
 
 
+class BluetoothLoader:
+    """padhid.Device for the Ultimate 2C Bluetooth's loader: CPU addresses,
+    identify answers 4 bytes, an erase reply says 4 bytes, and cmd 3 data is
+    decrypted as one stream from the app base, programmed only after an
+    erase there with the same total (as seen on the pad)."""
+    def __init__(self):
+        self.flash = bytearray(b"\xaa" * (boot.BT_END - boot.BT_START))
+        self.commands, self.replies, self.stream, self.armed, self.landed = [], [], bytearray(), None, 0
+
+    def drain(self):
+        self.replies.clear()
+
+    def write(self, data):
+        command, _, n, crc, total, address = struct.unpack_from("<HHHHII", data, 2)
+        self.commands.append((command, address, total))
+        body, count = b"", 0
+        if command == 4 and address == boot.BT_START:
+            self.flash[:total] = b"\xff" * total
+            self.armed, self.stream = total, bytearray()
+            count = 4
+        elif command == 3:
+            payload = data[18:18 + n]
+            assert crc == boot.crc16(payload)
+            assert address == boot.BT_START + len(self.stream)
+            self.stream += payload
+            if total == self.armed:
+                self.landed = len(self.stream) // 512 * 512      # a short last block is dropped
+        elif command == 5:
+            if self.landed:                                      # decrypted once, when read
+                self.flash[:self.landed] = boot.pad8cryptdo.transform(bytes(self.stream[:self.landed]))
+                self.landed = 0
+            body = bytes(self.flash[address - boot.BT_START:address - boot.BT_START + n])
+            count = n
+        elif command == 8:
+            body = b"\x1a\x30\0\0"
+            count = 4
+        if command != 7:
+            reply = b"\0\x05" + struct.pack("<HHHHII", 0, command, count, 0, total, address) + body
+            self.replies.append(reply.ljust(64, b"\0"))
+
+    def read(self, timeout):
+        return self.replies.pop(0) if self.replies else None
+
+    def close(self):
+        pass
+
+
+class BluetoothTests(unittest.TestCase):
+    def setUp(self):
+        self.device = BluetoothLoader()
+        patcher = patch.object(boot.padhid, "Device", return_value=self.device)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_cipher_matches_the_device_tested_vector(self):
+        # from alphaorderly's transform, which the pad accepted on 2026-10-30
+        self.assertEqual(boot.pad8cryptdo.transform(bytes(16), encrypt=True).hex(),
+                         "514228f4d87352bcb198f1b5ba69baef")
+        data = bytes(range(256)) * 9
+        self.assertEqual(boot.pad8cryptdo.transform(boot.pad8cryptdo.transform(data, encrypt=True)), data)
+
+    def test_app_is_erased_streamed_read_back_and_started(self):
+        app = bytes(range(251)) * 400 + b"\x01\x02"           # not a multiple of 4 or 46
+        boot.flash_bluetooth("hid", app)
+        padded = app + b"\xff" * (-len(app) % boot.SECTOR)
+        self.assertEqual(bytes(self.device.flash[:len(padded)]), padded)
+        writes = [c for c in self.device.commands if c[0] in (3, 4)]
+        self.assertEqual(writes[0], (4, boot.BT_START, len(padded)))
+        self.assertTrue(all(total == len(padded) for command, _, total in writes[1:]))
+        self.assertEqual(self.device.commands[-1][0], 7)
+
+    def test_unprogrammed_stream_is_caught(self):
+        original = self.device.write
+
+        def unarmed(data):
+            original(data)
+            self.device.armed = None                             # acknowledged, nothing programmed
+        self.device.write = unarmed
+        with boot.Loader("hid") as loader:
+            with self.assertRaisesRegex(OSError, "does not read back"):
+                loader.write_bluetooth_app(b"\x11" * 4096)
+
+    def test_other_pads_and_oversized_apps_are_not_written(self):
+        with self.assertRaisesRegex(ValueError, "bytes"):
+            boot.flash_bluetooth("hid", b"\0" * (boot.BT_END - boot.BT_START + 1))
+        self.assertFalse([c for c in self.device.commands if c[0] in (3, 4)])
+        with patch.object(boot.padhid, "Device", return_value=FakeLoader("hid")):
+            with self.assertRaisesRegex(ValueError, "U2C_WIRELESS"):
+                boot.flash_bluetooth("hid", b"\0" * 64)
+        self.assertEqual(boot.model_pid(b"\x1a\x30\0\0"), "U2C_BLUETOOTH")
+
+
 class StockFake:
     """padhid.Device for stock firmware's vendor interface."""
     def __init__(self, replies=(), write_error=None):

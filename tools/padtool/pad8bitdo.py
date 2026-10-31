@@ -7,7 +7,17 @@ u16 length, u16 CRC-16/MODBUS of the data, u32 total, u32 address> and up to
 46 data bytes; each reply echoes the header with a status in place of the 0.
 Commands: 3 program, 4 erase a 4 KiB sector, 5 read, 7 start the app (what
 is at 0x6000; no reply), 8 identify (Ultimate 2C: 1b 30).  Its erase skips
-sectors below 0x6000 (the loader's own).
+sectors below 0x6000 (the loader's own).  Replies to 2, 3 and 4 carry only
+the status.
+
+The Ultimate 2C Bluetooth (Yichip YC3121, model 1a 30) has the same loader
+with other rules: addresses are the CPU's (flash at 0x01000000; reads come
+back decrypted), and an app goes in as one stream: erase at the app base with
+the image's length as total, then program from there in 46-byte pieces with
+that total, encrypted (pad8cryptdo).  Without that erase it acknowledges the
+writes but erases sectors that held data without programming them.  It
+programs only whole 512-byte blocks of the stream (a short last block is
+dropped), so the image goes in padded to whole sectors.
 
 The image it takes from us is firmware.img: the updater (a packed Telink app,
 KNLT header, its size at 0x18 and its CRC at the end), then, a sector
@@ -18,15 +28,18 @@ import struct
 import sys
 import time
 
+import pad8cryptdo
 import padhid
 
 LOADER = (0x2dc8, 0x3208)
-MODELS = {"U2C_WIRELESS": 0x301b, "U2C_RECEIVER": 0x301c}
+MODELS = {"U2C_WIRELESS": 0x301b, "U2C_RECEIVER": 0x301c, "U2C_BLUETOOTH": 0x301a}
 STOCK_PIDS = {0x310a, 0x301b, 0x301c, 0x301d}   # stock firmware's USB products (the pad and receiver can share 310a)
 SECTOR = 4096
 CHUNK = 46
 START = 0x6000                   # where the boot loader starts an app
 END = 0x6f000                    # the U2C's settings from here (its APP_END)
+BT_START = 0x01018000            # Ultimate 2C Bluetooth: its app slot, then data pages
+BT_END = 0x0107c000
 
 
 def crc16(data):
@@ -68,7 +81,8 @@ def image_pid(image):
 
 
 def model_pid(model):
-    return next((p for p, m in MODELS.items() if model == struct.pack("<H", m)), None)
+    """The product of an identify answer (2 bytes, or 4 from the Bluetooth pad's loader)."""
+    return next((p for p, m in MODELS.items() if model[:2] == struct.pack("<H", m)), None)
 
 
 class Loader:
@@ -84,11 +98,12 @@ class Loader:
     def __exit__(self, *_):
         self.close()
 
-    def request(self, command, address, data=b"", length=None, timeout=10):
+    def request(self, command, address, data=b"", length=None, timeout=10, total=None):
         report = bytearray(64)
         report[0] = 5
         count = len(data) if length is None else length
-        total = SECTOR if command in (3, 4) else count
+        if total is None:
+            total = SECTOR if command in (3, 4) else count
         struct.pack_into("<HHHHII", report, 1, command, 0, count, crc16(data) if data else 0, total, address)
         report[17:17 + len(data)] = data
         self.dev.drain()
@@ -105,6 +120,8 @@ class Loader:
             status, echoed, n, _, _, at = struct.unpack_from("<HHHHII", reply, 2)
             if status or echoed != command:
                 raise OSError(f"command {command} at {address:#x}: reply {reply[:18].hex()}")
+            if command in (2, 3, 4):
+                return b""
             if command == 5 and at != address:
                 continue                 # a late reply to an earlier read
             if n > CHUNK or len(reply) < 18 + n:
@@ -132,6 +149,30 @@ class Loader:
             self.request(3, address + offset, data[offset:offset + CHUNK])
         if self.read(address, SECTOR) != data:
             raise OSError(f"sector {address:#x} does not read back as written")
+
+    def write_bluetooth_app(self, image, progress=None):
+        """The Ultimate 2C Bluetooth's app at BT_START as one stream, then
+        read back; progress(done, total) in bytes, writing then reading."""
+        image += b"\xff" * (-len(image) % SECTOR)    # it programs whole 512-byte blocks only
+        if not image or BT_START + len(image) > BT_END:
+            raise ValueError(f"the app takes 4 to {BT_END - BT_START} bytes, not {len(image)}")
+        cipher = pad8cryptdo.transform(image, encrypt=True)
+        self.request(8, 0, length=2, timeout=1, total=2)
+        self.request(4, BT_START, total=len(image), timeout=30)
+        for offset in range(0, len(cipher), CHUNK):
+            if progress:
+                progress(offset, 2 * len(image))
+            self.request(3, BT_START + offset, cipher[offset:offset + CHUNK], total=len(image))
+        back = bytearray()
+        while len(back) < len(image):
+            if progress:
+                progress(len(image) + len(back), 2 * len(image))
+            back += self.read(BT_START + len(back), min(SECTOR, len(image) - len(back)))
+        if back != image:
+            first = next(i for i in range(len(image)) if back[i] != image[i])
+            raise OSError(f"the app does not read back as written, from {BT_START + first:#x}")
+        if progress:
+            progress(2 * len(image), 2 * len(image))
 
     def start_app(self):
         """Leave the loader: it starts what is at 0x6000 (no reply)."""
@@ -182,6 +223,17 @@ def flash(path, image, progress=None):
         if model != pid:
             raise ValueError(f"the image is for {pid}, the boot loader's pad is {model or 'unknown'}")
         loader.write_image(image, progress=progress)
+        loader.start_app()
+
+
+def flash_bluetooth(path, app, progress=None):
+    """A raw app (from BT_START) into the Ultimate 2C Bluetooth's loader at
+    path, read back, then start it."""
+    with Loader(path) as loader:
+        model = model_pid(loader.identify())
+        if model != "U2C_BLUETOOTH":
+            raise ValueError(f"the boot loader's pad is {model or 'unknown'}, not U2C_BLUETOOTH")
+        loader.write_bluetooth_app(app, progress)
         loader.start_app()
 
 

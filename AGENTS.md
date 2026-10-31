@@ -223,6 +223,13 @@ wrong assumption), add it here in a line or two.
   a busy link (Switch 2, 5 ms interval) passes come up to ~15 ms apart.  A
   key-matrix scan done one row step per pass took 64 ms and the debounce
   dropped quick taps; anything with several steps should finish in one go.
+- 8BitDo Ultimate 2C Bluetooth (Yichip loader, model 1a30): write an app
+  only as `pad8bitdo.write_bluetooth_app` does (erase at 0x01018000 with
+  the image length as total, then the encrypted stream with that total).
+  Writes without that erase are acknowledged but erase sectors that held
+  data and program nothing; that lost the stock app once.  It programs only
+  whole 512-byte blocks (a short last block is silently dropped), so the
+  image is padded to whole sectors.
 - Never search the whole filesystem (`/`, `/proc`, `/sys`, `/dev`): it has
   disturbed the host.
 - BR23 VBAT: the SDK truncates its 16-sample average to an ADC code before
