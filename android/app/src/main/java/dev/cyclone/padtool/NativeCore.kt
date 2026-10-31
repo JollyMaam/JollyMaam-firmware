@@ -6,6 +6,7 @@ import java.io.IOException
 /** JNI entry points own no Android handles and retain no arrays after returning. */
 object NativeCore {
     init { System.loadLibrary("jollymaam-jni") }
+    external fun stockLoader(uid: ByteArray, transport: NativeUsb): Int
     external fun products(packageBytes: ByteArray): Array<String>?
     external fun probe(transport: NativeUsb, kind: Int): ByteArray?
     external fun run(packageBytes: ByteArray, product: String, kind: Int, uid: ByteArray?, transport: NativeUsb): Int

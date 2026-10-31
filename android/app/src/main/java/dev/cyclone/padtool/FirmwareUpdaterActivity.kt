@@ -94,7 +94,7 @@ class FirmwareUpdaterActivity : Activity() {
         content.addView(TextView(this).apply { text = if (devices.isEmpty()) "No supported USB interfaces. Stock gamepad modes are not supported yet." else "Select a device to identify it. USB permission is required." })
         for (device in devices) content.addView(Button(this).apply {
             text = "${device.productName ?: "USB device"} · %04x:%04x\n${device.deviceName}".format(device.vendorId, device.productId)
-            isEnabled = !busy && bundle != null
+            isEnabled = !busy && (bundle != null || AndroidNativeUsb.kind(device) == 0)
             setOnClickListener { identify(device) }
         })
     }
@@ -126,8 +126,8 @@ class FirmwareUpdaterActivity : Activity() {
             when (kind) {
                 0 -> {
                     val product = reply.copyOfRange(40, 56).cString()
-                    val target = targets.firstOrNull { it.product == product } ?: throw IOException("No image for $product")
-                    pendingPrompt = { confirm(device, kind, target, reply.copyOfRange(24, 40), reply.copyOfRange(8, 24).cString()) }
+                    val target = targets.firstOrNull { it.product == product }
+                    pendingPrompt = { customActions(device, target, reply) }
                 }
                 1 -> {
                     require(reply.u16() == 0x301b) { "Unsupported 8BitDo model" }
@@ -145,6 +145,29 @@ class FirmwareUpdaterActivity : Activity() {
                 }
             }
         }
+    }
+    private fun customActions(device: UsbDevice, target: Target?, identity: ByteArray) {
+        val uid = identity.copyOfRange(24, 40)
+        val build = identity.copyOfRange(8, 24).cString()
+        val product = identity.copyOfRange(40, 56).cString()
+        val dialog = AlertDialog.Builder(this).setTitle(product)
+            .setMessage("$build\n${if (identity.u8(7) == 1) "Our updater" else "Our firmware"}\n${device.deviceName}")
+            .setNegativeButton("Cancel", null)
+            .setNeutralButton("Stock bootloader") { _, _ ->
+                AlertDialog.Builder(this).setTitle("Enter stock bootloader?")
+                    .setMessage("Reboot $product into its original bootloader. This does not write firmware.")
+                    .setNegativeButton("Cancel", null).setPositiveButton("Enter") { _, _ ->
+                        task("Requesting stock bootloader") {
+                            require(permission(device)) { "USB permission was not granted" }
+                            val endpoint = AndroidNativeUsb(usb, device, 0, ::permission, cancelled) { _, _ -> }
+                            val result = endpoint.use { NativeCore.stockLoader(uid, it) }
+                            require(result == 0) { "Loader request unconfirmed ($result). Rescan before retrying." }
+                            ui { status.text = "Stock bootloader requested. Rescan USB for its new interface." }
+                        }
+                    }.show()
+            }
+        if (target != null) dialog.setPositiveButton("Update") { _, _ -> confirm(device, 0, target, uid, build) }
+        dialog.show()
     }
     private fun confirm(device: UsbDevice, kind: Int, target: Target, uid: ByteArray?, current: String) {
         AlertDialog.Builder(this).setTitle("Update ${target.board}?")

@@ -179,7 +179,12 @@ through an update.
 Supported interfaces are our HID tool firmware, the 8BitDo Ultimate 2C Wireless
 pad's stock HID bootloader, and Jieli BR23/BD19 UBOOT1.00 mass-storage
 bootloaders. Normal stock gamepad modes cannot be updated through this screen.
-Select a device, grant USB permission and confirm **Update**. Discovery reads
+Select a device, grant USB permission and confirm **Update**. Our HID devices
+can also be selected without a package: **Stock bootloader**, followed by
+**Enter**, sends a UID-checked `0x11` request from either our running firmware or
+our updater. It does not flash firmware. Rescan after the device changes modes.
+The desktop stock-restore commands are described in `src/lib/README.md`; this
+Android screen currently handles package installation and stock-loader entry. Discovery reads
 identity only. Jieli asks for the intended board because INQUIRY identifies the
 chip; the C core checks the installed product before erasing. The matching RAM
 helper comes from the verified ZIP, so this screen needs no separate helper

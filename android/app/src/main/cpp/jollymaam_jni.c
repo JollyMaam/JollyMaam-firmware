@@ -134,3 +134,13 @@ JNIEXPORT jint JNICALL Java_dev_cyclone_padtool_NativeCore_run(JNIEnv *e,jobject
   }
   (*e)->ReleaseStringUTFChars(e,product,name);(*e)->ReleaseByteArrayElements(e,input,data,JNI_ABORT);return result;
 }
+
+/* Send a UID-bound stock-loader request from the application's USB worker. */
+JNIEXPORT jint JNICALL Java_dev_cyclone_padtool_NativeCore_stockLoader(JNIEnv *e,jobject self,jbyteArray uid,jobject transport) {
+  (void)self;
+  if(!uid || (*e)->GetArrayLength(e,uid)!=16) return -1;
+  struct bridge b;if(!prepare(&b,e,transport)) return -1;
+  uint8_t expected[16];(*e)->GetByteArrayRegion(e,uid,0,16,(jbyte *)expected);
+  if((*e)->ExceptionCheck(e)) return -1;
+  return jm_session_stock_loader(&io,&b,expected);
+}

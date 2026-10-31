@@ -8,13 +8,14 @@ public class JniTest {
     static void put(byte[] data, int offset, int value) { for (int i=0;i<4;i++) data[offset+i]=(byte)(value >>> (8*i)); }
     static int get(byte[] data, int offset) { int value=0;for(int i=0;i<4;i++) value|=(data[offset+i]&255)<<(8*i);return value; }
     static class Custom extends NativeUsb {
-        int cmd,tag,begun,written,reconnects,starts,progress;boolean updater,committed,fail;
+        int cmd,tag,begun,written,reconnects,starts,progress,rom;boolean updater,committed,fail;
         byte[] flash = new byte[4096];
         public int featureSize() { return 356; }
         public int featureSet(byte[] data) {
             check(data.length==357);cmd=data[2]&255;tag=data[20]&255;
             int arg=get(data,3),size=(data[17]&255)|((data[18]&255)<<8);
-            if(cmd==0x40) updater=true;
+            if(cmd==0x11) rom++;
+            else if(cmd==0x40) updater=true;
             else if(cmd==0x42) { check(size==44);begun=arg; }
             else if(cmd==0x43) {
                 if(fail) throw new IllegalStateException("simulated callback exception");
@@ -58,6 +59,9 @@ public class JniTest {
         check(expected!=null && Arrays.equals(expected,Arrays.copyOf(transport.flash,transport.written)));
         Custom wrong=new Custom();uid[0]=43;
         check(core.run(bytes,"U2C_WIRELESS",0,uid,wrong)!=0 && wrong.begun==0);uid[0]=42;
+        Custom entry=new Custom();entry.updater=true;
+        check(core.stockLoader(uid,entry)==0 && entry.rom==1 && entry.begun==0);
+        uid[0]=43;check(core.stockLoader(uid,new Custom())==-2);uid[0]=42;
         Custom broken=new Custom();broken.fail=true;
         try { core.run(bytes,"U2C_WIRELESS",0,uid,broken);throw new AssertionError(); }
         catch(IllegalStateException e) { check(e.getMessage().contains("callback exception")); }

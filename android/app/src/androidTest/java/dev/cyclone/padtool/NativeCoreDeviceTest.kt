@@ -11,7 +11,7 @@ class NativeCoreDeviceTest {
     private fun bundle() = InstrumentationRegistry.getInstrumentation().context.assets.open("firmware-fixture.zip").use { it.readBytes() }
     private class Fake : NativeUsb() {
         var command = 0; var tag = 0; var updater = false; var begun = 0; var written = 0
-        var committed = false; var starts = 0; var reconnects = 0
+        var committed = false; var starts = 0; var reconnects = 0; var rom = 0
         val flash = ByteArray(4096)
         override fun close() {}
         override fun waitMillis(ms: Int) {}
@@ -21,6 +21,7 @@ class NativeCoreDeviceTest {
             command = data.u8(2); tag = data.u8(20)
             val arg = data.u32(3).toInt(); val count = data.u16(17)
             when (command) {
+                0x11 -> rom++
                 0x40 -> updater = true
                 0x42 -> { check(count == 44); begun = arg }
                 0x43 -> { check(arg == written); data.copyInto(flash, written, 21, 21 + count); written += count }
@@ -44,6 +45,10 @@ class NativeCoreDeviceTest {
             return data.size
         }
         override fun reconnect(uid: ByteArray): Boolean { check(uid[0] == 42.toByte()); reconnects++; return true }
+    }
+    @Test fun testStockLoaderFromUpdater() {
+        val fake = Fake().apply { updater = true }; val uid = ByteArray(16).apply { this[0] = 42 }
+        assertEquals(0, NativeCore.stockLoader(uid, fake)); assertEquals(1, fake.rom); assertEquals(0, fake.begun)
     }
     @Test fun testPackageInspection() {
         val products = NativeCore.products(bundle())!!

@@ -51,6 +51,14 @@ class FirmwareUpdaterActivityTest {
         assertNull(AndroidNativeUsb.kind(device(0x2dc8, 0x310a)))
         controller.pause().stop().destroy()
     }
+    @Test fun customDeviceCanEnterStockLoaderWithoutPackage() {
+        val controller = Robolectric.buildActivity(FirmwareUpdaterActivity::class.java).setup()
+        val activity = controller.get()
+        shadowOf(activity.getSystemService(UsbManager::class.java)).addOrUpdateUsbDevice(device(0x16c0, 0x05df), false)
+        views(activity.window.decorView).filterIsInstance<Button>().first { it.text == "Rescan USB" }.performClick()
+        assertTrue(views(activity.window.decorView).filterIsInstance<Button>().first { it.text.contains("16c0:05df") }.isEnabled)
+        controller.pause().stop().destroy()
+    }
     @Test fun updaterIsReachableWithoutAConnectedPad() {
         val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
         val activity = controller.get()
