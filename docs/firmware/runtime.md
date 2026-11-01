@@ -44,3 +44,41 @@ The app keeps a boot counter in retained SRAM. A restart is established when
 the counter increases and uptime restarts together. USB re-enumeration or loss
 of console output alone does not prove a restart.
 
+
+## Ultimate 2C Wireless power policy
+
+The default battery-idle action releases the board's power hold. No last-slot
+record is read or written, either in flash or analog retention registers.
+A Bluetooth boot with Home alone stays idle until Home plus a slot button
+selects a slot. Its normal release connects; holding the chord performs the
+usual pairing gesture. Once selected, the current RAM remembers the slot for
+Home-only reconnects until power is lost. The rear switch's 2.4 GHz mode still
+connects its receiver with Home and has no Bluetooth slot to select.
+USB power prevents the ordinary inactivity power-off.
+
+The sleep method and last-slot storage are independent build choices:
+
+| Option | Choices | Default |
+|---|---|---|
+| `U2CW_SLEEP` | `poweroff`, `deep` | `poweroff` |
+| `U2CW_LAST_SLOT` | `none`, `analog`, `flash` | `none` |
+
+`deep` keeps the board's power hold and enters GPIO-woken deep sleep without
+SRAM retention. Home low or USB power high wakes it. The motor/light outputs
+are turned off, the ADC and USB pull-up are disabled, and the watchdog is
+stopped before entry. A returned sleep call falls back to releasing the hold.
+Probe and profiler builds force power-off even when `deep` is selected.
+
+`analog` retains the slot in registers 0x38/0x39 with a validity check. It
+survives deep sleep while the board remains powered; it does not survive a
+power cut. `flash` uses settings-log key 63 and the legacy four-byte last-slot
+record; unchanged selections are not rewritten. Ephemeral operation does not
+write either form of last-slot storage. Ordinary settings and bonds continue
+to use their existing flash records in all configurations.
+
+The default does not read or erase an old last-slot flash record. Enabling
+`flash` can reuse such a record. With either retention option, a missing or
+disabled retained slot follows the existing fallback to a configured slot.
+Whole-board sleep current and the cause of excessive discharge with the power
+hold retained are not established. Chip deep-sleep specifications alone do
+not establish the battery lifetime of the assembled pad.

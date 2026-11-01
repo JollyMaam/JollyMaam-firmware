@@ -380,19 +380,15 @@ int board_usb_present(void)
     return gpio_read(GPIO_PD0) != 0;
 }
 
-/* Deep sleep with the battery hold kept: the last slot stays in analog
- * registers (platform_telink.c).  A GPIO output's level is not kept in deep
- * sleep (gpio.h), so PD7's pull-up holds the supply on, and the motors' and
- * lights' pull-downs keep them off.  Home (low) or USB
- * power (high) wakes the pad through a reset.  Home held now would wake it
- * at once: released first.  If it does not sleep, the hold is released as
- * before: Home can still supply power while held, and a cable arriving
- * then boots normally rather than strand the CPU. */
+/* Power-off releases PD7 after Home is up. U2CW_DEEP_SLEEP keeps the supply
+ * held and asks the chip to sleep instead: Home low or USB power high wakes
+ * it through a reset. NO_DEEP_SLEEP keeps probe/profiler builds in power-off.
+ * A failed sleep falls through to releasing the hold. */
 void board_power_off(void)
 {
     u32 i;
 
-    /* Off, and held off by pull-downs: deep sleep lets go of the outputs */
+    /* Off, with pull-downs ready for the low-power pin state. */
     for (i = 0; i < OUTPUTS; i++) {
         output_set(&outputs[i], 0);
         gpio_setup_up_down_resistor(outputs[i].pin, PM_PIN_PULLDOWN_100K);
@@ -402,10 +398,10 @@ void board_power_off(void)
     usb_dp_pullup_en(0);
     irq_disable();
     wd_stop();
-    gpio_setup_up_down_resistor(GPIO_PD7, PM_PIN_PULLUP_10K);
     while (!gpio_read(HOME)) if (board_usb_present()) start_reboot();
-#ifndef NO_DEEP_SLEEP                    /* test builds: their rings take the RAM */
+#if defined(U2CW_DEEP_SLEEP) && !defined(NO_DEEP_SLEEP)
     if (!board_usb_present()) {
+        gpio_setup_up_down_resistor(GPIO_PD7, PM_PIN_PULLUP_10K);
         cpu_set_gpio_wakeup(HOME, Level_Low, 1);
         cpu_set_gpio_wakeup(GPIO_PD0, Level_High, 1);
         blc_pm_select_internal_32k_crystal();

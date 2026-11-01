@@ -61,6 +61,9 @@ static struct {
     u32 activity_ms, sleep_ms, since_ms, usb_seen_ms;
     u8 sleeping, idle, stopping, pending, renew, pair_down;
     u8 slot, last_slot, pending_slot;   /* last_slot: a Bluetooth one, never RECEIVER */
+#ifdef U2CW_REQUIRE_SLOT_SELECTION
+    u8 slot_chosen;              /* a Bluetooth slot explicitly chosen this boot */
+#endif
     u8 radio_24g;                /* the board's switch, as the session has it */
     u8 config;                   /* the session is config mode */
     u8 peer[6];
@@ -241,6 +244,9 @@ static void start_session(u8 slot, int pairing, int renew)
     } else {
         if (c.session.pairing && renew) set_pairing_address(slot, 1, c.session.address);
         if (c.session.settings->type != PROFILE_SWITCH2) c.session.address[5] |= 0xc0;
+#ifdef U2CW_REQUIRE_SLOT_SELECTION
+        c.slot_chosen = 1;
+#endif
         if (!set_is_ephemeral()) plat_retain_slot(slot);
         profile = slot_profile(c.session.settings);
     }
@@ -270,13 +276,16 @@ static __attribute__((noinline)) void start_config(void)
     util_log("ctl: config mode");
 }
 
-/* Only Home connects at boot: a cable that powers the pad up, a reboot or
- * the way back from the updater leave it idle, the slot ready for Home. */
+/* Only Home can connect at boot. With no retained slot the explicit slot
+ * gesture is needed; a cable, reboot or updater return always stays idle. */
 static void start(void)
 {
     struct plat_boot b;
     u8 slot = plat_retained_slot();
 
+#ifdef U2CW_REQUIRE_SLOT_SELECTION
+    c.slot_chosen = slot < LITE_SLOTS;
+#endif
     plat_boot_info(&b);
     plat_input(&c.raw);
     c.radio_24g = c.raw.radio_24g;
@@ -284,7 +293,18 @@ static void start(void)
     if (!slot_ready(slot)) for (slot = 0; slot < LITE_SLOTS && !slot_ready(slot); slot++) {}
     c.last_slot = slot < LITE_SLOTS ? slot : 0;
     util_log("ctl: boot cause %u, slot %u%s", b.cause, slot, c.radio_24g ? ", 2.4G" : "");
-    if (b.cause == BOOT_HOME) {
+#ifdef U2CW_REQUIRE_SLOT_SELECTION
+    /* A cold Home+slot chord must reach the gesture engine. Home alone
+     * cannot silently choose the fallback slot when nothing was retained. */
+    if (b.cause != BOOT_HOME || c.slot_chosen || c.radio_24g) ux_ignore_held();
+#else
+    ux_ignore_held();
+#endif
+    if (b.cause == BOOT_HOME
+#ifdef U2CW_REQUIRE_SLOT_SELECTION
+        && (c.slot_chosen || c.radio_24g)
+#endif
+    ) {
         start_session(c.radio_24g ? RECEIVER : slot, -1, 0);
         return;
     }
@@ -311,6 +331,9 @@ static void transition(u8 kind, u8 slot, u8 renew)
 
 static void select_session(u8 kind, u8 slot, u8 renew)
 {
+#ifdef U2CW_REQUIRE_SLOT_SELECTION
+    if (slot == SLOT_LAST && !c.radio_24g && !c.slot_chosen) return;
+#endif
     if (slot == SLOT_LAST) slot = c.last_slot;
     if (c.radio_24g) slot = RECEIVER;    /* the switch on 2.4G: no slots */
     if (!slot_ready(slot)) {
@@ -661,7 +684,6 @@ void ctl_main(void)
     c.status.raw = &c.raw;
     c.lit = 0xff;
     set_init();
-    ux_ignore_held();
     start();
     for (;;) {
         power = power_step(plat_ms());
@@ -709,7 +731,7 @@ static struct bt_bond test_bonds[LITE_SLOTS];
 #define test_bond test_bonds[0]
 static struct set_slot test_slots[LITE_SLOTS];
 static u8 test_addresses[LITE_SLOTS][6], retained;
-static int ephemeral, retained_writes;
+static int ephemeral, retained_writes, held_ignored;
 static struct bt_ev test_events[2];
 static u8 event_at, event_count;
 
@@ -757,7 +779,7 @@ void plat_power_off(void) { CHECK(flushes > offs); offs++; }
 void plat_reboot(void) { reboots++; }
 void plat_reboot_loader(void) { reboots++; }
 void plat_reboot_updater(void) { reboots++; }
-void ux_ignore_held(void) {}
+void ux_ignore_held(void) { held_ignored++; }
 void cal_start(u32 now) { (void)now; }
 void plat_motors(u8 left, u8 right) { CHECK(!left && !right); motors++; }
 static struct led_frame test_frame;
@@ -818,7 +840,10 @@ static void test_reset(void)
         test_addresses[i][5] |= 0xc0;
     }
     retained = SLOT_NONE;
-    ephemeral = retained_writes = event_at = event_count = 0;
+#ifdef U2CW_REQUIRE_SLOT_SELECTION
+    c.slot_chosen = 1;
+#endif
+    ephemeral = retained_writes = held_ignored = event_at = event_count = 0;
     c.activity_ms = test_ms;
     c.linked = 1;
 }
@@ -1000,6 +1025,24 @@ int main(void)
     test_events[0].kind = BT_EV_STOPPED; event_at = 0; event_count = 1;
     bluetooth();
     CHECK(c.idle && !starts);
+#ifdef U2CW_REQUIRE_SLOT_SELECTION
+    /* No retained slot: cold Home alone stays idle, including its release.
+     * A held Home+slot chord remains available to the gesture engine. */
+    test_reset(); c.linked = 0; boot_cause = BOOT_HOME; start();
+    CHECK(c.idle && !starts && !held_ignored && !c.slot_chosen);
+    select_session(REQ_CONNECT, SLOT_LAST, 0);
+    CHECK(c.idle && !starts && !stops);
+    select_session(REQ_CONNECT, 2, 0); stopped(test_ms);
+    CHECK(starts == 1 && c.slot == 2 && c.slot_chosen);
+    transition(REQ_NONE, SLOT_NONE, 0); stopped(test_ms);
+    select_session(REQ_CONNECT, SLOT_LAST, 0); stopped(test_ms);
+    CHECK(starts == 2 && c.slot == 2);
+    /* USB/reset boots drain held keys and still require explicit selection. */
+    test_reset(); c.linked = 0; boot_cause = BOOT_USB; start();
+    CHECK(c.idle && !starts && held_ignored && !c.slot_chosen);
+    select_session(REQ_CONNECT, SLOT_LAST, 0); CHECK(!starts && !stops);
+    boot_cause = BOOT_HOME;
+#endif
     /* Boot resumes the retained slot, falling back if it is disabled. */
     test_reset(); retained = 3; start(); CHECK(c.slot == 3);
     test_reset(); retained = 3; test_slots[3].type = PROFILE_NONE;

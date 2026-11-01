@@ -39,10 +39,29 @@ $(U2CW_PAD)_DEFINES += -DSLOTS_STORED=4
 # in time reports must wait out (U2CW_CPU_HZ=24000000 for the old clock).
 U2CW_CPU_HZ ?= 48000000
 $(U2CW_PAD)_DEFINES += -DCLOCK_SYS_CLOCK_HZ=$(U2CW_CPU_HZ)
+# U2CW_SLEEP=deep U2CW_LAST_SLOT=analog restores the retained-supply mode.
+# U2CW_LAST_SLOT=flash opts into last-slot writes; none never accesses it.
+# Long-term idle cuts the board's power by default. Deep sleep deliberately
+# keeps the power hold asserted; select it explicitly for current measurements.
+U2CW_SLEEP ?= poweroff
+U2CW_LAST_SLOT ?= none
+ifeq ($(U2CW_SLEEP),deep)
+$(U2CW_PAD)_DEFINES += -DU2CW_DEEP_SLEEP
+else ifneq ($(U2CW_SLEEP),poweroff)
+$(error U2CW_SLEEP must be poweroff or deep)
+endif
+ifeq ($(U2CW_LAST_SLOT),analog)
+$(U2CW_PAD)_DEFINES += -DU2CW_LAST_SLOT_ANALOG
+else ifeq ($(U2CW_LAST_SLOT),flash)
+$(U2CW_PAD)_DEFINES += -DU2CW_LAST_SLOT_FLASH
+else ifeq ($(U2CW_LAST_SLOT),none)
+$(U2CW_PAD)_DEFINES += -DU2CW_REQUIRE_SLOT_SELECTION
+else
+$(error U2CW_LAST_SLOT must be none, analog or flash)
+endif
 # The latency probe (padtool latency) is off: its ring fits only in the
 # spare RAM in .data, for test builds (make ... U2CW_PROBE_EDGES=6), which
-# power off instead of deep sleep to make the room (the last slot is then
-# lost in sleep).
+# power off instead of deep sleep to make the room.
 U2CW_PROBE_EDGES ?= 0
 $(U2CW_PAD)_DEFINES += -DPROBE_EDGES=$(U2CW_PROBE_EDGES)
 ifneq ($(U2CW_PROBE_EDGES),0)
@@ -113,6 +132,7 @@ $(U2CW_UPDATER)_LOADER_HINT := $($(U2CW_PAD)_LOADER_HINT)
 $(U2CW_UPDATER)_BOARD_DIR := $($(U2CW_PAD)_BOARD_DIR)
 $(U2CW_UPDATER)_LDFLAGS := $($(U2CW_PAD)_LDFLAGS)
 $(U2CW_UPDATER)_DEFINES := -DLOG_LINES=16 -DLOG_TEXT=48
+$(U2CW_UPDATER)_DEFINES += $(filter -DU2CW_DEEP_SLEEP -DNO_DEEP_SLEEP,$($(U2CW_PAD)_DEFINES))
 $(U2CW_UPDATER)_SOURCES :=
 $(U2CW_UPDATER)_SOURCES += src/updater/updater.c
 $(U2CW_UPDATER)_SOURCES += src/updater/updater_telink.c

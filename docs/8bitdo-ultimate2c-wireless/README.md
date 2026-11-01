@@ -133,6 +133,28 @@ the lights is not established.
 - The board's current consumption with the power hold released, and its
   charging behavior, are not established.
 
+The TLSR8208 datasheet (DS-TLSR8208-E13, version 1.0.2, sections 1.2.3,
+2.3 and 2.5) distinguishes these low-power modes:
+
+| Mode | Wake sources | What remains powered |
+|---|---|---|
+| Deep sleep without SRAM retention | GPIO, 32 kHz timer or RESETB | chip power-management domain |
+| Deep sleep with SRAM retention | GPIO, 32 kHz timer or RESETB | power-management domain and retained SRAM |
+| Shutdown | RESETB only | power-management domain |
+
+The quoted 0.55 microamp deep-sleep current is for the chip with external
+wakeup, without SRAM retention or the 32 kHz RC oscillator. It is not a
+measurement of this board. The board's current with PD7 held high while the
+chip sleeps, and whether any external loads stay powered, are not established.
+Home's or PD0's connection to RESETB is not established; shutdown is therefore
+not established as a replacement for GPIO-woken sleep on this board.
+
+Analog retention registers are small bytes in the chip's powered retention
+domain, not flash storage or ADC measurements. Registers 0x38/0x39 survive
+deep sleep, but are cleared by chip/watchdog reset or loss of power. Lowering
+PD7 can remove the supply needed to keep them. Their power-on values are
+0x00 and 0xff respectively.
+
 Analog (ADC channel = PB pin number + 1; 14-bit differential against ground,
 1.2 V reference, input prescaler 1 as stock, analog `0xfa` = `0x3d`):
 
