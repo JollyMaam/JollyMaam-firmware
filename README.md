@@ -38,7 +38,8 @@ nix flake check                    # core, host and launcher regression checks
 ```
 
 `nix develop .#static` supplies the musl static toolchain, and
-`nix develop .#windows` supplies the Windows cross toolchain. Nix expressions
-under `nix/` are implementation modules of this flake, not independent channel-
-based environments. Current development environments target x86_64 Linux;
+`nix develop .#windows` supplies the Windows cross toolchain. All Nix package
+and shell definitions live directly in `flake.nix`; Linux and Windows updater
+packages share one definition that invokes Make. Current development environments
+target x86_64 Linux;
 Android native builds produce separate target-ABI libraries.
