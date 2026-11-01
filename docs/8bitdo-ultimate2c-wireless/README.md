@@ -4,6 +4,9 @@ Board facts for the 8BitDo Ultimate 2C Wireless pad, a Telink TLSR8208
 (B80): its pins, flash, boot loader and what its stock firmware shows.
 Stock firmware uses PB6 for battery sensing. Charging control is not established.
 
+[Stock battery reporting](re-battery.md) describes the voltage estimate, PD1,
+full indication, timing counters and low-battery shutdown.
+
 [Stock USB boot entry](re-bootloader.md) describes the pad and receiver command,
 their model query, shared USB PID and the receiver's unestablished recovery path.
 
