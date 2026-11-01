@@ -20,6 +20,11 @@ Whether USB insertion drives PC3 and wakes the pad is not established.
 The low-power configuration is in [../jieli/soc.md](../jieli/soc.md). Sleep current has not been
 measured.
 
+Stock 3.52's soft-off GPIO callback, wake table and PMU shutdown path are
+described in [re-stock-firmware.md](re-stock-firmware.md#soft-power-off-stock-352).
+Its wake records use the same Home and PC3 edges but have their per-port
+filter flags clear. The table above describes this firmware's configuration.
+
 ### USB presence signals
 
 PC3 reads low while USB is attached during normal app operation. The OTG

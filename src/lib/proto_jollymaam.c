@@ -20,6 +20,16 @@ int jm_identify_decode(const uint8_t *data, size_t size, struct jm_identity *out
   *out = id;
   return 1;
 }
+/* Decode battery fields from the compatible 16-byte STATUS reply. Legacy
+ * zero padding means unknown capabilities; retain its original voltage.
+ * Output is untouched on malformed frames or an invalid valid percentage. */
+int jm_battery_decode(const uint8_t *status, size_t size, struct jm_battery_status *out) {
+  if (!status || !out || size < 16) return 0;
+  struct jm_battery_status b = {rd16(status + 4), status[7], status[6]};
+  if ((b.flags & JM_BATTERY_PERCENT_VALID) && b.percent > 100) return 0;
+  *out = b;
+  return 1;
+}
 /* Logical SCSI-style command. HID/GATT framing belongs to the transport layer. */
 void jm_command(uint8_t cdb[16], uint8_t command, uint32_t argument) {
   memset(cdb, 0, 16); cdb[0] = 0xf5; cdb[1] = command;
@@ -57,6 +67,17 @@ int main(void) {
   assert(jm_identify_decode(data, 56, &id));
   assert(id.protocol == 1 && id.updater == 1 && id.product[16] == 0);
   assert(!id.board_name[0]);
+  struct jm_battery_status battery = {0};
+  uint8_t status[16] = {0};
+  status[4] = 0x58; status[5] = 0x0e; /* legacy 3672 mV */
+  assert(jm_battery_decode(status, sizeof status, &battery));
+  assert(battery.mv == 3672 && !battery.flags);
+  status[6] = JM_BATTERY_MV_VALID | JM_BATTERY_PERCENT_VALID | JM_BATTERY_CHARGE_VALID;
+  status[7] = 73;
+  assert(jm_battery_decode(status, sizeof status, &battery) && battery.percent == 73);
+  status[7] = 101;
+  assert(!jm_battery_decode(status, sizeof status, &battery) && battery.percent == 73);
+  assert(!jm_battery_decode(status, 15, &battery));
   jm_command(cdb, 0x43, 0x12345678);
   assert(cdb[0] == 0xf5 && cdb[1] == 0x43 && cdb[2] == 0x78 && cdb[5] == 0x12);
   assert(!jm_update_image_check(data, sizeof data, NULL));

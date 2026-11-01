@@ -19,11 +19,13 @@ import time
 import padtool as pad
 from padtransport import tool_paths
 
+DETAIL_FIELDS = ('battery_percent', 'charging', 'battery_low')
 FIELDS = ('timestamp_utc', 'elapsed_s', 'battery_mv', 'usb_powered', 'uptime_s', 'event', 'device')
 
 
 class Monitor:
-    def __init__(self, product, device=None):
+    def __init__(self, product, device=None, details=False):
+        self.details = details
         self.product = product
         self.requested = device
         self.path = None
@@ -58,9 +60,12 @@ class Monitor:
             data = pad.cmd(path, 0x01, length=16)
             if len(data) < 16:
                 raise OSError('Short STATUS response')
-            return dict(battery_mv=struct.unpack_from('<H', data, 4)[0],
+            reading = dict(battery_mv=struct.unpack_from('<H', data, 4)[0],
                         usb_powered=data[2], uptime_s=f'{struct.unpack_from("<I", data, 8)[0] / 1000:.3f}',
                         event='sample', device=path)
+            if self.details:
+                reading.update(pad.battery_status(data))
+            return reading
         except OSError as error:
             self.path = None
             return dict(event=f'disconnected: {error}', device=path)
@@ -80,19 +85,25 @@ def main():
     parser.add_argument('--product', default='U2C_WIRELESS')
     parser.add_argument('--device', help='USB tool path or full flash ID (otherwise select the only matching pad)')
     parser.add_argument('--interval', type=positive_interval, default=30, metavar='SECONDS')
+    parser.add_argument('--details', action='store_true', help='include estimated percent, charging state and low-battery status')
     parser.add_argument('--output', type=Path, help='also append CSV readings to this file')
     parser.add_argument('--samples', type=int, help='stop after this many rows, including disconnects')
     args = parser.parse_args()
     if args.samples is not None and args.samples <= 0:
         parser.error('--samples must be positive')
-    monitor = Monitor(args.product, args.device)
+    monitor = Monitor(args.product, args.device, args.details)
+    fields = FIELDS + DETAIL_FIELDS if args.details else FIELDS
     output = None
     try:
-        writers = [csv.DictWriter(sys.stdout, fieldnames=FIELDS)]
+        writers = [csv.DictWriter(sys.stdout, fieldnames=fields)]
         writers[0].writeheader()
         if args.output:
+            if args.output.exists() and args.output.stat().st_size:
+                with args.output.open(newline='') as previous:
+                    if next(csv.reader(previous), None) != list(fields):
+                        parser.error('--output CSV columns differ; use a new file or the matching --details setting')
             output = args.output.open('a', newline='')
-            writer = csv.DictWriter(output, fieldnames=FIELDS)
+            writer = csv.DictWriter(output, fieldnames=fields)
             if output.tell() == 0:
                 writer.writeheader()
             writers.append(writer)

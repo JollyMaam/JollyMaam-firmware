@@ -30,6 +30,7 @@ void board_start(void);          /* on the control thread, before the tick start
 void board_tick(void);           /* every tick, in its interrupt */
 void board_to_loader(void);      /* about to restart into the loader */
 int board_usb_sense(void);       /* 5 V on the USB connector */
+void board_battery(struct battery_status *out);
 int board_jack(void);            /* a plug in the headphone jack, not debounced */
 
 /* ---- the platform, for the board ----------------------------------------- */

@@ -206,7 +206,15 @@ u32 usb_command(const u8 cdb[16], u8 *d, u32 max, int from_host)
         if (max < 16) return 0;
         memset(d, 0, 16);
         d[2] = 1;
-        util_put16(d + 4, plat_battery_mv());
+        {
+            struct battery_status b;
+            plat_battery(&b);
+            d[3] = (b.flags & (JM_BATTERY_LOW_VALID | JM_BATTERY_LOW)) ==
+                   (JM_BATTERY_LOW_VALID | JM_BATTERY_LOW);
+            util_put16(d + 4, b.mv);
+            d[6] = b.flags;
+            d[7] = b.percent;
+        }
         util_put32(d + 8, plat_ms());
         n = 16;
         break;

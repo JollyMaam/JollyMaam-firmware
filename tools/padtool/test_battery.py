@@ -66,3 +66,39 @@ class BatteryTests(unittest.TestCase):
             self.assertEqual(len(rows), 2)
             self.assertEqual(rows[0]['battery_mv'], '3500')
             self.assertEqual(datetime.fromisoformat(rows[0]['timestamp_utc']).utcoffset().total_seconds(), 0)
+
+    def test_details_keep_percentage_separate_from_charging_and_full(self):
+        monitor = battery.Monitor('U2C_WIRELESS', details=True)
+        monitor.path = 'pad'
+        data = bytearray(16)
+        data[4:6] = (4184).to_bytes(2, 'little')
+        data[6] = 1 | 2 | 4 | 8 | 16 | 32
+        data[7] = 100
+        with patch.object(battery.pad, 'cmd', return_value=bytes(data)):
+            reading = monitor.sample()
+        self.assertEqual(reading['battery_percent'], 100)
+        self.assertEqual(reading['charging'], 'charging')
+        self.assertEqual(reading['battery_low'], 0)
+        data[6] &= ~16
+        with patch.object(battery.pad, 'cmd', return_value=bytes(data)):
+            self.assertEqual(monitor.sample()['charging'], 'not-charging')
+        data[6] = 0
+        with patch.object(battery.pad, 'cmd', return_value=bytes(data)):
+            legacy = monitor.sample()
+        self.assertEqual(legacy['battery_mv'], 4184)
+        self.assertEqual(legacy['battery_percent'], '')
+        self.assertEqual(legacy['charging'], '')
+
+    def test_csv_schema_mismatch_cannot_corrupt_an_existing_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'battery.csv'
+            original = ','.join(battery.FIELDS) + '\n'
+            output.write_text(original)
+            with patch('sys.argv', ['battery.py', '--samples', '1', '--details', '--output', str(output)]), \
+                 patch('sys.stdout', new_callable=io.StringIO), patch('sys.stderr', new_callable=io.StringIO), \
+                 patch.object(battery.Monitor, 'sample') as sample:
+                with self.assertRaises(SystemExit) as error:
+                    battery.main()
+                self.assertEqual(error.exception.code, 2)
+                sample.assert_not_called()
+            self.assertEqual(output.read_text(), original)

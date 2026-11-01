@@ -3,7 +3,7 @@
 ## Internal charger
 
 The BR23 PMU has an internal charger. Its control register is `P3_CHG_CON0`
-(P33 address `0x15`):
+(P33 address `0x1a`):
 
 | Bit | Name | Meaning |
 |---|---|---|

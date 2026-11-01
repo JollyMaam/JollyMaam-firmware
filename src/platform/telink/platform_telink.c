@@ -151,9 +151,10 @@ void plat_input(struct in_raw *raw)
     board_input(raw);
 }
 
-u16 plat_battery_mv(void)
+/* The board owns the sensor, voltage scale and charging-status pins. */
+void plat_battery(struct battery_status *out)
 {
-    return board_battery_mv();
+    board_battery(out);
 }
 
 /* The SDK's 32k-RC sleep entry stops the 32k watchdog through this (from

@@ -26,7 +26,8 @@
  *                         config mode also u16 at 88, the most data a
  *                         command takes there (profile_config.c)
  *   `0x01` STATUS         in (16): state, slot, USB powered, low battery, u16
- *                         battery mV, u32 uptime ms, ephemeral (12), settings
+ *                         battery mV (4), battery flags (6), estimated percent
+ *                         (7), u32 uptime ms (8), ephemeral (12), settings
  *                         items collected (13), u16 settings changes (14: goes
  *                         up whenever a value changes, from the tools or the
  *                         pad; the tools reload when it moves)
@@ -210,7 +211,9 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         data[1] = status->slot;
         data[2] = status->usb_powered;
         data[3] = status->low_battery;
-        util_put16(data + 4, status->battery_mv);
+        util_put16(data + 4, status->battery.mv);
+        data[6] = status->battery.flags;
+        data[7] = status->battery.percent;
         util_put32(data + 8, status->uptime_ms);
         data[12] = status->ephemeral;
         data[13] = status->staged;
@@ -483,7 +486,8 @@ u32 util_get32(const u8 *p) { return p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (
 int main(void)
 {
     u8 cdb[16] = { OP, CMD_IDENTIFY }, data[512];
-    static struct usb_status st = { CTL_IDLE, SLOT_NONE, 1, 0, 3900, 1234 };
+    static struct usb_status st = { .state = CTL_IDLE, .slot = SLOT_NONE, .usb_powered = 1,
+        .battery = {3900, 66, JM_BATTERY_MV_VALID | JM_BATTERY_PERCENT_VALID}, .uptime_ms = 1234 };
     struct ctl_request r;
 
     CHECK(usb_command(cdb, data, 40, 0) == 0);
@@ -508,6 +512,7 @@ int main(void)
     status = &st;
     cdb[1] = CMD_STATUS;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 16);
+    CHECK(data[6] == (JM_BATTERY_MV_VALID | JM_BATTERY_PERCENT_VALID) && data[7] == 66);
     CHECK(data[0] == CTL_IDLE && data[4] == (3900 & 0xff) && data[8] == (1234 & 0xff));
 #if !defined(NO_SETTINGS) && !defined(BOARD_DONGLE)
     CHECK(data[14] == 0x34 && data[15] == 0x12);     /* the settings change counter */

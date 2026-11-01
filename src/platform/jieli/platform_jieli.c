@@ -644,9 +644,10 @@ void plat_stats(struct plat_stats *out)
     plat_unlock();
 }
 
-u16 plat_battery_mv(void)
+/* The board owns the sensor, voltage scale and charging-status pins. */
+void plat_battery(struct battery_status *out)
 {
-    return adc_get_voltage(AD_CH_VBAT) * 4;
+    board_battery(out);
 }
 
 const u8 *plat_unique_id(void)

@@ -169,6 +169,54 @@ configuration needs enumeration of the stock devices.
 
 ## Power and charging
 
+### Soft power-off, stock 3.52
+
+Startup installs sleep-entry, sleep-exit and soft-off GPIO callbacks at
+`0x01e19ca4..0x01e19cbe`. Their addresses are `0x01e3d7c0`, `0x01e3d82e`
+and `0x01e3d830`. The callback pointers occupy offsets `360`, `364` and
+`376` in the power state at SRAM `0x1fcc0`.
+
+The soft-off RAM routine is at alias `0x02007178`. It calls the PMU
+preparation routine at `0x01e42f38`, which invokes the GPIO callback through
+offset `376`, restores wake ports and programs the PMU. The RAM routine
+disables peripheral blocks, unmounts flash and enters the hardware shutdown
+loop. Its peripheral and flash shutdown sequence has the same structure as
+the SDK soft-off sequence; it is not just a CPU idle loop.
+
+The GPIO callback parks ports A, B and C as inputs with pulls and digital
+inputs disabled, protecting the flash pins on port A. It also parks USB
+D+ and D-. There is no general port D parking pass in this callback.
+In particular, PA8 (amplifier), PB5 (sensor enable) and PB9
+(active-low LED power enable) are released as inputs. A separate
+battery-disconnecting latch operation in this path is not established.
+
+The wake table at `0x01e589f4`, installed at `0x01e3d74e..0x01e3d754`, has
+these port records in initialized SRAM:
+
+| Port | SRAM | Bytes | Configuration |
+|---|---|---|---|
+| 1 | `0xa167` | `01 01 02 1b 00` | PB11, falling edge, pulls enabled, Bluetooth resume, filter flag clear |
+| 2 | `0xa16c` | `00 00 02 23 00` | PC3, rising edge, no pulls, Bluetooth resume, filter flag clear |
+
+The wake setup at `0x01e3d500..0x01e3d516` uses byte 4 of each record to
+set or clear that port's filter-enable bit in P33 `0x95`. Both charge and
+sub-wakeup attributes are `2` (Bluetooth resume).
+
+Before calling the RAM soft-off routine, the application path at
+`0x01e48e66..0x01e48f54` stops its motor outputs and clears amplifier-enable
+PA8. At `0x01e48ecc..0x01e48ee2` it waits for Home release and checks it
+again after a delay. Immediately before soft-off it explicitly enables
+wake ports 1 and 2.
+
+The GPIO callback ends by setting P33 `0x05` bits 4..5 to `2`, selecting
+the SDK's 2.8 V weak-I/O level. It does not contain the Nova 2 Lite stock
+callback's extra clears of P33 `0x02` bits 1 and 2.
+
+Whole-board off current, the external enable pins' electrical states after
+PMU shutdown, and power removal from the stick MCU are not established.
+
+### Other charging evidence
+
 - Stock 3.52 contains pedestal and dock ADC detection, power-control code and
   charge-state strings. Its power-on function at `0x01e3a806` waits for a
   four-byte status block and enters charge and mode handling.

@@ -106,7 +106,7 @@ TELINK_SDK_USED += vendor/common/flash_prot.c
 # $(1) is NAME, $(...) is expanded once when it is called, and $$(...) when
 # the rule runs.
 define telink_board
-$(1)_OBJECTS := $(patsubst %.c,$(O)/$(1)/%.o,$($(1)_SOURCES)) \
+$(1)_OBJECTS := $(patsubst %.c,$(O)/$(1)/%.o,$($(1)_SOURCES) src/core/battery.c) \
 	$(patsubst %,$(O)/$(1)/sdk/%.o,$(basename $(TELINK_SDK_USED))) \
 	$(O)/$(1)/btstack/src/ble/att_db.o $(O)/$(1)/btstack/src/btstack_util.o
 $(1)_FLAGS := $(TELINK_DEFINES) -DBOARD_PID=\"$($(1)_PID)\" -DAPP_START=$($(1)_APP_START) \

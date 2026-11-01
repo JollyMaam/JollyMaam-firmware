@@ -434,6 +434,18 @@ STATUS. To record it every 30 seconds:
 DEV_ROOT=/dev/bwrap python3 tools/padtool/battery.py --output build/battery.csv
 ```
 
+For the Nova 2 Lite running our firmware:
+
+```sh
+DEV_ROOT=/dev/bwrap python3 tools/padtool/battery.py --product AC695X_TRANS --output build/nova-battery.csv
+```
+
+The Nova uses the BR23's internal VBAT ADC, with the driver's voltage multiplied
+by four. This monitor does not speak the stock firmware's protocol.
+
+The Cyclone 2 uses the same BR23 conversion; select it with
+`--product GS_C2_ADC_DEVICE`.
+
 Each CSV row contains a UTC timestamp, elapsed seconds, battery millivolts, USB
 power, device uptime and connection status. Output is printed immediately and
 appended to the optional file. `--interval 5` changes the period; `--samples 10`

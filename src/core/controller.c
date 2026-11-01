@@ -1,8 +1,6 @@
 #include <string.h>
 #include "pad.h"
 
-#define LOW_BATTERY_MV   3500
-#define BATTERY_OK_MV    3600
 #define BATTERY_CHECK_MS 1000
 #define USB_DEBOUNCE_MS  100
 #define USB_GONE_MS      500     /* a USB slot's host without frames this long: unplugged */
@@ -101,7 +99,7 @@ static struct {
     u8 usb_5v;                   /* 5 V on the connector: no power-off of our own */
     u32 usb_changed_ms, usb_plugged_ms, usb_absent_ms;
     u32 power_seen_ms;           /* last with frames or 5 V */
-    u16 battery_mv;
+    struct battery_status battery;
     u8 low_battery;
     u32 battery_ms;
     struct ctl_stats stats;
@@ -840,10 +838,10 @@ static void sample_power(u32 now)
     }
     if (now - c.battery_ms >= BATTERY_CHECK_MS) {
         c.battery_ms = now;
-        c.battery_mv = plat_battery_mv();
-        if (c.usb_powered) c.low_battery = 0;
-        else if (c.battery_mv < LOW_BATTERY_MV) c.low_battery = 1;
-        else if (c.battery_mv >= BATTERY_OK_MV) c.low_battery = 0;
+        plat_battery(&c.battery);
+        c.low_battery = !c.usb_powered &&
+            (c.battery.flags & (JM_BATTERY_LOW_VALID | JM_BATTERY_LOW)) ==
+            (JM_BATTERY_LOW_VALID | JM_BATTERY_LOW);
     }
 }
 
@@ -1251,7 +1249,7 @@ void ctl_main(void)
             st.slot = c.slot;
             st.usb_powered = c.usb_powered;
             st.low_battery = c.low_battery;
-            st.battery_mv = c.battery_mv;
+            st.battery = c.battery;
             st.uptime_ms = now;
             st.ephemeral = (u8)set_is_ephemeral();
             st.staged = (u8)(set_staged() < 255 ? set_staged() : 255);

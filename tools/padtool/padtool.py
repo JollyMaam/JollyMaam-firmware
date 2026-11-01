@@ -288,14 +288,38 @@ def status(path):
     return status_info(path)[0]
 
 
+BATTERY_MV_VALID, BATTERY_PERCENT_VALID, BATTERY_CHARGE_VALID = 1, 2, 4
+BATTERY_EXTERNAL_POWER, BATTERY_CHARGING = 8, 16
+BATTERY_LOW_VALID, BATTERY_LOW, BATTERY_FULL = 32, 64, 128
+
+
+def battery_status(data):
+    """Independent STATUS facts; legacy zero padding leaves new fields unknown."""
+    if len(data) < 16:
+        raise OSError("Short STATUS response")
+    flags, percent = data[6:8]
+    if flags & BATTERY_PERCENT_VALID and percent > 100:
+        raise OSError("Invalid battery percentage")
+    charging = ('charging' if flags & BATTERY_CHARGING else
+                'full' if flags & BATTERY_FULL else
+                'not-charging' if flags & BATTERY_EXTERNAL_POWER else 'on-battery') if flags & BATTERY_CHARGE_VALID else ''
+    return dict(battery_percent=percent if flags & BATTERY_PERCENT_VALID else '',
+                charging=charging,
+                battery_low=int(bool(flags & BATTERY_LOW)) if flags & BATTERY_LOW_VALID else '')
+
+
 def status_info(path):
     """The status line, and the settings change counter: it moves whenever a
     value changes, from any program or the pad itself (0 from older firmware)."""
     d = cmd(path, 0x01, length=16)
     state, slot, usb, low, mv, up, eph, staged, changes = struct.unpack_from("<BBBBHxxIBBH", d)
+    battery = battery_status(d)
+    extra = (f" ~{battery['battery_percent']}%" if battery['battery_percent'] != '' else '')
+    if battery['charging']:
+        extra += ' ' + battery['charging']
     slot = "-" if slot == 0xFF else "ABXY^v<>"[slot] if slot < 8 else str(slot)
     return (f"state {STATES[state] if state < len(STATES) else state} slot {slot} "
-            f"usb {usb} battery {mv} mV{' low' if low else ''} uptime {up / 1000:.1f} s"
+            f"usb {usb} battery {mv} mV{extra}{' low' if low else ''} uptime {up / 1000:.1f} s"
             f"{' EPHEMERAL' if eph else ''}{f' ({staged} uncommitted)' if staged else ''}"), changes
 
 

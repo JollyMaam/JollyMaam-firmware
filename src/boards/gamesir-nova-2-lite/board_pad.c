@@ -482,3 +482,14 @@ static const struct wakeup_param wakeups = {
     .sub = &sub_wkup, .charge = &charge_wkup,
 };
 const struct wakeup_param *const board_wakeups = &wakeups;
+
+/* Preserve the legacy VBAT reading; no board-specific level or charger
+ * status has been established here. Warning thresholds retain their policy. */
+void board_battery(struct battery_status *out)
+{
+    static struct battery_status b;
+
+    battery_voltage(&b, adc_get_voltage(AD_CH_VBAT) * 4, 0, 0);
+    battery_low(&b, 3500, 3600);
+    *out = b;
+}

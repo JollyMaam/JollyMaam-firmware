@@ -202,6 +202,9 @@ some 1 us for a 1):
 
 ## Power
 
+Stock sleep callbacks, wake tables and shutdown pin handling are described in
+[re-stock-power.md](re-stock-power.md).
+
 `PA0` is an active-high USB sense input: high with USB connected, low with
 it disconnected, with both internal pulls disabled. It is electrically
 connected to `PC7`.

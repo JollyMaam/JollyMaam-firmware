@@ -1,6 +1,8 @@
 #ifndef PAD_H
 #define PAD_H
 
+#include "../lib/proto_jollymaam_wire.h"
+
 #ifdef UNITTEST
 #include "test.h"
 #endif
@@ -866,6 +868,13 @@ struct ctl_stats {
 _Static_assert(sizeof(struct stat_hist) == 48 && sizeof(struct ctl_stats) == 272 + 4 * 48 + 32,
                "padtool reads struct ctl_stats byte for byte");
 
+/* ---- battery.c: board samples, estimates and independently valid facts --- */
+
+struct battery_status { u16 mv; u8 percent, flags; };
+void battery_voltage(struct battery_status *out, u16 mv, u16 empty_mv, u16 full_mv);
+void battery_low(struct battery_status *out, u16 low_mv, u16 okay_mv);
+void battery_charge(struct battery_status *out, int powered, int charging);
+
 /* Tool protocol 3 adds shared sensor calibration, queued by usb_poll().
  * Protocol 4 adds read-only setting defaults; 5 uses 15-point stick curves
  * and independent enable flags. These settings are pad-only. */
@@ -874,7 +883,7 @@ struct usb_status {
     u8 slot;
     u8 usb_powered;
     u8 low_battery;
-    u16 battery_mv;
+    struct battery_status battery;
     u32 uptime_ms;
     u8 ephemeral;
     u8 staged;               /* settings items waiting for commit */
@@ -988,7 +997,7 @@ int plat_usb_take(struct bt_write *w);      /* the host's next write, 0: none */
 /* Feature report 0xf5 "tool", whatever the personality (hidraw can send it):
  * the session ends and USB is the tool device again. */
 #define USB_TOOL_REPORT 0xf5
-u16 plat_battery_mv(void);
+void plat_battery(struct battery_status *out);
 void plat_stats(struct plat_stats *out);
 const u8 *plat_unique_id(void);
 extern const char board_name[];   /* model, e.g. "Cyclone 2" or "Cyclone 2 Dongle":

@@ -151,6 +151,11 @@ static u32 matrix_poll(void)
 
 #define AXES 6
 #define BATTERY_CHANNEL AXES
+#define BATTERY_LEVEL_EMPTY_MV 3500
+#define BATTERY_LEVEL_FULL_MV 4100
+#define BATTERY_LOW_MV 3500
+#define BATTERY_OKAY_MV 3600
+#define CHARGE_STATUS GPIO_PD1
 #define BATTERY_TICK_SHIFT 24    /* a 16 MHz timer tick every ~1.05 seconds */
 /* With no settling at all, R2 read 2 codes low next to a fully pulled L2
  * (1650 codes away), at rest within the noise: 5 us. */
@@ -173,7 +178,7 @@ static volatile u32 dma[4] __attribute__((aligned(16)));
 static struct {
     u8 valid;
     u8 battery_tick;                 /* clock_time() >> BATTERY_TICK_SHIFT */
-    u16 battery_code;                /* uses the padding before tick */
+    u16 battery_mv;                  /* uses the padding before tick */
     u32 tick;                        /* clock_time(): the last sweep started */
     u16 code[AXES];                  /* 13-bit, the middle two of four samples */
     u16 woke[AXES];                  /* the codes at the last EV_STICKS */
@@ -194,12 +199,12 @@ static void adc_start(void)
     ad.tick = clock_time();
 }
 
-static void adc_read(u32 axis)
+static int adc_read(u32 channel, u16 *out)
 {
     u16 sorted[4];
     u32 i, j, start, complete;
 
-    adc_set_ain_chn_misc(axis_channels[axis], GND);
+    adc_set_ain_chn_misc(channel, GND);
     sleep_us(MUX_SETTLE_US);
     adc_reset_adc_module();
     for (i = 0; i < 4; i++) dma[i] = DMA_EMPTY;
@@ -212,19 +217,35 @@ static void adc_read(u32 axis)
             if (dma[i] == DMA_EMPTY) complete = 0;
     } while (!complete && !clock_time_exceed(start, SAMPLE_TIMEOUT_US));
     dfifo_disable_dfifo2();
-    if (!complete) {
-        ad.valid &= (u8)~(1u << axis);
-        return;
-    }
+    if (!complete) return 0;
     for (i = 0; i < 4; i++) {
         u16 c = dma[i] & (1u << 13) ? 0 : (u16)(dma[i] & 0x1fff);   /* negative: 0 */
 
         for (j = i; j > 0 && sorted[j - 1] > c; j--) sorted[j] = sorted[j - 1];
         sorted[j] = c;
     }
-    if (axis == BATTERY_CHANNEL) ad.battery_code = (u16)((sorted[1] + sorted[2]) / 2);
-    else ad.code[axis] = (u16)((sorted[1] + sorted[2]) / 2);
-    ad.valid |= (u8)(1u << axis);
+    *out = (u16)((sorted[1] + sorted[2]) / 2);
+    return 1;
+}
+
+/* Match stock's two voltage truncations, then apply this board's warning
+ * hysteresis and approximate 3.5--4.1 V level scale. No charger control. */
+static void battery_sample(void)
+{
+    struct battery_status b = {0};
+    u16 code;
+    u32 mv = 0;
+
+    if (adc_read(axis_channels[BATTERY_CHANNEL], &code)) {
+        ad.valid |= (u8)(1u << BATTERY_CHANNEL);
+        mv = ((u32)code * 1175) >> 13;
+    } else ad.valid &= (u8)~(1u << BATTERY_CHANNEL);
+    b.flags = ad.valid & 0x80 ? JM_BATTERY_LOW : 0;
+    battery_voltage(&b, (u16)(mv * 37 / 10), 0, 0);
+    battery_low(&b, BATTERY_LOW_MV, BATTERY_OKAY_MV);
+    ad.battery_mv = b.mv;
+    ad.valid = (ad.valid & 0x7f) | (b.flags & JM_BATTERY_LOW ? 0x80 : 0);
+    ad.battery_tick = (u8)(clock_time() >> BATTERY_TICK_SHIFT);
 }
 
 /* A sweep that moved an axis by MOVED wakes the control loop, as a button
@@ -235,7 +256,8 @@ static u32 sweep(void)
 
     ad.tick = clock_time();
     for (axis = 0; axis < AXES; axis++) {
-        adc_read(axis);
+        if (adc_read(axis_channels[axis], &ad.code[axis])) ad.valid |= (u8)(1u << axis);
+        else ad.valid &= (u8)~(1u << axis);
         if (ad.code[axis] > ad.woke[axis] + MOVED || ad.code[axis] + MOVED < ad.woke[axis]) moved = 1;
     }
     if (moved) memcpy(ad.woke, ad.code, sizeof(ad.woke));
@@ -338,6 +360,10 @@ void board_init(void)
     gpio_set_output_en(GPIO_PD0, 0);
     gpio_set_input_en(GPIO_PD0, 1);
     gpio_setup_up_down_resistor(GPIO_PD0, PM_PIN_UP_DOWN_FLOAT);
+    gpio_set_func(CHARGE_STATUS, AS_GPIO);
+    gpio_set_output_en(CHARGE_STATUS, 0);
+    gpio_set_input_en(CHARGE_STATUS, 1);
+    gpio_setup_up_down_resistor(CHARGE_STATUS, PM_PIN_UP_DOWN_FLOAT);
     outputs_init();
     matrix_init();
     sleep_us(20);                    /* the pull-up */
@@ -347,8 +373,7 @@ void board_init(void)
     mx.bt_stable = !gpio_read(columns[4]);
     gpio_write(rows[3], 1);
     adc_start();
-    adc_read(BATTERY_CHANNEL);
-    ad.battery_tick = (u8)(clock_time() >> BATTERY_TICK_SHIFT);
+    battery_sample();
 }
 
 /* The keys down now, the matrix read in one go (matrix_poll spreads it
@@ -418,24 +443,20 @@ u32 board_poll(int sticks_on_demand)
     u32 e = matrix_poll();
 
     if (ad.battery_tick != (u8)(clock_time() >> BATTERY_TICK_SHIFT)) {
-        adc_read(BATTERY_CHANNEL);
-        ad.battery_tick = (u8)(clock_time() >> BATTERY_TICK_SHIFT);
+        battery_sample();
     }
     if (clock_time_exceed(ad.tick, sticks_on_demand ? SWEEP_DEMAND_US : SWEEP_PERIOD_US)) e |= sweep();
     return e;
 }
 
-/* Stock v1.06 at 0xb748 reads PB6, converts with 1175 mV / 8192, then
- * multiplies by 3700 / 1000 for the board's battery divider. Keep the same
- * two integer truncations. Read only the cached sample: reports must not
- * reconfigure the ADC while the input scanner owns it. */
-u16 board_battery_mv(void)
+/* Return a cached sensor sample and the live charger-activity input.
+ * PD1 is active low; high means not charging, not necessarily full. */
+void board_battery(struct battery_status *out)
 {
-    u32 mv;
-
-    if (!(ad.valid & (1u << BATTERY_CHANNEL))) return 0;
-    mv = ((u32)ad.battery_code * 1175) >> 13;
-    return (u16)(mv * 37 / 10);
+    out->flags = ad.valid & 0x80 ? JM_BATTERY_LOW : 0;
+    battery_voltage(out, ad.battery_mv, BATTERY_LEVEL_EMPTY_MV, BATTERY_LEVEL_FULL_MV);
+    battery_low(out, BATTERY_LOW_MV, BATTERY_OKAY_MV);
+    battery_charge(out, board_usb_present(), !gpio_read(CHARGE_STATUS));
 }
 
 static u16 clamp10(s32 v)

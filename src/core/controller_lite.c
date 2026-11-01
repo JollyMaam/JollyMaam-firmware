@@ -713,7 +713,10 @@ void ctl_main(void)
         c.status.state = state();
         c.status.slot = c.idle || c.sleeping || c.config || c.slot == RECEIVER ? SLOT_NONE : c.slot;
         c.status.usb_powered = (u8)plat_usb_present();
-        c.status.battery_mv = plat_battery_mv();
+        plat_battery(&c.status.battery);
+        c.status.low_battery = !c.status.usb_powered &&
+            (c.status.battery.flags & (JM_BATTERY_LOW_VALID | JM_BATTERY_LOW)) ==
+            (JM_BATTERY_LOW_VALID | JM_BATTERY_LOW);
         c.status.uptime_ms = plat_ms();
         c.status.ephemeral = (u8)set_is_ephemeral();
         c.status.staged = (u8)(set_staged() < 255 ? set_staged() : 255);

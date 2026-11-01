@@ -44,6 +44,56 @@ The app keeps a boot counter in retained SRAM. A restart is established when
 the counter increases and uptime restarts together. USB re-enumeration or loss
 of console output alone does not prove a restart.
 
+## Cyclone 2 soft power-off
+
+The radio stops before power-off. The controller requests IMU-off outside a
+session and normally stops motor output outside a connected session. The
+board's power-off hook stops the watchdog, stops audio, sends a dark LED
+frame and waits for its transfer before calling the SDK soft-off routine.
+The hook does not separately wait for an IMU-off I2C transfer to complete.
+
+The GPIO callback preserves Home/PB11, PC3 and face-button pins PA0, PA6,
+PA7 and PA13, as well as flash pins. PA13 also serves as flash chip select
+on SPI0 port B. Other ordinary GPIOs are parked as inputs with their pulls
+and digital inputs disabled. This releases amplifier-enable PA8, sensor-enable
+PB5 and active-low LED-power-enable PB9. Blanking the LED frame does not
+establish removal of the LED supply. Disabling the BR23's UART receiver does
+not establish removal of power from the separate stick MCU.
+
+Compared with [stock 3.52](../gamesir-cyclone2/re-stock-firmware.md#soft-power-off-stock-352),
+the callback keeps additional face-button inputs, and the wake records enable
+per-port filtering. It also parks port D apart from protected flash pins;
+stock's callback has no general port D parking pass. There is no explicit wait
+for Home release in the GPIO callback or board power-off hook. Both implementations release the peripheral
+enable pins before final PMU shutdown; their physical off-state supply and
+current effects are not established.
+
+## Nova 2 Lite soft power-off
+
+The radio stops before power-off. Pending settings are flushed, the watchdog
+is stopped, motors are stopped, and a dark frame is sent to the LED chain.
+After a 1 ms latch interval the firmware calls the SDK's soft power-off.
+The SDK invokes the GPIO callback, configures wake ports, programs the PMU,
+disables peripherals and unmounts flash before the final shutdown loop.
+
+The GPIO callback preserves Home/PB1, USB sense/PA0, matrix row PA6 and matrix
+column PC2, as well as flash pins. PA6 and PC2 are preserved so the boot loader
+chord can be read before the SDK restores parked pins. PA6 keeps its pull-up
+and digital input. PC2 keeps its scan state: output low when selected, input
+without pulls when another column is selected. Other ordinary GPIOs have
+their pulls and digital inputs disabled and become inputs. USB D+ and D- are
+parked as inputs without pulls or digital inputs.
+
+Compared with [stock shutdown](../gamesir-nova-2-lite/re-stock-power.md), this
+keeps two additional matrix pins active, does not explicitly restore PB11's
+pull-up or PA9's pull-down, and does not wait for Home release in the GPIO
+callback. It also does not make stock's extra clears of `P3_ANA_CON2` bits 1
+and 2. Whether these differences affect whole-board off current is not
+established. The internal-charger wake attribute is disabled, while stock's
+is enabled; USB insertion uses PA0 instead. Automatic SDK low-power sleep
+while the app runs is inhibited;
+that policy does not replace the explicit soft power-off call.
+
 
 ## Ultimate 2C Wireless power policy
 

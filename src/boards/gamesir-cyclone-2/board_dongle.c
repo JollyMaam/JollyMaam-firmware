@@ -63,3 +63,9 @@ u32 imu_poll(u32 now, u8 mode)
     (void)now; (void)mode;
     return 0;
 }
+
+/* This USB-powered board has no battery measurements. */
+void board_battery(struct battery_status *out)
+{
+    memset(out, 0, sizeof(*out));
+}
