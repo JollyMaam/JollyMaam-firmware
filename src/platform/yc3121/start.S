@@ -5,7 +5,9 @@
  * PendSV 0x10, SysTick 0x16 (6 bytes each), then IRQ n at 0x1c + 4n.
  * Nothing here enables an interrupt; every entry but reset goes to
  * yc_fault(), which records it, and returns from the exception into a
- * restart through the boot loader.  The vectors are the ROM's (a Cortex-M0
+ * restart through the boot loader.  Interrupts come through the loader at
+ * app + 0x9c with r0 = 4 n (stock's layout), to yc_irq_table: only USB's
+ * (IRQ 0) is enabled.  The vectors are the ROM's (a Cortex-M0
  * has no VTOR): HardFault runs the ROM's handler, which resets the chip if
  * OTP word 0 is 0x7777 (and 0xf853c bit 0 clear), else calls the loader's
  * stub, which comes here when the loader's mode (0xf8564) is not 2. */
@@ -25,15 +27,28 @@ _entry:
 	bx r0
 	nop
 	.endr
-	.rept 32                        /* IRQ 0..31 */
+	.rept 32                        /* IRQ 0..31 (the loader never uses these) */
 	b trap_near
 	nop
 	.endr
+	.thumb_func
+irq:                                    /* app + 0x9c: the loader's IRQ entry, r0 = 4 n */
+	ldr r1, =yc_irq_table
+	ldr r0, [r0, r1]
+	bx r0
 	.thumb_func
 trap_near:
 	ldr r0, =trap
 	bx r0
 	.ltorg
+
+	.section .rodata.irq_table, "a"
+	.balign 4
+yc_irq_table:                           /* IRQ 0 USB; the rest are not enabled */
+	.long plat_usb_irq
+	.rept 31
+	.long trap
+	.endr
 
 	.text
 	.thumb_func

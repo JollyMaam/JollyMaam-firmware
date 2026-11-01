@@ -1,10 +1,11 @@
 #include "pad.h"
 #include "yc3121.h"
+#include "usb_yc3121.h"
 
 /* YC3121 platform basics: the clock from SysTick (24 bits on the CPU clock,
- * counted down), the chip reset, and what utils.c asks for.  No interrupts
- * run, so the lock is empty and the clock advances only when read: the
- * main loop must call plat_ms() or plat_us() at least every 0.34 s. */
+ * counted down), the chip reset, and what utils.c asks for.  The clock
+ * advances only when read: something must call plat_ms() or plat_us() at
+ * least every 0.34 s. */
 
 static struct {
     uint32_t last;               /* SysTick's count when last read */
@@ -24,22 +25,30 @@ void plat_clock_init(void)
 
 u32 plat_us(void)
 {
-    uint32_t now = YC_SYST_CVR;
+    uint32_t now, us;
 
+    plat_lock();                        /* the USB interrupt reads it too */
+    now = YC_SYST_CVR;
     clock.cycles += (clock.last - now) & 0xffffff;
     clock.last = now;
     clock.us += clock.cycles / YC_CPU_MHZ;
     clock.cycles %= YC_CPU_MHZ;
-    return clock.us;
+    us = clock.us;
+    plat_unlock();
+    return us;
 }
 
 u32 plat_ms(void)
 {
-    uint32_t us = plat_us();
+    uint32_t us, ms;
 
+    plat_lock();
+    us = plat_us();
     clock.ms += (us - clock.ms_at) / 1000;
     clock.ms_at = us - (us - clock.ms_at) % 1000;
-    return clock.ms;
+    ms = clock.ms;
+    plat_unlock();
+    return ms;
 }
 
 void plat_delay_ms(u32 ms)
@@ -58,8 +67,21 @@ void yc_delay_us(uint32_t us)
         ;
 }
 
-void plat_lock(void) {}
-void plat_unlock(void) {}
+/* Interrupts off, nesting; only USB's runs (it serves the tool device). */
+static u32 lock_depth, lock_primask;
+
+void plat_lock(void)
+{
+    u32 primask;
+
+    __asm__ volatile ("mrs %0, primask\n cpsid i" : "=r" (primask) :: "memory");
+    if (!lock_depth++) lock_primask = primask;
+}
+
+void plat_unlock(void)
+{
+    if (--lock_depth == 0 && !(lock_primask & 1)) __asm__ volatile ("cpsie i" ::: "memory");
+}
 
 /* Out through the boot loader, as stock does (its 0x01021410): its mode
  * register to 2, then its reset handler, which starts the app again unless
@@ -74,6 +96,8 @@ void plat_restart(int loader)
 {
     *(volatile uint8_t *)0xf6000 = 0;   /* USB CONFIG: off the bus */
     plat_delay_ms(20);
+    plat_usb_drain();                   /* the loader would read it as its first SETUP */
+    *(volatile uint8_t *)0xf6012 = 0x40;
     __asm__ volatile ("cpsid i");
     YC_SYST_CSR = 0;
     *(volatile uint32_t *)0xf856c |= 1u << 6;   /* CLK_CLS: the USB clock off */

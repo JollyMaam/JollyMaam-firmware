@@ -46,7 +46,10 @@ static const struct pin keys[3] = { { 1, 10 }, { 2, 11 }, { 2, 12 } };   /* Home
 void plat_clock_init(void);
 void plat_log_fault(void);
 
-static u8 reboot_pending, radio_start_pending, bt_up_pending, hid_connected;
+static volatile u8 reboot_pending, radio_start_pending, bt_up_pending, raw_pending;
+static u8 hid_connected;
+static u8 raw[256];              /* 0x3b's packet, for the main loop */
+static u16 raw_len;
 
 /* The core's bond table (event 0x0d, 5 records of 34 bytes), given back at
  * start (command 0x26) as stock does; kept over a restart, not yet in flash. */
@@ -114,7 +117,7 @@ static void log_packet(const struct radio_packet *p)
 }
 
 /* A command, then its acknowledgement: event 0x06 {id, status} (0x29 for
- * 0x77 and 0x78), within 500 ms; USB stays served meanwhile. */
+ * 0x77 and 0x78), within 500 ms. */
 static int bt_command(u8 id, const u8 *data, u16 len, int wide)
 {
     u8 ack = id == 0x77 || id == 0x78 ? 0x29 : 0x06;
@@ -124,7 +127,6 @@ static int bt_command(u8 id, const u8 *data, u16 len, int wide)
         return 0;
     }
     for (u32 t0 = plat_ms(); plat_ms() - t0 < 500;) {
-        plat_usb_poll();
         if (!plat_radio_take(&packet)) continue;
         log_packet(&packet);
         if (packet.id == ack && (ack == 0x29 || packet.data[0] == id))
@@ -227,13 +229,32 @@ u32 usb_tool_command(const u8 *report, u8 *data, u32 n, u32 max)
             data[i] = *(volatile u8 *)(arg + i);
         return k;
     }
+    case 0x3e: {                         /* bring-up: the USB counters */
+        const struct usb_events *e = plat_usb_events();
+        u32 v[] = { e->resets, e->setups, e->odd_setups, e->stalls, e->commands,
+                    e->set_reports, e->get_reports, e->out_packets, e->out_idle, e->out_last,
+                    e->incomplete, e->incomplete_got, e->incomplete_want, e->loop_max_us };
+
+        if (max < sizeof(v)) return 0;
+        for (u32 i = 0; i < sizeof(v) / 4; i++) put32(data + 4 * i, v[i]);
+        return sizeof(v);
+    }
+    case 0x39: {                         /* bring-up: the EP0 trace, oldest first */
+        u32 k = sizeof(usb_trace) < max ? sizeof(usb_trace) : max;
+
+        memcpy(data, &usb_trace, k);
+        if (arg == 1) usb_trace.stop = 0, usb_trace.next = 0;   /* argument 1: and rearm */
+        return k;
+    }
     case 0x3a:                           /* bring-up: start the Bluetooth core */
         radio_start_pending = 1;
         return 0;
     case 0x3b:                           /* bring-up: data {id, wide, payload} to the core */
-        if (n < 2) return 0;
-        data[0] = (u8)plat_radio_send(data[0], data + 2, (u16)(n - 2), data[1]);
-        return 1;
+        if (n < 2 || n > sizeof(raw) || raw_pending) return 0;
+        memcpy(raw, data, n);
+        raw_len = (u16)n;
+        raw_pending = 1;
+        return 0;
     case 0x3c:                           /* bring-up: Bluetooth up as a generic gamepad */
         bt_up_pending = 1;
         return 0;
@@ -261,15 +282,20 @@ int main(void)
     util_log_init();
     util_log("bring-up %s, HCLK_CON %08x", BUILD_ID, (unsigned)YC_HCLK_CON);
     plat_log_fault();
+    *(volatile u32 *)0xe000e180 = ~0u;  /* NVIC: what the loader left on, off */
     plat_usb_init();
+    __asm__ volatile ("cpsie i" ::: "memory");
 
     const struct usb_events *ev = plat_usb_events();
     u32 resets = 0, odd = 0, stalls = 0;
     u8 configured = 0;
     u32 tick_ms = plat_ms(), held = 0, tick = 0, reboot_at = 0, last_keys = 0, sent_keys = ~0u;
 
+    u32 pass_us = plat_us();
     for (;;) {
-        plat_usb_poll();
+        u32 now_us = plat_us();
+        if (now_us - pass_us > ev->loop_max_us) ((struct usb_events *)ev)->loop_max_us = now_us - pass_us;
+        pass_us = now_us;
         if (ev->resets != resets) util_log("usb: bus reset (%u)", (unsigned)(resets = ev->resets));
         if (ev->configured != configured) util_log("usb: configured %u", configured = ev->configured);
         if (ev->odd_setups != odd) util_log("usb: SETUP of %u bytes (%u)", ev->odd_length, (unsigned)(odd = ev->odd_setups));
@@ -282,6 +308,10 @@ int main(void)
             radio_start_pending = 0;
             util_log("bt: start");
             util_log("bt: started %d", plat_radio_start());
+        }
+        if (raw_pending) {
+            if (!plat_radio_send(raw[0], raw + 2, (u16)(raw_len - 2), raw[1])) util_log("bt: %02x: no room", raw[0]);
+            raw_pending = 0;
         }
         if (bt_up_pending) {
             bt_up_pending = 0;

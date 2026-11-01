@@ -4,8 +4,10 @@
 #include "usb_yc3121.h"
 
 /* USB on the YC3121: the tool device (a vendor HID interface, commands as
- * feature reports, as platform_telink_usb.c's without input reports), polled
- * from the main loop with the USB interrupt off.
+ * feature reports, as platform_telink_usb.c's without input reports),
+ * served from the USB interrupt.  It has to be: the controller takes the
+ * host's next OUT packet while the last is still in its FIFO, and a polled
+ * driver lost the tail of multi-packet SET_REPORTs (single packets never).
  *
  * The controller as stock v1.01 drives it (its USB core, 0x01024e78 and the
  * functions under it); none of this is in Yichip's published SDK:
@@ -17,11 +19,14 @@
  *   gives it after each SET_REPORT data packet, nothing at that SETUP)
  *   0xf6011 STALL: 1 stalls EP0 (with TRIGGER 0x10); it stays until written
  *   0, so each SETUP clears it (stock never does: not established)
+ *   0xf6012 CLEAR: stock's and the loader's init write 0x40 (meaning not
+ *   established)
  *   0xf6018 + ep: the endpoint's FIFO, a byte per access
  *   0xf6020 + ep: the length of the OUT packet in the FIFO
  *   0xf6026 STATUS (write 1 to clear): bit 0 EP0 OUT or SETUP (bit 4: it is
- *   a SETUP), bits 1-3 EP1-3 OUT, bit 6 toggles while the bus runs (an IN
- *   packet is triggered after it is seen again), bit 7 bus reset
+ *   a SETUP; set while the packet is still arriving), bits 1-3 EP1-3 OUT,
+ *   bit 6 a transaction done (stock waits for it before an IN packet, and
+ *   before reading a SETUP whose FIFO count is not 8), bit 7 bus reset
  *   0xf6027 (write 1 to clear): bit n, EP n's IN packet went out
  * Its clock: CLK_CLS bits 13 and 6 cleared (on), 0xc8905 = 0xff,
  * HCLK_CON |= 0x800. */
@@ -31,6 +36,7 @@
 #define USB_ADDR       (*(volatile uint8_t *)0xf6004)
 #define USB_TRIGGER    (*(volatile uint8_t *)0xf6010)
 #define USB_STALL      (*(volatile uint8_t *)0xf6011)
+#define USB_CLEAR      (*(volatile uint8_t *)0xf6012)
 #define USB_FIFO(ep)   (*(volatile uint8_t *)(0xf6018 + (ep)))
 #define USB_LEN(ep)    (*(volatile uint8_t *)(0xf6020 + (ep)))
 #define USB_STATUS     (*(volatile uint8_t *)0xf6026)
@@ -71,6 +77,7 @@ static const u8 configuration_descriptor[] = {
 
 static struct usb_events events;
 
+
 static struct {
     u8 setup[8];
     u8 address_pending, configuration;
@@ -89,7 +96,32 @@ static struct {
     u8 data[DATA_MAX];
 } t;
 
+/* Bring-up: the last EP0 events, kept over a restart (.noinit). */
+struct usb_trace usb_trace __attribute__((section(".noinit")));
+
+static void trace(u8 status, u8 sent, u8 len, const u8 *setup)
+{
+    struct usb_trace_entry *e;
+
+    if (usb_trace.stop && usb_trace.next >= usb_trace.stop) return;
+    e = &usb_trace.e[usb_trace.next++ % USB_TRACE];
+
+    e->ms = (u16)plat_ms();
+    e->status = status, e->sent = sent, e->len = len;
+    e->type = setup ? setup[0] : 0xff;
+    e->request = setup ? setup[1] : 0xff;
+    e->state = (u8)(u.receiving | u.sending << 1 | (u.got / 4 > 63 ? 63 : u.got / 4) << 2);
+}
+
 /* ---- the controller -------------------------------------------------------- */
+
+/* Bytes left in EP0's FIFO (a restart through the loader keeps them, and
+ * its first SETUP would then be read out of step). */
+void plat_usb_drain(void)
+{
+    for (int i = 0; i < 1024 && USB_LEN(0); i++)
+        (void)USB_FIFO(0);
+}
 
 void plat_usb_init(void)
 {
@@ -99,6 +131,8 @@ void plat_usb_init(void)
     YC_HCLK_CON |= 0x800;
     USB_CONFIG = 0;
     plat_delay_ms(20);                   /* the host sees the loader's device go */
+    USB_CLEAR = 0x40;
+    plat_usb_drain();
     USB_TRIGGER = 0xc0;
     USB_CONFIG = 0x3c;
     USB_STATUS = 0xff;
@@ -108,6 +142,12 @@ void plat_usb_init(void)
     USB_MASK(1) = 0xf0;
     USB_MASK(2) = 0xff;
     memset(&u, 0, sizeof(u));
+    *(volatile u32 *)0xe000e100 = 1;    /* NVIC: IRQ 0 on */
+}
+
+void plat_usb_irq(void)
+{
+    plat_usb_poll();
 }
 
 /* After bit 6 of STATUS comes round again, as stock does before each IN. */
@@ -219,6 +259,12 @@ static void setup(void)
     u8 value_lo = u.setup[2], value_hi = u.setup[3];
     u16 length = (u16)(u.setup[6] | u.setup[7] << 8);
 
+    if (u.receiving) {
+        if (!usb_trace.stop) usb_trace.stop = usb_trace.next + 4;   /* the trace keeps it */
+        events.incomplete++;
+        events.incomplete_got = u.got;
+        events.incomplete_want = u.want;
+    }
     u.sending = u.receiving = 0;
     events.setups++;
     if (type == 0x80 && request == 6) {                  /* GET_DESCRIPTOR */
@@ -249,11 +295,13 @@ static void setup(void)
     } else if (type == 0x21 && request == 0x0a) {        /* SET_IDLE */
         ep0_zlp();
     } else if (type == 0xa1 && request == 1 && value_hi == 3) {   /* GET_REPORT feature */
+        events.get_reports++;
         ep0_answer(u.buf, tool_report(u.buf));
     } else if (type == 0x21 && request == 9 && value_hi == 3 && length) {   /* SET_REPORT feature */
         u.receiving = 1;
         u.got = 0;
         u.want = length < REPORT ? length : REPORT;   /* stock triggers nothing here */
+        events.set_reports++;
     } else {
         ep0_stall();
     }
@@ -262,6 +310,10 @@ static void setup(void)
 /* An EP0 OUT packet: SET_REPORT data, or a control read's status stage. */
 static void ep0_out(u8 n, u8 skip)
 {
+    if (!n && u.receiving) return;      /* its event came after we took the packet */
+    events.out_packets++;
+    events.out_last = n;
+    if (!u.receiving) events.out_idle++;
     for (u8 i = 0; i < n; i++) {
         u8 b = USB_FIFO(0);
         if (i >= skip && u.receiving && u.got < REPORT) t.report[u.got++] = b;
@@ -274,37 +326,63 @@ static void ep0_out(u8 n, u8 skip)
     ep0_zlp();
 }
 
+/* EP0's FIFO count once the packet is all in: bit 0 of STATUS is set while
+ * it is still arriving (a 64-byte packet takes ~43 us at full speed), and a
+ * poll that read it then took a part as the packet and lost the rest.
+ * Stock reads from its interrupt, late enough not to see this. */
+static u8 ep0_settled(void)
+{
+    u8 n = USB_LEN(0);
+
+    for (int i = 0; i < 40; i++) {      /* up to ~120 us */
+        yc_delay_us(3);
+        u8 m = USB_LEN(0);
+        if (m == n && (n == EP0_SIZE || i >= 2)) break;
+        n = m;
+    }
+    return n;
+}
+
 void plat_usb_poll(void)
 {
     u8 status = USB_STATUS, sent = USB_SENT;
 
-    if (!(status | sent)) return;
+    if (!(status | (sent & 0x0f))) return;         /* sent bit 4 stays set */
     if (status & 0x80) {
         USB_ADDR = 0;
         memset(&u, 0, sizeof(u));
         events.resets++;
     }
-    USB_STATUS = 0xe0;
+    USB_STATUS = 0xa0;                  /* bit 6 stays: it ends an EP0 packet */
     if (status & 0x0e) USB_STATUS = status & 0x0e;      /* EP1-3 OUT: not used */
     if (status & 1) {
-        u8 n = USB_LEN(0);
+        u8 n;
 
+        /* Bit 0 comes while the packet is still arriving (the FIFO count
+         * growing), bit 6 when it is in.  Then the event is cleared before
+         * the FIFO is read: the next packet sets the same bits, and a
+         * SET_REPORT's first data packet follows its SETUP unasked. */
+        for (u32 t0 = plat_us(); !(status & 0x40) && plat_us() - t0 < 300;)
+            status |= USB_STATUS & 0x40;
+        USB_STATUS = (status & 0x10 ? 0x11 : 0x01) | 0x40;
+        n = ep0_settled();
         if (u.address_pending) {
             USB_ADDR |= 0x80;
             u.address_pending = 0;
         }
         if (status & 0x10) {
-            USB_STATUS = 0x11;
             USB_STALL = 0;
-            for (int i = 0; i < 8; i++) u.setup[i] = USB_FIFO(0);
             if (n != 8) events.odd_setups++, events.odd_length = n;
+            for (int i = 0; i < 8; i++) u.setup[i] = USB_FIFO(0);
+            trace(status, sent, n, u.setup);
             setup();
-            if (n > 8) ep0_out((u8)(n - 8), 0);         /* data with it */
+            if (n > 8) ep0_out((u8)(n - 8), 0);         /* the data stage's first packet with it */
         } else {
-            USB_STATUS = 1;
+            trace(status, sent, n, NULL);
             ep0_out(n, 0);
         }
     }
+    if (!(status & 1) && (status & 0x8e || sent & 0x0f)) trace(status, sent, 0, NULL);
     if (sent & 0x0f) {
         USB_SENT = sent & 0x0f;
         if ((sent & 1) && u.sending) ep0_next();
