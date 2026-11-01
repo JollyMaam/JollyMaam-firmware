@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Package padtool for Windows and Linux: make padtool-dist.
 
-    tools/padtool_dist.py --build build --version ID --out build/padtool-ID.zip
+    tools/padtool/padtool_dist.py --build build --version ID --out build/padtool-ID.zip
 
 The zip holds padtool (CLI and GUI, without its tests), the Jieli RAM
 loaders the GUI's flasher needs (br23loader.bin, bd19loader.bin, beside
@@ -23,7 +23,7 @@ import subprocess
 import sys
 import zipfile
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 BLEAK = "bleak==2.1.1"            # the version padble was tested with (BlueZ)
 PYTHONS = ["3.11", "3.12", "3.13", "3.14"]   # 3.10 gets an older winrt, other files
 PLATFORMS = {"win": "x86_64-pc-windows-msvc", "linux": "x86_64-unknown-linux-gnu"}
@@ -135,9 +135,12 @@ def main():
     tool = stage / "padtool"
     tool.mkdir(parents=True)
 
-    for f in sorted((ROOT / "padtool").iterdir()):
-        if f.is_file() and (f.suffix in (".py", ".pyw") or f.name == "README.md") and not f.name.startswith("test_"):
-            shutil.copy2(f, tool / f.name)
+    for f in sorted((ROOT / "tools" / "padtool").iterdir()):
+        if f.is_file() and (f.suffix in (".py", ".pyw") or f.name == "README.md") and not f.name.startswith("test_") and f.name != "padtool_dist.py":
+            if f.name == "README.md":
+                (tool / f.name).write_text(f.read_text().replace("tools/padtool/", "padtool/"))
+            else:
+                shutil.copy2(f, tool / f.name)
     for f in LOADERS:
         if not f.is_file():
             sys.exit(f"padtool_dist: no {f} (git submodule update --init external/jieli-fw-AC63_BT_SDK)")

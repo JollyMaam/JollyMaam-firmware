@@ -21,7 +21,7 @@ static BOOL WINAPI fake_ioctl(HANDLE handle, DWORD code, LPVOID input, DWORD inp
   return TRUE;
 }
 #define DeviceIoControl fake_ioctl
-#include "../src/lib/transport_win32.c"
+#include "../../src/lib/transport_win32.c"
 #undef DeviceIoControl
 int main(void) {
   uint8_t cdb[16]={0x12}, data[36]; struct jm_scsi_result result;

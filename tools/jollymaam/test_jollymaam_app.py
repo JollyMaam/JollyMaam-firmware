@@ -6,13 +6,13 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from tools import test_firmware_package as package_tests
+from tools.jollymaam import test_firmware_package as package_tests
 
 STUBS = r'''
 #include "src/lib/transport_custom.h"
 #include "src/lib/transport_hid.h"
 #include "src/lib/transport_jieli.h"
-#include "tools/jollymaam_update.h"
+#include "tools/jollymaam/jollymaam_update.h"
 #include "src/lib/platform.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -74,7 +74,7 @@ class AppTests(unittest.TestCase):
         stub = cls.root / 'stub.c'
         stub.write_text(STUBS)
         cls.binary = cls.root / 'app'
-        sources = ['tools/jollymaam_update.c', 'src/lib/package.c', 'src/lib/manifest.c',
+        sources = ['tools/jollymaam/jollymaam_update.c', 'src/lib/package.c', 'src/lib/manifest.c',
                    'src/lib/sha256.c', 'src/lib/proto_jollymaam.c', 'src/lib/proto_8bitdo.c',
                    'src/lib/jieli_image/entry.c', 'src/lib/jieli_image/crypto.c']
         subprocess.run([os.environ.get('CC', 'gcc'), '-std=c99', '-Wall', '-Wextra', '-Werror',
@@ -83,7 +83,7 @@ class AppTests(unittest.TestCase):
         scan_stub.write_text(STUBS[:STUBS.index('int main(int argc,char **argv)')])
         cls.cli = cls.root / 'cli'
         subprocess.run([os.environ.get('CC', 'gcc'), '-std=c99', '-Wall', '-Wextra', '-Werror',
-                        '-I.', str(scan_stub), 'tools/jollymaam.c', *sources,
+                        '-I.', str(scan_stub), 'tools/jollymaam/jollymaam.c', *sources,
                         'src/lib/jieli_image/image.c', 'src/lib/jieli_image/bankcb.c',
                         'src/lib/jieli_image/key.c', 'src/lib/jieli_image/ufw.c', '-o', str(cls.cli)], check=True)
         cls.package = cls.root / 'firmware.zip'
@@ -215,7 +215,7 @@ class AppTests(unittest.TestCase):
                 self.assertNotIn('help', subcommands)
 
     def test_selected_jieli_product_and_unlisted_scsi_endpoint(self):
-        from tools.test_jollymaam_jieli import JieliCliTests
+        from tools.jollymaam.test_jollymaam_jieli import JieliCliTests
         real_tool = Path(os.environ.get('JOLLYMAAM_TEST_APP', 'build/host/jollymaam')).resolve()
         if not real_tool.exists():
             self.skipTest('Build jollymaam for the Jieli package fixture')

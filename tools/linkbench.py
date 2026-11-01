@@ -25,7 +25,7 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-PADTOOL = [sys.executable, os.path.join(HERE, "..", "padtool", "padtool.py")]
+PADTOOL = [sys.executable, os.path.join(HERE, "padtool", "padtool.py")]
 OUT = os.path.join(HERE, "..", "build", "bench", "linkbench.jsonl")
 
 

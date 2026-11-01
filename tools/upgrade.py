@@ -18,7 +18,7 @@ import sys
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(ROOT, "padtool"))
+sys.path.insert(0, os.path.join(ROOT, "tools", "padtool"))
 from padtransport import scsi, tool_paths, usb_location  # noqa: E402
 
 OP = 0xF5

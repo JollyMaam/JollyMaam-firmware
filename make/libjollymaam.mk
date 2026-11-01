@@ -24,8 +24,8 @@ JOLLYMAAM_SOURCES := $(wildcard src/lib/jieli_image/*.c src/lib/proto_*.c src/li
 JOLLYMAAM_OBJECTS := $(JOLLYMAAM_SOURCES:src/lib/%.c=$(O)/host/libjollymaam/%.o)
 JOLLYMAAM_PLATFORM_SOURCES := src/lib/platform.c src/lib/transport_hid.c src/lib/transport_custom.c src/lib/transport_jieli.c $(if $(filter windows,$(JOLLYMAAM_PLATFORM)),src/lib/transport_win32.c,src/lib/transport_linux.c)
 JOLLYMAAM_PLATFORM_OBJECTS := $(JOLLYMAAM_PLATFORM_SOURCES:src/lib/%.c=$(O)/host/platform/%.o)
-JOLLYMAAM_APP_SOURCES := tools/jollymaam.c tools/jollymaam_jieli.c tools/jollymaam_update.c tools/jollymaam_restore.c
-JOLLYMAAM_APP_HEADERS := $(wildcard tools/jollymaam*.h)
+JOLLYMAAM_APP_SOURCES := tools/jollymaam/jollymaam.c tools/jollymaam/jollymaam_jieli.c tools/jollymaam/jollymaam_update.c tools/jollymaam/jollymaam_restore.c
+JOLLYMAAM_APP_HEADERS := $(wildcard tools/jollymaam/jollymaam*.h)
 
 # Rebuild host objects when changing compiler/ABI, dependency environment or
 # build flags in the same output directory. Compare before replacing the stamp.
@@ -64,11 +64,11 @@ $(JOLLYMAAM_IMAGE_TEST_BINS): $(O)/host/test-jollymaam-%$(JOLLYMAAM_EXEEXT): src
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) -std=c99 -DUNITTEST $< $(O)/host/libjollymaam.a $(JOLLYMAAM_LINK_FLAGS) -o $@
 $(JOLLYMAAM_MODULE_TEST_BINS): $(O)/host/test-jollymaam-%$(JOLLYMAAM_EXEEXT): src/lib/%.c $(O)/host/libjollymaam.a $(JOLLYMAAM_HEADERS)
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) -std=c99 -DUNITTEST $< $(O)/host/libjollymaam.a $(JOLLYMAAM_LINK_FLAGS) -o $@
-$(O)/host/test-jollymaam-upgrade$(JOLLYMAAM_EXEEXT): tools/test_jollymaam_upgrade.c $(O)/host/libjollymaam.a $(JOLLYMAAM_HEADERS)
+$(O)/host/test-jollymaam-upgrade$(JOLLYMAAM_EXEEXT): tools/jollymaam/test_jollymaam_upgrade.c $(O)/host/libjollymaam.a $(JOLLYMAAM_HEADERS)
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) -std=c99 $< $(O)/host/libjollymaam.a $(JOLLYMAAM_LINK_FLAGS) -o $@
-$(O)/host/test-jollymaam-jieli-flash$(JOLLYMAAM_EXEEXT): tools/test_jollymaam_jieli.c $(O)/host/libjollymaam.a $(JOLLYMAAM_HEADERS)
+$(O)/host/test-jollymaam-jieli-flash$(JOLLYMAAM_EXEEXT): tools/jollymaam/test_jollymaam_jieli.c $(O)/host/libjollymaam.a $(JOLLYMAAM_HEADERS)
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) -std=c99 $< $(O)/host/libjollymaam.a $(JOLLYMAAM_LINK_FLAGS) -o $@
-$(O)/host/test-jollymaam-session$(JOLLYMAAM_EXEEXT): tools/test_jollymaam_session.c $(O)/host/libjollymaam.a $(JOLLYMAAM_HEADERS)
+$(O)/host/test-jollymaam-session$(JOLLYMAAM_EXEEXT): tools/jollymaam/test_jollymaam_session.c $(O)/host/libjollymaam.a $(JOLLYMAAM_HEADERS)
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) -std=c99 $< $(O)/host/libjollymaam.a $(JOLLYMAAM_LINK_FLAGS) -o $@
 .PHONY: libjollymaam-test-build libjollymaam-test
 libjollymaam-test-build: $(JOLLYMAAM_TEST_BINS)
@@ -81,28 +81,28 @@ $(O)/host/test-jollymaam-scsi-linux: src/lib/transport_linux.c src/lib/transport
 .PHONY: libjollymaam-linux-test
 libjollymaam-linux-test: $(O)/host/test-jollymaam-scsi-linux
 	$(Q)$(HOST_RUNNER) $<
-$(O)/host/test-jollymaam-scsi-win32.exe: tools/test_jollymaam_win32.c src/lib/transport_win32.c $(O)/host/.jollymaam-config
+$(O)/host/test-jollymaam-scsi-win32.exe: tools/jollymaam/test_jollymaam_win32.c src/lib/transport_win32.c $(O)/host/.jollymaam-config
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) -std=c99 $< $(JOLLYMAAM_LINK_FLAGS) -lsetupapi -o $@
-$(O)/host/app-stubs.c: tools/test_jollymaam_app.py
+$(O)/host/app-stubs.c: tools/jollymaam/test_jollymaam_app.py
 	@mkdir -p $(@D)
-	$(Q)python3 -c 'from tools.test_jollymaam_app import STUBS; print(STUBS)' > $@
-$(O)/host/app-mock$(JOLLYMAAM_EXEEXT): $(O)/host/app-stubs.c tools/jollymaam_update.c $(O)/host/libjollymaam.a $(JOLLYMAAM_APP_HEADERS)
-	$(Q)$(HOST_CC) $(HOST_CFLAGS) -std=c99 -I. $< tools/jollymaam_update.c $(O)/host/libjollymaam.a $(JOLLYMAAM_LINK_FLAGS) -o $@
+	$(Q)python3 -c 'from tools.jollymaam.test_jollymaam_app import STUBS; print(STUBS)' > $@
+$(O)/host/app-mock$(JOLLYMAAM_EXEEXT): $(O)/host/app-stubs.c tools/jollymaam/jollymaam_update.c $(O)/host/libjollymaam.a $(JOLLYMAAM_APP_HEADERS)
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) -std=c99 -I. $< tools/jollymaam/jollymaam_update.c $(O)/host/libjollymaam.a $(JOLLYMAAM_LINK_FLAGS) -o $@
 .PHONY: jollymaam-windows-test-build
 jollymaam-windows-test-build: libjollymaam-test-build $(O)/host/test-jollymaam-scsi-win32.exe $(O)/host/app-mock.exe
 
-$(O)/host/check-jollymaam-image$(JOLLYMAAM_EXEEXT): tools/test_jollymaam_image.c $(O)/host/libjollymaam.a $(JOLLYMAAM_HEADERS)
+$(O)/host/check-jollymaam-image$(JOLLYMAAM_EXEEXT): tools/jollymaam/test_jollymaam_image.c $(O)/host/libjollymaam.a $(JOLLYMAAM_HEADERS)
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) -std=c99 $< $(O)/host/libjollymaam.a $(JOLLYMAAM_LINK_FLAGS) -o $@
 
 # Dependency and linkage checks are Make targets too, usable without Nix.
-$(O)/host/test-application-deps: tools/test_static_dependencies.c $(O)/host/.jollymaam-config
+$(O)/host/test-application-deps: tools/jollymaam/test_static_dependencies.c $(O)/host/.jollymaam-config
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) $< $$(pkg-config --static --cflags --libs $(HIDAPI_PKG) libusb-1.0 zlib libudev) -static -pthread -o $@
 .PHONY: jollymaam-static-deps-check jollymaam-link-check
 jollymaam-static-deps-check: $(O)/host/test-application-deps
 	$(Q)$<
-	$(Q)python3 tools/check_host_binary.py --platform linux --readelf $(HOST_READELF) $<
+	$(Q)python3 tools/jollymaam/check_host_binary.py --platform linux --readelf $(HOST_READELF) $<
 jollymaam-link-check: $(JOLLYMAAM_CLI)
-	$(Q)python3 tools/check_host_binary.py --platform $(JOLLYMAAM_PLATFORM) --readelf $(HOST_READELF) --objdump $(HOST_OBJDUMP) $<
+	$(Q)python3 tools/jollymaam/check_host_binary.py --platform $(JOLLYMAAM_PLATFORM) --readelf $(HOST_READELF) --objdump $(HOST_OBJDUMP) $<
 
 PREFIX ?= /usr/local
 .PHONY: install install-jollymaam install-jollymaam-tests
@@ -119,9 +119,9 @@ install-jollymaam-tests: jollymaam-windows-test-build
 
 .PHONY: firmware-package
 firmware-package:
-	$(Q)python3 tools/firmware_package.py --build-dir $(O) $(O)/firmware.zip
+	$(Q)python3 tools/jollymaam/firmware_package.py --build-dir $(O) $(O)/firmware.zip
 
 .PHONY: jollymaam-check
 jollymaam-check: jollymaam libjollymaam-test libjollymaam-linux-test
-	$(Q)python3 -m unittest tools/test_firmware_package.py tools/test_jollymaam_app.py tools/test_jollymaam_jni.py tools/test_jollymaam_restore.py tools/test_jollymaam_jieli.py tools/test_jollymaam_dist.py
+	$(Q)python3 -m unittest tools/jollymaam/test_firmware_package.py tools/jollymaam/test_jollymaam_app.py tools/jollymaam/test_jollymaam_jni.py tools/jollymaam/test_jollymaam_restore.py tools/jollymaam/test_jollymaam_jieli.py tools/jollymaam/test_jollymaam_dist.py
 	$(Q)python3 -m unittest discover -s android/tools -p 'test_*.py'

@@ -1,4 +1,4 @@
-#include "../src/lib/jollymaam.h"
+#include "../../src/lib/jollymaam.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>

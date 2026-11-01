@@ -1,5 +1,5 @@
-#include "../src/lib/jollymaam.h"
-#include "../src/lib/jieli_image/crypto.h"
+#include "../../src/lib/jollymaam.h"
+#include "../../src/lib/jieli_image/crypto.h"
 #include <assert.h>
 #include <string.h>
 #include <stdio.h>

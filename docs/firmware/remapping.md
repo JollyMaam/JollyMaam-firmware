@@ -3,7 +3,7 @@
 Remapping works on pad buttons, after the Home gestures (`src/core/settings_ux.c`),
 so every shortcut still uses the physical keys and the same remap works for
 every slot type. The engine is `src/core/remap.c`; the data is `struct set_remap`
-in `src/core/pad.h`; the tools' text form is `padtool/padremap.py`.
+in `src/core/pad.h`; the tools' text form is `tools/padtool/padremap.py`.
 
 ## Choosing a remap
 

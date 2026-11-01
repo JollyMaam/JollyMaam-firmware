@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import zipfile
 
-from tools.jollymaam_windows_dist import build as build_windows
+from tools.jollymaam.jollymaam_windows_dist import build as build_windows
 
 LINUX_README = '''JollyMaam firmware updater for Linux
 

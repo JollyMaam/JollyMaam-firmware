@@ -39,16 +39,17 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   `EXTRA_DEFINES=...` adds `-D` flags to a build (test and debug builds).
   `O=dir` builds somewhere else; per-board variables can be overridden on the
   command line (e.g. an empty `NAME_MAIN_AT` for a build without updater).
-- `padtool/`: `padtool.py` (CLI; `--help` lists every command), `padgui.pyw`
-  (Tk GUI), the transports.  `padtool/README.md` for setup.
-- `tools/`: `jollymaam.c` (host updater, Jieli image packer and flasher, built into
-  `build/host/`), `8bitdoboot.py` (the 8BitDo boot loader), `upgrade.py`
+- `tools/padtool/`: `padtool.py` (CLI; `--help` lists every command), `padgui.pyw`
+  (Tk GUI), the transports.  `tools/padtool/README.md` for setup.
+- `tools/jollymaam/`: `jollymaam.c` (host updater, Jieli image packer and flasher, built into
+  `build/host/`), its tests and release packaging helpers.
+- `tools/`: `8bitdoboot.py` (the 8BitDo boot loader), `upgrade.py`
   (every connected device), `padhub.c` (Linux UHID bridge for the dongle's
   hub, `tools/padhub.md`), `sdlpad.c` (what SDL sees), `linkbench.py`,
   `buildcommits.sh` (build a range of commits, for bisecting),
   `stackdepth.py` (the 8BitDo's deepest stack use, from its disassembly),
-  `padtool_dist.py` (`make padtool-dist`, make/padtool.mk: the Windows and Linux zip of padtool, bleak,
-  the RAM loaders and every board's firmware; `padtool/padinstall.py` is its
+  `tools/padtool/padtool_dist.py` (`make padtool-dist`, make/padtool.mk: the Windows and Linux zip of padtool, bleak,
+  the RAM loaders and every board's firmware; `tools/padtool/padinstall.py` is its
   first-install flasher).
 - `external/`: the SDKs and BTstack as submodules, `fetch-toolchains.sh` for
   the compilers.  BTstack is our fork of upstream plus bug fixes only.

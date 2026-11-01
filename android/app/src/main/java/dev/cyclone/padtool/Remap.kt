@@ -2,7 +2,7 @@ package dev.cyclone.padtool
 
 import kotlin.math.round
 
-/** Text and wire formats shared with padtool/padremap.py. */
+/** Text and wire formats shared with tools/padtool/padremap.py. */
 object Remap {
     data class Rule(val input: String, val trigger: String = "held", val effect: String = "hold",
         val outputs: List<String> = emptyList(), val ms: Int = 300, val rate: Int = 15)

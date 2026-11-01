@@ -9,14 +9,14 @@
  */
 #define _XOPEN_SOURCE 700
 #include "jollymaam_jieli.h"
-#include "../src/lib/jieli_image/crypto.h"
-#include "../src/lib/jieli_image/entry.h"
-#include "../src/lib/jieli_image/key.h"
-#include "../src/lib/jieli_image/ufw.h"
-#include "../src/lib/jieli_image/bankcb.h"
-#include "../src/lib/proto_jieli.h"
-#include "../src/lib/jieli_image/builder.h"
-#include "../src/lib/jieli_image/config.h"
+#include "../../src/lib/jieli_image/crypto.h"
+#include "../../src/lib/jieli_image/entry.h"
+#include "../../src/lib/jieli_image/key.h"
+#include "../../src/lib/jieli_image/ufw.h"
+#include "../../src/lib/jieli_image/bankcb.h"
+#include "../../src/lib/proto_jieli.h"
+#include "../../src/lib/jieli_image/builder.h"
+#include "../../src/lib/jieli_image/config.h"
 #include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>

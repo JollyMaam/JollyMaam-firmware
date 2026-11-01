@@ -7,7 +7,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from tools.test_firmware_package import PackageTests
+from tools.jollymaam.test_firmware_package import PackageTests
 
 
 def main():

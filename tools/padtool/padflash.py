@@ -16,7 +16,7 @@ from padtransport import device_paths, scsi, usb_location, is_tool
 
 # RAM loaders: a folder of <chip>loader.bin beside padtool, else the SDK.
 PACKAGED_LOADERS = Path(__file__).resolve().parent
-SDK = Path(os.environ.get("JIELI_SDK", Path(__file__).resolve().parent.parent / "external" / "jieli-fw-AC63_BT_SDK"))
+SDK = Path(os.environ.get("JIELI_SDK", Path(__file__).resolve().parents[2] / "external" / "jieli-fw-AC63_BT_SDK"))
 DEFAULT_LOADER = (PACKAGED_LOADERS if any((PACKAGED_LOADERS / c.blob).is_file() for c in CHIPS.values())
                   else SDK)
 

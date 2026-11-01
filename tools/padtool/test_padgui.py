@@ -774,7 +774,8 @@ class GuiTests(GuiCase):
         self.assertEqual(len(buttons), 1)
         one = record()
         with patch.object(padgui.pad, "discover_devices", return_value=[(one["path"], one["name"], one["identity"])]), \
-             patch("paddevices.read_device", return_value=one):
+             patch("paddevices.read_device", return_value=one), \
+             patch.object(self.app.monitor, "scan_bluetooth"):
             buttons[0].invoke()
             self.assertEqual(self.app.tree_status.cget("text"), "Looking…")
             self.assertNotIn("Looking", self.app.summary.get())
@@ -1428,7 +1429,7 @@ class FlasherTests(unittest.TestCase):
         import subprocess
         import tempfile
         from pathlib import Path
-        exe = Path(__file__).resolve().parent.parent / "build/host/jollymaam"
+        exe = Path(__file__).resolve().parents[2] / "build/host/jollymaam"
         if not exe.is_file():
             self.skipTest("build jollymaam first")
         with tempfile.TemporaryDirectory() as tmp:

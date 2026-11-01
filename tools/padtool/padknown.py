@@ -1,7 +1,7 @@
 """The pads and dongles padtool knows: by image PID, and stock firmware by its
 USB identity in each USB mode, with how each enters its ROM loader.
 
-Mirrors jollymaam's table (tools/jollymaam_jieli.c) and the board pages under docs/.
+Mirrors jollymaam's table (tools/jollymaam/jollymaam_jieli.c) and the board pages under docs/.
 """
 from dataclasses import dataclass
 from pathlib import Path
@@ -157,7 +157,7 @@ def firmware_dir(pid=None):
     this tree's build; that product's own folder when known.  None: the
     dialog's own choice."""
     here = Path(__file__).resolve().parent.parent
-    for folder in (here / "firmware", here / "build"):
+    for folder in (here / "firmware", here / "build", here.parent / "build"):
         if folder.is_dir():
             board = folder / BUILDS.get(pid or "", "")
             return str(board if pid in BUILDS and board.is_dir() else folder)

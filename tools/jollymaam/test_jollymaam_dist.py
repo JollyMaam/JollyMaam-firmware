@@ -4,7 +4,7 @@ import tempfile
 import unittest
 import zipfile
 
-from tools.jollymaam_dist import build_desktop, build_sdk
+from tools.jollymaam.jollymaam_dist import build_desktop, build_sdk
 
 
 class DistributionTests(unittest.TestCase):

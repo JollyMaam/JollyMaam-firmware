@@ -1,9 +1,9 @@
 #include "jollymaam_update.h"
-#include "../src/lib/platform.h"
-#include "../src/lib/manifest.h"
-#include "../src/lib/transport_custom.h"
-#include "../src/lib/transport_hid.h"
-#include "../src/lib/transport_jieli.h"
+#include "../../src/lib/platform.h"
+#include "../../src/lib/manifest.h"
+#include "../../src/lib/transport_custom.h"
+#include "../../src/lib/transport_hid.h"
+#include "../../src/lib/transport_jieli.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

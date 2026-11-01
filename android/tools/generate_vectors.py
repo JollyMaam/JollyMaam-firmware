@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 
 root = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(root / 'padtool'))
+sys.path.insert(0, str(root / 'tools' / 'padtool'))
 import padremap
 import padcurves
 import padflash

@@ -153,7 +153,7 @@ Module boundaries:
 - `platform.c` and `transport_*.c` implement desktop I/O and discovery.
 - The CLI owns approval, opening/closing the connection and presentation.
 
-Run reference image comparisons with `tools/test_jollymaam_images.py`, supplying
+Run reference image comparisons with `tools/jollymaam/test_jollymaam_images.py`, supplying
 a saved legacy image-tool binary and the current jollymaam binary plus image paths. It compares list,
 verify, unpacked file contents and a byte-exact full rebuild without device access.
 
@@ -204,7 +204,7 @@ matching RAM helper, while our app/updater uses the MAIN update image. Jieli
 devices remain in their loader after verification; 8BitDo and custom updater
 sessions request a firmware restart. Individual-image commands remain available.
 
-Run `nix develop --command bash -c 'python3 -m unittest tools/test_firmware_package.py'` for the
+Run `nix develop --command bash -c 'python3 -m unittest tools/jollymaam/test_firmware_package.py'` for the
 builder and malformed-container tests. They compile the C reader into a temporary
 shared library and compare its behavior with generated Python ZIP fixtures.
 
@@ -254,7 +254,7 @@ For stock bootloaders it uses the installation image. Jieli remains in its loade
 after verification; the 8BitDo starts its app. Real-device HID behavior is not yet
 hardware-validated. Frontend tests use fake devices and exercise confirmation,
 cancellation, rescanning, mismatched targets and failure handling without USB I/O.
-Run `python3 -m unittest tools/test_jollymaam_app.py` in the development shell.
+Run `python3 -m unittest tools/jollymaam/test_jollymaam_app.py` in the development shell.
 
 ## Core and platform connection boundary
 
@@ -434,7 +434,7 @@ or uploading helpers. The cross-chip top-level `scan` and package `update` comma
 their existing behavior.
 
 CLI argument handling and Jieli port/device policy live in
-`tools/jollymaam_jieli.c`; image formats and transformations live in the portable
+`tools/jollymaam/jollymaam_jieli.c`; image formats and transformations live in the portable
 core. Windows links its device-configuration calls against the system cfgmgr32
 library. Image inputs accept both Windows and POSIX path separators.
 `JOLLYMAAM_LOADER` and `JOLLYMAAM_DEBUG` are the environment names for this

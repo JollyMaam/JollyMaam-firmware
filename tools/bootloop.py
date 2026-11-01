@@ -19,7 +19,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-PADTOOL_DIR = os.path.join(REPO, "padtool")
+PADTOOL_DIR = os.path.join(REPO, "tools", "padtool")
 PADTOOL = [sys.executable, os.path.join(PADTOOL_DIR, "padtool.py")]
 sys.path.insert(0, PADTOOL_DIR)
 import padtool as pt  # noqa: E402

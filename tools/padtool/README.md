@@ -3,10 +3,10 @@
 Run from a checkout, with Python 3.10 or newer and Tk:
 
 ```sh
-python padtool/padgui.pyw
+python tools/padtool/padgui.pyw
 ```
 
-On Linux, `./padtool/padgui.pyw` also works. On Windows, double-click
+On Linux, `./tools/padtool/padgui.pyw` also works. On Windows, double-click
 `padgui.pyw` to launch without a console window using the Python file association.
 Windows Python's installer includes Tcl/Tk by default. `make padtool-dist`
 builds a zip for Windows and Linux with padtool, bleak (64-bit Windows and
@@ -16,7 +16,7 @@ Python distribution's Tk package (often `python3-tk`). With Nixpkgs:
 
 ```sh
 nix develop
-python padtool/padgui.pyw
+python tools/padtool/padgui.pyw
 ```
 
 There are no pip requirements for configuration, image flashing or backups.
@@ -66,7 +66,7 @@ Discard cancels Unpair without touching the pad. Slot and settings-group entries
 open detailed settings. The same firmware action is available from the CLI:
 
 ```sh
-python padtool/padtool.py unpair slot-a
+python tools/padtool/padtool.py unpair slot-a
 ```
 
 **Developer fields** at the bottom expands or collapses advanced settings,
@@ -183,13 +183,13 @@ in its travel, for fast repeated presses.
 The CLI sets the same fields in the same text (`padremap.py`):
 
 ```sh
-python padtool/padtool.py set remap-b name "Mario Kart" map swap-ab-xy
-python padtool/padtool.py set remap-b rules "r4 tapped:300 tap a; r4 held_for:300 hold l1; l4 pressed toggle_turbo a@15"
-python padtool/padtool.py set remap-b left_curve concave left_inner_deadzone 5
-python padtool/padtool.py set remap-b rules "r4 held turbo_modifier a+b+x@15" map r4=none
-python padtool/padtool.py set remap-b left_maps_to "right stick" right_maps_to "left stick" right_y_axis inverted
-python padtool/padtool.py set remap-b l2_press 5 r2_press 5 r2_mode hair
-python padtool/padtool.py set slot-a remap b
+python tools/padtool/padtool.py set remap-b name "Mario Kart" map swap-ab-xy
+python tools/padtool/padtool.py set remap-b rules "r4 tapped:300 tap a; r4 held_for:300 hold l1; l4 pressed toggle_turbo a@15"
+python tools/padtool/padtool.py set remap-b left_curve concave left_inner_deadzone 5
+python tools/padtool/padtool.py set remap-b rules "r4 held turbo_modifier a+b+x@15" map r4=none
+python tools/padtool/padtool.py set remap-b left_maps_to "right stick" right_maps_to "left stick" right_y_axis inverted
+python tools/padtool/padtool.py set remap-b l2_press 5 r2_press 5 r2_mode hair
+python tools/padtool/padtool.py set slot-a remap b
 ```
 
 `left_curve concave` fills and enables points; `disabled`/`enabled` only toggle
@@ -320,8 +320,8 @@ backup to restore them after installation. The GUI exposes no PID/key override.
 The Python backend can also run from a terminal:
 
 ```sh
-python padtool/padflash.py backup pad-backup.bin --pid GS_C2_ADC_DEVICE
-python padtool/padflash.py flash build/gamesir-cyclone-2-pad/firmware.img --pid GS_C2_ADC_DEVICE --backup before-flash.bin
+python tools/padtool/padflash.py backup pad-backup.bin --pid GS_C2_ADC_DEVICE
+python tools/padtool/padflash.py flash build/gamesir-cyclone-2-pad/firmware.img --pid GS_C2_ADC_DEVICE --backup before-flash.bin
 ```
 
 Omit `--backup` to flash without creating a backup.
@@ -357,7 +357,7 @@ says its build; a device installed or declined is not asked again while it
 stays connected.
 
 ```sh
-sudo python3 padtool/padinstall.py      # Linux; Windows: "Install firmware.py" in the zip (asks for admin)
+sudo python3 tools/padtool/padinstall.py      # Linux; Windows: "Install firmware.py" in the zip (asks for admin)
 ```
 
 ### The 8BitDo boot loader
@@ -372,9 +372,9 @@ already hold their part are not written again) and **Leave boot loader**,
 which starts the firmware there without flashing. From a terminal:
 
 ```sh
-python padtool/padtool.py boot                  # the boot loaders
-python padtool/padtool.py boot start            # leave it
-python padtool/padtool.py boot flash build/8bitdo-ultimate2c-wireless-pad/firmware.img
+python tools/padtool/padtool.py boot                  # the boot loaders
+python tools/padtool/padtool.py boot start            # leave it
+python tools/padtool/padtool.py boot flash build/8bitdo-ultimate2c-wireless-pad/firmware.img
 ```
 
 `pad8bitdo.py` has the boot loader's protocol, on `padhid.Device` (hidraw;

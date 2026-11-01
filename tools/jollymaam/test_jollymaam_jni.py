@@ -4,7 +4,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from tools import test_firmware_package as fixtures
+from tools.jollymaam import test_firmware_package as fixtures
 
 
 class JniTests(unittest.TestCase):

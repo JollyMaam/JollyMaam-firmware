@@ -5,7 +5,7 @@ from pathlib import Path
 import padremap as remap
 import padtool
 
-PAD_H = (Path(__file__).parent.parent / "src" / "core" / "pad.h").read_text()
+PAD_H = (Path(__file__).resolve().parents[2] / "src" / "core" / "pad.h").read_text()
 
 
 def c_enum(first):

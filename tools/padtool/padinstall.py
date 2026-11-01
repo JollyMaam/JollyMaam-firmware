@@ -4,7 +4,7 @@ what it is, asks, and writes the firmware.img for it from the zip's
 firmware folder (or this tree's build).  For the first flash from stock
 firmware; on this firmware already it reinstalls it.
 
-    sudo python3 padtool/padinstall.py     Linux (root, or udev rules for
+    sudo python3 tools/padtool/padinstall.py     Linux (root, or udev rules for
                                            every device it uses)
     Install firmware.py                    Windows, in the zip: asks for
                                            admin (the ROM loader is a disk)

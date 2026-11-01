@@ -47,7 +47,7 @@ def build(build_dir, sdk, output):
 
 
 def main():
-    root = Path(__file__).resolve().parent.parent
+    root = Path(__file__).resolve().parents[2]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build-dir', type=Path, default=root / 'build')
     parser.add_argument('--sdk', type=Path, default=root / 'external/jieli-fw-AC63_BT_SDK')

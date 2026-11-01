@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tkinter front end for padtool and the Python Jieli flasher. Run: python padtool/padgui.pyw."""
+"""Tkinter front end for padtool and the Python Jieli flasher. Run: python tools/padtool/padgui.pyw."""
 import contextlib
 import io
 from pathlib import Path

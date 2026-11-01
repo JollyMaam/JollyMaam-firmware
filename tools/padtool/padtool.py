@@ -125,7 +125,7 @@ outer deadzones and left_/right_curve (as a slot had).  Keys: a b x y up down le
 l4 r4 l3 r3 minus plus home m capture (or screenshot).
 
 The pad's tool device is HID; commands are usb.c's CDBs in feature reports
-(see the comment at the top of src/core/usb.c).  Flashing is tools/jollymaam_jieli.c's (make gamesir-cyclone-2-flash).
+(see the comment at the top of src/core/usb.c).  Flashing is tools/jollymaam/jollymaam_jieli.c's (make gamesir-cyclone-2-flash).
 """
 import argparse, collections, glob, json, os, select, struct, sys, threading, time
 from padtransport import scsi, device_paths, usb_location, data_max, is_tool, tool_name

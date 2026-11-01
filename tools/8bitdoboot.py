@@ -16,7 +16,7 @@
   start  leave the boot loader without flashing: it starts the app there
   scan   boot loaders, stock devices and our firmware (read-only identify)
 
-The loader's protocol is in padtool/pad8bitdo.py.
+The loader's protocol is in tools/padtool/pad8bitdo.py.
 """
 import argparse
 import os
@@ -26,7 +26,7 @@ import sys
 import time
 import zlib
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "padtool"))
+sys.path.insert(0, str(Path(__file__).resolve().parent / "padtool"))
 from padhid import dev_path  # noqa: E402
 from padtransport import scsi, tool_paths, usb_location  # noqa: E402
 from pad8bitdo import LOADER, MODELS, SECTOR, Loader, Stock, check, find_stock  # noqa: E402

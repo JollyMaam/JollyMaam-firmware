@@ -12,7 +12,7 @@ import tempfile
 import unittest
 import warnings
 import zipfile
-from tools.firmware_package import build, PRODUCTS
+from tools.jollymaam.firmware_package import build, PRODUCTS
 
 
 class Package(c.Structure):
