@@ -44,9 +44,15 @@
 #define YC_CLK_CLS     (*(volatile uint32_t *)0xf856c)
 
 #define EP0_SIZE   64
-#define DATA_MAX   300           /* a report of 320: five EP0 packets */
+/* The report is one EP0 packet: multi-packet SET_REPORTs lost their tail
+ * (see the top), single packets never.  A command takes up to DATA_MAX bytes
+ * in; its answer (up to ANSWER_MAX) goes out a piece per GET_REPORT, TOOL_MORE
+ * until the TOOL_LAST one, which the tools read in turn. */
+#define REPORT     64
 #define HEAD       20
-#define REPORT     (HEAD + DATA_MAX)
+#define DATA_MAX   (REPORT - HEAD)
+#define PIECE      (REPORT - 4)
+#define ANSWER_MAX 600
 
 enum { TOOL_IDLE, TOOL_BUSY, TOOL_MORE, TOOL_LAST };
 
@@ -92,8 +98,8 @@ static struct {
 static struct {
     u8 report[REPORT];           /* the host's last SET_REPORT */
     u8 tag, state;
-    u16 answer;
-    u8 data[DATA_MAX];
+    u16 answer, off;
+    u8 data[ANSWER_MAX];
 } t;
 
 /* Bring-up: the last EP0 events, kept over a restart (.noinit). */
@@ -233,21 +239,28 @@ static void tool_take(u16 len)
     t.tag = t.report[19];
     if (n > len - HEAD) n = len - HEAD;
     memcpy(t.data, t.report + HEAD, n);
-    t.answer = (u16)usb_tool_command(t.report, t.data, n, DATA_MAX);
+    t.answer = (u16)usb_tool_command(t.report, t.data, n, ANSWER_MAX);
+    t.off = 0;
     t.state = TOOL_LAST;
     events.commands++;
 }
 
 static u16 tool_report(u8 *out)
 {
-    u16 n = t.state == TOOL_LAST ? t.answer : 0;
+    u16 n = 0;
+    u8 state = t.state;
 
     memset(out, 0, REPORT);
+    if (t.state == TOOL_LAST) {
+        n = t.answer - t.off < PIECE ? (u16)(t.answer - t.off) : PIECE;
+        if (t.off + n < t.answer) state = TOOL_MORE;
+        memcpy(out + 4, t.data + t.off, n);
+        t.off = (u16)(t.off + n);
+    }
     out[0] = t.tag;
-    out[1] = t.state;
+    out[1] = state;
     out[2] = (u8)n;
     out[3] = (u8)(n >> 8);
-    memcpy(out + 4, t.data, n);
     return REPORT;
 }
 

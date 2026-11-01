@@ -241,6 +241,11 @@ wrong assumption), add it here in a line or two.
   reset clears RAM, mailbox included.  Not stock's second word 0x20210624
   while our radio runs: the loader then skips its radio start, takes the
   running core, and never came up on USB.
+- Ultimate 2C Bluetooth USB: multi-packet OUT control transfers lose data
+  (the controller takes the next packet while the last is in its FIFO, and
+  flags bit 0 before a packet is all in), polled or from the interrupt.
+  The tool device's report is therefore one 64-byte packet; answers go out
+  in pieces (TOOL_MORE).
 - Never search the whole filesystem (`/`, `/proc`, `/sys`, `/dev`): it has
   disturbed the host.
 - BR23 VBAT: the SDK truncates its 16-sample average to an ADC code before
