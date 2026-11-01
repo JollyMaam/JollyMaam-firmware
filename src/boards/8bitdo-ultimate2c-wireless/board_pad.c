@@ -147,9 +147,11 @@ static u32 matrix_poll(void)
     return changed ? EV_BUTTONS : 0;
 }
 
-/* ---- sticks and triggers: six ADC channels in turn ----------------------- */
+/* ---- sticks, triggers and battery: one shared ADC ------------------------ */
 
 #define AXES 6
+#define BATTERY_CHANNEL AXES
+#define BATTERY_TICK_SHIFT 24    /* a 16 MHz timer tick every ~1.05 seconds */
 /* With no settling at all, R2 read 2 codes low next to a fully pulled L2
  * (1650 codes away), at rest within the noise: 5 us. */
 #define MUX_SETTLE_US 5
@@ -160,16 +162,18 @@ static u32 matrix_poll(void)
 #define MOVED 16                     /* codes an axis moves to wake the loop; rest noise is ~2 */
 #define DMA_EMPTY 0xa5a5a5a5u
 
-/* LX LY RX RY L2 R2; channel = pin number + 1. */
-static const adc_input_pin_def_e axis_pins[AXES] = {
-    ADC_GPIO_PB0, ADC_GPIO_PB1, ADC_GPIO_PB4, ADC_GPIO_PB5, ADC_GPIO_PB2, ADC_GPIO_PB3,
+/* LX LY RX RY L2 R2 battery; channel = pin number + 1. */
+static const adc_input_pin_def_e axis_pins[AXES + 1] = {
+    ADC_GPIO_PB0, ADC_GPIO_PB1, ADC_GPIO_PB4, ADC_GPIO_PB5, ADC_GPIO_PB2, ADC_GPIO_PB3, ADC_GPIO_PB6,
 };
-static const u8 axis_channels[AXES] = { 1, 2, 5, 6, 3, 4 };
+static const u8 axis_channels[AXES + 1] = { 1, 2, 5, 6, 3, 4, 7 };
 
 static volatile u32 dma[4] __attribute__((aligned(16)));
 
 static struct {
     u8 valid;
+    u8 battery_tick;                 /* clock_time() >> BATTERY_TICK_SHIFT */
+    u16 battery_code;                /* uses the padding before tick */
     u32 tick;                        /* clock_time(): the last sweep started */
     u16 code[AXES];                  /* 13-bit, the middle two of four samples */
     u16 woke[AXES];                  /* the codes at the last EV_STICKS */
@@ -180,7 +184,7 @@ static void adc_start(void)
     u32 i;
 
     adc_init();
-    for (i = 0; i < AXES; i++) {
+    for (i = 0; i <= AXES; i++) {
         adc_base_pin_init(axis_pins[i]);
         gpio_setup_up_down_resistor(axis_pins[i] & 0xfff, PM_PIN_UP_DOWN_FLOAT);
     }
@@ -218,7 +222,8 @@ static void adc_read(u32 axis)
         for (j = i; j > 0 && sorted[j - 1] > c; j--) sorted[j] = sorted[j - 1];
         sorted[j] = c;
     }
-    ad.code[axis] = (u16)((sorted[1] + sorted[2]) / 2);
+    if (axis == BATTERY_CHANNEL) ad.battery_code = (u16)((sorted[1] + sorted[2]) / 2);
+    else ad.code[axis] = (u16)((sorted[1] + sorted[2]) / 2);
     ad.valid |= (u8)(1u << axis);
 }
 
@@ -342,6 +347,8 @@ void board_init(void)
     mx.bt_stable = !gpio_read(columns[4]);
     gpio_write(rows[3], 1);
     adc_start();
+    adc_read(BATTERY_CHANNEL);
+    ad.battery_tick = (u8)(clock_time() >> BATTERY_TICK_SHIFT);
 }
 
 /* The keys down now, the matrix read in one go (matrix_poll spreads it
@@ -414,8 +421,25 @@ u32 board_poll(int sticks_on_demand)
 {
     u32 e = matrix_poll();
 
+    if (ad.battery_tick != (u8)(clock_time() >> BATTERY_TICK_SHIFT)) {
+        adc_read(BATTERY_CHANNEL);
+        ad.battery_tick = (u8)(clock_time() >> BATTERY_TICK_SHIFT);
+    }
     if (clock_time_exceed(ad.tick, sticks_on_demand ? SWEEP_DEMAND_US : SWEEP_PERIOD_US)) e |= sweep();
     return e;
+}
+
+/* Stock v1.06 at 0xb748 reads PB6, converts with 1175 mV / 8192, then
+ * multiplies by 3700 / 1000 for the board's battery divider. Keep the same
+ * two integer truncations. Read only the cached sample: reports must not
+ * reconfigure the ADC while the input scanner owns it. */
+u16 board_battery_mv(void)
+{
+    u32 mv;
+
+    if (!(ad.valid & (1u << BATTERY_CHANNEL))) return 0;
+    mv = ((u32)ad.battery_code * 1175) >> 13;
+    return (u16)(mv * 37 / 10);
 }
 
 static u16 clamp10(s32 v)

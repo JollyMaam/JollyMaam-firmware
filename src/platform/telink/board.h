@@ -16,6 +16,7 @@ void board_init(void);           /* pins and the input scanner, before USB */
 u32 board_poll(int sticks_on_demand);
 void board_sweep(u32 max_age_us);       /* the sticks now, unless read within max_age_us */
 void board_input(struct in_raw *raw);
+u16 board_battery_mv(void);
 int board_usb_present(void);    /* physical USB power, independent of enumeration */
 void board_power_off(void);     /* outputs off, then release the battery power hold */
 

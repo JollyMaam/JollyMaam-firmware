@@ -153,7 +153,7 @@ void plat_input(struct in_raw *raw)
 
 u16 plat_battery_mv(void)
 {
-    return 0;                            /* not read yet */
+    return board_battery_mv();
 }
 
 /* The SDK's 32k-RC sleep entry stops the 32k watchdog through this (from

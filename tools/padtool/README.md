@@ -424,6 +424,28 @@ loaders and failure to verify. GUI tests cover worker failures, settings
 multi-slot drafts, identity checks, partial commits, global calibration
 capability checks, optional flash backups and discovery filtering. Windows USB I/O still needs hardware validation on Windows.
 
+## Battery logging
+
+The Ultimate 2C Wireless battery sensor uses the stock firmware's PB6 ADC
+conversion. Firmware with battery sampling reports the measured voltage through
+STATUS. To record it every 30 seconds:
+
+```sh
+DEV_ROOT=/dev/bwrap python3 tools/padtool/battery.py --output build/battery.csv
+```
+
+Each CSV row contains a UTC timestamp, elapsed seconds, battery millivolts, USB
+power, device uptime and connection status. Output is printed immediately and
+appended to the optional file. `--interval 5` changes the period; `--samples 10`
+stops after ten rows. Ctrl-C stops recording. If several matching pads are
+connected, select one with `--device PATH` or its full flash ID. Reconnects
+follow that same ID. `--product` selects another product running our firmware.
+The monitor sends only IDENTIFY and STATUS commands.
+
+USB power means a cable supplies power; it is not a charging/full indication.
+Voltage uses the stock conversion rather than a calibrated capacity estimate.
+Firmware without a battery reading continues to report its existing zero value.
+
 ## Android
 
 The native Kotlin USB host app is in [`android/`](../android/README.md). It shares

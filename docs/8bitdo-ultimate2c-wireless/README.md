@@ -2,7 +2,7 @@
 
 Board facts for the 8BitDo Ultimate 2C Wireless pad, a Telink TLSR8208
 (B80): its pins, flash, boot loader and what its stock firmware shows.
-Battery sensing and charging control are not established.
+Stock firmware uses PB6 for battery sensing. Charging control is not established.
 
 [Stock USB boot entry](re-bootloader.md) describes the pad and receiver command,
 their model query, shared USB PID and the receiver's unestablished recovery path.
@@ -145,7 +145,11 @@ Analog (ADC channel = PB pin number + 1; 14-bit differential against ground,
 | L2 | PB2 | ~3656 | pressed 2102 |
 | R2 | PB3 | ~3719 | pressed 2136 |
 
-PB6 reads about 7909; its function is not established.
+PB6 is the stock firmware's battery-sense input (ADC channel 7). Its v1.06
+routine at `0xb748` converts a raw code to millivolts as
+`((code * 1175) >> 13) * 3700 / 1000`, with integer truncation at both steps.
+A raw reading around 7909 converts to about 4195 mV. The scale's absolute
+accuracy and the charging-complete indication are not established.
 
 ## Debug wire
 
