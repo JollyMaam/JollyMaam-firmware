@@ -205,6 +205,16 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         }
         break;
     }
+#ifdef NOVA_LED_PROBE
+    case 0x3e: {                 /* temporary Nova LED timing diagnostic */
+        extern u32 board_led_probe(u32 arg);
+
+        if (max < 4) break;
+        util_put32(data, board_led_probe(util_get32(cdb + 2)));
+        n = 4;
+        break;
+    }
+#endif
     case CMD_STATUS:
         if (max < 16 || !status) return 0;
         data[0] = status->state;

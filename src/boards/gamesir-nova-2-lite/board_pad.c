@@ -321,6 +321,10 @@ static void leds_put(const u8 *bytes)
     ws_send(led_sent, sizeof(led_sent));
 }
 
+#ifdef NOVA_LED_PROBE
+#include "led_probe.inc"
+#endif
+
 /* The core sends a frame only when it changes, and none while it stays dark
  * from the start; the chain keeps its colours while it has power, across
  * resets.  So the first input poll sends a dark frame. */
@@ -339,6 +343,9 @@ void plat_leds(const struct led_frame *f)
     u8 bytes[LED_CHAIN * 3];
     u32 i;
 
+#ifdef NOVA_LED_PROBE
+    if (led_probe_active) return;
+#endif
     for (i = 0; i < LED_CHAIN; i++) {
         bytes[i * 3] = f->light[i].r;
         bytes[i * 3 + 1] = f->light[i].g;
