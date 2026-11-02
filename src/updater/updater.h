@@ -6,25 +6,19 @@
 /* Between updater.c (the protocol, the loop) and the chip's side
  * (updater_jieli.c, updater_telink.c): where the app lives and how its
  * flash is written.  Offsets are into the app's region: its header at 0,
- * the app at MAIN_HEAD_SIZE (its entry). */
+ * the app at JM_MAIN_HEAD_SIZE (its entry). */
 
-#define MAIN_MAGIC      0x4e49414du     /* "MAIN", the header's commit word */
-#define MAIN_HEAD_SIZE  0x120u
-#define MAIN_VERSION    1
 #define SECTOR          0x1000u
-
-enum { ERR_NONE, ERR_SIZE, ERR_ORDER, ERR_NOT_BEGUN, ERR_VERIFY, ERR_INCOMPLETE, ERR_HEADER,
-       ERR_CRC, ERR_KEY, ERR_BOARD, ERR_LAYOUT };
 
 u32 upd_region(void);            /* the header's flash offset */
 u32 upd_room(void);              /* bytes for header and app */
 u32 upd_entry(void);             /* the app's entry, as the header must name it */
 u32 upd_read32(u32 offset);      /* as written (deciphered) */
 void upd_read(u32 offset, u8 *out, u32 n);
-/* Before the first erase of an update; ERR_NONE or why not. */
+/* Before the first erase of an update; JM_UPDATE_ERR_NONE or why not. */
 u8 upd_prepare(void);
 /* After the header's sector is erased: anything that needs it (the
- * BR23's chip key); ERR_NONE or why not. */
+ * BR23's chip key); JM_UPDATE_ERR_NONE or why not. */
 u8 upd_erased(void);
 void upd_erase(u32 offset);      /* the sector at offset */
 /* Programs n bytes at offset, all but the first skip, and reads them back. */

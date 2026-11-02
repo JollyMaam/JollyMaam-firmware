@@ -272,9 +272,9 @@ $(O)/$(1)/app.bin: $(O)/$(1)/app.elf
 	$$(if $$(filter bd19,$$(call jieli_chip,$(1))),$$(Q)$$($(1)_OBJCOPY) -O binary -j .data_code $$< $(O)/$(1)/data_code.bin)
 	$$(Q)cat $(O)/$(1)/text.bin $(O)/$(1)/data.bin $$(if $$(filter bd19,$$(call jieli_chip,$(1))),$(O)/$(1)/data_code.bin) > $$@
 
-$(O)/$(1)/firmware.img: $(O)/$(1)/app.bin $$($(1)_FRONT_BIN) $(O)/$(1)/isd_config.ini $(O)/host/jollymaam
+$(O)/$(1)/firmware.img: $(O)/$(1)/app.bin $$($(1)_FRONT_BIN) $(O)/$(1)/isd_config.ini $(O)/host/jollymaam-jlpack
 	@echo [FW] $$@
-	$$(Q)$(O)/host/jollymaam jieli pack --flash-size $($(1)_FLASH_SIZE) --code-limit $$($(1)_CODE_LIMIT) \
+	$$(Q)$(O)/host/jollymaam-jlpack --flash-size $($(1)_FLASH_SIZE) --code-limit $$($(1)_CODE_LIMIT) \
 		-c $(O)/$(1)/isd_config.ini -u $$($(1)_UBOOT) -o $$@ $$($(1)_PACKED) $$($(1)_CONFIG_TOOL) \
 		$(if $($(1)_MAIN_AT),--main-out $(O)/$(1)/update.bin)
 

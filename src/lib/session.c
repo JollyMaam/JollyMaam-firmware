@@ -157,33 +157,33 @@ done:
 
 static int command(const struct jm_session_io *io, void *context, uint8_t *tag, const struct jm_update_request *r, uint8_t *answer) {
   size_t report=io->feature_size(context);
-  if (report!=356 && report!=512) return 0;
+  if (report!=JM_HID_REPORT_TELINK && report!=JM_HID_REPORT_JIELI) return 0;
   uint8_t buffer[513] = {0};
-  if (r->out_size > report-20 || r->in_size > 512) return 0;
+  if (r->out_size > report-JM_HID_HEAD_SIZE || r->in_size > 512) return 0;
   memcpy(buffer+1,r->cdb,16);
   size_t n = r->out_size ? r->out_size : r->in_size;
   buffer[17]=(uint8_t)n; buffer[18]=(uint8_t)(n>>8);
-  buffer[19]=r->out_size ? 1 : 0; buffer[20]=++*tag;
+  buffer[19]=r->out_size ? JM_HID_OUT : 0; buffer[20]=++*tag;
   if (r->out_size) memcpy(buffer+21,r->data,r->out_size);
   int sent=io->feature_set(context,buffer,report+1);
   /* COMMIT has already been checked before REBOOT. A disconnect racing the
    * reboot status does not invalidate the verified firmware; do not retry. */
-  if (r->cdb[1]==0x10) return 1;
+  if (r->cdb[1]==JM_CMD_REBOOT) return 1;
   if (sent != (int)report+1) return 0;
-  if (r->cdb[1]==0x40) return 1;
-  if (r->cdb[1]==0x11) return 1;
+  if (r->cdb[1]==JM_CMD_UPDATER) return 1;
+  if (r->cdb[1]==JM_CMD_REBOOT_LOADER) return 1;
   size_t got=0;
   for (unsigned polls=0;polls<10000;++polls) {
     buffer[0]=0;
     int count=io->feature_get(context,buffer,report+1);
     if (count<5 || buffer[1]!=*tag) return 0;
-    if (buffer[2]==1) { io->wait_ms(context,1); continue; }
-    if (buffer[2]!=2 && buffer[2]!=3) return 0;
+    if (buffer[2]==JM_HID_BUSY) { io->wait_ms(context,1); continue; }
+    if (buffer[2]!=JM_HID_MORE && buffer[2]!=JM_HID_LAST) return 0;
     size_t length=buffer[3] | (size_t)buffer[4]<<8;
     if (length>(size_t)count-5 || length>r->in_size-got) return 0;
     if (length) memcpy(answer+got,buffer+5,length);
     got+=length;
-    if (buffer[2]==3) return got==r->in_size;
+    if (buffer[2]==JM_HID_LAST) return got==r->in_size;
   }
   return 0;
 }
@@ -203,7 +203,7 @@ int jm_session_stock_loader(const struct jm_session_io *io,void *context,const u
   if(!uid || !io || !io->feature_size || !io->feature_set || !io->feature_get || !io->wait_ms) return -1;
   struct jm_identity id;
   if(!jm_session_identify(io,context,&id) || memcmp(id.uid,uid,16)) return -2;
-  struct jm_update_request request;memset(&request,0,sizeof request);jm_command(request.cdb,0x11,0);
+  struct jm_update_request request;memset(&request,0,sizeof request);jm_command(request.cdb,JM_CMD_REBOOT_LOADER,0);
   uint8_t tag=0;
   return command(io,context,&tag,&request,NULL)?0:-3;
 }
@@ -217,7 +217,7 @@ int jm_session_custom(const struct jm_session_io *io, void *context, const uint8
   int result=-3;
   if (!jm_session_identify(io,context,&id) || memcmp(id.uid,expected_uid,16) || memcmp(id.product,image+24,16)) goto done;
   if (!id.updater) {
-    struct jm_update_request r; memset(&r,0,sizeof r); jm_command(r.cdb,0x40,0);
+    struct jm_update_request r; memset(&r,0,sizeof r); jm_command(r.cdb,JM_CMD_UPDATER,0);
     /* Reset can beat control-transfer completion, so reconnect by UID even
      * when the final USB status was lost. No data writes have happened yet. */
     command(io,context,&tag,&r,NULL);

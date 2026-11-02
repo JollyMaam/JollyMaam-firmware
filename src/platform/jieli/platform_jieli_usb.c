@@ -913,17 +913,15 @@ int plat_usb_take(struct bt_write *w)
  * the rest follows in the next GET_REPORTs; LAST: the last piece (or none).
  * Whoever reads first takes a piece: one program at a time. */
 
-#define TOOL_REPORT     512
-#define TOOL_HEAD       20
-#define TOOL_HEAD_IN    24       /* with the client */
-#define TOOL_REPLY_HEAD 4
-#define TOOL_IN_HEAD    8
+#define TOOL_REPORT     JM_HID_REPORT_JIELI
+#define TOOL_HEAD       JM_HID_HEAD_SIZE
+#define TOOL_HEAD_IN    JM_HID_CLIENT_HEAD_SIZE       /* with the client */
+#define TOOL_REPLY_HEAD JM_HID_REPLY_HEAD_SIZE
+#define TOOL_IN_HEAD    JM_HID_INPUT_HEAD_SIZE
 #define TOOL_IN_DATA    (PACKET - TOOL_IN_HEAD)
 #define TOOL_IN_WAIT_MS 1000     /* a piece no one takes: the answer is dropped */
 #define TOOL_REFUSALS   4
 #define TOOL_SERIAL     33
-enum { TOOL_IDLE, TOOL_BUSY, TOOL_MORE, TOOL_LAST, TOOL_REFUSED };
-enum { TOOL_OUT = 1, TOOL_INPUT = 2 };
 
 static const u8 tool_report_desc[] = {
     0x06, 0xc2, 0xff,            /* usage page 0xffc2 */
@@ -985,18 +983,18 @@ static void tool_pump(void)
         tool_refusals--;
         util_put32(p, tool_refusal[tool_refusals].client);
         p[4] = tool_refusal[tool_refusals].tag;
-        p[5] = TOOL_REFUSED;
+        p[5] = JM_HID_REFUSED;
     } else if (tool_sending) {
         u16 n = tool_len - tool_off;
 
         if (n > TOOL_IN_DATA) n = TOOL_IN_DATA;
         util_put32(p, tool_client);
         p[4] = tool_tag;
-        p[5] = tool_off + n < tool_len ? TOOL_MORE : TOOL_LAST;
+        p[5] = tool_off + n < tool_len ? JM_HID_MORE : JM_HID_LAST;
         util_put16(p + 6, tool_off);
         memcpy(p + TOOL_IN_HEAD, tool_answer + tool_off, n);
         tool_off = (u16)(tool_off + n);
-        if (p[5] == TOOL_LAST) tool_sending = tool_busy = 0;
+        if (p[5] == JM_HID_LAST) tool_sending = tool_busy = 0;
     } else {
         return;
     }
@@ -1027,7 +1025,7 @@ static u32 tool_set_data(struct usb_device_t *dev, struct usb_ctrlrequest *req)
         usb_read_ep0(0, head, n);
         tool_drop = tool_busy;
         if (!tool_drop) memcpy(tool_req, head, n);
-        else if (n >= TOOL_HEAD_IN && (head[18] & TOOL_INPUT) && tool_refusals < TOOL_REFUSALS) {
+        else if (n >= TOOL_HEAD_IN && (head[18] & JM_HID_INPUT) && tool_refusals < TOOL_REFUSALS) {
             tool_refusal[tool_refusals].client = get32(head + 20);
             tool_refusal[tool_refusals].tag = head[19];
             tool_refusals++;
@@ -1038,9 +1036,9 @@ static u32 tool_set_data(struct usb_device_t *dev, struct usb_ctrlrequest *req)
     }
     tool_rx = (u16)(tool_rx + n);
     if (n == PACKET && tool_rx < want) return USB_EP0_STAGE_OUT;
-    if (!tool_drop && tool_rx >= ((tool_req[18] & TOOL_INPUT) ? TOOL_HEAD_IN : TOOL_HEAD)) {
+    if (!tool_drop && tool_rx >= ((tool_req[18] & JM_HID_INPUT) ? TOOL_HEAD_IN : TOOL_HEAD)) {
         tool_tag = tool_req[19];
-        tool_state = TOOL_BUSY;
+        tool_state = JM_HID_BUSY;
         tool_busy = 1;
         tool_pending = 1;
         plat_raise(EV_USB);
@@ -1054,12 +1052,12 @@ static void tool_get(struct usb_device_t *dev, struct usb_ctrlrequest *req)
     u16 n = 0;
 
     memset(buf, 0, TOOL_REPORT);
-    if (tool_state == TOOL_MORE || tool_state == TOOL_LAST) {
+    if (tool_state == JM_HID_MORE || tool_state == JM_HID_LAST) {
         n = tool_len - tool_off;
         if (n > TOOL_REPORT - TOOL_REPLY_HEAD) n = TOOL_REPORT - TOOL_REPLY_HEAD;
         memcpy(buf + TOOL_REPLY_HEAD, tool_answer + tool_off, n);
         tool_off = (u16)(tool_off + n);
-        tool_state = tool_off < tool_len ? TOOL_MORE : TOOL_LAST;
+        tool_state = tool_off < tool_len ? JM_HID_MORE : JM_HID_LAST;
     }
     buf[0] = tool_tag;
     buf[1] = tool_state;
@@ -1165,7 +1163,7 @@ void plat_usb_tool_mode(void)
         memcpy(config_desc, head, 9);
     }
     tool_pending = tool_busy = tool_sending = tool_in_busy = tool_refusals = 0;
-    tool_state = TOOL_IDLE;
+    tool_state = JM_HID_IDLE;
     usb_device_mode(0, 0x80000000);      /* no SDK class: the core and its EP0 only */
     dma_in = usb_alloc_ep_dmabuffer(0, EP_IN | USB_DIR_IN, PACKET);
     usb_set_reset_hander(0, 0, tool_reset);
@@ -1189,8 +1187,8 @@ void plat_usb_tool_service(void)
     local_irq_disable();
     memcpy(cdb, tool_req, 16);
     len = (u16)(tool_req[16] | tool_req[17] << 8);
-    out = tool_req[18] & TOOL_OUT;
-    input = tool_req[18] & TOOL_INPUT;
+    out = tool_req[18] & JM_HID_OUT;
+    input = tool_req[18] & JM_HID_INPUT;
     client = get32(tool_req + 20);
     head = input ? TOOL_HEAD_IN : TOOL_HEAD;
     if (len > (out ? TOOL_REPORT - head : TOOL_REPORT)) len = out ? TOOL_REPORT - head : TOOL_REPORT;
@@ -1207,7 +1205,7 @@ void plat_usb_tool_service(void)
     local_irq_disable();
     tool_len = len;
     tool_off = 0;
-    tool_state = input ? TOOL_IDLE : TOOL_LAST;     /* GET_REPORT takes no pieces of it */
+    tool_state = input ? JM_HID_IDLE : JM_HID_LAST;     /* GET_REPORT takes no pieces of it */
     if (input) {
         tool_client = client;
         tool_sending = 1;

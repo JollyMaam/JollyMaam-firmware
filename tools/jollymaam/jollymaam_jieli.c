@@ -360,6 +360,19 @@ static void cmd_pack(int argc, char **argv) {
   printf("wrote %s\n", o.out);
 }
 
+#ifdef JOLLYMAAM_PACK_ONLY
+/* Offline build tool: the same options and image builder as jieli pack. */
+int main(int argc, char **argv) {
+  if (argc == 1 || (argc == 2 && !strcmp(argv[1], "--help"))) {
+    puts("Usage: jollymaam-jlpack -c CONFIG [-u UBOOT] -o OUTPUT [OPTIONS] [APP ...]\n"
+         "Uses the options of jollymaam jieli pack.");
+    return 0;
+  }
+  cmd_pack(argc - 1, argv + 1);
+  return 0;
+}
+#else
+
 /* ---- flash --------------------------------------------------------------------
  * Through the chip's ROM loader (UBOOT1.00, a USB mass-storage device): a
  * loader blob goes into RAM and runs, then takes erase/write/read commands.
@@ -1947,3 +1960,5 @@ int jollymaam_jieli_app(int argc, char **argv) {
   usage();
   return 2;
 }
+
+#endif /* JOLLYMAAM_PACK_ONLY */

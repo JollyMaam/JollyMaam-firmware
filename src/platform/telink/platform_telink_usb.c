@@ -34,15 +34,13 @@
 
 #define EP_IN     4              /* interrupt IN 0x84 */
 #define DATA_MAX  336            /* the largest answer: FIELD (328); a remap slot READ is 283 with 8 rules */
-#define HEAD      20
-#define HEAD_IN   24             /* with the client */
+#define HEAD      JM_HID_HEAD_SIZE
+#define HEAD_IN   JM_HID_CLIENT_HEAD_SIZE             /* with the client */
 #define REPORT    (HEAD + DATA_MAX)
-#define IN_HEAD   8
+#define IN_HEAD   JM_HID_INPUT_HEAD_SIZE
 #define IN_DATA   (64 - IN_HEAD)
 #define IN_WAIT_MS 1000          /* a piece no one takes: the answer is dropped */
 
-enum { TOOL_IDLE, TOOL_BUSY, TOOL_MORE, TOOL_LAST, TOOL_REFUSED };
-enum { TOOL_OUT = 1, TOOL_INPUT = 2 };
 
 static const u8 device_descriptor[] = {
     18, 1, 0x10, 0x01, 0, 0, 0, 8,
@@ -101,7 +99,7 @@ static struct {
     u32 client;
 } refused;
 
-#define T_HEAD ((t.flags & TOOL_INPUT) ? HEAD_IN : HEAD)
+#define T_HEAD ((t.flags & JM_HID_INPUT) ? HEAD_IN : HEAD)
 
 /* A byte of a SET_REPORT, the k-th; while a command is taken, only its
  * sender is kept. */
@@ -138,13 +136,13 @@ static void tool_pump(void)
         refused.waiting = 0;
         util_put32(head, refused.client);
         head[4] = refused.tag;
-        head[5] = TOOL_REFUSED;
+        head[5] = JM_HID_REFUSED;
         head[6] = head[7] = 0;
     } else if (t.sending && (t.off < t.answer || !t.off)) {
         n = t.answer - t.off < IN_DATA ? t.answer - t.off : IN_DATA;
         util_put32(head, t.client);
         head[4] = t.tag;
-        head[5] = t.off + n < t.answer ? TOOL_MORE : TOOL_LAST;
+        head[5] = t.off + n < t.answer ? JM_HID_MORE : JM_HID_LAST;
         util_put16(head + 6, t.off);
         if (!t.answer) t.off = 1;        /* nothing to send but LAST */
     } else {
@@ -153,15 +151,15 @@ static void tool_pump(void)
     usbhw_reset_ep_ptr(EP_IN);
     for (i = 0; i < IN_HEAD; i++) usbhw_write_ep_data(EP_IN, head[i]);
     for (i = 0; i < IN_DATA; i++) usbhw_write_ep_data(EP_IN, i < n ? t.c.data[t.off + i] : 0);
-    if (head[5] != TOOL_REFUSED && t.answer) t.off = (u16)(t.off + n);
-    if (head[5] != TOOL_REFUSED) t.sent_at = plat_ms();
+    if (head[5] != JM_HID_REFUSED && t.answer) t.off = (u16)(t.off + n);
+    if (head[5] != JM_HID_REFUSED) t.sent_at = plat_ms();
     usbhw_data_ep_ack(EP_IN);
 }
 
 /* The k-th byte of the answer the host gets. */
 static u8 tool_byte(u16 k)
 {
-    u16 n = t.state == TOOL_LAST ? t.answer : 0;
+    u16 n = t.state == JM_HID_LAST ? t.answer : 0;
 
     if (k == 0) return t.tag;
     if (k == 1) return t.state;
@@ -224,7 +222,7 @@ static void ep0_packet(void)
         usbhw_write_ctrl_ep_data(u.from == FROM_STRING ? string_byte(u.string, u.at++) :
                                  u.from == FROM_TOOL ? tool_byte(u.at++) : *u.response++);
     u.remaining -= n;
-    if (u.from == FROM_TOOL && !u.remaining && t.state == TOOL_LAST) t.taken = 1;
+    if (u.from == FROM_TOOL && !u.remaining && t.state == JM_HID_LAST) t.taken = 1;
     reg_usb_sups_cyc_cali = !n && !(u.total & 7) && u.total < u.host_length ? 0x18 : 0x38;
 }
 
@@ -239,17 +237,17 @@ static void ep0_receive(void)
     usbhw_reset_ctrl_ep_ptr();
     for (i = 0; i < n; i++) tool_put(u.at++, usbhw_read_ctrl_ep_data());
     u.remaining -= n;
-    if (!t.drop && u.at >= T_HEAD && (t.flags & TOOL_OUT) && t.length > DATA_MAX) u.stall = 1;
+    if (!t.drop && u.at >= T_HEAD && (t.flags & JM_HID_OUT) && t.length > DATA_MAX) u.stall = 1;
     if (!u.remaining && !u.stall) {
         u.receiving = 0;
         if (t.drop) {
-            if (u.at >= HEAD_IN && (refused.flags & TOOL_INPUT)) refused.waiting = 1;
+            if (u.at >= HEAD_IN && (refused.flags & JM_HID_INPUT)) refused.waiting = 1;
         } else if (u.at >= T_HEAD) {
-            t.state = TOOL_BUSY;
+            t.state = JM_HID_BUSY;
             t.busy = t.pending = 1;
             /* the clock at once: padtool maps the pad's clock onto its own
              * by round trips, which a wait for the control loop skews */
-            if (t.c.cdb[0] == 0xf5 && t.c.cdb[1] == 0x05 && !(t.flags & TOOL_OUT)) answer_clock();
+            if (t.c.cdb[0] == 0xf5 && t.c.cdb[1] == 0x05 && !(t.flags & JM_HID_OUT)) answer_clock();
         }
     }
 }
@@ -465,7 +463,7 @@ void plat_usb_service(void)
     if (!t.pending) return;
     t.pending = 0;
     t.taken = 0;
-    if (t.flags & TOOL_OUT) {
+    if (t.flags & JM_HID_OUT) {
         usb_command(t.c.cdb, t.c.data, t.length, 1);
         t.answer = 0;
     } else {
@@ -483,7 +481,7 @@ u8 *plat_tool_lend(u32 *size)
 {
     if (t.lent || t.busy || t.pending || t.sending || (u.receiving && !t.drop)) return NULL;
     t.lent = 1;
-    t.state = TOOL_IDLE;         /* GET_REPORT shows none of it */
+    t.state = JM_HID_IDLE;         /* GET_REPORT shows none of it */
     *size = sizeof(t.c);
     return t.c.cdb;
 }
@@ -506,13 +504,13 @@ static void answer_clock(void)
 
 static void answered(void)
 {
-    if (t.flags & TOOL_INPUT) {
-        t.state = TOOL_IDLE;     /* GET_REPORT shows none of it */
+    if (t.flags & JM_HID_INPUT) {
+        t.state = JM_HID_IDLE;     /* GET_REPORT shows none of it */
         t.off = 0;
         t.sending = 1;
         t.sent_at = plat_ms();
     } else {
-        t.state = TOOL_LAST;
+        t.state = JM_HID_LAST;
         t.busy = 0;
     }
 }
@@ -523,7 +521,7 @@ void plat_usb_settle(u32 ms)
 {
     u32 start = plat_ms();
 
-    while (u.configuration && ((t.state == TOOL_LAST && !t.taken) || t.sending) && plat_ms() - start < 250)
+    while (u.configuration && ((t.state == JM_HID_LAST && !t.taken) || t.sending) && plat_ms() - start < 250)
         wd_clear(), plat_usb_poll();
     start = plat_ms();
     while (plat_ms() - start < ms) wd_clear(), plat_usb_poll();

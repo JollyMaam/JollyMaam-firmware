@@ -9,7 +9,7 @@ static uint32_t rd32(const uint8_t *p) {
 /* Decode version-1 UPDATE_INFO. Reject unknown states and invalid counters.
  * Output is untouched on failure. Additional future trailing fields are ignored. */
 int jm_update_info_decode(const uint8_t *data, size_t size, struct jm_update_info *out) {
-  if (size < 32 || data[0] != 1 || data[1] > 2) return 0;
+  if (size < JM_UPDATE_INFO_SIZE || data[0] != JM_UPDATE_INFO_VERSION || data[1] > JM_UPDATE_COMMITTED) return 0;
   struct jm_update_info info;
   info.state = data[1]; info.error = data[2]; info.valid = data[3];
   info.at = rd32(data + 4); info.room = rd32(data + 8);
@@ -26,7 +26,7 @@ int jm_update_info_decode(const uint8_t *data, size_t size, struct jm_update_inf
 int jm_update_init(struct jm_update *op, const uint8_t *image, size_t size,
                      size_t transport_chunk) {
   if (size > UINT32_MAX || !jm_update_image_check(image, size, NULL) ||
-      size <= 0x120 || transport_chunk < 44 || transport_chunk > UINT32_MAX) return 0;
+      size <= JM_MAIN_HEAD_SIZE || transport_chunk < JM_MAIN_CHECKED_SIZE || transport_chunk > UINT32_MAX) return 0;
   memset(op, 0, sizeof *op);
   op->image = image; op->size = size; op->chunk = transport_chunk;
   return 1;
@@ -43,19 +43,19 @@ enum jm_update_step jm_update_next(struct jm_update *op, struct jm_update_reques
   uint8_t cmd;
   uint32_t arg = 0;
   switch (op->phase) {
-  case IDENTIFY: cmd = 0; request->in_size = 88; break;
+  case IDENTIFY: cmd = JM_CMD_IDENTIFY; request->in_size = 88; break;
   case INFO: case BEGIN_INFO: case DATA_INFO: case COMMIT_INFO:
-    cmd = 0x41; request->in_size = 32; break;
+    cmd = JM_CMD_UPDATE_INFO; request->in_size = JM_UPDATE_INFO_SIZE; break;
   case BEGIN:
-    cmd = 0x42; arg = (uint32_t)op->size;
-    request->data = op->image; request->out_size = 44; break;
+    cmd = JM_CMD_UPDATE_BEGIN; arg = (uint32_t)op->size;
+    request->data = op->image; request->out_size = JM_MAIN_CHECKED_SIZE; break;
   case DATA:
-    cmd = 0x43; arg = (uint32_t)op->offset;
+    cmd = JM_CMD_UPDATE_DATA; arg = (uint32_t)op->offset;
     op->sent = op->size - op->offset;
     if (op->sent > op->chunk) op->sent = op->chunk;
     request->data = op->image + op->offset; request->out_size = op->sent; break;
-  case COMMIT: cmd = 0x44; break;
-  case REBOOT: cmd = 0x10; break;
+  case COMMIT: cmd = JM_CMD_UPDATE_COMMIT; break;
+  case REBOOT: cmd = JM_CMD_REBOOT; break;
   default: op->phase = FAILED; return JM_UPDATE_FAILED;
   }
   jm_command(request->cdb, cmd, arg); op->pending = 1;
@@ -80,16 +80,16 @@ int jm_update_complete(struct jm_update *op, int transport_ok, const uint8_t *da
     if (!jm_update_info_decode(data, size, &op->info)) { op->error = -3; goto fail; }
     if (op->phase != INFO && op->info.error) { op->error = op->info.error; goto fail; }
     if (op->phase == INFO) {
-      if (op->size > op->info.room || (op->info.data_max && op->info.data_max < 44)) { op->error = -4; goto fail; }
+      if (op->size > op->info.room || (op->info.data_max && op->info.data_max < JM_MAIN_CHECKED_SIZE)) { op->error = -4; goto fail; }
       if (op->info.data_max && op->chunk > op->info.data_max) op->chunk = op->info.data_max;
       op->phase = BEGIN;
     } else if (op->phase == COMMIT_INFO) {
-      if (op->info.state != 2 || !op->info.valid || op->info.written != op->size) {
+      if (op->info.state != JM_UPDATE_COMMITTED || !op->info.valid || op->info.written != op->size) {
         op->error = -5; goto fail;
       }
       op->phase = REBOOT;
     } else {
-      if (op->info.state != 1 || op->info.begun != op->size ||
+      if (op->info.state != JM_UPDATE_WRITING || op->info.begun != op->size ||
           op->info.written > op->offset + op->sent ||
           (op->phase == BEGIN_INFO && op->info.written)) { op->error = -6; goto fail; }
       if (op->phase == DATA_INFO && op->info.written != op->offset + op->sent && ++op->retries > 50) {
@@ -116,10 +116,10 @@ static void wr32(uint8_t *p, uint32_t v) {
 }
 static void simulate(int mode) {
   uint8_t image[600] = {0}, flash[600] = {0}, reply[88];
-  memcpy(image, "MAIN", 4); wr32(image + 4, sizeof image - 0x120);
+  memcpy(image, "MAIN", 4); wr32(image + 4, sizeof image - JM_MAIN_HEAD_SIZE);
   wr32(image + 16, 1); memcpy(image + 24, "test", 4);
-  for (size_t i = 0x120; i < sizeof image; ++i) image[i] = (uint8_t)i;
-  wr32(image + 8, jm_crc16(image + 0x120, sizeof image - 0x120));
+  for (size_t i = JM_MAIN_HEAD_SIZE; i < sizeof image; ++i) image[i] = (uint8_t)i;
+  wr32(image + 8, jm_crc16(image + JM_MAIN_HEAD_SIZE, sizeof image - JM_MAIN_HEAD_SIZE));
   wr32(image + 40, jm_crc16(image + 4, 36));
   struct jm_update op;
   assert(jm_update_init(&op, image, sizeof image, 128));
@@ -135,26 +135,26 @@ static void simulate(int mode) {
     if (cmd == 0) {
       memcpy(reply, "C2PD", 4); reply[7] = 1;
       memcpy(reply + 40, mode == 1 ? "wrong" : "test", mode == 1 ? 5 : 4);
-    } else if (cmd == 0x41) {
+    } else if (cmd == JM_CMD_UPDATE_INFO) {
       reply[0] = 1; reply[1] = (uint8_t)state; reply[3] = state == 2;
       wr32(reply + 8, mode == 2 ? 500 : sizeof flash);
       wr32(reply + 12, written); wr32(reply + 16, begun);
       wr32(reply + 24, 64);
       if (mode == 4 && state == 1) reply[2] = 4;
-    } else if (cmd == 0x42) {
+    } else if (cmd == JM_CMD_UPDATE_BEGIN) {
       assert(request.out_size == 44 && arg == sizeof image);
       ++erases; state = 1; begun = arg;
-    } else if (cmd == 0x43) {
+    } else if (cmd == JM_CMD_UPDATE_DATA) {
       assert(request.out_size <= 64 && arg == written);
       if (mode == 3 || (mode == 0 && !dropped)) dropped = 1;
       else {
         memcpy(flash + written, request.data, request.out_size);
         written += (unsigned)request.out_size;
       }
-    } else if (cmd == 0x44) {
+    } else if (cmd == JM_CMD_UPDATE_COMMIT) {
       assert(written == sizeof image && !memcmp(flash, image, sizeof image));
       state = 2;
-    } else if (cmd == 0x10) {
+    } else if (cmd == JM_CMD_REBOOT) {
       assert(state == 2); ++rebooted;
     } else assert(0);
     jm_update_complete(&op, 1, reply, request.in_size);

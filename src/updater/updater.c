@@ -43,18 +43,13 @@
  * 10 for another updater layout.  An error from BEGIN's check comes before
  * anything is erased.  An error stays until the next BEGIN. */
 
-#define HEAD_CHECKED    0x2c            /* BEGIN's copy: up to the header's CRC */
 #define IDLE_OFF_MS     60000           /* without a host */
 
-enum { OP = 0xf5, CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02, CMD_REBOOT = 0x10,
-       CMD_REBOOT_LOADER = 0x11, CMD_INFO = 0x41, CMD_BEGIN = 0x42, CMD_DATA = 0x43,
-       CMD_COMMIT = 0x44 };
-enum { IDLE, WRITING, COMMITTED };
 
 static u8 state, error;
 static u32 begun, written;
 static u8 held[4];               /* the magic word, programmed by COMMIT */
-static u8 head[HEAD_CHECKED];    /* BEGIN's: the first data must match it */
+static u8 head[JM_MAIN_CHECKED_SIZE];    /* BEGIN's: the first data must match it */
 
 static u32 get32(const u8 *p) { return p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (u32)p[3] << 24; }
 
@@ -71,8 +66,8 @@ static u16 crc16_add(u16 crc, const u8 *p, u32 n)
 
 static int app_valid(void)
 {
-    return upd_read32(0) == MAIN_MAGIC && upd_read32(12) == upd_entry() &&
-           upd_read32(16) == MAIN_VERSION && upd_read32(4) <= upd_room() - MAIN_HEAD_SIZE;
+    return upd_read32(0) == JM_MAIN_MAGIC && upd_read32(12) == upd_entry() &&
+           upd_read32(16) == JM_MAIN_VERSION && upd_read32(4) <= upd_room() - JM_MAIN_HEAD_SIZE;
 }
 
 /* The image's header, before anything is erased: for this board, this
@@ -81,62 +76,62 @@ static u8 check_head(const u8 *h, u32 n, u32 size)
 {
     char pid[17] = { 0 };
 
-    if (n < HEAD_CHECKED || memcmp(h, "MAIN", 4) || get32(h + 40) != crc16_add(0, h + 4, 36))
-        return ERR_HEADER;
+    if (n < JM_MAIN_CHECKED_SIZE || memcmp(h, "MAIN", 4) || get32(h + 40) != crc16_add(0, h + 4, 36))
+        return JM_UPDATE_ERR_HEADER;
     memcpy(pid, h + 24, 16);
     if (strcmp(pid, BOARD_PID)) {
         util_log("updater: image for %.16s, not %s", pid, BOARD_PID);
-        return ERR_BOARD;
+        return JM_UPDATE_ERR_BOARD;
     }
-    if (get32(h + 16) != MAIN_VERSION || get32(h + 20) != MAIN_AT || get32(h + 12) != upd_entry()) {
+    if (get32(h + 16) != JM_MAIN_VERSION || get32(h + 20) != MAIN_AT || get32(h + 12) != upd_entry()) {
         util_log("updater: image format %u at %x", get32(h + 16), get32(h + 20));
-        return ERR_LAYOUT;
+        return JM_UPDATE_ERR_LAYOUT;
     }
-    if (get32(h + 4) != size - MAIN_HEAD_SIZE) return ERR_SIZE;
-    return ERR_NONE;
+    if (get32(h + 4) != size - JM_MAIN_HEAD_SIZE) return JM_UPDATE_ERR_SIZE;
+    return JM_UPDATE_ERR_NONE;
 }
 
 static u8 begin(u32 size, const u8 *h, u32 n)
 {
     u8 e;
 
-    state = IDLE;
-    if (size <= MAIN_HEAD_SIZE || size > upd_room()) return ERR_SIZE;
+    state = JM_UPDATE_IDLE;
+    if (size <= JM_MAIN_HEAD_SIZE || size > upd_room()) return JM_UPDATE_ERR_SIZE;
     if ((e = check_head(h, n, size))) return e;
-    memcpy(head, h, HEAD_CHECKED);
+    memcpy(head, h, JM_MAIN_CHECKED_SIZE);
     if ((e = upd_prepare())) return e;
     upd_erase(0);
     if ((e = upd_erased())) return e;
     begun = size;
     written = 0;
-    state = WRITING;
+    state = JM_UPDATE_WRITING;
     util_log("updater: begin %u bytes at %x", size, upd_region());
-    return ERR_NONE;
+    return JM_UPDATE_ERR_NONE;
 }
 
 static u8 data(u32 offset, const u8 *d, u32 n)
 {
     u32 skip = 0;
 
-    if (state != WRITING) return ERR_NOT_BEGUN;
+    if (state != JM_UPDATE_WRITING) return JM_UPDATE_ERR_NOT_BEGUN;
     /* Not the next bytes: dropped, a write lost or repeated on the way (LE
      * writes without response); the host resends from UPDATE_INFO's count. */
-    if (offset != written) return ERR_NONE;
-    if (!n || n > begun - written) return ERR_ORDER;
+    if (offset != written) return JM_UPDATE_ERR_NONE;
+    if (!n || n > begun - written) return JM_UPDATE_ERR_ORDER;
     if (offset / SECTOR != (offset + n - 1) / SECTOR || (offset && !(offset % SECTOR)))
         upd_erase((offset + n - 1) & ~(SECTOR - 1));
     if (!offset) {
-        if (n < HEAD_CHECKED || memcmp(d, head, HEAD_CHECKED)) return ERR_HEADER;
+        if (n < JM_MAIN_CHECKED_SIZE || memcmp(d, head, JM_MAIN_CHECKED_SIZE)) return JM_UPDATE_ERR_HEADER;
         memcpy(held, d, 4);
         skip = 4;
     }
     if (!upd_program(offset, d, n, skip)) {
-        state = IDLE;
+        state = JM_UPDATE_IDLE;
         util_log("updater: verify failed at %x", offset);
-        return ERR_VERIFY;
+        return JM_UPDATE_ERR_VERIFY;
     }
     written += n;
-    return ERR_NONE;
+    return JM_UPDATE_ERR_NONE;
 }
 
 static u8 commit(void)
@@ -145,25 +140,25 @@ static u8 commit(void)
     u32 size, at, n;
     u16 crc = 0;
 
-    if (state != WRITING) return ERR_NOT_BEGUN;
-    if (written != begun) return ERR_INCOMPLETE;
+    if (state != JM_UPDATE_WRITING) return JM_UPDATE_ERR_NOT_BEGUN;
+    if (written != begun) return JM_UPDATE_ERR_INCOMPLETE;
     size = upd_read32(4);
-    if (memcmp(held, "MAIN", 4) || upd_read32(12) != upd_entry() || size != begun - MAIN_HEAD_SIZE)
-        return ERR_HEADER;
+    if (memcmp(held, "MAIN", 4) || upd_read32(12) != upd_entry() || size != begun - JM_MAIN_HEAD_SIZE)
+        return JM_UPDATE_ERR_HEADER;
     for (at = 0; at < size; at += n) {
         n = size - at < sizeof(buf) ? size - at : sizeof(buf);
-        upd_read(MAIN_HEAD_SIZE + at, buf, n);
+        upd_read(JM_MAIN_HEAD_SIZE + at, buf, n);
         crc = crc16_add(crc, buf, n);
     }
     if (crc != upd_read32(8)) {
         util_log("updater: crc %04x, header %04x", crc, upd_read32(8));
-        return ERR_CRC;
+        return JM_UPDATE_ERR_CRC;
     }
-    if (!upd_program(0, held, 4, 0)) return ERR_VERIFY;
+    if (!upd_program(0, held, 4, 0)) return JM_UPDATE_ERR_VERIFY;
     upd_committed();
-    state = COMMITTED;
+    state = JM_UPDATE_COMMITTED;
     util_log("updater: committed %u bytes, crc %04x", size, crc);
-    return ERR_NONE;
+    return JM_UPDATE_ERR_NONE;
 }
 
 /* ---- the tool device ------------------------------------------------------ */
@@ -175,17 +170,17 @@ u32 usb_command(const u8 cdb[16], u8 *d, u32 max, int from_host)
     u32 arg = get32(cdb + 2);
     u32 n = 0;
 
-    if (cdb[0] != OP) {
+    if (cdb[0] != JM_OP) {
         reboot = to_rom = 1;
         return 0;
     }
     switch (cdb[1]) {
-    case CMD_IDENTIFY: {
+    case JM_CMD_IDENTIFY: {
         const u8 *uid = plat_unique_id();
 
         if (max < 56) return 0;
         memcpy(d, "C2PD", 4);
-        util_put16(d + 4, 2);
+        util_put16(d + 4, JM_PROTOCOL);
 #ifdef BOARD_DONGLE
         d[6] = 1;                /* the dongle */
 #else
@@ -202,7 +197,7 @@ u32 usb_command(const u8 cdb[16], u8 *d, u32 max, int from_host)
         }
         break;
     }
-    case CMD_STATUS:
+    case JM_CMD_STATUS:
         if (max < 16) return 0;
         memset(d, 0, 16);
         d[2] = 1;
@@ -218,23 +213,23 @@ u32 usb_command(const u8 cdb[16], u8 *d, u32 max, int from_host)
         util_put32(d + 8, plat_ms());
         n = 16;
         break;
-    case CMD_LOG:
+    case JM_CMD_LOG:
         if (max < 8) return 0;
         n = util_log_read(&arg, (char *)d + 8, max - 8);
         util_put32(d, arg);
         util_put32(d + 4, n);
         n += 8;
         break;
-    case CMD_REBOOT:
+    case JM_CMD_REBOOT:
         reboot = 1;
         break;
-    case CMD_REBOOT_LOADER:
+    case JM_CMD_REBOOT_LOADER:
         reboot = to_rom = 1;
         break;
-    case CMD_INFO:
-        if (max < 32) return 0;
-        memset(d, 0, 32);
-        d[0] = 1;
+    case JM_CMD_UPDATE_INFO:
+        if (max < JM_UPDATE_INFO_SIZE) return 0;
+        memset(d, 0, JM_UPDATE_INFO_SIZE);
+        d[0] = JM_UPDATE_INFO_VERSION;
         d[1] = state;
         d[2] = error;
         d[3] = (u8)app_valid();
@@ -244,15 +239,15 @@ u32 usb_command(const u8 cdb[16], u8 *d, u32 max, int from_host)
         util_put32(d + 16, begun);
         util_put32(d + 20, upd_extra());
         util_put32(d + 24, upd_data_max());
-        n = 32;
+        n = JM_UPDATE_INFO_SIZE;
         break;
-    case CMD_BEGIN:
+    case JM_CMD_UPDATE_BEGIN:
         error = begin(arg, d, from_host ? max : 0);
         break;
-    case CMD_DATA:
+    case JM_CMD_UPDATE_DATA:
         if (from_host && !error) error = data(arg, d, max);
         break;
-    case CMD_COMMIT:
+    case JM_CMD_UPDATE_COMMIT:
         if (!error) error = commit();
         break;
     }
@@ -263,13 +258,13 @@ u32 usb_command(const u8 cdb[16], u8 *d, u32 max, int from_host)
  * without, the answer (if any) comes back after the sub-command. */
 u32 updater_frame(const u8 *frame, u32 len, u8 *reply, u32 max)
 {
-    u8 cdb[16] = { OP };
+    u8 cdb[16] = { JM_OP };
     u32 n;
 
     if (len < 5 || max < 2) return 0;
     /* The REBOOT after an update over LE: the app starts in config mode,
      * where the host that updated it can find it again. */
-    if (frame[0] == CMD_REBOOT && state == COMMITTED) to_config = 1;
+    if (frame[0] == JM_CMD_REBOOT && state == JM_UPDATE_COMMITTED) to_config = 1;
     cdb[1] = frame[0];
     memcpy(cdb + 2, frame + 1, 4);
     if (len > 5) {
@@ -328,7 +323,7 @@ static int home_back(void)
     armed = 1;
     if (!down) return 0;
     down = 0;
-    return app_valid() && state != WRITING;
+    return app_valid() && state != JM_UPDATE_WRITING;
 }
 
 void ctl_main(void)
@@ -348,7 +343,7 @@ void ctl_main(void)
         plat_wait(plat_ms() + 100, 0);
         plat_usb_service();
         now = plat_ms();
-        if (state == COMMITTED) lights(0, 2, 0);
+        if (state == JM_UPDATE_COMMITTED) lights(0, 2, 0);
         if (home_back()) {
             util_log("updater: Home, back to the app");
             reboot = 1;
@@ -360,7 +355,7 @@ void ctl_main(void)
             plat_reboot();
         }
 #ifndef BOARD_DONGLE             /* a dongle is off with its USB */
-        if (plat_usb_present() || updater_ble_connected() || state == WRITING) host_seen = now;
+        if (plat_usb_present() || updater_ble_connected() || state == JM_UPDATE_WRITING) host_seen = now;
         else if (now - host_seen > IDLE_OFF_MS) plat_power_off();
 #endif
     }

@@ -32,17 +32,17 @@ int jm_battery_decode(const uint8_t *status, size_t size, struct jm_battery_stat
 }
 /* Logical SCSI-style command. HID/GATT framing belongs to the transport layer. */
 void jm_command(uint8_t cdb[16], uint8_t command, uint32_t argument) {
-  memset(cdb, 0, 16); cdb[0] = 0xf5; cdb[1] = command;
+  memset(cdb, 0, 16); cdb[0] = JM_OP; cdb[1] = command;
   for (unsigned i = 0; i < 4; ++i) cdb[2 + i] = (uint8_t)(argument >> (i * 8));
 }
 /* Validate clear update.bin: MAIN commit/header CRC, format, exact size,
  * application CRC and optional product match. No device I/O. expected_product
  * may be NULL; it must otherwise be at most 16 bytes plus terminator. */
 int jm_update_image_check(const uint8_t *data, size_t size, const char *product) {
-  if (size < 0x120 || memcmp(data, "MAIN", 4) || rd32(data + 16) != 1 ||
-      rd32(data + 4) != size - 0x120 ||
+  if (size < JM_MAIN_HEAD_SIZE || memcmp(data, "MAIN", 4) || rd32(data + 16) != JM_MAIN_VERSION ||
+      rd32(data + 4) != size - JM_MAIN_HEAD_SIZE ||
       rd32(data + 40) != jm_crc16(data + 4, 36) ||
-      rd32(data + 8) != jm_crc16(data + 0x120, size - 0x120))
+      rd32(data + 8) != jm_crc16(data + JM_MAIN_HEAD_SIZE, size - JM_MAIN_HEAD_SIZE))
     return 0;
   if (product) {
     size_t n = 0;
@@ -84,14 +84,14 @@ int main(void) {
   uint8_t update[0x121] = {0};
   memcpy(update, "MAIN", 4); update[4] = 1; update[16] = 1;
   memcpy(update + 24, "test", 4);
-  uint16_t crc = jm_crc16(update + 0x120, 1);
+  uint16_t crc = jm_crc16(update + JM_MAIN_HEAD_SIZE, 1);
   update[8] = crc; update[9] = crc >> 8;
   crc = jm_crc16(update + 4, 36);
   update[40] = crc; update[41] = crc >> 8;
   assert(jm_update_image_check(update, sizeof update, "test"));
   assert(!jm_update_image_check(update, sizeof update, "wrong"));
   assert(!jm_update_image_check(update, sizeof update - 1, NULL));
-  update[0x120] ^= 1;
+  update[JM_MAIN_HEAD_SIZE] ^= 1;
   assert(!jm_update_image_check(update, sizeof update, NULL));
 
   return 0;

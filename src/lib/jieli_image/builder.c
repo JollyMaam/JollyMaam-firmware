@@ -14,9 +14,7 @@
 #include <strings.h>
 #define MAX_FILES JM_JIELI_BUILD_FILES
 #define MAX_CFG 128
-#define MAIN_MAGIC 0x4e49414du
-#define MAIN_HEAD_SIZE 0x120u
-#define MAIN_HEAD_VERSION 1u
+#include "../proto_jollymaam_wire.h"
 struct blob { uint8_t *p; size_t n,cap; };
 struct kv { char *section,*key,*value; };
 struct config { struct kv v[MAX_CFG];size_t n; };
@@ -414,7 +412,7 @@ static struct blob build(struct build_context *ctx, struct jm_jieli_build_option
   if (main_bin) {
     if ((o->main_at & 0xfff) || o->main_at < area_n)
       fail(ctx, "--main's offset must be 4-KiB aligned and above the app area");
-    area_n = o->main_at + MAIN_HEAD_SIZE + (uint32_t)main_n;
+    area_n = o->main_at + JM_MAIN_HEAD_SIZE + (uint32_t)main_n;
   }
   uint32_t image_end = align_up(appbase + area_n, 0x1000);
   uint32_t code_end = o->code_limit ? o->code_limit : image_end;
@@ -508,18 +506,18 @@ static struct blob build(struct build_context *ctx, struct jm_jieli_build_option
   }
   if (main_bin) {
     uint8_t *h = image.p + appbase + o->main_at;
-    wr32(h, MAIN_MAGIC);
+    wr32(h, JM_MAIN_MAGIC);
     wr32(h + 4, (uint32_t)main_n);
     wr32(h + 8, jm_crc16(main_bin, main_n));
-    wr32(h + 12, (entry & ~0xfffffu) + o->main_at + MAIN_HEAD_SIZE);
-    wr32(h + 16, MAIN_HEAD_VERSION);
+    wr32(h + 12, (entry & ~0xfffffu) + o->main_at + JM_MAIN_HEAD_SIZE);
+    wr32(h + 16, JM_MAIN_VERSION);
     wr32(h + 20, o->main_at);
     memset(h + 24, 0, 16);
     strncpy((char *)h + 24, cfg(&c, "EXTRA_CFG_PARAM", "PID", ""), 16);
     wr32(h + 40, jm_crc16(h + 4, 36));
-    memcpy(h + MAIN_HEAD_SIZE, main_bin, main_n);
+    memcpy(h + JM_MAIN_HEAD_SIZE, main_bin, main_n);
     bfree(ctx, main_bin);
-    ctx->update_size=MAIN_HEAD_SIZE+main_n;
+    ctx->update_size=JM_MAIN_HEAD_SIZE+main_n;
     ctx->update=bmalloc(ctx,ctx->update_size);
     memcpy(ctx->update,h,ctx->update_size);
   }

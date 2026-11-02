@@ -118,16 +118,7 @@
  * parks each command it receives and raises EV_USB.  tools/padtool/padtool.py and
  * tools/padtool/padgui.pyw (Linux/Windows) and tools/jollymaam/jollymaam_jieli.c are the clients. */
 
-#define OP          0xf5
-#define PROTOCOL    2
-
 #define STATS_VERSION 1
-
-enum { CMD_IDENTIFY = 0x00, CMD_STATUS = 0x01, CMD_LOG = 0x02, CMD_STATS = 0x03, CMD_INPUT = 0x04, CMD_CLOCK = 0x05,
-       CMD_REBOOT = 0x10, CMD_REBOOT_LOADER = 0x11, CMD_RELINK = 0x12, CMD_CONNECT = 0x13, CMD_PROFILE = 0x14, CMD_PEEK = 0x15, CMD_TRACE = 0x16, CMD_PAIR = 0x17, CMD_CALIBRATE = 0x18, CMD_LED_DEMO = 0x19, CMD_RUMBLE = 0x1a,
-       CMD_DISCONNECT = 0x1b, CMD_PROBE = 0x1c, CMD_CONFIG = 0x1d, CMD_FIELD = 0x20, CMD_READ = 0x21, CMD_WRITE = 0x22, CMD_COMMIT = 0x23, CMD_DROP = 0x24,
-       CMD_EPHEMERAL = 0x25, CMD_RESULT = 0x26, CMD_DEFAULTS = 0x27, CMD_FIELDS = 0x28, CMD_TOOL_ONLY = 0x31, CMD_HUB = 0x32, CMD_USB_PROBE = 0x3f,
-       CMD_UPDATER = 0x40 };
 
 #ifdef BOARD_DONGLE
 #include "dongle.h"
@@ -182,17 +173,17 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
 #ifdef NO_SETTINGS
     (void)from_host;             /* only WRITE takes data from the host */
 #endif
-    if (cdb[0] != OP) {
+    if (cdb[0] != JM_OP) {
         pending.kind = REQ_REBOOT_LOADER;
         return 0;
     }
     switch (cdb[1]) {
-    case CMD_IDENTIFY: {
+    case JM_CMD_IDENTIFY: {
         const u8 *uid = plat_unique_id();
 
         if (max < 56) return 0;
         memcpy(data, "C2PD", 4);
-        util_put16(data + 4, PROTOCOL);
+        util_put16(data + 4, JM_PROTOCOL);
         data[6] = BOARD_KIND;
         data[7] = 0;
         strncpy((char *)data + 8, BUILD_ID, 16);
@@ -215,7 +206,7 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         break;
     }
 #endif
-    case CMD_STATUS:
+    case JM_CMD_STATUS:
         if (max < 16 || !status) return 0;
         data[0] = status->state;
         data[1] = status->slot;
@@ -232,7 +223,7 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
 #endif
         n = 16;
         break;
-    case CMD_LOG: {
+    case JM_CMD_LOG: {
         u32 seq = util_get32(cdb + 2);
 
         if (max < 8) return 0;
@@ -242,7 +233,7 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         n += 8;
         break;
     }
-    case CMD_STATS:              /* argument bit 0: reset after reading */
+    case JM_CMD_STATS:              /* argument bit 0: reset after reading */
         if (max < 4 + sizeof(struct ctl_stats) || !status || !status->stats) return 0;
         util_put16(data, STATS_VERSION);
         util_put16(data + 2, sizeof(struct ctl_stats));
@@ -250,7 +241,7 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         n = 4 + sizeof(struct ctl_stats);
         if (cdb[2] & 1) pending.kind = REQ_STATS_RESET;
         break;
-    case CMD_INPUT: {
+    case JM_CMD_INPUT: {
         const struct pad *p = status ? status->input : NULL;
         const struct in_raw *raw = status ? status->raw : NULL;
         u32 i;
@@ -272,12 +263,12 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         n = 36;
         break;
     }
-    case CMD_CLOCK:              /* the microsecond clock, for mapping it onto the PC's */
+    case JM_CMD_CLOCK:              /* the microsecond clock, for mapping it onto the PC's */
         if (max < 4) return 0;
         util_put32(data, plat_us());
         n = 4;
         break;
-    case CMD_PROBE:              /* byte 2: 1 start, edges in bytes 3-6, period ms in 7-8;
+    case JM_CMD_PROBE:              /* byte 2: 1 start, edges in bytes 3-6, period ms in 7-8;
                                     2 stop; 0 take: u32 count, u32 lost, u8 active, 3 spare,
                                     then count records of edge us, sent us, level, 3 spare */
         if (cdb[2] == 1) util_probe_start(util_get32(cdb + 3), (u32)(cdb[7] | cdb[8] << 8));
@@ -285,45 +276,45 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         else if (max < 12) return 0;
         else n = probe_take(data, max);
         break;
-    case CMD_REBOOT:
+    case JM_CMD_REBOOT:
         pending.kind = REQ_REBOOT;
         break;
-    case CMD_REBOOT_LOADER:
+    case JM_CMD_REBOOT_LOADER:
         pending.kind = REQ_REBOOT_LOADER;
         break;
-    case CMD_UPDATER:
+    case JM_CMD_UPDATER:
         pending.kind = REQ_REBOOT_UPDATER;
         break;
-    case CMD_RELINK:
+    case JM_CMD_RELINK:
         pending.kind = REQ_RELINK;
         break;
-    case CMD_PROFILE:            /* byte 2: 0 read from the offset in bytes 3-6; 1 start
+    case JM_CMD_PROFILE:            /* byte 2: 0 read from the offset in bytes 3-6; 1 start
                                     at the rate in bytes 3-4, flash window from bytes
                                     5-8 (0: all) in buckets of 1 << byte 9; 2 stop */
         if (cdb[2] == 1) plat_prof_start((u16)(cdb[3] | cdb[4] << 8), util_get32(cdb + 5), cdb[9]);
         else if (cdb[2] == 2) plat_prof_start(0, 0, 0);
         else n = plat_prof_read(util_get32(cdb + 3), data, max);
         break;
-    case CMD_TRACE:              /* byte 2: 0 read from the offset in bytes 3-6, 1 start, 2 stop */
+    case JM_CMD_TRACE:              /* byte 2: 0 read from the offset in bytes 3-6, 1 start, 2 stop */
         if (cdb[2] == 1) util_trace_enable(1);
         else if (cdb[2] == 2) util_trace_enable(0);
         else n = util_trace_read(util_get32(cdb + 3), data, max);
         break;
-    case CMD_PEEK:               /* argument: address; in: 32-bit words from it */
+    case JM_CMD_PEEK:               /* argument: address; in: 32-bit words from it */
         n = plat_peek(util_get32(cdb + 2), data, max);
         break;
-    case CMD_PAIR:               /* argument: slot; keeps its address */
+    case JM_CMD_PAIR:               /* argument: slot; keeps its address */
         pending.kind = REQ_PAIR;
         pending.slot = cdb[2];
         pending.generate_new_address = 0;
         break;
-    case CMD_CALIBRATE:
+    case JM_CMD_CALIBRATE:
 #ifndef BOARD_DONGLE
         pending.kind = REQ_CALIBRATE;
         pending.slot = SLOT_NONE;
 #endif
         break;
-    case CMD_LED_DEMO:
+    case JM_CMD_LED_DEMO:
 #if !defined(BOARD_DONGLE) && !defined(NO_SETTINGS)
         if (cdb[2] < ux_led_demo_count && max) {
             n = (u32)strlen(ux_led_demos[cdb[2]].name) + 1;
@@ -337,7 +328,7 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         }
 #endif
         break;
-    case CMD_RUMBLE:
+    case JM_CMD_RUMBLE:
 #ifndef BOARD_DONGLE
         pending.kind = REQ_RUMBLE;
         pending.motor[0] = cdb[2];
@@ -345,27 +336,27 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         pending.ms = (u16)(cdb[4] | cdb[5] << 8);
 #endif
         break;
-    case CMD_CONNECT:            /* argument: slot, 0xfe the last */
+    case JM_CMD_CONNECT:            /* argument: slot, 0xfe the last */
         pending.kind = REQ_CONNECT;
         pending.slot = cdb[2];
         break;
-    case CMD_DISCONNECT:
+    case JM_CMD_DISCONNECT:
 #ifndef BOARD_DONGLE
         pending.kind = REQ_DISCONNECT;
         pending.slot = SLOT_NONE;
 #endif
         break;
-    case CMD_CONFIG:
+    case JM_CMD_CONFIG:
 #ifndef BOARD_DONGLE
         pending.kind = REQ_CONFIG;
         pending.slot = SLOT_NONE;
 #endif
         break;
 #ifndef NO_SETTINGS
-    case CMD_FIELD:              /* argument: field number */
+    case JM_CMD_FIELD:              /* argument: field number */
         n = set_describe(util_get32(cdb + 2), data, max);
         break;
-    case CMD_FIELDS: {           /* argument: the first field number */
+    case JM_CMD_FIELDS: {           /* argument: the first field number */
         u32 k, first = util_get32(cdb + 2), len;
 
         if (!max) break;
@@ -377,47 +368,47 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         if (!k) n = 0;           /* none: past the last (as NO_SETTINGS answers) */
         break;
     }
-    case CMD_DEFAULTS:           /* same packet as READ, all default values */
+    case JM_CMD_DEFAULTS:           /* same packet as READ, all default values */
 #ifndef BOARD_DONGLE
         n = set_read_defaults(cdb[2], data, max);
 #endif
         break;
-    case CMD_READ:               /* argument: target */
+    case JM_CMD_READ:               /* argument: target */
         n = set_read(cdb[2], data, max);
         break;
-    case CMD_WRITE:
+    case JM_CMD_WRITE:
         if (!from_host) max = 0;
         result_len = set_write(data, max, result + 1, sizeof(result) - 1);
         result[0] = (u8)result_len;
         break;
-    case CMD_RESULT:
+    case JM_CMD_RESULT:
         n = result_len + 1 < max ? result_len + 1 : max;
         memcpy(data, result, n);
         break;
-    case CMD_COMMIT:
+    case JM_CMD_COMMIT:
         set_apply();
         break;
-    case CMD_DROP:
+    case JM_CMD_DROP:
         set_drop();
         break;
-    case CMD_EPHEMERAL:
+    case JM_CMD_EPHEMERAL:
         set_ephemeral();
         break;
 #endif
 #ifdef BOARD_DONGLE
-    case CMD_TOOL_ONLY:
+    case JM_CMD_TOOL_ONLY:
         if (max < 1) break;
         data[0] = (u8)dongle_tool_only(cdb[2]);
         n = 1;
         break;
-    case CMD_HUB:
+    case JM_CMD_HUB:
         if (max < 1) break;
         data[0] = (u8)dongle_hub(cdb[2]);
         n = 1;
         break;
 #endif
 #ifdef USB_PROBE
-    case CMD_USB_PROBE:          /* test builds: platform_jieli.c usb_probe() */
+    case JM_CMD_USB_PROBE:          /* test builds: platform_jieli.c usb_probe() */
         plat_usb_probe_request(util_get32(cdb + 2));   /* argument: USB_IO_CON0 bits to add */
         break;
 #endif
@@ -495,22 +486,22 @@ u32 util_get32(const u8 *p) { return p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (
 
 int main(void)
 {
-    u8 cdb[16] = { OP, CMD_IDENTIFY }, data[512];
+    u8 cdb[16] = { JM_OP, JM_CMD_IDENTIFY }, data[512];
     static struct usb_status st = { .state = CTL_IDLE, .slot = SLOT_NONE, .usb_powered = 1,
         .battery = {3900, 66, JM_BATTERY_MV_VALID | JM_BATTERY_PERCENT_VALID}, .uptime_ms = 1234 };
     struct ctl_request r;
 
     CHECK(usb_command(cdb, data, 40, 0) == 0);
     CHECK(usb_command(cdb, data, 87, 0) == 56);
-    CHECK(!memcmp(data, "C2PD", 4) && data[4] == PROTOCOL && data[25] == 2);
+    CHECK(!memcmp(data, "C2PD", 4) && data[4] == JM_PROTOCOL && data[25] == 2);
     CHECK(!strncmp((char *)data + 40, BOARD_PID, 16));
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 88 && !strcmp((char *)data + 56, board_name));
     CHECK(data[6] == BOARD_KIND && data[7] == 0);
 #ifdef BOARD_DONGLE
-    cdb[1] = CMD_TOOL_ONLY;
+    cdb[1] = JM_CMD_TOOL_ONLY;
     cdb[2] = 1;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 1 && data[0] == 1 && tool_only_seen == 1);
-    cdb[1] = CMD_HUB;
+    cdb[1] = JM_CMD_HUB;
     cdb[2] = 1;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 1 && data[0] == 1 && hub_mode == 1);
     cdb[2] = 0xff;
@@ -520,14 +511,14 @@ int main(void)
     memset(cdb + 2, 0, 6);
 #endif
     status = &st;
-    cdb[1] = CMD_STATUS;
+    cdb[1] = JM_CMD_STATUS;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 16);
     CHECK(data[6] == (JM_BATTERY_MV_VALID | JM_BATTERY_PERCENT_VALID) && data[7] == 66);
     CHECK(data[0] == CTL_IDLE && data[4] == (3900 & 0xff) && data[8] == (1234 & 0xff));
 #if !defined(NO_SETTINGS) && !defined(BOARD_DONGLE)
     CHECK(data[14] == 0x34 && data[15] == 0x12);     /* the settings change counter */
 #endif
-    cdb[1] = CMD_INPUT;
+    cdb[1] = JM_CMD_INPUT;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 0);    /* none */
     {
         static struct pad in = { PAD_A | PAD_LEFT, -2, 3, 0, 0, 0, 65535 };
@@ -541,12 +532,12 @@ int main(void)
         CHECK(data[20] == 100 && data[26] == (400 & 0xff) && data[28] == 5 && data[32] == (1234 & 0xff));
         st.input = NULL;
     }
-    cdb[1] = CMD_LOG;
+    cdb[1] = JM_CMD_LOG;
     cdb[2] = 5;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 11 && data[0] == 7 && data[4] == 3);
     r = usb_poll(&st);
     CHECK(r.kind == REQ_NONE);
-    cdb[1] = CMD_DISCONNECT;
+    cdb[1] = JM_CMD_DISCONNECT;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 0);
     r = usb_poll(&st);
 #ifndef BOARD_DONGLE
@@ -559,20 +550,20 @@ int main(void)
 
         stats.passes = 0x01020304;
         st.stats = &stats;
-        cdb[1] = CMD_STATS;
+        cdb[1] = JM_CMD_STATS;
         cdb[2] = 1;
         CHECK(usb_command(cdb, data, sizeof(data), 0) == 4 + sizeof(stats));
         CHECK(data[0] == STATS_VERSION && data[2] == (u8)sizeof(stats) && data[4 + 8] == 4);
         CHECK(usb_poll(&st).kind == REQ_STATS_RESET);
     }
-    cdb[1] = CMD_DEFAULTS;
+    cdb[1] = JM_CMD_DEFAULTS;
     cdb[2] = 2;
 #if defined(BOARD_DONGLE) || defined(NO_SETTINGS)
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 0);
 #else
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 3 && data[1] == 2);
 #endif
-    cdb[1] = CMD_CALIBRATE;
+    cdb[1] = JM_CMD_CALIBRATE;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 0);
     r = usb_poll(&st);
 #ifdef BOARD_DONGLE
@@ -581,13 +572,13 @@ int main(void)
     CHECK(r.kind == REQ_CALIBRATE && r.slot == SLOT_NONE);
 #endif
 #if !defined(BOARD_DONGLE) && defined(NO_SETTINGS)
-    cdb[1] = CMD_LED_DEMO;
+    cdb[1] = JM_CMD_LED_DEMO;
     cdb[2] = 1;
     cdb[3] = 1;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 0 && usb_poll(&st).kind == REQ_NONE);
     memset(cdb + 2, 0, 4);
 #elif !defined(BOARD_DONGLE)
-    cdb[1] = CMD_LED_DEMO;
+    cdb[1] = JM_CMD_LED_DEMO;
     cdb[2] = 1;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 4 && !strcmp((char *)data, "two"));
     CHECK(usb_poll(&st).kind == REQ_NONE);                  /* the name only */
@@ -602,7 +593,7 @@ int main(void)
     r = usb_poll(&st);
     CHECK(r.kind == REQ_LED_DEMO && r.slot == SLOT_NONE);
     cdb[3] = 0;
-    cdb[1] = CMD_RUMBLE;
+    cdb[1] = JM_CMD_RUMBLE;
     cdb[2] = 64; cdb[3] = 255; cdb[4] = 0xe8; cdb[5] = 0x03;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 0);
     r = usb_poll(&st);
@@ -610,36 +601,36 @@ int main(void)
     memset(cdb + 2, 0, 4);
 #endif
 #ifdef NO_SETTINGS
-    cdb[1] = CMD_FIELD;
+    cdb[1] = JM_CMD_FIELD;
     cdb[2] = 1;
     data[0] = 0x55;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 0 && data[0] == 0x55);
-    cdb[1] = CMD_WRITE;
+    cdb[1] = JM_CMD_WRITE;
     CHECK(usb_command(cdb, data, 9, 1) == 0);
-    cdb[1] = CMD_COMMIT;
+    cdb[1] = JM_CMD_COMMIT;
     usb_command(cdb, data, sizeof(data), 0);
     CHECK(applied == 0);
 #else
-    cdb[1] = CMD_FIELD;
+    cdb[1] = JM_CMD_FIELD;
     cdb[2] = 1;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 8 && data[0] == 1);
-    cdb[1] = CMD_FIELDS;         /* fields 1 and 2 (the stub has 3) */
+    cdb[1] = JM_CMD_FIELDS;         /* fields 1 and 2 (the stub has 3) */
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 21 && data[0] == 2 && data[1] == 8 && data[3] == 1 &&
           data[11] == 8 && data[13] == 2);
     CHECK(usb_command(cdb, data, 12, 0) == 11 && data[0] == 1);   /* only one fits */
     cdb[2] = 3;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 0);
-    cdb[1] = CMD_WRITE;
+    cdb[1] = JM_CMD_WRITE;
     data[0] = 0x42;
     CHECK(usb_command(cdb, data, 9, 1) == 0);
-    cdb[1] = CMD_RESULT;
+    cdb[1] = JM_CMD_RESULT;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 3 && data[0] == 2 && data[1] == 0x42 && data[2] == 9);
-    cdb[1] = CMD_COMMIT;
+    cdb[1] = JM_CMD_COMMIT;
     usb_command(cdb, data, sizeof(data), 0);
     CHECK(applied == 1);
 #endif
     cdb[2] = 0;
-    cdb[1] = CMD_REBOOT_LOADER;
+    cdb[1] = JM_CMD_REBOOT_LOADER;
     usb_command(cdb, data, sizeof(data), 0);
     r = usb_poll(&st);
     CHECK(r.kind == REQ_REBOOT_LOADER);

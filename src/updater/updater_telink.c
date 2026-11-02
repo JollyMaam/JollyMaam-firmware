@@ -4,7 +4,7 @@
 
 /* The updater on the B80 (updater.c): the image the 8BitDo boot loader
  * starts, at APP_START.  The app's region is MAIN_AT above it: its header,
- * then the app (its image, linked to run there) at MAIN_HEAD_SIZE.  At the
+ * then the app (its image, linked to run there) at JM_MAIN_HEAD_SIZE.  At the
  * very start of main(), updater_boot() starts the app as the boot loader
  * would (its vectors and RAM code into SRAM, then the CPU restarts from
  * SRAM), unless the app asked for the updater or its header is not there.
@@ -46,7 +46,7 @@ static void __attribute__((noreturn, noinline)) start_app(u32 image, u32 bytes)
 void updater_boot(void)
 {
     const volatile u32 *head = (const volatile u32 *)REGION;
-    u32 entry = REGION + MAIN_HEAD_SIZE, bytes;
+    u32 entry = REGION + JM_MAIN_HEAD_SIZE, bytes;
 
     u32 tries;
 
@@ -54,7 +54,7 @@ void updater_boot(void)
     tries = (boot_flag & 0xf0) == UPDATER_STAY ? boot_flag & 0x0f : 0;
     analog_write(UPDATER_STAY_REG, UPDATER_UP);
     if (boot_flag == UPDATER_STAY || tries >= UPDATER_TRIES_MAX) return;
-    if (head[0] != MAIN_MAGIC || head[3] != entry || head[4] != MAIN_VERSION) return;
+    if (head[0] != JM_MAIN_MAGIC || head[3] != entry || head[4] != JM_MAIN_VERSION) return;
     if (*(const volatile u32 *)(entry + 8) != 0x544c4e4b) return;      /* "KNLT" */
     bytes = (*(const volatile u32 *)(entry + 0x0c) & 0xffff) << 4;
     if (!bytes || bytes > RAM_COPY_MAX) return;
@@ -72,7 +72,7 @@ void upd_started(void)
 
 u32 upd_region(void) { return REGION; }
 u32 upd_room(void) { return CODE_LIMIT - REGION; }
-u32 upd_entry(void) { return REGION + MAIN_HEAD_SIZE; }
+u32 upd_entry(void) { return REGION + JM_MAIN_HEAD_SIZE; }
 u32 upd_extra(void) { return 0xffffffffu; }
 /* A frame of 152 data bytes is a 160-byte ATT write: the most the LE side
  * takes in fragments (rx_telink.c). */
@@ -102,7 +102,7 @@ u8 upd_prepare(void)
         unlocked = 1;
         util_log("updater: flash protection %04x off", lock_was);
     }
-    return ERR_NONE;
+    return JM_UPDATE_ERR_NONE;
 }
 
 void upd_committed(void)
@@ -111,7 +111,7 @@ void upd_committed(void)
     unlocked = 0;
 }
 
-u8 upd_erased(void) { return ERR_NONE; }
+u8 upd_erased(void) { return JM_UPDATE_ERR_NONE; }
 
 void upd_erase(u32 offset)
 {

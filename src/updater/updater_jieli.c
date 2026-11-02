@@ -15,7 +15,7 @@
 
 #define CODE_WINDOW     0x1e00000u      /* the app area's start, as the CPU sees it */
 #define MAIN_HEAD       ((const volatile u32 *)(CODE_WINDOW + MAIN_AT))
-#define MAIN_ENTRY      (CODE_WINDOW + MAIN_AT + MAIN_HEAD_SIZE)
+#define MAIN_ENTRY      (CODE_WINDOW + MAIN_AT + JM_MAIN_HEAD_SIZE)
 
 extern void _start(void *boot_info);    /* the SDK's start-up */
 extern u32 sfc_write(const u8 *buf, u32 addr, u32 len);
@@ -33,8 +33,8 @@ void updater_entry(void *info)
 
     if (mailbox[0] == UPDATER_STAY && mailbox[1] == ~UPDATER_STAY) {
         mailbox[0] = 0;
-    } else if (MAIN_HEAD[0] == MAIN_MAGIC && MAIN_HEAD[3] == MAIN_ENTRY &&
-               MAIN_HEAD[4] == MAIN_VERSION) {
+    } else if (MAIN_HEAD[0] == JM_MAIN_MAGIC && MAIN_HEAD[3] == MAIN_ENTRY &&
+               MAIN_HEAD[4] == JM_MAIN_VERSION) {
         u32 tries = (mailbox[2] & ~0xffu) == UPDATER_TRIES ? mailbox[2] & 0xff : 0;
 
         if (tries < UPDATER_TRIES_MAX) {
@@ -134,7 +134,7 @@ u8 upd_prepare(void)
         update_norflash_write_protect(0, 0, 0, 0);
         util_log("updater: block protection off");
     }
-    return ERR_NONE;
+    return JM_UPDATE_ERR_NONE;
 }
 
 void upd_erase(u32 offset)
@@ -144,5 +144,5 @@ void upd_erase(u32 offset)
 
 u8 upd_erased(void)
 {
-    return key_found || find_key(MAIN_AT) ? ERR_NONE : ERR_KEY;
+    return key_found || find_key(MAIN_AT) ? JM_UPDATE_ERR_NONE : JM_UPDATE_ERR_KEY;
 }

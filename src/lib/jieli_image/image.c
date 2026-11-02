@@ -149,14 +149,14 @@ int jm_jieli_image_main(const struct jm_jieli_image *image,struct jm_jieli_file 
   char product[17];if((uint64_t)image->base+32>image->size) return 0;
   jm_jieli_name_string(product,image->data+image->base+16);
   const uint8_t *plain=image->data+image->appbase;
-  for(uint64_t at=0x1000;at+0x120<=image->cipher_size;at+=0x1000) {
+  for(uint64_t at=0x1000;at+JM_MAIN_HEAD_SIZE<=image->cipher_size;at+=0x1000) {
     const uint8_t *h=plain+at;
     if(memcmp(h,"MAIN",4)) continue;
     uint32_t n=(uint32_t)h[4]|(uint32_t)h[5]<<8|(uint32_t)h[6]<<16|(uint32_t)h[7]<<24;
     uint32_t declared=(uint32_t)h[20]|(uint32_t)h[21]<<8|(uint32_t)h[22]<<16|(uint32_t)h[23]<<24;
-    if(declared!=at || at+0x120+n>image->cipher_size || !jm_update_image_check(h,0x120+(size_t)n,product)) continue;
+    if(declared!=at || at+JM_MAIN_HEAD_SIZE+n>image->cipher_size || !jm_update_image_check(h,JM_MAIN_HEAD_SIZE+(size_t)n,product)) continue;
     struct jm_jieli_file result;memset(&result,0,sizeof result);strcpy(result.name,"_main.bin");
-    result.data=h+0x120;result.size=n;result.kind=JM_JIELI_FILE_MAIN;*file=result;*offset=(uint32_t)at;return 1;
+    result.data=h+JM_MAIN_HEAD_SIZE;result.size=n;result.kind=JM_JIELI_FILE_MAIN;*file=result;*offset=(uint32_t)at;return 1;
   }
   return 0;
 }

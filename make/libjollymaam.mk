@@ -54,6 +54,12 @@ $(O)/host/platform/%.o: src/lib/%.c $(JOLLYMAAM_HEADERS) $(O)/host/.jollymaam-co
 $(JOLLYMAAM_CLI): $(JOLLYMAAM_APP_SOURCES) $(JOLLYMAAM_APP_HEADERS) $(O)/host/libjollymaam-platform.a $(O)/host/libjollymaam.a $(MAKE_FILES)
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) $(JOLLYMAAM_APP_SOURCES) $(O)/host/libjollymaam-platform.a $(O)/host/libjollymaam.a $$(pkg-config $(JOLLYMAAM_PKG_OPTIONS) --cflags --libs $(JOLLYMAAM_PKGS)) $(JOLLYMAAM_LINK_FLAGS) $(JOLLYMAAM_SYSTEM_LIBS) -o $@
 
+# Offline firmware image packing; no desktop archive or USB dependencies.
+.PHONY: jollymaam-jlpack
+jollymaam-jlpack: $(O)/host/jollymaam-jlpack$(JOLLYMAAM_EXEEXT)
+$(O)/host/jollymaam-jlpack$(JOLLYMAAM_EXEEXT): tools/jollymaam/jollymaam_jieli.c tools/jollymaam/jollymaam_jieli.h $(O)/host/libjollymaam.a $(MAKE_FILES)
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) -std=c99 -DJOLLYMAAM_PACK_ONLY $< $(O)/host/libjollymaam.a $(JOLLYMAAM_LINK_FLAGS) -o $@
+
 JOLLYMAAM_IMAGE_TESTS := builder image bankcb crypto entry key ufw
 JOLLYMAAM_MODULE_TESTS := restore proto_8bitdo proto_jollymaam proto_jieli upgrade_jollymaam upgrade_jieli sha256
 JOLLYMAAM_IMAGE_TEST_BINS := $(JOLLYMAAM_IMAGE_TESTS:%=$(O)/host/test-jollymaam-%$(JOLLYMAAM_EXEEXT))

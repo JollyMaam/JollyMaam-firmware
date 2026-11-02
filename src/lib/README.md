@@ -4,6 +4,18 @@ This library provides host protocol, image and update functionality shared with
 the firmware tools. Public interfaces use the `jm_` prefix and C99. `jollymaam.h` collects
 the portable interfaces; desktop adapters are opt-in and have separate headers.
 
+`proto_jollymaam_wire.h` is the shared contract with the app firmware and
+updater: command IDs, protocol version, battery flags, HID framing constants,
+updater states/errors and MAIN image constants. It contains constants only and
+adds no firmware code or storage. Change these definitions here rather than
+adding local copies. Firmware keeps its platform transport and flash operations;
+the host library keeps its request scheduling and validation.
+
+Firmware image builds use `make jollymaam-jlpack`, an offline build of the same
+pack command used by `jollymaam jieli pack`. It links only the portable archive
+and needs no hidapi or desktop transport dependencies. The full CLI and flashing
+targets still require the desktop dependencies.
+
 Build and test from the repository root:
 
 ```
