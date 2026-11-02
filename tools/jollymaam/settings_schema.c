@@ -5,6 +5,7 @@
 #include "../../src/lib/sha256.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include "../../src/platform/telink/store_telink.h"
 
 void util_put16(u8 *p, u16 v) { p[0] = v; p[1] = v >> 8; }
 
@@ -25,6 +26,86 @@ static void word(u16 v)
     append(bytes, sizeof bytes);
 }
 
+/* All fields explicit is the largest persisted form, regardless of value.
+ * Count every saved target and both halves of each remap record. */
+static int storage_fits(void)
+{
+    u32 t, part, i, n, largest = 0, payload = 0, records = 0;
+#ifdef SETTINGS_STORE_TELINK
+    u32 live = TELINK_STORE_HEADER_SIZE;
+#endif
+#ifdef SETTINGS_STORE_JIELI_BYTES
+    u32 jieli_live = 4;
+#endif
+
+    for (t = 0; t < TARGETS; t++) {
+        const struct set_field *fields = fields_of(t, &n);
+        if (n > 32) {
+            fprintf(stderr, "settings target %u has %u fields, exceeds 32-bit field mask\n", t, n);
+            return 0;
+        }
+        if (!stored(t)) continue;
+        for (part = 0; part < parts_of(t); part++) {
+            u32 bytes = 4;
+            for (i = 0; i < n; i++) if (part_of(t, i) == part) bytes += 2u + fields[i].size;
+            if (bytes > RECORD_MAX || bytes > 255) {
+                fprintf(stderr, "settings target %u part %u needs %u bytes; record limit %u, format limit 255\n",
+                        t, part, bytes, (unsigned)RECORD_MAX);
+                return 0;
+            }
+#ifdef SETTINGS_STORE_TELINK
+            if (bytes > TELINK_STORE_DATA_MAX || key_of(t, part) >= TELINK_STORE_RECEIVER_KEY) {
+                fprintf(stderr, "settings target %u part %u exceeds Telink record/key limits\n", t, part);
+                return 0;
+            }
+#endif
+            if (bytes > largest) largest = bytes;
+            payload += bytes;
+#ifdef SETTINGS_STORE_TELINK
+            live += TELINK_STORE_RECORD_SIZE(bytes);
+#endif
+#ifdef SETTINGS_STORE_JIELI_BYTES
+            jieli_live += bytes + 4;
+#endif
+            records++;
+        }
+    }
+    fprintf(stderr, "settings: %u records, %u payload bytes, largest %u/%u bytes\n",
+            records, payload, largest, (unsigned)RECORD_MAX);
+#ifdef SETTINGS_STORE_TELINK
+    /* Reserve both optional records even when the build does not use them.
+     * Compaction copies the old value before appending its replacement. */
+    live += TELINK_STORE_RECORD_SIZE(TELINK_STORE_RECEIVER_SIZE) +
+            TELINK_STORE_RECORD_SIZE(TELINK_STORE_LAST_SLOT_SIZE);
+    if (largest < TELINK_STORE_RECEIVER_SIZE) largest = TELINK_STORE_RECEIVER_SIZE;
+    if (largest < TELINK_STORE_LAST_SLOT_SIZE) largest = TELINK_STORE_LAST_SLOT_SIZE;
+    live += TELINK_STORE_RECORD_SIZE(largest);
+    fprintf(stderr, "settings: Telink live records plus overwrite reserve %u/%u flash bytes\n",
+            live, (unsigned)TELINK_STORE_SECTOR_SIZE);
+    if (live > TELINK_STORE_SECTOR_SIZE) {
+        fputs("settings do not fit in one Telink compaction sector\n", stderr);
+        return 0;
+    }
+#endif
+#ifdef SETTINGS_STORE_JIELI_BYTES
+    /* The reviewed SDK uses two equal areas: a 4-byte magic then unpadded
+     * {4-byte item header, payload}. Compaction copies the old value before
+     * its replacement is appended. An overflowing move erases both areas. */
+    if (SETTINGS_STORE_JIELI_BYTES != 8192 && SETTINGS_STORE_JIELI_BYTES != 16384) {
+        fputs("Jieli VM capacity model supports 8/16 KiB sector-mode regions only\n", stderr);
+        return 0;
+    }
+    jieli_live += largest + 4 + SETTINGS_STORE_JIELI_RESERVE;
+    fprintf(stderr, "settings: Jieli live records plus overwrite and %u-byte SDK reserve %u/%u flash bytes\n",
+            (unsigned)SETTINGS_STORE_JIELI_RESERVE, jieli_live, (unsigned)(SETTINGS_STORE_JIELI_BYTES / 2));
+    if (jieli_live > SETTINGS_STORE_JIELI_BYTES / 2) {
+        fputs("settings do not fit in one Jieli VM compaction area\n", stderr);
+        return 0;
+    }
+#endif
+    return 1;
+}
+
 int main(int argc, char **argv)
 {
     u8 field[4096], digest[32], info[JM_SCHEMA_INFO_SIZE] = {0};
@@ -32,6 +113,7 @@ int main(int argc, char **argv)
     FILE *out;
 
     if (argc != 3) { fputs("usage: settings-schema SCHEMA HEADER\n", stderr); return 1; }
+    if (!storage_fits()) return 1;
     append("JMSC", 4);
     word(JM_SCHEMA_FORMAT);
     word(JM_PROTOCOL);

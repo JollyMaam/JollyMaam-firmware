@@ -46,9 +46,9 @@ include make/libjollymaam.mk
 # A host-compiled exporter uses the same tables and board defaults as firmware.
 # Called by each board template only for targets which include settings.c.
 define settings_schema
-$(O)/host/settings-schema-$(1): tools/jollymaam/settings_schema.c src/core/settings.c src/lib/sha256.c src/lib/sha256.h $(patsubst %/board_pad.c,%/settings_defaults.inc,$(filter %/board_pad.c,$($(1)_SOURCES))) $(wildcard src/core/*.h src/lib/proto_jollymaam*.h) $(O)/$(1)/defines $(MAKE_FILES) $(O)/host/.jollymaam-config
+$(O)/host/settings-schema-$(1): tools/jollymaam/settings_schema.c src/core/settings.c src/lib/sha256.c src/lib/sha256.h src/platform/telink/store_telink.h $(patsubst %/board_pad.c,%/settings_defaults.inc,$(filter %/board_pad.c,$($(1)_SOURCES))) $(wildcard src/core/*.h src/lib/proto_jollymaam*.h) $(O)/$(1)/defines $(MAKE_FILES) $(O)/host/.jollymaam-config
 	@mkdir -p $$(@D)
-	$$(Q)$(HOST_CC) $(HOST_CFLAGS) $($(1)_DEFINES) $(EXTRA_DEFINES) $(SRC_INCLUDES) -iquote $(dir $(filter %/board_pad.c,$($(1)_SOURCES))) -ffunction-sections -fdata-sections tools/jollymaam/settings_schema.c src/lib/sha256.c -Wl,--gc-sections -o $$@
+	$$(Q)$(HOST_CC) $(HOST_CFLAGS) $($(1)_DEFINES) $(EXTRA_DEFINES) $(if $(filter src/platform/telink/store_telink.c,$($(1)_SOURCES)),-DSETTINGS_STORE_TELINK) $(if $(filter src/platform/jieli/platform_jieli.c,$($(1)_SOURCES)),-DSETTINGS_STORE_JIELI_BYTES=$(JIELI_VM_KB)*1024 -DSETTINGS_STORE_JIELI_RESERVE=$(JIELI_VM_SETTINGS_RESERVE)) $(SRC_INCLUDES) -iquote $(dir $(filter %/board_pad.c,$($(1)_SOURCES))) -ffunction-sections -fdata-sections tools/jollymaam/settings_schema.c src/lib/sha256.c -Wl,--gc-sections -o $$@
 
 $(O)/$(1)/settings_schema.h $(O)/$(1)/settings_schema.bin &: $(O)/host/settings-schema-$(1)
 	$$(Q)$$< $(O)/$(1)/settings_schema.bin.tmp $(O)/$(1)/settings_schema.h.tmp

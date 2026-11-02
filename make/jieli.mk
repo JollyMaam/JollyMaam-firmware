@@ -19,6 +19,8 @@ JIELI_LOADER := $(JIELI_SDK)
 # at the end of flash; code may use everything below it (the code limit).
 # Changing VM_KB or the flash size moves VM.  16 KiB is the SDK's largest.
 JIELI_VM_KB := 16
+# Budget for SDK-owned and retained VM items, beyond our settings records.
+JIELI_VM_SETTINGS_RESERVE := 1024
 jieli_code_limit = $(shell printf 0x%x $$(( $(1) - 0x2000 - $(JIELI_VM_KB) * 1024 )))
 
 JIELI_CFLAGS :=

@@ -1,5 +1,6 @@
 #include "sdk.h"
 #include "board.h"
+#include "store_telink.h"
 
 /* Settings in flash (plat_store_*): a log of records in one of two 4 KiB
  * sectors, the newest record of a key wins.  A sector starts with
@@ -14,11 +15,13 @@
 
 #define STORE_A   0x6f000        /* two sectors below the bonds (bt_telink.c) */
 #define STORE_B   0x70000
-#define SECTOR    0x1000
+#define SECTOR    TELINK_STORE_SECTOR_SIZE
 #define MAGIC     0x52545343u    /* "CSTR" */
-#define HEADER    8
-#define KEY_MAX   64             /* keys are 1..KEY_MAX-1 */
-#define DATA_MAX  248            /* the most bytes a record holds */
+#define HEADER    TELINK_STORE_HEADER_SIZE
+#define KEY_MAX   TELINK_STORE_KEY_MAX             /* keys are 1..KEY_MAX-1 */
+#define DATA_MAX  TELINK_STORE_DATA_MAX            /* the most bytes a record holds */
+_Static_assert(STORE_B - STORE_A == SECTOR, "settings sectors must match the capacity check");
+
 #define EMPTY     0xffff
 #define PIECE     16             /* on the stack: the settings write is the deepest path */
 
@@ -46,7 +49,7 @@ static u16 store_crc(u16 crc, const u8 *d, u32 n)
 
 static u32 padded(u32 len)
 {
-    return (4 + len + 2 + 3) & ~3u;
+    return TELINK_STORE_RECORD_SIZE(len);
 }
 
 /* The record at: its key and length; returns its size in flash, 0: none

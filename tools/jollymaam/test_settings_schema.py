@@ -23,7 +23,7 @@ class SettingsSchemaTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.temp.cleanup()
 
-    def export(self, name, defaults, flags=()):
+    def export(self, name, defaults, flags=(), failure=None):
         folder = self.out / name
         folder.mkdir()
         (folder / "settings_defaults.inc").write_text(defaults)
@@ -35,7 +35,14 @@ class SettingsSchemaTests(unittest.TestCase):
             str(ROOT / "src/lib/sha256.c"), "-Wl,--gc-sections", "-o", str(exe),
         ], check=True, capture_output=True)
         schema, header = folder / "schema.bin", folder / "schema.h"
-        subprocess.run([str(exe), str(schema), str(header)], check=True)
+        result = subprocess.run([str(exe), str(schema), str(header)], capture_output=True, text=True)
+        if failure:
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(failure, result.stderr)
+            self.assertFalse(schema.exists())
+            self.assertFalse(header.exists())
+            return
+        self.assertEqual(result.returncode, 0, result.stderr)
         data = schema.read_bytes()
         info = bytes(int(x, 16) for x in re.findall(r"0x([0-9a-f]{2})", header.read_text()))
         self.assertEqual(data[:8], b"JMSC\x01\x00\x02\x00")
@@ -75,6 +82,23 @@ class SettingsSchemaTests(unittest.TestCase):
         # Both capabilities and writable-target changes invalidate the schema.
         self.assertNotEqual(first[1], self.export("no-audio", defaults, ["-DSLOT_USB_AUDIO=0"])[1])
         self.assertNotEqual(first[1], self.export("fewer-slots", defaults, ["-DSLOTS_STORED=4"])[1])
+
+    def test_storage_capacity(self):
+        defaults = (ROOT / "src/boards/8bitdo-ultimate2c-wireless/settings_defaults.inc").read_text()
+        self.export("capacity-ok", defaults, ["-DSETTINGS_STORE_TELINK", "-DSLOTS_STORED=4",
+                    "-DREMAPS_STORED=4", "-DREMAP_RULES=8", "-DRECORD_MAX=152", "-DSLOT_USB_AUDIO=0"])
+        self.export("record-overflow", defaults, ["-DRECORD_MAX=8"], failure="record limit")
+        self.export("sector-overflow", defaults, ["-DSETTINGS_STORE_TELINK", "-DREMAP_RULES=8"],
+                    failure="compaction sector")
+
+    def test_jieli_storage_capacity(self):
+        defaults = (ROOT / "src/boards/gamesir-cyclone-2/settings_defaults.inc").read_text()
+        self.export("jieli-capacity-ok", defaults, ["-DSETTINGS_STORE_JIELI_BYTES=16384",
+                    "-DSETTINGS_STORE_JIELI_RESERVE=1024"])
+        self.export("jieli-area-overflow", defaults, ["-DSETTINGS_STORE_JIELI_BYTES=8192",
+                    "-DSETTINGS_STORE_JIELI_RESERVE=1024"], failure="Jieli VM compaction area")
+        self.export("jieli-sdk-overflow", defaults, ["-DSETTINGS_STORE_JIELI_BYTES=16384",
+                    "-DSETTINGS_STORE_JIELI_RESERVE=4096"], failure="Jieli VM compaction area")
 
     def test_boards(self):
         infos = []

@@ -55,6 +55,24 @@ this artifact; future connections reuse the cached descriptions on an exact
 fingerprint match. Factory values in a bundled artifact are not the current
 inherited defaults of a user's remap slots.
 
+Schema export also checks every persisted target with all fields explicitly set:
+32-bit field masks, each record's buffer limit and its one-byte length limit.
+It prints the total settings payload and largest record. On Telink it additionally
+checks record/key limits and the complete compacted flash footprint against one
+sector, reserving the receiver and optional last-slot records plus space to append
+the largest replacement record. Both sectors are needed for compaction, so their
+capacities are not added together. This covers the current build's supported
+records; obsolete records left by other firmware are not included.
+
+On Jieli the check uses one half of the configured 16 KiB VM region, a
+4-byte area header, and 4 bytes per VM item without padding. It reserves space
+for the largest overwrite and an explicit 1 KiB budget for SDK-owned/retained
+items (`JIELI_VM_SETTINGS_RESERVE`). The SDK can erase both areas if a move
+cannot fit the live records. The check rejects configurations over the budget;
+it is not a full capacity guarantee for arbitrary SDK or obsolete records beyond
+that reserve. Only the reviewed 8/16 KiB sector-mode layout is modeled.
+No capacity-check code is linked into firmware.
+
 `make settings-schema-test` checks determinism and invalidation by board defaults,
 long list defaults, supported fields and writable targets. The per-board protocol
 tests check the firmware's SCHEMA reply using the host decoder.

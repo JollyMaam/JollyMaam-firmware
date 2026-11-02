@@ -1,5 +1,6 @@
 #include "sdk.h"
 #include "board.h"
+#include "store_telink.h"
 #include "stack/2_4g/genfsk_ll/genfsk_ll.h"
 
 #ifdef UPDATER                   /* the updater runs BLE only */
@@ -128,7 +129,7 @@ static void run_on(const u8 address[5])
 
 /* ---- the receiver's address: a record in the settings' flash log -------- */
 
-#define RECEIVER_KEY 62          /* settings use 1..28 */
+#define RECEIVER_KEY TELINK_STORE_RECEIVER_KEY          /* settings use 1..28 */
 
 static u8 receiver[5], receiver_known, receiver_loaded;
 
@@ -139,7 +140,7 @@ static u8 receiver_check(const u8 *a)
 
 int plat_receiver_paired(void)
 {
-    u8 record[8];
+    u8 record[TELINK_STORE_RECEIVER_SIZE];
 
     if (!receiver_loaded) {
         receiver_loaded = 1;
@@ -154,7 +155,7 @@ int plat_receiver_paired(void)
 
 void plat_receiver_pair(const u8 address[5], int save)
 {
-    u8 record[8] = { 'R', 1 };
+    u8 record[TELINK_STORE_RECEIVER_SIZE] = { 'R', 1 };
 
     memcpy(receiver, address, 5);
     receiver_known = receiver_loaded = 1;

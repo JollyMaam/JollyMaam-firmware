@@ -1,5 +1,6 @@
 #include "sdk.h"
 #include "board.h"
+#include "store_telink.h"
 
 /* The Telink B80: start-up, time, the wait loop, resets.  One thread: the
  * control loop's plat_wait() runs everything that polls (USB, the board's
@@ -192,13 +193,13 @@ void plat_retain_slot(u8 slot)
     analog_write(SLOT_CHECK_REG, SLOT_CHECK(slot));
 }
 #elif defined(U2CW_LAST_SLOT_FLASH)
-#define LAST_SLOT_KEY 63
+#define LAST_SLOT_KEY TELINK_STORE_LAST_SLOT_KEY
 static u8 retained_slot = SLOT_NONE, retained_loaded;
 
 /* Load the legacy record once; unchanged selections do not wear flash. */
 u8 plat_retained_slot(void)
 {
-    u8 record[4];
+    u8 record[TELINK_STORE_LAST_SLOT_SIZE];
 
     if (!retained_loaded) {
         retained_loaded = 1;
@@ -211,7 +212,7 @@ u8 plat_retained_slot(void)
 
 void plat_retain_slot(u8 slot)
 {
-    u8 record[4] = { 'S', 1, slot, (u8)~slot };
+    u8 record[TELINK_STORE_LAST_SLOT_SIZE] = { 'S', 1, slot, (u8)~slot };
 
     if (slot >= SLOTS || slot == plat_retained_slot()) return;
     if (plat_store_write(LAST_SLOT_KEY, record, sizeof(record)) == sizeof(record))
