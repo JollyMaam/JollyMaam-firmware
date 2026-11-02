@@ -9,12 +9,12 @@ static uint32_t rd32(const uint8_t *p) {
 /* Decode version-1 UPDATE_INFO. Reject unknown states and invalid counters.
  * Output is untouched on failure. Additional future trailing fields are ignored. */
 int jm_update_info_decode(const uint8_t *data, size_t size, struct jm_update_info *out) {
-  if (size < JM_UPDATE_INFO_SIZE || data[0] != JM_UPDATE_INFO_VERSION || data[1] > JM_UPDATE_COMMITTED) return 0;
+  if (size < JM_UPDATE_INFO_SIZE || data[JM_UPDATE_INFO_VERSION_OFF] != JM_UPDATE_INFO_VERSION || data[JM_UPDATE_INFO_STATE_OFF] > JM_UPDATE_COMMITTED) return 0;
   struct jm_update_info info;
-  info.state = data[1]; info.error = data[2]; info.valid = data[3];
-  info.at = rd32(data + 4); info.room = rd32(data + 8);
-  info.written = rd32(data + 12); info.begun = rd32(data + 16);
-  info.key = rd32(data + 20); info.data_max = rd32(data + 24);
+  info.state = data[JM_UPDATE_INFO_STATE_OFF]; info.error = data[JM_UPDATE_INFO_ERROR_OFF]; info.valid = data[JM_UPDATE_INFO_VALID_OFF];
+  info.at = rd32(data + JM_UPDATE_INFO_AT_OFF); info.room = rd32(data + JM_UPDATE_INFO_ROOM_OFF);
+  info.written = rd32(data + JM_UPDATE_INFO_WRITTEN_OFF); info.begun = rd32(data + JM_UPDATE_INFO_BEGUN_OFF);
+  info.key = rd32(data + JM_UPDATE_INFO_EXTRA_OFF); info.data_max = rd32(data + JM_UPDATE_INFO_DATA_MAX_OFF);
   if (info.written > info.begun || info.begun > info.room) return 0;
   *out = info; return 1;
 }
@@ -43,7 +43,7 @@ enum jm_update_step jm_update_next(struct jm_update *op, struct jm_update_reques
   uint8_t cmd;
   uint32_t arg = 0;
   switch (op->phase) {
-  case IDENTIFY: cmd = JM_CMD_IDENTIFY; request->in_size = 88; break;
+  case IDENTIFY: cmd = JM_CMD_IDENTIFY; request->in_size = JM_ID_EXT_SIZE; break;
   case INFO: case BEGIN_INFO: case DATA_INFO: case COMMIT_INFO:
     cmd = JM_CMD_UPDATE_INFO; request->in_size = JM_UPDATE_INFO_SIZE; break;
   case BEGIN:
@@ -73,7 +73,7 @@ int jm_update_complete(struct jm_update *op, int transport_ok, const uint8_t *da
   if (op->phase == IDENTIFY) {
     struct jm_identity id;
     if (!jm_identify_decode(data, size, &id) || id.updater != 1 ||
-        memcmp(id.product, op->image + 24, 16)) { op->error = -2; goto fail; }
+        memcmp(id.product, op->image + JM_MAIN_PRODUCT_OFF, JM_PRODUCT_SIZE)) { op->error = -2; goto fail; }
     op->phase = INFO;
   } else if (op->phase == INFO || op->phase == BEGIN_INFO ||
              op->phase == DATA_INFO || op->phase == COMMIT_INFO) {

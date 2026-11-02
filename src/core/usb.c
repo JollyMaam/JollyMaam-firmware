@@ -181,18 +181,18 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
     case JM_CMD_IDENTIFY: {
         const u8 *uid = plat_unique_id();
 
-        if (max < 56) return 0;
+        if (max < JM_ID_SIZE) return 0;
         memcpy(data, "C2PD", 4);
-        util_put16(data + 4, JM_PROTOCOL);
-        data[6] = BOARD_KIND;
-        data[7] = 0;
-        strncpy((char *)data + 8, BUILD_ID, 16);
-        if (uid) memcpy(data + 24, uid, 16);
-        strncpy((char *)data + 40, BOARD_PID, 16);
-        n = 56;
-        if (max >= 88) {
-            strncpy((char *)data + 56, board_name, 32);
-            n = 88;
+        util_put16(data + JM_ID_PROTOCOL_OFF, JM_PROTOCOL);
+        data[JM_ID_BOARD_OFF] = BOARD_KIND;
+        data[JM_ID_UPDATER_OFF] = 0;
+        strncpy((char *)data + JM_ID_BUILD_OFF, BUILD_ID, JM_ID_BUILD_SIZE);
+        if (uid) memcpy(data + JM_ID_UID_OFF, uid, JM_ID_UID_SIZE);
+        strncpy((char *)data + JM_ID_PRODUCT_OFF, BOARD_PID, JM_PRODUCT_SIZE);
+        n = JM_ID_SIZE;
+        if (max >= JM_ID_EXT_SIZE) {
+            strncpy((char *)data + JM_ID_BOARD_NAME_OFF, board_name, JM_ID_BOARD_NAME_SIZE);
+            n = JM_ID_EXT_SIZE;
         }
         break;
     }
@@ -207,21 +207,21 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
     }
 #endif
     case JM_CMD_STATUS:
-        if (max < 16 || !status) return 0;
-        data[0] = status->state;
-        data[1] = status->slot;
-        data[2] = status->usb_powered;
-        data[3] = status->low_battery;
-        util_put16(data + 4, status->battery.mv);
-        data[6] = status->battery.flags;
-        data[7] = status->battery.percent;
-        util_put32(data + 8, status->uptime_ms);
-        data[12] = status->ephemeral;
-        data[13] = status->staged;
+        if (max < JM_STATUS_SIZE || !status) return 0;
+        data[JM_STATUS_STATE_OFF] = status->state;
+        data[JM_STATUS_SLOT_OFF] = status->slot;
+        data[JM_STATUS_USB_POWERED_OFF] = status->usb_powered;
+        data[JM_STATUS_LOW_BATTERY_OFF] = status->low_battery;
+        util_put16(data + JM_STATUS_BATTERY_MV_OFF, status->battery.mv);
+        data[JM_STATUS_BATTERY_FLAGS_OFF] = status->battery.flags;
+        data[JM_STATUS_BATTERY_PERCENT_OFF] = status->battery.percent;
+        util_put32(data + JM_STATUS_UPTIME_OFF, status->uptime_ms);
+        data[JM_STATUS_EPHEMERAL_OFF] = status->ephemeral;
+        data[JM_STATUS_STAGED_OFF] = status->staged;
 #if !defined(NO_SETTINGS) && !defined(BOARD_DONGLE)
-        util_put16(data + 14, (u16)set_changes());
+        util_put16(data + JM_STATUS_CHANGES_OFF, (u16)set_changes());
 #endif
-        n = 16;
+        n = JM_STATUS_SIZE;
         break;
     case JM_CMD_LOG: {
         u32 seq = util_get32(cdb + 2);
@@ -429,6 +429,7 @@ struct ctl_request usb_poll(const struct usb_status *s)
 }
 
 #ifdef UNITTEST
+#include "../lib/proto_jollymaam.h"
 #ifdef BOARD_DONGLE
 static int tool_only_seen;
 int dongle_tool_only(int on) { if (on == 1) tool_only_seen++; return tool_only_seen != 0; }
@@ -497,6 +498,16 @@ int main(void)
     CHECK(!strncmp((char *)data + 40, BOARD_PID, 16));
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 88 && !strcmp((char *)data + 56, board_name));
     CHECK(data[6] == BOARD_KIND && data[7] == 0);
+    {
+        struct jm_identity id;
+
+        CHECK(jm_identify_decode(data, 88, &id));
+        CHECK(id.protocol == JM_PROTOCOL && id.board == BOARD_KIND && !id.updater);
+        CHECK(!strcmp(id.product, BOARD_PID) && !strcmp(id.board_name, board_name));
+        CHECK(!memcmp(id.uid, uid, sizeof uid));
+        CHECK(jm_identify_decode(data, 56, &id) && !id.board_name[0]);
+        CHECK(!jm_identify_decode(data, 55, &id));
+    }
 #ifdef BOARD_DONGLE
     cdb[1] = JM_CMD_TOOL_ONLY;
     cdb[2] = 1;
@@ -518,6 +529,13 @@ int main(void)
 #if !defined(NO_SETTINGS) && !defined(BOARD_DONGLE)
     CHECK(data[14] == 0x34 && data[15] == 0x12);     /* the settings change counter */
 #endif
+    {
+        struct jm_battery_status battery;
+
+        CHECK(jm_battery_decode(data, 16, &battery));
+        CHECK(battery.mv == st.battery.mv && battery.percent == st.battery.percent);
+        CHECK(battery.flags == st.battery.flags);
+    }
     cdb[1] = JM_CMD_INPUT;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 0);    /* none */
     {

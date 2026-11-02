@@ -10,13 +10,13 @@ static uint32_t rd32(const uint8_t *p) {
 /* Decode IDENTIFY, accepting the original 56-byte and extended 88-byte form.
  * Strings are terminated. Output is untouched on failure. */
 int jm_identify_decode(const uint8_t *data, size_t size, struct jm_identity *out) {
-  if (size < 56 || memcmp(data, "C2PD", 4)) return 0;
+  if (size < JM_ID_SIZE || memcmp(data, "C2PD", 4)) return 0;
   struct jm_identity id;
   memset(&id, 0, sizeof id);
-  id.protocol = rd16(data + 4); id.board = data[6]; id.updater = data[7];
-  memcpy(id.build, data + 8, 16); memcpy(id.uid, data + 24, 16);
-  memcpy(id.product, data + 40, 16);
-  if (size >= 88) memcpy(id.board_name, data + 56, 32);
+  id.protocol = rd16(data + JM_ID_PROTOCOL_OFF); id.board = data[JM_ID_BOARD_OFF]; id.updater = data[JM_ID_UPDATER_OFF];
+  memcpy(id.build, data + JM_ID_BUILD_OFF, JM_ID_BUILD_SIZE); memcpy(id.uid, data + JM_ID_UID_OFF, JM_ID_UID_SIZE);
+  memcpy(id.product, data + JM_ID_PRODUCT_OFF, JM_PRODUCT_SIZE);
+  if (size >= JM_ID_EXT_SIZE) memcpy(id.board_name, data + JM_ID_BOARD_NAME_OFF, JM_ID_BOARD_NAME_SIZE);
   *out = id;
   return 1;
 }
@@ -24,8 +24,8 @@ int jm_identify_decode(const uint8_t *data, size_t size, struct jm_identity *out
  * zero padding means unknown capabilities; retain its original voltage.
  * Output is untouched on malformed frames or an invalid valid percentage. */
 int jm_battery_decode(const uint8_t *status, size_t size, struct jm_battery_status *out) {
-  if (!status || !out || size < 16) return 0;
-  struct jm_battery_status b = {rd16(status + 4), status[7], status[6]};
+  if (!status || !out || size < JM_STATUS_SIZE) return 0;
+  struct jm_battery_status b = {rd16(status + JM_STATUS_BATTERY_MV_OFF), status[JM_STATUS_BATTERY_PERCENT_OFF], status[JM_STATUS_BATTERY_FLAGS_OFF]};
   if ((b.flags & JM_BATTERY_PERCENT_VALID) && b.percent > 100) return 0;
   *out = b;
   return 1;
@@ -39,10 +39,10 @@ void jm_command(uint8_t cdb[16], uint8_t command, uint32_t argument) {
  * application CRC and optional product match. No device I/O. expected_product
  * may be NULL; it must otherwise be at most 16 bytes plus terminator. */
 int jm_update_image_check(const uint8_t *data, size_t size, const char *product) {
-  if (size < JM_MAIN_HEAD_SIZE || memcmp(data, "MAIN", 4) || rd32(data + 16) != JM_MAIN_VERSION ||
-      rd32(data + 4) != size - JM_MAIN_HEAD_SIZE ||
-      rd32(data + 40) != jm_crc16(data + 4, 36) ||
-      rd32(data + 8) != jm_crc16(data + JM_MAIN_HEAD_SIZE, size - JM_MAIN_HEAD_SIZE))
+  if (size < JM_MAIN_HEAD_SIZE || memcmp(data, "MAIN", 4) || rd32(data + JM_MAIN_FORMAT_OFF) != JM_MAIN_VERSION ||
+      rd32(data + JM_MAIN_SIZE_OFF) != size - JM_MAIN_HEAD_SIZE ||
+      rd32(data + JM_MAIN_HEADER_CRC_OFF) != jm_crc16(data + JM_MAIN_CRC_START, JM_MAIN_CRC_SIZE) ||
+      rd32(data + JM_MAIN_CRC_OFF) != jm_crc16(data + JM_MAIN_HEAD_SIZE, size - JM_MAIN_HEAD_SIZE))
     return 0;
   if (product) {
     size_t n = 0;
@@ -50,7 +50,7 @@ int jm_update_image_check(const uint8_t *data, size_t size, const char *product)
     if (n > 16) return 0;
     uint8_t expected[16] = {0};
     memcpy(expected, product, n);
-    if (memcmp(expected, data + 24, 16)) return 0;
+    if (memcmp(expected, data + JM_MAIN_PRODUCT_OFF, 16)) return 0;
   }
   return 1;
 }

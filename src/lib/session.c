@@ -190,8 +190,8 @@ static int command(const struct jm_session_io *io, void *context, uint8_t *tag, 
 /* Read IDENTIFY over the portable feature-report framing. No OS API calls. */
 int jm_session_identify(const struct jm_session_io *io, void *context, struct jm_identity *id) {
   if (!io || !io->feature_size || !io->feature_set || !io->feature_get || !io->wait_ms) return 0;
-  uint8_t reply[88], tag=0; struct jm_update_request r;
-  memset(&r,0,sizeof r); jm_command(r.cdb,0,0); r.in_size=88;
+  uint8_t reply[JM_ID_EXT_SIZE], tag=0; struct jm_update_request r;
+  memset(&r,0,sizeof r); jm_command(r.cdb,0,0); r.in_size=JM_ID_EXT_SIZE;
   return command(io,context,&tag,&r,reply) && jm_identify_decode(reply,sizeof reply,id);
 }
 /* Request stock bootloader entry from our app or updater after checking the
@@ -215,7 +215,7 @@ int jm_session_custom(const struct jm_session_io *io, void *context, const uint8
   if (!expected_uid || !jm_update_image_check(image,size,NULL)) return -1;
   if (!io || !io->feature_size || !io->feature_set || !io->feature_get || !io->wait_ms || !io->reconnect) return -2;
   int result=-3;
-  if (!jm_session_identify(io,context,&id) || memcmp(id.uid,expected_uid,16) || memcmp(id.product,image+24,16)) goto done;
+  if (!jm_session_identify(io,context,&id) || memcmp(id.uid,expected_uid,16) || memcmp(id.product,image+JM_MAIN_PRODUCT_OFF,JM_PRODUCT_SIZE)) goto done;
   if (!id.updater) {
     struct jm_update_request r; memset(&r,0,sizeof r); jm_command(r.cdb,JM_CMD_UPDATER,0);
     /* Reset can beat control-transfer completion, so reconnect by UID even
@@ -225,7 +225,7 @@ int jm_session_custom(const struct jm_session_io *io, void *context, const uint8
     for(unsigned attempt=0;attempt<30 && !ready;++attempt) {
       io->wait_ms(context,500);
       ready=io->reconnect(context,expected_uid) && jm_session_identify(io,context,&id) &&
-        !memcmp(id.uid,expected_uid,16) && id.updater==1 && !memcmp(id.product,image+24,16);
+        !memcmp(id.uid,expected_uid,16) && id.updater==1 && !memcmp(id.product,image+JM_MAIN_PRODUCT_OFF,JM_PRODUCT_SIZE);
     }
     if(!ready) return -4;
   }

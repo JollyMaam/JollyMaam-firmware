@@ -507,14 +507,14 @@ static struct blob build(struct build_context *ctx, struct jm_jieli_build_option
   if (main_bin) {
     uint8_t *h = image.p + appbase + o->main_at;
     wr32(h, JM_MAIN_MAGIC);
-    wr32(h + 4, (uint32_t)main_n);
-    wr32(h + 8, jm_crc16(main_bin, main_n));
-    wr32(h + 12, (entry & ~0xfffffu) + o->main_at + JM_MAIN_HEAD_SIZE);
-    wr32(h + 16, JM_MAIN_VERSION);
-    wr32(h + 20, o->main_at);
-    memset(h + 24, 0, 16);
-    strncpy((char *)h + 24, cfg(&c, "EXTRA_CFG_PARAM", "PID", ""), 16);
-    wr32(h + 40, jm_crc16(h + 4, 36));
+    wr32(h + JM_MAIN_SIZE_OFF, (uint32_t)main_n);
+    wr32(h + JM_MAIN_CRC_OFF, jm_crc16(main_bin, main_n));
+    wr32(h + JM_MAIN_ENTRY_OFF, (entry & ~0xfffffu) + o->main_at + JM_MAIN_HEAD_SIZE);
+    wr32(h + JM_MAIN_FORMAT_OFF, JM_MAIN_VERSION);
+    wr32(h + JM_MAIN_AT_OFF, o->main_at);
+    memset(h + JM_MAIN_PRODUCT_OFF, 0, 16);
+    strncpy((char *)h + JM_MAIN_PRODUCT_OFF, cfg(&c, "EXTRA_CFG_PARAM", "PID", ""), 16);
+    wr32(h + JM_MAIN_HEADER_CRC_OFF, jm_crc16(h + JM_MAIN_CRC_START, JM_MAIN_CRC_SIZE));
     memcpy(h + JM_MAIN_HEAD_SIZE, main_bin, main_n);
     bfree(ctx, main_bin);
     ctx->update_size=JM_MAIN_HEAD_SIZE+main_n;

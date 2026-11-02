@@ -184,9 +184,9 @@ void profile_config_service(void)
         }
         memset(buf + CDB, 0, cf.room);
         n = usb_command(buf, buf + CDB, cf.room, 0);
-        if (buf[1] == 0x00 && n >= 88 && cf.room >= 90) {  /* IDENTIFY: the data a command takes */
-            util_put16(buf + CDB + 88, cf.room < CONFIG_DATA_MAX ? cf.room : CONFIG_DATA_MAX);
-            n = 90;
+        if (buf[1] == 0x00 && n >= JM_ID_EXT_SIZE && cf.room >= JM_ID_EXT_SIZE + 2) {  /* IDENTIFY: the data a command takes */
+            util_put16(buf + CDB + JM_ID_EXT_SIZE, cf.room < CONFIG_DATA_MAX ? cf.room : CONFIG_DATA_MAX);
+            n = JM_ID_EXT_SIZE + 2;
         }
         cf.answer = (u16)n;
         cf.off = 0;

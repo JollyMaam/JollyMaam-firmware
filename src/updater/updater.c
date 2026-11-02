@@ -1,5 +1,11 @@
 #include <string.h>
+#if defined(UNITTEST) && !defined(MAIN_AT)
+#define MAIN_AT 0x20000
+#endif
 #include "updater.h"
+#if defined(UNITTEST) && !defined(BUILD_ID)
+#define BUILD_ID "host"
+#endif
 
 /* The updater (/work/ota-loader-plan.md, docs/firmware/updater.md): the
  * image the chip's boot starts.  The app is linked above it, behind a header
@@ -66,8 +72,8 @@ static u16 crc16_add(u16 crc, const u8 *p, u32 n)
 
 static int app_valid(void)
 {
-    return upd_read32(0) == JM_MAIN_MAGIC && upd_read32(12) == upd_entry() &&
-           upd_read32(16) == JM_MAIN_VERSION && upd_read32(4) <= upd_room() - JM_MAIN_HEAD_SIZE;
+    return upd_read32(JM_MAIN_MAGIC_OFF) == JM_MAIN_MAGIC && upd_read32(JM_MAIN_ENTRY_OFF) == upd_entry() &&
+           upd_read32(JM_MAIN_FORMAT_OFF) == JM_MAIN_VERSION && upd_read32(JM_MAIN_SIZE_OFF) <= upd_room() - JM_MAIN_HEAD_SIZE;
 }
 
 /* The image's header, before anything is erased: for this board, this
@@ -76,18 +82,18 @@ static u8 check_head(const u8 *h, u32 n, u32 size)
 {
     char pid[17] = { 0 };
 
-    if (n < JM_MAIN_CHECKED_SIZE || memcmp(h, "MAIN", 4) || get32(h + 40) != crc16_add(0, h + 4, 36))
+    if (n < JM_MAIN_CHECKED_SIZE || memcmp(h, "MAIN", 4) || get32(h + JM_MAIN_HEADER_CRC_OFF) != crc16_add(0, h + JM_MAIN_CRC_START, JM_MAIN_CRC_SIZE))
         return JM_UPDATE_ERR_HEADER;
-    memcpy(pid, h + 24, 16);
+    memcpy(pid, h + JM_MAIN_PRODUCT_OFF, 16);
     if (strcmp(pid, BOARD_PID)) {
         util_log("updater: image for %.16s, not %s", pid, BOARD_PID);
         return JM_UPDATE_ERR_BOARD;
     }
-    if (get32(h + 16) != JM_MAIN_VERSION || get32(h + 20) != MAIN_AT || get32(h + 12) != upd_entry()) {
-        util_log("updater: image format %u at %x", get32(h + 16), get32(h + 20));
+    if (get32(h + JM_MAIN_FORMAT_OFF) != JM_MAIN_VERSION || get32(h + JM_MAIN_AT_OFF) != MAIN_AT || get32(h + JM_MAIN_ENTRY_OFF) != upd_entry()) {
+        util_log("updater: image format %u at %x", get32(h + JM_MAIN_FORMAT_OFF), get32(h + JM_MAIN_AT_OFF));
         return JM_UPDATE_ERR_LAYOUT;
     }
-    if (get32(h + 4) != size - JM_MAIN_HEAD_SIZE) return JM_UPDATE_ERR_SIZE;
+    if (get32(h + JM_MAIN_SIZE_OFF) != size - JM_MAIN_HEAD_SIZE) return JM_UPDATE_ERR_SIZE;
     return JM_UPDATE_ERR_NONE;
 }
 
@@ -142,16 +148,16 @@ static u8 commit(void)
 
     if (state != JM_UPDATE_WRITING) return JM_UPDATE_ERR_NOT_BEGUN;
     if (written != begun) return JM_UPDATE_ERR_INCOMPLETE;
-    size = upd_read32(4);
-    if (memcmp(held, "MAIN", 4) || upd_read32(12) != upd_entry() || size != begun - JM_MAIN_HEAD_SIZE)
+    size = upd_read32(JM_MAIN_SIZE_OFF);
+    if (memcmp(held, "MAIN", 4) || upd_read32(JM_MAIN_ENTRY_OFF) != upd_entry() || size != begun - JM_MAIN_HEAD_SIZE)
         return JM_UPDATE_ERR_HEADER;
     for (at = 0; at < size; at += n) {
         n = size - at < sizeof(buf) ? size - at : sizeof(buf);
         upd_read(JM_MAIN_HEAD_SIZE + at, buf, n);
         crc = crc16_add(crc, buf, n);
     }
-    if (crc != upd_read32(8)) {
-        util_log("updater: crc %04x, header %04x", crc, upd_read32(8));
+    if (crc != upd_read32(JM_MAIN_CRC_OFF)) {
+        util_log("updater: crc %04x, header %04x", crc, upd_read32(JM_MAIN_CRC_OFF));
         return JM_UPDATE_ERR_CRC;
     }
     if (!upd_program(0, held, 4, 0)) return JM_UPDATE_ERR_VERIFY;
@@ -178,40 +184,40 @@ u32 usb_command(const u8 cdb[16], u8 *d, u32 max, int from_host)
     case JM_CMD_IDENTIFY: {
         const u8 *uid = plat_unique_id();
 
-        if (max < 56) return 0;
+        if (max < JM_ID_SIZE) return 0;
         memcpy(d, "C2PD", 4);
-        util_put16(d + 4, JM_PROTOCOL);
+        util_put16(d + JM_ID_PROTOCOL_OFF, JM_PROTOCOL);
 #ifdef BOARD_DONGLE
-        d[6] = 1;                /* the dongle */
+        d[JM_ID_BOARD_OFF] = 1;                /* the dongle */
 #else
-        d[6] = 0;                /* the pad */
+        d[JM_ID_BOARD_OFF] = 0;                /* the pad */
 #endif
-        d[7] = 1;                /* its updater */
-        strncpy((char *)d + 8, BUILD_ID, 16);
-        if (uid) memcpy(d + 24, uid, 16);
-        strncpy((char *)d + 40, BOARD_PID, 16);
-        n = 56;
-        if (max >= 88) {
-            strncpy((char *)d + 56, board_name, 32);
-            n = 88;
+        d[JM_ID_UPDATER_OFF] = 1;                /* its updater */
+        strncpy((char *)d + JM_ID_BUILD_OFF, BUILD_ID, JM_ID_BUILD_SIZE);
+        if (uid) memcpy(d + JM_ID_UID_OFF, uid, JM_ID_UID_SIZE);
+        strncpy((char *)d + JM_ID_PRODUCT_OFF, BOARD_PID, JM_PRODUCT_SIZE);
+        n = JM_ID_SIZE;
+        if (max >= JM_ID_EXT_SIZE) {
+            strncpy((char *)d + JM_ID_BOARD_NAME_OFF, board_name, JM_ID_BOARD_NAME_SIZE);
+            n = JM_ID_EXT_SIZE;
         }
         break;
     }
     case JM_CMD_STATUS:
-        if (max < 16) return 0;
-        memset(d, 0, 16);
-        d[2] = 1;
+        if (max < JM_STATUS_SIZE) return 0;
+        memset(d, 0, JM_STATUS_SIZE);
+        d[JM_STATUS_USB_POWERED_OFF] = 1;
         {
             struct battery_status b;
             plat_battery(&b);
-            d[3] = (b.flags & (JM_BATTERY_LOW_VALID | JM_BATTERY_LOW)) ==
+            d[JM_STATUS_LOW_BATTERY_OFF] = (b.flags & (JM_BATTERY_LOW_VALID | JM_BATTERY_LOW)) ==
                    (JM_BATTERY_LOW_VALID | JM_BATTERY_LOW);
-            util_put16(d + 4, b.mv);
-            d[6] = b.flags;
-            d[7] = b.percent;
+            util_put16(d + JM_STATUS_BATTERY_MV_OFF, b.mv);
+            d[JM_STATUS_BATTERY_FLAGS_OFF] = b.flags;
+            d[JM_STATUS_BATTERY_PERCENT_OFF] = b.percent;
         }
-        util_put32(d + 8, plat_ms());
-        n = 16;
+        util_put32(d + JM_STATUS_UPTIME_OFF, plat_ms());
+        n = JM_STATUS_SIZE;
         break;
     case JM_CMD_LOG:
         if (max < 8) return 0;
@@ -229,16 +235,16 @@ u32 usb_command(const u8 cdb[16], u8 *d, u32 max, int from_host)
     case JM_CMD_UPDATE_INFO:
         if (max < JM_UPDATE_INFO_SIZE) return 0;
         memset(d, 0, JM_UPDATE_INFO_SIZE);
-        d[0] = JM_UPDATE_INFO_VERSION;
-        d[1] = state;
-        d[2] = error;
-        d[3] = (u8)app_valid();
-        util_put32(d + 4, upd_region());
-        util_put32(d + 8, upd_room());
-        util_put32(d + 12, written);
-        util_put32(d + 16, begun);
-        util_put32(d + 20, upd_extra());
-        util_put32(d + 24, upd_data_max());
+        d[JM_UPDATE_INFO_VERSION_OFF] = JM_UPDATE_INFO_VERSION;
+        d[JM_UPDATE_INFO_STATE_OFF] = state;
+        d[JM_UPDATE_INFO_ERROR_OFF] = error;
+        d[JM_UPDATE_INFO_VALID_OFF] = (u8)app_valid();
+        util_put32(d + JM_UPDATE_INFO_AT_OFF, upd_region());
+        util_put32(d + JM_UPDATE_INFO_ROOM_OFF, upd_room());
+        util_put32(d + JM_UPDATE_INFO_WRITTEN_OFF, written);
+        util_put32(d + JM_UPDATE_INFO_BEGUN_OFF, begun);
+        util_put32(d + JM_UPDATE_INFO_EXTRA_OFF, upd_extra());
+        util_put32(d + JM_UPDATE_INFO_DATA_MAX_OFF, upd_data_max());
         n = JM_UPDATE_INFO_SIZE;
         break;
     case JM_CMD_UPDATE_BEGIN:
@@ -278,6 +284,7 @@ u32 updater_frame(const u8 *frame, u32 len, u8 *reply, u32 max)
     return n + 1;
 }
 
+#ifndef UNITTEST
 /* ---- the loop ------------------------------------------------------------- */
 
 #ifdef NO_BT                     /* a dongle's: USB only */
@@ -360,3 +367,133 @@ void ctl_main(void)
 #endif
     }
 }
+
+#else
+#include "../lib/upgrade_jollymaam.h"
+#include "../lib/jieli_image/crypto.h"
+#include <assert.h>
+#include <stdio.h>
+
+static u8 flash[8192];
+static unsigned erases, commits;
+static const u8 test_uid[16] = { 1, 2, 3 };
+const char board_name[] = "Test updater";
+const u8 *plat_unique_id(void) { return test_uid; }
+u32 plat_ms(void) { return 1234; }
+void plat_battery(struct battery_status *b) {
+    *b = (struct battery_status){3900, 66, JM_BATTERY_MV_VALID | JM_BATTERY_PERCENT_VALID};
+}
+void util_put16(u8 *p, u16 v) { p[0] = v; p[1] = v >> 8; }
+void util_put32(u8 *p, u32 v) { util_put16(p, v); util_put16(p + 2, v >> 16); }
+void util_log(const char *fmt, ...) { (void)fmt; }
+u32 util_log_read(u32 *seq, char *out, u32 max) { (void)seq; (void)out; (void)max; return 0; }
+u32 upd_region(void) { return MAIN_AT; }
+u32 upd_room(void) { return sizeof flash; }
+u32 upd_entry(void) { return MAIN_AT + JM_MAIN_HEAD_SIZE; }
+u32 upd_read32(u32 at) { assert(at + 4 <= sizeof flash); return get32(flash + at); }
+void upd_read(u32 at, u8 *out, u32 n) { assert(at + n <= sizeof flash); memcpy(out, flash + at, n); }
+u8 upd_prepare(void) { return JM_UPDATE_ERR_NONE; }
+u8 upd_erased(void) { return JM_UPDATE_ERR_NONE; }
+void upd_erase(u32 at) { assert(at + SECTOR <= sizeof flash); memset(flash + at, 0xff, SECTOR); erases++; }
+int upd_program(u32 at, const u8 *p, u32 n, u32 skip) {
+    assert(at + n <= sizeof flash && skip <= n);
+    memcpy(flash + at + skip, p + skip, n - skip);
+    return 1;
+}
+void upd_committed(void) { commits++; }
+u32 upd_extra(void) { return 0x1234; }
+u32 upd_data_max(void) { return 128; }
+
+/* Literal image offsets deliberately pin the external format independently
+ * of the shared definitions. The real updater handles every host request. */
+static void test_update(int wrong_board, int corrupt_app)
+{
+    u8 image[600] = {0}, reply[88];
+    struct jm_update op;
+    struct jm_update_request request;
+    enum jm_update_step step;
+    unsigned requests = 0;
+
+    memset(flash, 0xff, sizeof flash);
+    state = error = reboot = 0;
+    begun = written = erases = commits = 0;
+    memcpy(image, "MAIN", 4);
+    util_put32(image + 4, sizeof image - 0x120);
+    util_put32(image + 8, jm_crc16(image + 0x120, sizeof image - 0x120));
+    util_put32(image + 12, upd_entry());
+    util_put32(image + 16, 1);
+    util_put32(image + 20, MAIN_AT);
+    memcpy(image + 24, wrong_board ? "wrong" : BOARD_PID,
+           strlen(wrong_board ? "wrong" : BOARD_PID));
+    util_put32(image + 40, jm_crc16(image + 4, 36));
+    if (wrong_board) {
+        u8 cdb[16];
+        struct jm_update_info info;
+
+        /* Also check firmware preflight directly: the host normally refuses
+         * this image at IDENTIFY before BEGIN is sent. */
+        jm_command(cdb, JM_CMD_UPDATE_BEGIN, sizeof image);
+        usb_command(cdb, image, 44, 1);
+        jm_command(cdb, JM_CMD_UPDATE_INFO, 0);
+        assert(usb_command(cdb, reply, sizeof reply, 0) == 32);
+        assert(jm_update_info_decode(reply, 32, &info));
+        assert(info.error == JM_UPDATE_ERR_BOARD && !erases);
+        error = 0;
+    }
+    assert(jm_update_init(&op, image, sizeof image, 128));
+    while ((step = jm_update_next(&op, &request)) == JM_UPDATE_TRANSFER) {
+        u32 n;
+        assert(++requests < 100);
+        memset(reply, 0, sizeof reply);
+        if (request.out_size) {
+            usb_command(request.cdb, (u8 *)request.data, request.out_size, 1);
+            n = 0;
+        } else {
+            if (corrupt_app && request.cdb[1] == JM_CMD_UPDATE_COMMIT)
+                flash[0x120] ^= 1;
+            n = usb_command(request.cdb, reply, request.in_size, 0);
+        }
+        jm_update_complete(&op, 1, reply, n);
+    }
+    if (wrong_board) {
+        assert(step == JM_UPDATE_FAILED && !erases && !commits && !reboot);
+    } else if (corrupt_app) {
+        assert(step == JM_UPDATE_FAILED && op.error == JM_UPDATE_ERR_CRC && !commits && !reboot);
+        assert(!app_valid());
+    } else {
+        assert(step == JM_UPDATE_DONE && commits == 1 && reboot && app_valid());
+        assert(!memcmp(flash, image, sizeof image));
+    }
+}
+
+int main(void)
+{
+    u8 cdb[16], reply[88];
+    struct jm_identity id;
+    struct jm_battery_status battery;
+    struct jm_update_info info;
+
+    memset(flash, 0xff, sizeof flash);
+    memset(reply, 0, sizeof reply);
+    jm_command(cdb, JM_CMD_IDENTIFY, 0);
+    assert(usb_command(cdb, reply, 55, 0) == 0);
+    assert(usb_command(cdb, reply, 56, 0) == 56);
+    assert(jm_identify_decode(reply, 56, &id) && !id.board_name[0]);
+    assert(usb_command(cdb, reply, sizeof reply, 0) == 88);
+    assert(jm_identify_decode(reply, 88, &id) && id.updater == 1);
+    assert(id.protocol == JM_PROTOCOL && !strcmp(id.product, BOARD_PID));
+    assert(!strcmp(id.board_name, board_name) && !memcmp(id.uid, test_uid, 16));
+    jm_command(cdb, JM_CMD_STATUS, 0);
+    assert(usb_command(cdb, reply, sizeof reply, 0) == 16);
+    assert(jm_battery_decode(reply, 16, &battery) && battery.mv == 3900 && battery.percent == 66);
+    jm_command(cdb, JM_CMD_UPDATE_INFO, 0);
+    assert(usb_command(cdb, reply, 31, 0) == 0);
+    assert(usb_command(cdb, reply, sizeof reply, 0) == 32);
+    assert(jm_update_info_decode(reply, 32, &info));
+    assert(info.at == MAIN_AT && info.room == sizeof flash && info.key == 0x1234 && info.data_max == 128);
+    test_update(0, 0);
+    test_update(1, 0);
+    test_update(0, 1);
+    return TEST_DONE("updater firmware/libjollymaam compatibility");
+}
+#endif

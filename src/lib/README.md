@@ -6,7 +6,7 @@ the portable interfaces; desktop adapters are opt-in and have separate headers.
 
 `proto_jollymaam_wire.h` is the shared contract with the app firmware and
 updater: command IDs, protocol version, battery flags, HID framing constants,
-updater states/errors and MAIN image constants. It contains constants only and
+updater states/errors, response sizes/offsets and MAIN image constants. It contains constants only and
 adds no firmware code or storage. Change these definitions here rather than
 adding local copies. Firmware keeps its platform transport and flash operations;
 the host library keeps its request scheduling and validation.
@@ -15,6 +15,12 @@ Firmware image builds use `make jollymaam-jlpack`, an offline build of the same
 pack command used by `jollymaam jieli pack`. It links only the portable archive
 and needs no hidapi or desktop transport dependencies. The full CLI and flashing
 targets still require the desktop dependencies.
+
+Each board has a `<board>-protocol-test` target, for example
+`make gamesir-cyclone-2-pad-protocol-test`. These host tests link the app and
+updater command handlers against libjollymaam's decoders and update state
+machine. Only platform services and flash are simulated; the firmware produces
+the replies. They also run as part of each board's regular tests.
 
 Build and test from the repository root:
 

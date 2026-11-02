@@ -13,8 +13,13 @@ $(1)-test: $(TESTS:src/%.c=$(O)/host/test-$(1)/%)
 
 $(O)/host/test-$(1)/%: src/%.c $(wildcard src/*/*.h src/*/*/*.h src/*/*/*/*.h) $(O)/$(1)/defines
 	@mkdir -p $$(@D)
-	$$(Q)$(HOST_CC) $(HOST_CFLAGS) -DBOARD_PID=\"$($(1)_PID)\" $($(1)_DEFINES) $(EXTRA_DEFINES) -DUNITTEST $(SRC_INCLUDES) -iquote $($(1)_BOARD_DIR) $$< -o $$@ \
+	$$(Q)$(HOST_CC) $(HOST_CFLAGS) -DBOARD_PID=\"$($(1)_PID)\" $($(1)_DEFINES) $(EXTRA_DEFINES) -DUNITTEST $(SRC_INCLUDES) -iquote $($(1)_BOARD_DIR) $$< $$(if $$(filter src/core/usb.c src/updater/updater.c,$$<),$(O)/host/libjollymaam.a) -o $$@ \
 	  $$(if $$(findstring /btctrler/,$$@),-no-pie -Wl$$(comma)--unresolved-symbols=ignore-all)
+# Protocol tests decode actual firmware replies with the portable host library.
+$(O)/host/test-$(1)/core/usb $(O)/host/test-$(1)/updater/updater: $(O)/host/libjollymaam.a
+.PHONY: $(1)-protocol-test
+$(1)-protocol-test: $(O)/host/test-$(1)/core/usb $(O)/host/test-$(1)/updater/updater
+	$$(Q)for t in $$^; do $$$$t || exit 1; done
 endef
 
 # The hub daemon (tools/padhub.c): the dongle's profiles, built for this PC.

@@ -7,8 +7,9 @@
 struct jm_identity {
   uint16_t protocol;
   uint8_t board, updater;
-  char build[17], product[17], board_name[33];
-  uint8_t uid[16];
+  char build[JM_ID_BUILD_SIZE + 1], product[JM_PRODUCT_SIZE + 1],
+       board_name[JM_ID_BOARD_NAME_SIZE + 1];
+  uint8_t uid[JM_ID_UID_SIZE];
 };
 struct jm_battery_status { uint16_t mv; uint8_t percent, flags; };
 int jm_battery_decode(const uint8_t *status, size_t size, struct jm_battery_status *out);
