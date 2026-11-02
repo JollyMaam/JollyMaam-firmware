@@ -225,3 +225,6 @@ wrong assumption), add it here in a line or two.
   dropped quick taps; anything with several steps should finish in one go.
 - Never search the whole filesystem (`/`, `/proc`, `/sys`, `/dev`): it has
   disturbed the host.
+- BR23 VBAT: the SDK truncates its 16-sample average to an ADC code before
+  converting voltage. It normally refreshes one sample about every 20 s;
+  roughly 12 mV steps and minutes of smoothing do not imply a scaling error.

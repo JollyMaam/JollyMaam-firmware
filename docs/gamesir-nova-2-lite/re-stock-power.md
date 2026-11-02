@@ -59,10 +59,13 @@ The callback also clears bits 1 and 2 of P33 `0x02` (`P3_ANA_CON2`) at
 `0x01e42e30..0x01e42e34`. The purpose of `P3_ANA_CON2` bits 1 and 2 is not
 established. The common shutdown routine additionally zeros P33 `0x13` and
 `0x14` when its RTC/timer conditions are false.
+The stock PR0 input initialization also sets P33 `0x02` bits 0..2 to `1`,
+clearing bits 1 and 2 at that point; see [re-battery.md](re-battery.md).
 
 At `0x01e42df8` the callback reads PB1 and loops while it remains low, waiting
 for Home release before returning. A separate battery-disconnecting latch
 operation in this shutdown path is not established.
 
 Whole-board off current, peripheral supply switching, and the stock firmware's
-inactivity and low-battery shutdown thresholds are not established.
+inactivity and emergency shutdown thresholds are not established. Its voltage
+and charge indications are described in [re-battery.md](re-battery.md).

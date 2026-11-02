@@ -10,8 +10,22 @@ The BR23 PMU has an internal charger. Its control register is `P3_CHG_CON0`
 | 0 | `CHARGE_EN` | charger enable |
 | 1 | `CHGBG_EN` | charger background enable |
 
-The SDK's VBAT reading (`AD_CH_VBAT`) is scaled by 4 in the driver. A calibrated
-state-of-charge reading is not established.
+`AD_CH_VBAT` (`0x0050000f`) samples an internal quarter-battery input.
+`adc_get_voltage(AD_CH_VBAT)` returns the voltage of that divided input;
+the caller multiplies by four to obtain battery millivolts. The SDK conversion
+uses the battery/reference ADC-code ratio and a trimmed 1168 mV bandgap
+reference (trim steps of 3.2 mV). A calibrated state-of-charge reading is not
+established.
+
+The SDK's background VBAT getter averages a 16-entry ring and truncates it to
+an integer ADC code before voltage conversion. At the nominal 2 ms ADC scan
+period, a battery/reference refresh is scheduled after 10,000 scans, about
+20 seconds. One new battery sample replaces one ring entry per refresh, so
+the ring spans about 320 seconds. If the SDK's charger-online flag is enabled,
+the interval is shortened to 100 scans. This firmware does not initialize
+that charge driver. Scan delays and occupied ADC operation can extend these
+intervals. The averaging and integer conversions limit the apparent update
+rate and voltage resolution.
 
 ## Reset
 

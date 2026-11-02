@@ -45,6 +45,8 @@ interface.
 
 ### Loader entry
 
+With stock firmware, holding **Home + X** selects Xbox mode (green).
+
 In Xbox 360 mode, the output report `f2 00 04 f6` on interface 2 restarts
 the pad into the MaskROM loader: `4c4a:2342` `BR23UBOOT1.00`, one
 mass-storage interface (`08/06/50`, full speed), as in
@@ -204,6 +206,8 @@ some 1 us for a 1):
 
 Stock sleep callbacks, wake tables and shutdown pin handling are described in
 [re-stock-power.md](re-stock-power.md).
+Stock voltage conversion, percentage estimates and the PR0 charging-status
+input are described in [re-battery.md](re-battery.md).
 
 `PA0` is an active-high USB sense input: high with USB connected, low with
 it disconnected, with both internal pulls disabled. It is electrically
