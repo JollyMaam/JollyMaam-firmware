@@ -246,24 +246,7 @@ void plat_motors(u8 left, u8 right)
     motor_set(1, right);
 }
 
-const struct board_led_brightness board_led_brightness = {
-    .steady = 40, .animation = 1600, .connect = 200,
-    .idle = 200, .battery = 200,
-};
-
-const struct board_rumble board_rumble = {
-    .min = { { 65, 65, 65, 70, 75 }, { 65, 65, 65, 70, 75 } },
-    .max = { { 75, 85, 100, 100, 100 }, { 75, 85, 100, 100, 100 } },
-    .kick_ms = { 0, 0, 0, 0, 0 },
-};
-
-/* Slots A-Y: plain HID over LE, DualSense, Xbox through the dongle, Switch 2. */
-const struct board_slots board_slots = {
-    .type = { PROFILE_GENERIC_BLE, PROFILE_DS5, PROFILE_XBOX, PROFILE_SWITCH2,
-              PROFILE_NONE, PROFILE_NONE, PROFILE_NONE, PROFILE_NONE },
-    .transport = { TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_DONGLE, TRANSPORT_BT_USB,
-                   TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_BT_USB },
-};
+#include "settings_defaults.inc"
 
 /* ---- LEDs: a chain on PB0, the Home light first -----------------------------
  * The stock image clocks 18 bytes, MSB first, out of PB0 from RAM code with

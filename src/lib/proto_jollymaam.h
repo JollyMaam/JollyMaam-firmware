@@ -11,6 +11,12 @@ struct jm_identity {
        board_name[JM_ID_BOARD_NAME_SIZE + 1];
   uint8_t uid[JM_ID_UID_SIZE];
 };
+struct jm_schema_info {
+  uint16_t fields;
+  uint8_t digest[JM_SCHEMA_DIGEST_SIZE];
+};
+int jm_schema_info_decode(const uint8_t *data, size_t size, struct jm_schema_info *out);
+int jm_schema_matches(const struct jm_schema_info *info, const uint8_t *schema, size_t size);
 struct jm_battery_status { uint16_t mv; uint8_t percent, flags; };
 int jm_battery_decode(const uint8_t *status, size_t size, struct jm_battery_status *out);
 int jm_identify_decode(const uint8_t *data, size_t size, struct jm_identity *out);

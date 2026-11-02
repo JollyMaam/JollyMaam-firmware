@@ -22,6 +22,43 @@ updater command handlers against libjollymaam's decoders and update state
 machine. Only platform services and flash are simulated; the firmware produces
 the replies. They also run as part of each board's regular tests.
 
+## Settings schema fast path
+
+Pads with settings answer optional command `JM_CMD_SCHEMA` (0x29) with 20
+bytes: format 1, hash algorithm 1 (SHA-256 truncated to 128 bits), a little-endian
+u16 field count, and a 16-byte fingerprint. An absent or unsupported reply means
+the app must use the existing FIELD/FIELDS discovery commands. A mismatch also
+falls back to discovery; neither case prevents reading or editing settings.
+
+Each pad build produces `settings_schema.bin` alongside its firmware. An app can
+bundle that file or cache a discovered schema under the fingerprint.
+`jm_schema_info_decode` reads the reply and `jm_schema_matches` checks a bundled
+schema before skipping discovery. These functions do no device I/O. The reply
+and matching schema concern metadata only: current values still come from READ.
+
+The artifact is serialized by a host-compiled C exporter using the actual
+firmware tables, board defaults and settings build options. Its fingerprint is
+embedded as constant flash data; firmware neither generates nor hashes schemas.
+It changes when field descriptions, factory defaults or writable targets change,
+and stays the same across unrelated source/build changes. User settings and
+user-customized remap inheritance are excluded.
+
+The artifact format is little-endian:
+
+- `JMSC`, u16 format (1), u16 protocol, u16 field count.
+- For each field: u16 byte length followed by its FIELD response.
+- u16 target count; for each target: u8 target, u8 writable, u8 item count,
+  followed by items `{u8 id, u8 length, factory value bytes}`.
+
+A discovered schema can be cached by its reported fingerprint without rebuilding
+this artifact; future connections reuse the cached descriptions on an exact
+fingerprint match. Factory values in a bundled artifact are not the current
+inherited defaults of a user's remap slots.
+
+`make settings-schema-test` checks determinism and invalidation by board defaults,
+long list defaults, supported fields and writable targets. The per-board protocol
+tests check the firmware's SCHEMA reply using the host decoder.
+
 Build and test from the repository root:
 
 ```

@@ -67,6 +67,14 @@ enum {
   JM_MAIN_HEADER_CRC_OFF = 40
 };
 
+/* SCHEMA: format, hash algorithm, u16 field count, fingerprint. The
+ * fingerprint is the first 16 bytes of SHA-256 of settings_schema.bin. */
+#define JM_SCHEMA_FORMAT 1
+#define JM_SCHEMA_HASH_SHA256_128 1
+#define JM_SCHEMA_INFO_SIZE 20
+#define JM_SCHEMA_DIGEST_OFF 4
+#define JM_SCHEMA_DIGEST_SIZE 16
+
 enum jm_command_id {
   JM_CMD_IDENTIFY = 0x00,
   JM_CMD_STATUS = 0x01,
@@ -97,6 +105,7 @@ enum jm_command_id {
   JM_CMD_RESULT = 0x26,
   JM_CMD_DEFAULTS = 0x27,
   JM_CMD_FIELDS = 0x28,
+  JM_CMD_SCHEMA = 0x29,
   JM_CMD_TARGET = 0x30,
   JM_CMD_TOOL_ONLY = 0x31,
   JM_CMD_HUB = 0x32,

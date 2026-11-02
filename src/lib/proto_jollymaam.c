@@ -1,5 +1,6 @@
 #include "proto_jollymaam.h"
 #include "jieli_image/crypto.h"
+#include "sha256.h"
 #include <string.h>
 
 static uint16_t rd16(const uint8_t *p) { return (uint16_t)(p[0] | p[1] << 8); }
@@ -19,6 +20,28 @@ int jm_identify_decode(const uint8_t *data, size_t size, struct jm_identity *out
   if (size >= JM_ID_EXT_SIZE) memcpy(id.board_name, data + JM_ID_BOARD_NAME_OFF, JM_ID_BOARD_NAME_SIZE);
   *out = id;
   return 1;
+}
+/* SCHEMA is optional: an absent/unknown reply means use field discovery.
+ * Output is unchanged on failure; trailing extensions are accepted. */
+int jm_schema_info_decode(const uint8_t *data, size_t size, struct jm_schema_info *out) {
+  if (!data || !out || size < JM_SCHEMA_INFO_SIZE || data[0] != JM_SCHEMA_FORMAT ||
+      data[1] != JM_SCHEMA_HASH_SHA256_128 || !rd16(data + 2)) return 0;
+  struct jm_schema_info info;
+  info.fields = rd16(data + 2);
+  memcpy(info.digest, data + JM_SCHEMA_DIGEST_OFF, sizeof info.digest);
+  *out = info;
+  return 1;
+}
+/* Match an app's bundled/cached schema to firmware before skipping discovery.
+ * The caller owns both buffers. Hashing happens on the host only. Unknown
+ * formats, protocols and fingerprints all fall back to discovery. */
+int jm_schema_matches(const struct jm_schema_info *info, const uint8_t *schema, size_t size) {
+  if (!info || !schema || size < 10 || size > 65536 || memcmp(schema, "JMSC", 4) ||
+      rd16(schema + 4) != JM_SCHEMA_FORMAT || rd16(schema + 6) != JM_PROTOCOL ||
+      rd16(schema + 8) != info->fields) return 0;
+  uint8_t digest[32];
+  jm_sha256(schema, size, digest);
+  return !memcmp(digest, info->digest, sizeof info->digest);
 }
 /* Decode battery fields from the compatible 16-byte STATUS reply. Legacy
  * zero padding means unknown capabilities; retain its original voltage.
@@ -78,6 +101,24 @@ int main(void) {
   status[7] = 101;
   assert(!jm_battery_decode(status, sizeof status, &battery) && battery.percent == 73);
   assert(!jm_battery_decode(status, 15, &battery));
+  uint8_t schema[12] = {'J', 'M', 'S', 'C', 1, 0, 2, 0, 1, 0, 0, 0};
+  uint8_t digest[32], schema_reply[20] = {1, 1, 1, 0};
+  struct jm_schema_info info;
+  jm_sha256(schema, sizeof schema, digest);
+  memcpy(schema_reply + 4, digest, 16);
+  assert(!jm_schema_info_decode(NULL, 0, &info));
+  assert(!jm_schema_info_decode(schema_reply, 19, &info));
+  assert(jm_schema_info_decode(schema_reply, 20, &info));
+  assert(info.fields == 1 && jm_schema_matches(&info, schema, sizeof schema));
+  schema[11] ^= 1;
+  assert(!jm_schema_matches(&info, schema, sizeof schema));
+  schema[11] ^= 1;
+  schema[6] = 3;
+  assert(!jm_schema_matches(&info, schema, sizeof schema));
+  schema_reply[1] = 2;
+  assert(!jm_schema_info_decode(schema_reply, 20, &info));
+  schema[6] = 2;
+  assert(jm_schema_matches(&info, schema, sizeof schema));
   jm_command(cdb, 0x43, 0x12345678);
   assert(cdb[0] == 0xf5 && cdb[1] == 0x43 && cdb[2] == 0x78 && cdb[5] == 0x12);
   assert(!jm_update_image_check(data, sizeof data, NULL));
