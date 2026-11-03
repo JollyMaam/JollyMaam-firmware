@@ -246,6 +246,9 @@ wrong assumption), add it here in a line or two.
   flags bit 0 before a packet is all in), polled or from the interrupt.
   The tool device's report is therefore one 64-byte packet; answers go out
   in pieces (TOOL_MORE).
+- `s8` in `pad.h` is a plain `char`, which is unsigned on ARM: a `-1` in
+  an `s8` table became 255 and saturated the U2C Bluetooth's stick axes.
+  ARM builds pass `-fsigned-char`.
 - Never search the whole filesystem (`/`, `/proc`, `/sys`, `/dev`): it has
   disturbed the host.
 - BR23 VBAT: the SDK truncates its 16-sample average to an ADC code before
