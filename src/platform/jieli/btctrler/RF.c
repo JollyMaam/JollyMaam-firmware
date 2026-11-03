@@ -17,6 +17,8 @@ u8 low_power_get_osc_type(void);
 u32 low_power_trace_drift(u32 usec);
 
 #ifdef UNITTEST
+/* The SDK's log tag: off.  Unresolved, the host link put it at address 0. */
+const u8 log_tag_const_i_RF = 0;
 static u32 rf_test_mmio_addr[64];
 static u32 rf_test_mmio_value[64];
 static unsigned rf_test_mmio_count;
