@@ -17,7 +17,8 @@ U2CB_BLOB_LEN := 7596
 U2CB_BLOB_SHA256 := 73d2a159a27681a20dd45ab2cae2923f2cfa634e6b95f20e60c4288d54974283
 
 YC_CROSS ?= arm-none-eabi-
-YC_CFLAGS := -mcpu=cortex-m0 -mthumb -Os -g -std=gnu11 -Wall -Wextra -ffreestanding \
+# -fsigned-char: pad.h's s8 is a plain char, unsigned on ARM by default.
+YC_CFLAGS := -mcpu=cortex-m0 -mthumb -fsigned-char -Os -g -std=gnu11 -Wall -Wextra -ffreestanding \
 	-ffunction-sections -fdata-sections -fno-common
 YC_LDFLAGS := -nostartfiles --specs=nano.specs -Wl,--gc-sections -Wl,-T,src/platform/yc3121/app.ld
 
