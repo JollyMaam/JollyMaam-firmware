@@ -184,6 +184,12 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
 When something costs real effort to find out (a chip quirk, a tool trap, a
 wrong assumption), add it here in a line or two.
 
+- BR23 LE TX slots (`RF_ble.c`, comment above `tx_staged`): an empty PDU
+  sent from a completed current slot does not move TXTOG when acknowledged,
+  data written into that slot while it waits is dropped, and a NACKed empty
+  PDU resends the slot's stale descriptor.  Breaking any of the three rules
+  there gave input stalls with MIC failures under duplex traffic.
+
 - RAM is the limit on the BD19 dongle: the linker's "NVRAM space overflow"
   is static RAM, and a heap too small for the controller makes the app hang
   at start-up without ever enumerating.  Check `_HEAP_BEGIN`/`_HEAP_END` in
