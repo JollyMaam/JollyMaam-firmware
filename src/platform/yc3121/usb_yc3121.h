@@ -35,10 +35,13 @@ void plat_usb_poll(void);       /* the interrupt's (plat_usb_irq) */
 void plat_usb_irq(void);
 const struct usb_events *plat_usb_events(void);
 
-/* The app's, called from the USB interrupt: a tool command (usb.c's CDB at
- * report[0..15]) with n bytes of data in data[]; its answer goes in data[]
- * (at most max), its length returned.  Work beyond reading belongs to the
- * main loop. */
+/* The app's, called from plat_usb_service() on the main loop: a tool
+ * command (usb.c's CDB at report[0..15], the report's flags at report[18])
+ * with n bytes of data in data[]; its answer goes in data[] (at most max),
+ * its length returned.  The interrupt takes a command; until it is answered
+ * the tools read TOOL_BUSY. */
 u32 usb_tool_command(const u8 *report, u8 *data, u32 n, u32 max);
+void plat_usb_service(void);
+int plat_usb_tool_waiting(void);
 
 #endif

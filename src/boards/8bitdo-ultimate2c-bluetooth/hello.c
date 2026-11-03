@@ -55,7 +55,11 @@ static volatile u8 flash_pending, bonds_send_pending;
 static u32 flash_at, flash_len;
 static u8 flash_data[64];
 static u8 hid_connected, adc_ready;
-static u32 inputs_refused, inputs_refused_logged;   /* acks of 0xb0 with an error */
+static u32 inputs_refused, inputs_refused_logged;
+/* Bring-up: stock's inputs of unknown role (0.8 pulled up, 0.14 and 1.12
+ * floating), each change logged. */
+static const struct pin probes[3] = { { 0, 8 }, { 0, 14 }, { 1, 12 } };
+static u8 probe_levels = 0xff;   /* acks of 0xb0 with an error */
 /* ADC channels 0..5, sampled each tick once the core is up (0x3f reads
  * them): stock's sticks on 0, 1, 4, 5, its battery on 3. */
 static volatile u16 adc[6];
@@ -341,6 +345,9 @@ int main(void)
         yc_pin(0, c, YC_PIN_PULLUP);
     for (int k = 0; k < 3; k++)
         yc_pin(keys[k].group, keys[k].pin, YC_PIN_PULLUP);
+    yc_pin(0, 8, YC_PIN_PULLUP);
+    yc_pin(0, 14, 0);
+    yc_pin(1, 12, 0);
     util_log_init();
     util_log("bring-up %s, HCLK_CON %08x", BUILD_ID, (unsigned)YC_HCLK_CON);
     plat_log_fault();
@@ -366,6 +373,7 @@ int main(void)
             util_log("usb: stall %u: %02x %02x %02x%02x %02x%02x %02x%02x", (unsigned)(stalls = ev->stalls),
                      q[0], q[1], q[3], q[2], q[5], q[4], q[7], q[6]);
         }
+        plat_usb_service();
         if (radio_start_pending) {
             radio_start_pending = 0;
             util_log("bt: start");
@@ -401,6 +409,10 @@ int main(void)
         tick_ms += 10;
         tick++;
         u32 keys_down = scan();
+        u8 levels = 0;
+        for (int k = 0; k < 3; k++) levels |= (u8)(yc_pin_in(probes[k].group, probes[k].pin) << k);
+        if (levels != probe_levels)
+            util_log("pins: 0.8 %u 0.14 %u 1.12 %u", levels & 1, levels >> 1 & 1, levels >> 2 & 1), probe_levels = levels;
         int down = !keys_down ? 0 : keys_down == 1u << 22 ? 1 : 2;
         if (keys_down != last_keys) util_log("keys %06x", (unsigned)(last_keys = keys_down));
         if (adc_ready) {

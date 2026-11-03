@@ -98,7 +98,9 @@ static struct {
 static struct {
     u8 report[REPORT];           /* the host's last SET_REPORT */
     u8 tag, state;
+    u16 n;                       /* its data's length */
     u16 answer, off;
+    volatile u8 pending;         /* taken, for plat_usb_service() */
     u8 data[ANSWER_MAX];
 } t;
 
@@ -239,10 +241,32 @@ static void tool_take(u16 len)
     t.tag = t.report[19];
     if (n > len - HEAD) n = len - HEAD;
     memcpy(t.data, t.report + HEAD, n);
-    t.answer = (u16)usb_tool_command(t.report, t.data, n, ANSWER_MAX);
+    t.n = n;
+    t.answer = t.off = 0;
+    t.state = TOOL_BUSY;                /* GET_REPORT says so until it is answered */
+    t.pending = 1;
+    events.commands++;
+}
+
+int plat_usb_tool_waiting(void)
+{
+    return t.pending;
+}
+
+/* The command taken, answered here on the main loop (the interrupt only
+ * takes it): what the tools then read. */
+void plat_usb_service(void)
+{
+    u16 answer;
+
+    if (!t.pending) return;
+    answer = (u16)usb_tool_command(t.report, t.data, t.n, ANSWER_MAX);
+    plat_lock();
+    t.pending = 0;
+    t.answer = answer;
     t.off = 0;
     t.state = TOOL_LAST;
-    events.commands++;
+    plat_unlock();
 }
 
 static u16 tool_report(u8 *out)
