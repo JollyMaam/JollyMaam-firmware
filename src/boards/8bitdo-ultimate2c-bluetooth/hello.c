@@ -51,7 +51,7 @@ void plat_log_fault(void);
 
 static volatile u8 reboot_pending, radio_start_pending, bt_up_pending, raw_pending;
 /* Bring-up flash commands for the main loop: 1 erase, 2 write. */
-static volatile u8 flash_pending;
+static volatile u8 flash_pending, bonds_send_pending;
 static u32 flash_at, flash_len;
 static u8 flash_data[64];
 static u8 hid_connected, adc_ready;
@@ -280,6 +280,14 @@ u32 usb_tool_command(const u8 *report, u8 *data, u32 n, u32 max)
         flash_at = arg, flash_len = n;
         flash_pending = cdb[1] == 0x41 ? 1 : 2;
         return 0;
+    case 0x43:                           /* bring-up: bytes into the bond table at offset arg */
+        if (arg > sizeof(bonds.table) || n > sizeof(bonds.table) - arg) return 0;
+        memcpy(bonds.table + arg, data, n);
+        bonds.magic = BONDS_MAGIC;
+        return 0;
+    case 0x44:                           /* bring-up: the bond table to the running core (0x26) */
+        bonds_send_pending = 1;
+        return 0;
     case 0x3a:                           /* bring-up: start the Bluetooth core */
         radio_start_pending = 1;
         return 0;
@@ -355,6 +363,10 @@ int main(void)
             util_log("flash: %s %08x %u: %d in %u us", flash_pending == 1 ? "erase" : "write",
                      (unsigned)flash_at, (unsigned)flash_len, ok, (unsigned)(plat_us() - t0));
             flash_pending = 0;
+        }
+        if (bonds_send_pending) {
+            bonds_send_pending = 0;
+            util_log("bt: bonds to the core: %d", bt_command(0x26, bonds.table, sizeof(bonds.table), 0));
         }
         if (bt_up_pending) {
             bt_up_pending = 0;
