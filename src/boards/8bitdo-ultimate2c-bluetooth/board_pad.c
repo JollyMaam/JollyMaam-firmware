@@ -171,8 +171,16 @@ static u32 sticks_poll(void)
     return moved ? EV_STICKS : 0;
 }
 
+static void imu_init(void);
+
 u32 board_poll(void)
 {
+    static u8 imu_tried;
+
+    if (!imu_tried && plat_ms() > 500) {   /* after the log is up */
+        imu_tried = 1;
+        imu_init();
+    }
     return matrix_poll() | sticks_poll();
 }
 
@@ -287,7 +295,66 @@ void board_power_off(void)
     plat_reboot();
 }
 
-/* No motion sensor yet (stock's is on I2C: not established which). */
+/* ---- the motion sensor, on I2C --------------------------------------------------
+ * Stock's I2C (0xf8d00, its 0x0101ff60 and 0x010207f8): SDA 2.0, SCL 1.15; a
+ * DMA-like engine as the QSPI's: the bytes out at +0, the bytes in at +4,
+ * their lengths at +8 (out << 16 | in), bit 24 of +0x20 set for a read;
+ * +0xf bit 5 pulsed then 0x80 starts it, +0x10 bit 0 is done.  Timing as
+ * stock's identification (its 0x01020036(1)): +0x1c 0x7676ecec, +0x20
+ * 0x007676; it runs 8 times faster (0x0e0e1d1d) once it knows the sensor.  The sensor at 0xd0 (8-bit),
+ * its ID in register 0x75: stock tells its variants apart by it. */
+
+#define I2C(off)     (*(volatile u32 *)(0xf8d00 + (off)))
+#define I2C_B(off)   (*(volatile u8 *)(0xf8d00 + (off)))
+#define IMU_ADDR     0xd0
+#define GPCFG_SCL    58
+#define GPCFG_SDA    59
+
+static int i2c_run(const u8 *out, u32 n_out, u8 *in, u32 n_in, int read)
+{
+    u32 t0 = plat_us();
+
+    if (read) I2C(0x20) |= 1u << 24;
+    else I2C(0x20) &= ~(1u << 24);
+    I2C_B(0xf) |= 0x20;
+    I2C_B(0xf) &= (u8)~0x20;
+    I2C(0) = (u32)out;
+    I2C(4) = (u32)in;
+    I2C(8) = n_out << 16 | n_in;
+    I2C_B(0xf) = 0x80;
+    while (!(I2C(0x10) & 1))
+        if (plat_us() - t0 > 2000) return 0;
+    return 1;
+}
+
+/* The engine's buffers (it holds them as 16-bit SRAM offsets), word
+ * aligned as stock's are. */
+static int imu_read(u8 reg, u8 *out, u32 n)
+{
+    static u32 head, in[4];
+
+    if (n > sizeof(in)) return 0;
+    head = IMU_ADDR | (u32)reg << 8 | (u32)(IMU_ADDR | 1) << 16;
+    if (!i2c_run((const u8 *)&head, 3, (u8 *)in, n, 1)) return 0;
+    memcpy(out, in, n);
+    return 1;
+}
+
+static u8 imu_id;
+
+static void imu_init(void)
+{
+    yc_pin(2, 0, GPCFG_SDA);
+    yc_pin(1, 15, GPCFG_SCL);
+    I2C(0x1c) = 0x7676ecec;
+    I2C(0x20) = 0x007676;
+    if (!imu_read(0x75, &imu_id, 1)) util_log("imu: no answer");
+    else util_log("imu: id %02x", imu_id);
+}
+
+/* No motion data: on our pad every read returns zeros, SDA (2.0) held low
+ * even with our pull-up (the analysis notes): whether a sensor is fitted
+ * and powered here is not established. */
 u32 imu_poll(u32 now, u8 mode)
 {
     (void)now;
