@@ -24,7 +24,7 @@ YC_LDFLAGS := -nostartfiles --specs=nano.specs -Wl,--gc-sections -Wl,-T,src/plat
 
 U2CB_HELLO := 8bitdo-ultimate2c-bluetooth-hello
 U2CB_HELLO_SRCS := src/platform/yc3121/start.S src/platform/yc3121/platform_yc3121.c \
-	src/platform/yc3121/usb_yc3121.c src/platform/yc3121/radio_yc3121.c src/platform/yc3121/radio_blob.S src/platform/yc3121/sdp_yc3121.c \
+	src/platform/yc3121/usb_yc3121.c src/platform/yc3121/radio_yc3121.c src/platform/yc3121/radio_blob.S src/platform/yc3121/sdp_yc3121.c src/platform/yc3121/flash_yc3121.c \
 	src/core/utils.c src/boards/8bitdo-ultimate2c-bluetooth/hello.c
 U2CB_HELLO_DEFINES := -DBOARD_PID=\"U2C_BLUETOOTH\" -DBUILD_ID=\"$(BUILD_ID)\" -DRETAINED="__attribute__((section(\".noinit\")))" -DLOG_LINES=32
 

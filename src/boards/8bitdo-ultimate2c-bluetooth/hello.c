@@ -4,6 +4,7 @@
 #include "usb_yc3121.h"
 #include "radio_yc3121.h"
 #include "sdp_yc3121.h"
+#include "flash_yc3121.h"
 
 /* 8BitDo Ultimate 2C Bluetooth (YC3121) bring-up: own code on the pad, and
  * USB as the tool device (padtool identify, status, log, peek, reboot,
@@ -49,6 +50,10 @@ void plat_clock_init(void);
 void plat_log_fault(void);
 
 static volatile u8 reboot_pending, radio_start_pending, bt_up_pending, raw_pending;
+/* Bring-up flash commands for the main loop: 1 erase, 2 write. */
+static volatile u8 flash_pending;
+static u32 flash_at, flash_len;
+static u8 flash_data[64];
 static u8 hid_connected, adc_ready;
 /* ADC channels 0..5, sampled each tick once the core is up (0x3f reads
  * them): stock's sticks on 0, 1, 4, 5, its battery on 3. */
@@ -265,6 +270,16 @@ u32 usb_tool_command(const u8 *report, u8 *data, u32 n, u32 max)
         if (max < 12) return 0;
         for (int i = 0; i < 6; i++) data[2 * i] = (u8)adc[i], data[2 * i + 1] = (u8)(adc[i] >> 8);
         return 12;
+    case 0x40:                           /* bring-up: raw flash of the data pages */
+        if (!want || want > max || !plat_flash_read(arg, data, want)) return 0;
+        return want;
+    case 0x41:                           /* bring-up: erase a data page's sector */
+    case 0x42:                           /* bring-up: write bytes there */
+        if (flash_pending || n > sizeof(flash_data)) return 0;
+        memcpy(flash_data, data, n);
+        flash_at = arg, flash_len = n;
+        flash_pending = cdb[1] == 0x41 ? 1 : 2;
+        return 0;
     case 0x3a:                           /* bring-up: start the Bluetooth core */
         radio_start_pending = 1;
         return 0;
@@ -333,6 +348,13 @@ int main(void)
         if (raw_pending) {
             if (!plat_radio_send(raw[0], raw + 2, (u16)(raw_len - 2), raw[1])) util_log("bt: %02x: no room", raw[0]);
             raw_pending = 0;
+        }
+        if (flash_pending) {
+            u32 t0 = plat_us();
+            int ok = flash_pending == 1 ? plat_flash_erase(flash_at) : plat_flash_write(flash_at, flash_data, flash_len);
+            util_log("flash: %s %08x %u: %d in %u us", flash_pending == 1 ? "erase" : "write",
+                     (unsigned)flash_at, (unsigned)flash_len, ok, (unsigned)(plat_us() - t0));
+            flash_pending = 0;
         }
         if (bt_up_pending) {
             bt_up_pending = 0;
