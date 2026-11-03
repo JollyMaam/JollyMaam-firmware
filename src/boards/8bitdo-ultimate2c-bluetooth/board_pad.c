@@ -280,19 +280,24 @@ void board_init(void)
     yc_pin(1, 1, GPCFG_PWM(2));
 }
 
-/* Lights and motors off, Home let go, then the power hold released: on
- * battery the pad is off.  USB power keeps it on: then a restart. */
+/* Lights, motors and the radio core off, Home let go, then the power hold
+ * released, and nothing more but waiting for USB, as stock's power-off (its
+ * 0x01024194) does: the supply takes a while to die, and a restart before
+ * it has would hold it again (a restart 500 ms after the release kept the
+ * pad on, RAM and all).  A cable meanwhile restarts the pad. */
 void board_power_off(void)
 {
     u32 i;
 
+    plat_watch_stop();
     plat_motors(0, 0);
     for (i = 0; i < 4; i++) out(lights[i], 0);
+    *(volatile u8 *)0xf853c = 0x94;      /* WAKEUP_BT: the radio core halted */
     while (!in(home))
         if (board_usb_present()) plat_reboot();
     out(POWER_HOLD, 0);
-    plat_delay_ms(500);
-    plat_reboot();
+    for (;;)
+        if (board_usb_present()) plat_reboot();
 }
 
 /* ---- the motion sensor, on I2C --------------------------------------------------
