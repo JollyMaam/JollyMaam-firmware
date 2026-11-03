@@ -20,7 +20,17 @@
  * A session restarts the core with the profile's identity (its address,
  * name, class, SDP): after a disconnect, as a restart drops a link
  * silently.  One thread: the platform's wait loop takes the core's events
- * (plat_bt_poll), bt_poll() hands them on. */
+ * (plat_bt_poll), bt_poll() hands them on.
+ *
+ * LE (a profile with an att_db): the core serves GAP and GATT itself and
+ * takes the app's services: 0x76, then 0x77 {0x10, uuid128} a service and
+ * 0x78 {props, 0x10, uuid128, 01 00} a characteristic, answered 0x29 {its
+ * value handle}, a CCC after it.  The profile's BTstack database is read
+ * for its 128-bit services and characteristics only (no values, no reads:
+ * write and notify are all this side does); its handles map to the core's.
+ * Advertising (visibility bit 2) carries only the name of command 0x04
+ * (14 bytes).  Events: 0x02 connected, 0x05 disconnected, 0x08 {handle,
+ * data} a write; 0x09 {handle, data} notifies, acknowledged 0x06 {09 00}. */
 
 #define IN_FLIGHT    2           /* input reports the core has not acknowledged */
 #define PAGE_TIMEOUT 0x12c0      /* 0.625 ms units: 3 s, as stock's */
@@ -29,6 +39,11 @@
 #define WRITES       4           /* host writes waiting for bt_poll() */
 #define SDP_MAX      768
 #define RECORD       34          /* a bond table record */
+#define LE_NAME      14          /* command 0x04's name */
+#define LE_CHARS     8           /* characteristics an LE profile has */
+#ifndef BOARD_LE_NAME
+#define BOARD_LE_NAME "Pad"      /* make: the board's short name, before the profile's */
+#endif
 
 static struct radio_packet pkt;
 
@@ -49,7 +64,12 @@ static struct {
     struct bt_write writes[WRITES];
     u8 w_head, w_tail;
     struct bt_stats stats;
+    u8 le;                       /* the session is LE */
+    u8 chars;
+    struct { u16 ours, core; } map[LE_CHARS];   /* value handles: the profile's, the core's */
 } b;
+
+static u16 handle_29;             /* the last 0x29's: a characteristic's value handle */
 
 static int bonded(void)
 {
@@ -57,6 +77,46 @@ static int bonded(void)
 }
 
 /* ---- the core's events ------------------------------------------------------ */
+
+static void queue_write(u8 kind, u16 id, const u8 *data, u32 n)
+{
+    struct bt_write *w;
+
+    if ((u8)(b.w_head - b.w_tail) >= WRITES) {
+        util_log("bt: host write dropped");
+        return;
+    }
+    w = &b.writes[b.w_head++ % WRITES];
+    w->kind = kind;
+    w->id = id;
+    w->len = (u16)(n < BT_WRITE_MAX ? n : BT_WRITE_MAX);
+    memcpy(w->data, data, w->len);
+}
+
+/* An LE write: on a value handle of the profile's, a write to it; on the
+ * CCC after one (subscribing), nothing more. */
+static void le_write(const u8 *d, u8 n)
+{
+    u16 h;
+    u32 i;
+
+    if (n < 2) return;
+    h = (u16)(d[0] | d[1] << 8);
+    for (i = 0; i < b.chars; i++)
+        if (b.map[i].core == h) {
+            queue_write(BT_WRITE_ATT, b.map[i].ours, d + 2, n - 2u);
+            return;
+        }
+}
+
+static u16 core_handle(u16 ours)
+{
+    u32 i;
+
+    for (i = 0; i < b.chars; i++)
+        if (b.map[i].ours == ours) return b.map[i].core;
+    return 0;
+}
 
 static void host_frame(const u8 *f, u8 n)
 {
@@ -93,7 +153,7 @@ static void handle(const struct radio_packet *p)
 {
     switch (p->id) {
     case 0x06:                           /* an acknowledgement */
-        if (p->len >= 2 && p->data[0] == 0xb0) {
+        if (p->len >= 2 && (p->data[0] == 0xb0 || p->data[0] == 0x09)) {
             if (b.in_flight) b.in_flight--;
             b.stats.acked++;
             if (p->data[1]) b.stats.late++;   /* refused: counted as late */
@@ -134,6 +194,28 @@ static void handle(const struct radio_packet *p)
     case 0xb2:
         host_frame(p->data, p->len);
         break;
+    case 0x02:                           /* LE connected */
+        b.in_flight = 0;
+        if (!b.session || !b.le || b.stopping) break;
+        b.linked = 1;
+        b.ev_linked = 1;
+        util_log("bt: LE linked");
+        break;
+    case 0x05:                           /* LE disconnected */
+        b.in_flight = 0;
+        if (b.stopping) {
+            plat_radio_send(0x02, (const u8[]){ 0 }, 1, 0);
+            stopped();
+        }
+        else if (b.linked && b.le) {
+            b.linked = 0;
+            b.ev_unlinked = 1;
+            b.lost = 0;
+        }
+        break;
+    case 0x08:                           /* LE write */
+        if (b.le && b.linked) le_write(p->data, p->len);
+        break;
     case 0x0d:                           /* the core's bond table: ours is the slot's */
     case 0x14:
     case 0xb7:
@@ -159,30 +241,77 @@ static int command(u8 id, const void *data, u16 len, int wide)
     }
     for (t0 = plat_ms(); plat_ms() - t0 < 500;) {
         if (!plat_radio_take(&pkt)) continue;
-        if (pkt.id == ack && (ack == 0x29 || pkt.data[0] == id)) return ack == 0x29 || !pkt.data[1];
+        if (pkt.id == ack && ack == 0x29) {
+            handle_29 = (u16)(pkt.data[0] | pkt.data[1] << 8);
+            return 1;
+        }
+        if (pkt.id == ack && pkt.data[0] == id) return !pkt.data[1];
         handle(&pkt);
     }
     util_log("bt: %02x: no answer", id);
     return 0;
 }
 
+/* The profile's database (BTstack's: {u16 size, u16 flags, u16 handle, u16
+ * or uuid128 type, value} each, then 0) to the core: its 128-bit primary
+ * services and characteristics, in order; the value handles mapped. */
+static int gatt(const u8 *db)
+{
+    const u8 *e = db + 1;
+    u8 c[20];
+
+    b.chars = 0;
+    for (;;) {
+        u16 size = (u16)(e[0] | e[1] << 8), flags = (u16)(e[2] | e[3] << 8);
+        u16 type = (u16)(e[6] | e[7] << 8);
+
+        if (!size) return 1;
+        if (!(flags & 0x0200) && type == 0x2800 && size == 8 + 16) {
+            c[0] = 0x10;
+            memcpy(c + 1, e + 8, 16);
+            if (!command(0x77, c, 17, 0)) return 0;
+        } else if (!(flags & 0x0200) && type == 0x2803 && size == 8 + 3 + 16) {
+            if (b.chars >= LE_CHARS) return 0;
+            c[0] = e[8];                 /* properties */
+            c[1] = 0x10;
+            memcpy(c + 2, e + 11, 16);
+            c[18] = 1, c[19] = 0;        /* as stock's; meaning not established */
+            if (!command(0x78, c, 20, 0)) return 0;
+            b.map[b.chars].ours = (u16)(e[9] | e[10] << 8);
+            b.map[b.chars].core = handle_29;
+            b.chars++;
+        }
+        e += size;
+    }
+}
+
 /* The core started again and set up for the profile (none: idle, no SDP),
  * invisible until visibility() says otherwise.  The ADC is the core's too. */
 static int core_start(const struct profile *p)
 {
-    static const u8 cmd04[14] = { '8', '0', 'K', 'A' };   /* as stock; meaning not established */
     static const u8 on = 1, x42 = 2, x39[2] = { 200, 0 }, x79[2] = { 0, 4 };
     static const u8 service[17] = { 0x10, 0xfb, 0x34, 0x9b, 0x5f, 0x80, 0, 0, 0x80, 0, 0x10, 0, 0, 0x10, 0xff, 0, 0 };
     static const u8 characteristic[20] = { 0x18, 0x10, 0xfb, 0x34, 0x9b, 0x5f, 0x80, 0, 0, 0x80, 0, 0x10, 0, 0, 0x13, 0xff, 0, 0, 1, 0 };
-    static u8 records[SDP_MAX], table[5 * RECORD];
+    static u8 records[SDP_MAX], table[5 * RECORD], le_name[LE_NAME];
     const struct bt_device *d = p ? p->device : NULL;
+    int le = d && d->transport == BT_LE;
     u32 cod = d ? d->class_of_device : 0x002508;
     u8 cod3[3] = { (u8)cod, (u8)(cod >> 8), (u8)(cod >> 16) };
     const char *name = d && d->name ? d->name : board_name;
     u16 n = 0;
     int ok, i;
 
-    if (d) {
+    memset(le_name, 0, sizeof(le_name));
+    strncpy((char *)le_name, BOARD_LE_NAME, sizeof(le_name));
+    if (le && d->name) {                 /* "<board> <profile>" */
+        size_t k = strlen((char *)le_name);
+
+        if (k + 1 < sizeof(le_name)) {
+            le_name[k] = ' ';
+            strncpy((char *)le_name + k + 1, d->name, sizeof(le_name) - k - 1);
+        }
+    }
+    if (d && !le) {
         struct yc_sdp_hid hid = {
             .name = name, .descriptor = d->hid_descriptor, .descriptor_len = d->hid_descriptor_len,
             .subclass = (u8)(cod & 0xfc), .vendor = d->vendor_id, .product = d->product_id,
@@ -205,15 +334,18 @@ static int core_start(const struct profile *p)
     ok = plat_radio_start() == 0;
     if (ok) plat_adc_init();
     while (ok && plat_radio_take(&pkt)) handle(&pkt);
-    ok = ok && command(0x04, cmd04, sizeof(cmd04), 0);
+    ok = ok && command(0x04, le_name, sizeof(le_name), 0);
     ok = ok && command(0x01, b.address, 6, 0);
     ok = ok && command(0x00, b.address, 6, 0);
     ok = ok && command(0x0c, &on, 1, 0);
     ok = ok && command(0x15, cod3, 3, 0);
     ok = ok && command(0x26, table, sizeof(table), 0);
     ok = ok && command(0x76, NULL, 0, 0);
-    ok = ok && command(0x77, service, sizeof(service), 0);
-    ok = ok && command(0x78, characteristic, sizeof(characteristic), 0);
+    if (le) ok = ok && gatt(d->att_db);
+    else {                               /* stock's own service, as stock's start-up has it */
+        ok = ok && command(0x77, service, sizeof(service), 0);
+        ok = ok && command(0x78, characteristic, sizeof(characteristic), 0);
+    }
     ok = ok && command(0x42, &x42, 1, 0);
     ok = ok && command(0x39, x39, 2, 0);
     ok = ok && command(0x79, x79, 2, 0);
@@ -265,11 +397,17 @@ void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond
     b.linked = b.in_flight = b.paging = b.stopping = 0;
     b.ev_linked = b.ev_unlinked = b.ev_failed = b.ev_paired = b.ev_stopped = 0;
     b.w_head = b.w_tail = 0;
-    if (p->device->transport != BT_CLASSIC) {
-        util_log("bt: %s is not Classic: not on this pad", p->name);
+    b.le = p->device->transport == BT_LE;
+    if (b.le ? !p->device->att_db : p->device->transport != BT_CLASSIC) {
+        util_log("bt: %s: not on this pad", p->name);
         return;
     }
     if (!core_start(p)) return;
+    if (b.le) {                          /* advertising to anyone: no SMP here */
+        visibility(4);
+        util_log("bt: %s advertising, %u characteristics", p->name, b.chars);
+        return;
+    }
     visibility(pairing ? 3 : 2);
     util_log("bt: %s %s", p->name, pairing ? "pairing" : bonded() ? "bonded" : "no bond");
     if (!pairing && bonded()) page();
@@ -293,7 +431,7 @@ void bt_stop(void)
     }
     b.session = 0;
     b.paging = 0;
-    if (b.linked) {
+    if (b.linked) {                      /* LE too: if 0x11 does nothing there, the timeout */
         b.linked = 0;
         b.stopping = 1;
         b.stop_ms = plat_ms();
@@ -343,14 +481,27 @@ u32 bt_input_due_us(void)
     return bt_input_wanted() ? plat_us() : 0;
 }
 
-/* An HIDP DATA frame on the interrupt channel: {0xa1, id, data}. */
-static int send_frame(u8 id, const u8 *data, u16 len)
+/* An HIDP DATA frame on the interrupt channel: {0xa1, id, data}; on LE a
+ * notification of the profile's handle id (MTU 23: 20 bytes at most). */
+static int send_frame(u16 id, const u8 *data, u16 len)
 {
     static u8 f[2 + PROFILE_REPORT_MAX];
+    u16 h;
 
     if (!b.linked || len > PROFILE_REPORT_MAX) return 0;
+    if (b.le) {
+        h = core_handle(id);
+        if (!h || len > 20) return 0;
+        f[0] = (u8)h;
+        f[1] = (u8)(h >> 8);
+        memcpy(f + 2, data, len);
+        if (!plat_radio_send(0x09, f, (u16)(len + 2), 0)) return 0;
+        b.in_flight++;
+        b.stats.sent++;
+        return 1;
+    }
     f[0] = 0xa1;
-    f[1] = id;
+    f[1] = (u8)id;
     memcpy(f + 2, data, len);
     if (!plat_radio_send(0xb0, f, (u16)(len + 2), 1)) return 0;
     b.in_flight++;
@@ -362,12 +513,12 @@ int bt_send_input(u8 id, const u8 *data, u16 len)
 {
     if (!bt_input_wanted()) return 0;
     b.wanted_us = 0;
-    return send_frame(id, data, len);
+    return send_frame(b.le ? b.prof->device->input_handle : id, data, len);
 }
 
 int bt_send_message(u16 id, const u8 *data, u16 len)
 {
-    return send_frame((u8)id, data, len);
+    return send_frame(id, data, len);
 }
 
 int bt_poll(struct bt_ev *ev)

@@ -249,6 +249,8 @@ wrong assumption), add it here in a line or two.
 - Ultimate 2C Bluetooth flash data pages (0x0107c000..): a CPU read of
   them (PEEK) resets the chip; read them raw through the ROM's QSPI read
   (flash_yc3121.c), as stock does.
+- Ultimate 2C Bluetooth radio core: opcodes stock never sends are not
+  safe to try: one (0x27) wedged the bring-up app until a power cycle.
 - `s8` in `pad.h` is a plain `char`, which is unsigned on ARM: a `-1` in
   an `s8` table became 255 and saturated the U2C Bluetooth's stick axes.
   ARM builds pass `-fsigned-char`.

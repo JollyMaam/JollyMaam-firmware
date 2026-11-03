@@ -44,6 +44,12 @@ REBOOTING = (0x10, 0x11, 0x40)   # their answer may never come: the pad has gone
 NOT_OVER_BLE = {0x15: "peek reads as many words as fit, registers too"}
 
 
+def named(d, adv):
+    """A pad whose radio advertises only a name (the U2C Bluetooth's core):
+    config mode as "<board> Config"."""
+    return (adv.local_name or d.name or "").endswith(" Config")
+
+
 class BleLink:
     def __init__(self, target, scan_s=10, updater=True, device=None):
         try:
@@ -56,7 +62,7 @@ class BleLink:
 
         async def connect():
             def wanted(d, adv):
-                if SERVICE not in [u.lower() for u in adv.service_uuids]:
+                if SERVICE not in [u.lower() for u in adv.service_uuids] and not named(d, adv):
                     return False
                 return not target or target.lower() in (d.address.lower(), (d.name or "").lower())
             nonlocal device
@@ -181,7 +187,7 @@ def scan(seconds=3):
         found = {d.address: d for d in await connected()}
         seen = await BleakScanner.discover(timeout=seconds, return_adv=True)
         for d, adv in seen.values():
-            if SERVICE in [u.lower() for u in adv.service_uuids]:
+            if SERVICE in [u.lower() for u in adv.service_uuids] or named(d, adv):
                 found.setdefault(d.address, d)
         return list(found.values())
     return asyncio.new_event_loop().run_until_complete(look())

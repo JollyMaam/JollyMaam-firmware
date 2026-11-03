@@ -82,3 +82,17 @@ class Frames(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NamedTest(unittest.TestCase):
+    """A radio that advertises only a name (the U2C Bluetooth's core)."""
+
+    class Thing:
+        def __init__(self, name):
+            self.name = self.local_name = name
+
+    def test_named(self):
+        self.assertTrue(padble.named(self.Thing("x"), self.Thing("U2CB Config")))
+        self.assertTrue(padble.named(self.Thing("U2CB Config"), self.Thing(None)))
+        self.assertFalse(padble.named(self.Thing("Pro Controller"), self.Thing(None)))
+        self.assertFalse(padble.named(self.Thing(None), self.Thing(None)))
