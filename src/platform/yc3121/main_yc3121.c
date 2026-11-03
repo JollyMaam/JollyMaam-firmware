@@ -16,6 +16,7 @@ u32 plat_log_fault(void);
 /* ---- the wait loop ------------------------------------------------------ */
 
 static volatile u32 pending;
+static u32 last_fault;           /* plat_log_fault(): the last restart's */
 
 void plat_wake(u32 events)
 {
@@ -41,6 +42,22 @@ u32 plat_wait(u32 deadline_ms, u32 at_us)
 {
     u32 e;
 
+/* Test builds: once at 10 s, 4 s without a pass (not after a hang's restart):
+ * HANG_WATCH_SELFTEST restarts as a hang does, HANG_WATCH_DRYRUN only logs
+ * how stale the watch found the loop. */
+#if defined(HANG_WATCH_DRYRUN) || defined(HANG_WATCH_SELFTEST)
+    static u8 stalled;
+
+    if (!stalled && plat_ms() > 10000 && last_fault != 15) {
+        u32 t0 = plat_ms();
+
+        stalled = 1;
+        while (plat_ms() - t0 < 4000) {
+        }
+        extern volatile u32 yc_watch_stale;
+        util_log("watch: dry run, it found the loop %u ms stale", (unsigned)yc_watch_stale);
+    }
+#endif
     for (;;) {
         plat_watch_kick();
         plat_wake(board_poll() | plat_bt_poll() | (plat_usb_tool_waiting() ? EV_USB : 0));
@@ -188,11 +205,7 @@ int main(void)
     board_init();
     util_log_init();
     util_log("boot: %s %s", board_name, BUILD_ID);
-#ifdef BOOT_HANG_TEST                    /* a test build: a hang at boot, unless the last boot was one */
-    u32 last_fault = plat_log_fault();
-#else
-    plat_log_fault();
-#endif
+    last_fault = plat_log_fault();
     ROM_INIT_OTP();
     ROM_READ_OTP(2, uid, 6);
     ROM_DEINIT_OTP();
@@ -202,16 +215,8 @@ int main(void)
     plat_usb_init();
     plat_bt_init();
     __asm__ volatile ("cpsie i" ::: "memory");
-#ifdef HANG_WATCH                        /* not working yet (it never fired on the pad): test builds only */
+#ifndef NO_HANG_WATCH                    /* EXTRA_DEFINES=-DNO_HANG_WATCH: a build without it */
     YC_SYST_CSR = 7;                     /* SysTick's interrupt: the hang watch */
-#endif
-#ifdef BOOT_HANG_TEST
-    if (last_fault != 15) {
-        util_log("boot: hanging on purpose (BOOT_HANG_TEST)");
-        plat_watch_kick();
-        for (;;) {
-        }
-    }
 #endif
     ctl_main();
     return 0;

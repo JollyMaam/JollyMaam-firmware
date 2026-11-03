@@ -140,7 +140,10 @@ void yc_fault(const uint32_t *frame, uint32_t ipsr)
 /* The hang watch: SysTick's interrupt (each wrap of its 24 bits, 0.35 s at
  * 48 MHz) finds the wait loop's last pass more than HANG_MS ago, and the
  * restart goes as a fault's, with where it was.  Off until the first kick,
- * and between plat_watch_stop() and the next. */
+ * and between plat_watch_stop() and the next.  Proven on the U2CB: a 4 s
+ * stall in the main loop restarted and logged as a hang (HANG_WATCH_SELFTEST).
+ * The restart clears SysTick's pending interrupt, which the loader would
+ * otherwise take into its own endless handler. */
 #define HANG_MS 3000
 
 static volatile u32 watch_ms;
@@ -157,11 +160,18 @@ void plat_watch_stop(void)
     watch_on = 0;
 }
 
+volatile u32 yc_watch_stale;     /* HANG_WATCH_DRYRUN: how stale it found the loop */
+
 void yc_systick(uint32_t *frame)
 {
     if (watch_on && plat_ms() - watch_ms > HANG_MS) {
         watch_on = 0;
+#ifdef HANG_WATCH_DRYRUN
+        yc_watch_stale = plat_ms() - watch_ms;
+        (void)frame;
+#else
         yc_fault(frame, 15);
+#endif
     }
 }
 
