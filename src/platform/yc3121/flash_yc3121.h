@@ -3,17 +3,20 @@
 
 #include <stdint.h>
 
-/* The flash's data pages above the app slot (stock v1.01 keeps its own at
- * 0x0107d000, 0x0107e000 and 0x0107f000; 0x0107c000 it leaves blank).  Only
- * these are read, erased or written here: raw, not decrypted
- * (flash_yc3121.c). */
-#define YC_DATA_START 0x0107c000u
+/* What this reads, erases and writes, raw (not decrypted; flash_yc3121.c):
+ * the settings store's two banks at the top of the app slot, and the data
+ * pages above the slot (stock v1.01 keeps its own at 0x0107d000, 0x0107e000
+ * and 0x0107f000; 0x0107c000 it leaves blank).  Nothing below: the app. */
+#define YC_STORE_A    0x01074000u
+#define YC_STORE_B    0x01078000u
+#define YC_STORE_BANK 0x4000u
+#define YC_DATA_START YC_STORE_A
 #define YC_DATA_END   0x01080000u
 #define YC_SECTOR     0x1000u
+#define YC_PAGE       0x100u
 
-/* 1, or 0 outside the data pages (or a failed erase or write).  A write is
- * page programs of up to 256 bytes from the address: it keeps within a
- * page when the address is page aligned. */
+/* 1, or 0 outside that range (or a failed erase or write).  A write may
+ * cross pages: it goes a page program per page. */
 int plat_flash_read(uint32_t at, void *buf, uint32_t n);
 int plat_flash_erase(uint32_t at);
 int plat_flash_write(uint32_t at, const void *buf, uint32_t n);

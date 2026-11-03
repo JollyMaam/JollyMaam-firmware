@@ -60,8 +60,20 @@ int plat_flash_erase(uint32_t at)
     return run(OP_ERASE, at, 0, 0) == 1;
 }
 
+/* The ROM's write programs 256 bytes at a time from the address, with no
+ * regard for page boundaries (a program past one wraps within the page),
+ * so a page at a time here. */
 int plat_flash_write(uint32_t at, const void *buf, uint32_t n)
 {
+    const uint8_t *p = buf;
+
     if (!in_data(at, n)) return 0;
-    return run(OP_WRITE, at, n, (uint8_t *)buf) == 1;
+    while (n) {
+        uint32_t k = YC_PAGE - at % YC_PAGE;
+
+        if (k > n) k = n;
+        if (run(OP_WRITE, at, k, (uint8_t *)p) != 1) return 0;
+        at += k, p += k, n -= k;
+    }
+    return 1;
 }
