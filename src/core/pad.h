@@ -1004,6 +1004,12 @@ extern const char board_name[];   /* model, e.g. "Cyclone 2" or "Cyclone 2 Dongl
                                     * tool USB/SCSI product, IDENTIFY, plain HID names */
 int plat_store_read(u16 key, void *buf, u16 len);
 int plat_store_write(u16 key, const void *buf, u16 len);
+/* core/store.c's flash, on the boards that build it (Telink, YC3121): reads
+ * and writes of any length and alignment, an erase of the 4 KiB sector at
+ * a multiple of it (store.h: STORE_SECTOR); 1 done, 0 refused or failed. */
+int plat_flash_read(u32 at, void *buf, u32 n);
+int plat_flash_write(u32 at, const void *buf, u32 n);
+int plat_flash_erase(u32 at);
 /* A board's own receiver (the 8BitDo's stock 2.4G receiver, BT_8BITDO): the
  * pad pairs with it, not a slot; save 0 keeps a new pairing in RAM only. */
 int plat_receiver_paired(void);

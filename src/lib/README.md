@@ -57,10 +57,11 @@ inherited defaults of a user's remap slots.
 
 Schema export also checks every persisted target with all fields explicitly set:
 32-bit field masks, each record's buffer limit and its one-byte length limit.
-It prints the total settings payload and largest record. On Telink it additionally
-checks record/key limits and the complete compacted flash footprint against one
-sector, reserving the receiver and optional last-slot records plus space to append
-the largest replacement record. Both sectors are needed for compaction, so their
+It prints the total settings payload and largest record. On boards with the core
+store (core/store.c: Telink, YC3121) it additionally checks record/key limits and
+the complete compacted flash footprint against one bank (STORE_BANK), reserving
+the receiver and optional last-slot records plus space to append
+the largest replacement record. Both banks are needed for compaction, so their
 capacities are not added together. This covers the current build's supported
 records; obsolete records left by other firmware are not included.
 

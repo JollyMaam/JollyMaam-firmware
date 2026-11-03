@@ -82,6 +82,9 @@ $(U2CW_PAD)_DEFINES += -DREMAP_RULES=8
 $(U2CW_PAD)_DEFINES += -DRECORD_MAX=152
 $(U2CW_PAD)_DEFINES += -DSLOT_USB_AUDIO=0
 $(U2CW_PAD)_DEFINES += -DSTAGE_MAX=256
+# The settings store (core/store.c): a sector each, two below the bonds
+# (bt_telink.c).
+$(U2CW_PAD)_DEFINES += -DSTORE_A=0x6f000 -DSTORE_B=0x70000 -DSTORE_BANK=0x1000
 $(U2CW_PAD)_DEFINES += -DLOG_LINES=2
 $(U2CW_PAD)_DEFINES += -DLOG_TEXT=48
 $(U2CW_PAD)_DEFINES += -DTRACE=1
@@ -96,6 +99,7 @@ $(U2CW_PAD)_SOURCES += src/platform/telink/platform_telink.c
 $(U2CW_PAD)_SOURCES += src/platform/telink/platform_telink_usb.c
 $(U2CW_PAD)_SOURCES += src/platform/telink/libc_telink.c
 $(U2CW_PAD)_SOURCES += src/platform/telink/store_telink.c
+$(U2CW_PAD)_SOURCES += src/core/store.c
 $(U2CW_PAD)_SOURCES += src/platform/telink/bt_telink.c
 $(U2CW_PAD)_SOURCES += src/platform/telink/rf8_telink.c
 $(U2CW_PAD)_SOURCES += src/platform/telink/att_telink.c

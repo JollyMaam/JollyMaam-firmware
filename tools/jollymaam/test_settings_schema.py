@@ -85,11 +85,11 @@ class SettingsSchemaTests(unittest.TestCase):
 
     def test_storage_capacity(self):
         defaults = (ROOT / "src/boards/8bitdo-ultimate2c-wireless/settings_defaults.inc").read_text()
-        self.export("capacity-ok", defaults, ["-DSETTINGS_STORE_TELINK", "-DSLOTS_STORED=4",
+        self.export("capacity-ok", defaults, ["-DSETTINGS_STORE", "-DSLOTS_STORED=4",
                     "-DREMAPS_STORED=4", "-DREMAP_RULES=8", "-DRECORD_MAX=152", "-DSLOT_USB_AUDIO=0"])
         self.export("record-overflow", defaults, ["-DRECORD_MAX=8"], failure="record limit")
-        self.export("sector-overflow", defaults, ["-DSETTINGS_STORE_TELINK", "-DREMAP_RULES=8"],
-                    failure="compaction sector")
+        self.export("sector-overflow", defaults, ["-DSETTINGS_STORE", "-DREMAP_RULES=8"],
+                    failure="store compaction bank")
 
     def test_jieli_storage_capacity(self):
         defaults = (ROOT / "src/boards/gamesir-cyclone-2/settings_defaults.inc").read_text()

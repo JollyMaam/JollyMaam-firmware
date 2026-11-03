@@ -5,7 +5,7 @@
 #include "../../src/lib/sha256.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include "../../src/platform/telink/store_telink.h"
+#include "../../src/core/store.h"
 
 void util_put16(u8 *p, u16 v) { p[0] = v; p[1] = v >> 8; }
 
@@ -31,8 +31,11 @@ static void word(u16 v)
 static int storage_fits(void)
 {
     u32 t, part, i, n, largest = 0, payload = 0, records = 0;
-#ifdef SETTINGS_STORE_TELINK
-    u32 live = TELINK_STORE_HEADER_SIZE;
+#ifdef SETTINGS_STORE
+#ifndef STORE_BANK
+#define STORE_BANK STORE_SECTOR   /* the tests' default: one sector */
+#endif
+    u32 live = STORE_HEADER_SIZE;
 #endif
 #ifdef SETTINGS_STORE_JIELI_BYTES
     u32 jieli_live = 4;
@@ -53,16 +56,16 @@ static int storage_fits(void)
                         t, part, bytes, (unsigned)RECORD_MAX);
                 return 0;
             }
-#ifdef SETTINGS_STORE_TELINK
-            if (bytes > TELINK_STORE_DATA_MAX || key_of(t, part) >= TELINK_STORE_RECEIVER_KEY) {
-                fprintf(stderr, "settings target %u part %u exceeds Telink record/key limits\n", t, part);
+#ifdef SETTINGS_STORE
+            if (bytes > STORE_DATA_MAX || key_of(t, part) >= STORE_RECEIVER_KEY) {
+                fprintf(stderr, "settings target %u part %u exceeds the store's record/key limits\n", t, part);
                 return 0;
             }
 #endif
             if (bytes > largest) largest = bytes;
             payload += bytes;
-#ifdef SETTINGS_STORE_TELINK
-            live += TELINK_STORE_RECORD_SIZE(bytes);
+#ifdef SETTINGS_STORE
+            live += STORE_RECORD_SIZE(bytes);
 #endif
 #ifdef SETTINGS_STORE_JIELI_BYTES
             jieli_live += bytes + 4;
@@ -72,18 +75,18 @@ static int storage_fits(void)
     }
     fprintf(stderr, "settings: %u records, %u payload bytes, largest %u/%u bytes\n",
             records, payload, largest, (unsigned)RECORD_MAX);
-#ifdef SETTINGS_STORE_TELINK
+#ifdef SETTINGS_STORE
     /* Reserve both optional records even when the build does not use them.
      * Compaction copies the old value before appending its replacement. */
-    live += TELINK_STORE_RECORD_SIZE(TELINK_STORE_RECEIVER_SIZE) +
-            TELINK_STORE_RECORD_SIZE(TELINK_STORE_LAST_SLOT_SIZE);
-    if (largest < TELINK_STORE_RECEIVER_SIZE) largest = TELINK_STORE_RECEIVER_SIZE;
-    if (largest < TELINK_STORE_LAST_SLOT_SIZE) largest = TELINK_STORE_LAST_SLOT_SIZE;
-    live += TELINK_STORE_RECORD_SIZE(largest);
-    fprintf(stderr, "settings: Telink live records plus overwrite reserve %u/%u flash bytes\n",
-            live, (unsigned)TELINK_STORE_SECTOR_SIZE);
-    if (live > TELINK_STORE_SECTOR_SIZE) {
-        fputs("settings do not fit in one Telink compaction sector\n", stderr);
+    live += STORE_RECORD_SIZE(STORE_RECEIVER_SIZE) +
+            STORE_RECORD_SIZE(STORE_LAST_SLOT_SIZE);
+    if (largest < STORE_RECEIVER_SIZE) largest = STORE_RECEIVER_SIZE;
+    if (largest < STORE_LAST_SLOT_SIZE) largest = STORE_LAST_SLOT_SIZE;
+    live += STORE_RECORD_SIZE(largest);
+    fprintf(stderr, "settings: store live records plus overwrite reserve %u/%u flash bytes\n",
+            live, (unsigned)STORE_BANK);
+    if (live > STORE_BANK) {
+        fputs("settings do not fit in one store compaction bank\n", stderr);
         return 0;
     }
 #endif

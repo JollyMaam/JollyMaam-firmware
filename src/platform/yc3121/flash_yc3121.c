@@ -1,6 +1,7 @@
 #include "pad.h"
 #include "yc3121.h"
 #include "flash_yc3121.h"
+#include "store.h"
 
 /* The data pages, by the ROM's QSPI routines (Yichip's rom_api.h) as stock
  * v1.01 calls them (its 0x010286e8 read, 0x01028724 erase, 0x0102874c
@@ -42,28 +43,28 @@ static int run(int op, uint32_t at, uint32_t n, uint8_t *buf)
     return r;
 }
 
-static int in_data(uint32_t at, uint32_t n)
+static int in_data(u32 at, u32 n)
 {
     return at >= YC_DATA_START && n <= YC_DATA_END - YC_DATA_START && at + n <= YC_DATA_END;
 }
 
-int plat_flash_read(uint32_t at, void *buf, uint32_t n)
+int plat_flash_read(u32 at, void *buf, u32 n)
 {
     if (!in_data(at, n)) return 0;
     run(OP_READ, at, n, buf);
     return 1;
 }
 
-int plat_flash_erase(uint32_t at)
+int plat_flash_erase(u32 at)
 {
-    if (at % YC_SECTOR || !in_data(at, YC_SECTOR)) return 0;
+    if (at % STORE_SECTOR || !in_data(at, STORE_SECTOR)) return 0;
     return run(OP_ERASE, at, 0, 0) == 1;
 }
 
 /* The ROM's write programs 256 bytes at a time from the address, with no
  * regard for page boundaries (a program past one wraps within the page),
  * so a page at a time here. */
-int plat_flash_write(uint32_t at, const void *buf, uint32_t n)
+int plat_flash_write(u32 at, const void *buf, u32 n)
 {
     const uint8_t *p = buf;
 
