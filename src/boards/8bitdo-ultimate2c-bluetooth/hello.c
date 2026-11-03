@@ -71,7 +71,9 @@ static u8 raw[256];              /* 0x3b's packet, for the main loop */
 static u16 raw_len;
 
 /* The core's bond table (event 0x0d, 5 records of 34 bytes), given back at
- * start (command 0x26) as stock does; kept over a restart, not yet in flash. */
+ * start (command 0x26) as stock does; in the settings store (core/store.c)
+ * under a bring-up key until the slots keep bonds, and in RAM over a restart. */
+#define KEY_BRINGUP_BONDS 60
 static struct {
     u32 magic;
     u8 table[170];
@@ -128,8 +130,13 @@ static void log_packet(const struct radio_packet *p)
     hex[3 * k] = 0;
     util_log("bt: %02x %02x [%u] %s", p->type, p->id, p->len, hex);
     if (p->id == 0x0d && p->len == sizeof(bonds.table)) {
+        u32 t0 = plat_us();
+        int n;
+
         memcpy(bonds.table, p->data, sizeof(bonds.table));
         bonds.magic = BONDS_MAGIC;
+        n = plat_store_write(KEY_BRINGUP_BONDS, bonds.table, sizeof(bonds.table));
+        util_log("bonds: stored %d in %u us", n, (unsigned)(plat_us() - t0));
     }
     if (p->id == 0xb0) hid_connected = 1;
     if (p->id == 0xb6) hid_connected = 0;
@@ -182,7 +189,10 @@ static void bt_up(void)
     ok = ok && bt_command(0x00, address, 6, 0);
     ok = ok && bt_command(0x0c, &on, 1, 0);
     ok = ok && bt_command(0x15, cod, 3, 0);
-    if (bonds.magic != BONDS_MAGIC) memset(bonds.table, 0, sizeof(bonds.table));
+    if (plat_store_read(KEY_BRINGUP_BONDS, bonds.table, sizeof(bonds.table)) == sizeof(bonds.table))
+        bonds.magic = BONDS_MAGIC, util_log("bonds: from the store");
+    else if (bonds.magic != BONDS_MAGIC)
+        memset(bonds.table, 0, sizeof(bonds.table));
     ok = ok && bt_command(0x26, bonds.table, sizeof(bonds.table), 0);
     ok = ok && bt_command(0x76, NULL, 0, 0);
     ok = ok && bt_command(0x77, service, sizeof(service), 0);

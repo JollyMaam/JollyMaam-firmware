@@ -24,9 +24,12 @@ YC_LDFLAGS := -nostartfiles --specs=nano.specs -Wl,--gc-sections -Wl,-T,src/plat
 
 U2CB_HELLO := 8bitdo-ultimate2c-bluetooth-hello
 U2CB_HELLO_SRCS := src/platform/yc3121/start.S src/platform/yc3121/platform_yc3121.c \
-	src/platform/yc3121/usb_yc3121.c src/platform/yc3121/radio_yc3121.c src/platform/yc3121/radio_blob.S src/platform/yc3121/sdp_yc3121.c src/platform/yc3121/flash_yc3121.c \
+	src/platform/yc3121/usb_yc3121.c src/platform/yc3121/radio_yc3121.c src/platform/yc3121/radio_blob.S src/platform/yc3121/sdp_yc3121.c src/platform/yc3121/flash_yc3121.c src/core/store.c \
 	src/core/utils.c src/boards/8bitdo-ultimate2c-bluetooth/hello.c
-U2CB_HELLO_DEFINES := -DBOARD_PID=\"U2C_BLUETOOTH\" -DBUILD_ID=\"$(BUILD_ID)\" -DRETAINED="__attribute__((section(\".noinit\")))" -DLOG_LINES=32
+# The settings store (core/store.c): two 16 KiB banks at the top of the app
+# slot, below stock's data pages (flash_yc3121.h).
+U2CB_STORE := -DSTORE_A=0x01074000 -DSTORE_B=0x01078000 -DSTORE_BANK=0x4000
+U2CB_HELLO_DEFINES := $(U2CB_STORE) -DBOARD_PID=\"U2C_BLUETOOTH\" -DBUILD_ID=\"$(BUILD_ID)\" -DRETAINED="__attribute__((section(\".noinit\")))" -DLOG_LINES=32
 
 $(O)/yc3121/radio_blob.bin: $(U2CB_STOCK_DUMP) $(MAKE_FILES)
 	@mkdir -p $(@D)

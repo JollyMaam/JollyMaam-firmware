@@ -1,11 +1,11 @@
 /* A YC3121 app in the 8BitDo boot loader's slot: flash 0x01018000 up to the
- * data pages at 0x0107c000.  SRAM: ours 0x20000..0x2e7ff, the stack at its
+ * settings store's banks at 0x01074000 (stock's data pages from 0x0107c000).  SRAM: ours 0x20000..0x2e7ff, the stack at its
  * top; then what survives a restart through the boot loader (.noinit, above
  * its data, below its stack at 0x2ff00); its mailbox at 0x2ffc0.  A chip
  * reset clears all of it. */
 MEMORY
 {
-    FLASH (rx) : ORIGIN = 0x01018000, LENGTH = 0x64000
+    FLASH (rx) : ORIGIN = 0x01018000, LENGTH = 0x5c000   /* the store's banks above */
     RAM (rwx)  : ORIGIN = 0x00020000, LENGTH = 0xe800
     KEPT (rw)  : ORIGIN = 0x0002e800, LENGTH = 0x1400
 }
