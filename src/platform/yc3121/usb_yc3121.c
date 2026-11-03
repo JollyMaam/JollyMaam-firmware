@@ -105,12 +105,14 @@ static struct {
 #define WRITES   4
 #define EP_IN    1
 #define EP_OUT   2
+#define MS_OS_STRING 0xee        /* Xbox 360: Microsoft OS 1.0 descriptors */
+#define MS_OS_VENDOR 0x90        /* the stock dongle's vendor code */
 
 static struct {
     const struct usb_identity *id;
     int (*read)(u8 kind, u16 id, u16 offset, u8 *out, u16 max);
     u8 dev[18];
-    u8 cfg[9 + 9 + 9 + 7 + 7];
+    u8 cfg[9 + 9 + 17 + 7 + 7];
     u8 cfg_len;
     u8 set_kind, set_id;         /* the SET_REPORT whose data comes */
     u8 rx[REPORT];
@@ -383,10 +385,29 @@ static int personality_setup(u8 type, u8 request, u8 value_lo, u8 value_hi, u16 
         if (value_hi == 1) ep0_answer(pz.dev, sizeof(pz.dev));
         else if (value_hi == 2) ep0_answer(pz.cfg, pz.cfg_len);
         else if (value_hi == 3 && value_lo <= 3) ep0_answer(u.buf, string(value_lo, u.buf));
-        else ep0_stall();
+        else if (value_hi == 3 && value_lo == MS_OS_STRING && id->kind == USB_XINPUT) {
+            /* Microsoft OS 1.0: "MSFT100" and our vendor request, so Windows
+             * asks for the compatible ID that loads its Xbox 360 driver. */
+            static const u8 msft[18] = { 18, 3, 'M', 0, 'S', 0, 'F', 0, 'T', 0, '1', 0, '0', 0,
+                                         '0', 0, MS_OS_VENDOR, 0 };
+            ep0_answer(msft, sizeof(msft));
+        } else ep0_stall();
         return 1;
     }
-    if (type == 0x81 && request == 6) {                  /* the interface's */
+    if ((type & 0xe0) == 0xc0 && id->kind == USB_XINPUT) {   /* vendor, to the host */
+        static const u8 compat[40] = {
+            40, 0, 0, 0, 0x00, 0x01, 0x04, 0x00, 1, 0, 0, 0, 0, 0, 0, 0,
+            0, 1, 'X', 'U', 'S', 'B', '1', '0', 0, 0,
+        };
+        static const u8 zero[20];
+
+        /* The compatible ID "XUSB10" (interface 0), as the stock dongle sends
+         * it; anything else Windows asks of a wired pad: 20 zero bytes. */
+        if (request == MS_OS_VENDOR && u.setup[4] == 4) ep0_answer(compat, sizeof(compat));
+        else ep0_answer(zero, sizeof(zero));
+        return 1;
+    }
+    if (type == 0x81 && request == 6 && id->kind != USB_XINPUT) {   /* the interface's */
         if (value_hi == 0x22) ep0_answer(id->hid_descriptor, id->hid_descriptor_len);
         else if (value_hi == 0x21) ep0_answer(pz.cfg + 18, 9);
         else ep0_stall();
@@ -603,8 +624,15 @@ const struct usb_events *plat_usb_events(void)
 static void build(const struct usb_identity *id)
 {
     u8 *c = pz.cfg, eps = id->out_size ? 2 : 1, n = 0;
+    /* The wired Xbox 360 controller's first interface, as xpad and Windows'
+     * xusb22 know it; its 0x21 descriptor names the endpoints. */
+    static const u8 xinput[17] = {
+        0x11, 0x21, 0x00, 0x01, 0x01, 0x25, 0x80 | EP_IN, 0x14, 0, 0, 0, 0, 0x13,
+        EP_OUT, 0x08, 0, 0,
+    };
 
     memcpy(pz.dev, (const u8[]){ 18, 1, 0x00, 0x02, 0, 0, 0, EP0_SIZE }, 8);
+    if (id->kind == USB_XINPUT) pz.dev[4] = pz.dev[5] = pz.dev[6] = 0xff;
     pz.dev[8] = (u8)id->vendor_id, pz.dev[9] = (u8)(id->vendor_id >> 8);
     pz.dev[10] = (u8)id->product_id, pz.dev[11] = (u8)(id->product_id >> 8);
     pz.dev[12] = (u8)id->bcd_device, pz.dev[13] = (u8)(id->bcd_device >> 8);
@@ -614,21 +642,26 @@ static void build(const struct usb_identity *id)
     pz.dev[17] = 1;
     memcpy(c + n, (const u8[]){ 9, 2, 0, 0, 1, 1, 0, 0x80, 0 }, 9), n += 9;
     c[8] = id->max_power ? id->max_power : 50;
-    memcpy(c + n, (const u8[]){ 9, 4, 0, 0, 0, 3, 0, 0, 0 }, 9), c[n + 4] = eps, n += 9;
-    memcpy(c + n, (const u8[]){ 9, 0x21, 0x11, 0x01, 0, 1, 0x22, 0, 0 }, 9);
-    c[n + 7] = (u8)id->hid_descriptor_len, c[n + 8] = (u8)(id->hid_descriptor_len >> 8), n += 9;
+    if (id->kind == USB_XINPUT) {
+        memcpy(c + n, (const u8[]){ 9, 4, 0, 0, 2, 0xff, 0x5d, 0x01, 0 }, 9), n += 9;
+        memcpy(c + n, xinput, sizeof(xinput)), n += sizeof(xinput);
+    } else {
+        memcpy(c + n, (const u8[]){ 9, 4, 0, 0, 0, 3, 0, 0, 0 }, 9), c[n + 4] = eps, n += 9;
+        memcpy(c + n, (const u8[]){ 9, 0x21, 0x11, 0x01, 0, 1, 0x22, 0, 0 }, 9);
+        c[n + 7] = (u8)id->hid_descriptor_len, c[n + 8] = (u8)(id->hid_descriptor_len >> 8), n += 9;
+    }
     memcpy(c + n, (const u8[]){ 7, 5, 0x80 | EP_IN, 3, 0, 0, 0 }, 7);
     c[n + 4] = id->in_size, c[n + 6] = id->interval ? id->interval : 1, n += 7;
     if (id->out_size) {
         memcpy(c + n, (const u8[]){ 7, 5, EP_OUT, 3, 0, 0, 0 }, 7);
-        c[n + 4] = id->out_size, c[n + 6] = id->interval ? id->interval : 1, n += 7;
+        c[n + 4] = id->out_size, c[n + 6] = id->kind == USB_XINPUT ? 8 : id->interval ? id->interval : 1, n += 7;
     }
     c[2] = n;
     pz.cfg_len = n;
 }
 
 /* A personality: off the bus, then back as it (NULL: the tool device).
- * Only HID here: an Xbox 360 or Switch 2 (bulk) one stays the tool device. */
+ * HID and Xbox 360; a Switch 2 one (bulk) stays the tool device. */
 void plat_usb_mode(const struct usb_identity *id,
                    int (*read)(u8 kind, u16 id, u16 offset, u8 *out, u16 max))
 {
@@ -636,8 +669,8 @@ void plat_usb_mode(const struct usb_identity *id,
         pz.read = read;
         return;
     }
-    if (id && id->kind != USB_HID) {
-        util_log("usb: only HID personalities on this pad");
+    if (id && id->kind == USB_HID_BULK) {
+        util_log("usb: no bulk (Switch 2) personality on this pad");
         id = NULL;
         if (!pz.id) return;
     }
