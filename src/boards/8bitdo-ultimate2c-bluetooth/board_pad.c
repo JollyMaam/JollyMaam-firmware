@@ -8,7 +8,9 @@
  * with our firmware unless said otherwise (the analysis notes):
  *   power hold  0.7 high keeps the pad on; on battery it starts only while
  *               Home is down
- *   lights      1.11, 1.6, 0.15, 2.3, high = lit (the four player lights)
+ *   lights      1.11, 1.6, 0.15, 2.3, high = lit (the four player lights);
+ *               Home 0.5, below Home 0.4, Sync (red) 2.2, high = lit
+ *   Sync        the matrix's row 3, column 3
  *   matrix      rows 1.5, 0.6, 0.1, 2.4 driven low in turn; columns
  *               0.9..0.13 pulled up, low = down
  *   own pins    Home 1.10, L2 2.11, R2 2.12, pulled up, low = down
@@ -56,7 +58,7 @@ static const u32 keys[ROWS][COLUMNS] = {
     { PAD_UP, PAD_Y, PAD_START, PAD_R4, PAD_L4 },
     { PAD_LEFT, PAD_X, PAD_M, PAD_R1, PAD_L1 },
     { PAD_DOWN, PAD_B, PAD_SELECT, PAD_R3, PAD_L3 },
-    { PAD_RIGHT, PAD_A, PAD_SCREENSHOT, 0, 0 },
+    { PAD_RIGHT, PAD_A, PAD_SCREENSHOT, 0, 0 },     /* 3, 3: Sync (SYNC_DOWN) */
 };
 static const struct pin home = { 1, 10 }, l2 = { 2, 11 }, r2 = { 2, 12 };
 
@@ -67,8 +69,10 @@ static struct {
     u8 same[32];                     /* scans a bit has read other than stable */
 } mx;
 
+#define SYNC_DOWN (1u << 29)
 #define L2_DOWN (1u << 30)
 #define R2_DOWN (1u << 31)
+#define OWN (SYNC_DOWN | L2_DOWN | R2_DOWN)   /* not PAD_* */
 
 /* Everything down now, one scan. */
 static u32 scan(void)
@@ -81,7 +85,7 @@ static u32 scan(void)
         columns = (u32)(~YC_GPIO_IN(0) & COLUMNS_MASK) >> 9;
         out(rows[r], 1);
         for (c = 0; c < COLUMNS; c++)
-            if (columns >> c & 1) down |= keys[r][c];
+            if (columns >> c & 1) down |= r == 3 && c == 3 ? SYNC_DOWN : keys[r][c];
     }
     if (!in(home)) down |= PAD_HOME;
     if (!in(l2)) down |= L2_DOWN;
@@ -91,7 +95,7 @@ static u32 scan(void)
 
 u32 board_held(void)
 {
-    return scan() & ~(L2_DOWN | R2_DOWN);
+    return scan() & ~OWN;
 }
 
 /* A press counts at once; a release after DEBOUNCE_SCANS scans up. */
@@ -189,7 +193,8 @@ void board_input(struct in_raw *raw)
     u32 i;
 
     memset(raw, 0, sizeof(*raw));
-    raw->buttons = mx.stable & ~(L2_DOWN | R2_DOWN);
+    raw->buttons = mx.stable & ~OWN;
+    raw->pair_button = (mx.stable & SYNC_DOWN) != 0;
     raw->changed_us = mx.changed_us;
     raw->sticks_valid = ad.valid;
     for (i = 0; i < 4; i++) {
@@ -218,19 +223,33 @@ int board_usb_present(void)
     return in(USB_POWER);
 }
 
-/* ---- the lights: on or off, from the core's player lights ----------------- */
+/* ---- the lights: each on or off ---------------------------------------------
+ * The player lights from the core's, those at least half as bright as the
+ * brightest lit: a gliding light (the pairing sweep) with soft edges shows
+ * as one, a blink or the host's number as they are.  The Home, below-Home
+ * and red Sync lights from the core's Home, cable and pairing lights
+ * (home_signs), as the U2CW's controller_lite.c drives its three. */
 
 static const struct pin lights[4] = { { 1, 11 }, { 1, 6 }, { 0, 15 }, { 2, 3 } };
+static const struct pin home_light = { 0, 5 }, below_home = { 0, 4 }, sync_light = { 2, 2 };
 
 void plat_leds(const struct led_frame *f)
 {
+    u8 level[4], top = 0;
     u32 i;
 
     for (i = 0; i < 4; i++) {
         const struct rgb *c = &f->light[LIGHT_P0 + i];
 
-        out(lights[i], c->r || c->g || c->b);
+        level[i] = c->r > c->g ? (c->r > c->b ? c->r : c->b) : (c->g > c->b ? c->g : c->b);
+        if (level[i] > top) top = level[i];
     }
+    for (i = 0; i < 4; i++) out(lights[i], level[i] && level[i] * 2 >= top);
+#define LIT(n) (f->light[n].r || f->light[n].g || f->light[n].b)
+    out(home_light, LIT(LIGHT_HOME));
+    out(below_home, LIT(LIGHT_CABLE));
+    out(sync_light, LIT(LIGHT_PAIRING));
+#undef LIT
 }
 
 /* ---- the motors: PWM timers 1 and 2 ----------------------------------------
@@ -269,6 +288,7 @@ void board_init(void)
 
     out(POWER_HOLD, 1);
     for (i = 0; i < 4; i++) out(lights[i], 0), out(rows[i], 1);
+    out(home_light, 0), out(below_home, 0), out(sync_light, 0);
     for (i = 9; i <= 13; i++) yc_pin(0, (int)i, YC_PIN_PULLUP);
     yc_pin(home.group, home.pin, YC_PIN_PULLUP);
     yc_pin(l2.group, l2.pin, YC_PIN_PULLUP);
@@ -292,6 +312,7 @@ void board_power_off(void)
     plat_watch_stop();
     plat_motors(0, 0);
     for (i = 0; i < 4; i++) out(lights[i], 0);
+    out(home_light, 0), out(below_home, 0), out(sync_light, 0);
     *(volatile u8 *)0xf853c = 0x94;      /* WAKEUP_BT: the radio core halted */
     while (!in(home))
         if (board_usb_present()) plat_reboot();

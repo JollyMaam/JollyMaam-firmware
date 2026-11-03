@@ -297,7 +297,7 @@ static void grips(const struct led_scene *sc, u32 t, const struct led_inputs *in
 /* ---- the whole pad ------------------------------------------------------------ */
 
 /* How far down the pad a light is: Home, the bar top to bottom, the grips. */
-static const u8 depth[LIGHT_COUNT] = { 0, 1, 2, 3, 4, 5, 5, 0 };
+static const u8 depth[LIGHT_COUNT] = { 0, 1, 2, 3, 4, 5, 5, 0, 1, 1 };
 #define DEPTHS 6
 
 #define QUICK_HUE_STEP 200      /* colour between one light and the next down */
@@ -358,6 +358,9 @@ void led_frame(const struct led_scene *sc, const struct led_state *s, u32 now,
         grips(sc, t, in, c, out);
         if (in->usb_powered && (s->scene == CTL_BOOT || s->scene == CTL_IDLE))
             put(home, dark);
+        /* Pairing: the Home light's blinks on the pairing light too. */
+        if (in->home_signs && s->scene == CTL_PAIRING)
+            memcpy(out->light[LIGHT_PAIRING], home, sizeof(out->light[0]));
     }
     if (t < FADE_IN_MS) {
         k = ease(t * K_ONE / FADE_IN_MS);
@@ -371,7 +374,7 @@ void led_frame(const struct led_scene *sc, const struct led_state *s, u32 now,
     if (in->cal_lit) put(home, lit_rgb(in->cal));
     /* USB acknowledgement is one solid interval, then the normal scene.
      * Idle on USB stays dark; there is no charging animation. */
-    if (in->usb_plug_lit) put(home, lit(in->battery_colour));
+    if (in->usb_plug_lit) put(in->home_signs ? out->light[LIGHT_CABLE] : home, lit(in->battery_colour));
 }
 
 /* Only dim lights are dithered: there a step is a big part of the light (one
@@ -643,6 +646,23 @@ int main(void)
     CHECK(same(f.light[LIGHT_HOME], ((struct rgb){ 5, 2, 0 })));
     in.usb_plug_lit = 0;
     frame(&idle, &s, 2400, &in, &f); CHECK(same(f.light[LIGHT_HOME], dark_rgb));
+    /* home_signs: a cable on its own light, Home dark; pairing on its own
+     * light as well as Home. */
+    in.home_signs = 1;
+    in.usb_plug_lit = 1;
+    frame(&idle, &s, 100, &in, &f);
+    CHECK(same(f.light[LIGHT_HOME], dark_rgb) && same(f.light[LIGHT_CABLE], ((struct rgb){ 5, 2, 0 })));
+    in.usb_plug_lit = 0;
+    s.scene = CTL_PAIRING;
+    s.slot = 0;
+    frame(&pairing, &s, 1000 + 2400, &in, &f);
+    CHECK(!same(f.light[LIGHT_HOME], dark_rgb) && same(f.light[LIGHT_PAIRING], f.light[LIGHT_HOME]));
+    s.scene = CTL_CONNECTING;
+    frame(&connecting, &s, 1000 + 2300, &in, &f);
+    CHECK(!same(f.light[LIGHT_HOME], dark_rgb) && same(f.light[LIGHT_PAIRING], dark_rgb));
+    in.home_signs = 0;
+    s.scene = CTL_IDLE;
+    s.slot = SLOT_NONE;
     in.cal_lit = 1;
     in.cal = white;
     frame(&idle, &s, 100, &in, &f);

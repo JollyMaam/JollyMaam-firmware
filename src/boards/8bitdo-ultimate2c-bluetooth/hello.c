@@ -436,6 +436,31 @@ int main(void)
         if (!hid_connected) sent_keys = ~0u;
         if (tick % 100 == 0 && inputs_refused != inputs_refused_logged)
             util_log("bt: %u inputs refused", (unsigned)(inputs_refused_logged = inputs_refused));
+        /* Bring-up: the Home light (0.5) high, the one below Home (0.4) low,
+         * Sync's (2.2) high, to tell which level lights them; and every
+         * input pin's change logged, to find the Sync button. */
+        yc_pin(0, 4, YC_PIN_LOW);
+        yc_pin(0, 5, YC_PIN_HIGH);
+        yc_pin(2, 2, YC_PIN_HIGH);
+        {
+            static u16 last_in[3];
+            static u8 seen;
+            /* Not the outputs (lights, rows, power hold, motors, these
+             * three) nor the matrix columns. */
+            static const u16 mask[3] = {
+                (u16)~(1u << 1 | 1u << 4 | 1u << 5 | 1u << 6 | 1u << 7 | 1u << 15 | COLUMNS_MASK),
+                (u16)~(1u << 1 | 1u << 2 | 1u << 5 | 1u << 6 | 1u << 11),
+                (u16)~(1u << 2 | 1u << 3 | 1u << 4),
+            };
+
+            for (int g = 0; g < 3; g++) {
+                u16 v = YC_GPIO_IN(g) & mask[g];
+
+                if (seen && v != last_in[g]) util_log("in: group %d %04x -> %04x", g, last_in[g], v);
+                last_in[g] = v;
+            }
+            seen = 1;
+        }
         held = down ? held + 1 : 0;
         if (held >= 300)
             break;

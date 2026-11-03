@@ -25,6 +25,7 @@ static struct {
     u32 since;
     u8 slot;                     /* the session's slot, SLOT_NONE without one */
     u8 last_slot;
+    u8 pair_down;                /* the board's own pair button (in_raw.pair_button) as last read */
     const struct profile *prof;
     u8 usb;                      /* the session is on USB, not the radio */
     u8 radio;                    /* bt_start() until BT_EV_STOPPED */
@@ -989,9 +990,10 @@ static void outputs(u32 now)
     in.usb_powered = c.usb_powered;
     in.low_battery = c.low_battery;
     in.usb_plug_lit = c.usb_powered && plugged < ux_timeouts.usb_plug_ms;
+    in.players_mono = board_led_brightness.players_mono;
+    in.home_signs = board_led_brightness.home_signs;
     if (c.kind == CTL_CONNECTED) {
         in.has_players = c.host.has_players;
-        in.players_mono = board_led_brightness.players_mono;
         in.players = c.host.players;
         in.players_flash = c.host.players_flash;
         in.has_lightbar = c.host.has_lightbar;
@@ -1068,7 +1070,14 @@ static void read_input(u32 now)
         c.pad.buttons = 0;
     } else {
         r = ux_step(&c.pad, now, c.config ? CTL_IDLE : c.kind);   /* config: Home as when idle */
+        /* A board's own pair button (Sync): pairs the last slot with a new
+         * address, as controller_lite.c's does. */
+        if (c.raw.pair_button && !c.pair_down) {
+            r = (struct ctl_request){ .kind = REQ_PAIR, .slot = SLOT_LAST, .generate_new_address = 1 };
+            ux_ignore_held();
+        }
     }
+    c.pair_down = c.raw.pair_button;
     handle(r, now);
     remap(now);
     in_response(sticks(), &c.pad);

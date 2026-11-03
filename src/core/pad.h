@@ -623,8 +623,11 @@ int set_is_ephemeral(void);
 
 /* ---- leds.c ------------------------------------------------------------- */
 
+/* LIGHT_CABLE and LIGHT_PAIRING: the Home light's cable and pairing signs
+ * on lights of their own (board_led_brightness.home_signs; the 8BitDo's
+ * light under Home and its red one), last so a chain keeps its order. */
 enum { LIGHT_HOME, LIGHT_P0, LIGHT_P1, LIGHT_P2, LIGHT_P3, LIGHT_GRIP_L,
-       LIGHT_GRIP_R, LIGHT_UNUSED, LIGHT_COUNT };
+       LIGHT_GRIP_R, LIGHT_UNUSED, LIGHT_CABLE, LIGHT_PAIRING, LIGHT_COUNT };
 
 struct led_frame { struct rgb light[LIGHT_COUNT]; };
 /* A frame finer than the LEDs: 1/256 of their steps, 0-65280. */
@@ -678,6 +681,7 @@ struct led_inputs {
     u8 usb_powered, usb_plug_lit, low_battery;
     u8 has_players, players, players_flash;
     u8 players_mono;       /* board_led_brightness.players_mono */
+    u8 home_signs;         /* board_led_brightness.home_signs */
     u8 has_lightbar;
     struct rgb lightbar;
     u8 cal_lit;
@@ -737,6 +741,8 @@ struct board_led_brightness {
     u16 idle, battery;
     u8 players_mono;             /* player lights of one colour, on or off: the host's
                                   * number alone lit, not the others in the primary */
+    u8 home_signs;               /* a cable arriving on LIGHT_CABLE instead of the Home
+                                  * light; pairing blinks LIGHT_PAIRING with it */
 };
 extern const struct board_led_brightness board_led_brightness;
 
