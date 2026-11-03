@@ -65,6 +65,8 @@ __attribute__((noreturn)) void yc_reset(void);
 /* An exception's entry (start.S): records it and has the exception return
  * into plat_restart(0). */
 void yc_fault(const uint32_t *frame, uint32_t ipsr);
+void yc_systick(uint32_t *frame);
+void plat_watch_kick(void);      /* the hang watch: the main loop is alive */
 
 /* Restart through the boot loader; loader: stay there. */
 __attribute__((noreturn)) void plat_restart(int loader);

@@ -47,7 +47,7 @@ static const struct pin keys[3] = { { 1, 10 }, { 2, 11 }, { 2, 12 } };   /* Home
 #define POWER_PIN 7
 
 void plat_clock_init(void);
-void plat_log_fault(void);
+u32 plat_log_fault(void);
 
 static volatile u8 reboot_pending, radio_start_pending, bt_up_pending, raw_pending;
 /* Bring-up flash commands for the main loop: 1 erase, 2 write. */

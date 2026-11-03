@@ -11,7 +11,7 @@
  * took) until an event or its deadline.  Interrupts: USB only. */
 
 void plat_clock_init(void);
-void plat_log_fault(void);
+u32 plat_log_fault(void);
 
 /* ---- the wait loop ------------------------------------------------------ */
 
@@ -42,6 +42,7 @@ u32 plat_wait(u32 deadline_ms, u32 at_us)
     u32 e;
 
     for (;;) {
+        plat_watch_kick();
         plat_wake(board_poll() | plat_bt_poll() | (plat_usb_tool_waiting() ? EV_USB : 0));
         e = take();
         if (e) return e;
@@ -145,7 +146,6 @@ void plat_boot_info(struct plat_boot *out)
     out->buttons_held = boot_held;
 }
 
-void plat_watch_stop(void) {}
 
 void plat_power_off(void)
 {
@@ -188,7 +188,11 @@ int main(void)
     board_init();
     util_log_init();
     util_log("boot: %s %s", board_name, BUILD_ID);
+#ifdef BOOT_HANG_TEST                    /* a test build: a hang at boot, unless the last boot was one */
+    u32 last_fault = plat_log_fault();
+#else
     plat_log_fault();
+#endif
     ROM_INIT_OTP();
     ROM_READ_OTP(2, uid, 6);
     ROM_DEINIT_OTP();
@@ -198,6 +202,17 @@ int main(void)
     plat_usb_init();
     plat_bt_init();
     __asm__ volatile ("cpsie i" ::: "memory");
+#ifdef HANG_WATCH                        /* not working yet (it never fired on the pad): test builds only */
+    YC_SYST_CSR = 7;                     /* SysTick's interrupt: the hang watch */
+#endif
+#ifdef BOOT_HANG_TEST
+    if (last_fault != 15) {
+        util_log("boot: hanging on purpose (BOOT_HANG_TEST)");
+        plat_watch_kick();
+        for (;;) {
+        }
+    }
+#endif
     ctl_main();
     return 0;
 }

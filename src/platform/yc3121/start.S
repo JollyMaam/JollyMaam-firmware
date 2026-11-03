@@ -3,9 +3,9 @@
  * interrupts arrive at fixed offsets from it, the layout stock v1.01 and
  * Yichip's SDK (flash_start.s) share: reset at 0, hard fault 4, SVC 0xa,
  * PendSV 0x10, SysTick 0x16 (6 bytes each), then IRQ n at 0x1c + 4n.
- * Nothing here enables an interrupt; every entry but reset goes to
- * yc_fault(), which records it, and returns from the exception into a
- * restart through the boot loader.  Interrupts come through the loader at
+ * SysTick goes to yc_systick() (the hang watch, where its interrupt is on);
+ * every other entry but reset to yc_fault(), which records it, and returns
+ * from the exception into a restart through the boot loader.  Interrupts come through the loader at
  * app + 0x9c with r0 = 4 n (stock's layout), to yc_irq_table: only USB's
  * (IRQ 0) is enabled.  The vectors are the ROM's (a Cortex-M0
  * has no VTOR): HardFault runs the ROM's handler, which resets the chip if
@@ -22,11 +22,14 @@
 _entry:
 	ldr r0, =reset
 	bx r0
-	.rept 4                         /* hard fault, SVC, PendSV, SysTick */
+	.rept 3                         /* hard fault, SVC, PendSV */
 	ldr r0, =trap
 	bx r0
 	nop
 	.endr
+	ldr r0, =systick                /* SysTick */
+	bx r0
+	nop
 	.rept 32                        /* IRQ 0..31 (the loader never uses these) */
 	b trap_near
 	nop
@@ -75,6 +78,12 @@ reset:
 	adds r2, #4
 	b 3b
 4:	bl main
+	.thumb_func
+systick:                                /* yc_systick(the stacked frame) */
+	mrs r0, msp
+	push {r0, lr}
+	bl yc_systick
+	pop {r0, pc}
 	.thumb_func
 trap:                                   /* yc_fault(the stacked frame, IPSR) */
 	mrs r0, msp

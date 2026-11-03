@@ -100,6 +100,9 @@ void plat_restart(int loader)
     *(volatile uint8_t *)0xf6012 = 0x40;
     __asm__ volatile ("cpsid i");
     YC_SYST_CSR = 0;
+    /* A SysTick still pending (the hang watch's) would go to the loader's
+     * own handler, an endless loop, once it enables interrupts. */
+    *(volatile uint32_t *)0xe000ed04 = 1u << 25;   /* ICSR: PENDSTCLR */
     *(volatile uint32_t *)0xf856c |= 1u << 6;   /* CLK_CLS: the USB clock off */
     *(volatile uint8_t *)0xf853c = 0x94;        /* WAKEUP_BT: the core halted */
     if (loader) {
@@ -134,12 +137,46 @@ void yc_fault(const uint32_t *frame, uint32_t ipsr)
     ((uint32_t *)frame)[7] = 0x01000000;                /* Thumb */
 }
 
-void plat_log_fault(void)
+/* The hang watch: SysTick's interrupt (each wrap of its 24 bits, 0.35 s at
+ * 48 MHz) finds the wait loop's last pass more than HANG_MS ago, and the
+ * restart goes as a fault's, with where it was.  Off until the first kick,
+ * and between plat_watch_stop() and the next. */
+#define HANG_MS 3000
+
+static volatile u32 watch_ms;
+static volatile u8 watch_on;
+
+void plat_watch_kick(void)
 {
+    watch_ms = plat_ms();
+    watch_on = 1;
+}
+
+void plat_watch_stop(void)
+{
+    watch_on = 0;
+}
+
+void yc_systick(uint32_t *frame)
+{
+    if (watch_on && plat_ms() - watch_ms > HANG_MS) {
+        watch_on = 0;
+        yc_fault(frame, 15);
+    }
+}
+
+/* The last restart's fault or hang into the log; returns 15 after a hang,
+ * another exception number after a fault, 0 for none. */
+u32 plat_log_fault(void)
+{
+    u32 was = fault.magic == FAULT_MAGIC ? fault.ipsr : 0;
+
     if (fault.magic == FAULT_MAGIC)
-        util_log("fault: exception %u at pc %08x lr %08x sp %08x", (unsigned)fault.ipsr,
+        util_log("%s: exception %u at pc %08x lr %08x sp %08x", fault.ipsr == 15 ? "hang" : "fault",
+                 (unsigned)fault.ipsr,
                  (unsigned)fault.pc, (unsigned)fault.lr, (unsigned)fault.sp);
     fault.magic = 0;
+    return was;
 }
 
 void yc_reset(void)
