@@ -235,7 +235,8 @@ static void players(const struct led_scene *sc, u32 now, u32 t, const struct led
     default: return;
     }
     for (i = 0; i < PLAYERS; i++)
-        put(out->light[LIGHT_P0 + i], scale(number & (1u << i) ? number_colour : c, k));
+        if ((number & (1u << i)) || !in->players_mono || in->player_lights != PLAYERS_HOST)
+            put(out->light[LIGHT_P0 + i], scale(number & (1u << i) ? number_colour : c, k));
 }
 
 static void bar(const struct led_scene *sc, const struct led_state *s, u32 now, u32 t,
@@ -583,6 +584,11 @@ int main(void)
     CHECK(same(f.light[LIGHT_P0], dim_green));
     frame(&connected, &s, 2300, &in, &f);
     CHECK(same(f.light[LIGHT_P0], dim_red));
+    in.players_mono = 1;        /* one-colour lights: the number alone */
+    frame(&connected, &s, 2300, &in, &f);
+    CHECK(same(f.light[LIGHT_P2], dim_green) && same(f.light[LIGHT_P0], dark_rgb) &&
+          same(f.light[LIGHT_P3], dark_rgb));
+    in.players_mono = 0;
     in.player_lights = PLAYERS_SECONDARY;
     in.grips = GRIPS_PRIMARY;
     frame(&connected, &s, 2000, &in, &f);

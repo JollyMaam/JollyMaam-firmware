@@ -677,6 +677,7 @@ struct led_inputs {
     u8 reach[2];
     u8 usb_powered, usb_plug_lit, low_battery;
     u8 has_players, players, players_flash;
+    u8 players_mono;       /* board_led_brightness.players_mono */
     u8 has_lightbar;
     struct rgb lightbar;
     u8 cal_lit;
@@ -734,6 +735,8 @@ struct ux_colours { u8 idle, battery; };
 struct board_led_brightness {
     u16 steady, animation, connect;
     u16 idle, battery;
+    u8 players_mono;             /* player lights of one colour, on or off: the host's
+                                  * number alone lit, not the others in the primary */
 };
 extern const struct board_led_brightness board_led_brightness;
 

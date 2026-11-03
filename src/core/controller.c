@@ -991,6 +991,7 @@ static void outputs(u32 now)
     in.usb_plug_lit = c.usb_powered && plugged < ux_timeouts.usb_plug_ms;
     if (c.kind == CTL_CONNECTED) {
         in.has_players = c.host.has_players;
+        in.players_mono = board_led_brightness.players_mono;
         in.players = c.host.players;
         in.players_flash = c.host.players_flash;
         in.has_lightbar = c.host.has_lightbar;

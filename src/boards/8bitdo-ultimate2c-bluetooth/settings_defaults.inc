@@ -1,9 +1,9 @@
 /* Shared by the board and the host schema exporter. */
-/* The four player lights are on or off (plat_leds): any brightness lights
- * them. */
+/* The four player lights are white, on or off (plat_leds): any brightness
+ * lights them, so the host's player number shows alone. */
 const struct board_led_brightness board_led_brightness = {
     .steady = 240, .animation = 400, .connect = 240,
-    .idle = 240, .battery = 240,
+    .idle = 240, .battery = 240, .players_mono = 1,
 };
 
 /* As the U2CW's motors until these are measured. */
