@@ -180,3 +180,34 @@ int plat_radio_take(struct radio_packet *p)
     WINDOW(RX_RING + 5) = (uint8_t)(r >> 8);
     return 1;
 }
+
+/* The ADC, behind the same window (stock v1.01's 0x01018bf8 and 0x010189dc,
+ * Yichip's yc_adc.c): it works once the core is powered (plat_radio_start).
+ * Pins 2.5, 2.6, 2.8, 2.9 and 2.10 analog (config 0xc0), as stock sets them;
+ * mode 0 (bits 4-6 of 0x11); a channel's conversion is ready 100 us after
+ * its select, an 11-bit value in bits 1-10 of 0xf850e.  Stock reads its
+ * sticks on channels 0, 1, 4, 5 (0x01025ef0) and the battery on 3; it
+ * checks the 0 V value on 3 with pin 2.8 driven low (0x01018868). */
+#define ADC(off)       (*(volatile uint8_t *)(0xc8960 + (off)))
+#define ADC_RESULT     (*(volatile uint16_t *)0xf850e)
+
+void plat_adc_init(void)
+{
+    static const uint8_t pins[] = { 5, 6, 8, 9, 10 };
+
+    for (unsigned i = 0; i < sizeof(pins); i++) yc_pin(2, pins[i], 0xc0);
+    ADC(0x11) = 0x8e;
+    ADC(0x10) = 0x7f;
+    ADC(0x12) = 0xaa;
+    ADC(0x13) = 0x30;
+    plat_delay_ms(100);
+}
+
+u16 plat_adc_read(int channel)
+{
+    ADC(0x10) = 0x7f;
+    ADC(0x12) = 0xaa;
+    ADC(0x13) = (uint8_t)(channel | 0x30);
+    yc_delay_us(100);
+    return ADC_RESULT & 0x7fe;
+}

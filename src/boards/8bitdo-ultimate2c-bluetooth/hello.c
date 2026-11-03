@@ -11,7 +11,9 @@
  * by bring-up commands (0x3a start, 0x3b send, 0x3c up as a generic HID
  * gamepad); what it sends back goes to the log.  While a host has HID
  * connected, the raw key matrix goes out as that gamepad's buttons (key k
- * button k + 1, keys 16 on in the Z axis byte); key changes are logged.
+ * button k + 1, keys 16 on in the Z axis byte) and ADC channels 0, 1, 4, 5
+ * as its X, Y, Rx, Ry (the ADC starts with the core; 0x3f reads channels
+ * 0..5 raw); key changes are logged.
  *
  * Lights: with no button down and USB seen, they show its progress: light 1
  * a bus reset, 2 an address set, 3 configured, 4 toggling with each tool
@@ -47,7 +49,19 @@ void plat_clock_init(void);
 void plat_log_fault(void);
 
 static volatile u8 reboot_pending, radio_start_pending, bt_up_pending, raw_pending;
-static u8 hid_connected;
+static u8 hid_connected, adc_ready;
+/* ADC channels 0..5, sampled each tick once the core is up (0x3f reads
+ * them): stock's sticks on 0, 1, 4, 5, its battery on 3. */
+static volatile u16 adc[6];
+/* The sticks (proven 2026-11-03 by moving each): left X on channel 4, left Y
+ * on 5, right X on 0, right Y on 1; raw values fall to the right on X, and
+ * downward on left Y but upward on right Y.  Rest near 1390, travel about
+ * +-270 of 0..2046.  Bring-up scaling: the centre is the first sample,
+ * +-STICK_TRAVEL is full scale; as X, Y, Rx, Ry (X right, Y down). */
+static const u8 stick_channel[4] = { 4, 5, 0, 1 };
+static const int stick_sign[4] = { -1, -1, -1, 1 };
+#define STICK_TRAVEL 260
+static int centre[4];
 static u8 raw[256];              /* 0x3b's packet, for the main loop */
 static u16 raw_len;
 
@@ -156,6 +170,7 @@ static void bt_up(void)
 
     util_log("bt: up, SDP %u bytes", n);
     ok = plat_radio_start() == 0;
+    if (ok) plat_adc_init(), adc_ready = 1;
     while (ok && plat_radio_take(&packet)) log_packet(&packet);
     ok = ok && bt_command(0x04, cmd04, sizeof(cmd04), 0);
     ok = ok && bt_command(0x01, address, 6, 0);
@@ -246,6 +261,10 @@ u32 usb_tool_command(const u8 *report, u8 *data, u32 n, u32 max)
         if (arg == 1) usb_trace.stop = 0, usb_trace.next = 0;   /* argument 1: and rearm */
         return k;
     }
+    case 0x3f:                           /* bring-up: ADC channels 0..5 (u16 each) */
+        if (max < 12) return 0;
+        for (int i = 0; i < 6; i++) data[2 * i] = (u8)adc[i], data[2 * i + 1] = (u8)(adc[i] >> 8);
+        return 12;
     case 0x3a:                           /* bring-up: start the Bluetooth core */
         radio_start_pending = 1;
         return 0;
@@ -289,7 +308,7 @@ int main(void)
     const struct usb_events *ev = plat_usb_events();
     u32 resets = 0, odd = 0, stalls = 0;
     u8 configured = 0;
-    u32 tick_ms = plat_ms(), held = 0, tick = 0, reboot_at = 0, last_keys = 0, sent_keys = ~0u;
+    u32 tick_ms = plat_ms(), held = 0, tick = 0, reboot_at = 0, last_keys = 0, sent_keys = ~0u, sent_sticks = 0;
 
     u32 pass_us = plat_us();
     for (;;) {
@@ -307,7 +326,9 @@ int main(void)
         if (radio_start_pending) {
             radio_start_pending = 0;
             util_log("bt: start");
-            util_log("bt: started %d", plat_radio_start());
+            int r = plat_radio_start();
+            util_log("bt: started %d", r);
+            if (!r) plat_adc_init(), adc_ready = 1;
         }
         if (raw_pending) {
             if (!plat_radio_send(raw[0], raw + 2, (u16)(raw_len - 2), raw[1])) util_log("bt: %02x: no room", raw[0]);
@@ -328,10 +349,23 @@ int main(void)
         u32 keys_down = scan();
         int down = !keys_down ? 0 : keys_down == 1u << 22 ? 1 : 2;
         if (keys_down != last_keys) util_log("keys %06x", (unsigned)(last_keys = keys_down));
-        if (hid_connected && keys_down != sent_keys) {
-            u8 report[11] = { 0xa1, 0x01, (u8)keys_down, (u8)(keys_down >> 8), 8, 0x80, 0x80, 0x80, 0x80,
+        if (adc_ready) {
+            for (int c = 0; c < 6; c++) adc[c] = plat_adc_read(c);
+            if (!centre[0])
+                for (int a = 0; a < 4; a++) centre[a] = adc[stick_channel[a]];
+        }
+        u8 axes[4] = { 0x80, 0x80, 0x80, 0x80 };
+        if (centre[0])
+            for (int a = 0; a < 4; a++) {
+                int v = ((int)adc[stick_channel[a]] - centre[a]) * stick_sign[a];
+                v = 128 + v * 128 / STICK_TRAVEL;
+                axes[a] = (u8)(v < 0 ? 0 : v > 255 ? 255 : v);
+            }
+        u32 sticks = (u32)axes[0] | (u32)axes[1] << 8 | (u32)axes[2] << 16 | (u32)axes[3] << 24;
+        if (hid_connected && (keys_down != sent_keys || sticks != sent_sticks)) {
+            u8 report[11] = { 0xa1, 0x01, (u8)keys_down, (u8)(keys_down >> 8), 8, axes[0], axes[1], axes[2], axes[3],
                               (u8)(keys_down >> 16), 0 };
-            if (plat_radio_send(0xb0, report, sizeof(report), 1)) sent_keys = keys_down;
+            if (plat_radio_send(0xb0, report, sizeof(report), 1)) sent_keys = keys_down, sent_sticks = sticks;
         }
         if (!hid_connected) sent_keys = ~0u;
         held = down ? held + 1 : 0;

@@ -15,5 +15,9 @@ int plat_radio_start(void);
 int plat_radio_send(u8 id, const u8 *data, u16 len, int wide);
 /* The core's next packet; 0: none. */
 int plat_radio_take(struct radio_packet *p);
+/* The ADC, after plat_radio_start: pins as stock, then a channel's value
+ * (0..0x7fe, even), 100 us each. */
+void plat_adc_init(void);
+u16 plat_adc_read(int channel);
 
 #endif
