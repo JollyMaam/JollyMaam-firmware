@@ -60,7 +60,7 @@ u32 plat_wait(u32 deadline_ms, u32 at_us)
 #endif
     for (;;) {
         plat_watch_kick();
-        plat_wake(board_poll() | plat_bt_poll() | (plat_usb_tool_waiting() ? EV_USB : 0));
+        plat_wake(board_poll() | plat_bt_poll() | (plat_usb_wake() ? EV_USB : 0));
         e = take();
         if (e) return e;
         if (deadline_ms && (s32)(plat_ms() - deadline_ms) >= 0) return EV_DEADLINE;

@@ -13,15 +13,16 @@ const struct board_rumble board_rumble = {
     .kick_ms = { 0, 0, 0, 0, 0 },
 };
 
-/* Classic Bluetooth only (the radio core's HID device): Switch Pro,
- * generic HID, DualShock 4, DualSense.  USB as a game controller is not
- * here yet. */
+/* Classic Bluetooth (the radio core's HID device) and USB (HID
+ * personalities: no Xbox 360 or Switch 2 one): Switch Pro, generic HID,
+ * DualShock 4, DualSense; each slot USB while a host is there, else
+ * Bluetooth. */
 const struct board_slots board_slots = {
     .type = { PROFILE_SWITCH, PROFILE_GENERIC, PROFILE_DS4, PROFILE_DS5,   /* A B X Y */
               PROFILE_NONE, PROFILE_NONE, PROFILE_NONE, PROFILE_NONE },
-    .transport = { TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT,
-                   TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT },
+    .transport = { TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_BT_USB,
+                   TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_BT_USB },
     .types = 1u << PROFILE_SWITCH | 1u << PROFILE_GENERIC | 1u << PROFILE_DS4 |
              1u << PROFILE_DS5 | 1u << PROFILE_MOUSE | 1u << PROFILE_NONE,
-    .transports = 1u << TRANSPORT_BT,
+    .transports = 1u << TRANSPORT_BT | 1u << TRANSPORT_USB | 1u << TRANSPORT_BT_USB,
 };

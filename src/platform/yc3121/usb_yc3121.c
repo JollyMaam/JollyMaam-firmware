@@ -90,10 +90,38 @@ static struct {
     u8 receiving;                /* a SET_REPORT's data stage */
     u16 got, want;               /* its bytes so far, of wLength */
     u8 sending;                  /* a control read's data stage */
-    u16 at, total;               /* of buf */
+    u16 at, total;               /* of src */
     u8 zlp;                      /* it ends with a zero-length packet */
-    u8 buf[REPORT];              /* what goes out on EP0 */
+    const u8 *src;               /* what goes out on EP0: buf, or a constant */
+    u8 buf[REPORT];
 } u;
+
+/* ---- a game controller personality (plat_usb_mode) --------------------------
+ * One HID interface from the profile's usb_identity: interrupt IN 0x81 and,
+ * with out_size, interrupt OUT 0x02, as stock's own personalities have
+ * them.  Input is newest-wins, messages queue and go first; the host's
+ * writes (EP2, SET_REPORT) wait for plat_usb_take(). */
+#define MESSAGES 4
+#define WRITES   4
+#define EP_IN    1
+#define EP_OUT   2
+
+static struct {
+    const struct usb_identity *id;
+    int (*read)(u8 kind, u16 id, u16 offset, u8 *out, u16 max);
+    u8 dev[18];
+    u8 cfg[9 + 9 + 9 + 7 + 7];
+    u8 cfg_len;
+    u8 set_kind, set_id;         /* the SET_REPORT whose data comes */
+    u8 rx[REPORT];
+    volatile u8 in_busy;         /* EP1's packet not taken yet */
+    u8 input[REPORT], input_len;
+    struct { u8 len, data[REPORT]; } msg[MESSAGES];
+    u8 m_head, m_count;
+    struct bt_write writes[WRITES];
+    u8 w_head, w_count;
+    volatile u8 event;           /* EV_USB: the host took a report or wrote one */
+} pz;
 
 static struct {
     u8 report[REPORT];           /* the host's last SET_REPORT */
@@ -193,7 +221,7 @@ static void ep0_next(void)
         return;
     }
     for (u16 i = 0; i < n; i++)
-        USB_FIFO(0) = u.buf[u.at + i];
+        USB_FIFO(0) = u.src[u.at + i];
     u.at += n;
     if (u.at == u.total && n < EP0_SIZE) u.sending = 0;
     send_in(0);
@@ -204,7 +232,7 @@ static void ep0_answer(const u8 *data, u16 len)
     u16 want = (u16)(u.setup[6] | u.setup[7] << 8);
 
     if (len > want) len = want;
-    if (data != u.buf) memcpy(u.buf, data, len);
+    u.src = data;                       /* buf, or constant: it stays */
     u.at = 0;
     u.total = len;
     u.zlp = len < want && len % EP0_SIZE == 0;
@@ -217,6 +245,8 @@ static u16 string(u8 index, u8 *out)
     const char *s = index == 1 ? USB_MANUFACTURER : board_name;
     u16 n = 2;
 
+    if (pz.id) s = index == 1 ? pz.id->manufacturer : index == 2 ? pz.id->product : pz.id->serial;
+    if (!s) s = "";
     if (index == 0) {
         out[2] = 0x09, out[3] = 0x04;
         n = 4;
@@ -288,6 +318,126 @@ static u16 tool_report(u8 *out)
     return REPORT;
 }
 
+/* ---- the personality's endpoints ------------------------------------------------ */
+
+static void write_take(u8 kind, const u8 *data, u8 n)
+{
+    struct bt_write *w;
+    u8 at = 0;
+
+    if (pz.w_count >= WRITES) return;    /* the loop is behind: dropped */
+    w = &pz.writes[(pz.w_head + pz.w_count) % WRITES];
+    w->kind = kind;
+    w->id = 0;
+    if (pz.id->report_ids && n) w->id = data[0], at = 1;
+    w->len = (u16)(n - at < BT_WRITE_MAX ? n - at : BT_WRITE_MAX);
+    memcpy(w->data, data + at, w->len);
+    pz.w_count++;
+    pz.event = 1;
+}
+
+/* EP1: a message first, else the newest input, when the last went out. */
+static void pump(void)
+{
+    const u8 *d;
+    u8 n;
+
+    if (pz.in_busy || !u.configuration) return;
+    if (pz.m_count) {
+        d = pz.msg[pz.m_head].data;
+        n = pz.msg[pz.m_head].len;
+        pz.m_head = (u8)((pz.m_head + 1) % MESSAGES);
+        pz.m_count--;
+    } else if (pz.input_len) {
+        d = pz.input;
+        n = pz.input_len;
+        pz.input_len = 0;
+    } else {
+        return;
+    }
+    for (u8 i = 0; i < n; i++) USB_FIFO(EP_IN) = d[i];
+    pz.in_busy = 1;
+    send_in(EP_IN);
+}
+
+/* EP2: the host's output report. */
+static void ep_out(void)
+{
+    u8 n = USB_LEN(EP_OUT), i;
+
+    if (n > REPORT) n = REPORT;
+    for (i = 0; i < n; i++) pz.rx[i] = USB_FIFO(EP_OUT);
+    USB_TRIGGER = 0x10 << EP_OUT;        /* taken: the next may come */
+    if (pz.id) write_take(BT_WRITE_OUTPUT, pz.rx, n);
+}
+
+/* The class and standard requests of a personality; 0: the tool device's
+ * handling (addresses, status, features) applies. */
+static int personality_setup(u8 type, u8 request, u8 value_lo, u8 value_hi, u16 length)
+{
+    const struct usb_identity *id = pz.id;
+    u8 at = id->report_ids ? 1 : 0;
+    int n;
+
+    if (type == 0x80 && request == 6) {                  /* GET_DESCRIPTOR */
+        if (value_hi == 1) ep0_answer(pz.dev, sizeof(pz.dev));
+        else if (value_hi == 2) ep0_answer(pz.cfg, pz.cfg_len);
+        else if (value_hi == 3 && value_lo <= 3) ep0_answer(u.buf, string(value_lo, u.buf));
+        else ep0_stall();
+        return 1;
+    }
+    if (type == 0x81 && request == 6) {                  /* the interface's */
+        if (value_hi == 0x22) ep0_answer(id->hid_descriptor, id->hid_descriptor_len);
+        else if (value_hi == 0x21) ep0_answer(pz.cfg + 18, 9);
+        else ep0_stall();
+        return 1;
+    }
+    if (type == 0x00 && request == 9) {                  /* SET_CONFIGURATION */
+        u.configuration = value_lo;
+        pz.in_busy = 0;
+        ep0_zlp();
+        events.configured = value_lo != 0;
+        pz.event = 1;
+        return 1;
+    }
+    if ((type & 0x60) != 0x20 || (type & 0x1f) != 1) return 0;   /* class, interface */
+    switch (request) {
+    case 1:                                              /* GET_REPORT */
+        n = -1;
+        if (pz.read && value_hi == 3 && length > at)
+            n = pz.read(BT_WRITE_FEATURE, value_lo, 0, u.buf + at,
+                        (u16)((length < REPORT ? length : REPORT) - at));
+        if (n < 0) {
+            ep0_stall();
+            return 1;
+        }
+        if (at) u.buf[0] = value_lo;
+        ep0_answer(u.buf, (u16)(n + at));
+        return 1;
+    case 9:                                              /* SET_REPORT */
+        if (!length) {
+            ep0_zlp();
+            return 1;
+        }
+        pz.set_kind = value_hi == 3 ? BT_WRITE_FEATURE : BT_WRITE_OUTPUT;
+        pz.set_id = value_lo;
+        u.receiving = 1;
+        u.got = 0;
+        u.want = length < REPORT ? length : REPORT;
+        return 1;
+    case 2:                                              /* GET_IDLE */
+        u.buf[0] = 0;
+        ep0_answer(u.buf, 1);
+        return 1;
+    case 0x0a:                                           /* SET_IDLE */
+    case 0x0b:                                           /* SET_PROTOCOL */
+        ep0_zlp();
+        return 1;
+    }
+    ep0_stall();
+    return 1;
+}
+
 /* ---- control requests ------------------------------------------------------ */
 
 static void setup(void)
@@ -304,6 +454,7 @@ static void setup(void)
     }
     u.sending = u.receiving = 0;
     events.setups++;
+    if (pz.id && personality_setup(type, request, value_lo, value_hi, length)) return;
     if (type == 0x80 && request == 6) {                  /* GET_DESCRIPTOR */
         if (value_hi == 1) ep0_answer(device_descriptor, sizeof(device_descriptor));
         else if (value_hi == 2) ep0_answer(configuration_descriptor, sizeof(configuration_descriptor));
@@ -353,12 +504,21 @@ static void ep0_out(u8 n, u8 skip)
     if (!u.receiving) events.out_idle++;
     for (u8 i = 0; i < n; i++) {
         u8 b = USB_FIFO(0);
-        if (i >= skip && u.receiving && u.got < REPORT) t.report[u.got++] = b;
+        if (i >= skip && u.receiving && u.got < REPORT) (pz.id ? pz.rx : t.report)[u.got++] = b;
     }
     if (!u.receiving) return;
     if (u.got >= u.want) {
         u.receiving = 0;
-        tool_take(u.got);
+        if (!pz.id) tool_take(u.got);
+        else if (pz.id->report_ids || pz.set_kind == BT_WRITE_FEATURE)
+            write_take(pz.set_kind, pz.rx, (u8)u.got);
+        else {                           /* no report ids: the id from the request */
+            struct bt_write *w;
+
+            write_take(pz.set_kind, pz.rx, (u8)u.got);
+            w = &pz.writes[(pz.w_head + pz.w_count + WRITES - 1) % WRITES];
+            if (pz.w_count) w->id = pz.set_id;
+        }
     }
     ep0_zlp();
 }
@@ -391,7 +551,14 @@ void plat_usb_poll(void)
         events.resets++;
     }
     USB_STATUS = 0xa0;                  /* bit 6 stays: it ends an EP0 packet */
-    if (status & 0x0e) USB_STATUS = status & 0x0e;      /* EP1-3 OUT: not used */
+    if (status & 0x0e) USB_STATUS = status & 0x0e;      /* EP1-3 OUT */
+    if (status & (1u << EP_OUT)) ep_out();
+    if (sent & (1u << EP_IN)) {
+        USB_SENT = 1u << EP_IN;
+        pz.in_busy = 0;
+        pz.event = 1;
+        pump();
+    }
     if (status & 1) {
         u8 n;
 
@@ -429,4 +596,132 @@ void plat_usb_poll(void)
 const struct usb_events *plat_usb_events(void)
 {
     return &events;
+}
+
+/* ---- the personality's interface ----------------------------------------------- */
+
+static void build(const struct usb_identity *id)
+{
+    u8 *c = pz.cfg, eps = id->out_size ? 2 : 1, n = 0;
+
+    memcpy(pz.dev, (const u8[]){ 18, 1, 0x00, 0x02, 0, 0, 0, EP0_SIZE }, 8);
+    pz.dev[8] = (u8)id->vendor_id, pz.dev[9] = (u8)(id->vendor_id >> 8);
+    pz.dev[10] = (u8)id->product_id, pz.dev[11] = (u8)(id->product_id >> 8);
+    pz.dev[12] = (u8)id->bcd_device, pz.dev[13] = (u8)(id->bcd_device >> 8);
+    pz.dev[14] = id->manufacturer ? 1 : 0;
+    pz.dev[15] = id->product ? 2 : 0;
+    pz.dev[16] = id->serial ? 3 : 0;
+    pz.dev[17] = 1;
+    memcpy(c + n, (const u8[]){ 9, 2, 0, 0, 1, 1, 0, 0x80, 0 }, 9), n += 9;
+    c[8] = id->max_power ? id->max_power : 50;
+    memcpy(c + n, (const u8[]){ 9, 4, 0, 0, 0, 3, 0, 0, 0 }, 9), c[n + 4] = eps, n += 9;
+    memcpy(c + n, (const u8[]){ 9, 0x21, 0x11, 0x01, 0, 1, 0x22, 0, 0 }, 9);
+    c[n + 7] = (u8)id->hid_descriptor_len, c[n + 8] = (u8)(id->hid_descriptor_len >> 8), n += 9;
+    memcpy(c + n, (const u8[]){ 7, 5, 0x80 | EP_IN, 3, 0, 0, 0 }, 7);
+    c[n + 4] = id->in_size, c[n + 6] = id->interval ? id->interval : 1, n += 7;
+    if (id->out_size) {
+        memcpy(c + n, (const u8[]){ 7, 5, EP_OUT, 3, 0, 0, 0 }, 7);
+        c[n + 4] = id->out_size, c[n + 6] = id->interval ? id->interval : 1, n += 7;
+    }
+    c[2] = n;
+    pz.cfg_len = n;
+}
+
+/* A personality: off the bus, then back as it (NULL: the tool device).
+ * Only HID here: an Xbox 360 or Switch 2 (bulk) one stays the tool device. */
+void plat_usb_mode(const struct usb_identity *id,
+                   int (*read)(u8 kind, u16 id, u16 offset, u8 *out, u16 max))
+{
+    if (id == pz.id) {
+        pz.read = read;
+        return;
+    }
+    if (id && id->kind != USB_HID) {
+        util_log("usb: only HID personalities on this pad");
+        id = NULL;
+        if (!pz.id) return;
+    }
+    __asm__ volatile ("cpsid i" ::: "memory");
+    memset(&pz, 0, sizeof(pz));
+    if (id) build(id);
+    pz.id = id;
+    pz.read = read;
+    __asm__ volatile ("cpsie i" ::: "memory");
+    util_log("usb: %s", id ? (id->product ? id->product : "a personality") : "the tool device");
+    plat_usb_init();                     /* off the bus 20 ms: the host enumerates again */
+}
+
+int plat_usb_ready(void)
+{
+    return pz.id && u.configuration;
+}
+
+int plat_usb_input_wanted(void)
+{
+    return plat_usb_ready() && !pz.in_busy && !pz.input_len && !pz.m_count;
+}
+
+int plat_usb_input_staged(void)
+{
+    return pz.input_len != 0;
+}
+
+int plat_usb_send_input(u8 id, const u8 *data, u16 len)
+{
+    u8 at = pz.id && pz.id->report_ids ? 1 : 0;
+
+    if (!plat_usb_ready() || len + at > pz.id->in_size || len + at > REPORT) return 0;
+    plat_lock();
+    if (at) pz.input[0] = id;
+    memcpy(pz.input + at, data, len);
+    pz.input_len = (u8)(len + at);
+    pump();
+    plat_unlock();
+    return 1;
+}
+
+int plat_usb_send_message(u16 id, const u8 *data, u16 len)
+{
+    u8 at = pz.id && pz.id->report_ids ? 1 : 0, *m;
+    int sent = 0;
+
+    if (!plat_usb_ready() || (id & HOST_BULK) || len + at > pz.id->in_size || len + at > REPORT) return 0;
+    plat_lock();
+    if (pz.m_count < MESSAGES) {
+        u8 k = (u8)((pz.m_head + pz.m_count) % MESSAGES);
+
+        m = pz.msg[k].data;
+        if (at) m[0] = (u8)id;
+        memcpy(m + at, data, len);
+        pz.msg[k].len = (u8)(len + at);
+        pz.m_count++;
+        pump();
+        sent = 1;
+    }
+    plat_unlock();
+    return sent;
+}
+
+int plat_usb_take(struct bt_write *w)
+{
+    int got = 0;
+
+    plat_lock();
+    if (pz.w_count) {
+        *w = pz.writes[pz.w_head];
+        pz.w_head = (u8)((pz.w_head + 1) % WRITES);
+        pz.w_count--;
+        got = 1;
+    }
+    plat_unlock();
+    return got;
+}
+
+/* For the wait loop: a tool command to answer, or a personality's event. */
+int plat_usb_wake(void)
+{
+    int e = t.pending || pz.event;
+
+    pz.event = 0;
+    return e;
 }

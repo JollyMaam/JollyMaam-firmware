@@ -43,5 +43,6 @@ const struct usb_events *plat_usb_events(void);
 u32 usb_tool_command(const u8 *report, u8 *data, u32 n, u32 max);
 void plat_usb_service(void);
 int plat_usb_tool_waiting(void);
+int plat_usb_wake(void);         /* a tool command, or a personality's event (cleared) */
 
 #endif
