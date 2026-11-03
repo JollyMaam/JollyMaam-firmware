@@ -103,10 +103,18 @@ static int load(const uint8_t *blob, const uint8_t *end)
     return 1;
 }
 
+static u8 adc_up;                /* plat_adc_init() since the core last started */
+
+int plat_adc_ready(void)
+{
+    return adc_up;
+}
+
 int plat_radio_start(void)
 {
     u32 t0;
 
+    adc_up = 0;
     NVIC_ICER = 1u << 11;
     WAKEUP_BT = 0x94;
     wait_ms(10);
@@ -201,6 +209,7 @@ void plat_adc_init(void)
     ADC(0x12) = 0xaa;
     ADC(0x13) = 0x30;
     plat_delay_ms(100);
+    adc_up = 1;
 }
 
 u16 plat_adc_read(int channel)

@@ -41,7 +41,7 @@ SECTIONS
 
     /* Start-up neither loads nor clears it. */
     .noinit (NOLOAD) : {
-        *(.noinit .noinit.*)
+        *(.noinit .noinit.* .retained)
         . = ALIGN(4);
     } > KEPT
 

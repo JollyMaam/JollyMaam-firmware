@@ -19,5 +19,6 @@ int plat_radio_take(struct radio_packet *p);
  * (0..0x7fe, even), 100 us each. */
 void plat_adc_init(void);
 u16 plat_adc_read(int channel);
+int plat_adc_ready(void);        /* plat_adc_init() since the core last started */
 
 #endif
