@@ -120,6 +120,7 @@ static u32 last_ack_us;
 static u32 want_us;                      /* when bt_input_wanted() last became true */
 static volatile u16 le_mtu;              /* the link's ATT MTU */
 static u32 lead_us = LEAD_START_US;      /* adaptive just-in-time lead */
+static u32 due_us;                       /* the lead before the anchor wanted; 0: none */
 static u8 lead_hits;
 
 /* ---- control thread side ------------------------------------------------- */
@@ -289,6 +290,7 @@ u32 bt_input_due_us(void)
                 next = at + p;
                 while ((s32)(next - now) <= 0) next += p;
                 if ((s32)(next - l - t) > 0) t = next - l;
+                due_us = t == next - l ? t | 1 : 0;
             }
         }
         t |= 1;                          /* never 0 while wanted */
@@ -1061,8 +1063,13 @@ static void le_flush(void)
         flight[flight_n].sent_us = plat_us();
         flight[flight_n].slot_us = slot_us;
         flight[flight_n].anchor = hci_jieli_anchor(&at);
+        /* Handed over after the anchor it was built for: count from that
+         * one, so the lead learns it was late. */
+        if (due_us && (s32)(at - due_us) > 0 && flight[flight_n].anchor)
+            flight[flight_n].anchor--;
         flight_n++;
     }
+    due_us = 0;
     plat_unlock();
     util_trace(TR_SENT, 0);
     hci_jieli_fast_send(pdu, (u16)(n + 7));
