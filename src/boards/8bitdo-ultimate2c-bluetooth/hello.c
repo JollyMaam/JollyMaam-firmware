@@ -55,6 +55,7 @@ static volatile u8 flash_pending, bonds_send_pending;
 static u32 flash_at, flash_len;
 static u8 flash_data[64];
 static u8 hid_connected, adc_ready;
+static u32 inputs_refused, inputs_refused_logged;   /* acks of 0xb0 with an error */
 /* ADC channels 0..5, sampled each tick once the core is up (0x3f reads
  * them): stock's sticks on 0, 1, 4, 5, its battery on 3. */
 static volatile u16 adc[6];
@@ -119,16 +120,25 @@ static u32 scan(void)
 static void log_packet(const struct radio_packet *p)
 {
     static const char digits[] = "0123456789abcdef";
-    char hex[3 * 24 + 1];
-    int k = p->len < 24 ? p->len : 24;
+    char hex[3 * 16 + 1];
 
-    for (int i = 0; i < k; i++) {
-        hex[3 * i] = digits[p->data[i] >> 4];
-        hex[3 * i + 1] = digits[p->data[i] & 15];
-        hex[3 * i + 2] = ' ';
+    if (p->id == 0x06 && p->data[0] == 0xb0) {               /* input reports' acks: counted */
+        if (p->data[1]) inputs_refused++;
+        goto logged;
     }
-    hex[3 * k] = 0;
-    util_log("bt: %02x %02x [%u] %s", p->type, p->id, p->len, hex);
+    for (int o = 0; o == 0 || (o < p->len && o < 64 && p->id != 0x0d); o += 16) {   /* 16 a line */
+        int k = p->len - o < 16 ? p->len - o : 16;
+
+        for (int i = 0; i < k; i++) {
+            hex[3 * i] = digits[p->data[o + i] >> 4];
+            hex[3 * i + 1] = digits[p->data[o + i] & 15];
+            hex[3 * i + 2] = ' ';
+        }
+        hex[3 * (k > 0 ? k : 0)] = 0;
+        if (!o) util_log("bt: %02x %02x [%u] %s", p->type, p->id, p->len, hex);
+        else util_log("bt:   +%u %s", o, hex);
+    }
+logged:
     if (p->id == 0x0d && p->len == sizeof(bonds.table)) {
         u32 t0 = plat_us();
         int n;
@@ -412,6 +422,8 @@ int main(void)
             if (plat_radio_send(0xb0, report, sizeof(report), 1)) sent_keys = keys_down, sent_sticks = sticks;
         }
         if (!hid_connected) sent_keys = ~0u;
+        if (tick % 100 == 0 && inputs_refused != inputs_refused_logged)
+            util_log("bt: %u inputs refused", (unsigned)(inputs_refused_logged = inputs_refused));
         held = down ? held + 1 : 0;
         if (held >= 300)
             break;
