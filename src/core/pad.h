@@ -813,6 +813,8 @@ enum {
     LAYOUT_MENU,                /* the small ones on the front: Select, Start, Home ... */
     LAYOUT_BACK,                /* a paddle or button on the back */
     LAYOUT_TOP,                 /* another button on top */
+    LAYOUT_TRIGGER_DIGITAL,     /* on top: a trigger that is only pressed or not
+                                 * (calibration leaves it out) */
     LAYOUT_KINDS
 };
 struct board_control {

@@ -1214,7 +1214,8 @@ def play_rumble(path, steps):
 
 CMD_INPUT = 0x04
 CMD_LAYOUT = 0x06
-LAYOUT_KINDS = ("face", "dpad", "shoulder", "trigger", "stick", "stick_click", "menu", "back", "top")
+LAYOUT_KINDS = ("face", "dpad", "shoulder", "trigger", "stick", "stick_click", "menu", "back", "top",
+                "trigger_digital")
 # Each input's name (IN_* bit numbers): the keys, then what has no key.
 INPUT_NAMES = dict(enumerate(padremap.KEYS)) | {20: "l2", 21: "r2", 32: "left_stick", 33: "right_stick"}
 FACE_ROLES = {"a": "south", "b": "east", "x": "west", "y": "north"}    # the remap text's face keys

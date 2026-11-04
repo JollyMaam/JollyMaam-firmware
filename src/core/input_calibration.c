@@ -26,7 +26,8 @@ struct cal_trigger_capture {
 };
 
 enum cal_result { CAL_OK, CAL_NO_SAMPLES, CAL_MOVED_AT_REST, CAL_BAD_CENTER,
-                  CAL_SHORT_RANGE, CAL_NOT_CIRCLED, CAL_STOP_ENGAGED };
+                  CAL_SHORT_RANGE, CAL_NOT_CIRCLED, CAL_STOP_ENGAGED,
+                  CAL_SKIPPED };   /* not an analog trigger: nothing to calibrate */
 
 #define STICK_RAW_MIDPOINT        0x4000
 #define STICK_CENTER_TOLERANCE    0x1000
@@ -57,6 +58,7 @@ static const char *cal_result_name(enum cal_result result)
     case CAL_SHORT_RANGE: return "not moved far enough";
     case CAL_NOT_CIRCLED: return "edge not followed all the way round";
     case CAL_STOP_ENGAGED: return "trigger stop engaged";
+    case CAL_SKIPPED: return "not analog";
     }
     return "?";
 }
@@ -509,6 +511,7 @@ static struct {
     u8 phase;
     u32 since;
     u8 released;
+    u8 analog;                   /* bit 0 L2, bit 1 R2: the triggers to calibrate */
     struct rgb result;
     enum cal_result outcome[4];
     struct cal_stick_capture stick[2];
@@ -527,9 +530,22 @@ static void show(u8 red, u8 green, u32 now)
     enter(PH_RESULT, now);
 }
 
+/* The analog triggers in a board's layout; one it lists as digital, or not
+ * at all, has nothing to calibrate. */
+static u8 analog_triggers(const struct board_control *layout, u8 count)
+{
+    u8 i, mask = 0;
+
+    for (i = 0; i < count; i++)
+        if (layout[i].kind == LAYOUT_TRIGGER)
+            mask |= layout[i].input == IN_L2 ? 1 : layout[i].input == IN_R2 ? 2 : 0;
+    return mask;
+}
+
 void cal_start(u32 now)
 {
     if (r.phase != PH_IDLE && r.phase != PH_RESULT) return;
+    r.analog = analog_triggers(board_layout, board_layout_count);
     util_log("cal: hands off the sticks and triggers");
     enter(PH_SETTLE, now);
 }
@@ -545,8 +561,9 @@ static int finish(struct set_cal *cal, u32 now)
 {
     struct cal_stick s;
     struct cal_trigger t;
-    u32 i, applied = 0;
+    u32 i, applied = 0, wanted = 0;
 
+    for (i = 0; i < 4; i++) wanted += r.outcome[i] != CAL_SKIPPED;
     for (i = 0; i < 2; i++) {
         if (r.outcome[i] == CAL_OK) r.outcome[i] = cal_stick_finish(&r.stick[i], &s);
         if (r.outcome[i] == CAL_OK) {
@@ -560,9 +577,10 @@ static int finish(struct set_cal *cal, u32 now)
         }
     }
     for (i = 0; i < 4; i++)
-        if (r.outcome[i] != CAL_OK) util_log("cal: %s unchanged: %s", names[i], cal_result_name(r.outcome[i]));
-    util_log("cal: done, %u of 4 calibrated", applied);
-    if (applied == 4) show(0, LED_LEVEL, now);
+        if (r.outcome[i] != CAL_OK && r.outcome[i] != CAL_SKIPPED)
+            util_log("cal: %s unchanged: %s", names[i], cal_result_name(r.outcome[i]));
+    util_log("cal: done, %u of %u calibrated", applied, wanted);
+    if (applied == wanted) show(0, LED_LEVEL, now);
     else show(LED_LEVEL, 0, now);
     return applied ? CAL_SAVE : CAL_RUNNING;
 }
@@ -593,12 +611,14 @@ int cal_step(const struct in_raw *raw, u32 now, struct set_cal *cal)
         if (t >= REST_MS) {
             for (i = 0; i < 2; i++) {
                 r.outcome[i] = cal_stick_rest_end(&r.stick[i]);
-                r.outcome[2 + i] = cal_trigger_rest_end(&r.trigger[i]);
+                r.outcome[2 + i] = r.analog & (1 << i) ? cal_trigger_rest_end(&r.trigger[i]) : CAL_SKIPPED;
             }
             for (i = 0; i < 4; i++)
-                if (r.outcome[i] != CAL_OK) util_log("cal: %s at rest: %s", names[i], cal_result_name(r.outcome[i]));
+                if (r.outcome[i] != CAL_OK && r.outcome[i] != CAL_SKIPPED)
+                    util_log("cal: %s at rest: %s", names[i], cal_result_name(r.outcome[i]));
             r.released = !ab;
-            util_log("cal: circle both sticks along the edge, press L2 and R2 fully; A or B done, Home cancel");
+            util_log("cal: circle both sticks along the edge%s; A or B done, Home cancel",
+                     r.analog ? ", press L2 and R2 fully" : "");
             enter(PH_SWEEP, now);
         }
         return CAL_RUNNING;
@@ -649,6 +669,8 @@ int cal_led(u32 now, struct rgb *out)
 
 #ifdef UNITTEST
 void util_log(const char *fmt, ...) { (void)fmt; }
+const struct board_control board_layout[] = { { IN_L2, LAYOUT_TRIGGER }, { IN_R2, LAYOUT_TRIGGER } };
+const u8 board_layout_count = LAYOUT_COUNT(board_layout);
 
 int main(void)
 {
@@ -790,6 +812,27 @@ int main(void)
         before = cal;
         CHECK(finish(&cal, started) == CAL_RUNNING);
         CHECK(memcmp(&before, &cal, sizeof(cal)) == 0);
+        CHECK(cal_led(started, &led) && led.r == LED_LEVEL && !led.g);
+
+        /* Digital triggers are left out: both sticks alone are success, and
+         * the triggers keep what they had. */
+        {
+            static const struct board_control digital[] = {
+                { IN_L2, LAYOUT_TRIGGER_DIGITAL }, { IN_R2, LAYOUT_TRIGGER_DIGITAL }, { IN_LSTICK, LAYOUT_STICK } };
+            static const struct board_control mixed[] = { { IN_R2, LAYOUT_TRIGGER }, { IN_L2, LAYOUT_SHOULDER } };
+
+            CHECK(analog_triggers(board_layout, board_layout_count) == 3);
+            CHECK(analog_triggers(digital, LAYOUT_COUNT(digital)) == 0);
+            CHECK(analog_triggers(mixed, LAYOUT_COUNT(mixed)) == 2);
+        }
+        memset(r.outcome, 0, sizeof(r.outcome));
+        r.outcome[2] = r.outcome[3] = CAL_SKIPPED;
+        before = cal;
+        CHECK(finish(&cal, started) == CAL_SAVE);
+        CHECK(memcmp(before.trigger, cal.trigger, sizeof(cal.trigger)) == 0);
+        CHECK(cal_led(started, &led) && !led.r && led.g == LED_LEVEL);
+        r.outcome[0] = CAL_NOT_CIRCLED;
+        CHECK(finish(&cal, started) == CAL_SAVE);
         CHECK(cal_led(started, &led) && led.r == LED_LEVEL && !led.g);
     }
     return TEST_DONE("input_calibration");
