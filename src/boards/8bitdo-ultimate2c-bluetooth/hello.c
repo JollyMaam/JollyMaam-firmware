@@ -354,6 +354,7 @@ int main(void)
     *(volatile u32 *)0xe000e180 = ~0u;  /* NVIC: what the loader left on, off */
     plat_usb_init();
     __asm__ volatile ("cpsie i" ::: "memory");
+    YC_SYST_CSR = 7;                     /* the hang watch (platform_yc3121.c): a wedge restarts */
 
     const struct usb_events *ev = plat_usb_events();
     u32 resets = 0, odd = 0, stalls = 0;
@@ -363,6 +364,7 @@ int main(void)
     u32 pass_us = plat_us();
     for (;;) {
         u32 now_us = plat_us();
+        plat_watch_kick();
         if (now_us - pass_us > ev->loop_max_us) ((struct usb_events *)ev)->loop_max_us = now_us - pass_us;
         pass_us = now_us;
         if (ev->resets != resets) util_log("usb: bus reset (%u)", (unsigned)(resets = ev->resets));
