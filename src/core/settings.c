@@ -280,11 +280,11 @@ static const struct set_field remap_fields[] = {
 _Static_assert(sizeof(remap_fields) / sizeof(remap_fields[0]) == 31, "LEFT_POINTS, RIGHT_POINTS");
 _Static_assert(sizeof(remap_fields) / sizeof(remap_fields[0]) <= 32, "a bit per field in set_bits");
 
-/* What remap slot A is until it is changed; the others start empty.  Map:
- * the key with bit n - 1. */
+/* What remap slot A is until it is changed; the others start as the base. */
 static const struct set_remap remap_a_default = {
     .name = "Swap A/B X/Y",
-    .map = { [0] = 1 + 1, [1] = 0 + 1, [3] = 4 + 1, [4] = 3 + 1 },     /* A=B B=A X=Y Y=X */
+    .map = { [IN_SOUTH] = REMAP_TO(IN_EAST), [IN_EAST] = REMAP_TO(IN_SOUTH),
+             [IN_WEST] = REMAP_TO(IN_NORTH), [IN_NORTH] = REMAP_TO(IN_WEST) },
 };
 
 _Static_assert(sizeof(struct set_cal) == 112, "stored calibration layout");
@@ -533,6 +533,8 @@ static void own_default(u8 t, const struct set_field *f, u8 *out)
         memcpy(out, f->list_def, f->size);
     if (t == TARGET_REMAP && f < &remap_fields[REMAP_STICKS])
         memcpy(out, (const u8 *)&remap_a_default + f->offset, f->size);
+    if (t == TARGET_BASE && f < &remap_fields[REMAP_STICKS])
+        memcpy(out, (const u8 *)&board_remap_base + f->offset, f->size);
 }
 
 static void base_value(const struct set_field *f, u8 *out);
@@ -735,8 +737,8 @@ static __attribute__((noinline)) void release(void)
     remap_held = 0;
 }
 
-/* Remap target t from flash into remap: its defaults, what it takes from
- * the base, then its own records. */
+/* Remap target t from flash into remap: its defaults (the base's where it
+ * takes from the base), what the base has stored, then its own records. */
 static __attribute__((noinline)) void load(u8 t)
 {
     u8 buf[RECORD_MAX], *v = (u8 *)&remap;
@@ -744,7 +746,7 @@ static __attribute__((noinline)) void load(u8 t)
     int n;
 
     for (k = 0; k < COUNT(remap_fields); k++)
-        own_default(t, &remap_fields[k], v + remap_fields[k].offset);
+        own_default(mask >> k & 1 ? TARGET_BASE : t, &remap_fields[k], v + remap_fields[k].offset);
     for (part = 0; mask && part < parts_of(t); part++) {
         n = plat_store_read(key_of(TARGET_BASE, part), buf, sizeof(buf));
         if (n > 0) unpack(TARGET_BASE, buf, (u32)n, v, mask);
@@ -1192,6 +1194,7 @@ const struct board_rumble board_rumble = {
     .max = { { 35, 55, 75, 80, 90 }, { 50, 60, 70, 80, 90 } },
     .kick_ms = { 0, 0, 0, 25, 30 },
 };
+const struct set_remap board_remap_base = { .map = { [IN_L4] = REMAP_TO(IN_L1) } };
 void util_log(const char *fmt, ...) { (void)fmt; }
 void util_put16(u8 *p, u16 v) { p[0] = (u8)v; p[1] = (u8)(v >> 8); }
 
@@ -1337,6 +1340,9 @@ static int full_storage(void)
     CHECK(set_remap(REMAP_BASE)->rumble_max[0][1] == 55 && set_remap(REMAP_BASE)->gyro_speed == 32 &&
           !set_remap(REMAP_BASE)->name[0] && !set_remap(REMAP_BASE)->map[0]);
     CHECK(set_remap(SLOT_NONE) == set_remap(REMAP_BASE));
+    /* The board's base map, and the slots but A take it. */
+    CHECK(set_remap(REMAP_BASE)->map[IN_L4] == REMAP_TO(IN_L1) &&
+          set_remap(1)->map[IN_L4] == REMAP_TO(IN_L1) && !set_remap(0)->map[IN_L4]);
     /* A list: every number in range, the whole length. */
     CHECK(write1(TARGET_REMAP + 1, 19, 5, (const u8[]){ 10, 20, 30, 40, 101 }) == SET_RANGE);
     CHECK(write1(TARGET_REMAP + 1, 19, 4, (const u8[]){ 10, 20, 30, 40 }) == SET_BAD_LENGTH);

@@ -32,6 +32,9 @@ const struct board_control board_layout[] = {
 };
 const u8 board_layout_count = LAYOUT_COUNT(board_layout);
 
+/* The base remap the pad starts with: every key sends itself. */
+const struct set_remap board_remap_base = { .name = "" };
+
 /* Lights in tenths of their smallest step: the Home ring is plain on this
  * pad, 24 of 255 looks right lit steadily. */
 const struct board_led_brightness board_led_brightness = {

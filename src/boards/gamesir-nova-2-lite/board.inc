@@ -32,6 +32,9 @@ const struct board_control board_layout[] = {
 };
 const u8 board_layout_count = LAYOUT_COUNT(board_layout);
 
+/* The base remap the pad starts with: every key sends itself. */
+const struct set_remap board_remap_base = { .name = "" };
+
 const struct board_led_brightness board_led_brightness = {
     .steady = 40, .animation = 1600, .connect = 200,
     .idle = 200, .battery = 200,

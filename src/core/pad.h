@@ -541,6 +541,7 @@ struct set_slot {
 #define REMAP_RULES  16          /* a board short of RAM keeps fewer (make/<product>.mk) */
 #endif
 #define REMAP_OFF    0xff        /* map: the key sends nothing */
+#define REMAP_TO(in) ((u8)((in) + 1))   /* map: the key sends IN_* in */
 #define REMAP_MAX_HZ 30          /* turbo rate 0: flips every report */
 
 /* Level triggers (held, held for) go with level effects (hold, turbo,
@@ -593,6 +594,11 @@ struct set_remap {
     u8 trigger_press[2];     /* percent of travel where it counts as pressed; 0 as 1 */
     u8 trigger_mode[2];      /* TRIGGER_* */
 };
+
+/* The board's base remap until it is changed (board.inc): its name, map and
+ * rules; the other fields take their own defaults.  Zero: every key sends
+ * itself.  The remap slots take it as they take the base. */
+extern const struct set_remap board_remap_base;
 
 /* The remap slot's sticks: curves, inversion, which host stick each drives;
  * NULL: as calibrated. */
