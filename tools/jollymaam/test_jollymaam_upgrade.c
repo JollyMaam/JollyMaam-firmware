@@ -78,7 +78,70 @@ static void simulate(int wrong_model, int corrupt_verify, int identical) {
     assert(erases == (identical ? 0 : 2));
   }
 }
+/* The Yichip loader as the pad's behaves: identify 1a 30 (length 2,
+ * total 2); an erase at the base with the stream's length first, else
+ * programs are lost; programs carry the cipher of the padded app, each with
+ * the stream's length as total; reads give the clear flash. */
+static void simulate_yichip(int wrong_model, int corrupt_verify) {
+  static uint8_t app[40000], stream[65536], cipher[65536], flash[65536];
+  uint8_t request[64], reply[64];
+  for (unsigned i = 0; i < sizeof app; ++i) app[i] = (uint8_t)(i * 13 + 5);
+  memset(stream, 0xff, sizeof stream);
+  memcpy(stream, app, sizeof app);
+  for (unsigned b = 0; b < sizeof stream / 512; ++b) jm_8bitdo_yichip_encrypt(b, stream + 512 * b, cipher + 512 * b);
+  memset(flash, 0x5a, sizeof flash);
+  struct jm_8bitdo_upgrade op;
+  assert(!jm_8bitdo_yichip_init(&op, app, 0x64001));
+  assert(jm_8bitdo_yichip_init(&op, app, sizeof app) && op.stream == 65536 && op.sectors == 32);
+  unsigned erased = 0, programmed = 0, starts = 0, transfers = 0, last = 0;
+  int need_reply;
+  enum jm_8bitdo_step step;
+  while ((step = jm_8bitdo_upgrade_next(&op, request, &need_reply)) == JM_8BITDO_TRANSFER) {
+    assert(++transfers < 4000);
+    unsigned command = request[1], n = request[5];
+    uint32_t total = rd32(request + 9), address = rd32(request + 13);
+    memset(reply, 0, sizeof reply);
+    reply[1] = 5; reply[4] = command;
+    wr32(reply + 14, address);
+    if (command == 8) {
+      assert(n == 2 && total == 2);
+      reply[6] = 4; reply[18] = wrong_model ? 0x1b : 0x1a; reply[19] = 0x30;   /* as the pad's: 4 bytes */
+    } else if (command == 7) {
+      assert(!need_reply); ++starts;
+    } else {
+      assert(address >= 0x01018000 && address < 0x01018000 + sizeof flash);
+      unsigned off = address - 0x01018000;
+      if (command == 4) {
+        assert(!off && total == 65536 && !programmed);
+        memset(flash, 0xff, sizeof flash); erased = 1;
+      } else if (command == 3) {
+        assert(erased && total == 65536 && off == programmed && n == (65536 - off < 46 ? 65536 - off : 46));
+        assert(!memcmp(request + 17, cipher + off, n));
+        memcpy(flash + off, stream + off, n);   /* the loader decrypts */
+        programmed += n;
+        reply[6] = 0x77;                       /* status-only ack: its length is not one */
+      } else {
+        assert(command == 5 && programmed == 65536 && n <= 46 && off / 4096 == (off + n - 1) / 4096);
+        reply[6] = n; memcpy(reply + 18, flash + off, n);
+        if (corrupt_verify && off == 40960) reply[18] ^= 1;
+      }
+    }
+    jm_8bitdo_upgrade_complete(&op, 1, reply, sizeof reply);
+    assert(op.completed >= last && op.completed <= op.sectors);
+    last = op.completed;
+  }
+  if (wrong_model || corrupt_verify) {
+    assert(step == JM_8BITDO_FAILED && !starts);
+    if (wrong_model) assert(!erased && !programmed);
+  } else {
+    assert(step == JM_8BITDO_DONE && starts == 1 && op.completed == op.sectors);
+    assert(!memcmp(flash, stream, sizeof flash));
+  }
+}
 int main(void) {
+  simulate_yichip(0, 0);
+  simulate_yichip(1, 0);
+  simulate_yichip(0, 1);
   simulate(0, 0, 0);
   simulate(0, 0, 1);
   simulate(1, 0, 0);

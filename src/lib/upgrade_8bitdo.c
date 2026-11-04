@@ -3,6 +3,124 @@
 #include <string.h>
 
 enum { IDENTIFY, COMPARE, ERASE, CHECK_ERASE, PROGRAM, VERIFY, START, DONE, FAILED };
+
+/* ---- Yichip: one stream (JM_8BITDO_YICHIP_* in proto_8bitdo.h) ------------
+ * IDENTIFY (model 301a), ERASE at the base with the stream's length, PROGRAM
+ * it in encrypted 46-byte pieces, VERIFY reading it back (46 bytes at a time
+ * within each 4 KiB, as the reads are known to work), START.  offset counts
+ * the stream's bytes in the phase; progress is in 4 KiB, programmed then
+ * verified. */
+static uint8_t yichip_plain(const struct jm_8bitdo_upgrade *op, uint32_t at) {
+  return at < op->size ? op->image[at] : 0xff;
+}
+static uint8_t yichip_cipher(struct jm_8bitdo_upgrade *op, uint32_t at) {
+  uint32_t block = at / JM_8BITDO_YICHIP_CIPHER_BLOCK;
+  if (block != op->cipher_block) {
+    uint8_t plain[JM_8BITDO_YICHIP_CIPHER_BLOCK];
+    for (uint32_t i = 0; i < sizeof plain; ++i)
+      plain[i] = yichip_plain(op, block * JM_8BITDO_YICHIP_CIPHER_BLOCK + i);
+    jm_8bitdo_yichip_encrypt(block, plain, op->cipher);
+    op->cipher_block = block;
+  }
+  return op->cipher[at % JM_8BITDO_YICHIP_CIPHER_BLOCK];
+}
+static unsigned yichip_chunk(const struct jm_8bitdo_upgrade *op) {
+  uint32_t left = op->stream - op->offset;
+  if (op->phase == VERIFY && 4096 - op->offset % 4096 < left) left = 4096 - op->offset % 4096;
+  return left < JM_8BITDO_CHUNK ? (unsigned)left : JM_8BITDO_CHUNK;
+}
+/* A raw app for the Yichip pads' slot (from JM_8BITDO_YICHIP_BASE): it
+ * must fit the slot in whole 32 KiB blocks.  The image has no product tag;
+ * the loader's model (301a) is checked before the erase. */
+int jm_8bitdo_yichip_init(struct jm_8bitdo_upgrade *op, const uint8_t *app, size_t size) {
+  const uint32_t room = (JM_8BITDO_YICHIP_END - JM_8BITDO_YICHIP_BASE) / JM_8BITDO_YICHIP_BLOCK *
+                        JM_8BITDO_YICHIP_BLOCK;
+  if (!op || !app || !size || size > room)
+    return 0;
+  memset(op, 0, sizeof *op);
+  op->yichip = 1;
+  op->image = app;
+  op->size = size;
+  op->stream = (uint32_t)((size + JM_8BITDO_YICHIP_BLOCK - 1) / JM_8BITDO_YICHIP_BLOCK * JM_8BITDO_YICHIP_BLOCK);
+  op->sectors = 2 * op->stream / 4096;
+  op->cipher_block = 0xffffffffu;
+  op->phase = IDENTIFY;
+  return 1;
+}
+static enum jm_8bitdo_step yichip_next(struct jm_8bitdo_upgrade *op, uint8_t report[64], int *reply_required) {
+  uint16_t command;
+  uint32_t at = JM_8BITDO_YICHIP_BASE + op->offset, total = op->stream;
+  size_t n = 0;
+  uint8_t data[JM_8BITDO_CHUNK];
+  const uint8_t *payload = NULL;
+  switch (op->phase) {
+  case IDENTIFY: command = 8; at = 0; n = 2; total = 2; break;
+  case ERASE: command = 4; at = JM_8BITDO_YICHIP_BASE; break;
+  case PROGRAM:
+    command = 3; n = yichip_chunk(op); payload = data;
+    for (unsigned i = 0; i < n; ++i) data[i] = yichip_cipher(op, op->offset + i);
+    break;
+  case VERIFY: command = 5; n = yichip_chunk(op); total = (uint32_t)n; break;
+  case START: command = 7; at = 0; total = 0; break;
+  default: op->phase = FAILED; return JM_8BITDO_FAILED;
+  }
+  if (jm_8bitdo_request_total(report, command, at, payload, n, total) != JM_8BITDO_OK) {
+    op->phase = FAILED;
+    return JM_8BITDO_FAILED;
+  }
+  op->pending = 1;
+  *reply_required = op->phase != START;
+  return JM_8BITDO_TRANSFER;
+}
+static enum jm_8bitdo_result yichip_complete(struct jm_8bitdo_upgrade *op, const uint8_t *reply, size_t size) {
+  uint16_t command = op->phase == IDENTIFY ? 8 : op->phase == ERASE ? 4 : op->phase == PROGRAM ? 3 : 5;
+  const uint8_t *data;
+  size_t n;
+  unsigned count = op->phase == PROGRAM || op->phase == VERIFY ? yichip_chunk(op) : 0;
+  enum jm_8bitdo_result result = jm_8bitdo_reply(reply, size, command, JM_8BITDO_YICHIP_BASE + op->offset, &data, &n);
+  if (result == JM_8BITDO_STALE)
+    return result;
+  if (result == JM_8BITDO_LENGTH && (command == 3 || command == 4))
+    result = JM_8BITDO_OK;       /* its acks carry the status alone */
+  op->pending = 0;
+  if (result != JM_8BITDO_OK) {
+    op->phase = FAILED; op->error = result;
+    return result;
+  }
+  switch (op->phase) {
+  case IDENTIFY:                 /* the pad's answers 4 bytes: 1a 30 00 00 */
+    if (n < 2 || data[0] != (uint8_t)JM_8BITDO_MODEL_U2C_BLUETOOTH || data[1] != JM_8BITDO_MODEL_U2C_BLUETOOTH >> 8)
+      goto invalid;
+    op->phase = ERASE;
+    return JM_8BITDO_OK;
+  case ERASE:
+    op->phase = PROGRAM;
+    return JM_8BITDO_OK;
+  case VERIFY:
+    if (n != count)
+      goto invalid;
+    for (unsigned i = 0; i < count; ++i)
+      if (data[i] != yichip_plain(op, op->offset + i))
+        goto invalid;
+    break;
+  }
+  op->offset += count;
+  op->completed = (op->phase == VERIFY ? op->stream : 0) / 4096 + op->offset / 4096;
+  if (op->offset == op->stream) {
+    op->offset = 0;
+    op->phase = op->phase == PROGRAM ? VERIFY : START;
+  }
+  return JM_8BITDO_OK;
+invalid:
+  op->phase = FAILED;
+  op->error = JM_8BITDO_LENGTH;
+  return JM_8BITDO_LENGTH;
+}
+/* How long the pending request's reply may take, in ms: the Yichip erase
+ * of the whole stream is the slow one. */
+unsigned jm_8bitdo_upgrade_timeout(const struct jm_8bitdo_upgrade *op) {
+  return op && op->yichip && op->phase == ERASE ? 30000 : 10000;
+}
 static uint32_t address(const struct jm_8bitdo_upgrade *op) {
   return 0x6000 + op->sector * 4096 + op->offset;
 }
@@ -74,6 +192,8 @@ enum jm_8bitdo_step jm_8bitdo_upgrade_next(struct jm_8bitdo_upgrade *op,
     return JM_8BITDO_FAILED;
   if (op->phase == DONE)
     return JM_8BITDO_DONE;
+  if (op->yichip)
+    return yichip_next(op, report, reply_required);
   uint16_t command;
   uint32_t at = address(op);
   size_t n = 0;
@@ -114,6 +234,8 @@ enum jm_8bitdo_result jm_8bitdo_upgrade_complete(struct jm_8bitdo_upgrade *op,
     op->pending = 0; op->phase = DONE;
     return JM_8BITDO_OK;
   }
+  if (op->yichip)
+    return yichip_complete(op, reply, size);
   uint16_t command = op->phase == IDENTIFY ? 8 : op->phase == ERASE ? 4 : op->phase == PROGRAM ? 3 : 5;
   const uint8_t *data;
   size_t n;

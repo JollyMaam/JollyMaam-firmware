@@ -17,4 +17,6 @@ int jm_identify_decode(const uint8_t *data, size_t size, struct jm_identity *out
 void jm_command(uint8_t cdb[16], uint8_t command, uint32_t argument);
 int jm_update_image_check(const uint8_t *data, size_t size,
                            const char *expected_product);
+int jm_update_image_make(const uint8_t *app, size_t size, const char *product, uint32_t at,
+                         uint32_t entry, uint8_t *out, size_t room);
 #endif

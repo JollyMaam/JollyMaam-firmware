@@ -36,6 +36,8 @@ int jm_session_jieli(const struct jm_session_io *io, void *context, const uint8_
                        size_t loader_size, const uint8_t *image, size_t size);
 int jm_session_8bitdo(const struct jm_session_io *io, void *context, const uint8_t *image,
                         size_t size, jm_session_progress progress, void *user);
+int jm_session_8bitdo_yichip(const struct jm_session_io *io, void *context, const uint8_t *app, size_t size,
+                              jm_session_progress progress, void *user);
 int jm_session_8bitdo_stock(const struct jm_session_io *io, void *context, const uint8_t *image,
                               size_t size, uint16_t model, jm_session_progress progress, void *user);
 int jm_session_custom(const struct jm_session_io *io, void *context, const uint8_t uid[16],

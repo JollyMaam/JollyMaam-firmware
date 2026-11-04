@@ -302,7 +302,7 @@ static int run_8bitdo(const struct jm_session_io *io,void *context,struct jm_8bi
     unsigned stale = 0;
     enum jm_8bitdo_result r;
     do {
-      n = io->hid_read(context, reply, sizeof reply, 10000);
+      n = io->hid_read(context, reply, sizeof reply, jm_8bitdo_upgrade_timeout(&op));
       if (n <= 0)
         goto out;
       r = jm_8bitdo_upgrade_complete(&op, 1, reply, (size_t)n);
@@ -327,6 +327,14 @@ int jm_session_8bitdo(const struct jm_session_io *io,void *context,const uint8_t
   if(!jm_8bitdo_upgrade_init(&op,image,size)) return JM_8BITDO_ARGUMENT;
   return run_8bitdo(io,context,&op,progress,user);
 }
+/* A raw app into the Yichip pads' loader (U2C_BLUETOOTH): one encrypted
+ * stream, read back, then started.  Borrows app until return. */
+int jm_session_8bitdo_yichip(const struct jm_session_io *io,void *context,const uint8_t *app,size_t size,
+                               jm_session_progress progress,void *user) {
+  struct jm_8bitdo_upgrade op;
+  if(!jm_8bitdo_yichip_init(&op,app,size)) return JM_8BITDO_ARGUMENT;
+  return run_8bitdo(io,context,&op,progress,user);
+}
 /* Run a validated stock pad application using the same compare/erase/program/
  * verify sequence and header-last ordering as an ordinary installation. The
  * raw image's model must be supplied explicitly; the live model is rechecked. */
@@ -347,6 +355,8 @@ int jm_session_run(const struct jm_firmware_target *target, enum jm_session_kind
   if(kind==JM_SESSION_CUSTOM) return jm_session_custom(io,context,uid,target->update.data,target->update.size,progress,user);
   if(kind==JM_SESSION_8BITDO && !strcmp(target->chip,"TLSR8208"))
     return jm_session_8bitdo(io,context,target->install.data,target->install.size,progress,user);
+  if(kind==JM_SESSION_8BITDO && !strcmp(target->chip,"YC3121"))
+    return jm_session_8bitdo_yichip(io,context,target->install.data,target->install.size,progress,user);
   if(kind==JM_SESSION_JIELI && (!strcmp(target->chip,"BR23") || !strcmp(target->chip,"BD19"))) {
     /* A verified package can contain both chips. Reject a mismatched selection
      * before uploading its chip-specific helper, not after flash inspection. */

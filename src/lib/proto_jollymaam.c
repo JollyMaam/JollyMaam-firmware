@@ -54,6 +54,33 @@ int jm_update_image_check(const uint8_t *data, size_t size, const char *product)
   }
   return 1;
 }
+static void wr32(uint8_t *p, uint32_t v) {
+  p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
+}
+/* update.bin from an app (for the updater, src/updater/): the MAIN header
+ * (its size, CRC of the app, entry, format, its offset above the updater,
+ * the product, the header's own CRC; 0xff to JM_MAIN_HEAD_SIZE), then the
+ * app.  Into out (room bytes); 0 on a product over 16 bytes or no room. */
+int jm_update_image_make(const uint8_t *app, size_t size, const char *product, uint32_t at,
+                         uint32_t entry, uint8_t *out, size_t room) {
+  size_t n = 0;
+  if (!app || !product || !out || size > 0xffffffffu - JM_MAIN_HEAD_SIZE || room < JM_MAIN_HEAD_SIZE + size)
+    return 0;
+  while (n < 17 && product[n]) ++n;
+  if (!n || n > 16) return 0;
+  memmove(out + JM_MAIN_HEAD_SIZE, app, size);
+  memset(out, 0xff, JM_MAIN_HEAD_SIZE);
+  memcpy(out, "MAIN", 4);
+  wr32(out + JM_MAIN_SIZE_OFF, (uint32_t)size);
+  wr32(out + JM_MAIN_CRC_OFF, jm_crc16(out + JM_MAIN_HEAD_SIZE, size));
+  wr32(out + JM_MAIN_ENTRY_OFF, entry);
+  wr32(out + JM_MAIN_FORMAT_OFF, JM_MAIN_VERSION);
+  wr32(out + JM_MAIN_AT_OFF, at);
+  memset(out + JM_MAIN_PRODUCT_OFF, 0, JM_PRODUCT_SIZE);
+  memcpy(out + JM_MAIN_PRODUCT_OFF, product, n);
+  wr32(out + JM_MAIN_HEADER_CRC_OFF, jm_crc16(out + JM_MAIN_CRC_START, JM_MAIN_CRC_SIZE));
+  return 1;
+}
 #ifdef UNITTEST
 #include <assert.h>
 int main(void) {
@@ -93,6 +120,15 @@ int main(void) {
   assert(!jm_update_image_check(update, sizeof update - 1, NULL));
   update[JM_MAIN_HEAD_SIZE] ^= 1;
   assert(!jm_update_image_check(update, sizeof update, NULL));
+  {
+    uint8_t app[3] = {1, 2, 3}, made[JM_MAIN_HEAD_SIZE + 3];
+    assert(!jm_update_image_make(app, 3, "test", 0x10000, 0x16120, made, sizeof made - 1));
+    assert(!jm_update_image_make(app, 3, "seventeen-chars!!", 0x10000, 0x16120, made, sizeof made));
+    assert(jm_update_image_make(app, 3, "test", 0x10000, 0x16120, made, sizeof made));
+    assert(jm_update_image_check(made, sizeof made, "test"));
+    assert(rd32(made + JM_MAIN_AT_OFF) == 0x10000 && rd32(made + JM_MAIN_ENTRY_OFF) == 0x16120);
+    assert(made[44] == 0xff && made[JM_MAIN_HEAD_SIZE + 2] == 3);
+  }
 
   return 0;
 }
