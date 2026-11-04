@@ -82,10 +82,11 @@ public class JniTest {
         byte[] inquiry=core.probe(new NativeUsb() {
             public int scsi(byte[] cdb,int direction,byte[] data,int timeout) {
                 check(cdb.length==6 && cdb[0]==0x12 && direction==1 && data.length==36);
-                System.arraycopy("BR23".getBytes(),0,data,8,4);return data.length;
+                System.arraycopy("BR23".getBytes(),0,data,8,4);System.arraycopy("UBOOT1.00".getBytes(),0,data,16,9);
+                return data.length;
             }
         },2);
-        check(inquiry.length==36 && inquiry[8]=='B');
+        check(new String(inquiry).equals("BR23"));
         byte[] model=core.probe(new NativeUsb() {
             public int hidWrite(byte[] data) { check(data.length==64 && data[0]==5 && data[1]==8);return data.length; }
             public int hidRead(byte[] data,int timeout) {

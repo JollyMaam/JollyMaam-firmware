@@ -1,4 +1,8 @@
-#include "../../src/lib/jollymaam.h"
+#include "../../src/lib/upgrade_jieli.h"
+#include "../../src/lib/jieli_image/crypto.h"
+#include "../../src/lib/jieli_image/entry.h"
+#include "../../src/lib/jieli_image/image.h"
+#include "../../src/lib/jieli_image/key.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>

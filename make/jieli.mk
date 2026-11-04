@@ -15,7 +15,6 @@ JIELI_OBJCOPY := $(JIELI_TOOLS)/objcopy
 JIELI_UBOOT := $(JIELI_SDK)/cpu/br23/tools/uboot.boot
 JIELI_CONFIG_TOOL := $(JIELI_SDK)/cpu/br23/tools/cfg_tool.bin
 # jollymaam finds each chip's RAM loader under the SDK's cpu/<chip>/tools/.
-JIELI_LOADER := $(JIELI_SDK)
 
 # VM (settings and bonds) is the VM_KB below BTIF (4 KiB) and key_mac (4 KiB)
 # at the end of flash; code may use everything below it (the code limit).
@@ -200,25 +199,19 @@ jieli_tools = $(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_TOOLS),$(
 
 # $(call jieli_board,NAME): build NAME on the BR23, into $(O)/NAME/.  Set first:
 #   NAME_FLASH_SIZE  the flash device's size
-#   NAME_PID         the image's PID: the flasher writes only over the same PID;
-#                    the firmware names itself by it (BOARD_PID)
+#   NAME_PID         the image's PID (BOARD_PID; libjollymaam's products.c knows it)
 #   NAME_SOURCES     the app's sources; our controller (btctrler/) and BTstack come with it
 #   NAME_DEFINES     -D flags for this board (EXTRA_DEFINES adds to them)
 #   NAME_BOARD_DIR   the board's headers (btstack_config.h)
-#   NAME_LOADER_HINT how to enter the ROM loader by hand, where software cannot
 #   NAME_NO_BT       optional: without our controller and BTstack
 #   NAME_BTSTACK     optional: the BTstack sources, instead of BTSTACK_USED
 #   NAME_UPDATER     optional: this is an updater (src/updater/) for an app this
 #                    far above it (MAIN_AT); its entry goes before the SDK's start-up
 #   NAME_MAIN_AT     optional: the app goes this far above the app area's start,
 #   NAME_FRONT       and the app area holds board NAME_FRONT, its updater
-#   NAME_KEEP        optional ADDR:LEN ranges NAME-flash writes back as the device held them
-#   NAME_NO_FLASH    optional: no NAME-flash (a part of what another board flashes)
-# Targets: NAME (firmware.img), NAME-flash (through the ROM loader),
-# NAME-loader (into the ROM loader and wait there); with more than one
-# device for the board, DEVICE= picks one: its USB port, as jollymaam jieli scan
-# lists it.  Inside the template, $(1) is NAME, $(...) is expanded once when
-# it is called, and $$(...) when the rule runs.
+# Targets: NAME (firmware.img; with NAME_MAIN_AT update.bin too).  Inside
+# the template, $(1) is NAME, $(...) is expanded once when it is called, and
+# $$(...) when the rule runs.
 define jieli_board
 $(1)_CC := $(call jieli_tools,$(1))/clang
 $(1)_LD := $(call jieli_tools,$(1))/ld --plugin $(call jieli_tools,$(1))/LLVMgold.so
@@ -239,7 +232,7 @@ $(1)_FLAGS := $(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_CFLAGS) $
 	$(if $($(1)_NO_BT),-DNO_BT) $(if $($(1)_UPDATER),-DMAIN_AT=$($(1)_UPDATER) -DCODE_LIMIT=$$($(1)_CODE_LIMIT))
 $(1)_INCLUDES := $(SRC_INCLUDES) -iquote $($(1)_BOARD_DIR) -iquote src/platform/jieli/sdkconfig $(BTSTACK_INCLUDES) $(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_INCLUDES),$(JIELI_INCLUDES))
 
-.PHONY: $(1) $(if $($(1)_NO_FLASH),,$(1)-flash) $(1)-loader
+.PHONY: $(1)
 $(1): $(O)/$(1)/firmware.img
 
 $(O)/$(1)/src/%.o: src/%.c $(O)/$(1)/defines
@@ -276,28 +269,11 @@ $(O)/$(1)/app.bin: $(O)/$(1)/app.elf
 	$$(if $$(filter bd19,$$(call jieli_chip,$(1))),$$(Q)$$($(1)_OBJCOPY) -O binary -j .data_code $$< $(O)/$(1)/data_code.bin)
 	$$(Q)cat $(O)/$(1)/text.bin $(O)/$(1)/data.bin $$(if $$(filter bd19,$$(call jieli_chip,$(1))),$(O)/$(1)/data_code.bin) > $$@
 
-$(O)/$(1)/firmware.img: $(O)/$(1)/app.bin $$($(1)_FRONT_BIN) $(O)/$(1)/isd_config.ini $(O)/host/jollymaam-pack
+$(O)/$(1)/firmware.img: $(O)/$(1)/app.bin $$($(1)_FRONT_BIN) $(O)/$(1)/isd_config.ini $(JOLLYMAAM_CLI)
 	@echo [FW] $$@
-	$$(Q)$(O)/host/jollymaam-pack jieli pack --flash-size $($(1)_FLASH_SIZE) --code-limit $$($(1)_CODE_LIMIT) \
+	$$(Q)$(JOLLYMAAM_CLI) pack jieli --flash-size $($(1)_FLASH_SIZE) --code-limit $$($(1)_CODE_LIMIT) \
 		-c $(O)/$(1)/isd_config.ini -u $$($(1)_UBOOT) -o $$@ $$($(1)_PACKED) $$($(1)_CONFIG_TOOL) \
 		$(if $($(1)_MAIN_AT),--main-out $(O)/$(1)/update.bin)
-
-# Ask running firmware to enter the ROM loader (stock firmware without a
-# command for it: by hand), then write the image, encrypted for the
-# connected chip's key.
-ifeq ($($(1)_NO_FLASH),)
-$(1)-flash: $(O)/$(1)/app.bin $$($(1)_FRONT_BIN) $(O)/$(1)/isd_config.ini $(O)/host/jollymaam
-	$$(Q)$(O)/host/jollymaam jieli flashpack --enter-loader --wait 30 --loader $(JIELI_LOADER) $$(if $$(DEVICE),--device $$(DEVICE)) \
-		--flash-size $($(1)_FLASH_SIZE) --code-limit $$($(1)_CODE_LIMIT) \
-		-c $(O)/$(1)/isd_config.ini -u $$($(1)_UBOOT) $$($(1)_PACKED) $$($(1)_CONFIG_TOOL) \
-		$(foreach k,$($(1)_KEEP),--keep $(k))
-endif
-
-# Running firmware into the ROM loader, then wait for it there: the loader
-# whose flash holds this board's PID.
-$(1)-loader: $(O)/host/jollymaam
-	$$(if $$($(1)_LOADER_HINT),@echo "$$($(1)_LOADER_HINT)")
-	$$(Q)$(O)/host/jollymaam jieli loader --pid $($(1)_PID) --wait 30 --loader $(JIELI_LOADER) $$(if $$(DEVICE),--device $$(DEVICE))
 
 # The SDK's linker script, with the heap ending below the retained RAM and the
 # controller's RAM kept clear of the MaskROM boot token.

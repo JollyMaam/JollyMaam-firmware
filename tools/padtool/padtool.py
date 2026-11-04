@@ -46,7 +46,7 @@
     padtool input [-f]            buttons, sticks and triggers, calibrated and
                                   as read (-f: live)
     padtool reboot | loader       restart; restart into the ROM loader (for
-                                  jollymaam jieli flash; the 8BitDo: its boot loader)
+                                  jollymaam oemflash; the 8BitDo: its boot loader)
     padtool boot [start | flash FILE]   the 8BitDo boot loader (2dc8:3208):
                                   list them; start: leave it, starting the
                                   firmware there; flash: write a build's
@@ -125,7 +125,7 @@ outer deadzones and left_/right_curve (as a slot had).  Keys: a b x y up down le
 l4 r4 l3 r3 minus plus home m capture (or screenshot).
 
 The pad's tool device is HID; commands are usb.c's CDBs in feature reports
-(see the comment at the top of src/core/usb.c).  Flashing is tools/jollymaam/jollymaam_jieli.c's (make gamesir-cyclone-2-flash).
+(see the comment at the top of src/core/usb.c).  Flashing is jollymaam's (make flash).
 """
 import argparse, collections, glob, json, os, select, struct, sys, threading, time
 from padtransport import scsi, device_paths, usb_location, data_max, is_tool, tool_name

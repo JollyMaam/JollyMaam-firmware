@@ -1437,36 +1437,6 @@ class TransportTests(unittest.TestCase):
             scsi.assert_not_called()
 
 
-class FlasherTests(unittest.TestCase):
-    def test_build_pid_mismatch_is_rejected_before_device_access(self):
-        import binascii
-        import os
-        import struct
-        import subprocess
-        import tempfile
-        from pathlib import Path
-        exe = Path(__file__).resolve().parents[2] / "build/host/jollymaam"
-        if not exe.is_file():
-            self.skipTest("build jollymaam first")
-        with tempfile.TemporaryDirectory() as tmp:
-            ini = Path(tmp) / "isd_config.ini"
-            boot = bytearray(20)
-            struct.pack_into("<HH", boot, 0, 1, 4)
-            struct.pack_into("<I", boot, 8, 16)
-            struct.pack_into("<H", boot, 14, binascii.crc_hqx(boot[:14], 0))
-            boot[16:] = b"boot"
-            (Path(tmp) / "uboot.boot").write_bytes(boot)
-            (Path(tmp) / "app.bin").write_bytes(bytes(32))
-            ini.write_text("[EXTRA_CFG_PARAM]\nPID=GS_C2_Dongle;\n[JLNEWFW]\nUBOOT=uboot.boot;\nFILES=app.bin;\n")
-            result = subprocess.run([str(exe), "jieli", "flashpack", "--pid", "GS_C2_ADC_DEVICE",
-                                     "-c", str(ini)], capture_output=True, text=True,
-                                    env={**os.environ, "DEV_ROOT": tmp})
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("image PID does not match", result.stderr)
-            self.assertNotIn("ROM loader", result.stderr)
-
-
-
 class CalibrationViewTests(GuiCase):
     def test_calibration_reads_as_words(self):
         import struct

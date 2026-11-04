@@ -1,7 +1,7 @@
 #ifndef JM_UPGRADE_JIELI_H
 #define JM_UPGRADE_JIELI_H
 #include "proto_jieli.h"
-#include "transport_scsi.h"
+#include "jollymaam.h"
 
 enum jm_jieli_chip { JM_JIELI_BR23, JM_JIELI_BD19 };
 enum jm_jieli_step { JM_JIELI_FAILED = -1, JM_JIELI_DONE, JM_JIELI_TRANSFER };

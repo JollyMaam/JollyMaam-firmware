@@ -3,10 +3,8 @@ project(jollymaam_android C)
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 get_filename_component(JM_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../../.." ABSOLUTE)
-file(GLOB JM_PROTOCOL CONFIGURE_DEPENDS "${JM_ROOT}/src/lib/proto_*.c" "${JM_ROOT}/src/lib/upgrade_*.c" "${JM_ROOT}/src/lib/jieli_image/*.c")
-add_library(jollymaam STATIC ${JM_PROTOCOL}
-    "${JM_ROOT}/src/lib/restore.c" "${JM_ROOT}/src/lib/flash_jieli.c" "${JM_ROOT}/src/lib/package.c"
-    "${JM_ROOT}/src/lib/manifest.c" "${JM_ROOT}/src/lib/sha256.c" "${JM_ROOT}/src/lib/session.c")
+file(GLOB JM_LIBRARY CONFIGURE_DEPENDS "${JM_ROOT}/src/lib/*.c" "${JM_ROOT}/src/lib/jieli_image/*.c")
+add_library(jollymaam STATIC ${JM_LIBRARY})
 set_target_properties(jollymaam PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(jollymaam PUBLIC "${JM_ROOT}/src/lib")
 target_compile_options(jollymaam PRIVATE -Wall -Wextra -Werror)

@@ -2,12 +2,8 @@
 #   8bitdo-ultimate2c-bluetooth-pad          the firmware (controller.c, Classic
 #                                            Bluetooth through the radio core):
 #                                            $(O)/<target>/app.bin
-#   8bitdo-ultimate2c-bluetooth-pad-flash    into the boot loader (from our firmware
-#                                            by itself; else by hand as below)
 #   8bitdo-ultimate2c-bluetooth-hello        bring-up app (lights, keys, the tool
 #                                            device on USB): $(O)/<target>/app.bin
-#   8bitdo-ultimate2c-bluetooth-hello-flash  into the boot loader (by hand:
-#                                            USB unplugged, hold L1+R1, tap Home, plug in)
 # The app is a raw image for 0x01018000 (up to the data pages at 0x0107c000);
 # the boot loader below it and the version page at 0x01017000 stay.
 # The compiler is arm-none-eabi-gcc (flake.nix dev shell: gcc-arm-embedded).
@@ -53,10 +49,8 @@ $(O)/$(U2CB_HELLO)/app.bin: $(O)/$(U2CB_HELLO)/app.elf
 	$(Q)$(YC_CROSS)objcopy -O binary $< $@
 	$(Q)$(YC_CROSS)size $<
 
-.PHONY: $(U2CB_HELLO) $(U2CB_HELLO)-flash
+.PHONY: $(U2CB_HELLO)
 $(U2CB_HELLO): $(O)/$(U2CB_HELLO)/app.bin
-$(U2CB_HELLO)-flash: $(O)/$(U2CB_HELLO)/app.bin $(JOLLYMAAM_CLI)
-	$(Q)$(JOLLYMAAM_CLI) 8bitdo flash --pid U2C_BLUETOOTH $(if $(DEVICE),--device $(DEVICE)) $<
 
 # ---- the pad ----------------------------------------------------------------
 
@@ -105,7 +99,7 @@ U2CB_PAD_FLAGS := $(YC_CFLAGS) -DBOARD_PID=\"$($(U2CB_PAD)_PID)\" -DBUILD_ID=\"$
 	$(subst -iquote src/platform/jieli,,$(SRC_INCLUDES)) -iquote src/platform/yc3121 \
 	-iquote $($(U2CB_PAD)_BOARD_DIR)
 
-.PHONY: $(U2CB_PAD) $(U2CB_PAD)-flash
+.PHONY: $(U2CB_PAD)
 $(U2CB_PAD): $(O)/$(U2CB_PAD)/app.bin
 
 $(O)/$(U2CB_PAD)/%.o: %.c $(O)/$(U2CB_PAD)/defines
@@ -130,8 +124,6 @@ $(O)/$(U2CB_PAD)/app.bin: $(O)/$(U2CB_PAD)/app.elf
 	$(Q)$(YC_CROSS)objcopy -O binary $< $@
 	$(Q)$(YC_CROSS)size $<
 
-$(U2CB_PAD)-flash: $(O)/$(U2CB_PAD)/app.bin $(JOLLYMAAM_CLI)
-	$(Q)$(JOLLYMAAM_CLI) 8bitdo flash --pid U2C_BLUETOOTH $(if $(DEVICE),--device $(DEVICE)) $<
 
 $(eval $(call board_defines,$(U2CB_PAD)))
 -include $(U2CB_PAD_OBJECTS:.o=.d)

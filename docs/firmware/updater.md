@@ -16,7 +16,7 @@ There is no second copy of the app.
 | `0x023000` | the app's header (`0x120` bytes), then the app |
 | `0x0fa000..` | VM, BTIF, key_mac, as before |
 
-The app's header is written by `jollymaam jieli pack --main`:
+The app's header is written by `jollymaam pack jieli --main` (Jieli) and `jollymaam pack join` (Telink):
 
 | Offset | Field |
 |---|---|
@@ -26,7 +26,7 @@ The app's header is written by `jollymaam jieli pack --main`:
 | `0x0c` | the app's entry, `0x1e00000 + MAIN_AT + 0x120` |
 | `0x10` | format version, 1 |
 | `0x14` | `MAIN_AT`, the offset the app is linked for |
-| `0x18` | the image's PID, 16 bytes, NUL-padded (`isd_config.ini`'s, as `jollymaam jieli flash` checks) |
+| `0x18` | the image's PID, 16 bytes, NUL-padded (`isd_config.ini`'s, as `jollymaam oemflash` checks) |
 | `0x28` | CRC16 of `0x04..0x28` |
 
 The app area's cipher runs on over the header and the app: a 32-byte block
@@ -97,12 +97,12 @@ updater finds it from the header sector it has just erased: the one key whose
 keystream the erased block shows through the code window.
 
 `padtool update FILE` sends a pad build's `update.bin` (the header and app
-in the clear, from `jollymaam jieli pack --main-out`). It sends `UPDATER` first if the
+in the clear, from `jollymaam pack jieli --main-out`). It sends `UPDATER` first if the
 app is running, and reboots into the new app after the commit. The updater's
 IDENTIFY has byte 7 set to 1.
 
 The updater also answers IDENTIFY, STATUS, LOG, REBOOT and the ROM loader's
-opcodes, so `jollymaam jieli flash` and `padtool loader` reach the ROM loader from it.
+opcodes, so `jollymaam oemflash` and `padtool loader` reach the ROM loader from it.
 
 ## Over Bluetooth LE
 
@@ -150,10 +150,10 @@ boot loader starts; the protocol is `updater.c`'s, the chip's side
 | `0x16120..0x6f000` | the app (a `KNLT` image linked to run there) |
 | `0x6f000..` | settings and bonds, as before |
 
-`jollymaam 8bitdo join` writes the header and the packed app
+`jollymaam pack join` writes the header and the packed app
 (`update.bin`, `--main-out`) and the updater with `update.bin` at `MAIN_AT`
-(`firmware.img`, from `0x6000`), which `NAME-flash` writes through the boot
-loader.
+(`firmware.img`, from `0x6000`), which `jollymaam oemflash` writes through
+the boot loader.
 
 Boot: `updater_boot()` runs first in `main()`. Analog register `0x3c`
 (cleared only by a power cycle) holds `0xa0` for the app's request to stay,
@@ -186,8 +186,8 @@ By hand: Home+Turbo (the board's M) while not connected.
 
 `gamesir-nova-2-lite-pad`: as the Cyclone 2, with the app's region at
 flash `0x80000` (`MAIN_AT` `0x7d000`), so that stock's data at
-`0x64000..0x80000` stays; `NAME_KEEP` makes `NAME-flash` write that range
-back as the device held it.
+`0x64000..0x80000` stays; `jollymaam oemflash` writes that range back as
+the device held it.
 
 ## The dongles
 

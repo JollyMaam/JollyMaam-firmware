@@ -135,8 +135,8 @@ class FirmwareUpdaterActivity : Activity() {
                     pendingPrompt = { confirm(device, kind, target, null, "Stock bootloader") }
                 }
                 else -> {
-                    val chip = reply.copyOfRange(8, 12).cString()
-                    require(chip in listOf("BR23", "BD19") && reply.copyOfRange(16, 32).cString().startsWith("UBOOT1.00")) { "Not a supported Jieli bootloader" }
+                    val chip = reply.cString()
+                    require(chip in listOf("BR23", "BD19")) { "Not a supported Jieli bootloader" }
                     val choices = targets.filter { it.chip == chip }
                     require(choices.isNotEmpty()) { "No images for $chip" }
                     pendingPrompt = { AlertDialog.Builder(this).setTitle("Select intended product").setMessage(null)
@@ -186,7 +186,7 @@ class FirmwareUpdaterActivity : Activity() {
             transport = endpoint
             val result = try { endpoint.use { NativeCore.run(bytes, target.product, kind, uid, it) } } finally { transport = null }
             require(result == 0) { "Update failed ($result). Device may remain in its loader; rescan before retrying." }
-            ui { status.text = if (kind == 2) "Written and verified. Device remains in its loader." else "Written and verified. Firmware restart requested." }
+            ui { status.text = "Written and verified. Firmware restart requested." }
         }
     }
     override fun onDestroy() {

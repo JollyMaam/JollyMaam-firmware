@@ -1,10 +1,7 @@
 # 8BitDo Ultimate 2C Wireless: the pad, a Telink TLSR8208 (B80).
-#   8bitdo-ultimate2c-wireless-flash        the pad: its updater and the app
-#                                           above it, through the 8BitDo boot loader
 #   8bitdo-ultimate2c-wireless-pad          update.bin in $(O)/<target>/: the
 #                                           app's header and the app, above its updater
-#   8bitdo-ultimate2c-wireless-pad-updater  the pad's updater: flashed with -pad
-#   8bitdo-ultimate2c-wireless-pad-loader   into the boot loader
+#   8bitdo-ultimate2c-wireless-pad-updater  the pad's updater: part of -pad
 #   8bitdo-ultimate2c-wireless-pad-stack    the deepest stack use against the room
 #                                           for it (part of -pad-test)
 #   8bitdo-ultimate2c-wireless-pad-test, 8bitdo-ultimate2c-wireless-all
@@ -156,15 +153,10 @@ $(U2CW_PAD)_FRONT := $(U2CW_UPDATER)
 $(eval $(call telink_board,$(U2CW_PAD)))$(eval $(call host_tests,$(U2CW_PAD)))
 $(eval $(call telink_board,$(U2CW_UPDATER)))
 
-.PHONY: 8bitdo-ultimate2c-wireless-all 8bitdo-ultimate2c-wireless-test 8bitdo-ultimate2c-wireless-flash
+.PHONY: 8bitdo-ultimate2c-wireless-all 8bitdo-ultimate2c-wireless-test
 8bitdo-ultimate2c-wireless-all: $(U2CW_PAD)
-8bitdo-ultimate2c-wireless-flash: $(U2CW_PAD)-flash
 8bitdo-ultimate2c-wireless-test: $(U2CW_PAD)-test
 
-# Stock receiver entry only: no receiver firmware target or flashing path yet.
-.PHONY: 8bitdo-ultimate2c-wireless-dongle-loader
-8bitdo-ultimate2c-wireless-dongle-loader: $(TELINK_FLASH)
-	$(Q)$(TELINK_FLASH) 8bitdo loader --pid U2C_RECEIVER $(if $(DEVICE),--device $(DEVICE))
 
 # The deepest stack use against the room above .bss, and the interrupts'
 # against irq_stk (tools/stackdepth.py).  The pointer calls: the profiles'

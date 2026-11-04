@@ -82,7 +82,7 @@ these ran: as distributed (`EOFFSET` 16); `EOFFSET` 0; `EOFFSET` 0 with the
 
 ### Reproducing the stock layout
 
-Unpack followed by pack (the image tool, [../firmware/image-tool.md](../firmware/image-tool.md)),
+Unpack followed by pack (jollymaam, [../firmware/jollymaam.md](../firmware/jollymaam.md)),
 with `--at 0`, reproduces the stock dongle 1.21 image byte for byte. Pack does
 not build the pad image's second application directory or its check entry, so
 a packed pad image is not GameSir's layout. That has not been tested on a pad.

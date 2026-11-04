@@ -390,12 +390,12 @@ The Ultimate 2C Bluetooth (Yichip, model `1a 30`) has the same loader; boot mode
 back; the data pages above it stay:
 
 ```sh
-build/host/jollymaam 8bitdo flash --pid U2C_BLUETOOTH app.bin
+make 8bitdo-ultimate2c-bluetooth-pad flash      # jollymaam oemflash
 ```
 
 `pad8bitdo.py` has the boot loader's protocol, on `padhid.Device` (hidraw;
 Windows overlapped HID reads and writes); `test_pad8bitdo.py` simulates the
-loader. The builds' flash targets use `jollymaam 8bitdo` (libjollymaam's
+loader. `make flash` uses `jollymaam oemflash` (libjollymaam's
 `upgrade_8bitdo.c`) instead.
 
 ## Code and validation

@@ -10,8 +10,6 @@ TELINK_CC := $(TELINK_TOOLS)/tc32-elf-gcc
 TELINK_LD := $(TELINK_TOOLS)/tc32-elf-ld
 TELINK_OBJCOPY := $(TELINK_TOOLS)/tc32-elf-objcopy
 TELINK_LIBGCC := $(shell $(TELINK_CC) -print-libgcc-file-name 2>/dev/null)
-TELINK_PACK := $(O)/host/jollymaam-pack
-TELINK_FLASH := $(O)/host/jollymaam
 
 # The SDK's sources build with -fpack-struct; ours do not, and see the SDK's
 # headers only through src/platform/telink/sdk.h, which packs them the same
@@ -100,9 +98,8 @@ TELINK_SDK_USED += vendor/common/flash_prot.c
 #                    far above its start (MAIN_AT); NAME_CODE_LIMIT ends the app's room
 #   NAME_FRONT       optional: this app sits above board NAME_FRONT, its updater
 #                    (NAME_APP_START then is its start + MAIN_AT + 0x120): update.bin,
-#                    and firmware.img (the updater and update.bin), which NAME-flash writes
-# Targets: NAME (firmware.bin), NAME-flash (with NAME_FRONT: through the 8BitDo
-# boot loader), NAME-loader (into the boot loader and wait there).  Inside the template,
+#                    and firmware.img (the updater and update.bin) for the boot loader
+# Targets: NAME (firmware.bin).  Inside the template,
 # $(1) is NAME, $(...) is expanded once when it is called, and $$(...) when
 # the rule runs.
 define telink_board
@@ -114,7 +111,7 @@ $(1)_FLAGS := $(TELINK_DEFINES) -DBOARD_PID=\"$($(1)_PID)\" -DAPP_START=$($(1)_A
 	$(if $($(1)_UPDATER),-DUPDATER -DMAIN_AT=$($(1)_UPDATER) -DCODE_LIMIT=$($(1)_CODE_LIMIT))
 $(1)_INCLUDES := $(subst -iquote src/platform/jieli,,$(SRC_INCLUDES)) -iquote src/platform/telink -iquote $($(1)_BOARD_DIR) $(TELINK_INCLUDES) $(BTSTACK_INCLUDES)
 
-.PHONY: $(1) $(if $($(1)_FRONT),$(1)-flash) $(1)-loader
+.PHONY: $(1)
 $(1): $(O)/$(1)/firmware.bin
 
 $(O)/$(1)/src/%.o: src/%.c $(O)/$(1)/defines
@@ -148,30 +145,25 @@ $(O)/$(1)/app.elf: $(O)/$(1)/boot.link $$($(1)_OBJECTS) $(TELINK_ARCHIVES)
 
 # The image header: the stock stamp in its reserved bytes, the size and the
 # CRC the boot loader checks.
-$(O)/$(1)/firmware.bin: $(O)/$(1)/app.elf $(TELINK_PACK)
+$(O)/$(1)/firmware.bin: $(O)/$(1)/app.elf $(JOLLYMAAM_CLI)
 	@echo [FW] $$@
 	$$(Q)$(TELINK_OBJCOPY) -O binary $$< $(O)/$(1)/app.bin
-	$$(Q)$(TELINK_PACK) 8bitdo pack --stamp $($(1)_STAMP) \
+	$$(Q)$(JOLLYMAAM_CLI) pack telink --stamp $($(1)_STAMP) \
 		--max $$$$(( $($(1)_APP_END) - $($(1)_APP_START) )) -o $$@ $(O)/$(1)/app.bin
 
 ifneq ($($(1)_FRONT),)
 # Behind its updater: the app's header and the app (update.bin, for
 # padtool update too); firmware.img, the updater and that above it, for the
-# boot loader (NAME-flash, padtool boot flash, padgui).
+# boot loader (make flash, padtool boot flash, padgui).
 $(1): $(O)/$(1)/update.bin $(O)/$(1)/firmware.img
 $(O)/$(1)/update.bin: $(O)/$(1)/firmware.img
-$(O)/$(1)/firmware.img: $(O)/$($(1)_FRONT)/firmware.bin $(O)/$(1)/firmware.bin $(TELINK_PACK)
+$(O)/$(1)/firmware.img: $(O)/$($(1)_FRONT)/firmware.bin $(O)/$(1)/firmware.bin $(JOLLYMAAM_CLI)
 	@echo [FW] $$@
-	$$(Q)$(TELINK_PACK) 8bitdo join --pid $($(1)_PID) --at $($($(1)_FRONT)_UPDATER) \
+	$$(Q)$(JOLLYMAAM_CLI) pack join --pid $($(1)_PID) --at $($($(1)_FRONT)_UPDATER) \
 		--entry $($(1)_APP_START) --main-out $(O)/$(1)/update.bin -o $$@ \
 		$(O)/$($(1)_FRONT)/firmware.bin $(O)/$(1)/firmware.bin
 
-$(1)-flash: $(O)/$(1)/firmware.img $(TELINK_FLASH)
-	$$(Q)$(TELINK_FLASH) 8bitdo flash --pid $($(1)_PID) $$(if $$(DEVICE),--device $$(DEVICE)) $$<
 endif
-
-$(1)-loader: $(TELINK_FLASH)
-	$$(Q)$(TELINK_FLASH) 8bitdo loader --pid $($(1)_PID) $$(if $$(DEVICE),--device $$(DEVICE))
 
 # The SDK's linker script, for a boot loader that copies the vectors and RAM
 # code to SRAM but leaves the flash mapped at its physical addresses.  The

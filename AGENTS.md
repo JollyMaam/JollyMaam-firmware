@@ -43,11 +43,11 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   command line (e.g. an empty `NAME_MAIN_AT` for a build without updater).
 - `tools/padtool/`: `padtool.py` (CLI; `--help` lists every command), `padgui.pyw`
   (Tk GUI), the transports.  `tools/padtool/README.md` for setup.
-- `tools/jollymaam/`: `jollymaam` (built into `build/host/`): our updater,
-  the Jieli and 8BitDo images, ROM and boot loaders (`jollymaam help`), on
-  libjollymaam (`src/lib/`); `jollymaam-pack`, its image commands without USB,
-  for builds.  Its tests and release packaging helpers.  `make flash-all`
-  flashes every device running our firmware.
+- `tools/jollymaam/`: `jollymaam` (built into `build/host/`; `jollymaam
+  help`): images, packages, and every device operation (scan, oemflash,
+  update, ...), on libjollymaam (`src/lib/`, which knows every product:
+  `products.c`) with this platform's hooks.  `make flash` / `make update`
+  write what is built onto every device it fits.
 - `tools/`: `padhub.c` (Linux UHID bridge for the dongle's
   hub, `tools/padhub.md`), `sdlpad.c` (what SDL sees), `linkbench.py`,
   `buildcommits.sh` (build a range of commits, for bisecting),
@@ -153,7 +153,7 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   (SDL) run under `tools/withdev.sh`, which rebuilds `/dev` from `DEV_ROOT`
   once at start: nodes that appear later are not in it.
 - Several devices of one kind are told apart by USB port:
-  `padtool --device 5-2.1`, `jollymaam jieli scan`.  Use `padtool --dongle` for
+  `padtool --device 5-2.1`, `jollymaam scan`.  Use `padtool --dongle` for
   dongles.
 - **Ephemeral mode for tests.**  Before changing settings or pairing just to
   test something, put every device involved in `padtool ephemeral` (and
@@ -238,7 +238,7 @@ wrong assumption), add it here in a line or two.
   key-matrix scan done one row step per pass took 64 ms and the debounce
   dropped quick taps; anything with several steps should finish in one go.
 - 8BitDo Ultimate 2C Bluetooth (Yichip loader, model 1a30): write an app
-  only as `pad8bitdo.write_bluetooth_app` does (erase at 0x01018000 with
+  only as libjollymaam's `jm_8bitdo_yichip_init` does (erase at 0x01018000 with
   the image length as total, then the encrypted stream with that total).
   Writes without that erase are acknowledged but erase sectors that held
   data and program nothing; that lost the stock app once.  It programs only

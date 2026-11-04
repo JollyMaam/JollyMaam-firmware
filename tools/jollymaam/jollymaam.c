@@ -1,181 +1,184 @@
-#include "../../src/lib/transport_hid.h"
-#include "../../src/lib/transport_custom.h"
+#define _POSIX_C_SOURCE 200809L
+/* jollymaam: our pads' and dongles' firmware, on libjollymaam with this
+ * platform's hooks (hooks_linux.c, hooks_win32.c or hooks_hidapi.c).
+ * FIRMWARE is a package: a folder holding manifest.txt, or a zip of one
+ * (jollymaam package makes both). */
+#include "cli.h"
+#include "hooks.h"
 #include "../../src/lib/package.h"
-#include "../../src/lib/manifest.h"
-#include "../../src/lib/proto_jollymaam.h"
-#include "../../src/lib/jieli_image/ufw.h"
-#include "../../src/lib/jieli_image/entry.h"
-#include "../../src/lib/jieli_image/image.h"
-#include "../../src/lib/transport_jieli.h"
-#include "jollymaam_update.h"
-#include "jollymaam_jieli.h"
-#include "jollymaam_restore.h"
-#include "jollymaam_8bitdo.h"
-#include "jollymaam_dev.h"
-#include "../../src/lib/platform.h"
-#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include <io.h>
+#define isatty _isatty
+#define fileno _fileno
+#else
+#include <unistd.h>
+#endif
 
-static uint8_t *read_image(const char *path, size_t *size) {
-  FILE *f = fopen(path, "rb");
-  if (!f) return NULL;
-  long n;
-  if (fseek(f, 0, SEEK_END) || (n = ftell(f)) < 0 || n > 32 * 1024 * 1024 ||
-      fseek(f, 0, SEEK_SET)) { fclose(f); return NULL; }
-  uint8_t *data = malloc(n ? (size_t)n : 1);
-  if (!data) { fclose(f); return NULL; }
-  if (fread(data, 1, (size_t)n, f) != (size_t)n) { free(data); fclose(f); return NULL; }
-  fclose(f); *size = (size_t)n; return data;
+static const char usage[] =
+  "usage: jollymaam COMMAND ...\n"
+  "  scan                         what is connected, by USB port\n"
+  "  oemflash [OPTIONS] FIRMWARE  through the vendor loader (from our or stock firmware)\n"
+  "  update   [OPTIONS] FIRMWARE  through our updater\n"
+  "  loader   [OPTIONS]           into the vendor loader, and wait there\n"
+  "  start    [OPTIONS] [--firmware FIRMWARE]   out of it (Jieli: its RAM loader from FIRMWARE)\n"
+  "  backup   [OPTIONS] [--firmware FIRMWARE] OUT   the whole flash, through the vendor loader\n"
+  "  restore  [OPTIONS] [--firmware FIRMWARE] STOCK BACKUP_OUT   a stock image, after a backup\n"
+  "  package  [--sdk JIELI_SDK] BUILD_DIR OUT[.zip]   a firmware package from a build\n"
+  "  inspect  FILE                a package or an image\n"
+  "  pack jieli|telink|join ...   build an image (as make does)\n"
+  "  unpack   IMAGE DIR           a Jieli image's files\n"
+  "OPTIONS: --device PORT (or node; default: every device that fits), --pid PID,\n"
+  "         --wait SECONDS (for a device to appear; default 0)\n"
+  "FIRMWARE: a folder with manifest.txt, or a zip of one.  Jieli ROM loaders need\n"
+  "the RAM loaders a package carries (--firmware for start, backup, restore).\n";
+
+/* ---- the hooks' output ------------------------------------------------------------------------- */
+
+static void say(void *ctx, const char *line) {
+  (void)ctx;
+  printf("%s\n", line);
 }
-static int rekey(const char *input, const char *output, const char *text) {
-  char *end;
-  errno = 0;
-  unsigned long key = strtoul(text, &end, 0);
-  if (errno || !*text || *end || key > 0xffff) {
-    fprintf(stderr, "Key must be a 16-bit integer\n"); return 1;
+
+static void progress(void *ctx, const char *what, size_t done, size_t total) {
+  static int last = -1;
+  int pct = total ? (int)(done * 100 / total) : 100;
+  (void)ctx;
+  if (pct == last) return;
+  last = pct;
+  if (isatty(fileno(stderr))) fprintf(stderr, "\r%s %3d%%%s", what, pct, pct >= 100 ? "\n" : "");
+  else if (pct % 25 == 0) fprintf(stderr, "%s %d%%\n", what, pct);
+  if (pct >= 100) last = -1;
+}
+
+/* ---- firmware: a folder or a zip ----------------------------------------------------------------- */
+
+struct folder { const char *dir; };
+static int folder_read(void *user, const char *path, const uint8_t **data, size_t *size) {
+  struct folder *f = user;
+  char full[1024];
+  FILE *test;
+  snprintf(full, sizeof full, "%s/%s", f->dir, path);
+  if (!(test = fopen(full, "rb"))) return 0;
+  fclose(test);
+  *data = read_file(full, size);      /* kept for the run */
+  return 1;
+}
+
+static void open_firmware(const char *path, struct jm_firmware *fw) {
+  static struct folder folder;
+  static struct jm_package zip;
+  char error[128];
+  int ok;
+  if (is_dir(path)) {
+    folder.dir = path;
+    ok = jm_firmware_open(fw, folder_read, &folder, error);
+  } else {
+    size_t size;
+    uint8_t *data = read_file(path, &size);
+    if (jm_package_open(&zip, data, size) != JM_PACKAGE_OK) die("%s: not a package (a folder or a zip)", path);
+    ok = jm_firmware_open(fw, jm_zip_read, &zip, error);
   }
-  size_t size;
-  uint8_t *data = read_image(input, &size);
-  if (!data) { fprintf(stderr, "Cannot read input image\n"); return 1; }
-  uint8_t *workspace = malloc(size ? size : 1), *packed = malloc(size ? size : 1);
-  struct jm_jieli_image view;
-  int result = 1;
-  if (!workspace || !packed) goto done;
-  int error = jm_jieli_image_open(&view, data, size, workspace, size);
-  if (!error) error = jm_jieli_image_pack(&view, (uint16_t)key, packed, size);
-  if (error) { fprintf(stderr, "Invalid Jieli image: %d\n", error); goto done; }
-  FILE *file = fopen(output, "wb");
-  if (!file) { perror(output); goto done; }
-  int written = fwrite(packed, 1, size, file) == size;
-  int closed = fclose(file) == 0;
-  if (!written || !closed) { fprintf(stderr, "Cannot write output image\n"); goto done; }
-  result = 0;
-done:
-  free(data); free(workspace); free(packed);
-  return result;
+  if (!ok) die("%s: %s", path, error);
 }
-/* Help is resolved before any image/device operation, including --help after
- * a command. Groups retain argv[0] as their name, so subcommand argument offsets
- * are shared with the existing command frontends. */
-static int help_word(const char *word) { return !strcmp(word,"help") || !strcmp(word,"--help"); }
-static void usage(FILE *out) {
-  fprintf(out,"usage: jollymaam <command>\n"
-              "  scan [--ours]            What is connected, by USB port (--ours: \"PORT PID\" of our firmware)\n"
-              "  update [--device PATH] [--product PRODUCT] [--yes] FIRMWARE.zip\n"
-              "                           Our firmware through its updater\n"
-              "  inspect IMAGE            Inspect a package or firmware image\n"
-              "  jieli <subcommand>       Jieli (GameSir) images and ROM loader\n"
-              "    pack, list, verify, unpack, rekey, flash, flashpack, backup, loader, run,\n"
-              "    install, check-stock, restore\n"
-              "  8bitdo <subcommand>      8BitDo images and boot loader (Telink and Yichip pads)\n"
-              "    pack, join, flash, loader, start, check-stock, restore\n"
-              "  help [jieli|8bitdo]      Show help (--help also works)\n"
-              "jollymaam-pack runs the image commands (jieli pack, 8bitdo pack and join) without USB.\n");
-}
-static int group_help(int family) {
-  if(family==1) {
-    char *args[]={"jieli","--help"};return jollymaam_jieli_app(2,args);
-  }
-  jollymaam_8bitdo_usage(stdout);
+
+/* ---- commands ---------------------------------------------------------------------------------------- */
+
+static int found(void *user, const struct jm_found *f) {
+  static const char *const kinds[] = {"our firmware", "our updater", "Jieli ROM loader", "Jieli firmware",
+                                      "8BitDo boot loader", "stock firmware"};
+  char extra[80] = "";
+  (void)user;
+  if (f->kind == JM_FOUND_OURS || f->kind == JM_FOUND_UPDATER) snprintf(extra, sizeof extra, ", build %s", f->id.build);
+  else if (f->kind == JM_FOUND_STOCK && f->mode[0])
+    snprintf(extra, sizeof extra, ", %s mode%s", f->mode, f->can_enter ? "" : " (no loader command)");
+  printf("%-24s %s, %s%s  (%s)\n", f->info.port[0] ? f->info.port : "-", kinds[f->kind],
+         f->product ? f->product->pid : jm_chip_name(f->chip), extra, f->info.path);
   return 0;
 }
-/* Everything connected, by USB port; --ours: "PORT PID" per device running
- * our firmware (make flash-all reads it). */
-static int scan(int ours) {
-  static struct hid_dev h[64];
-  if(ours) {
-    size_t n=hid_devices(h,64);char pid[17],port[64];
-    for(size_t i=0;i<n;++i)
-      if(is_tool(&h[i]) && tool_pid(&h[i],pid)) printf("%s %s\n",usb_port(h[i].path,port)?port:h[i].path,pid);
+
+static int to_file(void *user, uint32_t address, const uint8_t *data, size_t size) {
+  (void)address;
+  return fwrite(data, 1, size, *(FILE **)user) == size;
+}
+static int closed(void *user) {
+  FILE **f = user;
+  int ok = !fclose(*f);
+  *f = NULL;
+  return ok;
+}
+
+int main(int argc, char **argv) {
+  struct jm_hooks hooks = {0};
+  struct jm jm = {0};
+  struct jm_select sel = {0};
+  struct jm_firmware fw;
+  const char *firmware = NULL, *rest[3] = {0};
+  int nrest = 0;
+  setvbuf(stdout, NULL, _IOLBF, 0);
+  if (argc < 2 || !strcmp(argv[1], "help") || !strcmp(argv[1], "--help")) {
+    fputs(usage, argc < 2 ? stderr : stdout);
+    return argc < 2 ? 2 : 0;
+  }
+  const char *cmd = argv[1];
+  if (!strcmp(cmd, "pack")) return cmd_pack(argc - 2, argv + 2);
+  if (!strcmp(cmd, "unpack")) return cmd_unpack(argc - 2, argv + 2);
+  if (!strcmp(cmd, "package")) return cmd_package(argc - 2, argv + 2);
+  if (!strcmp(cmd, "inspect")) {
+    size_t size;
+    if (argc != 3) die("usage: jollymaam inspect FILE");
+    if (!is_dir(argv[2]) && inspect_image(argv[2], read_file(argv[2], &size), size)) return 0;
+    open_firmware(argv[2], &fw);
+    for (unsigned i = 0; i < fw.count; i++)
+      printf("%-16s %-7s %s, %zu bytes\n", fw.files[i].name, fw.files[i].role, fw.files[i].path, fw.files[i].size);
     return 0;
   }
-  jollymaam_jieli_scan();
-  jollymaam_8bitdo_scan();
-  return 0;
-}
-int main(int argc, char **argv) {
-  int family=0;
-  if(argc==1) { usage(stdout);return 0; }
-  if(help_word(argv[1])) {
-    if(argc==2) { usage(stdout);return 0; }
-    if(argc==3 && !strcmp(argv[2],"jieli")) return group_help(1);
-    if(argc==3 && !strcmp(argv[2],"8bitdo")) return group_help(2);
-    fprintf(stderr,"Unknown help topic\n");usage(stderr);return 2;
+  static const struct { const char *name; int files; } commands[] = {
+    {"scan", 0}, {"oemflash", 1}, {"update", 1}, {"loader", 0}, {"start", 0}, {"backup", 1}, {"restore", 2},
+  };
+  int known = -1;
+  for (int i = 0; i < 7; i++)
+    if (!strcmp(cmd, commands[i].name)) known = i;
+  if (known < 0) die("no command %s (jollymaam help)", cmd);
+  for (int i = 2; i < argc; i++) {
+    if (!strcmp(argv[i], "--device") && i + 1 < argc) sel.device = argv[++i];
+    else if (!strcmp(argv[i], "--pid") && i + 1 < argc) sel.pid = argv[++i];
+    else if (!strcmp(argv[i], "--wait") && i + 1 < argc) sel.wait_s = number(argv[++i]);
+    else if (!strcmp(argv[i], "--firmware") && i + 1 < argc) firmware = argv[++i];
+    else if (argv[i][0] != '-' && nrest < 3) rest[nrest++] = argv[i];
+    else die("%s: unknown argument %s (jollymaam help)", cmd, argv[i]);
   }
-  if(!strcmp(argv[1],"jieli")) family=1;
-  else if(!strcmp(argv[1],"8bitdo")) family=2;
-  if(family) { --argc;++argv; }
-  if(family && argc==1) return group_help(family);
-  for(int i=1;i<argc;++i) if((i==1 && help_word(argv[i])) || !strcmp(argv[i],"--help")) {
-    if(family) return group_help(family);
-    usage(stdout);return 0;
+  if (nrest != commands[known].files) die("%s: wrong arguments (jollymaam help)", cmd);
+  if (sel.pid && !jm_product(sel.pid)) die("--pid: no product %s", sel.pid);
+  if (known == 1 || known == 2) firmware = rest[0];
+  if (firmware) open_firmware(firmware, &fw);
+  hooks_device(&hooks);
+  hooks.say = say, hooks.progress = progress;
+  jm.h = &hooks;
+  const struct jm_firmware *f = firmware ? &fw : NULL;
+  switch (known) {
+  case 0:
+    if (!jm_scan(&jm, found, NULL)) puts("nothing of ours, no loader and no stock pad we know");
+    return 0;
+  case 1: return jm_oemflash(&jm, f, &sel) ? 1 : 0;
+  case 2: return jm_update(&jm, f, &sel) ? 1 : 0;
+  case 3: return jm_loader(&jm, &sel) ? 1 : 0;
+  case 4: return jm_start(&jm, f, &sel) ? 1 : 0;
   }
-  if(family==1 && jollymaam_jieli_command(argv[1])) return jollymaam_jieli_app(argc,argv);
-  if(family==2 && jollymaam_8bitdo_command(argv[1])) return jollymaam_8bitdo_app(argc,argv);
-  if(family && (!strcmp(argv[1],"restore") || !strcmp(argv[1],"check-stock")))
-    return jollymaam_restore_app(argc,argv,family==1);
-  if (!family && !strcmp(argv[1], "update")) return jollymaam_update_command(argc-2,argv+2);
-  if (family==1 && argc == 6 && !strcmp(argv[1], "install") && !strcmp(argv[2], "--yes")) {
-    size_t loader_size = 0, image_size = 0;
-    uint8_t *loader = read_image(argv[4], &loader_size), *image = read_image(argv[5], &image_size);
-    int result = loader && image ? jm_jieli_upgrade(argv[3], loader, loader_size, image, image_size) : -1;
-    free(loader); free(image);
-    if (result) fprintf(stderr, "Jieli upgrade failed: %d; recovery may be required\n", result);
-    else puts("Written and verified; device remains in its loader");
-    return result ? 1 : 0;
-  }
-  if (family==1 && argc == 5 && !strcmp(argv[1], "rekey"))
-    return rekey(argv[2], argv[3], argv[4]);
-
-  if (!family && !strcmp(argv[1], "scan") && (argc == 2 || (argc == 3 && !strcmp(argv[2], "--ours"))))
-    return scan(argc == 3);
-  if (!family && argc == 3 && !strcmp(argv[1], "inspect")) {
+  const char *out = rest[nrest - 1];
+  FILE *file = fopen(out, "rb");
+  if (file) fclose(file), die("%s: exists; a backup never overwrites", out);
+  if (!(file = fopen(out, "wb"))) die("%s: cannot write", out);
+  int r;
+  if (known == 5) {
+    r = jm_backup(&jm, f, &sel, to_file, &file);
+  } else {
     size_t size;
-    uint8_t *data = read_image(argv[argc - 1], &size);
-    if (!data) { fprintf(stderr, "Cannot read image (limit 32 MiB)\n"); return 1; }
-    int result = 1;
-    {
-      char product[17];
-      const uint8_t *flash;
-      size_t flash_size;
-      struct jm_jieli_image view;
-      uint8_t *workspace = malloc(size ? size : 1);
-      enum jm_jieli_ufw_result ufw = jm_jieli_ufw_open(data, size, &flash, &flash_size);
-      struct jm_package package;
-      if (size >= 4 && !memcmp(data, "PK\003\004", 4)) {
-        int error = jm_package_open(&package, data, size);
-        if (error) fprintf(stderr, "Invalid/unsupported ZIP container: %d\n", error);
-        else {
-          struct jm_manifest manifest;
-          int verified = jm_manifest_open(&manifest, &package);
-          if (!verified) fprintf(stderr, "Manifest validation failed\n");
-          else printf("Verified firmware manifest: %u targets\n", manifest.count);
-          printf("Validated ZIP container: %u entries\n", package.count);
-          for (unsigned i = 0; i < package.count; ++i) {
-            struct jm_package_entry entry;
-            if (jm_package_entry(&package, i, &entry))
-              printf("%.*s: %zu bytes\n", (int)entry.name_size, entry.name, entry.size);
-          }
-          result = verified ? 0 : 1;
-        }
-      } else if (jm_update_image_check(data, size, NULL)) {
-        printf("Validated MAIN update image: bytes=%zu\n", size); result = 0;
-      } else if (jm_8bitdo_image_product(data, size, product)) {
-        printf("Telink full image: product=%s bytes=%zu\n", product, size); result = 0;
-      } else if ((ufw == JM_JIELI_UFW_RAW || ufw == JM_JIELI_UFW_OK) &&
-                 workspace && jm_jieli_image_open(&view, flash, flash_size, workspace, size) == JM_JIELI_IMAGE_OK) {
-        printf("Jieli image: base=0x%x bytes=%zu wrapper=%s key=0x%04x (validated)\n",
-               view.base, flash_size, ufw == JM_JIELI_UFW_OK ? "UFW" : "raw", view.key); result = 0;
-      } else fprintf(stderr, "Unrecognized or invalid image\n");
-      free(workspace);
-    }
-    free(data); return result ? 1 : 0;
+    uint8_t *image = read_file(rest[0], &size);
+    r = jm_restore(&jm, f, &sel, image, size, to_file, closed, &file);
   }
-  if(family) {
-    fprintf(stderr,"Unknown or incomplete %s subcommand: %s\n",family==1?"jieli":"8bitdo",argv[1]);
-    group_help(family);
-  } else { fprintf(stderr,"Unknown or incomplete command: %s\n",argv[1]);usage(stderr); }
-  return 2;
+  if (file && !closed(&file)) r = -1;
+  return r ? 1 : 0;
 }
