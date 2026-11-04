@@ -1011,6 +1011,9 @@ void plat_stats(struct plat_stats *out);
 const u8 *plat_unique_id(void);
 extern const char board_name[];   /* model, e.g. "Cyclone 2" or "Cyclone 2 Dongle":
                                     * tool USB/SCSI product, IDENTIFY, plain HID names */
+extern const char board_short_name[];   /* board_name where a name has a hard limit (the
+                                         * U2C Bluetooth's LE name: 14 bytes); boards that
+                                         * use it define it */
 int plat_store_read(u16 key, void *buf, u16 len);
 int plat_store_write(u16 key, const void *buf, u16 len);
 /* core/store.c's flash, on the boards that build it (Telink, YC3121): reads

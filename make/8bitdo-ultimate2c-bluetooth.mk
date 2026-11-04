@@ -64,9 +64,9 @@ U2CB_PAD := 8bitdo-ultimate2c-bluetooth-pad
 $(U2CB_PAD)_PID := U2C_BLUETOOTH
 # The log: 32 lines, as many as fit the RAM kept over a restart (app.ld KEPT).
 $(U2CB_PAD)_DEFINES := $(U2CB_STORE) -DLOG_LINES=32
-# LE (bt_yc3121.c): the name the core advertises is 14 bytes, "U2CB <profile>";
-# its MTU stays 23, so config mode answers in 20-byte notifications.
-$(U2CB_PAD)_DEFINES += -DBOARD_LE_NAME=\"U2CB\" -DCONFIG_REPLY_MAX=20
+# LE (bt_yc3121.c): the core's MTU stays 23, so config mode answers in
+# 20-byte notifications.
+$(U2CB_PAD)_DEFINES += -DCONFIG_REPLY_MAX=20
 $(U2CB_PAD)_SOURCES :=
 $(U2CB_PAD)_SOURCES += src/boards/8bitdo-ultimate2c-bluetooth/board_pad.c
 $(U2CB_PAD)_SOURCES += src/platform/yc3121/main_yc3121.c

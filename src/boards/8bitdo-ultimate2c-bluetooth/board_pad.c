@@ -23,6 +23,7 @@
  * The ADC is the radio core's: no sticks until it is up. */
 
 const char board_name[] = "Ultimate 2C Bluetooth";
+const char board_short_name[] = "U2C BT";
 
 #include "settings_defaults.inc"
 

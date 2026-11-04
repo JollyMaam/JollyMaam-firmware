@@ -29,7 +29,7 @@
  * for its 128-bit services and characteristics only (no values, no reads:
  * write and notify are all this side does); its handles map to the core's.
  * Advertising (visibility bit 2) carries only the name of command 0x04
- * (14 bytes).  Events: 0x02 connected, 0x05 disconnected, 0x08 {handle,
+ * (14 bytes): board_short_name, then the profile's ("U2C BT Config").  Events: 0x02 connected, 0x05 disconnected, 0x08 {handle,
  * data} a write; 0x09 {handle, data} notifies, acknowledged 0x06 {09 00}. */
 
 #define IN_FLIGHT    2           /* input reports the core has not acknowledged */
@@ -41,9 +41,6 @@
 #define RECORD       34          /* a bond table record */
 #define LE_NAME      14          /* command 0x04's name */
 #define LE_CHARS     8           /* characteristics an LE profile has */
-#ifndef BOARD_LE_NAME
-#define BOARD_LE_NAME "Pad"      /* make: the board's short name, before the profile's */
-#endif
 
 static struct radio_packet pkt;
 
@@ -302,7 +299,7 @@ static int core_start(const struct profile *p)
     int ok, i;
 
     memset(le_name, 0, sizeof(le_name));
-    strncpy((char *)le_name, BOARD_LE_NAME, sizeof(le_name));
+    strncpy((char *)le_name, board_short_name, sizeof(le_name));
     if (le && d->name) {                 /* "<board> <profile>" */
         size_t k = strlen((char *)le_name);
 
