@@ -11,6 +11,13 @@ struct radio_packet {
 
 /* Load and start the core: 0, or < 0 (-1 it never signalled, -2 no blob). */
 int plat_radio_start(void);
+/* Bring-up: load a blob (radio_blob's format) and keep the core held (same
+ * results as plat_radio_start); plat_radio_release() then starts it. */
+int plat_radio_load(const u8 *blob, u32 len);
+void plat_radio_release(void);
+/* Bring-up: n bytes from the code port, the control bytes set first. */
+void plat_radio_code_read(u8 c2, u8 c3, u8 c4, u8 *out, u32 n);
+extern const u8 radio_blob[], radio_blob_end[];
 /* A command to the core, wide: with a u16 length; 0: no room in its ring. */
 int plat_radio_send(u8 id, const u8 *data, u16 len, int wide);
 /* The core's next packet; 0: none. */

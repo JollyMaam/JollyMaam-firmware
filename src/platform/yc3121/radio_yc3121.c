@@ -112,6 +112,36 @@ int plat_adc_ready(void)
 
 int plat_radio_start(void)
 {
+    int r = plat_radio_load(radio_blob, (u32)(radio_blob_end - radio_blob));
+
+    if (!r) plat_radio_release();
+    return r;
+}
+
+void plat_radio_release(void)
+{
+    WAKEUP_BT = 0x9c;
+    wait_ms(100);
+}
+
+/* Bring-up: bytes from the code port (0xc8025) after 0xc8024, 0xc8022,
+ * 0xc8023 = c4, c2, c3 (stock writes 0, 0, 0x80 before streaming the code
+ * in); 0xc8023 = 0 after.  It reads back (2026-11-03): c3 0x80 gives the
+ * blob from its start, 0x81 from its byte 0x100.  A run of reads once
+ * stalled the CPU past the hang watch. */
+void plat_radio_code_read(u8 c2, u8 c3, u8 c4, u8 *out, u32 n)
+{
+    CLK_CLS &= ~CLK_BT;
+    BT_CODE_CTL(4) = c4;
+    BT_CODE_CTL(2) = c2;
+    BT_CODE_CTL(3) = c3;
+    for (u32 i = 0; i < n; i++)
+        out[i] = *(volatile uint8_t *)BT_CODE_PORT;
+    BT_CODE_CTL(3) = 0;
+}
+
+int plat_radio_load(const u8 *blob, u32 len)
+{
     u32 t0;
 
     adc_up = 0;
@@ -131,9 +161,7 @@ int plat_radio_start(void)
         WINDOW(0x4000 + i) = 0;
         yc_delay_us(1);
     }
-    if (!load(radio_blob, radio_blob_end)) return -2;
-    WAKEUP_BT = 0x9c;
-    wait_ms(100);
+    if (!load(blob, blob + len)) return -2;
     return 0;
 }
 

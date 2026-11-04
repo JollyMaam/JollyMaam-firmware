@@ -73,6 +73,12 @@ static const int stick_sign[4] = { -1, -1, -1, 1 };
 #define STICK_TRAVEL 260
 static int centre[4];
 static u8 raw[256];              /* 0x3b's packet, for the main loop */
+/* Bring-up of the core's code (0x46..0x48): a RAM copy of the blob to edit,
+ * and 0x47's request for the main loop (1 load stock's blob and hold the
+ * core, 2 load the copy and hold, 3 release). */
+static u8 blob_copy[8192];
+static u32 blob_copy_len;
+static volatile u8 core_load_pending;
 static u16 raw_len;
 
 /* The core's bond table (event 0x0d, 5 records of 34 bytes), given back at
@@ -317,6 +323,25 @@ u32 usb_tool_command(const u8 *report, u8 *data, u32 n, u32 max)
     case 0x44:                           /* bring-up: the bond table to the running core (0x26) */
         bonds_send_pending = 1;
         return 0;
+    case 0x46: {                         /* bring-up: bytes from the core's code port */
+        u32 k = want < max ? want : max;
+
+        plat_radio_code_read((u8)arg, (u8)(arg >> 8), (u8)(arg >> 16), data, k);
+        return k;
+    }
+    case 0x47:                           /* bring-up: 1 load and hold, 2 load the copy and hold, 3 release */
+        if (arg < 1 || arg > 3 || core_load_pending) return 0;
+        core_load_pending = (u8)arg;
+        return 0;
+    case 0x48:                           /* bring-up: bytes into the blob copy at offset arg (from stock's at 0) */
+        if (!blob_copy_len) {
+            blob_copy_len = (u32)(radio_blob_end - radio_blob);
+            if (blob_copy_len > sizeof(blob_copy)) blob_copy_len = 0;
+            else memcpy(blob_copy, radio_blob, blob_copy_len);
+        }
+        if (arg > blob_copy_len || n > blob_copy_len - arg) return 0;
+        memcpy(blob_copy + arg, data, n);
+        return 0;
     case 0x3a:                           /* bring-up: start the Bluetooth core */
         radio_start_pending = 1;
         return 0;
@@ -387,6 +412,17 @@ int main(void)
             int r = plat_radio_start();
             util_log("bt: started %d", r);
             if (!r) plat_adc_init(), adc_ready = 1;
+        }
+        if (core_load_pending) {
+            u8 what = core_load_pending;
+            int r = 0;
+
+            if (what == 1) r = plat_radio_load(radio_blob, (u32)(radio_blob_end - radio_blob));
+            else if (what == 2) r = blob_copy_len ? plat_radio_load(blob_copy, blob_copy_len) : -3;
+            else plat_radio_release();
+            util_log("bt: core %s %d", what == 3 ? "released" : "loaded, held", r);
+            if (what == 3) plat_adc_init(), adc_ready = 1;
+            core_load_pending = 0;
         }
         if (raw_pending) {
             if (!plat_radio_send(raw[0], raw + 2, (u16)(raw_len - 2), raw[1])) util_log("bt: %02x: no room", raw[0]);
