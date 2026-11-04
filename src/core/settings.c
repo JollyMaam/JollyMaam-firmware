@@ -1871,8 +1871,88 @@ static int reduced_storage(void)
 }
 #endif
 
+#ifdef SETTINGS_STORE_TELINK
+#include "../platform/telink/store_telink.h"
+#endif
+
+
+/* Every record this build keeps fits its store: all fields explicit is the
+ * largest persisted form, regardless of value.  Count every saved target
+ * and both halves of each remap record.  The store's model comes from the
+ * build (make/host.mk: settings_store_defines). */
+static int storage_fits(void)
+{
+    u32 t, part, i, n, largest = 0;
+#ifdef SETTINGS_STORE_TELINK
+    u32 live = TELINK_STORE_HEADER_SIZE;
+#endif
+#ifdef SETTINGS_STORE_JIELI_BYTES
+    u32 jieli_live = 4;
+#endif
+
+    for (t = 0; t < TARGETS; t++) {
+        const struct set_field *fields = fields_of(t, &n);
+        if (n > 32) {
+            printf("FAIL settings target %u has %u fields, exceeds 32-bit field mask\n", t, n);
+            return 0;
+        }
+        if (!stored(t)) continue;
+        for (part = 0; part < parts_of(t); part++) {
+            u32 bytes = 4;
+            for (i = 0; i < n; i++) if (part_of(t, i) == part) bytes += 2u + fields[i].size;
+            if (bytes > RECORD_MAX || bytes > 255) {
+                printf("FAIL settings target %u part %u needs %u bytes; record limit %u, format limit 255\n",
+                        t, part, bytes, (unsigned)RECORD_MAX);
+                return 0;
+            }
+#ifdef SETTINGS_STORE_TELINK
+            if (bytes > TELINK_STORE_DATA_MAX || key_of(t, part) >= TELINK_STORE_RECEIVER_KEY) {
+                printf("FAIL settings target %u part %u exceeds Telink record/key limits\n", t, part);
+                return 0;
+            }
+#endif
+            if (bytes > largest) largest = bytes;
+#ifdef SETTINGS_STORE_TELINK
+            live += TELINK_STORE_RECORD_SIZE(bytes);
+#endif
+#ifdef SETTINGS_STORE_JIELI_BYTES
+            jieli_live += bytes + 4;
+#endif
+        }
+    }
+#ifdef SETTINGS_STORE_TELINK
+    /* Reserve both optional records even when the build does not use them.
+     * Compaction copies the old value before appending its replacement. */
+    live += TELINK_STORE_RECORD_SIZE(TELINK_STORE_RECEIVER_SIZE) +
+            TELINK_STORE_RECORD_SIZE(TELINK_STORE_LAST_SLOT_SIZE);
+    if (largest < TELINK_STORE_RECEIVER_SIZE) largest = TELINK_STORE_RECEIVER_SIZE;
+    if (largest < TELINK_STORE_LAST_SLOT_SIZE) largest = TELINK_STORE_LAST_SLOT_SIZE;
+    live += TELINK_STORE_RECORD_SIZE(largest);
+    if (live > TELINK_STORE_SECTOR_SIZE) {
+        printf("FAIL settings do not fit in one Telink compaction sector\n");
+        return 0;
+    }
+#endif
+#ifdef SETTINGS_STORE_JIELI_BYTES
+    /* The reviewed SDK uses two equal areas: a 4-byte magic then unpadded
+     * {4-byte item header, payload}. Compaction copies the old value before
+     * its replacement is appended. An overflowing move erases both areas. */
+    if (SETTINGS_STORE_JIELI_BYTES != 8192 && SETTINGS_STORE_JIELI_BYTES != 16384) {
+        printf("FAIL Jieli VM capacity model supports 8/16 KiB sector-mode regions only\n");
+        return 0;
+    }
+    jieli_live += largest + 4 + SETTINGS_STORE_JIELI_RESERVE;
+    if (jieli_live > SETTINGS_STORE_JIELI_BYTES / 2) {
+        printf("FAIL settings do not fit in one Jieli VM compaction area\n");
+        return 0;
+    }
+#endif
+    return 1;
+}
+
 int main(void)
 {
+    if (!storage_fits()) return 1;
 #if SLOTS_STORED == SLOTS && REMAPS_STORED == SLOTS
     return full_storage();
 #else

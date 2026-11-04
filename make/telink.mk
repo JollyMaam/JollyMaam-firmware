@@ -112,7 +112,6 @@ $(1)_OBJECTS := $(patsubst %.c,$(O)/$(1)/%.o,$($(1)_SOURCES) src/core/battery.c)
 $(1)_FLAGS := $(TELINK_DEFINES) -DBOARD_PID=\"$($(1)_PID)\" -DAPP_START=$($(1)_APP_START) \
 	$($(1)_DEFINES) $(EXTRA_DEFINES) -DBUILD_ID=\"$(BUILD_ID)\" -include $(TELINK_APP_CONFIG) \
 	$(if $($(1)_UPDATER),-DUPDATER -DMAIN_AT=$($(1)_UPDATER) -DCODE_LIMIT=$($(1)_CODE_LIMIT))
-$(1)_FLAGS += $(if $(filter src/core/settings.c,$($(1)_SOURCES)),-DSETTINGS_SCHEMA -iquote $(O)/$(1))
 $(1)_INCLUDES := $(subst -iquote src/platform/jieli,,$(SRC_INCLUDES)) -iquote src/platform/telink -iquote $($(1)_BOARD_DIR) $(TELINK_INCLUDES) $(BTSTACK_INCLUDES)
 
 .PHONY: $(1) $(if $($(1)_FRONT),$(1)-flash) $(1)-loader
@@ -202,6 +201,5 @@ $(O)/$(1)/boot.link: $(TELINK_SDK)/project/tlsr_tc32/B80/boot.link $(MAKE_FILES)
 $$($(1)_OBJECTS): $(MAKE_FILES) $(TELINK_APP_CONFIG)
 $(call board_defines,$(1))
 -include $$($(1)_OBJECTS:.o=.d)
-$(if $(filter src/core/settings.c,$($(1)_SOURCES)),$(call settings_schema,$(1)))
 
 endef

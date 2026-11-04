@@ -1,10 +1,6 @@
 #include <string.h>
 #include "pad.h"
 
-#ifdef SETTINGS_SCHEMA
-#include "settings_schema.h"
-#endif
-
 /* The tool device's vendor commands.
  *
  * CDB: [0] 0xF5, [1] sub-command, [2..5] argument (little-endian), as SCSI
@@ -100,10 +96,6 @@
  *                         type, size, flags, u16 max, then name, help, enum names (NUL-
  *                         terminated), defaults (one per slot for slot fields,
  *                         fields up to 4 bytes); all zero past the last
- *   `0x29` SCHEMA         in (20): u8 format (1), u8 hash algorithm (1:
- *                         SHA-256 truncated to 128 bits), u16 field count,
- *                         16-byte fingerprint of the build's schema artifact.
- *                         A match lets a host skip FIELD/FIELDS discovery.
  *   `0x28` FIELDS         argument: first field number; in: u8 count, then per
  *                         field u16 length and its FIELD answer, as many whole
  *                         ones as fit; count 0 past the last
@@ -384,14 +376,6 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
 #endif
         break;
 #ifndef NO_SETTINGS
-    case JM_CMD_SCHEMA:
-#ifdef SETTINGS_SCHEMA
-        if (max >= JM_SCHEMA_INFO_SIZE) {
-            memcpy(data, settings_schema_info, JM_SCHEMA_INFO_SIZE);
-            n = JM_SCHEMA_INFO_SIZE;
-        }
-#endif
-        break;
     case JM_CMD_FIELD:              /* argument: field number */
         n = set_describe(util_get32(cdb + 2), data, max);
         break;
@@ -596,19 +580,6 @@ int main(void)
         CHECK(battery.mv == st.battery.mv && battery.percent == st.battery.percent);
         CHECK(battery.flags == st.battery.flags);
     }
-    cdb[1] = JM_CMD_SCHEMA;
-#ifdef SETTINGS_SCHEMA
-    {
-        struct jm_schema_info schema;
-
-        CHECK(usb_command(cdb, data, 19, 0) == 0);
-        CHECK(usb_command(cdb, data, sizeof data, 0) == 20);
-        CHECK(jm_schema_info_decode(data, 20, &schema) && schema.fields > 0);
-        CHECK(!memcmp(schema.digest, settings_schema_info + 4, 16));
-    }
-#else
-    CHECK(usb_command(cdb, data, sizeof data, 0) == 0);
-#endif
     cdb[1] = JM_CMD_INPUT;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 0);    /* none */
     {

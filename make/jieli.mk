@@ -235,7 +235,6 @@ $(1)_OBJECTS := $(patsubst %.c,$(O)/$(1)/%.o,$($(1)_SOURCES) src/core/battery.c 
 $(1)_FLAGS := $(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_CFLAGS) $(JIELI_BD19_DEFINES),$(JIELI_CFLAGS) $(JIELI_DEFINES)) -DCONFIG_FLASH_SIZE=$($(1)_FLASH_SIZE) \
 	-DBOARD_PID=\"$($(1)_PID)\" $($(1)_DEFINES) $(EXTRA_DEFINES) -DBUILD_ID=\"$(BUILD_ID)\" \
 	$(if $($(1)_NO_BT),-DNO_BT) $(if $($(1)_UPDATER),-DMAIN_AT=$($(1)_UPDATER) -DCODE_LIMIT=$$($(1)_CODE_LIMIT))
-$(1)_FLAGS += $(if $(filter src/core/settings.c,$($(1)_SOURCES)),-DSETTINGS_SCHEMA -iquote $(O)/$(1))
 $(1)_INCLUDES := $(SRC_INCLUDES) -iquote $($(1)_BOARD_DIR) -iquote src/platform/jieli/sdkconfig $(BTSTACK_INCLUDES) $(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_INCLUDES),$(JIELI_INCLUDES))
 
 .PHONY: $(1) $(if $($(1)_NO_FLASH),,$(1)-flash) $(1)-loader
@@ -329,6 +328,5 @@ $(O)/$(1)/isd_config.ini: $(JIELI_SDK)/cpu/$(call jieli_chip,$(1))/tools/isd_con
 $$($(1)_OBJECTS) $(O)/$(1)/sdk.ld: $(MAKE_FILES) $(wildcard src/platform/jieli/sdkconfig/*)
 $(call board_defines,$(1))
 -include $$($(1)_OBJECTS:.o=.d)
-$(if $(filter src/core/settings.c,$($(1)_SOURCES)),$(call settings_schema,$(1)))
 
 endef

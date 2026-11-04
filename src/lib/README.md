@@ -22,47 +22,17 @@ updater command handlers against libjollymaam's decoders and update state
 machine. Only platform services and flash are simulated; the firmware produces
 the replies. They also run as part of each board's regular tests.
 
-## Settings schema fast path
+## Settings storage check
 
-Pads with settings answer optional command `JM_CMD_SCHEMA` (0x29) with 20
-bytes: format 1, hash algorithm 1 (SHA-256 truncated to 128 bits), a little-endian
-u16 field count, and a 16-byte fingerprint. An absent or unsupported reply means
-the app must use the existing FIELD/FIELDS discovery commands. A mismatch also
-falls back to discovery; neither case prevents reading or editing settings.
-
-Each pad build produces `settings_schema.bin` alongside its firmware. An app can
-bundle that file or cache a discovered schema under the fingerprint.
-`jm_schema_info_decode` reads the reply and `jm_schema_matches` checks a bundled
-schema before skipping discovery. These functions do no device I/O. The reply
-and matching schema concern metadata only: current values still come from READ.
-
-The artifact is serialized by a host-compiled C exporter using the actual
-firmware tables, board defaults and settings build options. Its fingerprint is
-embedded as constant flash data; firmware neither generates nor hashes schemas.
-It changes when field descriptions, factory defaults or writable targets change,
-and stays the same across unrelated source/build changes. User settings and
-user-customized remap inheritance are excluded.
-
-The artifact format is little-endian:
-
-- `JMSC`, u16 format (1), u16 protocol, u16 field count.
-- For each field: u16 byte length followed by its FIELD response.
-- u16 target count; for each target: u8 target, u8 writable, u8 item count,
-  followed by items `{u8 id, u8 length, factory value bytes}`.
-
-A discovered schema can be cached by its reported fingerprint without rebuilding
-this artifact; future connections reuse the cached descriptions on an exact
-fingerprint match. Factory values in a bundled artifact are not the current
-inherited defaults of a user's remap slots.
-
-Schema export also checks every persisted target with all fields explicitly set:
-32-bit field masks, each record's buffer limit and its one-byte length limit.
-It prints the total settings payload and largest record. On Telink it additionally
-checks record/key limits and the complete compacted flash footprint against one
-sector, reserving the receiver and optional last-slot records plus space to append
-the largest replacement record. Both sectors are needed for compaction, so their
-capacities are not added together. This covers the current build's supported
-records; obsolete records left by other firmware are not included.
+Each board's settings unit test (`settings.c`, `make <board>-test`) checks
+every persisted target with all fields explicitly set: 32-bit field masks,
+each record's buffer limit and its one-byte length limit. On Telink it
+additionally checks record/key limits and the complete compacted flash
+footprint against one sector, reserving the receiver and optional last-slot
+records plus space to append the largest replacement record. Both sectors are
+needed for compaction, so their capacities are not added together. This covers
+the current build's supported records; obsolete records left by other firmware
+are not included.
 
 On Jieli the check uses one half of the configured 16 KiB VM region, a
 4-byte area header, and 4 bytes per VM item without padding. It reserves space
@@ -71,11 +41,6 @@ items (`JIELI_VM_SETTINGS_RESERVE`). The SDK can erase both areas if a move
 cannot fit the live records. The check rejects configurations over the budget;
 it is not a full capacity guarantee for arbitrary SDK or obsolete records beyond
 that reserve. Only the reviewed 8/16 KiB sector-mode layout is modeled.
-No capacity-check code is linked into firmware.
-
-`make settings-schema-test` checks determinism and invalidation by board defaults,
-long list defaults, supported fields and writable targets. The per-board protocol
-tests check the firmware's SCHEMA reply using the host decoder.
 
 Build and test from the repository root:
 

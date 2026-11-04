@@ -6,6 +6,10 @@ TESTS := $(filter-out src/platform/telink/att_telink.c src/lib/%,$(TESTS))
 
 # $(call host_tests,NAME): NAME-test builds the unit tests with NAME's -D flags
 # into $(O)/host/test-NAME/ and runs them.
+# The settings store the settings unit test checks its records against:
+# the Telink store, or the Jieli VM (size and the SDK's reserve).
+settings_store_defines = $(if $(filter src/platform/telink/store_telink.c,$($(1)_SOURCES)),-DSETTINGS_STORE_TELINK) $(if $(filter src/platform/jieli/platform_jieli.c,$($(1)_SOURCES)),-DSETTINGS_STORE_JIELI_BYTES=$(JIELI_VM_KB)*1024 -DSETTINGS_STORE_JIELI_RESERVE=$(JIELI_VM_SETTINGS_RESERVE))
+
 define host_tests
 .PHONY: $(1)-test
 $(1)-test: $(TESTS:src/%.c=$(O)/host/test-$(1)/%)
@@ -13,7 +17,7 @@ $(1)-test: $(TESTS:src/%.c=$(O)/host/test-$(1)/%)
 
 $(O)/host/test-$(1)/%: src/%.c $(wildcard src/*/*.h src/*/*/*.h src/*/*/*/*.h) $(O)/$(1)/defines
 	@mkdir -p $$(@D)
-	$$(Q)$(HOST_CC) $(HOST_CFLAGS) -DBOARD_PID=\"$($(1)_PID)\" $($(1)_DEFINES) $(EXTRA_DEFINES) -DUNITTEST $(if $(filter src/core/settings.c,$($(1)_SOURCES)),-DSETTINGS_SCHEMA -iquote $(O)/$(1)) $(SRC_INCLUDES) -iquote $($(1)_BOARD_DIR) $$< $$(if $$(filter src/core/usb.c src/updater/updater.c,$$<),$(O)/host/libjollymaam.a) -o $$@ \
+	$$(Q)$(HOST_CC) $(HOST_CFLAGS) -DBOARD_PID=\"$($(1)_PID)\" $($(1)_DEFINES) $(EXTRA_DEFINES) -DUNITTEST $(call settings_store_defines,$(1)) $(SRC_INCLUDES) -iquote $($(1)_BOARD_DIR) $$< $$(if $$(filter src/core/usb.c src/updater/updater.c,$$<),$(O)/host/libjollymaam.a) -o $$@ \
 	  $$(if $$(findstring /btctrler/,$$@),-no-pie -Wl$$(comma)--unresolved-symbols=ignore-all)
 # Protocol tests decode actual firmware replies with the portable host library.
 $(O)/host/test-$(1)/core/usb $(O)/host/test-$(1)/updater/updater: $(O)/host/libjollymaam.a
@@ -43,23 +47,3 @@ $(O)/host/test-padhub: tools/test_padhub.c $(PADHUB_SOURCES) $(wildcard src/*/*.
 
 include make/libjollymaam.mk
 
-# A host-compiled exporter uses the same tables and board defaults as firmware.
-# Called by each board template only for targets which include settings.c.
-define settings_schema
-$(O)/host/settings-schema-$(1): tools/jollymaam/settings_schema.c src/core/settings.c src/lib/sha256.c src/lib/sha256.h src/platform/telink/store_telink.h $(patsubst %/board_pad.c,%/board.inc,$(filter %/board_pad.c,$($(1)_SOURCES))) $(wildcard src/core/*.h src/lib/proto_jollymaam*.h) $(O)/$(1)/defines $(MAKE_FILES) $(O)/host/.jollymaam-config
-	@mkdir -p $$(@D)
-	$$(Q)$(HOST_CC) $(HOST_CFLAGS) $($(1)_DEFINES) $(EXTRA_DEFINES) $(if $(filter src/platform/telink/store_telink.c,$($(1)_SOURCES)),-DSETTINGS_STORE_TELINK) $(if $(filter src/platform/jieli/platform_jieli.c,$($(1)_SOURCES)),-DSETTINGS_STORE_JIELI_BYTES=$(JIELI_VM_KB)*1024 -DSETTINGS_STORE_JIELI_RESERVE=$(JIELI_VM_SETTINGS_RESERVE)) $(SRC_INCLUDES) -iquote $(dir $(filter %/board_pad.c,$($(1)_SOURCES))) -ffunction-sections -fdata-sections tools/jollymaam/settings_schema.c src/lib/sha256.c -Wl,--gc-sections -o $$@
-
-$(O)/$(1)/settings_schema.h $(O)/$(1)/settings_schema.bin &: $(O)/host/settings-schema-$(1)
-	$$(Q)$$< $(O)/$(1)/settings_schema.bin.tmp $(O)/$(1)/settings_schema.h.tmp
-	$$(Q)cmp -s $(O)/$(1)/settings_schema.bin.tmp $(O)/$(1)/settings_schema.bin || mv $(O)/$(1)/settings_schema.bin.tmp $(O)/$(1)/settings_schema.bin
-	$$(Q)cmp -s $(O)/$(1)/settings_schema.h.tmp $(O)/$(1)/settings_schema.h || mv $(O)/$(1)/settings_schema.h.tmp $(O)/$(1)/settings_schema.h
-	$$(Q)rm -f $(O)/$(1)/settings_schema.bin.tmp $(O)/$(1)/settings_schema.h.tmp
-
-$(O)/$(1)/src/core/usb.o $(O)/host/test-$(1)/core/usb: $(O)/$(1)/settings_schema.h
-endef
-
-.PHONY: settings-schema-test
-settings-schema-test:
-	$(Q)HOST_CC='$(HOST_CC)' python3 -m unittest tools/jollymaam/test_settings_schema.py
-test: settings-schema-test
