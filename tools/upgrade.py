@@ -28,6 +28,7 @@ TARGETS = {                       # the image's PID: its make target
     "GS_C2_Dongle": "gamesir-cyclone-2-dongle",
     "AC632N_TRANS": "gamesir-nova-2-lite-dongle",
     "U2C_WIRELESS": "8bitdo-ultimate2c-wireless-pad",
+    "U2C_BLUETOOTH": "8bitdo-ultimate2c-bluetooth-pad",
 }
 
 
