@@ -1217,6 +1217,7 @@ CMD_LAYOUT = 0x06
 LAYOUT_KINDS = ("face", "dpad", "shoulder", "trigger", "stick", "stick_click", "menu", "back", "top")
 # Each input's name (IN_* bit numbers): the keys, then what has no key.
 INPUT_NAMES = dict(enumerate(padremap.KEYS)) | {20: "l2", 21: "r2", 32: "left_stick", 33: "right_stick"}
+FACE_ROLES = {"a": "south", "b": "east", "x": "west", "y": "north"}    # the remap text's face keys
 
 
 def read_layout(path):
@@ -1246,7 +1247,7 @@ def show_layout(path):
         sys.exit("padtool: this firmware has no layout")
     for e in entries:
         place = f"  at {e['x']},{e['y']}" if e["x"] or e["y"] else ""
-        print(f"{e['name']:12} {e['kind']:12} {e['label'] or '-'}{place}")
+        print(f"{FACE_ROLES.get(e['name'], e['name']):12} {e['kind']:12} {e['label'] or '-'}{place}")
 
 
 def read_input(path):
