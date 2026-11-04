@@ -138,20 +138,20 @@ enum { OFFLINE = 1, CONNECTED = 2, RELEASE = 4 };
  * The REQ_CONNECT rows also name the slot keys of quick settings. */
 static const struct gesture { u32 keys; u16 hold_ms; u8 request, slot, flags; } gestures[] = {
     {PAD_SELECT, 0, REQ_DISCONNECT, SLOT_NONE, OFFLINE | CONNECTED | RELEASE},
-    {PAD_A, 0, REQ_CONNECT, 0, OFFLINE | RELEASE},
-    {PAD_B, 0, REQ_CONNECT, 1, OFFLINE | RELEASE},
-    {PAD_X, 0, REQ_CONNECT, 2, OFFLINE | RELEASE},
-    {PAD_Y, 0, REQ_CONNECT, 3, OFFLINE | RELEASE},
+    {PAD_SOUTH, 0, REQ_CONNECT, 0, OFFLINE | RELEASE},
+    {PAD_EAST, 0, REQ_CONNECT, 1, OFFLINE | RELEASE},
+    {PAD_WEST, 0, REQ_CONNECT, 2, OFFLINE | RELEASE},
+    {PAD_NORTH, 0, REQ_CONNECT, 3, OFFLINE | RELEASE},
     {PAD_UP, 0, REQ_CONNECT, 4, OFFLINE | RELEASE},
     {PAD_DOWN, 0, REQ_CONNECT, 5, OFFLINE | RELEASE},
     {PAD_LEFT, 0, REQ_CONNECT, 6, OFFLINE | RELEASE},
     {PAD_RIGHT, 0, REQ_CONNECT, 7, OFFLINE | RELEASE},
     {PAD_L3, 0, REQ_CALIBRATE, SLOT_NONE, OFFLINE},
     {PAD_R3, 0, REQ_CALIBRATE, SLOT_NONE, OFFLINE},
-    {PAD_A, HOLD_MS, REQ_PAIR, 0, OFFLINE},
-    {PAD_B, HOLD_MS, REQ_PAIR, 1, OFFLINE},
-    {PAD_X, HOLD_MS, REQ_PAIR, 2, OFFLINE},
-    {PAD_Y, HOLD_MS, REQ_PAIR, 3, OFFLINE},
+    {PAD_SOUTH, HOLD_MS, REQ_PAIR, 0, OFFLINE},
+    {PAD_EAST, HOLD_MS, REQ_PAIR, 1, OFFLINE},
+    {PAD_WEST, HOLD_MS, REQ_PAIR, 2, OFFLINE},
+    {PAD_NORTH, HOLD_MS, REQ_PAIR, 3, OFFLINE},
     {PAD_UP, HOLD_MS, REQ_PAIR, 4, OFFLINE},
     {PAD_DOWN, HOLD_MS, REQ_PAIR, 5, OFFLINE},
     {PAD_LEFT, HOLD_MS, REQ_PAIR, 6, OFFLINE},
@@ -434,7 +434,7 @@ int main(void)
     CHECK(ux_idle_deadline(1000, 20000, 100000, 1, 1) == 0);
     CHECK(ux_idle_deadline(0xfffffff0u, 0, 0xfffffff0u, 0, 0) == 14984);
     CHECK(ux_idle_deadline(0xffff0000u, 0, 0xfffffff0u, 0, 0) == 4984);
-    CHECK(ux_updater_chord(PAD_HOME | PAD_START) && ux_updater_chord(PAD_HOME | PAD_M | PAD_A));
+    CHECK(ux_updater_chord(PAD_HOME | PAD_START) && ux_updater_chord(PAD_HOME | PAD_M | PAD_SOUTH));
     CHECK(ux_updater_chord(PAD_L1 | PAD_R1) && !ux_updater_chord(PAD_HOME | PAD_L1));
     CHECK(!ux_updater_chord(PAD_START | PAD_M) && !ux_updater_chord(0));
     /* Connected: Home after its grace. */
@@ -499,40 +499,40 @@ int main(void)
         if (i == CTL_CONNECTED) continue;
         reset((u8)i); run(5000);
         pad.buttons = PAD_HOME; run(ux_timeouts.home_grace_ms + 100);
-        pad.buttons |= PAD_B; run(HOLD_MS);
+        pad.buttons |= PAD_EAST; run(HOLD_MS);
         CHECK(last.kind == REQ_NONE && !seen.buttons && ux_deadline() == now + 1);
         run(1); CHECK(last.kind == REQ_PAIR && last.slot == 1 && last.generate_new_address);
         pad.buttons = PAD_HOME; run(1); CHECK(last.kind == REQ_NONE);
         pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE && !seen.buttons && !ux.tap);
-        reset((u8)i); pad.buttons = PAD_HOME | PAD_B; run(HOLD_MS); CHECK(last.kind == REQ_NONE);
+        reset((u8)i); pad.buttons = PAD_HOME | PAD_EAST; run(HOLD_MS); CHECK(last.kind == REQ_NONE);
         pad.buttons = PAD_HOME; run(1); CHECK(last.kind == REQ_CONNECT && last.slot == 1 && !last.generate_new_address);
         run(10); pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE && !ux.tap);
-        reset((u8)i); pad.buttons = PAD_HOME | PAD_B; run(100);
-        pad.buttons = PAD_B; run(1); CHECK(last.kind == REQ_CONNECT && last.slot == 1);
+        reset((u8)i); pad.buttons = PAD_HOME | PAD_EAST; run(100);
+        pad.buttons = PAD_EAST; run(1); CHECK(last.kind == REQ_CONNECT && last.slot == 1);
         run(10); CHECK(!seen.buttons); pad.buttons = 0; run(1);
     }
     /* Armed. */
     reset(CTL_IDLE); CHECK(ux_armed() == SLOT_NONE);
     pad.buttons = PAD_HOME; run(1); CHECK(ux_armed() == SLOT_NONE);
-    pad.buttons |= PAD_Y; run(1); CHECK(ux_armed() == 3);
+    pad.buttons |= PAD_NORTH; run(1); CHECK(ux_armed() == 3);
     run(HOLD_MS); CHECK(ux_armed() == SLOT_NONE); /* now pairing */
     reset(CTL_IDLE); pad.buttons = PAD_HOME | PAD_L1; run(1); CHECK(ux_armed() == SLOT_NONE);
     reset(CTL_CONNECTING); pad.buttons = PAD_HOME; run(1); CHECK(ux_armed() == SLOT_NONE);
-    pad.buttons |= PAD_A; run(1); CHECK(ux_armed() == 0);
+    pad.buttons |= PAD_SOUTH; run(1); CHECK(ux_armed() == 0);
     reset(CTL_CONNECTED); pad.buttons = PAD_HOME; run(1); CHECK(ux_armed() == SLOT_NONE);
-    pad.buttons |= PAD_A; run(1); CHECK(ux_armed() == SLOT_NONE);
+    pad.buttons |= PAD_SOUTH; run(1); CHECK(ux_armed() == SLOT_NONE);
     /* A slot started offline keeps going once connected. */
-    reset(CTL_IDLE); pad.buttons = PAD_HOME | PAD_B; run(100); state = CTL_CONNECTED;
+    reset(CTL_IDLE); pad.buttons = PAD_HOME | PAD_EAST; run(100); state = CTL_CONNECTED;
     run(HOLD_MS - 99); CHECK(last.kind == REQ_PAIR && last.slot == 1);
     reset(CTL_IDLE); pad.buttons = PAD_L3; run(100); pad.buttons |= PAD_HOME; run(1);
     CHECK(last.kind == REQ_CALIBRATE);
     reset(CTL_IDLE); pad.buttons = PAD_HOME | PAD_RIGHT; run(1);
     CHECK(!seen.buttons); pad.buttons = PAD_HOME; run(1);
     CHECK(last.kind == REQ_CONNECT && last.slot == 7);
-    reset(CTL_IDLE); pad.buttons = PAD_HOME | PAD_B; run(100); pad.buttons |= PAD_A; run(6000);
+    reset(CTL_IDLE); pad.buttons = PAD_HOME | PAD_EAST; run(100); pad.buttons |= PAD_SOUTH; run(6000);
     CHECK(last.kind == REQ_NONE && !seen.buttons);
     pad.buttons = 0; run(100); CHECK(last.kind == REQ_NONE && !seen.buttons && !ux.tap);
-    reset(CTL_IDLE); pad.buttons = PAD_HOME | PAD_B; run(100); pad.buttons = PAD_A; run(1);
+    reset(CTL_IDLE); pad.buttons = PAD_HOME | PAD_EAST; run(100); pad.buttons = PAD_SOUTH; run(1);
     CHECK(last.kind == REQ_NONE); /* let go into another key: a cancel */
     reset(CTL_IDLE); pad.buttons = PAD_HOME | PAD_L1; run(100); pad.buttons = 0; run(1);
     CHECK(last.kind == REQ_NONE); /* not a lone tap */
@@ -564,18 +564,18 @@ int main(void)
     CHECK(ux_armed() == SLOT_NONE);
     reset(CTL_BOOT); ux_boot(PAD_HOME, 1, now);
     pad.buttons = PAD_HOME; state = CTL_IDLE; run(1000);
-    pad.buttons |= PAD_X; run(1); CHECK(ux_armed() == 2);
+    pad.buttons |= PAD_WEST; run(1); CHECK(ux_armed() == 2);
     pad.buttons = PAD_HOME; run(1); CHECK(last.kind == REQ_CONNECT && last.slot == 2);
     pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE);
-    reset(CTL_BOOT); CHECK(ux_boot(PAD_M | PAD_B, 0, now).kind == REQ_NONE);
+    reset(CTL_BOOT); CHECK(ux_boot(PAD_M | PAD_EAST, 0, now).kind == REQ_NONE);
     reset(CTL_BOOT); last = ux_boot(0, 1, now);
     CHECK(last.kind == REQ_CONNECT && last.slot == SLOT_LAST);
     reset(CTL_BOOT); CHECK(ux_boot(0, 0, now).kind == REQ_NONE);
 
     /* M is a plain key everywhere. */
     reset(CTL_CONNECTED); pad.buttons = PAD_M; run(1); CHECK(seen.buttons == PAD_M);
-    pad.buttons |= PAD_A; run(2000); CHECK(last.kind == REQ_NONE && seen.buttons == pad.buttons);
-    reset(CTL_IDLE); pad.buttons = PAD_M | PAD_A; run(100); CHECK(last.kind == REQ_NONE);
+    pad.buttons |= PAD_SOUTH; run(2000); CHECK(last.kind == REQ_NONE && seen.buttons == pad.buttons);
+    reset(CTL_IDLE); pad.buttons = PAD_M | PAD_SOUTH; run(100); CHECK(last.kind == REQ_NONE);
 
 #if UX_QUICK_SETTINGS
     /* Quick settings: Home+M on release, whichever goes first. */
@@ -586,10 +586,10 @@ int main(void)
     pad.buttons = PAD_L4; pad.lx = 9000; pad.r2 = 30000; run(100);
     CHECK(ux_quick(NULL) && !seen.buttons && !seen.lx && !seen.r2); /* nothing for the host */
     pad.buttons = 0; run(1); CHECK(ux_quick(NULL) && last.kind == REQ_NONE);
-    pad.buttons = PAD_X; run(100); CHECK(last.kind == REQ_NONE && !seen.buttons);
+    pad.buttons = PAD_WEST; run(100); CHECK(last.kind == REQ_NONE && !seen.buttons);
     pad.buttons = 0; run(1); CHECK(last.kind == REQ_REMAP && last.slot == 2 && !ux_quick(NULL));
     run(1); CHECK(seen.lx == 9000 && seen.r2 == 30000);
-    pad.buttons = PAD_A; run(1); CHECK(seen.buttons == PAD_A && last.kind == REQ_NONE);
+    pad.buttons = PAD_SOUTH; run(1); CHECK(seen.buttons == PAD_SOUTH && last.kind == REQ_NONE);
     reset(CTL_CONNECTED); pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_M; run(100);
     pad.buttons = PAD_M; run(1); CHECK(ux_quick(NULL) && !seen.buttons);
     pad.buttons = 0; run(1); CHECK(ux_quick(NULL) && last.kind == REQ_NONE); /* M from the chord */
@@ -604,7 +604,7 @@ int main(void)
     }
     /* After it, held keys are the host's as usual. */
     quick();
-    pad.buttons = PAD_L1; run(10); pad.buttons |= PAD_B; run(10); pad.buttons = PAD_L1; run(1);
+    pad.buttons = PAD_L1; run(10); pad.buttons |= PAD_EAST; run(10); pad.buttons = PAD_L1; run(1);
     CHECK(last.kind == REQ_REMAP && last.slot == 1);
     run(1); CHECK(seen.buttons == PAD_L1);
     quick(); pad.buttons = PAD_HOME; run(ux_timeouts.quick_ms + 1); CHECK(!ux_quick(NULL)); run(10);
@@ -657,7 +657,7 @@ int main(void)
     pad.buttons = 0; run(1); CHECK(!seen.buttons && last.kind == REQ_NONE);
     /* Home with a key that makes no chord: still a lone Home, the base. */
     quick();
-    pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_X; run(10); pad.buttons = PAD_HOME; run(10);
+    pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_WEST; run(10); pad.buttons = PAD_HOME; run(10);
     CHECK(ux_quick(NULL) && last.kind == REQ_NONE && !seen.buttons);
     pad.buttons = 0; run(1); CHECK(last.kind == REQ_REMAP && last.slot == SLOT_NONE && !ux_quick(NULL));
     run(10); CHECK(!seen.buttons && !ux.tap);
@@ -665,7 +665,7 @@ int main(void)
     quick();
     pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_M; run(10); pad.buttons = 0; run(1);
     CHECK(ux_quick(NULL) && last.kind == REQ_NONE);
-    pad.buttons = PAD_B; run(10); pad.buttons = 0; run(1); CHECK(last.kind == REQ_REMAP && last.slot == 1);
+    pad.buttons = PAD_EAST; run(10); pad.buttons = 0; run(1); CHECK(last.kind == REQ_REMAP && last.slot == 1);
     quick(); pad.buttons = PAD_HOME; run(1000); CHECK(ux_quick(NULL) && !seen.buttons);
     pad.buttons = 0; run(1); CHECK(last.kind == REQ_REMAP && last.slot == SLOT_NONE);
     run(100); CHECK(!seen.buttons && !ux.tap);
@@ -702,7 +702,7 @@ int main(void)
     for (i = 0; i < HOLD_MS + 50 && last.kind != REQ_CONFIG; i++) run(1);
     CHECK(last.kind == REQ_CONFIG && i >= HOLD_MS - 10);
     /* Drained after ux_ignore_held. */
-    reset(CTL_BOOT); ux_ignore_held(); pad.buttons = PAD_HOME | PAD_B; run(6000);
+    reset(CTL_BOOT); ux_ignore_held(); pad.buttons = PAD_HOME | PAD_EAST; run(6000);
     CHECK(last.kind == REQ_NONE && !seen.buttons);
     pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE);
     reset(CTL_CONNECTED); now = 0xffffffc0u; pad.buttons = PAD_HOME; run(ux_timeouts.home_grace_ms + 1);

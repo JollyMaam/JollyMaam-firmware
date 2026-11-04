@@ -175,22 +175,22 @@ int main(void)
     u32 t;
 
     /* Identity, a swap, a key turned off. */
-    at(PAD_A | PAD_UP, 1000); CHECK(out == (PAD_A | PAD_UP) && !every && !remap_deadline());
+    at(PAD_SOUTH | PAD_UP, 1000); CHECK(out == (PAD_SOUTH | PAD_UP) && !every && !remap_deadline());
     m.map[0] = 1 + 1; m.map[1] = 0 + 1; m.map[2] = REMAP_OFF;
-    at(PAD_A | PAD_SCREENSHOT, 1001); CHECK(out == PAD_B);
-    at(PAD_A | PAD_B, 1002); CHECK(out == (PAD_A | PAD_B));
+    at(PAD_SOUTH | PAD_SCREENSHOT, 1001); CHECK(out == PAD_EAST);
+    at(PAD_SOUTH | PAD_EAST, 1002); CHECK(out == (PAD_SOUTH | PAD_EAST));
     /* Mapped onto opposite d-pad directions: they cancel. */
     m.map[3] = 16 + 1; m.map[4] = 18 + 1;
-    at(PAD_X | PAD_Y, 1003); CHECK(out == 0);
-    at(PAD_X, 1004); CHECK(out == PAD_UP);
+    at(PAD_WEST | PAD_NORTH, 1003); CHECK(out == 0);
+    at(PAD_WEST, 1004); CHECK(out == PAD_UP);
     memset(&m, 0, sizeof(m)); remap_reset();
 
     /* Rules add to the base row; a chord from one key; base off: only the rules. */
     rule(0, RT_HELD, 9, 0, RE_HOLD, PAD_L1 | PAD_R1, 0);
-    at(PAD_R4 | PAD_A, 2000); CHECK(out == (PAD_L1 | PAD_R1 | PAD_R4 | PAD_A));
-    at(PAD_A, 2001); CHECK(out == PAD_A);
+    at(PAD_R4 | PAD_SOUTH, 2000); CHECK(out == (PAD_L1 | PAD_R1 | PAD_R4 | PAD_SOUTH));
+    at(PAD_SOUTH, 2001); CHECK(out == PAD_SOUTH);
     m.map[9] = 0 + 1;
-    at(PAD_R4, 2002); CHECK(out == (PAD_L1 | PAD_R1 | PAD_A));
+    at(PAD_R4, 2002); CHECK(out == (PAD_L1 | PAD_R1 | PAD_SOUTH));
     m.map[9] = REMAP_OFF;
     at(PAD_R4, 2003); CHECK(out == (PAD_L1 | PAD_R1));
     m.map[9] = 0;
@@ -198,19 +198,19 @@ int main(void)
     at(PAD_SCREENSHOT, 2004); CHECK(out == PAD_SCREENSHOT);
     memset(&m, 0, sizeof(m)); remap_reset();
 
-    /* Turbo at 10 Hz: 50 ms down, 50 ms up, from the press; held keeps A too. */
-    rule(0, RT_HELD, 0, 0, RE_TURBO, PAD_A, 10);
-    rule(1, RT_HELD, 0, 0, RE_HOLD, PAD_B, 0);
+    /* Turbo at 10 Hz: 50 ms down, 50 ms up, from the press; held keeps south too. */
+    rule(0, RT_HELD, 0, 0, RE_TURBO, PAD_SOUTH, 10);
+    rule(1, RT_HELD, 0, 0, RE_HOLD, PAD_EAST, 0);
     m.map[0] = REMAP_OFF;
-    at(PAD_A, 3000); CHECK(out == (PAD_A | PAD_B) && remap_deadline() == 3050);
-    at(PAD_A, 3049); CHECK(out == (PAD_A | PAD_B));
-    at(PAD_A, 3050); CHECK(out == PAD_B && remap_deadline() == 3100);
-    at(PAD_A, 3100); CHECK(out == (PAD_A | PAD_B));
-    at(PAD_A, 3420); CHECK(out == (PAD_A | PAD_B)); /* a stall: the phase from the clock */
+    at(PAD_SOUTH, 3000); CHECK(out == (PAD_SOUTH | PAD_EAST) && remap_deadline() == 3050);
+    at(PAD_SOUTH, 3049); CHECK(out == (PAD_SOUTH | PAD_EAST));
+    at(PAD_SOUTH, 3050); CHECK(out == PAD_EAST && remap_deadline() == 3100);
+    at(PAD_SOUTH, 3100); CHECK(out == (PAD_SOUTH | PAD_EAST));
+    at(PAD_SOUTH, 3420); CHECK(out == (PAD_SOUTH | PAD_EAST)); /* a stall: the phase from the clock */
     at(0, 3421); CHECK(out == 0 && !remap_deadline());
     /* Rate 0: the report builder flips it. */
-    rule(0, RT_HELD, 0, 0, RE_TURBO, PAD_A, 0);
-    at(PAD_A, 3500); CHECK(out == PAD_B && every == PAD_A && !remap_deadline());
+    rule(0, RT_HELD, 0, 0, RE_TURBO, PAD_SOUTH, 0);
+    at(PAD_SOUTH, 3500); CHECK(out == PAD_EAST && every == PAD_SOUTH && !remap_deadline());
     at(0, 3501); CHECK(!every);
     memset(&m, 0, sizeof(m)); remap_reset();
 
@@ -225,12 +225,12 @@ int main(void)
     at(0, 5060); CHECK(out == 0 && !remap_deadline());
     memset(&m, 0, sizeof(m)); remap_reset();
 
-    /* Tap and long press on one key: tap = A on a quick release, hold = L1. */
+    /* Tap and long press on one key: tap = south on a quick release, hold = L1. */
     memset(m.map, REMAP_OFF, sizeof(m.map));
-    rule(0, RT_TAPPED, 9, 300, RE_TAP, PAD_A, 0);
+    rule(0, RT_TAPPED, 9, 300, RE_TAP, PAD_SOUTH, 0);
     rule(1, RT_HELD_FOR, 9, 300, RE_HOLD, PAD_L1, 0);
     at(PAD_R4, 6000); CHECK(out == 0 && remap_deadline() == 6300);
-    at(0, 6100); CHECK(out == PAD_A);
+    at(0, 6100); CHECK(out == PAD_SOUTH);
     at(0, 6160); CHECK(out == 0);
     at(PAD_R4, 7000); at(PAD_R4, 7299); CHECK(out == 0);
     at(PAD_R4, 7300); CHECK(out == PAD_L1);
@@ -240,14 +240,14 @@ int main(void)
     /* Toggle hold, toggle turbo. */
     memset(m.map, REMAP_OFF, sizeof(m.map));
     rule(0, RT_PRESSED, 13, 0, RE_TOGGLE_HOLD, PAD_UP, 0);
-    rule(1, RT_PRESSED, 8, 0, RE_TOGGLE_TURBO, PAD_A, 10);
+    rule(1, RT_PRESSED, 8, 0, RE_TOGGLE_TURBO, PAD_SOUTH, 10);
     at(PAD_L3, 8000); CHECK(out == PAD_UP);
     at(0, 8100); CHECK(out == PAD_UP);
     at(PAD_L3, 8200); CHECK(out == 0);
     at(0, 8300); CHECK(out == 0);
-    at(PAD_L4, 9000); CHECK(out == PAD_A);
+    at(PAD_L4, 9000); CHECK(out == PAD_SOUTH);
     at(0, 9010); at(0, 9050); CHECK(out == 0);
-    at(0, 9100); CHECK(out == PAD_A);
+    at(0, 9100); CHECK(out == PAD_SOUTH);
     at(PAD_L4, 9120); at(0, 9200); CHECK(out == 0 && !remap_deadline());
     memset(&m, 0, sizeof(m)); remap_reset();
 
@@ -261,37 +261,42 @@ int main(void)
     at(0, 11000); at(PAD_M, 11400); at(0, 11450); CHECK(out == 0); /* too slow */
     memset(&m, 0, sizeof(m)); remap_reset();
 
-    /* Turbo modifier: while R4 is held, A and B (here B sends X) pulse at
-     * 10 Hz from the later of their press and R4's; Y is not chosen. */
+    /* Turbo modifier: while R4 is held, south and east (here east sends
+     * west) pulse at 10 Hz from the later of their press and R4's; north is
+     * not chosen. */
     m.map[9] = REMAP_OFF; m.map[1] = 3 + 1;
-    rule(0, RT_HELD, 9, 0, RE_TURBO_MODIFIER, PAD_A | PAD_B, 10);
-    rule(1, RT_HELD, 0, 0, RE_HOLD, PAD_L1, 0);     /* A's hold rule pulses with it */
-    at(PAD_A | PAD_Y, 13000); CHECK(out == (PAD_A | PAD_L1 | PAD_Y));
-    at(PAD_A | PAD_Y | PAD_R4, 13100); CHECK(out == (PAD_A | PAD_L1 | PAD_Y) && remap_deadline() == 13150);
-    at(PAD_A | PAD_Y | PAD_R4, 13150); CHECK(out == PAD_Y);
-    at(PAD_A | PAD_B | PAD_Y | PAD_R4, 13170); CHECK(out == (PAD_X | PAD_Y));   /* B's own phase */
-    at(PAD_A | PAD_B | PAD_Y | PAD_R4, 13200); CHECK(out == (PAD_A | PAD_L1 | PAD_X | PAD_Y));
-    at(PAD_A | PAD_B | PAD_Y | PAD_R4, 13220); CHECK(out == (PAD_A | PAD_L1 | PAD_Y));
-    at(PAD_A | PAD_B | PAD_Y, 13230); CHECK(out == (PAD_A | PAD_L1 | PAD_X | PAD_Y)); /* off: held again */
+    rule(0, RT_HELD, 9, 0, RE_TURBO_MODIFIER, PAD_SOUTH | PAD_EAST, 10);
+    rule(1, RT_HELD, 0, 0, RE_HOLD, PAD_L1, 0);     /* south's hold rule pulses with it */
+    at(PAD_SOUTH | PAD_NORTH, 13000); CHECK(out == (PAD_SOUTH | PAD_L1 | PAD_NORTH));
+    at(PAD_SOUTH | PAD_NORTH | PAD_R4, 13100);
+    CHECK(out == (PAD_SOUTH | PAD_L1 | PAD_NORTH) && remap_deadline() == 13150);
+    at(PAD_SOUTH | PAD_NORTH | PAD_R4, 13150); CHECK(out == PAD_NORTH);
+    at(PAD_SOUTH | PAD_EAST | PAD_NORTH | PAD_R4, 13170);
+    CHECK(out == (PAD_WEST | PAD_NORTH));                       /* east's own phase */
+    at(PAD_SOUTH | PAD_EAST | PAD_NORTH | PAD_R4, 13200);
+    CHECK(out == (PAD_SOUTH | PAD_L1 | PAD_WEST | PAD_NORTH));
+    at(PAD_SOUTH | PAD_EAST | PAD_NORTH | PAD_R4, 13220); CHECK(out == (PAD_SOUTH | PAD_L1 | PAD_NORTH));
+    at(PAD_SOUTH | PAD_EAST | PAD_NORTH, 13230);
+    CHECK(out == (PAD_SOUTH | PAD_L1 | PAD_WEST | PAD_NORTH));  /* off: held again */
     at(PAD_R4, 13240); CHECK(out == 0 && !remap_deadline());
     /* At max the report builder flips them; toggled on by a press. */
-    rule(0, RT_PRESSED, 9, 0, RE_TOGGLE_TURBO_MODIFIER, PAD_A, 0);
+    rule(0, RT_PRESSED, 9, 0, RE_TOGGLE_TURBO_MODIFIER, PAD_SOUTH, 0);
     at(0, 13300); at(PAD_R4, 13310); at(0, 13320);
-    at(PAD_A, 13330); CHECK(out == 0 && every == (PAD_A | PAD_L1));
-    at(PAD_A | PAD_R4, 13340); at(PAD_A, 13350); CHECK(out == (PAD_A | PAD_L1) && !every);
+    at(PAD_SOUTH, 13330); CHECK(out == 0 && every == (PAD_SOUTH | PAD_L1));
+    at(PAD_SOUTH | PAD_R4, 13340); at(PAD_SOUTH, 13350); CHECK(out == (PAD_SOUTH | PAD_L1) && !every);
     memset(&m, 0, sizeof(m)); remap_reset();
 
     /* A held key counts as pressed after a reset. */
     memset(m.map, REMAP_OFF, sizeof(m.map));
-    rule(0, RT_PRESSED, 0, 0, RE_TAP, PAD_B, 0);
-    at(PAD_A, 12000); remap_reset(); at(PAD_A, 12001); CHECK(out == PAD_B);
+    rule(0, RT_PRESSED, 0, 0, RE_TAP, PAD_EAST, 0);
+    at(PAD_SOUTH, 12000); remap_reset(); at(PAD_SOUTH, 12001); CHECK(out == PAD_EAST);
     /* Clock wrap. */
     memset(&m, 0, sizeof(m)); remap_reset();
-    rule(0, RT_HELD, 0, 0, RE_TURBO, PAD_A, 10);
+    rule(0, RT_HELD, 0, 0, RE_TURBO, PAD_SOUTH, 10);
     m.map[0] = REMAP_OFF;
     t = 0xffffffe0u;
-    at(PAD_A, t); CHECK(out == PAD_A);
-    at(PAD_A, t + 50); CHECK(out == 0 && remap_deadline() == t + 100);
+    at(PAD_SOUTH, t); CHECK(out == PAD_SOUTH);
+    at(PAD_SOUTH, t + 50); CHECK(out == 0 && remap_deadline() == t + 100);
     return TEST_DONE("remap");
 }
 #endif

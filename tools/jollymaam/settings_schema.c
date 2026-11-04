@@ -1,7 +1,7 @@
 /* Export the real board's settings schema without the SDK or device I/O.
  * Unused settings operations are discarded by the host linker. */
 #include "../../src/core/settings.c"
-#include "settings_defaults.inc"
+#include "board.inc"
 #include "../../src/lib/sha256.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -109,6 +109,27 @@ static int storage_fits(void)
     return 1;
 }
 
+/* Every entry a known input and kind, no input twice. */
+static int layout_ok(void)
+{
+    u64 seen = 0;
+    u32 i;
+
+    for (i = 0; i < board_layout_count; i++) {
+        const struct board_control *c = &board_layout[i];
+        u64 bit = 1ull << (c->input & 63);
+        int known = c->input <= IN_R3 || (c->input >= IN_UP && c->input <= IN_R2) ||
+                    c->input == IN_LSTICK || c->input == IN_RSTICK;
+        if (!known || c->kind >= LAYOUT_KINDS || (seen & bit)) {
+            fprintf(stderr, "board_layout entry %u: input %u kind %u is %s\n", i, c->input, c->kind,
+                    !known ? "not an input" : c->kind >= LAYOUT_KINDS ? "not a kind" : "there twice");
+            return 0;
+        }
+        seen |= bit;
+    }
+    return 1;
+}
+
 int main(int argc, char **argv)
 {
     u8 field[4096], digest[32], info[JM_SCHEMA_INFO_SIZE] = {0};
@@ -116,7 +137,7 @@ int main(int argc, char **argv)
     FILE *out;
 
     if (argc != 3) { fputs("usage: settings-schema SCHEMA HEADER\n", stderr); return 1; }
-    if (!storage_fits()) return 1;
+    if (!storage_fits() || !layout_ok()) return 1;
     append("JMSC", 4);
     word(JM_SCHEMA_FORMAT);
     word(JM_PROTOCOL);

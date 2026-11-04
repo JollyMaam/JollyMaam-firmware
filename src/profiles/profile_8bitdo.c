@@ -18,9 +18,9 @@ static u8 rumble[2];
 
 static const struct { u32 pad; u8 bit; } buttons[] = {
     { PAD_START, 0 }, { PAD_L3, 1 }, { PAD_R3, 2 }, { PAD_SELECT, 3 },
-    { PAD_X, 4 }, { PAD_Y, 5 }, { PAD_RIGHT, 6 }, { PAD_LEFT, 7 },
+    { PAD_WEST, 4 }, { PAD_NORTH, 5 }, { PAD_RIGHT, 6 }, { PAD_LEFT, 7 },
     { PAD_DOWN, 8 }, { PAD_UP, 9 }, { PAD_L1, 10 }, { PAD_R1, 11 },
-    { PAD_B, 12 }, { PAD_A, 13 }, { PAD_HOME, 17 },
+    { PAD_EAST, 12 }, { PAD_SOUTH, 13 }, { PAD_HOME, 17 },
 };
 
 static u16 axis(s32 v)                   /* the receiver reports 0x7fff - this */
@@ -103,7 +103,7 @@ int main(void)
 
     memset(&p, 0, sizeof(p));
     begin(NULL);
-    p.buttons = PAD_A | PAD_HOME;
+    p.buttons = PAD_SOUTH | PAD_HOME;
     p.ly = 1000;                         /* down */
     p.l2 = 0xff00;
     CHECK(report(&p, 0, out, &id) == FRAME_SIZE && out[0] == 0x90);

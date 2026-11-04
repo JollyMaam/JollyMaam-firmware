@@ -568,12 +568,12 @@ static int finish(struct set_cal *cal, u32 now)
 }
 
 /* One step with the latest raw input.  CAL_SAVE: *cal was updated and should
- * be stored.  Buttons: A or B finishes the sweep (whichever is "accept" to
- * the user: Xbox or Nintendo habit), Home (which started it) cancels. */
+ * be stored.  Buttons: south or east finishes the sweep (whichever is "accept"
+ * to the user: Xbox or Nintendo habit), Home (which started it) cancels. */
 int cal_step(const struct in_raw *raw, u32 now, struct set_cal *cal)
 {
     u32 t = now - r.since, i;
-    u16 ab = raw->buttons & (PAD_A | PAD_B | PAD_HOME);
+    u16 ab = raw->buttons & (PAD_SOUTH | PAD_EAST | PAD_HOME);
 
     switch (r.phase) {
     case PH_SETTLE:

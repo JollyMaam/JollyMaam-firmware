@@ -60,6 +60,7 @@ static void RF_BLE_CODE le_hw_destroy(void);
 static struct ble_hw *RF_BLE_CODE le_hw_open(void);
 static void INIT_LIST_HEAD(struct list_head *list);
 static void RF_BLE_CODE __hw_tx_process(struct ble_hw *hw);
+static void RF_BLE_CODE ble_tx_drop_staged(struct ble_hw *ble_hw);
 static void RF_BLE_CODE ble_latency_manualhold(struct ble_hw *hw);
 static void RF_BLE_CODE ble_hw_decrypt(struct ble4_hw *hw, struct ble_rx *rx);
 static void cpu_reset(void) { p33_soft_reset(); }
@@ -723,6 +724,7 @@ void RF_BLE_CODE le_hw_close(struct ble_hw *hw)
     hw_dma_free(hw4->tx[0]);
     hw4->tx[0] = 0;
     hw4->tx[1] = 0;
+    ble_tx_drop_staged(hw);
     hw_dma_free(hw4->rx[1]);
     hw_dma_free(hw4->rx[0]);
     hw4->rx[0] = 0;
@@ -1379,42 +1381,118 @@ static void RF_BLE_CODE __attribute__((noinline)) ble_hw_decrypt(struct ble4_hw 
     }
 }
 
-static void RF_BLE_CODE __hw_tx_buf_proess(struct ble_hw *ble_hw, u8 index, u8 idle)
+/* TX slot ownership.  TXTOG is the slot the baseband sends next; it moves
+ * on when the peer acknowledges data from it.  A completed current slot sends
+ * an empty PDU, whose acknowledgement does not move TXTOG, so data waiting in
+ * the other slot would wait for ever.  Data written into the current slot
+ * while such an empty PDU waits for its acknowledgement is lost when that
+ * comes.  And an empty PDU that is not acknowledged is sent again from the
+ * slot's descriptor.  So:
+ *   - a retired descriptor is reset to an empty PDU before its buffer is freed;
+ *   - while the current slot is busy, the next packet goes into the other one;
+ *   - a completed current slot is refilled only between connection events.
+ * A packet that loses the race against a toggle is already encrypted; it
+ * waits in tx_staged for the next slot it may use. */
+static struct ble_tx *tx_staged[8] __attribute__((section(".ble_rf_bss")));
+
+static struct ble_tx **RF_BLE_CODE ble_tx_staged(struct ble_hw *ble_hw)
+{
+    u8 id = HW_ID(ble_hw);
+    return id < 8 ? &tx_staged[id] : 0;
+}
+
+static void RF_BLE_CODE ble_tx_drop_staged(struct ble_hw *ble_hw)
+{
+    struct ble_tx **staged = ble_tx_staged(ble_hw);
+    if (staged && *staged) { hw_dma_free(*staged); *staged = 0; }
+}
+
+static void RF_BLE_CODE ble_tx_empty_slot(struct ble4_hw *hw, u8 index)
+{
+    volatile u16 *header = index ? &hw->ble_fp.TXDHDR1 : &hw->ble_fp.TXDHDR0;
+    *header = (*header & 0x14u) | 1u;
+    if (index) hw->ble_fp.TXAHDR1 = 0;
+    else hw->ble_fp.TXAHDR0 = 0;
+}
+
+static void RF_BLE_CODE ble_tx_retire(struct ble_hw *ble_hw, u8 index)
 {
     struct ble4_hw *hw = ble_hw->ble4_hw;
-    struct ble_tx **slot = &hw->tx[index];
-    struct ble_tx *tx = *slot;
-    if (idle) {
-        if (tx) {
-            const struct ble_handler *handler = hw->handler;
-            if (handler && handler->tx_probe_handler) handler->tx_probe_handler(hw->priv, tx);
-            tx = *slot;
-            if (tx->ack_callback) tx->ack_callback(hw->priv);
-            hw_dma_free(*slot);
-        }
+    if (!hw->tx[index]) return;
+    ble_tx_empty_slot(hw, index);
+    const struct ble_handler *handler = hw->handler;
+    if (handler && handler->tx_probe_handler) handler->tx_probe_handler(hw->priv, hw->tx[index]);
+    struct ble_tx *tx = hw->tx[index];
+    if (tx->ack_callback) tx->ack_callback(hw->priv);
+    hw_dma_free(hw->tx[index]);
+    hw->tx[index] = 0;
+}
+
+/* The next packet to send, encrypted: a staged one first, then control, then
+ * data. */
+static struct ble_tx *RF_BLE_CODE ble_tx_next(struct ble_hw *ble_hw)
+{
+    struct ble4_hw *hw = ble_hw->ble4_hw;
+    struct ble_tx **staged = ble_tx_staged(ble_hw);
+    struct ble_tx *tx = staged ? *staged : 0;
+    if (tx) *staged = 0;
+    else {
         if (!hw->tx_acl_c_block) tx = (struct ble_tx *)hw_dma_pop(&hw->tx_head_h);
-        else tx = 0;
         if (!tx && !hw->tx_acl_block) tx = (struct ble_tx *)hw_dma_pop(&hw->tx_head);
-        if (!tx) {
-            hw->ble_fp.INTFRAME &= (u16)~64u;
-            __set_extended_empty_tx_data(ble_hw);
-            *slot = 0;
-            return;
-        }
-        tx->md = hw_dma_empty(&hw->tx_head) == 0;
+        if (!tx) return 0;
         ble_hw_encrpty(hw, tx);
-        *slot = tx;
-        if (config_vendor_le_bb & 8) tx->md = 0;
-        ble_hw_tx(ble_hw, tx, index);
-        u16 intframe = hw->ble_fp.INTFRAME;
-        hw->ble_fp.INTFRAME = (u16)((tx->md ? 64u : 0u) | (intframe & (u16)~64u));
+    }
+    tx->md = (config_vendor_le_bb & 8) == 0 && hw_dma_empty(&hw->tx_head) == 0;
+    return tx;
+}
+
+/* Between connection events, with at least a slot (two on a central, which
+ * sends first) before the next anchor: the margin is not measured. */
+static int RF_BLE_CODE ble_tx_idle(struct ble_hw *ble_hw)
+{
+    if (*(volatile u32 *)1867832 & 2u) return 0;
+    u32 low = __get_ble_anchor_con(ble_hw, 0);
+    u32 high = __get_ble_anchor_con(ble_hw, 14);
+    u32 slots = ((high << 16) & 0x00ff0000u) | (low & 0xffffu);
+    return slots >= (ble_hw->ble4_hw->state == 6 ? 2u : 1u) && (*(volatile u32 *)1867832 & 2u) == 0;
+}
+
+/* Hand slot index to the baseband: the current slot only between events,
+ * the other only while it is still the other. */
+static int RF_BLE_CODE ble_tx_commit(struct ble_hw *ble_hw, struct ble_tx *tx, u8 index)
+{
+    struct ble4_hw *hw = ble_hw->ble4_hw;
+    struct ble_tx **staged = ble_tx_staged(ble_hw);
+    ble_hw_tx(ble_hw, tx, index);
+    local_irq_disable();
+    RF_BLE_CSYNC();
+    int ok = !staged || (hw->ble_fp.TXTOG & 1) != index || ble_tx_idle(ble_hw);
+    if (ok) {
         if (index) hw->ble_fp.TXBUF1CNTL &= (u16)~1u;
         else hw->ble_fp.TXBUF0CNTL &= (u16)~1u;
-        if (tx->callback) tx->callback(hw->priv);
-        return;
     }
+    local_irq_enable();
+    if (!ok) {
+        ble_tx_empty_slot(hw, index);
+        *staged = tx;
+        return 0;
+    }
+    hw->tx[index] = tx;
+    u16 intframe = hw->ble_fp.INTFRAME;
+    hw->ble_fp.INTFRAME = (u16)((tx->md ? 64u : 0u) | (intframe & (u16)~64u));
+    if (tx->callback) tx->callback(hw->priv);
+    return 1;
+}
+
+/* A busy slot whose packet says no more data gets MD when more is queued. */
+static void RF_BLE_CODE ble_tx_update_md(struct ble_hw *ble_hw, u8 index)
+{
+    struct ble4_hw *hw = ble_hw->ble4_hw;
+    struct ble_tx *tx = hw->tx[index];
     if (!tx || tx->md) return;
     int empty = hw_dma_empty(&hw->tx_head);
+    struct ble_tx **staged = ble_tx_staged(ble_hw);
+    if (staged && *staged) empty = 0;
     tx->md = (config_vendor_le_bb & 8) == 0 && empty == 0;
     ble_hw_tx(ble_hw, tx, index);
 }
@@ -1426,6 +1504,48 @@ static u8 tx_soft_snapshot(u8 first, u8 second)
     return diff == 1 || diff == 3 || diff == 7 ? second : first;
 }
 
+/* Fill a completed slot with the next packet; 0 when there is none. */
+static int RF_BLE_CODE ble_tx_fill(struct ble_hw *ble_hw, u8 index)
+{
+    struct ble4_hw *hw = ble_hw->ble4_hw;
+    struct ble_tx *tx = ble_tx_next(ble_hw);
+    if (!tx) {
+        hw->ble_fp.INTFRAME &= (u16)~64u;
+        __set_extended_empty_tx_data(ble_hw);
+        return 0;
+    }
+    return ble_tx_commit(ble_hw, tx, index);
+}
+
+static void RF_BLE_CODE ble_tx_service(struct ble_hw *ble_hw)
+{
+    struct ble4_hw *hw = ble_hw->ble4_hw;
+    u8 first = (u8)((hw->ble_fp.TXTOG & 1) | ((hw->ble_fp.TXBUF0CNTL << 1) & 2) |
+                    ((hw->ble_fp.TXBUF1CNTL << 2) & 4));
+    u8 second = (u8)((hw->ble_fp.TXTOG & 1) | ((hw->ble_fp.TXBUF0CNTL << 1) & 2) |
+                     ((hw->ble_fp.TXBUF1CNTL << 2) & 4));
+    u8 snapshot = tx_soft_snapshot(first, second);
+    u8 current = snapshot & 1, next = current ^ 1;
+    u8 current_done = (snapshot >> (current + 1)) & 1;
+    u8 next_done = (snapshot >> (next + 1)) & 1;
+    if (current_done) ble_tx_retire(ble_hw, current);
+    else ble_tx_update_md(ble_hw, current);
+    if (next_done) ble_tx_retire(ble_hw, next);
+    else ble_tx_update_md(ble_hw, next);
+    if (!current_done) {
+        if (next_done) ble_tx_fill(ble_hw, next);
+        return;
+    }
+    /* Only empty PDUs go out now; without MD the event can end. */
+    if (!ble_tx_idle(ble_hw)) {
+        hw->ble_fp.INTFRAME &= (u16)~64u;
+        return;
+    }
+    if (next_done && ble_tx_fill(ble_hw, current)) ble_tx_fill(ble_hw, next);
+}
+
+/* Interrupts that find the lock taken leave a request (2); the holder runs
+ * again so no completion is left unprocessed. */
 static void RF_BLE_CODE __hw_tx_process(struct ble_hw *ble_hw)
 {
     struct ble4_hw *hw = ble_hw->ble4_hw;
@@ -1434,19 +1554,22 @@ static void RF_BLE_CODE __hw_tx_process(struct ble_hw *ble_hw)
     local_irq_disable();
     RF_BLE_CSYNC();
     RF_BLE_CSYNC();
-    if (*(volatile int *)&hw->tx_lock.counter == 1) { local_irq_enable(); return; }
+    if (*(volatile int *)&hw->tx_lock.counter != 0) {
+        atomic_set(&hw->tx_lock, 2);
+        local_irq_enable();
+        return;
+    }
     atomic_set(&hw->tx_lock, 1);
     local_irq_enable();
-    u8 first = (u8)((hw->ble_fp.TXTOG & 1) | ((hw->ble_fp.TXBUF0CNTL << 1) & 2) |
-                    ((hw->ble_fp.TXBUF1CNTL << 2) & 4));
-    u8 second = (u8)((hw->ble_fp.TXTOG & 1) | ((hw->ble_fp.TXBUF0CNTL << 1) & 2) |
-                     ((hw->ble_fp.TXBUF1CNTL << 2) & 4));
-    u8 snapshot = tx_soft_snapshot(first, second);
-    u8 idle = snapshot & 1;
-    __hw_tx_buf_proess(ble_hw, idle, (snapshot >> (idle + 1)) & 1);
-    u8 other = idle ^ 1;
-    __hw_tx_buf_proess(ble_hw, other, (snapshot >> (other ? 2 : 1)) & 1);
-    atomic_set(&hw->tx_lock, 0);
+    for (;;) {
+        ble_tx_service(ble_hw);
+        local_irq_disable();
+        RF_BLE_CSYNC();
+        int again = *(volatile int *)&hw->tx_lock.counter == 2;
+        atomic_set(&hw->tx_lock, again ? 1 : 0);
+        local_irq_enable();
+        if (!again) break;
+    }
 }
 
 static void RF_BLE_CODE rx_mark_invalid(struct ble_rx *rx)
@@ -1537,6 +1660,7 @@ static void RF_BLE_CODE __hw_rx_buf_process(struct ble_hw *hw, struct ble_rx *rx
             hw4->tx_seqn = 0;
             hw_dma_free(hw4->tx[0]); hw_dma_free(hw4->tx[1]);
             hw4->tx[0] = 0; hw4->tx[1] = 0;
+            ble_tx_drop_staged(hw);
             set_hw_channel_selection_algorithm(hw, rx);
         } else if (log_tag_const_e_LE_BB)
             log_print(4, NULL, "<Error>: [LE_BB]%s / 0x%x\n\r\n", "ble_rx_adv_process", rx->type & 15);
@@ -1873,6 +1997,8 @@ event_priority_done:
                 }
             }
             }
+            /* The event is over: a completed current slot may be refilled. */
+            __hw_tx_process(hw);
             ble_power_off(hw);
         }
         if (((*(volatile u32 *)1867856 & bit) & *(volatile u32 *)1867852) != 0) {
@@ -2210,6 +2336,7 @@ static void RF_BLE_CODE le_hw_ioctrl(struct ble_hw *hw, int ctrl, ...)
         hw_dma_free(hw4->tx[1]);
         hw4->tx[0] = 0;
         hw4->tx[1] = 0;
+        ble_tx_drop_staged(hw);
         hw4->tx_seqn = 0;
         u16 toggle = hw4->ble_fp.TXTOG;
         hw4->ble_fp.TXAHDR0 = 0;
@@ -2429,8 +2556,21 @@ int ble_master_multilink_schedule(struct ble_hw *hw, u32 slots, u8 type, u8 numb
 void hw_dma_free(void *p) { (void)p; ++frees; }
 void hw_dma_push(struct _dma_head *head, struct _dma *p)
 { (void)head; (void)p; ++queues; }
+/* A data queue for the TX slot tests; other queues are empty there. */
+static struct _dma_head *test_tx_head;
+static struct ble_tx *test_queue[4];
+static unsigned test_queued, test_popped;
 int hw_dma_empty(struct _dma_head *head)
-{ (void)head; ++empty_calls; return 0; }
+{
+    ++empty_calls;
+    if (!test_tx_head) return 0;
+    return head != test_tx_head || test_popped == test_queued;
+}
+void *hw_dma_pop(struct _dma_head *head)
+{
+    if (head != test_tx_head || test_popped == test_queued) return 0;
+    return test_queue[test_popped++];
+}
 s8 ble_analog_get_rssi(struct ble_param *fp) { (void)fp; return -42; }
 void record_rx_chsel_algorithm(struct ble_rx *rx, u8 algorithm)
 {
@@ -2446,6 +2586,7 @@ u8 ble_ext_primary_scan_preprocess_ir(struct ble_hw *hw, struct ble_rx *rx)
 { (void)hw; (void)rx; return 0; }
 void __set_extended_tx_data(struct ble_hw *hw, u8 chsel, int index)
 { (void)hw; (void)chsel; (void)index; }
+void __set_extended_empty_tx_data(struct ble_hw *hw) { (void)hw; }
 static void test_rx_probe(void *priv, struct ble_rx *rx)
 { (void)priv; (void)rx; ++rx_probes; }
 static void test_tws_probe(void *priv, struct ble_rx *rx)
@@ -2459,6 +2600,124 @@ static const struct ble_handler replacement_handler = {
 static const struct ble_handler initial_handler = {
     .tws_rx_probe_handler = test_tws_probe,
 };
+static struct ble_hw *test_hw;
+static int test_toggle_on_ack = -1, test_nested;
+static unsigned acks;
+static void test_ack(void *priv)
+{
+    struct ble4_hw *hw = priv;
+    ++acks;
+    if (test_toggle_on_ack >= 0) { hw->ble_fp.TXTOG = (u16)test_toggle_on_ack; test_toggle_on_ack = -1; }
+    if (test_nested) { test_nested = 0; __hw_tx_process(test_hw); }
+}
+/* Packet buffers must lie just above the baseband handle (PHY_TO_BLE). */
+static struct {
+    struct ble_baseband_layer_handle baseband;
+    u8 storage[5][sizeof(struct ble_tx) + 40];
+} test_bb;
+static void test_queue_reset(struct ble4_hw *hw, unsigned n)
+{
+    memset(test_bb.storage, 0, 4 * sizeof(test_bb.storage[0]));
+    for (unsigned i = 0; i < n; i++) {
+        test_queue[i] = (struct ble_tx *)test_bb.storage[i];
+        test_queue[i]->llid = 2; test_queue[i]->len = (u8)(10 + i);
+        test_queue[i]->ack_callback = test_ack;
+    }
+    test_tx_head = &hw->tx_head; test_queued = n; test_popped = 0;
+}
+#define TX_LEN(hw, i) ((i) ? (hw)->ble_fp.TXDHDR1 >> 8 : (hw)->ble_fp.TXDHDR0 >> 8)
+/* Radio idle with this many slots to the next anchor, or busy. */
+static void test_radio(int idle, u32 slots)
+{
+    *(volatile u32 *)1867832 = idle ? 0 : 2;
+    *(volatile u32 *)1867812 = slots;
+}
+static void test_tx_slots(struct ble_hw *ble_hw, struct ble4_hw *hw)
+{
+    struct ble_baseband_layer_handle *saved_bb = bb_hdl;
+    test_bb.baseband = *bb_hdl; bb_hdl = &test_bb.baseband;
+    test_hw = ble_hw;
+    hw->state = 7; config_btctler_le_roles = 3; hw->priv = hw; hw->handler = 0;
+    /* Both slots complete during an event: slot 0 sends empty PDUs, no MD,
+     * and nothing is written into either slot. */
+    test_queue_reset(hw, 3);
+    test_radio(0, 5);
+    hw->ble_fp.TXTOG = 0; hw->ble_fp.TXBUF0CNTL = 1; hw->ble_fp.TXBUF1CNTL = 1;
+    hw->ble_fp.TXDHDR0 = 0x0005; hw->ble_fp.TXDHDR1 = 0x0001; hw->ble_fp.INTFRAME = 64;
+    __hw_tx_process(ble_hw);
+    CHECK(test_popped == 0 && hw->tx[0] == 0 && hw->tx[1] == 0);
+    CHECK(hw->ble_fp.TXBUF0CNTL == 1 && hw->ble_fp.TXBUF1CNTL == 1 && !(hw->ble_fp.INTFRAME & 64));
+    CHECK(hw->tx_lock.counter == 0);
+    /* Too close to the anchor: still nothing. */
+    test_radio(1, 0);
+    __hw_tx_process(ble_hw);
+    CHECK(test_popped == 0);
+    /* Between events: the current slot first, then the other, in order. */
+    test_radio(1, 5);
+    __hw_tx_process(ble_hw);
+    CHECK(hw->tx[0] == test_queue[0] && hw->tx[1] == test_queue[1] && test_popped == 2);
+    CHECK(hw->ble_fp.TXBUF0CNTL == 0 && hw->ble_fp.TXBUF1CNTL == 0);
+    CHECK(TX_LEN(hw, 0) == 10 && TX_LEN(hw, 1) == 11);
+    CHECK((hw->ble_fp.TXDHDR0 & 4) == 4 && (hw->ble_fp.TXDHDR1 & 4) == 0);
+    /* Slot 0 acknowledged during an event: retired, its descriptor reset to
+     * an empty PDU (SN kept), refilled because slot 1 is now current. */
+    unsigned freed = frees;
+    test_radio(0, 5);
+    hw->ble_fp.TXTOG = 1; hw->ble_fp.TXBUF0CNTL = 1;
+    __hw_tx_process(ble_hw);
+    CHECK(frees == freed + 1 && hw->tx[0] == test_queue[2] && TX_LEN(hw, 0) == 12);
+    CHECK(hw->ble_fp.TXBUF0CNTL == 0 && test_popped == 3);
+    /* Both acknowledged, nothing queued: both retired and reset. */
+    freed = frees;
+    hw->ble_fp.TXTOG = 1; hw->ble_fp.TXBUF0CNTL = 1; hw->ble_fp.TXBUF1CNTL = 1;
+    __hw_tx_process(ble_hw);
+    CHECK(frees == freed + 2 && hw->tx[0] == 0 && hw->tx[1] == 0);
+    CHECK(hw->ble_fp.TXDHDR0 == 0x0005 && hw->ble_fp.TXDHDR1 == 0x0001);
+    CHECK(hw->ble_fp.TXAHDR0 == 0 && hw->ble_fp.TXAHDR1 == 0);
+    CHECK((hw->ble_fp.INTFRAME & 64) == 0);
+    /* A toggle between the snapshot and the commit, during an event: the
+     * encrypted packet is staged, the slot left an empty PDU; between events
+     * it goes into the current slot without being encrypted again. */
+    test_queue_reset(hw, 2);
+    struct ble_tx *old = (struct ble_tx *)test_bb.storage[4];
+    memset(old, 0, sizeof(test_bb.storage[4]));
+    old->len = 30; old->ack_callback = test_ack;
+    hw->tx[0] = old; hw->ble_fp.TXTOG = 1;
+    hw->ble_fp.TXBUF0CNTL = 1; hw->ble_fp.TXBUF1CNTL = 0;
+    hw->ble_fp.TXDHDR0 = 0x1e06;
+    static u8 busy_storage[sizeof(struct ble_tx) + 8];
+    struct ble_tx *busy = (struct ble_tx *)busy_storage;
+    hw->tx[1] = busy;
+    test_toggle_on_ack = 0;
+    __hw_tx_process(ble_hw);
+    CHECK(test_popped == 1 && hw->tx[0] == 0 && hw->ble_fp.TXBUF0CNTL == 1);
+    CHECK(hw->ble_fp.TXDHDR0 == 0x0005 && *ble_tx_staged(ble_hw) == test_queue[0]);
+    hw->tx[1] = 0; hw->ble_fp.TXBUF1CNTL = 1;
+    __hw_tx_process(ble_hw);
+    CHECK(test_popped == 1 && *ble_tx_staged(ble_hw) == test_queue[0]);
+    test_radio(1, 5);
+    __hw_tx_process(ble_hw);
+    CHECK(hw->tx[0] == test_queue[0] && *ble_tx_staged(ble_hw) == 0);
+    CHECK(hw->tx[1] == test_queue[1] && test_popped == 2);
+    /* An interrupt finding the lock taken makes the holder run again. */
+    test_queue_reset(hw, 1);
+    test_radio(0, 5);
+    hw->tx[1]->ack_callback = test_ack;
+    hw->ble_fp.TXTOG = 0; hw->ble_fp.TXBUF0CNTL = 0; hw->ble_fp.TXBUF1CNTL = 1;
+    test_nested = 1;
+    unsigned before = acks;
+    __hw_tx_process(ble_hw);
+    CHECK(acks == before + 1 && hw->tx_lock.counter == 0 && hw->tx[1] == test_queue[0]);
+    /* A closed link drops a staged packet. */
+    *ble_tx_staged(ble_hw) = old;
+    freed = frees;
+    ble_tx_drop_staged(ble_hw);
+    CHECK(*ble_tx_staged(ble_hw) == 0 && frees == freed + 1);
+    hw->tx[0] = hw->tx[1] = 0; test_tx_head = 0;
+    test_radio(0, 0);
+    bb_hdl = saved_bb;
+}
+
 int main(void)
 {
     struct ble4_hw hw = {0};
@@ -2538,8 +2797,10 @@ int main(void)
     frames[0].tx[0] = &tx;
     config_vendor_le_bb = 8;
     unsigned before_empty = empty_calls;
-    __hw_tx_buf_proess(&instances[0], 0, 0);
+    ble_tx_update_md(&instances[0], 0);
     CHECK(empty_calls == before_empty + 1 && tx.md == 0);
+    frames[0].tx[0] = 0;
+    config_vendor_le_bb = 0;
     /* The raw TX header is a word at len-2: type/LLID/address flags in
      * byte zero, SN/MD in byte one. Check builders against typed fields. */
     tx.type = 9; tx.llid = 2; tx.txadd = 0; tx.rxadd = 1;
@@ -2584,6 +2845,7 @@ int main(void)
     CHECK(*(volatile u32 *)1867808 == 0x41a5);
     __set_adv_channel_index(&instances[0], 0);
     CHECK(*(volatile u32 *)1867808 == 0x4040);
+    test_tx_slots(&instances[0], &frames[0]);
     munmap(regs, 4096);
     return TEST_DONE("btctrler_RF_ble");
 }

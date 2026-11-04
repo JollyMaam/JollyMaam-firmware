@@ -55,5 +55,29 @@ class Restore(unittest.TestCase):
         self.assertIsNone(error)
 
 
+class Layout(unittest.TestCase):
+    @staticmethod
+    def entry(number, kind, label):
+        return bytes([number, kind]) + label.encode().ljust(8, b"\0") + bytes([0, 0])
+
+    def test_pages_and_names(self):
+        table = [self.entry(0, 0, "B"), self.entry(1, 0, "A"), self.entry(32, 4, ""), self.entry(10, 6, "View")]
+        asked = []
+
+        def cmd(path, sub, arg=0, length=0, out=None):
+            asked.append(arg)
+            here = table[arg:arg + 2]                     # two a reply
+            return bytes([1, 12, len(table), len(here)]) + b"".join(here)
+        with patch.object(padtool, "cmd", side_effect=cmd):
+            layout = padtool.read_layout("p")
+        self.assertEqual(asked, [0, 2])
+        self.assertEqual([(e["name"], e["kind"], e["label"]) for e in layout],
+                         [("a", "face", "B"), ("b", "face", "A"), ("left_stick", "stick", ""), ("minus", "menu", "View")])
+
+    def test_old_firmware(self):
+        with patch.object(padtool, "cmd", return_value=b""):
+            self.assertIsNone(padtool.read_layout("p"))
+
+
 if __name__ == "__main__":
     unittest.main()

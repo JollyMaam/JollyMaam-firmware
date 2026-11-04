@@ -51,7 +51,7 @@ static const u32 matrix_button[MATRIX_COLS][MATRIX_ROWS] = {
     /*          PA3          PA4         PA6        PA7         PA8 */
     /* PC0 */ { PAD_UP,      PAD_RIGHT,  PAD_LEFT,  PAD_DOWN,   PAD_R3 },
     /* PC1 */ { PAD_SELECT,  PAD_SCREENSHOT, PAD_START, PAD_R4, PAD_L4 },
-    /* PC2 */ { PAD_Y,       PAD_X,      PAD_A,     PAD_B,      PAD_L3 },
+    /* PC2 */ { PAD_NORTH,   PAD_WEST,   PAD_SOUTH, PAD_EAST,   PAD_L3 },
 };
 
 static u8 matrix_col;
@@ -246,7 +246,7 @@ void plat_motors(u8 left, u8 right)
     motor_set(1, right);
 }
 
-#include "settings_defaults.inc"
+#include "board.inc"
 
 /* ---- LEDs: a chain on PB0, the Home light first -----------------------------
  * The stock image clocks 18 bytes, MSB first, out of PB0 from RAM code with

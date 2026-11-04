@@ -25,7 +25,7 @@
 const char board_name[] = "Ultimate 2C Bluetooth";
 const char board_short_name[] = "U2C BT";
 
-#include "settings_defaults.inc"
+#include "board.inc"
 
 struct pin { u8 group, pin; };
 
@@ -53,13 +53,13 @@ static int in(struct pin p)
 #define DEBOUNCE_SCANS 2             /* a release: up this many scans in a row */
 
 static const struct pin rows[ROWS] = { { 1, 5 }, { 0, 6 }, { 0, 1 }, { 2, 4 } };
-/* Each position's PAD_*, as the U2CW's matrix has them (Switch names on the
- * buttons: B south is PAD_A); Star is PAD_M. */
+/* Each position's PAD_*, as the U2CW's matrix has them; the buttons are in
+ * Nintendo order (board.inc: B south).  Star is PAD_M. */
 static const u32 keys[ROWS][COLUMNS] = {
-    { PAD_UP, PAD_Y, PAD_START, PAD_R4, PAD_L4 },
-    { PAD_LEFT, PAD_X, PAD_M, PAD_R1, PAD_L1 },
-    { PAD_DOWN, PAD_B, PAD_SELECT, PAD_R3, PAD_L3 },
-    { PAD_RIGHT, PAD_A, PAD_SCREENSHOT, 0, 0 },     /* 3, 3: Sync (SYNC_DOWN) */
+    { PAD_UP, PAD_NORTH, PAD_START, PAD_R4, PAD_L4 },
+    { PAD_LEFT, PAD_WEST, PAD_M, PAD_R1, PAD_L1 },
+    { PAD_DOWN, PAD_EAST, PAD_SELECT, PAD_R3, PAD_L3 },
+    { PAD_RIGHT, PAD_SOUTH, PAD_SCREENSHOT, 0, 0 },     /* 3, 3: Sync (SYNC_DOWN) */
 };
 static const struct pin home = { 1, 10 }, l2 = { 2, 11 }, r2 = { 2, 12 };
 

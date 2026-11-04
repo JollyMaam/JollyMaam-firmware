@@ -191,6 +191,8 @@ U2CW_STACK_RULES += blt_event_callback_func=on_connect,on_terminate,on_phy,on_le
 U2CW_STACK_RULES += $(foreach f,blt_connect bls_procPendingEvent blt_send_adv bls_ll_security_proc,$(f)=blt_event_callback_func)
 U2CW_STACK_RULES += blt_ll_packet_proc=blt_event_callback_func,plat_l2cap_receive
 U2CW_STACK_RULES += blc_gap_send_event=on_host
+# Through ll_push_tx_fifo_handler, from a stub that looks like a call to itself.
+U2CW_STACK_RULES += blc_l2cap_pushData_2_controller=bls_ll_pushTxFifo
 U2CW_STACK_RULES += $(foreach f,set_bond_store set_pairing_store set_cal_store renew_identity set_init write_target,\
 	$(f)>>release $(f)>>load $(f)>>stored_field.clone.2)
 U2CW_STACK_RULES += find_log<<set_init

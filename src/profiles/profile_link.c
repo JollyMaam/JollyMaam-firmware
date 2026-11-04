@@ -314,7 +314,7 @@ int main(void)
     set.gyro_speed = 40;
     CHECK(begin(&s) == IMU_OFF);
     memset(&p, 0, sizeof(p));
-    p.buttons = PAD_A | PAD_HOME | PAD_LEFT;
+    p.buttons = PAD_SOUTH | PAD_HOME | PAD_LEFT;
     p.lx = -32768; p.ly = 32767; p.rx = 5; p.ry = -6;
     p.l2 = 65535; p.r2 = 7;
     p.imu_count = 3;             /* the newest two travel */

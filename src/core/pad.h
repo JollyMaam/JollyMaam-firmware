@@ -51,15 +51,29 @@ struct shade { struct rgb rgb; u16 brightness; };
 
 /* ---- input.c ------------------------------------------------------------ */
 
+/* The pad's inputs by role.  The face buttons are named by where they sit,
+ * never by a letter: what is printed on them differs between pads (Xbox
+ * order: south A; Nintendo order: south B), and the profiles give each
+ * role the host's button for that place.  A pad with other buttons puts
+ * each on its own role, the nearest standard one first (board.inc).
+ * IN_*: the bit numbers, as the tools name inputs; PAD_*: the bits. */
 enum {
-    PAD_A = 1 << 0, PAD_B = 1 << 1, PAD_SCREENSHOT = 1 << 2, PAD_X = 1 << 3,
-    PAD_Y = 1 << 4, PAD_M = 1 << 5, PAD_L1 = 1 << 6, PAD_R1 = 1 << 7,
-    PAD_L4 = 1 << 8, PAD_R4 = 1 << 9, PAD_SELECT = 1 << 10, PAD_START = 1 << 11,
-    PAD_HOME = 1 << 12, PAD_L3 = 1 << 13, PAD_R3 = 1 << 14,
-    PAD_UP = 1 << 16, PAD_RIGHT = 1 << 17, PAD_DOWN = 1 << 18, PAD_LEFT = 1 << 19,
-    PAD_L2 = 1 << 20, PAD_R2 = 1 << 21,    /* the triggers pressed: set by in_triggers() */
+    IN_SOUTH, IN_EAST, IN_SCREENSHOT, IN_WEST, IN_NORTH, IN_M, IN_L1, IN_R1,
+    IN_L4, IN_R4, IN_SELECT, IN_START, IN_HOME, IN_L3, IN_R3,
+    IN_UP = 16, IN_RIGHT, IN_DOWN, IN_LEFT,
+    IN_L2, IN_R2,                          /* the triggers pressed: set by in_triggers() */
+    IN_LSTICK = 32, IN_RSTICK,             /* the sticks' axes: no bit */
 };
-#define PAD_FACE (PAD_A | PAD_B | PAD_X | PAD_Y)
+enum {
+    PAD_SOUTH = 1 << IN_SOUTH, PAD_EAST = 1 << IN_EAST, PAD_SCREENSHOT = 1 << IN_SCREENSHOT,
+    PAD_WEST = 1 << IN_WEST, PAD_NORTH = 1 << IN_NORTH, PAD_M = 1 << IN_M,
+    PAD_L1 = 1 << IN_L1, PAD_R1 = 1 << IN_R1, PAD_L4 = 1 << IN_L4, PAD_R4 = 1 << IN_R4,
+    PAD_SELECT = 1 << IN_SELECT, PAD_START = 1 << IN_START, PAD_HOME = 1 << IN_HOME,
+    PAD_L3 = 1 << IN_L3, PAD_R3 = 1 << IN_R3,
+    PAD_UP = 1 << IN_UP, PAD_RIGHT = 1 << IN_RIGHT, PAD_DOWN = 1 << IN_DOWN, PAD_LEFT = 1 << IN_LEFT,
+    PAD_L2 = 1 << IN_L2, PAD_R2 = 1 << IN_R2,
+};
+#define PAD_FACE (PAD_SOUTH | PAD_EAST | PAD_WEST | PAD_NORTH)
 #define PAD_DPAD (PAD_UP | PAD_RIGHT | PAD_DOWN | PAD_LEFT)
 #define PAD_DIGITAL (0x7fffu | PAD_DPAD)  /* every button and direction; not the triggers */
 
@@ -352,6 +366,16 @@ struct profile_session {
     u8 usb;                      /* the session is a wired one: USB report formats */
 };
 
+/* One profile runs at a time, so the profiles' session state shares one
+ * block (utils.c): `#define xb PROFILE_STATE(struct xb_state)`, with a
+ * _Static_assert that it fits.  begin() clears it, end() is the last
+ * access; nothing in it outlives the session. */
+#define PROFILE_RAM 96
+extern u8 profile_ram[PROFILE_RAM];
+static inline void *profile_state(void) { return profile_ram; }   /* no type-pun warning */
+#define PROFILE_STATE(type) (*(type *)profile_state())
+#define PROFILE_STATE_AT(type, member) (profile_ram + offsetof(type, member))   /* for initializers */
+
 struct profile_host {
     u8 rumble[2];
     u8 has_players, players, players_flash;
@@ -521,6 +545,7 @@ struct set_slot {
 #define REMAP_RULES  16          /* a board short of RAM keeps fewer (make/<product>.mk) */
 #endif
 #define REMAP_OFF    0xff        /* map: the key sends nothing */
+#define REMAP_TO(in) ((u8)((in) + 1))   /* map: the key sends IN_* in */
 #define REMAP_MAX_HZ 30          /* turbo rate 0: flips every report */
 
 /* Level triggers (held, held for) go with level effects (hold, turbo,
@@ -573,6 +598,11 @@ struct set_remap {
     u8 trigger_press[2];     /* percent of travel where it counts as pressed; 0 as 1 */
     u8 trigger_mode[2];      /* TRIGGER_* */
 };
+
+/* The board's base remap until it is changed (board.inc): its name, map and
+ * rules; the other fields take their own defaults.  Zero: every key sends
+ * itself.  The remap slots take it as they take the base. */
+extern const struct set_remap board_remap_base;
 
 /* The remap slot's sticks: curves, inversion, which host stick each drives;
  * NULL: as calibrated. */
@@ -769,6 +799,32 @@ struct board_slots {
     u8 static_random;           /* use LE static random identities, except Switch 2 (public) */
 };
 extern const struct board_slots board_slots;
+
+/* The board's controls, as a tool draws and names them (board.inc): one
+ * entry per input the board has, in no particular order.  Every field is a
+ * byte, so the table is its own wire format (usb.c LAYOUT). */
+enum {
+    LAYOUT_FACE,                /* the four face buttons, or a pad's own main buttons */
+    LAYOUT_DPAD,                /* a d-pad direction */
+    LAYOUT_SHOULDER,            /* on top, in front of the triggers */
+    LAYOUT_TRIGGER,             /* on top: an analog trigger and its pressed bit */
+    LAYOUT_STICK,               /* a stick's axes (IN_LSTICK, IN_RSTICK) */
+    LAYOUT_STICK_CLICK,         /* pressing that stick in */
+    LAYOUT_MENU,                /* the small ones on the front: Select, Start, Home ... */
+    LAYOUT_BACK,                /* a paddle or button on the back */
+    LAYOUT_TOP,                 /* another button on top */
+    LAYOUT_KINDS
+};
+struct board_control {
+    u8 input;                   /* IN_* */
+    u8 kind;                    /* LAYOUT_* */
+    char label[8];              /* as printed on the pad, UTF-8, NUL-padded; "": nothing printed */
+    u8 x, y;                    /* where it sits, 0-255 across and down the front; 0 0: not placed */
+};
+_Static_assert(sizeof(struct board_control) == 12, "board_control is its wire format");
+extern const struct board_control board_layout[];
+extern const u8 board_layout_count;
+#define LAYOUT_COUNT(table) ((u8)(sizeof(table) / sizeof((table)[0])))
 
 extern const struct ux_timeouts ux_timeouts;
 extern const u8 ux_usb_autoconnect;

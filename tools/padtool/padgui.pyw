@@ -19,7 +19,7 @@ from padknown import PRODUCTS, command_mode, firmware_dir, product_name, stock_n
 from padtransport import usb_location
 from paddevices import DeviceMonitor, boot_record, load_targets, read_device, stock_records
 from padconsole import LiveConsole
-from padwidgets import PaletteEditor, CurveEditor, RemapEditor, Tooltip
+from padwidgets import PaletteEditor, CurveEditor, RemapEditor, Tooltip, use_layout
 
 OURS = ("pad", "dongle")                 # boards running this firmware
 
@@ -465,13 +465,16 @@ class App:
         def work():
             if pad.cmd(path, 0, length=64)[:56] != identity:
                 raise ValueError(f"{path}: device changed; wait for device detection")
-            return load_targets(path, table, targets)
+            # The first look also reads how the pad names its keys.
+            return load_targets(path, table, targets) + (pad.read_layout(path) if table is None else None,)
         def done(result):
             forget()
-            table, values, defaults = result
+            table, values, defaults, layout = result
             if self.cache.get(path) is not record:
                 return
             first = record["fields"] is None
+            if first:
+                record["layout"] = layout
             record["fields"] = table
             record.setdefault("defaults", {}).update(defaults)
             self.install_values(record, values)
@@ -1332,6 +1335,7 @@ class App:
             row = rows[parent]
             rows[parent] += 1
             if f["kind"] == 3 and name == "map":
+                use_layout(record.get("layout"))     # the keys as this pad prints them
                 editor = RemapEditor(parent, self, entry, record["draft"][target, "rules"],
                                      record["draft"].get((target, "name")), pad.TARGETS[target])
                 editor.grid(row=row, column=0, columnspan=4, sticky="w", padx=4, pady=(12, 4))

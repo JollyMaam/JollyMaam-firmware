@@ -184,6 +184,12 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
 When something costs real effort to find out (a chip quirk, a tool trap, a
 wrong assumption), add it here in a line or two.
 
+- BR23 LE TX slots (`RF_ble.c`, comment above `tx_staged`): an empty PDU
+  sent from a completed current slot does not move TXTOG when acknowledged,
+  data written into that slot while it waits is dropped, and a NACKed empty
+  PDU resends the slot's stale descriptor.  Breaking any of the three rules
+  there gave input stalls with MIC failures under duplex traffic.
+
 - RAM is the limit on the BD19 dongle: the linker's "NVRAM space overflow"
   is static RAM, and a heap too small for the controller makes the app hang
   at start-up without ever enumerating.  Check `_HEAP_BEGIN`/`_HEAP_END` in
@@ -200,6 +206,10 @@ wrong assumption), add it here in a line or two.
   the locals of all its branches, so a big array in one `case` costs every
   case (a 192-byte one in `usb_command` overflowed into .bss).  Keep it in a
   `noinline` helper; `make 8bitdo-ultimate2c-wireless-pad-stack` checks.
+  The check misses calls through pointers it has no rule for: the SDK's
+  TX push (through a stub that looks like a call to itself) went unseen and
+  an encrypted link overflowed into .bss by 80 bytes.  The profiles' session
+  state shares one block (`PROFILE_STATE`, pad.h) for this room.
 - 8BitDo, 2.4 GHz (rf8_telink.c): the SDK's BLE radio set-up leaves
   0x800401 bit 3 set, and generic FSK then never hears a reply.  The FSK
   set-up in turn changes registers BLE's never writes again (the RF

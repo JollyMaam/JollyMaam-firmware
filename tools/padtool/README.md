@@ -134,8 +134,13 @@ default); Home+M then a slot key picks another while connected, Home or M the
 base. A remap slot takes every setting it has not set from Remap base, so the
 base is where to set what all of them share; a setting's default on a remap
 slot is the base's value. Names are each remap's own, and Remap A keeps its
-"Swap A/B X/Y" keys. Remap base at its defaults sends the keys as they are and
-the sticks exactly as calibrated.
+"Swap A/B X/Y" keys. Remap base at its defaults is the board's own base map
+(the board's `board.inc`; on these pads every key as it is) and sends the
+sticks exactly as calibrated.
+
+Keys are named as the pad prints them: the firmware sends its layout
+(`padtool layout` lists it). Without one, the face keys go by where they sit:
+South, East, West, North.
 
 A remap page has a **Name** (shown in the tree), then a row per key, "**KEY**
 maps to [KEY / Nothing]", which costs no rule entries. Its status box covers
@@ -180,7 +185,9 @@ analog profiles such as Xbox); **Rapid** is Hair that lets go as soon as the
 trigger rises 5% and presses again as soon as it goes 5% down, wherever it is
 in its travel, for fast repeated presses.
 
-The CLI sets the same fields in the same text (`padremap.py`):
+The CLI sets the same fields in the same text (`padremap.py`). There the face
+keys are named by role whatever the pad prints: `a` south, `b` east, `x` west,
+`y` north.
 
 ```sh
 python tools/padtool/padtool.py set remap-b name "Mario Kart" map swap-ab-xy

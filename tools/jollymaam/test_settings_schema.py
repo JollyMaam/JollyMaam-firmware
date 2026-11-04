@@ -26,7 +26,7 @@ class SettingsSchemaTests(unittest.TestCase):
     def export(self, name, defaults, flags=(), failure=None):
         folder = self.out / name
         folder.mkdir()
-        (folder / "settings_defaults.inc").write_text(defaults)
+        (folder / "board.inc").write_text(defaults)
         exe = folder / "export"
         subprocess.run(self.cc + [
             "-O2", "-std=c99", "-ffunction-sections", "-fdata-sections",
@@ -69,7 +69,7 @@ class SettingsSchemaTests(unittest.TestCase):
         return data, info, at
 
     def test_stability_and_board_defaults(self):
-        defaults = (ROOT / "src/boards/gamesir-cyclone-2/settings_defaults.inc").read_text()
+        defaults = (ROOT / "src/boards/gamesir-cyclone-2/board.inc").read_text()
         first = self.export("first", defaults)
         self.assertEqual(first, self.export("repeat", defaults))
         # Whitespace and unrelated build options must not invalidate the cache.
@@ -84,7 +84,7 @@ class SettingsSchemaTests(unittest.TestCase):
         self.assertNotEqual(first[1], self.export("fewer-slots", defaults, ["-DSLOTS_STORED=4"])[1])
 
     def test_storage_capacity(self):
-        defaults = (ROOT / "src/boards/8bitdo-ultimate2c-wireless/settings_defaults.inc").read_text()
+        defaults = (ROOT / "src/boards/8bitdo-ultimate2c-wireless/board.inc").read_text()
         self.export("capacity-ok", defaults, ["-DSETTINGS_STORE", "-DSLOTS_STORED=4",
                     "-DREMAPS_STORED=4", "-DREMAP_RULES=8", "-DRECORD_MAX=152", "-DSLOT_USB_AUDIO=0"])
         self.export("record-overflow", defaults, ["-DRECORD_MAX=8"], failure="record limit")
@@ -92,13 +92,20 @@ class SettingsSchemaTests(unittest.TestCase):
                     failure="store compaction bank")
 
     def test_jieli_storage_capacity(self):
-        defaults = (ROOT / "src/boards/gamesir-cyclone-2/settings_defaults.inc").read_text()
+        defaults = (ROOT / "src/boards/gamesir-cyclone-2/board.inc").read_text()
         self.export("jieli-capacity-ok", defaults, ["-DSETTINGS_STORE_JIELI_BYTES=16384",
                     "-DSETTINGS_STORE_JIELI_RESERVE=1024"])
         self.export("jieli-area-overflow", defaults, ["-DSETTINGS_STORE_JIELI_BYTES=8192",
                     "-DSETTINGS_STORE_JIELI_RESERVE=1024"], failure="Jieli VM compaction area")
         self.export("jieli-sdk-overflow", defaults, ["-DSETTINGS_STORE_JIELI_BYTES=16384",
                     "-DSETTINGS_STORE_JIELI_RESERVE=4096"], failure="Jieli VM compaction area")
+
+    def test_layout_checked(self):
+        defaults = (ROOT / "src/boards/gamesir-cyclone-2/board.inc").read_text()
+        twice = defaults.replace('{ IN_EAST,  ', '{ IN_SOUTH, ', 1)
+        self.assertNotEqual(twice, defaults)
+        self.export("layout-twice", twice, failure="there twice")
+        self.export("layout-bit-15", defaults.replace("{ IN_M, ", "{ 15, ", 1), failure="not an input")
 
     def test_boards(self):
         infos = []
@@ -107,7 +114,7 @@ class SettingsSchemaTests(unittest.TestCase):
             ("gamesir-nova-2-lite", []),
             ("8bitdo-ultimate2c-wireless", ["-DSLOTS_STORED=4", "-DSLOT_USB_AUDIO=0", "-DREMAP_RULES=8"]),
         ]:
-            defaults = (ROOT / "src/boards" / board / "settings_defaults.inc").read_text()
+            defaults = (ROOT / "src/boards" / board / "board.inc").read_text()
             infos.append(self.export(board, defaults, flags)[1])
         self.assertEqual(len(set(infos)), 3)
 

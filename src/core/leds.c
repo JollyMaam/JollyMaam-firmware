@@ -697,7 +697,7 @@ int main(void)
     }
 
     memset(&p, 0, sizeof(p));
-    p.buttons = PAD_A;
+    p.buttons = PAD_SOUTH;
     led_reach(reach, &p);
     CHECK(reach[0] == 0 && reach[1] == 255);
     p.buttons = 0;

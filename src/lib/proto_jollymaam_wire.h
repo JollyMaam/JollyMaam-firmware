@@ -67,6 +67,13 @@ enum {
   JM_MAIN_HEADER_CRC_OFF = 40
 };
 
+/* LAYOUT: u8 version, entry size, the board's count, entries here, then
+ * the entries from the first asked for: u8 input (IN_*), u8 kind, label
+ * (8 bytes UTF-8, NUL-padded), u8 x, u8 y. */
+#define JM_LAYOUT_VERSION 1
+#define JM_LAYOUT_HEAD_SIZE 4
+#define JM_LAYOUT_ENTRY_SIZE 12
+
 /* SCHEMA: format, hash algorithm, u16 field count, fingerprint. The
  * fingerprint is the first 16 bytes of SHA-256 of settings_schema.bin. */
 #define JM_SCHEMA_FORMAT 1
@@ -82,6 +89,7 @@ enum jm_command_id {
   JM_CMD_STATS = 0x03,
   JM_CMD_INPUT = 0x04,
   JM_CMD_CLOCK = 0x05,
+  JM_CMD_LAYOUT = 0x06,
   JM_CMD_REBOOT = 0x10,
   JM_CMD_REBOOT_LOADER = 0x11,
   JM_CMD_RELINK = 0x12,

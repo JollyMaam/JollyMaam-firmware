@@ -124,6 +124,22 @@ class UnpairTests(unittest.TestCase):
                              [[[1, 12, address.hex()], [1, 13, ""]]])
 
 
+class LayoutLabelTests(unittest.TestCase):
+    def tearDown(self):
+        padwidgets.use_layout(None)
+
+    def test_printed_labels(self):
+        entry = lambda name, label: {"name": name, "label": label}
+        padwidgets.use_layout([entry("a", "B"), entry("b", "A"), entry("x", "Y"), entry("y", "X"),
+                               entry("minus", "View"), entry("r1", "L1")])
+        labels = padwidgets.KEY_LABELS
+        self.assertEqual([labels[k] for k in ("a", "b", "x", "y", "minus")], ["B", "A", "Y", "X", "View"])
+        self.assertEqual((labels["r1"], labels["l1"]), ("L1 (R1)", "L1"))   # printed as another key's name
+        self.assertEqual(padwidgets.key_of("B"), "a")
+        padwidgets.use_layout(None)
+        self.assertEqual([labels[k] for k in ("a", "b", "x", "y", "l1")], ["South", "East", "West", "North", "L1"])
+
+
 class GuiCase(unittest.TestCase):
     """A withdrawn app per test; helpers for loading records and waiting."""
     def setUp(self):
@@ -1554,7 +1570,7 @@ class RemapGuiTests(GuiCase):
         boxes[1].invoke()                                 # B
         self.root.update()
         self.assertTrue(picker.panel and picker.panel.winfo_exists())
-        self.assertEqual(picker.cget("text"), "A+B")
+        self.assertEqual(picker.cget("text"), "South+East")
         self.assertEqual(rules["var"].get(), "r4 held turbo_modifier a+b@15")
         boxes[0].invoke()
         self.assertEqual(rules["var"].get(), "r4 held turbo_modifier b@15")
