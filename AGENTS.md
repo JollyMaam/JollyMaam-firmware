@@ -250,7 +250,8 @@ wrong assumption), add it here in a line or two.
   them (PEEK) resets the chip; read them raw through the ROM's QSPI read
   (flash_yc3121.c), as stock does.
 - Ultimate 2C Bluetooth radio core: opcodes stock never sends are not
-  safe to try: one (0x27) wedged the bring-up app until a power cycle.
+  safe to try: 0x27, and another from 0x29 up, wedged the pad until a
+  power cycle, the second past the hang watch (a stalled bus, likely).
 - `s8` in `pad.h` is a plain `char`, which is unsigned on ARM: a `-1` in
   an `s8` table became 255 and saturated the U2C Bluetooth's stick axes.
   ARM builds pass `-fsigned-char`.
