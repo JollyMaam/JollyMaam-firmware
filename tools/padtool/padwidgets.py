@@ -308,8 +308,25 @@ class CurveEditor(ttk.Frame):
 
 KEY_ORDER = ('a', 'b', 'x', 'y', 'up', 'down', 'left', 'right', 'l1', 'r1', 'l4', 'r4',
              'l3', 'r3', 'minus', 'plus', 'home', 'm', 'capture')
-KEY_LABELS = {k: k.upper() if k in ('a', 'b', 'x', 'y', 'm', 'l1', 'r1', 'l4', 'r4', 'l3', 'r3') else k.capitalize()
-              for k in KEY_ORDER}
+FACE_ROLES = {'a': 'South', 'b': 'East', 'x': 'West', 'y': 'North'}
+ROLE_LABELS = {k: FACE_ROLES.get(k) or (k.upper() if k in ('m', 'l1', 'r1', 'l4', 'r4', 'l3', 'r3') else k.capitalize())
+               for k in KEY_ORDER}
+KEY_LABELS = dict(ROLE_LABELS)
+
+
+def use_layout(layout):
+    """Name the keys as the pad prints them (padtool.read_layout; None: by
+    role, the face buttons by where they sit).  A printed label another key
+    also shows gets its role after it."""
+    printed = {e['name']: e['label'] for e in layout or () if e['label'] and e['name'] in ROLE_LABELS}
+    labels = {k: printed.get(k) or ROLE_LABELS[k] for k in KEY_ORDER}
+    shown = list(labels.values())
+    KEY_LABELS.clear()
+    for k in KEY_ORDER:
+        twice = shown.count(labels[k]) > 1 and k in printed
+        KEY_LABELS[k] = f'{labels[k]} ({ROLE_LABELS[k]})' if twice else labels[k]
+
+
 NOTHING = 'Nothing'
 TRIGGER_LABELS = {'held': 'is held', 'held_for': 'is held for', 'pressed': 'is pressed',
                   'released': 'is released', 'tapped': 'is tapped under',

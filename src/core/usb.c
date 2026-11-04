@@ -43,6 +43,11 @@
  *                         lx ly rx ry and u16 l2 r2 calibrated, before Home
  *                         gestures and the remap; u16 raw sticks [4] and
  *                         triggers [2] as read, u32 uptime ms
+ *   `0x06` LAYOUT         pad only: CDB bytes 2–5: the first entry; in: u8
+ *                         version (1), u8 entry size (12), u8 the board's
+ *                         count, u8 entries here, then as many whole entries
+ *                         of board_layout (pad.h: struct board_control) as
+ *                         fit; ask again from the next while some are left
  *   `0x03` STATS          CDB byte 2 bit 0: reset after reading; in: u16
  *                         version, u16 size, `struct ctl_stats` as in memory
  *   `0x10` REBOOT         –
@@ -127,6 +132,7 @@
  * tools/padtool/padgui.pyw (Linux/Windows) and tools/jollymaam/jollymaam_jieli.c are the clients. */
 
 #define STATS_VERSION 1
+_Static_assert(sizeof(struct board_control) == JM_LAYOUT_ENTRY_SIZE, "LAYOUT sends board_layout as it is");
 
 #ifdef BOARD_DONGLE
 #include "dongle.h"
@@ -241,6 +247,23 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         n += 8;
         break;
     }
+#ifndef BOARD_DONGLE
+    case JM_CMD_LAYOUT: {           /* argument: the first entry */
+        u32 first = util_get32(cdb + 2), k;
+
+        if (max < JM_LAYOUT_HEAD_SIZE) return 0;
+        if (first > board_layout_count) first = board_layout_count;
+        k = (max - JM_LAYOUT_HEAD_SIZE) / JM_LAYOUT_ENTRY_SIZE;
+        if (k > board_layout_count - first) k = board_layout_count - first;
+        data[0] = JM_LAYOUT_VERSION;
+        data[1] = JM_LAYOUT_ENTRY_SIZE;
+        data[2] = board_layout_count;
+        data[3] = (u8)k;
+        memcpy(data + JM_LAYOUT_HEAD_SIZE, &board_layout[first], k * JM_LAYOUT_ENTRY_SIZE);
+        n = JM_LAYOUT_HEAD_SIZE + k * JM_LAYOUT_ENTRY_SIZE;
+        break;
+    }
+#endif
     case JM_CMD_STATS:              /* argument bit 0: reset after reading */
         if (max < 4 + sizeof(struct ctl_stats) || !status || !status->stats) return 0;
         util_put16(data, STATS_VERSION);
@@ -457,6 +480,10 @@ const char board_name[] = "Test pad";
 #ifndef BOARD_DONGLE
 const struct ux_led_demo ux_led_demos[] = { { "one" }, { "two" } };
 const u8 ux_led_demo_count = 2;
+const struct board_control board_layout[] = {
+    { IN_SOUTH, LAYOUT_FACE, "B", 200, 150 }, { IN_EAST, LAYOUT_FACE, "A" }, { IN_LSTICK, LAYOUT_STICK },
+};
+const u8 board_layout_count = LAYOUT_COUNT(board_layout);
 #endif
 const u8 *plat_unique_id(void) { return uid; }
 void plat_usb_service(void) {}
@@ -514,6 +541,23 @@ int main(void)
     CHECK(!strncmp((char *)data + 40, BOARD_PID, 16));
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 88 && !strcmp((char *)data + 56, board_name));
     CHECK(data[6] == BOARD_KIND && data[7] == 0);
+#ifndef BOARD_DONGLE
+    /* LAYOUT: whole entries as they are in flash, from the one asked for. */
+    cdb[1] = JM_CMD_LAYOUT;
+    util_put32(cdb + 2, 0);
+    CHECK(usb_command(cdb, data, 3, 0) == 0);
+    CHECK(usb_command(cdb, data, 4 + 2 * 12 + 11, 0) == 4 + 2 * 12);
+    CHECK(data[0] == 1 && data[1] == 12 && data[2] == 3 && data[3] == 2);
+    CHECK(data[4] == IN_SOUTH && data[5] == LAYOUT_FACE && !strcmp((char *)data + 6, "B") &&
+          data[14] == 200 && data[15] == 150 && data[16] == IN_EAST);
+    util_put32(cdb + 2, 2);
+    CHECK(usb_command(cdb, data, sizeof(data), 0) == 4 + 12 && data[3] == 1 && data[4] == IN_LSTICK);
+    util_put32(cdb + 2, 9);
+    CHECK(usb_command(cdb, data, sizeof(data), 0) == 4 && data[2] == 3 && data[3] == 0);
+    cdb[1] = JM_CMD_IDENTIFY;
+    util_put32(cdb + 2, 0);
+    CHECK(usb_command(cdb, data, sizeof(data), 0) == 88);
+#endif
     {
         struct jm_identity id;
 

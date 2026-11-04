@@ -1213,6 +1213,40 @@ def play_rumble(path, steps):
 
 
 CMD_INPUT = 0x04
+CMD_LAYOUT = 0x06
+LAYOUT_KINDS = ("face", "dpad", "shoulder", "trigger", "stick", "stick_click", "menu", "back", "top")
+# Each input's name (IN_* bit numbers): the keys, then what has no key.
+INPUT_NAMES = dict(enumerate(padremap.KEYS)) | {20: "l2", 21: "r2", 32: "left_stick", 33: "right_stick"}
+
+
+def read_layout(path):
+    """The pad's controls (board.inc board_layout): what each input is called
+    on the pad, its kind and place; None if the firmware has no LAYOUT."""
+    entries, first = [], 0
+    while True:
+        d = cmd(path, CMD_LAYOUT, first, length=4 + 12 * 20)
+        if len(d) < 4 or d[0] != 1 or d[1] < 12:
+            return None if first == 0 else entries
+        _, size, count, here = d[:4]
+        for i in range(here):
+            e = d[4 + i * size:4 + (i + 1) * size]
+            if len(e) < 12:
+                return entries
+            entries.append({"input": e[0], "name": INPUT_NAMES.get(e[0]) or f"input-{e[0]}",
+                            "kind": LAYOUT_KINDS[e[1]] if e[1] < len(LAYOUT_KINDS) else f"kind-{e[1]}",
+                            "label": e[2:10].split(b"\0")[0].decode(errors="replace"), "x": e[10], "y": e[11]})
+        first += here
+        if not here or first >= count:
+            return entries
+
+
+def show_layout(path):
+    entries = read_layout(path)
+    if entries is None:
+        sys.exit("padtool: this firmware has no layout")
+    for e in entries:
+        place = f"  at {e['x']},{e['y']}" if e["x"] or e["y"] else ""
+        print(f"{e['name']:12} {e['kind']:12} {e['label'] or '-'}{place}")
 
 
 def read_input(path):
@@ -1896,7 +1930,7 @@ BLE_NOT = {"find", "tool", "tool-only", "hub", "latency", "peek", "keep", "boot"
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["tool-only", "hub", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "reboot", "loader", "boot", "update", "relink", "connect", "disconnect", "config", "pair", "unpair", "profile", "peek", "trace",
+    p.add_argument("command", choices=["tool-only", "hub", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "layout", "reboot", "loader", "boot", "update", "relink", "connect", "disconnect", "config", "pair", "unpair", "profile", "peek", "trace",
                                        "fields", "get", "set", "reset", "backup-settings",
                                        "restore-settings", "factory-reset", "ephemeral", "keep", "tool", "latency"])
     p.add_argument("args", nargs="*")
@@ -1980,6 +2014,8 @@ def main():
             print(f"{BOARD} {path}  {identify(path)}  {status(path)}")
     elif a.command == "identify":
         print(identify(need_device()))
+    elif a.command == "layout":
+        show_layout(need_device())
     elif a.command == "status":
         print(status(need_device()))
     elif a.command == "log":
