@@ -63,12 +63,14 @@ const u8 board_layout_count = LAYOUT_COUNT(board_layout);
 /* The base remap the pad starts with: every key sends itself. */
 const struct set_remap board_remap_base = { .name = "" };
 
-/* The lights are on or off (plat_leds): the four player lights white, so
- * the host's player number shows alone; the cable and pairing signs on the
- * lights below Home and beside it (red), as the U2CW's. */
+/* Home is dimmed (PWM, plat_leds), the others are on or off: the four
+ * player lights white, so the host's player number shows alone, and dark
+ * while connecting; the cable and pairing signs on the lights below Home
+ * and beside it (red), as the U2CW's. */
 const struct board_led_brightness board_led_brightness = {
     .steady = 240, .animation = 400, .connect = 240,
     .idle = 240, .battery = 240, .players_mono = 1, .home_signs = 1,
+    .players_dark_connecting = 1,
 };
 
 /* As the U2CW's motors until these are measured. */
@@ -291,15 +293,62 @@ int board_usb_present(void)
     return in(USB_POWER);
 }
 
-/* ---- the lights: each on or off ---------------------------------------------
- * The player lights from the core's, those at least half as bright as the
- * brightest lit: a gliding light (the pairing sweep) with soft edges shows
- * as one, a blink or the host's number as they are.  The Home, below-Home
- * and red Sync lights from the core's Home, cable and pairing lights
- * (home_signs), as the U2CW's controller_lite.c drives its three. */
+/* ---- PWM: Yichip's timers -------------------------------------------------
+ * Timers at 0xf0c00: timer n's high count at 8n, low count at 8n + 4, the
+ * control word at 0x48 with 4 bits a timer (bit 0 on), counting the CPU
+ * clock; a pin set to GPCFG_PWM(n) follows timer n.  Stock runs the motors
+ * on timers 1 and 2 at 100 Hz; the Home light takes timer 3. */
+
+#define TIM_HIGH(n) (*(volatile u32 *)(0xf0c00 + 8 * (n)))
+#define TIM_LOW(n)  (*(volatile u32 *)(0xf0c04 + 8 * (n)))
+#define TIM_CTRL    (*(volatile u32 *)0xf0c48)
+#define GPCFG_PWM(n) (16 + (n))
+
+/* Duty in 255ths at hz; 0 stops the timer. */
+static void pwm_set(u32 timer, u32 hz, u8 duty)
+{
+    u32 unit = YC_CPU_MHZ * 1000000u / hz / 255;
+
+    TIM_CTRL &= ~(0xfu << 4 * timer);
+    if (!duty) return;
+    TIM_HIGH(timer) = unit * duty;
+    TIM_LOW(timer) = unit * (255u - duty);
+    TIM_CTRL |= 1u << 4 * timer;
+}
+
+/* ---- the lights ---------------------------------------------------------------
+ * Home dimmed by PWM to the core's Home light (its brightest colour), off
+ * and fully on as plain pin levels.  The others on or off: the player lights
+ * from the core's, those at least half as bright as the brightest lit: a
+ * gliding light (the pairing sweep) with soft edges shows as one, a blink
+ * or the host's number as they are.  The below-Home and red Sync lights
+ * from the core's cable and pairing lights (home_signs), as the U2CW's
+ * controller_lite.c drives its three. */
 
 static const struct pin lights[4] = { { 1, 11 }, { 1, 6 }, { 0, 15 }, { 2, 3 } };
 static const struct pin home_light = { 0, 5 }, below_home = { 0, 4 }, sync_light = { 2, 2 };
+#define HOME_TIMER  3
+#define HOME_HZ     1000
+static u8 home_duty;
+
+static u8 brightest(const struct rgb *c)
+{
+    return c->r > c->g ? (c->r > c->b ? c->r : c->b) : (c->g > c->b ? c->g : c->b);
+}
+
+/* Timer writes only on a change, so a steady level keeps its cycle whole. */
+static void home_set(u8 duty)
+{
+    if (duty == home_duty) return;
+    home_duty = duty;
+    if (!duty || duty == 255) {
+        pwm_set(HOME_TIMER, HOME_HZ, 0);
+        out(home_light, duty);
+        return;
+    }
+    pwm_set(HOME_TIMER, HOME_HZ, duty);
+    yc_pin(home_light.group, home_light.pin, GPCFG_PWM(HOME_TIMER));
+}
 
 void plat_leds(const struct led_frame *f)
 {
@@ -309,43 +358,25 @@ void plat_leds(const struct led_frame *f)
     for (i = 0; i < 4; i++) {
         const struct rgb *c = &f->light[LIGHT_P0 + i];
 
-        level[i] = c->r > c->g ? (c->r > c->b ? c->r : c->b) : (c->g > c->b ? c->g : c->b);
+        level[i] = brightest(c);
         if (level[i] > top) top = level[i];
     }
     for (i = 0; i < 4; i++) out(lights[i], level[i] && level[i] * 2 >= top);
+    home_set(brightest(&f->light[LIGHT_HOME]));
 #define LIT(n) (f->light[n].r || f->light[n].g || f->light[n].b)
-    out(home_light, LIT(LIGHT_HOME));
     out(below_home, LIT(LIGHT_CABLE));
     out(sync_light, LIT(LIGHT_PAIRING));
 #undef LIT
 }
 
-/* ---- the motors: PWM timers 1 and 2 ----------------------------------------
- * Yichip's timers (0xf0c00): timer n's high count at 8n, low count at 8n + 4,
- * the control word at 0x48 with 4 bits a timer (bit 0 on).  Stock runs them
- * at 100 Hz on the CPU clock. */
+/* ---- the motors: PWM timers 1 and 2, as stock ------------------------------- */
 
-#define TIM_HIGH(n) (*(volatile u32 *)(0xf0c00 + 8 * (n)))
-#define TIM_LOW(n)  (*(volatile u32 *)(0xf0c04 + 8 * (n)))
-#define TIM_CTRL    (*(volatile u32 *)0xf0c48)
 #define MOTOR_HZ    100
-#define GPCFG_PWM(n) (16 + (n))
-
-static void motor_set(u32 timer, u8 duty)
-{
-    u32 unit = YC_CPU_MHZ * 1000000u / MOTOR_HZ / 255;
-
-    TIM_CTRL &= ~(0xfu << 4 * timer);
-    if (!duty) return;
-    TIM_HIGH(timer) = unit * duty;
-    TIM_LOW(timer) = unit * (255u - duty);
-    TIM_CTRL |= 1u << 4 * timer;
-}
 
 void plat_motors(u8 left, u8 right)
 {
-    motor_set(1, left);
-    motor_set(2, right);
+    pwm_set(1, MOTOR_HZ, left);
+    pwm_set(2, MOTOR_HZ, right);
 }
 
 /* ---- power ------------------------------------------------------------------ */
@@ -380,7 +411,8 @@ void board_power_off(void)
     plat_watch_stop();
     plat_motors(0, 0);
     for (i = 0; i < 4; i++) out(lights[i], 0);
-    out(home_light, 0), out(below_home, 0), out(sync_light, 0);
+    home_set(0);
+    out(below_home, 0), out(sync_light, 0);
     *(volatile u8 *)0xf853c = 0x94;      /* WAKEUP_BT: the radio core halted */
     while (!in(home))
         if (board_usb_present()) plat_reboot();
