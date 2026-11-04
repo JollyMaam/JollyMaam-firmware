@@ -246,7 +246,7 @@ void plat_motors(u8 left, u8 right)
     motor_set(1, right);
 }
 
-#include "settings_defaults.inc"
+#include "board.inc"
 
 /* ---- LEDs: a chain on PB0, the Home light first -----------------------------
  * The stock image clocks 18 bytes, MSB first, out of PB0 from RAM code with

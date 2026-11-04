@@ -10,7 +10,7 @@
 
 const char board_name[] = "Ultimate 2C Wireless";
 
-#include "settings_defaults.inc"
+#include "board.inc"
 
 /* ---- the button matrix: a row driven low, the columns pulled up ---------- */
 

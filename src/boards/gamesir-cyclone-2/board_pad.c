@@ -518,7 +518,7 @@ void plat_motors(u8 left, u8 right)
     motor_set(1, right);
 }
 
-#include "settings_defaults.inc"
+#include "board.inc"
 
 
 /* ---- the rest of the board interface --------------------------------------- */
