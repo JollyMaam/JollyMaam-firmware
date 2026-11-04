@@ -541,7 +541,7 @@ static const struct { u32 address; u8 len; const u8 *data; } s2_flash[] = {
                                "\xa6\xf2\x62\xbd\xa8\x00\x08\x3d\x2f\xed\x20\x41" },
 };
 
-static struct {
+struct s2_state {
     u8 counter, ready;
     u8 address[6];
     u8 ltk[16];                  /* A1 ^ B1, byte-reversed, as the AES uses it */
@@ -559,7 +559,9 @@ static struct {
     u8 usb_report;               /* USB: the input report the host chose (0x05 or 0x09) */
     u8 peer[6];                  /* the console's first address from 15/01, LSB first */
     struct imu_sample motion;    /* USB: the newest sample */
-} s2;
+};
+#define s2 PROFILE_STATE(struct s2_state)
+_Static_assert(sizeof(struct s2_state) <= PROFILE_RAM, "s2 state");
 
 #define S2_FEATURE_MOTION 0x04
 
@@ -1147,6 +1149,7 @@ const struct profile profile_switch2 = {
 };
 
 #ifdef UNITTEST
+u8 profile_ram[PROFILE_RAM] __attribute__((aligned(8)));
 static u8 sent[160];
 static u16 sent_len;
 static u8 test_uid[16] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };

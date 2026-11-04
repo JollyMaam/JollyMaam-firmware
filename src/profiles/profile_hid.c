@@ -152,12 +152,14 @@ static const u8 gble_att_db[] = {
     0x00, 0x00,
 };
 
-static struct {
+struct gb_state {
     u8 last[GBLE_SIZE];
     u8 sent;
     u8 usb;                      /* wired: the Classic generic gamepad's report */
     u8 er[16], ir[16];
-} gb;
+};
+#define gb PROFILE_STATE(struct gb_state)
+_Static_assert(sizeof(struct gb_state) <= PROFILE_RAM, "gb state");
 
 /* The board's name, then tail, as a scan response, zeros after: for the
  * session's profile (Generic BLE's, config mode's), one at a time. */
@@ -269,7 +271,7 @@ static struct bt_device gble_device = {
     .input_handle = GBLE_INPUT,
     .advertising = gble_advertising,
     .scan_response = profile_scan_response,
-    .sm_er = gb.er, .sm_ir = gb.ir,
+    .sm_er = PROFILE_STATE_AT(struct gb_state, er), .sm_ir = PROFILE_STATE_AT(struct gb_state, ir),
     .interval_min = 6, .interval_max = 9,
 };
 
@@ -544,6 +546,7 @@ const struct profile profile_mouse = {
 };
 
 #ifdef UNITTEST
+u8 profile_ram[PROFILE_RAM] __attribute__((aligned(8)));
 const char board_name[] = "Test controller";
 static u8 kb_sent[8];
 int host_send(u16 id, const u8 *data, u16 len) { (void)id; memcpy(kb_sent, data, len); return 1; }

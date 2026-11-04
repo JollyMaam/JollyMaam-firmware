@@ -206,6 +206,10 @@ wrong assumption), add it here in a line or two.
   the locals of all its branches, so a big array in one `case` costs every
   case (a 192-byte one in `usb_command` overflowed into .bss).  Keep it in a
   `noinline` helper; `make 8bitdo-ultimate2c-wireless-pad-stack` checks.
+  The check misses calls through pointers it has no rule for: the SDK's
+  TX push (through a stub that looks like a call to itself) went unseen and
+  an encrypted link overflowed into .bss by 80 bytes.  The profiles' session
+  state shares one block (`PROFILE_STATE`, pad.h) for this room.
 - 8BitDo, 2.4 GHz (rf8_telink.c): the SDK's BLE radio set-up leaves
   0x800401 bit 3 set, and generic FSK then never hears a reply.  The FSK
   set-up in turn changes registers BLE's never writes again (the RF

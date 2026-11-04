@@ -348,6 +348,16 @@ struct profile_session {
     u8 usb;                      /* the session is a wired one: USB report formats */
 };
 
+/* One profile runs at a time, so the profiles' session state shares one
+ * block (utils.c): `#define xb PROFILE_STATE(struct xb_state)`, with a
+ * _Static_assert that it fits.  begin() clears it, end() is the last
+ * access; nothing in it outlives the session. */
+#define PROFILE_RAM 96
+extern u8 profile_ram[PROFILE_RAM];
+static inline void *profile_state(void) { return profile_ram; }   /* no type-pun warning */
+#define PROFILE_STATE(type) (*(type *)profile_state())
+#define PROFILE_STATE_AT(type, member) (profile_ram + offsetof(type, member))   /* for initializers */
+
 struct profile_host {
     u8 rumble[2];
     u8 has_players, players, players_flash;

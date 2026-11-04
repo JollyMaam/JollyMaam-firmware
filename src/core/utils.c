@@ -12,6 +12,8 @@
 #endif
 #define LOG_MAGIC 0x474f4c44   /* changes with the layout below */
 
+u8 profile_ram[PROFILE_RAM] __attribute__((aligned(8)));   /* pad.h */
+
 static struct {
     u32 magic;
     u32 head;

@@ -94,7 +94,7 @@ static const u8 att_db[] = {
 
 #define X360_SIZE 20
 
-static struct {
+struct xb_state {
     u8 series;
     u8 usb;
     u8 players;
@@ -106,7 +106,9 @@ static struct {
     u8 rumble_timed;
     u32 rumble_until;
     u8 er[16], ir[16];
-} xb;
+};
+#define xb PROFILE_STATE(struct xb_state)
+_Static_assert(sizeof(struct xb_state) <= PROFILE_RAM, "xb state");
 
 static void state(u8 *s, const struct pad *p)
 {
@@ -319,7 +321,7 @@ static const struct bt_device ble_device = {
     .input_handle = BLE_INPUT,
     .advertising = advertising,
     .scan_response = scan_response, .scan_response_len = sizeof(scan_response),
-    .sm_er = xb.er, .sm_ir = xb.ir,
+    .sm_er = PROFILE_STATE_AT(struct xb_state, er), .sm_ir = PROFILE_STATE_AT(struct xb_state, ir),
     .interval_min = 6, .interval_max = 9,
 };
 
@@ -344,6 +346,7 @@ const struct profile profile_xbox_ble = {
 };
 
 #ifdef UNITTEST
+u8 profile_ram[PROFILE_RAM] __attribute__((aligned(8)));
 static u8 msg_id, msg_byte;
 int host_send(u16 id, const u8 *data, u16 len) { (void)len; msg_id = id; msg_byte = data[0]; return 1; }
 void util_put16(u8 *p, u16 v) { p[0] = (u8)v; p[1] = (u8)(v >> 8); }

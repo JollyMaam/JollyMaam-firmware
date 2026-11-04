@@ -113,7 +113,7 @@ static const u8 ds4_descriptor[] = {
     0xc0,
 };
 
-static struct {
+struct ps_state {
     u8 ds4;
     u8 edge;
     u8 usb;
@@ -130,7 +130,9 @@ static struct {
     u8 rumble[2];
     u8 has_lightbar, lightbar[3];
     u8 has_players, players;
-} ps;
+};
+#define ps PROFILE_STATE(struct ps_state)
+_Static_assert(sizeof(struct ps_state) <= PROFILE_RAM, "ps state");
 
 /* CRC-32 (IEEE, reflected, as zlib's), four bits at a time. */
 static u32 crc32(u32 crc, const u8 *d, u16 n)
@@ -740,6 +742,7 @@ const struct profile profile_ds4 = {
 };
 
 #ifdef UNITTEST
+u8 profile_ram[PROFILE_RAM] __attribute__((aligned(8)));
 void util_put16(u8 *p, u16 v) { p[0] = (u8)v; p[1] = (u8)(v >> 8); }
 void util_put32(u8 *p, u32 v) { util_put16(p, (u16)v); util_put16(p + 2, (u16)(v >> 16)); }
 void util_aes128(const u8 key[16], const u8 in[16], u8 out[16]) { (void)key; memcpy(out, in, 16); }
