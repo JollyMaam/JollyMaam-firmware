@@ -128,15 +128,18 @@ void plat_radio_release(void)
  * 0xc8023 = c4, c2, c3 (stock writes 0, 0, 0x80 before streaming the code
  * in); 0xc8023 = 0 after.  It reads back (2026-11-03): c3 0x80 gives the
  * blob from its start, 0x81 from its byte 0x100.  A run of reads once
- * stalled the CPU past the hang watch. */
+ * stalled the CPU past the hang watch; the delays are a guess against it. */
 void plat_radio_code_read(u8 c2, u8 c3, u8 c4, u8 *out, u32 n)
 {
     CLK_CLS &= ~CLK_BT;
     BT_CODE_CTL(4) = c4;
     BT_CODE_CTL(2) = c2;
     BT_CODE_CTL(3) = c3;
-    for (u32 i = 0; i < n; i++)
+    yc_delay_us(10);
+    for (u32 i = 0; i < n; i++) {
         out[i] = *(volatile uint8_t *)BT_CODE_PORT;
+        yc_delay_us(1);
+    }
     BT_CODE_CTL(3) = 0;
 }
 
