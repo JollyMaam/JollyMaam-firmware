@@ -28,7 +28,9 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   Xbox, generic HID, the dongle link).  One `struct profile` each.
 - `src/platform/jieli/`, `src/platform/telink/`: the chip layer (`plat_*`),
   USB device, HCI glue, linker-script additions (`sdkconfig/`).
-- `src/boards/<product>/`: pins and board hooks, the BTstack-facing `bt_*.c`,
+- `src/boards/<product>/`: `board.inc` (the pad's controls: each input's
+  kind and printed label; its base remap and other defaults; the host schema
+  exporter builds and checks it), pins and board hooks, the BTstack-facing `bt_*.c`,
   the dongle's own loop (`dongle*.c`), `btstack_config.h`.  The Nova reuses
   the Cyclone's `bt_pad.c`, `dongle*.c` and `btstack_config.h`.
 - `src/updater/`: the updater every Jieli and Telink build boots through
