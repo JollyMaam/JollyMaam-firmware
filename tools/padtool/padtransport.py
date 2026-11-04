@@ -1,10 +1,9 @@
 """The firmware's vendor commands, independent of pad protocol and GUI.
 
 Our firmware's tool device is a HID interface (usage page 0xffc2): each
-command is a feature report.  Where the device has an input report (Linux and
-Windows), the answer comes on input reports addressed to this process, so
-several programs can use one device at once; else it is read back in more
-feature reports (usb.c, the platform's tool device).  The Jieli ROM loaders (UBOOT1.00) and stock Jieli
+command is a feature report; the answer comes on input reports addressed to
+this process, so several programs can use one device at once (usb.c, the
+platform's tool device).  Linux and Windows.  The Jieli ROM loaders (UBOOT1.00) and stock Jieli
 firmware are USB mass storage: Linux uses SG_IO; Windows uses the built-in
 storage driver and SCSI pass-through.  Only INQUIRY (disks) and IDENTIFY
 (tool devices) are sent during discovery.
@@ -28,10 +27,9 @@ if sys.platform == "linux":
 
 TOOL_USAGE_PAGE = 0xffc2
 TOOL_REPORT = 512                           # the Jieli chips'; a device's own is in its descriptor
-TOOL_HEAD = 20
-TOOL_HEAD_IN = 24                           # with the client
+TOOL_HEAD_IN = 24                           # the command's head: CDB, length, flags, tag, client
 TOOL_IN_HEAD = 8
-TOOL_BUSY, TOOL_MORE, TOOL_LAST, TOOL_REFUSED = 1, 2, 3, 4
+TOOL_MORE, TOOL_LAST, TOOL_REFUSED = 2, 3, 4
 TOOL_OUT, TOOL_INPUT = 1, 2
 _tools = {}                                 # path: (product name, report size, input report size), from the last scan
 _open = {}                                  # path: its Features, kept: an open costs ~50 ms
@@ -73,7 +71,7 @@ def data_max(path):
     """The most a command may carry to the device: its report less the header."""
     if padble.is_ble(path):
         return padble.link(path).chunk
-    return _report(path) - (TOOL_HEAD_IN if _input(path) else TOOL_HEAD)
+    return _report(path) - TOOL_HEAD_IN
 
 
 def is_tool(path):
@@ -195,42 +193,15 @@ def _tool(path, cdb, length, timeout_ms, out):
     data = bytes(out) if out is not None else b""
     if len(data) > data_max(path):
         raise ValueError(f"tool device: at most {data_max(path)} bytes to the device")
-    tag = next(_tags) & 0xff
     rebooting = cdb[0] != 0xf5 or cdb[1] in (0x10, 0x11, 0x40)
-    answer = b""
+    if not _input(path):
+        raise OSError(f"{path}: the tool device has no input report (firmware from before 2026-10-27: "
+                      "update it through its boot loader)" if sys.platform in ("linux", "win32")
+                      else f"{path}: tool devices are read on Linux and Windows only")
     f = _open.get(path)
     if f is None:
         f = _open[path] = padhid.Features(path, _report(path))
-    if _input(path):
-        return _tool_input(path, f, cdb, length, timeout_ms, out, data, rebooting)
-    try:
-        f.set(cdb + struct.pack("<HBB", len(data) if out is not None else length, out is not None, tag) + data)
-        end = time.monotonic() + timeout_ms / 1000
-        while True:
-            try:
-                r = f.get()
-            except OSError:
-                if rebooting:
-                    _drop(path)
-                    return b""
-                raise
-            n = r[2] | r[3] << 8
-            if r[0] == tag and r[1] in (TOOL_MORE, TOOL_LAST):
-                answer += r[4:4 + n]
-                if r[1] == TOOL_LAST:
-                    break
-                continue
-            if r[0] != tag or r[1] != TOOL_BUSY:
-                raise OSError(f"{path}: the tool device lost the command")
-            if time.monotonic() > end:
-                raise OSError(f"{path}: no answer in {timeout_ms} ms")
-            time.sleep(0.0005)
-    except BaseException:
-        _drop(path)              # gone or confused: the next command opens it anew
-        raise
-    if rebooting:
-        _drop(path)
-    return answer.ljust(length, b"\0") if out is None else b""
+    return _tool_input(path, f, cdb, length, timeout_ms, out, data, rebooting)
 
 
 def _tool_input(path, f, cdb, length, timeout_ms, out, data, rebooting):

@@ -10,10 +10,12 @@ struct jm_session_io {
   int (*hid_write)(void *, const uint8_t *, size_t);
   int (*hid_read)(void *, uint8_t *, size_t, unsigned);
   int (*feature_set)(void *, const uint8_t *, size_t);
-  int (*feature_get)(void *, uint8_t *, size_t);
   void (*wait_ms)(void *, unsigned);
   int (*reconnect)(void *, const uint8_t uid[16]);
   size_t (*feature_size)(void *);
+  /* Optional: this program's client number in the tool device's answers
+   * (unique among programs on one device); without it one is made up. */
+  uint32_t (*client)(void *);
 };
 typedef void (*jm_session_progress)(void *, size_t, size_t);
 int jm_session_run(const struct jm_firmware_target *target, enum jm_session_kind kind,

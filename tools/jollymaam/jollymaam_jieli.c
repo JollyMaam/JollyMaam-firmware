@@ -388,6 +388,7 @@ int main(int argc, char **argv) {
 #include <dirent.h>
 #include <fcntl.h>
 #include <linux/hidraw.h>
+#include <poll.h>
 #include <scsi/sg.h>
 #include <sys/ioctl.h>
 #include <time.h>
@@ -1050,11 +1051,13 @@ static bool send_stock_hid(const struct hid_dev *h, int e) {
 
 /* Our firmware's tool device: a HID interface, usage page 0xffc2 (usb.c and
  * the platform's tool device).  A command is a feature report (the CDB, u16
- * length, flags, tag), 512 bytes on the Jieli chips; each read of it then
- * gives the tag, a state (1 busy, 2 a piece and more, 3 the last), u16
- * length and that much answer. */
+ * length, flags, tag, u32 client), up to 512 bytes; its answer comes on
+ * 64-byte input reports: the client, the tag, a state (2 a piece and more,
+ * 3 the last, 4 refused: another program's command runs), u16 offset and
+ * 56 bytes of answer.  Every program with the device open gets them all. */
 #define TOOL_PAGE   0xffc2
 #define TOOL_REPORT 512
+#define TOOL_INPUT  2
 
 static bool is_tool(const struct hid_dev *h) {
 #ifdef _WIN32
@@ -1064,64 +1067,128 @@ static bool is_tool(const struct hid_dev *h) {
 #endif
 }
 
+/* This process's client in the answers. */
+static uint32_t tool_client(void) {
+  static uint32_t c;
+  if (!c) {
+#ifdef _WIN32
+    c = (uint32_t)GetCurrentProcessId() * 0x9e3779b9u ^ (uint32_t)GetTickCount();
+#else
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    c = (uint32_t)getpid() * 0x9e3779b9u ^ (uint32_t)t.tv_nsec;
+#endif
+    if (!c)
+      c = 1;
+  }
+  return c;
+}
+
 /* One command; with ans, up to n bytes of its answer.  Without, nothing is
  * read back (the loader opcodes: the device restarts). */
 static bool tool_cmd(const struct hid_dev *h, const uint8_t cdb[16], uint8_t *ans, size_t n) {
   static uint8_t tag;
-  uint8_t buf[TOOL_REPORT + 1];
-  size_t size = h->feature_len >= 20 && h->feature_len < TOOL_REPORT ? h->feature_len + 1 : sizeof buf;
-  const char *path = h->path;
-  size_t got = 0;
+  uint8_t buf[TOOL_REPORT + 1], in[65];
+  size_t size = h->feature_len >= 64 && h->feature_len < TOOL_REPORT ? h->feature_len + 1 : sizeof buf;
+  uint32_t client = tool_client();
   bool ok = false;
-  memset(buf, 0, sizeof buf);
-  memcpy(buf + 1, cdb, 16);
-  wr16(buf + 17, (uint16_t)n);
-  buf[20] = ++tag;
 #ifdef _WIN32
-  HANDLE fh = CreateFileA(path, GENERIC_READ | GENERIC_WRITE,
-                          FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+  HANDLE fh = CreateFileA(h->path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                          NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
   if (fh == INVALID_HANDLE_VALUE)
     return false;
-#define SET_FEATURE() HidD_SetFeature(fh, buf, (ULONG)size)
-#define GET_FEATURE() HidD_GetFeature(fh, buf, (ULONG)size)
+  HANDLE ev = CreateEventA(NULL, TRUE, FALSE, NULL);
 #else
-  int fd = open(path, O_RDWR);
+  int fd = open(h->path, O_RDWR | O_NONBLOCK);
   if (fd < 0)
     return false;
-#define SET_FEATURE() (ioctl(fd, HIDIOCSFEATURE(size), buf) >= 0)
-#define GET_FEATURE() (ioctl(fd, HIDIOCGFEATURE(size), buf) >= 0)
 #endif
-  if (!SET_FEATURE())
-    goto done;
-  if (!ans) {
-    ok = true;
-    goto done;
-  }
-  for (unsigned busy = 0; busy < 2000;) {
-    buf[0] = 0;
-    if (!GET_FEATURE() || buf[1] != tag)
+  for (unsigned tries = 0; tries < 1000; tries++) {
+    memset(buf, 0, sizeof buf);
+    memcpy(buf + 1, cdb, 16);
+    wr16(buf + 17, (uint16_t)n);
+    buf[19] = TOOL_INPUT;
+    buf[20] = ++tag;
+    for (unsigned i = 0; i < 4; i++)
+      buf[21 + i] = (uint8_t)(client >> 8 * i);
+#ifdef _WIN32
+    if (!HidD_SetFeature(fh, buf, (ULONG)size))
       break;
-    if (buf[2] == 1) {
-      busy++;
-      dev_sleep(1);
-      continue;
-    }
-    if (buf[2] != 2 && buf[2] != 3)
+#else
+    while (read(fd, in, sizeof in) > 0) /* earlier answers: dropped */
+      ;
+    if (ioctl(fd, HIDIOCSFEATURE(size), buf) < 0)
       break;
-    size_t k = rd16(buf + 3);
-    if (k > n - got)
-      k = n - got;
-    memcpy(ans + got, buf + 5, k);
-    got += k;
-    if (buf[2] == 3) {
+#endif
+    if (!ans) {
       ok = true;
       break;
     }
-  }
-done:
-#undef SET_FEATURE
-#undef GET_FEATURE
+    size_t got = 0;
+    bool refused = false, failed = false;
+    for (unsigned idle = 0; idle < 30 && !refused && !failed && !ok;) { /* 3 s without a piece */
+      int k = 0;
 #ifdef _WIN32
+      OVERLAPPED ov = {0};
+      DWORD done = 0;
+      ov.hEvent = ev;
+      ResetEvent(ev);
+      if (!ReadFile(fh, in, sizeof in, NULL, &ov) && GetLastError() != ERROR_IO_PENDING) {
+        failed = true;
+        break;
+      }
+      if (WaitForSingleObject(ev, 100) != WAIT_OBJECT_0) {
+        CancelIo(fh);
+        GetOverlappedResult(fh, &ov, &done, TRUE);
+        idle++;
+        continue;
+      }
+      if (!GetOverlappedResult(fh, &ov, &done, TRUE)) {
+        failed = true;
+        break;
+      }
+      k = (int)done;
+      if (k > 0) { /* Windows: the report ID byte (0) first */
+        memmove(in, in + 1, (size_t)k - 1);
+        k--;
+      }
+#else
+      struct pollfd p = {fd, POLLIN, 0};
+      if (poll(&p, 1, 100) <= 0) {
+        idle++;
+        continue;
+      }
+      k = (int)read(fd, in, sizeof in);
+      if (k < 0) {
+        failed = errno != EAGAIN;
+        continue;
+      }
+#endif
+      if (k < 8 || (uint32_t)(in[0] | in[1] << 8 | in[2] << 16 | (uint32_t)in[3] << 24) != client ||
+          in[4] != tag)
+        continue;
+      if (in[5] == 4) {
+        refused = true;
+        break;
+      }
+      if ((in[5] != 2 && in[5] != 3) || rd16(in + 6) != got) {
+        failed = true;
+        break;
+      }
+      size_t m = (size_t)k - 8;
+      if (m > n - got)
+        m = n - got;
+      memcpy(ans + got, in + 8, m);
+      got += m;
+      if (in[5] == 3)
+        ok = true;
+    }
+    if (!refused)
+      break;
+    dev_sleep(1 + (client >> (tries % 24) & 7));
+  }
+#ifdef _WIN32
+  CloseHandle(ev);
   CloseHandle(fh);
 #else
   close(fd);

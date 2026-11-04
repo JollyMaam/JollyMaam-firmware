@@ -117,10 +117,9 @@ enum jm_command_id {
 };
 
 /* HID request/reply headers exclude the API's report ID byte. */
-#define JM_HID_HEAD_SIZE 20
-#define JM_HID_CLIENT_HEAD_SIZE 24
-#define JM_HID_REPLY_HEAD_SIZE 4
-#define JM_HID_INPUT_HEAD_SIZE 8
+#define JM_HID_HEAD_SIZE 20            /* the command less its client: the B80's report is this + 336 */
+#define JM_HID_CLIENT_HEAD_SIZE 24     /* a command's head: CDB, length, flags, tag, client */
+#define JM_HID_INPUT_HEAD_SIZE 8       /* an answer's input report: client, tag, state, offset */
 #define JM_HID_REPORT_JIELI 512
 #define JM_HID_REPORT_TELINK 356
 enum jm_hid_state { JM_HID_IDLE, JM_HID_BUSY, JM_HID_MORE, JM_HID_LAST, JM_HID_REFUSED };

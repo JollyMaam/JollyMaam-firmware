@@ -213,10 +213,9 @@ def _windows_write(path, data):
 
 
 class Features:
-    """An open HID interface's feature reports, without report IDs: set()
-    sends the report, get() reads one of size bytes; read() takes its input
-    reports.  On Windows the handle is a Device's (overlapped, so a read
-    can time out), which the feature calls share."""
+    """An open tool device: set() sends a feature report (no report IDs),
+    read() takes its input reports.  On Windows the handle is a Device's
+    (overlapped, so a read can time out), which the feature call shares."""
 
     def __init__(self, path, size):
         self.path, self.size = path, size
@@ -225,8 +224,7 @@ class Features:
             self.device = Device(path)
             self.handle = self.device.handle
             self.hid = ctypes.WinDLL("hid", use_last_error=True)
-            for name in ("HidD_SetFeature", "HidD_GetFeature"):
-                getattr(self.hid, name).argtypes = [w.HANDLE, ctypes.c_void_p, w.ULONG]
+            self.hid.HidD_SetFeature.argtypes = [w.HANDLE, ctypes.c_void_p, w.ULONG]
         else:
             self.fd = os.open(path, os.O_RDWR)
 
@@ -256,16 +254,6 @@ class Features:
         (Windows' HID driver 32 a handle), and then drops new ones."""
         while self.read(0) is not None:
             pass
-
-    def get(self):
-        buf = ctypes.create_string_buffer(self.size + 1)
-        if sys.platform == "win32":
-            if not self.hid.HidD_GetFeature(self.handle, buf, self.size + 1):
-                raise ctypes.WinError(ctypes.get_last_error())
-        else:
-            import fcntl
-            fcntl.ioctl(self.fd, 0xc0004807 | (self.size + 1) << 16, buf)   # HIDIOCGFEATURE
-        return buf.raw[1:]
 
     def close(self):
         if sys.platform == "win32":

@@ -4,7 +4,6 @@ public abstract class NativeUsb {
     public int hidWrite(byte[] data) { throw new UnsupportedOperationException(); }
     public int hidRead(byte[] data, int timeout) { throw new UnsupportedOperationException(); }
     public int featureSet(byte[] data) { throw new UnsupportedOperationException(); }
-    public int featureGet(byte[] data) { throw new UnsupportedOperationException(); }
     public int featureSize() { return 0; }
     public void waitMillis(int ms) {}
     public boolean reconnect(byte[] uid) { return false; }

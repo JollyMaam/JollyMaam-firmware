@@ -4,16 +4,36 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-struct fake { unsigned mode,cmd,tag,updater,begun,written,committed,reconnects,starts,dropped,rom; uint8_t flash[600]; };
+struct fake { unsigned mode,cmd,tag,updater,begun,written,committed,reconnects,starts,dropped,rom,refusals;
+  uint32_t client; uint8_t flash[600], queue[16][64]; unsigned queued, taken; };
 static void wr32(uint8_t *p,uint32_t v) { p[0]=v;p[1]=v>>8;p[2]=v>>16;p[3]=v>>24; }
 static uint32_t rd32(const uint8_t *p) { return (uint32_t)p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24; }
 static size_t feature_size(void *user) { (void)user;return 356; }
 static void wait_ms(void *user,unsigned ms) { (void)user;(void)ms; }
 static int reconnect(void *user,const uint8_t uid[16]) { struct fake *f=user;assert(uid[0]==42);++f->reconnects;return 1; }
+/* The answer as the firmware sends it: input reports of 8 bytes of head
+ * (client, tag, state, offset) and 56 of the answer; another program's
+ * piece first, which must pass by. */
+static void answer(struct fake *f,const uint8_t *data,size_t n) {
+  f->queued=f->taken=0;
+  uint8_t *other=f->queue[f->queued++];memset(other,0,64);wr32(other,f->client^1);other[4]=(uint8_t)f->tag;other[5]=3;
+  size_t at=0;
+  do {
+    uint8_t *r=f->queue[f->queued++];memset(r,0,64);size_t k=n-at<56?n-at:56;
+    wr32(r,f->client);r[4]=(uint8_t)f->tag;r[5]=at+k<n?2:3;r[6]=(uint8_t)at;r[7]=(uint8_t)(at>>8);
+    if(k) memcpy(r+8,data+at,k);
+    at+=k;
+  } while(at<n);
+}
 static int set(void *user,const uint8_t *data,size_t size) {
   struct fake *f=user;assert(size==357 && data[0]==0 && data[1]==0xf5);
-  f->cmd=data[2];f->tag=data[20];unsigned arg=rd32(data+3);
+  assert(data[19]&2);   /* the answer on input reports */
+  f->cmd=data[2];f->tag=data[20];f->client=rd32(data+21);unsigned arg=rd32(data+3);
   size_t n=data[17]|(size_t)data[18]<<8;
+  if(f->mode==5 && f->refusals<3) {   /* another program's command runs */
+    ++f->refusals;f->queued=1;f->taken=0;memset(f->queue[0],0,64);wr32(f->queue[0],f->client);
+    f->queue[0][4]=(uint8_t)f->tag;f->queue[0][5]=4;return (int)size;
+  }
   switch(f->cmd) {
   case 0:case 0x41:break;
   case 0x40:f->updater=1;break;
@@ -23,23 +43,26 @@ static int set(void *user,const uint8_t *data,size_t size) {
     assert(f->begun && arg==f->written);
     if(f->mode==3) return -1;
     if(f->mode==4 && !f->dropped) { f->dropped=1;break; }
-    assert(n<=600-f->written);memcpy(f->flash+f->written,data+21,n);f->written+=(unsigned)n;break;
+    assert(n<=600-f->written && n<=332);memcpy(f->flash+f->written,data+25,n);f->written+=(unsigned)n;break;
   case 0x44:assert(f->written==600);f->committed=1;break;
   case 0x10:assert(f->committed);++f->starts;break;
   default:assert(0);
   }
-  return (int)size;
-}
-static int get(void *user,uint8_t *out,size_t size) {
-  struct fake *f=user;assert(size==357);memset(out,0,size);out[1]=(uint8_t)f->tag;out[2]=3;
+  uint8_t out[88]={0};size_t length=0;
   if(f->cmd==0) {
-    out[3]=88;uint8_t *id=out+5;memcpy(id,"C2PD",4);id[7]=(uint8_t)f->updater;
+    length=88;uint8_t *id=out;memcpy(id,"C2PD",4);id[7]=(uint8_t)f->updater;
     id[24]=f->mode==1 || (f->mode==2 && f->reconnects)?43:42;memcpy(id+40,"test",4);
   } else if(f->cmd==0x41) {
-    out[3]=32;uint8_t *info=out+5;info[0]=1;info[1]=f->committed?2:f->begun?1:0;info[3]=f->committed;
+    length=32;uint8_t *info=out;info[0]=1;info[1]=f->committed?2:f->begun?1:0;info[3]=f->committed;
     wr32(info+8,600);wr32(info+12,f->written);wr32(info+16,f->begun?600:0);wr32(info+24,128);
   }
+  answer(f,out,length);
   return (int)size;
+}
+static int get(void *user,uint8_t *out,size_t size,unsigned timeout) {
+  struct fake *f=user;(void)timeout;assert(size>=64);
+  if(f->taken>=f->queued) return 0;
+  memcpy(out,f->queue[f->taken++],64);return 64;
 }
 static void image_make(uint8_t image[8192]) {
   memset(image, 0xff, 8192);
@@ -166,11 +189,12 @@ int main(void) {
   uint8_t image[600]={0},uid[16]={42};memcpy(image,"MAIN",4);wr32(image+4,312);wr32(image+16,1);
   memcpy(image+24,"test",4);memset(image+288,0xa5,312);wr32(image+8,jm_crc16(image+288,312));wr32(image+40,jm_crc16(image+4,36));
   struct jm_firmware_target target;memset(&target,0,sizeof target);target.update.data=image;target.update.size=600;
-  struct jm_session_io io={0};io.feature_size=feature_size;io.feature_set=set;io.feature_get=get;io.wait_ms=wait_ms;io.reconnect=reconnect;
-  for(unsigned mode=0;mode<5;++mode) {
+  struct jm_session_io io={0};io.feature_size=feature_size;io.feature_set=set;io.hid_read=get;io.wait_ms=wait_ms;io.reconnect=reconnect;
+  for(unsigned mode=0;mode<6;++mode) {
     struct fake f;memset(&f,0,sizeof f);f.mode=mode;
     int result=jm_session_run(&target,JM_SESSION_CUSTOM,uid,&io,&f,NULL,NULL);
-    if(mode==0 || mode==4) { assert(!result && f.starts==1 && f.reconnects==1 && !memcmp(image,f.flash,600)); }
+    if(mode==5) assert(f.refusals==3);
+    if(mode==0 || mode==4 || mode==5) { assert(!result && f.starts==1 && f.reconnects==1 && !memcmp(image,f.flash,600)); }
     else { assert(result && !f.starts && !f.committed);if(mode==1 || mode==2) assert(!f.begun); }
   }
   for(unsigned updater=0;updater<2;++updater) {

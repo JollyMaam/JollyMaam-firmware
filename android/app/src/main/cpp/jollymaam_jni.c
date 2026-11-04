@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "jollymaam.h"
-struct bridge { JNIEnv *env;jobject transport;jmethodID scsi,write,read,set,get,wait,reconnect,size,progress; };
+struct bridge { JNIEnv *env;jobject transport;jmethodID scsi,write,read,set,wait,reconnect,size,progress; };
 static int prepare(struct bridge *b,JNIEnv *env,jobject transport) {
   memset(b,0,sizeof *b);b->env=env;b->transport=transport;
   if(!transport) return 0;
@@ -11,7 +11,6 @@ static int prepare(struct bridge *b,JNIEnv *env,jobject transport) {
   b->write=(*env)->GetMethodID(env,cls,"hidWrite","([B)I");
   b->read=(*env)->GetMethodID(env,cls,"hidRead","([BI)I");
   b->set=(*env)->GetMethodID(env,cls,"featureSet","([B)I");
-  b->get=(*env)->GetMethodID(env,cls,"featureGet","([B)I");
   b->wait=(*env)->GetMethodID(env,cls,"waitMillis","(I)V");
   b->reconnect=(*env)->GetMethodID(env,cls,"reconnect","([B)Z");
   b->size=(*env)->GetMethodID(env,cls,"featureSize","()I");
@@ -28,7 +27,7 @@ static int array_call(struct bridge *b,jmethodID method,uint8_t *data,size_t siz
   jbyteArray array=bytes(e,data,size);if(!array) return -1;
   jint n=timed?(*e)->CallIntMethod(e,b->transport,method,array,(jint)timeout):(*e)->CallIntMethod(e,b->transport,method,array);
   if(!(*e)->ExceptionCheck(e) && n>=0 && (size_t)n<=size) {
-    if(method==b->read || method==b->get) (*e)->GetByteArrayRegion(e,array,0,n,(jbyte *)data);
+    if(method==b->read) (*e)->GetByteArrayRegion(e,array,0,n,(jbyte *)data);
   }
   else n=-1;
   (*e)->DeleteLocalRef(e,array);return n;
@@ -49,7 +48,6 @@ static int scsi(void *user,const uint8_t *cdb,size_t n,enum jm_scsi_direction di
 static int write_hid(void *u,const uint8_t *d,size_t n) { struct bridge *b=u;return array_call(b,b->write,(uint8_t *)d,n,0,0); }
 static int read_hid(void *u,uint8_t *d,size_t n,unsigned t) { struct bridge *b=u;memset(d,0,n);return array_call(b,b->read,d,n,t,1); }
 static int feature_set(void *u,const uint8_t *d,size_t n) { struct bridge *b=u;return array_call(b,b->set,(uint8_t *)d,n,0,0); }
-static int feature_get(void *u,uint8_t *d,size_t n) { struct bridge *b=u;return array_call(b,b->get,d,n,0,0); }
 static size_t feature_size(void *u) {
   struct bridge *b=u;JNIEnv *e=b->env;if((*e)->ExceptionCheck(e)) return 0;
   jint n=(*e)->CallIntMethod(e,b->transport,b->size);return n>0?(size_t)n:0;
@@ -66,7 +64,7 @@ static int reconnect(void *u,const uint8_t uid[16]) {
 static void progress(void *u,size_t done,size_t total) {
   struct bridge *b=u;JNIEnv *e=b->env;if(!(*e)->ExceptionCheck(e)) (*e)->CallVoidMethod(e,b->transport,b->progress,(jlong)done,(jlong)total);
 }
-static const struct jm_session_io io={scsi,write_hid,read_hid,feature_set,feature_get,wait_ms,reconnect,feature_size};
+static const struct jm_session_io io={scsi,write_hid,read_hid,feature_set,wait_ms,reconnect,feature_size,NULL};
 /* Verify the whole package before returning selectable product/board/chip triples.
  * Java owns the byte array; no native pointer escapes this call. */
 JNIEXPORT jobjectArray JNICALL Java_dev_cyclone_padtool_NativeCore_products(JNIEnv *e,jobject self,jbyteArray input) {

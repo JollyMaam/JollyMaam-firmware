@@ -39,7 +39,13 @@ class InputChoiceTests(unittest.TestCase):
             with patch.dict(t._tools, tools, clear=True), patch.object(t.sys, "platform", platform):
                 self.assertEqual(t._input("a"), want, platform)
                 self.assertFalse(t._input("b"), platform)
-                self.assertEqual(t.data_max("a"), 64 - (t.TOOL_HEAD_IN if want else t.TOOL_HEAD))
+                self.assertEqual(t.data_max("a"), 64 - t.TOOL_HEAD_IN)
+
+    def test_a_device_without_input_report_is_refused(self):
+        with patch.dict(t._tools, {"/dev/hidraw9": ("pad", 512, 0)}, clear=True), \
+                patch.object(t.sys, "platform", "linux"):
+            with self.assertRaisesRegex(OSError, "no input report"):
+                t._tool("/dev/hidraw9", [0xf5, 0], 88, 100, None)
 
 
 class InputAnswerTests(unittest.TestCase):

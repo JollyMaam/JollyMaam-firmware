@@ -50,7 +50,7 @@ static int probe_selected(struct devices *list,const char *path,const struct jm_
   const struct jm_session_io *io=jm_platform_io();
   struct jm_platform_connection *connection=jm_platform_open(path,JM_SESSION_CUSTOM);
   struct jm_identity id;int found=0;
-  if(connection && io->feature_size && io->feature_set && io->feature_get &&
+  if(connection && io->feature_size && io->feature_set && io->hid_read &&
      jm_session_identify(io,connection,&id)) {
     custom(list,path,&id);found=1;
   }

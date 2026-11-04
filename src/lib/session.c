@@ -10,7 +10,11 @@
  * actual length in result, negative on transport failure. HID/feature callbacks
  * return actual byte counts, zero for read timeout, negative for errors.
  * hid_write receives 64 protocol bytes without hidapi's synthetic report ID;
+ * hid_read gives one input report without it (timeout 0: none waiting);
  * feature buffers include the leading report ID byte (zero for our device).
+ * Our tool device: a command is a feature report, its answer comes on input
+ * reports addressed to this program's client (several programs can share a
+ * device), so tool commands need feature_set, hid_read and feature_size.
  * Android adapters translate that byte to USB control-transfer report metadata.
  * wait_ms schedules a delay; reconnect attempts one discovery/open pass for the
  * requested UID, replacing the adapter's connection. Core rechecks identity and
@@ -155,41 +159,73 @@ done:
   free(workspace); free(packed); free(head); return result;
 }
 
+/* This program's client in the tool device's answers: the adapter's, or
+ * made up from addresses and a counter (ASLR keeps programs apart). */
+static uint32_t client_of(const struct jm_session_io *io, void *context) {
+  static uint32_t made, count;
+  uint32_t c;
+  if (io->client && (c = io->client(context))) return c;
+  if (!made) {
+    uintptr_t mix = (uintptr_t)&made ^ (uintptr_t)context << 7 ^ (uintptr_t)io << 13 ^ (uintptr_t)&c;
+    made = (uint32_t)mix ^ (uint32_t)((uint64_t)mix >> 32) ^ 0x9e3779b9u * ++count;
+    if (!made) made = 1;
+  }
+  return made;
+}
+static int tool_ready(const struct jm_session_io *io) {
+  return io && io->feature_size && io->feature_set && io->hid_read && io->wait_ms;
+}
+/* One tool command: the feature report (CDB, u16 length, flags, tag, u32
+ * client, data), then its answer from the input reports (client, tag, state,
+ * u16 offset, 56 bytes), others' passing by.  REFUSED (another program's
+ * command runs): sent again after a short wait. */
 static int command(const struct jm_session_io *io, void *context, uint8_t *tag, const struct jm_update_request *r, uint8_t *answer) {
   size_t report=io->feature_size(context);
-  if (report!=JM_HID_REPORT_TELINK && report!=JM_HID_REPORT_JIELI) return 0;
-  uint8_t buffer[513] = {0};
-  if (r->out_size > report-JM_HID_HEAD_SIZE || r->in_size > 512) return 0;
-  memcpy(buffer+1,r->cdb,16);
+  if (report<64 || report>JM_HID_REPORT_JIELI) return 0;
+  uint8_t buffer[JM_HID_REPORT_JIELI+1], in[128];
+  if (r->out_size > report-JM_HID_CLIENT_HEAD_SIZE || r->in_size > 512) return 0;
+  uint32_t client=client_of(io,context);
   size_t n = r->out_size ? r->out_size : r->in_size;
-  buffer[17]=(uint8_t)n; buffer[18]=(uint8_t)(n>>8);
-  buffer[19]=r->out_size ? JM_HID_OUT : 0; buffer[20]=++*tag;
-  if (r->out_size) memcpy(buffer+21,r->data,r->out_size);
-  int sent=io->feature_set(context,buffer,report+1);
-  /* COMMIT has already been checked before REBOOT. A disconnect racing the
-   * reboot status does not invalidate the verified firmware; do not retry. */
-  if (r->cdb[1]==JM_CMD_REBOOT) return 1;
-  if (sent != (int)report+1) return 0;
-  if (r->cdb[1]==JM_CMD_UPDATER) return 1;
-  if (r->cdb[1]==JM_CMD_REBOOT_LOADER) return 1;
-  size_t got=0;
-  for (unsigned polls=0;polls<10000;++polls) {
-    buffer[0]=0;
-    int count=io->feature_get(context,buffer,report+1);
-    if (count<5 || buffer[1]!=*tag) return 0;
-    if (buffer[2]==JM_HID_BUSY) { io->wait_ms(context,1); continue; }
-    if (buffer[2]!=JM_HID_MORE && buffer[2]!=JM_HID_LAST) return 0;
-    size_t length=buffer[3] | (size_t)buffer[4]<<8;
-    if (length>(size_t)count-5 || length>r->in_size-got) return 0;
-    if (length) memcpy(answer+got,buffer+5,length);
-    got+=length;
-    if (buffer[2]==JM_HID_LAST) return got==r->in_size;
+  for (unsigned tries=0; tries<2000; ++tries) {
+    memset(buffer,0,sizeof buffer);
+    memcpy(buffer+1,r->cdb,16);
+    buffer[17]=(uint8_t)n; buffer[18]=(uint8_t)(n>>8);
+    buffer[19]=(uint8_t)(JM_HID_INPUT | (r->out_size ? JM_HID_OUT : 0)); buffer[20]=++*tag;
+    for (unsigned i=0;i<4;++i) buffer[21+i]=(uint8_t)(client>>8*i);
+    if (r->out_size) memcpy(buffer+1+JM_HID_CLIENT_HEAD_SIZE,r->data,r->out_size);
+    for (unsigned drained=0; drained<256 && io->hid_read(context,in,sizeof in,0)>0; ++drained) {}
+    int sent=io->feature_set(context,buffer,report+1);
+    /* COMMIT has already been checked before REBOOT. A disconnect racing the
+     * reboot status does not invalidate the verified firmware; do not retry. */
+    if (r->cdb[1]==JM_CMD_REBOOT) return 1;
+    if (sent != (int)report+1) return 0;
+    if (r->cdb[1]==JM_CMD_UPDATER) return 1;
+    if (r->cdb[1]==JM_CMD_REBOOT_LOADER) return 1;
+    size_t got=0; int refused=0;
+    for (unsigned waits=0; waits<150 && !refused;) {
+      int count=io->hid_read(context,in,sizeof in,100);
+      if (count<0) return 0;
+      if (count==0) { ++waits; continue; }     /* 15 s without a piece of ours */
+      if (count<JM_HID_INPUT_HEAD_SIZE) continue;
+      uint32_t whose=(uint32_t)in[0]|(uint32_t)in[1]<<8|(uint32_t)in[2]<<16|(uint32_t)in[3]<<24;
+      if (whose!=client || in[4]!=*tag) continue;
+      if (in[5]==JM_HID_REFUSED) { refused=1; break; }
+      size_t offset=in[6] | (size_t)in[7]<<8;
+      if ((in[5]!=JM_HID_MORE && in[5]!=JM_HID_LAST) || offset!=got) return 0;
+      size_t length=(size_t)count-JM_HID_INPUT_HEAD_SIZE;
+      if (length>r->in_size-got) length=r->in_size-got;
+      if (length) memcpy(answer+got,in+JM_HID_INPUT_HEAD_SIZE,length);
+      got+=length;
+      if (in[5]==JM_HID_LAST) return got==r->in_size;
+    }
+    if (!refused) return 0;
+    io->wait_ms(context,1+(client>>(tries%24)&7));
   }
   return 0;
 }
-/* Read IDENTIFY over the portable feature-report framing. No OS API calls. */
+/* Read IDENTIFY over the tool device's framing. No OS API calls. */
 int jm_session_identify(const struct jm_session_io *io, void *context, struct jm_identity *id) {
-  if (!io || !io->feature_size || !io->feature_set || !io->feature_get || !io->wait_ms) return 0;
+  if (!tool_ready(io)) return 0;
   uint8_t reply[JM_ID_EXT_SIZE], tag=0; struct jm_update_request r;
   memset(&r,0,sizeof r); jm_command(r.cdb,0,0); r.in_size=JM_ID_EXT_SIZE;
   return command(io,context,&tag,&r,reply) && jm_identify_decode(reply,sizeof reply,id);
@@ -200,7 +236,7 @@ int jm_session_identify(const struct jm_session_io *io, void *context, struct jm
  * an unconfirmed transfer. A disconnect can race USB completion: rescan after
  * either result, never automatically resend. No bootloader discovery occurs. */
 int jm_session_stock_loader(const struct jm_session_io *io,void *context,const uint8_t uid[16]) {
-  if(!uid || !io || !io->feature_size || !io->feature_set || !io->feature_get || !io->wait_ms) return -1;
+  if(!uid || !tool_ready(io)) return -1;
   struct jm_identity id;
   if(!jm_session_identify(io,context,&id) || memcmp(id.uid,uid,16)) return -2;
   struct jm_update_request request;memset(&request,0,sizeof request);jm_command(request.cdb,JM_CMD_REBOOT_LOADER,0);
@@ -213,7 +249,7 @@ int jm_session_custom(const struct jm_session_io *io, void *context, const uint8
                            void (*progress)(void *, size_t, size_t), void *user) {
   struct jm_identity id; uint8_t tag=0;
   if (!expected_uid || !jm_update_image_check(image,size,NULL)) return -1;
-  if (!io || !io->feature_size || !io->feature_set || !io->feature_get || !io->wait_ms || !io->reconnect) return -2;
+  if (!tool_ready(io) || !io->reconnect) return -2;
   int result=-3;
   if (!jm_session_identify(io,context,&id) || memcmp(id.uid,expected_uid,16) || memcmp(id.product,image+JM_MAIN_PRODUCT_OFF,JM_PRODUCT_SIZE)) goto done;
   if (!id.updater) {
@@ -230,7 +266,7 @@ int jm_session_custom(const struct jm_session_io *io, void *context, const uint8
     if(!ready) return -4;
   }
   struct jm_update op;
-  if (!jm_update_init(&op,image,size,io->feature_size(context)-20)) goto done;
+  if (!jm_update_init(&op,image,size,io->feature_size(context)-JM_HID_CLIENT_HEAD_SIZE)) goto done;
   struct jm_update_request request; uint8_t reply[512]; enum jm_update_step step;
   while ((step=jm_update_next(&op,&request))==JM_UPDATE_TRANSFER) {
     int ok=command(io,context,&tag,&request,reply);

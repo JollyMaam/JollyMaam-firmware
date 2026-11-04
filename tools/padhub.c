@@ -512,38 +512,58 @@ static int spawn(u8 s)
 #define TOOL_REPORT 512          /* the Jieli tool device's (platform_jieli_usb.c) */
 
 /* A command and up to len bytes of its answer: the report (CDB, u16
- * length, flags, tag), then reads of it until the last piece.  -1: none. */
+ * length, flags with the answer on input reports, tag, u32 client), then
+ * the answer's input reports addressed to us (client, tag, state, u16
+ * offset, 56 bytes), others' passing by.  Refused (another program's
+ * command runs): sent again.  -1: none. */
 static int tool_in(const char *path, const u8 cdb[16], u8 *data, u32 len)
 {
     static u8 tag;
-    u8 buf[TOOL_REPORT + 1];
-    u32 got = 0, busy = 0, n;
-    int fd = open(path, O_RDWR | O_CLOEXEC), ok = 0;
+    static u32 client;
+    u8 buf[TOOL_REPORT + 1], in[64];
+    u32 got = 0, tries, idle;
+    int fd = open(path, O_RDWR | O_NONBLOCK | O_CLOEXEC), ok = 0, k, refused;
 
     if (fd < 0) return -1;
-    memset(buf, 0, sizeof(buf));
-    memcpy(buf + 1, cdb, 16);
-    buf[17] = (u8)len;
-    buf[18] = (u8)(len >> 8);
-    buf[20] = ++tag;
-    if (ioctl(fd, HIDIOCSFEATURE(sizeof(buf)), buf) < 0) goto done;
-    while (busy < 1000) {
-        buf[0] = 0;
-        if (ioctl(fd, HIDIOCGFEATURE(sizeof(buf)), buf) < 0 || buf[1] != tag) break;
-        if (buf[2] == 1) {               /* busy */
-            busy++;
-            usleep(1000);
-            continue;
+    if (!client) client = ((u32)getpid() * 0x9e3779b9u ^ (u32)time(NULL)) | 1;
+    for (tries = 0; tries < 1000 && !ok; tries++) {
+        memset(buf, 0, sizeof(buf));
+        memcpy(buf + 1, cdb, 16);
+        buf[17] = (u8)len;
+        buf[18] = (u8)(len >> 8);
+        buf[19] = 2;                     /* the answer on input reports */
+        buf[20] = ++tag;
+        memcpy(buf + 21, &client, 4);
+        while (read(fd, in, sizeof(in)) > 0)
+            ;                            /* earlier answers: dropped */
+        if (ioctl(fd, HIDIOCSFEATURE(sizeof(buf)), buf) < 0) break;
+        got = 0;
+        refused = 0;
+        for (idle = 0; idle < 30 && !ok && !refused;) {   /* 3 s without a piece */
+            struct pollfd p = { fd, POLLIN, 0 };
+            u32 whose;
+
+            if (poll(&p, 1, 100) <= 0) {
+                idle++;
+                continue;
+            }
+            k = (int)read(fd, in, sizeof(in));
+            if (k < 8) continue;
+            memcpy(&whose, in, 4);
+            if (whose != client || in[4] != tag) continue;
+            if (in[5] == 4) {
+                refused = 1;
+                break;
+            }
+            if ((in[5] != 2 && in[5] != 3) || (u32)(in[6] | in[7] << 8) != got) goto done;
+            k -= 8;
+            if ((u32)k > len - got) k = (int)(len - got);
+            memcpy(data + got, in + 8, (size_t)k);
+            got += (u32)k;
+            if (in[5] == 3) ok = 1;
         }
-        if (buf[2] != 2 && buf[2] != 3) break;
-        n = (u32)(buf[3] | buf[4] << 8);
-        if (n > len - got) n = len - got;
-        memcpy(data + got, buf + 5, n);
-        got += n;
-        if (buf[2] == 3) {
-            ok = 1;
-            break;
-        }
+        if (!refused) break;
+        usleep(1000 + (client >> (tries % 24) & 7) * 1000);
     }
 done:
     close(fd);

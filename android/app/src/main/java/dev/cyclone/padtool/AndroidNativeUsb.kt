@@ -72,14 +72,6 @@ class AndroidNativeUsb(
         val n = connection?.controlTransfer(0x21, 9, 0x300, intf!!.id, payload, payload.size, 10000) ?: -1
         return if (n < 0) -1 else n + 1
     }
-    override fun featureGet(data: ByteArray): Int {
-        checkActive()
-        val payload = ByteArray(data.size - 1)
-        val n = connection?.controlTransfer(0xa1, 1, 0x300, intf!!.id, payload, payload.size, 10000) ?: -1
-        if (n < 0) return -1
-        data[0] = 0; payload.copyInto(data, 1, 0, n)
-        return n + 1
-    }
     private fun interrupt(endpoint: UsbEndpoint, data: ByteArray, timeout: Int, reading: Boolean): Int {
         checkActive()
         val conn = connection ?: throw IOException("Device disconnected")
