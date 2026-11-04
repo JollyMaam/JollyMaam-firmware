@@ -101,7 +101,7 @@ $(U2CB_PAD)_BOARD_DIR := src/boards/8bitdo-ultimate2c-bluetooth
 U2CB_PAD_OBJECTS := $(patsubst %.c,$(O)/$(U2CB_PAD)/%.o,$($(U2CB_PAD)_SOURCES)) \
 	$(patsubst %.S,$(O)/$(U2CB_PAD)/%.o,$($(U2CB_PAD)_ASM))
 U2CB_PAD_FLAGS := $(YC_CFLAGS) -DBOARD_PID=\"$($(U2CB_PAD)_PID)\" -DBUILD_ID=\"$(BUILD_ID)\" \
-	$($(U2CB_PAD)_DEFINES) $(EXTRA_DEFINES) -DSETTINGS_SCHEMA -iquote $(O)/$(U2CB_PAD) \
+	$($(U2CB_PAD)_DEFINES) $(EXTRA_DEFINES) \
 	$(subst -iquote src/platform/jieli,,$(SRC_INCLUDES)) -iquote src/platform/yc3121 \
 	-iquote $($(U2CB_PAD)_BOARD_DIR)
 
@@ -135,5 +135,4 @@ $(U2CB_PAD)-flash: $(O)/$(U2CB_PAD)/app.bin
 
 $(eval $(call board_defines,$(U2CB_PAD)))
 -include $(U2CB_PAD_OBJECTS:.o=.d)
-$(eval $(call settings_schema,$(U2CB_PAD)))
 $(eval $(call host_tests,$(U2CB_PAD)))

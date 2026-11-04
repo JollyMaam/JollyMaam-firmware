@@ -2,7 +2,7 @@
 #define STORE_H
 
 /* core/store.c's record log, shared with the host settings-capacity check
- * (tools/jollymaam/settings_schema.c).  Of its two banks one is live; the
+ * (settings.c's unit test).  Of its two banks one is live; the
  * other is the compaction destination, not more room. */
 #define STORE_SECTOR         0x1000u   /* the erase unit; a bank is whole sectors */
 #define STORE_HEADER_SIZE    8u

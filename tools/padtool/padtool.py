@@ -1221,7 +1221,7 @@ FACE_ROLES = {"a": "south", "b": "east", "x": "west", "y": "north"}    # the rem
 
 
 def read_layout(path):
-    """The pad's controls (board.inc board_layout): what each input is called
+    """The pad's controls (board_pad.c: board_layout): what each input is called
     on the pad, its kind and place; None if the firmware has no LAYOUT."""
     entries, first = [], 0
     while True:

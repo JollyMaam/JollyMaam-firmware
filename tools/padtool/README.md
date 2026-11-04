@@ -135,7 +135,7 @@ base. A remap slot takes every setting it has not set from Remap base, so the
 base is where to set what all of them share; a setting's default on a remap
 slot is the base's value. Names are each remap's own, and Remap A keeps its
 "Swap A/B X/Y" keys. Remap base at its defaults is the board's own base map
-(the board's `board.inc`; on these pads every key as it is) and sends the
+(the board's `board_pad.c`; on these pads every key as it is) and sends the
 sticks exactly as calibrated.
 
 Keys are named as the pad prints them: the firmware sends its layout

@@ -55,7 +55,7 @@ struct shade { struct rgb rgb; u16 brightness; };
  * never by a letter: what is printed on them differs between pads (Xbox
  * order: south A; Nintendo order: south B), and the profiles give each
  * role the host's button for that place.  A pad with other buttons puts
- * each on its own role, the nearest standard one first (board.inc).
+ * each on its own role, the nearest standard one first (board_pad.c).
  * IN_*: the bit numbers, as the tools name inputs; PAD_*: the bits. */
 enum {
     IN_SOUTH, IN_EAST, IN_SCREENSHOT, IN_WEST, IN_NORTH, IN_M, IN_L1, IN_R1,
@@ -599,7 +599,7 @@ struct set_remap {
     u8 trigger_mode[2];      /* TRIGGER_* */
 };
 
-/* The board's base remap until it is changed (board.inc): its name, map and
+/* The board's base remap until it is changed (board_pad.c): its name, map and
  * rules; the other fields take their own defaults.  Zero: every key sends
  * itself.  The remap slots take it as they take the base. */
 extern const struct set_remap board_remap_base;
@@ -800,7 +800,7 @@ struct board_slots {
 };
 extern const struct board_slots board_slots;
 
-/* The board's controls, as a tool draws and names them (board.inc): one
+/* The board's controls, as a tool draws and names them (board_pad.c): one
  * entry per input the board has, in no particular order.  Every field is a
  * byte, so the table is its own wire format (usb.c LAYOUT). */
 enum {
