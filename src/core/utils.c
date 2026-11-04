@@ -144,12 +144,12 @@ u32 util_trace_read(u32 offset, u8 *out, u32 max)
 }
 
 /* ---- the latency probe ------------------------------------------------------
- * A presses and releases made inside the pad, each at a random time within
+ * South presses and releases made inside the pad, each at a random time within
  * its period, applied where the real buttons come in (util_probe_apply) and
  * stamped twice: when it happened and when the first report carrying it was
  * sent (util_probe_sent).  An edge undone before any report carried it is
  * stamped sent 0.  The tool device reads the records (util_probe_take) and
- * the PC matches them with its own input events.  Period 0: A flips in
+ * the PC matches them with its own input events.  Period 0: south flips in
  * every report instead, as soon as the last one went out (the most reports
  * the link carries).  Nothing is saved. */
 #ifndef PROBE_EDGES
@@ -164,7 +164,7 @@ static struct {
     u32 left;                    /* edges still to make; the last one releases */
     u32 period_us, slot_us, next_us;
     u32 rng;
-    u8 level;                    /* A as the probe holds it */
+    u8 level;                    /* south as the probe holds it */
     u8 every_report;             /* period 0: flip after each report sent */
     u8 flip;                     /* every_report: a report went out, flip at the next input */
     u32 head, unsent, tail, lost;   /* records [tail, head); [unsent, head) not sent yet */
@@ -198,7 +198,7 @@ void util_probe_start(u32 edges, u32 period_ms)
     plat_unlock();
 }
 
-/* Makes the edges that are due and puts A as the probe holds it into the
+/* Makes the edges that are due and puts south as the probe holds it into the
  * buttons.  Returns when the next edge is due (plat_us), 0 when stopped. */
 u32 util_probe_apply(u32 *buttons)
 {
@@ -227,8 +227,8 @@ u32 util_probe_apply(u32 *buttons)
         probe.next_us = probe.slot_us + probe_random() % probe.period_us;
     }
     plat_unlock();
-    if (probe.level) *buttons |= PAD_A;
-    else *buttons &= ~(u32)PAD_A;
+    if (probe.level) *buttons |= PAD_SOUTH;
+    else *buttons &= ~(u32)PAD_SOUTH;
     return probe.left && !probe.every_report ? probe.next_us : 0;
 }
 
@@ -411,38 +411,38 @@ int main(void)
         CHECK(!memcmp(out, want, 16));
     }
 #if PROBE_EDGES
-    {   /* the probe: edges one per period, A follows, a report stamps the newest */
+    {   /* the probe: edges one per period, south follows, a report stamps the newest */
         struct util_probe_edge e[8];
-        u32 b = PAD_B, at, lost;
+        u32 b = PAD_EAST, at, lost;
         u8 active;
 
         fake_ms = 100;
         util_probe_start(3, 10);                 /* rounded up to 4: ends released */
         at = util_probe_apply(&b);
-        CHECK(at >= 100000 && at < 110000 && b == PAD_B);
+        CHECK(at >= 100000 && at < 110000 && b == PAD_EAST);
         fake_ms = 110;                           /* past the first edge */
         at = util_probe_apply(&b);
-        CHECK(b == (PAD_B | PAD_A) && at >= 110000 && at < 120000);
+        CHECK(b == (PAD_EAST | PAD_SOUTH) && at >= 110000 && at < 120000);
         CHECK(util_probe_take(e, 8, &lost, &active) == 0 && active);   /* not sent yet */
         util_probe_sent(111000);
         CHECK(util_probe_take(e, 8, &lost, &active) == 1 && e[0].level == 1 &&
               e[0].edge_us >= 100000 && e[0].edge_us < 110000 && e[0].sent_us == 111000);
         fake_ms = 130;                           /* two edges before a report */
         util_probe_apply(&b);
-        CHECK(b == (PAD_B | PAD_A));             /* released and pressed again */
+        CHECK(b == (PAD_EAST | PAD_SOUTH));             /* released and pressed again */
         util_probe_sent(131000);
         CHECK(util_probe_take(e, 8, &lost, &active) == 2 && e[0].sent_us == 0 && e[1].sent_us == 131000);
         fake_ms = 140;
-        CHECK(util_probe_apply(&b) == 0 && b == PAD_B);   /* the last edge releases */
+        CHECK(util_probe_apply(&b) == 0 && b == PAD_EAST);   /* the last edge releases */
         util_probe_sent(141000);
         CHECK(util_probe_take(e, 8, &lost, &active) == 1 && e[0].level == 0 && !active && lost == 0);
-        b = PAD_A;
-        CHECK(util_probe_apply(&b) == 0 && b == PAD_A);   /* stopped: the real A again */
+        b = PAD_SOUTH;
+        CHECK(util_probe_apply(&b) == 0 && b == PAD_SOUTH);   /* stopped: the real south again */
 
         util_probe_start(4, 0);                  /* every report */
         b = 0;
-        CHECK(util_probe_apply(&b) == 0 && b == PAD_A);   /* flipped at once, no deadline */
-        CHECK(util_probe_apply(&b) == 0 && b == PAD_A);   /* not again before a report */
+        CHECK(util_probe_apply(&b) == 0 && b == PAD_SOUTH);   /* flipped at once, no deadline */
+        CHECK(util_probe_apply(&b) == 0 && b == PAD_SOUTH);   /* not again before a report */
         util_probe_sent(150000);
         util_probe_apply(&b);
         CHECK(b == 0);

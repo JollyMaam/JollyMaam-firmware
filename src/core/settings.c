@@ -1723,7 +1723,8 @@ static int full_storage(void)
         CHECK(write1(TARGET_REMAP + 1, 2, sizeof(map), map) == SET_RANGE);
         CHECK(write1(TARGET_REMAP + 1, 1, 10, "Mario Kart") == SET_BAD_LENGTH);
         CHECK(write1(TARGET_REMAP + 1, 1, REMAP_NAME, "Mario Kart\0\0\0\0\0\0\0\0\0\0\0\0\0\0") == SET_OK);
-        r[0].trigger = RT_HELD; r[0].input = 9; r[0].effect = RE_TURBO; r[0].outputs[0] = PAD_A; r[0].rate = 0;
+        r[0].trigger = RT_HELD; r[0].input = 9; r[0].effect = RE_TURBO; r[0].outputs[0] = PAD_SOUTH;
+        r[0].rate = 0;
         r[1].trigger = RT_TAPPED; r[1].input = 5; r[1].effect = RE_TAP; r[1].outputs[1] = PAD_HOME >> 8;
         CHECK(write1(TARGET_REMAP + 1, 3, sizeof(rules), rules) == SET_RANGE);   /* tapped under 0 ms */
         r[1].ms10 = 20;

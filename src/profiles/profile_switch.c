@@ -155,10 +155,10 @@ static void state(u8 *s)
     s[0] = (u8)(sw.now / 5);
     s[1] = sw.usb ? 0x81 : 0x8e;
     /* Nintendo positions: the pad's printed labels are Xbox-ordered. */
-    if (p->buttons & PAD_X) b |= JC_Y;
-    if (p->buttons & PAD_Y) b |= JC_X;
-    if (p->buttons & PAD_A) b |= JC_B;
-    if (p->buttons & PAD_B) b |= JC_A;
+    if (p->buttons & PAD_WEST) b |= JC_Y;
+    if (p->buttons & PAD_NORTH) b |= JC_X;
+    if (p->buttons & PAD_SOUTH) b |= JC_B;
+    if (p->buttons & PAD_EAST) b |= JC_A;
     if (p->buttons & PAD_L1) b |= JC_L;
     if (p->buttons & PAD_R1) b |= JC_R;
     if (p->buttons & PAD_L2) b |= JC_ZL;
@@ -185,10 +185,10 @@ static void simple(u8 *r)
     const struct pad *p = &sw.pad;
 
     memset(r, 0, SIMPLE_SIZE);
-    if (p->buttons & PAD_A) r[0] |= 0x01;
-    if (p->buttons & PAD_B) r[0] |= 0x02;
-    if (p->buttons & PAD_X) r[0] |= 0x04;
-    if (p->buttons & PAD_Y) r[0] |= 0x08;
+    if (p->buttons & PAD_SOUTH) r[0] |= 0x01;
+    if (p->buttons & PAD_EAST) r[0] |= 0x02;
+    if (p->buttons & PAD_WEST) r[0] |= 0x04;
+    if (p->buttons & PAD_NORTH) r[0] |= 0x08;
     if (p->buttons & PAD_L1) r[0] |= 0x10;
     if (p->buttons & PAD_R1) r[0] |= 0x20;
     if (p->buttons & PAD_L2) r[0] |= 0x40;
@@ -722,10 +722,10 @@ static int s2_report(const struct pad *p, u32 now, u8 *out, u8 *id)
     out[0] = ++s2.counter;
     out[1] = s2.usb ? 0x23 : 0x20;   /* USB: external power, charging */
     /* By position: the pad's A (south) is the Switch's B. */
-    if (p->buttons & PAD_A) b |= 0x0001;
-    if (p->buttons & PAD_B) b |= 0x0002;
-    if (p->buttons & PAD_X) b |= 0x0004;
-    if (p->buttons & PAD_Y) b |= 0x0008;
+    if (p->buttons & PAD_SOUTH) b |= 0x0001;
+    if (p->buttons & PAD_EAST) b |= 0x0002;
+    if (p->buttons & PAD_WEST) b |= 0x0004;
+    if (p->buttons & PAD_NORTH) b |= 0x0008;
     if (p->buttons & PAD_R1) b |= 0x0010;
     if (p->buttons & PAD_R2) b |= 0x0020;
     if (p->buttons & PAD_START) b |= 0x0040;
@@ -1062,8 +1062,8 @@ static int s2_usb_report(const struct pad *p, u32 now, u8 *out, u8 *id)
     memset(out, 0, S2_USB_SIZE);
     out[0] = ++s2.counter;
     /* By position: the pad's A (south) is the Switch's B. */
-    out[4] = (u8)((b & PAD_X ? 0x01 : 0) | (b & PAD_Y ? 0x02 : 0) | (b & PAD_A ? 0x04 : 0) |
-                  (b & PAD_B ? 0x08 : 0) | (b & PAD_R1 ? 0x40 : 0) | (b & PAD_R2 ? 0x80 : 0));
+    out[4] = (u8)((b & PAD_WEST ? 0x01 : 0) | (b & PAD_NORTH ? 0x02 : 0) | (b & PAD_SOUTH ? 0x04 : 0) |
+                  (b & PAD_EAST ? 0x08 : 0) | (b & PAD_R1 ? 0x40 : 0) | (b & PAD_R2 ? 0x80 : 0));
     out[5] = (u8)((b & PAD_SELECT ? 0x01 : 0) | (b & PAD_START ? 0x02 : 0) | (b & PAD_R3 ? 0x04 : 0) |
                   (b & PAD_L3 ? 0x08 : 0) | (b & PAD_HOME ? 0x10 : 0) |
                   (b & PAD_SCREENSHOT ? 0x20 : 0) | (b & PAD_M ? 0x40 : 0));
@@ -1210,7 +1210,7 @@ int main(void)
 
     CHECK(begin(&s) == IMU_OFF);
     memset(&p, 0, sizeof(p));
-    p.buttons = PAD_A;
+    p.buttons = PAD_SOUTH;
     p.lx = STICK_MAX;
     CHECK(report(&p, 0, out, &id) == FULL_SIZE && id == REPORT_FULL);
     CHECK(out[1] == 0x8e && out[2] == JC_B);
@@ -1330,7 +1330,7 @@ int main(void)
         CHECK(s2_report(&p, 1, out, &id) == S2_REPORT_SIZE && (out[4] & 0x10));
         p.buttons = 0;
         CHECK(s2_report(&p, 2, out, &id) == S2_REPORT_SIZE && !(out[4] & 0x10));
-        p.buttons = PAD_A;
+        p.buttons = PAD_SOUTH;
         s2_host(0, &h);
         CHECK(h.imu == IMU_MOTION);
         {
@@ -1403,7 +1403,7 @@ int main(void)
         s2_write(&w, 0, NULL);
         CHECK(sent_len == 8 + 0x48 && sent[1] == 0x02 && sent[2] == 0x01 && sent[1 + 0x10] == 0x01);
         CHECK(sent[5] == 0x00 && sent[6] == 0xf8);                     /* USB answer header */
-        p.buttons = PAD_A | PAD_HOME | PAD_DOWN;
+        p.buttons = PAD_SOUTH | PAD_HOME | PAD_DOWN;
         CHECK(s2_any_report(&p, 0, out, &id) == 0);                    /* not before 03/0d */
         memset(&w, 0, sizeof(w));
         w.kind = BT_WRITE_BULK; w.len = 16;

@@ -35,8 +35,8 @@ extern void led_spi_rgb_to_24byte(u8 r, u8 g, u8 b, u8 *buffer, int index);
 /* ---- buttons: debounced by the platform's tick ---------------------------- */
 
 const struct line board_lines[] = {
-    {IO_PORTA_00, PAD_A}, {IO_PORTA_06, PAD_B}, {IO_PORTA_07, PAD_X},
-    {IO_PORTA_13, PAD_Y}, {IO_PORTC_07, PAD_L1}, {IO_PORTC_00, PAD_R1},
+    {IO_PORTA_00, PAD_SOUTH}, {IO_PORTA_06, PAD_EAST}, {IO_PORTA_07, PAD_WEST},
+    {IO_PORTA_13, PAD_NORTH}, {IO_PORTC_07, PAD_L1}, {IO_PORTC_00, PAD_R1},
     {IO_PORTC_01, PAD_L3}, {IO_PORTC_02, PAD_R3}, {IO_PORTA_15, PAD_SELECT},
     {IO_PORTA_14, PAD_START}, {IO_PORTB_11, PAD_HOME}, {IO_PORTD_05, PAD_SCREENSHOT},
     {IO_PORTA_05, PAD_L4}, {IO_PORTC_04, PAD_R4}, {IO_PORTB_07, PAD_M},

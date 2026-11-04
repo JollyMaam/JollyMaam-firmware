@@ -211,8 +211,8 @@ static int x360_report(const struct pad *p, u32 now, u8 *out, u8 *id)
                   (b & PAD_RIGHT ? 0x08 : 0) | (b & PAD_START ? 0x10 : 0) |
                   (b & PAD_SELECT ? 0x20 : 0) | (b & PAD_L3 ? 0x40 : 0) | (b & PAD_R3 ? 0x80 : 0));
     out[3] = (u8)((b & PAD_L1 ? 0x01 : 0) | (b & PAD_R1 ? 0x02 : 0) | (b & PAD_HOME ? 0x04 : 0) |
-                  (b & PAD_A ? 0x10 : 0) | (b & PAD_B ? 0x20 : 0) | (b & PAD_X ? 0x40 : 0) |
-                  (b & PAD_Y ? 0x80 : 0));
+                  (b & PAD_SOUTH ? 0x10 : 0) | (b & PAD_EAST ? 0x20 : 0) | (b & PAD_WEST ? 0x40 : 0) |
+                  (b & PAD_NORTH ? 0x80 : 0));
     out[4] = (u8)(p->l2 >> 8);
     out[5] = (u8)(p->r2 >> 8);
     util_put16(out + 6, (u16)p->lx);
@@ -362,7 +362,7 @@ int main(void)
 
     begin_classic(&s);
     memset(&p, 0, sizeof(p));
-    p.buttons = PAD_A | PAD_SELECT | PAD_HOME | PAD_RIGHT;
+    p.buttons = PAD_SOUTH | PAD_SELECT | PAD_HOME | PAD_RIGHT;
     CHECK(report(&p, 0, out, &id) == STATE_SIZE && id == REPORT_STATE);
     CHECK(out[0] == 0x00 && out[1] == 0x80 && out[12] == 3 && out[13] == 1 && out[15] == 1);
     CHECK(msg_id == REPORT_GUIDE && msg_byte == 1);
@@ -396,7 +396,7 @@ int main(void)
     s.usb = 1;
     begin_classic(&s);
     memset(&p, 0, sizeof(p));
-    p.buttons = PAD_A | PAD_HOME | PAD_START | PAD_UP | PAD_LEFT;
+    p.buttons = PAD_SOUTH | PAD_HOME | PAD_START | PAD_UP | PAD_LEFT;
     p.ly = -32768;
     p.l2 = 65535;
     CHECK(report(&p, 0, out, &id) == X360_SIZE && id == 0 && out[0] == 0 && out[1] == X360_SIZE);

@@ -30,10 +30,10 @@ static u8 boot_home;                 /* Home down as the board started */
 /* Each position's PAD_* bit, row by row; 0: not a button (Sync and the
  * rear mode switch, which are the board's own). */
 static const u32 keys[ROWS][COLUMNS] = {
-    { PAD_UP, PAD_Y, PAD_START, PAD_R4, PAD_L4 },
-    { PAD_LEFT, PAD_X, PAD_M, PAD_R1, PAD_L1 },             /* M: the Turbo button */
-    { PAD_DOWN, PAD_B, PAD_SELECT, PAD_R3, PAD_L3 },
-    { PAD_RIGHT, PAD_A, PAD_SCREENSHOT, 0, 0 },
+    { PAD_UP, PAD_NORTH, PAD_START, PAD_R4, PAD_L4 },
+    { PAD_LEFT, PAD_WEST, PAD_M, PAD_R1, PAD_L1 },             /* M: the Turbo button */
+    { PAD_DOWN, PAD_EAST, PAD_SELECT, PAD_R3, PAD_L3 },
+    { PAD_RIGHT, PAD_SOUTH, PAD_SCREENSHOT, 0, 0 },
 };
 
 static struct {

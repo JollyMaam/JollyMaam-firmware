@@ -255,17 +255,17 @@ static void triggers_test(void)
     pad.l2 = pct(90); pad.r2 = pct(90);
     in_triggers(&slot, t, &pad);
     CHECK(t[0].down);
-    pad.buttons = PAD_A | PAD_L2;
+    pad.buttons = PAD_SOUTH | PAD_L2;
     pad.l2 = pct(90);
     in_triggers(NULL, t, &pad);
-    CHECK(pad.buttons == PAD_A && pad.l2 == pct(90) && !t[0].down && !t[1].down);
+    CHECK(pad.buttons == PAD_SOUTH && pad.l2 == pct(90) && !t[0].down && !t[1].down);
 }
 
 int main(void)
 {
     struct set_remap slot = { 0 };
     struct pad pad = { .lx = 12000, .ly = -16000, .rx = -32767, .ry = 0,
-                       .buttons = PAD_A, .l2 = 1234 };
+                       .buttons = PAD_SOUTH, .l2 = 1234 };
     struct pad original = pad;
     u8 points[STICK_CURVE_POINTS] = { 1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 143, 168, 195, 224 };
     u32 r, last;
@@ -274,9 +274,9 @@ int main(void)
 
     CHECK(in_hat(PAD_UP | PAD_LEFT) == HAT_UP_LEFT && in_hat(PAD_DOWN) == HAT_DOWN);
     CHECK(in_hat(PAD_RIGHT) == HAT_RIGHT && in_hat(0) == HAT_NEUTRAL);
-    raw.buttons = PAD_A | PAD_UP | PAD_DOWN | PAD_RIGHT;
+    raw.buttons = PAD_SOUTH | PAD_UP | PAD_DOWN | PAD_RIGHT;
     in_map(&raw, &pad);
-    CHECK(pad.buttons == (PAD_A | PAD_RIGHT) && in_hat(pad.buttons) == HAT_RIGHT);
+    CHECK(pad.buttons == (PAD_SOUTH | PAD_RIGHT) && in_hat(pad.buttons) == HAT_RIGHT);
     raw.buttons = PAD_DPAD;
     in_map(&raw, &pad);
     CHECK(pad.buttons == 0 && in_hat(pad.buttons) == HAT_NEUTRAL);
@@ -301,7 +301,7 @@ int main(void)
     CHECK(pad.lx > 0 && pad.ly < 0 && pad.lx < original.lx);
     CHECK(pad.lx * 4 + pad.ly * 3 >= -4 && pad.lx * 4 + pad.ly * 3 <= 4);
     CHECK(pad.rx == original.rx && pad.ry == 0);
-    CHECK(pad.buttons == PAD_A && pad.l2 == 1234);
+    CHECK(pad.buttons == PAD_SOUTH && pad.l2 == 1234);
     slot.left_curve_enabled = slot.right_curve_enabled = 0;
     pad = original;
     in_response(&slot, &pad);
@@ -333,7 +333,7 @@ int main(void)
     pad.lx = 12000; pad.ly = -16000;
     in_response(&slot, &pad);
     CHECK(pad.lx == 12000 && pad.ly == 16000 && pad.rx == 0);
-    CHECK(pad.buttons == PAD_A && pad.l2 == 1234);
+    CHECK(pad.buttons == PAD_SOUTH && pad.l2 == 1234);
     triggers_test();
     return TEST_DONE("input response");
 }

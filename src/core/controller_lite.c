@@ -818,7 +818,7 @@ const struct set_remap *set_remap(u8 remap) { return &test_remaps[remap]; }
 u32 set_edits(void) { return test_edits; }
 void remap_reset(void) { remap_resets++; }
 u32 remap_step(const struct set_remap *m, u32 in, u32 now, u32 *every_report)
-{ (void)now; remap_steps++; *every_report = PAD_X; return in | m->map[0]; }
+{ (void)now; remap_steps++; *every_report = PAD_WEST; return in | m->map[0]; }
 const u8 ux_first_slot = 3;
 const struct ux_timeouts ux_timeouts = {
     .idle_sleep_ms = 300000, .stop_max_ms = 12000, .connect_ms = 30000, .pair_ms = 180000,
@@ -1083,9 +1083,10 @@ int main(void)
      * over with another remap slot or new settings. */
     test_reset();
     test_remaps[2].map[0] = 1; test_remaps[REMAP_BASE].map[0] = 2;
-    c.remap = 2; c.pad.buttons = PAD_A;
+    c.remap = 2; c.pad.buttons = PAD_SOUTH;
     remap(1000);
-    CHECK(c.pad.buttons == (PAD_A | 1) && c.turbo_max == PAD_X && remap_resets == 1 && c.remap_live == 3);
+    CHECK(c.pad.buttons == (PAD_SOUTH | 1) && c.turbo_max == PAD_WEST && remap_resets == 1 &&
+          c.remap_live == 3);
     remap(1004); CHECK(remap_resets == 1 && remap_steps == 2);
     test_edits++; remap(1008); CHECK(remap_resets == 2);
     c.remap = REMAP_BASE; c.pad.buttons = 0; remap(1012);

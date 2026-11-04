@@ -79,16 +79,16 @@ int main(void)
     hidraw = -1;
 
     /* Input folding preserves the newest buttons and gathers motion once. */
-    p.buttons = PAD_A;
+    p.buttons = PAD_SOUTH;
     p.imu_count = 1;
     p.imu[0].us = 100;
     link_pack_input(&p, 1, 0, packet);
     take_input(packet, sizeof(packet));
-    p.buttons = PAD_B;
+    p.buttons = PAD_EAST;
     p.imu[0].us = 200;
     link_pack_input(&p, 2, 0, packet);
     take_input(packet, sizeof(packet));
-    assert(c.pad.buttons == PAD_B && c.pad.imu_count == 2);
+    assert(c.pad.buttons == PAD_EAST && c.pad.imu_count == 2);
     assert(c.pad.imu[0].us == 100 && c.pad.imu[1].us == 200);
     c.started = 1;
     report(1000);

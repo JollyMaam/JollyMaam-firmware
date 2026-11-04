@@ -214,7 +214,7 @@ static int gble_report(const struct pad *p, u32 now, u8 *out, u8 *id)
     u32 b = p->buttons;
 
     if (gb.usb) return generic_report(p, now, out, id);
-    out[0] = (u8)((b & (PAD_A | PAD_B | PAD_X | PAD_Y)) | (b & PAD_M ? 0x04 : 0) |
+    out[0] = (u8)((b & (PAD_SOUTH | PAD_EAST | PAD_WEST | PAD_NORTH)) | (b & PAD_M ? 0x04 : 0) |
                   (b & (PAD_L1 | PAD_R1)) >> 1 | (b & PAD_SELECT) >> 3);
     out[1] = (u8)((b & (PAD_START | PAD_HOME | PAD_L3 | PAD_R3)) >> 11 |
                   (b & PAD_R4 ? 0x10 : 0) | (b & PAD_L4 ? 0x40 : 0));
@@ -308,7 +308,7 @@ struct binding { u32 control; u8 key, mouse, hold; };
 struct layout { u8 left, right; const struct binding *b; u8 n; };
 
 static const struct binding game[] = {
-    { PAD_A, KB_SPACE }, { PAD_B, KB_CTRL }, { PAD_X, KB_R }, { PAD_Y, KB_E },
+    { PAD_SOUTH, KB_SPACE }, { PAD_EAST, KB_CTRL }, { PAD_WEST, KB_R }, { PAD_NORTH, KB_E },
     { PAD_L1, KB_Q }, { PAD_R1, KB_F }, { PAD_L3, KB_SHIFT }, { PAD_R3, 0, M_MIDDLE },
     { PAD_L2, 0, M_RIGHT }, { PAD_R2, 0, M_LEFT }, { PAD_SELECT, KB_TAB }, { PAD_START, KB_ESCAPE },
     { PAD_SCREENSHOT, KB_PRINT }, { PAD_L4, 0, M_BACK }, { PAD_R4, 0, M_FORWARD },
@@ -318,7 +318,7 @@ static const struct binding game[] = {
 
 /* L4 is Alt and R4 Ctrl, to hold for shortcuts (L4 then Select: Alt+Tab). */
 static const struct binding desktop[] = {
-    { PAD_A, 0, M_LEFT }, { PAD_B, 0, M_RIGHT }, { PAD_X, 0, M_MIDDLE }, { PAD_Y, KB_ENTER },
+    { PAD_SOUTH, 0, M_LEFT }, { PAD_EAST, 0, M_RIGHT }, { PAD_WEST, 0, M_MIDDLE }, { PAD_NORTH, KB_ENTER },
     { PAD_L1, 0, M_BACK }, { PAD_R1, 0, M_FORWARD }, { PAD_L3, KB_GUI }, { PAD_R3, KB_SHIFT },
     { PAD_L2, 0, M_RIGHT }, { PAD_R2, 0, M_LEFT }, { PAD_SELECT, KB_TAB }, { PAD_START, KB_ESCAPE },
     { PAD_SCREENSHOT, KB_PRINT }, { PAD_L4, KB_ALT }, { PAD_R4, KB_CTRL },
@@ -569,12 +569,12 @@ int main(void)
 
     memset(&p, 0, sizeof(p));
     CHECK(generic_begin(&s) == IMU_OFF);
-    p.buttons = PAD_A | PAD_START;
+    p.buttons = PAD_SOUTH | PAD_START;
     CHECK(generic_report(&p, 0, out, &id) == GENERIC_SIZE && out[0] == 1 && out[1] == 8 && out[3] == 0x80);
     CHECK(generic_report(&p, 8, out, &id) == 0);
 
     CHECK(mouse_begin(&s) == IMU_GYRO && m.layout == &layouts[0]);
-    p.buttons = PAD_A;
+    p.buttons = PAD_SOUTH;
     p.ly = -STICK_MAX;              /* left stick up: W */
     p.r2 = TRIGGER_MAX;
     p.buttons |= PAD_R2;
@@ -604,7 +604,8 @@ int main(void)
     CHECK(out[3] == 0 && out[4] == 0x80 && out[5] == 0 && out[6] == 0x80 &&
           out[7] == 0 && out[8] == 0x80 && out[9] == 0 && out[10] == 0x80);
     CHECK(out[11] == 0 && out[12] == 0 && out[13] == 0 && out[14] == 0);
-    p.buttons = PAD_A | PAD_Y | PAD_L1 | PAD_SELECT | PAD_START | PAD_R3 | PAD_R4 | PAD_L4 | PAD_SCREENSHOT;
+    p.buttons = PAD_SOUTH | PAD_NORTH | PAD_L1 | PAD_SELECT | PAD_START | PAD_R3 | PAD_R4 | PAD_L4 |
+                PAD_SCREENSHOT;
     p.lx = -32768;
     p.ry = STICK_MAX;
     p.l2 = TRIGGER_MAX;

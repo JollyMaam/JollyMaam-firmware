@@ -568,13 +568,13 @@ int main(void)
     cdb[1] = JM_CMD_INPUT;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 0);    /* none */
     {
-        static struct pad in = { PAD_A | PAD_LEFT, -2, 3, 0, 0, 0, 65535 };
+        static struct pad in = { PAD_SOUTH | PAD_LEFT, -2, 3, 0, 0, 0, 65535 };
         static struct in_raw raw = { 0, 1, { 100, 200, 300, 400 }, { 5, 6 } };
 
         st.input = &in;
         st.raw = &raw;
         CHECK(usb_command(cdb, data, sizeof(data), 0) == 36);
-        CHECK(data[0] == 1 && data[1] == 1 && data[4] == PAD_A && data[6] == (PAD_LEFT >> 16));
+        CHECK(data[0] == 1 && data[1] == 1 && data[4] == PAD_SOUTH && data[6] == (PAD_LEFT >> 16));
         CHECK(data[8] == 0xfe && data[9] == 0xff && data[10] == 3 && data[18] == 0xff);
         CHECK(data[20] == 100 && data[26] == (400 & 0xff) && data[28] == 5 && data[32] == (1234 & 0xff));
         st.input = NULL;

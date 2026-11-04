@@ -170,10 +170,10 @@ static u8 stick8(s16 v)
 static void buttons(u32 b, u8 *out)
 {
     out[0] = in_hat(b);
-    if (b & PAD_X) out[0] |= 0x10;
-    if (b & PAD_A) out[0] |= 0x20;
-    if (b & PAD_B) out[0] |= 0x40;
-    if (b & PAD_Y) out[0] |= 0x80;
+    if (b & PAD_WEST) out[0] |= 0x10;
+    if (b & PAD_SOUTH) out[0] |= 0x20;
+    if (b & PAD_EAST) out[0] |= 0x40;
+    if (b & PAD_NORTH) out[0] |= 0x80;
     out[1] = 0;
     if (b & PAD_L1) out[1] |= 0x01;
     if (b & PAD_R1) out[1] |= 0x02;
@@ -765,7 +765,7 @@ int main(void)
 
     CHECK(begin_ds(&s) == IMU_MOTION);
     memset(&p, 0, sizeof(p));
-    p.buttons = PAD_A | PAD_HOME | PAD_L2;
+    p.buttons = PAD_SOUTH | PAD_HOME | PAD_L2;
     p.lx = STICK_MAX;
     p.l2 = 0xff00;
     p.imu_count = 1;
@@ -804,7 +804,7 @@ int main(void)
     CHECK(read(BT_WRITE_FEATURE, 0x09, 0, r, 20) == 20 && r[0] == 1 && r[5] == 6);
 
     begin_ds4(&s);
-    p.buttons = PAD_B;
+    p.buttons = PAD_EAST;
     CHECK(report(&p, 0, r, &id) == SIMPLE_SIZE && id == SIMPLE && r[4] == (HAT_NEUTRAL | 0x40));
     w.kind = BT_WRITE_OUTPUT; w.id = DS4_EXTENDED; w.len = 2;
     write(&w, 0, 0);
@@ -821,7 +821,7 @@ int main(void)
      * without the Bluetooth header and CRC. */
     s.usb = 1;
     begin_ds4(&s);
-    p.buttons = PAD_B;
+    p.buttons = PAD_EAST;
     p.lx = STICK_MAX;
     CHECK(report(&p, 0, r, &id) == USB_STATE_SIZE && id == USB_STATE);
     CHECK(r[0] == 0xff && r[4] == (HAT_NEUTRAL | 0x40) && r[29] == 0x1b);

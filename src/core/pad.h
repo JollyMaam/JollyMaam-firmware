@@ -51,15 +51,19 @@ struct shade { struct rgb rgb; u16 brightness; };
 
 /* ---- input.c ------------------------------------------------------------ */
 
+/* The pad's inputs by role.  The face buttons are named by where they sit,
+ * never by a letter: what is printed on them differs between pads (Xbox
+ * order: south A; Nintendo order: south B), and the profiles give each
+ * role the host's button for that place. */
 enum {
-    PAD_A = 1 << 0, PAD_B = 1 << 1, PAD_SCREENSHOT = 1 << 2, PAD_X = 1 << 3,
-    PAD_Y = 1 << 4, PAD_M = 1 << 5, PAD_L1 = 1 << 6, PAD_R1 = 1 << 7,
+    PAD_SOUTH = 1 << 0, PAD_EAST = 1 << 1, PAD_SCREENSHOT = 1 << 2, PAD_WEST = 1 << 3,
+    PAD_NORTH = 1 << 4, PAD_M = 1 << 5, PAD_L1 = 1 << 6, PAD_R1 = 1 << 7,
     PAD_L4 = 1 << 8, PAD_R4 = 1 << 9, PAD_SELECT = 1 << 10, PAD_START = 1 << 11,
     PAD_HOME = 1 << 12, PAD_L3 = 1 << 13, PAD_R3 = 1 << 14,
     PAD_UP = 1 << 16, PAD_RIGHT = 1 << 17, PAD_DOWN = 1 << 18, PAD_LEFT = 1 << 19,
     PAD_L2 = 1 << 20, PAD_R2 = 1 << 21,    /* the triggers pressed: set by in_triggers() */
 };
-#define PAD_FACE (PAD_A | PAD_B | PAD_X | PAD_Y)
+#define PAD_FACE (PAD_SOUTH | PAD_EAST | PAD_WEST | PAD_NORTH)
 #define PAD_DPAD (PAD_UP | PAD_RIGHT | PAD_DOWN | PAD_LEFT)
 #define PAD_DIGITAL (0x7fffu | PAD_DPAD)  /* every button and direction; not the triggers */
 
