@@ -214,14 +214,17 @@ def _windows_write(path, data):
 
 class Features:
     """An open HID interface's feature reports, without report IDs: set()
-    sends the report, get() reads one of size bytes."""
+    sends the report, get() reads one of size bytes; read() takes its input
+    reports.  On Windows the handle is a Device's (overlapped, so a read
+    can time out), which the feature calls share."""
 
     def __init__(self, path, size):
         self.path, self.size = path, size
         if sys.platform == "win32":
             from ctypes import wintypes as w
-            self.k, self.handle = _windows_open(path, 0xc0000000)
-            self.hid = ctypes.WinDLL("hid")
+            self.device = Device(path)
+            self.handle = self.device.handle
+            self.hid = ctypes.WinDLL("hid", use_last_error=True)
             for name in ("HidD_SetFeature", "HidD_GetFeature"):
                 getattr(self.hid, name).argtypes = [w.HANDLE, ctypes.c_void_p, w.ULONG]
         else:
@@ -240,15 +243,17 @@ class Features:
             fcntl.ioctl(self.fd, 0xc0004806 | len(buf) << 16, buf)   # HIDIOCSFEATURE
 
     def read(self, timeout):
-        """One input report (Linux), or None after timeout seconds."""
+        """One input report, or None after timeout seconds."""
+        if sys.platform == "win32":
+            return self.device.read(timeout)
         import select
         if not select.select([self.fd], [], [], max(timeout, 0))[0]:
             return None
         return os.read(self.fd, 4096)
 
     def drain(self):
-        """Drop the input reports waiting (Linux): hidraw keeps at most 64
-        a reader, and then drops new ones."""
+        """Drop the input reports waiting: hidraw keeps at most 64 a reader
+        (Windows' HID driver 32 a handle), and then drops new ones."""
         while self.read(0) is not None:
             pass
 
@@ -264,7 +269,7 @@ class Features:
 
     def close(self):
         if sys.platform == "win32":
-            self.k.CloseHandle(self.handle)
+            self.device.close()
         else:
             os.close(self.fd)
 

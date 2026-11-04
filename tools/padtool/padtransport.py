@@ -1,8 +1,8 @@
 """The firmware's vendor commands, independent of pad protocol and GUI.
 
 Our firmware's tool device is a HID interface (usage page 0xffc2): each
-command is a feature report.  Where the device has an input report (and on
-Linux), the answer comes on input reports addressed to this process, so
+command is a feature report.  Where the device has an input report (Linux and
+Windows), the answer comes on input reports addressed to this process, so
 several programs can use one device at once; else it is read back in more
 feature reports (usb.c, the platform's tool device).  The Jieli ROM loaders (UBOOT1.00) and stock Jieli
 firmware are USB mass storage: Linux uses SG_IO; Windows uses the built-in
@@ -55,10 +55,11 @@ def _report(path):
 
 
 def _input(path):
-    """Answers on input reports: the device has one, and hidraw reads it."""
+    """Answers on input reports: the device has one, and this system's HID
+    access reads it (hidraw, or Windows' overlapped ReadFile)."""
     if path not in _tools:
         tool_paths()
-    return sys.platform == "linux" and _tools.get(path, ("", 0, 0))[2] >= 64
+    return sys.platform in ("linux", "win32") and _tools.get(path, ("", 0, 0))[2] >= 64
 
 
 def tool_name(path):

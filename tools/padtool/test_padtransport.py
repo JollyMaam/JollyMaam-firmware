@@ -32,6 +32,16 @@ class FakeDevice:
         pass
 
 
+class InputChoiceTests(unittest.TestCase):
+    def test_input_answers_on_linux_and_windows_with_an_input_report(self):
+        tools = {"a": ("pad", 64, 64), "b": ("pad", 512, 0)}
+        for platform, want in (("linux", True), ("win32", True), ("darwin", False)):
+            with patch.dict(t._tools, tools, clear=True), patch.object(t.sys, "platform", platform):
+                self.assertEqual(t._input("a"), want, platform)
+                self.assertFalse(t._input("b"), platform)
+                self.assertEqual(t.data_max("a"), 64 - (t.TOOL_HEAD_IN if want else t.TOOL_HEAD))
+
+
 class InputAnswerTests(unittest.TestCase):
     def command(self, device, length=88, out=None, timeout_ms=500):
         with patch.dict(t._open, {"dev": device}), patch.object(t, "_input", return_value=True):
