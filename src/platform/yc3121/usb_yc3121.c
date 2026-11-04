@@ -4,8 +4,9 @@
 #include "usb_yc3121.h"
 
 /* USB on the YC3121: the tool device (a vendor HID interface, commands as
- * feature reports, as platform_telink_usb.c's without input reports),
- * served from the USB interrupt.  It has to be: the controller takes the
+ * feature reports, answers as platform_telink_usb.c's: on input reports to
+ * the command's client with flags bit 1, so programs share the device, else
+ * a feature report), served from the USB interrupt.  It has to be: the controller takes the
  * host's next OUT packet while the last is still in its FIFO, and a polled
  * driver lost the tail of multi-packet SET_REPORTs (single packets never).
  *
@@ -46,15 +47,23 @@
 #define EP0_SIZE   64
 /* The report is one EP0 packet: multi-packet SET_REPORTs lost their tail
  * (see the top), single packets never.  A command takes up to DATA_MAX bytes
- * in; its answer (up to ANSWER_MAX) goes out a piece per GET_REPORT, TOOL_MORE
- * until the TOOL_LAST one, which the tools read in turn. */
+ * in (less the client with flags bit 1); its answer (up to ANSWER_MAX) goes
+ * out on input reports (IN_HEAD, then IN_DATA of it each), or a piece per
+ * GET_REPORT, TOOL_MORE until the TOOL_LAST one, which the tools read in
+ * turn.  A command while another's answer is waiting or going out is
+ * refused (on input reports to its client; a feature one is dropped). */
 #define REPORT     64
-#define HEAD       20
+#define HEAD       JM_HID_HEAD_SIZE
+#define HEAD_IN    JM_HID_CLIENT_HEAD_SIZE
 #define DATA_MAX   (REPORT - HEAD)
 #define PIECE      (REPORT - 4)
 #define ANSWER_MAX 600
+#define IN_HEAD    JM_HID_INPUT_HEAD_SIZE
+#define IN_DATA    (REPORT - IN_HEAD)
+#define IN_WAIT_MS 1000          /* a piece no one takes: no one reads, the answer is dropped */
 
-enum { TOOL_IDLE, TOOL_BUSY, TOOL_MORE, TOOL_LAST };
+enum { TOOL_IDLE = JM_HID_IDLE, TOOL_BUSY = JM_HID_BUSY, TOOL_MORE = JM_HID_MORE,
+       TOOL_LAST = JM_HID_LAST, TOOL_REFUSED = JM_HID_REFUSED };
 
 static const u8 device_descriptor[] = {
     18, 1, 0x10, 0x01, 0, 0, 0, EP0_SIZE,
@@ -70,6 +79,8 @@ static const u8 report_descriptor[] = {
     0x15, 0x00, 0x26, 0xff, 0x00,
     0x75, 0x08, 0x96, (u8)REPORT, REPORT >> 8,
     0x09, 0x01, 0xb1, 0x02,              /* feature: data, variable */
+    0x95, REPORT,
+    0x09, 0x01, 0x81, 0x02,              /* input: data, variable */
     0xc0,
 };
 
@@ -77,7 +88,7 @@ static const u8 configuration_descriptor[] = {
     9, 2, 34, 0, 1, 1, 0, 0x80, 50,
     9, 4, 0, 0, 1, 3, 0, 0, 0,           /* HID, no boot protocol */
     9, 0x21, 0x11, 0x01, 0, 1, 0x22, sizeof(report_descriptor), 0,
-    7, 5, 0x81, 3, 64, 0, 10,            /* interrupt IN, never sent on */
+    7, 5, 0x81, 3, 64, 0, 1,             /* interrupt IN: the answers on input reports */
 };
 #define HID_AT 18
 
@@ -126,13 +137,22 @@ static struct {
 } pz;
 
 static struct {
-    u8 report[REPORT];           /* the host's last SET_REPORT */
-    u8 tag, state;
+    u8 report[REPORT];           /* the command taken (a SET_REPORT comes into pz.rx) */
+    u8 tag, state, flags;
+    u32 client;                  /* with JM_HID_INPUT: whose answer it is */
     u16 n;                       /* its data's length */
     u16 answer, off;
     volatile u8 pending;         /* taken, for plat_usb_service() */
+    u8 sending, last_out;        /* the answer on input reports; its last piece queued */
+    u32 sent_at;
     u8 data[ANSWER_MAX];
 } t;
+
+/* A refused command's sender (one: a second waits for its timeout). */
+static struct {
+    u8 tag, waiting;
+    u32 client;
+} refused;
 
 /* Bring-up: the last EP0 events, kept over a restart (.noinit). */
 struct usb_trace usb_trace __attribute__((section(".noinit")));
@@ -265,19 +285,69 @@ static u16 string(u8 index, u8 *out)
 
 /* ---- the tool device ------------------------------------------------------- */
 
+static void tool_pump(void);
+
+/* A SET_REPORT in pz.rx (free: the tool device has no personality). */
 static void tool_take(u16 len)
 {
-    u16 n = (u16)(t.report[16] | t.report[17] << 8);
+    const u8 *r = pz.rx;
+    u8 flags = len > 18 ? r[18] : 0;
+    u16 head = flags & JM_HID_INPUT ? HEAD_IN : HEAD;
+    u16 n = (u16)(r[16] | r[17] << 8);
 
-    if (len < HEAD) return;
-    t.tag = t.report[19];
-    if (n > len - HEAD) n = len - HEAD;
-    memcpy(t.data, t.report + HEAD, n);
+    if (len < head) return;
+    if (t.pending || t.sending) {
+        if (flags & JM_HID_INPUT) {
+            refused.tag = r[19];
+            refused.client = util_get32(r + 20);
+            refused.waiting = 1;
+            tool_pump();
+        }
+        return;
+    }
+    memcpy(t.report, r, head);
+    t.flags = flags;
+    t.tag = r[19];
+    t.client = flags & JM_HID_INPUT ? util_get32(r + 20) : 0;
+    if (n > len - head) n = len - head;
+    memcpy(t.data, r + head, n);
     t.n = n;
     t.answer = t.off = 0;
     t.state = TOOL_BUSY;                /* GET_REPORT says so until it is answered */
     t.pending = 1;
     events.commands++;
+}
+
+/* On EP1 when it is free: a refusal, else the answer's next piece: the
+ * client, the tag, the state, u16 offset, IN_DATA bytes. */
+static void tool_pump(void)
+{
+    u8 head[IN_HEAD];
+    u16 n = 0, i;
+
+    if (pz.id || pz.in_busy || !u.configuration) return;
+    if (refused.waiting) {
+        refused.waiting = 0;
+        util_put32(head, refused.client);
+        head[4] = refused.tag;
+        head[5] = TOOL_REFUSED;
+        head[6] = head[7] = 0;
+    } else if (t.sending && !t.last_out) {
+        n = t.answer - t.off < IN_DATA ? (u16)(t.answer - t.off) : IN_DATA;
+        util_put32(head, t.client);
+        head[4] = t.tag;
+        head[5] = t.off + n < t.answer ? TOOL_MORE : TOOL_LAST;
+        util_put16(head + 6, t.off);
+        t.last_out = head[5] == TOOL_LAST;
+    } else {
+        return;
+    }
+    for (i = 0; i < IN_HEAD; i++) USB_FIFO(EP_IN) = head[i];
+    for (i = 0; i < IN_DATA; i++) USB_FIFO(EP_IN) = i < n ? t.data[t.off + i] : 0;
+    t.off = (u16)(t.off + n);
+    t.sent_at = plat_ms();
+    pz.in_busy = 1;
+    send_in(EP_IN);
 }
 
 int plat_usb_tool_waiting(void)
@@ -291,13 +361,25 @@ void plat_usb_service(void)
 {
     u16 answer;
 
+    if (t.sending && pz.in_busy && plat_ms() - t.sent_at > IN_WAIT_MS) {
+        plat_lock();
+        t.sending = 0;                  /* a piece no one takes: no one is reading */
+        plat_unlock();
+    }
     if (!t.pending) return;
     answer = (u16)usb_tool_command(t.report, t.data, t.n, ANSWER_MAX);
     plat_lock();
     t.pending = 0;
     t.answer = answer;
     t.off = 0;
-    t.state = TOOL_LAST;
+    if (t.flags & JM_HID_INPUT) {
+        t.state = TOOL_IDLE;             /* GET_REPORT shows none of it */
+        t.sending = 1;
+        t.last_out = 0;
+        tool_pump();
+    } else {
+        t.state = TOOL_LAST;
+    }
     plat_unlock();
 }
 
@@ -492,6 +574,7 @@ static void setup(void)
         events.addressed = 1;
     } else if (type == 0x00 && request == 9) {           /* SET_CONFIGURATION */
         u.configuration = value_lo;
+        pz.in_busy = 0;                  /* EP1 starts empty */
         ep0_zlp();
         events.configured = value_lo != 0;
     } else if (type == 0x80 && request == 8) {           /* GET_CONFIGURATION */
@@ -525,7 +608,7 @@ static void ep0_out(u8 n, u8 skip)
     if (!u.receiving) events.out_idle++;
     for (u8 i = 0; i < n; i++) {
         u8 b = USB_FIFO(0);
-        if (i >= skip && u.receiving && u.got < REPORT) (pz.id ? pz.rx : t.report)[u.got++] = b;
+        if (i >= skip && u.receiving && u.got < REPORT) pz.rx[u.got++] = b;
     }
     if (!u.receiving) return;
     if (u.got >= u.want) {
@@ -577,8 +660,13 @@ void plat_usb_poll(void)
     if (sent & (1u << EP_IN)) {
         USB_SENT = 1u << EP_IN;
         pz.in_busy = 0;
-        pz.event = 1;
-        pump();
+        if (pz.id) {
+            pz.event = 1;
+            pump();
+        } else {
+            if (t.sending && t.last_out) t.sending = 0;   /* the last piece is out */
+            tool_pump();
+        }
     }
     if (status & 1) {
         u8 n;

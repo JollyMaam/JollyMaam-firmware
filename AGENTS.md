@@ -260,7 +260,7 @@ wrong assumption), add it here in a line or two.
   (the controller takes the next packet while the last is in its FIFO, and
   flags bit 0 before a packet is all in), polled or from the interrupt.
   The tool device's report is therefore one 64-byte packet; answers go out
-  in pieces (TOOL_MORE).
+  in pieces (TOOL_MORE), on input reports per client as the other boards'.
 - Ultimate 2C Bluetooth flash data pages (0x0107c000..): a CPU read of
   them (PEEK) resets the chip; read them raw through the ROM's QSPI read
   (flash_yc3121.c), as stock does.
