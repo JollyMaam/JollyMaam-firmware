@@ -1139,6 +1139,7 @@ static const struct bt_device s2_device = {
     .att_db = s2_att_db,
     .input_handle = S2_INPUT,
     .advertising = s2_advertising,
+    .att_gap = 0x2a,             /* GAP at 0x2b.., as the real controller's */
 };
 
 const struct profile profile_switch2 = {

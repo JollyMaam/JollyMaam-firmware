@@ -262,6 +262,10 @@ struct bt_device {
     const u8 *scan_response;
     u8 scan_response_len;
     const u8 *sm_er, *sm_ir;     /* security manager keys: NULL, no SMP */
+    /* The host uses fixed handles (Switch 2): a stack that puts its own GAP
+     * and GATT first (the YC3121's core) moves them to att_gap + 1.. and
+     * gives the profile's attributes their own handles.  0: discovered. */
+    u16 att_gap;
     /* B80 only (att_telink.c): an ATT write handled at once, in the stack's
      * callback, its response sent after; an ATT error code or 0.  NULL: the
      * write goes to the control loop (BT_EV_WRITE). */

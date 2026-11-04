@@ -28,9 +28,14 @@
  * value handle}, a CCC after it.  The profile's BTstack database is read
  * for its 128-bit services and characteristics only (no values, no reads:
  * write and notify are all this side does); its handles map to the core's.
- * Advertising (visibility bit 2) carries only the name of command 0x04
- * (14 bytes): board_short_name, then the profile's ("U2C BT Config").  Events: 0x02 connected, 0x05 disconnected, 0x08 {handle,
- * data} a write; 0x09 {handle, data} notifies, acknowledged 0x06 {09 00}. */
+ * Advertising (visibility bit 2): the data, if the profile has its own, written
+ * into the core's RAM (the window): length at 0xc4341, 31 bytes after it; the
+ * scan response likewise at 0xc4361 (else the name of command 0x04, 14 bytes:
+ * board_short_name, then the profile's, "U2C BT Config").  A readable
+ * characteristic's value is fixed when it is created (0x78's tail {len,
+ * value}): the profile's read() then.  Events: 0x02 connected, 0x05
+ * disconnected, 0x08 {handle, data} a write; 0x09 {handle, data} notifies,
+ * acknowledged 0x06 {09 00}. */
 
 #define IN_FLIGHT    2           /* input reports the core has not acknowledged */
 #define PAGE_TIMEOUT 0x12c0      /* 0.625 ms units: 3 s, as stock's */
@@ -40,7 +45,23 @@
 #define SDP_MAX      768
 #define RECORD       34          /* a bond table record */
 #define LE_NAME      14          /* command 0x04's name */
-#define LE_CHARS     8           /* characteristics an LE profile has */
+/* The core's attribute table (0xc4970..) ends before its data at 0xc4b6f:
+ * room for 11 of Switch 2's characteristics (up to 0x001e, the last it
+ * uses); its 13th crossed into that data and the core stopped answering. */
+#define LE_CHARS     11
+#define LE_NOTIFY    197         /* a notification's data at most (MTU 512 by 0x39, kept below 200) */
+#define LE_READ_MAX  16          /* a readable characteristic's value at most */
+#define CORE_ADV     ((volatile u8 *)0xc4341)   /* the core's advertising data: length, 31 bytes */
+#define CORE_SCAN    ((volatile u8 *)0xc4361)   /* its scan response */
+/* The core's attribute table: entries {u16 handle, 02, u16 type, ...} from
+ * 0xc4975 (its own GAP and GATT at 1..0x0b first, then ours); a service
+ * {.., len, uuid}, a characteristic {.., 01, props, u16 value handle, len,
+ * uuid, len, value}, a CCC {.., 02, value 2}; with 11 of Switch 2's
+ * characteristics it ends at 0xc4b76. */
+#define CORE_TABLE   0xc4975u
+#define CORE_TABLE_END 0xc4c80u      /* the command ring */
+#define CORE_GAP_LAST 0x0b
+#define LE_MAP       (2 * LE_CHARS + 4)
 
 static struct radio_packet pkt;
 
@@ -64,6 +85,8 @@ static struct {
     u8 le;                       /* the session is LE */
     u8 chars;
     struct { u16 ours, core; } map[LE_CHARS];   /* value handles: the profile's, the core's */
+    struct { u16 core, ours; } renumber[LE_MAP];   /* services, declarations, CCCs */
+    u8 renumbers;
 } b;
 
 static u16 handle_29;             /* the last 0x29's: a characteristic's value handle */
@@ -211,6 +234,8 @@ static void handle(const struct radio_packet *p)
         }
         break;
     case 0x08:                           /* LE write */
+        if (p->len >= 2) util_log("bt: write %04x [%u] %02x %02x %02x %02x", p->data[0] | p->data[1] << 8, p->len - 2,
+                                  p->data[2], p->data[3], p->data[4], p->data[5]);
         if (b.le && b.linked) le_write(p->data, p->len);
         break;
     case 0x0d:                           /* the core's bond table: ours is the slot's */
@@ -236,7 +261,7 @@ static int command(u8 id, const void *data, u16 len, int wide)
         util_log("bt: %02x: no room", id);
         return 0;
     }
-    for (t0 = plat_ms(); plat_ms() - t0 < 500;) {
+    for (t0 = plat_ms(); plat_ms() - t0 < (ack == 0x29 ? 2000u : 500u);) {
         if (!plat_radio_take(&pkt)) continue;
         if (pkt.id == ack && ack == 0x29) {
             handle_29 = (u16)(pkt.data[0] | pkt.data[1] << 8);
@@ -255,9 +280,9 @@ static int command(u8 id, const void *data, u16 len, int wide)
 static int gatt(const u8 *db)
 {
     const u8 *e = db + 1;
-    u8 c[20];
+    u8 c[20 + LE_READ_MAX];
 
-    b.chars = 0;
+    b.chars = b.renumbers = 0;
     for (;;) {
         u16 size = (u16)(e[0] | e[1] << 8), flags = (u16)(e[2] | e[3] << 8);
         u16 type = (u16)(e[6] | e[7] << 8);
@@ -267,26 +292,105 @@ static int gatt(const u8 *db)
             c[0] = 0x10;
             memcpy(c + 1, e + 8, 16);
             if (!command(0x77, c, 17, 0)) return 0;
+            if (b.renumbers < LE_MAP) {
+                b.renumber[b.renumbers].core = handle_29;
+                b.renumber[b.renumbers++].ours = (u16)(e[4] | e[5] << 8);
+            }
         } else if (!(flags & 0x0200) && type == 0x2803 && size == 8 + 3 + 16) {
-            if (b.chars >= LE_CHARS) return 0;
+            if (b.chars >= LE_CHARS) {
+                util_log("bt: characteristic %04x dropped: the core's table is full", (unsigned)(e[9] | e[10] << 8));
+                e += size;
+                continue;
+            }
             c[0] = e[8];                 /* properties */
             c[1] = 0x10;
             memcpy(c + 2, e + 11, 16);
-            c[18] = 1, c[19] = 0;        /* as stock's; meaning not established */
-            if (!command(0x78, c, 20, 0)) return 0;
+            c[18] = 1, c[19] = 0;        /* as stock's: one byte, 0 */
+            if (e[8] & 0x02 && b.prof && b.prof->read) {   /* readable: the profile's value */
+                int n = b.prof->read(BT_WRITE_ATT, (u16)(e[9] | e[10] << 8), 0, c + 19, LE_READ_MAX);
+
+                if (n > 0) c[18] = (u8)n;
+                else c[19] = 0;
+            }
+            {
+                u32 t0 = plat_us();
+                int ok = command(0x78, c, (u16)(19 + c[18]), 0);
+
+                util_log("bt: char %04x props %02x len %u -> %04x %d in %u us", (unsigned)(e[9] | e[10] << 8),
+                         e[8], c[18], handle_29, ok, (unsigned)(plat_us() - t0));
+                if (!ok) return 0;
+            }
             b.map[b.chars].ours = (u16)(e[9] | e[10] << 8);
             b.map[b.chars].core = handle_29;
             b.chars++;
+            if (b.renumbers + 2 <= LE_MAP) {     /* the declaration; the CCC after a notifying one */
+                b.renumber[b.renumbers].core = (u16)(handle_29 - 1);
+                b.renumber[b.renumbers++].ours = (u16)(e[4] | e[5] << 8);
+                if (e[8] & 0x30) {
+                    b.renumber[b.renumbers].core = (u16)(handle_29 + 1);
+                    b.renumber[b.renumbers++].ours = (u16)((e[9] | e[10] << 8) + 1);
+                }
+            }
         }
         e += size;
     }
+}
+
+static u16 renumbered(u16 h)
+{
+    u32 i;
+
+    if (h <= CORE_GAP_LAST) return (u16)(h + b.prof->device->att_gap);   /* the core's GAP and GATT */
+    for (i = 0; i < b.chars; i++)
+        if (b.map[i].core == h) return b.map[i].ours;
+    for (i = 0; i < b.renumbers; i++)
+        if (b.renumber[i].core == h) return b.renumber[i].ours;
+    return h;
+}
+
+/* A host that uses fixed handles (Switch 2): the core's table renumbered
+ * in place to the profile's handles, its own GAP and GATT moved after them;
+ * the value handles are then the profile's own.  Proven: not yet. */
+static int renumber(void)
+{
+    volatile u8 *t = (volatile u8 *)CORE_TABLE, *end = (volatile u8 *)CORE_TABLE_END;
+    u32 n = 0, i;
+
+    if ((t[0] | t[1] << 8) != 1 || (t[3] | t[4] << 8) != 0x2800) {
+        util_log("bt: the core's table is not where it was");
+        return 0;
+    }
+    while (t + 6 < end) {
+        u16 h = (u16)(t[0] | t[1] << 8), type = (u16)(t[3] | t[4] << 8), nh;
+
+        if (!h || t[2] != 0x02) break;
+        nh = renumbered(h);
+        util_log("bt: attr %04x -> %04x type %04x at %05x", h, nh, type, (unsigned)(u32)t);
+        t[0] = (u8)nh, t[1] = (u8)(nh >> 8);
+        if (type == 0x2803) {
+            u16 v = (u16)(t[7] | t[8] << 8), nv = renumbered(v);
+
+            t[7] = (u8)nv, t[8] = (u8)(nv >> 8);
+            t += 9;
+            t += 1 + t[0];               /* uuid */
+            t += 1 + t[0];               /* value */
+        } else {
+            t += 5;
+            t += 1 + t[0];               /* a service's uuid, a CCC's value */
+        }
+        n++;
+    }
+    for (i = 0; i < b.chars; i++) b.map[i].core = b.map[i].ours;
+    util_log("bt: %u attributes renumbered, stopped at %05x: %02x %02x %02x %02x %02x %02x", (unsigned)n, (unsigned)(u32)t,
+             t[0], t[1], t[2], t[3], t[4], t[5]);
+    return 1;
 }
 
 /* The core started again and set up for the profile (none: idle, no SDP),
  * invisible until visibility() says otherwise.  The ADC is the core's too. */
 static int core_start(const struct profile *p)
 {
-    static const u8 on = 1, x42 = 2, x39[2] = { 200, 0 }, x79[2] = { 0, 4 };
+    static const u8 on = 1, x42 = 2, x39[2] = { 0x00, 0x02 }   /* MTU 512: the console stops at less (Telink: 185) */, x79[2] = { 0, 4 };
     static const u8 service[17] = { 0x10, 0xfb, 0x34, 0x9b, 0x5f, 0x80, 0, 0, 0x80, 0, 0x10, 0, 0, 0x10, 0xff, 0, 0 };
     static const u8 characteristic[20] = { 0x18, 0x10, 0xfb, 0x34, 0x9b, 0x5f, 0x80, 0, 0, 0x80, 0, 0x10, 0, 0, 0x13, 0xff, 0, 0, 1, 0 };
     static u8 records[SDP_MAX], table[5 * RECORD], le_name[LE_NAME];
@@ -338,7 +442,7 @@ static int core_start(const struct profile *p)
     ok = ok && command(0x15, cod3, 3, 0);
     ok = ok && command(0x26, table, sizeof(table), 0);
     ok = ok && command(0x76, NULL, 0, 0);
-    if (le) ok = ok && gatt(d->att_db);
+    if (le) ok = ok && gatt(d->att_db) && (!d->att_gap || renumber());
     else {                               /* stock's own service, as stock's start-up has it */
         ok = ok && command(0x77, service, sizeof(service), 0);
         ok = ok && command(0x78, characteristic, sizeof(characteristic), 0);
@@ -351,6 +455,26 @@ static int core_start(const struct profile *p)
     b.core_up = (u8)ok;
     if (!ok) util_log("bt: the core did not start");
     return ok;
+}
+
+static void core_data(volatile u8 *to, const u8 *data, u8 n)
+{
+    u32 i;
+
+    if (n > 31) n = 31;
+    to[0] = n;
+    for (i = 0; i < 31; i++) to[1 + i] = i < n ? data[i] : 0;
+}
+
+/* The profile's advertising data (and scan response) into the core's RAM. */
+static void advertising(int wake)
+{
+    const struct bt_device *d = b.prof ? b.prof->device : NULL;
+    u8 adv[31];
+
+    if (!d || !d->advertising) return;
+    core_data(CORE_ADV, adv, d->advertising(&b.bond, b.pairing, wake, adv));
+    if (d->scan_response) core_data(CORE_SCAN, d->scan_response, (u8)d->scan_response_len);
 }
 
 static void visibility(u8 flags)
@@ -401,6 +525,7 @@ void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond
     }
     if (!core_start(p)) return;
     if (b.le) {                          /* advertising to anyone: no SMP here */
+        advertising(0);
         visibility(4);
         util_log("bt: %s advertising, %u characteristics", p->name, b.chars);
         return;
@@ -446,7 +571,9 @@ void bt_abort(void)
 
 void bt_update_bond(const struct bt_bond *bond)
 {
-    if (b.session) b.bond = *bond;
+    if (!b.session) return;
+    b.bond = *bond;
+    if (b.le) advertising(0);
 }
 
 int bt_radio_quiet(void)
@@ -488,7 +615,7 @@ static int send_frame(u16 id, const u8 *data, u16 len)
     if (!b.linked || len > PROFILE_REPORT_MAX) return 0;
     if (b.le) {
         h = core_handle(id);
-        if (!h || len > 20) return 0;
+        if (!h || len > LE_NOTIFY) return 0;
         f[0] = (u8)h;
         f[1] = (u8)(h >> 8);
         memcpy(f + 2, data, len);
