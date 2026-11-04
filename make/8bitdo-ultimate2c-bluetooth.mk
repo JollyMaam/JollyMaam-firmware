@@ -55,8 +55,8 @@ $(O)/$(U2CB_HELLO)/app.bin: $(O)/$(U2CB_HELLO)/app.elf
 
 .PHONY: $(U2CB_HELLO) $(U2CB_HELLO)-flash
 $(U2CB_HELLO): $(O)/$(U2CB_HELLO)/app.bin
-$(U2CB_HELLO)-flash: $(O)/$(U2CB_HELLO)/app.bin
-	python3 tools/8bitdoboot.py flash --pid U2C_BLUETOOTH $(if $(DEVICE),--device $(DEVICE)) $<
+$(U2CB_HELLO)-flash: $(O)/$(U2CB_HELLO)/app.bin $(JOLLYMAAM_CLI)
+	$(Q)$(JOLLYMAAM_CLI) 8bitdo flash --pid U2C_BLUETOOTH $(if $(DEVICE),--device $(DEVICE)) $<
 
 # ---- the pad ----------------------------------------------------------------
 
@@ -130,8 +130,8 @@ $(O)/$(U2CB_PAD)/app.bin: $(O)/$(U2CB_PAD)/app.elf
 	$(Q)$(YC_CROSS)objcopy -O binary $< $@
 	$(Q)$(YC_CROSS)size $<
 
-$(U2CB_PAD)-flash: $(O)/$(U2CB_PAD)/app.bin
-	python3 tools/8bitdoboot.py flash --pid U2C_BLUETOOTH $(if $(DEVICE),--device $(DEVICE)) $<
+$(U2CB_PAD)-flash: $(O)/$(U2CB_PAD)/app.bin $(JOLLYMAAM_CLI)
+	$(Q)$(JOLLYMAAM_CLI) 8bitdo flash --pid U2C_BLUETOOTH $(if $(DEVICE),--device $(DEVICE)) $<
 
 $(eval $(call board_defines,$(U2CB_PAD)))
 -include $(U2CB_PAD_OBJECTS:.o=.d)

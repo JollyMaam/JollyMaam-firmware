@@ -7,7 +7,9 @@
 JIELI_SDK := external/jieli-fw-AC63_BT_SDK
 JIELI_TOOLS := external/toolchains/jieli-linux-toolchains-20250324.1/pi32v2/bin
 JIELI_CC := $(JIELI_TOOLS)/clang
-JIELI_LD := $(JIELI_TOOLS)/lto-wrapper
+# The toolchain's lto-wrapper is a Python script that only adds the LTO
+# plugin (its argument-file and version-info options are not used here).
+JIELI_LD := $(JIELI_TOOLS)/ld --plugin $(JIELI_TOOLS)/LLVMgold.so
 JIELI_OBJCOPY := $(JIELI_TOOLS)/objcopy
 
 JIELI_UBOOT := $(JIELI_SDK)/cpu/br23/tools/uboot.boot
@@ -219,7 +221,7 @@ jieli_tools = $(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_TOOLS),$(
 # it is called, and $$(...) when the rule runs.
 define jieli_board
 $(1)_CC := $(call jieli_tools,$(1))/clang
-$(1)_LD := $(call jieli_tools,$(1))/lto-wrapper
+$(1)_LD := $(call jieli_tools,$(1))/ld --plugin $(call jieli_tools,$(1))/LLVMgold.so
 $(1)_OBJCOPY := $(call jieli_tools,$(1))/objcopy
 $(1)_ARCHIVES := $(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_ARCHIVES),$(JIELI_ARCHIVES))
 $(1)_LFLAGS := $(if $(filter bd19,$(call jieli_chip,$(1))),$(JIELI_BD19_LFLAGS),$(JIELI_LFLAGS))
@@ -274,9 +276,9 @@ $(O)/$(1)/app.bin: $(O)/$(1)/app.elf
 	$$(if $$(filter bd19,$$(call jieli_chip,$(1))),$$(Q)$$($(1)_OBJCOPY) -O binary -j .data_code $$< $(O)/$(1)/data_code.bin)
 	$$(Q)cat $(O)/$(1)/text.bin $(O)/$(1)/data.bin $$(if $$(filter bd19,$$(call jieli_chip,$(1))),$(O)/$(1)/data_code.bin) > $$@
 
-$(O)/$(1)/firmware.img: $(O)/$(1)/app.bin $$($(1)_FRONT_BIN) $(O)/$(1)/isd_config.ini $(O)/host/jollymaam-jlpack
+$(O)/$(1)/firmware.img: $(O)/$(1)/app.bin $$($(1)_FRONT_BIN) $(O)/$(1)/isd_config.ini $(O)/host/jollymaam-pack
 	@echo [FW] $$@
-	$$(Q)$(O)/host/jollymaam-jlpack --flash-size $($(1)_FLASH_SIZE) --code-limit $$($(1)_CODE_LIMIT) \
+	$$(Q)$(O)/host/jollymaam-pack jieli pack --flash-size $($(1)_FLASH_SIZE) --code-limit $$($(1)_CODE_LIMIT) \
 		-c $(O)/$(1)/isd_config.ini -u $$($(1)_UBOOT) -o $$@ $$($(1)_PACKED) $$($(1)_CONFIG_TOOL) \
 		$(if $($(1)_MAIN_AT),--main-out $(O)/$(1)/update.bin)
 

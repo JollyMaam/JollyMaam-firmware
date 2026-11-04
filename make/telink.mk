@@ -10,7 +10,8 @@ TELINK_CC := $(TELINK_TOOLS)/tc32-elf-gcc
 TELINK_LD := $(TELINK_TOOLS)/tc32-elf-ld
 TELINK_OBJCOPY := $(TELINK_TOOLS)/tc32-elf-objcopy
 TELINK_LIBGCC := $(shell $(TELINK_CC) -print-libgcc-file-name 2>/dev/null)
-TELINK_IMAGE_TOOL := tools/8bitdoboot.py
+TELINK_PACK := $(O)/host/jollymaam-pack
+TELINK_FLASH := $(O)/host/jollymaam
 
 # The SDK's sources build with -fpack-struct; ours do not, and see the SDK's
 # headers only through src/platform/telink/sdk.h, which packs them the same
@@ -95,7 +96,6 @@ TELINK_SDK_USED += vendor/common/flash_prot.c
 #   NAME_DEFINES     -D flags for this board (EXTRA_DEFINES adds to them)
 #   NAME_BOARD_DIR   the board's headers
 #   NAME_LDFLAGS     extra linker flags (--wrap=...)
-#   NAME_LOADER_HINT how to enter the boot loader by hand
 #   NAME_UPDATER     optional: this is an updater (src/updater/) for an app this
 #                    far above its start (MAIN_AT); NAME_CODE_LIMIT ends the app's room
 #   NAME_FRONT       optional: this app sits above board NAME_FRONT, its updater
@@ -148,10 +148,10 @@ $(O)/$(1)/app.elf: $(O)/$(1)/boot.link $$($(1)_OBJECTS) $(TELINK_ARCHIVES)
 
 # The image header: the stock stamp in its reserved bytes, the size and the
 # CRC the boot loader checks.
-$(O)/$(1)/firmware.bin: $(O)/$(1)/app.elf $(TELINK_IMAGE_TOOL)
+$(O)/$(1)/firmware.bin: $(O)/$(1)/app.elf $(TELINK_PACK)
 	@echo [FW] $$@
 	$$(Q)$(TELINK_OBJCOPY) -O binary $$< $(O)/$(1)/app.bin
-	$$(Q)python3 -I $(TELINK_IMAGE_TOOL) pack --stamp $($(1)_STAMP) \
+	$$(Q)$(TELINK_PACK) 8bitdo pack --stamp $($(1)_STAMP) \
 		--max $$$$(( $($(1)_APP_END) - $($(1)_APP_START) )) -o $$@ $(O)/$(1)/app.bin
 
 ifneq ($($(1)_FRONT),)
@@ -159,23 +159,19 @@ ifneq ($($(1)_FRONT),)
 # padtool update too); firmware.img, the updater and that above it, for the
 # boot loader (NAME-flash, padtool boot flash, padgui).
 $(1): $(O)/$(1)/update.bin $(O)/$(1)/firmware.img
-$(O)/$(1)/update.bin: $(O)/$(1)/firmware.bin $(TELINK_IMAGE_TOOL)
-	$$(Q)python3 -I $(TELINK_IMAGE_TOOL) main --pid $($(1)_PID) --at $($($(1)_FRONT)_UPDATER) \
-		--entry $($(1)_APP_START) -o $$@ $$<
-
-$(O)/$(1)/firmware.img: $(O)/$($(1)_FRONT)/firmware.bin $(O)/$(1)/update.bin $(TELINK_IMAGE_TOOL)
+$(O)/$(1)/update.bin: $(O)/$(1)/firmware.img
+$(O)/$(1)/firmware.img: $(O)/$($(1)_FRONT)/firmware.bin $(O)/$(1)/firmware.bin $(TELINK_PACK)
 	@echo [FW] $$@
-	$$(Q)python3 -I $(TELINK_IMAGE_TOOL) full --at $($($(1)_FRONT)_UPDATER) -o $$@ \
-		$(O)/$($(1)_FRONT)/firmware.bin $(O)/$(1)/update.bin
+	$$(Q)$(TELINK_PACK) 8bitdo join --pid $($(1)_PID) --at $($($(1)_FRONT)_UPDATER) \
+		--entry $($(1)_APP_START) --main-out $(O)/$(1)/update.bin -o $$@ \
+		$(O)/$($(1)_FRONT)/firmware.bin $(O)/$(1)/firmware.bin
 
-$(1)-flash: $(O)/$(1)/firmware.img
-	$$(Q)python3 -I $(TELINK_IMAGE_TOOL) flash --pid $($(1)_PID) --start $($($(1)_FRONT)_APP_START) \
-		--end $($(1)_APP_END) --hint "$($(1)_LOADER_HINT)" $$(if $$(DEVICE),--device $$(DEVICE)) $$<
+$(1)-flash: $(O)/$(1)/firmware.img $(TELINK_FLASH)
+	$$(Q)$(TELINK_FLASH) 8bitdo flash --pid $($(1)_PID) $$(if $$(DEVICE),--device $$(DEVICE)) $$<
 endif
 
-$(1)-loader:
-	$$(if $$($(1)_LOADER_HINT),@echo "$$($(1)_LOADER_HINT)")
-	$$(Q)python3 -I $(TELINK_IMAGE_TOOL) loader --pid $($(1)_PID) $$(if $$(DEVICE),--device $$(DEVICE))
+$(1)-loader: $(TELINK_FLASH)
+	$$(Q)$(TELINK_FLASH) 8bitdo loader --pid $($(1)_PID) $$(if $$(DEVICE),--device $$(DEVICE))
 
 # The SDK's linker script, for a boot loader that copies the vectors and RAM
 # code to SRAM but leaves the flash mapped at its physical addresses.  The

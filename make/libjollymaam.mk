@@ -24,7 +24,7 @@ JOLLYMAAM_SOURCES := $(wildcard src/lib/jieli_image/*.c src/lib/proto_*.c src/li
 JOLLYMAAM_OBJECTS := $(JOLLYMAAM_SOURCES:src/lib/%.c=$(O)/host/libjollymaam/%.o)
 JOLLYMAAM_PLATFORM_SOURCES := src/lib/platform.c src/lib/transport_hid.c src/lib/transport_custom.c src/lib/transport_jieli.c $(if $(filter windows,$(JOLLYMAAM_PLATFORM)),src/lib/transport_win32.c,src/lib/transport_linux.c)
 JOLLYMAAM_PLATFORM_OBJECTS := $(JOLLYMAAM_PLATFORM_SOURCES:src/lib/%.c=$(O)/host/platform/%.o)
-JOLLYMAAM_APP_SOURCES := tools/jollymaam/jollymaam.c tools/jollymaam/jollymaam_jieli.c tools/jollymaam/jollymaam_update.c tools/jollymaam/jollymaam_restore.c
+JOLLYMAAM_APP_SOURCES := tools/jollymaam/jollymaam.c tools/jollymaam/jollymaam_dev.c tools/jollymaam/jollymaam_jieli.c tools/jollymaam/jollymaam_8bitdo.c tools/jollymaam/jollymaam_update.c tools/jollymaam/jollymaam_restore.c
 JOLLYMAAM_APP_HEADERS := $(wildcard tools/jollymaam/jollymaam*.h)
 
 # Rebuild host objects when changing compiler/ABI, dependency environment or
@@ -54,11 +54,14 @@ $(O)/host/platform/%.o: src/lib/%.c $(JOLLYMAAM_HEADERS) $(O)/host/.jollymaam-co
 $(JOLLYMAAM_CLI): $(JOLLYMAAM_APP_SOURCES) $(JOLLYMAAM_APP_HEADERS) $(O)/host/libjollymaam-platform.a $(O)/host/libjollymaam.a $(MAKE_FILES)
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) $(JOLLYMAAM_APP_SOURCES) $(O)/host/libjollymaam-platform.a $(O)/host/libjollymaam.a $$(pkg-config $(JOLLYMAAM_PKG_OPTIONS) --cflags --libs $(JOLLYMAAM_PKGS)) $(JOLLYMAAM_LINK_FLAGS) $(JOLLYMAAM_SYSTEM_LIBS) -o $@
 
-# Offline firmware image packing; no desktop archive or USB dependencies.
-.PHONY: jollymaam-jlpack
-jollymaam-jlpack: $(O)/host/jollymaam-jlpack$(JOLLYMAAM_EXEEXT)
-$(O)/host/jollymaam-jlpack$(JOLLYMAAM_EXEEXT): tools/jollymaam/jollymaam_jieli.c tools/jollymaam/jollymaam_jieli.h $(O)/host/libjollymaam.a $(MAKE_FILES)
-	$(Q)$(HOST_CC) $(HOST_CFLAGS) -std=c99 -DJOLLYMAAM_PACK_ONLY $< $(O)/host/libjollymaam.a $(JOLLYMAAM_LINK_FLAGS) -o $@
+# Offline firmware image packing (jollymaam-pack: jieli pack, 8bitdo pack
+# and join); no desktop archive or USB dependencies.
+JOLLYMAAM_PACK_SOURCES := tools/jollymaam/jollymaam_pack.c tools/jollymaam/jollymaam_jieli.c tools/jollymaam/jollymaam_8bitdo.c
+JOLLYMAAM_PACK := $(O)/host/jollymaam-pack$(JOLLYMAAM_EXEEXT)
+.PHONY: jollymaam-pack
+jollymaam-pack: $(JOLLYMAAM_PACK)
+$(JOLLYMAAM_PACK): $(JOLLYMAAM_PACK_SOURCES) $(JOLLYMAAM_APP_HEADERS) $(O)/host/libjollymaam.a $(MAKE_FILES)
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) -std=c99 -DJOLLYMAAM_PACK_ONLY $(JOLLYMAAM_PACK_SOURCES) $(O)/host/libjollymaam.a $(JOLLYMAAM_LINK_FLAGS) -o $@
 
 JOLLYMAAM_IMAGE_TESTS := builder image bankcb crypto entry key ufw
 JOLLYMAAM_MODULE_TESTS := restore proto_8bitdo proto_jollymaam proto_jieli upgrade_jollymaam upgrade_jieli sha256

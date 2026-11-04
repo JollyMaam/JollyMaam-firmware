@@ -11,10 +11,10 @@ adds no firmware code or storage. Change these definitions here rather than
 adding local copies. Firmware keeps its platform transport and flash operations;
 the host library keeps its request scheduling and validation.
 
-Firmware image builds use `make jollymaam-jlpack`, an offline build of the same
-pack command used by `jollymaam jieli pack`. It links only the portable archive
-and needs no hidapi or desktop transport dependencies. The full CLI and flashing
-targets still require the desktop dependencies.
+Firmware image builds use `make jollymaam-pack`, jollymaam's image commands
+(`jieli pack`, `8bitdo pack` and `8bitdo join`) without USB. It links only the
+portable archive and needs no hidapi or desktop transport dependencies. The
+full CLI and flashing targets still require the desktop dependencies.
 
 Each board has a `<board>-protocol-test` target, for example
 `make gamesir-cyclone-2-pad-protocol-test`. These host tests link the app and
@@ -93,33 +93,38 @@ the static and Windows shells select static linking.
 host-side tests; the JNI tests require Java development tools. Windows test
 executables can be built with `make jollymaam-windows-test-build`.
 
-The CLI offers read-only discovery (`scan`) of our tool devices using IDENTIFY,
-8BitDo bootloader candidates and Jieli UBOOT candidates,
-offline image inspection (`inspect IMAGE`), raw Jieli image rekeying
-(`jieli rekey INPUT OUTPUT KEY`), and pad bootloader upgrades
-(`8bitdo flash --yes HID_PATH IMAGE`). Linux Jieli flashing uses
+The CLI offers read-only discovery (`scan`, by USB port: our tool devices by
+IDENTIFY, 8BitDo boot loaders and stock pads by the model they answer, Jieli
+ROM loaders and firmware), offline image inspection (`inspect IMAGE`), the
+`jieli` and `8bitdo` groups (`jollymaam help jieli`, `help 8bitdo`): images,
+loader entry and flashing by port, as the build's flash targets use them.
+`8bitdo flash --pid PID [--device PORT] IMAGE` enters the boot loader from our
+or stock firmware and writes the Telink pad's firmware.img sector by sector or
+the Yichip pad's raw app as one encrypted stream. The 8BitDo receiver takes
+loader entry only. Linux Jieli flashing also has
 `jieli install --yes DEVICE LOADER IMAGE`, with the chip's matching SDK RAM-loader
-blob. Both flash commands write hardware: select
-the intended path and obtain permission before invoking it. Enumeration does not
-upload loaders or reboot devices. There is no automatic stock-firmware boot entry
-or reconnection yet. The 8BitDo receiver is not accepted for upgrades. `scan` also lists Jieli UBOOT
-block-device candidates using sysfs metadata and honors `DEV_ROOT`. It does not
-open the block nodes or upload loaders. The Jieli command verifies the INQUIRY
+blob. The flash commands write hardware. Enumeration does not upload loaders or
+reboot devices, and honors `DEV_ROOT`. The Jieli command verifies the INQUIRY
 vendor/model before uploading its supplied loader, checks the installed product,
 rekeys for the device and applies the Nova pad stock-data preservation range.
 It returns after readback verification, leaving the device in its loader.
 
-The portable 8BitDo operation accepts a full pad image and borrows its storage
-until completion. Call `jm_8bitdo_upgrade_next`, send the returned report, then
+The portable 8BitDo operation accepts a full Telink pad image
+(`jm_8bitdo_upgrade_init`) or a Yichip pad's raw app (`jm_8bitdo_yichip_init`)
+and borrows its storage until completion. `jm_8bitdo_upgrade_timeout` gives the
+pending request's reply time (the Yichip stream's erase is long). Call `jm_8bitdo_upgrade_next`, send the returned report, then
 call `jm_8bitdo_upgrade_complete` with the reply. A stale read reply leaves the
 request pending, so keep waiting without resending. Complete the final start
 transfer without a reply. Android and browser callers can schedule this cycle
 asynchronously; they own opening, permissions, timeouts and cancellation. The
 hidapi adapter is a blocking desktop implementation of the same cycle.
 
-The operation checks image CRCs and model identity before erasing, compares
-existing sectors, verifies erasure, programs and verifies each changed sector,
-and writes the header sector last. It has no rollback. Stop scheduling to cancel;
+On the Telink pad the operation checks image CRCs and model identity before
+erasing, compares existing sectors, verifies erasure, programs and verifies each
+changed sector, and writes the header sector last. On the Yichip pad it checks
+the model, erases the slot for the whole stream (the app padded to 32 KiB
+blocks), programs it encrypted (`jm_8bitdo_yichip_encrypt`, 8CryptDo's cipher,
+MIT) and reads it all back. It has no rollback. Stop scheduling to cancel;
 after erasing, an interrupted operation can require recovery. Transport failures
 are not automatically retried. Device compatibility still requires hardware
 validation; current upgrade tests simulate the device.

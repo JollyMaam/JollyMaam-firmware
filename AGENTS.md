@@ -43,10 +43,12 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   command line (e.g. an empty `NAME_MAIN_AT` for a build without updater).
 - `tools/padtool/`: `padtool.py` (CLI; `--help` lists every command), `padgui.pyw`
   (Tk GUI), the transports.  `tools/padtool/README.md` for setup.
-- `tools/jollymaam/`: `jollymaam.c` (host updater, Jieli image packer and flasher, built into
-  `build/host/`), its tests and release packaging helpers.
-- `tools/`: `8bitdoboot.py` (the 8BitDo boot loader), `upgrade.py`
-  (every connected device), `padhub.c` (Linux UHID bridge for the dongle's
+- `tools/jollymaam/`: `jollymaam` (built into `build/host/`): our updater,
+  the Jieli and 8BitDo images, ROM and boot loaders (`jollymaam help`), on
+  libjollymaam (`src/lib/`); `jollymaam-pack`, its image commands without USB,
+  for builds.  Its tests and release packaging helpers.  `make flash-all`
+  flashes every device running our firmware.
+- `tools/`: `padhub.c` (Linux UHID bridge for the dongle's
   hub, `tools/padhub.md`), `sdlpad.c` (what SDL sees), `linkbench.py`,
   `buildcommits.sh` (build a range of commits, for bisecting),
   `stackdepth.py` (the 8BitDo's deepest stack use, from its disassembly),

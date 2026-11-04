@@ -13,6 +13,7 @@ STUBS = r'''
 #include "src/lib/transport_hid.h"
 #include "src/lib/transport_jieli.h"
 #include "tools/jollymaam/jollymaam_update.h"
+#include "tools/jollymaam/jollymaam_dev.h"
 #include "src/lib/platform.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -61,6 +62,18 @@ int jm_session_stock_loader(const struct jm_session_io *io,void *c,const uint8_t
 }
 int jollymaam_jieli_command(const char *command) { (void)command;return 0; }
 int jollymaam_jieli_app(int argc,char **argv) { (void)argc;(void)argv;return 2; }
+void jollymaam_jieli_scan(void) { if(!getenv("NO_DEVICES")) puts("5-1 ROM loader (BR23)  (fake-jieli)\n5-2 our firmware, U2C_WIRELESS  (fake-custom)"); }
+int jollymaam_8bitdo_command(const char *command) { (void)command;return 0; }
+int jollymaam_8bitdo_app(int argc,char **argv) { (void)argc;(void)argv;return 2; }
+void jollymaam_8bitdo_usage(FILE *out) { fputs("usage: jollymaam 8bitdo <subcommand>\n",out); }
+void jollymaam_8bitdo_scan(void) { if(!getenv("NO_DEVICES")) puts("5-3 8BitDo boot loader, U2C_WIRELESS  (fake-boot)"); }
+size_t hid_devices(struct hid_dev *out,size_t max) {
+ if(getenv("NO_DEVICES") || !max) return 0;
+ memset(out,0,sizeof *out);strcpy(out->path,"fake-custom");return 1;
+}
+bool is_tool(const struct hid_dev *h) { return !strcmp(h->path,"fake-custom"); }
+bool tool_pid(const struct hid_dev *h,char pid[17]) { (void)h;strcpy(pid,"U2C_WIRELESS");return true; }
+bool usb_port(const char *path,char port[64]) { (void)path;strcpy(port,"5-2");return true; }
 int jollymaam_restore_app(int argc,char **argv,int jieli) { (void)argc;(void)argv;(void)jieli;return 2; }
 int main(int argc,char **argv) { return jollymaam_update_command(argc-1,argv+1); }
 '''
@@ -97,33 +110,18 @@ class AppTests(unittest.TestCase):
         return subprocess.run([str(self.binary), str(self.package)], input=commands,
                               capture_output=True, text=True, timeout=5)
 
-    def test_stock_loader_requires_explicit_confirmation(self):
-        result = subprocess.run([str(self.cli), 'enter-loader', '--yes', 'fake-custom'], capture_output=True, text=True, timeout=5)
-        self.assertEqual(result.returncode, 0)
-        self.assertIn('MOCK-STOCK-LOADER', result.stdout)
-        result = subprocess.run([str(self.cli), 'enter-loader', 'fake-custom'], capture_output=True, text=True, timeout=5)
-        self.assertEqual(result.returncode, 2)
-        self.assertNotIn('MOCK-STOCK-LOADER', result.stdout)
-
-    def test_8bitdo_scan_is_scoped_to_its_bootloaders(self):
-        result = subprocess.run([str(self.cli), '8bitdo', 'scan'], capture_output=True, text=True, timeout=5)
-        self.assertEqual(result.returncode, 0)
-        self.assertIn('fake-boot', result.stdout)
-        self.assertNotIn('fake-custom', result.stdout)
-        self.assertNotIn('fake-jieli', result.stdout)
-
-    def test_scan_includes_custom_devices(self):
+    def test_scan_lists_every_family_and_ours_by_port(self):
         result = subprocess.run([str(self.cli), 'scan'], capture_output=True, text=True, timeout=5)
         self.assertEqual(result.returncode, 0)
-        self.assertIn('U2C_WIRELESS our firmware build=test-build (fake-custom)', result.stdout)
-        self.assertIn('fake-boot', result.stdout)
-        self.assertIn('fake-jieli', result.stdout)
-
-    def test_scan_explains_empty_result(self):
-        result = subprocess.run([str(self.cli), 'scan'], capture_output=True, text=True, timeout=5,
+        for name in ('fake-custom', 'fake-boot', 'fake-jieli'):
+            self.assertIn(name, result.stdout)
+        result = subprocess.run([str(self.cli), 'scan', '--ours'], capture_output=True, text=True, timeout=5)
+        self.assertEqual((result.returncode, result.stdout), (0, '5-2 U2C_WIRELESS\n'))
+        result = subprocess.run([str(self.cli), 'scan', '--ours'], capture_output=True, text=True, timeout=5,
                                 env={**os.environ, 'NO_DEVICES': '1'})
-        self.assertEqual(result.returncode, 0)
-        self.assertIn('No supported devices found', result.stdout)
+        self.assertEqual((result.returncode, result.stdout), (0, ''))
+        for gone in (['enter-loader', '--yes', 'fake-custom'], ['8bitdo', 'scan'], ['scan', '--all']):
+            self.assertEqual(subprocess.run([str(self.cli), *gone], capture_output=True, timeout=5).returncode, 2)
 
     def test_cancel_eof_and_rescan(self):
         for commands in ('', 'q\n', '1\n\nq\n', '1\nno\nq\n', 'r\nq\n', '999\nq\n', '3\n1\nq\n', '1\n' + 'yes'*100 + '\nq\n'):
@@ -204,14 +202,16 @@ class AppTests(unittest.TestCase):
         entries = [line.split()[0] for line in lines if line.startswith('  ') and not line.startswith('    ')]
         self.assertEqual(entries[:5], ['scan','update','inspect','jieli','8bitdo'])
         self.assertIn('--device PATH', r.stdout); self.assertIn('--product PRODUCT', r.stdout)
-        self.assertIn('enter-loader', r.stdout); self.assertNotIn('flash-package', r.stdout)
+        self.assertNotIn('enter-loader', r.stdout); self.assertNotIn('flash-package', r.stdout)
+        self.assertIn('jollymaam-pack', r.stdout)
         for i, line in enumerate(lines):
             if line.startswith('  jieli ') or line.startswith('  8bitdo '):
                 subcommands = []
                 for detail in lines[i+1:]:
                     if not detail.startswith('    '): break
                     subcommands += [v.strip() for v in detail.strip().split(',') if v.strip()]
-                self.assertIn('scan', subcommands); self.assertIn('restore', subcommands)
+                self.assertIn('pack', subcommands); self.assertIn('flash', subcommands)
+                self.assertIn('restore', subcommands); self.assertNotIn('scan', subcommands)
                 self.assertNotIn('help', subcommands)
 
     def test_selected_jieli_product_and_unlisted_scsi_endpoint(self):

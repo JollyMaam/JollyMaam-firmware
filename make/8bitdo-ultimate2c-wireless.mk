@@ -19,7 +19,6 @@ $(U2CW_PAD)_APP_START := 0x16120
 $(U2CW_PAD)_APP_END := 0x6f000
 $(U2CW_PAD)_PID := U2C_WIRELESS
 $(U2CW_PAD)_STAMP := 6a0000005d02
-$(U2CW_PAD)_LOADER_HINT := If USB boot entry fails: USB unplugged, hold L1+R1, tap Home, plug in USB.
 $(U2CW_PAD)_BOARD_DIR := src/boards/8bitdo-ultimate2c-wireless
 $(U2CW_PAD)_LDFLAGS := --wrap=otp_read --wrap=bls_smp_param_saveBondingInfo --wrap=l2cap_att_handler
 # Root the replacement explicitly: --defsym alone does not retain it with
@@ -132,7 +131,6 @@ $(U2CW_UPDATER)_UPDATER := 0x10000
 $(U2CW_UPDATER)_CODE_LIMIT := $($(U2CW_PAD)_APP_END)
 $(U2CW_UPDATER)_PID := $($(U2CW_PAD)_PID)
 $(U2CW_UPDATER)_STAMP := $($(U2CW_PAD)_STAMP)
-$(U2CW_UPDATER)_LOADER_HINT := $($(U2CW_PAD)_LOADER_HINT)
 $(U2CW_UPDATER)_BOARD_DIR := $($(U2CW_PAD)_BOARD_DIR)
 $(U2CW_UPDATER)_LDFLAGS := $($(U2CW_PAD)_LDFLAGS)
 $(U2CW_UPDATER)_DEFINES := -DLOG_LINES=16 -DLOG_TEXT=48
@@ -164,14 +162,9 @@ $(eval $(call telink_board,$(U2CW_UPDATER)))
 8bitdo-ultimate2c-wireless-test: $(U2CW_PAD)-test
 
 # Stock receiver entry only: no receiver firmware target or flashing path yet.
-.PHONY: 8bitdo-ultimate2c-wireless-dongle-loader 8bitdoboot-test
-8bitdo-ultimate2c-wireless-dongle-loader:
-	$(Q)python3 -I $(TELINK_IMAGE_TOOL) loader --pid U2C_RECEIVER $(if $(DEVICE),--device $(DEVICE))
-
-8bitdoboot-test:
-	$(Q)python3 -I tools/test_8bitdoboot.py
-
-$(U2CW_PAD)-test: | 8bitdoboot-test
+.PHONY: 8bitdo-ultimate2c-wireless-dongle-loader
+8bitdo-ultimate2c-wireless-dongle-loader: $(TELINK_FLASH)
+	$(Q)$(TELINK_FLASH) 8bitdo loader --pid U2C_RECEIVER $(if $(DEVICE),--device $(DEVICE))
 
 # The deepest stack use against the room above .bss, and the interrupts'
 # against irq_stk (tools/stackdepth.py).  The pointer calls: the profiles'

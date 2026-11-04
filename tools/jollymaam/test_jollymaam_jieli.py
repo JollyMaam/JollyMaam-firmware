@@ -45,13 +45,14 @@ class JieliCliTests(unittest.TestCase):
                 r = self.run_command(root, *args)
                 self.assertEqual(r.returncode, 0, (args, r.stderr))
                 self.assertIn('usage: jollymaam', r.stdout)
-            for family, commands in [('jieli', ('pack', 'flash', 'flashpack', 'install', 'restore', 'loader', 'run', 'backup', 'scan', 'rekey')),
-                                     ('8bitdo', ('flash', 'restore', 'check-stock', 'scan'))]:
+            for family, commands in [('jieli', ('pack', 'flash', 'flashpack', 'install', 'restore', 'loader', 'run', 'backup', 'rekey')),
+                                     ('8bitdo', ('pack', 'join', 'flash', 'loader', 'start', 'restore', 'check-stock'))]:
                 for command in commands:
                     r = self.run_command(root, family, command, '--help')
                     self.assertEqual(r.returncode, 0, (family, command, r.stderr))
             for args in [('unknown',), ('help', 'unknown'), ('jieli', 'unknown'), ('8bitdo', 'unknown'),
-                         ('stock-loader',), ('flash-package',), ('pack',), ('flash-8bitdo',), ('restore-jieli',), ('scan-jieli',)]:
+                         ('stock-loader',), ('flash-package',), ('pack',), ('flash-8bitdo',), ('restore-jieli',), ('scan-jieli',),
+                         ('enter-loader',), ('jieli', 'scan'), ('8bitdo', 'scan')]:
                 self.assertEqual(self.run_command(root, *args).returncode, 2, args)
 
     def test_pack_unpack_verify_and_main(self):
@@ -91,5 +92,5 @@ class JieliCliTests(unittest.TestCase):
                 self.assertNotEqual(self.run_tool(root, command).returncode, 0)
             r = self.run_tool(root, 'help')
             self.assertEqual(r.returncode, 0)
-            for command in ('pack', 'flashpack', 'backup', 'loader', 'run', 'scan'):
+            for command in ('pack', 'flashpack', 'backup', 'loader', 'run'):
                 self.assertIn('jollymaam jieli '+command, r.stdout)

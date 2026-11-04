@@ -10,28 +10,14 @@
 #include "jollymaam_update.h"
 #include "jollymaam_jieli.h"
 #include "jollymaam_restore.h"
+#include "jollymaam_8bitdo.h"
+#include "jollymaam_dev.h"
 #include "../../src/lib/platform.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-static int visit(void *user, const char *path, unsigned vid, unsigned pid) {
-  (void)user;
-  printf("%04x:%04x %s (bootloader candidate; model not probed)\n", vid, pid, path);
-  return 0;
-}
-static int custom_visit(void *user,const char *path,const struct jm_identity *identity) {
-  (void)user;
-  printf("%s %s build=%s (%s)\n",identity->product,
-         identity->updater?"our updater":"our firmware",identity->build,path);
-  return 0;
-}
-static int jieli_visit(void *user, const char *path, enum jm_jieli_chip chip) {
-  (void)user;
-  printf("Jieli %s %s (UBOOT candidate; product not probed)\n", chip == JM_JIELI_BR23 ? "BR23" : "BD19", path);
-  return 0;
-}
 static uint8_t *read_image(const char *path, size_t *size) {
   FILE *f = fopen(path, "rb");
   if (!f) return NULL;
@@ -42,10 +28,6 @@ static uint8_t *read_image(const char *path, size_t *size) {
   if (!data) { fclose(f); return NULL; }
   if (fread(data, 1, (size_t)n, f) != (size_t)n) { free(data); fclose(f); return NULL; }
   fclose(f); *size = (size_t)n; return data;
-}
-static void progress(void *user, unsigned done, unsigned total) {
-  unsigned *last = user;
-  if (done != *last) { fprintf(stderr, "Verified %u/%u sectors\n", done, total); *last = done; }
 }
 static int rekey(const char *input, const char *output, const char *text) {
   char *end;
@@ -80,27 +62,37 @@ done:
 static int help_word(const char *word) { return !strcmp(word,"help") || !strcmp(word,"--help"); }
 static void usage(FILE *out) {
   fprintf(out,"usage: jollymaam <command>\n"
-              "  scan                    Discover our devices and stock bootloaders\n"
+              "  scan [--ours]            What is connected, by USB port (--ours: \"PORT PID\" of our firmware)\n"
               "  update [--device PATH] [--product PRODUCT] [--yes] FIRMWARE.zip\n"
-              "  inspect IMAGE           Inspect a package or firmware image\n"
-              "  jieli <subcommand>       Jieli image and bootloader commands\n"
-              "    scan, pack, list, verify, unpack, rekey, install, flash, flashpack,\n"
-              "    backup, loader, run, check-stock, restore\n"
-              "  8bitdo <subcommand>      8BitDo pad bootloader commands\n"
-              "    scan, flash, check-stock, restore\n"
-              "  enter-loader --yes HID_PATH\n"
-              "  help [jieli|8bitdo]      Show help (--help also works)\n");
+              "                           Our firmware through its updater\n"
+              "  inspect IMAGE            Inspect a package or firmware image\n"
+              "  jieli <subcommand>       Jieli (GameSir) images and ROM loader\n"
+              "    pack, list, verify, unpack, rekey, flash, flashpack, backup, loader, run,\n"
+              "    install, check-stock, restore\n"
+              "  8bitdo <subcommand>      8BitDo images and boot loader (Telink and Yichip pads)\n"
+              "    pack, join, flash, loader, start, check-stock, restore\n"
+              "  help [jieli|8bitdo]      Show help (--help also works)\n"
+              "jollymaam-pack runs the image commands (jieli pack, 8bitdo pack and join) without USB.\n");
 }
 static int group_help(int family) {
   if(family==1) {
     char *args[]={"jieli","--help"};return jollymaam_jieli_app(2,args);
   }
-  puts("usage: jollymaam 8bitdo <subcommand>\n"
-       "  scan\n"
-       "  flash --yes HID_PATH IMAGE\n"
-       "  check-stock 0x301b STOCK.bin|DAT\n"
-       "  restore --yes HID_PATH 0x301b STOCK.bin|DAT NEW_BACKUP\n"
-       "Only the Ultimate 2C Wireless pad bootloader is supported.");
+  jollymaam_8bitdo_usage(stdout);
+  return 0;
+}
+/* Everything connected, by USB port; --ours: "PORT PID" per device running
+ * our firmware (make flash-all reads it). */
+static int scan(int ours) {
+  static struct hid_dev h[64];
+  if(ours) {
+    size_t n=hid_devices(h,64);char pid[17],port[64];
+    for(size_t i=0;i<n;++i)
+      if(is_tool(&h[i]) && tool_pid(&h[i],pid)) printf("%s %s\n",usb_port(h[i].path,port)?port:h[i].path,pid);
+    return 0;
+  }
+  jollymaam_jieli_scan();
+  jollymaam_8bitdo_scan();
   return 0;
 }
 int main(int argc, char **argv) {
@@ -121,26 +113,9 @@ int main(int argc, char **argv) {
     usage(stdout);return 0;
   }
   if(family==1 && jollymaam_jieli_command(argv[1])) return jollymaam_jieli_app(argc,argv);
+  if(family==2 && jollymaam_8bitdo_command(argv[1])) return jollymaam_8bitdo_app(argc,argv);
   if(family && (!strcmp(argv[1],"restore") || !strcmp(argv[1],"check-stock")))
     return jollymaam_restore_app(argc,argv,family==1);
-  if(family==2 && argc==2 && !strcmp(argv[1],"scan")) {
-    int count=jm_hid_enumerate_8bitdo(visit,NULL);
-    if(count<0) { fprintf(stderr,"8BitDo discovery failed\n");return 1; }
-    if(!count) puts("No 8BitDo bootloaders found.");
-    return 0;
-  }
-  if (!family && argc == 4 && !strcmp(argv[1], "enter-loader") && !strcmp(argv[2], "--yes")) {
-    struct jm_platform_connection *connection=jm_platform_open(argv[3],JM_SESSION_CUSTOM);
-    struct jm_identity id;int result=-1;
-    if(connection && jm_session_identify(jm_platform_io(),connection,&id)) {
-      printf("Requesting stock bootloader for %s (%s)\n",id.product,id.updater?"our updater":"our firmware");
-      result=jm_session_stock_loader(jm_platform_io(),connection,id.uid);
-    }
-    jm_platform_close(connection);
-    if(result) fprintf(stderr,"Loader request unconfirmed (%d); rescan before retrying\n",result);
-    else puts("Stock bootloader requested. Rescan to find its new device path.");
-    return result?1:0;
-  }
   if (!family && !strcmp(argv[1], "update")) return jollymaam_update_command(argc-2,argv+2);
   if (family==1 && argc == 6 && !strcmp(argv[1], "install") && !strcmp(argv[2], "--yes")) {
     size_t loader_size = 0, image_size = 0;
@@ -154,25 +129,14 @@ int main(int argc, char **argv) {
   if (family==1 && argc == 5 && !strcmp(argv[1], "rekey"))
     return rekey(argv[2], argv[3], argv[4]);
 
-  if (!family && argc == 2 && !strcmp(argv[1], "scan")) {
-    int custom=jm_hid_custom_devices(custom_visit,NULL);
-    int boot=jm_hid_enumerate_8bitdo(visit,NULL);
-    int jieli=jm_jieli_candidates(jieli_visit,NULL);
-    if(custom<0 || boot<0 || jieli<0) {
-      fprintf(stderr,"Device discovery failed (custom=%d, 8BitDo=%d, Jieli=%d)\n",custom,boot,jieli);
-      return 1;
-    }
-    if(!custom && !boot && !jieli)
-      puts("No supported devices found. Scans our tool devices and stock bootloaders; ordinary stock gamepad modes are not supported yet.");
-    return 0;
-  }
-  if ((!family && argc == 3 && !strcmp(argv[1], "inspect")) ||
-      (family==2 && argc == 5 && !strcmp(argv[1], "flash") && !strcmp(argv[2], "--yes"))) {
+  if (!family && !strcmp(argv[1], "scan") && (argc == 2 || (argc == 3 && !strcmp(argv[2], "--ours"))))
+    return scan(argc == 3);
+  if (!family && argc == 3 && !strcmp(argv[1], "inspect")) {
     size_t size;
     uint8_t *data = read_image(argv[argc - 1], &size);
     if (!data) { fprintf(stderr, "Cannot read image (limit 32 MiB)\n"); return 1; }
     int result = 1;
-    if (!strcmp(argv[1], "inspect")) {
+    {
       char product[17];
       const uint8_t *flash;
       size_t flash_size;
@@ -206,10 +170,6 @@ int main(int argc, char **argv) {
                view.base, flash_size, ufw == JM_JIELI_UFW_OK ? "UFW" : "raw", view.key); result = 0;
       } else fprintf(stderr, "Unrecognized or invalid image\n");
       free(workspace);
-    } else {
-      unsigned last = (unsigned)-1;
-      result = jm_hid_upgrade_8bitdo(argv[3], data, size, progress, &last);
-      if (result) fprintf(stderr, "Upgrade failed: %d; device may require recovery\n", result);
     }
     free(data); return result ? 1 : 0;
   }
