@@ -103,6 +103,12 @@ void plat_restart(int loader)
     /* A SysTick still pending (the hang watch's) would go to the loader's
      * own handler, an endless loop, once it enables interrupts. */
     *(volatile uint32_t *)0xe000ed04 = 1u << 25;   /* ICSR: PENDSTCLR */
+    /* Interrupts as a reset leaves them: the loader does not use ours (USB
+     * is IRQ 0), and one still enabled and pending would go to its endless
+     * handler once it enables interrupts (2 of 3 loader entries hung off USB
+     * until a power cycle, 2026-11-04). */
+    *(volatile uint32_t *)0xe000e180 = ~0u;        /* NVIC ICER */
+    *(volatile uint32_t *)0xe000e280 = ~0u;        /* NVIC ICPR */
     *(volatile uint32_t *)0xf856c |= 1u << 6;   /* CLK_CLS: the USB clock off */
     *(volatile uint8_t *)0xf853c = 0x94;        /* WAKEUP_BT: the core halted */
     if (loader) {

@@ -250,7 +250,10 @@ wrong assumption), add it here in a line or two.
   (the app sets 1; the loader leaves 2 after flashing).  A fault that loops
   there needs a hard power-off (USB out, hold Home).  Into the boot loader
   without L1+R1: its mailbox and a jump, as `plat_restart` does; a chip
-  reset clears RAM, mailbox included.  Not stock's second word 0x20210624
+  reset clears RAM, mailbox included.  Disable and clear every NVIC
+  interrupt before the jump: our USB interrupt left on and pending went to
+  the loader's endless handler once it enabled interrupts (2 of 3 entries
+  hung off USB until a power cycle; 25 of 25 with them cleared).  Not stock's second word 0x20210624
   while our radio runs: the loader then skips its radio start, takes the
   running core, and never came up on USB.
 - Ultimate 2C Bluetooth USB: multi-packet OUT control transfers lose data
