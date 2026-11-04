@@ -252,6 +252,12 @@ wrong assumption), add it here in a line or two.
 - Ultimate 2C Bluetooth radio core: opcodes stock never sends are not
   safe to try: 0x27, and another from 0x29 up, wedged the pad until a
   power cycle, the second past the hang watch (a stalled bus, likely).
+- Ultimate 2C Bluetooth radio core, LE: its attribute table (from
+  0xc4975, bt_yc3121.c) has room for about 11 128-bit characteristics; past
+  that the core stops answering commands.  Do not send the tool's `loader`
+  while an LE host is linked: the pad dropped off USB until a power cycle
+  (once).  Its LE features are encryption only (no data length extension,
+  no 2M PHY).
 - `s8` in `pad.h` is a plain `char`, which is unsigned on ARM: a `-1` in
   an `s8` table became 255 and saturated the U2C Bluetooth's stick axes.
   ARM builds pass `-fsigned-char`.
