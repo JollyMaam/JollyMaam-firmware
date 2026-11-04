@@ -284,9 +284,11 @@ flasher checks the installed product before erasing. Unknown products are refuse
 
 For our firmware, the application uses update.bin, confirms the selected flash
 UID and product, enters the updater when needed, reconnects by UID and drives the
-portable update state machine over HID feature reports. It shows acknowledged
-progress and requests reboot only after COMMIT verification. The desktop HID
-adapter currently recognizes our 356- and 512-byte tool descriptors. On Linux,
+portable update state machine over the tool device (commands as HID feature
+reports, answers on input reports addressed to this program, so other programs
+may share the device). It shows acknowledged progress and requests reboot only
+after COMMIT verification. The desktop HID adapter recognizes our tool
+descriptors: a 64- to 512-byte feature report and the 64-byte input report. On Linux,
 HID paths honor DEV_ROOT as well as the Jieli block-device adapter.
 
 For stock bootloaders it uses the installation image. Jieli remains in its loader
@@ -316,7 +318,8 @@ if (connection) {
 }
 ```
 
-`session.h` defines typed SCSI, raw HID and feature-report callbacks. The caller
+`session.h` defines typed SCSI, raw HID (input and output reports) and
+feature-report (set only) callbacks. The caller
 supplies a context pointer; the core borrows it and never frees or closes it.
 Read/write callbacks report actual lengths; SCSI also reports sense and status.
 Callback details and buffer lifetimes are documented beside the C definitions.
