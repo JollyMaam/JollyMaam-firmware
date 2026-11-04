@@ -273,6 +273,11 @@ u32 usb_tool_command(const u8 *report, u8 *data, u32 n, u32 max)
             data[i] = *(volatile u8 *)(arg + i);
         return k;
     }
+    case 0x45:                           /* bring-up: bytes into the radio window's RAM */
+        if (arg < 0xc0000 || arg + n > 0xc5000) return 0;
+        for (u32 i = 0; i < n; i++)
+            *(volatile u8 *)(arg + i) = data[i];
+        return 0;
     case 0x3e: {                         /* bring-up: the USB counters */
         const struct usb_events *e = plat_usb_events();
         u32 v[] = { e->resets, e->setups, e->odd_setups, e->stalls, e->commands,
