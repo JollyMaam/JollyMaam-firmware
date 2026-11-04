@@ -5,8 +5,8 @@
 
 /* USB on the YC3121: the tool device (a vendor HID interface, commands as
  * feature reports, answers as platform_telink_usb.c's: on input reports to
- * the command's client with flags bit 1, so programs share the device, else
- * a feature report), served from the USB interrupt.  It has to be: the controller takes the
+ * the command's client, so programs share the device), served from the USB
+ * interrupt.  It has to be: the controller takes the
  * host's next OUT packet while the last is still in its FIFO, and a polled
  * driver lost the tail of multi-packet SET_REPORTs (single packets never).
  *
@@ -46,24 +46,20 @@
 
 #define EP0_SIZE   64
 /* The report is one EP0 packet: multi-packet SET_REPORTs lost their tail
- * (see the top), single packets never.  A command takes up to DATA_MAX bytes
- * in (less the client with flags bit 1); its answer (up to ANSWER_MAX) goes
- * out on input reports (IN_HEAD, then IN_DATA of it each), or a piece per
- * GET_REPORT, TOOL_MORE until the TOOL_LAST one, which the tools read in
- * turn.  A command while another's answer is waiting or going out is
- * refused (on input reports to its client; a feature one is dropped). */
+ * (see the top), single packets never.  A command (flags bit 1 set: the
+ * answer on input reports; without it, dropped) takes up to DATA_MAX bytes
+ * in; its answer (up to ANSWER_MAX) goes out on input reports (IN_HEAD, then
+ * IN_DATA of it each).  A command while another's answer is waiting or going
+ * out is refused to its client.  GET_REPORT is refused (stalled). */
 #define REPORT     64
-#define HEAD       JM_HID_HEAD_SIZE
 #define HEAD_IN    JM_HID_CLIENT_HEAD_SIZE
-#define DATA_MAX   (REPORT - HEAD)
-#define PIECE      (REPORT - 4)
+#define DATA_MAX   (REPORT - HEAD_IN)
 #define ANSWER_MAX 600
 #define IN_HEAD    JM_HID_INPUT_HEAD_SIZE
 #define IN_DATA    (REPORT - IN_HEAD)
 #define IN_WAIT_MS 1000          /* a piece no one takes: no one reads, the answer is dropped */
 
-enum { TOOL_IDLE = JM_HID_IDLE, TOOL_BUSY = JM_HID_BUSY, TOOL_MORE = JM_HID_MORE,
-       TOOL_LAST = JM_HID_LAST, TOOL_REFUSED = JM_HID_REFUSED };
+enum { TOOL_MORE = JM_HID_MORE, TOOL_LAST = JM_HID_LAST, TOOL_REFUSED = JM_HID_REFUSED };
 
 static const u8 device_descriptor[] = {
     18, 1, 0x10, 0x01, 0, 0, 0, EP0_SIZE,
@@ -138,7 +134,7 @@ static struct {
 
 static struct {
     u8 report[REPORT];           /* the command taken (a SET_REPORT comes into pz.rx) */
-    u8 tag, state, flags;
+    u8 tag, flags;
     u32 client;                  /* with JM_HID_INPUT: whose answer it is */
     u16 n;                       /* its data's length */
     u16 answer, off;
@@ -291,29 +287,24 @@ static void tool_pump(void);
 static void tool_take(u16 len)
 {
     const u8 *r = pz.rx;
-    u8 flags = len > 18 ? r[18] : 0;
-    u16 head = flags & JM_HID_INPUT ? HEAD_IN : HEAD;
     u16 n = (u16)(r[16] | r[17] << 8);
 
-    if (len < head) return;
+    if (len < HEAD_IN || !(r[18] & JM_HID_INPUT)) return;
     if (t.pending || t.sending) {
-        if (flags & JM_HID_INPUT) {
-            refused.tag = r[19];
-            refused.client = util_get32(r + 20);
-            refused.waiting = 1;
-            tool_pump();
-        }
+        refused.tag = r[19];
+        refused.client = util_get32(r + 20);
+        refused.waiting = 1;
+        tool_pump();
         return;
     }
-    memcpy(t.report, r, head);
-    t.flags = flags;
+    memcpy(t.report, r, HEAD_IN);
+    t.flags = r[18];
     t.tag = r[19];
-    t.client = flags & JM_HID_INPUT ? util_get32(r + 20) : 0;
-    if (n > len - head) n = len - head;
-    memcpy(t.data, r + head, n);
+    t.client = util_get32(r + 20);
+    if (n > len - HEAD_IN) n = len - HEAD_IN;
+    memcpy(t.data, r + HEAD_IN, n);
     t.n = n;
     t.answer = t.off = 0;
-    t.state = TOOL_BUSY;                /* GET_REPORT says so until it is answered */
     t.pending = 1;
     events.commands++;
 }
@@ -372,34 +363,10 @@ void plat_usb_service(void)
     t.pending = 0;
     t.answer = answer;
     t.off = 0;
-    if (t.flags & JM_HID_INPUT) {
-        t.state = TOOL_IDLE;             /* GET_REPORT shows none of it */
-        t.sending = 1;
-        t.last_out = 0;
-        tool_pump();
-    } else {
-        t.state = TOOL_LAST;
-    }
+    t.sending = 1;
+    t.last_out = 0;
+    tool_pump();
     plat_unlock();
-}
-
-static u16 tool_report(u8 *out)
-{
-    u16 n = 0;
-    u8 state = t.state;
-
-    memset(out, 0, REPORT);
-    if (t.state == TOOL_LAST) {
-        n = t.answer - t.off < PIECE ? (u16)(t.answer - t.off) : PIECE;
-        if (t.off + n < t.answer) state = TOOL_MORE;
-        memcpy(out + 4, t.data + t.off, n);
-        t.off = (u16)(t.off + n);
-    }
-    out[0] = t.tag;
-    out[1] = state;
-    out[2] = (u8)n;
-    out[3] = (u8)(n >> 8);
-    return REPORT;
 }
 
 /* ---- the personality's endpoints ------------------------------------------------ */
@@ -586,9 +553,6 @@ static void setup(void)
         ep0_zlp();
     } else if (type == 0x21 && request == 0x0a) {        /* SET_IDLE */
         ep0_zlp();
-    } else if (type == 0xa1 && request == 1 && value_hi == 3) {   /* GET_REPORT feature */
-        events.get_reports++;
-        ep0_answer(u.buf, tool_report(u.buf));
     } else if (type == 0x21 && request == 9 && value_hi == 3 && length) {   /* SET_REPORT feature */
         u.receiving = 1;
         u.got = 0;

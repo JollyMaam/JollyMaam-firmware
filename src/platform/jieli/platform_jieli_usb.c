@@ -897,26 +897,20 @@ int plat_usb_take(struct bt_write *w)
  * 64-byte input report and no report ids.  A command is a SET_REPORT: the
  * CDB (16 bytes: 0xf5, the sub-command, its arguments, or a loader opcode),
  * u16 length, u8 flags (bit 0: data to the pad; bit 1: the answer on input
- * reports, to the u32 client that follows), u8 tag, then that many bytes of
- * data to the pad; without bit 0, length is the answer's size, as a SCSI
- * command's transfer length (zero-padded).  The control thread runs it
- * (usb_command()).
+ * reports, which every command must set), u8 tag, u32 client, then that many
+ * bytes of data to the pad; without bit 0, length is the answer's size, as a
+ * SCSI command's transfer length (zero-padded).  The control thread runs it
+ * (usb_command()).  A command without bit 1 is dropped.
  *
- * With bit 1 the answer goes out on interrupt IN, which every program that
- * has the device open receives: the client, the tag, a state, u16 offset,
- * then 56 bytes of the answer.  MORE: a piece, more follow; LAST: the last
- * piece (or none); REFUSED: another command is running, send it again.  So
+ * The answer goes out on interrupt IN, which every program that has the
+ * device open receives: the client, the tag, a state, u16 offset, then 56
+ * bytes of the answer.  MORE: a piece, more follow; LAST: the last piece
+ * (or none); REFUSED: another command is running, send it again.  So
  * several programs share the device, each taking only its own answers.
- *
- * Without bit 1 each GET_REPORT answers: the tag, a state, u16 length, that
- * many bytes of the answer.  BUSY: not run yet, ask again; MORE: a piece,
- * the rest follows in the next GET_REPORTs; LAST: the last piece (or none).
- * Whoever reads first takes a piece: one program at a time. */
+ * GET_REPORT is refused (stalled). */
 
 #define TOOL_REPORT     JM_HID_REPORT_JIELI
-#define TOOL_HEAD       JM_HID_HEAD_SIZE
 #define TOOL_HEAD_IN    JM_HID_CLIENT_HEAD_SIZE       /* with the client */
-#define TOOL_REPLY_HEAD JM_HID_REPLY_HEAD_SIZE
 #define TOOL_IN_HEAD    JM_HID_INPUT_HEAD_SIZE
 #define TOOL_IN_DATA    (PACKET - TOOL_IN_HEAD)
 #define TOOL_IN_WAIT_MS 1000     /* a piece no one takes: the answer is dropped */
@@ -937,7 +931,7 @@ static const u8 tool_report_desc[] = {
 static u8 tool_req[TOOL_REPORT] __attribute__((aligned(4)));
 static u8 tool_answer[TOOL_REPORT] __attribute__((aligned(4)));
 static u8 tool_in[PACKET] __attribute__((aligned(4)));
-static volatile u8 tool_pending, tool_state, tool_tag;
+static volatile u8 tool_pending, tool_tag;
 static volatile u8 tool_busy;    /* a command accepted, its answer not all out */
 static volatile u8 tool_sending, tool_in_busy, tool_drop;
 static u32 tool_client, tool_in_at;
@@ -1036,34 +1030,13 @@ static u32 tool_set_data(struct usb_device_t *dev, struct usb_ctrlrequest *req)
     }
     tool_rx = (u16)(tool_rx + n);
     if (n == PACKET && tool_rx < want) return USB_EP0_STAGE_OUT;
-    if (!tool_drop && tool_rx >= ((tool_req[18] & JM_HID_INPUT) ? TOOL_HEAD_IN : TOOL_HEAD)) {
+    if (!tool_drop && tool_rx >= TOOL_HEAD_IN && (tool_req[18] & JM_HID_INPUT)) {
         tool_tag = tool_req[19];
-        tool_state = JM_HID_BUSY;
         tool_busy = 1;
         tool_pending = 1;
         plat_raise(EV_USB);
     }
     return USB_EP0_STAGE_SETUP;
-}
-
-static void tool_get(struct usb_device_t *dev, struct usb_ctrlrequest *req)
-{
-    u8 *buf = usb_get_setup_buffer(dev);
-    u16 n = 0;
-
-    memset(buf, 0, TOOL_REPORT);
-    if (tool_state == JM_HID_MORE || tool_state == JM_HID_LAST) {
-        n = tool_len - tool_off;
-        if (n > TOOL_REPORT - TOOL_REPLY_HEAD) n = TOOL_REPORT - TOOL_REPLY_HEAD;
-        memcpy(buf + TOOL_REPLY_HEAD, tool_answer + tool_off, n);
-        tool_off = (u16)(tool_off + n);
-        tool_state = tool_off < tool_len ? JM_HID_MORE : JM_HID_LAST;
-    }
-    buf[0] = tool_tag;
-    buf[1] = tool_state;
-    buf[2] = (u8)n;
-    buf[3] = (u8)(n >> 8);
-    reply(dev, req, buf, req->wLength < TOOL_REPORT ? req->wLength : TOOL_REPORT);
 }
 
 static void tool_reset(struct usb_device_t *dev, u32 itf)
@@ -1104,10 +1077,6 @@ static u32 tool_hook(struct usb_device_t *dev, struct usb_ctrlrequest *req)
     }
     if (type == USB_TYPE_CLASS && (req->bRequestType & USB_RECIP_MASK) == USB_RECIP_INTERFACE) {
         switch (req->bRequest) {
-        case REQ_GET_REPORT:
-            if (HIBYTE(req->wValue) != 3) break;
-            tool_get(dev, req);
-            return 1;
         case REQ_SET_REPORT:
             if (HIBYTE(req->wValue) != 3) break;
             tool_rx = 0;
@@ -1163,7 +1132,6 @@ void plat_usb_tool_mode(void)
         memcpy(config_desc, head, 9);
     }
     tool_pending = tool_busy = tool_sending = tool_in_busy = tool_refusals = 0;
-    tool_state = JM_HID_IDLE;
     usb_device_mode(0, 0x80000000);      /* no SDK class: the core and its EP0 only */
     dma_in = usb_alloc_ep_dmabuffer(0, EP_IN | USB_DIR_IN, PACKET);
     usb_set_reset_hander(0, 0, tool_reset);
@@ -1173,8 +1141,8 @@ void plat_usb_tool_mode(void)
 void plat_usb_tool_service(void)
 {
     u8 cdb[16];
-    u16 len, head;
-    u8 out, input;
+    u16 len;
+    u8 out;
     u32 client;
 
     if (!tool_pending) {
@@ -1188,11 +1156,9 @@ void plat_usb_tool_service(void)
     memcpy(cdb, tool_req, 16);
     len = (u16)(tool_req[16] | tool_req[17] << 8);
     out = tool_req[18] & JM_HID_OUT;
-    input = tool_req[18] & JM_HID_INPUT;
     client = get32(tool_req + 20);
-    head = input ? TOOL_HEAD_IN : TOOL_HEAD;
-    if (len > (out ? TOOL_REPORT - head : TOOL_REPORT)) len = out ? TOOL_REPORT - head : TOOL_REPORT;
-    if (out) memcpy(tool_answer, tool_req + head, len);
+    if (len > (out ? TOOL_REPORT - TOOL_HEAD_IN : TOOL_REPORT)) len = out ? TOOL_REPORT - TOOL_HEAD_IN : TOOL_REPORT;
+    if (out) memcpy(tool_answer, tool_req + TOOL_HEAD_IN, len);
     tool_pending = 0;
     local_irq_enable();
     if (out) {
@@ -1205,14 +1171,9 @@ void plat_usb_tool_service(void)
     local_irq_disable();
     tool_len = len;
     tool_off = 0;
-    tool_state = input ? JM_HID_IDLE : JM_HID_LAST;     /* GET_REPORT takes no pieces of it */
-    if (input) {
-        tool_client = client;
-        tool_sending = 1;
-        tool_in_at = plat_ms();
-        tool_pump();
-    } else {
-        tool_busy = 0;
-    }
+    tool_client = client;
+    tool_sending = 1;
+    tool_in_at = plat_ms();
+    tool_pump();
     local_irq_enable();
 }
