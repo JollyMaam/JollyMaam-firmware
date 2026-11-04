@@ -354,7 +354,8 @@ void led_frame(const struct led_scene *sc, const struct led_state *s, u32 now,
         whole_pad(sc, t, in, out);
     } else {
         put(home, scale(lit(c), wave(&sc->home, t, 0, 1)));
-        bar(sc, s, now, t, in, c, out);
+        if (!(in->players_dark_connecting && s->scene == CTL_CONNECTING))
+            bar(sc, s, now, t, in, c, out);
         grips(sc, t, in, c, out);
         if (in->usb_powered && (s->scene == CTL_BOOT || s->scene == CTL_IDLE))
             put(home, dark);
@@ -660,6 +661,16 @@ int main(void)
     s.scene = CTL_CONNECTING;
     frame(&connecting, &s, 1000 + 2300, &in, &f);
     CHECK(!same(f.light[LIGHT_HOME], dark_rgb) && same(f.light[LIGHT_PAIRING], dark_rgb));
+    CHECK(!same(f.light[LIGHT_P0], dark_rgb));
+    in.players_dark_connecting = 1;     /* Home blinks alone; pairing keeps its sweep */
+    frame(&connecting, &s, 1000 + 2300, &in, &f);
+    CHECK(!same(f.light[LIGHT_HOME], dark_rgb));
+    for (t = 0; t < 4; t++) CHECK(same(f.light[LIGHT_P0 + t], dark_rgb));
+    s.scene = CTL_PAIRING;
+    frame(&pairing, &s, 1000 + 2400, &in, &f);
+    CHECK(bright_as(f.light[LIGHT_P0]) + bright_as(f.light[LIGHT_P1]) +
+          bright_as(f.light[LIGHT_P2]) + bright_as(f.light[LIGHT_P3]) > 0);
+    in.players_dark_connecting = 0;
     in.home_signs = 0;
     s.scene = CTL_IDLE;
     s.slot = SLOT_NONE;

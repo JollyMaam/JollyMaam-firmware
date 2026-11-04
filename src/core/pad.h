@@ -716,6 +716,7 @@ struct led_inputs {
     u8 has_players, players, players_flash;
     u8 players_mono;       /* board_led_brightness.players_mono */
     u8 home_signs;         /* board_led_brightness.home_signs */
+    u8 players_dark_connecting;   /* board_led_brightness.players_dark_connecting */
     u8 has_lightbar;
     struct rgb lightbar;
     u8 cal_lit;
@@ -777,6 +778,8 @@ struct board_led_brightness {
                                   * number alone lit, not the others in the primary */
     u8 home_signs;               /* a cable arriving on LIGHT_CABLE instead of the Home
                                   * light; pairing blinks LIGHT_PAIRING with it */
+    u8 players_dark_connecting;  /* the player lights dark while connecting: Home
+                                  * blinks alone */
 };
 extern const struct board_led_brightness board_led_brightness;
 
