@@ -26,7 +26,7 @@ C2DU_DIR := $(OBJDIR)/$(C2DU)
 # --- The pad's updater (src/updater/): the app area's first 128 KiB ---------
 
 C2PU_FLAGS := -DCONFIG_FLASH_SIZE=0x100000 -DBOARD_PID=\"GS_C2_ADC_DEVICE\" -DBT_LE_ONLY -DUSB_TOOL_ONLY $(EXTRA_DEFINES) \
-	-DBUILD_ID=\"$(BUILD_ID)\" -DMAIN_AT=0x20000 -DCODE_LIMIT=$(call jieli_code_limit,0x100000)
+	$(BUILD_ID_CPPFLAGS) -DMAIN_AT=0x20000 -DCODE_LIMIT=$(call jieli_code_limit,0x100000)
 C2PU_CPPFLAGS := $(C2PU_FLAGS) $(SRC_INCLUDES) -iquote src/updater $(JIELI_BOARD_INCLUDES)
 
 C2PU_SOURCES :=
@@ -64,6 +64,7 @@ $(C2PU)/app.elf_sources := $(C2PU_SOURCES) $(JIELI_BTCTRLER_SOURCES) $(JIELI_SDK
 $(C2PU)/app.elf_cppflags := $(C2PU_CPPFLAGS)
 $(C2PU)/app.elf_ldflags := -T$(C2PU_DIR)/sdk.ld -M=$(C2PU_DIR)/app.map
 $(C2PU)/app.elf_deps := $(C2PU_DIR)/sdk.ld $(JIELI_ARCHIVES)
+$(C2PU)/app.elf_order_deps := $(BUILD_ID_H)
 $(call lib-objs,$(C2PU)/app.elf,$(JIELI_BTCTRLER_SOURCES)): obj_cflags += -Werror=implicit-function-declaration
 $(call lib-objs,$(C2PU)/app.elf,$(C2PU_BTSTACK) $(BTSTACK_USERS)): obj_cppflags += $(BTSTACK_RENAMES)
 
@@ -76,7 +77,7 @@ $(C2PU): $(C2PU_DIR)/app.bin
 
 # --- The pad: its app 0x20000 above the updater -----------------------------
 
-C2P_FLAGS := -DCONFIG_FLASH_SIZE=0x100000 -DBOARD_PID=\"GS_C2_ADC_DEVICE\" $(EXTRA_DEFINES) -DBUILD_ID=\"$(BUILD_ID)\"
+C2P_FLAGS := -DCONFIG_FLASH_SIZE=0x100000 -DBOARD_PID=\"GS_C2_ADC_DEVICE\" $(EXTRA_DEFINES) $(BUILD_ID_CPPFLAGS)
 C2P_CPPFLAGS := $(C2P_FLAGS) $(SRC_INCLUDES) -iquote $(self) $(JIELI_BOARD_INCLUDES)
 
 C2P_SOURCES :=
@@ -134,6 +135,7 @@ $(C2P)/app.elf_sources := $(C2P_SOURCES) $(JIELI_BTCTRLER_SOURCES) $(JIELI_SDK_S
 $(C2P)/app.elf_cppflags := $(C2P_CPPFLAGS)
 $(C2P)/app.elf_ldflags := -T$(C2P_DIR)/sdk.ld -M=$(C2P_DIR)/app.map
 $(C2P)/app.elf_deps := $(C2P_DIR)/sdk.ld $(JIELI_ARCHIVES)
+$(C2P)/app.elf_order_deps := $(BUILD_ID_H)
 $(call lib-objs,$(C2P)/app.elf,$(JIELI_BTCTRLER_SOURCES)): obj_cflags += -Werror=implicit-function-declaration
 $(call lib-objs,$(C2P)/app.elf,$(BTSTACK_SOURCES) $(BTSTACK_USERS)): obj_cppflags += $(BTSTACK_RENAMES)
 
@@ -154,7 +156,7 @@ $(C2P): $(C2P_DIR)/firmware.img
 # --- The dongle's updater: USB only, the app area's first 64 KiB -------------
 
 C2DU_FLAGS := -DCONFIG_FLASH_SIZE=0x80000 -DBOARD_PID=\"GS_C2_Dongle\" -DBOARD_DONGLE -DUSB_TOOL_ONLY $(EXTRA_DEFINES) \
-	-DBUILD_ID=\"$(BUILD_ID)\" -DNO_BT -DMAIN_AT=0x10000 -DCODE_LIMIT=$(call jieli_code_limit,0x80000)
+	$(BUILD_ID_CPPFLAGS) -DNO_BT -DMAIN_AT=0x10000 -DCODE_LIMIT=$(call jieli_code_limit,0x80000)
 C2DU_CPPFLAGS := $(C2DU_FLAGS) $(SRC_INCLUDES) -iquote src/updater $(JIELI_BOARD_INCLUDES)
 
 C2DU_SOURCES :=
@@ -187,6 +189,7 @@ $(C2DU)/app.elf_sources := $(C2DU_SOURCES) $(JIELI_SDK_SOURCES)
 $(C2DU)/app.elf_cppflags := $(C2DU_CPPFLAGS)
 $(C2DU)/app.elf_ldflags := -T$(C2DU_DIR)/sdk.ld -M=$(C2DU_DIR)/app.map
 $(C2DU)/app.elf_deps := $(C2DU_DIR)/sdk.ld $(JIELI_ARCHIVES)
+$(C2DU)/app.elf_order_deps := $(BUILD_ID_H)
 
 TARGETS += $(C2DU)/app.bin
 $(C2DU)/app.bin_type := jieli-bin
@@ -197,7 +200,7 @@ $(C2DU): $(C2DU_DIR)/app.bin
 
 # --- The dongle: its app 0x10000 above the updater --------------------------
 
-C2D_FLAGS := -DCONFIG_FLASH_SIZE=0x80000 -DBOARD_PID=\"GS_C2_Dongle\" -DBOARD_DONGLE $(EXTRA_DEFINES) -DBUILD_ID=\"$(BUILD_ID)\"
+C2D_FLAGS := -DCONFIG_FLASH_SIZE=0x80000 -DBOARD_PID=\"GS_C2_Dongle\" -DBOARD_DONGLE $(EXTRA_DEFINES) $(BUILD_ID_CPPFLAGS)
 C2D_CPPFLAGS := $(C2D_FLAGS) $(SRC_INCLUDES) -iquote $(self) $(JIELI_BOARD_INCLUDES)
 
 C2D_SOURCES :=
@@ -247,6 +250,7 @@ $(C2D)/app.elf_sources := $(C2D_SOURCES) $(JIELI_BTCTRLER_SOURCES) $(JIELI_SDK_S
 $(C2D)/app.elf_cppflags := $(C2D_CPPFLAGS)
 $(C2D)/app.elf_ldflags := -T$(C2D_DIR)/sdk.ld -M=$(C2D_DIR)/app.map
 $(C2D)/app.elf_deps := $(C2D_DIR)/sdk.ld $(JIELI_ARCHIVES)
+$(C2D)/app.elf_order_deps := $(BUILD_ID_H)
 $(call lib-objs,$(C2D)/app.elf,$(JIELI_BTCTRLER_SOURCES)): obj_cflags += -Werror=implicit-function-declaration
 $(call lib-objs,$(C2D)/app.elf,$(BTSTACK_SOURCES) $(BTSTACK_USERS)): obj_cppflags += $(BTSTACK_RENAMES)
 

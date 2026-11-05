@@ -18,6 +18,7 @@ include make/btstack.mk
 include make/jieli.mk
 include make/jieli-lib.mk
 
+RULES += src/core
 RULES += src/lib
 RULES += tools/jollymaam
 RULES += src/boards/gamesir-cyclone-2

@@ -130,6 +130,10 @@ _Static_assert(sizeof(struct board_control) == JM_LAYOUT_ENTRY_SIZE, "LAYOUT sen
 #include "dongle.h"
 #endif
 
+/* BUILD_ID: generated into build_id.h (lib.mk builds), or a -D. */
+#ifdef HAVE_BUILD_ID_H
+#include "build_id.h"
+#endif
 #ifndef BUILD_ID
 #define BUILD_ID "host"
 #endif

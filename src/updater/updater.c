@@ -3,6 +3,9 @@
 #define MAIN_AT 0x20000
 #endif
 #include "updater.h"
+#ifdef HAVE_BUILD_ID_H
+#include "build_id.h"
+#endif
 #if defined(UNITTEST) && !defined(BUILD_ID)
 #define BUILD_ID "host"
 #endif
