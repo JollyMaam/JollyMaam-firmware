@@ -5,8 +5,6 @@ O := build
 OF := $(abspath $O)
 HOST_CC ?= $(if $(filter default undefined,$(origin CC)),gcc,$(CC))
 HOST_AR ?= $(AR)
-HOST_READELF ?= $(if $(READELF),$(READELF),readelf)
-HOST_OBJDUMP ?= $(if $(OBJDUMP),$(OBJDUMP),objdump)
 
 HOST_CFLAGS :=
 HOST_CFLAGS += -O2
@@ -27,27 +25,14 @@ SRC_INCLUDES += -iquote src/core
 SRC_INCLUDES += -iquote src/profiles
 SRC_INCLUDES += -iquote src/platform/jieli
 
-# What changes the build: every object depends on these.
-MAKE_FILES := Makefile $(wildcard make/*.mk)
-
+# The build's name in the firmware (src/core/rules.mk's build_id.h).
 BUILD_ID := $(shell git describe --always --dirty 2>/dev/null)
-BUILD_REF := $(shell git symbolic-ref -q HEAD 2>/dev/null)
-BUILD_METADATA := $(shell git rev-parse --git-path HEAD --git-path index $(if $(BUILD_REF),--git-path $(BUILD_REF)) 2>/dev/null)
 
 ifeq ($(V),1)
 Q :=
 else
 Q := @
 endif
-
-# $(call board_defines,NAME): $(O)/NAME/defines holds the board's -D flags and
-# is rewritten only when they change, so a test build rebuilds every object,
-# and so does the next normal build.
-define board_defines
-$(O)/$(1)/defines: FORCE
-	@mkdir -p $$(@D)
-	@echo '$($(1)_DEFINES) $(EXTRA_DEFINES)' | cmp -s - $$@ 2>/dev/null || echo '$($(1)_DEFINES) $(EXTRA_DEFINES)' > $$@
-endef
 
 .PHONY: FORCE clean
 clean:

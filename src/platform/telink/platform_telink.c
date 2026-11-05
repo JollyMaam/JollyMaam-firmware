@@ -1,6 +1,9 @@
 #include "sdk.h"
 #include "board.h"
 #include "store.h"
+#ifdef HAVE_BUILD_ID_H
+#include "build_id.h"
+#endif
 
 /* The Telink B80: start-up, time, the wait loop, resets.  One thread: the
  * control loop's plat_wait() runs everything that polls (USB, the board's

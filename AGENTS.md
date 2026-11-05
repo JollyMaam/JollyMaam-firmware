@@ -38,14 +38,15 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   U2CB).
 - `make/`: the build.  `make/lib.mk` (a copy of a separate project) builds
   every directory listed in the top `Makefile`'s `RULES` from its
-  `rules.mk`; its header documents the target properties.  The Jieli
-  products are on it: each `src/boards/<product>/rules.mk` spells out its
-  boards' targets; `make/jieli.mk` has the BR23 and BD19 data and
-  `make/jieli-lib.mk` the toolchains (`JIELI_`, `JIELI_BD19_`), source lists
-  and build steps; `make/host-tests.mk` the unit tests.  libjollymaam,
-  `jollymaam` and `padhub` are on it too.  The 8BitDo products are still
-  `make/<product>.mk` on the old templates (`telink.mk`, `host.mk`) and are
-  not built by this `Makefile` yet.
+  `rules.mk`; its header documents the target properties.  Each
+  `src/boards/<product>/rules.mk` spells out its boards' targets (its header
+  lists them); per chip, `make/<chip>.mk` has the data (`jieli.mk`,
+  `telink.mk`) and `make/<chip>-lib.mk` the toolchain, source lists and build
+  steps (`jieli-lib.mk`, `telink-lib.mk`, `yc3121-lib.mk`);
+  `make/host-tests.mk` the unit tests.  libjollymaam, `jollymaam` and
+  `padhub` have their own `rules.mk`.  `make` builds every board but the U2C
+  Bluetooth (it needs `arm-none-eabi-gcc` and a stock dump); `make all`
+  builds everything.
   `EXTRA_DEFINES=...` adds `-D` flags to a build (test and debug builds);
   a changed command line rebuilds exactly what it changes.  `O=dir` builds
   somewhere else.

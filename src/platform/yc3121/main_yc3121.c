@@ -4,6 +4,9 @@
 #include "yc3121.h"
 #include "usb_yc3121.h"
 #include "board.h"
+#ifdef HAVE_BUILD_ID_H
+#include "build_id.h"
+#endif
 
 /* The YC3121 pad: start-up, the wait loop, identity, resets.  One thread:
  * the control loop's plat_wait() runs everything that polls (the board's

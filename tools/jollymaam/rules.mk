@@ -17,6 +17,10 @@ host/jollymaam$(JOLLYMAAM_EXEEXT)_deps := $(OBJDIR)/host/libjollymaam.a
 host/jollymaam$(JOLLYMAAM_EXEEXT)_ldflags := $(if $(filter 1,$(JOLLYMAAM_STATIC)),-static $(addprefix -L,$(JOLLYMAAM_LIBC_STATIC))) $(JOLLYMAAM_LDFLAGS)
 host/jollymaam$(JOLLYMAAM_EXEEXT)_ldlibs := $(OBJDIR)/host/libjollymaam.a $(JOLLYMAAM_LIBS)
 
+# An updater and an app above it as one image (pack join; see jollymaam
+# help), from the target's jollymaam_join.
+lib-type-jollymaam-join = $(JOLLYMAAM_CLI) pack join -o $@ $(jollymaam_join)
+
 .PHONY: jollymaam
 jollymaam: $(JOLLYMAAM_CLI)
 libjollymaam-test: $(JOLLYMAAM_CLI)

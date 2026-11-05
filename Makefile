@@ -1,25 +1,30 @@
 # Built with make/lib.mk: each directory in RULES has a rules.mk with its
 # targets; everything builds into $(O) (OBJDIR), a board into $(O)/<board>/.
-#   make            every target
+#   make            make firmware
 #   make <board>    that board's firmware.img, e.g. gamesir-cyclone-2-pad
-#   make firmware   every board's firmware
+#   make firmware   the firmware of every board but the U2C Bluetooth (which
+#                   needs arm-none-eabi-gcc and a stock dump: make
+#                   8bitdo-ultimate2c-bluetooth-pad)
+#   make all        every target (the U2C Bluetooth and the tests too)
 #   make test       the unit tests (each reruns when it or its build changed)
 #   make package / flash / update   see below; make dist (make/dist.mk)
 #   make help       the targets
 #   make clean
-# So far only the GameSir Cyclone 2 and the jollymaam command are on lib.mk;
-# the other products' make/*.mk are not included yet.
+#   make padtool-dist   padtool for Windows/Linux (make/padtool.mk)
 
 include make/common.mk
 OBJDIR := $(O)
 # The HOST_ toolchain (NAME_toolchain := HOST_) is common.mk's HOST_CC, ...
 HOST_ARFLAGS := rcs
 include make/lib.mk
-.DEFAULT_GOAL := all
+.DEFAULT_GOAL := firmware
 
 include make/btstack.mk
 include make/jieli.mk
 include make/jieli-lib.mk
+include make/telink.mk
+include make/telink-lib.mk
+include make/yc3121-lib.mk
 include make/host-tests.mk
 
 .PHONY: test
@@ -30,6 +35,8 @@ RULES += tools/jollymaam
 RULES += tools
 RULES += src/boards/gamesir-cyclone-2
 RULES += src/boards/gamesir-nova-2-lite
+RULES += src/boards/8bitdo-ultimate2c-wireless
+RULES += src/boards/8bitdo-ultimate2c-bluetooth
 
 $(eval $(call generate-rules,$(RULES)))
 
@@ -51,3 +58,4 @@ flash update: package
 
 include make/dist.mk
 include make/android.mk
+include make/padtool.mk

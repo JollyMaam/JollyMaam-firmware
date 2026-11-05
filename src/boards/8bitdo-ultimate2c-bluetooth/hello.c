@@ -5,6 +5,9 @@
 #include "radio_yc3121.h"
 #include "sdp_yc3121.h"
 #include "flash_yc3121.h"
+#ifdef HAVE_BUILD_ID_H
+#include "build_id.h"
+#endif
 
 /* 8BitDo Ultimate 2C Bluetooth (YC3121) bring-up: own code on the pad, and
  * USB as the tool device (padtool identify, status, log, peek, reboot,
