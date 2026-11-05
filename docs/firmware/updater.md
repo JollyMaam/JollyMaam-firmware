@@ -102,7 +102,7 @@ app is running, and reboots into the new app after the commit. The updater's
 IDENTIFY has byte 7 set to 1.
 
 The updater also answers IDENTIFY, STATUS, LOG, REBOOT and the ROM loader's
-opcodes, so `jollymaam oemflash` and `padtool loader` reach the ROM loader from it.
+opcodes, so `jollymaam oemflash` and `padtool oemloader` reach the ROM loader from it.
 
 ## Over Bluetooth LE
 

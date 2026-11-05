@@ -22,7 +22,7 @@ static const char usage[] =
   "  scan                         what is connected, by USB port\n"
   "  oemflash [OPTIONS] FIRMWARE  through the vendor loader (from our or stock firmware)\n"
   "  update   [OPTIONS] FIRMWARE  through our updater\n"
-  "  loader   [OPTIONS]           into the vendor loader, and wait there\n"
+  "  oemloader [OPTIONS]          into the vendor loader, and wait there\n"
   "  start    [OPTIONS] [--firmware FIRMWARE]   out of it (Jieli: its RAM loader from FIRMWARE)\n"
   "  backup   [OPTIONS] [--firmware FIRMWARE] OUT   the whole flash, through the vendor loader\n"
   "  restore  [OPTIONS] [--firmware FIRMWARE] STOCK BACKUP_OUT   a stock image, after a backup\n"
@@ -136,7 +136,7 @@ int main(int argc, char **argv) {
     return 0;
   }
   static const struct { const char *name; int files; } commands[] = {
-    {"scan", 0}, {"oemflash", 1}, {"update", 1}, {"loader", 0}, {"start", 0}, {"backup", 1}, {"restore", 2},
+    {"scan", 0}, {"oemflash", 1}, {"update", 1}, {"oemloader", 0}, {"start", 0}, {"backup", 1}, {"restore", 2},
   };
   int known = -1;
   for (int i = 0; i < 7; i++)

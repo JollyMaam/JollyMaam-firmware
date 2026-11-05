@@ -45,7 +45,7 @@
                                   R1: even); Ctrl-C stops
     padtool input [-f]            buttons, sticks and triggers, calibrated and
                                   as read (-f: live)
-    padtool reboot | loader       restart; restart into the ROM loader (for
+    padtool reboot | oemloader    restart; restart into the ROM loader (for
                                   jollymaam oemflash; the 8BitDo: its boot loader)
     padtool boot [start | flash FILE]   the 8BitDo boot loader (2dc8:3208):
                                   list them; start: leave it, starting the
@@ -1908,7 +1908,7 @@ def boot(args):
         for path, port, pid in found:
             print(f"{port or '-'}\t8BitDo boot loader, {pid or 'unknown model'}\t{path}")
         if not found:
-            sys.exit("padtool: no 8BitDo boot loader (padtool loader on a pad with this firmware; by hand: "
+            sys.exit("padtool: no 8BitDo boot loader (padtool oemloader on a pad with this firmware; by hand: "
                      "USB unplugged, hold L1+R1, tap Home, plug in USB)")
         return
     if args[0] not in ("start", "flash") or len(args) != (2 if args[0] == "flash" else 1):
@@ -1932,7 +1932,7 @@ BLE_NOT = {"find", "tool", "tool-only", "hub", "latency", "peek", "keep", "boot"
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["tool-only", "hub", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "layout", "reboot", "loader", "boot", "update", "relink", "connect", "disconnect", "config", "pair", "unpair", "profile", "peek", "trace",
+    p.add_argument("command", choices=["tool-only", "hub", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "layout", "reboot", "oemloader", "boot", "update", "relink", "connect", "disconnect", "config", "pair", "unpair", "profile", "peek", "trace",
                                        "fields", "get", "set", "reset", "backup-settings",
                                        "restore-settings", "factory-reset", "ephemeral", "keep", "tool", "latency"])
     p.add_argument("args", nargs="*")
@@ -2129,7 +2129,7 @@ def main():
         path = need_device()
         cmd(path, 0x18)
         print("Leave sticks and triggers untouched for 2.5 seconds; then circle both sticks and press both triggers fully. A or B saves; Home cancels.")
-    elif a.command in ("reboot", "loader"):
+    elif a.command in ("reboot", "oemloader"):
         cmd(need_device(), 0x10 if a.command == "reboot" else 0x11)
     elif a.command == "boot":
         boot(a.args)
