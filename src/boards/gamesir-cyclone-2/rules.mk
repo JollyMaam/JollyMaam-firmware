@@ -1,9 +1,9 @@
 # GameSir Cyclone 2: the pad and GameSir's dongle, both on the Jieli BR23.
-#   gamesir-cyclone-2-pad, -dongle       firmware.img in $(O)/<target>/: the
+#   gamesir-cyclone-2-pad, -dongle       firmware.img in $(OBJDIR)/<target>/: the
 #                                        updater with the app above
 #   gamesir-cyclone-2-pad-updater, -dongle-updater   the updaters: part of -pad, -dongle
-#   gamesir-cyclone-2-pad-test, -dongle-test, gamesir-cyclone-2-test
-#   gamesir-cyclone-2-all                every board here and their tests' builds
+#   gamesir-cyclone-2-all                every board here
+# (make/jieli-lib.mk's jieli-board declares each board's targets.)
 
 BTSTACK_USERS += src/boards/gamesir-cyclone-2/bt_pad.c
 BTSTACK_USERS += src/boards/gamesir-cyclone-2/bt_dongle.c
@@ -117,10 +117,7 @@ $(CYCLONE2_DONGLE_UPDATER)_SOURCES += src/core/utils.c
 $(CYCLONE2_DONGLE)_MAIN_AT := $($(CYCLONE2_DONGLE_UPDATER)_UPDATER)
 $(CYCLONE2_DONGLE)_FRONT := $(CYCLONE2_DONGLE_UPDATER)
 
-$(foreach b,$(CYCLONE2_PAD) $(CYCLONE2_DONGLE),$(eval $(call jieli_board,$(b)))$(eval $(call host_tests,$(b))))
-$(eval $(call jieli_board,$(CYCLONE2_UPDATER)))
-$(eval $(call jieli_board,$(CYCLONE2_DONGLE_UPDATER)))
+$(foreach b,$(CYCLONE2_PAD) $(CYCLONE2_DONGLE) $(CYCLONE2_UPDATER) $(CYCLONE2_DONGLE_UPDATER),$(eval $(call jieli-board,$(b))))
 
-.PHONY: gamesir-cyclone-2-all gamesir-cyclone-2-test
+.PHONY: gamesir-cyclone-2-all
 gamesir-cyclone-2-all: $(CYCLONE2_PAD) $(CYCLONE2_DONGLE)
-gamesir-cyclone-2-test: $(CYCLONE2_PAD)-test $(CYCLONE2_DONGLE)-test
