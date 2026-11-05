@@ -42,12 +42,12 @@ int ux_rumble_feedback(u8 level, u32 elapsed, u32 *next)
 }
 
 /* Held as the pad boots with USB, or as USB arrives while not connected:
- * the updater (src/updater/).  Home+Start as on the stock pads, L1+R1 as the
- * 8BitDo's boot loader. */
+ * the updater (src/updater/).  Home+Start on every pad, as on the GameSir
+ * stock pads; Home+M as the gesture in the app.  Not L1+R1: the 8BitDo boot
+ * loaders' own, which the U2CB's catches before our firmware runs. */
 static const u32 updater_chords[] = {
     PAD_HOME | PAD_START,
     PAD_HOME | PAD_M,
-    PAD_L1 | PAD_R1,
 };
 
 int ux_updater_chord(u32 buttons)
@@ -435,7 +435,7 @@ int main(void)
     CHECK(ux_idle_deadline(0xfffffff0u, 0, 0xfffffff0u, 0, 0) == 14984);
     CHECK(ux_idle_deadline(0xffff0000u, 0, 0xfffffff0u, 0, 0) == 4984);
     CHECK(ux_updater_chord(PAD_HOME | PAD_START) && ux_updater_chord(PAD_HOME | PAD_M | PAD_SOUTH));
-    CHECK(ux_updater_chord(PAD_L1 | PAD_R1) && !ux_updater_chord(PAD_HOME | PAD_L1));
+    CHECK(!ux_updater_chord(PAD_L1 | PAD_R1) && !ux_updater_chord(PAD_HOME | PAD_L1));
     CHECK(!ux_updater_chord(PAD_START | PAD_M) && !ux_updater_chord(0));
     /* Connected: Home after its grace. */
     reset(CTL_CONNECTED); pad.buttons = PAD_HOME; run(ux_timeouts.home_grace_ms);
