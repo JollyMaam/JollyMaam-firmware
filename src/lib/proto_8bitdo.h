@@ -24,9 +24,10 @@
  * programs only whole 512-byte blocks, and erases in 32 KiB blocks only for
  * a total of 32 KiB or more, so the stream is the app padded with 0xff to
  * whole BLOCKs.  Without that erase it acknowledges the programs but
- * leaves the flash erased. */
+ * leaves the flash erased.  The slot ends where its ciphered flash (36
+ * bytes a 32-byte block) would reach our settings banks at flash 0x74000. */
 #define JM_8BITDO_YICHIP_BASE 0x01018000u
-#define JM_8BITDO_YICHIP_END 0x0107c000u
+#define JM_8BITDO_YICHIP_END 0x01060000u
 #define JM_8BITDO_YICHIP_BLOCK 0x8000u
 #define JM_8BITDO_YICHIP_CIPHER_BLOCK 512u
 

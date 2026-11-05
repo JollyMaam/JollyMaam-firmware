@@ -48,13 +48,16 @@
 /* The report is one EP0 packet: multi-packet SET_REPORTs lost their tail
  * (see the top), single packets never.  A command (flags bit 1 set: the
  * answer on input reports; without it, dropped) takes up to DATA_MAX bytes
- * in; its answer (up to ANSWER_MAX) goes out on input reports (IN_HEAD, then
- * IN_DATA of it each).  A command while another's answer is waiting or going
- * out is refused to its client.  GET_REPORT is refused (stalled). */
+ * in a report; one with more data in (up to JM_HID_GATHER) comes in several,
+ * each with its head, gathered here.  Its answer (up to ANSWER_MAX) goes out
+ * on input reports (IN_HEAD, then IN_DATA of it each).  A command while
+ * another's answer is waiting or going out, or its data is coming, is
+ * refused to its client.  GET_REPORT is refused (stalled). */
 #define REPORT     64
 #define HEAD_IN    JM_HID_CLIENT_HEAD_SIZE
 #define DATA_MAX   (REPORT - HEAD_IN)
 #define ANSWER_MAX 600
+_Static_assert(JM_HID_GATHER <= ANSWER_MAX, "a gathered command fits");
 #define IN_HEAD    JM_HID_INPUT_HEAD_SIZE
 #define IN_DATA    (REPORT - IN_HEAD)
 #define IN_WAIT_MS 1000          /* a piece no one takes: no one reads, the answer is dropped */
@@ -137,6 +140,9 @@ static struct {
     u8 tag, flags;
     u32 client;                  /* with JM_HID_INPUT: whose answer it is */
     u16 n;                       /* its data's length */
+    u16 got;                     /* of it so far, while gathering */
+    u8 gathering;
+    u32 gather_ms;               /* its last report */
     u16 answer, off;
     volatile u8 pending;         /* taken, for plat_usb_service() */
     u8 sending, last_out;        /* the answer on input reports; its last piece queued */
@@ -261,16 +267,20 @@ static void ep0_answer(const u8 *data, u16 len)
 static u16 string(u8 index, u8 *out)
 {
     const char *s = index == 1 ? USB_MANUFACTURER : board_name;
+    const char *tail = index == 2 ? USB_PRODUCT_TAIL : "";   /* the tool device's: " Update" in the updater */
     u16 n = 2;
 
-    if (pz.id) s = index == 1 ? pz.id->manufacturer : index == 2 ? pz.id->product : pz.id->serial;
+    if (pz.id) {
+        s = index == 1 ? pz.id->manufacturer : index == 2 ? pz.id->product : pz.id->serial;
+        tail = "";
+    }
     if (!s) s = "";
     if (index == 0) {
         out[2] = 0x09, out[3] = 0x04;
         n = 4;
     } else {
-        for (; *s && n < REPORT - 2; s++) {
-            out[n++] = (u8)*s;
+        for (; (*s || *tail) && n < REPORT - 2; *s ? s++ : tail++) {
+            out[n++] = (u8)(*s ? *s : *tail);
             out[n++] = 0;
         }
     }
@@ -287,12 +297,27 @@ static void tool_pump(void);
 static void tool_take(u16 len)
 {
     const u8 *r = pz.rx;
-    u16 n = (u16)(r[16] | r[17] << 8);
+    u16 n = (u16)(r[16] | r[17] << 8), k = len - HEAD_IN;
+    u32 client;
 
     if (len < HEAD_IN || !(r[18] & JM_HID_INPUT)) return;
-    if (t.pending || t.sending) {
+    client = util_get32(r + 20);
+    if (t.gathering && client == t.client && r[19] == t.tag) {   /* the command's next piece */
+        if (k > t.n - t.got) k = t.n - t.got;
+        memcpy(t.data + t.got, r + HEAD_IN, k);
+        t.got += k;
+        t.gather_ms = plat_ms();
+        if (t.got < t.n) return;
+        t.gathering = 0;
+        t.pending = 1;
+        events.commands++;
+        return;
+    }
+    /* Half a command: dropped for its program's next, or after a second. */
+    if (t.gathering && (client == t.client || plat_ms() - t.gather_ms > IN_WAIT_MS)) t.gathering = 0;
+    if (t.pending || t.sending || t.gathering) {
         refused.tag = r[19];
-        refused.client = util_get32(r + 20);
+        refused.client = client;
         refused.waiting = 1;
         tool_pump();
         return;
@@ -300,11 +325,20 @@ static void tool_take(u16 len)
     memcpy(t.report, r, HEAD_IN);
     t.flags = r[18];
     t.tag = r[19];
-    t.client = util_get32(r + 20);
-    if (n > len - HEAD_IN) n = len - HEAD_IN;
+    t.client = client;
+    t.answer = t.off = 0;
+    if ((r[18] & JM_HID_OUT) && n > k) {
+        if (n > JM_HID_GATHER) n = JM_HID_GATHER;
+        memcpy(t.data, r + HEAD_IN, k);
+        t.n = n;
+        t.got = k;
+        t.gathering = 1;
+        t.gather_ms = plat_ms();
+        return;
+    }
+    if (n > k) n = k;
     memcpy(t.data, r + HEAD_IN, n);
     t.n = n;
-    t.answer = t.off = 0;
     t.pending = 1;
     events.commands++;
 }

@@ -1,11 +1,20 @@
-/* A YC3121 app in the 8BitDo boot loader's slot: flash 0x01018000 up to the
- * settings store's banks at 0x01074000 (stock's data pages from 0x0107c000).  SRAM: ours 0x20000..0x2e7ff, the stack at its
- * top; then what survives a restart through the boot loader (.noinit, above
- * its data, below its stack at 0x2ff00); its mailbox at 0x2ffc0.  A chip
- * reset clears all of it. */
+/* A YC3121 program in the 8BitDo boot loader's slot, from 0x01018000: the
+ * pad's updater there, its app at TEXT_AT above (behind its header); a build
+ * without updater, or the bring-up app, at the slot's start.  The slot ends
+ * at 0x01060000 (flash_yc3121.h: past it the ciphered flash would overlap
+ * the settings store's raw banks).  make sets TEXT_AT and TEXT_END with
+ * --defsym; without them, the whole slot.  SRAM: ours 0x20000..0x2e7ff, the
+ * stack at its top; then what survives a restart through the boot loader
+ * (KEPT, above its data, below its stack at 0x2ff00): the handover words
+ * first (the same place in the updater and the app), the log, then the rest
+ * of .noinit; the loader's mailbox at 0x2ffc0.  A chip reset clears all of
+ * it. */
+TEXT_AT = DEFINED(TEXT_AT) ? TEXT_AT : 0x01018000;
+TEXT_END = DEFINED(TEXT_END) ? TEXT_END : 0x01060000;
+
 MEMORY
 {
-    FLASH (rx) : ORIGIN = 0x01018000, LENGTH = 0x5c000   /* the store's banks above */
+    FLASH (rx) : ORIGIN = 0x01018000, LENGTH = 0x48000
     RAM (rwx)  : ORIGIN = 0x00020000, LENGTH = 0xe800
     KEPT (rw)  : ORIGIN = 0x0002e800, LENGTH = 0x1400
 }
@@ -14,7 +23,7 @@ ENTRY(_entry)
 
 SECTIONS
 {
-    .text : {
+    .text TEXT_AT : {
         KEEP(*(.entry))
         *(.text .text.*)
         *(.rodata .rodata.*)
@@ -28,6 +37,8 @@ SECTIONS
         __data_end = .;
     } > RAM AT > FLASH
     __data_load = LOADADDR(.data);
+    __text_end = __data_load + SIZEOF(.data);
+    ASSERT(__text_end <= TEXT_END, "the program runs past its room in the slot")
 
     .bss (NOLOAD) : {
         __bss_start = .;
@@ -41,7 +52,10 @@ SECTIONS
 
     /* Start-up neither loads nor clears it. */
     .noinit (NOLOAD) : {
-        *(.noinit .noinit.* .retained)
+        KEEP(*(.handover))
+        . = ORIGIN(KEPT) + 16;
+        *(.retained)
+        *(.noinit .noinit.*)
         . = ALIGN(4);
     } > KEPT
 

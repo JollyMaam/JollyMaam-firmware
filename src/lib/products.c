@@ -18,7 +18,7 @@ static const struct jm_product products[] = {
    "firmware.img", 1, 0, 0, "USB unplugged, hold L1+R1, tap Home, plug in USB"},
   {"U2C_RECEIVER", NULL, "Ultimate 2C Receiver", JM_CHIP_TLSR8208, 0x301c, NULL, 0, 0, 0, NULL},
   {"U2C_BLUETOOTH", "8bitdo-ultimate2c-bluetooth-pad", "Ultimate 2C Bluetooth", JM_CHIP_YC3121, 0x301a,
-   "app.bin", 0, 0, 0, "USB unplugged, hold L1+R1, tap Home, plug in USB"},
+   "firmware.img", 1, 0, 0, "USB unplugged, hold L1+R1, tap Home, plug in USB"},
 };
 
 static const struct jm_stock stock[] = {

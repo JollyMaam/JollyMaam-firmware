@@ -17,6 +17,7 @@ u32 plat_log_fault(void);
 
 static volatile u32 pending;
 static u32 last_fault;           /* plat_log_fault(): the last restart's */
+struct yc_handover yc_handover __attribute__((section(".handover")));
 
 void plat_wake(u32 events)
 {
@@ -170,8 +171,9 @@ void plat_power_off(void)
     board_power_off();
 }
 
-/* Restarts go through the 8BitDo boot loader, which starts the app again
- * (plat_restart); the loader is also the way to new firmware. */
+/* Restarts go through the 8BitDo boot loader, which starts the program at
+ * the slot's base again (plat_restart): the updater, which starts the app
+ * unless asked to stay; the loader is also the way to new firmware. */
 void plat_reboot(void)
 {
     plat_restart(0);
@@ -182,9 +184,11 @@ void plat_reboot_loader(void)
     plat_restart(1);
 }
 
+/* A build without updater starts again. */
 void plat_reboot_updater(void)
 {
-    plat_restart(1);
+    yc_handover.stay = UPDATER_STAY;
+    plat_restart(0);
 }
 
 void plat_reboot_config(void)
@@ -201,6 +205,9 @@ int plat_config_asked(void)
  * while Home is down); else USB power started it, or a restart. */
 int main(void)
 {
+#ifdef UPDATER
+    updater_boot();
+#endif
     plat_clock_init();
     board_init();
     util_log_init();
@@ -213,10 +220,15 @@ int main(void)
     boot_cause = boot_held & PAD_HOME ? BOOT_HOME : board_usb_present() ? BOOT_USB : BOOT_POWER_ON;
     *(volatile u32 *)0xe000e180 = ~0u;   /* NVIC: what the loader left on, off */
     plat_usb_init();
+#ifndef UPDATER                          /* USB only there */
     plat_bt_init();
+#endif
     __asm__ volatile ("cpsie i" ::: "memory");
 #ifndef NO_HANG_WATCH                    /* EXTRA_DEFINES=-DNO_HANG_WATCH: a build without it */
     YC_SYST_CSR = 7;                     /* SysTick's interrupt: the hang watch */
+#endif
+#ifndef UPDATER                          /* the app: up, the updater's count of its starts ends */
+    yc_handover.stay = 0;
 #endif
     ctl_main();
     return 0;

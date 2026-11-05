@@ -1,6 +1,8 @@
 /* libjollymaam's operations against a simulated pad behind fake hooks: our
  * firmware (U2C_WIRELESS) on a port, which a command restarts into the
- * 8BitDo boot loader or our updater on the same port. */
+ * 8BitDo boot loader or our updater on the same port.  Its tool device's
+ * report is the B80's, then a 64-byte one (the YC3121's), which gathers a
+ * command's data from several reports. */
 #include "../../src/lib/jollymaam.h"
 #include "../../src/lib/proto_8bitdo.h"
 #include "../../src/lib/jieli_image/crypto.h"
@@ -15,7 +17,9 @@ static struct {
   unsigned queued, taken, written, begun;
   uint32_t client;
   uint8_t tag;
-} pad;
+  size_t report, gathered;
+  uint8_t gather[25 + 512];
+} pad = {.report = 356};
 
 static void wr32(uint8_t *p, uint32_t v) { p[0] = v, p[1] = v >> 8, p[2] = v >> 16, p[3] = v >> 24; }
 static uint32_t rd32(const uint8_t *p) { return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24; }
@@ -30,7 +34,7 @@ static int list(void *ctx, int (*visit)(void *, const struct jm_device_info *), 
   snprintf(d.id, sizeof d.id, "5-2#%d", pad.generation);
   snprintf(d.path, sizeof d.path, "hidraw%d", pad.generation);
   if (pad.state == LOADER) d.vid = 0x2dc8, d.pid = 0x3208, d.output_size = 64;
-  else d.vid = 0x16c0, d.pid = 0x05df, d.usage_page = 0xffc2, d.feature_size = 356;
+  else d.vid = 0x16c0, d.pid = 0x05df, d.usage_page = 0xffc2, d.feature_size = (uint16_t)pad.report;
   visit(user, &d);
   return 1;
 }
@@ -62,10 +66,18 @@ static void restart(int into) {
 /* Our firmware and updater: the tool device's commands. */
 static int set_feature(void *ctx, void *dev, const uint8_t *r, size_t n) {
   (void)ctx, (void)dev;
-  assert(n == 357 && r[0] == 0 && r[1] == 0xf5 && (r[19] & 2));
+  assert(n == pad.report + 1 && r[0] == 0 && r[1] == 0xf5 && (r[19] & 2));
+  size_t len = r[17] | r[18] << 8, size = 0, room = pad.report - 24;
+  if ((r[19] & 1) && len > room) {          /* a piece of the command's data */
+    size_t k = len - pad.gathered < room ? len - pad.gathered : room;
+    assert(pad.report == 64 && len <= 512 && (!pad.gathered || !memcmp(pad.gather, r, 25)));
+    memcpy(pad.gather, r, 25);
+    memcpy(pad.gather + 25 + pad.gathered, r + 25, k);
+    if ((pad.gathered += k) < len) return (int)n;
+    pad.gathered = 0, r = pad.gather;
+  }
   uint8_t cmd = r[2], body[88] = {0};
   uint32_t arg = rd32(r + 3);
-  size_t len = r[17] | r[18] << 8, size = 0;
   pad.tag = r[20], pad.client = rd32(r + 21);
   switch (cmd) {
   case 0:
@@ -80,7 +92,7 @@ static int set_feature(void *ctx, void *dev, const uint8_t *r, size_t n) {
     break;
   case 0x42: assert(pad.state == UPDATER && arg == 600); pad.written = 0, pad.begun = 1; break;
   case 0x43:
-    assert(arg == pad.written && len <= 332);
+    assert(arg == pad.written && len <= 512);
     memcpy(pad.update + pad.written, r + 25, len), pad.written += (unsigned)len;
     break;
   case 0x44: pad.committed = pad.written == 600; break;
@@ -177,6 +189,13 @@ int main(void) {
   /* A selected port with nothing on it: nothing happens. */
   sel.device = "1-1";
   assert(jm_update(&jm, &fw, &sel) && pad.reboots == 1);
+  sel.device = NULL;
+  /* With 64-byte reports: the header and each 128 bytes in several. */
+  nap(NULL, 0);
+  pad.report = 64, pad.committed = 0;
+  memset(pad.update, 0, sizeof pad.update);
+  assert(!jm_update(&jm, &fw, &sel));
+  assert(pad.committed && !memcmp(pad.update, update, sizeof update) && pad.reboots == 2);
   puts("device operations simulation passed");
   return 0;
 }

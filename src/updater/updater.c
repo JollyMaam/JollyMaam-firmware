@@ -12,7 +12,7 @@
  * ("MAIN", size, CRC16 of the app, entry, format version, its offset, the
  * image's PID, CRC16 of those fields; jollymaam pack jieli --main or pack join
  * main).  At reset, before anything else, the chip's side (updater_jieli.c,
- * updater_telink.c) starts the app unless the app asked for the updater or
+ * updater_telink.c, updater_yc3121.c) starts the app unless the app asked for the updater or
  * its header is not there.  Otherwise this runs: the tool device and LE,
  * whose update commands rewrite the app in place.
  *
@@ -287,7 +287,7 @@ u32 updater_frame(const u8 *frame, u32 len, u8 *reply, u32 max)
 #ifndef UNITTEST
 /* ---- the loop ------------------------------------------------------------- */
 
-#ifdef NO_BT                     /* a dongle's: USB only */
+#ifdef NO_BT                     /* USB only: the dongles, the U2CB */
 void updater_ble_start(void) {}
 int updater_ble_connected(void) { return 0; }
 #endif

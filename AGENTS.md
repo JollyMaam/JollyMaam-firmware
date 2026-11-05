@@ -33,8 +33,9 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   defaults), then pins and board hooks; the BTstack-facing `bt_*.c`,
   the dongle's own loop (`dongle*.c`), `btstack_config.h`.  The Nova reuses
   the Cyclone's `bt_pad.c`, `dongle*.c` and `btstack_config.h`.
-- `src/updater/`: the updater every Jieli and Telink build boots through
-  (rewrites the app in place over USB, or LE on the pads).
+- `src/updater/`: the updater every Jieli, Telink and YC3121 build boots
+  through (rewrites the app in place over USB, or LE on the pads but the
+  U2CB).
 - `make/`: one `make/<product>.mk` per product.  Its header comment lists the
   targets; `jieli.mk` and `telink.mk` document the per-board variables of
   their board templates.  The top `Makefile` lists the global targets.
@@ -266,6 +267,12 @@ wrong assumption), add it here in a line or two.
 - Ultimate 2C Bluetooth flash data pages (0x0107c000..): a CPU read of
   them (PEEK) resets the chip; read them raw through the ROM's QSPI read
   (flash_yc3121.c), as stock does.
+- Ultimate 2C Bluetooth app slot: ciphered, 36 bytes of flash per 32-byte
+  block, the blocks of each 32 KiB window shuffled over 0x9000 bytes of
+  flash (ROM 0x503c; docs/firmware/updater.md).  CPU addresses are not
+  flash offsets: the slot ends at 0x01060000, not where its raw neighbours
+  start; a 4 KiB raw erase hits blocks all over a window; a block's
+  bytes cannot be programmed in two goes.
 - Ultimate 2C Bluetooth radio core: opcodes stock never sends are not
   safe to try: 0x27, and another from 0x29 up, wedged the pad until a
   power cycle, the second past the hang watch (a stalled bus, likely).

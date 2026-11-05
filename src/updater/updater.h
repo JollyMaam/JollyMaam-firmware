@@ -4,7 +4,7 @@
 #include "pad.h"
 
 /* Between updater.c (the protocol, the loop) and the chip's side
- * (updater_jieli.c, updater_telink.c): where the app lives and how its
+ * (updater_jieli.c, updater_telink.c, updater_yc3121.c): where the app lives and how its
  * flash is written.  Offsets are into the app's region: its header at 0,
  * the app at JM_MAIN_HEAD_SIZE (its entry). */
 

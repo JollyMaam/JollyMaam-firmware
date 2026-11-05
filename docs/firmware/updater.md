@@ -1,7 +1,7 @@
 # Updater: the app rewritten in place
 
 Every pad build (`gamesir-cyclone-2-pad`, `gamesir-nova-2-lite-pad`,
-`8bitdo-ultimate2c-wireless-pad`) has two programs in its code region. The updater (`src/updater/updater.c`,
+`8bitdo-ultimate2c-wireless-pad`, `8bitdo-ultimate2c-bluetooth-pad`) has two programs in its code region. The updater (`src/updater/updater.c`,
 board `gamesir-cyclone-2-pad-updater`) is the image `uboot.boot` starts. The
 app is linked `MAIN_AT` (`0x20000`) above it in the same code window. The
 updater rewrites the app over the tool device and is never rewritten itself.
@@ -188,6 +188,68 @@ By hand: Home+Turbo (the board's M) while not connected.
 flash `0x80000` (`MAIN_AT` `0x7d000`), so that stock's data at
 `0x64000..0x80000` stays; `jollymaam oemflash` writes that range back as
 the device held it.
+
+## The Ultimate 2C Bluetooth (YC3121)
+
+`8bitdo-ultimate2c-bluetooth-pad`: the updater
+(`8bitdo-ultimate2c-bluetooth-pad-updater`, USB only, `NO_BT`) is the
+program at the app slot's base, where the 8BitDo boot loader jumps; the
+chip's side is `updater_yc3121.c`.
+
+| CPU address | Contents |
+|---|---|
+| `0x01000000..0x01017000` | the 8BitDo boot loader, the version page at `0x01017000` |
+| `0x01018000..0x01020000` | the updater (32 KiB) |
+| `0x01020000..0x01028000` | empty |
+| `0x01028000` | the app's header (`MAIN_AT` `0x10000`) |
+| `0x01028120..0x01060000` | the app, linked to run there |
+| `0x01074000..0x0107c000` | settings (raw flash), as before |
+
+`jollymaam pack join` writes `update.bin` and `firmware.img` (the updater,
+0xff to `MAIN_AT`, then `update.bin`), which `jollymaam oemflash` writes
+through the boot loader.
+
+The slot is ciphered flash. From the ROM's code (its address map at
+`0x503c`, `enc_write_flash` at `0x51f0`, the block check at `0x513c`) and
+the boot loader's (its erase at `0x01005518`): each 32-byte block is 36
+bytes of flash, the data and a check word; the 1024 blocks of the 32 KiB
+window at `0x01000000 + w * 0x8000` lie in the flash's `0x9000` bytes from
+`w * 0x9000 + 16`, in an order the ROM derives from a key. A window's first
+and last flash sectors therefore share 16 bytes with its neighbours; the
+loader's erase of a window reads them first and writes them back. So:
+
+- the slot ends at `0x01060000`: window 12 would reach flash `0x75010`,
+  over the settings' raw banks from `0x74000`;
+- the updater erases a window at a time, at the first sector of it a write
+  reaches, as the loader does;
+- the window below the app's region stays empty, since its last 16 bytes
+  of flash share a sector with the region's first;
+- a block takes one program: the commit word cannot be programmed after the
+  rest of its block. The updater holds the header's first 32 bytes until
+  the commit and programs them then; reads of them answer from that copy
+  until then, without the commit word;
+- reads check each block first (the ROM's check) and take a block that
+  fails as erased (0xff), as the loader's own read does. A CPU read of the
+  data pages, which are raw flash, resets the chip; whether that is the
+  failed check is not established.
+
+Boot: `updater_boot()` runs first in `main()`. RAM kept over a restart
+through the boot loader (not a chip reset) holds the handover: the app's
+base while it runs, and a word with `UPDATER_STAY` (the app's request) or
+a count of the app's starts that never reached its loop (the updater stays
+after three). Unless asked to stay, and if the header has the commit word,
+the entry, format 1 and a size that fits, it jumps to the app's entry. The
+vectors are the ROM's, which reach the program at the slot's base: the
+updater's entries pass faults, SysTick and interrupts on to the same
+offset from the app's base while it runs. Updater and app share the log
+ring and the fault record (the same place in the kept RAM).
+
+The tool device's report is one 64-byte packet, so the update's commands
+gather their data from several reports (see `jollymaam.md`); UPDATE_DATA
+takes 512 bytes.
+
+By hand: Home+Star (the board's M) while not connected, or Home+Start or
+Home+Star held with USB at start-up. L1+R1 at start-up is the boot loader's.
 
 ## The dongles
 

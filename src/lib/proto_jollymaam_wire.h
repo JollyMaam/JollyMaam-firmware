@@ -122,6 +122,11 @@ enum jm_command_id {
 #define JM_HID_INPUT_HEAD_SIZE 8       /* an answer's input report: client, tag, state, offset */
 #define JM_HID_REPORT_JIELI 512
 #define JM_HID_REPORT_TELINK 356
+/* A device whose report is one 64-byte packet (the YC3121's) gathers a
+ * host-to-device command's data from several reports, each with the
+ * command's head (the length the whole's), up to this. */
+#define JM_HID_REPORT_SMALL 64
+#define JM_HID_GATHER 512
 enum jm_hid_state { JM_HID_IDLE, JM_HID_BUSY, JM_HID_MORE, JM_HID_LAST, JM_HID_REFUSED };
 enum jm_hid_flags { JM_HID_OUT = 1, JM_HID_INPUT = 2 };
 

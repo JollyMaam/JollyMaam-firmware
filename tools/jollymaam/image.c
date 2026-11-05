@@ -80,8 +80,9 @@ static const char *arg(int argc, char **argv, int *i) {
  *   second app above the first behind its MAIN header (--main-out writes it
  *   in the clear: update.bin).  docs/jieli/re-application-image.md.
  * telink: a Telink app from objcopy as the 8BitDo boot loader starts it.
- * join: the Telink updater's image, 0xff to --at, then update.bin (the app
- *   behind its MAIN header): firmware.img; --main-out writes update.bin. */
+ * join: an 8BitDo pad's updater (the Telink one packed), 0xff to --at, then
+ *   update.bin (the app behind its MAIN header): firmware.img; --main-out
+ *   writes update.bin. */
 
 static int read_any(void *user, const char *name, const uint8_t **data, size_t *size) {
   uint8_t **current = user;
@@ -176,7 +177,6 @@ static int pack_join(int argc, char **argv) {
     die("usage: jollymaam pack join --pid PID --at OFFSET --entry ADDR [--main-out UPDATE] -o OUT UPDATER APP");
   size_t un, an;
   uint8_t *updater = read_file(files[0], &un), *app = read_file(files[1], &an);
-  if (!jm_8bitdo_image_check(updater, un)) die("%s: not a packed Telink image", files[0]);
   if (at % 4096 || un > at) die("--at: a sector boundary past the updater (%zu bytes)", un);
   size_t total = at + JM_MAIN_HEAD_SIZE + an;
   uint8_t *image = malloc(total);

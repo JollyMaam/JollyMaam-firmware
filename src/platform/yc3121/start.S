@@ -10,7 +10,12 @@
  * (IRQ 0) is enabled.  The vectors are the ROM's (a Cortex-M0
  * has no VTOR): HardFault runs the ROM's handler, which resets the chip if
  * OTP word 0 is 0x7777 (and 0xf853c bit 0 clear), else calls the loader's
- * stub, which comes here when the loader's mode (0xf8564) is not 2. */
+ * stub, which comes here when the loader's mode (0xf8564) is not 2.
+ *
+ * The updater (UPDATER) is the program at the slot's base, so every entry
+ * but reset reaches it.  While the app it started runs (yc_handover.app,
+ * the app's base), each goes on to the same offset from the app's base,
+ * registers as they came (r0 the IRQ's 4 n), r1-r3 used. */
 
 	.syntax unified
 	.cpu cortex-m0
@@ -22,6 +27,13 @@
 _entry:
 	ldr r0, =reset
 	bx r0
+#ifdef UPDATER
+	.irp at, 0x04, 0x0a, 0x10, 0x16 /* hard fault, SVC, PendSV, SysTick */
+	movs r1, #\at
+	b forward
+	nop
+	.endr
+#else
 	.rept 3                         /* hard fault, SVC, PendSV */
 	ldr r0, =trap
 	bx r0
@@ -30,15 +42,38 @@ _entry:
 	ldr r0, =systick                /* SysTick */
 	bx r0
 	nop
+#endif
 	.rept 32                        /* IRQ 0..31 (the loader never uses these) */
 	b trap_near
 	nop
 	.endr
 	.thumb_func
 irq:                                    /* app + 0x9c: the loader's IRQ entry, r0 = 4 n */
+#ifdef UPDATER
+	movs r1, #0x9c
+	ldr r2, =yc_handover
+	ldr r2, [r2]
+	cmp r2, #0
+	bne 1f
+#endif
 	ldr r1, =yc_irq_table
 	ldr r0, [r0, r1]
 	bx r0
+#ifdef UPDATER
+	.thumb_func
+forward:                                /* r1: the entry's offset */
+	ldr r2, =yc_handover
+	ldr r2, [r2]                    /* the app's base, 0 while this runs */
+	cmp r2, #0
+	beq 2f
+1:	adds r2, r2, r1
+	adds r2, #1                     /* Thumb */
+	bx r2
+2:	cmp r1, #0x16
+	bne trap_near
+	ldr r2, =systick
+	bx r2
+#endif
 	.thumb_func
 trap_near:
 	ldr r0, =trap

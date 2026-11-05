@@ -45,7 +45,9 @@ static void dev_close(struct jm *jm, void *dev) {
  * A command is a feature report (the CDB, u16 length, flags, tag, u32
  * client, data); its answer comes on input reports addressed to this
  * program's client (client, tag, state, u16 offset, 56 bytes), others'
- * passing by.  REFUSED: another program's command runs; sent again. */
+ * passing by.  REFUSED: another program's command runs; sent again.  On a
+ * device with 64-byte reports a command's data goes on in further reports
+ * with the same head, which it gathers (JM_HID_GATHER). */
 
 static uint32_t client_of(struct jm *jm) {
   if (!jm->client) {
@@ -55,12 +57,16 @@ static uint32_t client_of(struct jm *jm) {
   return jm->client;
 }
 
+/* The most data a command takes to the device. */
+static size_t tool_room(size_t report) {
+  return report == JM_HID_REPORT_SMALL ? JM_HID_GATHER : report - JM_HID_CLIENT_HEAD_SIZE;
+}
+
 static int tool(struct jm *jm, void *dev, size_t report, const struct jm_update_request *r, uint8_t *answer) {
   uint8_t buffer[JM_HID_REPORT_JIELI + 1], in[128];
   uint32_t client = client_of(jm);
-  size_t n = r->out_size ? r->out_size : r->in_size;
-  if (report < 64 || report > JM_HID_REPORT_JIELI || r->out_size > report - JM_HID_CLIENT_HEAD_SIZE ||
-      r->in_size > 512)
+  size_t n = r->out_size ? r->out_size : r->in_size, piece = report - JM_HID_CLIENT_HEAD_SIZE;
+  if (report < 64 || report > JM_HID_REPORT_JIELI || r->out_size > tool_room(report) || r->in_size > 512)
     return 0;
   for (unsigned tries = 0; tries < 2000; tries++) {
     memset(buffer, 0, sizeof buffer);
@@ -70,10 +76,17 @@ static int tool(struct jm *jm, void *dev, size_t report, const struct jm_update_
     buffer[19] = (uint8_t)(JM_HID_INPUT | (r->out_size ? JM_HID_OUT : 0));
     buffer[20] = ++jm->tag;
     for (int i = 0; i < 4; i++) buffer[21 + i] = (uint8_t)(client >> 8 * i);
-    if (r->out_size) memcpy(buffer + 1 + JM_HID_CLIENT_HEAD_SIZE, r->data, r->out_size);
     for (int k = 0; k < 256 && jm->h->read(jm->h->ctx, dev, in, sizeof in, 0) > 0; k++)
       ;
-    int sent = jm->h->set_feature(jm->h->ctx, dev, buffer, report + 1);
+    int sent;
+    size_t at = 0;
+    do {                                /* the data, a report's room at a time */
+      size_t k = r->out_size - at < piece ? r->out_size - at : piece;
+      memset(buffer + 1 + JM_HID_CLIENT_HEAD_SIZE, 0, piece);
+      if (k) memcpy(buffer + 1 + JM_HID_CLIENT_HEAD_SIZE, r->data + at, k);
+      at += k;
+      sent = jm->h->set_feature(jm->h->ctx, dev, buffer, report + 1);
+    } while (sent == (int)report + 1 && at < r->out_size);
     /* These restart the device: their answer may never come. */
     if (r->cdb[1] == JM_CMD_REBOOT || r->cdb[1] == JM_CMD_UPDATER || r->cdb[1] == JM_CMD_REBOOT_LOADER)
       return 1;
@@ -668,7 +681,7 @@ static int update(struct jm *jm, const struct jm_firmware *fw, struct jm_found *
   struct jm_update_request r;
   uint8_t reply[512];
   enum jm_update_step step = JM_UPDATE_FAILED;
-  if (dev && jm_update_init(&op, img->data, img->size, f->info.feature_size - JM_HID_CLIENT_HEAD_SIZE)) {
+  if (dev && jm_update_init(&op, img->data, img->size, tool_room(f->info.feature_size))) {
     say(jm, "%s: %s, writing update.bin", where(f), f->product->pid);
     while ((step = jm_update_next(&op, &r)) == JM_UPDATE_TRANSFER) {
       jm_update_complete(&op, tool(jm, dev, f->info.feature_size, &r, reply), reply, r.in_size);

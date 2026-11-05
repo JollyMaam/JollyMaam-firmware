@@ -68,6 +68,11 @@ This firmware's tool device, on every board, is a vendor HID interface:
   dropped), a tag, a u32 client, then the data (at most the report less 24
   bytes); the device goes by the request's length, so a set may stop after
   the data;
+- with the 64-byte report (the YC3121's), a command's data may run past one
+  report: further sets carry the same head (the length the whole's) and the
+  next part of the data, up to 512 bytes, and the device runs the command
+  once all of it is in.  Another program's command meanwhile is refused; the
+  same program's next command, or a second without a part, drops the half;
 - the answer comes in input reports: the client, the tag, a state (2 a
   piece and more, 3 the last, 4 refused: another command is running, send
   it again), u16 offset, then 56 bytes of the answer.  Every program with
