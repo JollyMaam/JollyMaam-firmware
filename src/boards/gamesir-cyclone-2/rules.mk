@@ -4,6 +4,7 @@
 #                                        $(OBJDIR)/<board>/
 #   gamesir-cyclone-2-pad-updater, -dongle-updater   the updaters' app.bin
 #   gamesir-cyclone-2-all                both
+#   gamesir-cyclone-2-pad-test, -dongle-test, gamesir-cyclone-2-test   unit tests
 # A board's targets, all in $(OBJDIR)/<board>/: sdk_ld.c (the SDK's linker
 # script, edited), sdk.ld (preprocessed), app.elf (and app.map), app.bin;
 # for the pad and the dongle also isd_config.ini and firmware.img.
@@ -268,5 +269,34 @@ $(C2D_DIR)/firmware.img: private jieli_pack := --flash-size 0x80000 --code-limit
 .PHONY: $(C2D)
 $(C2D): $(C2D_DIR)/firmware.img
 
+# --- Unit tests (make/host-tests.mk), with the pad's and the dongle's defines
+
+TARGETS += host/test-$(C2P)
+host/test-$(C2P)_type := host-tests
+host/test-$(C2P)_toolchain := HOST_
+host/test-$(C2P)_sources := $(HOST_TESTS)
+host/test-$(C2P)_cppflags := -DBOARD_PID=\"GS_C2_ADC_DEVICE\" $(EXTRA_DEFINES) -DUNITTEST $(JIELI_TEST_DEFINES) $(SRC_INCLUDES) -iquote $(self)
+host/test-$(C2P)_compile.c = $(host-test-compile)
+$(call lib-objs,host/test-$(C2P),$(HOST_TESTS_LIBJOLLYMAAM)): host_test_libs := $(OBJDIR)/host/libjollymaam.a
+$(call lib-objs,host/test-$(C2P),$(HOST_TESTS_LIBJOLLYMAAM)): $(OBJDIR)/host/libjollymaam.a
+$(call lib-objs,host/test-$(C2P),$(HOST_TESTS_BTCTRLER)): host_test_ldflags := $(HOST_TESTS_BTCTRLER_LDFLAGS)
+
+TARGETS += host/test-$(C2D)
+host/test-$(C2D)_type := host-tests
+host/test-$(C2D)_toolchain := HOST_
+host/test-$(C2D)_sources := $(HOST_TESTS)
+host/test-$(C2D)_cppflags := -DBOARD_PID=\"GS_C2_Dongle\" -DBOARD_DONGLE $(EXTRA_DEFINES) -DUNITTEST $(JIELI_TEST_DEFINES) $(SRC_INCLUDES) -iquote $(self)
+host/test-$(C2D)_compile.c = $(host-test-compile)
+$(call lib-objs,host/test-$(C2D),$(HOST_TESTS_LIBJOLLYMAAM)): host_test_libs := $(OBJDIR)/host/libjollymaam.a
+$(call lib-objs,host/test-$(C2D),$(HOST_TESTS_LIBJOLLYMAAM)): $(OBJDIR)/host/libjollymaam.a
+$(call lib-objs,host/test-$(C2D),$(HOST_TESTS_BTCTRLER)): host_test_ldflags := $(HOST_TESTS_BTCTRLER_LDFLAGS)
+
+.PHONY: $(C2P)-test $(C2D)-test gamesir-cyclone-2-test
+$(C2P)-test: $(OBJDIR)/host/test-$(C2P)
+$(C2D)-test: $(OBJDIR)/host/test-$(C2D)
+gamesir-cyclone-2-test: $(C2P)-test $(C2D)-test
+test: gamesir-cyclone-2-test
+
 .PHONY: gamesir-cyclone-2-all
 gamesir-cyclone-2-all: $(C2P) $(C2D)
+firmware: gamesir-cyclone-2-all

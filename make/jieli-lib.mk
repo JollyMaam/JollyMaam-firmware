@@ -18,6 +18,10 @@ JIELI_BTCTRLER_SOURCES := $(wildcard src/platform/jieli/btctrler/*.c)
 JIELI_SDK_SOURCES := $(addprefix $(JIELI_SDK)/,$(JIELI_SDK_USED))
 BTSTACK_SOURCES := $(addprefix $(BTSTACK)/,$(BTSTACK_USED))
 
+# For a Jieli board's host tests: the settings test checks its records
+# against the Jieli VM (its size and the SDK's reserve).
+JIELI_TEST_DEFINES := -DSETTINGS_STORE_JIELI_BYTES=$(JIELI_VM_KB)*1024 -DSETTINGS_STORE_JIELI_RESERVE=$(JIELI_VM_SETTINGS_RESERVE)
+
 # Preprocessing (sdk.ld, isd_config.ini) is a compile step with the board's
 # flags: the "object" is the preprocessed text, and a type makes the output.
 jieli-cpp = $(lib_cc) $(lib_cppflags) $(obj_cppflags) $(lib_cflags) $(obj_cflags) -D__LD__ -E -P -MMD -MP -MF $(@:.o=.d) -MT $@ $< -o $@
