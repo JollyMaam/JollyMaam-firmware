@@ -36,12 +36,17 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
 - `src/updater/`: the updater every Jieli, Telink and YC3121 build boots
   through (rewrites the app in place over USB, or LE on the pads but the
   U2CB).
-- `make/`: one `make/<product>.mk` per product.  Its header comment lists the
-  targets; `jieli.mk` and `telink.mk` document the per-board variables of
-  their board templates.  The top `Makefile` lists the global targets.
-  `EXTRA_DEFINES=...` adds `-D` flags to a build (test and debug builds).
-  `O=dir` builds somewhere else; per-board variables can be overridden on the
-  command line (e.g. an empty `NAME_MAIN_AT` for a build without updater).
+- `make/`: the build.  `make/lib.mk` (a copy of a separate project) builds
+  every directory listed in the top `Makefile`'s `RULES` from its
+  `rules.mk`; its header documents the target properties.  The GameSir
+  Cyclone 2 is on it (`src/boards/gamesir-cyclone-2/rules.mk` spells out
+  each board's targets; `make/jieli-lib.mk` has the Jieli toolchain, source
+  lists and build steps), as are libjollymaam and `jollymaam`.  The other
+  products are still `make/<product>.mk` on the old templates in `jieli.mk`
+  and `telink.mk`, and are not built by this `Makefile` yet.
+  `EXTRA_DEFINES=...` adds `-D` flags to a build (test and debug builds);
+  a changed command line rebuilds exactly what it changes.  `O=dir` builds
+  somewhere else.
 - `tools/padtool/`: `padtool.py` (CLI; `--help` lists every command), `padgui.pyw`
   (Tk GUI), the transports.  `tools/padtool/README.md` for setup.
 - `tools/jollymaam/`: `jollymaam` (built into `build/host/`; `jollymaam
@@ -120,8 +125,8 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   `bt_pad.c`, `btstack_hci_jieli.c`, `platform_jieli*.c`.  Python tools have
   `test_*.py` beside them (the GUI tests need Tk: use a Nix shell with
   `tkinter`, and `xvfb-run` for a display).
-- The SDKs stay unmodified (their linker scripts are patched at build time
-  in `jieli.mk`).  BTstack stays upstream: bug-fix patches only, carried on
+- The SDKs stay unmodified (their linker scripts are patched at build time:
+  `JIELI_SDK_LD_SED` in `make/jieli-lib.mk`).  BTstack stays upstream: bug-fix patches only, carried on
   the fork.
 - Keep `pad.h`'s section comments in step with interface changes.
 - Commit messages: `Area: what changed` as the subject, then prose on why
