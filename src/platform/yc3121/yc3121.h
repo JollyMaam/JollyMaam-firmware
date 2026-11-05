@@ -55,6 +55,11 @@ static inline int yc_pin_in(int group, int pin)
  * flashing leaves 2, so the app sets 1. */
 #define YC_LOADER_MODE     (*(volatile uint32_t *)0xf8564)
 
+/* The chip's LPM register 1 (written as the radio core's are, its ROM's
+ * lpm_bt_read at 0x4d25 to read): stock clears its bit 17 first thing at
+ * boot (its 0x010272f8).  platform_yc3121.c. */
+void plat_lpm_release_pins(void);
+
 /* Busy wait on SysTick (platform_yc3121.c); plat_delay_ms for longer. */
 void yc_delay_us(uint32_t us);
 

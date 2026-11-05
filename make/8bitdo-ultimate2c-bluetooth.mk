@@ -133,6 +133,7 @@ $(U2CB_PAD)_SOURCES += src/core/controller.c
 $(U2CB_PAD)_SOURCES += src/core/input.c
 $(U2CB_PAD)_SOURCES += src/core/input_calibration.c
 $(U2CB_PAD)_SOURCES += src/core/motion.c
+$(U2CB_PAD)_SOURCES += src/core/imu_i2c.c
 $(U2CB_PAD)_SOURCES += src/core/leds.c
 $(U2CB_PAD)_SOURCES += src/core/remap.c
 $(U2CB_PAD)_SOURCES += src/core/settings.c

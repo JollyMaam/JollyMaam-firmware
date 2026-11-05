@@ -2,6 +2,7 @@
 #include "pad.h"
 #include "yc3121.h"
 #include "board.h"
+#include "i2c.h"
 
 /* 8BitDo Ultimate 2C Bluetooth: a Yichip YC3121 (Cortex-M0).  Pins as stock
  * v1.01 sets them (its GPIO set-up, 0x0101c9e0), each proven on the pad
@@ -245,17 +246,12 @@ static u32 sticks_poll(void)
     return moved ? EV_STICKS : 0;
 }
 
-static void imu_init(void);
+static u32 i2c_poll(void);
+
 
 u32 board_poll(void)
 {
-    static u8 imu_tried;
-
-    if (!imu_tried && plat_ms() > 500) {   /* after the log is up */
-        imu_tried = 1;
-        imu_init();
-    }
-    return matrix_poll() | sticks_poll();
+    return matrix_poll() | sticks_poll() | i2c_poll();
 }
 
 void board_input(struct in_raw *raw)
@@ -422,68 +418,175 @@ void board_power_off(void)
 }
 
 /* ---- the motion sensor, on I2C --------------------------------------------------
- * Stock's I2C (0xf8d00, its 0x0101ff60 and 0x010207f8): SDA 2.0, SCL 1.15; a
- * DMA-like engine as the QSPI's: the bytes out at +0, the bytes in at +4,
- * their lengths at +8 (out << 16 | in), bit 24 of +0x20 set for a read;
- * +0xf bit 5 pulsed then 0x80 starts it, +0x10 bit 0 is done.  Timing as
- * stock's identification (its 0x01020036(1)): +0x1c 0x7676ecec, +0x20
- * 0x007676; it runs 8 times faster (0x0e0e1d1d) once it knows the sensor.  The sensor at 0xd0 (8-bit),
- * its ID in register 0x75: stock tells its variants apart by it. */
+ * Ours is an ICM-42670 at 0xd0 (WHO_AM_I 0x75 reads 0x63; stock's 0x0102079a
+ * and 0x01020420 for its IDs 0x67 and 0x63).  Stock also looks for a
+ * BMI160 and another InvenSense part at 0xd0, and a QMI8658 at 0xd6 or 0xd4
+ * (register 0 reads 0x05, its 0x010284a4): the QMI8658 is looked for too
+ * (imu_i2c.c has it), the others not.  The pins work only once LPM
+ * register 1's bit 17 is clear, as stock clears it at boot
+ * (plat_lpm_release_pins): until then SDA reads 0 whatever drives it.
+ * Stock's I2C (0xf8d00,
+ * its 0x0101ff60 and 0x010207f8): SDA 2.0, SCL 1.15; a DMA-like engine as
+ * the QSPI's: the bytes out at +0, the bytes in at +4, their lengths at +8
+ * (out << 16 | in), bit 24 of +0x20 set for a read; +0xf bit 5 pulsed then
+ * 0x80 starts it, +0x10 bit 0 is done.  It reports no missing
+ * acknowledge.  Timing at +0x1c and +0x20 (low 24 bits): stock identifies
+ * at 0x7676ecec / 0x7676 (its 0x01020036(1)) and runs 8 times faster,
+ * 0x0e0e1d1d / 0x0e0e.
+ *
+ * Axes: stock puts the sensor's y, -x, z into its Pro Controller report,
+ * accelerometer and gyro alike.  Ours: x <- -y, y <- x, z <- z, the turn
+ * that gives the same gyro through profile_switch.c's mapping (stock's
+ * accelerometer y then comes out opposite to ours; which is right is not
+ * established). */
 
 #define I2C(off)     (*(volatile u32 *)(0xf8d00 + (off)))
 #define I2C_B(off)   (*(volatile u8 *)(0xf8d00 + (off)))
-#define IMU_ADDR     0xd0
 #define GPCFG_SCL    58
 #define GPCFG_SDA    59
+#define I2C_TIMEOUT_US 2000
 
-static int i2c_run(const u8 *out, u32 n_out, u8 *in, u32 n_in, int read)
+const s8 imu_axis[3] = { -2, 1, 3 };
+
+static struct {
+    u8 found, probed, busy, failed;
+    u8 *in;
+    u32 n_in, t0;
+    u32 out;                     /* the engine's buffers: word aligned, as stock's */
+    u32 buf[4];
+} i2c;
+
+static void i2c_timing(u32 lo, u32 hi)
 {
-    u32 t0 = plat_us();
+    I2C(0x1c) = lo;
+    I2C(0x20) = hi;
+}
 
+static void i2c_start(u32 n_out, u32 n_in, int read)
+{
     if (read) I2C(0x20) |= 1u << 24;
     else I2C(0x20) &= ~(1u << 24);
     I2C_B(0xf) |= 0x20;
     I2C_B(0xf) &= (u8)~0x20;
-    I2C(0) = (u32)out;
-    I2C(4) = (u32)in;
+    I2C(0) = (u32)&i2c.out;
+    I2C(4) = (u32)i2c.buf;
     I2C(8) = n_out << 16 | n_in;
     I2C_B(0xf) = 0x80;
+    i2c.t0 = plat_us();
+}
+
+static int i2c_wait(void)
+{
     while (!(I2C(0x10) & 1))
-        if (plat_us() - t0 > 2000) return 0;
+        if (plat_us() - i2c.t0 > I2C_TIMEOUT_US) return 0;
     return 1;
 }
 
-/* The engine's buffers (it holds them as 16-bit SRAM offsets), word
- * aligned as stock's are. */
-static int imu_read(u8 reg, u8 *out, u32 n)
+/* Each sensor stock knows that imu_i2c.c drives, by its ID register, at
+ * stock's slow timing, up to 5 times each as stock does: a few ms when
+ * nothing answers.  Then the fast timing. */
+static const struct {
+    const struct imu_chip *chip;
+    const char *name;
+    u8 dev, reg, id[2];
+} sensors[] = {
+    { &imu_icm42670, "ICM-42670", 0xd0, 0x75, { 0x67, 0x63 } },
+    { &imu_qmi8658a, "QMI8658A", 0xd6, 0x00, { 0x05, 0x05 } },
+    { &imu_qmi8658a, "QMI8658A", 0xd4, 0x00, { 0x05, 0x05 } },
+};
+
+static int i2c_probe(void)
 {
-    static u32 head, in[4];
+    u32 k, tries;
 
-    if (n > sizeof(in)) return 0;
-    head = IMU_ADDR | (u32)reg << 8 | (u32)(IMU_ADDR | 1) << 16;
-    if (!i2c_run((const u8 *)&head, 3, (u8 *)in, n, 1)) return 0;
-    memcpy(out, in, n);
-    return 1;
-}
-
-static u8 imu_id;
-
-static void imu_init(void)
-{
+    plat_lpm_release_pins();
     yc_pin(2, 0, GPCFG_SDA);
     yc_pin(1, 15, GPCFG_SCL);
-    I2C(0x1c) = 0x7676ecec;
-    I2C(0x20) = 0x007676;
-    if (!imu_read(0x75, &imu_id, 1)) util_log("imu: no answer");
-    else util_log("imu: id %02x", imu_id);
-}
+    i2c_timing(0x7676ecec, 0x7676);
+    for (k = 0; k < sizeof(sensors) / sizeof(sensors[0]); k++)
+        for (tries = 0; tries < 5; tries++) {
+            u8 dev = sensors[k].dev, id;
 
-/* No motion data: on our pad every read returns zeros, SDA (2.0) held low
- * even with our pull-up (the analysis notes): whether a sensor is fitted
- * and powered here is not established. */
-u32 imu_poll(u32 now, u8 mode)
-{
-    (void)now;
-    (void)mode;
+            i2c.out = dev | (u32)sensors[k].reg << 8 | (u32)(dev | 1) << 16;
+            i2c.buf[0] = 0;
+            i2c_start(3, 1, 1);
+            if (!i2c_wait()) continue;
+            id = (u8)i2c.buf[0];
+            if (id == sensors[k].id[0] || id == sensors[k].id[1]) {
+                imu_chip = sensors[k].chip;
+                imu_dev = dev;
+                i2c_timing(0x0e0e1d1d, 0x0e0e);
+                util_log("imu: %s at %02x (id %02x)", sensors[k].name, dev, id);
+                return 1;
+            }
+        }
     return 0;
 }
+
+/* Fails (done -1) when no sensor answered: looked for once per boot, so a
+ * pad without one doesn't stall the loop each second the driver retries. */
+static int i2c_begin(void)
+{
+    if (!i2c.found && !i2c.probed) {
+        i2c.probed = 1;
+        i2c.found = (u8)i2c_probe();
+        if (!i2c.found) util_log("imu: no sensor answers");
+    }
+    i2c.failed = !i2c.found;
+    i2c.busy = i2c.found;
+    return i2c.found;
+}
+
+void plat_i2c_read(u8 dev, u8 reg, u8 *buf, u8 len)
+{
+    if (len > sizeof(i2c.buf) || !i2c_begin()) {
+        i2c.failed = 1;
+        i2c.busy = 0;
+        return;
+    }
+    i2c.in = buf;
+    i2c.n_in = len;
+    i2c.out = dev | (u32)reg << 8 | (u32)(dev | 1) << 16;
+    i2c_start(3, len, 1);
+}
+
+void plat_i2c_write(u8 dev, u8 reg, u8 value)
+{
+    if (!i2c_begin()) return;
+    i2c.in = NULL;
+    i2c.out = dev | (u32)reg << 8 | (u32)value << 16;
+    i2c_start(3, 0, 0);
+}
+
+static int i2c_finished(void)
+{
+    if (!i2c.busy) return 1;
+    if (I2C(0x10) & 1) {
+        if (i2c.in) memcpy(i2c.in, i2c.buf, i2c.n_in);
+    } else if (plat_us() - i2c.t0 > I2C_TIMEOUT_US) {
+        i2c.failed = 1;
+    } else {
+        return 0;
+    }
+    i2c.busy = 0;
+    return 1;
+}
+
+int plat_i2c_done(void)
+{
+    if (!i2c_finished()) return 0;
+    if (i2c.failed) {
+        i2c.failed = 0;
+        return -1;
+    }
+    return 1;
+}
+
+
+
+/* For board_poll: EV_IMU once a transfer has finished. */
+static u32 i2c_poll(void)
+{
+    return i2c.busy && i2c_finished() ? EV_IMU : 0;
+}
+

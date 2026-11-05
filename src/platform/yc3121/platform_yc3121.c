@@ -215,3 +215,26 @@ void *_sbrk(int incr)
     brk += incr;
     return prev;
 }
+
+/* ---- LPM register 1 -------------------------------------------------------- */
+
+#define LPM_DATA(n)     (*(volatile uint8_t *)(0xc804c + (n)))
+#define LPM_WRITE       (*(volatile uint8_t *)0xc8005)
+#define LPM_CLK_CLS     (*(volatile uint32_t *)0xf856c)
+#define LPM_CLK_BT      (1u << 13)
+#define ROM_LPM_BT_READ ((uint32_t (*)(int))0x4d25)
+
+void plat_lpm_release_pins(void)
+{
+    uint32_t v = ROM_LPM_BT_READ(1);
+
+    if (!(v & 0x20000)) return;
+    v &= ~0x20000u;
+    LPM_CLK_CLS &= ~LPM_CLK_BT;
+    for (int i = 0; i < 4; i++) {
+        LPM_DATA(i) = (uint8_t)(v >> 8 * i);
+        yc_delay_us(1);
+    }
+    LPM_WRITE = 1u << 1;
+    plat_delay_ms(1);
+}
