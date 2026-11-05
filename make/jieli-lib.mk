@@ -63,3 +63,41 @@ endef
 # The flashable image, packed by jollymaam with the target's jieli_pack
 # (sizes, config, loader, images; see jollymaam help).
 lib-type-jieli-img = $(JOLLYMAAM_CLI) pack jieli -o $@ $(jieli_pack)
+
+# --- BD19 (AC632N: the Nova 2 Lite dongle) ------------------------------------
+# It links the SDK's controller (btctrler.a), not ours.
+
+# The BD19 toolchain: NAME_toolchain := JIELI_BD19_ (JIELI_BD19_CFLAGS is
+# jieli.mk's).
+JIELI_BD19_CC := $(JIELI_BD19_TOOLS)/clang
+JIELI_BD19_LINK := $(JIELI_BD19_TOOLS)/ld --plugin $(JIELI_BD19_TOOLS)/LLVMgold.so
+JIELI_BD19_OBJCOPY := $(JIELI_BD19_TOOLS)/objcopy
+JIELI_BD19_CPPFLAGS := $(JIELI_BD19_DEFINES)
+JIELI_BD19_LDFLAGS := $(JIELI_BD19_LFLAGS)
+JIELI_BD19_LDLIBS := --start-group $(JIELI_BD19_ARCHIVES) --end-group $(addprefix $(JIELI_BD19_TOOLS)/../lib/,libm.a libc.a libcompiler-rt.a)
+
+JIELI_BD19_BOARD_INCLUDES := -iquote src/platform/jieli/sdkconfig $(BTSTACK_INCLUDES) $(JIELI_BD19_INCLUDES)
+JIELI_BD19_SDK_SOURCES := $(addprefix $(JIELI_SDK)/,$(JIELI_BD19_SDK_USED))
+JIELI_BD19_UBOOT := $(JIELI_SDK)/cpu/bd19/tools/uboot.boot
+JIELI_BD19_CONFIG_TOOL := $(JIELI_SDK)/cpu/bd19/tools/cfg_tool.bin
+
+# The linker script: as the BR23's, then our BD19 additions.
+define lib-type-jieli-bd19-sdk-ld
+sed $(jieli_sed) $(firstword $(lib_deps)) > $@ &&
+printf '\n#include "bd19_app.ld"\n' >> $@
+endef
+
+# The download config: as the BR23's, then the new firmware format's header.
+define lib-type-jieli-bd19-isd
+sed -e '/^$$/d' -e 's/^PID = .*;/PID = $(jieli_pid);/' $(lib_objects) > $@ &&
+printf '\n[JLNEWFW]\nUBOOT_FLAGS = 0x40;\nHEADER_FS = 11;\nRES = $(abspath $(JIELI_SDK))/cpu/bd19/tools/p11_code.bin:82;\n' >> $@
+endef
+
+# The image: code, data, and the code that runs from RAM.
+define lib-type-jieli-bd19-bin
+$(JIELI_BD19_OBJCOPY) -O binary -j .text $(firstword $(lib_deps)) $@.text &&
+$(JIELI_BD19_OBJCOPY) -O binary -j .data $(firstword $(lib_deps)) $@.data &&
+$(JIELI_BD19_OBJCOPY) -O binary -j .data_code $(firstword $(lib_deps)) $@.data_code &&
+cat $@.text $@.data $@.data_code > $@ &&
+rm -f $@.text $@.data $@.data_code
+endef

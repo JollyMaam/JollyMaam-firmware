@@ -29,6 +29,7 @@ RULES += src/lib
 RULES += tools/jollymaam
 RULES += tools
 RULES += src/boards/gamesir-cyclone-2
+RULES += src/boards/gamesir-nova-2-lite
 
 $(eval $(call generate-rules,$(RULES)))
 

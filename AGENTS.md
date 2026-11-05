@@ -38,12 +38,14 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   U2CB).
 - `make/`: the build.  `make/lib.mk` (a copy of a separate project) builds
   every directory listed in the top `Makefile`'s `RULES` from its
-  `rules.mk`; its header documents the target properties.  The GameSir
-  Cyclone 2 is on it (`src/boards/gamesir-cyclone-2/rules.mk` spells out
-  each board's targets; `make/jieli-lib.mk` has the Jieli toolchain, source
-  lists and build steps), as are libjollymaam and `jollymaam`.  The other
-  products are still `make/<product>.mk` on the old templates in `jieli.mk`
-  and `telink.mk`, and are not built by this `Makefile` yet.
+  `rules.mk`; its header documents the target properties.  The Jieli
+  products are on it: each `src/boards/<product>/rules.mk` spells out its
+  boards' targets; `make/jieli.mk` has the BR23 and BD19 data and
+  `make/jieli-lib.mk` the toolchains (`JIELI_`, `JIELI_BD19_`), source lists
+  and build steps; `make/host-tests.mk` the unit tests.  libjollymaam,
+  `jollymaam` and `padhub` are on it too.  The 8BitDo products are still
+  `make/<product>.mk` on the old templates (`telink.mk`, `host.mk`) and are
+  not built by this `Makefile` yet.
   `EXTRA_DEFINES=...` adds `-D` flags to a build (test and debug builds);
   a changed command line rebuilds exactly what it changes.  `O=dir` builds
   somewhere else.
