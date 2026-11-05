@@ -741,8 +741,8 @@ int jm_backup(struct jm *jm, const struct jm_firmware *fw, const struct jm_selec
 }
 
 /* A stock image back: a Jieli raw or UFW image naming the installed
- * product and the chip's key, or the U2CW's stock app (raw or vendor DAT),
- * after a whole backup. */
+ * product and the chip's key, the U2CW's stock app (raw or vendor DAT), or
+ * the U2CB's (v1.01, alone or in a loader dump), after a whole backup. */
 int jm_restore(struct jm *jm, const struct jm_firmware *fw, const struct jm_select *sel,
                const uint8_t *image, size_t size, jm_sink sink, int (*done)(void *user), void *user) {
   struct jm_found f[FOUND_MAX];
@@ -782,6 +782,16 @@ int jm_restore(struct jm *jm, const struct jm_firmware *fw, const struct jm_sele
   } else if (dev && f[0].product->chip == JM_CHIP_TLSR8208) {
     struct jm_8bitdo_upgrade op;
     if (!jm_8bitdo_restore_init(&op, image, size, f[0].product->model)) say(jm, "not %s's stock app", f[0].product->pid);
+    else {
+      dev_close(jm, dev), dev = NULL;
+      ok = backup_one(jm, fw, &f[0], &k) && done(user) && (dev = dev_open(jm, &f[0].info)) && !run_8bitdo(jm, dev, &op);
+    }
+  } else if (dev && f[0].product->chip == JM_CHIP_YC3121) {
+    struct jm_8bitdo_upgrade op;
+    const uint8_t *app;
+    size_t app_size;
+    if (!jm_8bitdo_yichip_stock_app(image, size, &app, &app_size) || !jm_8bitdo_yichip_init(&op, app, app_size))
+      say(jm, "not %s's stock app v1.01 (the app alone, or a loader dump from 0x01017000)", f[0].product->pid);
     else {
       dev_close(jm, dev), dev = NULL;
       ok = backup_one(jm, fw, &f[0], &k) && done(user) && (dev = dev_open(jm, &f[0].info)) && !run_8bitdo(jm, dev, &op);

@@ -26,6 +26,7 @@ static const char usage[] =
   "  start    [OPTIONS] [--firmware FIRMWARE]   out of it (Jieli: its RAM loader from FIRMWARE)\n"
   "  backup   [OPTIONS] [--firmware FIRMWARE] OUT   the whole flash, through the vendor loader\n"
   "  restore  [OPTIONS] [--firmware FIRMWARE] STOCK BACKUP_OUT   a stock image, after a backup\n"
+  "                               (U2CB: the stock app v1.01, or a loader dump holding it)\n"
   "  package  [--sdk JIELI_SDK] BUILD_DIR OUT[.zip]   a firmware package from a build\n"
   "  inspect  FILE                a package or an image\n"
   "  pack jieli|telink|join ...   build an image (as make does)\n"

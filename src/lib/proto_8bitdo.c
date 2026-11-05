@@ -1,4 +1,5 @@
 #include "proto_8bitdo.h"
+#include "sha256.h"
 #include <string.h>
 
 static uint16_t rd16(const uint8_t *p) { return (uint16_t)(p[0] | p[1] << 8); }
@@ -227,6 +228,24 @@ int jm_8bitdo_stock_image(const uint8_t *input,size_t size,uint16_t model,const 
   for(size_t i=n;i<available;++i) if(app[i]) return 0;
   *image=app;*image_size=n;return 1;
 }
+/* The U2CB's stock app, v1.01 (the only one known): its 0x18000 bytes from
+ * 0x01018000, alone or inside a loader dump from 0x01017000 (jollymaam backup,
+ * or the stock-firmware repository's).  Raw apps carry no tag or CRC, so the
+ * bytes must match v1.01's SHA-256.  Returned bytes borrow input. */
+#define YICHIP_STOCK_SIZE 0x18000u
+static const uint8_t yichip_stock_v101[32] = {
+  0x95, 0x5a, 0x74, 0xa2, 0xaa, 0x5d, 0x73, 0x1e, 0xff, 0x85, 0xbb, 0x0f, 0x1b, 0x7a, 0xca, 0xf6,
+  0xf6, 0xb9, 0x71, 0x9e, 0x52, 0x0c, 0xc3, 0xf6, 0x8a, 0x41, 0x91, 0x8a, 0xf0, 0x9b, 0x04, 0xae};
+int jm_8bitdo_yichip_stock_app(const uint8_t *input, size_t size, const uint8_t **app, size_t *app_size) {
+  uint8_t digest[32];
+  size_t at = size == YICHIP_STOCK_SIZE ? 0 : size == 0x01080000u - 0x01017000u ? 0x1000 : (size_t)-1;
+  if (!input || !app || !app_size || at == (size_t)-1) return 0;
+  jm_sha256(input + at, YICHIP_STOCK_SIZE, digest);
+  if (memcmp(digest, yichip_stock_v101, 32)) return 0;
+  *app = input + at;
+  *app_size = YICHIP_STOCK_SIZE;
+  return 1;
+}
 /* Locate the product in the sector-aligned MAIN header after the updater.
  * Returns a NUL-terminated product string in out[17], untouched on failure. */
 int jm_8bitdo_image_product(const uint8_t *image, size_t size, char out[17]) {
@@ -247,6 +266,13 @@ int jm_8bitdo_image_product(const uint8_t *image, size_t size, char out[17]) {
 int main(void) {
   uint8_t request[64], reply[64] = {0, 5}, data[] = {1, 2, 3};
   assert(jm_8bitdo_crc16((const uint8_t *)"123456789", 9) == 0x4b37);
+  {
+    static uint8_t app[0x18000];
+    const uint8_t *got = NULL;
+    size_t n = 0;
+    assert(!jm_8bitdo_yichip_stock_app(app, sizeof app, &got, &n) && !got && !n);   /* not v1.01 */
+    assert(!jm_8bitdo_yichip_stock_app(app, sizeof app - 1, &got, &n));
+  }
   assert(jm_8bitdo_request(request, 3, 0x12345678, data, 3) == JM_8BITDO_OK);
   assert(request[1] == 3 && request[5] == 3 && request[10] == 0x10);
   assert(request[13] == 0x78 && request[16] == 0x12);

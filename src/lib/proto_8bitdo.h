@@ -50,5 +50,6 @@ enum jm_8bitdo_result jm_8bitdo_reply(const uint8_t *report, size_t size,
 uint16_t jm_8bitdo_crc16(const uint8_t *data, size_t size);
 int jm_8bitdo_image_check(const uint8_t *image, size_t size);
 int jm_8bitdo_stock_image(const uint8_t *input, size_t size, uint16_t model, const uint8_t **image, size_t *image_size);
+int jm_8bitdo_yichip_stock_app(const uint8_t *input, size_t size, const uint8_t **app, size_t *app_size);
 int jm_8bitdo_image_product(const uint8_t *image, size_t size, char out[17]);
 #endif
