@@ -18,10 +18,10 @@ host/libjollymaam-test_sources := $(JOLLYMAAM_UNIT) $(JOLLYMAAM_SIMS)
 host/libjollymaam-test_cflags := -std=c99
 host/libjollymaam-test_compile.c = $(host-test-compile)
 $(call lib-objs,host/libjollymaam-test,$(JOLLYMAAM_UNIT)): obj_cppflags := -DUNITTEST
-$(call lib-objs,host/libjollymaam-test,$(JOLLYMAAM_UNIT) $(JOLLYMAAM_SIMS)): host_test_libs := $(OBJDIR)/host/libjollymaam.a
-$(call lib-objs,host/libjollymaam-test,$(JOLLYMAAM_UNIT) $(JOLLYMAAM_SIMS)): $(OBJDIR)/host/libjollymaam.a
+$(call lib-objs,host/libjollymaam-test,$(JOLLYMAAM_UNIT) $(JOLLYMAAM_SIMS)): host_test_libs := $(O)/host/libjollymaam.a
+$(call lib-objs,host/libjollymaam-test,$(JOLLYMAAM_UNIT) $(JOLLYMAAM_SIMS)): $(O)/host/libjollymaam.a
 
 .PHONY: libjollymaam libjollymaam-test
-libjollymaam: $(OBJDIR)/host/libjollymaam.a
-libjollymaam-test: $(OBJDIR)/host/libjollymaam-test
+libjollymaam: $(O)/host/libjollymaam.a
+libjollymaam-test: $(O)/host/libjollymaam-test
 test: libjollymaam-test

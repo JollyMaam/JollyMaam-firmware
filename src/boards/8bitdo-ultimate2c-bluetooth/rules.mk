@@ -1,13 +1,13 @@
 # 8BitDo Ultimate 2C Bluetooth: the pad, a Yichip YC3121 (Cortex-M0).
 #   8bitdo-ultimate2c-bluetooth-pad          the firmware (controller.c, Classic
 #                                            Bluetooth through the radio core):
-#                                            update.bin in $(OBJDIR)/<board>/, the
+#                                            update.bin in $(O)/<board>/, the
 #                                            app's header and the app, and
 #                                            firmware.img, the updater and that
 #                                            above it, for the boot loader
 #   8bitdo-ultimate2c-bluetooth-pad-updater  the pad's updater: part of -pad
 #   8bitdo-ultimate2c-bluetooth-hello        bring-up app (lights, keys, the tool
-#                                            device on USB): $(OBJDIR)/<target>/app.bin
+#                                            device on USB): $(O)/<target>/app.bin
 #   8bitdo-ultimate2c-bluetooth-pad-test, 8bitdo-ultimate2c-bluetooth-all
 # Not part of make firmware: it needs arm-none-eabi-gcc and the stock dump.
 # The app slot is 0x01018000..0x01060000 (flash_yc3121.h), above the boot
@@ -25,7 +25,7 @@ U2CB_STOCK_DUMP ?= ../stock-firmware/8bitdo-ultimate2c-bluetooth/dumps/pad-v1.01
 U2CB_BLOB_AT := 74517# 0x01029314 - 0x01017000, plus 1 for tail
 U2CB_BLOB_LEN := 7596
 U2CB_BLOB_SHA256 := 73d2a159a27681a20dd45ab2cae2923f2cfa634e6b95f20e60c4288d54974283
-U2CB_BLOB := $(OBJDIR)/yc3121/radio_blob.bin
+U2CB_BLOB := $(O)/yc3121/radio_blob.bin
 
 define u2cb_blob_cmd
 tail -c +$(U2CB_BLOB_AT) $< | head -c $(U2CB_BLOB_LEN) > $@.tmp &&
@@ -33,7 +33,7 @@ tail -c +$(U2CB_BLOB_AT) $< | head -c $(U2CB_BLOB_LEN) > $@.tmp &&
 mv -f $@.tmp $@
 endef
 TRACKED += $(U2CB_BLOB)
-$(U2CB_BLOB): $(U2CB_STOCK_DUMP) | $(OBJDIR)/yc3121/
+$(U2CB_BLOB): $(U2CB_STOCK_DUMP) | $(O)/yc3121/
 	$(call lib-run,$(u2cb_blob_cmd),BLOB)
 
 # The settings store (core/store.c): two 16 KiB banks above the app slot,
@@ -41,11 +41,11 @@ $(U2CB_BLOB): $(U2CB_STOCK_DUMP) | $(OBJDIR)/yc3121/
 U2CB_STORE := -DSTORE_A=0x01074000 -DSTORE_B=0x01078000 -DSTORE_BANK=0x4000
 
 U2CB_PAD := 8bitdo-ultimate2c-bluetooth-pad
-U2CB_PAD_DIR := $(OBJDIR)/$(U2CB_PAD)
+U2CB_PAD_DIR := $(O)/$(U2CB_PAD)
 U2CB_UPDATER := 8bitdo-ultimate2c-bluetooth-pad-updater
-U2CB_UPDATER_DIR := $(OBJDIR)/$(U2CB_UPDATER)
+U2CB_UPDATER_DIR := $(O)/$(U2CB_UPDATER)
 U2CB_HELLO := 8bitdo-ultimate2c-bluetooth-hello
-U2CB_HELLO_DIR := $(OBJDIR)/$(U2CB_HELLO)
+U2CB_HELLO_DIR := $(O)/$(U2CB_HELLO)
 # The app's region (its header) 0x10000 above the slot's base, the app
 # JM_MAIN_HEAD_SIZE (0x120) further: the two go together.
 U2CB_MAIN_AT := 0x10000
@@ -186,12 +186,12 @@ host/test-$(U2CB_PAD)_sources := $(HOST_TESTS)
 host/test-$(U2CB_PAD)_cppflags := -DBOARD_PID=\"U2C_BLUETOOTH\" $(U2CB_PAD_DEFINES) $(EXTRA_DEFINES) -DUNITTEST -DSETTINGS_STORE \
 	$(SRC_INCLUDES) -iquote $(self)
 host/test-$(U2CB_PAD)_compile.c = $(host-test-compile)
-$(call lib-objs,host/test-$(U2CB_PAD),$(HOST_TESTS_LIBJOLLYMAAM)): host_test_libs := $(OBJDIR)/host/libjollymaam.a
-$(call lib-objs,host/test-$(U2CB_PAD),$(HOST_TESTS_LIBJOLLYMAAM)): $(OBJDIR)/host/libjollymaam.a
+$(call lib-objs,host/test-$(U2CB_PAD),$(HOST_TESTS_LIBJOLLYMAAM)): host_test_libs := $(O)/host/libjollymaam.a
+$(call lib-objs,host/test-$(U2CB_PAD),$(HOST_TESTS_LIBJOLLYMAAM)): $(O)/host/libjollymaam.a
 $(call lib-objs,host/test-$(U2CB_PAD),$(HOST_TESTS_BTCTRLER)): host_test_ldflags := $(HOST_TESTS_BTCTRLER_LDFLAGS)
 
 .PHONY: $(U2CB_PAD)-test 8bitdo-ultimate2c-bluetooth-test 8bitdo-ultimate2c-bluetooth-all
-$(U2CB_PAD)-test: $(OBJDIR)/host/test-$(U2CB_PAD)
+$(U2CB_PAD)-test: $(O)/host/test-$(U2CB_PAD)
 8bitdo-ultimate2c-bluetooth-test: $(U2CB_PAD)-test
 test: 8bitdo-ultimate2c-bluetooth-test
 8bitdo-ultimate2c-bluetooth-all: $(U2CB_PAD) $(U2CB_HELLO)

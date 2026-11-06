@@ -1,11 +1,11 @@
 # GameSir Cyclone 2: the pad and GameSir's dongle, both on the Jieli BR23.
 # Each is the updater with the app above it (docs/firmware/updater.md).
 #   gamesir-cyclone-2-pad, -dongle       firmware.img (and update.bin) in
-#                                        $(OBJDIR)/<board>/
+#                                        $(O)/<board>/
 #   gamesir-cyclone-2-pad-updater, -dongle-updater   the updaters' app.bin
 #   gamesir-cyclone-2-all                both
 #   gamesir-cyclone-2-pad-test, -dongle-test, gamesir-cyclone-2-test   unit tests
-# A board's targets, all in $(OBJDIR)/<board>/: sdk.ld (our linker script,
+# A board's targets, all in $(O)/<board>/: sdk.ld (our linker script,
 # preprocessed), app.elf (and app.map), app.bin; for the pad and the dongle
 # also isd_config.ini and firmware.img.
 # make/jieli.mk has the toolchain, the source units and the types.
@@ -16,13 +16,13 @@ BTSTACK_USERS += src/updater/updater_ble.c
 BTSTACK_USERS += src/updater/sm_none.c
 
 C2P := gamesir-cyclone-2-pad
-C2P_DIR := $(OBJDIR)/$(C2P)
+C2P_DIR := $(O)/$(C2P)
 C2D := gamesir-cyclone-2-dongle
-C2D_DIR := $(OBJDIR)/$(C2D)
+C2D_DIR := $(O)/$(C2D)
 C2PU := gamesir-cyclone-2-pad-updater
-C2PU_DIR := $(OBJDIR)/$(C2PU)
+C2PU_DIR := $(O)/$(C2PU)
 C2DU := gamesir-cyclone-2-dongle-updater
-C2DU_DIR := $(OBJDIR)/$(C2DU)
+C2DU_DIR := $(O)/$(C2DU)
 
 # --- The pad's updater (src/updater/): the app area's first 128 KiB ---------
 
@@ -221,8 +221,8 @@ host/test-$(C2P)_toolchain := HOST_
 host/test-$(C2P)_sources := $(HOST_TESTS)
 host/test-$(C2P)_cppflags := -DBOARD_PID=\"GS_C2_ADC_DEVICE\" $(EXTRA_DEFINES) -DUNITTEST $(JIELI_TEST_DEFINES) $(SRC_INCLUDES) -iquote $(self)
 host/test-$(C2P)_compile.c = $(host-test-compile)
-$(call lib-objs,host/test-$(C2P),$(HOST_TESTS_LIBJOLLYMAAM)): host_test_libs := $(OBJDIR)/host/libjollymaam.a
-$(call lib-objs,host/test-$(C2P),$(HOST_TESTS_LIBJOLLYMAAM)): $(OBJDIR)/host/libjollymaam.a
+$(call lib-objs,host/test-$(C2P),$(HOST_TESTS_LIBJOLLYMAAM)): host_test_libs := $(O)/host/libjollymaam.a
+$(call lib-objs,host/test-$(C2P),$(HOST_TESTS_LIBJOLLYMAAM)): $(O)/host/libjollymaam.a
 $(call lib-objs,host/test-$(C2P),$(HOST_TESTS_BTCTRLER)): host_test_ldflags := $(HOST_TESTS_BTCTRLER_LDFLAGS)
 
 TARGETS += host/test-$(C2D)
@@ -231,13 +231,13 @@ host/test-$(C2D)_toolchain := HOST_
 host/test-$(C2D)_sources := $(HOST_TESTS)
 host/test-$(C2D)_cppflags := -DBOARD_PID=\"GS_C2_Dongle\" -DBOARD_DONGLE $(EXTRA_DEFINES) -DUNITTEST $(JIELI_TEST_DEFINES) $(SRC_INCLUDES) -iquote $(self)
 host/test-$(C2D)_compile.c = $(host-test-compile)
-$(call lib-objs,host/test-$(C2D),$(HOST_TESTS_LIBJOLLYMAAM)): host_test_libs := $(OBJDIR)/host/libjollymaam.a
-$(call lib-objs,host/test-$(C2D),$(HOST_TESTS_LIBJOLLYMAAM)): $(OBJDIR)/host/libjollymaam.a
+$(call lib-objs,host/test-$(C2D),$(HOST_TESTS_LIBJOLLYMAAM)): host_test_libs := $(O)/host/libjollymaam.a
+$(call lib-objs,host/test-$(C2D),$(HOST_TESTS_LIBJOLLYMAAM)): $(O)/host/libjollymaam.a
 $(call lib-objs,host/test-$(C2D),$(HOST_TESTS_BTCTRLER)): host_test_ldflags := $(HOST_TESTS_BTCTRLER_LDFLAGS)
 
 .PHONY: $(C2P)-test $(C2D)-test gamesir-cyclone-2-test
-$(C2P)-test: $(OBJDIR)/host/test-$(C2P)
-$(C2D)-test: $(OBJDIR)/host/test-$(C2D)
+$(C2P)-test: $(O)/host/test-$(C2P)
+$(C2D)-test: $(O)/host/test-$(C2D)
 gamesir-cyclone-2-test: $(C2P)-test $(C2D)-test
 test: gamesir-cyclone-2-test
 

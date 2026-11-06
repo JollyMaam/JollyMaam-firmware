@@ -1,7 +1,3 @@
-# make dist: into $(DIST_DIR) the static jollymaam for this platform (bin/),
-# libjollymaam and its headers (lib/, include/), and, where jollymaam runs
-# here, every board's firmware (firmware.zip).  A MinGW HOST_CC (nix develop
-# .#windows) gives the Windows ones.  make dist-android: the Android app too.
 DIST_DIR ?= $(O)/dist
 
 .PHONY: dist dist-android

@@ -1,5 +1,5 @@
 # 8BitDo Ultimate 2C Wireless: the pad, a Telink TLSR8208 (B80).
-#   8bitdo-ultimate2c-wireless-pad          in $(OBJDIR)/<board>/: update.bin, the
+#   8bitdo-ultimate2c-wireless-pad          in $(O)/<board>/: update.bin, the
 #                                           app's header and the app, above its
 #                                           updater; firmware.img, the two, for
 #                                           the boot loader
@@ -7,7 +7,7 @@
 #   8bitdo-ultimate2c-wireless-pad-stack    the deepest stack use against the room
 #                                           for it (part of -pad-test)
 #   8bitdo-ultimate2c-wireless-pad-test, 8bitdo-ultimate2c-wireless-all
-# A board's targets, all in $(OBJDIR)/<board>/: boot.link (the SDK's linker
+# A board's targets, all in $(O)/<board>/: boot.link (the SDK's linker
 # script, edited), app.elf (and app.map), app.bin, firmware.bin (with the
 # image header); for the pad also firmware.img.
 # The boot loader is 0x0000-0x5fff and starts the updater at 0x6000; stock
@@ -17,9 +17,9 @@
 # make/telink-lib.mk has the toolchain, the source lists and the types.
 
 U2CW_PAD := 8bitdo-ultimate2c-wireless-pad
-U2CW_PAD_DIR := $(OBJDIR)/$(U2CW_PAD)
+U2CW_PAD_DIR := $(O)/$(U2CW_PAD)
 U2CW_UPDATER := 8bitdo-ultimate2c-wireless-pad-updater
-U2CW_UPDATER_DIR := $(OBJDIR)/$(U2CW_UPDATER)
+U2CW_UPDATER_DIR := $(O)/$(U2CW_UPDATER)
 U2CW_STAMP := 6a0000005d02
 
 U2CW_LDFLAGS := --wrap=otp_read --wrap=bls_smp_param_saveBondingInfo --wrap=l2cap_att_handler
@@ -245,8 +245,8 @@ host/test-$(U2CW_PAD)_sources := $(HOST_TESTS)
 host/test-$(U2CW_PAD)_cppflags := -DBOARD_PID=\"U2C_WIRELESS\" $(U2CW_DEFINES) $(EXTRA_DEFINES) -DUNITTEST -DSETTINGS_STORE \
 	$(SRC_INCLUDES) -iquote $(self)
 host/test-$(U2CW_PAD)_compile.c = $(host-test-compile)
-$(call lib-objs,host/test-$(U2CW_PAD),$(HOST_TESTS_LIBJOLLYMAAM)): host_test_libs := $(OBJDIR)/host/libjollymaam.a
-$(call lib-objs,host/test-$(U2CW_PAD),$(HOST_TESTS_LIBJOLLYMAAM)): $(OBJDIR)/host/libjollymaam.a
+$(call lib-objs,host/test-$(U2CW_PAD),$(HOST_TESTS_LIBJOLLYMAAM)): host_test_libs := $(O)/host/libjollymaam.a
+$(call lib-objs,host/test-$(U2CW_PAD),$(HOST_TESTS_LIBJOLLYMAAM)): $(O)/host/libjollymaam.a
 $(call lib-objs,host/test-$(U2CW_PAD),$(HOST_TESTS_BTCTRLER)): host_test_ldflags := $(HOST_TESTS_BTCTRLER_LDFLAGS)
 
 # Our ATT server against BTstack's database code.
@@ -254,8 +254,8 @@ TARGETS += host/test-telink-att
 host/test-telink-att_toolchain := HOST_
 host/test-telink-att_sources := src/platform/telink/att_telink.c $(TELINK_BTSTACK_SOURCES)
 host/test-telink-att_cppflags := -DUNITTEST -I src/core -I src/platform/telink $(BTSTACK_INCLUDES)
-TRACKED += $(OBJDIR)/host/telink-att-test.ok
-$(OBJDIR)/host/telink-att-test.ok: $(OBJDIR)/host/test-telink-att
+TRACKED += $(O)/host/telink-att-test.ok
+$(O)/host/telink-att-test.ok: $(O)/host/test-telink-att
 	$(call lib-run,$< && touch $@,TEST)
 
 # The deepest stack use against the room above .bss, and the interrupts'
@@ -285,8 +285,8 @@ U2CW_STACK_RULES += find_log<<set_init
 .PHONY: $(U2CW_PAD)-stack $(U2CW_PAD)-test telink-att-test 8bitdo-ultimate2c-wireless-test
 $(U2CW_PAD)-stack: $(U2CW_PAD_DIR)/app.elf
 	$(Q)python3 -I tools/stackdepth.py --tools $(TELINK_TOOLS) $< $(foreach r,$(U2CW_STACK_RULES),'$(r)')
-telink-att-test: $(OBJDIR)/host/telink-att-test.ok
-$(U2CW_PAD)-test: $(OBJDIR)/host/test-$(U2CW_PAD) telink-att-test | $(U2CW_PAD)-stack
+telink-att-test: $(O)/host/telink-att-test.ok
+$(U2CW_PAD)-test: $(O)/host/test-$(U2CW_PAD) telink-att-test | $(U2CW_PAD)-stack
 8bitdo-ultimate2c-wireless-test: $(U2CW_PAD)-test
 test: 8bitdo-ultimate2c-wireless-test
 

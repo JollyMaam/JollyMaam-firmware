@@ -1,7 +1,7 @@
 # GameSir Nova 2 Lite: the pad, a Jieli BR23 (stock PID AC695X_TRANS), and
 # its dongle, a BD19 (AC632N). Each is the updater with the app above it.
 #   gamesir-nova-2-lite-pad, -dongle     firmware.img (and update.bin) in
-#                                        $(OBJDIR)/<board>/
+#                                        $(O)/<board>/
 #   gamesir-nova-2-lite-pad-updater, -dongle-updater   the updaters' app.bin
 #   gamesir-nova-2-lite-pad-test, -dongle-test, gamesir-nova-2-lite-test
 #   gamesir-nova-2-lite-all              both
@@ -14,13 +14,13 @@
 
 C2_DIR := src/boards/gamesir-cyclone-2
 N2P := gamesir-nova-2-lite-pad
-N2P_DIR := $(OBJDIR)/$(N2P)
+N2P_DIR := $(O)/$(N2P)
 N2D := gamesir-nova-2-lite-dongle
-N2D_DIR := $(OBJDIR)/$(N2D)
+N2D_DIR := $(O)/$(N2D)
 N2PU := gamesir-nova-2-lite-pad-updater
-N2PU_DIR := $(OBJDIR)/$(N2PU)
+N2PU_DIR := $(O)/$(N2PU)
 N2DU := gamesir-nova-2-lite-dongle-updater
-N2DU_DIR := $(OBJDIR)/$(N2DU)
+N2DU_DIR := $(O)/$(N2DU)
 
 # --- The pad's updater (src/updater/): in the app area, below stock's data at
 # 0x64000; the app's region at flash 0x80000 (0x7d000 above the app area),
@@ -229,8 +229,8 @@ host/test-$(N2P)_toolchain := HOST_
 host/test-$(N2P)_sources := $(HOST_TESTS)
 host/test-$(N2P)_cppflags := -DBOARD_PID=\"AC695X_TRANS\" $(EXTRA_DEFINES) -DUNITTEST $(JIELI_TEST_DEFINES) $(SRC_INCLUDES) -iquote $(C2_DIR)
 host/test-$(N2P)_compile.c = $(host-test-compile)
-$(call lib-objs,host/test-$(N2P),$(HOST_TESTS_LIBJOLLYMAAM)): host_test_libs := $(OBJDIR)/host/libjollymaam.a
-$(call lib-objs,host/test-$(N2P),$(HOST_TESTS_LIBJOLLYMAAM)): $(OBJDIR)/host/libjollymaam.a
+$(call lib-objs,host/test-$(N2P),$(HOST_TESTS_LIBJOLLYMAAM)): host_test_libs := $(O)/host/libjollymaam.a
+$(call lib-objs,host/test-$(N2P),$(HOST_TESTS_LIBJOLLYMAAM)): $(O)/host/libjollymaam.a
 $(call lib-objs,host/test-$(N2P),$(HOST_TESTS_BTCTRLER)): host_test_ldflags := $(HOST_TESTS_BTCTRLER_LDFLAGS)
 
 TARGETS += host/test-$(N2D)
@@ -239,13 +239,13 @@ host/test-$(N2D)_toolchain := HOST_
 host/test-$(N2D)_sources := $(HOST_TESTS)
 host/test-$(N2D)_cppflags := -DBOARD_PID=\"AC632N_TRANS\" $(N2D_DEFINES) $(N2D_HUB_DEFINES) $(N2D_HUB_DEFINES) $(EXTRA_DEFINES) -DUNITTEST $(JIELI_TEST_DEFINES) $(SRC_INCLUDES) -iquote $(C2_DIR)
 host/test-$(N2D)_compile.c = $(host-test-compile)
-$(call lib-objs,host/test-$(N2D),$(HOST_TESTS_LIBJOLLYMAAM)): host_test_libs := $(OBJDIR)/host/libjollymaam.a
-$(call lib-objs,host/test-$(N2D),$(HOST_TESTS_LIBJOLLYMAAM)): $(OBJDIR)/host/libjollymaam.a
+$(call lib-objs,host/test-$(N2D),$(HOST_TESTS_LIBJOLLYMAAM)): host_test_libs := $(O)/host/libjollymaam.a
+$(call lib-objs,host/test-$(N2D),$(HOST_TESTS_LIBJOLLYMAAM)): $(O)/host/libjollymaam.a
 $(call lib-objs,host/test-$(N2D),$(HOST_TESTS_BTCTRLER)): host_test_ldflags := $(HOST_TESTS_BTCTRLER_LDFLAGS)
 
 .PHONY: $(N2P)-test $(N2D)-test gamesir-nova-2-lite-test
-$(N2P)-test: $(OBJDIR)/host/test-$(N2P)
-$(N2D)-test: $(OBJDIR)/host/test-$(N2D)
+$(N2P)-test: $(O)/host/test-$(N2P)
+$(N2D)-test: $(O)/host/test-$(N2D)
 gamesir-nova-2-lite-test: $(N2P)-test $(N2D)-test
 test: gamesir-nova-2-lite-test
 

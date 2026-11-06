@@ -16,11 +16,11 @@ host/test-padhub_toolchain := HOST_
 host/test-padhub_sources := $(self)/test_padhub.c $(filter-out $(self)/padhub.c,$(PADHUB_SOURCES))
 host/test-padhub_cppflags := $(PADHUB_CPPFLAGS)
 
-TRACKED += $(OBJDIR)/host/padhub-test.ok
-$(OBJDIR)/host/padhub-test.ok: $(OBJDIR)/host/test-padhub
+TRACKED += $(O)/host/padhub-test.ok
+$(O)/host/padhub-test.ok: $(O)/host/test-padhub
 	$(call lib-run,$< && touch $@,TEST)
 
 .PHONY: padhub padhub-test
-padhub: $(OBJDIR)/host/padhub
-padhub-test: $(OBJDIR)/host/padhub-test.ok
+padhub: $(O)/host/padhub
+padhub-test: $(O)/host/padhub-test.ok
 test: padhub-test

@@ -6,16 +6,16 @@ JOLLYMAAM_PLATFORM ?= $(if $(findstring mingw,$(HOST_TRIPLE)),windows,$(if $(fin
 JOLLYMAAM_EXEEXT := $(if $(filter windows,$(JOLLYMAAM_PLATFORM)),.exe)
 JOLLYMAAM_LIBS := $(if $(filter windows,$(JOLLYMAAM_PLATFORM)),-lsetupapi -lhid -lcfgmgr32) \
 	$(if $(filter hidapi,$(JOLLYMAAM_PLATFORM)),$(shell pkg-config --cflags --libs hidapi))
-JOLLYMAAM_CLI := $(OBJDIR)/host/jollymaam$(JOLLYMAAM_EXEEXT)
+JOLLYMAAM_CLI := $(O)/host/jollymaam$(JOLLYMAAM_EXEEXT)
 
 TARGETS += host/jollymaam$(JOLLYMAAM_EXEEXT)
 host/jollymaam$(JOLLYMAAM_EXEEXT)_toolchain := HOST_
 host/jollymaam$(JOLLYMAAM_EXEEXT)_sources := $(self)/jollymaam.c $(self)/image.c \
 	$(self)/hooks_$(if $(filter windows,$(JOLLYMAAM_PLATFORM)),win32,$(JOLLYMAAM_PLATFORM)).c
 host/jollymaam$(JOLLYMAAM_EXEEXT)_cflags := -std=c99
-host/jollymaam$(JOLLYMAAM_EXEEXT)_deps := $(OBJDIR)/host/libjollymaam.a
+host/jollymaam$(JOLLYMAAM_EXEEXT)_deps := $(O)/host/libjollymaam.a
 host/jollymaam$(JOLLYMAAM_EXEEXT)_ldflags := $(if $(filter 1,$(JOLLYMAAM_STATIC)),-static $(addprefix -L,$(JOLLYMAAM_LIBC_STATIC))) $(JOLLYMAAM_LDFLAGS)
-host/jollymaam$(JOLLYMAAM_EXEEXT)_ldlibs := $(OBJDIR)/host/libjollymaam.a $(JOLLYMAAM_LIBS)
+host/jollymaam$(JOLLYMAAM_EXEEXT)_ldlibs := $(O)/host/libjollymaam.a $(JOLLYMAAM_LIBS)
 
 # An updater and an app above it as one image (pack join; see jollymaam
 # help), from the target's jollymaam_join.
@@ -30,9 +30,9 @@ libjollymaam-test: $(JOLLYMAAM_CLI)
 # (DESTDIR: a staging prefix).
 PREFIX ?= /usr/local
 .PHONY: install
-install: $(JOLLYMAAM_CLI) $(OBJDIR)/host/libjollymaam.a
+install: $(JOLLYMAAM_CLI) $(O)/host/libjollymaam.a
 	$(Q)install -d $(DESTDIR)$(PREFIX)/bin $(DESTDIR)$(PREFIX)/lib $(DESTDIR)$(PREFIX)/include/jollymaam/jieli_image
 	$(Q)install -m755 $(JOLLYMAAM_CLI) $(DESTDIR)$(PREFIX)/bin/
-	$(Q)install -m644 $(OBJDIR)/host/libjollymaam.a $(DESTDIR)$(PREFIX)/lib/
+	$(Q)install -m644 $(O)/host/libjollymaam.a $(DESTDIR)$(PREFIX)/lib/
 	$(Q)install -m644 src/lib/*.h $(DESTDIR)$(PREFIX)/include/jollymaam/
 	$(Q)install -m644 src/lib/jieli_image/*.h $(DESTDIR)$(PREFIX)/include/jollymaam/jieli_image/

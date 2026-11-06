@@ -8,8 +8,8 @@
 #   host/test-BOARD_sources := $(HOST_TESTS)
 #   host/test-BOARD_cppflags := ...the board's -D flags... -DUNITTEST $(SRC_INCLUDES) -iquote BOARD_DIR
 #   host/test-BOARD_compile.c = $(host-test-compile)
-#   $(call lib-objs,host/test-BOARD,$(HOST_TESTS_LIBJOLLYMAAM)): host_test_libs := $(OBJDIR)/host/libjollymaam.a
-#   $(call lib-objs,host/test-BOARD,$(HOST_TESTS_LIBJOLLYMAAM)): $(OBJDIR)/host/libjollymaam.a
+#   $(call lib-objs,host/test-BOARD,$(HOST_TESTS_LIBJOLLYMAAM)): host_test_libs := $(O)/host/libjollymaam.a
+#   $(call lib-objs,host/test-BOARD,$(HOST_TESTS_LIBJOLLYMAAM)): $(O)/host/libjollymaam.a
 #   $(call lib-objs,host/test-BOARD,$(HOST_TESTS_BTCTRLER)): host_test_ldflags := $(HOST_TESTS_BTCTRLER_LDFLAGS)
 #
 # Each "object" is a test program (compiled and linked in one step); the
