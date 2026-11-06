@@ -7,7 +7,7 @@ are in [../jieli/sdk-toolchain.md](../jieli/sdk-toolchain.md).
 
 | Item | Value |
 |---|---|
-| Jieli SDK | unmodified; the linker script is patched at build time (below) |
+| Jieli SDK | unmodified; the linker script is our copy of the SDK's (below) |
 | Host tools | `gcc -std=c11`, for host unit tests and the image tool only |
 | BTstack | upstream master plus bug fixes only, from the project's fork, built from source. Some symbols are renamed at build time to avoid clashing with the SDK's controller. |
 | Controller | BR23: the project's own C controller; no SDK controller archive is linked. BD19: the SDK's controller archive. |
@@ -31,13 +31,16 @@ SDK board configuration values used by the build:
 
 ## Linker script
 
-The SDK linker script is patched at build time:
+The linker script is the SDK's `cpu/<chip>/sdk_ld.c`, copied to
+`src/platform/jieli/sdkconfig/sdk_ld_br23.c` and `sdk_ld_bd19.c` and changed:
 
 - The heap end moves from `RAM_END` to `RESET_MAILBOX_BEGIN` (`0x20000`).
-- The Bluetooth controller's `.bss` is placed so that it does not overlap the
-  MaskROM boot-state token at `0x10800`.
-- A pad's app (`NAME_MAIN_AT`): `code0` starts `MAIN_AT` higher. The updater: its entry
-  goes ahead of `.startup.text` ([updater.md](updater.md)).
+- BR23: the Bluetooth controller's `.bss` is placed so that it does not
+  overlap the MaskROM boot-state token at `0x10800`.
+- An app above its updater (`-DLD_CODE_AT=OFFSET`): `code0` starts `OFFSET`
+  higher. An updater (`-DLD_UPDATER`): its entry goes ahead of
+  `.startup.text` ([updater.md](updater.md)).
+- BD19: `bd19_app.ld` is included at the end.
 
 The application script places:
 

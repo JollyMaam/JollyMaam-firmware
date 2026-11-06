@@ -41,7 +41,7 @@ SECTIONS
      * near 0x11424, while its high workspace starts at 0x2bdc0.  SDK startup
      * does not clear this address.
      *
-     * The Makefile also moves HEAP_END down to RESET_MAILBOX_BEGIN.  Keep the
+     * sdk_ld_*.c also move HEAP_END down to RESET_MAILBOX_BEGIN.  Keep the
      * reservation larger than the payload so the ABI can grow without moving
      * its address.
      */
@@ -68,7 +68,7 @@ ASSERT(RESET_MAILBOX_BEGIN >= RAM_USED,
        "normal RAM sections overlap soft-reset mailbox")
 /* The Bluetooth controller's RAM (its baseband buffers among it) must not
  * cover the token: the radio overwrote it and `uboot` rebooted into the app.
- * The Makefile starts that block at MASKROM_TOKEN_END at the earliest; the
+ * sdk_ld_br23.c starts that block at MASKROM_TOKEN_END at the earliest; the
  * space below it goes to the app's .bss or stays unused. */
 ASSERT(btctler_bss_start >= MASKROM_TOKEN_END ||
        btctler_bss_end <= MASKROM_TOKEN_BEGIN,

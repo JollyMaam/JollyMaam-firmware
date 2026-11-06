@@ -40,9 +40,10 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   every directory listed in the top `Makefile`'s `RULES` from its
   `rules.mk`; its header documents the target properties.  Each
   `src/boards/<product>/rules.mk` spells out its boards' targets (its header
-  lists them); per chip, `make/<chip>.mk` has the data (`jieli.mk`,
-  `telink.mk`) and `make/<chip>-lib.mk` the toolchain, source lists and build
-  steps (`jieli-lib.mk`, `telink-lib.mk`, `yc3121-lib.mk`);
+  lists them) from source units: `make/sources.mk` (core and profiles),
+  `make/btstack.mk`, and per platform `make/jieli.mk` (everything Jieli:
+  `JIELI_COMMON_*` plus `JIELI_BR23_*` / `JIELI_BD19_*`, never filtered),
+  `make/telink.mk` with `telink-lib.mk`, `make/yc3121-lib.mk`;
   `make/host-tests.mk` the unit tests.  libjollymaam, `jollymaam` and
   `padhub` have their own `rules.mk`.  `make` builds every board but the U2C
   Bluetooth (it needs `arm-none-eabi-gcc` and a stock dump); `make all`
@@ -128,8 +129,10 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   `bt_pad.c`, `btstack_hci_jieli.c`, `platform_jieli*.c`.  Python tools have
   `test_*.py` beside them (the GUI tests need Tk: use a Nix shell with
   `tkinter`, and `xvfb-run` for a display).
-- The SDKs stay unmodified (their linker scripts are patched at build time:
-  `JIELI_SDK_LD_SED` in `make/jieli-lib.mk`).  BTstack stays upstream: bug-fix patches only, carried on
+- The SDKs stay unmodified.  The Jieli linker scripts are our copies of the
+  SDK's (`src/platform/jieli/sdkconfig/sdk_ld_br23.c`, `sdk_ld_bd19.c`,
+  changes marked "ours"); Telink's is patched at build time
+  (`make/telink-lib.mk`).  BTstack stays upstream: bug-fix patches only, carried on
   the fork.
 - Keep `pad.h`'s section comments in step with interface changes.
 - Commit messages: `Area: what changed` as the subject, then prose on why

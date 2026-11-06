@@ -19,9 +19,9 @@ HOST_ARFLAGS := rcs
 include make/lib.mk
 .DEFAULT_GOAL := firmware
 
+include make/sources.mk
 include make/btstack.mk
 include make/jieli.mk
-include make/jieli-lib.mk
 include make/telink.mk
 include make/telink-lib.mk
 include make/yc3121-lib.mk
