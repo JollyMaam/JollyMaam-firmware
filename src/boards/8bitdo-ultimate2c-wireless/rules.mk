@@ -133,6 +133,7 @@ $(U2CW_UPDATER)/app.elf_cppflags := $(U2CW_UPDATER_FLAGS)
 $(U2CW_UPDATER)/app.elf_ldflags := $(U2CW_LDFLAGS) -T $(U2CW_UPDATER_DIR)/boot.link -Map $(U2CW_UPDATER_DIR)/app.map
 $(U2CW_UPDATER)/app.elf_deps := $(U2CW_UPDATER_DIR)/boot.link $(TELINK_ARCHIVES)
 $(U2CW_UPDATER)/app.elf_order_deps := $(BUILD_ID_H)
+
 $(call lib-objs,$(U2CW_UPDATER)/app.elf,$(U2CW_UPDATER_SOURCES)): obj_cppflags += $(U2CW_INCLUDES)
 $(call lib-objs,$(U2CW_UPDATER)/app.elf,$(U2CW_UPDATER_SOURCES)): obj_cflags += $(TELINK_CFLAGS)
 $(call lib-objs,$(U2CW_UPDATER)/app.elf,$(TELINK_SDK_SOURCES)): obj_cppflags += $(TELINK_INCLUDES)
