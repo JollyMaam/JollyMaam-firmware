@@ -299,7 +299,9 @@ struct bt_device {
  * read() answers; BT_WRITE_VENDOR only there: a USB vendor request on EP0
  * (id: bRequest, offset: wValue; max 0 for one without data to the host,
  * accepted when read() returns 0). */
+#ifndef BT_WRITE_MAX                 /* a build may take longer ones (the U2CB's updater) */
 #define BT_WRITE_MAX 96
+#endif
 enum { BT_WRITE_OUTPUT, BT_WRITE_FEATURE, BT_WRITE_ATT, BT_WRITE_BULK, BT_WRITE_VENDOR };
 struct bt_write {
     u8 kind;

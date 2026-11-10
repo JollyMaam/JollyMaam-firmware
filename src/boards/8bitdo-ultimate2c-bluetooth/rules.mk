@@ -67,8 +67,11 @@ TARGETS += u2cb/hello/app.bin
 u2cb/hello/app.bin_type := yc3121-bin
 u2cb/hello/app.bin_deps := $(O)/u2cb/hello/app.elf
 
-# --- Updater: USB and LE (bt_yc3121.c holds writes of 96 bytes at most:
-# UPDATE_DATA over LE in 64); its log as the app's, so the two keep one ring
+# --- Updater: USB and LE; the core takes writes of 244 bytes at most (251
+# fails and drops the link): UPDATE_DATA over LE in 224.  Such a write lost
+# while an erase holds the CPU (the core answers ATT error 0x0e): BEGIN erases
+# it all (seconds).  Its log as the app's,
+# so the two keep one ring
 
 U2CB_UPDATER_SOURCES :=
 U2CB_UPDATER_SOURCES += src/updater/updater.c
@@ -92,7 +95,7 @@ TARGETS += u2cb/updater/app.elf
 u2cb/updater/app.elf_toolchain := YC3121_
 u2cb/updater/app.elf_sources := $(U2CB_UPDATER_SOURCES)
 u2cb/updater/app.elf_cppflags := -DBOARD_PID=\"U2C_BLUETOOTH\" $(BUILD_ID_CPPFLAGS) \
-	-DUPDATER -DUPD_LE_DATA_MAX=64 -DMAIN_AT=$(U2CB_MAIN_AT) $(U2CB_STORE) -DLOG_LINES=32 $(EXTRA_DEFINES) \
+	-DUPDATER -DBT_WRITE_MAX=244 -DUPD_LE_DATA_MAX=224 -DUPD_ERASE_AT_BEGIN -DMAIN_AT=$(U2CB_MAIN_AT) $(U2CB_STORE) -DLOG_LINES=32 $(EXTRA_DEFINES) \
 	$(YC3121_SRC_INCLUDES) -iquote $(self)
 u2cb/updater/app.elf_ldflags := $(YC_CFLAGS) -Wl,--defsym=TEXT_END=0x01020000 $(YC_LDFLAGS) -Wl,-Map,$(O)/u2cb/updater/app.map
 u2cb/updater/app.elf_deps := $(YC_LDSCRIPT)

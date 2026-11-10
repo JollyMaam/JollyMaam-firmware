@@ -39,7 +39,7 @@ export async function sendImage(up, image, log, progress) {
   up.frameData = Math.max(chunk, HEADER_CHECKED);   // one frame a command: the updater has no MORE
 
   await up.cmd(CMD.UPDATE_BEGIN, { arg: image.length, data: image.subarray(0, HEADER_CHECKED) });
-  info = await up.updateInfo();
+  info = await up.updateInfo(10000);   // BEGIN erases: all the image's room on the U2CB, seconds
   if (info.error) {
     throw new Error(info.state === 0 && info.error !== 8
       ? `refused, nothing changed: ${why(info.error)}` : `begin: ${why(info.error)} (the pad stays in its updater)`);

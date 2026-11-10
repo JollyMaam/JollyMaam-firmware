@@ -110,6 +110,13 @@ static u8 begin(u32 size, const u8 *h, u32 n)
     memcpy(head, h, JM_MAIN_CHECKED_SIZE);
     if ((e = upd_prepare())) return e;
     upd_erase(0);
+#ifdef UPD_ERASE_AT_BEGIN        /* all of it now: no data write waits for an erase (U2CB over LE) */
+    {
+        u32 at;
+
+        for (at = SECTOR; at < size; at += SECTOR) upd_erase(at);
+    }
+#endif
     if ((e = upd_erased())) return e;
     begun = size;
     written = 0;
@@ -127,8 +134,10 @@ static u8 data(u32 offset, const u8 *d, u32 n)
      * writes without response); the host resends from UPDATE_INFO's count. */
     if (offset != written) return JM_UPDATE_ERR_NONE;
     if (!n || n > begun - written) return JM_UPDATE_ERR_ORDER;
+#ifndef UPD_ERASE_AT_BEGIN
     if (offset / SECTOR != (offset + n - 1) / SECTOR || (offset && !(offset % SECTOR)))
         upd_erase((offset + n - 1) & ~(SECTOR - 1));
+#endif
     if (!offset) {
         if (n < JM_MAIN_CHECKED_SIZE || memcmp(d, head, JM_MAIN_CHECKED_SIZE)) return JM_UPDATE_ERR_HEADER;
         memcpy(held, d, 4);

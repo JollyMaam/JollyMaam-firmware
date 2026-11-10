@@ -740,11 +740,12 @@ def update(link, image, progress=None):
     pid = image[24:40].split(b"\0")[0].decode(errors="replace")
     start = time.monotonic()
     link.cmd(0x42, len(image), out=image[:0x2c])
-    i = update_info(link)
+    i = update_info(link, 10000)
     if i["error"] and i["state"] == 0 and i["error"] != 8:
         sys.exit(f"padtool: refused, nothing changed: {UPDATE_ERRORS[i['error']] if i['error'] < len(UPDATE_ERRORS) else i['error']}"
                  f" (image for {pid})")
-    print(f"image for {pid}; chip key {update_step(link, 'begin')['key']:#06x}")
+    # BEGIN erases: the whole image's room on the U2CB (seconds).
+    print(f"image for {pid}; chip key {update_step(link, 'begin', 10000)['key']:#06x}")
     # The pad takes only the next bytes and counts them; behind its count
     # (a write lost on the way), start again from there.
     chunk = min(link.chunk, i["data_max"] or link.chunk)
