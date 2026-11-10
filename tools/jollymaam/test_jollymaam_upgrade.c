@@ -92,7 +92,10 @@ static void simulate_yichip(int wrong_model, int corrupt_verify) {
   memset(flash, 0x5a, sizeof flash);
   struct jm_8bitdo_upgrade op;
   assert(!jm_8bitdo_yichip_init(&op, app, 0x64001));
-  assert(jm_8bitdo_yichip_init(&op, app, sizeof app) && op.stream == 65536 && op.sectors == 32);
+  assert(!jm_8bitdo_yichip_init(&op, app, 0x48000 - 511));   /* the stream's last block stays padding */
+  assert(jm_8bitdo_yichip_init(&op, app, 0x48000 - 512) && op.stream == 0x48000);
+  assert(jm_8bitdo_yichip_init(&op, app, 0x8000 - 511) && op.stream == 0x10000);
+  assert(jm_8bitdo_yichip_init(&op, app, sizeof app) && op.stream == 65536 && op.sectors == 16 + 10);   /* verified: the app, to 512 */
   unsigned erased = 0, programmed = 0, starts = 0, transfers = 0, last = 0;
   int need_reply;
   enum jm_8bitdo_step step;
@@ -123,7 +126,7 @@ static void simulate_yichip(int wrong_model, int corrupt_verify) {
       } else {
         assert(command == 5 && programmed == 65536 && n <= 46 && off / 4096 == (off + n - 1) / 4096);
         reply[6] = n; memcpy(reply + 18, flash + off, n);
-        if (corrupt_verify && off == 40960) reply[18] ^= 1;
+        if (corrupt_verify && off == 36864) reply[18] ^= 1;
       }
     }
     jm_8bitdo_upgrade_complete(&op, 1, reply, sizeof reply);

@@ -580,7 +580,11 @@ static int oemflash_one(struct jm *jm, const struct jm_firmware *fw, struct jm_f
       say(jm, "%s: the image for %s does not fit its loader", where(f), p->pid);
     else {
       say(jm, "%s: %s, writing it", where(f), p->pid);
-      ok = !run_8bitdo(jm, dev, &op);
+      int r = run_8bitdo(jm, dev, &op);
+      ok = !r;
+      if (r)
+        say(jm, "%s: stopped in phase %u at 0x%08x+0x%x (%d)", where(f), op.phase,
+            p->chip == JM_CHIP_YC3121 ? JM_8BITDO_YICHIP_BASE : 0, op.offset, r);
     }
   }
   dev_close(jm, dev);

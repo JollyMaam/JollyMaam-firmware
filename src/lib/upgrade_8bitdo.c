@@ -6,10 +6,19 @@ enum { IDENTIFY, COMPARE, ERASE, CHECK_ERASE, PROGRAM, VERIFY, START, DONE, FAIL
 
 /* ---- Yichip: one stream (JM_8BITDO_YICHIP_* in proto_8bitdo.h) ------------
  * IDENTIFY (model 301a), ERASE at the base with the stream's length, PROGRAM
- * it in encrypted 46-byte pieces, VERIFY reading it back (46 bytes at a time
- * within each 4 KiB, as the reads are known to work), START.  offset counts
- * the stream's bytes in the phase; progress is in 4 KiB, programmed then
- * verified. */
+ * it in encrypted 46-byte pieces, VERIFY reading the image back (46 bytes
+ * at a time within each 4 KiB, as the reads are known to work), START.
+ * offset counts the stream's bytes in the phase; progress is in 4 KiB,
+ * programmed then verified.
+ *
+ * The padding is not verified: the stream's last 512-byte block reads back
+ * wrong (0x01047e00 for a stream to 0x01048000, 2026-11-09; 28 99 ff ff ff
+ * ff 28 99 ...), also after a stream past it read it right.  Hence too the
+ * stream keeps its last block for padding. */
+static uint32_t yichip_verified(const struct jm_8bitdo_upgrade *op) {
+  return (uint32_t)((op->size + JM_8BITDO_YICHIP_CIPHER_BLOCK - 1) / JM_8BITDO_YICHIP_CIPHER_BLOCK *
+                    JM_8BITDO_YICHIP_CIPHER_BLOCK);
+}
 static uint8_t yichip_plain(const struct jm_8bitdo_upgrade *op, uint32_t at) {
   return at < op->size ? op->image[at] : 0xff;
 }
@@ -25,7 +34,7 @@ static uint8_t yichip_cipher(struct jm_8bitdo_upgrade *op, uint32_t at) {
   return op->cipher[at % JM_8BITDO_YICHIP_CIPHER_BLOCK];
 }
 static unsigned yichip_chunk(const struct jm_8bitdo_upgrade *op) {
-  uint32_t left = op->stream - op->offset;
+  uint32_t left = (op->phase == VERIFY ? yichip_verified(op) : op->stream) - op->offset;
   if (op->phase == VERIFY && 4096 - op->offset % 4096 < left) left = 4096 - op->offset % 4096;
   return left < JM_8BITDO_CHUNK ? (unsigned)left : JM_8BITDO_CHUNK;
 }
@@ -35,14 +44,15 @@ static unsigned yichip_chunk(const struct jm_8bitdo_upgrade *op) {
 int jm_8bitdo_yichip_init(struct jm_8bitdo_upgrade *op, const uint8_t *app, size_t size) {
   const uint32_t room = (JM_8BITDO_YICHIP_END - JM_8BITDO_YICHIP_BASE) / JM_8BITDO_YICHIP_BLOCK *
                         JM_8BITDO_YICHIP_BLOCK;
-  if (!op || !app || !size || size > room)
+  if (!op || !app || !size || size + JM_8BITDO_YICHIP_CIPHER_BLOCK > room)
     return 0;
   memset(op, 0, sizeof *op);
   op->yichip = 1;
   op->image = app;
   op->size = size;
-  op->stream = (uint32_t)((size + JM_8BITDO_YICHIP_BLOCK - 1) / JM_8BITDO_YICHIP_BLOCK * JM_8BITDO_YICHIP_BLOCK);
-  op->sectors = 2 * op->stream / 4096;
+  op->stream = (uint32_t)((size + JM_8BITDO_YICHIP_CIPHER_BLOCK + JM_8BITDO_YICHIP_BLOCK - 1) /
+                          JM_8BITDO_YICHIP_BLOCK * JM_8BITDO_YICHIP_BLOCK);
+  op->sectors = op->stream / 4096 + (yichip_verified(op) + 4095) / 4096;
   op->cipher_block = 0xffffffffu;
   op->phase = IDENTIFY;
   return 1;
@@ -105,8 +115,8 @@ static enum jm_8bitdo_result yichip_complete(struct jm_8bitdo_upgrade *op, const
     break;
   }
   op->offset += count;
-  op->completed = (op->phase == VERIFY ? op->stream : 0) / 4096 + op->offset / 4096;
-  if (op->offset == op->stream) {
+  op->completed = (op->phase == VERIFY ? op->stream : 0) / 4096 + (op->offset + 4095) / 4096;
+  if (op->offset == (op->phase == VERIFY ? yichip_verified(op) : op->stream)) {
     op->offset = 0;
     op->phase = op->phase == PROGRAM ? VERIFY : START;
   }
