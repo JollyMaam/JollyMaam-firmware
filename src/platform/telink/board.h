@@ -39,12 +39,16 @@ int plat_bt_input_window(void);          /* a report would be wanted now (no sid
 void plat_bt_systimer(u32 fired);
 
 /* The updater (src/updater/updater_telink.c) and analog register 0x3c,
- * kept through a reset: UPDATER_STAY asks it to stay rather than start the
- * app; UPDATER_STAY + n counts n starts of the app that never came up (the
- * updater stays after UPDATER_TRIES_MAX); UPDATER_UP, its power-on value,
- * is the app up.  The 8BitDo boot loader acts on 0x5a and 0x5b there. */
+ * kept through a reset (the only one the SDK leaves us that a reset does
+ * not clear): UPDATER_STAY asks it to stay rather than start the app;
+ * UPDATER_STAY + n counts n starts of the app that never came up (the
+ * updater stays after UPDATER_TRIES_MAX); UPDATER_CONFIG asks it to start
+ * the app in config mode, and UPDATER_CONFIG + n counts those starts;
+ * UPDATER_UP, its power-on value, is the app up.  The 8BitDo boot loader
+ * acts on 0x5a and 0x5b there. */
 #define UPDATER_STAY_REG  0x3c
 #define UPDATER_STAY      0xa0
+#define UPDATER_CONFIG    0xc0
 #define UPDATER_TRIES_MAX 3
 #define UPDATER_UP        0x0f
 void updater_boot(void);                 /* first in main(): may start the app instead */

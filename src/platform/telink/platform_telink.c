@@ -378,9 +378,22 @@ void plat_reboot_updater(void)
     plat_reboot();
 }
 
-/* No config mode here to restart into. */
-void plat_reboot_config(void) { plat_reboot(); }
-int plat_config_asked(void) { return 0; }
+/* The app in config mode, through the updater (board.h). */
+static u8 config_asked;          /* the app: 0x3c said so at start */
+
+void plat_reboot_config(void)
+{
+    analog_write(UPDATER_STAY_REG, UPDATER_CONFIG);
+    plat_reboot();
+}
+
+int plat_config_asked(void)
+{
+    u8 asked = config_asked;
+
+    config_asked = 0;
+    return asked;
+}
 
 /* The 8BitDo boot loader stays in its USB loader after a reset when analog
  * register 0x3c holds 0x5a (it survives the reset). */
@@ -462,6 +475,7 @@ int main(void)
     }
 #endif
 #ifndef UPDATER                          /* the app: up, the updater's count of its starts ends */
+    config_asked = (analog_read(UPDATER_STAY_REG) & 0xf0) == UPDATER_CONFIG;
     analog_write(UPDATER_STAY_REG, UPDATER_UP);
 #endif
     ctl_main();

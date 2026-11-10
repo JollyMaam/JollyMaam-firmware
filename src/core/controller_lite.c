@@ -300,6 +300,11 @@ static void start(void)
 #else
     ux_ignore_held();
 #endif
+    if (plat_config_asked()) {
+        util_log("config mode: the updater asks");
+        start_config();
+        return;
+    }
     if (b.cause == BOOT_HOME
 #ifdef U2CW_REQUIRE_SLOT_SELECTION
         && (c.slot_chosen || c.radio_24g)
@@ -750,6 +755,8 @@ u8 plat_retained_slot(void) { return retained; }
 void plat_retain_slot(u8 slot) { retained = slot; retained_writes++; }
 static u8 boot_cause = BOOT_HOME;
 void plat_boot_info(struct plat_boot *out) { out->cause = boot_cause; out->buttons_held = 0; }
+static int config_asked;
+int plat_config_asked(void) { int a = config_asked; config_asked = 0; return a; }
 int bt_poll(struct bt_ev *ev)
 { if (event_at == event_count) return 0; *ev = test_events[event_at++]; return 1; }
 void set_pairing_store(u8 slot, const u8 address[6], const struct bt_bond *bond)
@@ -1210,6 +1217,10 @@ int main(void)
         stopped(test_ms); CHECK(c.idle && !c.config);
         select_session(REQ_CONNECT, SLOT_LAST, 0); stopped(test_ms);
         CHECK(c.slot == 1 && profile == &profile_generic_ble && !c.config);
+        /* after an update the updater asks for config mode: it starts at boot, whatever the cause */
+        test_reset(); c.linked = 0; boot_cause = BOOT_RESET; config_asked = 1; start();
+        CHECK(c.config && profile == &profile_config && starts == 1 && !config_asked);
+        boot_cause = BOOT_HOME;
     }
     return TEST_DONE("controller_lite power");
 }

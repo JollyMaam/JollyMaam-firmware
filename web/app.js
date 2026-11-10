@@ -175,17 +175,21 @@ async function update() {
   $("fwprogress").hidden = false;
   $("fwprogress").value = 0;
   say("Updating: keep this page open and the pad on.");
-  let up = null;
+  let up = null, written = false;
   try {
     up = await intoUpdater(p, links, fwLog);
     await sendImage(up, data, fwLog, (done, total) => { $("fwprogress").value = done / total; });
+    written = true;
     const fresh = await finish(up, links, fwLog);
     $("fwprogress").hidden = true;
     $("settings").replaceChildren();
     await attach(fresh);
   } catch (error) {
-    fwLog(`failed: ${error.message || error}`);
-    say("The update failed. The pad stays in its updater: Connect to it (it advertises as \"… Update\") and update again, or press Home to go back to its app if that is still whole.", true);
+    fwLog(`${written ? "not found again" : "failed"}: ${error.message || error}`);
+    $("fwprogress").hidden = true;
+    if (written) say("The new firmware is written and started, but did not come back in config mode " +
+      "(an older updater does not ask for it): hold Home+M for 3 s, then Connect.");
+    else say("The update failed. The pad stays in its updater: Connect to it (it advertises as \"… Update\") and update again, or press Home to go back to its app if that is still whole.", true);
     up?.close();
     $("connect").hidden = false;
   }

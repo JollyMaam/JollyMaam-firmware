@@ -48,23 +48,24 @@ void updater_boot(void)
     const volatile u32 *head = (const volatile u32 *)REGION;
     u32 entry = REGION + JM_MAIN_HEAD_SIZE, bytes;
 
-    u32 tries;
+    u32 tries, config;
 
     boot_flag = analog_read(UPDATER_STAY_REG);
-    tries = (boot_flag & 0xf0) == UPDATER_STAY ? boot_flag & 0x0f : 0;
+    config = (boot_flag & 0xf0) == UPDATER_CONFIG;
+    tries = (boot_flag & 0xf0) == UPDATER_STAY || config ? boot_flag & 0x0f : 0;
     analog_write(UPDATER_STAY_REG, UPDATER_UP);
     if (boot_flag == UPDATER_STAY || tries >= UPDATER_TRIES_MAX) return;
     if (head[0] != JM_MAIN_MAGIC || head[3] != entry || head[4] != JM_MAIN_VERSION) return;
     if (*(const volatile u32 *)(entry + 8) != 0x544c4e4b) return;      /* "KNLT" */
     bytes = (*(const volatile u32 *)(entry + 0x0c) & 0xffff) << 4;
     if (!bytes || bytes > RAM_COPY_MAX) return;
-    analog_write(UPDATER_STAY_REG, (u8)(UPDATER_STAY + tries + 1));
+    analog_write(UPDATER_STAY_REG, (u8)((config ? UPDATER_CONFIG : UPDATER_STAY) + tries + 1));
     start_app(entry, bytes);
 }
 
 void upd_started(void)
 {
-    if (boot_flag == UPDATER_STAY + UPDATER_TRIES_MAX)
+    if (boot_flag == UPDATER_STAY + UPDATER_TRIES_MAX || boot_flag == UPDATER_CONFIG + UPDATER_TRIES_MAX)
         util_log("updater: the app started %u times without coming up", UPDATER_TRIES_MAX);
     else
         util_log("updater: boot flag %02x", boot_flag);
