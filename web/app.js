@@ -321,7 +321,7 @@ async function attach(p) {
     poll = setInterval(async () => {
       try { showStatus(await pad.status()); } catch { /* the disconnect handler says it */ }
     }, STATUS_EVERY_MS);
-    say("Reading its settings…");
+    say("");                     // the folds and their spinners show the reading
     await loadSettings();
     say(`${table.length} settings in ${values.size} groups. Changes apply on the next connect.`);
     $("tests").hidden = false;
@@ -331,32 +331,23 @@ async function attach(p) {
 }
 
 // Where the settings will be, while they are read: each group folded and
-// greyed, the one being read turning, and a progress bar.
+// greyed, the one being read turning.
 function pending(names, done) {
   $("settings").replaceChildren(...names.map((name, i) => h("div", { class: "pending", "aria-busy": i >= done ? "true" : null },
     h("span", { class: "tri" }, "▸"), name, i === done ? h("span", { class: "spinner", "aria-hidden": "true" }) : null)));
 }
 
 async function loadSettings() {
-  const bar = $("loadprogress");
-  bar.hidden = false;
-  bar.removeAttribute("value");         // how many there are comes with the table
-  pending(["Settings"], 0);
-  try {
-    table = await pad.fields();
-    const targets = targetsFor(table);
-    values = new Map();
-    defaults = new Map();
-    bar.max = targets.length;
-    for (const [i, t] of targets.entries()) {
-      bar.value = i;
-      pending(targets.map(targetName), i);
-      await readTarget(t);
-    }
-    render();
-  } finally {
-    bar.hidden = true;
+  pending(["Settings"], 0);             // the groups come with the table
+  table = await pad.fields();
+  const targets = targetsFor(table);
+  values = new Map();
+  defaults = new Map();
+  for (const [i, t] of targets.entries()) {
+    pending(targets.map(targetName), i);
+    await readTarget(t);
   }
+  render();
 }
 
 function stop() {
