@@ -264,9 +264,22 @@ export class Pad {
   #reply(r) {
     this.maxReply = Math.max(this.maxReply, r.length);
     const p = this.pending;
-    if (!p || (r[0] & ~MORE) !== p.sub) return;    // the rest of an answer nobody waits for
+    if (!p || (r[0] & ~MORE) !== p.sub) {        // the rest of an answer nobody waits for
+      // The last piece of the answer just taken, once more: each
+      // notification comes twice, because another program (a second
+      // browser, padtool --ble) also listens to this pad through BlueZ,
+      // and the answers here are garbled.
+      const last = this.lastPiece;
+      if (last && Date.now() - last.at < 500 && r.length === last.data.length && r.every((b, i) => b === last.data[i])) {
+        this.lastPiece = null;
+        this.onDoubled?.(this);
+      }
+      return;
+    }
     p.parts.push(r.subarray(1));
     if (r[0] & MORE) return;
+    this.lastPiece = { data: Uint8Array.from(r), at: Date.now() };
+    this.pending = null;          // done: a copy of this piece is a stray now
     const answer = new Uint8Array(p.parts.reduce((n, x) => n + x.length, 0));
     p.parts.reduce((o, x) => (answer.set(x, o), o + x.length), 0);
     p.resolve(answer);

@@ -285,8 +285,41 @@ async function save() {
   }
 }
 
+// One page talks to a pad at a time: two windows of this page would each
+// take the other's answers (one link, one subscription in the browser).
+let releaseLock = null;
+
+function takeLock() {
+  if (!navigator.locks) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    navigator.locks.request("jollymaam-pad-link", { ifAvailable: true }, (lock) => {
+      resolve(!!lock);
+      return lock ? new Promise((r) => { releaseLock = r; }) : undefined;
+    });
+  });
+}
+
+function dropLock() {
+  releaseLock?.();
+  releaseLock = null;
+}
+
+// Each answer came twice: another program listens to this pad.
+function doubled(p) {
+  p.doubled = true;
+  p.onDisconnect = null;
+  p.close();
+  disconnect();
+  say("Every answer from the pad arrives twice: another program is connected to it too (another browser, " +
+    "or padtool --ble). Close that, then Connect again.", true);
+}
+
 async function connect() {
   disconnect();
+  if (!(await takeLock())) {
+    return say("The pad settings page is already connected in another tab or window: use that one, " +
+      "or Disconnect there first.", true);
+  }
   say("Choose your pad (hold Home+M for 3 s to put it in config mode).");
   let link;
   try {
@@ -294,6 +327,7 @@ async function connect() {
   } catch (error) {
     console.info(`link: choosing failed: ${error.name}: ${error.message}${error.step ? ` (at ${error.step})` : ""}`);
     say(error.name === "NotFoundError" ? "No pad chosen." : String(error.message || error), error.name !== "NotFoundError");
+    dropLock();
     return;
   }
   say("");
@@ -304,10 +338,13 @@ async function connect() {
   // still ending the old one: then a fresh link, for up to 8 s.
   const end = Date.now() + 8000;
   for (let p = new Pad(link); ; ) {
+    p.onDoubled = doubled;
     try {
       await p.identify();
+      if (p.doubled) return;
       return attach(p);
     } catch (error) {
+      if (p.doubled) return;
       console.info(`link: the first command failed: ${error.name}: ${error.message}` +
         (Date.now() > end ? "; giving up" : "; a fresh link"));
       p.onDisconnect = null;
@@ -315,6 +352,7 @@ async function connect() {
       if (Date.now() > end) {
         $("identity").replaceChildren();
         $("connect").hidden = false;
+        dropLock();
         return say(String(error.message || error), true);
       }
       await new Promise((r) => setTimeout(r, 500));
@@ -323,6 +361,7 @@ async function connect() {
       } catch (again) {
         $("identity").replaceChildren();
         $("connect").hidden = false;
+        dropLock();
         return say(String(again.message || again), true);
       }
     }
@@ -333,6 +372,7 @@ async function connect() {
 // what it is, its status and settings.
 async function attach(p) {
   pad = p;
+  pad.onDoubled = doubled;
   pad.onDisconnect = () => { stop(); say("The pad went away (config mode ends a minute after the last command, or on Home)."); };
   $("connect").hidden = true;
   $("disconnect").hidden = false;
@@ -355,6 +395,7 @@ async function attach(p) {
     await loadSettings();
     $("tests").hidden = false;
   } catch (error) {
+    if (p.doubled || pad !== p) return;   // doubled() or Disconnect said why
     say(String(error.message || error), true);
   }
 }
@@ -380,6 +421,7 @@ async function loadSettings() {
 function stop() {
   clearInterval(poll);
   poll = null;
+  dropLock();
   $("connect").hidden = false;
   $("disconnect").hidden = true;
 }

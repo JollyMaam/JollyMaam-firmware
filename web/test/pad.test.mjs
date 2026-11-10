@@ -105,7 +105,7 @@ function simulatedPad() {
       setTimeout(() => {         // notifications come after the write's response
         for (let o = 0; ; o += PIECE) {
           const more = o + PIECE < a.length;
-          reply(cat([sub | (more ? 0x80 : 0)], a.subarray(o, o + PIECE)));
+          (link.emit ?? reply)(cat([sub | (more ? 0x80 : 0)], a.subarray(o, o + PIECE)));
           if (!more) break;
         }
       }, 1);
@@ -254,4 +254,18 @@ test("remap fields: map, rules and curve points as padtool's text", () => {
   assert.equal(showValue(curve, parseValue(curve, "linear")), "16,32,48,64,80,96,112,128,143,159,175,191,207,223,239");
   assert.throws(() => parseValue(curve, "1,2"), /left_curve_points: a curve needs 15/);
   assert.throws(() => parseValue({ ...map, kind: 0, name: "address", size: 6 }, "00"), /not editable/);
+});
+
+test("notifications that come twice (another program listening) are noticed", async () => {
+  const link = simulatedPad();
+  const pad = new Pad(link);
+  let doubled = 0;
+  pad.onDoubled = () => doubled++;
+  await pad.identify();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(doubled, 0);
+  link.emit = (d) => { link.reply(d); link.reply(d); };   // BlueZ signalling each one twice
+  await pad.status().catch(() => {});
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(doubled, 1);
 });
