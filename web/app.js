@@ -121,5 +121,5 @@ $("disconnect").addEventListener("click", () => { disconnect(); say("Disconnecte
 $("dev").addEventListener("change", (e) => document.body.classList.toggle("show-dev", e.target.checked));
 if (!links.available()) {
   $("connect").disabled = true;
-  say("This browser has no Web Bluetooth: use Chrome or Edge (on Linux, enable it in chrome://flags).", true);
+  say("This browser has no Web Bluetooth: use Chrome or Edge.", true);
 }
