@@ -106,7 +106,7 @@ export function remapEditor(io) {
 
   function outputsPicker(r) {
     const summary = h("summary", {});
-    const show = () => { summary.textContent = r.outputs.map((k) => keyLabel(io.layout, k)).join(" + ") || "choose keys"; };
+    const show = () => { summary.textContent = r.outputs.map((k) => keyLabel(io.layout, k)).join(" + ") || "Choose keys…"; };
     show();
     const boxes = KEY_ORDER.map((k) => {
       const box = h("input", { type: "checkbox" });
@@ -120,36 +120,41 @@ export function remapEditor(io) {
     return h("details", { class: "keys" }, summary, h("div", { class: "keylist" }, boxes));
   }
 
+  // padgui's rule row: × When KEY [is held…] [time ms] [effect] [keys] at [rate] Hz.
   function ruleEditor(r) {
-    const parts = [select(TRIGGERS.slice(1).map((t) => [t, TRIGGER_LABELS[t]]), r.trigger, (v) => change(() => {
-      r.trigger = v;
-      const allowed = effectsFor(v);
-      if (!allowed.includes(r.effect)) r.effect = allowed.includes(EFFECT_TWINS[r.effect]) ? EFFECT_TWINS[r.effect] : allowed[0];
-      if (v in TIMED && !r.ms) r.ms = TIMED[v];
-    }), { "aria-label": "trigger" })];
+    const remove = h("button", { type: "button", class: "small", title: "delete this rule" }, "×");
+    remove.addEventListener("click", () => change(() => { rules = rules.filter((x) => x !== r); }));
+    const parts = [remove, h("span", {}, "When"), h("strong", {}, keyLabel(io.layout, r.input)),
+      select(TRIGGERS.slice(1).map((t) => [t, TRIGGER_LABELS[t]]), r.trigger, (v) => change(() => {
+        r.trigger = v;
+        const allowed = effectsFor(v);
+        if (!allowed.includes(r.effect)) r.effect = allowed.includes(EFFECT_TWINS[r.effect]) ? EFFECT_TWINS[r.effect] : allowed[0];
+        if (v in TIMED && !r.ms) r.ms = TIMED[v];
+      }), { "aria-label": "trigger" })];
     if (r.trigger in TIMED) {
       const ms = h("input", { type: "number", min: 10, max: 2550, step: 10, class: "ms", "aria-label": "milliseconds" });
       ms.value = String(r.ms);
       ms.addEventListener("change", () => change(() => { r.ms = Number(ms.value); }, false));
-      parts.push(ms, h("span", { class: "muted" }, "ms"));
+      parts.push(ms, h("span", {}, "ms"));
     }
-    parts.push(select(effectsFor(r.trigger).map((e) => [e, EFFECT_LABELS[e]]), r.effect,
+    // Nothing only where a rule has it: mapping the key to Nothing says it.
+    const effects = effectsFor(r.trigger).filter((e) => e !== "nothing" || r.effect === "nothing");
+    parts.push(select(effects.map((e) => [e, EFFECT_LABELS[e]]), r.effect,
       (v) => change(() => { r.effect = v; }), { "aria-label": "effect" }));
     if (r.effect !== "nothing") parts.push(outputsPicker(r));
     if (TURBO.includes(r.effect)) {
-      parts.push(h("span", { class: "muted" }, "at"), select([...Array.from({ length: MAX_HZ }, (_, i) => [String(i + 1), `${i + 1} Hz`]), ["0", "max"]],
-        String(r.rate), (v) => change(() => { r.rate = Number(v); }, false), { "aria-label": "rate" }));
+      parts.push(h("span", {}, "at"), select([...Array.from({ length: MAX_HZ }, (_, i) => [String(i + 1), String(i + 1)]), ["0", "max"]],
+        String(r.rate), (v) => change(() => { r.rate = Number(v); }), { "aria-label": "rate" }),
+        h("span", {}, r.rate ? "Hz" : "(every report)"));
     }
-    const remove = h("button", { type: "button", class: "small", title: "remove this rule" }, "×");
-    remove.addEventListener("click", () => change(() => { rules = rules.filter((x) => x !== r); }));
-    return h("div", { class: "rule" }, ...parts, remove);
+    return h("div", { class: "rule" }, ...parts);
   }
 
   function keyRow(k) {
     const sends = select(keyOptions(), base[k] ?? "", (v) => change(() => { base[k] = v || null; }, false),
-      { "aria-label": `${keyLabel(io.layout, k)} sends` });
+      { "aria-label": `${keyLabel(io.layout, k)} maps to` });
     const add = h("button", { type: "button", class: "small", disabled: rules.length >= count,
-      title: rules.length >= count ? `all ${count} rules are used` : null }, "+ rule");
+      title: rules.length >= count ? `all ${count} rules are used` : null }, "Add rule");
     add.addEventListener("click", () => change(() => {
       rules.push(rule(k, "held", "hold", [k]));
     }));
@@ -161,7 +166,7 @@ export function remapEditor(io) {
     // The key's row keeps its place; its rules go in rows under it
     // (padgui's layout), so adding one only pushes what is below.
     const tr = h("tr", { class: "key" }, h("th", { scope: "row" }, keyLabel(io.layout, k)),
-      h("td", {}, h("span", { class: "muted" }, "sends "), sends),
+      h("td", {}, h("span", {}, "maps to "), sends),
       h("td", {}, add), h("td", {}, reset));
     markCells.set(k, { tr, reset });
     return [tr, ...rules.filter((r) => r.input === k).map((r) => h("tr", { class: "rulerow" }, h("td", { colspan: 4 }, ruleEditor(r))))];
@@ -220,11 +225,11 @@ export function remapEditor(io) {
   draw();
   const root = h("div", { class: "remap" },
     h("div", { class: "actions" }, presets, importButton, exportButton, all, file),
-    h("p", { class: "muted" }, `A key sends itself unless mapped; rules add to what it sends (${count} rules fit). `,
+    h("p", { class: "muted" }, `A key maps to itself unless changed; rules add to it (${count} rules fit). `,
       "Map a key to Nothing to drop its own press."),
     problem,
     h("table", { class: "keys" }, h("colgroup", {}, h("col", { class: "c-key" }), h("col"), h("col", { class: "c-add" }), h("col", { class: "c-reset" })),
-      h("thead", {}, h("tr", {}, h("th", {}, "Key"), h("th", {}, "While held"), h("th", {}, ""), h("th", {}, ""))), body));
+      body));
   // An open keys list closes on a click elsewhere.
   root.addEventListener("pointerdown", (e) => {
     for (const d of root.querySelectorAll("details.keys[open]")) if (!d.contains(e.target)) d.open = false;

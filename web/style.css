@@ -86,9 +86,9 @@ details td input.wide { width: 100%; min-width: 14em; }
   background: var(--bg); color: var(--fg); }
 .remap table.keys { width: 100%; table-layout: fixed; }
 .remap col.c-key { width: 9.5em; }
-.remap col.c-add { width: 5.5em; }
+.remap col.c-add { width: 6.5em; }
 .remap col.c-reset { width: 5.5em; }
-.remap tr.rulerow td { border-top: none; padding: 0 8px 4px calc(9.5em + 8px); }
+.remap tr.rulerow td { border-top: none; padding: 0 8px 4px 2em; }
 .rule { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 0 0 4px; padding: 4px 6px;
   border-left: 2px solid var(--line); }
 .rule input.ms { width: 5.5em; }
