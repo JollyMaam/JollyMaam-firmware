@@ -37,6 +37,10 @@ async function open(device) {
   };
   reply.addEventListener("characteristicvaluechanged", notified);
   device.addEventListener("gattserverdisconnected", disconnected);
+  // Linux (BlueZ): a subscription the last link left on stays "notifying"
+  // across the disconnect, and on the next link of the same device no
+  // notification arrives through it; stopping it first starts afresh.
+  await reply.stopNotifications().catch(() => {});
   await reply.startNotifications();
   return {
     name: device.name || "Bluetooth pad",
@@ -44,6 +48,8 @@ async function open(device) {
     maxWrite: MAX_WRITE,
     device,
     write: (frame) => request.writeValueWithResponse(frame),
+    // Before a command that ends the link: leave no subscription behind.
+    quiet: () => reply.stopNotifications().catch(() => {}),
     onReply(fn) { replied = fn; },
     onDisconnect(fn) { gone = fn; },
     close() { if (device.gatt.connected) device.gatt.disconnect(); },

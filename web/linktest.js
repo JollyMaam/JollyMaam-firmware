@@ -57,6 +57,7 @@ export async function writeTests(pad, log) {
 export async function updaterTrip(pad, links, log) {
   const { link, id } = pad;
   log("restarting into the updater…");
+  await link.quiet?.();
   let t0 = performance.now();
   await pad.restart(CMD.UPDATER);
   log(`link gone after ${(performance.now() - t0).toFixed(0)} ms; reconnecting (no chooser)…`);
@@ -77,7 +78,17 @@ export async function updaterTrip(pad, links, log) {
         uid = await up.identify(1000);
         log(`IDENTIFY answered on attempt ${attempt}, ${(performance.now() - t0).toFixed(0)} ms after the reconnect began`);
       } catch (error) {
-        if (attempt === 8 || up.gone) throw error;
+        if (attempt === 8 || up.gone) {
+          // STATUS (16 bytes) fits the smallest MTU's notification, IDENTIFY does not.
+          try {
+            const st = await up.cmd(CMD.STATUS, { timeoutMs: 1000 });
+            log(`IDENTIFY: no answer in ${attempt} tries, but STATUS answered (${st.length} bytes): ` +
+              "the updater's MTU is below 60, notifications work");
+          } catch {
+            log(`IDENTIFY: no answer in ${attempt} tries, and STATUS neither: no notification reaches the page`);
+          }
+          throw error;
+        }
       }
     }
     log(`updater: ${uid.updater ? "yes" : "NO"}, flash ID ${uid.flashId === id.flashId ? "the same" : "DIFFERENT " + uid.flashId}, ` +
