@@ -1,15 +1,42 @@
 MAKEFLAGS += -rR
-
-.DEFAULT_GOAL := default
-.PHONY: default help all clean FORCE
-FORCE:
-default: help
-all:
-clean:
+.DEFAULT_GOAL := help
 
 V ?= 0
 O ?= objs
 QUIET := $(if $(filter 0,$(V)),@,)
+
+.PHONY: FORCE all firmware test clean help info
+FORCE:
+all:
+
+clean:
+	rm -rf $(O)
+
+help:
+	$(info Help:)
+	$(info $(space)$(space)help)
+	$(info $(space)$(space)firmware)
+	$(info $(space)$(space)test)
+	$(info $(space)$(space)all)
+	$(info $(space)$(space)clean)
+	$(info $(space)$(space)info)
+	$(info $(space))
+	$(foreach t,$(sort $(HELP_TARGETS)),$(info $(space)$(space)$t))
+
+info:
+	$(info Targets:)
+	$(foreach t,$(sort $(LIB_ALL_TARGETS)),$(info $(space)$(space)$t))
+	$(info Objects:)
+	$(foreach o,$(sort $(LIB_ALL_OBJECTS)),$(info $(space)$(space)$o))
+	@:
+
+# newline: a literal newline
+define newline
+
+
+endef
+empty :=
+space := $(lib-empty) $(lib-empty)
 
 lib-default = $(if $(filter undefined default,$(origin $(1))),$(eval $(1) := $(2)))
 $(call lib-default,CC,cc)
@@ -27,12 +54,7 @@ obj_cppflags :=
 obj_cflags :=
 obj_cxxflags :=
 
-# lib-nl: a literal newline
-define lib-nl
-
-
-endef
-lib-oneline = $(subst $(lib-nl), ,$(1))
+lib-oneline = $(subst $(newline), ,$(1))
 lib-dryrun = $(findstring n,$(firstword -$(MAKEFLAGS)))
 lib-cmdfile = $(dir $(1)).$(notdir $(1)).cmd
 lib-hash := \#
@@ -46,7 +68,7 @@ $(if $(call lib-changed,$(1),$(3)),$(if $(lib-dryrun),,$(file >$(call lib-cmdfil
 endef
 
 lib-target = $(O)/$(1)
-lib-objdir = $(O)/$(patsubst ./,,$(dir $(1))).$(notdir $(1))
+lib-objdir = $(O)/objs-$(patsubst ./,,$(dir $(1)))$(notdir $(1))
 lib-objpath = $(patsubst /%,_abs/%,$(subst ../,__/,$(patsubst ./%,%,$(1))))
 lib-obj = $(call lib-objdir,$(1))/$(call lib-objpath,$(2)).o
 lib-objs = $(foreach s,$(2),$(call lib-obj,$(1),$(s)))
@@ -98,12 +120,9 @@ $(call lib-target,$(1)): private lib_arflags := $$(call lib-arflags,$(1))
 $(call lib-target,$(1)): private lib_objects := $$(call lib-objects,$(1))
 $(call lib-target,$(1)): $(call lib-objects,$(1)) $($(1)_deps) FORCE | $(dir $(call lib-target,$(1))) $($(1)_order_deps)
 	$$(if $$(strip $$(lib-type-$$(lib_type))),$$(call lib-run,$$(lib-type-$$(lib_type)),$$(lib_type)),$$(error Unknown target type "$$(lib_type)" for $$@))
-.PHONY: $(1) clean_$(1)
+.PHONY: $(1)
 $(1): $(call lib-target,$(1))
 all: $(1)
-clean: clean_$(1)
-clean_$(1):
-	$$(QUIET)rm -rf $(call lib-objdir,$(1)) $(call lib-target,$(1)) $(call lib-cmdfile,$(call lib-target,$(1))) $(call lib-cmdfile,$(call lib-target,$(1))).tmp
 endef
 
 define lib-tracked-rule
@@ -111,11 +130,6 @@ $(if $(filter $(1),$(LIB_ALL_OUTPUTS)),$(error duplicate tracked output '$(1)'))
 $(eval LIB_ALL_OUTPUTS += $(1))
 $(1): FORCE
 all: $(1)
-.PHONY: clean_tracked clean_tracked_$(1)
-clean: clean_tracked
-clean_tracked: clean_tracked_$(1)
-clean_tracked_$(1):
-	$$(QUIET)rm -f '$(1)' '$(call lib-cmdfile,$(1))' '$(call lib-cmdfile,$(1)).tmp'
 endef
 
 define lib-register-target
@@ -128,12 +142,6 @@ $(foreach s,$($(1)_sources),$(if $(call lib-compile-var,$(1),$(s)),$(eval $(call
 $(eval $(call lib-target-rule,$(1),$(2)))
 endef
 
-define lib-subdir-alias
-.PHONY: all_$(1) clean_all_$(1)
-all_$(1): $(2)
-clean_all_$(1): $(addprefix clean_,$(2))
-endef
-
 define lib-include-one
 $(eval TARGETS :=)
 $(eval default_type := link)
@@ -144,21 +152,12 @@ $(eval include $(1)/rules.mk)
 $(foreach t,$(TARGETS),$(eval $(if $($(t)_type),,$(t)_type := $(default_type))))
 $(foreach t,$(TARGETS),$(eval $(call lib-register-target,$(t),$(1))))
 $(foreach t,$(TRACKED),$(eval $(call lib-tracked-rule,$(t))))
-$(eval $(call lib-subdir-alias,$(1),$(TARGETS)))
 endef
 
 %/:
 	$(QUIET)mkdir -p '$@'
 
-.PHONY: help info
-help:
-	@echo 'Targets: all clean info and individual target names'
-	@echo 'Built targets: $(LIB_ALL_TARGETS)'
-info:
-	@echo 'Targets: $(LIB_ALL_TARGETS)'
-	@echo 'Objects: $(LIB_ALL_OBJECTS)'
-
 define generate-rules
 $(foreach d,$(1),$(call lib-include-one,$(d)))
-$(if $(filter clean clean_%,$(MAKECMDGOALS)),,$(eval -include $(patsubst %.o,%.d,$(LIB_ALL_OBJECTS)) $(foreach f,$(LIB_ALL_OUTPUTS),$(call lib-cmdfile,$(f)))))
+$(eval -include $(patsubst %.o,%.d,$(LIB_ALL_OBJECTS)) $(foreach f,$(LIB_ALL_OUTPUTS),$(call lib-cmdfile,$(f))))
 endef

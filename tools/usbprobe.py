@@ -4,7 +4,7 @@
     usbprobe.py DEVICE [--rom] [--io BITS] [--out FILE]
     usbprobe.py FILE                  analyse a saved run again
 
-Needs a USB_PROBE test build (make gamesir-cyclone-2-pad EXTRA_DEFINES=-DUSB_PROBE).  The
+Needs a USB_PROBE test build (make c2/pad EXTRA_DEFINES=-DUSB_PROBE).  The
 pad leaves the bus for about 3 s: attached by a GPIO pull-up and answering
 nothing, as the ROM loader is while it learns its crystal from the host's
 frames (platform_jieli.c usb_probe()).  Then it attaches as itself again.

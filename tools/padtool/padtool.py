@@ -533,7 +533,7 @@ def profile(path, seconds, hz, top, elf, zoom=None, by=None):
     if elf is None:                          # the device's own build
         pid = cmd(path, 0x00, length=56)[40:56].split(b"\0")[0].decode()
         elf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build",
-                           BUILDS.get(pid, "gamesir-cyclone-2-" + BOARD), "app.elf")
+                           BUILDS.get(pid, "c2/" + BOARD), "app.elf")
     zoom_base, zoom_shift = zoom or (0, 0)
     scsi(path, [OP, 0x14, 1, hz & 0xff, hz >> 8] + list(struct.pack("<I", zoom_base)) + [zoom_shift], 0)
     first = cmd(path, 0x14, 0, 512)

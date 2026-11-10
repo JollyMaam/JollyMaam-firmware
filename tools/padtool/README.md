@@ -328,7 +328,7 @@ The Python backend can also run from a terminal:
 
 ```sh
 python tools/padtool/padflash.py backup pad-backup.bin --pid GS_C2_ADC_DEVICE
-python tools/padtool/padflash.py flash build/gamesir-cyclone-2-pad/firmware.img --pid GS_C2_ADC_DEVICE --backup before-flash.bin
+python tools/padtool/padflash.py flash build/c2/pad/firmware.img --pid GS_C2_ADC_DEVICE --backup before-flash.bin
 ```
 
 Omit `--backup` to flash without creating a backup.
@@ -381,7 +381,7 @@ which starts the firmware there without flashing. From a terminal:
 ```sh
 python tools/padtool/padtool.py boot                  # the boot loaders
 python tools/padtool/padtool.py boot start            # leave it
-python tools/padtool/padtool.py boot flash build/8bitdo-ultimate2c-wireless-pad/firmware.img
+python tools/padtool/padtool.py boot flash build/u2cw/pad/firmware.img
 ```
 
 The Ultimate 2C Bluetooth (Yichip, model `1a 30`) has the same loader; boot mode by hand only

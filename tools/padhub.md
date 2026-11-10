@@ -3,8 +3,8 @@
 Build the dongle firmware and Linux bridge:
 
 ```sh
-make -j8 gamesir-cyclone-2-dongle padhub
-make gamesir-cyclone-2-dongle flash DEVICE=5-2.4
+make -j8 c2/dongle padhub
+make c2/dongle flash DEVICE=5-2.4
 build/host/padhub
 ```
 

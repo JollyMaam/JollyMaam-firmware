@@ -34,11 +34,11 @@ LOADERS = [SDK / "cpu" / "br23" / "tools" / "br23loader.bin", SDK / "cpu" / "bd1
 # ROM loader or the 8BitDo's boot loader, update.bin through the updater:
 # padtool update).
 BOARDS = {
-    "gamesir-cyclone-2-pad": ["firmware.img", "update.bin"],
-    "gamesir-cyclone-2-dongle": ["firmware.img", "update.bin"],
-    "gamesir-nova-2-lite-pad": ["firmware.img", "update.bin"],
-    "gamesir-nova-2-lite-dongle": ["firmware.img", "update.bin"],
-    "8bitdo-ultimate2c-wireless-pad": ["firmware.img", "update.bin"],
+    "c2/pad": ["firmware.img", "update.bin"],
+    "c2/dongle": ["firmware.img", "update.bin"],
+    "n2/pad": ["firmware.img", "update.bin"],
+    "n2/dongle": ["firmware.img", "update.bin"],
+    "u2cw/pad": ["firmware.img", "update.bin"],
 }
 
 # Launchers beside the padtool folder, opened by double-click through the

@@ -4,5 +4,5 @@
 # (tools/padtool/padtool_dist.py).
 #   make padtool-dist
 .PHONY: padtool-dist
-padtool-dist: gamesir-cyclone-2-pad gamesir-cyclone-2-dongle gamesir-nova-2-lite-pad gamesir-nova-2-lite-dongle $(U2CW_PAD)
+padtool-dist: c2 n2 u2cw
 	python3 tools/padtool/padtool_dist.py --build $(O) --version $(or $(BUILD_ID),dev) --out $(O)/padtool-$(or $(BUILD_ID),dev).zip

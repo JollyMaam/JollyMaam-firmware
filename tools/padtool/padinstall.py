@@ -39,7 +39,7 @@ BOOT_HINT = "USB unplugged, hold L1+R1, tap Home, plug in USB"
 def image_for(pid):
     """This package's firmware.img for a product, or None."""
     folder = firmware_dir(pid)
-    if pid not in BUILDS or not folder or Path(folder).name != BUILDS[pid]:
+    if pid not in BUILDS or not folder or Path(folder).as_posix().endswith(BUILDS[pid]):
         return None
     file = Path(folder) / "firmware.img"
     return file if file.is_file() else None

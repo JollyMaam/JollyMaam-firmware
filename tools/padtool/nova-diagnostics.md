@@ -9,7 +9,7 @@ before capturing a failed-state snapshot.
 From the repository root:
 
 ```sh
-nix develop -c make -j4 gamesir-nova-2-lite-pad EXTRA_DEFINES=-DNOVA_LED_PROBE
+nix develop -c make -j4 n2/pad EXTRA_DEFINES=-DNOVA_LED_PROBE
 DEV_ROOT=/dev/bwrap /work/bin/python3 tools/padtool/nova_led_probe.py --device 5-2.2
 ```
 

@@ -221,7 +221,7 @@ wrong assumption), add it here in a line or two.
 - The 8BitDo's stack has under 100 bytes to spare.  A function's frame holds
   the locals of all its branches, so a big array in one `case` costs every
   case (a 192-byte one in `usb_command` overflowed into .bss).  Keep it in a
-  `noinline` helper; `make 8bitdo-ultimate2c-wireless-pad-stack` checks.
+  `noinline` helper; `make u2cw/pad-stack` checks.
   The check misses calls through pointers it has no rule for: the SDK's
   TX push (through a stub that looks like a call to itself) went unseen and
   an encrypted link overflowed into .bss by 80 bytes.  The profiles' session

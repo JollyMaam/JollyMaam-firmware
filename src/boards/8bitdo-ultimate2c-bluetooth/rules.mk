@@ -1,21 +1,20 @@
-# 8BitDo Ultimate 2C Bluetooth: the pad, a Yichip YC3121 (Cortex-M0).
-#   8bitdo-ultimate2c-bluetooth-pad          the firmware (controller.c, Classic
-#                                            Bluetooth through the radio core):
-#                                            update.bin in $(O)/<board>/, the
-#                                            app's header and the app, and
-#                                            firmware.img, the updater and that
-#                                            above it, for the boot loader
-#   8bitdo-ultimate2c-bluetooth-pad-updater  the pad's updater: part of -pad
-#   8bitdo-ultimate2c-bluetooth-hello        bring-up app (lights, keys, the tool
-#                                            device on USB): $(O)/<target>/app.bin
-#   8bitdo-ultimate2c-bluetooth-pad-test, 8bitdo-ultimate2c-bluetooth-all
-# Not part of make firmware: it needs arm-none-eabi-gcc and the stock dump.
+HELP_TARGETS += u2cb
+
+firmware: u2cb
+test: u2cb-test
+
+u2cb: $(O)/u2cb/pad/firmware.img
+u2cb/hello: $(O)/u2cb/hello/app.bin
+u2cb/pad-test: $(O)/host/test-u2cb/pad
+u2cb-test: u2cb/pad-test
+
+.PHONY: u2cb u2cb/hello u2cb-test u2cb/pad-test
+
 # The app slot is 0x01018000..0x01060000 (flash_yc3121.h), above the boot
 # loader and the version page at 0x01017000, which stay.  The updater has
 # its first 32 KiB, then a window stays empty (updater_yc3121.c); the app's
 # header is at 0x01028000 and the app after it.  Settings stay in the
 # store's banks, stock's data pages from 0x0107c000.
-# make/yc3121-lib.mk has the compiler, its flags and the types.
 #
 # The Bluetooth core runs Yichip's program, which this repository does not
 # carry: make cuts it from a dump of the stock v1.01 flash (U2CB_STOCK_DUMP,
@@ -40,50 +39,39 @@ $(U2CB_BLOB): $(U2CB_STOCK_DUMP) | $(O)/yc3121/
 # below stock's data pages (flash_yc3121.h).
 U2CB_STORE := -DSTORE_A=0x01074000 -DSTORE_B=0x01078000 -DSTORE_BANK=0x4000
 
-U2CB_PAD := 8bitdo-ultimate2c-bluetooth-pad
-U2CB_PAD_DIR := $(O)/$(U2CB_PAD)
-U2CB_UPDATER := 8bitdo-ultimate2c-bluetooth-pad-updater
-U2CB_UPDATER_DIR := $(O)/$(U2CB_UPDATER)
-U2CB_HELLO := 8bitdo-ultimate2c-bluetooth-hello
-U2CB_HELLO_DIR := $(O)/$(U2CB_HELLO)
 # The app's region (its header) 0x10000 above the slot's base, the app
 # JM_MAIN_HEAD_SIZE (0x120) further: the two go together.
 U2CB_MAIN_AT := 0x10000
 U2CB_APP_AT := 0x01028120
 
-# --- The bring-up app -----------------------------------------------------------
+# --- Hello (bring-up app)
 
 U2CB_HELLO_SOURCES := src/platform/yc3121/start.S src/platform/yc3121/platform_yc3121.c \
 	src/platform/yc3121/usb_yc3121.c src/platform/yc3121/radio_yc3121.c src/platform/yc3121/radio_blob.S \
 	src/platform/yc3121/sdp_yc3121.c src/platform/yc3121/flash_yc3121.c src/core/store.c \
 	src/core/utils.c $(self)/hello.c
 
-TARGETS += $(U2CB_HELLO)/app.elf
-$(U2CB_HELLO)/app.elf_toolchain := YC3121_
-$(U2CB_HELLO)/app.elf_sources := $(U2CB_HELLO_SOURCES)
-$(U2CB_HELLO)/app.elf_cppflags := $(U2CB_STORE) -DBOARD_PID=\"U2C_BLUETOOTH\" $(BUILD_ID_CPPFLAGS) \
+TARGETS += u2cb/hello/app.elf
+u2cb/hello/app.elf_toolchain := YC3121_
+u2cb/hello/app.elf_sources := $(U2CB_HELLO_SOURCES)
+u2cb/hello/app.elf_cppflags := $(U2CB_STORE) -DBOARD_PID=\"U2C_BLUETOOTH\" $(BUILD_ID_CPPFLAGS) \
 	-DRETAINED="__attribute__((section(\".noinit\")))" -DLOG_LINES=32 -DRADIO_BLOB='"$(U2CB_BLOB)"' \
 	-iquote src/core -iquote src/platform/yc3121
-$(U2CB_HELLO)/app.elf_ldflags := $(YC_CFLAGS) $(YC_LDFLAGS) -Wl,-Map,$(U2CB_HELLO_DIR)/app.map
-$(U2CB_HELLO)/app.elf_deps := $(YC_LDSCRIPT)
-$(U2CB_HELLO)/app.elf_order_deps := $(BUILD_ID_H)
-$(call lib-objs,$(U2CB_HELLO)/app.elf,src/platform/yc3121/radio_blob.S): $(U2CB_BLOB)
+u2cb/hello/app.elf_ldflags := $(YC_CFLAGS) $(YC_LDFLAGS) -Wl,-Map,$(O)/u2cb/hello/app.map
+u2cb/hello/app.elf_deps := $(YC_LDSCRIPT)
+u2cb/hello/app.elf_order_deps := $(BUILD_ID_H)
+$(call lib-objs,u2cb/hello/app.elf,src/platform/yc3121/radio_blob.S): $(U2CB_BLOB)
 
-TARGETS += $(U2CB_HELLO)/app.bin
-$(U2CB_HELLO)/app.bin_type := yc3121-bin
-$(U2CB_HELLO)/app.bin_deps := $(U2CB_HELLO_DIR)/app.elf
+TARGETS += u2cb/hello/app.bin
+u2cb/hello/app.bin_type := yc3121-bin
+u2cb/hello/app.bin_deps := $(O)/u2cb/hello/app.elf
 
-.PHONY: $(U2CB_HELLO)
-$(U2CB_HELLO): $(U2CB_HELLO_DIR)/app.bin
-
-# --- The pad's updater (src/updater/, docs/firmware/updater.md): the program
-# the boot loader starts; USB only.  Its log as the app's, so the two keep
-# one ring over their restarts. ---------------------------------------------------
+# --- Updater: USB only; its log as the app's, so the two keep one ring
 
 U2CB_UPDATER_SOURCES :=
 U2CB_UPDATER_SOURCES += src/updater/updater.c
 U2CB_UPDATER_SOURCES += src/updater/updater_yc3121.c
-U2CB_UPDATER_SOURCES += $(self)/board_pad.c
+U2CB_UPDATER_SOURCES += src/boards/8bitdo-ultimate2c-bluetooth/board_pad.c
 U2CB_UPDATER_SOURCES += src/platform/yc3121/main_yc3121.c
 U2CB_UPDATER_SOURCES += src/platform/yc3121/platform_yc3121.c
 U2CB_UPDATER_SOURCES += src/platform/yc3121/usb_yc3121.c
@@ -93,25 +81,22 @@ U2CB_UPDATER_SOURCES += src/core/utils.c
 U2CB_UPDATER_SOURCES += src/core/battery.c
 U2CB_UPDATER_SOURCES += src/platform/yc3121/start.S
 
-TARGETS += $(U2CB_UPDATER)/app.elf
-$(U2CB_UPDATER)/app.elf_toolchain := YC3121_
-$(U2CB_UPDATER)/app.elf_sources := $(U2CB_UPDATER_SOURCES)
-$(U2CB_UPDATER)/app.elf_cppflags := -DBOARD_PID=\"U2C_BLUETOOTH\" $(BUILD_ID_CPPFLAGS) \
+TARGETS += u2cb/updater/app.elf
+u2cb/updater/app.elf_toolchain := YC3121_
+u2cb/updater/app.elf_sources := $(U2CB_UPDATER_SOURCES)
+u2cb/updater/app.elf_cppflags := -DBOARD_PID=\"U2C_BLUETOOTH\" $(BUILD_ID_CPPFLAGS) \
 	-DUPDATER -DNO_BT -DMAIN_AT=$(U2CB_MAIN_AT) $(U2CB_STORE) -DLOG_LINES=32 $(EXTRA_DEFINES) \
 	$(YC3121_SRC_INCLUDES) -iquote $(self)
-$(U2CB_UPDATER)/app.elf_ldflags := $(YC_CFLAGS) -Wl,--defsym=TEXT_END=0x01020000 $(YC_LDFLAGS) -Wl,-Map,$(U2CB_UPDATER_DIR)/app.map
-$(U2CB_UPDATER)/app.elf_deps := $(YC_LDSCRIPT)
-$(U2CB_UPDATER)/app.elf_order_deps := $(BUILD_ID_H)
-$(call lib-objs,$(U2CB_UPDATER)/app.elf,src/platform/yc3121/start.S): obj_cppflags += -DRADIO_BLOB='"$(U2CB_BLOB)"'
+u2cb/updater/app.elf_ldflags := $(YC_CFLAGS) -Wl,--defsym=TEXT_END=0x01020000 $(YC_LDFLAGS) -Wl,-Map,$(O)/u2cb/updater/app.map
+u2cb/updater/app.elf_deps := $(YC_LDSCRIPT)
+u2cb/updater/app.elf_order_deps := $(BUILD_ID_H)
+$(call lib-objs,u2cb/updater/app.elf,src/platform/yc3121/start.S): obj_cppflags += -DRADIO_BLOB='"$(U2CB_BLOB)"'
 
-TARGETS += $(U2CB_UPDATER)/app.bin
-$(U2CB_UPDATER)/app.bin_type := yc3121-bin
-$(U2CB_UPDATER)/app.bin_deps := $(U2CB_UPDATER_DIR)/app.elf
+TARGETS += u2cb/updater/app.bin
+u2cb/updater/app.bin_type := yc3121-bin
+u2cb/updater/app.bin_deps := $(O)/u2cb/updater/app.elf
 
-.PHONY: $(U2CB_UPDATER)
-$(U2CB_UPDATER): $(U2CB_UPDATER_DIR)/app.bin
-
-# --- The pad: linked at its app address, 0x10000 above the updater -------------
+# --- Pad: linked 0x10000 above the updater
 
 # The log: 32 lines, as many as fit the RAM kept over a restart (app.ld KEPT).
 # LE (bt_yc3121.c): the core's MTU stays 23, so config mode answers in
@@ -119,7 +104,7 @@ $(U2CB_UPDATER): $(U2CB_UPDATER_DIR)/app.bin
 U2CB_PAD_DEFINES := $(U2CB_STORE) -DLOG_LINES=32 -DCONFIG_REPLY_MAX=20
 
 U2CB_PAD_SOURCES :=
-U2CB_PAD_SOURCES += $(self)/board_pad.c
+U2CB_PAD_SOURCES += src/boards/8bitdo-ultimate2c-bluetooth/board_pad.c
 U2CB_PAD_SOURCES += src/platform/yc3121/main_yc3121.c
 U2CB_PAD_SOURCES += src/platform/yc3121/platform_yc3121.c
 U2CB_PAD_SOURCES += src/platform/yc3121/usb_yc3121.c
@@ -150,48 +135,35 @@ U2CB_PAD_SOURCES += src/profiles/profile_xbox.c
 U2CB_PAD_SOURCES += src/platform/yc3121/start.S
 U2CB_PAD_SOURCES += src/platform/yc3121/radio_blob.S
 
-TARGETS += $(U2CB_PAD)/app.elf
-$(U2CB_PAD)/app.elf_toolchain := YC3121_
-$(U2CB_PAD)/app.elf_sources := $(U2CB_PAD_SOURCES)
-$(U2CB_PAD)/app.elf_cppflags := -DBOARD_PID=\"U2C_BLUETOOTH\" $(BUILD_ID_CPPFLAGS) $(U2CB_PAD_DEFINES) $(EXTRA_DEFINES) \
-	$(YC3121_SRC_INCLUDES) -iquote $(self)
-$(U2CB_PAD)/app.elf_ldflags := $(YC_CFLAGS) -Wl,--defsym=TEXT_AT=$(U2CB_APP_AT) $(YC_LDFLAGS) -Wl,-Map,$(U2CB_PAD_DIR)/app.map
-$(U2CB_PAD)/app.elf_deps := $(YC_LDSCRIPT)
-$(U2CB_PAD)/app.elf_order_deps := $(BUILD_ID_H)
-$(call lib-objs,$(U2CB_PAD)/app.elf,$(filter %.S,$(U2CB_PAD_SOURCES))): obj_cppflags += -DRADIO_BLOB='"$(U2CB_BLOB)"'
-$(call lib-objs,$(U2CB_PAD)/app.elf,src/platform/yc3121/radio_blob.S): $(U2CB_BLOB)
+TARGETS += u2cb/pad/app.elf
+u2cb/pad/app.elf_toolchain := YC3121_
+u2cb/pad/app.elf_sources := $(U2CB_PAD_SOURCES)
+u2cb/pad/app.elf_cppflags := -DBOARD_PID=\"U2C_BLUETOOTH\" $(BUILD_ID_CPPFLAGS) $(U2CB_PAD_DEFINES) $(EXTRA_DEFINES) $(YC3121_SRC_INCLUDES) -iquote $(self)
+u2cb/pad/app.elf_ldflags := $(YC_CFLAGS) -Wl,--defsym=TEXT_AT=$(U2CB_APP_AT) $(YC_LDFLAGS) -Wl,-Map,$(O)/u2cb/pad/app.map
+u2cb/pad/app.elf_deps := $(YC_LDSCRIPT)
+u2cb/pad/app.elf_order_deps := $(BUILD_ID_H)
+$(call lib-objs,u2cb/pad/app.elf,$(filter %.S,$(U2CB_PAD_SOURCES))): obj_cppflags += -DRADIO_BLOB='"$(U2CB_BLOB)"'
+$(call lib-objs,u2cb/pad/app.elf,src/platform/yc3121/radio_blob.S): $(U2CB_BLOB)
 
-TARGETS += $(U2CB_PAD)/app.bin
-$(U2CB_PAD)/app.bin_type := yc3121-bin
-$(U2CB_PAD)/app.bin_deps := $(U2CB_PAD_DIR)/app.elf
+TARGETS += u2cb/pad/app.bin
+u2cb/pad/app.bin_type := yc3121-bin
+u2cb/pad/app.bin_deps := $(O)/u2cb/pad/app.elf
 
-# The app behind its header (update.bin, for jollymaam update), and the
-# updater with that MAIN_AT above it (firmware.img, for the boot loader).
-TARGETS += $(U2CB_PAD)/firmware.img
-$(U2CB_PAD)/firmware.img_type := jollymaam-join
-$(U2CB_PAD)/firmware.img_deps := $(U2CB_UPDATER_DIR)/app.bin $(U2CB_PAD_DIR)/app.bin $(JOLLYMAAM_CLI)
-$(U2CB_PAD_DIR)/firmware.img: private jollymaam_join := --pid U2C_BLUETOOTH --at $(U2CB_MAIN_AT) --entry $(U2CB_APP_AT) \
-	--main-out $(U2CB_PAD_DIR)/update.bin $(U2CB_UPDATER_DIR)/app.bin $(U2CB_PAD_DIR)/app.bin
+TARGETS += u2cb/pad/firmware.img
+u2cb/pad/firmware.img_type := jollymaam-join
+u2cb/pad/firmware.img_deps := $(O)/u2cb/updater/app.bin $(O)/u2cb/pad/app.bin $(JOLLYMAAM_CLI)
+$(O)/u2cb/pad/firmware.img: private jollymaam_join := --pid U2C_BLUETOOTH --at $(U2CB_MAIN_AT) --entry $(U2CB_APP_AT) --main-out $(O)/u2cb/pad/update.bin $(O)/u2cb/updater/app.bin $(O)/u2cb/pad/app.bin
 
-.PHONY: $(U2CB_PAD)
-$(U2CB_PAD): $(U2CB_PAD_DIR)/firmware.img
+# --- Tests
 
-# --- Unit tests (make/host-tests.mk) with the pad's defines; the settings test
-# checks its records against core/store.c's banks. ---------------------------
-
-TARGETS += host/test-$(U2CB_PAD)
-host/test-$(U2CB_PAD)_type := host-tests
-host/test-$(U2CB_PAD)_toolchain := HOST_
-host/test-$(U2CB_PAD)_sources := $(HOST_TESTS)
-host/test-$(U2CB_PAD)_cppflags := -DBOARD_PID=\"U2C_BLUETOOTH\" $(U2CB_PAD_DEFINES) $(EXTRA_DEFINES) -DUNITTEST -DSETTINGS_STORE \
+TARGETS += host/test-u2cb/pad
+host/test-u2cb/pad_type := host-tests
+host/test-u2cb/pad_toolchain := HOST_
+host/test-u2cb/pad_sources := $(HOST_TESTS)
+host/test-u2cb/pad_cppflags := -DBOARD_PID=\"U2C_BLUETOOTH\" $(U2CB_PAD_DEFINES) $(EXTRA_DEFINES) -DUNITTEST -DSETTINGS_STORE \
 	$(SRC_INCLUDES) -iquote $(self)
-host/test-$(U2CB_PAD)_compile.c = $(host-test-compile)
-$(call lib-objs,host/test-$(U2CB_PAD),$(HOST_TESTS_LIBJOLLYMAAM)): host_test_libs := $(O)/host/libjollymaam.a
-$(call lib-objs,host/test-$(U2CB_PAD),$(HOST_TESTS_LIBJOLLYMAAM)): $(O)/host/libjollymaam.a
-$(call lib-objs,host/test-$(U2CB_PAD),$(HOST_TESTS_BTCTRLER)): host_test_ldflags := $(HOST_TESTS_BTCTRLER_LDFLAGS)
+host/test-u2cb/pad_compile.c = $(host-test-compile)
+$(call lib-objs,host/test-u2cb/pad,$(HOST_TESTS_LIBJOLLYMAAM)): host_test_libs := $(O)/host/libjollymaam.a
+$(call lib-objs,host/test-u2cb/pad,$(HOST_TESTS_LIBJOLLYMAAM)): $(O)/host/libjollymaam.a
+$(call lib-objs,host/test-u2cb/pad,$(HOST_TESTS_BTCTRLER)): host_test_ldflags := $(HOST_TESTS_BTCTRLER_LDFLAGS)
 
-.PHONY: $(U2CB_PAD)-test 8bitdo-ultimate2c-bluetooth-test 8bitdo-ultimate2c-bluetooth-all
-$(U2CB_PAD)-test: $(O)/host/test-$(U2CB_PAD)
-8bitdo-ultimate2c-bluetooth-test: $(U2CB_PAD)-test
-test: 8bitdo-ultimate2c-bluetooth-test
-8bitdo-ultimate2c-bluetooth-all: $(U2CB_PAD) $(U2CB_HELLO)

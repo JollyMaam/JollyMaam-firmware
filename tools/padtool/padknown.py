@@ -147,9 +147,9 @@ def stock_devices(hids):
 
 
 # A product ID's build: its folder in the zip's firmware and in build/.
-BUILDS = {"GS_C2_ADC_DEVICE": "gamesir-cyclone-2-pad", "GS_C2_Dongle": "gamesir-cyclone-2-dongle",
-          "AC695X_TRANS": "gamesir-nova-2-lite-pad", "AC632N_TRANS": "gamesir-nova-2-lite-dongle",
-          "U2C_WIRELESS": "8bitdo-ultimate2c-wireless-pad"}
+BUILDS = {"GS_C2_ADC_DEVICE": "c2/pad", "GS_C2_Dongle": "c2/dongle",
+          "AC695X_TRANS": "n2/pad", "AC632N_TRANS": "n2/dongle",
+          "U2C_WIRELESS": "u2cw/pad"}
 
 
 def firmware_dir(pid=None):

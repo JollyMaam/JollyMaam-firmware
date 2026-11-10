@@ -18,7 +18,6 @@ include src/make/host-tests.mk
 include src/make/jieli.mk
 include src/make/padtool.mk
 include src/make/sources.mk
-include src/make/telink-lib.mk
 include src/make/telink.mk
 include src/make/yc3121-lib.mk
 
