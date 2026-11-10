@@ -8,23 +8,38 @@
  *
  * Every program on the host that subscribes to REPLY gets every
  * notification (BlueZ: and one copy more for each other program
- * subscribed, back to back), so a command and its answer carry a tag the
- * host picks, as the tool device's carry a client and tag:
+ * subscribed, back to back), and under load notifications get lost (seen
+ * on the U2CB with three programs), so a command carries a tag the host
+ * picks (random, 32 bits), as the tool device's carry a client and tag,
+ * and every piece of its answer says where it belongs:
  *
  *   request frame (REQUEST): u8 sub-command (bit 7: more frames follow),
- *     u8 tag (6 bits), u32 argument (little-endian), then data;
- *   answer piece (REPLY): u8 tag << 2 | parity << 1 | more, then a piece
- *     of the answer; parity alternates from 0, so a host drops a piece with
- *     the parity of the one before (a copy); "more" with no data: refused.
+ *     u32 tag, u32 argument (little-endian), then data;
+ *   answer, first piece (REPLY): u8 CONFIG_FIRST, u8 the answer's number
+ *     (one more each answer), u32 tag, u16 the answer's length, then the
+ *     answer's start;
+ *   answer, the next pieces: u8 index << 1 (1, 2, ...), u8 the answer's
+ *     number, then the answer's next part;
+ *   refusal: u8 CONFIG_REFUSED, u32 tag: send the command again.
  *
+ * A host takes the first piece with its tag, then only pieces of that
+ * answer's number with the next index: a smaller one is a copy, a bigger
+ * one means a piece was lost (the host sends the command again), so an
+ * answer is whole or none.
+
  * A host-to-pad command's data (up to CONFIG_DATA_MAX, less on a pad with
  * a smaller buffer: IDENTIFY says how many, below) goes in frames of at
  * most BT_WRITE_MAX; the pad collects them and the last runs the command.
- * Its answer, up to CONFIG_ANSWER_MAX bytes, goes in pieces of CONFIG_PIECE;
+ * Its answer, up to CONFIG_ANSWER_MAX bytes, goes in pieces of up to
+ * CONFIG_PIECE (bytes after the first header byte: the first piece's
+ * header takes 7 of them, the others' 1);
  * every command answers, one with data or none with one piece of nothing,
  * so a host always learns whether its command ran or was refused.
  * One command at a time: a frame with another tag while one is collected
- * or answered is refused (the host sends its command again).  A command
+ * or answered is refused (the host sends its command again).  A host that
+ * hears nothing of its command (no first piece, no refusal) for a while
+ * sends it again too: a command run twice here is harmless (reads, WRITE's
+ * staging again, a COMMIT with nothing left).  A command
  * left half sent for CONFIG_HALF_MS is given up.  Here IDENTIFY answers 90
  * bytes: u16 at 88, the most data a command takes.
  *
@@ -44,14 +59,18 @@
 #ifndef CONFIG_REPLY_MAX
 #define CONFIG_REPLY_MAX  158    /* bt_pad.c's largest message */
 #endif
-#define CONFIG_PIECE      (CONFIG_REPLY_MAX - 1)
+#define CONFIG_PIECE      (CONFIG_REPLY_MAX - 1)   /* after a piece's header byte */
+#define CONFIG_FIRST      0x01   /* a piece's u8 header: an answer's first */
+#define CONFIG_REFUSED    0x03   /*   a refusal; else index << 1 */
+#define CONFIG_FIRST_HEAD 8      /* u8 header, u8 number, u32 tag, u16 length */
+#define CONFIG_NEXT_HEAD  2      /* u8 index << 1, u8 number */
 #define CONFIG_ANSWER_MAX 512    /* as on the tool device */
 #define CONFIG_DATA_MAX   488
 #define CONFIG_MORE       0x80
-#define CONFIG_HEAD       6      /* a frame's sub-command, tag, argument */
+#define CONFIG_HEAD       9      /* a frame's sub-command, tag, argument */
 #define CONFIG_OVER       0xffff /* held: too much data, or no buffer */
 #define CONFIG_HALF_MS    1000   /* a command half sent this long: given up */
-#define CONFIG_REFUSALS   4
+#define CONFIG_REFUSALS   8      /* refusals the link had no room for yet */
 #define CDB               16     /* buf: the CDB, then the data or the answer */
 
 static u8 *buf;
@@ -61,10 +80,12 @@ static struct {
     u16 answer, off;             /* the answer's length; how much of it is out */
     u8 ready, sending;
     u8 collecting;               /* frames of a command came, its last not yet */
-    u8 tag;                      /* the command's, while collecting, ready or sending */
-    u8 parity;                   /* the next piece's */
+    u32 tag;                     /* the command's, while collecting, ready or sending */
+    u8 index;                    /* the next piece's */
+    u8 number;                   /* the answer's (kept by done()) */
     u32 last_ms;                 /* its last frame */
-    u8 refused[CONFIG_REFUSALS], refusals;   /* tags to tell "send it again" */
+    u32 refused[CONFIG_REFUSALS];   /* tags to tell "send it again" */
+    u8 refusals;
 } cf;
 
 #ifdef CONFIG_LENT_BUFFER
@@ -119,12 +140,14 @@ void profile_config_address(u8 out[6])
 /* A command done: its buffer goes back, refusals not yet sent stay. */
 static void done(void)
 {
-    u8 refused[CONFIG_REFUSALS], refusals = cf.refusals;
+    u32 refused[CONFIG_REFUSALS];
+    u8 refusals = cf.refusals, number = cf.number;
 
     memcpy(refused, cf.refused, sizeof(refused));
     memset(&cf, 0, sizeof(cf));
     memcpy(cf.refused, refused, sizeof(refused));
     cf.refusals = refusals;
+    cf.number = number;
     give_back();
 }
 
@@ -135,9 +158,20 @@ static void end(void)
     give_back();
 }
 
-static void refuse(u8 tag)
+/* "Send it again", now if the link takes it, else queued (once a tag);
+ * one that does not fit is logged, and its host's silence rule sends the
+ * command again. */
+static void refuse(u32 tag)
 {
+    u8 r[5] = { CONFIG_REFUSED };
+    u32 i;
+
+    for (i = 0; i < cf.refusals; i++)
+        if (cf.refused[i] == tag) return;
+    util_put32(r + 1, tag);
+    if (!cf.refusals && host_send(UPD_REPLY, r, sizeof(r))) return;
     if (cf.refusals < CONFIG_REFUSALS) cf.refused[cf.refusals++] = tag;
+    else util_log("config: refusal of %08x dropped", (unsigned)tag);
 }
 
 static u8 begin(const struct profile_session *s)
@@ -161,12 +195,13 @@ static int report(const struct pad *pad, u32 now, u8 *out, u8 *id)
 static int write(const struct bt_write *w, u32 now, struct bt_bond *bond)
 {
     u32 n, max;
-    u8 sub, tag;
+    u8 sub;
+    u32 tag;
 
     (void)bond;
     if (w->kind != BT_WRITE_ATT || w->id != UPD_REQUEST || w->len < CONFIG_HEAD) return 0;
     sub = w->data[0];
-    tag = w->data[1] & 0x3f;
+    tag = util_get32(w->data + 1);
     if (cf.collecting && !cf.ready && !cf.sending && now - cf.last_ms > CONFIG_HALF_MS) {
         util_log("config: command %02x half sent, given up", buf[1]);
         done();
@@ -200,7 +235,7 @@ static int write(const struct bt_write *w, u32 now, struct bt_bond *bond)
     memset(buf, 0, CDB);
     buf[0] = 0xf5;
     buf[1] = sub;
-    memcpy(buf + 2, w->data + 2, 4);
+    memcpy(buf + 2, w->data + 5, 4);
     cf.ready = 1;
     return 0;
 }
@@ -209,15 +244,24 @@ static int write(const struct bt_write *w, u32 now, struct bt_bond *bond)
  * is to go. */
 static int piece(void)
 {
-    u16 k = cf.answer - cf.off < CONFIG_PIECE ? cf.answer - cf.off : CONFIG_PIECE;
-    u8 *at = buf + CDB - 1 + cf.off;
-    int more = cf.off + k < cf.answer;
+    u16 head = cf.off ? CONFIG_NEXT_HEAD : CONFIG_FIRST_HEAD;
+    u16 room = (u16)(CONFIG_PIECE + 1 - head);
+    u16 k = cf.answer - cf.off < room ? cf.answer - cf.off : room;
+    u8 *at = buf + CDB + cf.off - head;   /* over the CDB's unused end, or what is sent */
 
-    *at = (u8)(cf.tag << 2 | cf.parity << 1 | more);
-    if (!host_send(UPD_REPLY, at, (u16)(k + 1))) return 0;
+    if (!cf.off) {
+        at[0] = CONFIG_FIRST;
+        at[1] = cf.number;
+        util_put32(at + 2, cf.tag);
+        util_put16(at + 6, cf.answer);
+    } else {
+        at[0] = (u8)(cf.index << 1);
+        at[1] = cf.number;
+    }
+    if (!host_send(UPD_REPLY, at, (u16)(k + head))) return 0;
     cf.off = (u16)(cf.off + k);
-    cf.parity ^= 1;
-    if (more) return 1;
+    cf.index++;
+    if (cf.off < cf.answer) return 1;
     done();
     return 0;
 }
@@ -226,10 +270,11 @@ void profile_config_service(void)
 {
     u32 n;
 
-    while (cf.refusals) {        /* "send it again": "more", no data */
-        u8 r = (u8)(cf.refused[0] << 2 | 1);
+    while (cf.refusals) {        /* "send it again" */
+        u8 r[5] = { CONFIG_REFUSED };
 
-        if (!host_send(UPD_REPLY, &r, 1)) break;
+        util_put32(r + 1, cf.refused[0]);
+        if (!host_send(UPD_REPLY, r, sizeof(r))) break;
         memmove(cf.refused, cf.refused + 1, --cf.refusals);
     }
     if (cf.ready) {
@@ -247,7 +292,8 @@ void profile_config_service(void)
         }
         cf.answer = (u16)n;
         cf.off = 0;
-        cf.parity = 0;
+        cf.index = 0;
+        cf.number++;
         cf.sending = 1;          /* an empty answer too: past the last FIELD, say */
     }
     while (cf.sending && piece()) {}

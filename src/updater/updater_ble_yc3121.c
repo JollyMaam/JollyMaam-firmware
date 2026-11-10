@@ -10,10 +10,11 @@
  * frame's answer goes out as a REPLY notification.  A write the queue had
  * no room for is lost: the host sees it in UPDATE_INFO's count and sends
  * it again.  The core's MTU is 23: an answer goes in notifications of 20
- * bytes, {command | MORE, 19 bytes} but the last, as config mode's. */
+ * bytes, as config mode's (profile_config.c): the first is the reply's
+ * first 20 (its header and the answer's start), the next u8 index << 1,
+ * u8 the answer's number, then 18 bytes more. */
 
-#define PIECE   19               /* an answer's bytes in a notification */
-#define MORE    0x80
+#define NOTIFY  20               /* a notification's bytes */
 #define SEND_MS 50               /* a notification the core's ring has no room for: retried this long */
 
 static u8 scan[31];
@@ -53,16 +54,23 @@ void updater_ble_start(void)
 
 static void send(const u8 *reply, u32 n)
 {
-    u8 piece[1 + PIECE];
-    u32 off, k, t;
+    u8 piece[NOTIFY];
+    u32 off, k, len, t, index;
 
-    for (off = 1; off < n; off += k) {
-        k = n - off < PIECE ? n - off : PIECE;
-        piece[0] = (u8)(reply[0] | (off + k < n ? MORE : 0));
-        memcpy(piece + 1, reply + off, k);
-        for (t = plat_ms(); !bt_send_message(UPD_REPLY, piece, (u16)(k + 1)); plat_bt_poll())
+    for (off = 0, index = 0; off < n; off += k, index++) {
+        if (!off) {
+            k = len = n < NOTIFY ? n : NOTIFY;
+            memcpy(piece, reply, k);
+        } else {
+            k = n - off < NOTIFY - 2 ? n - off : NOTIFY - 2;
+            piece[0] = (u8)(index << 1);
+            piece[1] = reply[1];
+            memcpy(piece + 2, reply + off, k);
+            len = k + 2;
+        }
+        for (t = plat_ms(); !bt_send_message(UPD_REPLY, piece, (u16)len); plat_bt_poll())
             if (plat_ms() - t > SEND_MS) {
-                util_log("updater: answer %02x not sent at %u of %u", reply[0], off, n);
+                util_log("updater: answer not sent at %u of %u", off, n);
                 return;
             }
     }

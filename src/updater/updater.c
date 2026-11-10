@@ -278,35 +278,40 @@ u32 usb_command(const u8 cdb[16], u8 *d, u32 max, int from_host)
     return n;
 }
 
-/* An LE frame, as config mode's (profile_config.c): u8 sub-command, u8
+/* An LE frame, as config mode's (profile_config.c): u8 sub-command, u32
  * tag, u32 argument, then data, which goes in as a host-to-pad command's;
- * without data, the answer (if any) comes back in one piece after u8 tag
- * << 2 (parity 0, no more).  One command at a time by nature: each is run
- * and answered before the next write is taken. */
+ * without data, the answer (if any) comes back in one piece, a first one:
+ * u8 1, u8 the answer's number, u32 tag, u16 its length, the answer.  One command at a time by
+ * nature: each is run and answered before the next write is taken. */
 u32 updater_frame(const u8 *frame, u32 len, u8 *reply, u32 max)
 {
     u8 cdb[16] = { JM_OP };
     u32 n;
 
-    if (len < 6 || max < 2) return 0;
+    static u8 number;            /* one more each answer */
+
+    if (len < 9 || max < 9) return 0;
     /* The REBOOT after an update over LE: the app starts in config mode,
      * where the host that updated it can find it again. */
     if (frame[0] == JM_CMD_REBOOT && state == JM_UPDATE_COMMITTED) to_config = 1;
     cdb[1] = frame[0];
-    memcpy(cdb + 2, frame + 2, 4);
-    if (len > 6) {
-        usb_command(cdb, (u8 *)frame + 6, len - 6, 1);
+    memcpy(cdb + 2, frame + 5, 4);
+    if (len > 9) {
+        usb_command(cdb, (u8 *)frame + 9, len - 9, 1);
         return 0;
     }
     memset(reply, 0, max);
-    n = usb_command(cdb, reply + 1, max - 1, 0);
+    n = usb_command(cdb, reply + 8, max - 8, 0);
     if (!n) return 0;
 #ifdef UPD_LE_DATA_MAX           /* the LE side takes shorter writes than USB */
     if (frame[0] == JM_CMD_UPDATE_INFO && upd_data_max() > UPD_LE_DATA_MAX)
-        util_put32(reply + 1 + JM_UPDATE_INFO_DATA_MAX_OFF, UPD_LE_DATA_MAX);
+        util_put32(reply + 8 + JM_UPDATE_INFO_DATA_MAX_OFF, UPD_LE_DATA_MAX);
 #endif
-    reply[0] = (u8)((frame[1] & 0x3f) << 2);
-    return n + 1;
+    reply[0] = 0x01;             /* an answer's first piece */
+    reply[1] = ++number;
+    memcpy(reply + 2, frame + 1, 4);
+    util_put16(reply + 6, (u16)n);
+    return n + 8;
 }
 
 #ifndef UNITTEST

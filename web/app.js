@@ -334,8 +334,7 @@ async function connect() {
     } catch (error) {
       console.info(`link: the first command failed: ${error.name}: ${error.message}` +
         (Date.now() > end ? "; giving up" : "; a fresh link"));
-      p.onDisconnect = null;
-      p.close();
+      p.onDisconnect = null;     // not closed: on Linux that ends the link for every program on it
       if (Date.now() > end) {
         $("identity").replaceChildren();
         $("connect").hidden = false;

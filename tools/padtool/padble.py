@@ -3,19 +3,22 @@
 (src/profiles/profile_config.c, Home+M held), for padtool --ble with any
 other command.  Needs bleak (pip install bleak, or nix develop).
 
-A command is a write to REQUEST: u8 sub-command, u8 tag (6 bits, picked
+A command is a write to REQUEST: u8 sub-command, u32 tag (random, picked
 here), u32 argument, then data; its answer comes in REPLY notifications:
-u8 tag << 2 | parity << 1 | more, then a piece.  Every program subscribed
-gets every notification (and BlueZ one copy more per other program), so a
-piece with another tag is not ours, and one with the parity of the piece
-before is a copy.  Config mode takes a frame of at most BT_WRITE_MAX bytes,
-so more data goes in several, each but the last with bit 7 of the
-sub-command set; it answers every command (one with data with nothing),
-and refuses one while another program's runs ("more" with no data): it goes
-again with a new tag.  The updater's frames and answers are one piece, and
-a command with data has no answer there.  Every write waits for its
-response, which the pad sends once it has run the command: one write in
-flight.
+the first u8 FIRST, u8 the answer's number, u32 tag, u16 the answer's
+length, then data; the next u8 index << 1, u8 number, then data; a refusal
+is u8 REFUSAL, u32 tag.  Every program subscribed gets every notification
+(and BlueZ one copy more per other program), and under load some get lost,
+so a first piece or refusal with another tag is not ours, and after our
+first only our answer's number with the next index is: a smaller one is a
+copy, a bigger one a piece lost, and the command goes again.
+Config mode takes a frame of at most BT_WRITE_MAX bytes, so more data goes
+in several, each but the last with bit 7 of the sub-command set; it answers
+every command (one with data with nothing), and refuses one while another
+program's runs: it goes again with a new tag.  The updater's frames and
+answers are one piece, and a command with data has no answer there.  Every
+write waits for its response, which the pad sends once it has run the
+command: one write in flight.
 
 On Linux padtool leaves a config mode link up when it is done, and the next
 run takes the link BlueZ still holds (no scan, no connection: about 0.1 s);
@@ -44,9 +47,14 @@ SERVICE = "c2550000-3e2d-66b1-8a4f-d5037c2b419e"
 REQUEST = "c2550001-3e2d-66b1-8a4f-d5037c2b419e"
 REPLY = "c2550002-3e2d-66b1-8a4f-d5037c2b419e"
 MORE = 0x80
-HEAD = 6                         # u8 sub-command, u8 tag, u32 argument
+HEAD = 9                         # u8 sub-command, u32 tag, u32 argument
+FIRST, REFUSAL = 0x01, 0x03     # a piece's u8 header, else index << 1 (profile_config.c)
+LOSSES_MAX = 5                   # answers with a piece lost this often: give up
 CONFIG_FRAME_DATA = 96 - HEAD    # BT_WRITE_MAX less the frame's header
 REFUSALS_MAX = 100               # refused this often (10-50 ms apart): give up
+BUSY_MAX = 100                   # BlueZ's "In Progress" this often: give up
+DEBUG = bool(os.environ.get("PADBLE_DEBUG"))   # every frame to and from the pad on stderr
+SILENT_S = 0.5                   # nothing of a command (config mode) this long: send it again
 CONFIG_DATA_MAX = 488            # profile_config.c's, as the tool device's
 REBOOTING = (0x10, 0x11, 0x40)   # their answer may never come: the pad has gone
 NOT_OVER_BLE = {0x15: "peek reads as many words as fit, registers too"}
@@ -66,7 +74,7 @@ class BleLink:
             sys.exit("padtool: --ble needs bleak (pip install bleak, or nix develop)")
         self.loop = asyncio.new_event_loop()
         self.replies = asyncio.Queue()
-        self.config, self.tag = not updater, None
+        self.config = not updater
         what = "updater" if updater else "pad in config mode"
 
         async def connect():
@@ -86,8 +94,15 @@ class BleLink:
             print(f"{what} {device.name or '?'} {device.address}", file=sys.stderr)
             self.address, self.name = device.address, device.name
             client = BleakClient(device)
-            await client.connect()
-            await client.start_notify(REPLY, lambda _, d: self.replies.put_nowait(bytes(d)))
+            await busy_retry(client.connect)
+            # BlueZ: shared notifications (StartNotify), not acquired ones,
+            # which no other program (a browser) could then subscribe to.
+            shared = {"bluez": {"use_start_notify": True}} if sys.platform == "linux" else {}
+            def notified(_, d):
+                if DEBUG:
+                    print(f"ble RX {bytes(d).hex()}", file=sys.stderr, flush=True)
+                self.replies.put_nowait(bytes(d))
+            await busy_retry(lambda: client.start_notify(REPLY, notified, **shared))
             acquire = getattr(client._backend, "_acquire_mtu", None)    # BlueZ: else 23 is assumed
             if acquire:
                 try:
@@ -112,45 +127,78 @@ class BleLink:
         # Config mode answers every command; the updater none with data.
         wanted = length or (self.config and data)
 
-        async def once():
-            while True:
-                tag = random.randrange(64)
-                if tag != self.tag:
-                    break
-            self.tag = tag
+        async def once(watch):
+            tag = random.getrandbits(32)
             while not self.replies.empty():
                 self.replies.get_nowait()
-            head = struct.pack("<BI", tag, arg)
+            head = struct.pack("<II", tag, arg)
             for i, piece in enumerate(pieces):
                 more = MORE if i < len(pieces) - 1 else 0
-                await self.client.write_gatt_char(REQUEST, bytes([sub | more]) + head + piece, response=response)
+                await self.write(bytes([sub | more]) + head + piece, response)
             if not wanted:
                 return b""
-            answer, parity = b"", 0
+            answer, size, number, index = b"", None, None, 1
+            loop = asyncio.get_running_loop()
+            end = loop.time() + timeout_ms / 1000
+            # Config mode: nothing of the command for SILENT_S, it or its
+            # refusal was lost; an answer stopping that long, its last pieces.
+            silent = loop.time() + SILENT_S if watch and self.config else None
             while True:
+                wait = (min(silent, end) if silent else end) - loop.time()
                 try:
-                    reply = await asyncio.wait_for(self.replies.get(), timeout_ms / 1000)
+                    reply = await asyncio.wait_for(self.replies.get(), max(wait, 0))
                 except asyncio.TimeoutError:
+                    if silent and loop.time() < end:
+                        return SILENT if size is None else LOST
                     raise OSError(f"no answer to command {sub:#04x} in {timeout_ms} ms") from None
-                if not reply or reply[0] >> 2 != tag:
-                    continue                          # another program's
-                if reply[0] & 1 and len(reply) == 1:
-                    return None                       # refused: another program's command runs
-                if (reply[0] >> 1) & 1 != parity:
-                    continue                          # a copy
-                parity ^= 1
-                answer += reply[1:]
-                if not reply[0] & 1:
+                if len(reply) < 2:
+                    continue
+                if reply[0] == REFUSAL:
+                    if len(reply) >= 5 and struct.unpack_from("<I", reply, 1)[0] == tag:
+                        return None                   # refused: another program's command runs
+                    continue
+                if reply[0] == FIRST:
+                    if size is not None or len(reply) < 8 or struct.unpack_from("<I", reply, 2)[0] != tag:
+                        continue                      # another program's, or a copy of ours
+                    number = reply[1]
+                    size, = struct.unpack_from("<H", reply, 6)
+                    data = reply[8:]
+                else:
+                    if size is None or reply[0] & 1 or reply[1] != number or reply[0] >> 1 < index:
+                        continue                      # another's answer, or a copy
+                    if reply[0] >> 1 > index:
+                        return LOST                   # a piece before it never came
+                    data = reply[2:]
+                    index += 1
+                if silent:
+                    silent = loop.time() + SILENT_S
+                answer += data[:size - len(answer)]
+                if len(answer) >= size:
                     return answer
 
         async def run():
+            silent = lost = 0
             for tries in range(1, REFUSALS_MAX + 1):
-                answer = await once()
+                answer = await once(silent < 2)
+                if answer is SILENT:
+                    silent += 1
+                    continue
+                if answer is LOST:
+                    lost += 1
+                    if lost >= LOSSES_MAX:
+                        raise OSError(f"command {sub:#04x}: a piece of its answer lost {lost} times")
+                    continue
                 if answer is not None:
                     return answer
                 await asyncio.sleep(0.01 + random.random() * 0.04)
             raise OSError(f"command {sub:#04x} refused {REFUSALS_MAX} times: another program keeps the pad busy")
         return self.loop.run_until_complete(run())
+
+    async def write(self, frame, response):
+        """A frame to REQUEST (BlueZ: see busy_retry())."""
+        if DEBUG:
+            print(f"ble TX {frame.hex()}", file=sys.stderr, flush=True)
+        return await busy_retry(lambda: self.client.write_gatt_char(REQUEST, frame, response=response))
 
     def reopen(self, seconds):
         return False             # the app has no updater service
@@ -166,6 +214,18 @@ class BleLink:
             self.loop.run_until_complete(self.client.disconnect())
         except Exception:
             pass
+
+
+async def busy_retry(op):
+    """op() again while BlueZ says "In Progress": it keeps one write pending
+    per characteristic, and one connect per device, whichever program asked."""
+    for tries in range(1, BUSY_MAX + 1):
+        try:
+            return await op()
+        except Exception as error:
+            if "InProgress" not in str(getattr(error, "dbus_error", "")) + str(error) or tries == BUSY_MAX:
+                raise
+            await asyncio.sleep(0.005 + random.random() * 0.045)
 
 
 def config_data_max(identify):
@@ -246,6 +306,7 @@ def find_updater(flash_id, address, seconds=30):
     sys.exit(f"padtool: the pad's updater did not appear (looked {seconds} s at {address}, then every updater)")
 
 
+SILENT, LOST = object(), object()
 _links = {}
 
 

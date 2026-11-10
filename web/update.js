@@ -5,7 +5,7 @@
 import { Pad, CMD, UPDATE_ERRORS } from "./pad.js";
 
 const HEADER_CHECKED = 0x2c;     // what BEGIN checks before it erases
-const FRAME_HEAD = 6;            // u8 sub-command, u8 tag, u32 argument
+const FRAME_HEAD = 9;            // u8 sub-command, u32 tag, u32 argument
 const ATT_MTU_MAX = 512;         // the updater's (its log: "le mtu 512")
 const MIN_CHUNK = 15;            // the updater needs an MTU of 60 anyway (IDENTIFY)
 

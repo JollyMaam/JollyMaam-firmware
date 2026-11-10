@@ -32,12 +32,12 @@ export async function writeTest(pad, frameData, size, log) {
     const ms = performance.now() - t0;
     const r = await pad.cmd(CMD.RESULT);
     const ok = r[0] === items && r.subarray(1, 1 + items).every((c) => c === SET_UNKNOWN);
-    log(`${frameData + 6}-byte writes, ${size} bytes in ${Math.ceil(size / frameData)}: ` +
+    log(`${frameData + 9}-byte writes, ${size} bytes in ${Math.ceil(size / frameData)}: ` +
       (ok ? `intact, ${ms.toFixed(0)} ms (${(size / ms * 1000 / 1024).toFixed(1)} KiB/s)`
           : `CHANGED: pad found ${r[0]} items of ${items}, codes ${Array.from(r.subarray(1, 1 + r[0])).join(",")}`));
     return ok;
   } catch (error) {
-    log(`${frameData + 6}-byte writes: FAILED after ${(performance.now() - t0).toFixed(0)} ms: ${error.message || error}`);
+    log(`${frameData + 9}-byte writes: FAILED after ${(performance.now() - t0).toFixed(0)} ms: ${error.message || error}`);
     return false;
   } finally {
     pad.frameData = was;
@@ -46,7 +46,7 @@ export async function writeTest(pad, frameData, size, log) {
 
 export async function writeTests(pad, log) {
   log(`config mode takes ${pad.id.dataMax} bytes a command`);
-  for (const frameData of [14, 90]) {             // 20-byte writes fit the smallest MTU; 96 is BT_WRITE_MAX
+  for (const frameData of [11, 87]) {             // 20-byte writes fit the smallest MTU; 96 is BT_WRITE_MAX
     if (!(await writeTest(pad, frameData, pad.id.dataMax, log)) && pad.gone) return;
   }
   log(`longest notification: ${pad.maxReply} bytes (pieces are at most 158)`);

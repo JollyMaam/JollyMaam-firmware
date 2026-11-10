@@ -309,9 +309,14 @@ wrong assumption), add it here in a line or two.
 - Web Bluetooth (Chrome on Linux), Connect right after Disconnect: the new
   link's first command can fail with "GATT Error Unknown" (BlueZ's 2 s
   disconnect delay, above); `web/app.js` retries on a fresh link for 8 s.
-- BlueZ signals a notification once per client that subscribed to it
-  (seen with `gdbus monitor`: two per notification with two subscribers),
-  and every subscriber receives all of them.  Hence the tag and parity bit
-  in config mode's and the updater's LE frames (profile_config.c).  A
-  browser (or bleak) left running keeps its subscription: kill test
-  browsers by their profile, not their xvfb-run wrapper.
+- Bluetooth config mode with several programs on one pad (BlueZ):
+  every subscriber gets every notification, once per subscribing program
+  (seen with `gdbus monitor`); under load the U2CB lost pieces, an even
+  number at a time (a FIELDS answer filled with the next answer's pieces);
+  BlueZ keeps one write pending per characteristic and one connect per
+  device across programs ("In Progress"); acquired notifications (bleak's
+  default) refuse every other subscriber; and Chrome's disconnect ends the
+  link for all.  Hence the frames in profile_config.c (tag, answer number,
+  piece index, length, refusals), the hosts' retries, StartNotify in
+  padble.py, and no disconnect on a retry in web/.  Kill test browsers by
+  name (`pkill -x chromium`), not their xvfb-run wrapper.

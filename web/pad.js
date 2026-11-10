@@ -6,9 +6,12 @@ import { showMap, parseMap, showRules, parseRules, parseCurve, RULE_SIZE } from 
 
 export const PROTOCOL = 2;
 export const MORE = 0x80;
-const FRAME_HEAD = 6;            // u8 sub-command, u8 tag, u32 argument
-const REFUSED = Symbol("refused");
+const FRAME_HEAD = 9;            // u8 sub-command, u32 tag, u32 argument
+const FIRST = 0x01, REFUSAL = 0x03;   // a piece's u8 header, else index << 1 (profile_config.c)
+const REFUSED = Symbol("refused"), SILENT = Symbol("silent"), LOST = Symbol("lost");
+const LOSSES_MAX = 5;            // answers with a piece lost this often: give up
 const REFUSALS_MAX = 100;        // refused this often (10-50 ms apart): give up
+const SILENT_MS = 500;           // nothing of a command (config mode) this long: send it again
 const CONFIG_FRAME_DATA = 96 - FRAME_HEAD;   // BT_WRITE_MAX less the head
 const CONFIG_DATA_MAX = 488;     // IDENTIFY's u16 at 88 from firmware that has it
 
@@ -263,31 +266,49 @@ export class Pad {
     });
   }
 
-  // A piece: u8 tag << 2 | parity << 1 | more, then data
-  // (profile_config.c).  Another tag is another program's (or an answer
-  // given up); the parity of the piece before is a copy (BlueZ sends one
-  // more per other program subscribed); "more" with nothing: refused.
+  // A piece (profile_config.c): the first u8 FIRST, u8 number, u32 tag,
+  // u16 the answer's length, data; the next u8 index << 1, u8 number,
+  // data; a refusal u8 REFUSAL, u32 tag.  A first piece or refusal with
+  // another tag is another program's; after our first, only our answer's
+  // number with the next index: a smaller one is a copy (BlueZ sends one
+  // more per other program subscribed), a bigger one a piece lost: the
+  // command goes again (LOST), so an answer is whole or none.
   #reply(r) {
     this.maxReply = Math.max(this.maxReply, r.length);
     const p = this.pending;
-    if (!p || !r.length || r[0] >> 2 !== p.tag) return;
-    const parity = (r[0] >> 1) & 1, more = r[0] & 1;
-    if (more && r.length === 1) return p.refused();
-    if (parity !== p.parity) return;
-    p.parity ^= 1;
-    p.parts.push(r.subarray(1));
-    if (more) return;
+    if (!p || r.length < 2) return;
+    if (r[0] === REFUSAL) {
+      if (r.length >= 5 && u32(r, 1) === p.tag) p.refused();
+      return;
+    }
+    let d;
+    if (r[0] === FIRST) {
+      if (p.length !== null || r.length < 8 || u32(r, 2) !== p.tag) return;
+      p.number = r[1];
+      p.length = u16(r, 6);
+      p.answer = new Uint8Array(p.length);
+      d = r.subarray(8);
+    } else {
+      if (p.length === null || r[0] & 1 || r[1] !== p.number) return;
+      const index = r[0] >> 1;
+      if (index < p.index) return;                   // a copy
+      if (index > p.index) return p.lost();          // one before it never came
+      d = r.subarray(2);
+      p.index++;
+    }
+    p.progress?.();
+    d = d.subarray(0, p.length - p.got);
+    p.answer.set(d, p.got);
+    p.got += d.length;
+    if (p.got < p.length) return;
     this.pending = null;
-    const answer = new Uint8Array(p.parts.reduce((n, x) => n + x.length, 0));
-    p.parts.reduce((o, x) => (answer.set(x, o), o + x.length), 0);
-    p.resolve(answer);
+    p.resolve(p.answer);
   }
 
-  // A tag for the next command: six bits, not the last one's.
+  // A tag for the next command: 32 random bits, so another program's is
+  // as good as never the same.
   #nextTag() {
-    let t;
-    do t = Math.floor(Math.random() * 64); while (t === this.lastTag);
-    return (this.lastTag = t);
+    return crypto.getRandomValues(new Uint32Array(1))[0];
   }
 
   // A command: its data in frames, then its answer.  Config mode answers
@@ -307,19 +328,29 @@ export class Pad {
   }
 
   async #run(sub, arg, data, timeoutMs, wanted, quick) {
-    for (let tries = 1; ; tries++) {
-      const got = await this.#once(sub, arg, data, timeoutMs, wanted, quick);
+    for (let tries = 1, silent = 0, lost = 0; ; tries++) {
+      const got = await this.#once(sub, arg, data, timeoutMs, wanted, quick, silent < 2);
+      if (got === SILENT) { silent++; continue; }
+      if (got === LOST) {
+        if (++lost >= LOSSES_MAX) throw new Error(`command 0x${sub.toString(16)}: a piece of its answer lost ${lost} times`);
+        continue;
+      }
       if (got !== REFUSED) return got;
       if (tries >= REFUSALS_MAX) throw new Error(`command 0x${sub.toString(16)} refused ${tries} times: another program keeps the pad busy`);
       await new Promise((r) => setTimeout(r, 10 + Math.random() * 40));
     }
   }
 
-  async #once(sub, arg, data, timeoutMs, wanted, quick) {
+  // One try.  watch: config mode, and resends left: no first piece nor
+  // refusal within SILENT_MS is SILENT (the command or its refusal lost,
+  // with another program busy on the pad), an answer stopping that long
+  // LOST (its last pieces lost).
+  async #once(sub, arg, data, timeoutMs, wanted, quick, watch) {
     if (this.gone) throw new Error("link lost");
     const tag = this.#nextTag();
     const answer = new Promise((resolve, reject) => {
-      this.pending = { sub, tag, parity: 0, parts: [], resolve, reject, refused: () => resolve(REFUSED) };
+      this.pending = { sub, tag, index: 1, number: null, length: null, got: 0, resolve, reject,
+        refused: () => resolve(REFUSED), lost: () => { this.pending = null; resolve(LOST); } };
     });
     answer.catch(() => {});
     let timer;
@@ -329,15 +360,32 @@ export class Pad {
         const piece = data.subarray(i * this.frameData, (i + 1) * this.frameData);
         const frame = new Uint8Array(FRAME_HEAD + piece.length);
         frame[0] = sub | (i < n - 1 ? MORE : 0);
-        frame[1] = tag;
-        new DataView(frame.buffer).setUint32(2, arg >>> 0, true);
+        const v = new DataView(frame.buffer);
+        v.setUint32(1, tag, true);
+        v.setUint32(5, arg >>> 0, true);
         frame.set(piece, FRAME_HEAD);
         await this.link.write(frame, quick);
       }
       if (!wanted) return new Uint8Array(0);
-      return await Promise.race([answer, new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`no answer to command 0x${sub.toString(16)} in ${timeoutMs} ms`)), timeoutMs);
-      })]);
+      const p = this.pending;
+      let silence = null;
+      try {
+        return await Promise.race([answer, new Promise((resolve, reject) => {
+          if (watch && !this.id?.updater) {
+            p.progress = () => {
+              clearTimeout(silence);
+              silence = setTimeout(() => {
+                if (this.pending === p) this.pending = null;
+                resolve(p.length === null ? SILENT : LOST);
+              }, SILENT_MS);
+            };
+            p.progress();
+          }
+          timer = setTimeout(() => reject(new Error(`no answer to command 0x${sub.toString(16)} in ${timeoutMs} ms`)), timeoutMs);
+        })]);
+      } finally {
+        clearTimeout(silence);
+      }
     } finally {
       clearTimeout(timer);
       this.pending = null;

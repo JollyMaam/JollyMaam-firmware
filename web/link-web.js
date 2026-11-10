@@ -76,9 +76,20 @@ async function open(device) {
     maxWrite: MAX_WRITE,
     device,
     // quick: without response (UPDATE_DATA to a U2CB's updater, its count resyncs)
-    write: (frame, quick = false) => {
+    // BlueZ keeps one write pending per characteristic, whoever wrote it:
+    // another program's in flight fails ours ("in progress"), so it goes
+    // again, while the link is up.
+    write: async (frame, quick = false) => {
       if (DEBUG) console.log(`link ${n} TX ${hex(frame)}`);
-      return quick ? request.writeValueWithoutResponse(frame) : request.writeValueWithResponse(frame);
+      for (let tries = 1; ; tries++) {
+        try {
+          return await (quick ? request.writeValueWithoutResponse(frame) : request.writeValueWithResponse(frame));
+        } catch (error) {
+          if (tries >= 100 || !device.gatt.connected || !/in progress/i.test(error.message)) throw error;
+          if (DEBUG) console.log(`link ${n}: write busy (${error.message}), again`);
+          await new Promise((r) => setTimeout(r, 5 + Math.random() * 20));
+        }
+      }
     },
     // Before a command that ends the link: leave no subscription behind.
     quiet: () => reply.stopNotifications().catch(() => {}),
@@ -102,7 +113,8 @@ async function openRetrying(device, seconds) {
       console.info(`link: ${error.step ?? "open"} failed: ${error.name}: ${error.message}` +
         (Date.now() > end ? "; giving up" : "; trying again"));
       if (Date.now() > end || error.name === "SecurityError") throw error;
-      if (device.gatt.connected) device.gatt.disconnect();
+      // No disconnect here: on Linux it ends the pad's link for every
+      // program using it (padtool --ble, another page), not only ours.
       await new Promise((r) => setTimeout(r, 500));
     }
   }

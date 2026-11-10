@@ -114,12 +114,12 @@ One GATT service, `c2550000-3e2d-66b1-8a4f-d5037c2b419e`:
 
 | Characteristic | UUID | Does |
 |---|---|---|
-| request | `c2550001-…` | write: u8 sub-command, u8 tag (6 bits, the host's pick), u32 argument, then a host-to-pad command's data |
-| reply | `c2550002-…` | notify: u8 tag << 2, then the answer (IDENTIFY, STATUS, LOG, UPDATE_INFO), at most the ATT MTU − 4 bytes |
+| request | `c2550001-…` | write: u8 sub-command, u32 tag (the host's random pick), u32 argument, then a host-to-pad command's data |
+| reply | `c2550002-…` | notify: u8 1, u8 the answer's number, u32 the tag, u16 the answer's length, then the answer (IDENTIFY, STATUS, LOG, UPDATE_INFO), at most the ATT MTU − 11 bytes |
 
 The sub-commands are the tool device's. Each write is a write request: the
 pad answers it once the command has run, so one write is in flight. With
-the 512-byte ATT MTU an UPDATE_DATA write carries 503 bytes.
+the 512-byte ATT MTU an UPDATE_DATA write carries 500 bytes.
 
 Writes without response do not work for UPDATE_DATA: while the updater
 erases a sector, BTstack's thread does not take packets, the HCI receive

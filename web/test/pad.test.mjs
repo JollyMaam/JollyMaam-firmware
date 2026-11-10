@@ -91,31 +91,39 @@ function simulatedPad() {
     onReply(fn) { reply = fn; link.reply = (d) => reply(d); },
     onDisconnect() {},
     close() {},
-    // profile_config.c: u8 sub (bit 7 more), u8 tag, u32 arg, data; answers
-    // in pieces of u8 tag << 2 | parity << 1 | more; refused: "more", nothing.
+    // profile_config.c: u8 sub (bit 7 more), u32 tag, u32 arg, data; the
+    // answer's first piece u8 1, u8 number, u32 tag, u16 length, data; the
+    // next u8 index << 1, u8 number, data; refused: u8 3, u32 tag.
     async write(frame) {
       assert.ok(frame.length <= 96, "a frame is at most BT_WRITE_MAX");
       link.frames.push(frame);
-      const tag = frame[1] & 0x3f, send = (d) => (link.emit ?? reply)(d);
+      const v = new DataView(frame.buffer, frame.byteOffset), tag = v.getUint32(1, true);
+      const send = (d) => (link.emit ?? reply)(d), tagged = (h, extra = []) => cat([h, tag & 0xff, (tag >> 8) & 0xff, (tag >> 16) & 0xff, tag >>> 24], extra);
+      if (link.drop) { link.drop--; return; }                    // lost on the way, or its refusal
       if (link.busy || (collecting !== null && collecting !== tag)) {   // another program's command runs
-        setTimeout(() => send(Uint8Array.of(tag << 2 | 1)), 0);
+        setTimeout(() => send(tagged(3)), 0);
         return;
       }
       collecting = tag;
-      held.push(frame.subarray(6));
+      held.push(frame.subarray(9));
       if (frame[0] & 0x80) return;
       collecting = null;
-      const sub = frame[0], arg = new DataView(frame.buffer, frame.byteOffset).getUint32(2, true);
+      const sub = frame[0], arg = v.getUint32(5, true);
       const data = cat(...held);
       held = [];
       link.last = { sub, arg, data, tag };
-      const a = answer(sub, arg, data);
+      const body = answer(sub, arg, data), pieces = [], number = link.number = ((link.number ?? 0) + 1) & 0xff;
+      for (let o = 0; ; ) {
+        const room = pieces.length ? PIECE - 1 : PIECE - 7;
+        pieces.push(pieces.length ? cat([pieces.length << 1, number], body.subarray(o, o + room))
+          : cat([1, number], tagged(4).subarray(1), u16(body.length), body.subarray(0, room)));
+        o += room;
+        if (o >= body.length) break;
+      }
       setTimeout(() => {         // notifications come after the write's response
-        for (let o = 0, parity = 0; ; o += PIECE, parity ^= 1) {
-          const more = o + PIECE < a.length;
-          send(cat([tag << 2 | parity << 1 | (more ? 1 : 0)], a.subarray(o, o + PIECE)));
-          if (!more) break;
-        }
+        const lose = link.lose ?? [];
+        link.lose = [];          // once
+        pieces.forEach((p, i) => { if (!lose.includes(i)) send(p); });
       }, 1);
     },
   };
@@ -131,7 +139,7 @@ test("identify and status", async () => {
   assert.equal(id.flashId, "000102030405060708090a0b0c0d0e0f");
   assert.equal(id.updater, false);
   assert.equal(id.dataMax, 488);
-  assert.equal(pad.frameData, 90);
+  assert.equal(pad.frameData, 87);
   const s = await pad.status();
   assert.equal(s.state, "connected");
   assert.equal(s.slot, "east");
@@ -197,8 +205,8 @@ test("the write test's items fill the data exactly", async () => {
   const pad = new Pad(simulatedPad());
   await pad.identify();
   const lines = [];
-  assert.equal(await writeTest(pad, 14, 488, (l) => lines.push(l)), true, lines.join("\n"));
-  assert.equal(await writeTest(pad, 90, 488, (l) => lines.push(l)), true, lines.join("\n"));
+  assert.equal(await writeTest(pad, 11, 488, (l) => lines.push(l)), true, lines.join("\n"));
+  assert.equal(await writeTest(pad, 87, 488, (l) => lines.push(l)), true, lines.join("\n"));
 });
 
 test("values from text, as showValue shows them", () => {
@@ -285,7 +293,7 @@ test("a command refused while another program's runs goes again", async () => {
   const before = link.frames.length;
   assert.equal((await pad.status()).state, "connected");
   assert.ok(link.frames.length - before > 1, "sent more than once");
-  const tags = link.frames.slice(before).map((f) => f[1]);
+  const tags = link.frames.slice(before).map((f) => new DataView(f.buffer, f.byteOffset).getUint32(1, true));
   assert.ok(tags.every((t, i) => !i || t !== tags[i - 1]), "a new tag each time");
 });
 
@@ -295,9 +303,32 @@ test("another program's answers (other tags) are not taken", async () => {
   await pad.identify();
   const real = link.emit;
   link.emit = (d) => {
-    link.reply(Uint8Array.of(((d[0] >> 2) ^ 1) << 2, 0xee, 0xee));   // someone else's, first
+    if (d[0] === 1) {            // before ours: the end of another's answer, another's first piece, a refusal of another's
+      link.reply(Uint8Array.of(2, d[1] - 1, 0xee, 0xee));
+      link.reply(Uint8Array.of(1, 0x77, d[2] ^ 1, d[3], d[4], d[5], 2, 0, 0xee, 0xee));
+      link.reply(Uint8Array.of(3, d[2] ^ 1, d[3], d[4], d[5]));
+    }
     link.reply(d);
   };
   assert.equal((await pad.status()).state, "connected");
   link.emit = real;
+});
+
+test("a piece lost: the command goes again, never a wrong answer", async () => {
+  const link = simulatedPad();
+  const pad = new Pad(link);
+  await pad.identify();
+  const whole = await pad.fields();
+  link.lose = [1, 2];                                      // two: a parity bit would miss them
+  assert.deepEqual((await pad.fields()).map((f) => f.name), whole.map((f) => f.name));
+});
+
+test("a command nothing comes of (it or its refusal lost) goes again", async () => {
+  const link = simulatedPad();
+  const pad = new Pad(link);
+  await pad.identify();
+  link.drop = 1;
+  const t0 = Date.now();
+  assert.equal((await pad.status()).state, "connected");
+  assert.ok(Date.now() - t0 >= 450, "after the silence");
 });
