@@ -37,8 +37,12 @@ install: $(JOLLYMAAM_CLI) $(O)/host/libjollymaam.a
 	$(Q)install -m644 src/lib/*.h $(DESTDIR)$(PREFIX)/include/jollymaam/
 	$(Q)install -m644 src/lib/jieli_image/*.h $(DESTDIR)$(PREFIX)/include/jollymaam/jieli_image/
 
-# Every board's firmware as one package (jollymaam package): what the
-# vendor loaders write, update.bin for our updater, the Jieli RAM loaders.
-.PHONY: firmware.zip
-firmware.zip: all $(JOLLYMAAM_CLI)
-	$(Q)$(JOLLYMAAM_CLI) package $(O) $(O)/firmware.zip
+# Every board's firmware as one package (jollymaam package): each product's
+# install image (firmware.img) and update.bin, and the Jieli RAM loaders.
+# The boards add their firmware.img to its prerequisites (update.bin comes
+# with it): they are read after this file.
+FIRMWARE_ZIP := $(O)/firmware.zip
+TRACKED += $(FIRMWARE_ZIP)
+$(FIRMWARE_ZIP): $(JOLLYMAAM_CLI)
+	$(call lib-run,$(JOLLYMAAM_CLI) package $(O) $@,PACKAGE)
+firmware: $(FIRMWARE_ZIP)

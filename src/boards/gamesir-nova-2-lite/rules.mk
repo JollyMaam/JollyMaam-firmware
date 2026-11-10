@@ -1,4 +1,5 @@
 HELP_TARGETS += n2
+$(FIRMWARE_ZIP): $(O)/n2/pad/firmware.img $(O)/n2/dongle/firmware.img
 
 firmware: n2
 test: n2-test

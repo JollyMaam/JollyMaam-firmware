@@ -1,4 +1,5 @@
 HELP_TARGETS += u2cw
+$(FIRMWARE_ZIP): $(O)/u2cw/pad/firmware.img
 
 firmware: u2cw
 test: u2cw-test

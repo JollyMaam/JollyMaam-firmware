@@ -1,4 +1,5 @@
 HELP_TARGETS += c2
+$(FIRMWARE_ZIP): $(O)/c2/pad/firmware.img $(O)/c2/dongle/firmware.img
 
 firmware: c2
 test: c2-test

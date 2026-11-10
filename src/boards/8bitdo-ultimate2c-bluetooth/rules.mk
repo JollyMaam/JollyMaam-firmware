@@ -1,4 +1,5 @@
 HELP_TARGETS += u2cb
+$(FIRMWARE_ZIP): $(O)/u2cb/pad/firmware.img
 
 firmware: u2cb
 test: u2cb-test
