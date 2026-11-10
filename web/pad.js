@@ -183,14 +183,15 @@ export class Pad {
   // answer is one empty piece); the updater answers in one piece, or not
   // at all when the answer does not fit its MTU, nor to a command without
   // one (UPDATE_COMMIT, REBOOT: answer false).  One at a time.
-  cmd(sub, { arg = 0, data = new Uint8Array(0), timeoutMs = 3000, answer = !data.length } = {}) {
-    const run = () => this.#run(sub, arg, data, timeoutMs, answer);
+  // quick: written without response (no pacing; the caller checks the count).
+  cmd(sub, { arg = 0, data = new Uint8Array(0), timeoutMs = 3000, answer = !data.length, quick = false } = {}) {
+    const run = () => this.#run(sub, arg, data, timeoutMs, answer, quick);
     const result = this.chain.then(run, run);
     this.chain = result.catch(() => {});
     return result;
   }
 
-  async #run(sub, arg, data, timeoutMs, wanted) {
+  async #run(sub, arg, data, timeoutMs, wanted, quick) {
     if (this.gone) throw new Error("link lost");
     const answer = new Promise((resolve, reject) => { this.pending = { sub, parts: [], resolve, reject }; });
     answer.catch(() => {});
@@ -203,7 +204,7 @@ export class Pad {
         frame[0] = sub | (i < n - 1 ? MORE : 0);
         new DataView(frame.buffer).setUint32(1, arg >>> 0, true);
         frame.set(piece, FRAME_HEAD);
-        await this.link.write(frame);
+        await this.link.write(frame, quick);
       }
       if (!wanted) return new Uint8Array(0);
       return await Promise.race([answer, new Promise((_, reject) => {

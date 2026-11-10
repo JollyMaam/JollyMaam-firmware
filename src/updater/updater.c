@@ -134,6 +134,12 @@ static u8 data(u32 offset, const u8 *d, u32 n)
      * writes without response); the host resends from UPDATE_INFO's count. */
     if (offset != written) return JM_UPDATE_ERR_NONE;
     if (!n || n > begun - written) return JM_UPDATE_ERR_ORDER;
+#ifdef UPD_WRITE_BLOCK           /* whole blocks but the last: a short write (cut on the way) dropped */
+    if (n % UPD_WRITE_BLOCK && offset + n != begun) {
+        util_log("updater: %u bytes at %x dropped", n, offset);
+        return JM_UPDATE_ERR_NONE;
+    }
+#endif
 #ifndef UPD_ERASE_AT_BEGIN
     if (offset / SECTOR != (offset + n - 1) / SECTOR || (offset && !(offset % SECTOR)))
         upd_erase((offset + n - 1) & ~(SECTOR - 1));

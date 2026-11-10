@@ -750,12 +750,20 @@ def update(link, image, progress=None):
     # (a write lost on the way), start again from there.
     chunk = min(link.chunk, i["data_max"] or link.chunk)
     every = max(1, 32768 // chunk)
+    # The U2CB's updater over LE: data writes without response, INFO every 32
+    # (its radio core takes ~9 packets an event: twice as fast).
+    quick = pid == "U2C_BLUETOOTH" and hasattr(link, "client")
+    if quick:
+        every = 32
     offset = resent = 0
     while True:
         for _ in range(every):
             if offset >= len(image):
                 break
-            link.cmd(0x43, offset, out=image[offset:offset + chunk])
+            if quick:
+                link.cmd(0x43, offset, out=image[offset:offset + chunk], response=False)
+            else:
+                link.cmd(0x43, offset, out=image[offset:offset + chunk])
             offset += len(image[offset:offset + chunk])
         i = update_step(link, f"at {offset:#x}")
         if i["written"] != offset:

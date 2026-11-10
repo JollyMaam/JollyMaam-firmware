@@ -97,7 +97,7 @@ class BleLink:
             self.frame_data = min(self.frame_data, CONFIG_FRAME_DATA)
             self.chunk = config_data_max(identify)
 
-    def cmd(self, sub, arg=0, length=0, out=None, timeout_ms=3000):
+    def cmd(self, sub, arg=0, length=0, out=None, timeout_ms=3000, response=True):
         data = out or b""
         pieces = [data[i:i + self.frame_data] for i in range(0, len(data), self.frame_data)] or [b""]
         head = struct.pack("<I", arg)
@@ -107,7 +107,7 @@ class BleLink:
                 self.replies.get_nowait()
             for i, piece in enumerate(pieces):
                 more = MORE if i < len(pieces) - 1 else 0
-                await self.client.write_gatt_char(REQUEST, bytes([sub | more]) + head + piece, response=True)
+                await self.client.write_gatt_char(REQUEST, bytes([sub | more]) + head + piece, response=response)
             if not length:
                 return b""
             answer = b""

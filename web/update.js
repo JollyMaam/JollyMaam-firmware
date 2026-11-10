@@ -47,14 +47,17 @@ export async function sendImage(up, image, log, progress) {
   log(`erasing and writing ${image.length} bytes`);
   const t0 = performance.now();
   let offset = 0, resent = 0;
+  // The U2CB's updater: data writes without response, INFO every 32 (its
+  // radio core takes ~9 packets an event: twice as fast as acknowledged).
+  const quick = up.id.product === "U2C_BLUETOOTH";
   for (;;) {
-    const every = Math.max(1, Math.floor(16384 / chunk));
+    const every = quick ? 32 : Math.max(1, Math.floor(16384 / chunk));
     up.frameData = chunk;
     let failed = null;
     for (let i = 0; i < every && offset < image.length; i++) {
       const piece = image.subarray(offset, offset + chunk);
       try {
-        await up.cmd(CMD.UPDATE_DATA, { arg: offset, data: piece, timeoutMs: 10000 });
+        await up.cmd(CMD.UPDATE_DATA, { arg: offset, data: piece, timeoutMs: 10000, quick });
       } catch (error) {
         if (up.gone) throw error;
         failed = error;
@@ -67,7 +70,7 @@ export async function sendImage(up, image, log, progress) {
     if (info.written !== offset) {
       if (++resent > 50) throw new Error("writes keep getting lost (the pad stays in its updater)");
       if (chunk > MIN_CHUNK) {
-        chunk = Math.max(MIN_CHUNK, chunk >> 1);
+        chunk = Math.max(MIN_CHUNK, (chunk >> 1) & ~31);   // whole 32-byte blocks (the U2CB drops others)
         log(`${failed ? "a write failed" : "writes were cut short"} at ${offset}; ${chunk + FRAME_HEAD}-byte writes from ${info.written}`);
       }
       offset = info.written;

@@ -234,8 +234,10 @@ static void handle(const struct radio_packet *p)
         }
         break;
     case 0x08:                           /* LE write */
+#ifndef UPDATER                          /* there: hundreds a second, an update's */
         if (p->len >= 2) util_log("bt: write %04x [%u] %02x %02x %02x %02x", p->data[0] | p->data[1] << 8, p->len - 2,
                                   p->data[2], p->data[3], p->data[4], p->data[5]);
+#endif
         if (b.le && b.linked) le_write(p->data, p->len);
         break;
     case 0x0d:                           /* the core's bond table: ours is the slot's */

@@ -47,7 +47,8 @@ async function open(device) {
     id: device.id,
     maxWrite: MAX_WRITE,
     device,
-    write: (frame) => request.writeValueWithResponse(frame),
+    // quick: without response (UPDATE_DATA to a U2CB's updater, its count resyncs)
+    write: (frame, quick = false) => quick ? request.writeValueWithoutResponse(frame) : request.writeValueWithResponse(frame),
     // Before a command that ends the link: leave no subscription behind.
     quiet: () => reply.stopNotifications().catch(() => {}),
     onReply(fn) { replied = fn; },

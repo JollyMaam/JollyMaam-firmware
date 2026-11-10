@@ -95,7 +95,7 @@ TARGETS += u2cb/updater/app.elf
 u2cb/updater/app.elf_toolchain := YC3121_
 u2cb/updater/app.elf_sources := $(U2CB_UPDATER_SOURCES)
 u2cb/updater/app.elf_cppflags := -DBOARD_PID=\"U2C_BLUETOOTH\" $(BUILD_ID_CPPFLAGS) \
-	-DUPDATER -DBT_WRITE_MAX=244 -DUPD_LE_DATA_MAX=224 -DUPD_ERASE_AT_BEGIN -DMAIN_AT=$(U2CB_MAIN_AT) $(U2CB_STORE) -DLOG_LINES=32 $(EXTRA_DEFINES) \
+	-DUPDATER -DBT_WRITE_MAX=244 -DUPD_LE_DATA_MAX=224 -DUPD_ERASE_AT_BEGIN -DUPD_WRITE_BLOCK=32 -DMAIN_AT=$(U2CB_MAIN_AT) $(U2CB_STORE) -DLOG_LINES=32 $(EXTRA_DEFINES) \
 	$(YC3121_SRC_INCLUDES) -iquote $(self)
 u2cb/updater/app.elf_ldflags := $(YC_CFLAGS) -Wl,--defsym=TEXT_END=0x01020000 $(YC_LDFLAGS) -Wl,-Map,$(O)/u2cb/updater/app.map
 u2cb/updater/app.elf_deps := $(YC_LDSCRIPT)
