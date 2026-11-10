@@ -705,15 +705,15 @@ def is_updater(link):
     return link.cmd(0x00, length=88)[7] == 1
 
 
-def update_info(link):
-    d = link.cmd(0x41, length=32)
+def update_info(link, timeout_ms=3000):
+    d = link.cmd(0x41, length=32, timeout_ms=timeout_ms)
     version, state, error, valid, at, room, written, begun, key, data_max = struct.unpack_from("<BBBBIIIIII", d)
     return dict(state=state, error=error, valid=valid, at=at, room=room, written=written, begun=begun, key=key,
                 data_max=data_max)
 
 
-def update_step(link, what):
-    i = update_info(link)
+def update_step(link, what, timeout_ms=3000):
+    i = update_info(link, timeout_ms)
     if i["error"]:
         sys.exit(f"padtool: update {what}: {UPDATE_ERRORS[i['error']] if i['error'] < len(UPDATE_ERRORS) else i['error']}"
                  f" ({i['written']} of {i['begun']} bytes written; the pad stays in its updater)")
@@ -770,7 +770,7 @@ def update(link, image, progress=None):
     print(f"\r{i['written']} of {len(image)} bytes in {time.monotonic() - start:.1f} s"
           f"{f', {resent} resends' if resent else ''}")
     link.cmd(0x44, timeout_ms=10000)
-    i = update_step(link, "commit")
+    i = update_step(link, "commit", 10000)    # its answer after the commit's read-back (seconds on the U2CB)
     if i["state"] != 2:
         sys.exit("padtool: the updater did not commit")
     print("committed; restarting into the app")

@@ -267,8 +267,8 @@ export class Pad {
     return decodeValues(await this.cmd(defaults ? CMD.DEFAULTS : CMD.READ, { arg: target }), table, target);
   }
 
-  async updateInfo() {
-    return decodeUpdateInfo(await this.cmd(CMD.UPDATE_INFO));
+  async updateInfo(timeoutMs = 3000) {
+    return decodeUpdateInfo(await this.cmd(CMD.UPDATE_INFO, { timeoutMs }));
   }
 
   close() {

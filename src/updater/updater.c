@@ -283,6 +283,10 @@ u32 updater_frame(const u8 *frame, u32 len, u8 *reply, u32 max)
     memset(reply, 0, max);
     n = usb_command(cdb, reply + 1, max - 1, 0);
     if (!n) return 0;
+#ifdef UPD_LE_DATA_MAX           /* the LE side takes shorter writes than USB */
+    if (frame[0] == JM_CMD_UPDATE_INFO && upd_data_max() > UPD_LE_DATA_MAX)
+        util_put32(reply + 1 + JM_UPDATE_INFO_DATA_MAX_OFF, UPD_LE_DATA_MAX);
+#endif
     reply[0] = frame[0];
     return n + 1;
 }
@@ -349,6 +353,7 @@ void ctl_main(void)
     lights(0, 0, 2);
     for (;;) {
         u32 now;
+        int ble;
 
         plat_wait(plat_ms() + 100, 0);
         plat_usb_service();
@@ -364,8 +369,9 @@ void ctl_main(void)
             if (to_config) plat_reboot_config();
             plat_reboot();
         }
+        ble = updater_ble_connected();   /* every pass: on the YC3121 it takes the host's writes */
 #ifndef BOARD_DONGLE             /* a dongle is off with its USB */
-        if (plat_usb_present() || updater_ble_connected() || state == JM_UPDATE_WRITING) host_seen = now;
+        if (plat_usb_present() || ble || state == JM_UPDATE_WRITING) host_seen = now;
         else if (now - host_seen > IDLE_OFF_MS) plat_power_off();
 #endif
     }

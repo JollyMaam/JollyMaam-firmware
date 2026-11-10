@@ -79,7 +79,7 @@ export async function sendImage(up, image, log, progress) {
   log(`${image.length} bytes in ${s.toFixed(1)} s (${(image.length / s / 1024).toFixed(1)} KiB/s, ` +
     `${chunk + FRAME_HEAD}-byte writes${resent ? `, ${resent} resends` : ""})`);
   await up.cmd(CMD.UPDATE_COMMIT, { answer: false, timeoutMs: 10000 });
-  info = await up.updateInfo();
+  info = await up.updateInfo(10000);   // after the commit's read-back: seconds on the U2CB
   if (info.state !== 2 || info.error) throw new Error(`the updater did not commit: ${why(info.error)}`);
   log("committed");
 }

@@ -67,31 +67,38 @@ TARGETS += u2cb/hello/app.bin
 u2cb/hello/app.bin_type := yc3121-bin
 u2cb/hello/app.bin_deps := $(O)/u2cb/hello/app.elf
 
-# --- Updater: USB only; its log as the app's, so the two keep one ring
+# --- Updater: USB and LE (bt_yc3121.c holds writes of 96 bytes at most:
+# UPDATE_DATA over LE in 64); its log as the app's, so the two keep one ring
 
 U2CB_UPDATER_SOURCES :=
 U2CB_UPDATER_SOURCES += src/updater/updater.c
 U2CB_UPDATER_SOURCES += src/updater/updater_yc3121.c
+U2CB_UPDATER_SOURCES += src/updater/updater_ble_yc3121.c
 U2CB_UPDATER_SOURCES += src/boards/8bitdo-ultimate2c-bluetooth/board_pad.c
 U2CB_UPDATER_SOURCES += src/platform/yc3121/main_yc3121.c
 U2CB_UPDATER_SOURCES += src/platform/yc3121/platform_yc3121.c
 U2CB_UPDATER_SOURCES += src/platform/yc3121/usb_yc3121.c
 U2CB_UPDATER_SOURCES += src/platform/yc3121/tool_yc3121.c
 U2CB_UPDATER_SOURCES += src/platform/yc3121/flash_yc3121.c
+U2CB_UPDATER_SOURCES += src/platform/yc3121/radio_yc3121.c
+U2CB_UPDATER_SOURCES += src/platform/yc3121/sdp_yc3121.c
+U2CB_UPDATER_SOURCES += src/platform/yc3121/bt_yc3121.c
 U2CB_UPDATER_SOURCES += src/core/utils.c
 U2CB_UPDATER_SOURCES += src/core/battery.c
 U2CB_UPDATER_SOURCES += src/platform/yc3121/start.S
+U2CB_UPDATER_SOURCES += src/platform/yc3121/radio_blob.S
 
 TARGETS += u2cb/updater/app.elf
 u2cb/updater/app.elf_toolchain := YC3121_
 u2cb/updater/app.elf_sources := $(U2CB_UPDATER_SOURCES)
 u2cb/updater/app.elf_cppflags := -DBOARD_PID=\"U2C_BLUETOOTH\" $(BUILD_ID_CPPFLAGS) \
-	-DUPDATER -DNO_BT -DMAIN_AT=$(U2CB_MAIN_AT) $(U2CB_STORE) -DLOG_LINES=32 $(EXTRA_DEFINES) \
+	-DUPDATER -DUPD_LE_DATA_MAX=64 -DMAIN_AT=$(U2CB_MAIN_AT) $(U2CB_STORE) -DLOG_LINES=32 $(EXTRA_DEFINES) \
 	$(YC3121_SRC_INCLUDES) -iquote $(self)
 u2cb/updater/app.elf_ldflags := $(YC_CFLAGS) -Wl,--defsym=TEXT_END=0x01020000 $(YC_LDFLAGS) -Wl,-Map,$(O)/u2cb/updater/app.map
 u2cb/updater/app.elf_deps := $(YC_LDSCRIPT)
 u2cb/updater/app.elf_order_deps := $(BUILD_ID_H)
-$(call lib-objs,u2cb/updater/app.elf,src/platform/yc3121/start.S): obj_cppflags += -DRADIO_BLOB='"$(U2CB_BLOB)"'
+$(call lib-objs,u2cb/updater/app.elf,$(filter %.S,$(U2CB_UPDATER_SOURCES))): obj_cppflags += -DRADIO_BLOB='"$(U2CB_BLOB)"'
+$(call lib-objs,u2cb/updater/app.elf,src/platform/yc3121/radio_blob.S): $(U2CB_BLOB)
 
 TARGETS += u2cb/updater/app.bin
 u2cb/updater/app.bin_type := yc3121-bin

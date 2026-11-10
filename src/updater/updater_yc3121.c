@@ -10,7 +10,8 @@
  * above it: its header, then the app (linked to run there) at
  * JM_MAIN_HEAD_SIZE.  First in main(), updater_boot() jumps to the app's
  * entry unless the app asked for the updater or its header is not there;
- * while the app runs, start.S passes the entries on to it.  USB only.
+ * while the app runs, start.S passes the entries on to it.  USB, and LE
+ * through the radio core (updater_ble_yc3121.c).
  *
  * The slot is ciphered flash, 32-byte blocks with a check word each
  * (flash_yc3121.c), so a block takes one program: the commit word cannot
@@ -133,9 +134,3 @@ int upd_program(u32 offset, const u8 *data, u32 n, u32 skip)
     }
     return program(offset, data, n);
 }
-
-/* No radio here: the ADC (the sticks, the battery) runs through its core. */
-void plat_bt_init(void) {}
-u32 plat_bt_poll(void) { return 0; }
-int plat_adc_ready(void) { return 0; }
-u16 plat_adc_read(int channel) { (void)channel; return 0; }
