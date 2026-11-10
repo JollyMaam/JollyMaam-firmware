@@ -36,3 +36,9 @@ install: $(JOLLYMAAM_CLI) $(O)/host/libjollymaam.a
 	$(Q)install -m644 $(O)/host/libjollymaam.a $(DESTDIR)$(PREFIX)/lib/
 	$(Q)install -m644 src/lib/*.h $(DESTDIR)$(PREFIX)/include/jollymaam/
 	$(Q)install -m644 src/lib/jieli_image/*.h $(DESTDIR)$(PREFIX)/include/jollymaam/jieli_image/
+
+# Every board's firmware as one package (jollymaam package): what the
+# vendor loaders write, update.bin for our updater, the Jieli RAM loaders.
+.PHONY: firmware.zip
+firmware.zip: all $(JOLLYMAAM_CLI)
+	$(Q)$(JOLLYMAAM_CLI) package $(O) $(O)/firmware.zip

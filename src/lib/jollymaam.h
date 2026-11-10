@@ -18,7 +18,7 @@
 enum jm_chip { JM_CHIP_BR23, JM_CHIP_BD19, JM_CHIP_TLSR8208, JM_CHIP_YC3121 };
 struct jm_product {
   const char *pid;              /* the image's PID: IDENTIFY's, the manifest's */
-  const char *board;            /* its build directory (NULL: no firmware of ours) */
+  const char *board;            /* its build directory under build/ (NULL: no firmware of ours) */
   const char *name;             /* for people */
   enum jm_chip chip;
   uint16_t model;               /* the 8BitDo boot loader's model; 0: none */

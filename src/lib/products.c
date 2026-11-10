@@ -6,18 +6,18 @@
  * the vendor flash keeps (the Nova pad's stock data), and how to enter the
  * vendor loader by hand.  docs/<product>/ for where these come from. */
 static const struct jm_product products[] = {
-  {"GS_C2_ADC_DEVICE", "gamesir-cyclone-2-pad", "Cyclone 2", JM_CHIP_BR23, 0, "firmware.img", 1, 0, 0,
+  {"GS_C2_ADC_DEVICE", "c2/pad", "Cyclone 2", JM_CHIP_BR23, 0, "firmware.img", 1, 0, 0,
    "stock firmware: Xbox 360 mode (green), or hold Home+Start while plugging in USB"},
-  {"GS_C2_Dongle", "gamesir-cyclone-2-dongle", "Cyclone 2 Dongle", JM_CHIP_BR23, 0, "firmware.img", 1, 0, 0,
+  {"GS_C2_Dongle", "c2/dongle", "Cyclone 2 Dongle", JM_CHIP_BR23, 0, "firmware.img", 1, 0, 0,
    "hold the button while plugging in USB"},
-  {"AC695X_TRANS", "gamesir-nova-2-lite-pad", "Nova 2 Lite", JM_CHIP_BR23, 0, "firmware.img", 1, 0x64000, 0x1c000,
+  {"AC695X_TRANS", "n2/pad", "Nova 2 Lite", JM_CHIP_BR23, 0, "firmware.img", 1, 0x64000, 0x1c000,
    "stock firmware: Xbox 360 mode (green)"},
-  {"AC632N_TRANS", "gamesir-nova-2-lite-dongle", "Nova 2 Lite Dongle", JM_CHIP_BD19, 0, "firmware.img", 1, 0, 0,
+  {"AC632N_TRANS", "n2/dongle", "Nova 2 Lite Dongle", JM_CHIP_BD19, 0, "firmware.img", 1, 0, 0,
    "hold the pairing button while connecting USB"},
-  {"U2C_WIRELESS", "8bitdo-ultimate2c-wireless-pad", "Ultimate 2C Wireless", JM_CHIP_TLSR8208, 0x301b,
+  {"U2C_WIRELESS", "u2cw/pad", "Ultimate 2C Wireless", JM_CHIP_TLSR8208, 0x301b,
    "firmware.img", 1, 0, 0, "USB unplugged, hold L1+R1, tap Home, plug in USB"},
   {"U2C_RECEIVER", NULL, "Ultimate 2C Receiver", JM_CHIP_TLSR8208, 0x301c, NULL, 0, 0, 0, NULL},
-  {"U2C_BLUETOOTH", "8bitdo-ultimate2c-bluetooth-pad", "Ultimate 2C Bluetooth", JM_CHIP_YC3121, 0x301a,
+  {"U2C_BLUETOOTH", "u2cb/pad", "Ultimate 2C Bluetooth", JM_CHIP_YC3121, 0x301a,
    "firmware.img", 1, 0, 0, "USB unplugged, hold L1+R1, tap Home, plug in USB"},
 };
 
