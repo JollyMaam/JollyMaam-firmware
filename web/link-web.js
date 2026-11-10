@@ -53,11 +53,9 @@ async function open(device) {
     quiet: () => reply.stopNotifications().catch(() => {}),
     onReply(fn) { replied = fn; },
     onDisconnect(fn) { gone = fn; },
-    // Leave no subscription behind (BlueZ), then end the link.
-    close() {
-      if (!device.gatt.connected) return;
-      reply.stopNotifications().catch(() => {}).finally(() => device.gatt.disconnect());
-    },
+    // At once: a disconnect still pending when the next link comes up would
+    // end that one.  open() clears a subscription left behind.
+    close() { if (device.gatt.connected) device.gatt.disconnect(); },
   };
 }
 

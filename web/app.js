@@ -26,15 +26,15 @@ function say(message, error = false) {
   $("message").classList.toggle("error", error);
 }
 
+const spinner = () => h("span", { class: "spinner", "aria-hidden": "true" });
+
+// What the pad is; id null: the box in place, a spinner where the board goes.
 function showIdentity(id, link) {
-  $("identity").replaceChildren(h("dl", {},
-    h("dt", {}, "Board"), h("dd", {}, id.boardName || "?"),
-    h("dt", {}, "Mode"), h("dd", {}, id.updater ? "updater" : "config mode"),
-    h("dt", {}, "Product"), h("dd", {}, id.product),
-    h("dt", {}, "Build"), h("dd", {}, id.build),
-    h("dt", {}, "Flash ID"), h("dd", { class: "mono" }, id.flashId),
-    h("dt", {}, "Protocol"), h("dd", {}, String(id.protocol)),
-    h("dt", {}, "Bluetooth"), h("dd", {}, link.name)));
+  const rows = [["Board", id ? id.boardName || "?" : spinner()], ["Mode", id && (id.updater ? "updater" : "config mode")],
+    ["Product", id?.product], ["Build", id?.build], ["Flash ID", id?.flashId], ["Protocol", id && String(id.protocol)],
+    ["Bluetooth", link.name]];
+  $("identity").replaceChildren(h("dl", { "aria-busy": id ? null : "true" },
+    rows.map(([k, v]) => [h("dt", {}, k), h("dd", { class: k === "Flash ID" ? "mono" : null }, v ?? "")])));
 }
 
 function showStatus(s) {
@@ -295,7 +295,35 @@ async function connect() {
     say(error.name === "NotFoundError" ? "No pad chosen." : String(error.message || error), error.name !== "NotFoundError");
     return;
   }
-  await attach(new Pad(link));
+  say("");
+  $("connect").hidden = true;
+  showIdentity(null, link);
+  // Right after a disconnect a new link can come up and then fail its
+  // first write ("GATT Error Unknown", Chrome on Linux) while BlueZ is
+  // still ending the old one: then a fresh link, for up to 8 s.
+  const end = Date.now() + 8000;
+  for (let p = new Pad(link); ; ) {
+    try {
+      await p.identify();
+      return attach(p);
+    } catch (error) {
+      p.onDisconnect = null;
+      p.close();
+      if (Date.now() > end) {
+        $("identity").replaceChildren();
+        $("connect").hidden = false;
+        return say(String(error.message || error), true);
+      }
+      await new Promise((r) => setTimeout(r, 500));
+      try {
+        p = new Pad(await links.reconnect(link, Math.max(1, (end - Date.now()) / 1000)));
+      } catch (again) {
+        $("identity").replaceChildren();
+        $("connect").hidden = false;
+        return say(String(again.message || again), true);
+      }
+    }
+  }
 }
 
 // A pad on a new link (from the chooser, or found again after an update):
@@ -307,7 +335,6 @@ async function attach(p) {
   $("disconnect").hidden = false;
   for (const b of document.querySelectorAll("#tests .needs-pad")) b.hidden = false;
   try {
-    say("Asking the pad what it is…");
     const id = pad.id || await pad.identify();
     showIdentity(id, pad.link);
     $("firmware").hidden = false;
@@ -330,22 +357,19 @@ async function attach(p) {
   }
 }
 
-// Where the settings will be, while they are read: one greyed fold that
-// opens into the pages once all are read.
-function pending(text) {
-  $("settings").replaceChildren(h("div", { class: "pending", "aria-busy": "true" },
-    h("span", { class: "tri" }, "▸"), "Settings", h("span", { class: "spinner", "aria-hidden": "true" }),
-    h("span", { class: "progress", role: "status" }, text)));
-}
-
+// Where the settings will be, while they are read: one greyed fold, its
+// spinner, and how many pages are read once that is known.  Built once,
+// so the spinner keeps turning.
 async function loadSettings() {
-  pending("reading the list of settings…");
+  const progress = h("span", { class: "progress", role: "status" });
+  $("settings").replaceChildren(h("div", { class: "pending", "aria-busy": "true" },
+    h("span", { class: "tri" }, "▸"), "Settings", spinner(), progress));
   table = await pad.fields();
   const targets = targetsFor(table);
   values = new Map();
   defaults = new Map();
   for (const [i, t] of targets.entries()) {
-    pending(`${i}/${targets.length} pages loaded`);
+    progress.textContent = `${i}/${targets.length} pages loaded`;
     await readTarget(t);
   }
   render();

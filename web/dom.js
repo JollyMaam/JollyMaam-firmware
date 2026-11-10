@@ -9,7 +9,7 @@ export function h(tag, attrs = {}, ...children) {
     if (k === "class") e.className = v;
     else if (v !== undefined && v !== null && v !== false) e.setAttribute(k, v === true ? "" : v);
   }
-  e.append(...children.flat().filter((c) => c !== null && c !== undefined));
+  e.append(...children.flat(Infinity).filter((c) => c !== null && c !== undefined));
   return e;
 }
 
