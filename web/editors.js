@@ -60,7 +60,7 @@ export function remapEditor(io) {
       problem.hidden = true;
       return true;
     } catch (error) {
-      problem.textContent = `${error.message}: change it in the text (Developer fields) or reset`;
+      problem.textContent = `${error.message}: use "All to default" to start again`;
       problem.hidden = false;
       return false;
     }

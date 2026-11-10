@@ -53,8 +53,28 @@ async function open(device) {
     quiet: () => reply.stopNotifications().catch(() => {}),
     onReply(fn) { replied = fn; },
     onDisconnect(fn) { gone = fn; },
-    close() { if (device.gatt.connected) device.gatt.disconnect(); },
+    // Leave no subscription behind (BlueZ), then end the link.
+    close() {
+      if (!device.gatt.connected) return;
+      reply.stopNotifications().catch(() => {}).finally(() => device.gatt.disconnect());
+    },
   };
+}
+
+// A link to a device, tried again for a while: right after a disconnect
+// (Disconnect, then Connect) Chrome on Linux answers "GATT Error Unknown"
+// until BlueZ has finished with the old link.
+async function openRetrying(device, seconds) {
+  const end = Date.now() + seconds * 1000;
+  for (;;) {
+    try {
+      return await open(device);
+    } catch (error) {
+      if (Date.now() > end || error.name === "SecurityError") throw error;
+      if (device.gatt.connected) device.gatt.disconnect();
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
 }
 
 export const links = {
@@ -65,20 +85,12 @@ export const links = {
       filters: [{ services: [SERVICE] }, ...NAME_ONLY.map((name) => ({ name }))],
       optionalServices: [SERVICE],
     });
-    return open(device);
+    return openRetrying(device, 5);
   },
 
   // The same pad again (after a restart into its updater, which keeps the
   // address): no chooser, as long as the page holds the device.
   async reconnect(link, seconds) {
-    const end = Date.now() + seconds * 1000;
-    for (;;) {
-      try {
-        return await open(link.device);
-      } catch (error) {
-        if (Date.now() > end) throw error;
-        await new Promise((r) => setTimeout(r, 500));
-      }
-    }
+    return openRetrying(link.device, seconds);
   },
 };

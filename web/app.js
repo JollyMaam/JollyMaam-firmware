@@ -122,10 +122,10 @@ function row(t, f, rows) {
   const v = values.get(t).get(f.name), d = defaults.get(t)?.get(f.name);
   const shown = showValue(f, v.value), def = d ? showValue(f, d.value) : null;
   const key = keyOf(t, f), part = remapPart(f);
-  // The map and rules have the keys editor (their text is for developers);
+  // The map and rules are the keys editor's (it writes their text here);
   // a curve's on/off follows its points.
-  const hidden = part === "map" || part === "rules" ? "dev" : f.kind === 3 && f.name.endsWith("_curve_enabled") ? "merged" : null;
-  const tr = h("tr", { class: [f.dev ? "dev" : null, hidden].filter(Boolean).join(" ") || null, "data-key": key });
+  const merged = part === "map" || part === "rules" || (f.kind === 3 && f.name.endsWith("_curve_enabled"));
+  const tr = h("tr", { class: merged ? "merged" : null, "data-key": key });
   const mark = h("td", { class: "mark", title: v.set ? "saved on the pad" : "firmware default" }, v.set ? "✓" : "");
   const how = look(t, f);
   let cell, input = null;
@@ -211,10 +211,12 @@ function targetSection(t, open) {
       resetAll: () => { byName.get("map").reset.click(); byName.get("rules").reset.click(); },
     });
   }
-  // The rest, then a box per stick and trigger (padgui's grouping).
-  const general = [], boxes = new Map();
+  // The rest, then a box per stick and trigger (padgui's grouping), then
+  // the developer fields under a fold.
+  const general = [], boxes = new Map(), dev = [];
   fields.forEach((f, i) => {
     const side = sideOf(t, f);
+    if (f.dev) return dev.push(rows[i]);
     if (!side) return general.push(rows[i]);
     if (!boxes.has(side)) boxes.set(side, []);
     boxes.get(side).push(rows[i]);
@@ -225,11 +227,18 @@ function targetSection(t, open) {
     h("summary", {}, targetName(t), h("span", { class: "muted mono" }, ` ${TARGETS[t]}`)),
     rows.length ? settings(general) : h("p", { class: "muted" }, "Nothing here."),
     keys,
-    [...boxes].map(([side, trs]) => h("section", { class: "box" }, h("h3", {}, SIDES[side]), settings(trs))));
+    [...boxes].map(([side, trs]) => h("section", { class: "box" }, h("h3", {}, SIDES[side]), settings(trs))),
+    dev.length ? h("details", { class: "devfold", open: devOpen.has(t) },
+      h("summary", {}, "Developer fields", h("span", { class: "muted" }, " — for measuring and testing")), settings(dev)) : null);
 }
 
+// Developer folds left open, by target.
+const devOpen = new Set();
+
 function render() {
-  const open = new Set([...document.querySelectorAll("#settings details[open]")].map((d) => Number(d.dataset.target)));
+  const open = new Set([...document.querySelectorAll("#settings > details[open]")].map((d) => Number(d.dataset.target)));
+  devOpen.clear();
+  for (const d of document.querySelectorAll("#settings details.devfold[open]")) devOpen.add(Number(d.closest("[data-target]").dataset.target));
   edits.clear();
   $("settings").replaceChildren(...[...values.keys()].map((t) => targetSection(t, open.has(t))));
   bar();
@@ -313,15 +322,40 @@ async function attach(p) {
       try { showStatus(await pad.status()); } catch { /* the disconnect handler says it */ }
     }, STATUS_EVERY_MS);
     say("Reading its settings…");
-    table = await pad.fields();
-    values = new Map();
-    defaults = new Map();
-    for (const t of targetsFor(table)) await readTarget(t);
-    render();
+    await loadSettings();
     say(`${table.length} settings in ${values.size} groups. Changes apply on the next connect.`);
     $("tests").hidden = false;
   } catch (error) {
     say(String(error.message || error), true);
+  }
+}
+
+// Where the settings will be, while they are read: each group folded and
+// greyed, the one being read turning, and a progress bar.
+function pending(names, done) {
+  $("settings").replaceChildren(...names.map((name, i) => h("div", { class: "pending", "aria-busy": i >= done ? "true" : null },
+    h("span", { class: "tri" }, "▸"), name, i === done ? h("span", { class: "spinner", "aria-hidden": "true" }) : null)));
+}
+
+async function loadSettings() {
+  const bar = $("loadprogress");
+  bar.hidden = false;
+  bar.removeAttribute("value");         // how many there are comes with the table
+  pending(["Settings"], 0);
+  try {
+    table = await pad.fields();
+    const targets = targetsFor(table);
+    values = new Map();
+    defaults = new Map();
+    bar.max = targets.length;
+    for (const [i, t] of targets.entries()) {
+      bar.value = i;
+      pending(targets.map(targetName), i);
+      await readTarget(t);
+    }
+    render();
+  } finally {
+    bar.hidden = true;
   }
 }
 
@@ -459,7 +493,6 @@ $("package").addEventListener("change", async (e) => {
 $("update").addEventListener("click", update);
 $("save").addEventListener("click", save);
 $("undo").addEventListener("click", render);
-$("dev").addEventListener("change", (e) => document.body.classList.toggle("show-dev", e.target.checked));
 if (!links.available()) {
   $("connect").disabled = true;
   say("This browser has no Web Bluetooth: use Chrome or Edge.", true);

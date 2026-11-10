@@ -66,8 +66,6 @@ thead th { color: var(--muted); font-weight: 500; }
 tbody th { font-weight: 500; }
 td.mark { width: 2em; color: var(--accent); }
 details p { padding: 0 16px; }
-tr.dev { display: none; }
-body.show-dev tr.dev { display: table-row; }
 #tests .actions { padding: 0 16px; }
 #testlog { margin: 8px 16px 16px; white-space: pre-wrap; }
 #testlog:empty { display: none; }
@@ -113,3 +111,16 @@ svg.curve.invalid .line, svg.curve.invalid .dot { display: none; }
   .remap col.c-key { width: 6.5em; }
   .remap tr.rulerow td { padding-left: 16px; }
 }
+header h1 { margin-right: 8px; }
+#savebar { padding-left: 16px; border-left: 1px solid var(--line); }
+#loadprogress { display: block; width: 100%; margin: 0 0 8px; }
+#loadprogress[hidden] { display: none; }
+.pending { display: flex; align-items: center; gap: 8px; padding: 8px 16px; margin: 8px 0; font-weight: 600;
+  color: var(--muted); background: var(--panel); border: 1px dashed var(--line); border-radius: 8px; cursor: default; }
+.pending .tri { font-size: 11px; }
+.spinner { width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%;
+  animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
+details.devfold { margin: 12px 16px; }
+details.devfold > summary { font-weight: 500; }
