@@ -123,3 +123,4 @@ header h1 { margin-right: 8px; }
 details.devfold { margin: 12px 16px; }
 details.devfold > summary { font-weight: 500; }
 #message:empty { display: none; }
+.pending .progress { font-weight: 400; font-variant-numeric: tabular-nums; }

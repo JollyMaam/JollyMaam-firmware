@@ -330,21 +330,22 @@ async function attach(p) {
   }
 }
 
-// Where the settings will be, while they are read: each group folded and
-// greyed, the one being read turning.
-function pending(names, done) {
-  $("settings").replaceChildren(...names.map((name, i) => h("div", { class: "pending", "aria-busy": i >= done ? "true" : null },
-    h("span", { class: "tri" }, "▸"), name, i === done ? h("span", { class: "spinner", "aria-hidden": "true" }) : null)));
+// Where the settings will be, while they are read: one greyed fold that
+// opens into the pages once all are read.
+function pending(text) {
+  $("settings").replaceChildren(h("div", { class: "pending", "aria-busy": "true" },
+    h("span", { class: "tri" }, "▸"), "Settings", h("span", { class: "spinner", "aria-hidden": "true" }),
+    h("span", { class: "progress", role: "status" }, text)));
 }
 
 async function loadSettings() {
-  pending(["Settings"], 0);             // the groups come with the table
+  pending("reading the list of settings…");
   table = await pad.fields();
   const targets = targetsFor(table);
   values = new Map();
   defaults = new Map();
   for (const [i, t] of targets.entries()) {
-    pending(targets.map(targetName), i);
+    pending(`${i}/${targets.length} pages loaded`);
     await readTarget(t);
   }
   render();
