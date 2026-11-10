@@ -85,27 +85,35 @@ function simulatedPad() {
     }
     return new Uint8Array(0);
   };
-  let reply = () => {}, held = [];
+  let reply = () => {}, held = [], collecting = null;
   const link = {
     name: "Cyclone 2 Config", id: "sim", maxWrite: 96, frames: [], staged: [], committed: [], drops: 0,
     onReply(fn) { reply = fn; link.reply = (d) => reply(d); },
     onDisconnect() {},
     close() {},
+    // profile_config.c: u8 sub (bit 7 more), u8 tag, u32 arg, data; answers
+    // in pieces of u8 tag << 2 | parity << 1 | more; refused: "more", nothing.
     async write(frame) {
       assert.ok(frame.length <= 96, "a frame is at most BT_WRITE_MAX");
       link.frames.push(frame);
-      held.push(frame.subarray(5));
+      const tag = frame[1] & 0x3f, send = (d) => (link.emit ?? reply)(d);
+      if (link.busy || (collecting !== null && collecting !== tag)) {   // another program's command runs
+        setTimeout(() => send(Uint8Array.of(tag << 2 | 1)), 0);
+        return;
+      }
+      collecting = tag;
+      held.push(frame.subarray(6));
       if (frame[0] & 0x80) return;
-      const sub = frame[0], arg = new DataView(frame.buffer, frame.byteOffset).getUint32(1, true);
+      collecting = null;
+      const sub = frame[0], arg = new DataView(frame.buffer, frame.byteOffset).getUint32(2, true);
       const data = cat(...held);
       held = [];
-      link.last = { sub, arg, data };
+      link.last = { sub, arg, data, tag };
       const a = answer(sub, arg, data);
-      if (data.length) return;   // profile_config_service(): a command with data has no answer
       setTimeout(() => {         // notifications come after the write's response
-        for (let o = 0; ; o += PIECE) {
+        for (let o = 0, parity = 0; ; o += PIECE, parity ^= 1) {
           const more = o + PIECE < a.length;
-          (link.emit ?? reply)(cat([sub | (more ? 0x80 : 0)], a.subarray(o, o + PIECE)));
+          send(cat([tag << 2 | parity << 1 | (more ? 1 : 0)], a.subarray(o, o + PIECE)));
           if (!more) break;
         }
       }, 1);
@@ -123,7 +131,7 @@ test("identify and status", async () => {
   assert.equal(id.flashId, "000102030405060708090a0b0c0d0e0f");
   assert.equal(id.updater, false);
   assert.equal(id.dataMax, 488);
-  assert.equal(pad.frameData, 91);
+  assert.equal(pad.frameData, 90);
   const s = await pad.status();
   assert.equal(s.state, "connected");
   assert.equal(s.slot, "east");
@@ -189,8 +197,8 @@ test("the write test's items fill the data exactly", async () => {
   const pad = new Pad(simulatedPad());
   await pad.identify();
   const lines = [];
-  assert.equal(await writeTest(pad, 15, 488, (l) => lines.push(l)), true, lines.join("\n"));
-  assert.equal(await writeTest(pad, 91, 488, (l) => lines.push(l)), true, lines.join("\n"));
+  assert.equal(await writeTest(pad, 14, 488, (l) => lines.push(l)), true, lines.join("\n"));
+  assert.equal(await writeTest(pad, 90, 488, (l) => lines.push(l)), true, lines.join("\n"));
 });
 
 test("values from text, as showValue shows them", () => {
@@ -256,16 +264,40 @@ test("remap fields: map, rules and curve points as padtool's text", () => {
   assert.throws(() => parseValue({ ...map, kind: 0, name: "address", size: 6 }, "00"), /not editable/);
 });
 
-test("notifications that come twice (another program listening) are noticed", async () => {
+test("copies of every piece (another program subscribed) are dropped", async () => {
+  const link = simulatedPad();
+  link.emit = (d) => { link.reply(d); link.reply(d); };   // BlueZ: one more per other subscriber
+  const pad = new Pad(link);
+  const id = await pad.identify();
+  assert.equal(id.build, "abc1234");
+  const table = await pad.fields();                        // FIELDS: two pieces, each twice
+  assert.deepEqual(table.map((f) => f.name), ["type", "sleep_ms", "red", "name"]);
+  link.emit = (d) => { for (let i = 0; i < 4; i++) link.reply(d); };
+  assert.equal((await pad.status()).state, "connected");
+});
+
+test("a command refused while another program's runs goes again", async () => {
   const link = simulatedPad();
   const pad = new Pad(link);
-  let doubled = 0;
-  pad.onDoubled = () => doubled++;
   await pad.identify();
-  await new Promise((r) => setTimeout(r, 20));
-  assert.equal(doubled, 0);
-  link.emit = (d) => { link.reply(d); link.reply(d); };   // BlueZ signalling each one twice
-  await pad.status().catch(() => {});
-  await new Promise((r) => setTimeout(r, 20));
-  assert.equal(doubled, 1);
+  link.busy = true;
+  setTimeout(() => { link.busy = false; }, 60);
+  const before = link.frames.length;
+  assert.equal((await pad.status()).state, "connected");
+  assert.ok(link.frames.length - before > 1, "sent more than once");
+  const tags = link.frames.slice(before).map((f) => f[1]);
+  assert.ok(tags.every((t, i) => !i || t !== tags[i - 1]), "a new tag each time");
+});
+
+test("another program's answers (other tags) are not taken", async () => {
+  const link = simulatedPad();
+  const pad = new Pad(link);
+  await pad.identify();
+  const real = link.emit;
+  link.emit = (d) => {
+    link.reply(Uint8Array.of(((d[0] >> 2) ^ 1) << 2, 0xee, 0xee));   // someone else's, first
+    link.reply(d);
+  };
+  assert.equal((await pad.status()).state, "connected");
+  link.emit = real;
 });

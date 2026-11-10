@@ -6,7 +6,9 @@ import { showMap, parseMap, showRules, parseRules, parseCurve, RULE_SIZE } from 
 
 export const PROTOCOL = 2;
 export const MORE = 0x80;
-const FRAME_HEAD = 5;            // u8 sub-command, u32 argument
+const FRAME_HEAD = 6;            // u8 sub-command, u8 tag, u32 argument
+const REFUSED = Symbol("refused");
+const REFUSALS_MAX = 100;        // refused this often (10-50 ms apart): give up
 const CONFIG_FRAME_DATA = 96 - FRAME_HEAD;   // BT_WRITE_MAX less the head
 const CONFIG_DATA_MAX = 488;     // IDENTIFY's u16 at 88 from firmware that has it
 
@@ -261,38 +263,43 @@ export class Pad {
     });
   }
 
+  // A piece: u8 tag << 2 | parity << 1 | more, then data
+  // (profile_config.c).  Another tag is another program's (or an answer
+  // given up); the parity of the piece before is a copy (BlueZ sends one
+  // more per other program subscribed); "more" with nothing: refused.
   #reply(r) {
     this.maxReply = Math.max(this.maxReply, r.length);
     const p = this.pending;
-    if (!p || (r[0] & ~MORE) !== p.sub) {        // the rest of an answer nobody waits for
-      // The last piece of the answer just taken, once more: each
-      // notification comes twice, because another program (a second
-      // browser, padtool --ble) also listens to this pad through BlueZ,
-      // and the answers here are garbled.
-      const last = this.lastPiece;
-      if (last && Date.now() - last.at < 500 && r.length === last.data.length && r.every((b, i) => b === last.data[i])) {
-        this.lastPiece = null;
-        this.onDoubled?.(this);
-      }
-      return;
-    }
+    if (!p || !r.length || r[0] >> 2 !== p.tag) return;
+    const parity = (r[0] >> 1) & 1, more = r[0] & 1;
+    if (more && r.length === 1) return p.refused();
+    if (parity !== p.parity) return;
+    p.parity ^= 1;
     p.parts.push(r.subarray(1));
-    if (r[0] & MORE) return;
-    this.lastPiece = { data: Uint8Array.from(r), at: Date.now() };
-    this.pending = null;          // done: a copy of this piece is a stray now
+    if (more) return;
+    this.pending = null;
     const answer = new Uint8Array(p.parts.reduce((n, x) => n + x.length, 0));
     p.parts.reduce((o, x) => (answer.set(x, o), o + x.length), 0);
     p.resolve(answer);
   }
 
-  // A command: its data in frames, then its answer.  A command with data
-  // has none: the last write's response comes once the pad ran it
-  // (write_paced).  Without data, config mode always answers (an empty
-  // answer is one empty piece); the updater answers in one piece, or not
-  // at all when the answer does not fit its MTU, nor to a command without
-  // one (UPDATE_COMMIT, REBOOT: answer false).  One at a time.
-  // quick: written without response (no pacing; the caller checks the count).
-  cmd(sub, { arg = 0, data = new Uint8Array(0), timeoutMs = 3000, answer = !data.length, quick = false } = {}) {
+  // A tag for the next command: six bits, not the last one's.
+  #nextTag() {
+    let t;
+    do t = Math.floor(Math.random() * 64); while (t === this.lastTag);
+    return (this.lastTag = t);
+  }
+
+  // A command: its data in frames, then its answer.  Config mode answers
+  // every command (one with data, none, with nothing) or refuses it while
+  // another program's runs: then it goes again, with a new tag, after a
+  // short wait.  The updater answers a command without data in one piece,
+  // or not at all when the answer does not fit its MTU, and none with data
+  // or without an answer (UPDATE_COMMIT, REBOOT: answer false).  One at a
+  // time.  quick: written without response (no pacing; the caller checks
+  // the count).
+  cmd(sub, { arg = 0, data = new Uint8Array(0), timeoutMs = 3000, answer = !(this.id?.updater && data.length),
+    quick = false } = {}) {
     const run = () => this.#run(sub, arg, data, timeoutMs, answer, quick);
     const result = this.chain.then(run, run);
     this.chain = result.catch(() => {});
@@ -300,8 +307,20 @@ export class Pad {
   }
 
   async #run(sub, arg, data, timeoutMs, wanted, quick) {
+    for (let tries = 1; ; tries++) {
+      const got = await this.#once(sub, arg, data, timeoutMs, wanted, quick);
+      if (got !== REFUSED) return got;
+      if (tries >= REFUSALS_MAX) throw new Error(`command 0x${sub.toString(16)} refused ${tries} times: another program keeps the pad busy`);
+      await new Promise((r) => setTimeout(r, 10 + Math.random() * 40));
+    }
+  }
+
+  async #once(sub, arg, data, timeoutMs, wanted, quick) {
     if (this.gone) throw new Error("link lost");
-    const answer = new Promise((resolve, reject) => { this.pending = { sub, parts: [], resolve, reject }; });
+    const tag = this.#nextTag();
+    const answer = new Promise((resolve, reject) => {
+      this.pending = { sub, tag, parity: 0, parts: [], resolve, reject, refused: () => resolve(REFUSED) };
+    });
     answer.catch(() => {});
     let timer;
     try {
@@ -310,7 +329,8 @@ export class Pad {
         const piece = data.subarray(i * this.frameData, (i + 1) * this.frameData);
         const frame = new Uint8Array(FRAME_HEAD + piece.length);
         frame[0] = sub | (i < n - 1 ? MORE : 0);
-        new DataView(frame.buffer).setUint32(1, arg >>> 0, true);
+        frame[1] = tag;
+        new DataView(frame.buffer).setUint32(2, arg >>> 0, true);
         frame.set(piece, FRAME_HEAD);
         await this.link.write(frame, quick);
       }

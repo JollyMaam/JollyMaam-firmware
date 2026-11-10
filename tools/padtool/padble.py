@@ -3,13 +3,19 @@
 (src/profiles/profile_config.c, Home+M held), for padtool --ble with any
 other command.  Needs bleak (pip install bleak, or nix develop).
 
-A command is a write to REQUEST: u8 sub-command, u32 argument, then data; a
-command with an answer gets it in REPLY notifications: u8 sub-command, then
-a piece of the answer.  Config mode takes a frame of at most BT_WRITE_MAX
-bytes, so more data goes in several, each but the last with bit 7 of the
-sub-command set, and it sends an answer in pieces marked the same way; the
-updater's frames and answers are one piece.  Every write waits for its response, which the pad sends once it has
-run the command: one write in flight.
+A command is a write to REQUEST: u8 sub-command, u8 tag (6 bits, picked
+here), u32 argument, then data; its answer comes in REPLY notifications:
+u8 tag << 2 | parity << 1 | more, then a piece.  Every program subscribed
+gets every notification (and BlueZ one copy more per other program), so a
+piece with another tag is not ours, and one with the parity of the piece
+before is a copy.  Config mode takes a frame of at most BT_WRITE_MAX bytes,
+so more data goes in several, each but the last with bit 7 of the
+sub-command set; it answers every command (one with data with nothing),
+and refuses one while another program's runs ("more" with no data): it goes
+again with a new tag.  The updater's frames and answers are one piece, and
+a command with data has no answer there.  Every write waits for its
+response, which the pad sends once it has run the command: one write in
+flight.
 
 On Linux padtool leaves a config mode link up when it is done, and the next
 run takes the link BlueZ still holds (no scan, no connection: about 0.1 s);
@@ -23,7 +29,7 @@ restarted into its updater, or in config mode again), so it never shows
 advertising to a scan.  Writes without response flooded the
 pad's HCI receive queue while it erased, and packets it dropped there were
 pieced together wrongly."""
-import asyncio, atexit, os, struct, sys
+import asyncio, atexit, os, random, struct, sys
 
 # The zip (make padtool-dist) carries bleak for Windows and Linux; on Linux
 # the system's own comes first.
@@ -38,7 +44,9 @@ SERVICE = "c2550000-3e2d-66b1-8a4f-d5037c2b419e"
 REQUEST = "c2550001-3e2d-66b1-8a4f-d5037c2b419e"
 REPLY = "c2550002-3e2d-66b1-8a4f-d5037c2b419e"
 MORE = 0x80
-CONFIG_FRAME_DATA = 96 - 5       # BT_WRITE_MAX less the frame's header
+HEAD = 6                         # u8 sub-command, u8 tag, u32 argument
+CONFIG_FRAME_DATA = 96 - HEAD    # BT_WRITE_MAX less the frame's header
+REFUSALS_MAX = 100               # refused this often (10-50 ms apart): give up
 CONFIG_DATA_MAX = 488            # profile_config.c's, as the tool device's
 REBOOTING = (0x10, 0x11, 0x40)   # their answer may never come: the pad has gone
 NOT_OVER_BLE = {0x15: "peek reads as many words as fit, registers too"}
@@ -58,6 +66,7 @@ class BleLink:
             sys.exit("padtool: --ble needs bleak (pip install bleak, or nix develop)")
         self.loop = asyncio.new_event_loop()
         self.replies = asyncio.Queue()
+        self.config, self.tag = not updater, None
         what = "updater" if updater else "pad in config mode"
 
         async def connect():
@@ -88,9 +97,9 @@ class BleLink:
             return client
 
         self.client = self.loop.run_until_complete(connect())
-        # A frame: the MTU less the ATT write header (3) and the frame's (5);
+        # A frame: the MTU less the ATT write header (3) and the frame's;
         # config mode takes at most BT_WRITE_MAX, and collects several.
-        self.chunk = self.frame_data = min(512, self.client.mtu_size - 8)
+        self.chunk = self.frame_data = min(512, self.client.mtu_size - 3 - HEAD)
         identify = self.cmd(0x00, length=90)
         self.config = not identify[7]
         if self.config:
@@ -100,27 +109,47 @@ class BleLink:
     def cmd(self, sub, arg=0, length=0, out=None, timeout_ms=3000, response=True):
         data = out or b""
         pieces = [data[i:i + self.frame_data] for i in range(0, len(data), self.frame_data)] or [b""]
-        head = struct.pack("<I", arg)
+        # Config mode answers every command; the updater none with data.
+        wanted = length or (self.config and data)
 
-        async def run():
+        async def once():
+            while True:
+                tag = random.randrange(64)
+                if tag != self.tag:
+                    break
+            self.tag = tag
             while not self.replies.empty():
                 self.replies.get_nowait()
+            head = struct.pack("<BI", tag, arg)
             for i, piece in enumerate(pieces):
                 more = MORE if i < len(pieces) - 1 else 0
                 await self.client.write_gatt_char(REQUEST, bytes([sub | more]) + head + piece, response=response)
-            if not length:
+            if not wanted:
                 return b""
-            answer = b""
+            answer, parity = b"", 0
             while True:
                 try:
                     reply = await asyncio.wait_for(self.replies.get(), timeout_ms / 1000)
                 except asyncio.TimeoutError:
                     raise OSError(f"no answer to command {sub:#04x} in {timeout_ms} ms") from None
-                if reply[0] & ~MORE != sub:
-                    continue
+                if not reply or reply[0] >> 2 != tag:
+                    continue                          # another program's
+                if reply[0] & 1 and len(reply) == 1:
+                    return None                       # refused: another program's command runs
+                if (reply[0] >> 1) & 1 != parity:
+                    continue                          # a copy
+                parity ^= 1
                 answer += reply[1:]
-                if not reply[0] & MORE:
+                if not reply[0] & 1:
                     return answer
+
+        async def run():
+            for tries in range(1, REFUSALS_MAX + 1):
+                answer = await once()
+                if answer is not None:
+                    return answer
+                await asyncio.sleep(0.01 + random.random() * 0.04)
+            raise OSError(f"command {sub:#04x} refused {REFUSALS_MAX} times: another program keeps the pad busy")
         return self.loop.run_until_complete(run())
 
     def reopen(self, seconds):

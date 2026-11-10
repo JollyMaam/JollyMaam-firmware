@@ -116,7 +116,7 @@ function simulatedUpdater(mtu) {
       link.frames++;
       assert.equal(frame[0] & 0x80, 0, "the updater takes one frame a command");
       const f = frame.subarray(0, Math.min(frame.length, mtu - 3));
-      const sub = f[0], arg = new DataView(f.buffer, f.byteOffset).getUint32(1, true), data = f.subarray(5);
+      const sub = f[0], tag = f[1] & 0x3f, arg = new DataView(f.buffer, f.byteOffset).getUint32(2, true), data = f.subarray(6);
       let answer = null;
       if (sub === 0x00) {
         answer = new Uint8Array(88);
@@ -139,7 +139,7 @@ function simulatedUpdater(mtu) {
         state = written === begun ? 2 : 1;
         error = written === begun ? 0 : 5;
       }
-      if (answer) setTimeout(() => reply(Uint8Array.of(sub, ...answer)), 1);
+      if (answer) setTimeout(() => reply(Uint8Array.of(tag << 2, ...answer)), 1);
     },
   };
   return link;

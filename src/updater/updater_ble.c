@@ -14,10 +14,11 @@
 
 /* The updater over Bluetooth LE: the tool device's commands (updater.c's
  * updater_frame()) in one GATT service (updater_gatt.h), no pairing.  The host writes a frame to
- * REQUEST: u8 sub-command, u32 argument (little-endian), then the data a
- * host-to-pad command carries (UPDATE_DATA's image bytes).  A command with
- * an answer (IDENTIFY, STATUS, LOG, UPDATE_INFO) answers in a notification
- * of REPLY: u8 sub-command, then the answer, at most the ATT MTU - 4 bytes.
+ * REQUEST: u8 sub-command, u8 tag, u32 argument (little-endian), then the
+ * data a host-to-pad command carries (UPDATE_DATA's image bytes).  A command
+ * with an answer (IDENTIFY, STATUS, LOG, UPDATE_INFO) answers in one
+ * notification of REPLY: u8 tag << 2, then the answer, at most the ATT MTU
+ * - 4 bytes.
  * The host writes with response, one at a time; the response goes once the
  * command ran (a sector erased, the data programmed).  A flood of writes
  * without response filled the HCI receive queue (btstack_hci_jieli.c) while

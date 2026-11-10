@@ -32,8 +32,8 @@ u32 upd_data_max(void);          /* the most UPDATE_DATA bytes a transport takes
 void updater_ble_start(void);
 int updater_ble_connected(void);
 
-/* updater.c: a host's LE frame (u8 sub-command, u32 argument, data): the
- * reply's length in reply (u8 sub-command, then the answer), 0: none. */
+/* updater.c: a host's LE frame (u8 sub-command, u8 tag, u32 argument,
+ * data): the reply's length in reply (u8 tag << 2, then the answer), 0: none. */
 u32 updater_frame(const u8 *frame, u32 len, u8 *reply, u32 max);
 
 #endif
