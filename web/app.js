@@ -292,6 +292,7 @@ async function connect() {
   try {
     link = await links.choose();
   } catch (error) {
+    console.info(`link: choosing failed: ${error.name}: ${error.message}${error.step ? ` (at ${error.step})` : ""}`);
     say(error.name === "NotFoundError" ? "No pad chosen." : String(error.message || error), error.name !== "NotFoundError");
     return;
   }
@@ -307,6 +308,8 @@ async function connect() {
       await p.identify();
       return attach(p);
     } catch (error) {
+      console.info(`link: the first command failed: ${error.name}: ${error.message}` +
+        (Date.now() > end ? "; giving up" : "; a fresh link"));
       p.onDisconnect = null;
       p.close();
       if (Date.now() > end) {
@@ -350,7 +353,6 @@ async function attach(p) {
     }, STATUS_EVERY_MS);
     say("");                     // the folds and their spinners show the reading
     await loadSettings();
-    say(`${table.length} settings in ${values.size} groups. Changes apply on the next connect.`);
     $("tests").hidden = false;
   } catch (error) {
     say(String(error.message || error), true);

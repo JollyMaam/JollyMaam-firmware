@@ -20,11 +20,17 @@ const NAME_ONLY = ["U2C BT Config"];
 // does not tell the MTU; a frame longer than it goes as a long write.
 const MAX_WRITE = 96;
 
+// Each step named in its error, for the console: which one Chrome refuses.
+const step = (name, p) => p.catch((error) => {
+  error.step = name;
+  throw error;
+});
+
 async function open(device) {
-  const server = await device.gatt.connect();
-  const service = await server.getPrimaryService(SERVICE);
-  const request = await service.getCharacteristic(REQUEST);
-  const reply = await service.getCharacteristic(REPLY);
+  const server = await step("connect", device.gatt.connect());
+  const service = await step("service", server.getPrimaryService(SERVICE));
+  const request = await step("request characteristic", service.getCharacteristic(REQUEST));
+  const reply = await step("reply characteristic", service.getCharacteristic(REPLY));
   let replied = () => {}, gone = () => {};
   const notified = (e) => {
     const v = e.target.value;
@@ -41,7 +47,7 @@ async function open(device) {
   // across the disconnect, and on the next link of the same device no
   // notification arrives through it; stopping it first starts afresh.
   await reply.stopNotifications().catch(() => {});
-  await reply.startNotifications();
+  await step("notifications", reply.startNotifications());
   return {
     name: device.name || "Bluetooth pad",
     id: device.id,
@@ -68,6 +74,8 @@ async function openRetrying(device, seconds) {
     try {
       return await open(device);
     } catch (error) {
+      console.info(`link: ${error.step ?? "open"} failed: ${error.name}: ${error.message}` +
+        (Date.now() > end ? "; giving up" : "; trying again"));
       if (Date.now() > end || error.name === "SecurityError") throw error;
       if (device.gatt.connected) device.gatt.disconnect();
       await new Promise((r) => setTimeout(r, 500));
