@@ -311,22 +311,42 @@ static int jieli_write(struct jm *jm, void *dev, const struct jm_jieli_device *d
   struct jm_jieli_request r;
   enum jm_jieli_step step = JM_JIELI_FAILED;
   int ok = workspace && jm_jieli_flash_init(&op, d, pid, image, size, workspace, end, keep, keep ? 1 : 0);
+  if (!ok)
+    say(jm, "the image does not fit: %zu bytes (to 0x%zx with what is kept) for a flash of 0x%x, key 0x%04x, %u-byte transfers",
+        size, end, (unsigned)d->flash_size, d->key, (unsigned)d->io);
   while (ok && (step = jm_jieli_flash_next(&op, &r)) == JM_JIELI_TRANSFER) {
     size_t n = 0;
     int good = scsi(jm, dev, &r, reply, &n);
-    jm_jieli_flash_complete(&op, good, reply, n);
-    progress(jm, "erasing, writing and reading back", op.offset, op.size);
+    unsigned was = op.phase;
+    size_t at = keep && was == 0 ? keep->offset + op.keep_offset : op.offset, sent = op.sent;
+    if (!jm_jieli_flash_complete(&op, good, reply, n)) {
+      static const char *const phase[] = {"keeping (reading)", "erasing", "writing", "reading back"};
+      static const char *const why[] = {"", "the transfer failed", "the loader refused it", "a short reply", "it reads back different"};
+      say(jm, "\n%s at 0x%zx (%04x, %zu bytes) failed: %s (%zu bytes back)", was < 4 ? phase[was] : "?",
+          at, op.command, sent, op.error <= 0 && op.error >= -4 ? why[-op.error] : "?", n);
+    }
+    /* erasing, writing, reading back: a third each (keeping counts in erasing's) */
+    progress(jm, "erasing, writing and reading back",
+             op.phase >= 1 && op.phase <= 3 ? (op.phase - 1) * op.size + op.offset : op.phase == 4 ? 3 * op.size : 0,
+             3 * op.size);
   }
+  if (ok && step != JM_JIELI_DONE)
+    say(jm, "\nstopped: phase %u at 0x%zx, error %d, pending %u, keep %zu+%zu of 0x%x, transfers of %u",
+        op.phase, op.offset, op.error, op.pending, op.keep_index, op.keep_offset,
+        keep ? (unsigned)keep->size : 0, (unsigned)d->io);
   ok = ok && step == JM_JIELI_DONE;
   free(workspace);
   return ok;
 }
 
-static int jieli_start(struct jm *jm, void *dev) {
+/* The loader's "run the firmware" (FC0C, 1): the chip starts it and leaves
+ * USB, usually before it answers, so a failed reply says nothing (the
+ * Python flasher, padflash.py, took it the same way). */
+static void jieli_start(struct jm *jm, void *dev) {
   uint8_t args[4] = {0, 0, 0, 1}, cdb[16], reply[16];
   size_t n;
   jm_jieli_cdb(cdb, 0xfc0c, args, sizeof args);
-  return !jm->h->scsi(jm->h->ctx, dev, cdb, 16, JM_SCSI_IN, reply, sizeof reply, 2000, &n);
+  jm->h->scsi(jm->h->ctx, dev, cdb, 16, JM_SCSI_IN, reply, sizeof reply, 2000, &n);
 }
 
 /* ---- finding devices ----------------------------------------------------------------------------- */
@@ -566,7 +586,8 @@ static int oemflash_one(struct jm *jm, const struct jm_firmware *fw, struct jm_f
       else {
         struct jm_jieli_keep keep = {p->keep_offset, p->keep_size};
         say(jm, "%s: %s, writing it (key 0x%04x)", where(f), pid, d.key);
-        ok = jieli_write(jm, dev, &d, pid, packed, img->size, p->keep_size ? &keep : NULL) && jieli_start(jm, dev);
+        ok = jieli_write(jm, dev, &d, pid, packed, img->size, p->keep_size ? &keep : NULL);
+        if (ok) jieli_start(jm, dev);
       }
       free(work), free(packed);
     }
@@ -627,9 +648,10 @@ static int start(struct jm *jm, const struct jm_firmware *fw, struct jm_found *f
   struct jm_jieli_device d;
   uint8_t request[64];
   int ok = 0;
-  if (dev && f->kind == JM_FOUND_JIELI_LOADER)
-    ok = jieli_open(jm, dev, f->chip, fw, &d) && jieli_start(jm, dev);
-  else if (dev)
+  if (dev && f->kind == JM_FOUND_JIELI_LOADER) {
+    ok = jieli_open(jm, dev, f->chip, fw, &d);
+    if (ok) jieli_start(jm, dev);
+  } else if (dev)
     ok = !jm_8bitdo_request(request, 7, 0, NULL, 0) && report_write(jm, dev, 0, request);
   dev_close(jm, dev);
   say(jm, "%s: %s", where(f), ok ? "started its firmware" : "failed");
