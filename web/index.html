@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JollyMaam Pad Settings</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Pad settings</h1>
+  <div class="actions">
+    <button id="connect" type="button">Connect</button>
+    <button id="disconnect" type="button" hidden>Disconnect</button>
+    <label><input id="dev" type="checkbox"> Developer fields</label>
+  </div>
+</header>
+<main>
+  <p id="message" role="status">Hold Home+M for 3 s to put your pad in config mode, then Connect.</p>
+  <section id="identity"></section>
+  <p id="status" class="muted"></p>
+  <section id="settings"></section>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>

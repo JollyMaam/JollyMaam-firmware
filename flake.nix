@@ -49,7 +49,7 @@
       apps.${system}.default = { type = "app"; meta.description = "JollyMaam firmware updater"; program = "${linux}/bin/jollymaam"; };
       devShells.${system} = {
         default = pkgs.mkShell {
-          packages = with pkgs; [ gcc gnumake binutils pkg-config python uv gcc-arm-embedded ];
+          packages = with pkgs; [ gcc gnumake binutils pkg-config python uv gcc-arm-embedded nodejs ];
           # make dist links jollymaam statically against these (not on the
           # path: everything else links as usual).
           JOLLYMAAM_LIBC_STATIC = "${pkgs.glibc.static}/lib";

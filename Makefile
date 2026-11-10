@@ -25,6 +25,7 @@ RULES += src/core
 RULES += src/lib
 RULES += tools
 RULES += tools/jollymaam
+RULES += web
 RULES += src/boards/gamesir-cyclone-2
 RULES += src/boards/gamesir-nova-2-lite
 RULES += src/boards/8bitdo-ultimate2c-wireless
