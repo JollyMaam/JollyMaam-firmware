@@ -21,7 +21,16 @@ const NAME_ONLY = ["U2C BT Config"];
 const MAX_WRITE = 96;
 
 // The page opened with ?debug: every frame to and from the pad in the console.
-const DEBUG = typeof location !== "undefined" && new URLSearchParams(location.search).has("debug");
+const FLAGS = typeof location !== "undefined" ? new URLSearchParams(location.search) : new URLSearchParams();
+const DEBUG = FLAGS.has("debug");
+// ?nostop: no stopNotifications before startNotifications (a test).
+const NOSTOP = FLAGS.has("nostop");
+
+// The listener each reply characteristic has: Chrome can hand the next link
+// the same characteristic object, and the last link's listener must not
+// stay on it (each notification would reach both).
+const listening = new WeakMap();
+const seen = new WeakSet();
 const hex = (d) => Array.from(d, (b) => b.toString(16).padStart(2, "0")).join("");
 let linkCount = 0;
 
@@ -41,7 +50,10 @@ async function open(device) {
   const notified = (e) => {
     const v = e.target.value;
     const d = new Uint8Array(v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength));
-    if (DEBUG) console.log(`link ${n} RX ${hex(d)}`);
+    if (DEBUG) {
+      console.log(`link ${n} RX ${hex(d)} t=${e.timeStamp.toFixed(1)}${seen.has(e) ? " (an event already seen)" : ""}`);
+      seen.add(e);
+    }
     replied(d);
   };
   const disconnected = () => {
@@ -49,12 +61,16 @@ async function open(device) {
     device.removeEventListener("gattserverdisconnected", disconnected);
     gone();
   };
+  const before = listening.get(reply);
+  if (before) reply.removeEventListener("characteristicvaluechanged", before);
+  if (DEBUG) console.log(`link ${n}: ${before ? "the same reply characteristic as before" : "a new reply characteristic"}`);
+  listening.set(reply, notified);
   reply.addEventListener("characteristicvaluechanged", notified);
   device.addEventListener("gattserverdisconnected", disconnected);
   // Linux (BlueZ): a subscription the last link left on stays "notifying"
   // across the disconnect, and on the next link of the same device no
   // notification arrives through it; stopping it first starts afresh.
-  await reply.stopNotifications().catch(() => {});
+  if (!NOSTOP) await reply.stopNotifications().catch(() => {});
   await step("notifications", reply.startNotifications());
   return {
     name: device.name || "Bluetooth pad",
