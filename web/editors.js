@@ -158,12 +158,13 @@ export function remapEditor(io) {
       base[k] = def.base[k];
       rules = [...rules.filter((r) => r.input !== k), ...def.rules.filter((r) => r.input === k)];
     }));
-    const tr = h("tr", {}, h("th", { scope: "row" }, keyLabel(io.layout, k)),
+    // The key's row keeps its place; its rules go in rows under it
+    // (padgui's layout), so adding one only pushes what is below.
+    const tr = h("tr", { class: "key" }, h("th", { scope: "row" }, keyLabel(io.layout, k)),
       h("td", {}, h("span", { class: "muted" }, "sends "), sends),
-      h("td", {}, rules.filter((r) => r.input === k).map(ruleEditor), add),
-      h("td", {}, reset));
+      h("td", {}, add), h("td", {}, reset));
     markCells.set(k, { tr, reset });
-    return tr;
+    return [tr, ...rules.filter((r) => r.input === k).map((r) => h("tr", { class: "rulerow" }, h("td", { colspan: 4 }, ruleEditor(r))))];
   }
 
   // The pad's keys (from its layout), and any other key with something set.
@@ -175,7 +176,7 @@ export function remapEditor(io) {
   function draw() {
     markCells.clear();
     if (!load()) return body.replaceChildren();
-    body.replaceChildren(...shownKeys().map(keyRow));
+    body.replaceChildren(...shownKeys().flatMap(keyRow));
     marks();
   }
 
@@ -222,7 +223,8 @@ export function remapEditor(io) {
     h("p", { class: "muted" }, `A key sends itself unless mapped; rules add to what it sends (${count} rules fit). `,
       "Map a key to Nothing to drop its own press."),
     problem,
-    h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Key"), h("th", {}, "While held"), h("th", {}, "Rules"), h("th", {}, ""))), body));
+    h("table", { class: "keys" }, h("colgroup", {}, h("col", { class: "c-key" }), h("col"), h("col", { class: "c-add" }), h("col", { class: "c-reset" })),
+      h("thead", {}, h("tr", {}, h("th", {}, "Key"), h("th", {}, "While held"), h("th", {}, ""), h("th", {}, ""))), body));
   // An open keys list closes on a click elsewhere.
   root.addEventListener("pointerdown", (e) => {
     for (const d of root.querySelectorAll("details.keys[open]")) if (!d.contains(e.target)) d.open = false;
