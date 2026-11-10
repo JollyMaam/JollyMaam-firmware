@@ -307,9 +307,9 @@ wrong assumption), add it here in a line or two.
   answered bleak on a fresh link).  `web/link-web.js` stops notifications
   before UPDATER and stops/starts them on every connect.
 - Web Bluetooth (Chrome on Linux), Connect right after Disconnect: the new
-  link's first write can fail with "GATT Error Unknown" (BlueZ's 2 s
-  disconnect delay, above) although the pad got it, so the pad still sends
-  that answer's head, and config mode starts the next command's answer over
-  it: the page joined both ("0b1714c-dirC2PD…").  `web/app.js` retries on a
-  fresh link for 8 s; `web/pad.js` restarts an IDENTIFY answer at a piece
-  starting with `C2PD`.
+  link's first command can fail with "GATT Error Unknown" (BlueZ's 2 s
+  disconnect delay, above); `web/app.js` retries on a fresh link for 8 s.
+- BlueZ signals a notification once per client that subscribed to it, and
+  a browser (or bleak) still running elsewhere keeps its subscription: then
+  every page gets each notification twice and joins the copies into garbled
+  answers.  Kill test browsers by their profile, not their xvfb-run wrapper.

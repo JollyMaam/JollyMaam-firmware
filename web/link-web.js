@@ -23,8 +23,6 @@ const MAX_WRITE = 96;
 // The page opened with ?debug: every frame to and from the pad in the console.
 const FLAGS = typeof location !== "undefined" ? new URLSearchParams(location.search) : new URLSearchParams();
 const DEBUG = FLAGS.has("debug");
-// ?nostop: no stopNotifications before startNotifications (a test).
-const NOSTOP = FLAGS.has("nostop");
 
 // The listener each reply characteristic has: Chrome can hand the next link
 // the same characteristic object, and the last link's listener must not
@@ -70,7 +68,7 @@ async function open(device) {
   // Linux (BlueZ): a subscription the last link left on stays "notifying"
   // across the disconnect, and on the next link of the same device no
   // notification arrives through it; stopping it first starts afresh.
-  if (!NOSTOP) await reply.stopNotifications().catch(() => {});
+  await reply.stopNotifications().catch(() => {});
   await step("notifications", reply.startNotifications());
   return {
     name: device.name || "Bluetooth pad",
