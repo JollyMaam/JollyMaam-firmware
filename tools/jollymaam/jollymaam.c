@@ -43,15 +43,18 @@ static void say(void *ctx, const char *line) {
   printf("%s\n", line);
 }
 
+/* A line per step, each percentage once: a new step (another name, or
+ * back below the last percentage) starts it over. */
 static void progress(void *ctx, const char *what, size_t done, size_t total) {
   static int last = -1;
+  static const char *step;
   int pct = total ? (int)(done * 100 / total) : 100;
   (void)ctx;
+  if (what != step || pct < last) step = what, last = -1;
   if (pct == last) return;
   last = pct;
   if (isatty(fileno(stderr))) fprintf(stderr, "\r%s %3d%%%s", what, pct, pct >= 100 ? "\n" : "");
   else if (pct % 25 == 0) fprintf(stderr, "%s %d%%\n", what, pct);
-  if (pct >= 100) last = -1;
 }
 
 /* ---- firmware: a folder or a zip ----------------------------------------------------------------- */
