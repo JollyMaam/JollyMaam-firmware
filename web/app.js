@@ -3,6 +3,8 @@
 import { links } from "./link-web.js";
 import { Pad, TARGETS, KINDS, kindOf, targetsFor, showValue } from "./pad.js";
 import { writeTests, updaterTrip } from "./linktest.js";
+import { openPackage, findFile, checkUpdateImage } from "./package.js";
+import { intoUpdater, sendImage, finish } from "./update.js";
 
 const $ = (id) => document.getElementById(id);
 const STATUS_EVERY_MS = 5000;    // also keeps config mode open (it ends a minute after the last command)
@@ -17,7 +19,7 @@ function h(tag, attrs = {}, ...children) {
   return e;
 }
 
-let pad = null, poll = null;
+let pad = null, poll = null, image = null;
 
 function say(message, error = false) {
   $("message").textContent = message;
@@ -69,15 +71,23 @@ async function connect() {
     say(error.name === "NotFoundError" ? "No pad chosen." : String(error.message || error), error.name !== "NotFoundError");
     return;
   }
-  pad = new Pad(link);
+  await attach(new Pad(link));
+}
+
+// A pad on a new link (from the chooser, or found again after an update):
+// what it is, its status and settings.
+async function attach(p) {
+  pad = p;
   pad.onDisconnect = () => { stop(); say("The pad went away (config mode ends a minute after the last command, or on Home)."); };
   $("connect").hidden = true;
   $("disconnect").hidden = false;
   for (const b of document.querySelectorAll("#tests .needs-pad")) b.hidden = false;
   try {
     say("Asking the pad what it is…");
-    const id = await pad.identify();
-    showIdentity(id, link);
+    const id = pad.id || await pad.identify();
+    showIdentity(id, pad.link);
+    $("firmware").hidden = false;
+    pickImage();
     if (id.updater) {
       say("The pad is in its updater.");
       return;
@@ -118,6 +128,67 @@ function disconnect() {
   $("status").textContent = "";
   $("settings").replaceChildren();
   $("tests").hidden = true;
+  $("firmware").hidden = true;
+}
+
+// ---- firmware update ----
+
+let pkg = null;
+
+function fwSay(text, error = false) {
+  $("fwinfo").textContent = text;
+  $("fwinfo").classList.toggle("error", error);
+}
+
+// The connected pad's update.bin from the chosen package.
+async function pickImage() {
+  image = null;
+  $("update").disabled = true;
+  if (!pkg || !pad?.id) return fwSay(pkg ? "" : "Choose a firmware package (firmware.zip).");
+  const file = findFile(pkg, pad.id.product, "update");
+  if (!file) return fwSay(`The package has no update for this pad (${pad.id.product}).`, true);
+  try {
+    const data = await pkg.read(file);
+    const wrong = checkUpdateImage(data, pad.id.product);
+    if (wrong) return fwSay(wrong, true);
+    image = data;
+    fwSay(`${file.path}: ${data.length} bytes, SHA-256 ${file.sha256.slice(0, 12)}…`);
+    $("update").disabled = false;
+  } catch (error) {
+    fwSay(String(error.message || error), true);
+  }
+}
+
+function fwLog(line) {
+  $("fwlog").textContent += line + "\n";
+}
+
+async function update() {
+  if (!image || !confirm(`Write this firmware to ${pad.id.boardName}?`)) return;
+  const p = pad, data = image;
+  p.onDisconnect = null;         // the update restarts the pad
+  stop();
+  pad = null;
+  $("connect").hidden = true;
+  $("update").disabled = true;
+  $("fwlog").textContent = "";
+  $("fwprogress").hidden = false;
+  $("fwprogress").value = 0;
+  say("Updating: keep this page open and the pad on.");
+  let up = null;
+  try {
+    up = await intoUpdater(p, links, fwLog);
+    await sendImage(up, data, fwLog, (done, total) => { $("fwprogress").value = done / total; });
+    const fresh = await finish(up, links, fwLog);
+    $("fwprogress").hidden = true;
+    $("settings").replaceChildren();
+    await attach(fresh);
+  } catch (error) {
+    fwLog(`failed: ${error.message || error}`);
+    say("The update failed. The pad stays in its updater: Connect to it (it advertises as \"… Update\") and update again, or press Home to go back to its app if that is still whole.", true);
+    up?.close();
+    $("connect").hidden = false;
+  }
 }
 
 function testLog(line) {
@@ -153,6 +224,18 @@ $("updatertest").addEventListener("click", () => runTest(async () => {
   for (const b of document.querySelectorAll("#tests .needs-pad")) b.hidden = true;
   say("The updater round trip ended the link; Connect again (Home+M) for more.");
 }));
+$("package").addEventListener("change", async (e) => {
+  pkg = null;
+  const f = e.target.files[0];
+  if (!f) return pickImage();
+  try {
+    pkg = await openPackage(new Uint8Array(await f.arrayBuffer()));
+  } catch (error) {
+    return fwSay(`${f.name}: ${error.message || error}`, true);
+  }
+  pickImage();
+});
+$("update").addEventListener("click", update);
 $("dev").addEventListener("change", (e) => document.body.classList.toggle("show-dev", e.target.checked));
 if (!links.available()) {
   $("connect").disabled = true;

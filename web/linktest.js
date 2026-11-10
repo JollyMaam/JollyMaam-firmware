@@ -57,7 +57,6 @@ export async function writeTests(pad, log) {
 export async function updaterTrip(pad, links, log) {
   const { link, id } = pad;
   log("restarting into the updater…");
-  await link.quiet?.();
   let t0 = performance.now();
   await pad.restart(CMD.UPDATER);
   log(`link gone after ${(performance.now() - t0).toFixed(0)} ms; reconnecting (no chooser)…`);

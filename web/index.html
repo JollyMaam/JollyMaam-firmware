@@ -19,6 +19,19 @@
   <p id="message" role="status">Hold Home+M for 3 s to put your pad in config mode, then Connect.</p>
   <section id="identity"></section>
   <p id="status" class="muted"></p>
+  <details id="firmware" hidden>
+    <summary>Firmware update</summary>
+    <p class="muted">A firmware package (firmware.zip, from <code>make firmware</code>) has an update
+      for each pad; the page takes this pad's, restarts the pad into its updater, writes it and
+      starts it.</p>
+    <div class="actions">
+      <input id="package" type="file" accept=".zip,application/zip">
+      <button id="update" type="button" disabled>Update</button>
+    </div>
+    <p id="fwinfo" class="muted"></p>
+    <progress id="fwprogress" max="1" value="0" hidden></progress>
+    <pre id="fwlog" class="mono"></pre>
+  </details>
   <details id="tests" hidden>
     <summary>Link tests</summary>
     <p class="muted">Write sizes: sends the most data a command takes, in 20- and 96-byte writes, as

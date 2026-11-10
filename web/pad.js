@@ -10,8 +10,12 @@ const CONFIG_DATA_MAX = 488;     // IDENTIFY's u16 at 88 from firmware that has 
 
 export const CMD = {
   IDENTIFY: 0x00, STATUS: 0x01, REBOOT: 0x10, READ: 0x21, WRITE: 0x22, RESULT: 0x26, DEFAULTS: 0x27,
-  FIELDS: 0x28, UPDATER: 0x40, UPDATE_INFO: 0x41,
+  FIELDS: 0x28, UPDATER: 0x40, UPDATE_INFO: 0x41, UPDATE_BEGIN: 0x42, UPDATE_DATA: 0x43, UPDATE_COMMIT: 0x44,
 };
+
+export const UPDATE_ERRORS = ["", "bad size", "past the end", "not begun", "verify failed (read back differs)",
+  "incomplete", "bad header", "CRC mismatch", "no chip key fits", "the image is for another board",
+  "the image is for another updater layout"];
 
 export const STATES = ["boot", "idle", "connecting", "pairing", "connected", "stopping", "sleeping", "rebooting"];
 export const SLOT_NAMES = ["A", "B", "X", "Y", "up", "down", "left", "right"];
@@ -177,15 +181,16 @@ export class Pad {
   // has none: the last write's response comes once the pad ran it
   // (write_paced).  Without data, config mode always answers (an empty
   // answer is one empty piece); the updater answers in one piece, or not
-  // at all when the answer does not fit its MTU.  One at a time.
-  cmd(sub, { arg = 0, data = new Uint8Array(0), timeoutMs = 3000 } = {}) {
-    const run = () => this.#run(sub, arg, data, timeoutMs);
+  // at all when the answer does not fit its MTU, nor to a command without
+  // one (UPDATE_COMMIT, REBOOT: answer false).  One at a time.
+  cmd(sub, { arg = 0, data = new Uint8Array(0), timeoutMs = 3000, answer = !data.length } = {}) {
+    const run = () => this.#run(sub, arg, data, timeoutMs, answer);
     const result = this.chain.then(run, run);
     this.chain = result.catch(() => {});
     return result;
   }
 
-  async #run(sub, arg, data, timeoutMs) {
+  async #run(sub, arg, data, timeoutMs, wanted) {
     if (this.gone) throw new Error("link lost");
     const answer = new Promise((resolve, reject) => { this.pending = { sub, parts: [], resolve, reject }; });
     answer.catch(() => {});
@@ -200,7 +205,7 @@ export class Pad {
         frame.set(piece, FRAME_HEAD);
         await this.link.write(frame);
       }
-      if (data.length) return new Uint8Array(0);
+      if (!wanted) return new Uint8Array(0);
       return await Promise.race([answer, new Promise((_, reject) => {
         timer = setTimeout(() => reject(new Error(`no answer to command 0x${sub.toString(16)} in ${timeoutMs} ms`)), timeoutMs);
       })]);
@@ -210,20 +215,30 @@ export class Pad {
     }
   }
 
-  // A command that restarts the pad: its answer, or the link going, either
-  // will do.
+  // A command that restarts the pad, then the link gone (at most 5 s).  No
+  // subscription is left behind (link-web.js).
   async restart(sub) {
     const gone = new Promise((resolve) => {
       const was = this.onDisconnect;
       this.onDisconnect = () => { was?.(); resolve(); };
     });
-    await Promise.race([this.cmd(sub).catch(() => {}), gone]);
+    await this.link.quiet?.();
+    await Promise.race([this.cmd(sub, { answer: false }).catch(() => {}), gone]);
     await Promise.race([gone, new Promise((r) => setTimeout(r, 5000))]);
     this.close();
   }
 
-  async identify(timeoutMs = 3000) {
-    this.id = decodeIdentify(await this.cmd(CMD.IDENTIFY, { timeoutMs }));
+  // IDENTIFY; tries times, a second each, on a link that just came up
+  // (the updater does not answer until it is ready).
+  async identify(timeoutMs = 3000, tries = 1) {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        this.id = decodeIdentify(await this.cmd(CMD.IDENTIFY, { timeoutMs }));
+        break;
+      } catch (error) {
+        if (attempt >= tries || this.gone) throw error;
+      }
+    }
     if (!this.id.updater) this.frameData = Math.min(this.frameData, CONFIG_FRAME_DATA);
     return this.id;
   }
@@ -250,6 +265,10 @@ export class Pad {
   // {name: {value, set}} of a target, or its defaults.
   async read(table, target, defaults = false) {
     return decodeValues(await this.cmd(defaults ? CMD.DEFAULTS : CMD.READ, { arg: target }), table, target);
+  }
+
+  async updateInfo() {
+    return decodeUpdateInfo(await this.cmd(CMD.UPDATE_INFO));
   }
 
   close() {

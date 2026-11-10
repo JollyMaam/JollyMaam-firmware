@@ -39,3 +39,7 @@ body.show-dev tr.dev { display: table-row; }
 #tests .actions { padding: 0 16px; }
 #testlog { margin: 8px 16px 16px; white-space: pre-wrap; }
 #testlog:empty { display: none; }
+#firmware .actions, #firmware progress { margin: 0 16px; }
+#firmware progress { width: calc(100% - 32px); }
+#fwlog { margin: 8px 16px 16px; white-space: pre-wrap; }
+#fwlog:empty, #fwinfo:empty { display: none; }
