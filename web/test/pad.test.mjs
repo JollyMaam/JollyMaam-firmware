@@ -244,3 +244,14 @@ test("layout: slots by position, with the printed label", async () => {
   assert.deepEqual([0, 1, 2, 4].map((i) => slotLabel(layout, i)), ["B (south)", "A (east)", "west", "up"]);
   assert.equal(slotLabel(null, 3), "north");
 });
+
+test("remap fields: map, rules and curve points as padtool's text", () => {
+  const field = (name, size) => ({ kind: 3, type: T.BYTES, name, size, max: 0, names: [] });
+  const map = field("map", 20), rules = field("rules", 40), curve = field("left_curve_points", 15);
+  assert.equal(showValue(map, parseValue(map, "swap-faces")), "south=east east=south west=north north=west");
+  assert.equal(showValue(rules, parseValue(rules, "r4 held turbo south@max")), "r4 held turbo south@max");
+  assert.throws(() => parseValue(rules, Array(5).fill("south held hold east").join("; ")), /rules: at most 4 rules/);
+  assert.equal(showValue(curve, parseValue(curve, "linear")), "16,32,48,64,80,96,112,128,143,159,175,191,207,223,239");
+  assert.throws(() => parseValue(curve, "1,2"), /left_curve_points: a curve needs 15/);
+  assert.throws(() => parseValue({ ...map, kind: 0, name: "address", size: 6 }, "00"), /not editable/);
+});

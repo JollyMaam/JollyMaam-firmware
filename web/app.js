@@ -2,23 +2,14 @@
 // it is and its settings, and change them.
 import { links } from "./link-web.js";
 import { Pad, TARGETS, T, PALETTE, PALETTE_TARGET, REMAP_TARGET, BASE_TARGET, SLOT_NAMES, kindOf, targetsFor, showValue,
-  parseValue, editable, slotLabel } from "./pad.js";
+  parseValue, editable, slotLabel, remapPart } from "./pad.js";
+import { $, h } from "./dom.js";
+import { remapEditor, curveEditor } from "./editors.js";
 import { writeTests, updaterTrip } from "./linktest.js";
 import { openPackage, findFile, checkUpdateImage } from "./package.js";
 import { intoUpdater, sendImage, finish } from "./update.js";
 
-const $ = (id) => document.getElementById(id);
 const STATUS_EVERY_MS = 5000;    // also keeps config mode open (it ends a minute after the last command)
-
-function h(tag, attrs = {}, ...children) {
-  const e = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (k === "class") e.className = v;
-    else if (v !== undefined && v !== null && v !== false) e.setAttribute(k, v === true ? "" : v);
-  }
-  e.append(...children.flat().filter((c) => c !== null && c !== undefined));
-  return e;
-}
 
 let pad = null, poll = null, image = null, layout = null;
 
@@ -91,16 +82,26 @@ function editor(t, f, shown) {
   return h("span", { class: "entry" }, e, swatch);
 }
 
-function row(t, f) {
+// A setting's row.  rows: the target's rows by field name, for the editors
+// that span fields (a curve's points and its on/off).
+function row(t, f, rows) {
   const v = values.get(t).get(f.name), d = defaults.get(t)?.get(f.name);
   const shown = showValue(f, v.value), def = d ? showValue(f, d.value) : null;
-  const key = keyOf(t, f);
-  const tr = h("tr", { class: f.dev ? "dev" : null, "data-key": key });
+  const key = keyOf(t, f), part = remapPart(f);
+  // The map and rules have the keys editor (their text is for developers);
+  // a curve's on/off follows its points.
+  const hidden = part === "map" || part === "rules" ? "dev" : f.kind === 3 && f.name.endsWith("_curve_enabled") ? "merged" : null;
+  const tr = h("tr", { class: [f.dev ? "dev" : null, hidden].filter(Boolean).join(" ") || null, "data-key": key });
   const mark = h("td", { class: "mark", title: v.set ? "saved on the pad" : "firmware default" }, v.set ? "✓" : "");
   let cell, input = null;
   if (editable(f)) {
     cell = editor(t, f, shown);
     input = cell.matches("input, select") ? cell : cell.querySelector("select");
+    if (part === "map" || part === "rules") input.classList.add("wide");
+    if (part === "curve") {
+      input.classList.add("wide");
+      cell = curveEditor(input, f.size, () => rows.get(f.name.replace("_points", "_enabled"))?.input);
+    }
     const changed = () => {
       tr.classList.remove("reset");
       edit(t, f, input.value, shown, tr);
@@ -112,7 +113,15 @@ function row(t, f) {
   const reset = h("button", { type: "button", class: "small", title: `back to the firmware default${def !== null ? ` (${def})` : ""}`,
     hidden: !v.set }, "default");
   reset.addEventListener("click", () => {
+    if (!v.set) {               // at its default already: just drop the edit
+      if (input) input.value = shown, input.dispatchEvent(new Event("change"));
+      edits.delete(key);
+      tr.classList.remove("changed", "invalid", "reset");
+      if (part === "curve") rows.get(f.name.replace("_points", "_enabled"))?.reset.click();
+      return bar();
+    }
     if (input && def !== null) input.value = def, input.dispatchEvent(new Event("change"));
+    if (part === "curve") rows.get(f.name.replace("_points", "_enabled"))?.reset.click();   // they go together
     edits.set(key, { target: t, id: f.id, f, value: new Uint8Array(0) });
     tr.classList.remove("invalid");
     tr.classList.add("changed", "reset");
@@ -123,6 +132,7 @@ function row(t, f) {
     h("td", {}, cell),
     h("td", { class: "mono muted" }, v.set && def !== null && shown !== def ? def : ""),
     mark, h("td", {}, reset));
+  Object.assign(tr, { input, reset });
   return tr;
 }
 
@@ -147,10 +157,26 @@ function edit(t, f, text, shown, tr) {
 }
 
 function targetSection(t, open) {
-  const vals = values.get(t);
-  const rows = table.filter((f) => f.kind === kindOf(t) && vals.has(f.name)).map((f) => row(t, f));
+  const vals = values.get(t), byName = new Map();
+  const fields = table.filter((f) => f.kind === kindOf(t) && vals.has(f.name));
+  const rows = fields.map((f) => {
+    const tr = row(t, f, byName);
+    byName.set(f.name, tr);
+    return tr;
+  });
+  const map = fields.find((f) => remapPart(f) === "map"), rules = fields.find((f) => remapPart(f) === "rules");
+  let keys = null;
+  if (map && rules && byName.get("map").input && byName.get("rules").input) {
+    const raw = (m) => m?.has("map") && m.has("rules") ? { map: m.get("map").value, rules: m.get("rules").value } : null;
+    keys = remapEditor({
+      map: byName.get("map").input, rules: byName.get("rules").input, name: byName.get("name")?.input,
+      rulesField: rules, saved: raw(vals), defaults: raw(defaults.get(t)), layout, file: TARGETS[t],
+      resetAll: () => { byName.get("map").reset.click(); byName.get("rules").reset.click(); },
+    });
+  }
   return h("details", { open, "data-target": t },
     h("summary", {}, targetName(t), h("span", { class: "muted mono" }, ` ${TARGETS[t]}`)),
+    keys,
     rows.length ? h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Setting"), h("th", {}, "Value"),
       h("th", {}, "Default"), h("th", {}, ""), h("th", {}, ""))), h("tbody", {}, rows)) : h("p", { class: "muted" }, "Nothing here."));
 }

@@ -2,6 +2,8 @@
 // and their answers.  The wire is src/lib/proto_jollymaam_wire.h and
 // src/profiles/profile_config.c; padtool (tools/padtool) speaks the same.
 
+import { showMap, parseMap, showRules, parseRules, parseCurve, RULE_SIZE } from "./remap.js";
+
 export const PROTOCOL = 2;
 export const MORE = 0x80;
 const FRAME_HEAD = 5;            // u8 sub-command, u32 argument
@@ -141,7 +143,18 @@ export function decodeValues(d, table, target) {
   return out;
 }
 
+// What a remap slot's raw-bytes field is: "map", "rules", "curve" or null.
+export function remapPart(f) {
+  if (f.kind !== 3 || f.type !== T.BYTES) return null;
+  return f.name === "map" ? "map" : f.name === "rules" ? "rules" : f.name.endsWith("_curve_points") ? "curve" : null;
+}
+
 export function showValue(f, raw) {
+  switch (remapPart(f)) {
+    case "map": return showMap(raw);
+    case "rules": return showRules(raw);
+    case "curve": return Array.from(raw).join(",");
+  }
   switch (f.type) {
     case T.TEXT: return text(raw);
     case T.ENUM: return f.names[raw[0]] || String(raw[0]);
@@ -150,20 +163,27 @@ export function showValue(f, raw) {
     case T.RGB: return "#" + hex(raw);
     case T.LIST: return Array.from(raw).join(",");
   }
-  if (f.name === "left_curve_points" || f.name === "right_curve_points") return Array.from(raw).join(",");
   if (f.name === "address") return raw.some((b) => b) ? hex(raw.slice().reverse()).match(/../g).join(":") : "derived";
   return raw.some((b) => b) ? hex(raw) : "none";
 }
 
-// Whether the page edits a field: not BYTES (address, bond, remap map and
-// rules, curve points, calibration: padtool has their parsers).
-export const editable = (f) => f.type !== T.BYTES;
+// Whether the page edits a field: all but the other raw bytes (address,
+// bond, calibration).
+export const editable = (f) => f.type !== T.BYTES || !!remapPart(f);
 
 // A field's bytes from the text an editor holds (showValue's form); throws
 // what is wrong.  The pad checks ranges again (RESULT).
 export function parseValue(f, s) {
   s = s.trim();
   const fail = (why) => { throw new Error(`${f.name}: ${why}`); };
+  const part = remapPart(f);
+  if (part) {
+    try {
+      return part === "map" ? parseMap(s) : part === "rules" ? parseRules(s, f.size / RULE_SIZE) : parseCurve(s, f.size);
+    } catch (error) {
+      fail(error.message);
+    }
+  }
   const number = (x, max) => {
     if (!/^(0x[0-9a-f]+|\d+)$/i.test(x)) fail(`not a number: ${JSON.stringify(x)}`);
     const v = Number(x);

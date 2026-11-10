@@ -58,3 +58,35 @@ body.show-dev tr.dev { display: table-row; }
 #firmware progress { width: calc(100% - 32px); }
 #fwlog { margin: 8px 16px 16px; white-space: pre-wrap; }
 #fwlog:empty, #fwinfo:empty { display: none; }
+tr.merged { display: none; }
+details td input.wide { width: 100%; min-width: 14em; }
+.remap { padding: 0 16px 8px; }
+.remap > .actions { margin: 4px 0 8px; gap: 8px; }
+.remap table { border: 1px solid var(--line); border-radius: 6px; }
+.remap th, .remap td { padding: 4px 8px; }
+.remap tbody th { white-space: nowrap; }
+.remap select, .remap input { font: inherit; padding: 2px 4px; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--bg); color: var(--fg); }
+.rule { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 0 0 4px; padding: 4px 6px;
+  border-left: 2px solid var(--line); }
+.rule input.ms { width: 5.5em; }
+details.keys { display: inline-block; position: relative; border: 1px solid var(--line); border-radius: 4px; margin: 0; }
+details.keys > summary { padding: 2px 8px; font-weight: 400; }
+.keylist { position: absolute; z-index: 5; display: grid; grid-template-columns: repeat(2, max-content); gap: 2px 12px;
+  padding: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / .15); }
+.keylist label { white-space: nowrap; }
+.curvebox { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.curveside { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 12em; }
+svg.curve { width: 180px; height: 180px; flex: none; touch-action: none; }
+svg.curve .frame { fill: var(--bg); stroke: var(--line); stroke-width: .6; }
+svg.curve .diagonal { stroke: var(--muted); stroke-width: .4; stroke-dasharray: 2 2; }
+svg.curve .line { fill: none; stroke: var(--accent); stroke-width: 1.2; }
+svg.curve .dot { fill: var(--panel); stroke: var(--accent); stroke-width: 1; cursor: ns-resize; }
+svg.curve .dot:focus { outline: none; fill: var(--accent); }
+svg.curve.invalid .line, svg.curve.invalid .dot { display: none; }
+@media (max-width: 600px) {
+  .remap thead { display: none; }
+  .remap tr { display: grid; grid-template-columns: 1fr auto; border-top: 1px solid var(--line); }
+  .remap td:nth-child(3) { grid-column: 1 / -1; }
+}
