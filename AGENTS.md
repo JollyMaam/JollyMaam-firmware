@@ -301,3 +301,8 @@ wrong assumption), add it here in a line or two.
 - BR23 VBAT: the SDK truncates its 16-sample average to an ADC code before
   converting voltage. It normally refreshes one sample about every 20 s;
   roughly 12 mV steps and minutes of smoothing do not imply a scaling error.
+- Web Bluetooth on Linux (BlueZ): a notification subscription survives the
+  pad's restart ("Notifying" stays true), and on the next link of the same
+  device nothing arrives through it, although the pad sends (the updater
+  answered bleak on a fresh link).  `web/link-web.js` stops notifications
+  before UPDATER and stops/starts them on every connect.
