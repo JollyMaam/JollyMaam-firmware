@@ -20,6 +20,11 @@ const NAME_ONLY = ["U2C BT Config"];
 // does not tell the MTU; a frame longer than it goes as a long write.
 const MAX_WRITE = 96;
 
+// The page opened with ?debug: every frame to and from the pad in the console.
+const DEBUG = typeof location !== "undefined" && new URLSearchParams(location.search).has("debug");
+const hex = (d) => Array.from(d, (b) => b.toString(16).padStart(2, "0")).join("");
+let linkCount = 0;
+
 // Each step named in its error, for the console: which one Chrome refuses.
 const step = (name, p) => p.catch((error) => {
   error.step = name;
@@ -32,9 +37,12 @@ async function open(device) {
   const request = await step("request characteristic", service.getCharacteristic(REQUEST));
   const reply = await step("reply characteristic", service.getCharacteristic(REPLY));
   let replied = () => {}, gone = () => {};
+  const n = ++linkCount;
   const notified = (e) => {
     const v = e.target.value;
-    replied(new Uint8Array(v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength)));
+    const d = new Uint8Array(v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength));
+    if (DEBUG) console.log(`link ${n} RX ${hex(d)}`);
+    replied(d);
   };
   const disconnected = () => {
     reply.removeEventListener("characteristicvaluechanged", notified);
@@ -54,7 +62,10 @@ async function open(device) {
     maxWrite: MAX_WRITE,
     device,
     // quick: without response (UPDATE_DATA to a U2CB's updater, its count resyncs)
-    write: (frame, quick = false) => quick ? request.writeValueWithoutResponse(frame) : request.writeValueWithResponse(frame),
+    write: (frame, quick = false) => {
+      if (DEBUG) console.log(`link ${n} TX ${hex(frame)}`);
+      return quick ? request.writeValueWithoutResponse(frame) : request.writeValueWithResponse(frame);
+    },
     // Before a command that ends the link: leave no subscription behind.
     quiet: () => reply.stopNotifications().catch(() => {}),
     onReply(fn) { replied = fn; },
