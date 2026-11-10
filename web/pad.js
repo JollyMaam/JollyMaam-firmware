@@ -9,7 +9,8 @@ const CONFIG_FRAME_DATA = 96 - FRAME_HEAD;   // BT_WRITE_MAX less the head
 const CONFIG_DATA_MAX = 488;     // IDENTIFY's u16 at 88 from firmware that has it
 
 export const CMD = {
-  IDENTIFY: 0x00, STATUS: 0x01, READ: 0x21, DEFAULTS: 0x27, FIELDS: 0x28,
+  IDENTIFY: 0x00, STATUS: 0x01, REBOOT: 0x10, READ: 0x21, WRITE: 0x22, RESULT: 0x26, DEFAULTS: 0x27,
+  FIELDS: 0x28, UPDATER: 0x40, UPDATE_INFO: 0x41,
 };
 
 export const STATES = ["boot", "idle", "connecting", "pairing", "connected", "stopping", "sleeping", "rebooting"];
@@ -136,6 +137,14 @@ export function showValue(f, raw) {
   return raw.some((b) => b) ? hex(raw) : "none";
 }
 
+// UPDATE_INFO (the updater's): version, state, error, valid, then u32 at,
+// room, written, begun, key, data_max.
+export function decodeUpdateInfo(d) {
+  if (d.length < 28) throw new Error("short UPDATE_INFO");
+  return { state: d[1], error: d[2], valid: !!d[3], at: u32(d, 4), room: u32(d, 8), written: u32(d, 12),
+    begun: u32(d, 16), key: u32(d, 20), dataMax: u32(d, 24) };
+}
+
 // ---- commands ------------------------------------------------------------
 
 export class Pad {
@@ -143,6 +152,7 @@ export class Pad {
     this.link = link;
     this.frameData = link.maxWrite - FRAME_HEAD;
     this.pending = null;
+    this.maxReply = 0;           // the longest notification seen: the MTU less 3, at most
     this.chain = Promise.resolve();
     link.onReply((r) => this.#reply(r));
     link.onDisconnect(() => {
@@ -153,6 +163,7 @@ export class Pad {
   }
 
   #reply(r) {
+    this.maxReply = Math.max(this.maxReply, r.length);
     const p = this.pending;
     if (!p || (r[0] & ~MORE) !== p.sub) return;    // the rest of an answer nobody waits for
     p.parts.push(r.subarray(1));
@@ -162,8 +173,11 @@ export class Pad {
     p.resolve(answer);
   }
 
-  // A command: its data in frames, then its answer (every command in config
-  // mode answers; the updater's answer is one piece).  One at a time.
+  // A command: its data in frames, then its answer.  A command with data
+  // has none: the last write's response comes once the pad ran it
+  // (write_paced).  Without data, config mode always answers (an empty
+  // answer is one empty piece); the updater answers in one piece, or not
+  // at all when the answer does not fit its MTU.  One at a time.
   cmd(sub, { arg = 0, data = new Uint8Array(0), timeoutMs = 3000 } = {}) {
     const run = () => this.#run(sub, arg, data, timeoutMs);
     const result = this.chain.then(run, run);
@@ -186,6 +200,7 @@ export class Pad {
         frame.set(piece, FRAME_HEAD);
         await this.link.write(frame);
       }
+      if (data.length) return new Uint8Array(0);
       return await Promise.race([answer, new Promise((_, reject) => {
         timer = setTimeout(() => reject(new Error(`no answer to command 0x${sub.toString(16)} in ${timeoutMs} ms`)), timeoutMs);
       })]);
@@ -195,8 +210,20 @@ export class Pad {
     }
   }
 
-  async identify() {
-    this.id = decodeIdentify(await this.cmd(CMD.IDENTIFY));
+  // A command that restarts the pad: its answer, or the link going, either
+  // will do.
+  async restart(sub) {
+    const gone = new Promise((resolve) => {
+      const was = this.onDisconnect;
+      this.onDisconnect = () => { was?.(); resolve(); };
+    });
+    await Promise.race([this.cmd(sub).catch(() => {}), gone]);
+    await Promise.race([gone, new Promise((r) => setTimeout(r, 5000))]);
+    this.close();
+  }
+
+  async identify(timeoutMs = 3000) {
+    this.id = decodeIdentify(await this.cmd(CMD.IDENTIFY, { timeoutMs }));
     if (!this.id.updater) this.frameData = Math.min(this.frameData, CONFIG_FRAME_DATA);
     return this.id;
   }

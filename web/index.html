@@ -19,6 +19,18 @@
   <p id="message" role="status">Hold Home+M for 3 s to put your pad in config mode, then Connect.</p>
   <section id="identity"></section>
   <p id="status" class="muted"></p>
+  <details id="tests" hidden>
+    <summary>Link tests</summary>
+    <p class="muted">Write sizes: sends the most data a command takes, in 20- and 96-byte writes, as
+      settings for a target that does not exist (nothing is staged), and checks the pad parsed all of it.
+      Updater round trip: restarts the pad into its updater, connects again without the chooser,
+      reads it, and reboots it back into its app (the link ends).</p>
+    <div class="actions">
+      <button id="writetest" type="button" class="needs-pad">Write sizes</button>
+      <button id="updatertest" type="button" class="needs-pad">Updater round trip</button>
+    </div>
+    <pre id="testlog" class="mono"></pre>
+  </details>
   <section id="settings"></section>
 </main>
 <script type="module" src="app.js"></script>

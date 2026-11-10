@@ -36,3 +36,6 @@ td.mark { width: 2em; color: var(--accent); }
 details p { padding: 0 16px; }
 tr.dev { display: none; }
 body.show-dev tr.dev { display: table-row; }
+#tests .actions { padding: 0 16px; }
+#testlog { margin: 8px 16px 16px; white-space: pre-wrap; }
+#testlog:empty { display: none; }

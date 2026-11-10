@@ -4,6 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Pad, decodeField, showValue, targetsFor, T } from "../pad.js";
+import { echoItems, writeTest } from "../linktest.js";
 
 const PIECE = 157;               // CONFIG_REPLY_MAX - 1
 
@@ -32,7 +33,20 @@ const FIELDS = [
 
 function simulatedPad() {
   const values = { 0: [[1, 1, Uint8Array.of(2)], [2, 0, Uint8Array.of(0x10, 0x27, 0, 0)], [3, 1, cat(enc("Couch"), new Uint8Array(7))]] };
-  const answer = (sub, arg) => {
+  let result = new Uint8Array(1);
+  const answer = (sub, arg, data) => {
+    if (sub === 0x22) {          // settings.c's set_write(), for targets past the last
+      const codes = [];
+      for (let o = 0; o + 3 <= data.length; ) {
+        const l = data[o + 2];
+        if (o + 3 + l > data.length) { codes.push(2); break; }
+        codes.push(data[o] >= 19 ? 1 : 0);
+        o += 3 + l;
+      }
+      result = Uint8Array.of(codes.length, ...codes);
+      return new Uint8Array(0);
+    }
+    if (sub === 0x26) return result;
     if (sub === 0x00) {
       const d = new Uint8Array(90);
       d.set(enc("C2PD"));
@@ -78,7 +92,8 @@ function simulatedPad() {
       const data = cat(...held);
       held = [];
       link.last = { sub, arg, data };
-      const a = answer(sub, arg);
+      const a = answer(sub, arg, data);
+      if (data.length) return;   // profile_config_service(): a command with data has no answer
       setTimeout(() => {         // notifications come after the write's response
         for (let o = 0; ; o += PIECE) {
           const more = o + PIECE < a.length;
@@ -153,4 +168,19 @@ test("commands run one at a time", async () => {
 test("enum names the board does not take stay empty", () => {
   const f = decodeField(describe(FIELDS[0]));
   assert.equal(showValue(f, Uint8Array.of(1)), "1");
+});
+
+test("the write test's items fill the data exactly", async () => {
+  for (const size of [488, 100, 3, 25]) {
+    const { data, items } = echoItems(size);
+    let o = 0, n = 0;
+    while (o < data.length) o += 3 + data[o + 2], n++;
+    assert.equal(o, size);
+    assert.equal(n, items);
+  }
+  const pad = new Pad(simulatedPad());
+  await pad.identify();
+  const lines = [];
+  assert.equal(await writeTest(pad, 15, 488, (l) => lines.push(l)), true, lines.join("\n"));
+  assert.equal(await writeTest(pad, 91, 488, (l) => lines.push(l)), true, lines.join("\n"));
 });

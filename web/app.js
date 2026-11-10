@@ -2,6 +2,7 @@
 // it is and its settings.  Read only for now.
 import { links } from "./link-web.js";
 import { Pad, TARGETS, KINDS, kindOf, targetsFor, showValue } from "./pad.js";
+import { writeTests, updaterTrip } from "./linktest.js";
 
 const $ = (id) => document.getElementById(id);
 const STATUS_EVERY_MS = 5000;    // also keeps config mode open (it ends a minute after the last command)
@@ -72,6 +73,7 @@ async function connect() {
   pad.onDisconnect = () => { stop(); say("The pad went away (config mode ends a minute after the last command, or on Home)."); };
   $("connect").hidden = true;
   $("disconnect").hidden = false;
+  for (const b of document.querySelectorAll("#tests .needs-pad")) b.hidden = false;
   try {
     say("Asking the pad what it is…");
     const id = await pad.identify();
@@ -92,6 +94,7 @@ async function connect() {
     }
     $("settings").replaceChildren(...sections);
     say(`${table.length} settings in ${sections.length} groups.`);
+    $("tests").hidden = false;
   } catch (error) {
     say(String(error.message || error), true);
   }
@@ -114,10 +117,42 @@ function disconnect() {
   $("identity").replaceChildren();
   $("status").textContent = "";
   $("settings").replaceChildren();
+  $("tests").hidden = true;
+}
+
+function testLog(line) {
+  $("testlog").textContent += line + "\n";
+}
+
+async function runTest(test) {
+  for (const b of document.querySelectorAll("#tests button")) b.disabled = true;
+  try {
+    await test();
+  } catch (error) {
+    testLog(`error: ${error.message || error}`);
+  } finally {
+    for (const b of document.querySelectorAll("#tests button")) b.disabled = false;
+  }
 }
 
 $("connect").addEventListener("click", connect);
 $("disconnect").addEventListener("click", () => { disconnect(); say("Disconnected."); });
+$("writetest").addEventListener("click", () => runTest(async () => {
+  testLog(`-- write sizes, ${new Date().toLocaleTimeString()}`);
+  await writeTests(pad, testLog);
+}));
+$("updatertest").addEventListener("click", () => runTest(async () => {
+  testLog(`-- updater round trip, ${new Date().toLocaleTimeString()}`);
+  const p = pad;
+  p.onDisconnect = null;         // expected: the trip ends the link
+  stop();
+  pad = null;
+  await updaterTrip(p, links, testLog);
+  disconnect();
+  $("tests").hidden = false;
+  for (const b of document.querySelectorAll("#tests .needs-pad")) b.hidden = true;
+  say("The updater round trip ended the link; Connect again (Home+M) for more.");
+}));
 $("dev").addEventListener("change", (e) => document.body.classList.toggle("show-dev", e.target.checked));
 if (!links.available()) {
   $("connect").disabled = true;
