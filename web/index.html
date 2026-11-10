@@ -9,9 +9,14 @@
 <body>
 <header>
   <h1>Pad settings</h1>
+  <div id="savebar" hidden>
+    <span id="savecount"></span>
+    <button id="undo" type="button" class="secondary">Discard</button>
+    <button id="save" type="button">Save</button>
+  </div>
   <div class="actions">
     <button id="connect" type="button">Connect</button>
-    <button id="disconnect" type="button" hidden>Disconnect</button>
+    <button id="disconnect" type="button" class="secondary" hidden>Disconnect</button>
     <label><input id="dev" type="checkbox"> Developer fields</label>
   </div>
 </header>
@@ -46,13 +51,6 @@
   </details>
   <section id="settings"></section>
 </main>
-<div id="savebar" hidden>
-  <span id="savecount"></span>
-  <div class="actions">
-    <button id="undo" type="button" class="secondary">Undo</button>
-    <button id="save" type="button">Save</button>
-  </div>
-</div>
 <script type="module" src="app.js"></script>
 </body>
 </html>

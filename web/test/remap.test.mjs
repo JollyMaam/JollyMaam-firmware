@@ -5,6 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import * as remap from "../remap.js";
+import { placePoints } from "../editors.js";
 
 const vectors = JSON.parse(readFileSync(new URL("../../android/app/src/test/resources/python-vectors.json", import.meta.url)));
 const hex = (d) => Buffer.from(d).toString("hex");
@@ -61,4 +62,15 @@ test("curves: presets, custom points, order", () => {
   assert.throws(() => remap.parseCurve("1,2,3"), /15 nondecreasing/);
   assert.throws(() => remap.parseCurve(Array.from({ length: 15 }, (_, i) => 15 - i).join(",")), /nondecreasing/);
   assert.throws(() => remap.parseCurve(Array(15).fill(256).join(",")), /0-255/);
+});
+
+test("curve points move anywhere; the others make way", () => {
+  const linear = remap.curvePreset("linear");
+  const up = placePoints(linear, new Map([[2, 250]]), 2);
+  assert.deepEqual(Array.from(up), [16, 32, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250]);
+  const down = placePoints(linear, new Map([[12, 0]]), 12);
+  assert.deepEqual(Array.from(down.subarray(0, 14)), [...Array(13).fill(0), 223]);
+  const sweep = placePoints(linear, new Map([[0, 100], [1, 90], [2, 80]]), 2);
+  assert.deepEqual(Array.from(sweep.subarray(0, 4)), [80, 80, 80, 80]);
+  assert.deepEqual(Array.from(placePoints(linear, new Map([[5, 999]]), 5)).slice(5), Array(10).fill(255));
 });

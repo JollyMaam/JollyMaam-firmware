@@ -59,10 +59,34 @@ function paletteColour(i) {
   return v ? showValue(f, v.value) : "transparent";
 }
 
-function editor(t, f, shown) {
+// ---- how settings read: padgui's names ----
+
+// A remap slot's stick and trigger settings go in a box each.
+const SIDES = { left: "Left stick", right: "Right stick", l2: "L2 trigger", r2: "R2 trigger" };
+const BOXED = { maps_to: "Maps to", x_axis: "Invert X axis", y_axis: "Invert Y axis", press: "Digital at",
+  mode: "Analog mode", curve_points: "Curve" };
+const sentence = (s) => s.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+
+function sideOf(t, f) {
+  if (t < REMAP_TARGET || f.dev) return null;
+  const side = f.name.split("_")[0];
+  return SIDES[side] && f.name !== side ? side : null;
+}
+
+// {label, side, checkbox, nice (enum choices capitalised), unit} for a field.
+function look(t, f) {
+  const side = sideOf(t, f), rest = side ? f.name.slice(side.length + 1) : f.name;
+  return {
+    side, label: (side && BOXED[rest]) || sentence(rest),
+    checkbox: !!side && (rest === "x_axis" || rest === "y_axis") && f.type === T.ENUM && f.names.length === 2,
+    nice: !!side && f.type === T.ENUM, unit: rest === "press" ? " %" : "",
+  };
+}
+
+function editor(t, f, shown, how) {
   let e;
   if (f.type === T.ENUM) {
-    e = h("select", {}, f.names.filter(Boolean).map((n) => h("option", { value: n }, n)));
+    e = h("select", {}, f.names.filter(Boolean).map((n) => h("option", { value: n }, how.nice ? sentence(n) : n)));
   } else if (f.type === T.ENTRY) {
     e = h("select", {}, Array.from({ length: PALETTE }, (_, i) => h("option", { value: String(i) }, String(i))));
   } else if (f.type === T.RGB) {
@@ -73,7 +97,17 @@ function editor(t, f, shown) {
     e = h("input", { type: "text", spellcheck: "false", autocomplete: "off" });
   }
   e.value = shown;
-  e.setAttribute("aria-label", `${targetName(t)} ${f.name}`);
+  e.setAttribute("aria-label", `${targetName(t)} ${how.side ? SIDES[how.side] + " " : ""}${how.label}`);
+  if (how.checkbox) {           // normal/inverted as a tick; the select stays the value
+    const box = h("input", { type: "checkbox", "aria-label": e.getAttribute("aria-label") });
+    const show = () => { box.checked = e.value === f.names[1]; };
+    box.addEventListener("change", () => { e.value = f.names[box.checked ? 1 : 0]; e.dispatchEvent(new Event("change")); });
+    e.addEventListener("change", show);
+    e.hidden = true;
+    show();
+    return h("span", {}, e, box);
+  }
+  if (f.type === T.NUMBER) return h("span", { class: "number" }, e, h("span", { class: "muted" }, ` 0–${f.max || 2 ** (8 * Math.min(f.size, 4)) - 1}${how.unit}`));
   if (f.type !== T.ENTRY) return e;
   const swatch = h("span", { class: "swatch" });
   const paint = () => { swatch.style.background = paletteColour(Number(e.value)); };
@@ -93,10 +127,11 @@ function row(t, f, rows) {
   const hidden = part === "map" || part === "rules" ? "dev" : f.kind === 3 && f.name.endsWith("_curve_enabled") ? "merged" : null;
   const tr = h("tr", { class: [f.dev ? "dev" : null, hidden].filter(Boolean).join(" ") || null, "data-key": key });
   const mark = h("td", { class: "mark", title: v.set ? "saved on the pad" : "firmware default" }, v.set ? "✓" : "");
+  const how = look(t, f);
   let cell, input = null;
   if (editable(f)) {
-    cell = editor(t, f, shown);
-    input = cell.matches("input, select") ? cell : cell.querySelector("select");
+    cell = editor(t, f, shown, how);
+    input = cell.matches("input, select") ? cell : cell.querySelector("input, select");
     if (part === "map" || part === "rules") input.classList.add("wide");
     if (part === "curve") {
       input.classList.add("wide");
@@ -110,7 +145,8 @@ function row(t, f, rows) {
   } else {
     cell = h("span", { class: "mono" }, shown);
   }
-  const reset = h("button", { type: "button", class: "small", title: `back to the firmware default${def !== null ? ` (${def})` : ""}`,
+  const shownDef = def !== null && how.nice ? sentence(def) : def;
+  const reset = h("button", { type: "button", class: "small", title: `back to the firmware default${def !== null ? ` (${shownDef})` : ""}`,
     hidden: !v.set }, "default");
   reset.addEventListener("click", () => {
     if (!v.set) {               // at its default already: just drop the edit
@@ -128,10 +164,11 @@ function row(t, f, rows) {
     tr.title = "";
     bar();
   });
-  tr.append(h("th", { scope: "row", title: f.help || null }, f.name),
-    h("td", {}, cell),
-    h("td", { class: "mono muted" }, v.set && def !== null && shown !== def ? def : ""),
-    mark, h("td", {}, reset));
+  tr.append(...[h("th", { scope: "row", title: [f.name, f.help].filter(Boolean).join(": ") }, how.label),
+    // The curve takes the default's column too (its default is a preset).
+    h("td", { colspan: part === "curve" ? 2 : null }, cell),
+    part === "curve" ? null : h("td", { class: "muted" }, v.set && def !== null && shown !== def ? shownDef : ""),
+    mark, h("td", {}, reset)].filter(Boolean));
   Object.assign(tr, { input, reset });
   return tr;
 }
@@ -174,11 +211,21 @@ function targetSection(t, open) {
       resetAll: () => { byName.get("map").reset.click(); byName.get("rules").reset.click(); },
     });
   }
+  // The rest, then a box per stick and trigger (padgui's grouping).
+  const general = [], boxes = new Map();
+  fields.forEach((f, i) => {
+    const side = sideOf(t, f);
+    if (!side) return general.push(rows[i]);
+    if (!boxes.has(side)) boxes.set(side, []);
+    boxes.get(side).push(rows[i]);
+  });
+  const settings = (trs) => h("table", { class: "settings" }, h("colgroup", {}, h("col", { class: "c-name" }), h("col"),
+    h("col", { class: "c-def" }), h("col", { class: "c-mark" }), h("col", { class: "c-reset" })), h("tbody", {}, trs));
   return h("details", { open, "data-target": t },
     h("summary", {}, targetName(t), h("span", { class: "muted mono" }, ` ${TARGETS[t]}`)),
+    rows.length ? settings(general) : h("p", { class: "muted" }, "Nothing here."),
     keys,
-    rows.length ? h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Setting"), h("th", {}, "Value"),
-      h("th", {}, "Default"), h("th", {}, ""), h("th", {}, ""))), h("tbody", {}, rows)) : h("p", { class: "muted" }, "Nothing here."));
+    [...boxes].map(([side, trs]) => h("section", { class: "box" }, h("h3", {}, SIDES[side]), settings(trs))));
 }
 
 function render() {
@@ -191,6 +238,7 @@ function render() {
 function bar() {
   const n = edits.size, bad = [...edits.values()].filter((e) => e.error);
   $("savebar").hidden = !n;
+  document.body.classList.toggle("unsaved", !!n);
   $("savecount").textContent = bad.length ? bad[0].error : `${n} unsaved change${n === 1 ? "" : "s"}`;
   $("savecount").classList.toggle("error", !!bad.length);
   $("save").disabled = !!bad.length;

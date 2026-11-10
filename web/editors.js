@@ -232,13 +232,26 @@ export function remapEditor(io) {
 
 // ---- curves -----------------------------------------------------------------
 
-// A stick curve: a preset, the graph (drag a point) and the points as text.
-// input: the points' text input; enabled(): the curve's on/off select, which
-// follows the points (linear is off: the calibrated input exactly).
+// The points with these set ({index: value}), the others pushed out of the
+// way so the curve never goes down; the last one set wins.
+export function placePoints(start, set, last) {
+  const p = Uint8Array.from(start);
+  for (const [i, v] of set) p[i] = Math.max(0, Math.min(255, Math.round(v)));
+  for (let j = last + 1; j < p.length; j++) p[j] = Math.max(p[j], p[j - 1]);
+  for (let j = last - 1; j >= 0; j--) p[j] = Math.min(p[j], p[j + 1]);
+  return p;
+}
+
+// A stick curve: a preset, the graph and the points as text.  On the graph
+// the points under the pointer follow it: press and move up or down for one
+// point, sweep sideways to draw; the others make way.  input: the points'
+// text input; enabled(): the curve's on/off select, which follows the points
+// (linear is off: the calibrated input exactly).
 export function curveEditor(input, count, enabled) {
-  const W = 100;
+  const W = 100, PAD = 4;
   let points = null;
-  const graph = svg("svg", { viewBox: `-4 -4 ${W + 8} ${W + 8}`, class: "curve", role: "img", "aria-label": "stick curve" });
+  const graph = svg("svg", { viewBox: `${-PAD} ${-PAD} ${W + 2 * PAD} ${W + 2 * PAD}`, class: "curve", role: "img",
+    "aria-label": "stick curve: drag to draw" });
   const preset = select([...CURVE_PRESETS.map((n) => [n, n]), ["custom", "custom"]], "custom", (v) => {
     if (v !== "custom") set(curvePreset(v, count));
   }, { "aria-label": "curve preset" });
@@ -252,21 +265,22 @@ export function curveEditor(input, count, enabled) {
 
   const xy = (i, v) => [((i + 1) / (count + 1)) * W, W - (v / 255) * W];
   const line = svg("polyline", { class: "line" });
+  const grid = [1, 2, 3].map((k) => [svg("line", { x1: 0, y1: (k * W) / 4, x2: W, y2: (k * W) / 4, class: "grid" }),
+    svg("line", { x1: (k * W) / 4, y1: 0, x2: (k * W) / 4, y2: W, class: "grid" })]).flat();
   const dots = Array.from({ length: count }, (_, i) => {
-    const dot = svg("circle", { r: 2.6, class: "dot", tabindex: 0 });
-    dot.addEventListener("pointerdown", (e) => drag(e, i, dot));
+    const dot = svg("circle", { r: 2.4, class: "dot", tabindex: 0 });
     dot.addEventListener("keydown", (e) => {
-      const step = { ArrowUp: 1, ArrowDown: -1, PageUp: 10, PageDown: -10 }[e.key];
+      const step = { ArrowUp: 1, ArrowDown: -1, PageUp: 16, PageDown: -16, Home: -255, End: 255 }[e.key];
       if (!step || !points) return;
       e.preventDefault();
-      move(i, points[i] + step);
+      set(placePoints(points, [[i, points[i] + step]], i));
     });
     return dot;
   });
-  graph.append(svg("rect", { x: 0, y: 0, width: W, height: W, class: "frame" }),
+  graph.append(svg("rect", { x: 0, y: 0, width: W, height: W, class: "frame" }), ...grid,
     svg("line", { x1: 0, y1: W, x2: W, y2: 0, class: "diagonal" }), line, ...dots);
 
-  // The graph from the text (in place: a dragged point keeps its pointer).
+  // The graph from the text (in place, so a drag keeps its pointer).
   function draw() {
     try {
       points = parseCurve(input.value, count);
@@ -285,35 +299,49 @@ export function curveEditor(input, count, enabled) {
     });
   }
 
-  // A point between its neighbours (the points never go down).
-  function move(i, v) {
-    if (!points) return;
-    const p = Uint8Array.from(points);
-    p[i] = Math.max(i ? p[i - 1] : 0, Math.min(i < count - 1 ? p[i + 1] : 255, Math.round(v)));
-    set(p);
-  }
+  // Pointer to (point index, value).
+  const at = (ev) => {
+    const box = graph.getBoundingClientRect(), scale = box.width / (W + 2 * PAD);
+    const x = (ev.clientX - box.left) / scale - PAD, y = (ev.clientY - box.top) / scale - PAD;
+    const i = Math.max(0, Math.min(count - 1, Math.round((x / W) * (count + 1)) - 1));
+    return [i, (1 - y / W) * 255];
+  };
 
-  function drag(e, i, dot) {
+  graph.addEventListener("pointerdown", (e) => {
+    if (!points || e.button > 0) return;
     e.preventDefault();
-    try { dot.setPointerCapture(e.pointerId); } catch { /* a synthetic pointer */ }
-    const at = (ev) => {
-      const box = graph.getBoundingClientRect(), scale = box.height / (W + 8);
-      move(i, (1 - ((ev.clientY - box.top) / scale - 4) / W) * 255);
+    try { graph.setPointerCapture(e.pointerId); } catch { /* a synthetic pointer */ }
+    const start = points, touched = new Map();
+    let last = null;
+    const follow = (ev) => {
+      const [i, v] = at(ev);
+      // Sweeping across points sets every one passed, along the way.
+      if (last !== null && Math.abs(i - last[0]) > 1) {
+        const [j, w] = last, step = i > j ? 1 : -1;
+        for (let k = j + step; k !== i; k += step) touched.set(k, w + ((v - w) * (k - j)) / (i - j));
+      }
+      touched.delete(i);
+      touched.set(i, v);
+      last = [i, v];
+      set(placePoints(start, touched, i));
     };
-    const up = () => {
-      dot.removeEventListener("pointermove", at);
-      dot.removeEventListener("pointerup", up);
-      dot.removeEventListener("pointercancel", up);
+    const end = () => {
+      graph.removeEventListener("pointermove", follow);
+      graph.removeEventListener("pointerup", end);
+      graph.removeEventListener("pointercancel", end);
     };
-    dot.addEventListener("pointermove", at);
-    dot.addEventListener("pointerup", up);
-    dot.addEventListener("pointercancel", up);
-  }
+    follow(e);
+    graph.addEventListener("pointermove", follow);
+    graph.addEventListener("pointerup", end);
+    graph.addEventListener("pointercancel", end);
+  });
 
   input.addEventListener("input", draw);
   input.addEventListener("change", draw);
   draw();
   return h("div", { class: "curvebox" }, graph,
     h("div", { class: "curveside" }, h("label", {}, "Preset ", preset),
-      h("label", { class: "muted" }, "Points (output 0-255 at 1/16 … 15/16 of the travel)"), input));
+      h("p", { class: "muted" }, "Drag on the graph: up or down moves a point, sideways draws through the points. " +
+        "Arrow keys move a selected point."),
+      h("label", { class: "muted" }, "Points (output 0–255 at 1/16 … 15/16 of the travel)"), input));
 }

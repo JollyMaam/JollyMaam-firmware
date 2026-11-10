@@ -41,9 +41,26 @@ tr.invalid th, tr.invalid th::after { color: var(--error); }
 tr.reset td:nth-child(2) { opacity: .6; }
 button.small { padding: 1px 8px; font-size: 12px; }
 button.secondary, button.small { background: transparent; color: var(--accent); }
-#savebar { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
-  gap: 8px 16px; padding: 10px 16px; background: var(--panel); border-top: 1px solid var(--line); }
+header { position: sticky; top: 0; z-index: 10; background: var(--bg); }
+body.unsaved header { background: var(--panel); box-shadow: 0 2px 8px rgb(0 0 0 / .08); }
+#savebar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
 #savebar[hidden] { display: none; }
+#savecount { font-weight: 600; }
+table.settings { table-layout: fixed; }
+table.settings col.c-name { width: 30%; }
+table.settings col.c-def { width: 16%; }
+table.settings col.c-mark { width: 2.5em; }
+table.settings col.c-reset { width: 6em; }
+section.box { margin: 12px 16px; border: 1px solid var(--line); border-radius: 6px; }
+section.box h3 { margin: 0; padding: 6px 12px; font-size: 15px; }
+section.box table.settings th, section.box table.settings td { padding-left: 12px; }
+.number { white-space: nowrap; }
+.number input { width: 7em !important; }
+@media (max-width: 600px) {
+  table.settings col.c-name { width: 38%; }
+  table.settings col.c-def { width: 0; }
+  table.settings td:nth-child(3) { display: none; }
+}
 details th, details td { text-align: left; padding: 4px 16px; border-top: 1px solid var(--line); vertical-align: top; }
 thead th { color: var(--muted); font-weight: 500; }
 tbody th { font-weight: 500; }
@@ -78,11 +95,13 @@ details.keys > summary { padding: 2px 8px; font-weight: 400; }
 .keylist label { white-space: nowrap; }
 .curvebox { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
 .curveside { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 12em; }
-svg.curve { width: 180px; height: 180px; flex: none; touch-action: none; }
+.curveside p { margin: 0; padding: 0; }
+svg.curve { width: 260px; max-width: 100%; aspect-ratio: 1; flex: none; touch-action: none; cursor: crosshair; user-select: none; }
+svg.curve .grid { stroke: var(--line); stroke-width: .3; }
 svg.curve .frame { fill: var(--bg); stroke: var(--line); stroke-width: .6; }
 svg.curve .diagonal { stroke: var(--muted); stroke-width: .4; stroke-dasharray: 2 2; }
 svg.curve .line { fill: none; stroke: var(--accent); stroke-width: 1.2; }
-svg.curve .dot { fill: var(--panel); stroke: var(--accent); stroke-width: 1; cursor: ns-resize; }
+svg.curve .dot { fill: var(--panel); stroke: var(--accent); stroke-width: 1; }
 svg.curve .dot:focus { outline: none; fill: var(--accent); }
 svg.curve.invalid .line, svg.curve.invalid .dot { display: none; }
 @media (max-width: 600px) {
