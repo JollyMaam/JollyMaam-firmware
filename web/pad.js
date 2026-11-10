@@ -60,8 +60,13 @@ const hex = (d) => Array.from(d, (b) => b.toString(16).padStart(2, "0")).join(""
 
 // ---- answers -------------------------------------------------------------
 
+// A garbled answer: the head of an earlier one, then this one (the pad
+// starts a new answer over what was left of the last; see Pad.identify).
+export class GarbledAnswer extends Error {}
+
 export function decodeIdentify(d) {
   if (d.length < 56) throw new Error(`short IDENTIFY (${d.length} bytes)`);
+  if (text(d.subarray(0, 4)) !== "C2PD") throw new GarbledAnswer("IDENTIFY does not start with C2PD");
   return {
     protocol: u16(d, 4),
     board: d[6],
@@ -264,6 +269,10 @@ export class Pad {
     this.maxReply = Math.max(this.maxReply, r.length);
     const p = this.pending;
     if (!p || (r[0] & ~MORE) !== p.sub) return;    // the rest of an answer nobody waits for
+    // The pad starts a new answer over what is left of the last one: an
+    // IDENTIFY piece that starts with its magic again is a new answer
+    // (right after a failed link, the head of one sent there comes first).
+    if (p.sub === CMD.IDENTIFY && p.parts.length && r.length > 4 && text(r.subarray(1, 5)) === "C2PD") p.parts = [];
     p.parts.push(r.subarray(1));
     if (r[0] & MORE) return;
     const answer = new Uint8Array(p.parts.reduce((n, x) => n + x.length, 0));
@@ -324,13 +333,20 @@ export class Pad {
   }
 
   // IDENTIFY; tries times, a second each, on a link that just came up
-  // (the updater does not answer until it is ready).
+  // (the updater does not answer until it is ready).  A garbled answer is
+  // asked again: right after a link failed, the pad can still be sending
+  // the head of an IDENTIFY it took there, which this one cuts off.
   async identify(timeoutMs = 3000, tries = 1) {
-    for (let attempt = 1; ; attempt++) {
+    for (let attempt = 1, garbled = 0; ; attempt++) {
       try {
         this.id = decodeIdentify(await this.cmd(CMD.IDENTIFY, { timeoutMs }));
         break;
       } catch (error) {
+        if (error instanceof GarbledAnswer && ++garbled <= 3 && !this.gone) {
+          console.info(`pad: ${error.message}; asking again`);
+          await new Promise((r) => setTimeout(r, 200));
+          continue;
+        }
         if (attempt >= tries || this.gone) throw error;
       }
     }

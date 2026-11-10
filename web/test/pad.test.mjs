@@ -88,7 +88,7 @@ function simulatedPad() {
   let reply = () => {}, held = [];
   const link = {
     name: "Cyclone 2 Config", id: "sim", maxWrite: 96, frames: [], staged: [], committed: [], drops: 0,
-    onReply(fn) { reply = fn; },
+    onReply(fn) { reply = fn; link.reply = (d) => reply(d); },
     onDisconnect() {},
     close() {},
     async write(frame) {
@@ -254,4 +254,21 @@ test("remap fields: map, rules and curve points as padtool's text", () => {
   assert.equal(showValue(curve, parseValue(curve, "linear")), "16,32,48,64,80,96,112,128,143,159,175,191,207,223,239");
   assert.throws(() => parseValue(curve, "1,2"), /left_curve_points: a curve needs 15/);
   assert.throws(() => parseValue({ ...map, kind: 0, name: "address", size: 6 }, "00"), /not editable/);
+});
+
+test("a garbled IDENTIFY (an old answer's head, then this one) is asked again", async () => {
+  const link = simulatedPad();
+  const pad = new Pad(link);
+  const write = link.write;
+  let first = true;
+  link.write = async (frame) => {
+    if (first && frame[0] === 0x00) {   // the head of an earlier answer comes first, marked "more"
+      first = false;
+      setTimeout(() => link.reply(Uint8Array.of(0x80, ...new TextEncoder().encode("C2PD"), 2, 0, 0, 0, ...new TextEncoder().encode("0b1714c-dir"))), 0);
+    }
+    return write(frame);
+  };
+  const id = await pad.identify();
+  assert.equal(id.build, "abc1234");
+  assert.equal(id.boardName, "Cyclone 2");
 });
