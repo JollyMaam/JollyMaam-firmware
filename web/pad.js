@@ -9,7 +9,7 @@ const CONFIG_FRAME_DATA = 96 - FRAME_HEAD;   // BT_WRITE_MAX less the head
 const CONFIG_DATA_MAX = 488;     // IDENTIFY's u16 at 88 from firmware that has it
 
 export const CMD = {
-  IDENTIFY: 0x00, STATUS: 0x01, REBOOT: 0x10, READ: 0x21, WRITE: 0x22, RESULT: 0x26, DEFAULTS: 0x27,
+  IDENTIFY: 0x00, STATUS: 0x01, REBOOT: 0x10, READ: 0x21, WRITE: 0x22, COMMIT: 0x23, DROP: 0x24, RESULT: 0x26, DEFAULTS: 0x27,
   FIELDS: 0x28, UPDATER: 0x40, UPDATE_INFO: 0x41, UPDATE_BEGIN: 0x42, UPDATE_DATA: 0x43, UPDATE_COMMIT: 0x44,
 };
 
@@ -26,6 +26,8 @@ export const TARGETS = [
 export const REMAP_TARGET = 10, BASE_TARGET = 18;
 export const KINDS = ["slot", "palette", "calibration", "remap"];
 export const T = { ENUM: 0, NUMBER: 1, RGB: 2, BYTES: 3, TEXT: 4, ENTRY: 5, LIST: 6 };
+export const RESULTS = ["ok", "unknown setting", "bad length", "out of range", "full"];
+export const PALETTE_TARGET = 8, PALETTE = 16;
 
 export const kindOf = (t) => (t < 8 ? 0 : t >= REMAP_TARGET ? 3 : t - 7);
 
@@ -139,6 +141,53 @@ export function showValue(f, raw) {
   if (f.name === "left_curve_points" || f.name === "right_curve_points") return Array.from(raw).join(",");
   if (f.name === "address") return raw.some((b) => b) ? hex(raw.slice().reverse()).match(/../g).join(":") : "derived";
   return raw.some((b) => b) ? hex(raw) : "none";
+}
+
+// Whether the page edits a field: not BYTES (address, bond, remap map and
+// rules, curve points, calibration: padtool has their parsers).
+export const editable = (f) => f.type !== T.BYTES;
+
+// A field's bytes from the text an editor holds (showValue's form); throws
+// what is wrong.  The pad checks ranges again (RESULT).
+export function parseValue(f, s) {
+  s = s.trim();
+  const fail = (why) => { throw new Error(`${f.name}: ${why}`); };
+  const number = (x, max) => {
+    if (!/^(0x[0-9a-f]+|\d+)$/i.test(x)) fail(`not a number: ${JSON.stringify(x)}`);
+    const v = Number(x);
+    if (max !== undefined && v > max) fail(`at most ${max}`);
+    return v;
+  };
+  switch (f.type) {
+    case T.ENUM: {
+      const i = f.names.indexOf(s);
+      if (!s || i < 0) fail(`one of ${f.names.filter(Boolean).join(", ")}`);
+      return Uint8Array.of(i);
+    }
+    case T.NUMBER: {
+      const v = number(s, f.max || 2 ** (8 * Math.min(f.size, 4)) - 1);
+      return Uint8Array.from({ length: f.size }, (_, i) => Math.floor(v / 256 ** i) & 0xff);
+    }
+    case T.ENTRY: return Uint8Array.of(number(s, PALETTE - 1));
+    case T.RGB: {
+      const m = /^#?([0-9a-f]{6})$/i.exec(s);
+      if (!m) fail("a colour #rrggbb");
+      return Uint8Array.from(m[1].match(/../g), (x) => parseInt(x, 16));
+    }
+    case T.TEXT: {
+      const raw = new TextEncoder().encode(s);
+      if (raw.length > f.size) fail(`at most ${f.size} bytes`);
+      const out = new Uint8Array(f.size);
+      out.set(raw);
+      return out;
+    }
+    case T.LIST: {
+      const v = s.split(/[\s,]+/).filter(Boolean);
+      if (v.length !== f.size) fail(`${f.size} numbers, not ${v.length}`);
+      return Uint8Array.from(v, (x) => number(x, f.max));
+    }
+  }
+  fail("not editable here");
 }
 
 // UPDATE_INFO (the updater's): version, state, error, valid, then u32 at,
@@ -266,6 +315,37 @@ export class Pad {
   // {name: {value, set}} of a target, or its defaults.
   async read(table, target, defaults = false) {
     return decodeValues(await this.cmd(defaults ? CMD.DEFAULTS : CMD.READ, { arg: target }), table, target);
+  }
+
+  // Change settings: items [{target, id, value}], value empty for the
+  // default.  WRITE in pieces of at most dataMax, each checked (RESULT), then
+  // COMMIT; nothing applies if the pad refuses any (DROP).
+  async write(items) {
+    const max = this.id?.dataMax ?? CONFIG_DATA_MAX, chunks = [];
+    let chunk = [];
+    for (const { target, id, value } of items) {
+      const item = [target, id, value.length, ...value];
+      if (item.length > max) throw new Error(`a setting of ${value.length} bytes does not fit a command`);
+      if (chunk.length + item.length > max) chunks.push(chunk), chunk = [];
+      chunk.push(...item);
+    }
+    if (chunk.length) chunks.push(chunk);
+    let done = 0;
+    for (const c of chunks) {
+      await this.cmd(CMD.WRITE, { data: Uint8Array.from(c) });
+      const r = await this.cmd(CMD.RESULT);
+      const codes = Array.from(r.subarray(1, 1 + r[0]));
+      const bad = codes.map((code, i) => ({ code, item: items[done + i] })).filter((x) => x.code);
+      if (!codes.length || bad.length) {
+        await this.cmd(CMD.DROP);
+        const error = new Error("the pad refused the change, nothing changed: " +
+          (bad.map((x) => RESULTS[x.code] ?? `code ${x.code}`).filter((x, i, a) => a.indexOf(x) === i).join(", ") || "nothing accepted"));
+        error.refused = bad.map((x) => ({ ...x.item, why: RESULTS[x.code] ?? `code ${x.code}` }));
+        throw error;
+      }
+      done += codes.length;
+    }
+    await this.cmd(CMD.COMMIT);
   }
 
   async updateInfo(timeoutMs = 3000) {

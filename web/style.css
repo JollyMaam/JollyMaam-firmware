@@ -29,6 +29,21 @@ dd { margin: 0; overflow-wrap: anywhere; }
 details { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; margin: 8px 0; }
 summary { padding: 8px 16px; cursor: pointer; font-weight: 600; }
 details table { width: 100%; border-collapse: collapse; }
+details td input, details td select { font: inherit; padding: 2px 6px; border: 1px solid var(--line);
+  border-radius: 4px; background: var(--bg); color: var(--fg); max-width: 100%; }
+details td input[type=text], details td input[type=number] { width: 14em; }
+details td input[type=color] { width: 4em; height: 1.8em; padding: 0 2px; }
+.entry { display: inline-flex; align-items: center; gap: 8px; }
+.swatch { display: inline-block; width: 1.2em; height: 1.2em; border-radius: 3px; border: 1px solid var(--line); }
+tr.changed th { color: var(--accent); }
+tr.changed th::after { content: " •"; }
+tr.invalid th, tr.invalid th::after { color: var(--error); }
+tr.reset td:nth-child(2) { opacity: .6; }
+button.small { padding: 1px 8px; font-size: 12px; }
+button.secondary, button.small { background: transparent; color: var(--accent); }
+#savebar { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 8px 16px; padding: 10px 16px; background: var(--panel); border-top: 1px solid var(--line); }
+#savebar[hidden] { display: none; }
 details th, details td { text-align: left; padding: 4px 16px; border-top: 1px solid var(--line); vertical-align: top; }
 thead th { color: var(--muted); font-weight: 500; }
 tbody th { font-weight: 500; }

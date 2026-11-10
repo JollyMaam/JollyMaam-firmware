@@ -3,7 +3,7 @@
 // usb.c's IDENTIFY, STATUS, FIELDS (settings.c's set_describe) and READ.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Pad, decodeField, showValue, targetsFor, T } from "../pad.js";
+import { Pad, decodeField, showValue, parseValue, targetsFor, T } from "../pad.js";
 import { echoItems, writeTest } from "../linktest.js";
 
 const PIECE = 157;               // CONFIG_REPLY_MAX - 1
@@ -40,12 +40,15 @@ function simulatedPad() {
       for (let o = 0; o + 3 <= data.length; ) {
         const l = data[o + 2];
         if (o + 3 + l > data.length) { codes.push(2); break; }
-        codes.push(data[o] >= 19 ? 1 : 0);
+        codes.push(data[o] >= 19 ? 1 : data[o + 1] === 0x99 ? 3 : 0);
+        if (!codes.at(-1)) link.staged.push([data[o], data[o + 1], data.slice(o + 3, o + 3 + l)]);
         o += 3 + l;
       }
       result = Uint8Array.of(codes.length, ...codes);
       return new Uint8Array(0);
     }
+    if (sub === 0x23) link.committed.push(...link.staged.splice(0));
+    if (sub === 0x24) link.staged.length = 0, link.drops++;
     if (sub === 0x26) return result;
     if (sub === 0x00) {
       const d = new Uint8Array(90);
@@ -79,7 +82,7 @@ function simulatedPad() {
   };
   let reply = () => {}, held = [];
   const link = {
-    name: "Cyclone 2 Config", id: "sim", maxWrite: 96, frames: [],
+    name: "Cyclone 2 Config", id: "sim", maxWrite: 96, frames: [], staged: [], committed: [], drops: 0,
     onReply(fn) { reply = fn; },
     onDisconnect() {},
     close() {},
@@ -183,4 +186,47 @@ test("the write test's items fill the data exactly", async () => {
   const lines = [];
   assert.equal(await writeTest(pad, 15, 488, (l) => lines.push(l)), true, lines.join("\n"));
   assert.equal(await writeTest(pad, 91, 488, (l) => lines.push(l)), true, lines.join("\n"));
+});
+
+test("values from text, as showValue shows them", () => {
+  const f = (type, size, extra = {}) => ({ name: "x", type, size, max: 0, names: [], ...extra });
+  const round = (field, text) => showValue(field, parseValue(field, text));
+  assert.equal(round(f(T.ENUM, 1, { names: ["none", "", "switch"], max: 2 }), "switch"), "switch");
+  assert.throws(() => parseValue(f(T.ENUM, 1, { names: ["none", "", "switch"] }), ""), /one of none, switch/);
+  assert.equal(round(f(T.NUMBER, 2, { max: 3200 }), "3200"), "3200");
+  assert.throws(() => parseValue(f(T.NUMBER, 2, { max: 3200 }), "3201"), /at most 3200/);
+  assert.throws(() => parseValue(f(T.NUMBER, 2), "-1"), /not a number/);
+  assert.deepEqual(Array.from(parseValue(f(T.NUMBER, 4), "70000")), [0x70, 0x11, 1, 0]);
+  assert.equal(round(f(T.RGB, 3), "#ff3300"), "#ff3300");
+  assert.equal(round(f(T.ENTRY, 1), "15"), "15");
+  assert.throws(() => parseValue(f(T.ENTRY, 1), "16"), /at most 15/);
+  assert.equal(round(f(T.TEXT, 12), "Couch"), "Couch");
+  assert.throws(() => parseValue(f(T.TEXT, 4), "Couch"), /at most 4 bytes/);
+  assert.equal(round(f(T.LIST, 3, { max: 100 }), "1, 2 3"), "1,2,3");
+  assert.throws(() => parseValue(f(T.LIST, 3, { max: 100 }), "1,2"), /3 numbers/);
+  assert.throws(() => parseValue(f(T.BYTES, 6), "00"), /not editable/);
+});
+
+test("write: pieces, each checked, then commit", async () => {
+  const link = simulatedPad();
+  const pad = new Pad(link);
+  await pad.identify();
+  const items = Array.from({ length: 50 }, (_, i) => ({ target: i % 8, id: 3, value: new Uint8Array(12).fill(i) }));
+  await pad.write(items);     // 50 x 15 bytes: two WRITEs of 488 at most
+  assert.equal(link.committed.length, 50);
+  assert.deepEqual(Array.from(link.committed[49][2]), Array(12).fill(49));
+  await pad.write([{ target: 1, id: 2, value: new Uint8Array(0) }]);
+  assert.deepEqual(link.committed.at(-1), [1, 2, new Uint8Array(0)]);
+});
+
+test("write: a refusal drops everything", async () => {
+  const link = simulatedPad();
+  const pad = new Pad(link);
+  await pad.identify();
+  const error = await pad.write([{ target: 0, id: 1, value: Uint8Array.of(2) }, { target: 0, id: 0x99, value: Uint8Array.of(9) }])
+    .then(() => null, (e) => e);
+  assert.match(error.message, /out of range/);
+  assert.deepEqual(error.refused.map((r) => [r.target, r.id, r.why]), [[0, 0x99, "out of range"]]);
+  assert.equal(link.committed.length, 0);
+  assert.equal(link.drops, 1);
 });

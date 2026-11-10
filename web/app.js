@@ -1,7 +1,7 @@
 // The page: connect to a pad in config mode (Home+M held for 3 s), show what
-// it is and its settings.  Read only for now.
+// it is and its settings, and change them.
 import { links } from "./link-web.js";
-import { Pad, TARGETS, KINDS, kindOf, targetsFor, showValue } from "./pad.js";
+import { Pad, TARGETS, KINDS, T, PALETTE, PALETTE_TARGET, kindOf, targetsFor, showValue, parseValue, editable } from "./pad.js";
 import { writeTests, updaterTrip } from "./linktest.js";
 import { openPackage, findFile, checkUpdateImage } from "./package.js";
 import { intoUpdater, sendImage, finish } from "./update.js";
@@ -45,20 +45,152 @@ function showStatus(s) {
     s.ephemeral ? "ephemeral" : null].filter(Boolean).join(" · ");
 }
 
-function targetSection(table, t, values, defaults) {
-  const rows = table.filter((f) => f.kind === kindOf(t) && values.has(f.name)).map((f) => {
-    const v = values.get(f.name), d = defaults.get(f.name);
-    const shown = showValue(f, v.value), def = d ? showValue(f, d.value) : "?";
-    return h("tr", { class: f.dev ? "dev" : null },
-      h("th", { scope: "row", title: f.help || null }, f.name),
-      h("td", { class: "mono" }, shown),
-      h("td", { class: "mono muted" }, v.set && shown !== def ? def : ""),
-      h("td", { class: "mark", title: v.set ? "saved on the pad" : "firmware default" }, v.set ? "✓" : ""));
+// ---- settings ----
+
+// What the pad has: the field table, per target its values and defaults;
+// edits: key "target:id" -> {target, id, f, value} or {error}, value empty
+// for the default.
+let table = null, values = new Map(), defaults = new Map(), edits = new Map();
+const keyOf = (t, f) => `${t}:${f.id}`;
+
+function paletteColour(i) {
+  const f = table.find((x) => x.kind === 1 && x.id === i + 1);
+  const v = f && values.get(PALETTE_TARGET)?.get(f.name);
+  return v ? showValue(f, v.value) : "transparent";
+}
+
+function editor(t, f, shown) {
+  let e;
+  if (f.type === T.ENUM) {
+    e = h("select", {}, f.names.filter(Boolean).map((n) => h("option", { value: n }, n)));
+  } else if (f.type === T.ENTRY) {
+    e = h("select", {}, Array.from({ length: PALETTE }, (_, i) => h("option", { value: String(i) }, String(i))));
+  } else if (f.type === T.RGB) {
+    e = h("input", { type: "color" });
+  } else if (f.type === T.NUMBER) {
+    e = h("input", { type: "number", min: 0, max: f.max || null, step: 1, inputmode: "numeric" });
+  } else {
+    e = h("input", { type: "text", spellcheck: "false", autocomplete: "off" });
+  }
+  e.value = shown;
+  e.setAttribute("aria-label", `${TARGETS[t]} ${f.name}`);
+  if (f.type !== T.ENTRY) return e;
+  const swatch = h("span", { class: "swatch" });
+  const paint = () => { swatch.style.background = paletteColour(Number(e.value)); };
+  e.addEventListener("change", paint);
+  paint();
+  return h("span", { class: "entry" }, e, swatch);
+}
+
+function row(t, f) {
+  const v = values.get(t).get(f.name), d = defaults.get(t)?.get(f.name);
+  const shown = showValue(f, v.value), def = d ? showValue(f, d.value) : null;
+  const key = keyOf(t, f);
+  const tr = h("tr", { class: f.dev ? "dev" : null, "data-key": key });
+  const mark = h("td", { class: "mark", title: v.set ? "saved on the pad" : "firmware default" }, v.set ? "✓" : "");
+  let cell, input = null;
+  if (editable(f)) {
+    cell = editor(t, f, shown);
+    input = cell.matches("input, select") ? cell : cell.querySelector("select");
+    const changed = () => {
+      tr.classList.remove("reset");
+      edit(t, f, input.value, shown, tr);
+    };
+    input.addEventListener(input.tagName === "SELECT" || input.type === "color" ? "change" : "input", changed);
+  } else {
+    cell = h("span", { class: "mono" }, shown);
+  }
+  const reset = h("button", { type: "button", class: "small", title: `back to the firmware default${def !== null ? ` (${def})` : ""}`,
+    hidden: !v.set }, "default");
+  reset.addEventListener("click", () => {
+    if (input && def !== null) input.value = def, input.dispatchEvent(new Event("change"));
+    edits.set(key, { target: t, id: f.id, f, value: new Uint8Array(0) });
+    tr.classList.remove("invalid");
+    tr.classList.add("changed", "reset");
+    tr.title = "";
+    bar();
   });
-  return h("details", {},
+  tr.append(h("th", { scope: "row", title: f.help || null }, f.name),
+    h("td", {}, cell),
+    h("td", { class: "mono muted" }, v.set && def !== null && shown !== def ? def : ""),
+    mark, h("td", {}, reset));
+  return tr;
+}
+
+function edit(t, f, text, shown, tr) {
+  const key = keyOf(t, f);
+  tr.classList.remove("invalid");
+  tr.title = "";
+  if (text === shown) {
+    edits.delete(key);
+    tr.classList.remove("changed");
+  } else {
+    try {
+      edits.set(key, { target: t, id: f.id, f, value: parseValue(f, text) });
+      tr.classList.add("changed");
+    } catch (error) {
+      edits.set(key, { error: error.message });
+      tr.classList.add("invalid");
+      tr.title = error.message;
+    }
+  }
+  bar();
+}
+
+function targetSection(t, open) {
+  const vals = values.get(t);
+  const rows = table.filter((f) => f.kind === kindOf(t) && vals.has(f.name)).map((f) => row(t, f));
+  return h("details", { open, "data-target": t },
     h("summary", {}, TARGETS[t], h("span", { class: "muted" }, ` ${KINDS[kindOf(t)]}`)),
     rows.length ? h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Setting"), h("th", {}, "Value"),
-      h("th", {}, "Default"), h("th", {}, ""))), h("tbody", {}, rows)) : h("p", { class: "muted" }, "Nothing here."));
+      h("th", {}, "Default"), h("th", {}, ""), h("th", {}, ""))), h("tbody", {}, rows)) : h("p", { class: "muted" }, "Nothing here."));
+}
+
+function render() {
+  const open = new Set([...document.querySelectorAll("#settings details[open]")].map((d) => Number(d.dataset.target)));
+  edits.clear();
+  $("settings").replaceChildren(...[...values.keys()].map((t) => targetSection(t, open.has(t))));
+  bar();
+}
+
+function bar() {
+  const n = edits.size, bad = [...edits.values()].filter((e) => e.error);
+  $("savebar").hidden = !n;
+  $("savecount").textContent = bad.length ? bad[0].error : `${n} unsaved change${n === 1 ? "" : "s"}`;
+  $("savecount").classList.toggle("error", !!bad.length);
+  $("save").disabled = !!bad.length;
+}
+
+async function readTarget(t) {
+  values.set(t, await pad.read(table, t));
+  defaults.set(t, await pad.read(table, t, true));
+}
+
+async function save() {
+  const items = [...edits.values()];
+  const renew = items.filter((e) => e.f.kind === 0 && e.f.name === "type");
+  if (renew.length && !confirm(`Changing a slot's type renews its address and clears its pairing (${renew.map((e) => TARGETS[e.target]).join(", ")}). Save?`)) return;
+  $("save").disabled = $("undo").disabled = true;
+  try {
+    say("Saving…");
+    await pad.write(items);
+    for (const t of new Set(items.map((e) => e.target))) await readTarget(t);
+    render();
+    const s = await pad.status();
+    showStatus(s);
+    say(`Saved${s.ephemeral ? " (ephemeral: until the next boot)" : ""}; it applies on the next connect.`);
+  } catch (error) {
+    say(String(error.message || error), true);
+    for (const r of error.refused || []) {
+      const tr = document.querySelector(`#settings tr[data-key="${r.target}:${r.id}"]`);
+      tr?.classList.add("invalid");
+      if (tr) tr.title = `the pad: ${r.why}`;
+    }
+  } finally {
+    $("save").disabled = false;
+    $("undo").disabled = false;
+    bar();
+  }
 }
 
 async function connect() {
@@ -97,13 +229,12 @@ async function attach(p) {
       try { showStatus(await pad.status()); } catch { /* the disconnect handler says it */ }
     }, STATUS_EVERY_MS);
     say("Reading its settings…");
-    const table = await pad.fields();
-    const sections = [];
-    for (const t of targetsFor(table)) {
-      sections.push(targetSection(table, t, await pad.read(table, t), await pad.read(table, t, true)));
-    }
-    $("settings").replaceChildren(...sections);
-    say(`${table.length} settings in ${sections.length} groups.`);
+    table = await pad.fields();
+    values = new Map();
+    defaults = new Map();
+    for (const t of targetsFor(table)) await readTarget(t);
+    render();
+    say(`${table.length} settings in ${values.size} groups. Changes apply on the next connect.`);
     $("tests").hidden = false;
   } catch (error) {
     say(String(error.message || error), true);
@@ -127,6 +258,8 @@ function disconnect() {
   $("identity").replaceChildren();
   $("status").textContent = "";
   $("settings").replaceChildren();
+  edits.clear();
+  bar();
   $("tests").hidden = true;
   $("firmware").hidden = true;
 }
@@ -240,6 +373,8 @@ $("package").addEventListener("change", async (e) => {
   pickImage();
 });
 $("update").addEventListener("click", update);
+$("save").addEventListener("click", save);
+$("undo").addEventListener("click", render);
 $("dev").addEventListener("change", (e) => document.body.classList.toggle("show-dev", e.target.checked));
 if (!links.available()) {
   $("connect").disabled = true;

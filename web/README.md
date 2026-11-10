@@ -8,7 +8,9 @@ modules, no build), for GitHub Pages and, later, the Android app's WebView.
   Bluetooth (WebView has no Web Bluetooth).
 - `pad.js`: the framing (`src/profiles/profile_config.c`) and the tool
   commands (`src/core/usb.c`) over a link.
-- `app.js`, `index.html`, `style.css`: the page. Read only so far.
+- `app.js`, `index.html`, `style.css`: the page. Edits every setting but the
+  raw-bytes ones (address, bond, remap map and rules, curve points,
+  calibration), which stay read only; padtool has their parsers.
 
 Web Bluetooth needs Chrome or Edge, and a secure context (https, or
 localhost). To serve it from a checkout:
