@@ -21,7 +21,7 @@ class Restore(unittest.TestCase):
     def run_restore(self, refuse):
         backup = {"targets": {
             "palette": {"steady_brightness": {"set": True, "value": "4"}},
-            "remap-a": {"rumble": {"set": True, "value": "5"}},
+            "remap-south": {"rumble": {"set": True, "value": "5"}},
             "remap-base": {"rumble": {"set": True, "value": "6"}},
         }}
         sent = []
@@ -42,11 +42,11 @@ class Restore(unittest.TestCase):
                     return sent, str(error)
 
     def test_every_target_is_tried_and_the_refused_listed(self):
-        a = padtool.target_index("remap-a")
+        a = padtool.target_index("remap-south")
         sent, error = self.run_restore({a})
-        self.assertEqual(sent, [padtool.target_index(n) for n in ("palette", "remap-a", "remap-base")])
+        self.assertEqual(sent, [padtool.target_index(n) for n in ("palette", "remap-south", "remap-base")])
         self.assertIn("all but 1", error)
-        self.assertIn("remap-a (ephemeral mode", error)
+        self.assertIn("remap-south (ephemeral mode", error)
         self.assertNotIn("palette (", error)
 
     def test_all_accepted(self):
@@ -72,7 +72,7 @@ class Layout(unittest.TestCase):
             layout = padtool.read_layout("p")
         self.assertEqual(asked, [0, 2])
         self.assertEqual([(e["name"], e["kind"], e["label"]) for e in layout],
-                         [("a", "face", "B"), ("b", "face", "A"), ("left_stick", "stick", ""), ("minus", "menu", "View")])
+                         [("south", "face", "B"), ("east", "face", "A"), ("left_stick", "stick", ""), ("minus", "menu", "View")])
 
     def test_old_firmware(self):
         with patch.object(padtool, "cmd", return_value=b""):

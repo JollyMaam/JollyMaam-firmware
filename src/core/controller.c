@@ -238,7 +238,7 @@ static void stop(u32 now);
 
 static const char *remap_name(u8 remap)
 {
-    static const char *const names[SLOTS] = { "a", "b", "x", "y", "up", "down", "left", "right" };
+    static const char *const names[SLOTS] = { "south", "east", "west", "north", "up", "down", "left", "right" };
     return remap < SLOTS ? names[remap] : "base";
 }
 
@@ -951,7 +951,7 @@ static void outputs(u32 now)
         c.led_demo = SLOT_NONE;
         c.led.scene = CTL_KIND_COUNT;
     }
-    if (c.led_demo != SLOT_NONE) {   /* slot A's colours, the demo's settings */
+    if (c.led_demo != SLOT_NONE) {   /* slot south's colours, the demo's settings */
         demo = &ux_led_demos[c.led_demo];
         scene = demo->scene;
         armed = 0;

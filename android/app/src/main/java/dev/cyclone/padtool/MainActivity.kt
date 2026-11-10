@@ -414,7 +414,7 @@ class MainActivity : Activity() {
         val choices = (Remap.keys.filter { it.isNotEmpty() } + "none").toTypedArray()
         for (i in Remap.keys.indices.filter { Remap.keys[it].isNotEmpty() }) {
             val line = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            line.addView(label(Remap.keys[i].uppercase()), LinearLayout.LayoutParams(dp(88), -2))
+            line.addView(label(Remap.keys[i].let { k -> if (k.length > 2) k.replaceFirstChar(Char::uppercaseChar) else k.uppercase() }), LinearLayout.LayoutParams(dp(88), -2))
             line.addView(Spinner(this).apply {
                 adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, choices)
                 val n = bytes.u8(i); val to = if (n == 255) "none" else if (n in 1..20 && Remap.keys[n - 1].isNotEmpty()) Remap.keys[n - 1] else Remap.keys[i]

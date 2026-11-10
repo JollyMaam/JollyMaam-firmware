@@ -9,7 +9,7 @@ const CONFIG_FRAME_DATA = 96 - FRAME_HEAD;   // BT_WRITE_MAX less the head
 const CONFIG_DATA_MAX = 488;     // IDENTIFY's u16 at 88 from firmware that has it
 
 export const CMD = {
-  IDENTIFY: 0x00, STATUS: 0x01, REBOOT: 0x10, READ: 0x21, WRITE: 0x22, COMMIT: 0x23, DROP: 0x24, RESULT: 0x26, DEFAULTS: 0x27,
+  IDENTIFY: 0x00, STATUS: 0x01, LAYOUT: 0x06, REBOOT: 0x10, READ: 0x21, WRITE: 0x22, COMMIT: 0x23, DROP: 0x24, RESULT: 0x26, DEFAULTS: 0x27,
   FIELDS: 0x28, UPDATER: 0x40, UPDATE_INFO: 0x41, UPDATE_BEGIN: 0x42, UPDATE_DATA: 0x43, UPDATE_COMMIT: 0x44,
 };
 
@@ -18,16 +18,28 @@ export const UPDATE_ERRORS = ["", "bad size", "past the end", "not begun", "veri
   "the image is for another updater layout"];
 
 export const STATES = ["boot", "idle", "connecting", "pairing", "connected", "stopping", "sleeping", "rebooting"];
-export const SLOT_NAMES = ["A", "B", "X", "Y", "up", "down", "left", "right"];
+// Slots by the key that picks them: positions, not printed letters.
+export const SLOT_NAMES = ["south", "east", "west", "north", "up", "down", "left", "right"];
 export const TARGETS = [
-  ...SLOT_NAMES.map((n) => "slot-" + n.toLowerCase()), "palette", "calibration",
-  ...SLOT_NAMES.map((n) => "remap-" + n.toLowerCase()), "remap-base",
+  ...SLOT_NAMES.map((n) => "slot-" + n), "palette", "calibration",
+  ...SLOT_NAMES.map((n) => "remap-" + n), "remap-base",
 ];
 export const REMAP_TARGET = 10, BASE_TARGET = 18;
 export const KINDS = ["slot", "palette", "calibration", "remap"];
 export const T = { ENUM: 0, NUMBER: 1, RGB: 2, BYTES: 3, TEXT: 4, ENTRY: 5, LIST: 6 };
 export const RESULTS = ["ok", "unknown setting", "bad length", "out of range", "full"];
 export const PALETTE_TARGET = 8, PALETTE = 16;
+
+// The input (IN_*, src/core/pad.h) of the key that picks each slot.
+const SLOT_INPUTS = [0, 1, 3, 4, 16, 18, 19, 17];
+
+// A slot, connection or remap, by its key: the position, after the pad's
+// printed label where it has one ("B (south)").  layout: Pad.layout().
+export function slotLabel(layout, slot) {
+  const role = SLOT_NAMES[slot];
+  const printed = layout?.find((e) => e.input === SLOT_INPUTS[slot] && e.label)?.label;
+  return printed && printed.toLowerCase() !== role ? `${printed} (${role})` : role;
+}
 
 export const kindOf = (t) => (t < 8 ? 0 : t >= REMAP_TARGET ? 3 : t - 7);
 
@@ -190,6 +202,19 @@ export function parseValue(f, s) {
   fail("not editable here");
 }
 
+// LAYOUT: u8 version, entry size, count, entries here, then each u8 input,
+// kind, label[8], x, y (struct board_control).
+export function decodeLayout(d) {
+  if (d.length < 4 || d[0] !== 1 || d[1] < 12) return null;
+  const [, size, count, here] = d;
+  const entries = [];
+  for (let i = 0; i < here && 4 + (i + 1) * size <= d.length; i++) {
+    const e = d.subarray(4 + i * size, 4 + (i + 1) * size);
+    entries.push({ input: e[0], kind: e[1], label: text(e.subarray(2, 10)), x: e[10], y: e[11] });
+  }
+  return { count, entries };
+}
+
 // UPDATE_INFO (the updater's): version, state, error, valid, then u32 at,
 // room, written, begun, key, data_max.
 export function decodeUpdateInfo(d) {
@@ -291,6 +316,18 @@ export class Pad {
     }
     if (!this.id.updater) this.frameData = Math.min(this.frameData, CONFIG_FRAME_DATA);
     return this.id;
+  }
+
+  // The pad's controls and their printed labels; null from firmware without
+  // LAYOUT.
+  async layout() {
+    const out = [];
+    for (;;) {
+      const got = decodeLayout(await this.cmd(CMD.LAYOUT, { arg: out.length }));
+      if (!got) return out.length ? out : null;
+      out.push(...got.entries);
+      if (!got.entries.length || out.length >= got.count) return out;
+    }
   }
 
   async status() {

@@ -23,9 +23,9 @@ class ProtocolTest {
         repeat(curves.length()) { i -> val row = curves.getJSONObject(i); assertEquals(row.getString("hex"), Remap.curve(row.getString("name")).hex()) }
     }
     @Test fun rejectsBadFieldsAndRules() {
-        assertThrows(IllegalArgumentException::class.java) { Remap.parseRules("r4 pressed hold a") }
-        assertThrows(IllegalArgumentException::class.java) { Remap.parseRules("r4 held_for:2560 hold a") }
-        assertThrows(IllegalArgumentException::class.java) { Remap.parseRules("r4 held turbo a@31") }
+        assertThrows(IllegalArgumentException::class.java) { Remap.parseRules("r4 pressed hold south") }
+        assertThrows(IllegalArgumentException::class.java) { Remap.parseRules("r4 held_for:2560 hold south") }
+        assertThrows(IllegalArgumentException::class.java) { Remap.parseRules("r4 held turbo south@31") }
         assertThrows(IllegalArgumentException::class.java) { Field.decode(byteArrayOf(1,0,1,0,1,0,0,0,65)) }
         assertThrows(IllegalArgumentException::class.java) { Protocol.decodeValues(byteArrayOf(1,0,1,2,1,8,1), 0) }
         assertThrows(IllegalArgumentException::class.java) { Protocol.decodeValues(byteArrayOf(1,1,0), 0) }
@@ -88,7 +88,7 @@ class ProtocolTest {
         assertTrue(error.message!!.contains("refresh")); assertFalse(completed)
     }
     @Test fun draftsRespectScopeAndFirmwareFieldOrder() {
-        val type = Field(0,3,0,1,1,false,"type","",listOf("a","b"))
+        val type = Field(0,3,0,1,1,false,"type","",listOf("south","east"))
         val addr = Field(0,1,3,6,0,false,"address","",emptyList())
         val d = Drafts()
         d.stage(0,addr,ByteArray(6) { 2 },Value(ByteArray(6),true))
@@ -100,7 +100,7 @@ class ProtocolTest {
     }
     @Test fun settingsBackupAndPresetRoundTrip() {
         val f = listOf(Field(3,1,4,24,0,false,"name","",emptyList()), Field(3,2,3,20,0,false,"map","",emptyList()), Field(3,3,3,160,0,false,"rules","",emptyList()))
-        val row = f.associate { it.id to Value(it.parse(when(it.name) { "name" -> "Mario Kart"; "map" -> "swap-ab"; else -> "r4 held turbo_modifier a@15" }), true) }
+        val row = f.associate { it.id to Value(it.parse(when(it.name) { "name" -> "Mario Kart"; "map" -> "swap-south-east"; else -> "r4 held turbo_modifier south@15" }), true) }
         val values = mapOf(10 to row)
         val restored = SettingsFiles.restore(SettingsFiles.backup(Identity.decode(identityBytes),f,values),f,values)
         assertEquals(3, restored.count { it.target == 10 })

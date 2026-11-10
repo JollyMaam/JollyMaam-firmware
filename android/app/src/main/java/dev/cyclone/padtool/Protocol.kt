@@ -78,7 +78,7 @@ class Protocol(private val scsi: Scsi) {
         }
     }
     companion object {
-        val targetNames = listOf("slot-a", "slot-b", "slot-x", "slot-y", "slot-up", "slot-down", "slot-left", "slot-right", "palette", "calibration", "remap-a", "remap-b", "remap-x", "remap-y", "remap-up", "remap-down", "remap-left", "remap-right", "remap-base")
+        val targetNames = listOf("slot-south", "slot-east", "slot-west", "slot-north", "slot-up", "slot-down", "slot-left", "slot-right", "palette", "calibration", "remap-south", "remap-east", "remap-west", "remap-north", "remap-up", "remap-down", "remap-left", "remap-right", "remap-base")
         fun kind(target: Int) = if (target < 8) 0 else if (target >= 10) 3 else target - 7
         fun targets(fields: List<Field>) = (0..9).toList() + if (fields.any { it.kind == 3 }) listOf(18) + (10..17) else emptyList()
         fun resultName(code: Int) = listOf("ok", "unknown field", "bad length", "out of range", "staging area full").getOrElse(code) { "error $code" }

@@ -29,14 +29,14 @@ pad slot with a dongle slot, one pad at a time. For example, with two pads
 connected by USB and padhub running:
 
 ```sh
-python tools/padtool/padtool.py -d 5-2.1 pair slot-x
+python tools/padtool/padtool.py -d 5-2.1 pair slot-west
 python tools/padtool/padtool.py --dongle pair 0
-python tools/padtool/padtool.py -d 5-2.2 pair slot-x
+python tools/padtool/padtool.py -d 5-2.2 pair slot-west
 python tools/padtool/padtool.py --dongle pair 1
 ```
 
-`slot-x` is a pad setting; `0` and `1` are dongle bond slots. They are separate
-number spaces. Once paired, `connect slot-x` reconnects that pad. Dongle
+`slot-west` is a pad setting; `0` and `1` are dongle bond slots. They are separate
+number spaces. Once paired, `connect slot-west` reconnects that pad. Dongle
 pairing works through the hub's HID feature report while its SCSI interface
 is absent. The dongle button pairs slot 0.
 

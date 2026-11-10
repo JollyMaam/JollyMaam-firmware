@@ -19,12 +19,12 @@ object Remap {
             (if (r.effect != "nothing") " " + r.outputs.joinToString("+").ifEmpty { "-" } else "") +
             (if (r.effect in turbo) "@${if (r.rate == 0) "max" else r.rate}" else "")
     })
-    val keys = listOf("a", "b", "capture", "x", "y", "m", "l1", "r1", "l4", "r4", "minus", "plus", "home", "l3", "r3", "", "up", "right", "down", "left")
+    val keys = listOf("south", "east", "capture", "west", "north", "m", "l1", "r1", "l4", "r4", "minus", "plus", "home", "l3", "r3", "", "up", "right", "down", "left")
     val triggers = listOf("", "held", "held_for", "pressed", "released", "tapped", "double_tapped")
     val effects = listOf("hold", "turbo", "nothing", "tap", "toggle_hold", "toggle_turbo", "turbo_modifier", "toggle_turbo_modifier")
     private val timed = mapOf("held_for" to 300, "tapped" to 200, "double_tapped" to 300)
     private val turbo = setOf("turbo", "toggle_turbo", "turbo_modifier", "toggle_turbo_modifier")
-    private val presets = mapOf("swap-ab-xy" to "a=b b=a x=y y=x", "swap-ab" to "a=b b=a", "swap-xy" to "x=y y=x", "capture-off" to "capture=none")
+    private val presets = mapOf("swap-faces" to "south=east east=south west=north north=west", "swap-south-east" to "south=east east=south", "swap-west-north" to "west=north north=west", "capture-off" to "capture=none")
     private fun key(text: String): Int {
         val name = mapOf("select" to "minus", "start" to "plus", "screenshot" to "capture").getOrDefault(text.lowercase(), text.lowercase())
         return keys.indexOf(name).also { require(name.isNotEmpty() && it >= 0) { "Unknown key: $text" } }

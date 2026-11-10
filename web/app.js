@@ -1,7 +1,8 @@
 // The page: connect to a pad in config mode (Home+M held for 3 s), show what
 // it is and its settings, and change them.
 import { links } from "./link-web.js";
-import { Pad, TARGETS, KINDS, T, PALETTE, PALETTE_TARGET, kindOf, targetsFor, showValue, parseValue, editable } from "./pad.js";
+import { Pad, TARGETS, T, PALETTE, PALETTE_TARGET, REMAP_TARGET, BASE_TARGET, SLOT_NAMES, kindOf, targetsFor, showValue,
+  parseValue, editable, slotLabel } from "./pad.js";
 import { writeTests, updaterTrip } from "./linktest.js";
 import { openPackage, findFile, checkUpdateImage } from "./package.js";
 import { intoUpdater, sendImage, finish } from "./update.js";
@@ -19,7 +20,15 @@ function h(tag, attrs = {}, ...children) {
   return e;
 }
 
-let pad = null, poll = null, image = null;
+let pad = null, poll = null, image = null, layout = null;
+
+// A target as people read it: "Slot B (south)", "Remap base", "Palette".
+function targetName(t) {
+  if (t < 8) return `Slot ${slotLabel(layout, t)}`;
+  if (t === BASE_TARGET) return "Remap base";
+  if (t >= REMAP_TARGET) return `Remap ${slotLabel(layout, t - REMAP_TARGET)}`;
+  return TARGETS[t][0].toUpperCase() + TARGETS[t].slice(1);
+}
 
 function say(message, error = false) {
   $("message").textContent = message;
@@ -40,7 +49,7 @@ function showIdentity(id, link) {
 function showStatus(s) {
   const battery = [s.percent !== null ? `${s.percent}%` : null, s.mv !== null ? `${s.mv} mV` : null,
     s.charging, s.low ? "low" : null].filter(Boolean).join(", ");
-  $("status").textContent = [`state ${s.state}`, s.slot ? `slot ${s.slot}` : null,
+  $("status").textContent = [`state ${s.state}`, s.slot ? `slot ${slotLabel(layout, SLOT_NAMES.indexOf(s.slot))}` : null,
     battery ? `battery ${battery}` : null, `up ${s.uptime.toFixed(0)} s`,
     s.ephemeral ? "ephemeral" : null].filter(Boolean).join(" · ");
 }
@@ -73,7 +82,7 @@ function editor(t, f, shown) {
     e = h("input", { type: "text", spellcheck: "false", autocomplete: "off" });
   }
   e.value = shown;
-  e.setAttribute("aria-label", `${TARGETS[t]} ${f.name}`);
+  e.setAttribute("aria-label", `${targetName(t)} ${f.name}`);
   if (f.type !== T.ENTRY) return e;
   const swatch = h("span", { class: "swatch" });
   const paint = () => { swatch.style.background = paletteColour(Number(e.value)); };
@@ -141,7 +150,7 @@ function targetSection(t, open) {
   const vals = values.get(t);
   const rows = table.filter((f) => f.kind === kindOf(t) && vals.has(f.name)).map((f) => row(t, f));
   return h("details", { open, "data-target": t },
-    h("summary", {}, TARGETS[t], h("span", { class: "muted" }, ` ${KINDS[kindOf(t)]}`)),
+    h("summary", {}, targetName(t), h("span", { class: "muted mono" }, ` ${TARGETS[t]}`)),
     rows.length ? h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Setting"), h("th", {}, "Value"),
       h("th", {}, "Default"), h("th", {}, ""), h("th", {}, ""))), h("tbody", {}, rows)) : h("p", { class: "muted" }, "Nothing here."));
 }
@@ -224,6 +233,7 @@ async function attach(p) {
       say("The pad is in its updater.");
       return;
     }
+    layout = await pad.layout().catch(() => null);
     showStatus(await pad.status());
     poll = setInterval(async () => {
       try { showStatus(await pad.status()); } catch { /* the disconnect handler says it */ }

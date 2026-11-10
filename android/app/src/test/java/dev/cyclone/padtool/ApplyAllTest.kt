@@ -88,7 +88,7 @@ class ApplyAllTest {
         try {
             val devices = listOf(Device(1), Device(2)); val sessions = devices.map { session(m, it) }
             val rules = sessions[1].fields.first { it.kind == 3 && it.name == "rules" }
-            m.stage(sessions[1], (10..18).map { Edit(it, rules.id, Remap.parseRules("r4 held hold a")) })
+            m.stage(sessions[1], (10..18).map { Edit(it, rules.id, Remap.parseRules("r4 held hold south")) })
             batch(m, sessions, devices)
             assertTrue(devices.all { it.writes == 0 && it.commits == 0 })
             assertTrue(sessions.all { it.drafts.edits.isNotEmpty() })

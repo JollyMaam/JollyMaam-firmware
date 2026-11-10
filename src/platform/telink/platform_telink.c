@@ -181,7 +181,7 @@ __attribute__((section(".text.wd_32k_stop"))) void wd_32k_stop(void)
 #define SLOT_CHECK_REG 0x39
 #define SLOT_CHECK(s)  ((u8)(~(s) ^ 0x5a))
 
-/* Power-on values 0x00/0xff must not look like a retained slot A. */
+/* Power-on values 0x00/0xff must not look like a retained slot south. */
 u8 plat_retained_slot(void)
 {
     u8 slot = analog_read(SLOT_REG);

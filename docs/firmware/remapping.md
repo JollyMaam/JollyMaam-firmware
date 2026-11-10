@@ -7,7 +7,7 @@ in `src/core/pad.h`; the tools' text form is `tools/padtool/padremap.py`.
 
 ## Choosing a remap
 
-Eight remap slots, A–right, and the base remap. Each connection slot's
+Eight remap slots, south–right, and the base remap. Each connection slot's
 `remap` setting names the one each connect starts with (default base).
 Connected, Home+M (on release) enters quick settings: colours flow down the pad's
 LEDs and the host sees a neutral pad, motion at rest. Releasing a
@@ -23,7 +23,7 @@ the remap or any setting changes.
 The base has every remap setting (store keys 30 and 31). A remap slot takes
 each field it has not set from the base, live: changing the base changes every
 slot that has not set that field. Two exceptions: a slot's name is its own,
-and remap A keeps its "Swap A/B X/Y" name, map and rules as its own defaults.
+and remap south keeps its "Swap faces" name, map and rules as its own defaults.
 Resetting a slot's field makes it follow the base again. The base at its
 defaults sends every key as itself and the sticks as calibrated.
 
@@ -51,7 +51,7 @@ defaults sends every key as itself and the sticks as calibrated.
   a connection nothing is pressed.
   Calibration holds only the sensor measurements.
 
-Remap A defaults to "Swap A/B X/Y" (`remap_a_default` in `src/core/settings.c`).
+Remap south defaults to "Swap faces" (`remap_south_default` in `src/core/settings.c`).
 
 A key nothing mentions sends itself. A key with a map entry or rules sends
 only what they make, all of it together; there is no precedence. The map is
@@ -96,7 +96,7 @@ The rule shape fits analog as long as inputs and outputs stay typed:
   a threshold (with hysteresis) in the time byte. Every trigger and effect
   then works unchanged. The triggers' presses (`PAD_L2`, `PAD_R2`, bits 20
   and 21) are decided after the remap today; as remap inputs ("R2 pressed →
-  tap A") they would move before it, with `REMAP_INPUTS` 22.
+  tap south") they would move before it, with `REMAP_INPUTS` 22.
 - **Digital to analog output**: "LS up full", "R2 full" as extra output bits;
   OR becomes "the largest wins" per axis, opposite directions cancel.
 - **Axis to axis** ("left stick Y drives R2"; whole-stick routing and inversion are built, above): a

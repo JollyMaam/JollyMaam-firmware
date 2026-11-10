@@ -671,7 +671,7 @@ static int att_write(hci_con_handle_t h, u16 handle, u16 mode, u16 offset, u8 *b
          * procedures (data length, PHY).  Asked at connection, the host's
          * update came ~40 ms in and the pad reset, twice (a clash with
          * those procedures is suspected, not shown).  Its own interval:
-         * the link settings are slot A's. */
+         * the link settings are slot south's. */
         if (dev->unencrypted && dev->interval_min && size && (buf[0] & 1) && !interval_asked) {
             interval_asked = 1;  /* once: each padtool run subscribes again */
             gap_request_connection_parameter_update(con_handle, dev->interval_min, dev->interval_max, 0, 400);

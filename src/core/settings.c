@@ -57,7 +57,7 @@ static const char *const curve_enabled[] = { "disabled", "enabled", NULL };
 static const char *const left_to[] = { "left stick", "right stick", "nothing", NULL };
 static const char *const right_to[] = { "right stick", "left stick", "nothing", NULL };
 static const char *const axis_way[] = { "normal", "inverted", NULL };
-static const char *const remap_names[] = { "base", "a", "b", "x", "y", "up", "down", "left", "right", NULL };
+static const char *const remap_names[] = { "base", "south", "east", "west", "north", "up", "down", "left", "right", NULL };
 static const u8 linear_points[STICK_CURVE_POINTS] = { 16, 32, 48, 64, 80, 96, 112, 128, 143, 159, 175, 191, 207, 223, 239 };
 
 static const char *const layouts[] = { "games", "desktop", NULL };
@@ -67,7 +67,7 @@ static const char *const phys[] = { "1m", "2m", NULL };
 static const char *const onoff[] = { "on", "off", NULL };
 static const char *const tx_powers[] = { "1", "2", "3", "4", "5", "6", NULL };
 
-/* Slots A B X Y up down left right.  Colours are palette entries; how
+/* Slots south east west north up down left right (by the key that picks them).  Colours are palette entries; how
  * bright they are is the palette's. */
 static const struct set_field slot_fields[] = {
     { .id = ID_TYPE, .name = "type", .type = T_ENUM, .names = types, FIELD(type),
@@ -194,7 +194,7 @@ static const struct set_field palette_fields[] = {
 
 _Static_assert(sizeof(struct remap_rule) == 10, "stored rule layout");
 
-/* Remap slots A-right; the tools read and write map and rules as text. */
+/* Remap slots south-right; the tools read and write map and rules as text. */
 static const struct set_field remap_fields[] = {
     { .id = 1, .name = "name", .type = T_TEXT, REMAP(name),
       .help = "what this remap is for; UTF-8, up to 24 bytes" },
@@ -280,9 +280,9 @@ static const struct set_field remap_fields[] = {
 _Static_assert(sizeof(remap_fields) / sizeof(remap_fields[0]) == 31, "LEFT_POINTS, RIGHT_POINTS");
 _Static_assert(sizeof(remap_fields) / sizeof(remap_fields[0]) <= 32, "a bit per field in set_bits");
 
-/* What remap slot A is until it is changed; the others start as the base. */
-static const struct set_remap remap_a_default = {
-    .name = "Swap A/B X/Y",
+/* What remap slot south is until it is changed; the others start as the base. */
+static const struct set_remap remap_south_default = {
+    .name = "Swap faces",
     .map = { [IN_SOUTH] = REMAP_TO(IN_EAST), [IN_EAST] = REMAP_TO(IN_SOUTH),
              [IN_WEST] = REMAP_TO(IN_NORTH), [IN_NORTH] = REMAP_TO(IN_WEST) },
 };
@@ -513,7 +513,7 @@ static void touch(u8 t)
 }
 
 /* The fields remap slot t takes from the base while unset: all but its
- * name, and but A's map and rules (its swap). */
+ * name, and but south's map and rules (its swap). */
 static u32 inherited(u8 t)
 {
     if (t < TARGET_REMAP || t >= TARGET_BASE || !stored(TARGET_BASE)) return 0;
@@ -532,7 +532,7 @@ static void own_default(u8 t, const struct set_field *f, u8 *out)
     if (f->list_def)
         memcpy(out, f->list_def, f->size);
     if (t == TARGET_REMAP && f < &remap_fields[REMAP_STICKS])
-        memcpy(out, (const u8 *)&remap_a_default + f->offset, f->size);
+        memcpy(out, (const u8 *)&remap_south_default + f->offset, f->size);
     if (t == TARGET_BASE && f < &remap_fields[REMAP_STICKS])
         memcpy(out, (const u8 *)&board_remap_base + f->offset, f->size);
 }
@@ -1328,10 +1328,10 @@ static int full_storage(void)
         set_slot_address(7, pair);
         CHECK(!memcmp(address, pair, 6) && !set_bits[7] && !dirty);
     }
-    /* Remap A is the swap until changed; the others are empty. */
-    CHECK(!strcmp(set_remap(0)->name, "Swap A/B X/Y") && set_remap(0)->map[0] == 2 && set_remap(0)->map[4] == 4);
+    /* Remap south is the swap until changed; the others are empty. */
+    CHECK(!strcmp(set_remap(0)->name, "Swap faces") && set_remap(0)->map[0] == 2 && set_remap(0)->map[4] == 4);
     CHECK(!set_remap(1)->name[0] && !set_remap(1)->map[0] && !set_remap(0)->rule[0].trigger);
-    /* Rumble and the mouse take their field defaults, remap A's too. */
+    /* Rumble and the mouse take their field defaults, remap south's too. */
     for (t = 0; t < 2; t++)
         CHECK(set_remap(t)->rumble == 3 && set_remap(t)->rumble_min[0][1] == 20 &&
               set_remap(t)->rumble_max[0][0] == 35 && set_remap(t)->rumble_max[1][4] == 90 &&
@@ -1349,7 +1349,7 @@ static int full_storage(void)
     CHECK(write1(TARGET_REMAP + 1, 19, 5, (const u8[]){ 10, 20, 30, 40, 100 }) == SET_OK);
     set_drop();
     /* The remap slots take what they have not set from the base, but their
-     * names; A keeps its swap. */
+     * names; south keeps its swap. */
     {
         u8 map[REMAP_INPUTS] = { [3] = REMAP_OFF }, d[512];
         char name[REMAP_NAME] = "Base";
@@ -1359,7 +1359,7 @@ static int full_storage(void)
         CHECK(write1(TARGET_BASE, 2, sizeof(map), map) == SET_OK);
         set_apply();
         CHECK(set_remap(1)->rumble == 1 && set_remap(0)->rumble == 1 && set_remap(7)->map[3] == REMAP_OFF);
-        CHECK(set_remap(0)->map[3] == 4 + 1 && !set_remap(1)->name[0] && !strcmp(set_remap(0)->name, "Swap A/B X/Y"));
+        CHECK(set_remap(0)->map[3] == 4 + 1 && !set_remap(1)->name[0] && !strcmp(set_remap(0)->name, "Swap faces"));
         CHECK(set_read_defaults(TARGET_REMAP + 2, d, sizeof(d)) > 3);   /* a slot's default: the base's */
         CHECK(write1(TARGET_REMAP + 1, 18, 1, &(u8){ 4 }) == SET_OK);
         set_apply();
@@ -1385,7 +1385,7 @@ static int full_storage(void)
         u8 d[512];
         u32 n = set_read_defaults(TARGET_REMAP, d, sizeof(d));
 
-        CHECK(n > 3 && d[3] == 1 && !d[4] && !memcmp(d + 6, "Swap A/B X/Y", 13));
+        CHECK(n > 3 && d[3] == 1 && !d[4] && !memcmp(d + 6, "Swap faces", 11));
     }
     CHECK(set_slot(0)->connect_colour == 5);
     {

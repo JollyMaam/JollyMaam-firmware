@@ -1,6 +1,6 @@
 # Telink BLE transport
 
-The Ultimate 2C Wireless runs one LE session at a time. Slots A, B, X and Y
+The Ultimate 2C Wireless runs one LE session at a time. Slots south, east, west and north
 select Generic BLE or Switch 2, with separate addresses and bonds. Generic BLE
 advertises a static random address; Switch 2 advertises a public address. The
 selected slot and bonds survive a reboot.

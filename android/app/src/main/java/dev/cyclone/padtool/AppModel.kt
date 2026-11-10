@@ -270,7 +270,7 @@ class AppModel(context: Context) {
         fun input(raw: ByteArray): String {
             require(raw.size >= 36 && raw.u8(0) == 1) { "Invalid input response" }
             fun signed(at: Int) = raw.u16(at).toShort().toInt()
-            val keys = Remap.keys.indices.filter { Remap.keys[it].isNotEmpty() && raw.u32(4) and (1L shl it) != 0L }.joinToString(" ") { Remap.keys[it].uppercase() }.ifEmpty { "—" }
+            val keys = Remap.keys.indices.filter { Remap.keys[it].isNotEmpty() && raw.u32(4) and (1L shl it) != 0L }.joinToString(" ") { Remap.keys[it].let { k -> if (k.length > 2) k.replaceFirstChar(Char::uppercaseChar) else k.uppercase() } }.ifEmpty { "—" }
             return "Keys: $keys\n\nLeft: ${signed(8)}, ${signed(10)}\nRight: ${signed(12)}, ${signed(14)}\nTriggers: ${raw.u16(16)}, ${raw.u16(18)}\n\nRaw sticks: ${(20..26 step 2).joinToString { raw.u16(it).toString() }}\nRaw triggers: ${raw.u16(28)}, ${raw.u16(30)}"
         }
     }

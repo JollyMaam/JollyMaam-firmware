@@ -532,7 +532,7 @@ struct set_slot {
     u16 report_hz;           /* the most reports a second; 0: REPORT_HZ */
     u16 pull_delay_us;       /* build a pulled report this long after bt_pad.c asks */
     struct bt_link link;
-    u8 remap;                /* the remap slot each connect starts with: 0 none, 1-8 slots A-right */
+    u8 remap;                /* the remap slot each connect starts with: 0 none, 1-8 slots south-right */
     u8 usb_audio;            /* USB_SOUND_*: the personality's sound card on USB */
 };
 
@@ -838,7 +838,7 @@ extern const u8 ux_usb_autoconnect;
 extern const u8 ux_first_slot;           /* Home's slot before any has connected */
 extern const struct ux_colours ux_colours;
 
-/* LED demos (padtool led-demo): a scene in slot A's colours, with these instead
+/* LED demos (padtool led-demo): a scene in slot south's colours, with these instead
  * of the slot's settings; 0 in a brightness: the palette's.  A demo lasts
  * UX_LED_DEMO_MS after the last request for it. */
 #define UX_LED_DEMO_MS 30000

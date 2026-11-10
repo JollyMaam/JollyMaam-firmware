@@ -48,8 +48,8 @@ class SimulatedPadTest {
     @Test fun unsetRemapsFollowBaseButKeepTheirOwnNameAndRemapASwap() {
         val s=sim(); val p=Protocol(s)
         val initialA=value(p,s,10,"map").bytes
-        p.send(s.identity,listOf(edit(s,18,"map","swap-xy"),edit(s,18,"name","Base name"),edit(s,18,"left_inner_deadzone","7")))
-        assertArrayEquals(Remap.parseMap("swap-xy"),value(p,s,12,"map").bytes)
+        p.send(s.identity,listOf(edit(s,18,"map","swap-west-north"),edit(s,18,"name","Base name"),edit(s,18,"left_inner_deadzone","7")))
+        assertArrayEquals(Remap.parseMap("swap-west-north"),value(p,s,12,"map").bytes)
         assertFalse(value(p,s,12,"map").explicit)
         assertArrayEquals(initialA,value(p,s,10,"map").bytes)
         assertNotEquals("Base name",value(p,s,12,"name").bytes.cString())

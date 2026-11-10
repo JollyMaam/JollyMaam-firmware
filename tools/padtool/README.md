@@ -27,7 +27,7 @@ firmware; add `ps.pyelftools` to the Nix package list if needed.
 The command-line padtool also reaches a pad in config mode (Home+M held for
 3 s, or `padtool config`) over Bluetooth LE: put `--ble` after the command,
 alone for the first pad advertising or with its name or address
-(`padtool get slot-a --ble`). It needs `bleak` (`ps.bleak`). Settings, the
+(`padtool get slot-south --ble`). It needs `bleak` (`ps.bleak`). Settings, the
 log, status and the other commands work as on USB; `find`, `tool`,
 `tool-only`, `hub`, `latency`, `peek` and `keep` need USB. On Linux padtool
 leaves the Bluetooth link up when it is done, and the next run uses it, so a
@@ -66,7 +66,7 @@ Discard cancels Unpair without touching the pad. Slot and settings-group entries
 open detailed settings. The same firmware action is available from the CLI:
 
 ```sh
-python tools/padtool/padtool.py unpair slot-a
+python tools/padtool/padtool.py unpair slot-south
 ```
 
 **Developer fields** at the bottom expands or collapses advanced settings,
@@ -128,19 +128,21 @@ Setting names use readable labels.
 Numeric inputs show their valid range beside the box, using firmware-reported
 limits.
 
-Remap base and Remap A–right are tree pages after Calibration. A connection
+Remap base and the eight remap slots are tree pages after Calibration. A connection
 slot's **Remap** setting picks the one each connect starts with (base by
 default); Home+M then a slot key picks another while connected, Home or M the
 base. A remap slot takes every setting it has not set from Remap base, so the
 base is where to set what all of them share; a setting's default on a remap
-slot is the base's value. Names are each remap's own, and Remap A keeps its
-"Swap A/B X/Y" keys. Remap base at its defaults is the board's own base map
+slot is the base's value. Names are each remap's own, and remap south keeps its
+"Swap faces" keys. Remap base at its defaults is the board's own base map
 (the board's `board_pad.c`; on these pads every key as it is) and sends the
 sticks exactly as calibrated.
 
-Keys are named as the pad prints them: the firmware sends its layout
-(`padtool layout` lists it). Without one, the face keys go by where they sit:
-South, East, West, North.
+Slots and keys are named by position: the face buttons are south, east, west
+and north, whatever letters a pad prints on them (a Nintendo-style pad prints B
+on south, an Xbox-style pad A). The GUI shows the printed label beside the
+position, e.g. "Slot B (south)": the firmware sends its layout (`padtool
+layout` lists it). Without one, the position alone.
 
 A remap page has a **Name** (shown in the tree), then a row per key, "**KEY**
 maps to [KEY / Nothing]", which costs no rule entries. Its status box covers
@@ -152,10 +154,11 @@ tap, toggle hold, toggle turbo and toggle turbo modifier. Turbo runs at 1–30
 Hz, or at max, which flips the keys every report. A turbo modifier's keys are
 the ones you press: while it is on, whatever they send pulses at its rate, each
 from its own press, and other keys are left alone. For example, "R4 is held
-turbo modifier A+B at 15 Hz", with R4 mapped to Nothing. The keys list stays
+turbo modifier South+East at 15 Hz", with R4 mapped to Nothing. The keys list stays
 open while you tick keys; Done, Escape or a click outside closes it. Rules add
 to the key's mapping; map it to Nothing to drop the key's own press. 16 rule entries fit. **Select preset** sets common rows (swap
-A/B and X/Y, swap A/B, swap X/Y, Capture off) and keeps the rules; **Import
+faces, i.e. south/east and west/north; swap south/east; swap west/north;
+Capture off) and keeps the rules; **Import
 preset…** and **Export preset…** load and save a whole page as JSON, in the
 CLI's text.
 
@@ -185,18 +188,17 @@ analog profiles such as Xbox); **Rapid** is Hair that lets go as soon as the
 trigger rises 5% and presses again as soon as it goes 5% down, wherever it is
 in its travel, for fast repeated presses.
 
-The CLI sets the same fields in the same text (`padremap.py`). There the face
-keys are named by role whatever the pad prints: `a` south, `b` east, `x` west,
-`y` north.
+The CLI sets the same fields in the same text (`padremap.py`), keys by
+position: `south`, `east`, `west`, `north`.
 
 ```sh
-python tools/padtool/padtool.py set remap-b name "Mario Kart" map swap-ab-xy
-python tools/padtool/padtool.py set remap-b rules "r4 tapped:300 tap a; r4 held_for:300 hold l1; l4 pressed toggle_turbo a@15"
-python tools/padtool/padtool.py set remap-b left_curve concave left_inner_deadzone 5
-python tools/padtool/padtool.py set remap-b rules "r4 held turbo_modifier a+b+x@15" map r4=none
-python tools/padtool/padtool.py set remap-b left_maps_to "right stick" right_maps_to "left stick" right_y_axis inverted
-python tools/padtool/padtool.py set remap-b l2_press 5 r2_press 5 r2_mode hair
-python tools/padtool/padtool.py set slot-a remap b
+python tools/padtool/padtool.py set remap-east name "Mario Kart" map swap-faces
+python tools/padtool/padtool.py set remap-east rules "r4 tapped:300 tap south; r4 held_for:300 hold l1; l4 pressed toggle_turbo south@15"
+python tools/padtool/padtool.py set remap-east left_curve concave left_inner_deadzone 5
+python tools/padtool/padtool.py set remap-east rules "r4 held turbo_modifier south+east+west@15" map r4=none
+python tools/padtool/padtool.py set remap-east left_maps_to "right stick" right_maps_to "left stick" right_y_axis inverted
+python tools/padtool/padtool.py set remap-east l2_press 5 r2_press 5 r2_mode hair
+python tools/padtool/padtool.py set slot-south remap east
 ```
 
 `left_curve concave` fills and enables points; `disabled`/`enabled` only toggle
@@ -211,14 +213,14 @@ Connect and Pair use saved settings, so apply a slot's pending edits first.
 `padtool connect` starts it again. While USB is powered, disconnect leaves
 the tool device available. On battery the normal idle sleep policy applies.
 
-The Ultimate 2C has four slots, A/B/X/Y, defaulting to Generic BLE,
+The Ultimate 2C has four slots, south/east/west/north, defaulting to Generic BLE,
 DualSense Edge BLE, Xbox BLE and Switch 2 in that order, with separate identities and pairings. One slot runs at a time. Home from idle
 reconnects the last selected slot; Home+View disconnects on release. While
-offline, Home+A/B/X/Y selects that slot on release; holding the chord for
+offline, Home+a face button selects that slot on release; holding the chord for
 three seconds pairs it with a renewed identity. Sync pairs the current slot.
 The old pairing stays saved until a new pairing succeeds. The last selected
 slot survives reboot and battery sleep. The CLI can select a slot directly,
-including while connected: `padtool connect B` or `padtool pair Y`.
+including while connected: `padtool connect east` or `padtool pair north`.
 Its types are those four; other types or transports and disabled slots
 are refused.
 Home+L3 or Home+R3 while offline starts calibration.

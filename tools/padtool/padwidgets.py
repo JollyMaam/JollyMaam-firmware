@@ -306,10 +306,9 @@ class CurveEditor(ttk.Frame):
 
 # ---- remap slots ----------------------------------------------------------------
 
-KEY_ORDER = ('a', 'b', 'x', 'y', 'up', 'down', 'left', 'right', 'l1', 'r1', 'l4', 'r4',
+KEY_ORDER = ('south', 'east', 'west', 'north', 'up', 'down', 'left', 'right', 'l1', 'r1', 'l4', 'r4',
              'l3', 'r3', 'minus', 'plus', 'home', 'm', 'capture')
-FACE_ROLES = {'a': 'South', 'b': 'East', 'x': 'West', 'y': 'North'}
-ROLE_LABELS = {k: FACE_ROLES.get(k) or (k.upper() if k in ('m', 'l1', 'r1', 'l4', 'r4', 'l3', 'r3') else k.capitalize())
+ROLE_LABELS = {k: (k.upper() if k in ('m', 'l1', 'r1', 'l4', 'r4', 'l3', 'r3') else k.capitalize())
                for k in KEY_ORDER}
 KEY_LABELS = dict(ROLE_LABELS)
 
@@ -325,6 +324,14 @@ def use_layout(layout):
     for k in KEY_ORDER:
         twice = shown.count(labels[k]) > 1 and k in printed
         KEY_LABELS[k] = f'{labels[k]} ({ROLE_LABELS[k]})' if twice else labels[k]
+
+
+def slot_label(layout, key):
+    """A connection or remap slot by the key that picks it (padtool.SLOT_NAMES):
+    its role, after the pad's printed label where it has one ("B (south)")."""
+    role = ROLE_LABELS[key]
+    printed = next((e['label'] for e in layout or () if e['name'] == key and e['label']), None)
+    return f'{printed} ({role.lower()})' if printed and printed.lower() != role.lower() else role
 
 
 NOTHING = 'Nothing'

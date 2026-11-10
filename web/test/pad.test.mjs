@@ -3,7 +3,7 @@
 // usb.c's IDENTIFY, STATUS, FIELDS (settings.c's set_describe) and READ.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Pad, decodeField, showValue, parseValue, targetsFor, T } from "../pad.js";
+import { Pad, decodeField, showValue, parseValue, targetsFor, slotLabel, T } from "../pad.js";
 import { echoItems, writeTest } from "../linktest.js";
 
 const PIECE = 157;               // CONFIG_REPLY_MAX - 1
@@ -60,6 +60,11 @@ function simulatedPad() {
       d.set(enc("Cyclone 2"), 56);
       d.set(u16(488), 88);
       return d;
+    }
+    if (sub === 0x06) {          // LAYOUT, at most 2 entries an answer
+      const all = [[0, 0, "B"], [1, 0, "A"], [32, 4, ""]];
+      const here = all.slice(arg, arg + 2);
+      return cat([1, 12, all.length, here.length], ...here.map(([i, k, l]) => cat([i, k], enc(l.padEnd(8, "\0")), [0, 0])));
     }
     if (sub === 0x01) return Uint8Array.of(4, 1, 0, 0, ...u16(3900), 1 | 2 | 4 | 8 | 16, 80, 0x10, 0x27, 0, 0, 0, 0, 7, 0);
     if (sub === 0x28) {          // as many as fit in 512, from arg
@@ -121,7 +126,7 @@ test("identify and status", async () => {
   assert.equal(pad.frameData, 91);
   const s = await pad.status();
   assert.equal(s.state, "connected");
-  assert.equal(s.slot, "B");
+  assert.equal(s.slot, "east");
   assert.equal(s.mv, 3900);
   assert.equal(s.percent, 80);
   assert.equal(s.charging, "charging");
@@ -229,4 +234,13 @@ test("write: a refusal drops everything", async () => {
   assert.deepEqual(error.refused.map((r) => [r.target, r.id, r.why]), [[0, 0x99, "out of range"]]);
   assert.equal(link.committed.length, 0);
   assert.equal(link.drops, 1);
+});
+
+test("layout: slots by position, with the printed label", async () => {
+  const pad = new Pad(simulatedPad());
+  await pad.identify();
+  const layout = await pad.layout();
+  assert.deepEqual(layout.map((e) => [e.input, e.label]), [[0, "B"], [1, "A"], [32, ""]]);
+  assert.deepEqual([0, 1, 2, 4].map((i) => slotLabel(layout, i)), ["B (south)", "A (east)", "west", "up"]);
+  assert.equal(slotLabel(null, 3), "north");
 });

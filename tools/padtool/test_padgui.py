@@ -130,14 +130,14 @@ class LayoutLabelTests(unittest.TestCase):
 
     def test_printed_labels(self):
         entry = lambda name, label: {"name": name, "label": label}
-        padwidgets.use_layout([entry("a", "B"), entry("b", "A"), entry("x", "Y"), entry("y", "X"),
+        padwidgets.use_layout([entry("south", "B"), entry("east", "A"), entry("west", "Y"), entry("north", "X"),
                                entry("minus", "View"), entry("r1", "L1")])
         labels = padwidgets.KEY_LABELS
-        self.assertEqual([labels[k] for k in ("a", "b", "x", "y", "minus")], ["B", "A", "Y", "X", "View"])
+        self.assertEqual([labels[k] for k in ("south", "east", "west", "north", "minus")], ["B", "A", "Y", "X", "View"])
         self.assertEqual((labels["r1"], labels["l1"]), ("L1 (R1)", "L1"))   # printed as another key's name
-        self.assertEqual(padwidgets.key_of("B"), "a")
+        self.assertEqual(padwidgets.key_of("B"), "south")
         padwidgets.use_layout(None)
-        self.assertEqual([labels[k] for k in ("a", "b", "x", "y", "l1")], ["South", "East", "West", "North", "L1"])
+        self.assertEqual([labels[k] for k in ("south", "east", "west", "north", "l1")], ["South", "East", "West", "North", "L1"])
 
 
 class GuiCase(unittest.TestCase):
@@ -937,7 +937,7 @@ class GuiTests(GuiCase):
         self.load([r])
         entry = r["draft"][0, "rumble"]
         self.assertTrue(self.app.differs_from_default(entry))
-        self.assertEqual(self.app.tree.item("device0/0", "text"), "Slot A")
+        self.assertEqual(self.app.tree.item("device0/0", "text"), "Slot South")
         self.assertFalse(self.app.tree.item("device0", "text").endswith(" *"))
         self.app.reset_default(entry)
         self.assertEqual(entry["var"].get(), "100")
@@ -1477,9 +1477,9 @@ class RemapGuiTests(GuiCase):
         children = self.app.tree.get_children("device0")
         self.assertEqual(len(children), 19)
         self.assertEqual(self.app.tree.item(children[10], "text"), "Remap base")
-        self.assertEqual(self.app.tree.item(children[12], "text"), "Remap B")
+        self.assertEqual(self.app.tree.item(children[12], "text"), "Remap East")
         r["draft"][11, "name"]["var"].set("Mario Kart")
-        self.assertEqual(self.app.tree.item(children[12], "text"), "Remap B · Mario Kart")
+        self.assertEqual(self.app.tree.item(children[12], "text"), "Remap East · Mario Kart")
 
     def test_remap_page_has_the_stick_curves_and_deadzones(self):
         r = remap_record()
@@ -1498,26 +1498,26 @@ class RemapGuiTests(GuiCase):
         self.assertEqual(len(editor.base), 19)
         self.assertEqual(len(editor.adds), 19)
         self.assertIn(" 0 of 16 used", editor.slots.cget("text"))
-        editor.change(lambda: editor.base.update(x="y", y="x", capture=None))
-        self.assertEqual((mapping["var"].get(), rules["var"].get()), ("capture=none x=y y=x", "none"))
+        editor.change(lambda: editor.base.update(west="north", north="west", capture=None))
+        self.assertEqual((mapping["var"].get(), rules["var"].get()), ("capture=none west=north north=west", "none"))
         self.assertIn(" 0 of 16 used", editor.slots.cget("text"))
         editor.adds[11].invoke()                          # R4's +
         self.assertEqual(editor.rules[0]["input"], "r4")
         rule = editor.rules[0]
         editor.change(lambda: editor.retrigger(rule, "tapped"))
-        editor.change(lambda: editor.output(rule, "a", True))
-        self.assertEqual(rules["var"].get(), "r4 tapped:200 tap a")
+        editor.change(lambda: editor.output(rule, "south", True))
+        self.assertEqual(rules["var"].get(), "r4 tapped:200 tap south")
         self.assertIn(" 1 of 16 used", editor.slots.cget("text"))
         editor.change(lambda: editor.retrigger(rule, "held"))
         editor.change(lambda: rule.update(effect="turbo", rate=0))
-        self.assertEqual(rules["var"].get(), "r4 held turbo a@max")
+        self.assertEqual(rules["var"].get(), "r4 held turbo south@max")
         # Reloaded from the entries: the same table.
         editor.shown = None
         editor.sync()
-        self.assertEqual((editor.base["x"], editor.base["capture"]), ("y", None))
-        self.assertEqual([padgui.pad.padremap.show_rule(x) for x in editor.rules], ["r4 held turbo a@max"])
+        self.assertEqual((editor.base["west"], editor.base["capture"]), ("north", None))
+        self.assertEqual([padgui.pad.padremap.show_rule(x) for x in editor.rules], ["r4 held turbo south@max"])
         editor.change(lambda: editor.rules.pop(0))
-        editor.change(lambda: editor.base.update(x="x", y="y", capture="capture"))
+        editor.change(lambda: editor.base.update(west="west", north="north", capture="capture"))
         self.assertEqual((mapping["var"].get(), rules["var"].get()), ("identity", "none"))
         self.assertFalse(self.app.changed(mapping) or self.app.changed(rules))
         self.assertFalse(self.errors)
@@ -1541,15 +1541,15 @@ class RemapGuiTests(GuiCase):
         self.root.update()
         self.assertTrue(picker.panel and picker.panel.winfo_exists())
         self.assertEqual(picker.cget("text"), "South+East")
-        self.assertEqual(rules["var"].get(), "r4 held turbo_modifier a+b@15")
+        self.assertEqual(rules["var"].get(), "r4 held turbo_modifier south+east@15")
         boxes[0].invoke()
-        self.assertEqual(rules["var"].get(), "r4 held turbo_modifier b@15")
+        self.assertEqual(rules["var"].get(), "r4 held turbo_modifier east@15")
         done = next(w for w in picker.panel.winfo_children()[0].winfo_children()
                     if isinstance(w, padgui.ttk.Button) and w.cget("text") == "Done")
         done.invoke()
         self.assertIsNone(picker.panel)
         editor.change(lambda: editor.retrigger(editor.rules[0], "pressed"))
-        self.assertEqual(rules["var"].get(), "r4 pressed toggle_turbo_modifier b@15")
+        self.assertEqual(rules["var"].get(), "r4 pressed toggle_turbo_modifier east@15")
         editor = self.editor()
         editor.pickers[0].invoke()
         self.root.update()
@@ -1611,32 +1611,32 @@ class RemapGuiTests(GuiCase):
         self.open_remap(r)
         self.root.update()
         before = [b.winfo_x() for b in self.editor().adds]
-        r["draft"][11, "rules"]["var"].set("a double_tapped:300 toggle_turbo b@15; x tapped:200 tap a+b+x+y")
+        r["draft"][11, "rules"]["var"].set("south double_tapped:300 toggle_turbo east@15; west tapped:200 tap south+east+west+north")
         self.app.mark_dirty()
         self.root.update()
         self.assertEqual([b.winfo_x() for b in self.editor().adds], before)
 
     def test_each_key_has_a_status_box_for_its_mapping_and_rules(self):
         r = remap_record()
-        r["values"][11]["map"] = (padgui.pad.padremap.parse_map("x=y"), True)        # saved, not default
+        r["values"][11]["map"] = (padgui.pad.padremap.parse_map("west=north"), True)        # saved, not default
         editor = self.open_remap(r)
-        self.assertEqual((editor.status("a")[0], editor.status("x")[0]), ("", "✓"))
-        editor.change(lambda: editor.base.update(a="b"), redraw=False)
-        editor.change(lambda: editor.rules.append(padgui.pad.padremap.rule("a", "held", "turbo", ["a"], rate=0)))
+        self.assertEqual((editor.status("south")[0], editor.status("west")[0]), ("", "✓"))
+        editor.change(lambda: editor.base.update(south="east"), redraw=False)
+        editor.change(lambda: editor.rules.append(padgui.pad.padremap.rule("south", "held", "turbo", ["south"], rate=0)))
         editor = self.editor()
-        self.assertEqual(editor.marks["a"].cget("text"), "*")
-        editor.toggle("a")                                # discard A's edits: mapping and rules
+        self.assertEqual(editor.marks["south"].cget("text"), "*")
+        editor.toggle("south")                                # discard south's edits: mapping and rules
         editor = self.editor()
-        self.assertEqual((editor.base["a"], editor.rules), ("a", []))
-        self.assertEqual(editor.marks["a"].cget("text"), "")
-        editor.toggle("x")                                # back to the firmware default
+        self.assertEqual((editor.base["south"], editor.rules), ("south", []))
+        self.assertEqual(editor.marks["south"].cget("text"), "")
+        editor.toggle("west")                                # back to the firmware default
         editor = self.editor()
-        self.assertEqual(editor.base["x"], "x")
+        self.assertEqual(editor.base["west"], "west")
         self.assertEqual(r["draft"][11, "map"]["var"].get(), "identity")
-        self.assertEqual(editor.marks["x"].cget("text"), "*")   # pending until Apply
-        editor.change(lambda: editor.base.update(y=None), redraw=False)
-        self.assertEqual(r["draft"][11, "map"]["var"].get(), "y=none")
-        self.assertEqual(editor.marks["y"].cget("text"), "*")
+        self.assertEqual(editor.marks["west"].cget("text"), "*")   # pending until Apply
+        editor.change(lambda: editor.base.update(north=None), redraw=False)
+        self.assertEqual(r["draft"][11, "map"]["var"].get(), "north=none")
+        self.assertEqual(editor.marks["north"].cget("text"), "*")
 
     def test_plus_buttons_stop_at_sixteen_rule_entries(self):
         r = remap_record()
@@ -1651,10 +1651,10 @@ class RemapGuiTests(GuiCase):
     def test_preset_sets_base_rows_and_keeps_rules(self):
         r = remap_record()
         editor = self.open_remap(r)
-        editor.change(lambda: editor.rules.append(padgui.pad.padremap.rule("a", "held", "turbo", ["a"], rate=0)))
-        editor.preset("swap-ab-xy")
-        self.assertEqual(r["draft"][11, "map"]["var"].get(), "a=b b=a x=y y=x")
-        self.assertEqual(r["draft"][11, "rules"]["var"].get(), "a held turbo a@max")
+        editor.change(lambda: editor.rules.append(padgui.pad.padremap.rule("south", "held", "turbo", ["south"], rate=0)))
+        editor.preset("swap-faces")
+        self.assertEqual(r["draft"][11, "map"]["var"].get(), "south=east east=south west=north north=west")
+        self.assertEqual(r["draft"][11, "rules"]["var"].get(), "south held turbo south@max")
 
     def test_export_then_import_a_preset_file(self):
         import json
@@ -1662,25 +1662,25 @@ class RemapGuiTests(GuiCase):
         r = remap_record()
         editor = self.open_remap(r)
         r["draft"][11, "name"]["var"].set("Mario Kart")
-        editor.preset("swap-ab-xy")
-        editor.change(lambda: editor.rules.append(padgui.pad.padremap.rule("r4", "tapped", "tap", ["a"], ms=300)))
+        editor.preset("swap-faces")
+        editor.change(lambda: editor.rules.append(padgui.pad.padremap.rule("r4", "tapped", "tap", ["south"], ms=300)))
         with tempfile.TemporaryDirectory() as directory:
             path = str(Path(directory) / "kart.json")
             with patch.object(padwidgets.filedialog, "asksaveasfilename", return_value=path) as ask:
                 editor.export_file()
                 self.assertEqual(ask.call_args.kwargs["initialfile"], "Mario-Kart.json")
             data = json.loads(Path(path).read_text())
-            self.assertEqual(data, {"format": 1, "name": "Mario Kart", "map": "a=b b=a x=y y=x",
-                                    "rules": "r4 tapped:300 tap a"})
+            self.assertEqual(data, {"format": 1, "name": "Mario Kart", "map": "south=east east=south west=north north=west",
+                                    "rules": "r4 tapped:300 tap south"})
             self.app.show_target(12)
             self.root.update()
             other = self.editor()
             with patch.object(padwidgets.filedialog, "askopenfilename", return_value=path):
                 other.import_file()
         self.assertEqual(r["draft"][12, "name"]["var"].get(), "Mario Kart")
-        self.assertEqual(r["draft"][12, "map"]["var"].get(), "a=b b=a x=y y=x")
-        self.assertEqual(r["draft"][12, "rules"]["var"].get(), "r4 tapped:300 tap a")
-        self.assertEqual([padgui.pad.padremap.show_rule(x) for x in other.rules], ["r4 tapped:300 tap a"])
+        self.assertEqual(r["draft"][12, "map"]["var"].get(), "south=east east=south west=north north=west")
+        self.assertEqual(r["draft"][12, "rules"]["var"].get(), "r4 tapped:300 tap south")
+        self.assertEqual([padgui.pad.padremap.show_rule(x) for x in other.rules], ["r4 tapped:300 tap south"])
 
     def test_import_refuses_a_bad_file_and_changes_nothing(self):
         import tempfile
@@ -1688,7 +1688,7 @@ class RemapGuiTests(GuiCase):
         editor = self.open_remap(r)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "bad.json"
-            path.write_text('{"format": 1, "map": "a=q"}')
+            path.write_text('{"format": 1, "map": "south=q"}')
             with patch.object(padwidgets.filedialog, "askopenfilename", return_value=str(path)), \
                  patch.object(padwidgets.messagebox, "showerror") as error:
                 editor.import_file()
@@ -1698,19 +1698,19 @@ class RemapGuiTests(GuiCase):
     def test_default_marker_resets_map_and_rules_together(self):
         r = remap_record()
         self.open_remap(r)
-        r["draft"][11, "map"]["var"].set("x=y")
-        r["draft"][11, "rules"]["var"].set("a held turbo a@max")
+        r["draft"][11, "map"]["var"].set("west=north")
+        r["draft"][11, "rules"]["var"].set("south held turbo south@max")
         entries = self.app.setting_entries(r, 11, "map", r["draft"][11, "map"])
         self.assertEqual(len(entries), 2)
         self.app.discard_setting(entries)
         self.assertEqual((r["draft"][11, "map"]["var"].get(), r["draft"][11, "rules"]["var"].get()), ("identity", "none"))
         self.assertEqual(self.editor().rules, [])
-        self.assertEqual(self.editor().base["x"], "x")
+        self.assertEqual(self.editor().base["west"], "west")
 
     def test_apply_sends_remap_bytes(self):
         r = remap_record()
         self.load([r])
-        r["draft"][12, "rules"]["var"].set("l4 pressed toggle_turbo a@15")
+        r["draft"][12, "rules"]["var"].set("l4 pressed toggle_turbo south@15")
         r["draft"][12, "name"]["var"].set("Zelda")
         with patch.object(padgui.pad, "cmd", return_value=r["identity"]), \
              patch.object(padgui.pad, "send") as send, \
@@ -1746,7 +1746,7 @@ class RemapGuiTests(GuiCase):
         self.load([r])
         labels = [self.app.tree.item(node, "text") for node in self.app.tree.get_children("device0")]
         self.assertEqual(labels[labels.index("Calibration") + 1], "Remap base")
-        self.assertTrue(labels[labels.index("Remap base") + 1].startswith("Remap A"))
+        self.assertTrue(labels[labels.index("Remap base") + 1].startswith("Remap South"))
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,14 +7,14 @@ Map: space-separated KEY=KEY or KEY=none for keys that differ from
 themselves; "identity" when none do.
 
 Rules: ';'-separated, each "INPUT TRIGGER[:MS] EFFECT [OUT+OUT...][@HZ|@max]",
-e.g. "r4 held hold l1+r1; a held turbo a@max; r4 tapped:300 tap a".  A turbo
-modifier's keys are the keys pressed: "r4 held turbo_modifier a+b@10" pulses
-whatever A and B send while R4 is held.
+e.g. "r4 held hold l1+r1; south held turbo south@max; r4 tapped:300 tap south".  A turbo
+modifier's keys are the keys pressed: "r4 held turbo_modifier south+east@10" pulses
+whatever south and east send while R4 is held.
 "none" when there are none.  The layout matches struct remap_rule (src/core/pad.h).
 """
 
 # PAD_* bit numbers; bit 15 is no key.
-KEYS = ("a", "b", "capture", "x", "y", "m", "l1", "r1", "l4", "r4", "minus", "plus",
+KEYS = ("south", "east", "capture", "west", "north", "m", "l1", "r1", "l4", "r4", "minus", "plus",
         "home", "l3", "r3", None, "up", "right", "down", "left")
 NAMES = tuple(k for k in KEYS if k)
 ALIASES = {"select": "minus", "start": "plus", "screenshot": "capture"}
@@ -190,9 +190,9 @@ def parse_rules(text, count=RULES):
 
 # name: (label, map text).  They set base rows only.
 PRESETS = {
-    "swap-ab-xy": ("Swap A/B and X/Y", "a=b b=a x=y y=x"),
-    "swap-ab": ("Swap A/B", "a=b b=a"),
-    "swap-xy": ("Swap X/Y", "x=y y=x"),
+    "swap-faces": ("Swap faces (south/east, west/north)", "south=east east=south west=north north=west"),
+    "swap-south-east": ("Swap south/east", "south=east east=south"),
+    "swap-west-north": ("Swap west/north", "west=north north=west"),
     "capture-off": ("Capture off", "capture=none"),
 }
 

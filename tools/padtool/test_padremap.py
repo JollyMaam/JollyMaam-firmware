@@ -29,29 +29,29 @@ class RemapTextTests(unittest.TestCase):
             self.assertEqual(int(re.search(define + r"\s+(\w+)", PAD_H).group(1), 0), value)
 
     def test_map_round_trip(self):
-        raw = remap.parse_map("x=y y=x a=b b=a capture=none l4=a r4=r4")
+        raw = remap.parse_map("west=north north=west south=east east=south capture=none l4=south r4=r4")
         self.assertEqual(len(raw), remap.INPUTS)
         self.assertEqual(raw[3], 4 + 1)
         self.assertEqual(raw[2], remap.OFF)
         self.assertEqual(raw[9], 0)                     # itself is the default
         self.assertEqual(raw[16], 0)
-        self.assertEqual(remap.show_map(raw), "a=b b=a capture=none x=y y=x l4=a")
+        self.assertEqual(remap.show_map(raw), "south=east east=south capture=none west=north north=west l4=south")
         self.assertEqual(remap.parse_map(remap.show_map(raw)), raw)
         base = remap.decode_map(raw)
         self.assertEqual(len(base), 19)
-        self.assertEqual((base["x"], base["capture"], base["r4"]), ("y", None, "r4"))
+        self.assertEqual((base["west"], base["capture"], base["r4"]), ("north", None, "r4"))
         self.assertEqual(remap.encode_map(base), raw)
         self.assertEqual(remap.show_map(bytes(20)), "identity")
         self.assertEqual(remap.parse_map("identity"), bytes(20))
-        for bad in ("x", "q=a", "a=q"):
+        for bad in ("west", "q=south", "south=q"):
             with self.assertRaises(remap.RemapError):
                 remap.parse_map(bad)
 
     def test_rules_round_trip(self):
-        text = ("r4 held hold l1+r1; a held turbo a@max; l4 pressed toggle_turbo a@15; "
-                "r4 tapped:300 tap a; r4 held_for:300 hold l1; capture held nothing; "
+        text = ("r4 held hold l1+r1; south held turbo south@max; l4 pressed toggle_turbo south@15; "
+                "r4 tapped:300 tap south; r4 held_for:300 hold l1; capture held nothing; "
                 "m double_tapped:250 tap home; l3 pressed toggle_hold up; "
-                "r4 held turbo_modifier a+b@10; l4 released toggle_turbo_modifier x@max")
+                "r4 held turbo_modifier south+east@10; l4 released toggle_turbo_modifier west@max")
         raw = remap.parse_rules(text)
         self.assertEqual(len(raw), remap.RULES * remap.RULE_SIZE)
         self.assertEqual(remap.show_rules(raw), text)
@@ -59,39 +59,39 @@ class RemapTextTests(unittest.TestCase):
         self.assertEqual(raw[30:40], bytes([5, 9, 30, 3, 1, 0, 0, 0, 0, 0]))
         self.assertEqual(raw[80:90], bytes([1, 9, 0, 6, 3, 0, 0, 0, 10, 0]))
         with self.assertRaises(remap.RemapError):
-            remap.parse_rule("r4 pressed turbo_modifier a")
+            remap.parse_rule("r4 pressed turbo_modifier south")
         self.assertEqual(remap.show_rules(bytes(160)), "none")
         self.assertEqual(remap.parse_rules("none"), bytes(160))
         self.assertEqual(remap.parse_rule("select held hold start")["outputs"], ["plus"])
 
     def test_rules_sized_for_the_pad(self):
-        text = "; ".join(["a held hold b"] * 8)
+        text = "; ".join(["south held hold east"] * 8)
         self.assertEqual(len(remap.parse_rules(text, 8)), 8 * remap.RULE_SIZE)
         self.assertEqual(remap.show_rules(remap.parse_rules(text, 8)), text)
         with self.assertRaises(remap.RemapError):
-            remap.parse_rules(text + "; b held hold a", 8)
+            remap.parse_rules(text + "; east held hold south", 8)
         self.assertEqual(len(remap.parse_rules("none")), remap.RULES * remap.RULE_SIZE)
 
     def test_rules_the_firmware_would_refuse(self):
-        for bad in ("a held tap b", "a pressed hold b", "a tapped:0 tap b", "a held turbo b@31",
-                    "a sometimes hold b", "a held hold q", "a held", "a tapped:3000 tap b"):
+        for bad in ("south held tap east", "south pressed hold east", "south tapped:0 tap east", "south held turbo east@31",
+                    "south sometimes hold east", "south held hold q", "south held", "south tapped:3000 tap east"):
             with self.subTest(bad), self.assertRaises(remap.RemapError):
                 remap.parse_rules(bad)
         with self.assertRaises(remap.RemapError):
-            remap.parse_rules("; ".join(["a held hold b"] * 17))
+            remap.parse_rules("; ".join(["south held hold east"] * 17))
 
     def test_presets(self):
-        self.assertEqual(remap.show_map(remap.parse_map("swap-ab-xy")), "a=b b=a x=y y=x")
-        base = remap.decode_map(remap.parse_map("capture=none l4=a a=up"))
-        base = remap.apply_preset(base, "swap-ab-xy")
-        self.assertEqual(remap.show_map(remap.encode_map(base)), "a=b b=a capture=none x=y y=x l4=a")
+        self.assertEqual(remap.show_map(remap.parse_map("swap-faces")), "south=east east=south west=north north=west")
+        base = remap.decode_map(remap.parse_map("capture=none l4=south south=up"))
+        base = remap.apply_preset(base, "swap-faces")
+        self.assertEqual(remap.show_map(remap.encode_map(base)), "south=east east=south capture=none west=north north=west l4=south")
 
     def test_preset_files(self):
-        data = remap.export_preset("Kart", remap.parse_map("a=b b=a"), remap.parse_rules("r4 held turbo a@max"))
-        self.assertEqual(data, {"format": 1, "name": "Kart", "map": "a=b b=a", "rules": "r4 held turbo a@max"})
+        data = remap.export_preset("Kart", remap.parse_map("south=east east=south"), remap.parse_rules("r4 held turbo south@max"))
+        self.assertEqual(data, {"format": 1, "name": "Kart", "map": "south=east east=south", "rules": "r4 held turbo south@max"})
         self.assertEqual(remap.import_preset(data),
-                         ("Kart", remap.parse_map("a=b b=a"), remap.parse_rules("r4 held turbo a@max")))
-        for bad in ([], {"format": 2}, {"format": 1, "rules": "a held tap b"}):
+                         ("Kart", remap.parse_map("south=east east=south"), remap.parse_rules("r4 held turbo south@max")))
+        for bad in ([], {"format": 2}, {"format": 1, "rules": "south held tap east"}):
             with self.subTest(bad), self.assertRaises(remap.RemapError):
                 remap.import_preset(bad)
 
@@ -106,13 +106,13 @@ class RemapTextTests(unittest.TestCase):
             remap.parse_name("x" * 25, 24)
 
     def test_targets(self):
-        self.assertEqual(padtool.target_index("remap-B"), 11)
+        self.assertEqual(padtool.target_index("remap-east"), 11)
         self.assertEqual(padtool.kind_of(17), 3)
         self.assertEqual(padtool.kind_of(9), 2)
         self.assertEqual(padtool.targets([{"kind": 0}]), list(range(10)))
         self.assertEqual(padtool.targets([{"kind": 3}]), list(range(10)) + [18] + list(range(10, 18)))
         rules = {"kind": 3, "name": "rules", "type": padtool.T_BYTES, "size": 160}
-        self.assertEqual(padtool.show_value(rules, padtool.parse_value(rules, "a held hold b")), "a held hold b")
+        self.assertEqual(padtool.show_value(rules, padtool.parse_value(rules, "south held hold east")), "south held hold east")
 
 
 if __name__ == "__main__":

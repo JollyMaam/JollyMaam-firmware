@@ -21,12 +21,12 @@ class RemapEditorView(context: Context, private val map: ByteArray, rulesRaw: By
     private val rules = Remap.decodeRules(rulesRaw)
     private val original = Remap.decodeRules(savedRules)
     private val defaults = Remap.decodeRules(defaultRules)
-    private val order = listOf("a", "b", "x", "y", "up", "down", "left", "right", "l1", "r1", "l4", "r4", "l3", "r3", "minus", "plus", "home", "m", "capture")
+    private val order = listOf("south", "east", "west", "north", "up", "down", "left", "right", "l1", "r1", "l4", "r4", "l3", "r3", "minus", "plus", "home", "m", "capture")
     private val triggerLabels = listOf("is held", "is held for", "is pressed", "is released", "is tapped under", "is double-tapped within")
     private val turbo = setOf("turbo", "toggle_turbo", "turbo_modifier", "toggle_turbo_modifier")
     private val timed = setOf("held_for", "tapped", "double_tapped")
     private fun dp(n: Int) = (n * resources.displayMetrics.density).toInt()
-    private fun keyLabel(key: String) = if (key in listOf("a", "b", "x", "y", "m", "l1", "r1", "l4", "r4", "l3", "r3")) key.uppercase() else key.replaceFirstChar(Char::uppercaseChar)
+    private fun keyLabel(key: String) = if (key in listOf("m", "l1", "r1", "l4", "r4", "l3", "r3")) key.uppercase() else key.replaceFirstChar(Char::uppercaseChar)
     private fun text(parent: LinearLayout, value: String) = TextView(context).apply {
         text = value; textSize = 14f; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(4), dp(4), dp(4), dp(4)); parent.addView(this)
     }
@@ -63,8 +63,8 @@ class RemapEditorView(context: Context, private val map: ByteArray, rulesRaw: By
         text(this, "While held, each key sends its mapping. Rules add actions to that mapping.")
         text(this, "Rule entries: ${rules.size} of 16 used").tag = "rule-count"
         button(this, "Select preset…", "remap-preset") {
-            val names = listOf("swap-ab-xy", "swap-ab", "swap-xy", "capture-off")
-            choose("Mapping preset", listOf("Swap A/B and X/Y", "Swap A/B", "Swap X/Y", "Capture off"), -1) { i ->
+            val names = listOf("swap-faces", "swap-south-east", "swap-west-north", "capture-off")
+            choose("Mapping preset", listOf("Swap faces (south/east, west/north)", "Swap south/east", "Swap west/north", "Capture off"), -1) { i ->
                 val preset = Remap.parseMap(names[i]); val updated = map.copyOf()
                 for (key in order) if (mapping(preset, key) != key) setMapping(updated, key, mapping(preset, key))
                 stage(updated, Remap.encodeRules(rules))

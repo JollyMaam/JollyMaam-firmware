@@ -99,10 +99,12 @@
     padtool ephemeral                    from now until the next boot nothing is saved
     padtool keep                         reboot, then send what ephemeral mode tried
 
-TARGET: a slot (slot-a slot-b slot-x slot-y slot-up slot-down slot-left
-slot-right; A, up, ... also work), palette, calibration, a remap slot
-(remap-a ... remap-right) or remap-base, whose values the remap slots take
-for every setting they have not set (but their names; remap-a keeps its swap).  VALUE:
+TARGET: a slot (slot-south slot-east slot-west slot-north slot-up slot-down
+slot-left slot-right; south, up, ... also work), palette, calibration, a remap
+slot (remap-south ... remap-right) or remap-base, whose values the remap slots
+take for every setting they have not set (but their names; remap-south keeps
+its swap).  Slots and face keys are named by position, not by the letters a
+pad prints (padtool layout shows them).  VALUE:
 a name for a choice, a number, a palette entry 0-15 for a colour (how bright
 is the palette's: steady_brightness and the others), #rrggbb for a palette
 entry, aa:bb:cc:dd:ee:ff for an
@@ -849,9 +851,9 @@ def log(path, follow):
 
 # ---- settings ------------------------------------
 
-SLOT_NAMES = ["A", "B", "X", "Y", "up", "down", "left", "right"]
-SLOT_TARGETS = ["slot-" + n.lower() for n in SLOT_NAMES]
-REMAP_NAMES = ["remap-" + n.lower() for n in SLOT_NAMES]
+SLOT_NAMES = ["south", "east", "west", "north", "up", "down", "left", "right"]   # the key that picks each
+SLOT_TARGETS = ["slot-" + n for n in SLOT_NAMES]
+REMAP_NAMES = ["remap-" + n for n in SLOT_NAMES]
 TARGETS = SLOT_TARGETS + ["palette", "calibration"] + REMAP_NAMES + ["remap-base"]
 REMAP_TARGET = 10
 BASE_TARGET = 18            # the base remap: what the remap slots inherit
@@ -866,10 +868,10 @@ PAIRING = ("address", "bond")   # kept by a whole-slot reset
 
 
 def slot_number(name):
-    """A slot by its key (A, up) or target name (slot-a, slot-up); None if neither."""
+    """A slot by its key (south, up) or target name (slot-south, slot-up); None if neither."""
     name = name.lower()
     for i, n in enumerate(SLOT_NAMES):
-        if name in (n.lower(), SLOT_TARGETS[i]):
+        if name in (n, SLOT_TARGETS[i]):
             return i
     return None
 
@@ -878,7 +880,7 @@ def target_index(name):
     for i, t in enumerate(TARGETS):
         if t.lower() == name.lower():
             return i
-    slot = slot_number(name)              # A, up: what slots were called before slot-a
+    slot = slot_number(name)              # south, up: a slot by its key
     if slot is not None:
         return slot
     sys.exit(f"padtool: no target {name!r}; one of {' '.join(TARGETS)}")
@@ -1227,7 +1229,6 @@ LAYOUT_KINDS = ("face", "dpad", "shoulder", "trigger", "stick", "stick_click", "
                 "trigger_digital")
 # Each input's name (IN_* bit numbers): the keys, then what has no key.
 INPUT_NAMES = dict(enumerate(padremap.KEYS)) | {20: "l2", 21: "r2", 32: "left_stick", 33: "right_stick"}
-FACE_ROLES = {"a": "south", "b": "east", "x": "west", "y": "north"}    # the remap text's face keys
 
 
 def read_layout(path):
@@ -1257,7 +1258,7 @@ def show_layout(path):
         sys.exit("padtool: this firmware has no layout")
     for e in entries:
         place = f"  at {e['x']},{e['y']}" if e["x"] or e["y"] else ""
-        print(f"{FACE_ROLES.get(e['name'], e['name']):12} {e['kind']:12} {e['label'] or '-'}{place}")
+        print(f"{e['name']:12} {e['kind']:12} {e['label'] or '-'}{place}")
 
 
 def read_input(path):
@@ -2056,7 +2057,7 @@ def main():
         profile(need_device(), a.watch or 10, a.hz, a.top, a.elf, zoom, a.by)
     elif a.command == "unpair":
         if BOARD != "pad" or len(a.args) != 1 or slot_number(a.args[0]) is None:
-            p.error("unpair requires a pad slot: slot-a ... slot-right (or A B X Y up down left right)")
+            p.error("unpair requires a pad slot: slot-south ... slot-right (or south east west north up down left right)")
         try:
             unpair(need_device(), slot_number(a.args[0]))
         except ValueError as error:
@@ -2070,12 +2071,12 @@ def main():
         if len(a.args) == 1 and slot_number(a.args[0]) is not None:
             slot = slot_number(a.args[0])
         else:
-            p.error("pair requires a slot: slot-a ... slot-right (or A B X Y up down left right)")
+            p.error("pair requires a slot: slot-south ... slot-right (or south east west north up down left right)")
         cmd(need_device(), 0x17, slot)
     elif a.command == "connect":
         slot = slot_number(a.args[0]) if a.args else 0xfe
         if slot is None:
-            p.error("connect: a slot: slot-a ... slot-right (or A B X Y up down left right)")
+            p.error("connect: a slot: slot-south ... slot-right (or south east west north up down left right)")
         cmd(need_device(), 0x13, slot)
     elif a.command == "disconnect":
         if a.args:

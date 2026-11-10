@@ -19,7 +19,7 @@ from padknown import PRODUCTS, command_mode, firmware_dir, product_name, stock_n
 from padtransport import usb_location
 from paddevices import DeviceMonitor, boot_record, load_targets, read_device, stock_records
 from padconsole import LiveConsole
-from padwidgets import PaletteEditor, CurveEditor, RemapEditor, Tooltip, use_layout
+from padwidgets import PaletteEditor, CurveEditor, RemapEditor, Tooltip, use_layout, slot_label
 
 OURS = ("pad", "dongle")                 # boards running this firmware
 
@@ -1017,10 +1017,10 @@ class App:
     @staticmethod
     def target_label(record, t):
         if t < 8:
-            return f"Slot {pad.SLOT_NAMES[t]}"
+            return f"Slot {slot_label(record.get('layout'), pad.SLOT_NAMES[t])}"
         if t < pad.REMAP_TARGET:
             return pad.TARGETS[t].title()
-        label = "Remap base" if t == pad.BASE_TARGET else f"Remap {pad.SLOT_NAMES[t - pad.REMAP_TARGET]}"
+        label = "Remap base" if t == pad.BASE_TARGET else f"Remap {slot_label(record.get('layout'), pad.SLOT_NAMES[t - pad.REMAP_TARGET])}"
         entry = record.get("draft", {}).get((t, "name"))
         name = entry["var"].get().strip() if entry else ""
         return f"{label} · {name}" if name else label
@@ -1247,7 +1247,7 @@ class App:
             entry = record["draft"].get((target, "type"))
             if entry:
                 self.default_marker(types, entry, record, target, "type").pack(side="left", padx=(0, 4))
-            ttk.Label(types, text=f"Slot {pad.SLOT_NAMES[target]}", width=12).pack(side="left")
+            ttk.Label(types, text=f"Slot {slot_label(record.get('layout'), pad.SLOT_NAMES[target])}", width=14).pack(side="left")
             if entry:
                 ttk.Combobox(types, textvariable=entry["var"], values=pad.choices(entry["field"]), state="readonly", width=20).pack(side="left")
             bond = record["draft"].get((target, "bond"))

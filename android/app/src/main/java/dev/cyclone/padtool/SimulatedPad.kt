@@ -37,7 +37,7 @@ class SimulatedPad(fixture: String, saved: String? = null, private val persist: 
     private fun seed() {
         fun set(target: Int, name: String, text: String) { val f = field(target, name); overrides[target to f.id] = f.parse(text) }
         set(11, "name", "Demo game")
-        set(11, "rules", "r4 held turbo_modifier a+b@15")
+        set(11, "rules", "r4 held turbo_modifier south+east@15")
         set(11, "left_curve_points", "concave")
         set(11, "left_curve_enabled", "enabled")
         val bond = field(0, "bond")
