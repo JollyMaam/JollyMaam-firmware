@@ -25,8 +25,11 @@ android {
     // The page, web/, as assets/web: MainActivity serves it to the WebView.
     sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/web-assets"))
 }
+// The firmware package the page offers (make firmware): in the APK when built.
+val firmwareZip = rootProject.file(providers.gradleProperty("firmwareZip").orNull ?: "../build/firmware.zip")
 val webAssets = tasks.register<Sync>("webAssets") {
     from(rootProject.file("../web")) { include("*.html", "*.js", "*.css") }
+    from(firmwareZip) { rename { "firmware.zip" } }
     into(layout.buildDirectory.dir("generated/web-assets/web"))
 }
 tasks.named("preBuild") { dependsOn(webAssets) }

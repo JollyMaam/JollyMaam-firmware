@@ -1,6 +1,8 @@
 // The page: connect to a pad over Bluetooth in config mode (Home+M held for
 // 3 s) or over USB (its tool device), show what it is and its settings, and
-// change them.
+// change them.  Screens: home (how to connect), config (a pad on a link),
+// and in the Android app flasher (Install over USB); Back (and the
+// browser's or phone's back) leaves a screen for home.
 import { links as webBluetooth } from "./link-web.js";
 import { links as webUsb } from "./link-hid.js";
 import { android } from "./link-android.js";
@@ -26,12 +28,47 @@ const flashPanel = android ? setupFlasher(android.flasher) : null;
 // The links a link is one of: to find the same pad again after a restart.
 const linksOf = (link) => (link.kind === "hid" ? usb : bluetooth);
 
-// Connect over Bluetooth or USB, or neither while a pad is on.
-function showConnect(on) {
-  $("connect").hidden = !on;
-  $("connectusb").hidden = !on;
-  $("flash").hidden = !on || !flashPanel;
+// ---- screens ----
+
+let screen = "home", updating = false, leaving = false;
+
+function show(name) {
+  for (const s of ["home", "config", "flasher"]) $(s).hidden = s !== name;
+  $("back").hidden = name === "home";
+  screen = name;
 }
+
+// A screen from home: one history entry, so back comes home.
+function enter(name) {
+  history.pushState({ screen: name }, "");
+  say("");
+  show(name);
+}
+
+// Home again (Back, a pad gone): through history, as the back key does.
+// force: nothing left to ask about (the pad is gone).
+function home(force = false) {
+  if (screen === "home") return;
+  leaving = force;
+  history.back();
+}
+
+// Leaving a screen: what it has running stops, unless it must not.
+function leave() {
+  const force = leaving;
+  leaving = false;
+  if (updating) return say("Wait for the update to finish.", true), false;
+  if (screen === "flasher") return flashPanel.stop() || (say("Wait for the write to finish.", true), false);
+  if (!force && edits.size && !confirm("Discard the unsaved changes?")) return false;
+  disconnect();
+  return true;
+}
+
+addEventListener("popstate", () => {
+  if (screen === "home") return;
+  if (!leave()) return history.pushState({ screen }, "");
+  show("home");
+});
 
 // A target as people read it: "Slot B (south)", "Remap base", "Palette".
 function targetName(t) {
@@ -330,7 +367,6 @@ function dropLock() {
 // takes its own answers), so no lock.
 async function connect(links) {
   disconnect();
-  flashPanel?.hide();
   if (links === bluetooth && !(await takeLock())) {
     return say("The pad settings page is already connected in another tab or window: use that one, " +
       "or Disconnect there first.", true);
@@ -346,8 +382,7 @@ async function connect(links) {
     dropLock();
     return;
   }
-  say("");
-  showConnect(false);
+  enter("config");
   showIdentity(null, link);
   // Right after a disconnect a new link can come up and then fail its
   // first write ("GATT Error Unknown", Chrome on Linux) while BlueZ is
@@ -362,18 +397,14 @@ async function connect(links) {
         (Date.now() > end ? "; giving up" : "; a fresh link"));
       p.onDisconnect = null;     // not closed: on Linux that ends the link for every program on it
       if (Date.now() > end) {
-        $("identity").replaceChildren();
-        showConnect(true);
-        dropLock();
+        home(true);
         return say(String(error.message || error), true);
       }
       await new Promise((r) => setTimeout(r, 500));
       try {
         p = new Pad(await links.reconnect(link, Math.max(1, (end - Date.now()) / 1000)));
       } catch (again) {
-        $("identity").replaceChildren();
-        showConnect(true);
-        dropLock();
+        home(true);
         return say(String(again.message || again), true);
       }
     }
@@ -385,12 +416,10 @@ async function connect(links) {
 async function attach(p) {
   pad = p;
   pad.onDisconnect = () => {
-    stop();
+    home(true);
     say(p.usb ? "The pad went away (unplugged, or it restarted)."
       : "The pad went away (config mode ends a minute after the last command, or on Home).");
   };
-  showConnect(false);
-  $("disconnect").hidden = false;
   for (const b of document.querySelectorAll("#tests .needs-pad")) b.hidden = false;
   try {
     const id = pad.id || await pad.identify();
@@ -437,8 +466,6 @@ function stop() {
   clearInterval(poll);
   poll = null;
   dropLock();
-  showConnect(true);
-  $("disconnect").hidden = true;
 }
 
 function disconnect() {
@@ -460,6 +487,36 @@ function disconnect() {
 // ---- firmware update ----
 
 let pkg = null;
+
+// A firmware package for both the Firmware update fold and the flasher:
+// the one that comes with the page (firmware.zip beside it: the Android
+// app has one), or one chosen.
+async function setPackage(name, bytes) {
+  pkg = null;
+  try {
+    pkg = await openPackage(bytes);
+    $("pkginfo").textContent = `Package: ${name}`;
+    $("pkginfo").classList.remove("error");
+  } catch (error) {
+    $("pkginfo").textContent = `${name}: ${error.message || error}`;
+    $("pkginfo").classList.add("error");
+  }
+  pickImage();
+  await flashPanel?.setPackage(name, bytes);
+}
+
+async function choosePackage(file) {
+  await setPackage(file.name, new Uint8Array(await file.arrayBuffer()));
+}
+
+async function bundledPackage() {
+  try {
+    const r = await fetch("firmware.zip");
+    if (!r.ok) return;
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    if (!pkg) await setPackage("firmware.zip (comes with the app)", bytes);
+  } catch { /* none: the user chooses one */ }
+}
 
 function fwSay(text, error = false) {
   $("fwinfo").textContent = text;
@@ -495,7 +552,7 @@ async function update() {
   p.onDisconnect = null;         // the update restarts the pad
   stop();
   pad = null;
-  showConnect(false);
+  updating = true;
   $("update").disabled = true;
   $("fwlog").textContent = "";
   $("fwprogress").hidden = false;
@@ -509,17 +566,18 @@ async function update() {
     const fresh = await finish(up, linksOf(up.link), fwLog);
     $("fwprogress").hidden = true;
     $("settings").replaceChildren();
+    updating = false;
     await attach(fresh);
   } catch (error) {
+    updating = false;
     fwLog(`${written ? "not found again" : "failed"}: ${error.message || error}`);
     $("fwprogress").hidden = true;
-    if (written) say(p.usb ? "The new firmware is written and started, but did not come back on USB: Connect again."
+    if (written) say(p.usb ? "The new firmware is written and started, but did not come back on USB: go Back and connect again."
       : "The new firmware is written and started, but did not come back in config mode " +
-      "(an older updater does not ask for it): hold Home+M for 3 s, then Connect.");
-    else say(`The update failed. The pad stays in its updater: Connect to it (${p.usb ? "over USB" :
+      "(an older updater does not ask for it): go Back, hold Home+M for 3 s and connect again.");
+    else say(`The update failed. The pad stays in its updater: go Back and connect to it (${p.usb ? "over USB" :
       "it advertises as \"… Update\""}) and update again, or press Home to go back to its app if that is still whole.`, true);
     up?.close();
-    showConnect(true);
   }
 }
 
@@ -540,8 +598,11 @@ async function runTest(test) {
 
 $("connect").addEventListener("click", () => connect(bluetooth));
 $("connectusb").addEventListener("click", () => connect(usb));
-$("flash").addEventListener("click", () => flashPanel.toggle());
-$("disconnect").addEventListener("click", () => { disconnect(); say("Disconnected."); });
+$("install").addEventListener("click", () => {
+  enter("flasher");
+  flashPanel.start();
+});
+$("back").addEventListener("click", () => home());
 $("writetest").addEventListener("click", () => runTest(async () => {
   testLog(`-- write sizes, ${new Date().toLocaleTimeString()}`);
   await writeTests(pad, testLog);
@@ -556,26 +617,22 @@ $("updatertest").addEventListener("click", () => runTest(async () => {
   disconnect();
   $("tests").hidden = false;
   for (const b of document.querySelectorAll("#tests .needs-pad")) b.hidden = true;
-  say(`The updater round trip ended the link; Connect again${p.usb ? "" : " (Home+M)"} for more.`);
+  say(`The updater round trip ended the link; go Back and connect again${p.usb ? "" : " (Home+M)"} for more.`);
 }));
-$("package").addEventListener("change", async (e) => {
-  pkg = null;
-  const f = e.target.files[0];
-  if (!f) return pickImage();
-  try {
-    pkg = await openPackage(new Uint8Array(await f.arrayBuffer()));
-  } catch (error) {
-    return fwSay(`${f.name}: ${error.message || error}`, true);
-  }
-  pickImage();
-});
+$("package").addEventListener("change", (e) => { if (e.target.files[0]) choosePackage(e.target.files[0]); });
+flashPanel?.onChoose(choosePackage);
 $("update").addEventListener("click", update);
 $("save").addEventListener("click", save);
 $("undo").addEventListener("click", render);
-$("connect").disabled = !bluetooth.available();
-$("connectusb").disabled = !usb.available();
-$("flash").hidden = !flashPanel;
-if (android) {
-  if (!bluetooth.available()) say("This phone has no Bluetooth: connect over USB.", true);
-} else if (!bluetooth.available() && !usb.available()) say("This browser has neither Web Bluetooth nor WebHID: use Chrome or Edge.", true);
-else if (!bluetooth.available()) say("This browser has no Web Bluetooth: connect over USB.", true);
+// What this browser or phone lacks: on the choice itself.
+function unavailable(id, why) {
+  $(id).disabled = true;
+  $(id).querySelector("span").textContent = why;
+}
+if (!bluetooth.available()) unavailable("connect", android ? "This phone has no Bluetooth."
+  : "This browser has no Web Bluetooth: use Chrome or Edge.");
+if (!usb.available()) unavailable("connectusb", "This browser has no WebHID: use Chrome or Edge.");
+$("install").hidden = !flashPanel;
+history.replaceState(null, "");    // a reload starts at home
+show("home");
+bundledPackage();

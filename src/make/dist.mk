@@ -9,5 +9,6 @@ ifneq ($(JOLLYMAAM_PLATFORM),windows)
 	$(Q)$(JOLLYMAAM_CLI) package $(O) $(DIST_DIR)/firmware.zip
 endif
 
+dist-android: ANDROID_FIRMWARE_ZIP = $(abspath $(DIST_DIR))/firmware.zip
 dist-android: dist android
 	$(Q)cp $(O)/android/app/outputs/apk/debug/app-debug.apk $(DIST_DIR)/jollymaam-android-debug.apk

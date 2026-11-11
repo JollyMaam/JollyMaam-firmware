@@ -8,6 +8,7 @@
     --panel: #1e1e1c; }
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); color: var(--fg);
   font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
 header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
@@ -70,16 +71,30 @@ details p { padding: 0 16px; }
 #testlog { margin: 8px 16px 16px; white-space: pre-wrap; }
 #testlog:empty { display: none; }
 #firmware .actions, #firmware progress { margin: 0 16px; }
+#firmware .actions { margin-bottom: 8px; }
 #firmware progress { width: calc(100% - 32px); }
 #fwlog { margin: 8px 16px 16px; white-space: pre-wrap; }
 #fwlog:empty, #fwinfo:empty { display: none; }
-#flasher .actions, #flasher progress, #flashactions { margin: 0 16px; }
-#flasher progress { width: calc(100% - 32px); }
-#flashactions p { padding: 0; }
-#flashdevices { list-style: none; margin: 8px 16px; padding: 0; display: grid; gap: 8px; }
+.choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(15em, 1fr)); gap: 12px; margin: 8px 0; }
+button.choice { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 20px;
+  text-align: left; border-radius: 10px; border-color: var(--line); background: var(--panel); color: var(--fg);
+  box-shadow: 0 1px 3px rgb(0 0 0 / .06); }
+button.choice strong { font-size: 18px; color: var(--accent); }
+button.choice span { color: var(--muted); }
+button.choice:not(:disabled):hover { border-color: var(--accent); }
+h2 { font-size: 18px; margin: 8px 0; }
+p.package { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+details p.package { padding: 0 16px; }
+label.file { color: var(--accent); cursor: pointer; text-decoration: underline; }
+label.file input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+#flasher progress { width: 100%; }
+#flashdevices { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 8px; }
 #flashdevices button { width: 100%; text-align: left; }
-#flashlog { margin: 8px 16px 16px; white-space: pre-wrap; }
-#flashlog:empty, #flashinfo:empty { display: none; }
+#flashdevices .pending { font-weight: 400; }
+#flashactions select { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--panel); color: var(--fg); }
+#flashlog { margin: 8px 0 16px; white-space: pre-wrap; }
+#flashlog:empty, #flashinfo:empty, #pkginfo:empty { display: none; }
 tr.merged { display: none; }
 details td input.wide { width: 100%; min-width: 14em; }
 .remap { padding: 0 16px 8px; }

@@ -7,7 +7,11 @@ USB host-capable phone and an OTG adapter or USB-C cable; Bluetooth needs LE.
 
 The page is the same one Chrome serves; in the app it gets its links from
 `window.JollyMaamAndroid` instead of Web Bluetooth and WebHID
-(`web/link-android.js`), and shows a **Flash** button.
+(`web/link-android.js`), and offers **Install over USB** beside the two
+**Configure** choices. The APK carries the firmware package
+(`build/firmware.zip`, from `make firmware`) when it is built; the page uses
+it, and another can be chosen. `make dist-android` takes the one in
+`build/dist/`.
 
 - `MainActivity.kt`: the WebView. It serves `assets/web/` (copied from
   `web/` at build time) as `https://appassets.androidplatform.net/`, an https
@@ -30,11 +34,17 @@ The page is the same one Chrome serves; in the app it gets its links from
 ## Use
 
 1. Open the app.
-2. Bluetooth: hold Home+M for 3 s on the pad, tap **Bluetooth**, allow
-   Bluetooth access (location before Android 12), and pick the pad.
-3. USB: plug the pad in, tap **USB**, and allow USB access.
-4. Flash: tap **Flash**, choose a `firmware.zip`, plug the pad in (in its
-   boot loader, or running our firmware) and pick it from the list.
+2. Bluetooth: hold Home+M for 3 s on the pad, tap **Configure over
+   Bluetooth**, allow Bluetooth access (location before Android 12), and pick
+   the pad.
+3. USB: plug the pad in, tap **Configure over USB**, and allow USB access.
+4. Install: tap **Install over USB** and plug the pad in (in its boot loader,
+   or running our firmware). The screen watches USB until you go back; a lone
+   device is asked what it is at once (allow USB access), then choose what to
+   write.
+
+Back (the button, or the phone's) returns to the three choices and ends the
+link.
 
 After a restart into the updater the pad is a new USB device: Android may ask
 for USB access again.

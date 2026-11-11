@@ -23,9 +23,15 @@ has neither Web Bluetooth nor WebHID).
 - `link-android.js`: those links in the app (`window.JollyMaamAndroid`,
   `android/app/src/main/java/dev/cyclone/padtool/Bridge.kt`), and its
   flasher; `android` is null in a browser.
-- `flash.js`: the Flash panel, in the app only: firmware through the boot
-  loaders (libjollymaam over JNI), which a browser cannot reach (the Jieli
-  ROM loader is USB mass storage).
+- `flash.js`: the Install over USB screen, in the app only: firmware
+  through the boot loaders (libjollymaam over JNI), which a browser cannot
+  reach (the Jieli ROM loader is USB mass storage). It scans USB every second
+  while it shows.
+
+The page starts at a choice of link (and Install in the app); each choice is
+a history entry, so Back and the browser's back return to it. A
+`firmware.zip` next to the page (the app has one) is the firmware package
+until another is chosen.
 
 - `pad.js`: the Bluetooth framing (`src/profiles/profile_config.c`) and
   the tool commands (`src/core/usb.c`) over either link.

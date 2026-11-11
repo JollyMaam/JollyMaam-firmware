@@ -7,6 +7,8 @@ import org.junit.Test
 import java.util.zip.ZipInputStream
 
 /** Real Android JNI calls with fake endpoints: no USB permission or hardware. */
+private fun le32(n: Number) = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt(n.toInt()).array()
+
 class NativeCoreDeviceTest {
     private fun bundle() = InstrumentationRegistry.getInstrumentation().context.assets.open("firmware-fixture.zip").use { it.readBytes() }
     private class Fake : NativeUsb() {

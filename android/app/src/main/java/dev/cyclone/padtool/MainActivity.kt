@@ -39,7 +39,8 @@ class MainActivity : Activity() {
         private const val PERMISSIONS = 2
         private var rendererGone = 0L
         private val TYPES = mapOf("html" to "text/html", "js" to "text/javascript", "mjs" to "text/javascript",
-            "css" to "text/css", "json" to "application/json", "svg" to "image/svg+xml", "png" to "image/png")
+            "css" to "text/css", "json" to "application/json", "svg" to "image/svg+xml", "png" to "image/png",
+            "zip" to "application/zip")
     }
 
     private lateinit var web: WebView
@@ -127,6 +128,11 @@ class MainActivity : Activity() {
         if (requestCode != FILE_CHOOSER) return
         files?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, data))
         files = null
+    }
+
+    /** Back: the page's own back first (a screen back to its home). */
+    override fun onBackPressed() {
+        if (web.canGoBack()) web.goBack() else super.onBackPressed()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, results: IntArray) {
