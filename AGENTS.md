@@ -320,3 +320,8 @@ wrong assumption), add it here in a line or two.
   piece index, length, refusals), the hosts' retries, StartNotify in
   padble.py, and no disconnect on a retry in web/.  Kill test browsers by
   name (`pkill -x chromium`), not their xvfb-run wrapper.
+- Android USB: `UsbDeviceConnection.requestWait(timeout)` throws
+  `TimeoutException` (no message) instead of returning null, and a request
+  cancelled and freed after that timeout crashed the next wait natively
+  (SIGSEGV in `usb_request_wait`, seen on a phone).  Use `bulkTransfer` with
+  a timeout for interrupt endpoints too, as `HidLink` and `AndroidNativeUsb` do.

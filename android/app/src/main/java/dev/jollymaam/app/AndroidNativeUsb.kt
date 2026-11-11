@@ -6,9 +6,7 @@ import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
-import android.hardware.usb.UsbRequest
 import java.io.IOException
-import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** Android's endpoint implementation; all protocol decisions remain in C. */
@@ -72,20 +70,19 @@ class AndroidNativeUsb(
         val n = connection?.controlTransfer(0x21, 9, 0x300, intf!!.id, payload, payload.size, 10000) ?: -1
         return if (n < 0) -1 else n + 1
     }
+    // bulkTransfer also moves interrupt transfers, and its timeout cancels
+    // the transfer before it returns (as HidLink reads).  Not UsbRequest:
+    // after requestWait's timeout, the cancelled request comes back to a
+    // later wait and native code writes into it after it was freed (SIGSEGV).
+    // -1 is a timeout or an error alike: for a read, the library's 0.
+    // A read asks for one packet: a full packet does not end a longer
+    // transfer, so the read would wait for the next report and lose this one.
     private fun interrupt(endpoint: UsbEndpoint, data: ByteArray, timeout: Int, reading: Boolean): Int {
         checkActive()
         val conn = connection ?: throw IOException("Device disconnected")
-        val request = UsbRequest()
-        if (!request.initialize(conn, endpoint)) { request.close(); return -1 }
-        try {
-            val buffer = ByteBuffer.allocateDirect(data.size)
-            if (!reading) { buffer.put(data); buffer.flip() }
-            if (!request.queue(buffer)) return -1
-            if (conn.requestWait(timeout.toLong()) !== request) return -1
-            val n = buffer.position()
-            if (reading) { buffer.flip(); buffer.get(data, 0, n) }
-            return n
-        } finally { request.cancel(); request.close() }
+        val length = if (reading) minOf(data.size, endpoint.maxPacketSize) else data.size
+        val n = conn.bulkTransfer(endpoint, data, length, timeout)
+        return if (n < 0 && reading) 0 else n
     }
     override fun hidWrite(data: ByteArray): Int {
         checkActive()
