@@ -11,11 +11,15 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.graphics.Color
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -24,6 +28,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.ArrayAdapter
+import android.widget.FrameLayout
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
@@ -45,6 +50,7 @@ class MainActivity : Activity() {
 
     private lateinit var web: WebView
     private lateinit var bridge: Bridge
+    private lateinit var frame: FrameLayout
     private var files: ValueCallback<Array<Uri>>? = null
     private val usbAsks = ConcurrentHashMap<String, CountDownLatch>()
     @Volatile private var permissionsAnswered: CountDownLatch? = null
@@ -72,6 +78,22 @@ class MainActivity : Activity() {
         } catch (e: IOException) {
             WebResourceResponse("text/plain", "utf-8", 404, "Not Found", emptyMap(), "".byteInputStream())
         }
+    }
+
+    /** The bars' background and icons follow the page's light or dark
+     * colours (web/style.css --bg). */
+    private fun barColours() {
+        val night = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+        frame.setBackgroundColor(if (night) 0xFF161615.toInt() else 0xFFFAFAF9.toInt())
+        if (Build.VERSION.SDK_INT >= 30) {
+            val light = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+            window.insetsController?.setSystemBarsAppearance(if (night) 0 else light, light)
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        barColours()
     }
 
     @SuppressLint("SetJavaScriptEnabled")   // the page is ours, from the APK
@@ -116,7 +138,23 @@ class MainActivity : Activity() {
         }
         bridge = Bridge(this, web)
         web.addJavascriptInterface(bridge, "JollyMaamAndroid")
-        setContentView(web)
+        // The page below the status bar, above the navigation bar and the
+        // keyboard: Android 15 draws apps edge to edge (targetSdk 35), so
+        // from Android 11 on we do too and pad by the bars' insets.
+        frame = FrameLayout(this)
+        frame.addView(web)
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.setDecorFitsSystemWindows(false)
+            window.statusBarColor = Color.TRANSPARENT
+            window.navigationBarColor = Color.TRANSPARENT
+            frame.setOnApplyWindowInsetsListener { v, insets ->
+                val i = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout() or WindowInsets.Type.ime())
+                v.setPadding(i.left, i.top, i.right, i.bottom)
+                WindowInsets.CONSUMED
+            }
+        }
+        barColours()
+        setContentView(frame)
         val filter = IntentFilter(usbPermissionAction).apply { addAction(UsbManager.ACTION_USB_DEVICE_DETACHED) }
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED) else registerReceiver(receiver, filter)
         if (savedInstanceState != null) web.restoreState(savedInstanceState)
