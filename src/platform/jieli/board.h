@@ -45,6 +45,13 @@ void plat_mdelay(u32 ms);                /* busy wait, interrupts may be off */
 void plat_flush_dcache(const void *address, u32 size);
 void plat_enter_loader(void);            /* now, without detaching USB first */
 void plat_pull_up_input(u32 gpio);
+/* The ADC (BR23): the board's from plat_adc_start() on, which parks the
+ * SDK's 2 ms scan (adc_get_value() then goes stale).  A sweep converts
+ * AD_CH_* channels back to back, now, about 15 µs each, into 10-bit codes;
+ * the control thread only.  plat_adc_vbat_mv: the battery, averaged. */
+void plat_adc_start(void);
+void plat_adc_sweep(const u32 *ch, u16 *code, u32 n);
+u32 plat_adc_vbat_mv(void);
 
 /* The reset mailbox (sdkconfig/app.ld): UPDATER_STAY, ~UPDATER_STAY asks the
  * updater to stay rather than start the app at the next boot.  Word 2

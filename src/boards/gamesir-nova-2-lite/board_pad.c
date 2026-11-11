@@ -192,6 +192,8 @@ static const u32 adc_ch[6] = { AD_CH_PA1, AD_CH_PB8, AD_CH_PC4, AD_CH_PC5,   /* 
 
 #define ADC_FIRST 16
 
+static u16 adc_code[6];
+
 static void analog_init(void)
 {
     u32 i;
@@ -201,14 +203,16 @@ static void analog_init(void)
         gpio_set_pull_up(adc_pin[i], 0);
         gpio_set_die(adc_pin[i], 0);
         gpio_direction_input(adc_pin[i]);
-        adc_add_sample_ch(adc_ch[i]);
     }
-    /* A channel reads 0 or 1 until its first sample, which an uncalibrated
-     * trigger would take as its rest: wait for them (a few ms).  A trigger
-     * held down reads near 100. */
-    for (i = 0; i < 50 && (adc_get_value(adc_ch[4]) < ADC_FIRST ||
-                           adc_get_value(adc_ch[5]) < ADC_FIRST); i++)
+    plat_adc_start();
+    /* A trigger reading near 0 would be an uncalibrated trigger's rest: wait
+     * for real readings (with the SDK's scan it took a few ms for the first
+     * sample).  A trigger held down reads near 100. */
+    for (i = 0; i < 50; i++) {
+        plat_adc_sweep(adc_ch, adc_code, 6);
+        if (adc_code[4] >= ADC_FIRST && adc_code[5] >= ADC_FIRST) break;
         plat_mdelay(1);
+    }
     util_log("board: first ADC samples after %u ms", i);
 }
 
@@ -227,10 +231,11 @@ void plat_input(struct in_raw *raw)
     leds_first();
     if ((s32)(matrix_changed_us - changed_us) > 0) changed_us = matrix_changed_us;
     raw->changed_us = changed_us;
-    for (i = 0; i < 4; i++) raw->stick[i] = (u16)(adc_get_value(adc_ch[i]) << 5);
+    plat_adc_sweep(adc_ch, adc_code, 6);      /* both axes of a stick together */
+    for (i = 0; i < 4; i++) raw->stick[i] = (u16)(adc_code[i] << 5);
     raw->sticks_valid = 1;
-    raw->trigger[0] = (u16)adc_get_value(adc_ch[4]);
-    raw->trigger[1] = (u16)adc_get_value(adc_ch[5]);
+    raw->trigger[0] = adc_code[4];
+    raw->trigger[1] = adc_code[5];
     raw->trigger_stop[0] = raw->trigger_stop[1] = 0;
 }
 
@@ -535,7 +540,7 @@ void board_battery(struct battery_status *out)
 {
     static struct battery_status b;
 
-    battery_voltage(&b, adc_get_voltage(AD_CH_VBAT) * 4, 0, 0);
+    battery_voltage(&b, (u16)plat_adc_vbat_mv(), 0, 0);
     battery_low(&b, 3500, 3600);
     *out = b;
 }

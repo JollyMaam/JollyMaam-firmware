@@ -883,6 +883,95 @@ static void usb_init(void)
     plat_usb_tool_mode();
 }
 
+#ifndef CONFIG_CPU_BD19
+/* ---- the SAR ADC ------------------------------------------------------------
+ * The SDK converts one channel every 2 ms, round robin, at 250 kHz with a
+ * start delay of 120 ADC clocks: about 545 µs a conversion, and a value up
+ * to a whole round old when read (cpu/br23/adc_api.c, adc_scan).  Instead
+ * the board converts its channels back to back when it reads them, and VBAT
+ * is converted here.  The SDK's scan is parked in its occupy mode, in which
+ * adc_scan returns at once; nothing else starts a conversion afterwards but
+ * the controller's LDO trim, with interrupts off.
+ *
+ * JL_ADC->CON, as the SDK drives it: bits 0-2 the clock divider (of lsb:
+ * 1, 6, 12, 24, 48, 72, 96, 128), 3 as the SDK sets it, 4 on, 5 interrupt,
+ * 6 start (and clear done), 7 done, 8-11 the channel, 12-15 the start delay
+ * in 8 ADC clocks, paid at every start.  The SDK's VBAT and reference
+ * (AD_CH_MUX) go through the PMU's analog mux. */
+
+static const u8 adc_divider[8] = { 1, 6, 12, 24, 48, 72, 96, 128 };
+static u32 adc_con;                     /* divider for 1 MHz or less, on */
+
+void plat_adc_start(void)
+{
+    u32 mhz = clk_get("lsb") / 1000000, div = 0;
+
+    while (div < 7 && mhz > adc_divider[div]) div++;
+    adc_con = div | BIT(3) | BIT(4);
+    /* Entering occupy mode starts one conversion of the SDK's own, with its
+     * interrupt: let it finish.  Not while one of its scan's is running, or
+     * it does not enter. */
+    for (;;) {
+        local_irq_disable();
+        if (!(JL_ADC->CON & BIT(4))) break;
+        local_irq_enable();
+    }
+    adc_enter_occupy_mode(AD_CH_LDOREF);
+    local_irq_enable();
+    while (JL_ADC->CON & BIT(4)) { }
+}
+
+/* About 15 µs a channel at 1 MHz, without a start delay: the SDK's delay
+ * and clock gave the same codes, the PMU's channels included.  Interrupts
+ * are off for one conversion at a time, so the LDO trim (on the Bluetooth
+ * thread) never runs in the middle of one. */
+void plat_adc_sweep(const u32 *ch, u16 *code, u32 n)
+{
+    u32 i;
+
+    for (i = 0; i < n; i++) {
+        local_irq_disable();
+        if ((ch[i] & 0xfffff) == AD_OF_PMU) {
+            adc_pmu_detect_en(1);
+            adc_pmu_ch_select(ch[i] >> 20);
+        }
+        JL_ADC->CON = adc_con | (ch[i] & 0xf) << 8 | BIT(6);
+        while (!(JL_ADC->CON & BIT(7))) { }
+        code[i] = (u16)JL_ADC->RES;
+        JL_ADC->CON = BIT(6);
+        JL_ADC->CON = 0;
+        local_irq_enable();
+    }
+}
+
+/* The battery: the average of the last 16 readings, one a call (every
+ * second), the first call filling all 16.  (The SDK's took 16 in
+ * adc_init and replaced one every 20 s.) */
+#define VBAT_READINGS 16
+
+u32 plat_adc_vbat_mv(void)
+{
+    static const u32 ch[2] = { AD_CH_LDOREF, AD_CH_VBAT };
+    static u16 vbg[VBAT_READINGS], vbat[VBAT_READINGS];
+    static u8 next, filled;
+    u32 i, vbg_sum = 0, vbat_sum = 0;
+    u16 code[2];
+
+    do {
+        plat_adc_sweep(ch, code, 2);
+        vbg[next] = code[0];
+        vbat[next] = code[1];
+        next = (u8)((next + 1) % VBAT_READINGS);
+        if (filled < VBAT_READINGS) filled++;
+    } while (filled < VBAT_READINGS);
+    for (i = 0; i < VBAT_READINGS; i++) {
+        vbg_sum += vbg[i];
+        vbat_sum += vbat[i];
+    }
+    return vbg_sum ? adc_value_to_voltage(vbg_sum, vbat_sum) * 4 : 0;   /* VBAT is 1/4 */
+}
+#endif
+
 /* ---- power ---------------------------------------------------------------- */
 
 static void arm_loader_token(void)

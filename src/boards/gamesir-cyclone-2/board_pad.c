@@ -413,10 +413,8 @@ static void inputs_init(void)
     gpio_direction_output(PIN_SENSOR_POWER, 1);
     analog_input(PIN_TRIGGER_L2);
     analog_input(PIN_TRIGGER_R2);
-    adc_add_sample_ch(ADC_TRIGGER_L2);
-    adc_add_sample_ch(ADC_TRIGGER_R2);
     analog_input(PIN_JACK);
-    adc_add_sample_ch(ADC_JACK);
+    plat_adc_start();
     stop_switch(PR_STOP_L2);
     stop_switch(PR_STOP_R2);
     sticks_init();
@@ -425,11 +423,22 @@ static void inputs_init(void)
 }
 
 /* PA12 reads near the top of the ADC with a plug in and 0 without
- * (docs/gamesir-cyclone2/audio.md); stock takes the upper side as inserted too. */
+ * (docs/gamesir-cyclone2/audio.md); stock takes the upper side as inserted too.
+ * Asked every pass; converted every 10 ms, its caller waits for it to settle. */
 int board_jack(void)
 {
-    return adc_get_value(ADC_JACK) > 512;
+    static const u32 ch = ADC_JACK;
+    static u32 next;
+    static u16 code;
+
+    if ((s32)(plat_now_ms - next) >= 0) {
+        next = plat_now_ms + 10;
+        plat_adc_sweep(&ch, &code, 1);
+    }
+    return code > 512;
 }
+
+static const u32 trigger_ch[2] = { ADC_TRIGGER_L2, ADC_TRIGGER_R2 };
 
 static u32 stop_next;
 static u8 stops[2];
@@ -444,8 +453,7 @@ void plat_input(struct in_raw *raw)
     sticks_drain();
     for (i = 0; i < 4; i++) raw->stick[i] = stick[i];
     raw->sticks_valid = sticks_valid;
-    raw->trigger[0] = adc_get_value(ADC_TRIGGER_L2);
-    raw->trigger[1] = adc_get_value(ADC_TRIGGER_R2);
+    plat_adc_sweep(trigger_ch, raw->trigger, 2);
     /* The stop switches sit behind the slow P33 bus: every 4 ms is plenty
      * for a switch at the end of the trigger's travel. */
     if ((s32)(plat_now_ms - stop_next) >= 0) {
@@ -639,7 +647,7 @@ void board_battery(struct battery_status *out)
 {
     static struct battery_status b;
 
-    battery_voltage(&b, adc_get_voltage(AD_CH_VBAT) * 4, 0, 0);
+    battery_voltage(&b, (u16)plat_adc_vbat_mv(), 0, 0);
     battery_low(&b, 3500, 3600);
     *out = b;
 }
