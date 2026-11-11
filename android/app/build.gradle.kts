@@ -2,11 +2,11 @@ plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
 val outputRoot = providers.gradleProperty("outputDir").orNull ?: "../build/android"
 layout.buildDirectory.set(rootProject.file(outputRoot).resolve("app"))
 android {
-    namespace = "dev.cyclone.padtool"
+    namespace = "dev.jollymaam.app"
     compileSdk = 35
     ndkVersion = "27.2.12479018"
     defaultConfig {
-        applicationId = "dev.cyclone.padtool"
+        applicationId = "dev.jollymaam.app"
         minSdk = 26
         targetSdk = 35
         versionCode = 1

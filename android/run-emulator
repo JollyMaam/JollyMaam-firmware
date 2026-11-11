@@ -188,8 +188,8 @@ install_app() {
     adb -s "$serial" shell input keyevent KEYCODE_WAKEUP || return
     adb -s "$serial" shell wm dismiss-keyguard || return
     adb -s "$serial" install -r "$apk" || return
-    adb -s "$serial" shell am force-stop dev.cyclone.padtool || return
-    adb -s "$serial" shell am start -W -n dev.cyclone.padtool/.MainActivity
+    adb -s "$serial" shell am force-stop dev.jollymaam.app || return
+    adb -s "$serial" shell am start -W -n dev.jollymaam.app/.MainActivity
 }
 install_app
 if $mirror; then

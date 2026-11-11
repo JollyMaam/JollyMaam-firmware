@@ -1,5 +1,5 @@
 @file:Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
-package dev.cyclone.padtool
+package dev.jollymaam.app
 
 import android.Manifest
 import android.annotation.SuppressLint

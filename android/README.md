@@ -200,7 +200,7 @@ To run it on an already-running test emulator:
 
 ```sh
 nix develop .#android --command adb -s emulator-5580 install -r build/android/app/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-nix develop .#android --command adb -s emulator-5580 shell am instrument -w dev.cyclone.padtool.test/androidx.test.runner.AndroidJUnitRunner
+nix develop .#android --command adb -s emulator-5580 shell am instrument -w dev.jollymaam.app.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
 Set `ADB_SERVER_SOCKET=tcp:127.0.0.1:6580` for the launcher's default private adb

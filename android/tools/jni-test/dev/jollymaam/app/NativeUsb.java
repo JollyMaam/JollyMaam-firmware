@@ -1,4 +1,4 @@
-package dev.cyclone.padtool;
+package dev.jollymaam.app;
 public abstract class NativeUsb {
     public int scsi(byte[] cdb, int direction, byte[] data, int timeout) { throw new UnsupportedOperationException(); }
     public int hidWrite(byte[] data) { throw new UnsupportedOperationException(); }

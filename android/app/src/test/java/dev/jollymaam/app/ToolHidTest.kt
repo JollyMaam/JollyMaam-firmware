@@ -1,4 +1,4 @@
-package dev.cyclone.padtool
+package dev.jollymaam.app
 
 import org.junit.Assert.assertEquals
 import org.junit.Test

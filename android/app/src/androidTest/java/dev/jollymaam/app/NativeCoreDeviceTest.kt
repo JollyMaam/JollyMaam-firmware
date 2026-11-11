@@ -1,5 +1,5 @@
 @file:Suppress("DEPRECATION")
-package dev.cyclone.padtool
+package dev.jollymaam.app
 
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.*

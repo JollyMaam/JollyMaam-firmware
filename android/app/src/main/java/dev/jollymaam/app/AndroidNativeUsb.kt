@@ -1,4 +1,4 @@
-package dev.cyclone.padtool
+package dev.jollymaam.app
 
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice

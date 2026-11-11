@@ -52,7 +52,7 @@ class JniTests(unittest.TestCase):
             subprocess.run([f'{java_home}/bin/javac', '-d', str(root), *map(str, java)], check=True)
             (root / 'firmware.zip').write_bytes(package())
             result = subprocess.run([f'{java_home}/bin/java', '-Xcheck:jni', f'-Djava.library.path={root}',
-                                     '-cp', str(root), 'dev.cyclone.padtool.JniTest', str(root / 'firmware.zip')],
+                                     '-cp', str(root), 'dev.jollymaam.app.JniTest', str(root / 'firmware.zip')],
                                     capture_output=True, text=True, timeout=60)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertNotIn('WARNING in native method', result.stdout + result.stderr)

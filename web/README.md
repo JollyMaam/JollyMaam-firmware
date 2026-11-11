@@ -21,7 +21,7 @@ over its own Bluetooth, and the tool device over its USB host API (WebView
 has neither Web Bluetooth nor WebHID).
 
 - `link-android.js`: those links in the app (`window.JollyMaamAndroid`,
-  `android/app/src/main/java/dev/cyclone/padtool/Bridge.kt`), and its
+  `android/app/src/main/java/dev/jollymaam/app/Bridge.kt`), and its
   flasher; `android` is null in a browser.
 - `flash.js`: the Install over USB screen, in the app only: firmware
   through the boot loaders (libjollymaam over JNI), which a browser cannot

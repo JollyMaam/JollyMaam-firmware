@@ -1,4 +1,4 @@
--keep class dev.cyclone.padtool.NativeCore { *; }
--keep class dev.cyclone.padtool.NativeUsb { *; }
+-keep class dev.jollymaam.app.NativeCore { *; }
+-keep class dev.jollymaam.app.NativeUsb { *; }
 # The page calls these by name (window.JollyMaamAndroid).
--keepclassmembers class dev.cyclone.padtool.Bridge { @android.webkit.JavascriptInterface <methods>; }
+-keepclassmembers class dev.jollymaam.app.Bridge { @android.webkit.JavascriptInterface <methods>; }

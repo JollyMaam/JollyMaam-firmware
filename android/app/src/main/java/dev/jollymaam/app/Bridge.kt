@@ -1,4 +1,4 @@
-package dev.cyclone.padtool
+package dev.jollymaam.app
 
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice

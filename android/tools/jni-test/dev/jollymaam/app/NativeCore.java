@@ -1,4 +1,4 @@
-package dev.cyclone.padtool;
+package dev.jollymaam.app;
 public class NativeCore {
     static { System.loadLibrary("jollymaam-jni"); }
     public native int stockLoader(byte[] uid, NativeUsb transport);

@@ -154,7 +154,7 @@ static void close_package(JNIEnv *e, struct package *p) {
 /* ---- NativeCore ------------------------------------------------------------------------------------------ */
 
 /* The package's products: product, board, chip, three strings each. */
-JNIEXPORT jobjectArray JNICALL Java_dev_cyclone_padtool_NativeCore_products(JNIEnv *e, jobject self, jbyteArray input) {
+JNIEXPORT jobjectArray JNICALL Java_dev_jollymaam_app_NativeCore_products(JNIEnv *e, jobject self, jbyteArray input) {
   struct package p;
   const struct jm_product *found[JM_FIRMWARE_FILES];
   unsigned n = 0;
@@ -201,7 +201,7 @@ static int same_uid(struct jm *jm, struct bridge *b) {
 
 /* What the device is: kind 0 its IDENTIFY (88 bytes), 1 the boot loader's
  * model (2 bytes), 2 the Jieli chip's name. */
-JNIEXPORT jbyteArray JNICALL Java_dev_cyclone_padtool_NativeCore_probe(JNIEnv *e, jobject self, jobject transport, jint kind) {
+JNIEXPORT jbyteArray JNICALL Java_dev_jollymaam_app_NativeCore_probe(JNIEnv *e, jobject self, jobject transport, jint kind) {
   struct bridge b;
   struct jm_hooks h;
   struct jm jm;
@@ -228,7 +228,7 @@ JNIEXPORT jbyteArray JNICALL Java_dev_cyclone_padtool_NativeCore_probe(JNIEnv *e
 
 /* The package's firmware for product onto the device: kind 0 through our
  * updater (found again by uid after its restart), else through its loader. */
-JNIEXPORT jint JNICALL Java_dev_cyclone_padtool_NativeCore_run(JNIEnv *e, jobject self, jbyteArray input, jstring product,
+JNIEXPORT jint JNICALL Java_dev_jollymaam_app_NativeCore_run(JNIEnv *e, jobject self, jbyteArray input, jstring product,
                                                               jint kind, jbyteArray uid, jobject transport) {
   struct bridge b;
   struct jm_hooks h;
@@ -254,7 +254,7 @@ JNIEXPORT jint JNICALL Java_dev_cyclone_padtool_NativeCore_run(JNIEnv *e, jobjec
 }
 
 /* Our firmware with this UID into its vendor loader (the app rescans for it). */
-JNIEXPORT jint JNICALL Java_dev_cyclone_padtool_NativeCore_stockLoader(JNIEnv *e, jobject self, jbyteArray uid, jobject transport) {
+JNIEXPORT jint JNICALL Java_dev_jollymaam_app_NativeCore_stockLoader(JNIEnv *e, jobject self, jbyteArray uid, jobject transport) {
   struct bridge b;
   struct jm_hooks h;
   struct jm jm;
