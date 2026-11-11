@@ -1,13 +1,27 @@
 # Web page
 
-Pad settings in the browser over Web Bluetooth: a static page (plain ES
-modules, no build), for GitHub Pages and, later, the Android app's WebView.
+Pad settings in the browser over Web Bluetooth or WebHID: a static page
+(plain ES modules, no build), for GitHub Pages and, later, the Android
+app's WebView.
 
-- `link-web.js`: the link, one GATT connection to a pad in config mode or
-  its updater. The Android app will supply the same interface over its own
-  Bluetooth (WebView has no Web Bluetooth).
-- `pad.js`: the framing (`src/profiles/profile_config.c`) and the tool
-  commands (`src/core/usb.c`) over a link.
+- `link-web.js`: the Bluetooth link, one GATT connection to a pad in
+  config mode or its updater.
+- `link-hid.js`: the USB link, the pad's tool device (16c0:05df, page
+  0xffc2) over WebHID, in its app (any state) or its updater; several
+  programs (padtool, other pages) share it.
+- `frames-hid.js`: the tool device's framing (feature report in, 64-byte
+  input reports out, per client and tag).
+
+Links are raw: a Bluetooth link writes frames and hands up notifications
+(`write`, `onReply`), a HID link sends feature reports and hands up input
+reports (`kind: "hid"`, `reportSize`, `sendFeature`, `onInput`); both have
+`onDisconnect` and `close`, and their module `choose()` and `reconnect()`.
+The framing stays in JS, so the Android app supplies only raw links: GATT
+over its own Bluetooth, and the tool device over its USB host API (WebView
+has neither Web Bluetooth nor WebHID).
+
+- `pad.js`: the Bluetooth framing (`src/profiles/profile_config.c`) and
+  the tool commands (`src/core/usb.c`) over either link.
 - `app.js`, `index.html`, `style.css`: the page. Edits every setting but
   address, bond and calibration, which stay read only.
 - `editors.js`: the remap slot's keys (what each sends, its rules, presets,
@@ -17,8 +31,9 @@ modules, no build), for GitHub Pages and, later, the Android app's WebView.
   text and bytes (tested against the vectors the Python writes for the
   Android app).
 
-Web Bluetooth needs Chrome or Edge, and a secure context (https, or
-localhost). To serve it from a checkout:
+Web Bluetooth and WebHID need Chrome or Edge, and a secure context (https,
+or localhost). On Linux, Chrome opens the pad's `/dev/hidrawN`, so the
+user needs read and write access to it, as padtool does. To serve it from a checkout:
 
 ```sh
 python3 -m http.server -d web 8000     # then http://localhost:8000

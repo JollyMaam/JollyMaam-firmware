@@ -35,7 +35,8 @@ export async function sendImage(up, image, log, progress) {
   // Writes as long as the link takes: Web Bluetooth does not say its MTU,
   // and a longer write goes in pieces of which the updater keeps the first.
   // What it did not keep shows in its count: then shorter writes.
-  let chunk = Math.min(info.dataMax || 512, ATT_MTU_MAX - 3 - FRAME_HEAD);
+  // Over USB a command carries what its report has room for.
+  let chunk = Math.min(info.dataMax || 512, up.usb ? up.frameData : ATT_MTU_MAX - 3 - FRAME_HEAD);
   up.frameData = Math.max(chunk, HEADER_CHECKED);   // one frame a command: the updater has no MORE
 
   await up.cmd(CMD.UPDATE_BEGIN, { arg: image.length, data: image.subarray(0, HEADER_CHECKED) });
@@ -49,7 +50,7 @@ export async function sendImage(up, image, log, progress) {
   let offset = 0, resent = 0;
   // The U2CB's updater: data writes without response, INFO every 32 (its
   // radio core takes ~9 packets an event: twice as fast as acknowledged).
-  const quick = up.id.product === "U2C_BLUETOOTH";
+  const quick = up.id.product === "U2C_BLUETOOTH" && !up.usb;
   for (;;) {
     const every = quick ? 32 : Math.max(1, Math.floor(16384 / chunk));
     up.frameData = chunk;
@@ -80,7 +81,7 @@ export async function sendImage(up, image, log, progress) {
   }
   const s = (performance.now() - t0) / 1000;
   log(`${image.length} bytes in ${s.toFixed(1)} s (${(image.length / s / 1024).toFixed(1)} KiB/s, ` +
-    `${chunk + FRAME_HEAD}-byte writes${resent ? `, ${resent} resends` : ""})`);
+    `${up.usb ? `${chunk} bytes a report` : `${chunk + FRAME_HEAD}-byte writes`}${resent ? `, ${resent} resends` : ""})`);
   await up.cmd(CMD.UPDATE_COMMIT, { answer: false, timeoutMs: 10000 });
   info = await up.updateInfo(10000);   // after the commit's read-back: seconds on the U2CB
   if (info.state !== 2 || info.error) throw new Error(`the updater did not commit: ${why(info.error)}`);

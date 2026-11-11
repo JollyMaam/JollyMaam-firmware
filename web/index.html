@@ -10,7 +10,8 @@
 <header>
   <div class="actions">
     <h1>Pad settings</h1>
-    <button id="connect" type="button">Connect</button>
+    <button id="connect" type="button">Bluetooth</button>
+    <button id="connectusb" type="button">USB</button>
     <button id="disconnect" type="button" class="secondary" hidden>Disconnect</button>
   </div>
   <div id="savebar" hidden>
@@ -20,7 +21,8 @@
   </div>
 </header>
 <main>
-  <p id="message" role="status">Hold Home+M for 3 s to put your pad in config mode, then Connect.</p>
+  <p id="message" role="status">Connect over Bluetooth (hold Home+M for 3 s to put your pad in config
+    mode first) or over USB (plugged in).</p>
   <section id="identity"></section>
   <p id="status" class="muted"></p>
   <details id="firmware" hidden>

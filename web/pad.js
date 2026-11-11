@@ -3,6 +3,7 @@
 // src/profiles/profile_config.c; padtool (tools/padtool) speaks the same.
 
 import { showMap, parseMap, showRules, parseRules, parseCurve, RULE_SIZE } from "./remap.js";
+import { HidCommands, dataMax as hidDataMax } from "./frames-hid.js";
 
 export const PROTOCOL = 2;
 export const MORE = 0x80;
@@ -36,6 +37,13 @@ export const KINDS = ["slot", "palette", "calibration", "remap"];
 export const T = { ENUM: 0, NUMBER: 1, RGB: 2, BYTES: 3, TEXT: 4, ENTRY: 5, LIST: 6 };
 export const RESULTS = ["ok", "unknown setting", "bad length", "out of range", "full"];
 export const PALETTE_TARGET = 8, PALETTE = 16;
+
+// Over USB a command asks for its answer's size (the pad zero-pads to
+// it): padtool's sizes; the rest have none.
+const USB_ANSWER = {
+  [CMD.IDENTIFY]: 88, [CMD.STATUS]: 16, [CMD.LAYOUT]: 4 + 12 * 20, [CMD.READ]: 512, [CMD.DEFAULTS]: 512,
+  [CMD.FIELDS]: 512, [CMD.RESULT]: 256, [CMD.UPDATE_INFO]: 32,
+};
 
 // The input (IN_*, src/core/pad.h) of the key that picks each slot.
 const SLOT_INPUTS = [0, 1, 3, 4, 16, 18, 19, 17];
@@ -251,14 +259,17 @@ export function decodeUpdateInfo(d) {
 
 // ---- commands ------------------------------------------------------------
 
+// A pad over a link: Bluetooth (link-web.js: the frames below) or USB
+// (link-hid.js: frames-hid.js), the same commands either way.
 export class Pad {
   constructor(link) {
     this.link = link;
-    this.frameData = link.maxWrite - FRAME_HEAD;
+    this.usb = link.kind === "hid" ? new HidCommands(link) : null;
+    this.frameData = this.usb ? hidDataMax(link) : link.maxWrite - FRAME_HEAD;
     this.pending = null;
     this.maxReply = 0;           // the longest notification seen: the MTU less 3, at most
     this.chain = Promise.resolve();
-    link.onReply((r) => this.#reply(r));
+    if (!this.usb) link.onReply((r) => this.#reply(r));
     link.onDisconnect(() => {
       this.gone = true;
       this.pending?.reject(new Error("link lost"));
@@ -319,12 +330,19 @@ export class Pad {
   // or without an answer (UPDATE_COMMIT, REBOOT: answer false).  One at a
   // time.  quick: written without response (no pacing; the caller checks
   // the count).
-  cmd(sub, { arg = 0, data = new Uint8Array(0), timeoutMs = 3000, answer = !(this.id?.updater && data.length),
-    quick = false } = {}) {
-    const run = () => this.#run(sub, arg, data, timeoutMs, answer, quick);
+  // size: over USB, the answer's (USB_ANSWER by default).
+  cmd(sub, { arg = 0, data = new Uint8Array(0), timeoutMs = 3000, answer = !(this.id?.updater && data.length && !this.usb),
+    quick = false, size = USB_ANSWER[sub] ?? 0 } = {}) {
+    const run = () => this.usb ? this.#usb(sub, arg, data, size, timeoutMs, answer)
+      : this.#run(sub, arg, data, timeoutMs, answer, quick);
     const result = this.chain.then(run, run);
     this.chain = result.catch(() => {});
     return result;
+  }
+
+  async #usb(sub, arg, data, size, timeoutMs, wanted) {
+    if (this.gone) throw new Error("link lost");
+    return this.usb.run(sub, arg, data, size, timeoutMs, wanted);
   }
 
   async #run(sub, arg, data, timeoutMs, wanted, quick) {
@@ -416,7 +434,8 @@ export class Pad {
         if (attempt >= tries || this.gone) throw error;
       }
     }
-    if (!this.id.updater) this.frameData = Math.min(this.frameData, CONFIG_FRAME_DATA);
+    if (this.usb) this.id.dataMax = hidDataMax(this.link);   // the 88 is config mode's
+    else if (!this.id.updater) this.frameData = Math.min(this.frameData, CONFIG_FRAME_DATA);
     return this.id;
   }
 

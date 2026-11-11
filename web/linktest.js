@@ -32,7 +32,7 @@ export async function writeTest(pad, frameData, size, log) {
     const ms = performance.now() - t0;
     const r = await pad.cmd(CMD.RESULT);
     const ok = r[0] === items && r.subarray(1, 1 + items).every((c) => c === SET_UNKNOWN);
-    log(`${frameData + 9}-byte writes, ${size} bytes in ${Math.ceil(size / frameData)}: ` +
+    log(`${pad.usb ? "one report" : `${frameData + 9}-byte writes`}, ${size} bytes in ${Math.ceil(size / frameData)}: ` +
       (ok ? `intact, ${ms.toFixed(0)} ms (${(size / ms * 1000 / 1024).toFixed(1)} KiB/s)`
           : `CHANGED: pad found ${r[0]} items of ${items}, codes ${Array.from(r.subarray(1, 1 + r[0])).join(",")}`));
     return ok;
@@ -45,6 +45,11 @@ export async function writeTest(pad, frameData, size, log) {
 }
 
 export async function writeTests(pad, log) {
+  if (pad.usb) {                 // one report a command
+    log(`the tool device takes ${pad.id.dataMax} bytes a command`);
+    await writeTest(pad, pad.frameData, pad.id.dataMax, log);
+    return;
+  }
   log(`config mode takes ${pad.id.dataMax} bytes a command`);
   for (const frameData of [11, 87]) {             // 20-byte writes fit the smallest MTU; 96 is BT_WRITE_MAX
     if (!(await writeTest(pad, frameData, pad.id.dataMax, log)) && pad.gone) return;
@@ -95,7 +100,7 @@ export async function updaterTrip(pad, links, log) {
     const info = decodeUpdateInfo(await up.cmd(CMD.UPDATE_INFO));
     log(`update info: app at 0x${info.at.toString(16)}, room ${info.room}, ${info.valid ? "an app is there" : "no app"}, ` +
       `data max ${info.dataMax}`);
-    log(`longest notification: ${up.maxReply} bytes (one piece; IDENTIFY needs 89)`);
+    if (!up.usb) log(`longest notification: ${up.maxReply} bytes (one piece; IDENTIFY needs 89)`);
   } catch (error) {
     log(`FAILED in the updater: ${error.message || error}`);
   }
