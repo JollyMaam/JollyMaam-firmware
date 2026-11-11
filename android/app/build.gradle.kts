@@ -19,6 +19,12 @@ android {
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { buildConfig = true }
+    // One debug key for every build and machine (the default one is made per
+    // user and was lost between builds here): a new APK installs over an old.
+    signingConfigs.getByName("debug") {
+        storeFile = rootProject.file("debug.keystore"); storePassword = "android"
+        keyAlias = "androiddebugkey"; keyPassword = "android"
+    }
     buildTypes { release { isMinifyEnabled = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro") } }
     // A developer utility with an English UI; settings text also comes from firmware.
     lint { warningsAsErrors = true; disable += setOf("HardcodedText", "SetTextI18n") }
