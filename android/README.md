@@ -8,8 +8,8 @@ USB host-capable phone and an OTG adapter or USB-C cable; Bluetooth needs LE.
 The page is the same one Chrome serves; in the app it gets its links from
 `window.JollyMaamAndroid` instead of Web Bluetooth and WebHID
 (`web/link-android.js`), and offers **Install over USB** beside the two
-**Configure** choices. The APK carries the firmware package
-(`build/firmware.zip`, from `make firmware`) when it is built; the page uses
+**Configure** choices. The APK always carries the firmware package
+(`build/firmware.zip`; `make android` builds it first); the page uses
 it, and another can be chosen. `make dist-android` takes the one in
 `build/dist/`.
 

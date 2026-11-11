@@ -35,7 +35,8 @@
           abiVersions = [ "x86_64" ];
         }).androidsdk;
         in pkgs.mkShell {
-          packages = with pkgs; [ jdk17 android-tools cmake ninja gnumake gcc pkg-config python3 ]
+          # gcc-arm-embedded: the APK carries every board's firmware (make firmware).
+          packages = with pkgs; [ jdk17 android-tools cmake ninja gnumake gcc binutils gcc-arm-embedded pkg-config python3 ]
             ++ lib.optionals withEmulator [ sdk scrcpy util-linux psmisc ];
           JOLLYMAAM_EMULATOR_SHELL = if withEmulator then "1" else "0";
           JAVA_HOME = pkgs.jdk17.home;
