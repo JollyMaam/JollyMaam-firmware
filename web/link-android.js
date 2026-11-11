@@ -153,8 +153,12 @@ const flasher = {
   // kind 0 {product, build, uid, updater}, 1 {product}, 2 {chip}.
   probe: (device) => call("flashProbe", device),
   // The package's firmware for product onto device; progress(done, total).
-  async run(device, product, uid, progress) {
-    listeners.set(0, (type, v) => { if (type === "progress") progress?.(v.done, v.total); });
+  // say(line): what the flasher does, a line at a time (libjollymaam's).
+  async run(device, product, uid, progress, say) {
+    listeners.set(0, (type, v) => {
+      if (type === "progress") progress?.(v.done, v.total);
+      else if (type === "log") say?.(v);
+    });
     try {
       return await call("flashRun", device, product, uid ?? "");
     } finally {

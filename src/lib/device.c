@@ -90,27 +90,40 @@ static int tool(struct jm *jm, void *dev, size_t report, const struct jm_update_
     /* These restart the device: their answer may never come. */
     if (r->cdb[1] == JM_CMD_REBOOT || r->cdb[1] == JM_CMD_UPDATER || r->cdb[1] == JM_CMD_REBOOT_LOADER)
       return 1;
-    if (sent != (int)report + 1) return 0;
+    if (sent != (int)report + 1) {
+      say(jm, "command %u: the tool device did not take the request (%d of %zu bytes)", r->cdb[1], sent, report + 1);
+      return 0;
+    }
     size_t got = 0;
     int refused = 0;
     for (unsigned waits = 0; waits < 150 && !refused;) {
       int k = jm->h->read(jm->h->ctx, dev, in, sizeof in, 100);
-      if (k < 0) return 0;
+      if (k < 0) {
+        say(jm, "command %u: reading its answer failed", r->cdb[1]);
+        return 0;
+      }
       if (k == 0) { waits++; continue; }          /* 15 s without a piece of ours */
       if (k < JM_HID_INPUT_HEAD_SIZE) continue;
       uint32_t whose = in[0] | in[1] << 8 | in[2] << 16 | (uint32_t)in[3] << 24;
       if (whose != client || in[4] != jm->tag) continue;
       if (in[5] == JM_HID_REFUSED) { refused = 1; break; }
       size_t offset = in[6] | (size_t)in[7] << 8, length = (size_t)k - JM_HID_INPUT_HEAD_SIZE;
-      if ((in[5] != JM_HID_MORE && in[5] != JM_HID_LAST) || offset != got) return 0;
+      if ((in[5] != JM_HID_MORE && in[5] != JM_HID_LAST) || offset != got) {
+        say(jm, "command %u: its answer came out of order (status %u at %zu, expected %zu)", r->cdb[1], in[5], offset, got);
+        return 0;
+      }
       if (length > r->in_size - got) length = r->in_size - got;
       memcpy(answer + got, in + JM_HID_INPUT_HEAD_SIZE, length);
       got += length;
       if (in[5] == JM_HID_LAST) return got == r->in_size;
     }
-    if (!refused) return 0;
+    if (!refused) {
+      say(jm, "command %u: no answer in 15 s (%zu of %zu bytes)", r->cdb[1], got, r->in_size);
+      return 0;
+    }
     jm->h->sleep(jm->h->ctx, 1 + (client >> (tries % 24) & 7));
   }
+  say(jm, "command %u: refused 2000 times (the tool device stayed busy with other clients)", r->cdb[1]);
   return 0;
 }
 

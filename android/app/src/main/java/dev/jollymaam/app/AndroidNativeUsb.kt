@@ -6,6 +6,7 @@ import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
+import android.util.Log
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -16,7 +17,8 @@ class AndroidNativeUsb(
     val kind: Int,
     private val permission: (UsbDevice) -> Boolean,
     private val cancelled: AtomicBoolean,
-    private val progress: (Long, Long) -> Unit
+    private val progress: (Long, Long) -> Unit,
+    private val say: (String) -> Unit = {}
 ) : NativeUsb() {
     private var connection: UsbDeviceConnection? = null
     private var intf: UsbInterface? = null
@@ -111,6 +113,13 @@ class AndroidNativeUsb(
         return false
     }
     override fun onProgress(done: Long, total: Long) { progress(done, total) }
+    /** libjollymaam's lines: logcat, and kept for the Flash panel. */
+    val said = mutableListOf<String>()
+    override fun onSay(line: String) {
+        Log.i("JollyMaam", line.trim())
+        said += line.trim()
+        say(line.trim())
+    }
     companion object {
         internal fun transferScsi(transport: Scsi, cdb: ByteArray, direction: Int, data: ByteArray, timeout: Int): Int {
             // Jieli helpers report bogus BOT residue; still require every actual

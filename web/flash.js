@@ -70,7 +70,7 @@ export function setupFlasher(flasher) {
       lock(true);
       id = await flasher.probe(d.device);
     } catch (error) {
-      return $("flashactions").replaceChildren(h("p", { class: "error" }, `${d.name}: ${error.message}`));
+      return $("flashactions").replaceChildren(h("p", { class: "error" }, `${d.name}: ${error.message || error.name || error}`));
     } finally {
       lock(false);
     }
@@ -119,7 +119,7 @@ export function setupFlasher(flasher) {
     log(`${target.board} (${target.product}) onto ${d.name}`);
     const t0 = performance.now();
     try {
-      await flasher.run(d.device, target.product, uid, (done, total) => { $("flashprogress").value = total ? done / total : 0; });
+      await flasher.run(d.device, target.product, uid, (done, total) => { $("flashprogress").value = total ? done / total : 0; }, log);
       log(`written and checked in ${((performance.now() - t0) / 1000).toFixed(1)} s; the pad starts it`);
     } catch (error) {
       log(error.message);

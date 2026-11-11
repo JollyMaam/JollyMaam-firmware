@@ -10,6 +10,7 @@ import android.bluetooth.le.ScanSettings
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.ParcelUuid
+import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import org.json.JSONArray
@@ -68,8 +69,9 @@ class Bridge(private val activity: MainActivity, private val web: WebView) : Clo
             done(call, block())
         } catch (e: NotChosen) {
             fail(call, "NotFoundError", e.message ?: "")
-        } catch (e: Exception) {
-            fail(call, "Error", e.message ?: e.toString())
+        } catch (e: Throwable) {   // an Error too (a JNI one): the page gets an answer
+            Log.w("JollyMaam", "call $call", e)
+            fail(call, "Error", e.message?.takeIf { it.isNotBlank() } ?: e.toString())
         }
     }
 
@@ -232,15 +234,20 @@ class Bridge(private val activity: MainActivity, private val web: WebView) : Clo
         return device to kind
     }
 
+    /** libjollymaam's lines go to the Flash panel's log as they come
+     * (events on handle 0, as progress). */
     private fun transport(device: UsbDevice, kind: Int, progress: (Long, Long) -> Unit = { _, _ -> }) =
-        AndroidNativeUsb(usb, device, kind, activity::usbPermission, cancelled, progress)
+        AndroidNativeUsb(usb, device, kind, activity::usbPermission, cancelled, progress) { event(0, "log", it) }
+
+    /** A failure with the library's last line, which says why. */
+    private fun failed(t: AndroidNativeUsb, what: String) = IOException(t.said.lastOrNull()?.let { "$what: $it" } ?: what)
 
     /** What the device is: ours (product, build, flash ID, updater or app),
      * the 8BitDo loader (its model checked), a Jieli loader (its chip). */
     @JavascriptInterface fun flashProbe(call: Int, name: String) = async(call) {
         val (device, kind) = device(name)
-        val reply = transport(device, kind).use { NativeCore.probe(it, kind) }
-            ?: throw IOException("it did not answer (is it in the mode it showed?)")
+        val t = transport(device, kind)
+        val reply = t.use { NativeCore.probe(it, kind) } ?: throw failed(t, "it did not answer (is it in the mode it showed?)")
         when (kind) {
             0 -> mapOf("kind" to 0, "build" to reply.copyOfRange(8, 24).cString(), "uid" to reply.copyOfRange(24, 40).hex(),
                 "product" to reply.copyOfRange(40, 56).cString(), "updater" to (reply.u8(7) == 1))
@@ -259,10 +266,11 @@ class Bridge(private val activity: MainActivity, private val web: WebView) : Clo
         val bytes = pkg ?: throw IOException("choose a firmware package first")
         val (device, kind) = device(name)
         var last = -1L
-        val result = transport(device, kind) { done, total ->
+        val t = transport(device, kind) { done, total ->
             val percent = if (total > 0) done * 100 / total else 0
             if (percent != last) { last = percent; event(0, "progress", mapOf("done" to done, "total" to total)) }
-        }.use { NativeCore.run(bytes, product, kind, if (kind == 0) unhex(uid) else null, it) }
+        }
+        val result = t.use { NativeCore.run(bytes, product, kind, if (kind == 0) unhex(uid) else null, it) }
         if (result != 0) throw IOException("failed ($result): the device may stay in its loader; scan again before trying again")
         null
     }
@@ -271,8 +279,9 @@ class Bridge(private val activity: MainActivity, private val web: WebView) : Clo
     @JavascriptInterface fun flashStockLoader(call: Int, name: String, uid: String) = async(call) {
         val (device, kind) = device(name)
         if (kind != 0) throw IOException("only our firmware or updater takes that request")
-        val result = transport(device, 0).use { NativeCore.stockLoader(unhex(uid), it) }
-        if (result != 0) throw IOException("unconfirmed ($result): scan again before trying again")
+        val t = transport(device, 0)
+        val result = t.use { NativeCore.stockLoader(unhex(uid), it) }
+        if (result != 0) throw failed(t, "unconfirmed ($result): scan again before trying again")
         null
     }
 }

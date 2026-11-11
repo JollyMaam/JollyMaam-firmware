@@ -8,4 +8,5 @@ public abstract class NativeUsb {
     public void waitMillis(int ms) {}
     public boolean reconnect(byte[] uid) { return false; }
     public void onProgress(long done, long total) {}
+    public void onSay(String line) {}
 }

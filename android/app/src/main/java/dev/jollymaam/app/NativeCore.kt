@@ -22,4 +22,6 @@ abstract class NativeUsb : Closeable {
     open fun waitMillis(ms: Int) { if (ms > 0) Thread.sleep(ms.toLong()) }
     open fun reconnect(uid: ByteArray): Boolean = false
     open fun onProgress(done: Long, total: Long) {}
+    /** A line of what libjollymaam does (its say hook). */
+    open fun onSay(line: String) {}
 }

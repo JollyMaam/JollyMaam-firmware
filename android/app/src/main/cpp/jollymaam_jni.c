@@ -12,7 +12,7 @@
 struct bridge {
   JNIEnv *env;
   jobject transport;
-  jmethodID scsi, write, read, set, wait, reconnect, size, progress;
+  jmethodID scsi, write, read, set, wait, reconnect, size, progress, say;
   int kind, generation, listed, has_uid;
   uint8_t uid[16];
 };
@@ -31,6 +31,7 @@ static int prepare(struct bridge *b, JNIEnv *env, jobject transport, int kind) {
   b->reconnect = (*env)->GetMethodID(env, cls, "reconnect", "([B)Z");
   b->size = (*env)->GetMethodID(env, cls, "featureSize", "()I");
   b->progress = (*env)->GetMethodID(env, cls, "onProgress", "(JJ)V");
+  b->say = (*env)->GetMethodID(env, cls, "onSay", "(Ljava/lang/String;)V");
   (*env)->DeleteLocalRef(env, cls);
   return !(*env)->ExceptionCheck(env);
 }
@@ -118,7 +119,19 @@ static void nap(void *ctx, unsigned ms) {
   struct bridge *b = ctx;
   if (!(*b->env)->ExceptionCheck(b->env)) (*b->env)->CallVoidMethod(b->env, b->transport, b->wait, (jint)ms);
 }
-static void say(void *ctx, const char *line) { (void)ctx, (void)line; }
+/* The library's lines to Kotlin's onSay (logcat, the Flash panel), as
+ * ASCII: NewStringUTF takes modified UTF-8 only. */
+static void say(void *ctx, const char *line) {
+  struct bridge *b = ctx;
+  JNIEnv *e = b->env;
+  char ascii[400];
+  size_t n = 0;
+  for (; line[n] && n < sizeof ascii - 1; n++) ascii[n] = (unsigned char)line[n] < 0x80 ? line[n] : '?';
+  ascii[n] = 0;
+  if ((*e)->ExceptionCheck(e)) return;
+  jstring s = (*e)->NewStringUTF(e, ascii);
+  if (s) (*e)->CallVoidMethod(e, b->transport, b->say, s), (*e)->DeleteLocalRef(e, s);
+}
 static void progress(void *ctx, const char *what, size_t done, size_t total) {
   struct bridge *b = ctx;
   (void)what;
