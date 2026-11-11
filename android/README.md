@@ -1,11 +1,43 @@
-# Native Android padtool
+# Android app
 
-A small Kotlin app using Android's built-in widgets and USB host API. Android
-8.0 (API 26) or newer, a USB host-capable phone, and a data cable/OTG adapter are
-required. Configuration uses this firmware's USB tool interface, with protocol
-1 as defined in `src/core/usb.c`. Bluetooth configuration is not implemented.
+The pad settings page (`web/`, see `web/README.md`) in a WebView, with what a
+WebView lacks supplied by the app: USB, Bluetooth, and a flasher for the boot
+loaders a browser cannot reach. Android 8.0 (API 26) or newer. USB needs a
+USB host-capable phone and an OTG adapter or USB-C cable; Bluetooth needs LE.
 
-The desktop CLI and Tkinter GUI are independent and remain available.
+The page is the same one Chrome serves; in the app it gets its links from
+`window.JollyMaamAndroid` instead of Web Bluetooth and WebHID
+(`web/link-android.js`), and shows a **Flash** button.
+
+- `MainActivity.kt`: the WebView. It serves `assets/web/` (copied from
+  `web/` at build time) as `https://appassets.androidplatform.net/`, an https
+  origin, so the page is a secure context. File inputs open Android's file
+  picker; links to other sites open in the browser. Debug builds allow
+  `chrome://inspect` from a desktop.
+- `Bridge.kt`: what the page calls. Every call takes a call number and returns
+  at once; the answer comes back as `jmAndroid.done(call, error, value)`, what a
+  link hears as `jmAndroid.event(handle, type, value)`, bytes as base64.
+- `HidLink.kt`: the tool device (16c0:05df, usage page 0xffc2) over the USB
+  host API: feature reports out, input reports up, as WebHID gives them. The
+  framing (`web/frames-hid.js`) stays in the page.
+- `BleLink.kt`: a GATT link to a pad in config mode or its updater: frames
+  written, notifications up, as Web Bluetooth gives them. Android runs one GATT
+  operation at a time; they queue on one thread. It asks for a 517-byte MTU.
+- The flasher: `NativeCore` (libjollymaam over JNI, `src/main/cpp/`) with
+  `AndroidNativeUsb` for its USB hooks: our updater (kind 0), the 8BitDo boot
+  loader (1) and the Jieli ROM loader, which is USB mass storage (2).
+
+## Use
+
+1. Open the app.
+2. Bluetooth: hold Home+M for 3 s on the pad, tap **Bluetooth**, allow
+   Bluetooth access (location before Android 12), and pick the pad.
+3. USB: plug the pad in, tap **USB**, and allow USB access.
+4. Flash: tap **Flash**, choose a `firmware.zip`, plug the pad in (in its
+   boot loader, or running our firmware) and pick it from the list.
+
+After a restart into the updater the pad is a new USB device: Android may ask
+for USB access again.
 
 ## Quick UI iteration on Linux
 
@@ -23,9 +55,9 @@ An x86_64 Linux host with read/write access to `/dev/kvm` is expected.
 
 The script builds the debug APK, creates a compact phone AVD if needed, boots
 the normal emulator window, waits for Android, installs the APK and opens the
-**device list**. Use `--scrcpy` to run the emulator with `-no-window` and show
-Android through scrcpy instead. Select
-**Simulated pad (no USB)** to explore the app. Keep the script running. Press
+page. Use `--scrcpy` to run the emulator with `-no-window` and show
+Android through scrcpy instead. The emulator has no pads: it shows the page
+and the app's own errors (no pad on USB). Keep the script running. Press
 **r + Enter** to rebuild/reinstall after
 editing, keeping Android booted. Press **q + Enter** or **Ctrl-C** to stop the
 session. Closing the emulator window (or scrcpy when selected) also ends the session. A failed reload
@@ -33,9 +65,8 @@ leaves the emulator available so you can fix the error and press r again.
 
 Cleanup stops the build, scrcpy and their descendants, emulator and private adb server,
 removes this run's temporary directory, then releases the launcher lock. The
-supervisor waits for cleanup before returning. Saved AVD data, simulated
-settings, APK build outputs and diagnostic logs are persistent and remain for
-the next run. The overview's **Reset simulated pad** resets the demo settings.
+supervisor waits for cleanup before returning. Saved AVD data, APK build
+outputs and diagnostic logs are persistent and remain for the next run.
 
 Useful options:
 
@@ -97,32 +128,6 @@ pgrep -af '[G]radleDaemon|[K]otlinCompileDaemon'
 No `pgrep` output means neither named daemon is running. Entries marked
 STOPPED in Gradle's registry are historical, not live processes.
 
-The app always starts on the device list, including when launched by the
-emulator script. In a debug APK, select **Simulated pad (no USB)**. The simulator
-uses the normal field decoder, settings reads, WRITE/RESULT/COMMIT flow, draft
-handling, editors and JSON files. It includes all firmware fields/defaults,
-some saved sample remap settings, a synthetic bond for Unpair, moving input,
-and logs for pairing, connect, rumble and LED actions. It models remap-base
-inheritance, range checks and the 1024-byte staging limit. Calibration writes
-synthetic readings immediately. It is a UI/protocol development aid, not an
-emulation of controller timing, radios or sensors; flashing is disabled.
-
-Simulation is explicitly labelled and cannot open the USB transport. Its
-fixture is packaged only in debug builds; release builds expose neither the
-simulation button nor its fixture. Real device operation still uses
-the Android USB transport and needs separate phone/hardware validation.
-
-Regenerate the checked-in simulation fixture when the firmware field table or
-defaults change (requires Python 3 and a host C compiler):
-
-```sh
-python3 android/tools/generate_simulation.py
-```
-
-The exporter invokes the firmware's actual `set_describe`, `set_read` and
-`set_read_defaults` with its host-test storage stubs; it does not access USB or
-the SDK. Ordinary app builds and emulator launches use the checked-in fixture.
-
 Launcher lifecycle tests (Linux, Python 3 and util-linux; no emulator/USB):
 
 ```sh
@@ -164,43 +169,14 @@ compiler in the build process. Gradle may fork a single-use JVM to satisfy its
 memory settings; that process exits when the build finishes.
 `assembleRelease` produces an optimized unsigned APK; production signing keys
 are not included. There are no runtime dependencies beyond Kotlin's standard
-library and Android. The app requests USB device access, not storage, network,
-location or Bluetooth permissions.
+library and Android. The app asks for USB device access and Bluetooth (scan and connect; before
+Android 12, location, which scanning needed then); not storage or network.
 
-## Firmware package updater
+## Checks and boundaries
 
-The main device list has a **Firmware updater** button, available without a
-connected pad. Choose the single `build/firmware.zip` produced by
-`make firmware-package`. The app verifies the manifest, artifact hashes and
-image formats before enabling device selection. Android's file picker reads the
-ZIP; no broad storage permission is needed. Keep the app in the foreground
-through an update.
-
-Supported interfaces are our HID tool firmware, the 8BitDo Ultimate 2C Wireless
-pad's stock HID bootloader, and Jieli BR23/BD19 UBOOT1.00 mass-storage
-bootloaders. Normal stock gamepad modes cannot be updated through this screen.
-Select a device, grant USB permission and confirm **Update**. Our HID devices
-can also be selected without a package: **Stock bootloader**, followed by
-**Enter**, sends a UID-checked `0x11` request from either our running firmware or
-our updater. It does not flash firmware. Rescan after the device changes modes.
-The desktop stock-restore commands are described in `src/lib/README.md`; this
-Android screen currently handles package installation and stock-loader entry. Discovery reads
-identity only. Jieli asks for the intended board because INQUIRY identifies the
-chip; the C core checks the installed product before erasing. The matching RAM
-helper comes from the verified ZIP, so this screen needs no separate helper
-selection. Jieli updates leave the verified device in its loader. Custom and
-8BitDo sessions request a firmware restart after verification.
-
-The APK contains `libjollymaam-jni.so` for arm64-v8a and x86_64. CMake compiles
-`libjollymaam.a` for each ABI and links it into the JNI shared library. It does
-not link the desktop platform archive, hidapi, libusb, zlib or a C++ runtime.
-`NativeCore` exposes package inspection, read-only probing and an update session.
-`NativeUsb` supplies synchronous Kotlin callbacks for USB transfers, report size,
-waiting, reconnecting by UID and progress. `AndroidNativeUsb` implements them
-with Android USB host APIs; `FirmwareUpdaterActivity` owns permissions,
-confirmation and a single worker. Protocol sequencing, validation and reconnect
-policy remain in the portable C core. The older settings/individual-image
-screens retain their existing Kotlin implementation.
+`testDebugUnitTest` covers the USB Bulk-Only Transport framing (`BulkScsi`)
+and the tool device's descriptor sizes (`ToolHid`). `make web-test` runs the
+page's side of the bridge (`web/test/android.test.mjs`) against a fake app.
 
 `nix develop .#android --command make android-check` (from the repository root)
 builds the debug APK and instrumentation APK, runs JVM unit tests and lint. Make also works with an externally configured Java and Android
@@ -222,152 +198,5 @@ server (adjust both ports when using a different emulator port). Install the mai
 APK first; `android/run-emulator` does that automatically. Phone USB behavior and
 physical firmware writes still require hardware validation.
 
-## Use
-
-1. End the controller's USB gamepad session, then connect it to the phone.
-2. Select its device entry and allow Android's USB access prompt.
-3. Open a slot, palette, calibration or remap page. Tap a value to edit it.
-4. Stage changes, then Apply. Discard uses the cached originals. Reset to defaults stages
-   the firmware defaults, including pairing fields within the selected scope.
-
-Refresh, Apply and Discard stay in the fixed toolbar at the very top, with Back
-aligned to the right. Back stays visible and disabled on the main device list.
-On the pad's page Apply/Discard affect that pad; on a
-detailed page they affect only that target. On the main device list they affect
-all devices with pending changes, after a confirmation showing the number of
-changes and devices. Global Apply checks all connections, identities and staging
-budgets before writing; devices then commit separately. If one fails, confirmed
-commits stay saved and the remaining edits are retained. Disconnected devices
-must be reconnected and selected before global Apply can succeed.
-
-Refresh enumerates USB devices and returns to the
-device list; selecting a device reads its settings. Back returns from a
-settings page to the pad, and from the pad to the device list. The pad page
-groups Slots, Remaps (Base first), other settings (Palette and Calibration),
-then actions such as backup, restore and Reset to defaults, with dividers
-between groups. This is app layout; it does not change protocol IDs, firmware
-field ordering or write ordering. Detailed pages also have a Reset to defaults
-button in their body.
-
-The single status line below the toolbar includes the page, simulation marker,
-pending changes, operation/progress and device state. Long press it for full
-details, including build/protocol/flash UID and any truncated message. Long
-press a setting's value or plain name label for help, its default and numeric
-range. Names sit beside value buttons; defaults do not occupy a second row.
-Pages retain their scroll position through edits and recreation.
-Mouse-wheel scrolling takes precedence over an earlier button's focus reveal,
-so later layouts do not pull the list back to that button. Vertical wheel input
-scrolls directly and cancels earlier scrolling animations; touch dragging and
-flinging keep their native behaviour.
-
-Drafts survive navigation,
-activity recreation and app restarts, and are keyed to the firmware build and
-flash UID. Reading a reconnected device reloads its saved values and restores
-compatible drafts. A `*` button discards the field's pending edit; a `✓` stages
-its default. Developer fields are collapsed by default; their checkbox expands
-them immediately underneath it without rebuilding the page. Pages without
-developer fields have no checkbox. Unpair is staged and
-only takes effect on Apply.
-
-Each device's staging area holds 1024 bytes. A device's Apply payload larger
-than that is rejected before WRITE; use page-level Apply for large imports.
-For each device, Apply checks its identity, drops stale firmware staging,
-checks every WRITE result, and sends one COMMIT. A failed/ambiguous commit requires Refresh and
-reopening the device before another Apply. Check the loaded values and discard any already-saved edits
-before retrying an action such as Unpair. Successfully acknowledged commits
-clear drafts before the subsequent settings read, so a failed refresh cannot
-re-stage a completed action.
-
-Remaps use one per-key table, like padgui: each key's **maps to** selector is
-followed by its rules. The mapping sends a key while held; rules add actions.
-**+ Rule** opens a form with trigger/effect pickers, output checkboxes, timing
-and turbo rate (including every report). Only effects valid for the trigger
-are offered. Tap a rule to edit it or **×** to delete it. The rule count shows
-the shared 16-entry limit. Each key's **\*** discards that key's mapping and
-rules; **✓** stages their defaults. Long press the mapping for its default.
-Mapping presets preserve unrelated mappings and rules. Import/export uses
-the existing preset buttons. All edits remain pending until Apply.
-
-Stick curves have draggable points, a value
-editor and the same Linear, Concave and S-curve presets as Python padtool.
-Choosing Linear disables the curve; other edits enable it. The enable field
-can also be edited independently.
-
-Settings backups and remap presets use the desktop format-1 JSON files.
-Settings backup reads saved device values, excluding drafts. Restore validates
-the file and stages edits, including calibration and pairing; Apply saves them.
-Preset export includes the selected remap's pending values. Android's system
-file picker handles import and export.
-
-The device overview provides firmware console, live input, short rumble tests,
-LED demos and restart/loader entry. Console/input reads are serialized with all
-other USB operations and pause when leaving the page or backgrounding the app;
-use Start to resume. The console retains up to 32,000 characters. Dongles have
-Pair, target-address and tool-only controls.
-
-## Firmware backup and flashing
-
-On a running device, Enter flash loader requests the reboot. Select the
-returning UBOOT device after Refresh and grant USB access again. Alternatively,
-connect the pad while holding Home + Start, or the dongle while holding its
-button.
-
-Select the SDK's `cpu/br23/tools/br23loader.bin` once using **Select RAM
-helper**. This proprietary helper is kept in private app storage; it is not
-bundled in the APK or repository. Discovery never uploads code. Read product ID,
-full flash backup and flashing explicitly upload the helper into the selected
-ROM loader's RAM.
-
-Flash firmware accepts a prepared `firmware.img` or a CRC-checked UFW. The app
-checks product ID, capacity, chip key and any required key conversion before
-showing the final flash choice, then checks again on the selected loader before
-erasing. The source file is unchanged. Key conversion supports our generated
-images; unsupported stock layouts are rejected. If requested, a full backup is
-written and its destination closed before any erase. Every flash verifies the
-written bytes before requesting a restart. Progress reports upload, backup,
-erase, write and verification stages. Keep the app in the foreground and USB
-connected during the operation.
-
-Flashing replaces settings in erased sectors. Save a separate settings backup
-if needed. A standalone full backup leaves the device in its loader; reconnect
-USB afterwards. A failed write/verification leaves the device in the loader
-for recovery.
-
-## Checks and boundaries
-
-`testDebugUnitTest` includes:
-
-- USB Bulk-Only Transport framing, tags, residue, short transfers, reset on
-  failure and no automatic command retry;
-- complete WRITE result checks, ordering, identity, capacity, refusal and lost
-  COMMIT replies;
-- Python-generated map/rule/curve vectors and byte-exact firmware rekey output;
-- simulated RAM upload, flash capacity/key/PID, erase/write/readback and refusing
-  to restart on verification failure;
-- backup/preset compatibility and native activity launch/recreation on Android
-  9 and 15, plus staging a mapping and retaining its draft.
-- device-list startup, toolbar/navigation, long-press help, single-line status,
-  scroll retention through edits/recreation, wheel versus deferred focus and
-  active flings, wheel direction changes/limits, and subsequent touch flinging.
-- in-place developer expansion, compact labels/default help, combined remap
-  mapping/rule editing, per-key discard, presets, rule limits and deletion.
-- per-pad/global toolbar scope, global confirmation, multiple-device commits,
-  disconnected/oversized preflight refusal and partial completion after a lost reply.
-
-Regenerate interoperability fixtures after changing Python formats:
-
-```sh
-python3 android/tools/generate_vectors.py
-```
-
-These checks do not establish compatibility with a physical phone's USB stack.
-USB access, the controller's actual BOT behaviour and full flash/recovery still
-need validation on real Android hardware. No physical device is touched by the
-tests. Advanced CLI tools such as CPU profiling, memory peek, trace analysis and
-the ephemeral journal are outside this app.
-
-`Protocol.kt`, `Remap.kt`, `FirmwareImage.kt` and `BulkScsi.kt` contain the wire
-formats and logic without Android dependencies. `UsbTransport.kt` adapts Android
-USB bulk endpoints. `AppModel.kt` owns the single USB worker, drafts and retained
-state; `MainActivity.kt` and `CurveView.kt` provide the UI. `Br23Loader.kt` ports
-the Python loader and `SettingsFiles.kt` keeps JSON compatibility.
+These checks touch no phone USB stack or radio: USB access, the GATT link
+and flashing still need validation on real Android hardware.

@@ -4,6 +4,8 @@ import org.junit.Assert.*
 import org.junit.Test
 import java.io.IOException
 
+private fun le32(n: Long) = java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt(n.toInt()).array()
+
 class BulkScsiTest {
     private class Pipe : BulkPipe {
         val writes = mutableListOf<ByteArray>()

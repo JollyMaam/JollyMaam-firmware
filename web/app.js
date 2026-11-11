@@ -1,8 +1,10 @@
 // The page: connect to a pad over Bluetooth in config mode (Home+M held for
 // 3 s) or over USB (its tool device), show what it is and its settings, and
 // change them.
-import { links as bluetooth } from "./link-web.js";
-import { links as usb } from "./link-hid.js";
+import { links as webBluetooth } from "./link-web.js";
+import { links as webUsb } from "./link-hid.js";
+import { android } from "./link-android.js";
+import { setupFlasher } from "./flash.js";
 import { Pad, TARGETS, T, PALETTE, PALETTE_TARGET, REMAP_TARGET, BASE_TARGET, SLOT_NAMES, kindOf, targetsFor, showValue,
   parseValue, editable, slotLabel, remapPart } from "./pad.js";
 import { $, h } from "./dom.js";
@@ -15,6 +17,12 @@ const STATUS_EVERY_MS = 5000;    // also keeps config mode open (it ends a minut
 
 let pad = null, poll = null, image = null, layout = null;
 
+// In the Android app (a WebView, without Web Bluetooth or WebHID) the app
+// supplies the links, and a flasher for the boot loaders.
+const bluetooth = android?.bluetooth ?? webBluetooth;
+const usb = android?.usb ?? webUsb;
+const flashPanel = android ? setupFlasher(android.flasher) : null;
+
 // The links a link is one of: to find the same pad again after a restart.
 const linksOf = (link) => (link.kind === "hid" ? usb : bluetooth);
 
@@ -22,6 +30,7 @@ const linksOf = (link) => (link.kind === "hid" ? usb : bluetooth);
 function showConnect(on) {
   $("connect").hidden = !on;
   $("connectusb").hidden = !on;
+  $("flash").hidden = !on || !flashPanel;
 }
 
 // A target as people read it: "Slot B (south)", "Remap base", "Palette".
@@ -321,6 +330,7 @@ function dropLock() {
 // takes its own answers), so no lock.
 async function connect(links) {
   disconnect();
+  flashPanel?.hide();
   if (links === bluetooth && !(await takeLock())) {
     return say("The pad settings page is already connected in another tab or window: use that one, " +
       "or Disconnect there first.", true);
@@ -530,6 +540,7 @@ async function runTest(test) {
 
 $("connect").addEventListener("click", () => connect(bluetooth));
 $("connectusb").addEventListener("click", () => connect(usb));
+$("flash").addEventListener("click", () => flashPanel.toggle());
 $("disconnect").addEventListener("click", () => { disconnect(); say("Disconnected."); });
 $("writetest").addEventListener("click", () => runTest(async () => {
   testLog(`-- write sizes, ${new Date().toLocaleTimeString()}`);
@@ -563,5 +574,8 @@ $("save").addEventListener("click", save);
 $("undo").addEventListener("click", render);
 $("connect").disabled = !bluetooth.available();
 $("connectusb").disabled = !usb.available();
-if (!bluetooth.available() && !usb.available()) say("This browser has neither Web Bluetooth nor WebHID: use Chrome or Edge.", true);
+$("flash").hidden = !flashPanel;
+if (android) {
+  if (!bluetooth.available()) say("This phone has no Bluetooth: connect over USB.", true);
+} else if (!bluetooth.available() && !usb.available()) say("This browser has neither Web Bluetooth nor WebHID: use Chrome or Edge.", true);
 else if (!bluetooth.available()) say("This browser has no Web Bluetooth: connect over USB.", true);

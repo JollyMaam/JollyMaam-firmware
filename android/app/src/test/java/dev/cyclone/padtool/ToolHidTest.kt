@@ -1,0 +1,26 @@
+package dev.cyclone.padtool
+
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+/** The tool device's report sizes from its descriptor, as jm_hid_descriptor reads them. */
+class ToolHidTest {
+    private fun d(vararg b: Int) = ByteArray(b.size) { b[it].toByte() }
+
+    @Test fun yc3121() {   // src/platform/yc3121/usb_yc3121.c: 64-byte feature and input reports
+        val s = ToolHid.sizes(d(0x06, 0xc2, 0xff, 0x09, 0x01, 0xa1, 0x01, 0x15, 0x00, 0x26, 0xff, 0x00,
+            0x75, 0x08, 0x96, 64, 0, 0x09, 0x01, 0xb1, 0x02, 0x95, 64, 0x09, 0x01, 0x81, 0x02, 0xc0))
+        assertEquals(ToolHid.Sizes(0xffc2, 64, 64), s)
+    }
+
+    @Test fun bigFeatureReport() {   // a 512-byte feature report, a 64-byte input one
+        val s = ToolHid.sizes(d(0x06, 0xc2, 0xff, 0x09, 0x01, 0xa1, 0x01, 0x75, 0x08, 0x96, 0x00, 0x02,
+            0x09, 0x01, 0xb1, 0x02, 0x95, 64, 0x09, 0x01, 0x81, 0x02, 0xc0))
+        assertEquals(ToolHid.Sizes(0xffc2, 512, 64), s)
+    }
+
+    @Test fun gamepadIsNotTool() {   // usage page 1, no feature report
+        val s = ToolHid.sizes(d(0x05, 0x01, 0x09, 0x05, 0xa1, 0x01, 0x75, 0x08, 0x95, 0x08, 0x81, 0x02, 0xc0))
+        assertEquals(ToolHid.Sizes(1, 0, 8), s)
+    }
+}

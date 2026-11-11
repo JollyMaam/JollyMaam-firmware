@@ -22,13 +22,16 @@ android {
     buildTypes { release { isMinifyEnabled = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro") } }
     // A developer utility with an English UI; settings text also comes from firmware.
     lint { warningsAsErrors = true; disable += setOf("HardcodedText", "SetTextI18n") }
-    testOptions { unitTests.isIncludeAndroidResources = true }
-    sourceSets.getByName("test").resources.srcDir("src/debug/assets")
+    // The page, web/, as assets/web: MainActivity serves it to the WebView.
+    sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/web-assets"))
 }
+val webAssets = tasks.register<Sync>("webAssets") {
+    from(rootProject.file("../web")) { include("*.html", "*.js", "*.css") }
+    into(layout.buildDirectory.dir("generated/web-assets/web"))
+}
+tasks.named("preBuild") { dependsOn(webAssets) }
 dependencies {
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     testImplementation("junit:junit:4.13.2")
-    testImplementation("org.json:json:20240303")
-    testImplementation("org.robolectric:robolectric:4.14.1")
 }

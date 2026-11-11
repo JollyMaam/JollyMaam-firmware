@@ -1,5 +1,5 @@
 // remap.js against padremap.py and padcurves.py: the vectors the Python
-// writes for the Android app (android/tools/generate_vectors.py), then the
+// writes (test/generate_vectors.py), then the
 // edge cases padremap's own tests check.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import * as remap from "../remap.js";
 import { placePoints } from "../editors.js";
 
-const vectors = JSON.parse(readFileSync(new URL("../../android/app/src/test/resources/python-vectors.json", import.meta.url)));
+const vectors = JSON.parse(readFileSync(new URL("./python-vectors.json", import.meta.url)));
 const hex = (d) => Buffer.from(d).toString("hex");
 const bytes = (h) => Uint8Array.from(Buffer.from(h, "hex"));
 

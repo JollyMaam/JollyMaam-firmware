@@ -420,8 +420,6 @@ also supplies Linux SG_IO and
 Windows buffered SCSI pass-through for the ROM loaders. `padflash.py` supplies the
 BR23 RAM-loader protocol, image identity checks, backup, erase/write and readback
 verification. It is ported from our `jollymaam.c`; build packing remains in C.
-An Android client will need its own USB host transport and UI, and can reuse
-these protocol definitions.
 
 Run the flasher tests (no display or hardware required):
 
@@ -477,6 +475,6 @@ Firmware without a battery reading continues to report its existing zero value.
 
 ## Android
 
-The native Kotlin USB host app is in [`android/`](../android/README.md). It shares
-settings-backup and remap-preset formats with these Python tools. Build commands,
-USB setup and the Android hardware-validation boundary are described there.
+The Android app ([`android/`](../android/README.md)) is the web page
+(`web/`) in a WebView, with the app's own USB and Bluetooth links and
+libjollymaam (over JNI) for flashing through the boot loaders.

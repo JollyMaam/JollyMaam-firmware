@@ -36,29 +36,29 @@ class AndroidNativeUsb(
         if (kind == 2) { bulk = UsbTransport.open(manager, device); return }
         val conn = manager.openDevice(device) ?: throw IOException("Cannot open USB device")
         try {
+            if (kind == 0) {
+                val (candidate, sizes) = ToolHid.claim(device, conn) ?: throw IOException("No HID tool interface")
+                report = sizes.feature
+                use(conn, candidate)
+                return
+            }
             for (i in 0 until device.interfaceCount) {
                 val candidate = device.getInterface(i)
                 if (candidate.interfaceClass != UsbConstants.USB_CLASS_HID || !conn.claimInterface(candidate, true)) continue
-                var size = 0
-                if (kind == 0) {
-                    val descriptor = ByteArray(256)
-                    val n = conn.controlTransfer(0x81, 6, 0x2200, candidate.id, descriptor, descriptor.size, 1000)
-                    if (n >= 3 && descriptor[0] == 6.toByte() && descriptor[1] == 0xc2.toByte() && descriptor[2] == 0xff.toByte()) {
-                        for (at in 3 until n - 8) if (descriptor.u8(at) == 0x75 && descriptor.u8(at + 1) == 8 && descriptor.u8(at + 2) == 0x96 && descriptor.u8(at + 7) == 0xb1) {
-                            val count = descriptor.u16(at + 3)
-                            if (count == 356 || count == 512) size = count
-                        }
-                    }
-                    if (size == 0) { conn.releaseInterface(candidate); continue }
-                }
-                val endpoints = (0 until candidate.endpointCount).map(candidate::getEndpoint).filter { it.type == UsbConstants.USB_ENDPOINT_XFER_INT }
-                input = endpoints.firstOrNull { it.direction == UsbConstants.USB_DIR_IN }
-                output = endpoints.firstOrNull { it.direction == UsbConstants.USB_DIR_OUT }
-                if (kind == 1 && input == null) { conn.releaseInterface(candidate); continue }
-                report = size; intf = candidate; connection = conn; return
+                if (use(conn, candidate)) return
+                conn.releaseInterface(candidate)
             }
-            throw IOException("No supported HID tool interface; end the gamepad session first")
+            throw IOException("No supported HID interface")
         } catch (e: Exception) { conn.close(); throw e }
+    }
+    /** The interface's interrupt endpoints; the 8BitDo loader needs an IN one. */
+    private fun use(conn: UsbDeviceConnection, candidate: UsbInterface): Boolean {
+        val endpoints = (0 until candidate.endpointCount).map(candidate::getEndpoint).filter { it.type == UsbConstants.USB_ENDPOINT_XFER_INT }
+        input = endpoints.firstOrNull { it.direction == UsbConstants.USB_DIR_IN }
+        output = endpoints.firstOrNull { it.direction == UsbConstants.USB_DIR_OUT }
+        if (kind == 1 && input == null) return false
+        intf = candidate; connection = conn
+        return true
     }
     @Synchronized override fun close() {
         bulk?.close(); bulk = null
@@ -125,7 +125,7 @@ class AndroidNativeUsb(
             return if (direction == 2) data.size else response.size
         }
         fun kind(device: UsbDevice): Int? = when {
-            device.vendorId == 0x16c0 && device.productId == 0x05df -> 0
+            ToolHid.isTool(device) -> 0
             device.vendorId == 0x2dc8 && device.productId == 0x3208 -> 1
             UsbTransport.massStorage(device) != null -> 2
             else -> null

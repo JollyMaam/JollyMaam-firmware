@@ -1,8 +1,8 @@
 # Web page
 
 Pad settings in the browser over Web Bluetooth or WebHID: a static page
-(plain ES modules, no build), for GitHub Pages and, later, the Android
-app's WebView.
+(plain ES modules, no build), for GitHub Pages and the Android app's
+WebView (`android/`).
 
 - `link-web.js`: the Bluetooth link, one GATT connection to a pad in
   config mode or its updater.
@@ -20,6 +20,13 @@ The framing stays in JS, so the Android app supplies only raw links: GATT
 over its own Bluetooth, and the tool device over its USB host API (WebView
 has neither Web Bluetooth nor WebHID).
 
+- `link-android.js`: those links in the app (`window.JollyMaamAndroid`,
+  `android/app/src/main/java/dev/cyclone/padtool/Bridge.kt`), and its
+  flasher; `android` is null in a browser.
+- `flash.js`: the Flash panel, in the app only: firmware through the boot
+  loaders (libjollymaam over JNI), which a browser cannot reach (the Jieli
+  ROM loader is USB mass storage).
+
 - `pad.js`: the Bluetooth framing (`src/profiles/profile_config.c`) and
   the tool commands (`src/core/usb.c`) over either link.
 - `app.js`, `index.html`, `style.css`: the page. Edits every setting but
@@ -28,8 +35,8 @@ has neither Web Bluetooth nor WebHID).
   preset files) and the stick curves (presets, a graph to drag); both write
   the padtool text of their fields, which the settings table stages and saves.
 - `remap.js`: `tools/padtool/padremap.py` and `padcurves.py` in JS, same
-  text and bytes (tested against the vectors the Python writes for the
-  Android app).
+  text and bytes (tested against the vectors the Python writes,
+  `test/generate_vectors.py`).
 
 Web Bluetooth and WebHID need Chrome or Edge, and a secure context (https,
 or localhost). On Linux, Chrome opens the pad's `/dev/hidrawN`, so the

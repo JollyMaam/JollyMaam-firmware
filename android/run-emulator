@@ -7,8 +7,7 @@ Usage: run-emulator [--no-build] [--scrcpy | --headless] [--cold-boot] [--softwa
 
 Build padtool and boot Android 15 in the normal emulator window.
 Keep this command running. Ctrl-C stops this run's build, scrcpy, emulator and
-private adb server, and removes its temporary files. The AVD and saved
-simulated settings are kept. Closing the display window also stops the session.
+private adb server, and removes its temporary files. The AVD is kept. Closing the display window also stops the session.
 In the terminal, r + Enter rebuilds/reinstalls; q + Enter stops the session.
 
   --no-build   Install the existing ../build/android/app/outputs/apk/debug/app-debug.apk

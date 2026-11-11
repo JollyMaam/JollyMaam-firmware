@@ -12,6 +12,7 @@
     <h1>Pad settings</h1>
     <button id="connect" type="button">Bluetooth</button>
     <button id="connectusb" type="button">USB</button>
+    <button id="flash" type="button" class="secondary" hidden>Flash</button>
     <button id="disconnect" type="button" class="secondary" hidden>Disconnect</button>
   </div>
   <div id="savebar" hidden>
@@ -23,6 +24,21 @@
 <main>
   <p id="message" role="status">Connect over Bluetooth (hold Home+M for 3 s to put your pad in config
     mode first) or over USB (plugged in).</p>
+  <details id="flasher" open hidden>
+    <summary>Flash over USB</summary>
+    <p class="muted">For a pad in its boot loader (GameSir pads: Jieli; 8BitDo), or running our
+      firmware: the app writes the package's firmware (firmware.zip, from <code>make firmware</code>)
+      and checks it.</p>
+    <div class="actions">
+      <input id="flashpkg" type="file" accept=".zip,application/zip">
+      <button id="flashscan" type="button" class="secondary">Scan USB</button>
+    </div>
+    <p id="flashinfo" class="muted"></p>
+    <ul id="flashdevices"></ul>
+    <div id="flashactions"></div>
+    <progress id="flashprogress" max="1" value="0" hidden></progress>
+    <pre id="flashlog" class="mono"></pre>
+  </details>
   <section id="identity"></section>
   <p id="status" class="muted"></p>
   <details id="firmware" hidden>
