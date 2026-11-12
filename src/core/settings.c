@@ -1111,15 +1111,16 @@ u32 set_describe(u32 n, u8 *out, u32 max)
 }
 
 /* [0] version [1] target [2] field count, then per field: id, set (0/1),
- * len, value. */
+ * len, value.  A target this board does not keep has no values (a tool
+ * shows nothing to edit; its writes are refused), only defaults. */
 static u32 read_values(u8 t, u8 *out, u32 max, int defaults)
 {
     u32 n, i, o = 3;
     const struct set_field *f;
 
     if (t >= TARGETS || max < 3) return 0;
-    if (!stored(t)) defaults = 1;
     f = fields_of(t, &n);
+    if (!stored(t) && !defaults) n = 0;
     for (i = 0; i < n; i++) {
         if (o + 3u + f[i].size > max) return 0;
         out[o] = f[i].id;
@@ -1828,8 +1829,10 @@ static int reduced_storage(void)
     }
     for (t = 0; t < SLOTS; t++)
         CHECK(set_slot(t)->type == (t < SLOTS_STORED ? board_slots.type[t] : PROFILE_NONE));
-    /* Not kept: defaults to read, writes refused, nothing stored. */
-    CHECK(set_read(SLOTS_STORED, buf, sizeof(buf)) > 3 && buf[1] == SLOTS_STORED);
+    /* Not kept: no values to read (defaults only), writes refused, nothing stored. */
+    CHECK(set_read(SLOTS_STORED, buf, sizeof(buf)) == 3 && buf[1] == SLOTS_STORED && !buf[2]);
+    CHECK(set_read(TARGET_REMAP + REMAPS_STORED, buf, sizeof(buf)) == 3 && !buf[2]);
+    CHECK(set_read_defaults(SLOTS_STORED, buf, sizeof(buf)) > 3 && buf[1] == SLOTS_STORED);
     CHECK(buf[3] == ID_TYPE && !buf[4] && buf[6] == board_slots.type[SLOTS_STORED]);
     CHECK(write1(SLOTS_STORED, ID_TYPE, 1, &type) == SET_UNKNOWN);
     CHECK(write1(TARGET_REMAP + REMAPS_STORED, 18, 1, &rumble) == SET_UNKNOWN);
@@ -1839,14 +1842,14 @@ static int reduced_storage(void)
 #if REMAP_BASE_STORED
     CHECK(set_remap(REMAPS_STORED) == set_remap(REMAP_BASE));
 #else
-    /* No base either: it reads as its defaults, as the remap slots do. */
+    /* No base either: no values, its defaults as the remap slots'. */
     CHECK(write1(TARGET_BASE, 18, 1, &rumble) == SET_UNKNOWN);
     {
         u8 d[512];
-        u32 n = set_read(TARGET_BASE, buf, sizeof(buf));
+        u32 n = set_read_defaults(TARGET_BASE, buf, sizeof(buf));
 
-        CHECK(n > 3 && n == set_read_defaults(TARGET_BASE, d, sizeof(d)) && !memcmp(buf, d, n));
-        CHECK(set_read(TARGET_REMAP + 1, d, sizeof(d)) == n);
+        CHECK(n > 3 && set_read(TARGET_BASE, d, sizeof(d)) == 3 && !d[2]);
+        CHECK(set_read_defaults(TARGET_REMAP + 1, d, sizeof(d)) == n);
         CHECK(!memcmp(buf + 3, d + 3, n - 3));    /* a slot's: the base's */
     }
 #endif

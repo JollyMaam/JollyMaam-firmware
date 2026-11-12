@@ -24,7 +24,14 @@ globalThis.JollyMaamAndroid = {
     assert.equal(handle, 7);
     app.tool.sendFeature(bytes(report)).then(() => ok(call));
   },
-  bleChoose: (call) => ok(call, { handle: 9, name: "Cyclone 2 Config", id: "AA:BB:CC:DD:EE:FF", mtu: 512 }),
+  bleScan(call) {
+    ok(call, { handle: 8 });
+    later(() => globalThis.jmAndroid.event(8, "found", { name: "Cyclone 2 Config", id: "AA:BB:CC:DD:EE:FF" }));
+  },
+  bleOpen(call, id) {
+    app.calls.push(["bleOpen", id]);
+    ok(call, { handle: 9, name: "Cyclone 2 Config", id, mtu: 512 });
+  },
   bleReconnect(call, handle, address, seconds) {
     app.calls.push(["bleReconnect", handle, address, seconds]);
     ok(call, { handle: 10, name: "Cyclone 2 Update", id: address, mtu: 512 });
@@ -35,19 +42,19 @@ globalThis.JollyMaamAndroid = {
   },
   bleQuiet: (call) => ok(call),
   usbReconnect: (call) => later(() => globalThis.jmAndroid.done(call, { name: "Error", message: "the pad did not come back" }, null)),
-  flashBackup(call, device, uid, label) {
-    app.calls.push(["flashBackup", device, uid, label]);
+  flashSession(call, device, uid, backup, label, action, image, raw) {
+    app.calls.push(["flashSession", device, uid, backup, label, action, image, raw]);
     later(() => {
       globalThis.jmAndroid.event(0, "log", "reading");
-      globalThis.jmAndroid.event(0, "progress", { done: 4, total: 4 });
-      ok(call, `Download/JollyMaam/${label}.bin`);
+      globalThis.jmAndroid.event(0, "progress", { what: "reading", done: 4, total: 4 });
+      globalThis.jmAndroid.event(0, "progress", { what: "writing", done: 50, total: 100 });
+      ok(call, { backup: backup ? `Download/JollyMaam/${label}.bin` : null });
     });
   },
-  flashRun(call, device, product, uid, install) {
-    app.calls.push(["flashRun", device, product, uid, install]);
+  flashUpdate(call, device, product, uid) {
+    app.calls.push(["flashUpdate", device, product, uid]);
     later(() => {
-      globalThis.jmAndroid.event(0, "progress", { done: 50, total: 100 });
-      globalThis.jmAndroid.event(0, "progress", { done: 100, total: 100 });
+      globalThis.jmAndroid.event(0, "progress", { what: "writing", done: 100, total: 100 });
       ok(call);
     });
   },
@@ -93,20 +100,21 @@ test("android bluetooth: frames out, replies in, reconnect by address", async ()
   assert.equal(app.closed.at(-1), 10);
 });
 
-test("android flasher: progress while it runs", async () => {
+test("android flasher: an update's progress", async () => {
   const seen = [];
-  await android.flasher.run("/dev/bus/usb/001/002", "CYCLONE2", null, (d, t) => seen.push(d / t));
-  assert.deepEqual(seen, [0.5, 1]);
-  assert.deepEqual(app.calls.at(-1), ["flashRun", "/dev/bus/usb/001/002", "CYCLONE2", "", false]);
-  await android.flasher.run("/dev/bus/usb/001/002", "CYCLONE2", "00ff", null, null, true);
-  assert.deepEqual(app.calls.at(-1), ["flashRun", "/dev/bus/usb/001/002", "CYCLONE2", "00ff", true]);
+  await android.flasher.update("/dev/bus/usb/001/002", "CYCLONE2", "00ff", (w, d, t) => seen.push([w, d / t]));
+  assert.deepEqual(seen, [["writing", 1]]);
+  assert.deepEqual(app.calls.at(-1), ["flashUpdate", "/dev/bus/usb/001/002", "CYCLONE2", "00ff"]);
 });
 
-test("android flasher: a backup's progress and lines, and where it went", async () => {
+test("android flasher: backup and install in one session, its steps, lines and backup file", async () => {
   const seen = [], said = [];
-  const where = await android.flasher.backup("/dev/bus/usb/001/003", "00ff", "CYCLONE2", (d, t) => seen.push(d / t), (l) => said.push(l));
-  assert.equal(where, "Download/JollyMaam/CYCLONE2.bin");
-  assert.deepEqual(seen, [1]);
+  const r = await android.flasher.session("/dev/bus/usb/001/003", { uid: "00ff", backup: true, label: "CYCLONE2", action: 1 },
+    (w, d, t) => seen.push([w, d / t]), (l) => said.push(l));
+  assert.equal(r.backup, "Download/JollyMaam/CYCLONE2.bin");
+  assert.deepEqual(seen, [["reading", 1], ["writing", 0.5]]);
   assert.deepEqual(said, ["reading"]);
-  assert.deepEqual(app.calls.at(-1), ["flashBackup", "/dev/bus/usb/001/003", "00ff", "CYCLONE2"]);
+  assert.deepEqual(app.calls.at(-1), ["flashSession", "/dev/bus/usb/001/003", "00ff", true, "CYCLONE2", 1, "", false]);
+  await android.flasher.session("/dev/bus/usb/001/003", { action: 2, image: Uint8Array.of(1, 2, 3), raw: true });
+  assert.deepEqual(app.calls.at(-1), ["flashSession", "/dev/bus/usb/001/003", "", false, "pad", 2, "AQID", true]);
 });

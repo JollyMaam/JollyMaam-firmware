@@ -2,7 +2,7 @@
 // (the inputs the settings table has for map, rules and curve points, in
 // padtool's text) and writes back into them, so staging, defaults and
 // saving stay the table's.
-import { h, svg, setControl } from "./dom.js";
+import { h, svg, setControl, nameMenu } from "./dom.js";
 import {
   KEYS, TRIGGERS, TIMED, TURBO, MAX_HZ, RULE_SIZE, PRESETS, EFFECT_TWINS, effectsFor, rule, decodeMap, encodeMap,
   showMap, parseMap, decodeRules, encodeRules, showRule, showRules, parseRules, applyPreset, exportPreset, importPreset,
@@ -153,23 +153,23 @@ export function remapEditor(io) {
   function keyRow(k) {
     const sends = select(keyOptions(), base[k] ?? "", (v) => change(() => { base[k] = v || null; }, false),
       { "aria-label": `${keyLabel(io.layout, k)} maps to` });
-    const add = h("button", { type: "button", class: "small", disabled: rules.length >= count,
-      title: rules.length >= count ? `all ${count} rules are used` : null }, "Add rule");
+    const add = h("button", { type: "button", class: "small", disabled: rules.length >= count }, "Add rule");
     add.addEventListener("click", () => change(() => {
       rules.push(rule(k, "held", "hold", [k]));
     }));
-    const reset = h("button", { type: "button", class: "small", title: "this key's mapping and rules back to the default" }, "default");
+    const reset = h("button", { type: "button", class: "small" }, "Back to default");
     reset.addEventListener("click", () => change(() => {
       base[k] = def.base[k];
       rules = [...rules.filter((r) => r.input !== k), ...def.rules.filter((r) => r.input === k)];
     }));
-    // The key's row keeps its place; its rules go in rows under it
-    // (padgui's layout), so adding one only pushes what is below.
-    const tr = h("tr", { class: "key" }, h("th", { scope: "row" }, keyLabel(io.layout, k)),
-      h("td", {}, h("span", {}, "maps to "), sends),
-      h("td", {}, add), h("td", {}, reset));
+    // The key opens its menu; the key's row keeps its place and its rules
+    // go in rows under it (padgui's layout), so adding one only pushes what
+    // is below.
+    const menu = nameMenu(keyLabel(io.layout, k), h("p", { class: "muted" }, "What this key sends while held, and rules that add to it."),
+      add, rules.length >= count ? h("p", { class: "muted" }, `All ${count} rules are used.`) : null, reset);
+    const tr = h("tr", { class: "key" }, h("th", { scope: "row" }, menu), h("td", {}, sends));
     markCells.set(k, { tr, reset });
-    return [tr, ...rules.filter((r) => r.input === k).map((r) => h("tr", { class: "rulerow" }, h("td", { colspan: 4 }, ruleEditor(r))))];
+    return [tr, ...rules.filter((r) => r.input === k).map((r) => h("tr", { class: "rulerow" }, h("td", { colspan: 2 }, ruleEditor(r))))];
   }
 
   // The pad's keys (from its layout), and any other key with something set.
@@ -228,7 +228,7 @@ export function remapEditor(io) {
     h("p", { class: "muted" }, `A key maps to itself unless changed; rules add to it (${count} rules fit). `,
       "Map a key to Nothing to drop its own press."),
     problem,
-    h("table", { class: "keys" }, h("colgroup", {}, h("col", { class: "c-key" }), h("col"), h("col", { class: "c-add" }), h("col", { class: "c-reset" })),
+    h("table", { class: "keys" }, h("colgroup", {}, h("col", { class: "c-key" }), h("col")),
       body));
   // An open keys list closes on a click elsewhere.
   root.addEventListener("pointerdown", (e) => {

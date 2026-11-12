@@ -25,3 +25,15 @@ export function setControl(input, value, event = "input") {
   input.value = value;
   input.dispatchEvent(new Event(event));
 }
+
+// A row's name that opens a small menu (what a phone has in place of
+// tooltips and a column of buttons): its help, its default, what can be
+// done.  One open at a time; a tap elsewhere closes it.
+export function nameMenu(label, ...content) {
+  return h("details", { class: "rowmenu" }, h("summary", {}, label), h("div", { class: "menu" }, ...content));
+}
+if (typeof document !== "undefined") {
+  document.addEventListener("pointerdown", (e) => {
+    for (const d of document.querySelectorAll("details.rowmenu[open]")) if (!d.contains(e.target)) d.open = false;
+  });
+}

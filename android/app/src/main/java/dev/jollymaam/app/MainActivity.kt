@@ -21,6 +21,10 @@ import android.os.Bundle
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.webkit.RenderProcessGoneDetail
+import android.util.Log
+import android.webkit.MimeTypeMap
+import android.os.Environment
+import android.provider.DocumentsContract
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -128,7 +132,20 @@ class MainActivity : Activity() {
                 files?.onReceiveValue(null)
                 files = callback
                 return try {
-                    startActivityForResult(params.createIntent().apply { type = "*/*" }, FILE_CHOOSER)
+                    // The page's accept list as MIME types the picker knows
+                    // (".zip" is not one, and zips go by several), else any.
+                    // OPEN_DOCUMENT with the phone's storage shown, starting
+                    // in Download/JollyMaam: the picker's Downloads view
+                    // leaves out files MediaStore does not list.
+                    val types = params.acceptTypes.flatMap { mimeTypes(it) }.distinct()
+                    Log.i("JollyMaam", "file chooser: accept ${params.acceptTypes.toList()} -> types $types")
+                    val pick = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "*/*"
+                        if (types.isNotEmpty()) putExtra(Intent.EXTRA_MIME_TYPES, types.toTypedArray())
+                        putExtra("android.content.extra.SHOW_ADVANCED", true)
+                    }
+                    startActivityForResult(pick, FILE_CHOOSER)
                     true
                 } catch (e: Exception) {
                     files = null
@@ -159,6 +176,18 @@ class MainActivity : Activity() {
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED) else registerReceiver(receiver, filter)
         if (savedInstanceState != null) web.restoreState(savedInstanceState)
         else web.loadUrl("https://$HOST/index.html")
+    }
+
+    /** An accept entry (".zip", "application/zip") as MIME types; a zip
+     * also as the other types it is saved under. */
+    private fun mimeTypes(accept: String): List<String> {
+        val t = accept.trim().lowercase()
+        val mime = if (t.startsWith(".")) MimeTypeMap.getSingleton().getMimeTypeFromExtension(t.drop(1)) else t.ifEmpty { null }
+        return when (mime) {
+            null -> emptyList()
+            "application/zip" -> listOf(mime, "application/x-zip-compressed", "application/x-zip")
+            else -> listOf(mime)
+        }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

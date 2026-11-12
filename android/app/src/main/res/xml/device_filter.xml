@@ -1,5 +1,9 @@
 <resources>
-    <!-- Jieli's tool and UBOOT identities. Other mass-storage devices can be selected manually. -->
+    <!-- Plugging one in offers the app: only what is never a controller in play.
+         Jieli's ROM loaders (any 0x4c4a), our tool device, the 8BitDo boot loader.
+         Stock pads (Xbox 360, Switch, DS4, 8BitDo modes) are controller profiles:
+         left out, or plugging a pad in to play would open the app. While the app
+         is open, its home finds them anyway. -->
     <usb-device vendor-id="19530" />
     <usb-device vendor-id="5824" product-id="1503" />
     <usb-device vendor-id="11720" product-id="12808" />

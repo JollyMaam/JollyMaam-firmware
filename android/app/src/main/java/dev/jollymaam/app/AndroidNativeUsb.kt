@@ -17,7 +17,7 @@ class AndroidNativeUsb(
     kind: Int,
     private val permission: (UsbDevice) -> Boolean,
     private val cancelled: AtomicBoolean,
-    private val progress: (Long, Long) -> Unit,
+    private val progress: (String, Long, Long) -> Unit,
     private val say: (String) -> Unit = {},
     /** A backup's blocks, in order. */
     private val sink: ((Long, ByteArray) -> Boolean)? = null
@@ -40,6 +40,7 @@ class AndroidNativeUsb(
         if (!manager.hasPermission(device)) throw IOException("USB permission has not been granted")
         if (kind == 2) { bulk = UsbTransport.open(manager, device); return }
         val conn = manager.openDevice(device) ?: throw IOException("Cannot open USB device")
+        if (kind == 3) { connection = conn; return }   // the library picks the interface (hidSelect)
         try {
             if (kind == 0) {
                 val (candidate, sizes) = ToolHid.claim(device, conn) ?: throw IOException("No HID tool interface")
@@ -71,6 +72,34 @@ class AndroidNativeUsb(
         connection = null; intf = null; input = null; output = null
     }
     override fun featureSize() = report
+    private fun hids() = (0 until device.interfaceCount).map(device::getInterface).filter { it.interfaceClass == UsbConstants.USB_CLASS_HID }
+    override fun identity(): Array<String> {
+        // bcdDevice from the device descriptor (UsbDevice.version is a string of it).
+        val raw = connection?.rawDescriptors
+        val bcd = if (raw != null && raw.size >= 14) raw.u8(12) or (raw.u8(13) shl 8) else 0
+        return arrayOf("%x".format(device.vendorId), "%x".format(device.productId), "%x".format(bcd),
+            device.manufacturerName ?: "", device.productName ?: "")
+    }
+    override fun hidInterfaces() = if (kind == 3) hids().size else 0
+    override fun hidDescriptor(index: Int): ByteArray? {
+        val conn = connection ?: return null
+        val candidate = hids().getOrNull(index) ?: return null
+        val claimed = candidate == intf || conn.claimInterface(candidate, true)
+        if (!claimed) return null
+        try {
+            val d = ByteArray(1024)
+            val n = conn.controlTransfer(0x81, 6, 0x2200, candidate.id, d, d.size, 1000)
+            return if (n > 0) d.copyOf(n) else null
+        } finally { if (candidate != intf) conn.releaseInterface(candidate) }
+    }
+    override fun hidSelect(index: Int): Boolean {
+        val conn = connection ?: return false
+        val candidate = hids().getOrNull(index) ?: return false
+        if (candidate == intf) return true
+        intf?.let { conn.releaseInterface(it) }; intf = null; input = null; output = null
+        if (!conn.claimInterface(candidate, true)) return false
+        return use(conn, candidate).also { if (!it) conn.releaseInterface(candidate) }
+    }
     override fun featureSet(data: ByteArray): Int {
         checkActive()
         val payload = data.copyOfRange(1, data.size)
@@ -91,14 +120,24 @@ class AndroidNativeUsb(
         val n = conn.bulkTransfer(endpoint, data, length, timeout)
         return if (n < 0 && reading) 0 else n
     }
+    /** An output report as hidraw takes it: its ID first, 0 for none (then
+     * not sent); a numbered report goes with its ID, as on the wire. */
     override fun hidWrite(data: ByteArray): Int {
         checkActive()
-        return output?.let { interrupt(it, data, 10000, false) }
-            ?: connection?.controlTransfer(0x21, 9, 0x200, intf!!.id, data, data.size, 10000) ?: -1
+        if (data.isEmpty()) return -1
+        val id = data.u8(0)
+        val sent = if (id == 0) data.copyOfRange(1, data.size) else data
+        val n = output?.let { interrupt(it, sent, 10000, false) }
+            ?: connection?.controlTransfer(0x21, 9, 0x200 or id, intf!!.id, sent, sent.size, 10000) ?: -1
+        if (n < 0) Log.w("JollyMaam", "HID write of report $id, ${sent.size} bytes failed (${if (output != null) "interrupt" else "SET_REPORT"})")
+        return if (n < 0) n else n + data.size - sent.size
     }
+    // Timeout 0 is the library's "what is there now" (it drains stale
+    // replies so); bulkTransfer takes 0 as forever, so 1 ms.
     override fun hidRead(data: ByteArray, timeout: Int): Int {
-        if (timeout == 0) return 0
-        return input?.let { interrupt(it, data, timeout, true) } ?: -1
+        val n = input?.let { interrupt(it, data, maxOf(timeout, 1), true) } ?: -1
+        if (n <= 0 && timeout >= 1000) Log.w("JollyMaam", "HID read: nothing in $timeout ms")
+        return n
     }
     override fun scsi(cdb: ByteArray, direction: Int, data: ByteArray, timeout: Int): Int {
         checkActive()
@@ -108,7 +147,7 @@ class AndroidNativeUsb(
     }
     private fun opened() = connection != null || bulk != null
     override fun generation() = generation
-    /** The pad across its restarts: into our updater (found by UID), into
+    /** The pad across its restarts (from ours or stock): into our updater (found by UID), into
      * its vendor loader (the 8BitDo one, or a Jieli one: by its vendor ID,
      * not any USB disk). */
     override fun follow(uid: ByteArray?, was: Int): Int {
@@ -127,7 +166,7 @@ class AndroidNativeUsb(
                 generation++
                 if (k == 0 && uid != null) {
                     val identity = NativeCore.probe(this, 0)
-                    if (identity == null || !identity.copyOfRange(24, 40).contentEquals(uid)) { close(); continue }
+                    if (identity == null || identity[7] != uid.hex()) { close(); continue }
                 }
                 return k
             } catch (_: IOException) { checkActive() }
@@ -136,7 +175,7 @@ class AndroidNativeUsb(
         return -1
     }
     override fun backupBlock(address: Long, data: ByteArray) = sink?.invoke(address, data) ?: false
-    override fun onProgress(done: Long, total: Long) { progress(done, total) }
+    override fun onProgress(what: String, done: Long, total: Long) { progress(what, done, total) }
     /** libjollymaam's lines: logcat, and kept for the Flash panel. */
     val said = mutableListOf<String>()
     override fun onSay(line: String) {
@@ -159,6 +198,7 @@ class AndroidNativeUsb(
             ToolHid.isTool(device) -> 0
             device.vendorId == 0x2dc8 && device.productId == 0x3208 -> 1
             UsbTransport.massStorage(device) != null -> 2
+            NativeCore.isStock(device.vendorId, device.productId) -> 3
             else -> null
         }
     }

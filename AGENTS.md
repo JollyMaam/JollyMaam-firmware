@@ -325,6 +325,14 @@ wrong assumption), add it here in a line or two.
   cancelled and freed after that timeout crashed the next wait natively
   (SIGSEGV in `usb_request_wait`, seen on a phone).  Use `bulkTransfer` with
   a timeout for interrupt endpoints too, as `HidLink` and `AndroidNativeUsb` do.
+- Android USB: `bulkTransfer` takes timeout 0 as "wait forever", so a hook
+  that returned at once for the library's timeout-0 read never drained the
+  8BitDo loader's leftover replies; the U2CB install then failed at its first
+  command (phase 0, -1) within a second.  `AndroidNativeUsb.hidRead` polls 1 ms.
+- Android USB: the stock pads' commands go on numbered output reports (U2CW
+  0x81, Cyclone 2 Xbox mode 0x0f); a JNI write hook that accepted only ID 0
+  left the app unable to identify a stock 8BitDo pad or restart it into its
+  loader.  `hidWrite` takes reports as hidraw does: ID first, 0 not sent.
 - Android JNI: a Kotlin hook that throws (a USB error while a pad restarts)
   leaves the exception pending, and the next JNI call from C (NewByteArray)
   aborts the app (SIGABRT "JNI DETECTED ERROR ... called with pending

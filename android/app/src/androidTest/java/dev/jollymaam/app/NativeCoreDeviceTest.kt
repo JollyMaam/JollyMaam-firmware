@@ -59,19 +59,21 @@ class NativeCoreDeviceTest {
         override fun follow(uid: ByteArray?, was: Int): Int { check(uid == null || uid[0] == 42.toByte()); return 0 }
         override fun generation() = restarts
     }
-    @Test fun testStockLoaderFromUpdater() {
-        val fake = Fake().apply { updater = true }; val uid = ByteArray(16).apply { this[0] = 42 }
-        assertEquals(0, NativeCore.stockLoader(uid, fake)); assertEquals(1, fake.rom); assertEquals(0, fake.begun)
+    @Test fun testSessionRefusesAnotherPad() {
+        val fake = Fake(); val uid = ByteArray(16).apply { this[0] = 43 }
+        assertEquals(-2, NativeCore.session(bundle(), 0, uid, true, NativeCore.ACTION_INSTALL, null, false, fake))
+        assertEquals(0, fake.rom); assertEquals(0, fake.begun)
     }
     @Test fun testPackageInspection() {
         val products = NativeCore.products(bundle())!!
-        assertEquals(3, products.size); assertEquals("U2C_WIRELESS", products[0])
+        assertEquals(5, products.size); assertEquals("U2C_WIRELESS", products[0])
         assertNull(NativeCore.products(ByteArray(4)))
     }
     @Test fun testCompleteUpdateWithReconnection() {
         val bytes = bundle(); val fake = Fake(); val uid = ByteArray(16).apply { this[0] = 42 }
-        assertEquals(88, NativeCore.probe(fake, 0)!!.size)
-        assertEquals(0, NativeCore.run(bytes, "U2C_WIRELESS", 0, uid, false, fake))
+        val id = NativeCore.probe(fake, 0)!!
+        assertEquals("our firmware", id[0]); assertEquals(uid.hex(), id[7])
+        assertEquals(0, NativeCore.update(bytes, "U2C_WIRELESS", uid, fake))
         assertTrue(fake.committed); assertEquals(1, fake.starts); assertEquals(1, fake.restarts)
         val expected = ZipInputStream(bytes.inputStream()).use { zip ->
             var image: ByteArray? = null
@@ -85,7 +87,7 @@ class NativeCoreDeviceTest {
     }
     @Test fun testIdentityMismatchStopsBeforeBegin() {
         val fake = Fake(); val uid = ByteArray(16).apply { this[0] = 43 }
-        assertTrue(NativeCore.run(bundle(), "U2C_WIRELESS", 0, uid, false, fake) != 0)
+        assertTrue(NativeCore.update(bundle(), "U2C_WIRELESS", uid, fake) != 0)
         assertEquals(0, fake.begun); assertFalse(fake.committed); assertEquals(0, fake.starts)
     }
 }

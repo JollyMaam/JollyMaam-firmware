@@ -10,7 +10,7 @@
 <header>
   <div class="actions">
     <button id="back" type="button" class="secondary" hidden>Back</button>
-    <h1>Pad settings</h1>
+    <h1>JollyMaam</h1>
   </div>
   <div id="savebar" hidden>
     <span id="savecount"></span>
@@ -19,28 +19,47 @@
   </div>
 </header>
 <main>
-  <p id="message" role="status"></p>
   <section id="home">
     <div class="choices">
+      <button id="managefw" type="button" class="choice" hidden><strong>Manage Firmware</strong></button>
       <button id="connect" type="button" class="choice"><strong>Configure over Bluetooth</strong>
         <span>Hold Home+M for 3 s to put the pad in config mode, then choose it.</span></button>
       <button id="connectusb" type="button" class="choice"><strong>Configure over USB</strong>
         <span>Plug the pad in, then choose it.</span></button>
-      <button id="install" type="button" class="choice" hidden><strong>Install over USB</strong>
-        <span>Back up a pad's flash, then install our updater and firmware: from its boot loader or from our firmware.</span></button>
+    </div>
+    <div id="homelist" hidden>
+      <div class="listhead"><h2>Devices</h2>
+        <label class="check">Bluetooth <input type="checkbox" class="switch bleswitch"></label></div>
+      <div id="homedevices" class="choices one"></div>
     </div>
   </section>
-  <section id="flasher" hidden>
-    <h2>Install over USB</h2>
-    <p class="muted">Plug in a pad in its boot loader (GameSir pads: Jieli; 8BitDo) or running our
-      firmware. Back up its whole flash first (a file in Download/JollyMaam); then the app writes
-      the package's updater and firmware through the boot loader and checks them.</p>
-    <p class="package"><span id="flashinfo"></span>
-      <label class="file">Another package… <input id="flashpkg" type="file" accept=".zip,application/zip"></label></p>
-    <ul id="flashdevices"></ul>
-    <div id="flashactions"></div>
-    <progress id="flashprogress" max="1" value="0" hidden></progress>
-    <pre id="flashlog" class="mono"></pre>
+  <section id="manage" hidden>
+    <div class="choices cards">
+      <button id="doinstall" type="button" class="choice"><strong>Install</strong></button>
+      <button id="dobackup" type="button" class="choice"><strong>Backup</strong></button>
+      <button id="doupgrade" type="button" class="choice"><strong>Upgrade</strong></button>
+      <button id="dorestore" type="button" class="choice"><strong>Restore</strong></button>
+      <button id="loadpkg" type="button" class="choice"><strong>Load Package</strong><span id="loadpkginfo"></span></button>
+    </div>
+    <p id="managenote" class="muted"></p>
+    <div class="listhead"><h2>Devices</h2>
+      <label class="check">Bluetooth <input type="checkbox" class="switch bleswitch"></label></div>
+    <p id="blenote" class="muted"></p>
+    <div id="managedevices" class="choices one"></div>
+    <details><summary>Getting a pad ready</summary><div id="padhow"></div></details>
+    <input id="package" type="file" accept=".zip,application/zip" hidden>
+  </section>
+  <section id="action" hidden>
+    <h2 id="actiontitle"></h2>
+    <p id="actiondevice" class="muted"></p>
+    <div id="actionbody"></div>
+    <div id="padjob" hidden>
+      <p class="pending"><span class="spinner" aria-hidden="true"></span><span id="padstep"></span></p>
+      <progress id="flashprogress" max="1" value="0"></progress>
+      <p class="muted">Keep the pad plugged in.</p>
+    </div>
+    <p id="actionresult" role="status"></p>
+    <details id="flashdetails"><summary>Details</summary><pre id="flashlog" class="mono"></pre></details>
   </section>
   <section id="config" hidden>
   <section id="identity"></section>
@@ -50,8 +69,7 @@
     <p class="muted">A firmware package (firmware.zip, from <code>make firmware</code>) has an update
       for each pad; the page takes this pad's, restarts the pad into its updater, writes it and
       starts it.</p>
-    <p class="package"><span id="pkginfo"></span>
-      <label class="file">Another package… <input id="package" type="file" accept=".zip,application/zip"></label></p>
+    <p class="package"><span id="pkginfo"></span></p>
     <p id="fwinfo" class="muted"></p>
     <div class="actions">
       <button id="update" type="button" disabled>Update</button>
@@ -74,6 +92,7 @@
   <section id="settings"></section>
   </section>
 </main>
+<div id="toast" role="status" hidden></div>
 <script type="module" src="app.js"></script>
 </body>
 </html>

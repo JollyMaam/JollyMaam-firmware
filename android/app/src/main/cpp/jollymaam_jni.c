@@ -1,6 +1,7 @@
 /* libjollymaam for the Android app: its hooks over the Kotlin NativeUsb the
  * app opened (one USB device: kind 0 our tool device, 1 the 8BitDo boot
- * loader, 2 a Jieli ROM loader).  The pad is followed across its restarts
+ * loader, 2 a Jieli ROM loader, 3 a pad on stock firmware, each of its HID
+ * interfaces listed for the library to pick the one taking its command).  The pad is followed across its restarts
  * (into our updater, into its vendor loader) by NativeUsb.follow: each look
  * at USB asks which device and kind it is now, our firmware only with the
  * UID picked. */
@@ -15,6 +16,7 @@ struct bridge {
   JNIEnv *env;
   jobject transport;
   jmethodID scsi, write, read, set, wait, follow, generation, size, progress, say, block;
+  jmethodID identity, interfaces, descriptor, select;
   int kind, has_uid;
   uint8_t uid[16];
 };
@@ -34,7 +36,11 @@ static int prepare(struct bridge *b, JNIEnv *env, jobject transport, int kind) {
   b->generation = (*env)->GetMethodID(env, cls, "generation", "()I");
   b->block = (*env)->GetMethodID(env, cls, "backupBlock", "(J[B)Z");
   b->size = (*env)->GetMethodID(env, cls, "featureSize", "()I");
-  b->progress = (*env)->GetMethodID(env, cls, "onProgress", "(JJ)V");
+  b->identity = (*env)->GetMethodID(env, cls, "identity", "()[Ljava/lang/String;");
+  b->interfaces = (*env)->GetMethodID(env, cls, "hidInterfaces", "()I");
+  b->descriptor = (*env)->GetMethodID(env, cls, "hidDescriptor", "(I)[B");
+  b->select = (*env)->GetMethodID(env, cls, "hidSelect", "(I)Z");
+  b->progress = (*env)->GetMethodID(env, cls, "onProgress", "(Ljava/lang/String;JJ)V");
   b->say = (*env)->GetMethodID(env, cls, "onSay", "(Ljava/lang/String;)V");
   (*env)->DeleteLocalRef(env, cls);
   return !(*env)->ExceptionCheck(env);
@@ -71,6 +77,53 @@ static int call(struct bridge *b, jmethodID method, uint8_t *data, size_t size, 
 
 /* ---- the hooks -------------------------------------------------------------------------------------- */
 
+static void copy_string(JNIEnv *e, jobjectArray a, jsize i, char *out, size_t size) {
+  jstring s = (*e)->GetObjectArrayElement(e, a, i);
+  const char *c = s ? (*e)->GetStringUTFChars(e, s, NULL) : NULL;
+  snprintf(out, size, "%s", c ? c : "");
+  if (c) (*e)->ReleaseStringUTFChars(e, s, c);
+  if (s) (*e)->DeleteLocalRef(e, s);
+}
+
+/* A stock pad: each HID interface, its report descriptor read (path
+ * "android:N", N the interface for open to select); one port, so the
+ * library keeps the interface that takes its command. */
+static int stock_interfaces(struct bridge *b, struct jm_device_info *d,
+                            int (*visit)(void *, const struct jm_device_info *), void *user) {
+  JNIEnv *e = b->env;
+  jobjectArray id = (*e)->CallObjectMethod(e, b->transport, b->identity);
+  if (threw(e) || !id || (*e)->GetArrayLength(e, id) != 5) return 0;
+  char number[16];
+  copy_string(e, id, 0, number, sizeof number), d->vid = (uint16_t)strtoul(number, NULL, 16);
+  copy_string(e, id, 1, number, sizeof number), d->pid = (uint16_t)strtoul(number, NULL, 16);
+  copy_string(e, id, 2, number, sizeof number), d->bcd = (uint16_t)strtoul(number, NULL, 16);
+  copy_string(e, id, 3, d->manufacturer, sizeof d->manufacturer);
+  copy_string(e, id, 4, d->product, sizeof d->product);
+  (*e)->DeleteLocalRef(e, id);
+  d->kind = JM_DEVICE_HID;
+  snprintf(d->port, sizeof d->port, "android");
+  jint n = (*e)->CallIntMethod(e, b->transport, b->interfaces);
+  if (threw(e)) return 0;
+  int count = 0;
+  for (jint i = 0; i < n; i++) {
+    struct jm_device_info one = *d;
+    jbyteArray r = (*e)->CallObjectMethod(e, b->transport, b->descriptor, i);
+    if (threw(e)) return count;
+    if (r) {
+      uint8_t buf[1024];
+      jsize k = (*e)->GetArrayLength(e, r);
+      if (k > (jsize)sizeof buf) k = sizeof buf;
+      (*e)->GetByteArrayRegion(e, r, 0, k, (jbyte *)buf);
+      (*e)->DeleteLocalRef(e, r);
+      jm_hid_descriptor(buf, (size_t)k, &one);
+    }
+    snprintf(one.path, sizeof one.path, "android:%d", (int)i);
+    count++;
+    if (visit(user, &one)) break;
+  }
+  return count;
+}
+
 static int list(void *ctx, int (*visit)(void *, const struct jm_device_info *), void *user) {
   struct bridge *b = ctx;
   JNIEnv *e = b->env;
@@ -82,13 +135,14 @@ static int list(void *ctx, int (*visit)(void *, const struct jm_device_info *), 
   jint kind = (*e)->CallIntMethod(e, b->transport, b->follow, uid, (jint)b->kind);
   if (threw(e)) kind = -1;
   if (uid) (*e)->DeleteLocalRef(e, uid);
-  if (kind < 0 || kind > 2) return 0;
+  if (kind < 0 || kind > 3) return 0;
   jint generation = (*e)->CallIntMethod(e, b->transport, b->generation);
   if (threw(e)) return 0;
   b->kind = kind;
   memset(&d, 0, sizeof d);
   snprintf(d.path, sizeof d.path, "android");
   snprintf(d.id, sizeof d.id, "android#%d", (int)generation);
+  if (b->kind == 3) return stock_interfaces(b, &d, visit, user);
   if (b->kind == 2) d.kind = JM_DEVICE_DISK;
   else if (b->kind == 1) d.vid = 0x2dc8, d.pid = 0x3208, d.output_size = 64;
   else {
@@ -98,14 +152,19 @@ static int list(void *ctx, int (*visit)(void *, const struct jm_device_info *), 
   visit(user, &d);
   return 1;
 }
-static void *open_dev(void *ctx, const struct jm_device_info *d) { (void)d; return ctx; }
+static void *open_dev(void *ctx, const struct jm_device_info *d) {
+  struct bridge *b = ctx;
+  if (strncmp(d->path, "android:", 8)) return ctx;
+  jboolean ok = (*b->env)->CallBooleanMethod(b->env, b->transport, b->select, (jint)atoi(d->path + 8));
+  return threw(b->env) || !ok ? NULL : ctx;
+}
 static void close_dev(void *ctx, void *dev) { (void)ctx, (void)dev; }
-/* Kotlin's hidWrite takes the report without its ID byte (0). */
+/* As hidraw takes it: the report ID first (0: none, not sent), the stock
+ * pads' commands on IDs of their own (0x81, 0x0f). */
 static int write_report(void *ctx, void *dev, const uint8_t *r, size_t n) {
   (void)dev;
-  if (!n || r[0]) return -1;
-  int k = call(ctx, ((struct bridge *)ctx)->write, (uint8_t *)r + 1, n - 1, -1);
-  return k < 0 ? -1 : k + 1;
+  if (!n) return -1;
+  return call(ctx, ((struct bridge *)ctx)->write, (uint8_t *)r, n, -1);
 }
 static int read_report(void *ctx, void *dev, uint8_t *out, size_t n, unsigned timeout) {
   (void)dev;
@@ -152,10 +211,11 @@ static void say(void *ctx, const char *line) {
 }
 static void progress(void *ctx, const char *what, size_t done, size_t total) {
   struct bridge *b = ctx;
-  (void)what;
-  if (!(*b->env)->ExceptionCheck(b->env))
-    (*b->env)->CallVoidMethod(b->env, b->transport, b->progress, (jlong)done, (jlong)total);
-  threw(b->env);
+  JNIEnv *e = b->env;
+  if ((*e)->ExceptionCheck(e)) return;
+  jstring s = (*e)->NewStringUTF(e, what ? what : "");
+  if (s) (*e)->CallVoidMethod(e, b->transport, b->progress, s, (jlong)done, (jlong)total), (*e)->DeleteLocalRef(e, s);
+  threw(e);
 }
 
 static void start(struct jm *jm, struct jm_hooks *h, struct bridge *b) {
@@ -185,7 +245,8 @@ static void close_package(JNIEnv *e, struct package *p) {
 
 /* ---- NativeCore ------------------------------------------------------------------------------------------ */
 
-/* The package's products: product, board, chip, three strings each. */
+/* The package's products: product, board, chip, name, how to enter its
+ * vendor loader by hand ("" none), five strings each. */
 JNIEXPORT jobjectArray JNICALL Java_dev_jollymaam_app_NativeCore_products(JNIEnv *e, jobject self, jbyteArray input) {
   struct package p;
   const struct jm_product *found[JM_FIRMWARE_FILES];
@@ -200,13 +261,14 @@ JNIEXPORT jobjectArray JNICALL Java_dev_jollymaam_app_NativeCore_products(JNIEnv
       if (pr && pr->board && !dup) found[n++] = pr;
     }
   jclass string = n ? (*e)->FindClass(e, "java/lang/String") : NULL;
-  if (string) result = (*e)->NewObjectArray(e, (jsize)n * 3, string, NULL);
+  if (string) result = (*e)->NewObjectArray(e, (jsize)n * 5, string, NULL);
   for (unsigned i = 0; result && i < n && !(*e)->ExceptionCheck(e); i++) {
-    const char *values[] = {found[i]->pid, found[i]->board, jm_chip_name(found[i]->chip)};
-    for (int k = 0; k < 3; k++) {
+    const char *values[] = {found[i]->pid, found[i]->board, jm_chip_name(found[i]->chip), found[i]->name,
+                            found[i]->by_hand ? found[i]->by_hand : ""};
+    for (int k = 0; k < 5; k++) {
       jstring v = (*e)->NewStringUTF(e, values[k]);
       if (!v) break;
-      (*e)->SetObjectArrayElement(e, result, (jsize)(i * 3 + k), v);
+      (*e)->SetObjectArrayElement(e, result, (jsize)(i * 5 + k), v);
       (*e)->DeleteLocalRef(e, v);
     }
   }
@@ -229,75 +291,71 @@ static int same_uid(struct jm *jm, struct bridge *b) {
   return ok;
 }
 
-/* What the device is: kind 0 its IDENTIFY (88 bytes), 1 the boot loader's
- * model (2 bytes), 2 the Jieli chip's name. */
-JNIEXPORT jbyteArray JNICALL Java_dev_jollymaam_app_NativeCore_probe(JNIEnv *e, jobject self, jobject transport, jint kind) {
+static jobjectArray strings(JNIEnv *e, const char *const *values, int n) {
+  jclass string = (*e)->FindClass(e, "java/lang/String");
+  jobjectArray result = string ? (*e)->NewObjectArray(e, n, string, NULL) : NULL;
+  for (int k = 0; result && k < n; k++) {
+    jstring v = (*e)->NewStringUTF(e, values[k]);
+    if (!v) return NULL;
+    (*e)->SetObjectArrayElement(e, result, k, v);
+    (*e)->DeleteLocalRef(e, v);
+  }
+  if (string) (*e)->DeleteLocalRef(e, string);
+  return result;
+}
+
+static void hex(char *out, const uint8_t *d, size_t n) {
+  for (size_t i = 0; i < n; i++) sprintf(out + 2 * i, "%02x", d[i]);
+}
+
+/* What the device is (jm_scan), as strings: what (jm_found_what), product
+ * ID, board, product name, chip, stock mode, build, flash ID (hex), "1" in
+ * our updater, "1" when a command restarts it into its loader, what to do
+ * by hand.  "" where not known; NULL: nothing the library knows. */
+JNIEXPORT jobjectArray JNICALL Java_dev_jollymaam_app_NativeCore_probe(JNIEnv *e, jobject self, jobject transport, jint kind) {
   struct bridge b;
   struct jm_hooks h;
   struct jm jm;
   struct jm_found f;
-  uint8_t data[88] = {0};
-  size_t size = 0;
+  char uid[33] = "", build[17] = "";
   (void)self;
   if (!prepare(&b, e, transport, kind)) return NULL;
   start(&jm, &h, &b);
   memset(&f, 0, sizeof f);
-  if (jm_scan(&jm, probed, &f) != 1) return NULL;
-  if (kind == 0 && (f.kind == JM_FOUND_OURS || f.kind == JM_FOUND_UPDATER)) {
-    memcpy(data, "C2PD", 4), data[4] = (uint8_t)f.id.protocol, data[5] = (uint8_t)(f.id.protocol >> 8);
-    data[6] = f.id.board, data[7] = f.id.updater;
-    memcpy(data + 8, f.id.build, 16), memcpy(data + 24, f.id.uid, 16), memcpy(data + 40, f.id.product, 16);
-    memcpy(data + 56, f.id.board_name, 32), size = 88;
-  } else if (kind == 1 && f.kind == JM_FOUND_8BITDO_LOADER) {
-    data[0] = (uint8_t)f.product->model, data[1] = (uint8_t)(f.product->model >> 8), size = 2;
-  } else if (kind == 2 && f.kind == JM_FOUND_JIELI_LOADER) {
-    memcpy(data, jm_chip_name(f.chip), 4), size = 4;
+  if (jm_scan(&jm, probed, &f) < 1) return NULL;
+  if (f.kind == JM_FOUND_OURS || f.kind == JM_FOUND_UPDATER) {
+    hex(uid, f.id.uid, 16);
+    memcpy(build, f.id.build, 16);
   }
-  return size && !(*e)->ExceptionCheck(e) ? bytes(e, data, size) : NULL;
+  const struct jm_product *p = f.product;
+  const char *values[] = {jm_found_what(&f), p ? p->pid : "", p && p->board ? p->board : "", p ? p->name : "",
+                          f.kind == JM_FOUND_JIELI_LOADER || p ? jm_chip_name(f.chip) : "", f.mode ? f.mode : "",
+                          build, uid, f.kind == JM_FOUND_UPDATER ? "1" : "", f.can_enter ? "1" : "",
+                          p && p->by_hand ? p->by_hand : ""};
+  return (*e)->ExceptionCheck(e) ? NULL : strings(e, values, 11);
 }
 
-/* The package's firmware for product onto the device: kind 0 through our
- * updater (found again by uid after its restart), or with install its whole
- * install image (updater and firmware) through the vendor loader it is
- * restarted into; a loader (kind 1, 2) through itself. */
-JNIEXPORT jint JNICALL Java_dev_jollymaam_app_NativeCore_run(JNIEnv *e, jobject self, jbyteArray input, jstring product,
-                                                              jint kind, jbyteArray uid, jboolean install,
-                                                              jobject transport) {
+/* The package's update.bin for product through our updater (our firmware
+ * with uid restarted into it, found again by uid). */
+JNIEXPORT jint JNICALL Java_dev_jollymaam_app_NativeCore_update(JNIEnv *e, jobject self, jbyteArray input, jstring product,
+                                                                 jbyteArray uid, jobject transport) {
   struct bridge b;
   struct jm_hooks h;
   struct jm jm;
   struct package p;
   int result = -100;
   (void)self;
-  memset(&p, 0, sizeof p);
-  if (!product || kind < 0 || kind > 2 || (kind == 0 && (!uid || (*e)->GetArrayLength(e, uid) != 16)) ||
-      !prepare(&b, e, transport, kind))
-    return -100;
-  if (uid) (*e)->GetByteArrayRegion(e, uid, 0, 16, (jbyte *)b.uid), b.has_uid = 1;
+  if (!product || !uid || (*e)->GetArrayLength(e, uid) != 16 || !prepare(&b, e, transport, 0)) return -100;
+  (*e)->GetByteArrayRegion(e, uid, 0, 16, (jbyte *)b.uid), b.has_uid = 1;
   const char *name = (*e)->GetStringUTFChars(e, product, NULL);
   if (name && open_package(e, input, &p)) {
-    struct jm_select sel = {NULL, name[0] ? name : NULL, 0, 0};   /* "": a Jieli loader's flash names it */
+    struct jm_select sel = {NULL, name, 0, 0};
     start(&jm, &h, &b);
-    if (kind == 0 && !same_uid(&jm, &b)) result = -2;
-    else result = kind == 0 && !install ? jm_update(&jm, &p.fw, &sel) : jm_oemflash(&jm, &p.fw, &sel);
+    result = same_uid(&jm, &b) ? jm_update(&jm, &p.fw, &sel) : -2;
   }
   if (name) (*e)->ReleaseStringUTFChars(e, product, name);
   close_package(e, &p);
   return result;
-}
-
-/* Our firmware with this UID into its vendor loader (the app rescans for it). */
-JNIEXPORT jint JNICALL Java_dev_jollymaam_app_NativeCore_stockLoader(JNIEnv *e, jobject self, jbyteArray uid, jobject transport) {
-  struct bridge b;
-  struct jm_hooks h;
-  struct jm jm;
-  struct jm_select sel = {NULL, NULL, 0, 1};
-  (void)self;
-  if (!uid || (*e)->GetArrayLength(e, uid) != 16 || !prepare(&b, e, transport, 0)) return -1;
-  (*e)->GetByteArrayRegion(e, uid, 0, 16, (jbyte *)b.uid);
-  start(&jm, &h, &b);
-  if (!same_uid(&jm, &b)) return -2;
-  return jm_loader(&jm, &sel);
 }
 
 /* The library's backup blocks to Kotlin's backupBlock (a file it keeps). */
@@ -312,45 +370,57 @@ static int to_kotlin(void *user, uint32_t address, const uint8_t *data, size_t s
   return ok;
 }
 
-/* The whole flash, read through the vendor loader (our firmware, uid given,
- * is restarted into it first, and stays there); the package gives a Jieli
- * loader its RAM loader. */
-JNIEXPORT jint JNICALL Java_dev_jollymaam_app_NativeCore_backup(JNIEnv *e, jobject self, jbyteArray input, jint kind,
-                                                                 jbyteArray uid, jobject transport) {
+/* One pad session (jm_pad: the pad restarted into its vendor loader once,
+ * a Jieli RAM loader uploaded once): with backup the whole flash to
+ * backupBlock first, then the action: 0 none (it stays in its loader), 1
+ * install the package's image, 2 restore image (raw: written whole), 3
+ * reboot.  uid: our firmware, the one picked.  0 done; else the step that
+ * failed: -1 the pad, -2 another pad, -3 the backup, -4 the action. */
+JNIEXPORT jint JNICALL Java_dev_jollymaam_app_NativeCore_session(JNIEnv *e, jobject self, jbyteArray input, jint kind,
+                                                                  jbyteArray uid, jboolean backup, jint action,
+                                                                  jbyteArray image, jboolean raw, jobject transport) {
   struct bridge b;
   struct jm_hooks h;
   struct jm jm;
   struct package p;
-  struct jm_select sel = {NULL, NULL, 0, 0};
+  struct jm_found f;
+  struct jm_pad pad;
   int result = -100;
   (void)self;
-  if (kind < 0 || kind > 2 || (kind == 0 && (!uid || (*e)->GetArrayLength(e, uid) != 16)) ||
-      !prepare(&b, e, transport, kind))
+  if (kind < 0 || kind > 3 || action < 0 || action > 3 || (action == 2 && !image) ||
+      (uid && (*e)->GetArrayLength(e, uid) != 16) || !prepare(&b, e, transport, kind))
     return -100;
   if (uid) (*e)->GetByteArrayRegion(e, uid, 0, 16, (jbyte *)b.uid), b.has_uid = 1;
-  if (open_package(e, input, &p)) {
-    start(&jm, &h, &b);
-    result = kind == 0 && !same_uid(&jm, &b) ? -2 : jm_backup(&jm, &p.fw, &sel, to_kotlin, &b);
+  if (!open_package(e, input, &p)) {
+    close_package(e, &p);
+    return -100;
+  }
+  start(&jm, &h, &b);
+  memset(&f, 0, sizeof f);
+  if (jm_scan(&jm, probed, &f) < 1) result = -1;
+  else if (uid && ((f.kind != JM_FOUND_OURS && f.kind != JM_FOUND_UPDATER) || memcmp(f.id.uid, b.uid, 16))) result = -2;
+  else {
+    jm_pad_init(&pad, &jm, &p.fw, &f);
+    result = 0;
+    if (backup && !jm_pad_backup(&pad, to_kotlin, &b)) result = -3;
+    else if (action == 0 && !backup && !jm_pad_ready(&pad)) result = -1;
+    else if (action == 1 && !jm_pad_install(&pad)) result = -4;
+    else if (action == 3 && !jm_pad_reboot(&pad)) result = -4;
+    else if (action == 2) {
+      jbyte *data = (*e)->GetByteArrayElements(e, image, NULL);
+      if (!data || !jm_pad_restore(&pad, (const uint8_t *)data, (size_t)(*e)->GetArrayLength(e, image), raw)) result = -4;
+      if (data) (*e)->ReleaseByteArrayElements(e, image, data, JNI_ABORT);
+    }
   }
   close_package(e, &p);
   return result;
 }
 
-/* A vendor loader out of itself: the firmware it holds starts. */
-JNIEXPORT jint JNICALL Java_dev_jollymaam_app_NativeCore_start(JNIEnv *e, jobject self, jbyteArray input, jint kind,
-                                                                jobject transport) {
-  struct bridge b;
-  struct jm_hooks h;
-  struct jm jm;
-  struct package p;
-  struct jm_select sel = {NULL, NULL, 0, 0};
-  int result = -100;
-  (void)self;
-  if (kind < 1 || kind > 2 || !prepare(&b, e, transport, kind)) return -100;
-  if (open_package(e, input, &p)) {
-    start(&jm, &h, &b);
-    result = jm_start(&jm, &p.fw, &sel);
-  }
-  close_package(e, &p);
-  return result;
+/* A stock pad's USB identity is in the library's table. */
+JNIEXPORT jboolean JNICALL Java_dev_jollymaam_app_NativeCore_isStock(JNIEnv *e, jobject self, jint vid, jint pid) {
+  const struct jm_stock *s;
+  (void)e, (void)self;
+  for (size_t i = 0; (s = jm_stock_at(i)); i++)
+    if (s->vid == vid && s->product == pid) return JNI_TRUE;
+  return JNI_FALSE;
 }

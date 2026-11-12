@@ -7,10 +7,10 @@ USB host-capable phone and an OTG adapter or USB-C cable; Bluetooth needs LE.
 
 The page is the same one Chrome serves; in the app it gets its links from
 `window.JollyMaamAndroid` instead of Web Bluetooth and WebHID
-(`web/link-android.js`), and offers **Install over USB** beside the two
-**Configure** choices. The APK always carries the firmware package
+(`web/link-android.js`), and its home watches USB: a pad plugged in is asked
+what it is and taken where it belongs (`web/flash.js`). The APK always carries the firmware package
 (`build/firmware.zip`; `make android` builds it first); the page uses
-it, and another can be chosen. `make dist-android` takes the one in
+it, and **Load package** on the home screen swaps in another until unloaded. `make dist-android` takes the one in
 `build/dist/`.
 
 - `MainActivity.kt`: the WebView. It serves `assets/web/` (copied from
@@ -28,23 +28,30 @@ it, and another can be chosen. `make dist-android` takes the one in
   written, notifications up, as Web Bluetooth gives them. Android runs one GATT
   operation at a time; they queue on one thread. It asks for a 517-byte MTU.
 - The flasher: `NativeCore` (libjollymaam over JNI, `src/main/cpp/`) with
-  `AndroidNativeUsb` for its USB hooks: our updater (kind 0), the 8BitDo boot
-  loader (1) and the Jieli ROM loader, which is USB mass storage (2).
+  `AndroidNativeUsb` for its USB hooks: our firmware or updater (kind 0), the
+  8BitDo boot loader (1), the Jieli ROM loader, which is USB mass storage (2),
+  and a pad on stock firmware (3: an identity in libjollymaam's table; each
+  HID interface's report descriptor goes to the library, which picks the one
+  taking its loader command). Backup, install, restore and reboot run as one
+  pad session (`jm_pad`): the pad goes into its vendor loader once, and a
+  Jieli RAM loader is uploaded once.
 
 ## Use
 
 1. Open the app.
-2. Bluetooth: hold Home+M for 3 s on the pad, tap **Configure over
-   Bluetooth**, allow Bluetooth access (location before Android 12), and pick
-   the pad.
-3. USB: plug the pad in, tap **Configure over USB**, and allow USB access.
-4. Install: tap **Install over USB** and plug the pad in (in its boot loader,
-   or running our firmware). The screen watches USB until you go back; a lone
-   device is asked what it is at once (allow USB access), then choose what to
-   write.
+2. Home: **Manage Firmware**, then **Devices**: our pads on USB (plugging
+   one in also offers the app) and, with the **Bluetooth** switch on, pads
+   in config mode (hold Home+M for 3 s). Tap one running JollyMaam for its
+   settings; one in its boot loader or updater opens Manage Firmware.
+3. **Manage Firmware**: Install, Backup, Upgrade, Restore and Load/Unload
+   Package, then the devices, stock pads too: tap one to select it. Install
+   wipes all settings and the flash (**Back up first**, on by default, saves
+   the whole flash into Download/JollyMaam). Restore takes a backup of that
+   pad or a vendor image. Over Bluetooth only Upgrade applies. A stock mode
+   the app cannot restart into its loader says what to do by hand.
 
-Back (the button, or the phone's) returns to the three choices and ends the
-link.
+Home leaves a pad on stock firmware alone (a controller profile, maybe
+plugged in to play); Manage Firmware lists it. Back goes back a screen.
 
 After a restart into the updater the pad is a new USB device: Android may ask
 for USB access again.

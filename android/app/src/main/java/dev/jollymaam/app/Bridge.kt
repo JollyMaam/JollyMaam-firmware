@@ -105,11 +105,14 @@ class Bridge(private val activity: MainActivity, private val web: WebView) : Clo
             event(handle, "gone", null)
         }
         links[handle] = link
-        return mapOf("handle" to handle, "name" to (device.productName ?: "USB pad"), "reportSize" to link.reportSize)
+        return mapOf("handle" to handle, "name" to (device.productName ?: "USB pad"), "reportSize" to link.reportSize,
+            "device" to device.deviceName)
     }
 
-    @JavascriptInterface fun usbChoose(call: Int) = async(call) {
-        val found = tools()
+    /** device: the one to take (from the flasher's scan); "": the only
+     * one, or the user chooses. */
+    @JavascriptInterface fun usbChoose(call: Int, device: String) = async(call) {
+        val found = tools().filter { device.isEmpty() || it.deviceName == device }
         if (found.isEmpty()) throw IOException("No pad on USB: plug it in (through an OTG adapter or a USB-C cable).")
         val device = if (found.size == 1) found[0]
         else activity.pick("Choose your pad", found.map { "${it.productName ?: "USB pad"}\n${it.deviceName}" })?.let(found::get)
@@ -152,6 +155,11 @@ class Bridge(private val activity: MainActivity, private val web: WebView) : Clo
 
     // ---- Bluetooth ----
 
+    private companion object {
+        /** A pad heard again is told to the page at most this often. */
+        const val FOUND_MS = 500L
+    }
+
     private val adapter get() = activity.getSystemService(BluetoothManager::class.java)?.adapter
 
     @JavascriptInterface fun bleAvailable() = adapter != null
@@ -172,26 +180,39 @@ class Bridge(private val activity: MainActivity, private val web: WebView) : Clo
         return mapOf("handle" to handle, "name" to (device.name ?: "Bluetooth pad"), "id" to device.address, "mtu" to link.mtu)
     }
 
-    /** Pads in config mode or their updater, as they are found; the one chosen. */
-    @JavascriptInterface fun bleChoose(call: Int) = async(call) {
+    /** Scanning and connecting allowed, asked for if need be: true or false. */
+    @JavascriptInterface fun blePermission(call: Int) = async(call) { activity.bluetoothPermission() }
+
+    /** Pads in config mode or their updater while they advertise: events
+     * "found" {name, id} on the scan's handle, again at most every
+     * FOUND_MS per pad while it is heard, until the page closes it
+     * (closeLink); the page shows them and drops the ones gone quiet. */
+    @JavascriptInterface fun bleScan(call: Int) = async(call) {
         val scanner = bluetooth().bluetoothLeScanner ?: throw IOException("Bluetooth is off: turn it on.")
-        val found = mutableListOf<BluetoothDevice>()
-        val chooser = activity.liveChooser("Pads in config mode (hold Home+M for 3 s)")
+        val handle = handles.getAndIncrement()
+        val heard = HashMap<String, Long>()
         val scan = object : ScanCallback() {
-            override fun onScanResult(type: Int, r: ScanResult) = activity.runOnUiThread {
-                if (found.none { it.address == r.device.address }) {
-                    found += r.device
-                    chooser.add("${r.scanRecord?.deviceName ?: r.device.name ?: "Pad"}\n${r.device.address}")
+            override fun onScanResult(type: Int, r: ScanResult) {
+                val now = System.currentTimeMillis()
+                val again = synchronized(heard) {
+                    val last = heard[r.device.address]
+                    if (last != null && now - last < FOUND_MS) false else { heard[r.device.address] = now; true }
                 }
+                if (!again) return
+                event(handle, "found", mapOf("name" to (r.scanRecord?.deviceName ?: r.device.name ?: "Pad"), "id" to r.device.address))
             }
-            override fun onScanFailed(code: Int) = activity.runOnUiThread { chooser.add("(scanning failed: error $code)") }
+            override fun onScanFailed(code: Int) = event(handle, "failed", "Scanning failed (error $code).")
         }
         val filters = listOf(ScanFilter.Builder().setServiceUuid(ParcelUuid(BleLink.SERVICE)).build()) +
             BleLink.NAME_ONLY.map { ScanFilter.Builder().setDeviceName(it).build() }
         scanner.startScan(filters, ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), scan)
-        val chosen = try { chooser.await() } finally { scanner.stopScan(scan) }
-        val device = chosen?.let { found.getOrNull(it) } ?: throw NotChosen("No pad chosen.")
-        openBle(device, 5.0)
+        links[handle] = Closeable { runCatching { scanner.stopScan(scan) } }
+        mapOf("handle" to handle)
+    }
+
+    /** The pad the page chose from the scan. */
+    @JavascriptInterface fun bleOpen(call: Int, address: String) = async(call) {
+        openBle(bluetooth().getRemoteDevice(address), 5.0)
     }
 
     /** The same pad again (a restart into its updater keeps the address). */
@@ -213,16 +234,16 @@ class Bridge(private val activity: MainActivity, private val web: WebView) : Clo
     // ---- the flasher: libjollymaam ----
 
     /** A firmware package (firmware.zip), checked: what it has, a
-     * [product, board, chip] each.  Kept for flashRun. */
+     * [product, board, chip, name, byHand] each.  Kept for flashRun. */
     @JavascriptInterface fun flashPackage(call: Int, data: String) = async(call) {
         val bytes = unbase64(data)
         val raw = NativeCore.products(bytes) ?: throw IOException("not a firmware package, or a file in it is damaged")
         pkg = bytes
-        raw.toList().chunked(3).map { mapOf("product" to it[0], "board" to it[1], "chip" to it[2]) }
+        raw.toList().chunked(5).map { mapOf("product" to it[0], "board" to it[1], "chip" to it[2], "name" to it[3], "byHand" to it[4]) }
     }
 
     /** What is on USB that the flasher can talk to: our tool device (kind 0),
-     * the 8BitDo boot loader (1), a Jieli ROM loader (2). */
+     * the 8BitDo boot loader (1), a Jieli ROM loader (2), a stock pad (3). */
     @JavascriptInterface fun flashScan(call: Int) = async(call) {
         usb.deviceList.values.filter { AndroidNativeUsb.kind(it) != null && it.deviceName !in held() }.sortedBy { it.deviceName }.map {
             mapOf("device" to it.deviceName, "name" to (it.productName ?: "USB device"),
@@ -237,92 +258,76 @@ class Bridge(private val activity: MainActivity, private val web: WebView) : Clo
         return device to kind
     }
 
-    /** libjollymaam's lines go to the Flash panel's log as they come
-     * (events on handle 0, as progress). */
-    private fun transport(device: UsbDevice, kind: Int, progress: (Long, Long) -> Unit = { _, _ -> }) =
-        AndroidNativeUsb(usb, device, kind, activity::usbPermission, cancelled, progress, say = { event(0, "log", it) })
+    /** libjollymaam's lines go to the page as they come (events on handle
+     * 0, as progress); a backup's blocks to sink. */
+    private fun transport(device: UsbDevice, kind: Int, progress: (String, Long, Long) -> Unit = { _, _, _ -> },
+                          sink: ((Long, ByteArray) -> Boolean)? = null) =
+        AndroidNativeUsb(usb, device, kind, activity::usbPermission, cancelled, progress, { event(0, "log", it) }, sink)
 
     /** A failure with the library's last line, which says why. */
     private fun failed(t: AndroidNativeUsb, what: String) = IOException(t.said.lastOrNull()?.let { "$what: $it" } ?: what)
 
-    /** What the device is: ours (product, build, flash ID, updater or app),
-     * the 8BitDo loader (its model checked), a Jieli loader (its chip). */
+    /** What the device is (libjollymaam's scan): kind, what, product, board,
+     * name, chip, mode (stock), build, uid, updater, canEnter, byHand. */
     @JavascriptInterface fun flashProbe(call: Int, name: String) = async(call) {
         val (device, kind) = device(name)
         val t = transport(device, kind)
-        val reply = t.use { NativeCore.probe(it, kind) } ?: throw failed(t, "it did not answer (is it in the mode it showed?)")
-        when (kind) {
-            0 -> mapOf("kind" to 0, "build" to reply.copyOfRange(8, 24).cString(), "uid" to reply.copyOfRange(24, 40).hex(),
-                "product" to reply.copyOfRange(40, 56).cString(), "updater" to (reply.u8(7) == 1))
-            1 -> {
-                if (reply.u16() != 0x301b) throw IOException("an 8BitDo boot loader of another model")
-                mapOf("kind" to 1, "product" to "U2C_WIRELESS")
-            }
-            else -> mapOf("kind" to 2, "chip" to reply.cString())
-        }
+        val r = t.use { NativeCore.probe(it, kind) } ?: throw failed(t, "not a pad the app knows, or it did not answer")
+        mapOf("kind" to kind, "what" to r[0], "product" to r[1], "board" to r[2], "name" to r[3], "chip" to r[4],
+            "mode" to r[5], "build" to r[6], "uid" to r[7], "updater" to (r[8] == "1"), "canEnter" to (r[9] == "1"),
+            "byHand" to r[10])
     }
 
-    /** Progress as events on handle 0, one per percent. */
-    private fun progress(): (Long, Long) -> Unit {
+    /** Progress as events on handle 0, one per percent of each step. */
+    private fun progress(): (String, Long, Long) -> Unit {
         var last = -1L
-        return { done, total ->
+        var step = ""
+        return { what, done, total ->
             val percent = if (total > 0) done * 100 / total else 0
-            if (percent != last) { last = percent; event(0, "progress", mapOf("done" to done, "total" to total)) }
+            if (percent != last || what != step) {
+                last = percent; step = what
+                event(0, "progress", mapOf("what" to what, "done" to done, "total" to total))
+            }
         }
     }
 
-    /** The package's firmware for product onto the device: our firmware
-     * (kind 0) through our updater (found again by flash ID after its
-     * restart), or with install the whole install image (updater and
-     * firmware) through the vendor loader it is restarted into; a loader
-     * through itself. */
-    @JavascriptInterface fun flashRun(call: Int, name: String, product: String, uid: String, install: Boolean) = async(call) {
+    /** update.bin through our updater (our firmware, uid). */
+    @JavascriptInterface fun flashUpdate(call: Int, name: String, product: String, uid: String) = async(call) {
         val bytes = pkg ?: throw IOException("choose a firmware package first")
         val (device, kind) = device(name)
+        if (kind != 0) throw IOException("only our firmware takes an update")
         val t = transport(device, kind, progress())
-        val result = t.use { NativeCore.run(bytes, product, kind, if (kind == 0) unhex(uid) else null, install, it) }
-        if (result != 0) throw failed(t, "failed ($result); the device may stay in its loader, scan again before trying again")
+        val result = t.use { NativeCore.update(bytes, product, unhex(uid), it) }
+        if (result != 0) throw failed(t, "failed ($result); scan again before trying again")
         null
     }
 
-    /** The whole flash into Downloads (before Android 10: the app's own
-     * files), read through the vendor loader; our firmware is restarted into
-     * it and the pad stays there.  The file's name back. */
-    @JavascriptInterface fun flashBackup(call: Int, name: String, uid: String, label: String) = async(call) {
+    /** One pad session (NativeCore.session): the whole flash backed up first
+     * into Downloads (before Android 10: the app's own files) when backup,
+     * then the action; image (base64) for a restore.  {backup: where} back. */
+    @JavascriptInterface fun flashSession(call: Int, name: String, uid: String, backup: Boolean, label: String,
+                                          action: Int, image: String, raw: Boolean) = async(call) {
         val bytes = pkg ?: throw IOException("choose a firmware package first")
         val (device, kind) = device(name)
-        val file = BackupFile.create(activity, "${label.replace(Regex("[^A-Za-z0-9_.-]"), "_")}-" +
+        val file = if (!backup) null else BackupFile.create(activity, "${label.replace(Regex("[^A-Za-z0-9_.-]"), "_")}-" +
             SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(Date()) + ".bin")
         var next: Long? = null
-        val t = AndroidNativeUsb(usb, device, kind, activity::usbPermission, cancelled, progress(), { event(0, "log", it) }) { at, block ->
+        val t = transport(device, kind, progress()) { at, block ->
             // Blocks come in order, from the first address read (not 0 on the 8BitDo pads).
-            if (next != null && at != next) false
+            if (file == null || (next != null && at != next)) false
             else { file.out.write(block); next = at + block.size; true }
         }
-        val result = try { t.use { NativeCore.backup(bytes, kind, if (kind == 0) unhex(uid) else null, it) } }
-            catch (e: Throwable) { file.discard(); throw e }
-        if (result != 0) { file.discard(); throw failed(t, "backup failed ($result)") }
-        file.keep()
-    }
-
-    /** A vendor loader starts the firmware it holds (it leaves USB). */
-    @JavascriptInterface fun flashStart(call: Int, name: String) = async(call) {
-        val bytes = pkg ?: throw IOException("choose a firmware package first")
-        val (device, kind) = device(name)
-        if (kind == 0) throw IOException("it is running already")
-        val t = transport(device, kind)
-        val result = t.use { NativeCore.start(bytes, kind, it) }
-        if (result != 0) throw failed(t, "did not start ($result)")
-        null
-    }
-
-    /** Our firmware or updater into its vendor loader (it leaves USB; scan again). */
-    @JavascriptInterface fun flashStockLoader(call: Int, name: String, uid: String) = async(call) {
-        val (device, kind) = device(name)
-        if (kind != 0) throw IOException("only our firmware or updater takes that request")
-        val t = transport(device, 0)
-        val result = t.use { NativeCore.stockLoader(unhex(uid), it) }
-        if (result != 0) throw failed(t, "unconfirmed ($result): scan again before trying again")
-        null
+        val data = if (action == NativeCore.ACTION_RESTORE) unbase64(image) else null
+        var where: String? = null
+        val result = try {
+            t.use { NativeCore.session(bytes, kind, if (uid.isEmpty()) null else unhex(uid), backup, action, data, raw, it) }
+        } catch (e: Throwable) { file?.discard(); throw e }
+        // A backup read whole is kept, also when the step after it failed.
+        if (file != null) { if (result == 0 || result == -4) where = file.keep() else file.discard() }
+        if (result != 0) {
+            val step = when (result) { -1 -> "the pad"; -2 -> "another pad"; -3 -> "backup failed"; -4 -> "failed"; else -> "failed ($result)" }
+            throw failed(t, if (where != null) "$step (backup kept: $where)" else step)
+        }
+        mapOf("backup" to where)
     }
 }
