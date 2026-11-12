@@ -349,7 +349,8 @@ def read_stats(path, reset=False):
      s["anchors"], s["late"]) = struct.unpack_from("<9I", d, o)
     o += 36
     if version >= 2:             # the HCI receive queue, since boot
-        s["hci"] = dict(zip(("dropped_events", "dropped_acl", "most", "slots"), struct.unpack_from("<4H", d, o)))
+        s["hci"] = dict(zip(("dropped_events", "dropped_acl", "held_acl", "most", "slots"),
+                            struct.unpack_from("<3H2B", d, o)))
         o += 8
     s["buttons"], s["frames"], s["resyncs"] = struct.unpack_from("<3I", d, o)
     o += 12
@@ -410,7 +411,7 @@ def show_stats(s):
     if "hci" in s:
         q = s["hci"]
         print(f"hci receive queue since boot: dropped {q['dropped_events']} events, {q['dropped_acl']} ACL; "
-              f"most in use {q['most']} of {q['slots']} slots")
+              f"ACL held back {q['held_acl']} times; most in use {q['most']} of {q['slots']} slots")
     show_link(s["link"])
     print(f"input: button changes {s['buttons']}, stick frames {s['frames']} "
           f"({s['frames'] / secs:.0f}/s), stick resyncs {s['resyncs']}")

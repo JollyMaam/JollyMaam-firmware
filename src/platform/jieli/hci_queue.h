@@ -13,6 +13,8 @@ void hciq_clear(void);
 u8 *hciq_put(u8 type, const u8 *packet, u16 size);   /* the copy, or 0 when dropped */
 int hciq_peek(u8 *type, u8 **data, u16 *size);        /* the oldest; 0 when empty */
 void hciq_pop(void);
+u32 hciq_free(void);                                  /* slots free */
+void hciq_held(void);                                 /* count an ACL packet kept back */
 void hciq_stats(struct hci_queue_stats *out);
 
 #endif

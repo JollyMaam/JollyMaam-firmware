@@ -81,4 +81,13 @@ extern u16 btctrler_qos_poll_slots;
  * interrupt context: btstack_hci_jieli.c times the link's anchors with it. */
 void btctrlermod_air_rx(void);
 
+/* Host flow control.  btstack_hci_jieli.c: whether its receive queue takes
+ * one more ACL packet; refused, Classic data stays in the link's list
+ * (lmp_acl.c retries) and LE data in the radio's received list (RF_ble.c),
+ * which flows the link off once the radio's buffers run out.  The transport
+ * calls btctrlermod_host_ready (hci_transport.c) once it has room again. */
+int btctrlermod_host_acl_room(void);
+void btctrlermod_host_ready(void);
+void *btctrlermod_dma_first(struct _dma_head *head);   /* hw_dma.c: the oldest, not taken */
+
 #endif

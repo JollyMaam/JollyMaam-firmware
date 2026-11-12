@@ -386,7 +386,7 @@ static __attribute__((noinline)) void hub_step(u32 now)   /* its frame is not ad
 static __attribute__((noinline)) void log_stats(void)
 {
     static struct link_stats last[HUB_SLOTS];
-    static u32 last_dropped;
+    static u32 last_dropped;    /* and held */
     struct link_stats ls;
     struct hci_queue_stats q;
     u32 i;
@@ -399,10 +399,10 @@ static __attribute__((noinline)) void log_stats(void)
         last[i] = ls;
     }
     hci_jieli_rx_stats(&q);
-    if ((u32)(q.dropped_events + q.dropped_acl) != last_dropped) {
-        util_log("hci: dropped %u events, %u acl; most %u of %u slots", q.dropped_events, q.dropped_acl,
-                 q.most, q.slots);
-        last_dropped = (u32)(q.dropped_events + q.dropped_acl);
+    if ((u32)(q.dropped_events + q.dropped_acl + q.held_acl) != last_dropped) {
+        util_log("hci: dropped %u events, %u acl, held %u; most %u of %u slots", q.dropped_events,
+                 q.dropped_acl, q.held_acl, q.most, q.slots);
+        last_dropped = (u32)(q.dropped_events + q.dropped_acl + q.held_acl);
     }
 }
 

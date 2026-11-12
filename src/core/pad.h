@@ -890,10 +890,11 @@ enum { STEP_INPUT, STEP_BT, STEP_USB, STEP_POWER, STEP_TIMEOUTS, STEP_REPORT, ST
        STEP_SETTINGS, STEP_COUNT };
 
 /* The HCI receive queue between the controller and BTstack (Jieli):
- * packets lost to a full queue (saturating), and its high-water mark. */
+ * packets lost to a full queue, ACL packets the controller was told to keep
+ * for now (host flow control, BR23), all saturating; its high-water mark. */
 struct hci_queue_stats {
-    u16 dropped_events, dropped_acl;
-    u16 most, slots;             /* slots ever in use at once, of all */
+    u16 dropped_events, dropped_acl, held_acl;
+    u8 most, slots;              /* slots ever in use at once, of all */
 };
 
 struct bt_stats {

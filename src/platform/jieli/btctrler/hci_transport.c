@@ -142,10 +142,23 @@ static int h4_controller_close(void) { return 0; }
 static void h4_controller_register_packet_handler(void (*handler)(int, const u8 *, int))
 { __h4_send_packet = handler; }
 static int h4_controller_can_send_now(uint8_t type) { (void)type; return 0; }
+/* Non-zero: the host has no room for this ACL packet now (host flow
+ * control, glue.h). */
 static int h4_controller_send_packet(int type, const u8 *packet, int size)
 {
-    hci_packet_handler(type, (u8 *)packet, size);
-    return 0;
+    return hci_packet_handler(type, (u8 *)packet, size);
+}
+
+/* Ours: the host has room again.  LE: the link layer's thread takes what
+ * waits; Classic: a Host Number Of Completed Packets to the connection, which
+ * hands over what waits (lmp_commands.c).  Any thread. */
+void btctrlermod_host_ready(void)
+{
+    if (config_btctler_modules & 2) ll_thread_resume();
+    if (config_btctler_modules & 1) {
+        for (struct lmp_connection *conn = lmp_acl_link; conn < lmp_acl_link + 1; ++conn)
+            if (conn->link) lmp_hci_cmd_to_conn(conn, 2, 0x0c35, 0);
+    }
 }
 
 static const hci_transport_t hci_transport_controller

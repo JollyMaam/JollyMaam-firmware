@@ -62,8 +62,11 @@ void lmp_hci_cmd_to_conn_handler(int *msg)
     case 0x080b:
         if (conn->core.role != msg[2]) conn->core.role_switch = 1;
         break;
-    case 0x0c35:
-        if (conn->rx_acl_u.next != &conn->rx_acl_u) lmp_send_acl_u_packet_to_host(conn);
+    case 0x0c35:   /* also the transport's "room again" (btctrlermod_host_ready) */
+        /* Ours: what waits, until the host refuses (the sender takes one at
+         * a time; the SDK sent one here). */
+        for (int i = 0; i < 16 && conn->rx_acl_u.next != &conn->rx_acl_u; i++)
+            lmp_send_acl_u_packet_to_host(conn);
         break;
     case 0x0406: lmp_tx_disconnect(conn, msg); break;
     case 0x0cfc: lmp_send_test_key(conn, (u8)msg[2]); break;
@@ -110,7 +113,12 @@ void btctrler_assert_failed(const char *what, int value) { (void)what; (void)val
 void lmp_role_machine(struct lmp_connection *c, struct bredr_rx_bulk *rx, int *msg)
 { CHECK(c == &conn && !rx); role_msg = msg; role_calls++; note("role"); }
 void lmp_detach_check(void) { detach_calls++; note("detach"); }
-void lmp_send_acl_u_packet_to_host(struct lmp_connection *c) { CHECK(c == &conn); note("acl"); }
+static int acl_waiting;          /* packets the stub hands over before the list is empty */
+void lmp_send_acl_u_packet_to_host(struct lmp_connection *c)
+{
+    CHECK(c == &conn); note("acl");
+    if (acl_waiting && !--acl_waiting) c->rx_acl_u.next = &c->rx_acl_u;
+}
 void lmp_tx_disconnect(struct lmp_connection *c, int *msg)
 { CHECK(c == &conn); args[0] = msg[2]; note("disconnect"); }
 void lmp_send_test_key(struct lmp_connection *c, u8 key)
@@ -158,8 +166,8 @@ int main(void)
     const char *traces[] = {"role detach ","acl role detach ","disconnect role detach ",
         "key role detach ","info role detach ","sniff role detach ","unsniff role detach ","role detach ","role detach "};
     static struct list_head packet;
-    conn.rx_acl_u.next = &packet;
     for (unsigned i = 0; i < sizeof(opcodes) / sizeof(*opcodes); i++) {
+        conn.rx_acl_u.next = &packet; acl_waiting = 1;
         reset(); msg[1] = opcodes[i]; lmp_hci_cmd_to_conn_handler(msg);
         CHECK(!strcmp(trace, traces[i]) && role_msg == msg + 1 && role_calls == 1 && detach_calls == 1);
         switch (msg[1]) {
@@ -173,6 +181,12 @@ int main(void)
     lmp_hci_cmd_to_conn_handler(msg); CHECK(!conn.core.role_switch);
     reset(); conn.rx_acl_u.next = &conn.rx_acl_u; msg[1] = 0x0c35; lmp_hci_cmd_to_conn_handler(msg);
     CHECK(!strcmp(trace, "role detach "));
+    /* 0x0c35 hands over everything waiting, at most 16 tries */
+    reset(); conn.rx_acl_u.next = &packet; acl_waiting = 3; lmp_hci_cmd_to_conn_handler(msg);
+    CHECK(!strcmp(trace, "acl acl acl role detach "));
+    reset(); conn.rx_acl_u.next = &packet; acl_waiting = 0; lmp_hci_cmd_to_conn_handler(msg);
+    CHECK(!strncmp(trace, "acl acl acl acl acl acl acl acl acl acl acl acl acl acl acl acl role", 68));
+    conn.rx_acl_u.next = &conn.rx_acl_u;
     reset(); msg[0] = 0; lmp_hci_cmd_to_conn_handler(msg); CHECK(!trace[0]);
     return TEST_DONE("btctrler_lmp_commands");
 }

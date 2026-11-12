@@ -21,9 +21,12 @@ extern void h4_hci_push_data(int type, void *packet, int size);
 extern int le_controller_set_mac(const void *address);
 extern void lmp_hci_write_local_address(const u8 *address);
 extern void get_random_number(u8 *p, u8 len);
+extern int btctrlermod_host_acl_room(void);
+extern void btctrlermod_host_ready(void);
 
 static volatile u8 rx_active;
 static volatile u8 drop_logged; /* this session's first drop is in the log */
+static volatile u8 held;        /* an ACL packet was kept back: wake the controller when there is room */
 static void (*host_handler)(u8 type, u8 *packet, u16 size);
 static btstack_data_source_t rx_source;
 static u8 address[6];            /* controller order: least significant byte first */
@@ -153,6 +156,25 @@ static void dropped(u8 type, const u8 *packet, u16 size)
         util_log("hci: queue full, dropped type %u len %u", type, size);
 }
 
+/* ---- host flow control (BR23: our controller) ----------------------------
+ * Received ACL data takes a slot only while EVENT_ROOM more stay free, so an
+ * event always finds one.  Refused, the controller keeps the packet (LE: the
+ * radio stops taking more once its buffers run out, so the peer resends) and
+ * rx_process() wakes it once the queue is drained.  Every refusal leaves the
+ * queue nearly full, so rx_process() runs after it.  The BD19's library
+ * controller has no such path: a full queue drops there. */
+#define EVENT_ROOM 2
+
+#ifndef CONFIG_CPU_BD19
+int btctrlermod_host_acl_room(void)
+{
+    if (!rx_active || hciq_free() > EVENT_ROOM) return 1;   /* closed: handed over and dropped */
+    held = 1;
+    hciq_held();
+    return 0;
+}
+#endif
+
 /* The receive queue's drops and high-water mark since boot. */
 void hci_jieli_rx_stats(struct hci_queue_stats *out)
 {
@@ -187,6 +209,11 @@ int hci_packet_handler(u8 type, u8 *packet, u16 size)
         fast_bits = fast_count = 0;  /* the controller dropped what was outstanding */
         plat_unlock();
     }
+#ifndef CONFIG_CPU_BD19
+    /* LE data asked first (RF_ble.c), so a refusal here is Classic's, which
+     * retries (lmp_acl.c). */
+    if (type == HCI_ACL_DATA_PACKET && !btctrlermod_host_acl_room()) return 1;
+#endif
     copy = hciq_put(type, packet, size);
     if (!copy) {
         dropped(type, packet, size);
@@ -432,6 +459,12 @@ static void rx_process(btstack_data_source_t *ds, btstack_data_source_callback_t
         host_handler(type, data, size);
         hciq_pop();
     }
+#ifndef CONFIG_CPU_BD19
+    if (held) {
+        held = 0;
+        btctrlermod_host_ready();
+    }
+#endif
 }
 
 static void transport_init(const void *config)

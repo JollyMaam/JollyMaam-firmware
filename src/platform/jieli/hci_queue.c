@@ -19,6 +19,11 @@ static struct { u8 type; u16 size; u8 data[SLOT]; } q[DEPTH];
 static volatile u8 rd, wr;
 static struct hci_queue_stats st;
 
+static void count(u16 *n)
+{
+    if (*n != 0xffff) (*n)++;
+}
+
 /* Empty; the counts stay (they are since boot). */
 void hciq_clear(void)
 {
@@ -30,9 +35,7 @@ u8 *hciq_put(u8 type, const u8 *packet, u16 size)
     u8 at = wr, next = (u8)((at + 1) % DEPTH), used;
 
     if (next == rd || size > SLOT) {
-        u16 *n = type == EVENT ? &st.dropped_events : &st.dropped_acl;
-
-        if (*n != 0xffff) (*n)++;
+        count(type == EVENT ? &st.dropped_events : &st.dropped_acl);
         return 0;
     }
     q[at].type = type;
@@ -60,6 +63,16 @@ void hciq_pop(void)
     if (rd != wr) rd = (u8)((rd + 1) % DEPTH);
 }
 
+u32 hciq_free(void)
+{
+    return (u32)(DEPTH - 1 - (wr + DEPTH - rd) % DEPTH);
+}
+
+void hciq_held(void)
+{
+    count(&st.held_acl);
+}
+
 void hciq_stats(struct hci_queue_stats *out)
 {
     *out = st;
@@ -77,15 +90,17 @@ int main(void)
     struct hci_queue_stats s;
 
     for (i = 0; i < sizeof(p); i++) p[i] = (u8)i;
-    CHECK(!hciq_peek(&type, &d, &size));
+    CHECK(!hciq_peek(&type, &d, &size) && hciq_free() == DEPTH - 1);
     /* DEPTH - 1 fit; the next is dropped and counted by type */
     for (i = 0; i < DEPTH - 1; i++) CHECK(hciq_put(i ? 0x02 : EVENT, p + i, 3) != 0);
+    CHECK(hciq_free() == 0);
     CHECK(hciq_put(EVENT, p, 3) == 0 && hciq_put(0x02, p, 3) == 0);
     hciq_stats(&s);
     CHECK(s.dropped_events == 1 && s.dropped_acl == 1 && s.most == DEPTH - 1 && s.slots == DEPTH - 1);
     /* in order, then room again */
     CHECK(hciq_peek(&type, &d, &size) && type == EVENT && size == 3 && d[0] == 0);
     hciq_pop();
+    CHECK(hciq_free() == 1);
     CHECK(hciq_put(EVENT, p + 9, 2) != 0);
     for (i = 1; i < DEPTH; i++) {
         CHECK(hciq_peek(&type, &d, &size));
@@ -101,8 +116,11 @@ int main(void)
     CHECK(hciq_put(0x02, p, SLOT + 1) == 0);
     hciq_stats(&s);
     CHECK(s.dropped_acl == 2 && s.most == DEPTH - 1);
+    hciq_held();
+    hciq_stats(&s);
+    CHECK(s.held_acl == 1 && s.dropped_events == 1);
     hciq_clear();
-    CHECK(!hciq_peek(&type, &d, &size));
+    CHECK(!hciq_peek(&type, &d, &size) && hciq_free() == DEPTH - 1);
     return TEST_DONE("hci_queue");
 }
 #endif

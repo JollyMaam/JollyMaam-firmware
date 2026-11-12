@@ -85,6 +85,12 @@ void *hw_dma_pop(struct _dma_head *head)
     return entry;
 }
 
+void *btctrlermod_dma_first(struct _dma_head *head)
+{
+    struct list_head *entry = head->head.next;
+    return entry == &head->head ? NULL : entry;
+}
+
 int hw_dma_empty(struct _dma_head *head)
 {
     return head->head.next == &head->head;
@@ -160,10 +166,11 @@ int main(void)
     hw_dma_push(&head, &first);
     hw_dma_push(&head, &second);
     CHECK(!hw_dma_empty(&head));
+    CHECK(btctrlermod_dma_first(&head) == &first && btctrlermod_dma_first(&head) == &first);
     CHECK(hw_dma_pop(&head) == &first);
     CHECK(first.entry.next == &first.entry && first.entry.prev == &first.entry);
     CHECK(hw_dma_pop(&head) == &second);
-    CHECK(hw_dma_pop(&head) == NULL);
+    CHECK(hw_dma_pop(&head) == NULL && btctrlermod_dma_first(&head) == NULL);
     CHECK(hw_dma_empty(&head));
     CHECK(irq_disable_count == 4 && irq_enable_count == 4);
 
