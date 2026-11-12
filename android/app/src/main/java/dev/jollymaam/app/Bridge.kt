@@ -17,6 +17,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.Closeable
 import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -237,7 +240,7 @@ class Bridge(private val activity: MainActivity, private val web: WebView) : Clo
     /** libjollymaam's lines go to the Flash panel's log as they come
      * (events on handle 0, as progress). */
     private fun transport(device: UsbDevice, kind: Int, progress: (Long, Long) -> Unit = { _, _ -> }) =
-        AndroidNativeUsb(usb, device, kind, activity::usbPermission, cancelled, progress) { event(0, "log", it) }
+        AndroidNativeUsb(usb, device, kind, activity::usbPermission, cancelled, progress, say = { event(0, "log", it) })
 
     /** A failure with the library's last line, which says why. */
     private fun failed(t: AndroidNativeUsb, what: String) = IOException(t.said.lastOrNull()?.let { "$what: $it" } ?: what)
@@ -259,19 +262,57 @@ class Bridge(private val activity: MainActivity, private val web: WebView) : Clo
         }
     }
 
-    /** The package's firmware for product onto the device: through our
-     * updater (kind 0, the pad found again by flash ID after its restart),
-     * else through the vendor loader.  Progress as events on handle 0. */
-    @JavascriptInterface fun flashRun(call: Int, name: String, product: String, uid: String) = async(call) {
-        val bytes = pkg ?: throw IOException("choose a firmware package first")
-        val (device, kind) = device(name)
+    /** Progress as events on handle 0, one per percent. */
+    private fun progress(): (Long, Long) -> Unit {
         var last = -1L
-        val t = transport(device, kind) { done, total ->
+        return { done, total ->
             val percent = if (total > 0) done * 100 / total else 0
             if (percent != last) { last = percent; event(0, "progress", mapOf("done" to done, "total" to total)) }
         }
-        val result = t.use { NativeCore.run(bytes, product, kind, if (kind == 0) unhex(uid) else null, it) }
-        if (result != 0) throw IOException("failed ($result): the device may stay in its loader; scan again before trying again")
+    }
+
+    /** The package's firmware for product onto the device: our firmware
+     * (kind 0) through our updater (found again by flash ID after its
+     * restart), or with install the whole install image (updater and
+     * firmware) through the vendor loader it is restarted into; a loader
+     * through itself. */
+    @JavascriptInterface fun flashRun(call: Int, name: String, product: String, uid: String, install: Boolean) = async(call) {
+        val bytes = pkg ?: throw IOException("choose a firmware package first")
+        val (device, kind) = device(name)
+        val t = transport(device, kind, progress())
+        val result = t.use { NativeCore.run(bytes, product, kind, if (kind == 0) unhex(uid) else null, install, it) }
+        if (result != 0) throw failed(t, "failed ($result); the device may stay in its loader, scan again before trying again")
+        null
+    }
+
+    /** The whole flash into Downloads (before Android 10: the app's own
+     * files), read through the vendor loader; our firmware is restarted into
+     * it and the pad stays there.  The file's name back. */
+    @JavascriptInterface fun flashBackup(call: Int, name: String, uid: String, label: String) = async(call) {
+        val bytes = pkg ?: throw IOException("choose a firmware package first")
+        val (device, kind) = device(name)
+        val file = BackupFile.create(activity, "${label.replace(Regex("[^A-Za-z0-9_.-]"), "_")}-" +
+            SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(Date()) + ".bin")
+        var next: Long? = null
+        val t = AndroidNativeUsb(usb, device, kind, activity::usbPermission, cancelled, progress(), { event(0, "log", it) }) { at, block ->
+            // Blocks come in order, from the first address read (not 0 on the 8BitDo pads).
+            if (next != null && at != next) false
+            else { file.out.write(block); next = at + block.size; true }
+        }
+        val result = try { t.use { NativeCore.backup(bytes, kind, if (kind == 0) unhex(uid) else null, it) } }
+            catch (e: Throwable) { file.discard(); throw e }
+        if (result != 0) { file.discard(); throw failed(t, "backup failed ($result)") }
+        file.keep()
+    }
+
+    /** A vendor loader starts the firmware it holds (it leaves USB). */
+    @JavascriptInterface fun flashStart(call: Int, name: String) = async(call) {
+        val bytes = pkg ?: throw IOException("choose a firmware package first")
+        val (device, kind) = device(name)
+        if (kind == 0) throw IOException("it is running already")
+        val t = transport(device, kind)
+        val result = t.use { NativeCore.start(bytes, kind, it) }
+        if (result != 0) throw failed(t, "did not start ($result)")
         null
     }
 

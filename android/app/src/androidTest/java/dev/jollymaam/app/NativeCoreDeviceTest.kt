@@ -14,7 +14,7 @@ class NativeCoreDeviceTest {
     private class Fake : NativeUsb() {
         var command = 0; var tag = 0; var client = 0L; var updater = false; var begun = 0; var written = 0
         val answers = ArrayDeque<ByteArray>()
-        var committed = false; var starts = 0; var reconnects = 0; var rom = 0
+        var committed = false; var starts = 0; var restarts = 0; var rom = 0
         val flash = ByteArray(4096)
         override fun close() {}
         override fun waitMillis(ms: Int) {}
@@ -25,7 +25,7 @@ class NativeCoreDeviceTest {
             val arg = data.u32(3).toInt(); val count = data.u16(17)
             when (command) {
                 0x11 -> rom++
-                0x40 -> updater = true
+                0x40 -> { updater = true; restarts++ }
                 0x42 -> { check(count == 44); begun = arg }
                 0x43 -> { check(arg == written); data.copyInto(flash, written, 25, 25 + count); written += count }
                 0x44 -> { check(written == begun); committed = true }
@@ -55,7 +55,9 @@ class NativeCoreDeviceTest {
             r.copyInto(data); return 64
         }
         private fun put(data: ByteArray, offset: Int, value: Int) { le32(value.toLong()).copyInto(data, offset) }
-        override fun reconnect(uid: ByteArray): Boolean { check(uid[0] == 42.toByte()); reconnects++; return true }
+        // A restart into the updater is a new device on USB.
+        override fun follow(uid: ByteArray?, was: Int): Int { check(uid == null || uid[0] == 42.toByte()); return 0 }
+        override fun generation() = restarts
     }
     @Test fun testStockLoaderFromUpdater() {
         val fake = Fake().apply { updater = true }; val uid = ByteArray(16).apply { this[0] = 42 }
@@ -69,8 +71,8 @@ class NativeCoreDeviceTest {
     @Test fun testCompleteUpdateWithReconnection() {
         val bytes = bundle(); val fake = Fake(); val uid = ByteArray(16).apply { this[0] = 42 }
         assertEquals(88, NativeCore.probe(fake, 0)!!.size)
-        assertEquals(0, NativeCore.run(bytes, "U2C_WIRELESS", 0, uid, fake))
-        assertTrue(fake.committed); assertEquals(1, fake.starts); assertEquals(1, fake.reconnects)
+        assertEquals(0, NativeCore.run(bytes, "U2C_WIRELESS", 0, uid, false, fake))
+        assertTrue(fake.committed); assertEquals(1, fake.starts); assertEquals(1, fake.restarts)
         val expected = ZipInputStream(bytes.inputStream()).use { zip ->
             var image: ByteArray? = null
             while (true) {
@@ -83,7 +85,7 @@ class NativeCoreDeviceTest {
     }
     @Test fun testIdentityMismatchStopsBeforeBegin() {
         val fake = Fake(); val uid = ByteArray(16).apply { this[0] = 43 }
-        assertTrue(NativeCore.run(bundle(), "U2C_WIRELESS", 0, uid, fake) != 0)
+        assertTrue(NativeCore.run(bundle(), "U2C_WIRELESS", 0, uid, false, fake) != 0)
         assertEquals(0, fake.begun); assertFalse(fake.committed); assertEquals(0, fake.starts)
     }
 }

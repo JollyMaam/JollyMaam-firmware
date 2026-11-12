@@ -144,6 +144,19 @@ const bluetooth = {
 
 // ---- the flasher (Bridge.kt: libjollymaam over JNI) ----
 
+// The flasher's progress and lines (events on handle 0) while work runs.
+async function watched(progress, say, work) {
+  listeners.set(0, (type, v) => {
+    if (type === "progress") progress?.(v.done, v.total);
+    else if (type === "log") say?.(v);
+  });
+  try {
+    return await work();
+  } finally {
+    listeners.delete(0);
+  }
+}
+
 const flasher = {
   // A firmware package's bytes, checked by the app: [{product, board, chip}].
   package: (bytes) => call("flashPackage", toBase64(bytes)),
@@ -152,19 +165,20 @@ const flasher = {
   scan: () => call("flashScan"),
   // kind 0 {product, build, uid, updater}, 1 {product}, 2 {chip}.
   probe: (device) => call("flashProbe", device),
-  // The package's firmware for product onto device; progress(done, total).
-  // say(line): what the flasher does, a line at a time (libjollymaam's).
-  async run(device, product, uid, progress, say) {
-    listeners.set(0, (type, v) => {
-      if (type === "progress") progress?.(v.done, v.total);
-      else if (type === "log") say?.(v);
-    });
-    try {
-      return await call("flashRun", device, product, uid ?? "");
-    } finally {
-      listeners.delete(0);
-    }
-  },
+  // The package's firmware for product onto device: our firmware (uid) is
+  // updated through our updater, or with install gets the whole install
+  // image (updater and firmware) through its vendor loader.
+  // progress(done, total); say(line): what the flasher does, a line at a
+  // time (libjollymaam's).
+  run: (device, product, uid, progress, say, install = false) =>
+    watched(progress, say, () => call("flashRun", device, product, uid ?? "", install)),
+  // The whole flash through the vendor loader (our firmware, uid, is
+  // restarted into it and stays there), into a file named after label:
+  // where it is.
+  backup: (device, uid, label, progress, say) =>
+    watched(progress, say, () => call("flashBackup", device, uid ?? "", label)),
+  // A vendor loader starts the firmware it holds.
+  start: (device, say) => watched(null, say, () => call("flashStart", device)),
   stockLoader: (device, uid) => call("flashStockLoader", device, uid),
 };
 

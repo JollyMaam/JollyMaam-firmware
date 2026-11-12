@@ -13,13 +13,18 @@ import java.util.concurrent.atomic.AtomicBoolean
 /** Android's endpoint implementation; all protocol decisions remain in C. */
 class AndroidNativeUsb(
     private val manager: UsbManager,
-    device: UsbDevice,
-    val kind: Int,
+    private var device: UsbDevice,
+    kind: Int,
     private val permission: (UsbDevice) -> Boolean,
     private val cancelled: AtomicBoolean,
     private val progress: (Long, Long) -> Unit,
-    private val say: (String) -> Unit = {}
+    private val say: (String) -> Unit = {},
+    /** A backup's blocks, in order. */
+    private val sink: ((Long, ByteArray) -> Boolean)? = null
 ) : NativeUsb() {
+    var kind = kind
+        private set
+    private var generation = 0
     private var connection: UsbDeviceConnection? = null
     private var intf: UsbInterface? = null
     private var input: UsbEndpoint? = null
@@ -97,21 +102,40 @@ class AndroidNativeUsb(
     }
     override fun scsi(cdb: ByteArray, direction: Int, data: ByteArray, timeout: Int): Int {
         checkActive()
-        return transferScsi(bulk ?: throw IOException("No mass-storage connection"), cdb, direction, data, timeout)
+        // A failure is a failed command for the library (JNI clears it): logged here.
+        try { return transferScsi(bulk ?: throw IOException("No mass-storage connection"), cdb, direction, data, timeout) }
+        catch (e: IOException) { Log.w("JollyMaam", "SCSI %02x: %s".format(cdb.u8(0), e.message)); throw e }
     }
-    override fun reconnect(uid: ByteArray): Boolean {
-        checkActive(); close()
-        for (device in manager.deviceList.values.filter { kind(it) == 0 }) {
-            if (!manager.hasPermission(device) && !permission(device)) continue
+    private fun opened() = connection != null || bulk != null
+    override fun generation() = generation
+    /** The pad across its restarts: into our updater (found by UID), into
+     * its vendor loader (the 8BitDo one, or a Jieli one: by its vendor ID,
+     * not any USB disk). */
+    override fun follow(uid: ByteArray?, was: Int): Int {
+        checkActive()
+        if (opened() && manager.deviceList[device.deviceName] != null) return this.kind
+        close()
+        val candidates = manager.deviceList.values.filter {
+            val k = kind(it)
+            k == 0 || k == 1 || (k == 2 && it.vendorId == JIELI)
+        }.sortedBy { kind(it) == 0 }   // loaders first
+        for (next in candidates) {
+            if (!manager.hasPermission(next) && !permission(next)) continue
+            val k = kind(next)!!
             try {
-                open(device)
-                val identity = NativeCore.probe(this, 0)
-                if (identity != null && identity.copyOfRange(24, 40).contentEquals(uid)) return true
+                this.kind = k; device = next; open(next)
+                generation++
+                if (k == 0 && uid != null) {
+                    val identity = NativeCore.probe(this, 0)
+                    if (identity == null || !identity.copyOfRange(24, 40).contentEquals(uid)) { close(); continue }
+                }
+                return k
             } catch (_: IOException) { checkActive() }
             close()
         }
-        return false
+        return -1
     }
+    override fun backupBlock(address: Long, data: ByteArray) = sink?.invoke(address, data) ?: false
     override fun onProgress(done: Long, total: Long) { progress(done, total) }
     /** libjollymaam's lines: logcat, and kept for the Flash panel. */
     val said = mutableListOf<String>()
@@ -121,6 +145,7 @@ class AndroidNativeUsb(
         say(line.trim())
     }
     companion object {
+        const val JIELI = 0x4c4a   // the ROM loaders: 4c4a:2342 BR23UBOOT1.00, 4c4a:3442 BD19
         internal fun transferScsi(transport: Scsi, cdb: ByteArray, direction: Int, data: ByteArray, timeout: Int): Int {
             // Jieli helpers report bogus BOT residue; still require every actual
             // input/output byte. Standard INQUIRY retains normal residue handling.

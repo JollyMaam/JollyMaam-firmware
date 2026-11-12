@@ -35,8 +35,16 @@ globalThis.JollyMaamAndroid = {
   },
   bleQuiet: (call) => ok(call),
   usbReconnect: (call) => later(() => globalThis.jmAndroid.done(call, { name: "Error", message: "the pad did not come back" }, null)),
-  flashRun(call, device, product, uid) {
-    app.calls.push(["flashRun", device, product, uid]);
+  flashBackup(call, device, uid, label) {
+    app.calls.push(["flashBackup", device, uid, label]);
+    later(() => {
+      globalThis.jmAndroid.event(0, "log", "reading");
+      globalThis.jmAndroid.event(0, "progress", { done: 4, total: 4 });
+      ok(call, `Download/JollyMaam/${label}.bin`);
+    });
+  },
+  flashRun(call, device, product, uid, install) {
+    app.calls.push(["flashRun", device, product, uid, install]);
     later(() => {
       globalThis.jmAndroid.event(0, "progress", { done: 50, total: 100 });
       globalThis.jmAndroid.event(0, "progress", { done: 100, total: 100 });
@@ -89,5 +97,16 @@ test("android flasher: progress while it runs", async () => {
   const seen = [];
   await android.flasher.run("/dev/bus/usb/001/002", "CYCLONE2", null, (d, t) => seen.push(d / t));
   assert.deepEqual(seen, [0.5, 1]);
-  assert.deepEqual(app.calls.at(-1), ["flashRun", "/dev/bus/usb/001/002", "CYCLONE2", ""]);
+  assert.deepEqual(app.calls.at(-1), ["flashRun", "/dev/bus/usb/001/002", "CYCLONE2", "", false]);
+  await android.flasher.run("/dev/bus/usb/001/002", "CYCLONE2", "00ff", null, null, true);
+  assert.deepEqual(app.calls.at(-1), ["flashRun", "/dev/bus/usb/001/002", "CYCLONE2", "00ff", true]);
+});
+
+test("android flasher: a backup's progress and lines, and where it went", async () => {
+  const seen = [], said = [];
+  const where = await android.flasher.backup("/dev/bus/usb/001/003", "00ff", "CYCLONE2", (d, t) => seen.push(d / t), (l) => said.push(l));
+  assert.equal(where, "Download/JollyMaam/CYCLONE2.bin");
+  assert.deepEqual(seen, [1]);
+  assert.deepEqual(said, ["reading"]);
+  assert.deepEqual(app.calls.at(-1), ["flashBackup", "/dev/bus/usb/001/003", "00ff", "CYCLONE2"]);
 });

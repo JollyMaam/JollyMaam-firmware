@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>JollyMaam Pad Settings</title>
+<title>JollyMaam</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -27,13 +27,14 @@
       <button id="connectusb" type="button" class="choice"><strong>Configure over USB</strong>
         <span>Plug the pad in, then choose it.</span></button>
       <button id="install" type="button" class="choice" hidden><strong>Install over USB</strong>
-        <span>Write our firmware onto a pad in its boot loader, or update one running it.</span></button>
+        <span>Back up a pad's flash, then install our updater and firmware: from its boot loader or from our firmware.</span></button>
     </div>
   </section>
   <section id="flasher" hidden>
     <h2>Install over USB</h2>
     <p class="muted">Plug in a pad in its boot loader (GameSir pads: Jieli; 8BitDo) or running our
-      firmware. The app writes the package's firmware and checks it.</p>
+      firmware. Back up its whole flash first (a file in Download/JollyMaam); then the app writes
+      the package's updater and firmware through the boot loader and checks them.</p>
     <p class="package"><span id="flashinfo"></span>
       <label class="file">Another package… <input id="flashpkg" type="file" accept=".zip,application/zip"></label></p>
     <ul id="flashdevices"></ul>
