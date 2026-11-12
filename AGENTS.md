@@ -186,6 +186,7 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
 - Debug switches (via `EXTRA_DEFINES`): `DEBUG_UART_DP` (and `DEBUG_NO_USB`)
   puts a UART on USB D+ for the BD19 bring-up jig; `HCI_LOG`, `BT_SMP_LOG`,
   `PATH_STATS`, `LOG_LINES`/`LOG_TEXT` (log size), `USB_SESSION_TEST_MS`,
+  `USB_INPUT_LEAD_US` (0: USB input built at once, the old timing),
   `STAY_ON_TEST`, `JACK_FLIP_TEST`, `BOOT_HANG_TEST` (8BitDo: a start-up
   hang for the updater's start count).  Grep for each to see what it does.
   The 8BitDo's test builds take make variables instead: `U2CW_PROFILE=1`

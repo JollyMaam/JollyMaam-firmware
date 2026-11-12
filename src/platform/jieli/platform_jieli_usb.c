@@ -32,6 +32,12 @@
 #define MESSAGES     4
 #define MESSAGE_MAX  128         /* sent in packets of the endpoint's size */
 #define WRITES       6
+#ifndef USB_INPUT_LEAD_US        /* test builds: 0 builds input as soon as the host took the last */
+#define USB_INPUT_LEAD_US 1250   /* input built this long before the host's next poll: the
+                                    loop's wake (250 us ticks) and the build took up to 900 */
+#endif
+#define POLLS_TRUSTED 4          /* regular polls in a row before the grid is used */
+#define POLLS_LOST    8          /* periods without a poll: the grid is gone */
 #define DESC_MAX     320
 #define REQ_GET_REPORT 0x01
 #define REQ_GET_IDLE   0x02
@@ -76,7 +82,17 @@ struct pipe {
     struct { u8 len; u8 data[MESSAGE_MAX]; } msg[MESSAGES];
     volatile u8 head, count;
     u8 off;                      /* of the head message, sent so far */
+    u8 sent_input;               /* the packet in the endpoint is the input */
 };
+
+/* The host's polls of the interrupt endpoint, seen as it takes packets
+ * (in_done): input is built just before the next (plat_usb_input_due_us).
+ * The period is measured, not taken from bInterval: hosts round it.  A poll
+ * with nothing loaded is not seen, so gaps of whole periods are normal. */
+static struct {
+    volatile u32 at_us, period_us, took_us;   /* the last poll; took: the last input taken */
+    volatile u8 regular;         /* polls in a row on the period, up to POLLS_TRUSTED */
+} poll;
 
 static const struct usb_identity *volatile ident;
 static int (*host_read)(u8 kind, u16 id, u16 offset, u8 *out, u16 max);
@@ -303,6 +319,7 @@ static void pump(struct pipe *q)
 
         if (n > q->size) n = q->size;
         q->busy = 1;
+        q->sent_input = 0;
         usb_g_intr_write(0, q->ep & 0x0f, q->msg[i].data + q->off, n);
         q->off = (u8)(q->off + n);
         if (q->off >= q->msg[i].len) {
@@ -315,8 +332,27 @@ static void pump(struct pipe *q)
 
         q->input_len = 0;
         q->busy = 1;
+        q->sent_input = 1;
         usb_g_intr_write(0, q->ep & 0x0f, q->input, n);
     }
+}
+
+static void polled(void)
+{
+    u32 now = plat_us(), d = now - poll.at_us, p = poll.period_us;
+
+    if (intr.sent_input) poll.took_us = now;
+    if (!poll.at_us) {
+    } else if (!p || d < p - p / 8) {            /* the first, or faster: a new period */
+        poll.period_us = d;
+        poll.regular = 1;
+    } else if (d <= p + p / 8) {                 /* on the period: follow its drift */
+        poll.period_us = p + ((s32)(d - p) >> 3);
+        if (poll.regular < POLLS_TRUSTED) poll.regular++;
+    } else if (d >= POLLS_LOST * p) {
+        poll.regular = 0;
+    }
+    poll.at_us = now ? now : 1;
 }
 
 static void in_done(struct usb_device_t *dev, u32 ep)
@@ -324,6 +360,7 @@ static void in_done(struct usb_device_t *dev, u32 ep)
     struct pipe *q = (ep & 0x0f) == (intr.ep & 0x0f) ? &intr : &bulk;
 
     (void)dev;
+    if (q == &intr) polled();
     q->busy = 0;
     pump(q);
     plat_raise(EV_USB);
@@ -365,6 +402,7 @@ static void endpoints(void)
     const struct usb_identity *id = ident;
 
     intr.busy = bulk.busy = 0;
+    memset(&poll, 0, sizeof(poll));      /* a reset or new configuration: a new grid */
     usb_g_ep_config(0, EP_IN | USB_DIR_IN, USB_ENDPOINT_XFER_INT, 1, dma_in, PACKET);
     usb_g_set_intr_hander(0, EP_IN | USB_DIR_IN, in_done);
     usb_enable_ep(0, EP_IN);
@@ -833,6 +871,28 @@ int plat_usb_ready(void)
 int plat_usb_input_wanted(void)
 {
     return plat_usb_ready() && !intr.busy && !intr.input_len && !intr.count;
+}
+
+u32 plat_usb_input_due_us(void)
+{
+    u32 at, p, now;
+    u8 regular;
+
+    local_irq_disable();
+    at = poll.at_us;
+    p = poll.period_us;
+    regular = poll.regular;
+    local_irq_enable();
+    now = plat_us();
+    if (!USB_INPUT_LEAD_US || !plat_usb_ready() || regular < POLLS_TRUSTED || p <= USB_INPUT_LEAD_US ||
+        now - at >= POLLS_LOST * p)
+        return 0;
+    return at + ((now - at) / p + 1) * p - USB_INPUT_LEAD_US;
+}
+
+u32 plat_usb_input_took_us(void)
+{
+    return poll.took_us;
 }
 
 int plat_usb_input_staged(void)

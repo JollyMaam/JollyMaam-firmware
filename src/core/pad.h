@@ -1001,7 +1001,7 @@ u32 util_trace_read(u32 offset, u8 *out, u32 max);
 void util_trace_enable(int on);
 struct util_probe_edge { u32 edge_us, sent_us; u8 level, pad[3]; };   /* sent 0: never alone in a report */
 void util_probe_start(u32 edges, u32 period_ms);
-u32 util_probe_apply(u32 *buttons);
+u32 util_probe_apply(u32 *buttons, u32 *changed_us);
 void util_probe_sent(u32 us);
 void util_probe_stop(void);
 u32 util_probe_take(struct util_probe_edge *out, u32 max, u32 *lost, u8 *active);
@@ -1067,6 +1067,9 @@ int plat_usb_ready(void);                   /* the host configured the personali
 int plat_usb_jack_in(void);                 /* a plug in the headphone jack, debounced */
 int plat_usb_input_wanted(void);            /* nothing waits to go to the host */
 int plat_usb_input_staged(void);            /* an input waits; the endpoint takes it as it frees */
+u32 plat_usb_input_due_us(void);            /* when to build input: a lead before the host's next
+                                               poll (plat_us); 0: no regular polls, at once */
+u32 plat_usb_input_took_us(void);           /* when the host took the last input (plat_us) */
 int plat_usb_send_input(u8 id, const u8 *data, u16 len);
 int plat_usb_send_message(u16 id, const u8 *data, u16 len);   /* HOST_BULK: bulk IN */
 int plat_usb_take(struct bt_write *w);      /* the host's next write, 0: none */

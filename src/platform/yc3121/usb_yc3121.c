@@ -780,6 +780,16 @@ int plat_usb_input_wanted(void)
     return plat_usb_ready() && !pz.in_busy && !pz.input_len && !pz.m_count;
 }
 
+u32 plat_usb_input_due_us(void)
+{
+    return 0;                            /* not timed here: input goes at once */
+}
+
+u32 plat_usb_input_took_us(void)
+{
+    return 0;
+}
+
 int plat_usb_input_staged(void)
 {
     return pz.input_len != 0;

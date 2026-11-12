@@ -157,7 +157,7 @@ static __attribute__((noinline)) void read_input(u32 now)
     plat_input(&c.raw);
     radio_switch();
 #if PROBE_EDGES
-    c.probe_at_us = util_probe_apply(&c.raw.buttons);
+    c.probe_at_us = util_probe_apply(&c.raw.buttons, &c.raw.changed_us);
 #endif
     pair = c.raw.pair_button && !c.pair_down;
     c.pair_down = c.raw.pair_button;

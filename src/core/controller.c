@@ -51,7 +51,8 @@ static struct {
     u32 retry_at;
     u32 report_next;             /* the earliest the next report may be built */
     u16 report_hz;               /* the session's cap: the slot's setting or REPORT_HZ */
-    u32 pull_at_us;              /* a pulled report waits until then (jit_us, pull_delay_us) */
+    u32 pull_at_us;              /* a pulled report waits until then (jit_us, pull_delay_us, a USB poll) */
+    u32 age_from_us;             /* USB: the change the host has not taken yet (age), 0: none */
     u32 probe_at_us;             /* the latency probe's next edge (util_probe_apply), 0: none */
     u8 imu_mode, begin_imu;
     u32 imu_seq, imu_next;
@@ -1050,7 +1051,7 @@ static void read_input(u32 now)
         (c.usb ? plat_usb_input_wanted() : !bt_input_pending()))
         ux_reported(now);
     plat_input(&c.raw);
-    c.probe_at_us = util_probe_apply(&c.raw.buttons);
+    c.probe_at_us = util_probe_apply(&c.raw.buttons, &c.raw.changed_us);
     in_map(&c.raw, &c.pad);
     cal_apply(set_cal(), sticks() ? sticks()->deadzone : NULL, &c.raw, &c.pad);
     c.input = c.pad;
@@ -1103,24 +1104,32 @@ static void at_rest(struct pad *p)
 }
 
 /* Pull: a report is built when bt_pad.c has room for it, from the newest input,
- * and at most report_hz times a second.  A report built is a report sent, so
- * the IMU samples it takes are never dropped. */
+ * and at most report_hz times a second.  On USB it waits for the host's next
+ * poll but a lead (plat_usb_input_due_us).  A report built is a report sent,
+ * so the IMU samples it takes are never dropped. */
 static void send_report(u32 now)
 {
     u8 buf[PROFILE_REPORT_MAX], id = 0;
-    u32 period = 1000 / c.report_hz, buttons = c.pad.buttons;
+    u32 period = 1000 / c.report_hz, buttons = c.pad.buttons, at;
     int n;
 
     c.pull_at_us = 0;
-    if ((s32)(now - c.report_next) < 0 || !input_wanted()) return;
-    if (!c.usb) {
-        u32 at = c.sess.settings->pull_delay_us ? bt_input_wanted_us() + c.sess.settings->pull_delay_us
-                                                : bt_input_due_us();
+    if (!input_wanted()) return;
+#ifndef PATH_STATS
+    if (c.age_from_us) {         /* USB: the report with the change has been taken */
+        u32 took = plat_usb_input_took_us();
 
-        if ((s32)(plat_us() - at) < 0) {
-            c.pull_at_us = at;
-            return;
-        }
+        if (took) util_stat_add(&c.stats.age, took - c.age_from_us);
+        c.age_from_us = 0;
+    }
+#endif
+    if ((s32)(now - c.report_next) < 0) return;
+    if (c.usb) at = plat_usb_input_due_us();
+    else at = c.sess.settings->pull_delay_us ? bt_input_wanted_us() + c.sess.settings->pull_delay_us
+                                             : bt_input_due_us();
+    if (at && (s32)(plat_us() - at) < 0) {
+        c.pull_at_us = at;
+        return;
     }
     c.report_next = now + period;
     c.pad.imu_count = (u8)imu_take(&c.imu_seq, c.pad.imu, IMU_PER_REPORT);
@@ -1143,8 +1152,10 @@ static void send_report(u32 now)
         util_stat_add(&c.stats.age, us - c.pass_us);
 #else
         if (c.stats.reports) util_stat_add(&c.stats.interval, us - c.last_report_us);
-        if (buttons != c.sent_buttons)
-            util_stat_add(&c.stats.age, us - c.raw.changed_us);
+        if (buttons != c.sent_buttons) {    /* on USB: until the host takes it */
+            if (c.usb && plat_usb_input_took_us()) c.age_from_us = c.raw.changed_us ? c.raw.changed_us : 1;
+            else util_stat_add(&c.stats.age, us - c.raw.changed_us);
+        }
 #endif
         c.last_report_us = us;
         util_probe_sent(us);

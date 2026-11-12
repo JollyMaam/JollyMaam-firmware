@@ -167,6 +167,8 @@ static struct {
     u8 level;                    /* south as the probe holds it */
     u8 every_report;             /* period 0: flip after each report sent */
     u8 flip;                     /* every_report: a report went out, flip at the next input */
+    u8 made;                     /* an edge since the start: last_us holds its time */
+    u32 last_us;
     u32 head, unsent, tail, lost;   /* records [tail, head); [unsent, head) not sent yet */
     struct util_probe_edge ring[PROBE_EDGES];
 } probe
@@ -195,12 +197,14 @@ void util_probe_start(u32 edges, u32 period_ms)
     probe.next_us = probe.slot_us + probe_random() % probe.period_us;
     probe.level = 0;
     probe.head = probe.unsent = probe.tail = probe.lost = 0;
+    probe.made = 0;
     plat_unlock();
 }
 
 /* Makes the edges that are due and puts south as the probe holds it into the
- * buttons.  Returns when the next edge is due (plat_us), 0 when stopped. */
-u32 util_probe_apply(u32 *buttons)
+ * buttons; the newest edge is a change (changed_us, as plat_input's).
+ * Returns when the next edge is due (plat_us), 0 when stopped. */
+u32 util_probe_apply(u32 *buttons, u32 *changed_us)
 {
     u32 now = plat_us();
 
@@ -220,12 +224,15 @@ u32 util_probe_apply(u32 *buttons)
         e->edge_us = probe.next_us;
         e->sent_us = 0;
         e->level = probe.level;
+        probe.made = 1;
+        probe.last_us = probe.next_us;
         probe.left--;
         probe.flip = 0;
         if (probe.every_report) break;
         probe.slot_us += probe.period_us;
         probe.next_us = probe.slot_us + probe_random() % probe.period_us;
     }
+    if (probe.made && (s32)(probe.last_us - *changed_us) > 0) *changed_us = probe.last_us;
     plat_unlock();
     if (probe.level) *buttons |= PAD_SOUTH;
     else *buttons &= ~(u32)PAD_SOUTH;
@@ -267,7 +274,7 @@ u32 util_probe_take(struct util_probe_edge *out, u32 max, u32 *lost, u8 *active)
 }
 #else
 void util_probe_start(u32 edges, u32 period_ms) { (void)edges; (void)period_ms; }
-u32 util_probe_apply(u32 *buttons) { (void)buttons; return 0; }
+u32 util_probe_apply(u32 *buttons, u32 *changed_us) { (void)buttons; (void)changed_us; return 0; }
 void util_probe_sent(u32 us) { (void)us; }
 void util_probe_stop(void) {}
 u32 util_probe_take(struct util_probe_edge *out, u32 max, u32 *lost, u8 *active)
@@ -413,38 +420,39 @@ int main(void)
 #if PROBE_EDGES
     {   /* the probe: edges one per period, south follows, a report stamps the newest */
         struct util_probe_edge e[8];
-        u32 b = PAD_EAST, at, lost;
+        u32 b = PAD_EAST, at, lost, ch = 0;
         u8 active;
 
         fake_ms = 100;
         util_probe_start(3, 10);                 /* rounded up to 4: ends released */
-        at = util_probe_apply(&b);
+        at = util_probe_apply(&b, &ch);
         CHECK(at >= 100000 && at < 110000 && b == PAD_EAST);
         fake_ms = 110;                           /* past the first edge */
-        at = util_probe_apply(&b);
+        at = util_probe_apply(&b, &ch);
         CHECK(b == (PAD_EAST | PAD_SOUTH) && at >= 110000 && at < 120000);
+        CHECK(ch >= 100000 && ch < 110000);      /* the edge's time is the change's */
         CHECK(util_probe_take(e, 8, &lost, &active) == 0 && active);   /* not sent yet */
         util_probe_sent(111000);
         CHECK(util_probe_take(e, 8, &lost, &active) == 1 && e[0].level == 1 &&
               e[0].edge_us >= 100000 && e[0].edge_us < 110000 && e[0].sent_us == 111000);
         fake_ms = 130;                           /* two edges before a report */
-        util_probe_apply(&b);
+        util_probe_apply(&b, &ch);
         CHECK(b == (PAD_EAST | PAD_SOUTH));             /* released and pressed again */
         util_probe_sent(131000);
         CHECK(util_probe_take(e, 8, &lost, &active) == 2 && e[0].sent_us == 0 && e[1].sent_us == 131000);
         fake_ms = 140;
-        CHECK(util_probe_apply(&b) == 0 && b == PAD_EAST);   /* the last edge releases */
+        CHECK(util_probe_apply(&b, &ch) == 0 && b == PAD_EAST);   /* the last edge releases */
         util_probe_sent(141000);
         CHECK(util_probe_take(e, 8, &lost, &active) == 1 && e[0].level == 0 && !active && lost == 0);
         b = PAD_SOUTH;
-        CHECK(util_probe_apply(&b) == 0 && b == PAD_SOUTH);   /* stopped: the real south again */
+        CHECK(util_probe_apply(&b, &ch) == 0 && b == PAD_SOUTH);   /* stopped: the real south again */
 
         util_probe_start(4, 0);                  /* every report */
         b = 0;
-        CHECK(util_probe_apply(&b) == 0 && b == PAD_SOUTH);   /* flipped at once, no deadline */
-        CHECK(util_probe_apply(&b) == 0 && b == PAD_SOUTH);   /* not again before a report */
+        CHECK(util_probe_apply(&b, &ch) == 0 && b == PAD_SOUTH);   /* flipped at once, no deadline */
+        CHECK(util_probe_apply(&b, &ch) == 0 && b == PAD_SOUTH);   /* not again before a report */
         util_probe_sent(150000);
-        util_probe_apply(&b);
+        util_probe_apply(&b, &ch);
         CHECK(b == 0);
         util_probe_sent(151000);
         CHECK(util_probe_take(e, 8, &lost, &active) == 2 && e[0].sent_us == 150000 &&
