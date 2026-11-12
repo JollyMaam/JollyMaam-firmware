@@ -207,6 +207,13 @@ wrong assumption), add it here in a line or two.
   PDU resends the slot's stale descriptor.  Breaking any of the three rules
   there gave input stalls with MIC failures under duplex traffic.
 
+- BR23 LE receive (RF_ble.c): the link layer's thread takes one received
+  packet per pass and runs a pass per message to the controller's task;
+  received packets bring those messages.  A radio whose receive buffer pool
+  ran out stops receiving and gets no buffer back from the interrupt, so
+  anything that leaves packets queued (host flow control) must re-arm it and
+  ask for the next pass itself (rx_rearm), or the link times out.
+
 - RAM is the limit on the BD19 dongle: the linker's "NVRAM space overflow"
   is static RAM, and a heap too small for the controller makes the app hang
   at start-up without ever enumerating.  Check `_HEAP_BEGIN`/`_HEAP_END` in
