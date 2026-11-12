@@ -80,6 +80,23 @@ u32 ux_idle_deadline(u32 idle_since, u32 activity_ms, u32 usb_seen_ms,
     return (s32)(offline - unplug) > 0 ? offline : unplug;
 }
 
+#if LEDS_MONO
+/* One-colour lights (leds_mono.c): padtool led-demo shows these in turn. */
+const struct ux_led_demo ux_led_demos[] = {
+    { .name = "connecting: Home blinks", .scene = CTL_CONNECTING },
+    { .name = "pairing: Home and the red light blink fast", .scene = CTL_PAIRING },
+    { .name = "connected: Home steady; the player lights show the console's player 1", .scene = CTL_CONNECTED },
+    { .name = "connected: the console flashing player 2", .scene = CTL_CONNECTED, .players_flash = 2 },
+    { .name = "quick settings (Home+M) and config mode: Home and the light under it in turn",
+      .scene = CTL_CONNECTED, .kind = LED_DEMO_QUICK },
+    { .name = "a cable plugged in: the light under Home for a moment (every 3 s)", .scene = CTL_IDLE,
+      .fake = LED_FAKE_PLUG },
+    { .name = "calibrating: Home blue, blinking for the sweep; green done, red blinks failed",
+      .scene = CTL_IDLE, .fake = LED_FAKE_CAL },
+    { .name = "idle, stopping, sleeping, restarting: dark", .scene = CTL_IDLE },
+};
+const u8 ux_led_demo_count = sizeof(ux_led_demos) / sizeof(ux_led_demos[0]);
+#else
 /* Palette roles: white idle, orange battery (settings.c); board LED levels. */
 const struct ux_colours ux_colours = {
     .idle = 0,
@@ -100,8 +117,30 @@ const struct ux_led_demo ux_led_demos[] = {
     { "steady 0.5, dithered", CTL_CONNECTED, LED_DEMO_SCENE, GRIPS_PRIMARY, PLAYERS_PRIMARY, 5, 0, LED_DEMO_DITHER_ON },
     { "dim fade up to 3, dithered", CTL_CONNECTED, LED_DEMO_SCENE, GRIPS_FADE, PLAYERS_FADE, 0, 30, LED_DEMO_DITHER_ON },
     { "dim fade up to 3, not dithered", CTL_CONNECTED, LED_DEMO_SCENE, GRIPS_FADE, PLAYERS_FADE, 0, 30, LED_DEMO_DITHER_OFF },
-    { "quick settings (Home+M): colours flowing down the pad", CTL_CONNECTED, LED_DEMO_QUICK },
+    { "quick settings (Home+M) and config mode: colours flowing down the pad", CTL_CONNECTED, LED_DEMO_QUICK },
     { "restarting into the flash loader: a green launch, then held", CTL_REBOOTING, LED_DEMO_LOADER },
+    /* The other states, and what shows over a scene. */
+    { .name = "booting, on battery: Home in the idle colour", .scene = CTL_BOOT, .fake = LED_FAKE_BATTERY },
+    { .name = "idle, stopping, sleeping, restarting: dark", .scene = CTL_IDLE },
+    { .name = "a cable plugged in: Home in the battery colour for a moment (every 3 s)", .scene = CTL_IDLE,
+      .fake = LED_FAKE_PLUG },
+    { .name = "low battery: Home blinks in the battery colour, over the scene", .scene = CTL_CONNECTED,
+      .grips = GRIPS_PRIMARY, .players = PLAYERS_HOST, .fake = LED_FAKE_LOW_BATTERY },
+    { .name = "calibrating: Home blue, blinking for the sweep; green done, red blinks failed",
+      .scene = CTL_IDLE, .fake = LED_FAKE_CAL },
+    { .name = "ephemeral mode: Home winks, over the scene", .scene = CTL_CONNECTED,
+      .grips = GRIPS_PRIMARY, .players = PLAYERS_HOST, .fake = LED_FAKE_EPHEMERAL },
+    { .name = "players: the console flashing player 2", .scene = CTL_CONNECTED,
+      .grips = GRIPS_PRIMARY, .players = PLAYERS_HOST, .players_flash = 2 },
+    { .name = "grips: the console's lightbar colour (blue here)", .scene = CTL_CONNECTED,
+      .grips = GRIPS_HOST, .players = PLAYERS_HOST, .lightbar = { 0, 0, 64 } },
+    { .name = "grips and players: the secondary colour", .scene = CTL_CONNECTED,
+      .grips = GRIPS_SECONDARY, .players = PLAYERS_SECONDARY },
+    { .name = "grips: rumble (pretend motors ramping up and down)", .scene = CTL_CONNECTED,
+      .grips = GRIPS_RUMBLE, .players = PLAYERS_HOST, .fake = LED_FAKE_RUMBLE },
+    { .name = "grips: rumble and input (pretend motors; move the sticks)", .scene = CTL_CONNECTED,
+      .grips = GRIPS_BOTH, .players = PLAYERS_HOST, .fake = LED_FAKE_RUMBLE },
+    { .name = "grips and players off", .scene = CTL_CONNECTED, .grips = GRIPS_OFF, .players = PLAYERS_OFF },
 };
 const u8 ux_led_demo_count = sizeof(ux_led_demos) / sizeof(ux_led_demos[0]);
 
@@ -118,6 +157,7 @@ const struct led_scene ux_scenes[CTL_KIND_COUNT] = {
     [CTL_SLEEPING] =   { COLOUR_IDLE,    LED_OFF,             BAR_ALL,    LED_OFF,             GRIPS_WAVE, LED_OFF },
     [CTL_REBOOTING] =  { COLOUR_IDLE,    LED_OFF,             BAR_ALL,    LED_OFF,             GRIPS_WAVE, LED_OFF },
 };
+#endif
 
 /* Home+M: quick settings, which ux_step runs itself.  Every input is held
  * back from the host; releasing a slot key picks that remap slot, releasing

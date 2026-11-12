@@ -31,9 +31,12 @@ def record(path="fake", board="pad", protocol=padgui.pad.PROTOCOL):
     fields = [{"kind": 0, "id": 1, "name": "type", "type": padgui.pad.T_ENUM,
                "names": ["switch", "hid"], "help": "Profile", "dev": False},
               {"kind": 0, "id": 2, "name": "rumble", "type": padgui.pad.T_NUMBER,
-               "size": 1, "help": "Strength", "dev": False}]
+               "size": 1, "help": "Strength", "dev": False},
+              {"kind": 1, "id": 17, "name": "steady_brightness", "type": padgui.pad.T_NUMBER,
+               "size": 2, "max": 2550, "help": "Brightness", "dev": False}]
     identity = b"C2PD" + protocol.to_bytes(2, "little") + bytes([padgui.pad.BOARD_IDS[board], 0]) + b"build".ljust(16, b"\0") + path.encode().ljust(16, b"\0")[:16] + b"GS_C2_ADC_DEVICE"
-    values = {t: {"type": (b"\0", False), "rumble": (b"\x64", False)} if t < 8 else {}
+    values = {t: {"type": (b"\0", False), "rumble": (b"\x64", False)} if t < 8 else
+              {"steady_brightness": (b"\x0f\0", False)} if t == 8 else {}
               for t in range(10)} if board == "pad" else {}
     return {"path": path, "board": board, "identity": identity, "fields": fields if board == "pad" else [],
             "values": values, "status": "idle", "name": "BR23 UDISK"}
@@ -1469,6 +1472,12 @@ class RemapGuiTests(GuiCase):
 
     def editor(self):
         return next(w for w in self.app.special_editors if w.winfo_exists() and type(w).__name__ == "RemapEditor")
+
+    def test_no_palette_page_without_palette_fields(self):
+        r = record()
+        r["fields"] = [f for f in r["fields"] if f["kind"] != 1]   # one-colour lights
+        self.load([r])
+        self.assertEqual(len(self.app.tree.get_children("device0")), padgui.pad.REMAP_TARGET - 1)
 
     def test_remap_slots_are_tree_nodes_named_after_their_name(self):
         r = remap_record()

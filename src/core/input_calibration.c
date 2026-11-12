@@ -667,6 +667,18 @@ int cal_led(u32 now, struct rgb *out)
     }
 }
 
+/* For padtool led-demo: resting, the sweep, success, failure, a pause. */
+void cal_led_demo(u32 t, struct rgb *out)
+{
+    t %= 7000;
+    *out = (struct rgb){ 0, 0, 0 };
+    if (t < 1500) out->b = LED_LEVEL;
+    else if (t < 4500) out->b = (u8)((t / 250) & 1 ? 0 : LED_LEVEL);
+    else if (t < 4500 + SUCCESS_ON_MS) out->g = LED_LEVEL;
+    else if ((t -= 4500 + SUCCESS_ON_MS) < 2 * FAILURE_BLINK_MS * FAILURE_BLINKS && (t / FAILURE_BLINK_MS) % 2 == 0)
+        out->r = LED_LEVEL;
+}
+
 #ifdef UNITTEST
 void util_log(const char *fmt, ...) { (void)fmt; }
 const struct board_control board_layout[] = { { IN_L2, LAYOUT_TRIGGER }, { IN_R2, LAYOUT_TRIGGER } };
@@ -834,6 +846,16 @@ int main(void)
         r.outcome[0] = CAL_NOT_CIRCLED;
         CHECK(finish(&cal, started) == CAL_SAVE);
         CHECK(cal_led(started, &led) && led.r == LED_LEVEL && !led.g);
+    }
+    {                            /* led-demo's pretend run: blue, its blinks, green, red */
+        struct rgb led;
+
+        cal_led_demo(100, &led); CHECK(led.b == LED_LEVEL && !led.g && !led.r);
+        cal_led_demo(1750, &led); CHECK(!led.b);
+        cal_led_demo(4600, &led); CHECK(led.g == LED_LEVEL);
+        cal_led_demo(5550, &led); CHECK(led.r == LED_LEVEL);
+        cal_led_demo(6900, &led); CHECK(!led.r && !led.g && !led.b);
+        cal_led_demo(7100, &led); CHECK(led.b == LED_LEVEL);
     }
     return TEST_DONE("input_calibration");
 }

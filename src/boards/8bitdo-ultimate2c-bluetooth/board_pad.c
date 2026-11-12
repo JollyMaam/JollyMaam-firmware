@@ -64,16 +64,6 @@ const u8 board_layout_count = LAYOUT_COUNT(board_layout);
 /* The base remap the pad starts with: every key sends itself. */
 const struct set_remap board_remap_base = { .name = "" };
 
-/* Home is dimmed (PWM, plat_leds), the others are on or off: the four
- * player lights white, so the host's player number shows alone, and dark
- * while connecting; the cable and pairing signs on the lights below Home
- * and beside it (red), as the U2CW's. */
-const struct board_led_brightness board_led_brightness = {
-    .steady = 240, .animation = 400, .connect = 240,
-    .idle = 240, .battery = 240, .players_mono = 1, .home_signs = 1,
-    .players_dark_connecting = 1,
-};
-
 /* As the U2CW's motors until these are measured. */
 const struct board_rumble board_rumble = {
     .min = { { 32, 32, 32, 45, 55 }, { 32, 32, 32, 45, 55 } },
@@ -313,13 +303,10 @@ static void pwm_set(u32 timer, u32 hz, u8 duty)
 }
 
 /* ---- the lights ---------------------------------------------------------------
- * Home dimmed by PWM to the core's Home light (its brightest colour), off
- * and fully on as plain pin levels.  The others on or off: the player lights
- * from the core's, those at least half as bright as the brightest lit: a
- * gliding light (the pairing sweep) with soft edges shows as one, a blink
- * or the host's number as they are.  The below-Home and red Sync lights
- * from the core's cable and pairing lights (home_signs), as the U2CW's
- * controller_lite.c drives its three. */
+ * Drawn by leds_mono.c, as the U2CW's: Home dimmed by PWM to its brightest
+ * colour component, off and fully on as plain pin levels; the four player
+ * lights, the one below Home (LIGHT_CABLE) and the red Sync one
+ * (LIGHT_PAIRING) on or off. */
 
 static const struct pin lights[4] = { { 1, 11 }, { 1, 6 }, { 0, 15 }, { 2, 3 } };
 static const struct pin home_light = { 0, 5 }, below_home = { 0, 4 }, sync_light = { 2, 2 };
@@ -348,21 +335,12 @@ static void home_set(u8 duty)
 
 void plat_leds(const struct led_frame *f)
 {
-    u8 level[4], top = 0;
     u32 i;
 
-    for (i = 0; i < 4; i++) {
-        const struct rgb *c = &f->light[LIGHT_P0 + i];
-
-        level[i] = brightest(c);
-        if (level[i] > top) top = level[i];
-    }
-    for (i = 0; i < 4; i++) out(lights[i], level[i] && level[i] * 2 >= top);
+    for (i = 0; i < 4; i++) out(lights[i], brightest(&f->light[LIGHT_P0 + i]) != 0);
     home_set(brightest(&f->light[LIGHT_HOME]));
-#define LIT(n) (f->light[n].r || f->light[n].g || f->light[n].b)
-    out(below_home, LIT(LIGHT_CABLE));
-    out(sync_light, LIT(LIGHT_PAIRING));
-#undef LIT
+    out(below_home, brightest(&f->light[LIGHT_CABLE]) != 0);
+    out(sync_light, brightest(&f->light[LIGHT_PAIRING]) != 0);
 }
 
 /* ---- the motors: PWM timers 1 and 2, as stock ------------------------------- */

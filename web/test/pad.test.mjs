@@ -162,6 +162,7 @@ test("fields and values", async () => {
   assert.deepEqual(sleep.defaults, []);
   assert.deepEqual(Array.from(red.defaults[0]), [0, 0, 0xff]);   // little-endian, as the firmware copies it
   assert.deepEqual(targetsFor(table), [...Array(10).keys()]);
+  assert.deepEqual(targetsFor(table.filter((f) => f.kind !== 1)), [0, 1, 2, 3, 4, 5, 6, 7, 9]);   // no palette
   const v = await pad.read(table, 0);
   assert.equal(showValue(type, v.get("type").value), "switch");
   assert.equal(v.get("type").set, true);

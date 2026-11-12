@@ -235,8 +235,7 @@ static void players(const struct led_scene *sc, u32 now, u32 t, const struct led
     default: return;
     }
     for (i = 0; i < PLAYERS; i++)
-        if ((number & (1u << i)) || !in->players_mono || in->player_lights != PLAYERS_HOST)
-            put(out->light[LIGHT_P0 + i], scale(number & (1u << i) ? number_colour : c, k));
+        put(out->light[LIGHT_P0 + i], scale(number & (1u << i) ? number_colour : c, k));
 }
 
 static void bar(const struct led_scene *sc, const struct led_state *s, u32 now, u32 t,
@@ -354,14 +353,10 @@ void led_frame(const struct led_scene *sc, const struct led_state *s, u32 now,
         whole_pad(sc, t, in, out);
     } else {
         put(home, scale(lit(c), wave(&sc->home, t, 0, 1)));
-        if (!(in->players_dark_connecting && s->scene == CTL_CONNECTING))
-            bar(sc, s, now, t, in, c, out);
+        bar(sc, s, now, t, in, c, out);
         grips(sc, t, in, c, out);
         if (in->usb_powered && (s->scene == CTL_BOOT || s->scene == CTL_IDLE))
             put(home, dark);
-        /* Pairing: the Home light's blinks on the pairing light too. */
-        if (in->home_signs && s->scene == CTL_PAIRING)
-            memcpy(out->light[LIGHT_PAIRING], home, sizeof(out->light[0]));
     }
     if (t < FADE_IN_MS) {
         k = ease(t * K_ONE / FADE_IN_MS);
@@ -375,7 +370,7 @@ void led_frame(const struct led_scene *sc, const struct led_state *s, u32 now,
     if (in->cal_lit) put(home, lit_rgb(in->cal));
     /* USB acknowledgement is one solid interval, then the normal scene.
      * Idle on USB stays dark; there is no charging animation. */
-    if (in->usb_plug_lit) put(in->home_signs ? out->light[LIGHT_CABLE] : home, lit(in->battery_colour));
+    if (in->usb_plug_lit) put(home, lit(in->battery_colour));
 }
 
 /* Only dim lights are dithered: there a step is a big part of the light (one
@@ -588,11 +583,6 @@ int main(void)
     CHECK(same(f.light[LIGHT_P0], dim_green));
     frame(&connected, &s, 2300, &in, &f);
     CHECK(same(f.light[LIGHT_P0], dim_red));
-    in.players_mono = 1;        /* one-colour lights: the number alone */
-    frame(&connected, &s, 2300, &in, &f);
-    CHECK(same(f.light[LIGHT_P2], dim_green) && same(f.light[LIGHT_P0], dark_rgb) &&
-          same(f.light[LIGHT_P3], dark_rgb));
-    in.players_mono = 0;
     in.player_lights = PLAYERS_SECONDARY;
     in.grips = GRIPS_PRIMARY;
     frame(&connected, &s, 2000, &in, &f);
@@ -647,31 +637,6 @@ int main(void)
     CHECK(same(f.light[LIGHT_HOME], ((struct rgb){ 5, 2, 0 })));
     in.usb_plug_lit = 0;
     frame(&idle, &s, 2400, &in, &f); CHECK(same(f.light[LIGHT_HOME], dark_rgb));
-    /* home_signs: a cable on its own light, Home dark; pairing on its own
-     * light as well as Home. */
-    in.home_signs = 1;
-    in.usb_plug_lit = 1;
-    frame(&idle, &s, 100, &in, &f);
-    CHECK(same(f.light[LIGHT_HOME], dark_rgb) && same(f.light[LIGHT_CABLE], ((struct rgb){ 5, 2, 0 })));
-    in.usb_plug_lit = 0;
-    s.scene = CTL_PAIRING;
-    s.slot = 0;
-    frame(&pairing, &s, 1000 + 2400, &in, &f);
-    CHECK(!same(f.light[LIGHT_HOME], dark_rgb) && same(f.light[LIGHT_PAIRING], f.light[LIGHT_HOME]));
-    s.scene = CTL_CONNECTING;
-    frame(&connecting, &s, 1000 + 2300, &in, &f);
-    CHECK(!same(f.light[LIGHT_HOME], dark_rgb) && same(f.light[LIGHT_PAIRING], dark_rgb));
-    CHECK(!same(f.light[LIGHT_P0], dark_rgb));
-    in.players_dark_connecting = 1;     /* Home blinks alone; pairing keeps its sweep */
-    frame(&connecting, &s, 1000 + 2300, &in, &f);
-    CHECK(!same(f.light[LIGHT_HOME], dark_rgb));
-    for (t = 0; t < 4; t++) CHECK(same(f.light[LIGHT_P0 + t], dark_rgb));
-    s.scene = CTL_PAIRING;
-    frame(&pairing, &s, 1000 + 2400, &in, &f);
-    CHECK(bright_as(f.light[LIGHT_P0]) + bright_as(f.light[LIGHT_P1]) +
-          bright_as(f.light[LIGHT_P2]) + bright_as(f.light[LIGHT_P3]) > 0);
-    in.players_dark_connecting = 0;
-    in.home_signs = 0;
     s.scene = CTL_IDLE;
     s.slot = SLOT_NONE;
     in.cal_lit = 1;

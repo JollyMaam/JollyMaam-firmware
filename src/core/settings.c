@@ -46,6 +46,7 @@ static const char *const types[] = {
 #endif
 static const char *const usb_sounds[] = { "jack", "on", "off", NULL };
 static const char *const transports[] = { "bluetooth", "usb", "bluetooth+usb", "dongle", "dongle+usb", NULL };
+#if !LEDS_MONO
 static const char *const grips[] = {
     "off", "host", "fade", "rumble", "input", "rumble+input", "primary", "secondary", "rainbow",
     "heartbeat", NULL,
@@ -53,6 +54,7 @@ static const char *const grips[] = {
 static const char *const players[] = {
     "off", "host", "fade", "primary", "secondary", "rainbow", NULL,
 };
+#endif
 static const char *const curve_enabled[] = { "disabled", "enabled", NULL };
 static const char *const left_to[] = { "left stick", "right stick", "nothing", NULL };
 static const char *const right_to[] = { "right stick", "left stick", "nothing", NULL };
@@ -68,7 +70,7 @@ static const char *const onoff[] = { "on", "off", NULL };
 static const char *const tx_powers[] = { "1", "2", "3", "4", "5", "6", NULL };
 
 /* Slots south east west north up down left right (by the key that picks them).  Colours are palette entries; how
- * bright they are is the palette's. */
+ * bright they are is the palette's.  One-colour lights (LEDS_MONO) have neither. */
 static const struct set_field slot_fields[] = {
     { .id = ID_TYPE, .name = "type", .type = T_ENUM, .names = types, FIELD(type),
       .slot_def = board_slots.type, .allowed = &board_slots.types,
@@ -78,6 +80,7 @@ static const struct set_field slot_fields[] = {
       .help = "how: bluetooth; usb, a wired controller; bluetooth+usb, usb while a usb host "
               "is there, else bluetooth (never back to it mid-session); dongle, through our dongle, which is the type on its usb port; "
               "dongle+usb, usb while a usb host is there, else the dongle" },
+#if !LEDS_MONO
     { .id = 3, .name = "connect_colour", .type = T_ENTRY, FIELD(connect_colour),
       PER_SLOT(5, 11, 7, 1, 9, 13, 3, 15),
       .help = "Home and player lights while connecting and pairing: which slot" },
@@ -95,6 +98,7 @@ static const struct set_field slot_fields[] = {
       .def = PLAYERS_HOST,
       .help = "player lights while connected: host is the console's player number; fade and "
               "rainbow are animations, lit brighter than the steady colours" },
+#endif
     { .id = ID_ADDRESS, .name = "address", .type = T_BYTES, FIELD(address),
       .help = "the slot's own address, least significant byte first; zero: derived" },
     { .id = ID_BOND, .name = "bond", .type = T_BYTES, FIELD(bond),
@@ -143,7 +147,9 @@ static const struct set_field slot_fields[] = {
 #endif
 };
 
-/* The palette target: the colours, and how bright each kind of light is. */
+#if !LEDS_MONO
+/* The palette target: the colours, and how bright each kind of light is.
+ * One-colour lights (LEDS_MONO) have none: the target is not kept. */
 struct set_palette {
     struct rgb entry[PALETTE];
     struct set_brightness brightness;
@@ -186,6 +192,12 @@ static const struct set_field palette_fields[] = {
       .def = 2, .help = "experiment: refresh dim lights this often (ms), alternating the steps on either "
                         "side, for brightness between them and smooth dim fades; 0 off" },
 };
+#define PALETTE_FIELDS COUNT(palette_fields)
+#define PALETTE_TABLE palette_fields
+#else
+#define PALETTE_TABLE NULL
+#define PALETTE_FIELDS 0u
+#endif
 
 #define TEXT(x) #x
 #define NUMBER_TEXT(x) TEXT(x)
@@ -336,7 +348,9 @@ _Static_assert(REMAP_BASE_STORED || !REMAPS_STORED, "remap slots inherit from a 
 
 static struct set_slot slots[SLOTS_STORED];
 static const struct set_slot none_slot = { .type = PROFILE_NONE };
+#if !LEDS_MONO
 static struct set_palette pal;
+#endif
 static struct set_cal cal;
 #if REMAP_BASE_STORED
 static struct set_remap remap;   /* the one remap held: the rest stay in flash */
@@ -357,13 +371,14 @@ static int stored(u8 t)
     if (t < SLOTS) return t < SLOTS_STORED;
     if (t >= TARGET_REMAP && t < TARGET_BASE) return t - TARGET_REMAP < REMAPS_STORED;
     if (t == TARGET_BASE) return REMAP_BASE_STORED;
+    if (t == TARGET_PALETTE) return !LEDS_MONO;
     return t < TARGETS;
 }
 
 static const struct set_field *fields_of(u8 t, u32 *count)
 {
     if (t < SLOTS) { *count = COUNT(slot_fields); return slot_fields; }
-    if (t == TARGET_PALETTE) { *count = COUNT(palette_fields); return palette_fields; }
+    if (t == TARGET_PALETTE) { *count = PALETTE_FIELDS; return PALETTE_TABLE; }
     if (t >= TARGET_REMAP) { *count = COUNT(remap_fields); return remap_fields; }
     *count = COUNT(cal_fields);
     return cal_fields;
@@ -383,7 +398,11 @@ static u8 *remap_values(u8 t)
 
 static u8 *values_of(u8 t)
 {
+#if LEDS_MONO
+    return t < SLOTS ? (u8 *)&slots[t] : t == TARGET_PALETTE ? NULL :
+#else
     return t < SLOTS ? (u8 *)&slots[t] : t == TARGET_PALETTE ? (u8 *)&pal :
+#endif
            t == TARGET_CAL ? (u8 *)&cal : remap_values(t);
 }
 
@@ -834,6 +853,7 @@ const struct set_slot *set_slot(u8 slot)
     return slot < SLOTS_STORED ? &slots[slot] : &none_slot;
 }
 
+#if !LEDS_MONO
 struct rgb set_colour(u8 entry)
 {
     return pal.entry[entry % PALETTE];
@@ -843,6 +863,7 @@ const struct set_brightness *set_brightness(void)
 {
     return &pal.brightness;
 }
+#endif
 
 const struct bt_bond *set_bond(u8 slot)
 {
@@ -1080,8 +1101,8 @@ static u32 put_string(u8 *out, u32 o, u32 max, const char *s)
  * slot for slot fields).  0: past the last. */
 u32 set_describe(u32 n, u8 *out, u32 max)
 {
-    u32 kinds[4] = { COUNT(slot_fields), COUNT(palette_fields), COUNT(cal_fields), COUNT(remap_fields) };
-    static const struct set_field *const tables[4] = { slot_fields, palette_fields, cal_fields, remap_fields };
+    u32 kinds[4] = { COUNT(slot_fields), PALETTE_FIELDS, COUNT(cal_fields), COUNT(remap_fields) };
+    static const struct set_field *const tables[4] = { slot_fields, PALETTE_TABLE, cal_fields, remap_fields };
     const struct set_field *f;
     u32 kind = 0, o, i, defs;
 
@@ -1388,6 +1409,7 @@ static int full_storage(void)
 
         CHECK(n > 3 && d[3] == 1 && !d[4] && !memcmp(d + 6, "Swap faces", 11));
     }
+#if !LEDS_MONO
     CHECK(set_slot(0)->connect_colour == 5);
     {
         struct rgb c = set_colour(set_slot(2)->connect_colour);    /* X: green */
@@ -1399,6 +1421,7 @@ static int full_storage(void)
               set_brightness()->connect == board_led_brightness.connect &&
               set_brightness()->dither_ms == 2);
     }
+#endif
 
     store_writes = 0;
 
@@ -1443,7 +1466,7 @@ static int full_storage(void)
     CHECK(write1(1, 0, 0, NULL) == SET_OK);
     set_apply();
     CHECK(set_slot(1)->link.poll_us == 3750 && set_bits[1] == 0);
-    CHECK(write1(1, 3, 1, &(u8){ PALETTE }) == SET_RANGE);
+    CHECK(write1(1, 3, 1, &(u8){ PALETTE }) == (LEDS_MONO ? SET_UNKNOWN : SET_RANGE));
     set_poll(ms, 1);
 
     /* Curves, a remap slot's second record: defaults, validation, staging,
@@ -1635,6 +1658,17 @@ static int full_storage(void)
     reset_keeping_pairing(1);
     clear(1, ID_ADDRESS);
 
+#if LEDS_MONO
+    /* One-colour lights: no palette, no slot colours. */
+    {
+        u8 d[16];
+
+        CHECK(write1(TARGET_PALETTE, 17, 0, NULL) == SET_UNKNOWN);
+        CHECK(write1(0, 3, 1, col) == SET_UNKNOWN);
+        CHECK(set_read(TARGET_PALETTE, d, sizeof(d)) == 3 && !d[2]);
+        CHECK(set_read_defaults(TARGET_PALETTE, d, sizeof(d)) == 3 && !d[2]);
+    }
+#else
     /* Palette and colours. */
     CHECK(write1(TARGET_PALETTE, 5, 3, "\x10\x20\x30") == SET_OK);
     CHECK(write1(0, 3, 1, col) == SET_OK);
@@ -1668,6 +1702,7 @@ static int full_storage(void)
         set_apply();
         CHECK(set_brightness()->steady == board_led_brightness.steady);
     }
+#endif
 
     /* Ephemeral: applied, never stored, pairing included. */
     set_poll(ms, 1);
@@ -1697,12 +1732,12 @@ static int full_storage(void)
         CHECK(write1(0, ID_TYPE, 1, &x) == SET_OK);
         set_drop();
     }
-    CHECK(set_describe(COUNT(slot_fields), buf, sizeof(buf)) && buf[1] == 1);
-    CHECK(set_describe(COUNT(slot_fields) + COUNT(palette_fields), buf, sizeof(buf)) && buf[1] == 2);
-    t = COUNT(slot_fields) + COUNT(palette_fields) + COUNT(cal_fields);
+    CHECK(set_describe(COUNT(slot_fields), buf, sizeof(buf)) && buf[1] == (LEDS_MONO ? 2 : 1));
+    CHECK(set_describe(COUNT(slot_fields) + PALETTE_FIELDS, buf, sizeof(buf)) && buf[1] == 2);
+    t = COUNT(slot_fields) + PALETTE_FIELDS + COUNT(cal_fields);
     CHECK(set_describe(t, buf, sizeof(buf)) && buf[1] == 3 && buf[3] == T_TEXT);
     CHECK(set_describe(t + COUNT(remap_fields), buf, sizeof(buf)) == 0);
-    for (t = 0; t < COUNT(slot_fields) + COUNT(palette_fields) + COUNT(cal_fields) + COUNT(remap_fields); t++)
+    for (t = 0; t < COUNT(slot_fields) + PALETTE_FIELDS + COUNT(cal_fields) + COUNT(remap_fields); t++)
         CHECK(set_describe(t, buf, 512) > 0);
     CHECK(set_read(3, buf, sizeof(buf)) > 3 && buf[2] == COUNT(slot_fields));
     CHECK(set_read(TARGET_CAL, buf, sizeof(buf)) == 6u + cal_fields[0].size);

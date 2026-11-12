@@ -110,6 +110,8 @@ colour at every brightness level.
 Brightness is shown as steps `1/15` through `15/15`, plus Off.
 Palette RGB fields still accept hex values and show swatches;
 all previews follow staged palette edits.
+Pads with one-colour lights (the 8BitDo pads) have no palette, no slot light
+settings and no LED demos; their lights are fixed in the firmware (leds_mono.c).
 
 On detailed settings pages, the leftmost status button replaces the separate
 Default button and legend. A blank status is disabled; saved custom values can

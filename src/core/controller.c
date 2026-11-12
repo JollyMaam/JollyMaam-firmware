@@ -85,16 +85,20 @@ static struct {
     u32 rumble_feedback_since, rumble_feedback_next;
     u8 motor_on[2], kicking[2];  /* a motor started: full power until kick_until */
     u32 kick_until[2];
+    struct led_frame shown;      /* what the LEDs show */
+#if !LEDS_MONO
     struct led_state led;
     const struct led_scene *led_scene;   /* the one drawn: a change fades in */
     struct led_fine frame;       /* the scene as drawn */
-    struct led_frame shown;      /* what the LEDs show */
     u16 dither_acc[LIGHT_COUNT][3];
     u8 dithering;                /* a dim light between steps: refresh at dither_next */
     u32 dither_next;
+    u8 reach[2];
+#else
+    u32 led_demo_since;          /* the demo started */
+#endif
     u8 led_demo;                 /* the LED demo shown (ux_led_demos), SLOT_NONE: none */
     u32 led_demo_ms;             /* when it was last asked for */
-    u8 reach[2];
     u32 led_next;
     u8 usb_raw, usb_powered;
     u8 usb_suspended;            /* as last logged */
@@ -425,9 +429,13 @@ static void handle(struct ctl_request r, u32 now)
         break;
     case REQ_LED_DEMO:
         if (r.slot != c.led_demo) util_log("led demo %d", r.slot == SLOT_NONE ? -1 : (int)r.slot);
+#if LEDS_MONO
+        if (r.slot != c.led_demo) c.led_demo_since = now;
+#else
+        c.led.scene = CTL_KIND_COUNT;    /* fade into it, from the start */
+#endif
         c.led_demo = r.slot;
         c.led_demo_ms = now;
-        c.led.scene = CTL_KIND_COUNT;    /* fade into it, from the start */
         c.led_next = now;
         break;
     case REQ_RUMBLE:
@@ -847,6 +855,7 @@ static void sample_power(u32 now)
     }
 }
 
+#if !LEDS_MONO
 static struct rgb rgb3(const u8 *v)
 {
     struct rgb r = { v[0], v[1], v[2] };
@@ -883,7 +892,7 @@ static void show(u32 now)
         plat_leds(&f);
     }
 }
-
+#endif
 
 /* A motor starting from stopped: full power for the remap's rumble_kick_ms. */
 static void kick(u8 motor[2], u32 now, int allowed)
@@ -901,15 +910,11 @@ static void kick(u8 motor[2], u32 now, int allowed)
     }
 }
 
+static void lights(u32 now, const struct set_slot *slot, const u8 motor[2]);
+
 static void outputs(u32 now)
 {
-    const struct set_slot *slot, *shown;
-    const struct set_brightness *b = set_brightness();
-    const struct ux_led_demo *demo = NULL;
-    const struct led_scene *sc;
-    struct led_inputs in;
-    u32 plugged = now - c.usb_plugged_ms;
-    u8 scene = c.kind, armed = ux_armed();
+    const struct set_slot *slot;
     int rumble = c.kind == CTL_CONNECTED && !c.calibrating && !ux_quick(NULL);
     u8 motor[2];
 
@@ -939,6 +944,84 @@ static void outputs(u32 now)
     }
     kick(motor, now, !c.rumble_testing && !c.rumble_feedback_level);
     plat_motors(motor[0], motor[1]);
+    lights(now, slot, motor);
+}
+
+#if LEDS_MONO
+/* One-colour lights (leds_mono.c), as the U2CW's controller_lite.c draws
+ * them; the host's player number on the player lights. */
+static void lights(u32 now, const struct set_slot *slot, const u8 motor[2])
+{
+    struct led_mono m;
+    struct led_frame f;
+    u8 armed = ux_armed();
+
+    (void)slot;
+    (void)motor;
+    if ((s32)(now - c.led_next) < 0) return;
+    c.led_next = now + ux_timeouts.led_frame_ms;
+    if (c.led_demo != SLOT_NONE && now - c.led_demo_ms >= UX_LED_DEMO_MS) {
+        util_log("led demo over");
+        c.led_demo = SLOT_NONE;
+    }
+    if (c.led_demo != SLOT_NONE) {
+        led_mono_demo(&ux_led_demos[c.led_demo], now - c.led_demo_since, &m);
+    } else {
+        memset(&m, 0, sizeof(m));
+        if ((c.kind == CTL_CONNECTED && ux_quick(NULL)) || c.config) m.show = MONO_QUICK;
+        else if (c.kind == CTL_PAIRING) m.show = MONO_PAIRING;
+        else if (c.kind == CTL_CONNECTING || (armed != SLOT_NONE && c.kind != CTL_CONNECTED && !c.calibrating))
+            m.show = MONO_CONNECTING;
+        else if (c.kind == CTL_CONNECTED) m.show = MONO_CONNECTED;
+        m.cable = c.kind != CTL_SLEEPING && c.usb_powered && now - c.usb_plugged_ms < ux_timeouts.usb_plug_ms;
+        if (c.kind == CTL_CONNECTED && c.host.has_players) {
+            m.players = c.host.players & 0xf;
+            m.players_flash = c.host.players_flash & 0xf;
+        }
+        m.cal_lit = (u8)cal_led(now, &m.cal);
+    }
+    led_mono(&m, now, &f);
+    if (memcmp(&f, &c.shown, sizeof(f))) {
+        c.shown = f;
+        plat_leds(&f);
+    }
+}
+#else
+/* A demo's console (player 1) and what it stands in for, t ms into it. */
+static void demo_inputs(const struct ux_led_demo *demo, u32 t, struct led_inputs *in)
+{
+    u32 ramp = t % 2000;
+
+    in->has_players = 1;
+    in->players = 1;
+    in->players_flash = demo->players_flash;
+    in->lightbar = demo->lightbar;
+    in->has_lightbar = demo->lightbar.r || demo->lightbar.g || demo->lightbar.b;
+    if (demo->fake & LED_FAKE_BATTERY) in->usb_powered = in->usb_plug_lit = 0;
+    if (demo->fake & LED_FAKE_PLUG) {
+        in->usb_powered = 1;
+        in->usb_plug_lit = t % LED_DEMO_REPEAT_MS < ux_timeouts.usb_plug_ms;
+    }
+    if (demo->fake & LED_FAKE_LOW_BATTERY) in->low_battery = 1;
+    if (demo->fake & LED_FAKE_EPHEMERAL) in->ephemeral = 1;
+    if (demo->fake & LED_FAKE_CAL) {
+        in->cal_lit = 1;
+        cal_led_demo(t, &in->cal);
+    }
+    if (demo->fake & LED_FAKE_RUMBLE)
+        in->rumble[0] = in->rumble[1] = (u8)((ramp < 1000 ? ramp : 2000 - ramp) * 255 / 1000);
+}
+
+static void lights(u32 now, const struct set_slot *slot, const u8 motor[2])
+{
+    const struct set_slot *shown;
+    const struct set_brightness *b = set_brightness();
+    const struct ux_led_demo *demo = NULL;
+    const struct led_scene *sc;
+    struct led_inputs in;
+    u32 plugged = now - c.usb_plugged_ms;
+    u8 scene = c.kind, armed = ux_armed();
+
     if ((s32)(now - c.led_next) < 0) {
         if (c.dithering && (s32)(now - c.dither_next) >= 0) show(now);
         return;
@@ -991,9 +1074,6 @@ static void outputs(u32 now)
     in.usb_powered = c.usb_powered;
     in.low_battery = c.low_battery;
     in.usb_plug_lit = c.usb_powered && plugged < ux_timeouts.usb_plug_ms;
-    in.players_mono = board_led_brightness.players_mono;
-    in.home_signs = board_led_brightness.home_signs;
-    in.players_dark_connecting = board_led_brightness.players_dark_connecting;
     if (c.kind == CTL_CONNECTED) {
         in.has_players = c.host.has_players;
         in.players = c.host.players;
@@ -1001,15 +1081,12 @@ static void outputs(u32 now)
         in.has_lightbar = c.host.has_lightbar;
         in.lightbar = rgb3(c.host.lightbar);
     }
-    if (demo) {                  /* the console's player 1 */
-        in.has_players = 1;
-        in.players = 1;
-        in.players_flash = 0;
-    }
     in.cal_lit = (u8)cal_led(now, &in.cal);
+    if (demo) demo_inputs(demo, now - c.led.since_ms, &in);
     led_frame(sc, &c.led, now, &in, &c.frame);
     show(now);
 }
+#endif
 
 /* The remap whose curves and deadzones the sticks take: connected only;
  * NULL, linear and none. */
@@ -1186,8 +1263,10 @@ static void boot(u32 now)
     c.slot = SLOT_NONE;
     c.last_slot = plat_retained_slot();
     if (c.last_slot >= SLOTS) c.last_slot = ux_first_slot;
+#if !LEDS_MONO
     c.led.scene = CTL_BOOT;
     c.led.slot = SLOT_NONE;
+#endif
     c.led_demo = SLOT_NONE;
     c.remap = REMAP_BASE;
     c.usb_raw = c.usb_powered = (u8)plat_usb_present();
@@ -1299,7 +1378,9 @@ void ctl_main(void)
         /* The LED frame paces the rest: power, timeouts, settings, the host's
          * state (its writes wake us sooner). */
         c.house_at = c.led_next;
+#if !LEDS_MONO
         if (c.dithering) c.house_at = earliest(c.house_at, c.dither_next);
+#endif
         if (c.rumble_testing) c.house_at = earliest(c.house_at, c.rumble_test_until);
         if (c.rumble_feedback_level) c.house_at = earliest(c.house_at, c.rumble_feedback_next);
         if (c.kicking[0]) c.house_at = earliest(c.house_at, c.kick_until[0]);

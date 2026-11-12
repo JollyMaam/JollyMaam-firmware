@@ -112,7 +112,7 @@ u2cb/updater/app.bin_deps := $(O)/u2cb/updater/app.elf
 # The log: 32 lines, as many as fit the RAM kept over a restart (app.ld KEPT).
 # LE (bt_yc3121.c): the core's MTU stays 23, so config mode answers in
 # 20-byte notifications.
-U2CB_PAD_DEFINES := $(U2CB_STORE) -DLOG_LINES=32 -DCONFIG_REPLY_MAX=20
+U2CB_PAD_DEFINES := $(U2CB_STORE) -DLOG_LINES=32 -DCONFIG_REPLY_MAX=20 -DLEDS_MONO=1
 
 U2CB_PAD_SOURCES :=
 U2CB_PAD_SOURCES += src/boards/8bitdo-ultimate2c-bluetooth/board_pad.c
@@ -130,7 +130,7 @@ U2CB_PAD_SOURCES += src/core/input.c
 U2CB_PAD_SOURCES += src/core/input_calibration.c
 U2CB_PAD_SOURCES += src/core/motion.c
 U2CB_PAD_SOURCES += src/core/imu_i2c.c
-U2CB_PAD_SOURCES += src/core/leds.c
+U2CB_PAD_SOURCES += src/core/leds_mono.c
 U2CB_PAD_SOURCES += src/core/remap.c
 U2CB_PAD_SOURCES += src/core/settings.c
 U2CB_PAD_SOURCES += src/core/settings_ux.c

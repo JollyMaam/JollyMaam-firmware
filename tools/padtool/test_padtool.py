@@ -55,6 +55,14 @@ class Restore(unittest.TestCase):
         self.assertIsNone(error)
 
 
+class Targets(unittest.TestCase):
+    def test_palette_and_remaps_only_where_described(self):
+        slot, palette, cal, remap = ({"kind": k} for k in range(4))
+        self.assertEqual(padtool.targets([slot, palette, cal]), list(range(10)))
+        self.assertEqual(padtool.targets([slot, cal]), [0, 1, 2, 3, 4, 5, 6, 7, 9])   # one-colour lights
+        self.assertEqual(padtool.targets([slot, cal, remap])[:10], [0, 1, 2, 3, 4, 5, 6, 7, 9, padtool.BASE_TARGET])
+
+
 class Layout(unittest.TestCase):
     @staticmethod
     def entry(number, kind, label):

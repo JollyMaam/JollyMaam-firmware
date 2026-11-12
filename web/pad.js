@@ -58,11 +58,13 @@ export function slotLabel(layout, slot) {
 
 export const kindOf = (t) => (t < 8 ? 0 : t >= REMAP_TARGET ? 3 : t - 7);
 
-// The targets a table describes: remap slots only where it has their
-// fields, the base remap before them.
+// The targets a table describes: the palette and remap slots only where it
+// has their fields (one-colour lights have no palette), the base remap
+// before the remap slots.
 export function targetsFor(table) {
-  const first = [...Array(REMAP_TARGET).keys()];
-  if (!table.some((f) => f.kind === 3)) return first;
+  const has = (kind) => table.some((f) => f.kind === kind);
+  const first = [...Array(REMAP_TARGET).keys()].filter((t) => kindOf(t) !== 1 || has(1));
+  if (!has(3)) return first;
   return [...first, BASE_TARGET, ...Array.from({ length: BASE_TARGET - REMAP_TARGET }, (_, i) => REMAP_TARGET + i)];
 }
 

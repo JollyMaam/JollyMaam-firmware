@@ -48,13 +48,6 @@ const u8 board_layout_count = LAYOUT_COUNT(board_layout);
 /* The base remap the pad starts with: every key sends itself. */
 const struct set_remap board_remap_base = { .name = "" };
 
-/* Lights in tenths of their smallest step: the Home ring is plain on this
- * pad, 24 of 255 looks right lit steadily. */
-const struct board_led_brightness board_led_brightness = {
-    .steady = 240, .animation = 400, .connect = 240,
-    .idle = 240, .battery = 240,
-};
-
 /* Both motors start at 40% and grow stronger up to 100%: step 3 (the
  * default) spans that, lower steps cap it, higher ones raise the floor.
  * controller_lite has no kick. */
@@ -325,8 +318,8 @@ static const struct output {
     { GPIO_PD3, PWM0, PWM0_ID, OUT_MOTOR_LEFT, 0 },
     { GPIO_PD2, PWM1, PWM1_ID, OUT_MOTOR_RIGHT, 0 },
     { GPIO_PB7, PWM2, PWM2_ID, OUT_LIGHT, LIGHT_HOME },      /* the Home ring */
-    { GPIO_PF1, AS_GPIO, PWM0_ID, OUT_LIGHT, LIGHT_P0 },     /* under Home; the boot loader blinks it */
-    { GPIO_PD5, PWM3, PWM3_ID, OUT_LIGHT, LIGHT_P1 },        /* red, beside the USB port */
+    { GPIO_PF1, AS_GPIO, PWM0_ID, OUT_LIGHT, LIGHT_CABLE },  /* under Home; the boot loader blinks it */
+    { GPIO_PD5, PWM3, PWM3_ID, OUT_LIGHT, LIGHT_PAIRING },   /* red, beside the USB port */
 };
 #define OUTPUTS (sizeof(outputs) / sizeof(outputs[0]))
 

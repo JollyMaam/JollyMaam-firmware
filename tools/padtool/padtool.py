@@ -906,11 +906,14 @@ class FieldTable(list):
 
 
 def targets(table):
-    """The targets the table describes: remap slots only where it has their fields,
-    the base remap listed before them."""
-    if not any(f["kind"] == 3 for f in table):
-        return list(range(REMAP_TARGET))
-    return list(range(REMAP_TARGET)) + [BASE_TARGET] + list(range(REMAP_TARGET, BASE_TARGET))
+    """The targets the table describes: the palette and remap slots only where it
+    has their fields (one-colour lights have no palette), the base remap listed
+    before the remap slots."""
+    kinds = {f["kind"] for f in table}
+    first = [t for t in range(REMAP_TARGET) if kind_of(t) != 1 or 1 in kinds]
+    if 3 not in kinds:
+        return first
+    return first + [BASE_TARGET] + list(range(REMAP_TARGET, BASE_TARGET))
 
 
 def remap_field(f, name):

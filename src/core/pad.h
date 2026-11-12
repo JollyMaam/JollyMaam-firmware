@@ -205,6 +205,7 @@ void cal_apply(const struct set_cal *cal, const struct cal_deadzone *deadzone,
 void cal_start(u32 now);
 int cal_step(const struct in_raw *raw, u32 now, struct set_cal *cal);
 int cal_led(u32 now, struct rgb *out);
+void cal_led_demo(u32 t, struct rgb *out);  /* its light t ms into a pretend run, over and over */
 
 /* ---- controller.c ------------------------------------------------------- */
 
@@ -659,9 +660,9 @@ int set_is_ephemeral(void);
 
 /* ---- leds.c ------------------------------------------------------------- */
 
-/* LIGHT_CABLE and LIGHT_PAIRING: the Home light's cable and pairing signs
- * on lights of their own (board_led_brightness.home_signs; the 8BitDo's
- * light under Home and its red one), last so a chain keeps its order. */
+/* LIGHT_CABLE and LIGHT_PAIRING: the cable and pairing signs on lights of
+ * their own (leds_mono.c: the 8BitDo's light under Home and its red one),
+ * last so a chain keeps its order. */
 enum { LIGHT_HOME, LIGHT_P0, LIGHT_P1, LIGHT_P2, LIGHT_P3, LIGHT_GRIP_L,
        LIGHT_GRIP_R, LIGHT_UNUSED, LIGHT_CABLE, LIGHT_PAIRING, LIGHT_COUNT };
 
@@ -716,9 +717,6 @@ struct led_inputs {
     u8 reach[2];
     u8 usb_powered, usb_plug_lit, low_battery;
     u8 has_players, players, players_flash;
-    u8 players_mono;       /* board_led_brightness.players_mono */
-    u8 home_signs;         /* board_led_brightness.home_signs */
-    u8 players_dark_connecting;   /* board_led_brightness.players_dark_connecting */
     u8 has_lightbar;
     struct rgb lightbar;
     u8 cal_lit;
@@ -732,6 +730,32 @@ void led_frame(const struct led_scene *scene, const struct led_state *s, u32 now
  * refresh.  Returns whether refreshing again soon shows more than this. */
 int led_dither(const struct led_fine *f, u16 acc[LIGHT_COUNT][3], int dither, struct led_frame *out);
 void led_reach(u8 reach[2], const struct pad *pad);
+
+/* ---- leds_mono.c -------------------------------------------------------- */
+
+/* LEDS_MONO: one-colour lights (the 8BitDo pads) drawn by leds_mono.c
+ * instead of leds.c; no palette, no slot light settings, no LED demos.  The
+ * Home ring blinks while connecting, faster while pairing with
+ * LIGHT_PAIRING, and is lit while connected; LIGHT_CABLE shows a cable
+ * arriving; quick settings and config mode light Home and LIGHT_CABLE in
+ * turn.  Player lights, on a board with them, show the host's player number
+ * while connected. */
+#ifndef LEDS_MONO
+#define LEDS_MONO 0
+#endif
+enum { MONO_DARK, MONO_CONNECTING, MONO_PAIRING, MONO_CONNECTED, MONO_QUICK };
+struct led_mono {
+    u8 show;                     /* MONO_* */
+    u8 cable;                    /* a cable arrived: LIGHT_CABLE lit */
+    u8 players, players_flash;   /* connected: the host's player lights, a bit each; flashing */
+    u8 cal_lit;                  /* the calibration routine's light on Home instead */
+    struct rgb cal;
+};
+/* The frame at now; returns when it next changes by itself (0: never). */
+u32 led_mono(const struct led_mono *in, u32 now, struct led_frame *out);
+/* What an LED demo (ux_led_demos) shows here, t ms into it. */
+struct ux_led_demo;
+void led_mono_demo(const struct ux_led_demo *demo, u32 t, struct led_mono *m);
 
 /* ---- remap.c ------------------------------------------------------------ */
 
@@ -776,12 +800,6 @@ struct ux_colours { u8 idle, battery; };
 struct board_led_brightness {
     u16 steady, animation, connect;
     u16 idle, battery;
-    u8 players_mono;             /* player lights of one colour, on or off: the host's
-                                  * number alone lit, not the others in the primary */
-    u8 home_signs;               /* a cable arriving on LIGHT_CABLE instead of the Home
-                                  * light; pairing blinks LIGHT_PAIRING with it */
-    u8 players_dark_connecting;  /* the player lights dark while connecting: Home
-                                  * blinks alone */
 };
 extern const struct board_led_brightness board_led_brightness;
 
@@ -844,6 +862,13 @@ extern const struct ux_colours ux_colours;
 #define UX_LED_DEMO_MS 30000
 enum { LED_DEMO_DITHER_PALETTE, LED_DEMO_DITHER_OFF, LED_DEMO_DITHER_ON };
 enum { LED_DEMO_SCENE, LED_DEMO_QUICK, LED_DEMO_LOADER };   /* the scene, or one of the others */
+/* What a demo stands in for, over the scene: on battery; a cable arriving
+ * (again every LED_DEMO_REPEAT_MS); a low battery; the calibration routine's
+ * light (cal_led_demo); ephemeral mode; the motors running (a slow ramp up
+ * and down, the lights only). */
+enum { LED_FAKE_BATTERY = 1, LED_FAKE_PLUG = 2, LED_FAKE_LOW_BATTERY = 4, LED_FAKE_CAL = 8,
+       LED_FAKE_EPHEMERAL = 16, LED_FAKE_RUMBLE = 32 };
+#define LED_DEMO_REPEAT_MS 3000
 struct ux_led_demo {
     const char *name;
     u8 scene;                /* enum ctl_kind: its LED scene */
@@ -851,6 +876,9 @@ struct ux_led_demo {
     u8 grips, players;       /* connected: GRIPS_*, PLAYERS_* */
     u16 steady, animation;
     u8 dither;               /* LED_DEMO_DITHER_* */
+    u8 fake;                 /* LED_FAKE_* */
+    struct rgb lightbar;     /* the console's lightbar colour; black: none set */
+    u8 players_flash;        /* player lights the console flashes (the number is player 1) */
 };
 extern const struct ux_led_demo ux_led_demos[];
 extern const u8 ux_led_demo_count;

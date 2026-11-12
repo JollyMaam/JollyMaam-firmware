@@ -59,6 +59,7 @@ U2CW_DEFINES += -DREMAPS_STORED=4
 U2CW_DEFINES += -DREMAP_RULES=8
 U2CW_DEFINES += -DRECORD_MAX=152
 U2CW_DEFINES += -DSLOT_USB_AUDIO=0
+U2CW_DEFINES += -DLEDS_MONO=1
 U2CW_DEFINES += -DSTAGE_MAX=256
 U2CW_DEFINES += -DSTORE_A=0x6f000 -DSTORE_B=0x70000 -DSTORE_BANK=0x1000
 U2CW_DEFINES += -DLOG_LINES=2
@@ -140,6 +141,7 @@ U2CW_PAD_SOURCES += src/platform/telink/connect_telink.c
 U2CW_PAD_SOURCES += src/platform/telink/tx_telink.c
 U2CW_PAD_SOURCES += src/platform/telink/rx_telink.c
 U2CW_PAD_SOURCES += src/core/controller_lite.c
+U2CW_PAD_SOURCES += src/core/leds_mono.c
 U2CW_PAD_SOURCES += src/profiles/profile_hid.c
 U2CW_PAD_SOURCES += src/profiles/profile_switch.c
 U2CW_PAD_SOURCES += src/profiles/profile_xbox.c

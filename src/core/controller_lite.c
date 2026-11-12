@@ -24,16 +24,6 @@ static const char slot_names[] = "ABXYR";
  * remap; its pairing is the platform's (plat_receiver_pair). */
 static const struct set_slot receiver_settings = { .type = PROFILE_XBOX, .transport = TRANSPORT_DONGLE };
 
-/* The lights (of 255): the Home ring blinks while connecting, faster while
- * pairing, with the red one by the USB port; the one under Home (on/off
- * only) shows a cable arriving; quick settings lights the ring and the one
- * under Home in turn. A single light shows no player number. */
-static const struct {
-    u8 home, red;
-    u16 connect_ms, pair_ms;     /* on, then off as long */
-    u16 quick_ms;                /* quick settings: the ring, then the light under Home */
-} lite_lights = { 24, 32, 250, 120, 300 };
-
 static const struct profile *profile = &profile_generic_ble;
 
 /* The profile a slot runs here: an LE type over Bluetooth; NULL for the
@@ -54,7 +44,9 @@ static struct {
     struct usb_status status;
     struct profile_session session;
     u8 linked;
-    u8 lit;                      /* the Home light as last set */
+    struct led_frame shown;      /* what the lights show */
+    u8 led_demo;                 /* the LED demo shown (ux_led_demos), SLOT_NONE: none */
+    u32 led_demo_ms, led_demo_since;    /* last asked for; started */
     u32 rumble_until;            /* plat_ms; 0: motors off */
     u8 calibrating;
     u8 activity_ref[offsetof(struct pad, imu_count)]; /* no unused IMU data */
@@ -495,40 +487,36 @@ static u32 earliest(u32 a, u32 b)
     return !a || (b && (s32)(b - a) < 0) ? b : a;
 }
 
-/* Returns the next change, plat_ms. */
+/* The lights (leds_mono.c): no player lights on this pad.  Returns the next
+ * change, plat_ms. */
 static __attribute__((noinline)) u32 lights(u32 now)
 {
+    struct led_mono m;
     struct led_frame f;
-    struct rgb cal;
-    int pairing = state() == CTL_PAIRING && !c.config, quick = ux_quick(NULL) || c.config, blinking = (!c.linked && !c.idle) || quick;
-    u32 on = quick ? lite_lights.quick_ms : pairing ? lite_lights.pair_ms : lite_lights.connect_ms, at = now % (2 * on);
-    u32 next = 0;
-    u8 lit;
+    u32 next;
 
     if (c.plug_lit && now - c.plugged_ms >= ux_timeouts.usb_plug_ms) c.plug_lit = 0;
-    if (quick)                   /* quick settings: the ring and the light under Home in turn */
-        lit = at < on ? 1 : 2;
-    else
-        lit = (u8)((!c.idle && (c.linked || at < on)) | c.plug_lit << 1 | (pairing && at < on) << 2);
-    /* going to sleep: the stop on the way is no connect to blink for */
-    if (c.sleeping) lit = 0;
-
-    memset(&f, 0, sizeof(f));
-    if (cal_led(now, &cal)) {    /* the calibration routine's own light */
-        f.light[LIGHT_HOME] = cal;
-        plat_leds(&f);
-        c.lit = 0xff;
-        return now + 20;
+    if (c.led_demo != SLOT_NONE && now - c.led_demo_ms >= UX_LED_DEMO_MS) {
+        util_log("led demo over");
+        c.led_demo = SLOT_NONE;
     }
-    if (lit != c.lit) {
-        f.light[LIGHT_HOME].r = f.light[LIGHT_HOME].g = f.light[LIGHT_HOME].b = (lit & 1) ? lite_lights.home : 0;
-        f.light[LIGHT_P0].r = f.light[LIGHT_P0].g = f.light[LIGHT_P0].b = (lit & 2) ? 255 : 0;
-        f.light[LIGHT_P1].r = f.light[LIGHT_P1].g = f.light[LIGHT_P1].b = (lit & 4) ? lite_lights.red : 0;
-        plat_leds(&f);
-        c.lit = lit;
+    if (c.led_demo != SLOT_NONE) {
+        led_mono_demo(&ux_led_demos[c.led_demo], now - c.led_demo_since, &m);
+    } else {
+        memset(&m, 0, sizeof(m));
+        /* going to sleep: the stop on the way is no connect to blink for */
+        m.show = c.sleeping ? MONO_DARK : ux_quick(NULL) || c.config ? MONO_QUICK : c.idle ? MONO_DARK :
+                 c.linked ? MONO_CONNECTED : state() == CTL_PAIRING ? MONO_PAIRING : MONO_CONNECTING;
+        m.cable = c.plug_lit && !c.sleeping;
+        m.cal_lit = (u8)cal_led(now, &m.cal);
     }
-    if (c.plug_lit) next = c.plugged_ms + ux_timeouts.usb_plug_ms;
-    if (blinking) next = earliest(next, now - at + (at < on ? on : 2 * on));
+    next = led_mono(&m, now, &f);
+    if (memcmp(&f, &c.shown, sizeof(f))) {
+        c.shown = f;
+        plat_leds(&f);
+    }
+    if (c.plug_lit) next = earliest(next, c.plugged_ms + ux_timeouts.usb_plug_ms);
+    if (c.led_demo != SLOT_NONE) next = earliest(next, now + ux_timeouts.led_frame_ms);   /* its fakes, its end */
     return next;
 }
 
@@ -605,6 +593,14 @@ static void request(const struct ctl_request *r)
         ux_ignore_held();
         c.calibrating = 1;
         cal_start(plat_ms());
+        break;
+    case REQ_LED_DEMO:
+        if (r->slot != c.led_demo) {
+            util_log("led demo %d", r->slot == SLOT_NONE ? -1 : (int)r->slot);
+            c.led_demo_since = plat_ms();
+        }
+        c.led_demo = r->slot;
+        c.led_demo_ms = plat_ms();
         break;
     case REQ_RUMBLE:
         c.feedback = 0;
@@ -687,7 +683,8 @@ void ctl_main(void)
 
     c.status.input = &c.input;
     c.status.raw = &c.raw;
-    c.lit = 0xff;
+    memset(&c.shown, 0xff, sizeof(c.shown));   /* the first frame goes out */
+    c.led_demo = SLOT_NONE;
     set_init();
     start();
     for (;;) {
@@ -792,10 +789,28 @@ void plat_reboot_updater(void) { reboots++; }
 void ux_ignore_held(void) { held_ignored++; }
 void cal_start(u32 now) { (void)now; }
 void plat_motors(u8 left, u8 right) { CHECK(!left && !right); motors++; }
-static struct led_frame test_frame;
-void plat_leds(const struct led_frame *f) { test_frame = *f; }
+static int test_leds;
+void plat_leds(const struct led_frame *f) { (void)f; test_leds++; }
 int cal_led(u32 now, struct rgb *out) { (void)now; (void)out; return 0; }
-#define LIT(l) (test_frame.light[l].r)
+/* leds_mono.c draws: here what it was asked for, next change at 0 */
+static struct led_mono test_mono;
+const struct ux_led_demo ux_led_demos[] = { { .name = "one" }, { .name = "two" } };
+static u32 test_demo_t;
+void led_mono_demo(const struct ux_led_demo *demo, u32 t, struct led_mono *m)
+{
+    memset(m, 0, sizeof(*m));
+    m->show = (u8)(demo == &ux_led_demos[1] ? MONO_QUICK : MONO_PAIRING);
+    test_demo_t = t;
+}
+u32 led_mono(const struct led_mono *in, u32 now, struct led_frame *out)
+{
+    (void)now;
+    test_mono = *in;
+    memset(out, 0, sizeof(*out));
+    out->light[LIGHT_HOME].r = (u8)(in->show + 1);
+    out->light[LIGHT_CABLE].r = in->cable;
+    return 0;
+}
 void util_log(const char *fmt, ...) { (void)fmt; }
 static u8 test_begin(const struct profile_session *s) { (void)s; return 0; }
 const struct profile profile_generic_ble = { .begin = test_begin };
@@ -837,6 +852,7 @@ static void test_reset(void)
     u8 i;
 
     memset(&c, 0, sizeof(c));
+    c.led_demo = SLOT_NONE;
     profile = &profile_generic_ble;
     test_ms = 100;
     test_usb = stops = flushes = offs = starts = motors = renewals = reboots = wakes = test_quick = 0;
@@ -1069,23 +1085,32 @@ int main(void)
     test_reset(); boot_cause = BOOT_RESET; start(); CHECK(c.idle && !starts);
     boot_cause = BOOT_HOME;
 
-    /* Lights: no player light; red and a faster Home blink while pairing;
-     * the light under Home for a second when a cable arrives. */
-    test_reset(); c.lit = 0xff; c.linked = 0; c.session.pairing = 1;
-    CHECK(lights(960) == 1080 && LIT(LIGHT_HOME) == lite_lights.home && LIT(LIGHT_P1) == lite_lights.red);
-    CHECK(lights(1080) == 1200 && !LIT(LIGHT_HOME) && !LIT(LIGHT_P1) && !LIT(LIGHT_P0));
+    /* Lights: pairing, connecting, connected; the light under Home for a
+     * while when a cable arrives; dark idle; drawn on a change only. */
+    test_reset(); c.linked = 0; c.session.pairing = 1;
+    test_leds = 0;
+    CHECK(!lights(960) && test_mono.show == MONO_PAIRING && !test_mono.cable && test_leds == 1);
+    CHECK(!lights(970) && test_leds == 1);
     c.session.pairing = 0;
-    CHECK(lights(1000) == 1250 && LIT(LIGHT_HOME) && !LIT(LIGHT_P1));
+    CHECK(!lights(1000) && test_mono.show == MONO_CONNECTING && test_leds == 2);
     c.linked = 1;
-    CHECK(!lights(1000) && LIT(LIGHT_HOME) && !LIT(LIGHT_P0) && !LIT(LIGHT_P1));
+    CHECK(!lights(1000) && test_mono.show == MONO_CONNECTED);
     test_usb = 1; power_step(5000);
-    CHECK(lights(5000) == 5000u + ux_timeouts.usb_plug_ms && LIT(LIGHT_P0) == 255);
+    CHECK(lights(5000) == 5000u + ux_timeouts.usb_plug_ms && test_mono.cable);
     power_step(5500);            /* still plugged: no new light */
-    CHECK(!lights(5000 + ux_timeouts.usb_plug_ms) && !LIT(LIGHT_P0));
+    CHECK(!lights(5000 + ux_timeouts.usb_plug_ms) && !test_mono.cable);
     test_usb = 0; power_step(7000); test_usb = 1; power_step(7100);
-    CHECK(lights(7100) == 7100u + ux_timeouts.usb_plug_ms && LIT(LIGHT_P0));
+    CHECK(lights(7100) == 7100u + ux_timeouts.usb_plug_ms && test_mono.cable);
     c.idle = 1; c.linked = 0; test_usb = 0; power_step(9000);
-    CHECK(!lights(9000) && !LIT(LIGHT_HOME) && !LIT(LIGHT_P0));
+    CHECK(!lights(9000) && test_mono.show == MONO_DARK && !test_mono.cable);
+    /* An LED demo: over the state until UX_LED_DEMO_MS after the last ask. */
+    test_ms = 10000;
+    { struct ctl_request r = { REQ_LED_DEMO, 1, 0 }; request(&r); }
+    CHECK(lights(10500) == 10500u + ux_timeouts.led_frame_ms && test_mono.show == MONO_QUICK && test_demo_t == 500);
+    test_ms = 20000;
+    { struct ctl_request r = { REQ_LED_DEMO, 1, 0 }; request(&r); }   /* asked again: no restart */
+    lights(20000); CHECK(test_demo_t == 10000);
+    CHECK(!lights(20000 + UX_LED_DEMO_MS) && test_mono.show == MONO_DARK && c.led_demo == SLOT_NONE);
     /* The remap: connected only, outside calibration; its state starts
      * over with another remap slot or new settings. */
     test_reset();
@@ -1111,13 +1136,10 @@ int main(void)
     test_remaps[0].rumble = 0;
     CHECK(motor_duty(&test_remaps[0], 255, 0) == 0);
 
-    /* Quick settings: no remap while it is open; the ring and the light
-     * under Home in turn. */
+    /* Quick settings: no remap while it is open; its lights. */
     test_reset(); test_quick = 1; c.remap = 2; remap_steps = 0; remap(1000);
     CHECK(!remap_steps && !c.remap_live);
-    c.lit = 0xff;
-    CHECK(lights(1200) == 1500 && LIT(LIGHT_HOME) && !LIT(LIGHT_P0));
-    CHECK(lights(1500) == 1800 && !LIT(LIGHT_HOME) && LIT(LIGHT_P0));
+    lights(1200); CHECK(test_mono.show == MONO_QUICK);
     /* A remap picked there: connected only; it lasts across this slot's
      * reconnects, not another slot's, a disconnect or sleep. */
     test_reset(); c.slot = 1; test_slots[1].remap = 0;
