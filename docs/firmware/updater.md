@@ -26,7 +26,7 @@ The app's header is written by `jollymaam pack jieli --main` (Jieli) and `jollym
 | `0x0c` | the app's entry, `0x1e00000 + MAIN_AT + 0x120` |
 | `0x10` | format version, 1 |
 | `0x14` | `MAIN_AT`, the offset the app is linked for |
-| `0x18` | the image's PID, 16 bytes, NUL-padded (`isd_config.ini`'s, as `jollymaam oemflash` checks) |
+| `0x18` | the image's PID, 16 bytes, NUL-padded (`isd_config.ini`'s, as `jollymaam install` checks) |
 | `0x28` | CRC16 of `0x04..0x28` |
 
 The app area's cipher runs on over the header and the app: a 32-byte block
@@ -102,7 +102,7 @@ app is running, and reboots into the new app after the commit. The updater's
 IDENTIFY has byte 7 set to 1.
 
 The updater also answers IDENTIFY, STATUS, LOG, REBOOT and the ROM loader's
-opcodes, so `jollymaam oemflash` and `padtool oemloader` reach the ROM loader from it.
+opcodes, so `jollymaam install` and `padtool oemloader` reach the ROM loader from it.
 
 ## Over Bluetooth LE
 
@@ -152,7 +152,7 @@ boot loader starts; the protocol is `updater.c`'s, the chip's side
 
 `jollymaam pack join` writes the header and the packed app
 (`update.bin`, `--main-out`) and the updater with `update.bin` at `MAIN_AT`
-(`firmware.img`, from `0x6000`), which `jollymaam oemflash` writes through
+(`firmware.img`, from `0x6000`), which `jollymaam install` writes through
 the boot loader.
 
 Boot: `updater_boot()` runs first in `main()`. Analog register `0x3c`
@@ -186,8 +186,8 @@ By hand: Home+Turbo (the board's M) while not connected.
 
 `gamesir-nova-2-lite-pad`: as the Cyclone 2, with the app's region at
 flash `0x80000` (`MAIN_AT` `0x7d000`), so that stock's data at
-`0x64000..0x80000` stays; `jollymaam oemflash` writes that range back as
-the device held it.
+`0x64000..0x80000` stays out of the image. `jollymaam install` leaves
+`0x78000..0x80000` alone (BTIF to key_mac) and erases the rest.
 
 ## The Ultimate 2C Bluetooth (YC3121)
 
@@ -206,7 +206,7 @@ chip's side is `updater_yc3121.c`.
 | `0x01074000..0x0107c000` | settings (raw flash), as before |
 
 `jollymaam pack join` writes `update.bin` and `firmware.img` (the updater,
-0xff to `MAIN_AT`, then `update.bin`), which `jollymaam oemflash` writes
+0xff to `MAIN_AT`, then `update.bin`), which `jollymaam install` writes
 through the boot loader.
 
 The slot is ciphered flash. From the ROM's code (its address map at

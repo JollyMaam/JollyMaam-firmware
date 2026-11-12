@@ -16,8 +16,10 @@ calls. `jollymaam.h` is its interface:
   (ROLE `loader`: the SDK's RAM loader). Every file is checked on opening.
 - **Devices** (`device.c`): finding devices by USB port; our firmware's tool
   commands and updater; the vendor loaders (Jieli ROM, 8BitDo Telink and
-  Yichip); stock firmware's loader entry; and the operations on top: scan,
-  oemflash, update, loader, start, backup, restore.
+  Yichip); stock firmware's loader entry; and the operations on top: a pad
+  step by step (`jm_pad`: ready, backup, install, restore, reboot, on one
+  loader session), scan, and the one-call oemflash, update, loader, start,
+  backup.
 - The formats and protocols under them: `proto_*`, `upgrade_*`
   (state machines without I/O), `jieli_image/` (Jieli images).
 
@@ -31,16 +33,15 @@ bridge is another (`android/app/src/main/cpp/jollymaam_jni.c`). Without
 
 ## The jollymaam command
 
-`tools/jollymaam/`: `jollymaam help` lists its commands. `scan`, `oemflash`,
-`update`, `loader`, `start`, `backup` and `restore` act on every device that
-fits, or the one `--device PORT` names; `package`, `inspect`, `pack` and
+`tools/jollymaam/`: `jollymaam help` lists its commands, `jollymaam help
+COMMAND` explains one. `list`, `install`, `update`, `backup` and `reboot` act
+on one pad (`--device PORT` names it); `package`, `inspect`, `pack` and
 `unpack` work on files. The build uses `pack` for its images and `package`
-for `$(O)/firmware`, which `make flash` and `make update` hand to `oemflash`
-and `update`.
+for `$(O)/firmware.zip`.
 
 ```
 nix develop -c make jollymaam libjollymaam-test
-build/host/jollymaam scan
+build/host/jollymaam list
 ```
 
 `make dist` adds a static `jollymaam`, the library and its headers, and every

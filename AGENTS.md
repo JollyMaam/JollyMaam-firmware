@@ -54,10 +54,10 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
 - `tools/padtool/`: `padtool.py` (CLI; `--help` lists every command), `padgui.pyw`
   (Tk GUI), the transports.  `tools/padtool/README.md` for setup.
 - `tools/jollymaam/`: `jollymaam` (built into `build/host/`; `jollymaam
-  help`): images, packages, and every device operation (scan, oemflash,
-  update, ...), on libjollymaam (`src/lib/`, which knows every product:
-  `products.c`) with this platform's hooks.  `make flash` / `make update`
-  write what is built onto every device it fits.
+  help`, `jollymaam help COMMAND`): images, packages, and every device
+  operation (list, install, update, backup, reboot), on libjollymaam
+  (`src/lib/`, which knows every product: `products.c`) with this platform's
+  hooks.  `install` backs the whole flash up first; `--no-backup` skips it.
 - `tools/`: `padhub.c` (Linux UHID bridge for the dongle's
   hub, `tools/padhub.md`), `sdlpad.c` (what SDL sees), `linkbench.py`,
   `buildcommits.sh` (build a range of commits, for bisecting),
@@ -165,7 +165,7 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   (SDL) run under `tools/withdev.sh`, which rebuilds `/dev` from `DEV_ROOT`
   once at start: nodes that appear later are not in it.
 - Several devices of one kind are told apart by USB port:
-  `padtool --device 5-2.1`, `jollymaam scan`.  Use `padtool --dongle` for
+  `padtool --device 5-2.1`, `jollymaam list`.  Use `padtool --dongle` for
   dongles.
 - **Ephemeral mode for tests.**  Before changing settings or pairing just to
   test something, put every device involved in `padtool ephemeral` (and
@@ -325,3 +325,8 @@ wrong assumption), add it here in a line or two.
   cancelled and freed after that timeout crashed the next wait natively
   (SIGSEGV in `usb_request_wait`, seen on a phone).  Use `bulkTransfer` with
   a timeout for interrupt endpoints too, as `HidLink` and `AndroidNativeUsb` do.
+- Android JNI: a Kotlin hook that throws (a USB error while a pad restarts)
+  leaves the exception pending, and the next JNI call from C (NewByteArray)
+  aborts the app (SIGABRT "JNI DETECTED ERROR ... called with pending
+  exception", seen on a phone).  `jollymaam_jni.c` clears it after every call
+  (`threw`) and reports a failed transfer to libjollymaam.

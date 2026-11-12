@@ -10,7 +10,7 @@ JOLLYMAAM_CLI := $(O)/host/jollymaam$(JOLLYMAAM_EXEEXT)
 
 TARGETS += host/jollymaam$(JOLLYMAAM_EXEEXT)
 host/jollymaam$(JOLLYMAAM_EXEEXT)_toolchain := HOST_
-host/jollymaam$(JOLLYMAAM_EXEEXT)_sources := $(self)/jollymaam.c $(self)/image.c \
+host/jollymaam$(JOLLYMAAM_EXEEXT)_sources := $(self)/jollymaam.c $(self)/image.c $(self)/pads.c \
 	$(self)/hooks_$(if $(filter windows,$(JOLLYMAAM_PLATFORM)),win32,$(JOLLYMAAM_PLATFORM)).c
 host/jollymaam$(JOLLYMAAM_EXEEXT)_cflags := -std=c99
 host/jollymaam$(JOLLYMAAM_EXEEXT)_deps := $(O)/host/libjollymaam.a
@@ -46,3 +46,4 @@ TRACKED += $(FIRMWARE_ZIP)
 $(FIRMWARE_ZIP): $(JOLLYMAAM_CLI)
 	$(call lib-run,$(JOLLYMAAM_CLI) package $(O) $@,PACKAGE)
 firmware: $(FIRMWARE_ZIP)
+

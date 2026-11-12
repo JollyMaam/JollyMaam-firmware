@@ -104,6 +104,40 @@ static void simulate(const uint8_t *image, size_t size, int mode) {
 done:
   free(workspace); free(old); free(scratch);
 }
+/* A hole mid-flash (the Nova pad's factory data): the image at 0, the rest
+ * erased to 64 KiB, the hole never erased, written or read. */
+static void hole(const uint8_t *image, size_t size) {
+  enum { END = 0x20000, FROM = 0x8000, TO = 0x9000 };
+  static uint8_t workspace[END], flash[END], reply[32768];
+  struct jm_jieli_image view;
+  uint8_t *scratch = malloc(size);
+  assert(scratch && jm_jieli_image_open(&view, image, size, scratch, size) == JM_JIELI_IMAGE_OK);
+  char product[17]; jm_jieli_name_string(product, image + view.base + 16);
+  struct jm_jieli_device device = {0, 0x400000, 512, view.key};
+  struct jm_jieli_flash op;
+  struct jm_jieli_request request;
+  enum jm_jieli_step step;
+  memset(flash, 0x55, END);
+  assert(jm_jieli_flash_init(&op, &device, product, image, size, workspace, END, NULL, 0));
+  memset(workspace + op.size, 0xff, END - op.size); op.size = END;
+  assert(jm_jieli_flash_hole(&op, FROM, TO));
+  while ((step = jm_jieli_flash_next(&op, &request)) == JM_JIELI_TRANSFER) {
+    unsigned command = (unsigned)request.cdb[0] << 8 | request.cdb[1];
+    uint32_t at = rd32be(request.cdb + 2);
+    size_t n = command == 0xfb00 ? 0x10000 : command == 0xfb01 ? 0x1000 : request.size;
+    assert(at + n <= END && (at >= TO || at + n <= FROM));
+    if (command == 0xfd05) memcpy(reply, flash + at, n), jm_jieli_flash_complete(&op, 1, reply, n);
+    else if (command == 0xfb04) memcpy(flash + at, request.data, n), jm_jieli_flash_complete(&op, 1, NULL, n);
+    else {
+      memset(flash + at, 0xff, n);
+      memset(reply, 0, 16); reply[0] = request.cdb[0]; reply[1] = request.cdb[1];
+      jm_jieli_flash_complete(&op, 1, reply, 16);
+    }
+  }
+  assert(step == JM_JIELI_DONE && !memcmp(flash, image, size));
+  for (size_t i = size; i < END; ++i) assert(flash[i] == (i >= FROM && i < TO ? 0x55 : 0xff));
+  free(scratch);
+}
 int main(int argc, char **argv) {
   size_t size; uint8_t *image;
   if (argc == 2) {
@@ -113,6 +147,7 @@ int main(int argc, char **argv) {
     assert(fread(image, 1, size, f) == size); fclose(f);
   } else image = fixture(&size);
   for (int mode = 0; mode < 8; ++mode) simulate(image, size, mode);
+  hole(image, size);
   free(image); puts("Jieli flash simulation passed");
   return 0;
 }

@@ -10,7 +10,7 @@ host/libjollymaam.a_cflags := -std=c99
 # (tools/jollymaam/test_jollymaam_*.c), each linked with the library
 # (make/host-tests.mk).
 JOLLYMAAM_UNIT := $(shell grep -lE '^#ifdef UNITTEST' $(host/libjollymaam.a_sources))
-JOLLYMAAM_SIMS := $(addprefix tools/jollymaam/test_jollymaam_,upgrade.c jieli.c device.c)
+JOLLYMAAM_SIMS := $(addprefix tools/jollymaam/test_jollymaam_,upgrade.c jieli.c device.c pad.c)
 TARGETS += host/libjollymaam-test
 host/libjollymaam-test_type := host-tests
 host/libjollymaam-test_toolchain := HOST_

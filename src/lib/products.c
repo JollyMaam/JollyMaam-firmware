@@ -3,14 +3,16 @@
 
 /* Every product: our firmware's image PID, its build directory and what the
  * vendor loader writes from it, the chip, the 8BitDo loader's model, flash
- * the vendor flash keeps (the Nova pad's stock data), and how to enter the
- * vendor loader by hand.  docs/<product>/ for where these come from. */
+ * the unit's factory data a write leaves alone (Jieli: BTIF to the end of
+ * key_mac; the Nova pad's from the sector after stock's VM, EXIF and USERIF
+ * included, unknown as they are), and how to enter the vendor loader by hand.
+ * docs/<product>/ for where these come from. */
 static const struct jm_product products[] = {
-  {"GS_C2_ADC_DEVICE", "c2/pad", "Cyclone 2", JM_CHIP_BR23, 0, "firmware.img", 1, 0, 0,
+  {"GS_C2_ADC_DEVICE", "c2/pad", "Cyclone 2", JM_CHIP_BR23, 0, "firmware.img", 1, 0xfe000, 0x2000,
    "stock firmware: Xbox 360 mode (green), or hold Home+Start while plugging in USB"},
-  {"GS_C2_Dongle", "c2/dongle", "Cyclone 2 Dongle", JM_CHIP_BR23, 0, "firmware.img", 1, 0, 0,
+  {"GS_C2_Dongle", "c2/dongle", "Cyclone 2 Dongle", JM_CHIP_BR23, 0, "firmware.img", 1, 0x7e000, 0x2000,
    "hold the button while plugging in USB"},
-  {"AC695X_TRANS", "n2/pad", "Nova 2 Lite", JM_CHIP_BR23, 0, "firmware.img", 1, 0x64000, 0x1c000,
+  {"AC695X_TRANS", "n2/pad", "Nova 2 Lite", JM_CHIP_BR23, 0, "firmware.img", 1, 0x78000, 0x8000,
    "stock firmware: Xbox 360 mode (green)"},
   {"AC632N_TRANS", "n2/dongle", "Nova 2 Lite Dongle", JM_CHIP_BD19, 0, "firmware.img", 1, 0, 0,
    "hold the pairing button while connecting USB"},

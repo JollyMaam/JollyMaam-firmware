@@ -156,6 +156,11 @@ static int count(void *user, const struct jm_found *f) {
   return 0;
 }
 
+static int pick_first(void *user, const struct jm_found *f) {
+  *(struct jm_found *)user = *f;
+  return 1;
+}
+
 int main(void) {
   struct jm_hooks h = {0};
   struct jm jm = {0};
@@ -196,6 +201,24 @@ int main(void) {
   memset(pad.update, 0, sizeof pad.update);
   assert(!jm_update(&jm, &fw, &sel));
   assert(pad.committed && !memcmp(pad.update, update, sizeof update) && pad.reboots == 2);
+  /* A pad step by step: our firmware into its loader once, installed,
+   * then its loader again and out of it. */
+  struct jm_found first;
+  struct jm_pad steps;
+  nap(NULL, 0);
+  memset(pad.flash, 0, sizeof pad.flash);
+  assert(jm_scan(&jm, pick_first, &first) == 1 && first.kind == JM_FOUND_OURS);
+  jm_pad_init(&steps, &jm, &fw, &first);
+  assert(jm_pad_ready(&steps) && steps.ready && !strcmp(steps.product, "U2C_WIRELESS"));
+  assert(steps.found.kind == JM_FOUND_8BITDO_LOADER && jm_pad_ready(&steps));   /* once */
+  assert(jm_pad_install(&steps) && steps.gone && !steps.ready && pad.starts == 2);
+  assert(!memcmp(pad.flash, image, sizeof image));
+  nap(NULL, 0);
+  assert(!jm_pad_reboot(&steps));               /* gone: not in its loader any more */
+  assert(!jm_loader(&jm, &sel) && pad.state == LOADER);
+  assert(jm_scan(&jm, pick_first, &first) == 1 && first.kind == JM_FOUND_8BITDO_LOADER);
+  jm_pad_init(&steps, &jm, &fw, &first);
+  assert(jm_pad_reboot(&steps) && pad.starts == 3);
   puts("device operations simulation passed");
   return 0;
 }

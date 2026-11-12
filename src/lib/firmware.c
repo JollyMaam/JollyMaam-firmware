@@ -137,7 +137,7 @@ int main(void) {
   assert(!jm_firmware_open(&fw, fake_read, &f, error) && strstr(error, "twice"));
   f.data[0] = (const uint8_t *)"jollymaam-firmware 1\n", f.sizes[0] = 21;
   assert(!jm_firmware_open(&fw, fake_read, &f, error));
-  assert(jm_product("AC695X_TRANS")->keep_size == 0x1c000 && !jm_product("NOPE"));
+  assert(jm_product("AC695X_TRANS")->factory_offset == 0x78000 && !jm_product("NOPE"));
   return 0;
 }
 #endif

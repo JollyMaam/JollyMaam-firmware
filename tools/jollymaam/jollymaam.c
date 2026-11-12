@@ -1,11 +1,12 @@
 #define _POSIX_C_SOURCE 200809L
-/* jollymaam: our pads' and dongles' firmware, on libjollymaam with this
- * platform's hooks (hooks_linux.c, hooks_win32.c or hooks_hidapi.c).
- * FIRMWARE is a package: a folder holding manifest.txt, or a zip of one
- * (jollymaam package makes both). */
+/* jollymaam: install, back up and restore firmware on our pads and dongles,
+ * on libjollymaam with this platform's hooks (hooks_linux.c, hooks_win32.c
+ * or hooks_hidapi.c): the help texts and the dispatch; the pad commands are
+ * pads.c's, the building ones image.c's. */
 #include "cli.h"
 #include "hooks.h"
 #include "../../src/lib/package.h"
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,25 +17,6 @@
 #else
 #include <unistd.h>
 #endif
-
-static const char usage[] =
-  "usage: jollymaam COMMAND ...\n"
-  "  scan                         what is connected, by USB port\n"
-  "  oemflash [OPTIONS] FIRMWARE  through the vendor loader (from our or stock firmware)\n"
-  "  update   [OPTIONS] FIRMWARE  through our updater\n"
-  "  oemloader [OPTIONS]          into the vendor loader, and wait there\n"
-  "  start    [OPTIONS] [--firmware FIRMWARE]   out of it (Jieli: its RAM loader from FIRMWARE)\n"
-  "  backup   [OPTIONS] [--firmware FIRMWARE] OUT   the whole flash, through the vendor loader\n"
-  "  restore  [OPTIONS] [--firmware FIRMWARE] STOCK BACKUP_OUT   a stock image, after a backup\n"
-  "                               (U2CB: the stock app v1.01, or a loader dump holding it)\n"
-  "  package  [--sdk JIELI_SDK] BUILD_DIR OUT[.zip]   a firmware package from a build\n"
-  "  inspect  FILE                a package or an image\n"
-  "  pack jieli|telink|join ...   build an image (as make does)\n"
-  "  unpack   IMAGE DIR           a Jieli image's files\n"
-  "OPTIONS: --device PORT (or node; default: every device that fits), --pid PID,\n"
-  "         --wait SECONDS (for a device to appear; default 0)\n"
-  "FIRMWARE: a folder with manifest.txt, or a zip of one.  Jieli ROM loaders need\n"
-  "the RAM loaders a package carries (--firmware for start, backup, restore).\n";
 
 /* ---- the hooks' output ------------------------------------------------------------------------- */
 
@@ -57,7 +39,7 @@ static void progress(void *ctx, const char *what, size_t done, size_t total) {
   else if (pct % 25 == 0) fprintf(stderr, "%s %d%%\n", what, pct);
 }
 
-/* ---- firmware: a folder or a zip ----------------------------------------------------------------- */
+/* ---- a package: a folder or a zip ----------------------------------------------------------------- */
 
 struct folder { const char *dir; };
 static int folder_read(void *user, const char *path, const uint8_t **data, size_t *size) {
@@ -71,7 +53,7 @@ static int folder_read(void *user, const char *path, const uint8_t **data, size_
   return 1;
 }
 
-static void open_firmware(const char *path, struct jm_firmware *fw) {
+void open_firmware(const char *path, struct jm_firmware *fw) {
   static struct folder folder;
   static struct jm_package zip;
   char error[128];
@@ -88,101 +70,208 @@ static void open_firmware(const char *path, struct jm_firmware *fw) {
   if (!ok) die("%s: %s", path, error);
 }
 
-/* ---- commands ---------------------------------------------------------------------------------------- */
+/* ---- help ------------------------------------------------------------------------------------------ */
 
-static int found(void *user, const struct jm_found *f) {
-  static const char *const kinds[] = {"our firmware", "our updater", "Jieli ROM loader", "Jieli firmware",
-                                      "8BitDo boot loader", "stock firmware"};
-  char extra[80] = "";
-  (void)user;
-  if (f->kind == JM_FOUND_OURS || f->kind == JM_FOUND_UPDATER) snprintf(extra, sizeof extra, ", build %s", f->id.build);
-  else if (f->kind == JM_FOUND_STOCK && f->mode[0])
-    snprintf(extra, sizeof extra, ", %s mode%s", f->mode, f->can_enter ? "" : " (no loader command)");
-  printf("%-24s %s, %s%s  (%s)\n", f->info.port[0] ? f->info.port : "-", kinds[f->kind],
-         f->product ? f->product->pid : jm_chip_name(f->chip), extra, f->info.path);
-  return 0;
+static const char usage[] =
+  "jollymaam: install, back up and restore firmware on JollyMaam pads and dongles\n"
+  "\n"
+  "usage: jollymaam [COMMAND] [OPTIONS] [ARGS]\n"
+  "       jollymaam                  at a terminal: the installer, step by step\n"
+  "       jollymaam FILE             a file dropped on the program: install FILE\n"
+  "\n"
+  "Pads:\n"
+  "  list                       what is on USB: pads, their state and USB port\n"
+  "  install [FILE]             put firmware on a pad: ours (a package, the default),\n"
+  "                             a backup, or a vendor image; backs the whole flash\n"
+  "                             up first\n"
+  "  update                     our firmware, through our updater (keeps everything,\n"
+  "                             no boot loader needed)\n"
+  "  backup [OUT]               the whole flash into a file\n"
+  "  reboot                     restart a pad; --loader: into its boot loader, and stay\n"
+  "\n"
+  "Building:\n"
+  "  package BUILD_DIR OUT      a package (OUT.zip or a folder) from a build\n"
+  "  inspect FILE               what a package or an image holds\n"
+  "  pack jieli|telink|join     build an image (as make does)\n"
+  "  unpack IMAGE DIR           a Jieli image's files\n"
+  "\n"
+  "Options for pad commands:\n"
+  "  --device PORT              the pad on this USB port (as list shows)\n"
+  "  --product PID              only pads of this product (list --products)\n"
+  "  --package PACKAGE          our firmware and the Jieli flash helpers\n"
+  "                             (default: firmware.zip here, else beside the program\n"
+  "                             or a folder up from it)\n"
+  "  --wait SECONDS             for a pad to appear (default: at a terminal until\n"
+  "                             one does, else 0)\n"
+  "  --yes                      no questions (several pads: install takes the first\n"
+  "                             on stock firmware; else --device is needed)\n"
+  "\n"
+  "jollymaam help COMMAND, or jollymaam COMMAND --help: more about a command.\n"
+  "A PACKAGE is a folder with manifest.txt, or a zip of one (make firmware\n"
+  "builds build/firmware.zip).\n";
+
+#define PAD_OPTIONS "  --device, --product, --package, --wait, --yes   as for every pad command\n"
+
+static const struct { const char *name, *help; } helps[] = {
+  {"list",
+   "usage: jollymaam list [--products]\n"
+   "\n"
+   "What is on USB, a line each: its USB port, what runs on it (our firmware,\n"
+   "our updater, a boot loader, stock firmware) and its product.\n"
+   "\n"
+   "  --products     the products jollymaam knows instead: PID, name, chip\n"},
+  {"install",
+   "usage: jollymaam install [OPTIONS] [FILE]\n"
+   "\n"
+   "Puts firmware on a pad, through its boot loader: a running pad is restarted\n"
+   "into it first. The pad's whole flash is backed up into a file first, unless\n"
+   "--no-backup.\n"
+   "\n"
+   "FILE is one of:\n"
+   "  a package (default: --package's)   our firmware: updater and app; the\n"
+   "                                     settings start empty\n"
+   "  a backup (from install or backup)  of this pad, stock or ours: written back\n"
+   "                                     whole, settings and pairings included\n"
+   "  a vendor image (raw or .ufw)       stock firmware; its settings start empty\n"
+   "\n"
+   "Whatever FILE is, the pad's factory data (Bluetooth address, radio trim) is\n"
+   "left alone, unless --raw. A backup of another pad, a file for another\n"
+   "product, or one for another chip key is refused before anything is written.\n"
+   "\n"
+   "Options:\n"
+   "  --no-backup     skip the backup\n"
+   "  --backup OUT    the backup's file (default: PID-DATE-TIME.bin here; never\n"
+   "                  overwritten)\n"
+   "  --raw           FILE a whole-flash backup (any pad's): written exactly as it\n"
+   "                  is, factory data included\n"
+   PAD_OPTIONS
+   "\n"
+   "8BitDo pads: a backup can't be restored yet; their stock app can be (U2CW: a\n"
+   "raw app or .dat; U2CB: v1.01, or a backup holding it).\n"
+   "\n"
+   "Examples:\n"
+   "  jollymaam install                            ours, from firmware.zip\n"
+   "  jollymaam install GS_C2_ADC_DEVICE-20261111-130700.bin\n"
+   "  jollymaam install --no-backup --yes --device 3-1 build/firmware.zip\n"},
+  {"update",
+   "usage: jollymaam update [OPTIONS]\n"
+   "\n"
+   "Our firmware's app from the package, through our updater: the pad restarts\n"
+   "into it, takes the app and starts it. Settings, pairings and the updater stay;\n"
+   "no boot loader, no backup. Only for pads running our firmware (or its updater).\n"
+   "\n"
+   "Options:\n"
+   PAD_OPTIONS},
+  {"backup",
+   "usage: jollymaam backup [OPTIONS] [OUT]\n"
+   "\n"
+   "The whole flash, read through the boot loader, into OUT (default:\n"
+   "PID-DATE-TIME.bin here; never overwritten). The pad is left as it was\n"
+   "found: a running pad is restarted back into its firmware, one in its boot\n"
+   "loader stays there.\n"
+   "\n"
+   "Options:\n"
+   "  --stay          a running pad stays in its boot loader afterwards\n"
+   PAD_OPTIONS},
+  {"reboot",
+   "usage: jollymaam reboot [OPTIONS]\n"
+   "\n"
+   "Restarts a pad: out of its boot loader the firmware it holds starts; our\n"
+   "firmware restarts.\n"
+   "\n"
+   "Options:\n"
+   "  --loader        into its boot loader instead (from our or stock firmware),\n"
+   "                  and it stays there\n"
+   PAD_OPTIONS},
+  {"package",
+   "usage: jollymaam package [--sdk JIELI_SDK] BUILD_DIR OUT[.zip]\n"
+   "\n"
+   "A package from a build directory: each board's install image and update.bin,\n"
+   "and the Jieli RAM loaders (from JIELI_SDK). OUT.zip is a zip, else a folder.\n"},
+  {"inspect",
+   "usage: jollymaam inspect FILE\n"
+   "\n"
+   "What FILE holds: a package's files, or an image's layout.\n"},
+  {"pack",
+   "usage: jollymaam pack jieli|telink|join ...\n"
+   "\n"
+   "Builds an image, as make does; jollymaam pack KIND --help for its arguments.\n"},
+  {"unpack",
+   "usage: jollymaam unpack IMAGE DIR\n"
+   "\n"
+   "A Jieli image's files into DIR.\n"},
+};
+
+/* COMMAND's help to stdout (2: no such command). */
+static int help(const char *command) {
+  if (!command) return fputs(usage, stdout), 0;
+  for (size_t i = 0; i < sizeof helps / sizeof helps[0]; i++)
+    if (!strcmp(command, helps[i].name)) return fputs(helps[i].help, stdout), 0;
+  fprintf(stderr, "jollymaam: no command %s (jollymaam help)\n", command);
+  return 2;
 }
 
-static int to_file(void *user, uint32_t address, const uint8_t *data, size_t size) {
-  (void)address;
-  return fwrite(data, 1, size, *(FILE **)user) == size;
+void usage_error(const char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  fputs("jollymaam: ", stderr);
+  vfprintf(stderr, fmt, ap);
+  fputs(" (jollymaam help)\n", stderr);
+  va_end(ap);
+  exit(2);
 }
-static int closed(void *user) {
-  FILE **f = user;
-  int ok = !fclose(*f);
-  *f = NULL;
-  return ok;
+
+/* ---- the dispatch ---------------------------------------------------------------------------------- */
+
+static int is_help(const char *a) { return !strcmp(a, "--help") || !strcmp(a, "-h"); }
+
+/* The window a double-click opened stays until Enter. */
+static int keep_open(int r) {
+  char line[8];
+  printf("\nPress Enter to close.");
+  fflush(stdout);
+  if (!fgets(line, sizeof line, stdin)) line[0] = 0;
+  return r;
 }
 
 int main(int argc, char **argv) {
   struct jm_hooks hooks = {0};
   struct jm jm = {0};
-  struct jm_select sel = {0};
-  struct jm_firmware fw;
-  const char *firmware = NULL, *rest[3] = {0};
-  int nrest = 0;
   setvbuf(stdout, NULL, _IOLBF, 0);
-  if (argc < 2 || !strcmp(argv[1], "help") || !strcmp(argv[1], "--help")) {
-    fputs(usage, argc < 2 ? stderr : stdout);
-    return argc < 2 ? 2 : 0;
+  hooks_device(&hooks);
+  hooks.say = say, hooks.progress = progress;
+  jm.h = &hooks;
+  if (argc < 2) {
+    if (isatty(fileno(stdin)) && isatty(fileno(stdout))) return keep_open(cmd_pads("install", 0, argv + 1, argv[0], &jm));
+    fputs(usage, stderr);
+    return 2;
   }
   const char *cmd = argv[1];
+  if (!strcmp(cmd, "help") || is_help(cmd)) return help(argc > 2 && !is_help(cmd) ? argv[2] : NULL);
+  for (int i = 2; i < argc; i++)
+    if (is_help(argv[i]) && strcmp(cmd, "pack")) return help(cmd);
   if (!strcmp(cmd, "pack")) return cmd_pack(argc - 2, argv + 2);
   if (!strcmp(cmd, "unpack")) return cmd_unpack(argc - 2, argv + 2);
   if (!strcmp(cmd, "package")) return cmd_package(argc - 2, argv + 2);
   if (!strcmp(cmd, "inspect")) {
+    struct jm_firmware fw;
     size_t size;
-    if (argc != 3) die("usage: jollymaam inspect FILE");
+    if (argc != 3) usage_error("usage: jollymaam inspect FILE");
     if (!is_dir(argv[2]) && inspect_image(argv[2], read_file(argv[2], &size), size)) return 0;
     open_firmware(argv[2], &fw);
     for (unsigned i = 0; i < fw.count; i++)
       printf("%-16s %-7s %s, %zu bytes\n", fw.files[i].name, fw.files[i].role, fw.files[i].path, fw.files[i].size);
     return 0;
   }
-  static const struct { const char *name; int files; } commands[] = {
-    {"scan", 0}, {"oemflash", 1}, {"update", 1}, {"oemloader", 0}, {"start", 0}, {"backup", 1}, {"restore", 2},
-  };
-  int known = -1;
-  for (int i = 0; i < 7; i++)
-    if (!strcmp(cmd, commands[i].name)) known = i;
-  if (known < 0) die("no command %s (jollymaam help)", cmd);
-  for (int i = 2; i < argc; i++) {
-    if (!strcmp(argv[i], "--device") && i + 1 < argc) sel.device = argv[++i];
-    else if (!strcmp(argv[i], "--pid") && i + 1 < argc) sel.pid = argv[++i];
-    else if (!strcmp(argv[i], "--wait") && i + 1 < argc) sel.wait_s = number(argv[++i]);
-    else if (!strcmp(argv[i], "--firmware") && i + 1 < argc) firmware = argv[++i];
-    else if (argv[i][0] != '-' && nrest < 3) rest[nrest++] = argv[i];
-    else die("%s: unknown argument %s (jollymaam help)", cmd, argv[i]);
+  static const char *const pads[] = {"list", "install", "update", "backup", "reboot"};
+  for (size_t i = 0; i < sizeof pads / sizeof pads[0]; i++)
+    if (!strcmp(cmd, pads[i])) return cmd_pads(cmd, argc - 2, argv + 2, argv[0], &jm);
+  /* A file dropped on the program (Windows passes its path): installed. */
+  FILE *dropped = argc == 2 && cmd[0] != '-' && strpbrk(cmd, "/\\.") ? fopen(cmd, "rb") : NULL;
+  if (dropped || (argc == 2 && cmd[0] != '-' && strpbrk(cmd, "/\\.") && is_dir(cmd))) {
+    if (dropped) fclose(dropped);
+    return keep_open(cmd_pads("install", 1, argv + 1, argv[0], &jm));
   }
-  if (nrest != commands[known].files) die("%s: wrong arguments (jollymaam help)", cmd);
-  if (sel.pid && !jm_product(sel.pid)) die("--pid: no product %s", sel.pid);
-  if (known == 1 || known == 2) firmware = rest[0];
-  if (firmware) open_firmware(firmware, &fw);
-  hooks_device(&hooks);
-  hooks.say = say, hooks.progress = progress;
-  jm.h = &hooks;
-  const struct jm_firmware *f = firmware ? &fw : NULL;
-  switch (known) {
-  case 0:
-    if (!jm_scan(&jm, found, NULL)) puts("nothing of ours, no loader and no stock pad we know");
-    return 0;
-  case 1: return jm_oemflash(&jm, f, &sel) ? 1 : 0;
-  case 2: return jm_update(&jm, f, &sel) ? 1 : 0;
-  case 3: return jm_loader(&jm, &sel) ? 1 : 0;
-  case 4: return jm_start(&jm, f, &sel) ? 1 : 0;
-  }
-  const char *out = rest[nrest - 1];
-  FILE *file = fopen(out, "rb");
-  if (file) fclose(file), die("%s: exists; a backup never overwrites", out);
-  if (!(file = fopen(out, "wb"))) die("%s: cannot write", out);
-  int r;
-  if (known == 5) {
-    r = jm_backup(&jm, f, &sel, to_file, &file);
-  } else {
-    size_t size;
-    uint8_t *image = read_file(rest[0], &size);
-    r = jm_restore(&jm, f, &sel, image, size, to_file, closed, &file);
-  }
-  if (file && !closed(&file)) r = -1;
-  return r ? 1 : 0;
+  usage_error("no command %s", cmd);
+  return 2;
 }

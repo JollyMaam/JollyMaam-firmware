@@ -24,7 +24,10 @@ struct jm_product {
   uint16_t model;               /* the 8BitDo boot loader's model; 0: none */
   const char *install;          /* what the vendor loader writes, in its build directory */
   int update;                   /* has update.bin, for our updater */
-  uint32_t keep_offset, keep_size;   /* oemflash writes it back as the device held it */
+  uint32_t factory_offset, factory_size;   /* this unit's factory data (Jieli: BTIF, key_mac and
+                                            * what lies between): never erased but by a raw write;
+                                            * 0: not established (an install writes its image only,
+                                            * a restore takes a raw write) */
   const char *by_hand;          /* how to enter the vendor loader by hand */
 };
 const struct jm_product *jm_product(const char *pid);
@@ -164,8 +167,37 @@ int jm_start(struct jm *jm, const struct jm_firmware *fw, const struct jm_select
 typedef int (*jm_sink)(void *user, uint32_t address, const uint8_t *data, size_t size);
 int jm_backup(struct jm *jm, const struct jm_firmware *fw, const struct jm_select *sel,
               jm_sink sink, void *user);
-/* A stock image back through the vendor loader, after a whole backup to
- * sink (done must return 1 once it is safely stored). */
-int jm_restore(struct jm *jm, const struct jm_firmware *fw, const struct jm_select *sel,
-               const uint8_t *image, size_t size, jm_sink sink, int (*done)(void *user), void *user);
+/* ---- a pad, step by step ------------------------------------------------------------------
+ * One device (from jm_scan) taken through an installer's steps, followed
+ * on its port through its restarts.  The first step that needs the vendor
+ * loader restarts the pad into it and readies it: a Jieli ROM loader gets
+ * its RAM loader (from fw) once, for every later step, and the product its
+ * flash names is read.  Each step: 1 done, 0 failed (said why). */
+struct jm_pad {
+  struct jm *jm;
+  const struct jm_firmware *fw;   /* the Jieli RAM loaders, the install images */
+  struct jm_found found;          /* what it is (after a restart: what it was) */
+  int ready;                      /* in its vendor loader, readied */
+  int gone;                       /* restarted out of it (installed or rebooted) */
+  char product[17];               /* ready: the product it holds ("": not known) */
+  struct { uint32_t flash_id, flash_size, io; uint16_t key; } helper;   /* Jieli: the RAM loader's */
+};
+void jm_pad_init(struct jm_pad *pad, struct jm *jm, const struct jm_firmware *fw, const struct jm_found *found);
+int jm_pad_ready(struct jm_pad *pad);
+int jm_pad_backup(struct jm_pad *pad, jm_sink sink, void *user);   /* the whole flash */
+/* The package's install image, read back and started; on a Jieli pad the
+ * rest of the flash erased but the factory data (settings start empty). */
+int jm_pad_install(struct jm_pad *pad);
+/* Out of the loader the firmware it holds starts; our firmware restarts. */
+int jm_pad_reboot(struct jm_pad *pad);
+/* Back to what the image holds, read back and started.  Jieli: a whole-flash
+ * backup of this pad (from jm_pad_backup, stock or our firmware), all but
+ * its factory data written back (a backup of another pad is refused); or a
+ * vendor image (raw or UFW), written at 0, the rest erased but the factory
+ * data.  raw: a whole-flash backup (any pad's) written as it is, factory
+ * data included.  The file must name the product the pad holds and fit its
+ * chip key.  8BitDo: its stock app (U2CW raw or DAT, U2CB v1.01). */
+int jm_pad_restore(struct jm_pad *pad, const uint8_t *image, size_t size, int raw);
+/* What a device found is, for people ("our firmware", "Jieli ROM loader", ...). */
+const char *jm_found_what(const struct jm_found *f);
 #endif

@@ -270,7 +270,7 @@ static int jieli_open(struct jm *jm, void *dev, enum jm_chip chip, const struct 
   size_t n;
   enum jm_jieli_step step;
   if (!blob) {
-    say(jm, "the firmware has no %s RAM loader", jm_chip_name(chip));
+    say(jm, "the package has no %s RAM loader (--package)", jm_chip_name(chip));
     return 0;
   }
   if (!jm_jieli_loader_init(&op, chip == JM_CHIP_BR23 ? JM_JIELI_BR23 : JM_JIELI_BD19, blob->data, blob->size))
@@ -313,40 +313,44 @@ static void jieli_installed(struct jm *jm, void *dev, const struct jm_jieli_devi
   free(head);
 }
 
+/* image written from 0, the flash after it erased to end (0: as far as the
+ * image), the hole from..to (a unit's factory data; to 0: none) left alone;
+ * read back. */
 static int jieli_write(struct jm *jm, void *dev, const struct jm_jieli_device *d, const char *pid,
-                       const uint8_t *image, size_t size, const struct jm_jieli_keep *keep) {
-  size_t end = size;
-  if (keep && end < keep->offset + keep->size) end = keep->offset + keep->size;
+                       const uint8_t *image, size_t size, size_t end, uint32_t from, uint32_t to) {
+  if (end < size) end = size;
   end = (end + 4095) & ~(size_t)4095;
   uint8_t *workspace = malloc(end);
   static uint8_t reply[32768];
   struct jm_jieli_flash op;
   struct jm_jieli_request r;
   enum jm_jieli_step step = JM_JIELI_FAILED;
-  int ok = workspace && jm_jieli_flash_init(&op, d, pid, image, size, workspace, end, keep, keep ? 1 : 0);
+  int ok = workspace && jm_jieli_flash_init(&op, d, pid, image, size, workspace, end, NULL, 0);
+  /* The image's bytes over to the end: init takes it to the image's size. */
+  if (ok && end > op.size) memset(workspace + op.size, 0xff, end - op.size), op.size = end;
+  if (ok && to && !jm_jieli_flash_hole(&op, from, to)) ok = 0;
   if (!ok)
-    say(jm, "the image does not fit: %zu bytes (to 0x%zx with what is kept) for a flash of 0x%x, key 0x%04x, %u-byte transfers",
+    say(jm, "the image does not fit: %zu bytes (to 0x%zx) for a flash of 0x%x, key 0x%04x, %u-byte transfers",
         size, end, (unsigned)d->flash_size, d->key, (unsigned)d->io);
   while (ok && (step = jm_jieli_flash_next(&op, &r)) == JM_JIELI_TRANSFER) {
     size_t n = 0;
     int good = scsi(jm, dev, &r, reply, &n);
     unsigned was = op.phase;
-    size_t at = keep && was == 0 ? keep->offset + op.keep_offset : op.offset, sent = op.sent;
+    size_t at = op.offset, sent = op.sent;
     if (!jm_jieli_flash_complete(&op, good, reply, n)) {
       static const char *const phase[] = {"keeping (reading)", "erasing", "writing", "reading back"};
       static const char *const why[] = {"", "the transfer failed", "the loader refused it", "a short reply", "it reads back different"};
       say(jm, "\n%s at 0x%zx (%04x, %zu bytes) failed: %s (%zu bytes back)", was < 4 ? phase[was] : "?",
           at, op.command, sent, op.error <= 0 && op.error >= -4 ? why[-op.error] : "?", n);
     }
-    /* erasing, writing, reading back: a third each (keeping counts in erasing's) */
+    /* erasing, writing, reading back: a third each */
     progress(jm, "erasing, writing and reading back",
              op.phase >= 1 && op.phase <= 3 ? (op.phase - 1) * op.size + op.offset : op.phase == 4 ? 3 * op.size : 0,
              3 * op.size);
   }
   if (ok && step != JM_JIELI_DONE)
-    say(jm, "\nstopped: phase %u at 0x%zx, error %d, pending %u, keep %zu+%zu of 0x%x, transfers of %u",
-        op.phase, op.offset, op.error, op.pending, op.keep_index, op.keep_offset,
-        keep ? (unsigned)keep->size : 0, (unsigned)d->io);
+    say(jm, "\nstopped: phase %u at 0x%zx, error %d, pending %u, transfers of %u", op.phase, op.offset, op.error,
+        op.pending, (unsigned)d->io);
   ok = ok && step == JM_JIELI_DONE;
   free(workspace);
   return ok;
@@ -490,7 +494,7 @@ static int chosen(const struct jm_found *f, const struct jm_select *sel) {
   return !sel->pid || (f->product ? !strcmp(f->product->pid, sel->pid) : f->kind == JM_FOUND_JIELI_LOADER);
 }
 
-static const char *what(const struct jm_found *f) {
+const char *jm_found_what(const struct jm_found *f) {
   static const char *const names[] = {"our firmware", "our updater", "Jieli ROM loader", "Jieli firmware",
                                       "8BitDo boot loader", "stock firmware"};
   return names[f->kind];
@@ -527,11 +531,11 @@ static int enter(struct jm *jm, struct jm_found *f, unsigned wait_s) {
   if (is_loader(f)) return 1;
   const struct jm_product *p = f->product;
   if (!f->can_enter) {
-    say(jm, "%s: %s%s%s has no command for its loader%s%s", where(f), what(f), f->mode[0] ? ", " : "", f->mode,
+    say(jm, "%s: %s%s%s has no command for its loader%s%s", where(f), jm_found_what(f), f->mode[0] ? ", " : "", f->mode,
         p && p->by_hand ? ": " : "", p && p->by_hand ? p->by_hand : "");
     return 0;
   }
-  say(jm, "%s: %s, %s: restarting into its loader", where(f), what(f), p ? p->pid : "?");
+  say(jm, "%s: %s, %s: restarting into its loader", where(f), jm_found_what(f), p ? p->pid : "?");
   void *dev = dev_open(jm, &f->info);
   int sent = 0;
   if (dev && (f->kind == JM_FOUND_OURS || f->kind == JM_FOUND_UPDATER)) {
@@ -569,48 +573,133 @@ static int enter(struct jm *jm, struct jm_found *f, unsigned wait_s) {
   return 0;
 }
 
-/* ---- operations ---------------------------------------------------------------------------------- */
+/* ---- a pad, step by step --------------------------------------------------------------------- */
 
-static int vendor(const struct jm_found *f) {
-  return f->kind != JM_FOUND_JIELI;
+static void helper_get(const struct jm_pad *p, struct jm_jieli_device *d) {
+  d->flash_id = p->helper.flash_id, d->flash_size = p->helper.flash_size, d->io = p->helper.io, d->key = p->helper.key;
 }
 
-/* The firmware's image for a device in its loader, written, read back and
- * started. */
-static int oemflash_one(struct jm *jm, const struct jm_firmware *fw, struct jm_found *f) {
+void jm_pad_init(struct jm_pad *pad, struct jm *jm, const struct jm_firmware *fw, const struct jm_found *found) {
+  memset(pad, 0, sizeof *pad);
+  pad->jm = jm, pad->fw = fw, pad->found = *found;
+}
+
+/* In its vendor loader, readied: a Jieli ROM loader's RAM loader runs (the
+ * one upload of a session) and the product its flash names is read; an
+ * 8BitDo loader's product is its model's. */
+int jm_pad_ready(struct jm_pad *pad) {
+  struct jm *jm = pad->jm;
+  struct jm_found *f = &pad->found;
+  if (pad->ready) return 1;
+  if (pad->gone) {
+    say(jm, "%s: it restarted since: scan again", where(f));
+    return 0;
+  }
+  if (f->kind == JM_FOUND_JIELI) {
+    say(jm, "%s: Jieli firmware we do not know: no way into its loader from here", where(f));
+    return 0;
+  }
+  if (!enter(jm, f, 30)) return 0;
+  if (f->kind == JM_FOUND_JIELI_LOADER) {
+    struct jm_jieli_device d;
+    void *dev = dev_open(jm, &f->info);
+    int ok = dev && jieli_open(jm, dev, f->chip, pad->fw, &d);
+    if (ok) {
+      jieli_installed(jm, dev, &d, pad->product);
+      pad->helper.flash_id = d.flash_id, pad->helper.flash_size = d.flash_size;
+      pad->helper.io = d.io, pad->helper.key = d.key;
+    }
+    dev_close(jm, dev);
+    if (!ok) return 0;
+    /* A blank flash names nothing: the product it ran before, if known. */
+    if (!pad->product[0] && f->product) snprintf(pad->product, sizeof pad->product, "%s", f->product->pid);
+    if (pad->product[0]) f->product = jm_product(pad->product);
+  } else if (f->product) {
+    snprintf(pad->product, sizeof pad->product, "%s", f->product->pid);
+  }
+  say(jm, "%s: %s, %s", where(f), jm_found_what(f), pad->product[0] ? pad->product : "its flash names no product");
+  pad->ready = 1;
+  return 1;
+}
+
+/* Its restart: what it is now is not known until a scan finds it. */
+static void pad_gone(struct jm_pad *pad) {
+  pad->ready = 0;
+  pad->gone = 1;
+}
+
+/* The whole flash, a block at a time to sink. */
+int jm_pad_backup(struct jm_pad *pad, jm_sink sink, void *user) {
+  struct jm *jm = pad->jm;
+  struct jm_found *f = &pad->found;
+  static uint8_t block[32768];
+  if (!jm_pad_ready(pad)) return 0;
+  void *dev = dev_open(jm, &f->info);
+  int ok = dev != NULL;
+  if (ok && f->kind == JM_FOUND_JIELI_LOADER) {
+    struct jm_jieli_device d;
+    helper_get(pad, &d);
+    for (uint32_t at = 0; ok && at < d.flash_size; at += sizeof block) {
+      ok = jieli_read(jm, dev, &d, at, block, sizeof block) && sink(user, at, block, sizeof block);
+      progress(jm, "reading", at + sizeof block, d.flash_size);
+    }
+  } else if (ok) {
+    /* Telink: the app and its data (the loader below keeps itself); Yichip:
+     * the version page, the app slot and the data pages. */
+    int yichip = f->product->chip == JM_CHIP_YC3121;
+    uint32_t from = yichip ? 0x01017000 : JM_8BITDO_TELINK_START, to = yichip ? 0x01080000 : 0x80000;
+    for (uint32_t at = from; ok && at < to; at += 4096) {
+      ok = loader_read(jm, dev, at, block, 4096) && sink(user, at, block, 4096);
+      progress(jm, "reading", at + 4096 - from, to - from);
+    }
+  }
+  dev_close(jm, dev);
+  say(jm, "%s: %s", where(f), ok ? "read whole" : "backup failed");
+  return ok;
+}
+
+/* The firmware's install image for the product it holds, written, read
+ * back and started (it leaves USB). */
+int jm_pad_install(struct jm_pad *pad) {
+  struct jm *jm = pad->jm;
+  struct jm_found *f = &pad->found;
+  if (!jm_pad_ready(pad)) return 0;
+  const struct jm_product *p = pad->product[0] ? jm_product(pad->product) : NULL;
+  const struct jm_firmware_file *img = p ? jm_firmware_find(pad->fw, p->pid, "install") : NULL;
+  if (!pad->product[0]) {
+    say(jm, "%s: its flash names no product (blank?)", where(f));
+    return 0;
+  }
+  if (!img) {
+    say(jm, "%s: no image for %s in the firmware", where(f), pad->product);
+    return 0;
+  }
   void *dev = dev_open(jm, &f->info);
   int ok = 0;
   if (!dev) return 0;
   if (f->kind == JM_FOUND_JIELI_LOADER) {
     struct jm_jieli_device d;
-    char pid[17];
-    if (jieli_open(jm, dev, f->chip, fw, &d)) {
-      jieli_installed(jm, dev, &d, pid);
-      if (!pid[0] && f->product) snprintf(pid, sizeof pid, "%s", f->product->pid);
-      const struct jm_product *p = jm_product(pid);
-      const struct jm_firmware_file *img = jm_firmware_find(fw, pid, "install");
-      struct jm_jieli_image view;
-      uint8_t *work = img ? malloc(img->size) : NULL, *packed = img ? malloc(img->size) : NULL;
-      if (!pid[0]) say(jm, "%s: its flash names no product (blank?)", where(f));
-      else if (!img || !p) say(jm, "%s: no image for %s in the firmware", where(f), pid);
-      else if (!work || !packed || jm_jieli_image_open(&view, img->data, img->size, work, img->size) ||
-               jm_jieli_image_pack(&view, d.key, packed, img->size))
-        say(jm, "%s: the image for %s is not a Jieli image", where(f), pid);
-      else {
-        struct jm_jieli_keep keep = {p->keep_offset, p->keep_size};
-        say(jm, "%s: %s, writing it (key 0x%04x)", where(f), pid, d.key);
-        ok = jieli_write(jm, dev, &d, pid, packed, img->size, p->keep_size ? &keep : NULL);
-        if (ok) jieli_start(jm, dev);
-      }
-      free(work), free(packed);
+    struct jm_jieli_image view;
+    uint8_t *work = malloc(img->size), *packed = malloc(img->size);
+    helper_get(pad, &d);
+    if (!work || !packed || jm_jieli_image_open(&view, img->data, img->size, work, img->size) ||
+        jm_jieli_image_pack(&view, d.key, packed, img->size))
+      say(jm, "%s: the image for %s is not a Jieli image", where(f), p->pid);
+    else if (p->factory_size && p->factory_offset + p->factory_size <= d.flash_size) {
+      say(jm, "%s: %s, writing it (key 0x%04x), the rest erased but the factory data (0x%x..0x%x)", where(f),
+          p->pid, d.key, p->factory_offset, p->factory_offset + p->factory_size);
+      ok = jieli_write(jm, dev, &d, p->pid, packed, img->size, d.flash_size, p->factory_offset,
+                       p->factory_offset + p->factory_size);
+    } else {
+      say(jm, "%s: %s, writing it (key 0x%04x)", where(f), p->pid, d.key);
+      ok = jieli_write(jm, dev, &d, p->pid, packed, img->size, 0, 0, 0);
     }
+    if (ok) jieli_start(jm, dev);
+    free(work), free(packed);
   } else {
-    const struct jm_product *p = f->product;
-    const struct jm_firmware_file *img = jm_firmware_find(fw, p->pid, "install");
     struct jm_8bitdo_upgrade op;
-    if (!img) say(jm, "%s: no image for %s in the firmware", where(f), p->pid);
-    else if (p->chip == JM_CHIP_YC3121 ? !jm_8bitdo_yichip_init(&op, img->data, img->size)
-                                       : !jm_8bitdo_upgrade_init(&op, img->data, img->size))
+    if (p->chip == JM_CHIP_YC3121 ? !jm_8bitdo_yichip_init(&op, img->data, img->size)
+                                  : !jm_8bitdo_upgrade_init(&op, img->data, img->size))
       say(jm, "%s: the image for %s does not fit its loader", where(f), p->pid);
     else {
       say(jm, "%s: %s, writing it", where(f), p->pid);
@@ -623,7 +712,51 @@ static int oemflash_one(struct jm *jm, const struct jm_firmware *fw, struct jm_f
   }
   dev_close(jm, dev);
   say(jm, "%s: %s", where(f), ok ? "written, read back and started" : "failed; it stays in its loader");
+  if (ok) pad_gone(pad);
   return ok;
+}
+
+/* Out of its vendor loader: the firmware it holds starts (it leaves USB). */
+int jm_pad_reboot(struct jm_pad *pad) {
+  struct jm *jm = pad->jm;
+  struct jm_found *f = &pad->found;
+  uint8_t request[64];
+  int ok = 0;
+  if (pad->gone) {
+    say(jm, "%s: it restarted since: scan again", where(f));
+    return 0;
+  }
+  if (f->kind == JM_FOUND_OURS || f->kind == JM_FOUND_UPDATER) {
+    void *dev = dev_open(jm, &f->info);
+    uint8_t none[1];
+    struct jm_update_request r;
+    memset(&r, 0, sizeof r);
+    jm_command(r.cdb, JM_CMD_REBOOT, 0);
+    ok = dev && tool(jm, dev, f->info.feature_size, &r, none);
+    dev_close(jm, dev);
+    say(jm, "%s: %s", where(f), ok ? "restarting" : "failed");
+    if (ok) pad_gone(pad);
+    return ok;
+  }
+  if (!is_loader(f)) {
+    say(jm, "%s: %s has no restart command", where(f), jm_found_what(f));
+    return 0;
+  }
+  /* The Jieli start is the RAM loader's command. */
+  if (f->kind == JM_FOUND_JIELI_LOADER && !jm_pad_ready(pad)) return 0;
+  void *dev = dev_open(jm, &f->info);
+  if (dev && f->kind == JM_FOUND_JIELI_LOADER) jieli_start(jm, dev), ok = 1;
+  else if (dev) ok = !jm_8bitdo_request(request, 7, 0, NULL, 0) && report_write(jm, dev, 0, request);
+  dev_close(jm, dev);
+  say(jm, "%s: %s", where(f), ok ? "started its firmware" : "failed");
+  if (ok) pad_gone(pad);
+  return ok;
+}
+
+/* ---- operations ---------------------------------------------------------------------------------- */
+
+static int vendor(const struct jm_found *f) {
+  return f->kind != JM_FOUND_JIELI;
 }
 
 static int each(struct jm *jm, const struct jm_select *sel, int (*fits)(const struct jm_found *),
@@ -637,7 +770,10 @@ static int each(struct jm *jm, const struct jm_select *sel, int (*fits)(const st
 }
 
 static int oemflash(struct jm *jm, const struct jm_firmware *fw, struct jm_found *f, unsigned wait_s) {
-  return enter(jm, f, wait_s) && oemflash_one(jm, fw, f);
+  struct jm_pad pad;
+  (void)wait_s;
+  jm_pad_init(&pad, jm, fw, f);
+  return jm_pad_install(&pad);
 }
 
 int jm_oemflash(struct jm *jm, const struct jm_firmware *fw, const struct jm_select *sel) {
@@ -647,7 +783,7 @@ int jm_oemflash(struct jm *jm, const struct jm_firmware *fw, const struct jm_sel
 static int loader(struct jm *jm, const struct jm_firmware *fw, struct jm_found *f, unsigned wait_s) {
   (void)fw;
   if (!enter(jm, f, wait_s)) return 0;
-  say(jm, "%s: %s, %s", where(f), what(f), f->product ? f->product->pid : jm_chip_name(f->chip));
+  say(jm, "%s: %s, %s", where(f), jm_found_what(f), f->product ? f->product->pid : jm_chip_name(f->chip));
   return 1;
 }
 
@@ -656,19 +792,10 @@ int jm_loader(struct jm *jm, const struct jm_select *sel) {
 }
 
 static int start(struct jm *jm, const struct jm_firmware *fw, struct jm_found *f, unsigned wait_s) {
+  struct jm_pad pad;
   (void)wait_s;
-  void *dev = dev_open(jm, &f->info);
-  struct jm_jieli_device d;
-  uint8_t request[64];
-  int ok = 0;
-  if (dev && f->kind == JM_FOUND_JIELI_LOADER) {
-    ok = jieli_open(jm, dev, f->chip, fw, &d);
-    if (ok) jieli_start(jm, dev);
-  } else if (dev)
-    ok = !jm_8bitdo_request(request, 7, 0, NULL, 0) && report_write(jm, dev, 0, request);
-  dev_close(jm, dev);
-  say(jm, "%s: %s", where(f), ok ? "started its firmware" : "failed");
-  return ok;
+  jm_pad_init(&pad, jm, fw, f);
+  return jm_pad_reboot(&pad);
 }
 
 int jm_start(struct jm *jm, const struct jm_firmware *fw, const struct jm_select *sel) {
@@ -738,107 +865,126 @@ int jm_update(struct jm *jm, const struct jm_firmware *fw, const struct jm_selec
 
 /* ---- backup and restore --------------------------------------------------------------------------- */
 
-struct keeper { jm_sink sink; void *user; };
+static int one_vendor(struct jm *jm, const struct jm_select *sel, struct jm_found *f) {
+  struct jm_found all[FOUND_MAX];
+  int n = find(jm, sel, vendor, all);
+  if (n > 1) say(jm, "more than one device: pick one with --device PORT");
+  if (n != 1) return 0;
+  *f = all[0];
+  return 1;
+}
 
-/* The whole flash of a device in its vendor loader, to sink. */
-static int backup_one(struct jm *jm, const struct jm_firmware *fw, struct jm_found *f, struct keeper *k) {
-  void *dev = dev_open(jm, &f->info);
-  static uint8_t block[32768];
-  int ok = dev != NULL;
-  if (ok && f->kind == JM_FOUND_JIELI_LOADER) {
-    struct jm_jieli_device d;
-    ok = jieli_open(jm, dev, f->chip, fw, &d);
-    for (uint32_t at = 0; ok && at < d.flash_size; at += sizeof block) {
-      ok = jieli_read(jm, dev, &d, at, block, sizeof block) && k->sink(k->user, at, block, sizeof block);
-      progress(jm, "reading", at + sizeof block, d.flash_size);
-    }
-  } else if (ok) {
-    /* Telink: the app and its data (the loader below keeps itself); Yichip:
-     * the version page, the app slot and the data pages. */
-    int yichip = f->product->chip == JM_CHIP_YC3121;
-    uint32_t from = yichip ? 0x01017000 : JM_8BITDO_TELINK_START, to = yichip ? 0x01080000 : 0x80000;
-    for (uint32_t at = from; ok && at < to; at += 4096) {
-      ok = loader_read(jm, dev, at, block, 4096) && k->sink(k->user, at, block, 4096);
-      progress(jm, "reading", at + 4096 - from, to - from);
-    }
+int jm_backup(struct jm *jm, const struct jm_firmware *fw, const struct jm_select *sel, jm_sink sink, void *user) {
+  struct jm_found f;
+  struct jm_pad pad;
+  if (!one_vendor(jm, sel, &f)) return -1;
+  jm_pad_init(&pad, jm, fw, &f);
+  return jm_pad_backup(&pad, sink, user) ? 0 : -1;
+}
+
+/* A Jieli image onto the pad in its readied loader (see jm_pad_restore). */
+static int restore_jieli(struct jm_pad *pad, const uint8_t *image, size_t size, int raw_write) {
+  struct jm *jm = pad->jm;
+  struct jm_found *f = &pad->found;
+  const struct jm_product *p = pad->product[0] ? jm_product(pad->product) : NULL;
+  const uint8_t *raw;
+  size_t raw_size;
+  struct jm_jieli_device d;
+  struct jm_jieli_image view;
+  char wanted[17];
+  int ok = 0;
+  helper_get(pad, &d);
+  enum jm_jieli_ufw_result u = jm_jieli_ufw_open(image, size, &raw, &raw_size);
+  uint8_t *work = malloc(size ? size : 1);
+  if ((u != JM_JIELI_UFW_RAW && u != JM_JIELI_UFW_OK) || !work ||
+      jm_jieli_image_open(&view, raw, raw_size, work, size)) {
+    say(jm, "not a Jieli image, nor a backup of one");
+    free(work);
+    return 0;
   }
+  free(work);
+  jm_jieli_name_string(wanted, raw + view.base + 16);
+  uint32_t from = p ? p->factory_offset : 0, to = p ? p->factory_offset + p->factory_size : 0;
+  int whole = raw_size == d.flash_size;
+  if (!p || strcmp(pad->product, wanted)) {
+    say(jm, "the file is for %s, the pad holds %s", wanted, pad->product[0] ? pad->product : "nothing");
+    return 0;
+  }
+  if (view.key != d.key) {
+    say(jm, "the file is for chip key 0x%04x, the pad's is 0x%04x", view.key, d.key);
+    return 0;
+  }
+  if (raw_write && !whole) {
+    say(jm, "a raw write takes a whole-flash backup (0x%x bytes), not 0x%zx", (unsigned)d.flash_size, raw_size);
+    return 0;
+  }
+  if (!raw_write && (!p->factory_size || to > d.flash_size)) {
+    say(jm, "where %s keeps its factory data is not established: not restoring (a raw write could)", p->pid);
+    return 0;
+  }
+  if (!raw_write && !whole && raw_size > from) {
+    say(jm, "the image (0x%zx bytes) runs into the factory data at 0x%x: not restoring", raw_size, from);
+    return 0;
+  }
+  void *dev = dev_open(jm, &f->info);
+  if (!dev) return 0;
+  if (raw_write) {
+    say(jm, "%s: writing the whole flash as the file holds it, factory data included", where(f));
+    ok = jieli_write(jm, dev, &d, p->pid, raw, raw_size, 0, 0, 0);
+  } else if (whole) {
+    uint8_t *mine = malloc(p->factory_size);
+    int same = mine && jieli_read(jm, dev, &d, from, mine, p->factory_size) &&
+               !memcmp(mine, raw + from, p->factory_size);
+    free(mine);
+    if (!same)
+      say(jm, "%s: the backup is not of this pad (its factory data at 0x%x differs): not restoring", where(f), from);
+    else {
+      say(jm, "%s: a backup of this pad: writing all but its factory data (0x%x..0x%x)", where(f), from, to);
+      ok = jieli_write(jm, dev, &d, p->pid, raw, raw_size, 0, from, to);
+    }
+  } else {
+    say(jm, "%s: writing the image (0x%zx bytes), the rest erased but the factory data (0x%x..0x%x)", where(f),
+        raw_size, from, to);
+    ok = jieli_write(jm, dev, &d, p->pid, raw, raw_size, d.flash_size, from, to);
+  }
+  if (ok) jieli_start(jm, dev);
   dev_close(jm, dev);
   return ok;
 }
 
-int jm_backup(struct jm *jm, const struct jm_firmware *fw, const struct jm_select *sel, jm_sink sink, void *user) {
-  struct jm_found f[FOUND_MAX];
-  int n = find(jm, sel, vendor, f);
-  if (n != 1) {
-    if (n > 1) say(jm, "more than one device: pick one with --device PORT");
-    return -1;
-  }
-  struct keeper k = {sink, user};
-  int ok = enter(jm, &f[0], sel->wait_s > 30 ? sel->wait_s : 30) && backup_one(jm, fw, &f[0], &k);
-  say(jm, "%s: %s", where(&f[0]), ok ? "read whole" : "backup failed");
-  return ok ? 0 : -1;
-}
-
-/* A stock image back: a Jieli raw or UFW image naming the installed
- * product and the chip's key, the U2CW's stock app (raw or vendor DAT), or
- * the U2CB's (v1.01, alone or in a loader dump), after a whole backup. */
-int jm_restore(struct jm *jm, const struct jm_firmware *fw, const struct jm_select *sel,
-               const uint8_t *image, size_t size, jm_sink sink, int (*done)(void *user), void *user) {
-  struct jm_found f[FOUND_MAX];
-  int n = find(jm, sel, vendor, f), ok = 0;
-  if (n != 1) {
-    if (n > 1) say(jm, "more than one device: pick one with --device PORT");
-    return -1;
-  }
-  struct keeper k = {sink, user};
-  if (!enter(jm, &f[0], sel->wait_s > 30 ? sel->wait_s : 30)) return -1;
-  void *dev = dev_open(jm, &f[0].info);
-  if (dev && f[0].kind == JM_FOUND_JIELI_LOADER) {
-    const uint8_t *raw;
-    size_t raw_size;
-    struct jm_jieli_device d;
-    struct jm_jieli_image view;
-    char pid[17], wanted[17];
-    uint8_t *work = malloc(size ? size : 1);
-    enum jm_jieli_ufw_result u = jm_jieli_ufw_open(image, size, &raw, &raw_size);
-    if ((u != JM_JIELI_UFW_RAW && u != JM_JIELI_UFW_OK) || !work ||
-        jm_jieli_image_open(&view, raw, raw_size, work, size))
-      say(jm, "not a Jieli image");
-    else if (jieli_open(jm, dev, f[0].chip, fw, &d)) {
-      jieli_installed(jm, dev, &d, pid);
-      jm_jieli_name_string(wanted, raw + view.base + 16);
-      if (strcmp(pid, wanted)) say(jm, "the image is for %s, the device holds %s", wanted, pid[0] ? pid : "nothing");
-      else if (view.key != d.key) say(jm, "the image is for key 0x%04x, the chip's is 0x%04x", view.key, d.key);
-      else {
-        dev_close(jm, dev), dev = NULL;
-        ok = backup_one(jm, fw, &f[0], &k) && done(user);
-        if (ok && (dev = dev_open(jm, &f[0].info)) && jieli_open(jm, dev, f[0].chip, fw, &d))
-          ok = jieli_write(jm, dev, &d, pid, raw, raw_size, NULL);
-        else ok = 0;
-      }
-    }
-    free(work);
-  } else if (dev && f[0].product->chip == JM_CHIP_TLSR8208) {
+/* A restore image (see jollymaam.h), written, read back and started. */
+int jm_pad_restore(struct jm_pad *pad, const uint8_t *image, size_t size, int raw) {
+  struct jm *jm = pad->jm;
+  struct jm_found *f = &pad->found;
+  int ok = 0;
+  if (!jm_pad_ready(pad)) return 0;
+  if (f->kind == JM_FOUND_JIELI_LOADER) {
+    ok = restore_jieli(pad, image, size, raw);
+  } else if (raw) {
+    say(jm, "a raw write of %s's flash is not established", f->product->pid);
+  } else if (f->product->chip == JM_CHIP_TLSR8208) {
     struct jm_8bitdo_upgrade op;
-    if (!jm_8bitdo_restore_init(&op, image, size, f[0].product->model)) say(jm, "not %s's stock app", f[0].product->pid);
-    else {
-      dev_close(jm, dev), dev = NULL;
-      ok = backup_one(jm, fw, &f[0], &k) && done(user) && (dev = dev_open(jm, &f[0].info)) && !run_8bitdo(jm, dev, &op);
+    void *dev;
+    if (!jm_8bitdo_restore_init(&op, image, size, f->product->model)) say(jm, "not %s's stock app", f->product->pid);
+    else if ((dev = dev_open(jm, &f->info))) {
+      ok = !run_8bitdo(jm, dev, &op);
+      dev_close(jm, dev);
     }
-  } else if (dev && f[0].product->chip == JM_CHIP_YC3121) {
+  } else if (f->product->chip == JM_CHIP_YC3121) {
     struct jm_8bitdo_upgrade op;
     const uint8_t *app;
     size_t app_size;
+    void *dev;
     if (!jm_8bitdo_yichip_stock_app(image, size, &app, &app_size) || !jm_8bitdo_yichip_init(&op, app, app_size))
-      say(jm, "not %s's stock app v1.01 (the app alone, or a loader dump from 0x01017000)", f[0].product->pid);
-    else {
-      dev_close(jm, dev), dev = NULL;
-      ok = backup_one(jm, fw, &f[0], &k) && done(user) && (dev = dev_open(jm, &f[0].info)) && !run_8bitdo(jm, dev, &op);
+      say(jm, "not %s's stock app v1.01 (the app alone, or a loader dump from 0x01017000)", f->product->pid);
+    else if ((dev = dev_open(jm, &f->info))) {
+      ok = !run_8bitdo(jm, dev, &op);
+      dev_close(jm, dev);
     }
-  } else if (dev) {
-    say(jm, "restoring %s's stock firmware is not established", f[0].product ? f[0].product->pid : "?");
+  } else {
+    say(jm, "restoring %s is not established", f->product ? f->product->pid : "?");
   }
-  dev_close(jm, dev);
-  say(jm, "%s: %s", where(&f[0]), ok ? "restored and read back" : "not restored");
-  return ok ? 0 : -1;
+  say(jm, "%s: %s", where(f), ok ? "restored, read back and started" : "not restored; it stays in its loader");
+  if (ok) pad_gone(pad);
+  return ok;
 }

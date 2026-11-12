@@ -45,6 +45,23 @@ int jm_jieli_flash_init(struct jm_jieli_flash *op, const struct jm_jieli_device 
   op->phase = keep_count ? PRESERVE : ERASE;
   return 1;
 }
+int jm_jieli_flash_hole(struct jm_jieli_flash *op, uint32_t from, uint32_t to) {
+  if (!op || op->phase > ERASE || (from & 4095) || (to & 4095) || from >= to) return 0;
+  op->hole_from = from; op->hole_to = to;
+  return 1;
+}
+static int in_hole(const struct jm_jieli_flash *op, size_t at, size_t n) {
+  return op->hole_to && at < op->hole_to && at + n > op->hole_from;
+}
+/* A transfer of up to n bytes at the offset, past the hole and stopping at
+ * its start; 0 when the phase is done. */
+static size_t span(struct jm_jieli_flash *op, size_t n) {
+  if (op->hole_to && op->offset >= op->hole_from && op->offset < op->hole_to) op->offset = op->hole_to;
+  if (op->offset >= op->size) return 0;
+  if (n > op->size - op->offset) n = op->size - op->offset;
+  if (op->hole_to && op->offset < op->hole_from && op->offset + n > op->hole_from) n = op->hole_from - op->offset;
+  return n;
+}
 /* Yield one SCSI request. The caller must check SCSI status and actual lengths
  * before completing it. Preservation reads finish before the first erase.
  * Erase uses aligned 64 KiB blocks where possible, otherwise 4 KiB sectors.
@@ -57,16 +74,18 @@ enum jm_jieli_step jm_jieli_flash_next(struct jm_jieli_flash *op,
   if (op->phase == DONE) return JM_JIELI_DONE;
   memset(request, 0, sizeof *request); request->timeout_ms = 20000;
   request->direction = JM_SCSI_IN;
-  if (op->phase == WRITE) {
-    while (op->offset < op->size) {
-      op->sent = op->size - op->offset;
-      if (op->sent > op->device.io) op->sent = op->device.io;
-      size_t i;
-      for (i = 0; i < op->sent && op->buffer[op->offset + i] == 0xff; ++i) {}
-      if (i != op->sent) break;
-      op->offset += op->sent;
+  /* Each phase from the start, past the hole; WRITE skips blank chunks. */
+  while (op->phase >= ERASE && op->phase <= VERIFY) {
+    size_t n = span(op, op->phase == ERASE ? 0x1000 : op->device.io), i = 0;
+    if (!n) {
+      op->offset = 0;
+      if (++op->phase == DONE) return JM_JIELI_DONE;
+      continue;
     }
-    if (op->offset == op->size) { op->phase = VERIFY; op->offset = 0; }
+    if (op->phase != WRITE) break;
+    while (i < n && op->buffer[op->offset + i] == 0xff) ++i;
+    if (i != n) { op->sent = n; break; }
+    op->offset += n;
   }
   uint32_t at = (uint32_t)op->offset;
   if (op->phase == PRESERVE) {
@@ -78,7 +97,7 @@ enum jm_jieli_step jm_jieli_flash_next(struct jm_jieli_flash *op,
     jm_jieli_read_cdb(request->cdb, op->command, at, op->sent);
     request->size = op->sent;
   } else if (op->phase == ERASE) {
-    op->sent = !(at & 0xffff) && op->size - at >= 0x10000 ? 0x10000 : 0x1000;
+    op->sent = !(at & 0xffff) && op->size - at >= 0x10000 && !in_hole(op, at, 0x10000) ? 0x10000 : 0x1000;
     op->command = op->sent == 0x10000 ? 0xfb00 : 0xfb01;
     uint8_t args[4]; be32(args, at);
     jm_jieli_cdb(request->cdb, op->command, args, 4); request->size = 16;
@@ -87,8 +106,7 @@ enum jm_jieli_step jm_jieli_flash_next(struct jm_jieli_flash *op,
     request->data = op->buffer + op->offset; request->size = op->sent;
     jm_jieli_write_cdb(request->cdb, op->command, at, request->data, op->sent);
   } else if (op->phase == VERIFY) {
-    op->sent = op->size - op->offset;
-    if (op->sent > op->device.io) op->sent = op->device.io;
+    op->sent = span(op, op->device.io);
     op->command = 0xfd05;
     jm_jieli_read_cdb(request->cdb, op->command, at, op->sent); request->size = op->sent;
   } else { op->phase = FAILED; return JM_JIELI_FAILED; }
@@ -118,13 +136,7 @@ int jm_jieli_flash_complete(struct jm_jieli_flash *op, int transport_ok,
     return 1;
   }
   if (op->phase == VERIFY && memcmp(data, op->buffer + op->offset, size)) { op->error = -4; goto fail; }
-  op->offset += op->sent;
-  if (op->offset == op->size) {
-    op->offset = 0;
-    if (op->phase == ERASE) op->phase = WRITE;
-    else if (op->phase == WRITE) op->phase = VERIFY;
-    else op->phase = DONE;
-  }
+  op->offset += op->sent;   /* the phase moves on in next, past the hole */
   return 1;
 fail:
   op->phase = FAILED; return 0;

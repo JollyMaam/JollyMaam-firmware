@@ -40,11 +40,14 @@ struct jm_jieli_flash {
   unsigned phase, pending;
   uint16_t command;
   int error;
+  uint32_t hole_from, hole_to;    /* never erased, written or read back (0, 0: none) */
 };
 int jm_jieli_flash_init(struct jm_jieli_flash *op, const struct jm_jieli_device *device,
                           const char *device_product, const uint8_t *image, size_t size,
                           uint8_t *workspace, size_t capacity,
                           const struct jm_jieli_keep *keep, size_t keep_count);
+/* After init: a 4 KiB-aligned range left alone (a unit's factory data). */
+int jm_jieli_flash_hole(struct jm_jieli_flash *op, uint32_t from, uint32_t to);
 enum jm_jieli_step jm_jieli_flash_next(struct jm_jieli_flash *op,
                                         struct jm_jieli_request *request);
 int jm_jieli_flash_complete(struct jm_jieli_flash *op, int transport_ok,

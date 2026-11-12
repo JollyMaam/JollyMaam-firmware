@@ -1,9 +1,11 @@
 # jollymaam
 
 The project's tool for its firmware, built into `build/host/` on
-libjollymaam (`jollymaam help` lists the commands). The build makes its
-images with it (`pack`), and `make flash` / `make update` write them with it
-(`oemflash` through the vendor loader, `update` through our updater).
+libjollymaam (`jollymaam help` lists the commands, `jollymaam help COMMAND`
+explains one). The build makes its images with it (`pack`) and the package
+(`package`). On a pad: `list`, `install` (a package, a backup or a vendor
+image, through the vendor loader, after a whole-flash backup), `update`
+(through our updater), `backup` and `reboot`.
 
 ## Images
 
@@ -15,7 +17,7 @@ move when code size changes; `--main OFFSET:FILE` puts a pad's app above the
 app area behind its header, and `--main-out` writes header and app in the
 clear ([updater.md](updater.md)). `pack telink` makes a Telink app the 8BitDo
 boot loader starts; `pack join` puts the Telink updater and update.bin into
-one image. `oemflash` re-encrypts a Jieli image for the connected chip's key.
+one image. `install` re-encrypts a Jieli image for the connected chip's key.
 
 Unpack followed by pack, with `--at 0`, reproduces this project's build byte
 for byte.
@@ -49,8 +51,27 @@ A device is identified by its USB port: Linux's sysfs port name ("5-2.1"),
 Windows' location information ("Port_#0002.Hub_#0003"); `--device` (make:
 `DEVICE=`) takes one. A device restarted into its loader is found again on
 the same port. A Jieli ROM loader writes only the image for the product its
-flash already names; the Nova 2 Lite pad's stock data at `0x64000..0x80000`
-is read first and written back.
+flash already names.
+
+## Writing a Jieli pad
+
+Each product has a protected range, its factory data (`products.c`): the
+Cyclone 2 pad `0xfe000..0x100000` and dongle `0x7e000..0x80000` (BTIF and
+key_mac), the Nova 2 Lite pad `0x78000..0x80000` (BTIF, EXIF, USERIF,
+key_mac and the sector before them). `install` never erases it, except with
+`--raw`:
+
+| File | Written | The rest |
+|---|---|---|
+| a package | its install image, for the chip's key | erased (settings start empty) |
+| a whole-flash backup of this pad | all of it | — |
+| a vendor image (raw or UFW) | at 0 | erased |
+| `--raw`: a whole-flash backup of any pad | all of it, the protected range included | — |
+
+A backup whose protected range differs from the pad's is of another pad and
+is refused without `--raw`. The Nova 2 Lite dongle has no protected range
+known: a package's image is written alone, and a backup is restored only
+raw.
 
 ## The tool device
 
