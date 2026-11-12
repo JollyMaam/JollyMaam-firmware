@@ -123,7 +123,8 @@
  * parks each command it receives and raises EV_USB.  tools/padtool/padtool.py and
  * tools/padtool/padgui.pyw (Linux/Windows) and tools/jollymaam/jollymaam_jieli.c are the clients. */
 
-#define STATS_VERSION 1
+#define STATS_VERSION 2           /* 2: struct bt_stats has the HCI receive queue's counts */
+_Static_assert(4 + sizeof(struct ctl_stats) <= 512, "STATS answers in one 512-byte tool report");
 _Static_assert(sizeof(struct board_control) == JM_LAYOUT_ENTRY_SIZE, "LAYOUT sends board_layout as it is");
 
 #ifdef BOARD_DONGLE

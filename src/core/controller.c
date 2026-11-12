@@ -1261,7 +1261,8 @@ void ctl_main(void)
 
                 bt_stats(&b);
                 plat_stats(&p);
-                counters_since(&c.stats.bt.sent, &b.sent, &c.bt_base.sent, sizeof(b) / 4);
+                counters_since(&c.stats.bt.sent, &b.sent, &c.bt_base.sent, offsetof(struct bt_stats, hci) / 4);
+                c.stats.bt.hci = b.hci;
                 bt_timing(&c.stats.bt_timing, 0);
                 counters_since(&c.stats.plat.button_changes, &p.button_changes,
                                &c.plat_base.button_changes, sizeof(p) / 4);

@@ -381,11 +381,14 @@ static __attribute__((noinline)) void hub_step(u32 now)   /* its frame is not ad
     }
 }
 
-/* Each second, each slot whose pad sent something. */
+/* Each second, each slot whose pad sent something, and the HCI receive
+ * queue when it dropped packets. */
 static __attribute__((noinline)) void log_stats(void)
 {
     static struct link_stats last[HUB_SLOTS];
+    static u32 last_dropped;
     struct link_stats ls;
+    struct hci_queue_stats q;
     u32 i;
 
     for (i = 0; i < HUB_SLOTS; i++) {
@@ -394,6 +397,12 @@ static __attribute__((noinline)) void log_stats(void)
             util_log("link %u: %u/s in, %u replaced, %u lost", i, ls.inputs - last[i].inputs,
                      ls.replaced - last[i].replaced, ls.lost - last[i].lost);
         last[i] = ls;
+    }
+    hci_jieli_rx_stats(&q);
+    if ((u32)(q.dropped_events + q.dropped_acl) != last_dropped) {
+        util_log("hci: dropped %u events, %u acl; most %u of %u slots", q.dropped_events, q.dropped_acl,
+                 q.most, q.slots);
+        last_dropped = (u32)(q.dropped_events + q.dropped_acl);
     }
 }
 

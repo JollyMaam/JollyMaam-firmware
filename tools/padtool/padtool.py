@@ -332,7 +332,7 @@ HIST = "<QII16H"
 def read_stats(path, reset=False):
     d = cmd(path, 0x03, 1 if reset else 0, 512)
     version, size = struct.unpack_from("<HH", d)
-    if version != 1:
+    if version not in (1, 2):
         sys.exit(f"padtool: stats version {version} not known to this padtool")
     d = d[4:4 + size]
     s = {}
@@ -346,8 +346,13 @@ def read_stats(path, reset=False):
     s["step_sums"] = dict(zip(STEPS, struct.unpack_from("<8I", d, o + 32)))
     o += 64
     (s["reports"], s["imu"], s["sent"], s["replaced"], s["acked"], s["loop_runs"], s["loop_us"],
-     s["anchors"], s["late"], s["buttons"], s["frames"], s["resyncs"]) = struct.unpack_from("<12I", d, o)
-    o += 48
+     s["anchors"], s["late"]) = struct.unpack_from("<9I", d, o)
+    o += 36
+    if version >= 2:             # the HCI receive queue, since boot
+        s["hci"] = dict(zip(("dropped_events", "dropped_acl", "most", "slots"), struct.unpack_from("<4H", d, o)))
+        o += 8
+    s["buttons"], s["frames"], s["resyncs"] = struct.unpack_from("<3I", d, o)
+    o += 12
     for name in ("ack_wait", "slot_air", "ack_gap", "want_send"):
         v = struct.unpack_from(HIST, d, o)
         s[name] = {"sum": v[0], "count": v[1], "max": v[2], "buckets": v[3:]}
@@ -402,6 +407,10 @@ def show_stats(s):
           f"late {s['late']}, anchors {s['anchors'] / secs:.1f}/s")
     print(f"bluetooth thread: {s['loop_runs'] / secs:.0f} passes/s, "
           f"{s['loop_us'] / 1e6 / secs * 100:.1f} % of the time awake")
+    if "hci" in s:
+        q = s["hci"]
+        print(f"hci receive queue since boot: dropped {q['dropped_events']} events, {q['dropped_acl']} ACL; "
+              f"most in use {q['most']} of {q['slots']} slots")
     show_link(s["link"])
     print(f"input: button changes {s['buttons']}, stick frames {s['frames']} "
           f"({s['frames'] / secs:.0f}/s), stick resyncs {s['resyncs']}")

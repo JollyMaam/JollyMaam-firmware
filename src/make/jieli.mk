@@ -294,7 +294,7 @@ JIELI_PLATFORM_SOURCES += src/platform/jieli/platform_jieli_usb.c
 JIELI_AUDIO_SOURCES := src/platform/jieli/platform_jieli_audio.c
 JIELI_NOAUDIO_SOURCES := src/platform/jieli/platform_jieli_noaudio.c
 # BTstack on the controller (with BTSTACK_RENAMES: BTSTACK_USERS).
-JIELI_BTSTACK_SOURCES := src/platform/jieli/btstack_hci_jieli.c
+JIELI_BTSTACK_SOURCES := src/platform/jieli/btstack_hci_jieli.c src/platform/jieli/hci_queue.c
 # The updater (src/updater/), and its LE service for an image with Bluetooth.
 JIELI_UPDATER_SOURCES := src/updater/updater.c src/updater/updater_jieli.c
 JIELI_UPDATER_BLE_SOURCES := src/updater/updater_ble.c src/updater/sm_none.c

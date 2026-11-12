@@ -9,6 +9,7 @@
 #include "hci_transport.h"
 #include "pad.h"
 #include "btstack_qos_jieli.h"
+#include "hci_queue.h"
 #include "uECC.h"
 
 extern int btctrler_task_init(const void *transport, const void *config);
@@ -21,9 +22,8 @@ extern int le_controller_set_mac(const void *address);
 extern void lmp_hci_write_local_address(const u8 *address);
 extern void get_random_number(u8 *p, u8 len);
 
-static struct { u8 type; u16 size; u8 data[HCI_INCOMING_PACKET_BUFFER_SIZE]; } rx[RX_QUEUE_DEPTH];
-static volatile u8 rx_read, rx_write;
 static volatile u8 rx_active;
+static volatile u8 drop_logged; /* this session's first drop is in the log */
 static void (*host_handler)(u8 type, u8 *packet, u16 size);
 static btstack_data_source_t rx_source;
 static u8 address[6];            /* controller order: least significant byte first */
@@ -138,11 +138,32 @@ static int fast_completed(u8 *e, u16 size)
 
 /* ---- controller --------------------------------------------------------- */
 
+/* A full queue: the first drop of a session goes in the log (in the caller's
+ * context, the controller's task included), the rest only in the counts. */
+static void dropped(u8 type, const u8 *packet, u16 size)
+{
+    u8 e[5] = { 0 };
+
+    if (drop_logged) return;
+    drop_logged = 1;
+    memcpy(e, packet, size < sizeof(e) ? size : sizeof(e));
+    if (type == HCI_EVENT_PACKET)   /* code, then the bytes of the opcode or subevent */
+        util_log("hci: queue full, dropped event %02x %02x %02x %02x", e[0], e[2], e[3], e[4]);
+    else
+        util_log("hci: queue full, dropped type %u len %u", type, size);
+}
+
+/* The receive queue's drops and high-water mark since boot. */
+void hci_jieli_rx_stats(struct hci_queue_stats *out)
+{
+    hciq_stats(out);
+}
+
 /* Called by the controller for every event and ACL packet; the packet is only
  * valid during the call. */
 int hci_packet_handler(u8 type, u8 *packet, u16 size)
 {
-    u8 next, nocp[3 + 4 * 4];
+    u8 nocp[3 + 4 * 4], *copy;
 
 #ifndef CONFIG_CPU_BD19
     if (type == HCI_EVENT_PACKET) btctrlermod_qos_link_event(packet, size);
@@ -153,7 +174,7 @@ int hci_packet_handler(u8 type, u8 *packet, u16 size)
     if (type == HCI_EVENT_PACKET && size >= 6 && packet[0] == 0x0e && packet[3] == 0x03 &&
         packet[4] == 0x0c && packet[5] == 0)
         lmp_hci_write_local_address(address);
-    if (!rx_active || size > HCI_INCOMING_PACKET_BUFFER_SIZE) return 0;
+    if (!rx_active) return 0;
     if (type == HCI_EVENT_PACKET && packet[0] == HCI_EVENT_NUMBER_OF_COMPLETED_PACKETS &&
         size <= sizeof(nocp)) {
         memcpy(nocp, packet, size);
@@ -166,22 +187,16 @@ int hci_packet_handler(u8 type, u8 *packet, u16 size)
         fast_bits = fast_count = 0;  /* the controller dropped what was outstanding */
         plat_unlock();
     }
-    next = (u8)((rx_write + 1) % RX_QUEUE_DEPTH);
-    if (next == rx_read) {
-#ifdef HCI_LOG
-        util_log("hci: dropped type %u %02x", type, packet[0]);
-#endif
+    copy = hciq_put(type, packet, size);
+    if (!copy) {
+        dropped(type, packet, size);
         return 0;
     }
-    rx[rx_write].type = type;
-    rx[rx_write].size = size;
-    memcpy(rx[rx_write].data, packet, size);
     /* Supported Commands: the P-256 commands, which p256_command() answers
      * (octet 34, bits 1 and 2); BTstack asserts on them. */
     if (type == HCI_EVENT_PACKET && size >= 6 + 35 && packet[0] == 0x0e && packet[3] == 0x02 &&
         packet[4] == 0x10)
-        rx[rx_write].data[6 + 34] |= 0x06;
-    rx_write = next;
+        copy[6 + 34] |= 0x06;
     btstack_run_loop_poll_data_sources_from_irq();
     return 0;
 }
@@ -190,18 +205,13 @@ int hci_packet_handler(u8 type, u8 *packet, u16 size)
  * controller's task, above every caller of this, queues its own. */
 static void inject(u8 *event, u16 size)
 {
-    u8 next;
+    int ok;
 
     if (!rx_active) return;
     plat_lock();
-    next = (u8)((rx_write + 1) % RX_QUEUE_DEPTH);
-    if (next != rx_read) {
-        rx[rx_write].type = HCI_EVENT_PACKET;
-        rx[rx_write].size = size;
-        memcpy(rx[rx_write].data, event, size);
-        rx_write = next;
-    }
+    ok = hciq_put(HCI_EVENT_PACKET, event, size) != 0;
     plat_unlock();
+    if (!ok) dropped(HCI_EVENT_PACKET, event, size);
     btstack_run_loop_poll_data_sources_from_irq();
 }
 
@@ -401,30 +411,33 @@ void hci_jieli_drop_link(void)
 
 static void rx_process(btstack_data_source_t *ds, btstack_data_source_callback_type_t t)
 {
+    u8 type, *data;
+    u16 size;
+
     (void)ds;
     (void)t;
-    while (rx_read != rx_write) {
+    while (hciq_peek(&type, &data, &size)) {
 #ifdef HCI_LOG
-        if (rx[rx_read].type == HCI_EVENT_PACKET) {
-            const u8 *e = rx[rx_read].data;
+        if (type == HCI_EVENT_PACKET) {
+            const u8 *e = data;
             if (e[0] == 0x0e && little_endian_read_16(e, 3) == 0x1005)
                 util_log("< cc 1005 acl %u x%u", little_endian_read_16(e, 6), little_endian_read_16(e, 9));
             else if (e[0] == 0x0e) util_log("< cc %04x %02x", little_endian_read_16(e, 3), e[5]);
             else if (e[0] == 0x0f) util_log("< cs %04x %02x", little_endian_read_16(e, 4), e[2]);
             else util_log("< ev %02x %02x %02x %02x", e[0], e[2], e[3], e[4]);
-        } else if (rx[rx_read].type == HCI_ACL_DATA_PACKET) {
-            util_log("< acl len %u", rx[rx_read].size);
+        } else if (type == HCI_ACL_DATA_PACKET) {
+            util_log("< acl len %u", size);
         }
 #endif
-        host_handler(rx[rx_read].type, rx[rx_read].data, rx[rx_read].size);
-        rx_read = (u8)((rx_read + 1) % RX_QUEUE_DEPTH);
+        host_handler(type, data, size);
+        hciq_pop();
     }
 }
 
 static void transport_init(const void *config)
 {
     (void)config;
-    rx_read = rx_write = 0;
+    hciq_clear();
 }
 
 /* Classic sniff receive windows in microseconds (the SDK HID app's values):
@@ -480,6 +493,7 @@ void hci_jieli_init(void)
 static int transport_open(void)
 {
     if (hci_jieli_open()) return -1;
+    drop_logged = 0;
     rx_active = 1;
     return 0;
 }

@@ -32,6 +32,7 @@ void hci_jieli_drop_link(void);
 void hci_jieli_prepare(u16 slots, u16 attempt, int edr3);
 void hci_jieli_tx_power(u8 step, u8 pro);
 void hci_jieli_loop_stats(u32 *runs, u32 *us);
+void hci_jieli_rx_stats(struct hci_queue_stats *out);
 void hci_jieli_sniff_slots(u16 slots);
 void hci_jieli_link_policy(void);
 u32 hci_jieli_anchor(u32 *at);
@@ -214,6 +215,7 @@ void bt_stats(struct bt_stats *out)
     *out = stats;
     plat_unlock();
     hci_jieli_loop_stats(&out->loop_runs, &out->loop_us);
+    hci_jieli_rx_stats(&out->hci);
     out->anchors = hci_jieli_anchor(&t);
 }
 

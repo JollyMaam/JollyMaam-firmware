@@ -889,6 +889,13 @@ struct stat_hist {
 enum { STEP_INPUT, STEP_BT, STEP_USB, STEP_POWER, STEP_TIMEOUTS, STEP_REPORT, STEP_OUTPUTS,
        STEP_SETTINGS, STEP_COUNT };
 
+/* The HCI receive queue between the controller and BTstack (Jieli):
+ * packets lost to a full queue (saturating), and its high-water mark. */
+struct hci_queue_stats {
+    u16 dropped_events, dropped_acl;
+    u16 most, slots;             /* slots ever in use at once, of all */
+};
+
 struct bt_stats {
     u32 sent;                    /* input reports handed to the controller */
     u32 replaced;                /* overwritten in the newest-wins slot before that */
@@ -897,6 +904,7 @@ struct bt_stats {
     u32 loop_us;                 /* time in them, wake to sleep (higher priorities included) */
     u32 anchors;                 /* connection events / sniff anchors the central's packets marked */
     u32 late;                    /* reports that went out an anchor or more after the one after hand-over */
+    struct hci_queue_stats hci;  /* since boot, not from the last reset */
 };
 
 /* The link as the controller reports it, and when it said packets went. */
@@ -941,7 +949,7 @@ struct ctl_stats {
     struct plat_stats plat;
     struct bt_timing bt_timing;
 };
-_Static_assert(sizeof(struct stat_hist) == 48 && sizeof(struct ctl_stats) == 272 + 4 * 48 + 32,
+_Static_assert(sizeof(struct stat_hist) == 48 && sizeof(struct ctl_stats) == 280 + 4 * 48 + 32,
                "padtool reads struct ctl_stats byte for byte");
 
 /* ---- battery.c: board samples, estimates and independently valid facts --- */

@@ -18,6 +18,7 @@ int dongle_bt_take_config(u8 slot, struct link_config *c);
 void dongle_bt_output(u8 slot, const u8 out[LINK_OUTPUT_SIZE]);
 struct link_stats { u32 inputs, replaced, lost; };   /* counted on the Bluetooth thread */
 void dongle_bt_stats(u8 slot, struct link_stats *out);
+void hci_jieli_rx_stats(struct hci_queue_stats *out);         /* btstack_hci_jieli.c */
 int dongle_store_write(u16 key, const void *buf, u16 len);
 
 u16 dongle_interval(u8 linked, int waiting, int hub); /* connection interval, 1.25 ms units */
