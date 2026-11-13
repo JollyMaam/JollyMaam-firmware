@@ -1576,6 +1576,34 @@ def set_values(path, target, pairs):
     print("changed" + (" (ephemeral: until the next boot)" if ephemeral_now(path) else ""))
 
 
+def wake_learn(path, target, seconds):
+    """A switch slot learns a Joy-Con 2's wake advert (switch2_wake): the
+    console it names must be the slot's own Classic peer."""
+    table, t = fields(path), target_index(target)
+    if kind_of(t) != 0:
+        sys.exit("padtool wake-learn SLOT: a pad slot (south ... right)")
+    if not any(f["name"] == "switch2_wake" and f["kind"] == 0 for f in table):
+        sys.exit("padtool: this pad has no switch2_wake setting")
+    values = read_target(path, table, t)
+    kind = field_named(table, t, "radio_type")
+    if show_value(kind, values["radio_type"][0]) != "switch":
+        sys.exit(f"padtool: {target} is not a switch slot (radio_type switch)")
+    console = values["bond"][0][:6]
+    if not any(console):
+        sys.exit(f"padtool: pair {target} with the Switch 2 first")
+    print(f"listening {seconds} s: put the Switch 2 to sleep, take a Joy-Con 2 off it and press a button",
+          file=sys.stderr)
+    found = padble.listen_switch2_wake(seconds)
+    if not found:
+        sys.exit("padtool: no Switch 2 wake advert heard")
+    wake, heard = found
+    show = lambda a: ":".join(f"{b:02x}" for b in reversed(a))
+    if heard != console:
+        sys.exit(f"padtool: that controller wakes console {show(heard)}; {target} is paired with {show(console)}")
+    send(path, [(t, field_named(table, t, "switch2_wake")["id"], wake)])
+    print(f"{target} wakes {show(console)} as {show(wake[:6])} (product {wake[7]:02x}{wake[6]:02x})")
+
+
 def reset(path, target, names):
     table, t = fields(path), target_index(target)
     send(path, [(t, field_named(table, t, n)["id"], b"") for n in names] if names else [(t, 0, b"")])
@@ -1976,7 +2004,7 @@ BLE_NOT = {"find", "tool", "tool-only", "hub", "latency", "peek", "keep", "boot"
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["tool-only", "hub", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "layout", "reboot", "oemloader", "boot", "update", "relink", "connect", "disconnect", "config", "pair", "unpair", "profile", "peek", "trace",
+    p.add_argument("command", choices=["tool-only", "hub", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "layout", "reboot", "oemloader", "boot", "update", "relink", "connect", "disconnect", "config", "pair", "unpair", "profile", "peek", "trace", "wake-learn",
                                        "fields", "get", "set", "reset", "backup-settings",
                                        "restore-settings", "factory-reset", "ephemeral", "keep", "tool", "latency"])
     p.add_argument("args", nargs="*")
@@ -2200,6 +2228,10 @@ def main():
         if not a.args:
             sys.exit("padtool set TARGET NAME VALUE [NAME VALUE ...]")
         set_values(need_device(), a.args[0], a.args[1:])
+    elif a.command == "wake-learn":
+        if len(a.args) != 1:
+            sys.exit("padtool wake-learn SLOT")
+        wake_learn(need_device(), a.args[0], a.watch or 60)
     elif a.command == "reset":
         if not a.args:
             sys.exit("padtool reset TARGET [NAME ...]")

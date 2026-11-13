@@ -282,6 +282,44 @@ def scan(seconds=3):
     return asyncio.new_event_loop().run_until_complete(look())
 
 
+NINTENDO = 0x0553
+
+
+def switch2_wake(address, data):
+    """A Switch 2 controller's wake advert, from its address (as BlueZ gives
+    it, most significant byte first) and its Nintendo manufacturer data:
+    (address and product ID as the switch2_wake setting stores them, the
+    console's address least significant byte first), or None.  The data:
+    01 00 03 7e 05 <product, 2> 00 01 81 <console, 6> ..."""
+    if len(data) < 16 or data[9] != 0x81 or data[3:5] != b"\x7e\x05":
+        return None
+    mine = bytes(reversed(bytes.fromhex(address.replace(":", ""))))
+    return mine + data[5:7], bytes(data[10:16])
+
+
+def listen_switch2_wake(seconds=60):
+    """The first Switch 2 wake advert heard: switch2_wake()'s pair, or None."""
+    try:
+        from bleak import BleakScanner
+    except ImportError:
+        sys.exit("padtool: Bluetooth needs bleak (pip install bleak, or nix develop)")
+
+    async def listen():
+        heard = asyncio.get_running_loop().create_future()
+
+        def seen(d, adv):
+            data = adv.manufacturer_data.get(NINTENDO)
+            found = data and switch2_wake(d.address, data)
+            if found and not heard.done():
+                heard.set_result(found)
+        async with BleakScanner(seen):
+            try:
+                return await asyncio.wait_for(heard, seconds)
+            except asyncio.TimeoutError:
+                return None
+    return asyncio.new_event_loop().run_until_complete(listen())
+
+
 def find_updater(flash_id, address, seconds=30):
     """After UPDATER: the updater of the pad with that flash ID (16 bytes,
     IDENTIFY's 24-40), on address or, failing that, any updater that

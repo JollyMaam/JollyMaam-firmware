@@ -142,6 +142,21 @@ class Frames(unittest.TestCase):
             del padble._links["ble:t"]
 
 
+class Switch2WakeTest(unittest.TestCase):
+    """A Joy-Con 2's wake advert, as sniffed on 2026-11-12."""
+
+    DATA = bytes.fromhex("0100037e0566200001 81 b1540005 48c8 0f00".replace(" ", ""))
+
+    def test_joycon(self):
+        wake, console = padble.switch2_wake("C8:48:05:0F:77:43", self.DATA)
+        self.assertEqual(wake, bytes.fromhex("43770f0548c8" "6620"))
+        self.assertEqual(console, bytes.fromhex("b154000548c8"))
+
+    def test_not_a_wake(self):
+        self.assertIsNone(padble.switch2_wake("C8:48:05:0F:77:43", self.DATA[:9] + b"\0" + self.DATA[10:]))
+        self.assertIsNone(padble.switch2_wake("C8:48:05:0F:77:43", self.DATA[:12]))
+
+
 if __name__ == "__main__":
     unittest.main()
 

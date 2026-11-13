@@ -69,6 +69,20 @@ open detailed settings. The same firmware action is available from the CLI:
 python tools/padtool/padtool.py unpair slot-south
 ```
 
+**Waking a Switch 2 from a Switch Pro slot** (Ultimate 2C Bluetooth): the
+console wakes only for a controller it paired as a Switch 2 one. A `switch`
+slot paired with the console learns a Joy-Con 2's wake advert once, over the
+PC's Bluetooth:
+
+```sh
+python tools/padtool/padtool.py wake-learn slot-up
+```
+
+then, while it listens (60 s, `-w` for longer), put the console to sleep,
+take a Joy-Con 2 off it and press a button. From then on Home on that slot
+wakes the console before connecting. `padtool reset slot-up switch2_wake`
+turns it off.
+
 **Developer fields** at the bottom expands or collapses advanced settings,
 retaining pending edits. **Show console** on a running pad or dongle opens a
 separate window with its live firmware log. That window stays with the device
