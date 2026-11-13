@@ -99,6 +99,9 @@ established. The U2CW and U2CB have no dongle radio.
   nothing runs.
 - C2 dongle slot with `usb_type` `ds4`: a connect with a USB host on the
   pad's cable went to USB as the DS4.
+- U2CW rear switch: on 2.4G a connect of a slot set to `xbox-ble` became the
+  stock receiver's session and linked to a receiver; back on Bluetooth the
+  same slot advertised as `xbox-ble`.
 - Slots stored as `type` and `transport` read as the same connection
   (stored `bluetooth` and default transports, on the U2CB and U2CW).
 
