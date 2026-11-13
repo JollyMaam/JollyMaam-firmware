@@ -513,11 +513,10 @@ static void handle(struct ctl_request r, u32 now)
         c.remap = c.sess.settings->remap ? (u8)(c.sess.settings->remap - 1) : REMAP_BASE;
         c.remap_chosen = c.rumble_step_set = 0;
         quick_clear();
-        quick_signal(SIG_CLEARED, now);
         util_log("quick settings cleared");
         break;
     case REQ_QUICK_TURBO:
-        if (c.kind == CTL_CONNECTED) quick_turbo(r.slot, now);
+        if (c.kind == CTL_CONNECTED) quick_turbo(r.slot);
         break;
     case REQ_QUICK_RECORD:
     case REQ_QUICK_RECORD_LOOP:
@@ -1044,7 +1043,7 @@ static void lights(u32 now, const struct set_slot *slot, const u8 motor[2])
             m.players_flash = c.host.players_flash & 0xf;
         }
         m.cal_lit = (u8)cal_led(now, &m.cal);
-        m.signal = quick_led(now, &next);
+        m.signal = quick_led(now, &next, ux_quick(NULL) ? c.input.buttons : 0);
     }
     led_mono(&m, now, &f);
     if (memcmp(&f, &c.shown, sizeof(f))) {
@@ -1141,7 +1140,7 @@ static void lights(u32 now, const struct set_slot *slot, const u8 motor[2])
     in.usb_powered = c.usb_powered;
     in.low_battery = c.low_battery;
     in.usb_plug_lit = c.usb_powered && plugged < ux_timeouts.usb_plug_ms;
-    in.signal = demo ? LED_SIGNAL_NONE : quick_led(now, &next);
+    in.signal = demo ? LED_SIGNAL_NONE : quick_led(now, &next, ux_quick(NULL) ? c.input.buttons : 0);
     if (c.kind == CTL_CONNECTED) {
         in.has_players = c.host.has_players;
         in.players = c.host.players;

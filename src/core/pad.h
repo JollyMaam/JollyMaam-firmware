@@ -234,10 +234,10 @@ enum req_kind {
     REQ_REBOOT_UPDATER,      /* reboot into the updater (src/updater/) */
     REQ_CONFIG,              /* Home+M held: config mode, the settings over Bluetooth (not built: logged) */
     /* Quick settings' layer (quick.c): .slot is the key, IN_*. */
-    REQ_QUICK_CLEAR,         /* M held alone: the layer cleared, the slot's own remap again */
-    REQ_QUICK_TURBO,         /* M + a tap: the key's next turbo step */
-    REQ_QUICK_RECORD,        /* M + a double tap: record a macro for the key */
-    REQ_QUICK_RECORD_LOOP,   /* M + a triple tap: record a looping macro */
+    REQ_QUICK_CLEAR,         /* Home or M held alone: the layer cleared, the slot's own remap again */
+    REQ_QUICK_TURBO,         /* a key's press: its next turbo step */
+    REQ_QUICK_RECORD,        /* M tapped, held with a key: record a macro for the key */
+    REQ_QUICK_RECORD_LOOP,   /* M tapped twice, held with a key: record a looping macro */
 };
 
 struct ctl_request {
@@ -827,12 +827,12 @@ u32 remap_deadline(void);                   /* the next turbo edge, pulse end or
  * While connected and the remap runs: quick_recording() ? quick_record_step
  * (the remap suspended) : remap_step then quick_play; otherwise quick_stop.
  * The LEDs show quick_led's Home (LED_SIGNAL_*) over the scene. */
-enum { SIG_NONE, SIG_REMAP_ON, SIG_REMAP_OFF, SIG_TURBO_SLOW, SIG_TURBO_FAST, SIG_TURBO_OFF,
-       SIG_CLEARED, SIG_SAVED, SIG_SAVED_LOOP, SIG_SAVED_MAP, SIG_DISCARDED };
+enum { SIG_NONE, SIG_REMAP_ON, SIG_REMAP_OFF, SIG_CLEARED, SIG_SAVED, SIG_SAVED_LOOP, SIG_SAVED_MAP,
+       SIG_DISCARDED };
 enum { LED_SIGNAL_NONE, LED_SIGNAL_DARK, LED_SIGNAL_LIT };
 const struct remap_quick *quick_keys(void);
 void quick_clear(void);
-void quick_turbo(u8 key, u32 now);
+void quick_turbo(u8 key);
 void quick_record(u8 key, int loop, u32 now);
 int quick_recording(void);
 u32 quick_record_step(u32 in, u32 now);     /* the host's buttons while recording */
@@ -840,7 +840,7 @@ u32 quick_play(u32 in, u32 out, u32 now, u32 *every_report);  /* in: as ux_step 
 void quick_stop(u32 now);
 u32 quick_deadline(void);
 void quick_signal(u8 sig, u32 now);
-u8 quick_led(u32 now, u32 *next);
+u8 quick_led(u32 now, u32 *next, u32 held);   /* held: quick settings' keys held (a turbo's rate) */
 
 /* ---- settings_ux.c ------------------------------------------------------ */
 

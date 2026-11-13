@@ -160,16 +160,18 @@ const struct led_scene ux_scenes[CTL_KIND_COUNT] = {
 #endif
 
 /* Home+M: quick settings, which ux_step runs itself.  Every input is held
- * back from the host.  Releasing a slot key turns its remap slot on or off,
- * L1 or R1 lowers or raises the rumble step; quick settings stays.  With M
- * held, a key's taps: one steps its turbo, two record a macro for it, three a
- * looping one, counted as M goes up (recording ends quick settings).  M held
- * alone for QUICK_CLEAR_MS clears it all.  A lone Home leaves, as does
- * ux_timeouts.quick_ms without a press.  Home's chords work as when
- * connected: Home+Minus disconnects, which ends quick settings with the
- * session. */
+ * back from the host.  A key's press steps its turbo.  M and a key: a slot
+ * key turns its remap slot on or off, L1 or R1 lowers or raises the rumble
+ * step.  M tapped once more first (QUICK_TAP_GAP_MS apart), then held with a
+ * key: record a macro for the key; twice more: a looping one; recording
+ * leaves quick settings.  Home or M held alone for QUICK_CLEAR_MS clears it
+ * all and leaves.  A lone Home leaves, as does ux_timeouts.quick_ms without
+ * a press.  Leaving, the keys still held stay the pad's until let go.
+ * Home's chords work as when connected: Home+Minus disconnects, which ends
+ * quick settings with the session. */
 #define REQ_QUICK 0xff
 #define QUICK_CLEAR_MS 2000
+#define QUICK_TAP_GAP_MS 300
 
 /* A held chord: pairing, config mode. */
 #define HOLD_MS 3000
@@ -213,10 +215,10 @@ static struct {
     u32 started, chord_at, keys, captured, before, tap, tap_release_at, done;
     u8 active, live, chorded, offline, fired, mixed, draining, tap_reported;
     u8 quick;
-    u8 quick_key, quick_taps;    /* with M held: the key tapped (IN_* + 1), how often */
-    u8 quick_m_used;             /* M held with a key, or it cleared: no clear (again) */
+    u8 quick_taps;               /* M's presses in a row, this one included */
+    u8 quick_m_used;             /* M held with a key: no clear */
     u32 quick_since, quick_at, quick_held, quick_down; /* quick_at: its last press */
-    u32 quick_m_at;              /* M went down */
+    u32 quick_m_at, quick_m_up;  /* M went down, up */
 } ux;
 
 static struct ctl_request request(u8 kind, u8 slot)
@@ -249,50 +251,50 @@ static struct ctl_request released(u32 chord)
     return request(REQ_NONE, SLOT_NONE);
 }
 
-/* Quick settings with Home up: keys count on release, and only ones pressed
- * in it; with M held, its keys count on their presses and M's release.  A
- * Home press goes to ux_step's chords. */
+/* Quick settings with Home up: keys count on their presses, only ones
+ * pressed in it.  A Home press goes to ux_step's chords. */
 static struct ctl_request quick_step(struct pad *p, u32 now)
 {
-    static const u8 taps[] = { REQ_QUICK_TURBO, REQ_QUICK_RECORD, REQ_QUICK_RECORD_LOOP };
     struct ctl_request r = request(REQ_NONE, SLOT_NONE);
-    u32 keys = p->buttons & PAD_DIGITAL, pressed = keys & ~ux.quick_held, up, i;
+    u32 keys = p->buttons & PAD_DIGITAL, pressed = keys & ~ux.quick_held, k, i;
+    int leave = 0;
 
     ux.quick_down |= pressed;
-    up = ux.quick_down & ~keys;
+    if (ux.quick_down & PAD_M & ~keys) ux.quick_m_up = now;
     ux.quick_held = keys;
     ux.quick_down &= keys;
     if (pressed & PAD_M) {
+        if (!ux.quick_taps || now - ux.quick_m_up > QUICK_TAP_GAP_MS) ux.quick_taps = 0;
+        if (ux.quick_taps < 3) ux.quick_taps++;
         ux.quick_m_at = now;
-        ux.quick_key = ux.quick_taps = ux.quick_m_used = 0;
+        ux.quick_m_used = 0;
     }
+    k = pressed & ~(PAD_M | PAD_HOME);
+    for (i = 0; k && !(k & (1u << i)); i++) {}
     if (ux.quick_down & PAD_M) {
-        u32 k = pressed & ~(PAD_M | PAD_HOME);
-
-        if (k) {
-            for (i = 0; !(k & (1u << i)); i++) {}
-            if (ux.quick_key != i + 1) ux.quick_taps = 0;
-            ux.quick_key = (u8)(i + 1);
-            if (ux.quick_taps < sizeof(taps)) ux.quick_taps++;
-        }
         if (keys & ~PAD_M) ux.quick_m_used = 1;
-        ux.quick_down &= PAD_M;          /* the keys' releases pick nothing */
-        if (!ux.quick_m_used && now - ux.quick_m_at >= QUICK_CLEAR_MS) {
-            ux.quick_m_used = 1;
+        if (k && ux.quick_taps > 1) {
+            r = request(ux.quick_taps == 2 ? REQ_QUICK_RECORD : REQ_QUICK_RECORD_LOOP, (u8)i);
+            leave = 1;
+        } else if (k & (PAD_L1 | PAD_R1)) {
+            r = request(REQ_RUMBLE_STEP, (k & PAD_R1) ? 1 : 0);
+        } else if (k) {
+            for (i = 0; i < GESTURES; i++) {
+                if (gestures[i].request != REQ_CONNECT || !(k & gestures[i].keys)) continue;
+                r = request(REQ_REMAP, gestures[i].slot);
+                break;
+            }
+        } else if (!ux.quick_m_used && now - ux.quick_m_at >= QUICK_CLEAR_MS) {
             r = request(REQ_QUICK_CLEAR, SLOT_NONE);
+            leave = 1;
         }
-    } else if (up & PAD_M) {
-        if (ux.quick_key) {
-            r = request(taps[ux.quick_taps - 1], (u8)(ux.quick_key - 1));
-            if (ux.quick_taps > 1) ux.quick = 0;   /* recording: the host's again */
-        }
-        ux.quick_key = ux.quick_taps = 0;
-    } else if (up & (PAD_L1 | PAD_R1)) {
-        r = request(REQ_RUMBLE_STEP, (up & PAD_R1) ? 1 : 0);
-    } else for (i = 0; i < GESTURES && up; i++) {
-        if (gestures[i].request != REQ_CONNECT || !(up & gestures[i].keys)) continue;
-        r = request(REQ_REMAP, gestures[i].slot);
-        break;
+    } else if (k) {
+        r = request(REQ_QUICK_TURBO, (u8)i);
+    }
+    if (leave) {                 /* what is held stays the pad's until let go */
+        ux.quick = 0;
+        ux.draining = keys != 0;
+        ux.captured = keys;
     }
     memset(p, 0, PAD_CONTROLS_SIZE);
     return r;
@@ -367,6 +369,13 @@ struct ctl_request ux_step(struct pad *p, u32 now, u8 state)
                         break;
                     }
                 }
+                if (UX_QUICK_SETTINGS && ux.quick && !ux.chorded && !ux.fired && !ux.mixed &&
+                    now - ux.started >= QUICK_CLEAR_MS) {
+                    r = request(REQ_QUICK_CLEAR, SLOT_NONE);   /* Home held alone: cleared, out */
+                    ux.fired = 1;
+                    ux.live = 0;
+                    ux.quick = 0;
+                }
                 if (!ux.chorded && !ux.fired && now - ux.started >= ux_timeouts.home_grace_ms)
                     ux.live = 1;
                 if (ux.chorded) for (i = 0; i < GESTURES; i++) {
@@ -390,7 +399,7 @@ struct ctl_request ux_step(struct pad *p, u32 now, u8 state)
             ux.quick_since = ux.quick_at = now;
             ux.quick_held = keys & PAD_DIGITAL;    /* Home, maybe M: not presses in it */
             ux.quick_down = 0;
-            ux.quick_key = ux.quick_taps = 0;
+            ux.quick_taps = 0;
             ux.draining = 0;                        /* quick_held keeps them out instead */
             ux.tap = 0;
             memset(p, 0, PAD_CONTROLS_SIZE);
@@ -423,6 +432,7 @@ u32 ux_deadline(void)
     if (UX_QUICK_SETTINGS && ux.quick) {
         next = ux.quick_at + ux_timeouts.quick_ms;
         if ((ux.quick_down & PAD_M) && !ux.quick_m_used) next = earlier(next, ux.quick_m_at + QUICK_CLEAR_MS);
+        if (ux.active && !ux.chorded && !ux.fired && !ux.mixed) next = earlier(next, ux.started + QUICK_CLEAR_MS);
         if (!ux.active) return next;
     } else if (ux.tap) next = ux.tap_release_at;
     if (!ux.active) return next;
@@ -652,54 +662,74 @@ int main(void)
     CHECK(!ux_quick(NULL) && !seen.buttons);
     pad.buttons = PAD_HOME; run(1); CHECK(ux_quick(NULL) && last.kind == REQ_NONE && !seen.buttons);
     pad.buttons = 0; run(100); CHECK(ux_quick(NULL) && last.kind == REQ_NONE); /* Home from the chord */
-    pad.buttons = PAD_L4; pad.lx = 9000; pad.r2 = 30000; run(100);
-    CHECK(ux_quick(NULL) && !seen.buttons && !seen.lx && !seen.r2); /* nothing for the host */
-    pad.buttons = 0; run(1); CHECK(ux_quick(NULL) && last.kind == REQ_NONE);
-    pad.buttons = PAD_WEST; run(100); CHECK(last.kind == REQ_NONE && !seen.buttons);
-    pad.buttons = 0; run(1); CHECK(last.kind == REQ_REMAP && last.slot == 2 && ux_quick(NULL));
-    pad.buttons = PAD_HOME; run(10); pad.buttons = 0; run(1);   /* a lone Home leaves, changing nothing */
+    pad.lx = 9000; pad.r2 = 30000; run(100);
+    CHECK(ux_quick(NULL) && !seen.lx && !seen.r2);  /* nothing for the host */
+    /* A key's press steps its turbo; it stays. */
+    pad.buttons = PAD_L4; run(1); CHECK(last.kind == REQ_QUICK_TURBO && last.slot == IN_L4 && !seen.buttons);
+    run(100); CHECK(last.kind == REQ_NONE); pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE && ux_quick(NULL));
+    /* M and a slot key: its remap; M and L1 or R1: the rumble step; it stays. */
+    pad.buttons = PAD_M; run(10); pad.buttons = PAD_M | PAD_WEST; run(1);
+    CHECK(last.kind == REQ_REMAP && last.slot == 2);
+    pad.buttons = PAD_M; run(10); pad.buttons = PAD_M | PAD_R1; run(1);
+    CHECK(last.kind == REQ_RUMBLE_STEP && last.slot == 1);
+    pad.buttons = PAD_M; run(10); pad.buttons = PAD_M | PAD_L1; run(1);
+    CHECK(last.kind == REQ_RUMBLE_STEP && last.slot == 0);
+    pad.buttons = 0; run(400); CHECK(last.kind == REQ_NONE && ux_quick(NULL) && !seen.buttons);
+    /* M alone, tapped, does nothing; a lone Home leaves, changing nothing. */
+    pad.buttons = PAD_M; run(100); pad.buttons = 0; run(400); CHECK(last.kind == REQ_NONE && ux_quick(NULL));
+    pad.buttons = PAD_HOME; run(10); pad.buttons = 0; run(1);
     CHECK(last.kind == REQ_NONE && !ux_quick(NULL));
     run(1); CHECK(seen.lx == 9000 && seen.r2 == 30000);
     pad.buttons = PAD_SOUTH; run(1); CHECK(seen.buttons == PAD_SOUTH && last.kind == REQ_NONE);
+    pad.lx = pad.r2 = 0;
     reset(CTL_CONNECTED); pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_M; run(100);
     pad.buttons = PAD_M; run(1); CHECK(ux_quick(NULL) && !seen.buttons);
     pad.buttons = 0; run(1); CHECK(ux_quick(NULL) && last.kind == REQ_NONE); /* M from the chord */
-    pad.buttons = PAD_LEFT; run(10); pad.buttons = 0; run(1);
+    pad.buttons = PAD_M; run(10); pad.buttons = PAD_M | PAD_LEFT; run(1);
     CHECK(last.kind == REQ_REMAP && last.slot == 6);
-    /* M tapped alone does nothing; Home, even held long, leaves without reaching the host. */
+    /* Home held long, then let go, leaves without reaching the host. */
     quick();
-    pad.buttons = PAD_M; run(100); pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE && ux_quick(NULL));
     pad.buttons = PAD_HOME; run(1000); CHECK(ux_quick(NULL) && !seen.buttons);
     pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE && !ux_quick(NULL));
     run(1000); CHECK(!seen.buttons && !ux.tap);
-    /* M held alone: cleared once at QUICK_CLEAR_MS, and it stays. */
+    /* M or Home held alone QUICK_CLEAR_MS: cleared, and out; held, it stays the pad's. */
+    for (i = 0; i < 2; i++) {
+        quick();
+        pad.buttons = i ? PAD_HOME : PAD_M; run(1); CHECK(i || ux_deadline() == now + QUICK_CLEAR_MS);
+        run(QUICK_CLEAR_MS - 1); CHECK(last.kind == REQ_NONE && ux_quick(NULL));
+        CHECK(ux_deadline() == now + 1);
+        run(1); CHECK(last.kind == REQ_QUICK_CLEAR && !ux_quick(NULL));
+        run(5000); CHECK(last.kind == REQ_NONE && !seen.buttons);
+        pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE && !seen.buttons && !ux.tap);
+        pad.buttons = PAD_SOUTH; run(1); CHECK(seen.buttons == PAD_SOUTH); pad.buttons = 0; run(1);
+    }
+    /* M held with a key is no clear. */
     quick();
-    pad.buttons = PAD_M; run(1); CHECK(ux_deadline() == now + QUICK_CLEAR_MS);
-    run(QUICK_CLEAR_MS - 1); CHECK(last.kind == REQ_NONE);
-    run(1); CHECK(last.kind == REQ_QUICK_CLEAR && ux_quick(NULL));
-    run(5000); CHECK(last.kind == REQ_NONE);
-    pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE && ux_quick(NULL));
-    /* M and a key's taps, counted as M goes up: turbo, record, record a loop. */
-    for (i = 1; i <= 4; i++) {
+    pad.buttons = PAD_M | PAD_EAST; run(3000); CHECK(last.kind == REQ_NONE && ux_quick(NULL));
+    pad.buttons = 0; run(1);
+    /* M tapped once or twice more, then held with a key: record, record a loop;
+     * out, the keys still held the pad's until let go. */
+    for (i = 2; i <= 4; i++) {
         u32 n;
 
         quick();
-        pad.buttons = PAD_M; run(10);
-        for (n = 0; n < i; n++) { pad.buttons = PAD_M | PAD_L4; run(30); pad.buttons = PAD_M; run(30); }
-        CHECK(last.kind == REQ_NONE && ux_quick(NULL));
+        for (n = 1; n < i; n++) { pad.buttons = PAD_M; run(50); pad.buttons = 0; run(QUICK_TAP_GAP_MS); }
+        pad.buttons = PAD_M; run(50); CHECK(last.kind == REQ_NONE);
+        pad.buttons = PAD_M | PAD_L4; run(1);
+        CHECK(last.kind == (i == 2 ? REQ_QUICK_RECORD : REQ_QUICK_RECORD_LOOP) && last.slot == IN_L4);
+        CHECK(!ux_quick(NULL) && !seen.buttons);
+        run(100); CHECK(!seen.buttons); pad.buttons = PAD_L4; run(10); CHECK(!seen.buttons);
+        pad.buttons = 0; run(1); pad.buttons = PAD_SOUTH; run(1); CHECK(seen.buttons == PAD_SOUTH);
         pad.buttons = 0; run(1);
-        CHECK(last.kind == (i == 1 ? REQ_QUICK_TURBO : i == 2 ? REQ_QUICK_RECORD : REQ_QUICK_RECORD_LOOP));
-        CHECK(last.slot == IN_L4 && ux_quick(NULL) == (i == 1) && !seen.buttons);
-        if (i > 1) { pad.buttons = PAD_SOUTH; run(1); CHECK(seen.buttons == PAD_SOUTH); pad.buttons = 0; run(1); }
     }
-    /* Another key starts the count over; a key held past M picks nothing, and M with it is no clear. */
+    /* Taps too far apart count from one again: the remap. */
     quick();
-    pad.buttons = PAD_M; run(10); pad.buttons = PAD_M | PAD_L4; run(10); pad.buttons = PAD_M; run(10);
-    pad.buttons = PAD_M | PAD_EAST; run(3000); CHECK(last.kind == REQ_NONE);
-    pad.buttons = PAD_EAST; run(1); CHECK(last.kind == REQ_QUICK_TURBO && last.slot == IN_EAST);
-    pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE && ux_quick(NULL));
-    quick(); pad.buttons = PAD_HOME; run(ux_timeouts.quick_ms + 1); CHECK(!ux_quick(NULL)); run(10);
-    pad.buttons |= PAD_SELECT; run(10); pad.buttons = 0; run(1); CHECK(last.kind == REQ_DISCONNECT);
+    pad.buttons = PAD_M; run(50); pad.buttons = 0; run(QUICK_TAP_GAP_MS + 1);
+    pad.buttons = PAD_M; run(50); pad.buttons = PAD_M | PAD_EAST; run(1);
+    CHECK(last.kind == REQ_REMAP && last.slot == 1 && ux_quick(NULL));
+    pad.buttons = 0; run(1);
+    quick(); pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_SELECT; run(10);   /* Home's chords work */
+    pad.buttons = 0; run(1); CHECK(last.kind == REQ_DISCONNECT);
     /* The timeout runs from the last press and changes nothing. */
     quick();
     CHECK(ux_quick(NULL) && ux_deadline() == now + ux_timeouts.quick_ms - 9);
@@ -729,13 +759,6 @@ int main(void)
         CHECK(!ux_rumble_feedback(0, 30, &edge) && !edge);
         CHECK(!ux_rumble_feedback(3, 10000, &edge) && !edge);
     }
-    /* L1 and R1 step the rumble level and stay in it. */
-    quick();
-    pad.buttons = PAD_L1; run(10); pad.buttons = 0; run(1);
-    CHECK(last.kind == REQ_RUMBLE_STEP && last.slot == 0 && ux_quick(NULL) && !seen.buttons);
-    pad.buttons = PAD_R1; run(10); pad.buttons = 0; run(1);
-    CHECK(last.kind == REQ_RUMBLE_STEP && last.slot == 1 && ux_quick(NULL));
-    run(1); CHECK(last.kind == REQ_NONE);
     /* The session going ends it. */
     quick();
     state = CTL_CONNECTING; run(1); CHECK(!ux_quick(NULL) && last.kind == REQ_NONE);
@@ -756,10 +779,8 @@ int main(void)
     quick();
     pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_M; run(10); pad.buttons = 0; run(1);
     CHECK(ux_quick(NULL) && last.kind == REQ_NONE);
-    pad.buttons = PAD_EAST; run(10); pad.buttons = 0; run(1); CHECK(last.kind == REQ_REMAP && last.slot == 1);
-    quick(); pad.buttons = PAD_HOME; run(1000); CHECK(ux_quick(NULL) && !seen.buttons);
-    pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE && !ux_quick(NULL));
-    run(100); CHECK(!seen.buttons && !ux.tap);
+    pad.buttons = PAD_EAST; run(1); CHECK(last.kind == REQ_QUICK_TURBO && last.slot == IN_EAST);
+    pad.buttons = 0; run(1);
     /* Home+M held: config mode, connected, offline or in quick settings; no tap after it. */
     for (i = 0; i < 3; i++) {
         if (i == 2) quick(); else reset(i ? CTL_IDLE : CTL_CONNECTED);

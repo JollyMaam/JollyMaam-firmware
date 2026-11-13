@@ -14,17 +14,18 @@ pad's LEDs and the host sees a neutral pad, motion at rest. In it:
 
 | Keys | Does |
 |---|---|
-| a slot key, released | turns that remap on (another one replaces it) or, if it is the one in use, off (the base) |
-| L1 / R1, released | rumble step down / up |
-| M + one tap of a key | that key's turbo: slow (10 Hz), fast (20 Hz), off, in turn; a key holding the macro: cleared |
-| M + two taps | records a macro for the key; quick settings ends |
-| M + three taps | records a looping macro for the key; quick settings ends |
-| M held alone 2 s | clears everything quick settings set: turbo, mappings, the macro, the remap back to the slot's own, the rumble step |
+| a key, pressed | steps its turbo: slow (10 Hz), fast (20 Hz), off; held, Home blinks at its rate; a key holding the macro: cleared |
+| M + a slot key | turns that remap on (another one replaces it) or, if it is the one in use, off (the base) |
+| M + L1 / R1 | rumble step down / up |
+| M tapped, then held + a key | records a macro for the key; quick settings ends |
+| M tapped twice, then held + a key | records a looping macro for the key; quick settings ends |
+| Home or M held alone 2 s | clears everything quick settings set (turbo, mappings, the macro, the remap back to the slot's own, the rumble step) and leaves |
 | M alone | nothing |
 | Home alone | leaves, as does 30 s without a press |
 
-M's taps count as M goes up; the keys pressed with it do nothing else. Home
-and M cannot take a turbo, a mapping or the macro. Home's chords work there
+M's taps count when they follow each other within 300 ms. Leaving, the keys
+still held stay the pad's until they are let go. Home and M cannot take a
+turbo, a mapping or the macro. Home's chords work there
 as anywhere while connected: Home+Minus disconnects, which ends quick
 settings. What quick settings set lasts across that slot's own reconnects
 and ends with Home+Minus, another slot or sleep (config mode too). The
@@ -72,10 +73,11 @@ bytes, the wait in 4 ms and a press, a release or a plain wait, in a
 device's: while a macro is held, USB tool commands are refused.
 
 **Lights.** Home shows quick settings' feedback over the scene: a remap on
-(one long blink) or off (two short), turbo slow / fast / off (one, two,
-three blinks), cleared (a fast burst), saved as a macro / looping macro /
-mapping (two, three, one long pulse), discarded (three short flashes after
-a pause). It blinks fast while recording and slowly while a loop runs.
+(one long blink) or off (two short), a held key's turbo (blinking at its
+rate), saved as a macro / looping macro / mapping (two, three, one long
+pulse), a recording with nothing in it (a fast burst), discarded (three
+short flashes after a pause). It blinks fast while recording and slowly
+while a loop runs.
 
 ## The base remap
 

@@ -124,27 +124,23 @@ void quick_clear(void)
     q.eat_m = 0;
 }
 
-void quick_turbo(u8 key, u32 now)
+/* The key's next turbo step (quick_led shows it while the key is held); a
+ * key holding the macro: cleared first. */
+void quick_turbo(u8 key)
 {
     u32 b = bit(key);
-    u8 sig;
 
     if (key >= 32 || !(QUICK_KEYS & b)) return;
     if (keys.macro == key + 1u) {
         drop_macro();
-        sig = SIG_CLEARED;
     } else if (keys.slow & b) {
         keys.slow &= ~b;
         keys.fast |= b;
-        sig = SIG_TURBO_FAST;
     } else if (keys.fast & b) {
         keys.fast &= ~b;
-        sig = SIG_TURBO_OFF;
     } else {
         keys.slow |= b;
-        sig = SIG_TURBO_SLOW;
     }
-    quick_signal(sig, now);
 }
 
 void quick_record(u8 key, int loop, u32 now)
@@ -387,9 +383,6 @@ u32 quick_deadline(void)
 static const struct { u16 off, on; u8 n; } signals[] = {
     [SIG_REMAP_ON] = { 150, 500, 1 },
     [SIG_REMAP_OFF] = { 100, 100, 2 },
-    [SIG_TURBO_SLOW] = { 150, 150, 1 },
-    [SIG_TURBO_FAST] = { 150, 150, 2 },
-    [SIG_TURBO_OFF] = { 150, 150, 3 },
     [SIG_CLEARED] = { 50, 50, 6 },
     [SIG_SAVED] = { 150, 300, 2 },
     [SIG_SAVED_LOOP] = { 150, 300, 3 },
@@ -399,8 +392,10 @@ static const struct { u16 off, on; u8 n; } signals[] = {
 #define RECORD_BLINK_MS 100
 #define LOOP_BLINK_MS   500
 
-u8 quick_led(u32 now, u32 *next)
+u8 quick_led(u32 now, u32 *next, u32 held)
 {
+    u32 turbo = held & (keys.slow | keys.fast);
+
     *next = 0;
     if (q.signal) {
         u32 t = (u16)((u16)now - q.signal_at), period = signals[q.signal].off + signals[q.signal].on;
@@ -411,6 +406,12 @@ u8 quick_led(u32 now, u32 *next)
             return phase < signals[q.signal].off ? LED_SIGNAL_DARK : LED_SIGNAL_LIT;
         }
         q.signal = SIG_NONE;
+    }
+    if (turbo && !(held & PAD_M)) {          /* quick settings: a held key's turbo, at its rate */
+        u32 half = 500u / (turbo & keys.slow ? QUICK_SLOW_HZ : QUICK_FAST_HZ), phase = now % (2 * half);
+
+        *next = now - phase + (phase < half ? half : 2 * half);
+        return phase < half ? LED_SIGNAL_LIT : LED_SIGNAL_DARK;
     }
     if (q.mode == RECORDING || (q.mode == PLAYING && q.loop)) {
         u32 half = q.mode == RECORDING ? RECORD_BLINK_MS : LOOP_BLINK_MS, phase = now % (2 * half);
@@ -463,14 +464,17 @@ int main(void)
 
     /* Turbo steps: slow, fast, none. */
     now = 1000;
-    quick_turbo(IN_L4, now); CHECK(keys.slow == PAD_L4 && !keys.fast && q.signal == SIG_TURBO_SLOW);
-    quick_turbo(IN_L4, now); CHECK(!keys.slow && keys.fast == PAD_L4 && q.signal == SIG_TURBO_FAST);
-    quick_turbo(IN_L4, now); CHECK(!keys.slow && !keys.fast && q.signal == SIG_TURBO_OFF);
-    quick_turbo(IN_HOME, now); quick_turbo(IN_M, now); CHECK(!keys.slow);
+    quick_turbo(IN_L4); CHECK(keys.slow == PAD_L4 && !keys.fast);
+    CHECK(quick_led(1000, &next, PAD_L4) == LED_SIGNAL_LIT && next == 1050);     /* 10 Hz while held */
+    CHECK(quick_led(1000, &next, PAD_L4 | PAD_M) == LED_SIGNAL_NONE);
+    quick_turbo(IN_L4); CHECK(!keys.slow && keys.fast == PAD_L4);
+    CHECK(quick_led(1000, &next, PAD_L4) == LED_SIGNAL_LIT && next == 1025);
+    quick_turbo(IN_L4); CHECK(!keys.slow && !keys.fast && quick_led(1000, &next, PAD_L4) == LED_SIGNAL_NONE);
+    quick_turbo(IN_HOME); quick_turbo(IN_M); CHECK(!keys.slow);
 
     /* A tap of south, recorded: a mapping, not a macro; the buffer given back. */
-    quick_turbo(IN_R4, now);
-    quick_record(IN_R4, 0, now); CHECK(quick_recording() && quick_led(now, &next) == LED_SIGNAL_DARK);
+    quick_turbo(IN_R4);
+    quick_record(IN_R4, 0, now); CHECK(quick_recording() && quick_led(now, &next, 0) == LED_SIGNAL_DARK);
     CHECK(rec(0, 500) == 0);
     CHECK(rec(PAD_SOUTH, 80) == PAD_SOUTH);              /* the host sees what is pressed */
     rec(0, 100);
@@ -522,7 +526,7 @@ int main(void)
     rec(PAD_WEST, 60); rec(0, 40); rec(PAD_M, 1);
     CHECK(keys.macro == IN_L3 + 1 && q.loop && q.signal == SIG_SAVED_LOOP);
     play(PAD_L3, 0, 1); play(0, 0, 500); CHECK(q.mode == PLAYING);
-    CHECK(quick_led(now, &next) != LED_SIGNAL_NONE);
+    CHECK(quick_led(now, &next, 0) != LED_SIGNAL_NONE);
     play(PAD_L3, 0, 1); CHECK(q.mode == IDLE && play(0, 0, 1) == 0);
 
     /* The triggers' presses are recorded like keys. */
@@ -567,11 +571,11 @@ int main(void)
     quick_clear(); CHECK(!keys.macro && !map_of((u8)(IN_SOUTH + QUICK_MAPS)) && !q.buf);
 
     /* Signals: dark then lit pulses, then nothing. */
-    quick_signal(SIG_TURBO_FAST, 5000);
-    CHECK(quick_led(5000, &next) == LED_SIGNAL_DARK && next == 5150);
-    CHECK(quick_led(5150, &next) == LED_SIGNAL_LIT && next == 5300);
-    CHECK(quick_led(5450, &next) == LED_SIGNAL_LIT && next == 5600);
-    CHECK(quick_led(5600, &next) == LED_SIGNAL_NONE && !next);
+    quick_signal(SIG_REMAP_OFF, 5000);
+    CHECK(quick_led(5000, &next, 0) == LED_SIGNAL_DARK && next == 5100);
+    CHECK(quick_led(5100, &next, 0) == LED_SIGNAL_LIT && next == 5200);
+    CHECK(quick_led(5300, &next, 0) == LED_SIGNAL_LIT && next == 5400);
+    CHECK(quick_led(5400, &next, 0) == LED_SIGNAL_NONE && !next);
 #ifdef QUICK_LENT_BUFFER
     lend_ok = 0; quick_record(IN_L3, 0, now); CHECK(!quick_recording() && q.signal == SIG_DISCARDED);
 #endif

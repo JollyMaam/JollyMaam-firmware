@@ -528,7 +528,7 @@ static __attribute__((noinline)) u32 lights(u32 now)
                  c.linked ? MONO_CONNECTED : state() == CTL_PAIRING ? MONO_PAIRING : MONO_CONNECTING;
         m.cable = c.plug_lit && !c.sleeping;
         m.cal_lit = (u8)cal_led(now, &m.cal);
-        m.signal = quick_led(now, &signal);
+        m.signal = quick_led(now, &signal, ux_quick(NULL) ? c.input.buttons : 0);
     }
     next = earliest(led_mono(&m, now, &f), signal);
     if (memcmp(&f, &c.shown, sizeof(f))) {
@@ -580,10 +580,9 @@ static void request(const struct ctl_request *r)
         c.remap = c.session.settings->remap ? (u8)(c.session.settings->remap - 1) : REMAP_BASE;
         c.remap_chosen = c.rumble_step = 0;
         quick_clear();
-        quick_signal(SIG_CLEARED, plat_ms());
         break;
     case REQ_QUICK_TURBO:
-        if (c.linked && !c.stopping && !c.config) quick_turbo(r->slot, plat_ms());
+        if (c.linked && !c.stopping && !c.config) quick_turbo(r->slot);
         break;
     case REQ_QUICK_RECORD:
     case REQ_QUICK_RECORD_LOOP:
@@ -883,7 +882,7 @@ static const struct remap_quick test_quick_keys;
 static u32 quick_clears;
 const struct remap_quick *quick_keys(void) { return &test_quick_keys; }
 void quick_clear(void) { quick_clears++; }
-void quick_turbo(u8 key, u32 now) { (void)key; (void)now; }
+void quick_turbo(u8 key) { (void)key; }
 void quick_record(u8 key, int loop, u32 now) { (void)key; (void)loop; (void)now; }
 int quick_recording(void) { return 0; }
 u32 quick_record_step(u32 in, u32 now) { (void)now; return in; }
@@ -891,7 +890,7 @@ u32 quick_play(u32 in, u32 out, u32 now, u32 *every) { (void)in; (void)now; (voi
 void quick_stop(u32 now) { (void)now; }
 u32 quick_deadline(void) { return 0; }
 void quick_signal(u8 sig, u32 now) { (void)sig; (void)now; }
-u8 quick_led(u32 now, u32 *next) { (void)now; *next = 0; return LED_SIGNAL_NONE; }
+u8 quick_led(u32 now, u32 *next, u32 held) { (void)now; (void)held; *next = 0; return LED_SIGNAL_NONE; }
 const u8 ux_first_slot = 3;
 const struct ux_timeouts ux_timeouts = {
     .idle_sleep_ms = 300000, .stop_max_ms = 12000, .connect_ms = 30000, .pair_ms = 180000,
