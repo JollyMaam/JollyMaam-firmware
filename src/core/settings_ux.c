@@ -164,7 +164,8 @@ const struct led_scene ux_scenes[CTL_KIND_COUNT] = {
  * slot key turns its remap slot on or off, L1 or R1 lowers or raises the
  * rumble step.  M held with a key: record a macro for the key; M tapped
  * once first (QUICK_TAP_GAP_MS apart): a looping one; recording leaves
- * quick settings.  Home or M held alone for QUICK_CLEAR_MS clears it
+ * quick settings.  M tapped alone with no press QUICK_TAP_GAP_MS after
+ * leaves.  Home or M held alone for QUICK_CLEAR_MS clears it
  * all and leaves.  A lone Home leaves, as does ux_timeouts.quick_ms without
  * a press.  Leaving, the keys still held stay the pad's until let go.
  * Home's chords work as when connected: Home+Minus disconnects, which ends
@@ -205,7 +206,6 @@ static const struct gesture { u32 keys; u16 hold_ms; u8 request, slot, flags; } 
 #if UX_QUICK_SETTINGS
     {PAD_M, 0, REQ_QUICK, SLOT_NONE, CONNECTED | RELEASE},
 #endif
-    {PAD_M, 0, REQ_REBOOT_UPDATER, SLOT_NONE, OFFLINE | RELEASE},   /* src/updater/, until config mode */
     {PAD_M, HOLD_MS, REQ_CONFIG, SLOT_NONE, OFFLINE | CONNECTED},
 };
 #define GESTURES (sizeof(gestures) / sizeof(gestures[0]))
@@ -217,6 +217,7 @@ static struct {
     u8 quick;
     u8 quick_taps;               /* M's presses in a row, this one included */
     u8 quick_m_used;             /* M held with a key: no clear */
+    u8 quick_m_lone;             /* M tapped alone: leaves QUICK_TAP_GAP_MS after, without a press */
     u32 quick_since, quick_at, quick_held, quick_down; /* quick_at: its last press */
     u32 quick_m_at, quick_m_up;  /* M went down, up */
 } ux;
@@ -260,7 +261,10 @@ static struct ctl_request quick_step(struct pad *p, u32 now)
     int leave = 0;
 
     ux.quick_down |= pressed;
-    if (ux.quick_down & PAD_M & ~keys) ux.quick_m_up = now;
+    if (ux.quick_down & PAD_M & ~keys) {
+        ux.quick_m_up = now;
+        ux.quick_m_lone = !ux.quick_m_used;
+    }
     ux.quick_held = keys;
     ux.quick_down &= keys;
     if (pressed & PAD_M) {
@@ -282,6 +286,8 @@ static struct ctl_request quick_step(struct pad *p, u32 now)
         }
     } else if (k) {
         r = request(REQ_QUICK_TURBO, (u8)i);
+    } else if (ux.quick_m_lone && now - ux.quick_m_up >= QUICK_TAP_GAP_MS) {
+        leave = 1;               /* no tap toward a loop: a lone M leaves */
     }
     if (leave) {                 /* what is held stays the pad's until let go */
         ux.quick = 0;
@@ -300,7 +306,10 @@ struct ctl_request ux_step(struct pad *p, u32 now, u8 state)
                   state == CTL_PAIRING || state == CTL_STOPPING;
 
     if (UX_QUICK_SETTINGS && ux.quick) {
-        if ((keys & PAD_DIGITAL) & ~ux.quick_held) ux.quick_at = now;
+        if ((keys & PAD_DIGITAL) & ~ux.quick_held) {
+            ux.quick_at = now;
+            ux.quick_m_lone = 0;
+        }
         if (state != CTL_CONNECTED || now - ux.quick_at >= ux_timeouts.quick_ms) ux.quick = 0;
         else if (!ux.active && !(keys & PAD_HOME & ~ux.quick_held)) return quick_step(p, now);
         else ux.draining = 0;              /* a Home press: quick_held keeps older keys out */
@@ -402,7 +411,7 @@ struct ctl_request ux_step(struct pad *p, u32 now, u8 state)
             ux.quick_since = ux.quick_at = now;
             ux.quick_held = keys & PAD_DIGITAL;    /* Home, maybe M: not presses in it */
             ux.quick_down = 0;
-            ux.quick_taps = 0;
+            ux.quick_taps = ux.quick_m_lone = 0;
             ux.draining = 0;                        /* quick_held keeps them out instead */
             ux.tap = 0;
             memset(p, 0, PAD_CONTROLS_SIZE);
@@ -435,6 +444,7 @@ u32 ux_deadline(void)
     if (UX_QUICK_SETTINGS && ux.quick) {
         next = ux.quick_at + ux_timeouts.quick_ms;
         if ((ux.quick_down & PAD_M) && !ux.quick_m_used) next = earlier(next, ux.quick_m_at + QUICK_CLEAR_MS);
+        if (ux.quick_m_lone) next = earlier(next, ux.quick_m_up + QUICK_TAP_GAP_MS);
         if (ux.active && !ux.chorded && !ux.fired && !ux.mixed) next = earlier(next, ux.started + QUICK_CLEAR_MS);
         if (!ux.active) return next;
     } else if (ux.tap) next = ux.tap_release_at;
@@ -683,8 +693,7 @@ int main(void)
     run(QUICK_CLEAR_MS); CHECK(last.kind == REQ_NONE && ux_quick(NULL));
     pad.buttons = PAD_HOME; run(10); pad.buttons = 0; run(400);
     CHECK(last.kind == REQ_NONE && ux_quick(NULL) && !seen.buttons);
-    /* M alone, tapped, does nothing; a lone Home leaves, changing nothing. */
-    pad.buttons = PAD_M; run(100); pad.buttons = 0; run(400); CHECK(last.kind == REQ_NONE && ux_quick(NULL));
+    /* A lone Home leaves, changing nothing. */
     pad.buttons = PAD_HOME; run(10); pad.buttons = 0; run(1);
     CHECK(last.kind == REQ_NONE && !ux_quick(NULL));
     run(1); CHECK(seen.lx == 9000 && seen.r2 == 30000);
@@ -696,6 +705,24 @@ int main(void)
     pad.buttons = PAD_HOME; run(10); pad.buttons = PAD_HOME | PAD_LEFT; run(1);
     CHECK(last.kind == REQ_REMAP && last.slot == 6);
     pad.buttons = 0; run(1); CHECK(ux_quick(NULL));
+    /* M tapped alone leaves QUICK_TAP_GAP_MS after its release, changing
+     * nothing; a press before then keeps it in. */
+    quick();
+    pad.buttons = PAD_M; run(100); pad.buttons = 0; run(1);
+    CHECK(ux_quick(NULL) && ux_deadline() == now + QUICK_TAP_GAP_MS);
+    run(QUICK_TAP_GAP_MS - 1); CHECK(ux_quick(NULL));
+    run(1); CHECK(last.kind == REQ_NONE && !ux_quick(NULL) && !seen.buttons);
+    pad.buttons = PAD_SOUTH; run(1); CHECK(seen.buttons == PAD_SOUTH); pad.buttons = 0; run(1);
+    quick();
+    pad.buttons = PAD_M; run(100); pad.buttons = 0; run(100);
+    pad.buttons = PAD_EAST; run(1); CHECK(last.kind == REQ_QUICK_TURBO); pad.buttons = 0; run(1000);
+    CHECK(ux_quick(NULL));
+    pad.buttons = PAD_M | PAD_EAST; run(100); pad.buttons = 0; run(1000);   /* M with a key: no tap */
+    CHECK(!ux_quick(NULL) && last.kind == REQ_NONE);
+    quick();
+    pad.buttons = PAD_M; run(100); pad.buttons = PAD_M | PAD_SOUTH; run(1); /* not lone: recording */
+    CHECK(last.kind == REQ_QUICK_RECORD && !ux_quick(NULL));
+    pad.buttons = 0; run(1);
     /* Home held long, then let go, leaves without reaching the host. */
     quick();
     pad.buttons = PAD_HOME; run(1000); CHECK(ux_quick(NULL) && !seen.buttons);
@@ -727,12 +754,11 @@ int main(void)
         pad.buttons = 0; run(1); pad.buttons = PAD_SOUTH; run(1); CHECK(seen.buttons == PAD_SOUTH);
         pad.buttons = 0; run(1);
     }
-    /* Taps too far apart count from one again: no loop. */
+    /* M tapped twice: the second tap leaves. */
     quick();
-    pad.buttons = PAD_M; run(50); pad.buttons = 0; run(QUICK_TAP_GAP_MS + 1);
-    pad.buttons = PAD_M; run(50); pad.buttons = PAD_M | PAD_EAST; run(1);
-    CHECK(last.kind == REQ_QUICK_RECORD && last.slot == IN_EAST && !ux_quick(NULL));
-    pad.buttons = 0; run(1);
+    pad.buttons = PAD_M; run(50); pad.buttons = 0; run(100);
+    pad.buttons = PAD_M; run(50); pad.buttons = 0; run(QUICK_TAP_GAP_MS); CHECK(ux_quick(NULL));
+    run(1); CHECK(!ux_quick(NULL));
     quick(); pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_SELECT; run(10);   /* Home's chords work */
     pad.buttons = 0; run(1); CHECK(last.kind == REQ_DISCONNECT);
     /* The timeout runs from the last press and changes nothing. */
@@ -797,9 +823,9 @@ int main(void)
         run(100); pad.buttons = PAD_HOME; run(10); pad.buttons = 0; run(1);   /* Home works again */
         CHECK(i == 1 ? last.kind == REQ_CONNECT : (i == 2 || ux.tap));
     }
-    /* Offline, or M down before Home: no quick settings; offline, the updater. */
+    /* Offline, or M down before Home: no quick settings; offline, nothing. */
     reset(CTL_IDLE); pad.buttons = PAD_HOME | PAD_M; run(100); pad.buttons = 0; run(1);
-    CHECK(!ux_quick(NULL) && last.kind == REQ_REBOOT_UPDATER);
+    CHECK(!ux_quick(NULL) && last.kind == REQ_NONE);
     reset(CTL_CONNECTED); pad.buttons = PAD_M; run(100); pad.buttons |= PAD_HOME; run(1000);
     CHECK(seen.buttons == (PAD_HOME | PAD_M));
     pad.buttons = 0; run(1); CHECK(!ux_quick(NULL) && last.kind == REQ_NONE);

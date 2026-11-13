@@ -66,8 +66,7 @@ without a host (USB or LE) and outside a write.
 The app's `UPDATER` command (`0x40`) sets the request and reboots. In a build
 without an updater the request is ignored and the app starts again.
 
-By hand: in the app, Home+M while not connected
-restarts into the updater on release. Home+Start or Home+M held as
+By hand: Home+Start or Home+M held as
 the pad boots with USB, or as USB arrives while not connected, restarts
 into it too; a chord held at boot without USB waits 3 s for it. In the
 updater, Home pressed and released goes back to the app when it is valid.
