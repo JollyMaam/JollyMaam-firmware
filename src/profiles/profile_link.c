@@ -214,7 +214,7 @@ static u8 begin(const struct profile_session *s)
 
     memset(&lk, 0, sizeof(lk));
     if (s->settings) {
-        c->type = s->settings->type;
+        c->type = s->settings->radio_type;
         c->variant = s->settings->variant;
         c->stick_speed = s->settings->stick_speed;
         c->gyro_speed = s->settings->gyro_speed;
@@ -310,7 +310,7 @@ int main(void)
 
     memset(&set, 0, sizeof(set));
     memset(&c, 0, sizeof(c));
-    set.type = PROFILE_DS5;
+    set.radio_type = PROFILE_DS5;
     set.gyro_speed = 40;
     CHECK(begin(&s) == IMU_OFF);
     memset(&p, 0, sizeof(p));

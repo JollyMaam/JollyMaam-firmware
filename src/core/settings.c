@@ -12,7 +12,9 @@
 /* T_LIST: size numbers of a byte each, each at most max. */
 enum { T_ENUM, T_NUMBER, T_RGB, T_BYTES, T_TEXT, T_ENTRY, T_LIST };
 /* The rows the code itself uses. */
-enum { ID_TYPE = 1, ID_TRANSPORT = 2, ID_ADDRESS = 8, ID_BOND = 9 };
+/* 2 was transport (bluetooth, usb, bluetooth+usb, dongle, dongle+usb): read
+ * once into radio and usb_type (old_transport). */
+enum { ID_RADIO_TYPE = 1, ID_OLD_TRANSPORT = 2, ID_ADDRESS = 8, ID_BOND = 9, ID_RADIO = 24, ID_USB_TYPE = 25 };
 
 struct set_field {
     u8 id;                   /* stored and sent; never reused */
@@ -45,7 +47,7 @@ static const char *const types[] = {
 #define SLOT_USB_AUDIO 1         /* the usb_audio setting: 0 on a board without USB sound */
 #endif
 static const char *const usb_sounds[] = { "jack", "on", "off", NULL };
-static const char *const transports[] = { "bluetooth", "usb", "bluetooth+usb", "dongle", "dongle+usb", NULL };
+static const char *const radios[] = { "off", "bluetooth", "dongle", NULL };   /* RADIO_*, not RECEIVER */
 #if !LEDS_MONO
 static const char *const grips[] = {
     "off", "host", "fade", "rumble", "input", "rumble+input", "primary", "secondary", "rainbow",
@@ -69,17 +71,26 @@ static const char *const phys[] = { "1m", "2m", NULL };
 static const char *const onoff[] = { "on", "off", NULL };
 static const char *const tx_powers[] = { "1", "2", "3", "4", "5", "6", NULL };
 
+/* The radio_type and usb_type values this board takes (set_masks): its
+ * Bluetooth types, the USB ones (through a dongle, or with the radio off as
+ * the cable's own host); none always.  check_radio refines by radio. */
+static u32 radio_types, usb_types;
+
 /* Slots south east west north up down left right (by the key that picks them).  Colours are palette entries; how
  * bright they are is the palette's.  One-colour lights (LEDS_MONO) have neither. */
 static const struct set_field slot_fields[] = {
-    { .id = ID_TYPE, .name = "type", .type = T_ENUM, .names = types, FIELD(type),
-      .slot_def = board_slots.type, .allowed = &board_slots.types,
-      .help = "what the slot connects as; changing it renews address and clears bond" },
-    { .id = ID_TRANSPORT, .name = "transport", .type = T_ENUM, .names = transports, FIELD(transport),
-      .slot_def = board_slots.transport, .allowed = &board_slots.transports,
-      .help = "how: bluetooth; usb, a wired controller; bluetooth+usb, usb while a usb host "
-              "is there, else bluetooth (never back to it mid-session); dongle, through our dongle, which is the type on its usb port; "
-              "dongle+usb, usb while a usb host is there, else the dongle" },
+    { .id = ID_RADIO, .name = "radio", .type = T_ENUM, .names = radios, FIELD(radio),
+      .slot_def = board_slots.radio, .allowed = &board_slots.radios,
+      .help = "the wireless host: off; bluetooth, as radio_type; dongle, our dongle, which shows "
+              "radio_type on its usb port.  A usb host on the cable wins while usb_type is set" },
+    { .id = ID_RADIO_TYPE, .name = "radio_type", .type = T_ENUM, .names = types, FIELD(radio_type),
+      .slot_def = board_slots.radio_type, .allowed = &radio_types,
+      .help = "what the bluetooth host sees, or with the dongle what its usb port shows (a type with "
+              "usb); changing the bluetooth host renews address and clears bond" },
+    { .id = ID_USB_TYPE, .name = "usb_type", .type = T_ENUM, .names = types, FIELD(usb_type),
+      .slot_def = board_slots.usb_type, .allowed = &usb_types,
+      .help = "what a usb host on the cable sees, as a wired controller; none: no usb, the cable "
+              "only charges (and is the tool device)" },
 #if !LEDS_MONO
     { .id = 3, .name = "connect_colour", .type = T_ENTRY, FIELD(connect_colour),
       PER_SLOT(5, 11, 7, 1, 9, 13, 3, 15),
@@ -314,7 +325,13 @@ static const struct set_field cal_fields[] = {
  * bit per field that is set. */
 
 #define MAGIC      0x4332
-#define VERSION    1
+#define VERSION    1               /* of what the tools read (set_describe, set_read) */
+/* Records: 1; a slot's 2 since radio and usb_type (firmware from before
+ * drops those, nothing else).  A slot's version 1 record is read the same
+ * way, its transport then into them (old_transport). */
+#define RECORD_VERSION 1
+#define SLOT_RECORDS   2
+#define OLD_RECORDS    1
 #ifndef RECORD_MAX
 #define RECORD_MAX 224             /* the largest record of a target kept */
 #endif
@@ -347,7 +364,7 @@ _Static_assert(REMAP_BASE_STORED || !REMAPS_STORED, "remap slots inherit from a 
 #define KEYS             (KEY_BASE_STICKS + 1)
 
 static struct set_slot slots[SLOTS_STORED];
-static const struct set_slot none_slot = { .type = PROFILE_NONE };
+static const struct set_slot none_slot = { .radio_type = PROFILE_NONE, .usb_type = PROFILE_NONE };
 #if !LEDS_MONO
 static struct set_palette pal;
 #endif
@@ -456,6 +473,39 @@ static u32 enum_count(const struct set_field *f)
 static int enum_allowed(const struct set_field *f, u32 x)
 {
     return !f->allowed || !*f->allowed || (x < 32 && (*f->allowed >> x & 1));
+}
+
+static int mask_has(u32 mask, u32 all, u8 x)
+{
+    return x < 32 && ((mask ? mask : all) >> x & 1);
+}
+
+int set_radio_ok(u8 radio, u8 type)
+{
+    if (radio == RADIO_OFF || type == PROFILE_NONE) return 1;
+    if (radio > RADIO_DONGLE || !mask_has(board_slots.radios, ~0u, radio)) return 0;
+    if (radio == RADIO_DONGLE) return type < 32 && (PROFILE_USB_TYPES >> type & 1);
+    return type < PROFILE_NONE && mask_has(board_slots.radio_types, ~0u, type);
+}
+
+int set_usb_ok(u8 type)
+{
+    return type == PROFILE_NONE || (type < 32 && (PROFILE_USB_TYPES >> type & 1) &&
+                                    mask_has(board_slots.usb_types, ~0u, type));
+}
+
+/* The fields' masks: every type some radio or the cable takes, and none. */
+static void set_masks(void)
+{
+    u8 x;
+
+    radio_types = usb_types = 1u << PROFILE_NONE;
+    for (x = 0; x < PROFILE_NONE; x++) {
+        if (set_usb_ok(x)) usb_types |= 1u << x;
+        /* with the radio off, the USB type's own host (a Switch 2 woken by radio) */
+        if (set_radio_ok(RADIO_BLUETOOTH, x) || set_radio_ok(RADIO_DONGLE, x) || set_usb_ok(x))
+            radio_types |= 1u << x;
+    }
 }
 
 static u32 field_max(const struct set_field *f)
@@ -635,19 +685,16 @@ static void reset_keeping_pairing(u8 t)
 {
     u32 n, i;
     const struct set_field *f = fields_of(t, &n);
-    u8 type, transport;
+    u8 host;
 
     if (t >= SLOTS) {
         reset(t);
         return;
     }
-    type = slots[t].type;
-    transport = slots[t].transport;
+    host = set_radio_host(slots[t].radio, slots[t].radio_type);
     for (i = 0; i < n; i++)
         if (f[i].id != ID_ADDRESS && f[i].id != ID_BOND) put(t, &f[i], i, NULL, 0);
-    if ((slots[t].type != type && !set_via_dongle(transport)) ||
-        set_via_dongle(transport) != set_via_dongle(slots[t].transport))
-        renew_identity(t);
+    if (set_radio_host(slots[t].radio, slots[t].radio_type) != host) renew_identity(t);
 }
 
 /* ---- records ------------------------------------------------------------------
@@ -669,7 +716,7 @@ static u32 encode(u8 t, u32 part, u8 *out)
     }
     out[0] = (u8)MAGIC;
     out[1] = (u8)(MAGIC >> 8);
-    out[2] = VERSION;
+    out[2] = t < SLOTS ? SLOT_RECORDS : RECORD_VERSION;
     out[3] = (u8)used;
     return used;
 }
@@ -679,7 +726,7 @@ static u32 record_field(u8 t, const u8 *in, u32 len, u8 id, const u8 **value)
 {
     u32 used, o, bit, found = 0;
 
-    if (len < 4 || (in[0] | in[1] << 8) != MAGIC || in[2] != VERSION) return 0;
+    if (len < 4 || (in[0] | in[1] << 8) != MAGIC || (in[2] != RECORD_VERSION && in[2] != SLOT_RECORDS)) return 0;
     used = in[3] < len ? in[3] : len;
     for (o = 4; o + 2 <= used && o + 2u + in[o + 1] <= used; o += 2u + in[o + 1])
         if (in[o] == id && in[o + 1] && check(find(t, id, &bit), in + o + 2, in[o + 1]) == SET_OK) {
@@ -799,6 +846,39 @@ static void base_value(const struct set_field *f, u8 *out)
 }
 #endif
 
+/* A slot stored before radio and usb_type (a version 1 record): its
+ * transport, stored or the board's default (what radio and usb_type default
+ * to now), read into them with the type it had. */
+static void old_transport(u8 t, const u8 *in, u32 len)
+{
+    static const u8 radio[] = { RADIO_BLUETOOTH, RADIO_OFF, RADIO_BLUETOOTH, RADIO_DONGLE, RADIO_DONGLE };
+    u32 used, o, bit;
+    u8 v[2], type = slots[t].radio_type, old, found = 0;
+    const struct set_field *f = find(t, ID_RADIO, &bit);
+
+    if (len < 4 || (in[0] | in[1] << 8) != MAGIC || in[2] != OLD_RECORDS) return;
+    /* the old default: +usb where the board has a USB type */
+    old = (u8)(board_slots.radio[t] == RADIO_DONGLE ? 3 : board_slots.radio[t] == RADIO_OFF ? 1 : 0);
+    if (old != 1 && board_slots.usb_type[t] != PROFILE_NONE) old++;
+    used = in[3] < len ? in[3] : len;
+    for (o = 4; o + 2 <= used && o + 2u + in[o + 1] <= used; o += 2u + in[o + 1]) {
+        if (in[o + 1] != 1) continue;
+        if (in[o] == ID_OLD_TRANSPORT && in[o + 2] < sizeof(radio)) old = in[o + 2], found = 1;
+        if (in[o] == ID_RADIO_TYPE) type = in[o + 2], found = 1;  /* also one this board's radio no longer takes */
+    }
+    if (!found) return;          /* the defaults: as they were */
+    v[0] = radio[old];
+    v[1] = old == 0 || old == 3 ? PROFILE_NONE : type;
+    /* a transport the board never took was ignored then: its default now */
+    if (!mask_has(board_slots.radios, ~0u, v[0])) v[0] = (u8)board_slots.radio[t];
+    if (!set_radio_ok(v[0], type)) v[0] = mask_has(board_slots.radios, ~0u, RADIO_OFF) ? RADIO_OFF : (u8)board_slots.radio[t];
+    if (!set_usb_ok(v[1])) v[1] = PROFILE_NONE;
+    put(t, f, bit, &v[0], 1);
+    f = find(t, ID_USB_TYPE, &bit);
+    put(t, f, bit, &v[1], 1);
+    util_log("settings: slot %u transport %u read as radio %u usb_type %u", t, old, v[0], v[1]);
+}
+
 void set_init(void)
 {
     u8 buf[RECORD_MAX];
@@ -810,6 +890,7 @@ void set_init(void)
     remap_held = 0;              /* read in when wanted */
 #endif
     tried = 0;
+    set_masks();
     for (t = 0; t < TARGET_REMAP; t++) {
         if (!stored(t)) continue;
         reset(t);
@@ -817,6 +898,7 @@ void set_init(void)
             memset(buf, 0, sizeof(buf));
             n = plat_store_read(key_of(t, part), buf, sizeof(buf));
             if (n > 0) set_bits[t] |= unpack(t, buf, (u32)n, values_of(t), ~0u);
+            if (n > 0 && t < SLOTS) old_transport(t, buf, (u32)n);
         }
     }
     if (!(set_bits[TARGET_CAL] & 1)) util_log("settings: calibration required");
@@ -901,13 +983,12 @@ void set_slot_address(u8 slot, u8 out[6])
 {
     const u8 *seed = plat_unique_id();
     /* Through the dongle the type can change under the same host. */
-    u8 salt[3] = { (u8)(slot % SLOTS), set_via_dongle(set_slot(slot)->transport) ? 0xff :
-                                       set_slot(slot)->type, 0 };
+    u8 salt[3] = { (u8)(slot % SLOTS), set_radio_host(set_slot(slot)->radio, set_slot(slot)->radio_type), 0 };
     u32 a, b;
 
     if (!util_is_zero(set_slot(slot)->address, 6)) {
         memcpy(out, set_slot(slot)->address, 6);
-        if (board_slots.static_random && set_slot(slot)->type != PROFILE_SWITCH2) out[5] |= 0xc0;
+        if (board_slots.static_random && set_slot(slot)->radio_type != PROFILE_SWITCH2) out[5] |= 0xc0;
         return;
     }
     a = fnv1a(fnv1a(2166136261u, seed, 16), salt, 3);
@@ -915,7 +996,7 @@ void set_slot_address(u8 slot, u8 out[6])
     memcpy(out, &a, 4);
     memcpy(out + 4, &b, 2);
     out[5] = (u8)((out[5] | 0x02) & 0xfe);
-    if (board_slots.static_random && set_slot(slot)->type != PROFILE_SWITCH2) out[5] |= 0xc0;
+    if (board_slots.static_random && set_slot(slot)->radio_type != PROFILE_SWITCH2) out[5] |= 0xc0;
 }
 
 /* Roll all address bytes from the complete previous identity and current tick,
@@ -931,7 +1012,7 @@ static void set_slot_new_address(u8 slot, u8 out[6])
     memcpy(out, &a, 4);
     memcpy(out + 4, &b, 2);
     out[5] = (u8)((out[5] | 0x02) & 0xfe);
-    if (board_slots.static_random && set_slot(slot)->type != PROFILE_SWITCH2) out[5] |= 0xc0;
+    if (board_slots.static_random && set_slot(slot)->radio_type != PROFILE_SWITCH2) out[5] |= 0xc0;
 }
 
 /* First pairing uses the inspectable identity; replacing a bond may renew it. */
@@ -989,6 +1070,32 @@ void set_cal_store(const struct set_cal *c)
  * SET_UNPAIR (len 0, slot only) clears the bond and generates a new address.
  * commit applies them in order. */
 
+/* The radio and radio type slot t has once items (as staged) are applied. */
+static void radio_after(u8 t, const u8 *in, u32 len, u8 *radio, u8 *type)
+{
+    u32 o, bit;
+
+    for (o = 0; o + 3 <= len && o + 3u + in[o + 2] <= len; o += 3u + in[o + 2]) {
+        u8 id = in[o + 1], l = in[o + 2];
+
+        if (in[o] != t) continue;
+        if (id == 0 || id == ID_RADIO) *radio = (u8)(l == 1 ? in[o + 3] : field_def(find(t, ID_RADIO, &bit), t));
+        if (id == 0 || id == ID_RADIO_TYPE)
+            *type = (u8)(l == 1 ? in[o + 3] : field_def(find(t, ID_RADIO_TYPE, &bit), t));
+    }
+}
+
+/* A radio and type the board cannot run together are refused, as they stand
+ * after everything staged and the rest of this write (either order). */
+static u8 check_radio(u8 t, const u8 *in, u32 len)
+{
+    u8 radio = slots[t].radio, type = slots[t].radio_type;
+
+    radio_after(t, stage, staged, &radio, &type);
+    radio_after(t, in, len, &radio, &type);
+    return set_radio_ok(radio, type) ? SET_OK : SET_RANGE;
+}
+
 u32 set_write(const u8 *in, u32 len, u8 *results, u32 max)
 {
     u32 o = 0, n = 0, bit;
@@ -1003,6 +1110,7 @@ u32 set_write(const u8 *in, u32 len, u8 *results, u32 max)
         else if (ephemeral_refuses(t)) r = SET_NOT_HELD;
         else if (id == 0 || id == SET_UNPAIR) r = l ? SET_BAD_LENGTH : SET_OK;
         else r = check(f, in + o + 3, l);
+        if (r == SET_OK && t < SLOTS && (id == ID_RADIO || id == ID_RADIO_TYPE)) r = check_radio(t, in, len);
         if (r == SET_OK && staged + 3u + l > STAGE_MAX) r = SET_FULL;
         if (r == SET_OK) {
             memcpy(stage + staged, in + o, 3u + l);
@@ -1032,20 +1140,15 @@ void set_apply(void)
         } else if (id == 0) {
             reset_keeping_pairing(t);
         } else {
-            f = find(t, id, &bit);
-            u8 v = (u8)(l ? stage[o + 3] : field_def(f, t));
+            u8 host = t < SLOTS ? set_radio_host(slots[t].radio, slots[t].radio_type) : 0;
 
-            /* A new type is a new device to the console: the old address
-             * and bond belong to the old one.  Through the dongle the host
-             * stays the dongle, whatever the type; moving to or from the
-             * dongle changes the host (dongle and dongle+usb share it). */
-            if (t < SLOTS && ((id == ID_TYPE && v != slots[t].type &&
-                               !set_via_dongle(slots[t].transport)) ||
-                              (id == ID_TRANSPORT && set_via_dongle(v) !=
-                               set_via_dongle(slots[t].transport)))) {
-                renew_identity(t);
-            }
+            /* A new Bluetooth type is a new device to the console: the old
+             * address and bond belong to the old one.  Through the dongle
+             * the host stays the dongle, whatever it shows; usb_type and
+             * turning the radio off keep them. */
+            f = find(t, id, &bit);
             put(t, f, bit, stage + o + 3, l);
+            if (t < SLOTS && set_radio_host(slots[t].radio, slots[t].radio_type) != host) renew_identity(t);
         }
         touch(t);
     }
@@ -1204,11 +1307,13 @@ const struct board_led_brightness board_led_brightness = {
     .idle = 200, .battery = 200,
 };
 const struct board_slots board_slots = {
-    .type = { PROFILE_GENERIC_BLE, PROFILE_DS5, PROFILE_XBOX, PROFILE_SWITCH2,
-              PROFILE_NONE, PROFILE_NONE, PROFILE_NONE, PROFILE_NONE },
-    .transport = { TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_DONGLE, TRANSPORT_BT_USB,
-                   TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_BT_USB },
-    .types = ~(1u << PROFILE_MOUSE),            /* one the board does not take */
+    .radio = { RADIO_BLUETOOTH, RADIO_BLUETOOTH, RADIO_DONGLE, RADIO_BLUETOOTH,
+               RADIO_BLUETOOTH, RADIO_BLUETOOTH, RADIO_BLUETOOTH, RADIO_BLUETOOTH },
+    .radio_type = { PROFILE_GENERIC_BLE, PROFILE_DS5, PROFILE_XBOX, PROFILE_SWITCH2,
+                    PROFILE_NONE, PROFILE_NONE, PROFILE_NONE, PROFILE_NONE },
+    .usb_type = { PROFILE_GENERIC_BLE, PROFILE_DS5, PROFILE_NONE, PROFILE_SWITCH2,
+                  PROFILE_NONE, PROFILE_NONE, PROFILE_NONE, PROFILE_NONE },
+    .radio_types = ~(1u << PROFILE_MOUSE | 1u << PROFILE_DS4),   /* ones the board's Bluetooth does not take */
     .static_random = SLOTS_STORED < SLOTS,
 };
 const struct board_rumble board_rumble = {
@@ -1238,6 +1343,65 @@ static u32 write1(u8 t, u8 id, u8 len, const void *v)
 }
 
 /* Every record of a kept target fits with every field set. */
+/* Records from before radio and usb_type: each old transport read once. */
+static void old_transports(void)
+{
+    static const u8 old[][3] = {         /* type, transport; then radio, usb_type */
+        { PROFILE_SWITCH, 0 }, { PROFILE_XBOX, 1 }, { PROFILE_DS5, 2 }, { PROFILE_SWITCH2, 3 },
+        { PROFILE_GENERIC, 4 }, { PROFILE_DS4, 2 }, { PROFILE_MOUSE, 2 },
+    };
+    static const u8 want[][2] = {
+        { RADIO_BLUETOOTH, PROFILE_NONE }, { RADIO_OFF, PROFILE_XBOX }, { RADIO_BLUETOOTH, PROFILE_DS5 },
+        { RADIO_DONGLE, PROFILE_NONE }, { RADIO_DONGLE, PROFILE_GENERIC },
+        { RADIO_OFF, PROFILE_DS4 },               /* not this board's Bluetooth: only its USB */
+        { RADIO_OFF, PROFILE_NONE },              /* neither half on this board */
+    };
+    u8 t, rec[10] = { (u8)MAGIC, (u8)(MAGIC >> 8), OLD_RECORDS, 10, ID_RADIO_TYPE, 1, 0, ID_OLD_TRANSPORT, 1, 0 };
+
+    for (t = 0; t < COUNT(old) && t < SLOTS_STORED; t++) {
+        rec[6] = old[t][0];
+        rec[9] = old[t][1];
+        plat_store_write(key_of(t, 0), rec, sizeof(rec));
+    }
+    set_init();
+    for (t = 0; t < COUNT(old) && t < SLOTS_STORED; t++) {
+        CHECK(set_slot(t)->radio == want[t][0] && set_slot(t)->usb_type == want[t][1]);
+        CHECK(set_bits[t] & bit_of(t, ID_RADIO) && set_bits[t] & bit_of(t, ID_USB_TYPE));
+    }
+    CHECK(set_slot(5)->radio_type == PROFILE_DS4 || SLOTS_STORED <= 5);
+    /* A type changed, the transport left at the board's default: the cable
+     * followed the type, and still does; a dongle slot's has no USB. */
+    rec[3] = 7;
+    rec[6] = PROFILE_DS4;
+    plat_store_write(key_of(0, 0), rec, 7);
+    rec[6] = PROFILE_SWITCH;
+    plat_store_write(key_of(2, 0), rec, 7);
+    rec[2] = SLOT_RECORDS;                       /* written since: as it says */
+    plat_store_write(key_of(1, 0), rec, 7);
+    set_init();
+    CHECK(set_slot(0)->radio == RADIO_OFF && set_slot(0)->usb_type == PROFILE_DS4);    /* DS4: not its Bluetooth */
+    CHECK(set_slot(2)->radio == RADIO_DONGLE && set_slot(2)->usb_type == PROFILE_NONE &&
+          set_slot(2)->radio_type == PROFILE_SWITCH);
+    CHECK(set_slot(1)->radio == board_slots.radio[1] && set_slot(1)->usb_type == board_slots.usb_type[1] &&
+          !(set_bits[1] & bit_of(1, ID_RADIO)) && set_slot(1)->radio_type == PROFILE_SWITCH);
+    rec[2] = OLD_RECORDS;
+    rec[3] = 10;
+    /* Written back without the old row; a later change of the type is not read as one. */
+    touch(0);
+    set_flush();
+    t = 0;
+    CHECK(write1(0, ID_RADIO_TYPE, 1, &t) == SET_OK);    /* switch */
+    set_apply();
+    set_flush();
+    set_init();
+    CHECK(set_slot(0)->radio == RADIO_OFF && set_slot(0)->usb_type == PROFILE_DS4 && set_slot(0)->radio_type == PROFILE_SWITCH);
+    for (t = 0; t < SLOTS_STORED; t++) {
+        reset(t);
+        touch(t);
+    }
+    set_flush();
+}
+
 static void records_fit(void)
 {
     u32 t, worst = 4;
@@ -1311,11 +1475,11 @@ static int full_storage(void)
     records_fit();
 
     set_init();
-    CHECK(set_slot(0)->type == PROFILE_GENERIC_BLE && set_slot(1)->type == PROFILE_DS5);
-    CHECK(set_slot(2)->type == PROFILE_XBOX && set_slot(3)->type == PROFILE_SWITCH2);
-    CHECK(set_slot(0)->transport == TRANSPORT_BT_USB && set_slot(1)->transport == TRANSPORT_BT_USB);
-    CHECK(set_slot(2)->transport == TRANSPORT_DONGLE && set_slot(3)->transport == TRANSPORT_BT_USB);
-    for (t = 4; t < SLOTS; t++) CHECK(set_slot(t)->type == PROFILE_NONE);
+    CHECK(set_slot(0)->radio_type == PROFILE_GENERIC_BLE && set_slot(1)->radio_type == PROFILE_DS5);
+    CHECK(set_slot(2)->radio_type == PROFILE_XBOX && set_slot(3)->radio_type == PROFILE_SWITCH2);
+    CHECK(set_slot(0)->radio == RADIO_BLUETOOTH && set_slot(0)->usb_type == PROFILE_GENERIC_BLE);
+    CHECK(set_slot(2)->radio == RADIO_DONGLE && set_slot(2)->usb_type == PROFILE_NONE);
+    for (t = 4; t < SLOTS; t++) CHECK(set_slot(t)->radio_type == PROFILE_NONE && set_slot(t)->usb_type == PROFILE_NONE);
     CHECK(set_slot(1)->link.in_flight == 2 && set_slot(7)->link.poll_us == 3750);
     /* Inspecting an unused slot reveals its first pairing identity without
      * saving it. Classic and LE replacements can still request a new one. */
@@ -1393,7 +1557,7 @@ static int full_storage(void)
         CHECK(set_remap(1)->rumble == 2);
         /* Stored under its own keys, and followed again after a restart. */
         set_flush();
-        CHECK(store[KEY_BASE][2] == VERSION && store[KEY_BASE_STICKS][2] == VERSION);
+        CHECK(store[KEY_BASE][2] == RECORD_VERSION && store[KEY_BASE_STICKS][2] == RECORD_VERSION);
         memset(&remap, 0, sizeof(remap));
         set_init();
         CHECK(set_remap(3)->rumble == 2 && set_remap(3)->map[3] == REMAP_OFF && set_remap(0)->map[3] == 4 + 1);
@@ -1505,7 +1669,7 @@ static int full_storage(void)
     store[key_of(2, 0)][3] = 4 + 3 + 3;
     store[key_of(2, 0)][0] = (u8)MAGIC;
     store[key_of(2, 0)][1] = MAGIC >> 8;
-    store[key_of(2, 0)][2] = VERSION;
+    store[key_of(2, 0)][2] = RECORD_VERSION;
     store[key_of(2, 0)][4] = 200; store[key_of(2, 0)][5] = 1; store[key_of(2, 0)][6] = 1;
     store[key_of(2, 0)][7] = 14; store[key_of(2, 0)][8] = 1; store[key_of(2, 0)][9] = 4;
     store_len[key_of(2, 0)] = 10;
@@ -1529,16 +1693,16 @@ static int full_storage(void)
     CHECK(write1(0, 1, 1, &x) == SET_OK);
     set_apply();
     set_slot_address(0, b);
-    CHECK(set_bond(0)->peer[0] == 0 && memcmp(a, b, 6) && set_slot(0)->type == PROFILE_XBOX);
+    CHECK(set_bond(0)->peer[0] == 0 && memcmp(a, b, 6) && set_slot(0)->radio_type == PROFILE_XBOX);
     memcpy(n, b, 6);
     x = PROFILE_SWITCH;
-    CHECK(write1(0, ID_TYPE, 1, &x) == SET_OK);
+    CHECK(write1(0, ID_RADIO_TYPE, 1, &x) == SET_OK);
     set_apply();
     set_slot_address(0, b);
     CHECK(memcmp(a, b, 6) && memcmp(n, b, 6));  /* Switch -> Xbox -> Switch never restores a */
     memcpy(n, b, 6);
     x = PROFILE_XBOX;
-    CHECK(write1(0, ID_TYPE, 1, &x) == SET_OK);
+    CHECK(write1(0, ID_RADIO_TYPE, 1, &x) == SET_OK);
     set_apply();
     set_slot_address(0, b);
     CHECK(write1(0, 0, 0, NULL) == SET_OK);    /* resetting type also rolls the identity */
@@ -1599,18 +1763,23 @@ static int full_storage(void)
 
     /* Through the dongle the host stays when the type changes; moving to or
      * from the dongle is a new host.  A dongle slot's address ignores its type. */
-    x = TRANSPORT_DONGLE;
-    CHECK(write1(1, ID_TRANSPORT, 1, &x) == SET_OK);
+    x = RADIO_DONGLE;
+    CHECK(write1(1, ID_RADIO, 1, &x) == SET_OK);
     set_apply();
     set_bond_store(1, &bond);
     set_slot_address(1, a);
-    x = PROFILE_DS5;
-    CHECK(write1(1, ID_TYPE, 1, &x) == SET_OK);
+    x = PROFILE_SWITCH2;
+    CHECK(write1(1, ID_RADIO_TYPE, 1, &x) == SET_OK);
     set_apply();
     set_slot_address(1, b);
     CHECK(set_bond(1)->peer[0] == 0x11 && !memcmp(a, b, 6));
-    x = TRANSPORT_USB;
-    CHECK(write1(1, ID_TRANSPORT, 1, &x) == SET_OK);
+    /* usb_type never touches the pairing. */
+    x = PROFILE_XBOX;
+    CHECK(write1(1, ID_USB_TYPE, 1, &x) == SET_OK);
+    set_apply();
+    CHECK(set_bond(1)->peer[0] == 0x11 && set_slot(1)->usb_type == PROFILE_XBOX);
+    x = RADIO_BLUETOOTH;
+    CHECK(write1(1, ID_RADIO, 1, &x) == SET_OK);
     set_apply();
     CHECK(set_bond(1)->peer[0] == 0);
     reset_keeping_pairing(1);
@@ -1618,45 +1787,58 @@ static int full_storage(void)
     {
         u8 d1[6], d2[6];
 
-        slots[1].transport = TRANSPORT_DONGLE;
-        slots[1].type = PROFILE_SWITCH;
+        slots[1].radio = RADIO_DONGLE;
+        slots[1].radio_type = PROFILE_SWITCH;
         set_slot_address(1, d1);
-        slots[1].type = PROFILE_XBOX;
+        slots[1].radio_type = PROFILE_XBOX;
         set_slot_address(1, d2);
         CHECK(!memcmp(d1, d2, 6));
-        slots[1].transport = TRANSPORT_DONGLE_USB;          /* the same host as dongle */
-        set_slot_address(1, d2);
-        CHECK(!memcmp(d1, d2, 6));
-        slots[1].transport = TRANSPORT_BT;
+        slots[1].radio = RADIO_BLUETOOTH;
         set_slot_address(1, d2);
         CHECK(memcmp(d1, d2, 6));
+        slots[1].radio = RADIO_OFF;           /* off: the Bluetooth host's */
+        set_slot_address(1, d1);
+        CHECK(!memcmp(d1, d2, 6));
     }
-    /* dongle+usb: the dongle's host too.  To and from dongle, or a new type,
-     * keeps the pairing; to bluetooth+usb is a new host. */
-    x = TRANSPORT_DONGLE_USB;
-    CHECK(write1(1, ID_TRANSPORT, 1, &x) == SET_OK);
-    set_apply();
-    CHECK(set_slot(1)->transport == TRANSPORT_DONGLE_USB && set_usb_first(TRANSPORT_DONGLE_USB));
-    set_bond_store(1, &bond);
-    set_slot_address(1, a);
-    x = TRANSPORT_DONGLE;
-    CHECK(write1(1, ID_TRANSPORT, 1, &x) == SET_OK);
-    x = TRANSPORT_DONGLE_USB;
-    CHECK(write1(1, ID_TRANSPORT, 1, &x) == SET_OK);
-    x = PROFILE_SWITCH2;
-    CHECK(write1(1, ID_TYPE, 1, &x) == SET_OK);
-    set_apply();
-    set_slot_address(1, b);
-    CHECK(set_bond(1)->peer[0] == 0x11 && !memcmp(a, b, 6));
-    x = TRANSPORT_BT_USB;
-    CHECK(write1(1, ID_TRANSPORT, 1, &x) == SET_OK);
-    set_apply();
-    set_slot_address(1, b);
-    CHECK(set_bond(1)->peer[0] == 0 && memcmp(a, b, 6));
-    x = TRANSPORT_DONGLE_USB + 1;
-    CHECK(write1(1, ID_TRANSPORT, 1, &x) == SET_RANGE);
     reset_keeping_pairing(1);
     clear(1, ID_ADDRESS);
+    /* Bluetooth to off and back keeps the pairing; dongle to off is a new host. */
+    set_bond_store(1, &bond);
+    x = RADIO_OFF;
+    CHECK(write1(1, ID_RADIO, 1, &x) == SET_OK);
+    set_apply();
+    x = RADIO_BLUETOOTH;
+    CHECK(write1(1, ID_RADIO, 1, &x) == SET_OK);
+    set_apply();
+    CHECK(set_bond(1)->peer[0] == 0x11);
+    x = RADIO_DONGLE + 1;                       /* the receiver: no setting */
+    CHECK(write1(1, ID_RADIO, 1, &x) == SET_RANGE);
+    /* What a radio runs: the board's Bluetooth types, a type with USB through
+     * the dongle, checked as the pair stands after the whole write. */
+    x = PROFILE_DS4;                            /* not this board's Bluetooth */
+    CHECK(write1(1, ID_RADIO_TYPE, 1, &x) == SET_RANGE);
+    {
+        u8 w[] = { 1, ID_RADIO_TYPE, 1, PROFILE_DS4, 1, ID_RADIO, 1, RADIO_DONGLE }, r[2];
+
+        CHECK(set_write(w, sizeof(w), r, 2) == 2 && r[0] == SET_OK && r[1] == SET_OK);
+        set_drop();
+        w[7] = RADIO_OFF;                       /* off runs nothing: any type */
+        CHECK(set_write(w, sizeof(w), r, 2) == 2 && r[0] == SET_OK && r[1] == SET_OK);
+        set_drop();
+    }
+    x = RADIO_DONGLE;
+    CHECK(write1(1, ID_RADIO, 1, &x) == SET_OK);
+    x = PROFILE_MOUSE;                          /* no USB: not through the dongle */
+    CHECK(write1(1, ID_RADIO_TYPE, 1, &x) == SET_RANGE);
+    CHECK(write1(1, ID_USB_TYPE, 1, &x) == SET_RANGE);
+    set_drop();
+    CHECK(set_radio_ok(RADIO_BLUETOOTH, PROFILE_SWITCH) && !set_radio_ok(RADIO_BLUETOOTH, PROFILE_DS4));
+    CHECK(set_radio_ok(RADIO_DONGLE, PROFILE_DS4) && !set_radio_ok(RADIO_DONGLE, PROFILE_MOUSE));
+    CHECK(!set_radio_ok(RADIO_RECEIVER, PROFILE_XBOX) && set_radio_ok(RADIO_OFF, PROFILE_MOUSE));
+    CHECK(set_usb_ok(PROFILE_NONE) && set_usb_ok(PROFILE_DS4) && !set_usb_ok(PROFILE_MOUSE));
+    reset_keeping_pairing(1);
+    clear(1, ID_ADDRESS);
+    old_transports();
 
 #if LEDS_MONO
     /* One-colour lights: no palette, no slot colours. */
@@ -1719,7 +1901,8 @@ static int full_storage(void)
 
 
     /* Describe and read. */
-    CHECK(set_describe(0, buf, sizeof(buf)) > 8 && buf[2] == 1 && !strcmp((char *)buf + 8, "type"));
+    CHECK(set_describe(0, buf, sizeof(buf)) > 8 && buf[2] == ID_RADIO && !strcmp((char *)buf + 8, "radio"));
+    CHECK(set_describe(1, buf, sizeof(buf)) > 8 && buf[2] == 1 && !strcmp((char *)buf + 8, "radio_type"));
     {   /* the type's names: mouse, which the board does not take, empty */
         const char *s = (const char *)buf + 8;
         u32 k;
@@ -1727,9 +1910,9 @@ static int full_storage(void)
         for (k = 0; k < 2 + PROFILE_MOUSE; k++) s += strlen(s) + 1;
         CHECK(!*s && !strcmp(s + 1, "none"));
         x = PROFILE_MOUSE;
-        CHECK(write1(0, ID_TYPE, 1, &x) == SET_RANGE);
+        CHECK(write1(0, ID_RADIO_TYPE, 1, &x) == SET_RANGE);
         x = PROFILE_GENERIC;
-        CHECK(write1(0, ID_TYPE, 1, &x) == SET_OK);
+        CHECK(write1(0, ID_RADIO_TYPE, 1, &x) == SET_OK);
         set_drop();
     }
     CHECK(set_describe(COUNT(slot_fields), buf, sizeof(buf)) && buf[1] == (LEDS_MONO ? 2 : 1));
@@ -1851,25 +2034,25 @@ static int reduced_storage(void)
     for (t = 0; t < SLOTS_STORED; t++) {
         u32 j;
         set_slot_address(t, addresses[t]);
-        if (set_slot(t)->type != PROFILE_SWITCH2) CHECK((addresses[t][5] & 0xc0) == 0xc0);
+        if (set_slot(t)->radio_type != PROFILE_SWITCH2) CHECK((addresses[t][5] & 0xc0) == 0xc0);
         for (j = 0; j < t; j++) CHECK(memcmp(addresses[t], addresses[j], 6));
         set_pairing_address(t, 0, pair);
         CHECK(!memcmp(pair, addresses[t], 6));
     }
-    if (SLOTS_STORED > 3 && set_slot(3)->type == PROFILE_SWITCH2) {
+    if (SLOTS_STORED > 3 && set_slot(3)->radio_type == PROFILE_SWITCH2) {
         static const u8 public_address[6] = { 1, 2, 3, 4, 5, 0x12 };
         CHECK(write1(3, ID_ADDRESS, 6, public_address) == SET_OK);
         set_apply(); set_slot_address(3, pair);
         CHECK(!memcmp(pair, public_address, 6));
     }
     for (t = 0; t < SLOTS; t++)
-        CHECK(set_slot(t)->type == (t < SLOTS_STORED ? board_slots.type[t] : PROFILE_NONE));
+        CHECK(set_slot(t)->radio_type == (t < SLOTS_STORED ? board_slots.radio_type[t] : PROFILE_NONE));
     /* Not kept: no values to read (defaults only), writes refused, nothing stored. */
     CHECK(set_read(SLOTS_STORED, buf, sizeof(buf)) == 3 && buf[1] == SLOTS_STORED && !buf[2]);
     CHECK(set_read(TARGET_REMAP + REMAPS_STORED, buf, sizeof(buf)) == 3 && !buf[2]);
     CHECK(set_read_defaults(SLOTS_STORED, buf, sizeof(buf)) > 3 && buf[1] == SLOTS_STORED);
-    CHECK(buf[3] == ID_TYPE && !buf[4] && buf[6] == board_slots.type[SLOTS_STORED]);
-    CHECK(write1(SLOTS_STORED, ID_TYPE, 1, &type) == SET_UNKNOWN);
+    CHECK(buf[3] == ID_RADIO && buf[7] == ID_RADIO_TYPE && !buf[8] && buf[10] == board_slots.radio_type[SLOTS_STORED]);
+    CHECK(write1(SLOTS_STORED, ID_RADIO_TYPE, 1, &type) == SET_UNKNOWN);
     CHECK(write1(TARGET_REMAP + REMAPS_STORED, 18, 1, &rumble) == SET_UNKNOWN);
     memset(&bond, 0x11, sizeof(bond));
     set_bond_store(SLOTS_STORED, &bond);
@@ -1889,18 +2072,18 @@ static int reduced_storage(void)
     }
 #endif
     /* Kept: as on every board, and back after a restart. */
-    CHECK(write1(0, ID_TYPE, 1, &type) == SET_OK);
+    CHECK(write1(0, ID_RADIO_TYPE, 1, &type) == SET_OK);
 #if REMAP_BASE_STORED
     CHECK(write1(TARGET_BASE, 18, 1, &rumble) == SET_OK);
 #endif
     set_apply();
     set_poll(ms, 1);
-    CHECK(set_slot(0)->type == PROFILE_XBOX_BLE);
+    CHECK(set_slot(0)->radio_type == PROFILE_XBOX_BLE);
 #if REMAP_BASE_STORED
     CHECK(set_remap(REMAPS_STORED)->rumble == 4);
 #endif
     set_init();
-    CHECK(set_slot(0)->type == PROFILE_XBOX_BLE);
+    CHECK(set_slot(0)->radio_type == PROFILE_XBOX_BLE);
 #if REMAP_BASE_STORED
     CHECK(set_remap(REMAP_BASE)->rumble == 4);
 #endif

@@ -89,3 +89,18 @@ class Layout(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OldSlotTest(unittest.TestCase):
+    def test_transport_becomes_radio_and_usb_type(self):
+        v = {"type": {"value": "switch2", "set": True}, "transport": {"value": "bluetooth+usb", "set": True},
+             "grips": {"value": "off", "set": False}}
+        n = padtool.old_slot(v)
+        self.assertEqual(n["radio"]["value"], "bluetooth")
+        self.assertEqual(n["radio_type"]["value"], "switch2")
+        self.assertEqual(n["usb_type"]["value"], "switch2")
+        self.assertNotIn("transport", n)
+        self.assertEqual(padtool.old_slot({"type": v["type"], "transport": {"value": "dongle", "set": False}})
+                         ["usb_type"]["value"], "none")
+        self.assertEqual(padtool.old_slot({"transport": {"value": "usb", "set": True}})["radio"]["value"], "off")
+        self.assertIs(padtool.old_slot(n), n)

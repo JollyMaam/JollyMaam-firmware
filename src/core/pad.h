@@ -479,22 +479,25 @@ const struct profile *profile_for(u8 type);
 enum { PROFILE_SWITCH, PROFILE_SWITCH2, PROFILE_XBOX, PROFILE_XBOX_BLE, PROFILE_DS5,
        PROFILE_DS5EDGE, PROFILE_DS5EDGE_BLE, PROFILE_DS4, PROFILE_GENERIC, PROFILE_GENERIC_BLE,
        PROFILE_MOUSE, PROFILE_NONE, PROFILE_COUNT };
-/* How a slot reaches its host: Bluetooth; USB (a wired controller); USB while
- * a USB host is there, else Bluetooth (a USB session that ends does not move
- * back); through our dongle, which is the slot's type on its own USB port; or
- * USB while a USB host is there, else the dongle. */
-enum { TRANSPORT_BT, TRANSPORT_USB, TRANSPORT_BT_USB, TRANSPORT_DONGLE, TRANSPORT_DONGLE_USB };
+/* Which wireless host a slot has: none; Bluetooth (the radio type's own
+ * device); or our dongle, which is the radio type on its USB port.
+ * RADIO_RECEIVER is no setting: the 8BitDo's rear switch on 2.4G makes every
+ * session the stock receiver's (controller_lite.c), whatever the slot says. */
+enum { RADIO_OFF, RADIO_BLUETOOTH, RADIO_DONGLE, RADIO_RECEIVER };
+/* The types with a USB half (a profile's .usb): what a cable or our dongle
+ * can show; the mouse is Bluetooth only.  The settings take these; the
+ * controller and the dongle still check .usb. */
+#define PROFILE_USB_TYPES (((1u << PROFILE_COUNT) - 1) & ~(1u << PROFILE_MOUSE | 1u << PROFILE_NONE))
 
-/* bluetooth+usb, dongle+usb: USB while a USB host is there, else the radio. */
-static inline int set_usb_first(u8 transport)
+/* What this board can run, settings.c: a radio and type pair, a USB type
+ * (PROFILE_NONE: off, always fine). */
+int set_radio_ok(u8 radio, u8 type);
+int set_usb_ok(u8 type);
+/* The host behind a slot's address and bond: a Bluetooth type, or the dongle
+ * whatever it shows (0xff).  Off keeps the Bluetooth one. */
+static inline u8 set_radio_host(u8 radio, u8 type)
 {
-    return transport == TRANSPORT_BT_USB || transport == TRANSPORT_DONGLE_USB;
-}
-
-/* dongle, dongle+usb: the radio's host is our dongle, whatever the type. */
-static inline int set_via_dongle(u8 transport)
-{
-    return transport == TRANSPORT_DONGLE || transport == TRANSPORT_DONGLE_USB;
+    return radio == RADIO_DONGLE ? 0xff : type;
 }
 enum { GRIPS_OFF, GRIPS_HOST, GRIPS_FADE, GRIPS_RUMBLE, GRIPS_INPUT, GRIPS_BOTH,
        GRIPS_PRIMARY, GRIPS_SECONDARY, GRIPS_RAINBOW, GRIPS_HEARTBEAT };
@@ -515,9 +518,12 @@ struct set_brightness {
  * and passes calibrated input through exactly. */
 #define STICK_CURVE_POINTS 15
 
+/* A slot: a wireless host (radio, radio_type) and what a USB host on the
+ * cable sees (usb_type).  A USB host there wins: USB when usb_type is set and
+ * a host talks on the bus, else the radio. */
 struct set_slot {
-    u8 type;
-    u8 transport;
+    u8 radio_type;           /* PROFILE_*: what the Bluetooth host, or the dongle's USB host, sees */
+    u8 radio;                /* RADIO_* */
     u8 connect_colour;                   /* palette entries: connecting, pairing; which slot */
     u8 primary_colour;                   /* connected */
     u8 secondary_colour;                 /* the background */
@@ -535,6 +541,7 @@ struct set_slot {
     struct bt_link link;
     u8 remap;                /* the remap slot each connect starts with: 0 none, 1-8 slots south-right */
     u8 usb_audio;            /* USB_SOUND_*: the personality's sound card on USB */
+    u8 usb_type;             /* PROFILE_*: what a USB host on the cable sees; PROFILE_NONE: no USB */
 };
 
 
@@ -812,13 +819,14 @@ struct board_rumble {
 };
 extern const struct board_rumble board_rumble;
 
-/* The board's default type and transport for each slot (PROFILE_*,
- * TRANSPORT_*): what its radio and USB can be. */
+/* The board's defaults for each slot (RADIO_*, PROFILE_*) and what it runs:
+ * radios 1 << RADIO_*, radio_types the types its Bluetooth runs (through the
+ * dongle: any of PROFILE_USB_TYPES), usb_types the types its cable runs, 1 <<
+ * PROFILE_*.  0: all (radio_types: all with a Bluetooth half; usb_types: all
+ * of PROFILE_USB_TYPES).  The tools see only these. */
 struct board_slots {
-    u32 type[SLOTS], transport[SLOTS];
-    /* The types and transports this board runs, 1 << PROFILE_* and
-     * 1 << TRANSPORT_*; 0: all.  The tools see only these. */
-    u32 types, transports;
+    u32 radio[SLOTS], radio_type[SLOTS], usb_type[SLOTS];
+    u32 radios, radio_types, usb_types;
     u8 static_random;           /* use LE static random identities, except Switch 2 (public) */
 };
 extern const struct board_slots board_slots;

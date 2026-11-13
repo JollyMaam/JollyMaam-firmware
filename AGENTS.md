@@ -86,9 +86,16 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   read, and `usb.c` reads and writes settings.  Everything a profile needs
   arrives in `struct pad`, so the dongle can run the same profiles on its USB
   port from the pad's state.
-- **Slots and transports.**  A slot is a saved connection: a profile type,
-  a transport (Bluetooth, USB, our dongle, or USB-else-wireless), a bond and
-  an address.  Remap slots are separate and apply on top of any connection.
+- **Slots: a radio side and a USB side.**  A slot is a saved connection:
+  `radio` (off, Bluetooth, or our dongle) with `radio_type` (what that host
+  sees; through the dongle, what the dongle shows on its USB port), and
+  `usb_type` (what a USB host on the cable sees, or none), a bond and an
+  address.  A USB host on the cable wins while `usb_type` is set; a pairing
+  always uses the radio.  The board's `board_slots` says which radios and
+  types each side runs (`set_radio_ok`, `set_usb_ok`).  The 8BitDo
+  Wireless's rear switch on 2.4G overrides every slot (the stock receiver,
+  `RADIO_RECEIVER`, no setting).  Remap slots are separate and apply on top
+  of any connection.
 - **Newest wins.**  Input is never queued, buttons included.  A dropped report
   beats a late one.  Do not add queues for reports or button changes.
 - **Configuration as data.**  Tunable behaviour lives in readable `const`
@@ -304,6 +311,16 @@ wrong assumption), add it here in a line or two.
 - `s8` in `pad.h` is a plain `char`, which is unsigned on ARM: a `-1` in
   an `s8` table became 255 and saturated the U2C Bluetooth's stick axes.
   ARM builds pass `-fsigned-char`.
+- Jieli USB: the SDK's endpoint write waits, without a timeout, for the
+  endpoint's last packet to be taken.  Switching the USB device (a
+  personality) while the tool device's answer was still on its endpoint hung
+  the main loop until the hang watch reset the pad.  A running session
+  therefore follows its own copy of the slot's settings, not a change made
+  over the tool device.
+- `jollymaam update` takes the build from `build/firmware.zip` (or
+  `--package`); `make u2cw` and the like do not rebuild the zip (`make
+  build/firmware.zip`).  The U2CB's tool device takes at most 40 bytes a
+  write: `padtool update` fails on it; use `jollymaam`.
 - Never search the whole filesystem (`/`, `/proc`, `/sys`, `/dev`): it has
   disturbed the host.
 - BR23 VBAT: the SDK truncates its 16-sample average to an ADC code before

@@ -75,14 +75,19 @@ const struct board_rumble board_rumble = {
  * personalities; no Switch 2 one): Switch Pro, generic HID, DualShock 4,
  * DualSense, Xbox; each slot USB while a host is there, else Bluetooth. */
 const struct board_slots board_slots = {
-    .type = { PROFILE_SWITCH, PROFILE_GENERIC, PROFILE_DS4, PROFILE_DS5,   /* A B X Y */
-              PROFILE_NONE, PROFILE_NONE, PROFILE_NONE, PROFILE_NONE },
-    .transport = { TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_BT_USB,
-                   TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_BT_USB, TRANSPORT_BT_USB },
-    .types = 1u << PROFILE_SWITCH | 1u << PROFILE_GENERIC | 1u << PROFILE_DS4 |
-             1u << PROFILE_DS5 | 1u << PROFILE_MOUSE | 1u << PROFILE_XBOX | 1u << PROFILE_SWITCH2 |
-             1u << PROFILE_NONE,
-    .transports = 1u << TRANSPORT_BT | 1u << TRANSPORT_USB | 1u << TRANSPORT_BT_USB,
+    .radio = { RADIO_BLUETOOTH, RADIO_BLUETOOTH, RADIO_BLUETOOTH, RADIO_BLUETOOTH,
+               RADIO_BLUETOOTH, RADIO_BLUETOOTH, RADIO_BLUETOOTH, RADIO_BLUETOOTH },
+    .radio_type = { PROFILE_SWITCH, PROFILE_GENERIC, PROFILE_DS4, PROFILE_DS5,   /* A B X Y */
+                    PROFILE_NONE, PROFILE_NONE, PROFILE_NONE, PROFILE_NONE },
+    .usb_type = { PROFILE_SWITCH, PROFILE_GENERIC, PROFILE_DS4, PROFILE_DS5,
+                  PROFILE_NONE, PROFILE_NONE, PROFILE_NONE, PROFILE_NONE },
+    .radios = 1u << RADIO_OFF | 1u << RADIO_BLUETOOTH,
+    /* Classic and LE without 2M: no Switch 2 over the air; and its USB has
+     * no bulk endpoints (usb_yc3121.c): no Switch 2 on the cable either */
+    .radio_types = 1u << PROFILE_SWITCH | 1u << PROFILE_GENERIC | 1u << PROFILE_DS4 |
+                   1u << PROFILE_DS5 | 1u << PROFILE_MOUSE | 1u << PROFILE_XBOX,
+    .usb_types = 1u << PROFILE_SWITCH | 1u << PROFILE_GENERIC | 1u << PROFILE_DS4 |
+                 1u << PROFILE_DS5 | 1u << PROFILE_XBOX,
 };
 
 /* ---- the wiring ------------------------------------------------------------ */

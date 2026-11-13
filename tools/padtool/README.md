@@ -223,8 +223,10 @@ three seconds pairs it with a renewed identity. Sync pairs the current slot.
 The old pairing stays saved until a new pairing succeeds. The last selected
 slot survives reboot and battery sleep. The CLI can select a slot directly,
 including while connected: `padtool connect east` or `padtool pair north`.
-Its types are those four; other types or transports and disabled slots
-are refused.
+Its radio types are those four LE ones over Bluetooth; it has no USB
+personality (`usb_type` none) and no other radio; other values and disabled
+slots are refused.  On 2.4G (the rear switch) every slot is the stock
+receiver's.
 Home+L3 or Home+R3 while offline starts calibration.
 Home alone while connected reaches the host, including a quick tap.
 Home+M quick settings and the d-pad slots are not enabled on this pad.

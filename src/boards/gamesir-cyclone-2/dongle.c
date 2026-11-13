@@ -92,7 +92,7 @@ static void configure(const struct link_config *c)
     if (d.prof == p && d.set.variant == c->variant) return;
     drop_personality("new type");
     memset(&d.set, 0, sizeof(d.set));
-    d.set.type = c->type;
+    d.set.radio_type = d.set.usb_type = c->type;   /* the pad's radio type, on this USB port */
     d.set.variant = c->variant;
     d.set.stick_speed = c->stick_speed;
     d.set.gyro_speed = c->gyro_speed;

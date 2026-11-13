@@ -189,13 +189,40 @@ static int input_wanted(void)
     return c.usb ? plat_usb_input_wanted() : bt_input_wanted();
 }
 
-/* Which way a session goes: bluetooth+usb and dongle+usb are USB while a USB
- * host is there (frames on the bus, not just power) and the type has a USB
- * device. */
-static int wants_usb(const struct set_slot *set, const struct profile *p)
+/* A slot's two sides: the profile its cable runs, and the one its radio
+ * runs (the link to our dongle for RADIO_DONGLE); NULL: that side is off or
+ * this board cannot run it. */
+static const struct profile *usb_side(const struct set_slot *set)
 {
-    if (!p->usb) return 0;
-    return set->transport == TRANSPORT_USB || (set_usb_first(set->transport) && c.usb_powered);
+    const struct profile *p = set_usb_ok(set->usb_type) ? profile_for(set->usb_type) : NULL;
+
+    return p && p->usb ? p : NULL;
+}
+
+static const struct profile *radio_side(const struct set_slot *set)
+{
+    const struct profile *p;
+
+    if (set->radio == RADIO_OFF || !set_radio_ok(set->radio, set->radio_type)) return NULL;
+    p = profile_for(set->radio_type);
+    if (!p) return NULL;
+    if (set->radio == RADIO_DONGLE) return p->usb ? &profile_link : NULL;
+    return p->device ? p : NULL;
+}
+
+/* Which way a session goes: USB while a USB host is there (frames on the bus,
+ * not just power) and the slot has a USB type, or always when it has no
+ * radio (a USB-only slot waits for its host). */
+static int wants_usb(const struct set_slot *set)
+{
+    if (!usb_side(set)) return 0;
+    return c.usb_powered || !radio_side(set);
+}
+
+/* USB while there, else the radio: a session that may move between them. */
+static int usb_first(const struct set_slot *set)
+{
+    return usb_side(set) && radio_side(set);
 }
 
 /* The slot's bond as this session knows it. */
@@ -275,27 +302,23 @@ static u8 motor_duty(u8 host, int right)
 static void start_session(struct ctl_request r, u32 now)
 {
     const struct set_slot *set = set_slot(r.slot);
-    const struct profile *p = profile_for(set->type);
+    const struct profile *p;
     struct profile_session s;
     int pairing = r.kind == REQ_PAIR;
     int usb;
 
-    if (!p) {
-        util_log("slot %u: profile type %u not in this build", r.slot, set->type);
-        if (session()) stop(now);
-        return;
-    }
-    if (set->transport == TRANSPORT_USB && !p->usb) {
-        util_log("slot %u: %s has no USB device", r.slot, p->name);
+    if (!usb_side(set) && !radio_side(set)) {
+        util_log("slot %u: nothing to run (radio %u type %u, usb type %u)", r.slot, set->radio,
+                 set->radio_type, set->usb_type);
         if (session()) stop(now);
         return;
     }
     if (session()) end_session();
     /* An explicit pairing uses the radio (or the dongle) even with a USB host
      * present. */
-    usb = wants_usb(set, p) && !(pairing && set_usb_first(set->transport));
+    usb = wants_usb(set) && !(pairing && usb_first(set));
     if (usb) pairing = 0;        /* a cable needs none; keep the radio's bond */
-    else if (set_via_dongle(set->transport)) p = &profile_link;
+    p = usb ? usb_side(set) : radio_side(set);
     memset(&s, 0, sizeof(s));
     s.slot = r.slot;
     s.pairing = (u8)pairing;
@@ -341,8 +364,8 @@ static void start_session(struct ctl_request r, u32 now)
     /* A USB session from Home or the console command may wake its host the
      * radio's way with the slot's bond (Switch 2: its wake advertising) while
      * no frames come, until the host first configures us. */
-    c.usb_wake = usb && !r.quiet && set->transport == TRANSPORT_USB && p->device && p->device->transport == BT_LE &&
-                 s.bond && (s.bond->le_peer[0] | s.bond->le_peer[1] | s.bond->le_peer[2] |
+    c.usb_wake = usb && !r.quiet && !radio_side(set) && set->radio != RADIO_DONGLE &&
+                 set->radio_type == set->usb_type && p->device && p->device->transport == BT_LE && s.bond && (s.bond->le_peer[0] | s.bond->le_peer[1] | s.bond->le_peer[2] |
                             s.bond->le_peer[3] | s.bond->le_peer[4] | s.bond->le_peer[5]);
     if (c.radio && !usb) c.radio_pending = 1;
     else radio_on();
@@ -617,8 +640,10 @@ static void usb_session(u32 now)
             stop(now);
             return;
         }
-        /* A pairing over the cable (Switch 2): the slot's bond, for the radio */
-        if (c.prof->write && c.prof->write(&w, now, &bond) && c.slot < SLOTS) {
+        /* A pairing over the cable (Switch 2): the slot's bond, for the radio
+         * when that is the same host (Bluetooth or off, the same type). */
+        if (c.prof->write && c.prof->write(&w, now, &bond) && c.slot < SLOTS &&
+            set_slot(c.slot)->radio != RADIO_DONGLE && set_slot(c.slot)->radio_type == set_slot(c.slot)->usb_type) {
             struct bt_bond b = *set_bond(c.slot);
 
             /* The console's first address from 15/01 is its radio's. */
@@ -684,11 +709,14 @@ static void follow_usb(u32 now)
     const struct set_slot *set;
 
     if ((c.kind != CTL_CONNECTING && c.kind != CTL_CONNECTED) || c.slot >= SLOTS || c.waking) return;
-    set = set_slot(c.slot);
+    /* the session's copy: a settings change applies on the next connect (a
+     * move on the tool's own write left its answer on the endpoint the USB
+     * personality then took, and the SDK's write waited for it for ever) */
+    set = &c.sess_set;
     if (!c.usb) {
         struct ctl_request again = { REQ_CONNECT, c.slot, 0, 1 };
 
-        if (c.sess.pairing || !set_usb_first(set->transport) || !wants_usb(set, profile_for(set->type))) return;
+        if (c.sess.pairing || !usb_first(set) || !wants_usb(set)) return;
         util_log("slot %u moves to usb", c.slot);
         start_session(again, now);
         return;
@@ -702,9 +730,9 @@ static void follow_usb(u32 now)
          * the radio instead, as the connect would have chosen. */
         struct ctl_request again = { REQ_CONNECT, c.slot, 0 };
 
-        if (!c.usb_configured && set_usb_first(set->transport)) {
+        if (!c.usb_configured && usb_first(set)) {
             util_log("slot %u: usb host gone before configuring, %s instead", c.slot,
-                     set_via_dongle(set->transport) ? "the dongle" : "bluetooth");
+                     set->radio == RADIO_DONGLE ? "the dongle" : "bluetooth");
             start_session(again, now);
         } else {
             util_log("slot %u: usb cable gone", c.slot);
@@ -745,7 +773,7 @@ static void timeouts(u32 now)
             struct ctl_request plug = { REQ_CONNECT, c.last_slot, 0, 1 };
 
             c.usb_arrived = 0;
-            if (set->transport == TRANSPORT_USB || set_usb_first(set->transport)) {
+            if (usb_side(set)) {
                 util_log("usb host arrived: connect slot %u", c.last_slot);
                 handle(plug, now);
                 break;

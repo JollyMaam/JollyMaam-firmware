@@ -10,5 +10,6 @@ and the board folders.
 | [jollymaam.md](jollymaam.md) | `jollymaam`: images, how it tells devices apart, the tool device |
 | [runtime.md](runtime.md) | retained SRAM sections, VM items, charger, sleep policy, boot counter |
 | [updater.md](updater.md) | the pad build: the updater in the app area, the app above it, rewriting the app in place |
+| [support-matrix.md](support-matrix.md) | a slot's radio and USB sides, what each pad and dongle runs on each, what has been seen working |
 | [console-wake.md](console-wake.md) | the Switch 1 wake transmission and the Switch 2 wake flag |
 | [telink-ble.md](telink-ble.md) | flash ATT databases, packet buffers, per-slot LE sessions and pairing on the Ultimate 2C |

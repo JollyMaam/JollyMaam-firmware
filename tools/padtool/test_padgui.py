@@ -28,14 +28,14 @@ padhid.write = lambda path, data: None
 
 
 def record(path="fake", board="pad", protocol=padgui.pad.PROTOCOL):
-    fields = [{"kind": 0, "id": 1, "name": "type", "type": padgui.pad.T_ENUM,
+    fields = [{"kind": 0, "id": 1, "name": "radio_type", "type": padgui.pad.T_ENUM,
                "names": ["switch", "hid"], "help": "Profile", "dev": False},
               {"kind": 0, "id": 2, "name": "rumble", "type": padgui.pad.T_NUMBER,
                "size": 1, "help": "Strength", "dev": False},
               {"kind": 1, "id": 17, "name": "steady_brightness", "type": padgui.pad.T_NUMBER,
                "size": 2, "max": 2550, "help": "Brightness", "dev": False}]
     identity = b"C2PD" + protocol.to_bytes(2, "little") + bytes([padgui.pad.BOARD_IDS[board], 0]) + b"build".ljust(16, b"\0") + path.encode().ljust(16, b"\0")[:16] + b"GS_C2_ADC_DEVICE"
-    values = {t: {"type": (b"\0", False), "rumble": (b"\x64", False)} if t < 8 else
+    values = {t: {"radio_type": (b"\0", False), "rumble": (b"\x64", False)} if t < 8 else
               {"steady_brightness": (b"\x0f\0", False)} if t == 8 else {}
               for t in range(10)} if board == "pad" else {}
     return {"path": path, "board": board, "identity": identity, "fields": fields if board == "pad" else [],
@@ -294,7 +294,7 @@ class GuiTests(GuiCase):
         self.assertEqual(self.app.summary.get(), "Loaded 2 device(s). No pending changes.")
         self.assertTrue(self.app.apply_all_button.instate(["disabled"]))
         one["draft"][0, "rumble"]["var"].set("invalid")
-        two["draft"][1, "type"]["var"].set("hid")
+        two["draft"][1, "radio_type"]["var"].set("hid")
         one["draft"][2, "rumble"]["reset"].set(True)
         self.assertIn("3 pending", self.app.summary.get())
         self.assertFalse(self.app.apply_all_button.instate(["disabled"]))
@@ -314,7 +314,7 @@ class GuiTests(GuiCase):
             previews.assert_called_once()
         self.assertEqual(self.app.form.winfo_children(), original_widgets)
         self.assertEqual(self.app.editors["rumble"]["var"].get(), "100")
-        self.assertEqual(two["draft"][1, "type"]["var"].get(), "switch")
+        self.assertEqual(two["draft"][1, "radio_type"]["var"].get(), "switch")
         self.assertFalse(one["draft"][2, "rumble"]["reset"].get())
         self.assertEqual(self.app.dirty_count(), 0)
         self.assertTrue(self.app.apply_all_button.instate(["disabled"]))
@@ -340,8 +340,8 @@ class GuiTests(GuiCase):
                         if rec is r and t == 0 and button.winfo_exists()}
         self.assertFalse(marker.instate(["disabled"]))
         self.assertTrue(page_buttons["Discard"].instate(["disabled"]))
-        r["draft"][1, "type"]["var"].set("hid")
-        r["draft"][0, "type"]["var"].set("hid")
+        r["draft"][1, "radio_type"]["var"].set("hid")
+        r["draft"][0, "radio_type"]["var"].set("hid")
         with patch.object(padgui.pad, "cmd") as cmd:
             marker.invoke()
             self.assertEqual(entry["var"].get(), "100")
@@ -359,10 +359,10 @@ class GuiTests(GuiCase):
             cmd.assert_not_called()
         self.assertEqual(entry["var"].get(), "80")
         self.assertFalse(entry["reset"].get())
-        self.assertEqual(r["draft"][0, "type"]["var"].get(), "switch")
+        self.assertEqual(r["draft"][0, "radio_type"]["var"].get(), "switch")
         self.assertTrue(page_buttons["Discard"].instate(["disabled"]))
         self.assertFalse(marker.instate(["disabled"]))
-        self.assertEqual(r["draft"][1, "type"]["var"].get(), "hid")
+        self.assertEqual(r["draft"][1, "radio_type"]["var"].get(), "hid")
         entry["var"].set("invalid")
         self.assertFalse(marker.instate(["disabled"]))
         self.assertEqual(marker.cget("text"), "!")
@@ -407,10 +407,10 @@ class GuiTests(GuiCase):
 
     def test_main_status_button_toggles_default_and_discard(self):
         r = record()
-        r["values"][0]["type"] = (b"\1", True)
-        r["defaults"] = {0: {"type": (b"\0", False)}}
+        r["values"][0]["radio_type"] = (b"\1", True)
+        r["defaults"] = {0: {"radio_type": (b"\0", False)}}
         self.load([r])
-        entry = r["draft"][0, "type"]
+        entry = r["draft"][0, "radio_type"]
         marker = next(w for e, w in self.app.indicators if e is entry and w.winfo_exists())
         self.assertIsInstance(marker, padgui.ttk.Button)
         self.assertEqual(marker.cget("text"), "✓")
@@ -434,8 +434,8 @@ class GuiTests(GuiCase):
         one["draft"][1, "rumble"]["var"].set("70")
         two["draft"][0, "rumble"]["var"].set("60")
         # Unknown defaults elsewhere must not block resetting this slot.
-        one["draft"][1, "type"]["default_raw"] = None
-        one["draft"][1, "type"]["default_text"] = None
+        one["draft"][1, "radio_type"]["default_raw"] = None
+        one["draft"][1, "radio_type"]["default_text"] = None
         button = next(w for r, t, action, w in self.app.scope_buttons
                       if r is one and t == 0 and action == "Reset all to defaults" and w.winfo_exists())
         widgets = self.app.form.winfo_children()
@@ -454,7 +454,7 @@ class GuiTests(GuiCase):
     def test_device_apply_saves_all_its_slots_and_preserves_other_devices(self):
         one, two = record(), record("other")
         self.load([one, two])
-        one["draft"][0, "type"]["var"].set("hid")
+        one["draft"][0, "radio_type"]["var"].set("hid")
         one["draft"][1, "rumble"]["var"].set("80")
         two["draft"][0, "rumble"]["var"].set("invalid")
         titles = [w.cget("text") for w in self.app.controls(self.app.overview_form) if isinstance(w, padgui.ttk.Button)]
@@ -464,8 +464,8 @@ class GuiTests(GuiCase):
         button = next(w for r, t, action, w in self.app.scope_buttons
                       if r is one and t is None and action == "Apply" and w.winfo_exists())
         updated = dict(one["values"])
-        updated[0] = {"type": (b"\1", True), "rumble": (b"\x64", False)}
-        updated[1] = {"type": (b"\0", False), "rumble": (b"\x50", True)}
+        updated[0] = {"radio_type": (b"\1", True), "rumble": (b"\x64", False)}
+        updated[1] = {"radio_type": (b"\0", False), "rumble": (b"\x50", True)}
         with patch.object(padgui.pad, "cmd", return_value=one["identity"]) as cmd, \
              patch.object(padgui.pad, "send") as send, \
              patch.object(padgui.pad, "read_target", side_effect=lambda p, table, t: updated[t]):
@@ -480,7 +480,7 @@ class GuiTests(GuiCase):
         one, two = record(), record("other")
         self.load([one, two])
         self.app.show_target(0)
-        one["draft"][0, "type"]["var"].set("hid")
+        one["draft"][0, "radio_type"]["var"].set("hid")
         one["draft"][0, "rumble"]["var"].set("80")
         one["draft"][1, "rumble"]["var"].set("invalid")
         two["draft"][0, "rumble"]["var"].set("90")
@@ -494,7 +494,7 @@ class GuiTests(GuiCase):
         button = next(w for r, t, action, w in self.app.scope_buttons
                       if r is one and t == 0 and action == "Apply" and w.winfo_exists())
         updated = dict(one["values"])
-        updated[0] = {"type": (b"\1", True), "rumble": (b"\x50", True)}
+        updated[0] = {"radio_type": (b"\1", True), "rumble": (b"\x50", True)}
         with patch.object(padgui.pad, "cmd", return_value=one["identity"]), \
              patch.object(padgui.pad, "send") as send, \
              patch.object(padgui.pad, "read_target", side_effect=lambda p, table, t: updated[t]):
@@ -532,14 +532,14 @@ class GuiTests(GuiCase):
         self.assertFalse(unpair[0].instate(["disabled"]))
         self.assertFalse(unpair[1].instate(["disabled"]))
         self.assertTrue(all(w.instate(["disabled"]) for w in unpair[2:]))
-        r["draft"][3, "type"]["var"].set("hid")
+        r["draft"][3, "radio_type"]["var"].set("hid")
         with patch.object(padgui.pad, "cmd") as cmd:
             unpair[0].invoke()
             cmd.assert_not_called()
         self.assertEqual(self.app.value_bytes(r["draft"][0, "bond"]), bytes(68))
         self.assertEqual(self.app.value_bytes(r["draft"][1, "bond"]), le)
         self.assertTrue(unpair[0].instate(["disabled"]))
-        self.assertEqual(r["draft"][3, "type"]["var"].get(), "hid")
+        self.assertEqual(r["draft"][3, "radio_type"]["var"].get(), "hid")
         self.app.discard_setting((r["draft"][0, "bond"],))
         self.assertEqual(self.app.value_bytes(r["draft"][0, "bond"]), classic)
         self.assertFalse(unpair[0].instate(["disabled"]))
@@ -558,7 +558,7 @@ class GuiTests(GuiCase):
             self.app.apply_settings(("fake", 1, "bond"))
             self.finish()
             send.assert_called_once_with("fake", [(1, padgui.pad.UNPAIR_ID, b"")])
-        self.assertEqual(r["draft"][3, "type"]["var"].get(), "hid")
+        self.assertEqual(r["draft"][3, "radio_type"]["var"].get(), "hid")
         unpair = [w for w in self.app.controls(self.app.overview_form)
                   if isinstance(w, padgui.ttk.Button) and w.cget("text") == "Unpair"]
         self.assertEqual(len(unpair), 8)
@@ -732,26 +732,26 @@ class GuiTests(GuiCase):
         one, two = record(), record("other")
         self.load([one, two])
         self.app.show_target(0)
-        self.app.editors["type"]["var"].set("hid")
+        self.app.editors["radio_type"]["var"].set("hid")
         self.app.editors["rumble"]["var"].set("80")
         self.app.show_target(1)
         self.app.tree.selection_set("device1")
         self.app.select_node()
         self.app.tree.selection_set("device0/0")
         self.app.select_node()
-        self.assertEqual(self.app.editors["type"]["var"].get(), "hid")
+        self.assertEqual(self.app.editors["radio_type"]["var"].get(), "hid")
         self.assertEqual(self.app.editors["rumble"]["var"].get(), "80")
-        self.assertIs(self.app.editors["type"]["var"], one["draft"][0, "type"]["var"])
+        self.assertIs(self.app.editors["radio_type"]["var"], one["draft"][0, "radio_type"]["var"])
         self.assertEqual(self.app.dirty_count(), 2)
 
     def test_apply_batches_changes_from_all_slots(self):
         r = record()
         self.load([r])
         r["draft"][0, "rumble"]["var"].set("80")
-        r["draft"][1, "type"]["var"].set("hid")
+        r["draft"][1, "radio_type"]["var"].set("hid")
         updated = dict(r["values"])
-        updated[0] = {"type": (b"\0", False), "rumble": (b"\x50", True)}
-        updated[1] = {"type": (b"\1", True), "rumble": (b"\x64", False)}
+        updated[0] = {"radio_type": (b"\0", False), "rumble": (b"\x50", True)}
+        updated[1] = {"radio_type": (b"\1", True), "rumble": (b"\x64", False)}
         with patch.object(padgui.pad, "cmd", return_value=r["identity"]), \
              patch.object(padgui.pad, "send") as send, \
              patch.object(padgui.pad, "read_target", side_effect=lambda p, table, t: updated[t]):
@@ -778,7 +778,7 @@ class GuiTests(GuiCase):
         for r in (one, two):
             r["draft"][0, "rumble"]["var"].set("80")
         updated = dict(one["values"])
-        updated[0] = {"type": (b"\0", False), "rumble": (b"\x50", True)}
+        updated[0] = {"radio_type": (b"\0", False), "rumble": (b"\x50", True)}
         with patch.object(padgui.pad, "cmd", side_effect=[one["identity"], two["identity"]]), \
              patch.object(padgui.pad, "send", side_effect=[None, OSError("unplugged")]), \
              patch.object(padgui.pad, "read_target", side_effect=lambda p, table, t: updated[t]), \
@@ -847,8 +847,8 @@ class GuiTests(GuiCase):
         self.load([one])
         one["draft"][1, "rumble"]["var"].set("80")
         changed = {t: dict(v) for t, v in one["values"].items()}
-        changed[0] = {"type": (b"\1", True), "rumble": (b"\x64", False)}
-        changed[1] = {"type": (b"\1", True), "rumble": (b"\x64", False)}
+        changed[0] = {"radio_type": (b"\1", True), "rumble": (b"\x64", False)}
+        changed[1] = {"radio_type": (b"\1", True), "rumble": (b"\x64", False)}
         with patch.object(padgui.pad, "read_target", side_effect=lambda p, table, t, defaults=False: changed[t]):
             self.app.update_devices((0, {one["path"]: one["identity"]}, [], [], {one["path"]: ("idle", 4)}))
             deadline = time.monotonic() + 3
@@ -857,8 +857,8 @@ class GuiTests(GuiCase):
                 time.sleep(0.01)
             self.root.update()
         self.assertEqual(one["changes"], 4)
-        self.assertEqual(one["draft"][0, "type"]["var"].get(), "hid")     # reloaded
-        self.assertEqual(one["draft"][1, "type"]["var"].get(), "hid")
+        self.assertEqual(one["draft"][0, "radio_type"]["var"].get(), "hid")     # reloaded
+        self.assertEqual(one["draft"][1, "radio_type"]["var"].get(), "hid")
         self.assertEqual(one["draft"][1, "rumble"]["var"].get(), "80")    # the edit kept
 
     def test_actions_target_slot_and_calibration_is_global(self):
@@ -997,25 +997,25 @@ class GuiTests(GuiCase):
     def test_single_apply_preserves_other_drafts_on_same_device(self):
         r = record()
         self.load([r])
-        r["draft"][0, "type"]["var"].set("hid")
+        r["draft"][0, "radio_type"]["var"].set("hid")
         r["draft"][0, "rumble"]["var"].set("80")
         r["draft"][1, "rumble"]["var"].set("90")
         updated = dict(r["values"])
-        updated[0] = {"type": (b"\0", False), "rumble": (b"\x50", True)}
+        updated[0] = {"radio_type": (b"\0", False), "rumble": (b"\x50", True)}
         with patch.object(padgui.pad, "cmd", return_value=r["identity"]), \
              patch.object(padgui.pad, "send") as send, \
              patch.object(padgui.pad, "read_target", side_effect=lambda p, table, t: updated[t]):
             self.app.apply_settings(("fake", 0, "rumble"))
             self.finish()
             send.assert_called_once_with("fake", [(0, 2, b"\x50")])
-        self.assertEqual(r["draft"][0, "type"]["var"].get(), "hid")
+        self.assertEqual(r["draft"][0, "radio_type"]["var"].get(), "hid")
         self.assertEqual(r["draft"][1, "rumble"]["var"].get(), "90")
         self.assertEqual(self.app.dirty_count(), 2)
 
     def test_single_apply_reload_failure_retains_other_edits(self):
         r = record()
         self.load([r])
-        r["draft"][0, "type"]["var"].set("hid")
+        r["draft"][0, "radio_type"]["var"].set("hid")
         r["draft"][0, "rumble"]["var"].set("80")
         with patch.object(padgui.pad, "cmd", return_value=r["identity"]), \
              patch.object(padgui.pad, "send"), \
@@ -1024,8 +1024,8 @@ class GuiTests(GuiCase):
             self.app.apply_settings(("fake", 0, "rumble"))
             self.finish()
         self.assertFalse(self.app.changed(r["draft"][0, "rumble"]))
-        self.assertTrue(self.app.changed(r["draft"][0, "type"]))
-        self.assertEqual(r["draft"][0, "type"]["var"].get(), "hid")
+        self.assertTrue(self.app.changed(r["draft"][0, "radio_type"]))
+        self.assertEqual(r["draft"][0, "radio_type"]["var"].get(), "hid")
         self.assertEqual(self.app.dirty_count(), 1)
 
     def test_palette_entry_picker_has_no_brightness(self):
@@ -1091,14 +1091,14 @@ class GuiTests(GuiCase):
         self.assertEqual(editor.preset_name.get(), "Custom")
         self.assertFalse(editor.presets.selection_present())
         entries = self.app.setting_entries(r, 0, "left_curve_points", editor.entry)
-        r["draft"][1, "type"]["var"].set("hid")
+        r["draft"][1, "radio_type"]["var"].set("hid")
         with patch.object(padgui.pad, "cmd") as cmd:
             self.app.discard_setting(entries)
             cmd.assert_not_called()
         self.assertEqual(editor.points(), list(default))
         self.assertEqual(editor.enabled["var"].get(), "disabled")
         self.assertEqual(editor.preset_name.get(), "Linear")
-        self.assertEqual(r["draft"][1, "type"]["var"].get(), "hid")
+        self.assertEqual(r["draft"][1, "radio_type"]["var"].get(), "hid")
         editor.preset_name.set("Concave")
         editor.choose_preset()
         editor.copy_points()

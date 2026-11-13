@@ -6,10 +6,13 @@
  * sharing the input, calibration, settings, Home gestures and one radio
  * session at a time. Host commands run here, outside the SDK callbacks.
  *
- * The board's 2.4G/Bluetooth switch (in_raw.radio_24g): on 2.4G the pad is
- * the stock 8BitDo receiver's (RECEIVER, profile_8bitdo), whatever slot is
- * asked for, and Sync pairs the receiver; on Bluetooth, the slots.  Moving
- * it ends the session: Home then connects the other kind.
+ * The board's 2.4G/Bluetooth switch (in_raw.radio_24g) is above the slots'
+ * radio setting: on 2.4G the pad is the stock 8BitDo receiver's (RECEIVER,
+ * RADIO_RECEIVER, profile_8bitdo), whatever slot is asked for, and Sync pairs
+ * the receiver; on Bluetooth, the slots, each with radio bluetooth (the only
+ * radio this board's settings take).  Moving it ends the session: Home then
+ * connects the other kind.  USB is the tool device only: no slot's usb_type
+ * runs here.
  *
  * Config mode (Home+M held, padtool config): the tool's commands over LE
  * (profile_config.c) instead of a session, no slot's, as controller.c's. */
@@ -22,17 +25,19 @@ static const char slot_names[] = "ABXYR";
 
 /* The receiver's session runs as an Xbox pad through it, with the base
  * remap; its pairing is the platform's (plat_receiver_pair). */
-static const struct set_slot receiver_settings = { .type = PROFILE_XBOX, .transport = TRANSPORT_DONGLE };
+static const struct set_slot receiver_settings = {
+    .radio = RADIO_RECEIVER, .radio_type = PROFILE_XBOX, .usb_type = PROFILE_NONE,
+};
 
 static const struct profile *profile = &profile_generic_ble;
 
 /* The profile a slot runs here: an LE type over Bluetooth; NULL for the
- * others. */
+ * others (radio off, an unknown radio or type). */
 static const struct profile *slot_profile(const struct set_slot *s)
 {
-    u8 type = s->type;
+    u8 type = s->radio_type;
 
-    if (s->transport != TRANSPORT_BT) return NULL;
+    if (s->radio != RADIO_BLUETOOTH || !set_radio_ok(s->radio, type)) return NULL;
     return type == PROFILE_GENERIC_BLE ? &profile_generic_ble : type == PROFILE_XBOX_BLE ? &profile_xbox_ble :
            type == PROFILE_SWITCH2 ? &profile_switch2 : type == PROFILE_DS5EDGE_BLE ? &profile_ds5edge_ble : NULL;
 }
@@ -235,7 +240,7 @@ static void start_session(u8 slot, int pairing, int renew)
         profile = &profile_8bitdo;
     } else {
         if (c.session.pairing && renew) set_pairing_address(slot, 1, c.session.address);
-        if (c.session.settings->type != PROFILE_SWITCH2) c.session.address[5] |= 0xc0;
+        if (c.session.settings->radio_type != PROFILE_SWITCH2) c.session.address[5] |= 0xc0;
 #ifdef U2CW_REQUIRE_SLOT_SELECTION
         c.slot_chosen = 1;
 #endif
@@ -744,6 +749,7 @@ u32 plat_ms(void) { return test_ms; }
 int plat_usb_present(void) { return test_usb; }
 const u8 *plat_unique_id(void) { static const u8 id[16]; return id; }
 const struct bt_bond *set_bond(u8 slot) { return &test_bonds[slot]; }
+int set_radio_ok(u8 radio, u8 type) { (void)type; return radio <= RADIO_DONGLE; }
 const struct set_slot *set_slot(u8 slot) { return &test_slots[slot]; }
 void set_slot_address(u8 slot, u8 out[6]) { memcpy(out, test_addresses[slot], 6); }
 void set_pairing_address(u8 slot, int renew, u8 out[6])
@@ -860,8 +866,8 @@ static void test_reset(void)
     memset(test_bonds, 0, sizeof(test_bonds));
     memset(test_slots, 0, sizeof(test_slots));
     for (i = 0; i < LITE_SLOTS; i++) {
-        test_slots[i].type = PROFILE_GENERIC_BLE;
-        test_slots[i].transport = TRANSPORT_BT;
+        test_slots[i].radio_type = PROFILE_GENERIC_BLE;
+        test_slots[i].radio = RADIO_BLUETOOTH;
         memset(test_addresses[i], 0x11 + i, 6);
         test_addresses[i][5] |= 0xc0;
     }
@@ -984,13 +990,13 @@ int main(void)
         CHECK(c.slot == 3 && c.session.pairing && renewals == 1);
     }
     /* Xbox runs its own profile on a static random address. */
-    test_reset(); test_slots[1].type = PROFILE_XBOX_BLE;
+    test_reset(); test_slots[1].radio_type = PROFILE_XBOX_BLE;
     start_session(1, 1, 0); CHECK(profile == &profile_xbox_ble && (c.session.address[5] & 0xc0) == 0xc0);
-    test_reset(); test_slots[1].type = PROFILE_DS5EDGE_BLE;
+    test_reset(); test_slots[1].radio_type = PROFILE_DS5EDGE_BLE;
     start_session(1, 1, 0); CHECK(profile == &profile_ds5edge_ble && c.slot == 1);
     /* Switch 2 writes save their proprietary key with the connected peer,
      * without changing another slot's bond. */
-    test_reset(); test_slots[2].type = PROFILE_SWITCH2;
+    test_reset(); test_slots[2].radio_type = PROFILE_SWITCH2;
     test_bonds[0].ltk[0] = 0x17;
     start_session(2, 1, 0); CHECK(profile == &profile_switch2 && c.slot == 2);
     test_events[0].kind = BT_EV_LINKED;
@@ -1006,19 +1012,19 @@ int main(void)
     CHECK(!c.linked && !c.rumble_until);
 
     /* Console wake is explicit and bonded, never an automatic boot or pairing. */
-    test_reset(); test_slots[2].type = PROFILE_SWITCH2; test_bonds[2].ltk[0] = 1;
+    test_reset(); test_slots[2].radio_type = PROFILE_SWITCH2; test_bonds[2].ltk[0] = 1;
     retained = 2; start(); CHECK(!wakes);
     c.linked = 0;                /* offline: connecting the same slot again */
     select_session(REQ_CONNECT, 2, 0); stopped(test_ms); CHECK(wakes == 1);
     select_session(REQ_PAIR, 2, 0); stopped(test_ms); CHECK(wakes == 1);
-    test_reset(); test_slots[2].type = PROFILE_SWITCH2;
+    test_reset(); test_slots[2].radio_type = PROFILE_SWITCH2;
     select_session(REQ_CONNECT, 2, 0); stopped(test_ms); CHECK(!wakes);
 
     /* Disabled/unsupported slots cannot tear down the running session. */
     test_reset();
-    test_slots[1].type = PROFILE_NONE;
-    test_slots[2].type = PROFILE_XBOX;
-    test_slots[3].transport = TRANSPORT_USB;
+    test_slots[1].radio_type = PROFILE_NONE;
+    test_slots[2].radio_type = PROFILE_XBOX;
+    test_slots[3].radio = RADIO_OFF; test_slots[3].usb_type = PROFILE_XBOX;
     select_session(REQ_CONNECT, 0, 0); CHECK(!stops);
     select_session(REQ_CONNECT, 1, 0); select_session(REQ_PAIR, 2, 1);
     select_session(REQ_CONNECT, 3, 0); select_session(REQ_CONNECT, 4, 0);
@@ -1071,7 +1077,7 @@ int main(void)
 #endif
     /* Boot resumes the retained slot, falling back if it is disabled. */
     test_reset(); retained = 3; start(); CHECK(c.slot == 3);
-    test_reset(); retained = 3; test_slots[3].type = PROFILE_NONE;
+    test_reset(); retained = 3; test_slots[3].radio_type = PROFILE_NONE;
     start(); CHECK(c.slot == 0);
     test_reset(); ephemeral = 1; start(); CHECK(!retained_writes);
     /* None retained: Home's slot is ux_first_slot. */
@@ -1199,7 +1205,7 @@ int main(void)
     c.raw.radio_24g = 0; stops = 0;
     radio_switch(); CHECK(stops == 1 && c.pending == REQ_NONE);
     stopped(test_ms); CHECK(c.idle && starts == 1 && !c.radio_24g);
-    test_slots[2].type = PROFILE_SWITCH2; test_bonds[2].ltk[0] = 1; wakes = 0;
+    test_slots[2].radio_type = PROFILE_SWITCH2; test_bonds[2].ltk[0] = 1; wakes = 0;
     select_session(REQ_CONNECT, SLOT_LAST, 0); stopped(test_ms);
     CHECK(c.slot == 2 && profile == &profile_switch2 && wakes == 1);
     c.linked = 1; c.raw.radio_24g = 1;

@@ -341,8 +341,8 @@ async function readTarget(t) {
 
 async function save() {
   const items = [...edits.values()];
-  const renew = items.filter((e) => e.f.kind === 0 && e.f.name === "type");
-  if (renew.length && !confirm(`Changing a slot's type renews its address and clears its pairing (${renew.map((e) => TARGETS[e.target]).join(", ")}). Save?`)) return;
+  const renew = items.filter((e) => e.f.kind === 0 && (e.f.name === "radio" || e.f.name === "radio_type"));
+  if (renew.length && !confirm(`Changing a slot's Bluetooth type, or moving it between Bluetooth and the dongle, renews its address and clears its pairing (${renew.map((e) => TARGETS[e.target]).join(", ")}). Save?`)) return;
   $("save").disabled = $("undo").disabled = true;
   try {
     $("save").textContent = "Saving…";

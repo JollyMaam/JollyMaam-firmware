@@ -1595,6 +1595,26 @@ def backup(path, file):
     print(f"saved to {file}")
 
 
+# A backup from before radio and usb_type: its slot's transport, by name.
+OLD_TRANSPORTS = {"bluetooth": ("bluetooth", False), "usb": ("off", True), "bluetooth+usb": ("bluetooth", True),
+                  "dongle": ("dongle", False), "dongle+usb": ("dongle", True)}
+
+
+def old_slot(values):
+    """A slot backed up as type and transport, as radio, radio_type and
+    usb_type (the firmware reads its own old records the same way)."""
+    if "radio" in values or "transport" not in values:
+        return values
+    values = dict(values)
+    tr, ty = values.pop("transport"), values.pop("type", None)
+    radio, usb = OLD_TRANSPORTS.get(tr["value"], ("bluetooth", False))
+    if ty:
+        values["radio_type"] = ty
+    values["radio"] = {"value": radio, "set": True}
+    values["usb_type"] = {"value": ty["value"] if usb and ty else "none", "set": True}
+    return values
+
+
 def restore(path, file, calibration):
     """Target by target, each committed alone: one the pad refuses is left
     as it was, the others still go, and the refused ones are listed."""
@@ -1608,7 +1628,8 @@ def restore(path, file, calibration):
             print(f"{name}: not in this firmware, skipped")
             continue
         items = [(t, 0, b"")]
-        for f in table:           # table order: type before address and bond
+        values = old_slot(values) if kind_of(t) == 0 else values
+        for f in table:           # table order: radio and its type before address and bond
             v = values.get(f["name"])
             if f["kind"] != kind_of(t) or not v:
                 continue

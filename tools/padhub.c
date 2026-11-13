@@ -192,7 +192,7 @@ static void create(const struct link_config *k)
     memset(uid, 0, sizeof(uid));
     memcpy(uid, k->address, 6);
     memset(&c.set, 0, sizeof(c.set));
-    c.set.type = k->type;
+    c.set.radio_type = c.set.usb_type = k->type;
     c.set.variant = k->variant;
     c.set.stick_speed = k->stick_speed;
     c.set.gyro_speed = k->gyro_speed;

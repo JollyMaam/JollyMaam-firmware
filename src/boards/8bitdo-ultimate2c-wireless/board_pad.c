@@ -59,14 +59,18 @@ const struct board_rumble board_rumble = {
 
 /* Four LE slots share Generic BLE until the other profile tables fit. */
 const struct board_slots board_slots = {
-    .type = { PROFILE_GENERIC_BLE, PROFILE_DS5EDGE_BLE, PROFILE_XBOX_BLE, PROFILE_SWITCH2,   /* A B X Y */
-              PROFILE_NONE, PROFILE_NONE, PROFILE_NONE, PROFILE_NONE },
-    .transport = { TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT,
-                   TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT, TRANSPORT_BT },
-    .types = 1u << PROFILE_GENERIC_BLE | 1u << PROFILE_DS5EDGE_BLE | 1u << PROFILE_XBOX_BLE |
-             1u << PROFILE_SWITCH2 | 1u << PROFILE_NONE,      /* controller_lite.c */
-    /* the stock 8BitDo receiver is the rear switch's 2.4G, not a slot's */
-    .transports = 1u << TRANSPORT_BT,
+    .radio = { RADIO_BLUETOOTH, RADIO_BLUETOOTH, RADIO_BLUETOOTH, RADIO_BLUETOOTH,
+               RADIO_BLUETOOTH, RADIO_BLUETOOTH, RADIO_BLUETOOTH, RADIO_BLUETOOTH },
+    .radio_type = { PROFILE_GENERIC_BLE, PROFILE_DS5EDGE_BLE, PROFILE_XBOX_BLE, PROFILE_SWITCH2,   /* A B X Y */
+                    PROFILE_NONE, PROFILE_NONE, PROFILE_NONE, PROFILE_NONE },
+    .usb_type = { PROFILE_NONE, PROFILE_NONE, PROFILE_NONE, PROFILE_NONE,
+                  PROFILE_NONE, PROFILE_NONE, PROFILE_NONE, PROFILE_NONE },
+    /* Bluetooth only: the rear switch's 2.4G (the stock 8BitDo receiver)
+     * overrides every slot, and is no slot's (controller_lite.c) */
+    .radios = 1u << RADIO_BLUETOOTH,
+    .radio_types = 1u << PROFILE_GENERIC_BLE | 1u << PROFILE_DS5EDGE_BLE | 1u << PROFILE_XBOX_BLE |
+                   1u << PROFILE_SWITCH2,                     /* controller_lite.c */
+    .usb_types = 1u << PROFILE_NONE,                          /* USB is the tool device only */
     .static_random = 1,
 };
 

@@ -1238,18 +1238,22 @@ class App:
         if self.missing(record):
             ttk.Label(f, text="Loading settings…").pack(anchor="w", pady=8)
             return
-        ttk.Label(f, text="Choose each slot's type here. Select a slot in the tree for transport, colours, response and other options.", wraplength=850).pack(anchor="w", pady=(0, 6))
+        ttk.Label(f, text="Choose each slot's radio (off, Bluetooth or our dongle), what that host sees, and what a USB host on the cable sees; "
+                          "with the dongle, the radio type is what the dongle shows on its USB port. A USB host wins while a USB type is set. "
+                          "Select a slot in the tree for colours, response and other options.", wraplength=850).pack(anchor="w", pady=(0, 6))
         for target in range(8):
             row = ttk.Frame(f, padding=(0, 6))
             row.pack(fill="x")
             types = ttk.Frame(row)
             links = ttk.Frame(row)
-            entry = record["draft"].get((target, "type"))
-            if entry:
-                self.default_marker(types, entry, record, target, "type").pack(side="left", padx=(0, 4))
             ttk.Label(types, text=f"Slot {slot_label(record.get('layout'), pad.SLOT_NAMES[target])}", width=14).pack(side="left")
-            if entry:
-                ttk.Combobox(types, textvariable=entry["var"], values=pad.choices(entry["field"]), state="readonly", width=20).pack(side="left")
+            for name, label, width in (("radio", "Radio", 10), ("radio_type", "sees", 14), ("usb_type", "USB", 14)):
+                entry = record["draft"].get((target, name))
+                if not entry:
+                    continue
+                self.default_marker(types, entry, record, target, name).pack(side="left", padx=(8, 4))
+                ttk.Label(types, text=label).pack(side="left", padx=(0, 4))
+                ttk.Combobox(types, textvariable=entry["var"], values=pad.choices(entry["field"]), state="readonly", width=width).pack(side="left")
             bond = record["draft"].get((target, "bond"))
             button = ttk.Button(links, text="Unpair", state="disabled", command=lambda t=target: self.unpair_slot(t))
             button.pack(side="left", padx=(0, 8))
