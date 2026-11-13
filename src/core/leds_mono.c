@@ -34,6 +34,7 @@ u32 led_mono(const struct led_mono *in, u32 now, struct led_frame *out)
     switch (in->show) {
     case MONO_QUICK:
         light(out, at < on ? LIGHT_HOME : LIGHT_CABLE, at < on ? HOME : 255);
+        if (in->signal) light(out, LIGHT_HOME, in->signal == LED_SIGNAL_LIT ? HOME : 0);
         return edge;
     case MONO_PAIRING:
         if (at < on) light(out, LIGHT_PAIRING, RED);
@@ -52,6 +53,7 @@ u32 led_mono(const struct led_mono *in, u32 now, struct led_frame *out)
             if (players & (1u << i)) light(out, LIGHT_P0 + i, 255);
         break;
     }
+    if (in->signal) light(out, LIGHT_HOME, in->signal == LED_SIGNAL_LIT ? HOME : 0);   /* quick.c's */
     if (in->cable) light(out, LIGHT_CABLE, 255);
     return next;
 }
@@ -116,6 +118,14 @@ int main(void)
     m.show = MONO_QUICK;
     CHECK(led_mono(&m, 1200, &f) == 1500 && LIT(LIGHT_HOME) && !LIT(LIGHT_CABLE));
     CHECK(led_mono(&m, 1500, &f) == 1800 && !LIT(LIGHT_HOME) && LIT(LIGHT_CABLE));
+
+    /* Quick settings' feedback on Home, over the scene. */
+    m.show = MONO_CONNECTED; m.signal = LED_SIGNAL_DARK;
+    led_mono(&m, 1000, &f); CHECK(!LIT(LIGHT_HOME));
+    m.signal = LED_SIGNAL_LIT; m.show = MONO_DARK;
+    led_mono(&m, 1000, &f); CHECK(LIT(LIGHT_HOME) == HOME);
+    m.show = MONO_QUICK; led_mono(&m, 1500, &f); CHECK(LIT(LIGHT_HOME) == HOME);
+    m.signal = LED_SIGNAL_NONE;
 
     /* Calibrating: its light on Home alone, every frame. */
     m.cal_lit = 1;

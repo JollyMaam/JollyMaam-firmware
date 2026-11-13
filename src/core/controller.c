@@ -351,6 +351,7 @@ static void start_session(struct ctl_request r, u32 now)
     /* A remap picked in quick settings lasts across this slot's reconnects (a
      * lost link, a cable, relink) until a disconnect or sleep. */
     if (c.remap_slot != r.slot) c.rumble_step_set = 0;
+    if (c.remap_slot != r.slot) quick_clear();
     if (!c.remap_chosen || c.remap_slot != r.slot) {
         c.remap = set->remap ? (u8)(set->remap - 1) : REMAP_BASE;
         c.remap_slot = r.slot;
@@ -417,6 +418,7 @@ static void start_config(u32 now)
     c.begin_imu = c.prof->begin(&s);
     c.sess = s;
     c.retry_at = 0;
+    quick_clear();
     c.config = 1;
     if (c.radio) c.radio_pending = 1;
     else radio_on();
@@ -441,6 +443,7 @@ static void stop(u32 now)
 static void shut_down(u8 kind, u32 now)
 {
     c.remap_chosen = c.rumble_step_set = 0;
+    quick_clear();
     if (c.radio || c.waking) end_session();
     become(kind, now);
 }
@@ -463,6 +466,7 @@ static void handle(struct ctl_request r, u32 now)
         break;
     case REQ_DISCONNECT:
         c.remap_chosen = c.rumble_step_set = 0;
+        quick_clear();
         if (session()) stop(now);
         break;
     case REQ_LED_DEMO:
@@ -497,11 +501,27 @@ static void handle(struct ctl_request r, u32 now)
         c.rumble_feedback_since = now;
         break;
     }
-    case REQ_REMAP:
+    case REQ_REMAP:              /* quick settings: a slot key turns its remap on or off */
         if (c.kind != CTL_CONNECTED) return;
-        c.remap = r.slot < SLOTS ? r.slot : REMAP_BASE;
+        c.remap = r.slot < SLOTS && r.slot != c.remap ? r.slot : REMAP_BASE;
         c.remap_chosen = 1;
+        quick_signal(c.remap == REMAP_BASE ? SIG_REMAP_OFF : SIG_REMAP_ON, now);
         util_log("slot %u remap %s", c.slot, remap_name(c.remap));
+        break;
+    case REQ_QUICK_CLEAR:        /* quick settings as the slot starts: its remap, nothing else */
+        if (c.kind != CTL_CONNECTED) return;
+        c.remap = c.sess.settings->remap ? (u8)(c.sess.settings->remap - 1) : REMAP_BASE;
+        c.remap_chosen = c.rumble_step_set = 0;
+        quick_clear();
+        quick_signal(SIG_CLEARED, now);
+        util_log("quick settings cleared");
+        break;
+    case REQ_QUICK_TURBO:
+        if (c.kind == CTL_CONNECTED) quick_turbo(r.slot, now);
+        break;
+    case REQ_QUICK_RECORD:
+    case REQ_QUICK_RECORD_LOOP:
+        if (c.kind == CTL_CONNECTED) quick_record(r.slot, r.kind == REQ_QUICK_RECORD_LOOP, now);
         break;
     case REQ_SLEEP:
         if (!c.usb_powered) shut_down(CTL_SLEEPING, now);
@@ -996,6 +1016,7 @@ static void outputs(u32 now)
  * them; the host's player number on the player lights. */
 static void lights(u32 now, const struct set_slot *slot, const u8 motor[2])
 {
+    u32 next;                    /* quick_led's: the LED frames come often enough */
     struct led_mono m;
     struct led_frame f;
     u8 armed = ux_armed();
@@ -1023,6 +1044,7 @@ static void lights(u32 now, const struct set_slot *slot, const u8 motor[2])
             m.players_flash = c.host.players_flash & 0xf;
         }
         m.cal_lit = (u8)cal_led(now, &m.cal);
+        m.signal = quick_led(now, &next);
     }
     led_mono(&m, now, &f);
     if (memcmp(&f, &c.shown, sizeof(f))) {
@@ -1058,6 +1080,7 @@ static void demo_inputs(const struct ux_led_demo *demo, u32 t, struct led_inputs
 
 static void lights(u32 now, const struct set_slot *slot, const u8 motor[2])
 {
+    u32 next;                    /* quick_led's: the LED frames come often enough */
     const struct set_slot *shown;
     const struct set_brightness *b = set_brightness();
     const struct ux_led_demo *demo = NULL;
@@ -1118,6 +1141,7 @@ static void lights(u32 now, const struct set_slot *slot, const u8 motor[2])
     in.usb_powered = c.usb_powered;
     in.low_battery = c.low_battery;
     in.usb_plug_lit = c.usb_powered && plugged < ux_timeouts.usb_plug_ms;
+    in.signal = demo ? LED_SIGNAL_NONE : quick_led(now, &next);
     if (c.kind == CTL_CONNECTED) {
         in.has_players = c.host.has_players;
         in.players = c.host.players;
@@ -1150,6 +1174,12 @@ static void remap(u32 now)
     if (c.kind != CTL_CONNECTED || c.calibrating || ux_quick(NULL)) {
         if (c.remap_live) remap_reset();
         c.remap_live = 0;
+        quick_stop(now);
+        return;
+    }
+    if (quick_recording()) {     /* the remap suspended: the host sees what will play */
+        c.pad.buttons = quick_record_step(c.pad.buttons, now);
+        c.remap_live = 0;        /* its state starts over after */
         return;
     }
     if (c.remap_live != c.remap + 1 || c.remap_edits != edits) {
@@ -1157,7 +1187,8 @@ static void remap(u32 now)
         c.remap_live = (u8)(c.remap + 1);
         c.remap_edits = edits;
     }
-    c.pad.buttons = remap_step(set_remap(c.remap), c.pad.buttons, now, &c.turbo_max);
+    c.pad.buttons = quick_play(c.ux_buttons, remap_step(set_remap(c.remap), c.pad.buttons, now, &c.turbo_max,
+                                                        quick_keys()), now, &c.turbo_max);
 }
 
 static void read_input(u32 now)
@@ -1430,7 +1461,7 @@ void ctl_main(void)
         if (c.kicking[0]) c.house_at = earliest(c.house_at, c.kick_until[0]);
         if (c.kicking[1]) c.house_at = earliest(c.house_at, c.kick_until[1]);
         deadline = earliest(c.house_at, earliest(state_deadline(), earliest(ux_deadline(), c.imu_next)));
-        deadline = earliest(deadline, remap_deadline());
+        deadline = earliest(deadline, earliest(remap_deadline(), quick_deadline()));
         if (c.calibrating) deadline = earliest(deadline, now + CAL_SAMPLE_MS);
         c.stats.passes++;
         util_stat_add(&c.stats.pass, plat_us() - start);

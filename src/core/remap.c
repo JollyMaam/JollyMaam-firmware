@@ -10,7 +10,9 @@
  * the clock and never catches up after a stall.  A turbo modifier, while on,
  * pulses what its keys send while held (their base rows and hold rules), each
  * from the later of its press and the modifier coming on; the first modifier
- * on for a key wins. */
+ * on for a key wins.  Quick settings' keys (q) override all that: a turbo
+ * step pulses what the key sends from its press, a mapped key sends its keys
+ * and nothing else, the macro's key sends nothing (quick.c plays it). */
 
 static struct {
     u32 prev;                        /* the input last pass */
@@ -18,8 +20,10 @@ static struct {
     u32 armed;                       /* released: a quick press is a double tap */
     u32 second;                      /* pressed as a double tap: its release arms nothing */
     u32 active, latched, pulsing;    /* a bit per rule */
-    u32 since[REMAP_RULES];          /* level active, or latched on: the turbo phase */
-    u32 pulse_until[REMAP_RULES];
+    /* Per rule: a tap's, when its pulse ends; any other's, since when it is
+     * active or latched on (the turbo phase).  One array: a rule is one or
+     * the other. */
+    u32 at[REMAP_RULES];
     u32 next;
 } rm;
 
@@ -42,11 +46,12 @@ static int turbo_on(u8 rate, u32 since, u32 now)
     return !(n & 1);
 }
 
-u32 remap_step(const struct set_remap *m, u32 in, u32 now, u32 *every_report)
+u32 remap_step(const struct set_remap *m, u32 in, u32 now, u32 *every_report, const struct remap_quick *q)
 {
     u32 pressed = in & ~rm.prev, released = rm.prev & ~in, out = 0, max = 0, doubled = 0, i;
     u32 sends[REMAP_INPUTS];         /* what each held key sends: its base row and hold rules */
     u8 modifier[REMAP_INPUTS];       /* the turbo modifier on for it, rule + 1; 0 none */
+    u32 quick = q->macro ? 1u << (q->macro - 1) : 0;   /* keys quick settings sends for */
 
     rm.next = 0;
     memset(modifier, 0, sizeof(modifier));
@@ -57,12 +62,26 @@ u32 remap_step(const struct set_remap *m, u32 in, u32 now, u32 *every_report)
 
         sends[i] = (in & (1u << i)) && to != REMAP_OFF ? 1u << (to ? to - 1u : i) : 0;
     }
+    for (i = 0; i < QUICK_MAPS; i++) {
+        u32 key = q->map[i] >> 24;
+
+        if (!key || key > REMAP_INPUTS) continue;
+        quick |= 1u << (key - 1);
+        sends[key - 1] = in & (1u << (key - 1)) ? q->map[i] & 0xffffff : 0;
+    }
+    if (q->macro && q->macro <= REMAP_INPUTS) sends[q->macro - 1] = 0;
     for (i = 0; i < REMAP_RULES; i++) {
         const struct remap_rule *r = &m->rule[i];
         u32 key = 1u << r->input, bit = 1u << i, ms = r->ms10 * 10u, o = outputs(r);
         u32 down = rm.down_at[r->input];
         int active = 0, event = 0;
 
+        if (quick & key) {           /* quick settings has the key */
+            rm.active &= ~bit;
+            rm.latched &= ~bit;
+            rm.pulsing &= ~bit;
+            continue;
+        }
         switch (r->trigger) {
         case RT_NONE: continue;
         case RT_HELD: active = (in & key) != 0; break;
@@ -79,19 +98,19 @@ u32 remap_step(const struct set_remap *m, u32 in, u32 now, u32 *every_report)
             if (event) doubled |= key;
             break;
         }
-        if (active && !(rm.active & bit)) rm.since[i] = now;
+        if (active && !(rm.active & bit) && r->effect != RE_TAP) rm.at[i] = now;
         rm.active = active ? rm.active | bit : rm.active & ~bit;
         if (event && r->effect == RE_TAP) {
-            rm.pulse_until[i] = now + ux_timeouts.tap_ms;
+            rm.at[i] = now + ux_timeouts.tap_ms;
             rm.pulsing |= bit;
         } else if (event) {
             rm.latched ^= bit;
-            rm.since[i] = now;
+            rm.at[i] = now;
         }
         if (rm.pulsing & bit) {
-            if ((s32)(now - rm.pulse_until[i]) < 0) {
+            if ((s32)(now - rm.at[i]) < 0) {
                 out |= o;
-                later(rm.pulse_until[i]);
+                later(rm.at[i]);
             } else {
                 rm.pulsing &= ~bit;
             }
@@ -101,7 +120,7 @@ u32 remap_step(const struct set_remap *m, u32 in, u32 now, u32 *every_report)
         else if (r->effect == RE_TOGGLE_HOLD) out |= o;
         else if (r->effect == RE_TURBO || r->effect == RE_TOGGLE_TURBO) {
             if (!r->rate) max |= o;
-            else if (turbo_on(r->rate, rm.since[i], now)) out |= o;
+            else if (turbo_on(r->rate, rm.at[i], now)) out |= o;
         } else if (r->effect == RE_TURBO_MODIFIER || r->effect == RE_TOGGLE_TURBO_MODIFIER) {
             u32 k;
 
@@ -114,12 +133,17 @@ u32 remap_step(const struct set_remap *m, u32 in, u32 now, u32 *every_report)
         u32 since;
 
         if (!sends[i]) continue;
+        if ((q->slow | q->fast) & (1u << i)) {
+            if (turbo_on(q->slow & (1u << i) ? QUICK_SLOW_HZ : QUICK_FAST_HZ, rm.down_at[i], now))
+                out |= sends[i];
+            continue;
+        }
         if (!modifier[i]) {
             out |= sends[i];
             continue;
         }
         r = &m->rule[modifier[i] - 1];
-        since = rm.since[modifier[i] - 1];
+        since = rm.at[modifier[i] - 1];
         if ((s32)(rm.down_at[i] - since) > 0) since = rm.down_at[i];
         if (!r->rate) max |= sends[i];
         else if (turbo_on(r->rate, since, now)) out |= sends[i];
@@ -155,6 +179,7 @@ u32 remap_deadline(void)
 #ifdef UNITTEST
 const struct ux_timeouts ux_timeouts = { .tap_ms = 60 };
 static struct set_remap m;
+static struct remap_quick qk;
 static u32 now, out, every;
 
 static void rule(u32 n, u8 trigger, u8 input, u32 ms, u8 effect, u32 o, u8 rate)
@@ -167,7 +192,7 @@ static void rule(u32 n, u8 trigger, u8 input, u32 ms, u8 effect, u32 o, u8 rate)
 static void at(u32 in, u32 t)
 {
     now = t;
-    out = remap_step(&m, in, now, &every);
+    out = remap_step(&m, in, now, &every, &qk);
 }
 
 int main(void)
@@ -290,6 +315,25 @@ int main(void)
     memset(m.map, REMAP_OFF, sizeof(m.map));
     rule(0, RT_PRESSED, 0, 0, RE_TAP, PAD_EAST, 0);
     at(PAD_SOUTH, 12000); remap_reset(); at(PAD_SOUTH, 12001); CHECK(out == PAD_EAST);
+    /* Quick settings' keys: a turbo step from the key's press over its rows
+     * and rules, a mapping, the macro's key sending nothing. */
+    memset(&m, 0, sizeof(m)); remap_reset();
+    m.map[1] = 3 + 1;                                /* east sends west */
+    rule(0, RT_HELD, 1, 0, RE_HOLD, PAD_L1, 0);
+    rule(1, RT_PRESSED, 9, 0, RE_TOGGLE_HOLD, PAD_UP, 0);
+    qk.slow = PAD_EAST;
+    at(PAD_EAST, 14000); CHECK(out == (PAD_WEST | PAD_L1) && remap_deadline() == 14050);
+    at(PAD_EAST, 14050); CHECK(out == 0);
+    at(PAD_EAST, 14100); CHECK(out == (PAD_WEST | PAD_L1));
+    qk.slow = 0; qk.fast = PAD_EAST;
+    at(PAD_EAST, 14125); CHECK(out == 0);            /* 20 Hz: 25 ms each */
+    qk.fast = 0;
+    qk.map[0] = (PAD_SOUTH | PAD_NORTH) | (u32)(IN_R4 + 1) << 24;
+    at(PAD_R4, 14200); CHECK(out == (PAD_SOUTH | PAD_NORTH));   /* its toggle rule ignored */
+    at(0, 14201); CHECK(out == 0);
+    qk.map[0] = 0; qk.macro = IN_EAST + 1;
+    at(PAD_EAST | PAD_SOUTH, 14300); CHECK(out == PAD_SOUTH);
+    memset(&qk, 0, sizeof(qk));
     /* Clock wrap. */
     memset(&m, 0, sizeof(m)); remap_reset();
     rule(0, RT_HELD, 0, 0, RE_TURBO, PAD_SOUTH, 10);

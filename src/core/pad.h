@@ -224,6 +224,11 @@ enum req_kind {
     REQ_RUMBLE_STEP,         /* quick settings L1/R1: .slot 0 lower, 1 raise the rumble step (RAM only) */
     REQ_REBOOT_UPDATER,      /* reboot into the updater (src/updater/) */
     REQ_CONFIG,              /* Home+M held: config mode, the settings over Bluetooth (not built: logged) */
+    /* Quick settings' layer (quick.c): .slot is the key, IN_*. */
+    REQ_QUICK_CLEAR,         /* M held alone: the layer cleared, the slot's own remap again */
+    REQ_QUICK_TURBO,         /* M + a tap: the key's next turbo step */
+    REQ_QUICK_RECORD,        /* M + a double tap: record a macro for the key */
+    REQ_QUICK_RECORD_LOOP,   /* M + a triple tap: record a looping macro */
 };
 
 struct ctl_request {
@@ -743,6 +748,7 @@ struct led_inputs {
     struct rgb lightbar;
     u8 cal_lit;
     struct rgb cal;
+    u8 signal;             /* LED_SIGNAL_*: quick settings' feedback on Home */
 };
 
 void led_frame(const struct led_scene *scene, const struct led_state *s, u32 now,
@@ -772,6 +778,7 @@ struct led_mono {
     u8 players, players_flash;   /* connected: the host's player lights, a bit each; flashing */
     u8 cal_lit;                  /* the calibration routine's light on Home instead */
     struct rgb cal;
+    u8 signal;                   /* LED_SIGNAL_*: quick settings' feedback on Home */
 };
 /* The frame at now; returns when it next changes by itself (0: never). */
 u32 led_mono(const struct led_mono *in, u32 now, struct led_frame *out);
@@ -781,12 +788,47 @@ void led_mono_demo(const struct ux_led_demo *demo, u32 t, struct led_mono *m);
 
 /* ---- remap.c ------------------------------------------------------------ */
 
+/* Quick settings' layer over the remap slot, per key (quick.c). */
+#ifndef QUICK_MAPS
+#define QUICK_MAPS    4          /* keys mapped at once */
+#endif
+#define QUICK_SLOW_HZ 10
+#define QUICK_FAST_HZ 20
+struct remap_quick {
+    u32 slow, fast;              /* keys whose sends pulse at QUICK_SLOW_HZ, QUICK_FAST_HZ */
+    u32 map[QUICK_MAPS];         /* a key sending these keys instead: PAD_* | (IN_* + 1) << 24; 0 none */
+    u8 macro;                    /* the key that plays the macro, IN_* + 1, sending nothing itself; 0 none */
+};
+
 /* The remap slot's buttons from the ones ux_step leaves.  every_report: keys
- * at turbo rate 0, for the report builder to flip.  Reset when the remap
- * slot or its settings change, and outside a connection. */
-u32 remap_step(const struct set_remap *m, u32 in, u32 now, u32 *every_report);
+ * at turbo rate 0, for the report builder to flip.  q: quick settings'
+ * keys, which their rows and rules leave alone.  Reset when the remap slot
+ * or its settings change, and outside a connection. */
+u32 remap_step(const struct set_remap *m, u32 in, u32 now, u32 *every_report, const struct remap_quick *q);
 void remap_reset(void);
 u32 remap_deadline(void);                   /* the next turbo edge, pulse end or hold time; 0: none */
+
+/* ---- quick.c ------------------------------------------------------------ */
+
+/* Quick settings' layer: turbo steps, mappings and the pad's one macro, in
+ * RAM.  quick_clear: a new slot, a disconnect, sleep, config mode, M held.
+ * While connected and the remap runs: quick_recording() ? quick_record_step
+ * (the remap suspended) : remap_step then quick_play; otherwise quick_stop.
+ * The LEDs show quick_led's Home (LED_SIGNAL_*) over the scene. */
+enum { SIG_NONE, SIG_REMAP_ON, SIG_REMAP_OFF, SIG_TURBO_SLOW, SIG_TURBO_FAST, SIG_TURBO_OFF,
+       SIG_CLEARED, SIG_SAVED, SIG_SAVED_LOOP, SIG_SAVED_MAP, SIG_DISCARDED };
+enum { LED_SIGNAL_NONE, LED_SIGNAL_DARK, LED_SIGNAL_LIT };
+const struct remap_quick *quick_keys(void);
+void quick_clear(void);
+void quick_turbo(u8 key, u32 now);
+void quick_record(u8 key, int loop, u32 now);
+int quick_recording(void);
+u32 quick_record_step(u32 in, u32 now);     /* the host's buttons while recording */
+u32 quick_play(u32 in, u32 out, u32 now, u32 *every_report);  /* in: as ux_step left them; out: the remap's */
+void quick_stop(u32 now);
+u32 quick_deadline(void);
+void quick_signal(u8 sig, u32 now);
+u8 quick_led(u32 now, u32 *next);
 
 /* ---- settings_ux.c ------------------------------------------------------ */
 

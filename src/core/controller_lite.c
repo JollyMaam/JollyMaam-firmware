@@ -124,6 +124,12 @@ static void remap(u32 now)
     if (!c.linked || c.stopping || c.calibrating || ux_quick(NULL)) {
         if (c.remap_live) remap_reset();
         c.remap_live = 0;
+        quick_stop(now);
+        return;
+    }
+    if (quick_recording()) {     /* the remap suspended: the host sees what will play */
+        c.pad.buttons = quick_record_step(c.pad.buttons, now);
+        c.remap_live = 0;        /* its state starts over after */
         return;
     }
     if (c.remap_live != c.remap + 1 || c.remap_edits != edits) {
@@ -131,7 +137,8 @@ static void remap(u32 now)
         c.remap_live = (u8)(c.remap + 1);
         c.remap_edits = edits;
     }
-    c.pad.buttons = remap_step(set_remap(c.remap), c.pad.buttons, now, &c.turbo_max);
+    c.pad.buttons = quick_play(c.pad.buttons, remap_step(set_remap(c.remap), c.pad.buttons, now, &c.turbo_max,
+                                                         quick_keys()), now, &c.turbo_max);
 }
 
 /* The switch moved: the session ends, and Home connects the other kind
@@ -228,7 +235,10 @@ static void start_session(u8 slot, int pairing, int renew)
     /* A remap and a rumble step picked in quick settings last across this
      * slot's reconnects (a lost link, relink) until a disconnect, sleep or
      * another slot. */
-    if (c.remap_slot != slot) c.rumble_step = 0;
+    if (c.remap_slot != slot) {
+        c.rumble_step = 0;
+        quick_clear();
+    }
     if (!c.remap_chosen || c.remap_slot != slot) {
         c.remap = c.session.settings->remap ? (u8)(c.session.settings->remap - 1) : REMAP_BASE;
         c.remap_slot = slot;
@@ -258,6 +268,7 @@ static __attribute__((noinline)) void start_config(void)
 {
     c.sleeping = 0;
     c.idle = 0;
+    quick_clear();               /* config mode borrows the buffer a macro may hold */
     c.config = 1;
     c.slot = SLOT_NONE;
     c.since_ms = plat_ms();
@@ -498,7 +509,7 @@ static __attribute__((noinline)) u32 lights(u32 now)
 {
     struct led_mono m;
     struct led_frame f;
-    u32 next;
+    u32 next, signal = 0;
 
     if (c.plug_lit && now - c.plugged_ms >= ux_timeouts.usb_plug_ms) c.plug_lit = 0;
     if (c.led_demo != SLOT_NONE && now - c.led_demo_ms >= UX_LED_DEMO_MS) {
@@ -514,8 +525,9 @@ static __attribute__((noinline)) u32 lights(u32 now)
                  c.linked ? MONO_CONNECTED : state() == CTL_PAIRING ? MONO_PAIRING : MONO_CONNECTING;
         m.cable = c.plug_lit && !c.sleeping;
         m.cal_lit = (u8)cal_led(now, &m.cal);
+        m.signal = quick_led(now, &signal);
     }
-    next = led_mono(&m, now, &f);
+    next = earliest(led_mono(&m, now, &f), signal);
     if (memcmp(&f, &c.shown, sizeof(f))) {
         c.shown = f;
         plat_leds(&f);
@@ -549,14 +561,30 @@ static void request(const struct ctl_request *r)
         break;
     case REQ_DISCONNECT:
         c.remap_chosen = c.rumble_step = 0;
+        quick_clear();
         if (!c.sleeping) transition(REQ_NONE, SLOT_NONE, 0);
         break;
-    case REQ_REMAP:
-        if (!c.linked || c.stopping || c.config) break;
-        c.remap = r->slot < LITE_SLOTS ? r->slot : REMAP_BASE;
+    case REQ_REMAP:              /* quick settings: a slot key turns its remap on or off */
+        if (!c.linked || c.stopping || c.config || r->slot >= LITE_SLOTS) break;
+        c.remap = r->slot != c.remap ? r->slot : REMAP_BASE;
         c.remap_chosen = 1;
         c.remap_slot = c.slot;
+        quick_signal(c.remap == REMAP_BASE ? SIG_REMAP_OFF : SIG_REMAP_ON, plat_ms());
         util_log("slot %c remap %c", slot_names[c.slot], c.remap < LITE_SLOTS ? slot_names[c.remap] : '-');
+        break;
+    case REQ_QUICK_CLEAR:        /* quick settings as the slot starts: its remap, nothing else */
+        if (!c.linked || c.stopping || c.config) break;
+        c.remap = c.session.settings->remap ? (u8)(c.session.settings->remap - 1) : REMAP_BASE;
+        c.remap_chosen = c.rumble_step = 0;
+        quick_clear();
+        quick_signal(SIG_CLEARED, plat_ms());
+        break;
+    case REQ_QUICK_TURBO:
+        if (c.linked && !c.stopping && !c.config) quick_turbo(r->slot, plat_ms());
+        break;
+    case REQ_QUICK_RECORD:
+    case REQ_QUICK_RECORD_LOOP:
+        if (c.linked && !c.stopping && !c.config) quick_record(r->slot, r->kind == REQ_QUICK_RECORD_LOOP, plat_ms());
         break;
     case REQ_RUMBLE_STEP: {      /* slot 1 up, 0 down */
         u8 step;
@@ -672,6 +700,7 @@ static __attribute__((noinline)) u32 power_step(u32 now)
     if ((s32)(now - deadline) >= 0) {
         util_log("ctl: sleeping");
         c.remap_chosen = c.rumble_step = 0;
+        quick_clear();
         c.sleeping = 1;
         c.sleep_ms = now;
         transition(REQ_NONE, SLOT_NONE, 0);
@@ -699,7 +728,7 @@ void ctl_main(void)
         if (gesture && (!next || (s32)(gesture - next) < 0)) next = gesture;
         if (power && (!next || (s32)(power - next) < 0)) next = power;
         if (c.rumble_until && (!next || (s32)(c.rumble_until - next) < 0)) next = c.rumble_until;
-        next = earliest(next, remap_deadline());
+        next = earliest(next, earliest(remap_deadline(), quick_deadline()));
         if (c.calibrating) next = plat_ms() + CAL_SAMPLE_MS;
         /* a report is built when the link wants it (bt_input_due_us: just
          * before the connection event it is for) */
@@ -845,8 +874,21 @@ static u32 test_edits, remap_resets, remap_steps;
 const struct set_remap *set_remap(u8 remap) { return &test_remaps[remap]; }
 u32 set_edits(void) { return test_edits; }
 void remap_reset(void) { remap_resets++; }
-u32 remap_step(const struct set_remap *m, u32 in, u32 now, u32 *every_report)
-{ (void)now; remap_steps++; *every_report = PAD_WEST; return in | m->map[0]; }
+u32 remap_step(const struct set_remap *m, u32 in, u32 now, u32 *every_report, const struct remap_quick *q)
+{ (void)now; (void)q; remap_steps++; *every_report = PAD_WEST; return in | m->map[0]; }
+static const struct remap_quick test_quick_keys;
+static u32 quick_clears;
+const struct remap_quick *quick_keys(void) { return &test_quick_keys; }
+void quick_clear(void) { quick_clears++; }
+void quick_turbo(u8 key, u32 now) { (void)key; (void)now; }
+void quick_record(u8 key, int loop, u32 now) { (void)key; (void)loop; (void)now; }
+int quick_recording(void) { return 0; }
+u32 quick_record_step(u32 in, u32 now) { (void)now; return in; }
+u32 quick_play(u32 in, u32 out, u32 now, u32 *every) { (void)in; (void)now; (void)every; return out; }
+void quick_stop(u32 now) { (void)now; }
+u32 quick_deadline(void) { return 0; }
+void quick_signal(u8 sig, u32 now) { (void)sig; (void)now; }
+u8 quick_led(u32 now, u32 *next) { (void)now; *next = 0; return LED_SIGNAL_NONE; }
 const u8 ux_first_slot = 3;
 const struct ux_timeouts ux_timeouts = {
     .idle_sleep_ms = 300000, .stop_max_ms = 12000, .connect_ms = 30000, .pair_ms = 180000,
@@ -1148,7 +1190,7 @@ int main(void)
     lights(1200); CHECK(test_mono.show == MONO_QUICK);
     /* A remap picked there: connected only; it lasts across this slot's
      * reconnects, not another slot's, a disconnect or sleep. */
-    test_reset(); c.slot = 1; test_slots[1].remap = 0;
+    test_reset(); c.slot = 1; test_slots[1].remap = 0; c.remap = REMAP_BASE;
     { struct ctl_request r = { REQ_REMAP, 0, 0 }; request(&r); }
     CHECK(c.remap == 0 && c.remap_chosen && c.remap_slot == 1);
     start_session(1, -1, 0); CHECK(c.remap == 0);
@@ -1156,7 +1198,11 @@ int main(void)
     { struct ctl_request r = { REQ_REMAP, 3, 0 }; c.linked = 1; request(&r); }
     CHECK(c.remap == 3);
     { struct ctl_request r = { REQ_REMAP, SLOT_NONE, 0 }; request(&r); }
-    CHECK(c.remap == REMAP_BASE && c.remap_chosen);
+    CHECK(c.remap == 3);                             /* no such remap slot */
+    { struct ctl_request r = { REQ_REMAP, 3, 0 }; request(&r); }
+    CHECK(c.remap == REMAP_BASE && c.remap_chosen);  /* again: off */
+    { struct ctl_request r = { REQ_QUICK_CLEAR, SLOT_NONE, 0 }; test_slots[1].remap = 2; c.session.settings = &test_slots[1]; request(&r); }
+    CHECK(c.remap == 1 && !c.remap_chosen && quick_clears);
     { struct ctl_request r = { REQ_REMAP, 1, 0 }; request(&r); }
     { struct ctl_request r = { REQ_DISCONNECT, SLOT_NONE, 0 }; request(&r); }
     CHECK(!c.remap_chosen);

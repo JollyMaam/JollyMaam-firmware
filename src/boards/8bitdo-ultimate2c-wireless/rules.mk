@@ -57,6 +57,8 @@ U2CW_DEFINES += -DPROF_RING=$(U2CW_PROFILE_RING) -DNO_DEEP_SLEEP
 endif
 U2CW_DEFINES += -DREMAPS_STORED=4
 U2CW_DEFINES += -DREMAP_RULES=8
+# A quick settings macro holds the tool device's buffer (its commands are refused meanwhile).
+U2CW_DEFINES += -DQUICK_LENT_BUFFER
 U2CW_DEFINES += -DRECORD_MAX=152
 U2CW_DEFINES += -DSLOT_USB_AUDIO=0
 U2CW_DEFINES += -DLEDS_MONO=1
@@ -152,6 +154,7 @@ U2CW_PAD_SOURCES += src/core/motion.c
 U2CW_PAD_SOURCES += src/core/input.c
 U2CW_PAD_SOURCES += src/core/input_calibration.c
 U2CW_PAD_SOURCES += src/core/remap.c
+U2CW_PAD_SOURCES += src/core/quick.c
 U2CW_PAD_SOURCES += src/core/settings.c
 U2CW_PAD_SOURCES += src/core/settings_ux.c
 U2CW_PAD_SOURCES += src/core/usb.c

@@ -367,6 +367,7 @@ void led_frame(const struct led_scene *sc, const struct led_state *s, u32 now,
     if (in->low_battery && (k = wave(&low_battery, now, 0, 1)))
         put(home, mix(got(home), lit(in->battery_colour), k));
     if (in->ephemeral && winking(now)) put(home, dark);
+    if (in->signal) put(home, in->signal == LED_SIGNAL_LIT ? lit(in->primary_colour) : dark);
     if (in->cal_lit) put(home, lit_rgb(in->cal));
     /* USB acknowledgement is one solid interval, then the normal scene.
      * Idle on USB stays dark; there is no charging animation. */

@@ -14,6 +14,7 @@ PAD_SOURCES += src/core/input_calibration.c
 PAD_SOURCES += src/core/motion.c
 PAD_SOURCES += src/core/leds.c
 PAD_SOURCES += src/core/remap.c
+PAD_SOURCES += src/core/quick.c
 PAD_SOURCES += src/core/settings.c
 PAD_SOURCES += src/core/settings_ux.c
 PAD_SOURCES += src/core/usb.c
