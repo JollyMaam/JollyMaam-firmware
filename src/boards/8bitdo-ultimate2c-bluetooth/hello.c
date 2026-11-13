@@ -338,7 +338,7 @@ u32 usb_tool_command(const u8 *report, u8 *data, u32 n, u32 max)
         return 0;
     case 0x48:                           /* bring-up: bytes into the blob copy at offset arg (from stock's at 0) */
         if (!blob_copy_len) {
-            blob_copy_len = (u32)(radio_blob_end - radio_blob);
+            blob_copy_len = radio_blob_size;
             if (blob_copy_len > sizeof(blob_copy)) blob_copy_len = 0;
             else memcpy(blob_copy, radio_blob, blob_copy_len);
         }
@@ -420,7 +420,7 @@ int main(void)
             u8 what = core_load_pending;
             int r = 0;
 
-            if (what == 1) r = plat_radio_load(radio_blob, (u32)(radio_blob_end - radio_blob));
+            if (what == 1) r = plat_radio_load(radio_blob, radio_blob_size);
             else if (what == 2) r = blob_copy_len ? plat_radio_load(blob_copy, blob_copy_len) : -3;
             else plat_radio_release();
             util_log("bt: core %s %d", what == 3 ? "released" : "loaded, held", r);

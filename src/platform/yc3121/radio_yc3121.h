@@ -17,7 +17,8 @@ int plat_radio_load(const u8 *blob, u32 len);
 void plat_radio_release(void);
 /* Bring-up: n bytes from the code port, the control bytes set first. */
 void plat_radio_code_read(u8 c2, u8 c3, u8 c4, u8 *out, u32 n);
-extern const u8 radio_blob[], radio_blob_end[];
+extern const u8 radio_blob[];             /* radio_patch.c */
+extern const u32 radio_blob_size;
 /* A command to the core, wide: with a u16 length; 0: no room in its ring. */
 int plat_radio_send(u8 id, const u8 *data, u16 len, int wide);
 /* The core's next packet; 0: none. */

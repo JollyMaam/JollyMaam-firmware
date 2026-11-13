@@ -6,7 +6,7 @@
 /* The YC3121's Bluetooth core: a second processor behind a window at
  * 0xc0000..0xc8fff, started and fed as stock v1.01 does (its 0x01020d58,
  * 0x010269e4, the IPC at 0x01020844..0x01020d18).  Its program is Yichip's
- * blob (from the stock app, built in by make; not in this repository):
+ * blob (stock's, in radio_patch.c):
  * u16, u16 0x55aa, u16 code length, the code (streamed into a port), then
  * records {u16 0x55aa, u16 length, u16 address, data} for 0xc0000 + address.
  *
@@ -40,7 +40,6 @@
 /* The ROM's LPM read for the radio (Yichip's rom_api.h: lpm_bt_read). */
 #define ROM_LPM_BT_READ ((uint32_t (*)(int))0x4d25)
 
-extern const uint8_t radio_blob[], radio_blob_end[];
 
 static void wait_ms(u32 ms)
 {
@@ -112,7 +111,7 @@ int plat_adc_ready(void)
 
 int plat_radio_start(void)
 {
-    int r = plat_radio_load(radio_blob, (u32)(radio_blob_end - radio_blob));
+    int r = plat_radio_load(radio_blob, radio_blob_size);
 
     if (!r) plat_radio_release();
     return r;

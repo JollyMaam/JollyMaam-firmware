@@ -46,7 +46,7 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   `make/telink.mk` with `telink-lib.mk`, `make/yc3121-lib.mk`;
   `make/host-tests.mk` the unit tests.  libjollymaam, `jollymaam` and
   `padhub` have their own `rules.mk`.  `make` builds every board but the U2C
-  Bluetooth (it needs `arm-none-eabi-gcc` and a stock dump); `make all`
+  Bluetooth (it needs `arm-none-eabi-gcc`); `make all`
   builds everything.
   `EXTRA_DEFINES=...` adds `-D` flags to a build (test and debug builds);
   a changed command line rebuilds exactly what it changes.  `O=dir` builds
