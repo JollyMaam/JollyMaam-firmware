@@ -516,7 +516,7 @@ static void handle(struct ctl_request r, u32 now)
         util_log("quick settings cleared");
         break;
     case REQ_QUICK_TURBO:
-        if (c.kind == CTL_CONNECTED) quick_turbo(r.slot);
+        if (c.kind == CTL_CONNECTED) quick_turbo(r.slot, now);
         break;
     case REQ_QUICK_RECORD:
     case REQ_QUICK_RECORD_LOOP:

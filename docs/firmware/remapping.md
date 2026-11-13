@@ -14,16 +14,16 @@ pad's LEDs and the host sees a neutral pad, motion at rest. In it:
 
 | Keys | Does |
 |---|---|
-| a key, pressed | steps its turbo: slow (10 Hz), fast (20 Hz), off; held, Home blinks at its rate; a key holding the macro: cleared |
-| M + a slot key | turns that remap on (another one replaces it) or, if it is the one in use, off (the base) |
-| M + L1 / R1 | rumble step down / up |
-| M tapped, then held + a key | records a macro for the key; quick settings ends |
-| M tapped twice, then held + a key | records a looping macro for the key; quick settings ends |
+| a key, pressed | steps its turbo: slow (10 Hz), fast (20 Hz), off; Home blinks at its rate for 400 ms and while the key is held; a key holding the macro: cleared |
+| Home + a slot key | turns that remap on (another one replaces it) or, if it is the one in use, off (the base) |
+| Home + L1 / R1 | rumble step down / up |
+| M held + a key | records a macro for the key; quick settings ends |
+| M tapped, then held + a key | records a looping macro for the key; quick settings ends |
 | Home or M held alone 2 s | clears everything quick settings set (turbo, mappings, the macro, the remap back to the slot's own, the rumble step) and leaves |
 | M alone | nothing |
 | Home alone | leaves, as does 30 s without a press |
 
-M's taps count when they follow each other within 300 ms. Leaving, the keys
+M's tap counts when M's next press follows within 300 ms. Leaving, the keys
 still held stay the pad's until they are let go. Home and M cannot take a
 turbo, a mapping or the macro. Home's chords work there
 as anywhere while connected: Home+Minus disconnects, which ends quick
@@ -74,7 +74,7 @@ device's: while a macro is held, USB tool commands are refused.
 
 **Lights.** Home shows quick settings' feedback over the scene: a remap on
 (one long blink) or off (two short), a held key's turbo (blinking at its
-rate), saved as a macro / looping macro / mapping (two, three, one long
+rate, 400 ms from its step and while held), saved as a macro / looping macro / mapping (two, three, one long
 pulse), a recording with nothing in it (a fast burst), discarded (three
 short flashes after a pause). It blinks fast while recording and slowly
 while a loop runs.

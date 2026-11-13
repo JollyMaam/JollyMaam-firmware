@@ -160,11 +160,11 @@ const struct led_scene ux_scenes[CTL_KIND_COUNT] = {
 #endif
 
 /* Home+M: quick settings, which ux_step runs itself.  Every input is held
- * back from the host.  A key's press steps its turbo.  M and a key: a slot
- * key turns its remap slot on or off, L1 or R1 lowers or raises the rumble
- * step.  M tapped once more first (QUICK_TAP_GAP_MS apart), then held with a
- * key: record a macro for the key; twice more: a looping one; recording
- * leaves quick settings.  Home or M held alone for QUICK_CLEAR_MS clears it
+ * back from the host.  A key's press steps its turbo.  Home and a key: a
+ * slot key turns its remap slot on or off, L1 or R1 lowers or raises the
+ * rumble step.  M held with a key: record a macro for the key; M tapped
+ * once first (QUICK_TAP_GAP_MS apart): a looping one; recording leaves
+ * quick settings.  Home or M held alone for QUICK_CLEAR_MS clears it
  * all and leaves.  A lone Home leaves, as does ux_timeouts.quick_ms without
  * a press.  Leaving, the keys still held stay the pad's until let go.
  * Home's chords work as when connected: Home+Minus disconnects, which ends
@@ -265,7 +265,7 @@ static struct ctl_request quick_step(struct pad *p, u32 now)
     ux.quick_down &= keys;
     if (pressed & PAD_M) {
         if (!ux.quick_taps || now - ux.quick_m_up > QUICK_TAP_GAP_MS) ux.quick_taps = 0;
-        if (ux.quick_taps < 3) ux.quick_taps++;
+        if (ux.quick_taps < 2) ux.quick_taps++;
         ux.quick_m_at = now;
         ux.quick_m_used = 0;
     }
@@ -273,17 +273,9 @@ static struct ctl_request quick_step(struct pad *p, u32 now)
     for (i = 0; k && !(k & (1u << i)); i++) {}
     if (ux.quick_down & PAD_M) {
         if (keys & ~PAD_M) ux.quick_m_used = 1;
-        if (k && ux.quick_taps > 1) {
-            r = request(ux.quick_taps == 2 ? REQ_QUICK_RECORD : REQ_QUICK_RECORD_LOOP, (u8)i);
+        if (k) {
+            r = request(ux.quick_taps > 1 ? REQ_QUICK_RECORD_LOOP : REQ_QUICK_RECORD, (u8)i);
             leave = 1;
-        } else if (k & (PAD_L1 | PAD_R1)) {
-            r = request(REQ_RUMBLE_STEP, (k & PAD_R1) ? 1 : 0);
-        } else if (k) {
-            for (i = 0; i < GESTURES; i++) {
-                if (gestures[i].request != REQ_CONNECT || !(k & gestures[i].keys)) continue;
-                r = request(REQ_REMAP, gestures[i].slot);
-                break;
-            }
         } else if (!ux.quick_m_used && now - ux.quick_m_at >= QUICK_CLEAR_MS) {
             r = request(REQ_QUICK_CLEAR, SLOT_NONE);
             leave = 1;
@@ -331,6 +323,17 @@ struct ctl_request ux_step(struct pad *p, u32 now, u8 state)
         if (ux.active) {
             ux.before &= chord;
             if (chord) ux.mixed = 1;
+            if (UX_QUICK_SETTINGS && ux.quick && (keys & PAD_HOME)) {
+                u32 k = chord & PAD_DIGITAL & ~ux.quick_held;   /* pressed with Home */
+                if (k & (PAD_L1 | PAD_R1)) {
+                    r = request(REQ_RUMBLE_STEP, (k & PAD_R1) ? 1 : 0);
+                } else if (k) for (i = 0; i < GESTURES; i++) {
+                    if (gestures[i].request != REQ_CONNECT || !(k & gestures[i].keys)) continue;
+                    r = request(REQ_REMAP, gestures[i].slot);
+                    break;
+                }
+                if (r.kind != REQ_NONE) ux.fired = 1;          /* Home's release stays in */
+            }
             if (!(keys & PAD_HOME)) {
                 int lone = !ux.chorded && !ux.fired;
                 if (lone && ux.quick) {
@@ -667,14 +670,19 @@ int main(void)
     /* A key's press steps its turbo; it stays. */
     pad.buttons = PAD_L4; run(1); CHECK(last.kind == REQ_QUICK_TURBO && last.slot == IN_L4 && !seen.buttons);
     run(100); CHECK(last.kind == REQ_NONE); pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE && ux_quick(NULL));
-    /* M and a slot key: its remap; M and L1 or R1: the rumble step; it stays. */
-    pad.buttons = PAD_M; run(10); pad.buttons = PAD_M | PAD_WEST; run(1);
+    /* Home and a slot key: its remap; Home and L1 or R1: the rumble step,
+     * each press; Home's release stays in. */
+    pad.buttons = PAD_HOME; run(10); pad.buttons = PAD_HOME | PAD_WEST; run(1);
     CHECK(last.kind == REQ_REMAP && last.slot == 2);
-    pad.buttons = PAD_M; run(10); pad.buttons = PAD_M | PAD_R1; run(1);
+    pad.buttons = PAD_HOME; run(10); pad.buttons = PAD_HOME | PAD_R1; run(1);
     CHECK(last.kind == REQ_RUMBLE_STEP && last.slot == 1);
-    pad.buttons = PAD_M; run(10); pad.buttons = PAD_M | PAD_L1; run(1);
+    pad.buttons = PAD_HOME; run(10); pad.buttons = PAD_HOME | PAD_R1; run(1);
+    CHECK(last.kind == REQ_RUMBLE_STEP && last.slot == 1);
+    pad.buttons = PAD_HOME | PAD_R1 | PAD_L1; run(1);
     CHECK(last.kind == REQ_RUMBLE_STEP && last.slot == 0);
-    pad.buttons = 0; run(400); CHECK(last.kind == REQ_NONE && ux_quick(NULL) && !seen.buttons);
+    run(QUICK_CLEAR_MS); CHECK(last.kind == REQ_NONE && ux_quick(NULL));
+    pad.buttons = PAD_HOME; run(10); pad.buttons = 0; run(400);
+    CHECK(last.kind == REQ_NONE && ux_quick(NULL) && !seen.buttons);
     /* M alone, tapped, does nothing; a lone Home leaves, changing nothing. */
     pad.buttons = PAD_M; run(100); pad.buttons = 0; run(400); CHECK(last.kind == REQ_NONE && ux_quick(NULL));
     pad.buttons = PAD_HOME; run(10); pad.buttons = 0; run(1);
@@ -685,8 +693,9 @@ int main(void)
     reset(CTL_CONNECTED); pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_M; run(100);
     pad.buttons = PAD_M; run(1); CHECK(ux_quick(NULL) && !seen.buttons);
     pad.buttons = 0; run(1); CHECK(ux_quick(NULL) && last.kind == REQ_NONE); /* M from the chord */
-    pad.buttons = PAD_M; run(10); pad.buttons = PAD_M | PAD_LEFT; run(1);
+    pad.buttons = PAD_HOME; run(10); pad.buttons = PAD_HOME | PAD_LEFT; run(1);
     CHECK(last.kind == REQ_REMAP && last.slot == 6);
+    pad.buttons = 0; run(1); CHECK(ux_quick(NULL));
     /* Home held long, then let go, leaves without reaching the host. */
     quick();
     pad.buttons = PAD_HOME; run(1000); CHECK(ux_quick(NULL) && !seen.buttons);
@@ -703,30 +712,26 @@ int main(void)
         pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE && !seen.buttons && !ux.tap);
         pad.buttons = PAD_SOUTH; run(1); CHECK(seen.buttons == PAD_SOUTH); pad.buttons = 0; run(1);
     }
-    /* M held with a key is no clear. */
-    quick();
-    pad.buttons = PAD_M | PAD_EAST; run(3000); CHECK(last.kind == REQ_NONE && ux_quick(NULL));
-    pad.buttons = 0; run(1);
-    /* M tapped once or twice more, then held with a key: record, record a loop;
-     * out, the keys still held the pad's until let go. */
-    for (i = 2; i <= 4; i++) {
+    /* M held with a key, M tapped once (or more) first: record, record a
+     * loop; out, the keys still held the pad's until let go. */
+    for (i = 1; i <= 3; i++) {
         u32 n;
 
         quick();
         for (n = 1; n < i; n++) { pad.buttons = PAD_M; run(50); pad.buttons = 0; run(QUICK_TAP_GAP_MS); }
         pad.buttons = PAD_M; run(50); CHECK(last.kind == REQ_NONE);
         pad.buttons = PAD_M | PAD_L4; run(1);
-        CHECK(last.kind == (i == 2 ? REQ_QUICK_RECORD : REQ_QUICK_RECORD_LOOP) && last.slot == IN_L4);
+        CHECK(last.kind == (i == 1 ? REQ_QUICK_RECORD : REQ_QUICK_RECORD_LOOP) && last.slot == IN_L4);
         CHECK(!ux_quick(NULL) && !seen.buttons);
         run(100); CHECK(!seen.buttons); pad.buttons = PAD_L4; run(10); CHECK(!seen.buttons);
         pad.buttons = 0; run(1); pad.buttons = PAD_SOUTH; run(1); CHECK(seen.buttons == PAD_SOUTH);
         pad.buttons = 0; run(1);
     }
-    /* Taps too far apart count from one again: the remap. */
+    /* Taps too far apart count from one again: no loop. */
     quick();
     pad.buttons = PAD_M; run(50); pad.buttons = 0; run(QUICK_TAP_GAP_MS + 1);
     pad.buttons = PAD_M; run(50); pad.buttons = PAD_M | PAD_EAST; run(1);
-    CHECK(last.kind == REQ_REMAP && last.slot == 1 && ux_quick(NULL));
+    CHECK(last.kind == REQ_QUICK_RECORD && last.slot == IN_EAST && !ux_quick(NULL));
     pad.buttons = 0; run(1);
     quick(); pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_SELECT; run(10);   /* Home's chords work */
     pad.buttons = 0; run(1); CHECK(last.kind == REQ_DISCONNECT);
@@ -771,7 +776,7 @@ int main(void)
     pad.buttons = 0; run(1); CHECK(!seen.buttons && last.kind == REQ_NONE);
     /* Home with a key that makes no chord: still a lone Home, which leaves. */
     quick();
-    pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_WEST; run(10); pad.buttons = PAD_HOME; run(10);
+    pad.buttons = PAD_HOME; run(10); pad.buttons |= PAD_L4; run(10); pad.buttons = PAD_HOME; run(10);
     CHECK(ux_quick(NULL) && last.kind == REQ_NONE && !seen.buttons);
     pad.buttons = 0; run(1); CHECK(last.kind == REQ_NONE && !ux_quick(NULL));
     run(10); CHECK(!seen.buttons && !ux.tap);

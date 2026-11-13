@@ -832,7 +832,7 @@ enum { SIG_NONE, SIG_REMAP_ON, SIG_REMAP_OFF, SIG_CLEARED, SIG_SAVED, SIG_SAVED_
 enum { LED_SIGNAL_NONE, LED_SIGNAL_DARK, LED_SIGNAL_LIT };
 const struct remap_quick *quick_keys(void);
 void quick_clear(void);
-void quick_turbo(u8 key);
+void quick_turbo(u8 key, u32 now);
 void quick_record(u8 key, int loop, u32 now);
 int quick_recording(void);
 u32 quick_record_step(u32 in, u32 now);     /* the host's buttons while recording */

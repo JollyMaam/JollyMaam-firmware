@@ -582,7 +582,7 @@ static void request(const struct ctl_request *r)
         quick_clear();
         break;
     case REQ_QUICK_TURBO:
-        if (c.linked && !c.stopping && !c.config) quick_turbo(r->slot);
+        if (c.linked && !c.stopping && !c.config) quick_turbo(r->slot, plat_ms());
         break;
     case REQ_QUICK_RECORD:
     case REQ_QUICK_RECORD_LOOP:
@@ -882,7 +882,7 @@ static const struct remap_quick test_quick_keys;
 static u32 quick_clears;
 const struct remap_quick *quick_keys(void) { return &test_quick_keys; }
 void quick_clear(void) { quick_clears++; }
-void quick_turbo(u8 key) { (void)key; }
+void quick_turbo(u8 key, u32 now) { (void)key; (void)now; }
 void quick_record(u8 key, int loop, u32 now) { (void)key; (void)loop; (void)now; }
 int quick_recording(void) { return 0; }
 u32 quick_record_step(u32 in, u32 now) { (void)now; return in; }

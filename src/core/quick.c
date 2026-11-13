@@ -48,6 +48,8 @@ static struct {
     u8 eat_m;                    /* M ended a recording: kept from the host until released */
     u8 signal;
     u16 signal_at;               /* plat_ms, low bits */
+    u8 turbo_key;                /* the last turbo step's key + 1: shown QUICK_TURBO_SHOW_MS */
+    u16 turbo_at;                /* plat_ms, low bits */
     u32 uses;                    /* the keys the macro presses */
     u32 prev;                    /* the keys last pass */
     u32 at;                      /* recording: the last step's time; playing: when the next is due */
@@ -121,16 +123,19 @@ void quick_clear(void)
 {
     drop_macro();
     memset(&keys, 0, sizeof(keys));
-    q.eat_m = 0;
+    q.eat_m = q.turbo_key = 0;
 }
 
-/* The key's next turbo step (quick_led shows it while the key is held); a
- * key holding the macro: cleared first. */
-void quick_turbo(u8 key)
+/* The key's next turbo step (quick_led shows it while the key is held, and
+ * for QUICK_TURBO_SHOW_MS from the step); a key holding the macro: cleared
+ * first. */
+void quick_turbo(u8 key, u32 now)
 {
     u32 b = bit(key);
 
     if (key >= 32 || !(QUICK_KEYS & b)) return;
+    q.turbo_key = (u8)(key + 1);
+    q.turbo_at = (u16)now;
     if (keys.macro == key + 1u) {
         drop_macro();
     } else if (keys.slow & b) {
@@ -147,6 +152,7 @@ void quick_record(u8 key, int loop, u32 now)
 {
     if (key >= 32 || !(QUICK_KEYS & bit(key))) return;
     drop_macro();                /* one buffer: the old macro goes, whatever this becomes */
+    q.turbo_key = 0;
     if (!take_buffer()) {
         quick_signal(SIG_DISCARDED, now);
         return;
@@ -390,11 +396,16 @@ static const struct { u16 off, on; u8 n; } signals[] = {
     [SIG_DISCARDED] = { 300, 80, 3 },
 };
 #define RECORD_BLINK_MS 100
+#define QUICK_TURBO_SHOW_MS 400 /* a whole number of either rate's blinks */
 #define LOOP_BLINK_MS   500
 
 u8 quick_led(u32 now, u32 *next, u32 held)
 {
-    u32 turbo = held & (keys.slow | keys.fast);
+    u32 t = (u16)((u16)now - q.turbo_at), turbo;
+
+    if (q.turbo_key && t < QUICK_TURBO_SHOW_MS) held |= bit(q.turbo_key - 1u);
+    else q.turbo_key = 0;
+    turbo = held & (keys.slow | keys.fast);
 
     *next = 0;
     if (q.signal) {
@@ -407,8 +418,8 @@ u8 quick_led(u32 now, u32 *next, u32 held)
         }
         q.signal = SIG_NONE;
     }
-    if (turbo && !(held & PAD_M)) {          /* quick settings: a held key's turbo, at its rate */
-        u32 half = 500u / (turbo & keys.slow ? QUICK_SLOW_HZ : QUICK_FAST_HZ), phase = now % (2 * half);
+    if (turbo) {                 /* quick settings: a held or just stepped key's turbo, at its rate */
+        u32 half = 500u / (turbo & keys.slow ? QUICK_SLOW_HZ : QUICK_FAST_HZ), phase = t % (2 * half);
 
         *next = now - phase + (phase < half ? half : 2 * half);
         return phase < half ? LED_SIGNAL_LIT : LED_SIGNAL_DARK;
@@ -464,16 +475,19 @@ int main(void)
 
     /* Turbo steps: slow, fast, none. */
     now = 1000;
-    quick_turbo(IN_L4); CHECK(keys.slow == PAD_L4 && !keys.fast);
-    CHECK(quick_led(1000, &next, PAD_L4) == LED_SIGNAL_LIT && next == 1050);     /* 10 Hz while held */
-    CHECK(quick_led(1000, &next, PAD_L4 | PAD_M) == LED_SIGNAL_NONE);
-    quick_turbo(IN_L4); CHECK(!keys.slow && keys.fast == PAD_L4);
-    CHECK(quick_led(1000, &next, PAD_L4) == LED_SIGNAL_LIT && next == 1025);
-    quick_turbo(IN_L4); CHECK(!keys.slow && !keys.fast && quick_led(1000, &next, PAD_L4) == LED_SIGNAL_NONE);
-    quick_turbo(IN_HOME); quick_turbo(IN_M); CHECK(!keys.slow);
+    quick_turbo(IN_L4, 1000); CHECK(keys.slow == PAD_L4 && !keys.fast);
+    CHECK(quick_led(1000, &next, PAD_L4) == LED_SIGNAL_LIT && next == 1050);     /* 10 Hz, from the step */
+    CHECK(quick_led(1060, &next, 0) == LED_SIGNAL_DARK && next == 1100);         /* released: still shown */
+    CHECK(quick_led(1399, &next, 0) == LED_SIGNAL_DARK && next == 1400);
+    CHECK(quick_led(1400, &next, 0) == LED_SIGNAL_NONE && !next);                /* 400 ms: four blinks */
+    CHECK(quick_led(1400, &next, PAD_L4) == LED_SIGNAL_LIT);                    /* held: as long as it is */
+    quick_turbo(IN_L4, 2000); CHECK(!keys.slow && keys.fast == PAD_L4);
+    CHECK(quick_led(2000, &next, 0) == LED_SIGNAL_LIT && next == 2025);
+    quick_turbo(IN_L4, 3000); CHECK(!keys.slow && !keys.fast && quick_led(3000, &next, PAD_L4) == LED_SIGNAL_NONE);
+    quick_turbo(IN_HOME, 3000); quick_turbo(IN_M, 3000); CHECK(!keys.slow);
 
     /* A tap of south, recorded: a mapping, not a macro; the buffer given back. */
-    quick_turbo(IN_R4);
+    quick_turbo(IN_R4, now);
     quick_record(IN_R4, 0, now); CHECK(quick_recording() && quick_led(now, &next, 0) == LED_SIGNAL_DARK);
     CHECK(rec(0, 500) == 0);
     CHECK(rec(PAD_SOUTH, 80) == PAD_SOUTH);              /* the host sees what is pressed */
