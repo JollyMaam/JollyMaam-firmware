@@ -542,7 +542,7 @@ static int rules_ok(const u8 *v)
         if (!r->trigger) continue;
         if (r->trigger >= RT_COUNT || r->input >= REMAP_INPUTS || r->input == 15 ||
             r->effect >= RE_COUNT || level != remap_level_effect(r->effect) || (timed && !r->ms10) ||
-            (o & ~PAD_DIGITAL) || r->rate > REMAP_MAX_HZ || r->reserved)
+            (o & ~REMAP_KEYS) || r->rate > REMAP_MAX_HZ || r->reserved)
             return 0;
     }
     return 1;

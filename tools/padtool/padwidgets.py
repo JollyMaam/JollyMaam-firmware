@@ -306,9 +306,9 @@ class CurveEditor(ttk.Frame):
 
 # ---- remap slots ----------------------------------------------------------------
 
-KEY_ORDER = ('south', 'east', 'west', 'north', 'up', 'down', 'left', 'right', 'l1', 'r1', 'l4', 'r4',
+KEY_ORDER = ('south', 'east', 'west', 'north', 'up', 'down', 'left', 'right', 'l1', 'r1', 'l2', 'r2', 'l4', 'r4',
              'l3', 'r3', 'minus', 'plus', 'home', 'm', 'capture')
-ROLE_LABELS = {k: (k.upper() if k in ('m', 'l1', 'r1', 'l4', 'r4', 'l3', 'r3') else k.capitalize())
+ROLE_LABELS = {k: (k.upper() if k in ('m', 'l1', 'r1', 'l2', 'r2', 'l4', 'r4', 'l3', 'r3') else k.capitalize())
                for k in KEY_ORDER}
 KEY_LABELS = dict(ROLE_LABELS)
 

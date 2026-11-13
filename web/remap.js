@@ -10,7 +10,7 @@ export class RemapError extends Error {}
 
 // IN_* bit numbers; bit 15 is no key.
 export const KEYS = ["south", "east", "capture", "west", "north", "m", "l1", "r1", "l4", "r4", "minus", "plus",
-  "home", "l3", "r3", null, "up", "right", "down", "left"];
+  "home", "l3", "r3", null, "up", "right", "down", "left", "l2", "r2"];
 export const NAMES = KEYS.filter(Boolean);
 const ALIASES = { select: "minus", start: "plus", screenshot: "capture" };
 export const INPUTS = KEYS.length;

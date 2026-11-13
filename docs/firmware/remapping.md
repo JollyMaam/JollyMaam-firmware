@@ -89,8 +89,13 @@ defaults sends every key as itself and the sticks as calibrated.
 ## A remap slot
 
 - **name**: UTF-8, 24 bytes.
-- **map**: per input key, a "held: hold KEY" row (bit + 1, itself included),
-  "held: nothing" (0xff) or no row (0).
+- **map**: per input (the 20 keys, then the triggers' presses L2 and R2),
+  a "held: hold KEY" row (bit + 1, itself included), "held: nothing"
+  (0xff) or no row (0). A trigger mapped to a trigger takes its analog
+  value along (both on one: the further pulled wins); mapped to a key it
+  presses the key at its press point and the host's trigger rests. A
+  trigger pressed by anything else (a key, a rule, a macro) goes all the
+  way down. Rules take the triggers as inputs and outputs too.
 - **rules**: 16 × 10 bytes: trigger, input, time in 10 ms, effect, a 32-bit
   output mask, turbo rate, a reserved byte (zero; room for a condition key).
 - **sticks** (a second store record, keys 22–29): per physical stick the
@@ -155,11 +160,10 @@ The rule shape fits analog as long as inputs and outputs stay typed:
 
 - **Analog as a digital input**: "LS up past N%" as extra input numbers with
   a threshold (with hysteresis) in the time byte. Every trigger and effect
-  then works unchanged. The triggers' presses (`PAD_L2`, `PAD_R2`, bits 20
-  and 21) are already decided before the remap; as rule inputs ("R2
-  pressed → tap south") they need `REMAP_INPUTS` 22.
-- **Digital to analog output**: "LS up full", "R2 full" as extra output bits;
-  OR becomes "the largest wins" per axis, opposite directions cancel.
+  then works unchanged (the triggers' presses already are inputs).
+- **Digital to analog output** for the sticks: "LS up full" as extra output
+  bits; OR becomes "the largest wins" per axis, opposite directions cancel.
+  (A trigger's press as an output is built: full travel.)
 - **Axis to axis** ("left stick Y drives R2"; whole-stick routing and inversion are built, above): a
   different kind of rule, a route with a source axis, a transform (half-axis,
   invert, scale) and a destination, applied to the sticks and triggers rather

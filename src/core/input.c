@@ -155,17 +155,27 @@ void in_triggers(const struct set_remap *m, struct in_trigger t[2], struct pad *
     }
 }
 
-void in_triggers_after(u32 pressed, struct pad *pad)
+void in_triggers_after(const struct set_remap *m, u32 pressed, struct pad *pad)
 {
-    u16 *v[2] = { &pad->l2, &pad->r2 };
-    u32 i;
+    u16 in[2] = { pad->l2, pad->r2 }, out[2] = { 0, 0 };
+    u32 behind[2] = { 0, 0 }, i, j;     /* the physical triggers each host one takes */
 
     for (i = 0; i < 2; i++) {
-        u32 b = i ? PAD_R2 : PAD_L2;
+        u8 to = m ? m->map[IN_L2 + i] : 0;
 
-        if ((pad->buttons & b) && !(pressed & b)) *v[i] = TRIGGER_MAX;
-        else if (!(pad->buttons & b) && (pressed & b)) *v[i] = 0;
+        j = !to ? i : to == REMAP_TO(IN_L2) ? 0 : to == REMAP_TO(IN_R2) ? 1 : 2;
+        if (j > 1) continue;     /* a key or nothing: no analog */
+        behind[j] |= PAD_L2 << i;
+        if (in[i] > out[j]) out[j] = in[i];
     }
+    for (j = 0; j < 2; j++) {
+        u32 b = PAD_L2 << j;
+
+        if ((pad->buttons & b) && !(pressed & behind[j])) out[j] = TRIGGER_MAX;
+        else if (!(pad->buttons & b) && (pressed & behind[j])) out[j] = 0;
+    }
+    pad->l2 = out[0];
+    pad->r2 = out[1];
 }
 
 #ifdef UNITTEST
@@ -173,15 +183,28 @@ static u16 pct(u32 p) { return (u16)TRIGGER_STEP(p); }
 
 static void triggers_test(void)
 {
-    {   /* Pressed after them: all the way; taken away: at rest. */
+    {   /* Pressed after them: all the way; taken away: at rest; mapped: the value along. */
+        struct set_remap m = { 0 };
         struct pad p = { 0 };
 
         p.buttons = PAD_L2; p.l2 = 100; p.r2 = 30000;
-        in_triggers_after(PAD_R2, &p);
+        in_triggers_after(NULL, PAD_R2, &p);
         CHECK(p.l2 == TRIGGER_MAX && p.r2 == 0);
         p.buttons = PAD_L2 | PAD_R2; p.l2 = 100; p.r2 = 30000;
-        in_triggers_after(PAD_L2 | PAD_R2, &p);
+        in_triggers_after(&m, PAD_L2 | PAD_R2, &p);
         CHECK(p.l2 == 100 && p.r2 == 30000);
+        m.map[IN_L2] = REMAP_TO(IN_R2); m.map[IN_R2] = REMAP_TO(IN_L2);   /* swapped */
+        p.buttons = PAD_L2; p.l2 = 100; p.r2 = 30000;
+        in_triggers_after(&m, PAD_R2, &p);
+        CHECK(p.l2 == 30000 && p.r2 == 100);
+        m.map[IN_R2] = 0;                                                  /* both on R2: the further */
+        p.buttons = 0; p.l2 = 200; p.r2 = 150;
+        in_triggers_after(&m, 0, &p);
+        CHECK(p.l2 == 0 && p.r2 == 200);
+        m.map[IN_L2] = REMAP_TO(IN_SOUTH);                                 /* a key: no analog */
+        p.buttons = PAD_SOUTH; p.l2 = 30000; p.r2 = 10;
+        in_triggers_after(&m, PAD_L2, &p);
+        CHECK(p.l2 == 0 && p.r2 == 10);
     }
     struct set_remap slot = { 0 };
     struct in_trigger t[2] = { { 0 } };

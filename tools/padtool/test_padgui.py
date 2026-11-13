@@ -1504,13 +1504,13 @@ class RemapGuiTests(GuiCase):
         r = remap_record()
         editor = self.open_remap(r)
         mapping, rules = r["draft"][11, "map"], r["draft"][11, "rules"]
-        self.assertEqual(len(editor.base), 19)
-        self.assertEqual(len(editor.adds), 19)
+        self.assertEqual(len(editor.base), 21)
+        self.assertEqual(len(editor.adds), 21)
         self.assertIn(" 0 of 16 used", editor.slots.cget("text"))
         editor.change(lambda: editor.base.update(west="north", north="west", capture=None))
         self.assertEqual((mapping["var"].get(), rules["var"].get()), ("capture=none west=north north=west", "none"))
         self.assertIn(" 0 of 16 used", editor.slots.cget("text"))
-        editor.adds[11].invoke()                          # R4's +
+        editor.adds[13].invoke()                          # R4's +
         self.assertEqual(editor.rules[0]["input"], "r4")
         rule = editor.rules[0]
         editor.change(lambda: editor.retrigger(rule, "tapped"))
@@ -1535,7 +1535,7 @@ class RemapGuiTests(GuiCase):
         r = remap_record()
         editor = self.open_remap(r)
         rules = r["draft"][11, "rules"]
-        editor.adds[11].invoke()                          # R4's Add rule
+        editor.adds[13].invoke()                          # R4's Add rule
         editor = self.editor()
         editor.change(lambda: editor.rules[0].update(effect="turbo_modifier"))
         self.root.update()
@@ -1544,7 +1544,7 @@ class RemapGuiTests(GuiCase):
         picker.invoke()
         self.root.update()
         boxes = [w for w in picker.panel.winfo_children()[0].winfo_children() if isinstance(w, padgui.ttk.Checkbutton)]
-        self.assertEqual(len(boxes), 19)
+        self.assertEqual(len(boxes), 21)
         boxes[0].invoke()                                 # A
         boxes[1].invoke()                                 # B
         self.root.update()

@@ -38,11 +38,11 @@ class RemapTextTests(unittest.TestCase):
         self.assertEqual(remap.show_map(raw), "south=east east=south capture=none west=north north=west l4=south")
         self.assertEqual(remap.parse_map(remap.show_map(raw)), raw)
         base = remap.decode_map(raw)
-        self.assertEqual(len(base), 19)
+        self.assertEqual(len(base), 21)
         self.assertEqual((base["west"], base["capture"], base["r4"]), ("north", None, "r4"))
         self.assertEqual(remap.encode_map(base), raw)
-        self.assertEqual(remap.show_map(bytes(20)), "identity")
-        self.assertEqual(remap.parse_map("identity"), bytes(20))
+        self.assertEqual(remap.show_map(bytes(22)), "identity")
+        self.assertEqual(remap.parse_map("identity"), bytes(22))
         for bad in ("west", "q=south", "south=q"):
             with self.assertRaises(remap.RemapError):
                 remap.parse_map(bad)

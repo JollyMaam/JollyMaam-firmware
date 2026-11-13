@@ -15,7 +15,7 @@ whatever south and east send while R4 is held.
 
 # PAD_* bit numbers; bit 15 is no key.
 KEYS = ("south", "east", "capture", "west", "north", "m", "l1", "r1", "l4", "r4", "minus", "plus",
-        "home", "l3", "r3", None, "up", "right", "down", "left")
+        "home", "l3", "r3", None, "up", "right", "down", "left", "l2", "r2")
 NAMES = tuple(k for k in KEYS if k)
 ALIASES = {"select": "minus", "start": "plus", "screenshot": "capture"}
 INPUTS = len(KEYS)

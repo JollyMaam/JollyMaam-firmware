@@ -10,14 +10,14 @@ import {
 } from "./remap.js";
 
 // The keys in the editor's order (padgui's).
-const KEY_ORDER = ["south", "east", "west", "north", "up", "down", "left", "right", "l1", "r1", "l4", "r4",
+const KEY_ORDER = ["south", "east", "west", "north", "up", "down", "left", "right", "l1", "r1", "l2", "r2", "l4", "r4",
   "l3", "r3", "minus", "plus", "home", "m", "capture"];
 const TRIGGER_LABELS = { held: "is held", held_for: "is held for", pressed: "is pressed", released: "is released",
   tapped: "is tapped under", double_tapped: "is double-tapped within" };
 const EFFECT_LABELS = { hold: "hold", turbo: "turbo", nothing: "nothing", tap: "tap", toggle_hold: "toggle hold",
   toggle_turbo: "toggle turbo", turbo_modifier: "turbo modifier", toggle_turbo_modifier: "toggle turbo modifier" };
 
-const SHORT = ["m", "l1", "r1", "l4", "r4", "l3", "r3"];
+const SHORT = ["m", "l1", "r1", "l2", "r2", "l4", "r4", "l3", "r3"];
 const role = (k) => (SHORT.includes(k) ? k.toUpperCase() : k[0].toUpperCase() + k.slice(1));
 
 // A key as the pad prints it, with its role when that differs: "B (south)",
@@ -42,7 +42,8 @@ function download(name, text) {
 
 // ---- remap ------------------------------------------------------------------
 
-// A remap slot's keys: per key what it sends while held, and its rules.
+// A remap slot: per key what it sends while held (the map), then the rules,
+// one list under it with a count of what is used.
 // io: { map, rules, name } inputs (text), { mapField, rulesField },
 // saved/defaults raw values, layout, file name, resetAll().
 export function remapEditor(io) {
@@ -51,6 +52,11 @@ export function remapEditor(io) {
   const saved = decode(io.saved), def = decode(io.defaults);
   let base, rules, writing = false;
   const body = h("tbody");
+  const ruleList = h("div", { class: "rules" });
+  const used = h("span", { class: "muted" });
+  const addRule = h("button", { type: "button", class: "small" }, "Add rule");
+  const resetRules = h("button", { type: "button", class: "small", title: "the rules back to the default" }, "Rules to default");
+  const rulesHead = h("div", { class: "actions" }, h("strong", {}, "Rules"), used, addRule, resetRules);
   const problem = h("p", { class: "error", hidden: true });
 
   const load = () => {
@@ -67,7 +73,7 @@ export function remapEditor(io) {
   };
 
   // The model into the text inputs; a rule the pad would refuse stays as
-  // text, so the table shows what is wrong.
+  // text, so the list shows what is wrong.
   const write = () => {
     writing = true;
     try {
@@ -91,15 +97,17 @@ export function remapEditor(io) {
     else marks();
   };
 
-  const rulesOf = (m, k) => m.rules.filter((r) => r.input === k).map(showRule).join("; ");
-  const differs = (m, k) => m && (m.base[k] !== base[k] || rulesOf(m, k) !== rulesOf({ rules }, k));
-
+  const rulesText = (m) => m.rules.map(showRule).join("; ");
   const markCells = new Map();
   function marks() {
     for (const [k, { tr, reset }] of markCells) {
-      tr.classList.toggle("changed", !!differs(saved, k));
-      reset.hidden = !differs(def, k);
+      tr.classList.toggle("changed", !!saved && saved.base[k] !== base[k]);
+      reset.hidden = !def || def.base[k] === base[k];
     }
+    rulesHead.classList.toggle("changed", !!saved && rulesText(saved) !== rulesText({ rules }));
+    resetRules.hidden = !def || rulesText(def) === rulesText({ rules });
+    used.textContent = `${rules.length}/${count} used`;
+    addRule.disabled = rules.length >= count;
   }
 
   const keyOptions = () => [...KEY_ORDER.map((k) => [k, keyLabel(io.layout, k)]), ["", "Nothing"]];
@@ -120,11 +128,13 @@ export function remapEditor(io) {
     return h("details", { class: "keys" }, summary, h("div", { class: "keylist" }, boxes));
   }
 
-  // padgui's rule row: × When KEY [is held…] [time ms] [effect] [keys] at [rate] Hz.
+  // A rule: × When [KEY] [is held…] [time ms] [effect] [keys] at [rate] Hz.
   function ruleEditor(r) {
     const remove = h("button", { type: "button", class: "small", title: "delete this rule" }, "×");
     remove.addEventListener("click", () => change(() => { rules = rules.filter((x) => x !== r); }));
-    const parts = [remove, h("span", {}, "When"), h("strong", {}, keyLabel(io.layout, r.input)),
+    const parts = [remove, h("span", {}, "When"),
+      select(KEY_ORDER.map((k) => [k, keyLabel(io.layout, k)]), r.input, (v) => change(() => { r.input = v; }, false),
+        { "aria-label": "input" }),
       select(TRIGGERS.slice(1).map((t) => [t, TRIGGER_LABELS[t]]), r.trigger, (v) => change(() => {
         r.trigger = v;
         const allowed = effectsFor(v);
@@ -153,35 +163,36 @@ export function remapEditor(io) {
   function keyRow(k) {
     const sends = select(keyOptions(), base[k] ?? "", (v) => change(() => { base[k] = v || null; }, false),
       { "aria-label": `${keyLabel(io.layout, k)} maps to` });
-    const add = h("button", { type: "button", class: "small", disabled: rules.length >= count }, "Add rule");
-    add.addEventListener("click", () => change(() => {
-      rules.push(rule(k, "held", "hold", [k]));
-    }));
     const reset = h("button", { type: "button", class: "small" }, "Back to default");
-    reset.addEventListener("click", () => change(() => {
-      base[k] = def.base[k];
-      rules = [...rules.filter((r) => r.input !== k), ...def.rules.filter((r) => r.input === k)];
-    }));
-    // The key opens its menu; the key's row keeps its place and its rules
-    // go in rows under it (padgui's layout), so adding one only pushes what
-    // is below.
-    const menu = nameMenu(keyLabel(io.layout, k), h("p", { class: "muted" }, "What this key sends while held, and rules that add to it."),
-      add, rules.length >= count ? h("p", { class: "muted" }, `All ${count} rules are used.`) : null, reset);
+    reset.addEventListener("click", () => change(() => { base[k] = def.base[k]; }));
+    const menu = nameMenu(keyLabel(io.layout, k), h("p", { class: "muted" }, "What this key sends while held."), reset);
     const tr = h("tr", { class: "key" }, h("th", { scope: "row" }, menu), h("td", {}, sends));
     markCells.set(k, { tr, reset });
-    return [tr, ...rules.filter((r) => r.input === k).map((r) => h("tr", { class: "rulerow" }, h("td", { colspan: 2 }, ruleEditor(r))))];
+    return tr;
   }
 
-  // The pad's keys (from its layout), and any other key with something set.
+  // The pad's keys (from its layout), and any other key mapped elsewhere.
   const shownKeys = () => {
     const has = io.layout ? new Set(io.layout.map((e) => KEYS[e.input]).filter(Boolean)) : null;
-    return KEY_ORDER.filter((k) => !has || has.has(k) || base[k] !== k || rules.some((r) => r.input === k));
+    return KEY_ORDER.filter((k) => !has || has.has(k) || base[k] !== k);
   };
+  // A new rule's key: the first the pad has that no rule uses yet.
+  const freeKey = () => shownKeys().find((k) => !rules.some((r) => r.input === k)) ?? KEY_ORDER[0];
+
+  addRule.addEventListener("click", () => change(() => {
+    const k = freeKey();
+    rules.push(rule(k, "held", "hold", [k]));
+  }));
+  resetRules.addEventListener("click", () => change(() => { rules = def.rules.map((r) => ({ ...r, outputs: [...r.outputs] })); }));
 
   function draw() {
     markCells.clear();
-    if (!load()) return body.replaceChildren();
-    body.replaceChildren(...shownKeys().flatMap(keyRow));
+    if (!load()) {
+      ruleList.replaceChildren();
+      return body.replaceChildren();
+    }
+    body.replaceChildren(...shownKeys().map(keyRow));
+    ruleList.replaceChildren(...rules.map(ruleEditor));
     marks();
   }
 
@@ -225,11 +236,12 @@ export function remapEditor(io) {
   draw();
   const root = h("div", { class: "remap" },
     h("div", { class: "actions" }, presets, importButton, exportButton, all, file),
-    h("p", { class: "muted" }, `A key maps to itself unless changed; rules add to it (${count} rules fit). `,
-      "Map a key to Nothing to drop its own press."),
+    h("p", { class: "muted" }, "A key sends itself unless changed; map it to Nothing to drop its own press. ",
+      "Rules add to what the keys send. A trigger mapped to a trigger keeps its analog value."),
     problem,
     h("table", { class: "keys" }, h("colgroup", {}, h("col", { class: "c-key" }), h("col")),
-      body));
+      body),
+    rulesHead, ruleList);
   // An open keys list closes on a click elsewhere.
   root.addEventListener("pointerdown", (e) => {
     for (const d of root.querySelectorAll("details.keys[open]")) if (!d.contains(e.target)) d.open = false;

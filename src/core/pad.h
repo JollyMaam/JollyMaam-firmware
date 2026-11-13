@@ -152,10 +152,14 @@ struct set_remap;
 /* m NULL: not pressed, as calibrated.  Before the remap, which passes the
  * presses through. */
 void in_triggers(const struct set_remap *m, struct in_trigger t[2], struct pad *pad);
-/* After the remap and quick settings: a trigger they pressed (a macro, a
- * mapping) goes all the way; one they took away rests.  pressed: the presses
+/* After the remap and quick settings, the host's triggers' values: each
+ * physical trigger's goes where m's map sends it (another trigger, or none:
+ * a key or nothing), the further pulled winning; m NULL: each its own.  A
+ * host trigger pressed with no pressed trigger behind it (a key, a rule, a
+ * macro) goes all the way; one released with a pressed trigger behind it
+ * (taken by a macro, a turbo's off half) rests.  pressed: the presses
  * in_triggers() made. */
-void in_triggers_after(u32 pressed, struct pad *pad);
+void in_triggers_after(const struct set_remap *m, u32 pressed, struct pad *pad);
 
 /* ---- motion.c, and the board's sensor -------------------------------------
  * Samples are in the Cyclone 2's sensor units: gyro 16 LSB per degree per
@@ -573,9 +577,12 @@ struct set_slot {
 #define RUMBLE_STEPS 5
 
 /* A remap slot: the simple map, then rules for the keys that need more.
- * Inputs and outputs are PAD_* bit numbers (0-19, not 15). */
+ * Inputs and outputs are PAD_* bit numbers (0-21, not 15): the keys and the
+ * triggers' presses.  A trigger mapped to a trigger takes its analog value
+ * along (in_triggers_after). */
 #define REMAP_NAME   24
-#define REMAP_INPUTS 20
+#define REMAP_INPUTS 22
+#define REMAP_KEYS   (PAD_DIGITAL | PAD_L2 | PAD_R2)
 #ifndef REMAP_RULES
 #define REMAP_RULES  16          /* a board short of RAM keeps fewer (make/<product>.mk) */
 #endif

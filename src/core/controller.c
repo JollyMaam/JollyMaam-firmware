@@ -1237,7 +1237,7 @@ static void read_input(u32 now)
     in_triggers(sticks(), c.triggers, &c.pad);
     trig = c.pad.buttons & (PAD_L2 | PAD_R2);
     remap(now);
-    in_triggers_after(trig, &c.pad);
+    in_triggers_after(quick_recording() ? NULL : sticks(), trig, &c.pad);   /* recording: no remap */
     in_response(sticks(), &c.pad);
 }
 

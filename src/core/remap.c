@@ -163,7 +163,7 @@ u32 remap_step(const struct set_remap *m, u32 in, u32 now, u32 *every_report, co
     }
     rm.prev = in;
     *every_report = max;
-    return in_dpad(out | (in & (PAD_L2 | PAD_R2)));   /* the triggers' presses go through */
+    return in_dpad(out);
 }
 
 void remap_reset(void)
@@ -335,6 +335,10 @@ int main(void)
     at(PAD_EAST | PAD_SOUTH, 14300); CHECK(out == PAD_SOUTH);
     memset(&qk, 0, sizeof(qk));
     at(PAD_L2 | PAD_R2 | PAD_EAST, 14400); CHECK(out == (PAD_L2 | PAD_R2 | PAD_WEST | PAD_L1));
+    m.map[IN_L2] = REMAP_TO(IN_R2); m.map[IN_R2] = REMAP_TO(IN_SOUTH);
+    at(PAD_L2 | PAD_R2, 14500); CHECK(out == (PAD_R2 | PAD_SOUTH));
+    rule(2, RT_PRESSED, IN_R2, 0, RE_TAP, PAD_L2, 0);
+    at(0, 14600); at(PAD_R2, 14601); CHECK(out == (PAD_L2 | PAD_SOUTH));
     /* Clock wrap. */
     memset(&m, 0, sizeof(m)); remap_reset();
     rule(0, RT_HELD, 0, 0, RE_TURBO, PAD_SOUTH, 10);
