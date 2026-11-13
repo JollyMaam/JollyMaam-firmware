@@ -1180,6 +1180,11 @@ static void on_event(u8 type, u16 channel, u8 *packet, u16 size)
         if (hci_event_connection_complete_get_status(packet)) break;
         con_handle = hci_event_connection_complete_get_connection_handle(packet);
         btstack_run_loop_remove_timer(&gave_way);
+        /* The controller has one ACL slot: a page while connected (a
+         * Switch 2 after Pro Controller pairing) asserted in
+         * lmp_connection_start and reset the pad.  unlinked() turns
+         * scanning back on for pairing. */
+        if (pairing) scan(0);
         acl_up = 1;
         link_up(1);
         reverse(a, bond.peer, 6);
