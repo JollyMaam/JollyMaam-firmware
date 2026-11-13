@@ -38,8 +38,11 @@
  * acknowledged 0x06 {09 00}. */
 
 #define IN_FLIGHT    2           /* input reports the core has not acknowledged */
-#define PAGE_TIMEOUT 0x12c0      /* 0.625 ms units: 3 s, as stock's */
-#define PAGE_WAIT_MS 4500        /* a page with no link this long: BT_EV_FAILED */
+/* 0.625 ms units: 5.12 s.  Stock's 3 s pages kept failing against an
+ * awake Switch 2 (2026-11-12); 10 s and 5.12 s ones got through. */
+#define PAGE_TIMEOUT 0x2000
+#define PAGE_WAIT_MS 6500        /* a page with no link this long: BT_EV_FAILED */
+#define WAKE_MS      1500        /* the Switch 2 wake advert before a page */
 #define STOP_WAIT_MS 1000        /* our disconnect's 0xb6 at most this long */
 #define WRITES       4           /* host writes waiting for bt_poll() */
 #define SDP_MAX      768
@@ -53,6 +56,8 @@
 #define LE_READ_MAX  16          /* a readable characteristic's value at most */
 #define CORE_ADV     ((volatile u8 *)0xc4341)   /* the core's advertising data: length, 31 bytes */
 #define CORE_SCAN    ((volatile u8 *)0xc4361)   /* its scan response */
+#define CORE_ADV_ADDRESS ((volatile u8 *)0xc43b0)   /* the address it advertises from (0x01 alone
+                                                       left that unchanged) */
 /* The core's attribute table: entries {u16 handle, 02, u16 type, ...} from
  * 0xc4975 (its own GAP and GATT at 1..0x0b first, then ours); a service
  * {.., len, uuid}, a characteristic {.., 01, props, u16 value handle, len,
@@ -89,7 +94,8 @@ static struct {
     u8 renumbers;
 } b;
 
-static u16 handle_29;             /* the last 0x29's: a characteristic's value handle */
+static u16 handle_29;
+static u8 gatt_quiet;            /* the wake's LE start-up: its table unlogged */             /* the last 0x29's: a characteristic's value handle */
 
 static int bonded(void)
 {
@@ -182,6 +188,11 @@ static void handle(const struct radio_packet *p)
     case 0xb9:                           /* baseband up */
         break;
     case 0xb0:                           /* HID up */
+        if (!b.session) {                /* a page that outlived its session: the core
+                                            does not cancel one */
+            util_log("bt: a link after the session: dropping it");
+            plat_radio_send(0x11, NULL, 0, 0);
+        }
         b.paging = 0;
         b.in_flight = 0;
         if (!b.session || b.stopping) break;
@@ -300,7 +311,7 @@ static int gatt(const u8 *db)
             }
         } else if (!(flags & 0x0200) && type == 0x2803 && size == 8 + 3 + 16) {
             if (b.chars >= LE_CHARS) {
-                util_log("bt: characteristic %04x dropped: the core's table is full", (unsigned)(e[9] | e[10] << 8));
+                if (!gatt_quiet) util_log("bt: characteristic %04x dropped: the core's table is full", (unsigned)(e[9] | e[10] << 8));
                 e += size;
                 continue;
             }
@@ -318,7 +329,7 @@ static int gatt(const u8 *db)
                 u32 t0 = plat_us();
                 int ok = command(0x78, c, (u16)(19 + c[18]), 0);
 
-                util_log("bt: char %04x props %02x len %u -> %04x %d in %u us", (unsigned)(e[9] | e[10] << 8),
+                if (!gatt_quiet) util_log("bt: char %04x props %02x len %u -> %04x %d in %u us", (unsigned)(e[9] | e[10] << 8),
                          e[8], c[18], handle_29, ok, (unsigned)(plat_us() - t0));
                 if (!ok) return 0;
             }
@@ -367,7 +378,7 @@ static int renumber(void)
 
         if (!h || t[2] != 0x02) break;
         nh = renumbered(h);
-        util_log("bt: attr %04x -> %04x type %04x at %05x", h, nh, type, (unsigned)(u32)t);
+        if (!gatt_quiet) util_log("bt: attr %04x -> %04x type %04x at %05x", h, nh, type, (unsigned)(u32)t);
         t[0] = (u8)nh, t[1] = (u8)(nh >> 8);
         if (type == 0x2803) {
             u16 v = (u16)(t[7] | t[8] << 8), nv = renumbered(v);
@@ -383,7 +394,7 @@ static int renumber(void)
         n++;
     }
     for (i = 0; i < b.chars; i++) b.map[i].core = b.map[i].ours;
-    util_log("bt: %u attributes renumbered, stopped at %05x: %02x %02x %02x %02x %02x %02x", (unsigned)n, (unsigned)(u32)t,
+    if (!gatt_quiet) util_log("bt: %u attributes renumbered, stopped at %05x: %02x %02x %02x %02x %02x %02x", (unsigned)n, (unsigned)(u32)t,
              t[0], t[1], t[2], t[3], t[4], t[5]);
     return 1;
 }
@@ -707,6 +718,56 @@ void bt_timing(struct bt_timing *out, int reset)
     out->link.transport = b.linked ? 1 : 0;
 }
 
+#if SLOT_SWITCH2_WAKE
+/* Waking a Switch 2 for a Switch Pro (Classic) slot: the console wakes on
+ * the wake advert from an address it paired as a Switch 2 controller, here
+ * a Joy-Con 2's (switch2_wake, learnt by padtool), naming the console (the
+ * slot's Classic peer: the console's LE address too).  The core sends no
+ * advert while it pages, so the advert goes first, before every page; the
+ * console stays awake on it while the pages come.  Seen working 2026-11-12:
+ * awake and connected in about 3 s. */
+static u32 wake_until;
+
+static int wake_start(const struct profile_session *s)
+{
+    const u8 *w = s->settings->switch2_wake;
+    u8 adv[31];
+    int i, ok;
+
+    if (!s->bond || util_is_zero(s->bond->peer, 6) || util_is_zero(w, 6)) return -1;
+    memset(&b.bond, 0, sizeof(b.bond));
+    memcpy(b.address, w, 6);
+    b.prof = &profile_switch2;
+    b.pairing = 0;
+    gatt_quiet = 1;
+    ok = core_start(&profile_switch2);
+    gatt_quiet = 0;
+    if (!ok) return -1;
+    for (i = 0; i < 6; i++) CORE_ADV_ADDRESS[i] = w[i];
+    core_data(CORE_ADV, adv, switch2_wake_advert(s->bond->peer, (u16)(w[6] | w[7] << 8), adv));
+    visibility(4);
+    wake_until = plat_ms() + WAKE_MS;
+    util_log("wake: Switch 2 as %02x:%02x:%02x:%02x:%02x:%02x", w[5], w[4], w[3], w[2], w[1], w[0]);
+    return 0;
+}
+
+static int wake_step(u32 now, u32 *next)
+{
+    if ((s32)(now - wake_until) < 0) {
+        *next = wake_until;
+        return 0;
+    }
+    visibility(0);
+    return 1;
+}
+
+static void wake_stop(void)
+{
+    visibility(0);
+}
+
+const struct profile_wake profile_switch_wake = { wake_start, wake_step, wake_stop, 1 };
+#else
 /* Waking a Switch: the core has its own command for it (stock's 0x70,
  * "WakeUp_Switch"), not used yet; nothing to wake here. */
 static int wake_start(const struct profile_session *s)
@@ -724,4 +785,5 @@ static int wake_step(u32 now, u32 *next)
 
 static void wake_stop(void) {}
 
-const struct profile_wake profile_switch_wake = { wake_start, wake_step, wake_stop };
+const struct profile_wake profile_switch_wake = { wake_start, wake_step, wake_stop, 0 };
+#endif

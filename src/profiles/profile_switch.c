@@ -1046,6 +1046,19 @@ static u8 s2_advertising(const struct bt_bond *bond, int pairing, int wake, u8 *
     return 31;
 }
 
+u8 switch2_wake_advert(const u8 console[6], u16 product, u8 out[31])
+{
+    struct bt_bond bond;
+    u8 n;
+
+    memset(&bond, 0, sizeof(bond));
+    memcpy(bond.le_peer, console, 6);
+    n = s2_advertising(&bond, 0, 1, out);
+    out[12] = (u8)product;
+    out[13] = (u8)(product >> 8);
+    return n;
+}
+
 /* USB input reports, as the real descriptor has them: 0x09 (the default, the
  * console's) is the LE report; 0x05, which SDL selects with command 03/0a, is
  * a 64-byte report with buttons at 4-7 (after the id), 12-bit sticks at 10,
@@ -1375,6 +1388,14 @@ int main(void)
         CHECK(s2_advertising(&bond, 0, 1, adv) == 31 && adv[16] == 0x81 && adv[17] == 9);
         CHECK(s2_advertising(&bond, 0, 0, adv) == 31 && adv[16] == 0);
         CHECK(s2_advertising(&bond, 1, 1, adv) == 31 && adv[17] == 0);
+        {   /* a Joy-Con 2's wake advert as sniffed (2026-11-12), up to its 0f 00 */
+            static const u8 joycon[25] = { 0x02, 0x01, 0x06, 0x1b, 0xff, 0x53, 0x05, 0x01, 0x00, 0x03,
+                                           0x7e, 0x05, 0x66, 0x20, 0x00, 0x01, 0x81, 0xb1, 0x54, 0x00,
+                                           0x05, 0x48, 0xc8, 0x0f, 0x00 };
+            static const u8 console[6] = { 0xb1, 0x54, 0x00, 0x05, 0x48, 0xc8 };
+
+            CHECK(switch2_wake_advert(console, 0x2066, adv) == 31 && !memcmp(adv, joycon, sizeof(joycon)));
+        }
     }
     {   /* Wired Pro Controller: 63-byte reports, the 0x80 handshake */
         struct profile_session su = { 0, 0, { 1, 2, 3, 4, 5, 6 }, 0, 0, 1 };

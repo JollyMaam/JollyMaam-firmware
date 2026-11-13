@@ -30,7 +30,8 @@ static struct {
     u8 usb;                      /* the session is on USB, not the radio */
     u8 radio;                    /* bt_start() until BT_EV_STOPPED */
     u8 waking;                   /* the profile's wake is running, radio off */
-    u8 woke;                     /* this session has tried a wake */
+    u8 woke;                     /* this session has tried a wake (or may not: a pad-made one) */
+    u8 wake_again;               /* the wake runs before every page (before_page) */
     u8 wake_after_stop;          /* the session stops to wake the host, then restarts */
     u8 usb_wake;                 /* USB session: may wake a silent host by radio, until it
                                     first configures us */
@@ -162,6 +163,19 @@ static void radio_on(void)
     c.radio = 1;
 }
 
+/* The radio for this session.  A profile whose wake goes before every page
+ * runs it first on a connect started by hand; its step starts the radio. */
+static void radio_start(void)
+{
+    if (!c.usb && !c.sess.pairing && !c.woke && c.prof->wake && c.prof->wake->before_page) {
+        c.woke = 1;
+        c.waking = !c.prof->wake->start(&c.sess);
+        c.wake_again = c.waking;
+        if (c.waking) return;
+    }
+    radio_on();
+}
+
 static void end_session(void)
 {
     c.config = 0;
@@ -254,7 +268,7 @@ static void stopped(u32 now)
     c.radio = 0;
     if (c.radio_pending) {
         c.radio_pending = 0;
-        radio_on();
+        radio_start();
     } else if (c.kind == CTL_CONNECTING && c.wake_after_stop) {
         c.wake_after_stop = 0;
         c.waking = !c.prof->wake->start(&c.sess);
@@ -358,7 +372,8 @@ static void start_session(struct ctl_request r, u32 now)
                   usb || p == &profile_link ? REPORT_HZ_WIRED : REPORT_HZ;
     c.begin_imu = p->begin(&s);
     c.sess = s;
-    c.woke = 0;
+    c.woke = r.quiet;            /* a pad-made restart (relink, follow_usb) never wakes */
+    c.wake_again = 0;
     c.retry_at = 0;
     c.usb_arrived = 0;
     /* A USB session from Home or the console command may wake its host the
@@ -368,7 +383,7 @@ static void start_session(struct ctl_request r, u32 now)
                  set->radio_type == set->usb_type && p->device && p->device->transport == BT_LE && s.bond && (s.bond->le_peer[0] | s.bond->le_peer[1] | s.bond->le_peer[2] |
                             s.bond->le_peer[3] | s.bond->le_peer[4] | s.bond->le_peer[5]);
     if (c.radio && !usb) c.radio_pending = 1;
-    else radio_on();
+    else radio_start();
     util_log("session slot %u %s%s%s as %02x:%02x:%02x:%02x:%02x:%02x remap %s", r.slot, p->name,
              usb ? " usb" : "", pairing ? " pairing" : "", s.address[5], s.address[4], s.address[3],
              s.address[2], s.address[1], s.address[0], remap_name(c.remap));
@@ -578,8 +593,9 @@ static void bt_event(const struct bt_ev *e, u32 now)
     case BT_EV_FAILED:
         if (c.kind != CTL_CONNECTING) break;
         /* The host did not answer: it may be asleep.  A profile that can
-         * wake it gets the radio to itself once, then the session restarts. */
-        if (c.prof->wake && !c.woke) {
+         * wake it gets the radio to itself once (before every page:
+         * again), then the session restarts. */
+        if (c.prof->wake && (!c.woke || c.wake_again)) {
             c.woke = 1;
             c.wake_after_stop = 1;
             bt_stop();

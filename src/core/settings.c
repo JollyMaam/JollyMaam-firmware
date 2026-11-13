@@ -156,6 +156,11 @@ static const struct set_field slot_fields[] = {
       .def = USB_SOUND_JACK, .help = "on USB, the personality's sound card (a board with one): jack, while "
                                      "something is in the jack, USB coming back as that changes; on; off" },
 #endif
+#if SLOT_SWITCH2_WAKE
+    { .id = 26, .name = "switch2_wake", .type = T_BYTES, FIELD(switch2_wake),
+      .help = "switch: wake a Switch 2 as the Joy-Con 2 learnt here (padtool wake-learn): its "
+              "address, least significant byte first, and product ID; zero: no wake" },
+#endif
 };
 
 #if !LEDS_MONO

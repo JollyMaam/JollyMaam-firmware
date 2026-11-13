@@ -449,11 +449,14 @@ struct profile {
 #define HOST_BULK 0x8000
 int host_send(u16 id, const u8 *data, u16 len);
 
-/* Runs before bt_start() with the radio otherwise quiet. */
+/* Runs before bt_start() with the radio otherwise quiet.  before_page 0:
+ * once, after a page failed; 1: before every page of a connect started by
+ * hand (Home, the console command), retries too, never a pad-made one. */
 struct profile_wake {
     int (*start)(const struct profile_session *s);   /* 0 started, <0 nothing to wake */
     int (*step)(u32 now, u32 *next);  /* 1 finished; else call again at *next */
     void (*stop)(void);
+    u8 before_page;
 };
 
 extern const struct profile profile_switch, profile_switch2, profile_xbox, profile_xbox_ble;
@@ -468,6 +471,9 @@ void profile_config_service(void);          /* config mode: on the control loop,
 extern u8 profile_scan_response[31];
 u8 profile_scan_name(const char *tail);
 extern const struct profile_wake profile_switch_wake;
+/* The Switch 2 wake advert (31 bytes) naming the console (least
+ * significant byte first), as the controller with that product ID sends it. */
+u8 switch2_wake_advert(const u8 console[6], u16 product, u8 out[31]);
 /* The profile for a slot type (PROFILE_*, settings.c); NULL for none.  In
  * profile_link.c, which both boards build. */
 const struct profile *profile_for(u8 type);
@@ -521,6 +527,9 @@ struct set_brightness {
 /* A slot: a wireless host (radio, radio_type) and what a USB host on the
  * cable sees (usb_type).  A USB host there wins: USB when usb_type is set and
  * a host talks on the bus, else the radio. */
+#ifndef SLOT_SWITCH2_WAKE
+#define SLOT_SWITCH2_WAKE 0      /* the switch2_wake slot setting (board rules.mk) */
+#endif
 struct set_slot {
     u8 radio_type;           /* PROFILE_*: what the Bluetooth host, or the dongle's USB host, sees */
     u8 radio;                /* RADIO_* */
@@ -542,6 +551,12 @@ struct set_slot {
     u8 remap;                /* the remap slot each connect starts with: 0 none, 1-8 slots south-right */
     u8 usb_audio;            /* USB_SOUND_*: the personality's sound card on USB */
     u8 usb_type;             /* PROFILE_*: what a USB host on the cable sees; PROFILE_NONE: no USB */
+#if SLOT_SWITCH2_WAKE
+    /* A Switch 2 controller's wake advert, learnt from a Joy-Con 2: its
+     * address (least significant byte first) and product ID (little
+     * endian).  A switch slot sends the advert from it before paging. */
+    u8 switch2_wake[8];
+#endif
 };
 
 
