@@ -46,7 +46,8 @@ Per key, over whatever the remap in use does with it:
 
 **Recording.** The remap is suspended while recording, so the host sees
 the keys as they will play. Every key but M is recorded (Home's taps too;
-its chords stay shortcuts). Keys held as it starts count from their next
+its chords stay shortcuts), and the triggers as pressed at their press
+points; a macro or mapping plays a trigger all the way down. Keys held as it starts count from their next
 press. M's press ends it; the pause from the last key to M's press stays as
 the gap between runs. 30 s without a key, quick settings, a disconnect,
 calibration or sleep discard it. A full buffer ends it with what fits.
@@ -100,8 +101,10 @@ defaults sends every key as itself and the sticks as calibrated.
   sticks exactly as calibrated: no curve, no deadzone.
 - **triggers** (in the sticks record): per trigger a press point in
   percent of travel (default 5) and an analog mode. The press point alone decides
-  the host's digital trigger (`PAD_L2`, `PAD_R2`, set after the remap; every
-  profile with a trigger button reads them), letting go 3% short of it.
+  the host's digital trigger (`PAD_L2`, `PAD_R2`, set before the remap,
+  which passes them through; every profile with a trigger button reads
+  them), letting go 3% short of it. A trigger the remap or quick settings
+  presses goes all the way down; one they take away rests.
   Default leaves the value as calibrated; hair sends full while pressed and 0
   otherwise; rapid is hair that lets go once the trigger rises 5% from its
   deepest point and presses again once it goes 5% down from its highest,
@@ -153,8 +156,8 @@ The rule shape fits analog as long as inputs and outputs stay typed:
 - **Analog as a digital input**: "LS up past N%" as extra input numbers with
   a threshold (with hysteresis) in the time byte. Every trigger and effect
   then works unchanged. The triggers' presses (`PAD_L2`, `PAD_R2`, bits 20
-  and 21) are decided after the remap today; as remap inputs ("R2 pressed →
-  tap south") they would move before it, with `REMAP_INPUTS` 22.
+  and 21) are already decided before the remap; as rule inputs ("R2
+  pressed → tap south") they need `REMAP_INPUTS` 22.
 - **Digital to analog output**: "LS up full", "R2 full" as extra output bits;
   OR becomes "the largest wins" per axis, opposite directions cancel.
 - **Axis to axis** ("left stick Y drives R2"; whole-stick routing and inversion are built, above): a

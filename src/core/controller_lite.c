@@ -156,6 +156,7 @@ static void radio_switch(void)
 static __attribute__((noinline)) void read_input(u32 now)
 {
     struct ctl_request r;
+    u32 trig;
     u8 pair;
 
     plat_input(&c.raw);
@@ -192,9 +193,11 @@ static __attribute__((noinline)) void read_input(u32 now)
         calibrate(now);
         c.pad.buttons = 0;
     }
-    remap(now);
-    in_response(sticks(), &c.pad);
     in_triggers(sticks(), c.triggers, &c.pad);
+    trig = c.pad.buttons & (PAD_L2 | PAD_R2);
+    remap(now);
+    in_triggers_after(trig, &c.pad);
+    in_response(sticks(), &c.pad);
 }
 
 static int slot_ready(u8 slot)

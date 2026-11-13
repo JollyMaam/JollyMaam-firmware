@@ -8,7 +8,8 @@
  * it (quick_clear).
  *
  * A recording takes the keys as ux_step leaves them, the remap suspended so
- * the host sees what will play: every key but M, whose press ends it.  Keys
+ * the host sees what will play: every key but M, whose press ends it, and
+ * the triggers as pressed (in_triggers), which play all the way down.  Keys
  * held when it starts count from their next press.  A recording that is a
  * single chord (every press within QUICK_CHORD_MS, none released before the
  * last) becomes a mapping: the key sends those keys while held.  Nothing
@@ -287,7 +288,7 @@ u32 quick_record_step(u32 in, u32 now)
         return 0;
     }
     in &= ~PAD_M;
-    pressed &= QUICK_KEYS | PAD_HOME;
+    pressed &= QUICK_KEYS | PAD_HOME | PAD_L2 | PAD_R2;   /* the triggers from their press points */
     released &= q.held;
     for (i = 0; i < 32 && (pressed | released); i++) {
         u32 b = bit((u8)i);
@@ -523,6 +524,13 @@ int main(void)
     play(PAD_L3, 0, 1); play(0, 0, 500); CHECK(q.mode == PLAYING);
     CHECK(quick_led(now, &next) != LED_SIGNAL_NONE);
     play(PAD_L3, 0, 1); CHECK(q.mode == IDLE && play(0, 0, 1) == 0);
+
+    /* The triggers' presses are recorded like keys. */
+    quick_record(IN_L3, 0, now);
+    rec(PAD_R2, 60); rec(0, 60); rec(PAD_L2, 60); rec(0, 60); rec(PAD_M, 1);
+    CHECK(keys.macro == IN_L3 + 1 && q.uses == (PAD_L2 | PAD_R2));
+    play(0, 0, 1); play(PAD_L3, 0, 1); o = play(0, 0, 10); CHECK(o == PAD_R2);
+    play(0, 0, 500);
 
     /* Short presses go out for QUICK_MIN_PRESS. */
     quick_record(IN_L3, 0, now);

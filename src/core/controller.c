@@ -1195,6 +1195,7 @@ static void read_input(u32 now)
 {
     struct ctl_request none = { REQ_NONE, SLOT_NONE, 0 };
     struct ctl_request r = none;
+    u32 trig;
 
     /* Do not start a deferred Home tap's minimum down time while its report is
      * still waiting in the Bluetooth slot. Slow host polls must not compress
@@ -1233,9 +1234,11 @@ static void read_input(u32 now)
     }
     c.pair_down = c.raw.pair_button;
     handle(r, now);
-    remap(now);
-    in_response(sticks(), &c.pad);
     in_triggers(sticks(), c.triggers, &c.pad);
+    trig = c.pad.buttons & (PAD_L2 | PAD_R2);
+    remap(now);
+    in_triggers_after(trig, &c.pad);
+    in_response(sticks(), &c.pad);
 }
 
 /* Quick settings: the host sees the pad lying still where it last was,

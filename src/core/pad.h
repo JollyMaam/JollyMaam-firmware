@@ -61,7 +61,7 @@ enum {
     IN_SOUTH, IN_EAST, IN_SCREENSHOT, IN_WEST, IN_NORTH, IN_M, IN_L1, IN_R1,
     IN_L4, IN_R4, IN_SELECT, IN_START, IN_HOME, IN_L3, IN_R3,
     IN_UP = 16, IN_RIGHT, IN_DOWN, IN_LEFT,
-    IN_L2, IN_R2,                          /* the triggers pressed: set by in_triggers() */
+    IN_L2, IN_R2,                          /* the triggers pressed: set by in_triggers(), before the remap */
     IN_LSTICK = 32, IN_RSTICK,             /* the sticks' axes: no bit */
 };
 enum {
@@ -149,8 +149,13 @@ struct in_trigger {
     u16 turn;                    /* rapid: the furthest point since the last change */
 };
 struct set_remap;
-/* m NULL: not pressed, as calibrated. */
+/* m NULL: not pressed, as calibrated.  Before the remap, which passes the
+ * presses through. */
 void in_triggers(const struct set_remap *m, struct in_trigger t[2], struct pad *pad);
+/* After the remap and quick settings: a trigger they pressed (a macro, a
+ * mapping) goes all the way; one they took away rests.  pressed: the presses
+ * in_triggers() made. */
+void in_triggers_after(u32 pressed, struct pad *pad);
 
 /* ---- motion.c, and the board's sensor -------------------------------------
  * Samples are in the Cyclone 2's sensor units: gyro 16 LSB per degree per

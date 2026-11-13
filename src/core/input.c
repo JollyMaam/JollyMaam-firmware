@@ -155,11 +155,34 @@ void in_triggers(const struct set_remap *m, struct in_trigger t[2], struct pad *
     }
 }
 
+void in_triggers_after(u32 pressed, struct pad *pad)
+{
+    u16 *v[2] = { &pad->l2, &pad->r2 };
+    u32 i;
+
+    for (i = 0; i < 2; i++) {
+        u32 b = i ? PAD_R2 : PAD_L2;
+
+        if ((pad->buttons & b) && !(pressed & b)) *v[i] = TRIGGER_MAX;
+        else if (!(pad->buttons & b) && (pressed & b)) *v[i] = 0;
+    }
+}
+
 #ifdef UNITTEST
 static u16 pct(u32 p) { return (u16)TRIGGER_STEP(p); }
 
 static void triggers_test(void)
 {
+    {   /* Pressed after them: all the way; taken away: at rest. */
+        struct pad p = { 0 };
+
+        p.buttons = PAD_L2; p.l2 = 100; p.r2 = 30000;
+        in_triggers_after(PAD_R2, &p);
+        CHECK(p.l2 == TRIGGER_MAX && p.r2 == 0);
+        p.buttons = PAD_L2 | PAD_R2; p.l2 = 100; p.r2 = 30000;
+        in_triggers_after(PAD_L2 | PAD_R2, &p);
+        CHECK(p.l2 == 100 && p.r2 == 30000);
+    }
     struct set_remap slot = { 0 };
     struct in_trigger t[2] = { { 0 } };
     struct pad pad = { 0 };
