@@ -84,6 +84,15 @@ the pad's bond stays across all of them. `mouse` is refused. The N2L's
 dongle setting is built the same way; the N2L with either dongle is not
 established. The U2CW and U2CB have no dongle radio.
 
+## Waking a Switch 2 from a Switch Pro slot
+
+The U2CB cannot run `switch2`, but a `switch` slot wakes a sleeping Switch 2
+once it has learnt a Joy-Con 2's wake advert (`switch2_wake`, `padtool
+wake-learn`): Home on that slot sends the advert as the Joy-Con, then
+connects as the Pro Controller. Seen on the U2CB: awake and connected in
+about 3 s. Only the U2CB has the setting; a Switch 1 wake is not established
+on any pad.
+
 ## Combinations seen working
 
 - A slot with `radio_type` and `usb_type` different (C2: Bluetooth

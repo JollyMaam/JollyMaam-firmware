@@ -363,3 +363,16 @@ wrong assumption), add it here in a line or two.
   aborts the app (SIGABRT "JNI DETECTED ERROR ... called with pending
   exception", seen on a phone).  `jollymaam_jni.c` clears it after every call
   (`threw`) and reports a failed transfer to libjollymaam.
+- Switch 2 wake: the console wakes only on the wake advert from an address
+  it paired as a Switch 2 controller; a Switch Pro slot's own address does
+  not work (tried twice).  A Joy-Con 2's address does (`switch2_wake`,
+  `padtool wake-learn`).  The console's LE address is its Classic one.
+- U2CB core: it sends no LE advert while it pages, and its stock 3 s pages
+  kept failing against an awake Switch 2 (5.12 s ones work).  `bt_stop()`
+  does not cancel a running page: the link can come after the session.
+- U2CB update: a `padtool log -f` running beside `jollymaam update` makes the
+  update fail at its last command (68), leaving the pad in its updater.
+  Stop `log -f` first.
+- Cyclone 2 pairing: page scan left on while a pairing link was up let a
+  Switch 2 page the pad again; the controller's one ACL slot asserted in
+  `lmp_connection_start` and the pad reset.
