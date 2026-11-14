@@ -17,6 +17,8 @@ import { openPackage, findFile, checkUpdateImage } from "./package.js";
 import { intoUpdater, sendImage, finish } from "./update.js";
 
 const STATUS_EVERY_MS = 5000;    // also keeps config mode open (it ends a minute after the last command)
+// Developer extras (the link tests): the page opened with ?dev.
+const DEV = new URLSearchParams(location.search).has("dev");
 
 let pad = null, poll = null, image = null, layout = null;
 
@@ -459,7 +461,7 @@ async function attach(p) {
       try { showStatus(await pad.status()); } catch { /* the disconnect handler says it */ }
     }, STATUS_EVERY_MS);
     await loadSettings();
-    $("tests").hidden = !!pads;
+    $("tests").hidden = !!pads || !DEV;
   } catch (error) {
     if (pad !== p) return;       // Disconnect: nothing to say
     problem(String(error.message || error));
@@ -474,6 +476,11 @@ async function loadSettings() {
   $("settings").replaceChildren(h("div", { class: "pending", "aria-busy": "true" },
     h("span", { class: "tri" }, "▸"), "Settings", spinner(), progress));
   table = await pad.fields();
+  if (!table.length) {          // a device without settings (a dongle)
+    values = new Map();
+    defaults = new Map();
+    return $("settings").replaceChildren(h("p", { class: "muted" }, "This device has no settings."));
+  }
   const targets = targetsFor(table);
   values = new Map();
   defaults = new Map();
@@ -535,6 +542,7 @@ const BUNDLED = "firmware.zip (bundled)";
 function showLoaded() {
   $("loadpkg").querySelector("strong").textContent = loaded ? "Unload Package" : "Load Package";
   $("loadpkginfo").textContent = loaded ?? "";
+  $("fwload").textContent = loaded ? `Unload ${loaded}` : "Load package…";
 }
 
 async function loadPackage(file) {
@@ -577,7 +585,7 @@ function fwSay(text, error = false) {
 async function pickImage() {
   image = null;
   $("update").disabled = true;
-  if (!pkg || !pad?.id) return fwSay(pkg ? "" : "No firmware package: load one on the home screen (Load package).");
+  if (!pkg || !pad?.id) return fwSay(pkg ? "" : `No firmware package: ${pads ? "load one in Manage Firmware (Load Package)" : "load one (Load package…)"}.`);
   const file = findFile(pkg, pad.id.product, "update");
   if (!file) return fwSay(`The package has no update for this pad (${pad.id.product}).`, true);
   try {
@@ -692,7 +700,9 @@ $("package").addEventListener("change", (e) => {
   e.target.value = "";
   if (file) loadPackage(file);
 });
-$("loadpkg").addEventListener("click", () => (loaded ? unloadPackage() : $("package").click()));
+const loadOrUnload = () => (loaded ? unloadPackage() : $("package").click());
+$("loadpkg").addEventListener("click", loadOrUnload);
+$("fwload").addEventListener("click", loadOrUnload);
 $("update").addEventListener("click", update);
 $("save").addEventListener("click", save);
 $("undo").addEventListener("click", render);

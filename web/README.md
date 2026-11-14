@@ -32,7 +32,9 @@ The page starts at home: a choice of link in a browser; in the app, Manage
 Firmware and the devices. Each screen is a history entry, so Back and the
 browser's back go back a screen. A
 `firmware.zip` next to the page (the app has one) is the firmware package
-until another is loaded from home (**Load package**; **Unload package** goes back).
+until another is loaded (in the app Manage Firmware's **Load Package**, in a
+browser the pad's **Firmware update** fold; **Unload** goes back). The link
+tests (`linktest.js`) show only with `?dev` in the page's address.
 
 - `pad.js`: the Bluetooth framing (`src/profiles/profile_config.c`) and
   the tool commands (`src/core/usb.c`) over either link.

@@ -468,8 +468,7 @@ export class Pad {
       if (!got.length) break;
       table.push(...got);
     }
-    if (!table.length) throw new Error("the firmware lists no settings (FIELDS)");
-    return table;
+    return table;                // none: a device without settings (a dongle)
   }
 
   // {name: {value, set}} of a target, or its defaults.
