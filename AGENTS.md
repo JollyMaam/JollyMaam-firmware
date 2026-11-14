@@ -60,6 +60,9 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   hooks.  `install` backs the whole flash up first; `--no-backup` skips it.
 - `tools/`: `padhub.c` (Linux UHID bridge for the dongle's
   hub, `tools/padhub.md`), `sdlpad.c` (what SDL sees), `linkbench.py`,
+  `stress.py` (unattended stress of pads' links to this PC: connect cycles,
+  relinks, host drops, reboots, latency, soak; a plan such as
+  `stress-all.json`; report in `build/stress/`),
   `buildcommits.sh` (build a range of commits, for bisecting),
   `stackdepth.py` (the 8BitDo's deepest stack use, from its disassembly),
   `tools/padtool/padtool_dist.py` (`make padtool-dist`, make/padtool.mk: the Windows and Linux zip of padtool, bleak,

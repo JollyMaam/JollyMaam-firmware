@@ -1,0 +1,19 @@
+{
+  "targets": [
+    {"name": "c2-bt", "pad": "Cyclone 2", "link": "bluetooth", "slot": "south", "type": "generic"},
+    {"name": "c2-dongle", "pad": "Cyclone 2", "link": "dongle", "slot": "west", "type": "generic"},
+    {"name": "c2-usb", "pad": "Cyclone 2", "link": "usb", "slot": "south", "type": "generic"},
+    {"name": "u2cw-bt", "pad": "Ultimate 2C Wireless", "link": "bluetooth", "slot": "east"},
+    {"name": "u2cb-bt", "pad": "Ultimate 2C Bluetooth", "link": "bluetooth", "slot": "east", "type": "generic"},
+    {"name": "u2cb-usb", "pad": "Ultimate 2C Bluetooth", "link": "usb", "slot": "east", "type": "generic"}
+  ],
+  "tests": [
+    {"test": "connect", "count": 20, "hold": 3},
+    {"test": "relink", "count": 10},
+    {"test": "host-drop", "count": 5},
+    {"test": "reboot", "count": 3},
+    {"test": "latency", "seconds": 30},
+    {"test": "throughput", "seconds": 10},
+    {"test": "soak", "seconds": 300}
+  ]
+}
