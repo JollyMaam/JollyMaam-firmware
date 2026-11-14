@@ -6,6 +6,7 @@
 | [gamesir-cyclone2/](gamesir-cyclone2/README.md) | the GameSir Cyclone 2 pad and the GameSir dongle: pins, peripherals, audio wiring, flash map, the stock firmware and its protocol |
 | [gamesir-nova-2-lite/](gamesir-nova-2-lite/README.md) | the GameSir Nova 2 Lite pad: chip, flash layout, stock USB interfaces, loader entry |
 | [8bitdo-ultimate2c-wireless/](8bitdo-ultimate2c-wireless/README.md) | the 8BitDo Ultimate 2C Wireless pad (Telink TLSR8208): pins, flash, image header, boot loader protocol |
+| [8bitdo-ultimate2c-bluetooth/](8bitdo-ultimate2c-bluetooth/README.md) | the 8BitDo Ultimate 2C Bluetooth pad (Yichip YC3121): pins, flash, boot loader, the Bluetooth radio core |
 | [firmware/](firmware/README.md) | this firmware: build, image tool, what it keeps in RAM and flash, power policy, console wake |
 
 A fact about the chip or SDK goes in `jieli/`; a fact about one board goes in
