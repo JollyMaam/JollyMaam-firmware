@@ -3,7 +3,7 @@
 // src/profiles/profile_config.c; padtool (tools/padtool) speaks the same.
 
 import { showMap, parseMap, showRules, parseRules, parseCurve, RULE_SIZE } from "./remap.js";
-import { HidCommands, dataMax as hidDataMax } from "./frames-hid.js";
+import { HidCommands, dataMax as hidDataMax, commandMax as hidCommandMax } from "./frames-hid.js";
 
 export const PROTOCOL = 2;
 export const MORE = 0x80;
@@ -436,7 +436,7 @@ export class Pad {
         if (attempt >= tries || this.gone) throw error;
       }
     }
-    if (this.usb) this.id.dataMax = hidDataMax(this.link);   // the 88 is config mode's
+    if (this.usb) this.id.dataMax = hidCommandMax(this.link);   // the 88 is config mode's
     else if (!this.id.updater) this.frameData = Math.min(this.frameData, CONFIG_FRAME_DATA);
     return this.id;
   }

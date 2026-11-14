@@ -21,9 +21,14 @@ const IN_HEAD = 8;               // JM_HID_INPUT_HEAD_SIZE: client, tag, state, 
 const OUT = 1, INPUT = 2;        // enum jm_hid_flags
 const MORE = 2, LAST = 3, REFUSED = 4;   // enum jm_hid_state
 const TRIES_MAX = 200;           // refused (another program's commands) or a piece lost
+const SMALL = 64, GATHER = 512;  // JM_HID_REPORT_SMALL, JM_HID_GATHER
+const ANSWER_MAX = 512;          // what a command answers at most, on any report size
 
-// The data a command may carry: the report less its head.
+// The data one report carries: the report less its head.
 export const dataMax = (link) => link.reportSize - HEAD;
+// The data a command may carry: a small report's device (the U2CB's)
+// gathers it from several reports, each with the command's head.
+export const commandMax = (link) => (link.reportSize <= SMALL ? GATHER : dataMax(link));
 
 export class HidCommands {
   constructor(link) {
@@ -51,29 +56,36 @@ export class HidCommands {
   // One command; size: the answer's (capped at the report).  wanted false:
   // sent, not waited for (a reboot: the device goes).
   async run(sub, arg, data, size, timeoutMs, wanted) {
-    const max = dataMax(this.link);
+    const max = commandMax(this.link), piece = dataMax(this.link);
     if (data.length > max) throw new Error(`command 0x${sub.toString(16)}: ${data.length} bytes, the tool device takes ${max}`);
-    size = data.length ? 0 : Math.min(size, this.link.reportSize);
+    size = data.length ? 0 : Math.min(size, ANSWER_MAX);
     const end = Date.now() + timeoutMs;
     for (let tries = 1; ; tries++) {
       const tag = this.tag = (this.tag + 1) & 0xff;
-      const report = new Uint8Array(HEAD + data.length);
-      const v = new DataView(report.buffer);
-      report[0] = OP;
-      report[1] = sub;
-      v.setUint32(2, arg >>> 0, true);
-      v.setUint16(16, data.length || size, true);
-      report[18] = INPUT | (data.length ? OUT : 0);
-      report[19] = tag;
-      v.setUint32(20, this.client, true);
-      report.set(data, HEAD);
+      // One report, or for data past one report several, each with the
+      // head (the length the whole's).
+      const reports = [];
+      for (let at = 0; at === 0 || at < data.length; at += piece) {
+        const part = data.subarray(at, at + piece);
+        const report = new Uint8Array(HEAD + part.length);
+        const v = new DataView(report.buffer);
+        report[0] = OP;
+        report[1] = sub;
+        v.setUint32(2, arg >>> 0, true);
+        v.setUint16(16, data.length || size, true);
+        report[18] = INPUT | (data.length ? OUT : 0);
+        report[19] = tag;
+        v.setUint32(20, this.client, true);
+        report.set(part, HEAD);
+        reports.push(report);
+      }
       let timer, p;
       const got = new Promise((resolve) => {
         p = this.pending = { tag, size, got: 0, answer: new Uint8Array(size), done: resolve };
         timer = setTimeout(() => resolve(null), Math.max(1, end - Date.now()));
       });
       try {
-        await this.link.sendFeature(report);
+        for (const report of reports) await this.link.sendFeature(report);
         if (!wanted) return new Uint8Array(0);
         const state = await got;
         if (state === LAST) return p.answer;

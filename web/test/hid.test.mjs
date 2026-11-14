@@ -46,3 +46,17 @@ test("usb: data in one report, at most the report less its head", async () => {
   assert.deepEqual(link.reports.map((r) => r.sub).slice(1), [CMD.WRITE, CMD.RESULT, CMD.COMMIT]);
   await assert.rejects(pad.cmd(CMD.WRITE, { data: new Uint8Array(489) }), /takes 488/);
 });
+
+test("usb: a 64-byte report's device (U2CB): answers past one report, data gathered", async () => {
+  const link = simulatedTool({ report: 64 });
+  const pad = new Pad(link);
+  assert.equal((await pad.identify()).dataMax, 512, "the gathered command's, not one report's 40");
+  assert.equal(link.reports[0].len, 88, "the answer not capped at the report");
+  const want = Uint8Array.from({ length: 300 }, (_, i) => i & 0xff);
+  assert.deepEqual(await pad.cmd(0x02, { size: 300 }), want);
+  const value = Uint8Array.from({ length: 100 }, (_, i) => i);
+  await pad.write([{ target: 0, id: 1, value }]);
+  const w = link.reports.find((r) => r.sub === CMD.WRITE);
+  assert.deepEqual(Array.from(w.data), [0, 1, 100, ...value]);
+  await assert.rejects(pad.cmd(CMD.WRITE, { data: new Uint8Array(513) }), /takes 512/);
+});

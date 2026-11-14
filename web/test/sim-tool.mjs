@@ -1,14 +1,15 @@
 // A simulated tool device for the tests: platform_jieli_usb.c's feature
 // report in, its 64-byte input reports out (client, tag, state, offset, 56
-// bytes), the answer as long as asked for.
+// bytes), the answer as long as asked for.  report 64: the U2CB's
+// (usb_yc3121.c), which gathers a command's data from several reports.
 import assert from "node:assert/strict";
 import { CMD } from "../pad.js";
 
 const REPORT = 512, IN_DATA = 56;
 const MORE = 2, LAST = 3, REFUSED = 4;
 
-export function simulatedTool() {
-  let input = () => {};
+export function simulatedTool({ report: REPORT = 512 } = {}) {
+  let input = () => {}, gathering = null;
   const inputs = [];               // every program's: each sees all
   const link = {
     kind: "hid", name: "Cyclone 2", id: "sim", reportSize: REPORT, reports: [], refuse: 0, lose: null,
@@ -21,7 +22,17 @@ export function simulatedTool() {
       const tag = report[19], client = v.getUint32(20, true);
       assert.equal(report[0], 0xf5);
       assert.ok(flags & 2, "every command asks for input-report answers");
-      const data = report.subarray(24);
+      let data = report.subarray(24);
+      if (gathering && gathering.tag === tag && gathering.client === client) {   // the next piece
+        gathering.data = Uint8Array.of(...gathering.data, ...data);
+        if (gathering.data.length < len) return;
+        data = gathering.data;
+        gathering = null;
+      } else if ((flags & 1) && len > data.length) {
+        assert.equal(REPORT, 64, "only a small report's device gathers");
+        gathering = { tag, client, data: data.slice() };
+        return;
+      }
       link.reports.push({ sub, arg, len, flags, data: data.slice() });
       const head = (state, offset) => {
         const r = new Uint8Array(64), w = new DataView(r.buffer);
