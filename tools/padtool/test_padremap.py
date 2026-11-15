@@ -99,6 +99,27 @@ class RemapTextTests(unittest.TestCase):
         self.assertEqual(remap.show_map(remap.parse_map("screenshot=none")), "capture=none")
         self.assertEqual(remap.show_rule(remap.parse_rule("screenshot pressed tap home")), "capture pressed tap home")
 
+    def test_macro_rules(self):
+        text = "l4 pressed play_macro 2; r4 held macro 1; l3 tapped:200 toggle_macro 8"
+        raw = remap.parse_rules(text)
+        self.assertEqual(remap.show_rules(raw), text)
+        self.assertEqual(raw[4:9], b"\0\0\0\0\2")                  # outputs empty, the rate byte the number
+        for bad in ("l4 pressed play_macro 9", "l4 held play_macro 1", "l4 pressed macro 1"):
+            with self.assertRaises(remap.RemapError):
+                remap.parse_rules(bad)
+
+    def test_macros(self):
+        text = "jump: +south 40 -south; dash: +right 100 +east 40 -east -right 2000; : +l1 -l1"
+        raw = remap.parse_macros(text, 200)
+        self.assertEqual(len(raw), 200)
+        self.assertEqual(remap.show_macros(raw), text)
+        self.assertEqual(raw[:10], bytes([9, 4]) + b"jump" + bytes([0, 0x20, 10, 0]))
+        self.assertEqual(remap.show_macros(remap.parse_macros("a: 1 +up 3 -up", 200)), "a: +up 4 -up")   # 4 ms steps
+        self.assertEqual(remap.show_macros(bytes(200)), "none")
+        for bad in ("x +up", "x: +nokey", "x: up", "x" * 17 + ": +up", "x: " + "+up 40 -up " * 60):
+            with self.assertRaises(remap.RemapError):
+                remap.parse_macros(bad, 200)
+
     def test_name(self):
         self.assertEqual(remap.parse_name("Mario Kart", 24), b"Mario Kart".ljust(24, b"\0"))
         self.assertEqual(remap.show_name(remap.parse_name("Zelda: TotK ✓", 24)), "Zelda: TotK ✓")
@@ -109,8 +130,10 @@ class RemapTextTests(unittest.TestCase):
         self.assertEqual(padtool.target_index("remap-east"), 11)
         self.assertEqual(padtool.kind_of(17), 3)
         self.assertEqual(padtool.kind_of(9), 2)
-        self.assertEqual(padtool.targets([{"kind": 0}]), list(range(10)))
-        self.assertEqual(padtool.targets([{"kind": 3}]), list(range(10)) + [18] + list(range(10, 18)))
+        self.assertEqual(padtool.targets([{"kind": 0}]), [0, 1, 2, 3, 4, 5, 6, 7, 9])   # no palette fields
+        self.assertEqual(padtool.targets([{"kind": 1}, {"kind": 3}]), list(range(10)) + [18] + list(range(10, 18)))
+        self.assertEqual(padtool.targets([{"kind": 1}, {"kind": 3}, {"kind": 4}])[-9:], [27] + list(range(19, 27)))
+        self.assertEqual((padtool.target_index("macros-base"), padtool.kind_of(19)), (27, 4))
         rules = {"kind": 3, "name": "rules", "type": padtool.T_BYTES, "size": 160}
         self.assertEqual(padtool.show_value(rules, padtool.parse_value(rules, "south held hold east")), "south held hold east")
 

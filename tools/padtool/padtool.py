@@ -103,7 +103,8 @@ TARGET: a slot (slot-south slot-east slot-west slot-north slot-up slot-down
 slot-left slot-right; south, up, ... also work), palette, calibration, a remap
 slot (remap-south ... remap-right) or remap-base, whose values the remap slots
 take for every setting they have not set (but their names; remap-south keeps
-its swap).  Slots and face keys are named by position, not by the letters a
+its swap), or a remap slot's macros (macros-south ... macros-right, macros-base;
+a remap slot without its own plays the base's).  Slots and face keys are named by position, not by the letters a
 pad prints (padtool layout shows them).  VALUE:
 a name for a choice, a number, a palette entry 0-15 for a colour (how bright
 is the palette's: steady_brightness and the others), #rrggbb for a palette
@@ -119,7 +120,12 @@ A remap slot's map is "KEY held: hold KEY" (or nothing), one per key:
                                                                toggle_turbo_modifier
     e.g. "r4 held hold l1+r1; a held turbo a@max; r4 tapped:300 tap a; r4 held_for:300 hold l1"
 A turbo modifier's keys are the ones pressed: "r4 held turbo_modifier a+b@15"
-pulses whatever A and B send while R4 is held.
+pulses whatever A and B send while R4 is held.  A rule can play one of the remap
+slot's macros by number: "l4 pressed play_macro 1" (once), "r4 held macro 2" (again
+while held), "l3 pressed toggle_macro 3" (loops until pressed again).
+Macros are ';'-separated "NAME: STEP ...", a step +KEY, -KEY or the ms before the
+next one (4 ms steps; one at the end: the pause before it can run again), e.g.
+"padtool set macros-south macros 'jump: +south 40 -south; dash: +right 100 +east 40 -east -right'".
 Rules add to a key's map row; r4=none drops R4's own press.  A remap slot
 also has, per physical stick, left_/right_maps_to ("left stick", "right
 stick", nothing), left_/right_x_/y_axis (normal, inverted), the inner and
@@ -864,11 +870,13 @@ def log(path, follow):
 SLOT_NAMES = ["south", "east", "west", "north", "up", "down", "left", "right"]   # the key that picks each
 SLOT_TARGETS = ["slot-" + n for n in SLOT_NAMES]
 REMAP_NAMES = ["remap-" + n for n in SLOT_NAMES]
-TARGETS = SLOT_TARGETS + ["palette", "calibration"] + REMAP_NAMES + ["remap-base"]
+MACRO_NAMES = ["macros-" + n for n in SLOT_NAMES]
+TARGETS = SLOT_TARGETS + ["palette", "calibration"] + REMAP_NAMES + ["remap-base"] + MACRO_NAMES + ["macros-base"]
 REMAP_TARGET = 10
 BASE_TARGET = 18            # the base remap: what the remap slots inherit
+MACROS_TARGET = 19          # each remap slot's macros, then the base's (27)
 PROTOCOL = 2                # the vendor commands this padtool speaks (IDENTIFY)
-KINDS = ["slot", "palette", "calibration", "remap"]
+KINDS = ["slot", "palette", "calibration", "remap", "macros"]
 T_ENUM, T_NUMBER, T_RGB, T_BYTES, T_TEXT, T_ENTRY, T_LIST = range(7)
 # T_LIST: size numbers of a byte each, each at most max, shown and written "15,15,15,15,15"
 RESULTS = ["ok", "unknown field", "bad length", "out of range", "too many changes at once",
@@ -897,7 +905,7 @@ def target_index(name):
 
 
 def kind_of(t):
-    return 0 if t < 8 else 3 if t >= REMAP_TARGET else t - 7
+    return 0 if t < 8 else 4 if t >= MACROS_TARGET else 3 if t >= REMAP_TARGET else t - 7
 
 
 class FieldTable(list):
@@ -913,7 +921,8 @@ def targets(table):
     first = [t for t in range(REMAP_TARGET) if kind_of(t) != 1 or 1 in kinds]
     if 3 not in kinds:
         return first
-    return first + [BASE_TARGET] + list(range(REMAP_TARGET, BASE_TARGET))
+    macros = [MACROS_TARGET + 8] + list(range(MACROS_TARGET, MACROS_TARGET + 8)) if 4 in kinds else []
+    return first + [BASE_TARGET] + list(range(REMAP_TARGET, BASE_TARGET)) + macros
 
 
 def remap_field(f, name):
@@ -975,6 +984,8 @@ def show_value(f, raw):
         return padremap.show_map(raw)
     if remap_field(f, "rules"):
         return padremap.show_rules(raw)
+    if f["kind"] == 4 and f["name"] == "macros":
+        return padremap.show_macros(raw)
     if t == T_ENUM:
         return f["names"][raw[0]] if raw[0] < len(f["names"]) else str(raw[0])
     if t == T_NUMBER:
@@ -1035,6 +1046,8 @@ def parse_value(f, text):
             return padremap.parse_map(text)
         if remap_field(f, "rules"):
             return padremap.parse_rules(text, f["size"] // padremap.RULE_SIZE)
+        if f["kind"] == 4 and f["name"] == "macros":
+            return padremap.parse_macros(text, f["size"])
         if t == T_ENUM:
             if text in choices(f):
                 return bytes([f["names"].index(text)])
@@ -1522,6 +1535,7 @@ def show_fields(path, dev=False):
                   "#rrggbb" if f["type"] == T_RGB else f"text, {f['size']} bytes" if f["type"] == T_TEXT else
                   "KEY=KEY ... | identity" if remap_field(f, "map") else
                   "INPUT TRIGGER EFFECT OUT; ... | none (padtool -h)" if remap_field(f, "rules") else
+                  "NAME: +KEY MS -KEY ...; ... | none (padtool -h)" if f["kind"] == 4 else
                   f"{f['size']} bytes")
         defs = ""
         if f["defaults"] and f["type"] != T_BYTES:
